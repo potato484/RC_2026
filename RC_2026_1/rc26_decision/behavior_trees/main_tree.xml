@@ -1,0 +1,78 @@
+<!-- RC2026 主行为树 - 框架示例 -->
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+
+  <BehaviorTree ID="MainTree">
+    <Sequence>
+      <!-- 武馆阶段 -->
+      <SubTree ID="MCAreaTree"/>
+      <!-- 梅林阶段 -->
+      <SubTree ID="MFAreaTree"/>
+      <!-- 对抗阶段 -->
+      <SubTree ID="CombatAreaTree"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- ========================================== -->
+  <!-- 武馆区子树 (MC Area) -->
+  <!-- ========================================== -->
+  <BehaviorTree ID="MCAreaTree">
+    <Sequence name="MC_Sequence">
+      <!-- 取矛头 -->
+      <GrabTip name="grab_tip"/>
+      <!-- 等待手动机器人就位后组装 -->
+      <RetryUntilSuccessful num_attempts="10">
+        <Sequence>
+          <CheckManualRobot distance_threshold="0.5" static_time="2.0"/>
+          <AssembleWeapon name="assemble"/>
+        </Sequence>
+      </RetryUntilSuccessful>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- ========================================== -->
+  <!-- 梅林区子树 (MF Area) -->
+  <!-- ========================================== -->
+  <BehaviorTree ID="MFAreaTree">
+    <Sequence name="MF_Sequence">
+      <!-- 入口观察 -->
+      <Fallback name="entry_decision">
+        <Sequence>
+          <CheckKFS grid_id="2" expected_state="AUTO_KFS"/>
+          <GrabKFS grid_id="2"/>
+        </Sequence>
+        <StairClimb name="climb_directly"/>
+      </Fallback>
+      <!-- 核心循环：拾取 KFS 直到满载或到达出口 -->
+      <ReactiveSequence name="mf_core_loop">
+        <Inverter>
+          <CheckLoad min_load="2" max_load="3"/>
+        </Inverter>
+        <Sequence>
+          <GrabKFS grid_id="{target_grid}"/>
+          <MechUpMerlin/>
+        </Sequence>
+      </ReactiveSequence>
+      <!-- 离开梅林 -->
+      <StairDescend name="leave_merlin"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- ========================================== -->
+  <!-- 对抗区子树 (Combat Area) -->
+  <!-- ========================================== -->
+  <BehaviorTree ID="CombatAreaTree">
+    <Sequence name="Combat_Sequence">
+      <!-- 跟随或导航到对抗区 -->
+      <Fallback name="goto_combat">
+        <FollowManualRobot follow_distance="1.5" lost_timeout="5.0"/>
+        <!-- TODO: 预设路径导航 -->
+      </Fallback>
+      <!-- 放置 KFS -->
+      <Sequence name="place_sequence">
+        <MechUpDuel/>
+        <PlaceKFSGrid grid_position="5"/>
+      </Sequence>
+    </Sequence>
+  </BehaviorTree>
+
+</root>

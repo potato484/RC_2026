@@ -1,0 +1,126 @@
+# rc26_localization 配置 (基于 small_gicp)
+#
+# 坐标系约定 (map -> odom -> base_link -> laser_link):
+#   map_frame: 全局地图坐标系
+#   odom_frame: 里程计坐标系
+#   base_frame / robot_base_frame: 机器人基坐标系
+#   lidar_frame: 激光雷达坐标系
+#
+# TF 树结构:
+#   map -> odom -> base_link -> laser_link
+#   其中 map->odom 由本节点发布
+
+localization:
+  ros__parameters:
+    # 通用参数
+    # 是否使用仿真时间（仿真/回放 bag 时设为 true，其余情况一般 false）
+    use_sim_time: false
+    
+    # 坐标系配置 (map -> odom -> base_link -> laser_link)
+    # 地图坐标系名称（与导航/决策中 map 一致即可）
+    map_frame: map
+    # 里程计坐标系名称（Point-LIO 的世界系，建图时就是它）
+    odom_frame: odom
+    # 机器人车体坐标系（底盘中心），默认 base_link
+    base_frame: base_link
+    # 决策层使用的机器人基坐标系（通常与 base_frame 相同）
+    robot_base_frame: base_link
+    # 激光雷达坐标系名称（由 URDF / tf static 定义）
+    lidar_frame: laser_link
+    
+    # 先验点云文件 (由 launch 参数覆盖)
+    # 地图 PCD 路径；建图阶段可为空，导航阶段必须为有效文件
+    prior_pcd_file: ""
+    
+    # 输入点云话题 (来自 odom_interface)
+    # 本节点订阅的点云话题名，默认为 rc26_odom_interface 发布的 registered_scan
+    input_cloud_topic: "registered_scan"
+    
+    # small_gicp 参数（局部配准 map->odom 跟踪）
+    # small_gicp 使用的线程数（根据 CPU 核心数调整）
+    num_threads: 4
+    # 协方差估计时的近邻点数（过小不稳定，过大计算慢）
+    num_neighbors: 20
+    # 先验地图体素滤波大小（米），值越大地图越稀疏，配准更快但精度下降
+    global_leaf_size: 0.25
+    # 在线点云体素滤波大小（米），影响单帧点数和配准稳定性
+    registered_leaf_size: 0.25
+    # small_gicp 内点距离阈值的平方（米^2），控制离群点剔除范围
+    max_dist_sq: 1.0
+    # 每次局部 small_gicp 的最大迭代次数，提高可增强收敛鲁棒性但增加计算量
+    gicp_max_iterations: 20
+    # 降采样后参与局部配准的最少点数，小于该值则跳过本次配准
+    min_points_for_registration: 20
+    # 当 GICP 未收敛时，允许更新初值的最大平移（米），过大可能引入跳变
+    max_delta_translation: 0.5
+    # 当 GICP 未收敛时，允许更新初值的最大旋转（弧度），0.3≈17 度
+    max_delta_rotation: 0.3
+    
+    # TF 查询超时 (秒) [M5 修复]
+    # 查找 TF 变换的超时时间，网络/计算压力大时可适当调大
+    tf_timeout_sec: 1.0
+    
+    # 初始位姿 [x, y, z, roll, pitch, yaw]
+    # 若不在 RViz 中手动设置 initialpose，可在此给出一个初始猜测
+    init_pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    
+    # ========== 绑架检测参数 ==========
+    # 连续多少帧配准误差过高才认为发生绑架（配准频率约 2Hz，可按秒数换算）
+    kidnap_threshold_count: 5
+    # 判定“误差过高”的阈值，使用 normalized_error（平均每内点误差，单位米）
+    # 正常场地略高于日常波动上限；绑架后应明显大于该值
+    kidnap_fitness_threshold: 0.5
+    
+    # ========== 全局重定位参数 (SAC-IA + ICP) ==========
+    # SAC-IA 采样点数（每次随机选多少点参与特征匹配）
+    sac_ia_num_samples: 5
+    # SAC-IA 采样点最小间距（米），过小容易选到集中区域，过大不利于覆盖全局
+    sac_ia_min_sample_distance: 0.1
+    # SAC-IA 特征匹配随机性（近邻候选点数量），数值越大越“随机”，越稳但越慢
+    sac_ia_correspondence_randomness: 50
+    # 全局 ICP 最大迭代次数，影响重定位精细对齐质量和耗时
+    global_icp_max_iterations: 100
+    # 全局 ICP 最大对应距离（米），过大易误匹配，过小可能找不到对应点
+    global_icp_max_correspondence_distance: 1.0
+    # 全局重定位成功阈值 (fitness_score 低于此值才接受)，越小要求越严格
+    global_fitness_threshold: 0.1
+    # 参与全局重定位的 source/target 最少点数，小于该值则直接放弃本次重定位
+    min_points_for_relocalization: 50
+    # 全局重定位时对点云做体素降采样的大小（米），值越大越快但特征越少
+    global_downsample_leaf_size: 0.5
+    # 估计法向量时用于 KNN 搜索的近邻数，影响法向量稳定性和计算量
+    sac_ia_normal_ksearch: 20
+    # 计算 FPFH 特征时的近邻数，影响特征质量（区分度）和计算量
+    sac_ia_fpfh_ksearch: 50
+    
+    # ========== ISS关键点参数 ==========
+    # 是否使用ISS关键点提取（可提高FPFH特征区分度，尤其在平面结构环境）
+    use_iss_keypoints: true
+    # ISS显著性半径（米），用于计算点的局部散射矩阵
+    iss_salient_radius: 0.3
+    # ISS非极大值抑制半径（米），避免关键点过于密集
+    iss_non_max_radius: 0.15
+    # ISS特征值比阈值（λ2/λ1），排除近似平面的点
+    iss_threshold21: 0.975
+    # ISS特征值比阈值（λ3/λ2），排除近似直线的点
+    iss_threshold32: 0.975
+    # ISS最小邻居数，邻居过少的点不作为关键点
+    iss_min_neighbors: 5
+    
+    # ========== NDT中间层参数 ==========
+    # 是否启用NDT中间层（SAC-IA → NDT → ICP，提升配准鲁棒性）
+    use_ndt_refinement: true
+    # NDT体素分辨率（米），值越小精度越高但计算越慢
+    ndt_resolution: 1.0
+    # NDT最大迭代次数
+    ndt_max_iterations: 50
+    # NDT步长（梯度下降优化参数）
+    ndt_step_size: 0.1
+    # NDT收敛阈值（变换增量小于此值视为收敛）
+    ndt_transformation_epsilon: 1e-6
+    
+    # ========== 多假设初值参数 ==========
+    # 是否使用多假设初值策略（避免SAC-IA失败导致整体失败）
+    use_multi_hypothesis: true
+    # yaw方向假设数量（会生成 num_yaw_hypotheses 个不同朝向的初值）
+    num_yaw_hypotheses: 4

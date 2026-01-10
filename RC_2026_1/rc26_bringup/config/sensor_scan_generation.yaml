@@ -1,0 +1,18 @@
+sensor_scan:
+  ros__parameters:
+    # ===== 坐标系配置 (map -> odom -> base_link -> livox_frame) =====
+    lidar_frame: "livox_frame"
+    base_frame: "base_link"
+    robot_base_frame: "base_link"
+
+    # ===== 输入话题 (来自 odom_interface) =====
+    lidar_odometry_topic: "odom"             # odom_interface 输出的里程计 (odom -> base_link)
+    registered_scan_topic: "registered_scan" # odom_interface 输出的配准点云 (odom 坐标系)
+    
+    # ===== 输出话题 (本节点发布) =====
+    scan_topic: "sensor_scan"                # 本节点输出的点云 (laser_link 坐标系)
+    odometry_topic: "odometry"               # 发布给下游的基座里程计 (带速度信息)
+
+    # ===== 同步 / 超时时间 =====
+    tf_timeout_sec: 0.5              # TF 查询超时
+    max_time_diff_sec: 0.1           # 点云与里程计允许的最大时间差（秒）

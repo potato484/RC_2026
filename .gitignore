@@ -1,0 +1,7 @@
+.ace-tool/
+build/
+install/
+log/
+.vscode/
+.claude/
+.codex/

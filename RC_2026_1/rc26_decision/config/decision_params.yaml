@@ -1,0 +1,28 @@
+rc26_decision:
+  ros__parameters:
+    # 行为树配置
+    tree_file: "main_tree.xml"
+    tick_rate_ms: 100
+
+    # 串口启用开关
+    enable_cmd_serial: true
+
+    # 命令串口配置 (串口2)
+    cmd_serial_port: "/dev/ttyUSB1"
+    cmd_baudrate: 115200
+
+    # 心跳配置
+    enable_heartbeat: true
+    heartbeat_rate_hz: 1
+
+    # CAN 里程计参数
+    enable_can_odom: true
+    can_interface: "can0"
+    wheel_radius: 0.07625
+    wheel_base: 0.62326
+    track_width: 0.7
+    gear_ratio: 19.203208556149733  # 3591/187
+    publish_rate_hz: 50
+    odom_topic: "wheel_odom"
+    odom_frame: "odom"
+    base_frame: "base_link"

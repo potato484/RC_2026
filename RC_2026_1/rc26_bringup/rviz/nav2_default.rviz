@@ -1,0 +1,66 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Value: true
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Value: true
+    - Class: rviz_default_plugins/RobotModel
+      Name: RobotModel
+      Value: true
+    - Class: rviz_default_plugins/Map
+      Name: Map
+      Topic:
+        Value: /map
+      Value: true
+    - Class: rviz_default_plugins/Map
+      Name: LocalCostmap
+      Topic:
+        Value: /local_costmap/costmap
+      Value: true
+    - Class: rviz_default_plugins/Path
+      Name: GlobalPath
+      Topic:
+        Value: /plan
+      Value: true
+    - Class: rviz_default_plugins/Path
+      Name: LocalPath
+      Topic:
+        Value: /local_plan
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Name: AttackPose
+      Topic:
+        Value: /attack_pose_candidates
+      Value: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: LidarPointCloud
+      Topic:
+        Value: /livox/lidar
+        Queue Size: 5
+      Value: true
+      Size (m): 0.02
+      Style: Points
+      Color Transformer: Intensity
+      Reliability Policy: Best Effort
+  Global Options:
+    Fixed Frame: map
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/SetInitialPose
+      Topic: /initialpose
+    - Class: rviz_default_plugins/SetGoal
+      Topic: /goal_pose
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 15
+      Pitch: 0.5
+      Yaw: 0
