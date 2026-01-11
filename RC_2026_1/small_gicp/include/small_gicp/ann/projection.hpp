@@ -4,10 +4,10 @@
 
 #include <array>
 
+#include <small_gicp/points/traits.hpp>
+
 #include <Eigen/Core>
 #include <Eigen/Eigen>
-
-#include <small_gicp/points/traits.hpp>
 
 namespace small_gicp {
 

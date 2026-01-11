@@ -212,7 +212,8 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
         gravity = {0.0, 0.0, -9.81};
     }
     if (gravity_init.size() < 3) {
-        RCLCPP_WARN(nh->get_logger(), "mapping.gravity_init size %zu < 3, using gravity as fallback", gravity_init.size());
+        RCLCPP_WARN(nh->get_logger(), "mapping.gravity_init size %zu < 3, using gravity as fallback",
+                    gravity_init.size());
         gravity_init = gravity;
     }
     if (extrinT.size() < 3) {
