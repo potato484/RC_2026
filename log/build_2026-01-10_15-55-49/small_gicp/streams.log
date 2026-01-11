@@ -1,0 +1,90 @@
+[0.006s] Invoking command in '/home/potato/RC_2026/build/small_gicp': /usr/bin/cmake /home/potato/RC_2026/RC_2026_1/small_gicp -DCMAKE_INSTALL_PREFIX=/home/potato/RC_2026/install/small_gicp
+[0.069s] -- The C compiler identification is GNU 11.4.0
+[0.140s] -- The CXX compiler identification is GNU 11.4.0
+[0.147s] -- Detecting C compiler ABI info
+[0.217s] -- Detecting C compiler ABI info - done
+[0.225s] -- Check for working C compiler: /usr/bin/cc - skipped
+[0.225s] -- Detecting C compile features
+[0.226s] -- Detecting C compile features - done
+[0.230s] -- Detecting CXX compiler ABI info
+[0.314s] -- Detecting CXX compiler ABI info - done
+[0.319s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[0.319s] -- Detecting CXX compile features
+[0.320s] -- Detecting CXX compile features - done
+[0.528s] -- Found OpenMP_C: -fopenmp (found version "4.5") 
+[0.602s] -- Found OpenMP_CXX: -fopenmp (found version "4.5") 
+[0.603s] -- Found OpenMP: TRUE (found version "4.5")  
+[0.605s] -- Configuring done
+[0.607s] -- Generating done
+[0.608s] -- Build files have been written to: /home/potato/RC_2026/build/small_gicp
+[0.612s] Invoked command in '/home/potato/RC_2026/build/small_gicp' returned '0': /usr/bin/cmake /home/potato/RC_2026/RC_2026_1/small_gicp -DCMAKE_INSTALL_PREFIX=/home/potato/RC_2026/install/small_gicp
+[0.614s] Invoking command in '/home/potato/RC_2026/build/small_gicp': /usr/bin/cmake --build /home/potato/RC_2026/build/small_gicp -- -j28 -l28
+[0.660s] [ 66%] [32mBuilding CXX object CMakeFiles/small_gicp.dir/src/small_gicp/registration/registration_helper.cpp.o[0m
+[0.660s] [ 66%] [32mBuilding CXX object CMakeFiles/small_gicp.dir/src/small_gicp/registration/registration.cpp.o[0m
+[8.571s] [100%] [32m[1mLinking CXX shared library libsmall_gicp.so[0m
+[8.631s] [100%] Built target small_gicp
+[8.643s] Invoked command in '/home/potato/RC_2026/build/small_gicp' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/small_gicp -- -j28 -l28
+[8.643s] Invoking command in '/home/potato/RC_2026/build/small_gicp': /usr/bin/cmake --install /home/potato/RC_2026/build/small_gicp
+[8.653s] -- Install configuration: "Release"
+[8.654s] -- Installing: /home/potato/RC_2026/install/small_gicp/include
+[8.654s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp
+[8.654s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/factors
+[8.654s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/factors/general_factor.hpp
+[8.654s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/factors/robust_kernel.hpp
+[8.654s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/factors/icp_factor.hpp
+[8.654s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/factors/plane_icp_factor.hpp
+[8.654s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/factors/gicp_factor.hpp
+[8.654s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/points
+[8.654s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/points/point_cloud.hpp
+[8.654s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/points/traits.hpp
+[8.654s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/points/eigen.hpp
+[8.654s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/pcl
+[8.654s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/pcl/pcl_registration_impl.hpp
+[8.654s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/pcl/pcl_point_traits.hpp
+[8.655s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/pcl/pcl_point.hpp
+[8.655s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/pcl/pcl_proxy.hpp
+[8.655s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/pcl/pcl_registration.hpp
+[8.655s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/ann
+[8.655s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/ann/flat_container.hpp
+[8.655s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/ann/gaussian_voxelmap.hpp
+[8.655s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/ann/kdtree_omp.hpp
+[8.655s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/ann/kdtree.hpp
+[8.656s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/ann/kdtree_tbb.hpp
+[8.656s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/ann/traits.hpp
+[8.656s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/ann/projection.hpp
+[8.656s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/ann/incremental_voxelmap.hpp
+[8.656s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/ann/projective_search.hpp
+[8.656s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/ann/sequential_voxelmap_accessor.hpp
+[8.656s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/ann/knn_result.hpp
+[8.656s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/benchmark
+[8.656s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/benchmark/benchmark.hpp
+[8.656s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/benchmark/benchmark_odom.hpp
+[8.656s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/benchmark/read_points.hpp
+[8.656s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/registration
+[8.656s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/registration/registration_result.hpp
+[8.656s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/registration/reduction_omp.hpp
+[8.656s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/registration/termination_criteria.hpp
+[8.656s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/registration/reduction.hpp
+[8.656s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/registration/reduction_tbb.hpp
+[8.657s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/registration/registration_helper.hpp
+[8.657s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/registration/optimizer.hpp
+[8.657s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/registration/rejector.hpp
+[8.657s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/registration/registration.hpp
+[8.657s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/util
+[8.657s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/util/normal_estimation_tbb.hpp
+[8.657s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/util/downsampling_tbb.hpp
+[8.657s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/util/sort_omp.hpp
+[8.657s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/util/normal_estimation.hpp
+[8.657s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/util/fast_floor.hpp
+[8.657s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/util/lie.hpp
+[8.657s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/util/downsampling.hpp
+[8.657s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/util/downsampling_omp.hpp
+[8.657s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/util/vector3i_hash.hpp
+[8.657s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/util/sort_tbb.hpp
+[8.657s] -- Installing: /home/potato/RC_2026/install/small_gicp/include/small_gicp/util/normal_estimation_omp.hpp
+[8.658s] -- Installing: /home/potato/RC_2026/install/small_gicp/lib/libsmall_gicp.so
+[8.658s] -- Installing: /home/potato/RC_2026/install/small_gicp/lib/cmake/small_gicp/small_gicp-targets.cmake
+[8.658s] -- Installing: /home/potato/RC_2026/install/small_gicp/lib/cmake/small_gicp/small_gicp-targets-release.cmake
+[8.658s] -- Installing: /home/potato/RC_2026/install/small_gicp/lib/cmake/small_gicp/small_gicp-config.cmake
+[8.658s] -- Installing: /home/potato/RC_2026/install/small_gicp/lib/cmake/small_gicp/small_gicp-config-version.cmake
+[8.660s] Invoked command in '/home/potato/RC_2026/build/small_gicp' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/small_gicp

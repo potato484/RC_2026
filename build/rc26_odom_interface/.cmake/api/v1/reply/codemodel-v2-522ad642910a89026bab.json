@@ -1,0 +1,88 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-41f5d8c1c1edb1f5eea5.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.12"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3
+					]
+				}
+			],
+			"name" : "",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "rc26_odom_interface",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "rc26_odom_interface::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-rc26_odom_interface-0925b84f42c272be8fac.json",
+					"name" : "rc26_odom_interface",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "rc26_odom_interface_node::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-rc26_odom_interface_node-60e007b91451d3ea209d.json",
+					"name" : "rc26_odom_interface_node",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "rc26_odom_interface_uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-rc26_odom_interface_uninstall-78e3480c21ba2d4da4ac.json",
+					"name" : "rc26_odom_interface_uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-uninstall-86bfca15f7d706c74725.json",
+					"name" : "uninstall",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/potato/RC_2026/build/rc26_odom_interface",
+		"source" : "/home/potato/RC_2026/RC_2026_1/rc26_odom_interface"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

@@ -55,7 +55,6 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions & options)
   require_non_empty("lidar_frame", lidar_frame_);
 
   base_frame_to_lidar_initialized_ = false;
-  tf_odom_to_lidar_.setIdentity();
 
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
   tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
@@ -75,6 +74,31 @@ void OdomInterfaceNode::pointCloudCallback(const sensor_msgs::msg::PointCloud2::
 {
   // Point-LIO 输出的点云已经是 odom frame 下的，直接转发
   // 当前配置: Point-LIO odom_frame == odom_interface odom_frame_ == "odom"
+  if (max_time_diff_sec_ > 0.0) {
+    rclcpp::Time latest_stamp;
+    bool odom_ready = false;
+    {
+      std::lock_guard<std::mutex> lock(transform_mutex_);
+      latest_stamp = latest_odometry_stamp_;
+      odom_ready = odom_pose_ready_;
+    }
+
+    if (!odom_ready) {
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 2000,
+        "尚未收到里程计，丢弃点云");
+      return;
+    }
+
+    const double diff_sec =
+      std::abs((rclcpp::Time(msg->header.stamp) - latest_stamp).seconds());
+    if (diff_sec > max_time_diff_sec_) {
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 2000,
+        "点云与里程计时间差 %.3f > %.3f，丢弃点云", diff_sec, max_time_diff_sec_);
+      return;
+    }
+  }
   pcd_pub_->publish(*msg);
 }
 
@@ -132,14 +156,13 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
   // Compute odom -> base_link transform
   tf2::Transform tf_odom_to_base = tf_lidar_odom_to_lidar * tf_lidar_to_base_;
 
-  const tf2::Transform tf_base_to_lidar = tf_lidar_to_base_.inverse();
-  const tf2::Transform tf_odom_to_lidar = tf_odom_to_base * tf_base_to_lidar;
-
+  // 仅当时间戳递增时更新 latest_odometry_stamp_，避免乱序消息导致时间回退
   {
     std::lock_guard<std::mutex> lock(transform_mutex_);
-    latest_odometry_stamp_ = msg->header.stamp;
+    if (!odom_pose_ready_ || odom_stamp > latest_odometry_stamp_) {
+      latest_odometry_stamp_ = msg->header.stamp;
+    }
     odom_pose_ready_ = true;
-    tf_odom_to_lidar_ = tf_odom_to_lidar;
   }
 
   nav_msgs::msg::Odometry out;
@@ -154,10 +177,16 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
   out.pose.pose.orientation = tf2::toMsg(tf_odom_to_base.getRotation());
 
   // [C3 修复] 计算速度信息（含奇异性保护，速度输出到 base_link 坐标系）
+  bool update_state = true;
   if (odom_state_.initialized) {
     const double dt = (odom_stamp - odom_state_.previous_stamp).seconds();
 
-    if (dt > 1e-6 && dt < 1.0) {
+    if (dt <= 0.0) {
+      update_state = false;
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 2000,
+        "里程计时间戳非递增 (dt=%.6f)，跳过速度/状态更新", dt);
+    } else if (dt > 1e-6 && dt < 1.0) {
       // 线速度 = 位移差 / 时间差（odom frame 下）
       const tf2::Vector3 linear_velocity_odom =
         (tf_odom_to_base.getOrigin() - odom_state_.previous_transform.getOrigin()) / dt;
@@ -195,11 +224,13 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
       }
     }
   }
-  
+
   // 更新状态
-  odom_state_.previous_transform = tf_odom_to_base;
-  odom_state_.previous_stamp = odom_stamp;
-  odom_state_.initialized = true;
+  if (update_state) {
+    odom_state_.previous_transform = tf_odom_to_base;
+    odom_state_.previous_stamp = odom_stamp;
+    odom_state_.initialized = true;
+  }
 
   odom_pub_->publish(out);
 }

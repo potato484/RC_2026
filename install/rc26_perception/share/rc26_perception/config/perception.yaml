@@ -1,0 +1,100 @@
+# RC26 感知模块配置
+
+# D455 相机驱动节点
+d455_driver_node:
+  ros__parameters:
+    # 基本分辨率/帧率
+    width: 640
+    height: 480
+    fps: 60
+    
+    # 话题配置
+    color_topic: "/camera/color/image_raw"
+    depth_topic: "/camera/aligned_depth_to_color/image_raw"
+    frame_id: "d455_color_optical_frame"
+    
+    # 流控制
+    enable_color: true           # 启用彩色流
+    enable_depth: true           # 启用深度流
+    align_depth_to_color: true   # 深度对齐到彩色
+    
+    # 深度参数
+    depth_min: 0.1               # 最小深度 (米)
+    depth_max: 10.0              # 最大深度 (米)
+    depth_preset: 0              # 深度预设: 0=默认, 1=高精度, 2=高密度
+    
+    # 曝光参数
+    enable_auto_exposure: true   # 自动曝光
+    exposure_us: 8000            # 手动曝光时间 (微秒, 自动曝光关闭时生效)
+    gain: 16                     # 增益 (自动曝光关闭时生效)
+    
+    # 激光参数 (D455 红外投射器)
+    enable_laser: true           # 启用激光投射器
+    laser_power: 150             # 激光功率 (0-360)
+
+# YOLO 推理节点
+rc26_perception_node:
+  ros__parameters:
+    # YOLO 模型配置
+    # AidLux 平台: 使用 QNN 量化模型
+    # 空字符串表示 pass-through 模式（不执行推理）
+    model_path: "/home/potato/RC_2026/RC_2026_1/rc26_perception/models/best.pt"
+    
+    # 模型参数
+    input_size: 640
+    conf_thres: 0.45
+    iou_thres: 0.45
+    nchw: false
+    
+    # 类别配置
+    # COCO: num_classes=80, use_custom_classes=false
+    # 自定义: num_classes=31, use_custom_classes=true
+    # 自定义类别: R1(手动KFS), T_03~T_17(自动KFS), F_18~F_32(假KFS)
+    num_classes: 31
+    use_custom_classes: true
+    
+    # 话题配置
+    color_topic: "/camera/color/image_raw"
+    depth_topic: "/camera/aligned_depth_to_color/image_raw"
+    output_topic: "/rc26/block_detections"
+    
+    # D455 相机内参 (需要根据实际标定结果调整)
+    # 这是 640x480 分辨率的默认值
+    camera_fx: 386.0
+    camera_fy: 386.0
+    camera_cx: 320.0
+    camera_cy: 240.0
+    
+    # 坐标系
+    camera_frame: "d455_color_optical_frame"
+    base_frame: "base_link"
+
+# 可视化节点 (调试模式)
+rc26_visualization_node:
+  ros__parameters:
+    # 模型配置 (空字符串表示仅显示画面，不执行推理)
+    # 自定义类别: R1(手动KFS), T_03~T_17(自动KFS), F_18~F_32(假KFS)
+    model_path: "/home/potato/RC_2026/RC_2026_1/rc26_perception/models/best.onnx"
+    input_size: 640
+    conf_thres: 0.45
+    iou_thres: 0.45
+    num_classes: 31
+    use_custom_classes: true
+    
+    # 话题配置
+    color_topic: "/camera/color/image_raw"
+    depth_topic: "/camera/aligned_depth_to_color/image_raw"
+    
+    # 窗口配置 (可缩放窗口)
+    window_name: "RC26 Detection Visualization"
+    window_width: 960           # 初始窗口宽度
+    window_height: 720          # 初始窗口高度
+    show_info_panel: true       # 显示信息面板 (FPS/分辨率/检测统计等)
+    show_fps: true
+    show_depth: true            # 在检测结果中显示深度距离
+    
+    # 深度可视化参数
+    show_depth_window: true     # 显示独立的深度图窗口
+    depth_colormap: 2           # 深度色图: 0=灰度, 2=JET, 4=RAINBOW, 11=TURBO
+    depth_vis_min: 0.1          # 深度可视化最小值 (米)
+    depth_vis_max: 5.0          # 深度可视化最大值 (米)

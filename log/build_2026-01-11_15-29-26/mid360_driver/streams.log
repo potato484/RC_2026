@@ -1,0 +1,39 @@
+[0.006s] Invoking command in '/home/potato/RC_2026/build/mid360_driver': /usr/bin/cmake --build /home/potato/RC_2026/build/mid360_driver -- -j28 -l28
+[0.049s] [35m[1mConsolidate compiler generated dependencies of target mid360_driver_node[0m
+[0.050s] [35m[1mConsolidate compiler generated dependencies of target mid360_driver[0m
+[0.063s] [ 40%] Built target mid360_driver_node
+[0.070s] [ 60%] [32mBuilding CXX object CMakeFiles/mid360_driver.dir/src/mid360_driver.cpp.o[0m
+[0.071s] [ 80%] [32mBuilding CXX object CMakeFiles/mid360_driver.dir/src/mid360_driver_node.cpp.o[0m
+[5.954s] [100%] [32m[1mLinking CXX shared library libmid360_driver.so[0m
+[6.062s] [100%] Built target mid360_driver
+[6.071s] Invoked command in '/home/potato/RC_2026/build/mid360_driver' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/mid360_driver -- -j28 -l28
+[6.073s] Invoking command in '/home/potato/RC_2026/build/mid360_driver': /usr/bin/cmake --install /home/potato/RC_2026/build/mid360_driver
+[6.080s] -- Install configuration: "Release"
+[6.081s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/lib/mid360_driver/mid360_driver_node
+[6.081s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/environment/library_path.sh
+[6.081s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/environment/library_path.dsv
+[6.082s] -- Installing: /home/potato/RC_2026/install/mid360_driver/lib/libmid360_driver.so
+[6.083s] -- Set runtime path of "/home/potato/RC_2026/install/mid360_driver/lib/libmid360_driver.so" to ""
+[6.083s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/config
+[6.083s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/config/param.yaml
+[6.083s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/launch
+[6.083s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/launch/mid360_driver.launch.py
+[6.083s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/ament_index/resource_index/package_run_dependencies/mid360_driver
+[6.083s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/ament_index/resource_index/parent_prefix_path/mid360_driver
+[6.083s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/environment/ament_prefix_path.sh
+[6.083s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/environment/ament_prefix_path.dsv
+[6.084s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/environment/path.sh
+[6.084s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/environment/path.dsv
+[6.084s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/local_setup.bash
+[6.084s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/local_setup.sh
+[6.084s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/local_setup.zsh
+[6.084s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/local_setup.dsv
+[6.084s] -- Installing: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/package.dsv
+[6.084s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/ament_index/resource_index/packages/mid360_driver
+[6.084s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/ament_index/resource_index/rclcpp_components/mid360_driver
+[6.084s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/cmake/ament_cmake_export_dependencies-extras.cmake
+[6.084s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/cmake/ament_cmake_export_libraries-extras.cmake
+[6.084s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/cmake/mid360_driverConfig.cmake
+[6.084s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/cmake/mid360_driverConfig-version.cmake
+[6.084s] -- Up-to-date: /home/potato/RC_2026/install/mid360_driver/share/mid360_driver/package.xml
+[6.086s] Invoked command in '/home/potato/RC_2026/build/mid360_driver' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/mid360_driver

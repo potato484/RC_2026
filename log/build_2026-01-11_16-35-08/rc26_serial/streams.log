@@ -1,0 +1,34 @@
+[0.010s] Invoking command in '/home/potato/RC_2026/build/rc26_serial': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_serial -- -j28 -l28
+[0.058s] [100%] Built target serial_driver
+[0.067s] Invoked command in '/home/potato/RC_2026/build/rc26_serial' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_serial -- -j28 -l28
+[0.075s] Invoking command in '/home/potato/RC_2026/build/rc26_serial': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_serial
+[0.081s] -- Install configuration: ""
+[0.081s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/include
+[0.082s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/include/rc26_serial
+[0.082s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/include/rc26_serial/protocol.hpp
+[0.082s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/include/rc26_serial/serial_driver.hpp
+[0.082s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/lib/libserial_driver.so
+[0.082s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/environment/library_path.sh
+[0.082s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/environment/library_path.dsv
+[0.082s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/ament_index/resource_index/package_run_dependencies/rc26_serial
+[0.082s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/ament_index/resource_index/parent_prefix_path/rc26_serial
+[0.082s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/environment/ament_prefix_path.sh
+[0.082s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/environment/ament_prefix_path.dsv
+[0.082s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/environment/path.sh
+[0.082s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/environment/path.dsv
+[0.083s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/local_setup.bash
+[0.083s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/local_setup.sh
+[0.083s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/local_setup.zsh
+[0.083s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/local_setup.dsv
+[0.083s] -- Installing: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/package.dsv
+[0.083s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/ament_index/resource_index/packages/rc26_serial
+[0.083s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/cmake/serialTargetsExport.cmake
+[0.083s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/cmake/serialTargetsExport-noconfig.cmake
+[0.084s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/cmake/ament_cmake_export_targets-extras.cmake
+[0.084s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/cmake/ament_cmake_export_include_directories-extras.cmake
+[0.084s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/cmake/ament_cmake_export_libraries-extras.cmake
+[0.084s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/cmake/ament_cmake_export_dependencies-extras.cmake
+[0.084s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/cmake/rc26_serialConfig.cmake
+[0.084s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/cmake/rc26_serialConfig-version.cmake
+[0.084s] -- Up-to-date: /home/potato/RC_2026/install/rc26_serial/share/rc26_serial/package.xml
+[0.085s] Invoked command in '/home/potato/RC_2026/build/rc26_serial' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_serial

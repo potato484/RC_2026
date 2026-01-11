@@ -4,12 +4,11 @@
 #include <atomic>
 #include <mutex>
 
-#include "rc26_decision/mc_area.hpp"
-#include "rc26_decision/mf_area.hpp"
-#include "rc26_decision/combat_area.hpp"
+#include "rc26_decision/mc/mc_area.hpp"
+#include "rc26_decision/mf/mf_area.hpp"
+#include "rc26_decision/combat/combat_area.hpp"
 #include "rc26_decision/navigation/bt_navigate_waypoint.hpp"
 #include "rc26_decision/navigation/waypoint_navigator.hpp"
-#include "rc26_decision/gain_odom/can_odom.hpp"
 #include "rc26_serial/serial_driver.hpp"
 
 namespace rc26_decision
@@ -31,18 +30,6 @@ public:
         this->declare_parameter<std::string>("nav2_action_name", "navigate_to_pose");
         this->declare_parameter<std::string>("nav2_goal_frame", "map");
 
-        // CAN 里程计参数
-        this->declare_parameter<bool>("enable_can_odom", true);
-        this->declare_parameter<std::string>("can_interface", "can0");
-        this->declare_parameter<double>("wheel_radius", 0.07625);
-        this->declare_parameter<double>("wheel_base", 0.62326);
-        this->declare_parameter<double>("track_width", 0.7);
-        this->declare_parameter<double>("gear_ratio", 3591.0 / 187.0);
-        this->declare_parameter<int>("publish_rate_hz", 50);
-        this->declare_parameter<std::string>("odom_topic", "wheel_odom");
-        this->declare_parameter<std::string>("odom_frame", "odom");
-        this->declare_parameter<std::string>("base_frame", "base_link");
-
         // 初始化命令串口 (串口2)
         if (this->get_parameter("enable_cmd_serial").as_bool()) {
             cmd_serial_ = std::make_shared<SerialDriver>();
@@ -63,22 +50,6 @@ public:
             }
         }
 
-        if (this->get_parameter("enable_can_odom").as_bool())
-        {
-            CanOdom::Config config;
-            config.can_interface = this->get_parameter("can_interface").as_string();
-            config.wheel_radius = this->get_parameter("wheel_radius").as_double();
-            config.wheel_base = this->get_parameter("wheel_base").as_double();
-            config.track_width = this->get_parameter("track_width").as_double();
-            config.gear_ratio = this->get_parameter("gear_ratio").as_double();
-            config.publish_rate_hz = this->get_parameter("publish_rate_hz").as_int();
-            config.odom_topic = this->get_parameter("odom_topic").as_string();
-            config.odom_frame = this->get_parameter("odom_frame").as_string();
-            config.base_frame = this->get_parameter("base_frame").as_string();
-
-            can_odom_ = std::make_unique<CanOdom>(*this, std::move(config));
-        }
-
         // 创建黑板并共享
         auto blackboard = BT::Blackboard::create();
         blackboard->set("cmd_serial", cmd_serial_);
@@ -94,6 +65,7 @@ public:
         
         // 初始化重连状态（行为树可直接查询）
         blackboard->set("cmd_serial_reconnecting", false);
+        blackboard->set("cmd_serial_reconnect_failed", false);
         
         // 初始化反馈状态
         blackboard->set("grab_tip_done", false);
@@ -116,12 +88,20 @@ public:
         if (cmd_serial_) {
             cmd_serial_->setReconnectStartCallback([this, blackboard]() {
                 blackboard->set("cmd_serial_reconnecting", true);
+                blackboard->set("cmd_serial_reconnect_failed", false);
                 RCLCPP_WARN(this->get_logger(), "命令串口开始重连，已写入黑板");
             });
-            
+
             cmd_serial_->setReconnectCallback([this, blackboard]() {
                 blackboard->set("cmd_serial_reconnecting", false);
+                blackboard->set("cmd_serial_reconnect_failed", false);
                 RCLCPP_INFO(this->get_logger(), "命令串口重连成功，已更新黑板");
+            });
+
+            cmd_serial_->setReconnectFailedCallback([this, blackboard]() {
+                blackboard->set("cmd_serial_reconnecting", false);
+                blackboard->set("cmd_serial_reconnect_failed", true);
+                RCLCPP_ERROR(this->get_logger(), "命令串口重连失败，已写入黑板");
             });
         }
 
@@ -221,7 +201,6 @@ private:
     rclcpp::TimerBase::SharedPtr timer_;
     std::shared_ptr<SerialDriver> cmd_serial_;
     std::shared_ptr<WaypointNavigator> waypoint_navigator_;
-    std::unique_ptr<CanOdom> can_odom_;
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
 };
 

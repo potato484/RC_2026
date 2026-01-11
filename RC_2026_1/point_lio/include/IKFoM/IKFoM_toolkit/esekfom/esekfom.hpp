@@ -230,11 +230,14 @@ public:
         }
         K_ = PHT * HPHT.inverse();
       } else {
-        Matrix<scalar_type, 12, 12> HTH = m_noise * h_x.transpose() * h_x;
+        const scalar_type kMinNoise = static_cast<scalar_type>(1e-9);
+        const scalar_type safe_m_noise = (m_noise > kMinNoise) ? m_noise : kMinNoise;
+        const scalar_type inv_m_noise = scalar_type(1.0) / safe_m_noise;
+        Matrix<scalar_type, 12, 12> HTH = inv_m_noise * h_x.transpose() * h_x;
         Matrix<scalar_type, n, n> P_inv = P_.inverse();
         P_inv.template block<12, 12>(0, 0) += HTH;
         P_inv = P_inv.inverse();
-        K_ = P_inv.template block<n, 12>(0, 0) * h_x.transpose() * m_noise;
+        K_ = P_inv.template block<n, 12>(0, 0) * h_x.transpose() * inv_m_noise;
       }
       Matrix<scalar_type, n, 1> dx_ =
         K_ * z;  // - h) + (K_x - Matrix<scalar_type, n, n>::Identity()) * dx_new;

@@ -1,0 +1,10 @@
+# generated from colcon_core/shell/template/command_prefix.sh.em
+. "/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/package.sh"
+. "/home/potato/RC_2026/install/point_lio/share/point_lio/package.sh"
+. "/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/package.sh"
+. "/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/package.sh"
+. "/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/package.sh"
+. "/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/package.sh"
+. "/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/package.sh"
+. "/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/package.sh"
+. "/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/package.sh"

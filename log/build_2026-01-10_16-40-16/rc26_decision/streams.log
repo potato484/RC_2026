@@ -1,0 +1,70 @@
+[30.025s] Invoking command in '/home/potato/RC_2026/build/rc26_decision': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_serial/lib:${LD_LIBRARY_PATH} /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_decision -- -j28 -l28
+[30.068s] Consolidate compiler generated dependencies of target rc26_decision_serial
+[30.073s] Consolidate compiler generated dependencies of target rc26_decision_nodes
+[30.084s] [ 21%] Built target rc26_decision_serial
+[30.089s] [ 57%] Built target rc26_decision_nodes
+[30.096s] Consolidate compiler generated dependencies of target can_odom_test_node
+[30.096s] Consolidate compiler generated dependencies of target serial_test1_node
+[30.097s] Consolidate compiler generated dependencies of target serial_test0_node
+[30.103s] Consolidate compiler generated dependencies of target decision_node
+[30.107s] [ 68%] Built target serial_test1_node
+[30.108s] [ 78%] Built target can_odom_test_node
+[30.110s] [ 89%] Built target serial_test0_node
+[30.116s] [ 94%] Building CXX object CMakeFiles/decision_node.dir/src/decision_node.cpp.o
+[33.611s] [100%] Linking CXX executable decision_node
+[33.907s] [100%] Built target decision_node
+[33.917s] Invoked command in '/home/potato/RC_2026/build/rc26_decision' returned '0': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_serial/lib:${LD_LIBRARY_PATH} /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_decision -- -j28 -l28
+[33.925s] Invoking command in '/home/potato/RC_2026/build/rc26_decision': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_serial/lib:${LD_LIBRARY_PATH} /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_decision
+[33.931s] -- Install configuration: ""
+[33.931s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include
+[33.931s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision
+[33.931s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/combat_area.hpp
+[33.931s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/navigation
+[33.931s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/navigation/bt_navigate_waypoint.hpp
+[33.931s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/navigation/waypoint_navigator.hpp
+[33.931s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/navigation/waypoint_catalog.hpp
+[33.932s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/mf_area.hpp
+[33.932s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/mc_area.hpp
+[33.932s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/gain_odom
+[33.932s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/gain_odom/pose_sender.hpp
+[33.932s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/gain_odom/wheel_odom_receiver.hpp
+[33.932s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/gain_odom/can_odom.hpp
+[33.932s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/lib/librc26_decision_nodes.so
+[33.932s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/lib/librc26_decision_serial.so
+[33.932s] -- Installing: /home/potato/RC_2026/install/rc26_decision/lib/rc26_decision/decision_node
+[33.933s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_decision/lib/rc26_decision/decision_node" to ""
+[33.933s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/lib/rc26_decision/serial_test0_node
+[33.933s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/lib/rc26_decision/serial_test1_node
+[33.933s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/lib/rc26_decision/can_odom_test_node
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/behavior_trees
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/behavior_trees/main_tree.xml
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/launch
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/launch/__pycache__
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/launch/__pycache__/waypoint_patrol.launch.cpython-310.pyc
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/launch/decision.launch.py
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/config
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/config/decision_params.yaml
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/environment/library_path.sh
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/environment/library_path.dsv
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/ament_index/resource_index/package_run_dependencies/rc26_decision
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/ament_index/resource_index/parent_prefix_path/rc26_decision
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/environment/ament_prefix_path.sh
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/environment/ament_prefix_path.dsv
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/environment/path.sh
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/environment/path.dsv
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/local_setup.bash
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/local_setup.sh
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/local_setup.zsh
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/local_setup.dsv
+[33.934s] -- Installing: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/package.dsv
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/ament_index/resource_index/packages/rc26_decision
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/cmake/rc26_decisionTargetsExport.cmake
+[33.934s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/cmake/rc26_decisionTargetsExport-noconfig.cmake
+[33.935s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/cmake/ament_cmake_export_targets-extras.cmake
+[33.935s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/cmake/ament_cmake_export_include_directories-extras.cmake
+[33.935s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/cmake/ament_cmake_export_libraries-extras.cmake
+[33.935s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/cmake/ament_cmake_export_dependencies-extras.cmake
+[33.935s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/cmake/rc26_decisionConfig.cmake
+[33.935s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/cmake/rc26_decisionConfig-version.cmake
+[33.935s] -- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/package.xml
+[60.045s] Invoked command in '/home/potato/RC_2026/build/rc26_decision' returned '0': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_serial/lib:${LD_LIBRARY_PATH} /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_decision

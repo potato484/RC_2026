@@ -6,6 +6,8 @@
 
 #include "rc26_omni_controller/pid.hpp"
 
+#include <cmath>
+
 PID::PID(double dt, double max, double min, double kp, double kd, double ki)
 : dt_(dt), max_(max), min_(min), kp_(kp), kd_(kd), ki_(ki), pre_error_(0), integral_(0)
 {
@@ -18,6 +20,17 @@ double PID::calculate(double set_point, double pv)
 
   // 比例项
   double p_out = kp_ * error;
+
+  // dt 有效性检查，防止除零和 NaN
+  if (!std::isfinite(dt_) || dt_ <= 1e-9) {
+    double output = p_out;
+    if (output > max_)
+      output = max_;
+    else if (output < min_)
+      output = min_;
+    pre_error_ = error;
+    return output;
+  }
 
   // 积分项（先累加再限幅）
   integral_ += error * dt_;

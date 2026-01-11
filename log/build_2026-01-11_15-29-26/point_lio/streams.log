@@ -1,0 +1,43 @@
+[0.006s] Invoking command in '/home/potato/RC_2026/build/point_lio': /usr/bin/cmake --build /home/potato/RC_2026/build/point_lio -- -j28 -l28
+[0.055s] [35m[1mConsolidate compiler generated dependencies of target pointlio_mapping[0m
+[0.099s] [ 14%] [32mBuilding CXX object CMakeFiles/pointlio_mapping.dir/src/laserMapping.cpp.o[0m
+[0.100s] [ 28%] [32mBuilding CXX object CMakeFiles/pointlio_mapping.dir/src/li_initialization.cpp.o[0m
+[0.101s] [ 42%] [32mBuilding CXX object CMakeFiles/pointlio_mapping.dir/src/parameters.cpp.o[0m
+[0.102s] [ 57%] [32mBuilding CXX object CMakeFiles/pointlio_mapping.dir/src/preprocess.cpp.o[0m
+[0.103s] [ 71%] [32mBuilding CXX object CMakeFiles/pointlio_mapping.dir/src/Estimator.cpp.o[0m
+[0.104s] [ 85%] [32mBuilding CXX object CMakeFiles/pointlio_mapping.dir/src/IMU_Processing.cpp.o[0m
+[30.881s] [100%] [32m[1mLinking CXX executable pointlio_mapping[0m
+[31.600s] [100%] Built target pointlio_mapping
+[31.612s] Invoked command in '/home/potato/RC_2026/build/point_lio' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/point_lio -- -j28 -l28
+[31.614s] Invoking command in '/home/potato/RC_2026/build/point_lio': /usr/bin/cmake --install /home/potato/RC_2026/build/point_lio
+[31.625s] -- Install configuration: "Release"
+[31.626s] -- Installing: /home/potato/RC_2026/install/point_lio/lib/point_lio/pointlio_mapping
+[31.629s] -- Set runtime path of "/home/potato/RC_2026/install/point_lio/lib/point_lio/pointlio_mapping" to ""
+[31.629s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/config
+[31.629s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/config/horizon.yaml
+[31.629s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/config/mid360.yaml
+[31.629s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/config/ouster64.yaml
+[31.629s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/config/velody16.yaml
+[31.629s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/config/avia.yaml
+[31.630s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/launch
+[31.630s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/launch/point_lio.launch.py
+[31.630s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/rviz_cfg
+[31.630s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/rviz_cfg/loam_livox.rviz
+[31.630s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/rviz_cfg/.gitignore
+[31.630s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/ament_index/resource_index/package_run_dependencies/point_lio
+[31.630s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/ament_index/resource_index/parent_prefix_path/point_lio
+[31.631s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/environment/ament_prefix_path.sh
+[31.631s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/environment/ament_prefix_path.dsv
+[31.631s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/environment/path.sh
+[31.631s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/environment/path.dsv
+[31.631s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/local_setup.bash
+[31.631s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/local_setup.sh
+[31.631s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/local_setup.zsh
+[31.631s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/local_setup.dsv
+[31.632s] -- Installing: /home/potato/RC_2026/install/point_lio/share/point_lio/package.dsv
+[31.632s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/ament_index/resource_index/packages/point_lio
+[31.632s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/cmake/ament_cmake_export_dependencies-extras.cmake
+[31.632s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/cmake/point_lioConfig.cmake
+[31.632s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/cmake/point_lioConfig-version.cmake
+[31.632s] -- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/package.xml
+[31.636s] Invoked command in '/home/potato/RC_2026/build/point_lio' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/point_lio

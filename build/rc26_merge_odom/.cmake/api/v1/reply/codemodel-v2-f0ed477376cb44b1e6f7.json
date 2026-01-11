@@ -1,0 +1,142 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-047594c1633ed364ee99.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.12"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9
+					]
+				}
+			],
+			"name" : "",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "rc26_merge_odom",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "can_odom::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-can_odom-07ce6bc6a6aeed2895c4.json",
+					"name" : "can_odom",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "can_odom_node::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-can_odom_node-ad5ace690e2675d66fe3.json",
+					"name" : "can_odom_node",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "dm_imu_driver::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-dm_imu_driver-c06c21fee7d405f4cae8.json",
+					"name" : "dm_imu_driver",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "dm_imu_node::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-dm_imu_node-466e0447b5720e315535.json",
+					"name" : "dm_imu_node",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "merge_odom_node::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-merge_odom_node-3b836fee71fd4db554f1.json",
+					"name" : "merge_odom_node",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "pose_sender::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-pose_sender-5f2643956eeec0ddcbd6.json",
+					"name" : "pose_sender",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "pose_sender_node::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-pose_sender_node-bb1073ed58d16697d341.json",
+					"name" : "pose_sender_node",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "rc26_merge_odom_uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-rc26_merge_odom_uninstall-a1ca3c403331ef154f3d.json",
+					"name" : "rc26_merge_odom_uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "single_wheel_test_node::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-single_wheel_test_node-b170874f0e6b24b3c732.json",
+					"name" : "single_wheel_test_node",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-uninstall-79c76317569ad31b9ba2.json",
+					"name" : "uninstall",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/potato/RC_2026/build/rc26_merge_odom",
+		"source" : "/home/potato/RC_2026/RC_2026_1/rc26_merge_odom"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

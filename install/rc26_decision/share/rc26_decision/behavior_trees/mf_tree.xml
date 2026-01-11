@@ -1,0 +1,27 @@
+<!-- 梅林区子树 (MF Area) -->
+<root BTCPP_format="4">
+  <BehaviorTree ID="MFAreaTree">
+    <Sequence name="MF_Sequence">
+      <!-- 入口观察 -->
+      <Fallback name="entry_decision">
+        <Sequence>
+          <CheckKFS grid_id="2" expected_state="AUTO_KFS"/>
+          <GrabKFS grid_id="2"/>
+        </Sequence>
+        <StairClimb name="climb_directly"/>
+      </Fallback>
+      <!-- 核心循环：拾取 KFS 直到满载或到达出口 -->
+      <ReactiveSequence name="mf_core_loop">
+        <Inverter>
+          <CheckLoad min_load="2" max_load="3"/>
+        </Inverter>
+        <Sequence>
+          <GrabKFS grid_id="{target_grid}"/>
+          <MechUpMerlin/>
+        </Sequence>
+      </ReactiveSequence>
+      <!-- 离开梅林 -->
+      <StairDescend name="leave_merlin"/>
+    </Sequence>
+  </BehaviorTree>
+</root>

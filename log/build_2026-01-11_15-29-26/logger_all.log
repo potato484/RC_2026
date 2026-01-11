@@ -1,0 +1,908 @@
+[0.218s] [34mcolcon[0m [1;30mDEBUG[0m [32mCommand line arguments: ['/usr/bin/colcon', 'build', '--parallel-workers', '1'][0m
+[0.218s] [34mcolcon[0m [1;30mDEBUG[0m [32mParsed command line arguments: Namespace(log_base=None, log_level=None, verb_name='build', build_base='build', install_base='install', merge_install=False, symlink_install=False, test_result_base=None, continue_on_error=False, executor='parallel', parallel_workers=1, event_handlers=None, ignore_user_meta=False, metas=['./colcon.meta'], base_paths=['.'], packages_ignore=None, packages_ignore_regex=None, paths=None, packages_up_to=None, packages_up_to_regex=None, packages_above=None, packages_above_and_dependencies=None, packages_above_depth=None, packages_select_by_dep=None, packages_skip_by_dep=None, packages_skip_up_to=None, packages_select_build_failed=False, packages_skip_build_finished=False, packages_select_test_failures=False, packages_skip_test_passed=False, packages_select=None, packages_skip=None, packages_select_regex=None, packages_skip_regex=None, packages_start=None, packages_end=None, allow_overriding=[], cmake_args=None, cmake_target=None, cmake_target_skip_unavailable=False, cmake_clean_cache=False, cmake_clean_first=False, cmake_force_configure=False, ament_cmake_args=None, catkin_cmake_args=None, catkin_skip_building_tests=False, verb_parser=<colcon_defaults.argument_parser.defaults.DefaultArgumentsDecorator object at 0x741d93f66680>, verb_extension=<colcon_core.verb.build.BuildVerb object at 0x741d93f66080>, main=<bound method BuildVerb.main of <colcon_core.verb.build.BuildVerb object at 0x741d93f66080>>)[0m
+[0.407s] [34mcolcon.colcon_core.package_discovery[0m [1;30mLevel 1[0m discover_packages(colcon_meta) check parameters
+[0.408s] [34mcolcon.colcon_core.package_discovery[0m [1;30mLevel 1[0m discover_packages(recursive) check parameters
+[0.408s] [34mcolcon.colcon_core.package_discovery[0m [1;30mLevel 1[0m discover_packages(ignore) check parameters
+[0.408s] [34mcolcon.colcon_core.package_discovery[0m [1;30mLevel 1[0m discover_packages(path) check parameters
+[0.408s] [34mcolcon.colcon_core.package_discovery[0m [1;30mLevel 1[0m discover_packages(colcon_meta) discover
+[0.408s] [34mcolcon.colcon_core.package_discovery[0m [1;30mLevel 1[0m discover_packages(recursive) discover
+[0.408s] [34mcolcon.colcon_core.package_discovery[0m [1;30mINFO[0m Crawling recursively for packages in '/home/potato/RC_2026'
+[0.408s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(.) by extensions ['ignore', 'ignore_ament_install']
+[0.408s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(.) by extension 'ignore'
+[0.408s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(.) by extension 'ignore_ament_install'
+[0.408s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(.) by extensions ['colcon_pkg']
+[0.408s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(.) by extension 'colcon_pkg'
+[0.408s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(.) by extensions ['colcon_meta']
+[0.408s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(.) by extension 'colcon_meta'
+[0.408s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(.) by extensions ['ros']
+[0.408s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(.) by extension 'ros'
+[0.417s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(.) by extensions ['cmake', 'python']
+[0.417s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(.) by extension 'cmake'
+[0.417s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(.) by extension 'python'
+[0.417s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(.) by extensions ['python_setup_py']
+[0.417s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(.) by extension 'python_setup_py'
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1) by extensions ['ignore', 'ignore_ament_install']
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1) by extension 'ignore'
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1) by extension 'ignore_ament_install'
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1) by extensions ['colcon_pkg']
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1) by extension 'colcon_pkg'
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1) by extensions ['colcon_meta']
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1) by extension 'colcon_meta'
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1) by extensions ['ros']
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1) by extension 'ros'
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1) by extensions ['cmake', 'python']
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1) by extension 'cmake'
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1) by extension 'python'
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1) by extensions ['python_setup_py']
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1) by extension 'python_setup_py'
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/mid360_driver) by extensions ['ignore', 'ignore_ament_install']
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/mid360_driver) by extension 'ignore'
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/mid360_driver) by extension 'ignore_ament_install'
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/mid360_driver) by extensions ['colcon_pkg']
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/mid360_driver) by extension 'colcon_pkg'
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/mid360_driver) by extensions ['colcon_meta']
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/mid360_driver) by extension 'colcon_meta'
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/mid360_driver) by extensions ['ros']
+[0.418s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/mid360_driver) by extension 'ros'
+[0.420s] [34mcolcon.colcon_core.package_identification[0m [1;30mDEBUG[0m [32mPackage 'RC_2026_1/mid360_driver' with type 'ros.ament_cmake' and name 'mid360_driver'[0m
+[0.420s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/point_lio) by extensions ['ignore', 'ignore_ament_install']
+[0.421s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/point_lio) by extension 'ignore'
+[0.421s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/point_lio) by extension 'ignore_ament_install'
+[0.421s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/point_lio) by extensions ['colcon_pkg']
+[0.421s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/point_lio) by extension 'colcon_pkg'
+[0.421s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/point_lio) by extensions ['colcon_meta']
+[0.421s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/point_lio) by extension 'colcon_meta'
+[0.421s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/point_lio) by extensions ['ros']
+[0.421s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/point_lio) by extension 'ros'
+[0.422s] [34mcolcon.colcon_core.package_identification[0m [1;30mDEBUG[0m [32mPackage 'RC_2026_1/point_lio' with type 'ros.ament_cmake' and name 'point_lio'[0m
+[0.422s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_bringup) by extensions ['ignore', 'ignore_ament_install']
+[0.422s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_bringup) by extension 'ignore'
+[0.422s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_bringup) by extension 'ignore_ament_install'
+[0.422s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_bringup) by extensions ['colcon_pkg']
+[0.422s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_bringup) by extension 'colcon_pkg'
+[0.422s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_bringup) by extensions ['colcon_meta']
+[0.422s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_bringup) by extension 'colcon_meta'
+[0.422s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_bringup) by extensions ['ros']
+[0.422s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_bringup) by extension 'ros'
+[0.423s] [34mcolcon.colcon_core.package_identification[0m [1;30mDEBUG[0m [32mPackage 'RC_2026_1/rc26_bringup' with type 'ros.ament_cmake' and name 'rc26_bringup'[0m
+[0.423s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_decision) by extensions ['ignore', 'ignore_ament_install']
+[0.423s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_decision) by extension 'ignore'
+[0.423s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_decision) by extension 'ignore_ament_install'
+[0.423s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_decision) by extensions ['colcon_pkg']
+[0.423s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_decision) by extension 'colcon_pkg'
+[0.423s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_decision) by extensions ['colcon_meta']
+[0.423s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_decision) by extension 'colcon_meta'
+[0.423s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_decision) by extensions ['ros']
+[0.423s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_decision) by extension 'ros'
+[0.424s] [34mcolcon.colcon_core.package_identification[0m [1;30mDEBUG[0m [32mPackage 'RC_2026_1/rc26_decision' with type 'ros.ament_cmake' and name 'rc26_decision'[0m
+[0.424s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_localization) by extensions ['ignore', 'ignore_ament_install']
+[0.424s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_localization) by extension 'ignore'
+[0.424s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_localization) by extension 'ignore_ament_install'
+[0.424s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_localization) by extensions ['colcon_pkg']
+[0.424s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_localization) by extension 'colcon_pkg'
+[0.424s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_localization) by extensions ['colcon_meta']
+[0.424s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_localization) by extension 'colcon_meta'
+[0.424s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_localization) by extensions ['ros']
+[0.424s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_localization) by extension 'ros'
+[0.425s] [34mcolcon.colcon_core.package_identification[0m [1;30mDEBUG[0m [32mPackage 'RC_2026_1/rc26_localization' with type 'ros.ament_cmake' and name 'rc26_localization'[0m
+[0.425s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_merge_odom) by extensions ['ignore', 'ignore_ament_install']
+[0.425s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_merge_odom) by extension 'ignore'
+[0.425s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_merge_odom) by extension 'ignore_ament_install'
+[0.425s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_merge_odom) by extensions ['colcon_pkg']
+[0.425s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_merge_odom) by extension 'colcon_pkg'
+[0.425s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_merge_odom) by extensions ['colcon_meta']
+[0.425s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_merge_odom) by extension 'colcon_meta'
+[0.425s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_merge_odom) by extensions ['ros']
+[0.425s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_merge_odom) by extension 'ros'
+[0.426s] [34mcolcon.colcon_core.package_identification[0m [1;30mDEBUG[0m [32mPackage 'RC_2026_1/rc26_merge_odom' with type 'ros.ament_cmake' and name 'rc26_merge_odom'[0m
+[0.426s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_odom_interface) by extensions ['ignore', 'ignore_ament_install']
+[0.426s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_odom_interface) by extension 'ignore'
+[0.426s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_odom_interface) by extension 'ignore_ament_install'
+[0.426s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_odom_interface) by extensions ['colcon_pkg']
+[0.426s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_odom_interface) by extension 'colcon_pkg'
+[0.426s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_odom_interface) by extensions ['colcon_meta']
+[0.426s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_odom_interface) by extension 'colcon_meta'
+[0.426s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_odom_interface) by extensions ['ros']
+[0.426s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_odom_interface) by extension 'ros'
+[0.427s] [34mcolcon.colcon_core.package_identification[0m [1;30mDEBUG[0m [32mPackage 'RC_2026_1/rc26_odom_interface' with type 'ros.ament_cmake' and name 'rc26_odom_interface'[0m
+[0.427s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_omni_controller) by extensions ['ignore', 'ignore_ament_install']
+[0.427s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_omni_controller) by extension 'ignore'
+[0.427s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_omni_controller) by extension 'ignore_ament_install'
+[0.427s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_omni_controller) by extensions ['colcon_pkg']
+[0.427s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_omni_controller) by extension 'colcon_pkg'
+[0.427s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_omni_controller) by extensions ['colcon_meta']
+[0.427s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_omni_controller) by extension 'colcon_meta'
+[0.427s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_omni_controller) by extensions ['ros']
+[0.427s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_omni_controller) by extension 'ros'
+[0.428s] [34mcolcon.colcon_core.package_identification[0m [1;30mDEBUG[0m [32mPackage 'RC_2026_1/rc26_omni_controller' with type 'ros.ament_cmake' and name 'rc26_omni_controller'[0m
+[0.428s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_perception) by extensions ['ignore', 'ignore_ament_install']
+[0.428s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_perception) by extension 'ignore'
+[0.428s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_perception) by extension 'ignore_ament_install'
+[0.428s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_perception) by extensions ['colcon_pkg']
+[0.428s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_perception) by extension 'colcon_pkg'
+[0.428s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_perception) by extensions ['colcon_meta']
+[0.428s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_perception) by extension 'colcon_meta'
+[0.428s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_perception) by extensions ['ros']
+[0.428s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_perception) by extension 'ros'
+[0.429s] [34mcolcon.colcon_core.package_identification[0m [1;30mDEBUG[0m [32mPackage 'RC_2026_1/rc26_perception' with type 'ros.ament_cmake' and name 'rc26_perception'[0m
+[0.429s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_sensor_scan) by extensions ['ignore', 'ignore_ament_install']
+[0.429s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_sensor_scan) by extension 'ignore'
+[0.429s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_sensor_scan) by extension 'ignore_ament_install'
+[0.429s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_sensor_scan) by extensions ['colcon_pkg']
+[0.429s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_sensor_scan) by extension 'colcon_pkg'
+[0.429s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_sensor_scan) by extensions ['colcon_meta']
+[0.429s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_sensor_scan) by extension 'colcon_meta'
+[0.429s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_sensor_scan) by extensions ['ros']
+[0.429s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_sensor_scan) by extension 'ros'
+[0.430s] [34mcolcon.colcon_core.package_identification[0m [1;30mDEBUG[0m [32mPackage 'RC_2026_1/rc26_sensor_scan' with type 'ros.ament_cmake' and name 'rc26_sensor_scan'[0m
+[0.430s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_serial) by extensions ['ignore', 'ignore_ament_install']
+[0.430s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_serial) by extension 'ignore'
+[0.430s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_serial) by extension 'ignore_ament_install'
+[0.430s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_serial) by extensions ['colcon_pkg']
+[0.430s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_serial) by extension 'colcon_pkg'
+[0.430s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_serial) by extensions ['colcon_meta']
+[0.430s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_serial) by extension 'colcon_meta'
+[0.430s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_serial) by extensions ['ros']
+[0.430s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/rc26_serial) by extension 'ros'
+[0.431s] [34mcolcon.colcon_core.package_identification[0m [1;30mDEBUG[0m [32mPackage 'RC_2026_1/rc26_serial' with type 'ros.ament_cmake' and name 'rc26_serial'[0m
+[0.431s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/small_gicp) by extensions ['ignore', 'ignore_ament_install']
+[0.431s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/small_gicp) by extension 'ignore'
+[0.431s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/small_gicp) by extension 'ignore_ament_install'
+[0.431s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/small_gicp) by extensions ['colcon_pkg']
+[0.431s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/small_gicp) by extension 'colcon_pkg'
+[0.431s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/small_gicp) by extensions ['colcon_meta']
+[0.431s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/small_gicp) by extension 'colcon_meta'
+[0.431s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/small_gicp) by extensions ['ros']
+[0.431s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(RC_2026_1/small_gicp) by extension 'ros'
+[0.431s] [34mcolcon.colcon_core.package_identification[0m [1;30mDEBUG[0m [32mPackage 'RC_2026_1/small_gicp' with type 'ros.cmake' and name 'small_gicp'[0m
+[0.431s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(build) by extensions ['ignore', 'ignore_ament_install']
+[0.431s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(build) by extension 'ignore'
+[0.431s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(build) ignored
+[0.432s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(install) by extensions ['ignore', 'ignore_ament_install']
+[0.432s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(install) by extension 'ignore'
+[0.432s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(install) ignored
+[0.432s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(log) by extensions ['ignore', 'ignore_ament_install']
+[0.432s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(log) by extension 'ignore'
+[0.432s] [34mcolcon.colcon_core.package_identification[0m [1;30mLevel 1[0m _identify(log) ignored
+[0.432s] [34mcolcon.colcon_core.package_discovery[0m [1;30mLevel 1[0m discover_packages(recursive) using defaults
+[0.432s] [34mcolcon.colcon_core.package_discovery[0m [1;30mLevel 1[0m discover_packages(ignore) discover
+[0.432s] [34mcolcon.colcon_core.package_discovery[0m [1;30mLevel 1[0m discover_packages(ignore) using defaults
+[0.432s] [34mcolcon.colcon_core.package_discovery[0m [1;30mLevel 1[0m discover_packages(path) discover
+[0.432s] [34mcolcon.colcon_core.package_discovery[0m [1;30mLevel 1[0m discover_packages(path) using defaults
+[0.448s] [34mcolcon.colcon_core.package_discovery[0m [1;30mLevel 1[0m discover_packages(prefix_path) check parameters
+[0.448s] [34mcolcon.colcon_core.package_discovery[0m [1;30mLevel 1[0m discover_packages(prefix_path) discover
+[0.450s] [34mcolcon.colcon_installed_package_information.package_discovery[0m [1;30mDEBUG[0m [32mFound 407 installed packages in /opt/ros/humble[0m
+[0.451s] [34mcolcon.colcon_core.package_discovery[0m [1;30mLevel 1[0m discover_packages(prefix_path) using defaults
+[0.479s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'mid360_driver' build argument 'cmake_args' from command line to 'None'
+[0.479s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'mid360_driver' build argument 'cmake_target' from command line to 'None'
+[0.479s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'mid360_driver' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.479s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'mid360_driver' build argument 'cmake_clean_cache' from command line to 'False'
+[0.479s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'mid360_driver' build argument 'cmake_clean_first' from command line to 'False'
+[0.479s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'mid360_driver' build argument 'cmake_force_configure' from command line to 'False'
+[0.479s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'mid360_driver' build argument 'ament_cmake_args' from command line to 'None'
+[0.479s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'mid360_driver' build argument 'catkin_cmake_args' from command line to 'None'
+[0.479s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'mid360_driver' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.479s] [34mcolcon.colcon_core.verb[0m [1;30mDEBUG[0m [32mBuilding package 'mid360_driver' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/potato/RC_2026/build/mid360_driver', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/potato/RC_2026/install/mid360_driver', 'merge_install': False, 'path': '/home/potato/RC_2026/RC_2026_1/mid360_driver', 'symlink_install': False, 'test_result_base': None}[0m
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'point_lio' build argument 'cmake_args' from command line to 'None'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'point_lio' build argument 'cmake_target' from command line to 'None'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'point_lio' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'point_lio' build argument 'cmake_clean_cache' from command line to 'False'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'point_lio' build argument 'cmake_clean_first' from command line to 'False'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'point_lio' build argument 'cmake_force_configure' from command line to 'False'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'point_lio' build argument 'ament_cmake_args' from command line to 'None'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'point_lio' build argument 'catkin_cmake_args' from command line to 'None'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'point_lio' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mDEBUG[0m [32mBuilding package 'point_lio' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/potato/RC_2026/build/point_lio', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/potato/RC_2026/install/point_lio', 'merge_install': False, 'path': '/home/potato/RC_2026/RC_2026_1/point_lio', 'symlink_install': False, 'test_result_base': None}[0m
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_localization' build argument 'cmake_args' from command line to 'None'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_localization' build argument 'cmake_target' from command line to 'None'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_localization' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_localization' build argument 'cmake_clean_cache' from command line to 'False'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_localization' build argument 'cmake_clean_first' from command line to 'False'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_localization' build argument 'cmake_force_configure' from command line to 'False'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_localization' build argument 'ament_cmake_args' from command line to 'None'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_localization' build argument 'catkin_cmake_args' from command line to 'None'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_localization' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mDEBUG[0m [32mBuilding package 'rc26_localization' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/potato/RC_2026/build/rc26_localization', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/potato/RC_2026/install/rc26_localization', 'merge_install': False, 'path': '/home/potato/RC_2026/RC_2026_1/rc26_localization', 'symlink_install': False, 'test_result_base': None}[0m
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_odom_interface' build argument 'cmake_args' from command line to 'None'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_odom_interface' build argument 'cmake_target' from command line to 'None'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_odom_interface' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_odom_interface' build argument 'cmake_clean_cache' from command line to 'False'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_odom_interface' build argument 'cmake_clean_first' from command line to 'False'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_odom_interface' build argument 'cmake_force_configure' from command line to 'False'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_odom_interface' build argument 'ament_cmake_args' from command line to 'None'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_odom_interface' build argument 'catkin_cmake_args' from command line to 'None'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_odom_interface' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.480s] [34mcolcon.colcon_core.verb[0m [1;30mDEBUG[0m [32mBuilding package 'rc26_odom_interface' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/potato/RC_2026/build/rc26_odom_interface', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/potato/RC_2026/install/rc26_odom_interface', 'merge_install': False, 'path': '/home/potato/RC_2026/RC_2026_1/rc26_odom_interface', 'symlink_install': False, 'test_result_base': None}[0m
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_omni_controller' build argument 'cmake_args' from command line to 'None'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_omni_controller' build argument 'cmake_target' from command line to 'None'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_omni_controller' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_omni_controller' build argument 'cmake_clean_cache' from command line to 'False'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_omni_controller' build argument 'cmake_clean_first' from command line to 'False'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_omni_controller' build argument 'cmake_force_configure' from command line to 'False'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_omni_controller' build argument 'ament_cmake_args' from command line to 'None'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_omni_controller' build argument 'catkin_cmake_args' from command line to 'None'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_omni_controller' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mDEBUG[0m [32mBuilding package 'rc26_omni_controller' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/potato/RC_2026/build/rc26_omni_controller', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/potato/RC_2026/install/rc26_omni_controller', 'merge_install': False, 'path': '/home/potato/RC_2026/RC_2026_1/rc26_omni_controller', 'symlink_install': False, 'test_result_base': None}[0m
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_perception' build argument 'cmake_args' from command line to 'None'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_perception' build argument 'cmake_target' from command line to 'None'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_perception' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_perception' build argument 'cmake_clean_cache' from command line to 'False'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_perception' build argument 'cmake_clean_first' from command line to 'False'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_perception' build argument 'cmake_force_configure' from command line to 'False'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_perception' build argument 'ament_cmake_args' from command line to 'None'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_perception' build argument 'catkin_cmake_args' from command line to 'None'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_perception' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mDEBUG[0m [32mBuilding package 'rc26_perception' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/potato/RC_2026/build/rc26_perception', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/potato/RC_2026/install/rc26_perception', 'merge_install': False, 'path': '/home/potato/RC_2026/RC_2026_1/rc26_perception', 'symlink_install': False, 'test_result_base': None}[0m
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_sensor_scan' build argument 'cmake_args' from command line to 'None'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_sensor_scan' build argument 'cmake_target' from command line to 'None'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_sensor_scan' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_sensor_scan' build argument 'cmake_clean_cache' from command line to 'False'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_sensor_scan' build argument 'cmake_clean_first' from command line to 'False'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_sensor_scan' build argument 'cmake_force_configure' from command line to 'False'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_sensor_scan' build argument 'ament_cmake_args' from command line to 'None'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_sensor_scan' build argument 'catkin_cmake_args' from command line to 'None'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_sensor_scan' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.481s] [34mcolcon.colcon_core.verb[0m [1;30mDEBUG[0m [32mBuilding package 'rc26_sensor_scan' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/potato/RC_2026/build/rc26_sensor_scan', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/potato/RC_2026/install/rc26_sensor_scan', 'merge_install': False, 'path': '/home/potato/RC_2026/RC_2026_1/rc26_sensor_scan', 'symlink_install': False, 'test_result_base': None}[0m
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_serial' build argument 'cmake_args' from command line to 'None'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_serial' build argument 'cmake_target' from command line to 'None'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_serial' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_serial' build argument 'cmake_clean_cache' from command line to 'False'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_serial' build argument 'cmake_clean_first' from command line to 'False'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_serial' build argument 'cmake_force_configure' from command line to 'False'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_serial' build argument 'ament_cmake_args' from command line to 'None'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_serial' build argument 'catkin_cmake_args' from command line to 'None'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_serial' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mDEBUG[0m [32mBuilding package 'rc26_serial' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/potato/RC_2026/build/rc26_serial', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/potato/RC_2026/install/rc26_serial', 'merge_install': False, 'path': '/home/potato/RC_2026/RC_2026_1/rc26_serial', 'symlink_install': False, 'test_result_base': None}[0m
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'small_gicp' build argument 'cmake_args' from command line to 'None'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'small_gicp' build argument 'cmake_target' from command line to 'None'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'small_gicp' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'small_gicp' build argument 'cmake_clean_cache' from command line to 'False'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'small_gicp' build argument 'cmake_clean_first' from command line to 'False'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'small_gicp' build argument 'cmake_force_configure' from command line to 'False'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'small_gicp' build argument 'ament_cmake_args' from command line to 'None'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'small_gicp' build argument 'catkin_cmake_args' from command line to 'None'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'small_gicp' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mDEBUG[0m [32mBuilding package 'small_gicp' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/potato/RC_2026/build/small_gicp', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/potato/RC_2026/install/small_gicp', 'merge_install': False, 'path': '/home/potato/RC_2026/RC_2026_1/small_gicp', 'symlink_install': False, 'test_result_base': None}[0m
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_decision' build argument 'cmake_args' from command line to 'None'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_decision' build argument 'cmake_target' from command line to 'None'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_decision' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_decision' build argument 'cmake_clean_cache' from command line to 'False'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_decision' build argument 'cmake_clean_first' from command line to 'False'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_decision' build argument 'cmake_force_configure' from command line to 'False'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_decision' build argument 'ament_cmake_args' from command line to 'None'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_decision' build argument 'catkin_cmake_args' from command line to 'None'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_decision' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.482s] [34mcolcon.colcon_core.verb[0m [1;30mDEBUG[0m [32mBuilding package 'rc26_decision' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/potato/RC_2026/build/rc26_decision', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/potato/RC_2026/install/rc26_decision', 'merge_install': False, 'path': '/home/potato/RC_2026/RC_2026_1/rc26_decision', 'symlink_install': False, 'test_result_base': None}[0m
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_merge_odom' build argument 'cmake_args' from command line to 'None'
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_merge_odom' build argument 'cmake_target' from command line to 'None'
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_merge_odom' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_merge_odom' build argument 'cmake_clean_cache' from command line to 'False'
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_merge_odom' build argument 'cmake_clean_first' from command line to 'False'
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_merge_odom' build argument 'cmake_force_configure' from command line to 'False'
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_merge_odom' build argument 'ament_cmake_args' from command line to 'None'
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_merge_odom' build argument 'catkin_cmake_args' from command line to 'None'
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_merge_odom' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mDEBUG[0m [32mBuilding package 'rc26_merge_odom' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/potato/RC_2026/build/rc26_merge_odom', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/potato/RC_2026/install/rc26_merge_odom', 'merge_install': False, 'path': '/home/potato/RC_2026/RC_2026_1/rc26_merge_odom', 'symlink_install': False, 'test_result_base': None}[0m
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_bringup' build argument 'cmake_args' from command line to 'None'
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_bringup' build argument 'cmake_target' from command line to 'None'
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_bringup' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_bringup' build argument 'cmake_clean_cache' from command line to 'False'
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_bringup' build argument 'cmake_clean_first' from command line to 'False'
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_bringup' build argument 'cmake_force_configure' from command line to 'False'
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_bringup' build argument 'ament_cmake_args' from command line to 'None'
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_bringup' build argument 'catkin_cmake_args' from command line to 'None'
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mLevel 5[0m set package 'rc26_bringup' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.483s] [34mcolcon.colcon_core.verb[0m [1;30mDEBUG[0m [32mBuilding package 'rc26_bringup' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/potato/RC_2026/build/rc26_bringup', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/potato/RC_2026/install/rc26_bringup', 'merge_install': False, 'path': '/home/potato/RC_2026/RC_2026_1/rc26_bringup', 'symlink_install': False, 'test_result_base': None}[0m
+[0.483s] [34mcolcon.colcon_core.executor[0m [1;30mINFO[0m Executing jobs using 'parallel' executor
+[0.484s] [34mcolcon.colcon_parallel_executor.executor.parallel[0m [1;30mDEBUG[0m [32mrun_until_complete[0m
+[0.484s] [34mcolcon.colcon_ros.task.ament_cmake.build[0m [1;30mINFO[0m Building ROS package in '/home/potato/RC_2026/RC_2026_1/rc26_serial' with build type 'ament_cmake'
+[0.484s] [34mcolcon.colcon_cmake.task.cmake.build[0m [1;30mINFO[0m Building CMake package in '/home/potato/RC_2026/RC_2026_1/rc26_serial'
+[0.487s] [34mcolcon.colcon_core.plugin_system[0m [1;30mINFO[0m Skipping extension 'colcon_core.shell.bat': Not used on non-Windows systems
+[0.487s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.487s] [34mcolcon.colcon_core.shell[0m [1;30mDEBUG[0m [32mSkip shell extension 'dsv' for command environment[0m
+[0.495s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/rc26_serial': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_serial -- -j28 -l28[0m
+[2.679s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/rc26_serial' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_serial -- -j28 -l28[0m
+[2.689s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/rc26_serial': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_serial[0m
+[2.700s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(rc26_serial)
+[2.700s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/rc26_serial' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_serial[0m
+[2.704s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_serial' for CMake module files
+[2.704s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_serial' for CMake config files
+[2.704s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_serial', 'cmake_prefix_path')
+[2.704s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/hook/cmake_prefix_path.ps1'
+[2.705s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/hook/cmake_prefix_path.dsv'
+[2.705s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/hook/cmake_prefix_path.sh'
+[2.706s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_serial/lib'
+[2.706s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_serial', 'ld_library_path_lib')
+[2.706s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/hook/ld_library_path_lib.ps1'
+[2.706s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/hook/ld_library_path_lib.dsv'
+[2.706s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/hook/ld_library_path_lib.sh'
+[2.707s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_serial/bin'
+[2.707s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_serial/lib/pkgconfig/rc26_serial.pc'
+[2.707s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_serial/lib/python3.10/site-packages'
+[2.707s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_serial/bin'
+[2.707s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/package.ps1'
+[2.708s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/package.dsv'
+[2.708s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/package.sh'
+[2.709s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/package.bash'
+[2.710s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/package.zsh'
+[2.710s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/rc26_serial/share/colcon-core/packages/rc26_serial)
+[2.711s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(rc26_serial)
+[2.711s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_serial' for CMake module files
+[2.711s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_serial' for CMake config files
+[2.711s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_serial', 'cmake_prefix_path')
+[2.711s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/hook/cmake_prefix_path.ps1'
+[2.712s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/hook/cmake_prefix_path.dsv'
+[2.712s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/hook/cmake_prefix_path.sh'
+[2.712s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_serial/lib'
+[2.712s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_serial', 'ld_library_path_lib')
+[2.712s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/hook/ld_library_path_lib.ps1'
+[2.713s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/hook/ld_library_path_lib.dsv'
+[2.713s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/hook/ld_library_path_lib.sh'
+[2.713s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_serial/bin'
+[2.713s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_serial/lib/pkgconfig/rc26_serial.pc'
+[2.713s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_serial/lib/python3.10/site-packages'
+[2.713s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_serial/bin'
+[2.713s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/package.ps1'
+[2.714s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/package.dsv'
+[2.714s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/package.sh'
+[2.714s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/package.bash'
+[2.714s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/package.zsh'
+[2.715s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/rc26_serial/share/colcon-core/packages/rc26_serial)
+[2.715s] [34mcolcon.colcon_ros.task.ament_cmake.build[0m [1;30mINFO[0m Building ROS package in '/home/potato/RC_2026/RC_2026_1/mid360_driver' with build type 'ament_cmake'
+[2.715s] [34mcolcon.colcon_cmake.task.cmake.build[0m [1;30mINFO[0m Building CMake package in '/home/potato/RC_2026/RC_2026_1/mid360_driver'
+[2.715s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[2.715s] [34mcolcon.colcon_core.shell[0m [1;30mDEBUG[0m [32mSkip shell extension 'dsv' for command environment[0m
+[2.722s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/mid360_driver': /usr/bin/cmake --build /home/potato/RC_2026/build/mid360_driver -- -j28 -l28[0m
+[8.787s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/mid360_driver' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/mid360_driver -- -j28 -l28[0m
+[8.789s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/mid360_driver': /usr/bin/cmake --install /home/potato/RC_2026/build/mid360_driver[0m
+[8.801s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(mid360_driver)
+[8.801s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/mid360_driver' for CMake module files
+[8.802s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/mid360_driver' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/mid360_driver[0m
+[8.802s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/mid360_driver' for CMake config files
+[8.803s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('mid360_driver', 'cmake_prefix_path')
+[8.803s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/hook/cmake_prefix_path.ps1'
+[8.803s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/hook/cmake_prefix_path.dsv'
+[8.804s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/hook/cmake_prefix_path.sh'
+[8.804s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/mid360_driver/lib'
+[8.804s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('mid360_driver', 'ld_library_path_lib')
+[8.804s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/hook/ld_library_path_lib.ps1'
+[8.804s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/hook/ld_library_path_lib.dsv'
+[8.804s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/hook/ld_library_path_lib.sh'
+[8.805s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/mid360_driver/bin'
+[8.805s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/mid360_driver/lib/pkgconfig/mid360_driver.pc'
+[8.805s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/mid360_driver/lib/python3.10/site-packages'
+[8.805s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/mid360_driver/bin'
+[8.805s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/package.ps1'
+[8.805s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/package.dsv'
+[8.806s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/package.sh'
+[8.806s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/package.bash'
+[8.806s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/package.zsh'
+[8.806s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/mid360_driver/share/colcon-core/packages/mid360_driver)
+[8.807s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(mid360_driver)
+[8.807s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/mid360_driver' for CMake module files
+[8.807s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/mid360_driver' for CMake config files
+[8.807s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('mid360_driver', 'cmake_prefix_path')
+[8.807s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/hook/cmake_prefix_path.ps1'
+[8.807s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/hook/cmake_prefix_path.dsv'
+[8.807s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/hook/cmake_prefix_path.sh'
+[8.808s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/mid360_driver/lib'
+[8.808s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('mid360_driver', 'ld_library_path_lib')
+[8.808s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/hook/ld_library_path_lib.ps1'
+[8.808s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/hook/ld_library_path_lib.dsv'
+[8.808s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/hook/ld_library_path_lib.sh'
+[8.808s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/mid360_driver/bin'
+[8.809s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/mid360_driver/lib/pkgconfig/mid360_driver.pc'
+[8.809s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/mid360_driver/lib/python3.10/site-packages'
+[8.809s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/mid360_driver/bin'
+[8.809s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/package.ps1'
+[8.809s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/package.dsv'
+[8.810s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/package.sh'
+[8.810s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/package.bash'
+[8.810s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/mid360_driver/share/mid360_driver/package.zsh'
+[8.810s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/mid360_driver/share/colcon-core/packages/mid360_driver)
+[8.811s] [34mcolcon.colcon_ros.task.ament_cmake.build[0m [1;30mINFO[0m Building ROS package in '/home/potato/RC_2026/RC_2026_1/point_lio' with build type 'ament_cmake'
+[8.811s] [34mcolcon.colcon_cmake.task.cmake.build[0m [1;30mINFO[0m Building CMake package in '/home/potato/RC_2026/RC_2026_1/point_lio'
+[8.811s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[8.811s] [34mcolcon.colcon_core.shell[0m [1;30mDEBUG[0m [32mSkip shell extension 'dsv' for command environment[0m
+[8.818s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/point_lio': /usr/bin/cmake --build /home/potato/RC_2026/build/point_lio -- -j28 -l28[0m
+[40.423s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/point_lio' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/point_lio -- -j28 -l28[0m
+[40.426s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/point_lio': /usr/bin/cmake --install /home/potato/RC_2026/build/point_lio[0m
+[40.446s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(point_lio)
+[40.447s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/point_lio' for CMake module files
+[40.448s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/point_lio' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/point_lio[0m
+[40.449s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/point_lio' for CMake config files
+[40.449s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('point_lio', 'cmake_prefix_path')
+[40.449s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/point_lio/share/point_lio/hook/cmake_prefix_path.ps1'
+[40.451s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/point_lio/share/point_lio/hook/cmake_prefix_path.dsv'
+[40.452s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/point_lio/share/point_lio/hook/cmake_prefix_path.sh'
+[40.453s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/point_lio/lib'
+[40.453s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/point_lio/bin'
+[40.453s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/point_lio/lib/pkgconfig/point_lio.pc'
+[40.453s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/point_lio/lib/python3.10/site-packages'
+[40.453s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/point_lio/bin'
+[40.454s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/point_lio/share/point_lio/package.ps1'
+[40.454s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/point_lio/share/point_lio/package.dsv'
+[40.455s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/point_lio/share/point_lio/package.sh'
+[40.455s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/point_lio/share/point_lio/package.bash'
+[40.456s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/point_lio/share/point_lio/package.zsh'
+[40.457s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/point_lio/share/colcon-core/packages/point_lio)
+[40.457s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(point_lio)
+[40.457s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/point_lio' for CMake module files
+[40.458s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/point_lio' for CMake config files
+[40.458s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('point_lio', 'cmake_prefix_path')
+[40.458s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/point_lio/share/point_lio/hook/cmake_prefix_path.ps1'
+[40.459s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/point_lio/share/point_lio/hook/cmake_prefix_path.dsv'
+[40.459s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/point_lio/share/point_lio/hook/cmake_prefix_path.sh'
+[40.460s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/point_lio/lib'
+[40.460s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/point_lio/bin'
+[40.460s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/point_lio/lib/pkgconfig/point_lio.pc'
+[40.460s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/point_lio/lib/python3.10/site-packages'
+[40.461s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/point_lio/bin'
+[40.461s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/point_lio/share/point_lio/package.ps1'
+[40.462s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/point_lio/share/point_lio/package.dsv'
+[40.462s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/point_lio/share/point_lio/package.sh'
+[40.462s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/point_lio/share/point_lio/package.bash'
+[40.463s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/point_lio/share/point_lio/package.zsh'
+[40.463s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/point_lio/share/colcon-core/packages/point_lio)
+[40.464s] [34mcolcon.colcon_ros.task.ament_cmake.build[0m [1;30mINFO[0m Building ROS package in '/home/potato/RC_2026/RC_2026_1/rc26_localization' with build type 'ament_cmake'
+[40.464s] [34mcolcon.colcon_cmake.task.cmake.build[0m [1;30mINFO[0m Building CMake package in '/home/potato/RC_2026/RC_2026_1/rc26_localization'
+[40.464s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[40.464s] [34mcolcon.colcon_core.shell[0m [1;30mDEBUG[0m [32mSkip shell extension 'dsv' for command environment[0m
+[40.477s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/rc26_localization': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_localization -- -j28 -l28[0m
+[86.712s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/rc26_localization' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_localization -- -j28 -l28[0m
+[86.715s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/rc26_localization': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_localization[0m
+[86.733s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(rc26_localization)
+[86.734s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_localization' for CMake module files
+[86.734s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/rc26_localization' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_localization[0m
+[86.734s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_localization' for CMake config files
+[86.735s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_localization', 'cmake_prefix_path')
+[86.735s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/hook/cmake_prefix_path.ps1'
+[86.735s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/hook/cmake_prefix_path.dsv'
+[86.736s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/hook/cmake_prefix_path.sh'
+[86.736s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_localization/lib'
+[86.736s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_localization', 'ld_library_path_lib')
+[86.737s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/hook/ld_library_path_lib.ps1'
+[86.737s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/hook/ld_library_path_lib.dsv'
+[86.737s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/hook/ld_library_path_lib.sh'
+[86.738s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_localization/bin'
+[86.738s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_localization/lib/pkgconfig/rc26_localization.pc'
+[86.738s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_localization/lib/python3.10/site-packages'
+[86.738s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_localization/bin'
+[86.738s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/package.ps1'
+[86.739s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/package.dsv'
+[86.739s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/package.sh'
+[86.739s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/package.bash'
+[86.739s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/package.zsh'
+[86.740s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/rc26_localization/share/colcon-core/packages/rc26_localization)
+[86.740s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(rc26_localization)
+[86.740s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_localization' for CMake module files
+[86.741s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_localization' for CMake config files
+[86.741s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_localization', 'cmake_prefix_path')
+[86.741s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/hook/cmake_prefix_path.ps1'
+[86.741s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/hook/cmake_prefix_path.dsv'
+[86.741s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/hook/cmake_prefix_path.sh'
+[86.741s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_localization/lib'
+[86.741s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_localization', 'ld_library_path_lib')
+[86.742s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/hook/ld_library_path_lib.ps1'
+[86.742s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/hook/ld_library_path_lib.dsv'
+[86.742s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/hook/ld_library_path_lib.sh'
+[86.742s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_localization/bin'
+[86.742s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_localization/lib/pkgconfig/rc26_localization.pc'
+[86.742s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_localization/lib/python3.10/site-packages'
+[86.743s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_localization/bin'
+[86.743s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/package.ps1'
+[86.743s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/package.dsv'
+[86.744s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/package.sh'
+[86.744s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/package.bash'
+[86.744s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_localization/share/rc26_localization/package.zsh'
+[86.744s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/rc26_localization/share/colcon-core/packages/rc26_localization)
+[86.744s] [34mcolcon.colcon_ros.task.ament_cmake.build[0m [1;30mINFO[0m Building ROS package in '/home/potato/RC_2026/RC_2026_1/rc26_odom_interface' with build type 'ament_cmake'
+[86.744s] [34mcolcon.colcon_cmake.task.cmake.build[0m [1;30mINFO[0m Building CMake package in '/home/potato/RC_2026/RC_2026_1/rc26_odom_interface'
+[86.745s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[86.745s] [34mcolcon.colcon_core.shell[0m [1;30mDEBUG[0m [32mSkip shell extension 'dsv' for command environment[0m
+[86.753s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/rc26_odom_interface': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_odom_interface -- -j28 -l28[0m
+[96.280s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/rc26_odom_interface' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_odom_interface -- -j28 -l28[0m
+[96.282s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/rc26_odom_interface': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_odom_interface[0m
+[96.304s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(rc26_odom_interface)
+[96.304s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_odom_interface' for CMake module files
+[96.304s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/rc26_odom_interface' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_odom_interface[0m
+[96.305s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_odom_interface' for CMake config files
+[96.306s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_odom_interface', 'cmake_prefix_path')
+[96.306s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/hook/cmake_prefix_path.ps1'
+[96.306s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/hook/cmake_prefix_path.dsv'
+[96.307s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/hook/cmake_prefix_path.sh'
+[96.307s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_odom_interface/lib'
+[96.307s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_odom_interface', 'ld_library_path_lib')
+[96.308s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/hook/ld_library_path_lib.ps1'
+[96.308s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/hook/ld_library_path_lib.dsv'
+[96.308s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/hook/ld_library_path_lib.sh'
+[96.309s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_odom_interface/bin'
+[96.309s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_odom_interface/lib/pkgconfig/rc26_odom_interface.pc'
+[96.309s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_odom_interface/lib/python3.10/site-packages'
+[96.309s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_odom_interface/bin'
+[96.310s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/package.ps1'
+[96.310s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/package.dsv'
+[96.311s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/package.sh'
+[96.311s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/package.bash'
+[96.311s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/package.zsh'
+[96.312s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/rc26_odom_interface/share/colcon-core/packages/rc26_odom_interface)
+[96.312s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(rc26_odom_interface)
+[96.313s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_odom_interface' for CMake module files
+[96.313s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_odom_interface' for CMake config files
+[96.313s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_odom_interface', 'cmake_prefix_path')
+[96.314s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/hook/cmake_prefix_path.ps1'
+[96.314s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/hook/cmake_prefix_path.dsv'
+[96.314s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/hook/cmake_prefix_path.sh'
+[96.314s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_odom_interface/lib'
+[96.314s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_odom_interface', 'ld_library_path_lib')
+[96.314s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/hook/ld_library_path_lib.ps1'
+[96.315s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/hook/ld_library_path_lib.dsv'
+[96.315s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/hook/ld_library_path_lib.sh'
+[96.315s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_odom_interface/bin'
+[96.315s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_odom_interface/lib/pkgconfig/rc26_odom_interface.pc'
+[96.315s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_odom_interface/lib/python3.10/site-packages'
+[96.315s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_odom_interface/bin'
+[96.316s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/package.ps1'
+[96.316s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/package.dsv'
+[96.316s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/package.sh'
+[96.316s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/package.bash'
+[96.317s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/package.zsh'
+[96.317s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/rc26_odom_interface/share/colcon-core/packages/rc26_odom_interface)
+[96.317s] [34mcolcon.colcon_ros.task.ament_cmake.build[0m [1;30mINFO[0m Building ROS package in '/home/potato/RC_2026/RC_2026_1/rc26_omni_controller' with build type 'ament_cmake'
+[96.317s] [34mcolcon.colcon_cmake.task.cmake.build[0m [1;30mINFO[0m Building CMake package in '/home/potato/RC_2026/RC_2026_1/rc26_omni_controller'
+[96.317s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[96.317s] [34mcolcon.colcon_core.shell[0m [1;30mDEBUG[0m [32mSkip shell extension 'dsv' for command environment[0m
+[96.324s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/rc26_omni_controller': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_omni_controller -- -j28 -l28[0m
+[101.329s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/rc26_omni_controller' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_omni_controller -- -j28 -l28[0m
+[101.331s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/rc26_omni_controller': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_omni_controller[0m
+[101.346s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(rc26_omni_controller)
+[101.346s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_omni_controller' for CMake module files
+[101.347s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/rc26_omni_controller' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_omni_controller[0m
+[101.347s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_omni_controller' for CMake config files
+[101.347s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_omni_controller', 'cmake_prefix_path')
+[101.347s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/hook/cmake_prefix_path.ps1'
+[101.348s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/hook/cmake_prefix_path.dsv'
+[101.348s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/hook/cmake_prefix_path.sh'
+[101.348s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_omni_controller/lib'
+[101.348s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_omni_controller', 'ld_library_path_lib')
+[101.348s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/hook/ld_library_path_lib.ps1'
+[101.348s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/hook/ld_library_path_lib.dsv'
+[101.349s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/hook/ld_library_path_lib.sh'
+[101.349s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_omni_controller/bin'
+[101.349s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_omni_controller/lib/pkgconfig/rc26_omni_controller.pc'
+[101.349s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_omni_controller/lib/python3.10/site-packages'
+[101.349s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_omni_controller/bin'
+[101.349s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/package.ps1'
+[101.350s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/package.dsv'
+[101.350s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/package.sh'
+[101.350s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/package.bash'
+[101.350s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/package.zsh'
+[101.350s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/rc26_omni_controller/share/colcon-core/packages/rc26_omni_controller)
+[101.351s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(rc26_omni_controller)
+[101.351s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_omni_controller' for CMake module files
+[101.351s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_omni_controller' for CMake config files
+[101.351s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_omni_controller', 'cmake_prefix_path')
+[101.351s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/hook/cmake_prefix_path.ps1'
+[101.352s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/hook/cmake_prefix_path.dsv'
+[101.352s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/hook/cmake_prefix_path.sh'
+[101.352s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_omni_controller/lib'
+[101.352s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_omni_controller', 'ld_library_path_lib')
+[101.352s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/hook/ld_library_path_lib.ps1'
+[101.353s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/hook/ld_library_path_lib.dsv'
+[101.353s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/hook/ld_library_path_lib.sh'
+[101.353s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_omni_controller/bin'
+[101.353s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_omni_controller/lib/pkgconfig/rc26_omni_controller.pc'
+[101.353s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_omni_controller/lib/python3.10/site-packages'
+[101.353s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_omni_controller/bin'
+[101.354s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/package.ps1'
+[101.354s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/package.dsv'
+[101.354s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/package.sh'
+[101.354s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/package.bash'
+[101.355s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_omni_controller/share/rc26_omni_controller/package.zsh'
+[101.355s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/rc26_omni_controller/share/colcon-core/packages/rc26_omni_controller)
+[101.355s] [34mcolcon.colcon_ros.task.ament_cmake.build[0m [1;30mINFO[0m Building ROS package in '/home/potato/RC_2026/RC_2026_1/rc26_perception' with build type 'ament_cmake'
+[101.355s] [34mcolcon.colcon_cmake.task.cmake.build[0m [1;30mINFO[0m Building CMake package in '/home/potato/RC_2026/RC_2026_1/rc26_perception'
+[101.355s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[101.355s] [34mcolcon.colcon_core.shell[0m [1;30mDEBUG[0m [32mSkip shell extension 'dsv' for command environment[0m
+[101.362s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/rc26_perception': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_perception -- -j28 -l28[0m
+[101.801s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/rc26_perception' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_perception -- -j28 -l28[0m
+[101.803s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/rc26_perception': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_perception[0m
+[101.855s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(rc26_perception)
+[101.855s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_perception' for CMake module files
+[101.856s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/rc26_perception' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_perception[0m
+[101.856s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_perception' for CMake config files
+[101.857s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_perception', 'cmake_prefix_path')
+[101.857s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/hook/cmake_prefix_path.ps1'
+[101.857s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/hook/cmake_prefix_path.dsv'
+[101.858s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/hook/cmake_prefix_path.sh'
+[101.858s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_perception/lib'
+[101.858s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_perception', 'ld_library_path_lib')
+[101.859s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/hook/ld_library_path_lib.ps1'
+[101.859s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/hook/ld_library_path_lib.dsv'
+[101.859s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/hook/ld_library_path_lib.sh'
+[101.860s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_perception/bin'
+[101.860s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_perception/lib/pkgconfig/rc26_perception.pc'
+[101.860s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_perception/lib/python3.10/site-packages'
+[101.860s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_perception/bin'
+[101.861s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/package.ps1'
+[101.861s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/package.dsv'
+[101.861s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/package.sh'
+[101.862s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/package.bash'
+[101.862s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/package.zsh'
+[101.863s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/rc26_perception/share/colcon-core/packages/rc26_perception)
+[101.863s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(rc26_perception)
+[101.863s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_perception' for CMake module files
+[101.864s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_perception' for CMake config files
+[101.864s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_perception', 'cmake_prefix_path')
+[101.865s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/hook/cmake_prefix_path.ps1'
+[101.865s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/hook/cmake_prefix_path.dsv'
+[101.865s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/hook/cmake_prefix_path.sh'
+[101.866s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_perception/lib'
+[101.866s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_perception', 'ld_library_path_lib')
+[101.866s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/hook/ld_library_path_lib.ps1'
+[101.866s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/hook/ld_library_path_lib.dsv'
+[101.866s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/hook/ld_library_path_lib.sh'
+[101.867s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_perception/bin'
+[101.867s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_perception/lib/pkgconfig/rc26_perception.pc'
+[101.867s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_perception/lib/python3.10/site-packages'
+[101.867s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_perception/bin'
+[101.868s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/package.ps1'
+[101.868s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/package.dsv'
+[101.869s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/package.sh'
+[101.869s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/package.bash'
+[101.869s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_perception/share/rc26_perception/package.zsh'
+[101.870s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/rc26_perception/share/colcon-core/packages/rc26_perception)
+[101.870s] [34mcolcon.colcon_ros.task.ament_cmake.build[0m [1;30mINFO[0m Building ROS package in '/home/potato/RC_2026/RC_2026_1/rc26_sensor_scan' with build type 'ament_cmake'
+[101.870s] [34mcolcon.colcon_cmake.task.cmake.build[0m [1;30mINFO[0m Building CMake package in '/home/potato/RC_2026/RC_2026_1/rc26_sensor_scan'
+[101.870s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[101.871s] [34mcolcon.colcon_core.shell[0m [1;30mDEBUG[0m [32mSkip shell extension 'dsv' for command environment[0m
+[101.879s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/rc26_sensor_scan': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_sensor_scan -- -j28 -l28[0m
+[113.668s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/rc26_sensor_scan' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_sensor_scan -- -j28 -l28[0m
+[113.670s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/rc26_sensor_scan': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_sensor_scan[0m
+[113.687s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(rc26_sensor_scan)
+[113.687s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/rc26_sensor_scan' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_sensor_scan[0m
+[113.688s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_sensor_scan' for CMake module files
+[113.688s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_sensor_scan' for CMake config files
+[113.689s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_sensor_scan', 'cmake_prefix_path')
+[113.689s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/hook/cmake_prefix_path.ps1'
+[113.689s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/hook/cmake_prefix_path.dsv'
+[113.690s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/hook/cmake_prefix_path.sh'
+[113.690s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_sensor_scan/lib'
+[113.690s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_sensor_scan', 'ld_library_path_lib')
+[113.690s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/hook/ld_library_path_lib.ps1'
+[113.691s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/hook/ld_library_path_lib.dsv'
+[113.691s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/hook/ld_library_path_lib.sh'
+[113.691s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_sensor_scan/bin'
+[113.691s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_sensor_scan/lib/pkgconfig/rc26_sensor_scan.pc'
+[113.691s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_sensor_scan/lib/python3.10/site-packages'
+[113.691s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_sensor_scan/bin'
+[113.692s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/package.ps1'
+[113.692s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/package.dsv'
+[113.692s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/package.sh'
+[113.692s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/package.bash'
+[113.693s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/package.zsh'
+[113.693s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/rc26_sensor_scan/share/colcon-core/packages/rc26_sensor_scan)
+[113.693s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(rc26_sensor_scan)
+[113.693s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_sensor_scan' for CMake module files
+[113.693s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_sensor_scan' for CMake config files
+[113.694s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_sensor_scan', 'cmake_prefix_path')
+[113.694s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/hook/cmake_prefix_path.ps1'
+[113.694s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/hook/cmake_prefix_path.dsv'
+[113.694s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/hook/cmake_prefix_path.sh'
+[113.694s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_sensor_scan/lib'
+[113.694s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_sensor_scan', 'ld_library_path_lib')
+[113.695s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/hook/ld_library_path_lib.ps1'
+[113.695s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/hook/ld_library_path_lib.dsv'
+[113.695s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/hook/ld_library_path_lib.sh'
+[113.695s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_sensor_scan/bin'
+[113.695s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_sensor_scan/lib/pkgconfig/rc26_sensor_scan.pc'
+[113.695s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_sensor_scan/lib/python3.10/site-packages'
+[113.695s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_sensor_scan/bin'
+[113.696s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/package.ps1'
+[113.696s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/package.dsv'
+[113.696s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/package.sh'
+[113.696s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/package.bash'
+[113.697s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/package.zsh'
+[113.697s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/rc26_sensor_scan/share/colcon-core/packages/rc26_sensor_scan)
+[113.697s] [34mcolcon.colcon_ros.task.ament_cmake.build[0m [1;30mINFO[0m Building ROS package in '/home/potato/RC_2026/RC_2026_1/rc26_decision' with build type 'ament_cmake'
+[113.697s] [34mcolcon.colcon_cmake.task.cmake.build[0m [1;30mINFO[0m Building CMake package in '/home/potato/RC_2026/RC_2026_1/rc26_decision'
+[113.697s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[113.697s] [34mcolcon.colcon_core.shell[0m [1;30mDEBUG[0m [32mSkip shell extension 'dsv' for command environment[0m
+[113.707s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/rc26_decision': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_serial/lib:${LD_LIBRARY_PATH} /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_decision -- -j28 -l28[0m
+[124.690s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/rc26_decision' returned '0': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_serial/lib:${LD_LIBRARY_PATH} /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_decision -- -j28 -l28[0m
+[124.692s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/rc26_decision': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_serial/lib:${LD_LIBRARY_PATH} /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_decision[0m
+[124.711s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(rc26_decision)
+[124.711s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_decision' for CMake module files
+[124.711s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/rc26_decision' returned '0': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_serial/lib:${LD_LIBRARY_PATH} /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_decision[0m
+[124.712s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_decision' for CMake config files
+[124.712s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_decision', 'cmake_prefix_path')
+[124.712s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/hook/cmake_prefix_path.ps1'
+[124.713s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/hook/cmake_prefix_path.dsv'
+[124.713s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/hook/cmake_prefix_path.sh'
+[124.713s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_decision/lib'
+[124.713s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_decision', 'ld_library_path_lib')
+[124.713s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/hook/ld_library_path_lib.ps1'
+[124.714s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/hook/ld_library_path_lib.dsv'
+[124.714s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/hook/ld_library_path_lib.sh'
+[124.714s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_decision/bin'
+[124.714s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_decision/lib/pkgconfig/rc26_decision.pc'
+[124.714s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_decision/lib/python3.10/site-packages'
+[124.714s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_decision/bin'
+[124.715s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/package.ps1'
+[124.715s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/package.dsv'
+[124.715s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/package.sh'
+[124.715s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/package.bash'
+[124.715s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/package.zsh'
+[124.716s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/rc26_decision/share/colcon-core/packages/rc26_decision)
+[124.716s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(rc26_decision)
+[124.716s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_decision' for CMake module files
+[124.716s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_decision' for CMake config files
+[124.716s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_decision', 'cmake_prefix_path')
+[124.716s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/hook/cmake_prefix_path.ps1'
+[124.717s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/hook/cmake_prefix_path.dsv'
+[124.717s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/hook/cmake_prefix_path.sh'
+[124.717s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_decision/lib'
+[124.717s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_decision', 'ld_library_path_lib')
+[124.717s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/hook/ld_library_path_lib.ps1'
+[124.717s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/hook/ld_library_path_lib.dsv'
+[124.718s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/hook/ld_library_path_lib.sh'
+[124.718s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_decision/bin'
+[124.718s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_decision/lib/pkgconfig/rc26_decision.pc'
+[124.718s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_decision/lib/python3.10/site-packages'
+[124.718s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_decision/bin'
+[124.718s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/package.ps1'
+[124.719s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/package.dsv'
+[124.719s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/package.sh'
+[124.719s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/package.bash'
+[124.719s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_decision/share/rc26_decision/package.zsh'
+[124.720s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/rc26_decision/share/colcon-core/packages/rc26_decision)
+[124.720s] [34mcolcon.colcon_ros.task.cmake.build[0m [1;30mINFO[0m Building ROS package in '/home/potato/RC_2026/RC_2026_1/small_gicp' with build type 'cmake'
+[124.720s] [34mcolcon.colcon_cmake.task.cmake.build[0m [1;30mINFO[0m Building CMake package in '/home/potato/RC_2026/RC_2026_1/small_gicp'
+[124.720s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[124.720s] [34mcolcon.colcon_core.shell[0m [1;30mDEBUG[0m [32mSkip shell extension 'dsv' for command environment[0m
+[124.726s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/small_gicp': /usr/bin/cmake --build /home/potato/RC_2026/build/small_gicp -- -j28 -l28[0m
+[133.539s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/small_gicp' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/small_gicp -- -j28 -l28[0m
+[133.541s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/small_gicp': /usr/bin/cmake --install /home/potato/RC_2026/build/small_gicp[0m
+[133.550s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/small_gicp' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/small_gicp[0m
+[133.550s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('small_gicp', 'pkg_config_path')
+[133.550s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/small_gicp/share/small_gicp/hook/pkg_config_path.ps1'
+[133.551s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/small_gicp/share/small_gicp/hook/pkg_config_path.dsv'
+[133.551s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/small_gicp/share/small_gicp/hook/pkg_config_path.sh'
+[133.554s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('small_gicp', 'pkg_config_path_multiarch')
+[133.554s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/small_gicp/share/small_gicp/hook/pkg_config_path_multiarch.ps1'
+[133.554s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/small_gicp/share/small_gicp/hook/pkg_config_path_multiarch.dsv'
+[133.554s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/small_gicp/share/small_gicp/hook/pkg_config_path_multiarch.sh'
+[133.554s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(small_gicp)
+[133.555s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/small_gicp' for CMake module files
+[133.555s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/small_gicp' for CMake config files
+[133.555s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('small_gicp', 'cmake_prefix_path')
+[133.555s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/small_gicp/share/small_gicp/hook/cmake_prefix_path.ps1'
+[133.555s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/small_gicp/share/small_gicp/hook/cmake_prefix_path.dsv'
+[133.555s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/small_gicp/share/small_gicp/hook/cmake_prefix_path.sh'
+[133.556s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/small_gicp/lib'
+[133.556s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('small_gicp', 'ld_library_path_lib')
+[133.556s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/small_gicp/share/small_gicp/hook/ld_library_path_lib.ps1'
+[133.556s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/small_gicp/share/small_gicp/hook/ld_library_path_lib.dsv'
+[133.556s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/small_gicp/share/small_gicp/hook/ld_library_path_lib.sh'
+[133.556s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/small_gicp/bin'
+[133.556s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/small_gicp/lib/pkgconfig/small_gicp.pc'
+[133.557s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/small_gicp/lib/python3.10/site-packages'
+[133.557s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/small_gicp/bin'
+[133.557s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/small_gicp/share/small_gicp/package.ps1'
+[133.557s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/small_gicp/share/small_gicp/package.dsv'
+[133.558s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/small_gicp/share/small_gicp/package.sh'
+[133.558s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/small_gicp/share/small_gicp/package.bash'
+[133.558s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/small_gicp/share/small_gicp/package.zsh'
+[133.558s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/small_gicp/share/colcon-core/packages/small_gicp)
+[133.558s] [34mcolcon.colcon_ros.task.ament_cmake.build[0m [1;30mINFO[0m Building ROS package in '/home/potato/RC_2026/RC_2026_1/rc26_merge_odom' with build type 'ament_cmake'
+[133.558s] [34mcolcon.colcon_cmake.task.cmake.build[0m [1;30mINFO[0m Building CMake package in '/home/potato/RC_2026/RC_2026_1/rc26_merge_odom'
+[133.559s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[133.559s] [34mcolcon.colcon_core.shell[0m [1;30mDEBUG[0m [32mSkip shell extension 'dsv' for command environment[0m
+[133.567s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/rc26_merge_odom': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_serial/lib:${LD_LIBRARY_PATH} /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_merge_odom -- -j28 -l28[0m
+[142.422s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/rc26_merge_odom' returned '0': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_serial/lib:${LD_LIBRARY_PATH} /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_merge_odom -- -j28 -l28[0m
+[142.423s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/rc26_merge_odom': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_serial/lib:${LD_LIBRARY_PATH} /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_merge_odom[0m
+[142.443s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(rc26_merge_odom)
+[142.443s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/rc26_merge_odom' returned '0': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_serial/lib:${LD_LIBRARY_PATH} /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_merge_odom[0m
+[142.443s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_merge_odom' for CMake module files
+[142.444s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_merge_odom' for CMake config files
+[142.444s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_merge_odom', 'cmake_prefix_path')
+[142.444s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/hook/cmake_prefix_path.ps1'
+[142.444s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/hook/cmake_prefix_path.dsv'
+[142.445s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/hook/cmake_prefix_path.sh'
+[142.445s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_merge_odom/lib'
+[142.445s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_merge_odom', 'ld_library_path_lib')
+[142.445s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/hook/ld_library_path_lib.ps1'
+[142.445s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/hook/ld_library_path_lib.dsv'
+[142.445s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/hook/ld_library_path_lib.sh'
+[142.446s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_merge_odom/bin'
+[142.446s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_merge_odom/lib/pkgconfig/rc26_merge_odom.pc'
+[142.446s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_merge_odom/lib/python3.10/site-packages'
+[142.446s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_merge_odom/bin'
+[142.446s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/package.ps1'
+[142.447s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/package.dsv'
+[142.447s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/package.sh'
+[142.447s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/package.bash'
+[142.447s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/package.zsh'
+[142.447s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/rc26_merge_odom/share/colcon-core/packages/rc26_merge_odom)
+[142.448s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(rc26_merge_odom)
+[142.448s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_merge_odom' for CMake module files
+[142.448s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_merge_odom' for CMake config files
+[142.448s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_merge_odom', 'cmake_prefix_path')
+[142.448s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/hook/cmake_prefix_path.ps1'
+[142.448s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/hook/cmake_prefix_path.dsv'
+[142.449s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/hook/cmake_prefix_path.sh'
+[142.449s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_merge_odom/lib'
+[142.449s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_merge_odom', 'ld_library_path_lib')
+[142.449s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/hook/ld_library_path_lib.ps1'
+[142.449s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/hook/ld_library_path_lib.dsv'
+[142.449s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/hook/ld_library_path_lib.sh'
+[142.450s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_merge_odom/bin'
+[142.450s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_merge_odom/lib/pkgconfig/rc26_merge_odom.pc'
+[142.450s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_merge_odom/lib/python3.10/site-packages'
+[142.450s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_merge_odom/bin'
+[142.450s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/package.ps1'
+[142.450s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/package.dsv'
+[142.451s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/package.sh'
+[142.451s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/package.bash'
+[142.451s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/package.zsh'
+[142.451s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/rc26_merge_odom/share/colcon-core/packages/rc26_merge_odom)
+[142.452s] [34mcolcon.colcon_ros.task.ament_cmake.build[0m [1;30mINFO[0m Building ROS package in '/home/potato/RC_2026/RC_2026_1/rc26_bringup' with build type 'ament_cmake'
+[142.452s] [34mcolcon.colcon_cmake.task.cmake.build[0m [1;30mINFO[0m Building CMake package in '/home/potato/RC_2026/RC_2026_1/rc26_bringup'
+[142.452s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[142.452s] [34mcolcon.colcon_core.shell[0m [1;30mDEBUG[0m [32mSkip shell extension 'dsv' for command environment[0m
+[142.481s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/rc26_bringup': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_decision:/home/potato/RC_2026/install/rc26_serial:/home/potato/RC_2026/install/rc26_sensor_scan:/home/potato/RC_2026/install/rc26_perception:/home/potato/RC_2026/install/rc26_omni_controller:/home/potato/RC_2026/install/rc26_odom_interface:/home/potato/RC_2026/install/rc26_localization:/home/potato/RC_2026/install/point_lio:/home/potato/RC_2026/install/mid360_driver:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_decision:/home/potato/RC_2026/install/rc26_serial:/home/potato/RC_2026/install/rc26_sensor_scan:/home/potato/RC_2026/install/rc26_perception:/home/potato/RC_2026/install/rc26_omni_controller:/home/potato/RC_2026/install/rc26_odom_interface:/home/potato/RC_2026/install/rc26_localization:/home/potato/RC_2026/install/point_lio:/home/potato/RC_2026/install/mid360_driver:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_decision/lib:/home/potato/RC_2026/install/rc26_serial/lib:/home/potato/RC_2026/install/rc26_sensor_scan/lib:/home/potato/RC_2026/install/rc26_perception/lib:/home/potato/RC_2026/install/rc26_omni_controller/lib:/home/potato/RC_2026/install/rc26_odom_interface/lib:/home/potato/RC_2026/install/rc26_localization/lib:/home/potato/RC_2026/install/mid360_driver/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_bringup -- -j28 -l28[0m
+[142.515s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/rc26_bringup' returned '0': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_decision:/home/potato/RC_2026/install/rc26_serial:/home/potato/RC_2026/install/rc26_sensor_scan:/home/potato/RC_2026/install/rc26_perception:/home/potato/RC_2026/install/rc26_omni_controller:/home/potato/RC_2026/install/rc26_odom_interface:/home/potato/RC_2026/install/rc26_localization:/home/potato/RC_2026/install/point_lio:/home/potato/RC_2026/install/mid360_driver:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_decision:/home/potato/RC_2026/install/rc26_serial:/home/potato/RC_2026/install/rc26_sensor_scan:/home/potato/RC_2026/install/rc26_perception:/home/potato/RC_2026/install/rc26_omni_controller:/home/potato/RC_2026/install/rc26_odom_interface:/home/potato/RC_2026/install/rc26_localization:/home/potato/RC_2026/install/point_lio:/home/potato/RC_2026/install/mid360_driver:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_decision/lib:/home/potato/RC_2026/install/rc26_serial/lib:/home/potato/RC_2026/install/rc26_sensor_scan/lib:/home/potato/RC_2026/install/rc26_perception/lib:/home/potato/RC_2026/install/rc26_omni_controller/lib:/home/potato/RC_2026/install/rc26_odom_interface/lib:/home/potato/RC_2026/install/rc26_localization/lib:/home/potato/RC_2026/install/mid360_driver/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_bringup -- -j28 -l28[0m
+[142.516s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoking command in '/home/potato/RC_2026/build/rc26_bringup': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_decision:/home/potato/RC_2026/install/rc26_serial:/home/potato/RC_2026/install/rc26_sensor_scan:/home/potato/RC_2026/install/rc26_perception:/home/potato/RC_2026/install/rc26_omni_controller:/home/potato/RC_2026/install/rc26_odom_interface:/home/potato/RC_2026/install/rc26_localization:/home/potato/RC_2026/install/point_lio:/home/potato/RC_2026/install/mid360_driver:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_decision:/home/potato/RC_2026/install/rc26_serial:/home/potato/RC_2026/install/rc26_sensor_scan:/home/potato/RC_2026/install/rc26_perception:/home/potato/RC_2026/install/rc26_omni_controller:/home/potato/RC_2026/install/rc26_odom_interface:/home/potato/RC_2026/install/rc26_localization:/home/potato/RC_2026/install/point_lio:/home/potato/RC_2026/install/mid360_driver:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_decision/lib:/home/potato/RC_2026/install/rc26_serial/lib:/home/potato/RC_2026/install/rc26_sensor_scan/lib:/home/potato/RC_2026/install/rc26_perception/lib:/home/potato/RC_2026/install/rc26_omni_controller/lib:/home/potato/RC_2026/install/rc26_odom_interface/lib:/home/potato/RC_2026/install/rc26_localization/lib:/home/potato/RC_2026/install/mid360_driver/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_bringup[0m
+[142.525s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(rc26_bringup)
+[142.525s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_bringup' for CMake module files
+[142.525s] [34mcolcon.colcon_core.event_handler.log_command[0m [1;30mDEBUG[0m [32mInvoked command in '/home/potato/RC_2026/build/rc26_bringup' returned '0': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_decision:/home/potato/RC_2026/install/rc26_serial:/home/potato/RC_2026/install/rc26_sensor_scan:/home/potato/RC_2026/install/rc26_perception:/home/potato/RC_2026/install/rc26_omni_controller:/home/potato/RC_2026/install/rc26_odom_interface:/home/potato/RC_2026/install/rc26_localization:/home/potato/RC_2026/install/point_lio:/home/potato/RC_2026/install/mid360_driver:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_decision:/home/potato/RC_2026/install/rc26_serial:/home/potato/RC_2026/install/rc26_sensor_scan:/home/potato/RC_2026/install/rc26_perception:/home/potato/RC_2026/install/rc26_omni_controller:/home/potato/RC_2026/install/rc26_odom_interface:/home/potato/RC_2026/install/rc26_localization:/home/potato/RC_2026/install/point_lio:/home/potato/RC_2026/install/mid360_driver:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_decision/lib:/home/potato/RC_2026/install/rc26_serial/lib:/home/potato/RC_2026/install/rc26_sensor_scan/lib:/home/potato/RC_2026/install/rc26_perception/lib:/home/potato/RC_2026/install/rc26_omni_controller/lib:/home/potato/RC_2026/install/rc26_odom_interface/lib:/home/potato/RC_2026/install/rc26_localization/lib:/home/potato/RC_2026/install/mid360_driver/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_bringup[0m
+[142.526s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_bringup' for CMake config files
+[142.526s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_bringup', 'cmake_prefix_path')
+[142.526s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_bringup/share/rc26_bringup/hook/cmake_prefix_path.ps1'
+[142.527s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_bringup/share/rc26_bringup/hook/cmake_prefix_path.dsv'
+[142.527s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_bringup/share/rc26_bringup/hook/cmake_prefix_path.sh'
+[142.528s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_bringup/bin'
+[142.528s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_bringup/lib/pkgconfig/rc26_bringup.pc'
+[142.528s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_bringup/lib/python3.10/site-packages'
+[142.528s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_bringup/bin'
+[142.529s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_bringup/share/rc26_bringup/package.ps1'
+[142.529s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/rc26_bringup/share/rc26_bringup/package.dsv'
+[142.529s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_bringup/share/rc26_bringup/package.sh'
+[142.530s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_bringup/share/rc26_bringup/package.bash'
+[142.530s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_bringup/share/rc26_bringup/package.zsh'
+[142.530s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/rc26_bringup/share/colcon-core/packages/rc26_bringup)
+[142.531s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_environment_scripts_only(rc26_bringup)
+[142.531s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_bringup' for CMake module files
+[142.532s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_bringup' for CMake config files
+[142.532s] [34mcolcon.colcon_core.shell[0m [1;30mLevel 1[0m create_environment_hook('rc26_bringup', 'cmake_prefix_path')
+[142.532s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_bringup/share/rc26_bringup/hook/cmake_prefix_path.ps1'
+[142.532s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment descriptor '/home/potato/RC_2026/install/rc26_bringup/share/rc26_bringup/hook/cmake_prefix_path.dsv'
+[142.533s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating environment hook '/home/potato/RC_2026/install/rc26_bringup/share/rc26_bringup/hook/cmake_prefix_path.sh'
+[142.533s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_bringup/bin'
+[142.533s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_bringup/lib/pkgconfig/rc26_bringup.pc'
+[142.533s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_bringup/lib/python3.10/site-packages'
+[142.534s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m checking '/home/potato/RC_2026/install/rc26_bringup/bin'
+[142.534s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_bringup/share/rc26_bringup/package.ps1'
+[142.535s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package descriptor '/home/potato/RC_2026/install/rc26_bringup/share/rc26_bringup/package.dsv'
+[142.535s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_bringup/share/rc26_bringup/package.sh'
+[142.535s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_bringup/share/rc26_bringup/package.bash'
+[142.536s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating package script '/home/potato/RC_2026/install/rc26_bringup/share/rc26_bringup/package.zsh'
+[142.536s] [34mcolcon.colcon_core.environment[0m [1;30mLevel 1[0m create_file_with_runtime_dependencies(/home/potato/RC_2026/install/rc26_bringup/share/colcon-core/packages/rc26_bringup)
+[142.536s] [34mcolcon.colcon_parallel_executor.executor.parallel[0m [1;30mDEBUG[0m [32mclosing loop[0m
+[142.537s] [34mcolcon.colcon_parallel_executor.executor.parallel[0m [1;30mDEBUG[0m [32mloop closed[0m
+[142.537s] [34mcolcon.colcon_parallel_executor.executor.parallel[0m [1;30mDEBUG[0m [32mrun_until_complete finished with '0'[0m
+[142.537s] [34mcolcon.colcon_core.event_reactor[0m [1;30mDEBUG[0m [32mjoining thread[0m
+[142.542s] [34mcolcon.colcon_core.plugin_system[0m [1;30mINFO[0m Skipping extension 'colcon_notification.desktop_notification.terminal_notifier': Not used on non-Darwin systems
+[142.542s] [34mcolcon.colcon_core.plugin_system[0m [1;30mINFO[0m Skipping extension 'colcon_notification.desktop_notification.win32': Not used on non-Windows systems
+[142.542s] [34mcolcon.colcon_notification.desktop_notification[0m [1;30mINFO[0m Sending desktop notification using 'notify2'
+[142.558s] [34mcolcon.colcon_core.event_reactor[0m [1;30mDEBUG[0m [32mjoined thread[0m
+[142.559s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating prefix script '/home/potato/RC_2026/install/local_setup.ps1'
+[142.560s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating prefix util module '/home/potato/RC_2026/install/_local_setup_util_ps1.py'
+[142.562s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating prefix chain script '/home/potato/RC_2026/install/setup.ps1'
+[142.563s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating prefix script '/home/potato/RC_2026/install/local_setup.sh'
+[142.564s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating prefix util module '/home/potato/RC_2026/install/_local_setup_util_sh.py'
+[142.564s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating prefix chain script '/home/potato/RC_2026/install/setup.sh'
+[142.565s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating prefix script '/home/potato/RC_2026/install/local_setup.bash'
+[142.566s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating prefix chain script '/home/potato/RC_2026/install/setup.bash'
+[142.567s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating prefix script '/home/potato/RC_2026/install/local_setup.zsh'
+[142.567s] [34mcolcon.colcon_core.shell[0m [1;30mINFO[0m Creating prefix chain script '/home/potato/RC_2026/install/setup.zsh'

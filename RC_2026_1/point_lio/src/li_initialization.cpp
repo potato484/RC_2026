@@ -112,6 +112,7 @@ void imu_cbk(const sensor_msgs::msg::Imu::ConstSharedPtr & msg_in)
 
 bool sync_packages(MeasureGroup & meas)
 {
+  std::lock_guard<std::mutex> lock(mtx_buffer);
   {
     if (!imu_en) {
       if (!lidar_buffer.empty()) {

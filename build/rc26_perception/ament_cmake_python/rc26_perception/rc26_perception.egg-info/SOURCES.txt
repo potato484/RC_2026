@@ -1,0 +1,9 @@
+setup.py
+rc26_perception/__init__.py
+rc26_perception.egg-info/PKG-INFO
+rc26_perception.egg-info/SOURCES.txt
+rc26_perception.egg-info/dependency_links.txt
+rc26_perception.egg-info/top_level.txt
+rc26_perception/msg/__init__.py
+rc26_perception/msg/_block_detection.py
+rc26_perception/msg/_block_detections.py

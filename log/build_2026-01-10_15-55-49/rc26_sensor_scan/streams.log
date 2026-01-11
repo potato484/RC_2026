@@ -1,0 +1,125 @@
+[0.005s] Invoking command in '/home/potato/RC_2026/build/rc26_sensor_scan': /usr/bin/cmake /home/potato/RC_2026/RC_2026_1/rc26_sensor_scan -DCMAKE_INSTALL_PREFIX=/home/potato/RC_2026/install/rc26_sensor_scan
+[0.050s] -- The C compiler identification is GNU 11.4.0
+[0.093s] -- The CXX compiler identification is GNU 11.4.0
+[0.098s] -- Detecting C compiler ABI info
+[0.155s] -- Detecting C compiler ABI info - done
+[0.161s] -- Check for working C compiler: /usr/bin/cc - skipped
+[0.161s] -- Detecting C compile features
+[0.161s] -- Detecting C compile features - done
+[0.163s] -- Detecting CXX compiler ABI info
+[0.231s] -- Detecting CXX compiler ABI info - done
+[0.237s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[0.237s] -- Detecting CXX compile features
+[0.237s] -- Detecting CXX compile features - done
+[0.239s] -- Found ament_cmake_auto: 1.3.12 (/opt/ros/humble/share/ament_cmake_auto/cmake)
+[0.350s] -- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter 
+[0.487s] -- Found rosidl_generator_c: 3.1.7 (/opt/ros/humble/share/rosidl_generator_c/cmake)
+[0.490s] -- Found rosidl_adapter: 3.1.7 (/opt/ros/humble/share/rosidl_adapter/cmake)
+[0.495s] -- Found rosidl_generator_cpp: 3.1.7 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)
+[0.503s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[0.513s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[0.541s] -- Found rmw_implementation_cmake: 6.1.2 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)
+[0.543s] -- Found rmw_fastrtps_cpp: 6.2.9 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)
+[0.614s] -- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.0.2")  
+[0.634s] -- Found FastRTPS: /opt/ros/humble/include  
+[0.667s] -- Using RMW implementation 'rmw_fastrtps_cpp' as default
+[0.674s] -- Looking for pthread.h
+[0.736s] -- Looking for pthread.h - found
+[0.736s] -- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+[0.797s] -- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+[0.799s] -- Found Threads: TRUE  
+[0.914s] -- Checking for module 'eigen3'
+[0.927s] --   Found eigen3, version 3.4.0
+[0.956s] -- Found Eigen: /usr/include/eigen3 (Required is at least version "3.1") 
+[0.956s] -- Eigen found (include: /usr/include/eigen3, version: 3.4.0)
+[0.983s] -- Checking for module 'flann'
+[0.995s] --   Found flann, version 1.9.1
+[1.033s] -- Found FLANN: /usr/lib/x86_64-linux-gnu/libflann_cpp.so  
+[1.033s] -- FLANN found (include: /usr/include, lib: /usr/lib/x86_64-linux-gnu/libflann_cpp.so)
+[1.797s] -- Checking for module 'libusb-1.0'
+[1.809s] --   Found libusb-1.0, version 1.0.25
+[1.842s] -- Found libusb: /usr/lib/x86_64-linux-gnu/libusb-1.0.so  
+[1.843s] -- OpenNI found (version: 1.5.4.0, include: /usr/include/ni, lib: /usr/lib/libOpenNI.so;libusb::libusb)
+[1.893s] -- OpenNI2 found (version: 2.2.0.33, include: /usr/include/openni2, lib: /usr/lib/x86_64-linux-gnu/libOpenNI2.so;libusb::libusb)
+[2.008s] -- Eigen found (include: /usr/include/eigen3, version: 3.4.0)
+[2.013s] -- OpenNI found (version: 1.5.4.0, include: /usr/include/ni, lib: /usr/lib/libOpenNI.so;libusb::libusb)
+[2.019s] -- OpenNI2 found (version: 2.2.0.33, include: /usr/include/openni2, lib: /usr/lib/x86_64-linux-gnu/libOpenNI2.so;libusb::libusb)
+[2.128s] -- Found Qhull version 8.0.2
+[2.244s] -- OpenNI found (version: 1.5.4.0, include: /usr/include/ni, lib: /usr/lib/libOpenNI.so;libusb::libusb)
+[2.349s] -- Found PCL_COMMON: /usr/lib/x86_64-linux-gnu/libpcl_common.so  
+[2.350s] -- Found PCL_KDTREE: /usr/lib/x86_64-linux-gnu/libpcl_kdtree.so  
+[2.351s] -- Found PCL_OCTREE: /usr/lib/x86_64-linux-gnu/libpcl_octree.so  
+[2.351s] -- Found PCL_SEARCH: /usr/lib/x86_64-linux-gnu/libpcl_search.so  
+[2.352s] -- Found PCL_SAMPLE_CONSENSUS: /usr/lib/x86_64-linux-gnu/libpcl_sample_consensus.so  
+[2.353s] -- Found PCL_FILTERS: /usr/lib/x86_64-linux-gnu/libpcl_filters.so  
+[2.353s] -- Found PCL_2D: /usr/include/pcl-1.12  
+[2.353s] -- Found PCL_GEOMETRY: /usr/include/pcl-1.12  
+[2.354s] -- Found PCL_IO: /usr/lib/x86_64-linux-gnu/libpcl_io.so  
+[2.355s] -- Found PCL_FEATURES: /usr/lib/x86_64-linux-gnu/libpcl_features.so  
+[2.355s] -- Found PCL_ML: /usr/lib/x86_64-linux-gnu/libpcl_ml.so  
+[2.356s] -- Found PCL_SEGMENTATION: /usr/lib/x86_64-linux-gnu/libpcl_segmentation.so  
+[2.357s] -- Found PCL_VISUALIZATION: /usr/lib/x86_64-linux-gnu/libpcl_visualization.so  
+[2.357s] -- Found PCL_SURFACE: /usr/lib/x86_64-linux-gnu/libpcl_surface.so  
+[2.358s] -- Found PCL_REGISTRATION: /usr/lib/x86_64-linux-gnu/libpcl_registration.so  
+[2.359s] -- Found PCL_KEYPOINTS: /usr/lib/x86_64-linux-gnu/libpcl_keypoints.so  
+[2.359s] -- Found PCL_TRACKING: /usr/lib/x86_64-linux-gnu/libpcl_tracking.so  
+[2.360s] -- Found PCL_RECOGNITION: /usr/lib/x86_64-linux-gnu/libpcl_recognition.so  
+[2.361s] -- Found PCL_STEREO: /usr/lib/x86_64-linux-gnu/libpcl_stereo.so  
+[2.361s] -- Found PCL_APPS: /usr/lib/x86_64-linux-gnu/libpcl_apps.so  
+[2.362s] -- Found PCL_IN_HAND_SCANNER: /usr/include/pcl-1.12  
+[2.362s] -- Found PCL_MODELER: /usr/include/pcl-1.12  
+[2.362s] -- Found PCL_POINT_CLOUD_EDITOR: /usr/include/pcl-1.12  
+[2.363s] -- Found PCL_OUTOFCORE: /usr/lib/x86_64-linux-gnu/libpcl_outofcore.so  
+[2.364s] -- Found PCL_PEOPLE: /usr/lib/x86_64-linux-gnu/libpcl_people.so  
+[2.383s] -- Found eigen3_cmake_module: 0.1.1 (/opt/ros/humble/share/eigen3_cmake_module/cmake)
+[2.384s] -- Found Eigen3: TRUE (found version "3.4.0") 
+[2.384s] -- Ensuring Eigen3 include directory is part of orocos-kdl CMake target
+[2.442s] -- Found ament_lint_auto: 0.12.14 (/opt/ros/humble/share/ament_lint_auto/cmake)
+[2.449s] -- Added test 'clang_format' to check C / C++ code style
+[2.449s] -- Added test 'clang_tidy' to check C / C++ code style
+[2.450s] -- Added test 'black' to check Python code style
+[2.451s] -- Configuring done
+[2.482s] -- Generating done
+[2.489s] -- Build files have been written to: /home/potato/RC_2026/build/rc26_sensor_scan
+[2.500s] Invoked command in '/home/potato/RC_2026/build/rc26_sensor_scan' returned '0': /usr/bin/cmake /home/potato/RC_2026/RC_2026_1/rc26_sensor_scan -DCMAKE_INSTALL_PREFIX=/home/potato/RC_2026/install/rc26_sensor_scan
+[2.502s] Invoking command in '/home/potato/RC_2026/build/rc26_sensor_scan': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_sensor_scan -- -j28 -l28
+[2.548s] [ 25%] [32mBuilding CXX object CMakeFiles/rc26_sensor_scan_node.dir/rclcpp_components/node_main_rc26_sensor_scan_node.cpp.o[0m
+[2.550s] [ 50%] [32mBuilding CXX object CMakeFiles/rc26_sensor_scan.dir/src/sensor_scan.cpp.o[0m
+[4.486s] [ 75%] [32m[1mLinking CXX executable rc26_sensor_scan_node[0m
+[4.572s] [ 75%] Built target rc26_sensor_scan_node
+[13.321s] [100%] [32m[1mLinking CXX shared library librc26_sensor_scan.so[0m
+[14.238s] [100%] Built target rc26_sensor_scan
+[14.249s] Invoked command in '/home/potato/RC_2026/build/rc26_sensor_scan' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_sensor_scan -- -j28 -l28
+[14.251s] Invoking command in '/home/potato/RC_2026/build/rc26_sensor_scan': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_sensor_scan
+[14.256s] -- Install configuration: ""
+[14.256s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/lib/rc26_sensor_scan/rc26_sensor_scan_node
+[14.257s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_sensor_scan/lib/rc26_sensor_scan/rc26_sensor_scan_node" to ""
+[14.257s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/include/rc26_sensor_scan
+[14.257s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/include/rc26_sensor_scan/rc26_sensor_scan
+[14.257s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/include/rc26_sensor_scan/rc26_sensor_scan/sensor_scan.hpp
+[14.257s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/environment/library_path.sh
+[14.257s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/environment/library_path.dsv
+[14.257s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/lib/librc26_sensor_scan.so
+[14.263s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_sensor_scan/lib/librc26_sensor_scan.so" to ""
+[14.263s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/launch
+[14.263s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/launch/sensor_scan_generation.launch.py
+[14.264s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/ament_index/resource_index/package_run_dependencies/rc26_sensor_scan
+[14.264s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/ament_index/resource_index/parent_prefix_path/rc26_sensor_scan
+[14.264s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/environment/ament_prefix_path.sh
+[14.264s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/environment/ament_prefix_path.dsv
+[14.264s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/environment/path.sh
+[14.264s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/environment/path.dsv
+[14.264s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/local_setup.bash
+[14.264s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/local_setup.sh
+[14.264s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/local_setup.zsh
+[14.264s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/local_setup.dsv
+[14.264s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/package.dsv
+[14.264s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/ament_index/resource_index/packages/rc26_sensor_scan
+[14.265s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/ament_index/resource_index/rclcpp_components/rc26_sensor_scan
+[14.265s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/cmake/ament_cmake_export_dependencies-extras.cmake
+[14.265s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/cmake/ament_cmake_export_include_directories-extras.cmake
+[14.265s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/cmake/ament_cmake_export_libraries-extras.cmake
+[14.265s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/cmake/rc26_sensor_scanConfig.cmake
+[14.265s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/cmake/rc26_sensor_scanConfig-version.cmake
+[14.265s] -- Installing: /home/potato/RC_2026/install/rc26_sensor_scan/share/rc26_sensor_scan/package.xml
+[14.266s] Invoked command in '/home/potato/RC_2026/build/rc26_sensor_scan' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_sensor_scan

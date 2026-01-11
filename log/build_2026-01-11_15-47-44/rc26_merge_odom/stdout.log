@@ -1,0 +1,79 @@
+-- Found ament_cmake: 1.3.12 (/opt/ros/humble/share/ament_cmake/cmake)
+-- Found rclcpp: 16.0.16 (/opt/ros/humble/share/rclcpp/cmake)
+-- Found rosidl_generator_c: 3.1.7 (/opt/ros/humble/share/rosidl_generator_c/cmake)
+-- Found rosidl_adapter: 3.1.7 (/opt/ros/humble/share/rosidl_adapter/cmake)
+-- Found rosidl_generator_cpp: 3.1.7 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)
+-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+-- Found rmw_implementation_cmake: 6.1.2 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)
+-- Found rmw_fastrtps_cpp: 6.2.9 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)
+-- Using RMW implementation 'rmw_fastrtps_cpp' as default
+-- Found nav_msgs: 4.9.0 (/opt/ros/humble/share/nav_msgs/cmake)
+-- Found sensor_msgs: 4.9.0 (/opt/ros/humble/share/sensor_msgs/cmake)
+-- Found tf2: 0.25.17 (/opt/ros/humble/share/tf2/cmake)
+-- Found tf2_ros: 0.25.17 (/opt/ros/humble/share/tf2_ros/cmake)
+-- Found rc26_serial: 0.1.0 (/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/cmake)
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/potato/RC_2026/build/rc26_merge_odom
+[35m[1mConsolidate compiler generated dependencies of target can_odom[0m
+[35m[1mConsolidate compiler generated dependencies of target dm_imu_driver[0m
+[35m[1mConsolidate compiler generated dependencies of target pose_sender[0m
+[  6%] [32mBuilding CXX object CMakeFiles/single_wheel_test_node.dir/src/single_wheel_test_node.cpp.o[0m
+[ 18%] Built target can_odom
+[ 31%] Built target dm_imu_driver
+[ 43%] Built target pose_sender
+[35m[1mConsolidate compiler generated dependencies of target can_odom_node[0m
+[35m[1mConsolidate compiler generated dependencies of target pose_sender_node[0m
+[35m[1mConsolidate compiler generated dependencies of target dm_imu_node[0m
+[35m[1mConsolidate compiler generated dependencies of target merge_odom_node[0m
+[ 62%] Built target dm_imu_node
+[ 68%] Built target pose_sender_node
+[ 81%] Built target can_odom_node
+[ 93%] Built target merge_odom_node
+[100%] [32m[1mLinking CXX executable single_wheel_test_node[0m
+[100%] Built target single_wheel_test_node
+-- Install configuration: ""
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/lib/libcan_odom.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/lib/libpose_sender.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/lib/libdm_imu_driver.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/lib/rc26_merge_odom/can_odom_node
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/lib/rc26_merge_odom/pose_sender_node
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/lib/rc26_merge_odom/merge_odom_node
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/lib/rc26_merge_odom/dm_imu_node
+-- Installing: /home/potato/RC_2026/install/rc26_merge_odom/lib/rc26_merge_odom/single_wheel_test_node
+-- Set runtime path of "/home/potato/RC_2026/install/rc26_merge_odom/lib/rc26_merge_odom/single_wheel_test_node" to ""
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/include
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/include/rc26_merge_odom
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/include/rc26_merge_odom/pose_sender.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/include/rc26_merge_odom/can_odom.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/include/rc26_merge_odom/dm_protocol.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/include/rc26_merge_odom/dm_imu_driver.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/config
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/config/merge_odom_params.yaml
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/config/ekf_params.yaml
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/launch
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/launch/dm_imu_only.launch.py
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/launch/merge_odom.launch.py
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/launch/dm_imu.launch.py
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/launch/can_odom_only.launch.py
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/environment/library_path.sh
+-- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/environment/library_path.dsv
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/ament_index/resource_index/package_run_dependencies/rc26_merge_odom
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/ament_index/resource_index/parent_prefix_path/rc26_merge_odom
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/environment/ament_prefix_path.sh
+-- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/environment/ament_prefix_path.dsv
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/environment/path.sh
+-- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/environment/path.dsv
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/local_setup.bash
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/local_setup.sh
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/local_setup.zsh
+-- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/local_setup.dsv
+-- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/package.dsv
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/ament_index/resource_index/packages/rc26_merge_odom
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/cmake/ament_cmake_export_include_directories-extras.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/cmake/ament_cmake_export_libraries-extras.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/cmake/ament_cmake_export_dependencies-extras.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/cmake/rc26_merge_odomConfig.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/cmake/rc26_merge_odomConfig-version.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/package.xml

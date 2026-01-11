@@ -1,0 +1,7 @@
+{
+  "package_name": "rc26_perception",
+  "non_idl_tuples": [
+    "/home/potato/RC_2026/RC_2026_1/rc26_perception:msg/BlockDetection.msg",
+    "/home/potato/RC_2026/RC_2026_1/rc26_perception:msg/BlockDetections.msg"
+  ]
+}

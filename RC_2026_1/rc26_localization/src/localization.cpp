@@ -6,8 +6,10 @@
 
 #include "rc26_localization/localization.hpp"
 
+#include <cstddef>
 #include <limits>
 #include <thread>
+#include <utility>
 
 #include "pcl/common/transforms.h"
 #include "pcl/features/fpfh_omp.h"
@@ -160,8 +162,11 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions & options)
     previous_result_t_ = result_t_;
   }
   
-  // [修复] 初始化配准成功时间
-  last_successful_registration_time_ = this->now();
+  // 初始化配准成功时间（线程安全）
+  {
+    std::lock_guard<std::mutex> lock(registration_time_mutex_);
+    last_successful_registration_time_ = this->now();
+  }
 
   // 初始化点云
   accumulated_cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
@@ -246,6 +251,18 @@ bool LocalizationNode::prepareTargetMap()
       pcl::PointCloud<pcl::PointXYZ>, pcl::PointCloud<pcl::PointCovariance>>(
       *global_map_, global_leaf_size_);
   }
+
+  // 目标地图空检查
+  size_t min_points_for_map = static_cast<size_t>(
+    min_points_for_registration_ > 0 ? min_points_for_registration_ : 1);
+  if (!target_ || target_->size() < min_points_for_map) {
+    target_ready_ = false;
+    target_tree_.reset();
+    RCLCPP_ERROR(this->get_logger(),
+                 "先验地图点数不足: %zu < %zu，无法准备目标地图",
+                 target_ ? target_->size() : static_cast<size_t>(0), min_points_for_map);
+    return false;
+  }
   small_gicp::estimate_covariances_omp(*target_, num_neighbors_, num_threads_);
   target_tree_ = std::make_shared<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>>(
     target_, small_gicp::KdTreeBuilderOMP(num_threads_));
@@ -270,9 +287,23 @@ void LocalizationNode::registeredPcdCallback(
   pcl::PointCloud<pcl::PointXYZ>::Ptr scan(new pcl::PointCloud<pcl::PointXYZ>());
   pcl::fromROSMsg(*msg, *scan);
 
-  // 线程安全地追加点云，并限制最大点数防止OOM
+  // 线程安全地追加点云，并限制单帧追加规模防止OOM
   std::lock_guard<std::mutex> lock(cloud_mutex_);
-  if (accumulated_cloud_->size() < max_accumulated_points_) {
+  const size_t current_size = accumulated_cloud_->size();
+  if (current_size >= max_accumulated_points_) {
+    return;
+  }
+  const size_t remaining = max_accumulated_points_ - current_size;
+  const size_t scan_size = scan->size();
+  if (scan_size > remaining) {
+    accumulated_cloud_->points.insert(
+      accumulated_cloud_->points.end(),
+      scan->points.begin(),
+      scan->points.begin() + static_cast<std::ptrdiff_t>(remaining));
+    accumulated_cloud_->width = static_cast<decltype(accumulated_cloud_->width)>(
+      accumulated_cloud_->points.size());
+    accumulated_cloud_->height = 1;
+  } else {
     *accumulated_cloud_ += *scan;
   }
 }
@@ -297,7 +328,7 @@ void LocalizationNode::performRegistration()
     return;
   }
 
-  // 线程安全地获取并清空累积点云
+  // 线程安全地获取并交换累积点云（避免拷贝）
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_to_register;
   {
     std::lock_guard<std::mutex> lock(cloud_mutex_);
@@ -305,9 +336,8 @@ void LocalizationNode::performRegistration()
       RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "无累积点云数据");
       return;
     }
-    // 复制并清空
-    cloud_to_register = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(*accumulated_cloud_);
-    accumulated_cloud_->clear();
+    cloud_to_register = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+    std::swap(cloud_to_register, accumulated_cloud_);
   }
 
   // 移除 NaN 点，防止配准异常
@@ -335,8 +365,15 @@ void LocalizationNode::performRegistration()
   register_->rejector.max_dist_sq = max_dist_sq_;
   register_->optimizer.max_iterations = gicp_max_iterations_;
 
+  // 线程安全地获取初值
+  Eigen::Isometry3d initial_guess;
+  {
+    std::lock_guard<std::mutex> lock(result_mutex_);
+    initial_guess = previous_result_t_;
+  }
+
   // 执行配准
-  auto result = register_->align(*target_, *source_, *target_tree_, previous_result_t_);
+  auto result = register_->align(*target_, *source_, *target_tree_, initial_guess);
   
   // 绑架检测：使用归一化误差（平均每内点误差）
   // result.error 是总误差累加和，需要除以内点数得到可比较的指标
@@ -366,14 +403,12 @@ void LocalizationNode::performRegistration()
     std::lock_guard<std::mutex> lock(result_mutex_);
     if (result.converged) {
       result_t_ = previous_result_t_ = result.T_target_source;
-      // [修复] 配准成功，更新时间戳
-      last_successful_registration_time_ = this->now();
     } else {
       // [C1 修复] 未收敛时仍更新初值，但限制最大偏移量和旋转角度，防止配准发散
       // 计算平移差
-      Eigen::Vector3d delta_translation = 
+      Eigen::Vector3d delta_translation =
         result.T_target_source.translation() - previous_result_t_.translation();
-      
+
       // 计算旋转差 (四元数差的角度)
       Eigen::Quaterniond q_result(result.T_target_source.rotation());
       Eigen::Quaterniond q_prev(previous_result_t_.rotation());
@@ -383,28 +418,39 @@ void LocalizationNode::performRegistration()
         q_diff.coeffs() = -q_diff.coeffs();
       }
       double delta_rotation = 2.0 * std::acos(std::min(1.0, std::abs(q_diff.w())));
-      
+
       const double kMaxDeltaTranslation = max_delta_translation_;
       const double kMaxDeltaRotation = max_delta_rotation_;
-      
-      if (delta_translation.norm() < kMaxDeltaTranslation && 
+
+      if (delta_translation.norm() < kMaxDeltaTranslation &&
           delta_rotation < kMaxDeltaRotation) {
         // 偏移在合理范围内，接受结果作为下次初值
         previous_result_t_ = result.T_target_source;
-        RCLCPP_WARN(this->get_logger(), 
+        RCLCPP_WARN(this->get_logger(),
                     "GICP 配准未收敛，偏移量 %.3fm / %.2f° 可接受，更新初值",
                     delta_translation.norm(), delta_rotation * 180.0 / M_PI);
       } else {
         // 偏移过大，保持原初值不变
-        RCLCPP_WARN(this->get_logger(), 
+        RCLCPP_WARN(this->get_logger(),
                     "GICP 配准未收敛，偏移量 %.3fm / %.2f° 过大，保持原初值",
                     delta_translation.norm(), delta_rotation * 180.0 / M_PI);
       }
     }
   }
 
-  // [修复] 检查配准失败超时
-  double time_since_last_success = (this->now() - last_successful_registration_time_).seconds();
+  // 配准成功时更新时间戳（线程安全）
+  if (result.converged) {
+    std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
+    last_successful_registration_time_ = this->now();
+  }
+
+  // 检查配准失败超时
+  rclcpp::Time last_success_snapshot;
+  {
+    std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
+    last_success_snapshot = last_successful_registration_time_;
+  }
+  double time_since_last_success = (this->now() - last_success_snapshot).seconds();
   if (time_since_last_success > registration_timeout_sec_) {
     RCLCPP_ERROR(this->get_logger(), 
                  "配准失败超时 %.1f秒，触发全局重定位...",
@@ -485,16 +531,24 @@ std::vector<Eigen::Matrix4f> LocalizationNode::generateCandidateTransforms(
 {
   std::vector<Eigen::Matrix4f> candidates;
   candidates.push_back(sac_transform);
-  
+
+  // 参数校验：clamp yaw假设数量，避免除零
+  int yaw_hypotheses = num_yaw_hypotheses_;
+  if (yaw_hypotheses < 1) {
+    RCLCPP_WARN(this->get_logger(),
+                "num_yaw_hypotheses_=%d 无效，已钳制为 1", yaw_hypotheses);
+    yaw_hypotheses = 1;
+  }
+
   if (!use_multi_hypothesis_) {
     return candidates;
   }
-  
-  // [优化] 基于SAC-IA结果生成多个yaw方向的假设初值
+
+  // 基于SAC-IA结果生成多个yaw方向的假设初值
   // 绑架时previous_result_t_是错误的，应基于SAC-IA结果扰动
   // 生成不同yaw角度的候选初值（从 i=1 开始避免与 sac_transform 重复）
-  const double yaw_step = 2.0 * M_PI / num_yaw_hypotheses_;
-  for (int i = 1; i < num_yaw_hypotheses_; ++i) {
+  const double yaw_step = 2.0 * M_PI / static_cast<double>(yaw_hypotheses);
+  for (int i = 1; i < yaw_hypotheses; ++i) {
     double yaw_offset = i * yaw_step;
     Eigen::Matrix4f perturbed = sac_transform;
     Eigen::AngleAxisf rot(static_cast<float>(yaw_offset), Eigen::Vector3f::UnitZ());
@@ -513,13 +567,15 @@ void LocalizationNode::performGlobalRelocalization(
   if (global_reloc_running_.exchange(true)) {
     return;
   }
-  
+
   if (shutdown_requested_.load()) {
     global_reloc_running_.store(false);
     return;
   }
-  
-  RCLCPP_INFO(this->get_logger(), "开始 ISS + FPFH + SAC-IA + NDT + ICP 全局重定位...");
+
+  try {
+    // 异常安全保护：确保异常时标志位被正确复位
+    RCLCPP_INFO(this->get_logger(), "开始 ISS + FPFH + SAC-IA + NDT + ICP 全局重定位...");
   
   // [BUG修复] 优先使用传入的点云，避免点云丢失问题
   pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud;
@@ -750,29 +806,42 @@ void LocalizationNode::performGlobalRelocalization(
   if (any_converged && best_fitness < global_fitness_threshold_) {
     Eigen::Isometry3d map_to_odom = Eigen::Isometry3d::Identity();
     map_to_odom.matrix() = best_transform.cast<double>();
-    
+
     {
       std::lock_guard<std::mutex> lock(result_mutex_);
       result_t_ = previous_result_t_ = map_to_odom;
     }
-    
-    // [BUG修复] 全局重定位成功后也要更新配准成功时间戳，避免超时机制持续触发重定位
-    last_successful_registration_time_ = this->now();
-    
-    RCLCPP_INFO(this->get_logger(), 
+
+    // 全局重定位成功后更新配准成功时间戳（线程安全）
+    {
+      std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
+      last_successful_registration_time_ = this->now();
+    }
+
+    RCLCPP_INFO(this->get_logger(),
                 "全局重定位成功! score=%.4f, 新位置: [%.2f, %.2f, %.2f]",
                 best_fitness,
                 map_to_odom.translation().x(),
                 map_to_odom.translation().y(),
                 map_to_odom.translation().z());
   } else {
-    RCLCPP_WARN(this->get_logger(), 
+    RCLCPP_WARN(this->get_logger(),
                 "全局重定位失败: best_score=%.4f > threshold=%.4f",
                 best_fitness, global_fitness_threshold_);
   }
-  
+
   is_kidnapped_.store(false);
   global_reloc_running_.store(false);
+
+  } catch (const std::exception & ex) {
+    RCLCPP_ERROR(this->get_logger(), "全局重定位异常: %s", ex.what());
+    is_kidnapped_.store(false);
+    global_reloc_running_.store(false);
+  } catch (...) {
+    RCLCPP_ERROR(this->get_logger(), "全局重定位异常: unknown");
+    is_kidnapped_.store(false);
+    global_reloc_running_.store(false);
+  }
 }
 
 void LocalizationNode::initialPoseCallback(

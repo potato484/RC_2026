@@ -16,6 +16,7 @@
 
 #include "pcl_ros/transforms.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+#include "tf2/time.h"
 #include <cmath>
 #include <stdexcept>
 
@@ -63,6 +64,12 @@ SensorScanNode::SensorScanNode(const rclcpp::NodeOptions & options)
   require_non_empty("scan_topic", scan_topic_);
   require_non_empty("odometry_topic", odometry_topic_);
 
+  if (robot_base_frame_ != base_frame_) {
+    throw std::runtime_error(
+      "robot_base_frame (" + robot_base_frame_ + ") must equal base_frame (" +
+      base_frame_ + ") to ensure TF tree consistency");
+  }
+
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
   tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
   br_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
@@ -108,33 +115,47 @@ void SensorScanNode::laserCloudAndOdometryHandler(
     return;
   }
 
+  if (odometry_msg->child_frame_id != base_frame_) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 1000,
+      "Odometry child_frame_id (%s) != base_frame (%s), drop frame",
+      odometry_msg->child_frame_id.c_str(), base_frame_.c_str());
+    return;
+  }
+
+  if (pcd_msg->header.frame_id != odometry_msg->header.frame_id) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 1000,
+      "PointCloud frame_id (%s) != odom frame_id (%s), drop frame",
+      pcd_msg->header.frame_id.c_str(), odometry_msg->header.frame_id.c_str());
+    return;
+  }
+
   // NOTE: odometry_msg 来自 rc26_odom_interface，其 pose 表示 odom → base_link
   // child_frame_id = base_link，所以这里直接使用，不需要额外的坐标变换
   tf2::Transform tf_odom_to_base;
   tf2::fromMsg(odometry_msg->pose.pose, tf_odom_to_base);
 
-  // 查询 base_link → laser_link 的静态变换（用于点云转换）
-  auto tf_base_to_lidar = getTransform(base_frame_, lidar_frame_, cloud_stamp);
-  if (!tf_base_to_lidar) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 1000,
-      "TF %s -> %s unavailable, skip scan", base_frame_.c_str(), lidar_frame_.c_str());
-    return;
+  // 查询 base_link → laser_link 的静态变换（缓存，线程安全）
+  {
+    std::lock_guard<std::mutex> lock(odom_state_mutex_);
+    if (!base_to_lidar_) {
+      base_to_lidar_ = getStaticTransform(base_frame_, lidar_frame_);
+      if (!base_to_lidar_) {
+        return;
+      }
+    }
   }
+  const auto & tf_base_to_lidar = *base_to_lidar_;
 
   // 发布 TF: odom → base_frame
   publishTransform(tf_odom_to_base, odometry_msg->header.frame_id, base_frame_, cloud_stamp);
-  
-  // 仅当 robot_base_frame 与 base_frame 不同时才额外发布
-  if (robot_base_frame_ != base_frame_) {
-    publishTransform(tf_odom_to_base, odometry_msg->header.frame_id, robot_base_frame_, cloud_stamp);
-  }
-  
+
   publishOdometry(tf_odom_to_base, odometry_msg->header.frame_id, robot_base_frame_, cloud_stamp);
 
   // 将 odom 坐标系的点云转换到 laser_link 坐标系
   // T_laser_odom = T_laser_base * T_base_odom = tf_base_to_lidar^(-1) * tf_odom_to_base^(-1)
-  tf2::Transform tf_odom_to_lidar = tf_odom_to_base * (*tf_base_to_lidar);
+  tf2::Transform tf_odom_to_lidar = tf_odom_to_base * tf_base_to_lidar;
   sensor_msgs::msg::PointCloud2 out;
   pcl_ros::transformPointCloud(lidar_frame_, tf_odom_to_lidar.inverse(), *pcd_msg, out);
   pub_laser_cloud_->publish(out);
@@ -153,6 +174,24 @@ std::optional<tf2::Transform> SensorScanNode::getTransform(
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 1000,
       "TF lookup failed (%s -> %s): %s", target_frame.c_str(), source_frame.c_str(), ex.what());
+    return std::nullopt;
+  }
+}
+
+std::optional<tf2::Transform> SensorScanNode::getStaticTransform(
+  const std::string & target_frame, const std::string & source_frame)
+{
+  try {
+    auto transform_stamped = tf_buffer_->lookupTransform(
+      target_frame, source_frame, tf2::TimePointZero);
+    tf2::Transform transform;
+    tf2::fromMsg(transform_stamped.transform, transform);
+    return transform;
+  } catch (tf2::TransformException & ex) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 1000,
+      "Static TF lookup failed (%s -> %s): %s", target_frame.c_str(),
+      source_frame.c_str(), ex.what());
     return std::nullopt;
   }
 }
@@ -184,6 +223,8 @@ void SensorScanNode::publishOdometry(
   out.pose.pose.position.z = origin.z();
   out.pose.pose.orientation = tf2::toMsg(transform.getRotation());
 
+  std::lock_guard<std::mutex> lock(odom_state_mutex_);
+
   if (odom_state_.initialized) {
     const double dt = (stamp - odom_state_.previous_stamp).seconds();
 
@@ -214,9 +255,12 @@ void SensorScanNode::publishOdometry(
       // 角度接近零时，getAxis() 不稳定，直接输出零角速度
       if (angle > 1e-6) {
         const auto axis = q_diff.getAxis();
-        out.twist.twist.angular.x = axis.x() * angle / dt;
-        out.twist.twist.angular.y = axis.y() * angle / dt;
-        out.twist.twist.angular.z = axis.z() * angle / dt;
+        const auto angular_velocity_world = axis * angle / dt;
+        const auto angular_velocity_body =
+          transform.getRotation().inverse() * angular_velocity_world;
+        out.twist.twist.angular.x = angular_velocity_body.x();
+        out.twist.twist.angular.y = angular_velocity_body.y();
+        out.twist.twist.angular.z = angular_velocity_body.z();
       } else {
         out.twist.twist.angular.x = 0.0;
         out.twist.twist.angular.y = 0.0;

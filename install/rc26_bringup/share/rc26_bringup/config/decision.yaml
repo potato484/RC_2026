@@ -1,0 +1,122 @@
+# waypoint_decision 决策系统配置
+
+waypoint_patrol:
+  ros__parameters:
+    # 行为树配置
+    tree_xml_file: ""
+    tick_period_ms: 100
+    groot_port: 5557
+    
+    # 导航参数
+    global_frame: map
+    robot_frame: base_link
+    odom_topic: odometry   # rc26_sensor_scan 输出的带速度里程计
+    arrive_threshold: 0.3
+    
+    # Nav2 相关
+    send_goal_timeout_ms: 1000
+    
+    # 串口通信
+    enable_serial: false
+    serial_port: "/dev/ttyUSB0"
+    serial_baudrate: 115200
+    pose_publish_rate: 50.0
+    
+    # 位姿发布模式配置
+    # pose_use_odom_frame: 
+    #   true  = 使用 odom 坐标系（低延迟，适合闭环控制，推荐）
+    #   false = 使用 map 坐标系（包含定位结果，有 GICP 配准延迟）
+    pose_use_odom_frame: true
+    pose_max_tf_age_sec: 0.5  # 数据过时阈值（秒）
+
+    # 路径点（默认示例，可通过 launch 覆盖）
+    waypoint_names:
+      - "start_point"
+      - "pick_point"
+      - "assembly_point"
+      - "stair_entry"
+      - "stair_exit"
+      - "slope_point"
+      - "place_point"
+      - "end_point"
+
+    waypoints:
+      start_point:
+        x: 0.0
+        y: 0.0
+        z: 0.0
+        qx: 0.0
+        qy: 0.0
+        qz: 0.0
+        qw: 1.0
+        action_type: 0
+
+      pick_point:
+        x: 1.0
+        y: 0.0
+        z: 0.0
+        qx: 0.0
+        qy: 0.0
+        qz: 0.0
+        qw: 1.0
+        action_type: 1
+
+      assembly_point:
+        x: 2.0
+        y: 0.0
+        z: 0.0
+        qx: 0.0
+        qy: 0.0
+        qz: 0.0
+        qw: 1.0
+        action_type: 2
+
+      stair_entry:
+        x: 3.0
+        y: 0.0
+        z: 0.0
+        qx: 0.0
+        qy: 0.0
+        qz: 0.0
+        qw: 1.0
+        action_type: 3
+
+      stair_exit:
+        x: 4.0
+        y: 0.0
+        z: 0.0
+        qx: 0.0
+        qy: 0.0
+        qz: 0.0
+        qw: 1.0
+        action_type: 4
+
+      slope_point:
+        x: 5.0
+        y: 0.0
+        z: 0.0
+        qx: 0.0
+        qy: 0.0
+        qz: 0.0
+        qw: 1.0
+        action_type: 5
+
+      place_point:
+        x: 6.0
+        y: 0.0
+        z: 0.0
+        qx: 0.0
+        qy: 0.0
+        qz: 0.0
+        qw: 1.0
+        action_type: 6
+
+      end_point:
+        x: 7.0
+        y: 0.0
+        z: 0.0
+        qx: 0.0
+        qy: 0.0
+        qz: 0.0
+        qw: 1.0
+        action_type: 0

@@ -246,10 +246,15 @@ geometry_msgs::msg::TwistStamped OmniPidPursuitController::computeVelocityComman
   double lin_dist = hypot(carrot_pose.pose.position.x, carrot_pose.pose.position.y);
   double theta_dist = atan2(carrot_pose.pose.position.y, carrot_pose.pose.position.x);
   double angle_to_goal = tf2::getYaw(carrot_pose.pose.orientation);
+  double goal_dist = hypot(
+    transformed_plan.poses.back().pose.position.x,
+    transformed_plan.poses.back().pose.position.y);
 
   if (use_rotate_to_heading_) {
     angle_to_goal = tf2::getYaw(transformed_plan.poses.back().pose.orientation);
-    if (fabs(angle_to_goal) > use_rotate_to_heading_threshold_) {
+    double rotate_to_heading_dist = std::min(approach_velocity_scaling_dist_, lookahead_dist_);
+    if (goal_dist < rotate_to_heading_dist &&
+        fabs(angle_to_goal) > use_rotate_to_heading_threshold_) {
       lin_dist = 0;
     }
   }
@@ -260,6 +265,7 @@ geometry_msgs::msg::TwistStamped OmniPidPursuitController::computeVelocityComman
   applyCurvatureLimitation(transformed_plan, carrot_pose, lin_vel);
 
   applyApproachVelocityScaling(transformed_plan, lin_vel);
+  last_velocity_scaling_factor_ = lin_vel;
 
   // Transform local frame to global frame to use in collision checking
   nav_msgs::msg::Path costmap_frame_local_plan;
@@ -344,7 +350,9 @@ nav_msgs::msg::Path OmniPidPursuitController::transformGlobalPlan(
     stamped_pose.header.frame_id = global_plan_.header.frame_id;
     stamped_pose.header.stamp = robot_pose.header.stamp;
     stamped_pose.pose = global_plan_pose.pose;
-    transformPose(costmap_ros_->getBaseFrameID(), stamped_pose, transformed_pose);
+    if (!transformPose(costmap_ros_->getBaseFrameID(), stamped_pose, transformed_pose)) {
+      throw nav2_core::PlannerException("Unable to transform global plan pose into robot frame");
+    }
     transformed_pose.pose.position.z = 0.0;
     return transformed_pose;
   };
@@ -405,6 +413,7 @@ geometry_msgs::msg::PoseStamped OmniPidPursuitController::getLookAheadPoint(
     pose.header.frame_id = prev_pose_it->header.frame_id;
     pose.header.stamp = goal_pose_it->header.stamp;
     pose.pose.position = point;
+    pose.pose.orientation = goal_pose_it->pose.orientation;
     return pose;
   }
 
@@ -572,7 +581,6 @@ void OmniPidPursuitController::applyCurvatureLimitation(
   scaled_linear_vel = std::max(scaled_linear_vel, 2.0 * min_approach_linear_velocity_);
 
   linear_vel = std::min(linear_vel, scaled_linear_vel);
-  last_velocity_scaling_factor_ = linear_vel;
 }
 
 double OmniPidPursuitController::calculateCurvature(

@@ -1,0 +1,4 @@
+source;share/rc26_merge_odom/local_setup.bash
+source;share/rc26_merge_odom/local_setup.dsv
+source;share/rc26_merge_odom/local_setup.sh
+source;share/rc26_merge_odom/local_setup.zsh

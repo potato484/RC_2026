@@ -1,0 +1,115 @@
+[0.013s] Invoking command in '/home/potato/RC_2026/build/rc26_merge_odom': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_serial/lib:${LD_LIBRARY_PATH} /usr/bin/cmake /home/potato/RC_2026/RC_2026_1/rc26_merge_odom -DCMAKE_INSTALL_PREFIX=/home/potato/RC_2026/install/rc26_merge_odom
+[0.089s] -- The C compiler identification is GNU 11.4.0
+[0.156s] -- The CXX compiler identification is GNU 11.4.0
+[0.165s] -- Detecting C compiler ABI info
+[0.249s] -- Detecting C compiler ABI info - done
+[0.259s] -- Check for working C compiler: /usr/bin/cc - skipped
+[0.259s] -- Detecting C compile features
+[0.260s] -- Detecting C compile features - done
+[0.263s] -- Detecting CXX compiler ABI info
+[0.348s] -- Detecting CXX compiler ABI info - done
+[0.353s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[0.353s] -- Detecting CXX compile features
+[0.354s] -- Detecting CXX compile features - done
+[0.356s] -- Found ament_cmake: 1.3.12 (/opt/ros/humble/share/ament_cmake/cmake)
+[0.498s] -- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter 
+[0.566s] -- Found rclcpp: 16.0.16 (/opt/ros/humble/share/rclcpp/cmake)
+[0.599s] -- Found rosidl_generator_c: 3.1.7 (/opt/ros/humble/share/rosidl_generator_c/cmake)
+[0.603s] -- Found rosidl_adapter: 3.1.7 (/opt/ros/humble/share/rosidl_adapter/cmake)
+[0.608s] -- Found rosidl_generator_cpp: 3.1.7 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)
+[0.617s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[0.628s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[0.660s] -- Found rmw_implementation_cmake: 6.1.2 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)
+[0.661s] -- Found rmw_fastrtps_cpp: 6.2.9 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)
+[0.735s] -- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.0.2")  
+[0.760s] -- Found FastRTPS: /opt/ros/humble/include  
+[0.790s] -- Using RMW implementation 'rmw_fastrtps_cpp' as default
+[0.796s] -- Looking for pthread.h
+[0.871s] -- Looking for pthread.h - found
+[0.872s] -- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+[0.946s] -- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+[0.947s] -- Found Threads: TRUE  
+[0.989s] -- Found nav_msgs: 4.9.0 (/opt/ros/humble/share/nav_msgs/cmake)
+[1.009s] -- Found sensor_msgs: 4.9.0 (/opt/ros/humble/share/sensor_msgs/cmake)
+[1.027s] -- Found tf2: 0.25.17 (/opt/ros/humble/share/tf2/cmake)
+[1.035s] -- Found tf2_ros: 0.25.17 (/opt/ros/humble/share/tf2_ros/cmake)
+[1.092s] -- Found rc26_serial: 0.1.0 (/home/potato/RC_2026/install/rc26_serial/share/rc26_serial/cmake)
+[1.142s] -- Configuring done
+[1.158s] -- Generating done
+[1.165s] -- Build files have been written to: /home/potato/RC_2026/build/rc26_merge_odom
+[1.172s] Invoked command in '/home/potato/RC_2026/build/rc26_merge_odom' returned '0': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_serial/lib:${LD_LIBRARY_PATH} /usr/bin/cmake /home/potato/RC_2026/RC_2026_1/rc26_merge_odom -DCMAKE_INSTALL_PREFIX=/home/potato/RC_2026/install/rc26_merge_odom
+[1.173s] Invoking command in '/home/potato/RC_2026/build/rc26_merge_odom': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_serial/lib:${LD_LIBRARY_PATH} /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_merge_odom -- -j28 -l28
+[1.229s] [  7%] [32mBuilding CXX object CMakeFiles/can_odom.dir/src/can_odom.cpp.o[0m
+[1.230s] [ 14%] [32mBuilding CXX object CMakeFiles/pose_sender.dir/src/pose_sender.cpp.o[0m
+[1.230s] [ 21%] [32mBuilding CXX object CMakeFiles/dm_imu_driver.dir/src/dm_imu_driver.cpp.o[0m
+[2.981s] [ 28%] [32m[1mLinking CXX shared library libdm_imu_driver.so[0m
+[3.054s] [ 28%] Built target dm_imu_driver
+[3.069s] [ 35%] [32mBuilding CXX object CMakeFiles/dm_imu_node.dir/src/dm_imu_node.cpp.o[0m
+[3.874s] [ 42%] [32m[1mLinking CXX shared library libcan_odom.so[0m
+[4.009s] [ 42%] Built target can_odom
+[4.030s] [ 50%] [32mBuilding CXX object CMakeFiles/can_odom_node.dir/src/can_odom_node.cpp.o[0m
+[5.733s] [ 57%] [32m[1mLinking CXX executable dm_imu_node[0m
+[5.828s] [ 64%] [32m[1mLinking CXX executable can_odom_node[0m
+[5.867s] [ 64%] Built target dm_imu_node
+[5.928s] [ 64%] Built target can_odom_node
+[8.003s] [ 71%] [32m[1mLinking CXX shared library libpose_sender.so[0m
+[8.375s] [ 71%] Built target pose_sender
+[8.392s] [ 78%] [32mBuilding CXX object CMakeFiles/pose_sender_node.dir/src/pose_sender_node.cpp.o[0m
+[8.392s] [ 85%] [32mBuilding CXX object CMakeFiles/merge_odom_node.dir/src/merge_odom_node.cpp.o[0m
+[10.239s] [ 92%] [32m[1mLinking CXX executable pose_sender_node[0m
+[10.246s] [100%] [32m[1mLinking CXX executable merge_odom_node[0m
+[10.391s] [100%] Built target pose_sender_node
+[10.405s] [100%] Built target merge_odom_node
+[10.414s] Invoked command in '/home/potato/RC_2026/build/rc26_merge_odom' returned '0': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_serial/lib:${LD_LIBRARY_PATH} /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_merge_odom -- -j28 -l28
+[10.415s] Invoking command in '/home/potato/RC_2026/build/rc26_merge_odom': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_serial/lib:${LD_LIBRARY_PATH} /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_merge_odom
+[10.422s] -- Install configuration: ""
+[10.422s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/lib/libcan_odom.so
+[10.423s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_merge_odom/lib/libcan_odom.so" to ""
+[10.423s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/lib/libpose_sender.so
+[10.428s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_merge_odom/lib/libpose_sender.so" to ""
+[10.428s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/lib/libdm_imu_driver.so
+[10.428s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_merge_odom/lib/libdm_imu_driver.so" to ""
+[10.428s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/lib/rc26_merge_odom/can_odom_node
+[10.428s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_merge_odom/lib/rc26_merge_odom/can_odom_node" to ""
+[10.428s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/lib/rc26_merge_odom/pose_sender_node
+[10.428s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_merge_odom/lib/rc26_merge_odom/pose_sender_node" to ""
+[10.428s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/lib/rc26_merge_odom/merge_odom_node
+[10.429s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_merge_odom/lib/rc26_merge_odom/merge_odom_node" to ""
+[10.429s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/lib/rc26_merge_odom/dm_imu_node
+[10.429s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_merge_odom/lib/rc26_merge_odom/dm_imu_node" to ""
+[10.429s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/include
+[10.429s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/include/rc26_merge_odom
+[10.429s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/include/rc26_merge_odom/pose_sender.hpp
+[10.429s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/include/rc26_merge_odom/can_odom.hpp
+[10.429s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/include/rc26_merge_odom/dm_protocol.hpp
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/include/rc26_merge_odom/dm_imu_driver.hpp
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/config
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/config/merge_odom_params.yaml
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/config/ekf_params.yaml
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/launch
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/launch/dm_imu_only.launch.py
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/launch/dm_imu_cpp.launch.py
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/launch/merge_odom.launch.py
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/launch/dm_imu.launch.py
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/launch/can_odom_only.launch.py
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/environment/library_path.sh
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/environment/library_path.dsv
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/ament_index/resource_index/package_run_dependencies/rc26_merge_odom
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/ament_index/resource_index/parent_prefix_path/rc26_merge_odom
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/environment/ament_prefix_path.sh
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/environment/ament_prefix_path.dsv
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/environment/path.sh
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/environment/path.dsv
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/local_setup.bash
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/local_setup.sh
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/local_setup.zsh
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/local_setup.dsv
+[10.430s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/package.dsv
+[10.431s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/ament_index/resource_index/packages/rc26_merge_odom
+[10.431s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/cmake/ament_cmake_export_include_directories-extras.cmake
+[10.431s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/cmake/ament_cmake_export_libraries-extras.cmake
+[10.431s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/cmake/ament_cmake_export_dependencies-extras.cmake
+[10.431s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/cmake/rc26_merge_odomConfig.cmake
+[10.431s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/cmake/rc26_merge_odomConfig-version.cmake
+[10.431s] -- Installing: /home/potato/RC_2026/install/rc26_merge_odom/share/rc26_merge_odom/package.xml
+[10.433s] Invoked command in '/home/potato/RC_2026/build/rc26_merge_odom' returned '0': AMENT_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble LD_LIBRARY_PATH=/home/potato/RC_2026/install/rc26_serial/lib:${LD_LIBRARY_PATH} /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_merge_odom

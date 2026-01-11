@@ -1,0 +1,40 @@
+[0.008s] Invoking command in '/home/potato/RC_2026/build/rc26_odom_interface': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_odom_interface -- -j28 -l28
+[0.051s] [35m[1mConsolidate compiler generated dependencies of target rc26_odom_interface_node[0m
+[0.052s] [35m[1mConsolidate compiler generated dependencies of target rc26_odom_interface[0m
+[0.065s] [ 50%] Built target rc26_odom_interface_node
+[0.073s] [ 75%] [32mBuilding CXX object CMakeFiles/rc26_odom_interface.dir/src/odom_interface.cpp.o[0m
+[8.829s] [100%] [32m[1mLinking CXX shared library librc26_odom_interface.so[0m
+[9.526s] [100%] Built target rc26_odom_interface
+[9.534s] Invoked command in '/home/potato/RC_2026/build/rc26_odom_interface' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_odom_interface -- -j28 -l28
+[9.537s] Invoking command in '/home/potato/RC_2026/build/rc26_odom_interface': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_odom_interface
+[9.546s] -- Install configuration: ""
+[9.547s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/lib/rc26_odom_interface/rc26_odom_interface_node
+[9.547s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/include/rc26_odom_interface
+[9.547s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/include/rc26_odom_interface/rc26_odom_interface
+[9.547s] -- Installing: /home/potato/RC_2026/install/rc26_odom_interface/include/rc26_odom_interface/rc26_odom_interface/odom_interface.hpp
+[9.548s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/environment/library_path.sh
+[9.548s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/environment/library_path.dsv
+[9.548s] -- Installing: /home/potato/RC_2026/install/rc26_odom_interface/lib/librc26_odom_interface.so
+[9.556s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_odom_interface/lib/librc26_odom_interface.so" to ""
+[9.556s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/launch
+[9.556s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/launch/loam_interface_launch.py
+[9.557s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/ament_index/resource_index/package_run_dependencies/rc26_odom_interface
+[9.557s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/ament_index/resource_index/parent_prefix_path/rc26_odom_interface
+[9.557s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/environment/ament_prefix_path.sh
+[9.557s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/environment/ament_prefix_path.dsv
+[9.557s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/environment/path.sh
+[9.557s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/environment/path.dsv
+[9.557s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/local_setup.bash
+[9.557s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/local_setup.sh
+[9.557s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/local_setup.zsh
+[9.557s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/local_setup.dsv
+[9.557s] -- Installing: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/package.dsv
+[9.557s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/ament_index/resource_index/packages/rc26_odom_interface
+[9.557s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/ament_index/resource_index/rclcpp_components/rc26_odom_interface
+[9.557s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/cmake/ament_cmake_export_dependencies-extras.cmake
+[9.557s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/cmake/ament_cmake_export_include_directories-extras.cmake
+[9.557s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/cmake/ament_cmake_export_libraries-extras.cmake
+[9.557s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/cmake/rc26_odom_interfaceConfig.cmake
+[9.557s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/cmake/rc26_odom_interfaceConfig-version.cmake
+[9.557s] -- Up-to-date: /home/potato/RC_2026/install/rc26_odom_interface/share/rc26_odom_interface/package.xml
+[9.559s] Invoked command in '/home/potato/RC_2026/build/rc26_odom_interface' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_odom_interface

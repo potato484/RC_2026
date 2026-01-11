@@ -276,7 +276,7 @@ void Preprocess::mid360_handler(const sensor_msgs::msg::PointCloud2::SharedPtr &
     added_pt.z = pl_orig.points[i].z;
     added_pt.intensity = pl_orig.points[i].intensity;
     // 计算相对于帧头的时间偏移，单位 ms
-    added_pt.curvature = (pl_orig.points[i].timestamp - time_head) * 1000.0;
+    added_pt.curvature = (pl_orig.points[i].timestamp - time_head) * time_unit_scale;
 
     if (
       i % point_filter_num != 0 || std::isnan(added_pt.x) || std::isnan(added_pt.y) ||
@@ -391,7 +391,10 @@ void Preprocess::velodyne_handler(const sensor_msgs::msg::PointCloud2::SharedPtr
       // int unit_size = plsize / 16;
       // int layer = i / unit_size; // pl_orig.points[i].ring;
       // std::cout << "check layer:" << unit_size << ";" << i << ";" << layer << '\n';
-      int layer = 0;
+      int layer = pl_orig.points[i].ring;
+      if (layer < 0 || layer >= N_SCANS) {
+        continue;
+      }
       double yaw_angle = atan2(added_pt.y, added_pt.x) * 57.2957;
 
       if (is_first[layer]) {

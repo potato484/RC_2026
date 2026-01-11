@@ -1,0 +1,182 @@
+-- The C compiler identification is GNU 11.4.0
+-- The CXX compiler identification is GNU 11.4.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Found ament_cmake_auto: 1.3.12 (/opt/ros/humble/share/ament_cmake_auto/cmake)
+-- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter 
+-- Found OpenMP_C: -fopenmp (found version "4.5") 
+-- Found OpenMP_CXX: -fopenmp (found version "4.5") 
+-- Found OpenMP: TRUE (found version "4.5")  
+-- Checking for module 'eigen3'
+--   Found eigen3, version 3.4.0
+-- Found Eigen: /usr/include/eigen3 (Required is at least version "3.1") 
+-- Eigen found (include: /usr/include/eigen3, version: 3.4.0)
+-- Checking for module 'flann'
+--   Found flann, version 1.9.1
+-- Found FLANN: /usr/lib/x86_64-linux-gnu/libflann_cpp.so  
+-- FLANN found (include: /usr/include, lib: /usr/lib/x86_64-linux-gnu/libflann_cpp.so)
+-- Found PCL_COMMON: /usr/lib/x86_64-linux-gnu/libpcl_common.so  
+-- Found PCL_OCTREE: /usr/lib/x86_64-linux-gnu/libpcl_octree.so  
+-- Found PCL_SEARCH: /usr/lib/x86_64-linux-gnu/libpcl_search.so  
+-- Found PCL_SAMPLE_CONSENSUS: /usr/lib/x86_64-linux-gnu/libpcl_sample_consensus.so  
+-- Found PCL_FILTERS: /usr/lib/x86_64-linux-gnu/libpcl_filters.so  
+-- Found PCL_KDTREE: /usr/lib/x86_64-linux-gnu/libpcl_kdtree.so  
+-- Found rosidl_generator_c: 3.1.7 (/opt/ros/humble/share/rosidl_generator_c/cmake)
+-- Found rosidl_adapter: 3.1.7 (/opt/ros/humble/share/rosidl_adapter/cmake)
+-- Found rosidl_generator_cpp: 3.1.7 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)
+-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+-- Found rmw_implementation_cmake: 6.1.2 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)
+-- Found rmw_fastrtps_cpp: 6.2.9 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)
+-- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.0.2")  
+-- Found FastRTPS: /opt/ros/humble/include  
+-- Using RMW implementation 'rmw_fastrtps_cpp' as default
+-- Looking for pthread.h
+-- Looking for pthread.h - found
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE  
+-- Found OpenMP_C: -fopenmp (found version "4.5") 
+-- Found OpenMP_CXX: -fopenmp (found version "4.5") 
+-- Checking for module 'libusb-1.0'
+--   Found libusb-1.0, version 1.0.25
+-- Found libusb: /usr/lib/x86_64-linux-gnu/libusb-1.0.so  
+-- OpenNI found (version: 1.5.4.0, include: /usr/include/ni, lib: /usr/lib/libOpenNI.so;libusb::libusb)
+-- OpenNI2 found (version: 2.2.0.33, include: /usr/include/openni2, lib: /usr/lib/x86_64-linux-gnu/libOpenNI2.so;libusb::libusb)
+-- Eigen found (include: /usr/include/eigen3, version: 3.4.0)
+-- OpenNI found (version: 1.5.4.0, include: /usr/include/ni, lib: /usr/lib/libOpenNI.so;libusb::libusb)
+-- OpenNI2 found (version: 2.2.0.33, include: /usr/include/openni2, lib: /usr/lib/x86_64-linux-gnu/libOpenNI2.so;libusb::libusb)
+-- Found Qhull version 8.0.2
+-- OpenNI found (version: 1.5.4.0, include: /usr/include/ni, lib: /usr/lib/libOpenNI.so;libusb::libusb)
+-- Found PCL_2D: /usr/include/pcl-1.12  
+-- Found PCL_GEOMETRY: /usr/include/pcl-1.12  
+-- Found PCL_IO: /usr/lib/x86_64-linux-gnu/libpcl_io.so  
+-- Found PCL_FEATURES: /usr/lib/x86_64-linux-gnu/libpcl_features.so  
+-- Found PCL_ML: /usr/lib/x86_64-linux-gnu/libpcl_ml.so  
+-- Found PCL_SEGMENTATION: /usr/lib/x86_64-linux-gnu/libpcl_segmentation.so  
+-- Found PCL_VISUALIZATION: /usr/lib/x86_64-linux-gnu/libpcl_visualization.so  
+-- Found PCL_SURFACE: /usr/lib/x86_64-linux-gnu/libpcl_surface.so  
+-- Found PCL_REGISTRATION: /usr/lib/x86_64-linux-gnu/libpcl_registration.so  
+-- Found PCL_KEYPOINTS: /usr/lib/x86_64-linux-gnu/libpcl_keypoints.so  
+-- Found PCL_TRACKING: /usr/lib/x86_64-linux-gnu/libpcl_tracking.so  
+-- Found PCL_RECOGNITION: /usr/lib/x86_64-linux-gnu/libpcl_recognition.so  
+-- Found PCL_STEREO: /usr/lib/x86_64-linux-gnu/libpcl_stereo.so  
+-- Found PCL_APPS: /usr/lib/x86_64-linux-gnu/libpcl_apps.so  
+-- Found PCL_IN_HAND_SCANNER: /usr/include/pcl-1.12  
+-- Found PCL_MODELER: /usr/include/pcl-1.12  
+-- Found PCL_POINT_CLOUD_EDITOR: /usr/include/pcl-1.12  
+-- Found PCL_OUTOFCORE: /usr/lib/x86_64-linux-gnu/libpcl_outofcore.so  
+-- Found PCL_PEOPLE: /usr/lib/x86_64-linux-gnu/libpcl_people.so  
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/potato/RC_2026/build/rc26_localization
+[ 28%] [32mBuilding CXX object small_gicp/CMakeFiles/small_gicp.dir/src/small_gicp/registration/registration_helper.cpp.o[0m
+[ 28%] [32mBuilding CXX object small_gicp/CMakeFiles/small_gicp.dir/src/small_gicp/registration/registration.cpp.o[0m
+[ 42%] [32mBuilding CXX object CMakeFiles/rc26_localization_node.dir/rclcpp_components/node_main_rc26_localization_node.cpp.o[0m
+[ 57%] [32m[1mLinking CXX executable rc26_localization_node[0m
+[ 57%] Built target rc26_localization_node
+[ 71%] [32m[1mLinking CXX shared library libsmall_gicp.so[0m
+[ 71%] Built target small_gicp
+[ 85%] [32mBuilding CXX object CMakeFiles/rc26_localization.dir/src/localization.cpp.o[0m
+[100%] [32m[1mLinking CXX shared library librc26_localization.so[0m
+[100%] Built target rc26_localization
+-- Install configuration: "Release"
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/factors
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/factors/general_factor.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/factors/robust_kernel.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/factors/icp_factor.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/factors/plane_icp_factor.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/factors/gicp_factor.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/points
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/points/point_cloud.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/points/traits.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/points/eigen.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/pcl
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/pcl/pcl_registration_impl.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/pcl/pcl_point_traits.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/pcl/pcl_point.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/pcl/pcl_proxy.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/pcl/pcl_registration.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/ann
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/ann/flat_container.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/ann/gaussian_voxelmap.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/ann/kdtree_omp.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/ann/kdtree.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/ann/kdtree_tbb.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/ann/traits.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/ann/projection.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/ann/incremental_voxelmap.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/ann/projective_search.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/ann/sequential_voxelmap_accessor.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/ann/knn_result.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/benchmark
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/benchmark/benchmark.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/benchmark/benchmark_odom.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/benchmark/read_points.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/registration
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/registration/registration_result.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/registration/reduction_omp.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/registration/termination_criteria.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/registration/reduction.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/registration/reduction_tbb.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/registration/registration_helper.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/registration/optimizer.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/registration/rejector.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/registration/registration.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/util
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/util/normal_estimation_tbb.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/util/downsampling_tbb.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/util/sort_omp.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/util/normal_estimation.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/util/fast_floor.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/util/lie.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/util/downsampling.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/util/downsampling_omp.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/util/vector3i_hash.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/util/sort_tbb.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/small_gicp/util/normal_estimation_omp.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/lib/libsmall_gicp.so
+-- Installing: /home/potato/RC_2026/install/rc26_localization/lib/cmake/small_gicp/small_gicp-targets.cmake
+-- Installing: /home/potato/RC_2026/install/rc26_localization/lib/cmake/small_gicp/small_gicp-targets-release.cmake
+-- Installing: /home/potato/RC_2026/install/rc26_localization/lib/cmake/small_gicp/small_gicp-config.cmake
+-- Installing: /home/potato/RC_2026/install/rc26_localization/lib/cmake/small_gicp/small_gicp-config-version.cmake
+-- Installing: /home/potato/RC_2026/install/rc26_localization/lib/rc26_localization/rc26_localization_node
+-- Set runtime path of "/home/potato/RC_2026/install/rc26_localization/lib/rc26_localization/rc26_localization_node" to ""
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/rc26_localization
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/rc26_localization/rc26_localization
+-- Installing: /home/potato/RC_2026/install/rc26_localization/include/rc26_localization/rc26_localization/localization.hpp
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/environment/library_path.sh
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/environment/library_path.dsv
+-- Installing: /home/potato/RC_2026/install/rc26_localization/lib/librc26_localization.so
+-- Set runtime path of "/home/potato/RC_2026/install/rc26_localization/lib/librc26_localization.so" to ""
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/launch
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/launch/sentry_localization.launch.py
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/ament_index/resource_index/package_run_dependencies/rc26_localization
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/ament_index/resource_index/parent_prefix_path/rc26_localization
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/environment/ament_prefix_path.sh
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/environment/ament_prefix_path.dsv
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/environment/path.sh
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/environment/path.dsv
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/local_setup.bash
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/local_setup.sh
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/local_setup.zsh
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/local_setup.dsv
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/package.dsv
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/ament_index/resource_index/packages/rc26_localization
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/ament_index/resource_index/rclcpp_components/rc26_localization
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/cmake/ament_cmake_export_dependencies-extras.cmake
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/cmake/ament_cmake_export_include_directories-extras.cmake
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/cmake/ament_cmake_export_libraries-extras.cmake
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/cmake/rc26_localizationConfig.cmake
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/cmake/rc26_localizationConfig-version.cmake
+-- Installing: /home/potato/RC_2026/install/rc26_localization/share/rc26_localization/package.xml

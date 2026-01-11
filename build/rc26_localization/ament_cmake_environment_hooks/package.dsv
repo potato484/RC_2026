@@ -1,0 +1,4 @@
+source;share/rc26_localization/local_setup.bash
+source;share/rc26_localization/local_setup.dsv
+source;share/rc26_localization/local_setup.sh
+source;share/rc26_localization/local_setup.zsh

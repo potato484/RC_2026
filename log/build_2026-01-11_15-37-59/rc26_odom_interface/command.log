@@ -1,0 +1,4 @@
+Invoking command in '/home/potato/RC_2026/build/rc26_odom_interface': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_odom_interface -- -j28 -l28
+Invoked command in '/home/potato/RC_2026/build/rc26_odom_interface' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_odom_interface -- -j28 -l28
+Invoking command in '/home/potato/RC_2026/build/rc26_odom_interface': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_odom_interface
+Invoked command in '/home/potato/RC_2026/build/rc26_odom_interface' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_odom_interface

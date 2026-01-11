@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "rc26_perception__py",
+		"source" : "/home/potato/RC_2026/build/rc26_perception/rc26_perception__py"
+	}
+}

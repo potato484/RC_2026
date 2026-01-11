@@ -20,7 +20,7 @@ find_package(rc26_serial REQUIRED)
 
 # CAN里程计库
 add_library(can_odom SHARED
-  src/can_odom.cpp
+  src/can/can_odom.cpp
 )
 target_include_directories(can_odom PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -33,7 +33,7 @@ ament_target_dependencies(can_odom
 )
 
 # CAN里程计节点
-add_executable(can_odom_node src/can_odom_node.cpp)
+add_executable(can_odom_node src/can/can_odom_node.cpp)
 target_link_libraries(can_odom_node can_odom)
 ament_target_dependencies(can_odom_node
   rclcpp
@@ -42,7 +42,7 @@ ament_target_dependencies(can_odom_node
 
 # 位姿下传库
 add_library(pose_sender SHARED
-  src/pose_sender.cpp
+  src/pose/pose_sender.cpp
 )
 target_include_directories(pose_sender PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -60,7 +60,7 @@ ament_target_dependencies(pose_sender
 )
 
 # 位姿下传节点
-add_executable(pose_sender_node src/pose_sender_node.cpp)
+add_executable(pose_sender_node src/pose/pose_sender_node.cpp)
 target_link_libraries(pose_sender_node pose_sender)
 ament_target_dependencies(pose_sender_node
   rclcpp
@@ -81,7 +81,7 @@ ament_target_dependencies(merge_odom_node
 
 # 达妙IMU驱动库
 add_library(dm_imu_driver SHARED
-  src/dm_imu_driver.cpp
+  src/imu/dm_imu_driver.cpp
 )
 target_include_directories(dm_imu_driver PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -92,11 +92,17 @@ ament_target_dependencies(dm_imu_driver
 )
 
 # 达妙IMU节点
-add_executable(dm_imu_node src/dm_imu_node.cpp)
+add_executable(dm_imu_node src/imu/dm_imu_node.cpp)
 target_link_libraries(dm_imu_node dm_imu_driver)
 ament_target_dependencies(dm_imu_node
   rclcpp
   sensor_msgs
+)
+
+# 单轮CAN测试节点
+add_executable(single_wheel_test_node src/scripts/single_wheel_test_node.cpp)
+ament_target_dependencies(single_wheel_test_node
+  rclcpp
 )
 
 # 安装C++目标
@@ -114,6 +120,7 @@ install(TARGETS
   pose_sender_node
   merge_odom_node
   dm_imu_node
+  single_wheel_test_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

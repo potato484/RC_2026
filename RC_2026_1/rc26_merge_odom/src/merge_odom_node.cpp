@@ -1,8 +1,8 @@
 // RC2026 融合里程计主节点
 // 整合CAN里程计和位姿下传功能
 #include <rclcpp/rclcpp.hpp>
-#include "rc26_merge_odom/can_odom.hpp"
-#include "rc26_merge_odom/pose_sender.hpp"
+#include "rc26_merge_odom/can/can_odom.hpp"
+#include "rc26_merge_odom/pose/pose_sender.hpp"
 #include "rc26_serial/serial_driver.hpp"
 
 class MergeOdomNode : public rclcpp::Node
@@ -20,6 +20,7 @@ public:
         this->declare_parameter("can_odom_topic", "Can_Odom");
         this->declare_parameter("odom_frame", "odom");
         this->declare_parameter("base_frame", "base_link");
+        this->declare_parameter("data_timeout_ms", 100.0);
 
         // 串口参数
         this->declare_parameter("serial_port", "/dev/ttyUSB0");
@@ -41,6 +42,7 @@ public:
         can_config.odom_topic = this->get_parameter("can_odom_topic").as_string();
         can_config.odom_frame = this->get_parameter("odom_frame").as_string();
         can_config.base_frame = this->get_parameter("base_frame").as_string();
+        can_config.data_timeout_ms = this->get_parameter("data_timeout_ms").as_double();
 
         can_odom_ = std::make_unique<rc26_merge_odom::CanOdom>(*this, can_config);
 

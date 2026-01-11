@@ -1,0 +1,131 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-Release-0d18f7e7aa0e17010ec8.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.12"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						4
+					]
+				},
+				{
+					"build" : "small_gicp",
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-small_gicp-Release-75d386c7277d446d0ecc.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 1,
+					"source" : "/home/potato/RC_2026/RC_2026_1/small_gicp",
+					"targetIndexes" : 
+					[
+						3
+					]
+				}
+			],
+			"name" : "Release",
+			"projects" : 
+			[
+				{
+					"childIndexes" : 
+					[
+						1
+					],
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "rc26_localization",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						4
+					]
+				},
+				{
+					"directoryIndexes" : 
+					[
+						1
+					],
+					"name" : "small_gicp",
+					"parentIndex" : 0,
+					"targetIndexes" : 
+					[
+						3
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "rc26_localization::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-rc26_localization-Release-88a2f6e233013eed4837.json",
+					"name" : "rc26_localization",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "rc26_localization_node::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-rc26_localization_node-Release-64c118aa0593f757873d.json",
+					"name" : "rc26_localization_node",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "rc26_localization_uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-rc26_localization_uninstall-Release-3759b3981ef2325025b9.json",
+					"name" : "rc26_localization_uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "small_gicp::@edbbe87b86ff35f627c9",
+					"jsonFile" : "target-small_gicp-Release-e7f585d4fc38f07117ec.json",
+					"name" : "small_gicp",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-uninstall-Release-c5ddf3201fd44a378215.json",
+					"name" : "uninstall",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/potato/RC_2026/build/rc26_localization",
+		"source" : "/home/potato/RC_2026/RC_2026_1/rc26_localization"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

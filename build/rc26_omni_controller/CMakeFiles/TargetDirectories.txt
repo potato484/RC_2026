@@ -1,0 +1,10 @@
+/home/potato/RC_2026/build/rc26_omni_controller/CMakeFiles/uninstall.dir
+/home/potato/RC_2026/build/rc26_omni_controller/CMakeFiles/rc26_omni_controller_uninstall.dir
+/home/potato/RC_2026/build/rc26_omni_controller/CMakeFiles/rc26_omni_controller.dir
+/home/potato/RC_2026/build/rc26_omni_controller/CMakeFiles/test.dir
+/home/potato/RC_2026/build/rc26_omni_controller/CMakeFiles/edit_cache.dir
+/home/potato/RC_2026/build/rc26_omni_controller/CMakeFiles/rebuild_cache.dir
+/home/potato/RC_2026/build/rc26_omni_controller/CMakeFiles/list_install_components.dir
+/home/potato/RC_2026/build/rc26_omni_controller/CMakeFiles/install.dir
+/home/potato/RC_2026/build/rc26_omni_controller/CMakeFiles/install/local.dir
+/home/potato/RC_2026/build/rc26_omni_controller/CMakeFiles/install/strip.dir

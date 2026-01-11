@@ -5,6 +5,7 @@
  */
 
 #include "mid360_driver_node.h"
+#include <cstring>
 
 namespace mid360_driver {
 
@@ -99,18 +100,14 @@ namespace mid360_driver {
         msg.point_step = 24;
         msg.row_step = msg.width * msg.point_step;
         msg.data.resize(msg.row_step * msg.height);
-        auto pointer = reinterpret_cast<float *>(msg.data.data());
+        auto *data_ptr = msg.data.data();
         for (const auto &point: points_to_publish) {
-            *pointer = point.x;
-            ++pointer;
-            *pointer = point.y;
-            ++pointer;
-            *pointer = point.z;
-            ++pointer;
-            *pointer = point.intensity;
-            ++pointer;
-            *reinterpret_cast<double *>(pointer) = point.timestamp;
-            pointer += 2;
+            std::memcpy(data_ptr + 0, &point.x, sizeof(float));
+            std::memcpy(data_ptr + 4, &point.y, sizeof(float));
+            std::memcpy(data_ptr + 8, &point.z, sizeof(float));
+            std::memcpy(data_ptr + 12, &point.intensity, sizeof(float));
+            std::memcpy(data_ptr + 16, &point.timestamp, sizeof(double));
+            data_ptr += msg.point_step;
         }
         msg.is_dense = true;
         pointcloud_publisher->publish(msg);
@@ -148,55 +145,61 @@ namespace mid360_driver {
                 io_context,
                 asio::ip::make_address(host_ip),
                 [this, is_topic_name_with_lidar_ip](const asio::ip::address &lidar_ip, const std::vector<Point> &points) {
-                    mutex.lock();
+                    std::lock_guard<std::mutex> lock(mutex);
                     if (is_topic_name_with_lidar_ip) {
-                        auto iter = muti_lidar_publisher.try_emplace(lidar_ip).first;
-                        iter->second.on_receive_pointcloud(points);
+                        auto [iter, inserted] = muti_lidar_publisher.try_emplace(lidar_ip, nullptr);
+                        if (inserted) {
+                            iter->second = std::make_shared<LidarPublisher>();
+                        }
+                        iter->second->on_receive_pointcloud(points);
                     } else {
                         lidar_publisher.on_receive_pointcloud(points);
                     }
-                    mutex.unlock();
                 },
                 [this, is_topic_name_with_lidar_ip](const asio::ip::address &lidar_ip, const ImuMsg &imu_msg) {
-                    mutex.lock();
+                    std::lock_guard<std::mutex> lock(mutex);
                     if (is_topic_name_with_lidar_ip) {
-                        auto iter = muti_lidar_publisher.try_emplace(lidar_ip).first;
-                        iter->second.on_receive_imu(imu_msg);
+                        auto [iter, inserted] = muti_lidar_publisher.try_emplace(lidar_ip, nullptr);
+                        if (inserted) {
+                            iter->second = std::make_shared<LidarPublisher>();
+                        }
+                        iter->second->on_receive_imu(imu_msg);
                     } else {
                         lidar_publisher.on_receive_imu(imu_msg);
                     }
-                    mutex.unlock();
                 });
         if (is_topic_name_with_lidar_ip) {
             publish_pointcloud_timer = rclcpp::create_timer(this, get_clock(), std::chrono::milliseconds(100), [this, lidar_topic, imu_topic, lidar_frame]() {
-                mutex.lock();
-                for (auto &[lidar_ip, lidar_publisher]: muti_lidar_publisher) {
-                    lidar_publisher.prepare_pointcloud_to_publish();
-                }
-                if (muti_lidar_publisher_temp.size() != muti_lidar_publisher.size()) {
-                    muti_lidar_publisher_temp.clear();
+                {
+                    std::lock_guard<std::mutex> lock(mutex);
                     for (auto &[lidar_ip, lidar_publisher]: muti_lidar_publisher) {
-                        muti_lidar_publisher_temp.emplace_back(lidar_ip, &lidar_publisher);
+                        lidar_publisher->prepare_pointcloud_to_publish();
+                    }
+                    if (muti_lidar_publisher_temp.size() != muti_lidar_publisher.size()) {
+                        muti_lidar_publisher_temp.clear();
+                        for (auto &[lidar_ip, lidar_publisher]: muti_lidar_publisher) {
+                            muti_lidar_publisher_temp.emplace_back(lidar_ip, lidar_publisher);
+                        }
                     }
                 }
-                mutex.unlock();
                 for (auto &[lidar_ip, lidar_publisher]: muti_lidar_publisher_temp) {
                     lidar_publisher->make_sure_init(*this, lidar_topic, imu_topic, lidar_ip);
                     lidar_publisher->publish_pointcloud(lidar_frame);
                 }
             });
             publish_imu_timer = rclcpp::create_timer(this, get_clock(), std::chrono::milliseconds(1), [this, lidar_topic, imu_topic, imu_frame]() {
-                mutex.lock();
-                for (auto &[lidar_ip, lidar_publisher]: muti_lidar_publisher) {
-                    lidar_publisher.prepare_imu_to_publish();
-                }
-                if (muti_lidar_publisher_temp.size() != muti_lidar_publisher.size()) {
-                    muti_lidar_publisher_temp.clear();
+                {
+                    std::lock_guard<std::mutex> lock(mutex);
                     for (auto &[lidar_ip, lidar_publisher]: muti_lidar_publisher) {
-                        muti_lidar_publisher_temp.emplace_back(lidar_ip, &lidar_publisher);
+                        lidar_publisher->prepare_imu_to_publish();
+                    }
+                    if (muti_lidar_publisher_temp.size() != muti_lidar_publisher.size()) {
+                        muti_lidar_publisher_temp.clear();
+                        for (auto &[lidar_ip, lidar_publisher]: muti_lidar_publisher) {
+                            muti_lidar_publisher_temp.emplace_back(lidar_ip, lidar_publisher);
+                        }
                     }
                 }
-                mutex.unlock();
                 for (auto &[lidar_ip, lidar_publisher]: muti_lidar_publisher_temp) {
                     lidar_publisher->make_sure_init(*this, lidar_topic, imu_topic, lidar_ip);
                     lidar_publisher->publish_imu(imu_frame);
@@ -204,15 +207,17 @@ namespace mid360_driver {
             });
         } else {
             publish_pointcloud_timer = rclcpp::create_timer(this, get_clock(), std::chrono::duration<double, std::ratio<1, 1>>(lidar_publish_time_interval), [this, lidar_frame]() {
-                mutex.lock();
-                lidar_publisher.prepare_pointcloud_to_publish();
-                mutex.unlock();
+                {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    lidar_publisher.prepare_pointcloud_to_publish();
+                }
                 lidar_publisher.publish_pointcloud(lidar_frame);
             });
             publish_imu_timer = rclcpp::create_timer(this, get_clock(), std::chrono::milliseconds(1), [this, imu_frame]() {
-                mutex.lock();
-                lidar_publisher.prepare_imu_to_publish();
-                mutex.unlock();
+                {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    lidar_publisher.prepare_imu_to_publish();
+                }
                 lidar_publisher.publish_imu(imu_frame);
             });
         }

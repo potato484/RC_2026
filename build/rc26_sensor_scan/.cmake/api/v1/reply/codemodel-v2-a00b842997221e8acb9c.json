@@ -1,0 +1,88 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-05d1928609165b3c13b5.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.12"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3
+					]
+				}
+			],
+			"name" : "",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "rc26_sensor_scan",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "rc26_sensor_scan::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-rc26_sensor_scan-c285728f17dc5bce8759.json",
+					"name" : "rc26_sensor_scan",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "rc26_sensor_scan_node::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-rc26_sensor_scan_node-906a70f67a4ad4122510.json",
+					"name" : "rc26_sensor_scan_node",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "rc26_sensor_scan_uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-rc26_sensor_scan_uninstall-f9541e4f882955d12aff.json",
+					"name" : "rc26_sensor_scan_uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-uninstall-d84c7bb27b50b8638a50.json",
+					"name" : "uninstall",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/potato/RC_2026/build/rc26_sensor_scan",
+		"source" : "/home/potato/RC_2026/RC_2026_1/rc26_sensor_scan"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

@@ -1,0 +1,182 @@
+[  4%] Built target rc26_yolo_engine
+[  6%] Built target rc26_perception__cpp
+[ 14%] Built target rc26_perception__rosidl_generator_c
+[ 18%] Built target d455_driver_node
+[ 24%] Built target rc26_perception_core
+[ 24%] Built target ament_cmake_python_copy_rc26_perception
+[ 38%] Built target rc26_perception__rosidl_typesupport_introspection_cpp
+[ 40%] Built target rc26_perception__rosidl_typesupport_c
+[ 48%] Built target rc26_perception__rosidl_typesupport_fastrtps_cpp
+[ 56%] Built target rc26_perception__rosidl_typesupport_introspection_c
+[ 64%] Built target rc26_perception__rosidl_typesupport_cpp
+[ 72%] Built target rc26_perception__rosidl_typesupport_fastrtps_c
+[ 76%] Built target visualization_node
+[ 76%] Built target rc26_perception
+[ 80%] Built target perception_node
+[ 82%] Built target rc26_perception__py
+[ 88%] Built target rc26_perception__rosidl_generator_py
+[ 92%] Built target rc26_perception__rosidl_typesupport_fastrtps_c__pyext
+[ 96%] Built target rc26_perception__rosidl_typesupport_c__pyext
+[100%] Built target rc26_perception__rosidl_typesupport_introspection_c__pyext
+running egg_info
+writing rc26_perception.egg-info/PKG-INFO
+writing dependency_links to rc26_perception.egg-info/dependency_links.txt
+writing top-level names to rc26_perception.egg-info/top_level.txt
+reading manifest file 'rc26_perception.egg-info/SOURCES.txt'
+writing manifest file 'rc26_perception.egg-info/SOURCES.txt'
+[100%] Built target ament_cmake_python_build_rc26_perception_egg
+-- Install configuration: ""
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/ament_index/resource_index/rosidl_interfaces/rc26_perception
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/block_detection.h
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/rosidl_generator_c__visibility_control.h
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/block_detections.h
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__struct.h
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__functions.h
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__type_support.h
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__struct.h
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__functions.c
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__functions.h
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__functions.c
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__type_support.h
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/environment/library_path.sh
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/environment/library_path.dsv
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_generator_c.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/rosidl_typesupport_fastrtps_c__visibility_control.h
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__rosidl_typesupport_fastrtps_c.h
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__rosidl_typesupport_fastrtps_c.h
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_typesupport_fastrtps_c.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/block_detections.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/rosidl_generator_cpp__visibility_control.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/block_detection.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__traits.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__struct.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__struct.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__builder.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__type_support.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__type_support.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__builder.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__traits.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/rosidl_typesupport_fastrtps_cpp__visibility_control.h
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/dds_fastrtps
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__rosidl_typesupport_fastrtps_cpp.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__rosidl_typesupport_fastrtps_cpp.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_typesupport_fastrtps_cpp.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/rosidl_typesupport_introspection_c__visibility_control.h
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__rosidl_typesupport_introspection_c.h
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__type_support.c
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__rosidl_typesupport_introspection_c.h
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__type_support.c
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_typesupport_introspection_c.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_typesupport_c.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__rosidl_typesupport_introspection_cpp.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__rosidl_typesupport_introspection_cpp.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__type_support.cpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__type_support.cpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_typesupport_introspection_cpp.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_typesupport_cpp.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/environment/pythonpath.sh
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/environment/pythonpath.dsv
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception-1.0.0-py3.10.egg-info
+-- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception-1.0.0-py3.10.egg-info/dependency_links.txt
+-- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception-1.0.0-py3.10.egg-info/PKG-INFO
+-- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception-1.0.0-py3.10.egg-info/top_level.txt
+-- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception-1.0.0-py3.10.egg-info/SOURCES.txt
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/rc26_perception_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/rc26_perception_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/_rc26_perception_s.ep.rosidl_typesupport_fastrtps_c.c
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/rc26_perception_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/__init__.py
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/librc26_perception__rosidl_generator_py.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/_rc26_perception_s.ep.rosidl_typesupport_introspection_c.c
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/msg
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/msg/_block_detection.py
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/msg/__init__.py
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/msg/_block_detection_s.c
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/msg/_block_detections.py
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/msg/_block_detections_s.c
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/_rc26_perception_s.ep.rosidl_typesupport_c.c
+Listing '/home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception'...
+Listing '/home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/msg'...
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/rc26_perception_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/rc26_perception_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/rc26_perception_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_generator_py.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/msg/BlockDetection.idl
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/msg/BlockDetections.idl
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/msg/BlockDetection.msg
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/msg/BlockDetections.msg
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/lib/librc26_perception_core.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/lib/librc26_yolo_engine.so
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/lib/rc26_perception/perception_node
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/lib/rc26_perception/d455_driver_node
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/lib/rc26_perception/visualization_node
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/lib/rc26_perception/visualization_node.py
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/lib/rc26_perception/export_onnx.py
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/preprocess.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/postprocess.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/yolo_engine.hpp
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/launch
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/launch/perception.launch.py
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/launch/visualization.launch.py
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/config
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/config/perception.yaml
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/ament_index/resource_index/package_run_dependencies/rc26_perception
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/ament_index/resource_index/parent_prefix_path/rc26_perception
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/environment/ament_prefix_path.sh
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/environment/ament_prefix_path.dsv
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/environment/path.sh
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/environment/path.dsv
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/local_setup.bash
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/local_setup.sh
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/local_setup.zsh
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/local_setup.dsv
+-- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/package.dsv
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/ament_index/resource_index/packages/rc26_perception
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/export_rc26_perception__rosidl_generator_cExport.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/export_rc26_perception__rosidl_generator_cExport-noconfig.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/export_rc26_perception__rosidl_typesupport_fastrtps_cExport.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/export_rc26_perception__rosidl_typesupport_fastrtps_cExport-noconfig.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/export_rc26_perception__rosidl_generator_cppExport.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/export_rc26_perception__rosidl_typesupport_fastrtps_cppExport.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/export_rc26_perception__rosidl_typesupport_fastrtps_cppExport-noconfig.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perception__rosidl_typesupport_introspection_cExport.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perception__rosidl_typesupport_introspection_cExport-noconfig.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perception__rosidl_typesupport_cExport.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perception__rosidl_typesupport_cExport-noconfig.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perception__rosidl_typesupport_introspection_cppExport.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perception__rosidl_typesupport_introspection_cppExport-noconfig.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perception__rosidl_typesupport_cppExport.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perception__rosidl_typesupport_cppExport-noconfig.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/export_rc26_perception__rosidl_generator_pyExport.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/export_rc26_perception__rosidl_generator_pyExport-noconfig.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rosidl_cmake-extras.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/ament_cmake_export_dependencies-extras.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/ament_cmake_export_include_directories-extras.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/ament_cmake_export_libraries-extras.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/ament_cmake_export_targets-extras.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rosidl_cmake_export_typesupport_targets-extras.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rosidl_cmake_export_typesupport_libraries-extras.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perceptionConfig.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perceptionConfig-version.cmake
+-- Up-to-date: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/package.xml

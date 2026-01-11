@@ -1,0 +1,313 @@
+[0.005s] Invoking command in '/home/potato/RC_2026/build/rc26_perception': /usr/bin/cmake /home/potato/RC_2026/RC_2026_1/rc26_perception -DCMAKE_INSTALL_PREFIX=/home/potato/RC_2026/install/rc26_perception
+[0.049s] -- The C compiler identification is GNU 11.4.0
+[0.095s] -- The CXX compiler identification is GNU 11.4.0
+[0.100s] -- Detecting C compiler ABI info
+[0.154s] -- Detecting C compiler ABI info - done
+[0.158s] -- Check for working C compiler: /usr/bin/cc - skipped
+[0.158s] -- Detecting C compile features
+[0.159s] -- Detecting C compile features - done
+[0.161s] -- Detecting CXX compiler ABI info
+[0.227s] -- Detecting CXX compiler ABI info - done
+[0.232s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[0.232s] -- Detecting CXX compile features
+[0.232s] -- Detecting CXX compile features - done
+[0.234s] -- Found ament_cmake: 1.3.12 (/opt/ros/humble/share/ament_cmake/cmake)
+[0.348s] -- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter 
+[0.411s] -- Found rclcpp: 16.0.16 (/opt/ros/humble/share/rclcpp/cmake)
+[0.441s] -- Found rosidl_generator_c: 3.1.7 (/opt/ros/humble/share/rosidl_generator_c/cmake)
+[0.445s] -- Found rosidl_adapter: 3.1.7 (/opt/ros/humble/share/rosidl_adapter/cmake)
+[0.450s] -- Found rosidl_generator_cpp: 3.1.7 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)
+[0.458s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[0.469s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[0.498s] -- Found rmw_implementation_cmake: 6.1.2 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)
+[0.500s] -- Found rmw_fastrtps_cpp: 6.2.9 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)
+[0.574s] -- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.0.2")  
+[0.601s] -- Found FastRTPS: /opt/ros/humble/include  
+[0.632s] -- Using RMW implementation 'rmw_fastrtps_cpp' as default
+[0.639s] -- Looking for pthread.h
+[0.695s] -- Looking for pthread.h - found
+[0.695s] -- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+[0.752s] -- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+[0.752s] -- Found Threads: TRUE  
+[0.785s] -- Found sensor_msgs: 4.9.0 (/opt/ros/humble/share/sensor_msgs/cmake)
+[0.806s] -- Found cv_bridge: 3.2.1 (/opt/ros/humble/share/cv_bridge/cmake)
+[0.815s] -- Found message_filters: 4.3.11 (/opt/ros/humble/share/message_filters/cmake)
+[0.818s] -- Found tf2: 0.25.17 (/opt/ros/humble/share/tf2/cmake)
+[0.826s] -- Found tf2_ros: 0.25.17 (/opt/ros/humble/share/tf2_ros/cmake)
+[0.884s] -- Found tf2_geometry_msgs: 0.25.17 (/opt/ros/humble/share/tf2_geometry_msgs/cmake)
+[0.894s] -- Found eigen3_cmake_module: 0.1.1 (/opt/ros/humble/share/eigen3_cmake_module/cmake)
+[0.895s] -- Found Eigen3: TRUE (found version "3.4.0") 
+[0.895s] -- Ensuring Eigen3 include directory is part of orocos-kdl CMake target
+[0.898s] -- Found rosidl_default_generators: 1.2.0 (/opt/ros/humble/share/rosidl_default_generators/cmake)
+[0.907s] -- Found OpenCV: /usr (found version "4.5.4") 
+[1.125s] -- Found ament_cmake_ros: 0.10.0 (/opt/ros/humble/share/ament_cmake_ros/cmake)
+[1.432s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[1.553s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[1.575s] -- Found PythonInterp: /usr/bin/python3 (found suitable version "3.10.12", minimum required is "3.6") 
+[1.576s] -- Found python_cmake_module: 0.10.0 (/opt/ros/humble/share/python_cmake_module/cmake)
+[1.599s] -- Found PythonLibs: /usr/lib/x86_64-linux-gnu/libpython3.10.so (found suitable version "3.10.12", minimum required is "3.5") 
+[1.599s] -- Using PYTHON_EXECUTABLE: /usr/bin/python3
+[1.599s] -- Using PYTHON_INCLUDE_DIRS: /usr/include/python3.10
+[1.599s] -- Using PYTHON_LIBRARIES: /usr/lib/x86_64-linux-gnu/libpython3.10.so
+[1.614s] -- Found PythonExtra: .so  
+[1.663s] -- Configuring done
+[1.702s] -- Generating done
+[1.716s] -- Build files have been written to: /home/potato/RC_2026/build/rc26_perception
+[1.725s] Invoked command in '/home/potato/RC_2026/build/rc26_perception' returned '0': /usr/bin/cmake /home/potato/RC_2026/RC_2026_1/rc26_perception -DCMAKE_INSTALL_PREFIX=/home/potato/RC_2026/install/rc26_perception
+[1.727s] Invoking command in '/home/potato/RC_2026/build/rc26_perception': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_perception -- -j28 -l28
+[1.763s] [  2%] [34m[1mGenerating C code for ROS interfaces[0m
+[1.773s] [  8%] [32mBuilding CXX object CMakeFiles/rc26_yolo_engine.dir/src/yolo_engine.cpp.o[0m
+[1.773s] [  8%] [32mBuilding CXX object CMakeFiles/rc26_perception_core.dir/src/postprocess.cpp.o[0m
+[1.773s] [  8%] [32mBuilding CXX object CMakeFiles/rc26_perception_core.dir/src/preprocess.cpp.o[0m
+[1.774s] [ 10%] [32mBuilding CXX object CMakeFiles/d455_driver_node.dir/src/d455_driver_node.cpp.o[0m
+[1.774s] [ 12%] [34m[1mGenerating C++ code for ROS interfaces[0m
+[1.782s] [ 12%] Built target ament_cmake_python_copy_rc26_perception
+[1.934s] [ 14%] [32m[1mLinking CXX shared library librc26_yolo_engine.so[0m
+[1.989s] [ 14%] Built target rc26_yolo_engine
+[1.997s] [ 18%] [32mBuilding C object CMakeFiles/rc26_perception__rosidl_generator_c.dir/rosidl_generator_c/rc26_perception/msg/detail/block_detection__functions.c.o[0m
+[1.997s] [ 18%] [32mBuilding C object CMakeFiles/rc26_perception__rosidl_generator_c.dir/rosidl_generator_c/rc26_perception/msg/detail/block_detections__functions.c.o[0m
+[1.997s] [ 18%] Built target rc26_perception__cpp
+[2.007s] [ 22%] [34m[1mGenerating C++ introspection for ROS interfaces[0m
+[2.007s] [ 22%] [34m[1mGenerating C++ type support for eProsima Fast-RTPS[0m
+[2.007s] [ 24%] [34m[1mGenerating C++ type support dispatch for ROS interfaces[0m
+[2.033s] [ 26%] [32m[1mLinking C shared library librc26_perception__rosidl_generator_c.so[0m
+[2.073s] [ 26%] Built target rc26_perception__rosidl_generator_c
+[2.084s] [ 32%] [34m[1mGenerating C type support for eProsima Fast-RTPS[0m
+[2.084s] [ 32%] [34m[1mGenerating C type support dispatch for ROS interfaces[0m
+[2.085s] [ 32%] [34m[1mGenerating C introspection for ROS interfaces[0m
+[2.202s] [ 34%] [32mBuilding CXX object CMakeFiles/rc26_perception__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rc26_perception/msg/block_detection__type_support.cpp.o[0m
+[2.204s] [ 36%] [32mBuilding CXX object CMakeFiles/rc26_perception__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rc26_perception/msg/block_detections__type_support.cpp.o[0m
+[2.245s] running egg_info
+[2.245s] creating rc26_perception.egg-info
+[2.245s] writing rc26_perception.egg-info/PKG-INFO
+[2.246s] writing dependency_links to rc26_perception.egg-info/dependency_links.txt
+[2.246s] writing top-level names to rc26_perception.egg-info/top_level.txt
+[2.246s] writing manifest file 'rc26_perception.egg-info/SOURCES.txt'
+[2.248s] reading manifest file 'rc26_perception.egg-info/SOURCES.txt'
+[2.249s] writing manifest file 'rc26_perception.egg-info/SOURCES.txt'
+[2.279s] [ 36%] Built target ament_cmake_python_build_rc26_perception_egg
+[2.282s] [ 38%] [32mBuilding CXX object CMakeFiles/rc26_perception__rosidl_typesupport_c.dir/rosidl_typesupport_c/rc26_perception/msg/block_detection__type_support.cpp.o[0m
+[2.283s] [ 40%] [32mBuilding CXX object CMakeFiles/rc26_perception__rosidl_typesupport_c.dir/rosidl_typesupport_c/rc26_perception/msg/block_detections__type_support.cpp.o[0m
+[2.291s] [ 42%] [32mBuilding C object CMakeFiles/rc26_perception__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rc26_perception/msg/detail/block_detection__type_support.c.o[0m
+[2.294s] [ 44%] [32mBuilding C object CMakeFiles/rc26_perception__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rc26_perception/msg/detail/block_detections__type_support.c.o[0m
+[2.298s] [ 48%] [32mBuilding CXX object CMakeFiles/rc26_perception__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rc26_perception/msg/detail/block_detection__type_support_c.cpp.o[0m
+[2.298s] [ 48%] [32mBuilding CXX object CMakeFiles/rc26_perception__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rc26_perception/msg/detail/block_detections__type_support_c.cpp.o[0m
+[2.309s] [ 50%] [32mBuilding CXX object CMakeFiles/rc26_perception__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rc26_perception/msg/detail/block_detection__type_support.cpp.o[0m
+[2.310s] [ 52%] [32m[1mLinking CXX shared library librc26_perception__rosidl_typesupport_c.so[0m
+[2.310s] [ 54%] [32mBuilding CXX object CMakeFiles/rc26_perception__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rc26_perception/msg/detail/block_detections__type_support.cpp.o[0m
+[2.327s] [ 56%] [32m[1mLinking C shared library librc26_perception__rosidl_typesupport_introspection_c.so[0m
+[2.338s] [ 56%] Built target rc26_perception__rosidl_typesupport_c
+[2.338s] [ 58%] [32mBuilding CXX object CMakeFiles/rc26_perception__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rc26_perception/msg/detail/dds_fastrtps/block_detection__type_support.cpp.o[0m
+[2.340s] [ 60%] [32mBuilding CXX object CMakeFiles/rc26_perception__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rc26_perception/msg/detail/dds_fastrtps/block_detections__type_support.cpp.o[0m
+[2.350s] [ 60%] Built target rc26_perception__rosidl_typesupport_introspection_c
+[2.467s] [ 62%] [32m[1mLinking CXX shared library librc26_perception__rosidl_typesupport_cpp.so[0m
+[2.509s] [ 62%] Built target rc26_perception__rosidl_typesupport_cpp
+[2.583s] [ 64%] [32m[1mLinking CXX shared library librc26_perception__rosidl_typesupport_introspection_cpp.so[0m
+[2.592s] [ 66%] [32m[1mLinking CXX shared library librc26_perception__rosidl_typesupport_fastrtps_c.so[0m
+[2.598s] [ 68%] [32m[1mLinking CXX shared library librc26_perception__rosidl_typesupport_fastrtps_cpp.so[0m
+[2.651s] [ 68%] Built target rc26_perception__rosidl_typesupport_fastrtps_c
+[2.657s] [ 68%] Built target rc26_perception__rosidl_typesupport_fastrtps_cpp
+[2.657s] [ 68%] Built target rc26_perception__rosidl_typesupport_introspection_cpp
+[2.678s] [ 68%] Built target rc26_perception
+[2.699s] [ 70%] [34m[1mGenerating Python code for ROS interfaces[0m
+[2.996s] [ 70%] Built target rc26_perception__py
+[3.014s] [ 72%] [32mBuilding C object CMakeFiles/rc26_perception__rosidl_generator_py.dir/rosidl_generator_py/rc26_perception/msg/_block_detection_s.c.o[0m
+[3.015s] [ 74%] [32mBuilding C object CMakeFiles/rc26_perception__rosidl_generator_py.dir/rosidl_generator_py/rc26_perception/msg/_block_detections_s.c.o[0m
+[3.066s] [ 76%] [32m[1mLinking CXX shared library librc26_perception_core.so[0m
+[3.095s] [ 78%] [32m[1mLinking C shared library rosidl_generator_py/rc26_perception/librc26_perception__rosidl_generator_py.so[0m
+[3.129s] [ 78%] Built target rc26_perception__rosidl_generator_py
+[3.150s] [ 84%] [32mBuilding C object CMakeFiles/rc26_perception__rosidl_typesupport_fastrtps_c__pyext.dir/rosidl_generator_py/rc26_perception/_rc26_perception_s.ep.rosidl_typesupport_fastrtps_c.c.o[0m
+[3.150s] [ 84%] [32mBuilding C object CMakeFiles/rc26_perception__rosidl_typesupport_c__pyext.dir/rosidl_generator_py/rc26_perception/_rc26_perception_s.ep.rosidl_typesupport_c.c.o[0m
+[3.150s] [ 84%] [32mBuilding C object CMakeFiles/rc26_perception__rosidl_typesupport_introspection_c__pyext.dir/rosidl_generator_py/rc26_perception/_rc26_perception_s.ep.rosidl_typesupport_introspection_c.c.o[0m
+[3.192s] [ 84%] Built target rc26_perception_core
+[3.213s] [ 86%] [32m[1mLinking C shared library rosidl_generator_py/rc26_perception/rc26_perception_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so[0m
+[3.214s] [ 88%] [32mBuilding CXX object CMakeFiles/perception_node.dir/src/perception_node.cpp.o[0m
+[3.214s] [ 92%] [32mBuilding CXX object CMakeFiles/visualization_node.dir/src/visualization_node.cpp.o[0m
+[3.214s] [ 92%] [32m[1mLinking C shared library rosidl_generator_py/rc26_perception/rc26_perception_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so[0m
+[3.216s] [ 94%] [32m[1mLinking C shared library rosidl_generator_py/rc26_perception/rc26_perception_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so[0m
+[3.249s] [ 94%] Built target rc26_perception__rosidl_typesupport_introspection_c__pyext
+[3.250s] [ 94%] Built target rc26_perception__rosidl_typesupport_fastrtps_c__pyext
+[3.254s] [ 94%] Built target rc26_perception__rosidl_typesupport_c__pyext
+[5.842s] [ 96%] [32m[1mLinking CXX executable d455_driver_node[0m
+[6.239s] [ 96%] Built target d455_driver_node
+[10.413s] [ 98%] [32m[1mLinking CXX executable visualization_node[0m
+[10.984s] [ 98%] Built target visualization_node
+[11.165s] [100%] [32m[1mLinking CXX executable perception_node[0m
+[11.710s] [100%] Built target perception_node
+[11.720s] Invoked command in '/home/potato/RC_2026/build/rc26_perception' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_perception -- -j28 -l28
+[11.722s] Invoking command in '/home/potato/RC_2026/build/rc26_perception': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_perception
+[11.729s] -- Install configuration: ""
+[11.729s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/ament_index/resource_index/rosidl_interfaces/rc26_perception
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/block_detection.h
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/rosidl_generator_c__visibility_control.h
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/block_detections.h
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__struct.h
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__functions.h
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__type_support.h
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__struct.h
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__functions.c
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__functions.h
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__functions.c
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__type_support.h
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/environment/library_path.sh
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/environment/library_path.dsv
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_generator_c.so
+[11.730s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_generator_c.so" to ""
+[11.730s] -- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception
+[11.730s] -- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/rosidl_typesupport_fastrtps_c__visibility_control.h
+[11.730s] -- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__rosidl_typesupport_fastrtps_c.h
+[11.730s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__rosidl_typesupport_fastrtps_c.h
+[11.731s] -- Installing: /home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_typesupport_fastrtps_c.so
+[11.731s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_typesupport_fastrtps_c.so" to ""
+[11.731s] -- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception
+[11.731s] -- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg
+[11.731s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/block_detections.hpp
+[11.731s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/rosidl_generator_cpp__visibility_control.hpp
+[11.731s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/block_detection.hpp
+[11.731s] -- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail
+[11.731s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__traits.hpp
+[11.731s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__struct.hpp
+[11.731s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__struct.hpp
+[11.731s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__builder.hpp
+[11.731s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__type_support.hpp
+[11.731s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__type_support.hpp
+[11.731s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__builder.hpp
+[11.731s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__traits.hpp
+[11.731s] -- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception
+[11.731s] -- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg
+[11.731s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/rosidl_typesupport_fastrtps_cpp__visibility_control.h
+[11.731s] -- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail
+[11.731s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/dds_fastrtps
+[11.731s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__rosidl_typesupport_fastrtps_cpp.hpp
+[11.731s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__rosidl_typesupport_fastrtps_cpp.hpp
+[11.731s] -- Installing: /home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_typesupport_fastrtps_cpp.so
+[11.731s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_typesupport_fastrtps_cpp.so" to ""
+[11.731s] -- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception
+[11.731s] -- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg
+[11.731s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/rosidl_typesupport_introspection_c__visibility_control.h
+[11.732s] -- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail
+[11.732s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__rosidl_typesupport_introspection_c.h
+[11.732s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__type_support.c
+[11.732s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__rosidl_typesupport_introspection_c.h
+[11.732s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__type_support.c
+[11.732s] -- Installing: /home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_typesupport_introspection_c.so
+[11.732s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_typesupport_introspection_c.so" to ""
+[11.732s] -- Installing: /home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_typesupport_c.so
+[11.732s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_typesupport_c.so" to ""
+[11.732s] -- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception
+[11.732s] -- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg
+[11.732s] -- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail
+[11.732s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__rosidl_typesupport_introspection_cpp.hpp
+[11.732s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__rosidl_typesupport_introspection_cpp.hpp
+[11.732s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detections__type_support.cpp
+[11.732s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/rc26_perception/msg/detail/block_detection__type_support.cpp
+[11.732s] -- Installing: /home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_typesupport_introspection_cpp.so
+[11.732s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_typesupport_introspection_cpp.so" to ""
+[11.732s] -- Installing: /home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_typesupport_cpp.so
+[11.732s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_typesupport_cpp.so" to ""
+[11.732s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/environment/pythonpath.sh
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/environment/pythonpath.dsv
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception-1.0.0-py3.10.egg-info
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception-1.0.0-py3.10.egg-info/dependency_links.txt
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception-1.0.0-py3.10.egg-info/PKG-INFO
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception-1.0.0-py3.10.egg-info/top_level.txt
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception-1.0.0-py3.10.egg-info/SOURCES.txt
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/rc26_perception_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/rc26_perception_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/_rc26_perception_s.ep.rosidl_typesupport_fastrtps_c.c
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/rc26_perception_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/__init__.py
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/librc26_perception__rosidl_generator_py.so
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/_rc26_perception_s.ep.rosidl_typesupport_introspection_c.c
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/msg
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/msg/_block_detection.py
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/msg/__init__.py
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/msg/_block_detection_s.c
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/msg/_block_detections.py
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/msg/_block_detections_s.c
+[11.733s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/_rc26_perception_s.ep.rosidl_typesupport_c.c
+[11.759s] Listing '/home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception'...
+[11.759s] Compiling '/home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/__init__.py'...
+[11.759s] Listing '/home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/msg'...
+[11.759s] Compiling '/home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/msg/__init__.py'...
+[11.759s] Compiling '/home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/msg/_block_detection.py'...
+[11.759s] Compiling '/home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/msg/_block_detections.py'...
+[11.762s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/rc26_perception_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so
+[11.762s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/rc26_perception_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so" to ""
+[11.762s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/rc26_perception_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so
+[11.762s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/rc26_perception_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so" to ""
+[11.762s] -- Installing: /home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/rc26_perception_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so
+[11.762s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_perception/local/lib/python3.10/dist-packages/rc26_perception/rc26_perception_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so" to ""
+[11.763s] -- Installing: /home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_generator_py.so
+[11.763s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_perception/lib/librc26_perception__rosidl_generator_py.so" to ""
+[11.763s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/msg/BlockDetection.idl
+[11.763s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/msg/BlockDetections.idl
+[11.763s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/msg/BlockDetection.msg
+[11.763s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/msg/BlockDetections.msg
+[11.763s] -- Installing: /home/potato/RC_2026/install/rc26_perception/lib/librc26_perception_core.so
+[11.763s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_perception/lib/librc26_perception_core.so" to ""
+[11.763s] -- Installing: /home/potato/RC_2026/install/rc26_perception/lib/librc26_yolo_engine.so
+[11.763s] -- Installing: /home/potato/RC_2026/install/rc26_perception/lib/rc26_perception/perception_node
+[11.766s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_perception/lib/rc26_perception/perception_node" to ""
+[11.766s] -- Installing: /home/potato/RC_2026/install/rc26_perception/lib/rc26_perception/d455_driver_node
+[11.767s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_perception/lib/rc26_perception/d455_driver_node" to ""
+[11.767s] -- Installing: /home/potato/RC_2026/install/rc26_perception/lib/rc26_perception/visualization_node
+[11.769s] -- Set runtime path of "/home/potato/RC_2026/install/rc26_perception/lib/rc26_perception/visualization_node" to ""
+[11.769s] -- Installing: /home/potato/RC_2026/install/rc26_perception/lib/rc26_perception/visualization_node.py
+[11.770s] -- Installing: /home/potato/RC_2026/install/rc26_perception/lib/rc26_perception/export_onnx.py
+[11.770s] -- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include
+[11.770s] -- Up-to-date: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception
+[11.770s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/preprocess.hpp
+[11.770s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/postprocess.hpp
+[11.770s] -- Installing: /home/potato/RC_2026/install/rc26_perception/include/rc26_perception/yolo_engine.hpp
+[11.770s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/launch
+[11.770s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/launch/perception.launch.py
+[11.770s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/launch/visualization.launch.py
+[11.771s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/config
+[11.771s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/config/perception.yaml
+[11.771s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/ament_index/resource_index/package_run_dependencies/rc26_perception
+[11.771s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/ament_index/resource_index/parent_prefix_path/rc26_perception
+[11.771s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/environment/ament_prefix_path.sh
+[11.771s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/environment/ament_prefix_path.dsv
+[11.771s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/environment/path.sh
+[11.771s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/environment/path.dsv
+[11.771s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/local_setup.bash
+[11.771s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/local_setup.sh
+[11.771s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/local_setup.zsh
+[11.771s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/local_setup.dsv
+[11.771s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/package.dsv
+[11.771s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/ament_index/resource_index/packages/rc26_perception
+[11.771s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/export_rc26_perception__rosidl_generator_cExport.cmake
+[11.771s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/export_rc26_perception__rosidl_generator_cExport-noconfig.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/export_rc26_perception__rosidl_typesupport_fastrtps_cExport.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/export_rc26_perception__rosidl_typesupport_fastrtps_cExport-noconfig.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/export_rc26_perception__rosidl_generator_cppExport.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/export_rc26_perception__rosidl_typesupport_fastrtps_cppExport.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/export_rc26_perception__rosidl_typesupport_fastrtps_cppExport-noconfig.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perception__rosidl_typesupport_introspection_cExport.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perception__rosidl_typesupport_introspection_cExport-noconfig.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perception__rosidl_typesupport_cExport.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perception__rosidl_typesupport_cExport-noconfig.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perception__rosidl_typesupport_introspection_cppExport.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perception__rosidl_typesupport_introspection_cppExport-noconfig.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perception__rosidl_typesupport_cppExport.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perception__rosidl_typesupport_cppExport-noconfig.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/export_rc26_perception__rosidl_generator_pyExport.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/export_rc26_perception__rosidl_generator_pyExport-noconfig.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rosidl_cmake-extras.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/ament_cmake_export_dependencies-extras.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/ament_cmake_export_include_directories-extras.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/ament_cmake_export_libraries-extras.cmake
+[11.772s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/ament_cmake_export_targets-extras.cmake
+[11.773s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rosidl_cmake_export_typesupport_targets-extras.cmake
+[11.773s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rosidl_cmake_export_typesupport_libraries-extras.cmake
+[11.773s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perceptionConfig.cmake
+[11.773s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/cmake/rc26_perceptionConfig-version.cmake
+[11.773s] -- Installing: /home/potato/RC_2026/install/rc26_perception/share/rc26_perception/package.xml
+[11.775s] Invoked command in '/home/potato/RC_2026/build/rc26_perception' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_perception

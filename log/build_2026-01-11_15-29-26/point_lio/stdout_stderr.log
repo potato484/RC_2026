@@ -1,0 +1,39 @@
+[35m[1mConsolidate compiler generated dependencies of target pointlio_mapping[0m
+[ 14%] [32mBuilding CXX object CMakeFiles/pointlio_mapping.dir/src/laserMapping.cpp.o[0m
+[ 28%] [32mBuilding CXX object CMakeFiles/pointlio_mapping.dir/src/li_initialization.cpp.o[0m
+[ 42%] [32mBuilding CXX object CMakeFiles/pointlio_mapping.dir/src/parameters.cpp.o[0m
+[ 57%] [32mBuilding CXX object CMakeFiles/pointlio_mapping.dir/src/preprocess.cpp.o[0m
+[ 71%] [32mBuilding CXX object CMakeFiles/pointlio_mapping.dir/src/Estimator.cpp.o[0m
+[ 85%] [32mBuilding CXX object CMakeFiles/pointlio_mapping.dir/src/IMU_Processing.cpp.o[0m
+[100%] [32m[1mLinking CXX executable pointlio_mapping[0m
+[100%] Built target pointlio_mapping
+-- Install configuration: "Release"
+-- Installing: /home/potato/RC_2026/install/point_lio/lib/point_lio/pointlio_mapping
+-- Set runtime path of "/home/potato/RC_2026/install/point_lio/lib/point_lio/pointlio_mapping" to ""
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/config
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/config/horizon.yaml
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/config/mid360.yaml
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/config/ouster64.yaml
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/config/velody16.yaml
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/config/avia.yaml
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/launch
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/launch/point_lio.launch.py
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/rviz_cfg
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/rviz_cfg/loam_livox.rviz
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/rviz_cfg/.gitignore
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/ament_index/resource_index/package_run_dependencies/point_lio
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/ament_index/resource_index/parent_prefix_path/point_lio
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/environment/ament_prefix_path.sh
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/environment/ament_prefix_path.dsv
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/environment/path.sh
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/environment/path.dsv
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/local_setup.bash
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/local_setup.sh
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/local_setup.zsh
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/local_setup.dsv
+-- Installing: /home/potato/RC_2026/install/point_lio/share/point_lio/package.dsv
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/ament_index/resource_index/packages/point_lio
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/cmake/ament_cmake_export_dependencies-extras.cmake
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/cmake/point_lioConfig.cmake
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/cmake/point_lioConfig-version.cmake
+-- Up-to-date: /home/potato/RC_2026/install/point_lio/share/point_lio/package.xml

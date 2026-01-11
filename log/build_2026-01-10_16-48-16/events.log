@@ -1,0 +1,383 @@
+[0.000000] (-) TimerEvent: {}
+[0.000053] (-) JobUnselected: {'identifier': 'mid360_driver'}
+[0.000070] (-) JobUnselected: {'identifier': 'point_lio'}
+[0.000080] (-) JobUnselected: {'identifier': 'rc26_bringup'}
+[0.000088] (-) JobUnselected: {'identifier': 'rc26_localization'}
+[0.000096] (-) JobUnselected: {'identifier': 'rc26_merge_odom'}
+[0.000104] (-) JobUnselected: {'identifier': 'rc26_odom_interface'}
+[0.000111] (-) JobUnselected: {'identifier': 'rc26_omni_controller'}
+[0.000119] (-) JobUnselected: {'identifier': 'rc26_perception'}
+[0.000129] (-) JobUnselected: {'identifier': 'rc26_sensor_scan'}
+[0.000174] (-) JobUnselected: {'identifier': 'rc26_serial'}
+[0.000182] (-) JobUnselected: {'identifier': 'small_gicp'}
+[0.000192] (rc26_decision) JobQueued: {'identifier': 'rc26_decision', 'dependencies': OrderedDict([('rc26_serial', '/home/potato/RC_2026/install/rc26_serial')])}
+[0.000206] (rc26_decision) JobStarted: {'identifier': 'rc26_decision'}
+[0.008513] (rc26_decision) JobProgress: {'identifier': 'rc26_decision', 'progress': 'cmake'}
+[0.009148] (rc26_decision) JobProgress: {'identifier': 'rc26_decision', 'progress': 'build'}
+[0.009914] (rc26_decision) Command: {'cmd': ['/usr/bin/cmake', '--build', '/home/potato/RC_2026/build/rc26_decision', '--', '-j28', '-l28'], 'cwd': '/home/potato/RC_2026/build/rc26_decision', 'env': OrderedDict([('PYTHON_BASIC_REPL', '1'), ('LESSOPEN', '| /usr/bin/lesspipe %s'), ('HTTPS_PROXY', 'http://127.0.0.1:7897/'), ('no_proxy', 'localhost,127.0.0.1,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,::1'), ('LANGUAGE', 'zh_CN:en_US:en'), ('USER', 'potato'), ('LC_TIME', 'zh_CN.UTF-8'), ('all_proxy', 'socks://127.0.0.1:7897/'), ('XDG_SESSION_TYPE', 'x11'), ('GIT_ASKPASS', '/usr/share/code/resources/app/extensions/git/dist/askpass.sh'), ('SHLVL', '2'), ('LD_LIBRARY_PATH', '/home/potato/RC_2026/install/rc26_serial/lib:/usr/local/lib:/usr/local/cuda/lib64:/usr/local/lib:/lib64:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/opt/openvdb_vendor/lib:/opt/ros/humble/lib'), ('HOME', '/home/potato'), ('CHROME_DESKTOP', 'code.desktop'), ('CONDA_SHLVL', '0'), ('OLDPWD', '/home/potato'), ('TERM_PROGRAM_VERSION', '1.107.1'), ('DESKTOP_SESSION', 'ubuntu'), ('NO_PROXY', 'localhost,127.0.0.1,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,::1'), ('NVM_BIN', '/home/potato/.nvm/versions/node/v24.12.0/bin'), ('NVM_INC', '/home/potato/.nvm/versions/node/v24.12.0/include/node'), ('ROS_PYTHON_VERSION', '3'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('VSCODE_GIT_ASKPASS_MAIN', '/usr/share/code/resources/app/extensions/git/dist/askpass-main.js'), ('LC_MONETARY', 'zh_CN.UTF-8'), ('VSCODE_GIT_ASKPASS_NODE', '/usr/share/code/code'), ('PYDEVD_DISABLE_FILE_VALIDATION', '1'), ('SYSTEMD_EXEC_PID', '1845'), ('BUNDLED_DEBUGPY_PATH', '/home/potato/.vscode/extensions/ms-python.debugpy-2025.18.0-linux-x64/bundled/libs/debugpy'), ('VSCODE_PYTHON_AUTOACTIVATE_GUARD', '1'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('COLORTERM', 'truecolor'), ('_CE_M', ''), ('GITHUB_PAT_TOKEN', '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'), ('NVM_DIR', '/home/potato/.nvm'), ('https_proxy', 'http://127.0.0.1:7897/'), ('ROS_DISTRO', 'humble'), ('GTK_IM_MODULE', 'fcitx'), ('LOGNAME', 'potato'), ('ALL_PROXY', 'socks://127.0.0.1:7897/'), ('http_proxy', 'http://127.0.0.1:7897/'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('CLAUDE_CODE_SSE_PORT', '11672'), ('XDG_SESSION_CLASS', 'user'), ('GEMINI_CLI_IDE_WORKSPACE_PATH', '/home/potato/RC_2026'), ('USERNAME', 'potato'), ('TERM', 'xterm-256color'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('_CE_CONDA', ''), ('FC_FONTATIONS', '1'), ('ROS_LOCALHOST_ONLY', '1'), ('GEMINI_CLI_IDE_SERVER_PORT', '38937'), ('WINDOWPATH', '2'), ('PATH', '/tmp/.tmpyDiIzI:/home/potato/.nvm/versions/node/v24.12.0/lib/node_modules/@openai/codex/vendor/x86_64-unknown-linux-musl/path:/home/potato/.claude/bin:/usr/local/cuda/bin:/home/potato/.local/bin:/home/potato/.claude/bin:/home/potato/.nvm/versions/node/v24.12.0/bin:/usr/local/cuda/bin:/opt/ros/humble/bin:/home/potato/miniconda3/condabin:/home/potato/.local/bin:/home/potato/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:/usr/share/FlClash:/home/potato/.vscode/extensions/ms-python.debugpy-2025.18.0-linux-x64/bundled/scripts/noConfigScripts:/usr/share/FlClash'), ('SESSION_MANAGER', 'local/potato-Legion-Y7000P-IRX9:@/tmp/.ICE-unix/1579,unix/potato-Legion-Y7000P-IRX9:/tmp/.ICE-unix/1579'), ('PAPERSIZE', 'a4'), ('XDG_MENU_PREFIX', 'gnome-'), ('LC_ADDRESS', 'zh_CN.UTF-8'), ('GNOME_TERMINAL_SCREEN', '/org/gnome/Terminal/screen/0dea214d_bde7_4fb1_90a4_82ff587503da'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('GDK_BACKEND', 'x11'), ('DISPLAY', ':0'), ('CODEX_SANDBOX_NETWORK_DISABLED', '1'), ('VSCODE_DEBUGPY_ADAPTER_ENDPOINTS', '/home/potato/.vscode/extensions/ms-python.debugpy-2025.18.0-linux-x64/.noConfigDebugAdapterEndpoints/endpoint-42b76cae831fbd64.txt'), ('LANG', 'zh_CN.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('PYTHONSTARTUP', '/home/potato/.config/Code/User/workspaceStorage/1b54a5cd3397dd41f650cd85f591fea6/ms-python.python/pythonrc.py'), ('LC_TELEPHONE', 'zh_CN.UTF-8'), ('XMODIFIERS', '@im=fcitx'), ('XDG_SESSION_DESKTOP', 'ubuntu'), ('XAUTHORITY', '/run/user/1000/gdm/Xauthority'), ('LS_COLORS', 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:'), ('VSCODE_GIT_IPC_HANDLE', '/run/user/1000/vscode-git-4b8564896c.sock'), ('GNOME_TERMINAL_SERVICE', ':1.92'), ('TERM_PROGRAM', 'vscode'), ('SSH_AGENT_LAUNCHER', 'gnome-keyring'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('AMENT_PREFIX_PATH', '/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble'), ('CONDA_PYTHON_EXE', '/home/potato/miniconda3/bin/python'), ('SHELL', '/bin/bash'), ('LC_NAME', 'zh_CN.UTF-8'), ('QT_ACCESSIBILITY', '1'), ('GDMSESSION', 'ubuntu'), ('LESSCLOSE', '/usr/bin/lesspipe %s %s'), ('LC_MEASUREMENT', 'zh_CN.UTF-8'), ('GPG_AGENT_INFO', '/run/user/1000/gnupg/S.gpg-agent:0:1'), ('LC_IDENTIFICATION', 'zh_CN.UTF-8'), ('VSCODE_GIT_ASKPASS_EXTRA_ARGS', ''), ('QT_IM_MODULE', 'fcitx'), ('GEMINI_CLI_IDE_AUTH_TOKEN', '55750b92-f216-409e-b826-726e36d2ccbd'), ('PWD', '/home/potato/RC_2026/build/rc26_decision'), ('CRS_OAI_KEY', 'cr_34ebd103d712a0adcbabfcc95221f5b0a92f69adc92138f7a3b36bebb6c880e4'), ('CUDA_HOME', '/usr/local/cuda'), ('XDG_CONFIG_DIRS', '/etc/xdg/xdg-ubuntu:/etc/xdg'), ('CONDA_EXE', '/home/potato/miniconda3/bin/conda'), ('NVM_CD_FLAGS', ''), ('XDG_DATA_DIRS', '/usr/share/ubuntu:/usr/share/gnome:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('PYTHONPATH', '/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('HTTP_PROXY', 'http://127.0.0.1:7897/'), ('LC_NUMERIC', 'zh_CN.UTF-8'), ('LC_PAPER', 'zh_CN.UTF-8'), ('COLCON', '1'), ('CODEX_MANAGED_BY_NPM', '1'), ('VTE_VERSION', '6800'), ('CMAKE_PREFIX_PATH', '/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble')]), 'shell': False}
+[0.069740] (rc26_decision) StdoutLine: {'line': b'[ 21%] Built target rc26_decision_serial\n'}
+[0.070999] (rc26_decision) StdoutLine: {'line': b'[ 57%] Built target rc26_decision_nodes\n'}
+[0.085733] (rc26_decision) StdoutLine: {'line': b'Consolidate compiler generated dependencies of target decision_node\n'}
+[0.093760] (rc26_decision) StdoutLine: {'line': b'[ 68%] Built target serial_test0_node\n'}
+[0.093884] (rc26_decision) StdoutLine: {'line': b'[ 78%] Built target can_odom_test_node\n'}
+[0.094956] (rc26_decision) StdoutLine: {'line': b'[ 89%] Built target serial_test1_node\n'}
+[0.096462] (rc26_decision) StdoutLine: {'line': b'[ 94%] Building CXX object CMakeFiles/decision_node.dir/src/decision_node.cpp.o\n'}
+[0.099414] (-) TimerEvent: {}
+[0.199560] (-) TimerEvent: {}
+[0.299743] (-) TimerEvent: {}
+[0.399993] (-) TimerEvent: {}
+[0.500254] (-) TimerEvent: {}
+[0.600402] (-) TimerEvent: {}
+[0.700569] (-) TimerEvent: {}
+[0.800757] (-) TimerEvent: {}
+[0.900999] (-) TimerEvent: {}
+[1.001249] (-) TimerEvent: {}
+[1.101410] (-) TimerEvent: {}
+[1.201572] (-) TimerEvent: {}
+[1.301823] (-) TimerEvent: {}
+[1.401983] (-) TimerEvent: {}
+[1.502147] (-) TimerEvent: {}
+[1.602304] (-) TimerEvent: {}
+[1.702460] (-) TimerEvent: {}
+[1.802633] (-) TimerEvent: {}
+[1.902875] (-) TimerEvent: {}
+[2.003062] (-) TimerEvent: {}
+[2.103290] (-) TimerEvent: {}
+[2.203476] (-) TimerEvent: {}
+[2.303687] (-) TimerEvent: {}
+[2.404013] (-) TimerEvent: {}
+[2.504283] (-) TimerEvent: {}
+[2.604470] (-) TimerEvent: {}
+[2.704687] (-) TimerEvent: {}
+[2.804898] (-) TimerEvent: {}
+[2.905202] (-) TimerEvent: {}
+[3.005395] (-) TimerEvent: {}
+[3.105601] (-) TimerEvent: {}
+[3.205787] (-) TimerEvent: {}
+[3.305994] (-) TimerEvent: {}
+[3.406261] (-) TimerEvent: {}
+[3.506451] (-) TimerEvent: {}
+[3.606667] (-) TimerEvent: {}
+[3.654871] (rc26_decision) StdoutLine: {'line': b'[100%] Linking CXX executable decision_node\n'}
+[3.706825] (-) TimerEvent: {}
+[3.807036] (-) TimerEvent: {}
+[3.907352] (-) TimerEvent: {}
+[3.969741] (rc26_decision) StdoutLine: {'line': b'[100%] Built target decision_node\n'}
+[3.979833] (rc26_decision) CommandEnded: {'returncode': 0}
+[3.980708] (rc26_decision) JobProgress: {'identifier': 'rc26_decision', 'progress': 'install'}
+[3.988674] (rc26_decision) Command: {'cmd': ['/usr/bin/cmake', '--install', '/home/potato/RC_2026/build/rc26_decision'], 'cwd': '/home/potato/RC_2026/build/rc26_decision', 'env': OrderedDict([('PYTHON_BASIC_REPL', '1'), ('LESSOPEN', '| /usr/bin/lesspipe %s'), ('HTTPS_PROXY', 'http://127.0.0.1:7897/'), ('no_proxy', 'localhost,127.0.0.1,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,::1'), ('LANGUAGE', 'zh_CN:en_US:en'), ('USER', 'potato'), ('LC_TIME', 'zh_CN.UTF-8'), ('all_proxy', 'socks://127.0.0.1:7897/'), ('XDG_SESSION_TYPE', 'x11'), ('GIT_ASKPASS', '/usr/share/code/resources/app/extensions/git/dist/askpass.sh'), ('SHLVL', '2'), ('LD_LIBRARY_PATH', '/home/potato/RC_2026/install/rc26_serial/lib:/usr/local/lib:/usr/local/cuda/lib64:/usr/local/lib:/lib64:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/opt/openvdb_vendor/lib:/opt/ros/humble/lib'), ('HOME', '/home/potato'), ('CHROME_DESKTOP', 'code.desktop'), ('CONDA_SHLVL', '0'), ('OLDPWD', '/home/potato'), ('TERM_PROGRAM_VERSION', '1.107.1'), ('DESKTOP_SESSION', 'ubuntu'), ('NO_PROXY', 'localhost,127.0.0.1,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,::1'), ('NVM_BIN', '/home/potato/.nvm/versions/node/v24.12.0/bin'), ('NVM_INC', '/home/potato/.nvm/versions/node/v24.12.0/include/node'), ('ROS_PYTHON_VERSION', '3'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('VSCODE_GIT_ASKPASS_MAIN', '/usr/share/code/resources/app/extensions/git/dist/askpass-main.js'), ('LC_MONETARY', 'zh_CN.UTF-8'), ('VSCODE_GIT_ASKPASS_NODE', '/usr/share/code/code'), ('PYDEVD_DISABLE_FILE_VALIDATION', '1'), ('SYSTEMD_EXEC_PID', '1845'), ('BUNDLED_DEBUGPY_PATH', '/home/potato/.vscode/extensions/ms-python.debugpy-2025.18.0-linux-x64/bundled/libs/debugpy'), ('VSCODE_PYTHON_AUTOACTIVATE_GUARD', '1'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('COLORTERM', 'truecolor'), ('_CE_M', ''), ('GITHUB_PAT_TOKEN', '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'), ('NVM_DIR', '/home/potato/.nvm'), ('https_proxy', 'http://127.0.0.1:7897/'), ('ROS_DISTRO', 'humble'), ('GTK_IM_MODULE', 'fcitx'), ('LOGNAME', 'potato'), ('ALL_PROXY', 'socks://127.0.0.1:7897/'), ('http_proxy', 'http://127.0.0.1:7897/'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('CLAUDE_CODE_SSE_PORT', '11672'), ('XDG_SESSION_CLASS', 'user'), ('GEMINI_CLI_IDE_WORKSPACE_PATH', '/home/potato/RC_2026'), ('USERNAME', 'potato'), ('TERM', 'xterm-256color'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('_CE_CONDA', ''), ('FC_FONTATIONS', '1'), ('ROS_LOCALHOST_ONLY', '1'), ('GEMINI_CLI_IDE_SERVER_PORT', '38937'), ('WINDOWPATH', '2'), ('PATH', '/tmp/.tmpyDiIzI:/home/potato/.nvm/versions/node/v24.12.0/lib/node_modules/@openai/codex/vendor/x86_64-unknown-linux-musl/path:/home/potato/.claude/bin:/usr/local/cuda/bin:/home/potato/.local/bin:/home/potato/.claude/bin:/home/potato/.nvm/versions/node/v24.12.0/bin:/usr/local/cuda/bin:/opt/ros/humble/bin:/home/potato/miniconda3/condabin:/home/potato/.local/bin:/home/potato/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:/usr/share/FlClash:/home/potato/.vscode/extensions/ms-python.debugpy-2025.18.0-linux-x64/bundled/scripts/noConfigScripts:/usr/share/FlClash'), ('SESSION_MANAGER', 'local/potato-Legion-Y7000P-IRX9:@/tmp/.ICE-unix/1579,unix/potato-Legion-Y7000P-IRX9:/tmp/.ICE-unix/1579'), ('PAPERSIZE', 'a4'), ('XDG_MENU_PREFIX', 'gnome-'), ('LC_ADDRESS', 'zh_CN.UTF-8'), ('GNOME_TERMINAL_SCREEN', '/org/gnome/Terminal/screen/0dea214d_bde7_4fb1_90a4_82ff587503da'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('GDK_BACKEND', 'x11'), ('DISPLAY', ':0'), ('CODEX_SANDBOX_NETWORK_DISABLED', '1'), ('VSCODE_DEBUGPY_ADAPTER_ENDPOINTS', '/home/potato/.vscode/extensions/ms-python.debugpy-2025.18.0-linux-x64/.noConfigDebugAdapterEndpoints/endpoint-42b76cae831fbd64.txt'), ('LANG', 'zh_CN.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('PYTHONSTARTUP', '/home/potato/.config/Code/User/workspaceStorage/1b54a5cd3397dd41f650cd85f591fea6/ms-python.python/pythonrc.py'), ('LC_TELEPHONE', 'zh_CN.UTF-8'), ('XMODIFIERS', '@im=fcitx'), ('XDG_SESSION_DESKTOP', 'ubuntu'), ('XAUTHORITY', '/run/user/1000/gdm/Xauthority'), ('LS_COLORS', 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:'), ('VSCODE_GIT_IPC_HANDLE', '/run/user/1000/vscode-git-4b8564896c.sock'), ('GNOME_TERMINAL_SERVICE', ':1.92'), ('TERM_PROGRAM', 'vscode'), ('SSH_AGENT_LAUNCHER', 'gnome-keyring'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('AMENT_PREFIX_PATH', '/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble'), ('CONDA_PYTHON_EXE', '/home/potato/miniconda3/bin/python'), ('SHELL', '/bin/bash'), ('LC_NAME', 'zh_CN.UTF-8'), ('QT_ACCESSIBILITY', '1'), ('GDMSESSION', 'ubuntu'), ('LESSCLOSE', '/usr/bin/lesspipe %s %s'), ('LC_MEASUREMENT', 'zh_CN.UTF-8'), ('GPG_AGENT_INFO', '/run/user/1000/gnupg/S.gpg-agent:0:1'), ('LC_IDENTIFICATION', 'zh_CN.UTF-8'), ('VSCODE_GIT_ASKPASS_EXTRA_ARGS', ''), ('QT_IM_MODULE', 'fcitx'), ('GEMINI_CLI_IDE_AUTH_TOKEN', '55750b92-f216-409e-b826-726e36d2ccbd'), ('PWD', '/home/potato/RC_2026/build/rc26_decision'), ('CRS_OAI_KEY', 'cr_34ebd103d712a0adcbabfcc95221f5b0a92f69adc92138f7a3b36bebb6c880e4'), ('CUDA_HOME', '/usr/local/cuda'), ('XDG_CONFIG_DIRS', '/etc/xdg/xdg-ubuntu:/etc/xdg'), ('CONDA_EXE', '/home/potato/miniconda3/bin/conda'), ('NVM_CD_FLAGS', ''), ('XDG_DATA_DIRS', '/usr/share/ubuntu:/usr/share/gnome:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('PYTHONPATH', '/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('HTTP_PROXY', 'http://127.0.0.1:7897/'), ('LC_NUMERIC', 'zh_CN.UTF-8'), ('LC_PAPER', 'zh_CN.UTF-8'), ('COLCON', '1'), ('CODEX_MANAGED_BY_NPM', '1'), ('VTE_VERSION', '6800'), ('CMAKE_PREFIX_PATH', '/home/potato/RC_2026/install/rc26_serial:/opt/ros/humble:/opt/ros/humble')]), 'shell': False}
+[3.996103] (rc26_decision) StdoutLine: {'line': b'-- Install configuration: ""\n'}
+[3.996195] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include\n'}
+[3.996230] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision\n'}
+[3.996264] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/combat_area.hpp\n'}
+[3.996294] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/navigation\n'}
+[3.996323] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/navigation/bt_navigate_waypoint.hpp\n'}
+[3.996353] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/navigation/waypoint_navigator.hpp\n'}
+[3.996381] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/navigation/waypoint_catalog.hpp\n'}
+[3.996410] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/mf_area.hpp\n'}
+[3.996438] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/mc_area.hpp\n'}
+[3.996466] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/gain_odom\n'}
+[3.996636] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/gain_odom/pose_sender.hpp\n'}
+[3.996682] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/gain_odom/wheel_odom_receiver.hpp\n'}
+[3.996714] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/include/rc26_decision/gain_odom/can_odom.hpp\n'}
+[3.996748] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/lib/librc26_decision_nodes.so\n'}
+[3.996774] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/lib/librc26_decision_serial.so\n'}
+[3.996801] (rc26_decision) StdoutLine: {'line': b'-- Installing: /home/potato/RC_2026/install/rc26_decision/lib/rc26_decision/decision_node\n'}
+[3.997604] (rc26_decision) StdoutLine: {'line': b'-- Set runtime path of "/home/potato/RC_2026/install/rc26_decision/lib/rc26_decision/decision_node" to ""\n'}
+[3.997800] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/lib/rc26_decision/serial_test0_node\n'}
+[3.997937] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/lib/rc26_decision/serial_test1_node\n'}
+[3.998105] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/lib/rc26_decision/can_odom_test_node\n'}
+[3.998335] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/behavior_trees\n'}
+[3.998413] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/behavior_trees/main_tree.xml\n'}
+[3.998451] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/launch\n'}
+[3.998573] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/launch/__pycache__\n'}
+[3.998605] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/launch/__pycache__/waypoint_patrol.launch.cpython-310.pyc\n'}
+[3.998636] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/launch/decision.launch.py\n'}
+[3.998664] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/config\n'}
+[3.998693] (rc26_decision) StdoutLine: {'line': b'-- Installing: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/config/decision_params.yaml\n'}
+[3.998721] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/environment/library_path.sh\n'}
+[3.998748] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/environment/library_path.dsv\n'}
+[3.998776] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/ament_index/resource_index/package_run_dependencies/rc26_decision\n'}
+[3.998804] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/ament_index/resource_index/parent_prefix_path/rc26_decision\n'}
+[3.998832] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/environment/ament_prefix_path.sh\n'}
+[3.998860] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/environment/ament_prefix_path.dsv\n'}
+[3.998888] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/environment/path.sh\n'}
+[3.998950] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/environment/path.dsv\n'}
+[3.998979] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/local_setup.bash\n'}
+[3.999040] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/local_setup.sh\n'}
+[3.999066] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/local_setup.zsh\n'}
+[3.999158] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/local_setup.dsv\n'}
+[3.999187] (rc26_decision) StdoutLine: {'line': b'-- Installing: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/package.dsv\n'}
+[3.999215] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/ament_index/resource_index/packages/rc26_decision\n'}
+[3.999243] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/cmake/rc26_decisionTargetsExport.cmake\n'}
+[3.999270] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/cmake/rc26_decisionTargetsExport-noconfig.cmake\n'}
+[3.999298] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/cmake/ament_cmake_export_targets-extras.cmake\n'}
+[3.999367] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/cmake/ament_cmake_export_include_directories-extras.cmake\n'}
+[3.999396] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/cmake/ament_cmake_export_libraries-extras.cmake\n'}
+[3.999423] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/cmake/ament_cmake_export_dependencies-extras.cmake\n'}
+[3.999450] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/cmake/rc26_decisionConfig.cmake\n'}
+[3.999475] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/cmake/rc26_decisionConfig-version.cmake\n'}
+[3.999500] (rc26_decision) StdoutLine: {'line': b'-- Up-to-date: /home/potato/RC_2026/install/rc26_decision/share/rc26_decision/package.xml\n'}
+[4.007400] (-) TimerEvent: {}
+[4.107536] (-) TimerEvent: {}
+[4.207781] (-) TimerEvent: {}
+[4.308029] (-) TimerEvent: {}
+[4.408219] (-) TimerEvent: {}
+[4.508373] (-) TimerEvent: {}
+[4.608527] (-) TimerEvent: {}
+[4.708727] (-) TimerEvent: {}
+[4.808935] (-) TimerEvent: {}
+[4.909130] (-) TimerEvent: {}
+[5.009291] (-) TimerEvent: {}
+[5.109529] (-) TimerEvent: {}
+[5.209720] (-) TimerEvent: {}
+[5.309896] (-) TimerEvent: {}
+[5.410084] (-) TimerEvent: {}
+[5.510266] (-) TimerEvent: {}
+[5.610548] (-) TimerEvent: {}
+[5.710736] (-) TimerEvent: {}
+[5.810979] (-) TimerEvent: {}
+[5.911172] (-) TimerEvent: {}
+[6.011323] (-) TimerEvent: {}
+[6.111474] (-) TimerEvent: {}
+[6.211651] (-) TimerEvent: {}
+[6.311895] (-) TimerEvent: {}
+[6.412146] (-) TimerEvent: {}
+[6.512312] (-) TimerEvent: {}
+[6.612466] (-) TimerEvent: {}
+[6.712649] (-) TimerEvent: {}
+[6.812825] (-) TimerEvent: {}
+[6.913062] (-) TimerEvent: {}
+[7.013171] (-) TimerEvent: {}
+[7.113322] (-) TimerEvent: {}
+[7.213507] (-) TimerEvent: {}
+[7.313665] (-) TimerEvent: {}
+[7.413909] (-) TimerEvent: {}
+[7.514160] (-) TimerEvent: {}
+[7.614323] (-) TimerEvent: {}
+[7.714471] (-) TimerEvent: {}
+[7.814651] (-) TimerEvent: {}
+[7.914894] (-) TimerEvent: {}
+[8.015157] (-) TimerEvent: {}
+[8.115396] (-) TimerEvent: {}
+[8.215571] (-) TimerEvent: {}
+[8.315808] (-) TimerEvent: {}
+[8.416060] (-) TimerEvent: {}
+[8.516413] (-) TimerEvent: {}
+[8.616566] (-) TimerEvent: {}
+[8.716765] (-) TimerEvent: {}
+[8.817008] (-) TimerEvent: {}
+[8.917268] (-) TimerEvent: {}
+[9.017421] (-) TimerEvent: {}
+[9.117597] (-) TimerEvent: {}
+[9.217752] (-) TimerEvent: {}
+[9.317951] (-) TimerEvent: {}
+[9.418141] (-) TimerEvent: {}
+[9.518292] (-) TimerEvent: {}
+[9.618461] (-) TimerEvent: {}
+[9.718709] (-) TimerEvent: {}
+[9.819031] (-) TimerEvent: {}
+[9.919319] (-) TimerEvent: {}
+[10.019551] (-) TimerEvent: {}
+[10.119786] (-) TimerEvent: {}
+[10.220023] (-) TimerEvent: {}
+[10.320293] (-) TimerEvent: {}
+[10.420555] (-) TimerEvent: {}
+[10.520792] (-) TimerEvent: {}
+[10.621035] (-) TimerEvent: {}
+[10.721345] (-) TimerEvent: {}
+[10.821614] (-) TimerEvent: {}
+[10.921914] (-) TimerEvent: {}
+[11.022253] (-) TimerEvent: {}
+[11.122809] (-) TimerEvent: {}
+[11.223166] (-) TimerEvent: {}
+[11.323596] (-) TimerEvent: {}
+[11.423844] (-) TimerEvent: {}
+[11.524205] (-) TimerEvent: {}
+[11.624532] (-) TimerEvent: {}
+[11.724814] (-) TimerEvent: {}
+[11.825077] (-) TimerEvent: {}
+[11.925426] (-) TimerEvent: {}
+[12.025707] (-) TimerEvent: {}
+[12.126044] (-) TimerEvent: {}
+[12.226349] (-) TimerEvent: {}
+[12.326796] (-) TimerEvent: {}
+[12.427189] (-) TimerEvent: {}
+[12.527565] (-) TimerEvent: {}
+[12.627877] (-) TimerEvent: {}
+[12.728314] (-) TimerEvent: {}
+[12.828617] (-) TimerEvent: {}
+[12.928915] (-) TimerEvent: {}
+[13.029208] (-) TimerEvent: {}
+[13.129542] (-) TimerEvent: {}
+[13.229884] (-) TimerEvent: {}
+[13.330293] (-) TimerEvent: {}
+[13.430553] (-) TimerEvent: {}
+[13.530784] (-) TimerEvent: {}
+[13.631212] (-) TimerEvent: {}
+[13.731670] (-) TimerEvent: {}
+[13.832109] (-) TimerEvent: {}
+[13.932492] (-) TimerEvent: {}
+[14.032760] (-) TimerEvent: {}
+[14.133206] (-) TimerEvent: {}
+[14.233592] (-) TimerEvent: {}
+[14.333884] (-) TimerEvent: {}
+[14.434201] (-) TimerEvent: {}
+[14.534551] (-) TimerEvent: {}
+[14.634938] (-) TimerEvent: {}
+[14.735331] (-) TimerEvent: {}
+[14.835568] (-) TimerEvent: {}
+[14.935794] (-) TimerEvent: {}
+[15.036097] (-) TimerEvent: {}
+[15.136472] (-) TimerEvent: {}
+[15.236868] (-) TimerEvent: {}
+[15.337277] (-) TimerEvent: {}
+[15.437594] (-) TimerEvent: {}
+[15.537886] (-) TimerEvent: {}
+[15.638319] (-) TimerEvent: {}
+[15.738654] (-) TimerEvent: {}
+[15.838917] (-) TimerEvent: {}
+[15.939372] (-) TimerEvent: {}
+[16.039720] (-) TimerEvent: {}
+[16.140096] (-) TimerEvent: {}
+[16.240438] (-) TimerEvent: {}
+[16.341004] (-) TimerEvent: {}
+[16.441378] (-) TimerEvent: {}
+[16.541597] (-) TimerEvent: {}
+[16.641849] (-) TimerEvent: {}
+[16.742337] (-) TimerEvent: {}
+[16.842632] (-) TimerEvent: {}
+[16.942997] (-) TimerEvent: {}
+[17.043402] (-) TimerEvent: {}
+[17.143781] (-) TimerEvent: {}
+[17.244063] (-) TimerEvent: {}
+[17.344400] (-) TimerEvent: {}
+[17.444655] (-) TimerEvent: {}
+[17.544869] (-) TimerEvent: {}
+[17.645176] (-) TimerEvent: {}
+[17.745394] (-) TimerEvent: {}
+[17.845640] (-) TimerEvent: {}
+[17.945972] (-) TimerEvent: {}
+[18.046308] (-) TimerEvent: {}
+[18.146892] (-) TimerEvent: {}
+[18.247141] (-) TimerEvent: {}
+[18.347378] (-) TimerEvent: {}
+[18.447615] (-) TimerEvent: {}
+[18.547823] (-) TimerEvent: {}
+[18.648182] (-) TimerEvent: {}
+[18.748502] (-) TimerEvent: {}
+[18.848773] (-) TimerEvent: {}
+[18.949234] (-) TimerEvent: {}
+[19.049508] (-) TimerEvent: {}
+[19.149954] (-) TimerEvent: {}
+[19.250349] (-) TimerEvent: {}
+[19.350754] (-) TimerEvent: {}
+[19.451160] (-) TimerEvent: {}
+[19.551485] (-) TimerEvent: {}
+[19.651743] (-) TimerEvent: {}
+[19.752083] (-) TimerEvent: {}
+[19.852459] (-) TimerEvent: {}
+[19.952858] (-) TimerEvent: {}
+[20.053176] (-) TimerEvent: {}
+[20.153406] (-) TimerEvent: {}
+[20.253712] (-) TimerEvent: {}
+[20.354121] (-) TimerEvent: {}
+[20.454676] (-) TimerEvent: {}
+[20.554995] (-) TimerEvent: {}
+[20.655358] (-) TimerEvent: {}
+[20.755711] (-) TimerEvent: {}
+[20.856057] (-) TimerEvent: {}
+[20.956333] (-) TimerEvent: {}
+[21.056642] (-) TimerEvent: {}
+[21.157442] (-) TimerEvent: {}
+[21.257732] (-) TimerEvent: {}
+[21.358288] (-) TimerEvent: {}
+[21.458558] (-) TimerEvent: {}
+[21.558764] (-) TimerEvent: {}
+[21.659028] (-) TimerEvent: {}
+[21.759369] (-) TimerEvent: {}
+[21.859643] (-) TimerEvent: {}
+[21.959899] (-) TimerEvent: {}
+[22.060174] (-) TimerEvent: {}
+[22.160412] (-) TimerEvent: {}
+[22.260765] (-) TimerEvent: {}
+[22.361170] (-) TimerEvent: {}
+[22.461385] (-) TimerEvent: {}
+[22.561587] (-) TimerEvent: {}
+[22.661875] (-) TimerEvent: {}
+[22.762218] (-) TimerEvent: {}
+[22.862487] (-) TimerEvent: {}
+[22.962791] (-) TimerEvent: {}
+[23.063057] (-) TimerEvent: {}
+[23.163300] (-) TimerEvent: {}
+[23.263541] (-) TimerEvent: {}
+[23.363799] (-) TimerEvent: {}
+[23.464141] (-) TimerEvent: {}
+[23.564328] (-) TimerEvent: {}
+[23.664604] (-) TimerEvent: {}
+[23.764845] (-) TimerEvent: {}
+[23.865193] (-) TimerEvent: {}
+[23.965454] (-) TimerEvent: {}
+[24.065704] (-) TimerEvent: {}
+[24.166151] (-) TimerEvent: {}
+[24.266411] (-) TimerEvent: {}
+[24.366691] (-) TimerEvent: {}
+[24.467098] (-) TimerEvent: {}
+[24.567369] (-) TimerEvent: {}
+[24.667716] (-) TimerEvent: {}
+[24.768151] (-) TimerEvent: {}
+[24.868514] (-) TimerEvent: {}
+[24.968875] (-) TimerEvent: {}
+[25.069250] (-) TimerEvent: {}
+[25.169494] (-) TimerEvent: {}
+[25.269901] (-) TimerEvent: {}
+[25.370330] (-) TimerEvent: {}
+[25.470745] (-) TimerEvent: {}
+[25.571164] (-) TimerEvent: {}
+[25.671537] (-) TimerEvent: {}
+[25.771931] (-) TimerEvent: {}
+[25.872335] (-) TimerEvent: {}
+[25.972615] (-) TimerEvent: {}
+[26.072962] (-) TimerEvent: {}
+[26.173316] (-) TimerEvent: {}
+[26.273693] (-) TimerEvent: {}
+[26.374070] (-) TimerEvent: {}
+[26.474391] (-) TimerEvent: {}
+[26.574681] (-) TimerEvent: {}
+[26.675156] (-) TimerEvent: {}
+[26.775408] (-) TimerEvent: {}
+[26.875655] (-) TimerEvent: {}
+[26.975912] (-) TimerEvent: {}
+[27.076135] (-) TimerEvent: {}
+[27.176407] (-) TimerEvent: {}
+[27.276673] (-) TimerEvent: {}
+[27.377008] (-) TimerEvent: {}
+[27.477566] (-) TimerEvent: {}
+[27.578028] (-) TimerEvent: {}
+[27.678288] (-) TimerEvent: {}
+[27.778544] (-) TimerEvent: {}
+[27.878801] (-) TimerEvent: {}
+[27.979048] (-) TimerEvent: {}
+[28.079276] (-) TimerEvent: {}
+[28.179491] (-) TimerEvent: {}
+[28.279837] (-) TimerEvent: {}
+[28.380077] (-) TimerEvent: {}
+[28.480327] (-) TimerEvent: {}
+[28.580580] (-) TimerEvent: {}
+[28.681079] (-) TimerEvent: {}
+[28.781333] (-) TimerEvent: {}
+[28.881667] (-) TimerEvent: {}
+[28.982027] (-) TimerEvent: {}
+[29.082288] (-) TimerEvent: {}
+[29.182508] (-) TimerEvent: {}
+[29.282761] (-) TimerEvent: {}
+[29.383148] (-) TimerEvent: {}
+[29.483417] (-) TimerEvent: {}
+[29.583692] (-) TimerEvent: {}
+[29.684035] (-) TimerEvent: {}
+[29.784316] (-) TimerEvent: {}
+[29.884582] (-) TimerEvent: {}
+[29.985004] (-) TimerEvent: {}
+[30.026044] (rc26_decision) CommandEnded: {'returncode': 0}
+[30.050515] (rc26_decision) JobEnded: {'identifier': 'rc26_decision', 'rc': 0}
+[30.050918] (-) EventReactorShutdown: {}

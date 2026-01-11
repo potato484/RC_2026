@@ -10,6 +10,7 @@ std::vector<PointVector> Nearest_Points;
 std::shared_ptr<IVoxType> ivox_ = nullptr;  // localmap in ivox
 std::vector<float> pointSearchSqDis(NUM_MATCH_POINTS);
 bool point_selected_surf[100000] = {0};
+constexpr int kPointSelectedMax = static_cast<int>(sizeof(point_selected_surf) / sizeof(point_selected_surf[0]));
 std::vector<M3D> crossmat_list;
 int effct_feat_num = 0;
 int k = 0;
@@ -119,22 +120,26 @@ void h_model_input(
   normvec->resize(time_seq[k]);
   int effect_num_k = 0;
   for (int j = 0; j < time_seq[k]; j++) {
-    PointType & point_body_j = feats_down_body->points[idx + j + 1];
-    PointType & point_world_j = feats_down_world->points[idx + j + 1];
+    const int point_idx = idx + j + 1;
+    if (point_idx < 0 || point_idx >= kPointSelectedMax) {
+      continue;
+    }
+    PointType & point_body_j = feats_down_body->points[point_idx];
+    PointType & point_world_j = feats_down_world->points[point_idx];
     pointBodyToWorld(&point_body_j, &point_world_j);
-    V3D p_body = pbody_list[idx + j + 1];
+    V3D p_body = pbody_list[point_idx];
     double p_norm = p_body.norm();
     V3D p_world;
     p_world << point_world_j.x, point_world_j.y, point_world_j.z;
     {
-      auto & points_near = Nearest_Points[idx + j + 1];
+      auto & points_near = Nearest_Points[point_idx];
       ivox_->GetClosestPoint(point_world_j, points_near, NUM_MATCH_POINTS);  //
       if ((points_near.size() <
            NUM_MATCH_POINTS))  // || pointSearchSqDis[NUM_MATCH_POINTS - 1] > 5) // 5)
       {
-        point_selected_surf[idx + j + 1] = false;
+        point_selected_surf[point_idx] = false;
       } else {
-        point_selected_surf[idx + j + 1] = false;
+        point_selected_surf[point_idx] = false;
         if (esti_plane(pabcd, points_near, plane_thr))  //(planeValid)
         {
           float pd2 = fabs(
@@ -160,7 +165,7 @@ void h_model_input(
           // 	pabcd(3) = weight * pabcd(3);
           // }
           if (p_norm > match_s * pd2 * pd2) {
-            point_selected_surf[idx + j + 1] = true;
+            point_selected_surf[point_idx] = true;
             normvec->points[j].x = pabcd(0);
             normvec->points[j].y = pabcd(1);
             normvec->points[j].z = pabcd(2);
@@ -183,11 +188,15 @@ void h_model_input(
 
   for (int j = 0; j < time_seq[k]; j++) {
     // ekfom_data.converge = false;
-    if (point_selected_surf[idx + j + 1]) {
+    const int point_idx = idx + j + 1;
+    if (point_idx < 0 || point_idx >= kPointSelectedMax) {
+      continue;
+    }
+    if (point_selected_surf[point_idx]) {
       V3D norm_vec(normvec->points[j].x, normvec->points[j].y, normvec->points[j].z);
 
       if (extrinsic_est_en) {
-        V3D p_body = pbody_list[idx + j + 1];
+        V3D p_body = pbody_list[point_idx];
         M3D p_crossmat, p_imu_crossmat;
         p_crossmat << SKEW_SYM_MATRX(p_body);
         V3D point_imu = s.offset_R_L_I * p_body + s.offset_T_L_I;
@@ -198,15 +207,15 @@ void h_model_input(
         ekfom_data.h_x.block<1, 12>(m, 0) << norm_vec(0), norm_vec(1), norm_vec(2),
           VEC_FROM_ARRAY(A), VEC_FROM_ARRAY(B), VEC_FROM_ARRAY(C);
       } else {
-        M3D point_crossmat = crossmat_list[idx + j + 1];
+        M3D point_crossmat = crossmat_list[point_idx];
         V3D C(s.rot.transpose() * norm_vec);  // conjugate().normalized()
         V3D A(point_crossmat * C);
         ekfom_data.h_x.block<1, 12>(m, 0) << norm_vec(0), norm_vec(1), norm_vec(2),
           VEC_FROM_ARRAY(A), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
       }
-      ekfom_data.z(m) = -norm_vec(0) * feats_down_world->points[idx + j + 1].x -
-                        norm_vec(1) * feats_down_world->points[idx + j + 1].y -
-                        norm_vec(2) * feats_down_world->points[idx + j + 1].z -
+      ekfom_data.z(m) = -norm_vec(0) * feats_down_world->points[point_idx].x -
+                        norm_vec(1) * feats_down_world->points[point_idx].y -
+                        norm_vec(2) * feats_down_world->points[point_idx].z -
                         normvec->points[j].intensity;
 
       m++;
@@ -225,24 +234,28 @@ void h_model_output(
   normvec->resize(time_seq[k]);
   int effect_num_k = 0;
   for (int j = 0; j < time_seq[k]; j++) {
-    PointType & point_body_j = feats_down_body->points[idx + j + 1];
-    PointType & point_world_j = feats_down_world->points[idx + j + 1];
+    const int point_idx = idx + j + 1;
+    if (point_idx < 0 || point_idx >= kPointSelectedMax) {
+      continue;
+    }
+    PointType & point_body_j = feats_down_body->points[point_idx];
+    PointType & point_world_j = feats_down_world->points[point_idx];
     pointBodyToWorld(&point_body_j, &point_world_j);
-    V3D p_body = pbody_list[idx + j + 1];
+    V3D p_body = pbody_list[point_idx];
     double p_norm = p_body.norm();
     V3D p_world;
     p_world << point_world_j.x, point_world_j.y, point_world_j.z;
     {
-      auto & points_near = Nearest_Points[idx + j + 1];
+      auto & points_near = Nearest_Points[point_idx];
 
       ivox_->GetClosestPoint(point_world_j, points_near, NUM_MATCH_POINTS);  //
 
       if ((points_near.size() <
            NUM_MATCH_POINTS))  // || pointSearchSqDis[NUM_MATCH_POINTS - 1] > 5)
       {
-        point_selected_surf[idx + j + 1] = false;
+        point_selected_surf[point_idx] = false;
       } else {
-        point_selected_surf[idx + j + 1] = false;
+        point_selected_surf[point_idx] = false;
         if (esti_plane(pabcd, points_near, plane_thr))  //(planeValid)
         {
           float pd2 = fabs(
@@ -268,7 +281,7 @@ void h_model_output(
           // }
           if (p_norm > match_s * pd2 * pd2) {
             // point_selected_surf[i] = true;
-            point_selected_surf[idx + j + 1] = true;
+            point_selected_surf[point_idx] = true;
             normvec->points[j].x = pabcd(0);
             normvec->points[j].y = pabcd(1);
             normvec->points[j].z = pabcd(2);
@@ -290,10 +303,14 @@ void h_model_output(
   int m = 0;
   for (int j = 0; j < time_seq[k]; j++) {
     // ekfom_data.converge = false;
-    if (point_selected_surf[idx + j + 1]) {
+    const int point_idx = idx + j + 1;
+    if (point_idx < 0 || point_idx >= kPointSelectedMax) {
+      continue;
+    }
+    if (point_selected_surf[point_idx]) {
       V3D norm_vec(normvec->points[j].x, normvec->points[j].y, normvec->points[j].z);
       if (extrinsic_est_en) {
-        V3D p_body = pbody_list[idx + j + 1];
+        V3D p_body = pbody_list[point_idx];
         M3D p_crossmat, p_imu_crossmat;
         p_crossmat << SKEW_SYM_MATRX(p_body);
         V3D point_imu = s.offset_R_L_I * p_body + s.offset_T_L_I;
@@ -304,15 +321,15 @@ void h_model_output(
         ekfom_data.h_x.block<1, 12>(m, 0) << norm_vec(0), norm_vec(1), norm_vec(2),
           VEC_FROM_ARRAY(A), VEC_FROM_ARRAY(B), VEC_FROM_ARRAY(C);
       } else {
-        M3D point_crossmat = crossmat_list[idx + j + 1];
+        M3D point_crossmat = crossmat_list[point_idx];
         V3D C(s.rot.transpose() * norm_vec);  // conjugate().normalized()
         V3D A(point_crossmat * C);
         ekfom_data.h_x.block<1, 12>(m, 0) << norm_vec(0), norm_vec(1), norm_vec(2),
           VEC_FROM_ARRAY(A), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
       }
-      ekfom_data.z(m) = -norm_vec(0) * feats_down_world->points[idx + j + 1].x -
-                        norm_vec(1) * feats_down_world->points[idx + j + 1].y -
-                        norm_vec(2) * feats_down_world->points[idx + j + 1].z -
+      ekfom_data.z(m) = -norm_vec(0) * feats_down_world->points[point_idx].x -
+                        norm_vec(1) * feats_down_world->points[point_idx].y -
+                        norm_vec(2) * feats_down_world->points[point_idx].z -
                         normvec->points[j].intensity;
 
       m++;

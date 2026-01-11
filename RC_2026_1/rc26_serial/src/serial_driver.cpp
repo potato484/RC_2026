@@ -241,53 +241,108 @@ uint8_t SerialDriver::nextSeq()
 
 void SerialDriver::notifyHeartbeatFailure()
 {
-    if (heartbeat_failure_callback_)
+    HeartbeatFailureCallback cb;
     {
-        heartbeat_failure_callback_();
+        std::lock_guard<std::mutex> lock(callback_mutex_);
+        cb = heartbeat_failure_callback_;
+    }
+    if (cb)
+    {
+        cb();
     }
 }
 
 void SerialDriver::notifyReconnect()
 {
-    if (reconnect_callback_)
+    ReconnectCallback cb;
     {
-        reconnect_callback_();
+        std::lock_guard<std::mutex> lock(callback_mutex_);
+        cb = reconnect_callback_;
+    }
+    if (cb)
+    {
+        cb();
+    }
+}
+
+void SerialDriver::notifyReconnectFailed()
+{
+    ReconnectFailedCallback cb;
+    {
+        std::lock_guard<std::mutex> lock(callback_mutex_);
+        cb = reconnect_failed_callback_;
+    }
+    if (cb)
+    {
+        cb();
     }
 }
 
 void SerialDriver::setReconnectCallback(ReconnectCallback callback)
 {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
     reconnect_callback_ = std::move(callback);
 }
 
 void SerialDriver::setReconnectStartCallback(ReconnectStartCallback callback)
 {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
     reconnect_start_callback_ = std::move(callback);
+}
+
+void SerialDriver::setReconnectFailedCallback(ReconnectFailedCallback callback)
+{
+    std::lock_guard<std::mutex> lock(callback_mutex_);
+    reconnect_failed_callback_ = std::move(callback);
 }
 
 bool SerialDriver::reconnect()
 {
-    RCLCPP_WARN(serialLogger(), "开始串口重连：%s @ %d", port_.c_str(), baudrate_);
-
-    if (reconnect_start_callback_)
+    // 防止并发重连
+    bool expected = false;
+    if (!reconnecting_.compare_exchange_strong(expected, true))
     {
-        reconnect_start_callback_();
+        RCLCPP_WARN(serialLogger(), "重连已在进行中，跳过本次重连请求");
+        return false;
     }
 
-    while (true)
+    RCLCPP_WARN(serialLogger(), "开始串口重连：%s @ %d", port_.c_str(), baudrate_);
+
+    {
+        ReconnectStartCallback cb;
+        {
+            std::lock_guard<std::mutex> lock(callback_mutex_);
+            cb = reconnect_start_callback_;
+        }
+        if (cb)
+        {
+            cb();
+        }
+    }
+
+    for (uint8_t attempt = 1; attempt <= MAX_RECONNECT_ATTEMPTS; ++attempt)
     {
         close();
         std::this_thread::sleep_for(std::chrono::milliseconds(RECONNECT_INTERVAL_MS));
 
         if (open(port_, baudrate_))
         {
-            RCLCPP_INFO(serialLogger(), "串口重连成功：%s", port_.c_str());
+            RCLCPP_INFO(serialLogger(), "串口重连成功：%s（第%u次尝试）", port_.c_str(), attempt);
             notifyReconnect();
+            reconnecting_ = false;
             return true;
         }
 
-        RCLCPP_WARN(serialLogger(), "串口重连失败，%ums后重试：%s", RECONNECT_INTERVAL_MS, port_.c_str());
+        RCLCPP_WARN(serialLogger(), "串口重连失败（第%u/%u次），%ums后重试：%s",
+            attempt, MAX_RECONNECT_ATTEMPTS, RECONNECT_INTERVAL_MS, port_.c_str());
     }
+
+    // 所有重连尝试失败
+    RCLCPP_ERROR(serialLogger(), "串口重连失败，已达最大尝试次数(%u)：%s",
+        MAX_RECONNECT_ATTEMPTS, port_.c_str());
+    notifyReconnectFailed();
+    reconnecting_ = false;
+    return false;
 }
 
 bool SerialDriver::writeAll(const uint8_t* data, size_t size)
@@ -339,6 +394,16 @@ bool SerialDriver::writeAll(const uint8_t* data, size_t size)
 std::vector<uint8_t> SerialDriver::buildFrame(
     uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload, uint8_t retry)
 {
+    // payload 长度校验
+    if (payload.size() > MAX_PAYLOAD_SIZE)
+    {
+        setLastError("payload 超出最大长度限制: " + std::to_string(payload.size()) +
+            " > " + std::to_string(MAX_PAYLOAD_SIZE));
+        RCLCPP_ERROR(serialLogger(), "构建帧失败：payload 长度 %zu 超出最大限制 %u",
+            payload.size(), MAX_PAYLOAD_SIZE);
+        return {};
+    }
+
     // HEAD(2) + SEQ(1) + LEN(1) + RETRY(1) + CMD(1) + PAYLOAD(N) + CRC32(4) + TAIL(2)
     size_t frame_size = 2 + 1 + 1 + 1 + 1 + payload.size() + 4 + 2;
     std::vector<uint8_t> frame(frame_size);
@@ -457,12 +522,24 @@ bool SerialDriver::sendCommandNoAck(uint8_t cmd, const std::vector<uint8_t>& pay
 
     uint8_t seq = nextSeq();
     std::vector<uint8_t> frame = buildFrame(seq, cmd, payload, 0x00);
+    if (frame.empty())
+    {
+        return false;
+    }
 
     std::lock_guard<std::mutex> lock(send_mutex_);
     bool ok = writeAll(frame.data(), frame.size());
-    if (ok && debug_callback_)
+    if (ok)
     {
-        debug_callback_(true, frame);
+        DebugCallback cb;
+        {
+            std::lock_guard<std::mutex> cb_lock(callback_mutex_);
+            cb = debug_callback_;
+        }
+        if (cb)
+        {
+            cb(true, frame);
+        }
     }
     return ok;
 }
@@ -485,6 +562,10 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload)
     {
         uint8_t seq = nextSeq();
         std::vector<uint8_t> frame = buildFrame(seq, cmd, payload, retry);
+        if (frame.empty())
+        {
+            return false;
+        }
 
         beginWaitAck(seq, cmd);
 
@@ -495,9 +576,14 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload)
                 endWaitAck();
                 return false;
             }
-            if (debug_callback_)
+            DebugCallback cb;
             {
-                debug_callback_(true, frame);
+                std::lock_guard<std::mutex> cb_lock(callback_mutex_);
+                cb = debug_callback_;
+            }
+            if (cb)
+            {
+                cb(true, frame);
             }
         }
 
@@ -583,9 +669,16 @@ bool SerialDriver::sendHeartbeat()
         return false;
     }
 
+    // 心跳也需要受 ack_command_mutex_ 保护，防止与 sendCommand 并发覆盖 ACK 状态
+    std::lock_guard<std::mutex> cmd_lock(ack_command_mutex_);
+
     uint8_t cmd = static_cast<uint8_t>(CommandID::HEARTBEAT);
     uint8_t seq = nextSeq();
     std::vector<uint8_t> frame = buildFrame(seq, cmd, {}, 0x00);
+    if (frame.empty())
+    {
+        return false;
+    }
 
     beginWaitAck(seq, cmd);
 
@@ -596,9 +689,14 @@ bool SerialDriver::sendHeartbeat()
             endWaitAck();
             return false;
         }
-        if (debug_callback_)
+        DebugCallback cb;
         {
-            debug_callback_(true, frame);
+            std::lock_guard<std::mutex> cb_lock(callback_mutex_);
+            cb = debug_callback_;
+        }
+        if (cb)
+        {
+            cb(true, frame);
         }
     }
 
@@ -631,16 +729,19 @@ bool SerialDriver::sendHeartbeat()
 
 void SerialDriver::setReceiveCallback(ReceiveCallback callback)
 {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
     recv_callback_ = std::move(callback);
 }
 
 void SerialDriver::setHeartbeatFailureCallback(HeartbeatFailureCallback callback)
 {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
     heartbeat_failure_callback_ = std::move(callback);
 }
 
 void SerialDriver::setDebugCallback(DebugCallback callback)
 {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
     debug_callback_ = std::move(callback);
 }
 
@@ -683,6 +784,7 @@ void SerialDriver::recvThreadFunc()
 
             if (err == EBADF)
             {
+                running_ = false;
                 break;
             }
             continue;
@@ -731,9 +833,12 @@ void SerialDriver::recvThreadFunc()
                     {
                         recv_error_active_ = true;
                         setLastError("read() 返回 0：可能设备断开");
-                        RCLCPP_WARN(serialLogger(), "串口读取返回 0：可能设备断开(%s)", port_.c_str());
+                        RCLCPP_WARN(serialLogger(), "串口读取返回 0：可能设备断开(%s)，触发重连", port_.c_str());
                     }
-                    continue;
+                    // 设备断开，退出接收线程并由外部触发重连
+                    // 注意：不在此处直接调用 reconnect()，避免线程生命周期问题
+                    running_ = false;
+                    break;
                 }
 
                 if (errno == EINTR)
@@ -881,10 +986,18 @@ void SerialDriver::parseReceivedData()
         }
 
         // 调试回调：输出完整接收帧
-        if (debug_callback_)
+        DebugCallback debug_cb;
+        ReceiveCallback recv_cb;
+        {
+            std::lock_guard<std::mutex> lock(callback_mutex_);
+            debug_cb = debug_callback_;
+            recv_cb = recv_callback_;
+        }
+
+        if (debug_cb)
         {
             std::vector<uint8_t> rx_frame(recv_buffer_, recv_buffer_ + frame_size);
-            debug_callback_(false, rx_frame);
+            debug_cb(false, rx_frame);
         }
 
         // SEQ在位置2，RETRY在位置4，CMD在位置5，PAYLOAD从位置6开始
@@ -900,11 +1013,11 @@ void SerialDriver::parseReceivedData()
 
         notifyAck(seq, cmd);
 
-        if (recv_callback_)
+        if (recv_cb)
         {
             try
             {
-                recv_callback_(seq, cmd, payload);
+                recv_cb(seq, cmd, payload);
             }
             catch (const std::exception& e)
             {
