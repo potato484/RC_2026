@@ -1,6 +1,0 @@
-Invoking command in '/home/potato/RC_2026/build/rc26_serial': /usr/bin/cmake /home/potato/RC_2026/RC_2026_1/rc26_serial -DCMAKE_INSTALL_PREFIX=/home/potato/RC_2026/install/rc26_serial
-Invoked command in '/home/potato/RC_2026/build/rc26_serial' returned '0': /usr/bin/cmake /home/potato/RC_2026/RC_2026_1/rc26_serial -DCMAKE_INSTALL_PREFIX=/home/potato/RC_2026/install/rc26_serial
-Invoking command in '/home/potato/RC_2026/build/rc26_serial': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_serial -- -j28 -l28
-Invoked command in '/home/potato/RC_2026/build/rc26_serial' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_serial -- -j28 -l28
-Invoking command in '/home/potato/RC_2026/build/rc26_serial': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_serial
-Invoked command in '/home/potato/RC_2026/build/rc26_serial' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_serial

@@ -1,4 +1,0 @@
-Invoking command in '/home/potato/RC_2026/build/point_lio': /usr/bin/cmake --build /home/potato/RC_2026/build/point_lio -- -j28 -l28
-Invoked command in '/home/potato/RC_2026/build/point_lio' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/point_lio -- -j28 -l28
-Invoking command in '/home/potato/RC_2026/build/point_lio': /usr/bin/cmake --install /home/potato/RC_2026/build/point_lio
-Invoked command in '/home/potato/RC_2026/build/point_lio' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/point_lio

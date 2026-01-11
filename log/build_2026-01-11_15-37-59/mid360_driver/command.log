@@ -1,4 +1,0 @@
-Invoking command in '/home/potato/RC_2026/build/mid360_driver': /usr/bin/cmake --build /home/potato/RC_2026/build/mid360_driver -- -j28 -l28
-Invoked command in '/home/potato/RC_2026/build/mid360_driver' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/mid360_driver -- -j28 -l28
-Invoking command in '/home/potato/RC_2026/build/mid360_driver': /usr/bin/cmake --install /home/potato/RC_2026/build/mid360_driver
-Invoked command in '/home/potato/RC_2026/build/mid360_driver' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/mid360_driver

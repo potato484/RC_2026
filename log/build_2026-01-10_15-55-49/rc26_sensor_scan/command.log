@@ -1,6 +1,0 @@
-Invoking command in '/home/potato/RC_2026/build/rc26_sensor_scan': /usr/bin/cmake /home/potato/RC_2026/RC_2026_1/rc26_sensor_scan -DCMAKE_INSTALL_PREFIX=/home/potato/RC_2026/install/rc26_sensor_scan
-Invoked command in '/home/potato/RC_2026/build/rc26_sensor_scan' returned '0': /usr/bin/cmake /home/potato/RC_2026/RC_2026_1/rc26_sensor_scan -DCMAKE_INSTALL_PREFIX=/home/potato/RC_2026/install/rc26_sensor_scan
-Invoking command in '/home/potato/RC_2026/build/rc26_sensor_scan': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_sensor_scan -- -j28 -l28
-Invoked command in '/home/potato/RC_2026/build/rc26_sensor_scan' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/rc26_sensor_scan -- -j28 -l28
-Invoking command in '/home/potato/RC_2026/build/rc26_sensor_scan': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_sensor_scan
-Invoked command in '/home/potato/RC_2026/build/rc26_sensor_scan' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/rc26_sensor_scan

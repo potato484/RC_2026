@@ -1,4 +1,0 @@
-source;share/rc26_odom_interface/local_setup.bash
-source;share/rc26_odom_interface/local_setup.dsv
-source;share/rc26_odom_interface/local_setup.sh
-source;share/rc26_odom_interface/local_setup.zsh

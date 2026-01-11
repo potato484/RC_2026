@@ -1,4 +1,0 @@
-source;share/rc26_sensor_scan/local_setup.bash
-source;share/rc26_sensor_scan/local_setup.dsv
-source;share/rc26_sensor_scan/local_setup.sh
-source;share/rc26_sensor_scan/local_setup.zsh

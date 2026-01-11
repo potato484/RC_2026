@@ -1,6 +1,0 @@
-Invoking command in '/home/potato/RC_2026/build/mid360_driver': /usr/bin/cmake /home/potato/RC_2026/RC_2026_1/mid360_driver -DCMAKE_INSTALL_PREFIX=/home/potato/RC_2026/install/mid360_driver
-Invoked command in '/home/potato/RC_2026/build/mid360_driver' returned '0': /usr/bin/cmake /home/potato/RC_2026/RC_2026_1/mid360_driver -DCMAKE_INSTALL_PREFIX=/home/potato/RC_2026/install/mid360_driver
-Invoking command in '/home/potato/RC_2026/build/mid360_driver': /usr/bin/cmake --build /home/potato/RC_2026/build/mid360_driver -- -j28 -l28
-Invoked command in '/home/potato/RC_2026/build/mid360_driver' returned '0': /usr/bin/cmake --build /home/potato/RC_2026/build/mid360_driver -- -j28 -l28
-Invoking command in '/home/potato/RC_2026/build/mid360_driver': /usr/bin/cmake --install /home/potato/RC_2026/build/mid360_driver
-Invoked command in '/home/potato/RC_2026/build/mid360_driver' returned '0': /usr/bin/cmake --install /home/potato/RC_2026/build/mid360_driver
