@@ -12,14 +12,11 @@
 
 #include "rc26_serial/protocol.hpp"
 
-namespace rc26_decision
-{
+namespace rc26_decision {
 
-class SerialDriver
-{
+class SerialDriver {
 public:
-    using ReceiveCallback =
-        std::function<void(uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload)>;
+    using ReceiveCallback = std::function<void(uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload)>;
     using HeartbeatFailureCallback = std::function<void()>;
     using DebugCallback = std::function<void(bool is_tx, const std::vector<uint8_t>& data)>;
 
@@ -43,14 +40,10 @@ public:
     bool sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload = {});
     bool sendCommand(CommandID cmd, const std::vector<uint8_t>& payload = {});
 
-
     // ========================================================================
     // 便捷接口
     // ========================================================================
-    bool sendPose(
-        float vx, float vy,
-        float wx, float wy, float wz,
-        float roll, float pitch, float yaw);
+    bool sendPose(float vx, float vy, float wx, float wy, float wz, float roll, float pitch, float yaw);
     bool sendStop();
     bool sendHeartbeat();
 
@@ -99,7 +92,8 @@ private:
     size_t recv_len_ = 0;
 
     uint8_t nextSeq();
-    std::vector<uint8_t> buildFrame(uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload, uint8_t retry = 0x00);
+    std::vector<uint8_t> buildFrame(uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload,
+                                    uint8_t retry = 0x00);
     bool writeAll(const uint8_t* data, size_t size);
     void setLastError(std::string message);
 

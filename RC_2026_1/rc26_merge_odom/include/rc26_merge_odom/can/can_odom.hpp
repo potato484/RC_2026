@@ -13,8 +13,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 
-namespace rc26_merge_odom
-{
+namespace rc26_merge_odom {
 
 // CAN电调反馈报文格式 (标识符 = 0x200 + 电调ID)
 // DATA[0]: 转子机械角度高8位
@@ -28,17 +27,9 @@ namespace rc26_merge_odom
 
 constexpr uint32_t CAN_BASE_ID = 0x200;
 
-enum WheelID : uint8_t
-{
-    FRONT_LEFT  = 0,
-    REAR_LEFT   = 1,
-    REAR_RIGHT  = 2,
-    FRONT_RIGHT = 3,
-    WHEEL_COUNT = 4
-};
+enum WheelID : uint8_t { FRONT_LEFT = 0, REAR_LEFT = 1, REAR_RIGHT = 2, FRONT_RIGHT = 3, WHEEL_COUNT = 4 };
 
-struct MotorFeedback
-{
+struct MotorFeedback {
     uint16_t angle_raw = 0;
     int16_t rpm = 0;
     int16_t current = 0;
@@ -46,11 +37,9 @@ struct MotorFeedback
     std::chrono::steady_clock::time_point last_update;
 };
 
-class CanOdom
-{
+class CanOdom {
 public:
-    struct Config
-    {
+    struct Config {
         std::string can_interface = "can0";
         double wheel_radius = 0.07625;
         double wheel_base = 0.62326;
@@ -105,9 +94,8 @@ private:
     void canThreadFunc();
     void parseCanFrame(uint32_t can_id, const uint8_t* data, uint8_t len);
     void publishOdometry();
-    void wheelSpeedsToBodyVelocity(
-        double v_fl, double v_rl, double v_rr, double v_fr,
-        double& vx, double& vy, double& omega) const;
+    void wheelSpeedsToBodyVelocity(double v_fl, double v_rl, double v_rr, double v_fr, double& vx, double& vy,
+                                   double& omega) const;
 };
 
 }  // namespace rc26_merge_odom

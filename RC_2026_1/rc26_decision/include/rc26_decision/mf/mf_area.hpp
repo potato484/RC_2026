@@ -3,14 +3,13 @@
 
 #include <behaviortree_cpp/bt_factory.h>
 #include <rclcpp/rclcpp.hpp>
+
 #include "rc26_serial/protocol.hpp"
 
-namespace rc26_decision
-{
+namespace rc26_decision {
 
 // 上阶梯节点
-class StairClimbAction : public BT::StatefulActionNode
-{
+class StairClimbAction : public BT::StatefulActionNode {
 public:
     StairClimbAction(const std::string& name, const BT::NodeConfig& config);
 
@@ -22,8 +21,7 @@ public:
 };
 
 // 下阶梯节点
-class StairDescendAction : public BT::StatefulActionNode
-{
+class StairDescendAction : public BT::StatefulActionNode {
 public:
     StairDescendAction(const std::string& name, const BT::NodeConfig& config);
 
@@ -35,8 +33,7 @@ public:
 };
 
 // 夹取 KFS 节点
-class GrabKFSAction : public BT::StatefulActionNode
-{
+class GrabKFSAction : public BT::StatefulActionNode {
 public:
     GrabKFSAction(const std::string& name, const BT::NodeConfig& config);
 
@@ -48,8 +45,7 @@ public:
 };
 
 // 机构抬升节点 (梅林区)
-class MechUpMerlinAction : public BT::StatefulActionNode
-{
+class MechUpMerlinAction : public BT::StatefulActionNode {
 public:
     MechUpMerlinAction(const std::string& name, const BT::NodeConfig& config);
 
@@ -61,8 +57,7 @@ public:
 };
 
 // 机构下降节点 (梅林区)
-class MechDownMerlinAction : public BT::StatefulActionNode
-{
+class MechDownMerlinAction : public BT::StatefulActionNode {
 public:
     MechDownMerlinAction(const std::string& name, const BT::NodeConfig& config);
 
@@ -74,8 +69,7 @@ public:
 };
 
 // 旋转节点
-class RotateAction : public BT::StatefulActionNode
-{
+class RotateAction : public BT::StatefulActionNode {
 public:
     RotateAction(const std::string& name, const BT::NodeConfig& config);
 
@@ -87,8 +81,7 @@ public:
 };
 
 // 检查 KFS 存在条件节点
-class CheckKFSCondition : public BT::ConditionNode
-{
+class CheckKFSCondition : public BT::ConditionNode {
 public:
     CheckKFSCondition(const std::string& name, const BT::NodeConfig& config);
 
@@ -98,8 +91,7 @@ public:
 };
 
 // 检查装载数量条件节点
-class CheckLoadCondition : public BT::ConditionNode
-{
+class CheckLoadCondition : public BT::ConditionNode {
 public:
     CheckLoadCondition(const std::string& name, const BT::NodeConfig& config);
 

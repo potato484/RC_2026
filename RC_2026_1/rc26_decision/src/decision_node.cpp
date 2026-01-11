@@ -1,24 +1,22 @@
-#include <rclcpp/rclcpp.hpp>
-#include <behaviortree_cpp/bt_factory.h>
-#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <atomic>
 #include <mutex>
 
+#include <ament_index_cpp/get_package_share_directory.hpp>
+#include <behaviortree_cpp/bt_factory.h>
+#include <rclcpp/rclcpp.hpp>
+
+#include "rc26_decision/combat/combat_area.hpp"
 #include "rc26_decision/mc/mc_area.hpp"
 #include "rc26_decision/mf/mf_area.hpp"
-#include "rc26_decision/combat/combat_area.hpp"
 #include "rc26_decision/navigation/bt_navigate_waypoint.hpp"
 #include "rc26_decision/navigation/waypoint_navigator.hpp"
 #include "rc26_serial/serial_driver.hpp"
 
-namespace rc26_decision
-{
+namespace rc26_decision {
 
-class DecisionNode : public rclcpp::Node
-{
+class DecisionNode : public rclcpp::Node {
 public:
-    DecisionNode() : Node("rc26_decision")
-    {
+    DecisionNode() : Node("rc26_decision") {
         // 声明参数
         this->declare_parameter<std::string>("tree_file", "main_tree.xml");
         this->declare_parameter<int>("tick_rate_ms", 100);
@@ -35,17 +33,16 @@ public:
             cmd_serial_ = std::make_shared<SerialDriver>();
             std::string cmd_port = this->get_parameter("cmd_serial_port").as_string();
             int cmd_baud = this->get_parameter("cmd_baudrate").as_int();
-            
+
             if (!cmd_serial_->open(cmd_port, cmd_baud)) {
                 RCLCPP_ERROR(this->get_logger(), "无法打开命令串口: %s", cmd_port.c_str());
             } else {
                 RCLCPP_INFO(this->get_logger(), "命令串口已打开: %s", cmd_port.c_str());
-                
+
                 // 启动心跳（每秒1次）
                 if (this->get_parameter("enable_heartbeat").as_bool()) {
-                    heartbeat_timer_ = this->create_wall_timer(
-                        std::chrono::milliseconds(1000),
-                        [this]() { handleHeartbeat(); });
+                    heartbeat_timer_ =
+                        this->create_wall_timer(std::chrono::milliseconds(1000), [this]() { handleHeartbeat(); });
                 }
             }
         }
@@ -58,15 +55,15 @@ public:
         {
             const auto nav2_action_name = this->get_parameter("nav2_action_name").as_string();
             const auto nav2_goal_frame = this->get_parameter("nav2_goal_frame").as_string();
-            waypoint_navigator_ = std::make_shared<WaypointNavigator>(
-                *this, cmd_serial_, nav2_action_name, nav2_goal_frame);
+            waypoint_navigator_ =
+                std::make_shared<WaypointNavigator>(*this, cmd_serial_, nav2_action_name, nav2_goal_frame);
             blackboard->set("waypoint_navigator", waypoint_navigator_);
         }
-        
+
         // 初始化重连状态（行为树可直接查询）
         blackboard->set("cmd_serial_reconnecting", false);
         blackboard->set("cmd_serial_reconnect_failed", false);
-        
+
         // 初始化反馈状态
         blackboard->set("grab_tip_done", false);
         blackboard->set("assemble_done", false);
@@ -107,42 +104,75 @@ public:
 
         // 为命令串口挂载反馈回调 (将反馈 ID 存入黑板)
         if (cmd_serial_) {
-	            cmd_serial_->setReceiveCallback([this, blackboard](uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload) {
-	                (void)seq; (void)payload;
-	                
-	                // 心跳反馈：HEARTBEAT_ACK(0x10) 已由 SerialDriver 内部处理
-                if (cmd == static_cast<uint8_t>(FeedbackID::HEARTBEAT_ACK)) {
-                    return;
-                }
-	                
-	                // 1. 通用映射：以十六进制 ID 为键 (如 feedback_0x02)
-	                char hex_str[16];
-	                std::snprintf(hex_str, sizeof(hex_str), "feedback_0x%02X", cmd);
-	                blackboard->set(std::string(hex_str), true);
-	                
-	                // 2. 语义映射：将常用 ID 转换为直观的布尔值
-	                switch (static_cast<FeedbackID>(cmd)) {
-                    case FeedbackID::GRAB_TIP_DONE:         blackboard->set("grab_tip_done", true); break;
-                    case FeedbackID::ASSEMBLE_DONE:         blackboard->set("assemble_done", true); break;
-                    case FeedbackID::CLIMBING_SLOPE:        blackboard->set("climbing_slope", true); break;
-                    case FeedbackID::SLOPE_DONE:            blackboard->set("slope_done", true); break;
+            cmd_serial_->setReceiveCallback(
+                [this, blackboard](uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload) {
+                    (void)seq;
+                    (void)payload;
+
+                    // 心跳反馈：HEARTBEAT_ACK(0x10) 已由 SerialDriver 内部处理
+                    if (cmd == static_cast<uint8_t>(FeedbackID::HEARTBEAT_ACK)) {
+                        return;
+                    }
+
+                    // 1. 通用映射：以十六进制 ID 为键 (如 feedback_0x02)
+                    char hex_str[16];
+                    std::snprintf(hex_str, sizeof(hex_str), "feedback_0x%02X", cmd);
+                    blackboard->set(std::string(hex_str), true);
+
+                    // 2. 语义映射：将常用 ID 转换为直观的布尔值
+                    switch (static_cast<FeedbackID>(cmd)) {
+                    case FeedbackID::GRAB_TIP_DONE:
+                        blackboard->set("grab_tip_done", true);
+                        break;
+                    case FeedbackID::ASSEMBLE_DONE:
+                        blackboard->set("assemble_done", true);
+                        break;
+                    case FeedbackID::CLIMBING_SLOPE:
+                        blackboard->set("climbing_slope", true);
+                        break;
+                    case FeedbackID::SLOPE_DONE:
+                        blackboard->set("slope_done", true);
+                        break;
                     case FeedbackID::ROTATE_POS_90_DONE:
                     case FeedbackID::ROTATE_NEG_90_DONE:
                     case FeedbackID::ROTATE_POS_180_DONE:
-                    case FeedbackID::ROTATE_NEG_180_DONE:   blackboard->set("rotate_done", true); break;
-                    case FeedbackID::MECH_UP_MERLIN_DONE:   blackboard->set("mech_up_merlin_done", true); break;
-                    case FeedbackID::MECH_DOWN_MERLIN_DONE: blackboard->set("mech_down_merlin_done", true); break;
-                    case FeedbackID::GRAB_KFS_DONE:         blackboard->set("grab_kfs_done", true); break;
-                    case FeedbackID::MECH_UP_DUEL_DONE:     blackboard->set("mech_up_duel_done", true); break;
-                    case FeedbackID::PLACE_KFS_GRID_DONE:   blackboard->set("place_kfs_grid_done", true); break;
-                    case FeedbackID::PLACE_KFS_GROUND_DONE: blackboard->set("place_kfs_ground_done", true); break;
-                    case FeedbackID::STAIR_CLIMB_DONE:      blackboard->set("stair_climb_done", true); break;
-                    case FeedbackID::STAIR_DESCEND_DONE:    blackboard->set("stair_descend_done", true); break;
-                    case FeedbackID::ACTION_FAIL:           blackboard->set("action_fail", true); break;
-                    case FeedbackID::ERROR:                 blackboard->set("system_error", true); break;
-                    default: break;
-                }
-            });
+                    case FeedbackID::ROTATE_NEG_180_DONE:
+                        blackboard->set("rotate_done", true);
+                        break;
+                    case FeedbackID::MECH_UP_MERLIN_DONE:
+                        blackboard->set("mech_up_merlin_done", true);
+                        break;
+                    case FeedbackID::MECH_DOWN_MERLIN_DONE:
+                        blackboard->set("mech_down_merlin_done", true);
+                        break;
+                    case FeedbackID::GRAB_KFS_DONE:
+                        blackboard->set("grab_kfs_done", true);
+                        break;
+                    case FeedbackID::MECH_UP_DUEL_DONE:
+                        blackboard->set("mech_up_duel_done", true);
+                        break;
+                    case FeedbackID::PLACE_KFS_GRID_DONE:
+                        blackboard->set("place_kfs_grid_done", true);
+                        break;
+                    case FeedbackID::PLACE_KFS_GROUND_DONE:
+                        blackboard->set("place_kfs_ground_done", true);
+                        break;
+                    case FeedbackID::STAIR_CLIMB_DONE:
+                        blackboard->set("stair_climb_done", true);
+                        break;
+                    case FeedbackID::STAIR_DESCEND_DONE:
+                        blackboard->set("stair_descend_done", true);
+                        break;
+                    case FeedbackID::ACTION_FAIL:
+                        blackboard->set("action_fail", true);
+                        break;
+                    case FeedbackID::ERROR:
+                        blackboard->set("system_error", true);
+                        break;
+                    default:
+                        break;
+                    }
+                });
         }
 
         // 注册所有行为树节点
@@ -161,17 +191,14 @@ public:
 
         // 创建定时器执行 tick
         int tick_rate_ms = this->get_parameter("tick_rate_ms").as_int();
-        timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(tick_rate_ms),
-            std::bind(&DecisionNode::tickTree, this)
-        );
+        timer_ =
+            this->create_wall_timer(std::chrono::milliseconds(tick_rate_ms), std::bind(&DecisionNode::tickTree, this));
 
         RCLCPP_INFO(this->get_logger(), "决策节点已启动, tick 频率: %d ms", tick_rate_ms);
     }
 
 private:
-    void handleHeartbeat()
-    {
+    void handleHeartbeat() {
         if (!cmd_serial_ || !cmd_serial_->isOpen()) {
             return;
         }
@@ -179,17 +206,13 @@ private:
         cmd_serial_->sendHeartbeat();
     }
 
-    void tickTree()
-    {
+    void tickTree() {
         BT::NodeStatus status = tree_.tickOnce();
 
-        if (status == BT::NodeStatus::SUCCESS)
-        {
+        if (status == BT::NodeStatus::SUCCESS) {
             RCLCPP_INFO(this->get_logger(), "行为树执行完成: SUCCESS");
             timer_->cancel();
-        }
-        else if (status == BT::NodeStatus::FAILURE)
-        {
+        } else if (status == BT::NodeStatus::FAILURE) {
             RCLCPP_ERROR(this->get_logger(), "行为树执行失败: FAILURE");
             timer_->cancel();
         }
@@ -206,8 +229,7 @@ private:
 
 }  // namespace rc26_decision
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
     auto node = std::make_shared<rc26_decision::DecisionNode>();
     rclcpp::spin(node);

@@ -2,11 +2,9 @@
 
 #include <behaviortree_cpp/bt_factory.h>
 
-namespace rc26_decision
-{
+namespace rc26_decision {
 
-class NavigateWaypointAction : public BT::StatefulActionNode
-{
+class NavigateWaypointAction : public BT::StatefulActionNode {
 public:
     NavigateWaypointAction(const std::string& name, const BT::NodeConfig& config);
 

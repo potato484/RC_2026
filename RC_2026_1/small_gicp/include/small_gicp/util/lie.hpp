@@ -11,15 +11,15 @@ namespace small_gicp {
 /// @param x  Rotation vector
 /// @return   Skew symmetric matrix
 inline Eigen::Matrix3d skew(const Eigen::Vector3d& x) {
-  Eigen::Matrix3d skew = Eigen::Matrix3d::Zero();
-  skew(0, 1) = -x[2];
-  skew(0, 2) = x[1];
-  skew(1, 0) = x[2];
-  skew(1, 2) = -x[0];
-  skew(2, 0) = -x[1];
-  skew(2, 1) = x[0];
+    Eigen::Matrix3d skew = Eigen::Matrix3d::Zero();
+    skew(0, 1) = -x[2];
+    skew(0, 2) = x[1];
+    skew(1, 0) = x[2];
+    skew(1, 2) = -x[0];
+    skew(2, 0) = -x[1];
+    skew(2, 1) = x[0];
 
-  return skew;
+    return skew;
 }
 
 /*
@@ -52,22 +52,22 @@ inline Eigen::Matrix3d skew(const Eigen::Vector3d& x) {
 /// @param omega  [rx, ry, rz]
 /// @return       Quaternion
 inline Eigen::Quaterniond so3_exp(const Eigen::Vector3d& omega) {
-  double theta_sq = omega.dot(omega);
+    double theta_sq = omega.dot(omega);
 
-  double imag_factor;
-  double real_factor;
-  if (theta_sq < 1e-10) {
-    double theta_quad = theta_sq * theta_sq;
-    imag_factor = 0.5 - 1.0 / 48.0 * theta_sq + 1.0 / 3840.0 * theta_quad;
-    real_factor = 1.0 - 1.0 / 8.0 * theta_sq + 1.0 / 384.0 * theta_quad;
-  } else {
-    double theta = std::sqrt(theta_sq);
-    double half_theta = 0.5 * theta;
-    imag_factor = std::sin(half_theta) / theta;
-    real_factor = std::cos(half_theta);
-  }
+    double imag_factor;
+    double real_factor;
+    if (theta_sq < 1e-10) {
+        double theta_quad = theta_sq * theta_sq;
+        imag_factor = 0.5 - 1.0 / 48.0 * theta_sq + 1.0 / 3840.0 * theta_quad;
+        real_factor = 1.0 - 1.0 / 8.0 * theta_sq + 1.0 / 384.0 * theta_quad;
+    } else {
+        double theta = std::sqrt(theta_sq);
+        double half_theta = 0.5 * theta;
+        imag_factor = std::sin(half_theta) / theta;
+        real_factor = std::cos(half_theta);
+    }
 
-  return Eigen::Quaterniond(real_factor, imag_factor * omega.x(), imag_factor * omega.y(), imag_factor * omega.z());
+    return Eigen::Quaterniond(real_factor, imag_factor * omega.x(), imag_factor * omega.y(), imag_factor * omega.z());
 }
 
 // Rotation-first
@@ -75,24 +75,25 @@ inline Eigen::Quaterniond so3_exp(const Eigen::Vector3d& omega) {
 /// @param a  Twist vector [rx, ry, rz, tx, ty, tz]
 /// @return   SE3 matrix
 inline Eigen::Isometry3d se3_exp(const Eigen::Matrix<double, 6, 1>& a) {
-  const Eigen::Vector3d omega = a.head<3>();
+    const Eigen::Vector3d omega = a.head<3>();
 
-  const double theta_sq = omega.dot(omega);
-  const double theta = std::sqrt(theta_sq);
+    const double theta_sq = omega.dot(omega);
+    const double theta = std::sqrt(theta_sq);
 
-  Eigen::Isometry3d se3 = Eigen::Isometry3d::Identity();
-  se3.linear() = so3_exp(omega).toRotationMatrix();
+    Eigen::Isometry3d se3 = Eigen::Isometry3d::Identity();
+    se3.linear() = so3_exp(omega).toRotationMatrix();
 
-  if (theta < 1e-10) {
-    se3.translation() = se3.linear() * a.tail<3>();
-    /// Note: That is an accurate expansion!
-  } else {
-    const Eigen::Matrix3d Omega = skew(omega);
-    const Eigen::Matrix3d V = (Eigen::Matrix3d::Identity() + (1.0 - std::cos(theta)) / theta_sq * Omega + (theta - std::sin(theta)) / (theta_sq * theta) * Omega * Omega);
-    se3.translation() = V * a.tail<3>();
-  }
+    if (theta < 1e-10) {
+        se3.translation() = se3.linear() * a.tail<3>();
+        /// Note: That is an accurate expansion!
+    } else {
+        const Eigen::Matrix3d Omega = skew(omega);
+        const Eigen::Matrix3d V = (Eigen::Matrix3d::Identity() + (1.0 - std::cos(theta)) / theta_sq * Omega +
+                                   (theta - std::sin(theta)) / (theta_sq * theta) * Omega * Omega);
+        se3.translation() = V * a.tail<3>();
+    }
 
-  return se3;
+    return se3;
 }
 
 }  // namespace small_gicp

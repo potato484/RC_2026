@@ -5,20 +5,18 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <rclcpp/rclcpp.hpp>
+
 #include <geometry_msgs/msg/twist.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <rclcpp/rclcpp.hpp>
 
 #include "rc26_serial/serial_driver.hpp"
 
-namespace rc26_merge_odom
-{
+namespace rc26_merge_odom {
 
-class PoseSender
-{
+class PoseSender {
 public:
-    struct Config
-    {
+    struct Config {
         std::string cmd_vel_topic = "cmd_vel";
         std::string odom_topic = "merge_odom";
         int send_rate_hz = 50;

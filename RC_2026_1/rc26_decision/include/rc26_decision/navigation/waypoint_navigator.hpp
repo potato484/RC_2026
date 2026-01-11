@@ -5,20 +5,17 @@
 #include <memory>
 #include <string>
 
+#include <nav2_msgs/action/navigate_to_pose.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
-#include <nav2_msgs/action/navigate_to_pose.hpp>
 
 #include "rc26_serial/serial_driver.hpp"
 
-namespace rc26_decision
-{
+namespace rc26_decision {
 
-class WaypointNavigator
-{
+class WaypointNavigator {
 public:
-    enum class Status
-    {
+    enum class Status {
         Idle,
         Running,
         Succeeded,
@@ -26,11 +23,8 @@ public:
         Canceled,
     };
 
-    WaypointNavigator(
-        rclcpp::Node& node,
-        std::shared_ptr<SerialDriver> cmd_serial,
-        std::string nav2_action_name = "navigate_to_pose",
-        std::string goal_frame = "map");
+    WaypointNavigator(rclcpp::Node& node, std::shared_ptr<SerialDriver> cmd_serial,
+                      std::string nav2_action_name = "navigate_to_pose", std::string goal_frame = "map");
 
     bool start(uint8_t waypoint_id);
     Status tick();

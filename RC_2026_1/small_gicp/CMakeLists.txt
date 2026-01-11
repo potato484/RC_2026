@@ -301,35 +301,9 @@ install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
 if(BUILD_HELPER)
   install(TARGETS small_gicp
-    EXPORT small_gicp-targets
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-  )
-  set(CMAKE_CONFIG_INSTALL_DIR
-    "${CMAKE_INSTALL_LIBDIR}/cmake/small_gicp"
-    CACHE PATH "Install directory for CMake config files"
-  )
-  include(CMakePackageConfigHelpers)
-  install(EXPORT small_gicp-targets
-    FILE small_gicp-targets.cmake
-    NAMESPACE small_gicp::
-    DESTINATION ${CMAKE_CONFIG_INSTALL_DIR}
-  )
-  configure_package_config_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/small_gicp-config.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/small_gicp-config.cmake"
-    INSTALL_DESTINATION ${CMAKE_CONFIG_INSTALL_DIR}
-  )
-  write_basic_package_version_file(
-    "${CMAKE_CURRENT_BINARY_DIR}/small_gicp-config-version.cmake"
-    VERSION ${VERSION}
-    COMPATIBILITY SameMajorVersion
-  )
-  install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/small_gicp-config.cmake"
-    "${CMAKE_CURRENT_BINARY_DIR}/small_gicp-config-version.cmake"
-    DESTINATION ${CMAKE_CONFIG_INSTALL_DIR}
   )
 endif()
 

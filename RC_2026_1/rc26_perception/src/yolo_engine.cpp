@@ -93,8 +93,7 @@ bool YoloEngine::infer(const float* input_data) {
 #endif
 }
 
-bool YoloEngine::getOutput(float*& box_data, uint32_t& box_bytes,
-                           float*& score_data, uint32_t& score_bytes) {
+bool YoloEngine::getOutput(float*& box_data, uint32_t& box_bytes, float*& score_data, uint32_t& score_bytes) {
 #ifdef AIDLUX_PLATFORM
     if (!initialized_ || !interpreter_) {
         return false;
@@ -117,11 +116,11 @@ bool YoloEngine::getOutput(float*& box_data, uint32_t& box_bytes,
     // TODO: 更健壮的做法是检查tensor shape而非buffer大小
     //       但AidLite SDK可能不提供shape查询接口
     if (len0 == 0 || len1 == 0) {
-        std::cerr << "[YoloEngine] Warning: empty output tensor (len0=" 
-                  << len0 << ", len1=" << len1 << ")" << std::endl;
+        std::cerr << "[YoloEngine] Warning: empty output tensor (len0=" << len0 << ", len1=" << len1 << ")"
+                  << std::endl;
         return false;
     }
-    
+
     if (len0 <= len1) {
         box_data = out0;
         box_bytes = len0;
@@ -133,11 +132,11 @@ bool YoloEngine::getOutput(float*& box_data, uint32_t& box_bytes,
         score_data = out0;
         score_bytes = len0;
     }
-    
+
     // 健壮性检查: boxes应该是4的倍数 (每个box有4个float: x, y, w, h)
     if ((box_bytes / sizeof(float)) % 4 != 0) {
-        std::cerr << "[YoloEngine] Warning: box_bytes=" << box_bytes 
-                  << " is not divisible by 16 (4 floats per box)" << std::endl;
+        std::cerr << "[YoloEngine] Warning: box_bytes=" << box_bytes << " is not divisible by 16 (4 floats per box)"
+                  << std::endl;
     }
 
     return true;

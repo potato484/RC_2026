@@ -92,9 +92,9 @@ ros2 run rc26_merge_odom dm_imu_node --ros-args -p port:=/dev/ttyACM0
 ### API 使用
 
 ```cpp
-#include "rc26_merge_odom/dm_imu_driver.hpp"
+#include "rc26_merge_odom/imu/dm_imu_driver.hpp"
 
-dm_imu::DmImuDriver driver;
+rc26_merge_odom::DmImuDriver driver;
 
 // 打开串口
 if (!driver.open("/dev/ttyACM0", 921600)) {
@@ -102,7 +102,7 @@ if (!driver.open("/dev/ttyACM0", 921600)) {
 }
 
 // 设置数据回调
-driver.setDataCallback([](const dm_imu::ImuData& data) {
+driver.setDataCallback([](const rc26_merge_odom::ImuData& data) {
     if (data.euler_valid) {
         printf("Roll=%.2f Pitch=%.2f Yaw=%.2f\n",
                data.euler[0], data.euler[1], data.euler[2]);
@@ -110,7 +110,7 @@ driver.setDataCallback([](const dm_imu::ImuData& data) {
 });
 
 // 或轮询获取数据
-dm_imu::ImuData data = driver.getLatestData();
+rc26_merge_odom::ImuData data = driver.getLatestData();
 
 // 获取统计信息
 auto stats = driver.getStats();

@@ -1,8 +1,10 @@
 #include "rc26_perception/postprocess.hpp"
-#include <opencv2/dnn.hpp>
+
 #include <algorithm>
-#include <numeric>
 #include <cmath>
+#include <numeric>
+
+#include <opencv2/dnn.hpp>
 
 namespace rc26_perception {
 
@@ -11,71 +13,67 @@ namespace rc26_perception {
 // T_03~T_17: 自动机器人KFS (甲骨文字，共15种)
 // F_18~F_32: 假KFS (小篆体文字，共15种)
 const std::vector<std::string> kBlockClasses = {
-    "R1",       // 0: 手动机器人KFS (比赛LOGO)
-    "T_03",     // 1: 自动机器人KFS - 甲骨文字
-    "T_04",     // 2: 自动机器人KFS - 甲骨文字
-    "T_05",     // 3: 自动机器人KFS - 甲骨文字
-    "T_06",     // 4: 自动机器人KFS - 甲骨文字
-    "T_07",     // 5: 自动机器人KFS - 甲骨文字
-    "T_08",     // 6: 自动机器人KFS - 甲骨文字
-    "T_09",     // 7: 自动机器人KFS - 甲骨文字
-    "T_10",     // 8: 自动机器人KFS - 甲骨文字
-    "T_11",     // 9: 自动机器人KFS - 甲骨文字
-    "T_12",     // 10: 自动机器人KFS - 甲骨文字
-    "T_13",     // 11: 自动机器人KFS - 甲骨文字
-    "T_14",     // 12: 自动机器人KFS - 甲骨文字
-    "T_15",     // 13: 自动机器人KFS - 甲骨文字
-    "T_16",     // 14: 自动机器人KFS - 甲骨文字
-    "T_17",     // 15: 自动机器人KFS - 甲骨文字
-    "F_18",     // 16: 假KFS - 小篆体文字
-    "F_19",     // 17: 假KFS - 小篆体文字
-    "F_20",     // 18: 假KFS - 小篆体文字
-    "F_21",     // 19: 假KFS - 小篆体文字
-    "F_22",     // 20: 假KFS - 小篆体文字
-    "F_23",     // 21: 假KFS - 小篆体文字
-    "F_24",     // 22: 假KFS - 小篆体文字
-    "F_25",     // 23: 假KFS - 小篆体文字
-    "F_26",     // 24: 假KFS - 小篆体文字
-    "F_27",     // 25: 假KFS - 小篆体文字
-    "F_28",     // 26: 假KFS - 小篆体文字
-    "F_29",     // 27: 假KFS - 小篆体文字
-    "F_30",     // 28: 假KFS - 小篆体文字
-    "F_31",     // 29: 假KFS - 小篆体文字
-    "F_32"      // 30: 假KFS - 小篆体文字
+    "R1",    // 0: 手动机器人KFS (比赛LOGO)
+    "T_03",  // 1: 自动机器人KFS - 甲骨文字
+    "T_04",  // 2: 自动机器人KFS - 甲骨文字
+    "T_05",  // 3: 自动机器人KFS - 甲骨文字
+    "T_06",  // 4: 自动机器人KFS - 甲骨文字
+    "T_07",  // 5: 自动机器人KFS - 甲骨文字
+    "T_08",  // 6: 自动机器人KFS - 甲骨文字
+    "T_09",  // 7: 自动机器人KFS - 甲骨文字
+    "T_10",  // 8: 自动机器人KFS - 甲骨文字
+    "T_11",  // 9: 自动机器人KFS - 甲骨文字
+    "T_12",  // 10: 自动机器人KFS - 甲骨文字
+    "T_13",  // 11: 自动机器人KFS - 甲骨文字
+    "T_14",  // 12: 自动机器人KFS - 甲骨文字
+    "T_15",  // 13: 自动机器人KFS - 甲骨文字
+    "T_16",  // 14: 自动机器人KFS - 甲骨文字
+    "T_17",  // 15: 自动机器人KFS - 甲骨文字
+    "F_18",  // 16: 假KFS - 小篆体文字
+    "F_19",  // 17: 假KFS - 小篆体文字
+    "F_20",  // 18: 假KFS - 小篆体文字
+    "F_21",  // 19: 假KFS - 小篆体文字
+    "F_22",  // 20: 假KFS - 小篆体文字
+    "F_23",  // 21: 假KFS - 小篆体文字
+    "F_24",  // 22: 假KFS - 小篆体文字
+    "F_25",  // 23: 假KFS - 小篆体文字
+    "F_26",  // 24: 假KFS - 小篆体文字
+    "F_27",  // 25: 假KFS - 小篆体文字
+    "F_28",  // 26: 假KFS - 小篆体文字
+    "F_29",  // 27: 假KFS - 小篆体文字
+    "F_30",  // 28: 假KFS - 小篆体文字
+    "F_31",  // 29: 假KFS - 小篆体文字
+    "F_32"   // 30: 假KFS - 小篆体文字
 };
 
 // COCO 80 类别 (用于通用模型调试)
 const std::vector<std::string> kCOCO80 = {
-    "person","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light",
-    "fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse","sheep","cow",
-    "elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase",
-    "frisbee","skis","snowboard","sports ball","kite","baseball bat","baseball glove","skateboard",
-    "surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl",
-    "banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake",
-    "chair","couch","potted plant","bed","dining table","toilet","tv","laptop","mouse","remote",
-    "keyboard","cell phone","microwave","oven","toaster","sink","refrigerator","book","clock",
-    "vase","scissors","teddy bear","hair drier","toothbrush"
-};
+    "person",         "bicycle",    "car",           "motorcycle",    "airplane",     "bus",           "train",
+    "truck",          "boat",       "traffic light", "fire hydrant",  "stop sign",    "parking meter", "bench",
+    "bird",           "cat",        "dog",           "horse",         "sheep",        "cow",           "elephant",
+    "bear",           "zebra",      "giraffe",       "backpack",      "umbrella",     "handbag",       "tie",
+    "suitcase",       "frisbee",    "skis",          "snowboard",     "sports ball",  "kite",          "baseball bat",
+    "baseball glove", "skateboard", "surfboard",     "tennis racket", "bottle",       "wine glass",    "cup",
+    "fork",           "knife",      "spoon",         "bowl",          "banana",       "apple",         "sandwich",
+    "orange",         "broccoli",   "carrot",        "hot dog",       "pizza",        "donut",         "cake",
+    "chair",          "couch",      "potted plant",  "bed",           "dining table", "toilet",        "tv",
+    "laptop",         "mouse",      "remote",        "keyboard",      "cell phone",   "microwave",     "oven",
+    "toaster",        "sink",       "refrigerator",  "book",          "clock",        "vase",          "scissors",
+    "teddy bear",     "hair drier", "toothbrush"};
 
 namespace postprocess {
 
-void YoloPost::runCxcywh(
-    float* boxes_ptr, uint32_t boxes_bytes,
-    float* scores_ptr, uint32_t /*scores_bytes*/,
-    std::vector<DetectedObject>& objects,
-    float conf_thres, float iou_thres,
-    int /*input_size*/, int orig_w, int orig_h,
-    float scale,
-    bool box_ch_first,
-    bool sco_ch_first,
-    int num_classes,
-    int max_det
-) {
+void YoloPost::runCxcywh(float* boxes_ptr, uint32_t boxes_bytes, float* scores_ptr, uint32_t /*scores_bytes*/,
+                         std::vector<DetectedObject>& objects, float conf_thres, float iou_thres, int /*input_size*/,
+                         int orig_w, int orig_h, float scale, bool box_ch_first, bool sco_ch_first, int num_classes,
+                         int max_det) {
     objects.clear();
-    if (!boxes_ptr || !scores_ptr) return;
+    if (!boxes_ptr || !scores_ptr)
+        return;
 
     const int floats_box = (int)(boxes_bytes / sizeof(float));
-    if (floats_box % 4 != 0) return;
+    if (floats_box % 4 != 0)
+        return;
     const int anchors = floats_box / 4;
 
     auto get_box = [&](int i, int k) -> float {
@@ -106,12 +104,13 @@ void YoloPost::runCxcywh(
                 best_c = c;
             }
         }
-        if (best_s < conf_thres) continue;
+        if (best_s < conf_thres)
+            continue;
 
         float cx = get_box(i, 0);
         float cy = get_box(i, 1);
-        float w  = get_box(i, 2);
-        float h  = get_box(i, 3);
+        float w = get_box(i, 2);
+        float h = get_box(i, 3);
 
         float x1 = cx - 0.5f * w;
         float y1 = cy - 0.5f * h;
@@ -130,7 +129,8 @@ void YoloPost::runCxcywh(
 
         int bw = (int)std::round(rx2 - rx1);
         int bh = (int)std::round(ry2 - ry1);
-        if (bw <= 0 || bh <= 0) continue;
+        if (bw <= 0 || bh <= 0)
+            continue;
 
         int box_x = (int)std::round(rx1);
         int box_y = (int)std::round(ry1);
@@ -145,7 +145,8 @@ void YoloPost::runCxcywh(
         center_ys.emplace_back(cy_orig);
     }
 
-    if (boxes.empty()) return;
+    if (boxes.empty())
+        return;
 
     std::vector<int> order(boxes.size());
     std::iota(order.begin(), order.end(), 0);
@@ -220,11 +221,7 @@ void fillDepth(DetectedObject& obj, const cv::Mat& depth_img, int radius) {
     }
 }
 
-void computeCameraPosition(
-    DetectedObject& obj,
-    float fx, float fy,
-    float cx, float cy
-) {
+void computeCameraPosition(DetectedObject& obj, float fx, float fy, float cx, float cy) {
     // 从像素坐标 + 深度 计算相机坐标系下的3D位置
     // X = (u - cx) * Z / fx
     // Y = (v - cy) * Z / fy
@@ -232,11 +229,11 @@ void computeCameraPosition(
     if (obj.distance <= 0.0f) {
         return;
     }
-    
+
     float Z = obj.distance;
     float X = (obj.center_x - cx) * Z / fx;
     float Y = (obj.center_y - cy) * Z / fy;
-    
+
     // 存储到 box 中 (临时方案，后续使用独立字段)
     // 这里直接返回，由调用者处理
     (void)X;

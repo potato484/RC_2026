@@ -4,18 +4,15 @@
 #include <string>
 #include <vector>
 
-namespace rc26_decision
-{
+namespace rc26_decision {
 
-enum class NavMode : uint8_t
-{
+enum class NavMode : uint8_t {
     Normal = 0,
     StairUp = 1,
     StairDown = 2,
 };
 
-struct Waypoint
-{
+struct Waypoint {
     uint8_t id = 0;
     NavMode mode = NavMode::Normal;
     float speed_mps = 0.0f;

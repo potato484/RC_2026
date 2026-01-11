@@ -1,11 +1,3 @@
-/*
- * @Author: potato potato@potato.com
- * @Date: 2026-01-05 15:06:55
- * @LastEditors: potato potato@potato.com
- * @LastEditTime: 2026-01-05 15:23:47
- * @FilePath: /RC_2026/RC_2026_1/rc26_merge_odom/include/rc26_merge_odom/dm_imu_driver.hpp
- * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
- */
 // 达妙 DM-IMU-L1 六轴IMU驱动
 #pragma once
 
@@ -19,11 +11,9 @@
 
 #include "rc26_merge_odom/imu/dm_protocol.hpp"
 
-namespace dm_imu
-{
+namespace rc26_merge_odom {
 
-class DmImuDriver
-{
+class DmImuDriver {
 public:
     using DataCallback = std::function<void(const ImuData&)>;
 
@@ -50,8 +40,7 @@ public:
     // ========================================================================
     // 统计信息
     // ========================================================================
-    struct Stats
-    {
+    struct Stats {
         uint32_t frames_ok;
         uint32_t frames_crc_error;
         uint32_t frames_short;
@@ -92,4 +81,4 @@ private:
     bool parseFrame(const uint8_t* frame, size_t len);
 };
 
-}  // namespace dm_imu
+}  // namespace rc26_merge_odom

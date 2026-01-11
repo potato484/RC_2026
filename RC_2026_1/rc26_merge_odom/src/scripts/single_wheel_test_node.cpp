@@ -1,23 +1,20 @@
 // 单轮CAN通信最小测试单元
 // 仅监听单个轮子(FRONT_LEFT, CAN ID 0x201)的电机反馈数据
-#include <rclcpp/rclcpp.hpp>
-
-#include <linux/can.h>
-#include <linux/can/raw.h>
-#include <net/if.h>
-#include <sys/ioctl.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
 #include <atomic>
 #include <cstring>
 #include <thread>
 
-class SingleWheelTestNode : public rclcpp::Node
-{
+#include <linux/can.h>
+#include <linux/can/raw.h>
+#include <net/if.h>
+#include <rclcpp/rclcpp.hpp>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+class SingleWheelTestNode : public rclcpp::Node {
 public:
-    SingleWheelTestNode() : Node("single_wheel_test_node")
-    {
+    SingleWheelTestNode() : Node("single_wheel_test_node") {
         this->declare_parameter("can_interface", "can0");
         this->declare_parameter("motor_id", 1);  // 1=FL, 2=RL, 3=RR, 4=FR
         this->declare_parameter("print_rate_hz", 10);
@@ -28,8 +25,7 @@ public:
 
         target_can_id_ = 0x200 + motor_id_;
 
-        if (!initCan())
-        {
+        if (!initCan()) {
             RCLCPP_ERROR(this->get_logger(), "CAN初始化失败");
             return;
         }
@@ -40,29 +36,24 @@ public:
         auto period = std::chrono::milliseconds(1000 / print_rate);
         print_timer_ = this->create_wall_timer(period, std::bind(&SingleWheelTestNode::printStatus, this));
 
-        RCLCPP_INFO(this->get_logger(), "单轮测试启动: interface=%s, motor_id=%d, can_id=0x%X",
-                    can_interface_.c_str(), motor_id_, target_can_id_);
+        RCLCPP_INFO(this->get_logger(), "单轮测试启动: interface=%s, motor_id=%d, can_id=0x%X", can_interface_.c_str(),
+                    motor_id_, target_can_id_);
     }
 
-    ~SingleWheelTestNode()
-    {
+    ~SingleWheelTestNode() {
         running_ = false;
-        if (can_thread_.joinable())
-        {
+        if (can_thread_.joinable()) {
             can_thread_.join();
         }
-        if (can_socket_ >= 0)
-        {
+        if (can_socket_ >= 0) {
             close(can_socket_);
         }
     }
 
 private:
-    bool initCan()
-    {
+    bool initCan() {
         can_socket_ = socket(PF_CAN, SOCK_RAW, CAN_RAW);
-        if (can_socket_ < 0)
-        {
+        if (can_socket_ < 0) {
             RCLCPP_ERROR(this->get_logger(), "创建CAN套接字失败: %s", strerror(errno));
             return false;
         }
@@ -71,20 +62,18 @@ private:
         std::strncpy(ifr.ifr_name, can_interface_.c_str(), IFNAMSIZ - 1);
         ifr.ifr_name[IFNAMSIZ - 1] = '\0';
 
-        if (ioctl(can_socket_, SIOCGIFINDEX, &ifr) < 0)
-        {
+        if (ioctl(can_socket_, SIOCGIFINDEX, &ifr) < 0) {
             RCLCPP_ERROR(this->get_logger(), "获取CAN接口索引失败: %s", strerror(errno));
             close(can_socket_);
             can_socket_ = -1;
             return false;
         }
 
-        struct sockaddr_can addr{};
+        struct sockaddr_can addr {};
         addr.can_family = AF_CAN;
         addr.can_ifindex = ifr.ifr_ifindex;
 
-        if (bind(can_socket_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0)
-        {
+        if (bind(can_socket_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
             RCLCPP_ERROR(this->get_logger(), "绑定CAN套接字失败: %s", strerror(errno));
             close(can_socket_);
             can_socket_ = -1;
@@ -105,24 +94,19 @@ private:
         return true;
     }
 
-    void canThreadFunc()
-    {
+    void canThreadFunc() {
         struct can_frame frame;
-        while (running_)
-        {
+        while (running_) {
             ssize_t nbytes = read(can_socket_, &frame, sizeof(frame));
-            if (nbytes < 0)
-            {
-                if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
-                {
+            if (nbytes < 0) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
                     continue;
                 }
                 RCLCPP_WARN(this->get_logger(), "CAN读取错误: %s", strerror(errno));
                 continue;
             }
 
-            if (nbytes == sizeof(frame) && frame.can_id == target_can_id_ && frame.can_dlc >= 8)
-            {
+            if (nbytes == sizeof(frame) && frame.can_id == target_can_id_ && frame.can_dlc >= 8) {
                 std::lock_guard<std::mutex> lock(data_mutex_);
                 angle_raw_ = (static_cast<uint16_t>(frame.data[0]) << 8) | frame.data[1];
                 rpm_ = static_cast<int16_t>((static_cast<uint16_t>(frame.data[2]) << 8) | frame.data[3]);
@@ -134,18 +118,14 @@ private:
         }
     }
 
-    void printStatus()
-    {
+    void printStatus() {
         std::lock_guard<std::mutex> lock(data_mutex_);
-        if (data_valid_)
-        {
+        if (data_valid_) {
             double angle_deg = static_cast<double>(angle_raw_) * 360.0 / 8192.0;
             RCLCPP_INFO(this->get_logger(),
-                        "[Motor %d] RPM: %6d | Angle: %6.1f deg | Current: %5d | Temp: %3d C | Count: %lu",
-                        motor_id_, rpm_, angle_deg, current_, temperature_, recv_count_);
-        }
-        else
-        {
+                        "[Motor %d] RPM: %6d | Angle: %6.1f deg | Current: %5d | Temp: %3d C | Count: %lu", motor_id_,
+                        rpm_, angle_deg, current_, temperature_, recv_count_);
+        } else {
             RCLCPP_WARN(this->get_logger(), "[Motor %d] 无数据 (CAN ID 0x%X)", motor_id_, target_can_id_);
         }
     }
@@ -168,8 +148,7 @@ private:
     bool data_valid_ = false;
 };
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char* argv[]) {
     rclcpp::init(argc, argv);
     rclcpp::spin(std::make_shared<SingleWheelTestNode>());
     rclcpp::shutdown();

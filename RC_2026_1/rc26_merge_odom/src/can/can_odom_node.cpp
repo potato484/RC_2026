@@ -1,12 +1,11 @@
 // RC2026 CAN里程计独立节点
 #include <rclcpp/rclcpp.hpp>
+
 #include "rc26_merge_odom/can/can_odom.hpp"
 
-class CanOdomNode : public rclcpp::Node
-{
+class CanOdomNode : public rclcpp::Node {
 public:
-    CanOdomNode() : Node("can_odom_node")
-    {
+    CanOdomNode() : Node("can_odom_node") {
         this->declare_parameter("can_interface", "can0");
         this->declare_parameter("wheel_radius", 0.07625);
         this->declare_parameter("wheel_base", 0.62326);
@@ -37,8 +36,7 @@ private:
     std::unique_ptr<rc26_merge_odom::CanOdom> can_odom_;
 };
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
     auto node = std::make_shared<CanOdomNode>();
     rclcpp::spin(node);

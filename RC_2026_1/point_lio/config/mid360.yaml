@@ -28,7 +28,7 @@
         preprocess:
             lidar_type: 5                                   # 激光雷达类型：1-AVIA(已弃用) 2-Velodyne 3-Ouster 4-Hesai 5-MID360
             scan_line: 4                                    # 扫描线数（Mid-360固定为4线）
-            timestamp_unit: 3                               # 点云时间戳单位：0-秒 1-毫秒 2-微秒 3-纳秒
+            timestamp_unit: 0                               # 点云时间戳单位：0-秒 1-毫秒 2-微秒 3-纳秒 (MID360驱动输出秒)
             blind: 0.5                                      # 盲区半径(米)，忽略此范围内的点
 
         mapping:

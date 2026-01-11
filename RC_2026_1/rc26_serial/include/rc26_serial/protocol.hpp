@@ -5,8 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace rc26_decision
-{
+namespace rc26_decision {
 
 // ============================================================================
 // 帧结构常量
@@ -18,73 +17,70 @@ constexpr uint8_t FRAME_TAIL_1 = 0xAA;
 
 constexpr uint32_t UART_BAUDRATE = 115200;
 constexpr uint32_t ACK_TIMEOUT_MS = 100;
-constexpr uint32_t RECONNECT_INTERVAL_MS = 500;      // 重连间隔500ms
-constexpr uint32_t HEARTBEAT_INTERVAL_MS = 1000;     // 心跳间隔1秒
-constexpr uint8_t MAX_RETRY_VALUE = 0x09;            // 最大重发次数值
-constexpr uint8_t RETRIES_PER_ROUND = 3;             // 每轮重发次数
-constexpr uint8_t MAX_HEARTBEAT_FAILURES = 3;        // 心跳连续失败次数阈值
-constexpr uint8_t MAX_PAYLOAD_SIZE = 32;             // payload 最大字节数 (位姿数据 8*float)
-constexpr uint8_t MAX_RECONNECT_ATTEMPTS = 10;       // 最大重连尝试次数
+constexpr uint32_t RECONNECT_INTERVAL_MS = 500;   // 重连间隔500ms
+constexpr uint32_t HEARTBEAT_INTERVAL_MS = 1000;  // 心跳间隔1秒
+constexpr uint8_t MAX_RETRY_VALUE = 0x09;         // 最大重发次数值
+constexpr uint8_t RETRIES_PER_ROUND = 3;          // 每轮重发次数
+constexpr uint8_t MAX_HEARTBEAT_FAILURES = 3;     // 心跳连续失败次数阈值
+constexpr uint8_t MAX_PAYLOAD_SIZE = 32;          // payload 最大字节数 (位姿数据 8*float)
+constexpr uint8_t MAX_RECONNECT_ATTEMPTS = 10;    // 最大重连尝试次数
 
 // ============================================================================
 // 下行指令 ID (上位机 -> MCU)
 // ============================================================================
-enum class CommandID : uint8_t
-{
-    NAV_NORMAL       = 0x00,  // 非梅林区导航
-    NAV_STAIR_UP     = 0x01,  // 梅林区上阶梯导航
-    NAV_STAIR_DOWN   = 0x02,  // 梅林区下阶梯导航
-    STOP             = 0x03,  // 急停指令
-    GRAB_TIP         = 0x04,  // 抓取端头
-    ASSEMBLE_WEAPON  = 0x05,  // 组装兵器
-    ROTATE_POS_90    = 0x06,  // 旋转 +90°
-    ROTATE_NEG_90    = 0x07,  // 旋转 -90°
-    ROTATE_POS_180   = 0x08,  // 旋转 +180°
-    ROTATE_NEG_180   = 0x09,  // 旋转 -180°
-    GRAB_KFS         = 0x0A,  // 梅林区夹取 KFS
-    MECH_UP_MERLIN   = 0x0B,  // 梅林区机构抬升
+enum class CommandID : uint8_t {
+    NAV_NORMAL = 0x00,        // 非梅林区导航
+    NAV_STAIR_UP = 0x01,      // 梅林区上阶梯导航
+    NAV_STAIR_DOWN = 0x02,    // 梅林区下阶梯导航
+    STOP = 0x03,              // 急停指令
+    GRAB_TIP = 0x04,          // 抓取端头
+    ASSEMBLE_WEAPON = 0x05,   // 组装兵器
+    ROTATE_POS_90 = 0x06,     // 旋转 +90°
+    ROTATE_NEG_90 = 0x07,     // 旋转 -90°
+    ROTATE_POS_180 = 0x08,    // 旋转 +180°
+    ROTATE_NEG_180 = 0x09,    // 旋转 -180°
+    GRAB_KFS = 0x0A,          // 梅林区夹取 KFS
+    MECH_UP_MERLIN = 0x0B,    // 梅林区机构抬升
     MECH_DOWN_MERLIN = 0x0C,  // 梅林区机构下降
-    MECH_UP_DUEL     = 0x0D,  // 对抗区机构抬升
-    PLACE_KFS_GRID   = 0x0E,  // 对抗区放置 KFS 到九宫格
+    MECH_UP_DUEL = 0x0D,      // 对抗区机构抬升
+    PLACE_KFS_GRID = 0x0E,    // 对抗区放置 KFS 到九宫格
     PLACE_KFS_GROUND = 0x0F,  // 对抗区放置 KFS 到地面
-    HEARTBEAT        = 0x10,  // 心跳查询请求
-    POSE_DATA        = 0x20,  // 实时底盘位姿 (vx, vy, wx, wy, wz, roll, pitch, yaw)
+    HEARTBEAT = 0x10,         // 心跳查询请求
+    POSE_DATA = 0x20,         // 实时底盘位姿 (vx, vy, wx, wy, wz, roll, pitch, yaw)
 };
 
 // ============================================================================
 // 上行反馈 ID (MCU -> 上位机)
 // ============================================================================
-enum class FeedbackID : uint8_t
-{
-    ACK                   = 0x00,  // 确认收到指令
-    NACK                  = 0x01,  // 执行动作失败，需要继续发送动作指令
-    GRAB_TIP_DONE         = 0x02,  // 夹取端头完成
-    ASSEMBLE_DONE         = 0x03,  // 组装兵器完成
-    CLIMBING_SLOPE        = 0x04,  // 正在爬坡
-    SLOPE_DONE            = 0x05,  // 爬坡完成
-    ROTATE_POS_90_DONE    = 0x06,  // 旋转 +90° 完成
-    ROTATE_NEG_90_DONE    = 0x07,  // 旋转 -90° 完成
-    ROTATE_POS_180_DONE   = 0x08,  // 旋转 +180° 完成
-    ROTATE_NEG_180_DONE   = 0x09,  // 旋转 -180° 完成
-    MECH_UP_MERLIN_DONE   = 0x0A,  // 梅林区机构抬升完成
+enum class FeedbackID : uint8_t {
+    ACK = 0x00,                    // 确认收到指令
+    NACK = 0x01,                   // 执行动作失败，需要继续发送动作指令
+    GRAB_TIP_DONE = 0x02,          // 夹取端头完成
+    ASSEMBLE_DONE = 0x03,          // 组装兵器完成
+    CLIMBING_SLOPE = 0x04,         // 正在爬坡
+    SLOPE_DONE = 0x05,             // 爬坡完成
+    ROTATE_POS_90_DONE = 0x06,     // 旋转 +90° 完成
+    ROTATE_NEG_90_DONE = 0x07,     // 旋转 -90° 完成
+    ROTATE_POS_180_DONE = 0x08,    // 旋转 +180° 完成
+    ROTATE_NEG_180_DONE = 0x09,    // 旋转 -180° 完成
+    MECH_UP_MERLIN_DONE = 0x0A,    // 梅林区机构抬升完成
     MECH_DOWN_MERLIN_DONE = 0x0B,  // 梅林区机构下降完成
-    GRAB_KFS_DONE         = 0x0C,  // 夹取 KFS 完成
-    MECH_UP_DUEL_DONE     = 0x0D,  // 对抗区机构抬升完成
-    PLACE_KFS_GRID_DONE   = 0x0E,  // 九宫格放置完成
+    GRAB_KFS_DONE = 0x0C,          // 夹取 KFS 完成
+    MECH_UP_DUEL_DONE = 0x0D,      // 对抗区机构抬升完成
+    PLACE_KFS_GRID_DONE = 0x0E,    // 九宫格放置完成
     PLACE_KFS_GROUND_DONE = 0x0F,  // 地面放置完成
-    HEARTBEAT_ACK         = 0x10,  // 心跳响应
-    STAIR_CLIMB_DONE      = 0x11,  // 上阶梯完成
-    STAIR_DESCEND_DONE    = 0x12,  // 下阶梯完成
-    ODOM_DATA             = 0x20,  // 轮式里程计数据 (vx, vy, omega, yaw)
-    ACTION_FAIL           = 0xFE,  // 动作执行失败
-    ERROR                 = 0xFF,  // 系统致命异常
+    HEARTBEAT_ACK = 0x10,          // 心跳响应
+    STAIR_CLIMB_DONE = 0x11,       // 上阶梯完成
+    STAIR_DESCEND_DONE = 0x12,     // 下阶梯完成
+    ODOM_DATA = 0x20,              // 轮式里程计数据 (vx, vy, omega, yaw)
+    ACTION_FAIL = 0xFE,            // 动作执行失败
+    ERROR = 0xFF,                  // 系统致命异常
 };
 
 // ============================================================================
 // 决策阶段定义
 // ============================================================================
-enum class Phase : uint8_t
-{
+enum class Phase : uint8_t {
     MC_TAKE,      // 武馆取矛头
     MC_ASSEMBLE,  // 武馆组装兵器
     MF_ENTRY,     // 梅林入口观察
@@ -97,13 +93,12 @@ enum class Phase : uint8_t
 // ============================================================================
 // 梅林格子状态
 // ============================================================================
-enum class GridState : uint8_t
-{
-    UNKNOWN,    // 未知
-    EMPTY,      // 空
-    AUTO_KFS,   // 自动 KFS
-    MANUAL_KFS, // 手动 KFS
-    FAKE_KFS,   // 假 KFS
+enum class GridState : uint8_t {
+    UNKNOWN,     // 未知
+    EMPTY,       // 空
+    AUTO_KFS,    // 自动 KFS
+    MANUAL_KFS,  // 手动 KFS
+    FAKE_KFS,    // 假 KFS
 };
 
 // ============================================================================
@@ -111,8 +106,7 @@ enum class GridState : uint8_t
 // ============================================================================
 #pragma pack(push, 1)
 
-struct FrameHeader
-{
+struct FrameHeader {
     uint8_t head[2];  // 0xAA, 0x55
     uint8_t seq;      // 序列号
     uint8_t len;      // cmd(1B) + payload(NB)，1字节
@@ -120,8 +114,7 @@ struct FrameHeader
     uint8_t cmd;      // 命令 ID
 };
 
-struct PosePayload
-{
+struct PosePayload {
     float vx;
     float vy;
     float wx;
@@ -137,56 +130,49 @@ struct PosePayload
 // ============================================================================
 // 导航点坐标 (Map 坐标系)
 // ============================================================================
-namespace waypoint
-{
+namespace waypoint {
 
 // 红方
-namespace red
-{
-    constexpr double GRAB_TIP_X = -0.7;
-    constexpr double GRAB_TIP_Y = 0.6;
-    constexpr double ASSEMBLE_X = -0.5;
-    constexpr double ASSEMBLE_Y = 0.2;
-    constexpr double MF_ENTRY_X = 1.6;
-    constexpr double MF_ENTRY_Y = 2.0;
-    constexpr double ORIGIN_X = -1.4;
-    constexpr double ORIGIN_Y = -0.3;
-}
+namespace red {
+constexpr double GRAB_TIP_X = -0.7;
+constexpr double GRAB_TIP_Y = 0.6;
+constexpr double ASSEMBLE_X = -0.5;
+constexpr double ASSEMBLE_Y = 0.2;
+constexpr double MF_ENTRY_X = 1.6;
+constexpr double MF_ENTRY_Y = 2.0;
+constexpr double ORIGIN_X = -1.4;
+constexpr double ORIGIN_Y = -0.3;
+}  // namespace red
 
 // 蓝方
-namespace blue
-{
-    constexpr double GRAB_TIP_X = 0.7;
-    constexpr double GRAB_TIP_Y = 0.6;
-    constexpr double ASSEMBLE_X = 0.5;
-    constexpr double ASSEMBLE_Y = 0.2;
-    constexpr double MF_ENTRY_X = -1.6;
-    constexpr double MF_ENTRY_Y = 2.0;
-    constexpr double ORIGIN_X = 1.4;
-    constexpr double ORIGIN_Y = -0.3;
-}
+namespace blue {
+constexpr double GRAB_TIP_X = 0.7;
+constexpr double GRAB_TIP_Y = 0.6;
+constexpr double ASSEMBLE_X = 0.5;
+constexpr double ASSEMBLE_Y = 0.2;
+constexpr double MF_ENTRY_X = -1.6;
+constexpr double MF_ENTRY_Y = 2.0;
+constexpr double ORIGIN_X = 1.4;
+constexpr double ORIGIN_Y = -0.3;
+}  // namespace blue
 
 }  // namespace waypoint
 
 // ============================================================================
 // CRC32 计算 (MPEG-2 模型)
 // ============================================================================
-inline uint32_t crc32_mpeg2_calculate(const uint8_t* data, size_t len)
-{
+inline uint32_t crc32_mpeg2_calculate(const uint8_t* data, size_t len) {
     uint32_t crc = 0xFFFFFFFF;
-    for (size_t i = 0; i < len; ++i)
-    {
-        crc ^= (uint32_t)data[i] << 24; // 将数据移到高位进行异或
-        for (uint8_t j = 0; j < 8; ++j)
-        {
+    for (size_t i = 0; i < len; ++i) {
+        crc ^= (uint32_t)data[i] << 24;  // 将数据移到高位进行异或
+        for (uint8_t j = 0; j < 8; ++j) {
             if (crc & 0x80000000)
-                crc = (crc << 1) ^ 0x04C11DB7; // 多项式 0x04C11DB7
+                crc = (crc << 1) ^ 0x04C11DB7;  // 多项式 0x04C11DB7
             else
                 crc <<= 1;
         }
     }
-    return crc; // 无需最终异或
+    return crc;  // 无需最终异或
 }
 
 }  // namespace rc26_decision
-

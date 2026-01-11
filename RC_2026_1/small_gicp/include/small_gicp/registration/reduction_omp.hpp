@@ -13,65 +13,63 @@ namespace small_gicp {
 #warning "OpenMP is not available. Parallel reduction will be disabled."
 #endif
 inline int omp_get_thread_num() {
-  return 0;
+    return 0;
 }
 #endif
 
 /// @brief Parallel reduction with OpenMP backend
 struct ParallelReductionOMP {
-  ParallelReductionOMP() : num_threads(4) {}
+    ParallelReductionOMP() : num_threads(4) {}
 
-  template <typename TargetPointCloud, typename SourcePointCloud, typename TargetTree, typename CorrespondenceRejector, typename Factor>
-  std::tuple<Eigen::Matrix<double, 6, 6>, Eigen::Matrix<double, 6, 1>, double> linearize(
-    const TargetPointCloud& target,
-    const SourcePointCloud& source,
-    const TargetTree& target_tree,
-    const CorrespondenceRejector& rejector,
-    const Eigen::Isometry3d& T,
-    std::vector<Factor>& factors) const {
-    const int threads = num_threads > 0 ? num_threads : 1;
-    std::vector<Eigen::Matrix<double, 6, 6>> Hs(threads, Eigen::Matrix<double, 6, 6>::Zero());
-    std::vector<Eigen::Matrix<double, 6, 1>> bs(threads, Eigen::Matrix<double, 6, 1>::Zero());
-    std::vector<double> es(threads, 0.0);
+    template <typename TargetPointCloud, typename SourcePointCloud, typename TargetTree,
+              typename CorrespondenceRejector, typename Factor>
+    std::tuple<Eigen::Matrix<double, 6, 6>, Eigen::Matrix<double, 6, 1>, double>
+    linearize(const TargetPointCloud& target, const SourcePointCloud& source, const TargetTree& target_tree,
+              const CorrespondenceRejector& rejector, const Eigen::Isometry3d& T, std::vector<Factor>& factors) const {
+        const int threads = num_threads > 0 ? num_threads : 1;
+        std::vector<Eigen::Matrix<double, 6, 6>> Hs(threads, Eigen::Matrix<double, 6, 6>::Zero());
+        std::vector<Eigen::Matrix<double, 6, 1>> bs(threads, Eigen::Matrix<double, 6, 1>::Zero());
+        std::vector<double> es(threads, 0.0);
 
 #pragma omp parallel for num_threads(threads) schedule(guided, 8)
-    for (std::int64_t i = 0; i < factors.size(); i++) {
-      Eigen::Matrix<double, 6, 6> H;
-      Eigen::Matrix<double, 6, 1> b;
-      double e;
+        for (std::int64_t i = 0; i < factors.size(); i++) {
+            Eigen::Matrix<double, 6, 6> H;
+            Eigen::Matrix<double, 6, 1> b;
+            double e;
 
-      if (!factors[i].linearize(target, source, target_tree, T, i, rejector, &H, &b, &e)) {
-        continue;
-      }
+            if (!factors[i].linearize(target, source, target_tree, T, i, rejector, &H, &b, &e)) {
+                continue;
+            }
 
-      const int thread_id = omp_get_thread_num();
-      Hs[thread_id] += H;
-      bs[thread_id] += b;
-      es[thread_id] += e;
+            const int thread_id = omp_get_thread_num();
+            Hs[thread_id] += H;
+            bs[thread_id] += b;
+            es[thread_id] += e;
+        }
+
+        for (int i = 1; i < threads; i++) {
+            Hs[0] += Hs[i];
+            bs[0] += bs[i];
+            es[0] += es[i];
+        }
+
+        return {Hs[0], bs[0], es[0]};
     }
 
-    for (int i = 1; i < threads; i++) {
-      Hs[0] += Hs[i];
-      bs[0] += bs[i];
-      es[0] += es[i];
-    }
-
-    return {Hs[0], bs[0], es[0]};
-  }
-
-  template <typename TargetPointCloud, typename SourcePointCloud, typename Factor>
-  double error(const TargetPointCloud& target, const SourcePointCloud& source, const Eigen::Isometry3d& T, std::vector<Factor>& factors) const {
-    const int threads = num_threads > 0 ? num_threads : 1;
-    double sum_e = 0.0;
+    template <typename TargetPointCloud, typename SourcePointCloud, typename Factor>
+    double error(const TargetPointCloud& target, const SourcePointCloud& source, const Eigen::Isometry3d& T,
+                 std::vector<Factor>& factors) const {
+        const int threads = num_threads > 0 ? num_threads : 1;
+        double sum_e = 0.0;
 
 #pragma omp parallel for num_threads(threads) schedule(guided, 8) reduction(+ : sum_e)
-    for (std::int64_t i = 0; i < factors.size(); i++) {
-      sum_e += factors[i].error(target, source, T);
+        for (std::int64_t i = 0; i < factors.size(); i++) {
+            sum_e += factors[i].error(target, source, T);
+        }
+        return sum_e;
     }
-    return sum_e;
-  }
 
-  int num_threads;  ///< Number of threads
+    int num_threads;  ///< Number of threads
 };
 
 }  // namespace small_gicp

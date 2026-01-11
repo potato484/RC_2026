@@ -10,8 +10,8 @@ namespace small_gicp {
 /// @param pt  Double vector
 /// @return    Floored int vector
 inline Eigen::Array4i fast_floor(const Eigen::Array4d& pt) {
-  const Eigen::Array4i ncoord = pt.cast<int>();
-  return ncoord - (pt < ncoord.cast<double>()).cast<int>();
+    const Eigen::Array4i ncoord = pt.cast<int>();
+    return ncoord - (pt < ncoord.cast<double>()).cast<int>();
 };
 
 }  // namespace small_gicp

@@ -10,14 +10,13 @@
 
 #include <behaviortree_cpp/bt_factory.h>
 #include <rclcpp/rclcpp.hpp>
+
 #include "rc26_serial/protocol.hpp"
 
-namespace rc26_decision
-{
+namespace rc26_decision {
 
 // 取矛头节点
-class GrabTipAction : public BT::StatefulActionNode
-{
+class GrabTipAction : public BT::StatefulActionNode {
 public:
     GrabTipAction(const std::string& name, const BT::NodeConfig& config);
 
@@ -29,8 +28,7 @@ public:
 };
 
 // 组装兵器节点
-class AssembleWeaponAction : public BT::StatefulActionNode
-{
+class AssembleWeaponAction : public BT::StatefulActionNode {
 public:
     AssembleWeaponAction(const std::string& name, const BT::NodeConfig& config);
 
@@ -42,8 +40,7 @@ public:
 };
 
 // 检测手动机器人条件节点
-class CheckManualRobotCondition : public BT::ConditionNode
-{
+class CheckManualRobotCondition : public BT::ConditionNode {
 public:
     CheckManualRobotCondition(const std::string& name, const BT::NodeConfig& config);
 

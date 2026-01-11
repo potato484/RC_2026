@@ -2,31 +2,31 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include <tbb/tbb.h>
 #include <small_gicp/util/normal_estimation.hpp>
+#include <tbb/tbb.h>
 
 namespace small_gicp {
 
 template <typename Setter, typename PointCloud, typename KdTree>
 void estimate_local_features_tbb(PointCloud& cloud, KdTree& kdtree, int num_neighbors) {
-  traits::resize(cloud, traits::size(cloud));
-  tbb::parallel_for(tbb::blocked_range<size_t>(0, traits::size(cloud)), [&](const tbb::blocked_range<size_t>& range) {
-    for (size_t i = range.begin(); i < range.end(); i++) {
-      estimate_local_features<Setter>(cloud, kdtree, num_neighbors, i);
-    }
-  });
+    traits::resize(cloud, traits::size(cloud));
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, traits::size(cloud)), [&](const tbb::blocked_range<size_t>& range) {
+        for (size_t i = range.begin(); i < range.end(); i++) {
+            estimate_local_features<Setter>(cloud, kdtree, num_neighbors, i);
+        }
+    });
 }
 
 template <typename Setter, typename PointCloud>
 void estimate_local_features_tbb(PointCloud& cloud, int num_neighbors) {
-  traits::resize(cloud, traits::size(cloud));
-  UnsafeKdTree<PointCloud> kdtree(cloud);
+    traits::resize(cloud, traits::size(cloud));
+    UnsafeKdTree<PointCloud> kdtree(cloud);
 
-  tbb::parallel_for(tbb::blocked_range<size_t>(0, traits::size(cloud)), [&](const tbb::blocked_range<size_t>& range) {
-    for (size_t i = range.begin(); i < range.end(); i++) {
-      estimate_local_features<Setter>(cloud, kdtree, num_neighbors, i);
-    }
-  });
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, traits::size(cloud)), [&](const tbb::blocked_range<size_t>& range) {
+        for (size_t i = range.begin(); i < range.end(); i++) {
+            estimate_local_features<Setter>(cloud, kdtree, num_neighbors, i);
+        }
+    });
 }
 
 /// @brief Estimate point normals with TBB
@@ -36,7 +36,7 @@ void estimate_local_features_tbb(PointCloud& cloud, int num_neighbors) {
 /// @param num_neighbors  Number of neighbors used for attribute estimation
 template <typename PointCloud>
 void estimate_normals_tbb(PointCloud& cloud, int num_neighbors = 20) {
-  estimate_local_features_tbb<NormalSetter<PointCloud>>(cloud, num_neighbors);
+    estimate_local_features_tbb<NormalSetter<PointCloud>>(cloud, num_neighbors);
 }
 
 /// @brief Estimate point normals with TBB
@@ -47,7 +47,7 @@ void estimate_normals_tbb(PointCloud& cloud, int num_neighbors = 20) {
 /// @param num_neighbors  Number of neighbors used for attribute estimation
 template <typename PointCloud, typename KdTree>
 void estimate_normals_tbb(PointCloud& cloud, KdTree& kdtree, int num_neighbors = 20) {
-  estimate_local_features_tbb<NormalSetter<PointCloud>>(cloud, kdtree, num_neighbors);
+    estimate_local_features_tbb<NormalSetter<PointCloud>>(cloud, kdtree, num_neighbors);
 }
 
 /// @brief Estimate point covariances with TBB
@@ -57,7 +57,7 @@ void estimate_normals_tbb(PointCloud& cloud, KdTree& kdtree, int num_neighbors =
 /// @param num_neighbors  Number of neighbors used for attribute estimation
 template <typename PointCloud>
 void estimate_covariances_tbb(PointCloud& cloud, int num_neighbors = 20) {
-  estimate_local_features_tbb<CovarianceSetter<PointCloud>>(cloud, num_neighbors);
+    estimate_local_features_tbb<CovarianceSetter<PointCloud>>(cloud, num_neighbors);
 }
 
 /// @brief Estimate point covariances with TBB
@@ -68,7 +68,7 @@ void estimate_covariances_tbb(PointCloud& cloud, int num_neighbors = 20) {
 /// @param num_neighbors  Number of neighbors used for attribute estimation
 template <typename PointCloud, typename KdTree>
 void estimate_covariances_tbb(PointCloud& cloud, KdTree& kdtree, int num_neighbors = 20) {
-  estimate_local_features_tbb<CovarianceSetter<PointCloud>>(cloud, kdtree, num_neighbors);
+    estimate_local_features_tbb<CovarianceSetter<PointCloud>>(cloud, kdtree, num_neighbors);
 }
 
 /// @brief Estimate point normals and covariances with TBB
@@ -78,7 +78,7 @@ void estimate_covariances_tbb(PointCloud& cloud, KdTree& kdtree, int num_neighbo
 /// @param num_neighbors  Number of neighbors used for attribute estimation
 template <typename PointCloud>
 void estimate_normals_covariances_tbb(PointCloud& cloud, int num_neighbors = 20) {
-  estimate_local_features_tbb<NormalCovarianceSetter<PointCloud>>(cloud, num_neighbors);
+    estimate_local_features_tbb<NormalCovarianceSetter<PointCloud>>(cloud, num_neighbors);
 }
 
 /// @brief Estimate point normals and covariances with TBB
@@ -89,7 +89,7 @@ void estimate_normals_covariances_tbb(PointCloud& cloud, int num_neighbors = 20)
 /// @param num_neighbors  Number of neighbors used for attribute estimation
 template <typename PointCloud, typename KdTree>
 void estimate_normals_covariances_tbb(PointCloud& cloud, KdTree& kdtree, int num_neighbors = 20) {
-  estimate_local_features_tbb<NormalCovarianceSetter<PointCloud>>(cloud, kdtree, num_neighbors);
+    estimate_local_features_tbb<NormalCovarianceSetter<PointCloud>>(cloud, kdtree, num_neighbors);
 }
 
 }  // namespace small_gicp

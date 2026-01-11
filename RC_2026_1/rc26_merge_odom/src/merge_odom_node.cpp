@@ -1,15 +1,14 @@
 // RC2026 融合里程计主节点
 // 整合CAN里程计和位姿下传功能
 #include <rclcpp/rclcpp.hpp>
+
 #include "rc26_merge_odom/can/can_odom.hpp"
 #include "rc26_merge_odom/pose/pose_sender.hpp"
 #include "rc26_serial/serial_driver.hpp"
 
-class MergeOdomNode : public rclcpp::Node
-{
+class MergeOdomNode : public rclcpp::Node {
 public:
-    MergeOdomNode() : Node("merge_odom_node")
-    {
+    MergeOdomNode() : Node("merge_odom_node") {
         // CAN里程计参数
         this->declare_parameter("can_interface", "can0");
         this->declare_parameter("wheel_radius", 0.07625);
@@ -51,12 +50,9 @@ public:
         int baudrate = this->get_parameter("baudrate").as_int();
 
         serial_driver_ = std::make_shared<rc26_decision::SerialDriver>();
-        if (!serial_driver_->open(serial_port, baudrate))
-        {
+        if (!serial_driver_->open(serial_port, baudrate)) {
             RCLCPP_WARN(this->get_logger(), "串口打开失败: %s，位姿下传功能禁用", serial_port.c_str());
-        }
-        else
-        {
+        } else {
             // 初始化位姿发送
             rc26_merge_odom::PoseSender::Config pose_config;
             pose_config.cmd_vel_topic = this->get_parameter("cmd_vel_topic").as_string();
@@ -75,8 +71,7 @@ private:
     std::unique_ptr<rc26_merge_odom::PoseSender> pose_sender_;
 };
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
     auto node = std::make_shared<MergeOdomNode>();
     rclcpp::spin(node);
