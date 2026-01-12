@@ -1,5 +1,5 @@
-// RC2026 位姿发送模块
-// 订阅融合里程计话题，定时通过串口发送到MCU
+// RC2026 速度发送模块
+// 双串口架构：反馈速度 + 目标速度，用于MCU速度闭环控制
 #pragma once
 
 #include <memory>
@@ -22,27 +22,30 @@ public:
         int send_rate_hz = 50;
     };
 
-    PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> serial_driver, Config config);
+    PoseSender(rclcpp::Node& node,
+               std::shared_ptr<rc26_decision::SerialDriver> feedback_serial,
+               std::shared_ptr<rc26_decision::SerialDriver> target_serial,
+               Config config);
 
 private:
+    struct Velocity {
+        float vx = 0.0f;
+        float vy = 0.0f;
+        float wz = 0.0f;
+    };
+
     rclcpp::Node& node_;
-    std::shared_ptr<rc26_decision::SerialDriver> serial_driver_;
+    std::shared_ptr<rc26_decision::SerialDriver> feedback_serial_;
+    std::shared_ptr<rc26_decision::SerialDriver> target_serial_;
     Config config_;
 
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
-
     rclcpp::TimerBase::SharedPtr send_timer_;
 
     mutable std::mutex data_mutex_;
-    float vx_ = 0.0f;
-    float vy_ = 0.0f;
-    float wx_ = 0.0f;
-    float wy_ = 0.0f;
-    float wz_ = 0.0f;
-    float roll_ = 0.0f;
-    float pitch_ = 0.0f;
-    float yaw_ = 0.0f;
+    Velocity target_vel_;
+    Velocity feedback_vel_;
 
     void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
     void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);

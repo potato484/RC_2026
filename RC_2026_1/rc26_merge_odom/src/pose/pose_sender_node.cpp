@@ -1,4 +1,5 @@
-// RC2026 位姿发送独立节点
+// RC2026 速度发送独立节点
+// 双串口架构：反馈速度 + 目标速度
 #include <rclcpp/rclcpp.hpp>
 
 #include "rc26_merge_odom/pose/pose_sender.hpp"
@@ -7,18 +8,31 @@
 class PoseSenderNode : public rclcpp::Node {
 public:
     PoseSenderNode() : Node("pose_sender_node") {
-        this->declare_parameter("serial_port", "/dev/ttyUSB0");
+        this->declare_parameter("feedback_serial_port", "/dev/ttyUSB0");
+        this->declare_parameter("target_serial_port", "/dev/ttyUSB1");
         this->declare_parameter("baudrate", 115200);
         this->declare_parameter("cmd_vel_topic", "cmd_vel");
         this->declare_parameter("odom_topic", "merge_odom");
         this->declare_parameter("send_rate_hz", 50);
 
-        std::string serial_port = this->get_parameter("serial_port").as_string();
+        std::string feedback_port = this->get_parameter("feedback_serial_port").as_string();
+        std::string target_port = this->get_parameter("target_serial_port").as_string();
         int baudrate = this->get_parameter("baudrate").as_int();
 
-        serial_driver_ = std::make_shared<rc26_decision::SerialDriver>();
-        if (!serial_driver_->open(serial_port, baudrate)) {
-            RCLCPP_ERROR(this->get_logger(), "串口打开失败: %s", serial_port.c_str());
+        feedback_serial_ = std::make_shared<rc26_decision::SerialDriver>();
+        bool feedback_ok = feedback_serial_->open(feedback_port, baudrate);
+        if (!feedback_ok) {
+            RCLCPP_WARN(this->get_logger(), "反馈串口打开失败: %s", feedback_port.c_str());
+        }
+
+        target_serial_ = std::make_shared<rc26_decision::SerialDriver>();
+        bool target_ok = target_serial_->open(target_port, baudrate);
+        if (!target_ok) {
+            RCLCPP_WARN(this->get_logger(), "目标串口打开失败: %s", target_port.c_str());
+        }
+
+        if (!feedback_ok && !target_ok) {
+            RCLCPP_ERROR(this->get_logger(), "双串口均打开失败，速度发送功能禁用");
             return;
         }
 
@@ -27,11 +41,13 @@ public:
         config.odom_topic = this->get_parameter("odom_topic").as_string();
         config.send_rate_hz = this->get_parameter("send_rate_hz").as_int();
 
-        pose_sender_ = std::make_unique<rc26_merge_odom::PoseSender>(*this, serial_driver_, config);
+        pose_sender_ = std::make_unique<rc26_merge_odom::PoseSender>(
+            *this, feedback_serial_, target_serial_, config);
     }
 
 private:
-    std::shared_ptr<rc26_decision::SerialDriver> serial_driver_;
+    std::shared_ptr<rc26_decision::SerialDriver> feedback_serial_;
+    std::shared_ptr<rc26_decision::SerialDriver> target_serial_;
     std::unique_ptr<rc26_merge_odom::PoseSender> pose_sender_;
 };
 

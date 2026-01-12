@@ -47,6 +47,8 @@ enum class CommandID : uint8_t {
     PLACE_KFS_GROUND = 0x0F,  // 对抗区放置 KFS 到地面
     HEARTBEAT = 0x10,         // 心跳查询请求
     POSE_DATA = 0x20,         // 实时底盘位姿 (vx, vy, wx, wy, wz, roll, pitch, yaw)
+    POSE_FEEDBACK = 0x21,     // 反馈速度 (vx, vy, wz) - MCU速度闭环
+    POSE_TARGET = 0x22,       // 目标速度 (vx, vy, wz) - MCU速度闭环
 };
 
 // ============================================================================

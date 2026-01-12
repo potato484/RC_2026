@@ -1,5 +1,5 @@
 // RC2026 融合里程计主节点
-// 整合CAN里程计和位姿下传功能
+// 整合CAN里程计和速度发送功能（双串口架构）
 #include <rclcpp/rclcpp.hpp>
 
 #include "rc26_merge_odom/can/can_odom.hpp"
@@ -21,11 +21,12 @@ public:
         this->declare_parameter("base_frame", "base_link");
         this->declare_parameter("data_timeout_ms", 100.0);
 
-        // 串口参数
-        this->declare_parameter("serial_port", "/dev/ttyUSB0");
+        // 双串口参数
+        this->declare_parameter("feedback_serial_port", "/dev/ttyUSB0");
+        this->declare_parameter("target_serial_port", "/dev/ttyUSB1");
         this->declare_parameter("baudrate", 115200);
 
-        // 位姿发送参数
+        // 速度发送参数
         this->declare_parameter("cmd_vel_topic", "cmd_vel");
         this->declare_parameter("merge_odom_topic", "merge_odom");
         this->declare_parameter("pose_send_rate_hz", 50);
@@ -45,29 +46,40 @@ public:
 
         can_odom_ = std::make_unique<rc26_merge_odom::CanOdom>(*this, can_config);
 
-        // 初始化串口
-        std::string serial_port = this->get_parameter("serial_port").as_string();
+        // 初始化双串口
+        std::string feedback_port = this->get_parameter("feedback_serial_port").as_string();
+        std::string target_port = this->get_parameter("target_serial_port").as_string();
         int baudrate = this->get_parameter("baudrate").as_int();
 
-        serial_driver_ = std::make_shared<rc26_decision::SerialDriver>();
-        if (!serial_driver_->open(serial_port, baudrate)) {
-            RCLCPP_WARN(this->get_logger(), "串口打开失败: %s，位姿下传功能禁用", serial_port.c_str());
-        } else {
-            // 初始化位姿发送
+        feedback_serial_ = std::make_shared<rc26_decision::SerialDriver>();
+        bool feedback_ok = feedback_serial_->open(feedback_port, baudrate);
+        if (!feedback_ok) {
+            RCLCPP_WARN(this->get_logger(), "反馈串口打开失败: %s", feedback_port.c_str());
+        }
+
+        target_serial_ = std::make_shared<rc26_decision::SerialDriver>();
+        bool target_ok = target_serial_->open(target_port, baudrate);
+        if (!target_ok) {
+            RCLCPP_WARN(this->get_logger(), "目标串口打开失败: %s", target_port.c_str());
+        }
+
+        if (feedback_ok || target_ok) {
             rc26_merge_odom::PoseSender::Config pose_config;
             pose_config.cmd_vel_topic = this->get_parameter("cmd_vel_topic").as_string();
             pose_config.odom_topic = this->get_parameter("merge_odom_topic").as_string();
             pose_config.send_rate_hz = this->get_parameter("pose_send_rate_hz").as_int();
 
-            pose_sender_ = std::make_unique<rc26_merge_odom::PoseSender>(*this, serial_driver_, pose_config);
+            pose_sender_ = std::make_unique<rc26_merge_odom::PoseSender>(
+                *this, feedback_serial_, target_serial_, pose_config);
         }
 
-        RCLCPP_INFO(this->get_logger(), "融合里程计节点启动");
+        RCLCPP_INFO(this->get_logger(), "融合里程计节点启动 (双串口模式)");
     }
 
 private:
     std::unique_ptr<rc26_merge_odom::CanOdom> can_odom_;
-    std::shared_ptr<rc26_decision::SerialDriver> serial_driver_;
+    std::shared_ptr<rc26_decision::SerialDriver> feedback_serial_;
+    std::shared_ptr<rc26_decision::SerialDriver> target_serial_;
     std::unique_ptr<rc26_merge_odom::PoseSender> pose_sender_;
 };
 

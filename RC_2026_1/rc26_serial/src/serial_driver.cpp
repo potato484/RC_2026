@@ -574,6 +574,14 @@ bool SerialDriver::sendPose(float vx, float vy, float wx, float wy, float wz, fl
     return sendCommandNoAck(static_cast<uint8_t>(CommandID::POSE_DATA), payload);
 }
 
+bool SerialDriver::sendPose(CommandID cmd, float vx, float vy, float wz) {
+    std::vector<uint8_t> payload(12);
+    std::memcpy(&payload[0], &vx, sizeof(float));
+    std::memcpy(&payload[4], &vy, sizeof(float));
+    std::memcpy(&payload[8], &wz, sizeof(float));
+    return sendCommandNoAck(static_cast<uint8_t>(cmd), payload);
+}
+
 bool SerialDriver::sendStop() {
     return sendCommand(CommandID::STOP);
 }
