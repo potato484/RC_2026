@@ -8,13 +8,9 @@
 
 namespace rc26_merge_odom {
 
-PoseSender::PoseSender(rclcpp::Node& node,
-                       std::shared_ptr<rc26_decision::SerialDriver> feedback_serial,
-                       std::shared_ptr<rc26_decision::SerialDriver> target_serial,
-                       Config config)
-    : node_(node),
-      feedback_serial_(std::move(feedback_serial)),
-      target_serial_(std::move(target_serial)),
+PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> feedback_serial,
+                       std::shared_ptr<rc26_decision::SerialDriver> target_serial, Config config)
+    : node_(node), feedback_serial_(std::move(feedback_serial)), target_serial_(std::move(target_serial)),
       config_(std::move(config)) {
     if (config_.send_rate_hz <= 0) {
         throw std::runtime_error("send_rate_hz 必须 > 0");
@@ -57,13 +53,11 @@ void PoseSender::sendTimerCallback() {
     }
 
     if (feedback_serial_ && feedback_serial_->isOpen()) {
-        feedback_serial_->sendPose(rc26_decision::CommandID::POSE_FEEDBACK,
-                                   feedback.vx, feedback.vy, feedback.wz);
+        feedback_serial_->sendPose(rc26_decision::CommandID::POSE_FEEDBACK, feedback.vx, feedback.vy, feedback.wz);
     }
 
     if (target_serial_ && target_serial_->isOpen()) {
-        target_serial_->sendPose(rc26_decision::CommandID::POSE_TARGET,
-                                 target.vx, target.vy, target.wz);
+        target_serial_->sendPose(rc26_decision::CommandID::POSE_TARGET, target.vx, target.vy, target.wz);
     }
 }
 

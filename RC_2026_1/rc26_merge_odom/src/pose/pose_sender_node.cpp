@@ -41,8 +41,7 @@ public:
         config.odom_topic = this->get_parameter("odom_topic").as_string();
         config.send_rate_hz = this->get_parameter("send_rate_hz").as_int();
 
-        pose_sender_ = std::make_unique<rc26_merge_odom::PoseSender>(
-            *this, feedback_serial_, target_serial_, config);
+        pose_sender_ = std::make_unique<rc26_merge_odom::PoseSender>(*this, feedback_serial_, target_serial_, config);
     }
 
 private:

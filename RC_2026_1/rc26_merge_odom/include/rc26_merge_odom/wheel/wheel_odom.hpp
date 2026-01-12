@@ -29,9 +29,7 @@ public:
         double data_timeout_ms = 100.0;
     };
 
-    WheelOdom(rclcpp::Node& node,
-              std::shared_ptr<rc26_decision::SerialDriver> serial,
-              Config config);
+    WheelOdom(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> serial, Config config);
     ~WheelOdom();
 
     WheelOdom(const WheelOdom&) = delete;
@@ -43,8 +41,8 @@ public:
 
 private:
     void publishOdometry();
-    void wheelSpeedsToBodyVelocity(double v_fl, double v_rl, double v_rr, double v_fr,
-                                   double& vx, double& vy, double& omega) const;
+    void wheelSpeedsToBodyVelocity(double v_fl, double v_rl, double v_rr, double v_fr, double& vx, double& vy,
+                                   double& omega) const;
     void handleOdomData(const std::vector<uint8_t>& payload);
 
     rclcpp::Node& node_;

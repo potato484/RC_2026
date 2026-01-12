@@ -58,6 +58,14 @@ ament_target_dependencies(can_odom_node
   nav_msgs
 )
 
+# 串口轮式里程计节点
+add_executable(wheel_odom_node src/wheel/wheel_odom_node.cpp)
+target_link_libraries(wheel_odom_node wheel_odom)
+ament_target_dependencies(wheel_odom_node
+  rclcpp
+  nav_msgs
+)
+
 # 位姿下传库
 add_library(pose_sender SHARED
   src/pose/pose_sender.cpp
@@ -136,6 +144,7 @@ install(TARGETS
 
 install(TARGETS
   can_odom_node
+  wheel_odom_node
   pose_sender_node
   merge_odom_node
   dm_imu_node

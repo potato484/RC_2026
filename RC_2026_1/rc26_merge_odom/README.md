@@ -80,10 +80,10 @@ DM-IMU-L1 是达妙科技的六轴IMU模块：
 
 ```bash
 # 启动文件
-ros2 launch rc26_merge_odom dm_imu.launch.py
+ros2 launch rc26_merge_odom dm_imu_only.launch.py
 
 # 自定义参数
-ros2 launch rc26_merge_odom dm_imu.launch.py port:=/dev/ttyACM1 verbose:=true
+ros2 launch rc26_merge_odom dm_imu_only.launch.py imu_port:=/dev/ttyACM1
 
 # 直接运行节点
 ros2 run rc26_merge_odom dm_imu_node --ros-args -p port:=/dev/ttyACM0
@@ -125,6 +125,7 @@ driver.close();
 | 节点 | 说明 |
 |------|------|
 | `can_odom_node` | CAN里程计节点 |
+| `wheel_odom_node` | 串口轮式里程计节点 |
 | `pose_sender_node` | 位姿下传节点 |
 | `merge_odom_node` | 融合里程计主节点 |
 | `dm_imu_node` | 达妙IMU节点 |
@@ -133,37 +134,12 @@ driver.close();
 
 | 文件 | 说明 |
 |------|------|
-| `dm_imu.launch.py` | 启动达妙IMU节点 |
+| `dm_imu_only.launch.py` | 仅启动达妙IMU节点 |
 | `can_odom_only.launch.py` | 仅启动CAN里程计 |
+| `wheel_odom_only.launch.py` | 仅启动串口轮式里程计 |
 | `merge_odom.launch.py` | 启动融合里程计 |
 
-## 文件结构
 
-```
-rc26_merge_odom/
-├── include/rc26_merge_odom/
-│   ├── can_odom.hpp          # CAN里程计头文件
-│   ├── pose_sender.hpp       # 位姿下传头文件
-│   ├── dm_protocol.hpp       # 达妙IMU协议定义
-│   └── dm_imu_driver.hpp     # 达妙IMU驱动头文件
-├── src/
-│   ├── can_odom.cpp          # CAN里程计实现
-│   ├── can_odom_node.cpp     # CAN里程计节点
-│   ├── pose_sender.cpp       # 位姿下传实现
-│   ├── pose_sender_node.cpp  # 位姿下传节点
-│   ├── merge_odom_node.cpp   # 融合里程计节点
-│   ├── dm_imu_driver.cpp     # 达妙IMU驱动实现
-│   └── dm_imu_node.cpp       # 达妙IMU节点
-├── launch/
-│   ├── dm_imu.launch.py
-│   ├── can_odom_only.launch.py
-│   └── merge_odom.launch.py
-├── config/
-│   └── ...
-├── CMakeLists.txt
-├── package.xml
-└── README.md
-```
 
 ## 依赖
 

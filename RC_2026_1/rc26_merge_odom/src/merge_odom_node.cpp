@@ -11,7 +11,7 @@ class MergeOdomNode : public rclcpp::Node {
 public:
     MergeOdomNode() : Node("merge_odom_node") {
         // 里程计源选择
-        this->declare_parameter("odom_source", "can_odom");
+        this->declare_parameter("use_can_odom", true);
 
         // CAN里程计参数
         this->declare_parameter("can_interface", "can0");
@@ -36,13 +36,7 @@ public:
         this->declare_parameter("pose_send_rate_hz", 50);
 
         // 获取里程计源配置
-        const std::string odom_source = this->get_parameter("odom_source").as_string();
-        bool use_can_odom = (odom_source == "can_odom");
-        bool use_wheel_odom = (odom_source == "wheel_odom");
-        if (!use_can_odom && !use_wheel_odom) {
-            RCLCPP_WARN(this->get_logger(), "未知 odom_source: %s, 默认使用 can_odom", odom_source.c_str());
-            use_can_odom = true;
-        }
+        bool use_can_odom = this->get_parameter("use_can_odom").as_bool();
 
         // 初始化双串口
         std::string feedback_port = this->get_parameter("feedback_serial_port").as_string();
@@ -111,8 +105,8 @@ public:
             pose_config.odom_topic = this->get_parameter("merge_odom_topic").as_string();
             pose_config.send_rate_hz = this->get_parameter("pose_send_rate_hz").as_int();
 
-            pose_sender_ = std::make_unique<rc26_merge_odom::PoseSender>(
-                *this, feedback_serial_, target_serial_, pose_config);
+            pose_sender_ =
+                std::make_unique<rc26_merge_odom::PoseSender>(*this, feedback_serial_, target_serial_, pose_config);
         }
 
         RCLCPP_INFO(this->get_logger(), "融合里程计节点启动 (双串口模式)");

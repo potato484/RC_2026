@@ -11,9 +11,7 @@
 
 namespace rc26_merge_odom {
 
-WheelOdom::WheelOdom(rclcpp::Node& node,
-                     std::shared_ptr<rc26_decision::SerialDriver> serial,
-                     Config config)
+WheelOdom::WheelOdom(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> serial, Config config)
     : node_(node), config_(std::move(config)), serial_(std::move(serial)) {
     odom_pub_ = node_.create_publisher<nav_msgs::msg::Odometry>(config_.odom_topic, 10);
 
@@ -36,8 +34,8 @@ WheelOdom::WheelOdom(rclcpp::Node& node,
         std::chrono::duration<double>(1.0 / static_cast<double>(config_.publish_rate_hz)));
     publish_timer_ = node_.create_wall_timer(period, std::bind(&WheelOdom::publishOdometry, this));
 
-    RCLCPP_INFO(node_.get_logger(), "WheelOdom 启动: topic=%s, rate=%d Hz",
-                config_.odom_topic.c_str(), config_.publish_rate_hz);
+    RCLCPP_INFO(node_.get_logger(), "WheelOdom 启动: topic=%s, rate=%d Hz", config_.odom_topic.c_str(),
+                config_.publish_rate_hz);
 }
 
 WheelOdom::~WheelOdom() {
@@ -51,8 +49,8 @@ WheelOdom::~WheelOdom() {
 
 void WheelOdom::handleOdomData(const std::vector<uint8_t>& payload) {
     if (payload.size() < 16) {
-        RCLCPP_WARN_THROTTLE(node_.get_logger(), *node_.get_clock(), 1000,
-                             "ODOM_DATA payload 大小不足: %zu < 16", payload.size());
+        RCLCPP_WARN_THROTTLE(node_.get_logger(), *node_.get_clock(), 1000, "ODOM_DATA payload 大小不足: %zu < 16",
+                             payload.size());
         return;
     }
 
@@ -77,8 +75,8 @@ void WheelOdom::handleOdomData(const std::vector<uint8_t>& payload) {
     }
 }
 
-void WheelOdom::wheelSpeedsToBodyVelocity(double v_fl, double v_rl, double v_rr, double v_fr,
-                                          double& vx, double& vy, double& omega) const {
+void WheelOdom::wheelSpeedsToBodyVelocity(double v_fl, double v_rl, double v_rr, double v_fr, double& vx, double& vy,
+                                          double& omega) const {
     double l_plus_w = (config_.wheel_base + config_.track_width) / 2.0;
 
     vx = (v_fl + v_fr + v_rl + v_rr) / 4.0;

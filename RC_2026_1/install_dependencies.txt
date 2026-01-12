@@ -1,0 +1,134 @@
+# RC_2026_1 项目依赖安装指令
+# 适用于 ROS2 环境 (建议 Humble/Iron)
+# 执行前请确保已安装 ROS2 基础环境
+
+# ============================================
+# 1. 系统级依赖 (apt)
+# ============================================
+
+sudo apt update && sudo apt install -y \
+    ros-${ROS_DISTRO}-rclcpp \
+    ros-${ROS_DISTRO}-rclcpp-components \
+    ros-${ROS_DISTRO}-rclcpp-action \
+    ros-${ROS_DISTRO}-rclpy \
+    ros-${ROS_DISTRO}-std-msgs \
+    ros-${ROS_DISTRO}-nav-msgs \
+    ros-${ROS_DISTRO}-sensor-msgs \
+    ros-${ROS_DISTRO}-geometry-msgs \
+    ros-${ROS_DISTRO}-visualization-msgs \
+    ros-${ROS_DISTRO}-tf2 \
+    ros-${ROS_DISTRO}-tf2-ros \
+    ros-${ROS_DISTRO}-tf2-eigen \
+    ros-${ROS_DISTRO}-tf2-geometry-msgs \
+    ros-${ROS_DISTRO}-pcl-ros \
+    ros-${ROS_DISTRO}-pcl-conversions \
+    ros-${ROS_DISTRO}-cv-bridge \
+    ros-${ROS_DISTRO}-message-filters \
+    ros-${ROS_DISTRO}-robot-localization \
+    ros-${ROS_DISTRO}-pluginlib \
+    ros-${ROS_DISTRO}-ament-index-cpp \
+    ros-${ROS_DISTRO}-rosidl-default-generators \
+    ros-${ROS_DISTRO}-behaviortree-cpp
+
+# Nav2 导航栈
+sudo apt install -y \
+    ros-${ROS_DISTRO}-nav2-bringup \
+    ros-${ROS_DISTRO}-nav2-bt-navigator \
+    ros-${ROS_DISTRO}-nav2-lifecycle-manager \
+    ros-${ROS_DISTRO}-nav2-map-server \
+    ros-${ROS_DISTRO}-nav2-planner \
+    ros-${ROS_DISTRO}-nav2-controller \
+    ros-${ROS_DISTRO}-nav2-behaviors \
+    ros-${ROS_DISTRO}-nav2-costmap-2d \
+    ros-${ROS_DISTRO}-nav2-common \
+    ros-${ROS_DISTRO}-nav2-core \
+    ros-${ROS_DISTRO}-nav2-util \
+    ros-${ROS_DISTRO}-nav2-msgs
+
+# 机器人状态发布
+sudo apt install -y \
+    ros-${ROS_DISTRO}-robot-state-publisher \
+    ros-${ROS_DISTRO}-joint-state-publisher \
+    ros-${ROS_DISTRO}-rviz2
+
+# ============================================
+# 2. 第三方库依赖 (apt)
+# ============================================
+
+sudo apt install -y \
+    libasio-dev \
+    libpcl-all-dev \
+    libomp-dev \
+    libeigen3-dev \
+    libopencv-dev \
+    libunwind-dev \
+    libgoogle-glog-dev \
+    python3-serial
+
+# Intel RealSense SDK (D455 深度相机)
+sudo apt install -y \
+    librealsense2-dev \
+    librealsense2-utils
+
+# ============================================
+# 3. 一键安装 (合并命令)
+# ============================================
+
+# 复制以下命令一次性安装所有依赖:
+
+sudo apt update && sudo apt install -y \
+    ros-${ROS_DISTRO}-rclcpp \
+    ros-${ROS_DISTRO}-rclcpp-components \
+    ros-${ROS_DISTRO}-rclcpp-action \
+    ros-${ROS_DISTRO}-rclpy \
+    ros-${ROS_DISTRO}-std-msgs \
+    ros-${ROS_DISTRO}-nav-msgs \
+    ros-${ROS_DISTRO}-sensor-msgs \
+    ros-${ROS_DISTRO}-geometry-msgs \
+    ros-${ROS_DISTRO}-visualization-msgs \
+    ros-${ROS_DISTRO}-tf2 \
+    ros-${ROS_DISTRO}-tf2-ros \
+    ros-${ROS_DISTRO}-tf2-eigen \
+    ros-${ROS_DISTRO}-tf2-geometry-msgs \
+    ros-${ROS_DISTRO}-pcl-ros \
+    ros-${ROS_DISTRO}-pcl-conversions \
+    ros-${ROS_DISTRO}-cv-bridge \
+    ros-${ROS_DISTRO}-message-filters \
+    ros-${ROS_DISTRO}-robot-localization \
+    ros-${ROS_DISTRO}-pluginlib \
+    ros-${ROS_DISTRO}-ament-index-cpp \
+    ros-${ROS_DISTRO}-rosidl-default-generators \
+    ros-${ROS_DISTRO}-behaviortree-cpp \
+    ros-${ROS_DISTRO}-nav2-bringup \
+    ros-${ROS_DISTRO}-nav2-bt-navigator \
+    ros-${ROS_DISTRO}-nav2-lifecycle-manager \
+    ros-${ROS_DISTRO}-nav2-map-server \
+    ros-${ROS_DISTRO}-nav2-planner \
+    ros-${ROS_DISTRO}-nav2-controller \
+    ros-${ROS_DISTRO}-nav2-behaviors \
+    ros-${ROS_DISTRO}-nav2-costmap-2d \
+    ros-${ROS_DISTRO}-nav2-common \
+    ros-${ROS_DISTRO}-nav2-core \
+    ros-${ROS_DISTRO}-nav2-util \
+    ros-${ROS_DISTRO}-nav2-msgs \
+    ros-${ROS_DISTRO}-robot-state-publisher \
+    ros-${ROS_DISTRO}-joint-state-publisher \
+    ros-${ROS_DISTRO}-rviz2 \
+    libasio-dev \
+    libpcl-all-dev \
+    libomp-dev \
+    libeigen3-dev \
+    libopencv-dev \
+    libunwind-dev \
+    libgoogle-glog-dev \
+    python3-serial \
+    librealsense2-dev \
+    librealsense2-utils
+
+# ============================================
+# 4. rosdep 自动安装 (可选)
+# ============================================
+
+# 在工作空间根目录执行:
+# cd ~/your_ws
+# rosdep install --from-paths src --ignore-src -r -y

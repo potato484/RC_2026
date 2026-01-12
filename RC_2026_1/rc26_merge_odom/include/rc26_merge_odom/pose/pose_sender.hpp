@@ -22,10 +22,8 @@ public:
         int send_rate_hz = 50;
     };
 
-    PoseSender(rclcpp::Node& node,
-               std::shared_ptr<rc26_decision::SerialDriver> feedback_serial,
-               std::shared_ptr<rc26_decision::SerialDriver> target_serial,
-               Config config);
+    PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> feedback_serial,
+               std::shared_ptr<rc26_decision::SerialDriver> target_serial, Config config);
 
 private:
     struct Velocity {
