@@ -35,6 +35,8 @@ pose_sender_node:
 # 融合里程计主节点参数(整合模式)
 merge_odom_node:
   ros__parameters:
+    # 里程计源选择: "can_odom" 或 "wheel_odom"
+    odom_source: "can_odom"
     # CAN参数
     can_interface: "can0"
     wheel_radius: 0.07625

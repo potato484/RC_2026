@@ -22,7 +22,7 @@ constexpr uint32_t HEARTBEAT_INTERVAL_MS = 1000;  // 心跳间隔1秒
 constexpr uint8_t MAX_RETRY_VALUE = 0x09;         // 最大重发次数值
 constexpr uint8_t RETRIES_PER_ROUND = 3;          // 每轮重发次数
 constexpr uint8_t MAX_HEARTBEAT_FAILURES = 3;     // 心跳连续失败次数阈值
-constexpr uint8_t MAX_PAYLOAD_SIZE = 32;          // payload 最大字节数 (位姿数据 8*float)
+constexpr uint8_t MAX_PAYLOAD_SIZE = 32;          // payload 最大字节数
 constexpr uint8_t MAX_RECONNECT_ATTEMPTS = 10;    // 最大重连尝试次数
 
 // ============================================================================
@@ -46,7 +46,6 @@ enum class CommandID : uint8_t {
     PLACE_KFS_GRID = 0x0E,    // 对抗区放置 KFS 到九宫格
     PLACE_KFS_GROUND = 0x0F,  // 对抗区放置 KFS 到地面
     HEARTBEAT = 0x10,         // 心跳查询请求
-    POSE_DATA = 0x20,         // 实时底盘位姿 (vx, vy, wx, wy, wz, roll, pitch, yaw)
     POSE_FEEDBACK = 0x21,     // 反馈速度 (vx, vy, wz) - MCU速度闭环
     POSE_TARGET = 0x22,       // 目标速度 (vx, vy, wz) - MCU速度闭环
 };
@@ -74,7 +73,7 @@ enum class FeedbackID : uint8_t {
     HEARTBEAT_ACK = 0x10,          // 心跳响应
     STAIR_CLIMB_DONE = 0x11,       // 上阶梯完成
     STAIR_DESCEND_DONE = 0x12,     // 下阶梯完成
-    ODOM_DATA = 0x20,              // 轮式里程计数据 (vx, vy, omega, yaw)
+    ODOM_DATA = 0x20,              // 轮式里程计数据 (v_fl, v_rl, v_rr, v_fr) 单位: m/s
     ACTION_FAIL = 0xFE,            // 动作执行失败
     ERROR = 0xFF,                  // 系统致命异常
 };
@@ -114,17 +113,6 @@ struct FrameHeader {
     uint8_t len;      // cmd(1B) + payload(NB)，1字节
     uint8_t retry;    // 重发次数：0x00, 0x03, 0x06, 0x09
     uint8_t cmd;      // 命令 ID
-};
-
-struct PosePayload {
-    float vx;
-    float vy;
-    float wx;
-    float wy;
-    float wz;
-    float roll;
-    float pitch;
-    float yaw;
 };
 
 #pragma pack(pop)

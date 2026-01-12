@@ -32,6 +32,24 @@ ament_target_dependencies(can_odom
   tf2
 )
 
+# 串口轮式里程计库
+add_library(wheel_odom SHARED
+  src/wheel/wheel_odom.cpp
+)
+target_include_directories(wheel_odom PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(wheel_odom
+  rc26_serial::serial_driver
+)
+ament_target_dependencies(wheel_odom
+  rclcpp
+  nav_msgs
+  tf2
+  rc26_serial
+)
+
 # CAN里程计节点
 add_executable(can_odom_node src/can/can_odom_node.cpp)
 target_link_libraries(can_odom_node can_odom)
@@ -69,9 +87,9 @@ ament_target_dependencies(pose_sender_node
   rc26_serial
 )
 
-# 融合里程计主节点(整合CAN+位姿下传)
+# 融合里程计主节点(整合CAN/Wheel+位姿下传)
 add_executable(merge_odom_node src/merge_odom_node.cpp)
-target_link_libraries(merge_odom_node can_odom pose_sender)
+target_link_libraries(merge_odom_node can_odom wheel_odom pose_sender)
 ament_target_dependencies(merge_odom_node
   rclcpp
   nav_msgs
@@ -108,6 +126,7 @@ ament_target_dependencies(single_wheel_test_node
 # 安装C++目标
 install(TARGETS
   can_odom
+  wheel_odom
   pose_sender
   dm_imu_driver
   ARCHIVE DESTINATION lib
@@ -137,7 +156,7 @@ install(DIRECTORY
 )
 
 ament_export_include_directories(include)
-ament_export_libraries(can_odom pose_sender dm_imu_driver)
+ament_export_libraries(can_odom wheel_odom pose_sender dm_imu_driver)
 ament_export_dependencies(rclcpp nav_msgs sensor_msgs geometry_msgs tf2 rc26_serial)
 
 ament_package()

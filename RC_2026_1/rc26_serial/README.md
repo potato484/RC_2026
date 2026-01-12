@@ -64,22 +64,8 @@ RC2026 串口通信驱动库，用于上位机与下位机 MCU 之间的通信�
 | 0x0E | PLACE_KFS_GRID | 放置 KFS 到九宫格 |
 | 0x0F | PLACE_KFS_GROUND | 放置 KFS 到地面 |
 | 0x10 | HEARTBEAT | 心跳查询请求 |
-| 0x20 | POSE_DATA | 实时底盘位姿 |
-
-### 位姿数据载荷 (POSE_DATA)
-
-```cpp
-struct PosePayload {
-    float vx;     // 线速度 X
-    float vy;     // 线速度 Y
-    float wx;     // 世界坐标 X
-    float wy;     // 世界坐标 Y
-    float wz;     // 世界坐标 Z
-    float roll;   // 横滚角
-    float pitch;  // 俯仰角
-    float yaw;    // 偏航角
-};  // 32 字节
-```
+| 0x21 | POSE_FEEDBACK | 反馈速度 (vx, vy, wz) |
+| 0x22 | POSE_TARGET | 目标速度 (vx, vy, wz) |
 
 ## 上行反馈 (MCU -> 上位机)
 
@@ -104,7 +90,7 @@ struct PosePayload {
 | 0x10 | HEARTBEAT_ACK | 心跳响应 |
 | 0x11 | STAIR_CLIMB_DONE | 上阶梯完成 |
 | 0x12 | STAIR_DESCEND_DONE | 下阶梯完成 |
-| 0x20 | ODOM_DATA | 轮式里程计数据 |
+| 0x20 | ODOM_DATA | 轮式里程计数据 (v_fl, v_rl, v_rr, v_fr) |
 | 0xFE | ACTION_FAIL | 动作执行失败 |
 | 0xFF | ERROR | 系统致命异常 |
 
@@ -150,17 +136,6 @@ serial.sendHeartbeat();
 
 // 关闭串口
 serial.close();
-```
-
-### 发送位姿数据
-
-```cpp
-// 发送实时位姿
-serial.sendPose(
-    vx, vy,           // 线速度
-    wx, wy, wz,       // 世界坐标
-    roll, pitch, yaw  // 姿态角
-);
 ```
 
 ### 设置回调

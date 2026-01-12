@@ -43,7 +43,6 @@ public:
     // ========================================================================
     // 便捷接口
     // ========================================================================
-    bool sendPose(float vx, float vy, float wx, float wy, float wz, float roll, float pitch, float yaw);
     bool sendPose(CommandID cmd, float vx, float vy, float wz);
     bool sendStop();
     bool sendHeartbeat();
