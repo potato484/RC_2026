@@ -15,11 +15,16 @@ BT::PortsList GrabTipAction::providedPorts() {
 }
 
 BT::NodeStatus GrabTipAction::onStart() {
+
+
+
+
     return BT::NodeStatus::RUNNING;
 }
 
 BT::NodeStatus GrabTipAction::onRunning() {
     // TODO: 等待 GRAB_DONE 反馈
+
     return BT::NodeStatus::RUNNING;
 }
 
@@ -34,6 +39,8 @@ AssembleWeaponAction::AssembleWeaponAction(const std::string& name, const BT::No
     : BT::StatefulActionNode(name, config) {}
 
 BT::PortsList AssembleWeaponAction::providedPorts() {
+
+    
     return {};
 }
 

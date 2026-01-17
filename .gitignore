@@ -5,3 +5,13 @@ log/
 .vscode/
 .claude/
 .codex/
+
+# Python bytecode / caches
+__pycache__/
+*.pyc
+
+# Runtime logs / artifacts
+RC_2026_1/point_lio/Log/
+
+# Large binary docs (keep as release assets instead)
+RC_2026_1/rc26_pdf/

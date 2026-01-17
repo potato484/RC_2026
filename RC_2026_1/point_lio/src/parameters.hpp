@@ -94,7 +94,6 @@ struct LioRuntimeState {
     shared_ptr<ImuProcess> p_imu;
     std::vector<double> extrinT = std::vector<double>(3, 0.0);
     std::vector<double> extrinR = std::vector<double>(9, 0.0);
-    double time_diff_lidar_to_imu = 0.0;
     double lidar_time_inte = 0.1;
     double first_imu_time = 0.0;
     int cut_frame_num = 1;
@@ -178,7 +177,6 @@ DECLARE_LIO_STATE_REF(p_pre);
 DECLARE_LIO_STATE_REF(p_imu);
 DECLARE_LIO_STATE_REF(extrinT);
 DECLARE_LIO_STATE_REF(extrinR);
-DECLARE_LIO_STATE_REF(time_diff_lidar_to_imu);
 DECLARE_LIO_STATE_REF(lidar_time_inte);
 DECLARE_LIO_STATE_REF(first_imu_time);
 DECLARE_LIO_STATE_REF(cut_frame_num);

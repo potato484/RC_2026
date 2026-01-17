@@ -24,7 +24,7 @@ Visualization Manager:
     - Class: rviz_default_plugins/PointCloud2
       Name: RegisteredCloud
       Topic:
-        Value: /cloud_registered
+        Value: /registered_scan
         Queue Size: 5
       Value: true
       Size (m): 0.03

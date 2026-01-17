@@ -23,7 +23,7 @@ public:
         double wheel_base = 0.62326;
         double track_width = 0.7;
         int publish_rate_hz = 50;
-        std::string odom_topic = "Can_Odom";
+        std::string odom_topic = "wheel_odom";
         std::string odom_frame = "odom";
         std::string base_frame = "base_link";
         double data_timeout_ms = 100.0;

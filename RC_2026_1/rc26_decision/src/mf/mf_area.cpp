@@ -14,17 +14,40 @@ BT::PortsList StairClimbAction::providedPorts() {
 }
 
 BT::NodeStatus StairClimbAction::onStart() {
-    // TODO: 发送 NAV_STAIR_UP 指令
+    level_start_set_ = false;
+    int32_t current_level = 0;
+    if (config().blackboard->get("current_level", current_level)) {
+        level_start_ = current_level;
+        level_start_set_ = true;
+        config().blackboard->set("level_start", level_start_);
+    }
+    config().blackboard->set("stair_climb_done", false);
     return BT::NodeStatus::RUNNING;
 }
 
 BT::NodeStatus StairClimbAction::onRunning() {
-    // TODO: 等待 STAIR_CLIMB_DONE 反馈
-    return BT::NodeStatus::SUCCESS;
+    int32_t current_level = 0;
+    if (!level_start_set_) {
+        if (config().blackboard->get("current_level", current_level)) {
+            level_start_ = current_level;
+            level_start_set_ = true;
+            config().blackboard->set("level_start", level_start_);
+        } else {
+            return BT::NodeStatus::RUNNING;
+        }
+    } else if (!config().blackboard->get("current_level", current_level)) {
+        return BT::NodeStatus::RUNNING;
+    }
+
+    if (current_level >= level_start_ + kStairLevelDelta) {
+        config().blackboard->set("stair_climb_done", true);
+        return BT::NodeStatus::SUCCESS;
+    }
+    return BT::NodeStatus::RUNNING;
 }
 
 void StairClimbAction::onHalted() {
-    // TODO: 发送 STOP 指令
+    level_start_set_ = false;
 }
 
 // ============================================================================
@@ -38,17 +61,40 @@ BT::PortsList StairDescendAction::providedPorts() {
 }
 
 BT::NodeStatus StairDescendAction::onStart() {
-    // TODO: 发送 NAV_STAIR_DOWN 指令
+    level_start_set_ = false;
+    int32_t current_level = 0;
+    if (config().blackboard->get("current_level", current_level)) {
+        level_start_ = current_level;
+        level_start_set_ = true;
+        config().blackboard->set("level_start", level_start_);
+    }
+    config().blackboard->set("stair_descend_done", false);
     return BT::NodeStatus::RUNNING;
 }
 
 BT::NodeStatus StairDescendAction::onRunning() {
-    // TODO: 等待 STAIR_DESCEND_DONE 反馈
-    return BT::NodeStatus::SUCCESS;
+    int32_t current_level = 0;
+    if (!level_start_set_) {
+        if (config().blackboard->get("current_level", current_level)) {
+            level_start_ = current_level;
+            level_start_set_ = true;
+            config().blackboard->set("level_start", level_start_);
+        } else {
+            return BT::NodeStatus::RUNNING;
+        }
+    } else if (!config().blackboard->get("current_level", current_level)) {
+        return BT::NodeStatus::RUNNING;
+    }
+
+    if (current_level <= level_start_ - kStairLevelDelta) {
+        config().blackboard->set("stair_descend_done", true);
+        return BT::NodeStatus::SUCCESS;
+    }
+    return BT::NodeStatus::RUNNING;
 }
 
 void StairDescendAction::onHalted() {
-    // TODO: 发送 STOP 指令
+    level_start_set_ = false;
 }
 
 // ============================================================================

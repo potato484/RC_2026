@@ -1,0 +1,11 @@
+base_ground_estimator:
+  ros__parameters:
+    odom_topic: "/odom"
+    step_height_m: 0.20
+    tol: 0.06
+    T_stable: 0.5
+    T_confirm: 0.3
+    parent_frame: "odom"
+    enable_tf_publish: true
+    base_ground_frame: "base_ground"
+    tf_timeout_sec: 0.05

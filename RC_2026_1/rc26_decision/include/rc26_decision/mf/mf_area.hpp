@@ -1,6 +1,8 @@
 // 梅林区 (MF Area) 行为树节点
 #pragma once
 
+#include <cstdint>
+
 #include <behaviortree_cpp/bt_factory.h>
 #include <rclcpp/rclcpp.hpp>
 
@@ -18,6 +20,11 @@ public:
     BT::NodeStatus onStart() override;
     BT::NodeStatus onRunning() override;
     void onHalted() override;
+
+private:
+    bool level_start_set_{false};
+    int32_t level_start_{0};
+    static constexpr int32_t kStairLevelDelta = 3;
 };
 
 // 下阶梯节点
@@ -30,6 +37,11 @@ public:
     BT::NodeStatus onStart() override;
     BT::NodeStatus onRunning() override;
     void onHalted() override;
+
+private:
+    bool level_start_set_{false};
+    int32_t level_start_{0};
+    static constexpr int32_t kStairLevelDelta = 3;
 };
 
 // 夹取 KFS 节点

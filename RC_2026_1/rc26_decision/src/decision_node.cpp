@@ -4,6 +4,9 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <behaviortree_cpp/bt_factory.h>
 #include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/int32.hpp>
+#include <std_msgs/msg/int8.hpp>
 
 #include "rc26_decision/combat/combat_area.hpp"
 #include "rc26_decision/mc/mc_area.hpp"
@@ -27,6 +30,9 @@ public:
         this->declare_parameter<int>("heartbeat_rate_hz", 1);
         this->declare_parameter<std::string>("nav2_action_name", "navigate_to_pose");
         this->declare_parameter<std::string>("nav2_goal_frame", "map");
+        this->declare_parameter<std::string>("base_ground_level_topic", "base_ground/level");
+        this->declare_parameter<std::string>("base_ground_stair_delta_topic", "base_ground/stair_delta");
+        this->declare_parameter<std::string>("base_ground_stable_topic", "base_ground/stable");
 
         // 初始化命令串口 (串口2)
         if (this->get_parameter("enable_cmd_serial").as_bool()) {
@@ -80,6 +86,29 @@ public:
         blackboard->set("stair_descend_done", false);
         blackboard->set("action_fail", false);
         blackboard->set("system_error", false);
+        blackboard->set("current_level", static_cast<int32_t>(0));
+        blackboard->set("stair_delta", static_cast<int8_t>(0));
+        blackboard->set("base_ground_stable", false);
+        blackboard->set("level_start", static_cast<int32_t>(0));
+
+        // 订阅 base_ground 话题
+        const auto level_topic = this->get_parameter("base_ground_level_topic").as_string();
+        base_ground_level_sub_ = this->create_subscription<std_msgs::msg::Int32>(
+            level_topic, 10, [blackboard](const std_msgs::msg::Int32::SharedPtr msg) {
+                blackboard->set("current_level", msg->data);
+            });
+
+        const auto stair_delta_topic = this->get_parameter("base_ground_stair_delta_topic").as_string();
+        base_ground_stair_delta_sub_ = this->create_subscription<std_msgs::msg::Int8>(
+            stair_delta_topic, 10, [blackboard](const std_msgs::msg::Int8::SharedPtr msg) {
+                blackboard->set("stair_delta", static_cast<int8_t>(msg->data));
+            });
+
+        const auto stable_topic = this->get_parameter("base_ground_stable_topic").as_string();
+        base_ground_stable_sub_ = this->create_subscription<std_msgs::msg::Bool>(
+            stable_topic, 10, [blackboard](const std_msgs::msg::Bool::SharedPtr msg) {
+                blackboard->set("base_ground_stable", msg->data);
+            });
 
         // 为命令串口挂载重连回调（将重连状态写入黑板）
         if (cmd_serial_) {
@@ -225,6 +254,9 @@ private:
     std::shared_ptr<SerialDriver> cmd_serial_;
     std::shared_ptr<WaypointNavigator> waypoint_navigator_;
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
+    rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr base_ground_level_sub_;
+    rclcpp::Subscription<std_msgs::msg::Int8>::SharedPtr base_ground_stair_delta_sub_;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr base_ground_stable_sub_;
 };
 
 }  // namespace rc26_decision

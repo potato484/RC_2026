@@ -112,7 +112,9 @@ def generate_launch_description():
         }.items()
     )
 
-    # 定位模块 (仅导航模式)
+    # 定位模块
+    # - 导航模式: 启动 rc26_localization
+    # - 建图模式: 发布静态 map -> odom 变换
     localization_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([bringup_dir, 'launch', 'localization.launch.py'])
@@ -123,8 +125,7 @@ def generate_launch_description():
             'slam': slam,
             'world': world,
             'prior_pcd_file': prior_pcd_file,
-        }.items(),
-        condition=UnlessCondition(slam)
+        }.items()
     )
 
     # Nav2 导航栈：使用统一的参数文件 nav2_params.yaml，包含控制器 / costmap / BT 配置
@@ -137,7 +138,8 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'params_file': params_file,
             'autostart': 'true',
-        }.items()
+        }.items(),
+        condition=UnlessCondition(slam)
     )
 
     # 地图服务 (非建图模式)
@@ -182,15 +184,31 @@ def generate_launch_description():
         condition=IfCondition(use_perception)
     )
 
-    # RViz：提供默认配置 nav2_default.rviz，可通过 use_rviz 控制是否启动
-    rviz_config = PathJoinSubstitution([bringup_dir, 'rviz', 'nav2_default.rviz'])
-    rviz_node = Node(
+    # RViz：导航模式使用 nav2_default.rviz，建图模式使用 slam.rviz
+    rviz_nav_config = PathJoinSubstitution([bringup_dir, 'rviz', 'nav2_default.rviz'])
+    rviz_slam_config = PathJoinSubstitution([bringup_dir, 'rviz', 'slam.rviz'])
+
+    rviz_nav_node = Node(
         package='rviz2',
         executable='rviz2',
         name='rviz2',
-        arguments=['-d', rviz_config],
+        arguments=['-d', rviz_nav_config],
         parameters=[{'use_sim_time': use_sim_time}],
-        condition=IfCondition(use_rviz)
+        condition=UnlessCondition(slam)
+    )
+
+    rviz_slam_node = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        arguments=['-d', rviz_slam_config],
+        parameters=[{'use_sim_time': use_sim_time}],
+        condition=IfCondition(slam)
+    )
+
+    rviz_group = GroupAction(
+        actions=[rviz_nav_node, rviz_slam_node],
+        condition=IfCondition(use_rviz),
     )
 
     return LaunchDescription([
@@ -215,5 +233,5 @@ def generate_launch_description():
         map_server_launch,
         decision_launch,
         perception_launch,
-        rviz_node,
+        rviz_group,
     ])

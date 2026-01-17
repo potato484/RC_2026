@@ -87,6 +87,10 @@ def generate_launch_description():
             point_lio_config,
             {'use_sim_time': use_sim_time},
             {'prior_pcd.prior_pcd_map_path': prior_pcd_file},
+            # 统一坐标系命名：项目内使用 base_link 作为车体坐标系
+            # 并关闭 Point-LIO 自身 TF 发布，避免与 rc26_odom_interface / rc26_sensor_scan 重复发布 odom->base_link
+            {'frame.body_frame': 'base_link'},
+            {'publish.tf_send_en': False},
         ],
     )
 
@@ -116,12 +120,12 @@ def generate_launch_description():
         ],
     )
 
-    # 静态TF: base_link -> livox_frame (雷达安装位置，假设重合)
+    # 静态TF: base_link -> livox_frame (与 Point-LIO 外参对齐)
     static_tf_livox = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
         name='static_tf_base_to_livox',
-        arguments=['--x', '0', '--y', '0', '--z', '0', '--roll', '0', '--pitch', '0', '--yaw', '0', '--frame-id', 'base_link', '--child-frame-id', 'livox_frame'],
+        arguments=['--x', '0', '--y', '0', '--z', '0.13', '--roll', '0', '--pitch', '0', '--yaw', '0', '--frame-id', 'base_link', '--child-frame-id', 'livox_frame'],
     )
 
     # RViz 可视化

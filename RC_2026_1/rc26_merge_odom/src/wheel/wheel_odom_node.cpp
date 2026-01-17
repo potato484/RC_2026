@@ -10,11 +10,11 @@ class WheelOdomNode : public rclcpp::Node {
 public:
     WheelOdomNode() : Node("wheel_odom_node") {
         this->declare_parameter("serial_port", "/dev/ttyUSB1");
-        this->declare_parameter("baudrate", 115200);
+        this->declare_parameter("baudrate", 1000000);
         this->declare_parameter("wheel_base", 0.62326);
         this->declare_parameter("track_width", 0.7);
         this->declare_parameter("publish_rate_hz", 50);
-        this->declare_parameter("odom_topic", "Can_Odom");
+        this->declare_parameter("odom_topic", "wheel_odom");
         this->declare_parameter("odom_frame", "odom");
         this->declare_parameter("base_frame", "base_link");
         this->declare_parameter("data_timeout_ms", 100.0);
@@ -51,4 +51,3 @@ int main(int argc, char** argv) {
     rclcpp::shutdown();
     return 0;
 }
-

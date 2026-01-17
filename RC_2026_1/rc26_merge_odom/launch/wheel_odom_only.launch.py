@@ -14,7 +14,7 @@ def generate_launch_description():
     params_file = os.path.join(pkg_share, "config", "merge_odom_params.yaml")
 
     serial_port_arg = DeclareLaunchArgument(
-        "serial_port", default_value="/dev/ttyUSB1", description="MCU serial port for ODOM_DATA"
+        "serial_port", default_value="/dev/ttyUSB0", description="MCU serial port for ODOM_DATA"
     )
 
     wheel_odom_node = Node(

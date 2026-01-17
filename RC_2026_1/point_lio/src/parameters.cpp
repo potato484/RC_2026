@@ -57,9 +57,6 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
         nh->declare_parameter<double>("common.cut_frame_time_interval", 0.1);
         nh->get_parameter("common.cut_frame_time_interval", cut_frame_time_interval);
 
-        nh->declare_parameter<double>("common.time_diff_lidar_to_imu", 0.0);
-        nh->get_parameter("common.time_diff_lidar_to_imu", time_diff_lidar_to_imu);
-
         nh->declare_parameter<bool>("prior_pcd.enable", false);
         nh->get_parameter("prior_pcd.enable", enable_prior_pcd);
 
@@ -232,6 +229,8 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
     }
 
     p_imu->gravity_ << VEC_FROM_ARRAY(gravity);
+
+    RCLCPP_INFO(nh->get_logger(), "IMU config: topic=%s, acc_norm=%.2f", imu_topic.c_str(), acc_norm);
 }
 
 Eigen::Matrix<double, 3, 1> SO3ToEuler(const SO3& rot) {

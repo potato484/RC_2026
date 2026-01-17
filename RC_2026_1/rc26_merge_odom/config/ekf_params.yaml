@@ -1,5 +1,5 @@
 # RC2026 robot_localization EKF参数配置
-# 融合CAN轮式里程计(Can_Odom)和达妙IMU(DM_IMU)，输出merge_odom
+# 融合轮式里程计(wheel_odom)和达妙IMU(DM_IMU)，输出merge_odom
 
 ekf_filter_node:
   ros__parameters:
@@ -16,8 +16,8 @@ ekf_filter_node:
     base_link_frame: base_link
     world_frame: odom
 
-    # 轮式里程计输入 (Can_Odom)
-    odom0: Can_Odom
+    # 轮式里程计输入 (wheel_odom - 串口模式)
+    odom0: wheel_odom
     odom0_config: [false, false, false,    # x, y, z
                    false, false, false,    # roll, pitch, yaw
                    true,  true,  false,    # vx, vy, vz

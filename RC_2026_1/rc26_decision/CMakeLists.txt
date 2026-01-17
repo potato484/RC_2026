@@ -69,6 +69,7 @@ ament_target_dependencies(decision_node
   geometry_msgs
   nav_msgs
   nav2_msgs
+  std_msgs
   tf2
   tf2_geometry_msgs
   rc26_serial
@@ -114,6 +115,6 @@ install(
 ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME}_nodes)
-ament_export_dependencies(rclcpp rclcpp_action behaviortree_cpp geometry_msgs nav_msgs nav2_msgs tf2 tf2_geometry_msgs rc26_serial)
+ament_export_dependencies(rclcpp rclcpp_action behaviortree_cpp geometry_msgs nav_msgs nav2_msgs std_msgs tf2 tf2_geometry_msgs rc26_serial)
 
 ament_package()

@@ -1,12 +1,9 @@
 #include "li_initialization.hpp"
 bool data_accum_finished = false, data_accum_start = false, online_calib_finish = false, refine_print = false;
 int frame_num_init = 0;
-double time_lag_IMU_wtr_lidar = 0.0, move_start_time = 0.0,
-       online_calib_starts_time = 0.0;  //, mean_acc_norm = 9.81;
+double move_start_time = 0.0, online_calib_starts_time = 0.0;
 double imu_first_time = 0.0;
 bool lose_lid = false;
-double timediff_imu_wrt_lidar = 0.0;
-bool timediff_set_flg = false;
 V3D gravity_lio = V3D::Zero();
 mutex mtx_buffer;
 sensor_msgs::msg::Imu imu_last, imu_next;
@@ -98,10 +95,6 @@ void imu_cbk(const sensor_msgs::msg::Imu::ConstSharedPtr& msg_in) {
     std::lock_guard<std::mutex> lock(mtx_buffer);
 
     sensor_msgs::msg::Imu::SharedPtr msg(new sensor_msgs::msg::Imu(*msg_in));
-    // publish_count ++;
-
-    msg->header.stamp =
-        get_ros_time(get_time_sec(msg_in->header.stamp) - timediff_imu_wrt_lidar - time_lag_IMU_wtr_lidar);
 
     double timestamp = get_time_sec(msg->header.stamp);
     // printf("time_diff%f, %f, %f\n", last_timestamp_imu - timestamp, last_timestamp_imu, timestamp);

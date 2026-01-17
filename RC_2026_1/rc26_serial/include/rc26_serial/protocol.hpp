@@ -1,5 +1,5 @@
 // RC2026 串口通信协议 v3.0
-// 通信方式：UART | 波特率：115200 | 校验：CRC32 (IEEE 802.3) | 字节序：小端
+// 通信方式：UART | 波特率：1000000 | 校验：CRC32 (IEEE 802.3) | 字节序：小端
 #pragma once
 
 #include <cstddef>
@@ -15,7 +15,7 @@ constexpr uint8_t FRAME_HEAD_1 = 0x55;
 constexpr uint8_t FRAME_TAIL_0 = 0x55;
 constexpr uint8_t FRAME_TAIL_1 = 0xAA;
 
-constexpr uint32_t UART_BAUDRATE = 115200;
+constexpr uint32_t UART_BAUDRATE = 1000000;
 constexpr uint32_t ACK_TIMEOUT_MS = 100;
 constexpr uint32_t RECONNECT_INTERVAL_MS = 500;   // 重连间隔500ms
 constexpr uint32_t HEARTBEAT_INTERVAL_MS = 1000;  // 心跳间隔1秒

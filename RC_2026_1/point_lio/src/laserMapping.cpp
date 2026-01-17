@@ -941,6 +941,15 @@ int main(int argc, char** argv) {
             if (!publish_odometry_without_downsample) {
                 publish_odometry(pub_odom_aft_mapped, tf_broadcaster);
             }
+            if (extrinsic_est_en) {
+                const auto& R = use_imu_as_input ? kf_input.x_.offset_R_L_I : kf_output.x_.offset_R_L_I;
+                const auto& T = use_imu_as_input ? kf_input.x_.offset_T_L_I : kf_output.x_.offset_T_L_I;
+                RCLCPP_INFO_THROTTLE(
+                    LOGGER, *nh->get_clock(), 5000,
+                    "Extrinsic LiDAR->IMU: R=[%.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f] T=[%.6f %.6f %.6f]",
+                    R(0, 0), R(0, 1), R(0, 2), R(1, 0), R(1, 1), R(1, 2), R(2, 0), R(2, 1), R(2, 2), T(0), T(1),
+                    T(2));
+            }
 
             /*** add the feature points to map ***/
             t3 = omp_get_wtime();

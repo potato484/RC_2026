@@ -7,11 +7,8 @@
 
 extern bool data_accum_finished, data_accum_start, online_calib_finish, refine_print;
 extern int frame_num_init;
-extern double time_lag_IMU_wtr_lidar, move_start_time,
-    online_calib_starts_time;  //, mean_acc_norm = 9.81;
+extern double move_start_time, online_calib_starts_time;
 
-extern double timediff_imu_wrt_lidar;
-extern bool timediff_set_flg;
 extern V3D gravity_lio;
 extern mutex mtx_buffer;
 extern condition_variable sig_buffer;

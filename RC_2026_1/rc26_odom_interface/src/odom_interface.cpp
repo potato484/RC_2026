@@ -17,6 +17,7 @@
 #include <cmath>
 #include <stdexcept>
 
+#include "geometry_msgs/msg/transform_stamped.hpp"
 #include "pcl_ros/transforms.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
@@ -55,6 +56,7 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
 
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
+    tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
     pcd_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("registered_scan", 5);
     odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("odom", 5);
@@ -158,6 +160,14 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
     out.pose.pose.position.y = origin.y();
     out.pose.pose.position.z = origin.z();
     out.pose.pose.orientation = tf2::toMsg(tf_odom_to_base.getRotation());
+
+    // Publish TF: odom -> base_link (so RViz/Nav2 can resolve the TF tree even if downstream sync drops frames).
+    geometry_msgs::msg::TransformStamped tf_msg;
+    tf_msg.header.stamp = msg->header.stamp;
+    tf_msg.header.frame_id = odom_frame_;
+    tf_msg.child_frame_id = base_frame_;
+    tf_msg.transform = tf2::toMsg(tf_odom_to_base);
+    tf_broadcaster_->sendTransform(tf_msg);
 
     // [C3 修复] 计算速度信息（含奇异性保护，速度输出到 base_link 坐标系）
     bool update_state = true;

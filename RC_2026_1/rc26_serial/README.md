@@ -16,7 +16,7 @@ RC2026 串口通信驱动库，用于上位机与下位机 MCU 之间的通信�
 | 项目 | 规格 |
 |------|------|
 | 通信方式 | UART |
-| 波特率 | 115200 |
+| 波特率 | 1000000 |
 | 数据位 | 8 |
 | 校验位 | 无 |
 | 停止位 | 1 |
@@ -117,7 +117,7 @@ rc26_serial/
 rc26_decision::SerialDriver serial;
 
 // 打开串口
-if (!serial.open("/dev/ttyUSB0", 115200)) {
+if (!serial.open("/dev/ttyUSB0", 1000000)) {
     std::cerr << "打开串口失败: " << serial.lastError() << std::endl;
     return;
 }
@@ -185,7 +185,7 @@ constexpr uint8_t FRAME_HEAD_1 = 0x55;
 constexpr uint8_t FRAME_TAIL_0 = 0x55;
 constexpr uint8_t FRAME_TAIL_1 = 0xAA;
 
-constexpr uint32_t UART_BAUDRATE = 115200;
+constexpr uint32_t UART_BAUDRATE = 1000000;
 constexpr uint32_t ACK_TIMEOUT_MS = 100;
 constexpr uint32_t RECONNECT_INTERVAL_MS = 500;
 constexpr uint32_t HEARTBEAT_INTERVAL_MS = 1000;

@@ -13,7 +13,8 @@ public:
         this->declare_parameter("baudrate", 115200);
         this->declare_parameter("cmd_vel_topic", "cmd_vel");
         this->declare_parameter("odom_topic", "merge_odom");
-        this->declare_parameter("send_rate_hz", 50);
+        this->declare_parameter("feedback_send_rate_hz", 50);
+        this->declare_parameter("target_send_rate_hz", 25);
 
         std::string feedback_port = this->get_parameter("feedback_serial_port").as_string();
         std::string target_port = this->get_parameter("target_serial_port").as_string();
@@ -39,7 +40,8 @@ public:
         rc26_merge_odom::PoseSender::Config config;
         config.cmd_vel_topic = this->get_parameter("cmd_vel_topic").as_string();
         config.odom_topic = this->get_parameter("odom_topic").as_string();
-        config.send_rate_hz = this->get_parameter("send_rate_hz").as_int();
+        config.feedback_send_rate_hz = this->get_parameter("feedback_send_rate_hz").as_int();
+        config.target_send_rate_hz = this->get_parameter("target_send_rate_hz").as_int();
 
         pose_sender_ = std::make_unique<rc26_merge_odom::PoseSender>(*this, feedback_serial_, target_serial_, config);
     }
