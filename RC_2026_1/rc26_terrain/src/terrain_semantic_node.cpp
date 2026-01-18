@@ -115,6 +115,7 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->declare_parameter<int>("drop_on_score", drop_on_score_);
     this->declare_parameter<int>("drop_off_score", drop_off_score_);
     this->declare_parameter<double>("stale_time_sec", stale_time_sec_);
+    this->declare_parameter<double>("decay_time_sec", decay_time_sec_);
 
     // QoS（可配置）
     this->declare_parameter<int>("cloud_qos_depth", cloud_qos_depth_);
@@ -188,6 +189,7 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->get_parameter("drop_on_score", drop_on_score_);
     this->get_parameter("drop_off_score", drop_off_score_);
     this->get_parameter("stale_time_sec", stale_time_sec_);
+    this->get_parameter("decay_time_sec", decay_time_sec_);
     this->get_parameter("cloud_qos_depth", cloud_qos_depth_);
     this->get_parameter("cloud_qos_reliability", cloud_qos_reliability_);
     this->get_parameter("cloud_qos_durability", cloud_qos_durability_);
@@ -219,6 +221,7 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     if (grid_resolution_m_ <= 0.0) throw std::invalid_argument("grid_resolution_m 必须 > 0");
     if (voxel_leaf_size_m_ <= 0.0) throw std::invalid_argument("voxel_leaf_size_m 必须 > 0");
     if (stale_time_sec_ <= 0.0) throw std::invalid_argument("stale_time_sec 必须 > 0");
+    if (decay_time_sec_ <= 0.0) throw std::invalid_argument("decay_time_sec 必须 > 0");
     if (cloud_timeout_sec_ <= 0.0) throw std::invalid_argument("cloud_timeout_sec 必须 > 0");
     if (odom_timeout_sec_ <= 0.0) throw std::invalid_argument("odom_timeout_sec 必须 > 0");
     if (startup_grace_sec_ < 0.0) startup_grace_sec_ = 0.0;
@@ -521,6 +524,16 @@ void TerrainSemanticNode::classifyAndUpdate(double stamp_sec) {
     for (int cell = 0; cell < num_cells_; cell++) {
         const size_t idx = static_cast<size_t>(cell);
 
+        if (last_seen_sec_[idx] >= 0.0 && (stamp_sec - last_seen_sec_[idx]) > decay_time_sec_) {
+            last_seen_sec_[idx] = -1.0;
+            ground_z_filtered_[idx] = 0.0f;
+            top_z_[idx] = 0.0f;
+            obstacle_score_[idx] = 0;
+            drop_score_[idx] = 0;
+            obstacle_state_[idx] = 0;
+            drop_state_[idx] = 0;
+        }
+
         if (!cell_in_radius_[idx]) {
             if (enable_hysteresis_) {
                 obstacle_score_[idx] = std::max(0, obstacle_score_[idx] - score_dec_);
@@ -630,8 +643,7 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
         float z = static_cast<float>(base_z);
         const double last = last_seen_sec_[idx];
         const bool fresh = (last >= 0.0) && ((stamp_sec - last) <= stale_time_sec_);
-        if (last >= 0.0 && (stamp_sec - last) <= stale_time_sec_ * 2.0)
-            z = ground_z_filtered_[idx];
+        if (fresh) z = ground_z_filtered_[idx];
 
         const bool is_obstacle = obstacle_state_[idx] != 0;
         const bool is_drop = drop_state_[idx] != 0;

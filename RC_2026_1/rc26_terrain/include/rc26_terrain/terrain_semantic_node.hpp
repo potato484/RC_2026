@@ -86,6 +86,7 @@ private:
     int drop_on_score_{6};
     int drop_off_score_{3};
     double stale_time_sec_{0.7};
+    double decay_time_sec_{2.0};  // 点云时间衰减（秒），超过此时间的历史数据将被清除
 
     // QoS 参数（可配置）
     int cloud_qos_depth_{5};
