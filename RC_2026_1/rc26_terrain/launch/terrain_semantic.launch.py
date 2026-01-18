@@ -17,17 +17,17 @@ def generate_launch_description():
     declare_namespace = DeclareLaunchArgument(
         'namespace',
         default_value='',
-        description='Top-level namespace')
+        description='顶级命名空间（可为空）')
 
     declare_use_sim_time = DeclareLaunchArgument(
         'use_sim_time',
         default_value='false',
-        description='Use simulation time')
+        description='使用仿真时间（/clock）')
 
     declare_params_file = DeclareLaunchArgument(
         'params_file',
         default_value=default_params,
-        description='rc26_terrain parameter file path')
+        description='rc26_terrain 参数文件路径')
 
     node = Node(
         package='rc26_terrain',
