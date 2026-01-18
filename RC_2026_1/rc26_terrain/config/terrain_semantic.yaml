@@ -1,0 +1,43 @@
+terrain_semantic:
+  ros__parameters:
+    # Topic configuration
+    input_cloud_topic: "registered_scan"
+    output_obstacles_topic: "terrain_obstacles"
+    output_drop_topic: "terrain_drop"
+
+    # Frame configuration
+    target_frame: "odom"
+    base_frame: "base_link"
+    tf_timeout_sec: 0.2
+
+    # Grid parameters
+    perception_radius_m: 3.2
+    grid_resolution_m: 0.1
+    voxel_leaf_size_m: 0.05
+
+    # Height filtering (relative to robot)
+    min_rel_z_m: -1.5
+    max_rel_z_m: 0.5
+    dis_ratio_z: 0.1
+
+    # Ground estimation
+    min_points_per_cell: 5
+    ground_quantile: 0.25
+    top_quantile: 0.95
+    ground_ema_alpha: 0.6
+
+    # Semantic thresholds
+    h_climb_m: 0.30
+    h_obstacle_m: 0.33
+    h_drop_m: 0.15
+
+    # Hysteresis (anti-flicker)
+    enable_hysteresis: true
+    score_max: 10
+    score_inc: 2
+    score_dec: 1
+    obstacle_on_score: 6
+    obstacle_off_score: 3
+    drop_on_score: 6
+    drop_off_score: 3
+    stale_time_sec: 0.7

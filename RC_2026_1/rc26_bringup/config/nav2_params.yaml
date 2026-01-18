@@ -83,7 +83,34 @@ local_costmap:
       height: 7
       resolution: 0.1
       robot_radius: 0.25
-      plugins: ["inflation_layer"]
+      plugins: ["obstacle_layer", "inflation_layer"]
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: terrain_obs terrain_drop
+        terrain_obs:
+          topic: terrain_obstacles
+          data_type: "PointCloud2"
+          marking: true
+          clearing: false
+          max_obstacle_height: 2.0
+          min_obstacle_height: 0.0
+          obstacle_max_range: 4.0
+          obstacle_min_range: 0.0
+          raytrace_max_range: 5.0
+          raytrace_min_range: 0.0
+        terrain_drop:
+          topic: terrain_drop
+          data_type: "PointCloud2"
+          marking: true
+          clearing: false
+          max_obstacle_height: 2.0
+          min_obstacle_height: -1.0
+          obstacle_max_range: 4.0
+          obstacle_min_range: 0.0
+          raytrace_max_range: 5.0
+          raytrace_min_range: 0.0
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"

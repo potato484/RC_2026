@@ -4,10 +4,11 @@ RC_2026_1 R2导航系统 - 主启动文件
 启动:
   - 里程计 (point_lio + rc26_odom_interface + rc26_sensor_scan)
   - 定位 (rc26_localization)
+  - 地形分析 (rc26_terrain)
   - Nav2 导航栈 (含自定义控制器)
   - 决策系统 (rc26_decision)
   - 感知模块 (rc26_perception) [可选]
-  
+
 """
 import os
 from ament_index_python.packages import get_package_share_directory
@@ -128,6 +129,20 @@ def generate_launch_description():
         }.items()
     )
 
+    # 地形分析模块 (rc26_terrain)
+    terrain_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([
+                get_package_share_directory('rc26_terrain'),
+                'launch', 'terrain_semantic.launch.py'
+            ])
+        ),
+        launch_arguments={
+            'namespace': namespace,
+            'use_sim_time': use_sim_time,
+        }.items()
+    )
+
     # Nav2 导航栈：使用统一的参数文件 nav2_params.yaml，包含控制器 / costmap / BT 配置
     nav2_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -229,6 +244,7 @@ def generate_launch_description():
         # 启动模块
         odometry_launch,
         localization_launch,
+        terrain_launch,
         nav2_launch,
         map_server_launch,
         decision_launch,

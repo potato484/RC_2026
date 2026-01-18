@@ -5,6 +5,7 @@ log/
 .vscode/
 .claude/
 .codex/
+.gemini/
 
 # Python bytecode / caches
 __pycache__/
