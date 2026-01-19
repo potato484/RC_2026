@@ -7,7 +7,6 @@ RC_2026_1 R2导航系统 - 主启动文件
   - 地形分析 (rc26_terrain)
   - Nav2 导航栈 (含自定义控制器)
   - 决策系统 (rc26_decision)
-  - 感知模块 (rc26_perception) [可选]
 
 """
 import os
@@ -35,8 +34,6 @@ def generate_launch_description():
     params_file = LaunchConfiguration('params_file')
     use_rviz = LaunchConfiguration('use_rviz')
     use_decision = LaunchConfiguration('use_decision')
-    use_perception = LaunchConfiguration('use_perception')
-    model_path = LaunchConfiguration('model_path')
     team = LaunchConfiguration('team')
 
     # 参数声明
@@ -84,16 +81,6 @@ def generate_launch_description():
         'use_decision',
         default_value='true',
         description='启动决策系统')
-
-    declare_use_perception = DeclareLaunchArgument(
-        'use_perception',
-        default_value='false',
-        description='启动感知模块 (D455 + YOLO)')
-
-    declare_model_path = DeclareLaunchArgument(
-        'model_path',
-        default_value='',
-        description='YOLO模型路径 (空字符串=pass-through模式)')
 
     declare_team = DeclareLaunchArgument(
         'team',
@@ -185,20 +172,6 @@ def generate_launch_description():
         condition=IfCondition(use_decision)
     )
 
-    # 感知模块 (rc26_perception)
-    perception_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution([
-                get_package_share_directory('rc26_perception'),
-                'launch', 'perception.launch.py'
-            ])
-        ),
-        launch_arguments={
-            'model_path': model_path,
-        }.items(),
-        condition=IfCondition(use_perception)
-    )
-
     # RViz：导航模式使用 nav2_default.rviz，建图模式使用 slam.rviz
     rviz_nav_config = PathJoinSubstitution([bringup_dir, 'rviz', 'nav2_default.rviz'])
     rviz_slam_config = PathJoinSubstitution([bringup_dir, 'rviz', 'slam.rviz'])
@@ -237,8 +210,6 @@ def generate_launch_description():
         declare_params_file,
         declare_use_rviz,
         declare_use_decision,
-        declare_use_perception,
-        declare_model_path,
         declare_team,
 
         # 启动模块
@@ -248,6 +219,5 @@ def generate_launch_description():
         nav2_launch,
         map_server_launch,
         decision_launch,
-        perception_launch,
         rviz_group,
     ])

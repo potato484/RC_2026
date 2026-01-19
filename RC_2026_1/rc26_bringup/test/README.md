@@ -138,25 +138,7 @@ ros2 topic pub /odometry nav_msgs/msg/Odometry \
 
 ---
 
-### 6. 感知模块测试 (rc26_perception)
-
-**功能**: 验证 D455 相机 + YOLO 检测
-
-```bash
-# 启动测试 (pass-through 模式，无需模型)
-ros2 launch rc26_bringup test_perception.launch.py
-
-# 启动测试 (带模型)
-ros2 launch rc26_bringup test_perception.launch.py \
-    model_path:=/path/to/yolo.tflite
-
-# 验证输出话题
-ros2 topic echo /rc26/block_detections --once
-```
-
----
-
-### 7. 控制器插件测试 (rc26_omni_controller)
+### 6. 控制器插件测试 (rc26_omni_controller)
 
 **功能**: 验证全向运动控制器 (需要 Nav2 环境)
 
@@ -183,7 +165,6 @@ ros2 topic echo /cmd_vel --once
 | localization | TF `map→odom` | 有效变换 |
 | decision | `/decision/*` | 行为树运行 |
 | serial_comm | 串口设备 | MCU 收到位姿帧 |
-| perception | `/rc26/block_detections` | 检测消息 |
 | omni_controller | `/cmd_vel` | 速度指令 |
 
 ---

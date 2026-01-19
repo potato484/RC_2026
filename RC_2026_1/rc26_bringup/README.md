@@ -9,7 +9,6 @@ RC2026 R2 自动机器人系统启动与配置管理模块。
 - 定位模块 (rc26_localization)
 - Nav2 导航栈 (含自定义控制器)
 - 决策系统 (rc26_decision)
-- 感知模块 (rc26_perception) [可选]
 
 ## 目录结构
 
@@ -22,7 +21,6 @@ rc26_bringup/
 │   ├── test_odometry_chain.launch.py  # 里程计链路测试
 │   ├── test_localization.launch.py    # 定位模块测试
 │   ├── test_decision.launch.py        # 决策系统测试
-│   ├── test_perception.launch.py      # 感知模块测试
 │   ├── test_omni_controller.launch.py # 控制器测试
 │   ├── test_odom_interface.launch.py  # 里程计接口测试
 │   ├── test_sensor_scan.launch.py     # 传感器扫描测试
@@ -60,8 +58,6 @@ rc26_bringup/
 | `params_file` | `config/nav2_params.yaml` | Nav2 参数文件 |
 | `use_rviz` | `true` | 启动 RViz |
 | `use_decision` | `true` | 启动决策系统 |
-| `use_perception` | `false` | 启动感知模块 |
-| `model_path` | `''` | YOLO 模型路径 |
 | `team` | `red` | 队伍颜色 (red/blue) |
 
 ## 使用方式
@@ -74,9 +70,6 @@ ros2 launch rc26_bringup bringup.launch.py
 
 # 蓝方
 ros2 launch rc26_bringup bringup.launch.py team:=blue
-
-# 启用感知模块
-ros2 launch rc26_bringup bringup.launch.py use_perception:=true model_path:=/path/to/model.bin
 
 # 建图模式
 ros2 launch rc26_bringup bringup.launch.py slam:=true
@@ -96,9 +89,6 @@ ros2 launch rc26_bringup test_localization.launch.py
 
 # 测试决策系统
 ros2 launch rc26_bringup test_decision.launch.py
-
-# 测试感知模块
-ros2 launch rc26_bringup test_perception.launch.py
 
 # 测试控制器
 ros2 launch rc26_bringup test_omni_controller.launch.py
@@ -146,7 +136,6 @@ map (全局地图坐标系)
 - rc26_odom_interface
 - rc26_sensor_scan
 - rc26_decision
-- rc26_perception
 - point_lio
 - mid360_driver
 
