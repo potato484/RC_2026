@@ -23,6 +23,7 @@ find_package(std_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(rc26_serial REQUIRED)
+find_package(rc26_interfaces REQUIRED)
 
 # ============================================================================
 # 头文件目录
@@ -50,6 +51,7 @@ ament_target_dependencies(${PROJECT_NAME}_nodes
   tf2
   tf2_geometry_msgs
   rc26_serial
+  rc26_interfaces
 )
 
 # ============================================================================
@@ -115,6 +117,6 @@ install(
 ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME}_nodes)
-ament_export_dependencies(rclcpp rclcpp_action behaviortree_cpp geometry_msgs nav_msgs nav2_msgs std_msgs tf2 tf2_geometry_msgs rc26_serial)
+ament_export_dependencies(rclcpp rclcpp_action behaviortree_cpp geometry_msgs nav_msgs nav2_msgs std_msgs tf2 tf2_geometry_msgs rc26_serial rc26_interfaces)
 
 ament_package()

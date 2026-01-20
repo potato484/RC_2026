@@ -1,25 +1,19 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>rc26_decision</name>
+  <name>rc26_nav_mode_manager</name>
   <version>0.1.0</version>
-  <description>RC2026 自动机器人决策模块 - 基于行为树</description>
+  <description>Navigation safety mode manager for MF area traversal</description>
   <maintainer email="potato@todo.todo">potato</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
-  <depend>rclcpp_action</depend>
-  <depend>behaviortree_cpp</depend>
-  <depend>ament_index_cpp</depend>
-  <depend>geometry_msgs</depend>
+  <depend>rclcpp_components</depend>
   <depend>nav_msgs</depend>
   <depend>nav2_msgs</depend>
-  <depend>std_msgs</depend>
-  <depend>tf2</depend>
-  <depend>tf2_geometry_msgs</depend>
-  <depend>rc26_serial</depend>
+  <depend>sensor_msgs</depend>
   <depend>rc26_interfaces</depend>
 
   <export>

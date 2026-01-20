@@ -83,12 +83,12 @@ local_costmap:
       height: 7
       resolution: 0.1
       footprint: "[[0.4, 0.4], [0.4, -0.4], [-0.4, -0.4], [-0.4, 0.4]]"
-      plugins: ["obstacle_layer", "inflation_layer"]
+      plugins: ["obstacle_layer", "drop_layer", "inflation_layer"]
 
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
-        observation_sources: terrain_obs terrain_drop
+        observation_sources: terrain_obs
         terrain_obs:
           topic: terrain_obstacles
           data_type: "PointCloud2"
@@ -100,6 +100,11 @@ local_costmap:
           obstacle_min_range: 0.0
           raytrace_max_range: 5.0
           raytrace_min_range: 0.0
+
+      drop_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: terrain_drop
         terrain_drop:
           topic: terrain_drop
           data_type: "PointCloud2"

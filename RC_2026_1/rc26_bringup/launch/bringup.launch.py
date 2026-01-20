@@ -144,6 +144,23 @@ def generate_launch_description():
         condition=UnlessCondition(slam)
     )
 
+    # 导航模式管理器 (rc26_nav_mode_manager)
+    nav_mode_manager_node = Node(
+        package='rc26_nav_mode_manager',
+        executable='nav_mode_manager_node',
+        name='nav_mode_manager',
+        namespace=namespace,
+        output='screen',
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'costmap_node_name': 'local_costmap/local_costmap',
+            'odom_topic': 'odom',
+            'obstacles_topic': 'terrain_obstacles',
+            'default_timeout_sec': 5.0,
+        }],
+        condition=UnlessCondition(slam)
+    )
+
     # 地图服务 (非建图模式)
     map_server_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -217,6 +234,7 @@ def generate_launch_description():
         localization_launch,
         terrain_launch,
         nav2_launch,
+        nav_mode_manager_node,
         map_server_launch,
         decision_launch,
         rviz_group,

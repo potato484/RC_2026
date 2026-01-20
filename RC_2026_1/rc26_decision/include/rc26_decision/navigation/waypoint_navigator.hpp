@@ -9,12 +9,17 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 
+#include "rc26_interfaces/msg/nav_safety_mode.hpp"
+#include "rc26_interfaces/srv/set_nav_mode.hpp"
 #include "rc26_serial/serial_driver.hpp"
 
 namespace rc26_decision {
 
 class WaypointNavigator {
 public:
+    using NavSafetyMode = rc26_interfaces::msg::NavSafetyMode;
+    using SetNavMode = rc26_interfaces::srv::SetNavMode;
+
     enum class Status {
         Idle,
         Running,
@@ -43,10 +48,12 @@ private:
     std::string goal_frame_;
 
     rclcpp_action::Client<NavigateToPose>::SharedPtr nav2_client_;
+    rclcpp::Client<SetNavMode>::SharedPtr nav_mode_client_;
 
     uint8_t active_waypoint_id_{0};
     Status status_{Status::Idle};
     bool cancel_requested_{false};
+    bool stair_mode_active_{false};
 
     std::shared_future<typename GoalHandleNavigateToPose::SharedPtr> goal_handle_future_;
     typename GoalHandleNavigateToPose::SharedPtr goal_handle_;
@@ -54,6 +61,7 @@ private:
 
     bool sendNavModeAndSpeedToMcu(uint8_t waypoint_id);
     bool sendNav2Goal(uint8_t waypoint_id);
+    bool setNavSafetyMode(uint8_t mode, float timeout = 0.0f, const std::string& reason = "");
 };
 
 }  // namespace rc26_decision

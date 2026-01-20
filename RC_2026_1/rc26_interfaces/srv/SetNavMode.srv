@@ -1,0 +1,7 @@
+# Set navigation safety mode
+uint8 mode
+float32 timeout
+string reason
+---
+bool success
+string message

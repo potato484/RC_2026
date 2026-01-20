@@ -29,7 +29,6 @@ std::vector<uint8_t> floatToPayload(float value) {
     std::vector<uint8_t> payload(sizeof(float));
     uint32_t bits;
     std::memcpy(&bits, &value, sizeof(float));
-    // 显式小端序列化
     payload[0] = static_cast<uint8_t>(bits & 0xFF);
     payload[1] = static_cast<uint8_t>((bits >> 8) & 0xFF);
     payload[2] = static_cast<uint8_t>((bits >> 16) & 0xFF);
@@ -45,6 +44,37 @@ WaypointNavigator::WaypointNavigator(rclcpp::Node& node, std::shared_ptr<SerialD
     nav2_client_ = rclcpp_action::create_client<NavigateToPose>(
         node_.get_node_base_interface(), node_.get_node_graph_interface(), node_.get_node_logging_interface(),
         node_.get_node_waitables_interface(), nav2_action_name_);
+
+    nav_mode_client_ = node_.create_client<SetNavMode>("nav_safety/set_mode");
+}
+
+bool WaypointNavigator::setNavSafetyMode(uint8_t mode, float timeout, const std::string& reason) {
+    if (!nav_mode_client_->wait_for_service(std::chrono::seconds(2))) {
+        RCLCPP_WARN(node_.get_logger(), "WaypointNavigator: nav_safety/set_mode service not available");
+        return false;
+    }
+
+    auto request = std::make_shared<SetNavMode::Request>();
+    request->mode = mode;
+    request->timeout = timeout;
+    request->reason = reason;
+
+    auto future = nav_mode_client_->async_send_request(request);
+    auto status = future.wait_for(std::chrono::seconds(5));
+
+    if (status != std::future_status::ready) {
+        RCLCPP_ERROR(node_.get_logger(), "WaypointNavigator: Timeout calling set_mode service");
+        return false;
+    }
+
+    auto response = future.get();
+    if (!response->success) {
+        RCLCPP_ERROR(node_.get_logger(), "WaypointNavigator: set_mode failed: %s", response->message.c_str());
+        return false;
+    }
+
+    RCLCPP_INFO(node_.get_logger(), "WaypointNavigator: Nav safety mode set to %u (reason: %s)", mode, reason.c_str());
+    return true;
 }
 
 bool WaypointNavigator::start(uint8_t waypoint_id) {
@@ -62,6 +92,23 @@ bool WaypointNavigator::start(uint8_t waypoint_id) {
     active_waypoint_id_ = waypoint_id;
     status_ = Status::Idle;
     cancel_requested_ = false;
+    stair_mode_active_ = false;
+
+    if (wp->mode == NavMode::StairUp) {
+        if (!setNavSafetyMode(NavSafetyMode::MF_TRAVERSE, 10.0f, "stair_up")) {
+            RCLCPP_ERROR(node_.get_logger(), "WaypointNavigator: Failed to set MF_TRAVERSE mode");
+            status_ = Status::Failed;
+            return false;
+        }
+        stair_mode_active_ = true;
+    } else if (wp->mode == NavMode::StairDown) {
+        if (!setNavSafetyMode(NavSafetyMode::MF_EXIT, 10.0f, "stair_down")) {
+            RCLCPP_ERROR(node_.get_logger(), "WaypointNavigator: Failed to set MF_EXIT mode");
+            status_ = Status::Failed;
+            return false;
+        }
+        stair_mode_active_ = true;
+    }
 
     if (!sendNavModeAndSpeedToMcu(waypoint_id)) {
         RCLCPP_WARN(node_.get_logger(), "WaypointNavigator: MCU command failed (id=%u), continuing to Nav2",
@@ -69,6 +116,10 @@ bool WaypointNavigator::start(uint8_t waypoint_id) {
     }
 
     if (!sendNav2Goal(waypoint_id)) {
+        if (stair_mode_active_) {
+            setNavSafetyMode(NavSafetyMode::MF_SAFE, 0.0f, "nav2_goal_failed");
+            stair_mode_active_ = false;
+        }
         status_ = Status::Failed;
         return false;
     }
@@ -88,14 +139,21 @@ WaypointNavigator::Status WaypointNavigator::tick() {
             goal_handle_ = goal_handle_future_.get();
             if (!goal_handle_) {
                 RCLCPP_ERROR(node_.get_logger(), "WaypointNavigator: Nav2 rejected goal");
+                if (stair_mode_active_) {
+                    setNavSafetyMode(NavSafetyMode::MF_SAFE, 0.0f, "nav2_rejected");
+                    stair_mode_active_ = false;
+                }
                 status_ = Status::Failed;
                 return status_;
             }
 
-            // 如果在等待期间收到取消请求，立即取消目标
             if (cancel_requested_) {
                 (void)nav2_client_->async_cancel_goal(goal_handle_);
                 goal_handle_.reset();
+                if (stair_mode_active_) {
+                    setNavSafetyMode(NavSafetyMode::MF_SAFE, 0.0f, "nav_canceled");
+                    stair_mode_active_ = false;
+                }
                 status_ = Status::Canceled;
                 return status_;
             }
@@ -110,12 +168,24 @@ WaypointNavigator::Status WaypointNavigator::tick() {
             const auto wrapped = result_future_.get();
             switch (wrapped.code) {
             case rclcpp_action::ResultCode::SUCCEEDED:
+                if (stair_mode_active_) {
+                    setNavSafetyMode(NavSafetyMode::MF_SAFE, 0.0f, "nav_completed");
+                    stair_mode_active_ = false;
+                }
                 status_ = Status::Succeeded;
                 break;
             case rclcpp_action::ResultCode::CANCELED:
+                if (stair_mode_active_) {
+                    setNavSafetyMode(NavSafetyMode::MF_SAFE, 0.0f, "nav_canceled");
+                    stair_mode_active_ = false;
+                }
                 status_ = Status::Canceled;
                 break;
             default:
+                if (stair_mode_active_) {
+                    setNavSafetyMode(NavSafetyMode::MF_SAFE, 0.0f, "nav_failed");
+                    stair_mode_active_ = false;
+                }
                 status_ = Status::Failed;
                 break;
             }
@@ -138,6 +208,11 @@ void WaypointNavigator::cancelAndStop() {
 
     if (cmd_serial_ && cmd_serial_->isOpen()) {
         (void)cmd_serial_->sendStop();
+    }
+
+    if (stair_mode_active_) {
+        setNavSafetyMode(NavSafetyMode::MF_SAFE, 0.0f, "nav_canceled");
+        stair_mode_active_ = false;
     }
 
     status_ = Status::Canceled;

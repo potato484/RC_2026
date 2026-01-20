@@ -1,146 +1,171 @@
-# rc26_bringup
+# rc26_bringup - 系统启动与配置管理模块
 
-RC2026 R2 自动机器人系统启动与配置管理模块。
+## 模块简介
 
-## 功能
+`rc26_bringup` 是整个机器人系统的"总指挥"，负责统一管理和启动整个导航系统的所有组件。就像一台电脑的操作系统启动程序一样，它会把所有需要的功能模块按照正确的顺序启动起来，并确保它们能够正常协作。
 
-统一管理整个导航系统的启动配置，包括：
-- 里程计链路 (Point-LIO + rc26_odom_interface + rc26_sensor_scan)
-- 定位模块 (rc26_localization)
-- Nav2 导航栈 (含自定义控制器)
-- 决策系统 (rc26_decision)
+## 核心职责
 
-## 目录结构
+这个模块的主要工作包括：
 
-```
-rc26_bringup/
-├── launch/
-│   ├── bringup.launch.py              # 主启动文件
-│   ├── odometry.launch.py             # 里程计链路启动
-│   ├── localization.launch.py         # 定位模块启动
-│   ├── test_odometry_chain.launch.py  # 里程计链路测试
-│   ├── test_localization.launch.py    # 定位模块测试
-│   ├── test_decision.launch.py        # 决策系统测试
-│   ├── test_omni_controller.launch.py # 控制器测试
-│   ├── test_odom_interface.launch.py  # 里程计接口测试
-│   ├── test_sensor_scan.launch.py     # 传感器扫描测试
-│   └── test_serial_comm.launch.py     # 串口通信测试
-├── config/
-│   ├── nav2_params.yaml               # Nav2 导航参数
-│   ├── localization.yaml              # 定位参数
-│   ├── odom_interface.yaml            # 里程计接口参数
-│   ├── sensor_scan_generation.yaml    # 传感器扫描参数
-│   ├── decision.yaml                  # 决策参数 (通用)
-│   ├── decision_red.yaml              # 红方决策配置
-│   └── decision_blue.yaml             # 蓝方决策配置
-├── map/
-│   ├── default.yaml                   # 地图配置
-│   └── default.pgm                    # 2D 栅格地图
-├── pcd/
-│   └── *.pcd                          # 先验点云地图
-├── rviz/
-│   ├── nav2_default.rviz              # 导航 RViz 配置
-│   └── slam.rviz                      # 建图 RViz 配置
-└── behavior_trees/
-    └── sentry_mission.xml             # 行为树定义
-```
+### 统一启动管理
+想象一下，你要启动一辆智能汽车，需要同时启动发动机、导航系统、传感器、控制系统等。`rc26_bringup` 就是这样一个"一键启动"的按钮，它会按照预设的顺序，把所有必要的模块都启动起来。
 
-## 启动参数
+### 配置集中管理
+所有的参数配置都集中在这里管理，包括导航参数、定位参数、传感器参数、决策系统参数等。这样做的好处是，当你需要调整系统行为时，只需要在一个地方修改，而不需要在各个模块之间跑来跑去。
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `namespace` | `''` | 顶级命名空间 |
-| `use_sim_time` | `false` | 使用仿真时间 |
-| `slam` | `false` | 建图模式 (true) 或导航模式 (false) |
-| `world` | `default` | 地图名称 |
-| `map` | `map/default.yaml` | 地图文件路径 |
-| `prior_pcd_file` | `pcd/default.pcd` | 先验点云文件路径 |
-| `params_file` | `config/nav2_params.yaml` | Nav2 参数文件 |
-| `use_rviz` | `true` | 启动 RViz |
-| `use_decision` | `true` | 启动决策系统 |
-| `team` | `red` | 队伍颜色 (red/blue) |
+### 模块协调
+不同的功能模块之间需要相互配合才能工作。比如，定位模块需要里程计数据，导航模块需要定位结果，决策模块需要导航状态。`rc26_bringup` 负责确保这些模块之间的连接关系正确建立。
 
-## 使用方式
+## 主要功能模块
+
+### 里程计链路
+里程计就像是机器人的"计步器"，用来记录机器人移动了多远、转了多少角度。这个链路包括三个部分：
+- Point-LIO：使用激光雷达数据计算里程计
+- rc26_odom_interface：将里程计数据转换成标准格式
+- rc26_sensor_scan：同步里程计和点云数据
+
+### 定位模块
+定位模块就像是机器人的"GPS"，告诉机器人"你现在在地图的哪个位置"。它使用预先建好的地图，通过对比当前看到的场景和地图，计算出机器人的精确位置。
+
+### Nav2 导航栈
+Nav2 是机器人的"导航大脑"，负责规划路径、避开障碍物、控制机器人移动。这个模块集成了自定义的全向轮控制器，让机器人能够灵活地前后左右移动和旋转。
+
+### 决策系统
+决策系统是机器人的"任务管理器"，负责决定"现在应该做什么"。它会根据比赛规则、当前状态、传感器信息等，制定执行计划并指挥各个模块协同工作。
+
+## 目录结构说明
+
+### launch 目录
+这个目录存放所有的启动文件，每个文件负责启动一组相关的功能模块。比如：
+- `bringup.launch.py`：主启动文件，启动整个系统
+- `odometry.launch.py`：只启动里程计相关的模块
+- `localization.launch.py`：只启动定位相关的模块
+- 各种测试启动文件：用于单独测试某个功能模块
+
+### config 目录
+这个目录存放所有的配置文件，用 YAML 格式编写。每个配置文件对应一个功能模块的参数设置，比如：
+- `nav2_params.yaml`：导航系统的参数，包括路径规划、障碍物避让、速度限制等
+- `localization.yaml`：定位系统的参数，包括地图文件路径、坐标系设置、配准算法参数等
+- `decision.yaml`：决策系统的通用参数
+- `decision_red.yaml` 和 `decision_blue.yaml`：分别对应红方和蓝方的特定配置
+
+### map 目录
+存放地图文件，包括：
+- `default.yaml`：地图的元数据文件，描述地图的基本信息
+- `default.pgm`：实际的地图图像文件，用黑白像素表示可通行区域和障碍物
+
+### pcd 目录
+存放点云地图文件。点云地图是三维的，比二维地图包含更多信息，主要用于高精度定位。
+
+### rviz 目录
+存放可视化工具的配置文件。RViz 是一个图形界面工具，可以实时显示机器人的状态、传感器数据、路径规划结果等。这些配置文件预设了不同的显示布局，方便不同场景下的调试。
+
+### behavior_trees 目录
+存放行为树定义文件。行为树是一种描述机器人任务逻辑的方式，用树状结构表示"如果...那么..."这样的决策流程。
+
+## 启动参数详解
+
+### namespace（命名空间）
+命名空间就像是给不同的机器人起不同的名字，当多台机器人同时运行时，可以用命名空间来区分它们的数据和话题。
+
+### use_sim_time（使用仿真时间）
+如果设置为 true，系统会使用仿真器的时间，而不是真实时间。这在测试和调试时很有用。
+
+### slam（建图模式）
+如果设置为 true，系统会进入建图模式，机器人会一边移动一边绘制地图。如果设置为 false，系统会进入导航模式，使用已有的地图进行导航。
+
+### world（世界名称）
+指定使用哪个地图世界，不同的世界对应不同的比赛场地或测试环境。
+
+### map（地图文件路径）
+指定地图文件的位置，系统会加载这个地图用于导航和定位。
+
+### prior_pcd_file（先验点云文件）
+指定预先建好的点云地图文件，用于高精度定位。
+
+### params_file（参数文件）
+指定 Nav2 导航系统的参数配置文件路径。
+
+### use_rviz（启动可视化工具）
+如果设置为 true，启动时会自动打开 RViz 可视化界面，方便实时查看系统状态。
+
+### use_decision（启动决策系统）
+如果设置为 true，会启动决策系统，让机器人能够自动执行任务。如果设置为 false，机器人只能手动控制。
+
+### team（队伍颜色）
+指定是红方还是蓝方，不同队伍可能有不同的策略和配置。
+
+## 使用场景
 
 ### 完整系统启动
+当你需要启动整个机器人系统，让机器人能够自主导航和执行任务时，使用完整启动方式。系统会自动启动所有必要的模块，并建立它们之间的连接。
 
-```bash
-# 红方 (默认)
-ros2 launch rc26_bringup bringup.launch.py
+### 单独测试模块
+当你只想测试某个特定功能时，可以使用对应的测试启动文件。比如，如果只想测试里程计是否正常工作，就使用里程计测试启动文件，这样其他模块不会启动，可以避免干扰。
 
-# 蓝方
-ros2 launch rc26_bringup bringup.launch.py team:=blue
+### 建图模式
+当你需要为新的场地创建地图时，使用建图模式。机器人会一边移动一边记录周围环境，生成地图文件。
 
-# 建图模式
-ros2 launch rc26_bringup bringup.launch.py slam:=true
+### 导航模式
+当你已经有了地图，想让机器人在这个地图上导航时，使用导航模式。系统会加载已有地图，进行定位和路径规划。
 
-# 不启动 RViz
-ros2 launch rc26_bringup bringup.launch.py use_rviz:=false
-```
+## 坐标系说明
 
-### 单独测试各模块
+系统使用多个坐标系来描述机器人在不同层面的位置：
 
-```bash
-# 测试里程计链路
-ros2 launch rc26_bringup test_odometry_chain.launch.py
+### map（地图坐标系）
+这是全局坐标系，固定在场地上的某个位置，不会随着机器人移动而改变。所有地图数据都是相对于这个坐标系的。
 
-# 测试定位模块
-ros2 launch rc26_bringup test_localization.launch.py
+### odom（里程计坐标系）
+这是里程计坐标系，会随着机器人移动而更新。它相对于 map 坐标系可能会有漂移，但短期内比较准确。
 
-# 测试决策系统
-ros2 launch rc26_bringup test_decision.launch.py
+### base_link（底盘中心坐标系）
+这是固定在机器人底盘中心的坐标系，会随着机器人移动和旋转。
 
-# 测试控制器
-ros2 launch rc26_bringup test_omni_controller.launch.py
+### laser_link（激光雷达坐标系）
+这是固定在激光雷达上的坐标系，相对于 base_link 的位置是固定的。
 
-# 测试串口通信
-ros2 launch rc26_bringup test_serial_comm.launch.py
-```
+### camera_link（相机坐标系）
+这是固定在相机上的坐标系，相对于 base_link 的位置是固定的。
 
-## 配置说明
+这些坐标系之间的关系形成了一棵树状结构，通过坐标变换，可以把一个坐标系下的数据转换到另一个坐标系下。
 
-### Nav2 参数 (nav2_params.yaml)
+## 依赖关系
 
-主要配置项：
-- `bt_navigator`: 行为树导航器配置
-- `controller_server`: 控制器服务配置 (使用 rc26_omni_controller)
-- `local_costmap`: 局部代价地图配置
-- `global_costmap`: 全局代价地图配置
-- `planner_server`: 路径规划器配置
+这个模块依赖于很多其他模块，包括：
+- nav2_bringup：Nav2 导航系统的启动模块
+- rc26_localization：定位模块
+- rc26_odom_interface：里程计接口模块
+- rc26_sensor_scan：传感器扫描模块
+- rc26_decision：决策系统模块
+- point_lio：点云里程计模块
+- mid360_driver：激光雷达驱动模块
 
-### 定位参数 (localization.yaml)
+## 注意事项
 
-主要配置项：
-- 坐标系配置 (map/odom/base_link/laser_link)
-- small_gicp 配准参数
-- 绑架检测参数
-- 全局重定位参数 (SAC-IA + NDT + ICP)
+### 启动顺序很重要
+各个模块的启动顺序很重要，因为后面的模块可能依赖前面模块的数据。`rc26_bringup` 已经按照正确的顺序组织好了，一般不需要手动调整。
 
-## 坐标系约定
+### 参数配置要一致
+不同模块之间的参数配置要保持一致，特别是坐标系名称、话题名称等。如果配置不一致，模块之间可能无法正常通信。
 
-```
-map (全局地图坐标系)
- │
- └── odom (里程计坐标系)
-      │
-      └── base_link (底盘中心)
-           │
-           ├── laser_link (激光雷达)
-           └── camera_link (相机)
-```
+### 地图文件要匹配
+使用的地图文件必须和实际环境匹配，否则定位和导航会出现错误。如果环境发生了变化，需要重新建图。
 
-## 依赖
+### 资源占用
+启动整个系统会占用较多的计算资源，如果计算机性能不足，可能会出现卡顿或延迟。可以根据需要选择性地启动部分模块。
 
-- nav2_bringup
-- rc26_localization
-- rc26_odom_interface
-- rc26_sensor_scan
-- rc26_decision
-- point_lio
-- mid360_driver
+## 常见问题
 
-## 编译
+### 系统启动失败
+检查各个依赖模块是否已经编译安装，检查配置文件路径是否正确，检查硬件设备是否连接正常。
 
-```bash
-colcon build --packages-select rc26_bringup
-```
+### 定位不准确
+检查地图文件是否正确，检查传感器数据是否正常，检查坐标系配置是否一致。
+
+### 导航路径不合理
+检查代价地图参数设置，检查障碍物检测是否正常，检查路径规划器参数是否合适。
+
+### 决策系统不工作
+检查行为树文件是否正确，检查串口通信是否正常，检查决策参数配置是否正确。
