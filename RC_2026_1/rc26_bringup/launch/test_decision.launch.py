@@ -13,11 +13,7 @@ rc26_decision 模块测试
 前置: 无强制依赖，可独立运行 (Nav2 相关动作会超时但不崩溃)
 
 测试指令:
-    # 红方
-    ros2 launch rc26_bringup test_decision.launch.py team:=red
-
-    # 蓝方
-    ros2 launch rc26_bringup test_decision.launch.py team:=blue
+    ros2 launch rc26_bringup test_decision.launch.py
 
 验证:
     ros2 node info /waypoint_patrol
@@ -38,17 +34,7 @@ def launch_setup(context, *args, **kwargs):
     # LaunchConfiguration 对象用于参数传递
     use_sim_time = LaunchConfiguration('use_sim_time')
     enable_serial = LaunchConfiguration('enable_serial')
-    team = LaunchConfiguration('team').perform(context)
-
-    # 根据队伍选择决策配置文件
-    if team == 'blue':
-        decision_config_path = os.path.join(bringup_dir, 'config', 'decision_blue.yaml')
-    else:
-        decision_config_path = os.path.join(bringup_dir, 'config', 'decision_red.yaml')
-
-    # 回退到通用 decision.yaml，保持兼容
-    if not os.path.exists(decision_config_path):
-        decision_config_path = os.path.join(bringup_dir, 'config', 'decision.yaml')
+    decision_config_path = os.path.join(bringup_dir, 'config', 'decision.yaml')
 
     decision_config = decision_config_path
     tree_xml = PathJoinSubstitution([decision_dir, 'behavior_tree', 'waypoint_patrol.xml'])
@@ -82,16 +68,10 @@ def generate_launch_description():
         default_value='false',
         description='启用串口通信 (测试时通常关闭)')
 
-    declare_team = DeclareLaunchArgument(
-        'team',
-        default_value='red',
-        description='队伍颜色: red 或 blue')
-
     decision_node = OpaqueFunction(function=launch_setup)
 
     return LaunchDescription([
         declare_use_sim_time,
         declare_enable_serial,
-        declare_team,
         decision_node,
     ])

@@ -5,18 +5,14 @@ rc26_decision 串口通信测试
 前置: 需要 MCU 设备连接或串口回环测试器
 
 测试指令:
-    # 连接真实 MCU，红方
+    # 连接真实 MCU
     ros2 launch rc26_bringup test_serial_comm.launch.py \
-        team:=red serial_port:=/dev/ttyUSB0
-
-    # 连接真实 MCU，蓝方
-    ros2 launch rc26_bringup test_serial_comm.launch.py \
-        team:=blue serial_port:=/dev/ttyUSB0
+        serial_port:=/dev/ttyUSB0
 
     # 使用虚拟串口对 (用于调试)
     # 终端1: socat -d -d pty,raw,echo=0 pty,raw,echo=0
     # 终端2: ros2 launch rc26_bringup test_serial_comm.launch.py \
-    #           team:=red serial_port:=/dev/pts/X
+    #           serial_port:=/dev/pts/X
 
 验证:
     # 检查串口连接状态
@@ -41,17 +37,7 @@ def launch_setup(context, *args, **kwargs):
     serial_port = LaunchConfiguration('serial_port')
     serial_baudrate = LaunchConfiguration('serial_baudrate')
     pose_publish_rate = LaunchConfiguration('pose_publish_rate')
-    team = LaunchConfiguration('team').perform(context)
-
-    # 根据队伍选择决策配置文件
-    if team == 'blue':
-        decision_config_path = os.path.join(bringup_dir, 'config', 'decision_blue.yaml')
-    else:
-        decision_config_path = os.path.join(bringup_dir, 'config', 'decision_red.yaml')
-
-    # 回退到通用 decision.yaml，保持兼容
-    if not os.path.exists(decision_config_path):
-        decision_config_path = os.path.join(bringup_dir, 'config', 'decision.yaml')
+    decision_config_path = os.path.join(bringup_dir, 'config', 'decision.yaml')
 
     decision_config = decision_config_path
     tree_xml = PathJoinSubstitution([decision_dir, 'behavior_tree', 'waypoint_patrol.xml'])
@@ -99,11 +85,6 @@ def generate_launch_description():
         default_value='50.0',
         description='位姿发送频率 (Hz)')
 
-    declare_team = DeclareLaunchArgument(
-        'team',
-        default_value='red',
-        description='队伍颜色: red 或 blue')
-
     decision_node = OpaqueFunction(function=launch_setup)
     
     return LaunchDescription([
@@ -111,6 +92,5 @@ def generate_launch_description():
         declare_serial_port,
         declare_serial_baudrate,
         declare_pose_publish_rate,
-        declare_team,
         decision_node,
     ])

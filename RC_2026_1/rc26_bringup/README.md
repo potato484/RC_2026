@@ -47,8 +47,7 @@ Nav2 是机器人的"导航大脑"，负责规划路径、避开障碍物、控�
 这个目录存放所有的配置文件，用 YAML 格式编写。每个配置文件对应一个功能模块的参数设置，比如：
 - `nav2_params.yaml`：导航系统的参数，包括路径规划、障碍物避让、速度限制等
 - `localization.yaml`：定位系统的参数，包括地图文件路径、坐标系设置、配准算法参数等
-- `decision.yaml`：决策系统的通用参数
-- `decision_red.yaml` 和 `decision_blue.yaml`：分别对应红方和蓝方的特定配置
+- `decision.yaml`：决策系统的参数（waypoint_patrol 等）
 
 ### map 目录
 存放地图文件，包括：
