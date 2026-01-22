@@ -5,18 +5,13 @@
   - point_lio (LiDAR-IMU 里程计)
   - rc26_odom_interface (坐标变换: lidar_odom -> odom)
   - rc26_sensor_scan (发布 odom -> chassis 变换 + sensor_scan)
-建图：
-    ros2 launch rc26_bringup odometry.launch.py slam:=true
 """
-import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-from launch_ros.descriptions import ParameterFile
-from nav2_common.launch import RewrittenYaml
 
 
 def generate_launch_description():
@@ -27,7 +22,6 @@ def generate_launch_description():
     # 启动参数
     namespace = LaunchConfiguration('namespace')
     use_sim_time = LaunchConfiguration('use_sim_time')
-    slam = LaunchConfiguration('slam')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
     use_rviz = LaunchConfiguration('use_rviz')
 
@@ -41,11 +35,6 @@ def generate_launch_description():
         'use_sim_time',
         default_value='false',
         description='使用仿真时间')
-
-    declare_slam = DeclareLaunchArgument(
-        'slam',
-        default_value='false',
-        description='建图模式')
 
     declare_prior_pcd_file = DeclareLaunchArgument(
         'prior_pcd_file',
@@ -143,7 +132,6 @@ def generate_launch_description():
         # 参数声明
         declare_namespace,
         declare_use_sim_time,
-        declare_slam,
         declare_prior_pcd_file,
         declare_use_rviz,
 

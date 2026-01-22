@@ -4,7 +4,6 @@
 导航模式: 启动 rc26_localization (基于 small_gicp)
 建图模式: 发布静态 map -> odom 变换
 """
-import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -19,7 +18,6 @@ def generate_launch_description():
     namespace = LaunchConfiguration('namespace')
     use_sim_time = LaunchConfiguration('use_sim_time')
     slam = LaunchConfiguration('slam')
-    world = LaunchConfiguration('world')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
 
     declare_namespace = DeclareLaunchArgument(
@@ -30,9 +28,6 @@ def generate_launch_description():
 
     declare_slam = DeclareLaunchArgument(
         'slam', default_value='false')
-
-    declare_world = DeclareLaunchArgument(
-        'world', default_value='default')
 
     declare_prior_pcd_file = DeclareLaunchArgument(
         'prior_pcd_file',
@@ -69,7 +64,6 @@ def generate_launch_description():
         declare_namespace,
         declare_use_sim_time,
         declare_slam,
-        declare_world,
         declare_prior_pcd_file,
         localization_node,
         static_tf_node,

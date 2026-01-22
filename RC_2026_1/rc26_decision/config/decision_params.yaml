@@ -15,14 +15,5 @@ rc26_decision:
     enable_heartbeat: true
     heartbeat_rate_hz: 1
 
-    # CAN 里程计参数
-    enable_can_odom: true
-    can_interface: "can0"
-    wheel_radius: 0.07625
-    wheel_base: 0.62326
-    track_width: 0.7
-    gear_ratio: 19.203208556149733  # 3591/187
-    publish_rate_hz: 50
+    # 里程计话题（用于停车判定等）
     odom_topic: "wheel_odom"
-    odom_frame: "odom"
-    base_frame: "base_link"

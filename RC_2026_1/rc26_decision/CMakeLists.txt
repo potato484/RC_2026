@@ -24,6 +24,7 @@ find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(rc26_serial REQUIRED)
 find_package(rc26_interfaces REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 # ============================================================================
 # 头文件目录
@@ -37,9 +38,9 @@ add_library(${PROJECT_NAME}_nodes SHARED
   src/mc/mc_area.cpp
   src/mf/mf_area.cpp
   src/combat/combat_area.cpp
-  src/navigation/waypoint_catalog.cpp
-  src/navigation/waypoint_navigator.cpp
-  src/navigation/bt_navigate_waypoint.cpp
+  src/navigation/waypoint_manager.cpp
+  src/navigation/smart_waypoint_navigator.cpp
+  src/navigation/bt_nav_to_smart_point.cpp
 )
 
 ament_target_dependencies(${PROJECT_NAME}_nodes
@@ -47,11 +48,16 @@ ament_target_dependencies(${PROJECT_NAME}_nodes
   rclcpp_action
   behaviortree_cpp
   geometry_msgs
+  nav_msgs
   nav2_msgs
   tf2
   tf2_geometry_msgs
   rc26_serial
   rc26_interfaces
+)
+
+target_link_libraries(${PROJECT_NAME}_nodes
+  yaml-cpp
 )
 
 # ============================================================================

@@ -42,7 +42,6 @@ def generate_launch_description():
         ),
         launch_arguments={
             'use_sim_time': use_sim_time,
-            'slam': 'true',
             'prior_pcd_file': prior_pcd_file,
         }.items()
     )

@@ -89,52 +89,7 @@ ros2 run tf2_tools view_frames
 
 ### 5. 决策系统测试 (rc26_decision)
 
-**功能**: 验证行为树决策逻辑
-
-```bash
-# 启动测试 (独立模式，无 Nav2)
-ros2 launch rc26_bringup test_decision.launch.py
-
-# 验证节点状态
-ros2 node info /waypoint_patrol
-
-# 检查黑板状态
-ros2 topic echo /decision/blackboard_state --once
-```
-
----
-
-### 5.1 串口通信测试 (MCU 通信)
-
-**功能**: 验证与 MCU 的串口通信 (位姿发送、指令交互)
-
-```bash
-# 连接真实 MCU
-ros2 launch rc26_bringup test_serial_comm.launch.py \
-    serial_port:=/dev/ttyUSB0
-
-# 使用虚拟串口对 (调试用)
-# 终端1: 创建虚拟串口对
-socat -d -d pty,raw,echo=0 pty,raw,echo=0
-# 输出类似: N PTY is /dev/pts/3, N PTY is /dev/pts/4
-
-# 终端2: 启动测试
-ros2 launch rc26_bringup test_serial_comm.launch.py \
-    serial_port:=/dev/pts/3
-
-# 终端3: 模拟 MCU 回复 (监听另一端)
-cat /dev/pts/4
-
-# 验证位姿发送
-ros2 topic pub /odometry nav_msgs/msg/Odometry \
-    "{pose: {pose: {position: {x: 1.0, y: 2.0}}}}" --once
-```
-
-**协议说明** (参见 `serial/protocol.hpp`):
-- `0x01` POSE_DATA - 位姿数据
-- `0x02` NAVIGATE_CMD - 导航指令
-- `0x03` ACTION_CMD - 动作指令
-- `0x05` STOP_CMD - 急停命令
+（已删除过期的 rc26_bringup 决策/串口测试启动；请使用 `rc26_decision/launch/decision.launch.py` 进行独立测试。）
 
 ---
 
@@ -163,8 +118,6 @@ ros2 topic echo /cmd_vel --once
 | odom_interface | `/odom` | odom→base_link 变换 |
 | sensor_scan | `/sensor_scan` | laser_link 坐标系点云 |
 | localization | TF `map→odom` | 有效变换 |
-| decision | `/decision/*` | 行为树运行 |
-| serial_comm | 串口设备 | MCU 收到位姿帧 |
 | omni_controller | `/cmd_vel` | 速度指令 |
 
 ---

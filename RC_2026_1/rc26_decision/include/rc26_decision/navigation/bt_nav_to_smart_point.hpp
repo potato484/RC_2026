@@ -4,9 +4,9 @@
 
 namespace rc26_decision {
 
-class NavigateWaypointAction : public BT::StatefulActionNode {
+class NavToSmartPointAction : public BT::StatefulActionNode {
 public:
-    NavigateWaypointAction(const std::string& name, const BT::NodeConfig& config);
+    NavToSmartPointAction(const std::string& name, const BT::NodeConfig& config);
 
     static BT::PortsList providedPorts();
 

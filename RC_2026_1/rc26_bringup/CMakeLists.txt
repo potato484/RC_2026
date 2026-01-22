@@ -9,7 +9,6 @@ install(DIRECTORY
   map
   pcd
   rviz
-  behavior_trees
   DESTINATION share/${PROJECT_NAME}
 )
 

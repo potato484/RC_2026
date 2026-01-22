@@ -1,6 +1,3 @@
-#include <atomic>
-#include <mutex>
-
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <behaviortree_cpp/bt_factory.h>
 #include <rclcpp/rclcpp.hpp>
@@ -11,8 +8,9 @@
 #include "rc26_decision/combat/combat_area.hpp"
 #include "rc26_decision/mc/mc_area.hpp"
 #include "rc26_decision/mf/mf_area.hpp"
-#include "rc26_decision/navigation/bt_navigate_waypoint.hpp"
-#include "rc26_decision/navigation/waypoint_navigator.hpp"
+#include "rc26_decision/navigation/bt_nav_to_smart_point.hpp"
+#include "rc26_decision/navigation/smart_waypoint_navigator.hpp"
+#include "rc26_decision/navigation/waypoint_manager.hpp"
 #include "rc26_serial/serial_driver.hpp"
 
 namespace rc26_decision {
@@ -30,6 +28,12 @@ public:
         this->declare_parameter<int>("heartbeat_rate_hz", 1);
         this->declare_parameter<std::string>("nav2_action_name", "navigate_to_pose");
         this->declare_parameter<std::string>("nav2_goal_frame", "map");
+        this->declare_parameter<std::string>("controller_server_node", "controller_server");
+        this->declare_parameter<std::string>("odom_topic", "odom");
+        this->declare_parameter<std::string>("team", "blue");
+        this->declare_parameter<std::string>("waypoints_file", "");
+        this->declare_parameter<double>("stop_linear_eps_mps", 0.05);
+        this->declare_parameter<double>("stop_angular_eps_rps", 0.1);
         this->declare_parameter<std::string>("base_ground_level_topic", "base_ground/level");
         this->declare_parameter<std::string>("base_ground_stair_delta_topic", "base_ground/stair_delta");
         this->declare_parameter<std::string>("base_ground_stable_topic", "base_ground/stable");
@@ -45,10 +49,18 @@ public:
             } else {
                 RCLCPP_INFO(this->get_logger(), "命令串口已打开: %s", cmd_port.c_str());
 
-                // 启动心跳（每秒1次）
+                // 启动心跳
                 if (this->get_parameter("enable_heartbeat").as_bool()) {
-                    heartbeat_timer_ =
-                        this->create_wall_timer(std::chrono::milliseconds(1000), [this]() { handleHeartbeat(); });
+                    const int heartbeat_rate_hz = this->get_parameter("heartbeat_rate_hz").as_int();
+                    if (heartbeat_rate_hz <= 0) {
+                        RCLCPP_WARN(this->get_logger(),
+                                    "heartbeat_rate_hz=%d <= 0, heartbeat disabled",
+                                    heartbeat_rate_hz);
+                    } else {
+                        const auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            std::chrono::duration<double>(1.0 / static_cast<double>(heartbeat_rate_hz)));
+                        heartbeat_timer_ = this->create_wall_timer(period, [this]() { handleHeartbeat(); });
+                    }
                 }
             }
         }
@@ -57,13 +69,34 @@ public:
         auto blackboard = BT::Blackboard::create();
         blackboard->set("cmd_serial", cmd_serial_);
 
-        // 创建 WaypointNavigator 并共享到黑板
+        // 创建 WaypointManager 并加载配置
+        {
+            std::string waypoints_file = this->get_parameter("waypoints_file").as_string();
+            if (waypoints_file.empty()) {
+                std::string team = this->get_parameter("team").as_string();
+                std::string package_path = ament_index_cpp::get_package_share_directory("rc26_decision");
+                waypoints_file = package_path + "/config/waypoints/waypoints_" + team + ".yaml";
+            }
+            waypoint_manager_ = std::make_shared<WaypointManager>();
+            if (!waypoint_manager_->loadFromYamlFile(waypoints_file)) {
+                RCLCPP_ERROR(this->get_logger(), "Failed to load waypoints: %s", waypoints_file.c_str());
+            } else {
+                RCLCPP_INFO(this->get_logger(), "Loaded waypoints from: %s", waypoints_file.c_str());
+            }
+            blackboard->set("waypoint_manager", waypoint_manager_);
+        }
+
+        // 创建 SmartWaypointNavigator 并共享到黑板
         {
             const auto nav2_action_name = this->get_parameter("nav2_action_name").as_string();
             const auto nav2_goal_frame = this->get_parameter("nav2_goal_frame").as_string();
-            waypoint_navigator_ =
-                std::make_shared<WaypointNavigator>(*this, cmd_serial_, nav2_action_name, nav2_goal_frame);
-            blackboard->set("waypoint_navigator", waypoint_navigator_);
+            const auto controller_node = this->get_parameter("controller_server_node").as_string();
+            const auto odom_topic = this->get_parameter("odom_topic").as_string();
+            const double stop_lin = this->get_parameter("stop_linear_eps_mps").as_double();
+            const double stop_ang = this->get_parameter("stop_angular_eps_rps").as_double();
+            smart_waypoint_navigator_ = std::make_shared<SmartWaypointNavigator>(
+                *this, cmd_serial_, nav2_action_name, nav2_goal_frame, controller_node, odom_topic, stop_lin, stop_ang);
+            blackboard->set("smart_waypoint_navigator", smart_waypoint_navigator_);
         }
 
         // 初始化重连状态（行为树可直接查询）
@@ -252,7 +285,8 @@ private:
     BT::Tree tree_;
     rclcpp::TimerBase::SharedPtr timer_;
     std::shared_ptr<SerialDriver> cmd_serial_;
-    std::shared_ptr<WaypointNavigator> waypoint_navigator_;
+    std::shared_ptr<WaypointManager> waypoint_manager_;
+    std::shared_ptr<SmartWaypointNavigator> smart_waypoint_navigator_;
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr base_ground_level_sub_;
     rclcpp::Subscription<std_msgs::msg::Int8>::SharedPtr base_ground_stair_delta_sub_;

@@ -1,6 +1,7 @@
 base_ground_estimator:
   ros__parameters:
-    odom_topic: "/odom"
+    # 使用相对话题名以兼容 namespace（例如 /r2/odom）
+    odom_topic: "odom"
     step_height_m: 0.20
     tol: 0.06
     T_stable: 0.5

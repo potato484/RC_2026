@@ -1,0 +1,26 @@
+header:
+  version: "1.2"
+  team: "red"
+  frame_id: "map"
+
+static_points:
+  start_pose:
+    x: 0.0
+    y: 0.0
+    theta: 0.0
+    nav_mode: "Normal"
+    speed_mps: 1.5
+    strategy_tag: "TAG_INIT"
+    nav_safety_mode: "NORMAL"
+    speed_profile: "FAST"
+    tolerance: {xy: 0.10, yaw: 0.15}
+    timeout_sec: 10.0
+
+merlin_config:
+  anchors:
+    block_1: {x: 0.0, y: 0.0}
+    block_2: {x: 0.0, y: 0.0}
+    block_4: {x: 0.0, y: 0.0}
+  params:
+    safe_offset: 0.20
+    jump_margin: 0.20
