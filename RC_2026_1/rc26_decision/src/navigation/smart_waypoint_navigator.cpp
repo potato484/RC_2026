@@ -148,7 +148,8 @@ void SmartWaypointNavigator::requestSetMode(uint8_t mode, float timeout, const s
     request->mode = mode;
     request->timeout = timeout;
     request->reason = reason;
-    future = nav_mode_client_->async_send_request(request);
+    auto future_and_id = nav_mode_client_->async_send_request(request);
+    future = future_and_id.future.share();
     requested_flag = true;
 }
 

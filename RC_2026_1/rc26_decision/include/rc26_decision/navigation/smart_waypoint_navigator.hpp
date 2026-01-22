@@ -11,6 +11,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 
 #include "rc26_decision/navigation/smart_waypoint_types.hpp"
 #include "rc26_interfaces/msg/nav_safety_mode.hpp"
@@ -47,8 +48,8 @@ private:
     using NavigateToPose = nav2_msgs::action::NavigateToPose;
     using GoalHandleNavigateToPose = rclcpp_action::ClientGoalHandle<NavigateToPose>;
     using SetNavModeFuture = rclcpp::Client<SetNavMode>::SharedFuture;
-    using GetParamsFuture = rclcpp::AsyncParametersClient::SharedFuture;
-    using SetParamsFuture = rclcpp::AsyncParametersClient::SharedFutureSetParametersResult;
+    using GetParamsFuture = std::shared_future<std::vector<rclcpp::Parameter>>;
+    using SetParamsFuture = std::shared_future<std::vector<rcl_interfaces::msg::SetParametersResult>>;
 
     enum class ExecState {
         Idle,
