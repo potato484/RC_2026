@@ -24,6 +24,7 @@ find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(rc26_serial REQUIRED)
 find_package(rc26_interfaces REQUIRED)
+find_package(rc26_vision REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
 # ============================================================================
@@ -41,6 +42,7 @@ add_library(${PROJECT_NAME}_nodes SHARED
   src/navigation/waypoint_manager.cpp
   src/navigation/smart_waypoint_navigator.cpp
   src/navigation/bt_nav_to_smart_point.cpp
+  src/vision/bt_nodes.cpp
 )
 
 ament_target_dependencies(${PROJECT_NAME}_nodes
@@ -54,6 +56,7 @@ ament_target_dependencies(${PROJECT_NAME}_nodes
   tf2_geometry_msgs
   rc26_serial
   rc26_interfaces
+  rc26_vision
 )
 
 target_link_libraries(${PROJECT_NAME}_nodes
@@ -81,6 +84,7 @@ ament_target_dependencies(decision_node
   tf2
   tf2_geometry_msgs
   rc26_serial
+  rc26_vision
 )
 
 # ============================================================================
@@ -123,6 +127,6 @@ install(
 ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME}_nodes)
-ament_export_dependencies(rclcpp rclcpp_action behaviortree_cpp geometry_msgs nav_msgs nav2_msgs std_msgs tf2 tf2_geometry_msgs rc26_serial rc26_interfaces)
+ament_export_dependencies(rclcpp rclcpp_action behaviortree_cpp geometry_msgs nav_msgs nav2_msgs std_msgs tf2 tf2_geometry_msgs rc26_serial rc26_interfaces rc26_vision)
 
 ament_package()

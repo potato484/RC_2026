@@ -11,7 +11,9 @@
 #include "rc26_decision/navigation/bt_nav_to_smart_point.hpp"
 #include "rc26_decision/navigation/smart_waypoint_navigator.hpp"
 #include "rc26_decision/navigation/waypoint_manager.hpp"
+#include "rc26_decision/vision/bt_nodes.hpp"
 #include "rc26_serial/serial_driver.hpp"
+#include "rc26_vision/vision_inference_manager.hpp"
 
 namespace rc26_decision {
 
@@ -68,6 +70,51 @@ public:
         // 创建黑板并共享
         auto blackboard = BT::Blackboard::create();
         blackboard->set("cmd_serial", cmd_serial_);
+        {
+            rclcpp::Node* node_ptr = this;
+            blackboard->set("node", node_ptr);
+        }
+
+        // 视觉模块黑板键初始化（即使未启用/未注入 manager 也保持可读）
+        blackboard->set("vision_running", false);
+        blackboard->set("vision_ok", false);
+        blackboard->set("vision_has_target", false);
+        blackboard->set("vision_attr_kind", static_cast<int>(0));
+        blackboard->set("vision_distance_m", 0.0);
+        blackboard->set("vision_score", 0.0);
+        blackboard->set("vision_bbox_cx", 0);
+        blackboard->set("vision_bbox_cy", 0);
+
+        // 创建 VisionInferenceManager (视觉推理模块)
+        // 注意: 需要用户配置 enable_vision 参数和模型路径
+        this->declare_parameter<bool>("enable_vision", false);
+        this->declare_parameter<std::string>("vision_model_path", "");
+        this->declare_parameter<double>("vision_conf_thresh", 0.5);
+
+        if (this->get_parameter("enable_vision").as_bool()) {
+            std::string model_path = this->get_parameter("vision_model_path").as_string();
+            double conf_thresh = this->get_parameter("vision_conf_thresh").as_double();
+
+            if (!model_path.empty()) {
+                vision_manager_ = std::make_shared<rc26_vision::VisionInferenceManager>(*this);
+                std::vector<std::string> class_names = {
+                    "R_R1", "B_R1",
+                    "T_03", "T_04", "T_05", "T_06", "T_07", "T_08", "T_09", "T_10",
+                    "T_11", "T_12", "T_13", "T_14", "T_15", "T_16", "T_17",
+                    "F_18", "F_19", "F_20", "F_21", "F_22", "F_23", "F_24", "F_25",
+                    "F_26", "F_27", "F_28", "F_29", "F_30", "F_31", "F_32"
+                };
+                if (vision_manager_->configure(model_path, class_names, static_cast<float>(conf_thresh))) {
+                    blackboard->set("vision_manager", vision_manager_);
+                    RCLCPP_INFO(this->get_logger(), "视觉推理模块已初始化: %s", model_path.c_str());
+                } else {
+                    RCLCPP_ERROR(this->get_logger(), "视觉推理模块配置失败: %s", model_path.c_str());
+                    vision_manager_.reset();
+                }
+            } else {
+                RCLCPP_WARN(this->get_logger(), "enable_vision=true 但 vision_model_path 为空");
+            }
+        }
 
         // 创建 WaypointManager 并加载配置
         {
@@ -242,6 +289,7 @@ public:
         registerMFAreaNodes(factory_);
         registerCombatAreaNodes(factory_);
         registerNavigationNodes(factory_);
+        registerVisionNodes(factory_);
 
         // 加载行为树 XML
         std::string tree_file = this->get_parameter("tree_file").as_string();
@@ -291,6 +339,7 @@ private:
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr base_ground_level_sub_;
     rclcpp::Subscription<std_msgs::msg::Int8>::SharedPtr base_ground_stair_delta_sub_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr base_ground_stable_sub_;
+    std::shared_ptr<rc26_vision::VisionInferenceManager> vision_manager_;
 };
 
 }  // namespace rc26_decision
