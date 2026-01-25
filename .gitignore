@@ -7,7 +7,11 @@ log/
 .codex/
 .gemini/
 .idea/
+test/
 
+openspec/
+AGENTS.md
+CLAUDE.md
 # Python bytecode / caches
 __pycache__/
 *.pyc
