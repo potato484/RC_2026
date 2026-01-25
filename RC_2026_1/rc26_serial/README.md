@@ -1,239 +1,378 @@
-# rc26_serial - 串口通信驱动模块
-
-## 模块简介
-
-`rc26_serial` 是机器人的"通信专家"，专门负责上位机（负责决策和导航的计算机）与下位机（负责执行动作的微控制器）之间的通信。想象一下，你的大脑想要控制手脚行动，需要通过神经信号传递指令。这个模块就是机器人的"神经网络"，确保上位机的指令能够可靠地传递到下位机，并且能够及时收到下位机的反馈信息。
-
-## 核心功能
-
-### 串口通信
-
-模块通过串口（UART）与下位机进行通信。串口就像是机器人的"电话线"，两端通过这条线来传递信息。通信的规格是：
-- 通信速度：每秒传输100万个字符（1000000波特率），速度非常快
-- 数据格式：每个数据由8个比特组成，没有额外的校验位，有1个停止位
-- 校验方式：使用CRC32校验算法，确保数据在传输过程中没有出错
-
-### 数据帧格式
-
-模块使用固定格式的数据帧来封装信息。一个完整的数据帧包括：
-- **帧头**：两个固定的字节，用来标识"这是一帧数据的开始"
-- **序列号**：一个字节，用来区分不同的数据帧，就像给每封信编个号，防止丢失或重复
-- **数据长度**：一个字节，表示后面数据内容的长度
-- **重发次数**：一个字节，记录这帧数据已经重发了多少次，防止无限重发
-- **命令ID**：一个字节，表示这是什么命令（比如"抓取"、"旋转"等）
-- **数据内容**：可变长度，存放具体的命令参数
-- **校验值**：四个字节，用来检查数据是否正确
-- **帧尾**：两个固定的字节，用来标识"这是一帧数据的结束"
-
-这种格式就像写信有信封、地址、内容、签名一样，每部分都有特定的作用，确保信息能够准确传递。
-
-### 错误检测与重发
-
-模块内置了完整的错误检测和重发机制：
-- **CRC32校验**：每帧数据都会计算一个校验值。接收方会重新计算校验值并与收到的进行比较。如果不一致，说明数据在传输过程中出错了，就会丢弃这帧数据
-- **自动重发**：如果发送方在指定时间内没有收到确认回复，会自动重新发送这帧数据。最多会重发三次，如果三次都失败，就会报告错误
-- **确认机制**：接收方收到数据后，会发送一个确认回复。如果接收方发现数据有问题，会发送一个否认回复
-
-### 心跳检测
-
-模块会定期发送心跳信号，就像定期"打电话"询问下位机是否在线。如果连续多次收不到心跳回复，模块就会认为连接断开了，并尝试重新连接。这样可以及时发现通信故障，避免系统在通信中断的情况下继续工作。
-
-### 自动重连
-
-如果检测到连接断开，模块会自动尝试重新连接。重连过程包括：
-- 关闭旧的连接
-- 等待一段时间
-- 尝试重新打开串口
-- 验证连接是否正常
-
-这个机制确保了即使在通信暂时中断的情况下，系统也能自动恢复，不需要人工干预。
-
-## 下行指令（上位机 -> 下位机）
-
-上位机可以向下位机发送各种指令，主要包括：
-
-### 导航模式指令
-
-- **正常导航**：告诉下位机现在进入正常的导航模式
-- **上台阶导航**：告诉下位机现在需要上台阶，切换到特殊的台阶导航模式
-- **下台阶导航**：告诉下位机现在需要下台阶，切换到特殊的台阶导航模式
-- **急停指令**：紧急情况下立即停止所有动作，保证安全
-
-### 动作执行指令
-
-- **抓取端头**：执行抓取端头的动作
-- **组装兵器**：执行组装兵器的动作
-- **旋转动作**：执行旋转90度、180度等动作
-- **夹取物品**：在特定区域夹取物品
-
-### 机构控制指令
-
-- **机构抬升**：在不同的区域（如梅林区、对抗区）抬升机构
-- **机构下降**：在不同的区域下降机构
-- **放置物品**：将物品放置到指定位置（九宫格或地面）
-
-### 速度控制指令
-
-- **速度反馈**：向下位机反馈当前的速度信息
-- **目标速度**：告诉下位机期望达到的目标速度
-
-### 心跳查询
-
-定期发送心跳查询，确认下位机是否在线和正常工作。
-
-## 上行反馈（下位机 -> 上位机）
-
-下位机会向上位机发送各种反馈信息，主要包括：
-
-### 通用反馈
-
-- **确认收到**：表示已经收到指令并开始执行
-- **执行失败**：表示指令执行过程中出现了错误
-
-### 动作完成反馈
-
-- **抓取完成**：抓取动作已经完成
-- **组装完成**：组装动作已经完成
-- **旋转完成**：旋转动作已经完成
-- **机构动作完成**：机构抬升或下降动作已经完成
-- **放置完成**：物品放置动作已经完成
-- **上台阶完成**：上台阶动作已经完成
-- **下台阶完成**：下台阶动作已经完成
-
-### 状态反馈
-
-- **正在爬坡**：机器人正在执行爬坡动作
-- **爬坡完成**：爬坡动作已经完成
-- **心跳响应**：响应上位机的心跳查询，表示在线
-
-### 数据反馈
-
-- **里程计数据**：定期发送轮式里程计数据，包括四个轮子的速度信息
-- **系统错误**：发生严重的系统错误
-
-## 通信协议特点
-
-### 可靠性保障
-
-协议设计充分考虑了可靠性：
-- **数据校验**：每帧数据都有校验值，可以检测传输错误
-- **确认机制**：每帧数据都需要确认，确保对方收到了
-- **重发机制**：发送失败会自动重发，提高成功率
-- **序列号**：每个数据帧都有唯一的序列号，防止重复或丢失
-
-### 实时性保障
-
-协议设计也考虑了实时性：
-- **高速传输**：使用很高的波特率，确保数据传输速度快
-- **心跳机制**：定期检测连接状态，及时发现故障
-- **自动重连**：连接断开后自动恢复，减少停机时间
-
-### 灵活性保障
-
-协议设计还考虑了灵活性：
-- **可变长度数据**：数据内容可以是任意长度，适应不同命令的需求
-- **命令扩展**：可以轻松添加新的命令类型，不需要修改协议格式
-
-## 使用场景
-
-### 正常导航
-
-在正常导航过程中，上位机持续向下位机发送导航模式指令和目标速度，下位机执行移动并反馈状态。
-
-### 动作执行
-
-当需要执行抓取、旋转等动作时，上位机发送相应的动作指令，下位机执行完成后发送完成反馈。
-
-### 状态监控
-
-上位机定期发送心跳查询，下位机响应心跳，双方保持连接状态。如果连接断开，上位机能够及时发现并尝试重连。
-
-### 紧急情况
-
-在紧急情况下，上位机可以立即发送急停指令，下位机收到后会立即停止所有动作，确保安全。
-
-## 错误处理
-
-### 校验错误
-
-如果接收到的数据校验失败，模块会丢弃这帧数据。如果连续多次校验失败，可能会触发重连机制。
-
-### 超时错误
-
-如果发送数据后在一定时间内没有收到确认回复，模块会重新发送。如果重发多次后仍然失败，会报告错误。
-
-### 连接错误
-
-如果检测到连接断开（比如连续多次心跳失败），模块会自动尝试重连。如果重连失败，会报告错误。
-
-## 依赖关系
-
-这个模块是整个通信系统的基础，其他模块（如决策模块）会调用这个模块提供的接口来与下位机通信。模块本身只依赖最基本的系统库，不依赖其他ROS2模块，保证了其独立性和可靠性。
-
-## 注意事项
-
-### 串口配置
-
-在使用前，需要确保串口配置正确：
-- 串口设备路径正确（比如 `/dev/ttyUSB0`）
-- 波特率设置为1000000
-- 串口权限正确（需要读写权限）
-
-### 硬件连接
-
-需要确保上位机和下位机之间的串口连接正常：
-- 线路连接正确
-- 线路没有损坏
-- 下位机正常工作
-
-### 错误处理
-
-虽然模块内置了错误处理和重连机制，但在使用时还是应该关注错误信息。如果频繁出现错误，可能需要检查硬件连接或配置。
-
-## 技术细节
-
-### CRC32校验算法
-
-模块使用CRC32算法来计算数据校验值。CRC是"循环冗余校验"的缩写，是一种常用的错误检测方法。它会根据数据内容计算出一个校验值，接收方重新计算后如果结果不一致，就知道数据出错了。
-
-这个模块使用的是MPEG-2模型的CRC32算法，这是一种特定的CRC32实现方式。
-
-### 字节序
-
-模块使用小端字节序来存储多字节数据。字节序是指多字节数据在内存中的存储顺序。小端字节序是指低位字节存储在低地址，高位字节存储在高地址。
-
-### 异步接收
-
-模块使用异步方式接收数据，不会阻塞主程序。当有新数据到达时，会通过回调函数通知调用者。这样可以提高系统的响应速度和效率。
-
-## 常见问题
-
-### 连接失败
-
-如果无法建立连接，可能的原因包括：
-- 串口设备路径不正确
-- 串口被其他程序占用
-- 串口权限不足
-- 硬件连接有问题
-
-### 数据丢失
-
-如果经常出现数据丢失，可能的原因包括：
-- 串口波特率设置不正确
-- 线路质量不好
-- 下位机处理速度跟不上
-
-### 校验错误
-
-如果经常出现校验错误，可能的原因包括：
-- 线路干扰严重
-- 波特率不匹配
-- 数据在传输过程中被损坏
-
-## 性能特点
-
-模块设计充分考虑了性能和效率：
-- **高速传输**：使用高波特率，确保数据传输速度快
-- **异步处理**：不阻塞主程序，提高系统响应速度
-- **内存优化**：合理使用内存，避免不必要的内存分配
-- **错误恢复**：自动处理错误和重连，减少人工干预
+# rc26_serial
+
+## 1. 模块简介 (Introduction)
+`rc26_serial` 实现了上位机（PC/Jetson）与下位机（MCU/STM32）之间的高性能串口通信。它基于自定义的帧协议，提供可靠的数据传输、丢包重发、心跳保活及自动重连机制。
+
+本模块是机器人控制系统的通信核心，负责将上位机的控制指令（如速度、动作命令）下发给 MCU，同时接收 MCU 反馈的里程计数据和动作执行结果。
+
+## 2. 核心功能 (Core Features)
+*   **可靠传输协议**：基于 `0xAA 0x55` 帧头和 CRC32 校验，支持 ACK 确认与超时重传 (ARQ)。
+*   **双向通信**：
+    *   **TX (下行)**: 发送控制指令（如速度闭环控制、机械臂动作、导航目标点）。
+    *   **RX (上行)**: 接收里程计反馈、动作执行结果、传感器数据。
+*   **异常处理**：
+    *   **断线重连**：检测串口设备丢失或心跳超时后，自动尝试重新打开串口。
+    *   **线程安全**：发送与接收运行在独立线程，通过互斥锁保护共享资源。
+*   **心跳保活**：定期发送心跳包，检测通信链路健康状态。
+
+## 3. 通信协议 (Protocol v3.0)
+
+### 3.1 物理层
+| 参数 | 值 |
+| :--- | :--- |
+| **波特率** | 1,000,000 (1Mbps) |
+| **数据位** | 8 |
+| **校验位** | None |
+| **停止位** | 1 |
+| **字节序** | 小端 (Little-Endian) |
+
+### 3.2 帧结构
+所有数据按**小端 (Little-Endian)** 字节序传输。
+
+| 字段 | 长度 (Byte) | 值/说明 |
+| :--- | :--- | :--- |
+| HEAD_0 | 1 | `0xAA` |
+| HEAD_1 | 1 | `0x55` |
+| SEQ | 1 | 序列号 (0-255, 循环) |
+| LEN | 1 | CMD(1) + Payload(N) 的总长度 |
+| RETRY | 1 | 重发计数 (0x00, 0x03, 0x06, 0x09) |
+| CMD | 1 | 命令 ID |
+| PAYLOAD | N | 数据载荷 (Max 32 Bytes) |
+| CRC32 | 4 | 整个帧的 MPEG-2 CRC32 校验 |
+| TAIL_0 | 1 | `0x55` |
+| TAIL_1 | 1 | `0xAA` |
+
+**帧结构示意图**:
+```
+┌──────┬──────┬─────┬─────┬───────┬─────┬─────────┬───────┬──────┬──────┐
+│ 0xAA │ 0x55 │ SEQ │ LEN │ RETRY │ CMD │ PAYLOAD │ CRC32 │ 0x55 │ 0xAA │
+└──────┴──────┴─────┴─────┴───────┴─────┴─────────┴───────┴──────┴──────┘
+   1B     1B    1B    1B     1B     1B    0-32B      4B     1B     1B
+```
+
+### 3.3 下行指令 ID (上位机 → MCU)
+
+| ID | 名称 | 说明 | Payload |
+| :--- | :--- | :--- | :--- |
+| `0x00` | NAV_NORMAL | 非梅林区导航 | - |
+| `0x01` | NAV_STAIR_UP | 梅林区上阶梯导航 | - |
+| `0x02` | NAV_STAIR_DOWN | 梅林区下阶梯导航 | - |
+| `0x03` | STOP | 急停指令 | - |
+| `0x04` | GRAB_TIP | 抓取端头 | - |
+| `0x05` | ASSEMBLE_WEAPON | 组装兵器 | - |
+| `0x06` | ROTATE_POS_90 | 旋转 +90° | - |
+| `0x07` | ROTATE_NEG_90 | 旋转 -90° | - |
+| `0x08` | ROTATE_POS_180 | 旋转 +180° | - |
+| `0x09` | ROTATE_NEG_180 | 旋转 -180° | - |
+| `0x0A` | GRAB_KFS | 梅林区夹取 KFS | - |
+| `0x0B` | MECH_UP_MERLIN | 梅林区机构抬升 | - |
+| `0x0C` | MECH_DOWN_MERLIN | 梅林区机构下降 | - |
+| `0x0D` | MECH_UP_DUEL | 对抗区机构抬升 | - |
+| `0x0E` | PLACE_KFS_GRID | 对抗区放置 KFS 到九宫格 | - |
+| `0x0F` | PLACE_KFS_GROUND | 对抗区放置 KFS 到地面 | - |
+| `0x10` | HEARTBEAT | 心跳查询请求 | - |
+| `0x21` | POSE_FEEDBACK | 反馈速度 (vx, vy, wz) | 12B (3×float) |
+| `0x22` | POSE_TARGET | 目标速度 (vx, vy, wz) | 12B (3×float) |
+
+### 3.4 上行反馈 ID (MCU → 上位机)
+
+| ID | 名称 | 说明 | Payload |
+| :--- | :--- | :--- | :--- |
+| `0x00` | ACK | 确认收到指令 | - |
+| `0x01` | NACK | 执行动作失败，需要继续发送动作指令 | - |
+| `0x02` | GRAB_TIP_DONE | 夹取端头完成 | - |
+| `0x03` | ASSEMBLE_DONE | 组装兵器完成 | - |
+| `0x04` | CLIMBING_SLOPE | 正在爬坡 | - |
+| `0x05` | SLOPE_DONE | 爬坡完成 | - |
+| `0x06` | ROTATE_POS_90_DONE | 旋转 +90° 完成 | - |
+| `0x07` | ROTATE_NEG_90_DONE | 旋转 -90° 完成 | - |
+| `0x08` | ROTATE_POS_180_DONE | 旋转 +180° 完成 | - |
+| `0x09` | ROTATE_NEG_180_DONE | 旋转 -180° 完成 | - |
+| `0x0A` | MECH_UP_MERLIN_DONE | 梅林区机构抬升完成 | - |
+| `0x0B` | MECH_DOWN_MERLIN_DONE | 梅林区机构下降完成 | - |
+| `0x0C` | GRAB_KFS_DONE | 夹取 KFS 完成 | - |
+| `0x0D` | MECH_UP_DUEL_DONE | 对抗区机构抬升完成 | - |
+| `0x0E` | PLACE_KFS_GRID_DONE | 九宫格放置完成 | - |
+| `0x0F` | PLACE_KFS_GROUND_DONE | 地面放置完成 | - |
+| `0x10` | HEARTBEAT_ACK | 心跳响应 | - |
+| `0x11` | STAIR_CLIMB_DONE | 上阶梯完成 | - |
+| `0x12` | STAIR_DESCEND_DONE | 下阶梯完成 | - |
+| `0x20` | ODOM_DATA | 轮式里程计数据 | 16B (4×float: v_fl, v_rl, v_rr, v_fr) |
+| `0xFE` | ACTION_FAIL | 动作执行失败 | - |
+| `0xFF` | ERROR | 系统致命异常 | - |
+
+### 3.5 协议常量
+```cpp
+constexpr uint32_t UART_BAUDRATE = 1000000;
+constexpr uint32_t ACK_TIMEOUT_MS = 100;           // ACK 等待超时
+constexpr uint32_t RECONNECT_INTERVAL_MS = 500;    // 重连间隔
+constexpr uint32_t HEARTBEAT_INTERVAL_MS = 1000;   // 心跳间隔
+constexpr uint8_t MAX_RETRY_VALUE = 0x09;          // 最大重发次数值
+constexpr uint8_t RETRIES_PER_ROUND = 3;           // 每轮重发次数
+constexpr uint8_t MAX_HEARTBEAT_FAILURES = 3;      // 心跳连续失败次数阈值
+constexpr uint8_t MAX_PAYLOAD_SIZE = 32;           // payload 最大字节数
+constexpr uint8_t MAX_RECONNECT_ATTEMPTS = 10;     // 最大重连尝试次数
+```
+
+## 4. 代码实现细节
+
+### 4.1 SerialDriver 类
+*   封装了 `termios` 串口操作（Linux）。
+*   **发送线程**：`sendCommand` 接口将数据打包并写入串口。如果是需要 ACK 的指令，会阻塞等待 `ack_cv_` 或超时。
+*   **接收线程**：`recvThreadFunc` 循环读取串口数据到环形缓冲区，根据帧头帧尾截取完整数据包，并通过 CRC32 校验。
+*   **重发机制**：若发送后 `ACK_TIMEOUT_MS` (100ms) 内未收到对应 SEQ 的 ACK 包，且重试次数未达上限，则自动重发。
+
+### 4.2 心跳与重连
+*   **心跳**：上位机定期发送 `HEARTBEAT` (0x10)，下位机回复 `HEARTBEAT_ACK`。
+*   **故障检测**：连续 `MAX_HEARTBEAT_FAILURES` 次心跳失败，或 `write` 操作返回错误，触发重连流程。
+*   **重连流程**：关闭当前 fd → 等待 `RECONNECT_INTERVAL_MS` → 尝试 `open()` → 恢复数据流。
+
+### 4.3 CRC32 校验 (MPEG-2)
+```cpp
+inline uint32_t crc32_mpeg2_calculate(const uint8_t* data, size_t len) {
+    uint32_t crc = 0xFFFFFFFF;
+    for (size_t i = 0; i < len; ++i) {
+        crc ^= (uint32_t)data[i] << 24;
+        for (uint8_t j = 0; j < 8; ++j) {
+            if (crc & 0x80000000)
+                crc = (crc << 1) ^ 0x04C11DB7;
+            else
+                crc <<= 1;
+        }
+    }
+    return crc;
+}
+```
+
+## 5. 接口说明 (Interface Description)
+
+### 5.1 C++ API
+
+**初始化与连接**:
+```cpp
+#include "rc26_serial/serial_driver.hpp"
+
+rc26_decision::SerialDriver driver;
+
+// 打开串口
+if (!driver.open("/dev/ttyUSB0", 1000000)) {
+    std::cerr << "Failed to open serial: " << driver.lastError() << std::endl;
+}
+
+// 检查连接状态
+if (driver.isOpen()) {
+    // 串口已连接
+}
+
+// 关闭串口
+driver.close();
+```
+
+**设置回调**:
+```cpp
+// 接收数据回调
+driver.setReceiveCallback([](uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload) {
+    using namespace rc26_decision;
+    auto feedback = static_cast<FeedbackID>(cmd);
+
+    switch (feedback) {
+        case FeedbackID::ODOM_DATA:
+            // 解析里程计数据 (4 个 float)
+            if (payload.size() >= 16) {
+                float v_fl, v_rl, v_rr, v_fr;
+                std::memcpy(&v_fl, payload.data(), 4);
+                std::memcpy(&v_rl, payload.data() + 4, 4);
+                std::memcpy(&v_rr, payload.data() + 8, 4);
+                std::memcpy(&v_fr, payload.data() + 12, 4);
+            }
+            break;
+        case FeedbackID::GRAB_TIP_DONE:
+            // 抓取端头完成
+            break;
+        case FeedbackID::ACTION_FAIL:
+            // 动作执行失败
+            break;
+        default:
+            break;
+    }
+});
+
+// 心跳失败回调
+driver.setHeartbeatFailureCallback([]() {
+    std::cerr << "Heartbeat failure detected!" << std::endl;
+});
+
+// 重连成功回调
+driver.setReconnectCallback([]() {
+    std::cout << "Serial reconnected successfully" << std::endl;
+});
+
+// 重连开始回调
+driver.setReconnectStartCallback([]() {
+    std::cout << "Starting reconnection..." << std::endl;
+});
+
+// 重连失败回调
+driver.setReconnectFailedCallback([]() {
+    std::cerr << "Reconnection failed!" << std::endl;
+});
+
+// 调试回调 (可选)
+driver.setDebugCallback([](bool is_tx, const std::vector<uint8_t>& data) {
+    std::cout << (is_tx ? "TX: " : "RX: ");
+    for (auto b : data) printf("%02X ", b);
+    std::cout << std::endl;
+});
+```
+
+**发送指令**:
+```cpp
+using namespace rc26_decision;
+
+// 发送简单指令
+driver.sendCommand(CommandID::STOP);
+driver.sendCommand(CommandID::GRAB_TIP);
+driver.sendCommand(CommandID::NAV_NORMAL);
+
+// 发送速度指令 (vx, vy, wz)
+driver.sendPose(CommandID::POSE_TARGET, 0.5f, 0.0f, 0.1f);
+
+// 发送心跳
+driver.sendHeartbeat();
+
+// 发送带自定义 payload 的指令
+std::vector<uint8_t> payload = {0x01, 0x02, 0x03};
+driver.sendCommand(0x50, payload);
+```
+
+### 5.2 回调类型定义
+```cpp
+using ReceiveCallback = std::function<void(uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload)>;
+using HeartbeatFailureCallback = std::function<void()>;
+using ReconnectCallback = std::function<void()>;
+using ReconnectStartCallback = std::function<void()>;
+using ReconnectFailedCallback = std::function<void()>;
+using DebugCallback = std::function<void(bool is_tx, const std::vector<uint8_t>& data)>;
+```
+
+## 6. 启动示例 (Usage)
+
+### 6.1 完整使用示例
+```cpp
+#include "rc26_serial/serial_driver.hpp"
+#include <iostream>
+#include <thread>
+#include <chrono>
+
+int main() {
+    using namespace rc26_decision;
+
+    SerialDriver driver;
+
+    // 设置回调
+    driver.setReceiveCallback([](uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload) {
+        std::cout << "Received: SEQ=" << (int)seq << " CMD=0x" << std::hex << (int)cmd << std::endl;
+    });
+
+    driver.setHeartbeatFailureCallback([]() {
+        std::cerr << "Heartbeat failure!" << std::endl;
+    });
+
+    driver.setReconnectCallback([]() {
+        std::cout << "Reconnected!" << std::endl;
+    });
+
+    // 打开串口
+    if (!driver.open("/dev/ttyUSB0")) {
+        std::cerr << "Failed: " << driver.lastError() << std::endl;
+        return 1;
+    }
+
+    std::cout << "Serial opened successfully" << std::endl;
+
+    // 发送测试指令
+    driver.sendCommand(CommandID::NAV_NORMAL);
+
+    // 主循环
+    while (driver.isOpen()) {
+        // 定期发送心跳
+        driver.sendHeartbeat();
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+
+    driver.close();
+    return 0;
+}
+```
+
+### 6.2 测试节点
+```bash
+# 编译后运行测试节点
+ros2 run rc26_serial serial_test0_node
+ros2 run rc26_serial serial_test1_node
+```
+
+## 7. 目录结构 (Directory Structure)
+```
+rc26_serial/
+├── include/rc26_serial/
+│   ├── serial_driver.hpp    # SerialDriver 类定义
+│   └── protocol.hpp         # 协议常量、命令 ID、帧结构定义
+├── src/
+│   ├── serial_driver.cpp    # SerialDriver 实现
+│   └── scripts/
+│       ├── serial_test0_node.cpp  # 测试节点 0
+│       └── serial_test1_node.cpp  # 测试节点 1
+├── package.xml              # ROS 2 包描述
+├── CMakeLists.txt           # 构建配置
+└── README.md                # 本文档
+```
+
+## 8. 依赖项 (Dependencies)
+*   `rclcpp`: ROS 2 C++ 客户端库 (可选，用于测试节点)
+*   Linux `termios`: 串口操作 API
+
+## 9. 故障排查 (Troubleshooting)
+
+### 9.1 串口无法打开
+```bash
+# 检查串口设备是否存在
+ls -la /dev/ttyUSB*
+
+# 检查权限
+sudo chmod 666 /dev/ttyUSB0
+
+# 或将用户添加到 dialout 组
+sudo usermod -aG dialout $USER
+# 重新登录后生效
+```
+
+### 9.2 通信不稳定
+*   检查波特率是否匹配 (1000000)
+*   检查 USB 线缆质量
+*   检查 MCU 端协议实现是否正确
+*   使用 `setDebugCallback` 打印收发数据进行调试
+
+### 9.3 心跳超时
+*   检查 MCU 是否正确响应 `HEARTBEAT_ACK`
+*   检查串口是否被其他程序占用
+*   检查 USB 转串口芯片驱动是否正常
+
+## 10. 导航点坐标参考 (Waypoints)
+协议中预定义了比赛场地的关键导航点坐标：
+
+**红方 (Red)**:
+| 点位 | X (m) | Y (m) |
+| :--- | :--- | :--- |
+| GRAB_TIP | -0.7 | 0.6 |
+| ASSEMBLE | -0.5 | 0.2 |
+| MF_ENTRY | 1.6 | 2.0 |
+| ORIGIN | -1.4 | -0.3 |
+
+**蓝方 (Blue)**:
+| 点位 | X (m) | Y (m) |
+| :--- | :--- | :--- |
+| GRAB_TIP | 0.7 | 0.6 |
+| ASSEMBLE | 0.5 | 0.2 |
+| MF_ENTRY | -1.6 | 2.0 |
+| ORIGIN | 1.4 | -0.3 |

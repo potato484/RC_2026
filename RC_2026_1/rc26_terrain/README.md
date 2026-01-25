@@ -1,158 +1,225 @@
-# rc26_terrain - 地形语义感知模块
+# rc26_terrain
 
-## 模块简介
+## 1. 模块简介 (Introduction)
+`rc26_terrain` 是 RC2026 机器人导航系统的**地形分析与语义分割引擎**。它直接对接受来自 LiDAR 的原始点云数据，结合机器人当前的位姿信息，构建局部环境的高程模型。
 
-`rc26_terrain` 是机器人的"地形识别专家"，专门负责分析机器人周围的地形，识别哪些地方是安全的、哪些地方是障碍物、哪些地方有跌落风险。就像人类走路时会用眼睛观察地面，判断能不能走、会不会摔倒一样，这个模块通过分析激光雷达扫描到的点云数据，为机器人提供类似的地形感知能力。
+本模块的核心目标是将非结构化的点云转化为结构化的**语义点云**，明确标识出：
+*   **Obstacles**: 绝对不可通行的障碍物（如墙壁、敌方车辆）。
+*   **Climbable**: 机器人底盘可越过的低矮地形（如斜坡、小台阶）。
+*   **Drop/Cliffs**: 存在跌落风险的负障碍（如楼梯边缘、深坑）。
 
-## 核心功能
+这些语义信息将直接作为 `Nav2` 代价地图 (Costmap) 的输入层，从根本上解决"悬崖识别难"和"误识别可通行区域"的痛点。
 
-### 障碍物识别
-机器人需要知道哪些地方不能走，比如墙壁、柱子、其他机器人等。这个模块会分析点云数据，找出这些障碍物，并告诉导航系统避开它们。
+## 2. 核心功能 (Core Features)
 
-### 跌落风险检测
-在复杂地形中，机器人可能会遇到台阶、悬崖、坑洞等有高度差的地方。如果高度差太大，机器人可能会翻倒或卡住。这个模块会检测这些危险区域，防止机器人掉下去。
+*   **以机器人为中心的滚动栅格地图 (Rolling Grid Map)**:
+    *   实时维护一个跟随机器人移动的局部高程网格（例如 $6.4m \times 6.4m$）。
+    *   高效处理点云数据，统计每个栅格内的地面高度与顶部高度。
+*   **精细化地形分类 (Semantic Classification)**:
+    *   基于高度差 ($\Delta H$) 与相对高度 ($Z_{rel}$) 的几何规则判定。
+    *   能够区分普通障碍物、悬空障碍物（如横梁）、可攀爬斜坡与跌落边缘。
+*   **鲁棒的滤波机制**:
+    *   **时间滞后 (Hysteresis) 滤波**: 引入积分状态机 (Score System)，只有连续多次检测到障碍物才确认为障碍，有效消除点云噪点造成的"闪烁"现象。
+    *   **指数移动平均 (EMA)**: 平滑地面高度估计，减少测量误差带来的抖动。
+    *   **时间衰减 (Time Decay)**: 自动清除过期的历史观测数据，适应动态变化的环境。
+*   **失效保护 (Fail-Safe)**:
+    *   当传感器数据中断或 TF 变换丢失时，自动在机器人周围生成一圈虚拟围栏 (Virtual Fence)，强制导航层停止规划，确保安全。
+*   **Unknown 策略可配置**:
+    *   `aggressive`: 忽略未知区域（默认，行为更激进）。
+    *   `conservative`: 将未知区域视为风险点输出给 Nav2（更保守）。
 
-### 可攀爬区域识别
-有些地方虽然有一定的高度差，但机器人可以爬上去，比如低矮的台阶。这个模块会识别这些可攀爬的区域，为决策系统提供参考信息。
+## 3. 底层原理 (Underlying Principles)
 
-## 工作原理         
+### 3.1 高度统计与地面估计
+对于落入同一栅格 $(i, j)$ 内的所有点云 $\{p_k\}$：
+1.  **高度排序**: 对所有点的 $Z$ 坐标进行排序。
+2.  **地面估计 ($Z_{ground}$)**: 取 $25\%$ 分位数的 $Z$ 值作为当前帧的观测值，并使用 EMA 更新历史估计：
+    $$ Z_{ground}^{new} = \alpha \cdot Z_{obs} + (1 - \alpha) \cdot Z_{ground}^{old} $$
+3.  **顶部估计 ($Z_{top}$)**: 取 $95\%$ 分位数的 $Z$ 值，代表该区域的最高点。
 
-### 点云数据处理
-激光雷达会不断扫描周围环境，生成大量的三维点云数据。这些点就像是在空间中标记了"这里有东西"的位置。模块会接收这些点云数据，然后进行分析。
+### 3.2 语义分类逻辑
+计算相对于机器人基座 ($Z_{base}$) 的特征高度：
 
-### 栅格化处理
-为了高效处理大量点云数据，模块会将三维空间划分成一个个小格子，就像把房间划分成网格一样。每个格子记录这个区域的地形信息，比如平均高度、高度变化等。
+*   **Drop (跌落风险)**:
+    $$ Z_{ground} < (Z_{base} - h_{drop\_thresh}) $$
+    *   *条件*: 且该栅格位于机器人运动方向的前方扇区内（可配置 `drop_forward_sector_deg`）。
+*   **Climbable (可跨越)**:
+    $$ h_{min\_climb} < (Z_{top} - Z_{ground}) < h_{max\_climb} $$
+    *   *说明*: 且地面高度接近机器人水平面，视为可通行的斜坡或矮阶梯。
+*   **Obstacle (障碍物)**:
+    $$ (Z_{top} - Z_{ground}) > h_{max\_climb} $$
+    *   *说明*: 高度差超过越障能力的物体。
 
-### 高度差分析
-模块会计算相邻格子之间的高度差。如果高度差很小，说明是平地；如果高度差适中，可能是台阶；如果高度差很大，可能是悬崖或障碍物。
+### 3.3 积分状态机 (Score System)
+为了防止误报，每个栅格维护 `obstacle_score` 和 `drop_score` (范围: $0 \sim 10$)：
+*   **Hit**: 当前帧检测到特征 $\rightarrow$ Score += 2
+*   **Miss**: 当前帧未检测到 $\rightarrow$ Score -= 1
+*   **状态翻转**:
+    *   `Unknown` $\rightarrow$ `Occupied`: Score > 6
+    *   `Occupied` $\rightarrow$ `Free`: Score < 3
 
-### 语义分类
-根据高度差和其他特征，模块会将每个区域分类为：
-- 安全区域：可以正常通行
-- 障碍物区域：有物体阻挡，不能通过
-- 跌落风险区域：有高度差，可能会掉下去
-- 可攀爬区域：有一定高度差，但可以爬上去
+### 3.4 失效保护策略
+| 策略 | 说明 |
+| :--- | :--- |
+| `none` | 仅报错，不主动干预 |
+| `virtual_fence` | 生成圆形虚拟墙，阻止机器人移动 |
+| `emergency_stop` | 生成全向致密阻挡，强制急停 |
 
-## 输出信息
+## 4. 接口说明 (Interface Description)
 
-### 障碍物点云
-模块会输出一个点云，标记所有识别为障碍物的位置。导航系统会使用这个信息来规划路径，避开这些障碍物。
+### 4.1 话题订阅 (Subscribed Topics)
+| 话题 (Topic) | 类型 (Type) | 说明 | QoS |
+| :--- | :--- | :--- | :--- |
+| `registered_scan` | `sensor_msgs/msg/PointCloud2` | 原始点云 (Base Link 或 Lidar Frame) | Best Effort |
+| `odom` | `nav_msgs/msg/Odometry` | 机器人里程计，提供实时高度 $Z_{base}$ | Reliable |
 
-### 跌落风险点云
-模块会输出另一个点云，标记所有有跌落风险的位置。导航系统会特别小心这些区域，防止机器人掉下去。
+### 4.2 话题发布 (Published Topics)
+| 话题 (Topic) | 类型 (Type) | 说明 |
+| :--- | :--- | :--- |
+| `terrain_obstacles` | `sensor_msgs/msg/PointCloud2` | 障碍物点云，用于局部代价地图的 Obstacle Layer |
+| `terrain_drop` | `sensor_msgs/msg/PointCloud2` | 跌落/悬崖点云，用于 Voxel Layer 或标记禁行区 |
+| `terrain_climbable` | `sensor_msgs/msg/PointCloud2` | 可通行区域点云 (可选可视化调试) |
+| `diagnostics`| `diagnostic_msgs/msg/DiagnosticArray` | 模块健康状态、传感器延时报警 |
 
-### 可攀爬区域点云
-模块还会输出可攀爬区域的点云，供决策系统参考。当机器人需要上台阶时，决策系统可以参考这个信息。
+### 4.3 关键参数配置 (Parameters)
 
-### 诊断信息
-模块会持续输出自己的运行状态，包括处理了多少数据、识别了多少障碍物、是否有异常等。这些信息可以帮助调试和监控系统健康状态。
+通过 `config/terrain_semantic.yaml` 配置：
 
-## 关键参数说明
+| 参数域 | 参数名 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| **话题** | `input_cloud_topic` | `registered_scan` | 点云输入话题 |
+| | `odom_topic` | `odom` | 里程计输入话题 |
+| | `output_obstacles_topic` | `terrain_obstacles` | 障碍物输出话题 |
+| | `output_drop_topic` | `terrain_drop` | 跌落风险输出话题 |
+| | `output_climbable_topic` | `terrain_climbable` | 可攀爬区域输出话题 |
+| **坐标系** | `target_frame` | `odom` | 目标坐标系 |
+| | `base_frame` | `base_link` | 机器人基座坐标系 |
+| | `tf_timeout_sec` | 0.2 | TF 查询超时时间 (秒) |
+| **栅格** | `perception_radius_m` | 3.2 | 地图感知半径 (米) |
+| | `grid_resolution_m` | 0.1 | 栅格分辨率 (米) |
+| | `voxel_leaf_size_m` | 0.05 | 体素滤波叶子大小 (米) |
+| **高度过滤** | `min_rel_z_m` | -1.5 | 相对机器人最小 Z 高度 |
+| | `max_rel_z_m` | 0.5 | 相对机器人最大 Z 高度 |
+| **地面估计** | `min_points_per_cell` | 5 | 每个栅格最小点数 |
+| | `ground_quantile` | 0.25 | 地面高度分位数 |
+| | `top_quantile` | 0.95 | 顶部高度分位数 |
+| | `ground_ema_alpha` | 0.6 | EMA 平滑系数 |
+| **语义阈值** | `h_obstacle_m` | 0.33 | 障碍物高度判定阈值 |
+| | `h_climb_m` | 0.30 | 最大可越障/爬坡高度 |
+| | `h_drop_m` | 0.15 | 允许的最大下落高度 |
+| | `climbable_min_dz_m` | 0.05 | 可攀爬最小高度差 |
+| **Unknown 策略** | `unknown_policy` | `aggressive` | `aggressive`/`conservative` |
+| | `unknown_output` | `drop` | Unknown 输出到 `drop` 或 `obstacles` |
+| **滤波** | `enable_hysteresis` | true | 是否启用积分滤波 |
+| | `score_max` | 10 | 积分最大值 |
+| | `score_inc` | 2 | 检测到时积分增量 |
+| | `score_dec` | 1 | 未检测到时积分减量 |
+| | `obstacle_on_score` | 6 | 障碍物确认阈值 |
+| | `obstacle_off_score` | 3 | 障碍物清除阈值 |
+| | `decay_time_sec` | 2.0 | 栅格数据老化清除时间 |
+| **失效保护** | `enable_fail_safe` | true | 是否启用传感器失效保护 |
+| | `fail_safe_strategy` | `virtual_fence` | `none`/`virtual_fence`/`emergency_stop` |
+| | `virtual_fence_radius_m` | 0.6 | 虚拟围栏半径 |
+| | `virtual_fence_num_points` | 36 | 虚拟围栏点数 |
+| **QoS** | `cloud_qos_reliability` | `best_effort` | 点云 QoS 可靠性 |
+| | `odom_qos_reliability` | `reliable` | 里程计 QoS 可靠性 |
+| | `output_qos_reliability` | `best_effort` | 输出 QoS 可靠性 |
 
-### 感知范围
-这个参数决定了模块会分析多大范围内的地形。范围太大，计算量会增加；范围太小，可能无法及时发现远处的危险。
+## 5. 启动示例 (Usage)
 
-### 栅格分辨率
-这个参数决定了栅格的大小。分辨率越高，分析越精细，但计算量也越大。需要在精度和性能之间找到平衡。
+### 5.1 命令行启动
+```bash
+# 使用默认参数启动
+ros2 launch rc26_terrain terrain_semantic.launch.py
 
-### 高度阈值
-模块使用多个高度阈值来判断地形类型：
-- 障碍物高度阈值：超过这个高度差，认为是障碍物
-- 跌落高度阈值：超过这个高度差，认为有跌落风险
-- 可攀爬高度阈值：在这个范围内的高度差，认为是可攀爬的
+# 指定命名空间和参数文件
+ros2 launch rc26_terrain terrain_semantic.launch.py \
+    namespace:=robot1 \
+    use_sim_time:=true \
+    params_file:=/path/to/custom_params.yaml
+```
 
-### 未知区域策略
-当地形信息不足时，模块有两种策略：
-- 激进策略：未知区域当作安全区域，允许通过
-- 保守策略：未知区域当作危险区域，禁止通过
+### 5.2 Launch 文件参数
+| 参数 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `namespace` | `""` | 顶级命名空间 |
+| `use_sim_time` | `false` | 是否使用仿真时间 |
+| `params_file` | `config/terrain_semantic.yaml` | 参数文件路径 |
 
-### 迟滞机制
-为了防止地形判断在边界处频繁变化，模块使用了迟滞机制。就像开关有"开"和"关"两个状态，中间有一个过渡区间，只有超过这个区间才会切换状态。这样可以避免因为传感器噪声导致的误判。
+### 5.3 在其他 Launch 文件中包含
+```python
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import PathJoinSubstitution
+from launch_ros.substitutions import FindPackageShare
 
-### 失效保护
-如果模块检测到异常情况，比如传感器数据异常、处理超时等，会触发失效保护机制。失效保护有多种策略：
-- 虚拟围栏：在机器人周围设置一个安全区域，禁止进入
-- 紧急停车：立即停止机器人移动，等待人工干预
+IncludeLaunchDescription(
+    PythonLaunchDescriptionSource([
+        PathJoinSubstitution([
+            FindPackageShare('rc26_terrain'), 'launch', 'terrain_semantic.launch.py'
+        ])
+    ]),
+    launch_arguments={
+        'namespace': 'robot1',
+        'use_sim_time': 'false',
+        'params_file': '/path/to/params.yaml'
+    }.items()
+)
+```
 
-## 坐标系说明
+### 5.4 与 Nav2 Costmap 集成
+在 Nav2 的 `local_costmap_params.yaml` 中添加 Obstacle Layer：
+```yaml
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      plugins: ["obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: terrain_obstacles terrain_drop
+        terrain_obstacles:
+          topic: /terrain_obstacles
+          sensor_frame: odom
+          observation_persistence: 0.0
+          expected_update_rate: 10.0
+          data_type: "PointCloud2"
+          clearing: true
+          marking: true
+          max_obstacle_height: 2.0
+          min_obstacle_height: 0.0
+        terrain_drop:
+          topic: /terrain_drop
+          sensor_frame: odom
+          observation_persistence: 0.0
+          expected_update_rate: 10.0
+          data_type: "PointCloud2"
+          clearing: false
+          marking: true
+          max_obstacle_height: 2.0
+          min_obstacle_height: -2.0
+```
 
-### 输入坐标系
-模块接收的点云数据可能来自不同的坐标系，需要根据时间戳进行坐标变换，统一转换到目标坐标系。
+## 6. 目录结构 (Directory Structure)
+```
+rc26_terrain/
+├── include/rc26_terrain/
+│   └── terrain_semantic_node.hpp   # 核心节点类定义
+├── src/
+│   └── terrain_semantic_node.cpp   # 节点实现
+├── config/
+│   └── terrain_semantic.yaml       # 默认参数配置
+├── launch/
+│   └── terrain_semantic.launch.py  # 启动文件
+├── package.xml                     # ROS 2 包描述
+├── CMakeLists.txt                  # 构建配置
+└── README.md                       # 本文档
+```
 
-### 输出坐标系
-模块输出的点云数据默认在里程计坐标系下发布，这样导航系统可以直接使用。
-
-### 基准坐标系
-模块需要知道机器人底盘的位置和姿态，才能正确判断地形。这个信息通过基准坐标系提供。
-
-## 使用场景
-
-### 正常导航
-在正常导航过程中，模块持续分析地形，为导航系统提供障碍物和危险区域信息，确保机器人安全移动。
-
-### 复杂地形穿越
-当机器人需要在有台阶、斜坡等复杂地形中移动时，模块会识别这些地形特征，帮助决策系统制定合适的移动策略。
-
-### 安全监控
-模块会持续监控周围环境，一旦发现新的危险区域，立即通知导航系统，防止机器人进入危险区域。
-
-## 与导航系统的集成
-
-### 代价地图输入
-模块输出的障碍物和跌落风险点云会被输入到导航系统的代价地图中。代价地图是导航系统用来规划路径的工具，它会根据这些信息计算每个位置的"代价"，代价高的地方会尽量避免。
-
-### 实时更新
-模块会持续更新输出信息，导航系统也会实时更新代价地图。这样，即使环境发生变化，比如有新的障碍物出现，导航系统也能及时调整路径。
-
-### 分层管理
-为了更灵活地控制导航行为，障碍物和跌落风险被分成不同的层。在某些情况下，可以临时关闭某些层，比如在需要跨越台阶时，可以暂时忽略跌落风险层。
-
-## 调试和可视化
-
-### RViz 可视化
-可以使用 RViz 工具实时查看模块的输出结果。不同的点云用不同颜色显示，比如障碍物用红色，跌落风险用黄色，可攀爬区域用绿色。这样可以直观地看到模块的识别效果。
-
-### 诊断信息监控
-模块会发布诊断信息，可以通过 ROS 的诊断工具查看。如果发现异常，比如处理延迟过大、识别错误率过高等，需要检查配置参数或传感器状态。
-
-### 数据录制和回放
-可以将传感器数据录制下来，然后回放进行离线分析。这对于调试和优化参数很有帮助。
-
-## 性能优化
-
-### 体素降采样
-为了减少计算量，模块会对点云进行降采样，只保留关键的点。这就像把高清照片压缩成低分辨率，虽然细节少了，但主要信息还在。
-
-### 多线程处理
-模块使用多线程来并行处理数据，提高处理速度。就像多个人同时工作，比一个人工作要快。
-
-### 缓存机制
-对于变化不大的地形信息，模块会缓存处理结果，避免重复计算。
-
-## 注意事项
-
-### 传感器标定
-激光雷达的位置和姿态必须准确标定，否则地形分析会出现偏差。如果传感器位置发生变化，需要重新标定。
-
-### 坐标系一致性
-模块使用的坐标系必须和其他模块保持一致，否则输出的信息无法被正确使用。
-
-### 参数调优
-不同的环境和应用场景可能需要不同的参数设置。需要根据实际情况调整参数，比如在室内和室外，障碍物高度阈值可能需要不同。
-
-### 实时性要求
-地形感知需要实时性，如果处理延迟太大，机器人可能已经移动到危险区域才发现问题。需要平衡处理精度和处理速度。
-
-## 常见问题
-
-### 误识别障碍物
-可能是高度阈值设置不合理，或者传感器噪声太大。可以调整阈值参数，或者增加滤波处理。
-
-### 漏检危险区域
-可能是感知范围太小，或者栅格分辨率太低。可以增大感知范围，或者提高分辨率。
-
-### 处理延迟过大
-可能是点云数据量太大，或者计算资源不足。可以调整降采样参数，或者优化算法。
-
-### 坐标系错误
-检查坐标系配置是否正确，检查 TF 变换是否正常。
+## 7. 依赖项 (Dependencies)
+*   `rclcpp`: ROS 2 C++ 客户端库
+*   `sensor_msgs`: 点云消息类型
+*   `nav_msgs`: 里程计消息类型
+*   `diagnostic_msgs`: 诊断消息类型
+*   `tf2_ros`: TF2 变换库
+*   `pcl_ros`: PCL 点云处理库

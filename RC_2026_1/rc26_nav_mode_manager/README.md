@@ -1,268 +1,263 @@
-# rc26_nav_mode_manager - 导航模式管理器模块
+# rc26_nav_mode_manager
 
-## 模块简介
+## 1. 模块简介 (Introduction)
+`rc26_nav_mode_manager` 是导航系统的**安全模式管理器**。它负责监控机器人状态，根据外部指令或异常情况（如超时、堵转）动态切换导航模式，并管理 Costmap 的清理与层级控制。
 
-`rc26_nav_mode_manager` 是机器人的"导航模式切换专家"，专门负责管理导航系统的安全模式，在不同地形环境下切换不同的导航策略。想象一下，你在开车时，遇到不同路况会切换不同的驾驶模式：在正常道路上用普通模式，在雪地上用雪地模式，在越野时用四驱模式。这个模块就是机器人的"驾驶模式切换器"，根据地形特点切换不同的导航模式，确保机器人能够安全、高效地移动。
+本模块是机器人导航安全的核心保障，能够在检测到异常时自动触发保护机制，防止机器人陷入危险状态。
 
-## 核心功能
+## 2. 核心功能 (Core Features)
+*   **导航模式切换**：
+    *   `NORMAL`: 正常导航模式，机器人按照规划路径行驶。
+    *   `SLOW`: 低速/精密模式（可选），用于精细操作场景。
+    *   `STOP`: 强制急停模式，立即停止所有运动。
+*   **Costmap 管理**：提供服务接口以清除全局或局部代价地图，常用于解决机器人陷入"假障碍物"包围的困境。
+*   **自动回退/恢复**：检测机器人是否长时间未移动（超时），自动触发 Costmap 清理或重置导航状态。
+*   **速度监控**：监听里程计速度，判断机器人是否物理静止。
+*   **Drop Layer 控制**：动态启用/禁用 Costmap 的 Drop Layer，适应不同地形场景。
 
-### 导航模式管理
+## 3. 底层原理 (Underlying Principles)
 
-模块管理四种导航安全模式：
-- **正常模式（NORMAL）**：在正常平坦地面上使用，启用跌落保护层，机器人会避开所有高度差较大的区域
-- **梅林安全模式（MF_SAFE）**：在梅林区域附近的安全位置使用，仍然启用跌落保护，但可以更靠近梅林区域
-- **梅林穿越模式（MF_TRAVERSE）**：在需要穿越梅林区域时使用，临时关闭跌落保护层，允许机器人通过有高度差的地形
-- **梅林退出模式（MF_EXIT）**：从梅林区域退出时使用，临时关闭跌落保护层，确保机器人能够顺利退出
+### 3.1 速度监测与静止判定
+通过订阅 `odom` 话题，计算线速度和角速度模长：
+$$ v = \sqrt{v_x^2 + v_y^2}, \quad \omega = |\omega_z| $$
+若 $v < \epsilon_{linear}$ 且 $\omega < \epsilon_{angular}$ 持续一定时间，判定为 `RobotStopped`。
 
-这就像根据不同路况切换驾驶模式，让机器人能够在不同地形下都能正常工作。
+**判定参数**:
+*   `stop_linear_eps_mps`: 线速度静止阈值 (默认 0.05 m/s)
+*   `stop_angular_eps_rps`: 角速度静止阈值 (默认 0.05 rad/s)
 
-### 跌落保护层控制
+### 3.2 Costmap 层级控制
+通过 ROS 2 Parameter Client 动态修改 Navigation Stack（如 Nav2）的参数。
+*   例如：在特定区域（如平坦地面）禁用 `voxel_layer` 或 `obstacle_layer`，仅保留静态地图，以减少噪点干扰。
+*   通过 `setDropLayerEnabled(bool)` 方法控制 Drop Layer 的启用状态。
 
-模块可以动态控制导航系统代价地图中的跌落保护层。跌落保护层会标记所有有跌落风险的区域，导航系统会避开这些区域。当机器人需要穿越台阶或有高度差的地形时，模块可以临时关闭这个保护层，允许机器人通过。当机器人完成任务后，模块会重新启用保护层，确保后续的安全导航。
+### 3.3 超时机制
+内置定时器 `timeout_timer_`。若在 `current_timeout_sec_` 时间内未收到特定刷新信号或达成目标，触发超时处理：
+1.  发布 `STOP` 状态。
+2.  尝试清理 Costmap。
+3.  等待 Costmap 重建完成。
 
-### 代价地图清理
-
-当切换到穿越模式时，模块会清理局部代价地图，确保新的障碍物信息能够正确加载。这就像刷新一下导航地图，清除旧的障碍物标记，让机器人能够重新规划路径。
-
-### 超时保护
-
-模块会为穿越模式设置超时保护。如果在指定时间内没有完成穿越任务，模块会自动切换回安全模式，并重新启用跌落保护层。这就像设置一个闹钟，如果在太长时间内没有完成危险任务，就自动退出，避免机器人长时间处于危险状态。
-
-### 机器人状态监控
-
-模块会持续监控机器人的运动状态，确保在切换模式时机器人处于静止状态。这就像在切换驾驶模式时，需要先把车停下来。如果机器人在移动，模块会拒绝模式切换请求，避免在移动过程中改变导航策略导致的危险。
-
-## 工作原理
-
-### 模式切换请求接收
-
-模块接收来自其他模块（通常是决策系统）的模式切换请求。请求包含目标模式、超时时间和切换原因。模块会验证请求的有效性，确保目标模式是合法的。
-
-### 机器人状态检查
-
-在切换模式之前，模块会检查机器人是否处于静止状态。模块会订阅里程计话题，监控机器人的线速度和角速度。如果速度超过阈值（比如线速度超过0.05米每秒，角速度超过0.05弧度每秒），就认为机器人还在移动，会拒绝切换请求。
-
-### 跌落保护层控制
-
-根据目标模式，模块会动态控制跌落保护层的状态：
-- **切换到穿越模式**：关闭跌落保护层，允许机器人通过有高度差的地形
-- **切换到安全模式**：启用跌落保护层，保护机器人避开危险区域
-
-模块通过调用代价地图节点的参数服务来修改跌落保护层的启用状态。
-
-### 代价地图清理
-
-当切换到穿越模式时，模块会调用代价地图的清理服务，清除局部代价地图中的所有障碍物信息。这就像擦掉地图上的所有标记，准备重新绘制。
-
-### 代价地图重建等待
-
-清理代价地图后，模块会等待代价地图重建。模块会监控障碍物话题的更新时间，如果检测到有新的障碍物数据到达，就认为代价地图已经重建完成。
-
-### 超时定时器设置
-
-如果切换到穿越模式，模块会启动一个超时定时器。如果在超时时间内任务没有完成，定时器会触发，模块会自动切换回安全模式，并重新启用跌落保护层。
-
-### 状态发布
-
-模块会持续发布当前的导航模式状态，包括当前模式、切换时间、切换原因、是否需要停止等。其他模块可以订阅这个状态，了解当前的导航模式。
-
-## 数据流流向
-
+### 3.4 模式切换状态机
 ```
-决策系统
-    │
-    ├─→ 模式切换请求 (SetNavMode服务)
-    │       │
-    │       ▼
-    │   导航模式管理器 (rc26_nav_mode_manager)
-    │       │
-    │       ├─→ 检查机器人状态
-    │       │       │
-    │       │       ▼
-    │       │   订阅里程计话题
-    │       │       │
-    │       │       ▼
-    │       │   判断是否静止
-    │       │       │
-    │       │       ▼
-    │       │   (如果移动，拒绝请求)
-    │       │
-    │       ├─→ 控制跌落保护层
-    │       │       │
-    │       │       ▼
-    │       │   调用参数服务
-    │       │       │
-    │       │       ▼
-    │       │   代价地图节点 ← 修改drop_layer.enabled参数
-    │       │
-    │       ├─→ 清理代价地图
-    │       │       │
-    │       │       ▼
-    │       │   调用清理服务
-    │       │       │
-    │       │       ▼
-    │       │   代价地图节点 ← 清除障碍物信息
-    │       │
-    │       ├─→ 等待地图重建
-    │       │       │
-    │       │       ▼
-    │       │   订阅障碍物话题
-    │       │       │
-    │       │       ▼
-    │       │   检测新数据到达
-    │       │
-    │       ├─→ 设置超时定时器
-    │       │       │
-    │       │       ▼
-    │       │   (超时后自动切换回安全模式)
-    │       │
-    │       └─→ 发布模式状态
-    │               │
-    │               ▼
-    │           模式状态话题 (nav_safety/state)
-    │               │
-    │               ▼
-    │           决策系统 ← 订阅
-    │           其他模块 ← 订阅
+┌────────┐  set_nav_mode(STOP)  ┌──────┐
+│ NORMAL │ ──────────────────→ │ STOP │
+└────┬───┘                     └──┬───┘
+     │                            │
+     │  set_nav_mode(SLOW)        │ set_nav_mode(NORMAL)
+     ↓                            ↓
+┌────────┐                    ┌────────┐
+│  SLOW  │ ←───────────────── │ NORMAL │
+└────────┘  set_nav_mode(SLOW) └────────┘
 ```
 
-## 输入输出
+## 4. 接口说明 (Interface Description)
 
-### 输入数据
+### 4.1 服务 (Services)
+| 服务名 (Service) | 类型 (Type) | 说明 |
+| :--- | :--- | :--- |
+| `set_nav_mode` | `rc26_interfaces/srv/SetNavMode` | 外部请求切换导航模式 |
 
-模块需要订阅以下话题：
-- **里程计数据**：来自里程计系统，包含机器人当前速度信息，用于判断机器人是否静止
-- **障碍物点云**：来自地形感知模块，用于检测代价地图是否重建完成
+**SetNavMode 服务定义**:
+```
+# Request
+uint8 mode    # 0: NORMAL, 1: SLOW, 2: STOP
 
-### 输出数据
+# Response
+bool success
+string message
+```
 
-模块会发布以下话题：
-- **导航模式状态**：包含当前模式、切换时间、切换原因、是否需要停止、是否超时等信息，类型为rc26_interfaces/msg/NavSafetyMode
+### 4.2 话题订阅 (Subscribed Topics)
+| 话题 (Topic) | 类型 (Type) | 说明 |
+| :--- | :--- | :--- |
+| `odom` | `nav_msgs/msg/Odometry` | 用于速度监控，判断机器人是否静止 |
+| `terrain_obstacles` | `sensor_msgs/msg/PointCloud2` | (可选) 监控障碍物密度 |
 
-### 服务接口
+### 4.3 话题发布 (Published Topics)
+| 话题 (Topic) | 类型 (Type) | 说明 |
+| :--- | :--- | :--- |
+| `nav_safety_mode` | `rc26_interfaces/msg/NavSafetyMode` | 广播当前生效的安全模式 |
 
-模块提供以下服务：
-- **设置导航模式**：接收模式切换请求，执行模式切换，返回成功或失败信息，类型为rc26_interfaces/srv/SetNavMode
+**NavSafetyMode 消息定义**:
+```
+uint8 NORMAL = 0
+uint8 SLOW = 1
+uint8 STOP = 2
 
-### 参数和服务调用
+uint8 mode
+builtin_interfaces/Time stamp
+string reason
+```
 
-模块会调用以下接口：
-- **代价地图参数服务**：修改跌落保护层的启用状态
-- **代价地图清理服务**：清理局部代价地图中的障碍物信息
+### 4.4 客户端 (Clients)
+| 客户端 (Client) | 类型 (Type) | 说明 |
+| :--- | :--- | :--- |
+| `clear_entire_costmap` | `nav2_msgs/srv/ClearEntireCostmap` | 调用 Nav2 的清除地图服务 |
 
-## 关键参数说明
+### 4.5 参数配置 (Parameters)
 
-### 代价地图配置
+通过 `config/nav_mode_manager.yaml` 配置：
 
-- **代价地图节点名称**：代价地图节点的完整名称（比如 `local_costmap/local_costmap`），用于调用参数服务和清理服务
+| 参数名 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `costmap_node_name` | string | `local_costmap/local_costmap` | Costmap 节点名称 |
+| `odom_topic` | string | `odom` | 里程计话题 |
+| `obstacles_topic` | string | `terrain_obstacles` | 障碍物点云话题 |
+| `default_timeout_sec` | double | 5.0 | 默认超时时间 (秒) |
+| `stop_linear_eps_mps` | double | 0.05 | 线速度静止阈值 (m/s) |
+| `stop_angular_eps_rps` | double | 0.05 | 角速度静止阈值 (rad/s) |
+| `param_timeout_sec` | double | 2.0 | 参数服务超时时间 (秒) |
+| `clear_timeout_sec` | double | 2.0 | 清除 Costmap 超时时间 (秒) |
+| `rebuild_timeout_sec` | double | 0.5 | Costmap 重建等待时间 (秒) |
 
-### 话题配置
+## 5. 启动示例 (Usage)
 
-- **里程计话题**：订阅的里程计话题名称，用于监控机器人速度
-- **障碍物话题**：订阅的障碍物点云话题名称，用于检测代价地图重建
+### 5.1 命令行启动
+```bash
+# 使用默认参数启动
+ros2 launch rc26_nav_mode_manager nav_mode_manager.launch.py
 
-### 停止判断参数
+# 指定命名空间和参数
+ros2 launch rc26_nav_mode_manager nav_mode_manager.launch.py \
+    namespace:=robot1 \
+    use_sim_time:=true \
+    params_file:=/path/to/custom_params.yaml
+```
 
-- **线速度阈值**：判断机器人是否静止的线速度阈值（单位：米每秒），比如0.05米每秒
-- **角速度阈值**：判断机器人是否静止的角速度阈值（单位：弧度每秒），比如0.05弧度每秒
+### 5.2 Launch 文件参数
+| 参数 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `namespace` | `""` | 顶级命名空间 |
+| `use_sim_time` | `false` | 是否使用仿真时间 |
+| `params_file` | `config/nav_mode_manager.yaml` | 参数文件路径 |
 
-### 超时参数
+### 5.3 在其他 Launch 文件中包含
+```python
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import PathJoinSubstitution
+from launch_ros.substitutions import FindPackageShare
 
-- **默认超时时间**：如果请求中没有指定超时时间，使用的默认超时时间（单位：秒），比如5.0秒
-- **参数设置超时**：设置代价地图参数的最大等待时间（单位：秒），比如2.0秒
-- **清理服务超时**：调用清理服务的最大等待时间（单位：秒），比如2.0秒
-- **地图重建等待超时**：等待代价地图重建的最大时间（单位：秒），比如0.5秒
+IncludeLaunchDescription(
+    PythonLaunchDescriptionSource([
+        PathJoinSubstitution([
+            FindPackageShare('rc26_nav_mode_manager'), 'launch', 'nav_mode_manager.launch.py'
+        ])
+    ]),
+    launch_arguments={
+        'namespace': 'robot1',
+        'use_sim_time': 'false'
+    }.items()
+)
+```
 
-## 使用场景
+### 5.4 调用服务切换模式示例
 
-### 正常地形导航
+**命令行调用**:
+```bash
+# 切换到急停模式
+ros2 service call /set_nav_mode rc26_interfaces/srv/SetNavMode "{mode: 2}"
 
-在正常平坦的地形上，使用正常模式，启用跌落保护层，确保机器人避开所有有跌落风险的区域。这是最安全的模式，适用于大部分情况。
+# 切换到正常模式
+ros2 service call /set_nav_mode rc26_interfaces/srv/SetNavMode "{mode: 0}"
+```
 
-### 梅林区域穿越
+**C++ 调用**:
+```cpp
+#include "rc26_interfaces/srv/set_nav_mode.hpp"
 
-当机器人需要穿越梅林区域（可能有台阶或高度差的地形）时，决策系统可以请求切换到穿越模式。模块会关闭跌落保护层，清理代价地图，允许机器人通过有高度差的地形。
+class MyNode : public rclcpp::Node {
+public:
+    MyNode() : Node("my_node") {
+        client_ = create_client<rc26_interfaces::srv::SetNavMode>("set_nav_mode");
+    }
 
-### 梅林区域退出
+    void emergencyStop() {
+        auto request = std::make_shared<rc26_interfaces::srv::SetNavMode::Request>();
+        request->mode = 2;  // STOP
 
-当机器人完成穿越任务，需要退出梅林区域时，决策系统可以请求切换到退出模式。模块会暂时保持跌落保护层关闭状态，确保机器人能够顺利退出。
+        auto future = client_->async_send_request(request);
+        if (rclcpp::spin_until_future_complete(shared_from_this(), future) ==
+            rclcpp::FutureReturnCode::SUCCESS) {
+            auto response = future.get();
+            if (response->success) {
+                RCLCPP_INFO(get_logger(), "Emergency stop activated");
+            }
+        }
+    }
 
-### 安全模式切换
+private:
+    rclcpp::Client<rc26_interfaces::srv::SetNavMode>::SharedPtr client_;
+};
+```
 
-当机器人退出梅林区域后，或者任务超时后，模块会自动或应请求切换回安全模式，重新启用跌落保护层，确保后续导航的安全。
+### 5.5 订阅安全模式状态
+```cpp
+#include "rc26_interfaces/msg/nav_safety_mode.hpp"
 
-## 与导航系统的集成
+class MyNode : public rclcpp::Node {
+public:
+    MyNode() : Node("my_node") {
+        mode_sub_ = create_subscription<rc26_interfaces::msg::NavSafetyMode>(
+            "nav_safety_mode", 10,
+            [this](const rc26_interfaces::msg::NavSafetyMode::SharedPtr msg) {
+                switch (msg->mode) {
+                    case rc26_interfaces::msg::NavSafetyMode::NORMAL:
+                        RCLCPP_INFO(get_logger(), "Mode: NORMAL");
+                        break;
+                    case rc26_interfaces::msg::NavSafetyMode::SLOW:
+                        RCLCPP_INFO(get_logger(), "Mode: SLOW");
+                        break;
+                    case rc26_interfaces::msg::NavSafetyMode::STOP:
+                        RCLCPP_WARN(get_logger(), "Mode: STOP - Reason: %s", msg->reason.c_str());
+                        break;
+                }
+            });
+    }
 
-这个模块是导航系统安全机制的重要组成部分：
-- **输入**：接收来自决策系统的模式切换请求
-- **处理**：根据请求控制导航系统的安全参数
-- **输出**：向决策系统和其他模块提供模式状态信息
+private:
+    rclcpp::Subscription<rc26_interfaces::msg::NavSafetyMode>::SharedPtr mode_sub_;
+};
+```
 
-导航系统依赖这个模块来动态调整安全策略。如果这个模块工作不正常，机器人可能无法在不同地形间切换导航模式，导致在某些地形下无法正常工作。
+## 6. 目录结构 (Directory Structure)
+```
+rc26_nav_mode_manager/
+├── include/rc26_nav_mode_manager/
+│   └── nav_mode_manager.hpp         # 节点类定义
+├── src/
+│   └── nav_mode_manager.cpp         # 节点实现
+├── config/
+│   └── nav_mode_manager.yaml        # 默认参数配置
+├── launch/
+│   └── nav_mode_manager.launch.py   # 启动文件
+├── package.xml                      # ROS 2 包描述
+├── CMakeLists.txt                   # 构建配置
+└── README.md                        # 本文档
+```
 
-## 注意事项
+## 7. 依赖项 (Dependencies)
+*   `rclcpp`: ROS 2 C++ 客户端库
+*   `nav_msgs`: 里程计消息类型
+*   `sensor_msgs`: 点云消息类型
+*   `nav2_msgs`: Nav2 服务类型 (ClearEntireCostmap)
+*   `rc26_interfaces`: 自定义消息和服务类型
 
-### 机器人必须静止
+## 8. 与 Nav2 集成
+本模块需要与 Nav2 导航栈配合使用。确保以下服务可用：
+*   `/{costmap_node_name}/clear_entirely_local_costmap`
+*   `/{costmap_node_name}/clear_entirely_global_costmap`
 
-在切换模式时，机器人必须处于静止状态。如果机器人在移动，模式切换请求会被拒绝。这就像换档时必须先停车一样，是为了安全考虑。
+**Nav2 参数配置示例**:
+```yaml
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      # 确保 Costmap 节点名称与 nav_mode_manager 配置一致
+      # ...
+```
 
-### 代价地图清理影响
-
-清理代价地图会清除所有障碍物信息，包括静态障碍物和动态障碍物。这意味着在新的障碍物数据到达之前，导航系统可能无法避开障碍物。确保代价地图能够及时重建是非常重要的。
-
-### 超时保护
-
-超时保护是一种安全机制，但超时时间设置要合理。如果设置太短，可能导致正常任务无法完成；如果设置太长，可能无法及时保护机器人。需要根据实际任务时间合理设置。
-
-### 模式切换顺序
-
-模式切换需要按照正确的顺序进行。比如，进入穿越模式前应该先确认机器人已经到达梅林区域边缘，退出时应该先确认机器人已经完成穿越任务。决策系统需要正确管理这些状态。
-
-## 常见问题
-
-### 模式切换被拒绝
-
-如果模式切换请求被拒绝，可能的原因包括：
-- 机器人还在移动，没有静止
-- 目标模式值不合法
-- 参数设置或服务调用失败
-
-### 代价地图重建延迟
-
-如果代价地图重建延迟较大，可能的原因包括：
-- 地形感知模块数据更新慢
-- 网络或话题通信延迟
-- 代价地图节点处理速度慢
-
-### 超时自动切换
-
-如果模式因为超时自动切换回安全模式，可能的原因包括：
-- 任务执行时间超过超时时间
-- 决策系统没有及时请求切换
-- 超时时间设置不合理
-
-## 技术细节
-
-### 状态检查
-
-模块使用线程安全的方式监控机器人速度。当里程计数据到达时，会更新速度信息。在模式切换时，会检查这些速度信息，确保机器人处于静止状态。
-
-### 异步服务调用
-
-模块使用异步方式调用代价地图的参数服务和清理服务。这样可以避免阻塞，提高系统响应速度。但需要处理超时和失败的情况。
-
-### 代价地图重建检测
-
-模块通过监控障碍物话题的数据更新时间来检测代价地图是否重建完成。如果清理后收到了新的障碍物数据，就认为地图已经重建。这种方法简单有效，但依赖于障碍物数据的及时更新。
-
-### 超时定时器管理
-
-模块使用ROS2的定时器来实现超时保护。当切换到穿越模式时，会创建定时器；当切换回安全模式时，会取消定时器。定时器回调函数会自动切换模式并重新启用跌落保护层。
-
-## 性能特点
-
-模块设计充分考虑了安全性和可靠性：
-- **安全检查**：切换前检查机器人状态，确保安全
-- **异步处理**：异步调用服务，不阻塞主流程
-- **超时保护**：自动超时保护，避免长时间处于危险状态
-- **状态透明**：持续发布状态信息，方便其他模块了解当前状态
+## 9. 典型应用场景
+*   **导航超时恢复**: 机器人长时间无法到达目标时，自动清理 Costmap 并重试。
+*   **紧急停止**: 检测到危险情况时，通过服务调用立即停止机器人。
+*   **地形适应**: 在不同地形区域动态启用/禁用特定 Costmap 层。
