@@ -7,19 +7,21 @@
 #include <cstdint>
 #include <opencv2/core.hpp>
 #include "rc26_vision/inference_engine.hpp"
+#include "rc26_vision/model_profile.hpp"
 #include "rc26_vision/types.hpp"
 
 namespace rc26_vision {
 
-class YoloEngine : public InferenceEngine {
+class AidLiteEngine : public InferenceEngine {
 public:
-    explicit YoloEngine(const std::string& model_path,
-                        const std::vector<std::string>& class_names,
-                        float conf_thresh = 0.5f,
-                        float iou_thresh = 0.45f,
-                        int input_w = 640,
-                        int input_h = 640);
-    ~YoloEngine() override;
+    explicit AidLiteEngine(const std::string& model_path,
+                           const std::vector<std::string>& class_names,
+                           const AidLiteConfig& config,
+                           float conf_thresh = 0.5f,
+                           float iou_thresh = 0.45f,
+                           int input_w = 640,
+                           int input_h = 640);
+    ~AidLiteEngine() override;
 
     std::vector<Detection> infer(const cv::Mat& image) override;
 

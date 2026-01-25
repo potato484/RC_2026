@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 
 namespace rc26_vision {
 
@@ -83,6 +84,14 @@ bool VisionInferenceManager::configure(
         return false;
     }
 
+    // 先销毁旧引擎，确保同一时刻最多一个引擎实例 (PBT INVARIANT)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        engine_.reset();
+        class_names_.clear();
+    }
+    configured_.store(false, std::memory_order_relaxed);
+
     try {
         auto engine = std::make_unique<YoloEngine>(model_path, class_names, conf_thresh);
         {
@@ -97,15 +106,79 @@ bool VisionInferenceManager::configure(
         vision_ok_.store(true, std::memory_order_relaxed);
         return true;
     } catch (...) {
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            engine_.reset();
-            class_names_.clear();
-        }
         configured_.store(false, std::memory_order_relaxed);
         vision_ok_.store(false, std::memory_order_relaxed);
         return false;
     }
+}
+
+void VisionInferenceManager::loadConfig(const VisionConfig& config) {
+    ProfileLoader::validate(config);
+    config_ = config;
+}
+
+void VisionInferenceManager::selectModel(const std::string& model_id) {
+    if (running_.load(std::memory_order_relaxed)) {
+        throw std::runtime_error("Cannot select model while running");
+    }
+
+    auto it = config_.profiles.find(model_id);
+    if (it == config_.profiles.end()) {
+        // 清空状态后再抛异常，确保失败后不保留旧状态
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            engine_.reset();
+            class_names_.clear();
+            active_model_id_.clear();
+        }
+        configured_.store(false, std::memory_order_relaxed);
+        vision_ok_.store(false, std::memory_order_relaxed);
+        throw std::runtime_error("Unknown model_id: " + model_id);
+    }
+
+    const auto& profile = it->second;
+    // 先销毁旧引擎，确保同一时刻最多一个引擎实例 (HC-01)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        engine_.reset();
+        class_names_.clear();
+        active_model_id_.clear();
+    }
+    configured_.store(false, std::memory_order_relaxed);
+
+    try {
+        InferenceEnginePtr new_engine;
+        if (profile.engine == EngineType::OnnxRuntime) {
+            new_engine = std::make_unique<YoloEngine>(
+                profile.model_path, profile.labels,
+                profile.conf_thresh, profile.iou_thresh,
+                profile.input_w, profile.input_h);
+        } else {
+            throw std::runtime_error("AidLite engine not yet implemented");
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            engine_ = std::move(new_engine);
+            class_names_ = profile.labels;
+            active_model_id_ = model_id;
+        }
+        configured_.store(true, std::memory_order_relaxed);
+        vision_ok_.store(true, std::memory_order_relaxed);
+    } catch (...) {
+        vision_ok_.store(false, std::memory_order_relaxed);
+        throw;
+    }
+}
+
+void VisionInferenceManager::switchModel(const std::string& model_id) {
+    stop();
+    selectModel(model_id);
+}
+
+std::string VisionInferenceManager::getActiveModel() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return active_model_id_;
 }
 
 bool VisionInferenceManager::start() {

@@ -1,76 +1,125 @@
-#include "rc26_vision/yolo_engine.hpp"
+#include "rc26_vision/aidlite_engine.hpp"
 
-#include <onnxruntime_cxx_api.h>
+#include <aidlux/aidlite/aidlite.hpp>
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <stdexcept>
 #include <utility>
+
+using namespace aidlite;
 
 namespace rc26_vision {
 
-struct YoloEngine::Impl {
-    Ort::Env env{ORT_LOGGING_LEVEL_WARNING, "YoloEngine"};
-    Ort::SessionOptions session_options;
-    std::unique_ptr<Ort::Session> session;
-    Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(
-        OrtArenaAllocator, OrtMemTypeDefault);
+namespace {
 
-    std::vector<std::string> input_names;
-    std::vector<std::string> output_names;
-    std::vector<const char*> input_name_ptrs;
-    std::vector<const char*> output_name_ptrs;
+FrameworkType parseFrameworkType(const std::string& type) {
+    if (type == "QNN" || type == "qnn") return FrameworkType::TYPE_QNN;
+    if (type == "QNN236" || type == "qnn236") return FrameworkType::TYPE_QNN236;
+    if (type == "QNN231" || type == "qnn231") return FrameworkType::TYPE_QNN231;
+    if (type == "QNN229" || type == "qnn229") return FrameworkType::TYPE_QNN229;
+    if (type == "QNN223" || type == "qnn223") return FrameworkType::TYPE_QNN223;
+    if (type == "QNN216" || type == "qnn216") return FrameworkType::TYPE_QNN216;
+    if (type == "SNPE" || type == "snpe") return FrameworkType::TYPE_SNPE;
+    if (type == "SNPE2" || type == "snpe2") return FrameworkType::TYPE_SNPE2;
+    if (type == "TFLITE" || type == "tflite") return FrameworkType::TYPE_TFLITE;
+    if (type == "RKNN" || type == "rknn") return FrameworkType::TYPE_RKNN;
+    if (type == "NCNN" || type == "ncnn") return FrameworkType::TYPE_NCNN;
+    if (type == "MNN" || type == "mnn") return FrameworkType::TYPE_MNN;
+    if (type == "ONNX" || type == "onnx") return FrameworkType::TYPE_ONNX;
+    return FrameworkType::TYPE_DEFAULT;
+}
+
+AccelerateType parseAccelerateType(const std::string& type) {
+    if (type == "CPU" || type == "cpu") return AccelerateType::TYPE_CPU;
+    if (type == "GPU" || type == "gpu") return AccelerateType::TYPE_GPU;
+    if (type == "DSP" || type == "dsp") return AccelerateType::TYPE_DSP;
+    if (type == "NPU" || type == "npu") return AccelerateType::TYPE_NPU;
+    return AccelerateType::TYPE_CPU;
+}
+
+}  // namespace
+
+struct AidLiteEngine::Impl {
+    std::unique_ptr<Interpreter> interpreter;
+    AidLiteConfig config;
+    std::vector<int64_t> output_shape;
 };
 
-YoloEngine::YoloEngine(const std::string& model_path,
-                       const std::vector<std::string>& class_names,
-                       float conf_thresh,
-                       float iou_thresh,
-                       int input_w,
-                       int input_h)
+AidLiteEngine::AidLiteEngine(const std::string& model_path,
+                             const std::vector<std::string>& class_names,
+                             const AidLiteConfig& config,
+                             float conf_thresh,
+                             float iou_thresh,
+                             int input_w,
+                             int input_h)
     : impl_(std::make_unique<Impl>()),
       class_names_(class_names),
       conf_thresh_(conf_thresh),
       iou_thresh_(iou_thresh),
       input_w_(input_w),
       input_h_(input_h) {
-    impl_->session_options.SetIntraOpNumThreads(2);
-    impl_->session_options.SetInterOpNumThreads(1);
-    impl_->session = std::make_unique<Ort::Session>(
-        impl_->env, model_path.c_str(), impl_->session_options);
+    impl_->config = config;
 
-    Ort::AllocatorWithDefaultOptions allocator;
-
-    const size_t num_inputs = impl_->session->GetInputCount();
-    impl_->input_names.reserve(num_inputs);
-    for (size_t i = 0; i < num_inputs; ++i) {
-        auto name_ptr = impl_->session->GetInputNameAllocated(i, allocator);
-        impl_->input_names.emplace_back(name_ptr ? name_ptr.get() : "");
-    }
-    for (const auto& name : impl_->input_names) {
-        impl_->input_name_ptrs.push_back(name.c_str());
+    Model* model = Model::create_instance(model_path);
+    if (!model) {
+        throw std::runtime_error("AidLiteEngine: failed to create Model");
     }
 
-    const size_t num_outputs = impl_->session->GetOutputCount();
-    impl_->output_names.reserve(num_outputs);
-    for (size_t i = 0; i < num_outputs; ++i) {
-        auto name_ptr = impl_->session->GetOutputNameAllocated(i, allocator);
-        impl_->output_names.emplace_back(name_ptr ? name_ptr.get() : "");
+    Config* cfg = Config::create_instance();
+    if (!cfg) {
+        delete model;
+        throw std::runtime_error("AidLiteEngine: failed to create Config");
     }
-    for (const auto& name : impl_->output_names) {
-        impl_->output_name_ptrs.push_back(name.c_str());
+
+    cfg->framework_type = parseFrameworkType(config.framework_type);
+    cfg->accelerate_type = parseAccelerateType(config.accelerate_type);
+
+    // Note: build_interpretper_from_model_and_config takes ownership of model/cfg on success
+    auto interpreter = InterpreterBuilder::build_interpretper_from_model_and_config(model, cfg);
+    if (!interpreter) {
+        // On failure, ownership was not transferred - clean up manually
+        delete cfg;
+        delete model;
+        throw std::runtime_error("AidLiteEngine: failed to build interpreter");
+    }
+    // model and cfg are now owned by interpreter - do not delete
+
+    if (interpreter->init() != 0) {
+        interpreter->destory();
+        throw std::runtime_error("AidLiteEngine: interpreter init failed");
+    }
+
+    if (interpreter->load_model() != 0) {
+        interpreter->destory();
+        throw std::runtime_error("AidLiteEngine: load_model failed");
+    }
+
+    if (!config.output_shapes.empty()) {
+        const auto& first_output = config.output_shapes[0];
+        impl_->output_shape.reserve(first_output.size());
+        for (int dim : first_output) {
+            impl_->output_shape.push_back(static_cast<int64_t>(dim));
+        }
+    }
+
+    impl_->interpreter = std::move(interpreter);
+}
+
+AidLiteEngine::~AidLiteEngine() {
+    if (impl_ && impl_->interpreter) {
+        impl_->interpreter->destory();
     }
 }
 
-YoloEngine::~YoloEngine() = default;
+void AidLiteEngine::setConfThresh(float thresh) { conf_thresh_.store(thresh); }
+void AidLiteEngine::setIouThresh(float thresh) { iou_thresh_.store(thresh); }
+float AidLiteEngine::getConfThresh() const { return conf_thresh_.load(); }
+float AidLiteEngine::getIouThresh() const { return iou_thresh_.load(); }
 
-void YoloEngine::setConfThresh(float thresh) { conf_thresh_.store(thresh); }
-void YoloEngine::setIouThresh(float thresh) { iou_thresh_.store(thresh); }
-float YoloEngine::getConfThresh() const { return conf_thresh_.load(); }
-float YoloEngine::getIouThresh() const { return iou_thresh_.load(); }
-
-cv::Mat YoloEngine::preprocess(const cv::Mat& image) {
+cv::Mat AidLiteEngine::preprocess(const cv::Mat& image) {
     if (image.empty()) return {};
 
     cv::Mat rgb;
@@ -102,8 +151,8 @@ cv::Mat YoloEngine::preprocess(const cv::Mat& image) {
     return blob;
 }
 
-std::vector<Detection> YoloEngine::infer(const cv::Mat& image) {
-    if (image.empty()) return {};
+std::vector<Detection> AidLiteEngine::infer(const cv::Mat& image) {
+    if (image.empty() || !impl_->interpreter) return {};
 
     try {
         const int orig_w = image.cols;
@@ -113,41 +162,37 @@ std::vector<Detection> YoloEngine::infer(const cv::Mat& image) {
         if (blob.empty()) return {};
         if (!blob.isContinuous()) blob = blob.clone();
 
-        const std::array<int64_t, 4> input_shape{1, 3, input_h_, input_w_};
-        const size_t input_tensor_size = static_cast<size_t>(blob.total());
+        int result = impl_->interpreter->set_input_tensor(0, blob.ptr<float>());
+        if (result != 0) return {};
 
-        Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
-            impl_->memory_info, blob.ptr<float>(), input_tensor_size,
-            input_shape.data(), input_shape.size());
+        result = impl_->interpreter->invoke();
+        if (result != 0) return {};
 
-        if (impl_->input_name_ptrs.empty() || impl_->output_name_ptrs.empty()) {
-            return {};
+        float* out_data = nullptr;
+        uint32_t out_length = 0;
+        result = impl_->interpreter->get_output_tensor(0, reinterpret_cast<void**>(&out_data), &out_length);
+        if (result != 0 || !out_data || out_length == 0) return {};
+
+        size_t num_floats = out_length / sizeof(float);
+        std::vector<float> output(out_data, out_data + num_floats);
+
+        std::vector<int64_t> output_shape = impl_->output_shape;
+        if (output_shape.empty()) {
+            int64_t num_classes = static_cast<int64_t>(class_names_.size());
+            int64_t channels = num_classes + 4;
+            int64_t num_boxes = static_cast<int64_t>(num_floats) / channels;
+            output_shape = {1, channels, num_boxes};
         }
-
-        std::vector<Ort::Value> output_tensors = impl_->session->Run(
-            Ort::RunOptions{nullptr},
-            impl_->input_name_ptrs.data(), &input_tensor, 1,
-            impl_->output_name_ptrs.data(), impl_->output_name_ptrs.size());
-
-        if (output_tensors.empty() || !output_tensors[0].IsTensor()) return {};
-
-        auto shape_info = output_tensors[0].GetTensorTypeAndShapeInfo();
-        std::vector<int64_t> output_shape = shape_info.GetShape();
-        const size_t output_count = shape_info.GetElementCount();
-        const float* output_data = output_tensors[0].GetTensorData<float>();
-        std::vector<float> output(output_data, output_data + output_count);
 
         std::vector<Detection> detections = postprocess(output, output_shape, orig_w, orig_h);
         nms(detections);
         return detections;
-    } catch (const Ort::Exception&) {
-        return {};
-    } catch (const std::exception&) {
+    } catch (...) {
         return {};
     }
 }
 
-std::vector<Detection> YoloEngine::postprocess(
+std::vector<Detection> AidLiteEngine::postprocess(
     const std::vector<float>& output,
     const std::vector<int64_t>& output_shape,
     int orig_w, int orig_h) {
@@ -231,7 +276,7 @@ std::vector<Detection> YoloEngine::postprocess(
     return detections;
 }
 
-void YoloEngine::nms(std::vector<Detection>& detections) {
+void AidLiteEngine::nms(std::vector<Detection>& detections) {
     if (detections.empty()) return;
 
     const float iou_thresh = iou_thresh_.load(std::memory_order_relaxed);

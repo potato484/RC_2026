@@ -13,14 +13,14 @@
 #include <sensor_msgs/msg/image.hpp>
 
 #include "rc26_vision/types.hpp"
+#include "rc26_vision/inference_engine.hpp"
+#include "rc26_vision/profile_loader.hpp"
 
 namespace cv {
 class Mat;
 }
 
 namespace rc26_vision {
-
-class YoloEngine;
 
 class VisionInferenceManager {
 public:
@@ -33,6 +33,11 @@ public:
     bool configure(const std::string& model_path,
                    const std::vector<std::string>& class_names,
                    float conf_thresh);
+
+    void loadConfig(const VisionConfig& config);
+    void selectModel(const std::string& model_id);
+    void switchModel(const std::string& model_id);
+    std::string getActiveModel() const;
 
     bool start();
     void stop();
@@ -50,8 +55,10 @@ private:
     double computeDepth(const cv::Mat& depth, int cx, int cy);
 
     rclcpp::Node& node_;
-    std::unique_ptr<YoloEngine> engine_;
+    InferenceEnginePtr engine_;
     std::vector<std::string> class_names_;
+    VisionConfig config_;
+    std::string active_model_id_;
 
     // Subscriptions
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr color_sub_;

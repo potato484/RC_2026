@@ -15,6 +15,7 @@ find_package(image_transport REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(behaviortree_cpp REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 # ONNX Runtime
 find_library(ONNXRUNTIME_LIB onnxruntime HINTS /usr/local/lib /usr/lib)
@@ -35,6 +36,7 @@ include_directories(
 add_library(${PROJECT_NAME} SHARED
   src/yolo_engine.cpp
   src/vision_inference_manager.cpp
+  src/profile_loader.cpp
 )
 
 ament_target_dependencies(${PROJECT_NAME}
@@ -49,6 +51,7 @@ ament_target_dependencies(${PROJECT_NAME}
 target_link_libraries(${PROJECT_NAME}
   ${OpenCV_LIBS}
   ${ONNXRUNTIME_LIB}
+  yaml-cpp
 )
 
 # ============================================================================
