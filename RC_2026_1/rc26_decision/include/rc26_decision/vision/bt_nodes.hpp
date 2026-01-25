@@ -37,6 +37,15 @@ public:
     void onHalted() override;
 };
 
+class VisionSetModelAction : public BT::SyncActionNode {
+public:
+    VisionSetModelAction(const std::string& name, const BT::NodeConfig& config);
+
+    static BT::PortsList providedPorts();
+
+    BT::NodeStatus tick() override;
+};
+
 class WaitVisionTargetAction : public BT::StatefulActionNode {
 public:
     WaitVisionTargetAction(const std::string& name, const BT::NodeConfig& config);

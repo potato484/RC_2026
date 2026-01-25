@@ -90,7 +90,9 @@ VisionStartAction::VisionStartAction(const std::string& name, const BT::NodeConf
     : BT::StatefulActionNode(name, config) {}
 
 BT::PortsList VisionStartAction::providedPorts() {
-    return {};
+    return {
+        BT::InputPort<std::string>("model_id", "", "Optional Profile ID to switch before start"),
+    };
 }
 
 BT::NodeStatus VisionStartAction::onStart() {
@@ -99,6 +101,20 @@ BT::NodeStatus VisionStartAction::onStart() {
         config().blackboard->set("vision_running", false);
         config().blackboard->set("vision_ok", false);
         return BT::NodeStatus::FAILURE;
+    }
+
+    std::string model_id;
+    getInput("model_id", model_id);
+    if (!model_id.empty()) {
+        try {
+            manager->switchModel(model_id);
+            config().blackboard->set("vision_current_model", model_id);
+        } catch (...) {
+            config().blackboard->set("vision_current_model", std::string(""));
+            config().blackboard->set("vision_ok", false);
+            config().blackboard->set("vision_running", false);
+            return BT::NodeStatus::FAILURE;
+        }
     }
 
     const bool started = manager->start();
@@ -139,6 +155,46 @@ BT::NodeStatus VisionStopAction::onRunning() {
 }
 
 void VisionStopAction::onHalted() {}
+
+VisionSetModelAction::VisionSetModelAction(const std::string& name, const BT::NodeConfig& config)
+    : BT::SyncActionNode(name, config) {}
+
+BT::PortsList VisionSetModelAction::providedPorts() {
+    return {
+        BT::InputPort<std::string>("model_id", "Profile ID to switch to"),
+    };
+}
+
+BT::NodeStatus VisionSetModelAction::tick() {
+    std::shared_ptr<rc26_vision::VisionInferenceManager> manager;
+    if (!config().blackboard->get("vision_manager", manager) || !manager) {
+        config().blackboard->set("vision_ok", false);
+        config().blackboard->set("vision_current_model", std::string(""));
+        config().blackboard->set("vision_running", false);
+        return BT::NodeStatus::FAILURE;
+    }
+
+    std::string model_id;
+    if (!getInput("model_id", model_id) || model_id.empty()) {
+        config().blackboard->set("vision_current_model", std::string(""));
+        config().blackboard->set("vision_ok", false);
+        config().blackboard->set("vision_running", false);
+        return BT::NodeStatus::FAILURE;
+    }
+
+    try {
+        manager->switchModel(model_id);
+        config().blackboard->set("vision_current_model", model_id);
+        config().blackboard->set("vision_ok", true);
+        config().blackboard->set("vision_running", false);
+        return BT::NodeStatus::SUCCESS;
+    } catch (...) {
+        config().blackboard->set("vision_current_model", std::string(""));
+        config().blackboard->set("vision_ok", false);
+        config().blackboard->set("vision_running", false);
+        return BT::NodeStatus::FAILURE;
+    }
+}
 
 WaitVisionTargetAction::WaitVisionTargetAction(const std::string& name, const BT::NodeConfig& config)
     : BT::StatefulActionNode(name, config) {}
@@ -278,6 +334,7 @@ void WaitVisionTargetAction::onHalted() {
 void registerVisionNodes(BT::BehaviorTreeFactory& factory) {
     factory.registerNodeType<VisionStartAction>("VisionStart");
     factory.registerNodeType<VisionStopAction>("VisionStop");
+    factory.registerNodeType<VisionSetModelAction>("VisionSetModel");
     factory.registerNodeType<WaitVisionTargetAction>("WaitVisionTarget");
 }
 

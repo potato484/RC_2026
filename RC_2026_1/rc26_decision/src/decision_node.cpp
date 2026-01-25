@@ -14,6 +14,7 @@
 #include "rc26_decision/vision/bt_nodes.hpp"
 #include "rc26_serial/serial_driver.hpp"
 #include "rc26_vision/vision_inference_manager.hpp"
+#include "rc26_vision/profile_loader.hpp"
 
 namespace rc26_decision {
 
@@ -90,13 +91,35 @@ public:
         this->declare_parameter<bool>("enable_vision", false);
         this->declare_parameter<std::string>("vision_model_path", "");
         this->declare_parameter<double>("vision_conf_thresh", 0.5);
+        this->declare_parameter<std::string>("vision_config_file", "");
+
+        // 初始化 vision_current_model 黑板键
+        blackboard->set("vision_current_model", std::string(""));
 
         if (this->get_parameter("enable_vision").as_bool()) {
+            std::string config_file = this->get_parameter("vision_config_file").as_string();
             std::string model_path = this->get_parameter("vision_model_path").as_string();
             double conf_thresh = this->get_parameter("vision_conf_thresh").as_double();
 
-            if (!model_path.empty()) {
-                vision_manager_ = std::make_shared<rc26_vision::VisionInferenceManager>(*this);
+            vision_manager_ = std::make_shared<rc26_vision::VisionInferenceManager>(*this);
+
+            if (!config_file.empty()) {
+                // 新模式：从 YAML 配置文件加载多 Profile
+                try {
+                    auto config = rc26_vision::ProfileLoader::loadFromYaml(config_file);
+                    vision_manager_->loadConfig(config);
+                    if (!config.default_model.empty()) {
+                        vision_manager_->selectModel(config.default_model);
+                        blackboard->set("vision_current_model", config.default_model);
+                    }
+                    blackboard->set("vision_manager", vision_manager_);
+                    RCLCPP_INFO(this->get_logger(), "视觉配置已加载: %s", config_file.c_str());
+                } catch (const std::exception& e) {
+                    RCLCPP_ERROR(this->get_logger(), "视觉配置加载失败: %s", e.what());
+                    vision_manager_.reset();
+                }
+            } else if (!model_path.empty()) {
+                // 兼容模式：使用旧参数
                 std::vector<std::string> class_names = {
                     "R_R1", "B_R1",
                     "T_03", "T_04", "T_05", "T_06", "T_07", "T_08", "T_09", "T_10",
@@ -112,7 +135,9 @@ public:
                     vision_manager_.reset();
                 }
             } else {
-                RCLCPP_WARN(this->get_logger(), "enable_vision=true 但 vision_model_path 为空");
+                RCLCPP_WARN(this->get_logger(),
+                    "enable_vision=true 但 vision_config_file 和 vision_model_path 均为空");
+                vision_manager_.reset();
             }
         }
 
