@@ -1,0 +1,34 @@
+# RealSense D455 default config for ROS2 Humble (realsense2_camera)
+#
+# Notes:
+# - Keys must match parameters in `realsense2_camera/launch/rs_launch.py`
+# - Keep defaults conservative (USB bandwidth friendly); override as needed.
+
+device_type: d455
+initial_reset: true
+
+enable_color: true
+enable_depth: true
+enable_infra1: false
+enable_infra2: false
+
+# Profiles: WIDTHxHEIGHTxFPS
+rgb_camera.color_profile: 640x480x30
+depth_module.depth_profile: 640x480x30
+
+depth_module.infra_profile: 848x480x30
+gyro_fps: 200
+accel_fps: 100
+
+align_depth.enable: true
+# Only need aligned depth + color; keep pointcloud off to reduce topics/CPU.
+pointcloud.enable: false
+enable_sync: true
+
+# Disable IMU streams to reduce topics.
+enable_gyro: false
+enable_accel: false
+enable_motion: false
+
+publish_tf: false
+tf_publish_rate: 0.0

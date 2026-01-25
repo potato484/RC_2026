@@ -17,7 +17,7 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, Grou
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
+from launch_ros.actions import Node, PushRosNamespace
 
 
 def generate_launch_description():
@@ -36,6 +36,9 @@ def generate_launch_description():
     params_file = LaunchConfiguration('params_file')
     use_rviz = LaunchConfiguration('use_rviz')
     use_decision = LaunchConfiguration('use_decision')
+    use_realsense = LaunchConfiguration('use_realsense')
+    realsense_serial_no = LaunchConfiguration('realsense_serial_no')
+    realsense_config_file = LaunchConfiguration('realsense_config_file')
 
     # 参数声明
     declare_namespace = DeclareLaunchArgument(
@@ -77,6 +80,39 @@ def generate_launch_description():
         'use_decision',
         default_value='true',
         description='启动决策系统')
+
+    declare_use_realsense = DeclareLaunchArgument(
+        'use_realsense',
+        default_value='false',
+        description='启动 RealSense D455 (realsense2_camera)')
+
+    declare_realsense_serial_no = DeclareLaunchArgument(
+        'realsense_serial_no',
+        default_value="''",
+        description='RealSense serial number (empty to auto-select)')
+
+    declare_realsense_config_file = DeclareLaunchArgument(
+        'realsense_config_file',
+        default_value=PathJoinSubstitution([bringup_dir, 'config', 'realsense_d455.yaml']),
+        description='RealSense YAML config file (realsense2_camera params)')
+
+    # RealSense D455（可选）
+    realsense_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([bringup_dir, 'launch', 'realsense_d455.launch.py'])
+        ),
+        launch_arguments={
+            'serial_no': realsense_serial_no,
+            'config_file': realsense_config_file,
+        }.items()
+    )
+    realsense_group = GroupAction(
+        actions=[
+            PushRosNamespace(namespace),
+            realsense_launch,
+        ],
+        condition=IfCondition(use_realsense),
+    )
 
     # 里程计模块 (point_lio + rc26_odom_interface + rc26_sensor_scan)
     odometry_launch = IncludeLaunchDescription(
@@ -244,6 +280,9 @@ def generate_launch_description():
         declare_params_file,
         declare_use_rviz,
         declare_use_decision,
+        declare_use_realsense,
+        declare_realsense_serial_no,
+        declare_realsense_config_file,
 
         # 启动模块
         odometry_launch,
@@ -255,5 +294,6 @@ def generate_launch_description():
         map_server_node,
         map_server_lifecycle_manager,
         decision_node,
+        realsense_group,
         rviz_group,
     ])
