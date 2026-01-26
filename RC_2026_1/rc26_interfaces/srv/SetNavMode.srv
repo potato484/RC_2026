@@ -1,5 +1,5 @@
-# Set navigation safety mode
-uint8 mode
+# Set navigation profile
+string profile
 float32 timeout
 string reason
 ---
