@@ -17,3 +17,9 @@ rc26_decision:
 
     # 里程计话题（用于停车判定等）
     odom_topic: "wheel_odom"
+
+    # speed_profile 全局缩放系数（用于点位里的 speed_profile: FAST/SLOW/CREEP）
+    # 最终会缩放 controller_server 的 FollowPath.v_linear_max / FollowPath.v_angular_max
+    speed_profile_scales.fast: 1.0
+    speed_profile_scales.slow: 0.4
+    speed_profile_scales.creep: 0.2

@@ -54,53 +54,14 @@ std::string getScalarStringOrEmpty(const YAML::Node& node, const char* key) {
     return node[key].as<std::string>();
 }
 
-NavSafetyMode parseNavSafetyMode(const YAML::Node& node) {
-    if (!node) {
-        return NavSafetyMode::NORMAL;
-    }
-
-    if (node.IsScalar()) {
-        const std::string s = node.as<std::string>();
-        if (s == "NORMAL" || s == "Normal" || s == "normal") {
-            return NavSafetyMode::NORMAL;
-        }
-        if (s == "MF_SAFE" || s == "mf_safe") {
-            return NavSafetyMode::MF_SAFE;
-        }
-        if (s == "MF_TRAVERSE" || s == "mf_traverse") {
-            return NavSafetyMode::MF_TRAVERSE;
-        }
-        if (s == "MF_EXIT" || s == "mf_exit") {
-            return NavSafetyMode::MF_EXIT;
-        }
-
-        try {
-            const int v = std::stoi(s);
-            if (v >= 0 && v <= 3) {
-                return static_cast<NavSafetyMode>(static_cast<uint8_t>(v));
-            }
-        } catch (...) {
+std::string parseNavProfile(const YAML::Node& profile_node) {
+    if (profile_node && profile_node.IsScalar()) {
+        std::string s = profile_node.as<std::string>();
+        if (!s.empty()) {
+            return s;
         }
     }
-
-    return NavSafetyMode::NORMAL;
-}
-
-McuNavMode parseMcuNavMode(const YAML::Node& node) {
-    if (!node) {
-        return McuNavMode::Normal;
-    }
-    const std::string s = node.as<std::string>();
-    if (s == "Normal" || s == "NORMAL" || s == "normal") {
-        return McuNavMode::Normal;
-    }
-    if (s == "StairUp" || s == "STAIR_UP" || s == "stair_up") {
-        return McuNavMode::StairUp;
-    }
-    if (s == "StairDown" || s == "STAIR_DOWN" || s == "stair_down") {
-        return McuNavMode::StairDown;
-    }
-    return McuNavMode::Normal;
+    return "normal";
 }
 
 Pose2D parsePose2D(const YAML::Node& point_node) {
@@ -159,17 +120,10 @@ SmartWaypointSpec parseSmartWaypoint(const YAML::Node& point_node) {
     spec.pose = parsePose2D(point_node);
     spec.strategy_tag = getScalarStringOrEmpty(point_node, "strategy_tag");
     spec.tolerance = parseTolerance(point_node);
-    spec.nav_safety_mode = parseNavSafetyMode(point_node["nav_safety_mode"]);
+    spec.nav_profile = parseNavProfile(point_node["nav_profile"]);
     spec.speed_profile = getScalarStringOrEmpty(point_node, "speed_profile");
     if (point_node["timeout_sec"]) {
         spec.timeout_sec = point_node["timeout_sec"].as<float>();
-    }
-
-    const YAML::Node mcu_node = point_node["mcu"] ? point_node["mcu"] : point_node;
-    if (mcu_node["nav_mode"] && mcu_node["speed_mps"]) {
-        spec.mcu.enabled = true;
-        spec.mcu.mode = parseMcuNavMode(mcu_node["nav_mode"]);
-        spec.mcu.speed_mps = mcu_node["speed_mps"].as<float>();
     }
 
     spec.payload = parsePayload(point_node);
@@ -271,7 +225,7 @@ bool generateMerlinPoints(const MerlinAnchors& anchors, const MerlinParams& para
         s.pose.x = p.x;
         s.pose.y = p.y;
         s.pose.yaw = yaw_align;
-        s.nav_safety_mode = NavSafetyMode::MF_SAFE;
+        s.nav_profile = "safe";
         s.speed_profile = "SLOW";
         s.timeout_sec = 10.0f;
         s.tolerance.xy_tolerance = 0.10;

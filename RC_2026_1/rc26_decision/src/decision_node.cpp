@@ -89,8 +89,6 @@ public:
         // 创建 VisionInferenceManager (视觉推理模块)
         // 注意: 需要用户配置 enable_vision 参数和模型路径
         this->declare_parameter<bool>("enable_vision", false);
-        this->declare_parameter<std::string>("vision_model_path", "");
-        this->declare_parameter<double>("vision_conf_thresh", 0.5);
         this->declare_parameter<std::string>("vision_config_file", "");
 
         // 初始化 vision_current_model 黑板键
@@ -98,13 +96,11 @@ public:
 
         if (this->get_parameter("enable_vision").as_bool()) {
             std::string config_file = this->get_parameter("vision_config_file").as_string();
-            std::string model_path = this->get_parameter("vision_model_path").as_string();
-            double conf_thresh = this->get_parameter("vision_conf_thresh").as_double();
 
             vision_manager_ = std::make_shared<rc26_vision::VisionInferenceManager>(*this);
 
             if (!config_file.empty()) {
-                // 新模式：从 YAML 配置文件加载多 Profile
+                // 从 YAML 配置文件加载多 Profile
                 try {
                     auto config = rc26_vision::ProfileLoader::loadFromYaml(config_file);
                     vision_manager_->loadConfig(config);
@@ -118,25 +114,9 @@ public:
                     RCLCPP_ERROR(this->get_logger(), "视觉配置加载失败: %s", e.what());
                     vision_manager_.reset();
                 }
-            } else if (!model_path.empty()) {
-                // 兼容模式：使用旧参数
-                std::vector<std::string> class_names = {
-                    "R_R1", "B_R1",
-                    "T_03", "T_04", "T_05", "T_06", "T_07", "T_08", "T_09", "T_10",
-                    "T_11", "T_12", "T_13", "T_14", "T_15", "T_16", "T_17",
-                    "F_18", "F_19", "F_20", "F_21", "F_22", "F_23", "F_24", "F_25",
-                    "F_26", "F_27", "F_28", "F_29", "F_30", "F_31", "F_32"
-                };
-                if (vision_manager_->configure(model_path, class_names, static_cast<float>(conf_thresh))) {
-                    blackboard->set("vision_manager", vision_manager_);
-                    RCLCPP_INFO(this->get_logger(), "视觉推理模块已初始化: %s", model_path.c_str());
-                } else {
-                    RCLCPP_ERROR(this->get_logger(), "视觉推理模块配置失败: %s", model_path.c_str());
-                    vision_manager_.reset();
-                }
             } else {
                 RCLCPP_WARN(this->get_logger(),
-                    "enable_vision=true 但 vision_config_file 和 vision_model_path 均为空");
+                    "enable_vision=true 但 vision_config_file 为空");
                 vision_manager_.reset();
             }
         }
@@ -167,7 +147,7 @@ public:
             const double stop_lin = this->get_parameter("stop_linear_eps_mps").as_double();
             const double stop_ang = this->get_parameter("stop_angular_eps_rps").as_double();
             smart_waypoint_navigator_ = std::make_shared<SmartWaypointNavigator>(
-                *this, cmd_serial_, nav2_action_name, nav2_goal_frame, controller_node, odom_topic, stop_lin, stop_ang);
+                *this, nav2_action_name, nav2_goal_frame, controller_node, odom_topic, stop_lin, stop_ang);
             blackboard->set("smart_waypoint_navigator", smart_waypoint_navigator_);
         }
 

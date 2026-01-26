@@ -2,66 +2,56 @@
 
 #include <chrono>
 #include <cmath>
-#include <cstring>
 
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <tf2/LinearMath/Quaternion.h>
-
-#include "rc26_serial/protocol.hpp"
 
 namespace rc26_decision {
 
 namespace {
 
-std::vector<uint8_t> floatToPayload(float value) {
-    std::vector<uint8_t> payload(sizeof(float));
-    uint32_t bits;
-    std::memcpy(&bits, &value, sizeof(float));
-    payload[0] = static_cast<uint8_t>(bits & 0xFF);
-    payload[1] = static_cast<uint8_t>((bits >> 8) & 0xFF);
-    payload[2] = static_cast<uint8_t>((bits >> 16) & 0xFF);
-    payload[3] = static_cast<uint8_t>((bits >> 24) & 0xFF);
-    return payload;
+bool profileNeedsStopBeforeSwitch(const std::string& profile) {
+    return profile.find("traverse") != std::string::npos ||
+           profile.find("exit") != std::string::npos ||
+           profile.find("stair") != std::string::npos;
 }
 
-CommandID mcuModeToCommandId(McuNavMode mode) {
-    switch (mode) {
-    case McuNavMode::Normal:
-        return CommandID::NAV_NORMAL;
-    case McuNavMode::StairUp:
-        return CommandID::NAV_STAIR_UP;
-    case McuNavMode::StairDown:
-        return CommandID::NAV_STAIR_DOWN;
-    default:
-        return CommandID::NAV_NORMAL;
-    }
+bool profileNeedsRestoreAfterNav(const std::string& profile) {
+    return profile.find("traverse") != std::string::npos ||
+           profile.find("exit") != std::string::npos;
 }
 
 }  // namespace
 
-SmartWaypointNavigator::SmartWaypointNavigator(rclcpp::Node& node, std::shared_ptr<SerialDriver> cmd_serial,
-                                               std::string nav2_action_name, std::string goal_frame,
+SmartWaypointNavigator::SmartWaypointNavigator(rclcpp::Node& node, std::string nav2_action_name,
+                                               std::string goal_frame,
                                                std::string controller_server_node, std::string odom_topic,
                                                double stop_linear_eps_mps, double stop_angular_eps_rps)
     : node_(node),
       logger_(node.get_logger()),
-      cmd_serial_(std::move(cmd_serial)),
       nav2_action_name_(std::move(nav2_action_name)),
       goal_frame_(std::move(goal_frame)),
       controller_server_node_(std::move(controller_server_node)),
       odom_topic_(std::move(odom_topic)),
       stop_linear_eps_mps_(stop_linear_eps_mps),
       stop_angular_eps_rps_(stop_angular_eps_rps) {
+    loadSpeedProfileScales();
+
     nav2_client_ = rclcpp_action::create_client<NavigateToPose>(
         node_.get_node_base_interface(), node_.get_node_graph_interface(), node_.get_node_logging_interface(),
         node_.get_node_waitables_interface(), nav2_action_name_);
 
-    nav_mode_client_ = node_.create_client<SetNavMode>("nav_safety/set_mode");
+    // Navigation profile switch (handled by rc26_nav_mode_manager)
+    // - service: `set_nav_mode` (profile string + timeout + reason)
+    // - topic:   `nav_safety_state` (stop_required/timed_out watchdog signals)
+    nav_mode_client_ = node_.create_client<SetNavMode>("set_nav_mode");
 
+    // Dynamic controller tuning is done by talking to the Nav2 controller_server parameter service.
+    // Typical params: FollowPath.v_linear_max / FollowPath.v_angular_max / general_goal_checker.*tolerance
     controller_params_client_ = std::make_shared<rclcpp::AsyncParametersClient>(&node_, controller_server_node_);
 
-    nav_safety_state_sub_ = node_.create_subscription<NavSafetyModeMsg>(
-        "nav_safety/state", 10, [this](const NavSafetyModeMsg::SharedPtr msg) {
+    nav_safety_state_sub_ = node_.create_subscription<NavSafetyStateMsg>(
+        "nav_safety_state", 10, [this](const NavSafetyStateMsg::SharedPtr msg) {
             nav_safety_stop_required_.store(msg->stop_required);
             nav_safety_timed_out_.store(msg->timed_out);
         });
@@ -75,6 +65,28 @@ SmartWaypointNavigator::SmartWaypointNavigator(rclcpp::Node& node, std::shared_p
             last_angular_speed_rps_.store(std::abs(wz));
             last_odom_recv_ns_.store(node_.now().nanoseconds());
         });
+}
+
+void SmartWaypointNavigator::loadSpeedProfileScales() {
+    auto declare_if_missing = [&](const std::string& name, double default_value) -> double {
+        if (!node_.has_parameter(name)) {
+            node_.declare_parameter<double>(name, default_value);
+        }
+        double value = default_value;
+        (void)node_.get_parameter(name, value);
+        if (!std::isfinite(value) || value < 0.0) {
+            RCLCPP_WARN(logger_, "Invalid %s=%.6f, using default %.6f", name.c_str(), value, default_value);
+            value = default_value;
+        }
+        return value;
+    };
+
+    speed_profile_fast_scale_ = declare_if_missing("speed_profile_scales.fast", 1.0);
+    speed_profile_slow_scale_ = declare_if_missing("speed_profile_scales.slow", 0.4);
+    speed_profile_creep_scale_ = declare_if_missing("speed_profile_scales.creep", 0.2);
+
+    RCLCPP_INFO(logger_, "speed_profile_scales: FAST=%.3f SLOW=%.3f CREEP=%.3f",
+                speed_profile_fast_scale_, speed_profile_slow_scale_, speed_profile_creep_scale_);
 }
 
 bool SmartWaypointNavigator::start(const SmartWaypointSpec& waypoint) {
@@ -139,13 +151,13 @@ bool SmartWaypointNavigator::robotStopped() const {
     return (lin < stop_linear_eps_mps_) && (ang < stop_angular_eps_rps_);
 }
 
-void SmartWaypointNavigator::requestSetMode(uint8_t mode, float timeout, const std::string& reason,
+void SmartWaypointNavigator::requestSetMode(const std::string& profile, float timeout, const std::string& reason,
                                             SetNavModeFuture& future, bool& requested_flag) {
     if (requested_flag) {
         return;
     }
     auto request = std::make_shared<SetNavMode::Request>();
-    request->mode = mode;
+    request->profile = profile;
     request->timeout = timeout;
     request->reason = reason;
     auto future_and_id = nav_mode_client_->async_send_request(request);
@@ -304,11 +316,11 @@ std::vector<rclcpp::Parameter> SmartWaypointNavigator::buildControllerParamsForA
     if (!active_.speed_profile.empty()) {
         double scale = 1.0;
         if (active_.speed_profile == "SLOW") {
-            scale = 0.4;
+            scale = speed_profile_slow_scale_;
         } else if (active_.speed_profile == "CREEP") {
-            scale = 0.2;
+            scale = speed_profile_creep_scale_;
         } else if (active_.speed_profile == "FAST") {
-            scale = 1.0;
+            scale = speed_profile_fast_scale_;
         }
         if (defaults_.v_linear_max > 0.0) {
             v_lin = defaults_.v_linear_max * scale;
@@ -349,19 +361,6 @@ std::vector<rclcpp::Parameter> SmartWaypointNavigator::buildControllerParamsRest
     };
 }
 
-bool SmartWaypointNavigator::sendMcuNavCommand() {
-    if (!active_.mcu.enabled) {
-        return true;
-    }
-    if (!cmd_serial_ || !cmd_serial_->isOpen()) {
-        RCLCPP_WARN(logger_, "SmartWaypointNavigator: cmd_serial not available, skipping MCU nav command");
-        return false;
-    }
-    const auto cmd = mcuModeToCommandId(active_.mcu.mode);
-    const auto payload = floatToPayload(active_.mcu.speed_mps);
-    return cmd_serial_->sendCommand(cmd, payload);
-}
-
 bool SmartWaypointNavigator::sendNav2Goal() {
     if (!nav2_client_) {
         return false;
@@ -398,10 +397,6 @@ void SmartWaypointNavigator::abortWithFailure(const std::string& reason) {
         (void)nav2_client_->async_cancel_goal(goal_handle_);
     }
 
-    if (cmd_serial_ && cmd_serial_->isOpen()) {
-        (void)cmd_serial_->sendStop();
-    }
-
     exec_state_ = ExecState::Cleanup;
     state_start_time_ = node_.now();
 }
@@ -421,25 +416,25 @@ SmartWaypointNavigator::Status SmartWaypointNavigator::tick() {
 
     switch (exec_state_) {
     case ExecState::SetMode: {
-        const auto target = active_.nav_safety_mode;
-        const bool need_stop = (target == NavSafetyMode::MF_TRAVERSE || target == NavSafetyMode::MF_EXIT);
+        // 1) Switch navigation profile (safety/costmap/controller/mcu policy), optionally requiring "robot stopped".
+        const std::string profile = active_.nav_profile.empty() ? "normal" : active_.nav_profile;
+        const bool need_stop = profileNeedsStopBeforeSwitch(profile);
         if (need_stop && !robotStopped()) {
             if ((node_.now() - state_start_time_).seconds() > 3.0) {
-                abortWithFailure("robot_not_stopped_before_TRAVERSE_or_EXIT");
+                abortWithFailure("robot_not_stopped_before_profile_switch");
             }
             return Status::Running;
         }
 
         if (!nav_mode_client_->wait_for_service(std::chrono::seconds(0))) {
             if ((node_.now() - state_start_time_).seconds() > 2.0) {
-                abortWithFailure("nav_safety/set_mode service not available");
+                abortWithFailure("set_nav_mode service not available");
             }
             return Status::Running;
         }
 
-        requestSetMode(static_cast<uint8_t>(target), active_.timeout_sec, active_.strategy_tag, set_mode_future_, set_mode_requested_);
+        requestSetMode(profile, active_.timeout_sec, active_.strategy_tag, set_mode_future_, set_mode_requested_);
         if (pollSetMode(set_mode_future_, set_mode_requested_, "pre-nav")) {
-            (void)sendMcuNavCommand();
             exec_state_ = ExecState::ApplyParams;
             state_start_time_ = node_.now();
         }
@@ -447,6 +442,7 @@ SmartWaypointNavigator::Status SmartWaypointNavigator::tick() {
     }
 
     case ExecState::ApplyParams: {
+        // 2) Apply per-waypoint tolerance/limit overrides to controller_server (best-effort; will skip on timeout).
         if (!controller_params_client_ || !controller_params_client_->wait_for_service(std::chrono::seconds(0))) {
             if ((node_.now() - state_start_time_).seconds() > 2.0) {
                 exec_state_ = ExecState::SendGoal;
@@ -481,6 +477,7 @@ SmartWaypointNavigator::Status SmartWaypointNavigator::tick() {
     }
 
     case ExecState::SendGoal: {
+        // 3) Send Nav2 NavigateToPose goal (map->base_link target pose).
         if (!nav2_client_->wait_for_action_server(std::chrono::seconds(0))) {
             if ((node_.now() - state_start_time_).seconds() > 5.0) {
                 abortWithFailure("Nav2 action server not ready");
@@ -553,10 +550,10 @@ SmartWaypointNavigator::Status SmartWaypointNavigator::tick() {
             (void)pollSetControllerParams(restore_params_future_, restore_params_requested_, "restore");
         }
 
-        if (active_.nav_safety_mode == NavSafetyMode::MF_TRAVERSE || active_.nav_safety_mode == NavSafetyMode::MF_EXIT) {
+        if (profileNeedsRestoreAfterNav(active_.nav_profile)) {
             if (!nav_mode_client_->wait_for_service(std::chrono::seconds(0))) {
             } else {
-                requestSetMode(static_cast<uint8_t>(NavSafetyMode::MF_SAFE), 0.0f, "post_nav", cleanup_set_mode_future_,
+                requestSetMode("safe", 0.0f, "post_nav", cleanup_set_mode_future_,
                                cleanup_set_mode_requested_);
                 (void)pollSetMode(cleanup_set_mode_future_, cleanup_set_mode_requested_, "post-nav");
             }
@@ -603,10 +600,6 @@ void SmartWaypointNavigator::cancelAndStop() {
     goal_handle_future_ = {};
     result_future_ = {};
 
-    if (cmd_serial_ && cmd_serial_->isOpen()) {
-        (void)cmd_serial_->sendStop();
-    }
-
     // Fire-and-forget parameter restore (M1 fix: no blocking wait)
     // Note: params might be in-flight (C3), so we set flag to trigger restore on next opportunity
     if (params_modified_ || set_params_requested_) {
@@ -620,10 +613,10 @@ void SmartWaypointNavigator::cancelAndStop() {
     }
 
     // Fire-and-forget safety mode restore (M1 fix: no blocking wait)
-    if ((active_.nav_safety_mode == NavSafetyMode::MF_TRAVERSE || active_.nav_safety_mode == NavSafetyMode::MF_EXIT) &&
+    if (profileNeedsStopBeforeSwitch(active_.nav_profile) &&
         nav_mode_client_ && nav_mode_client_->wait_for_service(std::chrono::seconds(0))) {
         auto req = std::make_shared<SetNavMode::Request>();
-        req->mode = static_cast<uint8_t>(NavSafetyMode::MF_SAFE);
+        req->profile = "safe";
         req->timeout = 0.0f;
         req->reason = "halted";
         (void)nav_mode_client_->async_send_request(req);

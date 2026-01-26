@@ -14,15 +14,14 @@
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
 
 #include "rc26_decision/navigation/smart_waypoint_types.hpp"
-#include "rc26_interfaces/msg/nav_safety_mode.hpp"
+#include "rc26_interfaces/msg/nav_safety_state.hpp"
 #include "rc26_interfaces/srv/set_nav_mode.hpp"
-#include "rc26_serial/serial_driver.hpp"
 
 namespace rc26_decision {
 
 class SmartWaypointNavigator {
 public:
-    using NavSafetyModeMsg = rc26_interfaces::msg::NavSafetyMode;
+    using NavSafetyStateMsg = rc26_interfaces::msg::NavSafetyState;
     using SetNavMode = rc26_interfaces::srv::SetNavMode;
 
     enum class Status {
@@ -33,8 +32,8 @@ public:
         Canceled,
     };
 
-    SmartWaypointNavigator(rclcpp::Node& node, std::shared_ptr<SerialDriver> cmd_serial,
-                           std::string nav2_action_name = "navigate_to_pose", std::string goal_frame = "map",
+    SmartWaypointNavigator(rclcpp::Node& node, std::string nav2_action_name = "navigate_to_pose",
+                           std::string goal_frame = "map",
                            std::string controller_server_node = "controller_server", std::string odom_topic = "odometry",
                            double stop_linear_eps_mps = 0.05, double stop_angular_eps_rps = 0.05);
 
@@ -63,7 +62,6 @@ private:
 
     rclcpp::Node& node_;
     rclcpp::Logger logger_;
-    std::shared_ptr<SerialDriver> cmd_serial_;
     std::string nav2_action_name_;
     std::string goal_frame_;
     std::string controller_server_node_;
@@ -73,7 +71,7 @@ private:
     rclcpp::Client<SetNavMode>::SharedPtr nav_mode_client_;
     std::shared_ptr<rclcpp::AsyncParametersClient> controller_params_client_;
 
-    rclcpp::Subscription<NavSafetyModeMsg>::SharedPtr nav_safety_state_sub_;
+    rclcpp::Subscription<NavSafetyStateMsg>::SharedPtr nav_safety_state_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
 
     std::atomic<bool> nav_safety_stop_required_{false};
@@ -84,6 +82,15 @@ private:
 
     double stop_linear_eps_mps_{0.05};
     double stop_angular_eps_rps_{0.05};
+
+    // Global, configurable speed-profile scales (applied as multipliers to controller defaults).
+    // Parameter names on rc26_decision node:
+    // - speed_profile_scales.fast  (default 1.0)
+    // - speed_profile_scales.slow  (default 0.4)
+    // - speed_profile_scales.creep (default 0.2)
+    double speed_profile_fast_scale_{1.0};
+    double speed_profile_slow_scale_{0.4};
+    double speed_profile_creep_scale_{0.2};
 
     Status status_{Status::Idle};
     ExecState exec_state_{ExecState::Idle};
@@ -126,7 +133,9 @@ private:
     bool haveRecentOdom(double max_age_sec) const;
     bool robotStopped() const;
 
-    void requestSetMode(uint8_t mode, float timeout, const std::string& reason, SetNavModeFuture& future, bool& requested_flag);
+    void loadSpeedProfileScales();
+
+    void requestSetMode(const std::string& profile, float timeout, const std::string& reason, SetNavModeFuture& future, bool& requested_flag);
     bool pollSetMode(SetNavModeFuture& future, bool& requested_flag, const char* ctx);
 
     void requestControllerDefaults();
@@ -138,7 +147,6 @@ private:
     std::vector<rclcpp::Parameter> buildControllerParamsForActive() const;
     std::vector<rclcpp::Parameter> buildControllerParamsRestoreDefaults() const;
 
-    bool sendMcuNavCommand();
     bool sendNav2Goal();
 
     void abortWithFailure(const std::string& reason);

@@ -30,26 +30,13 @@ enum class NavSafetyMode : uint8_t {
     MF_EXIT = 3,
 };
 
-enum class McuNavMode : uint8_t {
-    Normal = 0,
-    StairUp = 1,
-    StairDown = 2,
-};
-
-struct McuNavConfig {
-    bool enabled = false;
-    McuNavMode mode = McuNavMode::Normal;
-    float speed_mps = 0.0f;
-};
-
 struct SmartWaypointSpec {
     Pose2D pose;
     std::string strategy_tag;
     NavTolerance tolerance;
-    NavSafetyMode nav_safety_mode = NavSafetyMode::NORMAL;
+    std::string nav_profile = "normal";
     std::string speed_profile;
     float timeout_sec = 0.0f;
-    McuNavConfig mcu;
     std::unordered_map<std::string, double> payload;
 };
 

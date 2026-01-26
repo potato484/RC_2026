@@ -32,20 +32,18 @@ class PointRecorder(Node):
             self.get_logger().error(f'TF lookup failed: {e}')
             return None
 
-    def cmd_record(self, name, strategy='default', safety='NORMAL'):
+    def cmd_record(self, name, strategy='default', nav_profile='normal'):
         pose = self.get_robot_pose()
         if pose:
             self.data['static_points'][name] = {
                 'x': pose['x'],
                 'y': pose['y'],
                 'theta': pose['theta'],
-                'nav_mode': 'Normal',      # 可扩展为命令行参数
-                'speed_mps': 1.5,          # 可扩展为命令行参数
                 'strategy_tag': f'TAG_{strategy.upper()}',
-                'nav_safety_mode': safety,
+                'nav_profile': nav_profile,
                 'speed_profile': 'FAST',
                 'tolerance': {'xy': 0.10, 'yaw': 0.15},
-                'timeout_sec': 10.0
+                'timeout_sec': 10.0,
             }
             print(f"✓ Recorded '{name}' at ({pose['x']:.3f}, {pose['y']:.3f}, {pose['theta']:.3f})")
 
@@ -97,7 +95,7 @@ class PointRecorder(Node):
                 elif cmd in ('quit', 'exit'):
                     break
                 else:
-                    print("Commands: record <name>, record_anchor <block_id>, list, validate, save, quit")
+                    print("Commands: record <name> [strategy] [nav_profile], record_anchor <block_id>, list, validate, save, quit")
             except (EOFError, KeyboardInterrupt):
                 break
 
