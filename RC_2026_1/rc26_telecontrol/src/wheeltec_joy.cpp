@@ -1,6 +1,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "sensor_msgs/msg/joy.hpp"
+#include <string>
 #include <mutex>
 #include <cmath>
 #include <algorithm>
@@ -14,6 +15,7 @@ private:
     rclcpp::TimerBase::SharedPtr timer_;
     
     // 参数
+    std::string cmd_vel_topic_{"cmd_vel_teleop"};
     double v_linear_{1.0};
     double v_angular_{2.0};
     double joy_deadzone_{0.1};
@@ -120,12 +122,14 @@ public:
     rc26_telecontrol() : Node("rc26_telecontrol")
     {
         // 声明参数
+        this->declare_parameter<std::string>("cmd_vel_topic", "cmd_vel_teleop");
         this->declare_parameter<double>("v_linear", 1.0);
         this->declare_parameter<double>("v_angular", 2.0);
         this->declare_parameter<double>("joy_deadzone", 0.1);
         this->declare_parameter<double>("smoothing_alpha", 0.2);
         
         // 获取参数
+        cmd_vel_topic_ = this->get_parameter("cmd_vel_topic").as_string();
         this->get_parameter("v_linear", v_linear_);
         this->get_parameter("v_angular", v_angular_);
         this->get_parameter("joy_deadzone", joy_deadzone_);
@@ -141,7 +145,7 @@ public:
         qos_profile.history(RMW_QOS_POLICY_HISTORY_KEEP_LAST);
         
         // Pub/Sub
-        pub_ = this->create_publisher<geometry_msgs::msg::Twist>("cmd_vel", qos_profile);
+        pub_ = this->create_publisher<geometry_msgs::msg::Twist>(cmd_vel_topic_, qos_profile);
         joy_sub_ = this->create_subscription<sensor_msgs::msg::Joy>(
             "joy", qos_profile, std::bind(&rc26_telecontrol::joy_callback, this, std::placeholders::_1));
 
@@ -155,6 +159,7 @@ public:
         RCLCPP_INFO(this->get_logger(), 
                     "v_linear=%.2f m/s, v_angular=%.2f rad/s, deadzone=%.2f, smoothing_alpha=%.2f",
                     v_linear_, v_angular_, joy_deadzone_, smoothing_alpha_);
+        RCLCPP_INFO(this->get_logger(), "publish cmd_vel topic: %s", cmd_vel_topic_.c_str());
         RCLCPP_INFO(this->get_logger(), 
                     "Left Stick: forward/backward(axes[1]), left/right(axes[0])");
         RCLCPP_INFO(this->get_logger(), 
