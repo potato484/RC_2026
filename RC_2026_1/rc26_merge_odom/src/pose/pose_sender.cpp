@@ -19,6 +19,9 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
         throw std::runtime_error("target_send_rate_hz 必须 > 0");
     }
 
+    // Bridge ROS velocity commands to MCU speed closed-loop:
+    // - Subscribe `cmd_vel_topic` (Twist)
+    // - Send POSE_TARGET(0x22) over UART as (vx, vy, wz) floats
     cmd_vel_sub_ = node_.create_subscription<geometry_msgs::msg::Twist>(
         config_.cmd_vel_topic, 10, std::bind(&PoseSender::cmdVelCallback, this, std::placeholders::_1));
 
