@@ -1,10 +1,12 @@
-/// ros2 run rc26_vision vision_test_node --ros-args -p vision_model_path:=/path/to/model.onnx
+/// 推荐用法（多 Profile 配置）：
+///   ros2 run rc26_vision vision_test_node --ros-args -p vision_config_file:=/path/to/vision_models.yaml
 #include <memory>
 #include <string>
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
+#include "rc26_vision/profile_loader.hpp"
 #include "rc26_vision/vision_inference_manager.hpp"
 
 namespace rc26_vision {
@@ -12,35 +14,30 @@ namespace rc26_vision {
 class VisionTestNode : public rclcpp::Node {
 public:
     VisionTestNode() : Node("vision_test_node") {
-        this->declare_parameter<std::string>("vision_model_path", "");
-        this->declare_parameter<double>("vision_conf_thresh", 0.5);
         this->declare_parameter<int>("print_rate_ms", 500);
+        this->declare_parameter<std::string>("vision_config_file", "");
 
-        const std::string model_path = this->get_parameter("vision_model_path").as_string();
-        const double conf_thresh = this->get_parameter("vision_conf_thresh").as_double();
         const int print_rate_ms = this->get_parameter("print_rate_ms").as_int();
+        const std::string config_file = this->get_parameter("vision_config_file").as_string();
 
-        if (model_path.empty()) {
-            RCLCPP_FATAL(this->get_logger(), "vision_model_path 参数为空");
-            throw std::runtime_error("vision_model_path 参数为空");
+        if (config_file.empty()) {
+            RCLCPP_FATAL(this->get_logger(), "vision_config_file 参数为空");
+            throw std::runtime_error("vision_config_file 参数为空");
         }
 
         manager_ = std::make_shared<VisionInferenceManager>(*this);
 
-        std::vector<std::string> class_names = {
-            "R_R1", "B_R1",
-            "T_03", "T_04", "T_05", "T_06", "T_07", "T_08", "T_09", "T_10",
-            "T_11", "T_12", "T_13", "T_14", "T_15", "T_16", "T_17",
-            "F_18", "F_19", "F_20", "F_21", "F_22", "F_23", "F_24", "F_25",
-            "F_26", "F_27", "F_28", "F_29", "F_30", "F_31", "F_32"
-        };
-
-        if (!manager_->configure(model_path, class_names, static_cast<float>(conf_thresh))) {
-            RCLCPP_FATAL(this->get_logger(), "视觉模块配置失败: %s", model_path.c_str());
-            throw std::runtime_error("视觉模块配置失败");
+        try {
+            auto config = ProfileLoader::loadFromYaml(config_file);
+            manager_->loadConfig(config);
+            if (!config.default_model.empty()) {
+                manager_->selectModel(config.default_model);
+            }
+            RCLCPP_INFO(this->get_logger(), "视觉配置已加载: %s", config_file.c_str());
+        } catch (const std::exception& e) {
+            RCLCPP_FATAL(this->get_logger(), "视觉配置加载失败: %s", e.what());
+            throw;
         }
-
-        RCLCPP_INFO(this->get_logger(), "视觉模块已配置: %s (conf=%.2f)", model_path.c_str(), conf_thresh);
 
         manager_->setResultCallback([this](const TargetResult& result) {
             if (result.has_target) {

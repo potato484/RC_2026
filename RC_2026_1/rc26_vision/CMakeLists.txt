@@ -91,6 +91,11 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(
+  DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
+)
+
 # ============================================================================
 # ament 导出
 # ============================================================================

@@ -262,9 +262,20 @@ rc26_vision/
 │       └── yolo_inference_test.cpp   # 推理测试
 ├── models/                           # 预训练模型文件 (.onnx, .dlc)
 ├── config/                           # 配置文件 (.yaml)
+├── launch/                           # Launch 文件（相机/联调入口）
 ├── package.xml                       # ROS 2 包描述
 ├── CMakeLists.txt                    # 构建配置
 └── README.md                         # 本文档
+```
+
+## 7.1 快速启动（ROS）
+
+```bash
+# 启动 RealSense D455（仅相机）
+ros2 launch rc26_vision realsense_d455.launch.py
+
+# 启动相机 + 视觉测试节点（推荐用于独立联调）
+ros2 launch rc26_vision vision_test_with_camera.launch.py
 ```
 
 ## 8. 依赖项 (Dependencies)

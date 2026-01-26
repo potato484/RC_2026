@@ -1,0 +1,68 @@
+# 视觉推理模型配置文件（rc26_vision）
+#
+# 用途：
+# - 给 rc26_vision/rc26_decision 运行时加载多个“模型 Profile”
+# - 由行为树/上层逻辑切换当前使用的模型（按 ID 选择）
+
+vision:
+  # 启动时默认加载的模型 ID（可留空，表示不自动切换）
+  default_model: "yolo_default"
+
+  # models: 以 “profile_id:” 为键的字典
+  models:
+    # ========== 默认模型 ==========
+    yolo_default:
+      engine: onnxruntime                 # 推理引擎：onnxruntime | aidlite
+      model_path: "/path/to/yolo.onnx"    # 模型文件路径（按实际部署修改）
+      conf_thresh: 0.5                    # 置信度阈值（必填）
+      iou_thresh: 0.45                    # NMS IoU 阈值（可选）
+      input_w: 640                        # 输入宽（可选，默认 640）
+      input_h: 640                        # 输入高（可选，默认 640）
+
+      # 类别名称：labels 与 labels_path 二选一
+      labels:
+        - "R_R1"
+        - "B_R1"
+        - "T_03"
+        - "T_04"
+        - "T_05"
+        - "T_06"
+        - "T_07"
+        - "T_08"
+        - "T_09"
+        - "T_10"
+        - "T_11"
+        - "T_12"
+        - "T_13"
+        - "T_14"
+        - "T_15"
+        - "T_16"
+        - "T_17"
+        - "F_18"
+        - "F_19"
+        - "F_20"
+        - "F_21"
+        - "F_22"
+        - "F_23"
+        - "F_24"
+        - "F_25"
+        - "F_26"
+        - "F_27"
+        - "F_28"
+        - "F_29"
+        - "F_30"
+        - "F_31"
+        - "F_32"
+
+    # ========== 小模型（低延迟） ==========
+    yolo_small:
+      engine: onnxruntime
+      model_path: "/path/to/yolo_small.onnx"
+      conf_thresh: 0.6                    # 小模型可适当提高阈值
+      iou_thresh: 0.45
+      input_w: 320                        # 较小输入尺寸，推理更快
+      input_h: 320
+
+      # 从文件加载类别（每行一个）
+      labels_path: "/path/to/labels.txt"
+

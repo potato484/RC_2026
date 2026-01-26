@@ -17,6 +17,10 @@
   <depend>behaviortree_cpp</depend>
   <depend>yaml-cpp</depend>
 
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>realsense2_camera</exec_depend>
+
   <export>
     <build_type>ament_cmake</build_type>
   </export>
