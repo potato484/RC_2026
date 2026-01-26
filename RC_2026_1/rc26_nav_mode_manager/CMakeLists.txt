@@ -15,6 +15,9 @@ find_package(nav_msgs REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(rc26_interfaces REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(yaml-cpp REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 
 set(DEPENDENCIES
   rclcpp
@@ -23,14 +26,21 @@ set(DEPENDENCIES
   nav2_msgs
   sensor_msgs
   rc26_interfaces
+  std_msgs
+  ament_index_cpp
 )
 
 include_directories(include)
 
 add_library(${PROJECT_NAME} SHARED
   src/nav_mode_manager.cpp
+  src/profile_loader.cpp
+  src/profile_db.cpp
+  src/profile_executor.cpp
+  src/watchdog_timer.cpp
 )
 ament_target_dependencies(${PROJECT_NAME} ${DEPENDENCIES})
+target_link_libraries(${PROJECT_NAME} yaml-cpp)
 
 rclcpp_components_register_node(${PROJECT_NAME}
   PLUGIN "rc26_nav_mode_manager::NavModeManager"

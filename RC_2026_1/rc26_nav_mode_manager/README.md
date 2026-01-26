@@ -1,224 +1,117 @@
 # rc26_nav_mode_manager
 
-## 1. 模块简介 (Introduction)
-`rc26_nav_mode_manager` 是导航系统的**安全模式管理器**。它负责监控机器人状态，根据外部指令或异常情况（如超时、堵转）动态切换导航模式，并管理 Costmap 的清理与层级控制。
+## 1. 模块简介
+`rc26_nav_mode_manager` 是导航系统的**安全模式管理器**，统一对外提供：
+- 安全模式切换服务：`nav_safety/set_mode`（`rc26_interfaces/srv/SetNavMode`）
+- 安全模式状态发布：`nav_safety/state`（`rc26_interfaces/msg/NavSafetyMode`）
+- 对 Nav2 local costmap 的 `drop_layer.enabled` 进行动态控制，并在切换关键模式时清图/等待重建
+- 对关键模式启用超时保护：超时会自动回退并发出“需要停止”的信号，供上层（决策/导航执行器）中断导航
 
-本模块是机器人导航安全的核心保障，能够在检测到异常时自动触发保护机制，防止机器人陷入危险状态。
+## 2. 支持的模式（与接口定义一致）
+模式定义在 `rc26_interfaces/msg/NavSafetyMode.msg`：
+- `NORMAL = 0`
+- `MF_SAFE = 1`
+- `MF_TRAVERSE = 2`
+- `MF_EXIT = 3`
 
-## 2. 核心功能 (Core Features)
-*   **导航模式切换**：
-    *   `NORMAL`: 正常导航模式，机器人按照规划路径行驶。
-    *   `SLOW`: 低速/精密模式（可选），用于精细操作场景。
-    *   `STOP`: 强制急停模式，立即停止所有运动。
-*   **Costmap 管理**：提供服务接口以清除全局或局部代价地图，常用于解决机器人陷入"假障碍物"包围的困境。
-*   **自动回退/恢复**：检测机器人是否长时间未移动（超时），自动触发 Costmap 清理或重置导航状态。
-*   **速度监控**：监听里程计速度，判断机器人是否物理静止。
-*   **Drop Layer 控制**：动态启用/禁用 Costmap 的 Drop Layer，适应不同地形场景。
+其中 `MF_TRAVERSE/MF_EXIT` 是“临时放开/穿越”的模式：本节点会**禁用** costmap 的 drop layer，并启动一个超时定时器；超时则回退到 `MF_SAFE`。
 
-## 3. 底层原理 (Underlying Principles)
+## 3. 核心行为
 
-### 3.1 速度监测与静止判定
-通过订阅 `odom` 话题，计算线速度和角速度模长：
-$$ v = \sqrt{v_x^2 + v_y^2}, \quad \omega = |\omega_z| $$
-若 $v < \epsilon_{linear}$ 且 $\omega < \epsilon_{angular}$ 持续一定时间，判定为 `RobotStopped`。
+### 3.1 里程计速度监测（停稳判定）
+订阅 `odom`，根据速度阈值判断机器人是否“停稳”：
+- `sqrt(vx^2 + vy^2) < stop_linear_eps_mps`
+- `abs(wz) < stop_angular_eps_rps`
 
-**判定参数**:
-*   `stop_linear_eps_mps`: 线速度静止阈值 (默认 0.05 m/s)
-*   `stop_angular_eps_rps`: 角速度静止阈值 (默认 0.05 rad/s)
+当外部请求进入 `MF_TRAVERSE/MF_EXIT` 时，若未停稳会拒绝切换（服务返回失败）。
 
-### 3.2 Costmap 层级控制
-通过 ROS 2 Parameter Client 动态修改 Navigation Stack（如 Nav2）的参数。
-*   例如：在特定区域（如平坦地面）禁用 `voxel_layer` 或 `obstacle_layer`，仅保留静态地图，以减少噪点干扰。
-*   通过 `setDropLayerEnabled(bool)` 方法控制 Drop Layer 的启用状态。
+### 3.2 Drop Layer 与清图/重建确认
+切换到 `MF_TRAVERSE/MF_EXIT` 时：
+1. 通过参数服务设置 `drop_layer.enabled=false`
+2. 调用 `ClearEntireCostmap` 清除 local costmap
+3. 通过订阅 `terrain_obstacles` 的时间戳是否更新，粗略确认清图后 costmap 已重新接收障碍信息（重建开始/恢复）
 
-### 3.3 超时机制
-内置定时器 `timeout_timer_`。若在 `current_timeout_sec_` 时间内未收到特定刷新信号或达成目标，触发超时处理：
-1.  发布 `STOP` 状态。
-2.  尝试清理 Costmap。
-3.  等待 Costmap 重建完成。
+切回 `NORMAL/MF_SAFE` 时：
+- 设 `drop_layer.enabled=true`
+- 取消超时定时器
 
-### 3.4 模式切换状态机
-```
-┌────────┐  set_nav_mode(STOP)  ┌──────┐
-│ NORMAL │ ──────────────────→ │ STOP │
-└────┬───┘                     └──┬───┘
-     │                            │
-     │  set_nav_mode(SLOW)        │ set_nav_mode(NORMAL)
-     ↓                            ↓
-┌────────┐                    ┌────────┐
-│  SLOW  │ ←───────────────── │ NORMAL │
-└────────┘  set_nav_mode(SLOW) └────────┘
-```
+### 3.3 超时回退（仅对 MF_TRAVERSE/MF_EXIT）
+进入 `MF_TRAVERSE/MF_EXIT` 后会启动一个 `timeout` 定时器：
+- 定时器触发时：强制回退到 `MF_SAFE`
+- 立刻发布 `nav_safety/state`，并置 `stop_required=true`、`timed_out=true`
 
-## 4. 接口说明 (Interface Description)
+上层模块（如导航执行器）可订阅该话题以中断当前导航并执行停机策略。
 
-### 4.1 服务 (Services)
-| 服务名 (Service) | 类型 (Type) | 说明 |
-| :--- | :--- | :--- |
-| `set_nav_mode` | `rc26_interfaces/srv/SetNavMode` | 外部请求切换导航模式 |
+## 4. 接口说明
 
-**SetNavMode 服务定义**:
-```
-# Request
-uint8 mode    # 0: NORMAL, 1: SLOW, 2: STOP
+### 4.1 服务（Services）
+| 名称 | 类型 | 说明 |
+| --- | --- | --- |
+| `nav_safety/set_mode` | `rc26_interfaces/srv/SetNavMode` | 请求切换安全模式（可带超时与原因） |
 
-# Response
-bool success
-string message
-```
+`SetNavMode` 请求字段：
+- `mode`：目标模式（0..3）
+- `timeout`：当目标为 `MF_TRAVERSE/MF_EXIT` 时的超时时间（秒）；`<=0` 使用默认值
+- `reason`：切换原因（会写入状态消息的 `reason`）
 
-### 4.2 话题订阅 (Subscribed Topics)
-| 话题 (Topic) | 类型 (Type) | 说明 |
-| :--- | :--- | :--- |
-| `odom` | `nav_msgs/msg/Odometry` | 用于速度监控，判断机器人是否静止 |
-| `terrain_obstacles` | `sensor_msgs/msg/PointCloud2` | (可选) 监控障碍物密度 |
+### 4.2 发布（Published Topics）
+| 名称 | 类型 | 说明 |
+| --- | --- | --- |
+| `nav_safety/state` | `rc26_interfaces/msg/NavSafetyMode` | 当前模式与安全状态（含 `stop_required/timed_out`） |
 
-### 4.3 话题发布 (Published Topics)
-| 话题 (Topic) | 类型 (Type) | 说明 |
-| :--- | :--- | :--- |
-| `nav_safety_mode` | `rc26_interfaces/msg/NavSafetyMode` | 广播当前生效的安全模式 |
+### 4.3 订阅（Subscribed Topics）
+| 名称 | 类型 | 说明 |
+| --- | --- | --- |
+| `odom` | `nav_msgs/msg/Odometry` | 用于停稳判定 |
+| `terrain_obstacles` | `sensor_msgs/msg/PointCloud2` | 用于清图后重建确认（时间戳更新） |
 
-**NavSafetyMode 消息定义**:
-```
-uint8 NORMAL = 0
-uint8 SLOW = 1
-uint8 STOP = 2
-
-uint8 mode
-builtin_interfaces/Time stamp
-string reason
-```
-
-### 4.4 客户端 (Clients)
-| 客户端 (Client) | 类型 (Type) | 说明 |
-| :--- | :--- | :--- |
-| `clear_entire_costmap` | `nav2_msgs/srv/ClearEntireCostmap` | 调用 Nav2 的清除地图服务 |
-
-### 4.5 参数配置 (Parameters)
-
-通过 `config/nav_mode_manager.yaml` 配置：
-
+## 5. 参数（config/nav_mode_manager.yaml）
 | 参数名 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `costmap_node_name` | string | `local_costmap/local_costmap` | Costmap 节点名称 |
-| `odom_topic` | string | `odom` | 里程计话题 |
-| `obstacles_topic` | string | `terrain_obstacles` | 障碍物点云话题 |
-| `default_timeout_sec` | double | 5.0 | 默认超时时间 (秒) |
-| `stop_linear_eps_mps` | double | 0.05 | 线速度静止阈值 (m/s) |
-| `stop_angular_eps_rps` | double | 0.05 | 角速度静止阈值 (rad/s) |
-| `param_timeout_sec` | double | 2.0 | 参数服务超时时间 (秒) |
-| `clear_timeout_sec` | double | 2.0 | 清除 Costmap 超时时间 (秒) |
-| `rebuild_timeout_sec` | double | 0.5 | Costmap 重建等待时间 (秒) |
+| --- | --- | --- | --- |
+| `costmap_node_name` | string | `local_costmap/local_costmap` | local costmap 参数节点名 |
+| `odom_topic` | string | `odom` | odom 话题 |
+| `obstacles_topic` | string | `terrain_obstacles` | 障碍点云话题 |
+| `default_timeout_sec` | double | 5.0 | `timeout<=0` 时使用的默认超时 |
+| `stop_linear_eps_mps` | double | 0.05 | 停稳线速度阈值 |
+| `stop_angular_eps_rps` | double | 0.05 | 停稳角速度阈值 |
+| `param_timeout_sec` | double | 2.0 | 设置参数等待超时 |
+| `clear_timeout_sec` | double | 2.0 | 清图服务等待超时 |
+| `rebuild_timeout_sec` | double | 0.5 | 等待重建确认超时（障碍点云刷新） |
 
-## 5. 启动示例 (Usage)
+关于清图服务名：
+- 代码会用 `costmap_node_name + "/clear_entirely_local_costmap"` 拼接
+- 若 `costmap_node_name` 包含 `local_costmap/local_costmap`，会替换成 `local_costmap/clear_entirely_local_costmap` 以兼容常见 Nav2 命名
 
-### 5.1 命令行启动
+## 6. 启动与使用示例
+
+### 6.1 Launch 启动
 ```bash
-# 使用默认参数启动
 ros2 launch rc26_nav_mode_manager nav_mode_manager.launch.py
 
-# 指定命名空间和参数
 ros2 launch rc26_nav_mode_manager nav_mode_manager.launch.py \
-    namespace:=robot1 \
-    use_sim_time:=true \
-    params_file:=/path/to/custom_params.yaml
+  namespace:=robot1 \
+  use_sim_time:=true \
+  params_file:=/path/to/custom_params.yaml
 ```
 
-### 5.2 Launch 文件参数
-| 参数 | 默认值 | 说明 |
-| :--- | :--- | :--- |
-| `namespace` | `""` | 顶级命名空间 |
-| `use_sim_time` | `false` | 是否使用仿真时间 |
-| `params_file` | `config/nav_mode_manager.yaml` | 参数文件路径 |
-
-### 5.3 在其他 Launch 文件中包含
-```python
-from launch.actions import IncludeLaunchDescription
-from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import PathJoinSubstitution
-from launch_ros.substitutions import FindPackageShare
-
-IncludeLaunchDescription(
-    PythonLaunchDescriptionSource([
-        PathJoinSubstitution([
-            FindPackageShare('rc26_nav_mode_manager'), 'launch', 'nav_mode_manager.launch.py'
-        ])
-    ]),
-    launch_arguments={
-        'namespace': 'robot1',
-        'use_sim_time': 'false'
-    }.items()
-)
-```
-
-### 5.4 调用服务切换模式示例
-
-**命令行调用**:
+### 6.2 命令行切换模式
 ```bash
-# 切换到急停模式
-ros2 service call /set_nav_mode rc26_interfaces/srv/SetNavMode "{mode: 2}"
+# 切到 MF_TRAVERSE，10 秒超时（要求机器人已停稳）
+ros2 service call /nav_safety/set_mode rc26_interfaces/srv/SetNavMode "{mode: 2, timeout: 10.0, reason: 'stairs'}"
 
-# 切换到正常模式
-ros2 service call /set_nav_mode rc26_interfaces/srv/SetNavMode "{mode: 0}"
+# 切回 MF_SAFE（会启用 drop_layer，并取消定时器）
+ros2 service call /nav_safety/set_mode rc26_interfaces/srv/SetNavMode "{mode: 1, timeout: 0.0, reason: 'post_nav'}"
 ```
 
-**C++ 调用**:
-```cpp
-#include "rc26_interfaces/srv/set_nav_mode.hpp"
-
-class MyNode : public rclcpp::Node {
-public:
-    MyNode() : Node("my_node") {
-        client_ = create_client<rc26_interfaces::srv::SetNavMode>("set_nav_mode");
-    }
-
-    void emergencyStop() {
-        auto request = std::make_shared<rc26_interfaces::srv::SetNavMode::Request>();
-        request->mode = 2;  // STOP
-
-        auto future = client_->async_send_request(request);
-        if (rclcpp::spin_until_future_complete(shared_from_this(), future) ==
-            rclcpp::FutureReturnCode::SUCCESS) {
-            auto response = future.get();
-            if (response->success) {
-                RCLCPP_INFO(get_logger(), "Emergency stop activated");
-            }
-        }
-    }
-
-private:
-    rclcpp::Client<rc26_interfaces::srv::SetNavMode>::SharedPtr client_;
-};
+### 6.3 查看状态
+```bash
+ros2 topic echo /nav_safety/state
 ```
 
-### 5.5 订阅安全模式状态
-```cpp
-#include "rc26_interfaces/msg/nav_safety_mode.hpp"
-
-class MyNode : public rclcpp::Node {
-public:
-    MyNode() : Node("my_node") {
-        mode_sub_ = create_subscription<rc26_interfaces::msg::NavSafetyMode>(
-            "nav_safety_mode", 10,
-            [this](const rc26_interfaces::msg::NavSafetyMode::SharedPtr msg) {
-                switch (msg->mode) {
-                    case rc26_interfaces::msg::NavSafetyMode::NORMAL:
-                        RCLCPP_INFO(get_logger(), "Mode: NORMAL");
-                        break;
-                    case rc26_interfaces::msg::NavSafetyMode::SLOW:
-                        RCLCPP_INFO(get_logger(), "Mode: SLOW");
-                        break;
-                    case rc26_interfaces::msg::NavSafetyMode::STOP:
-                        RCLCPP_WARN(get_logger(), "Mode: STOP - Reason: %s", msg->reason.c_str());
-                        break;
-                }
-            });
-    }
-
-private:
-    rclcpp::Subscription<rc26_interfaces::msg::NavSafetyMode>::SharedPtr mode_sub_;
-};
-```
+## 7. 与上层模块的典型配合方式
+- 上层（例如 `rc26_decision` 的导航执行器）在“开始导航前”调用 `nav_safety/set_mode` 进入目标模式
+- 导航过程中订阅 `nav_safety/state`，若看到 `stop_required/timed_out` 则取消 Nav2 goal 并停机
+- 导航结束后（若进入过 `MF_TRAVERSE/MF_EXIT`）再调用 `nav_safety/set_mode` 切回 `MF_SAFE` 或 `NORMAL`
 
 ## 6. 目录结构 (Directory Structure)
 ```
