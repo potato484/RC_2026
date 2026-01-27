@@ -1,4 +1,4 @@
-/// ros2 run rc26_vision yolo_inference_test     --model /home/potato/RC_2026/RC_2026_1/rc26_vision/models/best.onnx     --input /home/potato/RC_2026/test/test14.png --show --show-width 960 --show-height 540
+/// ros2 run rc26_vision yolo_inference_test --model /home/potato/RC_2026/RC_2026_1/rc26_vision/models/best.onnx     --input /home/potato/RC_2026/test/test14.png --show --show-width 960 --show-height 540
 #include <iostream>
 #include <string>
 #include <vector>
