@@ -1,27 +1,116 @@
-<!-- 梅林区子树 (MF Area) -->
+<!-- 梅林区行为树 (MF Area) -->
 <root BTCPP_format="4">
   <BehaviorTree ID="MFAreaTree">
-    <Sequence name="MF_Sequence">
-      <!-- 入口观察 -->
-      <Fallback name="entry_decision">
+    <Sequence name="MF_Main">
+      <!-- 初始化黑板 (team 由外部设置) -->
+      <Script code="target_kfs_count:=2; exit_grid:=10; kfs_on_board:=0; current_grid:=2"/>
+
+      <!-- 三阶段顺序执行 -->
+      <SubTree ID="MF_Entry" _autoremap="true"/>
+      <SubTree ID="MF_Loop" _autoremap="true"/>
+      <SubTree ID="MF_Exit" _autoremap="true"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- MF_Entry: 进门阶段 -->
+  <BehaviorTree ID="MF_Entry">
+    <Sequence name="Entry_Seq">
+      <SetNavMode mode="MF_SAFE"/>
+      <NavToSmartPoint target_name="mf_entry"/>
+
+      <!-- 检测并等待R1让路 -->
+      <RetryUntilSuccessful num_attempts="10">
         <Sequence>
-          <CheckKFS grid_id="2" expected_state="AUTO_KFS"/>
-          <GrabKFS grid_id="2"/>
+          <ScanSurroundings/>
+          <Fallback>
+            <Inverter>
+              <CheckR1Blocking/>
+            </Inverter>
+            <Sequence>
+              <NavToSmartPoint target_name="mf_entry_back"/>
+              <Delay delay_msec="5000"/>
+            </Sequence>
+          </Fallback>
         </Sequence>
-        <StairClimb name="climb_directly"/>
-      </Fallback>
-      <!-- 核心循环：拾取 KFS 直到满载或到达出口 -->
-      <ReactiveSequence name="mf_core_loop">
-        <Inverter>
-          <CheckLoad min_load="2" max_load="3"/>
-        </Inverter>
-        <Sequence>
-          <GrabKFS grid_id="{target_grid}"/>
-          <MechUpMerlin/>
-        </Sequence>
-      </ReactiveSequence>
-      <!-- 离开梅林 -->
-      <StairDescend name="leave_merlin"/>
+      </RetryUntilSuccessful>
+
+      <!-- 进入2号格 -->
+      <SetNavMode mode="MF_TRAVERSE"/>
+      <NavToSmartPoint target_name="mf_grid_2"/>
+      <Script code="current_grid:=2"/>
+      <SetNavMode mode="MF_SAFE"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- MF_Loop: 核心循环 -->
+  <BehaviorTree ID="MF_Loop">
+    <KeepRunningUntilFailure>
+      <Sequence name="Loop_Body">
+        <!-- 检查退出条件 -->
+        <Fallback>
+          <Inverter>
+            <CheckExitCondition/>
+          </Inverter>
+          <ForceFailure>
+            <AlwaysSuccess/>
+          </ForceFailure>
+        </Fallback>
+
+        <!-- 扫描更新地图 -->
+        <ScanSurroundings/>
+
+        <!-- 决策选择下一步 -->
+        <SelectNextGrid next_action="{next_action}" target_grid="{target_grid}"/>
+
+        <!-- 执行决策: 用 Fallback + ScriptCondition 替代 Switch3 -->
+        <Fallback>
+          <!-- Case: GRAB -->
+          <Sequence>
+            <ScriptCondition code="next_action=='GRAB'"/>
+            <SubTree ID="GrabKFSSeq" _autoremap="true"/>
+          </Sequence>
+          <!-- Case: MOVE -->
+          <Sequence>
+            <ScriptCondition code="next_action=='MOVE'"/>
+            <SubTree ID="MoveToGridSeq" _autoremap="true"/>
+          </Sequence>
+          <!-- Case: WAIT (default) -->
+          <Delay delay_msec="1000"/>
+        </Fallback>
+      </Sequence>
+    </KeepRunningUntilFailure>
+  </BehaviorTree>
+
+  <!-- GrabKFSSeq: 抓取子树 -->
+  <BehaviorTree ID="GrabKFSSeq">
+    <Sequence>
+      <SetNavMode mode="MF_TRAVERSE"/>
+      <NavToMerlinGrid grid_id="{target_grid}"/>
+      <SetNavMode mode="MF_SAFE"/>
+      <Script code="current_grid:=target_grid"/>
+      <GrabKFS/>
+      <IncrementKFSCount/>
+      <UpdateMapKFS grid_id="{target_grid}" kfs_type="0"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- MoveToGridSeq: 移动子树 -->
+  <BehaviorTree ID="MoveToGridSeq">
+    <Sequence>
+      <SetNavMode mode="MF_TRAVERSE"/>
+      <NavToMerlinGrid grid_id="{target_grid}"/>
+      <SetNavMode mode="MF_SAFE"/>
+      <Script code="current_grid:=target_grid"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- MF_Exit: 出门阶段 -->
+  <BehaviorTree ID="MF_Exit">
+    <Sequence name="Exit_Seq">
+      <SetNavMode mode="MF_EXIT"/>
+      <NavToSmartPoint target_name="mf_exit"/>
+      <StairDescend/>
+      <SetNavMode mode="NORMAL"/>
     </Sequence>
   </BehaviorTree>
 </root>

@@ -136,6 +136,8 @@ public:
                 RCLCPP_INFO(this->get_logger(), "Loaded waypoints from: %s", waypoints_file.c_str());
             }
             blackboard->set("waypoint_manager", waypoint_manager_);
+            // 将 team 参数设置到黑板，供 MF 区域节点使用
+            blackboard->set("team", this->get_parameter("team").as_string());
         }
 
         // 创建 SmartWaypointNavigator 并共享到黑板

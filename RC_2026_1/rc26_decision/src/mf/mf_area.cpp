@@ -1,7 +1,113 @@
 // 梅林区 (MF Area) 行为树节点实现
 #include "rc26_decision/mf/mf_area.hpp"
 
+#include <algorithm>
+#include <cmath>
+
+#include "rc26_decision/navigation/smart_waypoint_navigator.hpp"
+#include "rc26_decision/navigation/waypoint_manager.hpp"
+#include "rc26_serial/serial_driver.hpp"
+
 namespace rc26_decision {
+
+// ============================================================================
+// MerlinMapManager 实现
+// ============================================================================
+MerlinMapManager::MerlinMapManager() {
+    for (auto& cell : cells_) {
+        cell.depth = 0;
+        cell.kfs = KFSType::UNKNOWN;
+    }
+}
+
+void MerlinMapManager::initRedMap() {
+    // 红方高度矩阵 (已确认):
+    // 格子编号:        高度(mm):        深度编码:
+    // 10  11  12       200  400  200    1  2  1
+    //  7   8   9       400  600  400    2  3  2
+    //  4   5   6       600  400  200    3  2  1
+    //  1   2   3       400  200  400    2  1  2
+    cells_[1] = {2, KFSType::UNKNOWN};
+    cells_[2] = {1, KFSType::UNKNOWN};
+    cells_[3] = {2, KFSType::UNKNOWN};
+    cells_[4] = {3, KFSType::UNKNOWN};
+    cells_[5] = {2, KFSType::UNKNOWN};
+    cells_[6] = {1, KFSType::UNKNOWN};
+    cells_[7] = {2, KFSType::UNKNOWN};
+    cells_[8] = {3, KFSType::UNKNOWN};
+    cells_[9] = {2, KFSType::UNKNOWN};
+    cells_[10] = {1, KFSType::UNKNOWN};
+    cells_[11] = {2, KFSType::UNKNOWN};
+    cells_[12] = {1, KFSType::UNKNOWN};
+}
+
+void MerlinMapManager::initBlueMap() {
+    // 蓝方高度矩阵 (与红方对称):
+    // 格子编号:        高度(mm):        深度编码:
+    // 10  11  12       200  400  200    1  2  1
+    //  7   8   9       400  600  400    2  3  2
+    //  4   5   6       200  400  600    1  2  3
+    //  1   2   3       400  200  400    2  1  2
+    cells_[1] = {2, KFSType::UNKNOWN};
+    cells_[2] = {1, KFSType::UNKNOWN};
+    cells_[3] = {2, KFSType::UNKNOWN};
+    cells_[4] = {1, KFSType::UNKNOWN};
+    cells_[5] = {2, KFSType::UNKNOWN};
+    cells_[6] = {3, KFSType::UNKNOWN};
+    cells_[7] = {2, KFSType::UNKNOWN};
+    cells_[8] = {3, KFSType::UNKNOWN};
+    cells_[9] = {2, KFSType::UNKNOWN};
+    cells_[10] = {1, KFSType::UNKNOWN};
+    cells_[11] = {2, KFSType::UNKNOWN};
+    cells_[12] = {1, KFSType::UNKNOWN};
+}
+
+int MerlinMapManager::getDepth(int grid_id) const {
+    if (grid_id < 1 || grid_id > 12) return -1;
+    return cells_[grid_id].depth;
+}
+
+KFSType MerlinMapManager::getKFS(int grid_id) const {
+    if (grid_id < 1 || grid_id > 12) return KFSType::UNKNOWN;
+    return cells_[grid_id].kfs;
+}
+
+void MerlinMapManager::setKFS(int grid_id, KFSType type) {
+    if (grid_id >= 1 && grid_id <= 12) {
+        cells_[grid_id].kfs = type;
+    }
+}
+
+bool MerlinMapManager::canTraverse(int from, int to) const {
+    int d1 = getDepth(from);
+    int d2 = getDepth(to);
+    if (d1 < 0 || d2 < 0) return false;
+    return std::abs(d1 - d2) <= 1;  // 高度差 ≤ 200mm
+}
+
+bool MerlinMapManager::isWalkable(int from, int to) const {
+    KFSType kfs = getKFS(to);
+    // 只有 NONE 状态才可行走，UNKNOWN 需要先扫描确认
+    return (kfs == KFSType::NONE) && canTraverse(from, to);
+}
+
+int MerlinMapManager::getAdjacentGrid(int current, MFDirection dir) const {
+    if (current < 1 || current > 12) return -1;
+    int row = (current - 1) / 3;  // 0-3
+    int col = (current - 1) % 3;  // 0-2
+
+    switch (dir) {
+    case MFDirection::LEFT:
+        return (col > 0) ? current - 1 : -1;
+    case MFDirection::RIGHT:
+        return (col < 2) ? current + 1 : -1;
+    case MFDirection::FRONT:
+        return (row < 3) ? current + 3 : -1;
+    case MFDirection::BACK:
+        return (row > 0) ? current - 3 : -1;
+    }
+    return -1;
+}
 
 // ============================================================================
 // StairClimbAction - 上阶梯
@@ -104,23 +210,30 @@ GrabKFSAction::GrabKFSAction(const std::string& name, const BT::NodeConfig& conf
     : BT::StatefulActionNode(name, config) {}
 
 BT::PortsList GrabKFSAction::providedPorts() {
-    return {
-        BT::InputPort<int>("grid_id", "目标格子 ID (1-12)"),
-    };
+    return {};
 }
 
 BT::NodeStatus GrabKFSAction::onStart() {
-    // TODO: 发送 GRAB_KFS 指令
+    std::shared_ptr<SerialDriver> serial;
+    if (!config().blackboard->get("cmd_serial", serial) || !serial) {
+        return BT::NodeStatus::FAILURE;
+    }
+    config().blackboard->set("grab_kfs_done", false);
+    serial->sendCommand(CommandID::GRAB_KFS);
     return BT::NodeStatus::RUNNING;
 }
 
 BT::NodeStatus GrabKFSAction::onRunning() {
-    // TODO: 等待 GRAB_KFS_DONE 反馈
-    return BT::NodeStatus::SUCCESS;
+    bool done = false;
+    config().blackboard->get("grab_kfs_done", done);
+    return done ? BT::NodeStatus::SUCCESS : BT::NodeStatus::RUNNING;
 }
 
 void GrabKFSAction::onHalted() {
-    // TODO: 发送 STOP 指令
+    std::shared_ptr<SerialDriver> serial;
+    if (config().blackboard->get("cmd_serial", serial) && serial) {
+        serial->sendStop();
+    }
 }
 
 // ============================================================================
@@ -134,17 +247,26 @@ BT::PortsList MechUpMerlinAction::providedPorts() {
 }
 
 BT::NodeStatus MechUpMerlinAction::onStart() {
-    // TODO: 发送 MECH_UP_MERLIN 指令
+    std::shared_ptr<SerialDriver> serial;
+    if (!config().blackboard->get("cmd_serial", serial) || !serial) {
+        return BT::NodeStatus::FAILURE;
+    }
+    config().blackboard->set("mech_up_merlin_done", false);
+    serial->sendCommand(CommandID::MECH_UP_MERLIN);
     return BT::NodeStatus::RUNNING;
 }
 
 BT::NodeStatus MechUpMerlinAction::onRunning() {
-    // TODO: 等待 MECH_UP_MERLIN_DONE 反馈
-    return BT::NodeStatus::SUCCESS;
+    bool done = false;
+    config().blackboard->get("mech_up_merlin_done", done);
+    return done ? BT::NodeStatus::SUCCESS : BT::NodeStatus::RUNNING;
 }
 
 void MechUpMerlinAction::onHalted() {
-    // TODO: 发送 STOP 指令
+    std::shared_ptr<SerialDriver> serial;
+    if (config().blackboard->get("cmd_serial", serial) && serial) {
+        serial->sendStop();
+    }
 }
 
 // ============================================================================
@@ -158,17 +280,26 @@ BT::PortsList MechDownMerlinAction::providedPorts() {
 }
 
 BT::NodeStatus MechDownMerlinAction::onStart() {
-    // TODO: 发送 MECH_DOWN_MERLIN 指令
+    std::shared_ptr<SerialDriver> serial;
+    if (!config().blackboard->get("cmd_serial", serial) || !serial) {
+        return BT::NodeStatus::FAILURE;
+    }
+    config().blackboard->set("mech_down_merlin_done", false);
+    serial->sendCommand(CommandID::MECH_DOWN_MERLIN);
     return BT::NodeStatus::RUNNING;
 }
 
 BT::NodeStatus MechDownMerlinAction::onRunning() {
-    // TODO: 等待 MECH_DOWN_MERLIN_DONE 反馈
-    return BT::NodeStatus::SUCCESS;
+    bool done = false;
+    config().blackboard->get("mech_down_merlin_done", done);
+    return done ? BT::NodeStatus::SUCCESS : BT::NodeStatus::RUNNING;
 }
 
 void MechDownMerlinAction::onHalted() {
-    // TODO: 发送 STOP 指令
+    std::shared_ptr<SerialDriver> serial;
+    if (config().blackboard->get("cmd_serial", serial) && serial) {
+        serial->sendStop();
+    }
 }
 
 // ============================================================================
@@ -184,17 +315,38 @@ BT::PortsList RotateAction::providedPorts() {
 }
 
 BT::NodeStatus RotateAction::onStart() {
-    // TODO: 根据 angle 发送对应的 ROTATE 指令
+    std::shared_ptr<SerialDriver> serial;
+    if (!config().blackboard->get("cmd_serial", serial) || !serial) {
+        return BT::NodeStatus::FAILURE;
+    }
+    int angle = 0;
+    if (!getInput("angle", angle)) {
+        return BT::NodeStatus::FAILURE;
+    }
+    config().blackboard->set("rotate_done", false);
+    CommandID cmd;
+    switch (angle) {
+    case 90:   cmd = CommandID::ROTATE_POS_90; break;
+    case -90:  cmd = CommandID::ROTATE_NEG_90; break;
+    case 180:  cmd = CommandID::ROTATE_POS_180; break;
+    case -180: cmd = CommandID::ROTATE_NEG_180; break;
+    default:   return BT::NodeStatus::FAILURE;
+    }
+    serial->sendCommand(cmd);
     return BT::NodeStatus::RUNNING;
 }
 
 BT::NodeStatus RotateAction::onRunning() {
-    // TODO: 等待对应的 ROTATE_DONE 反馈
-    return BT::NodeStatus::SUCCESS;
+    bool done = false;
+    config().blackboard->get("rotate_done", done);
+    return done ? BT::NodeStatus::SUCCESS : BT::NodeStatus::RUNNING;
 }
 
 void RotateAction::onHalted() {
-    // TODO: 发送 STOP 指令
+    std::shared_ptr<SerialDriver> serial;
+    if (config().blackboard->get("cmd_serial", serial) && serial) {
+        serial->sendStop();
+    }
 }
 
 // ============================================================================
@@ -211,8 +363,24 @@ BT::PortsList CheckKFSCondition::providedPorts() {
 }
 
 BT::NodeStatus CheckKFSCondition::tick() {
-    // TODO: 检查指定格子的 KFS 状态
-    return BT::NodeStatus::SUCCESS;
+    int grid_id = 0;
+    if (!getInput("grid_id", grid_id)) {
+        return BT::NodeStatus::FAILURE;
+    }
+    std::shared_ptr<MerlinMapManager> map;
+    if (!config().blackboard->get("merlin_map", map) || !map) {
+        return BT::NodeStatus::FAILURE;
+    }
+    std::string expected = "AUTO_KFS";
+    getInput("expected_state", expected);
+    KFSType kfs = map->getKFS(grid_id);
+    if (expected == "AUTO_KFS" && kfs == KFSType::R2) {
+        return BT::NodeStatus::SUCCESS;
+    }
+    if (expected == "EMPTY" && kfs == KFSType::NONE) {
+        return BT::NodeStatus::SUCCESS;
+    }
+    return BT::NodeStatus::FAILURE;
 }
 
 // ============================================================================
@@ -229,8 +397,306 @@ BT::PortsList CheckLoadCondition::providedPorts() {
 }
 
 BT::NodeStatus CheckLoadCondition::tick() {
-    // TODO: 检查当前装载数量是否在范围内
+    int min_load = 0, max_load = 3;
+    getInput("min_load", min_load);
+    getInput("max_load", max_load);
+    int kfs_count = 0;
+    config().blackboard->get("kfs_on_board", kfs_count);
+    return (kfs_count >= min_load && kfs_count <= max_load)
+           ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
+}
+
+// ============================================================================
+// SetNavModeAction - 导航模式切换
+// ============================================================================
+SetNavModeAction::SetNavModeAction(const std::string& name, const BT::NodeConfig& config)
+    : BT::StatefulActionNode(name, config) {}
+
+BT::PortsList SetNavModeAction::providedPorts() {
+    return {
+        BT::InputPort<std::string>("mode", "MF_SAFE", "导航模式"),
+    };
+}
+
+BT::NodeStatus SetNavModeAction::onStart() {
+    rclcpp::Node* node = nullptr;
+    if (!config().blackboard->get("node", node) || !node) {
+        return BT::NodeStatus::FAILURE;
+    }
+    std::string mode = "MF_SAFE";
+    getInput("mode", mode);
+
+    client_ = node->create_client<rc26_interfaces::srv::SetNavMode>("set_nav_mode");
+    if (!client_->wait_for_service(std::chrono::milliseconds(100))) {
+        return BT::NodeStatus::FAILURE;
+    }
+    auto request = std::make_shared<rc26_interfaces::srv::SetNavMode::Request>();
+    request->mode = mode;
+    future_ = client_->async_send_request(request);
+    waiting_ = true;
+    return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus SetNavModeAction::onRunning() {
+    if (!waiting_) return BT::NodeStatus::FAILURE;
+    auto status = future_.wait_for(std::chrono::milliseconds(10));
+    if (status == std::future_status::ready) {
+        waiting_ = false;
+        auto result = future_.get();
+        return result->success ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
+    }
+    return BT::NodeStatus::RUNNING;
+}
+
+void SetNavModeAction::onHalted() {
+    waiting_ = false;
+}
+
+// ============================================================================
+// ScanSurroundingsAction - 扫描周围环境
+// ============================================================================
+ScanSurroundingsAction::ScanSurroundingsAction(const std::string& name, const BT::NodeConfig& config)
+    : BT::StatefulActionNode(name, config) {}
+
+BT::PortsList ScanSurroundingsAction::providedPorts() {
+    return {};
+}
+
+BT::NodeStatus ScanSurroundingsAction::onStart() {
+    config().blackboard->get("merlin_map", map_);
+    if (!map_) {
+        map_ = std::make_shared<MerlinMapManager>();
+        std::string team = "red";
+        config().blackboard->get("team", team);
+        if (team == "blue") {
+            map_->initBlueMap();
+        } else {
+            map_->initRedMap();
+        }
+        config().blackboard->set("merlin_map", map_);
+    }
+    phase_ = ScanPhase::ROTATE_LEFT;
+    // TODO: 发送云台左转指令 (接口待定)
+    return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus ScanSurroundingsAction::onRunning() {
+    // TODO: 实现完整的扫描状态机
+    // 当前简化实现：直接返回成功
+    // 完整实现需要：云台旋转 + 视觉检测 + 地图更新
     return BT::NodeStatus::SUCCESS;
+}
+
+void ScanSurroundingsAction::onHalted() {
+    phase_ = ScanPhase::ROTATE_LEFT;
+}
+
+// ============================================================================
+// SelectNextGridAction - 选择下一个目标格子
+// ============================================================================
+SelectNextGridAction::SelectNextGridAction(const std::string& name, const BT::NodeConfig& config)
+    : BT::SyncActionNode(name, config) {}
+
+BT::PortsList SelectNextGridAction::providedPorts() {
+    return {
+        BT::OutputPort<std::string>("next_action"),
+        BT::OutputPort<int>("target_grid"),
+    };
+}
+
+BT::NodeStatus SelectNextGridAction::tick() {
+    int current = 2, kfs_count = 0, target_kfs = 2, exit_grid = 10;
+    config().blackboard->get("current_grid", current);
+    config().blackboard->get("kfs_on_board", kfs_count);
+    config().blackboard->get("target_kfs_count", target_kfs);
+    config().blackboard->get("exit_grid", exit_grid);
+
+    std::shared_ptr<MerlinMapManager> map;
+    config().blackboard->get("merlin_map", map);
+    if (!map) return BT::NodeStatus::FAILURE;
+
+    // P1: 贪婪抓取
+    if (kfs_count < target_kfs) {
+        int grab = findAdjacentR2KFS(current, map);
+        if (grab > 0) {
+            setOutput("next_action", std::string("GRAB"));
+            setOutput("target_grid", grab);
+            return BT::NodeStatus::SUCCESS;
+        }
+    }
+    // P2: 赶路
+    int next = findBestPathToExit(current, exit_grid, map);
+    if (next > 0) {
+        setOutput("next_action", std::string("MOVE"));
+        setOutput("target_grid", next);
+        return BT::NodeStatus::SUCCESS;
+    }
+    // P3: 等待
+    setOutput("next_action", std::string("WAIT"));
+    setOutput("target_grid", current);
+    return BT::NodeStatus::SUCCESS;
+}
+
+int SelectNextGridAction::findAdjacentR2KFS(int current, std::shared_ptr<MerlinMapManager> map) {
+    for (auto dir : {MFDirection::FRONT, MFDirection::LEFT, MFDirection::RIGHT}) {
+        int adj = map->getAdjacentGrid(current, dir);
+        if (adj > 0 && map->getKFS(adj) == KFSType::R2 && map->canTraverse(current, adj)) {
+            return adj;
+        }
+    }
+    return -1;
+}
+
+int SelectNextGridAction::findBestPathToExit(int current, int exit_grid, std::shared_ptr<MerlinMapManager> map) {
+    int best = -1, min_dist = 100;
+    for (auto dir : {MFDirection::FRONT, MFDirection::LEFT, MFDirection::RIGHT}) {
+        int adj = map->getAdjacentGrid(current, dir);
+        if (adj > 0 && map->isWalkable(current, adj)) {
+            int dist = std::abs((adj - 1) / 3 - (exit_grid - 1) / 3) +
+                       std::abs((adj - 1) % 3 - (exit_grid - 1) % 3);
+            if (dist < min_dist) {
+                min_dist = dist;
+                best = adj;
+            }
+        }
+    }
+    return best;
+}
+
+// ============================================================================
+// CheckExitCondition - 检查退出条件
+// ============================================================================
+CheckExitCondition::CheckExitCondition(const std::string& name, const BT::NodeConfig& config)
+    : BT::ConditionNode(name, config) {}
+
+BT::PortsList CheckExitCondition::providedPorts() {
+    return {};
+}
+
+BT::NodeStatus CheckExitCondition::tick() {
+    int current = 0, kfs_count = 0, target_kfs = 2;
+    config().blackboard->get("current_grid", current);
+    config().blackboard->get("kfs_on_board", kfs_count);
+    config().blackboard->get("target_kfs_count", target_kfs);
+    bool at_exit = (current == 10 || current == 11 || current == 12);
+    return (at_exit && kfs_count >= target_kfs) ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
+}
+
+// ============================================================================
+// CheckR1BlockingCondition - 检查R1阻挡
+// ============================================================================
+CheckR1BlockingCondition::CheckR1BlockingCondition(const std::string& name, const BT::NodeConfig& config)
+    : BT::ConditionNode(name, config) {}
+
+BT::PortsList CheckR1BlockingCondition::providedPorts() {
+    return {};
+}
+
+BT::NodeStatus CheckR1BlockingCondition::tick() {
+    std::shared_ptr<MerlinMapManager> map;
+    config().blackboard->get("merlin_map", map);
+    if (!map) return BT::NodeStatus::FAILURE;
+    int current = 2;
+    config().blackboard->get("current_grid", current);
+    int front = map->getAdjacentGrid(current, MFDirection::FRONT);
+    if (front > 0 && map->getKFS(front) == KFSType::R1) {
+        return BT::NodeStatus::SUCCESS;
+    }
+    return BT::NodeStatus::FAILURE;
+}
+
+// ============================================================================
+// IncrementKFSCountAction - 更新KFS计数
+// ============================================================================
+IncrementKFSCountAction::IncrementKFSCountAction(const std::string& name, const BT::NodeConfig& config)
+    : BT::SyncActionNode(name, config) {}
+
+BT::PortsList IncrementKFSCountAction::providedPorts() {
+    return {};
+}
+
+BT::NodeStatus IncrementKFSCountAction::tick() {
+    int count = 0;
+    config().blackboard->get("kfs_on_board", count);
+    config().blackboard->set("kfs_on_board", count + 1);
+    return BT::NodeStatus::SUCCESS;
+}
+
+// ============================================================================
+// UpdateMapKFSAction - 更新地图KFS状态
+// ============================================================================
+UpdateMapKFSAction::UpdateMapKFSAction(const std::string& name, const BT::NodeConfig& config)
+    : BT::SyncActionNode(name, config) {}
+
+BT::PortsList UpdateMapKFSAction::providedPorts() {
+    return {
+        BT::InputPort<int>("grid_id"),
+        BT::InputPort<int>("kfs_type", 0),
+    };
+}
+
+BT::NodeStatus UpdateMapKFSAction::tick() {
+    int grid_id = 0, kfs_type = 0;
+    if (!getInput("grid_id", grid_id)) return BT::NodeStatus::FAILURE;
+    getInput("kfs_type", kfs_type);
+    std::shared_ptr<MerlinMapManager> map;
+    if (!config().blackboard->get("merlin_map", map) || !map) {
+        return BT::NodeStatus::FAILURE;
+    }
+    map->setKFS(grid_id, static_cast<KFSType>(kfs_type));
+    return BT::NodeStatus::SUCCESS;
+}
+
+// ============================================================================
+// NavToMerlinGridAction - 导航到梅林格子
+// ============================================================================
+NavToMerlinGridAction::NavToMerlinGridAction(const std::string& name, const BT::NodeConfig& config)
+    : BT::StatefulActionNode(name, config) {}
+
+BT::PortsList NavToMerlinGridAction::providedPorts() {
+    return {
+        BT::InputPort<int>("grid_id", "目标格子编号 (1-12)"),
+    };
+}
+
+BT::NodeStatus NavToMerlinGridAction::onStart() {
+    int grid_id = 0;
+    if (!getInput("grid_id", grid_id) || grid_id < 1 || grid_id > 12) {
+        return BT::NodeStatus::FAILURE;
+    }
+    std::string target_name = "mf_grid_" + std::to_string(grid_id);
+
+    std::shared_ptr<WaypointManager> waypoint_manager;
+    if (!config().blackboard->get("waypoint_manager", waypoint_manager) || !waypoint_manager) {
+        return BT::NodeStatus::FAILURE;
+    }
+    std::shared_ptr<SmartWaypointNavigator> navigator;
+    if (!config().blackboard->get("smart_waypoint_navigator", navigator) || !navigator) {
+        return BT::NodeStatus::FAILURE;
+    }
+    const SmartWaypointSpec* wp = waypoint_manager->find(target_name);
+    if (!wp) {
+        return BT::NodeStatus::FAILURE;
+    }
+    return navigator->start(*wp) ? BT::NodeStatus::RUNNING : BT::NodeStatus::FAILURE;
+}
+
+BT::NodeStatus NavToMerlinGridAction::onRunning() {
+    std::shared_ptr<SmartWaypointNavigator> navigator;
+    if (!config().blackboard->get("smart_waypoint_navigator", navigator) || !navigator) {
+        return BT::NodeStatus::FAILURE;
+    }
+    auto st = navigator->tick();
+    if (st == SmartWaypointNavigator::Status::Running) return BT::NodeStatus::RUNNING;
+    if (st == SmartWaypointNavigator::Status::Succeeded) return BT::NodeStatus::SUCCESS;
+    return BT::NodeStatus::FAILURE;
+}
+
+void NavToMerlinGridAction::onHalted() {
+    std::shared_ptr<SmartWaypointNavigator> navigator;
+    if (config().blackboard->get("smart_waypoint_navigator", navigator) && navigator) {
+        navigator->cancelAndStop();
+    }
 }
 
 // ============================================================================
@@ -245,6 +711,14 @@ void registerMFAreaNodes(BT::BehaviorTreeFactory& factory) {
     factory.registerNodeType<RotateAction>("Rotate");
     factory.registerNodeType<CheckKFSCondition>("CheckKFS");
     factory.registerNodeType<CheckLoadCondition>("CheckLoad");
+    factory.registerNodeType<SetNavModeAction>("SetNavMode");
+    factory.registerNodeType<ScanSurroundingsAction>("ScanSurroundings");
+    factory.registerNodeType<SelectNextGridAction>("SelectNextGrid");
+    factory.registerNodeType<CheckExitCondition>("CheckExitCondition");
+    factory.registerNodeType<CheckR1BlockingCondition>("CheckR1Blocking");
+    factory.registerNodeType<IncrementKFSCountAction>("IncrementKFSCount");
+    factory.registerNodeType<UpdateMapKFSAction>("UpdateMapKFS");
+    factory.registerNodeType<NavToMerlinGridAction>("NavToMerlinGrid");
 }
 
 }  // namespace rc26_decision

@@ -10,11 +10,11 @@
   <BehaviorTree ID="MainTree">
     <Sequence>
       <!-- 武馆阶段 -->
-      <SubTree ID="MCAreaTree"/>
+      <SubTree ID="MCAreaTree" _autoremap="true"/>
       <!-- 梅林阶段 -->
-      <SubTree ID="MFAreaTree"/>
+      <SubTree ID="MFAreaTree" _autoremap="true"/>
       <!-- 对抗阶段 -->
-      <SubTree ID="CombatAreaTree"/>
+      <SubTree ID="CombatAreaTree" _autoremap="true"/>
     </Sequence>
   </BehaviorTree>
 
