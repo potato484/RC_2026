@@ -76,13 +76,7 @@ localization:
     # 允许更新TF的最小内点数，低于此值时冻结TF更新（按降采样后点数调整）
     min_inliers: 200
     
-    # ========== 全局重定位参数 (SAC-IA + ICP) ==========
-    # SAC-IA 采样点数（每次随机选多少点参与特征匹配）
-    sac_ia_num_samples: 5
-    # SAC-IA 采样点最小间距（米），过小容易选到集中区域，过大不利于覆盖全局
-    sac_ia_min_sample_distance: 0.1
-    # SAC-IA 特征匹配随机性（近邻候选点数量），数值越大越“随机”，越稳但越慢
-    sac_ia_correspondence_randomness: 20
+    # ========== 全局重定位参数 ==========
     # 全局 ICP 最大迭代次数，影响重定位精细对齐质量和耗时
     global_icp_max_iterations: 50
     # 全局 ICP 最大对应距离（米），过大易误匹配，过小可能找不到对应点
@@ -93,38 +87,6 @@ localization:
     min_points_for_relocalization: 50
     # 全局重定位时对点云做体素降采样的大小（米），值越大越快但特征越少
     global_downsample_leaf_size: 0.5
-    # 估计法向量时用于 KNN 搜索的近邻数，影响法向量稳定性和计算量
-    sac_ia_normal_ksearch: 20
-    # 计算 FPFH 特征时的近邻数，影响特征质量（区分度）和计算量
-    sac_ia_fpfh_ksearch: 30
-    
-    # ========== ISS关键点参数 ==========
-    # 是否使用ISS关键点提取（可提高FPFH特征区分度，尤其在平面结构环境）
-    use_iss_keypoints: false
-    # ISS显著性半径（米），用于计算点的局部散射矩阵
-    iss_salient_radius: 0.3
-    # ISS非极大值抑制半径（米），避免关键点过于密集
-    iss_non_max_radius: 0.15
-    # ISS特征值比阈值（λ2/λ1），排除近似平面的点
-    iss_threshold21: 0.975
-    # ISS特征值比阈值（λ3/λ2），排除近似直线的点
-    iss_threshold32: 0.975
-    # ISS最小邻居数，邻居过少的点不作为关键点
-    iss_min_neighbors: 5
-    
-    # ========== NDT条件触发参数 ==========
-    # 是否启用NDT条件触发（仅在候选灰区且残差高时触发，不再默认全量执行）
-    use_ndt_refinement: false
-    # NDT体素分辨率（米），值越小精度越高但计算越慢
-    ndt_resolution: 1.0
-    # NDT最大迭代次数
-    ndt_max_iterations: 50
-    # NDT步长（梯度下降优化参数）
-    ndt_step_size: 0.1
-    # NDT收敛阈值（变换增量小于此值视为收敛）
-    ndt_transformation_epsilon: 1e-6
-    # 仅当候选 fitness 高于该值时，允许进入 NDT+ICP 复核
-    ndt_trigger_threshold: 0.5
     
     # ========== 多假设初值参数 ==========
     # 是否使用多假设初值策略（避免SAC-IA失败导致整体失败）
@@ -162,8 +124,6 @@ localization:
     # ========== L2: Scan Context ==========
     # 启用 Scan Context 全局检索链路（L2）
     enable_scan_context: true
-    # 临时回退开关：保留旧 FPFH 链路接口（当前默认关闭）
-    enable_fpfh_fallback: false
     # 描述子参数
     sc_num_rings: 20
     sc_num_sectors: 60

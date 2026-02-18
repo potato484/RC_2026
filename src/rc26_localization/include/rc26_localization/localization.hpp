@@ -19,8 +19,6 @@
 #include <Eigen/Dense>
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "pcl/io/pcd_io.h"
-#include "pcl/keypoints/iss_3d.h"
-#include "pcl/registration/ndt.h"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "small_gicp/ann/kdtree_omp.hpp"
@@ -108,9 +106,6 @@ private:
 
     // 全局候选评估
     double computeCandidateCost(double fitness, const Eigen::Matrix4f& seed, const Eigen::Matrix4f& refined) const;
-    bool maybeConditionalNdtRefine(const pcl::PointCloud<pcl::PointXYZ>::Ptr& source_down,
-                                   const pcl::PointCloud<pcl::PointXYZ>::Ptr& target_down,
-                                   Eigen::Matrix4f& io_guess, double& io_fitness) const;
 
     // L2: Scan Context 全局检索
     bool buildScanContextDatabase();
@@ -123,10 +118,6 @@ private:
                                      const pcl::PointCloud<pcl::PointXYZ>::Ptr& target_down,
                                      Eigen::Isometry3d& best_pose, double& best_fitness, double& best_cost,
                                      int& candidate_count);
-    bool tryLegacyFpfhGlobalChannel(const pcl::PointCloud<pcl::PointXYZ>::Ptr& source_down,
-                                    const pcl::PointCloud<pcl::PointXYZ>::Ptr& target_down,
-                                    Eigen::Isometry3d& best_pose, double& best_fitness, double& best_cost,
-                                    int& candidate_count);
 
     bool detectKidnapping(double fitness_score);
 
@@ -225,32 +216,11 @@ private:
     double acrylic_filter_max_stale_sec_{1.0};
 
     // 全局重定位参数
-    int sac_ia_num_samples_{5};
-    double sac_ia_min_sample_distance_{0.1};
-    int sac_ia_correspondence_randomness_{50};
     int global_icp_max_iterations_{100};
     double global_icp_max_correspondence_distance_{1.0};
     double global_fitness_threshold_{0.1};     // 全局重定位成功阈值
     double global_downsample_leaf_size_{0.5};  // 全局重定位体素滤波尺寸
-    int sac_ia_normal_ksearch_{20};            // 法向量估计近邻数
-    int sac_ia_fpfh_ksearch_{50};              // FPFH 特征近邻数
-
-    // ISS关键点参数
-    bool use_iss_keypoints_{true};           // 是否使用ISS关键点
-    double iss_salient_radius_{0.3};         // ISS显著性半径
-    double iss_non_max_radius_{0.15};        // ISS非极大值抑制半径
-    double iss_threshold21_{0.975};          // ISS特征值比阈值
-    double iss_threshold32_{0.975};          // ISS特征值比阈值
-    int iss_min_neighbors_{5};               // ISS最小邻居数
     size_t max_accumulated_points_{100000};  // 累积点云上限，防止OOM
-
-    // NDT中间层参数
-    bool use_ndt_refinement_{true};            // 是否使用NDT中间层
-    double ndt_resolution_{1.0};               // NDT体素分辨率
-    int ndt_max_iterations_{50};               // NDT最大迭代次数
-    double ndt_step_size_{0.1};                // NDT步长
-    double ndt_transformation_epsilon_{1e-6};  // NDT收敛阈值
-    double ndt_trigger_threshold_{0.5};        // 条件触发门限
 
     // 多假设初值参数
     bool use_multi_hypothesis_{true};  // 是否使用多假设初值
@@ -258,7 +228,6 @@ private:
 
     // L2: Scan Context 参数
     bool enable_scan_context_{true};
-    bool enable_fpfh_fallback_{false};
     int sc_num_rings_{20};
     int sc_num_sectors_{60};
     double sc_max_radius_{8.0};

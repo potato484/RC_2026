@@ -17,13 +17,9 @@
 #include <vector>
 
 #include "pcl/common/transforms.h"
-#include "pcl/features/fpfh_omp.h"
-#include "pcl/features/normal_3d_omp.h"
 #include "pcl/filters/filter.h"
 #include "pcl/filters/voxel_grid.h"
 #include "pcl/registration/gicp.h"
-#include "pcl/registration/ia_ransac.h"
-#include "pcl/registration/icp.h"
 #include "pcl/search/kdtree.h"
 #include "pcl_conversions/pcl_conversions.h"
 #include "small_gicp/pcl/pcl_registration.hpp"
@@ -34,8 +30,6 @@ namespace rc26_localization {
 
 namespace {
 constexpr double kNearZero = 1e-6;
-constexpr double kGrayZoneMin = 0.9;
-constexpr double kGrayZoneMax = 1.2;
 constexpr double kCostWf = 0.5;
 constexpr double kCostWxy = 0.3;
 constexpr double kCostWyaw = 0.2;
@@ -69,32 +63,11 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("kidnap_fitness_threshold", 0.5);
 
     // 全局重定位参数
-    this->declare_parameter("sac_ia_num_samples", 5);
-    this->declare_parameter("sac_ia_min_sample_distance", 0.1);
-    this->declare_parameter("sac_ia_correspondence_randomness", 50);
     this->declare_parameter("global_icp_max_iterations", 100);
     this->declare_parameter("global_icp_max_correspondence_distance", 1.0);
     this->declare_parameter("global_fitness_threshold", 0.1);
     this->declare_parameter("min_points_for_relocalization", 50);
     this->declare_parameter("global_downsample_leaf_size", 0.5);
-    this->declare_parameter("sac_ia_normal_ksearch", 20);
-    this->declare_parameter("sac_ia_fpfh_ksearch", 50);
-
-    // ISS关键点参数
-    this->declare_parameter("use_iss_keypoints", true);
-    this->declare_parameter("iss_salient_radius", 0.3);
-    this->declare_parameter("iss_non_max_radius", 0.15);
-    this->declare_parameter("iss_threshold21", 0.975);
-    this->declare_parameter("iss_threshold32", 0.975);
-    this->declare_parameter("iss_min_neighbors", 5);
-
-    // NDT条件触发参数
-    this->declare_parameter("use_ndt_refinement", true);
-    this->declare_parameter("ndt_resolution", 1.0);
-    this->declare_parameter("ndt_max_iterations", 50);
-    this->declare_parameter("ndt_step_size", 0.1);
-    this->declare_parameter("ndt_transformation_epsilon", 1e-6);
-    this->declare_parameter("ndt_trigger_threshold", 0.5);
 
     // 多假设初值参数
     this->declare_parameter("use_multi_hypothesis", true);
@@ -124,7 +97,6 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
 
     // L2: Scan Context 参数
     this->declare_parameter("enable_scan_context", true);
-    this->declare_parameter("enable_fpfh_fallback", false);
     this->declare_parameter("sc_num_rings", 20);
     this->declare_parameter("sc_num_sectors", 60);
     this->declare_parameter("sc_max_radius", 8.0);
@@ -157,30 +129,11 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->get_parameter("kidnap_threshold_count", kidnap_threshold_count_);
     this->get_parameter("kidnap_fitness_threshold", kidnap_fitness_threshold_);
 
-    this->get_parameter("sac_ia_num_samples", sac_ia_num_samples_);
-    this->get_parameter("sac_ia_min_sample_distance", sac_ia_min_sample_distance_);
-    this->get_parameter("sac_ia_correspondence_randomness", sac_ia_correspondence_randomness_);
     this->get_parameter("global_icp_max_iterations", global_icp_max_iterations_);
     this->get_parameter("global_icp_max_correspondence_distance", global_icp_max_correspondence_distance_);
     this->get_parameter("global_fitness_threshold", global_fitness_threshold_);
     this->get_parameter("min_points_for_relocalization", min_points_for_relocalization_);
     this->get_parameter("global_downsample_leaf_size", global_downsample_leaf_size_);
-    this->get_parameter("sac_ia_normal_ksearch", sac_ia_normal_ksearch_);
-    this->get_parameter("sac_ia_fpfh_ksearch", sac_ia_fpfh_ksearch_);
-
-    this->get_parameter("use_iss_keypoints", use_iss_keypoints_);
-    this->get_parameter("iss_salient_radius", iss_salient_radius_);
-    this->get_parameter("iss_non_max_radius", iss_non_max_radius_);
-    this->get_parameter("iss_threshold21", iss_threshold21_);
-    this->get_parameter("iss_threshold32", iss_threshold32_);
-    this->get_parameter("iss_min_neighbors", iss_min_neighbors_);
-
-    this->get_parameter("use_ndt_refinement", use_ndt_refinement_);
-    this->get_parameter("ndt_resolution", ndt_resolution_);
-    this->get_parameter("ndt_max_iterations", ndt_max_iterations_);
-    this->get_parameter("ndt_step_size", ndt_step_size_);
-    this->get_parameter("ndt_transformation_epsilon", ndt_transformation_epsilon_);
-    this->get_parameter("ndt_trigger_threshold", ndt_trigger_threshold_);
 
     this->get_parameter("use_multi_hypothesis", use_multi_hypothesis_);
     this->get_parameter("num_yaw_hypotheses", num_yaw_hypotheses_);
@@ -204,7 +157,6 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->get_parameter("acrylic_filter_max_stale_sec", acrylic_filter_max_stale_sec_);
 
     this->get_parameter("enable_scan_context", enable_scan_context_);
-    this->get_parameter("enable_fpfh_fallback", enable_fpfh_fallback_);
     this->get_parameter("sc_num_rings", sc_num_rings_);
     this->get_parameter("sc_num_sectors", sc_num_sectors_);
     this->get_parameter("sc_max_radius", sc_max_radius_);
@@ -453,9 +405,6 @@ void LocalizationNode::validateAndNormalizeParams() {
     if (retry_zone_enable_ && retry_zone_yaw_candidates_deg_.empty()) {
         RCLCPP_WARN(this->get_logger(), "retry_zone_enable=true 但 retry_zone_yaw_candidates_deg 为空，已自动关闭快速通道");
         retry_zone_enable_ = false;
-    }
-    if (ndt_trigger_threshold_ <= 0.0) {
-        ndt_trigger_threshold_ = 0.5;
     }
 
     sc_num_rings_ = std::max(sc_num_rings_, 4);
@@ -801,50 +750,6 @@ double LocalizationNode::computeCandidateCost(double fitness, const Eigen::Matri
            kCostWyaw * std::pow(dyaw_deg / yaw_th, 2.0);
 }
 
-bool LocalizationNode::maybeConditionalNdtRefine(const pcl::PointCloud<pcl::PointXYZ>::Ptr& source_down,
-                                                 const pcl::PointCloud<pcl::PointXYZ>::Ptr& target_down,
-                                                 Eigen::Matrix4f& io_guess, double& io_fitness) const {
-    if (!use_ndt_refinement_ || io_fitness <= ndt_trigger_threshold_) {
-        return false;
-    }
-
-    pcl::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ> ndt;
-    ndt.setInputSource(source_down);
-    ndt.setInputTarget(target_down);
-    ndt.setResolution(ndt_resolution_);
-    ndt.setMaximumIterations(ndt_max_iterations_);
-    ndt.setStepSize(ndt_step_size_);
-    ndt.setTransformationEpsilon(ndt_transformation_epsilon_);
-
-    pcl::PointCloud<pcl::PointXYZ> ndt_result;
-    ndt.align(ndt_result, io_guess);
-    if (!ndt.hasConverged()) {
-        return false;
-    }
-
-    pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
-    icp.setInputSource(source_down);
-    icp.setInputTarget(target_down);
-    icp.setMaxCorrespondenceDistance(global_icp_max_correspondence_distance_);
-    icp.setMaximumIterations(global_icp_max_iterations_);
-    icp.setTransformationEpsilon(1e-6);
-
-    pcl::PointCloud<pcl::PointXYZ> icp_result;
-    icp.align(icp_result, ndt.getFinalTransformation());
-    if (!icp.hasConverged()) {
-        return false;
-    }
-
-    const double refined_fitness = icp.getFitnessScore();
-    if (refined_fitness >= io_fitness) {
-        return false;
-    }
-
-    io_fitness = refined_fitness;
-    io_guess = icp.getFinalTransformation();
-    return true;
-}
-
 bool LocalizationNode::buildScanContextDatabase() {
     if (!enable_scan_context_) {
         return false;
@@ -1073,13 +978,6 @@ bool LocalizationNode::tryRetryZoneFastChannel(const pcl::PointCloud<pcl::PointX
         double fitness = result.error / static_cast<double>(result.num_inliers);
         double cost = computeCandidateCost(fitness, seed, refined);
 
-        Eigen::Matrix4f refined_mutable = refined;
-        if (cost >= kGrayZoneMin && cost <= kGrayZoneMax && fitness > ndt_trigger_threshold_) {
-            if (maybeConditionalNdtRefine(source_down, target_down, refined_mutable, fitness)) {
-                cost = computeCandidateCost(fitness, seed, refined_mutable);
-            }
-        }
-
         RCLCPP_INFO(this->get_logger(), "RZ候选 yaw=%.1f°: fitness=%.4f, J=%.4f", yaw_deg, fitness, cost);
 
         if (!found || cost < best_cost || (std::abs(cost - best_cost) < 1e-6 && fitness < best_fitness)) {
@@ -1087,7 +985,7 @@ bool LocalizationNode::tryRetryZoneFastChannel(const pcl::PointCloud<pcl::PointX
             best_fitness = fitness;
             best_cost = cost;
             best_pose = Eigen::Isometry3d::Identity();
-            best_pose.matrix() = refined_mutable.cast<double>();
+            best_pose.matrix() = refined.cast<double>();
         }
 
         if (found && best_fitness < accept_threshold && best_cost < 1.0) {
@@ -1218,12 +1116,6 @@ bool LocalizationNode::tryScanContextGlobalChannel(const pcl::PointCloud<pcl::Po
         double fitness = result.error / static_cast<double>(result.num_inliers);
         double cost = computeCandidateCost(fitness, seed, refined) + std::max(0.0, sim_cost - sc_sim_threshold_);
 
-        if (cost >= kGrayZoneMin && cost <= kGrayZoneMax && fitness > ndt_trigger_threshold_) {
-            if (maybeConditionalNdtRefine(source_down, target_down, refined, fitness)) {
-                cost = computeCandidateCost(fitness, seed, refined) + std::max(0.0, sim_cost - sc_sim_threshold_);
-            }
-        }
-
         RCLCPP_INFO(this->get_logger(),
                     "SC候选 idx=%zu shift=%d sim=%.3f fitness=%.4f J=%.4f center=(%.2f,%.2f)", idx, best_shift,
                     similarity, fitness, cost, entry.center_xy.x(), entry.center_xy.y());
@@ -1234,142 +1126,6 @@ bool LocalizationNode::tryScanContextGlobalChannel(const pcl::PointCloud<pcl::Po
             best_cost = cost;
             best_pose = Eigen::Isometry3d::Identity();
             best_pose.matrix() = refined.cast<double>();
-        }
-    }
-
-    return found && best_fitness < global_fitness_threshold_ && best_cost < 1.0;
-}
-
-bool LocalizationNode::tryLegacyFpfhGlobalChannel(const pcl::PointCloud<pcl::PointXYZ>::Ptr& source_down,
-                                                  const pcl::PointCloud<pcl::PointXYZ>::Ptr& target_down,
-                                                  Eigen::Isometry3d& best_pose, double& best_fitness,
-                                                  double& best_cost, int& candidate_count) {
-    pcl::PointCloud<pcl::PointXYZ>::Ptr source_keypoints = source_down;
-    pcl::PointCloud<pcl::PointXYZ>::Ptr target_keypoints = target_down;
-
-    if (use_iss_keypoints_) {
-        pcl::ISSKeypoint3D<pcl::PointXYZ, pcl::PointXYZ> iss_src;
-        pcl::search::KdTree<pcl::PointXYZ>::Ptr tree_iss_src(new pcl::search::KdTree<pcl::PointXYZ>);
-        iss_src.setSearchMethod(tree_iss_src);
-        iss_src.setInputCloud(source_down);
-        iss_src.setSalientRadius(iss_salient_radius_);
-        iss_src.setNonMaxRadius(iss_non_max_radius_);
-        iss_src.setThreshold21(iss_threshold21_);
-        iss_src.setThreshold32(iss_threshold32_);
-        iss_src.setMinNeighbors(iss_min_neighbors_);
-        iss_src.setNumberOfThreads(num_threads_);
-        source_keypoints = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
-        iss_src.compute(*source_keypoints);
-
-        pcl::ISSKeypoint3D<pcl::PointXYZ, pcl::PointXYZ> iss_tgt;
-        pcl::search::KdTree<pcl::PointXYZ>::Ptr tree_iss_tgt(new pcl::search::KdTree<pcl::PointXYZ>);
-        iss_tgt.setSearchMethod(tree_iss_tgt);
-        iss_tgt.setInputCloud(target_down);
-        iss_tgt.setSalientRadius(iss_salient_radius_);
-        iss_tgt.setNonMaxRadius(iss_non_max_radius_);
-        iss_tgt.setThreshold21(iss_threshold21_);
-        iss_tgt.setThreshold32(iss_threshold32_);
-        iss_tgt.setMinNeighbors(iss_min_neighbors_);
-        iss_tgt.setNumberOfThreads(num_threads_);
-        target_keypoints = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
-        iss_tgt.compute(*target_keypoints);
-
-        if (source_keypoints->size() < 30 || target_keypoints->size() < 30) {
-            source_keypoints = source_down;
-            target_keypoints = target_down;
-        }
-    }
-
-    pcl::PointCloud<pcl::Normal>::Ptr source_normals(new pcl::PointCloud<pcl::Normal>);
-    pcl::PointCloud<pcl::Normal>::Ptr target_normals(new pcl::PointCloud<pcl::Normal>);
-    pcl::NormalEstimationOMP<pcl::PointXYZ, pcl::Normal> ne;
-    ne.setNumberOfThreads(num_threads_);
-    ne.setKSearch(sac_ia_normal_ksearch_);
-    pcl::search::KdTree<pcl::PointXYZ>::Ptr tree_src(new pcl::search::KdTree<pcl::PointXYZ>);
-    ne.setSearchMethod(tree_src);
-    ne.setInputCloud(source_keypoints);
-    ne.compute(*source_normals);
-    pcl::search::KdTree<pcl::PointXYZ>::Ptr tree_tgt(new pcl::search::KdTree<pcl::PointXYZ>);
-    ne.setSearchMethod(tree_tgt);
-    ne.setInputCloud(target_keypoints);
-    ne.compute(*target_normals);
-
-    pcl::PointCloud<pcl::FPFHSignature33>::Ptr source_fpfh(new pcl::PointCloud<pcl::FPFHSignature33>);
-    pcl::PointCloud<pcl::FPFHSignature33>::Ptr target_fpfh(new pcl::PointCloud<pcl::FPFHSignature33>);
-    pcl::FPFHEstimationOMP<pcl::PointXYZ, pcl::Normal, pcl::FPFHSignature33> fpfh;
-    fpfh.setNumberOfThreads(num_threads_);
-    fpfh.setKSearch(sac_ia_fpfh_ksearch_);
-    pcl::search::KdTree<pcl::PointXYZ>::Ptr tree_fpfh_src(new pcl::search::KdTree<pcl::PointXYZ>);
-    fpfh.setInputCloud(source_keypoints);
-    fpfh.setInputNormals(source_normals);
-    fpfh.setSearchMethod(tree_fpfh_src);
-    fpfh.compute(*source_fpfh);
-    pcl::search::KdTree<pcl::PointXYZ>::Ptr tree_fpfh_tgt(new pcl::search::KdTree<pcl::PointXYZ>);
-    fpfh.setInputCloud(target_keypoints);
-    fpfh.setInputNormals(target_normals);
-    fpfh.setSearchMethod(tree_fpfh_tgt);
-    fpfh.compute(*target_fpfh);
-
-    if (source_fpfh->empty() || target_fpfh->empty()) {
-        return false;
-    }
-
-    pcl::SampleConsensusInitialAlignment<pcl::PointXYZ, pcl::PointXYZ, pcl::FPFHSignature33> sac_ia;
-    sac_ia.setInputSource(source_keypoints);
-    sac_ia.setSourceFeatures(source_fpfh);
-    sac_ia.setInputTarget(target_keypoints);
-    sac_ia.setTargetFeatures(target_fpfh);
-    sac_ia.setMinSampleDistance(sac_ia_min_sample_distance_);
-    sac_ia.setCorrespondenceRandomness(sac_ia_correspondence_randomness_);
-    sac_ia.setNumberOfSamples(sac_ia_num_samples_);
-
-    pcl::PointCloud<pcl::PointXYZ> sac_result;
-    sac_ia.align(sac_result);
-    const Eigen::Matrix4f sac_transform = sac_ia.getFinalTransformation();
-
-    std::vector<Eigen::Matrix4f> candidates = generateCandidateTransforms(sac_transform);
-    bool found = false;
-    best_fitness = std::numeric_limits<double>::max();
-    best_cost = std::numeric_limits<double>::max();
-    candidate_count = 0;
-
-    for (const auto& seed : candidates) {
-        pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
-        icp.setInputSource(source_down);
-        icp.setInputTarget(target_down);
-        icp.setMaxCorrespondenceDistance(global_icp_max_correspondence_distance_);
-        icp.setMaximumIterations(global_icp_max_iterations_);
-        icp.setTransformationEpsilon(1e-6);
-        icp.setRANSACIterations(100);
-        icp.setRANSACOutlierRejectionThreshold(0.05);
-
-        pcl::PointCloud<pcl::PointXYZ> icp_result;
-        icp.align(icp_result, seed);
-        if (!icp.hasConverged()) {
-            continue;
-        }
-
-        ++candidate_count;
-        Eigen::Matrix4f refined = icp.getFinalTransformation();
-        double fitness = icp.getFitnessScore();
-        double cost = computeCandidateCost(fitness, seed, refined);
-
-        if (cost >= kGrayZoneMin && cost <= kGrayZoneMax && fitness > ndt_trigger_threshold_) {
-            if (maybeConditionalNdtRefine(source_down, target_down, refined, fitness)) {
-                cost = computeCandidateCost(fitness, seed, refined);
-            }
-        }
-
-        if (!found || cost < best_cost || (std::abs(cost - best_cost) < 1e-6 && fitness < best_fitness)) {
-            found = true;
-            best_fitness = fitness;
-            best_cost = cost;
-            best_pose = Eigen::Isometry3d::Identity();
-            best_pose.matrix() = refined.cast<double>();
-        }
-
-        if (found && best_fitness < global_fitness_threshold_ && best_cost < 1.0) {
-            break;
         }
     }
 
@@ -1518,32 +1274,6 @@ void LocalizationNode::performGlobalRelocalization(RelocTriggerReason reason,
                 markRelocalizationSuccess(best_pose);
             } else {
                 metrics.path_used = "L2_failed";
-            }
-        }
-
-        if (!accepted) {
-            if (enable_fpfh_fallback_) {
-                setLocalizationState(LocalizationState::GLOBAL_RECOVERY, "run_fallback_fpfh");
-                const auto t_fb_start = std::chrono::steady_clock::now();
-                double best_fitness = std::numeric_limits<double>::max();
-                double best_cost = std::numeric_limits<double>::max();
-                int candidate_count = 0;
-                accepted = tryLegacyFpfhGlobalChannel(source_down, target_down, best_pose, best_fitness, best_cost,
-                                                      candidate_count);
-
-                metrics.t_l2_ms +=
-                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_fb_start).count();
-                metrics.candidate_count += candidate_count;
-                metrics.best_fitness = std::min(metrics.best_fitness, best_fitness);
-                metrics.best_j = std::min(metrics.best_j, best_cost);
-
-                if (accepted) {
-                    metrics.path_used = "fallback";
-                    metrics.accepted = true;
-                    markRelocalizationSuccess(best_pose);
-                } else {
-                    metrics.path_used = "fallback_failed";
-                }
             }
         }
 
