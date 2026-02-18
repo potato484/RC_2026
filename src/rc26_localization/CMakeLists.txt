@@ -40,4 +40,5 @@ ament_auto_package(
   USE_SCOPED_HEADER_INSTALL_DIR
   INSTALL_TO_SHARE
   launch
+  scripts
 )

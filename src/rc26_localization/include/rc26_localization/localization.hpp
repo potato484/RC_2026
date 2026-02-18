@@ -7,12 +7,16 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include <Eigen/Dense>
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "pcl/io/pcd_io.h"
 #include "pcl/keypoints/iss_3d.h"
@@ -45,6 +49,38 @@ public:
     ~LocalizationNode();
 
 private:
+    enum class LocalizationState : uint8_t {
+        TRACKING,
+        SUSPECT,
+        FAST_RECOVERY,
+        GLOBAL_RECOVERY,
+        RELOC_FAILED,
+    };
+
+    enum class RelocTriggerReason : uint8_t {
+        KIDNAP,
+        TIMEOUT,
+        MANUAL,
+    };
+
+    struct RelocMetrics {
+        RelocTriggerReason trigger_reason{RelocTriggerReason::TIMEOUT};
+        std::string path_used{"none"};
+        double t_total_ms{0.0};
+        double t_l1_ms{0.0};
+        double t_l2_ms{0.0};
+        int candidate_count{0};
+        double best_fitness{std::numeric_limits<double>::max()};
+        double best_j{std::numeric_limits<double>::max()};
+        bool accepted{false};
+    };
+
+    struct ScanContextEntry {
+        Eigen::Vector2d center_xy{Eigen::Vector2d::Zero()};
+        Eigen::MatrixXf descriptor;
+        Eigen::VectorXf ring_key;
+    };
+
     // 回调函数
     void registeredPcdCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
     void initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
@@ -55,8 +91,43 @@ private:
     void publishTransform();
     bool prepareTargetMap();
 
-    // 全局重定位 (ISS + FPFH + SAC-IA + NDT + ICP)
-    void performGlobalRelocalization(pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud = nullptr);
+    // 全局重定位（后台线程）
+    void performGlobalRelocalization(RelocTriggerReason reason, pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud = nullptr);
+    void requestRelocalization(RelocTriggerReason reason, pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud);
+    void relocWorkerLoop();
+
+    // 状态机与重定位结果管理
+    void setLocalizationState(LocalizationState next, const char* reason);
+    LocalizationState getLocalizationState() const;
+    bool isRelocatingState(LocalizationState state) const;
+    bool isMapToOdomReliableState(LocalizationState state) const;
+    void markRelocalizationSuccess(const Eigen::Isometry3d& map_to_odom);
+    void publishRelocMetrics(const RelocMetrics& metrics) const;
+    static const char* toString(LocalizationState state);
+    static const char* toString(RelocTriggerReason reason);
+
+    // 全局候选评估
+    double computeCandidateCost(double fitness, const Eigen::Matrix4f& seed, const Eigen::Matrix4f& refined) const;
+    bool maybeConditionalNdtRefine(const pcl::PointCloud<pcl::PointXYZ>::Ptr& source_down,
+                                   const pcl::PointCloud<pcl::PointXYZ>::Ptr& target_down,
+                                   Eigen::Matrix4f& io_guess, double& io_fitness) const;
+
+    // L2: Scan Context 全局检索
+    bool buildScanContextDatabase();
+    Eigen::MatrixXf makeScanContextDescriptor(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
+                                              const Eigen::Vector2d& center_xy) const;
+    Eigen::VectorXf makeRingKey(const Eigen::MatrixXf& descriptor) const;
+    double bestSectorSimilarity(const Eigen::MatrixXf& query_desc, const Eigen::MatrixXf& target_desc,
+                                int& best_shift) const;
+    bool tryScanContextGlobalChannel(const pcl::PointCloud<pcl::PointXYZ>::Ptr& source_down,
+                                     const pcl::PointCloud<pcl::PointXYZ>::Ptr& target_down,
+                                     Eigen::Isometry3d& best_pose, double& best_fitness, double& best_cost,
+                                     int& candidate_count);
+    bool tryLegacyFpfhGlobalChannel(const pcl::PointCloud<pcl::PointXYZ>::Ptr& source_down,
+                                    const pcl::PointCloud<pcl::PointXYZ>::Ptr& target_down,
+                                    Eigen::Isometry3d& best_pose, double& best_fitness, double& best_cost,
+                                    int& candidate_count);
+
     bool detectKidnapping(double fitness_score);
 
     // 多假设初值生成
@@ -72,8 +143,10 @@ private:
     void applyAcrylicROIFilter(pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud);
 
     // I2: 重试区先验快速通道
-    bool tryRetryZoneFastChannel(pcl::PointCloud<pcl::PointXYZ>::Ptr source_down,
-                                  pcl::PointCloud<pcl::PointXYZ>::Ptr target_down);
+    bool tryRetryZoneFastChannel(const pcl::PointCloud<pcl::PointXYZ>::Ptr& source_down,
+                                 const pcl::PointCloud<pcl::PointXYZ>::Ptr& target_down,
+                                 Eigen::Isometry3d& best_pose, double& best_fitness, double& best_cost,
+                                 int& candidate_count);
 
     // 订阅者
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pcd_sub_;
@@ -119,11 +192,14 @@ private:
     int gicp_max_iterations_{20};            // small_gicp 最大迭代次数
     double max_delta_translation_{0.5};      // 未收敛时允许的最大平移（米）
     double max_delta_rotation_{0.3};         // 未收敛时允许的最大旋转（弧度）
-    std::atomic<bool> is_kidnapped_{false};
-    std::atomic<bool> global_reloc_running_{false};
+    std::atomic<LocalizationState> localization_state_{LocalizationState::TRACKING};
     std::atomic<bool> shutdown_requested_{false};
-    std::atomic<bool> map_to_odom_reliable_{false};
-    std::thread global_reloc_thread_;  // 全局重定位线程，避免 detach
+    std::thread reloc_worker_thread_;
+    std::mutex reloc_request_mutex_;
+    std::condition_variable reloc_request_cv_;
+    bool reloc_request_pending_{false};
+    RelocTriggerReason reloc_pending_reason_{RelocTriggerReason::TIMEOUT};
+    pcl::PointCloud<pcl::PointXYZ>::Ptr reloc_pending_cloud_;
 
     // [修复] 配准失败超时机制
     rclcpp::Time last_successful_registration_time_;
@@ -141,6 +217,7 @@ private:
     double retry_zone_fast_accept_th_{0.15};
     double retry_zone_max_xy_offset_{1.5};
     double retry_zone_max_yaw_offset_deg_{60.0};
+    bool competition_mode_{true};
 
     // I3: 亚克力过滤
     bool acrylic_filter_enable_{false};
@@ -173,10 +250,26 @@ private:
     int ndt_max_iterations_{50};               // NDT最大迭代次数
     double ndt_step_size_{0.1};                // NDT步长
     double ndt_transformation_epsilon_{1e-6};  // NDT收敛阈值
+    double ndt_trigger_threshold_{0.5};        // 条件触发门限
 
     // 多假设初值参数
     bool use_multi_hypothesis_{true};  // 是否使用多假设初值
     int num_yaw_hypotheses_{4};        // yaw方向假设数量
+
+    // L2: Scan Context 参数
+    bool enable_scan_context_{true};
+    bool enable_fpfh_fallback_{false};
+    int sc_num_rings_{20};
+    int sc_num_sectors_{60};
+    double sc_max_radius_{8.0};
+    double sc_submap_radius_{5.0};
+    double sc_grid_resolution_{1.0};
+    int sc_topk_{5};
+    double sc_sim_threshold_{0.18};  // 1-cos 相似度代价上限
+    int sc_min_points_per_submap_{80};
+    bool sc_db_ready_{false};
+    std::vector<ScanContextEntry> sc_database_;
+    std::mutex sc_mutex_;
 
     // 点云数据
     pcl::PointCloud<pcl::PointXYZ>::Ptr global_map_;
