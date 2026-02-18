@@ -136,3 +136,35 @@ localization:
     sc_topk: 5
     # 1-cos 相似度代价上限，越小要求越严格
     sc_sim_threshold: 0.18
+
+    # ========== QCS8550 线程亲和 ==========
+    qcs8550_affinity_enable: true
+    qcs8550_realtime_enable: false
+    qcs8550_prime_cpu_ids: [0]
+    qcs8550_gold_cpu_ids: [1, 2, 3, 4]
+    qcs8550_silver_cpu_ids: [5, 6, 7]
+    gicp_omp_threads: 4
+
+    # ========== S1: IMU Spike 门控 ==========
+    s1_enable: true
+    s1_imu_topic: "/livox/imu"
+    s1_accel_threshold: 20.0
+    s1_gyro_threshold: 6.0
+    s1_freeze_duration_ms: 300
+
+    # ========== S2: Hessian 退化轴拒绝 ==========
+    s2_enable: true
+    s2_hessian_min_eigenvalue: 100.0
+    s2_max_continuous_frames: 10
+
+    # ========== S3: SC 对称歧义拒绝 ==========
+    s3_enable: true
+    s3_min_score_gap: 0.03
+
+    # ========== 丘陵工况坡道约束 ==========
+    slope_roll_pitch_from_imu: true
+    slope_z_weight: 2.0
+    slope_normal_consistency_deg: 25.0
+
+    # NEON 内核模式（A/B 验证达标后切 neon）
+    gicp_kernel_mode: "scalar"
