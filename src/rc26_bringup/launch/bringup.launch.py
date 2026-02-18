@@ -1,5 +1,5 @@
 """
-RC_2026_1 R2导航系统 - 主启动文件
+src R2导航系统 - 主启动文件
 
 启动:
   - 里程计 (point_lio + rc26_odom_interface + rc26_sensor_scan)

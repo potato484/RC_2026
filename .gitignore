@@ -9,7 +9,10 @@ log/
 .idea/
 test/
 AidLite C++ 接口文档 _ APLUX Doc Center_files/
+.cursor/
+.trellis/
 openspec/
+train/
 AGENTS.md
 CLAUDE.md
 # Python bytecode / caches
@@ -17,7 +20,7 @@ __pycache__/
 *.pyc
 
 # Runtime logs / artifacts
-RC_2026_1/point_lio/Log/
+src/point_lio/Log/
 
 # Large binary docs (keep as release assets instead)
-RC_2026_1/rc26_pdf/
+src/rc26_pdf/

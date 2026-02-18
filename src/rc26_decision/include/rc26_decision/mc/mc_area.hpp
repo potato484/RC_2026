@@ -3,7 +3,7 @@
  * @Date: 2025-12-29 20:30:49
  * @LastEditors: potato potato@potato.com
  * @LastEditTime: 2026-01-02 21:33:02
- * @FilePath: /RC_2026/RC_2026_1/rc26_decision/include/rc26_decision/mc_area.hpp
+ * @FilePath: /RC_2026/src/rc26_decision/include/rc26_decision/mc_area.hpp
  * @Description: 武馆区 (MC Area) 行为树节点
  */
 #pragma once

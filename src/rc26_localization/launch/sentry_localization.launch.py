@@ -3,7 +3,7 @@ Author: potato potato@potato.com
 Date: 2025-12-01 21:04:58
 LastEditors: potato potato@potato.com
 LastEditTime: 2025-12-12 16:20:43
-FilePath: /RC_2026/RC_2026_1/rc26_localization/launch/sentry_localization.launch.py
+FilePath: /RC_2026/src/rc26_localization/launch/sentry_localization.launch.py
 Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 '''
 """

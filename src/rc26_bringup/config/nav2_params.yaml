@@ -1,4 +1,4 @@
-# RC_2026_1 Nav2 参数配置
+# src Nav2 参数配置
 
 bt_navigator:
   ros__parameters:
