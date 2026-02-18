@@ -7,6 +7,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(ament_cmake_auto REQUIRED)
 find_package(OpenMP REQUIRED)
+find_package(Threads REQUIRED)
 set(PCL_FIND_QUIETLY ON)
 find_package(PCL REQUIRED COMPONENTS common filters kdtree)
 find_package(Eigen3 REQUIRED)
@@ -27,12 +28,24 @@ ament_auto_add_library(${PROJECT_NAME} SHARED
   DIRECTORY src
 )
 
-target_link_libraries(${PROJECT_NAME} OpenMP::OpenMP_CXX small_gicp)
+target_link_libraries(${PROJECT_NAME} OpenMP::OpenMP_CXX small_gicp Threads::Threads)
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+  add_compile_options(-O3 -ffast-math -funsafe-math-optimizations)
+  add_compile_options(-march=armv9-a+simd)
+endif()
 
 # 注册为组件节点
 rclcpp_components_register_node(${PROJECT_NAME}
   PLUGIN rc26_localization::LocalizationNode
   EXECUTABLE ${PROJECT_NAME}_node
+)
+
+# 安装运维脚本
+install(PROGRAMS
+  scripts/setup_realtime_aidlux.sh
+  scripts/profile_localization_perf.sh
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 # 安装
