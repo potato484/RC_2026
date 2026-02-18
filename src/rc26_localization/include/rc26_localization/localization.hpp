@@ -62,6 +62,19 @@ private:
     // 多假设初值生成
     std::vector<Eigen::Matrix4f> generateCandidateTransforms(const Eigen::Matrix4f& sac_transform);
 
+    // 参数校验与归一化（避免非法配置导致异常行为）
+    void validateAndNormalizeParams();
+
+    // 获取可用于 ROI 过滤的可靠 map->odom 快照
+    bool tryGetReliableMapToOdom(Eigen::Isometry3d& map_to_odom);
+
+    // I3: 亚克力幽灵点 ROI 过滤
+    void applyAcrylicROIFilter(pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud);
+
+    // I2: 重试区先验快速通道
+    bool tryRetryZoneFastChannel(pcl::PointCloud<pcl::PointXYZ>::Ptr source_down,
+                                  pcl::PointCloud<pcl::PointXYZ>::Ptr target_down);
+
     // 订阅者
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pcd_sub_;
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initial_pose_sub_;
@@ -109,11 +122,30 @@ private:
     std::atomic<bool> is_kidnapped_{false};
     std::atomic<bool> global_reloc_running_{false};
     std::atomic<bool> shutdown_requested_{false};
+    std::atomic<bool> map_to_odom_reliable_{false};
     std::thread global_reloc_thread_;  // 全局重定位线程，避免 detach
 
     // [修复] 配准失败超时机制
     rclcpp::Time last_successful_registration_time_;
     double registration_timeout_sec_{10.0};  // 配准失败超时时间（秒）
+
+    // I1: 冻结门控参数
+    double freeze_update_err_{0.3};  // normalized_error 超过此值时冻结 TF 更新
+    int min_inliers_{200};           // 内点数低于此值时冻结 TF 更新
+
+    // I2: 重试区先验
+    bool retry_zone_enable_{false};
+    double retry_zone_x_{0.0};
+    double retry_zone_y_{0.0};
+    std::vector<double> retry_zone_yaw_candidates_deg_;
+    double retry_zone_fast_accept_th_{0.15};
+    double retry_zone_max_xy_offset_{1.5};
+    double retry_zone_max_yaw_offset_deg_{60.0};
+
+    // I3: 亚克力过滤
+    bool acrylic_filter_enable_{false};
+    std::vector<double> acrylic_roi_boxes_;  // 平铺: [xmin,ymin,zmin,xmax,ymax,zmax, ...]
+    double acrylic_filter_max_stale_sec_{1.0};
 
     // 全局重定位参数
     int sac_ia_num_samples_{5};

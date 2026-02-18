@@ -6,7 +6,9 @@
 
 #include "rc26_localization/localization.hpp"
 
+#include <algorithm>
 #include <cstddef>
+#include <cmath>
 #include <limits>
 #include <thread>
 #include <utility>
@@ -87,6 +89,24 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     // [修复] 配准失败超时参数
     this->declare_parameter("registration_timeout_sec", 10.0);
 
+    // I1: 冻结门控参数
+    this->declare_parameter("freeze_update_err", 0.3);
+    this->declare_parameter("min_inliers", 200);
+
+    // I2: 重试区先验参数
+    this->declare_parameter("retry_zone_enable", false);
+    this->declare_parameter("retry_zone_x", 0.0);
+    this->declare_parameter("retry_zone_y", 0.0);
+    this->declare_parameter("retry_zone_yaw_candidates_deg", std::vector<double>{0.0, 90.0, 180.0, 270.0});
+    this->declare_parameter("retry_zone_fast_accept_th", 0.15);
+    this->declare_parameter("retry_zone_max_xy_offset", 1.5);
+    this->declare_parameter("retry_zone_max_yaw_offset_deg", 60.0);
+
+    // I3: 亚克力过滤参数
+    this->declare_parameter("acrylic_filter_enable", false);
+    this->declare_parameter("acrylic_roi_boxes", std::vector<double>{});
+    this->declare_parameter("acrylic_filter_max_stale_sec", 1.0);
+
     // 获取参数
     this->get_parameter("num_threads", num_threads_);
     this->get_parameter("num_neighbors", num_neighbors_);
@@ -145,6 +165,27 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     // [修复] 获取配准失败超时参数
     this->get_parameter("registration_timeout_sec", registration_timeout_sec_);
 
+    // I1: 获取冻结门控参数
+    this->get_parameter("freeze_update_err", freeze_update_err_);
+    this->get_parameter("min_inliers", min_inliers_);
+
+    // I2: 获取重试区先验参数
+    this->get_parameter("retry_zone_enable", retry_zone_enable_);
+    this->get_parameter("retry_zone_x", retry_zone_x_);
+    this->get_parameter("retry_zone_y", retry_zone_y_);
+    this->get_parameter("retry_zone_yaw_candidates_deg", retry_zone_yaw_candidates_deg_);
+    this->get_parameter("retry_zone_fast_accept_th", retry_zone_fast_accept_th_);
+    this->get_parameter("retry_zone_max_xy_offset", retry_zone_max_xy_offset_);
+    this->get_parameter("retry_zone_max_yaw_offset_deg", retry_zone_max_yaw_offset_deg_);
+
+    // I3: 获取亚克力过滤参数
+    this->get_parameter("acrylic_filter_enable", acrylic_filter_enable_);
+    this->get_parameter("acrylic_roi_boxes", acrylic_roi_boxes_);
+    this->get_parameter("acrylic_filter_max_stale_sec", acrylic_filter_max_stale_sec_);
+
+    validateAndNormalizeParams();
+    map_to_odom_reliable_.store(false);
+
     // 初始位姿 [x, y, z, roll, pitch, yaw]
     if (!init_pose_.empty() && init_pose_.size() >= 6) {
         std::lock_guard<std::mutex> lock(result_mutex_);
@@ -201,6 +242,82 @@ LocalizationNode::~LocalizationNode() {
     shutdown_requested_.store(true);
     if (global_reloc_thread_.joinable()) {
         global_reloc_thread_.join();
+    }
+}
+
+void LocalizationNode::validateAndNormalizeParams() {
+    if (kidnap_threshold_count_ < 1) {
+        RCLCPP_WARN(this->get_logger(), "kidnap_threshold_count=%d 非法，已钳制为 1", kidnap_threshold_count_);
+        kidnap_threshold_count_ = 1;
+    }
+    if (kidnap_fitness_threshold_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "kidnap_fitness_threshold=%.4f 非法，已回退为 0.3", kidnap_fitness_threshold_);
+        kidnap_fitness_threshold_ = 0.3;
+    }
+    if (registration_timeout_sec_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "registration_timeout_sec=%.4f 非法，已回退为 3.0", registration_timeout_sec_);
+        registration_timeout_sec_ = 3.0;
+    }
+    if (global_fitness_threshold_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "global_fitness_threshold=%.4f 非法，已回退为 0.1",
+                    global_fitness_threshold_);
+        global_fitness_threshold_ = 0.1;
+    }
+    if (freeze_update_err_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "freeze_update_err=%.4f 非法，已回退为 0.3", freeze_update_err_);
+        freeze_update_err_ = 0.3;
+    }
+    if (min_inliers_ < 0) {
+        RCLCPP_WARN(this->get_logger(), "min_inliers=%d 非法，已钳制为 0", min_inliers_);
+        min_inliers_ = 0;
+    }
+    if (retry_zone_fast_accept_th_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "retry_zone_fast_accept_th=%.4f 非法，已回退为 global_fitness_threshold=%.4f",
+                    retry_zone_fast_accept_th_, global_fitness_threshold_);
+        retry_zone_fast_accept_th_ = global_fitness_threshold_;
+    }
+    if (retry_zone_max_xy_offset_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "retry_zone_max_xy_offset=%.4f 非法，已回退为 1.5", retry_zone_max_xy_offset_);
+        retry_zone_max_xy_offset_ = 1.5;
+    }
+    if (retry_zone_max_yaw_offset_deg_ <= 0.0 || retry_zone_max_yaw_offset_deg_ > 180.0) {
+        RCLCPP_WARN(this->get_logger(), "retry_zone_max_yaw_offset_deg=%.4f 非法，已回退为 60.0",
+                    retry_zone_max_yaw_offset_deg_);
+        retry_zone_max_yaw_offset_deg_ = 60.0;
+    }
+    if (acrylic_filter_max_stale_sec_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "acrylic_filter_max_stale_sec=%.4f 非法，已回退为 1.0",
+                    acrylic_filter_max_stale_sec_);
+        acrylic_filter_max_stale_sec_ = 1.0;
+    }
+    if (acrylic_filter_enable_ && acrylic_roi_boxes_.empty()) {
+        RCLCPP_WARN(this->get_logger(), "acrylic_filter_enable=true 但 acrylic_roi_boxes 为空，已自动关闭过滤");
+        acrylic_filter_enable_ = false;
+    }
+    if (!acrylic_roi_boxes_.empty() && (acrylic_roi_boxes_.size() % 6 != 0)) {
+        const size_t raw_size = acrylic_roi_boxes_.size();
+        const size_t normalized_size = (raw_size / 6) * 6;
+        acrylic_roi_boxes_.resize(normalized_size);
+        RCLCPP_WARN(this->get_logger(), "acrylic_roi_boxes 数量=%zu 不是 6 的倍数，已截断为 %zu", raw_size,
+                    normalized_size);
+    }
+    for (size_t b = 0; b + 5 < acrylic_roi_boxes_.size(); b += 6) {
+        if (acrylic_roi_boxes_[b] > acrylic_roi_boxes_[b + 3]) {
+            std::swap(acrylic_roi_boxes_[b], acrylic_roi_boxes_[b + 3]);
+            RCLCPP_WARN(this->get_logger(), "acrylic_roi_boxes[%zu] 的 xmin>xmax，已自动交换", b / 6);
+        }
+        if (acrylic_roi_boxes_[b + 1] > acrylic_roi_boxes_[b + 4]) {
+            std::swap(acrylic_roi_boxes_[b + 1], acrylic_roi_boxes_[b + 4]);
+            RCLCPP_WARN(this->get_logger(), "acrylic_roi_boxes[%zu] 的 ymin>ymax，已自动交换", b / 6);
+        }
+        if (acrylic_roi_boxes_[b + 2] > acrylic_roi_boxes_[b + 5]) {
+            std::swap(acrylic_roi_boxes_[b + 2], acrylic_roi_boxes_[b + 5]);
+            RCLCPP_WARN(this->get_logger(), "acrylic_roi_boxes[%zu] 的 zmin>zmax，已自动交换", b / 6);
+        }
+    }
+    if (retry_zone_enable_ && retry_zone_yaw_candidates_deg_.empty()) {
+        RCLCPP_WARN(this->get_logger(), "retry_zone_enable=true 但 retry_zone_yaw_candidates_deg 为空，已自动关闭快速通道");
+        retry_zone_enable_ = false;
     }
 }
 
@@ -324,6 +441,11 @@ void LocalizationNode::performRegistration() {
     pcl::Indices nan_indices;
     pcl::removeNaNFromPointCloud(*cloud_to_register, *cloud_to_register, nan_indices);
 
+    // I3: 亚克力幽灵点 ROI 过滤（在降采样前过滤，减少噪声进入配准）
+    if (acrylic_filter_enable_) {
+        applyAcrylicROIFilter(cloud_to_register);
+    }
+
     // 对累积点云降采样（降低计算量，同时保持协方差估计质量）
     source_ = small_gicp::voxelgrid_sampling_omp<pcl::PointCloud<pcl::PointXYZ>, pcl::PointCloud<pcl::PointCovariance>>(
         *cloud_to_register, registered_leaf_size_);
@@ -367,6 +489,7 @@ void LocalizationNode::performRegistration() {
 
     if (detectKidnapping(normalized_error)) {
         RCLCPP_WARN(this->get_logger(), "检测到绑架，触发全局重定位...");
+        map_to_odom_reliable_.store(false);
         // 在后台线程执行全局重定位（管理线程生命周期，避免 detach）
         if (global_reloc_thread_.joinable()) {
             global_reloc_thread_.join();  // 等待上一次完成
@@ -376,7 +499,12 @@ void LocalizationNode::performRegistration() {
         return;
     }
 
-    {
+    // I1: 冻结门控 —— normalized_error 过高或内点不足时，保持当前 TF 不更新
+    // 防止"边坏边写"导致 map→odom 跳变，影响规划/控制稳定性
+    const bool bad_quality = (normalized_error > freeze_update_err_) ||
+                              (result.num_inliers < static_cast<size_t>(min_inliers_));
+
+    if (!bad_quality) {
         std::lock_guard<std::mutex> lock(result_mutex_);
         if (result.converged) {
             result_t_ = previous_result_t_ = result.T_target_source;
@@ -409,12 +537,18 @@ void LocalizationNode::performRegistration() {
                             delta_translation.norm(), delta_rotation * 180.0 / M_PI);
             }
         }
+    } else {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                             "配准质量低 (error=%.4f, inliers=%zu < %d), 冻结 TF 更新",
+                             normalized_error, result.num_inliers, min_inliers_);
+        map_to_odom_reliable_.store(false);
     }
 
-    // 配准成功时更新时间戳（线程安全）
-    if (result.converged) {
+    // 配准成功且质量合格时更新时间戳
+    if (result.converged && !bad_quality) {
         std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
         last_successful_registration_time_ = this->now();
+        map_to_odom_reliable_.store(true);
     }
 
     // 检查配准失败超时
@@ -426,6 +560,7 @@ void LocalizationNode::performRegistration() {
     double time_since_last_success = (this->now() - last_success_snapshot).seconds();
     if (time_since_last_success > registration_timeout_sec_) {
         RCLCPP_ERROR(this->get_logger(), "配准失败超时 %.1f秒，触发全局重定位...", time_since_last_success);
+        map_to_odom_reliable_.store(false);
 
         // 触发全局重定位
         if (global_reloc_thread_.joinable()) {
@@ -549,6 +684,7 @@ void LocalizationNode::performGlobalRelocalization(pcl::PointCloud<pcl::PointXYZ
                 RCLCPP_WARN(this->get_logger(), "全局重定位失败：无点云数据");
                 is_kidnapped_.store(false);
                 global_reloc_running_.store(false);
+                map_to_odom_reliable_.store(false);
                 return;
             }
             source_cloud = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(*accumulated_cloud_);
@@ -558,6 +694,18 @@ void LocalizationNode::performGlobalRelocalization(pcl::PointCloud<pcl::PointXYZ
         // 移除 NaN 点
         pcl::Indices indices;
         pcl::removeNaNFromPointCloud(*source_cloud, *source_cloud, indices);
+
+        // I3: 全局重定位路径同样接入亚克力 ROI 过滤
+        if (acrylic_filter_enable_) {
+            applyAcrylicROIFilter(source_cloud);
+        }
+        if (source_cloud->empty()) {
+            RCLCPP_WARN(this->get_logger(), "全局重定位失败：过滤后无有效点云");
+            is_kidnapped_.store(false);
+            global_reloc_running_.store(false);
+            map_to_odom_reliable_.store(false);
+            return;
+        }
 
         // 降采样
         pcl::VoxelGrid<pcl::PointXYZ> vg;
@@ -589,7 +737,19 @@ void LocalizationNode::performGlobalRelocalization(pcl::PointCloud<pcl::PointXYZ
                         source_down->size(), target_down->size(), min_points);
             is_kidnapped_.store(false);
             global_reloc_running_.store(false);
+            map_to_odom_reliable_.store(false);
             return;
+        }
+
+        // I2: 优先尝试重试区先验快速通道，跳过耗时的 ISS+FPFH+SAC-IA 全局搜索
+        if (retry_zone_enable_ && !retry_zone_yaw_candidates_deg_.empty()) {
+            if (tryRetryZoneFastChannel(source_down, target_down)) {
+                is_kidnapped_.store(false);
+                global_reloc_running_.store(false);
+                map_to_odom_reliable_.store(true);
+                return;
+            }
+            RCLCPP_WARN(this->get_logger(), "重试区快速通道失败，降级到全局 ISS+FPFH+SAC-IA 搜索");
         }
 
         // ==================== ISS关键点提取（可选）====================
@@ -680,6 +840,7 @@ void LocalizationNode::performGlobalRelocalization(pcl::PointCloud<pcl::PointXYZ
             RCLCPP_WARN(this->get_logger(), "FPFH 特征计算失败");
             is_kidnapped_.store(false);
             global_reloc_running_.store(false);
+            map_to_odom_reliable_.store(false);
             return;
         }
         RCLCPP_INFO(this->get_logger(), "FPFH 特征: source=%zu, target=%zu", source_fpfh->size(), target_fpfh->size());
@@ -776,12 +937,14 @@ void LocalizationNode::performGlobalRelocalization(pcl::PointCloud<pcl::PointXYZ
                 std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
                 last_successful_registration_time_ = this->now();
             }
+            map_to_odom_reliable_.store(true);
 
             RCLCPP_INFO(this->get_logger(), "全局重定位成功! score=%.4f, 新位置: [%.2f, %.2f, %.2f]", best_fitness,
                         map_to_odom.translation().x(), map_to_odom.translation().y(), map_to_odom.translation().z());
         } else {
             RCLCPP_WARN(this->get_logger(), "全局重定位失败: best_score=%.4f > threshold=%.4f", best_fitness,
                         global_fitness_threshold_);
+            map_to_odom_reliable_.store(false);
         }
 
         is_kidnapped_.store(false);
@@ -791,10 +954,12 @@ void LocalizationNode::performGlobalRelocalization(pcl::PointCloud<pcl::PointXYZ
         RCLCPP_ERROR(this->get_logger(), "全局重定位异常: %s", ex.what());
         is_kidnapped_.store(false);
         global_reloc_running_.store(false);
+        map_to_odom_reliable_.store(false);
     } catch (...) {
         RCLCPP_ERROR(this->get_logger(), "全局重定位异常: unknown");
         is_kidnapped_.store(false);
         global_reloc_running_.store(false);
+        map_to_odom_reliable_.store(false);
     }
 }
 
@@ -824,10 +989,172 @@ void LocalizationNode::initialPoseCallback(const geometry_msgs::msg::PoseWithCov
             std::lock_guard<std::mutex> lock(result_mutex_);
             previous_result_t_ = result_t_ = map_to_odom;
         }
+        {
+            std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
+            last_successful_registration_time_ = this->now();
+        }
+        map_to_odom_reliable_.store(true);
     } catch (tf2::TransformException& ex) {
         RCLCPP_WARN(this->get_logger(), "无法查询 %s -> %s: %s", odom_frame_.c_str(), robot_base_frame_.c_str(),
                     ex.what());
+        map_to_odom_reliable_.store(false);
     }
+}
+
+// I3: 亚克力幽灵点 ROI 过滤
+// 将点云（odom 坐标系）投影到 map 坐标系，丢弃落在指定 AABB 盒体内的点
+bool LocalizationNode::tryGetReliableMapToOdom(Eigen::Isometry3d& map_to_odom) {
+    if (!map_to_odom_reliable_.load()) {
+        return false;
+    }
+
+    rclcpp::Time last_success_snapshot;
+    {
+        std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
+        last_success_snapshot = last_successful_registration_time_;
+    }
+    const double stale_sec = (this->now() - last_success_snapshot).seconds();
+    if (stale_sec > acrylic_filter_max_stale_sec_) {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                             "亚克力过滤跳过: map->odom 过期 %.2fs > %.2fs", stale_sec, acrylic_filter_max_stale_sec_);
+        map_to_odom_reliable_.store(false);
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(result_mutex_);
+        map_to_odom = result_t_;
+    }
+    return true;
+}
+
+// I3: 亚克力幽灵点 ROI 过滤
+// 仅在 map->odom 可靠且不过期时启用，避免绑架后错误位姿导致误删有效点
+void LocalizationNode::applyAcrylicROIFilter(pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
+    if (acrylic_roi_boxes_.size() < 6) {
+        return;
+    }
+
+    Eigen::Isometry3d map_to_odom;
+    if (!tryGetReliableMapToOdom(map_to_odom)) {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                             "亚克力过滤跳过: map->odom 当前不可靠");
+        return;
+    }
+
+    const size_t n_boxes = acrylic_roi_boxes_.size() / 6;
+    pcl::PointCloud<pcl::PointXYZ> filtered;
+    filtered.reserve(cloud->size());
+
+    for (const auto& pt : cloud->points) {
+        const Eigen::Vector3d p_map = map_to_odom * Eigen::Vector3d(pt.x, pt.y, pt.z);
+        bool in_box = false;
+        for (size_t i = 0; i < n_boxes && !in_box; ++i) {
+            const size_t b = i * 6;
+            if (p_map.x() >= acrylic_roi_boxes_[b] && p_map.x() <= acrylic_roi_boxes_[b + 3] &&
+                p_map.y() >= acrylic_roi_boxes_[b + 1] && p_map.y() <= acrylic_roi_boxes_[b + 4] &&
+                p_map.z() >= acrylic_roi_boxes_[b + 2] && p_map.z() <= acrylic_roi_boxes_[b + 5]) {
+                in_box = true;
+            }
+        }
+        if (!in_box) {
+            filtered.push_back(pt);
+        }
+    }
+
+    cloud->points = std::move(filtered.points);
+    cloud->width = static_cast<uint32_t>(cloud->points.size());
+    cloud->height = 1;
+}
+
+// I2: 重试区先验快速通道
+// 用重试区固定坐标生成候选初值，直接 ICP 精化，跳过耗时的全局特征搜索
+bool LocalizationNode::tryRetryZoneFastChannel(pcl::PointCloud<pcl::PointXYZ>::Ptr source_down,
+                                                pcl::PointCloud<pcl::PointXYZ>::Ptr target_down) {
+    const double accept_threshold = std::min(retry_zone_fast_accept_th_, global_fitness_threshold_);
+    RCLCPP_INFO(this->get_logger(), "尝试重试区快速通道: 坐标(%.2f, %.2f), %zu 个朝向候选",
+                retry_zone_x_, retry_zone_y_, retry_zone_yaw_candidates_deg_.size());
+    RCLCPP_INFO(this->get_logger(), "重试区接受阈值: min(fast=%.4f, global=%.4f)=%.4f",
+                retry_zone_fast_accept_th_, global_fitness_threshold_, accept_threshold);
+
+    double best_fitness = std::numeric_limits<double>::max();
+    Eigen::Matrix4f best_transform = Eigen::Matrix4f::Identity();
+
+    for (double yaw_deg : retry_zone_yaw_candidates_deg_) {
+        const float yaw = static_cast<float>(yaw_deg * M_PI / 180.0);
+        const float cy = std::cos(yaw), sy = std::sin(yaw);
+
+        Eigen::Matrix4f T0 = Eigen::Matrix4f::Identity();
+        T0(0, 0) = cy;  T0(0, 1) = -sy;
+        T0(1, 0) = sy;  T0(1, 1) = cy;
+        T0(0, 3) = static_cast<float>(retry_zone_x_);
+        T0(1, 3) = static_cast<float>(retry_zone_y_);
+
+        pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
+        icp.setInputSource(source_down);
+        icp.setInputTarget(target_down);
+        icp.setMaxCorrespondenceDistance(global_icp_max_correspondence_distance_);
+        icp.setMaximumIterations(global_icp_max_iterations_);
+        icp.setTransformationEpsilon(1e-6);
+
+        pcl::PointCloud<pcl::PointXYZ> result;
+        icp.align(result, T0);
+
+        if (!icp.hasConverged()) {
+            continue;
+        }
+
+        const Eigen::Matrix4f refined = icp.getFinalTransformation();
+        const Eigen::Vector2f seed_xy(T0(0, 3), T0(1, 3));
+        const Eigen::Vector2f refined_xy(refined(0, 3), refined(1, 3));
+        const double xy_offset = (refined_xy - seed_xy).norm();
+        const double seed_yaw = std::atan2(static_cast<double>(T0(1, 0)), static_cast<double>(T0(0, 0)));
+        const double refined_yaw = std::atan2(static_cast<double>(refined(1, 0)), static_cast<double>(refined(0, 0)));
+        const double yaw_delta = std::atan2(std::sin(refined_yaw - seed_yaw), std::cos(refined_yaw - seed_yaw));
+        const double yaw_delta_deg = std::abs(yaw_delta) * 180.0 / M_PI;
+
+        if (xy_offset > retry_zone_max_xy_offset_ || yaw_delta_deg > retry_zone_max_yaw_offset_deg_) {
+            RCLCPP_WARN(this->get_logger(),
+                        "重试区候选 yaw=%.0f° 被拒绝: ICP 偏移过大 (xy=%.3fm > %.3fm 或 yaw=%.2f° > %.2f°)", yaw_deg,
+                        xy_offset, retry_zone_max_xy_offset_, yaw_delta_deg, retry_zone_max_yaw_offset_deg_);
+            continue;
+        }
+
+        const double fitness = icp.getFitnessScore();
+        RCLCPP_INFO(this->get_logger(), "重试区候选 yaw=%.0f°: fitness=%.4f, xy_offset=%.3fm, yaw_offset=%.2f°", yaw_deg,
+                    fitness, xy_offset, yaw_delta_deg);
+
+        if (fitness < best_fitness) {
+            best_fitness = fitness;
+            best_transform = refined;
+        }
+
+        if (best_fitness < accept_threshold) {
+            break;
+        }
+    }
+
+    if (best_fitness < accept_threshold) {
+        Eigen::Isometry3d map_to_odom = Eigen::Isometry3d::Identity();
+        map_to_odom.matrix() = best_transform.cast<double>();
+        {
+            std::lock_guard<std::mutex> lock(result_mutex_);
+            result_t_ = previous_result_t_ = map_to_odom;
+        }
+        {
+            std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
+            last_successful_registration_time_ = this->now();
+        }
+        map_to_odom_reliable_.store(true);
+        RCLCPP_INFO(this->get_logger(), "重试区快速通道成功: fitness=%.4f, 位置[%.2f, %.2f, %.2f]",
+                    best_fitness, map_to_odom.translation().x(), map_to_odom.translation().y(),
+                    map_to_odom.translation().z());
+        return true;
+    }
+
+    RCLCPP_WARN(this->get_logger(), "重试区快速通道失败: best_fitness=%.4f > accept_th=%.4f",
+                best_fitness, accept_threshold);
+    return false;
 }
 
 }  // namespace rc26_localization

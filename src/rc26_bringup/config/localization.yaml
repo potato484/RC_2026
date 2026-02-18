@@ -66,10 +66,15 @@ localization:
     
     # ========== 绑架检测参数 ==========
     # 连续多少帧配准误差过高才认为发生绑架（配准频率约 2Hz，可按秒数换算）
-    kidnap_threshold_count: 5
-    # 判定“误差过高”的阈值，使用 normalized_error（平均每内点误差，单位米）
-    # 正常场地略高于日常波动上限；绑架后应明显大于该值
-    kidnap_fitness_threshold: 0.5
+    kidnap_threshold_count: 3
+    # 判定"误差过高"的阈值，使用 normalized_error（平均每内点误差，单位米）
+    kidnap_fitness_threshold: 0.3
+    # 配准失败超时时间（秒），超过该时间无成功配准则触发全局重定位
+    registration_timeout_sec: 3.0
+    # 冻结TF更新的误差阈值（normalized_error），高于此值时保持上一帧TF不更新
+    freeze_update_err: 0.3
+    # 允许更新TF的最小内点数，低于此值时冻结TF更新（按降采样后点数调整）
+    min_inliers: 200
     
     # ========== 全局重定位参数 (SAC-IA + ICP) ==========
     # SAC-IA 采样点数（每次随机选多少点参与特征匹配）
@@ -122,5 +127,30 @@ localization:
     # ========== 多假设初值参数 ==========
     # 是否使用多假设初值策略（避免SAC-IA失败导致整体失败）
     use_multi_hypothesis: true
-    # yaw方向假设数量（会生成 num_yaw_hypotheses 个不同朝向的初值）
-    num_yaw_hypotheses: 4
+    # yaw方向假设数量（45°间隔搜索，覆盖不确定朝向）
+    num_yaw_hypotheses: 8
+
+    # ========== I2: 重试区先验初值注入 ==========
+    # 是否启用重试区快速通道（绑架后优先用重试区坐标+ICP，跳过全局搜索）
+    retry_zone_enable: false
+    # 重试区中心点 map 坐标 x（建图后标定）
+    retry_zone_x: 0.0
+    # 重试区中心点 map 坐标 y（建图后标定）
+    retry_zone_y: 0.0
+    # 重试区入场朝向候选（度），方向确定后可缩减到 1~2 个
+    retry_zone_yaw_candidates_deg: [0.0, 90.0, 180.0, 270.0]
+    # 快速通道 ICP fitness 接受阈值（低于此值视为定位成功）
+    retry_zone_fast_accept_th: 0.15
+    # 快速通道中 ICP 相对先验种子的最大平面偏移（米），超过则拒绝该候选
+    retry_zone_max_xy_offset: 1.5
+    # 快速通道中 ICP 相对先验种子的最大航向偏移（度），超过则拒绝该候选
+    retry_zone_max_yaw_offset_deg: 60.0
+
+    # ========== I3: 亚克力幽灵点 ROI 过滤 ==========
+    # 是否启用空间 ROI 剔除（需先完成场地标定，确认护栏后方坐标）
+    acrylic_filter_enable: false
+    # 仅当最近一次成功定位未过期时才应用 ROI 过滤（秒）
+    acrylic_filter_max_stale_sec: 1.0
+    # AABB 盒体列表（map 坐标系），每 6 个数为一组 [xmin,ymin,zmin,xmax,ymax,zmax]
+    # 示例: [x1min, y1min, z1min, x1max, y1max, z1max, x2min, y2min, ...]
+    acrylic_roi_boxes: []

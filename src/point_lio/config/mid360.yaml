@@ -31,6 +31,7 @@
             scan_line: 4
             timestamp_unit: 3                               # PointCloud2 话题中 time/t 字段单位：0-秒，1-毫秒，2-微秒，3-纳秒
             blind: 0.5
+            det_range: 9.0                                  # 最大有效测距（米），场地 12m×12m，设 9m 过滤远距离噪声
 
         mapping:
             imu_en: True

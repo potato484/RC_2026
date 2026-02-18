@@ -120,6 +120,9 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
         nh->declare_parameter<double>("preprocess.blind", 1.0);
         nh->get_parameter("preprocess.blind", p_pre->blind);
 
+        nh->declare_parameter<double>("preprocess.det_range", 1000.0);
+        nh->get_parameter("preprocess.det_range", p_pre->det_range);
+
         nh->declare_parameter<int>("preprocess.lidar_type", 1);
         nh->get_parameter("preprocess.lidar_type", lidar_type);
 
