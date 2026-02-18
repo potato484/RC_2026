@@ -7,10 +7,18 @@
 #include "rc26_localization/localization.hpp"
 
 #include <algorithm>
+#include <cerrno>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
+#include <cstring>
+#include <fstream>
 #include <limits>
+#include <pthread.h>
+#include <sched.h>
+#include <sstream>
 #include <stdexcept>
 #include <thread>
 #include <utility>
@@ -33,6 +41,93 @@ constexpr double kNearZero = 1e-6;
 constexpr double kCostWf = 0.5;
 constexpr double kCostWxy = 0.3;
 constexpr double kCostWyaw = 0.2;
+constexpr double kMaxSlopeRollPitchCorrectionDeg = 5.0;
+
+struct ThreadBindResult {
+    bool affinity_ok{false};
+    bool sched_ok{false};
+    bool sched_downgraded{false};
+    int affinity_err{0};
+    int sched_err{0};
+};
+
+static std::string formatCpuList(const std::vector<int>& cpus) {
+    std::ostringstream oss;
+    for (size_t i = 0; i < cpus.size(); ++i) {
+        if (i > 0) {
+            oss << ",";
+        }
+        oss << cpus[i];
+    }
+    return oss.str();
+}
+
+// 绑定当前线程到指定 CPU 集合，失败仅告警不终止
+static ThreadBindResult bindCurrentThread(const std::vector<int>& cpus, int policy, int priority) {
+    ThreadBindResult result;
+    if (cpus.empty()) {
+        result.affinity_err = EINVAL;
+        return result;
+    }
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    for (int cpu : cpus) {
+        if (cpu >= 0) CPU_SET(cpu, &cpuset);
+    }
+    const int affinity_err = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+    if (affinity_err != 0) {
+        result.affinity_err = affinity_err;
+        return result;
+    }
+    result.affinity_ok = true;
+    result.sched_ok = true;
+
+    if (policy == SCHED_FIFO || policy == SCHED_RR) {
+        struct sched_param param{};
+        param.sched_priority = priority;
+        const int sched_err = pthread_setschedparam(pthread_self(), policy, &param);
+        if (sched_err != 0) {
+            result.sched_err = sched_err;
+            result.sched_downgraded = true;
+            result.sched_ok = false;
+            param.sched_priority = 0;
+            if (pthread_setschedparam(pthread_self(), SCHED_OTHER, &param) == 0) {
+                result.sched_ok = true;
+            }
+        }
+    }
+
+    return result;
+}
+
+// YAML 显式配置优先；未配置时读 /sys/.../cpuinfo_max_freq 自动分桶
+static void detectQcs8550Buckets(
+    std::vector<int>& prime, std::vector<int>& gold, std::vector<int>& silver) {
+    struct CpuFreq { int cpu; long freq; };
+    std::vector<CpuFreq> freqs;
+    for (int i = 0; i < 8; ++i) {
+        std::ifstream ifs("/sys/devices/system/cpu/cpu" + std::to_string(i) +
+                          "/cpufreq/cpuinfo_max_freq");
+        long freq = 0;
+        if (ifs >> freq) freqs.push_back({i, freq});
+    }
+    if (freqs.empty()) {
+        prime = {0}; gold = {1, 2, 3, 4}; silver = {5, 6, 7};
+        return;
+    }
+    std::sort(freqs.begin(), freqs.end(),
+              [](const CpuFreq& a, const CpuFreq& b) { return a.freq > b.freq; });
+    const long max_f = freqs.front().freq, min_f = freqs.back().freq, r = max_f - min_f;
+    for (const auto& cf : freqs) {
+        if (r <= 0 || cf.freq >= max_f - r / 4) prime.push_back(cf.cpu);
+        else if (cf.freq >= min_f + r / 3) gold.push_back(cf.cpu);
+        else silver.push_back(cf.cpu);
+    }
+    if (prime.size() > 1) {
+        gold.insert(gold.begin(), prime.begin() + 1, prime.end());
+        prime.resize(1);
+    }
+}
 }  // namespace
 
 LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
@@ -106,6 +201,38 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("sc_sim_threshold", 0.18);
     this->declare_parameter("sc_min_points_per_submap", 80);
 
+    // T2: QCS8550 线程亲和
+    this->declare_parameter("qcs8550_affinity_enable", false);
+    this->declare_parameter("qcs8550_realtime_enable", false);
+    this->declare_parameter("qcs8550_prime_cpu_ids", std::vector<int64_t>{});
+    this->declare_parameter("qcs8550_gold_cpu_ids", std::vector<int64_t>{});
+    this->declare_parameter("qcs8550_silver_cpu_ids", std::vector<int64_t>{});
+    this->declare_parameter("gicp_omp_threads", 4);
+
+    // S1: IMU Spike 门控
+    this->declare_parameter("s1_enable", false);
+    this->declare_parameter("s1_imu_topic", std::string("/livox/imu"));
+    this->declare_parameter("s1_accel_threshold", 20.0);
+    this->declare_parameter("s1_gyro_threshold", 6.0);
+    this->declare_parameter("s1_freeze_duration_ms", 300);
+
+    // S2: Hessian 退化轴拒绝
+    this->declare_parameter("s2_enable", false);
+    this->declare_parameter("s2_hessian_min_eigenvalue", 100.0);
+    this->declare_parameter("s2_max_continuous_frames", 10);
+
+    // S3: SC 对称歧义拒绝
+    this->declare_parameter("s3_enable", false);
+    this->declare_parameter("s3_min_score_gap", 0.03);
+
+    // T8: 丘陵工况坡道约束
+    this->declare_parameter("slope_roll_pitch_from_imu", false);
+    this->declare_parameter("slope_z_weight", 1.0);
+    this->declare_parameter("slope_normal_consistency_deg", 25.0);
+
+    // NEON 内核模式（占位，待 A/B 验证）
+    this->declare_parameter("gicp_kernel_mode", std::string("scalar"));
+
     // 获取参数
     this->get_parameter("num_threads", num_threads_);
     this->get_parameter("num_neighbors", num_neighbors_);
@@ -166,7 +293,80 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->get_parameter("sc_sim_threshold", sc_sim_threshold_);
     this->get_parameter("sc_min_points_per_submap", sc_min_points_per_submap_);
 
+    // T2: QCS8550 线程亲和
+    this->get_parameter("qcs8550_affinity_enable", qcs8550_affinity_enable_);
+    this->get_parameter("qcs8550_realtime_enable", qcs8550_realtime_enable_);
+    this->get_parameter("gicp_omp_threads", gicp_omp_threads_);
+    {
+        std::vector<int64_t> p, g, s;
+        this->get_parameter("qcs8550_prime_cpu_ids", p);
+        this->get_parameter("qcs8550_gold_cpu_ids", g);
+        this->get_parameter("qcs8550_silver_cpu_ids", s);
+        const bool yaml_cpu_override = !p.empty() || !g.empty() || !s.empty();
+        if (yaml_cpu_override) {
+            prime_cpus_.assign(p.begin(), p.end());
+            gold_cpus_.assign(g.begin(), g.end());
+            silver_cpus_.assign(s.begin(), s.end());
+        } else {
+            detectQcs8550Buckets(prime_cpus_, gold_cpus_, silver_cpus_);
+        }
+
+        if (gold_cpus_.empty() && !prime_cpus_.empty()) {
+            gold_cpus_ = prime_cpus_;
+        }
+        if (prime_cpus_.empty() && !gold_cpus_.empty()) {
+            prime_cpus_.push_back(gold_cpus_.front());
+        }
+        if (silver_cpus_.empty()) {
+            auto exists = [this](int cpu) {
+                return std::find(prime_cpus_.begin(), prime_cpus_.end(), cpu) != prime_cpus_.end() ||
+                       std::find(gold_cpus_.begin(), gold_cpus_.end(), cpu) != gold_cpus_.end();
+            };
+            for (int cpu = 0; cpu < 8; ++cpu) {
+                if (!exists(cpu)) {
+                    silver_cpus_.push_back(cpu);
+                }
+            }
+        }
+    }
+
+    // S1
+    this->get_parameter("s1_enable", s1_enable_);
+    this->get_parameter("s1_imu_topic", s1_imu_topic_);
+    this->get_parameter("s1_accel_threshold", s1_accel_threshold_);
+    this->get_parameter("s1_gyro_threshold", s1_gyro_threshold_);
+    this->get_parameter("s1_freeze_duration_ms", s1_freeze_duration_ms_);
+
+    // S2
+    this->get_parameter("s2_enable", s2_enable_);
+    this->get_parameter("s2_hessian_min_eigenvalue", s2_hessian_min_eigenvalue_);
+    this->get_parameter("s2_max_continuous_frames", s2_max_continuous_frames_);
+
+    // S3
+    this->get_parameter("s3_enable", s3_enable_);
+    this->get_parameter("s3_min_score_gap", s3_min_score_gap_);
+
+    // T8
+    this->get_parameter("slope_roll_pitch_from_imu", slope_roll_pitch_from_imu_);
+    this->get_parameter("slope_z_weight", slope_z_weight_);
+    this->get_parameter("slope_normal_consistency_deg", slope_normal_consistency_deg_);
+    this->get_parameter("gicp_kernel_mode", gicp_kernel_mode_);
+
+    std::transform(gicp_kernel_mode_.begin(), gicp_kernel_mode_.end(), gicp_kernel_mode_.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (gicp_kernel_mode_ != "scalar" && gicp_kernel_mode_ != "neon") {
+        RCLCPP_WARN(this->get_logger(),
+                    "gicp_kernel_mode=%s 非法，已回退为 scalar", gicp_kernel_mode_.c_str());
+        gicp_kernel_mode_ = "scalar";
+    }
+    if (gicp_kernel_mode_ != "scalar") {
+        RCLCPP_WARN(this->get_logger(),
+                    "gicp_kernel_mode=%s 目前尚未在主链启用，运行时仍使用 scalar 路径",
+                    gicp_kernel_mode_.c_str());
+    }
+
     validateAndNormalizeParams();
+    configureThreadAffinityQcs8550();
     setLocalizationState(LocalizationState::TRACKING, "startup");
 
     // 初始位姿 [x, y, z, roll, pitch, yaw]
@@ -209,6 +409,12 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     // 订阅初始位姿
     initial_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
         "initialpose", 10, std::bind(&LocalizationNode::initialPoseCallback, this, std::placeholders::_1));
+
+    // S1/T8: IMU 订阅
+    if (s1_enable_ || slope_roll_pitch_from_imu_) {
+        imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
+            s1_imu_topic_, 10, std::bind(&LocalizationNode::imuCallback, this, std::placeholders::_1));
+    }
 
     // 配准定时器 (2 Hz)
     register_timer_ = this->create_wall_timer(std::chrono::milliseconds(500),
@@ -309,7 +515,25 @@ void LocalizationNode::requestRelocalization(RelocTriggerReason reason, pcl::Poi
 }
 
 void LocalizationNode::relocWorkerLoop() {
+    bool worker_affinity_applied = false;
     while (!shutdown_requested_.load()) {
+        // T2: 绑定重定位工作线程到 Gold 核（仅初始化一次）
+        if (!worker_affinity_applied && qcs8550_affinity_enable_) {
+            const int policy = qcs8550_realtime_enable_ ? SCHED_FIFO : SCHED_OTHER;
+            const int prio   = qcs8550_realtime_enable_ ? 60 : 0;
+            const ThreadBindResult bind = bindCurrentThread(gold_cpus_, policy, prio);
+            if (!bind.affinity_ok) {
+                RCLCPP_WARN(get_logger(), "QCS8550 重定位线程绑核失败(errno=%d:%s)，继续运行",
+                            bind.affinity_err, std::strerror(bind.affinity_err));
+            }
+            if (qcs8550_realtime_enable_ && bind.sched_downgraded) {
+                RCLCPP_WARN(get_logger(),
+                            "QCS8550 重定位线程实时调度失败(errno=%d:%s)，已降级到 SCHED_OTHER",
+                            bind.sched_err, std::strerror(bind.sched_err));
+            }
+            worker_affinity_applied = true;
+        }
+
         RelocTriggerReason reason = RelocTriggerReason::TIMEOUT;
         pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud;
 
@@ -415,6 +639,25 @@ void LocalizationNode::validateAndNormalizeParams() {
     sc_topk_ = std::max(sc_topk_, 1);
     sc_sim_threshold_ = std::clamp(sc_sim_threshold_, 0.01, 1.0);
     sc_min_points_per_submap_ = std::max(sc_min_points_per_submap_, 20);
+    if (qcs8550_affinity_enable_ && (prime_cpus_.empty() || gold_cpus_.empty())) {
+        RCLCPP_WARN(this->get_logger(),
+                    "QCS8550 CPU 分桶配置不完整，已尝试自动检测 prime/gold/silver");
+        detectQcs8550Buckets(prime_cpus_, gold_cpus_, silver_cpus_);
+    }
+    if (gicp_omp_threads_ <= 0) {
+        RCLCPP_WARN(this->get_logger(), "gicp_omp_threads=%d 非法，已回退为 4", gicp_omp_threads_);
+        gicp_omp_threads_ = 4;
+    }
+    if (qcs8550_affinity_enable_ && num_threads_ != gicp_omp_threads_) {
+        RCLCPP_WARN(this->get_logger(),
+                    "num_threads(%d) 与 gicp_omp_threads(%d) 不一致，已统一为 %d",
+                    num_threads_, gicp_omp_threads_, gicp_omp_threads_);
+        num_threads_ = gicp_omp_threads_;
+    }
+    if (slope_z_weight_ < 1.0) {
+        RCLCPP_WARN(this->get_logger(), "slope_z_weight=%.3f 非法，已钳制为 1.0", slope_z_weight_);
+        slope_z_weight_ = 1.0;
+    }
 
     if (competition_mode_) {
         if (!retry_zone_enable_) {
@@ -423,6 +666,70 @@ void LocalizationNode::validateAndNormalizeParams() {
         if (std::abs(retry_zone_x_) <= kNearZero && std::abs(retry_zone_y_) <= kNearZero) {
             throw std::runtime_error("competition_mode=true 但 retry_zone_x/y 仍为默认占位值(0,0)，拒绝启动");
         }
+    }
+}
+
+void LocalizationNode::configureThreadAffinityQcs8550() {
+    if (!qcs8550_affinity_enable_) {
+        return;
+    }
+    const std::string omp_threads = std::to_string(gicp_omp_threads_);
+    setenv("OMP_NUM_THREADS", omp_threads.c_str(), 1);
+    setenv("OMP_PROC_BIND", "true", 1);
+    setenv("OMP_DYNAMIC", "false", 1);
+
+    auto combined = gold_cpus_;
+    combined.insert(combined.end(), prime_cpus_.begin(), prime_cpus_.end());
+    const int policy = qcs8550_realtime_enable_ ? SCHED_FIFO : SCHED_OTHER;
+    const int priority = qcs8550_realtime_enable_ ? 60 : 0;
+    const ThreadBindResult bind = bindCurrentThread(combined, policy, priority);
+
+    if (!bind.affinity_ok) {
+        RCLCPP_WARN(get_logger(), "QCS8550 主线程绑核失败(errno=%d:%s)，继续运行",
+                    bind.affinity_err, std::strerror(bind.affinity_err));
+    }
+    if (qcs8550_realtime_enable_ && bind.sched_downgraded) {
+        RCLCPP_WARN(get_logger(),
+                    "QCS8550 主线程实时调度失败(errno=%d:%s)，已降级到 SCHED_OTHER",
+                    bind.sched_err, std::strerror(bind.sched_err));
+    }
+
+    RCLCPP_INFO(get_logger(),
+                "QCS8550 affinity: prime=[%s] gold=[%s] silver=[%s] omp_threads=%d policy=%s",
+                formatCpuList(prime_cpus_).c_str(), formatCpuList(gold_cpus_).c_str(),
+                formatCpuList(silver_cpus_).c_str(), gicp_omp_threads_,
+                qcs8550_realtime_enable_ ? "SCHED_FIFO(60)->fallback" : "SCHED_OTHER");
+}
+
+void LocalizationNode::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
+    const double acc_norm = std::sqrt(
+        msg->linear_acceleration.x * msg->linear_acceleration.x +
+        msg->linear_acceleration.y * msg->linear_acceleration.y +
+        msg->linear_acceleration.z * msg->linear_acceleration.z);
+    const double gyro_norm = std::sqrt(
+        msg->angular_velocity.x * msg->angular_velocity.x +
+        msg->angular_velocity.y * msg->angular_velocity.y +
+        msg->angular_velocity.z * msg->angular_velocity.z);
+
+    // S1: Spike 检测
+    if (s1_enable_ && (acc_norm > s1_accel_threshold_ || gyro_norm > s1_gyro_threshold_)) {
+        std::lock_guard<std::mutex> lk(imu_spike_mutex_);
+        imu_spike_deadline_ =
+            now() + rclcpp::Duration(0, static_cast<int32_t>(s1_freeze_duration_ms_) * 1'000'000);
+        imu_spike_active_.store(true);
+    }
+
+    // T8: 重力加速度估计 roll/pitch（准静态假设）
+    if (slope_roll_pitch_from_imu_) {
+        const double ax = msg->linear_acceleration.x;
+        const double ay = msg->linear_acceleration.y;
+        const double az = msg->linear_acceleration.z;
+        const double roll  = std::atan2(ay, az);
+        const double pitch = std::atan2(-ax, std::sqrt(ay * ay + az * az));
+        std::lock_guard<std::mutex> lk(imu_attitude_mutex_);
+        imu_roll_  = roll;
+        imu_pitch_ = pitch;
+        imu_attitude_valid_ = true;
     }
 }
 
@@ -582,11 +889,49 @@ void LocalizationNode::performRegistration() {
         initial_guess = previous_result_t_;
     }
 
+    // T0: 局部配准计时起点
+    const auto t_align_start = std::chrono::steady_clock::now();
     auto result = register_->align(*target_, *source_, *target_tree_, initial_guess);
+    const double dt_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_align_start).count();
+
+    // S2: Hessian 退化轴拒绝（align 后、S1 门控前）
+    double s2_min_eig = 0.0;
+    int s2_consec = 0;
+    if (s2_enable_ && result.converged) {
+        Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 6, 6>> solver(result.H);
+        s2_min_eig = solver.eigenvalues().minCoeff();
+        if (s2_min_eig < s2_hessian_min_eigenvalue_) {
+            s2_consec = consecutive_s2_count_.fetch_add(1) + 1;
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 500,
+                "S2: degenerate axis (min_eig=%.4f < %.4f), update rejected (consec=%d/%d)",
+                s2_min_eig, s2_hessian_min_eigenvalue_, s2_consec, s2_max_continuous_frames_);
+            if (s2_consec >= s2_max_continuous_frames_) {
+                consecutive_s2_count_.store(0);
+                RCLCPP_ERROR(get_logger(), "S2: %d frames continuous degeneration, forcing GLOBAL_RECOVERY",
+                    s2_max_continuous_frames_);
+                requestRelocalization(RelocTriggerReason::KIDNAP, cloud_to_register);
+            }
+            return;
+        }
+        consecutive_s2_count_.store(0);
+    }
 
     const double normalized_error =
         (result.num_inliers > 0) ? (result.error / static_cast<double>(result.num_inliers))
                                  : std::numeric_limits<double>::max();
+
+    // S1: IMU Spike 门控（种子更新前，同时暂停绑架计数）
+    if (s1_enable_ && imu_spike_active_.load()) {
+        rclcpp::Time deadline;
+        { std::lock_guard<std::mutex> lk(imu_spike_mutex_); deadline = imu_spike_deadline_; }
+        if (now() < deadline) {
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 500,
+                "S1: IMU spike gate active, seed frozen");
+            return;
+        }
+        imu_spike_active_.store(false);
+    }
 
     RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
                          "配准: converged=%d, inliers=%zu, normalized_error=%.4f (阈值=%.4f)", result.converged,
@@ -600,11 +945,51 @@ void LocalizationNode::performRegistration() {
 
     const bool bad_quality =
         (normalized_error > freeze_update_err_) || (result.num_inliers < static_cast<size_t>(min_inliers_));
+    Eigen::Isometry3d slope_corrected_pose = result.T_target_source;
+
+    // T8: 坡道法向一致性门控 + 姿态主导权（transform 更新前）
+    if (!bad_quality && result.converged && slope_roll_pitch_from_imu_ && imu_attitude_valid_) {
+        const Eigen::Matrix3d R = result.T_target_source.rotation();
+        const double pitch_gicp = std::asin(-R(2, 0));
+        const double roll_gicp  = std::atan2(R(2, 1), R(2, 2));
+        double imu_r, imu_p;
+        {
+            std::lock_guard<std::mutex> lk(imu_attitude_mutex_);
+            imu_r = imu_roll_;
+            imu_p = imu_pitch_;
+        }
+        const double roll_dev  = roll_gicp - imu_r;
+        const double pitch_dev = pitch_gicp - imu_p;
+        const double dev_deg = std::sqrt(roll_dev * roll_dev + pitch_dev * pitch_dev) * 180.0 / M_PI;
+        if (dev_deg > slope_normal_consistency_deg_) {
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 500,
+                "T8: slope normal inconsistency %.1f deg > %.1f deg, frame rejected",
+                dev_deg, slope_normal_consistency_deg_);
+            return;
+        }
+
+        // roll/pitch 以 IMU 为主，仅允许 GICP 在有限幅度内修正
+        const double max_correction_rad = kMaxSlopeRollPitchCorrectionDeg * M_PI / 180.0;
+        const double fused_roll = imu_r + std::clamp(roll_dev, -max_correction_rad, max_correction_rad);
+        const double fused_pitch = imu_p + std::clamp(pitch_dev, -max_correction_rad, max_correction_rad);
+        const double yaw_gicp = std::atan2(R(1, 0), R(0, 0));
+        slope_corrected_pose.linear() =
+            (Eigen::AngleAxisd(yaw_gicp, Eigen::Vector3d::UnitZ()) *
+             Eigen::AngleAxisd(fused_pitch, Eigen::Vector3d::UnitY()) *
+             Eigen::AngleAxisd(fused_roll, Eigen::Vector3d::UnitX()))
+                .toRotationMatrix();
+
+        // 将 slope_z_weight 用于 z 轴更新抑制，减小坡道场景 z 抖动
+        const double prev_z = initial_guess.translation().z();
+        const double z_alpha = 1.0 / slope_z_weight_;
+        slope_corrected_pose.translation().z() =
+            prev_z + (slope_corrected_pose.translation().z() - prev_z) * z_alpha;
+    }
 
     if (!bad_quality) {
         std::lock_guard<std::mutex> lock(result_mutex_);
         if (result.converged) {
-            result_t_ = previous_result_t_ = result.T_target_source;
+            result_t_ = previous_result_t_ = slope_corrected_pose;
         } else {
             Eigen::Vector3d delta_translation = result.T_target_source.translation() - previous_result_t_.translation();
 
@@ -650,6 +1035,15 @@ void LocalizationNode::performRegistration() {
         RCLCPP_ERROR(this->get_logger(), "配准失败超时 %.1f秒，提交重定位请求...", time_since_last_success);
         requestRelocalization(RelocTriggerReason::TIMEOUT, cloud_to_register);
     }
+
+    // T0: PERF_METRIC 可观测性日志
+    RCLCPP_INFO(get_logger(),
+        "PERF_METRIC phase=LOCAL dt_ms=%.1f inliers=%d norm_err=%.4f state=%s S1=%d S2=%d(eig=%.2f,consec=%d)",
+        dt_ms, static_cast<int>(result.num_inliers), normalized_error,
+        toString(getLocalizationState()),
+        static_cast<int>(imu_spike_active_.load()),
+        static_cast<int>(s2_enable_ && result.converged && s2_min_eig < s2_hessian_min_eigenvalue_),
+        s2_min_eig, s2_consec);
 }
 
 void LocalizationNode::publishTransform() {
@@ -1064,6 +1458,7 @@ bool LocalizationNode::tryScanContextGlobalChannel(const pcl::PointCloud<pcl::Po
     best_fitness = std::numeric_limits<double>::max();
     best_cost = std::numeric_limits<double>::max();
     candidate_count = 0;
+    std::vector<double> all_fitness;  // S3: 收集所有收敛候选的 fitness
 
     const double yaw_step = 2.0 * M_PI / static_cast<double>(sc_num_sectors_);
 
@@ -1114,6 +1509,7 @@ bool LocalizationNode::tryScanContextGlobalChannel(const pcl::PointCloud<pcl::Po
         ++candidate_count;
         Eigen::Matrix4f refined = result.T_target_source.matrix().cast<float>();
         double fitness = result.error / static_cast<double>(result.num_inliers);
+        all_fitness.push_back(fitness);  // S3: 收集
         double cost = computeCandidateCost(fitness, seed, refined) + std::max(0.0, sim_cost - sc_sim_threshold_);
 
         RCLCPP_INFO(this->get_logger(),
@@ -1126,6 +1522,17 @@ bool LocalizationNode::tryScanContextGlobalChannel(const pcl::PointCloud<pcl::Po
             best_cost = cost;
             best_pose = Eigen::Isometry3d::Identity();
             best_pose.matrix() = refined.cast<double>();
+        }
+    }
+
+    // S3: SC 对称歧义拒绝（TopK 遍历结束后）
+    if (s3_enable_ && all_fitness.size() >= 2) {
+        std::sort(all_fitness.begin(), all_fitness.end());
+        if (std::abs(all_fitness[0] - all_fitness[1]) < s3_min_score_gap_) {
+            RCLCPP_WARN(get_logger(),
+                "S3: SC symmetry ambiguity (best=%.4f, 2nd=%.4f), reloc rejected",
+                all_fitness[0], all_fitness[1]);
+            return false;
         }
     }
 
@@ -1249,6 +1656,11 @@ void LocalizationNode::performGlobalRelocalization(RelocTriggerReason reason,
                 metrics.accepted = true;
                 markRelocalizationSuccess(best_pose);
             }
+            RCLCPP_INFO(
+                get_logger(),
+                "PERF_METRIC phase=L1 dt_ms=%.1f candidates=%d best_fit=%.4f best_j=%.4f accepted=%d state=%s",
+                metrics.t_l1_ms, candidate_count, best_fitness, best_cost, static_cast<int>(accepted),
+                toString(getLocalizationState()));
         }
 
         if (!accepted) {
@@ -1275,6 +1687,11 @@ void LocalizationNode::performGlobalRelocalization(RelocTriggerReason reason,
             } else {
                 metrics.path_used = "L2_failed";
             }
+            RCLCPP_INFO(
+                get_logger(),
+                "PERF_METRIC phase=L2 dt_ms=%.1f candidates=%d best_fit=%.4f best_j=%.4f accepted=%d state=%s",
+                metrics.t_l2_ms, candidate_count, best_fitness, best_cost, static_cast<int>(accepted),
+                toString(getLocalizationState()));
         }
 
         if (!accepted) {

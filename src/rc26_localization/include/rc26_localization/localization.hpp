@@ -21,6 +21,7 @@
 #include "pcl/io/pcd_io.h"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
+#include "sensor_msgs/msg/imu.hpp"
 #include "small_gicp/ann/kdtree_omp.hpp"
 #include "small_gicp/factors/gicp_factor.hpp"
 #include "small_gicp/pcl/pcl_point.hpp"
@@ -82,6 +83,7 @@ private:
     // 回调函数
     void registeredPcdCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
     void initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
+    void imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg);
 
     // 核心功能
     void loadGlobalMap(const std::string& file_name);
@@ -127,6 +129,9 @@ private:
     // 参数校验与归一化（避免非法配置导致异常行为）
     void validateAndNormalizeParams();
 
+    // QCS8550 线程亲和配置
+    void configureThreadAffinityQcs8550();
+
     // 获取可用于 ROI 过滤的可靠 map->odom 快照
     bool tryGetReliableMapToOdom(Eigen::Isometry3d& map_to_odom);
 
@@ -142,6 +147,7 @@ private:
     // 订阅者
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pcd_sub_;
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initial_pose_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
 
     // 参数
     int num_threads_;
@@ -239,6 +245,42 @@ private:
     bool sc_db_ready_{false};
     std::vector<ScanContextEntry> sc_database_;
     std::mutex sc_mutex_;
+
+    // T2: QCS8550 线程亲和
+    bool qcs8550_affinity_enable_{false};
+    bool qcs8550_realtime_enable_{false};
+    std::vector<int> prime_cpus_, gold_cpus_, silver_cpus_;
+    int gicp_omp_threads_{4};
+
+    // S1: IMU Spike 门控
+    bool s1_enable_{false};
+    std::string s1_imu_topic_{"/livox/imu"};
+    double s1_accel_threshold_{20.0};
+    double s1_gyro_threshold_{6.0};
+    int s1_freeze_duration_ms_{300};
+    std::atomic<bool> imu_spike_active_{false};
+    rclcpp::Time imu_spike_deadline_;
+    std::mutex imu_spike_mutex_;
+
+    // S2: Hessian 退化轴拒绝
+    bool s2_enable_{false};
+    double s2_hessian_min_eigenvalue_{100.0};
+    int s2_max_continuous_frames_{10};
+    std::atomic<int> consecutive_s2_count_{0};
+
+    // S3: SC 对称歧义拒绝
+    bool s3_enable_{false};
+    double s3_min_score_gap_{0.03};
+
+    // T8: 丘陵工况坡道约束
+    bool slope_roll_pitch_from_imu_{false};
+    double slope_z_weight_{1.0};
+    double slope_normal_consistency_deg_{25.0};
+    std::string gicp_kernel_mode_{"scalar"};
+    double imu_roll_{0.0};
+    double imu_pitch_{0.0};
+    bool imu_attitude_valid_{false};
+    std::mutex imu_attitude_mutex_;
 
     // 点云数据
     pcl::PointCloud<pcl::PointXYZ>::Ptr global_map_;
