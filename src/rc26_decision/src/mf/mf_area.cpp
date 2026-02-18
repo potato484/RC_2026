@@ -2,6 +2,7 @@
 #include "rc26_decision/mf/mf_area.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 
 #include "rc26_decision/navigation/smart_waypoint_navigator.hpp"
@@ -425,14 +426,25 @@ BT::NodeStatus SetNavModeAction::onStart() {
     }
     std::string mode = "MF_SAFE";
     getInput("mode", mode);
+    std::string profile = mode;
+    std::transform(profile.begin(), profile.end(), profile.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (profile == "mf_safe") {
+        profile = "safe";
+    } else if (profile == "normal") {
+        profile = "normal";
+    }
 
     client_ = node->create_client<rc26_interfaces::srv::SetNavMode>("set_nav_mode");
     if (!client_->wait_for_service(std::chrono::milliseconds(100))) {
         return BT::NodeStatus::FAILURE;
     }
     auto request = std::make_shared<rc26_interfaces::srv::SetNavMode::Request>();
-    request->mode = mode;
-    future_ = client_->async_send_request(request);
+    request->profile = profile;
+    request->timeout = 0.0F;
+    request->reason = "mf_area_bt";
+    auto future_and_id = client_->async_send_request(request);
+    future_ = future_and_id.future.share();
     waiting_ = true;
     return BT::NodeStatus::RUNNING;
 }
