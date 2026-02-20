@@ -26,6 +26,7 @@ def generate_launch_description():
     nav2_bringup_dir = get_package_share_directory('nav2_bringup')
     decision_dir = get_package_share_directory('rc26_decision')
     base_ground_dir = get_package_share_directory('rc26_base_ground')
+    kfs_keepout_dir = get_package_share_directory('rc26_kfs_keepout')
 
     # 启动参数
     namespace = LaunchConfiguration('namespace')
@@ -201,6 +202,19 @@ def generate_launch_description():
         condition=UnlessCondition(slam)
     )
 
+    terrain_mode_adapter_node = Node(
+        package='rc26_nav_mode_manager',
+        executable='terrain_mode_adapter_node',
+        name='terrain_mode_adapter',
+        namespace=namespace,
+        output='screen',
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'terrain_node_name': 'terrain_semantic',
+        }],
+        condition=UnlessCondition(slam)
+    )
+
     # 地图服务：仅启动 map_server（不启动 AMCL，避免与 rc26_localization 的 map->odom 冲突）
     map_server_node = Node(
         package='nav2_map_server',
@@ -223,8 +237,50 @@ def generate_launch_description():
         parameters=[
             {'use_sim_time': use_sim_time},
             {'autostart': True},
-            {'node_names': ['map_server']},
+            {'node_names': ['map_server', 'costmap_filter_info_server']},
         ],
+        condition=UnlessCondition(slam)
+    )
+
+    # KFS keepout 融合节点
+    kfs_grid_layout = PathJoinSubstitution([kfs_keepout_dir, 'config', 'mf_grid_layout.yaml'])
+    kfs_block_fuser_node = Node(
+        package='rc26_kfs_keepout',
+        executable='kfs_block_fuser_node',
+        name='kfs_block_fuser',
+        namespace=namespace,
+        output='screen',
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'kfs_state_topic': 'mf_kfs_state',
+            'mask_topic': '/kfs_filter_mask',
+            'grid_layout_file': kfs_grid_layout,
+            'map_resolution': 0.10,
+            'keepout_shape': 'square',
+            'block_half_size_m': 0.60,
+            'keepout_margin_m': 0.03,
+            'decay_target_prob': 0.05,
+            'decay_rate': 2.0,
+            'ttl_sec': 10.0,
+        }],
+        condition=UnlessCondition(slam)
+    )
+
+    # costmap_filter_info_server：向 Nav2 KeepoutFilter 广播掩码元数据
+    costmap_filter_info_server = Node(
+        package='nav2_map_server',
+        executable='costmap_filter_info_server',
+        name='costmap_filter_info_server',
+        namespace=namespace,
+        output='screen',
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'type': 0,
+            'filter_info_topic': '/costmap_filter_info',
+            'mask_topic': '/kfs_filter_mask',
+            'base': 0.0,
+            'multiplier': 1.0,
+        }],
         condition=UnlessCondition(slam)
     )
 
@@ -289,10 +345,14 @@ def generate_launch_description():
         localization_launch,
         base_ground_node,
         terrain_launch,
-        nav2_launch,
-        nav_mode_manager_node,
+
         map_server_node,
+        costmap_filter_info_server,
         map_server_lifecycle_manager,
+        kfs_block_fuser_node,
+        nav_mode_manager_node,
+        terrain_mode_adapter_node,
+        nav2_launch,
         decision_node,
         realsense_group,
         rviz_group,
