@@ -84,6 +84,7 @@ ament_target_dependencies(decision_node
   tf2
   tf2_geometry_msgs
   rc26_serial
+  rc26_interfaces
   rc26_vision
 )
 

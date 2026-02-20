@@ -1,6 +1,8 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <behaviortree_cpp/bt_factory.h>
 #include <rclcpp/rclcpp.hpp>
+#include <array>
+#include <cmath>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/int32.hpp>
 #include <std_msgs/msg/int8.hpp>
@@ -15,6 +17,8 @@
 #include "rc26_serial/serial_driver.hpp"
 #include "rc26_vision/vision_inference_manager.hpp"
 #include "rc26_vision/profile_loader.hpp"
+#include "rc26_interfaces/msg/mf_kfs_state.hpp"
+#include "rc26_interfaces/msg/mf_kfs_cell.hpp"
 
 namespace rc26_decision {
 
@@ -40,6 +44,7 @@ public:
         this->declare_parameter<std::string>("base_ground_level_topic", "base_ground/level");
         this->declare_parameter<std::string>("base_ground_stair_delta_topic", "base_ground/stair_delta");
         this->declare_parameter<std::string>("base_ground_stable_topic", "base_ground/stable");
+        this->declare_parameter<std::string>("kfs_state_topic", "mf_kfs_state");
 
         // 初始化命令串口 (串口2)
         if (this->get_parameter("enable_cmd_serial").as_bool()) {
@@ -69,7 +74,8 @@ public:
         }
 
         // 创建黑板并共享
-        auto blackboard = BT::Blackboard::create();
+        blackboard_ = BT::Blackboard::create();
+        const auto& blackboard = blackboard_;
         blackboard->set("cmd_serial", cmd_serial_);
         {
             rclcpp::Node* node_ptr = this;
@@ -137,7 +143,17 @@ public:
             }
             blackboard->set("waypoint_manager", waypoint_manager_);
             // 将 team 参数设置到黑板，供 MF 区域节点使用
-            blackboard->set("team", this->get_parameter("team").as_string());
+            const std::string team = this->get_parameter("team").as_string();
+            blackboard->set("team", team);
+
+            auto merlin_map = std::make_shared<MerlinMapManager>();
+            if (team == "blue") {
+                merlin_map->initBlueMap();
+            } else {
+                merlin_map->initRedMap();
+            }
+            blackboard->set("merlin_map", merlin_map);
+            RCLCPP_INFO(this->get_logger(), "Cold-start merlin_map initialized for team=%s", team.c_str());
         }
 
         // 创建 SmartWaypointNavigator 并共享到黑板
@@ -311,6 +327,14 @@ public:
         timer_ =
             this->create_wall_timer(std::chrono::milliseconds(tick_rate_ms), std::bind(&DecisionNode::tickTree, this));
 
+        // /mf_kfs_state 发布器（5Hz）
+        const auto kfs_topic = this->get_parameter("kfs_state_topic").as_string();
+        pub_kfs_state_ = this->create_publisher<rc26_interfaces::msg::MfKfsState>(
+            kfs_topic, rclcpp::QoS(rclcpp::KeepLast(3)).reliable());
+        kfs_timer_ = this->create_wall_timer(std::chrono::milliseconds(200), [this]() {
+            (void)publishKfsState(true);
+        });
+
         RCLCPP_INFO(this->get_logger(), "决策节点已启动, tick 频率: %d ms", tick_rate_ms);
     }
 
@@ -326,6 +350,9 @@ private:
     void tickTree() {
         BT::NodeStatus status = tree_.tickOnce();
 
+        // KFS 状态变化立即发布（周期定时器仍保留 2Hz 保底）
+        (void)publishKfsState(false);
+
         if (status == BT::NodeStatus::SUCCESS) {
             RCLCPP_INFO(this->get_logger(), "行为树执行完成: SUCCESS");
             timer_->cancel();
@@ -336,9 +363,64 @@ private:
         // RUNNING 状态继续 tick
     }
 
+    bool publishKfsState(bool force_publish) {
+        std::shared_ptr<MerlinMapManager> merlin_map;
+        if (!blackboard_->get("merlin_map", merlin_map) || !merlin_map) return false;
+
+        std::string team;
+        if (!blackboard_->get("team", team)) team.clear();
+
+        std::array<uint8_t, 13> kfs_type{};
+        std::array<float, 13> kfs_confidence{};
+        rc26_interfaces::msg::MfKfsState msg;
+        msg.header.stamp = this->get_clock()->now();
+        msg.header.frame_id = "map";
+        msg.team = team;
+
+        for (int grid = 1; grid <= 12; grid++) {
+            const auto kfs = merlin_map->getKFS(grid);
+            rc26_interfaces::msg::MfKfsCell cell;
+            cell.grid_id    = static_cast<uint8_t>(grid);
+            cell.kfs_type   = static_cast<uint8_t>(kfs);
+            if (kfs == KFSType::UNKNOWN) {
+                cell.confidence = 0.0f;
+            } else {
+                cell.confidence = 1.0f;
+            }
+            kfs_type[static_cast<size_t>(grid)] = cell.kfs_type;
+            kfs_confidence[static_cast<size_t>(grid)] = cell.confidence;
+            msg.cells.push_back(cell);
+        }
+
+        bool changed = !have_last_kfs_snapshot_ || (team != last_kfs_team_);
+        for (int grid = 1; grid <= 12 && !changed; grid++) {
+            const size_t idx = static_cast<size_t>(grid);
+            if (kfs_type[idx] != last_kfs_type_[idx] ||
+                std::fabs(kfs_confidence[idx] - last_kfs_confidence_[idx]) > 1e-5f) {
+                changed = true;
+            }
+        }
+
+        if (!force_publish && !changed) return false;
+
+        pub_kfs_state_->publish(msg);
+        last_kfs_type_ = kfs_type;
+        last_kfs_confidence_ = kfs_confidence;
+        last_kfs_team_ = team;
+        have_last_kfs_snapshot_ = true;
+        return true;
+    }
+
     BT::BehaviorTreeFactory factory_;
     BT::Tree tree_;
+    BT::Blackboard::Ptr blackboard_;
     rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp::Publisher<rc26_interfaces::msg::MfKfsState>::SharedPtr pub_kfs_state_;
+    rclcpp::TimerBase::SharedPtr kfs_timer_;
+    std::array<uint8_t, 13> last_kfs_type_{};
+    std::array<float, 13> last_kfs_confidence_{};
+    std::string last_kfs_team_;
+    bool have_last_kfs_snapshot_{false};
     std::shared_ptr<SerialDriver> cmd_serial_;
     std::shared_ptr<WaypointManager> waypoint_manager_;
     std::shared_ptr<SmartWaypointNavigator> smart_waypoint_navigator_;

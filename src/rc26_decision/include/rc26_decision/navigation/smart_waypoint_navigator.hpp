@@ -8,7 +8,9 @@
 #include <vector>
 
 #include <nav2_msgs/action/navigate_to_pose.hpp>
+#include <nav2_msgs/msg/costmap_filter_info.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <nav_msgs/msg/occupancy_grid.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
@@ -45,6 +47,8 @@ public:
 
 private:
     using NavigateToPose = nav2_msgs::action::NavigateToPose;
+    using CostmapFilterInfo = nav2_msgs::msg::CostmapFilterInfo;
+    using OccupancyGrid = nav_msgs::msg::OccupancyGrid;
     using GoalHandleNavigateToPose = rclcpp_action::ClientGoalHandle<NavigateToPose>;
     using SetNavModeFuture = rclcpp::Client<SetNavMode>::SharedFuture;
     using GetParamsFuture = std::shared_future<std::vector<rclcpp::Parameter>>;
@@ -73,15 +77,24 @@ private:
 
     rclcpp::Subscription<NavSafetyStateMsg>::SharedPtr nav_safety_state_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+    rclcpp::Subscription<CostmapFilterInfo>::SharedPtr costmap_filter_info_sub_;
+    rclcpp::Subscription<OccupancyGrid>::SharedPtr kfs_filter_mask_sub_;
 
     std::atomic<bool> nav_safety_stop_required_{false};
     std::atomic<bool> nav_safety_timed_out_{false};
     std::atomic<double> last_linear_speed_mps_{0.0};
     std::atomic<double> last_angular_speed_rps_{0.0};
     std::atomic<int64_t> last_odom_recv_ns_{0};
+    std::atomic<int64_t> last_filter_info_stamp_ns_{0};
+    std::atomic<int64_t> last_mask_stamp_ns_{0};
 
     double stop_linear_eps_mps_{0.05};
     double stop_angular_eps_rps_{0.05};
+    bool keepout_gate_enable_{true};
+    double keepout_gate_max_age_ms_{300.0};
+    double keepout_gate_timeout_sec_{3.0};
+    rclcpp::Time keepout_gate_wait_start_;
+    bool keepout_gate_wait_started_{false};
 
     // Global, configurable speed-profile scales (applied as multipliers to controller defaults).
     // Parameter names on rc26_decision node:
@@ -111,6 +124,8 @@ private:
     bool set_mode_requested_{false};
     SetNavModeFuture cleanup_set_mode_future_;
     bool cleanup_set_mode_requested_{false};
+    SetNavModeFuture keepout_gate_set_mode_future_;
+    bool keepout_gate_set_mode_requested_{false};
 
     GetParamsFuture get_defaults_future_;
     bool get_defaults_requested_{false};
@@ -134,6 +149,10 @@ private:
     bool robotStopped() const;
 
     void loadSpeedProfileScales();
+    void loadKeepoutGateConfig();
+    bool isKeepoutReady(std::string& reason) const;
+    void requestSafeModeForKeepoutGate();
+    void pollKeepoutGateSafeMode();
 
     void requestSetMode(const std::string& profile, float timeout, const std::string& reason, SetNavModeFuture& future, bool& requested_flag);
     bool pollSetMode(SetNavModeFuture& future, bool& requested_flag, const char* ctx);

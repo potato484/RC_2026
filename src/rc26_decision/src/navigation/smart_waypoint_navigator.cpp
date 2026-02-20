@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cmath>
 
+#include <builtin_interfaces/msg/time.hpp>
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <tf2/LinearMath/Quaternion.h>
 
@@ -21,6 +22,14 @@ bool profileNeedsRestoreAfterNav(const std::string& profile) {
            profile.find("exit") != std::string::npos;
 }
 
+int64_t stampToNsOrNow(rclcpp::Node& node, const builtin_interfaces::msg::Time& stamp) {
+    const int64_t stamp_ns = rclcpp::Time(stamp).nanoseconds();
+    if (stamp_ns > 0) {
+        return stamp_ns;
+    }
+    return node.now().nanoseconds();
+}
+
 }  // namespace
 
 SmartWaypointNavigator::SmartWaypointNavigator(rclcpp::Node& node, std::string nav2_action_name,
@@ -36,6 +45,7 @@ SmartWaypointNavigator::SmartWaypointNavigator(rclcpp::Node& node, std::string n
       stop_linear_eps_mps_(stop_linear_eps_mps),
       stop_angular_eps_rps_(stop_angular_eps_rps) {
     loadSpeedProfileScales();
+    loadKeepoutGateConfig();
 
     nav2_client_ = rclcpp_action::create_client<NavigateToPose>(
         node_.get_node_base_interface(), node_.get_node_graph_interface(), node_.get_node_logging_interface(),
@@ -65,6 +75,24 @@ SmartWaypointNavigator::SmartWaypointNavigator(rclcpp::Node& node, std::string n
             last_angular_speed_rps_.store(std::abs(wz));
             last_odom_recv_ns_.store(node_.now().nanoseconds());
         });
+
+    auto keepout_qos = rclcpp::QoS(rclcpp::KeepLast(1))
+                           .reliable()
+                           .durability(rclcpp::DurabilityPolicy::TransientLocal);
+    costmap_filter_info_sub_ = node_.create_subscription<CostmapFilterInfo>(
+        "/costmap_filter_info", keepout_qos, [this](const CostmapFilterInfo::SharedPtr msg) {
+            if (!msg) {
+                return;
+            }
+            last_filter_info_stamp_ns_.store(stampToNsOrNow(node_, msg->header.stamp));
+        });
+    kfs_filter_mask_sub_ = node_.create_subscription<OccupancyGrid>(
+        "/kfs_filter_mask", keepout_qos, [this](const OccupancyGrid::SharedPtr msg) {
+            if (!msg) {
+                return;
+            }
+            last_mask_stamp_ns_.store(stampToNsOrNow(node_, msg->header.stamp));
+        });
 }
 
 void SmartWaypointNavigator::loadSpeedProfileScales() {
@@ -89,6 +117,96 @@ void SmartWaypointNavigator::loadSpeedProfileScales() {
                 speed_profile_fast_scale_, speed_profile_slow_scale_, speed_profile_creep_scale_);
 }
 
+void SmartWaypointNavigator::loadKeepoutGateConfig() {
+    auto declare_if_missing = [&](const std::string& name, const auto& default_value) {
+        if (!node_.has_parameter(name)) {
+            node_.declare_parameter(name, default_value);
+        }
+    };
+    declare_if_missing("keepout_gate.enable", true);
+    declare_if_missing("keepout_gate.max_age_ms", 300.0);
+    declare_if_missing("keepout_gate.timeout_sec", 3.0);
+
+    (void)node_.get_parameter("keepout_gate.enable", keepout_gate_enable_);
+    (void)node_.get_parameter("keepout_gate.max_age_ms", keepout_gate_max_age_ms_);
+    (void)node_.get_parameter("keepout_gate.timeout_sec", keepout_gate_timeout_sec_);
+
+    if (!std::isfinite(keepout_gate_max_age_ms_) || keepout_gate_max_age_ms_ <= 0.0) {
+        keepout_gate_max_age_ms_ = 300.0;
+    }
+    if (!std::isfinite(keepout_gate_timeout_sec_) || keepout_gate_timeout_sec_ < 0.0) {
+        keepout_gate_timeout_sec_ = 3.0;
+    }
+    RCLCPP_INFO(logger_, "keepout_gate: enable=%s max_age_ms=%.0f timeout_sec=%.1f",
+                keepout_gate_enable_ ? "true" : "false",
+                keepout_gate_max_age_ms_, keepout_gate_timeout_sec_);
+}
+
+bool SmartWaypointNavigator::isKeepoutReady(std::string& reason) const {
+    const int64_t filter_stamp_ns = last_filter_info_stamp_ns_.load();
+    const int64_t mask_stamp_ns = last_mask_stamp_ns_.load();
+    if (filter_stamp_ns <= 0) {
+        reason = "waiting /costmap_filter_info";
+        return false;
+    }
+    if (mask_stamp_ns <= 0) {
+        reason = "waiting /kfs_filter_mask";
+        return false;
+    }
+
+    const int64_t now_ns = node_.now().nanoseconds();
+    const double filter_age_ms =
+        static_cast<double>(std::max<int64_t>(0, now_ns - filter_stamp_ns)) * 1e-6;
+    const double mask_age_ms =
+        static_cast<double>(std::max<int64_t>(0, now_ns - mask_stamp_ns)) * 1e-6;
+    if (filter_age_ms > keepout_gate_max_age_ms_) {
+        reason = "costmap_filter_info stale: " + std::to_string(filter_age_ms) + "ms";
+        return false;
+    }
+    if (mask_age_ms > keepout_gate_max_age_ms_) {
+        reason = "kfs_filter_mask stale: " + std::to_string(mask_age_ms) + "ms";
+        return false;
+    }
+    reason.clear();
+    return true;
+}
+
+void SmartWaypointNavigator::requestSafeModeForKeepoutGate() {
+    if (keepout_gate_set_mode_requested_) {
+        return;
+    }
+    if (!nav_mode_client_ || !nav_mode_client_->wait_for_service(std::chrono::seconds(0))) {
+        return;
+    }
+    auto request = std::make_shared<SetNavMode::Request>();
+    request->profile = "safe";
+    request->timeout = 0.0f;
+    request->reason = "keepout_gate";
+    auto future_and_id = nav_mode_client_->async_send_request(request);
+    keepout_gate_set_mode_future_ = future_and_id.future.share();
+    keepout_gate_set_mode_requested_ = true;
+}
+
+void SmartWaypointNavigator::pollKeepoutGateSafeMode() {
+    if (!keepout_gate_set_mode_requested_) {
+        return;
+    }
+    if (keepout_gate_set_mode_future_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        return;
+    }
+    try {
+        auto resp = keepout_gate_set_mode_future_.get();
+        if (!resp || !resp->success) {
+            RCLCPP_WARN(logger_, "keepout gate safe-mode request failed: %s",
+                        resp ? resp->message.c_str() : "no response");
+        }
+    } catch (const std::exception& ex) {
+        RCLCPP_WARN(logger_, "keepout gate safe-mode request exception: %s", ex.what());
+    }
+    keepout_gate_set_mode_requested_ = false;
+    keepout_gate_set_mode_future_ = {};
+}
+
 bool SmartWaypointNavigator::start(const SmartWaypointSpec& waypoint) {
     if (status_ == Status::Running) {
         cancelAndStop();
@@ -103,12 +221,14 @@ bool SmartWaypointNavigator::start(const SmartWaypointSpec& waypoint) {
 
     set_mode_requested_ = false;
     cleanup_set_mode_requested_ = false;
+    keepout_gate_set_mode_requested_ = false;
     get_defaults_requested_ = false;
     set_params_requested_ = false;
     restore_params_requested_ = false;
 
     set_mode_future_ = {};
     cleanup_set_mode_future_ = {};
+    keepout_gate_set_mode_future_ = {};
     get_defaults_future_ = {};
     set_params_future_ = {};
     restore_params_future_ = {};
@@ -124,6 +244,7 @@ bool SmartWaypointNavigator::start(const SmartWaypointSpec& waypoint) {
     } else {
         has_deadline_ = false;
     }
+    keepout_gate_wait_started_ = false;
 
     return true;
 }
@@ -414,6 +535,27 @@ SmartWaypointNavigator::Status SmartWaypointNavigator::tick() {
         abortWithFailure("timeout");
     }
 
+    if (keepout_gate_enable_ && !final_status_.has_value()) {
+        std::string gate_reason;
+        if (!isKeepoutReady(gate_reason)) {
+            if (!keepout_gate_wait_started_) {
+                keepout_gate_wait_started_ = true;
+                keepout_gate_wait_start_ = node_.now();
+            }
+            requestSafeModeForKeepoutGate();
+            pollKeepoutGateSafeMode();
+            if ((node_.now() - keepout_gate_wait_start_).seconds() > keepout_gate_timeout_sec_) {
+                abortWithFailure(std::string("keepout_gate_timeout: ") + gate_reason);
+            } else {
+                RCLCPP_WARN_THROTTLE(logger_, *node_.get_clock(), 1000,
+                                     "keepout gate blocked goal: %s", gate_reason.c_str());
+            }
+            return Status::Running;
+        }
+        keepout_gate_wait_started_ = false;
+        pollKeepoutGateSafeMode();
+    }
+
     switch (exec_state_) {
     case ExecState::SetMode: {
         // 1) Switch navigation profile (safety/costmap/controller/mcu policy), optionally requiring "robot stopped".
@@ -599,6 +741,9 @@ void SmartWaypointNavigator::cancelAndStop() {
     goal_handle_.reset();
     goal_handle_future_ = {};
     result_future_ = {};
+    keepout_gate_set_mode_requested_ = false;
+    keepout_gate_set_mode_future_ = {};
+    keepout_gate_wait_started_ = false;
 
     // Fire-and-forget parameter restore (M1 fix: no blocking wait)
     // Note: params might be in-flight (C3), so we set flag to trigger restore on next opportunity
