@@ -38,9 +38,19 @@ def generate_launch_description():
         parameters=[params_file, {'use_sim_time': use_sim_time}],
     )
 
+    terrain_adapter_node = Node(
+        package='rc26_nav_mode_manager',
+        executable='terrain_mode_adapter_node',
+        name='terrain_mode_adapter',
+        namespace=namespace,
+        output='screen',
+        parameters=[{'use_sim_time': use_sim_time, 'terrain_node_name': 'terrain_semantic'}],
+    )
+
     return LaunchDescription([
         declare_namespace,
         declare_use_sim_time,
         declare_params_file,
         node,
+        terrain_adapter_node,
     ])

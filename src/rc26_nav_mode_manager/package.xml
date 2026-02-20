@@ -16,6 +16,7 @@
   <depend>sensor_msgs</depend>
   <depend>rc26_interfaces</depend>
   <depend>std_msgs</depend>
+  <depend>diagnostic_msgs</depend>
   <depend>yaml-cpp</depend>
   <depend>ament_index_cpp</depend>
 

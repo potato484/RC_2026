@@ -82,3 +82,16 @@ profiles:
     controller:
       v_linear_max: 0.5
       v_angular_max: 0.5
+
+  mf_approach:
+    fallback_profile: safe
+    watchdog:
+      timeout_sec: 15.0
+      stop_required_on_timeout: true
+    precheck:
+      require_stopped: false
+    costmap:
+      clear_on_switch: false
+    controller:
+      v_linear_max: 0.6
+      v_angular_max: 0.5

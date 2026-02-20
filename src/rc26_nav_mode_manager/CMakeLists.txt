@@ -16,6 +16,7 @@ find_package(nav2_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(rc26_interfaces REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 
@@ -27,6 +28,7 @@ set(DEPENDENCIES
   sensor_msgs
   rc26_interfaces
   std_msgs
+  diagnostic_msgs
   ament_index_cpp
 )
 
@@ -38,6 +40,7 @@ add_library(${PROJECT_NAME} SHARED
   src/profile_db.cpp
   src/profile_executor.cpp
   src/watchdog_timer.cpp
+  src/terrain_mode_adapter.cpp
 )
 ament_target_dependencies(${PROJECT_NAME} ${DEPENDENCIES})
 target_link_libraries(${PROJECT_NAME} yaml-cpp)
@@ -46,6 +49,12 @@ rclcpp_components_register_node(${PROJECT_NAME}
   PLUGIN "rc26_nav_mode_manager::NavModeManager"
   EXECUTABLE nav_mode_manager_node
   EXECUTOR MultiThreadedExecutor
+)
+
+rclcpp_components_register_node(${PROJECT_NAME}
+  PLUGIN "rc26_nav_mode_manager::TerrainModeAdapter"
+  EXECUTABLE terrain_mode_adapter_node
+  EXECUTOR SingleThreadedExecutor
 )
 
 install(TARGETS ${PROJECT_NAME}
