@@ -15,6 +15,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/NavSafetyState.msg"
   "msg/NavTolerance.msg"
   "msg/SmartWaypoint.msg"
+  "msg/MfKfsCell.msg"
+  "msg/MfKfsState.msg"
   "srv/SetNavMode.srv"
   DEPENDENCIES builtin_interfaces geometry_msgs std_msgs
 )
