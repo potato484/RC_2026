@@ -12,6 +12,8 @@
     output_climbable_topic: "terrain_climbable"
     # Diagnostics 输出：默认相对话题名，可通过 Remap 接入 /diagnostics
     diagnostics_topic: "diagnostics"
+    # base_ground 稳定信号（用于台阶工况门控）
+    base_ground_stable_topic: "base_ground/stable"
 
     # ===== 坐标系配置 =====
     target_frame: "odom"
@@ -108,3 +110,22 @@
     # 取值 [0,360]; 360 表示关闭过滤(恢复旧行为)
     drop_forward_sector_deg: 180.0
     drop_forward_min_x_m: 0.0  # 前向最小 X(机器人系)
+
+    # ===== P0.2: neighbor modes + denoising =====
+    obstacle_neighbor_mode: "edge4"
+    drop_neighbor_mode: "edge8"
+    min_obstacle_area_cells: 3
+    jump_thresh_m: 0.23
+    freeze_max_frames: 3
+    ground_ema_alpha_slow: 0.25
+    enable_pitch_compensation: true
+    stair_gate_speed_mps: 0.25
+    stair_pitch_gate_deg: 6.0
+    top_z_max_delta_m: 0.7
+
+    # ===== P0.3: latency diagnostics =====
+    latency_warn_ms: 12.0
+    latency_error_ms: 20.0
+    latency_trigger_frames: 3
+    latency_recover_frames: 5
+    latency_intervention_mode: "virtual_fence"

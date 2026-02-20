@@ -1,6 +1,7 @@
 #include "rc26_terrain/terrain_semantic_node.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -14,6 +15,7 @@
 #include "pcl_conversions/pcl_conversions.h"
 #include "pcl_ros/transforms.hpp"
 #include "rmw/types.h"
+#include "std_msgs/msg/bool.hpp"
 #include "tf2/LinearMath/Matrix3x3.h"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
@@ -68,6 +70,7 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->declare_parameter<std::string>("output_drop_topic", "terrain_drop");
     this->declare_parameter<std::string>("output_climbable_topic", "terrain_climbable");
     this->declare_parameter<std::string>("diagnostics_topic", "diagnostics");
+    this->declare_parameter<std::string>("base_ground_stable_topic", base_ground_stable_topic_);
 
     this->declare_parameter<std::string>("target_frame", "odom");
     this->declare_parameter<std::string>("base_frame", "base_link");
@@ -151,6 +154,25 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->declare_parameter<double>("drop_forward_sector_deg", drop_forward_sector_deg_);
     this->declare_parameter<double>("drop_forward_min_x_m", drop_forward_min_x_m_);
 
+    // P0.2: neighbor modes + denoising + jump guard
+    this->declare_parameter<std::string>("obstacle_neighbor_mode", obstacle_neighbor_mode_);
+    this->declare_parameter<std::string>("drop_neighbor_mode",     drop_neighbor_mode_);
+    this->declare_parameter<int>        ("min_obstacle_area_cells",min_obstacle_area_cells_);
+    this->declare_parameter<double>     ("jump_thresh_m",          jump_thresh_m_);
+    this->declare_parameter<int>        ("freeze_max_frames",      freeze_max_frames_);
+    this->declare_parameter<double>     ("ground_ema_alpha_slow",  ground_ema_alpha_slow_);
+    this->declare_parameter<bool>       ("enable_pitch_compensation", enable_pitch_compensation_);
+    this->declare_parameter<double>     ("stair_gate_speed_mps",   stair_gate_speed_mps_);
+    this->declare_parameter<double>     ("stair_pitch_gate_deg",   stair_pitch_gate_deg_);
+    this->declare_parameter<double>     ("top_z_max_delta_m",      top_z_max_delta_m_);
+
+    // P0.3: latency diagnostics
+    this->declare_parameter<double>     ("latency_warn_ms",        latency_warn_ms_);
+    this->declare_parameter<double>     ("latency_error_ms",       latency_error_ms_);
+    this->declare_parameter<int>        ("latency_trigger_frames", latency_trigger_frames_);
+    this->declare_parameter<int>        ("latency_recover_frames", latency_recover_frames_);
+    this->declare_parameter<std::string>("latency_intervention_mode", latency_intervention_mode_);
+
     // 读取参数
     this->get_parameter("input_cloud_topic", input_cloud_topic_);
     this->get_parameter("odom_topic", odom_topic_);
@@ -158,6 +180,7 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->get_parameter("output_drop_topic", output_drop_topic_);
     this->get_parameter("output_climbable_topic", output_climbable_topic_);
     this->get_parameter("diagnostics_topic", diagnostics_topic_);
+    this->get_parameter("base_ground_stable_topic", base_ground_stable_topic_);
     this->get_parameter("target_frame", target_frame_);
     this->get_parameter("base_frame", base_frame_);
     this->get_parameter("tf_timeout_sec", tf_timeout_sec_);
@@ -208,6 +231,21 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->get_parameter("virtual_fence_radius_m", virtual_fence_radius_m_);
     this->get_parameter("virtual_fence_num_points", virtual_fence_num_points_);
     this->get_parameter("virtual_fence_height_m", virtual_fence_height_m_);
+    this->get_parameter("obstacle_neighbor_mode", obstacle_neighbor_mode_);
+    this->get_parameter("drop_neighbor_mode",     drop_neighbor_mode_);
+    this->get_parameter("min_obstacle_area_cells",min_obstacle_area_cells_);
+    this->get_parameter("jump_thresh_m",          jump_thresh_m_);
+    this->get_parameter("freeze_max_frames",      freeze_max_frames_);
+    this->get_parameter("ground_ema_alpha_slow",  ground_ema_alpha_slow_);
+    this->get_parameter("enable_pitch_compensation", enable_pitch_compensation_);
+    this->get_parameter("stair_gate_speed_mps",   stair_gate_speed_mps_);
+    this->get_parameter("stair_pitch_gate_deg",   stair_pitch_gate_deg_);
+    this->get_parameter("top_z_max_delta_m",      top_z_max_delta_m_);
+    this->get_parameter("latency_warn_ms",        latency_warn_ms_);
+    this->get_parameter("latency_error_ms",       latency_error_ms_);
+    this->get_parameter("latency_trigger_frames", latency_trigger_frames_);
+    this->get_parameter("latency_recover_frames", latency_recover_frames_);
+    this->get_parameter("latency_intervention_mode", latency_intervention_mode_);
 
     // transform_tolerance: 若配置了该参数，则覆盖 tf_timeout_sec
     double transform_tolerance = -1.0;
@@ -241,6 +279,13 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     virtual_fence_num_points_ = std::max(3, virtual_fence_num_points_);
     virtual_fence_radius_m_ = std::max(0.05, virtual_fence_radius_m_);
     climbable_min_dz_m_ = std::clamp(climbable_min_dz_m_, 0.0, h_climb_m_);
+    freeze_max_frames_ = std::max(1, freeze_max_frames_);
+    ground_ema_alpha_slow_ = std::clamp(ground_ema_alpha_slow_, 0.01, 1.0);
+    stair_gate_speed_mps_ = std::max(0.0, stair_gate_speed_mps_);
+    stair_pitch_gate_deg_ = std::max(0.0, stair_pitch_gate_deg_);
+    top_z_max_delta_m_ = std::max(0.1, top_z_max_delta_m_);
+    latency_trigger_frames_ = std::max(1, latency_trigger_frames_);
+    latency_recover_frames_ = std::max(1, latency_recover_frames_);
 
     if (unknown_policy_ != "aggressive" && unknown_policy_ != "conservative") {
         throw std::invalid_argument("unknown_policy 仅支持: aggressive/conservative");
@@ -251,6 +296,11 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     if (fail_safe_strategy_ != "none" && fail_safe_strategy_ != "virtual_fence" &&
         fail_safe_strategy_ != "emergency_stop") {
         throw std::invalid_argument("fail_safe_strategy 仅支持: none/virtual_fence/emergency_stop");
+    }
+    if (latency_intervention_mode_ != "none" &&
+        latency_intervention_mode_ != "virtual_fence" &&
+        latency_intervention_mode_ != "emergency_stop") {
+        throw std::invalid_argument("latency_intervention_mode 仅支持: none/virtual_fence/emergency_stop");
     }
 
     // TF 健康超时校验
@@ -288,6 +338,13 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
 
     sub_odom_ = this->create_subscription<nav_msgs::msg::Odometry>(
         odom_topic_, odom_qos, std::bind(&TerrainSemanticNode::odomCallback, this, std::placeholders::_1));
+    sub_base_ground_stable_ = this->create_subscription<std_msgs::msg::Bool>(
+        base_ground_stable_topic_, rclcpp::QoS(10),
+        [this](const std_msgs::msg::Bool::ConstSharedPtr& msg) {
+            if (msg) {
+                base_ground_stable_ = msg->data;
+            }
+        });
 
     sub_cloud_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
         input_cloud_topic_, cloud_qos,
@@ -308,6 +365,7 @@ void TerrainSemanticNode::odomCallback(const nav_msgs::msg::Odometry::ConstShare
 
     received_odom_ = true;
     last_odom_stamp_ = rclcpp::Time(msg->header.stamp);
+    last_linear_speed_mps_ = std::hypot(msg->twist.twist.linear.x, msg->twist.twist.linear.y);
 
     // 仅当里程计本身就在 target_frame 下时，才可直接作为失效保护的备用位姿
     if (msg->header.frame_id != target_frame_) return;
@@ -375,10 +433,61 @@ void TerrainSemanticNode::healthTimerCallback() {
         publishVirtualFence(now, last_base_x_, last_base_y_, last_base_z_, last_cos_yaw_, last_sin_yaw_);
     }
 
-    const int level = fail_safe_active_
-                          ? diagnostic_msgs::msg::DiagnosticStatus::ERROR
-                          : diagnostic_msgs::msg::DiagnosticStatus::OK;
-    const std::string msg = fail_safe_active_ ? ("降级保护: " + fail_safe_reason_) : "正常";
+    if (std::isfinite(last_latency_ms_)) {
+        if (last_latency_ms_ > latency_error_ms_) {
+            latency_overrun_count_++;
+            latency_recover_count_ = 0;
+        } else if (last_latency_ms_ <= latency_warn_ms_) {
+            latency_recover_count_++;
+            latency_overrun_count_ = 0;
+        } else {
+            latency_overrun_count_ = 0;
+            latency_recover_count_ = 0;
+        }
+    } else {
+        latency_overrun_count_ = 0;
+        latency_recover_count_ = 0;
+    }
+
+    if (!latency_intervention_active_ &&
+        latency_intervention_mode_ != "none" &&
+        latency_overrun_count_ >= latency_trigger_frames_) {
+        latency_intervention_active_ = true;
+        RCLCPP_ERROR(this->get_logger(),
+            "latency intervention activated, latency=%.2fms overrun_count=%d",
+            last_latency_ms_, latency_overrun_count_);
+    }
+    if (latency_intervention_active_ && latency_recover_count_ >= latency_recover_frames_) {
+        latency_intervention_active_ = false;
+        RCLCPP_INFO(this->get_logger(),
+            "latency intervention cleared, recover_count=%d", latency_recover_count_);
+    }
+    if (latency_intervention_active_) {
+        if (latency_intervention_mode_ == "virtual_fence" && have_last_pose_) {
+            publishVirtualFence(now, last_base_x_, last_base_y_, last_base_z_, last_cos_yaw_, last_sin_yaw_);
+        } else if (latency_intervention_mode_ == "emergency_stop") {
+            publishEmergencyStop(now);
+        }
+    }
+
+    int level = fail_safe_active_
+                    ? diagnostic_msgs::msg::DiagnosticStatus::ERROR
+                    : diagnostic_msgs::msg::DiagnosticStatus::OK;
+    std::string msg = fail_safe_active_ ? ("降级保护: " + fail_safe_reason_) : "正常";
+
+    if (std::isfinite(last_latency_ms_)) {
+        if (last_latency_ms_ > latency_error_ms_) {
+            level = std::max(level, static_cast<int>(diagnostic_msgs::msg::DiagnosticStatus::ERROR));
+            msg = fail_safe_active_ ? (msg + "; 处理延迟超限") : "处理延迟超限";
+        } else if (last_latency_ms_ > latency_warn_ms_) {
+            level = std::max(level, static_cast<int>(diagnostic_msgs::msg::DiagnosticStatus::WARN));
+            msg = fail_safe_active_ ? (msg + "; 处理延迟告警") : "处理延迟告警";
+        }
+    }
+    if (latency_intervention_active_) {
+        level = std::max(level, static_cast<int>(diagnostic_msgs::msg::DiagnosticStatus::ERROR));
+        msg = (msg == "正常") ? "延迟干预激活" : (msg + "; 延迟干预激活");
+    }
     publishDiagnostics(now, level, msg);
 }
 
@@ -435,6 +544,11 @@ void TerrainSemanticNode::publishDiagnostics(const rclcpp::Time& stamp, int leve
     addKV("received_odom", received_odom_ ? "true" : "false");
     addKV("fail_safe_active", fail_safe_active_ ? "true" : "false");
     addKV("fail_safe_reason", fail_safe_reason_);
+    addKV("base_ground_stable", base_ground_stable_ ? "true" : "false");
+    addKV("last_linear_speed_mps", std::to_string(last_linear_speed_mps_));
+    addKV("last_pitch_deg", std::to_string(last_pitch_rad_ * 180.0 / M_PI));
+    addKV("freeze_max_frames", std::to_string(freeze_max_frames_));
+    addKV("last_max_freeze_count", std::to_string(last_max_freeze_count_));
 
     const double cloud_age = received_cloud_ ? (stamp - last_cloud_stamp_).seconds()
                                              : std::numeric_limits<double>::infinity();
@@ -446,6 +560,12 @@ void TerrainSemanticNode::publishDiagnostics(const rclcpp::Time& stamp, int leve
     addKV("cloud_age_sec", std::isfinite(cloud_age) ? std::to_string(cloud_age) : "inf");
     addKV("odom_age_sec", std::isfinite(odom_age) ? std::to_string(odom_age) : "inf");
     addKV("tf_age_sec", std::isfinite(tf_age) ? std::to_string(tf_age) : "inf");
+    addKV("cloud_to_publish_latency_ms",
+          std::isfinite(last_latency_ms_) ? std::to_string(last_latency_ms_) : "n/a");
+    addKV("latency_intervention_active", latency_intervention_active_ ? "true" : "false");
+    addKV("latency_intervention_mode", latency_intervention_mode_);
+    addKV("latency_overrun_count", std::to_string(latency_overrun_count_));
+    addKV("latency_recover_count", std::to_string(latency_recover_count_));
 
     diagnostic_msgs::msg::DiagnosticArray arr;
     arr.header.stamp = stamp;
@@ -482,6 +602,7 @@ void TerrainSemanticNode::initGrid() {
     last_seen_sec_.assign(static_cast<size_t>(num_cells_), -1.0);
     obstacle_score_.assign(static_cast<size_t>(num_cells_), 0);
     drop_score_.assign(static_cast<size_t>(num_cells_), 0);
+    freeze_count_.assign(static_cast<size_t>(num_cells_), 0);
     obstacle_state_.assign(static_cast<size_t>(num_cells_), 0);
     drop_state_.assign(static_cast<size_t>(num_cells_), 0);
     cell_z_samples_.assign(static_cast<size_t>(num_cells_), {});
@@ -500,6 +621,13 @@ void TerrainSemanticNode::initGrid() {
 }
 
 void TerrainSemanticNode::estimateCellHeights(double stamp_sec) {
+    int max_freeze_count = 0;
+    const double pitch_gate_rad = stair_pitch_gate_deg_ * M_PI / 180.0;
+    const bool stair_motion_gate =
+        (last_linear_speed_mps_ >= stair_gate_speed_mps_) ||
+        (!base_ground_stable_) ||
+        (std::abs(last_pitch_rad_) >= pitch_gate_rad);
+
     for (const int cell : touched_cells_) {
         auto& samples = cell_z_samples_[static_cast<size_t>(cell)];
         if (static_cast<int>(samples.size()) < min_points_per_cell_) continue;
@@ -507,20 +635,53 @@ void TerrainSemanticNode::estimateCellHeights(double stamp_sec) {
         const float ground_z = quantileInplace(samples, ground_quantile_);
         float top_z = quantileInplace(samples, top_quantile_);
         if (top_z < ground_z) top_z = ground_z;
+        if (top_z > ground_z + static_cast<float>(top_z_max_delta_m_)) {
+            top_z = ground_z + static_cast<float>(top_z_max_delta_m_);
+        }
 
         const size_t idx = static_cast<size_t>(cell);
         if (last_seen_sec_[idx] < 0.0) {
             ground_z_filtered_[idx] = ground_z;
+            freeze_count_[idx] = 0;
         } else {
-            ground_z_filtered_[idx] = static_cast<float>(ground_ema_alpha_) * ground_z +
-                                      static_cast<float>(1.0 - ground_ema_alpha_) * ground_z_filtered_[idx];
+            const float jump = std::abs(ground_z - ground_z_filtered_[idx]);
+            if (jump > static_cast<float>(jump_thresh_m_)) {
+                if (stair_motion_gate) {
+                    ground_z_filtered_[idx] = static_cast<float>(ground_ema_alpha_slow_) * ground_z +
+                                              static_cast<float>(1.0 - ground_ema_alpha_slow_) * ground_z_filtered_[idx];
+                    freeze_count_[idx] = 0;
+                } else {
+                    int& freeze = freeze_count_[idx];
+                    freeze = std::max(0, freeze + 1);
+                    max_freeze_count = std::max(max_freeze_count, freeze);
+                    if (freeze >= freeze_max_frames_) {
+                        ground_z_filtered_[idx] = static_cast<float>(ground_ema_alpha_slow_) * ground_z +
+                                                  static_cast<float>(1.0 - ground_ema_alpha_slow_) * ground_z_filtered_[idx];
+                        freeze = 0;
+                    }
+                }
+            } else {
+                ground_z_filtered_[idx] = static_cast<float>(ground_ema_alpha_) * ground_z +
+                                          static_cast<float>(1.0 - ground_ema_alpha_) * ground_z_filtered_[idx];
+                freeze_count_[idx] = 0;
+            }
         }
         top_z_[idx] = top_z;
         last_seen_sec_[idx] = stamp_sec;
     }
+    last_max_freeze_count_ = max_freeze_count;
 }
 
 void TerrainSemanticNode::classifyAndUpdate(double stamp_sec) {
+    const bool obstacle_use_edge8 = (obstacle_neighbor_mode_ == "edge8");
+    bool drop_use_edge4 = false;
+    if (drop_neighbor_mode_ == "edge4") {
+        drop_use_edge4 = true;
+    } else if (drop_neighbor_mode_ != "edge8") {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
+            "drop_neighbor_mode='%s' 非法，回退为 edge8", drop_neighbor_mode_.c_str());
+    }
+
     for (int cell = 0; cell < num_cells_; cell++) {
         const size_t idx = static_cast<size_t>(cell);
 
@@ -530,6 +691,7 @@ void TerrainSemanticNode::classifyAndUpdate(double stamp_sec) {
             top_z_[idx] = 0.0f;
             obstacle_score_[idx] = 0;
             drop_score_[idx] = 0;
+            freeze_count_[idx] = 0;
             obstacle_state_[idx] = 0;
             drop_state_[idx] = 0;
         }
@@ -569,21 +731,50 @@ void TerrainSemanticNode::classifyAndUpdate(double stamp_sec) {
 
         const int ix = cell / width_;
         const int iy = cell % width_;
-        float dz_up = 0.0f, dz_down = 0.0f;
 
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dy = -1; dy <= 1; dy++) {
-                if (dx == 0 && dy == 0) continue;
+        // obstacle dz_up: 4邻域 (可通过 obstacle_neighbor_mode_=="edge8" 回退)
+        float dz_up = 0.0f;
+        if (obstacle_use_edge8) {
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    if (dx == 0 && dy == 0) continue;
+                    const int nx = ix + dx, ny = iy + dy;
+                    if (nx < 0 || nx >= width_ || ny < 0 || ny >= width_) continue;
+                    const size_t nidx = static_cast<size_t>(nx * width_ + ny);
+                    if (last_seen_sec_[nidx] < 0.0 || (stamp_sec - last_seen_sec_[nidx]) > stale_time_sec_) continue;
+                    dz_up = std::max(dz_up, ground_z_filtered_[nidx] - ground_z_filtered_[idx]);
+                }
+            }
+        } else {
+            for (auto [dx, dy] : std::array<std::pair<int,int>,4>{{{1,0},{-1,0},{0,1},{0,-1}}}) {
                 const int nx = ix + dx, ny = iy + dy;
                 if (nx < 0 || nx >= width_ || ny < 0 || ny >= width_) continue;
-
                 const size_t nidx = static_cast<size_t>(nx * width_ + ny);
-                if (last_seen_sec_[nidx] < 0.0 || (stamp_sec - last_seen_sec_[nidx]) > stale_time_sec_)
-                    continue;
+                if (last_seen_sec_[nidx] < 0.0 || (stamp_sec - last_seen_sec_[nidx]) > stale_time_sec_) continue;
+                dz_up = std::max(dz_up, ground_z_filtered_[nidx] - ground_z_filtered_[idx]);
+            }
+        }
 
-                const float diff = ground_z_filtered_[nidx] - ground_z_filtered_[idx];
-                dz_up = std::max(dz_up, diff);
-                dz_down = std::min(dz_down, diff);
+        // drop dz_down: edge4/edge8 可配置
+        float dz_down = 0.0f;
+        if (drop_use_edge4) {
+            for (auto [dx, dy] : std::array<std::pair<int, int>, 4>{{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}}) {
+                const int nx = ix + dx, ny = iy + dy;
+                if (nx < 0 || nx >= width_ || ny < 0 || ny >= width_) continue;
+                const size_t nidx = static_cast<size_t>(nx * width_ + ny);
+                if (last_seen_sec_[nidx] < 0.0 || (stamp_sec - last_seen_sec_[nidx]) > stale_time_sec_) continue;
+                dz_down = std::min(dz_down, ground_z_filtered_[nidx] - ground_z_filtered_[idx]);
+            }
+        } else {
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    if (dx == 0 && dy == 0) continue;
+                    const int nx = ix + dx, ny = iy + dy;
+                    if (nx < 0 || nx >= width_ || ny < 0 || ny >= width_) continue;
+                    const size_t nidx = static_cast<size_t>(nx * width_ + ny);
+                    if (last_seen_sec_[nidx] < 0.0 || (stamp_sec - last_seen_sec_[nidx]) > stale_time_sec_) continue;
+                    dz_down = std::min(dz_down, ground_z_filtered_[nidx] - ground_z_filtered_[idx]);
+                }
             }
         }
 
@@ -619,6 +810,32 @@ void TerrainSemanticNode::classifyAndUpdate(double stamp_sec) {
             drop_state_[idx] = 1;
         if (drop_state_[idx] && drop_score_[idx] <= drop_off_score_)
             drop_state_[idx] = 0;
+    }
+
+    // BFS 连通域去噪：清除孤立的 obstacle 小簇（面积 < min_obstacle_area_cells_）
+    if (min_obstacle_area_cells_ > 1) {
+        std::vector<bool> visited(static_cast<size_t>(num_cells_), false);
+        for (int seed = 0; seed < num_cells_; seed++) {
+            if (!obstacle_state_[static_cast<size_t>(seed)] || visited[static_cast<size_t>(seed)]) continue;
+            std::vector<int> comp, stk{seed};
+            visited[static_cast<size_t>(seed)] = true;
+            while (!stk.empty()) {
+                int cur = stk.back(); stk.pop_back();
+                comp.push_back(cur);
+                int cx = cur / width_, cy = cur % width_;
+                for (auto [ddx, ddy] : std::array<std::pair<int,int>,4>{{{1,0},{-1,0},{0,1},{0,-1}}}) {
+                    int nx = cx + ddx, ny = cy + ddy;
+                    if (nx < 0 || nx >= width_ || ny < 0 || ny >= width_) continue;
+                    int nc = nx * width_ + ny;
+                    if (obstacle_state_[static_cast<size_t>(nc)] && !visited[static_cast<size_t>(nc)]) {
+                        visited[static_cast<size_t>(nc)] = true;
+                        stk.push_back(nc);
+                    }
+                }
+            }
+            if (static_cast<int>(comp.size()) < min_obstacle_area_cells_)
+                for (int c : comp) obstacle_state_[static_cast<size_t>(c)] = 0;
+        }
     }
 }
 
@@ -769,8 +986,26 @@ void TerrainSemanticNode::cloudCallback(
     const sensor_msgs::msg::PointCloud2::ConstSharedPtr& msg) {
     if (!msg) return;
 
+    const auto t_start = std::chrono::steady_clock::now();
+
     const rclcpp::Time stamp(msg->header.stamp);
     const double stamp_sec = stamp.seconds();
+
+    auto publishDiagnosticsWithLatency = [&](int base_level, const std::string& base_msg) {
+        last_latency_ms_ = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - t_start).count();
+
+        int level = base_level;
+        std::string msg_text = base_msg;
+        if (last_latency_ms_ > latency_error_ms_) {
+            level = std::max(level, static_cast<int>(diagnostic_msgs::msg::DiagnosticStatus::ERROR));
+            if (msg_text.find("处理延迟超限") == std::string::npos) msg_text += "; 处理延迟超限";
+        } else if (last_latency_ms_ > latency_warn_ms_) {
+            level = std::max(level, static_cast<int>(diagnostic_msgs::msg::DiagnosticStatus::WARN));
+            if (msg_text.find("处理延迟告警") == std::string::npos) msg_text += "; 处理延迟告警";
+        }
+        publishDiagnostics(stamp, level, msg_text);
+    };
 
     received_cloud_ = true;
     last_cloud_stamp_ = stamp;
@@ -802,7 +1037,7 @@ void TerrainSemanticNode::cloudCallback(
             publishEmergencyStop(this->get_clock()->now());
         }
 
-        publishDiagnostics(stamp, diagnostic_msgs::msg::DiagnosticStatus::ERROR, "TF(base) 查询失败");
+        publishDiagnosticsWithLatency(diagnostic_msgs::msg::DiagnosticStatus::ERROR, "TF(base) 查询失败");
         return;
     }
 
@@ -814,6 +1049,7 @@ void TerrainSemanticNode::cloudCallback(
 
     double roll, pitch, yaw;
     tf2::Matrix3x3(tf_base->getRotation()).getRPY(roll, pitch, yaw);
+    last_pitch_rad_ = pitch;
     const double cos_yaw = std::cos(yaw);
     const double sin_yaw = std::sin(yaw);
 
@@ -828,7 +1064,7 @@ void TerrainSemanticNode::cloudCallback(
     if (msg->data.empty() || msg->header.frame_id.empty()) {
         classifyAndUpdate(stamp_sec);
         publishOutputs(stamp, base_x, base_y, base_z, cos_yaw, sin_yaw);
-        publishDiagnostics(stamp, diagnostic_msgs::msg::DiagnosticStatus::WARN, "点云为空或 frame_id 为空");
+        publishDiagnosticsWithLatency(diagnostic_msgs::msg::DiagnosticStatus::WARN, "点云为空或 frame_id 为空");
         return;
     }
 
@@ -847,7 +1083,7 @@ void TerrainSemanticNode::cloudCallback(
         if (fail_safe_active_ && enable_fail_safe_ && fail_safe_strategy_ == "virtual_fence") {
             publishVirtualFence(stamp, base_x, base_y, base_z, cos_yaw, sin_yaw);
         }
-        publishDiagnostics(stamp, diagnostic_msgs::msg::DiagnosticStatus::ERROR, "TF(点云) 查询失败");
+        publishDiagnosticsWithLatency(diagnostic_msgs::msg::DiagnosticStatus::ERROR, "TF(点云) 查询失败");
         return;
     }
 
@@ -878,11 +1114,15 @@ void TerrainSemanticNode::cloudCallback(
 
         const double dx = static_cast<double>(p.x) - base_x;
         const double dy = static_cast<double>(p.y) - base_y;
-        const double rel_z = static_cast<double>(p.z) - base_z;
 
         // 旋转到机器人朝向坐标系（仅用 yaw）
         const double x_rel = cos_yaw * dx + sin_yaw * dy;
         const double y_rel = -sin_yaw * dx + cos_yaw * dy;
+        double z_corr = static_cast<double>(p.z);
+        if (enable_pitch_compensation_ && x_rel > 0.0) {
+            z_corr -= x_rel * std::tan(last_pitch_rad_);
+        }
+        const double rel_z = z_corr - base_z;
         const double d2 = x_rel * x_rel + y_rel * y_rel;
         if (d2 > r2) continue;
 
@@ -899,11 +1139,15 @@ void TerrainSemanticNode::cloudCallback(
         const int cell = ix * width_ + iy;
         auto& bucket = cell_z_samples_[static_cast<size_t>(cell)];
         if (bucket.empty()) touched_cells_.push_back(cell);
-        bucket.push_back(p.z);
+        bucket.push_back(static_cast<float>(z_corr));
     }
 
     estimateCellHeights(stamp_sec);
     classifyAndUpdate(stamp_sec);
+
+    last_latency_ms_ = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - t_start).count();
+
     publishOutputs(stamp, base_x, base_y, base_z, cos_yaw, sin_yaw);
 }
 

@@ -11,6 +11,7 @@
 #include "pcl/point_types.h"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
+#include "std_msgs/msg/bool.hpp"
 #include "tf2/LinearMath/Transform.h"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
@@ -51,6 +52,7 @@ private:
     std::string output_drop_topic_;
     std::string output_climbable_topic_;
     std::string diagnostics_topic_;
+    std::string base_ground_stable_topic_{"base_ground/stable"};
 
     double tf_timeout_sec_{0.2};
     double cloud_timeout_sec_{0.7};
@@ -122,6 +124,26 @@ private:
     double drop_forward_sector_deg_{180.0};
     double drop_forward_min_x_m_{0.0};
 
+    // P0.2: neighbor modes + denoising + jump guard
+    std::string obstacle_neighbor_mode_{"edge4"};
+    std::string drop_neighbor_mode_{"edge8"};
+    int         min_obstacle_area_cells_{2};
+    double      jump_thresh_m_{0.15};
+    int         freeze_max_frames_{3};
+    double      ground_ema_alpha_slow_{0.25};
+    bool        enable_pitch_compensation_{true};
+    double      stair_gate_speed_mps_{0.25};
+    double      stair_pitch_gate_deg_{6.0};
+    double      top_z_max_delta_m_{0.7};
+
+    // P0.3: latency diagnostics
+    double latency_warn_ms_{12.0};
+    double latency_error_ms_{20.0};
+    int latency_trigger_frames_{3};
+    int latency_recover_frames_{5};
+    std::string latency_intervention_mode_{"virtual_fence"};
+    double last_latency_ms_{0.0};
+
     // 栅格状态
     int half_width_{0};
     int width_{0};
@@ -132,6 +154,7 @@ private:
     std::vector<double> last_seen_sec_;
     std::vector<int> obstacle_score_;
     std::vector<int> drop_score_;
+    std::vector<int> freeze_count_;
     std::vector<uint8_t> obstacle_state_;
     std::vector<uint8_t> drop_state_;
 
@@ -142,6 +165,7 @@ private:
     // ROS I/O
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub_odom_;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_cloud_;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_base_ground_stable_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_obstacles_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_drop_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_climbable_;
@@ -166,6 +190,13 @@ private:
     double last_sin_yaw_{0.0};
     bool fail_safe_active_{false};
     std::string fail_safe_reason_;
+    double last_linear_speed_mps_{0.0};
+    bool base_ground_stable_{true};
+    double last_pitch_rad_{0.0};
+    int last_max_freeze_count_{0};
+    int latency_overrun_count_{0};
+    int latency_recover_count_{0};
+    bool latency_intervention_active_{false};
 };
 
 }  // namespace rc26_terrain

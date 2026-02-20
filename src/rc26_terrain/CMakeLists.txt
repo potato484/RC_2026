@@ -16,6 +16,7 @@ find_package(rclcpp_components REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(pcl_ros REQUIRED)
 find_package(pcl_conversions REQUIRED)
@@ -30,6 +31,7 @@ set(DEPENDENCIES
   sensor_msgs
   nav_msgs
   geometry_msgs
+  std_msgs
   diagnostic_msgs
   pcl_ros
   pcl_conversions
