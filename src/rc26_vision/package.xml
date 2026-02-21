@@ -10,11 +10,16 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
+  <depend>ament_index_cpp</depend>
   <depend>sensor_msgs</depend>
   <depend>cv_bridge</depend>
   <depend>image_transport</depend>
   <depend>message_filters</depend>
   <depend>behaviortree_cpp</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>rc26_interfaces</depend>
   <depend>yaml-cpp</depend>
 
   <exec_depend>launch</exec_depend>

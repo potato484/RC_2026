@@ -25,6 +25,8 @@ struct Detection {
 struct TargetResult {
     bool has_target = false;
     AttributeKind attr_kind = AttributeKind::Unknown;
+    int class_id = -1;
+    std::string class_name;
     double distance_m = 0.0;
     double score = 0.0;
     int bbox_cx = 0;

@@ -299,12 +299,14 @@ void VisionInferenceManager::inferenceLoop() {
                             result.score = best_det->score;
                             result.bbox_cx = static_cast<int>((best_det->x1 + best_det->x2) * 0.5f);
                             result.bbox_cy = static_cast<int>((best_det->y1 + best_det->y2) * 0.5f);
+                            result.class_id = best_det->class_id;
 
                             std::string class_name = best_det->class_name;
                             if (class_name.empty() && best_det->class_id >= 0 &&
                                 best_det->class_id < static_cast<int>(class_names_.size())) {
                                 class_name = class_names_[best_det->class_id];
                             }
+                            result.class_name = class_name;
                             result.attr_kind = attributeFromClassName(class_name);
 
                             if (depth_msg) {

@@ -9,11 +9,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ============================================================================
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(behaviortree_cpp REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(rc26_interfaces REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
@@ -46,6 +51,10 @@ ament_target_dependencies(${PROJECT_NAME}
   image_transport
   message_filters
   behaviortree_cpp
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+  rc26_interfaces
 )
 
 target_link_libraries(${PROJECT_NAME}
@@ -65,6 +74,20 @@ ament_target_dependencies(vision_test_node rclcpp)
 add_executable(yolo_inference_test src/scripts/yolo_inference_test.cpp)
 target_link_libraries(yolo_inference_test ${PROJECT_NAME} ${OpenCV_LIBS})
 
+# Tip localizer node
+add_executable(tip_localizer_node src/tip_localizer.cpp)
+target_link_libraries(tip_localizer_node ${PROJECT_NAME} ${OpenCV_LIBS})
+ament_target_dependencies(tip_localizer_node
+  rclcpp
+  ament_index_cpp
+  sensor_msgs
+  cv_bridge
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+  rc26_interfaces
+)
+
 # ============================================================================
 # 安装
 # ============================================================================
@@ -82,7 +105,7 @@ install(
 )
 
 install(
-  TARGETS vision_test_node yolo_inference_test
+  TARGETS vision_test_node yolo_inference_test tip_localizer_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -104,6 +127,7 @@ ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME})
 ament_export_dependencies(
   rclcpp sensor_msgs cv_bridge image_transport message_filters behaviortree_cpp
+  tf2 tf2_ros tf2_geometry_msgs rc26_interfaces
 )
 
 ament_package()
