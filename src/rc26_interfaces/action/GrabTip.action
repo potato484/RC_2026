@@ -1,0 +1,9 @@
+# Goal
+uint8 tip_index
+---
+# Result
+bool success
+uint16 error_code
+---
+# Feedback
+uint8 state

@@ -1,0 +1,10 @@
+# Goal
+uint8 grid_position
+uint8 layer
+---
+# Result
+bool success
+uint16 error_code
+---
+# Feedback
+uint8 state
