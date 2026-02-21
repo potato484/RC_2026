@@ -74,7 +74,7 @@ enum class FeedbackID : uint8_t {
     STAIR_CLIMB_DONE = 0x11,       // 上阶梯完成
     STAIR_DESCEND_DONE = 0x12,     // 下阶梯完成
     ODOM_DATA = 0x20,              // 轮式里程计数据 (v_fl, v_rl, v_rr, v_fr) 单位: m/s
-    ACTION_FAIL = 0xFE,            // 动作执行失败
+    ACTION_FAIL = 0xFE,            // 动作执行失败，payload: [failed_cmd_id, error_code]
     ERROR = 0xFF,                  // 系统致命异常
 };
 
@@ -166,3 +166,10 @@ inline uint32_t crc32_mpeg2_calculate(const uint8_t* data, size_t len) {
 }
 
 }  // namespace rc26_decision
+
+namespace rc26_serial {
+
+using ::rc26_decision::CommandID;
+using ::rc26_decision::FeedbackID;
+
+}  // namespace rc26_serial
