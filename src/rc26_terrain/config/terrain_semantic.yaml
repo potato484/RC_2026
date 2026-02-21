@@ -14,6 +14,9 @@
     diagnostics_topic: "diagnostics"
     # base_ground 稳定信号（用于台阶工况门控）
     base_ground_stable_topic: "base_ground/stable"
+    mf_kfs_state_topic: "/mf_kfs_state"
+    mf_grid_layout_file: ""
+    kfs_min_confidence: 0.6
 
     # ===== 坐标系配置 =====
     target_frame: "odom"
@@ -129,3 +132,54 @@
     latency_trigger_frames: 3
     latency_recover_frames: 5
     latency_intervention_mode: "virtual_fence"
+
+    # ===== DEPRECATED(flat) =====
+    # 旧参数仍保留用于兼容，launch 侧推荐使用下方分组参数。
+
+    # ===== preprocessor.* =====
+    preprocessor.input_cloud_topic: "registered_scan"
+    preprocessor.target_frame: "odom"
+    preprocessor.base_frame: "base_link"
+    preprocessor.tf_timeout_sec: 0.2
+    preprocessor.voxel_leaf_size_m: 0.05
+    preprocessor.min_rel_z_m: -1.5
+    preprocessor.max_rel_z_m: 0.5
+    preprocessor.dis_ratio_z: 0.1
+
+    # ===== evaluator.* =====
+    evaluator.ground_quantile: 0.25
+    evaluator.top_quantile: 0.95
+    evaluator.ground_ema_alpha: 0.6
+    evaluator.ground_ema_alpha_slow: 0.25
+    evaluator.h_climb_m: 0.30
+    evaluator.h_obstacle_m: 0.33
+    evaluator.h_drop_m: 0.15
+    evaluator.enable_hysteresis: true
+    evaluator.score_max: 10
+    evaluator.score_inc: 2
+    evaluator.score_dec: 1
+    evaluator.obstacle_on_score: 6
+    evaluator.obstacle_off_score: 3
+    evaluator.drop_on_score: 6
+    evaluator.drop_off_score: 3
+    evaluator.decay_time_sec: 2.0
+    evaluator.jump_thresh_m: 0.23
+    evaluator.freeze_max_frames: 3
+    evaluator.min_obstacle_area_cells: 3
+    evaluator.obstacle_neighbor_mode: "edge4"
+    evaluator.drop_neighbor_mode: "edge8"
+
+    # ===== safety.* =====
+    safety.enable_fail_safe: true
+    safety.fail_safe_strategy: "virtual_fence"
+    safety.cloud_timeout_sec: 0.7
+    safety.odom_timeout_sec: 0.7
+    safety.virtual_fence_radius_m: 0.6
+    safety.virtual_fence_num_points: 36
+    safety.virtual_fence_height_m: 0.2
+    safety.enable_diagnostics: true
+    safety.latency_warn_ms: 12.0
+    safety.latency_error_ms: 20.0
+    safety.latency_trigger_frames: 3
+    safety.latency_recover_frames: 5
+    safety.latency_intervention_mode: "virtual_fence"

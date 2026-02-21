@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <memory>
 #include <optional>
 #include <string>
@@ -10,6 +11,7 @@
 #include "pcl/point_cloud.h"
 #include "pcl/point_types.h"
 #include "rclcpp/rclcpp.hpp"
+#include "rc26_interfaces/msg/mf_kfs_state.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "tf2/LinearMath/Transform.h"
@@ -37,6 +39,8 @@ private:
     void publishVirtualFence(const rclcpp::Time& stamp, double base_x, double base_y,
                              double base_z, double cos_yaw, double sin_yaw);
     void publishEmergencyStop(const rclcpp::Time& stamp) const;
+    void updateKfsOccupied(const rc26_interfaces::msg::MfKfsState& msg);
+    bool loadMfGridLayout(const std::string& path);
     bool sanitizeAndValidateCloud(pcl::PointCloud<pcl::PointXYZI>& cloud,
                                    const std::string& name,
                                    std::string& reason) const;
@@ -53,6 +57,9 @@ private:
     std::string output_climbable_topic_;
     std::string diagnostics_topic_;
     std::string base_ground_stable_topic_{"base_ground/stable"};
+    std::string mf_kfs_state_topic_{"/mf_kfs_state"};
+    std::string mf_grid_layout_file_{""};
+    double kfs_min_confidence_{0.6};
 
     double tf_timeout_sec_{0.2};
     double cloud_timeout_sec_{0.7};
@@ -157,6 +164,7 @@ private:
     std::vector<int> freeze_count_;
     std::vector<uint8_t> obstacle_state_;
     std::vector<uint8_t> drop_state_;
+    std::vector<uint8_t> kfs_occupied_state_;
 
     // 每帧缓存
     std::vector<std::vector<float>> cell_z_samples_;
@@ -166,6 +174,7 @@ private:
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub_odom_;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_cloud_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_base_ground_stable_;
+    rclcpp::Subscription<rc26_interfaces::msg::MfKfsState>::SharedPtr sub_mf_kfs_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_obstacles_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_drop_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_climbable_;
@@ -197,6 +206,18 @@ private:
     int latency_overrun_count_{0};
     int latency_recover_count_{0};
     bool latency_intervention_active_{false};
+
+    // 诊断统计
+    int kfs_occupied_count_{0};
+    int obstacle_cells_count_{0};
+    int drop_cells_count_{0};
+    int climbable_cells_count_{0};
+
+    // MF 布局映射
+    std::array<double, 13> mf_grid_x_{};
+    std::array<double, 13> mf_grid_y_{};
+    std::array<uint8_t, 13> mf_grid_valid_{};
+    std::string mf_layout_team_;
 };
 
 }  // namespace rc26_terrain

@@ -7,6 +7,7 @@
 #include <limits>
 #include <stdexcept>
 
+#include "ament_index_cpp/get_package_share_directory.hpp"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
 #include "pcl/filters/voxel_grid.h"
@@ -19,6 +20,7 @@
 #include "tf2/LinearMath/Matrix3x3.h"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+#include "yaml-cpp/yaml.h"
 
 namespace {
 
@@ -71,6 +73,9 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->declare_parameter<std::string>("output_climbable_topic", "terrain_climbable");
     this->declare_parameter<std::string>("diagnostics_topic", "diagnostics");
     this->declare_parameter<std::string>("base_ground_stable_topic", base_ground_stable_topic_);
+    this->declare_parameter<std::string>("mf_kfs_state_topic", mf_kfs_state_topic_);
+    this->declare_parameter<std::string>("mf_grid_layout_file", mf_grid_layout_file_);
+    this->declare_parameter<double>("kfs_min_confidence", kfs_min_confidence_);
 
     this->declare_parameter<std::string>("target_frame", "odom");
     this->declare_parameter<std::string>("base_frame", "base_link");
@@ -181,6 +186,9 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->get_parameter("output_climbable_topic", output_climbable_topic_);
     this->get_parameter("diagnostics_topic", diagnostics_topic_);
     this->get_parameter("base_ground_stable_topic", base_ground_stable_topic_);
+    this->get_parameter("mf_kfs_state_topic", mf_kfs_state_topic_);
+    this->get_parameter("mf_grid_layout_file", mf_grid_layout_file_);
+    this->get_parameter("kfs_min_confidence", kfs_min_confidence_);
     this->get_parameter("target_frame", target_frame_);
     this->get_parameter("base_frame", base_frame_);
     this->get_parameter("tf_timeout_sec", tf_timeout_sec_);
@@ -324,6 +332,17 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
 
     initGrid();
+    if (mf_grid_layout_file_.empty()) {
+        try {
+            const auto keepout_share = ament_index_cpp::get_package_share_directory("rc26_kfs_keepout");
+            mf_grid_layout_file_ = keepout_share + "/config/mf_grid_layout.yaml";
+        } catch (const std::exception&) {
+            mf_grid_layout_file_.clear();
+        }
+    }
+    if (!mf_grid_layout_file_.empty() && !loadMfGridLayout(mf_grid_layout_file_)) {
+        RCLCPP_WARN(this->get_logger(), "mf grid layout load failed: %s", mf_grid_layout_file_.c_str());
+    }
 
     pub_obstacles_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(output_obstacles_topic_, output_qos);
     pub_drop_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(output_drop_topic_, output_qos);
@@ -343,6 +362,13 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
         [this](const std_msgs::msg::Bool::ConstSharedPtr& msg) {
             if (msg) {
                 base_ground_stable_ = msg->data;
+            }
+        });
+    sub_mf_kfs_ = this->create_subscription<rc26_interfaces::msg::MfKfsState>(
+        mf_kfs_state_topic_, rclcpp::QoS(1).reliable(),
+        [this](const rc26_interfaces::msg::MfKfsState::ConstSharedPtr& msg) {
+            if (msg) {
+                updateKfsOccupied(*msg);
             }
         });
 
@@ -566,6 +592,11 @@ void TerrainSemanticNode::publishDiagnostics(const rclcpp::Time& stamp, int leve
     addKV("latency_intervention_mode", latency_intervention_mode_);
     addKV("latency_overrun_count", std::to_string(latency_overrun_count_));
     addKV("latency_recover_count", std::to_string(latency_recover_count_));
+    addKV("kfs_occupied_cells", std::to_string(kfs_occupied_count_));
+    addKV("obstacle_cells", std::to_string(obstacle_cells_count_));
+    addKV("drop_cells", std::to_string(drop_cells_count_));
+    addKV("climbable_cells", std::to_string(climbable_cells_count_));
+    addKV("fail_safe_strategy", fail_safe_strategy_);
 
     diagnostic_msgs::msg::DiagnosticArray arr;
     arr.header.stamp = stamp;
@@ -605,6 +636,7 @@ void TerrainSemanticNode::initGrid() {
     freeze_count_.assign(static_cast<size_t>(num_cells_), 0);
     obstacle_state_.assign(static_cast<size_t>(num_cells_), 0);
     drop_state_.assign(static_cast<size_t>(num_cells_), 0);
+    kfs_occupied_state_.assign(static_cast<size_t>(num_cells_), 0);
     cell_z_samples_.assign(static_cast<size_t>(num_cells_), {});
     touched_cells_.reserve(static_cast<size_t>(num_cells_));
 
@@ -616,6 +648,82 @@ void TerrainSemanticNode::initGrid() {
             if (x * x + y * y <= r2) {
                 cell_in_radius_[static_cast<size_t>(ix * width_ + iy)] = 1;
             }
+        }
+    }
+}
+
+bool TerrainSemanticNode::loadMfGridLayout(const std::string& path) {
+    try {
+        YAML::Node root = YAML::LoadFile(path);
+        if (!root["grids"]) {
+            return false;
+        }
+        mf_grid_valid_.fill(0U);
+        if (root["meta"] && root["meta"]["team"]) {
+            mf_layout_team_ = root["meta"]["team"].as<std::string>();
+        }
+        for (const auto& grid : root["grids"]) {
+            const int id = grid["id"].as<int>();
+            if (id < 1 || id > 12) {
+                continue;
+            }
+            mf_grid_x_[static_cast<size_t>(id)] = grid["x"].as<double>();
+            mf_grid_y_[static_cast<size_t>(id)] = grid["y"].as<double>();
+            mf_grid_valid_[static_cast<size_t>(id)] = 1U;
+        }
+        return true;
+    } catch (const std::exception& ex) {
+        RCLCPP_WARN(this->get_logger(), "loadMfGridLayout error: %s", ex.what());
+        return false;
+    }
+}
+
+void TerrainSemanticNode::updateKfsOccupied(const rc26_interfaces::msg::MfKfsState& msg) {
+    std::fill(kfs_occupied_state_.begin(), kfs_occupied_state_.end(), 0U);
+    kfs_occupied_count_ = 0;
+    if (!have_last_pose_) {
+        return;
+    }
+
+    if (!mf_layout_team_.empty() && !msg.team.empty() && mf_layout_team_ != msg.team) {
+        return;
+    }
+
+    for (const auto& cell : msg.cells) {
+        if (cell.grid_id < 1 || cell.grid_id > 12) {
+            continue;
+        }
+        if (cell.kfs_type < 1 || cell.kfs_type > 3) {
+            continue;
+        }
+        if (cell.confidence < static_cast<float>(kfs_min_confidence_)) {
+            continue;
+        }
+        if (!mf_grid_valid_[cell.grid_id]) {
+            continue;
+        }
+
+        const double dx = mf_grid_x_[cell.grid_id] - last_base_x_;
+        const double dy = mf_grid_y_[cell.grid_id] - last_base_y_;
+
+        const double rx = dx * last_cos_yaw_ + dy * last_sin_yaw_;
+        const double ry = -dx * last_sin_yaw_ + dy * last_cos_yaw_;
+
+        const int gx = static_cast<int>(std::round(rx / grid_resolution_m_)) + half_width_;
+        const int gy = static_cast<int>(std::round(ry / grid_resolution_m_)) + half_width_;
+        if (gx < 0 || gx >= width_ || gy < 0 || gy >= width_) {
+            continue;
+        }
+        const int idx = gx * width_ + gy;
+        if (idx < 0 || idx >= num_cells_) {
+            continue;
+        }
+        const size_t uidx = static_cast<size_t>(idx);
+        if (cell_in_radius_[uidx]) {
+            if (!kfs_occupied_state_[uidx]) {
+                ++kfs_occupied_count_;
+            }
+            kfs_occupied_state_[uidx] = 1U;
         }
     }
 }
@@ -845,6 +953,10 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
     pcl::PointCloud<pcl::PointXYZI> obs_cloud, drop_cloud, climb_cloud;
     const double stamp_sec = stamp.seconds();
     const bool publish_climbable = static_cast<bool>(pub_climbable_);
+    obstacle_cells_count_ = 0;
+    drop_cells_count_ = 0;
+    climbable_cells_count_ = 0;
+    int kfs_cells_count = 0;
 
     for (int cell = 0; cell < num_cells_; cell++) {
         const size_t idx = static_cast<size_t>(cell);
@@ -864,13 +976,21 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
 
         const bool is_obstacle = obstacle_state_[idx] != 0;
         const bool is_drop = drop_state_[idx] != 0;
+        const bool is_kfs_occupied = kfs_occupied_state_[idx] != 0;
 
         if (is_obstacle) {
+            ++obstacle_cells_count_;
+        }
+        if (is_kfs_occupied) {
+            ++kfs_cells_count;
+        }
+
+        if (is_obstacle || is_kfs_occupied) {
             pcl::PointXYZI p;
             p.x = static_cast<float>(x);
             p.y = static_cast<float>(y);
-            p.z = z;
-            p.intensity = static_cast<float>(obstacle_score_[idx]);
+            p.z = is_kfs_occupied ? (z + 0.35F) : z;
+            p.intensity = is_kfs_occupied ? 200.0F : static_cast<float>(obstacle_score_[idx]);
             obs_cloud.push_back(p);
         }
         if (is_drop) {
@@ -894,6 +1014,7 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
                 p.z = z;
                 p.intensity = static_cast<float>(drop_score_[idx]);
                 drop_cloud.push_back(p);
+                ++drop_cells_count_;
             }
         }
 
@@ -936,9 +1057,11 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
                 p.z = z;
                 p.intensity = dz_up;  // 便于 RViz 可视化
                 climb_cloud.push_back(p);
+                ++climbable_cells_count_;
             }
         }
     }
+    kfs_occupied_count_ = kfs_cells_count;
 
     if (output_sanity_check_enable_) {
         std::string reason;
