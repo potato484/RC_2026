@@ -9,8 +9,9 @@
 #include <behaviortree_cpp/bt_factory.h>
 #include <rclcpp/rclcpp.hpp>
 
+#include "rc26_decision/common/bt_action_node.hpp"
+#include "rc26_interfaces/action/execute_mechanism.hpp"
 #include "rc26_interfaces/srv/set_nav_mode.hpp"
-#include "rc26_serial/protocol.hpp"
 
 namespace rc26_decision {
 
@@ -88,51 +89,51 @@ private:
 };
 
 // 夹取 KFS 节点
-class GrabKFSAction : public BT::StatefulActionNode {
+class GrabKFSAction : public BtActionNode<rc26_interfaces::action::ExecuteMechanism> {
 public:
     GrabKFSAction(const std::string& name, const BT::NodeConfig& config);
 
     static BT::PortsList providedPorts();
 
-    BT::NodeStatus onStart() override;
-    BT::NodeStatus onRunning() override;
-    void onHalted() override;
+protected:
+    bool buildGoal(Goal& goal) override;
+    BT::NodeStatus handleResult(const WrappedResult& result, uint16_t& error_code) override;
 };
 
 // 机构抬升节点 (梅林区)
-class MechUpMerlinAction : public BT::StatefulActionNode {
+class MechUpMerlinAction : public BtActionNode<rc26_interfaces::action::ExecuteMechanism> {
 public:
     MechUpMerlinAction(const std::string& name, const BT::NodeConfig& config);
 
     static BT::PortsList providedPorts();
 
-    BT::NodeStatus onStart() override;
-    BT::NodeStatus onRunning() override;
-    void onHalted() override;
+protected:
+    bool buildGoal(Goal& goal) override;
+    BT::NodeStatus handleResult(const WrappedResult& result, uint16_t& error_code) override;
 };
 
 // 机构下降节点 (梅林区)
-class MechDownMerlinAction : public BT::StatefulActionNode {
+class MechDownMerlinAction : public BtActionNode<rc26_interfaces::action::ExecuteMechanism> {
 public:
     MechDownMerlinAction(const std::string& name, const BT::NodeConfig& config);
 
     static BT::PortsList providedPorts();
 
-    BT::NodeStatus onStart() override;
-    BT::NodeStatus onRunning() override;
-    void onHalted() override;
+protected:
+    bool buildGoal(Goal& goal) override;
+    BT::NodeStatus handleResult(const WrappedResult& result, uint16_t& error_code) override;
 };
 
 // 旋转节点
-class RotateAction : public BT::StatefulActionNode {
+class RotateAction : public BtActionNode<rc26_interfaces::action::ExecuteMechanism> {
 public:
     RotateAction(const std::string& name, const BT::NodeConfig& config);
 
     static BT::PortsList providedPorts();
 
-    BT::NodeStatus onStart() override;
-    BT::NodeStatus onRunning() override;
-    void onHalted() override;
+protected:
+    bool buildGoal(Goal& goal) override;
+    BT::NodeStatus handleResult(const WrappedResult& result, uint16_t& error_code) override;
 };
 
 // 检查 KFS 存在条件节点

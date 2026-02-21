@@ -1,8 +1,10 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <behaviortree_cpp/bt_factory.h>
 #include <rclcpp/rclcpp.hpp>
+
 #include <array>
 #include <cmath>
+#include <geometry_msgs/msg/point.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/int32.hpp>
 #include <std_msgs/msg/int8.hpp>
@@ -14,11 +16,11 @@
 #include "rc26_decision/navigation/smart_waypoint_navigator.hpp"
 #include "rc26_decision/navigation/waypoint_manager.hpp"
 #include "rc26_decision/vision/bt_nodes.hpp"
-#include "rc26_serial/serial_driver.hpp"
-#include "rc26_vision/vision_inference_manager.hpp"
-#include "rc26_vision/profile_loader.hpp"
-#include "rc26_interfaces/msg/mf_kfs_state.hpp"
+#include "rc26_interfaces/msg/mechanism_state.hpp"
 #include "rc26_interfaces/msg/mf_kfs_cell.hpp"
+#include "rc26_interfaces/msg/mf_kfs_state.hpp"
+#include "rc26_vision/profile_loader.hpp"
+#include "rc26_vision/vision_inference_manager.hpp"
 
 namespace rc26_decision {
 
@@ -28,11 +30,13 @@ public:
         // 声明参数
         this->declare_parameter<std::string>("tree_file", "main_tree.xml");
         this->declare_parameter<int>("tick_rate_ms", 100);
+        // 保留旧参数声明以兼容现有 YAML/launch
         this->declare_parameter<bool>("enable_cmd_serial", true);
         this->declare_parameter<std::string>("cmd_serial_port", "/dev/ttyUSB1");
         this->declare_parameter<int>("cmd_baudrate", 115200);
         this->declare_parameter<bool>("enable_heartbeat", true);
         this->declare_parameter<int>("heartbeat_rate_hz", 1);
+        this->declare_parameter<std::string>("mechanism_state_topic", "/mechanism/state");
         this->declare_parameter<std::string>("nav2_action_name", "navigate_to_pose");
         this->declare_parameter<std::string>("nav2_goal_frame", "map");
         this->declare_parameter<std::string>("controller_server_node", "controller_server");
@@ -45,42 +49,21 @@ public:
         this->declare_parameter<std::string>("base_ground_stair_delta_topic", "base_ground/stair_delta");
         this->declare_parameter<std::string>("base_ground_stable_topic", "base_ground/stable");
         this->declare_parameter<std::string>("kfs_state_topic", "mf_kfs_state");
-
-        // 初始化命令串口 (串口2)
-        if (this->get_parameter("enable_cmd_serial").as_bool()) {
-            cmd_serial_ = std::make_shared<SerialDriver>();
-            std::string cmd_port = this->get_parameter("cmd_serial_port").as_string();
-            int cmd_baud = this->get_parameter("cmd_baudrate").as_int();
-
-            if (!cmd_serial_->open(cmd_port, cmd_baud)) {
-                RCLCPP_ERROR(this->get_logger(), "无法打开命令串口: %s", cmd_port.c_str());
-            } else {
-                RCLCPP_INFO(this->get_logger(), "命令串口已打开: %s", cmd_port.c_str());
-
-                // 启动心跳
-                if (this->get_parameter("enable_heartbeat").as_bool()) {
-                    const int heartbeat_rate_hz = this->get_parameter("heartbeat_rate_hz").as_int();
-                    if (heartbeat_rate_hz <= 0) {
-                        RCLCPP_WARN(this->get_logger(),
-                                    "heartbeat_rate_hz=%d <= 0, heartbeat disabled",
-                                    heartbeat_rate_hz);
-                    } else {
-                        const auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                            std::chrono::duration<double>(1.0 / static_cast<double>(heartbeat_rate_hz)));
-                        heartbeat_timer_ = this->create_wall_timer(period, [this]() { handleHeartbeat(); });
-                    }
-                }
-            }
-        }
+        this->declare_parameter<double>("tip_rack_center_x", 0.0);
+        this->declare_parameter<double>("tip_rack_center_y", 0.0);
 
         // 创建黑板并共享
         blackboard_ = BT::Blackboard::create();
         const auto& blackboard = blackboard_;
-        blackboard->set("cmd_serial", cmd_serial_);
         {
             rclcpp::Node* node_ptr = this;
             blackboard->set("node", node_ptr);
         }
+        geometry_msgs::msg::Point rack_center;
+        rack_center.x = this->get_parameter("tip_rack_center_x").as_double();
+        rack_center.y = this->get_parameter("tip_rack_center_y").as_double();
+        rack_center.z = 0.0;
+        blackboard->set("tip_rack_center", rack_center);
 
         // 视觉模块黑板键初始化（即使未启用/未注入 manager 也保持可读）
         blackboard->set("vision_running", false);
@@ -93,20 +76,15 @@ public:
         blackboard->set("vision_bbox_cy", 0);
 
         // 创建 VisionInferenceManager (视觉推理模块)
-        // 注意: 需要用户配置 enable_vision 参数和模型路径
         this->declare_parameter<bool>("enable_vision", false);
         this->declare_parameter<std::string>("vision_config_file", "");
-
-        // 初始化 vision_current_model 黑板键
         blackboard->set("vision_current_model", std::string(""));
 
         if (this->get_parameter("enable_vision").as_bool()) {
             std::string config_file = this->get_parameter("vision_config_file").as_string();
-
             vision_manager_ = std::make_shared<rc26_vision::VisionInferenceManager>(*this);
 
             if (!config_file.empty()) {
-                // 从 YAML 配置文件加载多 Profile
                 try {
                     auto config = rc26_vision::ProfileLoader::loadFromYaml(config_file);
                     vision_manager_->loadConfig(config);
@@ -121,8 +99,7 @@ public:
                     vision_manager_.reset();
                 }
             } else {
-                RCLCPP_WARN(this->get_logger(),
-                    "enable_vision=true 但 vision_config_file 为空");
+                RCLCPP_WARN(this->get_logger(), "enable_vision=true 但 vision_config_file 为空");
                 vision_manager_.reset();
             }
         }
@@ -142,7 +119,7 @@ public:
                 RCLCPP_INFO(this->get_logger(), "Loaded waypoints from: %s", waypoints_file.c_str());
             }
             blackboard->set("waypoint_manager", waypoint_manager_);
-            // 将 team 参数设置到黑板，供 MF 区域节点使用
+
             const std::string team = this->get_parameter("team").as_string();
             blackboard->set("team", team);
 
@@ -169,30 +146,20 @@ public:
             blackboard->set("smart_waypoint_navigator", smart_waypoint_navigator_);
         }
 
-        // 初始化重连状态（行为树可直接查询）
-        blackboard->set("cmd_serial_reconnecting", false);
-        blackboard->set("cmd_serial_reconnect_failed", false);
-
-        // 初始化反馈状态
-        blackboard->set("grab_tip_done", false);
-        blackboard->set("assemble_done", false);
-        blackboard->set("climbing_slope", false);
-        blackboard->set("slope_done", false);
-        blackboard->set("rotate_done", false);
-        blackboard->set("mech_up_merlin_done", false);
-        blackboard->set("mech_down_merlin_done", false);
-        blackboard->set("grab_kfs_done", false);
-        blackboard->set("mech_up_duel_done", false);
-        blackboard->set("place_kfs_grid_done", false);
-        blackboard->set("place_kfs_ground_done", false);
+        // 初始化运行状态
         blackboard->set("stair_climb_done", false);
         blackboard->set("stair_descend_done", false);
-        blackboard->set("action_fail", false);
+        blackboard->set("last_action_error_code", 0);
         blackboard->set("system_error", false);
         blackboard->set("current_level", static_cast<int32_t>(0));
         blackboard->set("stair_delta", static_cast<int8_t>(0));
         blackboard->set("base_ground_stable", false);
         blackboard->set("level_start", static_cast<int32_t>(0));
+
+        // 机制状态可观测键（供 Groot2/诊断查看）
+        blackboard->set("mechanism_tip_state", 0);
+        blackboard->set("mechanism_hal_open", false);
+        blackboard->set("mechanism_locked_tip_slot", 255);
 
         // 订阅 base_ground 话题
         const auto level_topic = this->get_parameter("base_ground_level_topic").as_string();
@@ -213,99 +180,16 @@ public:
                 blackboard->set("base_ground_stable", msg->data);
             });
 
-        // 为命令串口挂载重连回调（将重连状态写入黑板）
-        if (cmd_serial_) {
-            cmd_serial_->setReconnectStartCallback([this, blackboard]() {
-                blackboard->set("cmd_serial_reconnecting", true);
-                blackboard->set("cmd_serial_reconnect_failed", false);
-                RCLCPP_WARN(this->get_logger(), "命令串口开始重连，已写入黑板");
+        // 订阅机制状态（决策侧不再直接处理串口反馈）
+        const auto mechanism_state_topic = this->get_parameter("mechanism_state_topic").as_string();
+        mechanism_state_sub_ = this->create_subscription<rc26_interfaces::msg::MechanismState>(
+            mechanism_state_topic, rclcpp::QoS(rclcpp::KeepLast(10)).reliable(),
+            [blackboard](const rc26_interfaces::msg::MechanismState::SharedPtr msg) {
+                blackboard->set("mechanism_tip_state", static_cast<int>(msg->tip_state));
+                blackboard->set("mechanism_hal_open", msg->hal_open);
+                blackboard->set("mechanism_locked_tip_slot", static_cast<int>(msg->locked_tip_slot));
+                blackboard->set("last_action_error_code", static_cast<int>(msg->last_error_code));
             });
-
-            cmd_serial_->setReconnectCallback([this, blackboard]() {
-                blackboard->set("cmd_serial_reconnecting", false);
-                blackboard->set("cmd_serial_reconnect_failed", false);
-                RCLCPP_INFO(this->get_logger(), "命令串口重连成功，已更新黑板");
-            });
-
-            cmd_serial_->setReconnectFailedCallback([this, blackboard]() {
-                blackboard->set("cmd_serial_reconnecting", false);
-                blackboard->set("cmd_serial_reconnect_failed", true);
-                RCLCPP_ERROR(this->get_logger(), "命令串口重连失败，已写入黑板");
-            });
-        }
-
-        // 为命令串口挂载反馈回调 (将反馈 ID 存入黑板)
-        if (cmd_serial_) {
-            cmd_serial_->setReceiveCallback(
-                [this, blackboard](uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload) {
-                    (void)seq;
-                    (void)payload;
-
-                    // 心跳反馈：HEARTBEAT_ACK(0x10) 已由 SerialDriver 内部处理
-                    if (cmd == static_cast<uint8_t>(FeedbackID::HEARTBEAT_ACK)) {
-                        return;
-                    }
-
-                    // 1. 通用映射：以十六进制 ID 为键 (如 feedback_0x02)
-                    char hex_str[16];
-                    std::snprintf(hex_str, sizeof(hex_str), "feedback_0x%02X", cmd);
-                    blackboard->set(std::string(hex_str), true);
-
-                    // 2. 语义映射：将常用 ID 转换为直观的布尔值
-                    switch (static_cast<FeedbackID>(cmd)) {
-                    case FeedbackID::GRAB_TIP_DONE:
-                        blackboard->set("grab_tip_done", true);
-                        break;
-                    case FeedbackID::ASSEMBLE_DONE:
-                        blackboard->set("assemble_done", true);
-                        break;
-                    case FeedbackID::CLIMBING_SLOPE:
-                        blackboard->set("climbing_slope", true);
-                        break;
-                    case FeedbackID::SLOPE_DONE:
-                        blackboard->set("slope_done", true);
-                        break;
-                    case FeedbackID::ROTATE_POS_90_DONE:
-                    case FeedbackID::ROTATE_NEG_90_DONE:
-                    case FeedbackID::ROTATE_POS_180_DONE:
-                    case FeedbackID::ROTATE_NEG_180_DONE:
-                        blackboard->set("rotate_done", true);
-                        break;
-                    case FeedbackID::MECH_UP_MERLIN_DONE:
-                        blackboard->set("mech_up_merlin_done", true);
-                        break;
-                    case FeedbackID::MECH_DOWN_MERLIN_DONE:
-                        blackboard->set("mech_down_merlin_done", true);
-                        break;
-                    case FeedbackID::GRAB_KFS_DONE:
-                        blackboard->set("grab_kfs_done", true);
-                        break;
-                    case FeedbackID::MECH_UP_DUEL_DONE:
-                        blackboard->set("mech_up_duel_done", true);
-                        break;
-                    case FeedbackID::PLACE_KFS_GRID_DONE:
-                        blackboard->set("place_kfs_grid_done", true);
-                        break;
-                    case FeedbackID::PLACE_KFS_GROUND_DONE:
-                        blackboard->set("place_kfs_ground_done", true);
-                        break;
-                    case FeedbackID::STAIR_CLIMB_DONE:
-                        blackboard->set("stair_climb_done", true);
-                        break;
-                    case FeedbackID::STAIR_DESCEND_DONE:
-                        blackboard->set("stair_descend_done", true);
-                        break;
-                    case FeedbackID::ACTION_FAIL:
-                        blackboard->set("action_fail", true);
-                        break;
-                    case FeedbackID::ERROR:
-                        blackboard->set("system_error", true);
-                        break;
-                    default:
-                        break;
-                    }
-                });
-        }
 
         // 注册所有行为树节点
         registerMCAreaNodes(factory_);
@@ -339,18 +223,10 @@ public:
     }
 
 private:
-    void handleHeartbeat() {
-        if (!cmd_serial_ || !cmd_serial_->isOpen()) {
-            return;
-        }
-        // SerialDriver::sendHeartbeat() 内部已处理心跳失败计数与重连逻辑
-        cmd_serial_->sendHeartbeat();
-    }
-
     void tickTree() {
         BT::NodeStatus status = tree_.tickOnce();
 
-        // KFS 状态变化立即发布（周期定时器仍保留 2Hz 保底）
+        // KFS 状态变化立即发布（周期定时器仍保留 5Hz 保底）
         (void)publishKfsState(false);
 
         if (status == BT::NodeStatus::SUCCESS) {
@@ -360,15 +236,18 @@ private:
             RCLCPP_ERROR(this->get_logger(), "行为树执行失败: FAILURE");
             timer_->cancel();
         }
-        // RUNNING 状态继续 tick
     }
 
     bool publishKfsState(bool force_publish) {
         std::shared_ptr<MerlinMapManager> merlin_map;
-        if (!blackboard_->get("merlin_map", merlin_map) || !merlin_map) return false;
+        if (!blackboard_->get("merlin_map", merlin_map) || !merlin_map) {
+            return false;
+        }
 
         std::string team;
-        if (!blackboard_->get("team", team)) team.clear();
+        if (!blackboard_->get("team", team)) {
+            team.clear();
+        }
 
         std::array<uint8_t, 13> kfs_type{};
         std::array<float, 13> kfs_confidence{};
@@ -380,13 +259,9 @@ private:
         for (int grid = 1; grid <= 12; grid++) {
             const auto kfs = merlin_map->getKFS(grid);
             rc26_interfaces::msg::MfKfsCell cell;
-            cell.grid_id    = static_cast<uint8_t>(grid);
-            cell.kfs_type   = static_cast<uint8_t>(kfs);
-            if (kfs == KFSType::UNKNOWN) {
-                cell.confidence = 0.0f;
-            } else {
-                cell.confidence = 1.0f;
-            }
+            cell.grid_id = static_cast<uint8_t>(grid);
+            cell.kfs_type = static_cast<uint8_t>(kfs);
+            cell.confidence = (kfs == KFSType::UNKNOWN) ? 0.0f : 1.0f;
             kfs_type[static_cast<size_t>(grid)] = cell.kfs_type;
             kfs_confidence[static_cast<size_t>(grid)] = cell.confidence;
             msg.cells.push_back(cell);
@@ -396,12 +271,14 @@ private:
         for (int grid = 1; grid <= 12 && !changed; grid++) {
             const size_t idx = static_cast<size_t>(grid);
             if (kfs_type[idx] != last_kfs_type_[idx] ||
-                std::fabs(kfs_confidence[idx] - last_kfs_confidence_[idx]) > 1e-5f) {
+                std::fabs(kfs_confidence[idx] - last_kfs_confidence_[idx]) > 1e-5F) {
                 changed = true;
             }
         }
 
-        if (!force_publish && !changed) return false;
+        if (!force_publish && !changed) {
+            return false;
+        }
 
         pub_kfs_state_->publish(msg);
         last_kfs_type_ = kfs_type;
@@ -421,13 +298,12 @@ private:
     std::array<float, 13> last_kfs_confidence_{};
     std::string last_kfs_team_;
     bool have_last_kfs_snapshot_{false};
-    std::shared_ptr<SerialDriver> cmd_serial_;
     std::shared_ptr<WaypointManager> waypoint_manager_;
     std::shared_ptr<SmartWaypointNavigator> smart_waypoint_navigator_;
-    rclcpp::TimerBase::SharedPtr heartbeat_timer_;
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr base_ground_level_sub_;
     rclcpp::Subscription<std_msgs::msg::Int8>::SharedPtr base_ground_stair_delta_sub_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr base_ground_stable_sub_;
+    rclcpp::Subscription<rc26_interfaces::msg::MechanismState>::SharedPtr mechanism_state_sub_;
     std::shared_ptr<rc26_vision::VisionInferenceManager> vision_manager_;
 };
 

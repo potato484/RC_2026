@@ -1,80 +1,105 @@
 // 对抗区 (Combat Area) 行为树节点实现
 #include "rc26_decision/combat/combat_area.hpp"
 
+#include <chrono>
+
+#include "rc26_serial/protocol.hpp"
+
 namespace rc26_decision {
+
+namespace {
+
+BT::NodeStatus handleExecuteMechanismResult(
+    const BtActionNode<rc26_interfaces::action::ExecuteMechanism>::WrappedResult& result,
+    uint16_t& error_code) {
+    if (result.code != rclcpp_action::ResultCode::SUCCEEDED || !result.result || !result.result->success) {
+        error_code = (result.result ? result.result->error_code : 0);
+        return BT::NodeStatus::FAILURE;
+    }
+    error_code = 0;
+    return BT::NodeStatus::SUCCESS;
+}
+
+}  // namespace
 
 // ============================================================================
 // MechUpDuelAction - 对抗区机构抬升
 // ============================================================================
 MechUpDuelAction::MechUpDuelAction(const std::string& name, const BT::NodeConfig& config)
-    : BT::StatefulActionNode(name, config) {}
+    : BtActionNode<rc26_interfaces::action::ExecuteMechanism>(
+          name, config, "/mechanism/execute", std::chrono::seconds(8)) {}
 
 BT::PortsList MechUpDuelAction::providedPorts() {
-    return {};
+    return BtActionNode<rc26_interfaces::action::ExecuteMechanism>::basePorts(8.0);
 }
 
-BT::NodeStatus MechUpDuelAction::onStart() {
-    // TODO: 发送 MECH_UP_DUEL 指令
-    return BT::NodeStatus::RUNNING;
+bool MechUpDuelAction::buildGoal(Goal& goal) {
+    double timeout_sec = 8.0;
+    (void)getInput("timeout_sec", timeout_sec);
+    goal.command_id = static_cast<uint8_t>(CommandID::MECH_UP_DUEL);
+    goal.payload.clear();
+    goal.timeout_sec = static_cast<float>(timeout_sec);
+    return true;
 }
 
-BT::NodeStatus MechUpDuelAction::onRunning() {
-    // TODO: 等待 MECH_UP_DUEL_DONE 反馈
-    return BT::NodeStatus::SUCCESS;
-}
-
-void MechUpDuelAction::onHalted() {
-    // TODO: 发送 STOP 指令
+BT::NodeStatus MechUpDuelAction::handleResult(const WrappedResult& result, uint16_t& error_code) {
+    return handleExecuteMechanismResult(result, error_code);
 }
 
 // ============================================================================
 // PlaceKFSGridAction - 放置 KFS 到九宫格
 // ============================================================================
 PlaceKFSGridAction::PlaceKFSGridAction(const std::string& name, const BT::NodeConfig& config)
-    : BT::StatefulActionNode(name, config) {}
+    : BtActionNode<rc26_interfaces::action::PlaceKFSGrid>(
+          name, config, "/mechanism/place_kfs_grid", std::chrono::seconds(8)) {}
 
 BT::PortsList PlaceKFSGridAction::providedPorts() {
-    return {
-        BT::InputPort<int>("grid_position", "九宫格位置 (1-9)"),
-    };
+    auto ports = BtActionNode<rc26_interfaces::action::PlaceKFSGrid>::basePorts(8.0);
+    ports.insert(BT::InputPort<int>("grid_position", "九宫格位置 (1-9)"));
+    return ports;
 }
 
-BT::NodeStatus PlaceKFSGridAction::onStart() {
-    // TODO: 发送 PLACE_KFS_GRID 指令
-    return BT::NodeStatus::RUNNING;
+bool PlaceKFSGridAction::buildGoal(Goal& goal) {
+    int grid_position = 0;
+    if (!getInput("grid_position", grid_position) || grid_position < 1 || grid_position > 9) {
+        return false;
+    }
+    goal.grid_position = static_cast<uint8_t>(grid_position);
+    goal.layer = 1;
+    return true;
 }
 
-BT::NodeStatus PlaceKFSGridAction::onRunning() {
-    // TODO: 等待 PLACE_KFS_GRID_DONE 反馈
+BT::NodeStatus PlaceKFSGridAction::handleResult(const WrappedResult& result, uint16_t& error_code) {
+    if (result.code != rclcpp_action::ResultCode::SUCCEEDED || !result.result || !result.result->success) {
+        error_code = (result.result ? result.result->error_code : 0);
+        return BT::NodeStatus::FAILURE;
+    }
+    error_code = 0;
     return BT::NodeStatus::SUCCESS;
-}
-
-void PlaceKFSGridAction::onHalted() {
-    // TODO: 发送 STOP 指令
 }
 
 // ============================================================================
 // PlaceKFSGroundAction - 放置 KFS 到地面
 // ============================================================================
 PlaceKFSGroundAction::PlaceKFSGroundAction(const std::string& name, const BT::NodeConfig& config)
-    : BT::StatefulActionNode(name, config) {}
+    : BtActionNode<rc26_interfaces::action::ExecuteMechanism>(
+          name, config, "/mechanism/execute", std::chrono::seconds(8)) {}
 
 BT::PortsList PlaceKFSGroundAction::providedPorts() {
-    return {};
+    return BtActionNode<rc26_interfaces::action::ExecuteMechanism>::basePorts(8.0);
 }
 
-BT::NodeStatus PlaceKFSGroundAction::onStart() {
-    // TODO: 发送 PLACE_KFS_GROUND 指令
-    return BT::NodeStatus::RUNNING;
+bool PlaceKFSGroundAction::buildGoal(Goal& goal) {
+    double timeout_sec = 8.0;
+    (void)getInput("timeout_sec", timeout_sec);
+    goal.command_id = static_cast<uint8_t>(CommandID::PLACE_KFS_GROUND);
+    goal.payload.clear();
+    goal.timeout_sec = static_cast<float>(timeout_sec);
+    return true;
 }
 
-BT::NodeStatus PlaceKFSGroundAction::onRunning() {
-    // TODO: 等待 PLACE_KFS_GROUND_DONE 反馈
-    return BT::NodeStatus::SUCCESS;
-}
-
-void PlaceKFSGroundAction::onHalted() {
-    // TODO: 发送 STOP 指令
+BT::NodeStatus PlaceKFSGroundAction::handleResult(const WrappedResult& result, uint16_t& error_code) {
+    return handleExecuteMechanismResult(result, error_code);
 }
 
 // ============================================================================
@@ -91,18 +116,14 @@ BT::PortsList GimbalMoveAction::providedPorts() {
 }
 
 BT::NodeStatus GimbalMoveAction::onStart() {
-    // TODO: 发送 GIMBAL_MOVE 指令
     return BT::NodeStatus::RUNNING;
 }
 
 BT::NodeStatus GimbalMoveAction::onRunning() {
-    // TODO: 等待 GIMBAL_DONE 反馈
-    return BT::NodeStatus::SUCCESS;
+    return BT::NodeStatus::RUNNING;
 }
 
-void GimbalMoveAction::onHalted() {
-    // TODO: 发送 GIMBAL_STOP 指令
-}
+void GimbalMoveAction::onHalted() {}
 
 // ============================================================================
 // FollowManualRobotAction - 跟随手动机器人
@@ -118,18 +139,14 @@ BT::PortsList FollowManualRobotAction::providedPorts() {
 }
 
 BT::NodeStatus FollowManualRobotAction::onStart() {
-    // TODO: 开始跟随模式
     return BT::NodeStatus::RUNNING;
 }
 
 BT::NodeStatus FollowManualRobotAction::onRunning() {
-    // TODO: 持续跟随或检测丢失
-    return BT::NodeStatus::SUCCESS;
+    return BT::NodeStatus::RUNNING;
 }
 
-void FollowManualRobotAction::onHalted() {
-    // TODO: 停止跟随
-}
+void FollowManualRobotAction::onHalted() {}
 
 // ============================================================================
 // 注册函数

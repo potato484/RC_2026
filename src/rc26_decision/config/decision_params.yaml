@@ -4,16 +4,17 @@ rc26_decision:
     tree_file: "main_tree.xml"
     tick_rate_ms: 100
 
-    # 串口启用开关
+    # 兼容保留（P4 后不再由 decision 直接持有串口）
     enable_cmd_serial: true
 
-    # 命令串口配置 (串口2)
+    # 兼容保留（P4 后不再由 decision 直接持有串口）
     cmd_serial_port: "/dev/ttyUSB1"
     cmd_baudrate: 115200
 
-    # 心跳配置
+    # 兼容保留（P4 后不再由 decision 直接持有串口）
     enable_heartbeat: true
     heartbeat_rate_hz: 1
+    mechanism_state_topic: "/mechanism/state"
 
     # 里程计话题（用于停车判定等）
     odom_topic: "wheel_odom"
@@ -28,3 +29,7 @@ rc26_decision:
     keepout_gate.enable: true
     keepout_gate.max_age_ms: 300.0
     keepout_gate.timeout_sec: 3.0
+
+    # MC 端头架中心（map）
+    tip_rack_center_x: 0.0
+    tip_rack_center_y: 0.0

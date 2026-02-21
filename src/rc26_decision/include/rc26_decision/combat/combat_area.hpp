@@ -2,46 +2,47 @@
 #pragma once
 
 #include <behaviortree_cpp/bt_factory.h>
-#include <rclcpp/rclcpp.hpp>
 
-#include "rc26_serial/protocol.hpp"
+#include "rc26_decision/common/bt_action_node.hpp"
+#include "rc26_interfaces/action/execute_mechanism.hpp"
+#include "rc26_interfaces/action/place_kfs_grid.hpp"
 
 namespace rc26_decision {
 
 // 机构抬升节点 (对抗区)
-class MechUpDuelAction : public BT::StatefulActionNode {
+class MechUpDuelAction : public BtActionNode<rc26_interfaces::action::ExecuteMechanism> {
 public:
     MechUpDuelAction(const std::string& name, const BT::NodeConfig& config);
 
     static BT::PortsList providedPorts();
 
-    BT::NodeStatus onStart() override;
-    BT::NodeStatus onRunning() override;
-    void onHalted() override;
+protected:
+    bool buildGoal(Goal& goal) override;
+    BT::NodeStatus handleResult(const WrappedResult& result, uint16_t& error_code) override;
 };
 
 // 放置 KFS 到九宫格节点
-class PlaceKFSGridAction : public BT::StatefulActionNode {
+class PlaceKFSGridAction : public BtActionNode<rc26_interfaces::action::PlaceKFSGrid> {
 public:
     PlaceKFSGridAction(const std::string& name, const BT::NodeConfig& config);
 
     static BT::PortsList providedPorts();
 
-    BT::NodeStatus onStart() override;
-    BT::NodeStatus onRunning() override;
-    void onHalted() override;
+protected:
+    bool buildGoal(Goal& goal) override;
+    BT::NodeStatus handleResult(const WrappedResult& result, uint16_t& error_code) override;
 };
 
 // 放置 KFS 到地面节点
-class PlaceKFSGroundAction : public BT::StatefulActionNode {
+class PlaceKFSGroundAction : public BtActionNode<rc26_interfaces::action::ExecuteMechanism> {
 public:
     PlaceKFSGroundAction(const std::string& name, const BT::NodeConfig& config);
 
     static BT::PortsList providedPorts();
 
-    BT::NodeStatus onStart() override;
-    BT::NodeStatus onRunning() override;
-    void onHalted() override;
+protected:
+    bool buildGoal(Goal& goal) override;
+    BT::NodeStatus handleResult(const WrappedResult& result, uint16_t& error_code) override;
 };
 
 // 云台控制节点

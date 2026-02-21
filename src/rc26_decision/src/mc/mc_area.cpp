@@ -1,61 +1,56 @@
-
 // 武馆区 (MC Area) 行为树节点实现
 #include "rc26_decision/mc/mc_area.hpp"
 
 namespace rc26_decision {
 
 // ============================================================================
-// GrabTipAction - 取矛头
+// GrabTipAction - 取端头（ROS2 Action 客户端）
 // ============================================================================
 GrabTipAction::GrabTipAction(const std::string& name, const BT::NodeConfig& config)
-    : BT::StatefulActionNode(name, config) {}
+    : BtActionNode<rc26_interfaces::action::GrabTip>(
+          name, config, "/mechanism/grab_tip", std::chrono::seconds(8)) {}
 
 BT::PortsList GrabTipAction::providedPorts() {
-    return {};
+    return BtActionNode<rc26_interfaces::action::GrabTip>::basePorts(8.0);
 }
 
-BT::NodeStatus GrabTipAction::onStart() {
-
-
-
-
-    return BT::NodeStatus::RUNNING;
+bool GrabTipAction::buildGoal(Goal& goal) {
+    (void)goal;
+    return true;
 }
 
-BT::NodeStatus GrabTipAction::onRunning() {
-    // TODO: 等待 GRAB_DONE 反馈
-
-    return BT::NodeStatus::RUNNING;
-}
-
-void GrabTipAction::onHalted() {
-    // TODO: 发送 STOP 指令
-}
-
-// ============================================================================
-// AssembleWeaponAction - 组装兵器
-// ============================================================================
-AssembleWeaponAction::AssembleWeaponAction(const std::string& name, const BT::NodeConfig& config)
-    : BT::StatefulActionNode(name, config) {}
-
-BT::PortsList AssembleWeaponAction::providedPorts() {
-
-    
-    return {};
-}
-
-BT::NodeStatus AssembleWeaponAction::onStart() {
-    // TODO: 发送 ASSEMBLE_WEAPON 指令
-    return BT::NodeStatus::RUNNING;
-}
-
-BT::NodeStatus AssembleWeaponAction::onRunning() {
-    // TODO: 等待 ASSEMBLE_DONE 反馈
+BT::NodeStatus GrabTipAction::handleResult(const WrappedResult& result, uint16_t& error_code) {
+    if (result.code != rclcpp_action::ResultCode::SUCCEEDED || !result.result || !result.result->success) {
+        error_code = (result.result ? result.result->error_code : 0);
+        return BT::NodeStatus::FAILURE;
+    }
+    error_code = 0;
     return BT::NodeStatus::SUCCESS;
 }
 
-void AssembleWeaponAction::onHalted() {
-    // TODO: 发送 STOP 指令
+// ============================================================================
+// AssembleWeaponAction - 组装兵器（ROS2 Action 客户端）
+// ============================================================================
+AssembleWeaponAction::AssembleWeaponAction(const std::string& name, const BT::NodeConfig& config)
+    : BtActionNode<rc26_interfaces::action::AssembleWeapon>(
+          name, config, "/mechanism/assemble_weapon", std::chrono::seconds(30)) {}
+
+BT::PortsList AssembleWeaponAction::providedPorts() {
+    return BtActionNode<rc26_interfaces::action::AssembleWeapon>::basePorts(30.0);
+}
+
+bool AssembleWeaponAction::buildGoal(Goal& goal) {
+    (void)goal;
+    return true;
+}
+
+BT::NodeStatus AssembleWeaponAction::handleResult(const WrappedResult& result, uint16_t& error_code) {
+    if (result.code != rclcpp_action::ResultCode::SUCCEEDED || !result.result || !result.result->success) {
+        error_code = (result.result ? result.result->error_code : 0);
+        return BT::NodeStatus::FAILURE;
+    }
+    error_code = 0;
+    return BT::NodeStatus::SUCCESS;
 }
 
 // ============================================================================

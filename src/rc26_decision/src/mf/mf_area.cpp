@@ -3,11 +3,13 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 
 #include "rc26_decision/navigation/smart_waypoint_navigator.hpp"
 #include "rc26_decision/navigation/waypoint_manager.hpp"
-#include "rc26_serial/serial_driver.hpp"
+#include "rc26_serial/protocol.hpp"
+#include "rc26_vision/types.hpp"
 
 namespace rc26_decision {
 
@@ -208,146 +210,130 @@ void StairDescendAction::onHalted() {
 // GrabKFSAction - 夹取 KFS
 // ============================================================================
 GrabKFSAction::GrabKFSAction(const std::string& name, const BT::NodeConfig& config)
-    : BT::StatefulActionNode(name, config) {}
+    : BtActionNode<rc26_interfaces::action::ExecuteMechanism>(
+          name, config, "/mechanism/execute", std::chrono::seconds(8)) {}
 
 BT::PortsList GrabKFSAction::providedPorts() {
-    return {};
+    return BtActionNode<rc26_interfaces::action::ExecuteMechanism>::basePorts(8.0);
 }
 
-BT::NodeStatus GrabKFSAction::onStart() {
-    std::shared_ptr<SerialDriver> serial;
-    if (!config().blackboard->get("cmd_serial", serial) || !serial) {
+bool GrabKFSAction::buildGoal(Goal& goal) {
+    double timeout_sec = 8.0;
+    (void)getInput("timeout_sec", timeout_sec);
+    goal.command_id = static_cast<uint8_t>(CommandID::GRAB_KFS);
+    goal.payload.clear();
+    goal.timeout_sec = static_cast<float>(timeout_sec);
+    return true;
+}
+
+BT::NodeStatus GrabKFSAction::handleResult(const WrappedResult& result, uint16_t& error_code) {
+    if (result.code != rclcpp_action::ResultCode::SUCCEEDED || !result.result || !result.result->success) {
+        error_code = (result.result ? result.result->error_code : 0);
         return BT::NodeStatus::FAILURE;
     }
-    config().blackboard->set("grab_kfs_done", false);
-    serial->sendCommand(CommandID::GRAB_KFS);
-    return BT::NodeStatus::RUNNING;
+    error_code = 0;
+    return BT::NodeStatus::SUCCESS;
 }
 
-BT::NodeStatus GrabKFSAction::onRunning() {
-    bool done = false;
-    config().blackboard->get("grab_kfs_done", done);
-    return done ? BT::NodeStatus::SUCCESS : BT::NodeStatus::RUNNING;
-}
+namespace {
 
-void GrabKFSAction::onHalted() {
-    std::shared_ptr<SerialDriver> serial;
-    if (config().blackboard->get("cmd_serial", serial) && serial) {
-        serial->sendStop();
+BT::NodeStatus handleExecuteMechanismResult(
+    const BtActionNode<rc26_interfaces::action::ExecuteMechanism>::WrappedResult& result,
+    uint16_t& error_code) {
+    if (result.code != rclcpp_action::ResultCode::SUCCEEDED || !result.result || !result.result->success) {
+        error_code = (result.result ? result.result->error_code : 0);
+        return BT::NodeStatus::FAILURE;
     }
+    error_code = 0;
+    return BT::NodeStatus::SUCCESS;
 }
+
+}  // namespace
 
 // ============================================================================
 // MechUpMerlinAction - 梅林区机构抬升
 // ============================================================================
 MechUpMerlinAction::MechUpMerlinAction(const std::string& name, const BT::NodeConfig& config)
-    : BT::StatefulActionNode(name, config) {}
+    : BtActionNode<rc26_interfaces::action::ExecuteMechanism>(
+          name, config, "/mechanism/execute", std::chrono::seconds(8)) {}
 
 BT::PortsList MechUpMerlinAction::providedPorts() {
-    return {};
+    return BtActionNode<rc26_interfaces::action::ExecuteMechanism>::basePorts(8.0);
 }
 
-BT::NodeStatus MechUpMerlinAction::onStart() {
-    std::shared_ptr<SerialDriver> serial;
-    if (!config().blackboard->get("cmd_serial", serial) || !serial) {
-        return BT::NodeStatus::FAILURE;
-    }
-    config().blackboard->set("mech_up_merlin_done", false);
-    serial->sendCommand(CommandID::MECH_UP_MERLIN);
-    return BT::NodeStatus::RUNNING;
+bool MechUpMerlinAction::buildGoal(Goal& goal) {
+    double timeout_sec = 8.0;
+    (void)getInput("timeout_sec", timeout_sec);
+    goal.command_id = static_cast<uint8_t>(CommandID::MECH_UP_MERLIN);
+    goal.payload.clear();
+    goal.timeout_sec = static_cast<float>(timeout_sec);
+    return true;
 }
 
-BT::NodeStatus MechUpMerlinAction::onRunning() {
-    bool done = false;
-    config().blackboard->get("mech_up_merlin_done", done);
-    return done ? BT::NodeStatus::SUCCESS : BT::NodeStatus::RUNNING;
-}
-
-void MechUpMerlinAction::onHalted() {
-    std::shared_ptr<SerialDriver> serial;
-    if (config().blackboard->get("cmd_serial", serial) && serial) {
-        serial->sendStop();
-    }
+BT::NodeStatus MechUpMerlinAction::handleResult(const WrappedResult& result, uint16_t& error_code) {
+    return handleExecuteMechanismResult(result, error_code);
 }
 
 // ============================================================================
 // MechDownMerlinAction - 梅林区机构下降
 // ============================================================================
 MechDownMerlinAction::MechDownMerlinAction(const std::string& name, const BT::NodeConfig& config)
-    : BT::StatefulActionNode(name, config) {}
+    : BtActionNode<rc26_interfaces::action::ExecuteMechanism>(
+          name, config, "/mechanism/execute", std::chrono::seconds(8)) {}
 
 BT::PortsList MechDownMerlinAction::providedPorts() {
-    return {};
+    return BtActionNode<rc26_interfaces::action::ExecuteMechanism>::basePorts(8.0);
 }
 
-BT::NodeStatus MechDownMerlinAction::onStart() {
-    std::shared_ptr<SerialDriver> serial;
-    if (!config().blackboard->get("cmd_serial", serial) || !serial) {
-        return BT::NodeStatus::FAILURE;
-    }
-    config().blackboard->set("mech_down_merlin_done", false);
-    serial->sendCommand(CommandID::MECH_DOWN_MERLIN);
-    return BT::NodeStatus::RUNNING;
+bool MechDownMerlinAction::buildGoal(Goal& goal) {
+    double timeout_sec = 8.0;
+    (void)getInput("timeout_sec", timeout_sec);
+    goal.command_id = static_cast<uint8_t>(CommandID::MECH_DOWN_MERLIN);
+    goal.payload.clear();
+    goal.timeout_sec = static_cast<float>(timeout_sec);
+    return true;
 }
 
-BT::NodeStatus MechDownMerlinAction::onRunning() {
-    bool done = false;
-    config().blackboard->get("mech_down_merlin_done", done);
-    return done ? BT::NodeStatus::SUCCESS : BT::NodeStatus::RUNNING;
-}
-
-void MechDownMerlinAction::onHalted() {
-    std::shared_ptr<SerialDriver> serial;
-    if (config().blackboard->get("cmd_serial", serial) && serial) {
-        serial->sendStop();
-    }
+BT::NodeStatus MechDownMerlinAction::handleResult(const WrappedResult& result, uint16_t& error_code) {
+    return handleExecuteMechanismResult(result, error_code);
 }
 
 // ============================================================================
 // RotateAction - 旋转
 // ============================================================================
 RotateAction::RotateAction(const std::string& name, const BT::NodeConfig& config)
-    : BT::StatefulActionNode(name, config) {}
+    : BtActionNode<rc26_interfaces::action::ExecuteMechanism>(
+          name, config, "/mechanism/execute", std::chrono::seconds(8)) {}
 
 BT::PortsList RotateAction::providedPorts() {
-    return {
-        BT::InputPort<int>("angle", "旋转角度 (90, -90, 180, -180)"),
-    };
+    auto ports = BtActionNode<rc26_interfaces::action::ExecuteMechanism>::basePorts(8.0);
+    ports.insert(BT::InputPort<int>("angle", "旋转角度 (90, -90, 180, -180)"));
+    return ports;
 }
 
-BT::NodeStatus RotateAction::onStart() {
-    std::shared_ptr<SerialDriver> serial;
-    if (!config().blackboard->get("cmd_serial", serial) || !serial) {
-        return BT::NodeStatus::FAILURE;
-    }
+bool RotateAction::buildGoal(Goal& goal) {
     int angle = 0;
     if (!getInput("angle", angle)) {
-        return BT::NodeStatus::FAILURE;
+        return false;
     }
-    config().blackboard->set("rotate_done", false);
-    CommandID cmd;
+    CommandID cmd = CommandID::ROTATE_POS_90;
     switch (angle) {
     case 90:   cmd = CommandID::ROTATE_POS_90; break;
     case -90:  cmd = CommandID::ROTATE_NEG_90; break;
     case 180:  cmd = CommandID::ROTATE_POS_180; break;
     case -180: cmd = CommandID::ROTATE_NEG_180; break;
-    default:   return BT::NodeStatus::FAILURE;
+    default:   return false;
     }
-    serial->sendCommand(cmd);
-    return BT::NodeStatus::RUNNING;
+    double timeout_sec = 8.0;
+    (void)getInput("timeout_sec", timeout_sec);
+    goal.command_id = static_cast<uint8_t>(cmd);
+    goal.payload.clear();
+    goal.timeout_sec = static_cast<float>(timeout_sec);
+    return true;
 }
 
-BT::NodeStatus RotateAction::onRunning() {
-    bool done = false;
-    config().blackboard->get("rotate_done", done);
-    return done ? BT::NodeStatus::SUCCESS : BT::NodeStatus::RUNNING;
-}
-
-void RotateAction::onHalted() {
-    std::shared_ptr<SerialDriver> serial;
-    if (config().blackboard->get("cmd_serial", serial) && serial) {
-        serial->sendStop();
-    }
+BT::NodeStatus RotateAction::handleResult(const WrappedResult& result, uint16_t& error_code) {
+    return handleExecuteMechanismResult(result, error_code);
 }
 
 // ============================================================================
@@ -475,11 +461,11 @@ BT::PortsList ScanSurroundingsAction::providedPorts() {
 }
 
 BT::NodeStatus ScanSurroundingsAction::onStart() {
-    config().blackboard->get("merlin_map", map_);
+    (void)config().blackboard->get("merlin_map", map_);
     if (!map_) {
         map_ = std::make_shared<MerlinMapManager>();
         std::string team = "red";
-        config().blackboard->get("team", team);
+        (void)config().blackboard->get("team", team);
         if (team == "blue") {
             map_->initBlueMap();
         } else {
@@ -487,15 +473,49 @@ BT::NodeStatus ScanSurroundingsAction::onStart() {
         }
         config().blackboard->set("merlin_map", map_);
     }
-    phase_ = ScanPhase::ROTATE_LEFT;
-    // TODO: 发送云台左转指令 (接口待定)
-    return BT::NodeStatus::RUNNING;
+
+    int current_grid = 2;
+    (void)config().blackboard->get("current_grid", current_grid);
+
+    const int front = map_->getAdjacentGrid(current_grid, MFDirection::FRONT);
+    const int left = map_->getAdjacentGrid(current_grid, MFDirection::LEFT);
+    const int right = map_->getAdjacentGrid(current_grid, MFDirection::RIGHT);
+
+    for (const int grid_id : {front, left, right}) {
+        if (grid_id < 1 || grid_id > 12) {
+            continue;
+        }
+        if (map_->getKFS(grid_id) == KFSType::UNKNOWN) {
+            map_->setKFS(grid_id, KFSType::NONE);
+        }
+    }
+
+    bool vision_has_target = false;
+    int vision_attr_kind = static_cast<int>(rc26_vision::AttributeKind::Unknown);
+    (void)config().blackboard->get("vision_has_target", vision_has_target);
+    (void)config().blackboard->get("vision_attr_kind", vision_attr_kind);
+    if (vision_has_target && front >= 1 && front <= 12) {
+        switch (static_cast<rc26_vision::AttributeKind>(vision_attr_kind)) {
+        case rc26_vision::AttributeKind::R_R1:
+        case rc26_vision::AttributeKind::B_R1:
+            map_->setKFS(front, KFSType::R1);
+            break;
+        case rc26_vision::AttributeKind::Truth:
+            map_->setKFS(front, KFSType::R2);
+            break;
+        case rc26_vision::AttributeKind::False:
+            map_->setKFS(front, KFSType::FAKE);
+            break;
+        default:
+            break;
+        }
+    }
+
+    phase_ = ScanPhase::DONE;
+    return BT::NodeStatus::SUCCESS;
 }
 
 BT::NodeStatus ScanSurroundingsAction::onRunning() {
-    // TODO: 实现完整的扫描状态机
-    // 当前简化实现：直接返回成功
-    // 完整实现需要：云台旋转 + 视觉检测 + 地图更新
     return BT::NodeStatus::SUCCESS;
 }
 
@@ -518,13 +538,13 @@ BT::PortsList SelectNextGridAction::providedPorts() {
 
 BT::NodeStatus SelectNextGridAction::tick() {
     int current = 2, kfs_count = 0, target_kfs = 2, exit_grid = 10;
-    config().blackboard->get("current_grid", current);
-    config().blackboard->get("kfs_on_board", kfs_count);
-    config().blackboard->get("target_kfs_count", target_kfs);
-    config().blackboard->get("exit_grid", exit_grid);
+    (void)config().blackboard->get("current_grid", current);
+    (void)config().blackboard->get("kfs_on_board", kfs_count);
+    (void)config().blackboard->get("target_kfs_count", target_kfs);
+    (void)config().blackboard->get("exit_grid", exit_grid);
 
     std::shared_ptr<MerlinMapManager> map;
-    config().blackboard->get("merlin_map", map);
+    (void)config().blackboard->get("merlin_map", map);
     if (!map) return BT::NodeStatus::FAILURE;
 
     // P1: 贪婪抓取
@@ -643,7 +663,7 @@ UpdateMapKFSAction::UpdateMapKFSAction(const std::string& name, const BT::NodeCo
 BT::PortsList UpdateMapKFSAction::providedPorts() {
     return {
         BT::InputPort<int>("grid_id"),
-        BT::InputPort<int>("kfs_type", 0),
+        BT::InputPort<int>("kfs_type", static_cast<int>(0), "目标 KFS 类型"),
     };
 }
 
