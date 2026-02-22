@@ -26,7 +26,7 @@ std::chrono::milliseconds timeoutFromGoal(float timeout_sec, std::chrono::millis
 MechanismLifecycleServer::MechanismLifecycleServer(const rclcpp::NodeOptions& opts)
     : rclcpp_lifecycle::LifecycleNode("mechanism_server", opts) {
     this->declare_parameter<std::string>("serial_port", "/dev/ttyUSB1");
-    this->declare_parameter<int>("serial_baud", 115200);
+    this->declare_parameter<int>("serial_baud", 1000000);
 }
 
 MechanismLifecycleServer::CallbackReturn

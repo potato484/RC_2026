@@ -1,11 +1,15 @@
 // RC2026 串口驱动实现
 #include "rc26_serial/serial_driver.hpp"
 
+#include <cassert>
 #include <cerrno>
 #include <cstring>
 #include <stdexcept>
 
 #include <fcntl.h>
+#ifdef __linux__
+#include <pthread.h>
+#endif
 #include <rclcpp/rclcpp.hpp>
 #include <sys/select.h>
 #include <termios.h>
@@ -84,11 +88,21 @@ bool toTermiosBaudrate(int baudrate, speed_t& baud) {
 std::string errnoText(int err) {
     return std::to_string(err) + " (" + std::string(std::strerror(err)) + ")";
 }
+
+thread_local bool tl_in_recv_callback = false;
 }  // namespace
 
-SerialDriver::SerialDriver() = default;
+SerialDriver::SerialDriver() {
+    reconnect_thread_running_ = true;
+    reconnect_thread_ = std::thread(&SerialDriver::reconnectThreadFunc, this);
+}
 
 SerialDriver::~SerialDriver() {
+    reconnect_thread_running_ = false;
+    reconnect_cv_.notify_one();
+    if (reconnect_thread_.joinable()) {
+        reconnect_thread_.join();
+    }
     close();
 }
 
@@ -196,6 +210,15 @@ bool SerialDriver::open(const std::string& port, int baudrate) {
     try {
         running_ = true;
         recv_thread_ = std::thread(&SerialDriver::recvThreadFunc, this);
+#ifdef __linux__
+        {
+            struct sched_param sp {};
+            sp.sched_priority = 60;
+            if (pthread_setschedparam(recv_thread_.native_handle(), SCHED_FIFO, &sp) != 0) {
+                RCLCPP_WARN(serialLogger(), "设置接收线程实时优先级失败（需 CAP_SYS_NICE 或 root）");
+            }
+        }
+#endif
     } catch (const std::exception& e) {
         running_ = false;
         setLastError(std::string("启动接收线程失败: ") + e.what());
@@ -280,6 +303,30 @@ void SerialDriver::setReconnectStartCallback(ReconnectStartCallback callback) {
 void SerialDriver::setReconnectFailedCallback(ReconnectFailedCallback callback) {
     std::lock_guard<std::mutex> lock(callback_mutex_);
     reconnect_failed_callback_ = std::move(callback);
+}
+
+void SerialDriver::reconnectThreadFunc() {
+    while (reconnect_thread_running_) {
+        {
+            std::unique_lock<std::mutex> lock(reconnect_cv_mutex_);
+            reconnect_cv_.wait(lock, [this]() {
+                return !reconnect_thread_running_.load() || reconnect_requested_.load();
+            });
+        }
+
+        if (!reconnect_thread_running_) {
+            break;
+        }
+        if (reconnect_requested_.exchange(false)) {
+            reconnect();
+        }
+    }
+}
+
+void SerialDriver::requestReconnect(const char* reason) {
+    RCLCPP_WARN(serialLogger(), "请求重连: %s", reason);
+    reconnect_requested_.store(true);
+    reconnect_cv_.notify_one();
 }
 
 bool SerialDriver::reconnect() {
@@ -465,6 +512,15 @@ void SerialDriver::notifyAck(uint8_t seq, uint8_t cmd) {
         RCLCPP_DEBUG(serialLogger(), "收到 HEARTBEAT_ACK：seq=%u", seq);
         return;
     }
+
+    if (cmd == static_cast<uint8_t>(FeedbackID::ACTION_FAIL) ||
+        cmd == static_cast<uint8_t>(FeedbackID::ERROR)) {
+        ack_response_received_ = true;
+        ack_success_ = false;
+        ack_cv_.notify_all();
+        RCLCPP_DEBUG(serialLogger(), "ACTION_FAIL/ERROR: seq=%u cmd=0x%02X", seq, cmd);
+        return;
+    }
 }
 
 bool SerialDriver::sendCommandNoAck(uint8_t cmd, const std::vector<uint8_t>& payload) {
@@ -495,6 +551,12 @@ bool SerialDriver::sendCommandNoAck(uint8_t cmd, const std::vector<uint8_t>& pay
 }
 
 bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload) {
+    if (tl_in_recv_callback) {
+        setLastError("sendCommand() 在接收回调上下文中被调用");
+        RCLCPP_ERROR(serialLogger(), "sendCommand() 在接收回调内被调用（会死锁），立即返回失败");
+        return false;
+    }
+
     if (fd_ < 0) {
         setLastError("串口未打开");
         return false;
@@ -504,8 +566,8 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload)
 
     // 重发机制：retry从0x00开始，步长1，每100ms重发一次
     // 每3次为1轮，达到0x09后触发重连
+    uint8_t seq = nextSeq();
     for (uint8_t retry = 0x00; retry <= MAX_RETRY_VALUE; ++retry) {
-        uint8_t seq = nextSeq();
         std::vector<uint8_t> frame = buildFrame(seq, cmd, payload, retry);
         if (frame.empty()) {
             return false;
@@ -551,7 +613,7 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload)
     // 所有重试失败（0x00-0x09共10次），触发串口重连
     RCLCPP_ERROR(serialLogger(), "指令重发失败 cmd=0x%02X, 已达最大重试次数(0x09)，触发串口重连", cmd);
 
-    reconnect();
+    requestReconnect("ack_retry_exhausted");
 
     setLastError("等待 ACK 超时：cmd=" + std::to_string(static_cast<int>(cmd)) + ", 已重试至0x09并触发重连");
     return false;
@@ -623,7 +685,7 @@ bool SerialDriver::sendHeartbeat() {
     if (failures >= MAX_HEARTBEAT_FAILURES) {
         RCLCPP_ERROR(serialLogger(), "心跳连续失败%u次，触发串口重连", failures);
         notifyHeartbeatFailure();
-        reconnect();
+        requestReconnect("heartbeat_failure");
     }
 
     return false;
@@ -714,6 +776,7 @@ void SerialDriver::recvThreadFunc() {
                     }
                     // 设备断开，退出接收线程并由外部触发重连
                     // 注意：不在此处直接调用 reconnect()，避免线程生命周期问题
+                    requestReconnect("read_eof");
                     running_ = false;
                     break;
                 }
@@ -853,6 +916,7 @@ void SerialDriver::parseReceivedData() {
         notifyAck(seq, cmd);
 
         if (recv_cb) {
+            tl_in_recv_callback = true;
             try {
                 recv_cb(seq, cmd, payload);
             } catch (const std::exception& e) {
@@ -862,6 +926,7 @@ void SerialDriver::parseReceivedData() {
                 setLastError("接收回调异常: 未知异常");
                 RCLCPP_ERROR(serialLogger(), "接收回调抛未知异常");
             }
+            tl_in_recv_callback = false;
         }
 
         std::memmove(recv_buffer_, &recv_buffer_[frame_size], recv_len_ - frame_size);

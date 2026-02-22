@@ -10,7 +10,7 @@ public:
     PoseSenderNode() : Node("pose_sender_node") {
         this->declare_parameter("feedback_serial_port", "/dev/ttyUSB0");
         this->declare_parameter("target_serial_port", "/dev/ttyUSB1");
-        this->declare_parameter("baudrate", 115200);
+        this->declare_parameter("baudrate", 1000000);
         this->declare_parameter("cmd_vel_topic", "cmd_vel");
         this->declare_parameter("odom_topic", "merge_odom");
         this->declare_parameter("feedback_send_rate_hz", 50);

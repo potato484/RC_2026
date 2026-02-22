@@ -29,7 +29,7 @@ public:
         // 双串口参数
         this->declare_parameter("feedback_serial_port", "/dev/ttyUSB0");
         this->declare_parameter("target_serial_port", "/dev/ttyUSB1");
-        this->declare_parameter("baudrate", 115200);
+        this->declare_parameter("baudrate", 1000000);
 
         // 速度发送参数
         this->declare_parameter("cmd_vel_topic", "cmd_vel");

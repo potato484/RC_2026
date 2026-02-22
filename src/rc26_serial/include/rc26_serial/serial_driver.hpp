@@ -50,6 +50,7 @@ public:
     // ========================================================================
     // 回调设置
     // ========================================================================
+    // CONSTRAINT: 回调内禁止调用 sendCommand()/close()/open()，否则 recv 线程无法递送 ACK 而死锁
     void setReceiveCallback(ReceiveCallback callback);
     void setHeartbeatFailureCallback(HeartbeatFailureCallback callback);
     using ReconnectCallback = std::function<void()>;
@@ -109,6 +110,8 @@ private:
     void notifyReconnectFailed();
 
     bool reconnect();
+    void reconnectThreadFunc();
+    void requestReconnect(const char* reason);
 
     void recvThreadFunc();
     void parseReceivedData();
@@ -122,6 +125,13 @@ private:
     ReconnectFailedCallback reconnect_failed_callback_;
     std::atomic<uint8_t> heartbeat_failure_count_{0};
     std::atomic<bool> reconnecting_{false};
+
+    // 异步重连线程（生命周期绑定 SerialDriver 对象）
+    std::atomic<bool> reconnect_thread_running_{false};
+    std::thread reconnect_thread_;
+    std::mutex reconnect_cv_mutex_;
+    std::condition_variable reconnect_cv_;
+    std::atomic<bool> reconnect_requested_{false};
 };
 
 }  // namespace rc26_decision
