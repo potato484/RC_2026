@@ -26,7 +26,7 @@ localization:
     # 决策层使用的机器人基坐标系（通常与 base_frame 相同）
     robot_base_frame: base_link
     # 激光雷达坐标系名称（由 URDF / tf static 定义）
-    lidar_frame: laser_link
+    lidar_frame: livox_frame
     
     # 先验点云文件 (由 launch 参数覆盖)
     # 地图 PCD 路径；建图阶段可为空，导航阶段必须为有效文件
