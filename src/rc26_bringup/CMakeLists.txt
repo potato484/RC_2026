@@ -17,4 +17,8 @@ install(DIRECTORY scripts
   USE_SOURCE_PERMISSIONS
 )
 
+install(PROGRAMS test/eval_controller.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()

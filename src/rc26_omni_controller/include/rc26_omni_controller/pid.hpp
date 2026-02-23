@@ -19,11 +19,13 @@ public:
     // 计算控制输出
     double calculate(double set_point, double pv);
     void setSumError(double sum_error);
+    void setDt(double dt);
 
     // 动态更新参数
     void setGains(double kp, double kd, double ki);
     void setOutputLimits(double min, double max);
     void setIntegralLimits(double max_integral);  // [M2 修复] 积分限幅设置
+    void setDerivativeFilterTau(double tau);
 
     ~PID();
 
@@ -37,4 +39,6 @@ private:
     double pre_error_;
     double integral_;
     double max_integral_{1.0};  // [M2 修复] 积分限幅 (默认 1.0)
+    double derivative_{0.0};
+    double tau_{0.02};
 };

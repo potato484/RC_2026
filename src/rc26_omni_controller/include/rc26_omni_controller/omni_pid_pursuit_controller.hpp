@@ -6,12 +6,17 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
 #include "nav2_core/controller.hpp"
 #include "rc26_omni_controller/pid.hpp"
+#include "std_msgs/msg/float64.hpp"
+#include "std_msgs/msg/u_int32.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 
 namespace rc26_omni_controller {
@@ -64,8 +69,9 @@ protected:
     bool isCollisionDetected(const nav_msgs::msg::Path& path);
 
 private:
-    void applyCurvatureLimitation(const nav_msgs::msg::Path& path,
-                                  const geometry_msgs::msg::PoseStamped& lookahead_pose, double& linear_vel);
+    double applyCurvatureLimitation(const nav_msgs::msg::Path& path,
+                                    const geometry_msgs::msg::PoseStamped& lookahead_pose, double& linear_vel,
+                                    double real_dt);
 
     double calculateCurvature(const nav_msgs::msg::Path& path, const geometry_msgs::msg::PoseStamped& lookahead_pose,
                               double forward_dist, double backward_dist) const;
@@ -81,7 +87,7 @@ private:
 
     geometry_msgs::msg::PoseStamped findPoseAtDistance(const nav_msgs::msg::Path& path,
                                                        const std::vector<double>& cumulative_distances,
-                                                       double target_distance) const;
+                                                       size_t cumulative_offset, double target_distance) const;
 
 private:
     rclcpp_lifecycle::LifecycleNode::WeakPtr node_;
@@ -92,6 +98,7 @@ private:
     rclcpp::Logger logger_{rclcpp::get_logger("OmniPidPursuitController")};
     rclcpp::Clock::SharedPtr clock_;
     double last_velocity_scaling_factor_;
+    rclcpp::Time last_time_;
 
     std::shared_ptr<PID> move_pid_;
     std::shared_ptr<PID> heading_pid_;
@@ -113,24 +120,41 @@ private:
     double use_rotate_to_heading_threshold_;
     double v_linear_min_;
     double v_linear_max_;
+    double configured_v_linear_max_;
     double v_angular_min_;
     double v_angular_max_;
+    double a_linear_max_;
+    double a_angular_max_;
+    double last_lin_vel_{0.0};
+    double last_ang_vel_{0.0};
     double min_approach_linear_velocity_;
     double approach_velocity_scaling_dist_;
-    double curvature_min_;
-    double curvature_max_;
-    double reduction_ratio_at_high_curvature_;
+    double a_lateral_max_;
     double curvature_forward_dist_;
     double curvature_backward_dist_;
     double max_velocity_scaling_factor_rate_;
+    double kv_ff_;
+    double goal_dist_scale_;
+    double wheel_base_;
+    double track_width_;
+    double wheel_speed_max_;
+    double derivative_filter_tau_;
+    bool publish_debug_{false};
+    uint32_t collision_check_outside_map_count_{0};
     tf2::Duration transform_tolerance_;
+    std::vector<double> plan_cumulative_distances_;
+    size_t plan_prune_idx_{0};
 
     nav_msgs::msg::Path global_plan_;
     rclcpp_lifecycle::LifecyclePublisher<nav_msgs::msg::Path>::SharedPtr local_path_pub_;
     rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PointStamped>::SharedPtr carrot_pub_;
     rclcpp_lifecycle::LifecyclePublisher<visualization_msgs::msg::MarkerArray>::SharedPtr curvature_points_pub_;
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr real_dt_pub_;
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr compute_time_ms_pub_;
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr pose_age_ms_pub_;
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::UInt32>::SharedPtr collision_check_outside_map_count_pub_;
 
-    std::mutex mutex_;
+    std::recursive_mutex mutex_;
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;
 };
 

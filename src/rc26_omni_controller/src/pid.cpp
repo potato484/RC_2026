@@ -41,9 +41,10 @@ double PID::calculate(double set_point, double pv) {
 
     double i_out = ki_ * integral_;
 
-    // 微分项
-    double derivative = (error - pre_error_) / dt_;
-    double d_out = kd_ * derivative;
+    // 微分项（一阶低通滤波，抑制高频噪声）
+    const double alpha = dt_ / (tau_ + dt_);
+    derivative_ = alpha * (error - pre_error_) / dt_ + (1.0 - alpha) * derivative_;
+    double d_out = kd_ * derivative_;
 
     // 计算总输出
     double output = p_out + i_out + d_out;
@@ -64,6 +65,10 @@ void PID::setSumError(double sum_error) {
     integral_ = sum_error;
 }
 
+void PID::setDt(double dt) {
+    dt_ = dt;
+}
+
 void PID::setGains(double kp, double kd, double ki) {
     kp_ = kp;
     kd_ = kd;
@@ -77,6 +82,12 @@ void PID::setOutputLimits(double min, double max) {
 
 void PID::setIntegralLimits(double max_integral) {
     max_integral_ = max_integral;
+}
+
+void PID::setDerivativeFilterTau(double tau) {
+    if (std::isfinite(tau) && tau > 1e-6) {
+        tau_ = tau;
+    }
 }
 
 PID::~PID() {}
