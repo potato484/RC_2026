@@ -14,8 +14,8 @@
 
 #pragma once
 
+#include "geometry_msgs/msg/twist_with_covariance.hpp"
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 
@@ -26,7 +26,6 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "tf2_ros/buffer.h"
-#include "tf2_ros/transform_broadcaster.h"
 #include "tf2_ros/transform_listener.h"
 
 namespace rc26_sensor_scan {
@@ -39,16 +38,10 @@ private:
     void laserCloudAndOdometryHandler(const nav_msgs::msg::Odometry::ConstSharedPtr& odometry,
                                       const sensor_msgs::msg::PointCloud2::ConstSharedPtr& laserCloud2);
 
-    std::optional<tf2::Transform> getTransform(const std::string& target_frame, const std::string& source_frame,
-                                               const rclcpp::Time& time);
-
     std::optional<tf2::Transform> getStaticTransform(const std::string& target_frame, const std::string& source_frame);
 
-    void publishTransform(const tf2::Transform& transform, const std::string& parent_frame,
-                          const std::string& child_frame, const rclcpp::Time& stamp);
-
-    void publishOdometry(const tf2::Transform& transform, std::string parent_frame, const std::string& child_frame,
-                         const rclcpp::Time& stamp);
+    void publishOdometry(const tf2::Transform& transform, const geometry_msgs::msg::TwistWithCovariance& twist,
+                         std::string parent_frame, const std::string& child_frame, const rclcpp::Time& stamp);
 
     std::string lidar_frame_;
     std::string base_frame_;
@@ -59,7 +52,6 @@ private:
     std::string odometry_topic_;
     double max_time_diff_sec_{0.1};
 
-    std::unique_ptr<tf2_ros::TransformBroadcaster> br_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_laser_cloud_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_chassis_odometry_;
 
@@ -74,15 +66,6 @@ private:
     using SyncPolicy =
         message_filters::sync_policies::ApproximateTime<nav_msgs::msg::Odometry, sensor_msgs::msg::PointCloud2>;
     std::unique_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
-
-    // Odometry state for velocity calculation (avoid static variables)
-    struct OdometryState {
-        tf2::Transform previous_transform;
-        rclcpp::Time previous_stamp;
-        bool initialized = false;
-    };
-    std::mutex odom_state_mutex_;
-    OdometryState odom_state_;
 };
 
 }  // namespace rc26_sensor_scan
