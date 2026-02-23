@@ -1,0 +1,426 @@
+import os
+import time
+import unittest
+import math
+
+from ament_index_python.packages import get_package_share_directory
+import launch
+from launch.actions import IncludeLaunchDescription, TimerAction
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch_ros.actions import Node
+import launch_testing.actions
+from nav2_msgs.srv import GetCostmap
+from nav_msgs.msg import Odometry
+import rclpy
+from rclpy.executors import SingleThreadedExecutor
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from sensor_msgs.msg import PointCloud2
+from tf2_ros import Buffer, TransformException, TransformListener
+
+
+def _stamp_to_sec(stamp) -> float:
+    return float(stamp.sec) + float(stamp.nanosec) * 1e-9
+
+
+def _cloud_point_count(msg: PointCloud2) -> int:
+    return int(msg.width) * int(msg.height)
+
+
+def _rate_hz(stamps) -> float:
+    if len(stamps) < 2:
+        return 0.0
+    duration = stamps[-1] - stamps[0]
+    if duration <= 0.0:
+        return 0.0
+    return (len(stamps) - 1) / duration
+
+
+def _max_nearest_skew_sec(ref_stamps, probe_stamps) -> float:
+    if not ref_stamps or not probe_stamps:
+        return float("inf")
+
+    j = 0
+    max_skew = 0.0
+    for stamp in ref_stamps:
+        while j + 1 < len(probe_stamps):
+            cur = abs(probe_stamps[j] - stamp)
+            nxt = abs(probe_stamps[j + 1] - stamp)
+            if nxt <= cur:
+                j += 1
+            else:
+                break
+        max_skew = max(max_skew, abs(probe_stamps[j] - stamp))
+    return max_skew
+
+
+def generate_test_description():
+    bringup_dir = get_package_share_directory("rc26_bringup")
+    terrain_dir = get_package_share_directory("rc26_terrain")
+
+    odometry_mock_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(bringup_dir, "launch", "odometry_mock.launch.py")
+        ),
+        launch_arguments={
+            "use_sim_time": "false",
+            "mock_rate_hz": "10.0",
+            "mock_obstacle_enable": "true",
+            "mock_ground_enable": "true",
+        }.items(),
+    )
+
+    terrain_node = Node(
+        package="rc26_terrain",
+        executable="rc26_terrain_node",
+        name="terrain_semantic",
+        output="screen",
+        parameters=[
+            os.path.join(terrain_dir, "config", "terrain_semantic.yaml"),
+            {
+                "use_sim_time": False,
+                "max_rel_z_m": 1.0,
+                "unknown_policy": "aggressive",
+                "unknown_output": "drop",
+                "enable_fail_safe": False,
+            },
+        ],
+    )
+
+    local_costmap_overrides = {
+        "use_sim_time": False,
+        "global_frame": "odom",
+        "robot_base_frame": "base_link",
+        "rolling_window": True,
+        "width": 7,
+        "height": 7,
+        "resolution": 0.1,
+        "publish_frequency": 10.0,
+        "update_frequency": 10.0,
+        "always_send_full_costmap": True,
+        "footprint": "[[0.4, 0.4], [0.4, -0.4], [-0.4, -0.4], [-0.4, 0.4]]",
+        "plugins": ["obstacle_layer", "drop_layer", "inflation_layer"],
+        "obstacle_layer": {
+            "plugin": "nav2_costmap_2d::ObstacleLayer",
+            "enabled": True,
+            "observation_sources": "terrain_obstacles",
+            "terrain_obstacles": {
+                "topic": "/terrain_obstacles",
+                "data_type": "PointCloud2",
+                "marking": True,
+                "clearing": False,
+                "max_obstacle_height": 2.0,
+                "min_obstacle_height": -1.0,
+                "obstacle_max_range": 4.0,
+                "obstacle_min_range": 0.0,
+                "raytrace_max_range": 5.0,
+                "raytrace_min_range": 0.0,
+            },
+        },
+        "drop_layer": {
+            "plugin": "nav2_costmap_2d::ObstacleLayer",
+            "enabled": True,
+            "observation_sources": "terrain_drop",
+            "terrain_drop": {
+                "topic": "/terrain_drop",
+                "data_type": "PointCloud2",
+                "marking": True,
+                "clearing": False,
+                "max_obstacle_height": 2.0,
+                "min_obstacle_height": -1.0,
+                "obstacle_max_range": 4.0,
+                "obstacle_min_range": 0.0,
+                "raytrace_max_range": 5.0,
+                "raytrace_min_range": 0.0,
+            },
+        },
+        "inflation_layer": {
+            "plugin": "nav2_costmap_2d::InflationLayer",
+            "cost_scaling_factor": 10.0,
+            "inflation_radius": 0.55,
+        },
+        # Compatibility keys for nav2 parameter parsers that don't fully expand nested dicts.
+        "obstacle_layer.observation_sources": "terrain_obstacles",
+        "obstacle_layer.terrain_obstacles.topic": "/terrain_obstacles",
+        "obstacle_layer.terrain_obstacles.data_type": "PointCloud2",
+        "obstacle_layer.terrain_obstacles.marking": True,
+        "obstacle_layer.terrain_obstacles.clearing": False,
+        "obstacle_layer.terrain_obstacles.max_obstacle_height": 2.0,
+        "obstacle_layer.terrain_obstacles.min_obstacle_height": -1.0,
+        "obstacle_layer.terrain_obstacles.obstacle_max_range": 4.0,
+        "obstacle_layer.terrain_obstacles.obstacle_min_range": 0.0,
+        "obstacle_layer.terrain_obstacles.raytrace_max_range": 5.0,
+        "obstacle_layer.terrain_obstacles.raytrace_min_range": 0.0,
+        "drop_layer.observation_sources": "terrain_drop",
+        "drop_layer.terrain_drop.topic": "/terrain_drop",
+        "drop_layer.terrain_drop.data_type": "PointCloud2",
+        "drop_layer.terrain_drop.marking": True,
+        "drop_layer.terrain_drop.clearing": False,
+        "drop_layer.terrain_drop.max_obstacle_height": 2.0,
+        "drop_layer.terrain_drop.min_obstacle_height": -1.0,
+        "drop_layer.terrain_drop.obstacle_max_range": 4.0,
+        "drop_layer.terrain_drop.obstacle_min_range": 0.0,
+        "drop_layer.terrain_drop.raytrace_max_range": 5.0,
+        "drop_layer.terrain_drop.raytrace_min_range": 0.0,
+    }
+
+    local_costmap_node = Node(
+        package="nav2_costmap_2d",
+        executable="nav2_costmap_2d",
+        namespace="costmap",
+        name="costmap",
+        output="screen",
+        parameters=[
+            os.path.join(bringup_dir, "config", "nav2_params.yaml"),
+            local_costmap_overrides,
+        ],
+    )
+
+    lifecycle_manager = Node(
+        package="nav2_lifecycle_manager",
+        executable="lifecycle_manager",
+        name="lifecycle_manager_local_costmap",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": False,
+                "autostart": True,
+                "node_names": ["costmap/costmap"],
+                "bond_timeout": 0.0,
+            }
+        ],
+    )
+
+    return (
+        launch.LaunchDescription(
+            [
+                odometry_mock_launch,
+                terrain_node,
+                local_costmap_node,
+                lifecycle_manager,
+                TimerAction(period=2.0, actions=[launch_testing.actions.ReadyToTest()]),
+            ]
+        ),
+        {},
+    )
+
+
+class TestCostmapIntegration(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        rclpy.init()
+
+    @classmethod
+    def tearDownClass(cls):
+        rclpy.shutdown()
+
+    def test_full_data_chain_reasonable(self):
+        node = rclpy.create_node("test_costmap_integration_probe")
+        executor = SingleThreadedExecutor()
+        executor.add_node(node)
+
+        odom_msgs = []
+        registered_scan_msgs = []
+        terrain_obstacles_msgs = []
+        terrain_qos = QoSProfile(depth=10)
+        terrain_qos.reliability = ReliabilityPolicy.BEST_EFFORT
+        terrain_qos.durability = DurabilityPolicy.VOLATILE
+
+        def on_odom(msg: Odometry):
+            odom_msgs.append(msg)
+
+        def on_registered_scan(msg: PointCloud2):
+            registered_scan_msgs.append(msg)
+
+        def on_terrain_obstacles(msg: PointCloud2):
+            terrain_obstacles_msgs.append(msg)
+
+        sub_odom = node.create_subscription(Odometry, "/odom", on_odom, 20)
+        sub_registered_scan = node.create_subscription(
+            PointCloud2,
+            "/registered_scan",
+            on_registered_scan,
+            terrain_qos,
+        )
+        sub_terrain_obstacles = node.create_subscription(
+            PointCloud2,
+            "/terrain_obstacles",
+            on_terrain_obstacles,
+            terrain_qos,
+        )
+
+        costmap_client = node.create_client(GetCostmap, "/costmap/get_costmap")
+        tf_buffer = Buffer()
+        tf_listener = TransformListener(tf_buffer, node, spin_thread=False)
+
+        response_count = 0
+        max_cost = 0
+        failed_calls = 0
+        have_map_to_base = False
+        have_map_to_livox = False
+        have_base_to_livox = False
+
+        deadline = time.time() + 35.0
+        next_costmap_probe = 0.0
+
+        while time.time() < deadline:
+            executor.spin_once(timeout_sec=0.2)
+
+            try:
+                tf_buffer.lookup_transform("base_link", "livox_frame", rclpy.time.Time())
+                have_base_to_livox = True
+            except TransformException:
+                pass
+
+            try:
+                tf_buffer.lookup_transform("map", "base_link", rclpy.time.Time())
+                have_map_to_base = True
+            except TransformException:
+                pass
+
+            try:
+                tf_buffer.lookup_transform("map", "livox_frame", rclpy.time.Time())
+                have_map_to_livox = True
+            except TransformException:
+                pass
+
+            now_wall = time.time()
+            if now_wall >= next_costmap_probe:
+                next_costmap_probe = now_wall + 0.4
+                if costmap_client.wait_for_service(timeout_sec=0.1):
+                    future = costmap_client.call_async(GetCostmap.Request())
+                    call_deadline = time.time() + 1.0
+                    while time.time() < call_deadline and not future.done():
+                        executor.spin_once(timeout_sec=0.05)
+
+                    if not future.done():
+                        failed_calls += 1
+                    elif future.exception() is not None:
+                        failed_calls += 1
+                    else:
+                        response = future.result()
+                        if response is not None and response.map.data:
+                            response_count += 1
+                            max_cost = max(max_cost, max(response.map.data))
+                        else:
+                            failed_calls += 1
+
+            terrain_non_empty = sum(1 for msg in terrain_obstacles_msgs if _cloud_point_count(msg) > 0)
+            if (
+                len(odom_msgs) >= 25
+                and len(registered_scan_msgs) >= 25
+                and terrain_non_empty >= 1
+                and response_count >= 3
+                and max_cost > 0
+                and have_base_to_livox
+                and have_map_to_base
+                and have_map_to_livox
+            ):
+                break
+
+        costmap_services = [
+            f"{name}:{','.join(types)}"
+            for name, types in node.get_service_names_and_types()
+            if "costmap" in name
+        ]
+        terrain_non_empty = sum(1 for msg in terrain_obstacles_msgs if _cloud_point_count(msg) > 0)
+
+        self.assertGreaterEqual(
+            response_count,
+            3,
+            "35 秒内未成功调用至少 3 次 /costmap/get_costmap "
+            f"(responses={response_count}, failed_calls={failed_calls}, "
+            f"terrain_obs={len(terrain_obstacles_msgs)}, "
+            f"services={costmap_services})",
+        )
+
+        self.assertGreaterEqual(
+            len(odom_msgs),
+            25,
+            f"odom 消息不足: {len(odom_msgs)}",
+        )
+        self.assertGreaterEqual(
+            len(registered_scan_msgs),
+            25,
+            f"registered_scan 消息不足: {len(registered_scan_msgs)}",
+        )
+        self.assertGreater(
+            terrain_non_empty,
+            0,
+            f"terrain_obstacles 未出现非空消息，总消息数={len(terrain_obstacles_msgs)}",
+        )
+
+        odom_stamps = [_stamp_to_sec(msg.header.stamp) for msg in odom_msgs]
+        scan_stamps = [_stamp_to_sec(msg.header.stamp) for msg in registered_scan_msgs]
+        odom_rate = _rate_hz(odom_stamps)
+        scan_rate = _rate_hz(scan_stamps)
+        self.assertGreaterEqual(odom_rate, 9.0, f"/odom 频率过低: {odom_rate:.3f} Hz")
+        self.assertGreaterEqual(scan_rate, 9.0, f"/registered_scan 频率过低: {scan_rate:.3f} Hz")
+
+        max_skew = _max_nearest_skew_sec(odom_stamps, scan_stamps)
+        self.assertLessEqual(
+            max_skew,
+            0.1,
+            f"/odom 与 /registered_scan 时戳最大偏差过大: {max_skew:.4f} s",
+        )
+
+        non_monotonic_count = 0
+        max_jump_speed = 0.0
+        for prev, curr in zip(odom_msgs, odom_msgs[1:]):
+            prev_t = _stamp_to_sec(prev.header.stamp)
+            curr_t = _stamp_to_sec(curr.header.stamp)
+            dt = curr_t - prev_t
+            if dt <= 0.0:
+                non_monotonic_count += 1
+                continue
+
+            dx = curr.pose.pose.position.x - prev.pose.pose.position.x
+            dy = curr.pose.pose.position.y - prev.pose.pose.position.y
+            dz = curr.pose.pose.position.z - prev.pose.pose.position.z
+            dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+            max_jump_speed = max(max_jump_speed, dist / dt)
+
+        self.assertEqual(non_monotonic_count, 0, "odom 时间戳存在非递增帧")
+        self.assertLess(
+            max_jump_speed,
+            2.0,
+            f"odom 位姿跳变过大: max_speed={max_jump_speed:.3f} m/s",
+        )
+
+        self.assertTrue(have_base_to_livox, "TF 缺失: base_link -> livox_frame")
+        self.assertTrue(have_map_to_base, "TF 缺失: map -> base_link")
+        self.assertTrue(have_map_to_livox, "TF 缺失: map -> livox_frame")
+
+        tf_base_to_livox = tf_buffer.lookup_transform("base_link", "livox_frame", rclpy.time.Time())
+        tx = tf_base_to_livox.transform.translation.x
+        ty = tf_base_to_livox.transform.translation.y
+        tz = tf_base_to_livox.transform.translation.z
+        qx = tf_base_to_livox.transform.rotation.x
+        qy = tf_base_to_livox.transform.rotation.y
+        qz = tf_base_to_livox.transform.rotation.z
+        qw = tf_base_to_livox.transform.rotation.w
+
+        self.assertAlmostEqual(tx, 0.0, delta=1e-3)
+        self.assertAlmostEqual(ty, 0.0, delta=1e-3)
+        self.assertAlmostEqual(tz, 0.13, delta=1e-3)
+        self.assertAlmostEqual(qx, 0.0, delta=1e-3)
+        self.assertAlmostEqual(qy, 0.0, delta=1e-3)
+        self.assertAlmostEqual(qz, 0.0, delta=1e-3)
+        self.assertAlmostEqual(qw, 1.0, delta=1e-3)
+
+        frames_yaml = tf_buffer.all_frames_as_yaml()
+        self.assertIn("map", frames_yaml)
+        self.assertIn("odom", frames_yaml)
+        self.assertIn("base_link", frames_yaml)
+        self.assertIn("livox_frame", frames_yaml)
+        self.assertNotIn("laser_link", frames_yaml)
+
+        self.assertGreater(max_cost, 0, "get_costmap 返回数据未出现非零代价值")
+
+        # Keep TF listener alive until teardown to avoid intermittent gc cleanup.
+        self.assertIsNotNone(tf_listener)
+
+        node.destroy_subscription(sub_odom)
+        node.destroy_subscription(sub_registered_scan)
+        node.destroy_subscription(sub_terrain_obstacles)
+        executor.remove_node(node)
+        node.destroy_node()

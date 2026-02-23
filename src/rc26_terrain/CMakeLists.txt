@@ -102,8 +102,14 @@ install(DIRECTORY config launch rviz docs
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
+  find_package(launch_testing_ament_cmake REQUIRED)
   ament_add_gtest(test_grid_evaluator test/test_grid_evaluator.cpp)
   target_link_libraries(test_grid_evaluator grid_evaluator)
+
+  ament_add_gtest(test_tf_chain test/test_tf_chain.cpp)
+  ament_target_dependencies(test_tf_chain tf2 tf2_geometry_msgs geometry_msgs)
+
+  add_launch_test(test/test_costmap_integration.py TIMEOUT 60)
 endif()
 
 ament_package()
