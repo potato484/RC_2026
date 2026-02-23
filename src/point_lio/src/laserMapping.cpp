@@ -256,6 +256,26 @@ void publish_odometry(const rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPt
     }
     set_posestamp(odomAftMapped.pose.pose);
 
+    // Twist follows child_frame_id (body_frame) semantics.
+    const Eigen::Quaterniond q_world_from_body(odomAftMapped.pose.pose.orientation.w, odomAftMapped.pose.pose.orientation.x,
+                                               odomAftMapped.pose.pose.orientation.y, odomAftMapped.pose.pose.orientation.z);
+    const V3D v_world = kf_output.x_.vel;
+    const V3D v_body = q_world_from_body.inverse() * v_world;
+    odomAftMapped.twist.twist.linear.x = v_body(0);
+    odomAftMapped.twist.twist.linear.y = v_body(1);
+    odomAftMapped.twist.twist.linear.z = v_body(2);
+
+    if (!use_imu_as_input) {
+        odomAftMapped.twist.twist.angular.x = kf_output.x_.omg(0);
+        odomAftMapped.twist.twist.angular.y = kf_output.x_.omg(1);
+        odomAftMapped.twist.twist.angular.z = kf_output.x_.omg(2);
+    } else {
+        const V3D omega_body = angvel_avr - kf_input.x_.bg;
+        odomAftMapped.twist.twist.angular.x = omega_body(0);
+        odomAftMapped.twist.twist.angular.y = omega_body(1);
+        odomAftMapped.twist.twist.angular.z = omega_body(2);
+    }
+
     pubOdomAftMapped->publish(odomAftMapped);
 
     if (tf_send_en) {

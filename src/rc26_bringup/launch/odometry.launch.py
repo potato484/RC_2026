@@ -76,9 +76,9 @@ def generate_launch_description():
             point_lio_config,
             {'use_sim_time': use_sim_time},
             {'prior_pcd.prior_pcd_map_path': prior_pcd_file},
-            # 统一坐标系命名：项目内使用 base_link 作为车体坐标系
+            # 对齐 Point-LIO body_frame 与 lidar_frame 语义
             # 并关闭 Point-LIO 自身 TF 发布，避免与 rc26_odom_interface / rc26_sensor_scan 重复发布 odom->base_link
-            {'frame.body_frame': 'base_link'},
+            {'frame.body_frame': 'livox_frame'},
             {'publish.tf_send_en': False},
         ],
     )
