@@ -64,11 +64,12 @@ private:
     std::string base_frame_;
 
     bool base_frame_to_lidar_initialized_;
-    tf2::Transform tf_lidar_to_base_;  // lidar -> base_link (用于里程计和点云变换)
+    tf2::Transform tf_base_to_lidar_;  // T_{lidar<-base}: 将 base_link 点变换到 lidar 坐标系
     std::mutex transform_mutex_;
     rclcpp::Time latest_odometry_stamp_;
     rclcpp::Time last_tf_lookup_;
     bool odom_pose_ready_{false};
+    bool use_input_twist_{true};
     double tf_timeout_sec_{0.5};           // TF 查询超时时间 (秒)
     double max_time_diff_sec_{0.2};        // 点云与里程计之间允许的最大时间差 (秒)
     double tf_refresh_interval_sec_{1.0};  // TF 断连时的重新拉取周期 (秒)

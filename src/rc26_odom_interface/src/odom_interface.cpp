@@ -32,6 +32,7 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     this->declare_parameter<double>("tf_lookup_timeout_sec", 0.5);
     this->declare_parameter<double>("max_time_diff_sec", 0.2);
     this->declare_parameter<double>("tf_refresh_interval_sec", 1.0);
+    this->declare_parameter<bool>("use_input_twist", true);
 
     this->get_parameter("state_estimation_topic", state_estimation_topic_);
     this->get_parameter("registered_scan_topic", registered_scan_topic_);
@@ -41,6 +42,7 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     this->get_parameter("tf_lookup_timeout_sec", tf_timeout_sec_);
     this->get_parameter("max_time_diff_sec", max_time_diff_sec_);
     this->get_parameter("tf_refresh_interval_sec", tf_refresh_interval_sec_);
+    this->get_parameter("use_input_twist", use_input_twist_);
 
     auto require_non_empty = [&](const char* name, const std::string& value) {
         if (value.empty()) {
@@ -110,9 +112,9 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
         try {
             auto tf_stamped = tf_buffer_->lookupTransform(base_frame_, lidar_frame_, odom_stamp,
                                                           rclcpp::Duration::from_seconds(tf_timeout_sec_));
-            tf2::Transform tf_base_frame_to_lidar;
-            tf2::fromMsg(tf_stamped.transform, tf_base_frame_to_lidar);
-            tf_lidar_to_base_ = tf_base_frame_to_lidar.inverse();
+            tf2::Transform tf_lidar_to_base;
+            tf2::fromMsg(tf_stamped.transform, tf_lidar_to_base);
+            tf_base_to_lidar_ = tf_lidar_to_base.inverse();
             base_frame_to_lidar_initialized_ = true;
             last_tf_lookup_ = msg->header.stamp;
             RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "TF %s -> %s 刷新成功",
@@ -134,12 +136,12 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
     // We want: odom -> base_link
     // Transform chain:
     //   T_odom_base = T_lidar_odom_lidar * T_lidar_base
-    //   where T_lidar_base = tf_lidar_to_base_ (computed once at init)
+    //   where T_lidar_base = tf_base_to_lidar_ (computed once at init)
     tf2::Transform tf_lidar_odom_to_lidar;
     tf2::fromMsg(msg->pose.pose, tf_lidar_odom_to_lidar);
 
     // Compute odom -> base_link transform
-    tf2::Transform tf_odom_to_base = tf_lidar_odom_to_lidar * tf_lidar_to_base_;
+    tf2::Transform tf_odom_to_base = tf_lidar_odom_to_lidar * tf_base_to_lidar_;
 
     // 仅当时间戳递增时更新 latest_odometry_stamp_，避免乱序消息导致时间回退
     {
@@ -169,9 +171,25 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
     tf_msg.transform = tf2::toMsg(tf_odom_to_base);
     tf_broadcaster_->sendTransform(tf_msg);
 
-    // [C3 修复] 计算速度信息（含奇异性保护，速度输出到 base_link 坐标系）
+    // [P3] 速度来源可切换：优先使用 Point-LIO 输入 twist，必要时回退到差分估计
     bool update_state = true;
-    if (odom_state_.initialized) {
+    if (use_input_twist_) {
+        const tf2::Vector3 r_base_in_lidar = tf_base_to_lidar_.getOrigin();
+        const tf2::Quaternion rotation_lidar_to_base = tf_base_to_lidar_.getRotation().inverse();
+        const tf2::Vector3 v_lidar(msg->twist.twist.linear.x, msg->twist.twist.linear.y, msg->twist.twist.linear.z);
+        const tf2::Vector3 w_lidar(msg->twist.twist.angular.x, msg->twist.twist.angular.y, msg->twist.twist.angular.z);
+
+        const tf2::Vector3 v_base =
+            tf2::quatRotate(rotation_lidar_to_base, v_lidar + w_lidar.cross(r_base_in_lidar));
+        const tf2::Vector3 w_base = tf2::quatRotate(rotation_lidar_to_base, w_lidar);
+
+        out.twist.twist.linear.x = v_base.x();
+        out.twist.twist.linear.y = v_base.y();
+        out.twist.twist.linear.z = v_base.z();
+        out.twist.twist.angular.x = w_base.x();
+        out.twist.twist.angular.y = w_base.y();
+        out.twist.twist.angular.z = w_base.z();
+    } else if (odom_state_.initialized) {
         const double dt = (odom_stamp - odom_state_.previous_stamp).seconds();
 
         if (dt <= 0.0) {
@@ -214,6 +232,9 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
                 out.twist.twist.angular.y = 0.0;
                 out.twist.twist.angular.z = 0.0;
             }
+        } else {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                                 "跳过速度估计: dt=%.3f s 超出范围 (1e-6, 1.0)，请检查里程计帧率", dt);
         }
     }
 
