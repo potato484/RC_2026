@@ -41,6 +41,7 @@ endif()
 # Find packages
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rcl_interfaces REQUIRED)
 find_package(rclpy REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
@@ -84,6 +85,7 @@ add_executable(pointlio_mapping
 
 ament_target_dependencies(pointlio_mapping
   rclcpp
+  rcl_interfaces
   rclpy
   geometry_msgs
   nav_msgs
@@ -111,6 +113,7 @@ install(
 # Export dependencies
 ament_export_dependencies(
   rclcpp
+  rcl_interfaces
   rclpy
   geometry_msgs
   nav_msgs

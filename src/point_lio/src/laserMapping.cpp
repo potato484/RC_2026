@@ -1,4 +1,5 @@
 // #include <so3_math.hpp>
+#include <algorithm>
 #include <malloc.h>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
@@ -7,6 +8,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl_conversions/pcl_conversions.h>
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
 
@@ -46,6 +48,8 @@ geometry_msgs::msg::PoseStamped msg_body_pose;
 int sleep_time = 0;
 
 auto LOGGER = rclcpp::get_logger("laserMapping");
+std::mutex runtime_param_mutex;
+bool ivox_rebuild_pending = false;
 
 void SigHandle(int sig) {
     flg_exit = true;
@@ -331,6 +335,98 @@ int main(int argc, char** argv) {
     downSizeFilterSurf.setLeafSize(filter_size_surf_min, filter_size_surf_min, filter_size_surf_min);
     downSizeFilterMap.setLeafSize(filter_size_map_min, filter_size_map_min, filter_size_map_min);
 
+    auto dyn_params_handler = nh->add_on_set_parameters_callback(
+        [](const std::vector<rclcpp::Parameter>& params) {
+            rcl_interfaces::msg::SetParametersResult result;
+            result.successful = true;
+            result.reason = "ok";
+
+            auto reject = [&](const std::string& reason) {
+                result.successful = false;
+                result.reason = reason;
+            };
+
+            for (const auto& p : params) {
+                const std::string& name = p.get_name();
+                std::lock_guard<std::mutex> lk(runtime_param_mutex);
+
+                if (name == "filter_size_surf") {
+                    if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                        reject("filter_size_surf expects double");
+                        break;
+                    }
+                    const double old_v = filter_size_surf_min;
+                    filter_size_surf_min = std::clamp(p.as_double(), 0.01, 2.0);
+                    downSizeFilterSurf.setLeafSize(filter_size_surf_min, filter_size_surf_min, filter_size_surf_min);
+                    RCLCPP_INFO(LOGGER, "PARAM_UPDATE,node=laserMapping,param=%s,old=%.6f,new=%.6f",
+                                name.c_str(), old_v, filter_size_surf_min);
+                    continue;
+                }
+                if (name == "filter_size_map") {
+                    if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                        reject("filter_size_map expects double");
+                        break;
+                    }
+                    const double old_v = filter_size_map_min;
+                    filter_size_map_min = std::clamp(p.as_double(), 0.01, 2.0);
+                    downSizeFilterMap.setLeafSize(filter_size_map_min, filter_size_map_min, filter_size_map_min);
+                    RCLCPP_INFO(LOGGER, "PARAM_UPDATE,node=laserMapping,param=%s,old=%.6f,new=%.6f",
+                                name.c_str(), old_v, filter_size_map_min);
+                    continue;
+                }
+                if (name == "preprocess.det_range") {
+                    if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                        reject("preprocess.det_range expects double");
+                        break;
+                    }
+                    const double old_v = p_pre->det_range;
+                    p_pre->det_range = std::clamp(p.as_double(), 1.0, 3000.0);
+                    RCLCPP_INFO(LOGGER, "PARAM_UPDATE,node=laserMapping,param=%s,old=%.6f,new=%.6f",
+                                name.c_str(), old_v, p_pre->det_range);
+                    continue;
+                }
+                if (name == "mapping.plane_thr") {
+                    if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                        reject("mapping.plane_thr expects double");
+                        break;
+                    }
+                    const double old_v = plane_thr;
+                    plane_thr = static_cast<float>(std::clamp(p.as_double(), 0.0, 10.0));
+                    RCLCPP_INFO(LOGGER, "PARAM_UPDATE,node=laserMapping,param=%s,old=%.6f,new=%.6f",
+                                name.c_str(), old_v, static_cast<double>(plane_thr));
+                    continue;
+                }
+                if (name == "mapping.lidar_meas_cov") {
+                    if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                        reject("mapping.lidar_meas_cov expects double");
+                        break;
+                    }
+                    const double old_v = laser_point_cov;
+                    laser_point_cov = std::clamp(p.as_double(), 1e-6, 100.0);
+                    RCLCPP_INFO(LOGGER, "PARAM_UPDATE,node=laserMapping,param=%s,old=%.6f,new=%.6f",
+                                name.c_str(), old_v, laser_point_cov);
+                    continue;
+                }
+                if (name == "mapping.ivox_grid_resolution") {
+                    if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                        reject("mapping.ivox_grid_resolution expects double");
+                        break;
+                    }
+                    const double old_v = ivox_options_.resolution_;
+                    ivox_options_.resolution_ = std::clamp(p.as_double(), 0.01, 5.0);
+                    ivox_rebuild_pending = true;
+                    RCLCPP_INFO(LOGGER, "PARAM_UPDATE,node=laserMapping,param=%s,old=%.6f,new=%.6f",
+                                name.c_str(), old_v, ivox_options_.resolution_);
+                    continue;
+                }
+
+                reject("parameter not in hot-update whitelist: " + name);
+                break;
+            }
+
+            return result;
+        });
+
     Lidar_T_wrt_IMU << VEC_FROM_ARRAY(extrinT);
     Lidar_R_wrt_IMU << MAT_FROM_ARRAY(extrinR);
 
@@ -382,11 +478,20 @@ int main(int argc, char** argv) {
 
     //------------------------------------------------------------------------------------------------------
     signal(SIGINT, SigHandle);
+    (void)dyn_params_handler;
     rclcpp::Rate rate(500);
     while (rclcpp::ok()) {
         if (flg_exit)
             break;
         executor.spin_some();
+        {
+            std::lock_guard<std::mutex> lk(runtime_param_mutex);
+            if (ivox_rebuild_pending) {
+                ivox_.reset(new IVoxType(ivox_options_));
+                ivox_rebuild_pending = false;
+                RCLCPP_INFO(LOGGER, "runtime ivox rebuilt at safe point");
+            }
+        }
         if (sync_packages(Measures)) {
             if (flg_reset) {
                 RCLCPP_WARN(LOGGER, "reset when rosbag play back");
