@@ -18,6 +18,7 @@
 
 #include <Eigen/Dense>
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
+#include "rcl_interfaces/msg/set_parameters_result.hpp"
 #include "pcl/io/pcd_io.h"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
@@ -128,6 +129,8 @@ private:
 
     // 参数校验与归一化（避免非法配置导致异常行为）
     void validateAndNormalizeParams();
+    rcl_interfaces::msg::SetParametersResult dynamicParametersCallback(
+        const std::vector<rclcpp::Parameter>& parameters);
 
     // QCS8550 线程亲和配置
     void configureThreadAffinityQcs8550();
@@ -295,6 +298,7 @@ private:
     // 定时器
     rclcpp::TimerBase::SharedPtr transform_timer_;
     rclcpp::TimerBase::SharedPtr register_timer_;
+    rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;
 
     // TF
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;

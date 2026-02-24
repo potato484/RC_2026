@@ -416,6 +416,9 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
             s1_imu_topic_, 10, std::bind(&LocalizationNode::imuCallback, this, std::placeholders::_1));
     }
 
+    dyn_params_handler_ = this->add_on_set_parameters_callback(
+        std::bind(&LocalizationNode::dynamicParametersCallback, this, std::placeholders::_1));
+
     // 配准定时器 (2 Hz)
     register_timer_ = this->create_wall_timer(std::chrono::milliseconds(500),
                                               std::bind(&LocalizationNode::performRegistration, this));
@@ -431,11 +434,290 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
 }
 
 LocalizationNode::~LocalizationNode() {
+    dyn_params_handler_.reset();
     shutdown_requested_.store(true);
     reloc_request_cv_.notify_all();
     if (reloc_worker_thread_.joinable()) {
         reloc_worker_thread_.join();
     }
+}
+
+rcl_interfaces::msg::SetParametersResult LocalizationNode::dynamicParametersCallback(
+    const std::vector<rclcpp::Parameter>& parameters) {
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+    result.reason = "ok";
+
+    bool need_target_rebuild = false;
+    bool need_sc_rebuild = false;
+
+    auto reject = [&](const std::string& reason) {
+        result.successful = false;
+        result.reason = reason;
+    };
+
+    auto log_update = [&](const std::string& param, double old_value, double new_value) {
+        RCLCPP_INFO(this->get_logger(), "PARAM_UPDATE,node=localization,param=%s,old=%.6f,new=%.6f",
+                    param.c_str(), old_value, new_value);
+    };
+
+    auto log_update_int = [&](const std::string& param, int old_value, int new_value) {
+        RCLCPP_INFO(this->get_logger(), "PARAM_UPDATE,node=localization,param=%s,old=%d,new=%d",
+                    param.c_str(), old_value, new_value);
+    };
+
+    auto log_update_bool = [&](const std::string& param, bool old_value, bool new_value) {
+        RCLCPP_INFO(this->get_logger(), "PARAM_UPDATE,node=localization,param=%s,old=%d,new=%d",
+                    param.c_str(), static_cast<int>(old_value), static_cast<int>(new_value));
+    };
+
+    for (const auto& p : parameters) {
+        const std::string& name = p.get_name();
+
+        if (name == "registered_leaf_size") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("registered_leaf_size expects double");
+                break;
+            }
+            const double old_v = registered_leaf_size_;
+            registered_leaf_size_ = static_cast<float>(std::clamp(p.as_double(), 0.01, 2.0));
+            log_update(name, old_v, registered_leaf_size_);
+            continue;
+        }
+        if (name == "max_dist_sq") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("max_dist_sq expects double");
+                break;
+            }
+            const double old_v = max_dist_sq_;
+            max_dist_sq_ = static_cast<float>(std::clamp(p.as_double(), 0.01, 25.0));
+            log_update(name, old_v, max_dist_sq_);
+            continue;
+        }
+        if (name == "gicp_max_iterations") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+                reject("gicp_max_iterations expects integer");
+                break;
+            }
+            const int old_v = gicp_max_iterations_;
+            gicp_max_iterations_ = std::clamp(static_cast<int>(p.as_int()), 1, 500);
+            log_update_int(name, old_v, gicp_max_iterations_);
+            continue;
+        }
+        if (name == "sc_sim_threshold") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("sc_sim_threshold expects double");
+                break;
+            }
+            const double old_v = sc_sim_threshold_;
+            sc_sim_threshold_ = std::clamp(p.as_double(), 0.01, 1.0);
+            log_update(name, old_v, sc_sim_threshold_);
+            continue;
+        }
+        if (name == "sc_topk") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+                reject("sc_topk expects integer");
+                break;
+            }
+            const int old_v = sc_topk_;
+            sc_topk_ = std::clamp(static_cast<int>(p.as_int()), 1, 100);
+            log_update_int(name, old_v, sc_topk_);
+            continue;
+        }
+        if (name == "sc_num_rings") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+                reject("sc_num_rings expects integer");
+                break;
+            }
+            const int old_v = sc_num_rings_;
+            sc_num_rings_ = std::clamp(static_cast<int>(p.as_int()), 4, 200);
+            need_sc_rebuild = true;
+            log_update_int(name, old_v, sc_num_rings_);
+            continue;
+        }
+        if (name == "sc_num_sectors") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+                reject("sc_num_sectors expects integer");
+                break;
+            }
+            const int old_v = sc_num_sectors_;
+            sc_num_sectors_ = std::clamp(static_cast<int>(p.as_int()), 12, 720);
+            need_sc_rebuild = true;
+            log_update_int(name, old_v, sc_num_sectors_);
+            continue;
+        }
+        if (name == "sc_max_radius") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("sc_max_radius expects double");
+                break;
+            }
+            const double old_v = sc_max_radius_;
+            sc_max_radius_ = std::clamp(p.as_double(), 0.1, 100.0);
+            need_sc_rebuild = true;
+            log_update(name, old_v, sc_max_radius_);
+            continue;
+        }
+        if (name == "global_icp_max_iterations") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+                reject("global_icp_max_iterations expects integer");
+                break;
+            }
+            const int old_v = global_icp_max_iterations_;
+            global_icp_max_iterations_ = std::clamp(static_cast<int>(p.as_int()), 1, 1000);
+            log_update_int(name, old_v, global_icp_max_iterations_);
+            continue;
+        }
+        if (name == "global_icp_max_correspondence_distance") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("global_icp_max_correspondence_distance expects double");
+                break;
+            }
+            const double old_v = global_icp_max_correspondence_distance_;
+            global_icp_max_correspondence_distance_ = std::clamp(p.as_double(), 0.01, 20.0);
+            log_update(name, old_v, global_icp_max_correspondence_distance_);
+            continue;
+        }
+        if (name == "global_downsample_leaf_size") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("global_downsample_leaf_size expects double");
+                break;
+            }
+            const double old_v = global_downsample_leaf_size_;
+            global_downsample_leaf_size_ = std::clamp(p.as_double(), 0.01, 2.0);
+            log_update(name, old_v, global_downsample_leaf_size_);
+            continue;
+        }
+        if (name == "global_leaf_size") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("global_leaf_size expects double");
+                break;
+            }
+            const double old_v = global_leaf_size_;
+            global_leaf_size_ = static_cast<float>(std::clamp(p.as_double(), 0.01, 2.0));
+            need_target_rebuild = true;
+            need_sc_rebuild = true;
+            log_update(name, old_v, global_leaf_size_);
+            continue;
+        }
+        if (name == "s1_enable") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+                reject("s1_enable expects bool");
+                break;
+            }
+            const bool old_v = s1_enable_;
+            s1_enable_ = p.as_bool();
+            log_update_bool(name, old_v, s1_enable_);
+            continue;
+        }
+        if (name == "s1_accel_threshold") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("s1_accel_threshold expects double");
+                break;
+            }
+            const double old_v = s1_accel_threshold_;
+            s1_accel_threshold_ = std::clamp(p.as_double(), 0.1, 200.0);
+            log_update(name, old_v, s1_accel_threshold_);
+            continue;
+        }
+        if (name == "s1_gyro_threshold") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("s1_gyro_threshold expects double");
+                break;
+            }
+            const double old_v = s1_gyro_threshold_;
+            s1_gyro_threshold_ = std::clamp(p.as_double(), 0.01, 50.0);
+            log_update(name, old_v, s1_gyro_threshold_);
+            continue;
+        }
+        if (name == "s1_freeze_duration_ms") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+                reject("s1_freeze_duration_ms expects integer");
+                break;
+            }
+            const int old_v = s1_freeze_duration_ms_;
+            s1_freeze_duration_ms_ = std::clamp(static_cast<int>(p.as_int()), 1, 5000);
+            log_update_int(name, old_v, s1_freeze_duration_ms_);
+            continue;
+        }
+        if (name == "s2_enable") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+                reject("s2_enable expects bool");
+                break;
+            }
+            const bool old_v = s2_enable_;
+            s2_enable_ = p.as_bool();
+            log_update_bool(name, old_v, s2_enable_);
+            continue;
+        }
+        if (name == "s2_hessian_min_eigenvalue") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("s2_hessian_min_eigenvalue expects double");
+                break;
+            }
+            const double old_v = s2_hessian_min_eigenvalue_;
+            s2_hessian_min_eigenvalue_ = std::clamp(p.as_double(), 1.0, 1e7);
+            log_update(name, old_v, s2_hessian_min_eigenvalue_);
+            continue;
+        }
+        if (name == "s2_max_continuous_frames") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+                reject("s2_max_continuous_frames expects integer");
+                break;
+            }
+            const int old_v = s2_max_continuous_frames_;
+            s2_max_continuous_frames_ = std::clamp(static_cast<int>(p.as_int()), 1, 1000);
+            log_update_int(name, old_v, s2_max_continuous_frames_);
+            continue;
+        }
+        if (name == "s3_enable") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+                reject("s3_enable expects bool");
+                break;
+            }
+            const bool old_v = s3_enable_;
+            s3_enable_ = p.as_bool();
+            log_update_bool(name, old_v, s3_enable_);
+            continue;
+        }
+        if (name == "s3_min_score_gap") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("s3_min_score_gap expects double");
+                break;
+            }
+            const double old_v = s3_min_score_gap_;
+            s3_min_score_gap_ = std::clamp(p.as_double(), 0.0, 10.0);
+            log_update(name, old_v, s3_min_score_gap_);
+            continue;
+        }
+        if (name == "gicp_omp_threads") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+                reject("gicp_omp_threads expects integer");
+                break;
+            }
+            const int old_v = gicp_omp_threads_;
+            gicp_omp_threads_ = std::max(1, static_cast<int>(p.as_int()));
+            num_threads_ = gicp_omp_threads_;
+            configureThreadAffinityQcs8550();
+            log_update_int(name, old_v, gicp_omp_threads_);
+            continue;
+        }
+
+        reject("parameter not in hot-update whitelist: " + name);
+        break;
+    }
+
+    if (result.successful) {
+        if (need_target_rebuild) {
+            target_ready_ = false;
+        }
+        if (need_sc_rebuild) {
+            sc_db_ready_ = false;
+            std::lock_guard<std::mutex> lk(sc_mutex_);
+            sc_database_.clear();
+        }
+    }
+
+    return result;
 }
 
 void LocalizationNode::setLocalizationState(LocalizationState next, const char* reason) {
