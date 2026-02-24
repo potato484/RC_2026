@@ -37,6 +37,7 @@ def generate_launch_description():
     params_file = LaunchConfiguration('params_file')
     use_rviz = LaunchConfiguration('use_rviz')
     use_decision = LaunchConfiguration('use_decision')
+    use_ = LaunchConfiguration('use_')
     use_realsense = LaunchConfiguration('use_realsense')
     realsense_serial_no = LaunchConfiguration('realsense_serial_no')
     realsense_config_file = LaunchConfiguration('realsense_config_file')
@@ -81,6 +82,11 @@ def generate_launch_description():
         'use_decision',
         default_value='true',
         description='启动决策系统')
+
+    declare_use_ = DeclareLaunchArgument(
+        'use_',
+        default_value='false',
+        description='启动 SLAM 自动诊断与调参 Agent')
 
     declare_use_realsense = DeclareLaunchArgument(
         'use_realsense',
@@ -154,6 +160,19 @@ def generate_launch_description():
             'namespace': namespace,
             'use_sim_time': use_sim_time,
         }.items()
+    )
+
+    _launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([
+                get_package_share_directory(''),
+                'launch', '.launch.py'
+            ])
+        ),
+        launch_arguments={
+            'competition_mode_lock': 'true',
+        }.items(),
+        condition=IfCondition(use_)
     )
 
     # 地面高度估计 (rc26_base_ground)
@@ -336,6 +355,7 @@ def generate_launch_description():
         declare_params_file,
         declare_use_rviz,
         declare_use_decision,
+        declare_use_,
         declare_use_realsense,
         declare_realsense_serial_no,
         declare_realsense_config_file,
@@ -345,6 +365,7 @@ def generate_launch_description():
         localization_launch,
         base_ground_node,
         terrain_launch,
+        _launch,
 
         map_server_node,
         costmap_filter_info_server,
