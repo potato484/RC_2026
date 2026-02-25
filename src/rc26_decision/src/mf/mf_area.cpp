@@ -696,6 +696,40 @@ BT::NodeStatus NavToMerlinGridAction::onStart() {
     if (!getInput("grid_id", grid_id) || grid_id < 1 || grid_id > 12) {
         return BT::NodeStatus::FAILURE;
     }
+
+    auto log_guard_fail = [&](const std::string& reason) {
+        rclcpp::Node* node = nullptr;
+        if (config().blackboard->get("node", node) && node) {
+            RCLCPP_WARN(node->get_logger(), "NavToMerlinGrid guard reject: %s", reason.c_str());
+        }
+        return BT::NodeStatus::FAILURE;
+    };
+
+    int current_grid = 0;
+    if (!config().blackboard->get("current_grid", current_grid) ||
+        current_grid < 1 || current_grid > 12) {
+        return log_guard_fail("invalid current_grid");
+    }
+
+    std::shared_ptr<MerlinMapManager> map;
+    if (!config().blackboard->get("merlin_map", map) || !map) {
+        return log_guard_fail("missing merlin_map");
+    }
+
+    if (grid_id != current_grid) {
+        const int cur_row = (current_grid - 1) / 3;
+        const int cur_col = (current_grid - 1) % 3;
+        const int dst_row = (grid_id - 1) / 3;
+        const int dst_col = (grid_id - 1) % 3;
+        const int manhattan = std::abs(dst_row - cur_row) + std::abs(dst_col - cur_col);
+        if (manhattan != 1) {
+            return log_guard_fail("non-adjacent target (diagonal/cross-grid move blocked)");
+        }
+        if (!map->canTraverse(current_grid, grid_id)) {
+            return log_guard_fail("height delta too large for traverse");
+        }
+    }
+
     std::string target_name = "mf_grid_" + std::to_string(grid_id);
 
     std::shared_ptr<WaypointManager> waypoint_manager;
