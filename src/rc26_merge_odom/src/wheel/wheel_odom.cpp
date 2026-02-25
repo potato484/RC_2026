@@ -1,8 +1,10 @@
 // RC2026 串口轮式里程计实现
 #include "rc26_merge_odom/wheel/wheel_odom.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <functional>
 
 #include <tf2/LinearMath/Quaternion.h>
 
@@ -11,12 +13,22 @@
 
 namespace rc26_merge_odom {
 
+namespace {
+constexpr double kEpsilon = 1e-6;
+}
+
 WheelOdom::WheelOdom(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> serial, Config config)
     : node_(node), config_(std::move(config)), serial_(std::move(serial)) {
     odom_pub_ = node_.create_publisher<nav_msgs::msg::Odometry>(config_.odom_topic, 10);
+    slip_score_pub_ = node_.create_publisher<std_msgs::msg::Float32>("wheel_odom/slip_score", 10);
+    cov_state_pub_ = node_.create_publisher<std_msgs::msg::Float32>("wheel_odom/cov_state", 10);
 
-    last_publish_time_ = std::chrono::steady_clock::now();
-    last_data_time_ = last_publish_time_;
+    imu_sub_ = node_.create_subscription<sensor_msgs::msg::Imu>(
+        config_.imu_topic, 20, std::bind(&WheelOdom::imuCallback, this, std::placeholders::_1));
+
+    prev_pub_time_ = std::chrono::steady_clock::now();
+    last_data_time_ = prev_pub_time_;
+    last_slip_time_ = prev_pub_time_;
 
     if (serial_) {
         serial_->setReceiveCallback([this](uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload) {
@@ -34,8 +46,8 @@ WheelOdom::WheelOdom(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDr
         std::chrono::duration<double>(1.0 / static_cast<double>(config_.publish_rate_hz)));
     publish_timer_ = node_.create_wall_timer(period, std::bind(&WheelOdom::publishOdometry, this));
 
-    RCLCPP_INFO(node_.get_logger(), "WheelOdom 启动: topic=%s, rate=%d Hz", config_.odom_topic.c_str(),
-                config_.publish_rate_hz);
+    RCLCPP_INFO(node_.get_logger(), "WheelOdom 启动: topic=%s, imu=%s, rate=%d Hz, slip=%s", config_.odom_topic.c_str(),
+                config_.imu_topic.c_str(), config_.publish_rate_hz, config_.slip_enable ? "on" : "off");
 }
 
 WheelOdom::~WheelOdom() {
@@ -45,6 +57,15 @@ WheelOdom::~WheelOdom() {
     if (serial_) {
         serial_->setReceiveCallback({});
     }
+}
+
+void WheelOdom::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
+    std::lock_guard<std::mutex> lock(imu_mutex_);
+    imu_snapshot_.gz = static_cast<double>(msg->angular_velocity.z);
+    imu_snapshot_.ax = static_cast<double>(msg->linear_acceleration.x);
+    imu_snapshot_.ay = static_cast<double>(msg->linear_acceleration.y);
+    imu_snapshot_.stamp = std::chrono::steady_clock::now();
+    imu_snapshot_.valid = true;
 }
 
 void WheelOdom::handleOdomData(const std::vector<uint8_t>& payload) {
@@ -85,9 +106,9 @@ void WheelOdom::wheelSpeedsToBodyVelocity(double v_fl, double v_rl, double v_rr,
 }
 
 void WheelOdom::publishOdometry() {
-    auto now = std::chrono::steady_clock::now();
-    double dt = std::chrono::duration<double>(now - last_publish_time_).count();
-    last_publish_time_ = now;
+    const auto now = std::chrono::steady_clock::now();
+    const double dt = std::chrono::duration<double>(now - prev_pub_time_).count();
+    prev_pub_time_ = now;
 
     if (dt <= 0.0 || dt > 1.0) {
         return;
@@ -119,6 +140,55 @@ void WheelOdom::publishOdometry() {
     double omega = 0.0;
     wheelSpeedsToBodyVelocity(v_fl, v_rl, v_rr, v_fr, vx, vy, omega);
 
+    double wheel_acc_xy = 0.0;
+    if (prev_vel_valid_) {
+        const double ax_wheel = (vx - prev_vx_) / dt;
+        const double ay_wheel = (vy - prev_vy_) / dt;
+        wheel_acc_xy = std::hypot(ax_wheel, ay_wheel);
+    }
+    prev_vx_ = vx;
+    prev_vy_ = vy;
+    prev_vel_valid_ = true;
+
+    ImuSnapshot imu_snapshot;
+    {
+        std::lock_guard<std::mutex> lock(imu_mutex_);
+        imu_snapshot = imu_snapshot_;
+    }
+
+    double slip_score = 0.0;
+    if (config_.slip_enable && imu_snapshot.valid) {
+        const double imu_acc_xy = std::hypot(imu_snapshot.ax, imu_snapshot.ay);
+        const double omega_diff = std::fabs(imu_snapshot.gz - omega);
+        const double acc_mismatch =
+            std::fabs(imu_acc_xy - wheel_acc_xy) / (std::fabs(imu_acc_xy) + kEpsilon);
+        slip_score = omega_diff + config_.slip_k_acc * acc_mismatch;
+
+        if (slip_score > config_.slip_threshold) {
+            slip_detected_ = true;
+            last_slip_time_ = now;
+        }
+    }
+
+    double cov_v = config_.cov_nominal_v;
+    double cov_wz = config_.cov_nominal_wz;
+    if (config_.slip_enable && slip_detected_) {
+        const double elapsed = std::chrono::duration<double>(now - last_slip_time_).count();
+        const double tau = std::max(config_.recovery_tau_s, kEpsilon);
+        const double scale = std::exp(-elapsed / tau);
+        cov_v = config_.cov_nominal_v + (config_.cov_slip_v - config_.cov_nominal_v) * scale;
+        cov_wz = config_.cov_nominal_wz + (config_.cov_slip_wz - config_.cov_nominal_wz) * scale;
+
+        if (elapsed > 5.0 * tau && scale < 1e-3) {
+            slip_detected_ = false;
+        }
+    }
+
+    nav_msgs::msg::Odometry odom_msg;
+    odom_msg.header.stamp = node_.now();
+    odom_msg.header.frame_id = config_.odom_frame;
+    odom_msg.child_frame_id = config_.base_frame;
+
     {
         std::lock_guard<std::mutex> lock(pose_mutex_);
 
@@ -142,15 +212,7 @@ void WheelOdom::publishOdometry() {
         while (yaw_ < -M_PI) {
             yaw_ += 2.0 * M_PI;
         }
-    }
 
-    nav_msgs::msg::Odometry odom_msg;
-    odom_msg.header.stamp = node_.now();
-    odom_msg.header.frame_id = config_.odom_frame;
-    odom_msg.child_frame_id = config_.base_frame;
-
-    {
-        std::lock_guard<std::mutex> lock(pose_mutex_);
         odom_msg.pose.pose.position.x = x_;
         odom_msg.pose.pose.position.y = y_;
         odom_msg.pose.pose.position.z = 0.0;
@@ -171,15 +233,23 @@ void WheelOdom::publishOdometry() {
     odom_msg.twist.twist.angular.y = 0.0;
     odom_msg.twist.twist.angular.z = omega;
 
-    odom_msg.pose.covariance[0] = 0.01;
-    odom_msg.pose.covariance[7] = 0.01;
-    odom_msg.pose.covariance[35] = 0.03;
+    odom_msg.pose.covariance[0] = cov_v;
+    odom_msg.pose.covariance[7] = cov_v;
+    odom_msg.pose.covariance[35] = cov_wz;
 
-    odom_msg.twist.covariance[0] = 0.01;
-    odom_msg.twist.covariance[7] = 0.01;
-    odom_msg.twist.covariance[35] = 0.03;
+    odom_msg.twist.covariance[0] = cov_v;
+    odom_msg.twist.covariance[7] = cov_v;
+    odom_msg.twist.covariance[35] = cov_wz;
 
     odom_pub_->publish(odom_msg);
+
+    std_msgs::msg::Float32 slip_msg;
+    slip_msg.data = static_cast<float>(slip_score);
+    slip_score_pub_->publish(slip_msg);
+
+    std_msgs::msg::Float32 cov_msg;
+    cov_msg.data = static_cast<float>(cov_v);
+    cov_state_pub_->publish(cov_msg);
 }
 
 void WheelOdom::getPose(double& x, double& y, double& yaw) const {

@@ -37,6 +37,29 @@ public:
         this->declare_parameter("feedback_send_rate_hz", 50);
         this->declare_parameter("target_send_rate_hz", 25);
 
+        // 速度保护参数 (PoseSender)
+        this->declare_parameter("imu_topic", "DM_IMU");
+        this->declare_parameter("v_max_mps", 2.0);
+        this->declare_parameter("w_max_rps", 4.0);
+        this->declare_parameter("a_max_mps2", 15.0);
+        this->declare_parameter("alpha_max_rps2", 40.0);
+        this->declare_parameter("spike_accel_threshold", 20.0);
+        this->declare_parameter("spike_gyro_threshold", 6.0);
+        this->declare_parameter("spike_freeze_duration_ms", 300);
+        this->declare_parameter("spike_decay_tau_s", 0.2);
+        this->declare_parameter("latency_comp_enable", true);
+        this->declare_parameter("latency_comp_s", 0.03);
+
+        // 自适应协方差参数 (WheelOdom)
+        this->declare_parameter("slip_enable", true);
+        this->declare_parameter("slip_threshold", 0.5);
+        this->declare_parameter("slip_k_acc", 0.5);
+        this->declare_parameter("cov_nominal_v", 0.01);
+        this->declare_parameter("cov_nominal_wz", 0.03);
+        this->declare_parameter("cov_slip_v", 0.5);
+        this->declare_parameter("cov_slip_wz", 0.5);
+        this->declare_parameter("recovery_tau_s", 0.5);
+
         // 获取里程计源配置
         bool use_can_odom = this->get_parameter("use_can_odom").as_bool();
 
@@ -97,6 +120,15 @@ public:
             wheel_config.odom_frame = odom_frame;
             wheel_config.base_frame = base_frame;
             wheel_config.data_timeout_ms = data_timeout_ms;
+            wheel_config.imu_topic = this->get_parameter("imu_topic").as_string();
+            wheel_config.slip_enable = this->get_parameter("slip_enable").as_bool();
+            wheel_config.slip_threshold = this->get_parameter("slip_threshold").as_double();
+            wheel_config.slip_k_acc = this->get_parameter("slip_k_acc").as_double();
+            wheel_config.cov_nominal_v = this->get_parameter("cov_nominal_v").as_double();
+            wheel_config.cov_nominal_wz = this->get_parameter("cov_nominal_wz").as_double();
+            wheel_config.cov_slip_v = this->get_parameter("cov_slip_v").as_double();
+            wheel_config.cov_slip_wz = this->get_parameter("cov_slip_wz").as_double();
+            wheel_config.recovery_tau_s = this->get_parameter("recovery_tau_s").as_double();
 
             wheel_odom_ = std::make_unique<rc26_merge_odom::WheelOdom>(*this, feedback_serial_, wheel_config);
             RCLCPP_INFO(this->get_logger(), "使用 Wheel 里程计 (反馈串口: %s)", feedback_port.c_str());
@@ -107,8 +139,20 @@ public:
             rc26_merge_odom::PoseSender::Config pose_config;
             pose_config.cmd_vel_topic = this->get_parameter("cmd_vel_topic").as_string();
             pose_config.odom_topic = this->get_parameter("merge_odom_topic").as_string();
+            pose_config.imu_topic = this->get_parameter("imu_topic").as_string();
             pose_config.feedback_send_rate_hz = this->get_parameter("feedback_send_rate_hz").as_int();
             pose_config.target_send_rate_hz = this->get_parameter("target_send_rate_hz").as_int();
+            pose_config.v_max_mps = static_cast<float>(this->get_parameter("v_max_mps").as_double());
+            pose_config.w_max_rps = static_cast<float>(this->get_parameter("w_max_rps").as_double());
+            pose_config.a_max_mps2 = static_cast<float>(this->get_parameter("a_max_mps2").as_double());
+            pose_config.alpha_max_rps2 = static_cast<float>(this->get_parameter("alpha_max_rps2").as_double());
+            pose_config.spike_accel_threshold =
+                static_cast<float>(this->get_parameter("spike_accel_threshold").as_double());
+            pose_config.spike_gyro_threshold = static_cast<float>(this->get_parameter("spike_gyro_threshold").as_double());
+            pose_config.spike_freeze_duration_ms = this->get_parameter("spike_freeze_duration_ms").as_int();
+            pose_config.spike_decay_tau_s = static_cast<float>(this->get_parameter("spike_decay_tau_s").as_double());
+            pose_config.latency_comp_enable = this->get_parameter("latency_comp_enable").as_bool();
+            pose_config.latency_comp_s = static_cast<float>(this->get_parameter("latency_comp_s").as_double());
 
             pose_sender_ =
                 std::make_unique<rc26_merge_odom::PoseSender>(*this, feedback_serial_, target_serial_, pose_config);

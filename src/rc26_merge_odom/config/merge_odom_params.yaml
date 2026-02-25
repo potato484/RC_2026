@@ -45,6 +45,17 @@ pose_sender_node:
     odom_topic: "merge_odom"
     feedback_send_rate_hz: 50
     target_send_rate_hz: 25
+    imu_topic: "DM_IMU"
+    v_max_mps: 2.0
+    w_max_rps: 4.0
+    a_max_mps2: 15.0
+    alpha_max_rps2: 40.0
+    spike_accel_threshold: 20.0
+    spike_gyro_threshold: 6.0
+    spike_freeze_duration_ms: 300
+    spike_decay_tau_s: 0.2
+    latency_comp_enable: true
+    latency_comp_s: 0.03
 
 # 融合里程计主节点参数(整合模式)
 merge_odom_node:
@@ -71,3 +82,22 @@ merge_odom_node:
     merge_odom_topic: "merge_odom"
     feedback_send_rate_hz: 50
     target_send_rate_hz: 25
+    imu_topic: "DM_IMU"
+    v_max_mps: 2.0
+    w_max_rps: 4.0
+    a_max_mps2: 15.0
+    alpha_max_rps2: 40.0
+    spike_accel_threshold: 20.0
+    spike_gyro_threshold: 6.0
+    spike_freeze_duration_ms: 300
+    spike_decay_tau_s: 0.2
+    latency_comp_enable: true
+    latency_comp_s: 0.03
+    slip_enable: true
+    slip_threshold: 0.5
+    slip_k_acc: 0.5
+    cov_nominal_v: 0.01
+    cov_nominal_wz: 0.03
+    cov_slip_v: 0.5
+    cov_slip_wz: 0.5
+    recovery_tau_s: 0.5
