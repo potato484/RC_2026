@@ -1,12 +1,19 @@
 base_ground_estimator:
   ros__parameters:
-    # 使用相对话题名以兼容 namespace（例如 /r2/odom）
     odom_topic: "odom"
-    step_height_m: 0.20
-    tol: 0.06
-    T_stable: 0.5
-    T_confirm: 0.3
     parent_frame: "odom"
-    enable_tf_publish: true
     base_ground_frame: "base_ground"
+    enable_tf_publish: true
     tf_timeout_sec: 0.05
+    step_height_m: 0.20
+    tol_level_m: 0.04
+    tol_stable_z_std_m: 0.015
+    tol_stable_lin_vel_mps: 0.05
+    tol_stable_ang_vel_rps: 0.05
+    T_confirm: 0.4
+    window_size: 10
+    h0_calibration_samples: 10
+    h0_override_enable: false
+    h0_override_m: 0.0
+    lift_thresh_m: 0.15
+    lift_time_s: 0.5

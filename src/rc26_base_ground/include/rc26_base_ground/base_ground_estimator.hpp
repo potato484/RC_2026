@@ -33,23 +33,29 @@ private:
         double z;
         double roll;
         double pitch;
+        double vx;
+        double vy;
+        double wz;
     };
 
     void onOdom(const nav_msgs::msg::Odometry::ConstSharedPtr& msg);
     bool resolveBasePose(const nav_msgs::msg::Odometry& msg, geometry_msgs::msg::PoseStamped& out_pose);
-    bool updateStabilityWindow(const Sample& sample, bool* stable_out);
+    bool updateStabilityWindow(const Sample& sample);
+    void updateLiftedState(const Sample& sample);
     void updateLevelState(const Sample& sample);
     void publishLevel();
     void publishStairDelta(int8_t delta);
-    void publishStable(bool stable);
     void publishTf(const geometry_msgs::msg::PoseStamped& base_pose_parent, double yaw, const rclcpp::Time& stamp);
 
     std::string odom_topic_;
     std::string parent_frame_;
     std::string base_ground_frame_;
     double step_height_m_{0.20};
-    double tol_{0.06};
-    double t_stable_{0.5};
+    double tol_level_m_{0.04};
+    double tol_stable_z_std_m_{0.015};
+    double tol_stable_lin_vel_mps_{0.05};
+    double tol_stable_ang_vel_rps_{0.05};
+    int window_size_{10};
     double t_confirm_{0.3};
     double tf_timeout_sec_{0.05};
     bool enable_tf_publish_{true};
@@ -57,19 +63,32 @@ private:
     State state_{State::Calibrating};
     bool h0_valid_{false};
     double h0_{0.0};
+    int h0_calibration_samples_{10};
+    int h0_cal_count_{0};
+    double h0_cal_sum_{0.0};
+    bool h0_override_enable_{false};
+    double h0_override_m_{0.0};
     int32_t current_level_{0};
     double ground_z_{0.0};
     bool candidate_active_{false};
     int32_t candidate_level_{0};
     rclcpp::Time candidate_since_;
 
-    bool stable_{false};
+    bool stable_terrain_{false};
+    bool stable_operation_{false};
+    bool is_lifted_{false};
+    bool lift_timing_{false};
+    rclcpp::Time lift_detect_since_;
+    double lift_thresh_m_{0.15};
+    double lift_time_s_{0.5};
     std::deque<Sample> window_;
 
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr level_pub_;
     rclcpp::Publisher<std_msgs::msg::Int8>::SharedPtr stair_delta_pub_;
-    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr stable_pub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr stable_terrain_pub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr stable_operation_pub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr is_lifted_pub_;
 
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
