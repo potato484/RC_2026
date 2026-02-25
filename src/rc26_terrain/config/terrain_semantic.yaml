@@ -13,7 +13,7 @@
     # Diagnostics 输出：默认相对话题名，可通过 Remap 接入 /diagnostics
     diagnostics_topic: "diagnostics"
     # base_ground 稳定信号（用于台阶工况门控）
-    base_ground_stable_topic: "base_ground/stable"
+    base_ground_stable_topic: "base_ground/stable_terrain"
     mf_kfs_state_topic: "/mf_kfs_state"
     mf_grid_layout_file: ""
     kfs_min_confidence: 0.6

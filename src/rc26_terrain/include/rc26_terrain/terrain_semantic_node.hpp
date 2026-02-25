@@ -56,7 +56,7 @@ private:
     std::string output_drop_topic_;
     std::string output_climbable_topic_;
     std::string diagnostics_topic_;
-    std::string base_ground_stable_topic_{"base_ground/stable"};
+    std::string base_ground_stable_topic_{"base_ground/stable_terrain"};
     std::string mf_kfs_state_topic_{"/mf_kfs_state"};
     std::string mf_grid_layout_file_{""};
     double kfs_min_confidence_{0.6};
