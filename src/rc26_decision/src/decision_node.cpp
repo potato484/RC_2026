@@ -47,7 +47,9 @@ public:
         this->declare_parameter<double>("stop_angular_eps_rps", 0.1);
         this->declare_parameter<std::string>("base_ground_level_topic", "base_ground/level");
         this->declare_parameter<std::string>("base_ground_stair_delta_topic", "base_ground/stair_delta");
-        this->declare_parameter<std::string>("base_ground_stable_topic", "base_ground/stable");
+        this->declare_parameter<std::string>("base_ground_stable_topic", "base_ground/stable_terrain");
+        this->declare_parameter<std::string>("base_ground_is_lifted_topic", "base_ground/is_lifted");
+        this->declare_parameter<std::string>("base_ground_stable_operation_topic", "base_ground/stable_operation");
         this->declare_parameter<std::string>("kfs_state_topic", "mf_kfs_state");
         this->declare_parameter<double>("tip_rack_center_x", 0.0);
         this->declare_parameter<double>("tip_rack_center_y", 0.0);
@@ -154,6 +156,8 @@ public:
         blackboard->set("current_level", static_cast<int32_t>(0));
         blackboard->set("stair_delta", static_cast<int8_t>(0));
         blackboard->set("base_ground_stable", false);
+        blackboard->set("is_lifted", false);
+        blackboard->set("stable_operation", false);
         blackboard->set("level_start", static_cast<int32_t>(0));
 
         // 机制状态可观测键（供 Groot2/诊断查看）
@@ -178,6 +182,18 @@ public:
         base_ground_stable_sub_ = this->create_subscription<std_msgs::msg::Bool>(
             stable_topic, 10, [blackboard](const std_msgs::msg::Bool::SharedPtr msg) {
                 blackboard->set("base_ground_stable", msg->data);
+            });
+
+        const auto is_lifted_topic = this->get_parameter("base_ground_is_lifted_topic").as_string();
+        base_ground_is_lifted_sub_ = this->create_subscription<std_msgs::msg::Bool>(
+            is_lifted_topic, 10, [blackboard](const std_msgs::msg::Bool::SharedPtr msg) {
+                blackboard->set("is_lifted", msg->data);
+            });
+
+        const auto stable_op_topic = this->get_parameter("base_ground_stable_operation_topic").as_string();
+        base_ground_stable_operation_sub_ = this->create_subscription<std_msgs::msg::Bool>(
+            stable_op_topic, 10, [blackboard](const std_msgs::msg::Bool::SharedPtr msg) {
+                blackboard->set("stable_operation", msg->data);
             });
 
         // 订阅机制状态（决策侧不再直接处理串口反馈）
@@ -303,6 +319,8 @@ private:
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr base_ground_level_sub_;
     rclcpp::Subscription<std_msgs::msg::Int8>::SharedPtr base_ground_stair_delta_sub_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr base_ground_stable_sub_;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr base_ground_is_lifted_sub_;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr base_ground_stable_operation_sub_;
     rclcpp::Subscription<rc26_interfaces::msg::MechanismState>::SharedPtr mechanism_state_sub_;
     std::shared_ptr<rc26_vision::VisionInferenceManager> vision_manager_;
 };
