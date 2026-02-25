@@ -5,8 +5,7 @@ import math
 
 from ament_index_python.packages import get_package_share_directory
 import launch
-from launch.actions import IncludeLaunchDescription, TimerAction
-from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.actions import ExecuteProcess, TimerAction
 from launch_ros.actions import Node
 import launch_testing.actions
 from nav2_msgs.srv import GetCostmap
@@ -54,19 +53,56 @@ def _max_nearest_skew_sec(ref_stamps, probe_stamps) -> float:
 
 
 def generate_test_description():
-    bringup_dir = get_package_share_directory("rc26_bringup")
     terrain_dir = get_package_share_directory("rc26_terrain")
+    mock_odom_scan_script = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)),
+        "mock_odom_scan.py",
+    )
 
-    odometry_mock_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(bringup_dir, "launch", "odometry_mock.launch.py")
-        ),
-        launch_arguments={
-            "use_sim_time": "false",
-            "mock_rate_hz": "10.0",
-            "mock_obstacle_enable": "true",
-            "mock_ground_enable": "true",
-        }.items(),
+    static_tf_map_to_odom = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_tf_map_to_odom",
+        arguments=[
+            "--x", "0",
+            "--y", "0",
+            "--z", "0",
+            "--roll", "0",
+            "--pitch", "0",
+            "--yaw", "0",
+            "--frame-id", "map",
+            "--child-frame-id", "odom",
+        ],
+    )
+
+    static_tf_base_to_livox = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_tf_base_to_livox",
+        arguments=[
+            "--x", "0",
+            "--y", "0",
+            "--z", "0.13",
+            "--roll", "0",
+            "--pitch", "0",
+            "--yaw", "0",
+            "--frame-id", "base_link",
+            "--child-frame-id", "livox_frame",
+        ],
+    )
+
+    mock_odom_scan = ExecuteProcess(
+        cmd=[
+            "python3",
+            mock_odom_scan_script,
+            "--rate_hz",
+            "10.0",
+            "--obstacle_enable",
+            "true",
+            "--ground_enable",
+            "true",
+        ],
+        output="screen",
     )
 
     terrain_node = Node(
@@ -169,10 +205,7 @@ def generate_test_description():
         namespace="costmap",
         name="costmap",
         output="screen",
-        parameters=[
-            os.path.join(bringup_dir, "config", "nav2_params.yaml"),
-            local_costmap_overrides,
-        ],
+        parameters=[local_costmap_overrides],
     )
 
     lifecycle_manager = Node(
@@ -193,7 +226,9 @@ def generate_test_description():
     return (
         launch.LaunchDescription(
             [
-                odometry_mock_launch,
+                static_tf_map_to_odom,
+                static_tf_base_to_livox,
+                mock_odom_scan,
                 terrain_node,
                 local_costmap_node,
                 lifecycle_manager,
