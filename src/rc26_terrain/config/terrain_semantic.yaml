@@ -132,6 +132,8 @@
     latency_trigger_frames: 3
     latency_recover_frames: 5
     latency_intervention_mode: "virtual_fence"
+    thermal_throttle_topic: ""
+    thermal_throttle_release_sec: 0.5
 
     # ===== DEPRECATED(flat) =====
     # 旧参数仍保留用于兼容，launch 侧推荐使用下方分组参数。
@@ -183,3 +185,5 @@
     safety.latency_trigger_frames: 3
     safety.latency_recover_frames: 5
     safety.latency_intervention_mode: "virtual_fence"
+    safety.thermal_throttle_topic: ""
+    safety.thermal_throttle_release_sec: 0.5

@@ -150,6 +150,8 @@ private:
     int latency_recover_frames_{5};
     std::string latency_intervention_mode_{"virtual_fence"};
     double last_latency_ms_{0.0};
+    std::string thermal_throttle_topic_{""};
+    double thermal_throttle_release_sec_{0.5};
 
     // 栅格状态
     int half_width_{0};
@@ -174,6 +176,7 @@ private:
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub_odom_;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_cloud_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_base_ground_stable_;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_thermal_throttle_;
     rclcpp::Subscription<rc26_interfaces::msg::MfKfsState>::SharedPtr sub_mf_kfs_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_obstacles_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_drop_;
@@ -206,6 +209,8 @@ private:
     int latency_overrun_count_{0};
     int latency_recover_count_{0};
     bool latency_intervention_active_{false};
+    bool thermal_throttle_requested_{false};
+    rclcpp::Time thermal_throttle_last_true_stamp_{0, 0, RCL_ROS_TIME};
 
     // 诊断统计
     int kfs_occupied_count_{0};

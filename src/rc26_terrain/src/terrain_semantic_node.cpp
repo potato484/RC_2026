@@ -177,6 +177,8 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->declare_parameter<int>        ("latency_trigger_frames", latency_trigger_frames_);
     this->declare_parameter<int>        ("latency_recover_frames", latency_recover_frames_);
     this->declare_parameter<std::string>("latency_intervention_mode", latency_intervention_mode_);
+    this->declare_parameter<std::string>("thermal_throttle_topic", thermal_throttle_topic_);
+    this->declare_parameter<double>     ("thermal_throttle_release_sec", thermal_throttle_release_sec_);
 
     // 读取参数
     this->get_parameter("input_cloud_topic", input_cloud_topic_);
@@ -254,6 +256,8 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->get_parameter("latency_trigger_frames", latency_trigger_frames_);
     this->get_parameter("latency_recover_frames", latency_recover_frames_);
     this->get_parameter("latency_intervention_mode", latency_intervention_mode_);
+    this->get_parameter("thermal_throttle_topic", thermal_throttle_topic_);
+    this->get_parameter("thermal_throttle_release_sec", thermal_throttle_release_sec_);
 
     // transform_tolerance: 若配置了该参数，则覆盖 tf_timeout_sec
     double transform_tolerance = -1.0;
@@ -294,6 +298,7 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     top_z_max_delta_m_ = std::max(0.1, top_z_max_delta_m_);
     latency_trigger_frames_ = std::max(1, latency_trigger_frames_);
     latency_recover_frames_ = std::max(1, latency_recover_frames_);
+    thermal_throttle_release_sec_ = std::max(0.0, thermal_throttle_release_sec_);
 
     if (unknown_policy_ != "aggressive" && unknown_policy_ != "conservative") {
         throw std::invalid_argument("unknown_policy 仅支持: aggressive/conservative");
@@ -364,6 +369,19 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
                 base_ground_stable_ = msg->data;
             }
         });
+    if (!thermal_throttle_topic_.empty()) {
+        sub_thermal_throttle_ = this->create_subscription<std_msgs::msg::Bool>(
+            thermal_throttle_topic_, rclcpp::QoS(10),
+            [this](const std_msgs::msg::Bool::ConstSharedPtr& msg) {
+                if (!msg) {
+                    return;
+                }
+                thermal_throttle_requested_ = msg->data;
+                if (msg->data) {
+                    thermal_throttle_last_true_stamp_ = this->get_clock()->now();
+                }
+            });
+    }
     sub_mf_kfs_ = this->create_subscription<rc26_interfaces::msg::MfKfsState>(
         mf_kfs_state_topic_, rclcpp::QoS(1).reliable(),
         [this](const rc26_interfaces::msg::MfKfsState::ConstSharedPtr& msg) {
@@ -459,7 +477,18 @@ void TerrainSemanticNode::healthTimerCallback() {
         publishVirtualFence(now, last_base_x_, last_base_y_, last_base_z_, last_cos_yaw_, last_sin_yaw_);
     }
 
-    if (std::isfinite(last_latency_ms_)) {
+    bool thermal_throttle_active = thermal_throttle_requested_;
+    if (!thermal_throttle_active &&
+        thermal_throttle_last_true_stamp_.nanoseconds() > 0 &&
+        thermal_throttle_release_sec_ > 0.0) {
+        thermal_throttle_active =
+            (now - thermal_throttle_last_true_stamp_).seconds() <= thermal_throttle_release_sec_;
+    }
+
+    if (thermal_throttle_active) {
+        latency_overrun_count_ = std::max(latency_overrun_count_, latency_trigger_frames_);
+        latency_recover_count_ = 0;
+    } else if (std::isfinite(last_latency_ms_)) {
         if (last_latency_ms_ > latency_error_ms_) {
             latency_overrun_count_++;
             latency_recover_count_ = 0;
@@ -479,11 +508,19 @@ void TerrainSemanticNode::healthTimerCallback() {
         latency_intervention_mode_ != "none" &&
         latency_overrun_count_ >= latency_trigger_frames_) {
         latency_intervention_active_ = true;
-        RCLCPP_ERROR(this->get_logger(),
-            "latency intervention activated, latency=%.2fms overrun_count=%d",
-            last_latency_ms_, latency_overrun_count_);
+        if (thermal_throttle_active) {
+            RCLCPP_ERROR(this->get_logger(),
+                "latency intervention activated by thermal throttle, overrun_count=%d",
+                latency_overrun_count_);
+        } else {
+            RCLCPP_ERROR(this->get_logger(),
+                "latency intervention activated, latency=%.2fms overrun_count=%d",
+                last_latency_ms_, latency_overrun_count_);
+        }
     }
-    if (latency_intervention_active_ && latency_recover_count_ >= latency_recover_frames_) {
+    if (latency_intervention_active_ &&
+        !thermal_throttle_active &&
+        latency_recover_count_ >= latency_recover_frames_) {
         latency_intervention_active_ = false;
         RCLCPP_INFO(this->get_logger(),
             "latency intervention cleared, recover_count=%d", latency_recover_count_);
@@ -509,6 +546,10 @@ void TerrainSemanticNode::healthTimerCallback() {
             level = std::max(level, static_cast<int>(diagnostic_msgs::msg::DiagnosticStatus::WARN));
             msg = fail_safe_active_ ? (msg + "; 处理延迟告警") : "处理延迟告警";
         }
+    }
+    if (thermal_throttle_active) {
+        level = std::max(level, static_cast<int>(diagnostic_msgs::msg::DiagnosticStatus::ERROR));
+        msg = (msg == "正常") ? "热降频触发干预" : (msg + "; 热降频触发干预");
     }
     if (latency_intervention_active_) {
         level = std::max(level, static_cast<int>(diagnostic_msgs::msg::DiagnosticStatus::ERROR));
@@ -592,6 +633,15 @@ void TerrainSemanticNode::publishDiagnostics(const rclcpp::Time& stamp, int leve
     addKV("latency_intervention_mode", latency_intervention_mode_);
     addKV("latency_overrun_count", std::to_string(latency_overrun_count_));
     addKV("latency_recover_count", std::to_string(latency_recover_count_));
+    addKV("thermal_throttle_topic", thermal_throttle_topic_.empty() ? "disabled" : thermal_throttle_topic_);
+    addKV("thermal_throttle_requested", thermal_throttle_requested_ ? "true" : "false");
+    const double thermal_age =
+        (thermal_throttle_last_true_stamp_.nanoseconds() > 0)
+            ? (stamp - thermal_throttle_last_true_stamp_).seconds()
+            : std::numeric_limits<double>::infinity();
+    addKV("thermal_throttle_last_true_age_sec",
+          std::isfinite(thermal_age) ? std::to_string(thermal_age) : "inf");
+    addKV("thermal_throttle_release_sec", std::to_string(thermal_throttle_release_sec_));
     addKV("kfs_occupied_cells", std::to_string(kfs_occupied_count_));
     addKV("obstacle_cells", std::to_string(obstacle_cells_count_));
     addKV("drop_cells", std::to_string(drop_cells_count_));
