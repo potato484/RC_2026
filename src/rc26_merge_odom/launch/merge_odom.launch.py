@@ -27,6 +27,7 @@ def generate_launch_description():
     imu_port_default = str(((params_yaml.get('dm_imu_node') or {}).get('ros__parameters') or {}).get('port', '/dev/ttyACM0'))
     feedback_serial_port_default = str(merge_params.get('feedback_serial_port', '/dev/ttyUSB0'))
     target_serial_port_default = str(merge_params.get('target_serial_port', '/dev/ttyUSB1'))
+    can_odom_topic_default = str(merge_params.get('can_odom_topic', 'Can_Odom'))
     wheel_odom_topic_default = str(merge_params.get('wheel_odom_topic', 'wheel_odom'))
     odom0_topic_override = can_odom_topic_default if use_can_odom_default else wheel_odom_topic_default
 

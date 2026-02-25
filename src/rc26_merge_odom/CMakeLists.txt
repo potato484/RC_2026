@@ -46,6 +46,7 @@ target_link_libraries(wheel_odom
 ament_target_dependencies(wheel_odom
   rclcpp
   nav_msgs
+  sensor_msgs
   tf2
   rc26_serial
 )
@@ -64,6 +65,7 @@ target_link_libraries(wheel_odom_node wheel_odom)
 ament_target_dependencies(wheel_odom_node
   rclcpp
   nav_msgs
+  sensor_msgs
 )
 
 # 位姿下传库
@@ -80,6 +82,7 @@ target_link_libraries(pose_sender
 ament_target_dependencies(pose_sender
   rclcpp
   nav_msgs
+  sensor_msgs
   geometry_msgs
   tf2
   rc26_serial
@@ -91,6 +94,7 @@ target_link_libraries(pose_sender_node pose_sender)
 ament_target_dependencies(pose_sender_node
   rclcpp
   nav_msgs
+  sensor_msgs
   geometry_msgs
   rc26_serial
 )
@@ -101,6 +105,7 @@ target_link_libraries(merge_odom_node can_odom wheel_odom pose_sender)
 ament_target_dependencies(merge_odom_node
   rclcpp
   nav_msgs
+  sensor_msgs
   geometry_msgs
   rc26_serial
 )
