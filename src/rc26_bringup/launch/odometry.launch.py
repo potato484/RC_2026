@@ -24,6 +24,7 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
     use_rviz = LaunchConfiguration('use_rviz')
+    point_lio_config_file = LaunchConfiguration('point_lio_config_file')
 
     # 参数声明
     declare_namespace = DeclareLaunchArgument(
@@ -46,9 +47,13 @@ def generate_launch_description():
         default_value='true',
         description='启动 RViz')
 
+    declare_point_lio_config_file = DeclareLaunchArgument(
+        'point_lio_config_file',
+        default_value=PathJoinSubstitution([point_lio_dir, 'config', 'mid360.yaml']),
+        description='Point-LIO 参数文件路径（建图/调试时可切换不同配置）')
+
     # 配置文件路径
     mid360_driver_config = PathJoinSubstitution([mid360_driver_dir, 'config', 'param.yaml'])
-    point_lio_config = PathJoinSubstitution([point_lio_dir, 'config', 'mid360.yaml'])
     odom_interface_config = PathJoinSubstitution([bringup_dir, 'config', 'odom_interface.yaml'])
     sensor_scan_config = PathJoinSubstitution([bringup_dir, 'config', 'sensor_scan_generation.yaml'])
 
@@ -73,7 +78,7 @@ def generate_launch_description():
         namespace=namespace,
         output='screen',
         parameters=[
-            point_lio_config,
+            point_lio_config_file,
             {'use_sim_time': use_sim_time},
             {'prior_pcd.prior_pcd_map_path': prior_pcd_file},
             # 对齐 Point-LIO body_frame 与 lidar_frame 语义
@@ -134,6 +139,7 @@ def generate_launch_description():
         declare_use_sim_time,
         declare_prior_pcd_file,
         declare_use_rviz,
+        declare_point_lio_config_file,
 
         # 节点
         static_tf_livox,

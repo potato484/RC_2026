@@ -27,6 +27,7 @@ def generate_launch_description():
     decision_dir = get_package_share_directory('rc26_decision')
     base_ground_dir = get_package_share_directory('rc26_base_ground')
     kfs_keepout_dir = get_package_share_directory('rc26_kfs_keepout')
+    point_lio_dir = get_package_share_directory('point_lio')
 
     # 启动参数
     namespace = LaunchConfiguration('namespace')
@@ -34,6 +35,7 @@ def generate_launch_description():
     slam = LaunchConfiguration('slam')
     map_file = LaunchConfiguration('map')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
+    point_lio_config_file = LaunchConfiguration('point_lio_config_file')
     params_file = LaunchConfiguration('params_file')
     use_rviz = LaunchConfiguration('use_rviz')
     use_decision = LaunchConfiguration('use_decision')
@@ -67,6 +69,11 @@ def generate_launch_description():
         'prior_pcd_file',
         default_value=PathJoinSubstitution([bringup_dir, 'pcd', 'default.pcd']),
         description='先验点云文件路径')
+
+    declare_point_lio_config_file = DeclareLaunchArgument(
+        'point_lio_config_file',
+        default_value=PathJoinSubstitution([point_lio_dir, 'config', 'mid360.yaml']),
+        description='Point-LIO 参数文件路径（建图/调试时可切换不同配置）')
 
     declare_params_file = DeclareLaunchArgument(
         'params_file',
@@ -130,6 +137,7 @@ def generate_launch_description():
             'namespace': namespace,
             'use_sim_time': use_sim_time,
             'prior_pcd_file': prior_pcd_file,
+            'point_lio_config_file': point_lio_config_file,
         }.items()
     )
 
@@ -352,6 +360,7 @@ def generate_launch_description():
         declare_slam,
         declare_map,
         declare_prior_pcd_file,
+        declare_point_lio_config_file,
         declare_params_file,
         declare_use_rviz,
         declare_use_decision,

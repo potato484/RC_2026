@@ -4,6 +4,7 @@ from rclpy.node import Node
 from tf2_ros import Buffer, TransformListener
 import yaml
 import os
+import math
 
 class PointRecorder(Node):
     def __init__(self):
@@ -19,6 +20,56 @@ class PointRecorder(Node):
             f"{self.get_parameter('output_dir').value}/waypoints_{self.team}.yaml"
         )
         self.data = self._load_or_init()
+
+    @staticmethod
+    def _quat_to_yaw(q) -> float:
+        # yaw from quaternion (geometry_msgs/Quaternion)
+        siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        return math.atan2(siny_cosp, cosy_cosp)
+
+    def _load_or_init(self) -> dict:
+        data = {}
+        if os.path.exists(self.output_path):
+            try:
+                with open(self.output_path, 'r') as f:
+                    loaded = yaml.safe_load(f) or {}
+                if isinstance(loaded, dict):
+                    data = loaded
+            except Exception as e:
+                self.get_logger().warn(f'Failed to load existing YAML, will re-init: {e}')
+
+        # Ensure minimal schema expected by WaypointManager + recorder commands.
+        header = data.get('header')
+        if not isinstance(header, dict):
+            header = {}
+        header.setdefault('version', '1.0')
+        header['team'] = self.team
+        header.setdefault('frame_id', 'map')
+        data['header'] = header
+
+        static_points = data.get('static_points')
+        if not isinstance(static_points, dict):
+            static_points = {}
+        data['static_points'] = static_points
+
+        merlin_config = data.get('merlin_config')
+        if not isinstance(merlin_config, dict):
+            merlin_config = {}
+        anchors = merlin_config.get('anchors')
+        if not isinstance(anchors, dict):
+            anchors = {}
+        merlin_config['anchors'] = anchors
+        params = merlin_config.get('params')
+        if not isinstance(params, dict):
+            params = {}
+        params.setdefault('grid_size', 1.2)
+        params.setdefault('safe_offset', 0.20)
+        params.setdefault('jump_margin', 0.20)
+        merlin_config['params'] = params
+        data['merlin_config'] = merlin_config
+
+        return data
 
     def get_robot_pose(self):
         try:
