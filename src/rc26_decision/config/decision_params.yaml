@@ -4,16 +4,6 @@ rc26_decision:
     tree_file: "main_tree.xml"
     tick_rate_ms: 100
 
-    # 兼容保留（P4 后不再由 decision 直接持有串口）
-    enable_cmd_serial: true
-
-    # 兼容保留（P4 后不再由 decision 直接持有串口）
-    cmd_serial_port: "/dev/ttyUSB1"
-    cmd_baudrate: 115200
-
-    # 兼容保留（P4 后不再由 decision 直接持有串口）
-    enable_heartbeat: true
-    heartbeat_rate_hz: 1
     mechanism_state_topic: "/mechanism/state"
 
     # 里程计话题（用于停车判定等）

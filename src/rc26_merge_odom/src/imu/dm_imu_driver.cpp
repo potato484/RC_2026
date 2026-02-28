@@ -381,7 +381,7 @@ bool DmImuDriver::parseFrame(const uint8_t* frame, size_t len) {
     uint8_t rid = frame[3];
 
     // 检查RID有效性
-    if (rid < 0x01 || rid > 0x04) {
+    if (rid < 0x01 || rid > 0x03) {
         return false;
     }
 
@@ -428,10 +428,6 @@ bool DmImuDriver::parseFrame(const uint8_t* frame, size_t len) {
             latest_data_.euler[2] = f3;  // Yaw
             latest_data_.euler_valid = true;
             latest_data_.euler_ts = now;
-            break;
-
-        case DataType::QUATERNION:
-            // 四元数帧格式不同，这里暂不处理
             break;
         }
     }

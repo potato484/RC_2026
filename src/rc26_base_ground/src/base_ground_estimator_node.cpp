@@ -23,8 +23,6 @@ BaseGroundEstimatorNode::BaseGroundEstimatorNode(const rclcpp::NodeOptions& opti
     this->declare_parameter<std::string>("parent_frame", "odom");
     this->declare_parameter<std::string>("base_ground_frame", "base_ground");
     this->declare_parameter<double>("step_height_m", 0.20);
-    this->declare_parameter<double>("tol", 0.06);       // deprecated, compat only
-    this->declare_parameter<double>("T_stable", 0.5);   // deprecated, compat only
     this->declare_parameter<double>("tol_level_m", 0.04);
     this->declare_parameter<double>("tol_stable_z_std_m", 0.015);
     this->declare_parameter<double>("tol_stable_lin_vel_mps", 0.05);

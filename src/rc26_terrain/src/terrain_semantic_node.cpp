@@ -80,9 +80,8 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->declare_parameter<std::string>("target_frame", "odom");
     this->declare_parameter<std::string>("base_frame", "base_link");
 
-    // TF 查询超时（兼容旧参数 tf_timeout_sec，同时提供 transform_tolerance）
+    // TF 查询超时（秒）
     this->declare_parameter<double>("tf_timeout_sec", tf_timeout_sec_);
-    this->declare_parameter<double>("transform_tolerance", -1.0);
 
     // 输入健康检测（用于失效保护）
     this->declare_parameter<double>("cloud_timeout_sec", cloud_timeout_sec_);
@@ -241,6 +240,12 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->get_parameter("virtual_fence_radius_m", virtual_fence_radius_m_);
     this->get_parameter("virtual_fence_num_points", virtual_fence_num_points_);
     this->get_parameter("virtual_fence_height_m", virtual_fence_height_m_);
+    this->get_parameter("tf_health_timeout_sec", tf_health_timeout_sec_);
+    this->get_parameter("output_sanity_check_enable", output_sanity_check_enable_);
+    this->get_parameter("output_max_points_total", output_max_points_total_);
+    this->get_parameter("output_max_points_per_cloud", output_max_points_per_cloud_);
+    this->get_parameter("drop_forward_sector_deg", drop_forward_sector_deg_);
+    this->get_parameter("drop_forward_min_x_m", drop_forward_min_x_m_);
     this->get_parameter("obstacle_neighbor_mode", obstacle_neighbor_mode_);
     this->get_parameter("drop_neighbor_mode",     drop_neighbor_mode_);
     this->get_parameter("min_obstacle_area_cells",min_obstacle_area_cells_);
@@ -258,13 +263,6 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->get_parameter("latency_intervention_mode", latency_intervention_mode_);
     this->get_parameter("thermal_throttle_topic", thermal_throttle_topic_);
     this->get_parameter("thermal_throttle_release_sec", thermal_throttle_release_sec_);
-
-    // transform_tolerance: 若配置了该参数，则覆盖 tf_timeout_sec
-    double transform_tolerance = -1.0;
-    this->get_parameter("transform_tolerance", transform_tolerance);
-    if (transform_tolerance >= 0.0) {
-        tf_timeout_sec_ = transform_tolerance;
-    }
 
     // 参数校验与归一化
     if (perception_radius_m_ <= 0.0) throw std::invalid_argument("perception_radius_m 必须 > 0");

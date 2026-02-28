@@ -30,12 +30,6 @@ public:
         // 声明参数
         this->declare_parameter<std::string>("tree_file", "main_tree.xml");
         this->declare_parameter<int>("tick_rate_ms", 100);
-        // 保留旧参数声明以兼容现有 YAML/launch
-        this->declare_parameter<bool>("enable_cmd_serial", true);
-        this->declare_parameter<std::string>("cmd_serial_port", "/dev/ttyUSB1");
-        this->declare_parameter<int>("cmd_baudrate", 115200);
-        this->declare_parameter<bool>("enable_heartbeat", true);
-        this->declare_parameter<int>("heartbeat_rate_hz", 1);
         this->declare_parameter<std::string>("mechanism_state_topic", "/mechanism/state");
         this->declare_parameter<std::string>("nav2_action_name", "navigate_to_pose");
         this->declare_parameter<std::string>("nav2_goal_frame", "map");

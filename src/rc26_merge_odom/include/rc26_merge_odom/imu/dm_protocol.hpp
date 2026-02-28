@@ -23,7 +23,6 @@ enum class DataType : uint8_t {
     ACCEL = 0x01,       // 加速度 (m/s²)
     GYRO = 0x02,        // 角速度 (°/s)
     EULER = 0x03,       // 欧拉角 Roll/Pitch/Yaw (°)
-    QUATERNION = 0x04,  // 四元数 W/X/Y/Z
 };
 
 // ============================================================================
@@ -33,17 +32,14 @@ struct ImuData {
     float accel[3];       // 加速度 X/Y/Z (m/s²)
     float gyro[3];        // 角速度 X/Y/Z (°/s)
     float euler[3];       // 欧拉角 Roll/Pitch/Yaw (°)
-    float quaternion[4];  // 四元数 W/X/Y/Z
 
     bool accel_valid;
     bool gyro_valid;
     bool euler_valid;
-    bool quaternion_valid;
 
     double accel_ts;
     double gyro_ts;
     double euler_ts;
-    double quaternion_ts;
 };
 
 // ============================================================================
