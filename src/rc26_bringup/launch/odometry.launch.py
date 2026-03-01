@@ -16,6 +16,7 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     bringup_dir = get_package_share_directory('rc26_bringup')
+    _dir = get_package_share_directory('')
     point_lio_dir = get_package_share_directory('point_lio')
     mid360_driver_dir = get_package_share_directory('mid360_driver')
 
@@ -25,6 +26,7 @@ def generate_launch_description():
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
     use_rviz = LaunchConfiguration('use_rviz')
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
+    param_overrides_file = PathJoinSubstitution([_dir, 'config', 'param_overrides.yaml'])
 
     # 参数声明
     declare_namespace = DeclareLaunchArgument(
@@ -79,6 +81,7 @@ def generate_launch_description():
         output='screen',
         parameters=[
             point_lio_config_file,
+            param_overrides_file,
             {'use_sim_time': use_sim_time},
             {'prior_pcd.prior_pcd_map_path': prior_pcd_file},
             # 对齐 Point-LIO body_frame 与 lidar_frame 语义
