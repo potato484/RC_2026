@@ -123,7 +123,7 @@ def _main() -> int:
     parser.add_argument("--metrics", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--bundle_dir", default="")
-    parser.add_argument("--evidence_dir", default="/tmp/_evidence")
+    parser.add_argument("--evidence_dir", default="")
     parser.add_argument("--timeout_sec", type=float, default=8.0)
     parser.add_argument("--force", action="store_true", help="Force VLM call even if metrics are below trigger threshold")
     args = parser.parse_args()
@@ -145,7 +145,8 @@ def _main() -> int:
         )
         return 0
 
-    chosen_bundle = _pick_bundle(Path(args.bundle_dir) if args.bundle_dir else None, Path(args.evidence_dir))
+    evidence_dir = Path(args.evidence_dir) if args.evidence_dir else Path(".")
+    chosen_bundle = _pick_bundle(Path(args.bundle_dir) if args.bundle_dir else None, evidence_dir)
     if chosen_bundle is None:
         artifacts.write_json(out_path, {"ok": False, "reason": "no evidence bundle found"})
         return 0

@@ -24,6 +24,5 @@ optuna:
   pruner: MedianPruner
 
 evaluator:
-  aggregate_hz: 1.0
-  base_frame: base_link
-  set_nav_mode_profile: safe
+  mode: offline_extract
+  bundle_interval_sec: 30.0

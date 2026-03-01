@@ -1,4 +1,4 @@
-"""Autotune tooling for ."""
+"""Offline autotune tooling for ."""
 
 __all__ = [
     "artifacts",
@@ -7,4 +7,3 @@ __all__ = [
     "safety_guard",
     "search_space",
 ]
-
