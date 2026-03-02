@@ -1,0 +1,50 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Value: true
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Value: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: RawPointCloud
+      Topic:
+        Value: /livox/lidar
+        Queue Size: 5
+      Value: false
+      Size (m): 0.02
+      Style: Points
+      Color Transformer: Intensity
+      Reliability Policy: Best Effort
+    - Class: rviz_default_plugins/PointCloud2
+      Name: RegisteredCloud
+      Topic:
+        Value: /registered_scan
+        Queue Size: 5
+      Value: true
+      Size (m): 0.03
+      Style: Points
+      Color Transformer: FlatColor
+      Color: 0; 255; 0
+      Reliability Policy: Best Effort
+    - Class: rviz_default_plugins/Path
+      Name: Path
+      Topic:
+        Value: /path
+      Value: true
+  Global Options:
+    Fixed Frame: odom
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 15
+      Pitch: 0.785
+      Yaw: 0

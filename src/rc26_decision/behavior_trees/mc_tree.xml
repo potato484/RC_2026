@@ -1,0 +1,16 @@
+<!-- 武馆区子树 (MC Area) -->
+<root BTCPP_format="4">
+  <BehaviorTree ID="MCAreaTree">
+    <Sequence name="MC_Sequence">
+      <!-- 取矛头 -->
+      <GrabTip name="grab_tip"/>
+      <!-- 等待手动机器人就位后组装 -->
+      <RetryUntilSuccessful num_attempts="10">
+        <Sequence>
+          <CheckManualRobot distance_threshold="0.5" static_time="2.0"/>
+          <AssembleWeapon name="assemble"/>
+        </Sequence>
+      </RetryUntilSuccessful>
+    </Sequence>
+  </BehaviorTree>
+</root>

@@ -1,0 +1,22 @@
+odom_interface:
+  ros__parameters:
+    use_sim_time: false
+    
+    # ===== 输入话题 (来自 Point-LIO) =====
+    state_estimation_topic: "state_estimation"    # Point-LIO 里程计输出
+    registered_scan_topic: "cloud_registered"     # Point-LIO 配准点云输出
+    
+    # ===== 输出话题 (本节点发布，命名固定) =====
+    # - odom             : odom -> base_link 里程计
+    # - registered_scan  : odom 坐标系下的配准点云
+    
+    # ===== 坐标系配置 (map -> odom -> base_link -> laser_link) =====
+    odom_frame: "odom"
+    base_frame: "base_link"
+    lidar_frame: "livox_frame"
+    
+    # ===== 时间同步 =====
+    tf_lookup_timeout_sec: 0.5  # TF 查询超时时间
+    max_time_diff_sec: 0.2    # 点云与里程计允许的最大时间差 (秒)，过大将丢弃该点云帧
+    tf_refresh_interval_sec: 1.0  # TF 刷新周期
+    use_input_twist: true

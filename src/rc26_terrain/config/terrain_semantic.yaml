@@ -1,0 +1,134 @@
+/**:
+  ros__parameters:
+    # ===== 话题配置（均支持 Remap，禁止硬编码） =====
+    # 点云输入：来自 odom_interface 的去畸变/配准点云（默认 registered_scan）
+    input_cloud_topic: "registered_scan"
+    # 里程计输入：odom_interface 输出的 /odom（用于健康监测 + 失效保护备用位姿）
+    odom_topic: "odom"
+    # 输出：提供给 Nav2 costmap 的“真障碍/跌落风险”点云
+    output_obstacles_topic: "terrain_obstacles"
+    output_drop_topic: "terrain_drop"
+    # 可攀爬台阶特征（调试/定位用，不接入 costmap）：置空可关闭
+    output_climbable_topic: "terrain_climbable"
+    # Diagnostics 输出：默认相对话题名，可通过 Remap 接入 /diagnostics
+    diagnostics_topic: "diagnostics"
+    # base_ground 稳定信号（用于台阶工况门控）
+    base_ground_stable_topic: "base_ground/stable_terrain"
+    mf_kfs_state_topic: "/mf_kfs_state"
+    mf_grid_layout_file: ""
+    kfs_min_confidence: 0.6
+
+    # ===== 坐标系配置 =====
+    target_frame: "odom"
+    base_frame: "base_link"
+    # TF 查询等待超时（秒）
+    tf_timeout_sec: 0.2
+    # TF 健康窗口（秒）：用于 healthTimerCallback 判断 TF 是否健康
+    tf_health_timeout_sec: 0.7
+
+    # ===== 输入健康检测（用于失效保护） =====
+    cloud_timeout_sec: 0.7
+    odom_timeout_sec: 0.7
+    startup_grace_sec: 1.0
+
+    # ===== 栅格参数 =====
+    perception_radius_m: 3.2
+    grid_resolution_m: 0.1
+    voxel_leaf_size_m: 0.05
+
+    # ===== 高度过滤（相对机器人，适配倾斜雷达；核心判别不依赖绝对 Z） =====
+    min_rel_z_m: -1.5
+    max_rel_z_m: 0.5
+    dis_ratio_z: 0.1
+
+    # ===== 地面/高度估计（分位数 + EMA） =====
+    min_points_per_cell: 5
+    ground_quantile: 0.25
+    top_quantile: 0.95
+    ground_ema_alpha: 0.6
+
+    # ===== 语义阈值 =====
+    # 可攀爬：0 < ΔZ <= h_climb_m（不会作为致命障碍输出到 costmap）
+    h_climb_m: 0.30
+    # 真障碍：建议阈值略大于 h_climb_m，减少误判（默认 0.33m）
+    h_obstacle_m: 0.33
+    # 跌落风险：ΔZ < -h_drop_m（默认 0.15m）
+    h_drop_m: 0.15
+    # 可攀爬特征输出的最小台阶高度（过滤噪声）
+    climbable_min_dz_m: 0.05
+
+    # ===== Unknown 策略 =====
+    # aggressive: 忽略 unknown（默认，行为更激进）
+    # conservative: 将 unknown 视为风险点输出给 Nav2（更保守）
+    unknown_policy: "aggressive"
+    # conservative 模式下 unknown 输出到哪个话题：drop 或 obstacles
+    unknown_output: "drop"
+
+    # ===== 时空迟滞（防闪烁） =====
+    enable_hysteresis: true
+    score_max: 10
+    score_inc: 2
+    score_dec: 1
+    obstacle_on_score: 6
+    obstacle_off_score: 3
+    drop_on_score: 6
+    drop_off_score: 3
+    stale_time_sec: 0.7
+    decay_time_sec: 2.0  # 点云时间衰减（秒），超过此时间的历史数据将被清除
+
+    # ===== QoS 配置（默认兼容 Nav2 ObstacleLayer 的 SensorDataQoS） =====
+    cloud_qos_depth: 5
+    cloud_qos_reliability: "best_effort"   # best_effort/reliable/system_default
+    cloud_qos_durability: "volatile"       # volatile/transient_local/system_default
+    odom_qos_depth: 10
+    odom_qos_reliability: "reliable"
+    odom_qos_durability: "volatile"
+    output_qos_depth: 5
+    output_qos_reliability: "best_effort"
+    output_qos_durability: "volatile"
+    diagnostics_qos_depth: 10
+    diagnostics_qos_reliability: "reliable"
+    diagnostics_qos_durability: "volatile"
+    enable_diagnostics: true
+
+    # ===== 失效保护（Fail-safe） =====
+    enable_fail_safe: true
+    # 策略选择: none/virtual_fence/emergency_stop
+    # - none: 仅报错,不主动干预
+    # - virtual_fence: 生成圆形虚拟墙(防止移动)
+    # - emergency_stop: 生成全向致密阻挡(强制急停)
+    fail_safe_strategy: "virtual_fence"
+    virtual_fence_radius_m: 0.6
+    virtual_fence_num_points: 36
+    virtual_fence_height_m: 0.2  # 建议 > 0 避免被 Nav2 min_obstacle_height 过滤
+
+    # ===== 输出点云验证 =====
+    output_sanity_check_enable: true
+    output_max_points_total: 20000      # 单帧总点数上限
+    output_max_points_per_cloud: 15000  # 每个话题点数上限
+
+    # ===== drop 前向扇区约束 =====
+    # 取值 [0,360]; 360 表示关闭过滤(恢复旧行为)
+    drop_forward_sector_deg: 180.0
+    drop_forward_min_x_m: 0.0  # 前向最小 X(机器人系)
+
+    # ===== P0.2: neighbor modes + denoising =====
+    obstacle_neighbor_mode: "edge4"
+    drop_neighbor_mode: "edge8"
+    min_obstacle_area_cells: 3
+    jump_thresh_m: 0.23
+    freeze_max_frames: 3
+    ground_ema_alpha_slow: 0.25
+    enable_pitch_compensation: true
+    stair_gate_speed_mps: 0.25
+    stair_pitch_gate_deg: 6.0
+    top_z_max_delta_m: 0.7
+
+    # ===== P0.3: latency diagnostics =====
+    latency_warn_ms: 12.0
+    latency_error_ms: 20.0
+    latency_trigger_frames: 3
+    latency_recover_frames: 5
+    latency_intervention_mode: "virtual_fence"
+    thermal_throttle_topic: ""
+    thermal_throttle_release_sec: 0.5

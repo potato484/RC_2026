@@ -1,0 +1,103 @@
+# RC2026 融合里程计参数配置
+
+# CAN里程计节点参数
+can_odom_node:
+  ros__parameters:
+    can_interface: "can0"
+    wheel_radius: 0.07625
+    wheel_base: 0.62326
+    track_width: 0.7
+    gear_ratio: 19.2032  # 3591/187
+    publish_rate_hz: 50
+    odom_topic: "Can_Odom"
+    odom_frame: "odom"
+    base_frame: "base_link"
+
+# 达妙IMU节点参数
+dm_imu_node:
+  ros__parameters:
+    port: "/dev/ttyACM0"
+    baudrate: 921600
+    frame_id: "imu_link"
+    verbose: false
+    qos_reliable: true
+
+# 串口轮式里程计节点参数
+wheel_odom_node:
+  ros__parameters:
+    serial_port: "/dev/ttyUSB0"
+    baudrate: 1000000
+    wheel_base: 0.08
+    track_width: 0.125
+    publish_rate_hz: 50
+    odom_topic: "wheel_odom"
+    odom_frame: "odom"
+    base_frame: "base_link"
+    data_timeout_ms: 100.0
+
+# 速度发送节点参数 (独立模式)
+pose_sender_node:
+  ros__parameters:
+    feedback_serial_port: "/dev/ttyUSB0"
+    target_serial_port: "/dev/ttyUSB1"
+    baudrate: 1000000
+    cmd_vel_topic: "cmd_vel"
+    odom_topic: "merge_odom"
+    feedback_send_rate_hz: 50
+    target_send_rate_hz: 25
+    imu_topic: "DM_IMU"
+    v_max_mps: 2.0
+    w_max_rps: 4.0
+    a_max_mps2: 15.0
+    alpha_max_rps2: 40.0
+    spike_accel_threshold: 20.0
+    spike_gyro_threshold: 6.0
+    spike_freeze_duration_ms: 300
+    spike_decay_tau_s: 0.2
+    latency_comp_enable: true
+    latency_comp_s: 0.03
+
+# 融合里程计主节点参数(整合模式)
+merge_odom_node:
+  ros__parameters:
+    # 里程计源选择: true=can_odom, false=wheel_odom
+    use_can_odom: false
+    # CAN参数
+    can_interface: "can0"
+    wheel_radius: 0.07625
+    wheel_base: 0.62326
+    track_width: 0.7
+    gear_ratio: 19.2032
+    can_publish_rate_hz: 50
+    can_odom_topic: "Can_Odom"
+    wheel_odom_topic: "wheel_odom"
+    odom_frame: "odom"
+    base_frame: "base_link"
+    # 双串口参数 (MCU速度闭环)
+    feedback_serial_port: "/dev/ttyUSB0"
+    target_serial_port: "/dev/ttyUSB1"
+    baudrate: 1000000
+    # 速度发送参数
+    cmd_vel_topic: "cmd_vel"
+    merge_odom_topic: "merge_odom"
+    feedback_send_rate_hz: 50
+    target_send_rate_hz: 25
+    imu_topic: "DM_IMU"
+    v_max_mps: 2.0
+    w_max_rps: 4.0
+    a_max_mps2: 15.0
+    alpha_max_rps2: 40.0
+    spike_accel_threshold: 20.0
+    spike_gyro_threshold: 6.0
+    spike_freeze_duration_ms: 300
+    spike_decay_tau_s: 0.2
+    latency_comp_enable: true
+    latency_comp_s: 0.03
+    slip_enable: true
+    slip_threshold: 0.5
+    slip_k_acc: 0.5
+    cov_nominal_v: 0.01
+    cov_nominal_wz: 0.03
+    cov_slip_v: 0.5
+    cov_slip_wz: 0.5
+    recovery_tau_s: 0.5

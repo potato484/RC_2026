@@ -1,0 +1,97 @@
+profiles:
+  # profile 名称（如 normal/safe/stair_up）会被上层（SmartWaypointNavigator）通过 service `set_nav_mode`
+  # 传入；NavModeManager 会按这里的配置执行：
+  # - precheck：是否要求切换前机器人停稳
+  # - costmap：是否切换时清 local costmap（用于关键地形）
+  # - controller：动态限速等（通过 controller_server 参数服务）
+  # - watchdog：超时保护（超时自动回退并通过 nav_safety_state 提示 stop_required/timed_out）
+  safe:
+    fallback_profile: safe
+    watchdog:
+      timeout_sec: 0
+      stop_required_on_timeout: false
+    precheck:
+      require_stopped: false
+    costmap:
+      clear_on_switch: false
+    controller:
+      v_linear_max: 0.3
+      v_angular_max: 0.5
+
+  normal:
+    fallback_profile: safe
+    watchdog:
+      timeout_sec: 0
+      stop_required_on_timeout: false
+    precheck:
+      require_stopped: false
+    costmap:
+      clear_on_switch: false
+    controller:
+      v_linear_max: 0.8
+      v_angular_max: 1.0
+
+  stair_up:
+    fallback_profile: safe
+    watchdog:
+      timeout_sec: 30.0
+      stop_required_on_timeout: true
+    precheck:
+      require_stopped: true
+    costmap:
+      clear_on_switch: true
+    controller:
+      v_linear_max: 0.3
+      v_angular_max: 0.3
+
+  stair_down:
+    fallback_profile: safe
+    watchdog:
+      timeout_sec: 30.0
+      stop_required_on_timeout: true
+    precheck:
+      require_stopped: true
+    costmap:
+      clear_on_switch: true
+    controller:
+      v_linear_max: 0.2
+      v_angular_max: 0.3
+
+  mf_traverse:
+    fallback_profile: safe
+    watchdog:
+      timeout_sec: 10.0
+      stop_required_on_timeout: true
+    precheck:
+      require_stopped: true
+    costmap:
+      clear_on_switch: true
+    controller:
+      v_linear_max: 0.5
+      v_angular_max: 0.5
+
+  mf_exit:
+    fallback_profile: safe
+    watchdog:
+      timeout_sec: 10.0
+      stop_required_on_timeout: true
+    precheck:
+      require_stopped: true
+    costmap:
+      clear_on_switch: true
+    controller:
+      v_linear_max: 0.5
+      v_angular_max: 0.5
+
+  mf_approach:
+    fallback_profile: safe
+    watchdog:
+      timeout_sec: 15.0
+      stop_required_on_timeout: true
+    precheck:
+      require_stopped: false
+    costmap:
+      clear_on_switch: false
+    controller:
+      v_linear_max: 0.6
+      v_angular_max: 0.5

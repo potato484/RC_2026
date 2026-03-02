@@ -1,0 +1,42 @@
+# RealSense D455（ROS2 Humble / realsense2_camera）推荐默认配置
+#
+# 说明：
+# - 这里的键必须匹配 realsense2_camera 的 rs_launch.py 参数名
+# - 默认尽量“保守”，减少 USB 带宽/CPU 压力；需要更高分辨率/帧率可在 launch 里换配置文件
+
+device_type: d455
+initial_reset: true
+
+# 开关：彩色/深度/红外
+enable_color: true
+enable_depth: true
+enable_infra1: false
+enable_infra2: false
+
+# 流配置：WIDTHxHEIGHTxFPS
+rgb_camera.color_profile: 640x480x30
+depth_module.depth_profile: 640x480x30
+
+# D455 支持的红外/IMU（默认关闭以减少 topic 数量）
+depth_module.infra_profile: 848x480x30
+gyro_fps: 200
+accel_fps: 100
+
+# 对齐：将 depth 对齐到 color（用于 RGB-D 融合）
+align_depth.enable: true
+
+# 点云：视觉推理一般不需要点云，建议关闭（减少带宽/CPU）
+pointcloud.enable: false
+
+# 同步：开启后 color/depth 更容易时间对齐
+enable_sync: true
+
+# IMU：不需要则关闭（减少 topic）
+enable_gyro: false
+enable_accel: false
+enable_motion: false
+
+# TF：由项目的 TF/标定链路统一发布；相机内部 TF 默认不发布
+publish_tf: false
+tf_publish_rate: 0.0
+

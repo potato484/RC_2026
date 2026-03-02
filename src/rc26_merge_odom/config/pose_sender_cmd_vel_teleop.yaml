@@ -1,0 +1,18 @@
+# PoseSender 订阅话题覆盖配置（遥控模式）
+# 用途：将 PoseSender 的 cmd_vel 订阅从 "cmd_vel" 切换为 "cmd_vel_teleop"
+#
+# 使用方式示例（叠加覆盖）：
+#   ros2 run rc26_merge_odom merge_odom_node --ros-args \
+#     --params-file <...>/merge_odom_params.yaml \
+#     --params-file <...>/pose_sender_cmd_vel_teleop.yaml
+#
+# 或在 launch 中将 parameters 改为：
+#   parameters=[base_params_file, teleop_override_file, {...}]
+
+pose_sender_node:
+  ros__parameters:
+    cmd_vel_topic: "cmd_vel_teleop"
+
+merge_odom_node:
+  ros__parameters:
+    cmd_vel_topic: "cmd_vel_teleop"

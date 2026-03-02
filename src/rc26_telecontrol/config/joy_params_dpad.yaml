@@ -1,0 +1,68 @@
+joy_node:
+  ros__parameters:
+    # 045e:028e (Bus 001 Device 002) 当前在本机映射到:
+    # /dev/input/event4
+    # /dev/input/by-id/usb-D_TGZ_Controller_3E529600-event-joystick
+    # ROS2 humble joy_node 使用 device_name/device_id，不使用旧参数 dev
+    # game_controller_node 识别到的设备名称：
+    # Xbox 360 Controller
+    device_name: "Xbox 360 Controller"
+    device_id: 0
+    deadzone: 0.05
+    autorepeat_rate: 50.0
+
+rc26_telecontrol_dpad:
+  ros__parameters:
+    # ========== 速度参数 ==========
+    # 基准线速度（m/s）- 十字键按下时的最大速度
+    v_linear: 0.4
+    
+    # 基准角速度（rad/s）- 按键按下时的最大旋转速度
+    v_angular: 0.5
+    
+    # 速度平滑系数（0.0~1.0）
+    # 值越大，速度增长越快（响应越灵敏）
+    # 值越小，速度增长越平滑（动作更柔和）
+    # 推荐范围：0.1~0.3，默认值 0.2
+    smoothing_alpha: 0.2
+    
+    # ========== 十字键+按键控制映射 ==========
+    #
+    # 【十字键】- 平移控制
+    # 上键(axes[7]=+1):
+    #   按下 → linear.x = 0 ~ +0.2 m/s（前进）
+    #   松开 → linear.x 渐变回 0
+    #
+    # 下键(axes[7]=-1):
+    #   按下 → linear.x = 0 ~ -0.2 m/s（后退）
+    #   松开 → linear.x 渐变回 0
+    #
+    # 右键(axes[6]=+1):
+    #   按下 → linear.y = 0 ~ +0.2 m/s（右移）
+    #   松开 → linear.y 渐变回 0
+    #
+    # 左键(axes[6]=-1):
+    #   按下 → linear.y = 0 ~ -0.2 m/s（左移）
+    #   松开 → linear.y 渐变回 0
+    #
+    # 【按键】- 旋转控制
+    # X键(button[2]):
+    #   按住 → angular.z = 0 ~ +0.5 rad/s（逆时针左转）
+    #   松开 → angular.z 渐变回 0
+    #
+    # B键(button[1]):
+    #   按住 → angular.z = 0 ~ -0.5 rad/s（顺时针右转）
+    #   松开 → angular.z 渐变回 0
+    #
+    # 【速度增长】
+    # 按下按键/十字键后，速度不会瞬间到达最大值，
+    # 而是通过指数加权平均逐渐增长：
+    #   当前输出 = alpha × 目标速度 + (1-alpha) × 上一次输出
+    #
+    # 【相反方向抵消】
+    # 同时按下上+下、左+右、X+B时，输出为0（相互抵消）
+    #
+    # 【停止机制】
+    # 松开所有按键/十字键后：
+    #   输出 linear.x = linear.y = angular.z = 0
+    #   机器人平滑停止

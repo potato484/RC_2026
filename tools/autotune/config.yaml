@@ -1,0 +1,28 @@
+fitness:
+  weights:
+    norm_err: 0.35
+    dt_ms: 0.15
+    tracking: 0.20
+    ghosting: 0.20
+    reloc: 0.10
+  fallback_refs:
+    norm_err: 0.001
+    dt_ms: 1.0
+    ghosting: 0.05
+  penalties:
+    collision_detected: 10000
+    reloc_success_rate_lt_0_3: 5000
+    shadow_timeout: 2000
+    any_guardrail_triggered: 500
+  vlm_beta: 0.1
+
+optuna:
+  seed: 42
+  n_trials: 15
+  direction: maximize
+  sampler: TPESampler
+  pruner: MedianPruner
+
+evaluator:
+  mode: offline_extract
+  bundle_interval_sec: 30.0

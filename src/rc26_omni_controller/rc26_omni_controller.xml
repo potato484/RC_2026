@@ -1,0 +1,9 @@
+<class_libraries>
+    <library path="rc26_omni_controller">
+        <class type="rc26_omni_controller::OmniPidPursuitController" base_class_type="nav2_core::Controller">
+            <description>
+                全向轮 PID + Pure Pursuit 路径跟踪控制器
+            </description>
+        </class>
+    </library>
+</class_libraries>

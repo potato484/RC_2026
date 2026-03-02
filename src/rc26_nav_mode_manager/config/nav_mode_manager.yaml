@@ -1,0 +1,11 @@
+nav_mode_manager:
+  ros__parameters:
+    costmap_node_name: "local_costmap/local_costmap"
+    odom_topic: "odom"
+    obstacles_topic: "terrain_obstacles"
+    default_timeout_sec: 5.0
+    stop_linear_eps_mps: 0.05
+    stop_angular_eps_rps: 0.05
+    param_timeout_sec: 2.0
+    clear_timeout_sec: 2.0
+    rebuild_timeout_sec: 0.5

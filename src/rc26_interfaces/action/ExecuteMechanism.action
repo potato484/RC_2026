@@ -1,0 +1,11 @@
+# Goal
+uint8 command_id
+uint8[] payload
+float32 timeout_sec
+---
+# Result
+bool success
+uint16 error_code
+---
+# Feedback
+uint8 state

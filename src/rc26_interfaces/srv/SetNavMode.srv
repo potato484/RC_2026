@@ -1,0 +1,7 @@
+# Set navigation profile
+string profile
+float32 timeout
+string reason
+---
+bool success
+string message
