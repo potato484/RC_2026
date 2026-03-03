@@ -18,11 +18,14 @@
 #include <chrono>
 #include <cstddef>
 #include <cmath>
+#include <limits>
 
 #include "nav2_core/exceptions.hpp"
 #include "nav2_costmap_2d/costmap_filters/filter_values.hpp"
 #include "nav2_util/geometry_utils.hpp"
 #include "nav2_util/node_utils.hpp"
+#include "tf2/LinearMath/Transform.h"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
 using nav2_util::declare_parameter_if_not_declared;
 using nav2_util::geometry_utils::euclidean_distance;
@@ -86,6 +89,13 @@ void OmniPidPursuitController::configure(const rclcpp_lifecycle::LifecycleNode::
                                       rclcpp::ParameterValue(getCostmapMaxExtent()));
     declare_parameter_if_not_declared(node, plugin_name_ + ".a_linear_max", rclcpp::ParameterValue(3.0));
     declare_parameter_if_not_declared(node, plugin_name_ + ".a_angular_max", rclcpp::ParameterValue(6.0));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".brake_margin", rclcpp::ParameterValue(0.15));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".brake_accel", rclcpp::ParameterValue(0.8));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".lateral_error_gain", rclcpp::ParameterValue(1.5));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".lateral_error_max", rclcpp::ParameterValue(0.3));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".enable_curvature_ff", rclcpp::ParameterValue(false));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".a_lim_x", rclcpp::ParameterValue(1.0));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".a_lim_y", rclcpp::ParameterValue(0.6));
     declare_parameter_if_not_declared(node, plugin_name_ + ".a_lateral_max", rclcpp::ParameterValue(3.0));
     declare_parameter_if_not_declared(node, plugin_name_ + ".curvature_forward_dist", rclcpp::ParameterValue(0.7));
     declare_parameter_if_not_declared(node, plugin_name_ + ".curvature_backward_dist", rclcpp::ParameterValue(0.3));
@@ -129,6 +139,13 @@ void OmniPidPursuitController::configure(const rclcpp_lifecycle::LifecycleNode::
     node->get_parameter(plugin_name_ + ".max_robot_pose_search_dist", max_robot_pose_search_dist_);
     node->get_parameter(plugin_name_ + ".a_linear_max", a_linear_max_);
     node->get_parameter(plugin_name_ + ".a_angular_max", a_angular_max_);
+    node->get_parameter(plugin_name_ + ".brake_margin", brake_margin_);
+    node->get_parameter(plugin_name_ + ".brake_accel", brake_accel_);
+    node->get_parameter(plugin_name_ + ".lateral_error_gain", lateral_error_gain_);
+    node->get_parameter(plugin_name_ + ".lateral_error_max", lateral_error_max_);
+    node->get_parameter(plugin_name_ + ".enable_curvature_ff", enable_curvature_ff_);
+    node->get_parameter(plugin_name_ + ".a_lim_x", a_lim_x_);
+    node->get_parameter(plugin_name_ + ".a_lim_y", a_lim_y_);
     node->get_parameter(plugin_name_ + ".a_lateral_max", a_lateral_max_);
     node->get_parameter(plugin_name_ + ".curvature_forward_dist", curvature_forward_dist_);
     node->get_parameter(plugin_name_ + ".curvature_backward_dist", curvature_backward_dist_);
@@ -155,6 +172,9 @@ void OmniPidPursuitController::configure(const rclcpp_lifecycle::LifecycleNode::
     real_dt_pub_ = node->create_publisher<std_msgs::msg::Float64>("real_dt", rclcpp::QoS(10));
     compute_time_ms_pub_ = node->create_publisher<std_msgs::msg::Float64>("compute_time_ms", rclcpp::QoS(10));
     pose_age_ms_pub_ = node->create_publisher<std_msgs::msg::Float64>("pose_age_ms", rclcpp::QoS(10));
+    collision_check_ms_pub_ = node->create_publisher<std_msgs::msg::Float64>("collision_check_ms", rclcpp::QoS(10));
+    collision_d_min_pub_ = node->create_publisher<std_msgs::msg::Float64>("collision_d_min", rclcpp::QoS(10));
+    v_safe_pub_ = node->create_publisher<std_msgs::msg::Float64>("v_safe", rclcpp::QoS(10));
     collision_check_outside_map_count_pub_ =
         node->create_publisher<std_msgs::msg::UInt32>("collision_check_outside_map_count", rclcpp::QoS(10));
 
@@ -174,6 +194,8 @@ void OmniPidPursuitController::configure(const rclcpp_lifecycle::LifecycleNode::
     collision_check_outside_map_count_ = 0;
     plan_cumulative_distances_.clear();
     plan_prune_idx_ = 0;
+    last_vx_ = 0.0;
+    last_vy_ = 0.0;
 }
 
 void OmniPidPursuitController::cleanup() {
@@ -187,6 +209,9 @@ void OmniPidPursuitController::cleanup() {
     real_dt_pub_.reset();
     compute_time_ms_pub_.reset();
     pose_age_ms_pub_.reset();
+    collision_check_ms_pub_.reset();
+    collision_d_min_pub_.reset();
+    v_safe_pub_.reset();
     collision_check_outside_map_count_pub_.reset();
 }
 
@@ -201,6 +226,9 @@ void OmniPidPursuitController::activate() {
     real_dt_pub_->on_activate();
     compute_time_ms_pub_->on_activate();
     pose_age_ms_pub_->on_activate();
+    collision_check_ms_pub_->on_activate();
+    collision_d_min_pub_->on_activate();
+    v_safe_pub_->on_activate();
     collision_check_outside_map_count_pub_->on_activate();
     // Add callback for dynamic parameters
     auto node = node_.lock();
@@ -219,6 +247,9 @@ void OmniPidPursuitController::deactivate() {
     real_dt_pub_->on_deactivate();
     compute_time_ms_pub_->on_deactivate();
     pose_age_ms_pub_->on_deactivate();
+    collision_check_ms_pub_->on_deactivate();
+    collision_d_min_pub_->on_deactivate();
+    v_safe_pub_->on_deactivate();
     collision_check_outside_map_count_pub_->on_deactivate();
     dyn_params_handler_.reset();
 }
@@ -242,6 +273,23 @@ OmniPidPursuitController::computeVelocityCommands(const geometry_msgs::msg::Pose
         pose_age_ms = std::max(0.0, (now - pose_stamp).seconds() * 1000.0);
     }
 
+    CostmapSnapshot snap;
+    {
+        auto* cm = costmap_ros_->getCostmap();
+        std::lock_guard<nav2_costmap_2d::Costmap2D::mutex_t> lock(*cm->getMutex());
+        snap.width = cm->getSizeInCellsX();
+        snap.height = cm->getSizeInCellsY();
+        snap.origin_x = cm->getOriginX();
+        snap.origin_y = cm->getOriginY();
+        snap.resolution = cm->getResolution();
+        const uint8_t* raw = cm->getCharMap();
+        const size_t cell_count = static_cast<size_t>(snap.width) * static_cast<size_t>(snap.height);
+        snap.data.assign(raw, raw + cell_count);
+    }
+    if (snap.width == 0 || snap.height == 0 || snap.data.empty()) {
+        throw nav2_core::PlannerException("Costmap snapshot is empty.");
+    }
+
     // Transform path to robot base frame
     auto transformed_plan = transformGlobalPlan(pose);
 
@@ -251,7 +299,6 @@ OmniPidPursuitController::computeVelocityCommands(const geometry_msgs::msg::Pose
     auto carrot_pose = getLookAheadPoint(lookahead_dist, transformed_plan);
     carrot_pub_->publish(createCarrotMsg(carrot_pose));
 
-    double theta_dist = atan2(carrot_pose.pose.position.y, carrot_pose.pose.position.x);
     double angle_to_goal = tf2::getYaw(carrot_pose.pose.orientation);
     double goal_dist =
         hypot(transformed_plan.poses.back().pose.position.x, transformed_plan.poses.back().pose.position.y);
@@ -265,9 +312,10 @@ OmniPidPursuitController::computeVelocityCommands(const geometry_msgs::msg::Pose
         }
     }
 
-    auto angular_vel = enable_rotation_ ? heading_pid_->calculate(angle_to_goal, 0.0) : 0.0;
+    const double w_pid = enable_rotation_ ? heading_pid_->calculate(angle_to_goal, 0.0) : 0.0;
     double linear_limit = v_linear_max_;
-    const double v_kappa = applyCurvatureLimitation(transformed_plan, carrot_pose, linear_limit, real_dt);
+    double path_kappa = 0.0;
+    const double v_kappa = applyCurvatureLimitation(transformed_plan, carrot_pose, linear_limit, real_dt, path_kappa);
     applyApproachVelocityScaling(transformed_plan, linear_limit);
 
     if (force_rotate_only) {
@@ -284,50 +332,81 @@ OmniPidPursuitController::computeVelocityCommands(const geometry_msgs::msg::Pose
     auto lin_vel = std::clamp(v_fb + kv_ff_ * v_ref, v_linear_min_, v_linear_max_);
     lin_vel = std::clamp(lin_vel, v_linear_min_, linear_limit);
 
-    // 加速度和角加速度限幅
-    const double max_dv = std::max(0.0, a_linear_max_) * real_dt;
-    lin_vel = std::clamp(lin_vel, last_lin_vel_ - max_dv, last_lin_vel_ + max_dv);
+    double angular_vel = w_pid;
+    if (enable_rotation_ && enable_curvature_ff_) {
+        angular_vel += std::clamp(lin_vel * path_kappa, -v_angular_max_, v_angular_max_);
+    }
+
+    // 角加速度限幅
     const double max_dw = std::max(0.0, a_angular_max_) * real_dt;
     angular_vel = std::clamp(angular_vel, last_ang_vel_ - max_dw, last_ang_vel_ + max_dw);
     if (force_rotate_only) {
         lin_vel = 0.0;
     }
 
-    // Transform local frame to global frame to use in collision checking
+    geometry_msgs::msg::TransformStamped tf_stamped;
+    try {
+        tf_stamped = tf_->lookupTransform(costmap_ros_->getGlobalFrameID(), costmap_ros_->getBaseFrameID(),
+                                          tf2::TimePointZero);
+    } catch (const tf2::TransformException& ex) {
+        throw nav2_core::PlannerException(std::string("TF lookup failed: ") + ex.what());
+    }
+    tf2::Transform transform_map_from_base;
+    tf2::fromMsg(tf_stamped.transform, transform_map_from_base);
+
     nav_msgs::msg::Path costmap_frame_local_plan;
-    const double costmap_resolution = std::max(costmap_->getResolution(), 1e-6);
+    costmap_frame_local_plan.header.frame_id = costmap_ros_->getGlobalFrameID();
+    costmap_frame_local_plan.header.stamp = now;
+    const double costmap_resolution = std::max(snap.resolution, 1e-6);
     const int sample_points = std::clamp(static_cast<int>(lookahead_dist / costmap_resolution), 10, 50);
     int lookahead_end_idx = static_cast<int>(transformed_plan.poses.size()) - 1;
     auto lookahead_end_it = std::min_element(
         transformed_plan.poses.begin(), transformed_plan.poses.end(),
-        [&carrot_pose](const geometry_msgs::msg::PoseStamped& lhs, const geometry_msgs::msg::PoseStamped& rhs) {
-            const double lhs_dist = std::hypot(lhs.pose.position.x - carrot_pose.pose.position.x,
-                                               lhs.pose.position.y - carrot_pose.pose.position.y);
-            const double rhs_dist = std::hypot(rhs.pose.position.x - carrot_pose.pose.position.x,
-                                               rhs.pose.position.y - carrot_pose.pose.position.y);
-            return lhs_dist < rhs_dist;
+        [&carrot_pose](const auto& lhs, const auto& rhs) {
+            return std::hypot(lhs.pose.position.x - carrot_pose.pose.position.x,
+                              lhs.pose.position.y - carrot_pose.pose.position.y) <
+                   std::hypot(rhs.pose.position.x - carrot_pose.pose.position.x,
+                              rhs.pose.position.y - carrot_pose.pose.position.y);
         });
     if (lookahead_end_it != transformed_plan.poses.end()) {
         lookahead_end_idx = static_cast<int>(std::distance(transformed_plan.poses.begin(), lookahead_end_it));
     }
 
+    costmap_frame_local_plan.poses.reserve(sample_points + 1);
     for (int i = 0; i < sample_points; ++i) {
         const double ratio = sample_points == 1 ? 1.0 : static_cast<double>(i) / (sample_points - 1);
-        int index = static_cast<int>(std::round(ratio * lookahead_end_idx));
-        index = std::clamp(index, 0, lookahead_end_idx);
-        geometry_msgs::msg::PoseStamped map_pose;
-        if (!transformPose(costmap_ros_->getGlobalFrameID(), transformed_plan.poses[index], map_pose)) {
-            throw nav2_core::PlannerException("Unable to transform local plan pose into costmap frame");
-        }
-        costmap_frame_local_plan.poses.push_back(map_pose);
+        const int index =
+            std::clamp(static_cast<int>(std::round(ratio * lookahead_end_idx)), 0, lookahead_end_idx);
+        const auto& src = transformed_plan.poses[index].pose.position;
+        const tf2::Vector3 point_map = transform_map_from_base * tf2::Vector3(src.x, src.y, 0.0);
+        geometry_msgs::msg::PoseStamped sample_pose;
+        sample_pose.header = costmap_frame_local_plan.header;
+        sample_pose.pose.position.x = point_map.x();
+        sample_pose.pose.position.y = point_map.y();
+        costmap_frame_local_plan.poses.push_back(sample_pose);
     }
-    geometry_msgs::msg::PoseStamped map_carrot_pose;
-    if (!transformPose(costmap_ros_->getGlobalFrameID(), carrot_pose, map_carrot_pose)) {
-        throw nav2_core::PlannerException("Unable to transform lookahead pose into costmap frame");
+    {
+        const auto& carrot = carrot_pose.pose.position;
+        const tf2::Vector3 point_map = transform_map_from_base * tf2::Vector3(carrot.x, carrot.y, 0.0);
+        geometry_msgs::msg::PoseStamped sample_pose;
+        sample_pose.header = costmap_frame_local_plan.header;
+        sample_pose.pose.position.x = point_map.x();
+        sample_pose.pose.position.y = point_map.y();
+        costmap_frame_local_plan.poses.push_back(sample_pose);
     }
-    costmap_frame_local_plan.poses.push_back(map_carrot_pose);
-
-    const bool collision_detected = isCollisionDetected(costmap_frame_local_plan);
+    const tf2::Vector3 robot_map = transform_map_from_base * tf2::Vector3(0.0, 0.0, 0.0);
+    const auto collision_check_start = std::chrono::steady_clock::now();
+    const double d_min = getMinCollisionDist(costmap_frame_local_plan, snap, robot_map.x(), robot_map.y());
+    const double collision_check_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - collision_check_start).count();
+    const double brake_margin = std::max(0.0, brake_margin_);
+    const double brake_accel = std::max(brake_accel_, 1e-6);
+    double v_safe = v_linear_max_;
+    if (d_min < std::numeric_limits<double>::max()) {
+        const double d_eff = std::max(d_min - brake_margin, 0.0);
+        v_safe = std::sqrt(2.0 * brake_accel * d_eff);
+        lin_vel = std::min(lin_vel, v_safe);
+    }
 
     if (publish_debug_) {
         std_msgs::msg::Float64 real_dt_msg;
@@ -341,6 +420,18 @@ OmniPidPursuitController::computeVelocityCommands(const geometry_msgs::msg::Pose
         std_msgs::msg::UInt32 collision_count_msg;
         collision_count_msg.data = collision_check_outside_map_count_;
         collision_check_outside_map_count_pub_->publish(collision_count_msg);
+
+        std_msgs::msg::Float64 collision_check_ms_msg;
+        collision_check_ms_msg.data = collision_check_ms;
+        collision_check_ms_pub_->publish(collision_check_ms_msg);
+
+        std_msgs::msg::Float64 collision_d_min_msg;
+        collision_d_min_msg.data = d_min;
+        collision_d_min_pub_->publish(collision_d_min_msg);
+
+        std_msgs::msg::Float64 v_safe_msg;
+        v_safe_msg.data = v_safe;
+        v_safe_pub_->publish(v_safe_msg);
     }
 
     auto publish_compute_time = [&]() {
@@ -355,10 +446,40 @@ OmniPidPursuitController::computeVelocityCommands(const geometry_msgs::msg::Pose
 
     geometry_msgs::msg::TwistStamped cmd_vel;
     cmd_vel.header = pose.header;
-    if (!collision_detected) {
-        double vx = lin_vel * cos(theta_dist);
-        double vy = lin_vel * sin(theta_dist);
+    if (d_min > brake_margin) {
+        const int plan_size = static_cast<int>(transformed_plan.poses.size());
+        int path_idx = lookahead_end_idx;
+        if (plan_size >= 3) {
+            path_idx = std::clamp(lookahead_end_idx, 1, plan_size - 2);
+        } else if (plan_size > 1) {
+            path_idx = std::clamp(lookahead_end_idx, 0, plan_size - 1);
+        } else {
+            path_idx = 0;
+        }
+
+        const int prev_idx = std::max(path_idx - 1, 0);
+        const int next_idx = std::min(path_idx + 1, std::max(plan_size - 1, 0));
+        const auto& p_prev = transformed_plan.poses[prev_idx].pose.position;
+        const auto& p_next = transformed_plan.poses[next_idx].pose.position;
+        const double t_dx = p_next.x - p_prev.x;
+        const double t_dy = p_next.y - p_prev.y;
+        const double t_len = std::hypot(t_dx, t_dy) + 1e-9;
+        const double tx = t_dx / t_len;
+        const double ty = t_dy / t_len;
+
+        const double lateral_error_max = std::max(0.0, lateral_error_max_);
+        const double e_perp = std::clamp(-(carrot_pose.pose.position.x * ty) + (carrot_pose.pose.position.y * tx),
+                                         -lateral_error_max, lateral_error_max);
+        double vx = lin_vel * tx - lateral_error_gain_ * e_perp * ty;
+        double vy = lin_vel * ty + lateral_error_gain_ * e_perp * tx;
         double wz = angular_vel;
+
+        const double dvx_max = std::max(0.0, a_lim_x_) * real_dt;
+        const double dvy_max = std::max(0.0, a_lim_y_) * real_dt;
+        vx = last_vx_ + std::clamp(vx - last_vx_, -dvx_max, dvx_max);
+        vy = last_vy_ + std::clamp(vy - last_vy_, -dvy_max, dvy_max);
+        last_vx_ = vx;
+        last_vy_ = vy;
 
         if (wheel_speed_max_ > 0.0) {
             const double lw = (wheel_base_ + track_width_) / 2.0;
@@ -387,7 +508,7 @@ OmniPidPursuitController::computeVelocityCommands(const geometry_msgs::msg::Pose
         last_ang_vel_ = angular_vel;
     } else {
         publish_compute_time();
-        throw nav2_core::PlannerException("Collision detected in the trajectory. Stopping the robot!");
+        throw nav2_core::PlannerException("Obstacle within safety margin.");
     }
 
     publish_compute_time();
@@ -407,6 +528,8 @@ void OmniPidPursuitController::setPlan(const nav_msgs::msg::Path& path) {
     }
     last_velocity_scaling_factor_ = v_linear_max_;
     last_lin_vel_ = 0.0;
+    last_vx_ = 0.0;
+    last_vy_ = 0.0;
     last_ang_vel_ = 0.0;
 }
 
@@ -615,6 +738,26 @@ bool OmniPidPursuitController::isCollisionDetected(const nav_msgs::msg::Path& pa
     return false;
 }
 
+double OmniPidPursuitController::getMinCollisionDist(const nav_msgs::msg::Path& path, const CostmapSnapshot& snap,
+                                                     double robot_x, double robot_y) {
+    double d_min = std::numeric_limits<double>::max();
+    const double resolution = std::max(snap.resolution, 1e-6);
+    for (const auto& pose_stamped : path.poses) {
+        const int mx = static_cast<int>((pose_stamped.pose.position.x - snap.origin_x) / resolution);
+        const int my = static_cast<int>((pose_stamped.pose.position.y - snap.origin_y) / resolution);
+        if (mx < 0 || my < 0 || mx >= static_cast<int>(snap.width) || my >= static_cast<int>(snap.height)) {
+            ++collision_check_outside_map_count_;
+            return 0.0;
+        }
+        const size_t index = static_cast<size_t>(my) * snap.width + static_cast<size_t>(mx);
+        if (snap.data[index] >= nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE) {
+            d_min = std::min(d_min,
+                             std::hypot(pose_stamped.pose.position.x - robot_x, pose_stamped.pose.position.y - robot_y));
+        }
+    }
+    return d_min;
+}
+
 double OmniPidPursuitController::getLookAheadDistance(const geometry_msgs::msg::Twist& speed) {
     // If using velocity-scaled look ahead distances, find and clamp the dist
     // Else, use the static look ahead distance
@@ -659,9 +802,35 @@ void OmniPidPursuitController::applyApproachVelocityScaling(const nav_msgs::msg:
 
 double OmniPidPursuitController::applyCurvatureLimitation(const nav_msgs::msg::Path& path,
                                                           const geometry_msgs::msg::PoseStamped& lookahead_pose,
-                                                          double& linear_vel, double real_dt) {
-    const double kappa =
-        std::abs(calculateCurvature(path, lookahead_pose, curvature_forward_dist_, curvature_backward_dist_));
+                                                          double& linear_vel, double real_dt, double& out_kappa) {
+    const double kappa_raw = calculateCurvature(path, lookahead_pose, curvature_forward_dist_, curvature_backward_dist_);
+    const double kappa = std::abs(kappa_raw);
+    out_kappa = kappa_raw;
+    if (path.poses.size() >= 3) {
+        const auto lookahead_it = std::min_element(
+            path.poses.begin(), path.poses.end(), [&lookahead_pose](const auto& lhs, const auto& rhs) {
+                const double lhs_dist = std::hypot(lhs.pose.position.x - lookahead_pose.pose.position.x,
+                                                   lhs.pose.position.y - lookahead_pose.pose.position.y);
+                const double rhs_dist = std::hypot(rhs.pose.position.x - lookahead_pose.pose.position.x,
+                                                   rhs.pose.position.y - lookahead_pose.pose.position.y);
+                return lhs_dist < rhs_dist;
+            });
+        if (lookahead_it != path.poses.end()) {
+            size_t idx = static_cast<size_t>(std::distance(path.poses.begin(), lookahead_it));
+            if (idx == 0) {
+                idx = 1;
+            } else if (idx + 1 >= path.poses.size()) {
+                idx = path.poses.size() - 2;
+            }
+            const auto& pa = path.poses[idx - 1].pose.position;
+            const auto& pb = path.poses[idx].pose.position;
+            const auto& pc = path.poses[idx + 1].pose.position;
+            const double cross = (pb.x - pa.x) * (pc.y - pb.y) - (pb.y - pa.y) * (pc.x - pb.x);
+            if (std::abs(cross) > 1e-9) {
+                out_kappa = std::copysign(kappa, cross);
+            }
+        }
+    }
     const double lateral_limit = std::max(1e-6, a_lateral_max_);
     const double v_kappa = std::sqrt(lateral_limit / (kappa + 1e-6));
     const double target_vel = std::min(linear_vel, v_kappa);
@@ -917,6 +1086,18 @@ OmniPidPursuitController::dynamicParametersCallback(std::vector<rclcpp::Paramete
                 a_linear_max_ = parameter.as_double();
             } else if (name == plugin_name_ + ".a_angular_max") {
                 a_angular_max_ = parameter.as_double();
+            } else if (name == plugin_name_ + ".brake_margin") {
+                brake_margin_ = parameter.as_double();
+            } else if (name == plugin_name_ + ".brake_accel") {
+                brake_accel_ = parameter.as_double();
+            } else if (name == plugin_name_ + ".lateral_error_gain") {
+                lateral_error_gain_ = parameter.as_double();
+            } else if (name == plugin_name_ + ".lateral_error_max") {
+                lateral_error_max_ = parameter.as_double();
+            } else if (name == plugin_name_ + ".a_lim_x") {
+                a_lim_x_ = parameter.as_double();
+            } else if (name == plugin_name_ + ".a_lim_y") {
+                a_lim_y_ = parameter.as_double();
             } else if (name == plugin_name_ + ".a_lateral_max") {
                 a_lateral_max_ = parameter.as_double();
             } else if (name == plugin_name_ + ".curvature_forward_dist") {
@@ -945,6 +1126,8 @@ OmniPidPursuitController::dynamicParametersCallback(std::vector<rclcpp::Paramete
                 use_interpolation_ = parameter.as_bool();
             } else if (name == plugin_name_ + ".use_rotate_to_heading") {
                 use_rotate_to_heading_ = parameter.as_bool();
+            } else if (name == plugin_name_ + ".enable_curvature_ff") {
+                enable_curvature_ff_ = parameter.as_bool();
             } else if (name == plugin_name_ + ".publish_debug") {
                 publish_debug_ = parameter.as_bool();
             }

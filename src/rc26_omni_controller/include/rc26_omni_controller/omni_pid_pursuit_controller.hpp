@@ -21,6 +21,12 @@
 
 namespace rc26_omni_controller {
 
+struct CostmapSnapshot {
+    std::vector<uint8_t> data;
+    unsigned int width{}, height{};
+    double origin_x{}, origin_y{}, resolution{};
+};
+
 /**
  * @brief 全向轮 PID + Pure Pursuit 路径跟踪控制器
  */
@@ -67,11 +73,13 @@ protected:
     double approachVelocityScalingFactor(const nav_msgs::msg::Path& path) const;
     void applyApproachVelocityScaling(const nav_msgs::msg::Path& path, double& linear_vel) const;
     bool isCollisionDetected(const nav_msgs::msg::Path& path);
+    double getMinCollisionDist(const nav_msgs::msg::Path& path, const CostmapSnapshot& snap, double robot_x,
+                               double robot_y);
 
 private:
     double applyCurvatureLimitation(const nav_msgs::msg::Path& path,
                                     const geometry_msgs::msg::PoseStamped& lookahead_pose, double& linear_vel,
-                                    double real_dt);
+                                    double real_dt, double& out_kappa);
 
     double calculateCurvature(const nav_msgs::msg::Path& path, const geometry_msgs::msg::PoseStamped& lookahead_pose,
                               double forward_dist, double backward_dist) const;
@@ -125,7 +133,16 @@ private:
     double v_angular_max_;
     double a_linear_max_;
     double a_angular_max_;
+    double brake_margin_;
+    double brake_accel_;
+    double lateral_error_gain_;
+    double lateral_error_max_;
+    bool enable_curvature_ff_;
+    double a_lim_x_;
+    double a_lim_y_;
     double last_lin_vel_{0.0};
+    double last_vx_{0.0};
+    double last_vy_{0.0};
     double last_ang_vel_{0.0};
     double min_approach_linear_velocity_;
     double approach_velocity_scaling_dist_;
@@ -152,6 +169,9 @@ private:
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr real_dt_pub_;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr compute_time_ms_pub_;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr pose_age_ms_pub_;
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr collision_check_ms_pub_;
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr collision_d_min_pub_;
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr v_safe_pub_;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::UInt32>::SharedPtr collision_check_outside_map_count_pub_;
 
     std::recursive_mutex mutex_;
