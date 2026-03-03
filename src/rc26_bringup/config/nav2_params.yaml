@@ -65,6 +65,13 @@ controller_server:
       v_angular_max: 3.0
       a_linear_max: 3.0
       a_angular_max: 6.0
+      brake_margin: 0.15
+      brake_accel: 0.8
+      lateral_error_gain: 1.5
+      lateral_error_max: 0.3
+      enable_curvature_ff: false
+      a_lim_x: 1.0
+      a_lim_y: 0.6
       a_lateral_max: 3.0
       curvature_forward_dist: 0.7
       curvature_backward_dist: 0.3
