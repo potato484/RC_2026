@@ -10,6 +10,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rc26_interfaces/msg/mf_kfs_state.hpp"
 #include "rc26_interfaces/srv/set_nav_mode.hpp"
+#include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/u_int8.hpp"
 
 namespace rc26_kfs_keepout {
@@ -26,7 +27,6 @@ private:
     void publishDiagnostics();
     bool loadGridLayout(const std::string& yaml_path);
     bool validateGridSpacing(double expected_spacing_m, double tolerance_m, std::string& detail) const;
-    bool isBlockingKfsType(uint8_t kfs_type) const;
     void triggerSafeMode(const std::string& reason);
 
     // 参数
@@ -35,10 +35,13 @@ private:
     double map_resolution_{0.10};
     double block_thresh_{0.70};   // log-odds 对应 P=0.70
     double free_thresh_{0.35};    // log-odds 对应 P=0.35
-    double lo_hit_{1.099};        // ln(P/(1-P)) for P=0.75
+    double lo_hit_block_{1.099};  // R1/R2 阻挡证据
+    double lo_hit_fake_{0.693};   // FAKE 阻挡证据
+    double lo_miss_{-0.693};      // NONE 负证据
     double decay_rate_{2.0};      // per second toward decay_target_prob
     double decay_target_prob_{0.05};
     double ttl_sec_{10.0};
+    std::string ttl_mode_{"hard"};
     std::string keepout_shape_{"square"};
     double block_half_size_m_{0.60};
     double keepout_margin_m_{0.03};
@@ -56,6 +59,10 @@ private:
     static constexpr int kGridCount = 13;  // index 0 unused, 1..12
     std::array<double, kGridCount> log_odds_{};
     std::array<uint8_t, kGridCount> blocked_state_{};
+    std::array<uint8_t, kGridCount> pending_state_{};
+    std::array<int, kGridCount> dwell_count_{};
+    bool mask_dirty_{false};
+    int dwell_cycles_{3};
     std::array<double, kGridCount> cell_x_{};
     std::array<double, kGridCount> cell_y_{};
     std::array<rclcpp::Time, kGridCount> last_hit_time_;
@@ -69,6 +76,7 @@ private:
     rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr sub_force_release_;
     rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr pub_mask_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr pub_diagnostics_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_heartbeat_;
     rclcpp::Client<rc26_interfaces::srv::SetNavMode>::SharedPtr nav_mode_client_;
     rclcpp::TimerBase::SharedPtr decay_timer_;
 

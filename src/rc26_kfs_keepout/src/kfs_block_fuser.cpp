@@ -44,10 +44,15 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     this->declare_parameter<double>("keepout_margin_m", keepout_margin_m_);
     this->declare_parameter<double>("block_thresh",      block_thresh_);
     this->declare_parameter<double>("free_thresh",       free_thresh_);
-    this->declare_parameter<double>("lo_hit",            lo_hit_);
+    this->declare_parameter<double>("lo_hit",            lo_hit_block_);
+    this->declare_parameter<double>("lo_hit_block",      lo_hit_block_);
+    this->declare_parameter<double>("lo_hit_fake",       lo_hit_fake_);
+    this->declare_parameter<double>("lo_miss",           lo_miss_);
     this->declare_parameter<double>("decay_rate",        decay_rate_);
     this->declare_parameter<double>("decay_target_prob", decay_target_prob_);
     this->declare_parameter<double>("ttl_sec",           ttl_sec_);
+    this->declare_parameter<std::string>("ttl_mode",     ttl_mode_);
+    this->declare_parameter<int>("dwell_cycles",         dwell_cycles_);
     this->declare_parameter<double>("grid_spacing_tolerance_m", grid_spacing_tolerance_m_);
 
     this->get_parameter("mask_topic",       mask_topic_);
@@ -62,11 +67,28 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     this->get_parameter("keepout_margin_m", keepout_margin_m_);
     this->get_parameter("block_thresh",     block_thresh_);
     this->get_parameter("free_thresh",      free_thresh_);
-    this->get_parameter("lo_hit",           lo_hit_);
+    double lo_hit_alias = lo_hit_block_;
+    this->get_parameter("lo_hit",           lo_hit_alias);
+    this->get_parameter("lo_hit_block",     lo_hit_block_);
+    this->get_parameter("lo_hit_fake",      lo_hit_fake_);
+    this->get_parameter("lo_miss",          lo_miss_);
     this->get_parameter("decay_rate",       decay_rate_);
     this->get_parameter("decay_target_prob", decay_target_prob_);
     this->get_parameter("ttl_sec",          ttl_sec_);
+    this->get_parameter("ttl_mode",         ttl_mode_);
+    this->get_parameter("dwell_cycles",     dwell_cycles_);
     this->get_parameter("grid_spacing_tolerance_m", grid_spacing_tolerance_m_);
+    const auto& overrides = this->get_node_options().parameter_overrides();
+    const auto has_override = [&overrides](const std::string& name) {
+        return std::any_of(
+            overrides.begin(), overrides.end(),
+            [&name](const rclcpp::Parameter& param) {
+                return param.get_name() == name;
+            });
+    };
+    if (!has_override("lo_hit_block") && has_override("lo_hit")) {
+        lo_hit_block_ = lo_hit_alias;
+    }
 
     keepout_shape_ = toLowerCopy(keepout_shape_);
     if (keepout_shape_ != "square" && keepout_shape_ != "circle") {
@@ -81,6 +103,12 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     inflate_radius_m_ = std::max(0.05, inflate_radius_m_);
     keepout_margin_m_ = std::max(0.0, keepout_margin_m_);
     grid_spacing_tolerance_m_ = std::max(0.01, grid_spacing_tolerance_m_);
+    dwell_cycles_ = std::max(1, dwell_cycles_);
+    ttl_mode_ = toLowerCopy(ttl_mode_);
+    if (ttl_mode_ != "hard" && ttl_mode_ != "soft") {
+        RCLCPP_WARN(this->get_logger(), "invalid ttl_mode=%s, fallback to hard", ttl_mode_.c_str());
+        ttl_mode_ = "hard";
+    }
     if (free_thresh_ >= block_thresh_) {
         free_thresh_ = std::max(0.01, block_thresh_ - 0.05);
     }
@@ -93,6 +121,8 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
 
     log_odds_.fill(probToLogOdds(0.5));  // prior = 0.5
     blocked_state_.fill(0);
+    pending_state_.fill(0);
+    dwell_count_.fill(0);
     cell_x_.fill(0.0);
     cell_y_.fill(0.0);
     for (auto& t : last_hit_time_) {
@@ -120,6 +150,9 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     pub_mask_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>(mask_topic_, mask_qos);
     pub_diagnostics_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
         diagnostics_topic_, rclcpp::QoS(rclcpp::KeepLast(10)).reliable());
+    pub_heartbeat_ = this->create_publisher<std_msgs::msg::Bool>(
+        "/kfs_keepout_heartbeat",
+        rclcpp::QoS(rclcpp::KeepLast(1)).reliable());
     nav_mode_client_ = this->create_client<rc26_interfaces::srv::SetNavMode>("set_nav_mode");
 
     sub_ = this->create_subscription<rc26_interfaces::msg::MfKfsState>(
@@ -233,10 +266,6 @@ bool KfsBlockFuser::validateGridSpacing(double expected_spacing_m, double tolera
     return true;
 }
 
-bool KfsBlockFuser::isBlockingKfsType(uint8_t kfs_type) const {
-    return kfs_type == 1U || kfs_type == 2U || kfs_type == 3U;
-}
-
 void KfsBlockFuser::onKfsState(
     const rc26_interfaces::msg::MfKfsState::ConstSharedPtr& msg) {
     if (!msg) {
@@ -266,14 +295,44 @@ void KfsBlockFuser::onKfsState(
 
     const auto now = this->get_clock()->now();
     for (const auto& cell : msg->cells) {
-        if (cell.grid_id < 1 || cell.grid_id > 12) continue;
-        if (!isBlockingKfsType(cell.kfs_type)) continue;
-        if (cell.confidence < static_cast<float>(min_confidence_)) continue;
-        auto& lo = log_odds_[cell.grid_id];
-        lo = std::clamp(lo + lo_hit_, -8.0, 8.0);
-        last_hit_time_[cell.grid_id] = now;
+        if (cell.grid_id < 1 || cell.grid_id > 12) {
+            continue;
+        }
+        if (cell.confidence < static_cast<float>(min_confidence_)) {
+            continue;
+        }
+
+        const size_t idx = static_cast<size_t>(cell.grid_id);
+        auto& lo = log_odds_[idx];
+        switch (cell.kfs_type) {
+        case 1U:  // R1
+        case 2U:  // R2
+            lo = std::clamp(lo + lo_hit_block_, -8.0, 8.0);
+            last_hit_time_[idx] = now;
+            break;
+        case 3U:  // FAKE
+            lo = std::clamp(lo + lo_hit_fake_, -8.0, 8.0);
+            last_hit_time_[idx] = now;
+            break;
+        case 0U:  // NONE
+            lo = std::clamp(lo + lo_miss_, -8.0, 8.0);
+            break;
+        default:  // UNKNOWN(4) and others
+            continue;
+        }
+
+        const double p = logOddsToProb(lo);
+        if (p >= block_thresh_ && blocked_state_[idx] == 0) {
+            blocked_state_[idx] = 1;
+            pending_state_[idx] = 1;
+            dwell_count_[idx] = dwell_cycles_;
+            mask_dirty_ = true;
+        }
     }
-    if (keepout_enabled_) publishMask();
+    if (mask_dirty_ && keepout_enabled_) {
+        publishMask();
+        mask_dirty_ = false;
+    }
 }
 
 void KfsBlockFuser::onForceReleaseGrid(const std_msgs::msg::UInt8::ConstSharedPtr& msg) {
@@ -288,9 +347,15 @@ void KfsBlockFuser::onForceReleaseGrid(const std_msgs::msg::UInt8::ConstSharedPt
     const size_t idx = static_cast<size_t>(grid_id);
     log_odds_[idx] = probToLogOdds(decay_target_prob_);
     blocked_state_[idx] = 0;
+    pending_state_[idx] = 0;
+    dwell_count_[idx] = dwell_cycles_;
+    mask_dirty_ = true;
     last_hit_time_[idx] = rclcpp::Time(0, 0, this->get_clock()->get_clock_type());
     force_release_count_++;
-    if (keepout_enabled_) publishMask();
+    if (mask_dirty_ && keepout_enabled_) {
+        publishMask();
+        mask_dirty_ = false;
+    }
     publishDiagnostics();
 }
 
@@ -305,24 +370,76 @@ void KfsBlockFuser::decayTimer() {
         const size_t idx = static_cast<size_t>(i);
         auto& lo = log_odds_[idx];
 
-        if (ttl_sec_ > 0.0 && last_hit_time_[idx].nanoseconds() > 0) {
-            const double idle_sec = (now - last_hit_time_[idx]).seconds();
-            if (idle_sec > ttl_sec_) {
-                lo = lo_target;
-                blocked_state_[idx] = 0;
-                last_hit_time_[idx] = rclcpp::Time(0, 0, this->get_clock()->get_clock_type());
-                continue;
+        if (ttl_mode_ == "soft") {
+            double effective_decay = lo_decay;
+            if (ttl_sec_ > 0.0 && last_hit_time_[idx].nanoseconds() > 0) {
+                const double idle_sec = (now - last_hit_time_[idx]).seconds();
+                const double half_ttl = ttl_sec_ * 0.5;
+                if (idle_sec >= ttl_sec_) {
+                    effective_decay *= std::min(10.0, std::exp(0.5 * (idle_sec - ttl_sec_)));
+                } else if (half_ttl > 0.0 && idle_sec > half_ttl) {
+                    effective_decay *= (1.0 + (idle_sec - half_ttl) / half_ttl);
+                }
             }
-        }
+            if (lo > lo_target) {
+                lo = std::max(lo_target, lo - effective_decay);
+            } else if (lo < lo_target) {
+                lo = std::min(lo_target, lo + effective_decay);
+            }
+        } else {
+            if (ttl_sec_ > 0.0 && last_hit_time_[idx].nanoseconds() > 0) {
+                const double idle_sec = (now - last_hit_time_[idx]).seconds();
+                if (idle_sec > ttl_sec_) {
+                    lo = lo_target;
+                    if (blocked_state_[idx] != 0) {
+                        blocked_state_[idx] = 0;
+                        mask_dirty_ = true;
+                    }
+                    pending_state_[idx] = 0;
+                    dwell_count_[idx] = dwell_cycles_;
+                    last_hit_time_[idx] = rclcpp::Time(0, 0, this->get_clock()->get_clock_type());
+                    continue;
+                }
+            }
 
-        if (lo > lo_target) {
-            lo = std::max(lo_target, lo - lo_decay);
-        } else if (lo < lo_target) {
-            lo = std::min(lo_target, lo + lo_decay);
+            if (lo > lo_target) {
+                lo = std::max(lo_target, lo - lo_decay);
+            } else if (lo < lo_target) {
+                lo = std::min(lo_target, lo + lo_decay);
+            }
         }
     }
 
-    if (keepout_enabled_) publishMask();
+    if (keepout_enabled_) {
+        for (int i = 1; i <= 12; i++) {
+            const size_t idx = static_cast<size_t>(i);
+            const double p = logOddsToProb(log_odds_[idx]);
+            uint8_t candidate = blocked_state_[idx];
+            if (p >= block_thresh_) {
+                candidate = 1;
+            } else if (p <= free_thresh_) {
+                candidate = 0;
+            }
+
+            if (candidate == pending_state_[idx]) {
+                if (++dwell_count_[idx] >= dwell_cycles_ &&
+                    blocked_state_[idx] != candidate) {
+                    blocked_state_[idx] = candidate;
+                    mask_dirty_ = true;
+                }
+            } else {
+                pending_state_[idx] = candidate;
+                dwell_count_[idx] = 0;
+            }
+        }
+        if (mask_dirty_) {
+            publishMask();
+            mask_dirty_ = false;
+        }
+    }
+    std_msgs::msg::Bool heartbeat_msg;
+    heartbeat_msg.data = keepout_enabled_;
+    pub_heartbeat_->publish(heartbeat_msg);
     publishDiagnostics();
 }
 
@@ -361,13 +478,6 @@ void KfsBlockFuser::publishMask() {
 
     for (int i = 1; i <= 12; i++) {
         const size_t idx = static_cast<size_t>(i);
-        const double p = logOddsToProb(log_odds_[static_cast<size_t>(i)]);
-
-        if (p >= block_thresh_) {
-            blocked_state_[idx] = 1;
-        } else if (p <= free_thresh_) {
-            blocked_state_[idx] = 0;
-        }
         if (blocked_state_[idx] == 0) continue;
 
         const double cx = cell_x_[idx];
@@ -426,6 +536,9 @@ void KfsBlockFuser::publishDiagnostics() {
     addKV("keepout_shape", keepout_shape_);
     addKV("block_thresh", std::to_string(block_thresh_));
     addKV("free_thresh", std::to_string(free_thresh_));
+    addKV("lo_hit_block", std::to_string(lo_hit_block_));
+    addKV("lo_hit_fake", std::to_string(lo_hit_fake_));
+    addKV("lo_miss", std::to_string(lo_miss_));
     addKV("min_confidence", std::to_string(min_confidence_));
     addKV("inflate_radius_m", std::to_string(inflate_radius_m_));
     addKV("block_half_size_m", std::to_string(block_half_size_m_));
@@ -434,6 +547,8 @@ void KfsBlockFuser::publishDiagnostics() {
     addKV("decay_rate", std::to_string(decay_rate_));
     addKV("decay_target_prob", std::to_string(decay_target_prob_));
     addKV("ttl_sec", std::to_string(ttl_sec_));
+    addKV("ttl_mode", ttl_mode_);
+    addKV("dwell_cycles", std::to_string(dwell_cycles_));
     addKV("layout_team", layout_team_);
     addKV("layout_version", layout_version_);
     addKV("layout_validated", layout_validated_ ? "true" : "false");
