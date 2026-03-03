@@ -1,5 +1,6 @@
 #include "rc26_decision/navigation/smart_waypoint_navigator.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 
@@ -93,6 +94,15 @@ SmartWaypointNavigator::SmartWaypointNavigator(rclcpp::Node& node, std::string n
             }
             last_mask_stamp_ns_.store(stampToNsOrNow(node_, msg->header.stamp));
         });
+    auto heartbeat_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable();
+    kfs_heartbeat_sub_ = node_.create_subscription<std_msgs::msg::Bool>(
+        keepout_gate_heartbeat_topic_, heartbeat_qos, [this](const std_msgs::msg::Bool::SharedPtr msg) {
+            if (!msg) {
+                return;
+            }
+            last_heartbeat_ns_.store(node_.get_clock()->now().nanoseconds());
+            heartbeat_enabled_.store(msg->data);
+        });
 }
 
 void SmartWaypointNavigator::loadSpeedProfileScales() {
@@ -126,10 +136,14 @@ void SmartWaypointNavigator::loadKeepoutGateConfig() {
     declare_if_missing("keepout_gate.enable", true);
     declare_if_missing("keepout_gate.max_age_ms", 300.0);
     declare_if_missing("keepout_gate.timeout_sec", 3.0);
+    declare_if_missing("keepout_gate.mode", std::string("legacy"));
+    declare_if_missing("keepout_gate.heartbeat_topic", std::string("/kfs_keepout_heartbeat"));
 
     (void)node_.get_parameter("keepout_gate.enable", keepout_gate_enable_);
     (void)node_.get_parameter("keepout_gate.max_age_ms", keepout_gate_max_age_ms_);
     (void)node_.get_parameter("keepout_gate.timeout_sec", keepout_gate_timeout_sec_);
+    (void)node_.get_parameter("keepout_gate.mode", keepout_gate_mode_);
+    (void)node_.get_parameter("keepout_gate.heartbeat_topic", keepout_gate_heartbeat_topic_);
 
     if (!std::isfinite(keepout_gate_max_age_ms_) || keepout_gate_max_age_ms_ <= 0.0) {
         keepout_gate_max_age_ms_ = 300.0;
@@ -137,35 +151,75 @@ void SmartWaypointNavigator::loadKeepoutGateConfig() {
     if (!std::isfinite(keepout_gate_timeout_sec_) || keepout_gate_timeout_sec_ < 0.0) {
         keepout_gate_timeout_sec_ = 3.0;
     }
-    RCLCPP_INFO(logger_, "keepout_gate: enable=%s max_age_ms=%.0f timeout_sec=%.1f",
+    if (keepout_gate_mode_ != "legacy" && keepout_gate_mode_ != "heartbeat") {
+        RCLCPP_WARN(logger_, "Invalid keepout_gate.mode=%s, fallback to legacy", keepout_gate_mode_.c_str());
+        keepout_gate_mode_ = "legacy";
+    }
+    if (keepout_gate_heartbeat_topic_.empty()) {
+        keepout_gate_heartbeat_topic_ = "/kfs_keepout_heartbeat";
+    }
+    RCLCPP_INFO(logger_,
+                "keepout_gate: enable=%s mode=%s max_age_ms=%.0f timeout_sec=%.1f heartbeat_topic=%s",
                 keepout_gate_enable_ ? "true" : "false",
-                keepout_gate_max_age_ms_, keepout_gate_timeout_sec_);
+                keepout_gate_mode_.c_str(),
+                keepout_gate_max_age_ms_, keepout_gate_timeout_sec_,
+                keepout_gate_heartbeat_topic_.c_str());
 }
 
 bool SmartWaypointNavigator::isKeepoutReady(std::string& reason) const {
     const int64_t filter_stamp_ns = last_filter_info_stamp_ns_.load();
-    const int64_t mask_stamp_ns = last_mask_stamp_ns_.load();
     if (filter_stamp_ns <= 0) {
         reason = "waiting /costmap_filter_info";
-        return false;
-    }
-    if (mask_stamp_ns <= 0) {
-        reason = "waiting /kfs_filter_mask";
         return false;
     }
 
     const int64_t now_ns = node_.now().nanoseconds();
     const double filter_age_ms =
         static_cast<double>(std::max<int64_t>(0, now_ns - filter_stamp_ns)) * 1e-6;
-    const double mask_age_ms =
-        static_cast<double>(std::max<int64_t>(0, now_ns - mask_stamp_ns)) * 1e-6;
     if (filter_age_ms > keepout_gate_max_age_ms_) {
         reason = "costmap_filter_info stale: " + std::to_string(filter_age_ms) + "ms";
         return false;
     }
-    if (mask_age_ms > keepout_gate_max_age_ms_) {
-        reason = "kfs_filter_mask stale: " + std::to_string(mask_age_ms) + "ms";
-        return false;
+
+    const int64_t mask_stamp_ns = last_mask_stamp_ns_.load();
+    if (keepout_gate_mode_ == "heartbeat") {
+        const int64_t hb_ns = last_heartbeat_ns_.load();
+        if (hb_ns <= 0) {
+            reason = "waiting " + keepout_gate_heartbeat_topic_;
+            return false;
+        }
+        const double hb_age_ms =
+            static_cast<double>(std::max<int64_t>(0, now_ns - hb_ns)) * 1e-6;
+        if (hb_age_ms > keepout_gate_max_age_ms_) {
+            reason = keepout_gate_heartbeat_topic_ + " stale: " + std::to_string(hb_age_ms) + "ms";
+            return false;
+        }
+        if (!heartbeat_enabled_.load()) {
+            reason = "keepout disabled by heartbeat";
+            return false;
+        }
+        if (mask_stamp_ns <= 0) {
+            reason = "waiting /kfs_filter_mask (initial)";
+            return false;
+        }
+        const double mask_age_ms =
+            static_cast<double>(std::max<int64_t>(0, now_ns - mask_stamp_ns)) * 1e-6;
+        constexpr double kMaskMaxAgeMs = 5000.0;
+        if (mask_age_ms > kMaskMaxAgeMs) {
+            reason = "kfs_filter_mask stale: " + std::to_string(mask_age_ms) + "ms";
+            return false;
+        }
+    } else {
+        if (mask_stamp_ns <= 0) {
+            reason = "waiting /kfs_filter_mask";
+            return false;
+        }
+        const double mask_age_ms =
+            static_cast<double>(std::max<int64_t>(0, now_ns - mask_stamp_ns)) * 1e-6;
+        if (mask_age_ms > keepout_gate_max_age_ms_) {
+            reason = "kfs_filter_mask stale: " + std::to_string(mask_age_ms) + "ms";
+            return false;
+        }
     }
     reason.clear();
     return true;

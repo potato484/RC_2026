@@ -14,6 +14,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
+#include <std_msgs/msg/bool.hpp>
 
 #include "rc26_decision/navigation/smart_waypoint_types.hpp"
 #include "rc26_interfaces/msg/nav_safety_state.hpp"
@@ -79,6 +80,7 @@ private:
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Subscription<CostmapFilterInfo>::SharedPtr costmap_filter_info_sub_;
     rclcpp::Subscription<OccupancyGrid>::SharedPtr kfs_filter_mask_sub_;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr kfs_heartbeat_sub_;
 
     std::atomic<bool> nav_safety_stop_required_{false};
     std::atomic<bool> nav_safety_timed_out_{false};
@@ -87,12 +89,16 @@ private:
     std::atomic<int64_t> last_odom_recv_ns_{0};
     std::atomic<int64_t> last_filter_info_stamp_ns_{0};
     std::atomic<int64_t> last_mask_stamp_ns_{0};
+    std::atomic<int64_t> last_heartbeat_ns_{0};
+    std::atomic<bool> heartbeat_enabled_{false};
 
     double stop_linear_eps_mps_{0.05};
     double stop_angular_eps_rps_{0.05};
     bool keepout_gate_enable_{true};
     double keepout_gate_max_age_ms_{300.0};
     double keepout_gate_timeout_sec_{3.0};
+    std::string keepout_gate_mode_{"legacy"};
+    std::string keepout_gate_heartbeat_topic_{"/kfs_keepout_heartbeat"};
     rclcpp::Time keepout_gate_wait_start_;
     bool keepout_gate_wait_started_{false};
 
