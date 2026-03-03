@@ -11,6 +11,7 @@
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/int32.hpp"
 #include "std_msgs/msg/int8.hpp"
+#include "std_msgs/msg/float32.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_broadcaster.h"
 #include "tf2_ros/transform_listener.h"
@@ -55,7 +56,11 @@ private:
     double tol_stable_z_std_m_{0.015};
     double tol_stable_lin_vel_mps_{0.05};
     double tol_stable_ang_vel_rps_{0.05};
-    int window_size_{10};
+    int window_size_{3};
+    double stability_window_sec_{0.25};
+    double tol_pitch_abs_rad_{0.15};
+    double tol_roll_abs_rad_{0.15};
+    double tol_z_dot_mps_{0.03};
     double t_confirm_{0.3};
     double tf_timeout_sec_{0.05};
     bool enable_tf_publish_{true};
@@ -79,9 +84,10 @@ private:
     bool is_lifted_{false};
     bool lift_timing_{false};
     rclcpp::Time lift_detect_since_;
-    double lift_thresh_m_{0.15};
+    double lift_thresh_m_{0.35};
     double lift_time_s_{0.5};
     std::deque<Sample> window_;
+    double window_mean_z_{0.0};
 
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr level_pub_;
@@ -89,6 +95,7 @@ private:
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr stable_terrain_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr stable_operation_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr is_lifted_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr ground_z_continuous_pub_;
 
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
