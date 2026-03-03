@@ -117,6 +117,8 @@ void SerialDriver::setLastError(std::string message) {
 }
 
 bool SerialDriver::open(const std::string& port, int baudrate) {
+    const bool cold_start = port_.empty();
+
     if (fd_ >= 0) {
         close();
     }
@@ -201,6 +203,17 @@ bool SerialDriver::open(const std::string& port, int baudrate) {
 
     recv_len_ = 0;
     parse_error_count_ = 0;
+    if (cold_start) {
+        comm_health_.total_frames.store(0, std::memory_order_relaxed);
+        comm_health_.parse_errors.store(0, std::memory_order_relaxed);
+        comm_health_.ack_timeouts.store(0, std::memory_order_relaxed);
+        comm_health_.reconnect_count.store(0, std::memory_order_relaxed);
+        comm_health_.heartbeat_failures.store(0, std::memory_order_relaxed);
+        {
+            std::lock_guard<std::mutex> timeout_lock(timeout_mutex_);
+            adaptive_timeout_ = rc26_serial::AdaptiveTimeout();
+        }
+    }
     recv_error_active_ = false;
     {
         std::lock_guard<std::mutex> lock(send_mutex_);
@@ -230,6 +243,7 @@ bool SerialDriver::open(const std::string& port, int baudrate) {
 
     setLastError({});
     heartbeat_failure_count_ = 0;
+    comm_health_.heartbeat_failures.store(0, std::memory_order_relaxed);
     RCLCPP_DEBUG(serialLogger(), "串口打开成功：%s @ %d", port_.c_str(), baudrate);
 
     return true;
@@ -336,6 +350,8 @@ bool SerialDriver::reconnect() {
         RCLCPP_WARN(serialLogger(), "重连已在进行中，跳过本次重连请求");
         return false;
     }
+
+    comm_health_.reconnect_count.fetch_add(1, std::memory_order_relaxed);
 
     RCLCPP_WARN(serialLogger(), "开始串口重连：%s @ %d", port_.c_str(), baudrate_);
 
@@ -551,6 +567,11 @@ bool SerialDriver::sendCommandNoAck(uint8_t cmd, const std::vector<uint8_t>& pay
 }
 
 bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload) {
+    uint8_t ignored_seq = 0;
+    return sendCommand(cmd, payload, ignored_seq);
+}
+
+bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload, uint8_t& out_seq) {
     if (tl_in_recv_callback) {
         setLastError("sendCommand() 在接收回调上下文中被调用");
         RCLCPP_ERROR(serialLogger(), "sendCommand() 在接收回调内被调用（会死锁），立即返回失败");
@@ -566,14 +587,14 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload)
 
     // 重发机制：retry从0x00开始，步长1，每100ms重发一次
     // 每3次为1轮，达到0x09后触发重连
-    uint8_t seq = nextSeq();
+    out_seq = nextSeq();
     for (uint8_t retry = 0x00; retry <= MAX_RETRY_VALUE; ++retry) {
-        std::vector<uint8_t> frame = buildFrame(seq, cmd, payload, retry);
+        std::vector<uint8_t> frame = buildFrame(out_seq, cmd, payload, retry);
         if (frame.empty()) {
             return false;
         }
 
-        beginWaitAck(seq, cmd);
+        beginWaitAck(out_seq, cmd);
 
         {
             std::lock_guard<std::mutex> lock(send_mutex_);
@@ -591,22 +612,39 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload)
             }
         }
 
+        std::chrono::milliseconds ack_timeout{ACK_TIMEOUT_MS};
+        {
+            std::lock_guard<std::mutex> lock(timeout_mutex_);
+            ack_timeout = adaptive_timeout_.get();
+        }
+
+        const auto wait_start = std::chrono::steady_clock::now();
         bool ack_success = false;
-        bool got_response = waitForAck(std::chrono::milliseconds(ACK_TIMEOUT_MS), ack_success);
+        bool got_response = waitForAck(ack_timeout, ack_success);
+        const auto measured_ms =
+            std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - wait_start).count();
         if (got_response && ack_success) {
+            {
+                std::lock_guard<std::mutex> lock(timeout_mutex_);
+                adaptive_timeout_.update(measured_ms);
+            }
             endWaitAck();
             return true;
         }
 
         endWaitAck();
+        if (!got_response) {
+            comm_health_.ack_timeouts.fetch_add(1, std::memory_order_relaxed);
+        }
 
         uint8_t round = retry / RETRIES_PER_ROUND + 1;
         if (got_response) {
             RCLCPP_WARN(serialLogger(), "指令收到 NACK (retry=0x%02X, 第%u轮)：cmd=0x%02X, seq=%u", retry, round, cmd,
-                        seq);
+                        out_seq);
         } else {
-            RCLCPP_WARN(serialLogger(), "指令等待超时 (retry=0x%02X, 第%u轮)：cmd=0x%02X, seq=%u", retry, round, cmd,
-                        seq);
+            RCLCPP_WARN(serialLogger(),
+                        "指令等待超时 (timeout=%lldms, retry=0x%02X, 第%u轮)：cmd=0x%02X, seq=%u",
+                        static_cast<long long>(ack_timeout.count()), retry, round, cmd, out_seq);
         }
     }
 
@@ -620,7 +658,17 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload)
 }
 
 bool SerialDriver::sendCommand(CommandID cmd, const std::vector<uint8_t>& payload) {
-    return sendCommand(static_cast<uint8_t>(cmd), payload);
+    uint8_t ignored_seq = 0;
+    return sendCommand(cmd, payload, ignored_seq);
+}
+
+bool SerialDriver::sendCommand(CommandID cmd, const std::vector<uint8_t>& payload, uint8_t& out_seq) {
+    return sendCommand(static_cast<uint8_t>(cmd), payload, out_seq);
+}
+
+float SerialDriver::avgRttMs() const {
+    std::lock_guard<std::mutex> lock(timeout_mutex_);
+    return adaptive_timeout_.ewmaMs();
 }
 
 bool SerialDriver::sendPose(CommandID cmd, float vx, float vy, float wz) {
@@ -669,17 +717,34 @@ bool SerialDriver::sendHeartbeat() {
         }
     }
 
+    std::chrono::milliseconds ack_timeout{ACK_TIMEOUT_MS};
+    {
+        std::lock_guard<std::mutex> lock(timeout_mutex_);
+        ack_timeout = adaptive_timeout_.get();
+    }
+
+    const auto wait_start = std::chrono::steady_clock::now();
     bool ack_success = false;
-    bool got_response = waitForAck(std::chrono::milliseconds(ACK_TIMEOUT_MS), ack_success);
+    bool got_response = waitForAck(ack_timeout, ack_success);
+    const auto measured_ms =
+        std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - wait_start).count();
     endWaitAck();
 
     if (got_response && ack_success) {
+        {
+            std::lock_guard<std::mutex> lock(timeout_mutex_);
+            adaptive_timeout_.update(measured_ms);
+        }
         heartbeat_failure_count_ = 0;
         RCLCPP_DEBUG(serialLogger(), "心跳成功：seq=%u", seq);
         return true;
     }
 
+    if (!got_response) {
+        comm_health_.ack_timeouts.fetch_add(1, std::memory_order_relaxed);
+    }
     uint8_t failures = ++heartbeat_failure_count_;
+    comm_health_.heartbeat_failures.store(failures, std::memory_order_relaxed);
     RCLCPP_WARN(serialLogger(), "心跳失败（连续%u次）：seq=%u", failures, seq);
 
     if (failures >= MAX_HEARTBEAT_FAILURES) {
@@ -823,6 +888,7 @@ void SerialDriver::parseReceivedData() {
             }
 
             ++parse_error_count_;
+            comm_health_.parse_errors.fetch_add(1, std::memory_order_relaxed);
             if (parse_error_count_ <= 5 || (parse_error_count_ % 100 == 0)) {
                 RCLCPP_DEBUG(serialLogger(), "解析失败：未找到帧头，已累计丢弃 %u 次", parse_error_count_);
             }
@@ -844,6 +910,7 @@ void SerialDriver::parseReceivedData() {
 
         if (len < 1 || (static_cast<size_t>(len) + FRAME_OVERHEAD) > RECV_BUFFER_SIZE) {
             ++parse_error_count_;
+            comm_health_.parse_errors.fetch_add(1, std::memory_order_relaxed);
             if (parse_error_count_ <= 5 || (parse_error_count_ % 100 == 0)) {
                 RCLCPP_DEBUG(serialLogger(), "解析失败：长度字段异常 len=%u，已累计丢弃 %u 次", len,
                              parse_error_count_);
@@ -861,6 +928,7 @@ void SerialDriver::parseReceivedData() {
 
         if (recv_buffer_[frame_size - 2] != FRAME_TAIL_0 || recv_buffer_[frame_size - 1] != FRAME_TAIL_1) {
             ++parse_error_count_;
+            comm_health_.parse_errors.fetch_add(1, std::memory_order_relaxed);
             if (parse_error_count_ <= 5 || (parse_error_count_ % 100 == 0)) {
                 RCLCPP_DEBUG(serialLogger(), "解析失败：帧尾错误，已累计丢弃 %u 次", parse_error_count_);
             }
@@ -880,6 +948,7 @@ void SerialDriver::parseReceivedData() {
 
         if (expected_crc != actual_crc) {
             ++parse_error_count_;
+            comm_health_.parse_errors.fetch_add(1, std::memory_order_relaxed);
             if (parse_error_count_ <= 5 || (parse_error_count_ % 100 == 0)) {
                 RCLCPP_DEBUG(serialLogger(), "解析失败：CRC 错误(expected=0x%08X actual=0x%08X)，已累计丢弃 %u 次",
                              expected_crc, actual_crc, parse_error_count_);
@@ -914,6 +983,7 @@ void SerialDriver::parseReceivedData() {
         }
 
         notifyAck(seq, cmd);
+        comm_health_.total_frames.fetch_add(1, std::memory_order_relaxed);
 
         if (recv_cb) {
             tl_in_recv_callback = true;

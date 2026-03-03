@@ -10,6 +10,7 @@
 #include <thread>
 #include <vector>
 
+#include "rc26_serial/adaptive_timeout.hpp"
 #include "rc26_serial/protocol.hpp"
 
 namespace rc26_decision {
@@ -19,6 +20,36 @@ public:
     using ReceiveCallback = std::function<void(uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload)>;
     using HeartbeatFailureCallback = std::function<void()>;
     using DebugCallback = std::function<void(bool is_tx, const std::vector<uint8_t>& data)>;
+
+    struct CommHealth {
+        std::atomic<uint32_t> total_frames{0};
+        std::atomic<uint32_t> parse_errors{0};
+        std::atomic<uint32_t> ack_timeouts{0};
+        std::atomic<uint32_t> reconnect_count{0};
+        std::atomic<uint32_t> heartbeat_failures{0};
+
+        enum class Level : uint8_t { HEALTHY = 0, DEGRADED = 1, CRITICAL = 2, FAILED = 3 };
+
+        Level level() const {
+            const auto frames = total_frames.load(std::memory_order_relaxed);
+            const auto parse = parse_errors.load(std::memory_order_relaxed);
+            const auto ack = ack_timeouts.load(std::memory_order_relaxed);
+            const auto reconnect = reconnect_count.load(std::memory_order_relaxed);
+            const float parse_error_ratio = (frames > 0U) ? static_cast<float>(parse) / static_cast<float>(frames)
+                                                          : 0.0F;
+
+            if (reconnect > 3U) {
+                return Level::FAILED;
+            }
+            if (parse_error_ratio > 0.05F || ack > 5U) {
+                return Level::CRITICAL;
+            }
+            if (parse_error_ratio > 0.01F || ack > 2U) {
+                return Level::DEGRADED;
+            }
+            return Level::HEALTHY;
+        }
+    };
 
     SerialDriver();
     ~SerialDriver();
@@ -39,6 +70,11 @@ public:
     // ========================================================================
     bool sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload = {});
     bool sendCommand(CommandID cmd, const std::vector<uint8_t>& payload = {});
+    bool sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload, uint8_t& out_seq);
+    bool sendCommand(CommandID cmd, const std::vector<uint8_t>& payload, uint8_t& out_seq);
+    uint8_t lastSentSeq() const { return seq_.load(std::memory_order_relaxed); }
+    const CommHealth& commHealth() const { return comm_health_; }
+    float avgRttMs() const;
 
     // ========================================================================
     // 便捷接口
@@ -119,6 +155,9 @@ private:
     bool write_error_active_{false};
     bool recv_error_active_{false};
     uint32_t parse_error_count_{0};
+    CommHealth comm_health_;
+    mutable std::mutex timeout_mutex_;
+    rc26_serial::AdaptiveTimeout adaptive_timeout_;
 
     ReconnectCallback reconnect_callback_;
     ReconnectStartCallback reconnect_start_callback_;
