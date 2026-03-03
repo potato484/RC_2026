@@ -31,17 +31,40 @@ bool SerialMechanismHAL::sendCommand(uint8_t cmd_id, const std::vector<uint8_t>&
     return driver_->sendCommand(cmd_id, payload);
 }
 
+bool SerialMechanismHAL::sendCommand(uint8_t cmd_id, const std::vector<uint8_t>& payload,
+                                     uint8_t& out_seq) {
+    if (!driver_) {
+        return false;
+    }
+    return driver_->sendCommand(cmd_id, payload, out_seq);
+}
+
 void SerialMechanismHAL::setFeedbackCallback(FeedbackCallback cb) {
     callback_ = std::move(cb);
     if (!driver_) {
         return;
     }
     driver_->setReceiveCallback(
-        [this](uint8_t /*seq*/, uint8_t cmd, const std::vector<uint8_t>& payload) {
+        [this](uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload) {
             if (callback_) {
-                callback_(cmd, payload);
+                callback_(seq, cmd, payload);
             }
         });
+}
+
+CommHealthSnapshot SerialMechanismHAL::commHealthSnapshot() const {
+    CommHealthSnapshot snapshot{};
+    if (!driver_) {
+        return snapshot;
+    }
+
+    const auto& health = driver_->commHealth();
+    snapshot.ack_timeout_count = health.ack_timeouts.load(std::memory_order_relaxed);
+    snapshot.reconnect_count = health.reconnect_count.load(std::memory_order_relaxed);
+    snapshot.parse_error_count = health.parse_errors.load(std::memory_order_relaxed);
+    snapshot.avg_rtt_ms = driver_->avgRttMs();
+    snapshot.comm_health_level = static_cast<uint8_t>(health.level());
+    return snapshot;
 }
 
 }  // namespace rc26_mechanism

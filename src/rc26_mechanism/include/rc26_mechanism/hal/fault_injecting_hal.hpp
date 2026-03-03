@@ -1,16 +1,25 @@
 #pragma once
 
-#include <memory>
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <mutex>
 #include <string>
 
 #include "rc26_mechanism/hal/i_mechanism_hal.hpp"
-#include "rc26_serial/serial_driver.hpp"
 
 namespace rc26_mechanism {
 
-class SerialMechanismHAL : public IMechanismHAL {
+class FaultInjectingHAL : public IMechanismHAL {
 public:
-    SerialMechanismHAL(std::string port, int baud);
+    struct Config {
+        std::chrono::milliseconds action_latency{200};
+        std::string mode{"action_fail_payload"};
+        uint8_t fault_error_code{0x01};
+    };
+
+    FaultInjectingHAL();
+    explicit FaultInjectingHAL(const Config& config);
 
     bool open() override;
     void close() override;
@@ -21,9 +30,13 @@ public:
     CommHealthSnapshot commHealthSnapshot() const override;
 
 private:
-    std::string port_;
-    int baud_;
-    std::shared_ptr<rc26_decision::SerialDriver> driver_;
+    uint8_t nextSeq();
+
+    Config config_;
+    std::atomic<bool> open_{false};
+    std::atomic<uint8_t> seq_{0};
+    std::atomic<uint32_t> injected_count_{0};
+    mutable std::mutex callback_mutex_;
     FeedbackCallback callback_;
 };
 
