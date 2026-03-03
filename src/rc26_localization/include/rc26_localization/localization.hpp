@@ -9,20 +9,27 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <Eigen/Dense>
+#include "diagnostic_msgs/msg/diagnostic_array.hpp"
+#include "geometry_msgs/msg/point_stamped.hpp"
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
-#include "rcl_interfaces/msg/set_parameters_result.hpp"
 #include "pcl/io/pcd_io.h"
+#include "rcl_interfaces/msg/set_parameters_result.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "sensor_msgs/msg/point_cloud2.hpp"
 #include "sensor_msgs/msg/imu.hpp"
+#include "sensor_msgs/msg/point_cloud2.hpp"
+#include "rc26_localization/esikf.hpp"
+#include "rc26_localization/static_voxel_filter.hpp"
 #include "small_gicp/ann/kdtree_omp.hpp"
 #include "small_gicp/factors/gicp_factor.hpp"
 #include "small_gicp/pcl/pcl_point.hpp"
@@ -67,11 +74,14 @@ private:
         RelocTriggerReason trigger_reason{RelocTriggerReason::TIMEOUT};
         std::string path_used{"none"};
         double t_total_ms{0.0};
+        double t_l0_ms{0.0};
         double t_l1_ms{0.0};
         double t_l2_ms{0.0};
         int candidate_count{0};
         double best_fitness{std::numeric_limits<double>::max()};
         double best_j{std::numeric_limits<double>::max()};
+        std::string winner_channel{"none"};
+        std::string cancel_reason{"none"};
         bool accepted{false};
     };
 
@@ -81,16 +91,35 @@ private:
         Eigen::VectorXf ring_key;
     };
 
+    struct DegenAnalysis {
+        Eigen::Vector3d degen_risk{Eigen::Vector3d::Zero()};
+        Eigen::Matrix3d P_obs{Eigen::Matrix3d::Identity()};
+        bool is_fully_degenerate{false};
+    };
+
+    struct ImuSample {
+        Eigen::Vector3d accel{Eigen::Vector3d::Zero()};
+        Eigen::Vector3d gyro{Eigen::Vector3d::Zero()};
+        rclcpp::Time stamp;
+    };
+
     // 回调函数
     void registeredPcdCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
     void initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
     void imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg);
+    void uwbCallback(const geometry_msgs::msg::PointStamped::SharedPtr msg);
 
     // 核心功能
     void loadGlobalMap(const std::string& file_name);
     void performRegistration();
     void publishTransform();
     bool prepareTargetMap();
+    DegenAnalysis analyzeObservability(const pcl::PointCloud<pcl::PointCovariance>::Ptr& source) const;
+    Eigen::Isometry3d constrainUpdate(const Eigen::Isometry3d& aligned_pose, const Eigen::Isometry3d& initial_guess,
+                                      const DegenAnalysis& degen) const;
+    Eigen::Matrix<double, 6, 6> buildObsCovariance(const DegenAnalysis& degen) const;
+    void publishPoseWithCov(const Eigen::Isometry3d& pose, const Eigen::Matrix<double, 6, 6>& cov) const;
+    void publishDiagnostics(double normalized_error, size_t inliers, bool bad_quality) const;
 
     // 全局重定位（后台线程）
     void performGlobalRelocalization(RelocTriggerReason reason, pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud = nullptr);
@@ -117,12 +146,20 @@ private:
     Eigen::VectorXf makeRingKey(const Eigen::MatrixXf& descriptor) const;
     double bestSectorSimilarity(const Eigen::MatrixXf& query_desc, const Eigen::MatrixXf& target_desc,
                                 int& best_shift) const;
+    bool tryGlobalChannel(const pcl::PointCloud<pcl::PointXYZ>::Ptr& source_down,
+                          const pcl::PointCloud<pcl::PointXYZ>::Ptr& target_down, Eigen::Isometry3d& best_pose,
+                          double& best_fitness, double& best_cost, int& candidate_count,
+                          const std::atomic<bool>* stop_flag = nullptr);
     bool tryScanContextGlobalChannel(const pcl::PointCloud<pcl::PointXYZ>::Ptr& source_down,
                                      const pcl::PointCloud<pcl::PointXYZ>::Ptr& target_down,
                                      Eigen::Isometry3d& best_pose, double& best_fitness, double& best_cost,
-                                     int& candidate_count);
+                                     int& candidate_count, const std::atomic<bool>* stop_flag = nullptr);
+    bool tryL0FastChannel(const pcl::PointCloud<pcl::PointXYZ>::Ptr& source_down,
+                          const pcl::PointCloud<pcl::PointXYZ>::Ptr& target_down, Eigen::Isometry3d& best_pose,
+                          double& best_fitness, double& best_cost, int& candidate_count,
+                          const std::atomic<bool>* stop_flag = nullptr);
 
-    bool detectKidnapping(double fitness_score);
+    bool detectKidnapping(double fitness_score, size_t num_inliers, const DegenAnalysis& degen);
 
     // 多假设初值生成
     std::vector<Eigen::Matrix4f> generateCandidateTransforms(const Eigen::Matrix4f& sac_transform);
@@ -145,12 +182,13 @@ private:
     bool tryRetryZoneFastChannel(const pcl::PointCloud<pcl::PointXYZ>::Ptr& source_down,
                                  const pcl::PointCloud<pcl::PointXYZ>::Ptr& target_down,
                                  Eigen::Isometry3d& best_pose, double& best_fitness, double& best_cost,
-                                 int& candidate_count);
+                                 int& candidate_count, const std::atomic<bool>* stop_flag = nullptr);
 
     // 订阅者
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pcd_sub_;
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initial_pose_sub_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
+    rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr uwb_sub_;
 
     // 参数
     int num_threads_;
@@ -169,6 +207,8 @@ private:
     std::string lidar_frame_;
     std::string current_scan_frame_id_;
     std::string input_cloud_topic_;
+    std::string pose_cov_topic_{"/localization/pose_with_cov"};
+    std::string diagnostics_topic_{"/localization/diagnostics"};
 
     // 状态
     rclcpp::Time last_scan_time_;
@@ -218,6 +258,7 @@ private:
     double retry_zone_max_xy_offset_{1.5};
     double retry_zone_max_yaw_offset_deg_{60.0};
     bool competition_mode_{true};
+    bool parallel_reloc_enable_{true};
 
     // I3: 亚克力过滤
     bool acrylic_filter_enable_{false};
@@ -237,6 +278,13 @@ private:
 
     // L2: Scan Context 参数
     bool enable_scan_context_{true};
+    bool bevplace_enable_{false};
+    std::string bevplace_model_path_;
+    std::string bevplace_index_path_;
+    std::string bevplace_infer_backend_{"onnxruntime"};
+    double bevplace_bev_resolution_{0.2};
+    int bevplace_bev_size_{128};
+    int bevplace_topk_{5};
     int sc_num_rings_{20};
     int sc_num_sectors_{60};
     double sc_max_radius_{8.0};
@@ -248,6 +296,11 @@ private:
     bool sc_db_ready_{false};
     std::vector<ScanContextEntry> sc_database_;
     std::mutex sc_mutex_;
+
+    // 退化分析（替代 S2 二值门控）
+    bool degen_enable_{true};
+    double degen_eigenvalue_ratio_threshold_{0.01};
+    DegenAnalysis last_degen_;
 
     // T2: QCS8550 线程亲和
     bool qcs8550_affinity_enable_{false};
@@ -262,8 +315,14 @@ private:
     double s1_gyro_threshold_{6.0};
     int s1_freeze_duration_ms_{300};
     std::atomic<bool> imu_spike_active_{false};
+    std::atomic<bool> imu_spike_recent_{false};
     rclcpp::Time imu_spike_deadline_;
+    rclcpp::Time imu_spike_last_stamp_;
+    rclcpp::Time last_imu_stamp_;
+    bool last_imu_stamp_valid_{false};
     std::mutex imu_spike_mutex_;
+    std::deque<ImuSample> imu_buffer_;
+    std::mutex imu_buffer_mutex_;
 
     // S2: Hessian 退化轴拒绝
     bool s2_enable_{false};
@@ -275,6 +334,26 @@ private:
     bool s3_enable_{false};
     double s3_min_score_gap_{0.03};
 
+    // ESIKF
+    bool esikf_enable_{false};
+    double esikf_accel_noise_{0.1};
+    double esikf_gyro_noise_{0.01};
+    double esikf_accel_bias_noise_{0.001};
+    double esikf_gyro_bias_noise_{0.0001};
+    mutable std::mutex esikf_mutex_;
+    ESIKF esikf_;
+
+    // 动态物体过滤
+    bool dynamic_filter_enable_{false};
+    double dynamic_filter_voxel_size_{0.3};
+    int dynamic_filter_window_size_{10};
+    int dynamic_filter_stable_threshold_{5};
+    StaticVoxelFilter static_voxel_filter_;
+
+    // L0 快速通道
+    bool l0_enable_{true};
+    int l0_max_imu_gap_ms_{1000};
+
     // T8: 丘陵工况坡道约束
     bool slope_roll_pitch_from_imu_{false};
     double slope_z_weight_{1.0};
@@ -284,6 +363,16 @@ private:
     double imu_pitch_{0.0};
     bool imu_attitude_valid_{false};
     std::mutex imu_attitude_mutex_;
+
+    // UWB 绝对锚点
+    bool uwb_enable_{false};
+    std::string uwb_topic_{"/uwb/position"};
+    double uwb_max_stale_sec_{2.0};
+    double uwb_yaw_spread_deg_{30.0};
+    Eigen::Vector2d uwb_position_{Eigen::Vector2d::Zero()};
+    rclcpp::Time uwb_last_stamp_;
+    bool uwb_available_{false};
+    std::mutex uwb_mutex_;
 
     // 点云数据
     pcl::PointCloud<pcl::PointXYZ>::Ptr global_map_;
@@ -299,6 +388,8 @@ private:
     rclcpp::TimerBase::SharedPtr transform_timer_;
     rclcpp::TimerBase::SharedPtr register_timer_;
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;
+    rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_cov_pub_;
+    rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;
 
     // TF
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;

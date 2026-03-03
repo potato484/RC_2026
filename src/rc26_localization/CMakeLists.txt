@@ -45,6 +45,7 @@ rclcpp_components_register_node(${PROJECT_NAME}
 install(PROGRAMS
   scripts/setup_realtime_aidlux.sh
   scripts/profile_localization_perf.sh
+  scripts/run_localization_acceptance.sh
   DESTINATION lib/${PROJECT_NAME}
 )
 
