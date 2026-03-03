@@ -158,6 +158,7 @@ public:
         blackboard->set("mechanism_tip_state", 0);
         blackboard->set("mechanism_hal_open", false);
         blackboard->set("mechanism_locked_tip_slot", 255);
+        blackboard->set("mechanism_comm_health_level", 0);
 
         // 订阅 base_ground 话题
         const auto level_topic = this->get_parameter("base_ground_level_topic").as_string();
@@ -199,6 +200,7 @@ public:
                 blackboard->set("mechanism_hal_open", msg->hal_open);
                 blackboard->set("mechanism_locked_tip_slot", static_cast<int>(msg->locked_tip_slot));
                 blackboard->set("last_action_error_code", static_cast<int>(msg->last_error_code));
+                blackboard->set("mechanism_comm_health_level", static_cast<int>(msg->comm_health_level));
             });
 
         // 注册所有行为树节点
