@@ -59,6 +59,8 @@ localization:
     # TF 查询超时 (秒) [M5 修复]
     # 查找 TF 变换的超时时间，网络/计算压力大时可适当调大
     tf_timeout_sec: 1.0
+    pose_cov_topic: "/localization/pose_with_cov"
+    diagnostics_topic: "/localization/diagnostics"
     
     # 初始位姿 [x, y, z, roll, pitch, yaw]
     # 若不在 RViz 中手动设置 initialpose，可在此给出一个初始猜测
@@ -111,6 +113,8 @@ localization:
     retry_zone_max_xy_offset: 1.5
     # 快速通道中 ICP 相对先验种子的最大航向偏移（度），超过则拒绝该候选
     retry_zone_max_yaw_offset_deg: 60.0
+    # 是否启用 L0/L1/L2 并行赛跑
+    parallel_reloc_enable: true
 
     # ========== I3: 亚克力幽灵点 ROI 过滤 ==========
     # 是否启用空间 ROI 剔除（需先完成场地标定，确认护栏后方坐标）
@@ -122,6 +126,14 @@ localization:
     acrylic_roi_boxes: []
 
     # ========== L2: Scan Context ==========
+    # BEVPlace++（当前版本保留参数，运行时自动回退 SC）
+    bevplace_enable: false
+    bevplace_model_path: ""
+    bevplace_index_path: ""
+    bevplace_infer_backend: "onnxruntime"
+    bevplace_bev_resolution: 0.2
+    bevplace_bev_size: 128
+    bevplace_topk: 5
     # 启用 Scan Context 全局检索链路（L2）
     enable_scan_context: true
     # 描述子参数
@@ -136,6 +148,9 @@ localization:
     sc_topk: 5
     # 1-cos 相似度代价上限，越小要求越严格
     sc_sim_threshold: 0.18
+    # 退化方向判定阈值（特征值比）
+    degen_enable: true
+    degen_eigenvalue_ratio_threshold: 0.01
 
     # ========== QCS8550 线程亲和 ==========
     qcs8550_affinity_enable: true
@@ -152,14 +167,37 @@ localization:
     s1_gyro_threshold: 6.0
     s1_freeze_duration_ms: 300
 
-    # ========== S2: Hessian 退化轴拒绝 ==========
-    s2_enable: true
+    # ========== S2: Hessian 退化轴拒绝（degen_enable=false 时回退） ==========
+    s2_enable: false
     s2_hessian_min_eigenvalue: 100.0
     s2_max_continuous_frames: 10
 
     # ========== S3: SC 对称歧义拒绝 ==========
     s3_enable: true
     s3_min_score_gap: 0.03
+
+    # ========== Phase 4: ESIKF ==========
+    esikf_enable: false
+    esikf_accel_noise: 0.1
+    esikf_gyro_noise: 0.01
+    esikf_accel_bias_noise: 0.001
+    esikf_gyro_bias_noise: 0.0001
+
+    # ========== Phase 5: 动态物体过滤 ==========
+    dynamic_filter_enable: false
+    dynamic_filter_voxel_size: 0.3
+    dynamic_filter_window_size: 10
+    dynamic_filter_stable_threshold: 5
+
+    # ========== Phase 6: L0 IMU 超快恢复 ==========
+    l0_enable: true
+    l0_max_imu_gap_ms: 1000
+
+    # ========== Phase 8: UWB 绝对锚点 ==========
+    uwb_enable: false
+    uwb_topic: "/uwb/position"
+    uwb_max_stale_sec: 2.0
+    uwb_yaw_spread_deg: 30.0
 
     # ========== 丘陵工况坡道约束 ==========
     slope_roll_pitch_from_imu: true
