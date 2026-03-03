@@ -267,9 +267,14 @@ def generate_launch_description():
             'keepout_shape': 'square',
             'block_half_size_m': 0.60,
             'keepout_margin_m': 0.03,
+            'lo_hit_block': 1.099,
+            'lo_hit_fake': 0.693,
+            'lo_miss': -0.693,
             'decay_target_prob': 0.05,
             'decay_rate': 2.0,
             'ttl_sec': 10.0,
+            'ttl_mode': 'hard',
+            'dwell_cycles': 3,
         }],
         condition=UnlessCondition(slam)
     )
