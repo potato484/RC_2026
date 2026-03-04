@@ -28,6 +28,7 @@ NavModeManager::NavModeManager(const rclcpp::NodeOptions& options)
     RCLCPP_INFO(this->get_logger(), "Loaded %zu profiles from %s",
                 profile_db_->getAllNames().size(), profiles_file_.c_str());
 
+    exclusive_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
     executor_ = std::make_unique<ProfileExecutor>(this, profile_db_.get());
     watchdog_ = std::make_unique<WatchdogTimer>(this);
 
@@ -37,7 +38,9 @@ NavModeManager::NavModeManager(const rclcpp::NodeOptions& options)
     set_mode_srv_ = this->create_service<SetNavMode>(
         "set_nav_mode",
         std::bind(&NavModeManager::handleSetMode, this,
-                  std::placeholders::_1, std::placeholders::_2));
+                  std::placeholders::_1, std::placeholders::_2),
+        rmw_qos_profile_services_default,
+        exclusive_group_);
 
     publish_timer_ = this->create_wall_timer(
         std::chrono::seconds(1),
@@ -85,7 +88,7 @@ void NavModeManager::executeFallback(const std::string& from_profile) {
     auto profile_opt = profile_db_->get(from_profile);
     if (!profile_opt) return;
 
-    std::string fallback_name = profile_opt->fallback_profile;
+    const std::string& fallback_name = profile_opt->fallback_profile;
     if (fallback_name == from_profile) {
         RCLCPP_INFO(this->get_logger(), "Already at terminal fallback '%s'", fallback_name.c_str());
         return;
@@ -99,10 +102,17 @@ void NavModeManager::executeFallback(const std::string& from_profile) {
 
     auto result = executor_->executeForFallback(*fallback_opt, "watchdog_timeout");
     if (result.success) {
-        std::lock_guard<std::mutex> lock(state_mutex_);
-        current_profile_ = fallback_name;
-        current_reason_ = "watchdog_timeout";
+        {
+            std::lock_guard<std::mutex> lock(state_mutex_);
+            current_profile_ = fallback_name;
+            current_reason_ = "watchdog_timeout";
+        }
         RCLCPP_INFO(this->get_logger(), "Fallback to '%s' succeeded", fallback_name.c_str());
+        if (fallback_opt->watchdog.timeout_sec > 0) {
+            watchdog_->start(fallback_opt->watchdog.timeout_sec,
+                             std::bind(&NavModeManager::onWatchdogTimeout, this),
+                             exclusive_group_);
+        }
     } else {
         RCLCPP_WARN(this->get_logger(), "Fallback to '%s' failed: %s, trying next",
                     fallback_name.c_str(), result.message.c_str());
@@ -151,7 +161,8 @@ void NavModeManager::handleSetMode(const SetNavMode::Request::SharedPtr request,
         double effective_timeout = (timeout > 0) ? timeout : profile_opt->watchdog.timeout_sec;
         if (effective_timeout > 0) {
             watchdog_->start(effective_timeout,
-                             std::bind(&NavModeManager::onWatchdogTimeout, this));
+                             std::bind(&NavModeManager::onWatchdogTimeout, this),
+                             exclusive_group_);
         }
 
         publishState();

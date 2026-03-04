@@ -4,7 +4,8 @@ namespace rc26_nav_mode_manager {
 
 WatchdogTimer::WatchdogTimer(rclcpp::Node* node) : node_(node) {}
 
-void WatchdogTimer::start(double timeout_sec, TimeoutCallback callback) {
+void WatchdogTimer::start(double timeout_sec, TimeoutCallback callback,
+                          rclcpp::CallbackGroup::SharedPtr group) {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (timer_) {
@@ -21,7 +22,8 @@ void WatchdogTimer::start(double timeout_sec, TimeoutCallback callback) {
 
     timer_ = node_->create_wall_timer(
         std::chrono::duration<double>(timeout_sec),
-        std::bind(&WatchdogTimer::onTimeout, this));
+        std::bind(&WatchdogTimer::onTimeout, this),
+        group);
 }
 
 void WatchdogTimer::reset() {

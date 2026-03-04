@@ -44,6 +44,7 @@ private:
     rclcpp::TimerBase::SharedPtr publish_timer_;
 
     std::string profiles_file_;
+    rclcpp::CallbackGroup::SharedPtr exclusive_group_;
 };
 
 }  // namespace rc26_nav_mode_manager

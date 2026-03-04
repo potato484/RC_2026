@@ -15,7 +15,8 @@ public:
 
     explicit WatchdogTimer(rclcpp::Node* node);
 
-    void start(double timeout_sec, TimeoutCallback callback);
+    void start(double timeout_sec, TimeoutCallback callback,
+               rclcpp::CallbackGroup::SharedPtr group = nullptr);
     void reset();
     void cancel();
     bool isActive() const;
