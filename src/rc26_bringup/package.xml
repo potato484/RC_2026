@@ -30,6 +30,7 @@
   <exec_depend>point_lio</exec_depend>
   <exec_depend>rc26_odom_interface</exec_depend>
   <exec_depend>rc26_sensor_scan</exec_depend>
+  <exec_depend>rc26_lio_state_predictor</exec_depend>
   
   <!-- 自定义包 -->
   <exec_depend>rc26_localization</exec_depend>

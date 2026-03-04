@@ -58,6 +58,7 @@ def generate_launch_description():
     mid360_driver_config = PathJoinSubstitution([mid360_driver_dir, 'config', 'param.yaml'])
     odom_interface_config = PathJoinSubstitution([bringup_dir, 'config', 'odom_interface.yaml'])
     sensor_scan_config = PathJoinSubstitution([bringup_dir, 'config', 'sensor_scan_generation.yaml'])
+    lio_state_predictor_yaml = PathJoinSubstitution([bringup_dir, 'config', 'lio_state_predictor.yaml'])
 
     # MID-360 LiDAR 驱动节点
     mid360_driver_node = Node(
@@ -117,6 +118,18 @@ def generate_launch_description():
         ],
     )
 
+    lio_state_predictor_node = Node(
+        package='rc26_lio_state_predictor',
+        executable='rc26_lio_state_predictor_node',
+        name='lio_state_predictor',
+        namespace=namespace,
+        output='screen',
+        parameters=[
+            lio_state_predictor_yaml,
+            {'use_sim_time': use_sim_time},
+        ],
+    )
+
     # 静态TF: base_link -> livox_frame (与 Point-LIO 外参对齐)
     static_tf_livox = Node(
         package='tf2_ros',
@@ -150,5 +163,6 @@ def generate_launch_description():
         point_lio_node,
         odom_interface_node,
         sensor_scan_node,
+        lio_state_predictor_node,
         rviz_node,
     ])
