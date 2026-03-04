@@ -32,6 +32,7 @@
 #include "rc26_localization/static_voxel_filter.hpp"
 #include "small_gicp/ann/kdtree_omp.hpp"
 #include "small_gicp/factors/gicp_factor.hpp"
+#include "small_gicp/factors/robust_kernel.hpp"
 #include "small_gicp/pcl/pcl_point.hpp"
 #include "small_gicp/registration/reduction_omp.hpp"
 #include "small_gicp/registration/registration.hpp"
@@ -117,9 +118,13 @@ private:
     DegenAnalysis analyzeObservability(const pcl::PointCloud<pcl::PointCovariance>::Ptr& source) const;
     Eigen::Isometry3d constrainUpdate(const Eigen::Isometry3d& aligned_pose, const Eigen::Isometry3d& initial_guess,
                                       const DegenAnalysis& degen) const;
-    Eigen::Matrix<double, 6, 6> buildObsCovariance(const DegenAnalysis& degen) const;
+    Eigen::Matrix<double, 6, 6> computeObsCov(const small_gicp::RegistrationResult& result) const;
+    void computeHessianStats(const Eigen::Matrix<double, 6, 6>& H,
+                             double& min_eig, double& max_eig, double& cond) const;
+    Eigen::Matrix<double, 6, 6> buildObsCovariance(const small_gicp::RegistrationResult& result) const;
     void publishPoseWithCov(const Eigen::Isometry3d& pose, const Eigen::Matrix<double, 6, 6>& cov) const;
-    void publishDiagnostics(double normalized_error, size_t inliers, bool bad_quality) const;
+    void publishDiagnostics(double normalized_error, size_t inliers, bool bad_quality,
+                            const small_gicp::RegistrationResult& result) const;
 
     // 全局重定位（后台线程）
     void performGlobalRelocalization(RelocTriggerReason reason, pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud = nullptr);
@@ -196,6 +201,13 @@ private:
     float global_leaf_size_;
     float registered_leaf_size_;
     float max_dist_sq_;
+    bool robust_enable_{true};
+    double huber_c_{1.0};
+    bool cov_from_hessian_enable_{true};
+    double cov_eig_floor_{1.0};
+    bool cov_scale_enable_{true};
+    double cov_scale_min_{1e-4};
+    double cov_scale_max_{10.0};
     std::vector<double> init_pose_;
 
     // 坐标系
@@ -329,6 +341,8 @@ private:
     double s2_hessian_min_eigenvalue_{100.0};
     int s2_max_continuous_frames_{10};
     std::atomic<int> consecutive_s2_count_{0};
+    bool hessian_degen_enable_{true};
+    double hessian_lambda_hard_{10.0};
 
     // S3: SC 对称歧义拒绝
     bool s3_enable_{false};
@@ -342,6 +356,7 @@ private:
     double esikf_gyro_bias_noise_{0.0001};
     mutable std::mutex esikf_mutex_;
     ESIKF esikf_;
+    Eigen::Matrix<double, 6, 6> last_pose_cov_;
 
     // 动态物体过滤
     bool dynamic_filter_enable_{false};
@@ -381,8 +396,18 @@ private:
     pcl::PointCloud<pcl::PointCovariance>::Ptr source_;
 
     // small_gicp 配准
+    using RobustGICP = small_gicp::RobustFactor<small_gicp::Huber, small_gicp::GICPFactor>;
+    using RegLM = small_gicp::Registration<RobustGICP, small_gicp::ParallelReductionOMP>;
+    using RegGN = small_gicp::Registration<RobustGICP, small_gicp::ParallelReductionOMP,
+                                           small_gicp::NullFactor, small_gicp::DistanceRejector,
+                                           small_gicp::GaussNewtonOptimizer>;
+
     std::shared_ptr<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>> target_tree_;
-    std::shared_ptr<small_gicp::Registration<small_gicp::GICPFactor, small_gicp::ParallelReductionOMP>> register_;
+    std::shared_ptr<RegLM> register_lm_;
+    std::shared_ptr<RegGN> register_gn_;
+    std::string gicp_optimizer_mode_{"gn_auto"};
+    double gn_auto_trans_threshold_m_{0.05};
+    Eigen::Vector3d last_t_init_{Eigen::Vector3d::Zero()};
 
     // 定时器
     rclcpp::TimerBase::SharedPtr transform_timer_;

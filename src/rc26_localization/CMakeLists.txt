@@ -9,7 +9,7 @@ find_package(ament_cmake_auto REQUIRED)
 find_package(OpenMP REQUIRED)
 find_package(Threads REQUIRED)
 set(PCL_FIND_QUIETLY ON)
-find_package(PCL REQUIRED COMPONENTS common filters kdtree)
+find_package(PCL REQUIRED COMPONENTS common filters kdtree io)
 find_package(Eigen3 REQUIRED)
 ament_auto_find_build_dependencies()
 
@@ -28,7 +28,7 @@ ament_auto_add_library(${PROJECT_NAME} SHARED
   DIRECTORY src
 )
 
-target_link_libraries(${PROJECT_NAME} OpenMP::OpenMP_CXX small_gicp Threads::Threads)
+target_link_libraries(${PROJECT_NAME} OpenMP::OpenMP_CXX small_gicp Threads::Threads ${PCL_LIBRARIES})
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
   add_compile_options(-O3 -ffast-math -funsafe-math-optimizations)

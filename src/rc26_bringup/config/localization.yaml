@@ -47,6 +47,24 @@ localization:
     registered_leaf_size: 0.25
     # small_gicp 内点距离阈值的平方（米^2），控制离群点剔除范围
     max_dist_sq: 1.0
+    # 启用 Huber 鲁棒核，降低动态障碍/反光点对 Hessian 的污染
+    robust_enable: true
+    # Huber 核宽度（作用在 sqrt(error)）
+    huber_c: 1.0
+    # 观测协方差来源：true=由 Hessian 估计，false=回退历史硬编码逻辑
+    cov_from_hessian_enable: true
+    # Hessian 特征值下限（仅用于数值正则化）
+    cov_eig_floor: 1.0
+    # 是否启用残差尺度校正
+    cov_scale_enable: true
+    # 残差尺度下限
+    cov_scale_min: 0.0001
+    # 残差尺度上限
+    cov_scale_max: 10.0
+    # GICP 优化器模式: gn_auto / gn / lm
+    gicp_optimizer_mode: "gn_auto"
+    # gn_auto 下初值平移跳变阈值（米），低于阈值走 GN，高于阈值走 LM
+    gn_auto_trans_threshold_m: 0.05
     # 每次局部 small_gicp 的最大迭代次数，提高可增强收敛鲁棒性但增加计算量
     gicp_max_iterations: 20
     # 降采样后参与局部配准的最少点数，小于该值则跳过本次配准
@@ -171,6 +189,10 @@ localization:
     s2_enable: false
     s2_hessian_min_eigenvalue: 100.0
     s2_max_continuous_frames: 10
+    # 新硬退化门控（推荐开启）；关闭后回退 legacy S2
+    hessian_degen_enable: true
+    # Hessian 最小特征值硬阈值
+    hessian_lambda_hard: 10.0
 
     # ========== S3: SC 对称歧义拒绝 ==========
     s3_enable: true

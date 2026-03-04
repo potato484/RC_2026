@@ -146,6 +146,15 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("global_leaf_size", 0.25);
     this->declare_parameter("registered_leaf_size", 0.25);
     this->declare_parameter("max_dist_sq", 1.0);
+    this->declare_parameter("robust_enable", true);
+    this->declare_parameter("huber_c", 1.0);
+    this->declare_parameter("cov_from_hessian_enable", true);
+    this->declare_parameter("cov_eig_floor", 1.0);
+    this->declare_parameter("cov_scale_enable", true);
+    this->declare_parameter("cov_scale_min", 1e-4);
+    this->declare_parameter("cov_scale_max", 10.0);
+    this->declare_parameter("gicp_optimizer_mode", std::string("gn_auto"));
+    this->declare_parameter("gn_auto_trans_threshold_m", 0.05);
     this->declare_parameter("min_points_for_registration", 20);
     this->declare_parameter("gicp_max_iterations", 20);
     this->declare_parameter("max_delta_translation", 0.5);
@@ -241,6 +250,8 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("s2_enable", false);
     this->declare_parameter("s2_hessian_min_eigenvalue", 100.0);
     this->declare_parameter("s2_max_continuous_frames", 10);
+    this->declare_parameter("hessian_degen_enable", true);
+    this->declare_parameter("hessian_lambda_hard", 10.0);
 
     // S3: SC 对称歧义拒绝
     this->declare_parameter("s3_enable", false);
@@ -283,6 +294,15 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->get_parameter("global_leaf_size", global_leaf_size_);
     this->get_parameter("registered_leaf_size", registered_leaf_size_);
     this->get_parameter("max_dist_sq", max_dist_sq_);
+    this->get_parameter("robust_enable", robust_enable_);
+    this->get_parameter("huber_c", huber_c_);
+    this->get_parameter("cov_from_hessian_enable", cov_from_hessian_enable_);
+    this->get_parameter("cov_eig_floor", cov_eig_floor_);
+    this->get_parameter("cov_scale_enable", cov_scale_enable_);
+    this->get_parameter("cov_scale_min", cov_scale_min_);
+    this->get_parameter("cov_scale_max", cov_scale_max_);
+    this->get_parameter("gicp_optimizer_mode", gicp_optimizer_mode_);
+    this->get_parameter("gn_auto_trans_threshold_m", gn_auto_trans_threshold_m_);
     this->get_parameter("min_points_for_registration", min_points_for_registration_);
     this->get_parameter("gicp_max_iterations", gicp_max_iterations_);
     this->get_parameter("max_delta_translation", max_delta_translation_);
@@ -397,6 +417,8 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->get_parameter("s2_enable", s2_enable_);
     this->get_parameter("s2_hessian_min_eigenvalue", s2_hessian_min_eigenvalue_);
     this->get_parameter("s2_max_continuous_frames", s2_max_continuous_frames_);
+    this->get_parameter("hessian_degen_enable", hessian_degen_enable_);
+    this->get_parameter("hessian_lambda_hard", hessian_lambda_hard_);
 
     // S3
     this->get_parameter("s3_enable", s3_enable_);
@@ -444,6 +466,14 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
                     gicp_kernel_mode_.c_str());
     }
 
+    std::transform(gicp_optimizer_mode_.begin(), gicp_optimizer_mode_.end(), gicp_optimizer_mode_.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (gicp_optimizer_mode_ != "gn_auto" && gicp_optimizer_mode_ != "gn" && gicp_optimizer_mode_ != "lm") {
+        RCLCPP_WARN(this->get_logger(),
+                    "gicp_optimizer_mode=%s 非法，已回退为 gn_auto", gicp_optimizer_mode_.c_str());
+        gicp_optimizer_mode_ = "gn_auto";
+    }
+
     StaticVoxelFilter::Config dynamic_filter_cfg;
     dynamic_filter_cfg.voxel_size = dynamic_filter_voxel_size_;
     dynamic_filter_cfg.window_size = dynamic_filter_window_size_;
@@ -473,6 +503,10 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
         esikf_.reset(result_t_);
     }
 
+    // 启动阶段沿用旧观测协方差量级，避免行为突变
+    last_pose_cov_.setZero();
+    last_pose_cov_.diagonal() << 1e6, 1e6, 1e6, 1e-2, 1e-2, 1e-2;
+
     // 初始化配准成功时间（线程安全）
     {
         std::lock_guard<std::mutex> lock(registration_time_mutex_);
@@ -483,7 +517,10 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     accumulated_cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
     global_map_ = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
     reloc_pending_cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
-    register_ = std::make_shared<small_gicp::Registration<small_gicp::GICPFactor, small_gicp::ParallelReductionOMP>>();
+    register_lm_ = std::make_shared<RegLM>();
+    register_gn_ = std::make_shared<RegGN>();
+    register_lm_->point_factor.robust_kernel.c = robust_enable_ ? huber_c_ : 1e9;
+    register_gn_->point_factor.robust_kernel.c = robust_enable_ ? huber_c_ : 1e9;
 
     // TF
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
@@ -570,6 +607,11 @@ rcl_interfaces::msg::SetParametersResult LocalizationNode::dynamicParametersCall
                     param.c_str(), static_cast<int>(old_value), static_cast<int>(new_value));
     };
 
+    auto log_update_str = [&](const std::string& param, const std::string& old_value, const std::string& new_value) {
+        RCLCPP_INFO(this->get_logger(), "PARAM_UPDATE,node=localization,param=%s,old=%s,new=%s",
+                    param.c_str(), old_value.c_str(), new_value.c_str());
+    };
+
     for (const auto& p : parameters) {
         const std::string& name = p.get_name();
 
@@ -591,6 +633,58 @@ rcl_interfaces::msg::SetParametersResult LocalizationNode::dynamicParametersCall
             const double old_v = max_dist_sq_;
             max_dist_sq_ = static_cast<float>(std::clamp(p.as_double(), 0.01, 25.0));
             log_update(name, old_v, max_dist_sq_);
+            continue;
+        }
+        if (name == "huber_c") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("huber_c expects double");
+                break;
+            }
+            const double old_v = huber_c_;
+            huber_c_ = std::clamp(p.as_double(), 1e-6, 1e6);
+            log_update(name, old_v, huber_c_);
+            continue;
+        }
+        if (name == "cov_eig_floor") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("cov_eig_floor expects double");
+                break;
+            }
+            const double old_v = cov_eig_floor_;
+            cov_eig_floor_ = std::clamp(p.as_double(), 1e-6, 1e8);
+            log_update(name, old_v, cov_eig_floor_);
+            continue;
+        }
+        if (name == "cov_scale_min") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("cov_scale_min expects double");
+                break;
+            }
+            const double old_v = cov_scale_min_;
+            cov_scale_min_ = std::clamp(p.as_double(), 1e-8, 1e3);
+            cov_scale_max_ = std::max(cov_scale_max_, cov_scale_min_);
+            log_update(name, old_v, cov_scale_min_);
+            continue;
+        }
+        if (name == "cov_scale_max") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("cov_scale_max expects double");
+                break;
+            }
+            const double old_v = cov_scale_max_;
+            cov_scale_max_ = std::clamp(p.as_double(), 1e-8, 1e6);
+            cov_scale_min_ = std::min(cov_scale_min_, cov_scale_max_);
+            log_update(name, old_v, cov_scale_max_);
+            continue;
+        }
+        if (name == "gn_auto_trans_threshold_m") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("gn_auto_trans_threshold_m expects double");
+                break;
+            }
+            const double old_v = gn_auto_trans_threshold_m_;
+            gn_auto_trans_threshold_m_ = std::clamp(p.as_double(), 0.0, 10.0);
+            log_update(name, old_v, gn_auto_trans_threshold_m_);
             continue;
         }
         if (name == "gicp_max_iterations") {
@@ -768,6 +862,16 @@ rcl_interfaces::msg::SetParametersResult LocalizationNode::dynamicParametersCall
             log_update_int(name, old_v, s2_max_continuous_frames_);
             continue;
         }
+        if (name == "hessian_lambda_hard") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("hessian_lambda_hard expects double");
+                break;
+            }
+            const double old_v = hessian_lambda_hard_;
+            hessian_lambda_hard_ = std::clamp(p.as_double(), 1e-6, 1e9);
+            log_update(name, old_v, hessian_lambda_hard_);
+            continue;
+        }
         if (name == "s3_enable") {
             if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
                 reject("s3_enable expects bool");
@@ -826,6 +930,46 @@ rcl_interfaces::msg::SetParametersResult LocalizationNode::dynamicParametersCall
             const bool old_v = dynamic_filter_enable_;
             dynamic_filter_enable_ = p.as_bool();
             log_update_bool(name, old_v, dynamic_filter_enable_);
+            continue;
+        }
+        if (name == "robust_enable") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+                reject("robust_enable expects bool");
+                break;
+            }
+            const bool old_v = robust_enable_;
+            robust_enable_ = p.as_bool();
+            log_update_bool(name, old_v, robust_enable_);
+            continue;
+        }
+        if (name == "cov_from_hessian_enable") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+                reject("cov_from_hessian_enable expects bool");
+                break;
+            }
+            const bool old_v = cov_from_hessian_enable_;
+            cov_from_hessian_enable_ = p.as_bool();
+            log_update_bool(name, old_v, cov_from_hessian_enable_);
+            continue;
+        }
+        if (name == "cov_scale_enable") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+                reject("cov_scale_enable expects bool");
+                break;
+            }
+            const bool old_v = cov_scale_enable_;
+            cov_scale_enable_ = p.as_bool();
+            log_update_bool(name, old_v, cov_scale_enable_);
+            continue;
+        }
+        if (name == "hessian_degen_enable") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+                reject("hessian_degen_enable expects bool");
+                break;
+            }
+            const bool old_v = hessian_degen_enable_;
+            hessian_degen_enable_ = p.as_bool();
+            log_update_bool(name, old_v, hessian_degen_enable_);
             continue;
         }
         if (name == "dynamic_filter_voxel_size") {
@@ -897,6 +1041,23 @@ rcl_interfaces::msg::SetParametersResult LocalizationNode::dynamicParametersCall
             num_threads_ = gicp_omp_threads_;
             configureThreadAffinityQcs8550();
             log_update_int(name, old_v, gicp_omp_threads_);
+            continue;
+        }
+        if (name == "gicp_optimizer_mode") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+                reject("gicp_optimizer_mode expects string");
+                break;
+            }
+            const std::string old_v = gicp_optimizer_mode_;
+            std::string new_v = p.as_string();
+            std::transform(new_v.begin(), new_v.end(), new_v.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (new_v != "gn_auto" && new_v != "gn" && new_v != "lm") {
+                reject("gicp_optimizer_mode expects gn_auto|gn|lm");
+                break;
+            }
+            gicp_optimizer_mode_ = new_v;
+            log_update_str(name, old_v, gicp_optimizer_mode_);
             continue;
         }
 
@@ -1058,6 +1219,32 @@ void LocalizationNode::validateAndNormalizeParams() {
     if (freeze_update_err_ <= 0.0) {
         RCLCPP_WARN(this->get_logger(), "freeze_update_err=%.4f 非法，已回退为 0.3", freeze_update_err_);
         freeze_update_err_ = 0.3;
+    }
+    if (huber_c_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "huber_c=%.6f 非法，已回退为 1.0", huber_c_);
+        huber_c_ = 1.0;
+    }
+    if (cov_eig_floor_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "cov_eig_floor=%.6f 非法，已回退为 1.0", cov_eig_floor_);
+        cov_eig_floor_ = 1.0;
+    }
+    cov_scale_min_ = std::max(cov_scale_min_, 1e-8);
+    cov_scale_max_ = std::max(cov_scale_max_, cov_scale_min_);
+    if (gn_auto_trans_threshold_m_ < 0.0) {
+        RCLCPP_WARN(this->get_logger(), "gn_auto_trans_threshold_m=%.6f 非法，已回退为 0.05",
+                    gn_auto_trans_threshold_m_);
+        gn_auto_trans_threshold_m_ = 0.05;
+    }
+    if (hessian_lambda_hard_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "hessian_lambda_hard=%.6f 非法，已回退为 10.0", hessian_lambda_hard_);
+        hessian_lambda_hard_ = 10.0;
+    }
+    std::transform(gicp_optimizer_mode_.begin(), gicp_optimizer_mode_.end(), gicp_optimizer_mode_.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (gicp_optimizer_mode_ != "gn_auto" && gicp_optimizer_mode_ != "gn" && gicp_optimizer_mode_ != "lm") {
+        RCLCPP_WARN(this->get_logger(), "gicp_optimizer_mode=%s 非法，已回退为 gn_auto",
+                    gicp_optimizer_mode_.c_str());
+        gicp_optimizer_mode_ = "gn_auto";
     }
     if (min_inliers_ < 0) {
         RCLCPP_WARN(this->get_logger(), "min_inliers=%d 非法，已钳制为 0", min_inliers_);
@@ -1480,21 +1667,65 @@ void LocalizationNode::performRegistration() {
     }
     last_degen_ = degen_analysis;
 
-    register_->reduction.num_threads = num_threads_;
-    register_->rejector.max_dist_sq = max_dist_sq_;
-    register_->optimizer.max_iterations = gicp_max_iterations_;
+    auto configure_local_registration = [this](auto& reg) {
+        reg->reduction.num_threads = num_threads_;
+        reg->rejector.max_dist_sq = max_dist_sq_;
+        reg->optimizer.max_iterations = gicp_max_iterations_;
+        reg->point_factor.robust_kernel.c = robust_enable_ ? huber_c_ : 1e9;
+    };
+    configure_local_registration(register_lm_);
+    configure_local_registration(register_gn_);
+
+    const Eigen::Vector3d t_init = initial_guess.translation();
+    const double init_jump_m = (t_init - last_t_init_).norm();
+    const bool use_gn =
+        (gicp_optimizer_mode_ == "gn") ||
+        (gicp_optimizer_mode_ == "gn_auto" && init_jump_m < gn_auto_trans_threshold_m_);
 
     // T0: 局部配准计时起点
     const auto t_align_start = std::chrono::steady_clock::now();
-    auto result = register_->align(*target_, *source_, *target_tree_, initial_guess);
+    small_gicp::RegistrationResult result =
+        use_gn ? register_gn_->align(*target_, *source_, *target_tree_, initial_guess)
+               : register_lm_->align(*target_, *source_, *target_tree_, initial_guess);
+    last_t_init_ = t_init;
     const double dt_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_align_start).count();
 
-    // legacy S2: Hessian 退化轴拒绝（仅在 degen_enable=false 时使用）
+    // 新硬退化层：Hessian 最小特征值门控
+    double h_min_eig = 0.0;
+    if (result.converged && hessian_degen_enable_) {
+        const Eigen::Matrix<double, 6, 6> H_sym = 0.5 * (result.H + result.H.transpose());
+        Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 6, 6>> solver(H_sym);
+        if (solver.info() == Eigen::Success) {
+            h_min_eig = solver.eigenvalues().minCoeff();
+        }
+        if (h_min_eig < hessian_lambda_hard_) {
+            const int hard_consec = consecutive_s2_count_.fetch_add(1) + 1;
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 500,
+                "Hard degen: lambda_min=%.2f < %.2f (consec=%d/%d)",
+                h_min_eig, hessian_lambda_hard_, hard_consec, s2_max_continuous_frames_);
+
+            last_pose_cov_.setZero();
+            last_pose_cov_.diagonal() << 1e6, 1e6, 1e6, 4.0, 4.0, 4.0;
+
+            if (hard_consec >= s2_max_continuous_frames_) {
+                consecutive_s2_count_.store(0);
+                requestRelocalization(RelocTriggerReason::KIDNAP, cloud_to_register);
+            }
+            const double hard_norm_error =
+                (result.num_inliers > 0) ? (result.error / static_cast<double>(result.num_inliers))
+                                         : std::numeric_limits<double>::max();
+            publishDiagnostics(hard_norm_error, result.num_inliers, true, result);
+            return;
+        }
+        consecutive_s2_count_.store(0);
+    }
+
+    // legacy S2: 仅在关闭新硬退化门控时启用
     double s2_min_eig = 0.0;
     int s2_consec = 0;
-    if (!degen_enable_ && s2_enable_ && result.converged) {
-        Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 6, 6>> solver(result.H);
+    if (!hessian_degen_enable_ && s2_enable_ && result.converged) {
+        Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 6, 6>> solver(0.5 * (result.H + result.H.transpose()));
         s2_min_eig = solver.eigenvalues().minCoeff();
         if (s2_min_eig < s2_hessian_min_eigenvalue_) {
             s2_consec = consecutive_s2_count_.fetch_add(1) + 1;
@@ -1515,6 +1746,8 @@ void LocalizationNode::performRegistration() {
     const double normalized_error =
         (result.num_inliers > 0) ? (result.error / static_cast<double>(result.num_inliers))
                                  : std::numeric_limits<double>::max();
+    const auto sigma_obs = buildObsCovariance(result);
+    last_pose_cov_ = sigma_obs;
 
     Eigen::Isometry3d constrained_pose = result.T_target_source;
     if (degen_enable_ && result.converged) {
@@ -1534,7 +1767,11 @@ void LocalizationNode::performRegistration() {
     }
     {
         std::lock_guard<std::mutex> lk(imu_spike_mutex_);
-        if ((now() - imu_spike_last_stamp_).seconds() * 1000.0 > static_cast<double>(l0_max_imu_gap_ms_)) {
+        const rclcpp::Time now_time = now();
+        if (imu_spike_last_stamp_.nanoseconds() <= 0 ||
+            imu_spike_last_stamp_.get_clock_type() != now_time.get_clock_type()) {
+            imu_spike_recent_.store(false);
+        } else if ((now_time - imu_spike_last_stamp_).seconds() * 1000.0 > static_cast<double>(l0_max_imu_gap_ms_)) {
             imu_spike_recent_.store(false);
         }
     }
@@ -1546,7 +1783,7 @@ void LocalizationNode::performRegistration() {
     if (detectKidnapping(normalized_error, result.num_inliers, last_degen_)) {
         RCLCPP_WARN(this->get_logger(), "检测到绑架，提交重定位请求...");
         requestRelocalization(RelocTriggerReason::KIDNAP, cloud_to_register);
-        publishDiagnostics(normalized_error, result.num_inliers, true);
+        publishDiagnostics(normalized_error, result.num_inliers, true, result);
         return;
     }
 
@@ -1598,8 +1835,15 @@ void LocalizationNode::performRegistration() {
         if (result.converged) {
             Eigen::Isometry3d committed_pose = slope_corrected_pose;
             if (esikf_enable_) {
+                Eigen::Matrix<double, 6, 6> sigma_esikf = Eigen::Matrix<double, 6, 6>::Zero();
+                constexpr std::array<int, 6> kEsikfOrder{3, 4, 5, 0, 1, 2};
+                for (int r = 0; r < 6; ++r) {
+                    for (int c = 0; c < 6; ++c) {
+                        sigma_esikf(r, c) = sigma_obs(kEsikfOrder[r], kEsikfOrder[c]);
+                    }
+                }
                 std::lock_guard<std::mutex> lk(esikf_mutex_);
-                esikf_.update(slope_corrected_pose.matrix(), buildObsCovariance(last_degen_));
+                esikf_.update(slope_corrected_pose.matrix(), sigma_esikf);
                 committed_pose = esikf_.getMapToOdom();
             }
             result_t_ = previous_result_t_ = committed_pose;
@@ -1651,16 +1895,21 @@ void LocalizationNode::performRegistration() {
 
     // T0: PERF_METRIC 可观测性日志
     RCLCPP_INFO(get_logger(),
-        "PERF_METRIC phase=LOCAL dt_ms=%.1f inliers=%d norm_err=%.4f state=%s S1=%d S2=%d(eig=%.2f,consec=%d) "
-        "degen=(%.2f,%.2f,%.2f)",
+        "PERF_METRIC phase=LOCAL dt_ms=%.1f inliers=%d norm_err=%.4f state=%s opt=%s init_jump=%.3f "
+        "S1=%d hard_hmin=%.2f hard_consec=%d S2=%d(eig=%.2f,consec=%d) degen=(%.2f,%.2f,%.2f)",
         dt_ms, static_cast<int>(result.num_inliers), normalized_error,
         toString(getLocalizationState()),
+        use_gn ? "gn" : "lm",
+        init_jump_m,
         static_cast<int>(imu_spike_active_.load()),
-        static_cast<int>(s2_enable_ && result.converged && s2_min_eig < s2_hessian_min_eigenvalue_),
+        h_min_eig,
+        consecutive_s2_count_.load(),
+        static_cast<int>(!hessian_degen_enable_ && s2_enable_ && result.converged &&
+                         s2_min_eig < s2_hessian_min_eigenvalue_),
         s2_min_eig, s2_consec,
         last_degen_.degen_risk.x(), last_degen_.degen_risk.y(), last_degen_.degen_risk.z());
 
-    publishDiagnostics(normalized_error, result.num_inliers, bad_quality);
+    publishDiagnostics(normalized_error, result.num_inliers, bad_quality, result);
 }
 
 LocalizationNode::DegenAnalysis
@@ -1761,18 +2010,68 @@ Eigen::Isometry3d LocalizationNode::constrainUpdate(const Eigen::Isometry3d& ali
     return initial_guess * constrained_delta;
 }
 
-Eigen::Matrix<double, 6, 6> LocalizationNode::buildObsCovariance(const DegenAnalysis& degen) const {
-    Eigen::Matrix<double, 6, 6> R_obs = Eigen::Matrix<double, 6, 6>::Identity() * kDiagObsNoiseNominal;
-    R_obs(2, 2) = 0.05;
-    R_obs(3, 3) = 0.05;
-    R_obs(4, 4) = 0.05;
-
-    const std::array<int, 3> obs_indices{0, 1, 5};  // x, y, yaw
-    for (size_t i = 0; i < obs_indices.size(); ++i) {
-        const double risk = degen.degen_risk(static_cast<Eigen::Index>(i));
-        R_obs(obs_indices[i], obs_indices[i]) = (risk > 0.5) ? kDiagObsNoiseDegenerate : kDiagObsNoiseNominal;
+void LocalizationNode::computeHessianStats(const Eigen::Matrix<double, 6, 6>& H,
+                                           double& min_eig, double& max_eig, double& cond) const {
+    Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 6, 6>> es(H);
+    if (es.info() != Eigen::Success) {
+        min_eig = 0.0;
+        max_eig = 0.0;
+        cond = 1e12;
+        return;
     }
-    return R_obs;
+    const auto& ev = es.eigenvalues();
+    min_eig = ev.minCoeff();
+    max_eig = ev.maxCoeff();
+    cond = (min_eig > 1e-12) ? max_eig / min_eig : 1e12;
+}
+
+Eigen::Matrix<double, 6, 6> LocalizationNode::computeObsCov(
+    const small_gicp::RegistrationResult& result) const {
+    const Eigen::Matrix<double, 6, 6> H = 0.5 * (result.H + result.H.transpose());
+    Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 6, 6>> es(H);
+    if (es.info() != Eigen::Success) {
+        return Eigen::Matrix<double, 6, 6>::Identity() * kDiagObsNoiseDegenerate;
+    }
+
+    Eigen::Matrix<double, 6, 1> eigs_inv;
+    const auto& eigs = es.eigenvalues();
+    for (int i = 0; i < 6; ++i) {
+        eigs_inv(i) = 1.0 / std::max(eigs(i), cov_eig_floor_);
+    }
+
+    Eigen::Matrix<double, 6, 6> sigma =
+        es.eigenvectors() * eigs_inv.asDiagonal() * es.eigenvectors().transpose();
+
+    if (cov_scale_enable_) {
+        const int dof = std::max(static_cast<int>(result.num_inliers) - 6, 1);
+        const double raw_s2 = std::isfinite(result.error) ? (2.0 * result.error / static_cast<double>(dof)) : cov_scale_max_;
+        const double s2 = std::clamp(raw_s2, cov_scale_min_, cov_scale_max_);
+        sigma *= s2;
+    }
+
+    sigma = 0.5 * (sigma + sigma.transpose());
+    if (!sigma.allFinite()) {
+        return Eigen::Matrix<double, 6, 6>::Identity() * kDiagObsNoiseDegenerate;
+    }
+    return sigma;
+}
+
+Eigen::Matrix<double, 6, 6> LocalizationNode::buildObsCovariance(
+    const small_gicp::RegistrationResult& result) const {
+    if (!cov_from_hessian_enable_) {
+        Eigen::Matrix<double, 6, 6> R_obs = Eigen::Matrix<double, 6, 6>::Identity() * kDiagObsNoiseNominal;
+        R_obs(2, 2) = 0.05;
+        R_obs(3, 3) = 0.05;
+        R_obs(4, 4) = 0.05;
+
+        const std::array<int, 3> obs_indices{0, 1, 5};  // x, y, yaw
+        for (size_t i = 0; i < obs_indices.size(); ++i) {
+            const double risk = last_degen_.degen_risk(static_cast<Eigen::Index>(i));
+            R_obs(obs_indices[i], obs_indices[i]) = (risk > 0.5) ? kDiagObsNoiseDegenerate : kDiagObsNoiseNominal;
+        }
+        return R_obs;
+    }
+    return computeObsCov(result);
 }
 
 void LocalizationNode::publishPoseWithCov(const Eigen::Isometry3d& pose, const Eigen::Matrix<double, 6, 6>& cov) const {
@@ -1800,7 +2099,8 @@ void LocalizationNode::publishPoseWithCov(const Eigen::Isometry3d& pose, const E
     pose_cov_pub_->publish(msg);
 }
 
-void LocalizationNode::publishDiagnostics(double normalized_error, size_t inliers, bool bad_quality) const {
+void LocalizationNode::publishDiagnostics(double normalized_error, size_t inliers, bool bad_quality,
+                                          const small_gicp::RegistrationResult& result) const {
     if (!diag_pub_) {
         return;
     }
@@ -1829,6 +2129,19 @@ void LocalizationNode::publishDiagnostics(double normalized_error, size_t inlier
     kv("degen_risk_y", std::to_string(last_degen_.degen_risk.y()));
     kv("degen_risk_yaw", std::to_string(last_degen_.degen_risk.z()));
     kv("fully_degenerate", last_degen_.is_fully_degenerate ? "1" : "0");
+    double h_min = 0.0;
+    double h_max = 0.0;
+    double h_cond = 1e12;
+    computeHessianStats(0.5 * (result.H + result.H.transpose()), h_min, h_max, h_cond);
+    const double sigma_xy = std::sqrt(std::max(0.0, last_pose_cov_(3, 3) + last_pose_cov_(4, 4)));
+    const double sigma_yaw = std::sqrt(std::max(0.0, last_pose_cov_(2, 2)));
+    kv("h_min_eig", std::to_string(h_min));
+    kv("h_max_eig", std::to_string(h_max));
+    kv("h_cond", std::to_string(h_cond));
+    kv("sigma_xy", std::to_string(sigma_xy));
+    kv("sigma_yaw", std::to_string(sigma_yaw));
+    kv("obs_cov_source", cov_from_hessian_enable_ ? "hessian" : "hardcoded");
+    kv("hard_degen_consec", std::to_string(consecutive_s2_count_.load()));
 
     diag.status.push_back(status);
     diag_pub_->publish(diag);
@@ -1867,11 +2180,7 @@ void LocalizationNode::publishTransform() {
 
     tf_broadcaster_->sendTransform(transform_stamped);
 
-    Eigen::Matrix<double, 6, 6> cov = buildObsCovariance(last_degen_);
-    if (esikf_enable_) {
-        std::lock_guard<std::mutex> lk(esikf_mutex_);
-        cov = esikf_.getCovariance();
-    }
+    Eigen::Matrix<double, 6, 6> cov = last_pose_cov_;
     publishPoseWithCov(result_snapshot, cov);
 }
 
