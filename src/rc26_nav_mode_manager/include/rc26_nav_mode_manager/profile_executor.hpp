@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -54,6 +55,7 @@ private:
     std::string current_profile_{"safe"};
     std::string current_reason_;
     mutable std::mutex state_mutex_;
+    mutable std::mutex execution_mutex_;
 
     std::atomic<uint64_t> cancel_epoch_{0};
 
@@ -65,6 +67,11 @@ private:
     std::atomic<bool> odom_received_{false};
     double stop_linear_eps_{0.05};
     double stop_angular_eps_{0.05};
+    static constexpr int kOdomWindowSize = 10;
+    std::deque<double> linear_window_;
+    std::deque<double> angular_window_;
+    rclcpp::Time last_odom_time_{0, 0, RCL_ROS_TIME};
+    mutable std::mutex odom_window_mutex_;
 
     // Costmap
     std::string costmap_node_name_{"local_costmap/local_costmap"};

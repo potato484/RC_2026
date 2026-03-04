@@ -24,6 +24,7 @@ struct ControllerConfig {
     std::optional<double> v_linear_min;
     std::optional<double> acc_linear;
     std::optional<double> acc_angular;
+    int transition_timeout_ms{500};
 };
 
 struct NavProfile {

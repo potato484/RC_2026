@@ -1,6 +1,8 @@
 #include "rc26_nav_mode_manager/profile_executor.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <thread>
 
 namespace rc26_nav_mode_manager {
 
@@ -59,14 +61,35 @@ ProfileExecutor::ProfileExecutor(rclcpp::Node* node, ProfileDB* db)
 void ProfileExecutor::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
     double vx = msg->twist.twist.linear.x;
     double vy = msg->twist.twist.linear.y;
-    last_linear_speed_ = std::sqrt(vx * vx + vy * vy);
-    last_angular_speed_ = std::abs(msg->twist.twist.angular.z);
+    double linear = std::sqrt(vx * vx + vy * vy);
+    double angular = std::abs(msg->twist.twist.angular.z);
+    last_linear_speed_ = linear;
+    last_angular_speed_ = angular;
     odom_received_ = true;
+
+    std::lock_guard<std::mutex> lock(odom_window_mutex_);
+    if (msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0) {
+        last_odom_time_ = node_->now();
+    } else {
+        last_odom_time_ = rclcpp::Time(msg->header.stamp);
+    }
+    linear_window_.push_back(linear);
+    angular_window_.push_back(angular);
+    if (static_cast<int>(linear_window_.size()) > kOdomWindowSize) {
+        linear_window_.pop_front();
+    }
+    if (static_cast<int>(angular_window_.size()) > kOdomWindowSize) {
+        angular_window_.pop_front();
+    }
 }
 
 bool ProfileExecutor::checkRobotStopped() const {
-    return last_linear_speed_.load() < stop_linear_eps_ &&
-           last_angular_speed_.load() < stop_angular_eps_;
+    std::lock_guard<std::mutex> lock(odom_window_mutex_);
+    if (linear_window_.empty()) return false;
+    if ((node_->now() - last_odom_time_).seconds() > 0.2) return false;
+    double max_lin = *std::max_element(linear_window_.begin(), linear_window_.end());
+    double max_ang = *std::max_element(angular_window_.begin(), angular_window_.end());
+    return max_lin < stop_linear_eps_ && max_ang < stop_angular_eps_;
 }
 
 bool ProfileExecutor::isCancelled(uint64_t epoch) const {
@@ -198,18 +221,13 @@ bool ProfileExecutor::rollbackParams() {
 
 bool ProfileExecutor::stepParams(const NavProfile& profile, std::string& error) {
     const auto& ctrl = profile.controller;
-    std::vector<rclcpp::Parameter> params;
-
-    if (ctrl.v_linear_max) params.emplace_back("FollowPath.v_linear_max", *ctrl.v_linear_max);
-    if (ctrl.v_angular_max) params.emplace_back("FollowPath.v_angular_max", *ctrl.v_angular_max);
-    if (ctrl.v_linear_min) params.emplace_back("FollowPath.v_linear_min", *ctrl.v_linear_min);
-    if (ctrl.acc_linear) params.emplace_back("FollowPath.acc_linear", *ctrl.acc_linear);
-    if (ctrl.acc_angular) params.emplace_back("FollowPath.acc_angular", *ctrl.acc_angular);
-
-    if (params.empty()) return true;
+    if (!ctrl.v_linear_max && !ctrl.v_angular_max && !ctrl.v_linear_min &&
+        !ctrl.acc_linear && !ctrl.acc_angular) {
+        return true;
+    }
 
     if (!captureDefaults()) {
-        error = "Failed to capture controller defaults - cannot safely modify params";
+        error = "Failed to capture controller defaults";
         return false;
     }
 
@@ -217,6 +235,48 @@ bool ProfileExecutor::stepParams(const NavProfile& profile, std::string& error) 
         error = "Controller param service not available";
         return false;
     }
+
+    bool need_phase1 = ctrl.v_linear_max && ctrl.acc_linear && [&]() {
+        auto it = param_defaults_.find("FollowPath.v_linear_max");
+        return it != param_defaults_.end() &&
+               *ctrl.v_linear_max < it->second - 0.05;
+    }();
+
+    if (need_phase1) {
+        double cur_acc = param_defaults_.count("FollowPath.acc_linear")
+                         ? param_defaults_["FollowPath.acc_linear"] : *ctrl.acc_linear;
+        std::vector<rclcpp::Parameter> phase1;
+        phase1.emplace_back("FollowPath.acc_linear",
+                            std::min(cur_acc, *ctrl.acc_linear * 0.5));
+        if (ctrl.acc_angular && param_defaults_.count("FollowPath.acc_angular")) {
+            double cur_ang = param_defaults_["FollowPath.acc_angular"];
+            phase1.emplace_back("FollowPath.acc_angular",
+                                std::min(cur_ang, *ctrl.acc_angular * 0.5));
+        }
+        auto f1 = controller_param_client_->set_parameters(phase1);
+        if (f1.wait_for(std::chrono::duration<double>(param_timeout_sec_)) !=
+                std::future_status::ready) {
+            error = "Timeout on phase1 acc reduction";
+            rollbackParams();
+            return false;
+        }
+        for (const auto& r : f1.get()) {
+            if (!r.successful) {
+                error = "Failed phase1 param set: " + r.reason;
+                rollbackParams();
+                return false;
+            }
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(ctrl.transition_timeout_ms));
+    }
+
+    std::vector<rclcpp::Parameter> params;
+    if (ctrl.v_linear_max) params.emplace_back("FollowPath.v_linear_max", *ctrl.v_linear_max);
+    if (ctrl.v_angular_max) params.emplace_back("FollowPath.v_angular_max", *ctrl.v_angular_max);
+    if (ctrl.v_linear_min) params.emplace_back("FollowPath.v_linear_min", *ctrl.v_linear_min);
+    if (ctrl.acc_linear)   params.emplace_back("FollowPath.acc_linear",   *ctrl.acc_linear);
+    if (ctrl.acc_angular)  params.emplace_back("FollowPath.acc_angular",  *ctrl.acc_angular);
 
     auto future = controller_param_client_->set_parameters(params);
     if (future.wait_for(std::chrono::duration<double>(param_timeout_sec_)) != std::future_status::ready) {
@@ -256,12 +316,14 @@ std::string ProfileExecutor::deriveLocalCostmapClearServiceName(const std::strin
 
 ProfileExecutor::SwitchResult ProfileExecutor::execute(
     const NavProfile& profile, const std::string& reason) {
+    std::lock_guard<std::mutex> lock(execution_mutex_);
     uint64_t epoch = cancel_epoch_.load();
     return executeInternal(profile, reason, epoch);
 }
 
 ProfileExecutor::SwitchResult ProfileExecutor::executeForFallback(
     const NavProfile& profile, const std::string& reason) {
+    std::lock_guard<std::mutex> lock(execution_mutex_);
     uint64_t epoch = cancel_epoch_.load();
     return executeInternal(profile, reason, epoch);
 }
