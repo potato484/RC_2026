@@ -69,8 +69,11 @@ ros2 launch rc26_bringup test_localization.launch.py \
 # 验证 TF 发布 (map -> odom)
 ros2 run tf2_ros tf2_echo map odom
 
-# 检查定位状态
-ros2 topic echo /localization/status --once
+# 检查协方差与诊断
+ros2 topic echo /localization/pose_with_cov --once
+ros2 topic echo /localization/diagnostics --once
+# diagnostics 中应包含:
+# h_min_eig, h_max_eig, h_cond, sigma_xy, sigma_yaw, obs_cov_source, hard_degen_consec
 ```
 
 ---
@@ -131,7 +134,7 @@ ros2 topic echo /cmd_vel --once
 | sensor_scan | `/sensor_scan` | laser_link 坐标系点云，`/odometry` 协方差透传 |
 | lio_state_predictor | `/control_state` | 约 200Hz 预测里程计 |
 | point_lio | `/degenerate_score` | 退化分数持续输出 |
-| localization | TF `map→odom` | 有效变换 |
+| localization | `/localization/pose_with_cov` + `/localization/diagnostics` | 持续发布且包含扩展字段 |
 | omni_controller | `/cmd_vel` | 速度指令 |
 
 ---

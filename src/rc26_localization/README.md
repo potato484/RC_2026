@@ -5,6 +5,10 @@
 ## 功能概览
 
 - 局部跟踪：`registered_scan` 与先验地图持续配准
+- 鲁棒估计：`GICPFactor` 外包 `Huber` 核，降低动态点/反光点污染
+- 观测协方差：由 `result.H` 在线估计 `Sigma_obs`，不再固定硬编码常量
+- 两层退化策略：软退化（协方差膨胀）+ 硬退化（`lambda_min` 门控）
+- 优化器自适应：`gn_auto` 根据初值跳变在 GN/LM 间切换
 - 退化场景稳态：子空间可观测性分析 + 方向约束更新（替代原 S2 二值门控主路径）
 - 重定位通道：L0（IMU 快速恢复）/ L1（重试区与 UWB 种子）/ L2（Scan Context）
 - 并行恢复：支持 L0/L1/L2 并行赛跑，首个满足阈值通道胜出
@@ -52,6 +56,50 @@ GLOBAL_RECOVERY (single-flight worker)
 | `diagnostics_topic` | `/localization/diagnostics` | 诊断输出话题 |
 
 > 当前仓库未集成 `rc26_bevplace` 包。`bevplace_*` 参数已预留，运行时会自动回退 Scan Context。
+
+## 执行方案1（P0/P1）参数
+
+| 参数 | 默认值 | 说明 |
+|---|---:|---|
+| `robust_enable` | true | Huber 鲁棒核总开关 |
+| `huber_c` | 1.0 | Huber 核宽度（作用在 `sqrt(error)`） |
+| `cov_from_hessian_enable` | true | true=用 Hessian 估计观测协方差，false=回退硬编码 |
+| `cov_eig_floor` | 1.0 | Hessian 特征值下限（数值正则） |
+| `cov_scale_enable` | true | 残差尺度校正开关 |
+| `cov_scale_min` | 1e-4 | 残差尺度下限 |
+| `cov_scale_max` | 10.0 | 残差尺度上限 |
+| `hessian_degen_enable` | true | 硬退化门控开关 |
+| `hessian_lambda_hard` | 10.0 | Hessian 最小特征值硬阈值 |
+| `gicp_optimizer_mode` | `gn_auto` | `gn_auto` / `gn` / `lm` |
+| `gn_auto_trans_threshold_m` | 0.05 | `gn_auto` 下初值平移跳变阈值 |
+
+## 诊断字段（新增）
+
+`/localization/diagnostics` 现在包含以下关键字段：
+- `h_min_eig`
+- `h_max_eig`
+- `h_cond`
+- `sigma_xy`
+- `sigma_yaw`
+- `obs_cov_source`（`hessian` / `hardcoded`）
+- `hard_degen_consec`
+
+## 回归开关检查
+
+```bash
+# 1) 协方差回退：obs_cov_source 应变为 hardcoded
+ros2 param set /localization cov_from_hessian_enable false
+
+# 2) 关闭鲁棒核：回退纯 GICP 行为
+ros2 param set /localization robust_enable false
+
+# 3) 关闭新硬退化：回退 legacy S2
+ros2 param set /localization hessian_degen_enable false
+
+# 4) 强制优化器
+ros2 param set /localization gicp_optimizer_mode lm
+ros2 param set /localization gicp_optimizer_mode gn_auto
+```
 
 ## 结构化日志
 
