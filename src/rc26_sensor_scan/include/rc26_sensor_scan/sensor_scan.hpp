@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <array>
 #include "geometry_msgs/msg/twist_with_covariance.hpp"
 #include <memory>
 #include <optional>
@@ -41,6 +42,7 @@ private:
     std::optional<tf2::Transform> getStaticTransform(const std::string& target_frame, const std::string& source_frame);
 
     void publishOdometry(const tf2::Transform& transform, const geometry_msgs::msg::TwistWithCovariance& twist,
+                         const std::array<double, 36>& pose_covariance,
                          std::string parent_frame, const std::string& child_frame, const rclcpp::Time& stamp);
 
     std::string lidar_frame_;

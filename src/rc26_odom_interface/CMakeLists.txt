@@ -18,6 +18,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(ament_cmake_auto REQUIRED)
 ament_auto_find_build_dependencies()
+find_package(Eigen3 REQUIRED)
 
 ###########
 ## Build ##
@@ -26,6 +27,7 @@ ament_auto_find_build_dependencies()
 ament_auto_add_library(${PROJECT_NAME} SHARED
   DIRECTORY src
 )
+target_link_libraries(${PROJECT_NAME} Eigen3::Eigen)
 
 rclcpp_components_register_node(${PROJECT_NAME}
   PLUGIN rc26_odom_interface::OdomInterfaceNode

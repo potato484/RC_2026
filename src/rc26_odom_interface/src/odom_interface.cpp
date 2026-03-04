@@ -14,6 +14,7 @@
 
 #include "rc26_odom_interface/odom_interface.hpp"
 
+#include <Eigen/Dense>
 #include <cmath>
 #include <stdexcept>
 
@@ -162,6 +163,7 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
     out.pose.pose.position.y = origin.y();
     out.pose.pose.position.z = origin.z();
     out.pose.pose.orientation = tf2::toMsg(tf_odom_to_base.getRotation());
+    out.pose.covariance = msg->pose.covariance;
 
     // Publish TF: odom -> base_link (so RViz/Nav2 can resolve the TF tree even if downstream sync drops frames).
     geometry_msgs::msg::TransformStamped tf_msg;
@@ -189,6 +191,20 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
         out.twist.twist.angular.x = w_base.x();
         out.twist.twist.angular.y = w_base.y();
         out.twist.twist.angular.z = w_base.z();
+
+        const Eigen::Quaterniond rotation_lidar_to_base_eigen(rotation_lidar_to_base.w(), rotation_lidar_to_base.x(),
+                                                              rotation_lidar_to_base.y(), rotation_lidar_to_base.z());
+        const Eigen::Matrix3d R = rotation_lidar_to_base_eigen.toRotationMatrix();
+        const Eigen::Vector3d r(r_base_in_lidar.x(), r_base_in_lidar.y(), r_base_in_lidar.z());
+        Eigen::Matrix3d skew_r;
+        skew_r << 0.0, -r(2), r(1), r(2), 0.0, -r(0), -r(1), r(0), 0.0;
+        Eigen::Matrix<double, 6, 6> J = Eigen::Matrix<double, 6, 6>::Zero();
+        J.topLeftCorner<3, 3>() = R;
+        J.topRightCorner<3, 3>() = -R * skew_r;
+        J.bottomRightCorner<3, 3>() = R;
+        Eigen::Map<const Eigen::Matrix<double, 6, 6, Eigen::RowMajor>> sigma_in(msg->twist.covariance.data());
+        Eigen::Map<Eigen::Matrix<double, 6, 6, Eigen::RowMajor>> sigma_out(out.twist.covariance.data());
+        sigma_out = J * sigma_in * J.transpose();
     } else if (odom_state_.initialized) {
         const double dt = (odom_stamp - odom_state_.previous_stamp).seconds();
 

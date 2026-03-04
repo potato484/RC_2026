@@ -130,8 +130,8 @@ void SensorScanNode::laserCloudAndOdometryHandler(const nav_msgs::msg::Odometry:
     }
     const auto& tf_base_to_lidar = *base_to_lidar_;
 
-    publishOdometry(tf_odom_to_base, odometry_msg->twist, odometry_msg->header.frame_id, robot_base_frame_,
-                    cloud_stamp);
+    publishOdometry(tf_odom_to_base, odometry_msg->twist, odometry_msg->pose.covariance, odometry_msg->header.frame_id,
+                    robot_base_frame_, cloud_stamp);
 
     // 将 odom 坐标系的点云转换到 laser_link 坐标系
     // T_laser_odom = T_laser_base * T_base_odom = tf_base_to_lidar^(-1) * tf_odom_to_base^(-1)
@@ -156,8 +156,8 @@ std::optional<tf2::Transform> SensorScanNode::getStaticTransform(const std::stri
 }
 
 void SensorScanNode::publishOdometry(const tf2::Transform& transform, const geometry_msgs::msg::TwistWithCovariance& twist,
-                                     std::string parent_frame, const std::string& child_frame,
-                                     const rclcpp::Time& stamp) {
+                                     const std::array<double, 36>& pose_covariance, std::string parent_frame,
+                                     const std::string& child_frame, const rclcpp::Time& stamp) {
     nav_msgs::msg::Odometry out;
     out.header.stamp = stamp;
     out.header.frame_id = parent_frame;
@@ -168,6 +168,7 @@ void SensorScanNode::publishOdometry(const tf2::Transform& transform, const geom
     out.pose.pose.position.z = origin.z();
     out.pose.pose.orientation = tf2::toMsg(transform.getRotation());
     out.twist = twist;
+    out.pose.covariance = pose_covariance;
     pub_chassis_odometry_->publish(out);
 }
 
