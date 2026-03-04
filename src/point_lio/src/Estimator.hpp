@@ -31,6 +31,9 @@ extern int feats_down_size;
 extern V3D Lidar_T_wrt_IMU;  //(Zero3d);
 extern M3D Lidar_R_wrt_IMU;  //(Eye3d);
 extern double G_m_s2;
+extern Eigen::Matrix3d g_degen_S;
+extern double g_residual_abs_sum;
+extern int g_residual_count;
 extern input_ikfom input_in;
 
 Eigen::Matrix<double, 24, 24> process_noise_cov_input();

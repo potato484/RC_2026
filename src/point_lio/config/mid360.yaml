@@ -8,7 +8,7 @@
         space_down_sample: True
         filter_size_surf: 0.2                               # 可选值：0.5、0.3、0.2、0.15、0.1
         filter_size_map: 0.2                               # 可选值：0.5、0.3、0.15、0.1
-        ivox_nearby_type: 6                                 # 可选值：0、6、18、26
+        ivox_nearby_type: 18                                # 可选值：0、6、18、26
         runtime_pos_log_enable: False                       # 可选值：True
 
         common:
@@ -30,8 +30,8 @@
             lidar_type: 5                                   # 5: MID360
             scan_line: 4
             timestamp_unit: 3                               # PointCloud2 话题中 time/t 字段单位：0-秒，1-毫秒，2-微秒，3-纳秒
-            blind: 0.5
-            det_range: 9.0                                  # 最大有效测距（米），场地 12m×12m，设 9m 过滤远距离噪声
+            blind: 0.3
+            det_range: 8.0                                  # 最大有效测距（米），场地 12m×12m，设 9m 过滤远距离噪声
 
         mapping:
             imu_en: True
@@ -41,18 +41,22 @@
             satu_acc: 3.0                                   # IMU 加速度饱和值（与单位无关）
             satu_gyro: 35.0                                 # IMU 角速度饱和值（与单位无关）
             acc_norm: 1.0                                   # IMU 加速度单位：g 用 1.0；m/s^2 用 9.81
-            lidar_meas_cov: 0.01                            # 建议：0.001
-            acc_cov_output: 500.0
-            gyr_cov_output: 1000.0
+            lidar_meas_cov: 0.005                           # 建议：0.001
+            acc_cov_output: 2000.0
+            gyr_cov_output: 300.0
             b_acc_cov: 0.0001
             b_gyr_cov: 0.0001
             imu_meas_acc_cov: 0.01                          # 0.1 # 2
-            imu_meas_omg_cov: 0.01                          # 0.1 # 2
+            imu_meas_omg_cov: 0.001                         # 0.1 # 2
             gyr_cov_input: 0.01                             # 用于 IMU 作为输入模型
             acc_cov_input: 0.1                              # 用于 IMU 作为输入模型
-            plane_thr: 0.1                                  # 平面判别阈值（例如 0.05）；越小越平
+            plane_thr: 0.05                                 # 平面判别阈值（例如 0.05）；越小越平
             match_s: 81.0
-            ivox_grid_resolution: 2.0
+            ivox_grid_resolution: 0.3
+            adaptive_second_iter_enable: false
+            adaptive_residual_thr: 0.08
+            adaptive_omega_thr: 2.0
+            adaptive_second_iter_max: 1
             gravity: [ 0.0, 0.0, -9.810 ]                   # [0.0, 9.810, 0.0] # 需要对齐的重力方向
             gravity_init: [ 0.0, 0.0, -9.810 ]              # [0.0, 9.810, 0.0] # 初始 IMU 机体系下的已知重力；imu_en 为 False 或非静止启动时使用
             extrinsic_T: [ -0.011, -0.02329, 0.04412 ]
@@ -61,7 +65,7 @@
                            0.0, 0.0, 1.0 ]
 
         odometry:
-            publish_odometry_without_downsample: False
+            publish_odometry_without_downsample: True
 
         publish:
             path_en: True                                   # False：关闭轨迹输出

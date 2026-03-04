@@ -23,6 +23,9 @@ int feats_down_size = 0;
 V3D Lidar_T_wrt_IMU(Zero3d);
 M3D Lidar_R_wrt_IMU(Eye3d);
 double G_m_s2 = 9.81;
+Eigen::Matrix3d g_degen_S = Eigen::Matrix3d::Zero();
+double g_residual_abs_sum = 0.0;
+int g_residual_count = 0;
 
 Eigen::Matrix<double, 24, 24> process_noise_cov_input() {
     Eigen::Matrix<double, 24, 24> cov;
@@ -136,26 +139,22 @@ void h_model_input(state_input& s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_R,
                 {
                     float pd2 = fabs(pabcd(0) * point_world_j.x + pabcd(1) * point_world_j.y +
                                      pabcd(2) * point_world_j.z + pabcd(3));
-                    // V3D norm_vec;
-                    // M3D Rpf, pf;
-                    // pf = crossmat_list[idx+j+1];
-                    // // pf << SKEW_SYM_MATRX(p_body);
-                    // Rpf = s.rot * pf;
-                    // norm_vec << pabcd(0), pabcd(1), pabcd(2);
-                    // double noise_state = norm_vec.transpose() * (cov_p+Rpf*cov_R*Rpf.transpose())  * norm_vec +
-                    // sqrt(p_norm) * 0.001;
-                    // // if (p_norm > match_s * pd2 * pd2)
-                    // double epsilon = pd2 / sqrt(noise_state);
-                    // // std::cout << "check epsilon:" << epsilon << '\n';
-                    // double weight = 1.0; // epsilon / sqrt(epsilon * epsilon+1);
-                    // if (epsilon > 1.0)
-                    // {
-                    // 	weight = sqrt(2 * epsilon - 1) / epsilon;
-                    // 	pabcd(0) = weight * pabcd(0);
-                    // 	pabcd(1) = weight * pabcd(1);
-                    // 	pabcd(2) = weight * pabcd(2);
-                    // 	pabcd(3) = weight * pabcd(3);
-                    // }
+                    V3D norm_vec;
+                    M3D Rpf, pf;
+                    pf = crossmat_list[point_idx];
+                    Rpf = s.rot * pf;
+                    norm_vec << pabcd(0), pabcd(1), pabcd(2);
+                    double noise_state = norm_vec.transpose() * (cov_p + Rpf * cov_R * Rpf.transpose()) * norm_vec +
+                                         sqrt(p_norm) * 0.001;
+                    double epsilon = pd2 / sqrt(noise_state);
+                    double weight = 1.0;
+                    if (epsilon > 1.0) {
+                        weight = sqrt(2 * epsilon - 1) / epsilon;
+                        pabcd(0) *= weight;
+                        pabcd(1) *= weight;
+                        pabcd(2) *= weight;
+                        pabcd(3) *= weight;
+                    }
                     if (p_norm > match_s * pd2 * pd2) {
                         point_selected_surf[point_idx] = true;
                         normvec->points[j].x = pabcd(0);
@@ -217,6 +216,9 @@ void h_model_input(state_input& s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_R,
 
 void h_model_output(state_output& s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_R,
                     esekfom::dyn_share_modified<double>& ekfom_data) {
+    g_degen_S = Eigen::Matrix3d::Zero();
+    g_residual_abs_sum = 0.0;
+    g_residual_count = 0;
     bool match_in_map = false;
     VF(4) pabcd;
     pabcd.setZero();
@@ -248,32 +250,35 @@ void h_model_output(state_output& s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_
                 {
                     float pd2 = fabs(pabcd(0) * point_world_j.x + pabcd(1) * point_world_j.y +
                                      pabcd(2) * point_world_j.z + pabcd(3));
-                    // V3D norm_vec;
-                    // M3D Rpf, pf;
-                    // pf = crossmat_list[idx+j+1];
-                    // // pf << SKEW_SYM_MATRX(p_body);
-                    // Rpf = s.rot * pf;
-                    // norm_vec << pabcd(0), pabcd(1), pabcd(2);
-                    // double noise_state = norm_vec.transpose() * (cov_p+Rpf*cov_R*Rpf.transpose())  * norm_vec +
-                    // sqrt(p_norm) * 0.001;
-                    // // if (p_norm > match_s * pd2 * pd2)
-                    // double epsilon = pd2 / sqrt(noise_state);
-                    // double weight = 1.0; // epsilon / sqrt(epsilon * epsilon+1);
-                    // if (epsilon > 1.0)
-                    // {
-                    // 	weight = sqrt(2 * epsilon - 1) / epsilon;
-                    // 	pabcd(0) = weight * pabcd(0);
-                    // 	pabcd(1) = weight * pabcd(1);
-                    // 	pabcd(2) = weight * pabcd(2);
-                    // 	pabcd(3) = weight * pabcd(3);
-                    // }
+                    V3D norm_vec;
+                    M3D Rpf, pf;
+                    pf = crossmat_list[point_idx];
+                    Rpf = s.rot * pf;
+                    norm_vec << pabcd(0), pabcd(1), pabcd(2);
+                    double noise_state = norm_vec.transpose() * (cov_p + Rpf * cov_R * Rpf.transpose()) * norm_vec +
+                                         sqrt(p_norm) * 0.001;
+                    double epsilon = pd2 / sqrt(noise_state);
+                    double weight = 1.0;
+                    if (epsilon > 1.0) {
+                        weight = sqrt(2 * epsilon - 1) / epsilon;
+                        pabcd(0) *= weight;
+                        pabcd(1) *= weight;
+                        pabcd(2) *= weight;
+                        pabcd(3) *= weight;
+                    }
                     if (p_norm > match_s * pd2 * pd2) {
                         // point_selected_surf[i] = true;
                         point_selected_surf[point_idx] = true;
+                        g_residual_abs_sum += pd2;
+                        ++g_residual_count;
                         normvec->points[j].x = pabcd(0);
                         normvec->points[j].y = pabcd(1);
                         normvec->points[j].z = pabcd(2);
                         normvec->points[j].intensity = pabcd(3);
+                        {
+                            Eigen::Vector3d n_vec(pabcd(0), pabcd(1), pabcd(2));
+                            g_degen_S += n_vec * n_vec.transpose();
+                        }
                         effect_num_k++;
                     }
                 }

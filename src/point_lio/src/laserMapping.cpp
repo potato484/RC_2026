@@ -9,6 +9,7 @@
 #include <pcl/point_types.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
+#include <std_msgs/msg/float64.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
 
@@ -280,6 +281,28 @@ void publish_odometry(const rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPt
         odomAftMapped.twist.twist.angular.z = omega_body(2);
     }
 
+    {
+        auto& pc = odomAftMapped.pose.covariance;
+        auto& tc = odomAftMapped.twist.covariance;
+        std::fill(pc.begin(), pc.end(), 0.0);
+        std::fill(tc.begin(), tc.end(), 0.0);
+        if (!use_imu_as_input) {
+            const auto& P = kf_output.get_P();
+            for (int i = 0; i < 3; ++i) {
+                for (int j = 0; j < 3; ++j) {
+                    pc[i * 6 + j] = P(i, j);
+                    pc[i * 6 + (j + 3)] = P(i, j + 3);
+                    pc[(i + 3) * 6 + j] = P(i + 3, j);
+                    pc[(i + 3) * 6 + (j + 3)] = P(i + 3, j + 3);
+                    tc[i * 6 + j] = P(12 + i, 12 + j);
+                    tc[i * 6 + (j + 3)] = P(12 + i, 15 + j);
+                    tc[(i + 3) * 6 + j] = P(15 + i, 12 + j);
+                    tc[(i + 3) * 6 + (j + 3)] = P(15 + i, 15 + j);
+                }
+            }
+        }
+    }
+
     pubOdomAftMapped->publish(odomAftMapped);
 
     if (tf_send_en) {
@@ -474,6 +497,7 @@ int main(int argc, char** argv) {
     auto pub_laser_cloud_map = nh->create_publisher<sensor_msgs::msg::PointCloud2>("Laser_map", 20);
     auto pub_odom_aft_mapped = nh->create_publisher<nav_msgs::msg::Odometry>("state_estimation", 20);
     auto pub_path = nh->create_publisher<nav_msgs::msg::Path>("path", 20);
+    auto pub_degen_score = nh->create_publisher<std_msgs::msg::Float64>("degenerate_score", 20);
     auto tf_broadcaster = std::make_shared<tf2_ros::TransformBroadcaster>(nh);
 
     //------------------------------------------------------------------------------------------------------
@@ -778,6 +802,35 @@ int main(int argc, char** argv) {
                             continue;
                         }
                         solve_start = omp_get_wtime();
+
+                        {
+                            Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es(g_degen_S);
+                            const auto eigs = es.eigenvalues();
+                            std_msgs::msg::Float64 score_msg;
+                            score_msg.data = eigs(0) / (eigs(2) + 1e-9);
+                            pub_degen_score->publish(score_msg);
+                        }
+
+                        if (adaptive_second_iter_enable) {
+                            const double avg_residual = g_residual_abs_sum / std::max(g_residual_count, 1);
+                            const double omega_norm = kf_output.x_.omg.norm();
+                            if (avg_residual > adaptive_residual_thr && omega_norm > adaptive_omega_thr) {
+                                const int extra_iters = std::max(adaptive_second_iter_max, 0);
+                                int triggered = 0;
+                                for (int iter = 0; iter < extra_iters; ++iter) {
+                                    if (!kf_output.update_iterated_dyn_share_modified()) {
+                                        break;
+                                    }
+                                    ++triggered;
+                                }
+                                if (triggered > 0) {
+                                    RCLCPP_INFO_THROTTLE(
+                                        LOGGER, *nh->get_clock(), 1000,
+                                        "[Phase4] second iter triggered: res=%.4f omega=%.2f count=%d", avg_residual,
+                                        omega_norm, triggered);
+                                }
+                            }
+                        }
 
                         if (publish_odometry_without_downsample) {
                             /******* Publish odometry *******/

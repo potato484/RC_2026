@@ -117,6 +117,18 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
         nh->declare_parameter<double>("mapping.imu_meas_omg_cov", 0.1);
         nh->get_parameter("mapping.imu_meas_omg_cov", imu_meas_omg_cov);
 
+        nh->declare_parameter<bool>("mapping.adaptive_second_iter_enable", false);
+        nh->get_parameter("mapping.adaptive_second_iter_enable", adaptive_second_iter_enable);
+
+        nh->declare_parameter<double>("mapping.adaptive_residual_thr", 0.08);
+        nh->get_parameter("mapping.adaptive_residual_thr", adaptive_residual_thr);
+
+        nh->declare_parameter<double>("mapping.adaptive_omega_thr", 2.0);
+        nh->get_parameter("mapping.adaptive_omega_thr", adaptive_omega_thr);
+
+        nh->declare_parameter<int>("mapping.adaptive_second_iter_max", 1);
+        nh->get_parameter("mapping.adaptive_second_iter_max", adaptive_second_iter_max);
+
         nh->declare_parameter<double>("preprocess.blind", 1.0);
         nh->get_parameter("preprocess.blind", p_pre->blind);
 
@@ -229,6 +241,15 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
             RCLCPP_WARN(nh->get_logger(), "prior_pcd.init_pose size %zu < 3, using zeros", init_pose.size());
         }
         init_pose.assign(3, 0.0);
+    }
+    if (adaptive_residual_thr < 0.0) {
+        adaptive_residual_thr = 0.0;
+    }
+    if (adaptive_omega_thr < 0.0) {
+        adaptive_omega_thr = 0.0;
+    }
+    if (adaptive_second_iter_max < 0) {
+        adaptive_second_iter_max = 0;
     }
 
     p_imu->gravity_ << VEC_FROM_ARRAY(gravity);
