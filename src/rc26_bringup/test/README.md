@@ -27,6 +27,9 @@ ros2 launch rc26_bringup test_odom_interface.launch.py
 ros2 topic echo /odom --once
 ros2 topic echo /registered_scan --once
 
+# 检查协方差是否已透传（非全零）
+ros2 topic echo /odom --once | grep covariance
+
 # 检查 TF 树
 ros2 run tf2_ros tf2_echo odom base_link
 ```
@@ -35,7 +38,7 @@ ros2 run tf2_ros tf2_echo odom base_link
 
 ### 2. 传感器扫描测试 (rc26_sensor_scan)
 
-**功能**: 验证点云坐标转换和里程计速度发布
+**功能**: 验证点云坐标转换、里程计速度发布和 pose 协方差透传
 
 ```bash
 # 启动测试 (需要 odom_interface 数据源)
@@ -44,6 +47,9 @@ ros2 launch rc26_bringup test_sensor_scan.launch.py
 # 验证输出话题
 ros2 topic echo /sensor_scan --once
 ros2 topic echo /odometry --once
+
+# 检查协方差是否继续透传
+ros2 topic echo /odometry --once | grep covariance
 
 # 检查 TF 树
 ros2 run tf2_ros tf2_echo base_link laser_link
@@ -69,7 +75,7 @@ ros2 topic echo /localization/status --once
 
 ---
 
-### 4. 完整里程计链测试 (point_lio + odom_interface + sensor_scan)
+### 4. 完整里程计链测试 (point_lio + odom_interface + sensor_scan + lio_state_predictor)
 
 **功能**: 验证完整的里程计数据流
 
@@ -78,7 +84,13 @@ ros2 topic echo /localization/status --once
 ros2 launch rc26_bringup test_odometry_chain.launch.py
 
 # 验证数据流
-ros2 topic list | grep -E "(odom|scan|odometry)"
+ros2 topic list | grep -E "(state_estimation|odom|odometry|control_state|degenerate_score|control_degraded)"
+ros2 topic echo /state_estimation --once
+ros2 topic echo /odom --once
+ros2 topic echo /odometry --once
+ros2 topic echo /degenerate_score
+ros2 topic echo /control_degraded
+ros2 topic hz /control_state
 ros2 topic hz /odometry
 
 # 检查完整 TF 树
@@ -116,7 +128,9 @@ ros2 topic echo /cmd_vel --once
 | 模块 | 话题/TF | 预期结果 |
 |------|---------|----------|
 | odom_interface | `/odom` | odom→base_link 变换 |
-| sensor_scan | `/sensor_scan` | laser_link 坐标系点云 |
+| sensor_scan | `/sensor_scan` | laser_link 坐标系点云，`/odometry` 协方差透传 |
+| lio_state_predictor | `/control_state` | 约 200Hz 预测里程计 |
+| point_lio | `/degenerate_score` | 退化分数持续输出 |
 | localization | TF `map→odom` | 有效变换 |
 | omni_controller | `/cmd_vel` | 速度指令 |
 

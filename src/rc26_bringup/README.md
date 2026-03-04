@@ -20,10 +20,14 @@
 ## 主要功能模块
 
 ### 里程计链路
-里程计就像是机器人的"计步器"，用来记录机器人移动了多远、转了多少角度。这个链路包括三个部分：
+里程计就像是机器人的"计步器"，用来记录机器人移动了多远、转了多少角度。这个链路包括四个部分：
 - Point-LIO：使用激光雷达数据计算里程计
 - rc26_odom_interface：将里程计数据转换成标准格式
 - rc26_sensor_scan：同步里程计和点云数据
+- rc26_lio_state_predictor：将 `/odometry` 预测到当前时刻并输出 `/control_state`（供 Nav2 使用），同时发布退化状态
+
+当前默认链路：
+`state_estimation -> odom -> odometry -> control_state`
 
 ### 定位模块
 定位模块就像是机器人的"GPS"，告诉机器人"你现在在地图的哪个位置"。它使用预先建好的地图，通过对比当前看到的场景和地图，计算出机器人的精确位置。
@@ -49,6 +53,7 @@ Nav2 是机器人的"导航大脑"，负责规划路径、避开障碍物、控�
 - `localization.yaml`：定位系统的参数，包括地图文件路径、坐标系设置、配准算法参数等
 - `odom_interface.yaml`：里程计接口参数
 - `sensor_scan_generation.yaml`：点云/里程计输出参数
+- `lio_state_predictor.yaml`：控制态预测节点参数（200Hz 预测、协方差膨胀、退化阈值）
 
 ### map 目录
 存放地图文件，包括：
@@ -129,6 +134,7 @@ Nav2 是机器人的"导航大脑"，负责规划路径、避开障碍物、控�
 - rc26_localization：定位模块
 - rc26_odom_interface：里程计接口模块
 - rc26_sensor_scan：传感器扫描模块
+- rc26_lio_state_predictor：控制延迟补偿预测模块
 - rc26_decision：决策系统模块
 - point_lio：点云里程计模块
 - mid360_driver：激光雷达驱动模块
