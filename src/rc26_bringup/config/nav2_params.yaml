@@ -82,6 +82,12 @@ controller_server:
       wheel_base: 0.62326
       track_width: 0.7
       wheel_speed_max: -1.0
+      loc_uncertainty_enable: true
+      loc_timeout_sec: 0.2
+      loc_k_v: 50.0
+      loc_k_w: 20.0
+      loc_v_scale_min: 0.2
+      loc_w_scale_min: 0.3
 
 local_costmap:
   local_costmap:

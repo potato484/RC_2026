@@ -13,8 +13,10 @@
 #include <string>
 #include <vector>
 
+#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "nav2_core/controller.hpp"
 #include "rc26_omni_controller/pid.hpp"
+#include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/u_int32.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
@@ -157,6 +159,12 @@ private:
     double wheel_speed_max_;
     double derivative_filter_tau_;
     bool publish_debug_{false};
+    bool loc_uncertainty_enable_{true};
+    double loc_timeout_sec_{0.2};
+    double loc_k_v_{50.0};
+    double loc_k_w_{20.0};
+    double loc_v_scale_min_{0.2};
+    double loc_w_scale_min_{0.3};
     uint32_t collision_check_outside_map_count_{0};
     tf2::Duration transform_tolerance_;
     std::vector<double> plan_cumulative_distances_;
@@ -173,6 +181,11 @@ private:
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr collision_d_min_pub_;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr v_safe_pub_;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::UInt32>::SharedPtr collision_check_outside_map_count_pub_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_cov_sub_;
+    rclcpp::Time last_cov_stamp_;
+    double sigma_xy_{0.0};
+    double sigma_yaw_{0.0};
+    std::mutex cov_mutex_;
 
     std::recursive_mutex mutex_;
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;
