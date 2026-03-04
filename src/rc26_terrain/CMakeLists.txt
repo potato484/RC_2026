@@ -59,11 +59,6 @@ add_library(point_cloud_preprocessor STATIC
 target_include_directories(point_cloud_preprocessor PUBLIC include ${PCL_INCLUDE_DIRS})
 target_link_libraries(point_cloud_preprocessor ${PCL_LIBRARIES})
 
-add_library(grid_evaluator STATIC
-  src/grid_evaluator.cpp
-)
-target_include_directories(grid_evaluator PUBLIC include)
-
 add_library(safety_guard STATIC
   src/safety_guard.cpp
 )
@@ -71,7 +66,6 @@ target_include_directories(safety_guard PUBLIC include)
 
 target_link_libraries(${PROJECT_NAME}_component
   point_cloud_preprocessor
-  grid_evaluator
   safety_guard
   ${PCL_LIBRARIES}
   yaml-cpp
@@ -85,7 +79,6 @@ rclcpp_components_register_node(${PROJECT_NAME}_component
 
 install(TARGETS ${PROJECT_NAME}_component
   point_cloud_preprocessor
-  grid_evaluator
   safety_guard
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -103,9 +96,6 @@ install(DIRECTORY config launch rviz docs
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(launch_testing_ament_cmake REQUIRED)
-  ament_add_gtest(test_grid_evaluator test/test_grid_evaluator.cpp)
-  target_link_libraries(test_grid_evaluator grid_evaluator)
-
   ament_add_gtest(test_tf_chain test/test_tf_chain.cpp)
   ament_target_dependencies(test_tf_chain tf2 tf2_geometry_msgs geometry_msgs)
 

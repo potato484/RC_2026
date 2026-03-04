@@ -101,6 +101,10 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->declare_parameter<double>("ground_quantile", ground_quantile_);
     this->declare_parameter<double>("top_quantile", top_quantile_);
     this->declare_parameter<double>("ground_ema_alpha", ground_ema_alpha_);
+    this->declare_parameter<bool>("enable_sigma_based_alpha", enable_sigma_based_alpha_);
+    this->declare_parameter<double>("sigma_eps_m", sigma_eps_m_);
+    this->declare_parameter<double>("sigma_alpha_min", sigma_alpha_min_);
+    this->declare_parameter<double>("sigma_alpha_max", sigma_alpha_max_);
 
     // 语义阈值
     this->declare_parameter<double>("h_climb_m", h_climb_m_);
@@ -162,13 +166,31 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->declare_parameter<std::string>("obstacle_neighbor_mode", obstacle_neighbor_mode_);
     this->declare_parameter<std::string>("drop_neighbor_mode",     drop_neighbor_mode_);
     this->declare_parameter<int>        ("min_obstacle_area_cells",min_obstacle_area_cells_);
+    this->declare_parameter<int>        ("min_drop_area_cells",    min_drop_area_cells_);
     this->declare_parameter<double>     ("jump_thresh_m",          jump_thresh_m_);
     this->declare_parameter<int>        ("freeze_max_frames",      freeze_max_frames_);
     this->declare_parameter<double>     ("ground_ema_alpha_slow",  ground_ema_alpha_slow_);
     this->declare_parameter<bool>       ("enable_pitch_compensation", enable_pitch_compensation_);
+    this->declare_parameter<bool>       ("enable_roll_compensation", enable_roll_compensation_);
     this->declare_parameter<double>     ("stair_gate_speed_mps",   stair_gate_speed_mps_);
     this->declare_parameter<double>     ("stair_pitch_gate_deg",   stair_pitch_gate_deg_);
     this->declare_parameter<double>     ("top_z_max_delta_m",      top_z_max_delta_m_);
+    this->declare_parameter<std::string>("terrain_features_topic", terrain_features_topic_);
+    this->declare_parameter<bool>       ("enable_terrain_features_pub", enable_terrain_features_pub_);
+    this->declare_parameter<double>     ("terrain_features_publish_hz", terrain_features_publish_hz_);
+    this->declare_parameter<std::string>("terrain_speed_limit_topic", terrain_speed_limit_topic_);
+    this->declare_parameter<bool>       ("enable_terrain_speed_limit_pub", enable_terrain_speed_limit_pub_);
+    this->declare_parameter<double>     ("terrain_speed_limit_publish_hz", terrain_speed_limit_publish_hz_);
+    this->declare_parameter<double>     ("speed_limit_forward_look_m", speed_limit_forward_look_m_);
+    this->declare_parameter<double>     ("speed_limit_half_width_m", speed_limit_half_width_m_);
+    this->declare_parameter<double>     ("speed_limit_v_max_mps", speed_limit_v_max_mps_);
+    this->declare_parameter<double>     ("speed_limit_min_mps", speed_limit_min_mps_);
+    this->declare_parameter<double>     ("speed_limit_w_slope", speed_limit_w_slope_);
+    this->declare_parameter<double>     ("speed_limit_w_roughness", speed_limit_w_roughness_);
+    this->declare_parameter<double>     ("speed_limit_w_drop", speed_limit_w_drop_);
+    this->declare_parameter<double>     ("speed_limit_k_tci", speed_limit_k_tci_);
+    this->declare_parameter<double>     ("speed_limit_emergency_drop_thresh",
+                                         speed_limit_emergency_drop_thresh_);
 
     // P0.3: latency diagnostics
     this->declare_parameter<double>     ("latency_warn_ms",        latency_warn_ms_);
@@ -206,6 +228,10 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->get_parameter("ground_quantile", ground_quantile_);
     this->get_parameter("top_quantile", top_quantile_);
     this->get_parameter("ground_ema_alpha", ground_ema_alpha_);
+    this->get_parameter("enable_sigma_based_alpha", enable_sigma_based_alpha_);
+    this->get_parameter("sigma_eps_m", sigma_eps_m_);
+    this->get_parameter("sigma_alpha_min", sigma_alpha_min_);
+    this->get_parameter("sigma_alpha_max", sigma_alpha_max_);
     this->get_parameter("h_climb_m", h_climb_m_);
     this->get_parameter("h_obstacle_m", h_obstacle_m_);
     this->get_parameter("h_drop_m", h_drop_m_);
@@ -249,13 +275,30 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->get_parameter("obstacle_neighbor_mode", obstacle_neighbor_mode_);
     this->get_parameter("drop_neighbor_mode",     drop_neighbor_mode_);
     this->get_parameter("min_obstacle_area_cells",min_obstacle_area_cells_);
+    this->get_parameter("min_drop_area_cells",    min_drop_area_cells_);
     this->get_parameter("jump_thresh_m",          jump_thresh_m_);
     this->get_parameter("freeze_max_frames",      freeze_max_frames_);
     this->get_parameter("ground_ema_alpha_slow",  ground_ema_alpha_slow_);
     this->get_parameter("enable_pitch_compensation", enable_pitch_compensation_);
+    this->get_parameter("enable_roll_compensation", enable_roll_compensation_);
     this->get_parameter("stair_gate_speed_mps",   stair_gate_speed_mps_);
     this->get_parameter("stair_pitch_gate_deg",   stair_pitch_gate_deg_);
     this->get_parameter("top_z_max_delta_m",      top_z_max_delta_m_);
+    this->get_parameter("terrain_features_topic", terrain_features_topic_);
+    this->get_parameter("enable_terrain_features_pub", enable_terrain_features_pub_);
+    this->get_parameter("terrain_features_publish_hz", terrain_features_publish_hz_);
+    this->get_parameter("terrain_speed_limit_topic", terrain_speed_limit_topic_);
+    this->get_parameter("enable_terrain_speed_limit_pub", enable_terrain_speed_limit_pub_);
+    this->get_parameter("terrain_speed_limit_publish_hz", terrain_speed_limit_publish_hz_);
+    this->get_parameter("speed_limit_forward_look_m", speed_limit_forward_look_m_);
+    this->get_parameter("speed_limit_half_width_m", speed_limit_half_width_m_);
+    this->get_parameter("speed_limit_v_max_mps", speed_limit_v_max_mps_);
+    this->get_parameter("speed_limit_min_mps", speed_limit_min_mps_);
+    this->get_parameter("speed_limit_w_slope", speed_limit_w_slope_);
+    this->get_parameter("speed_limit_w_roughness", speed_limit_w_roughness_);
+    this->get_parameter("speed_limit_w_drop", speed_limit_w_drop_);
+    this->get_parameter("speed_limit_k_tci", speed_limit_k_tci_);
+    this->get_parameter("speed_limit_emergency_drop_thresh", speed_limit_emergency_drop_thresh_);
     this->get_parameter("latency_warn_ms",        latency_warn_ms_);
     this->get_parameter("latency_error_ms",       latency_error_ms_);
     this->get_parameter("latency_trigger_frames", latency_trigger_frames_);
@@ -282,6 +325,13 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     }
 
     ground_ema_alpha_ = std::clamp(ground_ema_alpha_, 0.01, 1.0);
+    sigma_eps_m_ = std::max(1e-6, sigma_eps_m_);
+    sigma_alpha_min_ = std::clamp(sigma_alpha_min_, 0.0, 1.0);
+    sigma_alpha_max_ = std::clamp(sigma_alpha_max_, 0.0, 1.0);
+    if (sigma_alpha_min_ > sigma_alpha_max_) {
+        std::swap(sigma_alpha_min_, sigma_alpha_max_);
+    }
+    sigma_alpha_max_ = std::min(sigma_alpha_max_, ground_ema_alpha_);
     min_points_per_cell_ = std::max(1, min_points_per_cell_);
     score_max_ = std::max(1, score_max_);
     score_inc_ = std::max(0, score_inc_);
@@ -290,10 +340,23 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     virtual_fence_radius_m_ = std::max(0.05, virtual_fence_radius_m_);
     climbable_min_dz_m_ = std::clamp(climbable_min_dz_m_, 0.0, h_climb_m_);
     freeze_max_frames_ = std::max(1, freeze_max_frames_);
+    min_obstacle_area_cells_ = std::max(1, min_obstacle_area_cells_);
+    min_drop_area_cells_ = std::max(1, min_drop_area_cells_);
     ground_ema_alpha_slow_ = std::clamp(ground_ema_alpha_slow_, 0.01, 1.0);
     stair_gate_speed_mps_ = std::max(0.0, stair_gate_speed_mps_);
     stair_pitch_gate_deg_ = std::max(0.0, stair_pitch_gate_deg_);
     top_z_max_delta_m_ = std::max(0.1, top_z_max_delta_m_);
+    terrain_features_publish_hz_ = std::max(terrain_features_publish_hz_, 0.0);
+    terrain_speed_limit_publish_hz_ = std::max(terrain_speed_limit_publish_hz_, 0.0);
+    speed_limit_forward_look_m_ = std::max(0.0, speed_limit_forward_look_m_);
+    speed_limit_half_width_m_ = std::max(0.0, speed_limit_half_width_m_);
+    speed_limit_v_max_mps_ = std::max(0.0, speed_limit_v_max_mps_);
+    speed_limit_min_mps_ = std::clamp(speed_limit_min_mps_, 0.0, speed_limit_v_max_mps_);
+    speed_limit_w_slope_ = std::max(0.0, speed_limit_w_slope_);
+    speed_limit_w_roughness_ = std::max(0.0, speed_limit_w_roughness_);
+    speed_limit_w_drop_ = std::max(0.0, speed_limit_w_drop_);
+    speed_limit_k_tci_ = std::max(0.0, speed_limit_k_tci_);
+    speed_limit_emergency_drop_thresh_ = std::clamp(speed_limit_emergency_drop_thresh_, 0.0, 1.0);
     latency_trigger_frames_ = std::max(1, latency_trigger_frames_);
     latency_recover_frames_ = std::max(1, latency_recover_frames_);
     thermal_throttle_release_sec_ = std::max(0.0, thermal_throttle_release_sec_);
@@ -356,6 +419,14 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     if (enable_diagnostics_) {
         pub_diagnostics_ =
             this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(diagnostics_topic_, diag_qos);
+    }
+    if (enable_terrain_features_pub_) {
+        pub_features_ =
+            this->create_publisher<rc26_interfaces::msg::TerrainFeatureGrid>(terrain_features_topic_, output_qos);
+    }
+    if (enable_terrain_speed_limit_pub_) {
+        pub_speed_limit_ =
+            this->create_publisher<std_msgs::msg::Float32>(terrain_speed_limit_topic_, output_qos);
     }
 
     sub_odom_ = this->create_subscription<nav_msgs::msg::Odometry>(
@@ -685,6 +756,11 @@ void TerrainSemanticNode::initGrid() {
     obstacle_state_.assign(static_cast<size_t>(num_cells_), 0);
     drop_state_.assign(static_cast<size_t>(num_cells_), 0);
     kfs_occupied_state_.assign(static_cast<size_t>(num_cells_), 0);
+    sigma_h_.assign(static_cast<size_t>(num_cells_), 0.0f);
+    density_.assign(static_cast<size_t>(num_cells_), 0U);
+    slope_x_.assign(static_cast<size_t>(num_cells_), 0.0f);
+    slope_y_.assign(static_cast<size_t>(num_cells_), 0.0f);
+    roughness_.assign(static_cast<size_t>(num_cells_), 0.0f);
     cell_z_samples_.assign(static_cast<size_t>(num_cells_), {});
     touched_cells_.reserve(static_cast<size_t>(num_cells_));
 
@@ -778,24 +854,48 @@ void TerrainSemanticNode::updateKfsOccupied(const rc26_interfaces::msg::MfKfsSta
 
 void TerrainSemanticNode::estimateCellHeights(double stamp_sec) {
     int max_freeze_count = 0;
+    std::fill(density_.begin(), density_.end(), static_cast<uint16_t>(0));
     const double pitch_gate_rad = stair_pitch_gate_deg_ * M_PI / 180.0;
     const bool stair_motion_gate =
         (last_linear_speed_mps_ >= stair_gate_speed_mps_) ||
         (!base_ground_stable_) ||
         (std::abs(last_pitch_rad_) >= pitch_gate_rad);
+    const bool reuse_ground_as_q25 = std::abs(ground_quantile_ - 0.25) <= 1e-6;
 
     for (const int cell : touched_cells_) {
+        const size_t idx = static_cast<size_t>(cell);
         auto& samples = cell_z_samples_[static_cast<size_t>(cell)];
-        if (static_cast<int>(samples.size()) < min_points_per_cell_) continue;
+        density_[idx] = static_cast<uint16_t>(
+            std::min(samples.size(), static_cast<size_t>(std::numeric_limits<uint16_t>::max())));
+        if (static_cast<int>(samples.size()) < min_points_per_cell_) {
+            sigma_h_[idx] = 0.0f;
+            continue;
+        }
 
         const float ground_z = quantileInplace(samples, ground_quantile_);
         float top_z = quantileInplace(samples, top_quantile_);
+        const float q25 = reuse_ground_as_q25 ? ground_z : quantileInplace(samples, 0.25f);
+        const float q75 = quantileInplace(samples, 0.75f);
+        const float sigma_h = std::max(0.0f, q75 - q25) / 1.349f;
+        sigma_h_[idx] = sigma_h;
+
+        float final_alpha_n = static_cast<float>(ground_ema_alpha_);
+        float final_alpha_s = static_cast<float>(ground_ema_alpha_slow_);
+        if (enable_sigma_based_alpha_) {
+            const float s_alpha = std::clamp(
+                static_cast<float>(ground_ema_alpha_ /
+                                   (static_cast<double>(sigma_h) + sigma_eps_m_)),
+                static_cast<float>(sigma_alpha_min_),
+                static_cast<float>(sigma_alpha_max_));
+            final_alpha_n = std::min(final_alpha_n, s_alpha);
+            final_alpha_s = std::min(final_alpha_s, s_alpha);
+        }
+
         if (top_z < ground_z) top_z = ground_z;
         if (top_z > ground_z + static_cast<float>(top_z_max_delta_m_)) {
             top_z = ground_z + static_cast<float>(top_z_max_delta_m_);
         }
 
-        const size_t idx = static_cast<size_t>(cell);
         if (last_seen_sec_[idx] < 0.0) {
             ground_z_filtered_[idx] = ground_z;
             freeze_count_[idx] = 0;
@@ -803,22 +903,22 @@ void TerrainSemanticNode::estimateCellHeights(double stamp_sec) {
             const float jump = std::abs(ground_z - ground_z_filtered_[idx]);
             if (jump > static_cast<float>(jump_thresh_m_)) {
                 if (stair_motion_gate) {
-                    ground_z_filtered_[idx] = static_cast<float>(ground_ema_alpha_slow_) * ground_z +
-                                              static_cast<float>(1.0 - ground_ema_alpha_slow_) * ground_z_filtered_[idx];
+                    ground_z_filtered_[idx] = final_alpha_s * ground_z +
+                                              (1.0f - final_alpha_s) * ground_z_filtered_[idx];
                     freeze_count_[idx] = 0;
                 } else {
                     int& freeze = freeze_count_[idx];
                     freeze = std::max(0, freeze + 1);
                     max_freeze_count = std::max(max_freeze_count, freeze);
                     if (freeze >= freeze_max_frames_) {
-                        ground_z_filtered_[idx] = static_cast<float>(ground_ema_alpha_slow_) * ground_z +
-                                                  static_cast<float>(1.0 - ground_ema_alpha_slow_) * ground_z_filtered_[idx];
+                        ground_z_filtered_[idx] = final_alpha_s * ground_z +
+                                                  (1.0f - final_alpha_s) * ground_z_filtered_[idx];
                         freeze = 0;
                     }
                 }
             } else {
-                ground_z_filtered_[idx] = static_cast<float>(ground_ema_alpha_) * ground_z +
-                                          static_cast<float>(1.0 - ground_ema_alpha_) * ground_z_filtered_[idx];
+                ground_z_filtered_[idx] = final_alpha_n * ground_z +
+                                          (1.0f - final_alpha_n) * ground_z_filtered_[idx];
                 freeze_count_[idx] = 0;
             }
         }
@@ -837,6 +937,9 @@ void TerrainSemanticNode::classifyAndUpdate(double stamp_sec) {
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
             "drop_neighbor_mode='%s' 非法，回退为 edge8", drop_neighbor_mode_.c_str());
     }
+    std::fill(slope_x_.begin(), slope_x_.end(), 0.0f);
+    std::fill(slope_y_.begin(), slope_y_.end(), 0.0f);
+    std::fill(roughness_.begin(), roughness_.end(), 0.0f);
 
     for (int cell = 0; cell < num_cells_; cell++) {
         const size_t idx = static_cast<size_t>(cell);
@@ -850,6 +953,7 @@ void TerrainSemanticNode::classifyAndUpdate(double stamp_sec) {
             freeze_count_[idx] = 0;
             obstacle_state_[idx] = 0;
             drop_state_[idx] = 0;
+            sigma_h_[idx] = 0.0f;
         }
 
         if (!cell_in_radius_[idx]) {
@@ -993,6 +1097,126 @@ void TerrainSemanticNode::classifyAndUpdate(double stamp_sec) {
                 for (int c : comp) obstacle_state_[static_cast<size_t>(c)] = 0;
         }
     }
+
+    if (min_drop_area_cells_ > 1) {
+        const bool use8 = (drop_neighbor_mode_ != "edge4");
+        const std::array<std::pair<int, int>, 8> d8{{{1, 0}, {-1, 0}, {0, 1}, {0, -1},
+                                                      {1, 1}, {1, -1}, {-1, 1}, {-1, -1}}};
+        const std::array<std::pair<int, int>, 4> d4{{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}};
+        std::vector<bool> visited(static_cast<size_t>(num_cells_), false);
+        for (int seed = 0; seed < num_cells_; seed++) {
+            if (!drop_state_[static_cast<size_t>(seed)] || visited[static_cast<size_t>(seed)]) continue;
+            std::vector<int> comp;
+            std::vector<int> stk{seed};
+            visited[static_cast<size_t>(seed)] = true;
+            while (!stk.empty()) {
+                const int cur = stk.back();
+                stk.pop_back();
+                comp.push_back(cur);
+                const int cx = cur / width_;
+                const int cy = cur % width_;
+                auto check = [&](int dx, int dy) {
+                    const int nx = cx + dx;
+                    const int ny = cy + dy;
+                    if (nx < 0 || nx >= width_ || ny < 0 || ny >= width_) return;
+                    const int nc = nx * width_ + ny;
+                    if (drop_state_[static_cast<size_t>(nc)] && !visited[static_cast<size_t>(nc)]) {
+                        visited[static_cast<size_t>(nc)] = true;
+                        stk.push_back(nc);
+                    }
+                };
+                if (use8) {
+                    for (const auto& [dx, dy] : d8) check(dx, dy);
+                } else {
+                    for (const auto& [dx, dy] : d4) check(dx, dy);
+                }
+            }
+            if (static_cast<int>(comp.size()) < min_drop_area_cells_) {
+                for (const int c : comp) {
+                    drop_state_[static_cast<size_t>(c)] = 0;
+                }
+            }
+        }
+    }
+
+    for (int cell = 0; cell < num_cells_; ++cell) {
+        const size_t idx = static_cast<size_t>(cell);
+        if (!cell_in_radius_[idx]) {
+            continue;
+        }
+        const bool fresh = (last_seen_sec_[idx] >= 0.0) &&
+                           ((stamp_sec - last_seen_sec_[idx]) <= stale_time_sec_);
+        if (!fresh) {
+            continue;
+        }
+
+        const int ix = cell / width_;
+        const int iy = cell % width_;
+        const float center = ground_z_filtered_[idx];
+
+        auto getFreshGround = [&](int nx, int ny, float& val) -> bool {
+            if (nx < 0 || nx >= width_ || ny < 0 || ny >= width_) {
+                return false;
+            }
+            const size_t nidx = static_cast<size_t>(nx * width_ + ny);
+            const bool nfresh = (last_seen_sec_[nidx] >= 0.0) &&
+                                ((stamp_sec - last_seen_sec_[nidx]) <= stale_time_sec_);
+            if (!nfresh) {
+                return false;
+            }
+            val = ground_z_filtered_[nidx];
+            return true;
+        };
+
+        float xp = 0.0f, xm = 0.0f, yp = 0.0f, ym = 0.0f;
+        const bool has_xp = getFreshGround(ix + 1, iy, xp);
+        const bool has_xm = getFreshGround(ix - 1, iy, xm);
+        const bool has_yp = getFreshGround(ix, iy + 1, yp);
+        const bool has_ym = getFreshGround(ix, iy - 1, ym);
+
+        if (has_xp && has_xm) {
+            slope_x_[idx] = (xp - xm) / static_cast<float>(2.0 * grid_resolution_m_);
+        } else if (has_xp) {
+            slope_x_[idx] = (xp - center) / static_cast<float>(grid_resolution_m_);
+        } else if (has_xm) {
+            slope_x_[idx] = (center - xm) / static_cast<float>(grid_resolution_m_);
+        }
+
+        if (has_yp && has_ym) {
+            slope_y_[idx] = (yp - ym) / static_cast<float>(2.0 * grid_resolution_m_);
+        } else if (has_yp) {
+            slope_y_[idx] = (yp - center) / static_cast<float>(grid_resolution_m_);
+        } else if (has_ym) {
+            slope_y_[idx] = (center - ym) / static_cast<float>(grid_resolution_m_);
+        }
+
+        std::vector<float> neigh;
+        neigh.reserve(8);
+        for (int dx = -1; dx <= 1; ++dx) {
+            for (int dy = -1; dy <= 1; ++dy) {
+                if (dx == 0 && dy == 0) {
+                    continue;
+                }
+                float value = 0.0f;
+                if (getFreshGround(ix + dx, iy + dy, value)) {
+                    neigh.push_back(value);
+                }
+            }
+        }
+        if (neigh.size() >= 3) {
+            float mean = 0.0f;
+            for (const float v : neigh) {
+                mean += v;
+            }
+            mean /= static_cast<float>(neigh.size());
+            float var = 0.0f;
+            for (const float v : neigh) {
+                const float d = v - mean;
+                var += d * d;
+            }
+            roughness_[idx] = var / static_cast<float>(neigh.size());
+        }
+    }
 }
 
 void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_x,
@@ -1001,14 +1225,56 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
     pcl::PointCloud<pcl::PointXYZI> obs_cloud, drop_cloud, climb_cloud;
     const double stamp_sec = stamp.seconds();
     const bool publish_climbable = static_cast<bool>(pub_climbable_);
+    const bool features_time_ready =
+        (terrain_features_publish_hz_ <= 0.0) ||
+        (last_features_pub_time_.nanoseconds() == 0) ||
+        ((stamp - last_features_pub_time_).seconds() >= (1.0 / terrain_features_publish_hz_));
+    const bool should_publish_features = static_cast<bool>(pub_features_) && features_time_ready;
+    const bool speed_limit_time_ready =
+        (terrain_speed_limit_publish_hz_ <= 0.0) ||
+        (last_speed_limit_pub_time_.nanoseconds() == 0) ||
+        ((stamp - last_speed_limit_pub_time_).seconds() >= (1.0 / terrain_speed_limit_publish_hz_));
+    const bool should_publish_speed_limit = static_cast<bool>(pub_speed_limit_) && speed_limit_time_ready;
+
+    rc26_interfaces::msg::TerrainFeatureGrid feature_msg;
+    if (should_publish_features) {
+        feature_msg.header.stamp = stamp;
+        feature_msg.header.frame_id = base_frame_;
+        feature_msg.resolution_m = static_cast<float>(grid_resolution_m_);
+        feature_msg.width = static_cast<uint32_t>(width_);
+        feature_msg.height = static_cast<uint32_t>(width_);
+        feature_msg.origin.position.x = -static_cast<double>(half_width_) * grid_resolution_m_;
+        feature_msg.origin.position.y = -static_cast<double>(half_width_) * grid_resolution_m_;
+        feature_msg.origin.position.z = 0.0;
+        feature_msg.origin.orientation.x = 0.0;
+        feature_msg.origin.orientation.y = 0.0;
+        feature_msg.origin.orientation.z = 0.0;
+        feature_msg.origin.orientation.w = 1.0;
+        const size_t sz = static_cast<size_t>(num_cells_);
+        feature_msg.in_radius.assign(sz, 0U);
+        feature_msg.fresh.assign(sz, 0U);
+        feature_msg.density.assign(sz, 0U);
+        feature_msg.h_ground.assign(sz, 0.0f);
+        feature_msg.sigma_h.assign(sz, 0.0f);
+        feature_msg.h_top.assign(sz, 0.0f);
+        feature_msg.slope_x.assign(sz, 0.0f);
+        feature_msg.slope_y.assign(sz, 0.0f);
+        feature_msg.roughness.assign(sz, 0.0f);
+        feature_msg.p_obstacle.assign(sz, 0.0f);
+        feature_msg.p_drop.assign(sz, 0.0f);
+    }
+
     obstacle_cells_count_ = 0;
     drop_cells_count_ = 0;
     climbable_cells_count_ = 0;
     int kfs_cells_count = 0;
+    int roi_fresh_count = 0;
+    double roi_max_slope = 0.0;
+    double roi_max_rough = 0.0;
+    double roi_max_p_drop = 0.0;
 
     for (int cell = 0; cell < num_cells_; cell++) {
         const size_t idx = static_cast<size_t>(cell);
-        if (!cell_in_radius_[idx]) continue;
 
         const int ix = cell / width_;
         const int iy = cell % width_;
@@ -1021,6 +1287,26 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
         const double last = last_seen_sec_[idx];
         const bool fresh = (last >= 0.0) && ((stamp_sec - last) <= stale_time_sec_);
         if (fresh) z = ground_z_filtered_[idx];
+        const float obstacle_prob = std::clamp(
+            static_cast<float>(obstacle_score_[idx]) / static_cast<float>(score_max_), 0.0f, 1.0f);
+        const float drop_prob = std::clamp(
+            static_cast<float>(drop_score_[idx]) / static_cast<float>(score_max_), 0.0f, 1.0f);
+
+        if (should_publish_features) {
+            feature_msg.in_radius[idx] = cell_in_radius_[idx] ? 1U : 0U;
+            feature_msg.fresh[idx] = fresh ? 1U : 0U;
+            feature_msg.density[idx] = fresh ? density_[idx] : 0U;
+            feature_msg.h_ground[idx] = fresh ? (ground_z_filtered_[idx] - static_cast<float>(base_z)) : 0.0f;
+            feature_msg.sigma_h[idx] = fresh ? sigma_h_[idx] : 0.0f;
+            feature_msg.h_top[idx] = fresh ? (top_z_[idx] - static_cast<float>(base_z)) : 0.0f;
+            feature_msg.slope_x[idx] = fresh ? slope_x_[idx] : 0.0f;
+            feature_msg.slope_y[idx] = fresh ? slope_y_[idx] : 0.0f;
+            feature_msg.roughness[idx] = fresh ? roughness_[idx] : 0.0f;
+            feature_msg.p_obstacle[idx] = obstacle_prob;
+            feature_msg.p_drop[idx] = drop_prob;
+        }
+
+        if (!cell_in_radius_[idx]) continue;
 
         const bool is_obstacle = obstacle_state_[idx] != 0;
         const bool is_drop = drop_state_[idx] != 0;
@@ -1031,6 +1317,17 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
         }
         if (is_kfs_occupied) {
             ++kfs_cells_count;
+        }
+
+        if (fresh &&
+            x_rel >= 0.0 && x_rel <= speed_limit_forward_look_m_ &&
+            std::abs(y_rel) <= speed_limit_half_width_m_) {
+            ++roi_fresh_count;
+            const double cell_slope = std::max(std::abs(static_cast<double>(slope_x_[idx])),
+                                               std::abs(static_cast<double>(slope_y_[idx])));
+            roi_max_slope = std::max(roi_max_slope, cell_slope);
+            roi_max_rough = std::max(roi_max_rough, static_cast<double>(roughness_[idx]));
+            roi_max_p_drop = std::max(roi_max_p_drop, static_cast<double>(drop_prob));
         }
 
         if (is_obstacle || is_kfs_occupied) {
@@ -1151,6 +1448,30 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
         climb_msg.header.frame_id = target_frame_;
         pub_climbable_->publish(climb_msg);
     }
+
+    if (should_publish_features) {
+        pub_features_->publish(feature_msg);
+        last_features_pub_time_ = stamp;
+    }
+
+    if (should_publish_speed_limit) {
+        std_msgs::msg::Float32 speed_limit_msg;
+        float v_limit = static_cast<float>(speed_limit_v_max_mps_);
+        if (roi_fresh_count > 0) {
+            const double tci = speed_limit_w_slope_ * roi_max_slope +
+                               speed_limit_w_roughness_ * roi_max_rough +
+                               speed_limit_w_drop_ * roi_max_p_drop;
+            v_limit = static_cast<float>(speed_limit_v_max_mps_ * std::exp(-speed_limit_k_tci_ * tci));
+            v_limit = std::clamp(v_limit, static_cast<float>(speed_limit_min_mps_),
+                                 static_cast<float>(speed_limit_v_max_mps_));
+            if (roi_max_p_drop >= speed_limit_emergency_drop_thresh_) {
+                v_limit = 0.0f;
+            }
+        }
+        speed_limit_msg.data = v_limit;
+        pub_speed_limit_->publish(speed_limit_msg);
+        last_speed_limit_pub_time_ = stamp;
+    }
 }
 
 void TerrainSemanticNode::cloudCallback(
@@ -1220,6 +1541,7 @@ void TerrainSemanticNode::cloudCallback(
 
     double roll, pitch, yaw;
     tf2::Matrix3x3(tf_base->getRotation()).getRPY(roll, pitch, yaw);
+    last_roll_rad_ = roll;
     last_pitch_rad_ = pitch;
     const double cos_yaw = std::cos(yaw);
     const double sin_yaw = std::sin(yaw);
@@ -1292,6 +1614,9 @@ void TerrainSemanticNode::cloudCallback(
         double z_corr = static_cast<double>(p.z);
         if (enable_pitch_compensation_ && x_rel > 0.0) {
             z_corr -= x_rel * std::tan(last_pitch_rad_);
+        }
+        if (enable_roll_compensation_) {
+            z_corr -= y_rel * std::tan(last_roll_rad_);
         }
         const double rel_z = z_corr - base_z;
         const double d2 = x_rel * x_rel + y_rel * y_rel;

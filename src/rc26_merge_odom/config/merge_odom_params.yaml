@@ -56,6 +56,8 @@ pose_sender_node:
     spike_decay_tau_s: 0.2
     latency_comp_enable: true
     latency_comp_s: 0.03
+    terrain_speed_limit_topic: "terrain_speed_limit"
+    terrain_speed_limit_timeout_ms: 500
 
 # 融合里程计主节点参数(整合模式)
 merge_odom_node:
@@ -93,6 +95,8 @@ merge_odom_node:
     spike_decay_tau_s: 0.2
     latency_comp_enable: true
     latency_comp_s: 0.03
+    terrain_speed_limit_topic: "terrain_speed_limit"
+    terrain_speed_limit_timeout_ms: 500
     slip_enable: true
     slip_threshold: 0.5
     slip_k_acc: 0.5

@@ -26,6 +26,8 @@ public:
         this->declare_parameter("spike_decay_tau_s", 0.2);
         this->declare_parameter("latency_comp_enable", true);
         this->declare_parameter("latency_comp_s", 0.03);
+        this->declare_parameter("terrain_speed_limit_topic", "");
+        this->declare_parameter("terrain_speed_limit_timeout_ms", 500);
 
         std::string feedback_port = this->get_parameter("feedback_serial_port").as_string();
         std::string target_port = this->get_parameter("target_serial_port").as_string();
@@ -64,6 +66,9 @@ public:
         config.spike_decay_tau_s = static_cast<float>(this->get_parameter("spike_decay_tau_s").as_double());
         config.latency_comp_enable = this->get_parameter("latency_comp_enable").as_bool();
         config.latency_comp_s = static_cast<float>(this->get_parameter("latency_comp_s").as_double());
+        config.terrain_speed_limit_topic = this->get_parameter("terrain_speed_limit_topic").as_string();
+        config.terrain_speed_limit_timeout_ms =
+            this->get_parameter("terrain_speed_limit_timeout_ms").as_int();
 
         pose_sender_ = std::make_unique<rc26_merge_odom::PoseSender>(*this, feedback_serial_, target_serial_, config);
     }

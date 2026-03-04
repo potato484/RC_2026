@@ -37,6 +37,11 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
 
     imu_sub_ = node_.create_subscription<sensor_msgs::msg::Imu>(
         config_.imu_topic, 20, std::bind(&PoseSender::imuCallback, this, std::placeholders::_1));
+    if (!config_.terrain_speed_limit_topic.empty()) {
+        terrain_speed_limit_sub_ = node_.create_subscription<std_msgs::msg::Float32>(
+            config_.terrain_speed_limit_topic, 10,
+            std::bind(&PoseSender::terrainSpeedLimitCallback, this, std::placeholders::_1));
+    }
 
     feedback_protected_pub_ = node_.create_publisher<geometry_msgs::msg::TwistStamped>(
         "pose_sender/feedback_protected", 10);
@@ -56,6 +61,11 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
                 "PoseSender 启动 (双串口模式)，cmd_vel: %s, odom: %s, imu: %s, 反馈: %d Hz, 目标: %d Hz",
                 config_.cmd_vel_topic.c_str(), config_.odom_topic.c_str(), config_.imu_topic.c_str(),
                 config_.feedback_send_rate_hz, config_.target_send_rate_hz);
+    if (!config_.terrain_speed_limit_topic.empty()) {
+        RCLCPP_INFO(node_.get_logger(),
+                    "PoseSender terrain_speed_limit 已启用: topic=%s timeout=%dms",
+                    config_.terrain_speed_limit_topic.c_str(), config_.terrain_speed_limit_timeout_ms);
+    }
 }
 
 void PoseSender::cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
@@ -126,6 +136,16 @@ void PoseSender::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
     }
 }
 
+void PoseSender::terrainSpeedLimitCallback(const std_msgs::msg::Float32::SharedPtr msg) {
+    if (!msg) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    terrain_speed_limit_mps_ = msg->data;
+    terrain_speed_limit_time_ = std::chrono::steady_clock::now();
+    terrain_speed_limit_received_ = true;
+}
+
 PoseSender::Velocity PoseSender::protectVelocity(Velocity raw, Velocity& prev_vel, double dt) {
     const auto now = std::chrono::steady_clock::now();
     {
@@ -147,14 +167,34 @@ PoseSender::Velocity PoseSender::protectVelocity(Velocity raw, Velocity& prev_ve
         return output;
     }
 
-    const float v_limit = std::fabs(config_.v_max_mps);
+    float effective_v_max = std::fabs(config_.v_max_mps);
+    if (!config_.terrain_speed_limit_topic.empty()) {
+        float terrain_limit = NAN;
+        bool terrain_limit_valid = false;
+        {
+            std::lock_guard<std::mutex> lock(data_mutex_);
+            if (terrain_speed_limit_received_) {
+                const auto timeout_ms = std::max(0, config_.terrain_speed_limit_timeout_ms);
+                const auto age = now - terrain_speed_limit_time_;
+                if (age <= std::chrono::milliseconds(timeout_ms)) {
+                    terrain_limit = terrain_speed_limit_mps_;
+                    terrain_limit_valid = true;
+                }
+            }
+        }
+        if (terrain_limit_valid && std::isfinite(terrain_limit)) {
+            terrain_limit = std::max(0.0f, terrain_limit);
+            effective_v_max = std::min(effective_v_max, terrain_limit);
+        }
+    }
+
     const float w_limit = std::fabs(config_.w_max_rps);
     const float a_limit = std::fabs(config_.a_max_mps2);
     const float alpha_limit = std::fabs(config_.alpha_max_rps2);
 
     Velocity output;
-    output.vx = std::clamp(raw.vx, -v_limit, v_limit);
-    output.vy = std::clamp(raw.vy, -v_limit, v_limit);
+    output.vx = std::clamp(raw.vx, -effective_v_max, effective_v_max);
+    output.vy = std::clamp(raw.vy, -effective_v_max, effective_v_max);
     output.wz = std::clamp(raw.wz, -w_limit, w_limit);
 
     if (dt > 0.0 && dt <= kMaxValidDtSec) {

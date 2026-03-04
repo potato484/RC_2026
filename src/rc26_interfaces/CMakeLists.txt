@@ -25,6 +25,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/SmartWaypoint.msg"
   "msg/MfKfsCell.msg"
   "msg/MfKfsState.msg"
+  "msg/TerrainFeatureGrid.msg"
   "srv/SetNavMode.srv"
   DEPENDENCIES action_msgs builtin_interfaces geometry_msgs std_msgs
 )

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -12,8 +13,10 @@
 #include "pcl/point_types.h"
 #include "rclcpp/rclcpp.hpp"
 #include "rc26_interfaces/msg/mf_kfs_state.hpp"
+#include "rc26_interfaces/msg/terrain_feature_grid.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "std_msgs/msg/bool.hpp"
+#include "std_msgs/msg/float32.hpp"
 #include "tf2/LinearMath/Transform.h"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
@@ -77,6 +80,10 @@ private:
     double ground_quantile_{0.25};
     double top_quantile_{0.95};
     double ground_ema_alpha_{0.6};
+    bool enable_sigma_based_alpha_{true};
+    double sigma_eps_m_{0.01};
+    double sigma_alpha_min_{0.05};
+    double sigma_alpha_max_{0.6};
 
     double h_climb_m_{0.30};
     double h_obstacle_m_{0.33};
@@ -135,13 +142,30 @@ private:
     std::string obstacle_neighbor_mode_{"edge4"};
     std::string drop_neighbor_mode_{"edge8"};
     int         min_obstacle_area_cells_{2};
+    int         min_drop_area_cells_{2};
     double      jump_thresh_m_{0.15};
     int         freeze_max_frames_{3};
     double      ground_ema_alpha_slow_{0.25};
     bool        enable_pitch_compensation_{true};
+    bool        enable_roll_compensation_{false};
     double      stair_gate_speed_mps_{0.25};
     double      stair_pitch_gate_deg_{6.0};
     double      top_z_max_delta_m_{0.7};
+    std::string terrain_features_topic_{"terrain_features"};
+    bool        enable_terrain_features_pub_{false};
+    double      terrain_features_publish_hz_{5.0};
+    std::string terrain_speed_limit_topic_{"terrain_speed_limit"};
+    bool        enable_terrain_speed_limit_pub_{true};
+    double      terrain_speed_limit_publish_hz_{5.0};
+    double      speed_limit_forward_look_m_{2.0};
+    double      speed_limit_half_width_m_{0.4};
+    double      speed_limit_v_max_mps_{2.0};
+    double      speed_limit_min_mps_{0.2};
+    double      speed_limit_w_slope_{1.0};
+    double      speed_limit_w_roughness_{1.0};
+    double      speed_limit_w_drop_{2.0};
+    double      speed_limit_k_tci_{1.0};
+    double      speed_limit_emergency_drop_thresh_{0.8};
 
     // P0.3: latency diagnostics
     double latency_warn_ms_{12.0};
@@ -167,6 +191,11 @@ private:
     std::vector<uint8_t> obstacle_state_;
     std::vector<uint8_t> drop_state_;
     std::vector<uint8_t> kfs_occupied_state_;
+    std::vector<float> sigma_h_;
+    std::vector<uint16_t> density_;
+    std::vector<float> slope_x_;
+    std::vector<float> slope_y_;
+    std::vector<float> roughness_;
 
     // 每帧缓存
     std::vector<std::vector<float>> cell_z_samples_;
@@ -182,6 +211,8 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_drop_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_climbable_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr pub_diagnostics_;
+    rclcpp::Publisher<rc26_interfaces::msg::TerrainFeatureGrid>::SharedPtr pub_features_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_speed_limit_;
     rclcpp::TimerBase::SharedPtr health_timer_;
 
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
@@ -204,6 +235,7 @@ private:
     std::string fail_safe_reason_;
     double last_linear_speed_mps_{0.0};
     bool base_ground_stable_{true};
+    double last_roll_rad_{0.0};
     double last_pitch_rad_{0.0};
     int last_max_freeze_count_{0};
     int latency_overrun_count_{0};
@@ -211,6 +243,8 @@ private:
     bool latency_intervention_active_{false};
     bool thermal_throttle_requested_{false};
     rclcpp::Time thermal_throttle_last_true_stamp_{0, 0, RCL_ROS_TIME};
+    rclcpp::Time last_features_pub_time_{0, 0, RCL_ROS_TIME};
+    rclcpp::Time last_speed_limit_pub_time_{0, 0, RCL_ROS_TIME};
 
     // 诊断统计
     int kfs_occupied_count_{0};
