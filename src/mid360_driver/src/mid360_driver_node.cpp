@@ -6,9 +6,29 @@
 
 #include "mid360_driver_node.hpp"
 
+#include <cmath>
 #include <cstring>
 
 namespace mid360_driver {
+
+const std::vector<sensor_msgs::msg::PointField>& point_fields() {
+    static const auto fields = [] {
+        std::vector<sensor_msgs::msg::PointField> configured_fields(5);
+        auto set_field = [](sensor_msgs::msg::PointField& field, const char* name, uint32_t offset, uint8_t datatype) {
+            field.name = name;
+            field.offset = offset;
+            field.datatype = datatype;
+            field.count = 1;
+        };
+        set_field(configured_fields[0], "x", 0, sensor_msgs::msg::PointField::FLOAT32);
+        set_field(configured_fields[1], "y", 4, sensor_msgs::msg::PointField::FLOAT32);
+        set_field(configured_fields[2], "z", 8, sensor_msgs::msg::PointField::FLOAT32);
+        set_field(configured_fields[3], "intensity", 12, sensor_msgs::msg::PointField::FLOAT32);
+        set_field(configured_fields[4], "timestamp", 16, sensor_msgs::msg::PointField::FLOAT64);
+        return configured_fields;
+    }();
+    return fields;
+}
 
 void LidarPublisher::make_sure_init(rclcpp::Node& node, const std::string& lidar_topic, const std::string& imu_topic) {
     if (!is_init) {
@@ -41,17 +61,8 @@ void LidarPublisher::make_sure_init(rclcpp::Node& node, const std::string& lidar
     }
 }
 
-void LidarPublisher::on_receive_pointcloud(const std::vector<Point>& points) {
-    points_wait_to_publish.insert(points_wait_to_publish.end(), points.begin(), points.end());
-}
-
 void LidarPublisher::on_receive_imu(const ImuMsg& imu_msg) {
     imu_wait_to_publish.push_back(imu_msg);
-}
-
-void LidarPublisher::prepare_pointcloud_to_publish() {
-    std::swap(points_wait_to_publish, points_to_publish);
-    points_wait_to_publish.clear();
 }
 
 void LidarPublisher::prepare_imu_to_publish() {
@@ -59,62 +70,28 @@ void LidarPublisher::prepare_imu_to_publish() {
     imu_wait_to_publish.clear();
 }
 
-void LidarPublisher::publish_pointcloud(const std::string& frame_id) const {
-    if (points_to_publish.empty()) {
+void LidarPublisher::publish_pointcloud(const std::string& frame_id, const FrameMeta& meta,
+                                        const std::vector<Point>& points) const {
+    if (points.empty()) {
         return;
     }
-    double timestamp = std::numeric_limits<double>::max();
-    for (const auto& point : points_to_publish) {
-        if (point.timestamp < timestamp) {
-            timestamp = point.timestamp;
-        }
+    constexpr size_t kMaxPointCount = 200000;
+    if (points.size() > kMaxPointCount) {
+        return;
     }
     sensor_msgs::msg::PointCloud2 msg;
-    msg.header.stamp.sec = std::floor(timestamp);
-    msg.header.stamp.nanosec = static_cast<uint32_t>((timestamp - msg.header.stamp.sec) * 1e9);
+    msg.header.stamp.sec = static_cast<int32_t>(std::floor(meta.stamp_sec));
+    msg.header.stamp.nanosec =
+        static_cast<uint32_t>((meta.stamp_sec - static_cast<double>(msg.header.stamp.sec)) * 1e9);
     msg.header.frame_id = frame_id;
-    msg.width = points_to_publish.size();
+    msg.width = static_cast<uint32_t>(points.size());
     msg.height = 1;
-    msg.fields.reserve(5);
-    sensor_msgs::msg::PointField field;
-    field.name = "x";
-    field.offset = 0;
-    field.datatype = sensor_msgs::msg::PointField::FLOAT32;
-    field.count = 1;
-    msg.fields.push_back(field);
-    field.name = "y";
-    field.offset = 4;
-    field.datatype = sensor_msgs::msg::PointField::FLOAT32;
-    field.count = 1;
-    msg.fields.push_back(field);
-    field.name = "z";
-    field.offset = 8;
-    field.datatype = sensor_msgs::msg::PointField::FLOAT32;
-    field.count = 1;
-    msg.fields.push_back(field);
-    field.name = "intensity";
-    field.offset = 12;
-    field.datatype = sensor_msgs::msg::PointField::FLOAT32;
-    field.count = 1;
-    msg.fields.push_back(field);
-    field.name = "timestamp";
-    field.offset = 16;
-    field.datatype = sensor_msgs::msg::PointField::FLOAT64;
-    field.count = 1;
-    msg.fields.push_back(field);
+    msg.fields = point_fields();
     msg.is_bigendian = false;
-    msg.point_step = 24;
+    msg.point_step = static_cast<uint32_t>(sizeof(Point));
     msg.row_step = msg.width * msg.point_step;
-    msg.data.resize(msg.row_step * msg.height);
-    auto* data_ptr = msg.data.data();
-    for (const auto& point : points_to_publish) {
-        std::memcpy(data_ptr + 0, &point.x, sizeof(float));
-        std::memcpy(data_ptr + 4, &point.y, sizeof(float));
-        std::memcpy(data_ptr + 8, &point.z, sizeof(float));
-        std::memcpy(data_ptr + 12, &point.intensity, sizeof(float));
-        std::memcpy(data_ptr + 16, &point.timestamp, sizeof(double));
-        data_ptr += msg.point_step;
-    }
+    msg.data.resize(points.size() * sizeof(Point));
+    std::memcpy(msg.data.data(), points.data(), points.size() * sizeof(Point));
     msg.is_dense = true;
     pointcloud_publisher->publish(msg);
 }
@@ -141,23 +118,36 @@ Mid360DriverNode::Mid360DriverNode(const rclcpp::NodeOptions& options) : Node("m
     std::string imu_topic = declare_parameter<std::string>("imu_topic");
     std::string imu_frame = declare_parameter<std::string>("imu_frame");
     std::string host_ip = declare_parameter<std::string>("host_ip");
-    double lidar_publish_time_interval = declare_parameter<double>("lidar_publish_time_interval");
+    declare_parameter<double>("lidar_publish_time_interval");
     bool is_topic_name_with_lidar_ip = declare_parameter<bool>("is_topic_name_with_lidar_ip");
     if (!is_topic_name_with_lidar_ip) {
         lidar_publisher.make_sure_init(*this, lidar_topic, imu_topic);
     }
     mid360_driver = std::make_unique<mid360_driver::Mid360Driver>(
         io_context, asio::ip::make_address(host_ip),
-        [this, is_topic_name_with_lidar_ip](const asio::ip::address& lidar_ip, const std::vector<Point>& points) {
+        [this, is_topic_name_with_lidar_ip, lidar_topic, imu_topic, lidar_frame](
+            const asio::ip::address& lidar_ip, const FrameMeta& meta, const std::vector<Point>& points) {
             std::lock_guard<std::mutex> lock(mutex);
             if (is_topic_name_with_lidar_ip) {
                 auto [iter, inserted] = muti_lidar_publisher.try_emplace(lidar_ip, nullptr);
                 if (inserted) {
                     iter->second = std::make_shared<LidarPublisher>();
                 }
-                iter->second->on_receive_pointcloud(points);
+                iter->second->make_sure_init(*this, lidar_topic, imu_topic, lidar_ip);
+                if (meta.lost_in_frame > 0) {
+                    RCLCPP_WARN_THROTTLE(
+                        get_logger(), *get_clock(), 1000,
+                        "Lidar %s frame=%u lost_in_frame=%u lost_total=%u", lidar_ip.to_string().c_str(),
+                        static_cast<unsigned int>(meta.frame_cnt), meta.lost_in_frame, meta.lost_total);
+                }
+                iter->second->publish_pointcloud(lidar_frame, meta, points);
             } else {
-                lidar_publisher.on_receive_pointcloud(points);
+                if (meta.lost_in_frame > 0) {
+                    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "frame=%u lost_in_frame=%u lost_total=%u",
+                                         static_cast<unsigned int>(meta.frame_cnt), meta.lost_in_frame,
+                                         meta.lost_total);
+                }
+                lidar_publisher.publish_pointcloud(lidar_frame, meta, points);
             }
         },
         [this, is_topic_name_with_lidar_ip](const asio::ip::address& lidar_ip, const ImuMsg& imu_msg) {
@@ -173,27 +163,8 @@ Mid360DriverNode::Mid360DriverNode(const rclcpp::NodeOptions& options) : Node("m
             }
         });
     if (is_topic_name_with_lidar_ip) {
-        publish_pointcloud_timer = rclcpp::create_timer(
-            this, get_clock(), std::chrono::milliseconds(100), [this, lidar_topic, imu_topic, lidar_frame]() {
-                {
-                    std::lock_guard<std::mutex> lock(mutex);
-                    for (auto& [lidar_ip, lidar_publisher] : muti_lidar_publisher) {
-                        lidar_publisher->prepare_pointcloud_to_publish();
-                    }
-                    if (muti_lidar_publisher_temp.size() != muti_lidar_publisher.size()) {
-                        muti_lidar_publisher_temp.clear();
-                        for (auto& [lidar_ip, lidar_publisher] : muti_lidar_publisher) {
-                            muti_lidar_publisher_temp.emplace_back(lidar_ip, lidar_publisher);
-                        }
-                    }
-                }
-                for (auto& [lidar_ip, lidar_publisher] : muti_lidar_publisher_temp) {
-                    lidar_publisher->make_sure_init(*this, lidar_topic, imu_topic, lidar_ip);
-                    lidar_publisher->publish_pointcloud(lidar_frame);
-                }
-            });
         publish_imu_timer = rclcpp::create_timer(
-            this, get_clock(), std::chrono::milliseconds(1), [this, lidar_topic, imu_topic, imu_frame]() {
+            this, get_clock(), std::chrono::milliseconds(4), [this, lidar_topic, imu_topic, imu_frame]() {
                 {
                     std::lock_guard<std::mutex> lock(mutex);
                     for (auto& [lidar_ip, lidar_publisher] : muti_lidar_publisher) {
@@ -212,16 +183,7 @@ Mid360DriverNode::Mid360DriverNode(const rclcpp::NodeOptions& options) : Node("m
                 }
             });
     } else {
-        publish_pointcloud_timer = rclcpp::create_timer(
-            this, get_clock(), std::chrono::duration<double, std::ratio<1, 1>>(lidar_publish_time_interval),
-            [this, lidar_frame]() {
-                {
-                    std::lock_guard<std::mutex> lock(mutex);
-                    lidar_publisher.prepare_pointcloud_to_publish();
-                }
-                lidar_publisher.publish_pointcloud(lidar_frame);
-            });
-        publish_imu_timer = rclcpp::create_timer(this, get_clock(), std::chrono::milliseconds(1), [this, imu_frame]() {
+        publish_imu_timer = rclcpp::create_timer(this, get_clock(), std::chrono::milliseconds(4), [this, imu_frame]() {
             {
                 std::lock_guard<std::mutex> lock(mutex);
                 lidar_publisher.prepare_imu_to_publish();

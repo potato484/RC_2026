@@ -21,9 +21,7 @@ namespace mid360_driver {
 
 class LidarPublisher {
 private:
-    std::vector<Point> points_wait_to_publish;
     std::vector<ImuMsg> imu_wait_to_publish;
-    std::vector<Point> points_to_publish;
     std::vector<ImuMsg> imu_to_publish;
     bool is_init = false;
     std::shared_ptr<rclcpp::Publisher<sensor_msgs::msg::PointCloud2>> pointcloud_publisher;
@@ -37,15 +35,11 @@ public:
     void make_sure_init(rclcpp::Node& node, const std::string& lidar_topic, const std::string& imu_topic,
                         const asio::ip::address& lidar_ip);
 
-    void on_receive_pointcloud(const std::vector<Point>& points);
-
     void on_receive_imu(const ImuMsg& imu_msg);
-
-    void prepare_pointcloud_to_publish();
 
     void prepare_imu_to_publish();
 
-    void publish_pointcloud(const std::string& frame_id) const;
+    void publish_pointcloud(const std::string& frame_id, const FrameMeta& meta, const std::vector<Point>& points) const;
 
     void publish_imu(const std::string& frame_id) const;
 };
@@ -59,7 +53,6 @@ private:
     LidarPublisher lidar_publisher;
     std::unordered_map<asio::ip::address, std::shared_ptr<LidarPublisher>, IpAddressHasher> muti_lidar_publisher;
     std::vector<std::pair<asio::ip::address, std::shared_ptr<LidarPublisher>>> muti_lidar_publisher_temp;
-    rclcpp::TimerBase::SharedPtr publish_pointcloud_timer;
     rclcpp::TimerBase::SharedPtr publish_imu_timer;
 
 public:
