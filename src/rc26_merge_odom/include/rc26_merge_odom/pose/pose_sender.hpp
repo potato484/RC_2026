@@ -3,6 +3,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <cmath>
 #include <chrono>
 #include <memory>
@@ -98,6 +99,20 @@ private:
     std::atomic<bool> imu_spike_active_{false};
     std::chrono::steady_clock::time_point imu_spike_deadline_;
     mutable std::mutex imu_spike_mutex_;
+
+    struct SeqStats {
+        bool last_valid = false;
+        uint8_t last_ok_seq = 0;
+        uint64_t ok_total = 0;
+        uint64_t fail_total = 0;
+        uint64_t missing_total = 0;
+        uint64_t ok_1s = 0;
+        uint64_t fail_1s = 0;
+        uint64_t missing_1s = 0;
+        std::chrono::steady_clock::time_point window_start{};
+    };
+    SeqStats feedback_stats_;
+    SeqStats target_stats_;
 
     void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
     void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);

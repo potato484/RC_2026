@@ -26,6 +26,10 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
         throw std::runtime_error("target_send_rate_hz 必须 > 0");
     }
 
+    const auto now = std::chrono::steady_clock::now();
+    feedback_stats_.window_start = now;
+    target_stats_.window_start = now;
+
     // Bridge ROS velocity commands to MCU speed closed-loop:
     // - Subscribe `cmd_vel_topic` (Twist)
     // - Send POSE_TARGET(0x22) over UART as (vx, vy, wz) floats
@@ -247,9 +251,55 @@ void PoseSender::feedbackTimerCallback() {
         prev_feedback_vel_ = prev_feedback;
     }
 
+    uint8_t seq = 0;
+    bool attempted = false;
+    bool sent_ok = false;
     if (feedback_serial_ && feedback_serial_->isOpen()) {
-        feedback_serial_->sendPose(rc26_decision::CommandID::POSE_FEEDBACK, protected_vel.vx, protected_vel.vy,
-                                   protected_vel.wz);
+        attempted = true;
+        sent_ok = feedback_serial_->sendPose(rc26_decision::CommandID::POSE_FEEDBACK, protected_vel.vx, protected_vel.vy,
+                                             protected_vel.wz, seq);
+    }
+
+    if (attempted) {
+        auto& stats = feedback_stats_;
+        if (sent_ok) {
+            if (stats.last_valid) {
+                const uint8_t delta = static_cast<uint8_t>(seq - stats.last_ok_seq);
+                if (delta > 1U) {
+                    stats.missing_total += static_cast<uint64_t>(delta - 1U);
+                    stats.missing_1s += static_cast<uint64_t>(delta - 1U);
+                }
+            }
+            stats.last_ok_seq = seq;
+            stats.last_valid = true;
+            ++stats.ok_total;
+            ++stats.ok_1s;
+        } else {
+            ++stats.fail_total;
+            ++stats.fail_1s;
+        }
+        const auto feedback_now = std::chrono::steady_clock::now();
+        if (std::chrono::duration<double>(feedback_now - stats.window_start).count() >= 1.0) {
+            RCLCPP_INFO_THROTTLE(
+                node_.get_logger(), *node_.get_clock(), 1000,
+                "[PoseSender/feedback] ok=%llu fail=%llu miss=%llu (1s: ok=%llu fail=%llu miss=%llu)",
+                static_cast<unsigned long long>(stats.ok_total),
+                static_cast<unsigned long long>(stats.fail_total),
+                static_cast<unsigned long long>(stats.missing_total),
+                static_cast<unsigned long long>(stats.ok_1s),
+                static_cast<unsigned long long>(stats.fail_1s),
+                static_cast<unsigned long long>(stats.missing_1s));
+            if (stats.fail_1s > 1U || stats.missing_1s > 1U) {
+                RCLCPP_WARN_THROTTLE(node_.get_logger(), *node_.get_clock(), 1000,
+                                     "[PoseSender/feedback] 链路异常: fail=%llu miss=%llu",
+                                     static_cast<unsigned long long>(stats.fail_1s),
+                                     static_cast<unsigned long long>(stats.missing_1s));
+            }
+            stats.ok_1s = 0;
+            stats.fail_1s = 0;
+            stats.missing_1s = 0;
+            stats.window_start = feedback_now;
+        }
     }
 
     geometry_msgs::msg::TwistStamped feedback_msg;
@@ -307,9 +357,55 @@ void PoseSender::targetTimerCallback() {
         prev_target_vel_ = prev_target;
     }
 
+    uint8_t seq = 0;
+    bool attempted = false;
+    bool sent_ok = false;
     if (target_serial_ && target_serial_->isOpen()) {
-        target_serial_->sendPose(rc26_decision::CommandID::POSE_TARGET, protected_vel.vx, protected_vel.vy,
-                                 protected_vel.wz);
+        attempted = true;
+        sent_ok = target_serial_->sendPose(rc26_decision::CommandID::POSE_TARGET, protected_vel.vx, protected_vel.vy,
+                                           protected_vel.wz, seq);
+    }
+
+    if (attempted) {
+        auto& stats = target_stats_;
+        if (sent_ok) {
+            if (stats.last_valid) {
+                const uint8_t delta = static_cast<uint8_t>(seq - stats.last_ok_seq);
+                if (delta > 1U) {
+                    stats.missing_total += static_cast<uint64_t>(delta - 1U);
+                    stats.missing_1s += static_cast<uint64_t>(delta - 1U);
+                }
+            }
+            stats.last_ok_seq = seq;
+            stats.last_valid = true;
+            ++stats.ok_total;
+            ++stats.ok_1s;
+        } else {
+            ++stats.fail_total;
+            ++stats.fail_1s;
+        }
+        const auto target_now = std::chrono::steady_clock::now();
+        if (std::chrono::duration<double>(target_now - stats.window_start).count() >= 1.0) {
+            RCLCPP_INFO_THROTTLE(
+                node_.get_logger(), *node_.get_clock(), 1000,
+                "[PoseSender/target] ok=%llu fail=%llu miss=%llu (1s: ok=%llu fail=%llu miss=%llu)",
+                static_cast<unsigned long long>(stats.ok_total),
+                static_cast<unsigned long long>(stats.fail_total),
+                static_cast<unsigned long long>(stats.missing_total),
+                static_cast<unsigned long long>(stats.ok_1s),
+                static_cast<unsigned long long>(stats.fail_1s),
+                static_cast<unsigned long long>(stats.missing_1s));
+            if (stats.fail_1s > 1U || stats.missing_1s > 1U) {
+                RCLCPP_WARN_THROTTLE(node_.get_logger(), *node_.get_clock(), 1000,
+                                     "[PoseSender/target] 链路异常: fail=%llu miss=%llu",
+                                     static_cast<unsigned long long>(stats.fail_1s),
+                                     static_cast<unsigned long long>(stats.missing_1s));
+            }
+            stats.ok_1s = 0;
+            stats.fail_1s = 0;
+            stats.missing_1s = 0;
+            stats.window_start = target_now;
+        }
     }
 
     geometry_msgs::msg::TwistStamped target_msg;
