@@ -13,7 +13,44 @@ namespace rc26_merge_odom {
 
 namespace {
 constexpr double kMaxValidDtSec = 1.0;
+constexpr float kEpsilon = 1e-6f;
+constexpr float kMinImuVar = 1e-4f;
+constexpr double kTwoPi = 6.28318530717958647692;
+
+bool isValidDt(double dt) {
+    return dt > 0.0 && dt <= kMaxValidDtSec;
 }
+
+void projectToCircle(float& vx, float& vy, float radius) {
+    const float mag = std::hypot(vx, vy);
+    if (radius <= kEpsilon || mag <= radius || mag <= kEpsilon) {
+        if (radius <= kEpsilon) {
+            vx = 0.0f;
+            vy = 0.0f;
+        }
+        return;
+    }
+    const float scale = radius / mag;
+    vx *= scale;
+    vy *= scale;
+}
+
+float pickIntersectionScale(float s1, float s2) {
+    float selected = 1.0f;
+    bool found = false;
+    if (s1 >= 0.0f && s1 <= 1.0f) {
+        selected = s1;
+        found = true;
+    }
+    if (s2 >= 0.0f && s2 <= 1.0f) {
+        if (!found || s2 > selected) {
+            selected = s2;
+            found = true;
+        }
+    }
+    return found ? selected : std::clamp(s2, 0.0f, 1.0f);
+}
+}  // namespace
 
 PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> feedback_serial,
                        std::shared_ptr<rc26_decision::SerialDriver> target_serial, Config config)
@@ -29,10 +66,9 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
     const auto now = std::chrono::steady_clock::now();
     feedback_stats_.window_start = now;
     target_stats_.window_start = now;
+    imu_spike_deadline_ = now;
+    imu_scale_last_update_ = now;
 
-    // Bridge ROS velocity commands to MCU speed closed-loop:
-    // - Subscribe `cmd_vel_topic` (Twist)
-    // - Send POSE_TARGET(0x22) over UART as (vx, vy, wz) floats
     cmd_vel_sub_ = node_.create_subscription<geometry_msgs::msg::Twist>(
         config_.cmd_vel_topic, 10, std::bind(&PoseSender::cmdVelCallback, this, std::placeholders::_1));
 
@@ -41,6 +77,7 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
 
     imu_sub_ = node_.create_subscription<sensor_msgs::msg::Imu>(
         config_.imu_topic, 20, std::bind(&PoseSender::imuCallback, this, std::placeholders::_1));
+
     if (!config_.terrain_speed_limit_topic.empty()) {
         terrain_speed_limit_sub_ = node_.create_subscription<std_msgs::msg::Float32>(
             config_.terrain_speed_limit_topic, 10,
@@ -65,9 +102,12 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
                 "PoseSender 启动 (双串口模式)，cmd_vel: %s, odom: %s, imu: %s, 反馈: %d Hz, 目标: %d Hz",
                 config_.cmd_vel_topic.c_str(), config_.odom_topic.c_str(), config_.imu_topic.c_str(),
                 config_.feedback_send_rate_hz, config_.target_send_rate_hz);
+    RCLCPP_INFO(node_.get_logger(),
+                "PoseSender 保护参数: imu_gate=%s governor=%s dob=%s cmd_vel_timeout=%dms",
+                config_.imu_gate_enable ? "on" : "off", config_.governor_enable ? "on" : "off",
+                config_.dob_enable ? "on" : "off", config_.cmd_vel_timeout_ms);
     if (!config_.terrain_speed_limit_topic.empty()) {
-        RCLCPP_INFO(node_.get_logger(),
-                    "PoseSender terrain_speed_limit 已启用: topic=%s timeout=%dms",
+        RCLCPP_INFO(node_.get_logger(), "PoseSender terrain_speed_limit 已启用: topic=%s timeout=%dms",
                     config_.terrain_speed_limit_topic.c_str(), config_.terrain_speed_limit_timeout_ms);
     }
 }
@@ -83,61 +123,105 @@ void PoseSender::cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg) 
 }
 
 void PoseSender::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
+    const auto now = std::chrono::steady_clock::now();
+
     std::lock_guard<std::mutex> lock(data_mutex_);
     feedback_vel_.vx = static_cast<float>(msg->twist.twist.linear.x);
     feedback_vel_.vy = static_cast<float>(msg->twist.twist.linear.y);
     feedback_vel_.wz = static_cast<float>(msg->twist.twist.angular.z);
+
+    if (prev_odom_valid_) {
+        const double dt = std::chrono::duration<double>(now - prev_odom_time_).count();
+        if (isValidDt(dt)) {
+            const float dvx = feedback_vel_.vx - prev_odom_vel_.vx;
+            const float dvy = feedback_vel_.vy - prev_odom_vel_.vy;
+            wheel_accel_mps2_ = std::hypot(dvx, dvy) / static_cast<float>(dt);
+            wheel_accel_valid_ = true;
+        }
+    }
+
+    prev_odom_vel_ = feedback_vel_;
+    prev_odom_time_ = now;
+    prev_odom_valid_ = true;
 }
 
 void PoseSender::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
-    const double ax = static_cast<double>(msg->linear_acceleration.x);
-    const double ay = static_cast<double>(msg->linear_acceleration.y);
-    const double az = static_cast<double>(msg->linear_acceleration.z);
-    const double gx = static_cast<double>(msg->angular_velocity.x);
-    const double gy = static_cast<double>(msg->angular_velocity.y);
-    const double gz = static_cast<double>(msg->angular_velocity.z);
-
-    const double acc_norm = std::sqrt(ax * ax + ay * ay + az * az);
-    const double gyro_norm = std::sqrt(gx * gx + gy * gy + gz * gz);
+    const float ax = static_cast<float>(msg->linear_acceleration.x);
+    const float ay = static_cast<float>(msg->linear_acceleration.y);
+    const float gz = static_cast<float>(msg->angular_velocity.z);
 
     {
         std::lock_guard<std::mutex> lock(imu_cache_mutex_);
-        cached_imu_.ax = static_cast<float>(ax);
-        cached_imu_.ay = static_cast<float>(ay);
-        cached_imu_.gz = static_cast<float>(gz);
+        cached_imu_.ax = ax;
+        cached_imu_.ay = ay;
+        cached_imu_.gz = gz;
         cached_imu_.stamp = std::chrono::steady_clock::now();
         cached_imu_.valid = true;
     }
 
-    const bool acc_spike = acc_norm > static_cast<double>(config_.spike_accel_threshold);
-    const bool gyro_spike = gyro_norm > static_cast<double>(config_.spike_gyro_threshold);
+    if (!config_.imu_gate_enable) {
+        return;
+    }
 
     const auto now = std::chrono::steady_clock::now();
-    bool enter = false;
-    bool exit = false;
+    const float alpha_old = std::clamp(config_.imu_gate_ema_alpha, 0.0f, 0.9999f);
+    const float alpha_new = 1.0f - alpha_old;
+
+    float d2 = 0.0f;
+    {
+        std::lock_guard<std::mutex> lock(imu_gate_mutex_);
+        if (!imu_gate_initialized_) {
+            imu_gate_initialized_ = true;
+            imu_gate_mean_ax_ = ax;
+            imu_gate_var_ax_ = kMinImuVar;
+            imu_last_d2_ = 0.0f;
+            return;
+        }
+
+        const float prev_mean = imu_gate_mean_ax_;
+        imu_gate_mean_ax_ = alpha_old * imu_gate_mean_ax_ + alpha_new * ax;
+        const float innovation = ax - prev_mean;
+        imu_gate_var_ax_ = std::max(kMinImuVar, alpha_old * imu_gate_var_ax_ + alpha_new * innovation * innovation);
+
+        const float residual = ax - imu_gate_mean_ax_;
+        d2 = (residual * residual) / std::max(imu_gate_var_ax_, kMinImuVar);
+        imu_last_d2_ = d2;
+    }
+
+    const float chi2_threshold = std::max(config_.imu_gate_chi2_threshold, 0.1f);
+    if (d2 <= chi2_threshold) {
+        return;
+    }
+
+    float wheel_accel = 0.0f;
+    bool wheel_accel_valid = false;
+    {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        wheel_accel = wheel_accel_mps2_;
+        wheel_accel_valid = wheel_accel_valid_;
+    }
+
+    if (wheel_accel_valid && wheel_accel >= config_.accel_agree_threshold_mps2) {
+        RCLCPP_DEBUG_THROTTLE(node_.get_logger(), *node_.get_clock(), 1000,
+                              "[PoseSender] IMU χ² outlier ignored by wheel acceleration: d2=%.3f aw=%.3f", d2,
+                              wheel_accel);
+        return;
+    }
+
+    const float gate_scale = std::exp(-d2 / (2.0f * chi2_threshold));
     {
         std::lock_guard<std::mutex> lock(imu_spike_mutex_);
-        const bool active = imu_spike_active_.load(std::memory_order_relaxed);
-        if (acc_spike || gyro_spike) {
-            imu_spike_deadline_ = now + std::chrono::milliseconds(config_.spike_freeze_duration_ms);
-            if (!active) {
-                imu_spike_active_.store(true, std::memory_order_relaxed);
-                enter = true;
-            }
-        } else if (active && now >= imu_spike_deadline_) {
-            imu_spike_active_.store(false, std::memory_order_relaxed);
-            exit = true;
+        imu_spike_scale_ = std::min(imu_spike_scale_, std::clamp(gate_scale, 0.0f, 1.0f));
+        imu_spike_deadline_ = now + std::chrono::milliseconds(std::max(0, config_.spike_freeze_duration_ms));
+        if (!imu_scale_initialized_) {
+            imu_scale_initialized_ = true;
+            imu_scale_last_update_ = now;
         }
     }
 
-    if (enter) {
-        RCLCPP_WARN_THROTTLE(node_.get_logger(), *node_.get_clock(), 500,
-                             "[PoseSender] spike enter: acc=%.1f gyro=%.1f", acc_norm, gyro_norm);
-    }
-    if (exit) {
-        RCLCPP_WARN_THROTTLE(node_.get_logger(), *node_.get_clock(), 500,
-                             "[PoseSender] spike exit: acc=%.1f gyro=%.1f", acc_norm, gyro_norm);
-    }
+    RCLCPP_WARN_THROTTLE(node_.get_logger(), *node_.get_clock(), 500,
+                         "[PoseSender] IMU gate trigger: d2=%.3f scale=%.3f wheel_acc=%.3f", d2, gate_scale,
+                         wheel_accel);
 }
 
 void PoseSender::terrainSpeedLimitCallback(const std_msgs::msg::Float32::SharedPtr msg) {
@@ -150,66 +234,231 @@ void PoseSender::terrainSpeedLimitCallback(const std_msgs::msg::Float32::SharedP
     terrain_speed_limit_received_ = true;
 }
 
-PoseSender::Velocity PoseSender::protectVelocity(Velocity raw, Velocity& prev_vel, double dt) {
-    const auto now = std::chrono::steady_clock::now();
-    {
-        std::lock_guard<std::mutex> lock(imu_spike_mutex_);
-        if (imu_spike_active_.load(std::memory_order_relaxed) && now >= imu_spike_deadline_) {
-            imu_spike_active_.store(false, std::memory_order_relaxed);
-        }
-    }
-
-    if (imu_spike_active_.load(std::memory_order_relaxed)) {
-        const double tau = std::max(1e-6, static_cast<double>(config_.spike_decay_tau_s));
-        const double decay = (dt > 0.0) ? std::exp(-dt / tau) : 1.0;
-
-        Velocity output;
-        output.vx = static_cast<float>(prev_vel.vx * decay);
-        output.vy = static_cast<float>(prev_vel.vy * decay);
-        output.wz = static_cast<float>(prev_vel.wz * decay);
-        prev_vel = output;
-        return output;
-    }
-
+float PoseSender::getEffectiveVMax(const std::chrono::steady_clock::time_point& now) const {
     float effective_v_max = std::fabs(config_.v_max_mps);
-    if (!config_.terrain_speed_limit_topic.empty()) {
-        float terrain_limit = NAN;
-        bool terrain_limit_valid = false;
-        {
-            std::lock_guard<std::mutex> lock(data_mutex_);
-            if (terrain_speed_limit_received_) {
-                const auto timeout_ms = std::max(0, config_.terrain_speed_limit_timeout_ms);
-                const auto age = now - terrain_speed_limit_time_;
-                if (age <= std::chrono::milliseconds(timeout_ms)) {
-                    terrain_limit = terrain_speed_limit_mps_;
-                    terrain_limit_valid = true;
-                }
+    if (config_.terrain_speed_limit_topic.empty()) {
+        return effective_v_max;
+    }
+
+    float terrain_limit = NAN;
+    bool terrain_limit_valid = false;
+    {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        if (terrain_speed_limit_received_) {
+            const int timeout_ms = std::max(0, config_.terrain_speed_limit_timeout_ms);
+            if (now - terrain_speed_limit_time_ <= std::chrono::milliseconds(timeout_ms)) {
+                terrain_limit = terrain_speed_limit_mps_;
+                terrain_limit_valid = true;
             }
         }
-        if (terrain_limit_valid && std::isfinite(terrain_limit)) {
-            terrain_limit = std::max(0.0f, terrain_limit);
-            effective_v_max = std::min(effective_v_max, terrain_limit);
-        }
     }
 
+    if (terrain_limit_valid && std::isfinite(terrain_limit)) {
+        terrain_limit = std::max(0.0f, terrain_limit);
+        effective_v_max = std::min(effective_v_max, terrain_limit);
+    }
+    return effective_v_max;
+}
+
+void PoseSender::applyImuSpikeScale(Velocity& velocity, const std::chrono::steady_clock::time_point& now) {
+    if (!config_.imu_gate_enable) {
+        return;
+    }
+
+    float scale = 1.0f;
+    {
+        std::lock_guard<std::mutex> lock(imu_spike_mutex_);
+        if (!imu_scale_initialized_) {
+            imu_scale_initialized_ = true;
+            imu_scale_last_update_ = now;
+        }
+
+        const double elapsed = std::chrono::duration<double>(now - imu_scale_last_update_).count();
+        imu_scale_last_update_ = now;
+
+        if (now >= imu_spike_deadline_) {
+            const double tau = std::max(1e-6, static_cast<double>(config_.spike_decay_tau_s));
+            const double alpha = 1.0 - std::exp(-std::max(0.0, elapsed) / tau);
+            imu_spike_scale_ = static_cast<float>(imu_spike_scale_ + (1.0f - imu_spike_scale_) * alpha);
+        }
+
+        imu_spike_scale_ = std::clamp(imu_spike_scale_, 0.0f, 1.0f);
+        scale = imu_spike_scale_;
+    }
+
+    velocity.vx *= scale;
+    velocity.vy *= scale;
+    velocity.wz *= scale;
+}
+
+bool PoseSender::imuSpikeActive() const {
+    if (!config_.imu_gate_enable) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(imu_spike_mutex_);
+    return imu_spike_scale_ < 0.999f;
+}
+
+PoseSender::Velocity PoseSender::applyFallbackProtect(Velocity raw, const Velocity& prev_vel, double dt,
+                                                      float effective_v_max) const {
     const float w_limit = std::fabs(config_.w_max_rps);
     const float a_limit = std::fabs(config_.a_max_mps2);
     const float alpha_limit = std::fabs(config_.alpha_max_rps2);
 
     Velocity output;
-    output.vx = std::clamp(raw.vx, -effective_v_max, effective_v_max);
-    output.vy = std::clamp(raw.vy, -effective_v_max, effective_v_max);
     output.wz = std::clamp(raw.wz, -w_limit, w_limit);
+    output.vx = raw.vx;
+    output.vy = raw.vy;
 
-    if (dt > 0.0 && dt <= kMaxValidDtSec) {
-        const float dv_limit = static_cast<float>(a_limit * static_cast<float>(dt));
-        const float dw_limit = static_cast<float>(alpha_limit * static_cast<float>(dt));
-        output.vx = std::clamp(output.vx, prev_vel.vx - dv_limit, prev_vel.vx + dv_limit);
-        output.vy = std::clamp(output.vy, prev_vel.vy - dv_limit, prev_vel.vy + dv_limit);
+    projectToCircle(output.vx, output.vy, effective_v_max);
+
+    if (isValidDt(dt)) {
+        const float dv_limit = a_limit * static_cast<float>(dt);
+        const float dw_limit = alpha_limit * static_cast<float>(dt);
+
+        const float dvx = output.vx - prev_vel.vx;
+        const float dvy = output.vy - prev_vel.vy;
+        const float dv_mag = std::hypot(dvx, dvy);
+        if (dv_mag > dv_limit && dv_mag > kEpsilon) {
+            const float scale = dv_limit / dv_mag;
+            output.vx = prev_vel.vx + dvx * scale;
+            output.vy = prev_vel.vy + dvy * scale;
+        }
         output.wz = std::clamp(output.wz, prev_vel.wz - dw_limit, prev_vel.wz + dw_limit);
     }
 
+    projectToCircle(output.vx, output.vy, effective_v_max);
+    return output;
+}
+
+PoseSender::Velocity PoseSender::applyGovernorProtect(Velocity raw, const Velocity& prev_vel, double dt,
+                                                      float effective_v_max) const {
+    const bool dt_valid = isValidDt(dt);
+    const float w_limit = std::fabs(config_.w_max_rps);
+    const float a_limit = std::fabs(config_.a_max_mps2);
+    const float alpha_limit = std::fabs(config_.alpha_max_rps2);
+
+    Velocity prev_projected = prev_vel;
+    projectToCircle(prev_projected.vx, prev_projected.vy, effective_v_max);
+
+    const float lambda = std::max(0.0f, config_.governor_lambda);
+    const float inv_denom = 1.0f / (1.0f + lambda);
+
+    Velocity v_star;
+    v_star.vx = (raw.vx + lambda * prev_projected.vx) * inv_denom;
+    v_star.vy = (raw.vy + lambda * prev_projected.vy) * inv_denom;
+    v_star.wz = (raw.wz + lambda * prev_projected.wz) * inv_denom;
+
+    Velocity output;
+    output.wz = std::clamp(v_star.wz, -w_limit, w_limit);
+
+    if (dt_valid) {
+        const float dw_limit = alpha_limit * static_cast<float>(dt);
+        output.wz = std::clamp(output.wz, prev_projected.wz - dw_limit, prev_projected.wz + dw_limit);
+    }
+
+    Velocity v_box;
+    if (dt_valid) {
+        const float dv_limit = a_limit * static_cast<float>(dt);
+        v_box.vx = std::clamp(v_star.vx, prev_projected.vx - dv_limit, prev_projected.vx + dv_limit);
+        v_box.vy = std::clamp(v_star.vy, prev_projected.vy - dv_limit, prev_projected.vy + dv_limit);
+    } else {
+        v_box.vx = v_star.vx;
+        v_box.vy = v_star.vy;
+    }
+
+    if (effective_v_max <= kEpsilon) {
+        output.vx = 0.0f;
+        output.vy = 0.0f;
+        return output;
+    }
+
+    const float v_box_mag = std::hypot(v_box.vx, v_box.vy);
+    if (v_box_mag <= effective_v_max + kEpsilon) {
+        output.vx = v_box.vx;
+        output.vy = v_box.vy;
+        return output;
+    }
+
+    const float dx = v_box.vx - prev_projected.vx;
+    const float dy = v_box.vy - prev_projected.vy;
+    const float a = dx * dx + dy * dy;
+    if (a <= kEpsilon) {
+        output.vx = prev_projected.vx;
+        output.vy = prev_projected.vy;
+        return output;
+    }
+
+    const float b = 2.0f * (prev_projected.vx * dx + prev_projected.vy * dy);
+    const float c = prev_projected.vx * prev_projected.vx + prev_projected.vy * prev_projected.vy -
+                    effective_v_max * effective_v_max;
+    const float discriminant = std::max(0.0f, b * b - 4.0f * a * c);
+    const float sqrt_discriminant = std::sqrt(discriminant);
+    const float s1 = (-b - sqrt_discriminant) / (2.0f * a);
+    const float s2 = (-b + sqrt_discriminant) / (2.0f * a);
+    const float s = pickIntersectionScale(s1, s2);
+
+    output.vx = prev_projected.vx + s * dx;
+    output.vy = prev_projected.vy + s * dy;
+    projectToCircle(output.vx, output.vy, effective_v_max);
+    return output;
+}
+
+PoseSender::Velocity PoseSender::protectVelocity(Velocity raw, Velocity& prev_vel, double dt, bool enable_dob) {
+    const auto now = std::chrono::steady_clock::now();
+
+    Velocity command = raw;
+    if (enable_dob && config_.dob_enable && isValidDt(dt)) {
+        Velocity actual;
+        {
+            std::lock_guard<std::mutex> lock(data_mutex_);
+            actual = feedback_vel_;
+        }
+
+        std::lock_guard<std::mutex> lock(dob_mutex_);
+        if (prev_governor_output_valid_) {
+            const float dt_f = static_cast<float>(dt);
+            const float d_raw_vx = (actual.vx - prev_governor_output_.vx) / dt_f;
+            const float d_raw_vy = (actual.vy - prev_governor_output_.vy) / dt_f;
+            const float d_raw_wz = (actual.wz - prev_governor_output_.wz) / dt_f;
+
+            const float dob_lpf_hz = std::max(0.0f, config_.dob_lpf_hz);
+            float alpha = 1.0f;
+            if (dob_lpf_hz > kEpsilon) {
+                const float tau = 1.0f / static_cast<float>(kTwoPi * static_cast<double>(dob_lpf_hz));
+                alpha = dt_f / (tau + dt_f);
+            }
+            alpha = std::clamp(alpha, 0.0f, 1.0f);
+
+            dob_hat_.vx += alpha * (d_raw_vx - dob_hat_.vx);
+            dob_hat_.vy += alpha * (d_raw_vy - dob_hat_.vy);
+            dob_hat_.wz += alpha * (d_raw_wz - dob_hat_.wz);
+
+            command.vx += config_.dob_kd * dob_hat_.vx;
+            command.vy += config_.dob_kd * dob_hat_.vy;
+            command.wz += config_.dob_kd * dob_hat_.wz;
+        }
+    }
+
+    const float effective_v_max = getEffectiveVMax(now);
+
+    Velocity output;
+    if (config_.governor_enable) {
+        output = applyGovernorProtect(command, prev_vel, dt, effective_v_max);
+    } else {
+        output = applyFallbackProtect(command, prev_vel, dt, effective_v_max);
+    }
+
+    applyImuSpikeScale(output, now);
     prev_vel = output;
+
+    if (enable_dob && config_.dob_enable) {
+        std::lock_guard<std::mutex> lock(dob_mutex_);
+        prev_governor_output_ = output;
+        prev_governor_output_valid_ = true;
+    }
+
     return output;
 }
 
@@ -245,7 +494,7 @@ void PoseSender::feedbackTimerCallback() {
         prev_feedback_output_valid_ = true;
     }
 
-    Velocity protected_vel = protectVelocity(feedback, prev_feedback, dt);
+    Velocity protected_vel = protectVelocity(feedback, prev_feedback, dt, false);
     {
         std::lock_guard<std::mutex> lock(data_mutex_);
         prev_feedback_vel_ = prev_feedback;
@@ -310,7 +559,7 @@ void PoseSender::feedbackTimerCallback() {
     feedback_protected_pub_->publish(feedback_msg);
 
     std_msgs::msg::Bool spike_msg;
-    spike_msg.data = imu_spike_active_.load(std::memory_order_relaxed);
+    spike_msg.data = imuSpikeActive();
     imu_spike_pub_->publish(spike_msg);
 }
 
@@ -351,7 +600,7 @@ void PoseSender::targetTimerCallback() {
         prev_target_output_valid_ = true;
     }
 
-    Velocity protected_vel = protectVelocity(target, prev_target, dt);
+    Velocity protected_vel = protectVelocity(target, prev_target, dt, true);
     {
         std::lock_guard<std::mutex> lock(data_mutex_);
         prev_target_vel_ = prev_target;
@@ -416,7 +665,7 @@ void PoseSender::targetTimerCallback() {
     target_protected_pub_->publish(target_msg);
 
     std_msgs::msg::Bool spike_msg;
-    spike_msg.data = imu_spike_active_.load(std::memory_order_relaxed);
+    spike_msg.data = imuSpikeActive();
     imu_spike_pub_->publish(spike_msg);
 }
 

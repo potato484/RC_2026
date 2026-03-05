@@ -2,10 +2,9 @@
 // 双串口架构：反馈速度 + 目标速度，用于MCU速度闭环控制
 #pragma once
 
-#include <atomic>
-#include <cstdint>
-#include <cmath>
 #include <chrono>
+#include <cmath>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -35,10 +34,17 @@ public:
         float w_max_rps = 4.0f;
         float a_max_mps2 = 15.0f;
         float alpha_max_rps2 = 40.0f;
-        float spike_accel_threshold = 20.0f;
-        float spike_gyro_threshold = 6.0f;
-        int spike_freeze_duration_ms = 300;
-        float spike_decay_tau_s = 0.2f;
+        bool imu_gate_enable = true;
+        float imu_gate_ema_alpha = 0.98f;
+        float imu_gate_chi2_threshold = 6.635f;
+        float accel_agree_threshold_mps2 = 3.0f;
+        int spike_freeze_duration_ms = 100;
+        float spike_decay_tau_s = 0.3f;
+        bool governor_enable = true;
+        float governor_lambda = 0.2f;
+        bool dob_enable = false;
+        float dob_lpf_hz = 5.0f;
+        float dob_kd = 0.3f;
         bool latency_comp_enable = true;
         float latency_comp_s = 0.03f;
         std::string terrain_speed_limit_topic = "";
@@ -53,6 +59,26 @@ private:
         float vx = 0.0f;
         float vy = 0.0f;
         float wz = 0.0f;
+    };
+
+    struct ImuCache {
+        float ax = 0.0f;
+        float ay = 0.0f;
+        float gz = 0.0f;
+        std::chrono::steady_clock::time_point stamp;
+        bool valid = false;
+    };
+
+    struct SeqStats {
+        bool last_valid = false;
+        uint8_t last_ok_seq = 0;
+        uint64_t ok_total = 0;
+        uint64_t fail_total = 0;
+        uint64_t missing_total = 0;
+        uint64_t ok_1s = 0;
+        uint64_t fail_1s = 0;
+        uint64_t missing_1s = 0;
+        std::chrono::steady_clock::time_point window_start{};
     };
 
     rclcpp::Node& node_;
@@ -73,44 +99,44 @@ private:
     mutable std::mutex data_mutex_;
     Velocity target_vel_;
     Velocity feedback_vel_;
-    std::chrono::steady_clock::time_point last_cmd_vel_time_;
-    bool cmd_vel_received_ = false;
-    bool timeout_zero_sent_ = false;
     Velocity prev_feedback_vel_;
     Velocity prev_target_vel_;
+    Velocity prev_odom_vel_;
+    std::chrono::steady_clock::time_point last_cmd_vel_time_;
     std::chrono::steady_clock::time_point prev_feedback_output_time_;
     std::chrono::steady_clock::time_point prev_target_output_time_;
+    std::chrono::steady_clock::time_point prev_odom_time_;
+    std::chrono::steady_clock::time_point terrain_speed_limit_time_;
+    bool cmd_vel_received_ = false;
+    bool timeout_zero_sent_ = false;
     bool prev_feedback_output_valid_ = false;
     bool prev_target_output_valid_ = false;
-    float terrain_speed_limit_mps_ = NAN;
-    std::chrono::steady_clock::time_point terrain_speed_limit_time_;
+    bool prev_odom_valid_ = false;
     bool terrain_speed_limit_received_ = false;
+    bool wheel_accel_valid_ = false;
+    float terrain_speed_limit_mps_ = NAN;
+    float wheel_accel_mps2_ = 0.0f;
 
-    struct ImuCache {
-        float ax = 0.0f;
-        float ay = 0.0f;
-        float gz = 0.0f;
-        std::chrono::steady_clock::time_point stamp;
-        bool valid = false;
-    };
     mutable std::mutex imu_cache_mutex_;
     ImuCache cached_imu_;
 
-    std::atomic<bool> imu_spike_active_{false};
-    std::chrono::steady_clock::time_point imu_spike_deadline_;
-    mutable std::mutex imu_spike_mutex_;
+    mutable std::mutex imu_gate_mutex_;
+    bool imu_gate_initialized_ = false;
+    float imu_gate_mean_ax_ = 0.0f;
+    float imu_gate_var_ax_ = 1.0f;
+    float imu_last_d2_ = 0.0f;
 
-    struct SeqStats {
-        bool last_valid = false;
-        uint8_t last_ok_seq = 0;
-        uint64_t ok_total = 0;
-        uint64_t fail_total = 0;
-        uint64_t missing_total = 0;
-        uint64_t ok_1s = 0;
-        uint64_t fail_1s = 0;
-        uint64_t missing_1s = 0;
-        std::chrono::steady_clock::time_point window_start{};
-    };
+    mutable std::mutex imu_spike_mutex_;
+    float imu_spike_scale_ = 1.0f;
+    bool imu_scale_initialized_ = false;
+    std::chrono::steady_clock::time_point imu_spike_deadline_;
+    std::chrono::steady_clock::time_point imu_scale_last_update_;
+
+    mutable std::mutex dob_mutex_;
+    Velocity dob_hat_;
+    Velocity prev_governor_output_;
+    bool prev_governor_output_valid_ = false;
+
     SeqStats feedback_stats_;
     SeqStats target_stats_;
 
@@ -120,7 +146,13 @@ private:
     void terrainSpeedLimitCallback(const std_msgs::msg::Float32::SharedPtr msg);
     void feedbackTimerCallback();
     void targetTimerCallback();
-    Velocity protectVelocity(Velocity raw, Velocity& prev_vel, double dt);
+
+    float getEffectiveVMax(const std::chrono::steady_clock::time_point& now) const;
+    void applyImuSpikeScale(Velocity& velocity, const std::chrono::steady_clock::time_point& now);
+    bool imuSpikeActive() const;
+    Velocity applyFallbackProtect(Velocity raw, const Velocity& prev_vel, double dt, float effective_v_max) const;
+    Velocity applyGovernorProtect(Velocity raw, const Velocity& prev_vel, double dt, float effective_v_max) const;
+    Velocity protectVelocity(Velocity raw, Velocity& prev_vel, double dt, bool enable_dob);
 };
 
 }  // namespace rc26_merge_odom
