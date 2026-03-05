@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace mid360_driver {
 
@@ -77,6 +78,8 @@ struct SphericalPoint {
 
 #pragma pack()
 
+static_assert(sizeof(Point) == 24);
+
 void combine_4_bytes(std::size_t& seed, const unsigned char* bytes) {
     const std::size_t bytes_hash = (static_cast<std::size_t>(bytes[0]) << 24) |
                                    (static_cast<std::size_t>(bytes[1]) << 16) |
@@ -98,9 +101,30 @@ std::size_t IpAddressHasher::operator()(const asio::ip::address& addr) const noe
     }
 }
 
+double normalize_header_timestamp(const TimestampType time_type, const asio::ip::address& lidar_ip,
+                                  double header_timestamp,
+                                  std::unordered_map<asio::ip::address, TimeSyncState, IpAddressHasher>&
+                                      time_sync_map) {
+    if (time_type != TimestampType::kTimestampTypeNoSync) {
+        return header_timestamp;
+    }
+    auto& sync_state = time_sync_map[lidar_ip];
+    auto now = std::chrono::system_clock::now();
+    auto now_sec = std::chrono::duration_cast<std::chrono::duration<double>>(now.time_since_epoch()).count();
+    const double new_delta = now_sec - header_timestamp;
+    if (!sync_state.initialized) {
+        sync_state.delta = new_delta;
+        sync_state.initialized = true;
+    } else {
+        constexpr double kAlpha = 0.001;
+        sync_state.delta += kAlpha * (new_delta - sync_state.delta);
+    }
+    return header_timestamp + sync_state.delta;
+}
+
 Mid360Driver::Mid360Driver(
     asio::io_context& io_context, const asio::ip::address& host_ip,
-    const std::function<void(const asio::ip::address& lidar_ip, const std::vector<Point>& points)>&
+    const std::function<void(const asio::ip::address& lidar_ip, const FrameMeta& meta, const std::vector<Point>& points)>&
         on_receive_pointcloud,
     const std::function<void(const asio::ip::address& lidar_ip, const ImuMsg& imu_msg)>& on_receive_imu)
     : host_ip(host_ip), receive_pointcloud_socket(io_context), receive_imu_socket(io_context),
@@ -109,6 +133,9 @@ Mid360Driver::Mid360Driver(
     receive_pointcloud_socket.bind(asio::ip::udp::endpoint(host_ip, 56301));
     receive_imu_socket.open(asio::ip::udp::v4());
     receive_imu_socket.bind(asio::ip::udp::endpoint(host_ip, 56401));
+    asio::socket_base::receive_buffer_size rcvbuf(16 * 1024 * 1024);
+    receive_pointcloud_socket.set_option(rcvbuf);
+    receive_imu_socket.set_option(rcvbuf);
     co_spawn(io_context, receive_pointcloud(), asio::detached);
     co_spawn(io_context, receive_imu(), asio::detached);
 }
@@ -127,6 +154,7 @@ void Mid360Driver::stop() {
 asio::awaitable<void> Mid360Driver::receive_pointcloud() {
     uint8_t buffer[1400];
     asio::ip::udp::endpoint sender_endpoint;
+    std::vector<Point> points;
     while (is_running.load(std::memory_order_relaxed)) {
         asio::error_code error_code;
         std::size_t bytes_received = co_await receive_pointcloud_socket.async_receive_from(
@@ -156,18 +184,8 @@ asio::awaitable<void> Mid360Driver::receive_pointcloud() {
             continue;
         }
         double header_timestamp = static_cast<double>(header.timestamp) * 1e-9;
-        if (header.time_type == TimestampType::kTimestampTypeNoSync) {
-            auto [iter, inserted] = delta_time_map.try_emplace(sender_endpoint.address());
-            if (inserted) {
-                auto now = std::chrono::system_clock::now();
-                auto now_sec =
-                    std::chrono::duration_cast<std::chrono::duration<double>>(now.time_since_epoch()).count();
-                iter->second = now_sec - header_timestamp;
-                header_timestamp = now_sec;
-            } else {
-                header_timestamp += iter->second;
-            }
-        }
+        header_timestamp = normalize_header_timestamp(header.time_type, sender_endpoint.address(), header_timestamp,
+                                                      time_sync_map);
         points.clear();
         points.reserve(header.dot_num);
         const double point_time_step = (header.dot_num > 1) ? static_cast<double>(header.time_interval) * 1e-7 /
@@ -218,14 +236,39 @@ asio::awaitable<void> Mid360Driver::receive_pointcloud() {
                 double radius = raw_point.depth / 1000.0;
                 double theta = raw_point.theta / 100.0 / 180 * M_PI;
                 double phi = raw_point.phi / 100.0 / 180 * M_PI;
-                point.x = static_cast<float>(radius * sin(theta) * cos(phi));
-                point.y = static_cast<float>(radius * sin(theta) * sin(phi));
+                const double sin_theta = sin(theta);
+                point.x = static_cast<float>(radius * sin_theta * cos(phi));
+                point.y = static_cast<float>(radius * sin_theta * sin(phi));
                 point.z = static_cast<float>(radius * cos(theta));
                 point.intensity = raw_point.reflectivity;
                 points.push_back(point);
             }
         }
-        on_receive_pointcloud(sender_endpoint.address(), points);
+        auto& frame_state = frame_state_map[sender_endpoint.address()];
+        if (frame_state.has_data && header.frame_cnt != frame_state.current_frame_cnt) {
+            FrameMeta meta{frame_state.frame_min_ts, frame_state.current_frame_cnt, frame_state.lost_in_frame,
+                           frame_state.lost_total};
+            on_receive_pointcloud(sender_endpoint.address(), meta, frame_state.frame_points);
+            frame_state.frame_points.clear();
+            frame_state.lost_in_frame = 0;
+            frame_state.has_data = false;
+        }
+        if (!frame_state.has_data) {
+            frame_state.current_frame_cnt = header.frame_cnt;
+            frame_state.expected_udp_cnt = 0;
+            frame_state.frame_min_ts = std::numeric_limits<double>::max();
+        }
+        if (header.udp_cnt != frame_state.expected_udp_cnt && frame_state.has_data) {
+            const auto gap = static_cast<uint16_t>(header.udp_cnt - frame_state.expected_udp_cnt);
+            frame_state.lost_in_frame += gap;
+            frame_state.lost_total += gap;
+        }
+        frame_state.expected_udp_cnt = static_cast<uint16_t>(header.udp_cnt + 1);
+        if (header_timestamp < frame_state.frame_min_ts) {
+            frame_state.frame_min_ts = header_timestamp;
+        }
+        frame_state.frame_points.insert(frame_state.frame_points.end(), points.begin(), points.end());
+        frame_state.has_data = true;
     }
 }
 
@@ -251,18 +294,8 @@ asio::awaitable<void> Mid360Driver::receive_imu() {
             continue;
         }
         double header_timestamp = static_cast<double>(header.timestamp) * 1e-9;
-        if (header.time_type == TimestampType::kTimestampTypeNoSync) {
-            auto [iter, inserted] = delta_time_map.try_emplace(sender_endpoint.address());
-            if (inserted) {
-                auto now = std::chrono::system_clock::now();
-                auto now_sec =
-                    std::chrono::duration_cast<std::chrono::duration<double>>(now.time_since_epoch()).count();
-                iter->second = now_sec - header_timestamp;
-                header_timestamp = now_sec;
-            } else {
-                header_timestamp += iter->second;
-            }
-        }
+        header_timestamp = normalize_header_timestamp(header.time_type, sender_endpoint.address(), header_timestamp,
+                                                      time_sync_map);
         const auto& raw_imu = *reinterpret_cast<const Imu*>(buffer + sizeof(DataHeader));
         ImuMsg imu_msg;  // NOLINT(cppcoreguidelines-pro-type-member-init)
         imu_msg.timestamp = header_timestamp;

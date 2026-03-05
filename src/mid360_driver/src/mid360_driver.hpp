@@ -8,6 +8,7 @@
 
 #define ASIO_NO_DEPRECATED
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <unordered_map>
 #include <vector>
@@ -17,9 +18,31 @@
 namespace mid360_driver {
 
 struct Point {
-    double timestamp;
     float x, y, z;
     float intensity;
+    double timestamp;
+};
+
+struct FrameMeta {
+    double stamp_sec;
+    uint8_t frame_cnt;
+    uint32_t lost_in_frame;
+    uint32_t lost_total;
+};
+
+struct FrameState {
+    uint8_t current_frame_cnt = 0;
+    uint16_t expected_udp_cnt = 0;
+    double frame_min_ts = 0.0;
+    uint32_t lost_in_frame = 0;
+    uint32_t lost_total = 0;
+    std::vector<Point> frame_points;
+    bool has_data = false;
+};
+
+struct TimeSyncState {
+    double delta = 0.0;
+    bool initialized = false;
 };
 
 struct ImuMsg {
@@ -42,15 +65,16 @@ private:
     asio::ip::address host_ip;
     asio::ip::udp::socket receive_pointcloud_socket;
     asio::ip::udp::socket receive_imu_socket;
-    std::vector<Point> points;
-    std::unordered_map<asio::ip::address, double, IpAddressHasher> delta_time_map;
-    std::function<void(const asio::ip::address& lidar_ip, const std::vector<Point>& points)> on_receive_pointcloud;
+    std::unordered_map<asio::ip::address, FrameState, IpAddressHasher> frame_state_map;
+    std::unordered_map<asio::ip::address, TimeSyncState, IpAddressHasher> time_sync_map;
+    std::function<void(const asio::ip::address& lidar_ip, const FrameMeta& meta, const std::vector<Point>& points)>
+        on_receive_pointcloud;
     std::function<void(const asio::ip::address& lidar_ip, const ImuMsg& imu_msg)> on_receive_imu;
 
 public:
     Mid360Driver(asio::io_context& io_context, const asio::ip::address& host_ip,
-                 const std::function<void(const asio::ip::address& lidar_ip, const std::vector<Point>& points)>&
-                     on_receive_pointcloud,
+                 const std::function<void(const asio::ip::address& lidar_ip, const FrameMeta& meta,
+                                          const std::vector<Point>& points)>& on_receive_pointcloud,
                  const std::function<void(const asio::ip::address& lidar_ip, const ImuMsg& imu_msg)>& on_receive_imu);
 
     ~Mid360Driver();
