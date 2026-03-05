@@ -1,5 +1,5 @@
-tuning/experiments/**/runs/
-tuning/models/
+src//tuning/experiments/**/runs/
+src//tuning/models/
 *.mcap
 **/__pycache__/
 **/.pytest_cache/
