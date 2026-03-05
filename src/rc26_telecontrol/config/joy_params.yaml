@@ -6,49 +6,13 @@ joy_node:
 
 rc26_telecontrol:
   ros__parameters:
-    # ========== 速度参数 ==========
-    # 基准线速度（m/s）- 摇杆推到底时的最大速度
-    v_linear: 0.7
-    # 基准角速度（rad/s）- 摇杆推到底时的最大旋转速度
-    v_angular: 1.5
-    # 十字键死区阈值 - 小于此值时认为摇杆在中位
-    joy_deadzone: 0.1
-    # 速度平滑系数（0.0~1.0）
-    # 值越大，速度增长越快（响应越灵敏）
-    # 值越小，速度增长越平滑（动作更柔和）
-    # 推荐范围：0.1~0.3，默认值 0.2
-    smoothing_alpha: 0.2
-    
-    # ========== 双摇杆控制映射 ==========
-    #
-    # 【左摇杆】- 平移控制
-    # 前后轴(axes[1]): 
-    #   推前(轻至底) → linear.x = 0 ~ +0.8 m/s（前进）
-    #   拉后(轻至底) → linear.x = 0 ~ -0.8 m/s（后退）
-    #   中位 → linear.x = 0
-    #
-    # 左右轴(axes[0]): 
-    #   推右(轻至底) → linear.y = 0 ~ +0.8 m/s（右移）
-    #   推左(轻至底) → linear.y = 0 ~ -0.8 m/s（左移）
-    #   中位 → linear.y = 0
-    #
-    # 【右摇杆左右轴】- 旋转控制
-    # 左右轴(axes[3]): 
-    #   推左(轻至底) → angular.z = 0 ~ +2.5 rad/s（逆时针左转）
-    #   推右(轻至底) → angular.z = 0 ~ -2.5 rad/s（顺时针右转）
-    #   中位 → angular.z = 0
-    #
-    # 【速度增长】
-    # 摇杆位置与速度对应关系为线性增长：
-    #   摇杆死区外推动距离 ∝ 输出速度
-    #   推到底时 → 输出最大速度（v_linear 或 v_angular）
-    #
-    # 平滑过渡机制：
-    #   每个控制周期（20ms）通过指数加权平均实现：
-    #   当前输出 = alpha × 目标速度 + (1-alpha) × 上一次输出
-    #   使速度增长呈平滑曲线，避免抖动和突变
-    #
-    # 【松开摇杆】
-    # 当两个摇杆均回到死区内（视为中位）时：
-    #   输出 linear.x = linear.y = angular.z = 0
-    #   机器人停止运动
+    v_linear: 0.2
+    v_angular: 0.5
+    joy_deadzone: 0.15
+    joy_timeout_s: 0.3
+    max_accel: 1.5
+    max_alpha: 3.0
+    stop_repeat_n: 10
+    require_deadman: false
+    deadman_button: 4
+    deadzone_hyst: 0.02
