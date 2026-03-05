@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -12,6 +13,8 @@
 
 #include "rc26_serial/adaptive_timeout.hpp"
 #include "rc26_serial/protocol.hpp"
+#include "rc26_serial/ring_parser.hpp"
+#include "rc26_serial/sliding_counter.hpp"
 
 namespace rc26_decision {
 
@@ -28,26 +31,54 @@ public:
         std::atomic<uint32_t> reconnect_count{0};
         std::atomic<uint32_t> heartbeat_failures{0};
 
+        rc26_serial::SlidingCounter<1000> parse_window;
+        rc26_serial::SlidingCounter<200> ack_window;
+
+        static constexpr uint32_t RECONNECT_RING_SIZE = 8;
+        mutable std::mutex reconnect_ring_mutex_;
+        std::array<std::chrono::steady_clock::time_point, RECONNECT_RING_SIZE> reconnect_times_{};
+        uint32_t reconnect_ring_pos_{0};
+
         enum class Level : uint8_t { HEALTHY = 0, DEGRADED = 1, CRITICAL = 2, FAILED = 3 };
 
         Level level() const {
-            const auto frames = total_frames.load(std::memory_order_relaxed);
-            const auto parse = parse_errors.load(std::memory_order_relaxed);
-            const auto ack = ack_timeouts.load(std::memory_order_relaxed);
-            const auto reconnect = reconnect_count.load(std::memory_order_relaxed);
-            const float parse_error_ratio = (frames > 0U) ? static_cast<float>(parse) / static_cast<float>(frames)
-                                                          : 0.0F;
-
-            if (reconnect > 3U) {
-                return Level::FAILED;
+            const float parse_rate = parse_window.errorRate();
+            const float ack_rate = ack_window.errorRate();
+            {
+                std::lock_guard<std::mutex> lock(reconnect_ring_mutex_);
+                const auto now = std::chrono::steady_clock::now();
+                uint32_t recent_reconnects = 0;
+                for (const auto& t : reconnect_times_) {
+                    if (t.time_since_epoch().count() > 0 &&
+                        std::chrono::duration<double>(now - t).count() <= 60.0) {
+                        ++recent_reconnects;
+                    }
+                }
+                if (recent_reconnects > 3U) {
+                    return Level::FAILED;
+                }
             }
-            if (parse_error_ratio > 0.05F || ack > 5U) {
+            if (parse_rate > 0.05F || ack_rate > 0.025F) {
                 return Level::CRITICAL;
             }
-            if (parse_error_ratio > 0.01F || ack > 2U) {
+            if (parse_rate > 0.01F || ack_rate > 0.01F) {
                 return Level::DEGRADED;
             }
             return Level::HEALTHY;
+        }
+
+        void recordReconnect() {
+            reconnect_count.fetch_add(1, std::memory_order_relaxed);
+            std::lock_guard<std::mutex> lock(reconnect_ring_mutex_);
+            reconnect_times_[reconnect_ring_pos_++ % RECONNECT_RING_SIZE] = std::chrono::steady_clock::now();
+        }
+
+        void resetWindows() {
+            parse_window.reset();
+            ack_window.reset();
+            std::lock_guard<std::mutex> lock(reconnect_ring_mutex_);
+            reconnect_times_.fill({});
+            reconnect_ring_pos_ = 0;
         }
     };
 
@@ -79,6 +110,7 @@ public:
     // ========================================================================
     // 便捷接口
     // ========================================================================
+    bool sendPose(CommandID cmd, float vx, float vy, float wz, uint8_t& out_seq);
     bool sendPose(CommandID cmd, float vx, float vy, float wz);
     bool sendStop();
     bool sendHeartbeat();
@@ -121,12 +153,12 @@ private:
     bool waiting_for_ack_{false};
     uint8_t waiting_seq_{0};
     uint8_t waiting_cmd_{0};
+    std::atomic<uint32_t> link_epoch_{0};
+    uint32_t waiting_epoch_{0};  // 受 ack_mutex_ 保护
+    enum class AckWaitResult : uint8_t { kReceived, kTimeout, kLinkDown };
     bool ack_response_received_{false};
     bool ack_success_{false};
-
-    static constexpr size_t RECV_BUFFER_SIZE = 256;
-    uint8_t recv_buffer_[RECV_BUFFER_SIZE];
-    size_t recv_len_ = 0;
+    rc26_serial::RingParser ring_parser_;
 
     uint8_t nextSeq();
     std::vector<uint8_t> buildFrame(uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload,
@@ -138,7 +170,7 @@ private:
 
     void beginWaitAck(uint8_t seq, uint8_t cmd);
     void endWaitAck();
-    bool waitForAck(std::chrono::milliseconds timeout, bool& success);
+    AckWaitResult waitForAck(std::chrono::milliseconds timeout, bool& success);
     void notifyAck(uint8_t seq, uint8_t cmd);
 
     void notifyHeartbeatFailure();
@@ -150,11 +182,10 @@ private:
     void requestReconnect(const char* reason);
 
     void recvThreadFunc();
-    void parseReceivedData();
+    void dispatchFrame(uint8_t seq, uint8_t cmd, const uint8_t* payload, size_t plen);
 
     bool write_error_active_{false};
     bool recv_error_active_{false};
-    uint32_t parse_error_count_{0};
     CommHealth comm_health_;
     mutable std::mutex timeout_mutex_;
     rc26_serial::AdaptiveTimeout adaptive_timeout_;

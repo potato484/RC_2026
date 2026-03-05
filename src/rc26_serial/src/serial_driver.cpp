@@ -11,7 +11,7 @@
 #include <pthread.h>
 #endif
 #include <rclcpp/rclcpp.hpp>
-#include <sys/select.h>
+#include <sys/epoll.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -201,14 +201,14 @@ bool SerialDriver::open(const std::string& port, int baudrate) {
         return false;
     }
 
-    recv_len_ = 0;
-    parse_error_count_ = 0;
+    ring_parser_.reset();
     if (cold_start) {
         comm_health_.total_frames.store(0, std::memory_order_relaxed);
         comm_health_.parse_errors.store(0, std::memory_order_relaxed);
         comm_health_.ack_timeouts.store(0, std::memory_order_relaxed);
         comm_health_.reconnect_count.store(0, std::memory_order_relaxed);
         comm_health_.heartbeat_failures.store(0, std::memory_order_relaxed);
+        comm_health_.resetWindows();
         {
             std::lock_guard<std::mutex> timeout_lock(timeout_mutex_);
             adaptive_timeout_ = rc26_serial::AdaptiveTimeout();
@@ -251,6 +251,8 @@ bool SerialDriver::open(const std::string& port, int baudrate) {
 
 void SerialDriver::close() {
     running_ = false;
+    link_epoch_.fetch_add(1, std::memory_order_relaxed);
+    ack_cv_.notify_all();
 
     if (recv_thread_.joinable()) {
         recv_thread_.join();
@@ -263,8 +265,7 @@ void SerialDriver::close() {
         fd_ = -1;
     }
 
-    recv_len_ = 0;
-    parse_error_count_ = 0;
+    ring_parser_.reset();
 }
 
 uint8_t SerialDriver::nextSeq() {
@@ -351,7 +352,7 @@ bool SerialDriver::reconnect() {
         return false;
     }
 
-    comm_health_.reconnect_count.fetch_add(1, std::memory_order_relaxed);
+    comm_health_.recordReconnect();
 
     RCLCPP_WARN(serialLogger(), "开始串口重连：%s @ %d", port_.c_str(), baudrate_);
 
@@ -478,6 +479,7 @@ void SerialDriver::beginWaitAck(uint8_t seq, uint8_t cmd) {
     waiting_cmd_ = cmd;
     ack_response_received_ = false;
     ack_success_ = false;
+    waiting_epoch_ = link_epoch_.load(std::memory_order_relaxed);
 }
 
 void SerialDriver::endWaitAck() {
@@ -487,16 +489,24 @@ void SerialDriver::endWaitAck() {
     ack_success_ = false;
 }
 
-bool SerialDriver::waitForAck(std::chrono::milliseconds timeout, bool& success) {
+SerialDriver::AckWaitResult SerialDriver::waitForAck(std::chrono::milliseconds timeout, bool& success) {
     std::unique_lock<std::mutex> lock(ack_mutex_);
-    bool ok = ack_cv_.wait_for(lock, timeout, [this]() { return ack_response_received_; });
-    if (!ok) {
+    const uint32_t epoch_snapshot = waiting_epoch_;
+    bool woken = ack_cv_.wait_for(lock, timeout, [this, epoch_snapshot]() {
+        return ack_response_received_ || link_epoch_.load(std::memory_order_acquire) != epoch_snapshot;
+    });
+    if (!woken) {
         success = false;
-        return false;
+        return AckWaitResult::kTimeout;
+    }
+
+    if (link_epoch_.load(std::memory_order_acquire) != epoch_snapshot) {
+        success = false;
+        return AckWaitResult::kLinkDown;
     }
 
     success = ack_success_;
-    return true;
+    return AckWaitResult::kReceived;
 }
 
 void SerialDriver::notifyAck(uint8_t seq, uint8_t cmd) {
@@ -620,10 +630,13 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload,
 
         const auto wait_start = std::chrono::steady_clock::now();
         bool ack_success = false;
-        bool got_response = waitForAck(ack_timeout, ack_success);
+        AckWaitResult wait_result = waitForAck(ack_timeout, ack_success);
         const auto measured_ms =
             std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - wait_start).count();
-        if (got_response && ack_success) {
+        if (wait_result == AckWaitResult::kReceived) {
+            comm_health_.ack_window.record(true);
+        }
+        if (wait_result == AckWaitResult::kReceived && ack_success) {
             {
                 std::lock_guard<std::mutex> lock(timeout_mutex_);
                 adaptive_timeout_.update(measured_ms);
@@ -633,12 +646,20 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload,
         }
 
         endWaitAck();
-        if (!got_response) {
+        if (wait_result == AckWaitResult::kLinkDown) {
+            return false;
+        }
+        if (wait_result == AckWaitResult::kTimeout) {
+            comm_health_.ack_window.record(false);
             comm_health_.ack_timeouts.fetch_add(1, std::memory_order_relaxed);
+            {
+                std::lock_guard<std::mutex> lock(timeout_mutex_);
+                adaptive_timeout_.onTimeout();
+            }
         }
 
         uint8_t round = retry / RETRIES_PER_ROUND + 1;
-        if (got_response) {
+        if (wait_result == AckWaitResult::kReceived) {
             RCLCPP_WARN(serialLogger(), "指令收到 NACK (retry=0x%02X, 第%u轮)：cmd=0x%02X, seq=%u", retry, round, cmd,
                         out_seq);
         } else {
@@ -671,12 +692,40 @@ float SerialDriver::avgRttMs() const {
     return adaptive_timeout_.ewmaMs();
 }
 
-bool SerialDriver::sendPose(CommandID cmd, float vx, float vy, float wz) {
+bool SerialDriver::sendPose(CommandID cmd, float vx, float vy, float wz, uint8_t& out_seq) {
+    if (fd_ < 0) {
+        setLastError("串口未打开");
+        return false;
+    }
+
     std::vector<uint8_t> payload(12);
     std::memcpy(&payload[0], &vx, sizeof(float));
     std::memcpy(&payload[4], &vy, sizeof(float));
     std::memcpy(&payload[8], &wz, sizeof(float));
-    return sendCommandNoAck(static_cast<uint8_t>(cmd), payload);
+    out_seq = nextSeq();
+    std::vector<uint8_t> frame = buildFrame(out_seq, static_cast<uint8_t>(cmd), payload, 0x00);
+    if (frame.empty()) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(send_mutex_);
+    bool ok = writeAll(frame.data(), frame.size());
+    if (ok) {
+        DebugCallback cb;
+        {
+            std::lock_guard<std::mutex> cb_lock(callback_mutex_);
+            cb = debug_callback_;
+        }
+        if (cb) {
+            cb(true, frame);
+        }
+    }
+    return ok;
+}
+
+bool SerialDriver::sendPose(CommandID cmd, float vx, float vy, float wz) {
+    uint8_t ignored_seq = 0;
+    return sendPose(cmd, vx, vy, wz, ignored_seq);
 }
 
 bool SerialDriver::sendStop() {
@@ -725,12 +774,16 @@ bool SerialDriver::sendHeartbeat() {
 
     const auto wait_start = std::chrono::steady_clock::now();
     bool ack_success = false;
-    bool got_response = waitForAck(ack_timeout, ack_success);
+    AckWaitResult wait_result = waitForAck(ack_timeout, ack_success);
     const auto measured_ms =
         std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - wait_start).count();
     endWaitAck();
 
-    if (got_response && ack_success) {
+    if (wait_result == AckWaitResult::kReceived) {
+        comm_health_.ack_window.record(true);
+    }
+
+    if (wait_result == AckWaitResult::kReceived && ack_success) {
         {
             std::lock_guard<std::mutex> lock(timeout_mutex_);
             adaptive_timeout_.update(measured_ms);
@@ -740,8 +793,16 @@ bool SerialDriver::sendHeartbeat() {
         return true;
     }
 
-    if (!got_response) {
+    if (wait_result == AckWaitResult::kLinkDown) {
+        return false;
+    }
+    if (wait_result == AckWaitResult::kTimeout) {
+        comm_health_.ack_window.record(false);
         comm_health_.ack_timeouts.fetch_add(1, std::memory_order_relaxed);
+        {
+            std::lock_guard<std::mutex> lock(timeout_mutex_);
+            adaptive_timeout_.onTimeout();
+        }
     }
     uint8_t failures = ++heartbeat_failure_count_;
     comm_health_.heartbeat_failures.store(failures, std::memory_order_relaxed);
@@ -771,19 +832,88 @@ void SerialDriver::setDebugCallback(DebugCallback callback) {
     debug_callback_ = std::move(callback);
 }
 
+void SerialDriver::dispatchFrame(uint8_t seq, uint8_t cmd, const uint8_t* payload, size_t plen) {
+    DebugCallback debug_cb;
+    ReceiveCallback recv_cb;
+    {
+        std::lock_guard<std::mutex> lock(callback_mutex_);
+        debug_cb = debug_callback_;
+        recv_cb = recv_callback_;
+    }
+
+    if (debug_cb) {
+        const uint8_t len = static_cast<uint8_t>(1 + plen);
+        const size_t frame_size = 2 + 1 + 1 + 1 + 1 + plen + 4 + 2;
+        std::vector<uint8_t> frame(frame_size);
+        size_t idx = 0;
+        frame[idx++] = FRAME_HEAD_0;
+        frame[idx++] = FRAME_HEAD_1;
+        frame[idx++] = seq;
+        frame[idx++] = len;
+        frame[idx++] = 0x00;
+        frame[idx++] = cmd;
+        for (size_t i = 0; i < plen; ++i) {
+            frame[idx++] = payload[i];
+        }
+        const size_t crc_start = 2;
+        const size_t crc_len = 1 + 1 + 1 + static_cast<size_t>(len);
+        const uint32_t crc = crc32_mpeg2_calculate(&frame[crc_start], crc_len);
+        frame[idx++] = static_cast<uint8_t>(crc & 0xFF);
+        frame[idx++] = static_cast<uint8_t>((crc >> 8) & 0xFF);
+        frame[idx++] = static_cast<uint8_t>((crc >> 16) & 0xFF);
+        frame[idx++] = static_cast<uint8_t>((crc >> 24) & 0xFF);
+        frame[idx++] = FRAME_TAIL_0;
+        frame[idx++] = FRAME_TAIL_1;
+        debug_cb(false, frame);
+    }
+
+    notifyAck(seq, cmd);
+    comm_health_.parse_window.record(true);
+    comm_health_.total_frames.fetch_add(1, std::memory_order_relaxed);
+
+    if (recv_cb) {
+        tl_in_recv_callback = true;
+        try {
+            recv_cb(seq, cmd, std::vector<uint8_t>(payload, payload + plen));
+        } catch (const std::exception& e) {
+            setLastError(std::string("接收回调异常: ") + e.what());
+            RCLCPP_ERROR(serialLogger(), "接收回调抛异常：%s", e.what());
+        } catch (...) {
+            setLastError("接收回调异常: 未知异常");
+            RCLCPP_ERROR(serialLogger(), "接收回调抛未知异常");
+        }
+        tl_in_recv_callback = false;
+    }
+}
+
 void SerialDriver::recvThreadFunc() {
     RCLCPP_DEBUG(serialLogger(), "接收线程启动：%s", port_.c_str());
 
+    int epfd = epoll_create1(EPOLL_CLOEXEC);
+    if (epfd < 0) {
+        const int err = errno;
+        setLastError("epoll_create1() 失败: errno=" + errnoText(err) + ", port=" + port_);
+        RCLCPP_ERROR(serialLogger(), "串口接收失败：epoll_create1(%s) errno=%d(%s)", port_.c_str(), err,
+                     std::strerror(err));
+        running_ = false;
+        return;
+    }
+
+    struct epoll_event ev {};
+    ev.events = EPOLLIN | EPOLLERR | EPOLLHUP;
+    ev.data.fd = fd_;
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd_, &ev) != 0) {
+        const int err = errno;
+        setLastError("epoll_ctl() 失败: errno=" + errnoText(err) + ", port=" + port_);
+        RCLCPP_ERROR(serialLogger(), "串口接收失败：epoll_ctl(%s) errno=%d(%s)", port_.c_str(), err, std::strerror(err));
+        ::close(epfd);
+        running_ = false;
+        return;
+    }
+
     while (running_) {
-        fd_set read_fds;
-        FD_ZERO(&read_fds);
-        FD_SET(fd_, &read_fds);
-
-        struct timeval timeout;
-        timeout.tv_sec = 0;
-        timeout.tv_usec = 50000;  // 50ms
-
-        int ret = select(fd_ + 1, &read_fds, nullptr, nullptr, &timeout);
+        struct epoll_event events[1];
+        const int ret = epoll_wait(epfd, events, 1, 50);
         if (ret < 0) {
             if (errno == EINTR) {
                 continue;
@@ -792,216 +922,92 @@ void SerialDriver::recvThreadFunc() {
             const int err = errno;
             if (!recv_error_active_) {
                 recv_error_active_ = true;
-                setLastError("select() 失败: errno=" + errnoText(err) + ", port=" + port_);
-                RCLCPP_ERROR(serialLogger(), "串口接收失败：select(%s) errno=%d(%s)", port_.c_str(), err,
+                setLastError("epoll_wait() 失败: errno=" + errnoText(err) + ", port=" + port_);
+                RCLCPP_ERROR(serialLogger(), "串口接收失败：epoll_wait(%s) errno=%d(%s)", port_.c_str(), err,
                              std::strerror(err));
             }
-
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
             if (err == EBADF) {
                 running_ = false;
                 break;
             }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
+
         if (ret == 0) {
             continue;
         }
 
-        if (FD_ISSET(fd_, &read_fds)) {
-            size_t available = RECV_BUFFER_SIZE - recv_len_;
-            if (available > 0) {
-                ssize_t n = ::read(fd_, &recv_buffer_[recv_len_], available);
-                if (n > 0) {
-                    if (recv_error_active_) {
-                        recv_error_active_ = false;
-                        RCLCPP_DEBUG(serialLogger(), "串口接收已恢复：%s", port_.c_str());
-                    }
-                    recv_len_ += static_cast<size_t>(n);
-                    try {
-                        parseReceivedData();
-                    } catch (const std::exception& e) {
-                        recv_len_ = 0;
-                        setLastError(std::string("解析接收数据异常: ") + e.what());
-                        RCLCPP_ERROR(serialLogger(), "解析接收数据异常：%s", e.what());
-                    } catch (...) {
-                        recv_len_ = 0;
-                        setLastError("解析接收数据异常: 未知异常");
-                        RCLCPP_ERROR(serialLogger(), "解析接收数据异常：未知异常");
-                    }
-                    continue;
-                }
-
-                if (n == 0) {
-                    if (!recv_error_active_) {
-                        recv_error_active_ = true;
-                        setLastError("read() 返回 0：可能设备断开");
-                        RCLCPP_WARN(serialLogger(), "串口读取返回 0：可能设备断开(%s)，触发重连", port_.c_str());
-                    }
-                    // 设备断开，退出接收线程并由外部触发重连
-                    // 注意：不在此处直接调用 reconnect()，避免线程生命周期问题
-                    requestReconnect("read_eof");
-                    running_ = false;
-                    break;
-                }
-
-                if (errno == EINTR) {
-                    continue;
-                }
-
-                const int err = errno;
-                if (!recv_error_active_) {
-                    recv_error_active_ = true;
-                    setLastError("read() 失败: errno=" + errnoText(err) + ", port=" + port_);
-                    RCLCPP_ERROR(serialLogger(), "串口读取失败：port=%s, errno=%d(%s)", port_.c_str(), err,
-                                 std::strerror(err));
-                }
-            }
-        }
-    }
-
-    RCLCPP_DEBUG(serialLogger(), "接收线程退出：%s", port_.c_str());
-}
-
-void SerialDriver::parseReceivedData() {
-    // HEAD(2) + SEQ(1) + LEN(1) + RETRY(1) + CMD(1) + CRC32(4) + TAIL(2) = 12 (最小帧，无payload)
-    constexpr size_t MIN_FRAME_SIZE = 12;
-    // frame_size = 11 + len，所以 FRAME_OVERHEAD = 11
-    constexpr size_t FRAME_OVERHEAD = 11;
-
-    while (recv_len_ >= MIN_FRAME_SIZE) {
-        size_t head_pos = 0;
-        bool found = false;
-        for (size_t i = 0; i + 1 < recv_len_; ++i) {
-            if (recv_buffer_[i] == FRAME_HEAD_0 && recv_buffer_[i + 1] == FRAME_HEAD_1) {
-                head_pos = i;
-                found = true;
-                break;
-            }
+        if (events[0].events & (EPOLLERR | EPOLLHUP)) {
+            requestReconnect("epoll_err_hup");
+            running_ = false;
+            break;
         }
 
-        if (!found) {
-            if (recv_len_ > 1) {
-                recv_buffer_[0] = recv_buffer_[recv_len_ - 1];
-                recv_len_ = 1;
-            }
-
-            ++parse_error_count_;
-            comm_health_.parse_errors.fetch_add(1, std::memory_order_relaxed);
-            if (parse_error_count_ <= 5 || (parse_error_count_ % 100 == 0)) {
-                RCLCPP_DEBUG(serialLogger(), "解析失败：未找到帧头，已累计丢弃 %u 次", parse_error_count_);
-            }
-            return;
-        }
-
-        if (head_pos > 0) {
-            std::memmove(recv_buffer_, &recv_buffer_[head_pos], recv_len_ - head_pos);
-            recv_len_ -= head_pos;
-        }
-
-        // 需要至少4字节才能读取LEN字段(1字节)
-        if (recv_len_ < 4) {
-            return;
-        }
-
-        // LEN: 1字节，位置3
-        uint8_t len = recv_buffer_[3];
-
-        if (len < 1 || (static_cast<size_t>(len) + FRAME_OVERHEAD) > RECV_BUFFER_SIZE) {
-            ++parse_error_count_;
-            comm_health_.parse_errors.fetch_add(1, std::memory_order_relaxed);
-            if (parse_error_count_ <= 5 || (parse_error_count_ % 100 == 0)) {
-                RCLCPP_DEBUG(serialLogger(), "解析失败：长度字段异常 len=%u，已累计丢弃 %u 次", len,
-                             parse_error_count_);
-            }
-            std::memmove(recv_buffer_, &recv_buffer_[2], recv_len_ - 2);
-            recv_len_ -= 2;
+        if (!(events[0].events & EPOLLIN)) {
             continue;
         }
 
-        size_t frame_size = static_cast<size_t>(len) + FRAME_OVERHEAD;
-
-        if (recv_len_ < frame_size) {
-            return;
-        }
-
-        if (recv_buffer_[frame_size - 2] != FRAME_TAIL_0 || recv_buffer_[frame_size - 1] != FRAME_TAIL_1) {
-            ++parse_error_count_;
-            comm_health_.parse_errors.fetch_add(1, std::memory_order_relaxed);
-            if (parse_error_count_ <= 5 || (parse_error_count_ % 100 == 0)) {
-                RCLCPP_DEBUG(serialLogger(), "解析失败：帧尾错误，已累计丢弃 %u 次", parse_error_count_);
+        uint8_t tmp_buf[512];
+        ssize_t n = ::read(fd_, tmp_buf, sizeof(tmp_buf));
+        if (n > 0) {
+            if (recv_error_active_) {
+                recv_error_active_ = false;
+                RCLCPP_DEBUG(serialLogger(), "串口接收已恢复：%s", port_.c_str());
             }
-            std::memmove(recv_buffer_, &recv_buffer_[2], recv_len_ - 2);
-            recv_len_ -= 2;
-            continue;
-        }
 
-        // CRC32校验: SEQ(1) + LEN(1) + RETRY(1) + CMD(1) + PAYLOAD(N)
-        size_t crc_start = 2;
-        size_t crc_len = 1 + 1 + 1 + len;
-        uint32_t expected_crc = crc32_mpeg2_calculate(&recv_buffer_[crc_start], crc_len);
-        uint32_t actual_crc = static_cast<uint32_t>(recv_buffer_[frame_size - 6]) |
-                              (static_cast<uint32_t>(recv_buffer_[frame_size - 5]) << 8) |
-                              (static_cast<uint32_t>(recv_buffer_[frame_size - 4]) << 16) |
-                              (static_cast<uint32_t>(recv_buffer_[frame_size - 3]) << 24);
-
-        if (expected_crc != actual_crc) {
-            ++parse_error_count_;
-            comm_health_.parse_errors.fetch_add(1, std::memory_order_relaxed);
-            if (parse_error_count_ <= 5 || (parse_error_count_ % 100 == 0)) {
-                RCLCPP_DEBUG(serialLogger(), "解析失败：CRC 错误(expected=0x%08X actual=0x%08X)，已累计丢弃 %u 次",
-                             expected_crc, actual_crc, parse_error_count_);
-            }
-            std::memmove(recv_buffer_, &recv_buffer_[2], recv_len_ - 2);
-            recv_len_ -= 2;
-            continue;
-        }
-
-        // 调试回调：输出完整接收帧
-        DebugCallback debug_cb;
-        ReceiveCallback recv_cb;
-        {
-            std::lock_guard<std::mutex> lock(callback_mutex_);
-            debug_cb = debug_callback_;
-            recv_cb = recv_callback_;
-        }
-
-        if (debug_cb) {
-            std::vector<uint8_t> rx_frame(recv_buffer_, recv_buffer_ + frame_size);
-            debug_cb(false, rx_frame);
-        }
-
-        // SEQ在位置2，RETRY在位置4，CMD在位置5，PAYLOAD从位置6开始
-        uint8_t seq = recv_buffer_[2];
-        // uint8_t retry = recv_buffer_[4];  // 重发次数字段（当前未使用）
-        uint8_t cmd = recv_buffer_[5];
-        size_t payload_len = len - 1;
-        std::vector<uint8_t> payload(payload_len);
-        if (payload_len > 0) {
-            std::memcpy(payload.data(), &recv_buffer_[6], payload_len);
-        }
-
-        notifyAck(seq, cmd);
-        comm_health_.total_frames.fetch_add(1, std::memory_order_relaxed);
-
-        if (recv_cb) {
-            tl_in_recv_callback = true;
             try {
-                recv_cb(seq, cmd, payload);
+                ring_parser_.push(tmp_buf, static_cast<size_t>(n));
+                ring_parser_.parse([this](uint8_t seq, uint8_t cmd, const uint8_t* payload, size_t plen) {
+                    dispatchFrame(seq, cmd, payload, plen);
+                });
+                const auto delta = ring_parser_.consumeStats();
+                const uint32_t parse_error_count = delta.len_invalid + delta.tail_bad + delta.crc_bad + delta.head_drop +
+                                                   delta.overflow_drop;
+                if (parse_error_count > 0U) {
+                    comm_health_.parse_errors.fetch_add(parse_error_count, std::memory_order_relaxed);
+                    for (uint32_t i = 0; i < parse_error_count; ++i) {
+                        comm_health_.parse_window.record(false);
+                    }
+                }
             } catch (const std::exception& e) {
-                setLastError(std::string("接收回调异常: ") + e.what());
-                RCLCPP_ERROR(serialLogger(), "接收回调抛异常：%s", e.what());
+                ring_parser_.reset();
+                setLastError(std::string("解析接收数据异常: ") + e.what());
+                RCLCPP_ERROR(serialLogger(), "解析接收数据异常：%s", e.what());
             } catch (...) {
-                setLastError("接收回调异常: 未知异常");
-                RCLCPP_ERROR(serialLogger(), "接收回调抛未知异常");
+                ring_parser_.reset();
+                setLastError("解析接收数据异常: 未知异常");
+                RCLCPP_ERROR(serialLogger(), "解析接收数据异常：未知异常");
             }
-            tl_in_recv_callback = false;
+            continue;
         }
 
-        std::memmove(recv_buffer_, &recv_buffer_[frame_size], recv_len_ - frame_size);
-        recv_len_ -= frame_size;
+        if (n == 0) {
+            if (!recv_error_active_) {
+                recv_error_active_ = true;
+                setLastError("read() 返回 0：可能设备断开");
+                RCLCPP_WARN(serialLogger(), "串口读取返回 0：可能设备断开(%s)，触发重连", port_.c_str());
+            }
+            requestReconnect("read_eof");
+            running_ = false;
+            break;
+        }
+
+        if (errno == EINTR) {
+            continue;
+        }
+
+        const int err = errno;
+        if (!recv_error_active_) {
+            recv_error_active_ = true;
+            setLastError("read() 失败: errno=" + errnoText(err) + ", port=" + port_);
+            RCLCPP_ERROR(serialLogger(), "串口读取失败：port=%s, errno=%d(%s)", port_.c_str(), err, std::strerror(err));
+        }
     }
+
+    ::close(epfd);
+    RCLCPP_DEBUG(serialLogger(), "接收线程退出：%s", port_.c_str());
 }
 
 }  // namespace rc26_decision
