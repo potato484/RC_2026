@@ -121,3 +121,7 @@ ros2 bag record /odometry /tf /tf_static /cmd_vel /compute_time_ms /collision_ch
 ```
 
 录制完成后，使用 `Ctrl+C` 结束，将生成的数据包用于后续的离线分析以确认改进方案指标是否达标。
+
+## 6. 常见排查项
+
+若看不到 `/compute_time_ms`、`/collision_check_ms` 等调试 topic，请先确认 `controller_server` 已成功加载 `rc26_omni_controller::OmniPidPursuitController`，并检查 `nav2_params.yaml` 中 `FollowPath` 对应插件名是否与实际库导出名称一致。
