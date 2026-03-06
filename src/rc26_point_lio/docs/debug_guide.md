@@ -1,4 +1,4 @@
-# rc26_point_lio 调试与测试指南
+# rc26_point_lio 调试指南
 
 本文档提供针对 RC2026 机器人里程计模块（Point-LIO）的详细调试与测试步骤。
 
