@@ -1,4 +1,4 @@
-# RC26 LIO State Predictor 调试指南
+# rc26_lio_state_predictor 调试指南
 
 本文档旨在指导开发者如何测试和验证 `rc26_lio_state_predictor` 模块的功能。
 
