@@ -33,6 +33,7 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     : Node("kfs_block_fuser", options) {
     this->declare_parameter<std::string>("kfs_state_topic",   "mf_kfs_state");
     this->declare_parameter<std::string>("mask_topic",        "/kfs_filter_mask");
+    this->declare_parameter<std::string>("heartbeat_topic",   heartbeat_topic_);
     this->declare_parameter<std::string>("grid_layout_file",  "");
     this->declare_parameter<std::string>("diagnostics_topic", "diagnostics");
     this->declare_parameter<std::string>("force_release_topic", "/kfs_force_release_grid");
@@ -56,6 +57,7 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     this->declare_parameter<double>("grid_spacing_tolerance_m", grid_spacing_tolerance_m_);
 
     this->get_parameter("mask_topic",       mask_topic_);
+    this->get_parameter("heartbeat_topic",  heartbeat_topic_);
     this->get_parameter("grid_layout_file", grid_layout_file_);
     this->get_parameter("diagnostics_topic", diagnostics_topic_);
     this->get_parameter("force_release_topic", force_release_topic_);
@@ -91,6 +93,9 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     }
 
     keepout_shape_ = toLowerCopy(keepout_shape_);
+    if (heartbeat_topic_.empty()) {
+        heartbeat_topic_ = "/kfs_keepout_heartbeat";
+    }
     if (keepout_shape_ != "square" && keepout_shape_ != "circle") {
         RCLCPP_WARN(this->get_logger(), "invalid keepout_shape=%s, fallback to square", keepout_shape_.c_str());
         keepout_shape_ = "square";
@@ -151,7 +156,7 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     pub_diagnostics_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
         diagnostics_topic_, rclcpp::QoS(rclcpp::KeepLast(10)).reliable());
     pub_heartbeat_ = this->create_publisher<std_msgs::msg::Bool>(
-        "/kfs_keepout_heartbeat",
+        heartbeat_topic_,
         rclcpp::QoS(rclcpp::KeepLast(1)).reliable());
     nav_mode_client_ = this->create_client<rc26_interfaces::srv::SetNavMode>("set_nav_mode");
 
@@ -173,6 +178,7 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
         publishMask();
     }
     publishDiagnostics();
+    publishHeartbeat();
 }
 
 bool KfsBlockFuser::loadGridLayout(const std::string& path) {
@@ -215,8 +221,18 @@ bool KfsBlockFuser::loadGridLayout(const std::string& path) {
                 keepout_disable_reason_ = "grid id out of range";
                 return false;
             }
-            cell_x_[static_cast<size_t>(id)] = g["x"].as<double>();
-            cell_y_[static_cast<size_t>(id)] = g["y"].as<double>();
+            if (seen[static_cast<size_t>(id)]) {
+                keepout_disable_reason_ = "duplicate grid id: " + std::to_string(id);
+                return false;
+            }
+            const double x = g["x"].as<double>();
+            const double y = g["y"].as<double>();
+            if (!std::isfinite(x) || !std::isfinite(y)) {
+                keepout_disable_reason_ = "grid coordinates must be finite";
+                return false;
+            }
+            cell_x_[static_cast<size_t>(id)] = x;
+            cell_y_[static_cast<size_t>(id)] = y;
             seen[static_cast<size_t>(id)] = true;
         }
         for (int id = 1; id <= 12; id++) {
@@ -283,10 +299,34 @@ void KfsBlockFuser::onKfsState(
             RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
                                   "%s", keepout_disable_reason_.c_str());
             if (first_mismatch) {
+                log_odds_.fill(probToLogOdds(0.5));
+                blocked_state_.fill(0);
+                pending_state_.fill(0);
+                dwell_count_.fill(0);
+                mask_dirty_ = false;
+                publishMask();
                 triggerSafeMode("kfs_team_mismatch");
             }
             publishDiagnostics();
+            publishHeartbeat();
             return;
+        }
+        if (team_mismatch_detected_) {
+            team_mismatch_detected_ = false;
+            keepout_enabled_ = layout_loaded_;
+            if (keepout_enabled_) {
+                keepout_disable_reason_.clear();
+            } else if (keepout_disable_reason_.empty()) {
+                keepout_disable_reason_ = "invalid grid layout";
+            }
+            RCLCPP_INFO(this->get_logger(),
+                        "team match restored, keepout re-enabled=%s",
+                        keepout_enabled_ ? "true" : "false");
+            if (keepout_enabled_) {
+                publishMask();
+            }
+            publishDiagnostics();
+            publishHeartbeat();
         }
     }
     if (!keepout_enabled_) {
@@ -437,9 +477,7 @@ void KfsBlockFuser::decayTimer() {
             mask_dirty_ = false;
         }
     }
-    std_msgs::msg::Bool heartbeat_msg;
-    heartbeat_msg.data = keepout_enabled_;
-    pub_heartbeat_->publish(heartbeat_msg);
+    publishHeartbeat();
     publishDiagnostics();
 }
 
@@ -512,6 +550,16 @@ void KfsBlockFuser::publishMask() {
     pub_mask_->publish(grid);
 }
 
+void KfsBlockFuser::publishHeartbeat() {
+    if (!pub_heartbeat_) {
+        return;
+    }
+
+    std_msgs::msg::Bool heartbeat_msg;
+    heartbeat_msg.data = keepout_enabled_;
+    pub_heartbeat_->publish(heartbeat_msg);
+}
+
 void KfsBlockFuser::publishDiagnostics() {
     if (!pub_diagnostics_) return;
 
@@ -531,6 +579,7 @@ void KfsBlockFuser::publishDiagnostics() {
     addKV("keepout_enabled", keepout_enabled_ ? "true" : "false");
     addKV("keepout_disable_reason", keepout_disable_reason_);
     addKV("mask_topic", mask_topic_);
+    addKV("heartbeat_topic", heartbeat_topic_);
     addKV("grid_layout_file", grid_layout_file_);
     addKV("force_release_topic", force_release_topic_);
     addKV("keepout_shape", keepout_shape_);

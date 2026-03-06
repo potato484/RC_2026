@@ -24,6 +24,7 @@ private:
     void onForceReleaseGrid(const std_msgs::msg::UInt8::ConstSharedPtr& msg);
     void decayTimer();
     void publishMask();
+    void publishHeartbeat();
     void publishDiagnostics();
     bool loadGridLayout(const std::string& yaml_path);
     bool validateGridSpacing(double expected_spacing_m, double tolerance_m, std::string& detail) const;
@@ -46,6 +47,7 @@ private:
     double block_half_size_m_{0.60};
     double keepout_margin_m_{0.03};
     std::string mask_topic_;
+    std::string heartbeat_topic_{"/kfs_keepout_heartbeat"};
     std::string grid_layout_file_;
     std::string diagnostics_topic_;
     std::string force_release_topic_;
