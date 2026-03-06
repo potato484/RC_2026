@@ -1,4 +1,4 @@
-# rc26_kfs_keepout 模块调试指南
+# rc26_kfs_keepout 调试指南
 
 本文档提供针对 `rc26_kfs_keepout` 模块的具体调试指令和步骤，用于测试和验证该模块的各项功能是否正常工作，特别是在实施了“执行方案1”的改进之后。
 
@@ -157,3 +157,9 @@ ros2 service call /kfs_enable_keepout std_srvs/srv/SetBool "{data: true}"
 ```bash
 ros2 service call /kfs_enable_keepout std_srvs/srv/SetBool "{data: false}"
 ```
+
+## 6. 常见问题排查
+
+- **Heartbeat 正常但 Mask 长时间不更新**：优先检查格子状态是否真的跨越了发布阈值；若只是在阈值附近抖动，去抖与脏标志机制会阻止重复发布，这是预期行为。
+- **Decision 一直判定 Keepout 超时**：确认 `/kfs_keepout_heartbeat` 实际存在且频率稳定，再检查 `decision` 侧的订阅话题名、超时参数和命名空间是否一致。
+- **强制释放格子后无效果**：确认传入的 `grid_ids` 与当前场地图编号一致，并结合 `/diagnostics` 或模块日志检查该格子是否被新的正向证据立即重新占据。
