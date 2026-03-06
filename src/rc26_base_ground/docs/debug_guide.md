@@ -121,3 +121,9 @@ ros2 run tf2_ros tf2_echo odom base_ground
 ros2 run rviz2 rviz2
 ```
 在 RViz 中添加 TF 显示，观察 `base_ground` 与 `odom` 以及底盘 base_link 之间的高度对齐关系。
+
+## 7. 常见问题排查
+
+- **`/base_ground/level` 长时间不变化**：先确认上游里程计高度输入稳定，再检查 `/base_ground/ground_z_continuous` 是否随台阶变化；若连续高度已有变化但层级未切换，优先排查 `tol_level_m` 是否设置过大。
+- **`/base_ground/is_lifted` 误触发**：优先检查机器人是否存在突发垂向抖动、启动阶段 `h0` 标定是否漂移；必要时先关闭 `h0_override_enable` 重新标定，再结合实际搬运动作微调阈值。
+- **`base_ground` TF 未发布**：确认 `base_ground_estimator` 节点已正常启动且未报错，同时检查上游 `odom` 与底盘姿态输入是否存在时间戳跳变或 TF 断链。
