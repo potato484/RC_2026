@@ -50,12 +50,14 @@ FaultInjectingHAL::FaultInjectingHAL() : FaultInjectingHAL(Config{}) {}
 FaultInjectingHAL::FaultInjectingHAL(const Config& config) : config_(config) {}
 
 bool FaultInjectingHAL::open() {
+    alive_->store(true, std::memory_order_release);
     open_.store(true, std::memory_order_relaxed);
     return true;
 }
 
 void FaultInjectingHAL::close() {
     open_.store(false, std::memory_order_relaxed);
+    alive_->store(false, std::memory_order_release);
 }
 
 bool FaultInjectingHAL::isOpen() const {
@@ -95,9 +97,10 @@ bool FaultInjectingHAL::sendCommand(uint8_t cmd_id, const std::vector<uint8_t>& 
     if (mode != "none") {
         injected_count_.fetch_add(1, std::memory_order_relaxed);
     }
-    std::thread([cb, out_seq, cmd_id, done_fb, latency, mode, fault_error_code]() {
+    auto alive = alive_;
+    std::thread([cb, out_seq, cmd_id, done_fb, latency, mode, fault_error_code, alive]() {
         std::this_thread::sleep_for(latency);
-        if (!cb) {
+        if (!alive->load(std::memory_order_acquire) || !cb) {
             return;
         }
 
@@ -134,6 +137,9 @@ bool FaultInjectingHAL::sendCommand(uint8_t cmd_id, const std::vector<uint8_t>& 
             if (done_fb.has_value()) {
                 cb(out_seq, *done_fb, {});
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                if (!alive->load(std::memory_order_acquire)) {
+                    return;
+                }
                 cb(out_seq, *done_fb, {});
             }
             return;
@@ -141,6 +147,9 @@ bool FaultInjectingHAL::sendCommand(uint8_t cmd_id, const std::vector<uint8_t>& 
 
         if (mode == "late_success") {
             std::this_thread::sleep_for(latency * 2);
+            if (!alive->load(std::memory_order_acquire)) {
+                return;
+            }
             if (done_fb.has_value()) {
                 cb(out_seq, *done_fb, {});
             }

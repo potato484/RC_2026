@@ -16,6 +16,7 @@ ReplayMechanismHAL::ReplayMechanismHAL() : ReplayMechanismHAL(Config{}) {}
 ReplayMechanismHAL::ReplayMechanismHAL(const Config& config) : config_(config) {}
 
 bool ReplayMechanismHAL::open() {
+    alive_->store(true, std::memory_order_release);
     open_.store(true, std::memory_order_relaxed);
     if (!config_.replay_file.empty()) {
         (void)loadReplayFile();
@@ -25,6 +26,7 @@ bool ReplayMechanismHAL::open() {
 
 void ReplayMechanismHAL::close() {
     open_.store(false, std::memory_order_relaxed);
+    alive_->store(false, std::memory_order_release);
 }
 
 bool ReplayMechanismHAL::isOpen() const {
@@ -191,9 +193,10 @@ bool ReplayMechanismHAL::sendCommand(uint8_t cmd_id, const std::vector<uint8_t>&
 
     const auto done_fb = doneFeedbackForCommand(cmd_id);
     const auto latency = config_.action_latency;
-    std::thread([cb, out_seq, has_replay_event, replay_event, done_fb, latency]() {
+    auto alive = alive_;
+    std::thread([cb, out_seq, has_replay_event, replay_event, done_fb, latency, alive]() {
         std::this_thread::sleep_for(latency);
-        if (!cb) {
+        if (!alive->load(std::memory_order_acquire) || !cb) {
             return;
         }
 

@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -53,6 +54,7 @@ private:
     std::vector<ReplayEvent> events_;
     size_t event_index_{0};
     std::atomic<uint32_t> parse_error_count_{0};
+    std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(false);
 };
 
 }  // namespace rc26_mechanism

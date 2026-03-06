@@ -50,12 +50,14 @@ SimMechanismHAL::SimMechanismHAL() : SimMechanismHAL(Config{}) {}
 SimMechanismHAL::SimMechanismHAL(const Config& config) : config_(config), rng_(config_.random_seed) {}
 
 bool SimMechanismHAL::open() {
+    alive_->store(true, std::memory_order_release);
     open_.store(true, std::memory_order_relaxed);
     return true;
 }
 
 void SimMechanismHAL::close() {
     open_.store(false, std::memory_order_relaxed);
+    alive_->store(false, std::memory_order_release);
 }
 
 bool SimMechanismHAL::isOpen() const {
@@ -101,9 +103,10 @@ bool SimMechanismHAL::sendCommand(uint8_t cmd_id, const std::vector<uint8_t>& pa
     if (should_fail) {
         fail_count_.fetch_add(1, std::memory_order_relaxed);
     }
-    std::thread([cb, out_seq, cmd_id, done_fb, should_fail, latency, fail_code]() {
+    auto alive = alive_;
+    std::thread([cb, out_seq, cmd_id, done_fb, should_fail, latency, fail_code, alive]() {
         std::this_thread::sleep_for(latency);
-        if (!cb) {
+        if (!alive->load(std::memory_order_acquire) || !cb) {
             return;
         }
         if (should_fail) {

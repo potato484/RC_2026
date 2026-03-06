@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <random>
 
@@ -42,6 +43,7 @@ private:
     std::mt19937 rng_;
     std::uniform_real_distribution<float> fail_dist_{0.0F, 1.0F};
     std::atomic<uint32_t> fail_count_{0};
+    std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(false);
 };
 
 }  // namespace rc26_mechanism

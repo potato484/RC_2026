@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 
@@ -38,6 +39,7 @@ private:
     std::atomic<uint32_t> injected_count_{0};
     mutable std::mutex callback_mutex_;
     FeedbackCallback callback_;
+    std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(false);
 };
 
 }  // namespace rc26_mechanism
