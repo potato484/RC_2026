@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cmath>
 #include <functional>
+#include <sstream>
 #include <stdexcept>
 
 #include "rc26_serial/protocol.hpp"
@@ -62,6 +63,64 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
     if (config_.target_send_rate_hz <= 0) {
         throw std::runtime_error("target_send_rate_hz 必须 > 0");
     }
+
+    const auto logNormalized = [this](const char* name, auto before, auto after) {
+        if (before != after) {
+            std::ostringstream oss;
+            oss << before;
+            std::ostringstream normalized;
+            normalized << after;
+            RCLCPP_WARN(node_.get_logger(), "PoseSender 参数 %s 非法/越界，已从 %s 归一化为 %s",
+                        name, oss.str().c_str(), normalized.str().c_str());
+        }
+    };
+
+    const int raw_cmd_vel_timeout_ms = config_.cmd_vel_timeout_ms;
+    const int raw_terrain_speed_limit_timeout_ms = config_.terrain_speed_limit_timeout_ms;
+    const int raw_spike_freeze_duration_ms = config_.spike_freeze_duration_ms;
+    const float raw_v_max_mps = config_.v_max_mps;
+    const float raw_w_max_rps = config_.w_max_rps;
+    const float raw_a_max_mps2 = config_.a_max_mps2;
+    const float raw_alpha_max_rps2 = config_.alpha_max_rps2;
+    const float raw_imu_gate_ema_alpha = config_.imu_gate_ema_alpha;
+    const float raw_imu_gate_chi2_threshold = config_.imu_gate_chi2_threshold;
+    const float raw_accel_agree_threshold_mps2 = config_.accel_agree_threshold_mps2;
+    const float raw_spike_decay_tau_s = config_.spike_decay_tau_s;
+    const float raw_governor_lambda = config_.governor_lambda;
+    const float raw_dob_lpf_hz = config_.dob_lpf_hz;
+    const float raw_latency_comp_s = config_.latency_comp_s;
+
+    config_.cmd_vel_timeout_ms = std::max(0, config_.cmd_vel_timeout_ms);
+    config_.terrain_speed_limit_timeout_ms = std::max(0, config_.terrain_speed_limit_timeout_ms);
+    config_.spike_freeze_duration_ms = std::max(0, config_.spike_freeze_duration_ms);
+    config_.v_max_mps = std::fabs(config_.v_max_mps);
+    config_.w_max_rps = std::fabs(config_.w_max_rps);
+    config_.a_max_mps2 = std::fabs(config_.a_max_mps2);
+    config_.alpha_max_rps2 = std::fabs(config_.alpha_max_rps2);
+    config_.imu_gate_ema_alpha = std::clamp(config_.imu_gate_ema_alpha, 0.0f, 0.9999f);
+    config_.imu_gate_chi2_threshold = std::max(0.1f, config_.imu_gate_chi2_threshold);
+    config_.accel_agree_threshold_mps2 = std::max(0.0f, config_.accel_agree_threshold_mps2);
+    config_.spike_decay_tau_s = std::max(1e-3f, config_.spike_decay_tau_s);
+    config_.governor_lambda = std::max(0.0f, config_.governor_lambda);
+    config_.dob_lpf_hz = std::max(0.0f, config_.dob_lpf_hz);
+    config_.latency_comp_s = std::max(0.0f, config_.latency_comp_s);
+
+    logNormalized("cmd_vel_timeout_ms", raw_cmd_vel_timeout_ms, config_.cmd_vel_timeout_ms);
+    logNormalized("terrain_speed_limit_timeout_ms", raw_terrain_speed_limit_timeout_ms,
+                  config_.terrain_speed_limit_timeout_ms);
+    logNormalized("spike_freeze_duration_ms", raw_spike_freeze_duration_ms, config_.spike_freeze_duration_ms);
+    logNormalized("v_max_mps", raw_v_max_mps, config_.v_max_mps);
+    logNormalized("w_max_rps", raw_w_max_rps, config_.w_max_rps);
+    logNormalized("a_max_mps2", raw_a_max_mps2, config_.a_max_mps2);
+    logNormalized("alpha_max_rps2", raw_alpha_max_rps2, config_.alpha_max_rps2);
+    logNormalized("imu_gate_ema_alpha", raw_imu_gate_ema_alpha, config_.imu_gate_ema_alpha);
+    logNormalized("imu_gate_chi2_threshold", raw_imu_gate_chi2_threshold, config_.imu_gate_chi2_threshold);
+    logNormalized("accel_agree_threshold_mps2", raw_accel_agree_threshold_mps2,
+                  config_.accel_agree_threshold_mps2);
+    logNormalized("spike_decay_tau_s", raw_spike_decay_tau_s, config_.spike_decay_tau_s);
+    logNormalized("governor_lambda", raw_governor_lambda, config_.governor_lambda);
+    logNormalized("dob_lpf_hz", raw_dob_lpf_hz, config_.dob_lpf_hz);
+    logNormalized("latency_comp_s", raw_latency_comp_s, config_.latency_comp_s);
 
     const auto now = std::chrono::steady_clock::now();
     feedback_stats_.window_start = now;
