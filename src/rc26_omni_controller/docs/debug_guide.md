@@ -122,6 +122,10 @@ ros2 bag record /odometry /tf /tf_static /cmd_vel /compute_time_ms /collision_ch
 
 录制完成后，使用 `Ctrl+C` 结束，将生成的数据包用于后续的离线分析以确认改进方案指标是否达标。
 
-## 6. 常见排查项
+## 6. 常见问题排查
 
 若看不到 `/compute_time_ms`、`/collision_check_ms` 等调试 topic，请先确认 `controller_server` 已成功加载 `rc26_omni_controller::OmniPidPursuitController`，并检查 `nav2_params.yaml` 中 `FollowPath` 对应插件名是否与实际库导出名称一致。
+
+- **`/v_safe` 长时间过低**：优先检查 `/collision_d_min` 是否持续偏小，以及碰撞半径、制动距离参数是否设置过于保守。
+- **底盘出现横摆抖动或跟踪振荡**：重点回看 `FollowPath.a_lim_x`、`FollowPath.a_lim_y` 与角速度前馈参数，确认横向限幅没有过激，同时结合 `/odometry` 检查反馈噪声。
+- **控制器无法加载**：若 `controller_server` 启动时报插件不存在，检查插件 XML 导出、安装产物以及 `nav2_params.yaml` 中类名是否完全匹配。
