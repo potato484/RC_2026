@@ -165,6 +165,9 @@ private:
                                     uint8_t retry = 0x00);
     bool writeAll(const uint8_t* data, size_t size);
     void setLastError(std::string message);
+    bool isLinkActive() const;
+    void invokeCallbackSafely(const char* name, const std::function<void()>& callback);
+    void invokeDebugCallback(bool is_tx, const std::vector<uint8_t>& data, const DebugCallback& callback);
 
     bool sendCommandNoAck(uint8_t cmd, const std::vector<uint8_t>& payload);
 
@@ -177,7 +180,9 @@ private:
     void notifyReconnect();
     void notifyReconnectFailed();
 
+    void closePort();
     bool reconnect();
+    bool waitReconnectInterval();
     void reconnectThreadFunc();
     void requestReconnect(const char* reason);
 
@@ -195,6 +200,7 @@ private:
     ReconnectFailedCallback reconnect_failed_callback_;
     std::atomic<uint8_t> heartbeat_failure_count_{0};
     std::atomic<bool> reconnecting_{false};
+    std::atomic<bool> auto_reconnect_enabled_{false};
 
     // 异步重连线程（生命周期绑定 SerialDriver 对象）
     std::atomic<bool> reconnect_thread_running_{false};

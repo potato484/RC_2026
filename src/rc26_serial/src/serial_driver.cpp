@@ -24,6 +24,19 @@ rclcpp::Logger serialLogger() {
     return rclcpp::get_logger("rc26_decision.serial_driver");
 }
 
+bool isFatalSerialError(int err) {
+    switch (err) {
+    case EBADF:
+    case EIO:
+    case ENODEV:
+    case ENXIO:
+    case EPIPE:
+        return true;
+    default:
+        return false;
+    }
+}
+
 bool toTermiosBaudrate(int baudrate, speed_t& baud) {
     switch (baudrate) {
     case 9600:
@@ -98,12 +111,14 @@ SerialDriver::SerialDriver() {
 }
 
 SerialDriver::~SerialDriver() {
+    auto_reconnect_enabled_.store(false, std::memory_order_release);
+    reconnect_requested_.store(false, std::memory_order_relaxed);
     reconnect_thread_running_ = false;
-    reconnect_cv_.notify_one();
+    reconnect_cv_.notify_all();
     if (reconnect_thread_.joinable()) {
         reconnect_thread_.join();
     }
-    close();
+    closePort();
 }
 
 std::string SerialDriver::lastError() const {
@@ -116,11 +131,47 @@ void SerialDriver::setLastError(std::string message) {
     last_error_ = std::move(message);
 }
 
+bool SerialDriver::isLinkActive() const {
+    return fd_ >= 0 && running_.load(std::memory_order_acquire);
+}
+
+void SerialDriver::invokeCallbackSafely(const char* name, const std::function<void()>& callback) {
+    if (!callback) {
+        return;
+    }
+
+    try {
+        callback();
+    } catch (const std::exception& e) {
+        setLastError(std::string(name) + " 回调异常: " + e.what());
+        RCLCPP_ERROR(serialLogger(), "%s 回调抛异常：%s", name, e.what());
+    } catch (...) {
+        setLastError(std::string(name) + " 回调异常: 未知异常");
+        RCLCPP_ERROR(serialLogger(), "%s 回调抛未知异常", name);
+    }
+}
+
+void SerialDriver::invokeDebugCallback(bool is_tx, const std::vector<uint8_t>& data, const DebugCallback& callback) {
+    if (!callback) {
+        return;
+    }
+
+    try {
+        callback(is_tx, data);
+    } catch (const std::exception& e) {
+        setLastError(std::string("Debug") + " 回调异常: " + e.what());
+        RCLCPP_ERROR(serialLogger(), "Debug 回调抛异常：%s", e.what());
+    } catch (...) {
+        setLastError("Debug 回调异常: 未知异常");
+        RCLCPP_ERROR(serialLogger(), "Debug 回调抛未知异常");
+    }
+}
+
 bool SerialDriver::open(const std::string& port, int baudrate) {
     const bool cold_start = port_.empty();
 
     if (fd_ >= 0) {
-        close();
+        closePort();
     }
 
     baudrate_ = baudrate;
@@ -139,6 +190,8 @@ bool SerialDriver::open(const std::string& port, int baudrate) {
                      baudrate);
         return false;
     }
+
+    auto_reconnect_enabled_.store(true, std::memory_order_release);
 
     fd_ = ::open(port.c_str(), O_RDWR | O_NOCTTY);
     if (fd_ < 0) {
@@ -250,6 +303,14 @@ bool SerialDriver::open(const std::string& port, int baudrate) {
 }
 
 void SerialDriver::close() {
+    auto_reconnect_enabled_.store(false, std::memory_order_release);
+    reconnect_requested_.store(false, std::memory_order_relaxed);
+    reconnect_cv_.notify_all();
+
+    closePort();
+}
+
+void SerialDriver::closePort() {
     running_ = false;
     link_epoch_.fetch_add(1, std::memory_order_relaxed);
     ack_cv_.notify_all();
@@ -278,9 +339,7 @@ void SerialDriver::notifyHeartbeatFailure() {
         std::lock_guard<std::mutex> lock(callback_mutex_);
         cb = heartbeat_failure_callback_;
     }
-    if (cb) {
-        cb();
-    }
+    invokeCallbackSafely("HeartbeatFailure", cb);
 }
 
 void SerialDriver::notifyReconnect() {
@@ -289,9 +348,7 @@ void SerialDriver::notifyReconnect() {
         std::lock_guard<std::mutex> lock(callback_mutex_);
         cb = reconnect_callback_;
     }
-    if (cb) {
-        cb();
-    }
+    invokeCallbackSafely("Reconnect", cb);
 }
 
 void SerialDriver::notifyReconnectFailed() {
@@ -300,9 +357,7 @@ void SerialDriver::notifyReconnectFailed() {
         std::lock_guard<std::mutex> lock(callback_mutex_);
         cb = reconnect_failed_callback_;
     }
-    if (cb) {
-        cb();
-    }
+    invokeCallbackSafely("ReconnectFailed", cb);
 }
 
 void SerialDriver::setReconnectCallback(ReconnectCallback callback) {
@@ -332,16 +387,38 @@ void SerialDriver::reconnectThreadFunc() {
         if (!reconnect_thread_running_) {
             break;
         }
-        if (reconnect_requested_.exchange(false)) {
+        if (reconnect_requested_.exchange(false) && auto_reconnect_enabled_.load(std::memory_order_acquire)) {
             reconnect();
         }
     }
 }
 
 void SerialDriver::requestReconnect(const char* reason) {
+    link_epoch_.fetch_add(1, std::memory_order_relaxed);
+    ack_cv_.notify_all();
+
+    if (!auto_reconnect_enabled_.load(std::memory_order_acquire) || !reconnect_thread_running_.load()) {
+        return;
+    }
+    if (reconnecting_.load(std::memory_order_acquire)) {
+        RCLCPP_DEBUG(serialLogger(), "重连进行中，忽略重复重连请求: %s", reason);
+        return;
+    }
+    if (reconnect_requested_.exchange(true)) {
+        RCLCPP_DEBUG(serialLogger(), "重连请求已排队，忽略重复请求: %s", reason);
+        return;
+    }
+
     RCLCPP_WARN(serialLogger(), "请求重连: %s", reason);
-    reconnect_requested_.store(true);
     reconnect_cv_.notify_one();
+}
+
+bool SerialDriver::waitReconnectInterval() {
+    std::unique_lock<std::mutex> lock(reconnect_cv_mutex_);
+    const bool interrupted = reconnect_cv_.wait_for(lock, std::chrono::milliseconds(RECONNECT_INTERVAL_MS), [this]() {
+        return !reconnect_thread_running_.load() || !auto_reconnect_enabled_.load(std::memory_order_acquire);
+    });
+    return !interrupted;
 }
 
 bool SerialDriver::reconnect() {
@@ -362,14 +439,25 @@ bool SerialDriver::reconnect() {
             std::lock_guard<std::mutex> lock(callback_mutex_);
             cb = reconnect_start_callback_;
         }
-        if (cb) {
-            cb();
-        }
+        invokeCallbackSafely("ReconnectStart", cb);
     }
 
     for (uint8_t attempt = 1; attempt <= MAX_RECONNECT_ATTEMPTS; ++attempt) {
-        close();
-        std::this_thread::sleep_for(std::chrono::milliseconds(RECONNECT_INTERVAL_MS));
+        if (!reconnect_thread_running_.load() || !auto_reconnect_enabled_.load(std::memory_order_acquire)) {
+            reconnecting_ = false;
+            return false;
+        }
+
+        closePort();
+        if (!waitReconnectInterval()) {
+            reconnecting_ = false;
+            return false;
+        }
+
+        if (!reconnect_thread_running_.load() || !auto_reconnect_enabled_.load(std::memory_order_acquire)) {
+            reconnecting_ = false;
+            return false;
+        }
 
         if (open(port_, baudrate_)) {
             RCLCPP_INFO(serialLogger(), "串口重连成功：%s（第%u次尝试）", port_.c_str(), attempt);
@@ -398,6 +486,18 @@ bool SerialDriver::writeAll(const uint8_t* data, size_t size) {
             continue;
         }
 
+        if (written == 0) {
+            if (!write_error_active_) {
+                write_error_active_ = true;
+                setLastError("write() 返回 0：可能设备断开");
+                RCLCPP_ERROR(serialLogger(), "串口写入失败：port=%s, size=%zu, write() 返回 0", port_.c_str(), size);
+                if (running_.load(std::memory_order_acquire)) {
+                    requestReconnect("write_zero");
+                }
+            }
+            return false;
+        }
+
         if (written < 0 && errno == EINTR) {
             continue;
         }
@@ -412,6 +512,9 @@ bool SerialDriver::writeAll(const uint8_t* data, size_t size) {
             setLastError("write() 失败: errno=" + errnoText(err) + ", port=" + port_);
             RCLCPP_ERROR(serialLogger(), "串口写入失败：port=%s, size=%zu, errno=%d(%s)", port_.c_str(), size, err,
                          std::strerror(err));
+            if (running_.load(std::memory_order_acquire)) {
+                requestReconnect("write_failure");
+            }
         }
         return false;
     }
@@ -550,8 +653,8 @@ void SerialDriver::notifyAck(uint8_t seq, uint8_t cmd) {
 }
 
 bool SerialDriver::sendCommandNoAck(uint8_t cmd, const std::vector<uint8_t>& payload) {
-    if (fd_ < 0) {
-        setLastError("串口未打开");
+    if (!isLinkActive()) {
+        setLastError(fd_ < 0 ? "串口未打开" : "串口连接未激活");
         return false;
     }
 
@@ -562,6 +665,10 @@ bool SerialDriver::sendCommandNoAck(uint8_t cmd, const std::vector<uint8_t>& pay
     }
 
     std::lock_guard<std::mutex> lock(send_mutex_);
+    if (!isLinkActive()) {
+        setLastError(fd_ < 0 ? "串口未打开" : "串口连接未激活");
+        return false;
+    }
     bool ok = writeAll(frame.data(), frame.size());
     if (ok) {
         DebugCallback cb;
@@ -569,9 +676,7 @@ bool SerialDriver::sendCommandNoAck(uint8_t cmd, const std::vector<uint8_t>& pay
             std::lock_guard<std::mutex> cb_lock(callback_mutex_);
             cb = debug_callback_;
         }
-        if (cb) {
-            cb(true, frame);
-        }
+        invokeDebugCallback(true, frame, cb);
     }
     return ok;
 }
@@ -588,8 +693,8 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload,
         return false;
     }
 
-    if (fd_ < 0) {
-        setLastError("串口未打开");
+    if (!isLinkActive()) {
+        setLastError(fd_ < 0 ? "串口未打开" : "串口连接未激活");
         return false;
     }
 
@@ -599,6 +704,11 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload,
     // 每3次为1轮，达到0x09后触发重连
     out_seq = nextSeq();
     for (uint8_t retry = 0x00; retry <= MAX_RETRY_VALUE; ++retry) {
+        if (!isLinkActive()) {
+            setLastError(fd_ < 0 ? "串口未打开" : "串口连接未激活");
+            return false;
+        }
+
         std::vector<uint8_t> frame = buildFrame(out_seq, cmd, payload, retry);
         if (frame.empty()) {
             return false;
@@ -608,6 +718,11 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload,
 
         {
             std::lock_guard<std::mutex> lock(send_mutex_);
+            if (!isLinkActive()) {
+                endWaitAck();
+                setLastError(fd_ < 0 ? "串口未打开" : "串口连接未激活");
+                return false;
+            }
             if (!writeAll(frame.data(), frame.size())) {
                 endWaitAck();
                 return false;
@@ -617,9 +732,7 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload,
                 std::lock_guard<std::mutex> cb_lock(callback_mutex_);
                 cb = debug_callback_;
             }
-            if (cb) {
-                cb(true, frame);
-            }
+            invokeDebugCallback(true, frame, cb);
         }
 
         std::chrono::milliseconds ack_timeout{ACK_TIMEOUT_MS};
@@ -693,8 +806,8 @@ float SerialDriver::avgRttMs() const {
 }
 
 bool SerialDriver::sendPose(CommandID cmd, float vx, float vy, float wz, uint8_t& out_seq) {
-    if (fd_ < 0) {
-        setLastError("串口未打开");
+    if (!isLinkActive()) {
+        setLastError(fd_ < 0 ? "串口未打开" : "串口连接未激活");
         return false;
     }
 
@@ -709,6 +822,10 @@ bool SerialDriver::sendPose(CommandID cmd, float vx, float vy, float wz, uint8_t
     }
 
     std::lock_guard<std::mutex> lock(send_mutex_);
+    if (!isLinkActive()) {
+        setLastError(fd_ < 0 ? "串口未打开" : "串口连接未激活");
+        return false;
+    }
     bool ok = writeAll(frame.data(), frame.size());
     if (ok) {
         DebugCallback cb;
@@ -716,9 +833,7 @@ bool SerialDriver::sendPose(CommandID cmd, float vx, float vy, float wz, uint8_t
             std::lock_guard<std::mutex> cb_lock(callback_mutex_);
             cb = debug_callback_;
         }
-        if (cb) {
-            cb(true, frame);
-        }
+        invokeDebugCallback(true, frame, cb);
     }
     return ok;
 }
@@ -733,8 +848,8 @@ bool SerialDriver::sendStop() {
 }
 
 bool SerialDriver::sendHeartbeat() {
-    if (fd_ < 0) {
-        setLastError("串口未打开");
+    if (!isLinkActive()) {
+        setLastError(fd_ < 0 ? "串口未打开" : "串口连接未激活");
         return false;
     }
 
@@ -752,6 +867,11 @@ bool SerialDriver::sendHeartbeat() {
 
     {
         std::lock_guard<std::mutex> lock(send_mutex_);
+        if (!isLinkActive()) {
+            endWaitAck();
+            setLastError(fd_ < 0 ? "串口未打开" : "串口连接未激活");
+            return false;
+        }
         if (!writeAll(frame.data(), frame.size())) {
             endWaitAck();
             return false;
@@ -761,9 +881,7 @@ bool SerialDriver::sendHeartbeat() {
             std::lock_guard<std::mutex> cb_lock(callback_mutex_);
             cb = debug_callback_;
         }
-        if (cb) {
-            cb(true, frame);
-        }
+        invokeDebugCallback(true, frame, cb);
     }
 
     std::chrono::milliseconds ack_timeout{ACK_TIMEOUT_MS};
@@ -864,7 +982,7 @@ void SerialDriver::dispatchFrame(uint8_t seq, uint8_t cmd, const uint8_t* payloa
         frame[idx++] = static_cast<uint8_t>((crc >> 24) & 0xFF);
         frame[idx++] = FRAME_TAIL_0;
         frame[idx++] = FRAME_TAIL_1;
-        debug_cb(false, frame);
+        invokeDebugCallback(false, frame, debug_cb);
     }
 
     notifyAck(seq, cmd);
@@ -1004,6 +1122,18 @@ void SerialDriver::recvThreadFunc() {
             setLastError("read() 失败: errno=" + errnoText(err) + ", port=" + port_);
             RCLCPP_ERROR(serialLogger(), "串口读取失败：port=%s, errno=%d(%s)", port_.c_str(), err, std::strerror(err));
         }
+
+        if (err == EAGAIN || err == EWOULDBLOCK) {
+            continue;
+        }
+
+        if (isFatalSerialError(err)) {
+            requestReconnect("read_error");
+            running_ = false;
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
     ::close(epfd);
