@@ -109,6 +109,10 @@ if(BUILD_TESTING)
   find_package(launch_testing_ament_cmake REQUIRED)
   ament_add_gtest(test_tf_chain test/test_tf_chain.cpp)
   ament_target_dependencies(test_tf_chain tf2 tf2_geometry_msgs geometry_msgs)
+  target_link_libraries(test_tf_chain tf_chain_validator)
+
+  ament_add_gtest(test_safety_guard test/test_safety_guard.cpp)
+  target_link_libraries(test_safety_guard safety_guard)
 
   add_launch_test(test/test_costmap_integration.py TIMEOUT 60)
 endif()

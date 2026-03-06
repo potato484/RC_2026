@@ -1,10 +1,13 @@
 #include <cmath>
+#include <algorithm>
+#include <memory>
 #include <string>
 
 #include "gtest/gtest.h"
 
 #include "builtin_interfaces/msg/time.hpp"
 #include "geometry_msgs/msg/transform_stamped.hpp"
+#include "rc26_terrain/tf_chain_validator.hpp"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2/LinearMath/Transform.h"
 #include "tf2/buffer_core.h"
@@ -66,48 +69,104 @@ void expectTfNear(const geometry_msgs::msg::TransformStamped& actual, const tf2:
 }  // namespace
 
 TEST(TfChainUnitTest, TopologyConnectedAndComposable) {
-    tf2::BufferCore buffer(tf2::durationFromSec(10.0));
+    auto buffer = std::make_shared<tf2::BufferCore>(tf2::durationFromSec(10.0));
 
     // Static extrinsic: base_link -> livox_frame (pose of livox_frame in base_link).
     const tf2::Transform tf_base_livox = makePlanar(0.0, 0.0, 0.13, 0.0);
-    ASSERT_TRUE(buffer.setTransform(makeTf("base_link", "livox_frame", tf_base_livox, makeStamp(0)), "test", true));
+    ASSERT_TRUE(buffer->setTransform(makeTf("base_link", "livox_frame", tf_base_livox, makeStamp(0)), "test", true));
 
     // Dynamic: odom -> base_link.
     const tf2::Transform tf_odom_base = makePlanar(1.0, 2.0, 0.0, 0.1);
-    ASSERT_TRUE(buffer.setTransform(makeTf("odom", "base_link", tf_odom_base, makeStamp(10)), "test", false));
+    ASSERT_TRUE(buffer->setTransform(makeTf("odom", "base_link", tf_odom_base, makeStamp(10)), "test", false));
 
     // Dynamic: map -> odom.
     const tf2::Transform tf_map_odom = makePlanar(5.0, -3.0, 0.0, -0.2);
-    ASSERT_TRUE(buffer.setTransform(makeTf("map", "odom", tf_map_odom, makeStamp(10)), "test", false));
+    ASSERT_TRUE(buffer->setTransform(makeTf("map", "odom", tf_map_odom, makeStamp(10)), "test", false));
 
     const tf2::TimePoint t = tf2::timeFromSec(10.0);
+    rc26_terrain::TfChainSpec spec;
+    spec.expected_base_to_sensor = tf_base_livox;
+    rc26_terrain::TfChainValidator validator(spec);
+
+    const auto report = validator.validate(*buffer, t);
+    ASSERT_TRUE(report.ok) << report.message;
+    ASSERT_TRUE(report.map_to_base.has_value());
+    ASSERT_TRUE(report.map_to_sensor.has_value());
+    ASSERT_TRUE(report.base_to_sensor.has_value());
 
     std::string err;
-    EXPECT_TRUE(buffer.canTransform("map", "base_link", t, &err)) << err;
-    EXPECT_TRUE(buffer.canTransform("map", "livox_frame", t, &err)) << err;
+    EXPECT_TRUE(buffer->canTransform("map", "base_link", t, &err)) << err;
+    EXPECT_TRUE(buffer->canTransform("map", "livox_frame", t, &err)) << err;
 
     // Validate composition: T_map_base = T_map_odom * T_odom_base.
     const tf2::Transform expected_map_base = tf_map_odom * tf_odom_base;
-    const auto actual_map_base = buffer.lookupTransform("map", "base_link", t);
-    expectTfNear(actual_map_base, expected_map_base, 1e-9, 1e-9);
+    expectTfNear(*report.map_to_base, expected_map_base, 1e-9, 1e-9);
 
     // Validate composition through static extrinsic: T_map_livox = T_map_base * T_base_livox.
     const tf2::Transform expected_map_livox = expected_map_base * tf_base_livox;
-    const auto actual_map_livox = buffer.lookupTransform("map", "livox_frame", t);
-    expectTfNear(actual_map_livox, expected_map_livox, 1e-9, 1e-9);
+    expectTfNear(*report.map_to_sensor, expected_map_livox, 1e-9, 1e-9);
 }
 
 TEST(TfChainUnitTest, MissingStaticExtrinsicBreaksChain) {
-    tf2::BufferCore buffer(tf2::durationFromSec(10.0));
+    auto buffer = std::make_shared<tf2::BufferCore>(tf2::durationFromSec(10.0));
 
-    ASSERT_TRUE(buffer.setTransform(makeTf("odom", "base_link", makePlanar(0.0, 0.0, 0.0, 0.0), makeStamp(10)),
-                                    "test", false));
-    ASSERT_TRUE(
-        buffer.setTransform(makeTf("map", "odom", makePlanar(0.0, 0.0, 0.0, 0.0), makeStamp(10)), "test", false));
+    ASSERT_TRUE(buffer->setTransform(makeTf("odom", "base_link", makePlanar(0.0, 0.0, 0.0, 0.0), makeStamp(10)),
+                                     "test", false));
+    ASSERT_TRUE(buffer->setTransform(makeTf("map", "odom", makePlanar(0.0, 0.0, 0.0, 0.0), makeStamp(10)), "test",
+                                     false));
 
     const tf2::TimePoint t = tf2::timeFromSec(10.0);
+    rc26_terrain::TfChainValidator validator(rc26_terrain::TfChainSpec{});
+    const auto report = validator.validate(*buffer, t);
+
+    ASSERT_FALSE(report.ok);
+    EXPECT_EQ(report.code, rc26_terrain::TfChainStatusCode::kMissingRequiredTransform);
+    EXPECT_FALSE(report.missing_links.empty());
+    EXPECT_TRUE(std::any_of(report.missing_links.begin(), report.missing_links.end(), [](const std::string& link) {
+        return link.find("livox_frame") != std::string::npos;
+    }));
+
     std::string err;
-    EXPECT_FALSE(buffer.canTransform("map", "livox_frame", t, &err));
+    EXPECT_FALSE(buffer->canTransform("map", "livox_frame", t, &err));
     EXPECT_FALSE(err.empty());
 }
 
+TEST(TfChainUnitTest, LegacyLaserFrameIsRejected) {
+    auto buffer = std::make_shared<tf2::BufferCore>(tf2::durationFromSec(10.0));
+
+    ASSERT_TRUE(buffer->setTransform(makeTf("base_link", "livox_frame", makePlanar(0.0, 0.0, 0.13, 0.0), makeStamp(0)),
+                                     "test", true));
+    ASSERT_TRUE(buffer->setTransform(makeTf("base_link", "laser_link", makePlanar(0.0, 0.0, 0.13, 0.0), makeStamp(0)),
+                                     "test", true));
+    ASSERT_TRUE(buffer->setTransform(makeTf("odom", "base_link", makePlanar(0.0, 0.0, 0.0, 0.0), makeStamp(10)), "test",
+                                     false));
+    ASSERT_TRUE(buffer->setTransform(makeTf("map", "odom", makePlanar(0.0, 0.0, 0.0, 0.0), makeStamp(10)), "test",
+                                     false));
+
+    rc26_terrain::TfChainValidator validator(rc26_terrain::TfChainSpec{});
+    const auto report = validator.validate(*buffer, tf2::timeFromSec(10.0));
+
+    ASSERT_FALSE(report.ok);
+    EXPECT_EQ(report.code, rc26_terrain::TfChainStatusCode::kLegacyFrameDetected);
+    EXPECT_NE(report.message.find("laser_link"), std::string::npos);
+}
+
+TEST(TfChainUnitTest, StaleDynamicTransformIsRejected) {
+    auto buffer = std::make_shared<tf2::BufferCore>(tf2::durationFromSec(10.0));
+
+    ASSERT_TRUE(buffer->setTransform(makeTf("base_link", "livox_frame", makePlanar(0.0, 0.0, 0.13, 0.0), makeStamp(0)),
+                                     "test", true));
+    ASSERT_TRUE(buffer->setTransform(makeTf("odom", "base_link", makePlanar(0.0, 0.0, 0.0, 0.0), makeStamp(1)), "test",
+                                     false));
+    ASSERT_TRUE(buffer->setTransform(makeTf("map", "odom", makePlanar(0.0, 0.0, 0.0, 0.0), makeStamp(1)), "test",
+                                     false));
+
+    rc26_terrain::TfChainSpec spec;
+    spec.max_dynamic_age_sec = 0.5;
+    rc26_terrain::TfChainValidator validator(spec);
+    const auto report = validator.validate(*buffer, tf2::timeFromSec(1.0), tf2::timeFromSec(5.0));
+
+    ASSERT_FALSE(report.ok);
+    EXPECT_EQ(report.code, rc26_terrain::TfChainStatusCode::kStaleTransform);
+    EXPECT_NE(report.message.find("动态 TF 超时"), std::string::npos);
+}
