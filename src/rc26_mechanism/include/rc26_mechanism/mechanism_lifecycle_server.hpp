@@ -84,6 +84,7 @@ private:
     void onSerialFeedback(uint8_t seq, uint8_t fb_id, const std::vector<uint8_t>& payload);
     void publishMechanismState();
     bool waitUntilDoneOrFailed(bool& done, bool& failed, std::chrono::milliseconds timeout);
+    void drainPendingContexts();
 
     std::unique_ptr<IMechanismHAL> hal_;
     TipStateMachine tip_sm_;
@@ -123,8 +124,8 @@ private:
     bool rotate_done_{false};
     bool rotate_failed_{false};
     std::unordered_map<uint8_t, std::shared_ptr<CommandContext>> pending_contexts_;
-    uint16_t last_error_code_{0};
-    uint8_t assembled_count_{0};
+    std::atomic<uint16_t> last_error_code_{0};
+    std::atomic<uint8_t> assembled_count_{0};
 };
 
 }  // namespace rc26_mechanism

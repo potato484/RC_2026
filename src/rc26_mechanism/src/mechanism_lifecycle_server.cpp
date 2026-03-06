@@ -181,7 +181,7 @@ MechanismLifecycleServer::on_deactivate(const rclcpp_lifecycle::State&) {
     {
         std::lock_guard<std::mutex> lock(feedback_mutex_);
         cancel_requested_.store(true, std::memory_order_relaxed);
-        pending_contexts_.clear();
+        drainPendingContexts();
     }
     feedback_cv_.notify_all();
 
@@ -212,7 +212,7 @@ MechanismLifecycleServer::on_cleanup(const rclcpp_lifecycle::State&) {
     {
         std::lock_guard<std::mutex> lock(feedback_mutex_);
         cancel_requested_.store(true, std::memory_order_relaxed);
-        pending_contexts_.clear();
+        drainPendingContexts();
     }
 
     if (state_timer_) {
@@ -244,7 +244,7 @@ MechanismLifecycleServer::on_error(const rclcpp_lifecycle::State&) {
     {
         std::lock_guard<std::mutex> lock(feedback_mutex_);
         cancel_requested_.store(true, std::memory_order_relaxed);
-        pending_contexts_.clear();
+        drainPendingContexts();
     }
     {
         std::lock_guard<std::mutex> lock(cmd_state_mutex_);
@@ -992,6 +992,18 @@ void MechanismLifecycleServer::onSerialFeedback(uint8_t seq, uint8_t fb_id,
     feedback_cv_.notify_all();
 }
 
+void MechanismLifecycleServer::drainPendingContexts() {
+    for (auto& [seq, ctx] : pending_contexts_) {
+        if (!ctx->fulfilled.exchange(true, std::memory_order_relaxed)) {
+            try {
+                ctx->result_promise.set_value(CommandResult{false, 0, false, true});
+            } catch (const std::future_error&) {
+            }
+        }
+    }
+    pending_contexts_.clear();
+}
+
 void MechanismLifecycleServer::publishMechanismState() {
     if (!state_pub_ || !state_pub_->is_activated()) {
         return;
@@ -999,11 +1011,14 @@ void MechanismLifecycleServer::publishMechanismState() {
 
     rc26_interfaces::msg::MechanismState msg;
     msg.header.stamp = this->get_clock()->now();
-    msg.tip_state = static_cast<uint8_t>(tip_sm_.current());
+    {
+        std::lock_guard<std::mutex> lock(sm_mutex_);
+        msg.tip_state = static_cast<uint8_t>(tip_sm_.current());
+        msg.locked_tip_slot = tip_sm_.lockedTipSlot.value_or(255);
+    }
     msg.hal_open = hal_ && hal_->isOpen();
-    msg.locked_tip_slot = tip_sm_.lockedTipSlot.value_or(255);
-    msg.assembled_count = assembled_count_;
-    msg.last_error_code = last_error_code_;
+    msg.assembled_count = assembled_count_.load(std::memory_order_relaxed);
+    msg.last_error_code = last_error_code_.load(std::memory_order_relaxed);
     {
         std::lock_guard<std::mutex> lock(cmd_state_mutex_);
         msg.current_cmd_id = current_cmd_id_.load(std::memory_order_relaxed);
