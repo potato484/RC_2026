@@ -217,15 +217,19 @@ void OmniPidPursuitController::configure(const rclcpp_lifecycle::LifecycleNode::
     sigma_xy_ = 2.0;
     sigma_yaw_ = 1.0;
 
-    pose_cov_sub_ = node->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-        "/localization/pose_with_cov", rclcpp::SensorDataQoS(),
-        [this](const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
-            std::lock_guard<std::mutex> lk(cov_mutex_);
-            const auto& c = msg->pose.covariance;
-            sigma_xy_ = std::sqrt(std::max(0.0, c[21] + c[28]));
-            sigma_yaw_ = std::sqrt(std::max(0.0, c[14]));
-            last_cov_stamp_ = rclcpp::Time(msg->header.stamp);
-        });
+    if (loc_uncertainty_enable_) {
+        pose_cov_sub_ = node->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+            "/localization/pose_with_cov", rclcpp::SensorDataQoS(),
+            [this](const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
+                std::lock_guard<std::mutex> lk(cov_mutex_);
+                const auto& c = msg->pose.covariance;
+                sigma_xy_ = std::sqrt(std::max(0.0, c[0] + c[7]));
+                sigma_yaw_ = std::sqrt(std::max(0.0, c[35]));
+                last_cov_stamp_ = rclcpp::Time(msg->header.stamp);
+            });
+    } else {
+        pose_cov_sub_.reset();
+    }
 }
 
 void OmniPidPursuitController::cleanup() {
@@ -524,9 +528,6 @@ OmniPidPursuitController::computeVelocityCommands(const geometry_msgs::msg::Pose
         vy = last_vy_ + std::clamp(vy - last_vy_, -dvy_max, dvy_max);
         const double max_dw = std::max(0.0, a_angular_max_) * real_dt;
         wz = std::clamp(wz, last_ang_vel_ - max_dw, last_ang_vel_ + max_dw);
-        last_vx_ = vx;
-        last_vy_ = vy;
-
         if (wheel_speed_max_ > 0.0) {
             const double lw = (wheel_base_ + track_width_) / 2.0;
             const double speeds[4] = {
@@ -546,6 +547,9 @@ OmniPidPursuitController::computeVelocityCommands(const geometry_msgs::msg::Pose
                 wz *= scale;
             }
         }
+
+        last_vx_ = vx;
+        last_vy_ = vy;
 
         cmd_vel.twist.linear.x = vx;
         cmd_vel.twist.linear.y = vy;

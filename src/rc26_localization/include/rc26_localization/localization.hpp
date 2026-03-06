@@ -231,7 +231,7 @@ private:
     bool map_needs_transform_{false};
     double tf_timeout_sec_{1.0};
     std::mutex cloud_mutex_;              // 保护 accumulated_cloud_ 的互斥锁
-    std::mutex result_mutex_;             // 保护 result_t_ 和 previous_result_t_
+    mutable std::mutex result_mutex_;     // 保护 result_t_、previous_result_t_ 和协方差快照
     std::mutex registration_time_mutex_;  // 保护 last_successful_registration_time_
     std::mutex map_mutex_;
 

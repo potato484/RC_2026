@@ -64,6 +64,16 @@ rcl_interfaces::msg::SetParametersResult LocalizationNode::dynamicParametersCall
             log_update(name, old_v, max_dist_sq_);
             continue;
         }
+        if (name == "robust_enable") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+                reject("robust_enable expects bool");
+                break;
+            }
+            const bool old_v = robust_enable_;
+            robust_enable_ = p.as_bool();
+            log_update_bool(name, old_v, robust_enable_);
+            continue;
+        }
         if (name == "huber_c") {
             if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
                 reject("huber_c expects double");
@@ -305,6 +315,16 @@ rcl_interfaces::msg::SetParametersResult LocalizationNode::dynamicParametersCall
             log_update_bool(name, old_v, hessian_degen_enable_);
             continue;
         }
+        if (name == "hessian_lambda_hard") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("hessian_lambda_hard expects double");
+                break;
+            }
+            const double old_v = hessian_lambda_hard_;
+            hessian_lambda_hard_ = std::clamp(p.as_double(), 1e-6, 1e8);
+            log_update(name, old_v, hessian_lambda_hard_);
+            continue;
+        }
         if (name == "dynamic_filter_voxel_size") {
             if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
                 reject("dynamic_filter_voxel_size expects double");
@@ -413,4 +433,3 @@ rcl_interfaces::msg::SetParametersResult LocalizationNode::dynamicParametersCall
 }
 
 }  // namespace rc26_localization
-

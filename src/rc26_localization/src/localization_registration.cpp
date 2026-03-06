@@ -16,6 +16,21 @@
 
 namespace rc26_localization {
 
+namespace {
+constexpr std::array<int, 6> kPoseCovarianceOrder{3, 4, 5, 0, 1, 2};
+
+Eigen::Matrix<double, 6, 6> reorderCovariance(const Eigen::Matrix<double, 6, 6>& covariance,
+                                              const std::array<int, 6>& order) {
+    Eigen::Matrix<double, 6, 6> reordered = Eigen::Matrix<double, 6, 6>::Zero();
+    for (int row = 0; row < 6; ++row) {
+        for (int col = 0; col < 6; ++col) {
+            reordered(row, col) = covariance(order[row], order[col]);
+        }
+    }
+    return 0.5 * (reordered + reordered.transpose());
+}
+}  // namespace
+
 void LocalizationNode::performRegistration() {
     if (!map_loaded_) {
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "地图未加载，跳过配准");
@@ -141,8 +156,12 @@ void LocalizationNode::performRegistration() {
                 "Hard degen: lambda_min=%.2f < %.2f (consec=%d/%d)",
                 h_min_eig, hessian_lambda_hard_, hard_consec, s2_max_continuous_frames_);
 
-            last_pose_cov_.setZero();
-            last_pose_cov_.diagonal() << 1e6, 1e6, 1e6, 4.0, 4.0, 4.0;
+            Eigen::Matrix<double, 6, 6> hard_cov = Eigen::Matrix<double, 6, 6>::Zero();
+            hard_cov.diagonal() << 1e6, 1e6, 1e6, 4.0, 4.0, 4.0;
+            {
+                std::lock_guard<std::mutex> lk(result_mutex_);
+                last_pose_cov_ = hard_cov;
+            }
 
             if (hard_consec >= s2_max_continuous_frames_) {
                 consecutive_s2_count_.store(0);
@@ -183,7 +202,11 @@ void LocalizationNode::performRegistration() {
         (result.num_inliers > 0) ? (result.error / static_cast<double>(result.num_inliers))
                                  : std::numeric_limits<double>::max();
     const auto sigma_obs = buildObsCovariance(result);
-    last_pose_cov_ = sigma_obs;
+    const auto sigma_pose = reorderCovariance(sigma_obs, kPoseCovarianceOrder);
+    {
+        std::lock_guard<std::mutex> lk(result_mutex_);
+        last_pose_cov_ = sigma_obs;
+    }
 
     Eigen::Isometry3d constrained_pose = result.T_target_source;
     if (degen_enable_ && result.converged) {
@@ -271,15 +294,8 @@ void LocalizationNode::performRegistration() {
         if (result.converged) {
             Eigen::Isometry3d committed_pose = slope_corrected_pose;
             if (esikf_enable_) {
-                Eigen::Matrix<double, 6, 6> sigma_esikf = Eigen::Matrix<double, 6, 6>::Zero();
-                constexpr std::array<int, 6> kEsikfOrder{3, 4, 5, 0, 1, 2};
-                for (int r = 0; r < 6; ++r) {
-                    for (int c = 0; c < 6; ++c) {
-                        sigma_esikf(r, c) = sigma_obs(kEsikfOrder[r], kEsikfOrder[c]);
-                    }
-                }
                 std::lock_guard<std::mutex> lk(esikf_mutex_);
-                esikf_.update(slope_corrected_pose.matrix(), sigma_esikf);
+                esikf_.update(slope_corrected_pose.matrix(), sigma_pose);
                 committed_pose = esikf_.getMapToOdom();
             }
             result_t_ = previous_result_t_ = committed_pose;
@@ -500,7 +516,7 @@ Eigen::Matrix<double, 6, 6> LocalizationNode::buildObsCovariance(
         R_obs(3, 3) = 0.05;
         R_obs(4, 4) = 0.05;
 
-        const std::array<int, 3> obs_indices{0, 1, 5};  // x, y, yaw
+        const std::array<int, 3> obs_indices{3, 4, 2};
         for (size_t i = 0; i < obs_indices.size(); ++i) {
             const double risk = last_degen_.degen_risk(static_cast<Eigen::Index>(i));
             R_obs(obs_indices[i], obs_indices[i]) = (risk > 0.5) ? kDiagObsNoiseDegenerate : kDiagObsNoiseNominal;
@@ -514,6 +530,7 @@ void LocalizationNode::publishPoseWithCov(const Eigen::Isometry3d& pose, const E
     if (!pose_cov_pub_) {
         return;
     }
+    const Eigen::Matrix<double, 6, 6> ros_cov = reorderCovariance(cov, kPoseCovarianceOrder);
     geometry_msgs::msg::PoseWithCovarianceStamped msg;
     msg.header.stamp = now();
     msg.header.frame_id = map_frame_;
@@ -529,7 +546,7 @@ void LocalizationNode::publishPoseWithCov(const Eigen::Isometry3d& pose, const E
 
     for (size_t r = 0; r < 6; ++r) {
         for (size_t c = 0; c < 6; ++c) {
-            msg.pose.covariance[r * 6 + c] = cov(r, c);
+            msg.pose.covariance[r * 6 + c] = ros_cov(r, c);
         }
     }
     pose_cov_pub_->publish(msg);
@@ -565,12 +582,17 @@ void LocalizationNode::publishDiagnostics(double normalized_error, size_t inlier
     kv("degen_risk_y", std::to_string(last_degen_.degen_risk.y()));
     kv("degen_risk_yaw", std::to_string(last_degen_.degen_risk.z()));
     kv("fully_degenerate", last_degen_.is_fully_degenerate ? "1" : "0");
+    Eigen::Matrix<double, 6, 6> pose_cov = Eigen::Matrix<double, 6, 6>::Zero();
+    {
+        std::lock_guard<std::mutex> lk(result_mutex_);
+        pose_cov = last_pose_cov_;
+    }
     double h_min = 0.0;
     double h_max = 0.0;
     double h_cond = 1e12;
     computeHessianStats(0.5 * (result.H + result.H.transpose()), h_min, h_max, h_cond);
-    const double sigma_xy = std::sqrt(std::max(0.0, last_pose_cov_(3, 3) + last_pose_cov_(4, 4)));
-    const double sigma_yaw = std::sqrt(std::max(0.0, last_pose_cov_(2, 2)));
+    const double sigma_xy = std::sqrt(std::max(0.0, pose_cov(3, 3) + pose_cov(4, 4)));
+    const double sigma_yaw = std::sqrt(std::max(0.0, pose_cov(2, 2)));
     kv("h_min_eig", std::to_string(h_min));
     kv("h_max_eig", std::to_string(h_max));
     kv("h_cond", std::to_string(h_cond));
@@ -589,9 +611,11 @@ void LocalizationNode::publishTransform() {
     }
 
     Eigen::Isometry3d result_snapshot;
+    Eigen::Matrix<double, 6, 6> cov_snapshot = Eigen::Matrix<double, 6, 6>::Zero();
     {
         std::lock_guard<std::mutex> lock(result_mutex_);
         result_snapshot = result_t_;
+        cov_snapshot = last_pose_cov_;
     }
 
     if (result_snapshot.matrix().isZero()) {
@@ -616,8 +640,7 @@ void LocalizationNode::publishTransform() {
 
     tf_broadcaster_->sendTransform(transform_stamped);
 
-    Eigen::Matrix<double, 6, 6> cov = last_pose_cov_;
-    publishPoseWithCov(result_snapshot, cov);
+    publishPoseWithCov(result_snapshot, cov_snapshot);
 }
 
 bool LocalizationNode::detectKidnapping(double fitness_score, size_t num_inliers, const DegenAnalysis& degen) {
@@ -680,4 +703,3 @@ std::vector<Eigen::Matrix4f> LocalizationNode::generateCandidateTransforms(const
 }
 
 }  // namespace rc26_localization
-
