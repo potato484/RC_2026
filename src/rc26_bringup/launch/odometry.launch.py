@@ -2,7 +2,7 @@
 里程计模块启动文件
 
 启动:
-  - point_lio (LiDAR-IMU 里程计)
+  - rc26_point_lio (LiDAR-IMU 里程计)
   - rc26_odom_interface (坐标变换: lidar_odom -> odom)
   - rc26_sensor_scan (发布 odom -> chassis 变换 + sensor_scan)
 """
@@ -17,8 +17,8 @@ from launch_ros.actions import Node
 def generate_launch_description():
     bringup_dir = get_package_share_directory('rc26_bringup')
     _dir = get_package_share_directory('')
-    point_lio_dir = get_package_share_directory('point_lio')
-    mid360_driver_dir = get_package_share_directory('mid360_driver')
+    point_lio_dir = get_package_share_directory('rc26_point_lio')
+    mid360_driver_dir = get_package_share_directory('rc26_mid360_driver')
 
     # 启动参数
     namespace = LaunchConfiguration('namespace')
@@ -62,8 +62,8 @@ def generate_launch_description():
 
     # MID-360 LiDAR 驱动节点
     mid360_driver_node = Node(
-        package='mid360_driver',
-        executable='mid360_driver_node',
+        package='rc26_mid360_driver',
+        executable='rc26_mid360_driver_node',
         name='mid360_driver',
         namespace=namespace,
         output='screen',
@@ -73,9 +73,9 @@ def generate_launch_description():
         ],
     )
 
-    # Point-LIO 里程计节点
+    # rc26_point_lio 里程计节点
     point_lio_node = Node(
-        package='point_lio',
+        package='rc26_point_lio',
         executable='pointlio_mapping',
         name='point_lio',
         namespace=namespace,
@@ -92,7 +92,7 @@ def generate_launch_description():
         ],
     )
 
-    # rc26_odom_interface: 将 point_lio 输出从 lidar_odom 转换到 odom 系
+    # rc26_odom_interface: 将 rc26_point_lio 输出从 lidar_odom 转换到 odom 系
     odom_interface_node = Node(
         package='rc26_odom_interface',
         executable='rc26_odom_interface_node',

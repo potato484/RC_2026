@@ -2,7 +2,7 @@
 src R2导航系统 - 主启动文件
 
 启动:
-  - 里程计 (point_lio + rc26_odom_interface + rc26_sensor_scan)
+  - 里程计 (rc26_point_lio + rc26_odom_interface + rc26_sensor_scan)
   - 定位 (rc26_localization)
   - 地面高度估计 (rc26_base_ground)
   - 地形分析 (rc26_terrain)
@@ -27,7 +27,7 @@ def generate_launch_description():
     decision_dir = get_package_share_directory('rc26_decision')
     base_ground_dir = get_package_share_directory('rc26_base_ground')
     kfs_keepout_dir = get_package_share_directory('rc26_kfs_keepout')
-    point_lio_dir = get_package_share_directory('point_lio')
+    point_lio_dir = get_package_share_directory('rc26_point_lio')
 
     # 启动参数
     namespace = LaunchConfiguration('namespace')
@@ -128,7 +128,7 @@ def generate_launch_description():
         condition=IfCondition(use_realsense),
     )
 
-    # 里程计模块 (point_lio + rc26_odom_interface + rc26_sensor_scan)
+    # 里程计模块 (rc26_point_lio + rc26_odom_interface + rc26_sensor_scan)
     odometry_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([bringup_dir, 'launch', 'odometry.launch.py'])

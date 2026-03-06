@@ -20,7 +20,7 @@ source install/setup.bash
 **功能**: 验证 Point-LIO → Nav2 坐标转换是否正常
 
 ```bash
-# 启动测试 (需要 point_lio 数据源)
+# 启动测试 (需要 rc26_point_lio 数据源)
 ros2 launch rc26_bringup test_odom_interface.launch.py
 
 # 验证输出话题
@@ -78,7 +78,7 @@ ros2 topic echo /localization/diagnostics --once
 
 ---
 
-### 4. 完整里程计链测试 (point_lio + odom_interface + sensor_scan + lio_state_predictor)
+### 4. 完整里程计链测试 (rc26_point_lio + odom_interface + sensor_scan + lio_state_predictor)
 
 **功能**: 验证完整的里程计数据流
 
@@ -133,7 +133,7 @@ ros2 topic echo /cmd_vel --once
 | odom_interface | `/odom` | odom→base_link 变换 |
 | sensor_scan | `/sensor_scan` | laser_link 坐标系点云，`/odometry` 协方差透传 |
 | lio_state_predictor | `/control_state` | 约 200Hz 预测里程计 |
-| point_lio | `/degenerate_score` | 退化分数持续输出 |
+| rc26_point_lio | `/degenerate_score` | 退化分数持续输出 |
 | localization | `/localization/pose_with_cov` + `/localization/diagnostics` | 持续发布且包含扩展字段 |
 | omni_controller | `/cmd_vel` | 速度指令 |
 
