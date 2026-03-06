@@ -172,6 +172,7 @@ void OmniPidPursuitController::configure(const rclcpp_lifecycle::LifecycleNode::
 
     node->get_parameter("controller_frequency", control_frequency);
 
+    sanitizeLoadedParameters();
     transform_tolerance_ = tf2::durationFromSec(transform_tolerance);
     control_duration_ = 1.0 / std::max(control_frequency, 1e-3);
     configured_v_linear_max_ = v_linear_max_;
@@ -206,11 +207,6 @@ void OmniPidPursuitController::configure(const rclcpp_lifecycle::LifecycleNode::
     collision_check_outside_map_count_ = 0;
     plan_cumulative_distances_.clear();
     plan_prune_idx_ = 0;
-    loc_timeout_sec_ = std::max(0.01, loc_timeout_sec_);
-    loc_k_v_ = std::max(0.0, loc_k_v_);
-    loc_k_w_ = std::max(0.0, loc_k_w_);
-    loc_v_scale_min_ = std::clamp(loc_v_scale_min_, 0.0, 1.0);
-    loc_w_scale_min_ = std::clamp(loc_w_scale_min_, 0.0, 1.0);
     resetMotionState();
     last_velocity_scaling_factor_ = v_linear_max_;
     refreshPoseCovSubscription(node);
@@ -390,6 +386,338 @@ void OmniPidPursuitController::refreshPoseCovSubscription(const rclcpp_lifecycle
             sigma_yaw_ = std::sqrt(std::max(0.0, c[35]));
             last_cov_stamp_ = rclcpp::Time(msg->header.stamp);
         });
+}
+
+void OmniPidPursuitController::sanitizeLoadedParameters() {
+    auto warn_if_changed = [this](const char* name, double before, double after) {
+        if (std::abs(before - after) > 1e-9) {
+            RCLCPP_WARN(logger_, "Parameter %s sanitized from %.6f to %.6f", name, before, after);
+        }
+    };
+
+    const double before_min_max_sum_error = min_max_sum_error_;
+    min_max_sum_error_ = std::max(0.0, min_max_sum_error_);
+    warn_if_changed("min_max_sum_error", before_min_max_sum_error, min_max_sum_error_);
+
+    const double before_lookahead_dist = lookahead_dist_;
+    lookahead_dist_ = std::max(0.0, lookahead_dist_);
+    warn_if_changed("lookahead_dist", before_lookahead_dist, lookahead_dist_);
+
+    const double before_min_lookahead = min_lookahead_dist_;
+    min_lookahead_dist_ = std::max(0.0, min_lookahead_dist_);
+    warn_if_changed("min_lookahead_dist", before_min_lookahead, min_lookahead_dist_);
+
+    const double before_max_lookahead = max_lookahead_dist_;
+    max_lookahead_dist_ = std::max(min_lookahead_dist_, max_lookahead_dist_);
+    warn_if_changed("max_lookahead_dist", before_max_lookahead, max_lookahead_dist_);
+
+    const double before_lookahead_time = lookahead_time_;
+    lookahead_time_ = std::max(0.0, lookahead_time_);
+    warn_if_changed("lookahead_time", before_lookahead_time, lookahead_time_);
+
+    const double before_rotate_thresh = use_rotate_to_heading_threshold_;
+    use_rotate_to_heading_threshold_ = std::max(0.0, use_rotate_to_heading_threshold_);
+    warn_if_changed("use_rotate_to_heading_threshold", before_rotate_thresh, use_rotate_to_heading_threshold_);
+
+    const double before_min_approach = min_approach_linear_velocity_;
+    min_approach_linear_velocity_ = std::max(0.0, min_approach_linear_velocity_);
+    warn_if_changed("min_approach_linear_velocity", before_min_approach, min_approach_linear_velocity_);
+
+    const double before_approach_scale = approach_velocity_scaling_dist_;
+    approach_velocity_scaling_dist_ = std::max(1e-6, approach_velocity_scaling_dist_);
+    warn_if_changed("approach_velocity_scaling_dist", before_approach_scale, approach_velocity_scaling_dist_);
+
+    const double before_search_dist = max_robot_pose_search_dist_;
+    max_robot_pose_search_dist_ = std::max(1e-6, max_robot_pose_search_dist_);
+    warn_if_changed("max_robot_pose_search_dist", before_search_dist, max_robot_pose_search_dist_);
+
+    const double before_v_linear_max = v_linear_max_;
+    v_linear_max_ = std::max(v_linear_min_, v_linear_max_);
+    warn_if_changed("v_linear_max", before_v_linear_max, v_linear_max_);
+
+    const double before_v_angular_max = v_angular_max_;
+    v_angular_max_ = std::max(v_angular_min_, v_angular_max_);
+    warn_if_changed("v_angular_max", before_v_angular_max, v_angular_max_);
+
+    const double before_a_linear_max = a_linear_max_;
+    a_linear_max_ = std::max(0.0, a_linear_max_);
+    warn_if_changed("a_linear_max", before_a_linear_max, a_linear_max_);
+
+    const double before_a_angular_max = a_angular_max_;
+    a_angular_max_ = std::max(0.0, a_angular_max_);
+    warn_if_changed("a_angular_max", before_a_angular_max, a_angular_max_);
+
+    const double before_brake_margin = brake_margin_;
+    brake_margin_ = std::max(0.0, brake_margin_);
+    warn_if_changed("brake_margin", before_brake_margin, brake_margin_);
+
+    const double before_brake_accel = brake_accel_;
+    brake_accel_ = std::max(1e-6, brake_accel_);
+    warn_if_changed("brake_accel", before_brake_accel, brake_accel_);
+
+    const double before_lateral_error_max = lateral_error_max_;
+    lateral_error_max_ = std::max(0.0, lateral_error_max_);
+    warn_if_changed("lateral_error_max", before_lateral_error_max, lateral_error_max_);
+
+    const double before_a_lim_x = a_lim_x_;
+    a_lim_x_ = std::max(0.0, a_lim_x_);
+    warn_if_changed("a_lim_x", before_a_lim_x, a_lim_x_);
+
+    const double before_a_lim_y = a_lim_y_;
+    a_lim_y_ = std::max(0.0, a_lim_y_);
+    warn_if_changed("a_lim_y", before_a_lim_y, a_lim_y_);
+
+    const double before_a_lateral_max = a_lateral_max_;
+    a_lateral_max_ = std::max(1e-6, a_lateral_max_);
+    warn_if_changed("a_lateral_max", before_a_lateral_max, a_lateral_max_);
+
+    const double before_curvature_forward = curvature_forward_dist_;
+    curvature_forward_dist_ = std::max(0.0, curvature_forward_dist_);
+    warn_if_changed("curvature_forward_dist", before_curvature_forward, curvature_forward_dist_);
+
+    const double before_curvature_backward = curvature_backward_dist_;
+    curvature_backward_dist_ = std::max(0.0, curvature_backward_dist_);
+    warn_if_changed("curvature_backward_dist", before_curvature_backward, curvature_backward_dist_);
+
+    if (curvature_forward_dist_ + curvature_backward_dist_ < 1e-6) {
+        RCLCPP_WARN(logger_, "Curvature distances were both non-positive, restoring defaults 0.7/0.3");
+        curvature_forward_dist_ = 0.7;
+        curvature_backward_dist_ = 0.3;
+    }
+
+    const double before_scaling_rate = max_velocity_scaling_factor_rate_;
+    max_velocity_scaling_factor_rate_ = std::max(0.0, max_velocity_scaling_factor_rate_);
+    warn_if_changed("max_velocity_scaling_factor_rate", before_scaling_rate, max_velocity_scaling_factor_rate_);
+
+    const double before_goal_dist_scale = goal_dist_scale_;
+    goal_dist_scale_ = std::max(1e-6, goal_dist_scale_);
+    warn_if_changed("goal_dist_scale", before_goal_dist_scale, goal_dist_scale_);
+
+    const double before_wheel_base = wheel_base_;
+    wheel_base_ = std::max(0.0, wheel_base_);
+    warn_if_changed("wheel_base", before_wheel_base, wheel_base_);
+
+    const double before_track_width = track_width_;
+    track_width_ = std::max(0.0, track_width_);
+    warn_if_changed("track_width", before_track_width, track_width_);
+
+    const double before_filter_tau = derivative_filter_tau_;
+    derivative_filter_tau_ = std::max(1e-6, derivative_filter_tau_);
+    warn_if_changed("derivative_filter_tau", before_filter_tau, derivative_filter_tau_);
+
+    const double before_loc_timeout = loc_timeout_sec_;
+    loc_timeout_sec_ = std::max(0.01, loc_timeout_sec_);
+    warn_if_changed("loc_timeout_sec", before_loc_timeout, loc_timeout_sec_);
+
+    const double before_loc_k_v = loc_k_v_;
+    loc_k_v_ = std::max(0.0, loc_k_v_);
+    warn_if_changed("loc_k_v", before_loc_k_v, loc_k_v_);
+
+    const double before_loc_k_w = loc_k_w_;
+    loc_k_w_ = std::max(0.0, loc_k_w_);
+    warn_if_changed("loc_k_w", before_loc_k_w, loc_k_w_);
+
+    const double before_loc_v_scale_min = loc_v_scale_min_;
+    loc_v_scale_min_ = std::clamp(loc_v_scale_min_, 0.0, 1.0);
+    warn_if_changed("loc_v_scale_min", before_loc_v_scale_min, loc_v_scale_min_);
+
+    const double before_loc_w_scale_min = loc_w_scale_min_;
+    loc_w_scale_min_ = std::clamp(loc_w_scale_min_, 0.0, 1.0);
+    warn_if_changed("loc_w_scale_min", before_loc_w_scale_min, loc_w_scale_min_);
+
+    last_velocity_scaling_factor_ = std::clamp(last_velocity_scaling_factor_, 0.0, std::max(0.0, v_linear_max_));
+}
+
+bool OmniPidPursuitController::validateParameterUpdate(const std::vector<rclcpp::Parameter>& parameters,
+                                                       std::string& reason) const {
+    double translation_kp = translation_kp_;
+    double translation_ki = translation_ki_;
+    double translation_kd = translation_kd_;
+    double rotation_kp = rotation_kp_;
+    double rotation_ki = rotation_ki_;
+    double rotation_kd = rotation_kd_;
+    double transform_tolerance = std::chrono::duration<double>(transform_tolerance_).count();
+    double min_max_sum_error = min_max_sum_error_;
+    double lookahead_dist = lookahead_dist_;
+    double min_lookahead_dist = min_lookahead_dist_;
+    double max_lookahead_dist = max_lookahead_dist_;
+    double lookahead_time = lookahead_time_;
+    double use_rotate_to_heading_threshold = use_rotate_to_heading_threshold_;
+    double min_approach_linear_velocity = min_approach_linear_velocity_;
+    double approach_velocity_scaling_dist = approach_velocity_scaling_dist_;
+    double v_linear_min = v_linear_min_;
+    double v_linear_max = v_linear_max_;
+    double v_angular_min = v_angular_min_;
+    double v_angular_max = v_angular_max_;
+    double max_robot_pose_search_dist = max_robot_pose_search_dist_;
+    double a_linear_max = a_linear_max_;
+    double a_angular_max = a_angular_max_;
+    double brake_margin = brake_margin_;
+    double brake_accel = brake_accel_;
+    double lateral_error_gain = lateral_error_gain_;
+    double lateral_error_max = lateral_error_max_;
+    double a_lim_x = a_lim_x_;
+    double a_lim_y = a_lim_y_;
+    double a_lateral_max = a_lateral_max_;
+    double curvature_forward_dist = curvature_forward_dist_;
+    double curvature_backward_dist = curvature_backward_dist_;
+    double max_velocity_scaling_factor_rate = max_velocity_scaling_factor_rate_;
+    double kv_ff = kv_ff_;
+    double goal_dist_scale = goal_dist_scale_;
+    double wheel_base = wheel_base_;
+    double track_width = track_width_;
+    double derivative_filter_tau = derivative_filter_tau_;
+    double loc_timeout_sec = loc_timeout_sec_;
+    double loc_k_v = loc_k_v_;
+    double loc_k_w = loc_k_w_;
+    double loc_v_scale_min = loc_v_scale_min_;
+    double loc_w_scale_min = loc_w_scale_min_;
+
+    auto assign_double = [&](const std::string& name, double value) {
+        if (name == plugin_name_ + ".translation_kp") {
+            translation_kp = value;
+        } else if (name == plugin_name_ + ".translation_ki") {
+            translation_ki = value;
+        } else if (name == plugin_name_ + ".translation_kd") {
+            translation_kd = value;
+        } else if (name == plugin_name_ + ".rotation_kp") {
+            rotation_kp = value;
+        } else if (name == plugin_name_ + ".rotation_ki") {
+            rotation_ki = value;
+        } else if (name == plugin_name_ + ".rotation_kd") {
+            rotation_kd = value;
+        } else if (name == plugin_name_ + ".transform_tolerance") {
+            transform_tolerance = value;
+        } else if (name == plugin_name_ + ".min_max_sum_error") {
+            min_max_sum_error = value;
+        } else if (name == plugin_name_ + ".lookahead_dist") {
+            lookahead_dist = value;
+        } else if (name == plugin_name_ + ".min_lookahead_dist") {
+            min_lookahead_dist = value;
+        } else if (name == plugin_name_ + ".max_lookahead_dist") {
+            max_lookahead_dist = value;
+        } else if (name == plugin_name_ + ".lookahead_time") {
+            lookahead_time = value;
+        } else if (name == plugin_name_ + ".use_rotate_to_heading_threshold") {
+            use_rotate_to_heading_threshold = value;
+        } else if (name == plugin_name_ + ".min_approach_linear_velocity") {
+            min_approach_linear_velocity = value;
+        } else if (name == plugin_name_ + ".approach_velocity_scaling_dist") {
+            approach_velocity_scaling_dist = value;
+        } else if (name == plugin_name_ + ".v_linear_min") {
+            v_linear_min = value;
+        } else if (name == plugin_name_ + ".v_linear_max") {
+            v_linear_max = value;
+        } else if (name == plugin_name_ + ".v_angular_min") {
+            v_angular_min = value;
+        } else if (name == plugin_name_ + ".v_angular_max") {
+            v_angular_max = value;
+        } else if (name == plugin_name_ + ".max_robot_pose_search_dist") {
+            max_robot_pose_search_dist = value;
+        } else if (name == plugin_name_ + ".a_linear_max") {
+            a_linear_max = value;
+        } else if (name == plugin_name_ + ".a_angular_max") {
+            a_angular_max = value;
+        } else if (name == plugin_name_ + ".brake_margin") {
+            brake_margin = value;
+        } else if (name == plugin_name_ + ".brake_accel") {
+            brake_accel = value;
+        } else if (name == plugin_name_ + ".lateral_error_gain") {
+            lateral_error_gain = value;
+        } else if (name == plugin_name_ + ".lateral_error_max") {
+            lateral_error_max = value;
+        } else if (name == plugin_name_ + ".a_lim_x") {
+            a_lim_x = value;
+        } else if (name == plugin_name_ + ".a_lim_y") {
+            a_lim_y = value;
+        } else if (name == plugin_name_ + ".a_lateral_max") {
+            a_lateral_max = value;
+        } else if (name == plugin_name_ + ".curvature_forward_dist") {
+            curvature_forward_dist = value;
+        } else if (name == plugin_name_ + ".curvature_backward_dist") {
+            curvature_backward_dist = value;
+        } else if (name == plugin_name_ + ".max_velocity_scaling_factor_rate") {
+            max_velocity_scaling_factor_rate = value;
+        } else if (name == plugin_name_ + ".kv_ff") {
+            kv_ff = value;
+        } else if (name == plugin_name_ + ".goal_dist_scale") {
+            goal_dist_scale = value;
+        } else if (name == plugin_name_ + ".wheel_base") {
+            wheel_base = value;
+        } else if (name == plugin_name_ + ".track_width") {
+            track_width = value;
+        } else if (name == plugin_name_ + ".derivative_filter_tau") {
+            derivative_filter_tau = value;
+        } else if (name == plugin_name_ + ".loc_timeout_sec") {
+            loc_timeout_sec = value;
+        } else if (name == plugin_name_ + ".loc_k_v") {
+            loc_k_v = value;
+        } else if (name == plugin_name_ + ".loc_k_w") {
+            loc_k_w = value;
+        } else if (name == plugin_name_ + ".loc_v_scale_min") {
+            loc_v_scale_min = value;
+        } else if (name == plugin_name_ + ".loc_w_scale_min") {
+            loc_w_scale_min = value;
+        }
+    };
+
+    for (const auto& parameter : parameters) {
+        if (parameter.get_type() == ParameterType::PARAMETER_DOUBLE) {
+            const double value = parameter.as_double();
+            if (!std::isfinite(value)) {
+                reason = "Parameter " + parameter.get_name() + " must be finite.";
+                return false;
+            }
+            assign_double(parameter.get_name(), value);
+        }
+    }
+
+    auto require = [&](bool condition, const char* message) {
+        if (!condition) {
+            reason = message;
+        }
+        return condition;
+    };
+
+    return require(translation_kp >= 0.0, "translation_kp must be >= 0") &&
+           require(translation_ki >= 0.0, "translation_ki must be >= 0") &&
+           require(translation_kd >= 0.0, "translation_kd must be >= 0") &&
+           require(rotation_kp >= 0.0, "rotation_kp must be >= 0") &&
+           require(rotation_ki >= 0.0, "rotation_ki must be >= 0") &&
+           require(rotation_kd >= 0.0, "rotation_kd must be >= 0") &&
+           require(transform_tolerance > 0.0, "transform_tolerance must be > 0") &&
+           require(min_max_sum_error >= 0.0, "min_max_sum_error must be >= 0") &&
+           require(lookahead_dist >= 0.0, "lookahead_dist must be >= 0") &&
+           require(min_lookahead_dist >= 0.0, "min_lookahead_dist must be >= 0") &&
+           require(max_lookahead_dist >= min_lookahead_dist, "max_lookahead_dist must be >= min_lookahead_dist") &&
+           require(lookahead_time >= 0.0, "lookahead_time must be >= 0") &&
+           require(use_rotate_to_heading_threshold >= 0.0, "use_rotate_to_heading_threshold must be >= 0") &&
+           require(min_approach_linear_velocity >= 0.0, "min_approach_linear_velocity must be >= 0") &&
+           require(approach_velocity_scaling_dist > 0.0, "approach_velocity_scaling_dist must be > 0") &&
+           require(v_linear_max >= v_linear_min, "v_linear_max must be >= v_linear_min") &&
+           require(v_angular_max >= v_angular_min, "v_angular_max must be >= v_angular_min") &&
+           require(max_robot_pose_search_dist > 0.0, "max_robot_pose_search_dist must be > 0") &&
+           require(a_linear_max >= 0.0, "a_linear_max must be >= 0") &&
+           require(a_angular_max >= 0.0, "a_angular_max must be >= 0") &&
+           require(brake_margin >= 0.0, "brake_margin must be >= 0") &&
+           require(brake_accel > 0.0, "brake_accel must be > 0") &&
+           require(lateral_error_gain >= 0.0, "lateral_error_gain must be >= 0") &&
+           require(lateral_error_max >= 0.0, "lateral_error_max must be >= 0") &&
+           require(a_lim_x >= 0.0, "a_lim_x must be >= 0") && require(a_lim_y >= 0.0, "a_lim_y must be >= 0") &&
+           require(a_lateral_max > 0.0, "a_lateral_max must be > 0") &&
+           require(curvature_forward_dist >= 0.0, "curvature_forward_dist must be >= 0") &&
+           require(curvature_backward_dist >= 0.0, "curvature_backward_dist must be >= 0") &&
+           require(curvature_forward_dist + curvature_backward_dist > 0.0,
+                   "curvature_forward_dist + curvature_backward_dist must be > 0") &&
+           require(max_velocity_scaling_factor_rate >= 0.0, "max_velocity_scaling_factor_rate must be >= 0") &&
+           require(kv_ff >= 0.0, "kv_ff must be >= 0") && require(goal_dist_scale > 0.0, "goal_dist_scale must be > 0") &&
+           require(wheel_base >= 0.0, "wheel_base must be >= 0") &&
+           require(track_width >= 0.0, "track_width must be >= 0") &&
+           require(derivative_filter_tau > 0.0, "derivative_filter_tau must be > 0") &&
+           require(loc_timeout_sec > 0.0, "loc_timeout_sec must be > 0") && require(loc_k_v >= 0.0, "loc_k_v must be >= 0") &&
+           require(loc_k_w >= 0.0, "loc_k_w must be >= 0") &&
+           require(loc_v_scale_min >= 0.0 && loc_v_scale_min <= 1.0, "loc_v_scale_min must be in [0, 1]") &&
+           require(loc_w_scale_min >= 0.0 && loc_w_scale_min <= 1.0, "loc_w_scale_min must be in [0, 1]");
 }
 
 void OmniPidPursuitController::resetMotionState() noexcept {
@@ -1199,6 +1527,13 @@ OmniPidPursuitController::dynamicParametersCallback(std::vector<rclcpp::Paramete
     rcl_interfaces::msg::SetParametersResult result;
     std::lock_guard<std::recursive_mutex> lock_reinit(mutex_);
 
+    std::string validation_error;
+    if (!validateParameterUpdate(parameters, validation_error)) {
+        result.successful = false;
+        result.reason = validation_error;
+        return result;
+    }
+
     for (const auto& parameter : parameters) {
         const auto& type = parameter.get_type();
         const auto& name = parameter.get_name();
@@ -1308,6 +1643,7 @@ OmniPidPursuitController::dynamicParametersCallback(std::vector<rclcpp::Paramete
         }
     }
 
+    sanitizeLoadedParameters();
     refreshPoseCovSubscription(node_.lock());
 
     // 同步更新 PID 控制器参数

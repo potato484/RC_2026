@@ -81,6 +81,8 @@ protected:
 private:
     const CostmapSnapshot& captureCostmapSnapshot();
     void refreshPoseCovSubscription(const rclcpp_lifecycle::LifecycleNode::SharedPtr& node);
+    void sanitizeLoadedParameters();
+    bool validateParameterUpdate(const std::vector<rclcpp::Parameter>& parameters, std::string& reason) const;
     void resetMotionState() noexcept;
 
     double applyCurvatureLimitation(const nav_msgs::msg::Path& path,
