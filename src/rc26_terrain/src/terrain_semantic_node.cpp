@@ -1249,8 +1249,8 @@ void TerrainSemanticNode::classifyAndUpdate(double stamp_sec) {
             slope_y_[idx] = (center - ym) / static_cast<float>(grid_resolution_m_);
         }
 
-        std::vector<float> neigh;
-        neigh.reserve(8);
+        std::array<float, 8> neigh{};
+        int neigh_count = 0;
         for (int dx = -1; dx <= 1; ++dx) {
             for (int dy = -1; dy <= 1; ++dy) {
                 if (dx == 0 && dy == 0) {
@@ -1258,22 +1258,22 @@ void TerrainSemanticNode::classifyAndUpdate(double stamp_sec) {
                 }
                 float value = 0.0f;
                 if (getFreshGround(ix + dx, iy + dy, value)) {
-                    neigh.push_back(value);
+                    neigh[static_cast<size_t>(neigh_count++)] = value;
                 }
             }
         }
-        if (neigh.size() >= 3) {
+        if (neigh_count >= 3) {
             float mean = 0.0f;
-            for (const float v : neigh) {
-                mean += v;
+            for (int i = 0; i < neigh_count; ++i) {
+                mean += neigh[static_cast<size_t>(i)];
             }
-            mean /= static_cast<float>(neigh.size());
+            mean /= static_cast<float>(neigh_count);
             float var = 0.0f;
-            for (const float v : neigh) {
-                const float d = v - mean;
+            for (int i = 0; i < neigh_count; ++i) {
+                const float d = neigh[static_cast<size_t>(i)] - mean;
                 var += d * d;
             }
-            roughness_[idx] = var / static_cast<float>(neigh.size());
+            roughness_[idx] = var / static_cast<float>(neigh_count);
         }
     }
 }
@@ -1721,11 +1721,10 @@ void TerrainSemanticNode::cloudCallback(
 
     estimateCellHeights(stamp_sec);
     classifyAndUpdate(stamp_sec);
+    publishOutputs(stamp, base_x, base_y, base_z, cos_yaw, sin_yaw);
 
     last_latency_ms_ = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - t_start).count();
-
-    publishOutputs(stamp, base_x, base_y, base_z, cos_yaw, sin_yaw);
 }
 
 void TerrainSemanticNode::publishEmergencyStop(const rclcpp::Time& stamp) const {
