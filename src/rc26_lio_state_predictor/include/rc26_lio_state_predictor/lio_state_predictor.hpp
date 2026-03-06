@@ -27,6 +27,8 @@ private:
     std::mutex data_mutex_;
     nav_msgs::msg::Odometry::ConstSharedPtr latest_odometry_;
     sensor_msgs::msg::Imu::ConstSharedPtr latest_imu_;
+    rclcpp::Time latest_imu_stamp_{0, 0, RCL_ROS_TIME};
+    rclcpp::Time latest_degenerate_score_stamp_{0, 0, RCL_ROS_TIME};
     bool has_degenerate_score_{false};
     double latest_degenerate_score_{1.0};
 
@@ -51,6 +53,9 @@ private:
     double pos_cov_increase_m2_per_s_{0.02};
     double yaw_cov_increase_rad2_per_s_{0.01};
     double degeneracy_ratio_threshold_{0.02};
+    double imu_timeout_sec_{0.05};
+    double degenerate_score_timeout_sec_{0.2};
+    double max_prediction_horizon_sec_{0.2};
 };
 
 }  // namespace rc26_lio_state_predictor
