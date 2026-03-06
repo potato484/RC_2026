@@ -22,6 +22,10 @@
   <depend>robot_localization</depend>
   <depend>rc26_serial</depend>
 
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
   <exec_depend>python3-serial</exec_depend>
 
   <export>

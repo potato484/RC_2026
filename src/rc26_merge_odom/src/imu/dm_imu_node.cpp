@@ -313,13 +313,16 @@ private:
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
 
+    int exit_code = 0;
+
     try {
         auto node = std::make_shared<DmImuNode>();
         rclcpp::spin(node);
     } catch (const std::exception& e) {
         RCLCPP_ERROR(rclcpp::get_logger("dm_imu_node"), "Exception: %s", e.what());
+        exit_code = 1;
     }
 
     rclcpp::shutdown();
-    return 0;
+    return exit_code;
 }
