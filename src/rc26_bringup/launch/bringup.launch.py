@@ -42,6 +42,7 @@ def generate_launch_description():
     use_realsense = LaunchConfiguration('use_realsense')
     realsense_serial_no = LaunchConfiguration('realsense_serial_no')
     realsense_config_file = LaunchConfiguration('realsense_config_file')
+    kfs_heartbeat_topic = LaunchConfiguration('kfs_heartbeat_topic')
 
     # 参数声明
     declare_namespace = DeclareLaunchArgument(
@@ -103,6 +104,11 @@ def generate_launch_description():
         'realsense_config_file',
         default_value=PathJoinSubstitution([bringup_dir, 'config', 'realsense_d455.yaml']),
         description='RealSense YAML config file (realsense2_camera params)')
+
+    declare_kfs_heartbeat_topic = DeclareLaunchArgument(
+        'kfs_heartbeat_topic',
+        default_value='/kfs_keepout_heartbeat',
+        description='KFS keepout heartbeat topic shared by keepout producer and decision gate')
 
     # RealSense D455（可选）
     realsense_launch = IncludeLaunchDescription(
@@ -262,6 +268,7 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'kfs_state_topic': 'mf_kfs_state',
             'mask_topic': '/kfs_filter_mask',
+            'heartbeat_topic': kfs_heartbeat_topic,
             'grid_layout_file': kfs_grid_layout,
             'map_resolution': 0.10,
             'keepout_shape': 'square',
@@ -307,7 +314,10 @@ def generate_launch_description():
         output='screen',
         parameters=[
             decision_params,
-            {'use_sim_time': use_sim_time},
+            {
+                'use_sim_time': use_sim_time,
+                'keepout_gate.heartbeat_topic': kfs_heartbeat_topic,
+            },
         ],
         condition=IfCondition(use_decision)
     )
@@ -353,6 +363,7 @@ def generate_launch_description():
         declare_use_realsense,
         declare_realsense_serial_no,
         declare_realsense_config_file,
+        declare_kfs_heartbeat_topic,
 
         # 启动模块
         odometry_launch,
