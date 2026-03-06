@@ -4,12 +4,32 @@
 
 import os
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
 import yaml
+
+
+def create_ekf_node(context, ekf_params_file, can_odom_topic, wheel_odom_topic):
+    use_can_odom_value = LaunchConfiguration('use_can_odom').perform(context).strip().lower()
+    use_can_odom = use_can_odom_value in ('1', 'true', 'yes', 'on')
+    odom0_topic_override = can_odom_topic if use_can_odom else wheel_odom_topic
+
+    ekf_node = Node(
+        package='robot_localization',
+        executable='ekf_node',
+        name='ekf_filter_node',
+        output='screen',
+        parameters=[ekf_params_file, {
+            'odom0': odom0_topic_override,
+        }],
+        remappings=[
+            ('odometry/filtered', 'merge_odom'),
+        ]
+    )
+    return [ekf_node]
 
 
 def generate_launch_description():
@@ -29,7 +49,6 @@ def generate_launch_description():
     target_serial_port_default = str(merge_params.get('target_serial_port', '/dev/ttyUSB1'))
     can_odom_topic_default = str(merge_params.get('can_odom_topic', 'Can_Odom'))
     wheel_odom_topic_default = str(merge_params.get('wheel_odom_topic', 'wheel_odom'))
-    odom0_topic_override = can_odom_topic_default if use_can_odom_default else wheel_odom_topic_default
 
     use_can_odom_arg = DeclareLaunchArgument(
         'use_can_odom',
@@ -77,21 +96,6 @@ def generate_launch_description():
         }]
     )
 
-    # robot_localization EKF节点
-    ekf_node = Node(
-        package='robot_localization',
-        executable='ekf_node',
-        name='ekf_filter_node',
-        output='screen',
-        parameters=[ekf_params_file, {
-            # 用 merge_odom_node 的里程计 topic 覆盖 ekf_params.yaml 中的 odom0
-            'odom0': odom0_topic_override,
-        }],
-        remappings=[
-            ('odometry/filtered', 'merge_odom'),
-        ]
-    )
-
     return LaunchDescription([
         use_can_odom_arg,
         can_interface_arg,
@@ -100,5 +104,8 @@ def generate_launch_description():
         target_serial_port_arg,
         merge_odom_node,
         dm_imu_node,
-        ekf_node,
+        OpaqueFunction(
+            function=create_ekf_node,
+            args=[ekf_params_file, can_odom_topic_default, wheel_odom_topic_default],
+        ),
     ])

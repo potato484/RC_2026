@@ -1,7 +1,7 @@
 """
 rc26_localization 模块测试
 
-功能: 验证基于 small_gicp 的点云配准定位
+功能: 验证基于 rc26_small_gicp 的点云配准定位
 前置: 需要先验点云文件和 registered_scan 话题
 
 测试指令:

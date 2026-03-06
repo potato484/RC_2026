@@ -17,12 +17,18 @@ public:
         last_payload_ = payload;
         return true;
     }
+    bool sendCommand(uint8_t cmd_id, const std::vector<uint8_t>& payload, uint8_t& out_seq) override {
+        last_cmd_ = cmd_id;
+        last_payload_ = payload;
+        out_seq = next_seq_++;
+        return true;
+    }
 
     void setFeedbackCallback(FeedbackCallback cb) override { cb_ = std::move(cb); }
 
-    void injectFeedback(uint8_t fb_id, const std::vector<uint8_t>& payload = {}) {
+    void injectFeedback(uint8_t seq, uint8_t fb_id, const std::vector<uint8_t>& payload = {}) {
         if (cb_) {
-            cb_(fb_id, payload);
+            cb_(seq, fb_id, payload);
         }
     }
 
@@ -31,6 +37,7 @@ public:
 
 private:
     FeedbackCallback cb_;
+    uint8_t next_seq_{0};
 };
 
 }  // namespace rc26_mechanism

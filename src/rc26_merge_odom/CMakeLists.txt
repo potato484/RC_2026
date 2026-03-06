@@ -14,6 +14,7 @@ find_package(std_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(rc26_serial REQUIRED)
@@ -29,6 +30,8 @@ target_include_directories(can_odom PUBLIC
 ament_target_dependencies(can_odom
   rclcpp
   nav_msgs
+  sensor_msgs
+  std_msgs
   tf2
 )
 
@@ -57,6 +60,8 @@ target_link_libraries(can_odom_node can_odom)
 ament_target_dependencies(can_odom_node
   rclcpp
   nav_msgs
+  sensor_msgs
+  std_msgs
 )
 
 # 串口轮式里程计节点
@@ -83,6 +88,7 @@ ament_target_dependencies(pose_sender
   rclcpp
   nav_msgs
   sensor_msgs
+  std_msgs
   geometry_msgs
   tf2
   rc26_serial
@@ -95,8 +101,34 @@ ament_target_dependencies(pose_sender_node
   rclcpp
   nav_msgs
   sensor_msgs
+  std_msgs
   geometry_msgs
   rc26_serial
+)
+
+# 轮速软融合库
+add_library(wheel_odom_fuser SHARED
+  src/fuser/wheel_odom_fuser.cpp
+)
+target_include_directories(wheel_odom_fuser PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+ament_target_dependencies(wheel_odom_fuser
+  rclcpp
+  nav_msgs
+  sensor_msgs
+  diagnostic_msgs
+)
+
+# 轮速软融合节点
+add_executable(wheel_odom_fuser_node src/fuser/wheel_odom_fuser_node.cpp)
+target_link_libraries(wheel_odom_fuser_node wheel_odom_fuser)
+ament_target_dependencies(wheel_odom_fuser_node
+  rclcpp
+  nav_msgs
+  sensor_msgs
+  diagnostic_msgs
 )
 
 # 融合里程计主节点(整合CAN/Wheel+位姿下传)
@@ -141,6 +173,7 @@ install(TARGETS
   can_odom
   wheel_odom
   pose_sender
+  wheel_odom_fuser
   dm_imu_driver
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -151,6 +184,7 @@ install(TARGETS
   can_odom_node
   wheel_odom_node
   pose_sender_node
+  wheel_odom_fuser_node
   merge_odom_node
   dm_imu_node
   single_wheel_test_node
@@ -170,7 +204,7 @@ install(DIRECTORY
 )
 
 ament_export_include_directories(include)
-ament_export_libraries(can_odom wheel_odom pose_sender dm_imu_driver)
-ament_export_dependencies(rclcpp nav_msgs sensor_msgs geometry_msgs tf2 rc26_serial)
+ament_export_libraries(can_odom wheel_odom pose_sender wheel_odom_fuser dm_imu_driver)
+ament_export_dependencies(rclcpp nav_msgs sensor_msgs std_msgs geometry_msgs diagnostic_msgs tf2 rc26_serial)
 
 ament_package()

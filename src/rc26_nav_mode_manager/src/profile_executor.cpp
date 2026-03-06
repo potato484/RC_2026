@@ -1,10 +1,26 @@
 #include "rc26_nav_mode_manager/profile_executor.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <thread>
+#include <vector>
+
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 
 namespace rc26_nav_mode_manager {
 
 namespace {
+
+const std::vector<std::string>& controllerParamNames() {
+    static const std::vector<std::string> names = {
+        "FollowPath.v_linear_max",
+        "FollowPath.v_angular_max",
+        "FollowPath.v_linear_min",
+        "FollowPath.acc_linear",
+        "FollowPath.acc_angular",
+    };
+    return names;
+}
 
 double getDoubleParamOr(rclcpp::Node* node, const std::string& name, double default_value) {
     if (!node->has_parameter(name)) {
@@ -59,14 +75,35 @@ ProfileExecutor::ProfileExecutor(rclcpp::Node* node, ProfileDB* db)
 void ProfileExecutor::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
     double vx = msg->twist.twist.linear.x;
     double vy = msg->twist.twist.linear.y;
-    last_linear_speed_ = std::sqrt(vx * vx + vy * vy);
-    last_angular_speed_ = std::abs(msg->twist.twist.angular.z);
+    double linear = std::sqrt(vx * vx + vy * vy);
+    double angular = std::abs(msg->twist.twist.angular.z);
+    last_linear_speed_ = linear;
+    last_angular_speed_ = angular;
     odom_received_ = true;
+
+    std::lock_guard<std::mutex> lock(odom_window_mutex_);
+    if (msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0) {
+        last_odom_time_ = node_->now();
+    } else {
+        last_odom_time_ = rclcpp::Time(msg->header.stamp);
+    }
+    linear_window_.push_back(linear);
+    angular_window_.push_back(angular);
+    if (static_cast<int>(linear_window_.size()) > kOdomWindowSize) {
+        linear_window_.pop_front();
+    }
+    if (static_cast<int>(angular_window_.size()) > kOdomWindowSize) {
+        angular_window_.pop_front();
+    }
 }
 
 bool ProfileExecutor::checkRobotStopped() const {
-    return last_linear_speed_.load() < stop_linear_eps_ &&
-           last_angular_speed_.load() < stop_angular_eps_;
+    std::lock_guard<std::mutex> lock(odom_window_mutex_);
+    if (linear_window_.empty()) return false;
+    if ((node_->now() - last_odom_time_).seconds() > 0.2) return false;
+    double max_lin = *std::max_element(linear_window_.begin(), linear_window_.end());
+    double max_ang = *std::max_element(angular_window_.begin(), angular_window_.end());
+    return max_lin < stop_linear_eps_ && max_ang < stop_angular_eps_;
 }
 
 bool ProfileExecutor::isCancelled(uint64_t epoch) const {
@@ -122,51 +159,58 @@ bool ProfileExecutor::stepCostmap(const NavProfile& profile, std::string& error)
         return false;
     }
 
+    try {
+        (void)future.get();
+    } catch (const std::exception& e) {
+        error = "Costmap clear request failed: " + std::string(e.what());
+        return false;
+    }
+
     RCLCPP_INFO(node_->get_logger(), "Costmap cleared for profile '%s'", profile.name.c_str());
     return true;
 }
 
-bool ProfileExecutor::captureDefaults() {
-    if (defaults_captured_) return true;
-
+bool ProfileExecutor::captureControllerSnapshot(std::string& error) {
     if (!controller_param_client_->wait_for_service(std::chrono::duration<double>(param_timeout_sec_))) {
-        RCLCPP_WARN(node_->get_logger(), "Controller param service not available for defaults capture");
+        error = "Controller param service not available for controller snapshot";
         return false;
     }
 
-    std::vector<std::string> param_names = {
-        "FollowPath.v_linear_max",
-        "FollowPath.v_angular_max",
-        "FollowPath.v_linear_min",
-        "FollowPath.acc_linear",
-        "FollowPath.acc_angular"
-    };
-
-    auto future = controller_param_client_->get_parameters(param_names);
+    auto future = controller_param_client_->get_parameters(controllerParamNames());
     if (future.wait_for(std::chrono::duration<double>(param_timeout_sec_)) != std::future_status::ready) {
-        RCLCPP_WARN(node_->get_logger(), "Timeout getting controller defaults");
+        error = "Timeout getting controller parameter snapshot";
         return false;
     }
 
-    auto params = future.get();
+    std::vector<rclcpp::Parameter> params;
+    try {
+        params = future.get();
+    } catch (const std::exception& e) {
+        error = "Failed to get controller parameter snapshot: " + std::string(e.what());
+        return false;
+    }
+
+    controller_param_snapshot_.clear();
     for (const auto& p : params) {
         if (p.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE) {
-            param_defaults_[p.get_name()] = p.as_double();
+            controller_param_snapshot_[p.get_name()] = p.as_double();
+        } else if (p.get_type() == rclcpp::ParameterType::PARAMETER_INTEGER) {
+            controller_param_snapshot_[p.get_name()] = static_cast<double>(p.as_int());
         }
     }
 
-    if (param_defaults_.empty()) {
-        RCLCPP_WARN(node_->get_logger(), "No controller defaults captured");
+    if (controller_param_snapshot_.empty()) {
+        error = "No controller parameters captured for snapshot";
         return false;
     }
 
-    defaults_captured_ = true;
-    RCLCPP_INFO(node_->get_logger(), "Captured %zu controller defaults", param_defaults_.size());
+    RCLCPP_DEBUG(node_->get_logger(), "Captured %zu controller parameters for rollback",
+                 controller_param_snapshot_.size());
     return true;
 }
 
 bool ProfileExecutor::rollbackParams() {
-    if (param_defaults_.empty()) return true;
+    if (controller_param_snapshot_.empty()) return true;
 
     if (!controller_param_client_->wait_for_service(std::chrono::duration<double>(param_timeout_sec_))) {
         RCLCPP_ERROR(node_->get_logger(), "Controller param service not available for rollback");
@@ -174,7 +218,8 @@ bool ProfileExecutor::rollbackParams() {
     }
 
     std::vector<rclcpp::Parameter> params;
-    for (const auto& [name, value] : param_defaults_) {
+    params.reserve(controller_param_snapshot_.size());
+    for (const auto& [name, value] : controller_param_snapshot_) {
         params.emplace_back(name, value);
     }
 
@@ -184,7 +229,14 @@ bool ProfileExecutor::rollbackParams() {
         return false;
     }
 
-    auto results = future.get();
+    std::vector<rcl_interfaces::msg::SetParametersResult> results;
+    try {
+        results = future.get();
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR(node_->get_logger(), "Failed to rollback controller params: %s", e.what());
+        return false;
+    }
+
     for (const auto& r : results) {
         if (!r.successful) {
             RCLCPP_ERROR(node_->get_logger(), "Failed to rollback param: %s", r.reason.c_str());
@@ -198,18 +250,12 @@ bool ProfileExecutor::rollbackParams() {
 
 bool ProfileExecutor::stepParams(const NavProfile& profile, std::string& error) {
     const auto& ctrl = profile.controller;
-    std::vector<rclcpp::Parameter> params;
+    if (!ctrl.v_linear_max && !ctrl.v_angular_max && !ctrl.v_linear_min &&
+        !ctrl.acc_linear && !ctrl.acc_angular) {
+        return true;
+    }
 
-    if (ctrl.v_linear_max) params.emplace_back("FollowPath.v_linear_max", *ctrl.v_linear_max);
-    if (ctrl.v_angular_max) params.emplace_back("FollowPath.v_angular_max", *ctrl.v_angular_max);
-    if (ctrl.v_linear_min) params.emplace_back("FollowPath.v_linear_min", *ctrl.v_linear_min);
-    if (ctrl.acc_linear) params.emplace_back("FollowPath.acc_linear", *ctrl.acc_linear);
-    if (ctrl.acc_angular) params.emplace_back("FollowPath.acc_angular", *ctrl.acc_angular);
-
-    if (params.empty()) return true;
-
-    if (!captureDefaults()) {
-        error = "Failed to capture controller defaults - cannot safely modify params";
+    if (!captureControllerSnapshot(error)) {
         return false;
     }
 
@@ -218,6 +264,58 @@ bool ProfileExecutor::stepParams(const NavProfile& profile, std::string& error) 
         return false;
     }
 
+    bool need_phase1 = ctrl.v_linear_max && ctrl.acc_linear && [&]() {
+        auto it = controller_param_snapshot_.find("FollowPath.v_linear_max");
+        return it != controller_param_snapshot_.end() &&
+               *ctrl.v_linear_max < it->second - 0.05;
+    }();
+
+    if (need_phase1) {
+        double cur_acc = controller_param_snapshot_.count("FollowPath.acc_linear")
+                         ? controller_param_snapshot_["FollowPath.acc_linear"] : *ctrl.acc_linear;
+        std::vector<rclcpp::Parameter> phase1;
+        phase1.reserve(2);
+        phase1.emplace_back("FollowPath.acc_linear",
+                            std::min(cur_acc, *ctrl.acc_linear * 0.5));
+        if (ctrl.acc_angular && controller_param_snapshot_.count("FollowPath.acc_angular")) {
+            double cur_ang = controller_param_snapshot_["FollowPath.acc_angular"];
+            phase1.emplace_back("FollowPath.acc_angular",
+                                std::min(cur_ang, *ctrl.acc_angular * 0.5));
+        }
+        auto f1 = controller_param_client_->set_parameters(phase1);
+        if (f1.wait_for(std::chrono::duration<double>(param_timeout_sec_)) !=
+                std::future_status::ready) {
+            error = "Timeout on phase1 acc reduction";
+            rollbackParams();
+            return false;
+        }
+        std::vector<rcl_interfaces::msg::SetParametersResult> phase1_results;
+        try {
+            phase1_results = f1.get();
+        } catch (const std::exception& e) {
+            error = "Failed phase1 param set: " + std::string(e.what());
+            rollbackParams();
+            return false;
+        }
+        for (const auto& r : phase1_results) {
+            if (!r.successful) {
+                error = "Failed phase1 param set: " + r.reason;
+                rollbackParams();
+                return false;
+            }
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(ctrl.transition_timeout_ms));
+    }
+
+    std::vector<rclcpp::Parameter> params;
+    params.reserve(5);
+    if (ctrl.v_linear_max) params.emplace_back("FollowPath.v_linear_max", *ctrl.v_linear_max);
+    if (ctrl.v_angular_max) params.emplace_back("FollowPath.v_angular_max", *ctrl.v_angular_max);
+    if (ctrl.v_linear_min) params.emplace_back("FollowPath.v_linear_min", *ctrl.v_linear_min);
+    if (ctrl.acc_linear)   params.emplace_back("FollowPath.acc_linear",   *ctrl.acc_linear);
+    if (ctrl.acc_angular)  params.emplace_back("FollowPath.acc_angular",  *ctrl.acc_angular);
+
     auto future = controller_param_client_->set_parameters(params);
     if (future.wait_for(std::chrono::duration<double>(param_timeout_sec_)) != std::future_status::ready) {
         error = "Timeout setting controller params";
@@ -225,7 +323,15 @@ bool ProfileExecutor::stepParams(const NavProfile& profile, std::string& error) 
         return false;
     }
 
-    auto results = future.get();
+    std::vector<rcl_interfaces::msg::SetParametersResult> results;
+    try {
+        results = future.get();
+    } catch (const std::exception& e) {
+        error = "Failed to set controller params: " + std::string(e.what());
+        rollbackParams();
+        return false;
+    }
+
     for (const auto& r : results) {
         if (!r.successful) {
             error = "Failed to set param: " + r.reason;
@@ -256,12 +362,14 @@ std::string ProfileExecutor::deriveLocalCostmapClearServiceName(const std::strin
 
 ProfileExecutor::SwitchResult ProfileExecutor::execute(
     const NavProfile& profile, const std::string& reason) {
+    std::lock_guard<std::mutex> lock(execution_mutex_);
     uint64_t epoch = cancel_epoch_.load();
     return executeInternal(profile, reason, epoch);
 }
 
 ProfileExecutor::SwitchResult ProfileExecutor::executeForFallback(
     const NavProfile& profile, const std::string& reason) {
+    std::lock_guard<std::mutex> lock(execution_mutex_);
     uint64_t epoch = cancel_epoch_.load();
     return executeInternal(profile, reason, epoch);
 }

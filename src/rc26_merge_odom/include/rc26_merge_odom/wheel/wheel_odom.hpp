@@ -2,6 +2,7 @@
 // 从串口读取MCU四轮实际速度，计算并发布轮式里程计
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -46,6 +47,8 @@ public:
     WheelOdom(const WheelOdom&) = delete;
     WheelOdom& operator=(const WheelOdom&) = delete;
 
+    bool isReady() const noexcept { return ready_.load(std::memory_order_acquire); }
+
     void getPose(double& x, double& y, double& yaw) const;
     void getVelocity(double& vx, double& vy, double& omega) const;
     void reset();
@@ -74,6 +77,7 @@ private:
     rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr cov_state_pub_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
     rclcpp::TimerBase::SharedPtr publish_timer_;
+    std::atomic<bool> ready_{false};
 
     mutable std::mutex data_mutex_;
     double v_fl_ = 0.0;

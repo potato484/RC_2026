@@ -16,7 +16,9 @@ public:
     void close() override;
     bool isOpen() const override;
     bool sendCommand(uint8_t cmd_id, const std::vector<uint8_t>& payload = {}) override;
+    bool sendCommand(uint8_t cmd_id, const std::vector<uint8_t>& payload, uint8_t& out_seq) override;
     void setFeedbackCallback(FeedbackCallback cb) override;
+    CommHealthSnapshot commHealthSnapshot() const override;
 
 private:
     std::string port_;

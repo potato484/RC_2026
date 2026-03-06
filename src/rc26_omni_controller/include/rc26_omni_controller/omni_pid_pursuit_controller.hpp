@@ -3,6 +3,7 @@
 // 原作者: Lihan Chen
 //
 // Licensed under the Apache License, Version 2.0
+// Maintained by DongXuan Chen <2220362462@qq.com>
 
 #pragma once
 
@@ -13,13 +14,21 @@
 #include <string>
 #include <vector>
 
+#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "nav2_core/controller.hpp"
 #include "rc26_omni_controller/pid.hpp"
+#include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/u_int32.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 
 namespace rc26_omni_controller {
+
+struct CostmapSnapshot {
+    std::vector<uint8_t> data;
+    unsigned int width{}, height{};
+    double origin_x{}, origin_y{}, resolution{};
+};
 
 /**
  * @brief 全向轮 PID + Pure Pursuit 路径跟踪控制器
@@ -67,11 +76,19 @@ protected:
     double approachVelocityScalingFactor(const nav_msgs::msg::Path& path) const;
     void applyApproachVelocityScaling(const nav_msgs::msg::Path& path, double& linear_vel) const;
     bool isCollisionDetected(const nav_msgs::msg::Path& path);
+    double getMinCollisionDist(const nav_msgs::msg::Path& path, const CostmapSnapshot& snap, double robot_x,
+                               double robot_y);
 
 private:
+    const CostmapSnapshot& captureCostmapSnapshot();
+    void refreshPoseCovSubscription(const rclcpp_lifecycle::LifecycleNode::SharedPtr& node);
+    void sanitizeLoadedParameters();
+    bool validateParameterUpdate(const std::vector<rclcpp::Parameter>& parameters, std::string& reason) const;
+    void resetMotionState() noexcept;
+
     double applyCurvatureLimitation(const nav_msgs::msg::Path& path,
                                     const geometry_msgs::msg::PoseStamped& lookahead_pose, double& linear_vel,
-                                    double real_dt);
+                                    double real_dt, double& out_kappa);
 
     double calculateCurvature(const nav_msgs::msg::Path& path, const geometry_msgs::msg::PoseStamped& lookahead_pose,
                               double forward_dist, double backward_dist) const;
@@ -125,7 +142,16 @@ private:
     double v_angular_max_;
     double a_linear_max_;
     double a_angular_max_;
+    double brake_margin_;
+    double brake_accel_;
+    double lateral_error_gain_;
+    double lateral_error_max_;
+    bool enable_curvature_ff_;
+    double a_lim_x_;
+    double a_lim_y_;
     double last_lin_vel_{0.0};
+    double last_vx_{0.0};
+    double last_vy_{0.0};
     double last_ang_vel_{0.0};
     double min_approach_linear_velocity_;
     double approach_velocity_scaling_dist_;
@@ -140,10 +166,17 @@ private:
     double wheel_speed_max_;
     double derivative_filter_tau_;
     bool publish_debug_{false};
+    bool loc_uncertainty_enable_{true};
+    double loc_timeout_sec_{0.2};
+    double loc_k_v_{50.0};
+    double loc_k_w_{20.0};
+    double loc_v_scale_min_{0.2};
+    double loc_w_scale_min_{0.3};
     uint32_t collision_check_outside_map_count_{0};
     tf2::Duration transform_tolerance_;
     std::vector<double> plan_cumulative_distances_;
     size_t plan_prune_idx_{0};
+    CostmapSnapshot costmap_snapshot_cache_;
 
     nav_msgs::msg::Path global_plan_;
     rclcpp_lifecycle::LifecyclePublisher<nav_msgs::msg::Path>::SharedPtr local_path_pub_;
@@ -152,7 +185,15 @@ private:
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr real_dt_pub_;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr compute_time_ms_pub_;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr pose_age_ms_pub_;
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr collision_check_ms_pub_;
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr collision_d_min_pub_;
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr v_safe_pub_;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::UInt32>::SharedPtr collision_check_outside_map_count_pub_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_cov_sub_;
+    rclcpp::Time last_cov_stamp_;
+    double sigma_xy_{0.0};
+    double sigma_yaw_{0.0};
+    std::mutex cov_mutex_;
 
     std::recursive_mutex mutex_;
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;

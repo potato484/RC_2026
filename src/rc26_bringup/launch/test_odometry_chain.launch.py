@@ -1,5 +1,5 @@
 """
-完整里程计链测试 (point_lio + odom_interface + sensor_scan)
+完整里程计链测试 (rc26_point_lio + odom_interface + sensor_scan)
 
 功能: 验证从 LiDAR 原始数据到 Nav2 可用里程计的完整数据流
 前置: 需要 Livox MID-360 雷达连接或 rosbag 回放

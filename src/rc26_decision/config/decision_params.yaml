@@ -15,10 +15,12 @@ rc26_decision:
     speed_profile_scales.slow: 0.4
     speed_profile_scales.creep: 0.2
 
-    # Keepout ready gate (must receive /costmap_filter_info + fresh /kfs_filter_mask before sending goals)
+    # Keepout ready gate
     keepout_gate.enable: true
+    keepout_gate.mode: "legacy"  # "legacy" | "heartbeat"
     keepout_gate.max_age_ms: 300.0
     keepout_gate.timeout_sec: 3.0
+    keepout_gate.heartbeat_topic: "/kfs_keepout_heartbeat"
 
     # MC 端头架中心（map）
     tip_rack_center_x: 0.0

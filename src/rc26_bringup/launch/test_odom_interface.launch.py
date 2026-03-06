@@ -2,7 +2,7 @@
 rc26_odom_interface 模块测试
 
 功能: 验证 Point-LIO 到 Nav2 的坐标转换
-前置: 需要 point_lio 运行或 rosbag 回放
+前置: 需要 rc26_point_lio 运行或 rosbag 回放
 
 测试指令:
     ros2 launch rc26_bringup test_odom_interface.launch.py

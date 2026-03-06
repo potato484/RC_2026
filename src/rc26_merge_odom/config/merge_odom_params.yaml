@@ -12,6 +12,16 @@ can_odom_node:
     odom_topic: "Can_Odom"
     odom_frame: "odom"
     base_frame: "base_link"
+    data_timeout_ms: 100.0
+    imu_topic: "DM_IMU"
+    slip_enable: true
+    slip_threshold: 0.5
+    slip_k_acc: 0.5
+    cov_nominal_v: 0.01
+    cov_nominal_wz: 0.03
+    cov_slip_v: 0.5
+    cov_slip_wz: 0.5
+    recovery_tau_s: 0.5
 
 # 达妙IMU节点参数
 dm_imu_node:
@@ -21,6 +31,9 @@ dm_imu_node:
     frame_id: "imu_link"
     verbose: false
     qos_reliable: true
+    hampel_enable: true
+    hampel_window_size: 5
+    hampel_nsigma: 3.0
 
 # 串口轮式里程计节点参数
 wheel_odom_node:
@@ -45,17 +58,42 @@ pose_sender_node:
     odom_topic: "merge_odom"
     feedback_send_rate_hz: 50
     target_send_rate_hz: 25
+    cmd_vel_timeout_ms: 200
     imu_topic: "DM_IMU"
     v_max_mps: 2.0
     w_max_rps: 4.0
     a_max_mps2: 15.0
     alpha_max_rps2: 40.0
-    spike_accel_threshold: 20.0
-    spike_gyro_threshold: 6.0
-    spike_freeze_duration_ms: 300
-    spike_decay_tau_s: 0.2
+    imu_gate_enable: true
+    imu_gate_ema_alpha: 0.98
+    imu_gate_chi2_threshold: 6.635
+    accel_agree_threshold_mps2: 3.0
+    spike_freeze_duration_ms: 100
+    spike_decay_tau_s: 0.3
+    governor_enable: true
+    governor_lambda: 0.2
+    dob_enable: false
+    dob_lpf_hz: 5.0
+    dob_kd: 0.3
     latency_comp_enable: true
     latency_comp_s: 0.03
+    terrain_speed_limit_topic: "terrain_speed_limit"
+    terrain_speed_limit_timeout_ms: 500
+
+# 轮速软融合节点参数
+wheel_odom_fuser_node:
+  ros__parameters:
+    can_odom_topic: "Can_Odom"
+    wheel_odom_topic: "wheel_odom"
+    imu_topic: "DM_IMU"
+    fused_odom_topic: "wheel_odom_fused"
+    health_topic: "wheel_odom_fuser/health"
+    publish_rate_hz: 50
+    data_timeout_ms: 100.0
+    omega_sigma_rps: 0.5
+    chi2_threshold_dof3: 11.34
+    outlier_penalty: 0.1
+    recovery_tau_s: 0.5
 
 # 融合里程计主节点参数(整合模式)
 merge_odom_node:
@@ -82,17 +120,27 @@ merge_odom_node:
     merge_odom_topic: "merge_odom"
     feedback_send_rate_hz: 50
     target_send_rate_hz: 25
+    cmd_vel_timeout_ms: 200
     imu_topic: "DM_IMU"
     v_max_mps: 2.0
     w_max_rps: 4.0
     a_max_mps2: 15.0
     alpha_max_rps2: 40.0
-    spike_accel_threshold: 20.0
-    spike_gyro_threshold: 6.0
-    spike_freeze_duration_ms: 300
-    spike_decay_tau_s: 0.2
+    imu_gate_enable: true
+    imu_gate_ema_alpha: 0.98
+    imu_gate_chi2_threshold: 6.635
+    accel_agree_threshold_mps2: 3.0
+    spike_freeze_duration_ms: 100
+    spike_decay_tau_s: 0.3
+    governor_enable: true
+    governor_lambda: 0.2
+    dob_enable: false
+    dob_lpf_hz: 5.0
+    dob_kd: 0.3
     latency_comp_enable: true
     latency_comp_s: 0.03
+    terrain_speed_limit_topic: "terrain_speed_limit"
+    terrain_speed_limit_timeout_ms: 500
     slip_enable: true
     slip_threshold: 0.5
     slip_k_acc: 0.5

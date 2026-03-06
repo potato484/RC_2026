@@ -5,8 +5,10 @@
   <version>0.1.0</version>
   <description>Navigation safety mode manager for MF area traversal</description>
   <maintainer email="potato@todo.todo">potato</maintainer>
+  <maintainer email="2220362462@qq.com">DongXuan Chen</maintainer>
   <license>MIT</license>
 
+  <author email="2220362462@qq.com">DongXuan Chen</author>
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>

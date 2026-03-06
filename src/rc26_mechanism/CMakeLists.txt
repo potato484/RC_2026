@@ -20,6 +20,9 @@ include_directories(include)
 
 add_library(${PROJECT_NAME}_component SHARED
   src/serial_mechanism_hal.cpp
+  src/sim_mechanism_hal.cpp
+  src/fault_injecting_hal.cpp
+  src/replay_mechanism_hal.cpp
   src/mechanism_lifecycle_server.cpp
 )
 ament_target_dependencies(${PROJECT_NAME}_component

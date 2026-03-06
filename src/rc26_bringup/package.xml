@@ -5,8 +5,10 @@
   <version>1.0.0</version>
   <description>R2导航系统统一启动包</description>
   <maintainer email="dev@rc2026.com">RC2026</maintainer>
+  <maintainer email="2220362462@qq.com">DongXuan Chen</maintainer>
   <license>Apache-2.0</license>
 
+  <author email="2220362462@qq.com">DongXuan Chen</author>
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <exec_depend>rclcpp</exec_depend>
@@ -26,10 +28,11 @@
   <exec_depend>rviz2</exec_depend>
   
   <!-- 里程计模块 -->
-  <exec_depend>mid360_driver</exec_depend>
-  <exec_depend>point_lio</exec_depend>
+  <exec_depend>rc26_mid360_driver</exec_depend>
+  <exec_depend>rc26_point_lio</exec_depend>
   <exec_depend>rc26_odom_interface</exec_depend>
   <exec_depend>rc26_sensor_scan</exec_depend>
+  <exec_depend>rc26_lio_state_predictor</exec_depend>
   
   <!-- 自定义包 -->
   <exec_depend>rc26_localization</exec_depend>

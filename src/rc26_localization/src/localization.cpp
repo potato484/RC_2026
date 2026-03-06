@@ -3,10 +3,12 @@
 // 原作者: Lihan Chen
 //
 // Licensed under the Apache License, Version 2.0
+// Maintained by DongXuan Chen <2220362462@qq.com>
 
 #include "rc26_localization/localization.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <cctype>
 #include <chrono>
@@ -15,15 +17,19 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <future>
 #include <limits>
 #include <pthread.h>
 #include <sched.h>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
+#include "diagnostic_msgs/msg/diagnostic_status.hpp"
+#include "diagnostic_msgs/msg/key_value.hpp"
 #include "pcl/common/transforms.h"
 #include "pcl/filters/filter.h"
 #include "pcl/filters/voxel_grid.h"
@@ -34,15 +40,11 @@
 #include "small_gicp/util/downsampling_omp.hpp"
 #include "tf2_eigen/tf2_eigen.hpp"
 
+#include "localization_internal.hpp"
+
 namespace rc26_localization {
 
 namespace {
-constexpr double kNearZero = 1e-6;
-constexpr double kCostWf = 0.5;
-constexpr double kCostWxy = 0.3;
-constexpr double kCostWyaw = 0.2;
-constexpr double kMaxSlopeRollPitchCorrectionDeg = 5.0;
-
 struct ThreadBindResult {
     bool affinity_ok{false};
     bool sched_ok{false};
@@ -139,6 +141,15 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("global_leaf_size", 0.25);
     this->declare_parameter("registered_leaf_size", 0.25);
     this->declare_parameter("max_dist_sq", 1.0);
+    this->declare_parameter("robust_enable", true);
+    this->declare_parameter("huber_c", 1.0);
+    this->declare_parameter("cov_from_hessian_enable", true);
+    this->declare_parameter("cov_eig_floor", 1.0);
+    this->declare_parameter("cov_scale_enable", true);
+    this->declare_parameter("cov_scale_min", 1e-4);
+    this->declare_parameter("cov_scale_max", 10.0);
+    this->declare_parameter("gicp_optimizer_mode", std::string("gn_auto"));
+    this->declare_parameter("gn_auto_trans_threshold_m", 0.05);
     this->declare_parameter("min_points_for_registration", 20);
     this->declare_parameter("gicp_max_iterations", 20);
     this->declare_parameter("max_delta_translation", 0.5);
@@ -152,6 +163,8 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("init_pose", std::vector<double>{0., 0., 0., 0., 0., 0.});
     this->declare_parameter("input_cloud_topic", "registered_scan");
     this->declare_parameter("tf_timeout_sec", 1.0);
+    this->declare_parameter("pose_cov_topic", std::string("/localization/pose_with_cov"));
+    this->declare_parameter("diagnostics_topic", std::string("/localization/diagnostics"));
 
     // 绑架检测参数
     this->declare_parameter("kidnap_threshold_count", 5);
@@ -184,6 +197,7 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("retry_zone_max_xy_offset", 1.5);
     this->declare_parameter("retry_zone_max_yaw_offset_deg", 60.0);
     this->declare_parameter("competition_mode", true);
+    this->declare_parameter("parallel_reloc_enable", true);
 
     // I3: 亚克力过滤参数
     this->declare_parameter("acrylic_filter_enable", false);
@@ -191,6 +205,13 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("acrylic_filter_max_stale_sec", 1.0);
 
     // L2: Scan Context 参数
+    this->declare_parameter("bevplace_enable", false);
+    this->declare_parameter("bevplace_model_path", std::string(""));
+    this->declare_parameter("bevplace_index_path", std::string(""));
+    this->declare_parameter("bevplace_infer_backend", std::string("onnxruntime"));
+    this->declare_parameter("bevplace_bev_resolution", 0.2);
+    this->declare_parameter("bevplace_bev_size", 128);
+    this->declare_parameter("bevplace_topk", 5);
     this->declare_parameter("enable_scan_context", true);
     this->declare_parameter("sc_num_rings", 20);
     this->declare_parameter("sc_num_sectors", 60);
@@ -200,6 +221,10 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("sc_topk", 5);
     this->declare_parameter("sc_sim_threshold", 0.18);
     this->declare_parameter("sc_min_points_per_submap", 80);
+
+    // 退化子空间约束
+    this->declare_parameter("degen_enable", true);
+    this->declare_parameter("degen_eigenvalue_ratio_threshold", 0.01);
 
     // T2: QCS8550 线程亲和
     this->declare_parameter("qcs8550_affinity_enable", false);
@@ -220,10 +245,35 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("s2_enable", false);
     this->declare_parameter("s2_hessian_min_eigenvalue", 100.0);
     this->declare_parameter("s2_max_continuous_frames", 10);
+    this->declare_parameter("hessian_degen_enable", true);
+    this->declare_parameter("hessian_lambda_hard", 10.0);
 
     // S3: SC 对称歧义拒绝
     this->declare_parameter("s3_enable", false);
     this->declare_parameter("s3_min_score_gap", 0.03);
+
+    // ESIKF
+    this->declare_parameter("esikf_enable", false);
+    this->declare_parameter("esikf_accel_noise", 0.1);
+    this->declare_parameter("esikf_gyro_noise", 0.01);
+    this->declare_parameter("esikf_accel_bias_noise", 0.001);
+    this->declare_parameter("esikf_gyro_bias_noise", 0.0001);
+
+    // 动态物体过滤
+    this->declare_parameter("dynamic_filter_enable", false);
+    this->declare_parameter("dynamic_filter_voxel_size", 0.3);
+    this->declare_parameter("dynamic_filter_window_size", 10);
+    this->declare_parameter("dynamic_filter_stable_threshold", 5);
+
+    // L0 通道
+    this->declare_parameter("l0_enable", true);
+    this->declare_parameter("l0_max_imu_gap_ms", 1000);
+
+    // UWB 绝对锚点
+    this->declare_parameter("uwb_enable", false);
+    this->declare_parameter("uwb_topic", std::string("/uwb/position"));
+    this->declare_parameter("uwb_max_stale_sec", 2.0);
+    this->declare_parameter("uwb_yaw_spread_deg", 30.0);
 
     // T8: 丘陵工况坡道约束
     this->declare_parameter("slope_roll_pitch_from_imu", false);
@@ -239,6 +289,15 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->get_parameter("global_leaf_size", global_leaf_size_);
     this->get_parameter("registered_leaf_size", registered_leaf_size_);
     this->get_parameter("max_dist_sq", max_dist_sq_);
+    this->get_parameter("robust_enable", robust_enable_);
+    this->get_parameter("huber_c", huber_c_);
+    this->get_parameter("cov_from_hessian_enable", cov_from_hessian_enable_);
+    this->get_parameter("cov_eig_floor", cov_eig_floor_);
+    this->get_parameter("cov_scale_enable", cov_scale_enable_);
+    this->get_parameter("cov_scale_min", cov_scale_min_);
+    this->get_parameter("cov_scale_max", cov_scale_max_);
+    this->get_parameter("gicp_optimizer_mode", gicp_optimizer_mode_);
+    this->get_parameter("gn_auto_trans_threshold_m", gn_auto_trans_threshold_m_);
     this->get_parameter("min_points_for_registration", min_points_for_registration_);
     this->get_parameter("gicp_max_iterations", gicp_max_iterations_);
     this->get_parameter("max_delta_translation", max_delta_translation_);
@@ -252,6 +311,8 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->get_parameter("init_pose", init_pose_);
     this->get_parameter("input_cloud_topic", input_cloud_topic_);
     this->get_parameter("tf_timeout_sec", tf_timeout_sec_);
+    this->get_parameter("pose_cov_topic", pose_cov_topic_);
+    this->get_parameter("diagnostics_topic", diagnostics_topic_);
 
     this->get_parameter("kidnap_threshold_count", kidnap_threshold_count_);
     this->get_parameter("kidnap_fitness_threshold", kidnap_fitness_threshold_);
@@ -278,11 +339,19 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->get_parameter("retry_zone_max_xy_offset", retry_zone_max_xy_offset_);
     this->get_parameter("retry_zone_max_yaw_offset_deg", retry_zone_max_yaw_offset_deg_);
     this->get_parameter("competition_mode", competition_mode_);
+    this->get_parameter("parallel_reloc_enable", parallel_reloc_enable_);
 
     this->get_parameter("acrylic_filter_enable", acrylic_filter_enable_);
     this->get_parameter("acrylic_roi_boxes", acrylic_roi_boxes_);
     this->get_parameter("acrylic_filter_max_stale_sec", acrylic_filter_max_stale_sec_);
 
+    this->get_parameter("bevplace_enable", bevplace_enable_);
+    this->get_parameter("bevplace_model_path", bevplace_model_path_);
+    this->get_parameter("bevplace_index_path", bevplace_index_path_);
+    this->get_parameter("bevplace_infer_backend", bevplace_infer_backend_);
+    this->get_parameter("bevplace_bev_resolution", bevplace_bev_resolution_);
+    this->get_parameter("bevplace_bev_size", bevplace_bev_size_);
+    this->get_parameter("bevplace_topk", bevplace_topk_);
     this->get_parameter("enable_scan_context", enable_scan_context_);
     this->get_parameter("sc_num_rings", sc_num_rings_);
     this->get_parameter("sc_num_sectors", sc_num_sectors_);
@@ -292,6 +361,8 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->get_parameter("sc_topk", sc_topk_);
     this->get_parameter("sc_sim_threshold", sc_sim_threshold_);
     this->get_parameter("sc_min_points_per_submap", sc_min_points_per_submap_);
+    this->get_parameter("degen_enable", degen_enable_);
+    this->get_parameter("degen_eigenvalue_ratio_threshold", degen_eigenvalue_ratio_threshold_);
 
     // T2: QCS8550 线程亲和
     this->get_parameter("qcs8550_affinity_enable", qcs8550_affinity_enable_);
@@ -341,10 +412,35 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->get_parameter("s2_enable", s2_enable_);
     this->get_parameter("s2_hessian_min_eigenvalue", s2_hessian_min_eigenvalue_);
     this->get_parameter("s2_max_continuous_frames", s2_max_continuous_frames_);
+    this->get_parameter("hessian_degen_enable", hessian_degen_enable_);
+    this->get_parameter("hessian_lambda_hard", hessian_lambda_hard_);
 
     // S3
     this->get_parameter("s3_enable", s3_enable_);
     this->get_parameter("s3_min_score_gap", s3_min_score_gap_);
+
+    // ESIKF
+    this->get_parameter("esikf_enable", esikf_enable_);
+    this->get_parameter("esikf_accel_noise", esikf_accel_noise_);
+    this->get_parameter("esikf_gyro_noise", esikf_gyro_noise_);
+    this->get_parameter("esikf_accel_bias_noise", esikf_accel_bias_noise_);
+    this->get_parameter("esikf_gyro_bias_noise", esikf_gyro_bias_noise_);
+
+    // 动态物体过滤
+    this->get_parameter("dynamic_filter_enable", dynamic_filter_enable_);
+    this->get_parameter("dynamic_filter_voxel_size", dynamic_filter_voxel_size_);
+    this->get_parameter("dynamic_filter_window_size", dynamic_filter_window_size_);
+    this->get_parameter("dynamic_filter_stable_threshold", dynamic_filter_stable_threshold_);
+
+    // L0
+    this->get_parameter("l0_enable", l0_enable_);
+    this->get_parameter("l0_max_imu_gap_ms", l0_max_imu_gap_ms_);
+
+    // UWB
+    this->get_parameter("uwb_enable", uwb_enable_);
+    this->get_parameter("uwb_topic", uwb_topic_);
+    this->get_parameter("uwb_max_stale_sec", uwb_max_stale_sec_);
+    this->get_parameter("uwb_yaw_spread_deg", uwb_yaw_spread_deg_);
 
     // T8
     this->get_parameter("slope_roll_pitch_from_imu", slope_roll_pitch_from_imu_);
@@ -365,6 +461,22 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
                     gicp_kernel_mode_.c_str());
     }
 
+    std::transform(gicp_optimizer_mode_.begin(), gicp_optimizer_mode_.end(), gicp_optimizer_mode_.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (gicp_optimizer_mode_ != "gn_auto" && gicp_optimizer_mode_ != "gn" && gicp_optimizer_mode_ != "lm") {
+        RCLCPP_WARN(this->get_logger(),
+                    "gicp_optimizer_mode=%s 非法，已回退为 gn_auto", gicp_optimizer_mode_.c_str());
+        gicp_optimizer_mode_ = "gn_auto";
+    }
+
+    StaticVoxelFilter::Config dynamic_filter_cfg;
+    dynamic_filter_cfg.voxel_size = dynamic_filter_voxel_size_;
+    dynamic_filter_cfg.window_size = dynamic_filter_window_size_;
+    dynamic_filter_cfg.stable_threshold = dynamic_filter_stable_threshold_;
+    static_voxel_filter_.setConfig(dynamic_filter_cfg);
+
+    esikf_.setProcessNoise(esikf_accel_noise_, esikf_gyro_noise_, esikf_accel_bias_noise_, esikf_gyro_bias_noise_);
+
     validateAndNormalizeParams();
     configureThreadAffinityQcs8550();
     setLocalizationState(LocalizationState::TRACKING, "startup");
@@ -381,6 +493,14 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
         std::lock_guard<std::mutex> lock(result_mutex_);
         previous_result_t_ = result_t_;
     }
+    {
+        std::lock_guard<std::mutex> lk(esikf_mutex_);
+        esikf_.reset(result_t_);
+    }
+
+    // 启动阶段沿用旧观测协方差量级，避免行为突变
+    last_pose_cov_.setZero();
+    last_pose_cov_.diagonal() << 1e6, 1e6, 1e6, 1e-2, 1e-2, 1e-2;
 
     // 初始化配准成功时间（线程安全）
     {
@@ -392,7 +512,10 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     accumulated_cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
     global_map_ = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
     reloc_pending_cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
-    register_ = std::make_shared<small_gicp::Registration<small_gicp::GICPFactor, small_gicp::ParallelReductionOMP>>();
+    register_lm_ = std::make_shared<RegLM>();
+    register_gn_ = std::make_shared<RegGN>();
+    register_lm_->point_factor.robust_kernel.c = robust_enable_ ? huber_c_ : 1e9;
+    register_gn_->point_factor.robust_kernel.c = robust_enable_ ? huber_c_ : 1e9;
 
     // TF
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
@@ -410,10 +533,18 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     initial_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
         "initialpose", 10, std::bind(&LocalizationNode::initialPoseCallback, this, std::placeholders::_1));
 
+    pose_cov_pub_ = this->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(pose_cov_topic_, 10);
+    diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(diagnostics_topic_, 10);
+
     // S1/T8: IMU 订阅
     if (s1_enable_ || slope_roll_pitch_from_imu_) {
         imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
             s1_imu_topic_, 10, std::bind(&LocalizationNode::imuCallback, this, std::placeholders::_1));
+    }
+
+    if (uwb_enable_) {
+        uwb_sub_ = this->create_subscription<geometry_msgs::msg::PointStamped>(
+            uwb_topic_, 10, std::bind(&LocalizationNode::uwbCallback, this, std::placeholders::_1));
     }
 
     dyn_params_handler_ = this->add_on_set_parameters_callback(
@@ -440,284 +571,6 @@ LocalizationNode::~LocalizationNode() {
     if (reloc_worker_thread_.joinable()) {
         reloc_worker_thread_.join();
     }
-}
-
-rcl_interfaces::msg::SetParametersResult LocalizationNode::dynamicParametersCallback(
-    const std::vector<rclcpp::Parameter>& parameters) {
-    rcl_interfaces::msg::SetParametersResult result;
-    result.successful = true;
-    result.reason = "ok";
-
-    bool need_target_rebuild = false;
-    bool need_sc_rebuild = false;
-
-    auto reject = [&](const std::string& reason) {
-        result.successful = false;
-        result.reason = reason;
-    };
-
-    auto log_update = [&](const std::string& param, double old_value, double new_value) {
-        RCLCPP_INFO(this->get_logger(), "PARAM_UPDATE,node=localization,param=%s,old=%.6f,new=%.6f",
-                    param.c_str(), old_value, new_value);
-    };
-
-    auto log_update_int = [&](const std::string& param, int old_value, int new_value) {
-        RCLCPP_INFO(this->get_logger(), "PARAM_UPDATE,node=localization,param=%s,old=%d,new=%d",
-                    param.c_str(), old_value, new_value);
-    };
-
-    auto log_update_bool = [&](const std::string& param, bool old_value, bool new_value) {
-        RCLCPP_INFO(this->get_logger(), "PARAM_UPDATE,node=localization,param=%s,old=%d,new=%d",
-                    param.c_str(), static_cast<int>(old_value), static_cast<int>(new_value));
-    };
-
-    for (const auto& p : parameters) {
-        const std::string& name = p.get_name();
-
-        if (name == "registered_leaf_size") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
-                reject("registered_leaf_size expects double");
-                break;
-            }
-            const double old_v = registered_leaf_size_;
-            registered_leaf_size_ = static_cast<float>(std::clamp(p.as_double(), 0.01, 2.0));
-            log_update(name, old_v, registered_leaf_size_);
-            continue;
-        }
-        if (name == "max_dist_sq") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
-                reject("max_dist_sq expects double");
-                break;
-            }
-            const double old_v = max_dist_sq_;
-            max_dist_sq_ = static_cast<float>(std::clamp(p.as_double(), 0.01, 25.0));
-            log_update(name, old_v, max_dist_sq_);
-            continue;
-        }
-        if (name == "gicp_max_iterations") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
-                reject("gicp_max_iterations expects integer");
-                break;
-            }
-            const int old_v = gicp_max_iterations_;
-            gicp_max_iterations_ = std::clamp(static_cast<int>(p.as_int()), 1, 500);
-            log_update_int(name, old_v, gicp_max_iterations_);
-            continue;
-        }
-        if (name == "sc_sim_threshold") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
-                reject("sc_sim_threshold expects double");
-                break;
-            }
-            const double old_v = sc_sim_threshold_;
-            sc_sim_threshold_ = std::clamp(p.as_double(), 0.01, 1.0);
-            log_update(name, old_v, sc_sim_threshold_);
-            continue;
-        }
-        if (name == "sc_topk") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
-                reject("sc_topk expects integer");
-                break;
-            }
-            const int old_v = sc_topk_;
-            sc_topk_ = std::clamp(static_cast<int>(p.as_int()), 1, 100);
-            log_update_int(name, old_v, sc_topk_);
-            continue;
-        }
-        if (name == "sc_num_rings") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
-                reject("sc_num_rings expects integer");
-                break;
-            }
-            const int old_v = sc_num_rings_;
-            sc_num_rings_ = std::clamp(static_cast<int>(p.as_int()), 4, 200);
-            need_sc_rebuild = true;
-            log_update_int(name, old_v, sc_num_rings_);
-            continue;
-        }
-        if (name == "sc_num_sectors") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
-                reject("sc_num_sectors expects integer");
-                break;
-            }
-            const int old_v = sc_num_sectors_;
-            sc_num_sectors_ = std::clamp(static_cast<int>(p.as_int()), 12, 720);
-            need_sc_rebuild = true;
-            log_update_int(name, old_v, sc_num_sectors_);
-            continue;
-        }
-        if (name == "sc_max_radius") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
-                reject("sc_max_radius expects double");
-                break;
-            }
-            const double old_v = sc_max_radius_;
-            sc_max_radius_ = std::clamp(p.as_double(), 0.1, 100.0);
-            need_sc_rebuild = true;
-            log_update(name, old_v, sc_max_radius_);
-            continue;
-        }
-        if (name == "global_icp_max_iterations") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
-                reject("global_icp_max_iterations expects integer");
-                break;
-            }
-            const int old_v = global_icp_max_iterations_;
-            global_icp_max_iterations_ = std::clamp(static_cast<int>(p.as_int()), 1, 1000);
-            log_update_int(name, old_v, global_icp_max_iterations_);
-            continue;
-        }
-        if (name == "global_icp_max_correspondence_distance") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
-                reject("global_icp_max_correspondence_distance expects double");
-                break;
-            }
-            const double old_v = global_icp_max_correspondence_distance_;
-            global_icp_max_correspondence_distance_ = std::clamp(p.as_double(), 0.01, 20.0);
-            log_update(name, old_v, global_icp_max_correspondence_distance_);
-            continue;
-        }
-        if (name == "global_downsample_leaf_size") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
-                reject("global_downsample_leaf_size expects double");
-                break;
-            }
-            const double old_v = global_downsample_leaf_size_;
-            global_downsample_leaf_size_ = std::clamp(p.as_double(), 0.01, 2.0);
-            log_update(name, old_v, global_downsample_leaf_size_);
-            continue;
-        }
-        if (name == "global_leaf_size") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
-                reject("global_leaf_size expects double");
-                break;
-            }
-            const double old_v = global_leaf_size_;
-            global_leaf_size_ = static_cast<float>(std::clamp(p.as_double(), 0.01, 2.0));
-            need_target_rebuild = true;
-            need_sc_rebuild = true;
-            log_update(name, old_v, global_leaf_size_);
-            continue;
-        }
-        if (name == "s1_enable") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
-                reject("s1_enable expects bool");
-                break;
-            }
-            const bool old_v = s1_enable_;
-            s1_enable_ = p.as_bool();
-            log_update_bool(name, old_v, s1_enable_);
-            continue;
-        }
-        if (name == "s1_accel_threshold") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
-                reject("s1_accel_threshold expects double");
-                break;
-            }
-            const double old_v = s1_accel_threshold_;
-            s1_accel_threshold_ = std::clamp(p.as_double(), 0.1, 200.0);
-            log_update(name, old_v, s1_accel_threshold_);
-            continue;
-        }
-        if (name == "s1_gyro_threshold") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
-                reject("s1_gyro_threshold expects double");
-                break;
-            }
-            const double old_v = s1_gyro_threshold_;
-            s1_gyro_threshold_ = std::clamp(p.as_double(), 0.01, 50.0);
-            log_update(name, old_v, s1_gyro_threshold_);
-            continue;
-        }
-        if (name == "s1_freeze_duration_ms") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
-                reject("s1_freeze_duration_ms expects integer");
-                break;
-            }
-            const int old_v = s1_freeze_duration_ms_;
-            s1_freeze_duration_ms_ = std::clamp(static_cast<int>(p.as_int()), 1, 5000);
-            log_update_int(name, old_v, s1_freeze_duration_ms_);
-            continue;
-        }
-        if (name == "s2_enable") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
-                reject("s2_enable expects bool");
-                break;
-            }
-            const bool old_v = s2_enable_;
-            s2_enable_ = p.as_bool();
-            log_update_bool(name, old_v, s2_enable_);
-            continue;
-        }
-        if (name == "s2_hessian_min_eigenvalue") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
-                reject("s2_hessian_min_eigenvalue expects double");
-                break;
-            }
-            const double old_v = s2_hessian_min_eigenvalue_;
-            s2_hessian_min_eigenvalue_ = std::clamp(p.as_double(), 1.0, 1e7);
-            log_update(name, old_v, s2_hessian_min_eigenvalue_);
-            continue;
-        }
-        if (name == "s2_max_continuous_frames") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
-                reject("s2_max_continuous_frames expects integer");
-                break;
-            }
-            const int old_v = s2_max_continuous_frames_;
-            s2_max_continuous_frames_ = std::clamp(static_cast<int>(p.as_int()), 1, 1000);
-            log_update_int(name, old_v, s2_max_continuous_frames_);
-            continue;
-        }
-        if (name == "s3_enable") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
-                reject("s3_enable expects bool");
-                break;
-            }
-            const bool old_v = s3_enable_;
-            s3_enable_ = p.as_bool();
-            log_update_bool(name, old_v, s3_enable_);
-            continue;
-        }
-        if (name == "s3_min_score_gap") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
-                reject("s3_min_score_gap expects double");
-                break;
-            }
-            const double old_v = s3_min_score_gap_;
-            s3_min_score_gap_ = std::clamp(p.as_double(), 0.0, 10.0);
-            log_update(name, old_v, s3_min_score_gap_);
-            continue;
-        }
-        if (name == "gicp_omp_threads") {
-            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
-                reject("gicp_omp_threads expects integer");
-                break;
-            }
-            const int old_v = gicp_omp_threads_;
-            gicp_omp_threads_ = std::max(1, static_cast<int>(p.as_int()));
-            num_threads_ = gicp_omp_threads_;
-            configureThreadAffinityQcs8550();
-            log_update_int(name, old_v, gicp_omp_threads_);
-            continue;
-        }
-
-        reject("parameter not in hot-update whitelist: " + name);
-        break;
-    }
-
-    if (result.successful) {
-        if (need_target_rebuild) {
-            target_ready_ = false;
-        }
-        if (need_sc_rebuild) {
-            sc_db_ready_ = false;
-            std::lock_guard<std::mutex> lk(sc_mutex_);
-            sc_database_.clear();
-        }
-    }
-
-    return result;
 }
 
 void LocalizationNode::setLocalizationState(LocalizationState next, const char* reason) {
@@ -768,32 +621,6 @@ const char* LocalizationNode::toString(RelocTriggerReason reason) {
         default:
             return "unknown";
     }
-}
-
-void LocalizationNode::publishRelocMetrics(const RelocMetrics& metrics) const {
-    RCLCPP_INFO(this->get_logger(),
-                "RELOC_METRIC,trigger_reason=%s,path_used=%s,t_total_ms=%.2f,t_l1_ms=%.2f,t_l2_ms=%.2f,"
-                "candidate_count=%d,best_fitness=%.6f,best_J=%.6f,accepted=%d",
-                toString(metrics.trigger_reason), metrics.path_used.c_str(), metrics.t_total_ms, metrics.t_l1_ms,
-                metrics.t_l2_ms, metrics.candidate_count, metrics.best_fitness, metrics.best_j, metrics.accepted ? 1 : 0);
-}
-
-void LocalizationNode::requestRelocalization(RelocTriggerReason reason, pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud) {
-    if (shutdown_requested_.load()) {
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(reloc_request_mutex_);
-        reloc_pending_reason_ = reason;
-        if (source_cloud && !source_cloud->empty()) {
-            reloc_pending_cloud_ = source_cloud;
-        }
-        reloc_request_pending_ = true;
-    }
-
-    setLocalizationState(LocalizationState::SUSPECT, "reloc_requested");
-    reloc_request_cv_.notify_one();
 }
 
 void LocalizationNode::relocWorkerLoop() {
@@ -860,6 +687,32 @@ void LocalizationNode::validateAndNormalizeParams() {
         RCLCPP_WARN(this->get_logger(), "freeze_update_err=%.4f 非法，已回退为 0.3", freeze_update_err_);
         freeze_update_err_ = 0.3;
     }
+    if (huber_c_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "huber_c=%.6f 非法，已回退为 1.0", huber_c_);
+        huber_c_ = 1.0;
+    }
+    if (cov_eig_floor_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "cov_eig_floor=%.6f 非法，已回退为 1.0", cov_eig_floor_);
+        cov_eig_floor_ = 1.0;
+    }
+    cov_scale_min_ = std::max(cov_scale_min_, 1e-8);
+    cov_scale_max_ = std::max(cov_scale_max_, cov_scale_min_);
+    if (gn_auto_trans_threshold_m_ < 0.0) {
+        RCLCPP_WARN(this->get_logger(), "gn_auto_trans_threshold_m=%.6f 非法，已回退为 0.05",
+                    gn_auto_trans_threshold_m_);
+        gn_auto_trans_threshold_m_ = 0.05;
+    }
+    if (hessian_lambda_hard_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "hessian_lambda_hard=%.6f 非法，已回退为 10.0", hessian_lambda_hard_);
+        hessian_lambda_hard_ = 10.0;
+    }
+    std::transform(gicp_optimizer_mode_.begin(), gicp_optimizer_mode_.end(), gicp_optimizer_mode_.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (gicp_optimizer_mode_ != "gn_auto" && gicp_optimizer_mode_ != "gn" && gicp_optimizer_mode_ != "lm") {
+        RCLCPP_WARN(this->get_logger(), "gicp_optimizer_mode=%s 非法，已回退为 gn_auto",
+                    gicp_optimizer_mode_.c_str());
+        gicp_optimizer_mode_ = "gn_auto";
+    }
     if (min_inliers_ < 0) {
         RCLCPP_WARN(this->get_logger(), "min_inliers=%d 非法，已钳制为 0", min_inliers_);
         min_inliers_ = 0;
@@ -921,6 +774,14 @@ void LocalizationNode::validateAndNormalizeParams() {
     sc_topk_ = std::max(sc_topk_, 1);
     sc_sim_threshold_ = std::clamp(sc_sim_threshold_, 0.01, 1.0);
     sc_min_points_per_submap_ = std::max(sc_min_points_per_submap_, 20);
+    bevplace_bev_resolution_ = std::max(bevplace_bev_resolution_, 0.05);
+    bevplace_bev_size_ = std::max(bevplace_bev_size_, 32);
+    bevplace_topk_ = std::max(bevplace_topk_, 1);
+    if (bevplace_enable_) {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+                             "bevplace_enable=true，但当前版本未集成 rc26_bevplace，自动回退 Scan Context");
+    }
+    degen_eigenvalue_ratio_threshold_ = std::clamp(degen_eigenvalue_ratio_threshold_, 1e-4, 0.5);
     if (qcs8550_affinity_enable_ && (prime_cpus_.empty() || gold_cpus_.empty())) {
         RCLCPP_WARN(this->get_logger(),
                     "QCS8550 CPU 分桶配置不完整，已尝试自动检测 prime/gold/silver");
@@ -940,6 +801,40 @@ void LocalizationNode::validateAndNormalizeParams() {
         RCLCPP_WARN(this->get_logger(), "slope_z_weight=%.3f 非法，已钳制为 1.0", slope_z_weight_);
         slope_z_weight_ = 1.0;
     }
+    if (dynamic_filter_voxel_size_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "dynamic_filter_voxel_size=%.3f 非法，已回退为 0.3", dynamic_filter_voxel_size_);
+        dynamic_filter_voxel_size_ = 0.3;
+    }
+    if (dynamic_filter_window_size_ <= 0) {
+        RCLCPP_WARN(this->get_logger(), "dynamic_filter_window_size=%d 非法，已回退为 10", dynamic_filter_window_size_);
+        dynamic_filter_window_size_ = 10;
+    }
+    if (dynamic_filter_stable_threshold_ <= 0 || dynamic_filter_stable_threshold_ > dynamic_filter_window_size_) {
+        RCLCPP_WARN(this->get_logger(),
+                    "dynamic_filter_stable_threshold=%d 非法，已回退为 window_size 的一半",
+                    dynamic_filter_stable_threshold_);
+        dynamic_filter_stable_threshold_ = std::max(1, dynamic_filter_window_size_ / 2);
+    }
+    if (l0_max_imu_gap_ms_ <= 0) {
+        RCLCPP_WARN(this->get_logger(), "l0_max_imu_gap_ms=%d 非法，已回退为 1000", l0_max_imu_gap_ms_);
+        l0_max_imu_gap_ms_ = 1000;
+    }
+    if (uwb_max_stale_sec_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "uwb_max_stale_sec=%.3f 非法，已回退为 2.0", uwb_max_stale_sec_);
+        uwb_max_stale_sec_ = 2.0;
+    }
+    uwb_yaw_spread_deg_ = std::clamp(uwb_yaw_spread_deg_, 1.0, 180.0);
+    esikf_accel_noise_ = std::max(esikf_accel_noise_, 1e-4);
+    esikf_gyro_noise_ = std::max(esikf_gyro_noise_, 1e-5);
+    esikf_accel_bias_noise_ = std::max(esikf_accel_bias_noise_, 1e-6);
+    esikf_gyro_bias_noise_ = std::max(esikf_gyro_bias_noise_, 1e-6);
+
+    StaticVoxelFilter::Config dynamic_filter_cfg;
+    dynamic_filter_cfg.voxel_size = dynamic_filter_voxel_size_;
+    dynamic_filter_cfg.window_size = dynamic_filter_window_size_;
+    dynamic_filter_cfg.stable_threshold = dynamic_filter_stable_threshold_;
+    static_voxel_filter_.setConfig(dynamic_filter_cfg);
+    esikf_.setProcessNoise(esikf_accel_noise_, esikf_gyro_noise_, esikf_accel_bias_noise_, esikf_gyro_bias_noise_);
 
     if (competition_mode_) {
         if (!retry_zone_enable_) {
@@ -983,1109 +878,8 @@ void LocalizationNode::configureThreadAffinityQcs8550() {
                 qcs8550_realtime_enable_ ? "SCHED_FIFO(60)->fallback" : "SCHED_OTHER");
 }
 
-void LocalizationNode::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
-    const double acc_norm = std::sqrt(
-        msg->linear_acceleration.x * msg->linear_acceleration.x +
-        msg->linear_acceleration.y * msg->linear_acceleration.y +
-        msg->linear_acceleration.z * msg->linear_acceleration.z);
-    const double gyro_norm = std::sqrt(
-        msg->angular_velocity.x * msg->angular_velocity.x +
-        msg->angular_velocity.y * msg->angular_velocity.y +
-        msg->angular_velocity.z * msg->angular_velocity.z);
-
-    // S1: Spike 检测
-    if (s1_enable_ && (acc_norm > s1_accel_threshold_ || gyro_norm > s1_gyro_threshold_)) {
-        std::lock_guard<std::mutex> lk(imu_spike_mutex_);
-        imu_spike_deadline_ =
-            now() + rclcpp::Duration(0, static_cast<int32_t>(s1_freeze_duration_ms_) * 1'000'000);
-        imu_spike_active_.store(true);
-    }
-
-    // T8: 重力加速度估计 roll/pitch（准静态假设）
-    if (slope_roll_pitch_from_imu_) {
-        const double ax = msg->linear_acceleration.x;
-        const double ay = msg->linear_acceleration.y;
-        const double az = msg->linear_acceleration.z;
-        const double roll  = std::atan2(ay, az);
-        const double pitch = std::atan2(-ax, std::sqrt(ay * ay + az * az));
-        std::lock_guard<std::mutex> lk(imu_attitude_mutex_);
-        imu_roll_  = roll;
-        imu_pitch_ = pitch;
-        imu_attitude_valid_ = true;
-    }
-}
-
-void LocalizationNode::loadGlobalMap(const std::string& file_name) {
-    std::lock_guard<std::mutex> lock(map_mutex_);
-    if (file_name.empty()) {
-        RCLCPP_ERROR(this->get_logger(), "PCD 文件路径为空，定位将不可用");
-        map_loaded_ = false;
-        target_ready_ = false;
-        return;
-    }
-
-    if (pcl::io::loadPCDFile<pcl::PointXYZ>(file_name, *global_map_) == -1) {
-        RCLCPP_ERROR(this->get_logger(), "无法读取 PCD 文件: %s，定位将不可用", file_name.c_str());
-        map_loaded_ = false;
-        target_ready_ = false;
-        return;
-    }
-    RCLCPP_INFO(this->get_logger(), "加载先验地图，共 %zu 个点", global_map_->points.size());
-    map_loaded_ = true;
-    target_ready_ = false;
-    map_needs_transform_ = false;
-}
-
-bool LocalizationNode::prepareTargetMap() {
-    if (!map_loaded_) {
-        return false;
-    }
-    if (target_ready_ && target_tree_) {
-        return true;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(map_mutex_);
-        target_ =
-            small_gicp::voxelgrid_sampling_omp<pcl::PointCloud<pcl::PointXYZ>, pcl::PointCloud<pcl::PointCovariance>>(
-                *global_map_, global_leaf_size_);
-    }
-
-    size_t min_points_for_map =
-        static_cast<size_t>(min_points_for_registration_ > 0 ? min_points_for_registration_ : 1);
-    if (!target_ || target_->size() < min_points_for_map) {
-        target_ready_ = false;
-        target_tree_.reset();
-        RCLCPP_ERROR(this->get_logger(), "先验地图点数不足: %zu < %zu，无法准备目标地图",
-                     target_ ? target_->size() : static_cast<size_t>(0), min_points_for_map);
-        return false;
-    }
-    small_gicp::estimate_covariances_omp(*target_, num_neighbors_, num_threads_);
-    target_tree_ = std::make_shared<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>>(
-        target_, small_gicp::KdTreeBuilderOMP(num_threads_));
-    target_ready_ = true;
-    RCLCPP_INFO(this->get_logger(), "先验地图准备完成，目标点数: %zu", target_->points.size());
-
-    if (enable_scan_context_ && !sc_db_ready_) {
-        if (!buildScanContextDatabase()) {
-            RCLCPP_WARN(this->get_logger(), "Scan Context 数据库构建失败，L2 将不可用");
-        }
-    }
-
-    return true;
-}
-
-void LocalizationNode::registeredPcdCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
-    if (!map_loaded_) {
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(cloud_mutex_);
-        last_scan_time_ = msg->header.stamp;
-        current_scan_frame_id_ = msg->header.frame_id;
-    }
-
-    pcl::PointCloud<pcl::PointXYZ>::Ptr scan(new pcl::PointCloud<pcl::PointXYZ>());
-    pcl::fromROSMsg(*msg, *scan);
-
-    std::lock_guard<std::mutex> lock(cloud_mutex_);
-    const size_t current_size = accumulated_cloud_->size();
-    if (current_size >= max_accumulated_points_) {
-        return;
-    }
-    const size_t remaining = max_accumulated_points_ - current_size;
-    const size_t scan_size = scan->size();
-    if (scan_size > remaining) {
-        accumulated_cloud_->points.insert(accumulated_cloud_->points.end(), scan->points.begin(),
-                                          scan->points.begin() + static_cast<std::ptrdiff_t>(remaining));
-        accumulated_cloud_->width = static_cast<decltype(accumulated_cloud_->width)>(accumulated_cloud_->points.size());
-        accumulated_cloud_->height = 1;
-    } else {
-        *accumulated_cloud_ += *scan;
-    }
-}
-
-void LocalizationNode::performRegistration() {
-    if (!map_loaded_) {
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "地图未加载，跳过配准");
-        return;
-    }
-
-    if (!prepareTargetMap()) {
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "地图坐标转换未完成");
-        return;
-    }
-
-    const LocalizationState state = getLocalizationState();
-    if (isRelocatingState(state)) {
-        RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "重定位进行中，跳过常规配准");
-        return;
-    }
-    {
-        std::lock_guard<std::mutex> lock(reloc_request_mutex_);
-        if (reloc_request_pending_) {
-            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "重定位请求待处理，跳过常规配准");
-            return;
-        }
-    }
-
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_to_register;
-    {
-        std::lock_guard<std::mutex> lock(cloud_mutex_);
-        if (accumulated_cloud_->empty()) {
-            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "无累积点云数据");
-            return;
-        }
-        cloud_to_register = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
-        std::swap(cloud_to_register, accumulated_cloud_);
-    }
-
-    pcl::Indices nan_indices;
-    pcl::removeNaNFromPointCloud(*cloud_to_register, *cloud_to_register, nan_indices);
-
-    if (acrylic_filter_enable_) {
-        applyAcrylicROIFilter(cloud_to_register);
-    }
-
-    source_ = small_gicp::voxelgrid_sampling_omp<pcl::PointCloud<pcl::PointXYZ>, pcl::PointCloud<pcl::PointCovariance>>(
-        *cloud_to_register, registered_leaf_size_);
-
-    size_t min_points_for_reg =
-        static_cast<size_t>(min_points_for_registration_ > 0 ? min_points_for_registration_ : 1);
-    if (!source_ || source_->size() < min_points_for_reg) {
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "降采样后点云不足: %zu < %zu，跳过配准",
-                             source_ ? source_->size() : 0, min_points_for_reg);
-        return;
-    }
-
-    small_gicp::estimate_covariances_omp(*source_, num_neighbors_, num_threads_);
-
-    register_->reduction.num_threads = num_threads_;
-    register_->rejector.max_dist_sq = max_dist_sq_;
-    register_->optimizer.max_iterations = gicp_max_iterations_;
-
-    Eigen::Isometry3d initial_guess;
-    {
-        std::lock_guard<std::mutex> lock(result_mutex_);
-        initial_guess = previous_result_t_;
-    }
-
-    // T0: 局部配准计时起点
-    const auto t_align_start = std::chrono::steady_clock::now();
-    auto result = register_->align(*target_, *source_, *target_tree_, initial_guess);
-    const double dt_ms =
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_align_start).count();
-
-    // S2: Hessian 退化轴拒绝（align 后、S1 门控前）
-    double s2_min_eig = 0.0;
-    int s2_consec = 0;
-    if (s2_enable_ && result.converged) {
-        Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 6, 6>> solver(result.H);
-        s2_min_eig = solver.eigenvalues().minCoeff();
-        if (s2_min_eig < s2_hessian_min_eigenvalue_) {
-            s2_consec = consecutive_s2_count_.fetch_add(1) + 1;
-            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 500,
-                "S2: degenerate axis (min_eig=%.4f < %.4f), update rejected (consec=%d/%d)",
-                s2_min_eig, s2_hessian_min_eigenvalue_, s2_consec, s2_max_continuous_frames_);
-            if (s2_consec >= s2_max_continuous_frames_) {
-                consecutive_s2_count_.store(0);
-                RCLCPP_ERROR(get_logger(), "S2: %d frames continuous degeneration, forcing GLOBAL_RECOVERY",
-                    s2_max_continuous_frames_);
-                requestRelocalization(RelocTriggerReason::KIDNAP, cloud_to_register);
-            }
-            return;
-        }
-        consecutive_s2_count_.store(0);
-    }
-
-    const double normalized_error =
-        (result.num_inliers > 0) ? (result.error / static_cast<double>(result.num_inliers))
-                                 : std::numeric_limits<double>::max();
-
-    // S1: IMU Spike 门控（种子更新前，同时暂停绑架计数）
-    if (s1_enable_ && imu_spike_active_.load()) {
-        rclcpp::Time deadline;
-        { std::lock_guard<std::mutex> lk(imu_spike_mutex_); deadline = imu_spike_deadline_; }
-        if (now() < deadline) {
-            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 500,
-                "S1: IMU spike gate active, seed frozen");
-            return;
-        }
-        imu_spike_active_.store(false);
-    }
-
-    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                         "配准: converged=%d, inliers=%zu, normalized_error=%.4f (阈值=%.4f)", result.converged,
-                         result.num_inliers, normalized_error, kidnap_fitness_threshold_);
-
-    if (detectKidnapping(normalized_error)) {
-        RCLCPP_WARN(this->get_logger(), "检测到绑架，提交重定位请求...");
-        requestRelocalization(RelocTriggerReason::KIDNAP, cloud_to_register);
-        return;
-    }
-
-    const bool bad_quality =
-        (normalized_error > freeze_update_err_) || (result.num_inliers < static_cast<size_t>(min_inliers_));
-    Eigen::Isometry3d slope_corrected_pose = result.T_target_source;
-
-    // T8: 坡道法向一致性门控 + 姿态主导权（transform 更新前）
-    if (!bad_quality && result.converged && slope_roll_pitch_from_imu_ && imu_attitude_valid_) {
-        const Eigen::Matrix3d R = result.T_target_source.rotation();
-        const double pitch_gicp = std::asin(-R(2, 0));
-        const double roll_gicp  = std::atan2(R(2, 1), R(2, 2));
-        double imu_r, imu_p;
-        {
-            std::lock_guard<std::mutex> lk(imu_attitude_mutex_);
-            imu_r = imu_roll_;
-            imu_p = imu_pitch_;
-        }
-        const double roll_dev  = roll_gicp - imu_r;
-        const double pitch_dev = pitch_gicp - imu_p;
-        const double dev_deg = std::sqrt(roll_dev * roll_dev + pitch_dev * pitch_dev) * 180.0 / M_PI;
-        if (dev_deg > slope_normal_consistency_deg_) {
-            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 500,
-                "T8: slope normal inconsistency %.1f deg > %.1f deg, frame rejected",
-                dev_deg, slope_normal_consistency_deg_);
-            return;
-        }
-
-        // roll/pitch 以 IMU 为主，仅允许 GICP 在有限幅度内修正
-        const double max_correction_rad = kMaxSlopeRollPitchCorrectionDeg * M_PI / 180.0;
-        const double fused_roll = imu_r + std::clamp(roll_dev, -max_correction_rad, max_correction_rad);
-        const double fused_pitch = imu_p + std::clamp(pitch_dev, -max_correction_rad, max_correction_rad);
-        const double yaw_gicp = std::atan2(R(1, 0), R(0, 0));
-        slope_corrected_pose.linear() =
-            (Eigen::AngleAxisd(yaw_gicp, Eigen::Vector3d::UnitZ()) *
-             Eigen::AngleAxisd(fused_pitch, Eigen::Vector3d::UnitY()) *
-             Eigen::AngleAxisd(fused_roll, Eigen::Vector3d::UnitX()))
-                .toRotationMatrix();
-
-        // 将 slope_z_weight 用于 z 轴更新抑制，减小坡道场景 z 抖动
-        const double prev_z = initial_guess.translation().z();
-        const double z_alpha = 1.0 / slope_z_weight_;
-        slope_corrected_pose.translation().z() =
-            prev_z + (slope_corrected_pose.translation().z() - prev_z) * z_alpha;
-    }
-
-    if (!bad_quality) {
-        std::lock_guard<std::mutex> lock(result_mutex_);
-        if (result.converged) {
-            result_t_ = previous_result_t_ = slope_corrected_pose;
-        } else {
-            Eigen::Vector3d delta_translation = result.T_target_source.translation() - previous_result_t_.translation();
-
-            Eigen::Quaterniond q_result(result.T_target_source.rotation());
-            Eigen::Quaterniond q_prev(previous_result_t_.rotation());
-            Eigen::Quaterniond q_diff = q_result * q_prev.inverse();
-            if (q_diff.w() < 0) {
-                q_diff.coeffs() = -q_diff.coeffs();
-            }
-            double delta_rotation = 2.0 * std::acos(std::min(1.0, std::abs(q_diff.w())));
-
-            if (delta_translation.norm() < max_delta_translation_ && delta_rotation < max_delta_rotation_) {
-                previous_result_t_ = result.T_target_source;
-                RCLCPP_WARN(this->get_logger(), "GICP 配准未收敛，偏移量 %.3fm / %.2f° 可接受，更新初值",
-                            delta_translation.norm(), delta_rotation * 180.0 / M_PI);
-            } else {
-                RCLCPP_WARN(this->get_logger(), "GICP 配准未收敛，偏移量 %.3fm / %.2f° 过大，保持原初值",
-                            delta_translation.norm(), delta_rotation * 180.0 / M_PI);
-            }
-        }
-    } else {
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                             "配准质量低 (error=%.4f, inliers=%zu < %d), 冻结 TF 更新", normalized_error,
-                             result.num_inliers, min_inliers_);
-        setLocalizationState(LocalizationState::SUSPECT, "local_quality_bad");
-    }
-
-    if (result.converged && !bad_quality) {
-        {
-            std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
-            last_successful_registration_time_ = this->now();
-        }
-        setLocalizationState(LocalizationState::TRACKING, "local_registration_ok");
-    }
-
-    rclcpp::Time last_success_snapshot;
-    {
-        std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
-        last_success_snapshot = last_successful_registration_time_;
-    }
-    const double time_since_last_success = (this->now() - last_success_snapshot).seconds();
-    if (time_since_last_success > registration_timeout_sec_) {
-        RCLCPP_ERROR(this->get_logger(), "配准失败超时 %.1f秒，提交重定位请求...", time_since_last_success);
-        requestRelocalization(RelocTriggerReason::TIMEOUT, cloud_to_register);
-    }
-
-    // T0: PERF_METRIC 可观测性日志
-    RCLCPP_INFO(get_logger(),
-        "PERF_METRIC phase=LOCAL dt_ms=%.1f inliers=%d norm_err=%.4f state=%s S1=%d S2=%d(eig=%.2f,consec=%d)",
-        dt_ms, static_cast<int>(result.num_inliers), normalized_error,
-        toString(getLocalizationState()),
-        static_cast<int>(imu_spike_active_.load()),
-        static_cast<int>(s2_enable_ && result.converged && s2_min_eig < s2_hessian_min_eigenvalue_),
-        s2_min_eig, s2_consec);
-}
-
-void LocalizationNode::publishTransform() {
-    if (!map_loaded_) {
-        return;
-    }
-
-    Eigen::Isometry3d result_snapshot;
-    {
-        std::lock_guard<std::mutex> lock(result_mutex_);
-        result_snapshot = result_t_;
-    }
-
-    if (result_snapshot.matrix().isZero()) {
-        return;
-    }
-
-    geometry_msgs::msg::TransformStamped transform_stamped;
-    transform_stamped.header.stamp = this->now();
-    transform_stamped.header.frame_id = map_frame_;
-    transform_stamped.child_frame_id = odom_frame_;
-
-    const Eigen::Vector3d translation = result_snapshot.translation();
-    const Eigen::Quaterniond rotation(result_snapshot.rotation());
-
-    transform_stamped.transform.translation.x = translation.x();
-    transform_stamped.transform.translation.y = translation.y();
-    transform_stamped.transform.translation.z = translation.z();
-    transform_stamped.transform.rotation.x = rotation.x();
-    transform_stamped.transform.rotation.y = rotation.y();
-    transform_stamped.transform.rotation.z = rotation.z();
-    transform_stamped.transform.rotation.w = rotation.w();
-
-    tf_broadcaster_->sendTransform(transform_stamped);
-}
-
-bool LocalizationNode::detectKidnapping(double fitness_score) {
-    if (isRelocatingState(getLocalizationState())) {
-        return false;
-    }
-
-    if (fitness_score > kidnap_fitness_threshold_) {
-        const int count = consecutive_high_error_count_.fetch_add(1) + 1;
-        setLocalizationState(LocalizationState::SUSPECT, "high_error_counting");
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "配准误差过高: %.4f (连续 %d/%d 帧)",
-                             fitness_score, count, kidnap_threshold_count_);
-        if (count >= kidnap_threshold_count_) {
-            consecutive_high_error_count_.store(0);
-            return true;
-        }
-    } else {
-        consecutive_high_error_count_.store(0);
-    }
-    return false;
-}
-
-std::vector<Eigen::Matrix4f> LocalizationNode::generateCandidateTransforms(const Eigen::Matrix4f& sac_transform) {
-    std::vector<Eigen::Matrix4f> candidates;
-    candidates.push_back(sac_transform);
-
-    int yaw_hypotheses = num_yaw_hypotheses_;
-    if (yaw_hypotheses < 1) {
-        yaw_hypotheses = 1;
-    }
-
-    if (!use_multi_hypothesis_) {
-        return candidates;
-    }
-
-    const double yaw_step = 2.0 * M_PI / static_cast<double>(yaw_hypotheses);
-    for (int i = 1; i < yaw_hypotheses; ++i) {
-        const double yaw_offset = i * yaw_step;
-        Eigen::Matrix4f perturbed = sac_transform;
-        Eigen::AngleAxisf rot(static_cast<float>(yaw_offset), Eigen::Vector3f::UnitZ());
-        perturbed.block<3, 3>(0, 0) = perturbed.block<3, 3>(0, 0) * rot.matrix();
-        candidates.push_back(perturbed);
-    }
-
-    return candidates;
-}
-
-double LocalizationNode::computeCandidateCost(double fitness, const Eigen::Matrix4f& seed,
-                                              const Eigen::Matrix4f& refined) const {
-    const double fitness_th = std::max(global_fitness_threshold_, kNearZero);
-    const double xy_th = std::max(retry_zone_max_xy_offset_, kNearZero);
-    const double yaw_th = std::max(retry_zone_max_yaw_offset_deg_, kNearZero);
-
-    const Eigen::Vector2d seed_xy(seed(0, 3), seed(1, 3));
-    const Eigen::Vector2d refined_xy(refined(0, 3), refined(1, 3));
-    const double dxy = (refined_xy - seed_xy).norm();
-
-    const double seed_yaw = std::atan2(static_cast<double>(seed(1, 0)), static_cast<double>(seed(0, 0)));
-    const double refined_yaw = std::atan2(static_cast<double>(refined(1, 0)), static_cast<double>(refined(0, 0)));
-    const double dyaw = std::atan2(std::sin(refined_yaw - seed_yaw), std::cos(refined_yaw - seed_yaw));
-    const double dyaw_deg = std::abs(dyaw) * 180.0 / M_PI;
-
-    return kCostWf * (fitness / fitness_th) + kCostWxy * std::pow(dxy / xy_th, 2.0) +
-           kCostWyaw * std::pow(dyaw_deg / yaw_th, 2.0);
-}
-
-bool LocalizationNode::buildScanContextDatabase() {
-    if (!enable_scan_context_) {
-        return false;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(sc_mutex_);
-        if (sc_db_ready_) {
-            return true;
-        }
-    }
-
-    pcl::PointCloud<pcl::PointXYZ>::Ptr map_copy;
-    {
-        std::lock_guard<std::mutex> lock(map_mutex_);
-        if (!global_map_ || global_map_->empty()) {
-            return false;
-        }
-        map_copy = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(*global_map_);
-    }
-
-    pcl::Indices map_indices;
-    pcl::removeNaNFromPointCloud(*map_copy, *map_copy, map_indices);
-    if (map_copy->empty()) {
-        return false;
-    }
-
-    double min_x = std::numeric_limits<double>::max();
-    double min_y = std::numeric_limits<double>::max();
-    double max_x = -std::numeric_limits<double>::max();
-    double max_y = -std::numeric_limits<double>::max();
-
-    for (const auto& pt : map_copy->points) {
-        min_x = std::min(min_x, static_cast<double>(pt.x));
-        min_y = std::min(min_y, static_cast<double>(pt.y));
-        max_x = std::max(max_x, static_cast<double>(pt.x));
-        max_y = std::max(max_y, static_cast<double>(pt.y));
-    }
-
-    if (!(min_x < max_x && min_y < max_y)) {
-        return false;
-    }
-
-    std::vector<ScanContextEntry> database;
-    const double radius_sq = sc_submap_radius_ * sc_submap_radius_;
-
-    for (double cx = min_x; cx <= max_x; cx += sc_grid_resolution_) {
-        for (double cy = min_y; cy <= max_y; cy += sc_grid_resolution_) {
-            pcl::PointCloud<pcl::PointXYZ>::Ptr submap(new pcl::PointCloud<pcl::PointXYZ>());
-            submap->points.reserve(map_copy->points.size() / 16 + 1);
-            for (const auto& pt : map_copy->points) {
-                const double dx = static_cast<double>(pt.x) - cx;
-                const double dy = static_cast<double>(pt.y) - cy;
-                if (dx * dx + dy * dy <= radius_sq) {
-                    submap->points.push_back(pt);
-                }
-            }
-
-            if (submap->size() < static_cast<size_t>(sc_min_points_per_submap_)) {
-                continue;
-            }
-
-            ScanContextEntry entry;
-            entry.center_xy = Eigen::Vector2d(cx, cy);
-            entry.descriptor = makeScanContextDescriptor(submap, entry.center_xy);
-            entry.ring_key = makeRingKey(entry.descriptor);
-            if (entry.ring_key.size() == 0) {
-                continue;
-            }
-            database.push_back(std::move(entry));
-        }
-    }
-
-    if (database.empty()) {
-        return false;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(sc_mutex_);
-        sc_database_ = std::move(database);
-        sc_db_ready_ = true;
-    }
-
-    RCLCPP_INFO(this->get_logger(), "Scan Context 数据库构建完成: entries=%zu", sc_database_.size());
-    return true;
-}
-
-Eigen::MatrixXf LocalizationNode::makeScanContextDescriptor(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
-                                                            const Eigen::Vector2d& center_xy) const {
-    Eigen::MatrixXf descriptor = Eigen::MatrixXf::Zero(sc_num_rings_, sc_num_sectors_);
-    if (!cloud || cloud->empty()) {
-        return descriptor;
-    }
-
-    for (const auto& pt : cloud->points) {
-        const double dx = static_cast<double>(pt.x) - center_xy.x();
-        const double dy = static_cast<double>(pt.y) - center_xy.y();
-        const double r = std::hypot(dx, dy);
-        if (r < kNearZero || r > sc_max_radius_) {
-            continue;
-        }
-
-        double theta = std::atan2(dy, dx);
-        if (theta < 0.0) {
-            theta += 2.0 * M_PI;
-        }
-
-        const int ring_idx = std::min(sc_num_rings_ - 1, static_cast<int>((r / sc_max_radius_) * sc_num_rings_));
-        const int sector_idx =
-            std::min(sc_num_sectors_ - 1, static_cast<int>((theta / (2.0 * M_PI)) * sc_num_sectors_));
-
-        descriptor(ring_idx, sector_idx) = std::max(descriptor(ring_idx, sector_idx), static_cast<float>(pt.z));
-    }
-
-    const float max_abs = descriptor.cwiseAbs().maxCoeff();
-    if (max_abs > static_cast<float>(kNearZero)) {
-        descriptor /= max_abs;
-    }
-
-    return descriptor;
-}
-
-Eigen::VectorXf LocalizationNode::makeRingKey(const Eigen::MatrixXf& descriptor) const {
-    if (descriptor.rows() == 0 || descriptor.cols() == 0) {
-        return Eigen::VectorXf();
-    }
-    return descriptor.rowwise().mean();
-}
-
-double LocalizationNode::bestSectorSimilarity(const Eigen::MatrixXf& query_desc, const Eigen::MatrixXf& target_desc,
-                                              int& best_shift) const {
-    best_shift = 0;
-    if (query_desc.rows() != target_desc.rows() || query_desc.cols() != target_desc.cols() || query_desc.size() == 0) {
-        return -1.0;
-    }
-
-    const int rows = query_desc.rows();
-    const int cols = query_desc.cols();
-
-    double query_sq = 0.0;
-    for (int r = 0; r < rows; ++r) {
-        for (int c = 0; c < cols; ++c) {
-            const double q = query_desc(r, c);
-            query_sq += q * q;
-        }
-    }
-    if (query_sq <= kNearZero) {
-        return -1.0;
-    }
-
-    double best_sim = -1.0;
-    for (int shift = 0; shift < cols; ++shift) {
-        double dot = 0.0;
-        double target_sq = 0.0;
-        for (int r = 0; r < rows; ++r) {
-            for (int c = 0; c < cols; ++c) {
-                const double q = query_desc(r, c);
-                const double t = target_desc(r, (c + shift) % cols);
-                dot += q * t;
-                target_sq += t * t;
-            }
-        }
-
-        if (target_sq <= kNearZero) {
-            continue;
-        }
-
-        const double sim = dot / (std::sqrt(query_sq) * std::sqrt(target_sq));
-        if (sim > best_sim) {
-            best_sim = sim;
-            best_shift = shift;
-        }
-    }
-
-    return best_sim;
-}
-
-bool LocalizationNode::tryRetryZoneFastChannel(const pcl::PointCloud<pcl::PointXYZ>::Ptr& source_down,
-                                               const pcl::PointCloud<pcl::PointXYZ>::Ptr& target_down,
-                                               Eigen::Isometry3d& best_pose, double& best_fitness,
-                                               double& best_cost, int& candidate_count) {
-    const double accept_threshold = std::min(retry_zone_fast_accept_th_, global_fitness_threshold_);
-    RCLCPP_INFO(this->get_logger(), "尝试重试区快速通道: 坐标(%.2f, %.2f), %zu 个朝向候选", retry_zone_x_, retry_zone_y_,
-                retry_zone_yaw_candidates_deg_.size());
-
-    auto source_cov =
-        small_gicp::voxelgrid_sampling_omp<pcl::PointCloud<pcl::PointXYZ>, pcl::PointCloud<pcl::PointCovariance>>(
-            *source_down, registered_leaf_size_);
-    if (!source_cov || source_cov->empty()) {
-        return false;
-    }
-    small_gicp::estimate_covariances_omp(*source_cov, num_neighbors_, num_threads_);
-
-    register_->reduction.num_threads = num_threads_;
-    register_->rejector.max_dist_sq = global_icp_max_correspondence_distance_ * global_icp_max_correspondence_distance_;
-    register_->optimizer.max_iterations = global_icp_max_iterations_;
-
-    bool found = false;
-    best_fitness = std::numeric_limits<double>::max();
-    best_cost = std::numeric_limits<double>::max();
-    candidate_count = 0;
-
-    for (double yaw_deg : retry_zone_yaw_candidates_deg_) {
-        const double yaw = yaw_deg * M_PI / 180.0;
-        const float cy = static_cast<float>(std::cos(yaw));
-        const float sy = static_cast<float>(std::sin(yaw));
-
-        Eigen::Matrix4f seed = Eigen::Matrix4f::Identity();
-        seed(0, 0) = cy;
-        seed(0, 1) = -sy;
-        seed(1, 0) = sy;
-        seed(1, 1) = cy;
-        seed(0, 3) = static_cast<float>(retry_zone_x_);
-        seed(1, 3) = static_cast<float>(retry_zone_y_);
-
-        Eigen::Isometry3d seed_iso = Eigen::Isometry3d::Identity();
-        seed_iso.matrix() = seed.cast<double>();
-        auto result = register_->align(*target_, *source_cov, *target_tree_, seed_iso);
-
-        if (!result.converged || result.num_inliers == 0) {
-            continue;
-        }
-
-        ++candidate_count;
-        const Eigen::Matrix4f refined = result.T_target_source.matrix().cast<float>();
-        double fitness = result.error / static_cast<double>(result.num_inliers);
-        double cost = computeCandidateCost(fitness, seed, refined);
-
-        RCLCPP_INFO(this->get_logger(), "RZ候选 yaw=%.1f°: fitness=%.4f, J=%.4f", yaw_deg, fitness, cost);
-
-        if (!found || cost < best_cost || (std::abs(cost - best_cost) < 1e-6 && fitness < best_fitness)) {
-            found = true;
-            best_fitness = fitness;
-            best_cost = cost;
-            best_pose = Eigen::Isometry3d::Identity();
-            best_pose.matrix() = refined.cast<double>();
-        }
-
-        if (found && best_fitness < accept_threshold && best_cost < 1.0) {
-            break;
-        }
-    }
-
-    return found && best_fitness < accept_threshold && best_cost < 1.0;
-}
-
-bool LocalizationNode::tryScanContextGlobalChannel(const pcl::PointCloud<pcl::PointXYZ>::Ptr& source_down,
-                                                   const pcl::PointCloud<pcl::PointXYZ>::Ptr& target_down,
-                                                   Eigen::Isometry3d& best_pose, double& best_fitness,
-                                                   double& best_cost, int& candidate_count) {
-    if (!enable_scan_context_) {
-        return false;
-    }
-
-    if (!sc_db_ready_ && !buildScanContextDatabase()) {
-        RCLCPP_WARN(this->get_logger(), "Scan Context 数据库不可用");
-        return false;
-    }
-
-    if (!source_down || source_down->empty()) {
-        return false;
-    }
-
-    Eigen::Vector2d query_center = Eigen::Vector2d::Zero();
-    for (const auto& pt : source_down->points) {
-        query_center.x() += static_cast<double>(pt.x);
-        query_center.y() += static_cast<double>(pt.y);
-    }
-    query_center /= static_cast<double>(source_down->size());
-
-    const Eigen::MatrixXf query_desc = makeScanContextDescriptor(source_down, query_center);
-    const Eigen::VectorXf query_ring = makeRingKey(query_desc);
-    if (query_ring.size() == 0) {
-        return false;
-    }
-
-    std::vector<std::pair<double, size_t>> ranked;
-    {
-        std::lock_guard<std::mutex> lock(sc_mutex_);
-        ranked.reserve(sc_database_.size());
-        for (size_t i = 0; i < sc_database_.size(); ++i) {
-            if (sc_database_[i].ring_key.size() != query_ring.size()) {
-                continue;
-            }
-            const double dist = (sc_database_[i].ring_key - query_ring).norm();
-            ranked.emplace_back(dist, i);
-        }
-    }
-
-    if (ranked.empty()) {
-        return false;
-    }
-
-    std::sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
-    if (static_cast<int>(ranked.size()) > sc_topk_) {
-        ranked.resize(static_cast<size_t>(sc_topk_));
-    }
-
-    auto source_cov =
-        small_gicp::voxelgrid_sampling_omp<pcl::PointCloud<pcl::PointXYZ>, pcl::PointCloud<pcl::PointCovariance>>(
-            *source_down, registered_leaf_size_);
-    if (!source_cov || source_cov->empty()) {
-        return false;
-    }
-    small_gicp::estimate_covariances_omp(*source_cov, num_neighbors_, num_threads_);
-
-    register_->reduction.num_threads = num_threads_;
-    register_->rejector.max_dist_sq = global_icp_max_correspondence_distance_ * global_icp_max_correspondence_distance_;
-    register_->optimizer.max_iterations = global_icp_max_iterations_;
-
-    bool found = false;
-    best_fitness = std::numeric_limits<double>::max();
-    best_cost = std::numeric_limits<double>::max();
-    candidate_count = 0;
-    std::vector<double> all_fitness;  // S3: 收集所有收敛候选的 fitness
-
-    const double yaw_step = 2.0 * M_PI / static_cast<double>(sc_num_sectors_);
-
-    for (const auto& [ring_dist, idx] : ranked) {
-        (void)ring_dist;
-
-        ScanContextEntry entry;
-        {
-            std::lock_guard<std::mutex> lock(sc_mutex_);
-            if (idx >= sc_database_.size()) {
-                continue;
-            }
-            entry = sc_database_[idx];
-        }
-
-        int best_shift = 0;
-        const double similarity = bestSectorSimilarity(query_desc, entry.descriptor, best_shift);
-        if (similarity < 0.0) {
-            continue;
-        }
-
-        const double sim_cost = 1.0 - similarity;
-        const double yaw = -static_cast<double>(best_shift) * yaw_step;
-
-        const float cy = static_cast<float>(std::cos(yaw));
-        const float sy = static_cast<float>(std::sin(yaw));
-
-        Eigen::Matrix4f seed = Eigen::Matrix4f::Identity();
-        seed(0, 0) = cy;
-        seed(0, 1) = -sy;
-        seed(1, 0) = sy;
-        seed(1, 1) = cy;
-
-        const Eigen::Vector2d rotated_query_center(cy * query_center.x() - sy * query_center.y(),
-                                                   sy * query_center.x() + cy * query_center.y());
-        const Eigen::Vector2d trans = entry.center_xy - rotated_query_center;
-        seed(0, 3) = static_cast<float>(trans.x());
-        seed(1, 3) = static_cast<float>(trans.y());
-
-        Eigen::Isometry3d seed_iso = Eigen::Isometry3d::Identity();
-        seed_iso.matrix() = seed.cast<double>();
-        auto result = register_->align(*target_, *source_cov, *target_tree_, seed_iso);
-
-        if (!result.converged || result.num_inliers == 0) {
-            continue;
-        }
-
-        ++candidate_count;
-        Eigen::Matrix4f refined = result.T_target_source.matrix().cast<float>();
-        double fitness = result.error / static_cast<double>(result.num_inliers);
-        all_fitness.push_back(fitness);  // S3: 收集
-        double cost = computeCandidateCost(fitness, seed, refined) + std::max(0.0, sim_cost - sc_sim_threshold_);
-
-        RCLCPP_INFO(this->get_logger(),
-                    "SC候选 idx=%zu shift=%d sim=%.3f fitness=%.4f J=%.4f center=(%.2f,%.2f)", idx, best_shift,
-                    similarity, fitness, cost, entry.center_xy.x(), entry.center_xy.y());
-
-        if (!found || cost < best_cost || (std::abs(cost - best_cost) < 1e-6 && fitness < best_fitness)) {
-            found = true;
-            best_fitness = fitness;
-            best_cost = cost;
-            best_pose = Eigen::Isometry3d::Identity();
-            best_pose.matrix() = refined.cast<double>();
-        }
-    }
-
-    // S3: SC 对称歧义拒绝（TopK 遍历结束后）
-    if (s3_enable_ && all_fitness.size() >= 2) {
-        std::sort(all_fitness.begin(), all_fitness.end());
-        if (std::abs(all_fitness[0] - all_fitness[1]) < s3_min_score_gap_) {
-            RCLCPP_WARN(get_logger(),
-                "S3: SC symmetry ambiguity (best=%.4f, 2nd=%.4f), reloc rejected",
-                all_fitness[0], all_fitness[1]);
-            return false;
-        }
-    }
-
-    return found && best_fitness < global_fitness_threshold_ && best_cost < 1.0;
-}
-
-void LocalizationNode::markRelocalizationSuccess(const Eigen::Isometry3d& map_to_odom) {
-    {
-        std::lock_guard<std::mutex> lock(result_mutex_);
-        result_t_ = previous_result_t_ = map_to_odom;
-    }
-    {
-        std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
-        last_successful_registration_time_ = this->now();
-    }
-    consecutive_high_error_count_.store(0);
-    setLocalizationState(LocalizationState::TRACKING, "relocalization_success");
-}
-
-void LocalizationNode::performGlobalRelocalization(RelocTriggerReason reason,
-                                                   pcl::PointCloud<pcl::PointXYZ>::Ptr passed_cloud) {
-    RelocMetrics metrics;
-    metrics.trigger_reason = reason;
-
-    const auto t0 = std::chrono::steady_clock::now();
-
-    if (shutdown_requested_.load()) {
-        return;
-    }
-
-    try {
-        pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud;
-        if (passed_cloud && !passed_cloud->empty()) {
-            source_cloud = passed_cloud;
-        } else {
-            std::lock_guard<std::mutex> lock(cloud_mutex_);
-            if (!accumulated_cloud_->empty()) {
-                source_cloud = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(*accumulated_cloud_);
-                accumulated_cloud_->clear();
-            }
-        }
-
-        if (!source_cloud || source_cloud->empty()) {
-            RCLCPP_WARN(this->get_logger(), "重定位失败：无点云数据");
-            setLocalizationState(LocalizationState::RELOC_FAILED, "no_source_cloud");
-            metrics.path_used = "no_cloud";
-            metrics.accepted = false;
-            metrics.t_total_ms =
-                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-            publishRelocMetrics(metrics);
-            return;
-        }
-
-        pcl::Indices indices;
-        pcl::removeNaNFromPointCloud(*source_cloud, *source_cloud, indices);
-
-        if (acrylic_filter_enable_) {
-            applyAcrylicROIFilter(source_cloud);
-        }
-        if (source_cloud->empty()) {
-            RCLCPP_WARN(this->get_logger(), "重定位失败：过滤后无有效点云");
-            setLocalizationState(LocalizationState::RELOC_FAILED, "empty_after_filter");
-            metrics.path_used = "empty_after_filter";
-            metrics.accepted = false;
-            metrics.t_total_ms =
-                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-            publishRelocMetrics(metrics);
-            return;
-        }
-
-        pcl::VoxelGrid<pcl::PointXYZ> vg;
-        const float leaf_size = static_cast<float>(global_downsample_leaf_size_);
-        vg.setLeafSize(leaf_size, leaf_size, leaf_size);
-        vg.setInputCloud(source_cloud);
-        pcl::PointCloud<pcl::PointXYZ>::Ptr source_down(new pcl::PointCloud<pcl::PointXYZ>);
-        vg.filter(*source_down);
-
-        pcl::PointCloud<pcl::PointXYZ>::Ptr target_down(new pcl::PointCloud<pcl::PointXYZ>);
-        {
-            std::lock_guard<std::mutex> lock(map_mutex_);
-            pcl::PointCloud<pcl::PointXYZ>::Ptr map_copy(new pcl::PointCloud<pcl::PointXYZ>(*global_map_));
-            pcl::Indices map_indices;
-            pcl::removeNaNFromPointCloud(*map_copy, *map_copy, map_indices);
-            vg.setInputCloud(map_copy);
-            vg.filter(*target_down);
-        }
-
-        const size_t min_points =
-            static_cast<size_t>(min_points_for_relocalization_ > 0 ? min_points_for_relocalization_ : 1);
-        if (source_down->size() < min_points || target_down->size() < min_points) {
-            RCLCPP_WARN(this->get_logger(), "重定位失败：点云数量不足 (source=%zu, target=%zu, min=%zu)",
-                        source_down->size(), target_down->size(), min_points);
-            setLocalizationState(LocalizationState::RELOC_FAILED, "insufficient_points");
-            metrics.path_used = "insufficient_points";
-            metrics.accepted = false;
-            metrics.t_total_ms =
-                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-            publishRelocMetrics(metrics);
-            return;
-        }
-
-        bool accepted = false;
-        Eigen::Isometry3d best_pose = Eigen::Isometry3d::Identity();
-
-        if (retry_zone_enable_ && !retry_zone_yaw_candidates_deg_.empty()) {
-            setLocalizationState(LocalizationState::FAST_RECOVERY, "run_l1_retry_zone");
-            const auto t_l1_start = std::chrono::steady_clock::now();
-            double best_fitness = std::numeric_limits<double>::max();
-            double best_cost = std::numeric_limits<double>::max();
-            int candidate_count = 0;
-
-            accepted = tryRetryZoneFastChannel(source_down, target_down, best_pose, best_fitness, best_cost, candidate_count);
-            metrics.t_l1_ms =
-                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_l1_start).count();
-            metrics.candidate_count += candidate_count;
-            metrics.best_fitness = best_fitness;
-            metrics.best_j = best_cost;
-
-            if (accepted) {
-                metrics.path_used = "L1";
-                metrics.accepted = true;
-                markRelocalizationSuccess(best_pose);
-            }
-            RCLCPP_INFO(
-                get_logger(),
-                "PERF_METRIC phase=L1 dt_ms=%.1f candidates=%d best_fit=%.4f best_j=%.4f accepted=%d state=%s",
-                metrics.t_l1_ms, candidate_count, best_fitness, best_cost, static_cast<int>(accepted),
-                toString(getLocalizationState()));
-        }
-
-        if (!accepted) {
-            setLocalizationState(LocalizationState::GLOBAL_RECOVERY, "run_l2_scan_context");
-            const auto t_l2_start = std::chrono::steady_clock::now();
-
-            double best_fitness = std::numeric_limits<double>::max();
-            double best_cost = std::numeric_limits<double>::max();
-            int candidate_count = 0;
-
-            accepted = tryScanContextGlobalChannel(source_down, target_down, best_pose, best_fitness, best_cost,
-                                                   candidate_count);
-
-            metrics.t_l2_ms =
-                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_l2_start).count();
-            metrics.candidate_count += candidate_count;
-            metrics.best_fitness = std::min(metrics.best_fitness, best_fitness);
-            metrics.best_j = std::min(metrics.best_j, best_cost);
-
-            if (accepted) {
-                metrics.path_used = "L2";
-                metrics.accepted = true;
-                markRelocalizationSuccess(best_pose);
-            } else {
-                metrics.path_used = "L2_failed";
-            }
-            RCLCPP_INFO(
-                get_logger(),
-                "PERF_METRIC phase=L2 dt_ms=%.1f candidates=%d best_fit=%.4f best_j=%.4f accepted=%d state=%s",
-                metrics.t_l2_ms, candidate_count, best_fitness, best_cost, static_cast<int>(accepted),
-                toString(getLocalizationState()));
-        }
-
-        if (!accepted) {
-            setLocalizationState(LocalizationState::RELOC_FAILED, "all_recovery_failed");
-            metrics.accepted = false;
-        }
-
-    } catch (const std::exception& ex) {
-        RCLCPP_ERROR(this->get_logger(), "重定位异常: %s", ex.what());
-        setLocalizationState(LocalizationState::RELOC_FAILED, "exception");
-        metrics.path_used = "exception";
-        metrics.accepted = false;
-    } catch (...) {
-        RCLCPP_ERROR(this->get_logger(), "重定位异常: unknown");
-        setLocalizationState(LocalizationState::RELOC_FAILED, "unknown_exception");
-        metrics.path_used = "unknown_exception";
-        metrics.accepted = false;
-    }
-
-    metrics.t_total_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-    publishRelocMetrics(metrics);
-}
-
-void LocalizationNode::initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
-    consecutive_high_error_count_.store(0);
-
-    RCLCPP_INFO(this->get_logger(), "收到初始位姿: [x: %f, y: %f, z: %f]", msg->pose.pose.position.x,
-                msg->pose.pose.position.y, msg->pose.pose.position.z);
-
-    Eigen::Isometry3d map_to_robot_base = Eigen::Isometry3d::Identity();
-    map_to_robot_base.translation() << msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z;
-    map_to_robot_base.linear() = Eigen::Quaterniond(msg->pose.pose.orientation.w, msg->pose.pose.orientation.x,
-                                                    msg->pose.pose.orientation.y, msg->pose.pose.orientation.z)
-                                     .toRotationMatrix();
-
-    try {
-        auto transform = tf_buffer_->lookupTransform(odom_frame_, robot_base_frame_, rclcpp::Time(msg->header.stamp),
-                                                     rclcpp::Duration::from_seconds(tf_timeout_sec_));
-        Eigen::Isometry3d odom_to_robot_base = tf2::transformToEigen(transform.transform);
-        Eigen::Isometry3d robot_to_odom = odom_to_robot_base.inverse();
-        Eigen::Isometry3d map_to_odom = map_to_robot_base * robot_to_odom;
-
-        markRelocalizationSuccess(map_to_odom);
-    } catch (tf2::TransformException& ex) {
-        RCLCPP_WARN(this->get_logger(), "无法查询 %s -> %s: %s", odom_frame_.c_str(), robot_base_frame_.c_str(),
-                    ex.what());
-        setLocalizationState(LocalizationState::SUSPECT, "initial_pose_tf_lookup_failed");
-    }
-}
-
-bool LocalizationNode::tryGetReliableMapToOdom(Eigen::Isometry3d& map_to_odom) {
-    if (!isMapToOdomReliableState(getLocalizationState())) {
-        return false;
-    }
-
-    rclcpp::Time last_success_snapshot;
-    {
-        std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
-        last_success_snapshot = last_successful_registration_time_;
-    }
-    const double stale_sec = (this->now() - last_success_snapshot).seconds();
-    if (stale_sec > acrylic_filter_max_stale_sec_) {
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                             "亚克力过滤跳过: map->odom 过期 %.2fs > %.2fs", stale_sec, acrylic_filter_max_stale_sec_);
-        setLocalizationState(LocalizationState::SUSPECT, "map_to_odom_stale");
-        return false;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(result_mutex_);
-        map_to_odom = result_t_;
-    }
-    return true;
-}
-
-void LocalizationNode::applyAcrylicROIFilter(pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
-    if (acrylic_roi_boxes_.size() < 6) {
-        return;
-    }
-
-    Eigen::Isometry3d map_to_odom;
-    if (!tryGetReliableMapToOdom(map_to_odom)) {
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "亚克力过滤跳过: map->odom 当前不可靠");
-        return;
-    }
-
-    const size_t n_boxes = acrylic_roi_boxes_.size() / 6;
-    pcl::PointCloud<pcl::PointXYZ> filtered;
-    filtered.reserve(cloud->size());
-
-    for (const auto& pt : cloud->points) {
-        const Eigen::Vector3d p_map = map_to_odom * Eigen::Vector3d(pt.x, pt.y, pt.z);
-        bool in_box = false;
-        for (size_t i = 0; i < n_boxes && !in_box; ++i) {
-            const size_t b = i * 6;
-            if (p_map.x() >= acrylic_roi_boxes_[b] && p_map.x() <= acrylic_roi_boxes_[b + 3] &&
-                p_map.y() >= acrylic_roi_boxes_[b + 1] && p_map.y() <= acrylic_roi_boxes_[b + 4] &&
-                p_map.z() >= acrylic_roi_boxes_[b + 2] && p_map.z() <= acrylic_roi_boxes_[b + 5]) {
-                in_box = true;
-            }
-        }
-        if (!in_box) {
-            filtered.push_back(pt);
-        }
-    }
-
-    cloud->points = std::move(filtered.points);
-    cloud->width = static_cast<uint32_t>(cloud->points.size());
-    cloud->height = 1;
-}
-
 }  // namespace rc26_localization
 
 #include "rclcpp_components/register_node_macro.hpp"
 RCLCPP_COMPONENTS_REGISTER_NODE(rc26_localization::LocalizationNode)
+

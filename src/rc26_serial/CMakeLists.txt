@@ -55,5 +55,22 @@ ament_export_include_directories(include)
 ament_export_libraries(serial_driver)
 ament_export_dependencies(rclcpp)
 
-ament_package()
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
 
+  ament_add_gtest(test_ring_parser
+    test/test_ring_parser.cpp
+  )
+  target_include_directories(test_ring_parser PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+
+  ament_add_gtest(test_adaptive_timeout
+    test/test_adaptive_timeout.cpp
+  )
+  target_include_directories(test_adaptive_timeout PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+endif()
+
+ament_package()

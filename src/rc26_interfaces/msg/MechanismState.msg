@@ -4,3 +4,10 @@ bool hal_open
 uint8 locked_tip_slot
 uint8 assembled_count
 uint16 last_error_code
+uint8 current_cmd_id
+uint32 cmd_elapsed_ms
+uint32 ack_timeout_count
+uint32 reconnect_count
+uint32 parse_error_count
+float32 avg_rtt_ms
+uint8 comm_health_level

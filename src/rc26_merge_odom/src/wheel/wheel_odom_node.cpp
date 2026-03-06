@@ -1,5 +1,6 @@
 // RC2026 串口轮式里程计独立节点
 #include <memory>
+#include <stdexcept>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -9,7 +10,7 @@
 class WheelOdomNode : public rclcpp::Node {
 public:
     WheelOdomNode() : Node("wheel_odom_node") {
-        this->declare_parameter("serial_port", "/dev/ttyUSB1");
+        this->declare_parameter("serial_port", "/dev/ttyUSB0");
         this->declare_parameter("baudrate", 1000000);
         this->declare_parameter("wheel_base", 0.62326);
         this->declare_parameter("track_width", 0.7);
@@ -24,7 +25,7 @@ public:
 
         serial_ = std::make_shared<rc26_decision::SerialDriver>();
         if (!serial_->open(serial_port, baudrate)) {
-            RCLCPP_WARN(this->get_logger(), "串口打开失败: %s", serial_port.c_str());
+            throw std::runtime_error("串口打开失败: " + serial_port);
         }
 
         rc26_merge_odom::WheelOdom::Config config;
@@ -37,6 +38,9 @@ public:
         config.data_timeout_ms = this->get_parameter("data_timeout_ms").as_double();
 
         wheel_odom_ = std::make_unique<rc26_merge_odom::WheelOdom>(*this, serial_, config);
+        if (!wheel_odom_->isReady()) {
+            throw std::runtime_error("WheelOdom 初始化失败");
+        }
     }
 
 private:
@@ -46,8 +50,14 @@ private:
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<WheelOdomNode>();
-    rclcpp::spin(node);
+    int exit_code = 0;
+    try {
+        auto node = std::make_shared<WheelOdomNode>();
+        rclcpp::spin(node);
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR(rclcpp::get_logger("wheel_odom_node"), "Exception: %s", e.what());
+        exit_code = 1;
+    }
     rclcpp::shutdown();
-    return 0;
+    return exit_code;
 }

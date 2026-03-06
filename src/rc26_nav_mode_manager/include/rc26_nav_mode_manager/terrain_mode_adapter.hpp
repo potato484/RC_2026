@@ -1,7 +1,10 @@
 #pragma once
 
+#include <condition_variable>
 #include <map>
+#include <mutex>
 #include <string>
+#include <thread>
 
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -13,6 +16,7 @@ namespace rc26_nav_mode_manager {
 class TerrainModeAdapter : public rclcpp::Node {
 public:
     explicit TerrainModeAdapter(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
+    ~TerrainModeAdapter();
 
 private:
     struct TerrainCfg {
@@ -30,7 +34,9 @@ private:
     bool verifyAppliedConfig(const TerrainCfg& cfg, std::string& reason);
     void requestSafeMode(const std::string& reason);
     void publishDiagnostics(uint8_t level, const std::string& message, const std::string& profile);
+    void workerLoop();
 
+    std::string terrain_profiles_file_;
     std::string terrain_node_name_;
     std::string last_applied_profile_;
     std::string diagnostics_topic_{"diagnostics"};
@@ -46,6 +52,11 @@ private:
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr pub_diagnostics_;
     rclcpp::Client<rc26_interfaces::srv::SetNavMode>::SharedPtr nav_mode_client_;
     bool service_ready_{false};
+    std::string pending_profile_;
+    bool stop_worker_{false};
+    std::mutex worker_mutex_;
+    std::condition_variable worker_cv_;
+    std::thread worker_thread_;
 };
 
 }  // namespace rc26_nav_mode_manager

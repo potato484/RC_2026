@@ -11,9 +11,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+// Maintained by DongXuan Chen <2220362462@qq.com>
 
 #pragma once
 
+#include <array>
 #include "geometry_msgs/msg/twist_with_covariance.hpp"
 #include <memory>
 #include <optional>
@@ -25,6 +27,7 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
+#include "tf2/LinearMath/Transform.h"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 
@@ -41,7 +44,8 @@ private:
     std::optional<tf2::Transform> getStaticTransform(const std::string& target_frame, const std::string& source_frame);
 
     void publishOdometry(const tf2::Transform& transform, const geometry_msgs::msg::TwistWithCovariance& twist,
-                         std::string parent_frame, const std::string& child_frame, const rclcpp::Time& stamp);
+                         const std::array<double, 36>& pose_covariance, const std::string& parent_frame,
+                         const std::string& child_frame, const rclcpp::Time& stamp);
 
     std::string lidar_frame_;
     std::string base_frame_;

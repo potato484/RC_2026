@@ -12,6 +12,8 @@
 
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/imu.hpp>
+#include <std_msgs/msg/float32.hpp>
 
 namespace rc26_merge_odom {
 
@@ -49,7 +51,16 @@ public:
         std::string odom_topic = "Can_Odom";
         std::string odom_frame = "odom";
         std::string base_frame = "base_link";
+        std::string imu_topic = "DM_IMU";
         double data_timeout_ms = 100.0;
+        bool slip_enable = true;
+        double slip_threshold = 0.5;
+        double slip_k_acc = 0.5;
+        double cov_nominal_v = 0.01;
+        double cov_nominal_wz = 0.03;
+        double cov_slip_v = 0.5;
+        double cov_slip_wz = 0.5;
+        double recovery_tau_s = 0.5;
     };
 
     CanOdom(rclcpp::Node& node, Config config);
@@ -58,11 +69,21 @@ public:
     CanOdom(const CanOdom&) = delete;
     CanOdom& operator=(const CanOdom&) = delete;
 
+    bool isReady() const noexcept { return ready_.load(std::memory_order_acquire); }
+
     void getPose(double& x, double& y, double& yaw) const;
     void getVelocity(double& vx, double& vy, double& omega) const;
     void reset();
 
 private:
+    struct ImuSnapshot {
+        double gz = 0.0;
+        double ax = 0.0;
+        double ay = 0.0;
+        std::chrono::steady_clock::time_point stamp;
+        bool valid = false;
+    };
+
     rclcpp::Node& node_;
     Config config_;
 
@@ -84,15 +105,28 @@ private:
     std::chrono::steady_clock::time_point last_update_time_;
 
     std::atomic<bool> running_{false};
+    std::atomic<bool> ready_{false};
     std::thread can_thread_;
     rclcpp::TimerBase::SharedPtr publish_timer_;
 
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr slip_score_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr cov_state_pub_;
+    rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
+
+    std::mutex imu_mutex_;
+    ImuSnapshot imu_snapshot_;
+    std::chrono::steady_clock::time_point last_slip_time_;
+    bool slip_detected_ = false;
+    double prev_vx_ = 0.0;
+    double prev_vy_ = 0.0;
+    bool prev_vel_valid_ = false;
 
     bool initCan();
     void closeCan();
     void canThreadFunc();
     void parseCanFrame(uint32_t can_id, const uint8_t* data, uint8_t len);
+    void imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg);
     void publishOdometry();
     void wheelSpeedsToBodyVelocity(double v_fl, double v_rl, double v_rr, double v_fr, double& vx, double& vy,
                                    double& omega) const;

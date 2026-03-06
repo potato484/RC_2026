@@ -3,10 +3,12 @@
 <package format="3">
   <name>rc26_localization</name>
   <version>1.0.0</version>
-  <description>基于 small_gicp 的点云重定位模块</description>
+  <description>基于 rc26_small_gicp 的点云重定位模块</description>
   <maintainer email="dev@rc2026.com">RC2026</maintainer>
+  <maintainer email="2220362462@qq.com">DongXuan Chen</maintainer>
   <license>Apache-2.0</license>
 
+  <author email="2220362462@qq.com">DongXuan Chen</author>
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
@@ -14,6 +16,7 @@
   <depend>rcl_interfaces</depend>
   <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>diagnostic_msgs</depend>
   <depend>tf2</depend>
   <depend>tf2_eigen</depend>
   <depend>tf2_ros</depend>

@@ -11,9 +11,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+// Maintained by DongXuan Chen <2220362462@qq.com>
 
 #include "rc26_sensor_scan/sensor_scan.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
@@ -22,6 +24,44 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
 namespace rc26_sensor_scan {
+
+namespace {
+
+template <typename ArrayT>
+bool allFinite(const ArrayT& values) {
+    return std::all_of(values.begin(), values.end(), [](double value) { return std::isfinite(value); });
+}
+
+bool isFinite(const geometry_msgs::msg::Point& point) {
+    return std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z);
+}
+
+bool isFinite(const geometry_msgs::msg::Quaternion& quaternion) {
+    return std::isfinite(quaternion.x) && std::isfinite(quaternion.y) && std::isfinite(quaternion.z) &&
+           std::isfinite(quaternion.w);
+}
+
+bool isFinite(const geometry_msgs::msg::Vector3& vector) {
+    return std::isfinite(vector.x) && std::isfinite(vector.y) && std::isfinite(vector.z);
+}
+
+bool hasUsableQuaternion(const geometry_msgs::msg::Quaternion& quaternion) {
+    if (!isFinite(quaternion)) {
+        return false;
+    }
+
+    const double norm_sq = quaternion.x * quaternion.x + quaternion.y * quaternion.y + quaternion.z * quaternion.z +
+                           quaternion.w * quaternion.w;
+    return norm_sq > 1e-12;
+}
+
+bool isUsableOdometry(const nav_msgs::msg::Odometry& msg) {
+    return isFinite(msg.pose.pose.position) && hasUsableQuaternion(msg.pose.pose.orientation) &&
+           isFinite(msg.twist.twist.linear) && isFinite(msg.twist.twist.angular) && allFinite(msg.pose.covariance) &&
+           allFinite(msg.twist.covariance);
+}
+
+}  // namespace
 
 SensorScanNode::SensorScanNode(const rclcpp::NodeOptions& options) : Node("sensor_scan", options) {
     // ===== 参数声明：所有可调配置全部放在 YAML 中 =====
@@ -60,6 +100,15 @@ SensorScanNode::SensorScanNode(const rclcpp::NodeOptions& options) : Node("senso
     require_non_empty("scan_topic", scan_topic_);
     require_non_empty("odometry_topic", odometry_topic_);
 
+    if (tf_timeout_sec_ < 0.0) {
+        RCLCPP_WARN(this->get_logger(), "tf_timeout_sec=%.3f 非法，已钳制为 0.0", tf_timeout_sec_);
+        tf_timeout_sec_ = 0.0;
+    }
+    if (max_time_diff_sec_ < 0.0) {
+        RCLCPP_WARN(this->get_logger(), "max_time_diff_sec=%.3f 非法，已禁用同步时间差守卫", max_time_diff_sec_);
+        max_time_diff_sec_ = 0.0;
+    }
+
     if (robot_base_frame_ != base_frame_) {
         throw std::runtime_error("robot_base_frame (" + robot_base_frame_ + ") must equal base_frame (" + base_frame_ +
                                  ") to ensure TF tree consistency");
@@ -96,9 +145,15 @@ void SensorScanNode::laserCloudAndOdometryHandler(const nav_msgs::msg::Odometry:
     const rclcpp::Time cloud_stamp(pcd_msg->header.stamp);
     const rclcpp::Time odom_stamp(odometry_msg->header.stamp);
     const double time_diff = std::fabs((cloud_stamp - odom_stamp).seconds());
-    if (time_diff > max_time_diff_sec_) {
+    if (max_time_diff_sec_ > 0.0 && time_diff > max_time_diff_sec_) {
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
                              "点云与里程计时间差 %.3f s 超过阈值 %.3f s，丢弃该帧", time_diff, max_time_diff_sec_);
+        return;
+    }
+
+    if (!isUsableOdometry(*odometry_msg)) {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                             "输入里程计存在非有限值或非法四元数，丢弃该帧");
         return;
     }
 
@@ -130,21 +185,29 @@ void SensorScanNode::laserCloudAndOdometryHandler(const nav_msgs::msg::Odometry:
     }
     const auto& tf_base_to_lidar = *base_to_lidar_;
 
-    publishOdometry(tf_odom_to_base, odometry_msg->twist, odometry_msg->header.frame_id, robot_base_frame_,
-                    cloud_stamp);
+    publishOdometry(tf_odom_to_base, odometry_msg->twist, odometry_msg->pose.covariance, odometry_msg->header.frame_id,
+                    robot_base_frame_, cloud_stamp);
 
     // 将 odom 坐标系的点云转换到 laser_link 坐标系
     // T_laser_odom = T_laser_base * T_base_odom = tf_base_to_lidar^(-1) * tf_odom_to_base^(-1)
     tf2::Transform tf_odom_to_lidar = tf_odom_to_base * tf_base_to_lidar;
     sensor_msgs::msg::PointCloud2 out;
-    pcl_ros::transformPointCloud(lidar_frame_, tf_odom_to_lidar.inverse(), *pcd_msg, out);
+    try {
+        pcl_ros::transformPointCloud(lidar_frame_, tf_odom_to_lidar.inverse(), *pcd_msg, out);
+    } catch (const std::exception& ex) {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "点云坐标变换失败: %s", ex.what());
+        return;
+    }
+    out.header.stamp = pcd_msg->header.stamp;
+    out.header.frame_id = lidar_frame_;
     pub_laser_cloud_->publish(out);
 }
 
 std::optional<tf2::Transform> SensorScanNode::getStaticTransform(const std::string& target_frame,
                                                                  const std::string& source_frame) {
     try {
-        auto transform_stamped = tf_buffer_->lookupTransform(target_frame, source_frame, tf2::TimePointZero);
+        auto transform_stamped =
+            tf_buffer_->lookupTransform(target_frame, source_frame, tf2::TimePointZero, tf2::durationFromSec(tf_timeout_sec_));
         tf2::Transform transform;
         tf2::fromMsg(transform_stamped.transform, transform);
         return transform;
@@ -156,8 +219,8 @@ std::optional<tf2::Transform> SensorScanNode::getStaticTransform(const std::stri
 }
 
 void SensorScanNode::publishOdometry(const tf2::Transform& transform, const geometry_msgs::msg::TwistWithCovariance& twist,
-                                     std::string parent_frame, const std::string& child_frame,
-                                     const rclcpp::Time& stamp) {
+                                     const std::array<double, 36>& pose_covariance, const std::string& parent_frame,
+                                     const std::string& child_frame, const rclcpp::Time& stamp) {
     nav_msgs::msg::Odometry out;
     out.header.stamp = stamp;
     out.header.frame_id = parent_frame;
@@ -168,6 +231,7 @@ void SensorScanNode::publishOdometry(const tf2::Transform& transform, const geom
     out.pose.pose.position.z = origin.z();
     out.pose.pose.orientation = tf2::toMsg(transform.getRotation());
     out.twist = twist;
+    out.pose.covariance = pose_covariance;
     pub_chassis_odometry_->publish(out);
 }
 

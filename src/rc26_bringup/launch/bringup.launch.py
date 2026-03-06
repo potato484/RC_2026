@@ -2,7 +2,7 @@
 src R2导航系统 - 主启动文件
 
 启动:
-  - 里程计 (point_lio + rc26_odom_interface + rc26_sensor_scan)
+  - 里程计 (rc26_point_lio + rc26_odom_interface + rc26_sensor_scan)
   - 定位 (rc26_localization)
   - 地面高度估计 (rc26_base_ground)
   - 地形分析 (rc26_terrain)
@@ -27,7 +27,7 @@ def generate_launch_description():
     decision_dir = get_package_share_directory('rc26_decision')
     base_ground_dir = get_package_share_directory('rc26_base_ground')
     kfs_keepout_dir = get_package_share_directory('rc26_kfs_keepout')
-    point_lio_dir = get_package_share_directory('point_lio')
+    point_lio_dir = get_package_share_directory('rc26_point_lio')
 
     # 启动参数
     namespace = LaunchConfiguration('namespace')
@@ -42,6 +42,7 @@ def generate_launch_description():
     use_realsense = LaunchConfiguration('use_realsense')
     realsense_serial_no = LaunchConfiguration('realsense_serial_no')
     realsense_config_file = LaunchConfiguration('realsense_config_file')
+    kfs_heartbeat_topic = LaunchConfiguration('kfs_heartbeat_topic')
 
     # 参数声明
     declare_namespace = DeclareLaunchArgument(
@@ -104,6 +105,11 @@ def generate_launch_description():
         default_value=PathJoinSubstitution([bringup_dir, 'config', 'realsense_d455.yaml']),
         description='RealSense YAML config file (realsense2_camera params)')
 
+    declare_kfs_heartbeat_topic = DeclareLaunchArgument(
+        'kfs_heartbeat_topic',
+        default_value='/kfs_keepout_heartbeat',
+        description='KFS keepout heartbeat topic shared by keepout producer and decision gate')
+
     # RealSense D455（可选）
     realsense_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -122,7 +128,7 @@ def generate_launch_description():
         condition=IfCondition(use_realsense),
     )
 
-    # 里程计模块 (point_lio + rc26_odom_interface + rc26_sensor_scan)
+    # 里程计模块 (rc26_point_lio + rc26_odom_interface + rc26_sensor_scan)
     odometry_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([bringup_dir, 'launch', 'odometry.launch.py'])
@@ -262,14 +268,20 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'kfs_state_topic': 'mf_kfs_state',
             'mask_topic': '/kfs_filter_mask',
+            'heartbeat_topic': kfs_heartbeat_topic,
             'grid_layout_file': kfs_grid_layout,
             'map_resolution': 0.10,
             'keepout_shape': 'square',
             'block_half_size_m': 0.60,
             'keepout_margin_m': 0.03,
+            'lo_hit_block': 1.099,
+            'lo_hit_fake': 0.693,
+            'lo_miss': -0.693,
             'decay_target_prob': 0.05,
             'decay_rate': 2.0,
             'ttl_sec': 10.0,
+            'ttl_mode': 'hard',
+            'dwell_cycles': 3,
         }],
         condition=UnlessCondition(slam)
     )
@@ -302,7 +314,10 @@ def generate_launch_description():
         output='screen',
         parameters=[
             decision_params,
-            {'use_sim_time': use_sim_time},
+            {
+                'use_sim_time': use_sim_time,
+                'keepout_gate.heartbeat_topic': kfs_heartbeat_topic,
+            },
         ],
         condition=IfCondition(use_decision)
     )
@@ -348,6 +363,7 @@ def generate_launch_description():
         declare_use_realsense,
         declare_realsense_serial_no,
         declare_realsense_config_file,
+        declare_kfs_heartbeat_topic,
 
         # 启动模块
         odometry_launch,

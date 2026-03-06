@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <exception>
 
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/transform_stamped.hpp"
@@ -15,6 +17,9 @@ namespace rc26_base_ground {
 
 namespace {
 constexpr double kMaxAngularRateRadPerSec = 0.6;
+constexpr double kDefaultStepHeightM = 0.20;
+constexpr double kDefaultStabilityWindowSec = 0.25;
+constexpr double kMinLiftMarginM = 0.05;
 }  // namespace
 
 BaseGroundEstimatorNode::BaseGroundEstimatorNode(const rclcpp::NodeOptions& options)
@@ -28,14 +33,18 @@ BaseGroundEstimatorNode::BaseGroundEstimatorNode(const rclcpp::NodeOptions& opti
     this->declare_parameter<double>("tol_stable_lin_vel_mps", 0.05);
     this->declare_parameter<double>("tol_stable_ang_vel_rps", 0.05);
     this->declare_parameter<double>("T_confirm", 0.4);
-    this->declare_parameter<int>("window_size", 10);
+    this->declare_parameter<int>("window_size", 3);
+    this->declare_parameter<double>("stability_window_sec", 0.25);
     this->declare_parameter<int>("h0_calibration_samples", 10);
     this->declare_parameter<bool>("h0_override_enable", false);
     this->declare_parameter<double>("h0_override_m", 0.0);
-    this->declare_parameter<double>("lift_thresh_m", 0.15);
+    this->declare_parameter<double>("lift_thresh_m", 0.35);
     this->declare_parameter<double>("lift_time_s", 0.5);
     this->declare_parameter<double>("tf_timeout_sec", 0.05);
     this->declare_parameter<bool>("enable_tf_publish", true);
+    this->declare_parameter<double>("tol_pitch_abs_rad", 0.15);
+    this->declare_parameter<double>("tol_roll_abs_rad", 0.15);
+    this->declare_parameter<double>("tol_z_dot_mps", 0.03);
 
     this->get_parameter("odom_topic", odom_topic_);
     this->get_parameter("parent_frame", parent_frame_);
@@ -47,6 +56,7 @@ BaseGroundEstimatorNode::BaseGroundEstimatorNode(const rclcpp::NodeOptions& opti
     this->get_parameter("tol_stable_ang_vel_rps", tol_stable_ang_vel_rps_);
     this->get_parameter("T_confirm", t_confirm_);
     this->get_parameter("window_size", window_size_);
+    this->get_parameter("stability_window_sec", stability_window_sec_);
     this->get_parameter("h0_calibration_samples", h0_calibration_samples_);
     this->get_parameter("h0_override_enable", h0_override_enable_);
     this->get_parameter("h0_override_m", h0_override_m_);
@@ -54,27 +64,11 @@ BaseGroundEstimatorNode::BaseGroundEstimatorNode(const rclcpp::NodeOptions& opti
     this->get_parameter("lift_time_s", lift_time_s_);
     this->get_parameter("tf_timeout_sec", tf_timeout_sec_);
     this->get_parameter("enable_tf_publish", enable_tf_publish_);
+    this->get_parameter("tol_pitch_abs_rad", tol_pitch_abs_rad_);
+    this->get_parameter("tol_roll_abs_rad", tol_roll_abs_rad_);
+    this->get_parameter("tol_z_dot_mps", tol_z_dot_mps_);
 
-    if (window_size_ < 2) {
-        RCLCPP_WARN(this->get_logger(), "window_size=%d too small, clamped to 2", window_size_);
-        window_size_ = 2;
-    }
-    if (h0_calibration_samples_ < 1) {
-        RCLCPP_WARN(this->get_logger(), "h0_calibration_samples=%d too small, clamped to 1", h0_calibration_samples_);
-        h0_calibration_samples_ = 1;
-    }
-    if (t_confirm_ < 0.0) {
-        RCLCPP_WARN(this->get_logger(), "T_confirm=%.3f invalid, clamped to 0.0", t_confirm_);
-        t_confirm_ = 0.0;
-    }
-    if (lift_time_s_ < 0.0) {
-        RCLCPP_WARN(this->get_logger(), "lift_time_s=%.3f invalid, clamped to 0.0", lift_time_s_);
-        lift_time_s_ = 0.0;
-    }
-    if (lift_thresh_m_ < 0.0) {
-        RCLCPP_WARN(this->get_logger(), "lift_thresh_m=%.3f invalid, clamped to 0.0", lift_thresh_m_);
-        lift_thresh_m_ = 0.0;
-    }
+    sanitizeParameters();
 
     if (parent_frame_.empty()) {
         parent_frame_ = "odom";
@@ -92,6 +86,7 @@ BaseGroundEstimatorNode::BaseGroundEstimatorNode(const rclcpp::NodeOptions& opti
     stable_terrain_pub_ = this->create_publisher<std_msgs::msg::Bool>("base_ground/stable_terrain", 10);
     stable_operation_pub_ = this->create_publisher<std_msgs::msg::Bool>("base_ground/stable_operation", 10);
     is_lifted_pub_ = this->create_publisher<std_msgs::msg::Bool>("base_ground/is_lifted", 10);
+    ground_z_continuous_pub_ = this->create_publisher<std_msgs::msg::Float32>("base_ground/ground_z_continuous", 10);
 
     if (h0_override_enable_) {
         h0_ = h0_override_m_;
@@ -106,8 +101,102 @@ BaseGroundEstimatorNode::BaseGroundEstimatorNode(const rclcpp::NodeOptions& opti
         odom_topic_, 10, std::bind(&BaseGroundEstimatorNode::onOdom, this, std::placeholders::_1));
 
     RCLCPP_INFO(this->get_logger(),
-                "base_ground_estimator: tol_level=%.3f tol_z_std=%.3f win=%d T_confirm=%.2f",
-                tol_level_m_, tol_stable_z_std_m_, window_size_, t_confirm_);
+                "base_ground_estimator: step=%.3f tol_level=%.3f tol_z_std=%.3f win=%d/%.2fs T_confirm=%.2f "
+                "lift_thresh=%.3f pitch=%.3f roll=%.3f z_dot=%.3f",
+                step_height_m_, tol_level_m_, tol_stable_z_std_m_, window_size_, stability_window_sec_,
+                t_confirm_, lift_thresh_m_, tol_pitch_abs_rad_, tol_roll_abs_rad_, tol_z_dot_mps_);
+}
+
+void BaseGroundEstimatorNode::sanitizeParameters() {
+    if (step_height_m_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "step_height_m=%.3f invalid, fallback to %.2f", step_height_m_,
+                    kDefaultStepHeightM);
+        step_height_m_ = kDefaultStepHeightM;
+    }
+    if (tol_level_m_ < 0.0) {
+        RCLCPP_WARN(this->get_logger(), "tol_level_m=%.3f invalid, clamped to 0.0", tol_level_m_);
+        tol_level_m_ = 0.0;
+    }
+    if (tol_stable_z_std_m_ < 0.0) {
+        RCLCPP_WARN(this->get_logger(), "tol_stable_z_std_m=%.3f invalid, clamped to 0.0", tol_stable_z_std_m_);
+        tol_stable_z_std_m_ = 0.0;
+    }
+    if (tol_stable_lin_vel_mps_ < 0.0) {
+        RCLCPP_WARN(this->get_logger(), "tol_stable_lin_vel_mps=%.3f invalid, clamped to 0.0",
+                    tol_stable_lin_vel_mps_);
+        tol_stable_lin_vel_mps_ = 0.0;
+    }
+    if (tol_stable_ang_vel_rps_ < 0.0) {
+        RCLCPP_WARN(this->get_logger(), "tol_stable_ang_vel_rps=%.3f invalid, clamped to 0.0",
+                    tol_stable_ang_vel_rps_);
+        tol_stable_ang_vel_rps_ = 0.0;
+    }
+    if (window_size_ < 3) {
+        RCLCPP_WARN(this->get_logger(), "window_size=%d too small, clamped to 3", window_size_);
+        window_size_ = 3;
+    }
+    if (stability_window_sec_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "stability_window_sec=%.3f invalid, fallback to %.2f",
+                    stability_window_sec_, kDefaultStabilityWindowSec);
+        stability_window_sec_ = kDefaultStabilityWindowSec;
+    }
+    if (h0_calibration_samples_ < 1) {
+        RCLCPP_WARN(this->get_logger(), "h0_calibration_samples=%d too small, clamped to 1", h0_calibration_samples_);
+        h0_calibration_samples_ = 1;
+    }
+    if (t_confirm_ < 0.0) {
+        RCLCPP_WARN(this->get_logger(), "T_confirm=%.3f invalid, clamped to 0.0", t_confirm_);
+        t_confirm_ = 0.0;
+    }
+    if (lift_time_s_ < 0.0) {
+        RCLCPP_WARN(this->get_logger(), "lift_time_s=%.3f invalid, clamped to 0.0", lift_time_s_);
+        lift_time_s_ = 0.0;
+    }
+    if (lift_thresh_m_ < 0.0) {
+        RCLCPP_WARN(this->get_logger(), "lift_thresh_m=%.3f invalid, clamped to 0.0", lift_thresh_m_);
+        lift_thresh_m_ = 0.0;
+    }
+    if (tf_timeout_sec_ < 0.0) {
+        RCLCPP_WARN(this->get_logger(), "tf_timeout_sec=%.3f invalid, clamped to 0.0", tf_timeout_sec_);
+        tf_timeout_sec_ = 0.0;
+    }
+    if (tol_pitch_abs_rad_ < 0.0) {
+        RCLCPP_WARN(this->get_logger(), "tol_pitch_abs_rad=%.3f invalid, clamped to 0.0", tol_pitch_abs_rad_);
+        tol_pitch_abs_rad_ = 0.0;
+    }
+    if (tol_roll_abs_rad_ < 0.0) {
+        RCLCPP_WARN(this->get_logger(), "tol_roll_abs_rad=%.3f invalid, clamped to 0.0", tol_roll_abs_rad_);
+        tol_roll_abs_rad_ = 0.0;
+    }
+    if (tol_z_dot_mps_ < 0.0) {
+        RCLCPP_WARN(this->get_logger(), "tol_z_dot_mps=%.3f invalid, clamped to 0.0", tol_z_dot_mps_);
+        tol_z_dot_mps_ = 0.0;
+    }
+
+    if (lift_thresh_m_ <= step_height_m_) {
+        const double healed_lift_thresh = std::max(0.35, step_height_m_ + std::max(tol_level_m_, kMinLiftMarginM));
+        RCLCPP_WARN(this->get_logger(),
+                    "lift_thresh_m=%.3f must be greater than step_height_m=%.3f, healed to %.3f", lift_thresh_m_,
+                    step_height_m_, healed_lift_thresh);
+        lift_thresh_m_ = healed_lift_thresh;
+    }
+}
+
+bool BaseGroundEstimatorNode::isNearLevelPlane(const Sample& sample) const {
+    return (std::abs(sample.pitch) < tol_pitch_abs_rad_) && (std::abs(sample.roll) < tol_roll_abs_rad_);
+}
+
+double BaseGroundEstimatorNode::computeWindowZDotMps() const {
+    if (window_.size() < 2) {
+        return 0.0;
+    }
+
+    const double dt = (window_.back().stamp - window_.front().stamp).seconds();
+    if (dt <= 0.0) {
+        return 0.0;
+    }
+
+    return (window_.back().z - window_.front().z) / dt;
 }
 
 void BaseGroundEstimatorNode::onOdom(const nav_msgs::msg::Odometry::ConstSharedPtr& msg) {
@@ -147,6 +236,9 @@ void BaseGroundEstimatorNode::onOdom(const nav_msgs::msg::Odometry::ConstSharedP
 
     if (h0_valid_) {
         publishLevel();
+        std_msgs::msg::Float32 gz_msg;
+        gz_msg.data = static_cast<float>(window_mean_z_ - h0_);
+        ground_z_continuous_pub_->publish(gz_msg);
     }
 
     publishTf(base_pose_parent, yaw, sample.stamp);
@@ -181,23 +273,39 @@ bool BaseGroundEstimatorNode::resolveBasePose(const nav_msgs::msg::Odometry& msg
 bool BaseGroundEstimatorNode::updateStabilityWindow(const Sample& sample) {
     if (!window_.empty() && sample.stamp < window_.back().stamp) {
         window_.clear();
+        stable_terrain_ = false;
+        stable_operation_ = false;
+        candidate_active_ = false;
+        lift_timing_ = false;
+        if (!h0_valid_) {
+            h0_cal_count_ = 0;
+            h0_cal_sum_ = 0.0;
+            state_ = State::Calibrating;
+        } else {
+            state_ = State::Stable;
+        }
     }
 
     window_.push_back(sample);
-    while (static_cast<int>(window_.size()) > window_size_) {
+    const rclcpp::Time cutoff = sample.stamp - rclcpp::Duration::from_seconds(stability_window_sec_);
+    while (!window_.empty() && window_.front().stamp < cutoff) {
         window_.pop_front();
-    }
-    if (static_cast<int>(window_.size()) < window_size_) {
-        stable_terrain_ = false;
-        stable_operation_ = false;
-        return false;
     }
 
     double sum_z = 0.0;
     for (const auto& s : window_) {
         sum_z += s.z;
     }
-    const double mean_z = sum_z / static_cast<double>(window_.size());
+    window_mean_z_ = window_.empty() ? sample.z : (sum_z / static_cast<double>(window_.size()));
+
+    if (static_cast<int>(window_.size()) < window_size_) {
+        stable_terrain_ = false;
+        stable_operation_ = false;
+        return false;
+    }
+
+    const double mean_z = window_mean_z_;
+    window_mean_z_ = mean_z;
 
     double var_z = 0.0;
     for (const auto& s : window_) {
@@ -241,6 +349,8 @@ void BaseGroundEstimatorNode::updateLiftedState(const Sample& sample) {
 
     const double ground_z_candidate = sample.z - h0_;
     const double lift_err = std::abs(ground_z_candidate - ground_z_);
+    const bool near_level_plane = isNearLevelPlane(sample);
+    const bool z_nearly_static = std::abs(computeWindowZDotMps()) < tol_z_dot_mps_;
 
     if (!is_lifted_) {
         if (lift_err > lift_thresh_m_) {
@@ -261,7 +371,7 @@ void BaseGroundEstimatorNode::updateLiftedState(const Sample& sample) {
             const double ground_z_quant = static_cast<double>(k) * step_height_m_;
             const bool in_level_tol = std::abs(ground_z_candidate - ground_z_quant) < tol_level_m_;
 
-            if (stable_terrain_ && in_level_tol) {
+            if (stable_terrain_ && in_level_tol && near_level_plane && z_nearly_static) {
                 if (!lift_timing_) {
                     lift_timing_ = true;
                     lift_detect_since_ = sample.stamp;
@@ -302,8 +412,11 @@ void BaseGroundEstimatorNode::updateLevelState(const Sample& sample) {
         return;
     }
 
+    const bool near_level_plane = isNearLevelPlane(sample);
+    const bool z_nearly_static = std::abs(computeWindowZDotMps()) < tol_z_dot_mps_;
+
     if (!h0_valid_) {
-        if (!stable_terrain_ || is_lifted_) {
+        if (!stable_operation_ || is_lifted_ || !near_level_plane || !z_nearly_static) {
             candidate_active_ = false;
             return;
         }
@@ -330,7 +443,7 @@ void BaseGroundEstimatorNode::updateLevelState(const Sample& sample) {
     const int32_t k = static_cast<int32_t>(std::llround(ground_z_candidate / step_height_m_));
     const double ground_z_quant = static_cast<double>(k) * step_height_m_;
 
-    if (std::abs(ground_z_candidate - ground_z_quant) < tol_level_m_) {
+    if (std::abs(ground_z_candidate - ground_z_quant) < tol_level_m_ && near_level_plane && z_nearly_static) {
         if (!candidate_active_ || candidate_level_ != k) {
             candidate_active_ = true;
             candidate_level_ = k;
@@ -399,9 +512,26 @@ void BaseGroundEstimatorNode::publishTf(const geometry_msgs::msg::PoseStamped& b
 }  // namespace rc26_base_ground
 
 int main(int argc, char** argv) {
-    rclcpp::init(argc, argv);
-    auto node = std::make_shared<rc26_base_ground::BaseGroundEstimatorNode>(rclcpp::NodeOptions());
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return 0;
+    bool initialized = false;
+    try {
+        rclcpp::init(argc, argv);
+        initialized = true;
+
+        auto node = std::make_shared<rc26_base_ground::BaseGroundEstimatorNode>(rclcpp::NodeOptions());
+        rclcpp::spin(node);
+        rclcpp::shutdown();
+        return 0;
+    } catch (const std::exception& ex) {
+        if (initialized) {
+            rclcpp::shutdown();
+        }
+        std::fprintf(stderr, "base_ground_estimator fatal error: %s\n", ex.what());
+        return 1;
+    } catch (...) {
+        if (initialized) {
+            rclcpp::shutdown();
+        }
+        std::fputs("base_ground_estimator fatal error: unknown exception\n", stderr);
+        return 1;
+    }
 }

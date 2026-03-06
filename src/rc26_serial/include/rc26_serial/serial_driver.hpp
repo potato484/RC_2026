@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -10,7 +11,10 @@
 #include <thread>
 #include <vector>
 
+#include "rc26_serial/adaptive_timeout.hpp"
 #include "rc26_serial/protocol.hpp"
+#include "rc26_serial/ring_parser.hpp"
+#include "rc26_serial/sliding_counter.hpp"
 
 namespace rc26_decision {
 
@@ -19,6 +23,64 @@ public:
     using ReceiveCallback = std::function<void(uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload)>;
     using HeartbeatFailureCallback = std::function<void()>;
     using DebugCallback = std::function<void(bool is_tx, const std::vector<uint8_t>& data)>;
+
+    struct CommHealth {
+        std::atomic<uint32_t> total_frames{0};
+        std::atomic<uint32_t> parse_errors{0};
+        std::atomic<uint32_t> ack_timeouts{0};
+        std::atomic<uint32_t> reconnect_count{0};
+        std::atomic<uint32_t> heartbeat_failures{0};
+
+        rc26_serial::SlidingCounter<1000> parse_window;
+        rc26_serial::SlidingCounter<200> ack_window;
+
+        static constexpr uint32_t RECONNECT_RING_SIZE = 8;
+        mutable std::mutex reconnect_ring_mutex_;
+        std::array<std::chrono::steady_clock::time_point, RECONNECT_RING_SIZE> reconnect_times_{};
+        uint32_t reconnect_ring_pos_{0};
+
+        enum class Level : uint8_t { HEALTHY = 0, DEGRADED = 1, CRITICAL = 2, FAILED = 3 };
+
+        Level level() const {
+            const float parse_rate = parse_window.errorRate();
+            const float ack_rate = ack_window.errorRate();
+            {
+                std::lock_guard<std::mutex> lock(reconnect_ring_mutex_);
+                const auto now = std::chrono::steady_clock::now();
+                uint32_t recent_reconnects = 0;
+                for (const auto& t : reconnect_times_) {
+                    if (t.time_since_epoch().count() > 0 &&
+                        std::chrono::duration<double>(now - t).count() <= 60.0) {
+                        ++recent_reconnects;
+                    }
+                }
+                if (recent_reconnects > 3U) {
+                    return Level::FAILED;
+                }
+            }
+            if (parse_rate > 0.05F || ack_rate > 0.025F) {
+                return Level::CRITICAL;
+            }
+            if (parse_rate > 0.01F || ack_rate > 0.01F) {
+                return Level::DEGRADED;
+            }
+            return Level::HEALTHY;
+        }
+
+        void recordReconnect() {
+            reconnect_count.fetch_add(1, std::memory_order_relaxed);
+            std::lock_guard<std::mutex> lock(reconnect_ring_mutex_);
+            reconnect_times_[reconnect_ring_pos_++ % RECONNECT_RING_SIZE] = std::chrono::steady_clock::now();
+        }
+
+        void resetWindows() {
+            parse_window.reset();
+            ack_window.reset();
+            std::lock_guard<std::mutex> lock(reconnect_ring_mutex_);
+            reconnect_times_.fill({});
+            reconnect_ring_pos_ = 0;
+        }
+    };
 
     SerialDriver();
     ~SerialDriver();
@@ -39,10 +101,16 @@ public:
     // ========================================================================
     bool sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload = {});
     bool sendCommand(CommandID cmd, const std::vector<uint8_t>& payload = {});
+    bool sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload, uint8_t& out_seq);
+    bool sendCommand(CommandID cmd, const std::vector<uint8_t>& payload, uint8_t& out_seq);
+    uint8_t lastSentSeq() const { return seq_.load(std::memory_order_relaxed); }
+    const CommHealth& commHealth() const { return comm_health_; }
+    float avgRttMs() const;
 
     // ========================================================================
     // 便捷接口
     // ========================================================================
+    bool sendPose(CommandID cmd, float vx, float vy, float wz, uint8_t& out_seq);
     bool sendPose(CommandID cmd, float vx, float vy, float wz);
     bool sendStop();
     bool sendHeartbeat();
@@ -85,46 +153,54 @@ private:
     bool waiting_for_ack_{false};
     uint8_t waiting_seq_{0};
     uint8_t waiting_cmd_{0};
+    std::atomic<uint32_t> link_epoch_{0};
+    uint32_t waiting_epoch_{0};  // 受 ack_mutex_ 保护
+    enum class AckWaitResult : uint8_t { kReceived, kTimeout, kLinkDown };
     bool ack_response_received_{false};
     bool ack_success_{false};
-
-    static constexpr size_t RECV_BUFFER_SIZE = 256;
-    uint8_t recv_buffer_[RECV_BUFFER_SIZE];
-    size_t recv_len_ = 0;
+    rc26_serial::RingParser ring_parser_;
 
     uint8_t nextSeq();
     std::vector<uint8_t> buildFrame(uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload,
                                     uint8_t retry = 0x00);
     bool writeAll(const uint8_t* data, size_t size);
     void setLastError(std::string message);
+    bool isLinkActive() const;
+    void invokeCallbackSafely(const char* name, const std::function<void()>& callback);
+    void invokeDebugCallback(bool is_tx, const std::vector<uint8_t>& data, const DebugCallback& callback);
 
     bool sendCommandNoAck(uint8_t cmd, const std::vector<uint8_t>& payload);
 
     void beginWaitAck(uint8_t seq, uint8_t cmd);
     void endWaitAck();
-    bool waitForAck(std::chrono::milliseconds timeout, bool& success);
+    AckWaitResult waitForAck(std::chrono::milliseconds timeout, bool& success);
     void notifyAck(uint8_t seq, uint8_t cmd);
 
     void notifyHeartbeatFailure();
     void notifyReconnect();
     void notifyReconnectFailed();
 
+    void closePort();
     bool reconnect();
+    bool waitReconnectInterval();
     void reconnectThreadFunc();
     void requestReconnect(const char* reason);
 
     void recvThreadFunc();
-    void parseReceivedData();
+    void dispatchFrame(uint8_t seq, uint8_t cmd, const uint8_t* payload, size_t plen);
 
     bool write_error_active_{false};
     bool recv_error_active_{false};
-    uint32_t parse_error_count_{0};
+    CommHealth comm_health_;
+    mutable std::mutex timeout_mutex_;
+    rc26_serial::AdaptiveTimeout adaptive_timeout_;
 
     ReconnectCallback reconnect_callback_;
     ReconnectStartCallback reconnect_start_callback_;
     ReconnectFailedCallback reconnect_failed_callback_;
     std::atomic<uint8_t> heartbeat_failure_count_{0};
     std::atomic<bool> reconnecting_{false};
+    std::atomic<bool> auto_reconnect_enabled_{false};
 
     // 异步重连线程（生命周期绑定 SerialDriver 对象）
     std::atomic<bool> reconnect_thread_running_{false};

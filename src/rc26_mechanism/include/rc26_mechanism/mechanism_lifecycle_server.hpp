@@ -1,10 +1,13 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -15,6 +18,7 @@
 #include "rc26_interfaces/action/place_kfs_grid.hpp"
 #include "rc26_interfaces/msg/mechanism_state.hpp"
 
+#include "rc26_mechanism/command_context.hpp"
 #include "rc26_mechanism/hal/i_mechanism_hal.hpp"
 #include "rc26_mechanism/tip_state_machine.hpp"
 
@@ -23,6 +27,7 @@ namespace rc26_mechanism {
 class MechanismLifecycleServer : public rclcpp_lifecycle::LifecycleNode {
 public:
     explicit MechanismLifecycleServer(const rclcpp::NodeOptions& opts);
+    ~MechanismLifecycleServer() override;
 
     using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
     CallbackReturn on_configure(const rclcpp_lifecycle::State&) override;
@@ -70,13 +75,30 @@ private:
     void executeCommand(const std::shared_ptr<GoalHandleExecute>& goal_handle);
 
     bool isCommandSupported(uint8_t cmd_id) const;
+    bool isTerminalFeedbackForCommand(uint8_t cmd_id, uint8_t fb_id) const;
     std::chrono::milliseconds defaultTimeoutForCommand(uint8_t cmd_id) const;
     bool commandFlagsFor(uint8_t cmd_id, bool*& done, bool*& failed);
     void resetCommandFlags(uint8_t cmd_id);
+    CommandResult executeWithContext(uint8_t cmd_id, const std::vector<uint8_t>& payload,
+                                     std::chrono::milliseconds timeout,
+                                     const std::function<void()>& keep_alive = {});
+    bool tryReserveExecution();
+    void releaseExecution();
+    void launchExecutionThread(std::function<void()> task);
+    void joinExecutionThread();
 
-    void onSerialFeedback(uint8_t fb_id, const std::vector<uint8_t>& payload);
+    struct BufferedFeedback {
+        uint8_t fb_id{0};
+        std::vector<uint8_t> payload;
+        std::chrono::steady_clock::time_point received_at{};
+    };
+    void pruneBufferedFeedbacksLocked(const std::chrono::steady_clock::time_point& now);
+    std::optional<CommandResult> takeBufferedCommandResultLocked(uint8_t seq, uint8_t cmd_id);
+
+    void onSerialFeedback(uint8_t seq, uint8_t fb_id, const std::vector<uint8_t>& payload);
     void publishMechanismState();
     bool waitUntilDoneOrFailed(bool& done, bool& failed, std::chrono::milliseconds timeout);
+    void drainPendingContexts();
 
     std::unique_ptr<IMechanismHAL> hal_;
     TipStateMachine tip_sm_;
@@ -89,6 +111,14 @@ private:
     rclcpp_lifecycle::LifecyclePublisher<rc26_interfaces::msg::MechanismState>::SharedPtr state_pub_;
     rclcpp::TimerBase::SharedPtr state_timer_;
     std::mutex execution_mutex_;
+    std::mutex execution_thread_mutex_;
+    std::thread execution_thread_;
+    std::mutex cmd_state_mutex_;
+    std::atomic<bool> active_{false};
+    std::atomic<bool> cancel_requested_{false};
+    std::atomic<bool> execution_in_progress_{false};
+    std::atomic<uint8_t> current_cmd_id_{0};
+    std::chrono::steady_clock::time_point cmd_start_time_;
 
     std::mutex feedback_mutex_;
     std::condition_variable feedback_cv_;
@@ -110,8 +140,10 @@ private:
     bool place_ground_failed_{false};
     bool rotate_done_{false};
     bool rotate_failed_{false};
-    uint16_t last_error_code_{0};
-    uint8_t assembled_count_{0};
+    std::unordered_map<uint8_t, std::shared_ptr<CommandContext>> pending_contexts_;
+    std::unordered_map<uint8_t, BufferedFeedback> buffered_feedbacks_;
+    std::atomic<uint16_t> last_error_code_{0};
+    std::atomic<uint8_t> assembled_count_{0};
 };
 
 }  // namespace rc26_mechanism

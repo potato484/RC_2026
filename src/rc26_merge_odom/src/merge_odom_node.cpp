@@ -1,5 +1,7 @@
 // RC2026 融合里程计主节点
 // 整合CAN/Wheel里程计和速度发送功能（双串口架构）
+#include <stdexcept>
+
 #include <rclcpp/rclcpp.hpp>
 
 #include "rc26_merge_odom/can/can_odom.hpp"
@@ -36,6 +38,7 @@ public:
         this->declare_parameter("merge_odom_topic", "merge_odom");
         this->declare_parameter("feedback_send_rate_hz", 50);
         this->declare_parameter("target_send_rate_hz", 25);
+        this->declare_parameter("cmd_vel_timeout_ms", 200);
 
         // 速度保护参数 (PoseSender)
         this->declare_parameter("imu_topic", "DM_IMU");
@@ -43,12 +46,21 @@ public:
         this->declare_parameter("w_max_rps", 4.0);
         this->declare_parameter("a_max_mps2", 15.0);
         this->declare_parameter("alpha_max_rps2", 40.0);
-        this->declare_parameter("spike_accel_threshold", 20.0);
-        this->declare_parameter("spike_gyro_threshold", 6.0);
-        this->declare_parameter("spike_freeze_duration_ms", 300);
-        this->declare_parameter("spike_decay_tau_s", 0.2);
+        this->declare_parameter("imu_gate_enable", true);
+        this->declare_parameter("imu_gate_ema_alpha", 0.98);
+        this->declare_parameter("imu_gate_chi2_threshold", 6.635);
+        this->declare_parameter("accel_agree_threshold_mps2", 3.0);
+        this->declare_parameter("spike_freeze_duration_ms", 100);
+        this->declare_parameter("spike_decay_tau_s", 0.3);
+        this->declare_parameter("governor_enable", true);
+        this->declare_parameter("governor_lambda", 0.2);
+        this->declare_parameter("dob_enable", false);
+        this->declare_parameter("dob_lpf_hz", 5.0);
+        this->declare_parameter("dob_kd", 0.3);
         this->declare_parameter("latency_comp_enable", true);
         this->declare_parameter("latency_comp_s", 0.03);
+        this->declare_parameter("terrain_speed_limit_topic", "");
+        this->declare_parameter("terrain_speed_limit_timeout_ms", 500);
 
         // 自适应协方差参数 (WheelOdom)
         this->declare_parameter("slip_enable", true);
@@ -67,6 +79,12 @@ public:
         std::string feedback_port = this->get_parameter("feedback_serial_port").as_string();
         std::string target_port = this->get_parameter("target_serial_port").as_string();
         int baudrate = this->get_parameter("baudrate").as_int();
+
+        if (!feedback_port.empty() && feedback_port == target_port) {
+            RCLCPP_FATAL(this->get_logger(), "feedback_serial_port 与 target_serial_port 指向同一设备: %s",
+                         feedback_port.c_str());
+            throw std::invalid_argument("feedback_serial_port and target_serial_port must be different");
+        }
 
         feedback_serial_ = std::make_shared<rc26_decision::SerialDriver>();
         bool feedback_ok = feedback_serial_->open(feedback_port, baudrate);
@@ -91,6 +109,10 @@ public:
         const std::string base_frame = this->get_parameter("base_frame").as_string();
         const double data_timeout_ms = this->get_parameter("data_timeout_ms").as_double();
 
+        if (!use_can_odom && !feedback_ok) {
+            throw std::runtime_error("wheel_odom 模式要求 feedback_serial_port 打开成功");
+        }
+
         // 根据配置初始化里程计
         if (use_can_odom) {
             rc26_merge_odom::CanOdom::Config can_config;
@@ -104,14 +126,22 @@ public:
             can_config.odom_frame = odom_frame;
             can_config.base_frame = base_frame;
             can_config.data_timeout_ms = data_timeout_ms;
+            can_config.imu_topic = this->get_parameter("imu_topic").as_string();
+            can_config.slip_enable = this->get_parameter("slip_enable").as_bool();
+            can_config.slip_threshold = this->get_parameter("slip_threshold").as_double();
+            can_config.slip_k_acc = this->get_parameter("slip_k_acc").as_double();
+            can_config.cov_nominal_v = this->get_parameter("cov_nominal_v").as_double();
+            can_config.cov_nominal_wz = this->get_parameter("cov_nominal_wz").as_double();
+            can_config.cov_slip_v = this->get_parameter("cov_slip_v").as_double();
+            can_config.cov_slip_wz = this->get_parameter("cov_slip_wz").as_double();
+            can_config.recovery_tau_s = this->get_parameter("recovery_tau_s").as_double();
 
             can_odom_ = std::make_unique<rc26_merge_odom::CanOdom>(*this, can_config);
+            if (!can_odom_->isReady()) {
+                throw std::runtime_error("CanOdom 初始化失败");
+            }
             RCLCPP_INFO(this->get_logger(), "使用 CAN 里程计");
         } else {
-            if (!feedback_ok) {
-                RCLCPP_WARN(this->get_logger(), "wheel_odom 反馈串口未打开，ODOM_DATA 将不可用");
-            }
-
             rc26_merge_odom::WheelOdom::Config wheel_config;
             wheel_config.wheel_base = wheel_base;
             wheel_config.track_width = track_width;
@@ -131,6 +161,9 @@ public:
             wheel_config.recovery_tau_s = this->get_parameter("recovery_tau_s").as_double();
 
             wheel_odom_ = std::make_unique<rc26_merge_odom::WheelOdom>(*this, feedback_serial_, wheel_config);
+            if (!wheel_odom_->isReady()) {
+                throw std::runtime_error("WheelOdom 初始化失败");
+            }
             RCLCPP_INFO(this->get_logger(), "使用 Wheel 里程计 (反馈串口: %s)", feedback_port.c_str());
         }
 
@@ -142,17 +175,30 @@ public:
             pose_config.imu_topic = this->get_parameter("imu_topic").as_string();
             pose_config.feedback_send_rate_hz = this->get_parameter("feedback_send_rate_hz").as_int();
             pose_config.target_send_rate_hz = this->get_parameter("target_send_rate_hz").as_int();
+            pose_config.cmd_vel_timeout_ms = this->get_parameter("cmd_vel_timeout_ms").as_int();
             pose_config.v_max_mps = static_cast<float>(this->get_parameter("v_max_mps").as_double());
             pose_config.w_max_rps = static_cast<float>(this->get_parameter("w_max_rps").as_double());
             pose_config.a_max_mps2 = static_cast<float>(this->get_parameter("a_max_mps2").as_double());
             pose_config.alpha_max_rps2 = static_cast<float>(this->get_parameter("alpha_max_rps2").as_double());
-            pose_config.spike_accel_threshold =
-                static_cast<float>(this->get_parameter("spike_accel_threshold").as_double());
-            pose_config.spike_gyro_threshold = static_cast<float>(this->get_parameter("spike_gyro_threshold").as_double());
+            pose_config.imu_gate_enable = this->get_parameter("imu_gate_enable").as_bool();
+            pose_config.imu_gate_ema_alpha = static_cast<float>(this->get_parameter("imu_gate_ema_alpha").as_double());
+            pose_config.imu_gate_chi2_threshold =
+                static_cast<float>(this->get_parameter("imu_gate_chi2_threshold").as_double());
+            pose_config.accel_agree_threshold_mps2 =
+                static_cast<float>(this->get_parameter("accel_agree_threshold_mps2").as_double());
             pose_config.spike_freeze_duration_ms = this->get_parameter("spike_freeze_duration_ms").as_int();
             pose_config.spike_decay_tau_s = static_cast<float>(this->get_parameter("spike_decay_tau_s").as_double());
+            pose_config.governor_enable = this->get_parameter("governor_enable").as_bool();
+            pose_config.governor_lambda = static_cast<float>(this->get_parameter("governor_lambda").as_double());
+            pose_config.dob_enable = this->get_parameter("dob_enable").as_bool();
+            pose_config.dob_lpf_hz = static_cast<float>(this->get_parameter("dob_lpf_hz").as_double());
+            pose_config.dob_kd = static_cast<float>(this->get_parameter("dob_kd").as_double());
             pose_config.latency_comp_enable = this->get_parameter("latency_comp_enable").as_bool();
             pose_config.latency_comp_s = static_cast<float>(this->get_parameter("latency_comp_s").as_double());
+            pose_config.terrain_speed_limit_topic =
+                this->get_parameter("terrain_speed_limit_topic").as_string();
+            pose_config.terrain_speed_limit_timeout_ms =
+                this->get_parameter("terrain_speed_limit_timeout_ms").as_int();
 
             pose_sender_ =
                 std::make_unique<rc26_merge_odom::PoseSender>(*this, feedback_serial_, target_serial_, pose_config);
@@ -171,8 +217,14 @@ private:
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<MergeOdomNode>();
-    rclcpp::spin(node);
+    int exit_code = 0;
+    try {
+        auto node = std::make_shared<MergeOdomNode>();
+        rclcpp::spin(node);
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR(rclcpp::get_logger("merge_odom_node"), "Exception: %s", e.what());
+        exit_code = 1;
+    }
     rclcpp::shutdown();
-    return 0;
+    return exit_code;
 }

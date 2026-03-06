@@ -126,6 +126,10 @@ ProfileLoader::LoadResult ProfileLoader::loadFromFile(const std::string& file_pa
                 if (ctrl["v_linear_min"]) profile.controller.v_linear_min = ctrl["v_linear_min"].as<double>();
                 if (ctrl["acc_linear"]) profile.controller.acc_linear = ctrl["acc_linear"].as<double>();
                 if (ctrl["acc_angular"]) profile.controller.acc_angular = ctrl["acc_angular"].as<double>();
+                if (ctrl["transition_timeout_ms"]) {
+                    int v = ctrl["transition_timeout_ms"].as<int>();
+                    profile.controller.transition_timeout_ms = (v > 0) ? v : 500;
+                }
             }
         } catch (const YAML::Exception& e) {
             result.error_message = "Profile '" + name + "' has invalid field type: " + std::string(e.what());

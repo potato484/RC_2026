@@ -1,0 +1,79 @@
+/**:
+    ros__parameters:
+        use_imu_as_input: False                             # 改为 True 可将 IMU 作为 Point-LIO 的输入
+        prop_at_freq_of_imu: True
+        check_satu: True
+        init_map_size: 10
+        point_filter_num: 1                                 # 可选值：4、3
+        space_down_sample: True
+        filter_size_surf: 0.2                               # 可选值：0.5、0.3、0.2、0.15、0.1
+        filter_size_map: 0.2                               # 可选值：0.5、0.3、0.15、0.1
+        ivox_nearby_type: 18                                # 可选值：0、6、18、26
+        runtime_pos_log_enable: False                       # 可选值：True
+
+        common:
+            lid_topic: "livox/lidar"
+            imu_topic: "livox/imu"
+            con_frame: False                                # True：需要将多帧 LiDAR 合并为一帧时启用
+            con_frame_num: 1                                # 合并的帧数
+            cut_frame: False                                # True：需要将一帧 LiDAR 切分为多个子帧时启用
+            cut_frame_time_interval: 0.1                    # 应为 1/激光频率 的整数分频
+            time_diff_lidar_to_imu: 0.0                     # 由其他算法标定的 LiDAR 与 IMU 时间偏移，例如 LI-Init（见 Readme）
+
+        prior_pcd:
+            enable: False
+            prior_pcd_map_path: ""
+            init_pose: [ 0.0, 0.0, 0.0 ]
+
+        preprocess:
+            # NOTE: In this Point-LIO fork, MID360 is enumerated as 5 (see `rc26_point_lio/src/preprocess.hpp`).
+            lidar_type: 5                                   # 5: MID360
+            scan_line: 4
+            timestamp_unit: 3                               # PointCloud2 话题中 time/t 字段单位：0-秒，1-毫秒，2-微秒，3-纳秒
+            blind: 0.3
+            det_range: 8.0                                  # 最大有效测距（米），场地 12m×12m，设 9m 过滤远距离噪声
+
+        mapping:
+            imu_en: True
+            extrinsic_est_en: False                         # 剧烈运动时建议设为 False
+            imu_time_inte: 0.005                            # = 1/IMU 频率
+            lidar_time_inte: 0.1
+            satu_acc: 3.0                                   # IMU 加速度饱和值（与单位无关）
+            satu_gyro: 35.0                                 # IMU 角速度饱和值（与单位无关）
+            acc_norm: 1.0                                   # IMU 加速度单位：g 用 1.0；m/s^2 用 9.81
+            lidar_meas_cov: 0.005                           # 建议：0.001
+            acc_cov_output: 2000.0
+            gyr_cov_output: 300.0
+            b_acc_cov: 0.0001
+            b_gyr_cov: 0.0001
+            imu_meas_acc_cov: 0.01                          # 0.1 # 2
+            imu_meas_omg_cov: 0.001                         # 0.1 # 2
+            gyr_cov_input: 0.01                             # 用于 IMU 作为输入模型
+            acc_cov_input: 0.1                              # 用于 IMU 作为输入模型
+            plane_thr: 0.05                                 # 平面判别阈值（例如 0.05）；越小越平
+            match_s: 81.0
+            ivox_grid_resolution: 0.3
+            adaptive_second_iter_enable: false
+            adaptive_residual_thr: 0.08
+            adaptive_omega_thr: 2.0
+            adaptive_second_iter_max: 1
+            gravity: [ 0.0, 0.0, -9.810 ]                   # [0.0, 9.810, 0.0] # 需要对齐的重力方向
+            gravity_init: [ 0.0, 0.0, -9.810 ]              # [0.0, 9.810, 0.0] # 初始 IMU 机体系下的已知重力；imu_en 为 False 或非静止启动时使用
+            extrinsic_T: [ -0.011, -0.02329, 0.04412 ]
+            extrinsic_R: [ 1.0, 0.0, 0.0,
+                           0.0, 1.0, 0.0,
+                           0.0, 0.0, 1.0 ]
+
+        odometry:
+            publish_odometry_without_downsample: True
+
+        publish:
+            path_en: True                                   # False：关闭轨迹输出
+            scan_publish_en: True                           # False：关闭所有点云输出
+            scan_bodyframe_pub_en: False                    # True：输出 IMU 机体系下的点云
+            tf_send_en: True                                # True：发布从 'camera_init' 到 'aft_mapped' 的 TF
+
+        pcd_save:
+            pcd_save_en: False
+            interval: -1                                    # 每个 pcd 文件保存的 LiDAR 帧数；
+                                                            # -1：所有帧保存到同一个 pcd 文件，帧数过多可能导致内存崩溃。

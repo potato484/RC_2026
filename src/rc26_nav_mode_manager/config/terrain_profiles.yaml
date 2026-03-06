@@ -1,0 +1,64 @@
+terrain_profiles:
+  normal:
+    unknown_policy: aggressive
+    drop_forward_sector_deg: 180.0
+    min_obstacle_area_cells: 3
+    obstacle_neighbor_mode: edge4
+    drop_neighbor_mode: edge8
+    jump_thresh_m: 0.23
+
+  safe:
+    unknown_policy: conservative
+    drop_forward_sector_deg: 360.0
+    min_obstacle_area_cells: 1
+    obstacle_neighbor_mode: edge8
+    drop_neighbor_mode: edge8
+    jump_thresh_m: 0.23
+
+  safe_low:
+    unknown_policy: conservative
+    drop_forward_sector_deg: 360.0
+    min_obstacle_area_cells: 1
+    obstacle_neighbor_mode: edge8
+    drop_neighbor_mode: edge8
+    jump_thresh_m: 0.23
+
+  stair_up:
+    unknown_policy: conservative
+    drop_forward_sector_deg: 360.0
+    min_obstacle_area_cells: 1
+    obstacle_neighbor_mode: edge8
+    drop_neighbor_mode: edge8
+    jump_thresh_m: 0.08
+
+  stair_down:
+    unknown_policy: conservative
+    drop_forward_sector_deg: 360.0
+    min_obstacle_area_cells: 1
+    obstacle_neighbor_mode: edge8
+    drop_neighbor_mode: edge8
+    jump_thresh_m: 0.08
+
+  mf_traverse:
+    unknown_policy: conservative
+    drop_forward_sector_deg: 360.0
+    min_obstacle_area_cells: 1
+    obstacle_neighbor_mode: edge8
+    drop_neighbor_mode: edge8
+    jump_thresh_m: 0.23
+
+  mf_exit:
+    unknown_policy: conservative
+    drop_forward_sector_deg: 360.0
+    min_obstacle_area_cells: 1
+    obstacle_neighbor_mode: edge8
+    drop_neighbor_mode: edge8
+    jump_thresh_m: 0.23
+
+  mf_approach:
+    unknown_policy: conservative
+    drop_forward_sector_deg: 360.0
+    min_obstacle_area_cells: 1
+    obstacle_neighbor_mode: edge8
+    drop_neighbor_mode: edge8
+    jump_thresh_m: 0.23

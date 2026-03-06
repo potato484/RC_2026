@@ -15,10 +15,34 @@ namespace rc26_merge_odom {
 
 namespace {
 constexpr double kEpsilon = 1e-6;
+constexpr double kMinCovariance = 1e-6;
 }
 
 WheelOdom::WheelOdom(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> serial, Config config)
     : node_(node), config_(std::move(config)), serial_(std::move(serial)) {
+    if (!(std::fabs(config_.wheel_base) > kEpsilon)) {
+        RCLCPP_WARN(node_.get_logger(), "wheel wheel_base=%.6f invalid, fallback to %.6f", config_.wheel_base,
+                    Config{}.wheel_base);
+        config_.wheel_base = Config{}.wheel_base;
+    }
+    if (!(std::fabs(config_.track_width) > kEpsilon)) {
+        RCLCPP_WARN(node_.get_logger(), "wheel track_width=%.6f invalid, fallback to %.6f", config_.track_width,
+                    Config{}.track_width);
+        config_.track_width = Config{}.track_width;
+    }
+    if (config_.publish_rate_hz <= 0) {
+        RCLCPP_WARN(node_.get_logger(), "wheel publish_rate_hz=%d invalid, fallback to 1", config_.publish_rate_hz);
+        config_.publish_rate_hz = 1;
+    }
+    config_.data_timeout_ms = std::max(0.0, config_.data_timeout_ms);
+    config_.slip_threshold = std::max(0.0, config_.slip_threshold);
+    config_.slip_k_acc = std::max(0.0, config_.slip_k_acc);
+    config_.cov_nominal_v = std::max(config_.cov_nominal_v, kMinCovariance);
+    config_.cov_nominal_wz = std::max(config_.cov_nominal_wz, kMinCovariance);
+    config_.cov_slip_v = std::max(config_.cov_slip_v, config_.cov_nominal_v);
+    config_.cov_slip_wz = std::max(config_.cov_slip_wz, config_.cov_nominal_wz);
+    config_.recovery_tau_s = std::max(config_.recovery_tau_s, kEpsilon);
+
     odom_pub_ = node_.create_publisher<nav_msgs::msg::Odometry>(config_.odom_topic, 10);
     slip_score_pub_ = node_.create_publisher<std_msgs::msg::Float32>("wheel_odom/slip_score", 10);
     cov_state_pub_ = node_.create_publisher<std_msgs::msg::Float32>("wheel_odom/cov_state", 10);
@@ -30,27 +54,30 @@ WheelOdom::WheelOdom(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDr
     last_data_time_ = prev_pub_time_;
     last_slip_time_ = prev_pub_time_;
 
-    if (serial_) {
-        serial_->setReceiveCallback([this](uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload) {
-            (void)seq;
-            if (cmd != static_cast<uint8_t>(rc26_decision::FeedbackID::ODOM_DATA)) {
-                return;
-            }
-            handleOdomData(payload);
-        });
-    } else {
-        RCLCPP_WARN(node_.get_logger(), "WheelOdom: 串口未初始化，ODOM_DATA 将不可用");
+    if (!serial_ || !serial_->isOpen()) {
+        RCLCPP_ERROR(node_.get_logger(), "WheelOdom: 串口未就绪，ODOM_DATA 无法接收");
+        return;
     }
+
+    serial_->setReceiveCallback([this](uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload) {
+        (void)seq;
+        if (cmd != static_cast<uint8_t>(rc26_decision::FeedbackID::ODOM_DATA)) {
+            return;
+        }
+        handleOdomData(payload);
+    });
 
     auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::duration<double>(1.0 / static_cast<double>(config_.publish_rate_hz)));
     publish_timer_ = node_.create_wall_timer(period, std::bind(&WheelOdom::publishOdometry, this));
+    ready_.store(true, std::memory_order_release);
 
     RCLCPP_INFO(node_.get_logger(), "WheelOdom 启动: topic=%s, imu=%s, rate=%d Hz, slip=%s", config_.odom_topic.c_str(),
                 config_.imu_topic.c_str(), config_.publish_rate_hz, config_.slip_enable ? "on" : "off");
 }
 
 WheelOdom::~WheelOdom() {
+    ready_.store(false, std::memory_order_release);
     if (publish_timer_) {
         publish_timer_->cancel();
     }
@@ -119,9 +146,9 @@ void WheelOdom::publishOdometry() {
     double v_rr = 0.0;
     double v_fr = 0.0;
     bool data_valid = false;
+    const auto timeout_duration = std::chrono::duration<double, std::milli>(config_.data_timeout_ms);
     {
         std::lock_guard<std::mutex> lock(data_mutex_);
-        auto timeout_duration = std::chrono::duration<double, std::milli>(config_.data_timeout_ms);
         if (data_received_ && (now - last_data_time_ <= timeout_duration)) {
             v_fl = v_fl_;
             v_rl = v_rl_;
@@ -155,9 +182,10 @@ void WheelOdom::publishOdometry() {
         std::lock_guard<std::mutex> lock(imu_mutex_);
         imu_snapshot = imu_snapshot_;
     }
+    const bool imu_fresh = imu_snapshot.valid && (now - imu_snapshot.stamp <= timeout_duration);
 
     double slip_score = 0.0;
-    if (config_.slip_enable && imu_snapshot.valid) {
+    if (config_.slip_enable && imu_fresh) {
         const double imu_acc_xy = std::hypot(imu_snapshot.ax, imu_snapshot.ay);
         const double omega_diff = std::fabs(imu_snapshot.gz - omega);
         const double acc_mismatch =

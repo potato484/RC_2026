@@ -23,37 +23,8 @@ find_package(OpenCV REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
 # ONNX Runtime
-find_library(ONNXRUNTIME_LIB
-  NAMES onnxruntime
-  HINTS
-    /usr/local/lib
-    /usr/lib
-    /usr/lib/aarch64-linux-gnu
-)
-find_path(ONNXRUNTIME_INCLUDE
-  NAMES onnxruntime_cxx_api.h
-  HINTS
-    /usr/local/include
-    /usr/local/include/onnxruntime
-    /usr/include
-    /usr/include/onnxruntime
-  PATH_SUFFIXES
-    onnxruntime
-    onnxruntime/core/session
-    core/session
-)
-
-set(RC26_VISION_HAS_ONNXRUNTIME FALSE)
-if(ONNXRUNTIME_LIB AND ONNXRUNTIME_INCLUDE)
-  set(RC26_VISION_HAS_ONNXRUNTIME TRUE)
-  message(STATUS "rc26_vision: ONNX Runtime enabled")
-  message(STATUS "  ONNXRUNTIME_INCLUDE=${ONNXRUNTIME_INCLUDE}")
-  message(STATUS "  ONNXRUNTIME_LIB=${ONNXRUNTIME_LIB}")
-else()
-  message(WARNING
-    "rc26_vision: ONNX Runtime not found. Building with stub YoloEngine; "
-    "vision inference targets will compile but runtime inference is unavailable.")
-endif()
+find_library(ONNXRUNTIME_LIB onnxruntime HINTS /usr/local/lib /usr/lib)
+find_path(ONNXRUNTIME_INCLUDE onnxruntime_cxx_api.h HINTS /usr/local/include/onnxruntime)
 
 # ============================================================================
 # 头文件目录
@@ -61,26 +32,16 @@ endif()
 include_directories(
   include
   ${OpenCV_INCLUDE_DIRS}
+  ${ONNXRUNTIME_INCLUDE}
 )
-if(RC26_VISION_HAS_ONNXRUNTIME)
-  include_directories(${ONNXRUNTIME_INCLUDE})
-endif()
 
 # ============================================================================
 # 库：视觉推理
 # ============================================================================
-set(RC26_VISION_LIB_SRCS
+add_library(${PROJECT_NAME} SHARED
+  src/yolo_engine.cpp
   src/vision_inference_manager.cpp
   src/profile_loader.cpp
-)
-if(RC26_VISION_HAS_ONNXRUNTIME)
-  list(APPEND RC26_VISION_LIB_SRCS src/yolo_engine.cpp)
-else()
-  list(APPEND RC26_VISION_LIB_SRCS src/yolo_engine_stub.cpp)
-endif()
-
-add_library(${PROJECT_NAME} SHARED
-  ${RC26_VISION_LIB_SRCS}
 )
 
 ament_target_dependencies(${PROJECT_NAME}
@@ -98,13 +59,9 @@ ament_target_dependencies(${PROJECT_NAME}
 
 target_link_libraries(${PROJECT_NAME}
   ${OpenCV_LIBS}
+  ${ONNXRUNTIME_LIB}
   yaml-cpp
 )
-if(RC26_VISION_HAS_ONNXRUNTIME)
-  target_link_libraries(${PROJECT_NAME}
-    ${ONNXRUNTIME_LIB}
-  )
-endif()
 
 # ============================================================================
 # 测试节点

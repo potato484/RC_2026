@@ -8,6 +8,7 @@ import launch
 from launch.actions import ExecuteProcess, TimerAction
 from launch_ros.actions import Node
 import launch_testing.actions
+from nav2_msgs.srv import ManageLifecycleNodes
 from nav2_msgs.srv import GetCostmap
 from nav_msgs.msg import Odometry
 import rclpy
@@ -50,6 +51,42 @@ def _max_nearest_skew_sec(ref_stamps, probe_stamps) -> float:
                 break
         max_skew = max(max_skew, abs(probe_stamps[j] - stamp))
     return max_skew
+
+
+def _shutdown_lifecycle_manager(node, executor, timeout_sec: float = 5.0) -> bool:
+    client = node.create_client(
+        ManageLifecycleNodes,
+        "/lifecycle_manager_local_costmap/manage_nodes",
+    )
+    try:
+        deadline = time.time() + timeout_sec
+        while time.time() < deadline:
+            if client.wait_for_service(timeout_sec=0.2):
+                break
+            executor.spin_once(timeout_sec=0.05)
+
+        if not client.service_is_ready():
+            node.get_logger().warning("lifecycle manager shutdown service unavailable during teardown")
+            return False
+
+        request = ManageLifecycleNodes.Request()
+        request.command = ManageLifecycleNodes.Request.SHUTDOWN
+        future = client.call_async(request)
+
+        while time.time() < deadline and not future.done():
+            executor.spin_once(timeout_sec=0.05)
+
+        if not future.done():
+            node.get_logger().warning("lifecycle manager shutdown request timed out")
+            return False
+        if future.exception() is not None:
+            node.get_logger().warning(f"lifecycle manager shutdown failed: {future.exception()}")
+            return False
+
+        response = future.result()
+        return response is not None and response.success
+    finally:
+        node.destroy_client(client)
 
 
 def generate_test_description():
@@ -296,166 +333,168 @@ class TestCostmapIntegration(unittest.TestCase):
 
         deadline = time.time() + 35.0
         next_costmap_probe = 0.0
+        try:
+            while time.time() < deadline:
+                executor.spin_once(timeout_sec=0.2)
 
-        while time.time() < deadline:
-            executor.spin_once(timeout_sec=0.2)
+                try:
+                    tf_buffer.lookup_transform("base_link", "livox_frame", rclpy.time.Time())
+                    have_base_to_livox = True
+                except TransformException:
+                    pass
 
-            try:
-                tf_buffer.lookup_transform("base_link", "livox_frame", rclpy.time.Time())
-                have_base_to_livox = True
-            except TransformException:
-                pass
+                try:
+                    tf_buffer.lookup_transform("map", "base_link", rclpy.time.Time())
+                    have_map_to_base = True
+                except TransformException:
+                    pass
 
-            try:
-                tf_buffer.lookup_transform("map", "base_link", rclpy.time.Time())
-                have_map_to_base = True
-            except TransformException:
-                pass
+                try:
+                    tf_buffer.lookup_transform("map", "livox_frame", rclpy.time.Time())
+                    have_map_to_livox = True
+                except TransformException:
+                    pass
 
-            try:
-                tf_buffer.lookup_transform("map", "livox_frame", rclpy.time.Time())
-                have_map_to_livox = True
-            except TransformException:
-                pass
+                now_wall = time.time()
+                if now_wall >= next_costmap_probe:
+                    next_costmap_probe = now_wall + 0.4
+                    if costmap_client.wait_for_service(timeout_sec=0.1):
+                        future = costmap_client.call_async(GetCostmap.Request())
+                        call_deadline = time.time() + 1.0
+                        while time.time() < call_deadline and not future.done():
+                            executor.spin_once(timeout_sec=0.05)
 
-            now_wall = time.time()
-            if now_wall >= next_costmap_probe:
-                next_costmap_probe = now_wall + 0.4
-                if costmap_client.wait_for_service(timeout_sec=0.1):
-                    future = costmap_client.call_async(GetCostmap.Request())
-                    call_deadline = time.time() + 1.0
-                    while time.time() < call_deadline and not future.done():
-                        executor.spin_once(timeout_sec=0.05)
-
-                    if not future.done():
-                        failed_calls += 1
-                    elif future.exception() is not None:
-                        failed_calls += 1
-                    else:
-                        response = future.result()
-                        if response is not None and response.map.data:
-                            response_count += 1
-                            max_cost = max(max_cost, max(response.map.data))
-                        else:
+                        if not future.done():
                             failed_calls += 1
+                        elif future.exception() is not None:
+                            failed_calls += 1
+                        else:
+                            response = future.result()
+                            if response is not None and response.map.data:
+                                response_count += 1
+                                max_cost = max(max_cost, max(response.map.data))
+                            else:
+                                failed_calls += 1
 
+                terrain_non_empty = sum(1 for msg in terrain_obstacles_msgs if _cloud_point_count(msg) > 0)
+                if (
+                    len(odom_msgs) >= 25
+                    and len(registered_scan_msgs) >= 25
+                    and terrain_non_empty >= 1
+                    and response_count >= 3
+                    and max_cost > 0
+                    and have_base_to_livox
+                    and have_map_to_base
+                    and have_map_to_livox
+                ):
+                    break
+
+            costmap_services = [
+                f"{name}:{','.join(types)}"
+                for name, types in node.get_service_names_and_types()
+                if "costmap" in name
+            ]
             terrain_non_empty = sum(1 for msg in terrain_obstacles_msgs if _cloud_point_count(msg) > 0)
-            if (
-                len(odom_msgs) >= 25
-                and len(registered_scan_msgs) >= 25
-                and terrain_non_empty >= 1
-                and response_count >= 3
-                and max_cost > 0
-                and have_base_to_livox
-                and have_map_to_base
-                and have_map_to_livox
-            ):
-                break
 
-        costmap_services = [
-            f"{name}:{','.join(types)}"
-            for name, types in node.get_service_names_and_types()
-            if "costmap" in name
-        ]
-        terrain_non_empty = sum(1 for msg in terrain_obstacles_msgs if _cloud_point_count(msg) > 0)
+            self.assertGreaterEqual(
+                response_count,
+                3,
+                "35 秒内未成功调用至少 3 次 /costmap/get_costmap "
+                f"(responses={response_count}, failed_calls={failed_calls}, "
+                f"terrain_obs={len(terrain_obstacles_msgs)}, "
+                f"services={costmap_services})",
+            )
 
-        self.assertGreaterEqual(
-            response_count,
-            3,
-            "35 秒内未成功调用至少 3 次 /costmap/get_costmap "
-            f"(responses={response_count}, failed_calls={failed_calls}, "
-            f"terrain_obs={len(terrain_obstacles_msgs)}, "
-            f"services={costmap_services})",
-        )
+            self.assertGreaterEqual(
+                len(odom_msgs),
+                25,
+                f"odom 消息不足: {len(odom_msgs)}",
+            )
+            self.assertGreaterEqual(
+                len(registered_scan_msgs),
+                25,
+                f"registered_scan 消息不足: {len(registered_scan_msgs)}",
+            )
+            self.assertGreater(
+                terrain_non_empty,
+                0,
+                f"terrain_obstacles 未出现非空消息，总消息数={len(terrain_obstacles_msgs)}",
+            )
 
-        self.assertGreaterEqual(
-            len(odom_msgs),
-            25,
-            f"odom 消息不足: {len(odom_msgs)}",
-        )
-        self.assertGreaterEqual(
-            len(registered_scan_msgs),
-            25,
-            f"registered_scan 消息不足: {len(registered_scan_msgs)}",
-        )
-        self.assertGreater(
-            terrain_non_empty,
-            0,
-            f"terrain_obstacles 未出现非空消息，总消息数={len(terrain_obstacles_msgs)}",
-        )
+            odom_stamps = [_stamp_to_sec(msg.header.stamp) for msg in odom_msgs]
+            scan_stamps = [_stamp_to_sec(msg.header.stamp) for msg in registered_scan_msgs]
+            odom_rate = _rate_hz(odom_stamps)
+            scan_rate = _rate_hz(scan_stamps)
+            self.assertGreaterEqual(odom_rate, 9.0, f"/odom 频率过低: {odom_rate:.3f} Hz")
+            self.assertGreaterEqual(scan_rate, 9.0, f"/registered_scan 频率过低: {scan_rate:.3f} Hz")
 
-        odom_stamps = [_stamp_to_sec(msg.header.stamp) for msg in odom_msgs]
-        scan_stamps = [_stamp_to_sec(msg.header.stamp) for msg in registered_scan_msgs]
-        odom_rate = _rate_hz(odom_stamps)
-        scan_rate = _rate_hz(scan_stamps)
-        self.assertGreaterEqual(odom_rate, 9.0, f"/odom 频率过低: {odom_rate:.3f} Hz")
-        self.assertGreaterEqual(scan_rate, 9.0, f"/registered_scan 频率过低: {scan_rate:.3f} Hz")
+            max_skew = _max_nearest_skew_sec(odom_stamps, scan_stamps)
+            self.assertLessEqual(
+                max_skew,
+                0.1,
+                f"/odom 与 /registered_scan 时戳最大偏差过大: {max_skew:.4f} s",
+            )
 
-        max_skew = _max_nearest_skew_sec(odom_stamps, scan_stamps)
-        self.assertLessEqual(
-            max_skew,
-            0.1,
-            f"/odom 与 /registered_scan 时戳最大偏差过大: {max_skew:.4f} s",
-        )
+            non_monotonic_count = 0
+            max_jump_speed = 0.0
+            for prev, curr in zip(odom_msgs, odom_msgs[1:]):
+                prev_t = _stamp_to_sec(prev.header.stamp)
+                curr_t = _stamp_to_sec(curr.header.stamp)
+                dt = curr_t - prev_t
+                if dt <= 0.0:
+                    non_monotonic_count += 1
+                    continue
 
-        non_monotonic_count = 0
-        max_jump_speed = 0.0
-        for prev, curr in zip(odom_msgs, odom_msgs[1:]):
-            prev_t = _stamp_to_sec(prev.header.stamp)
-            curr_t = _stamp_to_sec(curr.header.stamp)
-            dt = curr_t - prev_t
-            if dt <= 0.0:
-                non_monotonic_count += 1
-                continue
+                dx = curr.pose.pose.position.x - prev.pose.pose.position.x
+                dy = curr.pose.pose.position.y - prev.pose.pose.position.y
+                dz = curr.pose.pose.position.z - prev.pose.pose.position.z
+                dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+                max_jump_speed = max(max_jump_speed, dist / dt)
 
-            dx = curr.pose.pose.position.x - prev.pose.pose.position.x
-            dy = curr.pose.pose.position.y - prev.pose.pose.position.y
-            dz = curr.pose.pose.position.z - prev.pose.pose.position.z
-            dist = math.sqrt(dx * dx + dy * dy + dz * dz)
-            max_jump_speed = max(max_jump_speed, dist / dt)
+            self.assertEqual(non_monotonic_count, 0, "odom 时间戳存在非递增帧")
+            self.assertLess(
+                max_jump_speed,
+                2.0,
+                f"odom 位姿跳变过大: max_speed={max_jump_speed:.3f} m/s",
+            )
 
-        self.assertEqual(non_monotonic_count, 0, "odom 时间戳存在非递增帧")
-        self.assertLess(
-            max_jump_speed,
-            2.0,
-            f"odom 位姿跳变过大: max_speed={max_jump_speed:.3f} m/s",
-        )
+            self.assertTrue(have_base_to_livox, "TF 缺失: base_link -> livox_frame")
+            self.assertTrue(have_map_to_base, "TF 缺失: map -> base_link")
+            self.assertTrue(have_map_to_livox, "TF 缺失: map -> livox_frame")
 
-        self.assertTrue(have_base_to_livox, "TF 缺失: base_link -> livox_frame")
-        self.assertTrue(have_map_to_base, "TF 缺失: map -> base_link")
-        self.assertTrue(have_map_to_livox, "TF 缺失: map -> livox_frame")
+            tf_base_to_livox = tf_buffer.lookup_transform("base_link", "livox_frame", rclpy.time.Time())
+            tx = tf_base_to_livox.transform.translation.x
+            ty = tf_base_to_livox.transform.translation.y
+            tz = tf_base_to_livox.transform.translation.z
+            qx = tf_base_to_livox.transform.rotation.x
+            qy = tf_base_to_livox.transform.rotation.y
+            qz = tf_base_to_livox.transform.rotation.z
+            qw = tf_base_to_livox.transform.rotation.w
 
-        tf_base_to_livox = tf_buffer.lookup_transform("base_link", "livox_frame", rclpy.time.Time())
-        tx = tf_base_to_livox.transform.translation.x
-        ty = tf_base_to_livox.transform.translation.y
-        tz = tf_base_to_livox.transform.translation.z
-        qx = tf_base_to_livox.transform.rotation.x
-        qy = tf_base_to_livox.transform.rotation.y
-        qz = tf_base_to_livox.transform.rotation.z
-        qw = tf_base_to_livox.transform.rotation.w
+            self.assertAlmostEqual(tx, 0.0, delta=1e-3)
+            self.assertAlmostEqual(ty, 0.0, delta=1e-3)
+            self.assertAlmostEqual(tz, 0.13, delta=1e-3)
+            self.assertAlmostEqual(qx, 0.0, delta=1e-3)
+            self.assertAlmostEqual(qy, 0.0, delta=1e-3)
+            self.assertAlmostEqual(qz, 0.0, delta=1e-3)
+            self.assertAlmostEqual(qw, 1.0, delta=1e-3)
 
-        self.assertAlmostEqual(tx, 0.0, delta=1e-3)
-        self.assertAlmostEqual(ty, 0.0, delta=1e-3)
-        self.assertAlmostEqual(tz, 0.13, delta=1e-3)
-        self.assertAlmostEqual(qx, 0.0, delta=1e-3)
-        self.assertAlmostEqual(qy, 0.0, delta=1e-3)
-        self.assertAlmostEqual(qz, 0.0, delta=1e-3)
-        self.assertAlmostEqual(qw, 1.0, delta=1e-3)
+            frames_yaml = tf_buffer.all_frames_as_yaml()
+            self.assertIn("map", frames_yaml)
+            self.assertIn("odom", frames_yaml)
+            self.assertIn("base_link", frames_yaml)
+            self.assertIn("livox_frame", frames_yaml)
+            self.assertNotIn("laser_link", frames_yaml)
 
-        frames_yaml = tf_buffer.all_frames_as_yaml()
-        self.assertIn("map", frames_yaml)
-        self.assertIn("odom", frames_yaml)
-        self.assertIn("base_link", frames_yaml)
-        self.assertIn("livox_frame", frames_yaml)
-        self.assertNotIn("laser_link", frames_yaml)
+            self.assertGreater(max_cost, 0, "get_costmap 返回数据未出现非零代价值")
 
-        self.assertGreater(max_cost, 0, "get_costmap 返回数据未出现非零代价值")
-
-        # Keep TF listener alive until teardown to avoid intermittent gc cleanup.
-        self.assertIsNotNone(tf_listener)
-
-        node.destroy_subscription(sub_odom)
-        node.destroy_subscription(sub_registered_scan)
-        node.destroy_subscription(sub_terrain_obstacles)
-        executor.remove_node(node)
-        node.destroy_node()
+            # Keep TF listener alive until teardown to avoid intermittent gc cleanup.
+            self.assertIsNotNone(tf_listener)
+        finally:
+            _shutdown_lifecycle_manager(node, executor)
+            node.destroy_subscription(sub_odom)
+            node.destroy_subscription(sub_registered_scan)
+            node.destroy_subscription(sub_terrain_obstacles)
+            node.destroy_client(costmap_client)
+            executor.remove_node(node)
+            node.destroy_node()

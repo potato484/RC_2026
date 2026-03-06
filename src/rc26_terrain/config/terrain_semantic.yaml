@@ -46,6 +46,10 @@
     ground_quantile: 0.25
     top_quantile: 0.95
     ground_ema_alpha: 0.6
+    enable_sigma_based_alpha: true
+    sigma_eps_m: 0.01
+    sigma_alpha_min: 0.05
+    sigma_alpha_max: 0.6
 
     # ===== 语义阈值 =====
     # 可攀爬：0 < ΔZ <= h_climb_m（不会作为致命障碍输出到 costmap）
@@ -116,13 +120,34 @@
     obstacle_neighbor_mode: "edge4"
     drop_neighbor_mode: "edge8"
     min_obstacle_area_cells: 3
+    min_drop_area_cells: 2
     jump_thresh_m: 0.23
     freeze_max_frames: 3
     ground_ema_alpha_slow: 0.25
     enable_pitch_compensation: true
+    enable_roll_compensation: false
     stair_gate_speed_mps: 0.25
     stair_pitch_gate_deg: 6.0
     top_z_max_delta_m: 0.7
+
+    # ===== P1: terrain features bus =====
+    enable_terrain_features_pub: false
+    terrain_features_topic: "terrain_features"
+    terrain_features_publish_hz: 5.0
+
+    # ===== P2: terrain speed limit =====
+    enable_terrain_speed_limit_pub: true
+    terrain_speed_limit_topic: "terrain_speed_limit"
+    terrain_speed_limit_publish_hz: 5.0
+    speed_limit_forward_look_m: 2.0
+    speed_limit_half_width_m: 0.4
+    speed_limit_v_max_mps: 2.0
+    speed_limit_min_mps: 0.2
+    speed_limit_w_slope: 1.0
+    speed_limit_w_roughness: 1.0
+    speed_limit_w_drop: 2.0
+    speed_limit_k_tci: 1.0
+    speed_limit_emergency_drop_thresh: 0.8
 
     # ===== P0.3: latency diagnostics =====
     latency_warn_ms: 12.0
