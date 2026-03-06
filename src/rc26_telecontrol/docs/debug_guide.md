@@ -118,3 +118,9 @@ ros2 param get /rc26_telecontrol joy_timeout_s
 ros2 param get /rc26_telecontrol max_accel
 ```
 检查输出的值是否与启动时设置的值一致。
+
+## 5. 常见问题排查
+
+- **手柄已连接但 `/cmd_vel_teleop` 无输出**：先检查 `/joy` 是否有数据，再确认当前启动的是 Stick 还是 Dpad 模式，避免监听了错误的节点名或话题名。
+- **输出始终为零**：优先检查是否开启了 `require_deadman` 且未按住安全键，或 `joy_timeout_s` 过短导致 Watchdog 持续触发零速保持。
+- **速度变化过猛或回中后仍有残余速度**：检查手柄硬件中心漂移，并适当调大死区相关参数或减小 `max_accel`，验证限加速度逻辑是否仍然生效。
