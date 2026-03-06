@@ -17,6 +17,28 @@ namespace rc26_mechanism {
 
 namespace {
 
+template <typename F>
+class ScopeExit {
+public:
+    explicit ScopeExit(F&& fn) : fn_(std::forward<F>(fn)) {}
+    ScopeExit(const ScopeExit&) = delete;
+    ScopeExit& operator=(const ScopeExit&) = delete;
+    ScopeExit(ScopeExit&& other) noexcept : fn_(std::move(other.fn_)), active_(other.active_) {
+        other.active_ = false;
+    }
+    ~ScopeExit() {
+        if (active_) {
+            fn_();
+        }
+    }
+
+private:
+    F fn_;
+    bool active_{true};
+};
+
+constexpr auto kBufferedFeedbackTtl = std::chrono::seconds(2);
+
 std::chrono::milliseconds timeoutFromGoal(float timeout_sec, std::chrono::milliseconds fallback) {
     if (!std::isfinite(timeout_sec) || timeout_sec <= 0.0F) {
         return fallback;
@@ -27,6 +49,29 @@ std::chrono::milliseconds timeoutFromGoal(float timeout_sec, std::chrono::millis
 
 bool isFatalErrorCode(uint16_t error_code) {
     return error_code == 0xFE || error_code == 0xFF;
+}
+
+bool isTerminalOrFailureFeedback(uint8_t fb_id) {
+    using FID = rc26_serial::FeedbackID;
+    switch (static_cast<FID>(fb_id)) {
+    case FID::GRAB_TIP_DONE:
+    case FID::ASSEMBLE_DONE:
+    case FID::PLACE_KFS_GRID_DONE:
+    case FID::GRAB_KFS_DONE:
+    case FID::MECH_UP_MERLIN_DONE:
+    case FID::MECH_DOWN_MERLIN_DONE:
+    case FID::MECH_UP_DUEL_DONE:
+    case FID::PLACE_KFS_GROUND_DONE:
+    case FID::ROTATE_POS_90_DONE:
+    case FID::ROTATE_NEG_90_DONE:
+    case FID::ROTATE_POS_180_DONE:
+    case FID::ROTATE_NEG_180_DONE:
+    case FID::ACTION_FAIL:
+    case FID::ERROR:
+        return true;
+    default:
+        return false;
+    }
 }
 
 }  // namespace
@@ -46,6 +91,22 @@ MechanismLifecycleServer::MechanismLifecycleServer(const rclcpp::NodeOptions& op
     this->declare_parameter<std::string>("replay_file", "");
     this->declare_parameter<int>("replay_action_latency_ms", 100);
     this->declare_parameter<bool>("replay_loop", false);
+}
+
+MechanismLifecycleServer::~MechanismLifecycleServer() {
+    active_.store(false, std::memory_order_relaxed);
+    {
+        std::lock_guard<std::mutex> lock(feedback_mutex_);
+        cancel_requested_.store(true, std::memory_order_relaxed);
+        drainPendingContexts();
+        buffered_feedbacks_.clear();
+    }
+    feedback_cv_.notify_all();
+    if (hal_) {
+        hal_->close();
+    }
+    joinExecutionThread();
+    execution_in_progress_.store(false, std::memory_order_release);
 }
 
 MechanismLifecycleServer::CallbackReturn
@@ -88,15 +149,17 @@ MechanismLifecycleServer::on_configure(const rclcpp_lifecycle::State&) {
         return CallbackReturn::FAILURE;
     }
 
-    if (!hal_->open()) {
-        RCLCPP_ERROR(this->get_logger(), "failed to open mechanism HAL (type=%s)", hal_type.c_str());
-        return CallbackReturn::FAILURE;
-    }
-
     hal_->setFeedbackCallback(
         [this](uint8_t seq, uint8_t fb_id, const std::vector<uint8_t>& payload) {
             onSerialFeedback(seq, fb_id, payload);
         });
+
+    if (!hal_->open()) {
+        RCLCPP_ERROR(this->get_logger(), "failed to open mechanism HAL (type=%s)", hal_type.c_str());
+        hal_->close();
+        hal_.reset();
+        return CallbackReturn::FAILURE;
+    }
 
     state_pub_ = this->create_publisher<rc26_interfaces::msg::MechanismState>(
         "/mechanism/state", rclcpp::QoS(1).reliable());
@@ -157,6 +220,7 @@ MechanismLifecycleServer::on_activate(const rclcpp_lifecycle::State&) {
     {
         std::lock_guard<std::mutex> feedback_lock(feedback_mutex_);
         pending_contexts_.clear();
+        buffered_feedbacks_.clear();
     }
     {
         std::lock_guard<std::mutex> lock(cmd_state_mutex_);
@@ -182,6 +246,7 @@ MechanismLifecycleServer::on_deactivate(const rclcpp_lifecycle::State&) {
         std::lock_guard<std::mutex> lock(feedback_mutex_);
         cancel_requested_.store(true, std::memory_order_relaxed);
         drainPendingContexts();
+        buffered_feedbacks_.clear();
     }
     feedback_cv_.notify_all();
 
@@ -199,6 +264,8 @@ MechanismLifecycleServer::on_deactivate(const rclcpp_lifecycle::State&) {
     if (hal_) {
         hal_->close();
     }
+    joinExecutionThread();
+    execution_in_progress_.store(false, std::memory_order_release);
     {
         std::lock_guard<std::mutex> lock(cmd_state_mutex_);
         current_cmd_id_.store(0, std::memory_order_relaxed);
@@ -213,8 +280,15 @@ MechanismLifecycleServer::on_cleanup(const rclcpp_lifecycle::State&) {
         std::lock_guard<std::mutex> lock(feedback_mutex_);
         cancel_requested_.store(true, std::memory_order_relaxed);
         drainPendingContexts();
+        buffered_feedbacks_.clear();
     }
+    feedback_cv_.notify_all();
 
+    if (hal_) {
+        hal_->close();
+    }
+    joinExecutionThread();
+    execution_in_progress_.store(false, std::memory_order_release);
     if (state_timer_) {
         state_timer_->cancel();
         state_timer_.reset();
@@ -226,9 +300,7 @@ MechanismLifecycleServer::on_cleanup(const rclcpp_lifecycle::State&) {
     assemble_srv_.reset();
     place_grid_srv_.reset();
     execute_srv_.reset();
-
     if (hal_) {
-        hal_->close();
         hal_.reset();
     }
     {
@@ -245,7 +317,9 @@ MechanismLifecycleServer::on_error(const rclcpp_lifecycle::State&) {
         std::lock_guard<std::mutex> lock(feedback_mutex_);
         cancel_requested_.store(true, std::memory_order_relaxed);
         drainPendingContexts();
+        buffered_feedbacks_.clear();
     }
+    feedback_cv_.notify_all();
     {
         std::lock_guard<std::mutex> lock(cmd_state_mutex_);
         current_cmd_id_.store(0, std::memory_order_relaxed);
@@ -253,7 +327,90 @@ MechanismLifecycleServer::on_error(const rclcpp_lifecycle::State&) {
     if (hal_) {
         hal_->close();
     }
+    joinExecutionThread();
+    execution_in_progress_.store(false, std::memory_order_release);
     return CallbackReturn::SUCCESS;
+}
+
+bool MechanismLifecycleServer::tryReserveExecution() {
+    bool expected = false;
+    return execution_in_progress_.compare_exchange_strong(
+        expected, true, std::memory_order_acq_rel, std::memory_order_acquire);
+}
+
+void MechanismLifecycleServer::releaseExecution() {
+    execution_in_progress_.store(false, std::memory_order_release);
+}
+
+void MechanismLifecycleServer::launchExecutionThread(std::function<void()> task) {
+    std::thread previous_thread;
+    {
+        std::lock_guard<std::mutex> lock(execution_thread_mutex_);
+        if (execution_thread_.joinable()) {
+            previous_thread = std::move(execution_thread_);
+        }
+    }
+    if (previous_thread.joinable()) {
+        previous_thread.join();
+    }
+
+    std::thread next_thread(std::move(task));
+    {
+        std::lock_guard<std::mutex> lock(execution_thread_mutex_);
+        execution_thread_ = std::move(next_thread);
+    }
+}
+
+void MechanismLifecycleServer::joinExecutionThread() {
+    std::thread worker;
+    {
+        std::lock_guard<std::mutex> lock(execution_thread_mutex_);
+        if (!execution_thread_.joinable()) {
+            return;
+        }
+        if (execution_thread_.get_id() == std::this_thread::get_id()) {
+            return;
+        }
+        worker = std::move(execution_thread_);
+    }
+    worker.join();
+}
+
+void MechanismLifecycleServer::pruneBufferedFeedbacksLocked(
+    const std::chrono::steady_clock::time_point& now) {
+    for (auto it = buffered_feedbacks_.begin(); it != buffered_feedbacks_.end();) {
+        if (now - it->second.received_at > kBufferedFeedbackTtl) {
+            it = buffered_feedbacks_.erase(it);
+            continue;
+        }
+        ++it;
+    }
+}
+
+std::optional<CommandResult> MechanismLifecycleServer::takeBufferedCommandResultLocked(uint8_t seq,
+                                                                                        uint8_t cmd_id) {
+    auto it = buffered_feedbacks_.find(seq);
+    if (it == buffered_feedbacks_.end()) {
+        return std::nullopt;
+    }
+
+    const auto buffered = std::move(it->second);
+    buffered_feedbacks_.erase(it);
+
+    using FID = rc26_serial::FeedbackID;
+    if (buffered.fb_id == static_cast<uint8_t>(FID::ACTION_FAIL)) {
+        CommandResult result{};
+        result.success = false;
+        result.error_code = (buffered.payload.size() >= 2U) ? buffered.payload[1] : 0xFFU;
+        return result;
+    }
+    if (buffered.fb_id == static_cast<uint8_t>(FID::ERROR)) {
+        return CommandResult{false, 0xFFU, false, false};
+    }
+    if (isTerminalFeedbackForCommand(cmd_id, buffered.fb_id)) {
+        return CommandResult{true, 0U, false, false};
+    }
+    return std::nullopt;
 }
 
 rclcpp_action::GoalResponse MechanismLifecycleServer::handleGrabGoal(
@@ -261,6 +418,10 @@ rclcpp_action::GoalResponse MechanismLifecycleServer::handleGrabGoal(
     (void)uuid;
     if (!active_.load(std::memory_order_relaxed) || !hal_ || !hal_->isOpen() || !goal ||
         goal->tip_index > 5) {
+        return rclcpp_action::GoalResponse::REJECT;
+    }
+    if (!tryReserveExecution()) {
+        RCLCPP_WARN(this->get_logger(), "reject grab goal while another mechanism action is running");
         return rclcpp_action::GoalResponse::REJECT;
     }
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
@@ -280,12 +441,39 @@ rclcpp_action::CancelResponse MechanismLifecycleServer::handleGrabCancel(
 }
 
 void MechanismLifecycleServer::handleGrabAccepted(const std::shared_ptr<GoalHandleGrabTip>& goal_handle) {
-    std::thread([this, goal_handle]() { executeGrab(goal_handle); }).detach();
+    try {
+        launchExecutionThread([this, goal_handle]() {
+            try {
+                executeGrab(goal_handle);
+            } catch (const std::exception& e) {
+                RCLCPP_ERROR(this->get_logger(), "executeGrab threw: %s", e.what());
+                auto result = std::make_shared<GrabTip::Result>();
+                result->success = false;
+                result->error_code = 5;
+                goal_handle->abort(result);
+                releaseExecution();
+            } catch (...) {
+                RCLCPP_ERROR(this->get_logger(), "executeGrab threw unknown exception");
+                auto result = std::make_shared<GrabTip::Result>();
+                result->success = false;
+                result->error_code = 5;
+                goal_handle->abort(result);
+                releaseExecution();
+            }
+        });
+    } catch (const std::exception& e) {
+        releaseExecution();
+        RCLCPP_ERROR(this->get_logger(), "failed to start grab execution thread: %s", e.what());
+        auto result = std::make_shared<GrabTip::Result>();
+        result->success = false;
+        result->error_code = 5;
+        goal_handle->abort(result);
+    }
 }
 
 void MechanismLifecycleServer::executeGrab(const std::shared_ptr<GoalHandleGrabTip>& goal_handle) {
+    auto execution_guard = ScopeExit([this]() { releaseExecution(); });
     std::unique_lock<std::mutex> exec_lock(execution_mutex_);
-    cancel_requested_.store(false, std::memory_order_relaxed);
 
     auto result = std::make_shared<GrabTip::Result>();
     auto feedback = std::make_shared<GrabTip::Feedback>();
@@ -293,11 +481,13 @@ void MechanismLifecycleServer::executeGrab(const std::shared_ptr<GoalHandleGrabT
     result->error_code = 0;
 
     const auto goal = goal_handle->get_goal();
-    if (!hal_ || !hal_->isOpen() || !goal) {
+    if (!active_.load(std::memory_order_relaxed) || !hal_ || !hal_->isOpen() || !goal) {
         result->error_code = 1;
         goal_handle->abort(result);
         return;
     }
+
+    cancel_requested_.store(false, std::memory_order_relaxed);
 
     {
         std::lock_guard<std::mutex> lock(sm_mutex_);
@@ -376,8 +566,11 @@ void MechanismLifecycleServer::executeGrab(const std::shared_ptr<GoalHandleGrabT
 rclcpp_action::GoalResponse MechanismLifecycleServer::handleAssembleGoal(
     const rclcpp_action::GoalUUID& uuid, std::shared_ptr<const AssembleWeapon::Goal> goal) {
     (void)uuid;
-    (void)goal;
-    if (!active_.load(std::memory_order_relaxed) || !hal_ || !hal_->isOpen()) {
+    if (!active_.load(std::memory_order_relaxed) || !hal_ || !hal_->isOpen() || !goal) {
+        return rclcpp_action::GoalResponse::REJECT;
+    }
+    if (!tryReserveExecution()) {
+        RCLCPP_WARN(this->get_logger(), "reject assemble goal while another mechanism action is running");
         return rclcpp_action::GoalResponse::REJECT;
     }
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
@@ -397,23 +590,52 @@ rclcpp_action::CancelResponse MechanismLifecycleServer::handleAssembleCancel(
 }
 
 void MechanismLifecycleServer::handleAssembleAccepted(const std::shared_ptr<GoalHandleAssemble>& goal_handle) {
-    std::thread([this, goal_handle]() { executeAssemble(goal_handle); }).detach();
+    try {
+        launchExecutionThread([this, goal_handle]() {
+            try {
+                executeAssemble(goal_handle);
+            } catch (const std::exception& e) {
+                RCLCPP_ERROR(this->get_logger(), "executeAssemble threw: %s", e.what());
+                auto result = std::make_shared<AssembleWeapon::Result>();
+                result->success = false;
+                result->error_code = 5;
+                goal_handle->abort(result);
+                releaseExecution();
+            } catch (...) {
+                RCLCPP_ERROR(this->get_logger(), "executeAssemble threw unknown exception");
+                auto result = std::make_shared<AssembleWeapon::Result>();
+                result->success = false;
+                result->error_code = 5;
+                goal_handle->abort(result);
+                releaseExecution();
+            }
+        });
+    } catch (const std::exception& e) {
+        releaseExecution();
+        RCLCPP_ERROR(this->get_logger(), "failed to start assemble execution thread: %s", e.what());
+        auto result = std::make_shared<AssembleWeapon::Result>();
+        result->success = false;
+        result->error_code = 5;
+        goal_handle->abort(result);
+    }
 }
 
 void MechanismLifecycleServer::executeAssemble(const std::shared_ptr<GoalHandleAssemble>& goal_handle) {
+    auto execution_guard = ScopeExit([this]() { releaseExecution(); });
     std::unique_lock<std::mutex> exec_lock(execution_mutex_);
-    cancel_requested_.store(false, std::memory_order_relaxed);
 
     auto result = std::make_shared<AssembleWeapon::Result>();
     auto feedback = std::make_shared<AssembleWeapon::Feedback>();
     result->success = false;
     result->error_code = 0;
 
-    if (!hal_ || !hal_->isOpen()) {
+    if (!active_.load(std::memory_order_relaxed) || !hal_ || !hal_->isOpen()) {
         result->error_code = 1;
         goal_handle->abort(result);
         return;
     }
+
+    cancel_requested_.store(false, std::memory_order_relaxed);
 
     {
         std::lock_guard<std::mutex> lock(sm_mutex_);
@@ -489,6 +711,10 @@ rclcpp_action::GoalResponse MechanismLifecycleServer::handlePlaceGoal(
         goal->layer == 0) {
         return rclcpp_action::GoalResponse::REJECT;
     }
+    if (!tryReserveExecution()) {
+        RCLCPP_WARN(this->get_logger(), "reject place goal while another mechanism action is running");
+        return rclcpp_action::GoalResponse::REJECT;
+    }
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
 }
 
@@ -506,12 +732,39 @@ rclcpp_action::CancelResponse MechanismLifecycleServer::handlePlaceCancel(
 }
 
 void MechanismLifecycleServer::handlePlaceAccepted(const std::shared_ptr<GoalHandlePlace>& goal_handle) {
-    std::thread([this, goal_handle]() { executePlace(goal_handle); }).detach();
+    try {
+        launchExecutionThread([this, goal_handle]() {
+            try {
+                executePlace(goal_handle);
+            } catch (const std::exception& e) {
+                RCLCPP_ERROR(this->get_logger(), "executePlace threw: %s", e.what());
+                auto result = std::make_shared<PlaceKFSGrid::Result>();
+                result->success = false;
+                result->error_code = 5;
+                goal_handle->abort(result);
+                releaseExecution();
+            } catch (...) {
+                RCLCPP_ERROR(this->get_logger(), "executePlace threw unknown exception");
+                auto result = std::make_shared<PlaceKFSGrid::Result>();
+                result->success = false;
+                result->error_code = 5;
+                goal_handle->abort(result);
+                releaseExecution();
+            }
+        });
+    } catch (const std::exception& e) {
+        releaseExecution();
+        RCLCPP_ERROR(this->get_logger(), "failed to start place execution thread: %s", e.what());
+        auto result = std::make_shared<PlaceKFSGrid::Result>();
+        result->success = false;
+        result->error_code = 5;
+        goal_handle->abort(result);
+    }
 }
 
 void MechanismLifecycleServer::executePlace(const std::shared_ptr<GoalHandlePlace>& goal_handle) {
+    auto execution_guard = ScopeExit([this]() { releaseExecution(); });
     std::unique_lock<std::mutex> exec_lock(execution_mutex_);
-    cancel_requested_.store(false, std::memory_order_relaxed);
 
     auto result = std::make_shared<PlaceKFSGrid::Result>();
     auto feedback = std::make_shared<PlaceKFSGrid::Feedback>();
@@ -519,11 +772,13 @@ void MechanismLifecycleServer::executePlace(const std::shared_ptr<GoalHandlePlac
     result->error_code = 0;
 
     const auto goal = goal_handle->get_goal();
-    if (!hal_ || !hal_->isOpen() || !goal || goal->layer == 0) {
+    if (!active_.load(std::memory_order_relaxed) || !hal_ || !hal_->isOpen() || !goal || goal->layer == 0) {
         result->error_code = 1;
         goal_handle->abort(result);
         return;
     }
+
+    cancel_requested_.store(false, std::memory_order_relaxed);
 
     feedback->state = 1;
     goal_handle->publish_feedback(feedback);
@@ -576,6 +831,10 @@ rclcpp_action::GoalResponse MechanismLifecycleServer::handleExecuteGoal(
         !isCommandSupported(goal->command_id)) {
         return rclcpp_action::GoalResponse::REJECT;
     }
+    if (!tryReserveExecution()) {
+        RCLCPP_WARN(this->get_logger(), "reject execute goal while another mechanism action is running");
+        return rclcpp_action::GoalResponse::REJECT;
+    }
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
 }
 
@@ -593,12 +852,39 @@ rclcpp_action::CancelResponse MechanismLifecycleServer::handleExecuteCancel(
 }
 
 void MechanismLifecycleServer::handleExecuteAccepted(const std::shared_ptr<GoalHandleExecute>& goal_handle) {
-    std::thread([this, goal_handle]() { executeCommand(goal_handle); }).detach();
+    try {
+        launchExecutionThread([this, goal_handle]() {
+            try {
+                executeCommand(goal_handle);
+            } catch (const std::exception& e) {
+                RCLCPP_ERROR(this->get_logger(), "executeCommand threw: %s", e.what());
+                auto result = std::make_shared<ExecuteMechanism::Result>();
+                result->success = false;
+                result->error_code = 5;
+                goal_handle->abort(result);
+                releaseExecution();
+            } catch (...) {
+                RCLCPP_ERROR(this->get_logger(), "executeCommand threw unknown exception");
+                auto result = std::make_shared<ExecuteMechanism::Result>();
+                result->success = false;
+                result->error_code = 5;
+                goal_handle->abort(result);
+                releaseExecution();
+            }
+        });
+    } catch (const std::exception& e) {
+        releaseExecution();
+        RCLCPP_ERROR(this->get_logger(), "failed to start execute thread: %s", e.what());
+        auto result = std::make_shared<ExecuteMechanism::Result>();
+        result->success = false;
+        result->error_code = 5;
+        goal_handle->abort(result);
+    }
 }
 
 void MechanismLifecycleServer::executeCommand(const std::shared_ptr<GoalHandleExecute>& goal_handle) {
+    auto execution_guard = ScopeExit([this]() { releaseExecution(); });
     std::unique_lock<std::mutex> exec_lock(execution_mutex_);
-    cancel_requested_.store(false, std::memory_order_relaxed);
 
     auto result = std::make_shared<ExecuteMechanism::Result>();
     auto feedback = std::make_shared<ExecuteMechanism::Feedback>();
@@ -606,11 +892,14 @@ void MechanismLifecycleServer::executeCommand(const std::shared_ptr<GoalHandleEx
     result->error_code = 0;
 
     const auto goal = goal_handle->get_goal();
-    if (!hal_ || !hal_->isOpen() || !goal || !isCommandSupported(goal->command_id)) {
+    if (!active_.load(std::memory_order_relaxed) || !hal_ || !hal_->isOpen() || !goal ||
+        !isCommandSupported(goal->command_id)) {
         result->error_code = 1;
         goal_handle->abort(result);
         return;
     }
+
+    cancel_requested_.store(false, std::memory_order_relaxed);
 
     feedback->state = 1;
     goal_handle->publish_feedback(feedback);
@@ -789,24 +1078,45 @@ CommandResult MechanismLifecycleServer::executeWithContext(uint8_t cmd_id, const
     auto execute_once = [&]() {
         CommandResult command_result{};
         uint8_t out_seq = 0;
-        if (!hal_->sendCommand(cmd_id, payload, out_seq)) {
+        auto context = std::make_shared<CommandContext>();
+        context->cmd_id = cmd_id;
+        context->timeout = timeout;
+        auto future = context->result_promise.get_future();
+
+        const bool send_ok = hal_->sendCommand(cmd_id, payload, out_seq);
+        context->seq = out_seq;
+        context->start = std::chrono::steady_clock::now();
+
+        bool result_ready = false;
+        {
+            std::lock_guard<std::mutex> lock(feedback_mutex_);
+            pruneBufferedFeedbacksLocked(std::chrono::steady_clock::now());
+            if (const auto buffered_result = takeBufferedCommandResultLocked(out_seq, cmd_id)) {
+                command_result = *buffered_result;
+                result_ready = true;
+                if (!context->fulfilled.exchange(true, std::memory_order_relaxed)) {
+                    try {
+                        context->result_promise.set_value(command_result);
+                    } catch (const std::future_error&) {
+                    }
+                }
+            } else if (send_ok) {
+                pending_contexts_[out_seq] = context;
+            }
+        }
+
+        if (!send_ok) {
+            if (result_ready) {
+                return command_result;
+            }
             command_result.error_code = 3;
             return command_result;
         }
 
-        auto context = std::make_shared<CommandContext>();
-        context->seq = out_seq;
-        context->cmd_id = cmd_id;
-        context->start = std::chrono::steady_clock::now();
-        context->timeout = timeout;
-        auto future = context->result_promise.get_future();
-
-        {
-            std::lock_guard<std::mutex> lock(feedback_mutex_);
-            pending_contexts_[out_seq] = context;
+        if (result_ready) {
+            return command_result;
         }
 
-        bool result_ready = false;
         auto next_keep_alive = std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
         const auto deadline = context->start + timeout;
         while (std::chrono::steady_clock::now() < deadline) {
@@ -886,18 +1196,35 @@ void MechanismLifecycleServer::onSerialFeedback(uint8_t seq, uint8_t fb_id,
     using FID = rc26_serial::FeedbackID;
 
     std::lock_guard<std::mutex> lock(feedback_mutex_);
+    pruneBufferedFeedbacksLocked(std::chrono::steady_clock::now());
     auto pending_it = pending_contexts_.find(seq);
     if (pending_it != pending_contexts_.end()) {
         auto context = pending_it->second;
-        if (fb_id == static_cast<uint8_t>(FID::ACTION_FAIL)) {
+        if (fb_id == static_cast<uint8_t>(FID::ACTION_FAIL) || fb_id == static_cast<uint8_t>(FID::ERROR)) {
             CommandResult command_result{};
             command_result.success = false;
-            command_result.error_code = (payload.size() >= 2) ? payload[1] : 0xFF;
+            command_result.error_code = (fb_id == static_cast<uint8_t>(FID::ACTION_FAIL) && payload.size() >= 2U)
+                                            ? payload[1]
+                                            : 0xFFU;
+            last_error_code_.store(command_result.error_code, std::memory_order_relaxed);
             if (!context->fulfilled.exchange(true, std::memory_order_relaxed)) {
                 try {
                     context->result_promise.set_value(command_result);
                 } catch (const std::future_error&) {
                 }
+            }
+            if (fb_id == static_cast<uint8_t>(FID::ACTION_FAIL)) {
+                if (payload.size() >= 2U) {
+                    RCLCPP_WARN(this->get_logger(), "ACTION_FAIL: seq=0x%02X cmd=0x%02X err=0x%02X", seq,
+                                payload[0], payload[1]);
+                } else if (payload.size() == 1U) {
+                    RCLCPP_WARN(this->get_logger(), "ACTION_FAIL: seq=0x%02X cmd=0x%02X (no error_code)", seq,
+                                payload[0]);
+                } else {
+                    RCLCPP_ERROR(this->get_logger(), "ACTION_FAIL: seq=0x%02X empty payload", seq);
+                }
+            } else {
+                RCLCPP_ERROR(this->get_logger(), "mechanism ERROR feedback: seq=0x%02X", seq);
             }
             pending_contexts_.erase(pending_it);
             feedback_cv_.notify_all();
@@ -915,6 +1242,26 @@ void MechanismLifecycleServer::onSerialFeedback(uint8_t seq, uint8_t fb_id,
             feedback_cv_.notify_all();
             return;
         }
+    }
+
+    if (isTerminalOrFailureFeedback(fb_id)) {
+        buffered_feedbacks_[seq] = BufferedFeedback{fb_id, payload, std::chrono::steady_clock::now()};
+        if (fb_id == static_cast<uint8_t>(FID::ACTION_FAIL)) {
+            if (payload.size() >= 2U) {
+                last_error_code_.store(payload[1], std::memory_order_relaxed);
+                RCLCPP_WARN(this->get_logger(),
+                            "buffered early ACTION_FAIL: seq=0x%02X cmd=0x%02X err=0x%02X", seq, payload[0],
+                            payload[1]);
+            } else {
+                last_error_code_.store(0xFFU, std::memory_order_relaxed);
+                RCLCPP_WARN(this->get_logger(), "buffered early ACTION_FAIL without full payload: seq=0x%02X", seq);
+            }
+        } else if (fb_id == static_cast<uint8_t>(FID::ERROR)) {
+            last_error_code_.store(0xFFU, std::memory_order_relaxed);
+            RCLCPP_ERROR(this->get_logger(), "buffered early ERROR feedback: seq=0x%02X", seq);
+        }
+        feedback_cv_.notify_all();
+        return;
     }
 
     switch (static_cast<FID>(fb_id)) {
@@ -1002,6 +1349,7 @@ void MechanismLifecycleServer::drainPendingContexts() {
         }
     }
     pending_contexts_.clear();
+    buffered_feedbacks_.clear();
 }
 
 void MechanismLifecycleServer::publishMechanismState() {
