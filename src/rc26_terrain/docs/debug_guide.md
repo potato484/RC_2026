@@ -1,4 +1,4 @@
-# rc26_terrain 模块调试指南
+# rc26_terrain 调试指南
 
 本文档提供 `rc26_terrain` 模块（地形感知与语义分割）的详细调试步骤。主要目标是验证点云数据输入、地形高度估计、障碍物检测、悬崖/坑洼检测以及速度限制发布等功能是否正常运行。
 
@@ -164,3 +164,9 @@ ros2 topic pub -r 10 /terrain_speed_limit std_msgs/msg/Float32 "{data: 0.2}"
    - **Map / OccupancyGrid**: 订阅 `/terrain_obstacles` 查看障碍物栅格。
    - **Map / OccupancyGrid**: 订阅 `/terrain_drop` 查看悬崖/坑洼栅格。
    - 设置 `Fixed Frame` 为 `base_link` 或是您的全局基准坐标系。
+
+## 10. 常见问题排查
+
+- **节点运行但无障碍物或悬崖输出**：优先检查点云输入话题、TF 变换和 Bag 回放时间是否正常；若输入存在但输出为空，重点核对地形阈值是否设置过严。
+- **障碍物/坑洼误检较多**：建议结合离线 Bag 回放逐步调节坡度、粗糙度和高度差阈值，并观察 `/terrain_obstacles` 与 `/terrain_drop` 是否只在真实风险区域稳定出现。
+- **`/terrain_speed_limit` 长时间过低或不恢复**：检查是否持续存在高风险地形输入，以及 `terrain_speed_limit_timeout_ms` 是否配置正确；联调时还需确认下游 `rc26_merge_odom` 是否按预期消费该限速话题。
