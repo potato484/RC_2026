@@ -40,6 +40,32 @@ void fuseDimension(double mean_can, double mean_wheel, double w_can, double w_wh
 }  // namespace
 
 WheelOdomFuser::WheelOdomFuser(rclcpp::Node& node, Config config) : node_(node), config_(std::move(config)) {
+    if (config_.publish_rate_hz <= 0) {
+        RCLCPP_WARN(node_.get_logger(), "wheel_odom_fuser publish_rate_hz=%d invalid, fallback to 1",
+                    config_.publish_rate_hz);
+        config_.publish_rate_hz = 1;
+    }
+    config_.data_timeout_ms = std::max(0.0, config_.data_timeout_ms);
+    config_.omega_sigma_rps = std::max(config_.omega_sigma_rps, kEpsilon);
+    config_.chi2_threshold_dof3 = std::max(config_.chi2_threshold_dof3, kEpsilon);
+    config_.outlier_penalty = std::clamp(config_.outlier_penalty, 0.0, 1.0);
+    config_.recovery_tau_s = std::max(config_.recovery_tau_s, kEpsilon);
+    if (config_.can_odom_topic.empty()) {
+        config_.can_odom_topic = Config{}.can_odom_topic;
+    }
+    if (config_.wheel_odom_topic.empty()) {
+        config_.wheel_odom_topic = Config{}.wheel_odom_topic;
+    }
+    if (config_.imu_topic.empty()) {
+        config_.imu_topic = Config{}.imu_topic;
+    }
+    if (config_.fused_odom_topic.empty()) {
+        config_.fused_odom_topic = Config{}.fused_odom_topic;
+    }
+    if (config_.health_topic.empty()) {
+        config_.health_topic = Config{}.health_topic;
+    }
+
     fused_pub_ = node_.create_publisher<nav_msgs::msg::Odometry>(config_.fused_odom_topic, 10);
     health_pub_ = node_.create_publisher<diagnostic_msgs::msg::DiagnosticArray>(config_.health_topic, 10);
 
@@ -50,7 +76,7 @@ WheelOdomFuser::WheelOdomFuser(rclcpp::Node& node, Config config) : node_(node),
     imu_sub_ = node_.create_subscription<sensor_msgs::msg::Imu>(
         config_.imu_topic, 50, std::bind(&WheelOdomFuser::imuCallback, this, std::placeholders::_1));
 
-    const int publish_rate_hz = std::max(config_.publish_rate_hz, 1);
+    const int publish_rate_hz = config_.publish_rate_hz;
     const auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::duration<double>(1.0 / static_cast<double>(publish_rate_hz)));
     timer_ = node_.create_wall_timer(period, std::bind(&WheelOdomFuser::onPublishTimer, this));
@@ -59,6 +85,12 @@ WheelOdomFuser::WheelOdomFuser(rclcpp::Node& node, Config config) : node_(node),
                 "WheelOdomFuser 启动: can=%s, wheel=%s, imu=%s, fused=%s, health=%s, rate=%dHz, timeout=%.1fms",
                 config_.can_odom_topic.c_str(), config_.wheel_odom_topic.c_str(), config_.imu_topic.c_str(),
                 config_.fused_odom_topic.c_str(), config_.health_topic.c_str(), publish_rate_hz, config_.data_timeout_ms);
+}
+
+WheelOdomFuser::~WheelOdomFuser() {
+    if (timer_) {
+        timer_->cancel();
+    }
 }
 
 void WheelOdomFuser::canOdomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {

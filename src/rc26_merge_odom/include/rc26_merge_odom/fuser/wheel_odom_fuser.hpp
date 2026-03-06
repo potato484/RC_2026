@@ -32,6 +32,7 @@ public:
     };
 
     WheelOdomFuser(rclcpp::Node& node, Config config);
+    ~WheelOdomFuser();
 
     WheelOdomFuser(const WheelOdomFuser&) = delete;
     WheelOdomFuser& operator=(const WheelOdomFuser&) = delete;

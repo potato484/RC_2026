@@ -42,8 +42,14 @@ private:
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<WheelOdomFuserNode>();
-    rclcpp::spin(node);
+    int exit_code = 0;
+    try {
+        auto node = std::make_shared<WheelOdomFuserNode>();
+        rclcpp::spin(node);
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR(rclcpp::get_logger("wheel_odom_fuser_node"), "Exception: %s", e.what());
+        exit_code = 1;
+    }
     rclcpp::shutdown();
-    return 0;
+    return exit_code;
 }
