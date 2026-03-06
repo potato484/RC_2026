@@ -40,6 +40,9 @@ private:
     };
 
     void onOdom(const nav_msgs::msg::Odometry::ConstSharedPtr& msg);
+    void sanitizeParameters();
+    bool isNearLevelPlane(const Sample& sample) const;
+    double computeWindowZDotMps() const;
     bool resolveBasePose(const nav_msgs::msg::Odometry& msg, geometry_msgs::msg::PoseStamped& out_pose);
     bool updateStabilityWindow(const Sample& sample);
     void updateLiftedState(const Sample& sample);
@@ -61,7 +64,7 @@ private:
     double tol_pitch_abs_rad_{0.15};
     double tol_roll_abs_rad_{0.15};
     double tol_z_dot_mps_{0.03};
-    double t_confirm_{0.3};
+    double t_confirm_{0.4};
     double tf_timeout_sec_{0.05};
     bool enable_tf_publish_{true};
 
