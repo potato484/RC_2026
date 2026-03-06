@@ -6,9 +6,9 @@
 
 ```bash
 # 确保已编译并 source 环境
-cd ~/RC_2026
-colcon build --symlink-install
-source install/setup.bash
+cd "${RC26_WS:-$HOME/RC_2026}"
+colcon build --symlink-install --parallel-workers 3 --cmake-args -DCMAKE_BUILD_TYPE=Release
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
 ---
@@ -64,7 +64,7 @@ ros2 run tf2_ros tf2_echo base_link laser_link
 ```bash
 # 启动测试 (指定先验点云)
 ros2 launch rc26_bringup test_localization.launch.py \
-    prior_pcd_file:=/path/to/prior.pcd
+    prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/pcd/default.pcd
 
 # 验证 TF 发布 (map -> odom)
 ros2 run tf2_ros tf2_echo map odom

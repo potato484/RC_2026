@@ -7,20 +7,20 @@
 首先，我们需要限定编译核心数并单独编译全向控制器模块，以验证代码的正确性：
 
 ```bash
-cd /home/potato/RC_2026
-colcon build --parallel-workers 1 --packages-select rc26_omni_controller
+cd "${RC26_WS:-$HOME/RC_2026}"
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_omni_controller --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
 如果涉及启动文件或配置文件的修改，建议同时编译 `rc26_bringup`：
 
 ```bash
-colcon build --parallel-workers 1 --packages-select rc26_omni_controller rc26_bringup
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_omni_controller rc26_bringup --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
 编译完成后，刷新环境变量：
 
 ```bash
-source /home/potato/RC_2026/install/setup.bash
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
 ## 2. 启动控制器与仿真测试环境

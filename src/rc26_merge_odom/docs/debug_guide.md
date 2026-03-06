@@ -7,9 +7,9 @@
 在开始任何功能测试前，首先确保代码最新并编译通过。
 
 ```bash
-cd /home/potato/RC_2026
-colcon build --parallel-workers 1 --packages-select rc26_merge_odom
-source install/setup.bash
+cd "${RC26_WS:-$HOME/RC_2026}"
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_merge_odom --cmake-args -DCMAKE_BUILD_TYPE=Release
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
 ## 2. 工程基线与参数调试 (P0)

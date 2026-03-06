@@ -7,9 +7,9 @@
 首先，确保工作空间已经正确编译：
 
 ```bash
-cd ~/RC_2026
-colcon build --parallel-workers 1 --packages-select rc26_interfaces rc26_serial rc26_mechanism
-source install/setup.bash
+cd "${RC26_WS:-$HOME/RC_2026}"
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_interfaces rc26_serial rc26_mechanism --cmake-args -DCMAKE_BUILD_TYPE=Release
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
 ## 2. 启动机制节点

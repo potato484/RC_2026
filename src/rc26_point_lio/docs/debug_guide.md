@@ -8,13 +8,13 @@
 
 ```bash
 # 编译 Point-LIO 及其下游核心节点
-colcon build --parallel-workers 1 --packages-select rc26_point_lio rc26_odom_interface rc26_sensor_scan rc26_lio_state_predictor rc26_bringup
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_point_lio rc26_odom_interface rc26_sensor_scan rc26_lio_state_predictor rc26_bringup --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
 确保 source 环境：
 
 ```bash
-source install/setup.bash
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
 ## 2. 基础功能测试（回放数据包）

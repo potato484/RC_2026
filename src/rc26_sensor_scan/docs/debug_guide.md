@@ -7,9 +7,9 @@
 首先需要编译对应的模块，使用以下命令限制编译核心以防系统卡顿：
 
 ```bash
-cd ~/RC_2026
-colcon build --parallel-workers 1 --packages-select rc26_sensor_scan rc26_bringup
-source install/setup.bash
+cd "${RC26_WS:-$HOME/RC_2026}"
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_sensor_scan rc26_bringup --cmake-args -DCMAKE_BUILD_TYPE=Release
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
 ## 2. 启动节点

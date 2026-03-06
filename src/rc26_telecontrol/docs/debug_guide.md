@@ -7,9 +7,9 @@
 首先，在工作空间根目录下进行编译。为了限制编译资源消耗并单独编译该模块，请使用以下命令：
 
 ```bash
-cd ~/RC_2026
-colcon build --parallel-workers 1 --packages-select rc26_telecontrol
-source install/setup.bash
+cd "${RC26_WS:-$HOME/RC_2026}"
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_telecontrol --cmake-args -DCMAKE_BUILD_TYPE=Release
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
 ## 2. 基础功能测试

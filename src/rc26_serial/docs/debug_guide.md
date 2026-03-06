@@ -8,12 +8,12 @@
 
 ### 1.1 独立编译
 ```bash
-colcon build --parallel-workers 1 --packages-select rc26_serial
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_serial --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
 ### 1.2 联合编译（含依赖模块）
 ```bash
-colcon build --parallel-workers 1 --packages-select rc26_merge_odom rc26_mechanism rc26_serial
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_merge_odom rc26_mechanism rc26_serial --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
 ### 1.3 运行单元测试
@@ -31,7 +31,7 @@ colcon test-result --all --verbose
 ### 2.1 启动机制节点
 此节点通常会初始化串口驱动并尝试连接下位机。
 ```bash
-source install/setup.bash
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ros2 run rc26_mechanism mechanism_node
 ```
 *注意：如果不带参数运行，默认可能使用 `/dev/ttyACM0` 或是配置文件中指定的端口。*
@@ -39,7 +39,7 @@ ros2 run rc26_mechanism mechanism_node
 ### 2.2 检查 ROS 2 话题
 打开新终端，检查是否能正常收到里程计（ODOM）数据。
 ```bash
-source install/setup.bash
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ros2 topic hz /odom
 ```
 **期望结果**：输出频率稳定在 100Hz 左右，说明底盘数据上报正常且串口接收无瓶颈。
@@ -78,7 +78,7 @@ ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.1}, angul
 
 ### 4.1 启动合并节点
 ```bash
-source install/setup.bash
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ros2 run rc26_merge_odom merge_odom_node
 ```
 

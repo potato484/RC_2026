@@ -7,8 +7,8 @@
 在进行测试前，请确保模块已正确编译。
 
 ```bash
-colcon build --parallel-workers 1 --packages-select rc26_lio_state_predictor
-source install/setup.bash
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_lio_state_predictor --cmake-args -DCMAKE_BUILD_TYPE=Release
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
 ## 2. 单元测试（离线 Bag 回放）

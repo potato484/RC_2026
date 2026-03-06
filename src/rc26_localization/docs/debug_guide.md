@@ -3,15 +3,15 @@
 ## 1. 编译模块
 在进行任何调试前，请确保模块已成功编译（由于 R2 算力平台限制，推荐限制编译核心数以防内存溢出）：
 ```bash
-cd ~/RC_2026
-colcon build --parallel-workers 1 --packages-select rc26_localization
+cd "${RC26_WS:-$HOME/RC_2026}"
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_localization --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
 ## 2. 启动定位节点
 通过 Launch 文件启动定位节点及其依赖的参数文件：
 ```bash
 # 刷新工作空间环境变量
-source install/setup.bash
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 
 # 启动定位节点（包含参数加载）
 ros2 launch rc26_bringup localization.launch.py

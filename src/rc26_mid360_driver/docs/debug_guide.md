@@ -7,9 +7,9 @@
 在工作空间根目录下，限制编译核心数以适应环境：
 
 ```bash
-cd /home/potato/RC_2026
-colcon build --parallel-workers 1 --packages-select rc26_mid360_driver
-source install/setup.bash
+cd "${RC26_WS:-$HOME/RC_2026}"
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_mid360_driver --cmake-args -DCMAKE_BUILD_TYPE=Release
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
 ## 2. 检查网络配置与系统参数
@@ -51,7 +51,7 @@ ros2 launch rc26_mid360_driver mid360_driver.launch.py
 
 ### 4.1 验证话题列表
 ```bash
-source /home/potato/RC_2026/install/setup.bash
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ros2 topic list
 ```
 期望看到 `/livox/lidar` 和 `/livox/imu` 话题。
