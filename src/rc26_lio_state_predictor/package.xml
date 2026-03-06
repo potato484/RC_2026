@@ -5,8 +5,10 @@
   <version>1.0.0</version>
   <description>Point-LIO 里程计控制前向预测节点</description>
   <maintainer email="dev@rc2026.com">RC2026</maintainer>
+  <maintainer email="2220362462@qq.com">DongXuan Chen</maintainer>
   <license>Apache-2.0</license>
 
+  <author email="2220362462@qq.com">DongXuan Chen</author>
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>

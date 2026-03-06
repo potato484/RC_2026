@@ -6,8 +6,10 @@
   <description>RC2026 融合里程计包：整合CAN轮式里程计、达妙IMU、EKF融合、位姿下传</description>
 
   <maintainer email="potato@potato.com">potato</maintainer>
+  <maintainer email="2220362462@qq.com">DongXuan Chen</maintainer>
   <license>MIT</license>
 
+  <author email="2220362462@qq.com">DongXuan Chen</author>
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>

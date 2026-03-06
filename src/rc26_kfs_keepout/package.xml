@@ -5,8 +5,10 @@
   <version>0.1.0</version>
   <description>KFS keepout fuser: converts MfKfsState to Nav2 KeepoutFilter OccupancyGrid</description>
   <maintainer email="dev@rc26.local">RC26 Team</maintainer>
+  <maintainer email="2220362462@qq.com">DongXuan Chen</maintainer>
   <license>Apache-2.0</license>
 
+  <author email="2220362462@qq.com">DongXuan Chen</author>
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>

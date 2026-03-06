@@ -5,8 +5,10 @@
   <version>0.1.0</version>
   <description>Terrain semantic segmentation for Nav2 (obstacles + drop hazards)</description>
   <maintainer email="dev@rc2026.com">RC2026</maintainer>
+  <maintainer email="2220362462@qq.com">DongXuan Chen</maintainer>
   <license>Apache-2.0</license>
 
+  <author email="2220362462@qq.com">DongXuan Chen</author>
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
