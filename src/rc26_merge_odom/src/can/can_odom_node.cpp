@@ -1,4 +1,6 @@
 // RC2026 CAN里程计独立节点
+#include <stdexcept>
+
 #include <rclcpp/rclcpp.hpp>
 
 #include "rc26_merge_odom/can/can_odom.hpp"
@@ -48,6 +50,9 @@ public:
         config.recovery_tau_s = this->get_parameter("recovery_tau_s").as_double();
 
         can_odom_ = std::make_unique<rc26_merge_odom::CanOdom>(*this, config);
+        if (!can_odom_->isReady()) {
+            throw std::runtime_error("CanOdom 初始化失败");
+        }
     }
 
 private:
@@ -56,8 +61,14 @@ private:
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<CanOdomNode>();
-    rclcpp::spin(node);
+    int exit_code = 0;
+    try {
+        auto node = std::make_shared<CanOdomNode>();
+        rclcpp::spin(node);
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR(rclcpp::get_logger("can_odom_node"), "Exception: %s", e.what());
+        exit_code = 1;
+    }
     rclcpp::shutdown();
-    return 0;
+    return exit_code;
 }

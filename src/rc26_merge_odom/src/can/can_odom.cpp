@@ -18,9 +18,33 @@ namespace rc26_merge_odom {
 
 namespace {
 constexpr double kEpsilon = 1e-6;
+constexpr double kMinCovariance = 1e-6;
 }
 
 CanOdom::CanOdom(rclcpp::Node& node, Config config) : node_(node), config_(std::move(config)) {
+    if (config_.publish_rate_hz <= 0) {
+        RCLCPP_WARN(node_.get_logger(), "can publish_rate_hz=%d invalid, fallback to 1", config_.publish_rate_hz);
+        config_.publish_rate_hz = 1;
+    }
+    if (!(config_.wheel_radius > kEpsilon)) {
+        RCLCPP_WARN(node_.get_logger(), "can wheel_radius=%.6f invalid, fallback to %.6f", config_.wheel_radius,
+                    Config{}.wheel_radius);
+        config_.wheel_radius = Config{}.wheel_radius;
+    }
+    if (!(config_.gear_ratio > kEpsilon)) {
+        RCLCPP_WARN(node_.get_logger(), "can gear_ratio=%.6f invalid, fallback to %.6f", config_.gear_ratio,
+                    Config{}.gear_ratio);
+        config_.gear_ratio = Config{}.gear_ratio;
+    }
+    config_.data_timeout_ms = std::max(0.0, config_.data_timeout_ms);
+    config_.slip_threshold = std::max(0.0, config_.slip_threshold);
+    config_.slip_k_acc = std::max(0.0, config_.slip_k_acc);
+    config_.cov_nominal_v = std::max(config_.cov_nominal_v, kMinCovariance);
+    config_.cov_nominal_wz = std::max(config_.cov_nominal_wz, kMinCovariance);
+    config_.cov_slip_v = std::max(config_.cov_slip_v, config_.cov_nominal_v);
+    config_.cov_slip_wz = std::max(config_.cov_slip_wz, config_.cov_nominal_wz);
+    config_.recovery_tau_s = std::max(config_.recovery_tau_s, kEpsilon);
+
     rpm_to_wheel_speed_factor_ = 2.0 * M_PI * config_.wheel_radius / (60.0 * config_.gear_ratio);
 
     odom_pub_ = node_.create_publisher<nav_msgs::msg::Odometry>(config_.odom_topic, 10);
@@ -34,15 +58,27 @@ CanOdom::CanOdom(rclcpp::Node& node, Config config) : node_(node), config_(std::
 
     if (!initCan()) {
         RCLCPP_ERROR(node_.get_logger(), "CAN 接口初始化失败: %s", config_.can_interface.c_str());
+        closeCan();
         return;
     }
 
-    running_ = true;
-    can_thread_ = std::thread(&CanOdom::canThreadFunc, this);
+    try {
+        running_ = true;
+        can_thread_ = std::thread(&CanOdom::canThreadFunc, this);
 
-    auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
-        std::chrono::duration<double>(1.0 / static_cast<double>(config_.publish_rate_hz)));
-    publish_timer_ = node_.create_wall_timer(period, std::bind(&CanOdom::publishOdometry, this));
+        auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::duration<double>(1.0 / static_cast<double>(config_.publish_rate_hz)));
+        publish_timer_ = node_.create_wall_timer(period, std::bind(&CanOdom::publishOdometry, this));
+    } catch (...) {
+        running_ = false;
+        if (can_thread_.joinable()) {
+            can_thread_.join();
+        }
+        closeCan();
+        throw;
+    }
+
+    ready_.store(true, std::memory_order_release);
 
     RCLCPP_INFO(node_.get_logger(), "CAN 里程计启动: interface=%s, odom_topic=%s, imu=%s, rate=%d Hz, slip=%s",
                 config_.can_interface.c_str(), config_.odom_topic.c_str(), config_.imu_topic.c_str(),
@@ -50,6 +86,10 @@ CanOdom::CanOdom(rclcpp::Node& node, Config config) : node_(node), config_(std::
 }
 
 CanOdom::~CanOdom() {
+    ready_.store(false, std::memory_order_release);
+    if (publish_timer_) {
+        publish_timer_->cancel();
+    }
     running_ = false;
     if (can_thread_.joinable()) {
         can_thread_.join();
@@ -64,7 +104,7 @@ bool CanOdom::initCan() {
         return false;
     }
 
-    struct ifreq ifr;
+    struct ifreq ifr {};
     std::strncpy(ifr.ifr_name, config_.can_interface.c_str(), IFNAMSIZ - 1);
     ifr.ifr_name[IFNAMSIZ - 1] = '\0';
 
@@ -93,13 +133,17 @@ bool CanOdom::initCan() {
         filters[i].can_id = CAN_BASE_ID + i + 1;
         filters[i].can_mask = CAN_SFF_MASK;
     }
-    setsockopt(can_socket_, SOL_CAN_RAW, CAN_RAW_FILTER, &filters, sizeof(filters));
+    if (setsockopt(can_socket_, SOL_CAN_RAW, CAN_RAW_FILTER, &filters, sizeof(filters)) < 0) {
+        RCLCPP_WARN(node_.get_logger(), "设置 CAN 过滤器失败: %s", strerror(errno));
+    }
 
     // 设置接收超时
     struct timeval tv;
     tv.tv_sec = 0;
     tv.tv_usec = 50000;
-    setsockopt(can_socket_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    if (setsockopt(can_socket_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+        RCLCPP_WARN(node_.get_logger(), "设置 CAN 接收超时失败: %s", strerror(errno));
+    }
 
     return true;
 }
@@ -189,10 +233,10 @@ void CanOdom::publishOdometry() {
     }
 
     std::array<int16_t, WHEEL_COUNT> rpm_values;
+    const auto timeout_duration = std::chrono::duration<double, std::milli>(config_.data_timeout_ms);
     bool data_valid = true;
     {
         std::lock_guard<std::mutex> lock(feedback_mutex_);
-        auto timeout_duration = std::chrono::duration<double, std::milli>(config_.data_timeout_ms);
         for (int i = 0; i < WHEEL_COUNT; ++i) {
             if (now - motor_feedback_[i].last_update > timeout_duration) {
                 data_valid = false;
@@ -229,9 +273,10 @@ void CanOdom::publishOdometry() {
         std::lock_guard<std::mutex> lock(imu_mutex_);
         imu_snapshot = imu_snapshot_;
     }
+    const bool imu_fresh = imu_snapshot.valid && (now - imu_snapshot.stamp <= timeout_duration);
 
     double slip_score = 0.0;
-    if (config_.slip_enable && imu_snapshot.valid) {
+    if (config_.slip_enable && imu_fresh) {
         const double imu_acc_xy = std::hypot(imu_snapshot.ax, imu_snapshot.ay);
         const double omega_diff = std::fabs(imu_snapshot.gz - omega);
         const double acc_mismatch = std::fabs(imu_acc_xy - wheel_acc_xy) / (std::fabs(imu_acc_xy) + kEpsilon);

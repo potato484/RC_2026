@@ -69,6 +69,8 @@ public:
     CanOdom(const CanOdom&) = delete;
     CanOdom& operator=(const CanOdom&) = delete;
 
+    bool isReady() const noexcept { return ready_.load(std::memory_order_acquire); }
+
     void getPose(double& x, double& y, double& yaw) const;
     void getVelocity(double& vx, double& vy, double& omega) const;
     void reset();
@@ -103,6 +105,7 @@ private:
     std::chrono::steady_clock::time_point last_update_time_;
 
     std::atomic<bool> running_{false};
+    std::atomic<bool> ready_{false};
     std::thread can_thread_;
     rclcpp::TimerBase::SharedPtr publish_timer_;
 
