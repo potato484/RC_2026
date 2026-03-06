@@ -19,6 +19,7 @@
 #include "std_msgs/msg/bool.hpp"
 #include "tf2/LinearMath/Matrix3x3.h"
 #include "tf2/LinearMath/Quaternion.h"
+#include "tf2/time.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "yaml-cpp/yaml.h"
 
@@ -397,6 +398,21 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     // 扇区角度归一化
     drop_forward_sector_deg_ = std::clamp(drop_forward_sector_deg_, 0.0, 360.0);
 
+    SafetyGuardConfig safety_config;
+    safety_config.cloud_timeout_sec = cloud_timeout_sec_;
+    safety_config.odom_timeout_sec = odom_timeout_sec_;
+    safety_config.startup_grace_sec = startup_grace_sec_;
+    safety_config.tf_health_timeout_sec = tf_health_timeout_sec_;
+    safety_config.enable_fail_safe = enable_fail_safe_;
+    safety_config.fail_safe_strategy = fail_safe_strategy_;
+    safety_config.latency_warn_ms = latency_warn_ms_;
+    safety_config.latency_error_ms = latency_error_ms_;
+    safety_config.latency_trigger_frames = latency_trigger_frames_;
+    safety_config.latency_recover_frames = latency_recover_frames_;
+    safety_config.latency_intervention_mode = latency_intervention_mode_;
+    safety_config.thermal_throttle_release_sec = thermal_throttle_release_sec_;
+    safety_guard_.configure(std::move(safety_config));
+
     // 构建 QoS（此处会校验字符串有效性）
     const auto cloud_qos = makeQoS(cloud_qos_depth_, cloud_qos_reliability_, cloud_qos_durability_);
     const auto odom_qos = makeQoS(odom_qos_depth_, odom_qos_reliability_, odom_qos_durability_);
@@ -406,6 +422,13 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
 
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
+    TfChainSpec tf_chain_spec;
+    tf_chain_spec.odom_frame = target_frame_;
+    tf_chain_spec.base_frame = base_frame_;
+    tf_chain_spec.sensor_frame = "livox_frame";
+    tf_chain_spec.forbidden_frame = std::string("laser_link");
+    tf_chain_spec.max_dynamic_age_sec = tf_health_timeout_sec_;
+    tf_chain_validator_ = std::make_unique<TfChainValidator>(std::move(tf_chain_spec));
 
     initGrid();
     if (mf_grid_layout_file_.empty()) {
@@ -507,139 +530,104 @@ void TerrainSemanticNode::odomCallback(const nav_msgs::msg::Odometry::ConstShare
     have_last_pose_ = true;
 }
 
-void TerrainSemanticNode::healthTimerCallback() {
-    const auto now = this->get_clock()->now();
-    const double since_start = (now - node_start_time_).seconds();
-    const bool in_grace = since_start < startup_grace_sec_;
+SafetyGuardInput TerrainSemanticNode::buildSafetyGuardInput(const rclcpp::Time& now) const {
+    SafetyGuardInput input;
+    input.since_start_sec = (now - node_start_time_).seconds();
+    input.received_cloud = received_cloud_;
+    input.cloud_age_sec = received_cloud_ ? (now - last_cloud_stamp_).seconds()
+                                          : std::numeric_limits<double>::infinity();
+    input.received_odom = received_odom_;
+    input.odom_age_sec = received_odom_ ? (now - last_odom_stamp_).seconds()
+                                        : std::numeric_limits<double>::infinity();
+    input.need_tf = received_cloud_ && input.cloud_age_sec <= cloud_timeout_sec_;
+    input.tf_age_sec = (last_good_tf_stamp_.nanoseconds() > 0)
+                          ? (now - last_good_tf_stamp_).seconds()
+                          : std::numeric_limits<double>::infinity();
+    input.latency_ms = last_latency_ms_;
+    input.thermal_throttle_requested = thermal_throttle_requested_;
+    input.thermal_throttle_last_true_age_sec =
+        (thermal_throttle_last_true_stamp_.nanoseconds() > 0)
+            ? (now - thermal_throttle_last_true_stamp_).seconds()
+            : std::numeric_limits<double>::infinity();
+    return input;
+}
 
-    const double cloud_age = received_cloud_ ? (now - last_cloud_stamp_).seconds()
-                                             : std::numeric_limits<double>::infinity();
-    const double odom_age = received_odom_ ? (now - last_odom_stamp_).seconds()
-                                           : std::numeric_limits<double>::infinity();
-    const double tf_age = (last_good_tf_stamp_.nanoseconds() > 0)
-                              ? (now - last_good_tf_stamp_).seconds()
-                              : std::numeric_limits<double>::infinity();
+void TerrainSemanticNode::syncSafetyGuardState(const SafetyGuardDecision& decision) {
+    fail_safe_active_ = decision.fail_safe_active;
+    fail_safe_reason_ = decision.fail_safe_reason;
+    latency_overrun_count_ = decision.latency_overrun_count;
+    latency_recover_count_ = decision.latency_recover_count;
+    latency_intervention_active_ = decision.latency_intervention_active;
+}
 
-    const bool cloud_ok = in_grace || (received_cloud_ && cloud_age <= cloud_timeout_sec_);
-    const bool odom_ok = in_grace || (received_odom_ && odom_age <= odom_timeout_sec_);
-
-    // 只有当点云仍在持续输入时，才强制要求近期 TF 成功过
-    const bool need_tf = (received_cloud_ && cloud_age <= cloud_timeout_sec_);
-    const bool tf_ok = !need_tf || (tf_age <= tf_health_timeout_sec_);
-
-    bool want_fail_safe = false;
-    std::string reason;
-    if (enable_fail_safe_ && fail_safe_strategy_ != "none" && !in_grace) {
-        if (!cloud_ok) {
-            want_fail_safe = true;
-            reason = "点云输入超时/中断";
-        } else if (!odom_ok) {
-            want_fail_safe = true;
-            reason = "里程计输入超时/中断";
-        } else if (!tf_ok) {
-            want_fail_safe = true;
-            reason = "TF 变换链异常/超时";
-        }
+TfValidationReport TerrainSemanticNode::validateTfChain(const rclcpp::Time& now) const {
+    if (!tf_chain_validator_ || !tf_buffer_) {
+        TfValidationReport report;
+        report.ok = false;
+        report.code = TfChainStatusCode::kInvalidSpecification;
+        report.message = "TF validator 未初始化";
+        return report;
     }
 
-    if (want_fail_safe && !fail_safe_active_) {
-        fail_safe_active_ = true;
-        fail_safe_reason_ = reason;
-        RCLCPP_ERROR(this->get_logger(), "进入降级保护模式: %s", fail_safe_reason_.c_str());
-    } else if (!want_fail_safe && fail_safe_active_) {
-        fail_safe_active_ = false;
-        fail_safe_reason_.clear();
+    const tf2::TimePoint reference_time = tf2::timeFromSec(now.seconds());
+    return tf_chain_validator_->validate(*tf_buffer_, tf2::TimePointZero, reference_time);
+}
+
+void TerrainSemanticNode::healthTimerCallback() {
+    const auto now = this->get_clock()->now();
+    const auto input = buildSafetyGuardInput(now);
+    const auto tf_report = validateTfChain(now);
+    last_tf_validation_ok_ = tf_report.ok;
+    last_tf_validation_code_ = tf_report.code;
+    last_tf_validation_message_ = tf_report.message;
+
+    const bool after_grace = input.since_start_sec >= startup_grace_sec_;
+    const bool force_tf_chain_fail_safe =
+        after_grace && !tf_report.ok &&
+        (input.need_tf ||
+         tf_report.code == TfChainStatusCode::kLegacyFrameDetected ||
+         tf_report.code == TfChainStatusCode::kUnexpectedStaticExtrinsic ||
+         tf_report.code == TfChainStatusCode::kInvalidSpecification);
+
+    if (tf_report.ok || !force_tf_chain_fail_safe) {
+        safety_guard_.clearForcedFailSafe("tf_chain");
+    } else {
+        safety_guard_.forceFailSafe("tf_chain", "TF 链路验证失败: " + tf_report.message);
+    }
+
+    const auto decision = safety_guard_.evaluate(input);
+    syncSafetyGuardState(decision);
+
+    if (decision.fail_safe_entered) {
+        RCLCPP_ERROR(this->get_logger(), "进入降级保护模式: %s", decision.fail_safe_reason.c_str());
+    } else if (decision.fail_safe_cleared) {
         RCLCPP_INFO(this->get_logger(), "退出降级保护模式");
     }
 
-    if (fail_safe_active_ && enable_fail_safe_ && fail_safe_strategy_ == "virtual_fence" && have_last_pose_) {
+    if (decision.latency_intervention_entered) {
+        if (decision.thermal_throttle_active) {
+            RCLCPP_ERROR(this->get_logger(),
+                "latency intervention activated by thermal throttle, overrun_count=%d",
+                decision.latency_overrun_count);
+        } else {
+            RCLCPP_ERROR(this->get_logger(),
+                "latency intervention activated, latency=%.2fms overrun_count=%d",
+                last_latency_ms_, decision.latency_overrun_count);
+        }
+    } else if (decision.latency_intervention_cleared) {
+        RCLCPP_INFO(this->get_logger(),
+            "latency intervention cleared, recover_count=%d", decision.latency_recover_count);
+    }
+
+    if (decision.required_intervention == SafetyIntervention::kVirtualFence && have_last_pose_) {
         publishVirtualFence(now, last_base_x_, last_base_y_, last_base_z_, last_cos_yaw_, last_sin_yaw_);
         publishSpeedLimitValue(now, 0.0f, true);
-    } else if (fail_safe_active_ && enable_fail_safe_) {
+    } else if (decision.required_intervention != SafetyIntervention::kNone) {
         publishEmergencyStop(now);
         publishSpeedLimitValue(now, 0.0f, true);
     }
 
-    bool thermal_throttle_active = thermal_throttle_requested_;
-    if (!thermal_throttle_active &&
-        thermal_throttle_last_true_stamp_.nanoseconds() > 0 &&
-        thermal_throttle_release_sec_ > 0.0) {
-        thermal_throttle_active =
-            (now - thermal_throttle_last_true_stamp_).seconds() <= thermal_throttle_release_sec_;
-    }
-
-    if (thermal_throttle_active) {
-        latency_overrun_count_ = std::max(latency_overrun_count_, latency_trigger_frames_);
-        latency_recover_count_ = 0;
-    } else if (std::isfinite(last_latency_ms_)) {
-        if (last_latency_ms_ > latency_error_ms_) {
-            latency_overrun_count_++;
-            latency_recover_count_ = 0;
-        } else if (last_latency_ms_ <= latency_warn_ms_) {
-            latency_recover_count_++;
-            latency_overrun_count_ = 0;
-        } else {
-            latency_overrun_count_ = 0;
-            latency_recover_count_ = 0;
-        }
-    } else {
-        latency_overrun_count_ = 0;
-        latency_recover_count_ = 0;
-    }
-
-    if (!latency_intervention_active_ &&
-        latency_intervention_mode_ != "none" &&
-        latency_overrun_count_ >= latency_trigger_frames_) {
-        latency_intervention_active_ = true;
-        if (thermal_throttle_active) {
-            RCLCPP_ERROR(this->get_logger(),
-                "latency intervention activated by thermal throttle, overrun_count=%d",
-                latency_overrun_count_);
-        } else {
-            RCLCPP_ERROR(this->get_logger(),
-                "latency intervention activated, latency=%.2fms overrun_count=%d",
-                last_latency_ms_, latency_overrun_count_);
-        }
-    }
-    if (latency_intervention_active_ &&
-        !thermal_throttle_active &&
-        latency_recover_count_ >= latency_recover_frames_) {
-        latency_intervention_active_ = false;
-        RCLCPP_INFO(this->get_logger(),
-            "latency intervention cleared, recover_count=%d", latency_recover_count_);
-    }
-    if (latency_intervention_active_) {
-        if (latency_intervention_mode_ == "virtual_fence" && have_last_pose_) {
-            publishVirtualFence(now, last_base_x_, last_base_y_, last_base_z_, last_cos_yaw_, last_sin_yaw_);
-        } else if (latency_intervention_mode_ != "none") {
-            publishEmergencyStop(now);
-        }
-        publishSpeedLimitValue(now, 0.0f, true);
-    }
-
-    int level = fail_safe_active_
-                    ? diagnostic_msgs::msg::DiagnosticStatus::ERROR
-                    : diagnostic_msgs::msg::DiagnosticStatus::OK;
-    std::string msg = fail_safe_active_ ? ("降级保护: " + fail_safe_reason_) : "正常";
-
-    if (std::isfinite(last_latency_ms_)) {
-        if (last_latency_ms_ > latency_error_ms_) {
-            level = std::max(level, static_cast<int>(diagnostic_msgs::msg::DiagnosticStatus::ERROR));
-            msg = fail_safe_active_ ? (msg + "; 处理延迟超限") : "处理延迟超限";
-        } else if (last_latency_ms_ > latency_warn_ms_) {
-            level = std::max(level, static_cast<int>(diagnostic_msgs::msg::DiagnosticStatus::WARN));
-            msg = fail_safe_active_ ? (msg + "; 处理延迟告警") : "处理延迟告警";
-        }
-    }
-    if (thermal_throttle_active) {
-        level = std::max(level, static_cast<int>(diagnostic_msgs::msg::DiagnosticStatus::ERROR));
-        msg = (msg == "正常") ? "热降频触发干预" : (msg + "; 热降频触发干预");
-    }
-    if (latency_intervention_active_) {
-        level = std::max(level, static_cast<int>(diagnostic_msgs::msg::DiagnosticStatus::ERROR));
-        msg = (msg == "正常") ? "延迟干预激活" : (msg + "; 延迟干预激活");
-    }
-    publishDiagnostics(now, level, msg);
+    publishDiagnostics(now, decision.diagnostic_level, decision.diagnostic_message);
 }
 
 void TerrainSemanticNode::publishVirtualFence(const rclcpp::Time& stamp, double base_x,
@@ -674,6 +662,9 @@ void TerrainSemanticNode::publishDiagnostics(const rclcpp::Time& stamp, int leve
                                              const std::string& message) const {
     if (!pub_diagnostics_) return;
 
+    const auto decision = safety_guard_.decision();
+    const auto stats = safety_guard_.stats();
+
     diagnostic_msgs::msg::DiagnosticStatus st;
     st.level = static_cast<uint8_t>(std::clamp(level, 0, 3));
     st.name = this->get_fully_qualified_name();
@@ -693,8 +684,8 @@ void TerrainSemanticNode::publishDiagnostics(const rclcpp::Time& stamp, int leve
     addKV("base_frame", base_frame_);
     addKV("received_cloud", received_cloud_ ? "true" : "false");
     addKV("received_odom", received_odom_ ? "true" : "false");
-    addKV("fail_safe_active", fail_safe_active_ ? "true" : "false");
-    addKV("fail_safe_reason", fail_safe_reason_);
+    addKV("fail_safe_active", decision.fail_safe_active ? "true" : "false");
+    addKV("fail_safe_reason", decision.fail_safe_reason);
     addKV("base_ground_stable", base_ground_stable_ ? "true" : "false");
     addKV("last_linear_speed_mps", std::to_string(last_linear_speed_mps_));
     addKV("last_pitch_deg", std::to_string(last_pitch_rad_ * 180.0 / M_PI));
@@ -713,10 +704,10 @@ void TerrainSemanticNode::publishDiagnostics(const rclcpp::Time& stamp, int leve
     addKV("tf_age_sec", std::isfinite(tf_age) ? std::to_string(tf_age) : "inf");
     addKV("cloud_to_publish_latency_ms",
           std::isfinite(last_latency_ms_) ? std::to_string(last_latency_ms_) : "n/a");
-    addKV("latency_intervention_active", latency_intervention_active_ ? "true" : "false");
+    addKV("latency_intervention_active", decision.latency_intervention_active ? "true" : "false");
     addKV("latency_intervention_mode", latency_intervention_mode_);
-    addKV("latency_overrun_count", std::to_string(latency_overrun_count_));
-    addKV("latency_recover_count", std::to_string(latency_recover_count_));
+    addKV("latency_overrun_count", std::to_string(decision.latency_overrun_count));
+    addKV("latency_recover_count", std::to_string(decision.latency_recover_count));
     addKV("thermal_throttle_topic", thermal_throttle_topic_.empty() ? "disabled" : thermal_throttle_topic_);
     addKV("thermal_throttle_requested", thermal_throttle_requested_ ? "true" : "false");
     const double thermal_age =
@@ -726,10 +717,13 @@ void TerrainSemanticNode::publishDiagnostics(const rclcpp::Time& stamp, int leve
     addKV("thermal_throttle_last_true_age_sec",
           std::isfinite(thermal_age) ? std::to_string(thermal_age) : "inf");
     addKV("thermal_throttle_release_sec", std::to_string(thermal_throttle_release_sec_));
-    addKV("kfs_occupied_cells", std::to_string(kfs_occupied_count_));
-    addKV("obstacle_cells", std::to_string(obstacle_cells_count_));
-    addKV("drop_cells", std::to_string(drop_cells_count_));
-    addKV("climbable_cells", std::to_string(climbable_cells_count_));
+    addKV("tf_chain_ok", last_tf_validation_ok_ ? "true" : "false");
+    addKV("tf_chain_code", std::to_string(static_cast<int>(last_tf_validation_code_)));
+    addKV("tf_chain_message", last_tf_validation_message_);
+    addKV("kfs_occupied_cells", std::to_string(stats.kfs_occupied_cells));
+    addKV("obstacle_cells", std::to_string(stats.obstacle_cells));
+    addKV("drop_cells", std::to_string(stats.drop_cells));
+    addKV("climbable_cells", std::to_string(stats.climbable_cells));
     addKV("fail_safe_strategy", fail_safe_strategy_);
 
     diagnostic_msgs::msg::DiagnosticArray arr;
@@ -1461,6 +1455,13 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
     }
     kfs_occupied_count_ = kfs_cells_count;
 
+    TerrainStats stats;
+    stats.kfs_occupied_cells = kfs_occupied_count_;
+    stats.obstacle_cells = obstacle_cells_count_;
+    stats.drop_cells = drop_cells_count_;
+    stats.climbable_cells = climbable_cells_count_;
+    safety_guard_.updateStats(stats);
+
     if (output_sanity_check_enable_) {
         std::string reason;
         bool ok_obs = sanitizeAndValidateCloud(obs_cloud, "obstacles", reason);
@@ -1470,8 +1471,8 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
         if (publish_climbable) total_points += static_cast<int>(climb_cloud.size());
 
         if (!ok_obs || !ok_drop || total_points > output_max_points_total_) {
-            fail_safe_active_ = true;
-            fail_safe_reason_ = "输出点云异常: " + reason;
+            const auto decision = safety_guard_.forceFailSafe("output_sanity", "输出点云异常: " + reason);
+            syncSafetyGuardState(decision);
 
             RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
                 "输出点云异常: obs=%zu drop=%zu total=%d, %s",
@@ -1483,6 +1484,9 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
                 "输出点云异常: " + reason);
             return;
         }
+
+        safety_guard_.clearForcedFailSafe("output_sanity");
+        syncSafetyGuardState(safety_guard_.decision());
     }
 
     sensor_msgs::msg::PointCloud2 obs_msg, drop_msg, climb_msg;
@@ -1565,12 +1569,13 @@ void TerrainSemanticNode::cloudCallback(
     if (!tf_base) {
         // TF 异常：进入降级模式（可选），同时仍对历史栅格做衰减
         if (enable_fail_safe_ && fail_safe_strategy_ != "none") {
-            if (!fail_safe_active_) {
+            const bool was_fail_safe_active = fail_safe_active_;
+            const auto decision = safety_guard_.forceFailSafe("tf_lookup_base", "TF(base) 查询失败");
+            syncSafetyGuardState(decision);
+            if (!was_fail_safe_active && fail_safe_active_) {
                 RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
                                       "进入降级保护模式: TF(base) 查询失败");
             }
-            fail_safe_active_ = true;
-            fail_safe_reason_ = "TF(base) 查询失败";
         }
         classifyAndUpdate(stamp_sec);
 
@@ -1587,6 +1592,8 @@ void TerrainSemanticNode::cloudCallback(
         publishDiagnosticsWithLatency(diagnostic_msgs::msg::DiagnosticStatus::ERROR, "TF(base) 查询失败");
         return;
     }
+    safety_guard_.clearForcedFailSafe("tf_lookup_base");
+    syncSafetyGuardState(safety_guard_.decision());
 
     // 获取机器人位姿（严格按时间戳 TF 同步）
     const auto& origin = tf_base->getOrigin();
@@ -1619,12 +1626,13 @@ void TerrainSemanticNode::cloudCallback(
     const auto tf_cloud = getTransform(target_frame_, msg->header.frame_id, stamp);
     if (!tf_cloud) {
         if (enable_fail_safe_ && fail_safe_strategy_ != "none") {
-            if (!fail_safe_active_) {
+            const bool was_fail_safe_active = fail_safe_active_;
+            const auto decision = safety_guard_.forceFailSafe("tf_lookup_cloud", "TF(点云) 查询失败");
+            syncSafetyGuardState(decision);
+            if (!was_fail_safe_active && fail_safe_active_) {
                 RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
                                       "进入降级保护模式: TF(点云) 查询失败");
             }
-            fail_safe_active_ = true;
-            fail_safe_reason_ = "TF(点云) 查询失败";
         }
         classifyAndUpdate(stamp_sec);
         publishOutputs(stamp, base_x, base_y, base_z, cos_yaw, sin_yaw);
@@ -1638,6 +1646,8 @@ void TerrainSemanticNode::cloudCallback(
         return;
     }
 
+    safety_guard_.clearForcedFailSafe("tf_lookup_cloud");
+    syncSafetyGuardState(safety_guard_.decision());
     last_good_tf_stamp_ = stamp;
 
     // 将点云严格变换到 target_frame（基于 header 时间戳）
@@ -1657,12 +1667,14 @@ void TerrainSemanticNode::cloudCallback(
         voxel.filter(*cloud_ds);
     } catch (const std::exception& ex) {
         if (enable_fail_safe_ && fail_safe_strategy_ != "none") {
-            if (!fail_safe_active_) {
+            const bool was_fail_safe_active = fail_safe_active_;
+            const auto decision = safety_guard_.forceFailSafe(
+                "cloud_preprocess", std::string("点云预处理失败: ") + ex.what());
+            syncSafetyGuardState(decision);
+            if (!was_fail_safe_active && fail_safe_active_) {
                 RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
                                       "进入降级保护模式: 点云预处理失败: %s", ex.what());
             }
-            fail_safe_active_ = true;
-            fail_safe_reason_ = std::string("点云预处理失败: ") + ex.what();
         }
         classifyAndUpdate(stamp_sec);
         publishOutputs(stamp, base_x, base_y, base_z, cos_yaw, sin_yaw);
@@ -1678,6 +1690,9 @@ void TerrainSemanticNode::cloudCallback(
                                       std::string("点云预处理失败: ") + ex.what());
         return;
     }
+
+    safety_guard_.clearForcedFailSafe("cloud_preprocess");
+    syncSafetyGuardState(safety_guard_.decision());
 
     const double r2 = perception_radius_m_ * perception_radius_m_;
 

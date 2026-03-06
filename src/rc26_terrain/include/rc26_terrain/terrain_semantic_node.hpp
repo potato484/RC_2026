@@ -14,6 +14,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rc26_interfaces/msg/mf_kfs_state.hpp"
 #include "rc26_interfaces/msg/terrain_feature_grid.hpp"
+#include "rc26_terrain/safety_guard.hpp"
+#include "rc26_terrain/tf_chain_validator.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/float32.hpp"
@@ -44,6 +46,9 @@ private:
     void publishEmergencyStop(const rclcpp::Time& stamp) const;
     bool isThrottleReady(const rclcpp::Time& stamp, const rclcpp::Time& last_pub_time,
                          double publish_hz) const;
+    SafetyGuardInput buildSafetyGuardInput(const rclcpp::Time& now) const;
+    void syncSafetyGuardState(const SafetyGuardDecision& decision);
+    TfValidationReport validateTfChain(const rclcpp::Time& now) const;
     void publishSpeedLimitValue(const rclcpp::Time& stamp, float v_limit, bool force = false);
     void updateKfsOccupied(const rc26_interfaces::msg::MfKfsState& msg);
     bool loadMfGridLayout(const std::string& path);
@@ -217,6 +222,8 @@ private:
     rclcpp::Publisher<rc26_interfaces::msg::TerrainFeatureGrid>::SharedPtr pub_features_;
     rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_speed_limit_;
     rclcpp::TimerBase::SharedPtr health_timer_;
+    SafetyGuard safety_guard_;
+    std::unique_ptr<TfChainValidator> tf_chain_validator_;
 
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
@@ -248,6 +255,9 @@ private:
     rclcpp::Time thermal_throttle_last_true_stamp_{0, 0, RCL_ROS_TIME};
     rclcpp::Time last_features_pub_time_{0, 0, RCL_ROS_TIME};
     rclcpp::Time last_speed_limit_pub_time_{0, 0, RCL_ROS_TIME};
+    bool last_tf_validation_ok_{false};
+    TfChainStatusCode last_tf_validation_code_{TfChainStatusCode::kInvalidSpecification};
+    std::string last_tf_validation_message_{"未验证"};
 
     // 诊断统计
     int kfs_occupied_count_{0};
