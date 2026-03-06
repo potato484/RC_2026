@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-#python3 src/rc26_vision/src/scripts/pytorch_to_onnx.py --checkpoint /home/potato/RC_2026/src/rc26_vision/models/best.pt --ultralytics --onnx /home/potato/RC_2026/src/rc26_vision/models/best.onnx --imgsz 640 --opset 17 --simplify
+# RC26_WS=${RC26_WS:-$HOME/RC_2026}
+# python3 ${RC26_WS}/src/rc26_vision/src/scripts/pytorch_to_onnx.py --checkpoint ${RC26_WS}/src/rc26_vision/models/best.pt --ultralytics --onnx ${RC26_WS}/src/rc26_vision/models/best.onnx --imgsz 640 --opset 17 --simplify
 import argparse
 import importlib
 import importlib.util

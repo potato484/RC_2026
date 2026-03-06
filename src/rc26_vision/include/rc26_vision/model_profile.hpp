@@ -7,7 +7,7 @@
 namespace rc26_vision {
 
 enum class EngineType {
-    OnnxRuntime,
+    LocalOnnx,
     AidLite
 };
 
@@ -20,7 +20,7 @@ struct AidLiteConfig {
 
 struct ModelProfile {
     std::string id;
-    EngineType engine = EngineType::OnnxRuntime;
+    EngineType engine = EngineType::LocalOnnx;
     std::string model_path;
     std::vector<std::string> labels;
     float conf_thresh = 0.5f;

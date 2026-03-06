@@ -22,7 +22,7 @@
                                 使用方法
 ================================================================================
 
-1. 基本用法 (使用默认数据集路径):
+1. 基本用法 (默认优先使用 `${RC26_WS}/train`):
    python3 calc_dataset_stats.py
 
 2. 指定数据集路径:
@@ -73,6 +73,23 @@ import numpy as np
 from tqdm import tqdm
 
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.webp', '.tiff', '.tif'}
+
+
+def detect_default_data_dir() -> str:
+    candidates = []
+
+    workspace_env = os.environ.get('RC26_WS')
+    if workspace_env:
+        candidates.append(Path(os.path.expandvars(os.path.expanduser(workspace_env))) / 'train')
+
+    candidates.append(Path(__file__).resolve().parents[4] / 'train')
+    candidates.append(Path.cwd() / 'train')
+
+    for candidate in candidates:
+        if candidate.is_dir():
+            return str(candidate.resolve())
+
+    return str(candidates[0] if candidates else (Path.cwd() / 'train'))
 
 
 def get_image_paths(root_dir: str) -> list:
@@ -265,18 +282,21 @@ std = np.array([{std_rgb[0]:.6f}, {std_rgb[1]:.6f}, {std_rgb[2]:.6f}])
 def main():
     parser = argparse.ArgumentParser(description='计算数据集 RGB 均值与方差')
     parser.add_argument('--data_dir', type=str,
-                        default='/home/potato/RC_2026/train',
-                        help='图片数据集路径')
+                        default=detect_default_data_dir(),
+                        help='图片数据集路径 (默认: $RC26_WS/train 或工作空间下的 train/)')
     parser.add_argument('--workers', type=int, default=0,
                         help='并行进程数 (0=自动)')
     parser.add_argument('--output', type=str, default='',
                         help='输出文件路径 (默认: 脚本目录/dataset_stats.md)')
     args = parser.parse_args()
 
-    data_dir = args.data_dir
+    data_dir = os.path.abspath(os.path.expandvars(os.path.expanduser(args.data_dir)))
     workers = args.workers if args.workers > 0 else max(1, cpu_count() - 2)
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_path = args.output if args.output else os.path.join(script_dir, 'dataset_stats.md')
+    output_path = (
+        os.path.abspath(os.path.expandvars(os.path.expanduser(args.output)))
+        if args.output else os.path.join(script_dir, 'dataset_stats.md')
+    )
 
     print(f"[INFO] 数据集路径: {data_dir}")
     print(f"[INFO] 并行进程数: {workers}")

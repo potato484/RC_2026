@@ -22,9 +22,9 @@ find_package(rc26_interfaces REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
-# ONNX Runtime
-find_library(ONNXRUNTIME_LIB onnxruntime HINTS /usr/local/lib /usr/lib)
-find_path(ONNXRUNTIME_INCLUDE onnxruntime_cxx_api.h HINTS /usr/local/include/onnxruntime)
+# AidLux local ONNX inference chain.
+find_path(AIDLITE_INCLUDE aidlux/aidlite/aidlite.hpp HINTS /usr/local/include REQUIRED)
+find_library(AIDLITE_LIB aidlite HINTS /usr/local/lib REQUIRED)
 
 # ============================================================================
 # 头文件目录
@@ -32,7 +32,7 @@ find_path(ONNXRUNTIME_INCLUDE onnxruntime_cxx_api.h HINTS /usr/local/include/onn
 include_directories(
   include
   ${OpenCV_INCLUDE_DIRS}
-  ${ONNXRUNTIME_INCLUDE}
+  ${AIDLITE_INCLUDE}
 )
 
 # ============================================================================
@@ -40,6 +40,7 @@ include_directories(
 # ============================================================================
 add_library(${PROJECT_NAME} SHARED
   src/yolo_engine.cpp
+  src/aidlite_engine.cpp
   src/vision_inference_manager.cpp
   src/profile_loader.cpp
 )
@@ -59,8 +60,9 @@ ament_target_dependencies(${PROJECT_NAME}
 
 target_link_libraries(${PROJECT_NAME}
   ${OpenCV_LIBS}
-  ${ONNXRUNTIME_LIB}
+  ${AIDLITE_LIB}
   yaml-cpp
+  pthread
 )
 
 # ============================================================================
