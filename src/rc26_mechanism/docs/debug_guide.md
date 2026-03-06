@@ -117,3 +117,9 @@ ros2 lifecycle set /mechanism_server deactivate
 ros2 run rqt_console rqt_console
 ```
 或者直接在启动节点的终端中查看输出的日志。关注以 `[mechanism_server]` 开头的日志信息。
+
+## 8. 常见问题排查
+
+- **Action Server 找不到或目标被立即拒绝**：优先检查 `/mechanism_server` 当前是否已进入 `active` 状态；若仍处于 `unconfigured` 或 `inactive`，Action 请求不会被受理。
+- **Action 长时间无反馈或超时**：结合 `/mechanism/state` 与串口链路日志排查底层执行是否真正下发；若依赖 `rc26_serial`，还需确认串口设备、权限和下位机电源状态正常。
+- **状态话题不刷新**：检查节点是否已经成功激活，以及启动终端中是否存在 HAL 初始化失败、生命周期状态切换失败或串口重连异常的日志。
