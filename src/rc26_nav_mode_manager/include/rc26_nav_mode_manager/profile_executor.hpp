@@ -44,7 +44,7 @@ private:
     bool checkRobotStopped() const;
     void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
     bool rollbackParams();
-    bool captureDefaults();
+    bool captureControllerSnapshot(std::string& error);
     std::string deriveLocalCostmapClearServiceName(const std::string& costmap_node_name) const;
 
     SwitchResult executeInternal(const NavProfile& profile, const std::string& reason, uint64_t epoch);
@@ -82,8 +82,7 @@ private:
     std::string controller_server_node_{"controller_server"};
     double param_timeout_sec_{2.0};
     rclcpp::AsyncParametersClient::SharedPtr controller_param_client_;
-    std::unordered_map<std::string, double> param_defaults_;
-    bool defaults_captured_{false};
+    std::unordered_map<std::string, double> controller_param_snapshot_;
 };
 
 }  // namespace rc26_nav_mode_manager

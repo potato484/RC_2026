@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -23,6 +24,9 @@ public:
     explicit NavModeManager(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
 
 private:
+    void armWatchdog(double timeout_sec);
+    void disarmWatchdog();
+    double getRemainingWatchdogSecLocked() const;
     void handleSetMode(const SetNavMode::Request::SharedPtr request,
                        SetNavMode::Response::SharedPtr response);
     void onWatchdogTimeout();
@@ -37,6 +41,8 @@ private:
     std::string current_reason_;
     bool stop_required_{false};
     bool timed_out_{false};
+    double current_watchdog_timeout_sec_{0.0};
+    std::chrono::steady_clock::time_point watchdog_deadline_{};
     mutable std::mutex state_mutex_;
 
     rclcpp::Service<SetNavMode>::SharedPtr set_mode_srv_;

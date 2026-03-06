@@ -6,6 +6,7 @@
 #include <cmath>
 #include <stdexcept>
 #include <thread>
+#include <vector>
 #include <yaml-cpp/yaml.h>
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
@@ -134,7 +135,14 @@ void TerrainModeAdapter::workerLoop() {
                                "unknown profile", profile);
             continue;
         }
-        applyConfig(profile, it->second);
+        try {
+            applyConfig(profile, it->second);
+        } catch (const std::exception& e) {
+            const std::string reason = "terrain worker exception: " + std::string(e.what());
+            RCLCPP_ERROR(this->get_logger(), "%s", reason.c_str());
+            publishDiagnostics(diagnostic_msgs::msg::DiagnosticStatus::ERROR, reason, profile);
+            requestSafeMode("terrain_mode_adapter_worker_exception");
+        }
     }
 }
 
@@ -166,34 +174,39 @@ bool TerrainModeAdapter::applyConfigWithRetry(const std::string& profile, const 
             service_ready_ = true;
         }
 
-        auto future = param_client_->set_parameters({
-            rclcpp::Parameter("unknown_policy", cfg.unknown_policy),
-            rclcpp::Parameter("drop_forward_sector_deg", cfg.drop_forward_sector_deg),
-            rclcpp::Parameter("min_obstacle_area_cells", cfg.min_obstacle_area_cells),
-            rclcpp::Parameter("obstacle_neighbor_mode", cfg.obstacle_neighbor_mode),
-            rclcpp::Parameter("drop_neighbor_mode", cfg.drop_neighbor_mode),
-            rclcpp::Parameter("jump_thresh_m", cfg.jump_thresh_m),
-        });
+        try {
+            auto future = param_client_->set_parameters({
+                rclcpp::Parameter("unknown_policy", cfg.unknown_policy),
+                rclcpp::Parameter("drop_forward_sector_deg", cfg.drop_forward_sector_deg),
+                rclcpp::Parameter("min_obstacle_area_cells", cfg.min_obstacle_area_cells),
+                rclcpp::Parameter("obstacle_neighbor_mode", cfg.obstacle_neighbor_mode),
+                rclcpp::Parameter("drop_neighbor_mode", cfg.drop_neighbor_mode),
+                rclcpp::Parameter("jump_thresh_m", cfg.jump_thresh_m),
+            });
 
-        if (future.wait_for(std::chrono::milliseconds(set_timeout_ms_)) != std::future_status::ready) {
-            reason = "set_parameters timeout";
-            service_ready_ = false;
-        } else {
-            const auto results = future.get();
-            bool accepted = true;
-            for (const auto& r : results) {
-                if (!r.successful) {
-                    accepted = false;
-                    reason = "set_parameters rejected: " + r.reason;
-                    break;
+            if (future.wait_for(std::chrono::milliseconds(set_timeout_ms_)) != std::future_status::ready) {
+                reason = "set_parameters timeout";
+                service_ready_ = false;
+            } else {
+                const auto results = future.get();
+                bool accepted = true;
+                for (const auto& r : results) {
+                    if (!r.successful) {
+                        accepted = false;
+                        reason = "set_parameters rejected: " + r.reason;
+                        break;
+                    }
+                }
+                if (accepted && verifyAppliedConfig(cfg, reason)) {
+                    return true;
+                }
+                if (accepted && reason.empty()) {
+                    reason = "readback mismatch";
                 }
             }
-            if (accepted && verifyAppliedConfig(cfg, reason)) {
-                return true;
-            }
-            if (accepted && reason.empty()) {
-                reason = "readback mismatch";
-            }
+        } catch (const std::exception& e) {
+            reason = "terrain parameter RPC failed: " + std::string(e.what());
+            service_ready_ = false;
         }
 
         if (attempt < retry_count_ && retry_interval_ms_ > 0) {
@@ -233,7 +246,16 @@ bool TerrainModeAdapter::verifyAppliedConfig(const TerrainCfg& cfg, std::string&
     double jump_thresh = 0.0;
     int found = 0;
 
-    for (const auto& p : future.get()) {
+    std::vector<rclcpp::Parameter> readback;
+    try {
+        readback = future.get();
+    } catch (const std::exception& e) {
+        reason = "get_parameters failed: " + std::string(e.what());
+        service_ready_ = false;
+        return false;
+    }
+
+    for (const auto& p : readback) {
         const auto& n = p.get_name();
         if (n == "unknown_policy" && p.get_type() == rclcpp::ParameterType::PARAMETER_STRING) {
             policy = p.as_string();
@@ -268,14 +290,30 @@ bool TerrainModeAdapter::verifyAppliedConfig(const TerrainCfg& cfg, std::string&
 }
 
 void TerrainModeAdapter::requestSafeMode(const std::string& reason) {
-    if (!nav_mode_client_ || !nav_mode_client_->wait_for_service(std::chrono::seconds(0))) {
+    if (!nav_mode_client_) {
         return;
     }
+
+    if (!nav_mode_client_->wait_for_service(std::chrono::milliseconds(wait_service_ms_))) {
+        RCLCPP_ERROR(this->get_logger(),
+                     "set_nav_mode unavailable while requesting safe mode: %s",
+                     reason.c_str());
+        publishDiagnostics(diagnostic_msgs::msg::DiagnosticStatus::ERROR,
+                           "set_nav_mode unavailable", "safe");
+        return;
+    }
+
     auto request = std::make_shared<rc26_interfaces::srv::SetNavMode::Request>();
     request->profile = "safe";
     request->timeout = 0.0f;
     request->reason = reason;
-    (void)nav_mode_client_->async_send_request(request);
+    try {
+        (void)nav_mode_client_->async_send_request(request);
+    } catch (const std::exception& e) {
+        const std::string error = "failed to request safe mode: " + std::string(e.what());
+        RCLCPP_ERROR(this->get_logger(), "%s", error.c_str());
+        publishDiagnostics(diagnostic_msgs::msg::DiagnosticStatus::ERROR, error, "safe");
+    }
 }
 
 void TerrainModeAdapter::publishDiagnostics(uint8_t level, const std::string& message, const std::string& profile) {

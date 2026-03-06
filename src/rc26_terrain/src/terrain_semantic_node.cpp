@@ -357,6 +357,16 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     speed_limit_w_drop_ = std::max(0.0, speed_limit_w_drop_);
     speed_limit_k_tci_ = std::max(0.0, speed_limit_k_tci_);
     speed_limit_emergency_drop_thresh_ = std::clamp(speed_limit_emergency_drop_thresh_, 0.0, 1.0);
+    if (enable_terrain_features_pub_ && terrain_features_topic_.empty()) {
+        RCLCPP_WARN(this->get_logger(),
+                    "enable_terrain_features_pub=true 但 terrain_features_topic 为空，已自动禁用特征总线发布");
+        enable_terrain_features_pub_ = false;
+    }
+    if (enable_terrain_speed_limit_pub_ && terrain_speed_limit_topic_.empty()) {
+        RCLCPP_WARN(this->get_logger(),
+                    "enable_terrain_speed_limit_pub=true 但 terrain_speed_limit_topic 为空，已自动禁用限速发布");
+        enable_terrain_speed_limit_pub_ = false;
+    }
     latency_trigger_frames_ = std::max(1, latency_trigger_frames_);
     latency_recover_frames_ = std::max(1, latency_recover_frames_);
     thermal_throttle_release_sec_ = std::max(0.0, thermal_throttle_release_sec_);
@@ -544,6 +554,10 @@ void TerrainSemanticNode::healthTimerCallback() {
 
     if (fail_safe_active_ && enable_fail_safe_ && fail_safe_strategy_ == "virtual_fence" && have_last_pose_) {
         publishVirtualFence(now, last_base_x_, last_base_y_, last_base_z_, last_cos_yaw_, last_sin_yaw_);
+        publishSpeedLimitValue(now, 0.0f, true);
+    } else if (fail_safe_active_ && enable_fail_safe_) {
+        publishEmergencyStop(now);
+        publishSpeedLimitValue(now, 0.0f, true);
     }
 
     bool thermal_throttle_active = thermal_throttle_requested_;
@@ -597,9 +611,10 @@ void TerrainSemanticNode::healthTimerCallback() {
     if (latency_intervention_active_) {
         if (latency_intervention_mode_ == "virtual_fence" && have_last_pose_) {
             publishVirtualFence(now, last_base_x_, last_base_y_, last_base_z_, last_cos_yaw_, last_sin_yaw_);
-        } else if (latency_intervention_mode_ == "emergency_stop") {
+        } else if (latency_intervention_mode_ != "none") {
             publishEmergencyStop(now);
         }
+        publishSpeedLimitValue(now, 0.0f, true);
     }
 
     int level = fail_safe_active_
@@ -741,10 +756,54 @@ std::optional<tf2::Transform> TerrainSemanticNode::getTransform(
     }
 }
 
+bool TerrainSemanticNode::isThrottleReady(const rclcpp::Time& stamp,
+                                          const rclcpp::Time& last_pub_time,
+                                          double publish_hz) const {
+    if (publish_hz <= 0.0 || last_pub_time.nanoseconds() == 0) {
+        return true;
+    }
+    if (stamp.nanoseconds() < last_pub_time.nanoseconds()) {
+        return true;
+    }
+    return (stamp - last_pub_time).seconds() >= (1.0 / publish_hz);
+}
+
+void TerrainSemanticNode::publishSpeedLimitValue(const rclcpp::Time& stamp, float v_limit, bool force) {
+    if (!pub_speed_limit_) {
+        return;
+    }
+    if (!force && !isThrottleReady(stamp, last_speed_limit_pub_time_, terrain_speed_limit_publish_hz_)) {
+        return;
+    }
+
+    std_msgs::msg::Float32 speed_limit_msg;
+    const float safe_limit = std::clamp(std::isfinite(v_limit) ? v_limit : 0.0f,
+                                        0.0f,
+                                        static_cast<float>(speed_limit_v_max_mps_));
+    speed_limit_msg.data = safe_limit;
+    pub_speed_limit_->publish(speed_limit_msg);
+    last_speed_limit_pub_time_ = stamp;
+}
+
 void TerrainSemanticNode::initGrid() {
-    half_width_ = static_cast<int>(std::ceil(perception_radius_m_ / grid_resolution_m_));
+    const double half_width_cells = std::ceil(perception_radius_m_ / grid_resolution_m_);
+    if (!std::isfinite(half_width_cells)) {
+        throw std::invalid_argument("栅格尺寸计算失败: perception_radius_m/grid_resolution_m 非有限值");
+    }
+
+    constexpr int kMaxHalfWidth = (std::numeric_limits<int>::max() - 1) / 2;
+    if (half_width_cells < 0.0 || half_width_cells > static_cast<double>(kMaxHalfWidth)) {
+        throw std::invalid_argument("栅格尺寸非法: half_width 超出 int 可表示范围");
+    }
+
+    half_width_ = static_cast<int>(half_width_cells);
     width_ = 2 * half_width_ + 1;
-    num_cells_ = width_ * width_;
+
+    const size_t num_cells_candidate = static_cast<size_t>(width_) * static_cast<size_t>(width_);
+    if (num_cells_candidate > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        throw std::invalid_argument("栅格尺寸非法: 单元总数超出实现支持范围");
+    }
+    num_cells_ = static_cast<int>(num_cells_candidate);
 
     cell_in_radius_.assign(static_cast<size_t>(num_cells_), 0);
     ground_z_filtered_.assign(static_cast<size_t>(num_cells_), 0.0f);
@@ -1225,16 +1284,10 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
     pcl::PointCloud<pcl::PointXYZI> obs_cloud, drop_cloud, climb_cloud;
     const double stamp_sec = stamp.seconds();
     const bool publish_climbable = static_cast<bool>(pub_climbable_);
-    const bool features_time_ready =
-        (terrain_features_publish_hz_ <= 0.0) ||
-        (last_features_pub_time_.nanoseconds() == 0) ||
-        ((stamp - last_features_pub_time_).seconds() >= (1.0 / terrain_features_publish_hz_));
-    const bool should_publish_features = static_cast<bool>(pub_features_) && features_time_ready;
-    const bool speed_limit_time_ready =
-        (terrain_speed_limit_publish_hz_ <= 0.0) ||
-        (last_speed_limit_pub_time_.nanoseconds() == 0) ||
-        ((stamp - last_speed_limit_pub_time_).seconds() >= (1.0 / terrain_speed_limit_publish_hz_));
-    const bool should_publish_speed_limit = static_cast<bool>(pub_speed_limit_) && speed_limit_time_ready;
+    const bool should_publish_features =
+        static_cast<bool>(pub_features_) && isThrottleReady(stamp, last_features_pub_time_, terrain_features_publish_hz_);
+    const bool should_publish_speed_limit =
+        static_cast<bool>(pub_speed_limit_) && isThrottleReady(stamp, last_speed_limit_pub_time_, terrain_speed_limit_publish_hz_);
 
     rc26_interfaces::msg::TerrainFeatureGrid feature_msg;
     if (should_publish_features) {
@@ -1424,6 +1477,7 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
                 "输出点云异常: obs=%zu drop=%zu total=%d, %s",
                 obs_cloud.size(), drop_cloud.size(), total_points, reason.c_str());
 
+            publishSpeedLimitValue(stamp, 0.0f, true);
             publishEmergencyStop(stamp);
             publishDiagnostics(stamp, diagnostic_msgs::msg::DiagnosticStatus::ERROR,
                 "输出点云异常: " + reason);
@@ -1455,9 +1509,10 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
     }
 
     if (should_publish_speed_limit) {
-        std_msgs::msg::Float32 speed_limit_msg;
         float v_limit = static_cast<float>(speed_limit_v_max_mps_);
-        if (roi_fresh_count > 0) {
+        if (fail_safe_active_ || latency_intervention_active_) {
+            v_limit = 0.0f;
+        } else if (roi_fresh_count > 0) {
             const double tci = speed_limit_w_slope_ * roi_max_slope +
                                speed_limit_w_roughness_ * roi_max_rough +
                                speed_limit_w_drop_ * roi_max_p_drop;
@@ -1468,9 +1523,7 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
                 v_limit = 0.0f;
             }
         }
-        speed_limit_msg.data = v_limit;
-        pub_speed_limit_->publish(speed_limit_msg);
-        last_speed_limit_pub_time_ = stamp;
+        publishSpeedLimitValue(stamp, v_limit, true);
     }
 }
 
@@ -1529,6 +1582,8 @@ void TerrainSemanticNode::cloudCallback(
             publishEmergencyStop(this->get_clock()->now());
         }
 
+        publishSpeedLimitValue(stamp, 0.0f, true);
+
         publishDiagnosticsWithLatency(diagnostic_msgs::msg::DiagnosticStatus::ERROR, "TF(base) 查询失败");
         return;
     }
@@ -1573,6 +1628,9 @@ void TerrainSemanticNode::cloudCallback(
         }
         classifyAndUpdate(stamp_sec);
         publishOutputs(stamp, base_x, base_y, base_z, cos_yaw, sin_yaw);
+        if (fail_safe_active_) {
+            publishSpeedLimitValue(stamp, 0.0f, true);
+        }
         if (fail_safe_active_ && enable_fail_safe_ && fail_safe_strategy_ == "virtual_fence") {
             publishVirtualFence(stamp, base_x, base_y, base_z, cos_yaw, sin_yaw);
         }
@@ -1584,19 +1642,42 @@ void TerrainSemanticNode::cloudCallback(
 
     // 将点云严格变换到 target_frame（基于 header 时间戳）
     sensor_msgs::msg::PointCloud2 cloud_transformed;
-    pcl_ros::transformPointCloud(target_frame_, *tf_cloud, *msg, cloud_transformed);
-
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
-    pcl::fromROSMsg(cloud_transformed, *cloud);
-
-    // 体素下采样，降低计算量
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_ds(new pcl::PointCloud<pcl::PointXYZ>());
-    pcl::VoxelGrid<pcl::PointXYZ> voxel;
-    voxel.setLeafSize(static_cast<float>(voxel_leaf_size_m_),
-                      static_cast<float>(voxel_leaf_size_m_),
-                      static_cast<float>(voxel_leaf_size_m_));
-    voxel.setInputCloud(cloud);
-    voxel.filter(*cloud_ds);
+    try {
+        pcl_ros::transformPointCloud(target_frame_, *tf_cloud, *msg, cloud_transformed);
+        pcl::fromROSMsg(cloud_transformed, *cloud);
+
+        // 体素下采样，降低计算量
+        pcl::VoxelGrid<pcl::PointXYZ> voxel;
+        voxel.setLeafSize(static_cast<float>(voxel_leaf_size_m_),
+                          static_cast<float>(voxel_leaf_size_m_),
+                          static_cast<float>(voxel_leaf_size_m_));
+        voxel.setInputCloud(cloud);
+        voxel.filter(*cloud_ds);
+    } catch (const std::exception& ex) {
+        if (enable_fail_safe_ && fail_safe_strategy_ != "none") {
+            if (!fail_safe_active_) {
+                RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                                      "进入降级保护模式: 点云预处理失败: %s", ex.what());
+            }
+            fail_safe_active_ = true;
+            fail_safe_reason_ = std::string("点云预处理失败: ") + ex.what();
+        }
+        classifyAndUpdate(stamp_sec);
+        publishOutputs(stamp, base_x, base_y, base_z, cos_yaw, sin_yaw);
+        if (fail_safe_active_ && enable_fail_safe_ && fail_safe_strategy_ == "virtual_fence" && have_last_pose_) {
+            publishVirtualFence(stamp, base_x, base_y, base_z, cos_yaw, sin_yaw);
+        } else if (fail_safe_active_) {
+            publishEmergencyStop(stamp);
+        }
+        if (fail_safe_active_) {
+            publishSpeedLimitValue(stamp, 0.0f, true);
+        }
+        publishDiagnosticsWithLatency(diagnostic_msgs::msg::DiagnosticStatus::ERROR,
+                                      std::string("点云预处理失败: ") + ex.what());
+        return;
+    }
 
     const double r2 = perception_radius_m_ * perception_radius_m_;
 

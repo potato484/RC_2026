@@ -42,6 +42,9 @@ private:
     void publishVirtualFence(const rclcpp::Time& stamp, double base_x, double base_y,
                              double base_z, double cos_yaw, double sin_yaw);
     void publishEmergencyStop(const rclcpp::Time& stamp) const;
+    bool isThrottleReady(const rclcpp::Time& stamp, const rclcpp::Time& last_pub_time,
+                         double publish_hz) const;
+    void publishSpeedLimitValue(const rclcpp::Time& stamp, float v_limit, bool force = false);
     void updateKfsOccupied(const rc26_interfaces::msg::MfKfsState& msg);
     bool loadMfGridLayout(const std::string& path);
     bool sanitizeAndValidateCloud(pcl::PointCloud<pcl::PointXYZI>& cloud,
