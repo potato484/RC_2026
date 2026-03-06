@@ -8,7 +8,10 @@
 
 #include <memory>
 #include <mutex>
+#include <string>
+#include <thread>
 #include <unordered_map>
+#include <vector>
 
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/rclcpp.hpp>
