@@ -14,6 +14,7 @@
 
 #include "rc26_odom_interface/odom_interface.hpp"
 
+#include <algorithm>
 #include <Eigen/Dense>
 #include <cmath>
 #include <stdexcept>
@@ -164,6 +165,7 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
     out.pose.pose.position.z = origin.z();
     out.pose.pose.orientation = tf2::toMsg(tf_odom_to_base.getRotation());
     out.pose.covariance = msg->pose.covariance;
+    std::fill(out.twist.covariance.begin(), out.twist.covariance.end(), 0.0);
 
     // Publish TF: odom -> base_link (so RViz/Nav2 can resolve the TF tree even if downstream sync drops frames).
     geometry_msgs::msg::TransformStamped tf_msg;
@@ -204,7 +206,13 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
         J.bottomRightCorner<3, 3>() = R;
         Eigen::Map<const Eigen::Matrix<double, 6, 6, Eigen::RowMajor>> sigma_in(msg->twist.covariance.data());
         Eigen::Map<Eigen::Matrix<double, 6, 6, Eigen::RowMajor>> sigma_out(out.twist.covariance.data());
-        sigma_out = J * sigma_in * J.transpose();
+        if (sigma_in.allFinite()) {
+            sigma_out = J * sigma_in * J.transpose();
+        } else {
+            sigma_out.setZero();
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                                 "Input twist covariance contains non-finite values, publish zero covariance instead");
+        }
     } else if (odom_state_.initialized) {
         const double dt = (odom_stamp - odom_state_.previous_stamp).seconds();
 
