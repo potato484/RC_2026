@@ -1,5 +1,6 @@
 // #include <so3_math.hpp>
 #include <algorithm>
+#include <cmath>
 #include <malloc.h>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
@@ -803,14 +804,6 @@ int main(int argc, char** argv) {
                         }
                         solve_start = omp_get_wtime();
 
-                        {
-                            Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es(g_degen_S);
-                            const auto eigs = es.eigenvalues();
-                            std_msgs::msg::Float64 score_msg;
-                            score_msg.data = eigs(0) / (eigs(2) + 1e-9);
-                            pub_degen_score->publish(score_msg);
-                        }
-
                         if (adaptive_second_iter_enable) {
                             const double avg_residual = g_residual_abs_sum / std::max(g_residual_count, 1);
                             const double omega_norm = kf_output.x_.omg.norm();
@@ -830,6 +823,33 @@ int main(int argc, char** argv) {
                                         omega_norm, triggered);
                                 }
                             }
+                        }
+
+                        {
+                            double degenerate_score = 1.0;
+                            if (g_degen_S.allFinite()) {
+                                Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es(g_degen_S);
+                                if (es.info() == Eigen::Success) {
+                                    const auto eigs = es.eigenvalues();
+                                    const double denom = eigs(2) > 1e-9 ? eigs(2) : 1e-9;
+                                    degenerate_score = eigs(0) / denom;
+                                    if (!std::isfinite(degenerate_score) || degenerate_score < 0.0) {
+                                        degenerate_score = 0.0;
+                                    }
+                                } else {
+                                    degenerate_score = 0.0;
+                                    RCLCPP_WARN_THROTTLE(LOGGER, *nh->get_clock(), 1000,
+                                                         "degenerate_score eigen decomposition failed");
+                                }
+                            } else {
+                                degenerate_score = 0.0;
+                                RCLCPP_WARN_THROTTLE(LOGGER, *nh->get_clock(), 1000,
+                                                     "degenerate_score matrix contains non-finite values");
+                            }
+
+                            std_msgs::msg::Float64 score_msg;
+                            score_msg.data = degenerate_score;
+                            pub_degen_score->publish(score_msg);
                         }
 
                         if (publish_odometry_without_downsample) {

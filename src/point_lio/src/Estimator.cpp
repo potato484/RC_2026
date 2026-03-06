@@ -146,6 +146,9 @@ void h_model_input(state_input& s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_R,
                     norm_vec << pabcd(0), pabcd(1), pabcd(2);
                     double noise_state = norm_vec.transpose() * (cov_p + Rpf * cov_R * Rpf.transpose()) * norm_vec +
                                          sqrt(p_norm) * 0.001;
+                    if (noise_state < 1e-12) {
+                        noise_state = 1e-12;
+                    }
                     double epsilon = pd2 / sqrt(noise_state);
                     double weight = 1.0;
                     if (epsilon > 1.0) {
@@ -257,6 +260,9 @@ void h_model_output(state_output& s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_
                     norm_vec << pabcd(0), pabcd(1), pabcd(2);
                     double noise_state = norm_vec.transpose() * (cov_p + Rpf * cov_R * Rpf.transpose()) * norm_vec +
                                          sqrt(p_norm) * 0.001;
+                    if (noise_state < 1e-12) {
+                        noise_state = 1e-12;
+                    }
                     double epsilon = pd2 / sqrt(noise_state);
                     double weight = 1.0;
                     if (epsilon > 1.0) {
