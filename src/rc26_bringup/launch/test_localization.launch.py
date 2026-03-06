@@ -6,7 +6,7 @@ rc26_localization 模块测试
 
 测试指令:
     ros2 launch rc26_bringup test_localization.launch.py \
-        prior_pcd_file:=/path/to/prior.pcd
+        prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/pcd/default.pcd
 
 验证:
     ros2 run tf2_ros tf2_echo map odom

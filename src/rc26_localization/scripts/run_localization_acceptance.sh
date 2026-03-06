@@ -7,20 +7,27 @@ usage() {
 
 用法:
   run_localization_acceptance.sh --map /abs/path/to/prior.pcd [--bag /abs/path/to/test.mcap]
-                                 [--duration 180] [--workspace /home/potato/RC_2026]
+                                 [--duration 180] [--workspace ${RC26_WS:-$HOME/RC_2026}]
                                  [--use-sim-time auto|true|false] [--output-dir /tmp/xxx]
                                  [--skip-build]
 
 示例:
+  export RC26_WS=${RC26_WS:-$HOME/RC_2026}
   ./src/rc26_localization/scripts/run_localization_acceptance.sh \
-    --map /home/potato/RC_2026/src/rc26_bringup/pcd/my_map.pcd \
+    --map ${RC26_WS}/src/rc26_bringup/pcd/my_map.pcd \
     --bag /data/loc_long_corridor.mcap \
     --duration 240
 EOF
 }
 
+expand_path() {
+    local path="$1"
+    path="${path/#\~/$HOME}"
+    printf '%s' "${path}"
+}
+
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-DEFAULT_WORKSPACE=$(cd "${SCRIPT_DIR}/../../.." && pwd)
+DEFAULT_WORKSPACE=$(cd "${RC26_WS:-${SCRIPT_DIR}/../../..}" && pwd)
 
 WORKSPACE="${DEFAULT_WORKSPACE}"
 MAP_FILE=""
@@ -71,6 +78,15 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+WORKSPACE=$(expand_path "${WORKSPACE}")
+MAP_FILE=$(expand_path "${MAP_FILE}")
+if [[ -n "${BAG_FILE}" ]]; then
+    BAG_FILE=$(expand_path "${BAG_FILE}")
+fi
+if [[ -n "${OUTPUT_DIR}" ]]; then
+    OUTPUT_DIR=$(expand_path "${OUTPUT_DIR}")
+fi
 
 if [[ -z "${MAP_FILE}" ]]; then
     echo "[ERROR] 必须提供 --map /abs/path/to/prior.pcd" >&2
@@ -130,7 +146,7 @@ if [[ "${SKIP_BUILD}" -eq 0 ]]; then
     echo "[INFO] 编译 rc26_localization ..."
     (
         cd "${WORKSPACE}"
-        colcon build --parallel-workers 1 --packages-select rc26_localization
+        colcon build --symlink-install --parallel-workers 3 --packages-select rc26_localization rc26_bringup --cmake-args -DCMAKE_BUILD_TYPE=Release
     ) | tee "${OUTPUT_DIR}/raw/build.log"
 else
     echo "[INFO] 跳过编译 (--skip-build)"

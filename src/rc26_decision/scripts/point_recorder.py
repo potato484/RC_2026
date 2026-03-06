@@ -5,20 +5,20 @@ from tf2_ros import Buffer, TransformListener
 import yaml
 import os
 import math
+from pathlib import Path
 
 class PointRecorder(Node):
     def __init__(self):
         super().__init__('point_recorder')
         self.declare_parameter('team', 'red')
-        self.declare_parameter('output_dir', '~/RC_2026/.rc26/waypoints')
+        self.declare_parameter('output_dir', os.environ.get('RC26_WAYPOINT_DIR', '~/.rc26/waypoints'))
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.team = self.get_parameter('team').value
-        self.output_path = os.path.expanduser(
-            f"{self.get_parameter('output_dir').value}/waypoints_{self.team}.yaml"
-        )
+        output_dir = Path(os.path.expandvars(os.path.expanduser(self.get_parameter('output_dir').value)))
+        self.output_path = str(output_dir / f"waypoints_{self.team}.yaml")
         self.data = self._load_or_init()
 
     @staticmethod
