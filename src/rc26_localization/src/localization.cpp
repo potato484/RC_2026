@@ -3,6 +3,7 @@
 // 原作者: Lihan Chen
 //
 // Licensed under the Apache License, Version 2.0
+// Maintained by DongXuan Chen <2220362462@qq.com>
 
 #include "rc26_localization/localization.hpp"
 

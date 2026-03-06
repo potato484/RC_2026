@@ -36,7 +36,7 @@ localization:
     # 本节点订阅的点云话题名，默认为 rc26_odom_interface 发布的 registered_scan
     input_cloud_topic: "registered_scan"
     
-    # small_gicp 参数（局部配准 map->odom 跟踪）
+    # rc26_small_gicp 参数（局部配准 map->odom 跟踪）
     # small_gicp 使用的线程数（根据 CPU 核心数调整）
     num_threads: 4
     # 协方差估计时的近邻点数（过小不稳定，过大计算慢）
@@ -65,7 +65,7 @@ localization:
     gicp_optimizer_mode: "gn_auto"
     # gn_auto 下初值平移跳变阈值（米），低于阈值走 GN，高于阈值走 LM
     gn_auto_trans_threshold_m: 0.05
-    # 每次局部 small_gicp 的最大迭代次数，提高可增强收敛鲁棒性但增加计算量
+    # 每次局部 rc26_small_gicp 的最大迭代次数，提高可增强收敛鲁棒性但增加计算量
     gicp_max_iterations: 20
     # 降采样后参与局部配准的最少点数，小于该值则跳过本次配准
     min_points_for_registration: 20

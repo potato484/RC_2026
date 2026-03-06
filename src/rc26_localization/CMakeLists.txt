@@ -14,14 +14,14 @@ find_package(Eigen3 REQUIRED)
 ament_auto_find_build_dependencies()
 
 # 直接使用仓库内的 small_gicp，拒绝构建期网络依赖
-set(SMALL_GICP_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../small_gicp)
+set(SMALL_GICP_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../rc26_small_gicp)
 if(NOT EXISTS ${SMALL_GICP_SOURCE_DIR}/CMakeLists.txt)
   message(FATAL_ERROR "找不到 small_gicp 源码目录：${SMALL_GICP_SOURCE_DIR}")
 endif()
 # 启用 small_gicp 的 PCL 支持
 set(BUILD_WITH_PCL ON CACHE BOOL "Enable PCL support for small_gicp" FORCE)
 add_subdirectory(${SMALL_GICP_SOURCE_DIR}
-                 ${CMAKE_CURRENT_BINARY_DIR}/small_gicp)
+                 ${CMAKE_CURRENT_BINARY_DIR}/rc26_small_gicp)
 
 # 构建库
 ament_auto_add_library(${PROJECT_NAME} SHARED

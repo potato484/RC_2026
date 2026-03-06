@@ -1,7 +1,7 @@
 """
 定位模块启动文件
 
-导航模式: 启动 rc26_localization (基于 small_gicp)
+导航模式: 启动 rc26_localization (基于 rc26_small_gicp)
 建图模式: 发布静态 map -> odom 变换
 """
 from ament_index_python.packages import get_package_share_directory
