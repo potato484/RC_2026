@@ -11,8 +11,69 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
+#include <string>
 
 namespace mid360_driver {
+namespace {
+
+constexpr std::size_t kUdpPacketBufferSize = 1400;
+constexpr int kUdpReceiveBufferBytes = 16 * 1024 * 1024;
+constexpr std::size_t kMaxFramePointCount = 200000;
+constexpr std::uint16_t kPointcloudReceivePort = 56301;
+constexpr std::uint16_t kPointcloudSendPort = 56300;
+constexpr std::uint16_t kImuReceivePort = 56401;
+constexpr std::uint16_t kImuSendPort = 56400;
+constexpr std::uint8_t kSupportedProtocolVersion = 0;
+
+bool has_valid_point_tag(const std::uint8_t tag) noexcept {
+    return (tag & 0b00110000) == 0b00000000 && (tag & 0b00001100) == 0b00000000 &&
+           (tag & 0b00000011) == 0b00000000;
+}
+
+bool should_exit_receive_loop(const asio::error_code& error_code, const bool running) noexcept {
+    return !running || error_code == asio::error::operation_aborted || error_code == asio::error::bad_descriptor ||
+           error_code == asio::error::not_socket;
+}
+
+void reset_frame_state(FrameState& frame_state) {
+    frame_state.expected_udp_cnt = 0;
+    frame_state.frame_min_ts = 0.0;
+    frame_state.lost_in_frame = 0;
+    frame_state.frame_points.clear();
+    frame_state.drop_current_frame = false;
+    frame_state.has_data = false;
+}
+
+void start_new_frame(FrameState& frame_state, const std::uint8_t frame_cnt) {
+    frame_state.current_frame_cnt = frame_cnt;
+    frame_state.expected_udp_cnt = 0;
+    frame_state.frame_min_ts = std::numeric_limits<double>::max();
+    frame_state.lost_in_frame = 0;
+    frame_state.frame_points.clear();
+    frame_state.drop_current_frame = false;
+    frame_state.has_data = true;
+}
+
+void finalize_frame(
+    const asio::ip::address& lidar_ip, FrameState& frame_state,
+    const std::function<void(const asio::ip::address& lidar_ip, const FrameMeta& meta, const std::vector<Point>& points)>&
+        on_receive_pointcloud) {
+    if (!frame_state.has_data) {
+        return;
+    }
+
+    if (!frame_state.drop_current_frame && !frame_state.frame_points.empty() &&
+        frame_state.frame_min_ts != std::numeric_limits<double>::max()) {
+        FrameMeta meta{frame_state.frame_min_ts, frame_state.current_frame_cnt, frame_state.lost_in_frame,
+                       frame_state.lost_total};
+        on_receive_pointcloud(lidar_ip, meta, frame_state.frame_points);
+    }
+
+    reset_frame_state(frame_state);
+}
+
+}  // namespace
 
 enum DataType : std::uint8_t {
     kLivoxLidarImuData = 0,
@@ -90,15 +151,15 @@ void combine_4_bytes(std::size_t& seed, const unsigned char* bytes) {
 std::size_t IpAddressHasher::operator()(const asio::ip::address& addr) const noexcept {
     if (addr.is_v4()) {
         return std::hash<unsigned int>()(addr.to_v4().to_uint());
-    } else {
-        const asio::ip::address_v6::bytes_type bytes = addr.to_v6().to_bytes();
-        std::size_t result = static_cast<std::size_t>(addr.to_v6().scope_id());
-        combine_4_bytes(result, &bytes[0]);
-        combine_4_bytes(result, &bytes[4]);
-        combine_4_bytes(result, &bytes[8]);
-        combine_4_bytes(result, &bytes[12]);
-        return result;
     }
+
+    const asio::ip::address_v6::bytes_type bytes = addr.to_v6().to_bytes();
+    std::size_t result = static_cast<std::size_t>(addr.to_v6().scope_id());
+    combine_4_bytes(result, &bytes[0]);
+    combine_4_bytes(result, &bytes[4]);
+    combine_4_bytes(result, &bytes[8]);
+    combine_4_bytes(result, &bytes[12]);
+    return result;
 }
 
 double normalize_header_timestamp(const TimestampType time_type, const asio::ip::address& lidar_ip,
@@ -108,9 +169,10 @@ double normalize_header_timestamp(const TimestampType time_type, const asio::ip:
     if (time_type != TimestampType::kTimestampTypeNoSync) {
         return header_timestamp;
     }
+
     auto& sync_state = time_sync_map[lidar_ip];
-    auto now = std::chrono::system_clock::now();
-    auto now_sec = std::chrono::duration_cast<std::chrono::duration<double>>(now.time_since_epoch()).count();
+    const auto now = std::chrono::system_clock::now();
+    const auto now_sec = std::chrono::duration_cast<std::chrono::duration<double>>(now.time_since_epoch()).count();
     const double new_delta = now_sec - header_timestamp;
     if (!sync_state.initialized) {
         sync_state.delta = new_delta;
@@ -129,15 +191,22 @@ Mid360Driver::Mid360Driver(
     const std::function<void(const asio::ip::address& lidar_ip, const ImuMsg& imu_msg)>& on_receive_imu)
     : host_ip(host_ip), receive_pointcloud_socket(io_context), receive_imu_socket(io_context),
       on_receive_pointcloud(on_receive_pointcloud), on_receive_imu(on_receive_imu) {
-    receive_pointcloud_socket.open(asio::ip::udp::v4());
-    receive_pointcloud_socket.bind(asio::ip::udp::endpoint(host_ip, 56301));
-    receive_imu_socket.open(asio::ip::udp::v4());
-    receive_imu_socket.bind(asio::ip::udp::endpoint(host_ip, 56401));
-    asio::socket_base::receive_buffer_size rcvbuf(16 * 1024 * 1024);
-    receive_pointcloud_socket.set_option(rcvbuf);
-    receive_imu_socket.set_option(rcvbuf);
-    co_spawn(io_context, receive_pointcloud(), asio::detached);
-    co_spawn(io_context, receive_imu(), asio::detached);
+    try {
+        receive_pointcloud_socket.open(asio::ip::udp::v4());
+        receive_pointcloud_socket.bind(asio::ip::udp::endpoint(host_ip, kPointcloudReceivePort));
+        receive_imu_socket.open(asio::ip::udp::v4());
+        receive_imu_socket.bind(asio::ip::udp::endpoint(host_ip, kImuReceivePort));
+
+        asio::socket_base::receive_buffer_size receive_buffer_size(kUdpReceiveBufferBytes);
+        receive_pointcloud_socket.set_option(receive_buffer_size);
+        receive_imu_socket.set_option(receive_buffer_size);
+
+        co_spawn(io_context, receive_pointcloud(), asio::detached);
+        co_spawn(io_context, receive_imu(), asio::detached);
+    } catch (const std::exception& exception) {
+        stop();
+        throw std::runtime_error(std::string("Failed to initialize Mid360Driver: ") + exception.what());
+    }
 }
 
 Mid360Driver::~Mid360Driver() {
@@ -145,31 +214,47 @@ Mid360Driver::~Mid360Driver() {
 }
 
 void Mid360Driver::stop() {
-    is_running.store(false, std::memory_order_relaxed);
+    if (!is_running.exchange(false, std::memory_order_relaxed)) {
+        return;
+    }
+
     asio::error_code error_code;
     receive_pointcloud_socket.close(error_code);
     receive_imu_socket.close(error_code);
 }
 
 asio::awaitable<void> Mid360Driver::receive_pointcloud() {
-    uint8_t buffer[1400];
+    std::uint8_t buffer[kUdpPacketBufferSize];
     asio::ip::udp::endpoint sender_endpoint;
     std::vector<Point> points;
+
     while (is_running.load(std::memory_order_relaxed)) {
         asio::error_code error_code;
-        std::size_t bytes_received = co_await receive_pointcloud_socket.async_receive_from(
-            asio::buffer(buffer, 1400), sender_endpoint, asio::redirect_error(asio::use_awaitable, error_code));
-        if (error_code || sender_endpoint.port() != 56300) [[unlikely]] {
+        const std::size_t bytes_received = co_await receive_pointcloud_socket.async_receive_from(
+            asio::buffer(buffer, kUdpPacketBufferSize), sender_endpoint,
+            asio::redirect_error(asio::use_awaitable, error_code));
+        if (error_code) {
+            if (should_exit_receive_loop(error_code, is_running.load(std::memory_order_relaxed))) {
+                break;
+            }
+            continue;
+        }
+        if (sender_endpoint.port() != kPointcloudSendPort) [[unlikely]] {
             continue;
         }
         if (bytes_received < sizeof(DataHeader)) [[unlikely]] {
             continue;
         }
+
         DataHeader header;
         std::memcpy(&header, buffer, sizeof(header));
+        if (header.version != kSupportedProtocolVersion) [[unlikely]] {
+            continue;
+        }
         if (header.length > bytes_received) [[unlikely]] {
             continue;
         }
+
         std::size_t expected_bytes = sizeof(DataHeader);
         if (header.data_type == DataType::kLivoxLidarCartesianCoordinateHighData) {
             expected_bytes += static_cast<std::size_t>(header.dot_num) * sizeof(CartesianHighPoint);
@@ -180,26 +265,29 @@ asio::awaitable<void> Mid360Driver::receive_pointcloud() {
         } else {
             continue;
         }
-        if (header.length > bytes_received || header.length < expected_bytes) [[unlikely]] {
+        if (header.length < expected_bytes) [[unlikely]] {
             continue;
         }
+
         double header_timestamp = static_cast<double>(header.timestamp) * 1e-9;
         header_timestamp = normalize_header_timestamp(header.time_type, sender_endpoint.address(), header_timestamp,
                                                       time_sync_map);
+
         points.clear();
-        points.reserve(header.dot_num);
-        const double point_time_step = (header.dot_num > 1) ? static_cast<double>(header.time_interval) * 1e-7 /
-                                                                  static_cast<double>(header.dot_num - 1)
-                                                            : 0.0;
+        points.reserve(static_cast<std::size_t>(header.dot_num));
+        const double point_time_step =
+            (header.dot_num > 1)
+                ? static_cast<double>(header.time_interval) * 1e-7 / static_cast<double>(header.dot_num - 1)
+                : 0.0;
+
         if (header.data_type == DataType::kLivoxLidarCartesianCoordinateHighData) {
             const auto* raw_points = reinterpret_cast<const CartesianHighPoint*>(buffer + sizeof(DataHeader));
-            for (size_t i = 0; i < header.dot_num; ++i) {
+            for (std::size_t i = 0; i < header.dot_num; ++i) {
                 const auto& raw_point = raw_points[i];
-                if ((raw_point.tag & 0b00110000) != 0b00000000 || (raw_point.tag & 0b00001100) != 0b00000000 ||
-                    (raw_point.tag & 0b00000011) != 0b00000000) {
+                if (!has_valid_point_tag(raw_point.tag)) {
                     continue;
                 }
-                Point point;  // NOLINT(cppcoreguidelines-pro-type-member-init)
+                Point point{};
                 point.timestamp = header_timestamp + point_time_step * static_cast<double>(i);
                 point.x = static_cast<float>(raw_point.x * 0.001);
                 point.y = static_cast<float>(raw_point.y * 0.001);
@@ -209,13 +297,12 @@ asio::awaitable<void> Mid360Driver::receive_pointcloud() {
             }
         } else if (header.data_type == DataType::kLivoxLidarCartesianCoordinateLowData) {
             const auto* raw_points = reinterpret_cast<const CartesianLowPoint*>(buffer + sizeof(DataHeader));
-            for (size_t i = 0; i < header.dot_num; ++i) {
+            for (std::size_t i = 0; i < header.dot_num; ++i) {
                 const auto& raw_point = raw_points[i];
-                if ((raw_point.tag & 0b00110000) != 0b00000000 || (raw_point.tag & 0b00001100) != 0b00000000 ||
-                    (raw_point.tag & 0b00000011) != 0b00000000) {
+                if (!has_valid_point_tag(raw_point.tag)) {
                     continue;
                 }
-                Point point;  // NOLINT(cppcoreguidelines-pro-type-member-init)
+                Point point{};
                 point.timestamp = header_timestamp + point_time_step * static_cast<double>(i);
                 point.x = static_cast<float>(raw_point.x * 0.001);
                 point.y = static_cast<float>(raw_point.y * 0.001);
@@ -223,81 +310,99 @@ asio::awaitable<void> Mid360Driver::receive_pointcloud() {
                 point.intensity = raw_point.reflectivity;
                 points.push_back(point);
             }
-        } else if (header.data_type == DataType::kLivoxLidarSphericalCoordinateData) {
+        } else {
             const auto* raw_points = reinterpret_cast<const SphericalPoint*>(buffer + sizeof(DataHeader));
-            for (size_t i = 0; i < header.dot_num; ++i) {
+            for (std::size_t i = 0; i < header.dot_num; ++i) {
                 const auto& raw_point = raw_points[i];
-                if ((raw_point.tag & 0b00110000) != 0b00000000 || (raw_point.tag & 0b00001100) != 0b00000000 ||
-                    (raw_point.tag & 0b00000011) != 0b00000000) {
+                if (!has_valid_point_tag(raw_point.tag)) {
                     continue;
                 }
-                Point point;  // NOLINT(cppcoreguidelines-pro-type-member-init)
+                Point point{};
                 point.timestamp = header_timestamp + point_time_step * static_cast<double>(i);
-                double radius = raw_point.depth / 1000.0;
-                double theta = raw_point.theta / 100.0 / 180 * M_PI;
-                double phi = raw_point.phi / 100.0 / 180 * M_PI;
-                const double sin_theta = sin(theta);
-                point.x = static_cast<float>(radius * sin_theta * cos(phi));
-                point.y = static_cast<float>(radius * sin_theta * sin(phi));
-                point.z = static_cast<float>(radius * cos(theta));
+                const double radius = raw_point.depth / 1000.0;
+                const double theta = raw_point.theta / 100.0 / 180.0 * M_PI;
+                const double phi = raw_point.phi / 100.0 / 180.0 * M_PI;
+                const double sin_theta = std::sin(theta);
+                point.x = static_cast<float>(radius * sin_theta * std::cos(phi));
+                point.y = static_cast<float>(radius * sin_theta * std::sin(phi));
+                point.z = static_cast<float>(radius * std::cos(theta));
                 point.intensity = raw_point.reflectivity;
                 points.push_back(point);
             }
         }
+
         auto& frame_state = frame_state_map[sender_endpoint.address()];
-        if (frame_state.has_data && header.frame_cnt != frame_state.current_frame_cnt) {
-            FrameMeta meta{frame_state.frame_min_ts, frame_state.current_frame_cnt, frame_state.lost_in_frame,
-                           frame_state.lost_total};
-            on_receive_pointcloud(sender_endpoint.address(), meta, frame_state.frame_points);
-            frame_state.frame_points.clear();
-            frame_state.lost_in_frame = 0;
-            frame_state.has_data = false;
-        }
         if (!frame_state.has_data) {
-            frame_state.current_frame_cnt = header.frame_cnt;
-            frame_state.expected_udp_cnt = 0;
-            frame_state.frame_min_ts = std::numeric_limits<double>::max();
+            start_new_frame(frame_state, header.frame_cnt);
+        } else if (header.frame_cnt != frame_state.current_frame_cnt) {
+            finalize_frame(sender_endpoint.address(), frame_state, on_receive_pointcloud);
+            start_new_frame(frame_state, header.frame_cnt);
         }
-        if (header.udp_cnt != frame_state.expected_udp_cnt && frame_state.has_data) {
-            const auto gap = static_cast<uint16_t>(header.udp_cnt - frame_state.expected_udp_cnt);
-            frame_state.lost_in_frame += gap;
-            frame_state.lost_total += gap;
+
+        if (header.udp_cnt < frame_state.expected_udp_cnt) {
+            continue;
         }
-        frame_state.expected_udp_cnt = static_cast<uint16_t>(header.udp_cnt + 1);
+
+        const auto gap = static_cast<std::uint16_t>(header.udp_cnt - frame_state.expected_udp_cnt);
+        frame_state.lost_in_frame += gap;
+        frame_state.lost_total += gap;
+        frame_state.expected_udp_cnt = static_cast<std::uint16_t>(header.udp_cnt + 1);
+
         if (header_timestamp < frame_state.frame_min_ts) {
             frame_state.frame_min_ts = header_timestamp;
         }
-        frame_state.frame_points.insert(frame_state.frame_points.end(), points.begin(), points.end());
-        frame_state.has_data = true;
+
+        if (!frame_state.drop_current_frame) {
+            if (frame_state.frame_points.size() + points.size() > kMaxFramePointCount) {
+                frame_state.drop_current_frame = true;
+                frame_state.frame_points.clear();
+                continue;
+            }
+            frame_state.frame_points.insert(frame_state.frame_points.end(), points.begin(), points.end());
+        }
     }
 }
 
 asio::awaitable<void> Mid360Driver::receive_imu() {
-    uint8_t buffer[1400];
+    std::uint8_t buffer[kUdpPacketBufferSize];
     asio::ip::udp::endpoint sender_endpoint;
+
     while (is_running.load(std::memory_order_relaxed)) {
         asio::error_code error_code;
-        std::size_t bytes_received = co_await receive_imu_socket.async_receive_from(
-            asio::buffer(buffer, 1400), sender_endpoint, asio::redirect_error(asio::use_awaitable, error_code));
-        if (error_code || sender_endpoint.port() != 56400) [[unlikely]] {
+        const std::size_t bytes_received = co_await receive_imu_socket.async_receive_from(
+            asio::buffer(buffer, kUdpPacketBufferSize), sender_endpoint,
+            asio::redirect_error(asio::use_awaitable, error_code));
+        if (error_code) {
+            if (should_exit_receive_loop(error_code, is_running.load(std::memory_order_relaxed))) {
+                break;
+            }
+            continue;
+        }
+        if (sender_endpoint.port() != kImuSendPort) [[unlikely]] {
             continue;
         }
         if (bytes_received < sizeof(DataHeader) + sizeof(Imu)) [[unlikely]] {
             continue;
         }
+
         DataHeader header;
         std::memcpy(&header, buffer, sizeof(header));
-        if (header.length > bytes_received) [[unlikely]] {
+        if (header.version != kSupportedProtocolVersion) [[unlikely]] {
+            continue;
+        }
+        if (header.length > bytes_received || header.length < sizeof(DataHeader) + sizeof(Imu)) [[unlikely]] {
             continue;
         }
         if (header.data_type != DataType::kLivoxLidarImuData) [[unlikely]] {
             continue;
         }
+
         double header_timestamp = static_cast<double>(header.timestamp) * 1e-9;
         header_timestamp = normalize_header_timestamp(header.time_type, sender_endpoint.address(), header_timestamp,
                                                       time_sync_map);
+
         const auto& raw_imu = *reinterpret_cast<const Imu*>(buffer + sizeof(DataHeader));
-        ImuMsg imu_msg;  // NOLINT(cppcoreguidelines-pro-type-member-init)
+        ImuMsg imu_msg{};
         imu_msg.timestamp = header_timestamp;
         imu_msg.angular_velocity_x = raw_imu.angular_velocity_x;
         imu_msg.angular_velocity_y = raw_imu.angular_velocity_y;

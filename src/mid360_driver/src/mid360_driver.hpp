@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -22,6 +23,9 @@ struct Point {
     float intensity;
     double timestamp;
 };
+
+static_assert(std::is_standard_layout_v<Point>);
+static_assert(std::is_trivially_copyable_v<Point>);
 
 struct FrameMeta {
     double stamp_sec;
@@ -37,6 +41,7 @@ struct FrameState {
     uint32_t lost_in_frame = 0;
     uint32_t lost_total = 0;
     std::vector<Point> frame_points;
+    bool drop_current_frame = false;
     bool has_data = false;
 };
 
