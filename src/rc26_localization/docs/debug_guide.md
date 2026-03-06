@@ -91,3 +91,9 @@ ros2 bag record -o loc_test_bag /livox/lidar /imu/data /odom /tf /tf_static
 ros2 bag play loc_test_bag --rate 0.5
 ```
 3. 终端 3：使用 RViz2 监控点云匹配情况，或使用 `ros2 topic echo` 监控输出状态。
+
+## 6. 常见问题排查
+
+- **定位节点已启动但 `/localization/pose_with_cov` 无输出**：先核对 `/livox/lidar`、`/imu/data`、`/odom` 是否都有数据，再检查 launch 中地图、参数文件和命名空间是否加载正确。
+- **频繁进入硬退化或位姿卡住**：优先观察 `/localization/diagnostics` 中的 `h_min_eig` 与 `hard_degen_consec`，并结合场景特征决定是否降低 `hessian_lambda_hard`、启用 `robust_enable` 或切换 `gicp_optimizer_mode`。
+- **协方差过大或位姿抖动明显**：检查初值来源、IMU/里程计时间同步，以及点云输入是否存在动态障碍大面积遮挡；离线回放时建议降低 bag 播放速率便于定位问题。
