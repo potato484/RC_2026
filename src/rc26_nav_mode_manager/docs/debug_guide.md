@@ -149,8 +149,9 @@ ros2 param get /controller_server v_angular_max
 
 ---
 
-## 6. 异常情况调试
+## 6. 常见问题排查
 
 - **模式切换被拒**：检查 Odom 数据，确保机器人的线速度和角速度低于配置的 `stop_linear_eps_mps` 和 `stop_angular_eps_rps`。
 - **参数回读超时/失败**：查看 `nav_mode_manager` 的终端输出。如果出现 "get_parameters timeout"，说明目标节点（如 `terrain_semantic`）未启动或节点名不匹配。请检查 `nav_mode_manager.yaml` 中配置的节点名是否正确。
 - **无法找到模式**：如果在调用服务时输入了错误的 `mode_name`，服务会返回失败，提示 "Profile not found"。请参考 `nav_profiles.yaml` 获取有效的模式列表。
+- **代价地图清理服务未生效**：检查清图服务端是否已启动，以及 `clear_entirely_local_costmap` / `clear_entirely_global_costmap` 的服务名是否与配置一致；若服务存在但调用失败，优先查看返回值与 manager 终端日志。
