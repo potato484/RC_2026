@@ -13,3 +13,6 @@ lio_state_predictor:
     pos_cov_increase_m2_per_s: 0.02
     yaw_cov_increase_rad2_per_s: 0.01
     degeneracy_ratio_threshold: 0.02
+    imu_timeout_sec: 0.05
+    degenerate_score_timeout_sec: 0.2
+    max_prediction_horizon_sec: 0.2
