@@ -79,6 +79,10 @@ protected:
                                double robot_y);
 
 private:
+    const CostmapSnapshot& captureCostmapSnapshot();
+    void refreshPoseCovSubscription(const rclcpp_lifecycle::LifecycleNode::SharedPtr& node);
+    void resetMotionState() noexcept;
+
     double applyCurvatureLimitation(const nav_msgs::msg::Path& path,
                                     const geometry_msgs::msg::PoseStamped& lookahead_pose, double& linear_vel,
                                     double real_dt, double& out_kappa);
@@ -169,6 +173,7 @@ private:
     tf2::Duration transform_tolerance_;
     std::vector<double> plan_cumulative_distances_;
     size_t plan_prune_idx_{0};
+    CostmapSnapshot costmap_snapshot_cache_;
 
     nav_msgs::msg::Path global_plan_;
     rclcpp_lifecycle::LifecyclePublisher<nav_msgs::msg::Path>::SharedPtr local_path_pub_;
