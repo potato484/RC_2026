@@ -202,13 +202,6 @@ bool SmartWaypointNavigator::isKeepoutReady(std::string& reason) const {
             reason = "waiting /kfs_filter_mask (initial)";
             return false;
         }
-        const double mask_age_ms =
-            static_cast<double>(std::max<int64_t>(0, now_ns - mask_stamp_ns)) * 1e-6;
-        constexpr double kMaskMaxAgeMs = 5000.0;
-        if (mask_age_ms > kMaskMaxAgeMs) {
-            reason = "kfs_filter_mask stale: " + std::to_string(mask_age_ms) + "ms";
-            return false;
-        }
     } else {
         if (mask_stamp_ns <= 0) {
             reason = "waiting /kfs_filter_mask";

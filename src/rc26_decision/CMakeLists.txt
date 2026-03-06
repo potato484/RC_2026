@@ -52,6 +52,7 @@ ament_target_dependencies(${PROJECT_NAME}_nodes
   geometry_msgs
   nav_msgs
   nav2_msgs
+  std_msgs
   tf2
   tf2_geometry_msgs
   rc26_serial
