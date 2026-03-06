@@ -73,3 +73,9 @@ kcachegrind callgrind.out.xxxx
 - **Hessian 矩阵 (result.H)**：如果配准成功，Hessian 应该是一个正定矩阵。如果在某个方向（如长走廊的 X 轴方向）Hessian 的对应特征值非常小（接近 0），说明在这个方向上存在退化，位姿估计不可靠。可以通过打印特征值来调试环境的退化情况。
 - **目标点拒绝距离 (max_dist_sq)**：设置过大容易引入噪点，设置过小可能导致初始偏差稍大时无法收敛。调试时可通过打印 `result.num_inliers` 观察有效点数的变化。
 - **迭代次数 (iterations)**：正常情况下配准应该在 10-20 次内收敛。如果持续达到 `max_iterations`，通常意味着陷入了局部最优或初始位姿偏差过大。
+
+## 5. 常见问题排查
+
+- **测试程序编译时报找不到头文件或库**：确认已完成 `colcon build --parallel-workers 1 --packages-select rc26_small_gicp`，并在当前终端执行 `source install/setup.bash` 后再编译依赖示例。
+- **`result.converged` 持续为 `false`**：优先减小初始位姿误差，并检查 `max_dist_sq` 是否过小、点云重叠区域是否足够，同时关注 `result.num_inliers` 是否明显偏低。
+- **CPU 占用过高或线程打满**：先限制 `OMP_NUM_THREADS`，再观察 `htop` 中各核心是否均衡；在 R2 平台联调时不建议默认放开过多 OpenMP 线程。
