@@ -53,6 +53,7 @@ public:
 
     PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> feedback_serial,
                std::shared_ptr<rc26_decision::SerialDriver> target_serial, Config config);
+    ~PoseSender();
 
 private:
     struct Velocity {
@@ -147,6 +148,9 @@ private:
     void feedbackTimerCallback();
     void targetTimerCallback();
 
+    std::chrono::milliseconds sensorFreshnessTimeout() const;
+    bool hasFreshOdomLocked(const std::chrono::steady_clock::time_point& now) const;
+    bool getFreshImuCache(const std::chrono::steady_clock::time_point& now, ImuCache& imu_cache) const;
     float getEffectiveVMax(const std::chrono::steady_clock::time_point& now) const;
     void applyImuSpikeScale(Velocity& velocity, const std::chrono::steady_clock::time_point& now);
     bool imuSpikeActive() const;

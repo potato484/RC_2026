@@ -1,5 +1,7 @@
 // RC2026 速度发送独立节点
 // 双串口架构：反馈速度 + 目标速度
+#include <stdexcept>
+
 #include <rclcpp/rclcpp.hpp>
 
 #include "rc26_merge_odom/pose/pose_sender.hpp"
@@ -41,6 +43,12 @@ public:
         std::string target_port = this->get_parameter("target_serial_port").as_string();
         int baudrate = this->get_parameter("baudrate").as_int();
 
+        if (!feedback_port.empty() && feedback_port == target_port) {
+            RCLCPP_FATAL(this->get_logger(), "feedback_serial_port 与 target_serial_port 指向同一设备: %s",
+                         feedback_port.c_str());
+            throw std::invalid_argument("feedback_serial_port and target_serial_port must be different");
+        }
+
         feedback_serial_ = std::make_shared<rc26_decision::SerialDriver>();
         bool feedback_ok = feedback_serial_->open(feedback_port, baudrate);
         if (!feedback_ok) {
@@ -55,7 +63,7 @@ public:
 
         if (!feedback_ok && !target_ok) {
             RCLCPP_ERROR(this->get_logger(), "双串口均打开失败，速度发送功能禁用");
-            return;
+            throw std::runtime_error("failed to open both pose sender serial ports");
         }
 
         rc26_merge_odom::PoseSender::Config config;
@@ -99,8 +107,14 @@ private:
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<PoseSenderNode>();
-    rclcpp::spin(node);
+    int exit_code = 0;
+    try {
+        auto node = std::make_shared<PoseSenderNode>();
+        rclcpp::spin(node);
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR(rclcpp::get_logger("pose_sender_node"), "Exception: %s", e.what());
+        exit_code = 1;
+    }
     rclcpp::shutdown();
-    return 0;
+    return exit_code;
 }

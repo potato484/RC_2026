@@ -1,5 +1,7 @@
 // RC2026 融合里程计主节点
 // 整合CAN/Wheel里程计和速度发送功能（双串口架构）
+#include <stdexcept>
+
 #include <rclcpp/rclcpp.hpp>
 
 #include "rc26_merge_odom/can/can_odom.hpp"
@@ -78,6 +80,12 @@ public:
         std::string target_port = this->get_parameter("target_serial_port").as_string();
         int baudrate = this->get_parameter("baudrate").as_int();
 
+        if (!feedback_port.empty() && feedback_port == target_port) {
+            RCLCPP_FATAL(this->get_logger(), "feedback_serial_port 与 target_serial_port 指向同一设备: %s",
+                         feedback_port.c_str());
+            throw std::invalid_argument("feedback_serial_port and target_serial_port must be different");
+        }
+
         feedback_serial_ = std::make_shared<rc26_decision::SerialDriver>();
         bool feedback_ok = feedback_serial_->open(feedback_port, baudrate);
         if (!feedback_ok) {
@@ -100,6 +108,10 @@ public:
         const std::string odom_frame = this->get_parameter("odom_frame").as_string();
         const std::string base_frame = this->get_parameter("base_frame").as_string();
         const double data_timeout_ms = this->get_parameter("data_timeout_ms").as_double();
+
+        if (!use_can_odom && !feedback_ok) {
+            throw std::runtime_error("wheel_odom 模式要求 feedback_serial_port 打开成功");
+        }
 
         // 根据配置初始化里程计
         if (use_can_odom) {
@@ -125,12 +137,11 @@ public:
             can_config.recovery_tau_s = this->get_parameter("recovery_tau_s").as_double();
 
             can_odom_ = std::make_unique<rc26_merge_odom::CanOdom>(*this, can_config);
+            if (!can_odom_->isReady()) {
+                throw std::runtime_error("CanOdom 初始化失败");
+            }
             RCLCPP_INFO(this->get_logger(), "使用 CAN 里程计");
         } else {
-            if (!feedback_ok) {
-                RCLCPP_WARN(this->get_logger(), "wheel_odom 反馈串口未打开，ODOM_DATA 将不可用");
-            }
-
             rc26_merge_odom::WheelOdom::Config wheel_config;
             wheel_config.wheel_base = wheel_base;
             wheel_config.track_width = track_width;
@@ -150,6 +161,9 @@ public:
             wheel_config.recovery_tau_s = this->get_parameter("recovery_tau_s").as_double();
 
             wheel_odom_ = std::make_unique<rc26_merge_odom::WheelOdom>(*this, feedback_serial_, wheel_config);
+            if (!wheel_odom_->isReady()) {
+                throw std::runtime_error("WheelOdom 初始化失败");
+            }
             RCLCPP_INFO(this->get_logger(), "使用 Wheel 里程计 (反馈串口: %s)", feedback_port.c_str());
         }
 
@@ -203,8 +217,14 @@ private:
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<MergeOdomNode>();
-    rclcpp::spin(node);
+    int exit_code = 0;
+    try {
+        auto node = std::make_shared<MergeOdomNode>();
+        rclcpp::spin(node);
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR(rclcpp::get_logger("merge_odom_node"), "Exception: %s", e.what());
+        exit_code = 1;
+    }
     rclcpp::shutdown();
-    return 0;
+    return exit_code;
 }

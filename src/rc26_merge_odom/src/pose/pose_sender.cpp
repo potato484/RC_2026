@@ -89,6 +89,9 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
     const float raw_governor_lambda = config_.governor_lambda;
     const float raw_dob_lpf_hz = config_.dob_lpf_hz;
     const float raw_latency_comp_s = config_.latency_comp_s;
+    const std::string raw_cmd_vel_topic = config_.cmd_vel_topic;
+    const std::string raw_odom_topic = config_.odom_topic;
+    const std::string raw_imu_topic = config_.imu_topic;
 
     config_.cmd_vel_timeout_ms = std::max(0, config_.cmd_vel_timeout_ms);
     config_.terrain_speed_limit_timeout_ms = std::max(0, config_.terrain_speed_limit_timeout_ms);
@@ -104,6 +107,15 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
     config_.governor_lambda = std::max(0.0f, config_.governor_lambda);
     config_.dob_lpf_hz = std::max(0.0f, config_.dob_lpf_hz);
     config_.latency_comp_s = std::max(0.0f, config_.latency_comp_s);
+    if (config_.cmd_vel_topic.empty()) {
+        config_.cmd_vel_topic = Config{}.cmd_vel_topic;
+    }
+    if (config_.odom_topic.empty()) {
+        config_.odom_topic = Config{}.odom_topic;
+    }
+    if (config_.imu_topic.empty()) {
+        config_.imu_topic = Config{}.imu_topic;
+    }
 
     logNormalized("cmd_vel_timeout_ms", raw_cmd_vel_timeout_ms, config_.cmd_vel_timeout_ms);
     logNormalized("terrain_speed_limit_timeout_ms", raw_terrain_speed_limit_timeout_ms,
@@ -121,6 +133,9 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
     logNormalized("governor_lambda", raw_governor_lambda, config_.governor_lambda);
     logNormalized("dob_lpf_hz", raw_dob_lpf_hz, config_.dob_lpf_hz);
     logNormalized("latency_comp_s", raw_latency_comp_s, config_.latency_comp_s);
+    logNormalized("cmd_vel_topic", raw_cmd_vel_topic, config_.cmd_vel_topic);
+    logNormalized("odom_topic", raw_odom_topic, config_.odom_topic);
+    logNormalized("imu_topic", raw_imu_topic, config_.imu_topic);
 
     const auto now = std::chrono::steady_clock::now();
     feedback_stats_.window_start = now;
@@ -171,6 +186,15 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
     }
 }
 
+PoseSender::~PoseSender() {
+    if (feedback_timer_) {
+        feedback_timer_->cancel();
+    }
+    if (target_timer_) {
+        target_timer_->cancel();
+    }
+}
+
 void PoseSender::cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
     std::lock_guard<std::mutex> lock(data_mutex_);
     target_vel_.vx = static_cast<float>(msg->linear.x);
@@ -196,7 +220,11 @@ void PoseSender::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
             const float dvy = feedback_vel_.vy - prev_odom_vel_.vy;
             wheel_accel_mps2_ = std::hypot(dvx, dvy) / static_cast<float>(dt);
             wheel_accel_valid_ = true;
+        } else {
+            wheel_accel_valid_ = false;
         }
+    } else {
+        wheel_accel_valid_ = false;
     }
 
     prev_odom_vel_ = feedback_vel_;
@@ -205,6 +233,7 @@ void PoseSender::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
 }
 
 void PoseSender::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
+    const auto now = std::chrono::steady_clock::now();
     const float ax = static_cast<float>(msg->linear_acceleration.x);
     const float ay = static_cast<float>(msg->linear_acceleration.y);
     const float gz = static_cast<float>(msg->angular_velocity.z);
@@ -214,7 +243,7 @@ void PoseSender::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
         cached_imu_.ax = ax;
         cached_imu_.ay = ay;
         cached_imu_.gz = gz;
-        cached_imu_.stamp = std::chrono::steady_clock::now();
+        cached_imu_.stamp = now;
         cached_imu_.valid = true;
     }
 
@@ -222,7 +251,6 @@ void PoseSender::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
         return;
     }
 
-    const auto now = std::chrono::steady_clock::now();
     const float alpha_old = std::clamp(config_.imu_gate_ema_alpha, 0.0f, 0.9999f);
     const float alpha_new = 1.0f - alpha_old;
 
@@ -256,8 +284,10 @@ void PoseSender::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
     bool wheel_accel_valid = false;
     {
         std::lock_guard<std::mutex> lock(data_mutex_);
-        wheel_accel = wheel_accel_mps2_;
-        wheel_accel_valid = wheel_accel_valid_;
+        wheel_accel_valid = wheel_accel_valid_ && hasFreshOdomLocked(now);
+        if (wheel_accel_valid) {
+            wheel_accel = wheel_accel_mps2_;
+        }
     }
 
     if (wheel_accel_valid && wheel_accel >= config_.accel_agree_threshold_mps2) {
@@ -291,6 +321,25 @@ void PoseSender::terrainSpeedLimitCallback(const std_msgs::msg::Float32::SharedP
     terrain_speed_limit_mps_ = msg->data;
     terrain_speed_limit_time_ = std::chrono::steady_clock::now();
     terrain_speed_limit_received_ = true;
+}
+
+std::chrono::milliseconds PoseSender::sensorFreshnessTimeout() const {
+    const int fastest_rate_hz = std::max(std::max(config_.feedback_send_rate_hz, config_.target_send_rate_hz), 1);
+    const int period_ms = std::max(1, static_cast<int>(std::ceil(1000.0 / static_cast<double>(fastest_rate_hz))));
+    return std::chrono::milliseconds(std::max(100, period_ms * 3));
+}
+
+bool PoseSender::hasFreshOdomLocked(const std::chrono::steady_clock::time_point& now) const {
+    return prev_odom_valid_ && (now - prev_odom_time_ <= sensorFreshnessTimeout());
+}
+
+bool PoseSender::getFreshImuCache(const std::chrono::steady_clock::time_point& now, ImuCache& imu_cache) const {
+    std::lock_guard<std::mutex> lock(imu_cache_mutex_);
+    if (!cached_imu_.valid || now - cached_imu_.stamp > sensorFreshnessTimeout()) {
+        return false;
+    }
+    imu_cache = cached_imu_;
+    return true;
 }
 
 float PoseSender::getEffectiveVMax(const std::chrono::steady_clock::time_point& now) const {
@@ -470,13 +519,17 @@ PoseSender::Velocity PoseSender::protectVelocity(Velocity raw, Velocity& prev_ve
     Velocity command = raw;
     if (enable_dob && config_.dob_enable && isValidDt(dt)) {
         Velocity actual;
+        bool actual_valid = false;
         {
             std::lock_guard<std::mutex> lock(data_mutex_);
-            actual = feedback_vel_;
+            if (hasFreshOdomLocked(now)) {
+                actual = feedback_vel_;
+                actual_valid = true;
+            }
         }
 
         std::lock_guard<std::mutex> lock(dob_mutex_);
-        if (prev_governor_output_valid_) {
+        if (actual_valid && prev_governor_output_valid_) {
             const float dt_f = static_cast<float>(dt);
             const float d_raw_vx = (actual.vx - prev_governor_output_.vx) / dt_f;
             const float d_raw_vy = (actual.vy - prev_governor_output_.vy) / dt_f;
@@ -523,6 +576,7 @@ PoseSender::Velocity PoseSender::protectVelocity(Velocity raw, Velocity& prev_ve
 
 void PoseSender::feedbackTimerCallback() {
     Velocity feedback;
+    const auto now = std::chrono::steady_clock::now();
     {
         std::lock_guard<std::mutex> lock(data_mutex_);
         feedback = feedback_vel_;
@@ -530,17 +584,12 @@ void PoseSender::feedbackTimerCallback() {
 
     if (config_.latency_comp_enable) {
         ImuCache imu_cache;
-        {
-            std::lock_guard<std::mutex> lock(imu_cache_mutex_);
-            imu_cache = cached_imu_;
-        }
-        if (imu_cache.valid) {
+        if (getFreshImuCache(now, imu_cache)) {
             feedback.vx += imu_cache.ax * config_.latency_comp_s;
             feedback.vy += imu_cache.ay * config_.latency_comp_s;
         }
     }
 
-    const auto now = std::chrono::steady_clock::now();
     double dt = 0.0;
     Velocity prev_feedback;
     {
