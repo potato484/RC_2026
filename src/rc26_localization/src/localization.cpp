@@ -201,7 +201,7 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
 
     // I3: 亚克力过滤参数
     this->declare_parameter("acrylic_filter_enable", false);
-    this->declare_parameter("acrylic_roi_boxes", std::vector<double>{});
+    this->declare_parameter<std::vector<double>>("acrylic_roi_boxes", std::vector<double>{});
     this->declare_parameter("acrylic_filter_max_stale_sec", 1.0);
 
     // L2: Scan Context 参数
@@ -229,9 +229,9 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     // T2: QCS8550 线程亲和
     this->declare_parameter("qcs8550_affinity_enable", false);
     this->declare_parameter("qcs8550_realtime_enable", false);
-    this->declare_parameter("qcs8550_prime_cpu_ids", std::vector<int64_t>{});
-    this->declare_parameter("qcs8550_gold_cpu_ids", std::vector<int64_t>{});
-    this->declare_parameter("qcs8550_silver_cpu_ids", std::vector<int64_t>{});
+    this->declare_parameter<std::vector<int64_t>>("qcs8550_prime_cpu_ids", std::vector<int64_t>{});
+    this->declare_parameter<std::vector<int64_t>>("qcs8550_gold_cpu_ids", std::vector<int64_t>{});
+    this->declare_parameter<std::vector<int64_t>>("qcs8550_silver_cpu_ids", std::vector<int64_t>{});
     this->declare_parameter("gicp_omp_threads", 4);
 
     // S1: IMU Spike 门控
@@ -882,4 +882,3 @@ void LocalizationNode::configureThreadAffinityQcs8550() {
 
 #include "rclcpp_components/register_node_macro.hpp"
 RCLCPP_COMPONENTS_REGISTER_NODE(rc26_localization::LocalizationNode)
-
