@@ -373,6 +373,11 @@ int main(int argc, char** argv) {
 
             for (const auto& p : params) {
                 const std::string& name = p.get_name();
+
+                if (name.rfind("qos_overrides.", 0) == 0) {
+                    continue;
+                }
+
                 std::lock_guard<std::mutex> lk(runtime_param_mutex);
 
                 if (name == "filter_size_surf") {
