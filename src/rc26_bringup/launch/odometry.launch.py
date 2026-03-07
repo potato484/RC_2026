@@ -8,9 +8,10 @@
 """
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, RegisterEventHandler
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.event_handlers import OnProcessExit
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 
 
@@ -24,9 +25,14 @@ def generate_launch_description():
     namespace = LaunchConfiguration('namespace')
     use_sim_time = LaunchConfiguration('use_sim_time')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
-    use_rviz = LaunchConfiguration('use_rviz')
+    odometry_use_rviz = LaunchConfiguration('odometry_use_rviz')
     start_mid360_driver = LaunchConfiguration('start_mid360_driver')
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
+    recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
+    recover_mid360_lidar_ip = LaunchConfiguration('recover_mid360_lidar_ip')
+    recover_mid360_host_ip = LaunchConfiguration('recover_mid360_host_ip')
+    recover_mid360_timeout = LaunchConfiguration('recover_mid360_timeout')
+    recover_mid360_warmup_before_reboot = LaunchConfiguration('recover_mid360_warmup_before_reboot')
     param_overrides_file = PathJoinSubstitution([_dir, 'config', 'param_overrides.yaml'])
 
     # 参数声明
@@ -46,7 +52,7 @@ def generate_launch_description():
         description='先验点云文件路径 (建图模式下可为空)')
 
     declare_use_rviz = DeclareLaunchArgument(
-        'use_rviz',
+        'odometry_use_rviz',
         default_value='true',
         description='启动 RViz')
 
@@ -60,24 +66,82 @@ def generate_launch_description():
         default_value=PathJoinSubstitution([point_lio_dir, 'config', 'mid360.yaml']),
         description='Point-LIO 参数文件路径（建图/调试时可切换不同配置）')
 
+    declare_recover_mid360_stream = DeclareLaunchArgument(
+        'recover_mid360_stream',
+        default_value='false',
+        description='启动前先运行 Mid-360 恢复脚本（会在必要时重写 host_ipcfg 并软件重启雷达）')
+
+    declare_recover_mid360_lidar_ip = DeclareLaunchArgument(
+        'recover_mid360_lidar_ip',
+        default_value='192.168.1.140',
+        description='Mid-360 实机 IP（恢复脚本使用）')
+
+    declare_recover_mid360_host_ip = DeclareLaunchArgument(
+        'recover_mid360_host_ip',
+        default_value='192.168.1.50',
+        description='R2 主机接收口 IP（恢复脚本使用）')
+
+    declare_recover_mid360_timeout = DeclareLaunchArgument(
+        'recover_mid360_timeout',
+        default_value='35.0',
+        description='Mid-360 恢复脚本最长等待时间（秒）')
+
+    declare_recover_mid360_warmup_before_reboot = DeclareLaunchArgument(
+        'recover_mid360_warmup_before_reboot',
+        default_value='5.0',
+        description='发现雷达后等待多久再触发软件重启（秒）')
+
     # 配置文件路径
     mid360_driver_config = PathJoinSubstitution([mid360_driver_dir, 'config', 'param.yaml'])
     odom_interface_config = PathJoinSubstitution([bringup_dir, 'config', 'odom_interface.yaml'])
     sensor_scan_config = PathJoinSubstitution([bringup_dir, 'config', 'sensor_scan_generation.yaml'])
     lio_state_predictor_yaml = PathJoinSubstitution([bringup_dir, 'config', 'lio_state_predictor.yaml'])
 
+    start_mid360_driver_direct_condition = IfCondition(
+        PythonExpression(["'", start_mid360_driver, "' == 'true' and '", recover_mid360_stream, "' != 'true'"])
+    )
+    recover_mid360_condition = IfCondition(
+        PythonExpression(["'", start_mid360_driver, "' == 'true' and '", recover_mid360_stream, "' == 'true'"])
+    )
+
+    def create_mid360_driver_node(condition=None):
+        kwargs = {
+            'package': 'rc26_mid360_driver',
+            'executable': 'rc26_mid360_driver_node',
+            'name': 'mid360_driver',
+            'namespace': namespace,
+            'output': 'screen',
+            'parameters': [
+                mid360_driver_config,
+                {'use_sim_time': use_sim_time},
+            ],
+        }
+        if condition is not None:
+            kwargs['condition'] = condition
+        return Node(**kwargs)
+
     # MID-360 LiDAR 驱动节点
-    mid360_driver_node = Node(
-        package='rc26_mid360_driver',
-        executable='rc26_mid360_driver_node',
-        name='mid360_driver',
-        namespace=namespace,
-        output='screen',
-        condition=IfCondition(start_mid360_driver),
-        parameters=[
-            mid360_driver_config,
-            {'use_sim_time': use_sim_time},
+    mid360_driver_node = create_mid360_driver_node(condition=start_mid360_driver_direct_condition)
+    mid360_driver_node_after_recover = create_mid360_driver_node()
+
+    recover_mid360_process = ExecuteProcess(
+        cmd=[
+            'python3',
+            PathJoinSubstitution([mid360_driver_dir, 'scripts', 'recover_mid360_stream.py']),
+            '--lidar-ip', recover_mid360_lidar_ip,
+            '--host-ip', recover_mid360_host_ip,
+            '--timeout', recover_mid360_timeout,
+            '--warmup-before-reboot', recover_mid360_warmup_before_reboot,
         ],
+        output='screen',
+        condition=recover_mid360_condition,
+    )
+
+    start_mid360_after_recover = RegisterEventHandler(
+        OnProcessExit(
+            target_action=recover_mid360_process,
+            on_exit=[mid360_driver_node_after_recover],
+        )
     )
 
     # rc26_point_lio 里程计节点
@@ -92,6 +156,10 @@ def generate_launch_description():
             param_overrides_file,
             {'use_sim_time': use_sim_time},
             {'prior_pcd.prior_pcd_map_path': prior_pcd_file},
+            # 集成里程计链要求 /state_estimation 与 /cloud_registered 共享同一 LiDAR 时戳。
+            # 若开启无下采样高频里程计，Point-LIO 会以 time_current 给里程计打戳，
+            # 下游 odom_interface / sensor_scan 会因为与点云时戳偏差过大而持续丢帧。
+            {'odometry.publish_odometry_without_downsample': False},
             # 对齐 Point-LIO body_frame 与 lidar_frame 语义
             # 并关闭 Point-LIO 自身 TF 发布，避免与 rc26_odom_interface / rc26_sensor_scan 重复发布 odom->base_link
             {'frame.body_frame': 'livox_frame'},
@@ -153,7 +221,7 @@ def generate_launch_description():
         name='rviz2',
         arguments=['-d', rviz_config],
         parameters=[{'use_sim_time': use_sim_time}],
-        condition=IfCondition(use_rviz)
+        condition=IfCondition(odometry_use_rviz)
     )
 
     return LaunchDescription([
@@ -164,9 +232,16 @@ def generate_launch_description():
         declare_use_rviz,
         declare_start_mid360_driver,
         declare_point_lio_config_file,
+        declare_recover_mid360_stream,
+        declare_recover_mid360_lidar_ip,
+        declare_recover_mid360_host_ip,
+        declare_recover_mid360_timeout,
+        declare_recover_mid360_warmup_before_reboot,
 
         # 节点
         static_tf_livox,
+        recover_mid360_process,
+        start_mid360_after_recover,
         mid360_driver_node,
         point_lio_node,
         odom_interface_node,

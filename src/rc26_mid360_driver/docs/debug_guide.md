@@ -116,6 +116,17 @@ ros2 launch rc26_bringup odometry.launch.py
 ## 7. 常见问题排查
 
 - **节点启动成功但 `/livox/lidar` 无数据**：优先检查雷达供电、`ping 192.168.1.140` 是否连通，以及 `host_ip` 是否仍保持为本机 `192.168.1.50`，避免把雷达 IP 错配到本机网口。
+- **主机完全收不到 `56301/56401` UDP 包**：当前 R2 实机已确认过一种特殊情况：雷达内部 `state_info_host_ipcfg` / `pointcloud_host_ipcfg` / `imu_host_ipcfg` 的 `src_port` 可能被写成 `0`。此时虽然能 `ping 192.168.1.140`，但 ROS 驱动和自写 UDP 探针都收不到任何点云/IMU。可直接执行：
+  ```bash
+  python3 src/rc26_mid360_driver/scripts/recover_mid360_stream.py --lidar-ip 192.168.1.140 --host-ip 192.168.1.50
+  ```
+  该脚本会复用官方 Livox-SDK2，把 `56200/56300/56400` 源端口重新写回雷达，并在必要时自动重启设备；实机验证后，`/livox/lidar` 可恢复到约 `10Hz`，`/livox/imu` 恢复到约 `200Hz`。
+- **整链启动时自动恢复**：`src/rc26_bringup/launch/odometry.launch.py` 与 `src/rc26_bringup/launch/bringup.launch.py` 新增了 `recover_mid360_stream:=true` 开关。若要在启动整条里程计链前先自动执行恢复，可使用：
+  ```bash
+  ros2 launch rc26_bringup odometry.launch.py recover_mid360_stream:=true
+  ros2 launch rc26_bringup bringup.launch.py slam:=false use_decision:=false recover_mid360_stream:=true
+  ```
+  首次执行会自动拉取并编译官方 `Livox-SDK2`，因此会比普通启动慢一些；后续会复用本地缓存。
 - **只有 `/livox/imu` 有数据、`/livox/lidar` 无数据**：检查雷达固件是否正常更新 `frame_cnt`；当前驱动会用 `lidar_publish_time_interval` 兜底分帧，若该参数与实际扫描频率不一致，可能表现为点云不发布或频率异常。
 - **点云频率抖动或出现丢包告警**：检查是否存在网卡抢占、交换机问题或省电模式；必要时独占网口直连雷达，并保持接收缓冲区不低于文档建议值。
 - **时间戳异常导致下游拒收**：检查 PTP/gPTP 是否真正生效，以及系统时间是否稳定；若未启用硬件同步，需重点确认驱动日志中是否存在时间回跳或滤波异常提示。
@@ -131,6 +142,7 @@ ros2 launch rc26_bringup odometry.launch.py
 - **持久化方式**：当前 AidLux / QTI 系统应直接修改 `/etc/sysctl.conf` 持久化 `net.core.rmem_max=33554432`，不要只新增单独的 `sysctl.d` 文件，否则可能被 `99-sysctl.conf` 回链配置覆盖。
 - **固件兼容性**：当前实机上点云 UDP 包的 `frame_cnt` 可能持续为 `0`，不能仅依赖协议帧计数做分帧；驱动已验证可回退到 `lidar_publish_time_interval=0.1` 的时间窗口分帧。
 - **实测结果**：`/livox/lidar` 稳定约 `10Hz`，`/livox/imu` 稳定约 `200Hz`，`/livox/lidar` 的 `fields` 为 `x, y, z, intensity, timestamp`，`point_step = 24`，头部时间戳单调递增。
+- **补充恢复记录**：若雷达内部 host ipcfg 的 `src_port` 被异常写成 `0`，官方 SDK2 能正常发现设备，但点云/IMU不会出流；将 `state/point/imu` 的源端口修正为 `56200/56300/56400` 后，再执行一次软件重启，数据即可恢复。
 
 建议在更换雷达、升级固件或重刷网络配置后，至少重新执行以下命令完成一次快速回归：
 
