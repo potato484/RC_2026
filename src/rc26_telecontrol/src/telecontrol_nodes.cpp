@@ -383,7 +383,7 @@ geometry_msgs::msg::Twist StickTelecontrolNode::compute_target_twist(
     apply_deadzone_hysteresis(axis_value(joy_msg, k_left_stick_x_axis), k_left_stick_x_axis) *
     linear_speed_limit();
   target_twist.angular.z =
-    apply_deadzone_hysteresis(axis_value(joy_msg, k_right_stick_yaw_axis), k_right_stick_yaw_axis) *
+    -apply_deadzone_hysteresis(axis_value(joy_msg, k_right_stick_yaw_axis), k_right_stick_yaw_axis) *
     angular_speed_limit();
   return target_twist;
 }
