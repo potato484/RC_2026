@@ -29,8 +29,7 @@ Visualization Manager:
       Value: true
       Size (m): 0.03
       Style: Points
-      Color Transformer: FlatColor
-      Color: 0; 255; 0
+      Color Transformer: Intensity
       Reliability Policy: Best Effort
     - Class: rviz_default_plugins/Path
       Name: Path

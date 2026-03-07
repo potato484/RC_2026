@@ -58,7 +58,11 @@ def generate_launch_description():
         executable='static_transform_publisher',
         name='map_to_odom_static',
         namespace=namespace,
-        arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom'],
+        arguments=[
+            '--x', '0', '--y', '0', '--z', '0',
+            '--roll', '0', '--pitch', '0', '--yaw', '0',
+            '--frame-id', 'map', '--child-frame-id', 'odom'
+        ],
         parameters=[{'use_sim_time': use_sim_time}],
         condition=IfCondition(slam)
     )
