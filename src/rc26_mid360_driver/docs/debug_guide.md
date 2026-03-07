@@ -26,11 +26,11 @@ sudo sysctl -w net.core.rmem_max=33554432
 ```
 
 ### 2.2 检查与雷达的连通性
-通常雷达的静态 IP 为 `192.168.1.1XX`，请根据实际配置 ping 雷达：
+当前 R2 实机中，Mid-360 雷达 IP 为 `192.168.1.140`，驱动接收端（`host_ip`）为本机 `br-lan` 地址 `192.168.1.50`。请 ping 雷达实际地址，而不是 ping 本机 `host_ip`：
 ```bash
-ping 192.168.1.100
+ping 192.168.1.140
 ```
-确保无丢包且延迟在正常范围（<1ms）。
+确保无丢包且延迟在正常范围（<1ms）。若 `ip route get 192.168.1.140` 显示为 `local ... dev lo`，说明目标 IP 被本机占用，当前连通性检查无效。
 
 ## 3. 启动雷达驱动节点
 
@@ -43,6 +43,7 @@ ros2 launch rc26_mid360_driver mid360_driver.launch.py
 观察终端输出日志：
 - 正常情况应看到 `LidarPublisher` 成功初始化的提示。
 - 若网络不通或雷达未开机，可能出现超时或无数据接收告警。
+- 若 `/livox/imu` 正常但 `/livox/lidar` 无数据，优先检查雷达端固件是否正确更新协议帧计数；当前驱动已在 `frame_cnt` 恒定不变时回退到 `lidar_publish_time_interval` 时间窗口分帧。
 - 注意观察是否有丢包告警（如 `UDP packet loss detected`），若出现说明网络或缓冲区存在瓶颈。
 
 ## 4. 验证在线话题
@@ -60,7 +61,7 @@ ros2 topic list
 ```bash
 ros2 topic hz /livox/lidar
 ```
-期望：帧率稳定在 10Hz（即雷达设定的扫描频率）。由于驱动已从定时器改为基于协议帧的事件驱动发布，帧率应非常稳定，不再出现半帧抖动。
+期望：帧率稳定在 10Hz（即雷达设定的扫描频率）。驱动优先基于协议帧计数进行事件驱动发布；若设备固件未正确更新 `frame_cnt`，则自动回退到 `lidar_publish_time_interval`（默认 `0.1s`）的时间窗口分帧，因此该参数必须与雷达实际扫描频率一致。
 
 ### 4.3 验证点云数据格式
 ```bash
@@ -106,6 +107,31 @@ ros2 launch rc26_bringup odometry.launch.py
 
 ## 7. 常见问题排查
 
-- **节点启动成功但 `/livox/lidar` 无数据**：优先检查雷达供电、IP 连通性与本机网卡配置，再确认 `net.core.rmem_max` 是否足够，避免 UDP 包还未进入驱动就被系统丢弃。
+- **节点启动成功但 `/livox/lidar` 无数据**：优先检查雷达供电、`ping 192.168.1.140` 是否连通，以及 `host_ip` 是否仍保持为本机 `192.168.1.50`，避免把雷达 IP 错配到本机网口。
+- **只有 `/livox/imu` 有数据、`/livox/lidar` 无数据**：检查雷达固件是否正常更新 `frame_cnt`；当前驱动会用 `lidar_publish_time_interval` 兜底分帧，若该参数与实际扫描频率不一致，可能表现为点云不发布或频率异常。
 - **点云频率抖动或出现丢包告警**：检查是否存在网卡抢占、交换机问题或省电模式；必要时独占网口直连雷达，并保持接收缓冲区不低于文档建议值。
 - **时间戳异常导致下游拒收**：检查 PTP/gPTP 是否真正生效，以及系统时间是否稳定；若未启用硬件同步，需重点确认驱动日志中是否存在时间回跳或滤波异常提示。
+
+## 8. R2 实机验证记录（2026-03-07）
+
+以下结论已在当前 R2 实机上完成验证，可作为后续联调的默认参考：
+
+- **网络拓扑**：本机 `br-lan` / `host_ip` = `192.168.1.50`，Mid-360 = `192.168.1.140`。
+- **连通性检查**：应执行 `ping 192.168.1.140`，不要执行 `ping 192.168.1.50`，因为后者是本机接收口地址。
+- **UDP 端口行为**：雷达点云从 `192.168.1.140:56300` 发往本机 `192.168.1.50:56301`，IMU 从 `192.168.1.140:56400` 发往本机 `192.168.1.50:56401`。
+- **系统缓冲区**：`net.core.rmem_max` 需至少为 `33554432`，否则高频 UDP 数据可能在进入驱动前被系统丢弃。
+- **固件兼容性**：当前实机上点云 UDP 包的 `frame_cnt` 可能持续为 `0`，不能仅依赖协议帧计数做分帧；驱动已验证可回退到 `lidar_publish_time_interval=0.1` 的时间窗口分帧。
+- **实测结果**：`/livox/lidar` 稳定约 `10Hz`，`/livox/imu` 稳定约 `200Hz`，`/livox/lidar` 的 `fields` 为 `x, y, z, intensity, timestamp`，`point_step = 24`，头部时间戳单调递增。
+
+建议在更换雷达、升级固件或重刷网络配置后，至少重新执行以下命令完成一次快速回归：
+
+```bash
+sysctl net.core.rmem_max
+ping 192.168.1.140
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
+ros2 launch rc26_mid360_driver mid360_driver.launch.py
+ros2 topic hz /livox/lidar
+ros2 topic hz /livox/imu
+ros2 topic echo /livox/lidar --once
+ros2 topic echo /livox/lidar --field header.stamp
+```
