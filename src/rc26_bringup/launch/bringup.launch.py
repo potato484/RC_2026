@@ -37,7 +37,9 @@ def generate_launch_description():
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
     params_file = LaunchConfiguration('params_file')
+    terrain_params_file = LaunchConfiguration('terrain_params_file')
     use_rviz = LaunchConfiguration('use_rviz')
+    recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     use_decision = LaunchConfiguration('use_decision')
     use_realsense = LaunchConfiguration('use_realsense')
     realsense_serial_no = LaunchConfiguration('realsense_serial_no')
@@ -80,10 +82,22 @@ def generate_launch_description():
         default_value=PathJoinSubstitution([bringup_dir, 'config', 'nav2_params.yaml']),
         description='Nav2 参数文件')
 
+    declare_terrain_params_file = DeclareLaunchArgument(
+        'terrain_params_file',
+        default_value=PathJoinSubstitution([
+            get_package_share_directory('rc26_terrain'), 'config', 'terrain_semantic.yaml'
+        ]),
+        description='rc26_terrain 参数文件')
+
     declare_use_rviz = DeclareLaunchArgument(
         'use_rviz',
         default_value='true',
         description='启动 RViz')
+
+    declare_recover_mid360_stream = DeclareLaunchArgument(
+        'recover_mid360_stream',
+        default_value='false',
+        description='启动前先运行 Mid-360 恢复脚本（必要时重写 host_ipcfg 并软件重启雷达）')
 
     declare_use_decision = DeclareLaunchArgument(
         'use_decision',
@@ -138,6 +152,8 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'prior_pcd_file': prior_pcd_file,
             'point_lio_config_file': point_lio_config_file,
+            'odometry_use_rviz': 'false',
+            'recover_mid360_stream': recover_mid360_stream,
         }.items()
     )
 
@@ -167,6 +183,7 @@ def generate_launch_description():
         launch_arguments={
             'namespace': namespace,
             'use_sim_time': use_sim_time,
+            'terrain_params_file': terrain_params_file,
         }.items()
     )
 
@@ -325,7 +342,6 @@ def generate_launch_description():
     # RViz：导航模式使用 nav2_default.rviz，建图模式使用 slam.rviz
     rviz_nav_config = PathJoinSubstitution([bringup_dir, 'rviz', 'nav2_default.rviz'])
     rviz_slam_config = PathJoinSubstitution([bringup_dir, 'rviz', 'slam.rviz'])
-
     rviz_nav_node = Node(
         package='rviz2',
         executable='rviz2',
@@ -346,7 +362,7 @@ def generate_launch_description():
 
     rviz_group = GroupAction(
         actions=[rviz_nav_node, rviz_slam_node],
-        condition=IfCondition(use_rviz),
+        condition=IfCondition(use_rviz)
     )
 
     return LaunchDescription([
@@ -358,7 +374,9 @@ def generate_launch_description():
         declare_prior_pcd_file,
         declare_point_lio_config_file,
         declare_params_file,
+        declare_terrain_params_file,
         declare_use_rviz,
+        declare_recover_mid360_stream,
         declare_use_decision,
         declare_use_realsense,
         declare_realsense_serial_no,
