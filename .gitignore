@@ -2,7 +2,7 @@
 /build/
 /install/
 /log/
-
+.pytest_cache
 # Python cache artifacts
 __pycache__/
 *.pyc
