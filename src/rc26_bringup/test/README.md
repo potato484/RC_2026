@@ -119,12 +119,11 @@ ros2 run tf2_tools view_frames
 # 启动最小化 Nav2 + 控制器测试
 ros2 launch rc26_bringup test_omni_controller.launch.py
 
-# 手动发送导航目标
-ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \
-    "{pose: {header: {frame_id: 'map'}, pose: {position: {x: 1.0, y: 0.0}}}}"
+# 检查隔离后的测试速度输出
+ros2 topic echo /cmd_vel_test --once
 
-# 检查速度输出
-ros2 topic echo /cmd_vel --once
+# 注意：该测试默认使用 test_map -> test_odom -> test_base_link，
+# 不再占用在线系统的 map / odom / base_link / cmd_vel
 ```
 
 ---
