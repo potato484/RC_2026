@@ -20,13 +20,84 @@
 #include <cmath>
 #include <stdexcept>
 
+#include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "pcl_ros/transforms.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+#include "visualization_msgs/msg/marker.hpp"
+#include "visualization_msgs/msg/marker_array.hpp"
 
 namespace rc26_odom_interface {
 
 namespace {
+
+constexpr size_t kMaxPathPoses = 2000;
+
+visualization_msgs::msg::MarkerArray makePoseMarkerArray(const std::string& frame_id,
+                                                         const builtin_interfaces::msg::Time& stamp,
+                                                         const std::string& ns_prefix,
+                                                         const geometry_msgs::msg::Pose& pose,
+                                                         float red,
+                                                         float green,
+                                                         float blue,
+                                                         const std::string& label,
+                                                         double text_z_offset) {
+    visualization_msgs::msg::MarkerArray marker_array;
+
+    visualization_msgs::msg::Marker sphere_marker;
+    sphere_marker.header.frame_id = frame_id;
+    sphere_marker.header.stamp = stamp;
+    sphere_marker.ns = ns_prefix;
+    sphere_marker.id = 0;
+    sphere_marker.type = visualization_msgs::msg::Marker::SPHERE;
+    sphere_marker.action = visualization_msgs::msg::Marker::ADD;
+    sphere_marker.pose = pose;
+    sphere_marker.scale.x = 0.08;
+    sphere_marker.scale.y = 0.08;
+    sphere_marker.scale.z = 0.08;
+    sphere_marker.color.r = red;
+    sphere_marker.color.g = green;
+    sphere_marker.color.b = blue;
+    sphere_marker.color.a = 0.95F;
+    marker_array.markers.emplace_back(std::move(sphere_marker));
+
+    visualization_msgs::msg::Marker arrow_marker;
+    arrow_marker.header.frame_id = frame_id;
+    arrow_marker.header.stamp = stamp;
+    arrow_marker.ns = ns_prefix;
+    arrow_marker.id = 1;
+    arrow_marker.type = visualization_msgs::msg::Marker::ARROW;
+    arrow_marker.action = visualization_msgs::msg::Marker::ADD;
+    arrow_marker.pose = pose;
+    arrow_marker.scale.x = 0.32;
+    arrow_marker.scale.y = 0.05;
+    arrow_marker.scale.z = 0.05;
+    arrow_marker.color.r = red;
+    arrow_marker.color.g = green;
+    arrow_marker.color.b = blue;
+    arrow_marker.color.a = 0.95F;
+    marker_array.markers.emplace_back(std::move(arrow_marker));
+
+    visualization_msgs::msg::Marker text_marker;
+    text_marker.header.frame_id = frame_id;
+    text_marker.header.stamp = stamp;
+    text_marker.ns = ns_prefix;
+    text_marker.id = 2;
+    text_marker.type = visualization_msgs::msg::Marker::TEXT_VIEW_FACING;
+    text_marker.action = visualization_msgs::msg::Marker::ADD;
+    text_marker.pose.position = pose.position;
+    text_marker.pose.position.z += text_z_offset;
+    text_marker.pose.orientation.w = 1.0;
+    text_marker.scale.z = 0.16;
+    text_marker.color.r = red;
+    text_marker.color.g = green;
+    text_marker.color.b = blue;
+    text_marker.color.a = 1.0F;
+    text_marker.text = label;
+    marker_array.markers.emplace_back(std::move(text_marker));
+
+    return marker_array;
+}
 
 template <typename ArrayT>
 bool allFinite(const ArrayT& values) {
@@ -74,6 +145,12 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     this->declare_parameter<double>("max_time_diff_sec", 0.2);
     this->declare_parameter<double>("tf_refresh_interval_sec", 1.0);
     this->declare_parameter<bool>("use_input_twist", true);
+    this->declare_parameter<bool>("zero_origin_to_first_frame", true);
+    this->declare_parameter<int>("zero_origin_warmup_frames", 10);
+    this->declare_parameter<double>("zero_origin_max_linear_speed_mps", 0.05);
+    this->declare_parameter<double>("zero_origin_max_angular_speed_radps", 0.10);
+    this->declare_parameter<bool>("debug_pose_log", false);
+    this->declare_parameter<double>("debug_pose_log_interval_sec", 1.0);
 
     this->get_parameter("state_estimation_topic", state_estimation_topic_);
     this->get_parameter("registered_scan_topic", registered_scan_topic_);
@@ -84,6 +161,12 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     this->get_parameter("max_time_diff_sec", max_time_diff_sec_);
     this->get_parameter("tf_refresh_interval_sec", tf_refresh_interval_sec_);
     this->get_parameter("use_input_twist", use_input_twist_);
+    this->get_parameter("zero_origin_to_first_frame", zero_origin_to_first_frame_);
+    this->get_parameter("zero_origin_warmup_frames", zero_origin_warmup_frames_);
+    this->get_parameter("zero_origin_max_linear_speed_mps", zero_origin_max_linear_speed_mps_);
+    this->get_parameter("zero_origin_max_angular_speed_radps", zero_origin_max_angular_speed_radps_);
+    this->get_parameter("debug_pose_log", debug_pose_log_);
+    this->get_parameter("debug_pose_log_interval_sec", debug_pose_log_interval_sec_);
 
     auto require_non_empty = [&](const char* name, const std::string& value) {
         if (value.empty()) {
@@ -107,8 +190,29 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
         RCLCPP_WARN(this->get_logger(), "tf_refresh_interval_sec=%.3f 非法，已禁用 TF 周期刷新", tf_refresh_interval_sec_);
         tf_refresh_interval_sec_ = 0.0;
     }
+    if (zero_origin_warmup_frames_ < 1) {
+        RCLCPP_WARN(this->get_logger(), "zero_origin_warmup_frames=%d 非法，已钳制为 1", zero_origin_warmup_frames_);
+        zero_origin_warmup_frames_ = 1;
+    }
+    if (zero_origin_max_linear_speed_mps_ < 0.0) {
+        RCLCPP_WARN(this->get_logger(), "zero_origin_max_linear_speed_mps=%.3f 非法，已钳制为 0.0",
+                    zero_origin_max_linear_speed_mps_);
+        zero_origin_max_linear_speed_mps_ = 0.0;
+    }
+    if (zero_origin_max_angular_speed_radps_ < 0.0) {
+        RCLCPP_WARN(this->get_logger(), "zero_origin_max_angular_speed_radps=%.3f 非法，已钳制为 0.0",
+                    zero_origin_max_angular_speed_radps_);
+        zero_origin_max_angular_speed_radps_ = 0.0;
+    }
+    if (debug_pose_log_interval_sec_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "debug_pose_log_interval_sec=%.3f 非法，已回退为 1.0",
+                    debug_pose_log_interval_sec_);
+        debug_pose_log_interval_sec_ = 1.0;
+    }
 
     base_frame_to_lidar_initialized_ = false;
+    tf_input_odom_to_output_odom_.setIdentity();
+    zero_origin_translation_sum_.setZero();
 
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
@@ -116,6 +220,9 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
 
     pcd_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("registered_scan", 5);
     odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("odom", 5);
+    odom_path_pub_ = this->create_publisher<nav_msgs::msg::Path>("odom_path", 5);
+    odom_pose_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("odom_pose_markers", 5);
+    odom_path_msg_.header.frame_id = odom_frame_;
 
     pcd_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
         registered_scan_topic_, 5, std::bind(&OdomInterfaceNode::pointCloudCallback, this, std::placeholders::_1));
@@ -133,20 +240,28 @@ void OdomInterfaceNode::pointCloudCallback(const sensor_msgs::msg::PointCloud2::
         return;
     }
 
+    rclcpp::Time latest_stamp;
+    bool odom_ready = false;
+    bool odom_origin_ready = false;
+    tf2::Transform tf_input_odom_to_output_odom;
+    {
+        std::lock_guard<std::mutex> lock(transform_mutex_);
+        latest_stamp = latest_odometry_stamp_;
+        odom_ready = odom_pose_ready_;
+        odom_origin_ready = !zero_origin_to_first_frame_ || odom_origin_initialized_;
+        tf_input_odom_to_output_odom = tf_input_odom_to_output_odom_;
+    }
+
+    if (!odom_ready) {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "尚未收到里程计，丢弃点云");
+        return;
+    }
+    if (!odom_origin_ready) {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "首帧原点尚未建立，丢弃点云");
+        return;
+    }
+
     if (max_time_diff_sec_ > 0.0) {
-        rclcpp::Time latest_stamp;
-        bool odom_ready = false;
-        {
-            std::lock_guard<std::mutex> lock(transform_mutex_);
-            latest_stamp = latest_odometry_stamp_;
-            odom_ready = odom_pose_ready_;
-        }
-
-        if (!odom_ready) {
-            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "尚未收到里程计，丢弃点云");
-            return;
-        }
-
         const double diff_sec = std::abs((rclcpp::Time(msg->header.stamp) - latest_stamp).seconds());
         if (diff_sec > max_time_diff_sec_) {
             RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
@@ -154,6 +269,22 @@ void OdomInterfaceNode::pointCloudCallback(const sensor_msgs::msg::PointCloud2::
             return;
         }
     }
+
+    if (zero_origin_to_first_frame_) {
+        sensor_msgs::msg::PointCloud2 out;
+        try {
+            pcl_ros::transformPointCloud(odom_frame_, tf_input_odom_to_output_odom, *msg, out);
+        } catch (const std::exception& ex) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                                 "首帧归零后的点云变换失败: %s", ex.what());
+            return;
+        }
+        out.header.stamp = msg->header.stamp;
+        out.header.frame_id = odom_frame_;
+        pcd_pub_->publish(out);
+        return;
+    }
+
     pcd_pub_->publish(*msg);
 }
 
@@ -233,8 +364,51 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
     tf2::Transform tf_lidar_odom_to_lidar;
     tf2::fromMsg(msg->pose.pose, tf_lidar_odom_to_lidar);
 
-    // Compute odom -> base_link transform
-    tf2::Transform tf_odom_to_base = tf_lidar_odom_to_lidar * tf_base_to_lidar;
+    // Compute raw Point-LIO odom -> base_link transform
+    tf2::Transform tf_input_odom_to_base = tf_lidar_odom_to_lidar * tf_base_to_lidar;
+    tf2::Transform tf_odom_to_base = tf_input_odom_to_base;
+
+    if (zero_origin_to_first_frame_) {
+        std::lock_guard<std::mutex> lock(transform_mutex_);
+        if (!odom_origin_initialized_) {
+            const tf2::Vector3 linear_velocity(msg->twist.twist.linear.x, msg->twist.twist.linear.y,
+                                               msg->twist.twist.linear.z);
+            const tf2::Vector3 angular_velocity(msg->twist.twist.angular.x, msg->twist.twist.angular.y,
+                                                msg->twist.twist.angular.z);
+            const bool stationary = linear_velocity.length() <= zero_origin_max_linear_speed_mps_ &&
+                                    angular_velocity.length() <= zero_origin_max_angular_speed_radps_;
+
+            if (!stationary) {
+                if (zero_origin_accumulated_frames_ > 0) {
+                    zero_origin_accumulated_frames_ = 0;
+                    zero_origin_translation_sum_.setZero();
+                    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                                         "启动归零阶段检测到运动，重置静止均值累计");
+                }
+                return;
+            }
+
+            zero_origin_translation_sum_ += tf_input_odom_to_base.getOrigin();
+            ++zero_origin_accumulated_frames_;
+
+            if (zero_origin_accumulated_frames_ < zero_origin_warmup_frames_) {
+                RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                                     "静止归零累计中: %d/%d 帧", zero_origin_accumulated_frames_,
+                                     zero_origin_warmup_frames_);
+                return;
+            }
+
+            const tf2::Vector3 averaged_origin =
+                zero_origin_translation_sum_ / static_cast<double>(zero_origin_accumulated_frames_);
+            tf_input_odom_to_output_odom_.setIdentity();
+            tf_input_odom_to_output_odom_.setOrigin(-averaged_origin);
+            odom_origin_initialized_ = true;
+            RCLCPP_INFO(this->get_logger(),
+                        "已建立 odom 静止均值归零: frames=%d, avg_origin=(%.3f, %.3f, %.3f)",
+                        zero_origin_accumulated_frames_, averaged_origin.x(), averaged_origin.y(), averaged_origin.z());
+        }
+        tf_odom_to_base = tf_input_odom_to_output_odom_ * tf_input_odom_to_base;
+    }
 
     nav_msgs::msg::Odometry out;
     out.header.stamp = msg->header.stamp;
@@ -363,6 +537,30 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
     }
 
     odom_pub_->publish(out);
+
+    geometry_msgs::msg::PoseStamped odom_pose;
+    odom_pose.header = out.header;
+    odom_pose.pose = out.pose.pose;
+    odom_path_msg_.header.stamp = out.header.stamp;
+    odom_path_msg_.header.frame_id = out.header.frame_id;
+    odom_path_msg_.poses.emplace_back(std::move(odom_pose));
+    if (odom_path_msg_.poses.size() > kMaxPathPoses) {
+        odom_path_msg_.poses.erase(odom_path_msg_.poses.begin());
+    }
+    odom_path_pub_->publish(odom_path_msg_);
+    odom_pose_markers_pub_->publish(
+        makePoseMarkerArray(out.header.frame_id, out.header.stamp, "odom_pose", out.pose.pose, 0.86F, 0.24F, 0.24F,
+                            "ODOM", 0.22));
+
+    if (debug_pose_log_) {
+        const auto throttle_ms = static_cast<int64_t>(debug_pose_log_interval_sec_ * 1000.0);
+        RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), throttle_ms,
+                             "ODOM pose: p=(%.3f, %.3f, %.3f) v=(%.3f, %.3f, %.3f) w=(%.3f, %.3f, %.3f) path_size=%zu",
+                             out.pose.pose.position.x, out.pose.pose.position.y, out.pose.pose.position.z,
+                             out.twist.twist.linear.x, out.twist.twist.linear.y, out.twist.twist.linear.z,
+                             out.twist.twist.angular.x, out.twist.twist.angular.y, out.twist.twist.angular.z,
+                             odom_path_msg_.poses.size());
+    }
 }
 
 }  // namespace rc26_odom_interface

@@ -13,10 +13,16 @@ odom_interface:
     # ===== 坐标系配置 (map -> odom -> base_link -> laser_link) =====
     odom_frame: "odom"
     base_frame: "base_link"
-    lidar_frame: "livox_frame"
+    lidar_frame: "point_lio_body"  # Point-LIO state_estimation 的 child_frame；其语义是 body/IMU，不是 livox_frame
     
     # ===== 时间同步 =====
     tf_lookup_timeout_sec: 0.5  # TF 查询超时时间
     max_time_diff_sec: 0.2    # 点云与里程计允许的最大时间差 (秒)，过大将丢弃该点云帧
     tf_refresh_interval_sec: 1.0  # TF 刷新周期
     use_input_twist: true
+    zero_origin_to_first_frame: true  # 启动阶段做静止均值归零，并对 registered_scan 同步平移
+    zero_origin_warmup_frames: 10  # 需要累计的静止帧数（10Hz 雷达约 1 秒）
+    zero_origin_max_linear_speed_mps: 0.05  # 归零阶段判定静止的线速度阈值
+    zero_origin_max_angular_speed_radps: 0.10  # 归零阶段判定静止的角速度阈值
+    debug_pose_log: true
+    debug_pose_log_interval_sec: 0.5

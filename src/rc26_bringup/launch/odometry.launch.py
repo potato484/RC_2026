@@ -160,9 +160,10 @@ def generate_launch_description():
             # 若开启无下采样高频里程计，Point-LIO 会以 time_current 给里程计打戳，
             # 下游 odom_interface / sensor_scan 会因为与点云时戳偏差过大而持续丢帧。
             {'odometry.publish_odometry_without_downsample': False},
-            # 对齐 Point-LIO body_frame 与 lidar_frame 语义
-            # 并关闭 Point-LIO 自身 TF 发布，避免与 rc26_odom_interface / rc26_sensor_scan 重复发布 odom->base_link
-            {'frame.body_frame': 'livox_frame'},
+            # Point-LIO 的 body_frame 实际对应其内部 body/IMU 语义，
+            # 不能直接伪装成 livox_frame；否则 odom_interface 会把 body pose 当成 LiDAR pose 再乘一次静态外参，
+            # 造成启动即存在的固定偏差。
+            {'frame.body_frame': 'point_lio_body'},
             {'publish.tf_send_en': False},
         ],
     )
@@ -213,6 +214,25 @@ def generate_launch_description():
         arguments=['--x', '0', '--y', '0', '--z', '0.13', '--roll', '0', '--pitch', '0', '--yaw', '0', '--frame-id', 'base_link', '--child-frame-id', 'livox_frame'],
     )
 
+    # Point-LIO `body_frame` = IMU/body frame。
+    # 依据当前 mid360.yaml: extrinsic_R=I, extrinsic_T=[-0.011, -0.02329, 0.04412]
+    # 该参数表示 LiDAR 原点在 IMU 坐标系中的位置，因此 IMU 原点在 LiDAR 坐标系中为其相反数：
+    #   p_imu_in_lidar = [0.011, 0.02329, -0.04412]
+    # 进而 base_link -> point_lio_body = base_link -> livox_frame + livox_frame -> point_lio_body
+    static_tf_point_lio_body = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='static_tf_base_to_point_lio_body',
+        arguments=['--x', '0.011', '--y', '0.02329', '--z', '0.08588', '--roll', '0', '--pitch', '0', '--yaw', '0', '--frame-id', 'base_link', '--child-frame-id', 'point_lio_body'],
+    )
+
+    static_tf_control_livox = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='static_tf_base_control_to_livox_control',
+        arguments=['--x', '0', '--y', '0', '--z', '0.13', '--roll', '0', '--pitch', '0', '--yaw', '0', '--frame-id', 'base_link_control', '--child-frame-id', 'livox_frame_control'],
+    )
+
     # RViz 可视化
     rviz_config = PathJoinSubstitution([bringup_dir, 'rviz', 'slam.rviz'])
     rviz_node = Node(
@@ -240,6 +260,8 @@ def generate_launch_description():
 
         # 节点
         static_tf_livox,
+        static_tf_point_lio_body,
+        static_tf_control_livox,
         recover_mid360_process,
         start_mid360_after_recover,
         mid360_driver_node,

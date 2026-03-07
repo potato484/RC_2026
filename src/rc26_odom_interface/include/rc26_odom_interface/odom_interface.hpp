@@ -20,7 +20,9 @@
 #include <string>
 
 #include "nav_msgs/msg/odometry.hpp"
+#include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "visualization_msgs/msg/marker_array.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "tf2/LinearMath/Transform.h"
 #include "tf2_ros/buffer.h"
@@ -55,6 +57,8 @@ private:
 
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pcd_pub_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
+    rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr odom_path_pub_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr odom_pose_markers_pub_;
 
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
@@ -73,9 +77,20 @@ private:
     rclcpp::Time last_tf_lookup_;
     bool odom_pose_ready_{false};
     bool use_input_twist_{true};
+    bool zero_origin_to_first_frame_{true};
+    bool odom_origin_initialized_{false};
+    int zero_origin_warmup_frames_{10};
+    int zero_origin_accumulated_frames_{0};
+    double zero_origin_max_linear_speed_mps_{0.05};
+    double zero_origin_max_angular_speed_radps_{0.10};
+    bool debug_pose_log_{false};
+    double debug_pose_log_interval_sec_{1.0};
     double tf_timeout_sec_{0.5};           // TF 查询超时时间 (秒)
     double max_time_diff_sec_{0.2};        // 点云与里程计之间允许的最大时间差 (秒)
     double tf_refresh_interval_sec_{1.0};  // TF 断连时的重新拉取周期 (秒)
+    tf2::Transform tf_input_odom_to_output_odom_;  // 首帧平移归零: 将 Point-LIO odom 平移到 base_link 首帧原点
+    tf2::Vector3 zero_origin_translation_sum_{0.0, 0.0, 0.0};
+    nav_msgs::msg::Path odom_path_msg_;
 
     // [C2 修复] 速度估计所需的状态变量
     struct OdomState {
