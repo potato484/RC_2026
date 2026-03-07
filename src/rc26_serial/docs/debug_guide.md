@@ -84,6 +84,7 @@ ros2 run rc26_merge_odom merge_odom_node
 
 ### 4.2 观察缺帧率统计
 查看 `rc26_merge_odom` 节点输出的日志，检查 `PoseSender` 的统计信息。
+默认配置下 `stats_log_enable: false`，不会周期打印统计；调试时请先在 `src/rc26_merge_odom/config/merge_odom_params.yaml` 中将 `stats_log_enable` 设为 `true`。
 ```bash
 ros2 run rc26_merge_odom merge_odom_node --ros-args --log-level INFO
 ```

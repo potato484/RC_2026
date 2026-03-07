@@ -308,9 +308,11 @@ void PoseSender::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
         }
     }
 
-    RCLCPP_WARN_THROTTLE(node_.get_logger(), *node_.get_clock(), 500,
-                         "[PoseSender] IMU gate trigger: d2=%.3f scale=%.3f wheel_acc=%.3f", d2, gate_scale,
-                         wheel_accel);
+    if (config_.imu_gate_log_enable) {
+        RCLCPP_WARN_THROTTLE(node_.get_logger(), *node_.get_clock(), 500,
+                             "[PoseSender] IMU gate trigger: d2=%.3f scale=%.3f wheel_acc=%.3f", d2,
+                             gate_scale, wheel_accel);
+    }
 }
 
 void PoseSender::terrainSpeedLimitCallback(const std_msgs::msg::Float32::SharedPtr msg) {
@@ -637,15 +639,17 @@ void PoseSender::feedbackTimerCallback() {
         }
         const auto feedback_now = std::chrono::steady_clock::now();
         if (std::chrono::duration<double>(feedback_now - stats.window_start).count() >= 1.0) {
-            RCLCPP_INFO_THROTTLE(
-                node_.get_logger(), *node_.get_clock(), 1000,
-                "[PoseSender/feedback] ok=%llu fail=%llu miss=%llu (1s: ok=%llu fail=%llu miss=%llu)",
-                static_cast<unsigned long long>(stats.ok_total),
-                static_cast<unsigned long long>(stats.fail_total),
-                static_cast<unsigned long long>(stats.missing_total),
-                static_cast<unsigned long long>(stats.ok_1s),
-                static_cast<unsigned long long>(stats.fail_1s),
-                static_cast<unsigned long long>(stats.missing_1s));
+            if (config_.stats_log_enable) {
+                RCLCPP_INFO_THROTTLE(
+                    node_.get_logger(), *node_.get_clock(), 1000,
+                    "[PoseSender/feedback] ok=%llu fail=%llu miss=%llu (1s: ok=%llu fail=%llu miss=%llu)",
+                    static_cast<unsigned long long>(stats.ok_total),
+                    static_cast<unsigned long long>(stats.fail_total),
+                    static_cast<unsigned long long>(stats.missing_total),
+                    static_cast<unsigned long long>(stats.ok_1s),
+                    static_cast<unsigned long long>(stats.fail_1s),
+                    static_cast<unsigned long long>(stats.missing_1s));
+            }
             if (stats.fail_1s > 1U || stats.missing_1s > 1U) {
                 RCLCPP_WARN_THROTTLE(node_.get_logger(), *node_.get_clock(), 1000,
                                      "[PoseSender/feedback] 链路异常: fail=%llu miss=%llu",
@@ -743,15 +747,17 @@ void PoseSender::targetTimerCallback() {
         }
         const auto target_now = std::chrono::steady_clock::now();
         if (std::chrono::duration<double>(target_now - stats.window_start).count() >= 1.0) {
-            RCLCPP_INFO_THROTTLE(
-                node_.get_logger(), *node_.get_clock(), 1000,
-                "[PoseSender/target] ok=%llu fail=%llu miss=%llu (1s: ok=%llu fail=%llu miss=%llu)",
-                static_cast<unsigned long long>(stats.ok_total),
-                static_cast<unsigned long long>(stats.fail_total),
-                static_cast<unsigned long long>(stats.missing_total),
-                static_cast<unsigned long long>(stats.ok_1s),
-                static_cast<unsigned long long>(stats.fail_1s),
-                static_cast<unsigned long long>(stats.missing_1s));
+            if (config_.stats_log_enable) {
+                RCLCPP_INFO_THROTTLE(
+                    node_.get_logger(), *node_.get_clock(), 1000,
+                    "[PoseSender/target] ok=%llu fail=%llu miss=%llu (1s: ok=%llu fail=%llu miss=%llu)",
+                    static_cast<unsigned long long>(stats.ok_total),
+                    static_cast<unsigned long long>(stats.fail_total),
+                    static_cast<unsigned long long>(stats.missing_total),
+                    static_cast<unsigned long long>(stats.ok_1s),
+                    static_cast<unsigned long long>(stats.fail_1s),
+                    static_cast<unsigned long long>(stats.missing_1s));
+            }
             if (stats.fail_1s > 1U || stats.missing_1s > 1U) {
                 RCLCPP_WARN_THROTTLE(node_.get_logger(), *node_.get_clock(), 1000,
                                      "[PoseSender/target] 链路异常: fail=%llu miss=%llu",
