@@ -14,6 +14,26 @@ source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 
 ## 2. 工程基线与参数调试 (P0)
 
+### 2.0 遥控建图推荐启动方式
+
+当 `rc26_bringup bringup.launch.py slam:=true` 已经在发布 `odom -> base_link` 时，不要再额外启动
+`ekf_filter_node`，否则会与建图链的 `odom_interface` 产生 TF 冲突。
+
+**推荐命令：**
+
+```bash
+# 仅保留底盘执行与 IMU，不启动 EKF
+ros2 launch rc26_merge_odom merge_odom.launch.py use_can_odom:=false start_ekf:=false
+
+# 遥控输出到 /cmd_vel
+ros2 run rc26_telecontrol rc26_telecontrol --ros-args -p cmd_vel_topic:=cmd_vel
+```
+
+**预期结果：**
+- 车可以正常遥控移动；
+- `merge_odom_node` 继续执行速度保护与下发；
+- TF 的 `odom -> base_link` 只由建图链发布，不再冲突。
+
 ### 2.1 验证 Launch 参数联动 (use_can_odom)
 
 验证传入 `use_can_odom` 参数后，EKF 滤波器是否正确订阅了对应的里程计话题。
