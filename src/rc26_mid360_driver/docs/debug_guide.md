@@ -25,6 +25,14 @@ sysctl net.core.rmem_max
 sudo sysctl -w net.core.rmem_max=33554432
 ```
 
+若需要在当前 AidLux / QTI 系统上开机自动生效，建议直接修改 `/etc/sysctl.conf`，再重新加载 sysctl 配置：
+```bash
+sudo sed -i 's/^net\.core\.rmem_max=.*/net.core.rmem_max=33554432/' /etc/sysctl.conf
+sudo sysctl --system
+sysctl net.core.rmem_max
+```
+注意：该系统的 `/etc/sysctl.d/99-sysctl.conf` 会链接回 `/etc/sysctl.conf`，如果仅新增单独的 `sysctl.d` 文件，后续仍可能被 `/etc/sysctl.conf` 中的旧值覆盖。
+
 ### 2.2 检查与雷达的连通性
 当前 R2 实机中，Mid-360 雷达 IP 为 `192.168.1.140`，驱动接收端（`host_ip`）为本机 `br-lan` 地址 `192.168.1.50`。请 ping 雷达实际地址，而不是 ping 本机 `host_ip`：
 ```bash
@@ -120,6 +128,7 @@ ros2 launch rc26_bringup odometry.launch.py
 - **连通性检查**：应执行 `ping 192.168.1.140`，不要执行 `ping 192.168.1.50`，因为后者是本机接收口地址。
 - **UDP 端口行为**：雷达点云从 `192.168.1.140:56300` 发往本机 `192.168.1.50:56301`，IMU 从 `192.168.1.140:56400` 发往本机 `192.168.1.50:56401`。
 - **系统缓冲区**：`net.core.rmem_max` 需至少为 `33554432`，否则高频 UDP 数据可能在进入驱动前被系统丢弃。
+- **持久化方式**：当前 AidLux / QTI 系统应直接修改 `/etc/sysctl.conf` 持久化 `net.core.rmem_max=33554432`，不要只新增单独的 `sysctl.d` 文件，否则可能被 `99-sysctl.conf` 回链配置覆盖。
 - **固件兼容性**：当前实机上点云 UDP 包的 `frame_cnt` 可能持续为 `0`，不能仅依赖协议帧计数做分帧；驱动已验证可回退到 `lidar_publish_time_interval=0.1` 的时间窗口分帧。
 - **实测结果**：`/livox/lidar` 稳定约 `10Hz`，`/livox/imu` 稳定约 `200Hz`，`/livox/lidar` 的 `fields` 为 `x, y, z, intensity, timestamp`，`point_step = 24`，头部时间戳单调递增。
 
