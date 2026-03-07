@@ -1,6 +1,6 @@
 joy_node:
   ros__parameters:
-    dev: "/dev/input/js0"
+    device_name: "Xbox 360 Controller"
     deadzone: 0.05
     autorepeat_rate: 50.0
 
