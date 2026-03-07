@@ -29,7 +29,7 @@
     # ===== 输入健康检测（用于失效保护） =====
     cloud_timeout_sec: 0.7
     odom_timeout_sec: 0.7
-    startup_grace_sec: 1.0
+    startup_grace_sec: 2.5
 
     # ===== 栅格参数 =====
     perception_radius_m: 3.2
@@ -90,6 +90,9 @@
     output_qos_depth: 5
     output_qos_reliability: "best_effort"
     output_qos_durability: "volatile"
+    speed_limit_qos_depth: 10
+    speed_limit_qos_reliability: "reliable"
+    speed_limit_qos_durability: "volatile"
     diagnostics_qos_depth: 10
     diagnostics_qos_reliability: "reliable"
     diagnostics_qos_durability: "volatile"

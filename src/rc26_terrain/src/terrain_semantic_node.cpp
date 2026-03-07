@@ -139,6 +139,9 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->declare_parameter<int>("output_qos_depth", output_qos_depth_);
     this->declare_parameter<std::string>("output_qos_reliability", output_qos_reliability_);
     this->declare_parameter<std::string>("output_qos_durability", output_qos_durability_);
+    this->declare_parameter<int>("speed_limit_qos_depth", speed_limit_qos_depth_);
+    this->declare_parameter<std::string>("speed_limit_qos_reliability", speed_limit_qos_reliability_);
+    this->declare_parameter<std::string>("speed_limit_qos_durability", speed_limit_qos_durability_);
     this->declare_parameter<int>("diagnostics_qos_depth", diagnostics_qos_depth_);
     this->declare_parameter<std::string>("diagnostics_qos_reliability", diagnostics_qos_reliability_);
     this->declare_parameter<std::string>("diagnostics_qos_durability", diagnostics_qos_durability_);
@@ -258,6 +261,9 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->get_parameter("output_qos_depth", output_qos_depth_);
     this->get_parameter("output_qos_reliability", output_qos_reliability_);
     this->get_parameter("output_qos_durability", output_qos_durability_);
+    this->get_parameter("speed_limit_qos_depth", speed_limit_qos_depth_);
+    this->get_parameter("speed_limit_qos_reliability", speed_limit_qos_reliability_);
+    this->get_parameter("speed_limit_qos_durability", speed_limit_qos_durability_);
     this->get_parameter("diagnostics_qos_depth", diagnostics_qos_depth_);
     this->get_parameter("diagnostics_qos_reliability", diagnostics_qos_reliability_);
     this->get_parameter("diagnostics_qos_durability", diagnostics_qos_durability_);
@@ -417,6 +423,8 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     const auto cloud_qos = makeQoS(cloud_qos_depth_, cloud_qos_reliability_, cloud_qos_durability_);
     const auto odom_qos = makeQoS(odom_qos_depth_, odom_qos_reliability_, odom_qos_durability_);
     const auto output_qos = makeQoS(output_qos_depth_, output_qos_reliability_, output_qos_durability_);
+    const auto speed_limit_qos =
+        makeQoS(speed_limit_qos_depth_, speed_limit_qos_reliability_, speed_limit_qos_durability_);
     const auto diag_qos =
         makeQoS(diagnostics_qos_depth_, diagnostics_qos_reliability_, diagnostics_qos_durability_);
 
@@ -459,7 +467,7 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     }
     if (enable_terrain_speed_limit_pub_) {
         pub_speed_limit_ =
-            this->create_publisher<std_msgs::msg::Float32>(terrain_speed_limit_topic_, output_qos);
+            this->create_publisher<std_msgs::msg::Float32>(terrain_speed_limit_topic_, speed_limit_qos);
     }
 
     sub_odom_ = this->create_subscription<nav_msgs::msg::Odometry>(

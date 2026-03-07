@@ -122,6 +122,9 @@ private:
     int output_qos_depth_{5};
     std::string output_qos_reliability_{"best_effort"};
     std::string output_qos_durability_{"volatile"};
+    int speed_limit_qos_depth_{10};
+    std::string speed_limit_qos_reliability_{"reliable"};
+    std::string speed_limit_qos_durability_{"volatile"};
     int diagnostics_qos_depth_{10};
     std::string diagnostics_qos_reliability_{"reliable"};
     std::string diagnostics_qos_durability_{"volatile"};

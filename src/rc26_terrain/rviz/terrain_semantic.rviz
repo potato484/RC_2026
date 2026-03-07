@@ -19,8 +19,7 @@ Visualization Manager:
       Value: true
       Size (m): 0.02
       Style: Points
-      Color Transformer: FlatColor
-      Color: 160; 160; 160
+      Color Transformer: Intensity
       Reliability Policy: Best Effort
     - Class: rviz_default_plugins/PointCloud2
       Name: TerrainObstacles
@@ -66,4 +65,3 @@ Visualization Manager:
       Distance: 12
       Pitch: 0.6
       Yaw: 0
-
