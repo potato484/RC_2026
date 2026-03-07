@@ -1,6 +1,22 @@
 // Maintained by DongXuan Chen <2220362462@qq.com>
 #include "parameters.hpp"
 
+#include <filesystem>
+
+namespace {
+
+std::string ensureLogDirectory() {
+    const std::filesystem::path log_dir = std::filesystem::path(ROOT_DIR) / "Log";
+    std::error_code error_code;
+    std::filesystem::create_directories(log_dir, error_code);
+    if (error_code) {
+        std::cout << "~~~~failed to create log dir: " << log_dir << " (" << error_code.message() << ')' << '\n';
+    }
+    return log_dir.string();
+}
+
+}  // namespace
+
 LioRuntimeState& runtime() {
     static LioRuntimeState state;
     return state;
@@ -276,12 +292,13 @@ Eigen::Matrix<double, 3, 1> SO3ToEuler(const SO3& rot) {
 }
 
 void open_file() {
+    const std::string log_dir = ensureLogDirectory();
     fout_out.open(DEBUG_FILE_DIR("mat_out.txt"), ios::out);
     fout_imu_pbp.open(DEBUG_FILE_DIR("imu_pbp.txt"), ios::out);
     if (fout_out && fout_imu_pbp)
-        std::cout << "~~~~" << ROOT_DIR << " file opened" << '\n';
+        std::cout << "~~~~" << log_dir << " file opened" << '\n';
     else
-        std::cout << "~~~~" << ROOT_DIR << " doesn't exist" << '\n';
+        std::cout << "~~~~failed to open log files under " << log_dir << '\n';
 }
 
 void reset_cov(Eigen::Matrix<double, 24, 24>& P_init) {

@@ -484,13 +484,14 @@ int main(int argc, char** argv) {
     Eigen::Matrix<double, 24, 24> Q_input = process_noise_cov_input();
     Eigen::Matrix<double, 30, 30> Q_output = process_noise_cov_output();
     /*** debug record ***/
+    open_file();
+
     FILE* fp = nullptr;
     string pos_log_dir = root_dir + "/Log/pos_log.txt";
     fp = fopen(pos_log_dir.c_str(), "w");
     if (fp == nullptr) {
         RCLCPP_WARN(LOGGER, "Failed to open log file: %s", pos_log_dir.c_str());
     }
-    open_file();
 
     /*** ROS subscribe initialization ***/
     auto sub_pcl_pc = nh->create_subscription<sensor_msgs::msg::PointCloud2>(
