@@ -24,6 +24,8 @@ def generate_launch_description():
     
     use_sim_time = LaunchConfiguration('use_sim_time')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
+    use_rviz = LaunchConfiguration('use_rviz')
+    start_mid360_driver = LaunchConfiguration('start_mid360_driver')
     
     declare_use_sim_time = DeclareLaunchArgument(
         'use_sim_time',
@@ -34,6 +36,16 @@ def generate_launch_description():
         'prior_pcd_file',
         default_value='',
         description='先验点云文件路径 (可选)')
+
+    declare_use_rviz = DeclareLaunchArgument(
+        'use_rviz',
+        default_value='false',
+        description='是否启动 RViz（虚拟测试默认关闭）')
+
+    declare_start_mid360_driver = DeclareLaunchArgument(
+        'start_mid360_driver',
+        default_value='false',
+        description='是否启动 MID-360 驱动（虚拟测试默认关闭）')
     
     # 复用已有的 odometry.launch.py
     odometry_launch = IncludeLaunchDescription(
@@ -43,11 +55,15 @@ def generate_launch_description():
         launch_arguments={
             'use_sim_time': use_sim_time,
             'prior_pcd_file': prior_pcd_file,
+            'use_rviz': use_rviz,
+            'start_mid360_driver': start_mid360_driver,
         }.items()
     )
     
     return LaunchDescription([
         declare_use_sim_time,
         declare_prior_pcd_file,
+        declare_use_rviz,
+        declare_start_mid360_driver,
         odometry_launch,
     ])

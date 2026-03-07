@@ -25,6 +25,7 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
     use_rviz = LaunchConfiguration('use_rviz')
+    start_mid360_driver = LaunchConfiguration('start_mid360_driver')
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
     param_overrides_file = PathJoinSubstitution([_dir, 'config', 'param_overrides.yaml'])
 
@@ -49,6 +50,11 @@ def generate_launch_description():
         default_value='true',
         description='启动 RViz')
 
+    declare_start_mid360_driver = DeclareLaunchArgument(
+        'start_mid360_driver',
+        default_value='true',
+        description='启动 MID-360 驱动')
+
     declare_point_lio_config_file = DeclareLaunchArgument(
         'point_lio_config_file',
         default_value=PathJoinSubstitution([point_lio_dir, 'config', 'mid360.yaml']),
@@ -67,6 +73,7 @@ def generate_launch_description():
         name='mid360_driver',
         namespace=namespace,
         output='screen',
+        condition=IfCondition(start_mid360_driver),
         parameters=[
             mid360_driver_config,
             {'use_sim_time': use_sim_time},
@@ -155,6 +162,7 @@ def generate_launch_description():
         declare_use_sim_time,
         declare_prior_pcd_file,
         declare_use_rviz,
+        declare_start_mid360_driver,
         declare_point_lio_config_file,
 
         # 节点

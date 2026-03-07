@@ -141,7 +141,7 @@ localization:
     acrylic_filter_max_stale_sec: 1.0
     # AABB 盒体列表（map 坐标系），每 6 个数为一组 [xmin,ymin,zmin,xmax,ymax,zmax]
     # 示例: [x1min, y1min, z1min, x1max, y1max, z1max, x2min, y2min, ...]
-    acrylic_roi_boxes: []
+    # acrylic_roi_boxes 关闭时保持未配置；开启后再填 [xmin,ymin,zmin,xmax,ymax,zmax, ...]
 
     # ========== L2: Scan Context ==========
     # BEVPlace++（当前版本保留参数，运行时自动回退 SC）

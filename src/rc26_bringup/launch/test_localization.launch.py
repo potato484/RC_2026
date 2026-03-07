@@ -49,6 +49,7 @@ def generate_launch_description():
             {
                 'use_sim_time': use_sim_time,
                 'prior_pcd_file': prior_pcd_file,
+                'competition_mode': False,
             },
         ],
     )
