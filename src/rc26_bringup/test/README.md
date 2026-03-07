@@ -86,6 +86,9 @@ ros2 topic echo /localization/diagnostics --once
 # 启动完整里程计链
 ros2 launch rc26_bringup test_odometry_chain.launch.py
 
+# 若雷达能 ping 通但 /livox/lidar 无数据，可在启动前自动恢复 Mid-360 host_ipcfg
+ros2 launch rc26_bringup test_odometry_chain.launch.py start_mid360_driver:=true recover_mid360_stream:=true
+
 # 验证数据流
 ros2 topic list | grep -E "(state_estimation|odom|odometry|control_state|degenerate_score|control_degraded)"
 ros2 topic echo /state_estimation --once
@@ -147,6 +150,10 @@ ros2 node list
 
 # 查看所有话题
 ros2 topic list
+
+# 若整车 bringup 前需要自动恢复 Mid-360，可追加：recover_mid360_stream:=true
+# 例如：ros2 launch rc26_bringup bringup.launch.py slam:=false use_decision:=false recover_mid360_stream:=true
+# 首次执行会自动拉取并编译官方 Livox-SDK2，耗时会明显更长；后续直接复用本地缓存。
 
 # 检查节点日志
 ros2 run rqt_console rqt_console
