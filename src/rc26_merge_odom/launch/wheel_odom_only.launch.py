@@ -2,6 +2,7 @@
 # 仅启动串口轮式里程计节点
 
 import os
+import yaml
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
@@ -13,8 +14,13 @@ def generate_launch_description():
     pkg_share = get_package_share_directory("rc26_merge_odom")
     params_file = os.path.join(pkg_share, "config", "merge_odom_params.yaml")
 
+    with open(params_file, 'r', encoding='utf-8') as f:
+        params_yaml = yaml.safe_load(f) or {}
+    serial_port_default = str(((params_yaml.get('wheel_odom_node') or {}).get('ros__parameters') or {}).get(
+        'serial_port', '/dev/ttyUSB0'))
+
     serial_port_arg = DeclareLaunchArgument(
-        "serial_port", default_value="/dev/ttyUSB0", description="MCU serial port for ODOM_DATA"
+        "serial_port", default_value=serial_port_default, description="MCU serial port for ODOM_DATA"
     )
 
     wheel_odom_node = Node(
@@ -36,4 +42,3 @@ def generate_launch_description():
             wheel_odom_node,
         ]
     )
-
