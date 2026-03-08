@@ -45,6 +45,43 @@ Visualization Manager:
       Topic:
         Value: /control_pose_markers
       Value: true
+    - Class: rviz_default_plugins/PointStamped
+      Name: LookaheadPoint
+      Topic:
+        Value: /lookahead_point
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Name: CurvatureMarkers
+      Topic:
+        Value: /curvature_points_marker_array
+      Value: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: TerrainObstacles
+      Topic:
+        Value: /terrain_obstacles
+        Queue Size: 5
+      Value: true
+      Size (m): 0.05
+      Style: Points
+      Color: 255; 120; 80
+      Color Transformer: FlatColor
+      Reliability Policy: Best Effort
+    - Class: rviz_default_plugins/PointCloud2
+      Name: TerrainDrop
+      Topic:
+        Value: /terrain_drop
+        Queue Size: 5
+      Value: true
+      Size (m): 0.05
+      Style: Points
+      Color: 80; 160; 255
+      Color Transformer: FlatColor
+      Reliability Policy: Best Effort
+    - Class: rviz_default_plugins/Map
+      Name: KeepoutMask
+      Topic:
+        Value: /kfs_filter_mask
+      Value: true
   Global Options:
     Fixed Frame: odom
     Frame Rate: 30

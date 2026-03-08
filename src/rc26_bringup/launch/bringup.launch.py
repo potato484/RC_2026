@@ -16,7 +16,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, GroupAction
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node, PushRosNamespace
 
 
@@ -28,6 +28,7 @@ def generate_launch_description():
     base_ground_dir = get_package_share_directory('rc26_base_ground')
     kfs_keepout_dir = get_package_share_directory('rc26_kfs_keepout')
     point_lio_dir = get_package_share_directory('rc26_point_lio')
+    visualization_dir = get_package_share_directory('rc26_visualization')
 
     # 启动参数
     namespace = LaunchConfiguration('namespace')
@@ -39,6 +40,9 @@ def generate_launch_description():
     params_file = LaunchConfiguration('params_file')
     terrain_params_file = LaunchConfiguration('terrain_params_file')
     use_rviz = LaunchConfiguration('use_rviz')
+    visualization_backend = LaunchConfiguration('visualization_backend')
+    visualization_status_enable = LaunchConfiguration('visualization_status_enable')
+    foxglove_port = LaunchConfiguration('foxglove_port')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     use_decision = LaunchConfiguration('use_decision')
     use_realsense = LaunchConfiguration('use_realsense')
@@ -92,7 +96,22 @@ def generate_launch_description():
     declare_use_rviz = DeclareLaunchArgument(
         'use_rviz',
         default_value='true',
-        description='启动 RViz')
+        description='启动 RViz（兼容参数；当 visualization_backend!=rviz 时忽略）')
+
+    declare_visualization_backend = DeclareLaunchArgument(
+        'visualization_backend',
+        default_value='rviz',
+        description='可视化后端: rviz | foxglove | none')
+
+    declare_visualization_status_enable = DeclareLaunchArgument(
+        'visualization_status_enable',
+        default_value='true',
+        description='是否启动可视化状态/告警聚合节点')
+
+    declare_foxglove_port = DeclareLaunchArgument(
+        'foxglove_port',
+        default_value='8765',
+        description='foxglove_bridge WebSocket 监听端口')
 
     declare_recover_mid360_stream = DeclareLaunchArgument(
         'recover_mid360_stream',
@@ -339,6 +358,40 @@ def generate_launch_description():
         condition=IfCondition(use_decision)
     )
 
+    visualization_status_config = PathJoinSubstitution([
+        visualization_dir, 'config', 'visualization_status.yaml'
+    ])
+    visualization_status_node = Node(
+        package='rc26_visualization',
+        executable='rc26_visualization_status_node',
+        name='rc26_visualization_status_node',
+        namespace=namespace,
+        output='screen',
+        parameters=[
+            visualization_status_config,
+            {'use_sim_time': use_sim_time},
+        ],
+        condition=IfCondition(visualization_status_enable)
+    )
+
+    foxglove_bridge_node = Node(
+        package='foxglove_bridge',
+        executable='foxglove_bridge',
+        name='foxglove_bridge',
+        namespace=namespace,
+        output='screen',
+        parameters=[{
+            'port': foxglove_port,
+            'address': '0.0.0.0',
+            'use_sim_time': use_sim_time,
+        }]
+    )
+
+    foxglove_group = GroupAction(
+        actions=[foxglove_bridge_node],
+        condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'foxglove'"]))
+    )
+
     # RViz：导航模式使用 nav2_default.rviz，建图模式使用 slam.rviz
     rviz_nav_config = PathJoinSubstitution([bringup_dir, 'rviz', 'nav2_default.rviz'])
     rviz_slam_config = PathJoinSubstitution([bringup_dir, 'rviz', 'slam.rviz'])
@@ -361,8 +414,15 @@ def generate_launch_description():
     )
 
     rviz_group = GroupAction(
-        actions=[rviz_nav_node, rviz_slam_node],
-        condition=IfCondition(use_rviz)
+        actions=[
+            GroupAction(
+                actions=[rviz_nav_node, rviz_slam_node],
+                condition=IfCondition(use_rviz)
+            )
+        ],
+        condition=IfCondition(PythonExpression([
+            "'", visualization_backend, "' == 'rviz'"
+        ]))
     )
 
     return LaunchDescription([
@@ -376,6 +436,9 @@ def generate_launch_description():
         declare_params_file,
         declare_terrain_params_file,
         declare_use_rviz,
+        declare_visualization_backend,
+        declare_visualization_status_enable,
+        declare_foxglove_port,
         declare_recover_mid360_stream,
         declare_use_decision,
         declare_use_realsense,
@@ -397,6 +460,8 @@ def generate_launch_description():
         terrain_mode_adapter_node,
         nav2_launch,
         decision_node,
+        visualization_status_node,
         realsense_group,
+        foxglove_group,
         rviz_group,
     ])

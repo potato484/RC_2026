@@ -34,17 +34,12 @@ Visualization Manager:
       Topic:
         Value: /local_plan
       Value: true
-    - Class: rviz_default_plugins/MarkerArray
-      Name: AttackPose
-      Topic:
-        Value: /attack_pose_candidates
-      Value: true
     - Class: rviz_default_plugins/PointCloud2
       Name: LidarPointCloud
       Topic:
         Value: /livox/lidar
         Queue Size: 5
-      Value: true
+      Value: false
       Size (m): 0.02
       Style: Points
       Color Transformer: Intensity
@@ -61,6 +56,6 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 15
-      Pitch: 0.5
+      Distance: 18
+      Pitch: 1.45
       Yaw: 0

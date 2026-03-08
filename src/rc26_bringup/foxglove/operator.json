@@ -1,0 +1,64 @@
+{
+  "configById": {
+    "3D!operator-map": {
+      "cameraState": {
+        "perspective": false,
+        "distance": 18,
+        "phi": 0,
+        "thetaOffset": 0,
+        "targetOffset": [0, 0, 0],
+        "target": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "followTf": "map",
+      "scene": {
+        "transforms": { "showLabel": true, "editable": true },
+        "enableStats": false,
+        "ignoreColladaUpAxis": false,
+        "meshUpAxis": "z_up"
+      },
+      "layers": {
+        "grid-operator": {
+          "visible": true,
+          "frameLocked": true,
+          "label": "Grid",
+          "instanceId": "grid-operator",
+          "layerId": "foxglove.Grid",
+          "size": 10,
+          "divisions": 10,
+          "lineWidth": 1,
+          "color": "#248eff",
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0],
+          "order": 1
+        }
+      }
+    },
+    "RawMessages!operator-status": {},
+    "RawMessages!operator-events": {},
+    "Plot!operator-trends": {}
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": { "speed": 1 },
+  "layout": {
+    "first": {
+      "first": "3D!operator-map",
+      "second": "Plot!operator-trends",
+      "direction": "column",
+      "splitPercentage": 72
+    },
+    "second": {
+      "first": "RawMessages!operator-status",
+      "second": "RawMessages!operator-events",
+      "direction": "column",
+      "splitPercentage": 45
+    },
+    "direction": "row",
+    "splitPercentage": 72
+  }
+}

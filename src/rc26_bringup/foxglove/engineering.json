@@ -1,0 +1,64 @@
+{
+  "configById": {
+    "3D!engineering-main": {
+      "cameraState": {
+        "perspective": true,
+        "distance": 20,
+        "phi": 35,
+        "thetaOffset": 45,
+        "targetOffset": [0, 0, 0],
+        "target": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "followTf": "odom",
+      "scene": {
+        "transforms": { "showLabel": true, "editable": true },
+        "enableStats": true,
+        "ignoreColladaUpAxis": false,
+        "meshUpAxis": "z_up"
+      },
+      "layers": {
+        "grid-engineering": {
+          "visible": true,
+          "frameLocked": true,
+          "label": "Grid",
+          "instanceId": "grid-engineering",
+          "layerId": "foxglove.Grid",
+          "size": 20,
+          "divisions": 20,
+          "lineWidth": 1,
+          "color": "#248eff",
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0],
+          "order": 1
+        }
+      }
+    },
+    "RawMessages!engineering-status": {},
+    "RawMessages!engineering-events": {},
+    "Plot!engineering-trends": {}
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": { "speed": 1 },
+  "layout": {
+    "first": "3D!engineering-main",
+    "second": {
+      "first": "RawMessages!engineering-status",
+      "second": {
+        "first": "RawMessages!engineering-events",
+        "second": "Plot!engineering-trends",
+        "direction": "column",
+        "splitPercentage": 50
+      },
+      "direction": "column",
+      "splitPercentage": 50
+    },
+    "direction": "row",
+    "splitPercentage": 70
+  }
+}
