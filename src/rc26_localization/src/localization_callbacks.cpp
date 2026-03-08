@@ -9,6 +9,10 @@
 
 namespace rc26_localization {
 
+void LocalizationNode::controlDegradedCallback(const std_msgs::msg::Bool::SharedPtr msg) {
+    control_degraded_.store(msg && msg->data);
+}
+
 void LocalizationNode::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
     const rclcpp::Time stamp =
         (msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0) ? now() : rclcpp::Time(msg->header.stamp);
@@ -146,4 +150,3 @@ void LocalizationNode::initialPoseCallback(const geometry_msgs::msg::PoseWithCov
 }
 
 }  // namespace rc26_localization
-

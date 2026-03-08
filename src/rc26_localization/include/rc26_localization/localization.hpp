@@ -25,11 +25,18 @@
 #include "geometry_msgs/msg/point_stamped.hpp"
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "pcl/io/pcd_io.h"
+#include "rc26_interfaces/msg/localization_backend_status.hpp"
+#include "rc26_interfaces/msg/localization_health.hpp"
 #include "rcl_interfaces/msg/set_parameters_result.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
+#include "rc26_localization/constraint_validator.hpp"
 #include "rc26_localization/esikf.hpp"
+#include "rc26_localization/keyframe_manager.hpp"
+#include "rc26_localization/map_to_odom_smoother.hpp"
+#include "rc26_localization/online_scan_context_db.hpp"
+#include "rc26_localization/pose_graph_backend.hpp"
 #include "rc26_localization/static_voxel_filter.hpp"
 #include "small_gicp/ann/kdtree_omp.hpp"
 #include "small_gicp/factors/gicp_factor.hpp"
@@ -110,6 +117,7 @@ private:
     void initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
     void imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg);
     void uwbCallback(const geometry_msgs::msg::PointStamped::SharedPtr msg);
+    void controlDegradedCallback(const std_msgs::msg::Bool::SharedPtr msg);
 
     // 核心功能
     void loadGlobalMap(const std::string& file_name);
@@ -126,6 +134,17 @@ private:
     void publishPoseWithCov(const Eigen::Isometry3d& pose, const Eigen::Matrix<double, 6, 6>& cov) const;
     void publishDiagnostics(double normalized_error, size_t inliers, bool bad_quality,
                             const small_gicp::RegistrationResult& result) const;
+    uint8_t computeHealthLevel(double sigma_xy, double sigma_yaw_deg, double h_min_eig, bool optimizer_ready,
+                               double last_local_reg_age_sec, uint32_t candidate_conflict_count,
+                               const std::string& fallback_reason, std::string& out_reason) const;
+    void publishLocalizationHealth(const std::string& fallback_reason);
+    void publishBackendStatus();
+    void initializeGraphBackend();
+    bool processGraphBackendOnLocalRegistration(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
+                                                const Eigen::Isometry3d& map_to_odom,
+                                                const rclcpp::Time& stamp);
+    bool processGraphBackendAnchor(const Eigen::Isometry3d& map_to_odom, const rclcpp::Time& stamp);
+    bool tryLookupOdomToBase(const rclcpp::Time& stamp, Eigen::Isometry3d& odom_to_base) const;
 
     // 全局重定位（后台线程）
     void performGlobalRelocalization(RelocTriggerReason reason, pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud = nullptr);
@@ -195,6 +214,7 @@ private:
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initial_pose_sub_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
     rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr uwb_sub_;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr control_degraded_sub_;
 
     // 参数
     int num_threads_;
@@ -222,6 +242,9 @@ private:
     std::string input_cloud_topic_;
     std::string pose_cov_topic_{"/localization/pose_with_cov"};
     std::string diagnostics_topic_{"/localization/diagnostics"};
+    std::string health_topic_{"/localization/health"};
+    std::string backend_status_topic_{"/localization/backend_status"};
+    std::string control_degraded_topic_{"/control_degraded"};
 
     // 状态
     rclcpp::Time last_scan_time_;
@@ -256,6 +279,7 @@ private:
 
     // [修复] 配准失败超时机制
     rclcpp::Time last_successful_registration_time_;
+    rclcpp::Time last_local_registration_time_;
     double registration_timeout_sec_{10.0};  // 配准失败超时时间（秒）
 
     // I1: 冻结门控参数
@@ -370,6 +394,63 @@ private:
     bool l0_enable_{true};
     int l0_max_imu_gap_ms_{1000};
 
+    // P0: LHI/后端状态参数与缓存
+    bool enable_graph_backend_{false};
+    bool legacy_hard_reloc_enable_{false};
+    double graph_keyframe_translation_thresh_m_{0.4};
+    double graph_keyframe_yaw_thresh_deg_{6.0};
+    double graph_keyframe_time_thresh_sec_{1.0};
+    bool graph_keyframe_trigger_on_degraded_rising_{true};
+    bool graph_keyframe_trigger_on_hessian_drop_{true};
+    bool graph_keyframe_trigger_on_sigma_cross_{true};
+    int graph_loop_topk_{5};
+    int graph_loop_min_keyframe_gap_{5};
+    double graph_loop_similarity_min_{0.2};
+    double graph_odom_sigma_translation_m_{0.05};
+    double graph_odom_sigma_yaw_deg_{2.0};
+    double graph_loop_sigma_translation_m_{0.08};
+    double graph_loop_sigma_yaw_deg_{3.0};
+    double graph_anchor_sigma_translation_m_{0.12};
+    double graph_anchor_sigma_yaw_deg_{5.0};
+    double graph_jump_detect_translation_m_{0.3};
+    double graph_jump_detect_yaw_deg_{10.0};
+    double graph_smoother_max_translation_speed_mps_{0.25};
+    double graph_smoother_max_yaw_speed_degps_{10.0};
+    double graph_validator_accept_fitness_threshold_{0.1};
+    double graph_validator_conflict_fitness_threshold_{0.25};
+    double graph_validator_max_corr_dist_m_{1.0};
+    int graph_validator_max_iterations_{50};
+    double lhi_green_sigma_xy_max_{0.12};
+    double lhi_green_sigma_yaw_deg_max_{4.0};
+    double lhi_green_h_min_eig_min_{50.0};
+    double lhi_yellow_sigma_xy_min_{0.12};
+    double lhi_yellow_sigma_yaw_deg_min_{4.0};
+    double lhi_yellow_h_min_eig_max_{50.0};
+    double lhi_orange_sigma_xy_min_{0.25};
+    double lhi_orange_sigma_yaw_deg_min_{8.0};
+    double lhi_orange_h_min_eig_max_{20.0};
+    double lhi_red_sigma_xy_min_{1.0};
+    double lhi_red_last_local_reg_age_sec_{2.0};
+    int lhi_red_conflict_count_threshold_{3};
+    std::string backend_status_optimizer_state_{"legacy_localization_only"};
+    double backend_status_graph_health_placeholder_{0.0};
+    double backend_status_loop_age_placeholder_sec_{-1.0};
+    double backend_status_anchor_age_placeholder_sec_{-1.0};
+    std::atomic<bool> control_degraded_{false};
+    std::atomic<uint32_t> backend_candidate_conflict_count_{0};
+    std::atomic<bool> backend_map_to_odom_jump_suppressed_{false};
+    mutable std::mutex health_mutex_;
+    mutable std::mutex graph_mutex_;
+    bool graph_backend_initialized_{false};
+    PoseGraphStatus graph_status_cache_;
+    std::unique_ptr<KeyframeManager> keyframe_manager_;
+    std::unique_ptr<OnlineScanContextDB> online_sc_db_;
+    std::unique_ptr<ConstraintValidator> constraint_validator_;
+    std::unique_ptr<PoseGraphBackend> pose_graph_backend_;
+    std::unique_ptr<MapToOdomSmoother> map_to_odom_smoother_;
+    double last_h_min_eig_{0.0};
+    double last_h_cond_{1e12};
+
     // T8: 丘陵工况坡道约束
     bool slope_roll_pitch_from_imu_{false};
     double slope_z_weight_{1.0};
@@ -416,6 +497,8 @@ private:
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;
     rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_cov_pub_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;
+    rclcpp::Publisher<rc26_interfaces::msg::LocalizationHealth>::SharedPtr health_pub_;
+    rclcpp::Publisher<rc26_interfaces::msg::LocalizationBackendStatus>::SharedPtr backend_status_pub_;
 
     // TF
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;

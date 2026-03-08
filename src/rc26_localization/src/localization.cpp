@@ -165,6 +165,50 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("tf_timeout_sec", 1.0);
     this->declare_parameter("pose_cov_topic", std::string("/localization/pose_with_cov"));
     this->declare_parameter("diagnostics_topic", std::string("/localization/diagnostics"));
+    this->declare_parameter("health_topic", std::string("/localization/health"));
+    this->declare_parameter("backend_status_topic", std::string("/localization/backend_status"));
+    this->declare_parameter("control_degraded_topic", std::string("/control_degraded"));
+    this->declare_parameter("enable_graph_backend", false);
+    this->declare_parameter("legacy_hard_reloc_enable", false);
+    this->declare_parameter("graph_keyframe_translation_thresh_m", 0.4);
+    this->declare_parameter("graph_keyframe_yaw_thresh_deg", 6.0);
+    this->declare_parameter("graph_keyframe_time_thresh_sec", 1.0);
+    this->declare_parameter("graph_keyframe_trigger_on_degraded_rising", true);
+    this->declare_parameter("graph_keyframe_trigger_on_hessian_drop", true);
+    this->declare_parameter("graph_keyframe_trigger_on_sigma_cross", true);
+    this->declare_parameter("graph_loop_topk", 5);
+    this->declare_parameter("graph_loop_min_keyframe_gap", 5);
+    this->declare_parameter("graph_loop_similarity_min", 0.2);
+    this->declare_parameter("graph_odom_sigma_translation_m", 0.05);
+    this->declare_parameter("graph_odom_sigma_yaw_deg", 2.0);
+    this->declare_parameter("graph_loop_sigma_translation_m", 0.08);
+    this->declare_parameter("graph_loop_sigma_yaw_deg", 3.0);
+    this->declare_parameter("graph_anchor_sigma_translation_m", 0.12);
+    this->declare_parameter("graph_anchor_sigma_yaw_deg", 5.0);
+    this->declare_parameter("graph_jump_detect_translation_m", 0.3);
+    this->declare_parameter("graph_jump_detect_yaw_deg", 10.0);
+    this->declare_parameter("graph_smoother_max_translation_speed_mps", 0.25);
+    this->declare_parameter("graph_smoother_max_yaw_speed_degps", 10.0);
+    this->declare_parameter("graph_validator_accept_fitness_threshold", 0.1);
+    this->declare_parameter("graph_validator_conflict_fitness_threshold", 0.25);
+    this->declare_parameter("graph_validator_max_corr_dist_m", 1.0);
+    this->declare_parameter("graph_validator_max_iterations", 50);
+    this->declare_parameter("lhi_green_sigma_xy_max", 0.12);
+    this->declare_parameter("lhi_green_sigma_yaw_deg_max", 4.0);
+    this->declare_parameter("lhi_green_h_min_eig_min", 50.0);
+    this->declare_parameter("lhi_yellow_sigma_xy_min", 0.12);
+    this->declare_parameter("lhi_yellow_sigma_yaw_deg_min", 4.0);
+    this->declare_parameter("lhi_yellow_h_min_eig_max", 50.0);
+    this->declare_parameter("lhi_orange_sigma_xy_min", 0.25);
+    this->declare_parameter("lhi_orange_sigma_yaw_deg_min", 8.0);
+    this->declare_parameter("lhi_orange_h_min_eig_max", 20.0);
+    this->declare_parameter("lhi_red_sigma_xy_min", 1.0);
+    this->declare_parameter("lhi_red_last_local_reg_age_sec", 2.0);
+    this->declare_parameter("lhi_red_conflict_count_threshold", 3);
+    this->declare_parameter("backend_status_optimizer_state", std::string("legacy_localization_only"));
+    this->declare_parameter("backend_status_graph_health_placeholder", 0.0);
+    this->declare_parameter("backend_status_loop_age_placeholder_sec", -1.0);
+    this->declare_parameter("backend_status_anchor_age_placeholder_sec", -1.0);
 
     // 绑架检测参数
     this->declare_parameter("kidnap_threshold_count", 5);
@@ -313,6 +357,50 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->get_parameter("tf_timeout_sec", tf_timeout_sec_);
     this->get_parameter("pose_cov_topic", pose_cov_topic_);
     this->get_parameter("diagnostics_topic", diagnostics_topic_);
+    this->get_parameter("health_topic", health_topic_);
+    this->get_parameter("backend_status_topic", backend_status_topic_);
+    this->get_parameter("control_degraded_topic", control_degraded_topic_);
+    this->get_parameter("enable_graph_backend", enable_graph_backend_);
+    this->get_parameter("legacy_hard_reloc_enable", legacy_hard_reloc_enable_);
+    this->get_parameter("graph_keyframe_translation_thresh_m", graph_keyframe_translation_thresh_m_);
+    this->get_parameter("graph_keyframe_yaw_thresh_deg", graph_keyframe_yaw_thresh_deg_);
+    this->get_parameter("graph_keyframe_time_thresh_sec", graph_keyframe_time_thresh_sec_);
+    this->get_parameter("graph_keyframe_trigger_on_degraded_rising", graph_keyframe_trigger_on_degraded_rising_);
+    this->get_parameter("graph_keyframe_trigger_on_hessian_drop", graph_keyframe_trigger_on_hessian_drop_);
+    this->get_parameter("graph_keyframe_trigger_on_sigma_cross", graph_keyframe_trigger_on_sigma_cross_);
+    this->get_parameter("graph_loop_topk", graph_loop_topk_);
+    this->get_parameter("graph_loop_min_keyframe_gap", graph_loop_min_keyframe_gap_);
+    this->get_parameter("graph_loop_similarity_min", graph_loop_similarity_min_);
+    this->get_parameter("graph_odom_sigma_translation_m", graph_odom_sigma_translation_m_);
+    this->get_parameter("graph_odom_sigma_yaw_deg", graph_odom_sigma_yaw_deg_);
+    this->get_parameter("graph_loop_sigma_translation_m", graph_loop_sigma_translation_m_);
+    this->get_parameter("graph_loop_sigma_yaw_deg", graph_loop_sigma_yaw_deg_);
+    this->get_parameter("graph_anchor_sigma_translation_m", graph_anchor_sigma_translation_m_);
+    this->get_parameter("graph_anchor_sigma_yaw_deg", graph_anchor_sigma_yaw_deg_);
+    this->get_parameter("graph_jump_detect_translation_m", graph_jump_detect_translation_m_);
+    this->get_parameter("graph_jump_detect_yaw_deg", graph_jump_detect_yaw_deg_);
+    this->get_parameter("graph_smoother_max_translation_speed_mps", graph_smoother_max_translation_speed_mps_);
+    this->get_parameter("graph_smoother_max_yaw_speed_degps", graph_smoother_max_yaw_speed_degps_);
+    this->get_parameter("graph_validator_accept_fitness_threshold", graph_validator_accept_fitness_threshold_);
+    this->get_parameter("graph_validator_conflict_fitness_threshold", graph_validator_conflict_fitness_threshold_);
+    this->get_parameter("graph_validator_max_corr_dist_m", graph_validator_max_corr_dist_m_);
+    this->get_parameter("graph_validator_max_iterations", graph_validator_max_iterations_);
+    this->get_parameter("lhi_green_sigma_xy_max", lhi_green_sigma_xy_max_);
+    this->get_parameter("lhi_green_sigma_yaw_deg_max", lhi_green_sigma_yaw_deg_max_);
+    this->get_parameter("lhi_green_h_min_eig_min", lhi_green_h_min_eig_min_);
+    this->get_parameter("lhi_yellow_sigma_xy_min", lhi_yellow_sigma_xy_min_);
+    this->get_parameter("lhi_yellow_sigma_yaw_deg_min", lhi_yellow_sigma_yaw_deg_min_);
+    this->get_parameter("lhi_yellow_h_min_eig_max", lhi_yellow_h_min_eig_max_);
+    this->get_parameter("lhi_orange_sigma_xy_min", lhi_orange_sigma_xy_min_);
+    this->get_parameter("lhi_orange_sigma_yaw_deg_min", lhi_orange_sigma_yaw_deg_min_);
+    this->get_parameter("lhi_orange_h_min_eig_max", lhi_orange_h_min_eig_max_);
+    this->get_parameter("lhi_red_sigma_xy_min", lhi_red_sigma_xy_min_);
+    this->get_parameter("lhi_red_last_local_reg_age_sec", lhi_red_last_local_reg_age_sec_);
+    this->get_parameter("lhi_red_conflict_count_threshold", lhi_red_conflict_count_threshold_);
+    this->get_parameter("backend_status_optimizer_state", backend_status_optimizer_state_);
+    this->get_parameter("backend_status_graph_health_placeholder", backend_status_graph_health_placeholder_);
+    this->get_parameter("backend_status_loop_age_placeholder_sec", backend_status_loop_age_placeholder_sec_);
+    this->get_parameter("backend_status_anchor_age_placeholder_sec", backend_status_anchor_age_placeholder_sec_);
 
     this->get_parameter("kidnap_threshold_count", kidnap_threshold_count_);
     this->get_parameter("kidnap_fitness_threshold", kidnap_fitness_threshold_);
@@ -506,6 +594,7 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     {
         std::lock_guard<std::mutex> lock(registration_time_mutex_);
         last_successful_registration_time_ = this->now();
+        last_local_registration_time_ = last_successful_registration_time_;
     }
 
     // 初始化点云
@@ -535,6 +624,9 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
 
     pose_cov_pub_ = this->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(pose_cov_topic_, 10);
     diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(diagnostics_topic_, 10);
+    health_pub_ = this->create_publisher<rc26_interfaces::msg::LocalizationHealth>(health_topic_, 10);
+    backend_status_pub_ =
+        this->create_publisher<rc26_interfaces::msg::LocalizationBackendStatus>(backend_status_topic_, 10);
 
     // S1/T8: IMU 订阅
     if (s1_enable_ || slope_roll_pitch_from_imu_) {
@@ -546,9 +638,14 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
         uwb_sub_ = this->create_subscription<geometry_msgs::msg::PointStamped>(
             uwb_topic_, 10, std::bind(&LocalizationNode::uwbCallback, this, std::placeholders::_1));
     }
+    control_degraded_sub_ = this->create_subscription<std_msgs::msg::Bool>(
+        control_degraded_topic_, rclcpp::SensorDataQoS(),
+        std::bind(&LocalizationNode::controlDegradedCallback, this, std::placeholders::_1));
 
     dyn_params_handler_ = this->add_on_set_parameters_callback(
         std::bind(&LocalizationNode::dynamicParametersCallback, this, std::placeholders::_1));
+
+    initializeGraphBackend();
 
     // 配准定时器 (2 Hz)
     register_timer_ = this->create_wall_timer(std::chrono::milliseconds(500),
@@ -561,6 +658,8 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     // 后台重定位工作线程（single-flight）
     reloc_worker_thread_ = std::thread(&LocalizationNode::relocWorkerLoop, this);
 
+    publishLocalizationHealth("startup");
+    publishBackendStatus();
     RCLCPP_INFO(this->get_logger(), "rc26_localization 节点已启动");
 }
 
@@ -621,6 +720,214 @@ const char* LocalizationNode::toString(RelocTriggerReason reason) {
         default:
             return "unknown";
     }
+}
+
+uint8_t LocalizationNode::computeHealthLevel(double sigma_xy, double sigma_yaw_deg, double h_min_eig,
+                                             bool optimizer_ready, double last_local_reg_age_sec,
+                                             uint32_t candidate_conflict_count, const std::string& fallback_reason,
+                                             std::string& out_reason) const {
+    const LocalizationState state = getLocalizationState();
+    const bool control_degraded = control_degraded_.load();
+
+    if (state == LocalizationState::FAST_RECOVERY) {
+        out_reason = "fast_recovery_running";
+        return rc26_interfaces::msg::LocalizationHealth::RED;
+    }
+    if (state == LocalizationState::GLOBAL_RECOVERY) {
+        out_reason = "global_recovery_running";
+        return rc26_interfaces::msg::LocalizationHealth::RED;
+    }
+    if (state == LocalizationState::RELOC_FAILED) {
+        out_reason = "relocalization_failed";
+        return rc26_interfaces::msg::LocalizationHealth::RED;
+    }
+    if (last_local_reg_age_sec > lhi_red_last_local_reg_age_sec_) {
+        out_reason = "local_reg_timeout";
+        return rc26_interfaces::msg::LocalizationHealth::RED;
+    }
+    if (sigma_xy >= lhi_red_sigma_xy_min_) {
+        out_reason = "sigma_xy_critical";
+        return rc26_interfaces::msg::LocalizationHealth::RED;
+    }
+    if (enable_graph_backend_ && !optimizer_ready) {
+        out_reason = "optimizer_unready";
+        return rc26_interfaces::msg::LocalizationHealth::RED;
+    }
+    if (candidate_conflict_count >= static_cast<uint32_t>(lhi_red_conflict_count_threshold_)) {
+        out_reason = "candidate_conflict_high";
+        return rc26_interfaces::msg::LocalizationHealth::RED;
+    }
+
+    if (state == LocalizationState::SUSPECT) {
+        out_reason = "state_suspect";
+        return rc26_interfaces::msg::LocalizationHealth::ORANGE;
+    }
+    if (control_degraded) {
+        out_reason = "control_degraded";
+        return rc26_interfaces::msg::LocalizationHealth::ORANGE;
+    }
+    if (sigma_xy >= lhi_orange_sigma_xy_min_) {
+        out_reason = "sigma_xy_high";
+        return rc26_interfaces::msg::LocalizationHealth::ORANGE;
+    }
+    if (sigma_yaw_deg >= lhi_orange_sigma_yaw_deg_min_) {
+        out_reason = "sigma_yaw_high";
+        return rc26_interfaces::msg::LocalizationHealth::ORANGE;
+    }
+    if (h_min_eig <= lhi_orange_h_min_eig_max_) {
+        out_reason = "hessian_degenerate";
+        return rc26_interfaces::msg::LocalizationHealth::ORANGE;
+    }
+
+    if (state == LocalizationState::TRACKING &&
+        (sigma_xy >= lhi_yellow_sigma_xy_min_ || sigma_yaw_deg >= lhi_yellow_sigma_yaw_deg_min_ ||
+         h_min_eig <= lhi_yellow_h_min_eig_max_)) {
+        if (sigma_xy >= lhi_yellow_sigma_xy_min_) {
+            out_reason = "sigma_xy_warn";
+        } else if (sigma_yaw_deg >= lhi_yellow_sigma_yaw_deg_min_) {
+            out_reason = "sigma_yaw_warn";
+        } else {
+            out_reason = "hessian_warn";
+        }
+        return rc26_interfaces::msg::LocalizationHealth::YELLOW;
+    }
+
+    if (state == LocalizationState::TRACKING && sigma_xy < lhi_green_sigma_xy_max_ &&
+        sigma_yaw_deg < lhi_green_sigma_yaw_deg_max_ && h_min_eig > lhi_green_h_min_eig_min_ && !control_degraded) {
+        out_reason = "tracking_nominal";
+        return rc26_interfaces::msg::LocalizationHealth::GREEN;
+    }
+
+    out_reason = fallback_reason.empty() ? "tracking_uncertain" : fallback_reason;
+    return rc26_interfaces::msg::LocalizationHealth::YELLOW;
+}
+
+void LocalizationNode::publishLocalizationHealth(const std::string& fallback_reason) {
+    if (!health_pub_) {
+        return;
+    }
+
+    Eigen::Matrix<double, 6, 6> pose_cov = Eigen::Matrix<double, 6, 6>::Zero();
+    double h_min_eig = 0.0;
+    double h_cond = 1e12;
+    double degenerate_score = 0.0;
+    {
+        std::lock_guard<std::mutex> lk(result_mutex_);
+        pose_cov = last_pose_cov_;
+        h_min_eig = last_h_min_eig_;
+        h_cond = last_h_cond_;
+        degenerate_score = std::max({last_degen_.degen_risk.x(), last_degen_.degen_risk.y(), last_degen_.degen_risk.z()});
+    }
+    degenerate_score = std::clamp(degenerate_score, 0.0, 1.0);
+
+    const double sigma_xy = std::sqrt(std::max(0.0, pose_cov(3, 3) + pose_cov(4, 4)));
+    const double sigma_yaw = std::sqrt(std::max(0.0, pose_cov(2, 2)));
+    const double sigma_yaw_deg = sigma_yaw * 180.0 / M_PI;
+
+    rclcpp::Time last_local_reg_time;
+    {
+        std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
+        last_local_reg_time = last_local_registration_time_;
+    }
+    const rclcpp::Time now_stamp = this->now();
+    const double last_local_reg_age_sec = std::max(0.0, (now_stamp - last_local_reg_time).seconds());
+    uint32_t candidate_conflict_count = backend_candidate_conflict_count_.load();
+    bool optimizer_ready = false;
+    if (enable_graph_backend_) {
+        PoseGraphStatus graph_status_snapshot;
+        bool graph_status_valid = false;
+        {
+            std::lock_guard<std::mutex> lock(graph_mutex_);
+            if (graph_backend_initialized_ && pose_graph_backend_) {
+                graph_status_snapshot = pose_graph_backend_->statusSnapshot(now_stamp);
+                graph_status_cache_ = graph_status_snapshot;
+                graph_status_valid = true;
+            }
+        }
+        if (graph_status_valid) {
+            optimizer_ready = graph_status_snapshot.optimizer_ready;
+            candidate_conflict_count = graph_status_snapshot.candidate_conflict_count;
+            backend_candidate_conflict_count_.store(candidate_conflict_count);
+            backend_map_to_odom_jump_suppressed_.store(graph_status_snapshot.map_to_odom_jump_suppressed);
+        }
+    }
+
+    std::string reason;
+    const uint8_t level = computeHealthLevel(sigma_xy, sigma_yaw_deg, h_min_eig, optimizer_ready,
+                                             last_local_reg_age_sec, candidate_conflict_count, fallback_reason, reason);
+
+    rc26_interfaces::msg::LocalizationHealth msg;
+    msg.header.stamp = now_stamp;
+    msg.header.frame_id = map_frame_;
+    msg.level = level;
+    msg.reason = reason;
+    msg.control_degraded = control_degraded_.load();
+    msg.localization_state = toString(getLocalizationState());
+    msg.sigma_xy = sigma_xy;
+    msg.sigma_yaw = sigma_yaw;
+    msg.degenerate_score = degenerate_score;
+    msg.h_min_eig = h_min_eig;
+    msg.h_cond = h_cond;
+    health_pub_->publish(msg);
+}
+
+void LocalizationNode::publishBackendStatus() {
+    if (!backend_status_pub_) {
+        return;
+    }
+
+    rclcpp::Time last_local_reg_time;
+    {
+        std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
+        last_local_reg_time = last_local_registration_time_;
+    }
+    const rclcpp::Time now_stamp = this->now();
+    const double last_local_reg_age_sec = std::max(0.0, (now_stamp - last_local_reg_time).seconds());
+
+    PoseGraphStatus graph_status_snapshot;
+    bool graph_status_valid = false;
+    if (enable_graph_backend_) {
+        std::lock_guard<std::mutex> lock(graph_mutex_);
+        if (graph_backend_initialized_ && pose_graph_backend_) {
+            graph_status_snapshot = pose_graph_backend_->statusSnapshot(now_stamp);
+            graph_status_cache_ = graph_status_snapshot;
+            graph_status_valid = true;
+        }
+    }
+
+    rc26_interfaces::msg::LocalizationBackendStatus msg;
+    msg.header.stamp = now_stamp;
+    msg.header.frame_id = map_frame_;
+    if (graph_status_valid) {
+        msg.optimizer_ready = graph_status_snapshot.optimizer_ready;
+        msg.optimizer_state = graph_status_snapshot.optimizer_state;
+        msg.active_keyframe_id = graph_status_snapshot.active_keyframe_id;
+        msg.graph_health = graph_status_snapshot.graph_health;
+        msg.loop_candidate_count = graph_status_snapshot.loop_candidate_count;
+        msg.accepted_loop_count = graph_status_snapshot.accepted_loop_count;
+        msg.accepted_anchor_count = graph_status_snapshot.accepted_anchor_count;
+        msg.last_loop_age_sec = graph_status_snapshot.last_loop_age_sec;
+        msg.last_anchor_age_sec = graph_status_snapshot.last_anchor_age_sec;
+        msg.candidate_conflict_count = graph_status_snapshot.candidate_conflict_count;
+        msg.map_to_odom_jump_suppressed = graph_status_snapshot.map_to_odom_jump_suppressed;
+        backend_candidate_conflict_count_.store(graph_status_snapshot.candidate_conflict_count);
+        backend_map_to_odom_jump_suppressed_.store(graph_status_snapshot.map_to_odom_jump_suppressed);
+    } else {
+        msg.optimizer_ready = false;
+        msg.optimizer_state = backend_status_optimizer_state_;
+        msg.active_keyframe_id = 0U;
+        msg.graph_health = backend_status_graph_health_placeholder_;
+        msg.loop_candidate_count = 0U;
+        msg.accepted_loop_count = 0U;
+        msg.accepted_anchor_count = 0U;
+        msg.last_loop_age_sec = backend_status_loop_age_placeholder_sec_;
+        msg.last_anchor_age_sec = backend_status_anchor_age_placeholder_sec_;
+        msg.candidate_conflict_count = backend_candidate_conflict_count_.load();
+        msg.map_to_odom_jump_suppressed = backend_map_to_odom_jump_suppressed_.load();
+    }
+    msg.last_local_reg_age_sec = last_local_reg_age_sec;
+    msg.imu_spike = imu_spike_active_.load() || imu_spike_recent_.load();
+    backend_status_pub_->publish(msg);
 }
 
 void LocalizationNode::relocWorkerLoop() {
@@ -822,6 +1129,48 @@ void LocalizationNode::validateAndNormalizeParams() {
     if (uwb_max_stale_sec_ <= 0.0) {
         RCLCPP_WARN(this->get_logger(), "uwb_max_stale_sec=%.3f 非法，已回退为 2.0", uwb_max_stale_sec_);
         uwb_max_stale_sec_ = 2.0;
+    }
+    graph_keyframe_translation_thresh_m_ = std::max(0.05, graph_keyframe_translation_thresh_m_);
+    graph_keyframe_yaw_thresh_deg_ = std::max(0.5, graph_keyframe_yaw_thresh_deg_);
+    graph_keyframe_time_thresh_sec_ = std::max(0.1, graph_keyframe_time_thresh_sec_);
+    graph_loop_topk_ = std::max(1, graph_loop_topk_);
+    graph_loop_min_keyframe_gap_ = std::max(1, graph_loop_min_keyframe_gap_);
+    graph_loop_similarity_min_ = std::clamp(graph_loop_similarity_min_, 0.0, 1.0);
+    graph_odom_sigma_translation_m_ = std::max(1e-4, graph_odom_sigma_translation_m_);
+    graph_odom_sigma_yaw_deg_ = std::max(1e-3, graph_odom_sigma_yaw_deg_);
+    graph_loop_sigma_translation_m_ = std::max(1e-4, graph_loop_sigma_translation_m_);
+    graph_loop_sigma_yaw_deg_ = std::max(1e-3, graph_loop_sigma_yaw_deg_);
+    graph_anchor_sigma_translation_m_ = std::max(1e-4, graph_anchor_sigma_translation_m_);
+    graph_anchor_sigma_yaw_deg_ = std::max(1e-3, graph_anchor_sigma_yaw_deg_);
+    graph_jump_detect_translation_m_ = std::max(0.01, graph_jump_detect_translation_m_);
+    graph_jump_detect_yaw_deg_ = std::max(0.1, graph_jump_detect_yaw_deg_);
+    graph_smoother_max_translation_speed_mps_ = std::max(0.01, graph_smoother_max_translation_speed_mps_);
+    graph_smoother_max_yaw_speed_degps_ = std::max(0.1, graph_smoother_max_yaw_speed_degps_);
+    graph_validator_accept_fitness_threshold_ = std::max(1e-6, graph_validator_accept_fitness_threshold_);
+    graph_validator_conflict_fitness_threshold_ =
+        std::max(graph_validator_accept_fitness_threshold_, graph_validator_conflict_fitness_threshold_);
+    graph_validator_max_corr_dist_m_ = std::max(0.05, graph_validator_max_corr_dist_m_);
+    graph_validator_max_iterations_ = std::max(1, graph_validator_max_iterations_);
+    lhi_green_sigma_xy_max_ = std::max(0.0, lhi_green_sigma_xy_max_);
+    lhi_green_sigma_yaw_deg_max_ = std::max(0.0, lhi_green_sigma_yaw_deg_max_);
+    lhi_green_h_min_eig_min_ = std::max(0.0, lhi_green_h_min_eig_min_);
+    lhi_yellow_sigma_xy_min_ = std::max(0.0, lhi_yellow_sigma_xy_min_);
+    lhi_yellow_sigma_yaw_deg_min_ = std::max(0.0, lhi_yellow_sigma_yaw_deg_min_);
+    lhi_yellow_h_min_eig_max_ = std::max(0.0, lhi_yellow_h_min_eig_max_);
+    lhi_orange_sigma_xy_min_ = std::max(0.0, lhi_orange_sigma_xy_min_);
+    lhi_orange_sigma_yaw_deg_min_ = std::max(0.0, lhi_orange_sigma_yaw_deg_min_);
+    lhi_orange_h_min_eig_max_ = std::max(0.0, lhi_orange_h_min_eig_max_);
+    lhi_red_sigma_xy_min_ = std::max(0.0, lhi_red_sigma_xy_min_);
+    lhi_red_last_local_reg_age_sec_ = std::max(0.1, lhi_red_last_local_reg_age_sec_);
+    lhi_red_conflict_count_threshold_ = std::max(1, lhi_red_conflict_count_threshold_);
+    if (health_topic_.empty()) {
+        health_topic_ = "/localization/health";
+    }
+    if (backend_status_topic_.empty()) {
+        backend_status_topic_ = "/localization/backend_status";
+    }
+    if (control_degraded_topic_.empty()) {
+        control_degraded_topic_ = "/control_degraded";
     }
     uwb_yaw_spread_deg_ = std::clamp(uwb_yaw_spread_deg_, 1.0, 180.0);
     esikf_accel_noise_ = std::max(esikf_accel_noise_, 1e-4);

@@ -619,7 +619,19 @@ bool LocalizationNode::tryScanContextGlobalChannel(const pcl::PointCloud<pcl::Po
 }
 
 void LocalizationNode::markRelocalizationSuccess(const Eigen::Isometry3d& map_to_odom) {
-    {
+    const bool graph_mode = enable_graph_backend_ && !legacy_hard_reloc_enable_;
+    bool graph_anchor_applied = false;
+    if (graph_mode) {
+        graph_anchor_applied = processGraphBackendAnchor(map_to_odom, this->now());
+        if (!graph_anchor_applied) {
+            RCLCPP_WARN(this->get_logger(), "图后端锚点接入失败，保持当前 map->odom，拒绝硬切");
+            setLocalizationState(LocalizationState::SUSPECT, "relocalization_anchor_rejected");
+            publishLocalizationHealth("relocalization_anchor_rejected");
+            publishBackendStatus();
+            return;
+        }
+    }
+    if (!graph_mode) {
         std::lock_guard<std::mutex> lock(result_mutex_);
         result_t_ = previous_result_t_ = map_to_odom;
     }
@@ -630,9 +642,13 @@ void LocalizationNode::markRelocalizationSuccess(const Eigen::Isometry3d& map_to
     {
         std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
         last_successful_registration_time_ = this->now();
+        last_local_registration_time_ = last_successful_registration_time_;
     }
     consecutive_high_error_count_.store(0);
-    setLocalizationState(LocalizationState::TRACKING, "relocalization_success");
+    setLocalizationState(LocalizationState::TRACKING, graph_mode ? "relocalization_graph_anchor_ok"
+                                                                  : "relocalization_success");
+    publishLocalizationHealth(graph_mode ? "relocalization_graph_anchor_ok" : "relocalization_success");
+    publishBackendStatus();
 }
 
 void LocalizationNode::performGlobalRelocalization(RelocTriggerReason reason,
@@ -1015,4 +1031,3 @@ void LocalizationNode::applyAcrylicROIFilter(pcl::PointCloud<pcl::PointXYZ>::Ptr
 }
 
 }  // namespace rc26_localization
-

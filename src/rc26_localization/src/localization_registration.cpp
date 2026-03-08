@@ -32,25 +32,38 @@ Eigen::Matrix<double, 6, 6> reorderCovariance(const Eigen::Matrix<double, 6, 6>&
 }  // namespace
 
 void LocalizationNode::performRegistration() {
+    auto publish_status = [this](const std::string& reason, bool touch_local_reg_time) {
+        if (touch_local_reg_time) {
+            std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
+            last_local_registration_time_ = this->now();
+        }
+        publishLocalizationHealth(reason);
+        publishBackendStatus();
+    };
+
     if (!map_loaded_) {
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "地图未加载，跳过配准");
+        publish_status("map_not_loaded", false);
         return;
     }
 
     if (!prepareTargetMap()) {
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "地图坐标转换未完成");
+        publish_status("target_map_not_ready", false);
         return;
     }
 
     const LocalizationState state = getLocalizationState();
     if (isRelocatingState(state)) {
         RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "重定位进行中，跳过常规配准");
+        publish_status("relocalization_running", false);
         return;
     }
     {
         std::lock_guard<std::mutex> lock(reloc_request_mutex_);
         if (reloc_request_pending_) {
             RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "重定位请求待处理，跳过常规配准");
+            publish_status("relocalization_pending", false);
             return;
         }
     }
@@ -60,6 +73,7 @@ void LocalizationNode::performRegistration() {
         std::lock_guard<std::mutex> lock(cloud_mutex_);
         if (accumulated_cloud_->empty()) {
             RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "无累积点云数据");
+            publish_status("no_accumulated_cloud", false);
             return;
         }
         cloud_to_register = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
@@ -81,6 +95,7 @@ void LocalizationNode::performRegistration() {
     if (!source_ || source_->size() < min_points_for_reg) {
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "降采样后点云不足: %zu < %zu，跳过配准",
                              source_ ? source_->size() : 0, min_points_for_reg);
+        publish_status("insufficient_points", true);
         return;
     }
 
@@ -141,6 +156,16 @@ void LocalizationNode::performRegistration() {
     last_t_init_ = t_init;
     const double dt_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_align_start).count();
+    double h_min = 0.0;
+    double h_max = 0.0;
+    double h_cond = 1e12;
+    computeHessianStats(0.5 * (result.H + result.H.transpose()), h_min, h_max, h_cond);
+    (void)h_max;
+    {
+        std::lock_guard<std::mutex> lk(result_mutex_);
+        last_h_min_eig_ = h_min;
+        last_h_cond_ = h_cond;
+    }
 
     // 新硬退化层：Hessian 最小特征值门控
     double h_min_eig = 0.0;
@@ -171,6 +196,7 @@ void LocalizationNode::performRegistration() {
                 (result.num_inliers > 0) ? (result.error / static_cast<double>(result.num_inliers))
                                          : std::numeric_limits<double>::max();
             publishDiagnostics(hard_norm_error, result.num_inliers, true, result);
+            publish_status("hard_degenerate", true);
             return;
         }
         consecutive_s2_count_.store(0);
@@ -193,6 +219,7 @@ void LocalizationNode::performRegistration() {
                     s2_max_continuous_frames_);
                 requestRelocalization(RelocTriggerReason::KIDNAP, cloud_to_register);
             }
+            publish_status("legacy_s2_reject", true);
             return;
         }
         consecutive_s2_count_.store(0);
@@ -220,6 +247,7 @@ void LocalizationNode::performRegistration() {
         if (now() < deadline) {
             RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 500,
                 "S1: IMU spike gate active, seed frozen");
+            publish_status("imu_spike_gate_active", true);
             return;
         }
         imu_spike_active_.store(false);
@@ -243,6 +271,7 @@ void LocalizationNode::performRegistration() {
         RCLCPP_WARN(this->get_logger(), "检测到绑架，提交重定位请求...");
         requestRelocalization(RelocTriggerReason::KIDNAP, cloud_to_register);
         publishDiagnostics(normalized_error, result.num_inliers, true, result);
+        publish_status("kidnap_detected", true);
         return;
     }
 
@@ -268,6 +297,7 @@ void LocalizationNode::performRegistration() {
             RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 500,
                 "T8: slope normal inconsistency %.1f deg > %.1f deg, frame rejected",
                 dev_deg, slope_normal_consistency_deg_);
+            publish_status("slope_normal_inconsistent", true);
             return;
         }
 
@@ -334,6 +364,15 @@ void LocalizationNode::performRegistration() {
         setLocalizationState(LocalizationState::TRACKING, "local_registration_ok");
     }
 
+    if (result.converged && !bad_quality && enable_graph_backend_) {
+        Eigen::Isometry3d map_to_odom_snapshot = Eigen::Isometry3d::Identity();
+        {
+            std::lock_guard<std::mutex> lock(result_mutex_);
+            map_to_odom_snapshot = result_t_;
+        }
+        (void)processGraphBackendOnLocalRegistration(cloud_to_register, map_to_odom_snapshot, this->now());
+    }
+
     rclcpp::Time last_success_snapshot;
     {
         std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
@@ -354,7 +393,7 @@ void LocalizationNode::performRegistration() {
         use_gn ? "gn" : "lm",
         init_jump_m,
         static_cast<int>(imu_spike_active_.load()),
-        h_min_eig,
+        h_min,
         consecutive_s2_count_.load(),
         static_cast<int>(!hessian_degen_enable_ && s2_enable_ && result.converged &&
                          s2_min_eig < s2_hessian_min_eigenvalue_),
@@ -362,6 +401,7 @@ void LocalizationNode::performRegistration() {
         last_degen_.degen_risk.x(), last_degen_.degen_risk.y(), last_degen_.degen_risk.z());
 
     publishDiagnostics(normalized_error, result.num_inliers, bad_quality, result);
+    publish_status(bad_quality ? "local_quality_bad" : "local_registration_ok", true);
 }
 
 LocalizationNode::DegenAnalysis
@@ -610,6 +650,23 @@ void LocalizationNode::publishTransform() {
         return;
     }
 
+    const rclcpp::Time now_stamp = this->now();
+    if (enable_graph_backend_) {
+        Eigen::Isometry3d smoothed_map_to_odom = Eigen::Isometry3d::Identity();
+        bool has_smoothed_output = false;
+        {
+            std::lock_guard<std::mutex> graph_lock(graph_mutex_);
+            if (graph_backend_initialized_ && map_to_odom_smoother_ && map_to_odom_smoother_->isInitialized()) {
+                has_smoothed_output = map_to_odom_smoother_->step(now_stamp, smoothed_map_to_odom);
+            }
+        }
+        if (has_smoothed_output) {
+            std::lock_guard<std::mutex> result_lock(result_mutex_);
+            result_t_ = smoothed_map_to_odom;
+            previous_result_t_ = smoothed_map_to_odom;
+        }
+    }
+
     Eigen::Isometry3d result_snapshot;
     Eigen::Matrix<double, 6, 6> cov_snapshot = Eigen::Matrix<double, 6, 6>::Zero();
     {
@@ -623,7 +680,7 @@ void LocalizationNode::publishTransform() {
     }
 
     geometry_msgs::msg::TransformStamped transform_stamped;
-    transform_stamped.header.stamp = this->now();
+    transform_stamped.header.stamp = now_stamp;
     transform_stamped.header.frame_id = map_frame_;
     transform_stamped.child_frame_id = odom_frame_;
 

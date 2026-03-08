@@ -10,6 +10,7 @@ include(CheckCXXCompilerFlag)
 find_package(ament_cmake_auto REQUIRED)
 find_package(OpenMP REQUIRED)
 find_package(Threads REQUIRED)
+find_package(GTSAM REQUIRED CONFIG)
 set(PCL_FIND_QUIETLY ON)
 find_package(PCL REQUIRED COMPONENTS common filters kdtree io)
 find_package(Eigen3 REQUIRED)
@@ -34,6 +35,7 @@ target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${PCL_INCLUDE_DIRS})
 
 target_link_libraries(${PROJECT_NAME}
   OpenMP::OpenMP_CXX
+  gtsam
   small_gicp
   Threads::Threads
   pcl_common
