@@ -167,7 +167,17 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("diagnostics_topic", std::string("/localization/diagnostics"));
     this->declare_parameter("health_topic", std::string("/localization/health"));
     this->declare_parameter("backend_status_topic", std::string("/localization/backend_status"));
+    this->declare_parameter("route_observability_topic", std::string("/localization/route_observability"));
     this->declare_parameter("control_degraded_topic", std::string("/control_degraded"));
+    this->declare_parameter("plan_topic", std::string("local_plan"));
+    this->declare_parameter("route_window_min_m", 2.0);
+    this->declare_parameter("route_window_max_m", 5.0);
+    this->declare_parameter("route_sample_step_m", 0.5);
+    this->declare_parameter("route_map_near_dist_m", 0.7);
+    this->declare_parameter("route_risk_medium_threshold", 0.45);
+    this->declare_parameter("route_risk_high_threshold", 0.7);
+    this->declare_parameter("route_anchor_effective_dist_m", 2.0);
+    this->declare_parameter("route_loop_recent_age_sec", 8.0);
     this->declare_parameter("enable_graph_backend", false);
     this->declare_parameter("legacy_hard_reloc_enable", false);
     this->declare_parameter("graph_keyframe_translation_thresh_m", 0.4);
@@ -359,7 +369,17 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->get_parameter("diagnostics_topic", diagnostics_topic_);
     this->get_parameter("health_topic", health_topic_);
     this->get_parameter("backend_status_topic", backend_status_topic_);
+    this->get_parameter("route_observability_topic", route_observability_topic_);
     this->get_parameter("control_degraded_topic", control_degraded_topic_);
+    this->get_parameter("plan_topic", plan_topic_);
+    this->get_parameter("route_window_min_m", route_window_min_m_);
+    this->get_parameter("route_window_max_m", route_window_max_m_);
+    this->get_parameter("route_sample_step_m", route_sample_step_m_);
+    this->get_parameter("route_map_near_dist_m", route_map_near_dist_m_);
+    this->get_parameter("route_risk_medium_threshold", route_risk_medium_threshold_);
+    this->get_parameter("route_risk_high_threshold", route_risk_high_threshold_);
+    this->get_parameter("route_anchor_effective_dist_m", route_anchor_effective_dist_m_);
+    this->get_parameter("route_loop_recent_age_sec", route_loop_recent_age_sec_);
     this->get_parameter("enable_graph_backend", enable_graph_backend_);
     this->get_parameter("legacy_hard_reloc_enable", legacy_hard_reloc_enable_);
     this->get_parameter("graph_keyframe_translation_thresh_m", graph_keyframe_translation_thresh_m_);
@@ -627,6 +647,8 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     health_pub_ = this->create_publisher<rc26_interfaces::msg::LocalizationHealth>(health_topic_, 10);
     backend_status_pub_ =
         this->create_publisher<rc26_interfaces::msg::LocalizationBackendStatus>(backend_status_topic_, 10);
+    route_observability_pub_ =
+        this->create_publisher<rc26_interfaces::msg::RouteObservability>(route_observability_topic_, 10);
 
     // S1/T8: IMU 订阅
     if (s1_enable_ || slope_roll_pitch_from_imu_) {
@@ -641,6 +663,16 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     control_degraded_sub_ = this->create_subscription<std_msgs::msg::Bool>(
         control_degraded_topic_, rclcpp::SensorDataQoS(),
         std::bind(&LocalizationNode::controlDegradedCallback, this, std::placeholders::_1));
+    plan_sub_ = this->create_subscription<nav_msgs::msg::Path>(
+        plan_topic_, rclcpp::SystemDefaultsQoS(), std::bind(&LocalizationNode::planCallback, this, std::placeholders::_1));
+
+    RouteObservabilityEvaluator::Config route_cfg;
+    route_cfg.map_near_dist_m = route_map_near_dist_m_;
+    route_cfg.medium_risk_threshold = route_risk_medium_threshold_;
+    route_cfg.high_risk_threshold = route_risk_high_threshold_;
+    route_cfg.anchor_effective_dist_m = route_anchor_effective_dist_m_;
+    route_cfg.loop_recent_age_sec = route_loop_recent_age_sec_;
+    route_observability_evaluator_ = std::make_unique<RouteObservabilityEvaluator>(route_cfg);
 
     dyn_params_handler_ = this->add_on_set_parameters_callback(
         std::bind(&LocalizationNode::dynamicParametersCallback, this, std::placeholders::_1));
@@ -660,6 +692,7 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
 
     publishLocalizationHealth("startup");
     publishBackendStatus();
+    publishRouteObservability();
     RCLCPP_INFO(this->get_logger(), "rc26_localization 节点已启动");
 }
 
@@ -930,6 +963,146 @@ void LocalizationNode::publishBackendStatus() {
     backend_status_pub_->publish(msg);
 }
 
+void LocalizationNode::publishRouteObservability() {
+    if (!route_observability_pub_ || !route_observability_evaluator_) {
+        return;
+    }
+
+    nav_msgs::msg::Path plan_snapshot;
+    {
+        std::lock_guard<std::mutex> lk(plan_mutex_);
+        if (!latest_plan_valid_ || latest_plan_.poses.empty()) {
+            rc26_interfaces::msg::RouteObservability msg;
+            msg.header.stamp = this->now();
+            msg.header.frame_id = map_frame_;
+            msg.score = 1.0;
+            msg.risk_level = rc26_interfaces::msg::RouteObservability::LOW;
+            msg.repeat_structure_risk = 0.0;
+            msg.dynamic_risk = 0.0;
+            msg.loop_opportunity_score = 0.0;
+            msg.anchor_opportunity_score = 0.0;
+            msg.recommended_nav_profile = "normal";
+            route_observability_pub_->publish(msg);
+            return;
+        }
+        plan_snapshot = latest_plan_;
+    }
+
+    Eigen::Isometry3d map_to_odom = Eigen::Isometry3d::Identity();
+    {
+        std::lock_guard<std::mutex> lock(result_mutex_);
+        map_to_odom = result_t_;
+    }
+
+    std::vector<Eigen::Vector2d> plan_points_map;
+    plan_points_map.reserve(plan_snapshot.poses.size());
+    const std::string frame_id = plan_snapshot.header.frame_id.empty() ? map_frame_ : plan_snapshot.header.frame_id;
+    if (frame_id == map_frame_) {
+        for (const auto& pose_stamped : plan_snapshot.poses) {
+            plan_points_map.emplace_back(pose_stamped.pose.position.x, pose_stamped.pose.position.y);
+        }
+    } else if (frame_id == odom_frame_) {
+        for (const auto& pose_stamped : plan_snapshot.poses) {
+            const Eigen::Vector3d point_odom(pose_stamped.pose.position.x, pose_stamped.pose.position.y,
+                                             pose_stamped.pose.position.z);
+            const Eigen::Vector3d point_map = map_to_odom * point_odom;
+            plan_points_map.emplace_back(point_map.x(), point_map.y());
+        }
+    } else {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                             "route_observability: unsupported plan frame '%s' (expect %s or %s)",
+                             frame_id.c_str(), map_frame_.c_str(), odom_frame_.c_str());
+        rc26_interfaces::msg::RouteObservability msg;
+        msg.header.stamp = this->now();
+        msg.header.frame_id = map_frame_;
+        msg.score = 0.5;
+        msg.risk_level = rc26_interfaces::msg::RouteObservability::MEDIUM;
+        msg.repeat_structure_risk = 0.5;
+        msg.dynamic_risk = 0.5;
+        msg.loop_opportunity_score = 0.0;
+        msg.anchor_opportunity_score = 0.0;
+        msg.recommended_nav_profile = "loc_yellow";
+        route_observability_pub_->publish(msg);
+        return;
+    }
+
+    std::vector<Eigen::Vector2d> window_points;
+    window_points.reserve(plan_points_map.size());
+    double path_dist = 0.0;
+    Eigen::Vector2d last_sample = Eigen::Vector2d::Zero();
+    bool sample_initialized = false;
+    for (size_t i = 0; i < plan_points_map.size(); ++i) {
+        if (i > 0) {
+            path_dist += (plan_points_map[i] - plan_points_map[i - 1]).norm();
+        }
+        if (path_dist < route_window_min_m_ || path_dist > route_window_max_m_) {
+            continue;
+        }
+        if (!sample_initialized || (plan_points_map[i] - last_sample).norm() >= route_sample_step_m_) {
+            window_points.push_back(plan_points_map[i]);
+            last_sample = plan_points_map[i];
+            sample_initialized = true;
+        }
+    }
+    if (window_points.empty() && !plan_points_map.empty()) {
+        window_points.push_back(plan_points_map.back());
+    }
+
+    std::vector<Eigen::Vector2d> map_points;
+    {
+        std::lock_guard<std::mutex> map_lock(map_mutex_);
+        if (target_ && !target_->empty()) {
+            map_points.reserve(target_->size());
+            for (const auto& pt : target_->points) {
+                map_points.emplace_back(pt.x, pt.y);
+            }
+        } else if (global_map_ && !global_map_->empty()) {
+            map_points.reserve(global_map_->size());
+            for (const auto& pt : global_map_->points) {
+                map_points.emplace_back(pt.x, pt.y);
+            }
+        }
+    }
+
+    bool uwb_available = false;
+    {
+        std::lock_guard<std::mutex> lk(uwb_mutex_);
+        uwb_available = uwb_available_ && (this->now() - uwb_last_stamp_).seconds() <= uwb_max_stale_sec_;
+    }
+
+    RouteObservabilityInput input;
+    input.window_points_map = std::move(window_points);
+    input.map_points_xy = std::move(map_points);
+    input.control_degraded = control_degraded_.load();
+    input.imu_spike = imu_spike_active_.load() || imu_spike_recent_.load();
+    input.uwb_available = uwb_available;
+    input.retry_zone_enable = retry_zone_enable_;
+    input.retry_zone_xy = Eigen::Vector2d(retry_zone_x_, retry_zone_y_);
+
+    if (enable_graph_backend_) {
+        std::lock_guard<std::mutex> graph_lock(graph_mutex_);
+        if (graph_backend_initialized_ && pose_graph_backend_) {
+            const auto graph_snapshot = pose_graph_backend_->statusSnapshot(this->now());
+            input.graph_status_valid = true;
+            input.last_loop_age_sec = graph_snapshot.last_loop_age_sec;
+        }
+    }
+
+    const RouteObservabilityResult result = route_observability_evaluator_->evaluate(input);
+
+    rc26_interfaces::msg::RouteObservability msg;
+    msg.header.stamp = this->now();
+    msg.header.frame_id = map_frame_;
+    msg.score = result.score;
+    msg.risk_level = static_cast<uint8_t>(std::clamp<int>(static_cast<int>(result.risk_level), 0, 2));
+    msg.repeat_structure_risk = result.repeat_structure_risk;
+    msg.dynamic_risk = result.dynamic_risk;
+    msg.loop_opportunity_score = result.loop_opportunity_score;
+    msg.anchor_opportunity_score = result.anchor_opportunity_score;
+    msg.recommended_nav_profile = result.recommended_nav_profile;
+    route_observability_pub_->publish(msg);
+}
+
 void LocalizationNode::relocWorkerLoop() {
     bool worker_affinity_applied = false;
     while (!shutdown_requested_.load()) {
@@ -1163,14 +1336,29 @@ void LocalizationNode::validateAndNormalizeParams() {
     lhi_red_sigma_xy_min_ = std::max(0.0, lhi_red_sigma_xy_min_);
     lhi_red_last_local_reg_age_sec_ = std::max(0.1, lhi_red_last_local_reg_age_sec_);
     lhi_red_conflict_count_threshold_ = std::max(1, lhi_red_conflict_count_threshold_);
+    route_window_min_m_ = std::clamp(route_window_min_m_, 0.1, 20.0);
+    route_window_max_m_ = std::clamp(route_window_max_m_, route_window_min_m_ + 0.1, 30.0);
+    route_sample_step_m_ = std::clamp(route_sample_step_m_, 0.05, route_window_max_m_);
+    route_map_near_dist_m_ = std::clamp(route_map_near_dist_m_, 0.05, 5.0);
+    route_risk_medium_threshold_ = std::clamp(route_risk_medium_threshold_, 0.05, 0.95);
+    route_risk_high_threshold_ =
+        std::clamp(route_risk_high_threshold_, route_risk_medium_threshold_ + 0.01, 0.99);
+    route_anchor_effective_dist_m_ = std::clamp(route_anchor_effective_dist_m_, 0.1, 10.0);
+    route_loop_recent_age_sec_ = std::clamp(route_loop_recent_age_sec_, 1.0, 120.0);
     if (health_topic_.empty()) {
         health_topic_ = "/localization/health";
     }
     if (backend_status_topic_.empty()) {
         backend_status_topic_ = "/localization/backend_status";
     }
+    if (route_observability_topic_.empty()) {
+        route_observability_topic_ = "/localization/route_observability";
+    }
     if (control_degraded_topic_.empty()) {
         control_degraded_topic_ = "/control_degraded";
+    }
+    if (plan_topic_.empty()) {
+        plan_topic_ = "local_plan";
     }
     uwb_yaw_spread_deg_ = std::clamp(uwb_yaw_spread_deg_, 1.0, 180.0);
     esikf_accel_noise_ = std::max(esikf_accel_noise_, 1e-4);
@@ -1184,6 +1372,15 @@ void LocalizationNode::validateAndNormalizeParams() {
     dynamic_filter_cfg.stable_threshold = dynamic_filter_stable_threshold_;
     static_voxel_filter_.setConfig(dynamic_filter_cfg);
     esikf_.setProcessNoise(esikf_accel_noise_, esikf_gyro_noise_, esikf_accel_bias_noise_, esikf_gyro_bias_noise_);
+    if (route_observability_evaluator_) {
+        RouteObservabilityEvaluator::Config route_cfg;
+        route_cfg.map_near_dist_m = route_map_near_dist_m_;
+        route_cfg.medium_risk_threshold = route_risk_medium_threshold_;
+        route_cfg.high_risk_threshold = route_risk_high_threshold_;
+        route_cfg.anchor_effective_dist_m = route_anchor_effective_dist_m_;
+        route_cfg.loop_recent_age_sec = route_loop_recent_age_sec_;
+        route_observability_evaluator_->setConfig(route_cfg);
+    }
 
     if (competition_mode_) {
         if (!retry_zone_enable_) {

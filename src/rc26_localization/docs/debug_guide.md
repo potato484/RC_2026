@@ -83,12 +83,17 @@ ros2 topic echo /localization/health
 
 # 后端状态: P0 阶段为占位字段，P1 后切换为真实图后端状态
 ros2 topic echo /localization/backend_status
+
+# 路径可观测性: P2 阶段用于定位 guard 提前保守
+ros2 topic echo /localization/route_observability
 ```
 **关键字段说明**：
 - `health.level`: `GREEN/YELLOW/ORANGE/RED`，用于控制器二层速度钳位。
 - `health.reason`: 当前触发主因，例如 `sigma_xy_warn`、`control_degraded`、`global_recovery_running`。
 - `backend_status.optimizer_ready`: P0 阶段固定 `false`（占位），P1 启用图后端后为真实状态。
 - `backend_status.last_local_reg_age_sec`: 距离最近一次局部配准输出的时间，超阈值会触发 `RED`。
+- `route_observability.risk_level`: `LOW/MEDIUM/HIGH`，用于决策层提前切 `loc_yellow/loc_orange`。
+- `route_observability.recommended_nav_profile`: 评估器给出的外层 profile 建议。
 
 ### 4.4 P0/P1 开关参数
 ```bash

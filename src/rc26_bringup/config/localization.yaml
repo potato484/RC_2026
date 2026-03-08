@@ -81,7 +81,9 @@ localization:
     diagnostics_topic: "/localization/diagnostics"
     health_topic: "/localization/health"
     backend_status_topic: "/localization/backend_status"
+    route_observability_topic: "/localization/route_observability"
     control_degraded_topic: "/control_degraded"
+    plan_topic: "local_plan"
     enable_graph_backend: false
     legacy_hard_reloc_enable: false
 
@@ -136,6 +138,16 @@ localization:
     backend_status_graph_health_placeholder: 0.0
     backend_status_loop_age_placeholder_sec: -1.0
     backend_status_anchor_age_placeholder_sec: -1.0
+
+    # ========== P2: RouteObservability ==========
+    route_window_min_m: 2.0
+    route_window_max_m: 5.0
+    route_sample_step_m: 0.5
+    route_map_near_dist_m: 0.7
+    route_risk_medium_threshold: 0.45
+    route_risk_high_threshold: 0.70
+    route_anchor_effective_dist_m: 2.0
+    route_loop_recent_age_sec: 8.0
     
     # 初始位姿 [x, y, z, roll, pitch, yaw]
     # 若不在 RViz 中手动设置 initialpose，可在此给出一个初始猜测

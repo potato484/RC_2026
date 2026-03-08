@@ -628,6 +628,7 @@ void LocalizationNode::markRelocalizationSuccess(const Eigen::Isometry3d& map_to
             setLocalizationState(LocalizationState::SUSPECT, "relocalization_anchor_rejected");
             publishLocalizationHealth("relocalization_anchor_rejected");
             publishBackendStatus();
+            publishRouteObservability();
             return;
         }
     }
@@ -649,6 +650,7 @@ void LocalizationNode::markRelocalizationSuccess(const Eigen::Isometry3d& map_to
                                                                   : "relocalization_success");
     publishLocalizationHealth(graph_mode ? "relocalization_graph_anchor_ok" : "relocalization_success");
     publishBackendStatus();
+    publishRouteObservability();
 }
 
 void LocalizationNode::performGlobalRelocalization(RelocTriggerReason reason,

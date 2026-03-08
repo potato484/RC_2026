@@ -130,9 +130,10 @@ POSE_HZ_PID=""
 DIAG_HZ_PID=""
 HEALTH_HZ_PID=""
 BACKEND_HZ_PID=""
+ROUTE_HZ_PID=""
 
 cleanup() {
-    for pid in "${BAG_PID}" "${ROSOUT_PID}" "${POSE_HZ_PID}" "${DIAG_HZ_PID}" "${HEALTH_HZ_PID}" "${BACKEND_HZ_PID}" "${LAUNCH_PID}"; do
+    for pid in "${BAG_PID}" "${ROSOUT_PID}" "${POSE_HZ_PID}" "${DIAG_HZ_PID}" "${HEALTH_HZ_PID}" "${BACKEND_HZ_PID}" "${ROUTE_HZ_PID}" "${LAUNCH_PID}"; do
         if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
             kill "${pid}" 2>/dev/null || true
         fi
@@ -184,6 +185,7 @@ timeout 10 ros2 topic info /localization/pose_with_cov > "${OUTPUT_DIR}/raw/pose
 timeout 10 ros2 topic info /localization/diagnostics > "${OUTPUT_DIR}/raw/diagnostics_info.log" 2>&1 || true
 timeout 10 ros2 topic info /localization/health > "${OUTPUT_DIR}/raw/health_info.log" 2>&1 || true
 timeout 10 ros2 topic info /localization/backend_status > "${OUTPUT_DIR}/raw/backend_status_info.log" 2>&1 || true
+timeout 10 ros2 topic info /localization/route_observability > "${OUTPUT_DIR}/raw/route_observability_info.log" 2>&1 || true
 
 (timeout "${DURATION}" ros2 topic hz /localization/pose_with_cov > "${OUTPUT_DIR}/raw/pose_cov_hz.log" 2>&1 || true) &
 POSE_HZ_PID=$!
@@ -193,6 +195,8 @@ DIAG_HZ_PID=$!
 HEALTH_HZ_PID=$!
 (timeout "${DURATION}" ros2 topic hz /localization/backend_status > "${OUTPUT_DIR}/raw/backend_status_hz.log" 2>&1 || true) &
 BACKEND_HZ_PID=$!
+(timeout "${DURATION}" ros2 topic hz /localization/route_observability > "${OUTPUT_DIR}/raw/route_observability_hz.log" 2>&1 || true) &
+ROUTE_HZ_PID=$!
 (timeout "${DURATION}" ros2 topic echo /rosout 2>/dev/null | grep -E "PERF_METRIC|RELOC_METRIC|定位状态切换|GLOBAL_RECOVERY" > "${OUTPUT_DIR}/raw/metrics.log" || true) &
 ROSOUT_PID=$!
 
@@ -211,6 +215,7 @@ wait "${POSE_HZ_PID}" || true
 wait "${DIAG_HZ_PID}" || true
 wait "${HEALTH_HZ_PID}" || true
 wait "${BACKEND_HZ_PID}" || true
+wait "${ROUTE_HZ_PID}" || true
 
 python3 - "${OUTPUT_DIR}/raw/metrics.log" "${OUTPUT_DIR}/acceptance_summary.md" "${MAP_FILE}" "${BAG_FILE}" <<'PY'
 import pathlib
@@ -284,6 +289,7 @@ out.append("- 重定位成功率：重点看 `accepted=1` 和 `winner_channel` �
 out.append("- TF 连续性：结合 `raw/pose_cov_hz.log` 与 `raw/localization.launch.log` 检查是否有明显中断或跳变告警。")
 out.append("- 可观测性：确认 `raw/pose_cov_info.log` 与 `raw/diagnostics_info.log` 显示 topic 存在且类型正确。")
 out.append("- P0 话题链：确认 `raw/health_info.log` 与 `raw/backend_status_info.log` 均可读。")
+out.append("- P2 话题链：确认 `raw/route_observability_info.log` 与 `raw/route_observability_hz.log` 正常输出。")
 out.append("")
 out.append("## 原始文件")
 out.append("- `raw/build.log`")
@@ -293,6 +299,7 @@ out.append("- `raw/pose_cov_hz.log`")
 out.append("- `raw/diagnostics_hz.log`")
 out.append("- `raw/health_hz.log`")
 out.append("- `raw/backend_status_hz.log`")
+out.append("- `raw/route_observability_hz.log`")
 
 summary_path.write_text("\n".join(out) + "\n", encoding="utf-8")
 print("\n".join(out))

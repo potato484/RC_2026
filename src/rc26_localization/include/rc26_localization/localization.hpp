@@ -24,9 +24,11 @@
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "geometry_msgs/msg/point_stamped.hpp"
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
+#include "nav_msgs/msg/path.hpp"
 #include "pcl/io/pcd_io.h"
 #include "rc26_interfaces/msg/localization_backend_status.hpp"
 #include "rc26_interfaces/msg/localization_health.hpp"
+#include "rc26_interfaces/msg/route_observability.hpp"
 #include "rcl_interfaces/msg/set_parameters_result.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
@@ -37,6 +39,7 @@
 #include "rc26_localization/map_to_odom_smoother.hpp"
 #include "rc26_localization/online_scan_context_db.hpp"
 #include "rc26_localization/pose_graph_backend.hpp"
+#include "rc26_localization/route_observability_evaluator.hpp"
 #include "rc26_localization/static_voxel_filter.hpp"
 #include "small_gicp/ann/kdtree_omp.hpp"
 #include "small_gicp/factors/gicp_factor.hpp"
@@ -118,6 +121,7 @@ private:
     void imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg);
     void uwbCallback(const geometry_msgs::msg::PointStamped::SharedPtr msg);
     void controlDegradedCallback(const std_msgs::msg::Bool::SharedPtr msg);
+    void planCallback(const nav_msgs::msg::Path::SharedPtr msg);
 
     // 核心功能
     void loadGlobalMap(const std::string& file_name);
@@ -139,6 +143,7 @@ private:
                                const std::string& fallback_reason, std::string& out_reason) const;
     void publishLocalizationHealth(const std::string& fallback_reason);
     void publishBackendStatus();
+    void publishRouteObservability();
     void initializeGraphBackend();
     bool processGraphBackendOnLocalRegistration(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
                                                 const Eigen::Isometry3d& map_to_odom,
@@ -215,6 +220,7 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
     rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr uwb_sub_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr control_degraded_sub_;
+    rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr plan_sub_;
 
     // 参数
     int num_threads_;
@@ -244,7 +250,9 @@ private:
     std::string diagnostics_topic_{"/localization/diagnostics"};
     std::string health_topic_{"/localization/health"};
     std::string backend_status_topic_{"/localization/backend_status"};
+    std::string route_observability_topic_{"/localization/route_observability"};
     std::string control_degraded_topic_{"/control_degraded"};
+    std::string plan_topic_{"local_plan"};
 
     // 状态
     rclcpp::Time last_scan_time_;
@@ -439,6 +447,18 @@ private:
     std::atomic<bool> control_degraded_{false};
     std::atomic<uint32_t> backend_candidate_conflict_count_{0};
     std::atomic<bool> backend_map_to_odom_jump_suppressed_{false};
+    std::mutex plan_mutex_;
+    nav_msgs::msg::Path latest_plan_;
+    bool latest_plan_valid_{false};
+    std::unique_ptr<RouteObservabilityEvaluator> route_observability_evaluator_;
+    double route_window_min_m_{2.0};
+    double route_window_max_m_{5.0};
+    double route_sample_step_m_{0.5};
+    double route_map_near_dist_m_{0.7};
+    double route_risk_medium_threshold_{0.45};
+    double route_risk_high_threshold_{0.7};
+    double route_anchor_effective_dist_m_{2.0};
+    double route_loop_recent_age_sec_{8.0};
     mutable std::mutex health_mutex_;
     mutable std::mutex graph_mutex_;
     bool graph_backend_initialized_{false};
@@ -499,6 +519,7 @@ private:
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;
     rclcpp::Publisher<rc26_interfaces::msg::LocalizationHealth>::SharedPtr health_pub_;
     rclcpp::Publisher<rc26_interfaces::msg::LocalizationBackendStatus>::SharedPtr backend_status_pub_;
+    rclcpp::Publisher<rc26_interfaces::msg::RouteObservability>::SharedPtr route_observability_pub_;
 
     // TF
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;

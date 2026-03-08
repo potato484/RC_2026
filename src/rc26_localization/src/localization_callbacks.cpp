@@ -13,6 +13,15 @@ void LocalizationNode::controlDegradedCallback(const std_msgs::msg::Bool::Shared
     control_degraded_.store(msg && msg->data);
 }
 
+void LocalizationNode::planCallback(const nav_msgs::msg::Path::SharedPtr msg) {
+    if (!msg) {
+        return;
+    }
+    std::lock_guard<std::mutex> lk(plan_mutex_);
+    latest_plan_ = *msg;
+    latest_plan_valid_ = true;
+}
+
 void LocalizationNode::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
     const rclcpp::Time stamp =
         (msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0) ? now() : rclcpp::Time(msg->header.stamp);

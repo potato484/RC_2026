@@ -21,6 +21,14 @@
 - `markRelocalizationSuccess()` 在图后端模式默认走“锚点入图 + 平滑输出”，仅在失败时回退到 legacy 硬切。
 - `/localization/backend_status` 会输出真实 `optimizer_ready`、`graph_health`、`last_loop_age_sec`、`last_anchor_age_sec`。
 
+## P2 路径可观测性输出（RouteObservability）
+- 新增订阅 `plan_topic`（默认 `local_plan`），按前方 `2m~5m` 路径窗口评估风险。
+- 新增发布 `/localization/route_observability`，包含：
+  - `score` / `risk_level`
+  - `repeat_structure_risk` / `dynamic_risk`
+  - `loop_opportunity_score` / `anchor_opportunity_score`
+  - `recommended_nav_profile`
+
 ## 关键开关参数
 - `enable_graph_backend`：是否启用图后端（P0 默认 `false`）。
 - `legacy_hard_reloc_enable`：是否允许旧版重定位硬切（仅紧急回退用，默认 `false`）。

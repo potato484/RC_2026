@@ -39,6 +39,7 @@ void LocalizationNode::performRegistration() {
         }
         publishLocalizationHealth(reason);
         publishBackendStatus();
+        publishRouteObservability();
     };
 
     if (!map_loaded_) {
