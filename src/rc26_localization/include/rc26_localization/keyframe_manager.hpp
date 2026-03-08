@@ -51,7 +51,7 @@ public:
     Config getConfig() const;
     void clear();
 
-    bool shouldCreate(const KeyframeData& candidate, std::string& reason) const;
+    bool shouldCreate(const KeyframeData& candidate, std::string& reason);
     KeyframeData push(KeyframeData candidate);
 
     std::optional<KeyframeData> latest() const;
@@ -66,6 +66,7 @@ private:
     Config config_;
     std::vector<KeyframeData> keyframes_;
     uint32_t next_id_{1U};
+    bool last_observation_valid_{false};
     bool last_control_degraded_{false};
     double last_h_min_eig_{0.0};
     double last_sigma_xy_{0.0};

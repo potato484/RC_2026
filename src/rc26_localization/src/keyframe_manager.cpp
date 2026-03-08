@@ -23,15 +23,24 @@ void KeyframeManager::clear() {
     std::lock_guard<std::mutex> lock(mutex_);
     keyframes_.clear();
     next_id_ = 1U;
+    last_observation_valid_ = false;
     last_control_degraded_ = false;
     last_h_min_eig_ = 0.0;
     last_sigma_xy_ = 0.0;
 }
 
-bool KeyframeManager::shouldCreate(const KeyframeData& candidate, std::string& reason) const {
+bool KeyframeManager::shouldCreate(const KeyframeData& candidate, std::string& reason) {
     std::lock_guard<std::mutex> lock(mutex_);
+    const auto update_observation = [this, &candidate]() {
+        last_observation_valid_ = true;
+        last_control_degraded_ = candidate.control_degraded;
+        last_h_min_eig_ = candidate.h_min_eig;
+        last_sigma_xy_ = candidate.sigma_xy;
+    };
+
     if (keyframes_.empty()) {
         reason = "bootstrap";
+        update_observation();
         return true;
     }
 
@@ -45,31 +54,39 @@ bool KeyframeManager::shouldCreate(const KeyframeData& candidate, std::string& r
 
     if (dxy >= config_.translation_thresh_m) {
         reason = "translation_threshold";
+        update_observation();
         return true;
     }
     if (dyaw_deg >= config_.yaw_thresh_deg) {
         reason = "yaw_threshold";
+        update_observation();
         return true;
     }
     if (dt >= config_.time_thresh_sec) {
         reason = "time_threshold";
+        update_observation();
         return true;
     }
-    if (config_.trigger_on_control_degraded_rising && candidate.control_degraded && !last_control_degraded_) {
+    if (config_.trigger_on_control_degraded_rising && candidate.control_degraded &&
+        (!last_observation_valid_ || !last_control_degraded_)) {
         reason = "control_degraded_rising";
+        update_observation();
         return true;
     }
     if (config_.trigger_on_hessian_drop && candidate.h_min_eig <= config_.hessian_alert_eig_min &&
-        (last_h_min_eig_ <= 1e-9 || last_h_min_eig_ > config_.hessian_alert_eig_min)) {
+        (!last_observation_valid_ || last_h_min_eig_ > config_.hessian_alert_eig_min)) {
         reason = "hessian_drop";
+        update_observation();
         return true;
     }
     if (config_.trigger_on_sigma_cross && candidate.sigma_xy >= config_.sigma_xy_alert_min &&
-        last_sigma_xy_ < config_.sigma_xy_alert_min) {
+        (!last_observation_valid_ || last_sigma_xy_ < config_.sigma_xy_alert_min)) {
         reason = "sigma_cross";
+        update_observation();
         return true;
     }
     reason = "none";
+    update_observation();
     return false;
 }
 
