@@ -71,6 +71,14 @@ controller_server:
       loc_k_w: 20.0
       loc_v_scale_min: 0.2
       loc_w_scale_min: 0.3
+      lhi_yellow_v_scale: 0.8
+      lhi_yellow_w_scale: 0.8
+      lhi_orange_v_scale: 0.5
+      lhi_orange_w_scale: 0.6
+      lhi_orange_vy_scale: 0.5
+      lhi_red_stop_enable: true
+      degraded_v_scale: 0.3
+      degraded_w_scale: 0.5
 
 local_costmap:
   local_costmap:

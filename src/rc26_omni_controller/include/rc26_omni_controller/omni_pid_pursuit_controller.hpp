@@ -16,8 +16,10 @@
 
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "nav2_core/controller.hpp"
+#include "rc26_interfaces/msg/localization_health.hpp"
 #include "rc26_omni_controller/pid.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/u_int32.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
@@ -190,10 +192,26 @@ private:
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr v_safe_pub_;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::UInt32>::SharedPtr collision_check_outside_map_count_pub_;
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_cov_sub_;
+    rclcpp::Subscription<rc26_interfaces::msg::LocalizationHealth>::SharedPtr localization_health_sub_;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr control_degraded_sub_;
     rclcpp::Time last_cov_stamp_;
     double sigma_xy_{0.0};
     double sigma_yaw_{0.0};
     std::mutex cov_mutex_;
+    std::mutex localization_safety_mutex_;
+    uint8_t localization_health_level_{rc26_interfaces::msg::LocalizationHealth::GREEN};
+    bool localization_health_control_degraded_{false};
+    bool control_degraded_{false};
+    rclcpp::Time last_localization_health_stamp_;
+    rclcpp::Time last_control_degraded_stamp_;
+    double lhi_yellow_v_scale_{0.8};
+    double lhi_yellow_w_scale_{0.8};
+    double lhi_orange_v_scale_{0.5};
+    double lhi_orange_w_scale_{0.6};
+    double lhi_orange_vy_scale_{0.5};
+    bool lhi_red_stop_enable_{true};
+    double degraded_v_scale_{0.3};
+    double degraded_w_scale_{0.5};
 
     std::recursive_mutex mutex_;
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;

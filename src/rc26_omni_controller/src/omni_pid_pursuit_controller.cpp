@@ -115,6 +115,14 @@ void OmniPidPursuitController::configure(const rclcpp_lifecycle::LifecycleNode::
     declare_parameter_if_not_declared(node, plugin_name_ + ".loc_k_w", rclcpp::ParameterValue(20.0));
     declare_parameter_if_not_declared(node, plugin_name_ + ".loc_v_scale_min", rclcpp::ParameterValue(0.2));
     declare_parameter_if_not_declared(node, plugin_name_ + ".loc_w_scale_min", rclcpp::ParameterValue(0.3));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".lhi_yellow_v_scale", rclcpp::ParameterValue(0.8));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".lhi_yellow_w_scale", rclcpp::ParameterValue(0.8));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".lhi_orange_v_scale", rclcpp::ParameterValue(0.5));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".lhi_orange_w_scale", rclcpp::ParameterValue(0.6));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".lhi_orange_vy_scale", rclcpp::ParameterValue(0.5));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".lhi_red_stop_enable", rclcpp::ParameterValue(true));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".degraded_v_scale", rclcpp::ParameterValue(0.3));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".degraded_w_scale", rclcpp::ParameterValue(0.5));
 
     node->get_parameter(plugin_name_ + ".translation_kp", translation_kp_);
     node->get_parameter(plugin_name_ + ".translation_ki", translation_ki_);
@@ -170,6 +178,14 @@ void OmniPidPursuitController::configure(const rclcpp_lifecycle::LifecycleNode::
     node->get_parameter(plugin_name_ + ".loc_k_w", loc_k_w_);
     node->get_parameter(plugin_name_ + ".loc_v_scale_min", loc_v_scale_min_);
     node->get_parameter(plugin_name_ + ".loc_w_scale_min", loc_w_scale_min_);
+    node->get_parameter(plugin_name_ + ".lhi_yellow_v_scale", lhi_yellow_v_scale_);
+    node->get_parameter(plugin_name_ + ".lhi_yellow_w_scale", lhi_yellow_w_scale_);
+    node->get_parameter(plugin_name_ + ".lhi_orange_v_scale", lhi_orange_v_scale_);
+    node->get_parameter(plugin_name_ + ".lhi_orange_w_scale", lhi_orange_w_scale_);
+    node->get_parameter(plugin_name_ + ".lhi_orange_vy_scale", lhi_orange_vy_scale_);
+    node->get_parameter(plugin_name_ + ".lhi_red_stop_enable", lhi_red_stop_enable_);
+    node->get_parameter(plugin_name_ + ".degraded_v_scale", degraded_v_scale_);
+    node->get_parameter(plugin_name_ + ".degraded_w_scale", degraded_w_scale_);
 
     node->get_parameter("controller_frequency", control_frequency);
 
@@ -231,6 +247,8 @@ void OmniPidPursuitController::cleanup() {
     v_safe_pub_.reset();
     collision_check_outside_map_count_pub_.reset();
     pose_cov_sub_.reset();
+    localization_health_sub_.reset();
+    control_degraded_sub_.reset();
     move_pid_.reset();
     heading_pid_.reset();
     global_plan_.poses.clear();
@@ -368,25 +386,53 @@ void OmniPidPursuitController::refreshPoseCovSubscription(const rclcpp_lifecycle
         sigma_xy_ = 2.0;
         sigma_yaw_ = 1.0;
     }
+    {
+        std::lock_guard<std::mutex> lk(localization_safety_mutex_);
+        const rclcpp::Time stale_time = node->now() - rclcpp::Duration::from_seconds(loc_timeout_sec_ + 1.0);
+        last_localization_health_stamp_ = stale_time;
+        last_control_degraded_stamp_ = stale_time;
+        localization_health_level_ = rc26_interfaces::msg::LocalizationHealth::GREEN;
+        localization_health_control_degraded_ = false;
+        control_degraded_ = false;
+    }
 
     if (!loc_uncertainty_enable_) {
         pose_cov_sub_.reset();
-        return;
+    } else if (!pose_cov_sub_) {
+        pose_cov_sub_ = node->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+            "/localization/pose_with_cov", rclcpp::SensorDataQoS(),
+            [this](const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
+                std::lock_guard<std::mutex> lk(cov_mutex_);
+                const auto& c = msg->pose.covariance;
+                sigma_xy_ = std::sqrt(std::max(0.0, c[0] + c[7]));
+                sigma_yaw_ = std::sqrt(std::max(0.0, c[35]));
+                last_cov_stamp_ = rclcpp::Time(msg->header.stamp);
+            });
     }
 
-    if (pose_cov_sub_) {
-        return;
+    if (!localization_health_sub_) {
+        localization_health_sub_ = node->create_subscription<rc26_interfaces::msg::LocalizationHealth>(
+            "/localization/health", rclcpp::SensorDataQoS(),
+            [this](const rc26_interfaces::msg::LocalizationHealth::SharedPtr msg) {
+                std::lock_guard<std::mutex> lk(localization_safety_mutex_);
+                localization_health_level_ = msg->level;
+                localization_health_control_degraded_ = msg->control_degraded;
+                if (msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0) {
+                    last_localization_health_stamp_ = clock_->now();
+                } else {
+                    last_localization_health_stamp_ = rclcpp::Time(msg->header.stamp, clock_->get_clock_type());
+                }
+            });
     }
 
-    pose_cov_sub_ = node->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-        "/localization/pose_with_cov", rclcpp::SensorDataQoS(),
-        [this](const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
-            std::lock_guard<std::mutex> lk(cov_mutex_);
-            const auto& c = msg->pose.covariance;
-            sigma_xy_ = std::sqrt(std::max(0.0, c[0] + c[7]));
-            sigma_yaw_ = std::sqrt(std::max(0.0, c[35]));
-            last_cov_stamp_ = rclcpp::Time(msg->header.stamp);
-        });
+    if (!control_degraded_sub_) {
+        control_degraded_sub_ = node->create_subscription<std_msgs::msg::Bool>(
+            "/control_degraded", rclcpp::SensorDataQoS(), [this](const std_msgs::msg::Bool::SharedPtr msg) {
+                std::lock_guard<std::mutex> lk(localization_safety_mutex_);
+                control_degraded_ = msg->data;
+                last_control_degraded_stamp_ = clock_->now();
+            });
+    }
 }
 
 void OmniPidPursuitController::sanitizeLoadedParameters() {
@@ -526,6 +572,34 @@ void OmniPidPursuitController::sanitizeLoadedParameters() {
     loc_w_scale_min_ = std::clamp(loc_w_scale_min_, 0.0, 1.0);
     warn_if_changed("loc_w_scale_min", before_loc_w_scale_min, loc_w_scale_min_);
 
+    const double before_lhi_yellow_v = lhi_yellow_v_scale_;
+    lhi_yellow_v_scale_ = std::clamp(lhi_yellow_v_scale_, 0.0, 1.0);
+    warn_if_changed("lhi_yellow_v_scale", before_lhi_yellow_v, lhi_yellow_v_scale_);
+
+    const double before_lhi_yellow_w = lhi_yellow_w_scale_;
+    lhi_yellow_w_scale_ = std::clamp(lhi_yellow_w_scale_, 0.0, 1.0);
+    warn_if_changed("lhi_yellow_w_scale", before_lhi_yellow_w, lhi_yellow_w_scale_);
+
+    const double before_lhi_orange_v = lhi_orange_v_scale_;
+    lhi_orange_v_scale_ = std::clamp(lhi_orange_v_scale_, 0.0, 1.0);
+    warn_if_changed("lhi_orange_v_scale", before_lhi_orange_v, lhi_orange_v_scale_);
+
+    const double before_lhi_orange_w = lhi_orange_w_scale_;
+    lhi_orange_w_scale_ = std::clamp(lhi_orange_w_scale_, 0.0, 1.0);
+    warn_if_changed("lhi_orange_w_scale", before_lhi_orange_w, lhi_orange_w_scale_);
+
+    const double before_lhi_orange_vy = lhi_orange_vy_scale_;
+    lhi_orange_vy_scale_ = std::clamp(lhi_orange_vy_scale_, 0.0, 1.0);
+    warn_if_changed("lhi_orange_vy_scale", before_lhi_orange_vy, lhi_orange_vy_scale_);
+
+    const double before_degraded_v = degraded_v_scale_;
+    degraded_v_scale_ = std::clamp(degraded_v_scale_, 0.0, 1.0);
+    warn_if_changed("degraded_v_scale", before_degraded_v, degraded_v_scale_);
+
+    const double before_degraded_w = degraded_w_scale_;
+    degraded_w_scale_ = std::clamp(degraded_w_scale_, 0.0, 1.0);
+    warn_if_changed("degraded_w_scale", before_degraded_w, degraded_w_scale_);
+
     last_velocity_scaling_factor_ = std::clamp(last_velocity_scaling_factor_, 0.0, std::max(0.0, v_linear_max_));
 }
 
@@ -573,6 +647,13 @@ bool OmniPidPursuitController::validateParameterUpdate(const std::vector<rclcpp:
     double loc_k_w = loc_k_w_;
     double loc_v_scale_min = loc_v_scale_min_;
     double loc_w_scale_min = loc_w_scale_min_;
+    double lhi_yellow_v_scale = lhi_yellow_v_scale_;
+    double lhi_yellow_w_scale = lhi_yellow_w_scale_;
+    double lhi_orange_v_scale = lhi_orange_v_scale_;
+    double lhi_orange_w_scale = lhi_orange_w_scale_;
+    double lhi_orange_vy_scale = lhi_orange_vy_scale_;
+    double degraded_v_scale = degraded_v_scale_;
+    double degraded_w_scale = degraded_w_scale_;
 
     auto assign_double = [&](const std::string& name, double value) {
         if (name == plugin_name_ + ".translation_kp") {
@@ -659,6 +740,20 @@ bool OmniPidPursuitController::validateParameterUpdate(const std::vector<rclcpp:
             loc_v_scale_min = value;
         } else if (name == plugin_name_ + ".loc_w_scale_min") {
             loc_w_scale_min = value;
+        } else if (name == plugin_name_ + ".lhi_yellow_v_scale") {
+            lhi_yellow_v_scale = value;
+        } else if (name == plugin_name_ + ".lhi_yellow_w_scale") {
+            lhi_yellow_w_scale = value;
+        } else if (name == plugin_name_ + ".lhi_orange_v_scale") {
+            lhi_orange_v_scale = value;
+        } else if (name == plugin_name_ + ".lhi_orange_w_scale") {
+            lhi_orange_w_scale = value;
+        } else if (name == plugin_name_ + ".lhi_orange_vy_scale") {
+            lhi_orange_vy_scale = value;
+        } else if (name == plugin_name_ + ".degraded_v_scale") {
+            degraded_v_scale = value;
+        } else if (name == plugin_name_ + ".degraded_w_scale") {
+            degraded_w_scale = value;
         }
     };
 
@@ -718,7 +813,14 @@ bool OmniPidPursuitController::validateParameterUpdate(const std::vector<rclcpp:
            require(loc_timeout_sec > 0.0, "loc_timeout_sec must be > 0") && require(loc_k_v >= 0.0, "loc_k_v must be >= 0") &&
            require(loc_k_w >= 0.0, "loc_k_w must be >= 0") &&
            require(loc_v_scale_min >= 0.0 && loc_v_scale_min <= 1.0, "loc_v_scale_min must be in [0, 1]") &&
-           require(loc_w_scale_min >= 0.0 && loc_w_scale_min <= 1.0, "loc_w_scale_min must be in [0, 1]");
+           require(loc_w_scale_min >= 0.0 && loc_w_scale_min <= 1.0, "loc_w_scale_min must be in [0, 1]") &&
+           require(lhi_yellow_v_scale >= 0.0 && lhi_yellow_v_scale <= 1.0, "lhi_yellow_v_scale must be in [0, 1]") &&
+           require(lhi_yellow_w_scale >= 0.0 && lhi_yellow_w_scale <= 1.0, "lhi_yellow_w_scale must be in [0, 1]") &&
+           require(lhi_orange_v_scale >= 0.0 && lhi_orange_v_scale <= 1.0, "lhi_orange_v_scale must be in [0, 1]") &&
+           require(lhi_orange_w_scale >= 0.0 && lhi_orange_w_scale <= 1.0, "lhi_orange_w_scale must be in [0, 1]") &&
+           require(lhi_orange_vy_scale >= 0.0 && lhi_orange_vy_scale <= 1.0, "lhi_orange_vy_scale must be in [0, 1]") &&
+           require(degraded_v_scale >= 0.0 && degraded_v_scale <= 1.0, "degraded_v_scale must be in [0, 1]") &&
+           require(degraded_w_scale >= 0.0 && degraded_w_scale <= 1.0, "degraded_w_scale must be in [0, 1]");
 }
 
 void OmniPidPursuitController::resetMotionState() noexcept {
@@ -956,6 +1058,34 @@ OmniPidPursuitController::computeVelocityCommands(const geometry_msgs::msg::Pose
             vx *= scale_v;
             vy *= scale_v;
             wz *= scale_w;
+        }
+
+        bool apply_degraded = false;
+        uint8_t loc_level = rc26_interfaces::msg::LocalizationHealth::GREEN;
+        {
+            std::lock_guard<std::mutex> lk(localization_safety_mutex_);
+            apply_degraded = control_degraded_ || localization_health_control_degraded_;
+            loc_level = localization_health_level_;
+        }
+
+        if (apply_degraded) {
+            vx *= degraded_v_scale_;
+            vy *= degraded_v_scale_;
+            wz *= degraded_w_scale_;
+        }
+
+        if (lhi_red_stop_enable_ && loc_level == rc26_interfaces::msg::LocalizationHealth::RED) {
+            vx = 0.0;
+            vy = 0.0;
+            wz = 0.0;
+        } else if (loc_level == rc26_interfaces::msg::LocalizationHealth::ORANGE) {
+            vx *= lhi_orange_v_scale_;
+            vy *= lhi_orange_v_scale_ * lhi_orange_vy_scale_;
+            wz *= lhi_orange_w_scale_;
+        } else if (loc_level == rc26_interfaces::msg::LocalizationHealth::YELLOW) {
+            vx *= lhi_yellow_v_scale_;
+            vy *= lhi_yellow_v_scale_;
+            wz *= lhi_yellow_w_scale_;
         }
 
         const double dvx_max = std::max(0.0, a_lim_x_) * real_dt;
@@ -1626,6 +1756,20 @@ OmniPidPursuitController::dynamicParametersCallback(std::vector<rclcpp::Paramete
                 loc_v_scale_min_ = parameter.as_double();
             } else if (name == plugin_name_ + ".loc_w_scale_min") {
                 loc_w_scale_min_ = parameter.as_double();
+            } else if (name == plugin_name_ + ".lhi_yellow_v_scale") {
+                lhi_yellow_v_scale_ = parameter.as_double();
+            } else if (name == plugin_name_ + ".lhi_yellow_w_scale") {
+                lhi_yellow_w_scale_ = parameter.as_double();
+            } else if (name == plugin_name_ + ".lhi_orange_v_scale") {
+                lhi_orange_v_scale_ = parameter.as_double();
+            } else if (name == plugin_name_ + ".lhi_orange_w_scale") {
+                lhi_orange_w_scale_ = parameter.as_double();
+            } else if (name == plugin_name_ + ".lhi_orange_vy_scale") {
+                lhi_orange_vy_scale_ = parameter.as_double();
+            } else if (name == plugin_name_ + ".degraded_v_scale") {
+                degraded_v_scale_ = parameter.as_double();
+            } else if (name == plugin_name_ + ".degraded_w_scale") {
+                degraded_w_scale_ = parameter.as_double();
             }
         } else if (type == ParameterType::PARAMETER_BOOL) {
             if (name == plugin_name_ + ".use_velocity_scaled_lookahead_dist") {
@@ -1640,6 +1784,8 @@ OmniPidPursuitController::dynamicParametersCallback(std::vector<rclcpp::Paramete
                 publish_debug_ = parameter.as_bool();
             } else if (name == plugin_name_ + ".loc_uncertainty_enable") {
                 loc_uncertainty_enable_ = parameter.as_bool();
+            } else if (name == plugin_name_ + ".lhi_red_stop_enable") {
+                lhi_red_stop_enable_ = parameter.as_bool();
             }
         }
     }
