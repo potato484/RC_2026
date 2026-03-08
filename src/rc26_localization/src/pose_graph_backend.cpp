@@ -134,13 +134,20 @@ bool PoseGraphBackend::update(const rclcpp::Time& stamp) {
         return false;
     }
 
-    isam_->update(*pending_graph_, *pending_values_);
-    *current_values_ = isam_->calculateEstimate();
-    pending_graph_->resize(0);
-    pending_values_->clear();
-    status_.optimizer_ready = true;
-    status_.optimizer_state = "ok";
-    last_update_stamp_ = stamp;
+    try {
+        isam_->update(*pending_graph_, *pending_values_);
+        *current_values_ = isam_->calculateEstimate();
+        pending_graph_->resize(0);
+        pending_values_->clear();
+        status_.optimizer_ready = true;
+        status_.optimizer_state = "ok";
+        last_update_stamp_ = stamp;
+    } catch (const std::exception& ex) {
+        status_.optimizer_ready = false;
+        status_.optimizer_state = std::string("update_failed:") + ex.what();
+        status_.graph_health = 0.0;
+        return false;
+    }
 
     const double penalty = std::clamp(static_cast<double>(status_.candidate_conflict_count) * config_.graph_health_conflict_penalty,
                                       0.0, 1.0);
