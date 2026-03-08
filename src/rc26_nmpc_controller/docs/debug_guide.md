@@ -45,15 +45,18 @@ ros2 topic echo /cmd_vel_test --once
 ## 4. 触发跟踪任务（驱动 compute 周期）
 
 ```bash
-ros2 action send_goal /follow_path nav2_msgs/action/FollowPath "{path: {header: {frame_id: test_odom}, poses: [{header: {frame_id: test_odom}, pose: {position: {x: 0.5, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}, {header: {frame_id: test_odom}, pose: {position: {x: 1.0, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}]}, controller_id: NMPCFollowPath, goal_checker_id: general_goal_checker}"
+ros2 action send_goal /follow_path nav2_msgs/action/FollowPath "{path: {header: {frame_id: test_odom}, poses: [{header: {frame_id: test_odom}, pose: {position: {x: 0.5, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}, {header: {frame_id: test_odom}, pose: {position: {x: 1.0, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}]}, controller_id: NMPCFollowPath, goal_checker_id: general_goal_checker}" &
+sleep 2
 ```
+
+注意：`ros2 action send_goal` 默认阻塞等待结果。若要注入回退条件，建议后台运行并留出 1~2 秒启动窗口。
 
 ## 5. 回退场景验证
 
 ### 5.1 LHI=RED 回退验证
 
 ```bash
-ros2 topic pub -1 /localization/health rc26_interfaces/msg/LocalizationHealth "{header: {stamp: {sec: 0, nanosec: 0}, frame_id: ''}, level: 3, reason: 'test_red', control_degraded: true, localization_state: 'RELOC_FAILED', sigma_xy: 1.0, sigma_yaw: 1.0, degenerate_score: 0.0, h_min_eig: 0.0, h_cond: 1000.0}"
+timeout 4 ros2 topic pub --qos-reliability best_effort /localization/health rc26_interfaces/msg/LocalizationHealth "{header: {stamp: {sec: 0, nanosec: 0}, frame_id: ''}, level: 3, reason: 'test_red', control_degraded: true, localization_state: 'RELOC_FAILED', sigma_xy: 1.0, sigma_yaw: 1.0, degenerate_score: 0.0, h_min_eig: 0.0, h_cond: 1000.0}" -r 20
 ```
 
 预期日志：

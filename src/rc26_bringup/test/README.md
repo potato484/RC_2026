@@ -83,6 +83,24 @@ ros2 topic echo /localization/route_observability --once
 # optimizer_ready, optimizer_state, graph_health, last_local_reg_age_sec, imu_spike
 # route_observability 中应包含:
 # score, risk_level, repeat_structure_risk, dynamic_risk, recommended_nav_profile
+
+# 一键验收（可选 synthetic 输入，无需 bag）
+./src/rc26_localization/scripts/run_localization_acceptance.sh \
+  --workspace "${RC26_WS:-$HOME/RC_2026}" \
+  --synthetic-input \
+  --duration 60 \
+  --competition-mode false \
+  --enable-graph-backend true
+
+# P4 候选链路验收（在 synthetic 输入中自动发布 learned candidates）
+./src/rc26_localization/scripts/run_localization_acceptance.sh \
+  --workspace "${RC26_WS:-$HOME/RC_2026}" \
+  --synthetic-input \
+  --duration 30 \
+  --competition-mode false \
+  --enable-graph-backend true \
+  --p4-candidate-enable true \
+  --min-inliers 20
 ```
 
 ---
@@ -142,10 +160,12 @@ ros2 topic echo /NMPCFollowPath/mode
 
 ```bash
 # 先下发一条最小 FollowPath 目标（驱动控制器进入 compute 周期）
-ros2 action send_goal /follow_path nav2_msgs/action/FollowPath "{path: {header: {frame_id: test_odom}, poses: [{header: {frame_id: test_odom}, pose: {position: {x: 0.5, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}, {header: {frame_id: test_odom}, pose: {position: {x: 1.0, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}]}, controller_id: NMPCFollowPath, goal_checker_id: general_goal_checker}"
+# 注意：send_goal 默认阻塞，需后台运行，确保后续注入发生在执行窗口内
+ros2 action send_goal /follow_path nav2_msgs/action/FollowPath "{path: {header: {frame_id: test_odom}, poses: [{header: {frame_id: test_odom}, pose: {position: {x: 0.5, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}, {header: {frame_id: test_odom}, pose: {position: {x: 1.0, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}]}, controller_id: NMPCFollowPath, goal_checker_id: general_goal_checker}" &
+sleep 2
 
 # 注入 LHI=RED，预期日志出现 fallback:loc_red
-ros2 topic pub -1 /localization/health rc26_interfaces/msg/LocalizationHealth "{header: {stamp: {sec: 0, nanosec: 0}, frame_id: ''}, level: 3, reason: 'test_red', control_degraded: true, localization_state: 'RELOC_FAILED', sigma_xy: 1.0, sigma_yaw: 1.0, degenerate_score: 0.0, h_min_eig: 0.0, h_cond: 1000.0}"
+timeout 4 ros2 topic pub --qos-reliability best_effort /localization/health rc26_interfaces/msg/LocalizationHealth "{header: {stamp: {sec: 0, nanosec: 0}, frame_id: ''}, level: 3, reason: 'test_red', control_degraded: true, localization_state: 'RELOC_FAILED', sigma_xy: 1.0, sigma_yaw: 1.0, degenerate_score: 0.0, h_min_eig: 0.0, h_cond: 1000.0}" -r 20
 ```
 
 如果需要复现 `solver_timeout` / `solver_infeasible` 回退，请参考：
