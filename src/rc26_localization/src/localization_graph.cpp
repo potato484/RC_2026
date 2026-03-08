@@ -379,7 +379,8 @@ bool LocalizationNode::processGraphBackendOnLocalRegistration(const pcl::PointCl
     return updated;
 }
 
-bool LocalizationNode::processGraphBackendAnchor(const Eigen::Isometry3d& map_to_odom, const rclcpp::Time& stamp) {
+bool LocalizationNode::processGraphBackendAnchor(const Eigen::Isometry3d& map_to_odom, const rclcpp::Time& stamp,
+                                                 const pcl::PointCloud<pcl::PointXYZ>::Ptr& anchor_cloud) {
     if (!enable_graph_backend_) {
         return false;
     }
@@ -390,11 +391,25 @@ bool LocalizationNode::processGraphBackendAnchor(const Eigen::Isometry3d& map_to
         return false;
     }
 
+    pcl::PointCloud<pcl::PointXYZ>::Ptr raw_anchor_cloud(new pcl::PointCloud<pcl::PointXYZ>());
+    if (anchor_cloud && !anchor_cloud->empty()) {
+        *raw_anchor_cloud = *anchor_cloud;
+    } else {
+        std::lock_guard<std::mutex> cloud_lock(cloud_mutex_);
+        if (accumulated_cloud_ && !accumulated_cloud_->empty()) {
+            *raw_anchor_cloud = *accumulated_cloud_;
+        }
+    }
+
     pcl::PointCloud<pcl::PointXYZ>::Ptr keyframe_cloud(new pcl::PointCloud<pcl::PointXYZ>());
-    if (source_ && !source_->empty()) {
-        keyframe_cloud->reserve(source_->size());
-        for (const auto& pt : source_->points) {
-            keyframe_cloud->push_back(pcl::PointXYZ(pt.x, pt.y, pt.z));
+    if (raw_anchor_cloud && !raw_anchor_cloud->empty()) {
+        pcl::VoxelGrid<pcl::PointXYZ> voxel;
+        const float leaf = std::max(0.05F, registered_leaf_size_);
+        voxel.setLeafSize(leaf, leaf, leaf);
+        voxel.setInputCloud(raw_anchor_cloud);
+        voxel.filter(*keyframe_cloud);
+        if (keyframe_cloud->empty()) {
+            keyframe_cloud = raw_anchor_cloud;
         }
     }
 
@@ -425,6 +440,15 @@ bool LocalizationNode::processGraphBackendAnchor(const Eigen::Isometry3d& map_to
         !pose_graph_backend_ || !map_to_odom_smoother_) {
         return false;
     }
+    const bool has_graph_history = keyframe_manager_->size() > 0U;
+    if (has_graph_history && (!keyframe_cloud || keyframe_cloud->empty())) {
+        pose_graph_backend_->markAnchorCandidate(false, false, stamp);
+        graph_status_cache_ = pose_graph_backend_->statusSnapshot(this->now());
+        backend_candidate_conflict_count_.store(graph_status_cache_.candidate_conflict_count);
+        backend_map_to_odom_jump_suppressed_.store(graph_status_cache_.map_to_odom_jump_suppressed);
+        RCLCPP_WARN(this->get_logger(), "图后端锚点: 缺少当前候选点云，拒绝未验证锚点入图");
+        return false;
+    }
 
     KeyframeData inserted = keyframe_manager_->push(std::move(anchor_keyframe));
     if (inserted.ring_key.size() > 0 && inserted.descriptor.size() > 0) {
@@ -452,8 +476,9 @@ bool LocalizationNode::processGraphBackendAnchor(const Eigen::Isometry3d& map_to
         graph_changed = pose_graph_backend_->addConstraint(odom_constraint) || graph_changed;
     }
 
-    bool anchor_accepted = true;
+    bool anchor_accepted = !previous.has_value();
     bool anchor_conflict = false;
+    std::string anchor_reason = anchor_accepted ? "bootstrap_anchor" : "validation_not_run";
     if (previous.has_value() && inserted.cloud && !inserted.cloud->empty() &&
         previous->cloud && !previous->cloud->empty()) {
         ConstraintValidationInput validation_input;
@@ -467,6 +492,10 @@ bool LocalizationNode::processGraphBackendAnchor(const Eigen::Isometry3d& map_to
         const auto validation_result = constraint_validator_->validate(validation_input);
         anchor_accepted = validation_result.accepted;
         anchor_conflict = validation_result.conflict;
+        anchor_reason = validation_result.reason;
+    } else if (previous.has_value()) {
+        anchor_reason = (!inserted.cloud || inserted.cloud->empty()) ? "empty_anchor_cloud" : "empty_previous_cloud";
+        anchor_accepted = false;
     }
     pose_graph_backend_->markAnchorCandidate(anchor_accepted, anchor_conflict, stamp);
     if (anchor_accepted) {
@@ -475,6 +504,8 @@ bool LocalizationNode::processGraphBackendAnchor(const Eigen::Isometry3d& map_to
                             ->addAnchorPrior(inserted.id, observed_pose_map, graph_anchor_sigma_translation_m_,
                                              graph_anchor_sigma_yaw_deg_ * M_PI / 180.0, true) ||
                         graph_changed;
+    } else {
+        RCLCPP_WARN(this->get_logger(), "图后端锚点验证失败: reason=%s", anchor_reason.c_str());
     }
 
     bool updated = false;

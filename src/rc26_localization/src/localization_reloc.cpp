@@ -618,11 +618,12 @@ bool LocalizationNode::tryScanContextGlobalChannel(const pcl::PointCloud<pcl::Po
     return found && best_fitness < global_fitness_threshold_ && best_cost < 1.0;
 }
 
-void LocalizationNode::markRelocalizationSuccess(const Eigen::Isometry3d& map_to_odom) {
+void LocalizationNode::markRelocalizationSuccess(const Eigen::Isometry3d& map_to_odom,
+                                                 const pcl::PointCloud<pcl::PointXYZ>::Ptr& anchor_cloud) {
     const bool graph_mode = enable_graph_backend_ && !legacy_hard_reloc_enable_;
     bool graph_anchor_applied = false;
     if (graph_mode) {
-        graph_anchor_applied = processGraphBackendAnchor(map_to_odom, this->now());
+        graph_anchor_applied = processGraphBackendAnchor(map_to_odom, this->now(), anchor_cloud);
         if (!graph_anchor_applied) {
             RCLCPP_WARN(this->get_logger(), "图后端锚点接入失败，保持当前 map->odom，拒绝硬切");
             setLocalizationState(LocalizationState::SUSPECT, "relocalization_anchor_rejected");
@@ -885,7 +886,7 @@ void LocalizationNode::performGlobalRelocalization(RelocTriggerReason reason,
             if (accepted) {
                 metrics.path_used = winner;
                 metrics.accepted = true;
-                markRelocalizationSuccess(best_pose);
+                markRelocalizationSuccess(best_pose, source_cloud);
             } else {
                 metrics.path_used = "parallel_failed";
             }
@@ -900,7 +901,7 @@ void LocalizationNode::performGlobalRelocalization(RelocTriggerReason reason,
                     metrics.path_used = "L0";
                     metrics.winner_channel = "L0";
                     metrics.accepted = true;
-                    markRelocalizationSuccess(best_pose);
+                    markRelocalizationSuccess(best_pose, source_cloud);
                 }
                 RCLCPP_INFO(
                     get_logger(),
@@ -919,7 +920,7 @@ void LocalizationNode::performGlobalRelocalization(RelocTriggerReason reason,
                     metrics.path_used = "L1";
                     metrics.winner_channel = "L1";
                     metrics.accepted = true;
-                    markRelocalizationSuccess(best_pose);
+                    markRelocalizationSuccess(best_pose, source_cloud);
                 }
                 RCLCPP_INFO(
                     get_logger(),
@@ -938,7 +939,7 @@ void LocalizationNode::performGlobalRelocalization(RelocTriggerReason reason,
                     metrics.path_used = "L2";
                     metrics.winner_channel = "L2";
                     metrics.accepted = true;
-                    markRelocalizationSuccess(best_pose);
+                    markRelocalizationSuccess(best_pose, source_cloud);
                 } else {
                     metrics.path_used = "L2_failed";
                 }

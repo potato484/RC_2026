@@ -159,7 +159,8 @@ private:
     bool processGraphBackendOnLocalRegistration(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
                                                 const Eigen::Isometry3d& map_to_odom,
                                                 const rclcpp::Time& stamp);
-    bool processGraphBackendAnchor(const Eigen::Isometry3d& map_to_odom, const rclcpp::Time& stamp);
+    bool processGraphBackendAnchor(const Eigen::Isometry3d& map_to_odom, const rclcpp::Time& stamp,
+                                   const pcl::PointCloud<pcl::PointXYZ>::Ptr& anchor_cloud = nullptr);
     bool tryLookupOdomToBase(const rclcpp::Time& stamp, Eigen::Isometry3d& odom_to_base) const;
     std::vector<ExternalCandidate> consumeExternalCandidates(const rclcpp::Time& now, size_t max_count);
     pcl::PointCloud<pcl::PointXYZ>::Ptr buildMapPatchAround(const Eigen::Vector2d& center_map, double radius_m);
@@ -175,7 +176,8 @@ private:
     LocalizationState getLocalizationState() const;
     bool isRelocatingState(LocalizationState state) const;
     bool isMapToOdomReliableState(LocalizationState state) const;
-    void markRelocalizationSuccess(const Eigen::Isometry3d& map_to_odom);
+    void markRelocalizationSuccess(const Eigen::Isometry3d& map_to_odom,
+                                   const pcl::PointCloud<pcl::PointXYZ>::Ptr& anchor_cloud = nullptr);
     void publishRelocMetrics(const RelocMetrics& metrics) const;
     static const char* toString(LocalizationState state);
     static const char* toString(RelocTriggerReason reason);
