@@ -79,6 +79,63 @@ localization:
     tf_timeout_sec: 1.0
     pose_cov_topic: "/localization/pose_with_cov"
     diagnostics_topic: "/localization/diagnostics"
+    health_topic: "/localization/health"
+    backend_status_topic: "/localization/backend_status"
+    control_degraded_topic: "/control_degraded"
+    enable_graph_backend: false
+    legacy_hard_reloc_enable: false
+
+    # ========== P1: 在线图后端参数 ==========
+    # 关键帧触发阈值（平移/偏航/时间）
+    graph_keyframe_translation_thresh_m: 0.4
+    graph_keyframe_yaw_thresh_deg: 6.0
+    graph_keyframe_time_thresh_sec: 1.0
+    # 关键帧额外触发条件（退化上升沿）
+    graph_keyframe_trigger_on_degraded_rising: true
+    graph_keyframe_trigger_on_hessian_drop: true
+    graph_keyframe_trigger_on_sigma_cross: true
+    # 在线回环召回
+    graph_loop_topk: 5
+    graph_loop_min_keyframe_gap: 5
+    graph_loop_similarity_min: 0.2
+    # 图因子噪声（单位：m / deg）
+    graph_odom_sigma_translation_m: 0.05
+    graph_odom_sigma_yaw_deg: 2.0
+    graph_loop_sigma_translation_m: 0.08
+    graph_loop_sigma_yaw_deg: 3.0
+    graph_anchor_sigma_translation_m: 0.12
+    graph_anchor_sigma_yaw_deg: 5.0
+    # map->odom 平滑输出（限斜率）
+    graph_smoother_max_translation_speed_mps: 0.25
+    graph_smoother_max_yaw_speed_degps: 10.0
+    # 诊断: 判定一次“跳变被平滑抑制”的阈值
+    graph_jump_detect_translation_m: 0.3
+    graph_jump_detect_yaw_deg: 10.0
+    # 约束几何验证器（small_gicp）
+    graph_validator_accept_fitness_threshold: 0.1
+    graph_validator_conflict_fitness_threshold: 0.25
+    graph_validator_max_corr_dist_m: 1.0
+    graph_validator_max_iterations: 50
+
+    # ========== P0: Localization Health Index ==========
+    lhi_green_sigma_xy_max: 0.12
+    lhi_green_sigma_yaw_deg_max: 4.0
+    lhi_green_h_min_eig_min: 50.0
+    lhi_yellow_sigma_xy_min: 0.12
+    lhi_yellow_sigma_yaw_deg_min: 4.0
+    lhi_yellow_h_min_eig_max: 50.0
+    lhi_orange_sigma_xy_min: 0.25
+    lhi_orange_sigma_yaw_deg_min: 8.0
+    lhi_orange_h_min_eig_max: 20.0
+    lhi_red_sigma_xy_min: 1.0
+    lhi_red_last_local_reg_age_sec: 2.0
+    lhi_red_conflict_count_threshold: 3
+
+    # ========== P0: backend status 占位参数 ==========
+    backend_status_optimizer_state: "legacy_localization_only"
+    backend_status_graph_health_placeholder: 0.0
+    backend_status_loop_age_placeholder_sec: -1.0
+    backend_status_anchor_age_placeholder_sec: -1.0
     
     # 初始位姿 [x, y, z, roll, pitch, yaw]
     # 若不在 RViz 中手动设置 initialpose，可在此给出一个初始猜测

@@ -76,6 +76,29 @@ ros2 topic echo /localization/diagnostics
 ros2 topic echo /localization/pose_with_cov
 ```
 
+### 4.3 查看 P0 健康度与后端状态
+```bash
+# LHI: 给控制器/决策层的语义化定位健康度
+ros2 topic echo /localization/health
+
+# 后端状态: P0 阶段为占位字段，P1 后切换为真实图后端状态
+ros2 topic echo /localization/backend_status
+```
+**关键字段说明**：
+- `health.level`: `GREEN/YELLOW/ORANGE/RED`，用于控制器二层速度钳位。
+- `health.reason`: 当前触发主因，例如 `sigma_xy_warn`、`control_degraded`、`global_recovery_running`。
+- `backend_status.optimizer_ready`: P0 阶段固定 `false`（占位），P1 启用图后端后为真实状态。
+- `backend_status.last_local_reg_age_sec`: 距离最近一次局部配准输出的时间，超阈值会触发 `RED`。
+
+### 4.4 P0/P1 开关参数
+```bash
+# 是否启用图后端（P0 默认 false，P1 开始逐步开启）
+ros2 param get /localization enable_graph_backend
+
+# 是否允许旧版硬切重定位（仅紧急回退使用，默认 false）
+ros2 param get /localization legacy_hard_reloc_enable
+```
+
 ## 5. 结合 Bag 包离线调试 (推荐)
 为了可重复地复现问题，强烈推荐录制比赛/测试时的数据包（Bag），并在 PC 端离线回放调试：
 
