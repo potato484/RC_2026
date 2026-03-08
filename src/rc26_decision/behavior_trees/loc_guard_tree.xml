@@ -1,0 +1,56 @@
+<!-- 定位守护子树：红色风险时中断并恢复，黄/橙时做 profile 轻量切换 -->
+<root BTCPP_format="4">
+  <BehaviorTree ID="LocalizationGuardTree">
+    <Fallback name="loc_guard_fallback">
+      <!-- 抢占恢复分支：仅在 CheckLocalizationHealth 返回 SUCCESS 时进入 -->
+      <Sequence name="loc_guard_recovery">
+        <CheckLocalizationHealth/>
+        <SetNavMode mode="{loc_profile_red}"/>
+        <Fallback name="loc_recover_chain">
+          <LocalizationObserveSpin angle_deg="{loc_spin_angle_deg}"
+                                   time_allowance_sec="{loc_spin_time_allowance_sec}"
+                                   action_name="{loc_spin_action_name}"/>
+          <LocalizationAnchorRecover/>
+          <Delay delay_msec="300"/>
+        </Fallback>
+      </Sequence>
+
+      <!-- 非抢占分支：根据推荐 profile 做轻量切换，切换后返回 FAILURE 让主任务继续 -->
+      <Sequence name="loc_profile_switch">
+        <ScriptCondition code="loc_recommended_profile!=loc_last_profile"/>
+        <SetNavMode mode="{loc_recommended_profile}"/>
+        <Script code="loc_last_profile:=loc_recommended_profile"/>
+        <ForceFailure>
+          <AlwaysSuccess/>
+        </ForceFailure>
+      </Sequence>
+
+      <!-- 默认透明放行 -->
+      <ForceFailure>
+        <AlwaysSuccess/>
+      </ForceFailure>
+    </Fallback>
+  </BehaviorTree>
+
+  <BehaviorTree ID="GuardedMCAreaTree">
+    <ReactiveFallback>
+      <SubTree ID="LocalizationGuardTree" _autoremap="true"/>
+      <SubTree ID="MCAreaTree" _autoremap="true"/>
+    </ReactiveFallback>
+  </BehaviorTree>
+
+  <BehaviorTree ID="GuardedMFAreaTree">
+    <ReactiveFallback>
+      <SubTree ID="LocalizationGuardTree" _autoremap="true"/>
+      <SubTree ID="MFAreaTree" _autoremap="true"/>
+    </ReactiveFallback>
+  </BehaviorTree>
+
+  <BehaviorTree ID="GuardedCombatAreaTree">
+    <ReactiveFallback>
+      <SubTree ID="LocalizationGuardTree" _autoremap="true"/>
+      <SubTree ID="CombatAreaTree" _autoremap="true"/>
+    </ReactiveFallback>
+  </BehaviorTree>
+</root>
+

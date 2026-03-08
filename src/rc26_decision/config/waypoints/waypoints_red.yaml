@@ -18,6 +18,40 @@ static_points:
     timeout_sec: 10.0
 
   # --------------------------------------------------------------------------
+  # 定位守护恢复点（P2）
+  # 注意：以下坐标为默认安全占位，联调前请按实测地图标定并覆盖。
+  # --------------------------------------------------------------------------
+  loc_retry_zone_1:
+    x: 0.50
+    y: 0.00
+    theta: 0.0
+    strategy_tag: "TAG_LOC_RETRY_ZONE_1"
+    nav_profile: "loc_orange"
+    speed_profile: "CREEP"
+    tolerance: {xy: 0.10, yaw: 0.20}
+    timeout_sec: 8.0
+
+  loc_anchor_1:
+    x: 1.00
+    y: 0.30
+    theta: 0.0
+    strategy_tag: "TAG_LOC_ANCHOR_1"
+    nav_profile: "loc_orange"
+    speed_profile: "CREEP"
+    tolerance: {xy: 0.10, yaw: 0.20}
+    timeout_sec: 10.0
+
+  loc_anchor_2:
+    x: 1.00
+    y: -0.30
+    theta: 0.0
+    strategy_tag: "TAG_LOC_ANCHOR_2"
+    nav_profile: "loc_orange"
+    speed_profile: "CREEP"
+    tolerance: {xy: 0.10, yaw: 0.20}
+    timeout_sec: 10.0
+
+  # --------------------------------------------------------------------------
   # 梅林区入口点 (2号格前方100mm)
   # --------------------------------------------------------------------------
   mf_entry:
