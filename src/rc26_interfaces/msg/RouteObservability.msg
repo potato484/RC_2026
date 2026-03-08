@@ -1,0 +1,11 @@
+std_msgs/Header header
+float64 score
+uint8 risk_level
+uint8 LOW=0
+uint8 MEDIUM=1
+uint8 HIGH=2
+float64 repeat_structure_risk
+float64 dynamic_risk
+float64 loop_opportunity_score
+float64 anchor_opportunity_score
+string recommended_nav_profile

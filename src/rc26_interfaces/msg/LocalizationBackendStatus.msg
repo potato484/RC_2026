@@ -1,0 +1,14 @@
+std_msgs/Header header
+bool optimizer_ready
+string optimizer_state
+uint32 active_keyframe_id
+float64 graph_health
+uint32 loop_candidate_count
+uint32 accepted_loop_count
+uint32 accepted_anchor_count
+float64 last_local_reg_age_sec
+float64 last_loop_age_sec
+float64 last_anchor_age_sec
+uint32 candidate_conflict_count
+bool map_to_odom_jump_suppressed
+bool imu_spike
