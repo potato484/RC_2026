@@ -1,7 +1,7 @@
 """
-rc26_omni_controller 模块测试
+rc26_nmpc_controller / rc26_omni_controller 模块测试
 
-功能: 验证全向运动 PID 追踪控制器
+功能: 验证定位感知 NMPC 控制器及 FollowPath 回退链路
 前置: 需要最小化 Nav2 环境 + TF 树
 
 测试指令:
@@ -13,7 +13,7 @@ rc26_omni_controller 模块测试
 
 说明:
     控制器作为 Nav2 插件运行，需要完整的 Nav2 controller_server。
-    此测试启动最小化 Nav2 栈用于验证控制器逻辑。
+    此测试启动最小化 Nav2 栈用于验证 NMPC 主链和 FollowPath 回退逻辑。
     默认使用 test_map -> test_odom -> test_base_link，避免污染在线 TF。
 """
 from ament_index_python.packages import get_package_share_directory

@@ -37,6 +37,7 @@
   <!-- 自定义包 -->
   <exec_depend>rc26_localization</exec_depend>
   <exec_depend>rc26_omni_controller</exec_depend>
+  <exec_depend>rc26_nmpc_controller</exec_depend>
   <exec_depend>rc26_decision</exec_depend>
   <exec_depend>rc26_kfs_keepout</exec_depend>
   <exec_depend></exec_depend>
