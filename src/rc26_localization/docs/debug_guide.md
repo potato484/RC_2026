@@ -104,6 +104,21 @@ ros2 param get /localization enable_graph_backend
 ros2 param get /localization legacy_hard_reloc_enable
 ```
 
+### 4.5 P4 外部候选输入自检
+```bash
+# 是否启用外部候选输入链路
+ros2 param get /localization p4_candidate_enable
+
+# 查看三路候选话题（dynamic / visual / learned）
+ros2 topic info /localization/p4/dynamic_candidates
+ros2 topic info /localization/p4/visual_candidates
+ros2 topic info /localization/p4/learned_candidates
+```
+说明：
+- 外部候选仅作为“候选生成器”，无权直接修改 `map->odom`。
+- 候选必须通过 `ConstraintValidator` 几何验证后，才会以锚点先验形式进入 Pose2 图后端。
+- 候选被拒绝时会记录在日志与后端冲突计数中，不会触发 TF 硬跳。
+
 ## 5. 结合 Bag 包离线调试 (推荐)
 为了可重复地复现问题，强烈推荐录制比赛/测试时的数据包（Bag），并在 PC 端离线回放调试：
 

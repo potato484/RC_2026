@@ -178,6 +178,16 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("route_risk_high_threshold", 0.7);
     this->declare_parameter("route_anchor_effective_dist_m", 2.0);
     this->declare_parameter("route_loop_recent_age_sec", 8.0);
+    this->declare_parameter("p4_candidate_enable", false);
+    this->declare_parameter("p4_dynamic_candidates_topic", std::string("/localization/p4/dynamic_candidates"));
+    this->declare_parameter("p4_visual_candidates_topic", std::string("/localization/p4/visual_candidates"));
+    this->declare_parameter("p4_learned_candidates_topic", std::string("/localization/p4/learned_candidates"));
+    this->declare_parameter("p4_candidate_patch_radius_m", 8.0);
+    this->declare_parameter("p4_candidate_max_stale_sec", 2.0);
+    this->declare_parameter("p4_candidate_max_queue_size", 64);
+    this->declare_parameter("p4_candidate_max_per_cycle", 2);
+    this->declare_parameter("p4_candidate_sigma_translation_m", 0.12);
+    this->declare_parameter("p4_candidate_sigma_yaw_deg", 5.0);
     this->declare_parameter("enable_graph_backend", false);
     this->declare_parameter("legacy_hard_reloc_enable", false);
     this->declare_parameter("graph_keyframe_translation_thresh_m", 0.4);
@@ -380,6 +390,16 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->get_parameter("route_risk_high_threshold", route_risk_high_threshold_);
     this->get_parameter("route_anchor_effective_dist_m", route_anchor_effective_dist_m_);
     this->get_parameter("route_loop_recent_age_sec", route_loop_recent_age_sec_);
+    this->get_parameter("p4_candidate_enable", p4_candidate_enable_);
+    this->get_parameter("p4_dynamic_candidates_topic", p4_dynamic_candidates_topic_);
+    this->get_parameter("p4_visual_candidates_topic", p4_visual_candidates_topic_);
+    this->get_parameter("p4_learned_candidates_topic", p4_learned_candidates_topic_);
+    this->get_parameter("p4_candidate_patch_radius_m", p4_candidate_patch_radius_m_);
+    this->get_parameter("p4_candidate_max_stale_sec", p4_candidate_max_stale_sec_);
+    this->get_parameter("p4_candidate_max_queue_size", p4_candidate_max_queue_size_);
+    this->get_parameter("p4_candidate_max_per_cycle", p4_candidate_max_per_cycle_);
+    this->get_parameter("p4_candidate_sigma_translation_m", p4_candidate_sigma_translation_m_);
+    this->get_parameter("p4_candidate_sigma_yaw_deg", p4_candidate_sigma_yaw_deg_);
     this->get_parameter("enable_graph_backend", enable_graph_backend_);
     this->get_parameter("legacy_hard_reloc_enable", legacy_hard_reloc_enable_);
     this->get_parameter("graph_keyframe_translation_thresh_m", graph_keyframe_translation_thresh_m_);
@@ -665,6 +685,18 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
         std::bind(&LocalizationNode::controlDegradedCallback, this, std::placeholders::_1));
     plan_sub_ = this->create_subscription<nav_msgs::msg::Path>(
         plan_topic_, rclcpp::SystemDefaultsQoS(), std::bind(&LocalizationNode::planCallback, this, std::placeholders::_1));
+    if (p4_candidate_enable_) {
+        const auto qos = rclcpp::SystemDefaultsQoS();
+        dynamic_candidates_sub_ = this->create_subscription<geometry_msgs::msg::PoseArray>(
+            p4_dynamic_candidates_topic_, qos,
+            std::bind(&LocalizationNode::externalDynamicCandidatesCallback, this, std::placeholders::_1));
+        visual_candidates_sub_ = this->create_subscription<geometry_msgs::msg::PoseArray>(
+            p4_visual_candidates_topic_, qos,
+            std::bind(&LocalizationNode::externalVisualCandidatesCallback, this, std::placeholders::_1));
+        learned_candidates_sub_ = this->create_subscription<geometry_msgs::msg::PoseArray>(
+            p4_learned_candidates_topic_, qos,
+            std::bind(&LocalizationNode::externalLearnedCandidatesCallback, this, std::placeholders::_1));
+    }
 
     RouteObservabilityEvaluator::Config route_cfg;
     route_cfg.map_near_dist_m = route_map_near_dist_m_;
@@ -693,6 +725,12 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     publishLocalizationHealth("startup");
     publishBackendStatus();
     publishRouteObservability();
+    if (p4_candidate_enable_) {
+        RCLCPP_INFO(this->get_logger(),
+                    "P4候选输入启用: dynamic=%s, visual=%s, learned=%s, patch_radius=%.2fm, max_per_cycle=%d",
+                    p4_dynamic_candidates_topic_.c_str(), p4_visual_candidates_topic_.c_str(),
+                    p4_learned_candidates_topic_.c_str(), p4_candidate_patch_radius_m_, p4_candidate_max_per_cycle_);
+    }
     RCLCPP_INFO(this->get_logger(), "rc26_localization 节点已启动");
 }
 
@@ -1345,6 +1383,12 @@ void LocalizationNode::validateAndNormalizeParams() {
         std::clamp(route_risk_high_threshold_, route_risk_medium_threshold_ + 0.01, 0.99);
     route_anchor_effective_dist_m_ = std::clamp(route_anchor_effective_dist_m_, 0.1, 10.0);
     route_loop_recent_age_sec_ = std::clamp(route_loop_recent_age_sec_, 1.0, 120.0);
+    p4_candidate_patch_radius_m_ = std::clamp(p4_candidate_patch_radius_m_, 1.0, 30.0);
+    p4_candidate_max_stale_sec_ = std::clamp(p4_candidate_max_stale_sec_, 0.1, 30.0);
+    p4_candidate_max_queue_size_ = std::clamp(p4_candidate_max_queue_size_, 1, 1024);
+    p4_candidate_max_per_cycle_ = std::clamp(p4_candidate_max_per_cycle_, 1, 32);
+    p4_candidate_sigma_translation_m_ = std::max(1e-4, p4_candidate_sigma_translation_m_);
+    p4_candidate_sigma_yaw_deg_ = std::max(1e-3, p4_candidate_sigma_yaw_deg_);
     if (health_topic_.empty()) {
         health_topic_ = "/localization/health";
     }
@@ -1359,6 +1403,20 @@ void LocalizationNode::validateAndNormalizeParams() {
     }
     if (plan_topic_.empty()) {
         plan_topic_ = "local_plan";
+    }
+    if (p4_dynamic_candidates_topic_.empty()) {
+        p4_dynamic_candidates_topic_ = "/localization/p4/dynamic_candidates";
+    }
+    if (p4_visual_candidates_topic_.empty()) {
+        p4_visual_candidates_topic_ = "/localization/p4/visual_candidates";
+    }
+    if (p4_learned_candidates_topic_.empty()) {
+        p4_learned_candidates_topic_ = "/localization/p4/learned_candidates";
+    }
+    if (p4_candidate_enable_ && p4_dynamic_candidates_topic_ == p4_visual_candidates_topic_ &&
+        p4_dynamic_candidates_topic_ == p4_learned_candidates_topic_) {
+        RCLCPP_WARN(this->get_logger(),
+                    "P4候选输入三路 topic 完全相同，可能导致重复候选");
     }
     uwb_yaw_spread_deg_ = std::clamp(uwb_yaw_spread_deg_, 1.0, 180.0);
     esikf_accel_noise_ = std::max(esikf_accel_noise_, 1e-4);

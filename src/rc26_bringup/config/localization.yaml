@@ -148,6 +148,18 @@ localization:
     route_risk_high_threshold: 0.70
     route_anchor_effective_dist_m: 2.0
     route_loop_recent_age_sec: 8.0
+
+    # ========== P4: 外部候选增强（仅候选，无 TF 写权限） ==========
+    p4_candidate_enable: false
+    p4_dynamic_candidates_topic: "/localization/p4/dynamic_candidates"
+    p4_visual_candidates_topic: "/localization/p4/visual_candidates"
+    p4_learned_candidates_topic: "/localization/p4/learned_candidates"
+    p4_candidate_patch_radius_m: 8.0
+    p4_candidate_max_stale_sec: 2.0
+    p4_candidate_max_queue_size: 64
+    p4_candidate_max_per_cycle: 2
+    p4_candidate_sigma_translation_m: 0.12
+    p4_candidate_sigma_yaw_deg: 5.0
     
     # 初始位姿 [x, y, z, roll, pitch, yaw]
     # 若不在 RViz 中手动设置 initialpose，可在此给出一个初始猜测

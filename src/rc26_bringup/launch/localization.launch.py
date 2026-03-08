@@ -20,6 +20,10 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     slam = LaunchConfiguration('slam')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
+    competition_mode = LaunchConfiguration('competition_mode')
+    enable_graph_backend = LaunchConfiguration('enable_graph_backend')
+    p4_candidate_enable = LaunchConfiguration('p4_candidate_enable')
+    min_inliers = LaunchConfiguration('min_inliers')
     param_overrides_file = PathJoinSubstitution([_dir, 'config', 'param_overrides.yaml'])
 
     declare_namespace = DeclareLaunchArgument(
@@ -36,6 +40,18 @@ def generate_launch_description():
         default_value=PathJoinSubstitution([bringup_dir, 'pcd', 'default.pcd']),
         description='先验点云文件路径')
 
+    declare_competition_mode = DeclareLaunchArgument(
+        'competition_mode', default_value='true', description='比赛模式防呆开关')
+
+    declare_enable_graph_backend = DeclareLaunchArgument(
+        'enable_graph_backend', default_value='false', description='是否启用图后端')
+
+    declare_p4_candidate_enable = DeclareLaunchArgument(
+        'p4_candidate_enable', default_value='false', description='是否启用 P4 外部候选输入')
+
+    declare_min_inliers = DeclareLaunchArgument(
+        'min_inliers', default_value='200', description='局部配准质量门控最小内点数')
+
     # 导航模式: 启动重定位
     localization_node = Node(
         package='rc26_localization',
@@ -48,6 +64,10 @@ def generate_launch_description():
             param_overrides_file,
             {'use_sim_time': use_sim_time},
             {'prior_pcd_file': prior_pcd_file},
+            {'competition_mode': competition_mode},
+            {'enable_graph_backend': enable_graph_backend},
+            {'p4_candidate_enable': p4_candidate_enable},
+            {'min_inliers': min_inliers},
         ],
         condition=UnlessCondition(slam)
     )
@@ -72,6 +92,10 @@ def generate_launch_description():
         declare_use_sim_time,
         declare_slam,
         declare_prior_pcd_file,
+        declare_competition_mode,
+        declare_enable_graph_backend,
+        declare_p4_candidate_enable,
+        declare_min_inliers,
         localization_node,
         static_tf_node,
     ])

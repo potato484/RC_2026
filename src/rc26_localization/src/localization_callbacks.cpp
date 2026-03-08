@@ -9,6 +9,25 @@
 
 namespace rc26_localization {
 
+namespace {
+bool poseMsgToEigen(const geometry_msgs::msg::Pose& pose_msg, Eigen::Isometry3d& out_pose) {
+    const Eigen::Quaterniond q_raw(pose_msg.orientation.w, pose_msg.orientation.x, pose_msg.orientation.y,
+                                   pose_msg.orientation.z);
+    if (!q_raw.coeffs().allFinite() || q_raw.norm() < 1e-6) {
+        return false;
+    }
+    const Eigen::Quaterniond q = q_raw.normalized();
+    if (!std::isfinite(pose_msg.position.x) || !std::isfinite(pose_msg.position.y) ||
+        !std::isfinite(pose_msg.position.z)) {
+        return false;
+    }
+    out_pose = Eigen::Isometry3d::Identity();
+    out_pose.translation() << pose_msg.position.x, pose_msg.position.y, pose_msg.position.z;
+    out_pose.linear() = q.toRotationMatrix();
+    return true;
+}
+}  // namespace
+
 void LocalizationNode::controlDegradedCallback(const std_msgs::msg::Bool::SharedPtr msg) {
     control_degraded_.store(msg && msg->data);
 }
@@ -20,6 +39,66 @@ void LocalizationNode::planCallback(const nav_msgs::msg::Path::SharedPtr msg) {
     std::lock_guard<std::mutex> lk(plan_mutex_);
     latest_plan_ = *msg;
     latest_plan_valid_ = true;
+}
+
+void LocalizationNode::externalDynamicCandidatesCallback(const geometry_msgs::msg::PoseArray::SharedPtr msg) {
+    ingestExternalCandidates(msg, "dynamic");
+}
+
+void LocalizationNode::externalVisualCandidatesCallback(const geometry_msgs::msg::PoseArray::SharedPtr msg) {
+    ingestExternalCandidates(msg, "visual");
+}
+
+void LocalizationNode::externalLearnedCandidatesCallback(const geometry_msgs::msg::PoseArray::SharedPtr msg) {
+    ingestExternalCandidates(msg, "learned");
+}
+
+void LocalizationNode::ingestExternalCandidates(const geometry_msgs::msg::PoseArray::SharedPtr& msg,
+                                                const std::string& source) {
+    if (!p4_candidate_enable_ || !msg || msg->poses.empty()) {
+        return;
+    }
+
+    const rclcpp::Time stamp = (msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0)
+                                   ? this->now()
+                                   : rclcpp::Time(msg->header.stamp);
+    const std::string frame_id = msg->header.frame_id.empty() ? map_frame_ : msg->header.frame_id;
+
+    Eigen::Isometry3d map_to_odom = Eigen::Isometry3d::Identity();
+    if (frame_id == odom_frame_) {
+        std::lock_guard<std::mutex> lock(result_mutex_);
+        map_to_odom = result_t_;
+    } else if (frame_id != map_frame_) {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                             "P4候选输入 frame_id='%s' 不受支持，仅支持 %s/%s",
+                             frame_id.c_str(), map_frame_.c_str(), odom_frame_.c_str());
+        return;
+    }
+
+    int accepted_count = 0;
+    {
+        std::lock_guard<std::mutex> lock(external_candidates_mutex_);
+        for (const auto& pose_msg : msg->poses) {
+            Eigen::Isometry3d pose_in_frame = Eigen::Isometry3d::Identity();
+            if (!poseMsgToEigen(pose_msg, pose_in_frame)) {
+                continue;
+            }
+            ExternalCandidate candidate;
+            candidate.source = source;
+            candidate.stamp = stamp;
+            candidate.pose_map = (frame_id == map_frame_) ? pose_in_frame : (map_to_odom * pose_in_frame);
+            pending_external_candidates_.push_back(std::move(candidate));
+            ++accepted_count;
+        }
+
+        while (pending_external_candidates_.size() > static_cast<size_t>(p4_candidate_max_queue_size_)) {
+            pending_external_candidates_.pop_front();
+        }
+    }
+
+    if (accepted_count > 0) {
+        RCLCPP_DEBUG(this->get_logger(), "接收P4候选: source=%s, count=%d", source.c_str(), accepted_count);
+    }
 }
 
 void LocalizationNode::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {

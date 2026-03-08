@@ -23,6 +23,7 @@
 #include <Eigen/Dense>
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "geometry_msgs/msg/point_stamped.hpp"
+#include "geometry_msgs/msg/pose_array.hpp"
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "pcl/io/pcd_io.h"
@@ -115,6 +116,12 @@ private:
         rclcpp::Time stamp;
     };
 
+    struct ExternalCandidate {
+        Eigen::Isometry3d pose_map{Eigen::Isometry3d::Identity()};
+        rclcpp::Time stamp;
+        std::string source{"unknown"};
+    };
+
     // 回调函数
     void registeredPcdCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
     void initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
@@ -122,6 +129,10 @@ private:
     void uwbCallback(const geometry_msgs::msg::PointStamped::SharedPtr msg);
     void controlDegradedCallback(const std_msgs::msg::Bool::SharedPtr msg);
     void planCallback(const nav_msgs::msg::Path::SharedPtr msg);
+    void externalDynamicCandidatesCallback(const geometry_msgs::msg::PoseArray::SharedPtr msg);
+    void externalVisualCandidatesCallback(const geometry_msgs::msg::PoseArray::SharedPtr msg);
+    void externalLearnedCandidatesCallback(const geometry_msgs::msg::PoseArray::SharedPtr msg);
+    void ingestExternalCandidates(const geometry_msgs::msg::PoseArray::SharedPtr& msg, const std::string& source);
 
     // 核心功能
     void loadGlobalMap(const std::string& file_name);
@@ -150,6 +161,9 @@ private:
                                                 const rclcpp::Time& stamp);
     bool processGraphBackendAnchor(const Eigen::Isometry3d& map_to_odom, const rclcpp::Time& stamp);
     bool tryLookupOdomToBase(const rclcpp::Time& stamp, Eigen::Isometry3d& odom_to_base) const;
+    std::vector<ExternalCandidate> consumeExternalCandidates(const rclcpp::Time& now, size_t max_count);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr buildMapPatchAround(const Eigen::Vector2d& center_map, double radius_m);
+    void applyExternalAnchorCandidates(const KeyframeData& inserted, bool& graph_changed, const rclcpp::Time& stamp);
 
     // 全局重定位（后台线程）
     void performGlobalRelocalization(RelocTriggerReason reason, pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud = nullptr);
@@ -221,6 +235,9 @@ private:
     rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr uwb_sub_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr control_degraded_sub_;
     rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr plan_sub_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr dynamic_candidates_sub_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr visual_candidates_sub_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr learned_candidates_sub_;
 
     // 参数
     int num_threads_;
@@ -459,10 +476,22 @@ private:
     double route_risk_high_threshold_{0.7};
     double route_anchor_effective_dist_m_{2.0};
     double route_loop_recent_age_sec_{8.0};
+    bool p4_candidate_enable_{false};
+    std::string p4_dynamic_candidates_topic_{"/localization/p4/dynamic_candidates"};
+    std::string p4_visual_candidates_topic_{"/localization/p4/visual_candidates"};
+    std::string p4_learned_candidates_topic_{"/localization/p4/learned_candidates"};
+    double p4_candidate_patch_radius_m_{8.0};
+    double p4_candidate_max_stale_sec_{2.0};
+    int p4_candidate_max_queue_size_{64};
+    int p4_candidate_max_per_cycle_{2};
+    double p4_candidate_sigma_translation_m_{0.12};
+    double p4_candidate_sigma_yaw_deg_{5.0};
     mutable std::mutex health_mutex_;
     mutable std::mutex graph_mutex_;
+    mutable std::mutex external_candidates_mutex_;
     bool graph_backend_initialized_{false};
     PoseGraphStatus graph_status_cache_;
+    std::deque<ExternalCandidate> pending_external_candidates_;
     std::unique_ptr<KeyframeManager> keyframe_manager_;
     std::unique_ptr<OnlineScanContextDB> online_sc_db_;
     std::unique_ptr<ConstraintValidator> constraint_validator_;

@@ -104,6 +104,121 @@ bool LocalizationNode::tryLookupOdomToBase(const rclcpp::Time& stamp, Eigen::Iso
     return lookup(rclcpp::Time(0));
 }
 
+std::vector<LocalizationNode::ExternalCandidate> LocalizationNode::consumeExternalCandidates(const rclcpp::Time& now,
+                                                                                              size_t max_count) {
+    std::vector<ExternalCandidate> out;
+    if (!p4_candidate_enable_ || max_count == 0) {
+        return out;
+    }
+
+    std::lock_guard<std::mutex> lock(external_candidates_mutex_);
+    while (!pending_external_candidates_.empty()) {
+        const auto& front = pending_external_candidates_.front();
+        if ((now - front.stamp).seconds() <= p4_candidate_max_stale_sec_) {
+            break;
+        }
+        pending_external_candidates_.pop_front();
+    }
+
+    const size_t n = std::min(max_count, pending_external_candidates_.size());
+    out.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        out.push_back(std::move(pending_external_candidates_.front()));
+        pending_external_candidates_.pop_front();
+    }
+    return out;
+}
+
+pcl::PointCloud<pcl::PointXYZ>::Ptr LocalizationNode::buildMapPatchAround(const Eigen::Vector2d& center_map,
+                                                                           double radius_m) {
+    pcl::PointCloud<pcl::PointXYZ>::Ptr patch(new pcl::PointCloud<pcl::PointXYZ>());
+    const double radius_sq = radius_m * radius_m;
+    std::lock_guard<std::mutex> map_lock(map_mutex_);
+
+    auto push_if_near = [&](double x, double y, double z) {
+        const double dx = x - center_map.x();
+        const double dy = y - center_map.y();
+        if (dx * dx + dy * dy <= radius_sq) {
+            patch->push_back(pcl::PointXYZ(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)));
+        }
+    };
+
+    if (target_ && !target_->empty()) {
+        patch->reserve(target_->size() / 4);
+        for (const auto& pt : target_->points) {
+            push_if_near(pt.x, pt.y, pt.z);
+        }
+    } else if (global_map_ && !global_map_->empty()) {
+        patch->reserve(global_map_->size() / 4);
+        for (const auto& pt : global_map_->points) {
+            push_if_near(pt.x, pt.y, pt.z);
+        }
+    }
+
+    if (patch->empty() && global_map_ && !global_map_->empty()) {
+        // 回退到全图，避免候选因为局部补丁为空而无法验证。
+        patch = global_map_;
+    }
+    return patch;
+}
+
+void LocalizationNode::applyExternalAnchorCandidates(const KeyframeData& inserted, bool& graph_changed,
+                                                     const rclcpp::Time& stamp) {
+    if (!p4_candidate_enable_ || !constraint_validator_ || !pose_graph_backend_) {
+        return;
+    }
+
+    const auto candidates = consumeExternalCandidates(stamp, static_cast<size_t>(p4_candidate_max_per_cycle_));
+    if (candidates.empty()) {
+        return;
+    }
+
+    for (const auto& candidate : candidates) {
+        bool accepted = false;
+        bool conflict = false;
+        std::string reject_reason = "not_run";
+
+        if (inserted.cloud && !inserted.cloud->empty()) {
+            const Eigen::Vector2d center(candidate.pose_map.translation().x(), candidate.pose_map.translation().y());
+            const auto patch_cloud = buildMapPatchAround(center, p4_candidate_patch_radius_m_);
+            if (patch_cloud && !patch_cloud->empty()) {
+                ConstraintValidationInput validation_input;
+                validation_input.type = ConstraintType::UWB_SOFT_ANCHOR;
+                validation_input.from_id = inserted.id;
+                validation_input.to_id = inserted.id;
+                validation_input.initial_relative_pose = candidate.pose_map * inserted.pose_odom.inverse();
+                validation_input.source_cloud = inserted.cloud;
+                validation_input.target_cloud = patch_cloud;
+                validation_input.imu_spike = imu_spike_active_.load() || imu_spike_recent_.load();
+
+                const auto validation_result = constraint_validator_->validate(validation_input);
+                accepted = validation_result.accepted;
+                conflict = validation_result.conflict;
+                reject_reason = validation_result.reason;
+                if (accepted) {
+                    const Eigen::Isometry3d observed_pose_map = validation_result.relative_pose * inserted.pose_odom;
+                    graph_changed = pose_graph_backend_
+                                        ->addAnchorPrior(inserted.id, observed_pose_map, p4_candidate_sigma_translation_m_,
+                                                         p4_candidate_sigma_yaw_deg_ * M_PI / 180.0, true) ||
+                                    graph_changed;
+                }
+            } else {
+                reject_reason = "empty_map_patch";
+            }
+        } else {
+            reject_reason = "empty_keyframe_cloud";
+        }
+
+        pose_graph_backend_->markAnchorCandidate(accepted, conflict, candidate.stamp);
+        if (accepted) {
+            RCLCPP_INFO(this->get_logger(), "P4候选入图成功: source=%s keyframe=%u", candidate.source.c_str(), inserted.id);
+        } else {
+            RCLCPP_DEBUG(this->get_logger(), "P4候选拒绝: source=%s keyframe=%u reason=%s",
+                         candidate.source.c_str(), inserted.id, reject_reason.c_str());
+        }
+    }
+}
+
 bool LocalizationNode::processGraphBackendOnLocalRegistration(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
                                                               const Eigen::Isometry3d& map_to_odom,
                                                               const rclcpp::Time& stamp) {
@@ -231,6 +346,8 @@ bool LocalizationNode::processGraphBackendOnLocalRegistration(const pcl::PointCl
             break;
         }
     }
+
+    applyExternalAnchorCandidates(inserted, graph_changed, stamp);
 
     bool updated = false;
     if (graph_changed) {

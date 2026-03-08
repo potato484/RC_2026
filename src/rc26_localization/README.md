@@ -29,6 +29,19 @@
   - `loop_opportunity_score` / `anchor_opportunity_score`
   - `recommended_nav_profile`
 
+## P4 候选增强（候选 -> 验证 -> 入图）
+- 新增三路外部候选输入（`geometry_msgs/PoseArray`）：
+  - `/localization/p4/dynamic_candidates`
+  - `/localization/p4/visual_candidates`
+  - `/localization/p4/learned_candidates`
+- 外部候选不会直接写 `map->odom`。每条候选都必须：
+  1. 转成 `map` 位姿候选；
+  2. 用局部地图补丁和当前关键帧点云走 `ConstraintValidator`（small_gicp）几何验证；
+  3. 仅在验证通过时作为锚点先验入同一张 Pose2 图；
+  4. 最终仍由图后端 + `MapToOdomSmoother` 输出平滑 TF。
+- 默认关闭（`p4_candidate_enable=false`），不会影响 P0/P1/P2 主链。
+
 ## 关键开关参数
 - `enable_graph_backend`：是否启用图后端（P0 默认 `false`）。
 - `legacy_hard_reloc_enable`：是否允许旧版重定位硬切（仅紧急回退用，默认 `false`）。
+- `p4_candidate_enable`：是否启用 P4 外部候选输入。
