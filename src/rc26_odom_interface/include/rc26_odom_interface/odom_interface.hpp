@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -49,6 +50,14 @@ public:
     explicit OdomInterfaceNode(const rclcpp::NodeOptions& options);
 
 private:
+    struct OdomHistoryLookupResult {
+        bool has_history{false};
+        bool has_match{false};
+        rclcpp::Time closest_stamp;
+        double closest_signed_diff_sec{0.0};
+        bool cloud_ahead_of_latest{false};
+    };
+
     void pointCloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg);
 
     void odometryCallback(const nav_msgs::msg::Odometry::ConstSharedPtr msg);
@@ -56,6 +65,10 @@ private:
     void publishRegisteredCloud(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& msg,
                                 const rclcpp::Time& output_stamp,
                                 const tf2::Transform& tf_input_odom_to_output_odom);
+
+    void storeOdometryStampLocked(const rclcpp::Time& odom_stamp);
+
+    OdomHistoryLookupResult lookupOdometryStampLocked(const rclcpp::Time& stamp, double max_abs_diff_sec) const;
 
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pcd_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
@@ -94,11 +107,12 @@ private:
     double max_time_diff_sec_{0.2};        // 点云与里程计之间允许的最大时间差 (秒)
     double tf_refresh_interval_sec_{1.0};  // TF 断连时的重新拉取周期 (秒)
     bool clamp_cloud_stamp_to_latest_odom_{true};  // 防止输出点云时间戳超前于已发布 odom
-    bool defer_cloud_until_matching_odom_{true};  // 点云超前时先缓存，等待同一扫描对应 odom 到达再发布
+    bool defer_cloud_until_matching_odom_{true};  // 点云超前时先缓存，等待对应 odom 到达后再发布
     tf2::Transform tf_input_odom_to_output_odom_;  // 首帧平移归零: 将 Point-LIO odom 平移到 base_link 首帧原点
     tf2::Vector3 zero_origin_translation_sum_{0.0, 0.0, 0.0};
     nav_msgs::msg::Path odom_path_msg_;
-    sensor_msgs::msg::PointCloud2::ConstSharedPtr pending_cloud_;
+    std::deque<rclcpp::Time> odometry_stamp_history_;
+    std::deque<sensor_msgs::msg::PointCloud2::ConstSharedPtr> pending_clouds_;
 
     // [C2 修复] 速度估计所需的状态变量
     struct OdomState {

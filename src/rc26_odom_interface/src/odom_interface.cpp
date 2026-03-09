@@ -18,7 +18,9 @@
 #include <algorithm>
 #include <Eigen/Dense>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
+#include <vector>
 
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/transform_stamped.hpp"
@@ -32,7 +34,13 @@ namespace rc26_odom_interface {
 namespace {
 
 constexpr size_t kMaxPathPoses = 2000;
+constexpr size_t kMaxOdomStampHistorySize = 128;
+constexpr size_t kMaxPendingClouds = 8;
 constexpr double kCloudOdomStampToleranceSec = 0.005;  // 吸收 ROS 回调调度造成的毫秒级时间戳抖动
+
+bool sameStamp(const builtin_interfaces::msg::Time& lhs, const builtin_interfaces::msg::Time& rhs) {
+    return lhs.sec == rhs.sec && lhs.nanosec == rhs.nanosec;
+}
 
 visualization_msgs::msg::MarkerArray makePoseMarkerArray(const std::string& frame_id,
                                                          const builtin_interfaces::msg::Time& stamp,
@@ -235,6 +243,66 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
         state_estimation_topic_, 5, std::bind(&OdomInterfaceNode::odometryCallback, this, std::placeholders::_1));
 }
 
+void OdomInterfaceNode::storeOdometryStampLocked(const rclcpp::Time& odom_stamp) {
+    const auto stamp_ns = odom_stamp.nanoseconds();
+    auto it = std::lower_bound(odometry_stamp_history_.begin(), odometry_stamp_history_.end(), stamp_ns,
+                               [](const rclcpp::Time& stamp, int64_t target_ns) {
+                                   return stamp.nanoseconds() < target_ns;
+                               });
+    if (it != odometry_stamp_history_.end() && it->nanoseconds() == stamp_ns) {
+        *it = odom_stamp;
+    } else {
+        odometry_stamp_history_.insert(it, odom_stamp);
+    }
+
+    while (odometry_stamp_history_.size() > kMaxOdomStampHistorySize) {
+        odometry_stamp_history_.pop_front();
+    }
+}
+
+OdomInterfaceNode::OdomHistoryLookupResult OdomInterfaceNode::lookupOdometryStampLocked(
+    const rclcpp::Time& stamp, double max_abs_diff_sec) const {
+    OdomHistoryLookupResult result;
+    if (odometry_stamp_history_.empty()) {
+        return result;
+    }
+
+    result.has_history = true;
+    result.cloud_ahead_of_latest = (stamp - odometry_stamp_history_.back()).seconds() > kCloudOdomStampToleranceSec;
+
+    const auto stamp_ns = stamp.nanoseconds();
+    auto it = std::lower_bound(odometry_stamp_history_.begin(), odometry_stamp_history_.end(), stamp_ns,
+                               [](const rclcpp::Time& history_stamp, int64_t target_ns) {
+                                   return history_stamp.nanoseconds() < target_ns;
+                               });
+
+    bool has_candidate = false;
+    auto update_best = [&](const rclcpp::Time& candidate_stamp) {
+        const double signed_diff_sec = (stamp - candidate_stamp).seconds();
+        const double abs_diff_sec = std::abs(signed_diff_sec);
+        if (!has_candidate || abs_diff_sec < std::abs(result.closest_signed_diff_sec) ||
+            (abs_diff_sec == std::abs(result.closest_signed_diff_sec) && candidate_stamp > result.closest_stamp)) {
+            has_candidate = true;
+            result.closest_stamp = candidate_stamp;
+            result.closest_signed_diff_sec = signed_diff_sec;
+        }
+    };
+
+    if (it != odometry_stamp_history_.end()) {
+        update_best(*it);
+    }
+    if (it != odometry_stamp_history_.begin()) {
+        update_best(*std::prev(it));
+    }
+
+    if (!has_candidate) {
+        return result;
+    }
+
+    result.has_match = std::abs(result.closest_signed_diff_sec) <= max_abs_diff_sec;
+    return result;
+}
+
 void OdomInterfaceNode::pointCloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg) {
     // Point-LIO 输出的点云已经是 odom frame 下的，直接转发
     // 当前配置: Point-LIO odom_frame == odom_interface odom_frame_ == "odom"
@@ -245,16 +313,22 @@ void OdomInterfaceNode::pointCloudCallback(const sensor_msgs::msg::PointCloud2::
         return;
     }
 
+    const rclcpp::Time cloud_stamp(msg->header.stamp);
+    const double guarded_max_diff_sec =
+        max_time_diff_sec_ > 0.0 ? (max_time_diff_sec_ + kCloudOdomStampToleranceSec) : std::numeric_limits<double>::infinity();
+
     rclcpp::Time latest_stamp;
     bool odom_ready = false;
     bool odom_origin_ready = false;
     tf2::Transform tf_input_odom_to_output_odom;
+    OdomHistoryLookupResult odom_lookup;
     {
         std::lock_guard<std::mutex> lock(transform_mutex_);
         latest_stamp = latest_odometry_stamp_;
         odom_ready = odom_pose_ready_;
         odom_origin_ready = !zero_origin_to_first_frame_ || odom_origin_initialized_;
         tf_input_odom_to_output_odom = tf_input_odom_to_output_odom_;
+        odom_lookup = lookupOdometryStampLocked(cloud_stamp, guarded_max_diff_sec);
     }
 
     if (!odom_ready) {
@@ -266,24 +340,27 @@ void OdomInterfaceNode::pointCloudCallback(const sensor_msgs::msg::PointCloud2::
         return;
     }
 
-    const rclcpp::Time cloud_stamp(msg->header.stamp);
     const bool has_latest_stamp = latest_stamp.nanoseconds() > 0;
     const double signed_diff_sec = has_latest_stamp ? (cloud_stamp - latest_stamp).seconds() : 0.0;
     const double abs_diff_sec = std::abs(signed_diff_sec);
-    const double guarded_max_diff_sec =
-        max_time_diff_sec_ > 0.0 ? (max_time_diff_sec_ + kCloudOdomStampToleranceSec) : 0.0;
 
-    // 点云略超前于最新 odom 时，优先走等待匹配 / 时间戳钳制，而不是直接按绝对时间差丢弃。
+    // 点云超前于最新 odom 时，优先进入等待队列，避免 future-stamp 点云提前发布。
     if (has_latest_stamp && signed_diff_sec > kCloudOdomStampToleranceSec) {
         if (defer_cloud_until_matching_odom_) {
             std::lock_guard<std::mutex> lock(transform_mutex_);
-            if (pending_cloud_ &&
-                (pending_cloud_->header.stamp.sec != msg->header.stamp.sec ||
-                 pending_cloud_->header.stamp.nanosec != msg->header.stamp.nanosec)) {
-                RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                                     "等待匹配 odom 时收到更新点云，替换旧的 pending registered_scan");
+            if (!pending_clouds_.empty() && sameStamp(pending_clouds_.back()->header.stamp, msg->header.stamp)) {
+                pending_clouds_.back() = msg;
+                return;
             }
-            pending_cloud_ = msg;
+            pending_clouds_.push_back(msg);
+            if (pending_clouds_.size() > kMaxPendingClouds) {
+                const auto dropped_stamp = rclcpp::Time(pending_clouds_.front()->header.stamp);
+                pending_clouds_.pop_front();
+                RCLCPP_WARN_THROTTLE(
+                    this->get_logger(), *this->get_clock(), 2000,
+                    "pending registered_scan 队列已满，丢弃最旧点云 (stamp=%.3f, depth=%zu)",
+                    dropped_stamp.seconds(), pending_clouds_.size());
+            }
             return;
         }
 
@@ -295,11 +372,17 @@ void OdomInterfaceNode::pointCloudCallback(const sensor_msgs::msg::PointCloud2::
         }
     }
 
-    if (max_time_diff_sec_ > 0.0) {
-        if (signed_diff_sec < -kCloudOdomStampToleranceSec && abs_diff_sec > guarded_max_diff_sec) {
-            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                                 "点云落后最新 odom %.3f s，超过 %.3f s 限制，丢弃点云", abs_diff_sec,
-                                 max_time_diff_sec_);
+    // 点云未超前于最新 odom 时，不再只和 latest_stamp 比较，而是到最近一段 odom 历史里找最近帧，
+    // 这样即使 odom 回调更早到、latest 已经推进到下一帧，也不会误把当前点云当成“严重落后”。
+    if (max_time_diff_sec_ > 0.0 && !odom_lookup.has_match) {
+        const double history_abs_diff_sec =
+            odom_lookup.has_history ? std::abs(odom_lookup.closest_signed_diff_sec) : abs_diff_sec;
+        if (signed_diff_sec < -kCloudOdomStampToleranceSec && history_abs_diff_sec > guarded_max_diff_sec) {
+            RCLCPP_WARN_THROTTLE(
+                this->get_logger(), *this->get_clock(), 2000,
+                "点云与最近 odom 时间差 %.3f s，超过 %.3f s 限制，丢弃点云 (cloud=%.3f, nearest_odom=%.3f, latest_odom=%.3f)",
+                history_abs_diff_sec, max_time_diff_sec_, cloud_stamp.seconds(),
+                odom_lookup.has_history ? odom_lookup.closest_stamp.seconds() : 0.0, latest_stamp.seconds());
             return;
         }
     }
@@ -482,8 +565,10 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
 
     // [P3] 速度来源可切换：优先使用 Point-LIO 输入 twist，必要时回退到差分估计
     bool update_state = true;
-    sensor_msgs::msg::PointCloud2::ConstSharedPtr pending_cloud_to_publish;
+    std::vector<sensor_msgs::msg::PointCloud2::ConstSharedPtr> pending_clouds_to_publish;
     tf2::Transform tf_input_odom_to_output_odom_snapshot;
+    const double guarded_max_diff_sec =
+        max_time_diff_sec_ > 0.0 ? (max_time_diff_sec_ + kCloudOdomStampToleranceSec) : std::numeric_limits<double>::infinity();
     {
         std::lock_guard<std::mutex> lock(transform_mutex_);
         if (!odom_pose_ready_ || odom_stamp > latest_odometry_stamp_) {
@@ -491,6 +576,7 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
         }
         odom_pose_ready_ = true;
         tf_input_odom_to_output_odom_snapshot = tf_input_odom_to_output_odom_;
+        storeOdometryStampLocked(odom_stamp);
 
         if (use_input_twist_) {
             const tf2::Vector3 r_base_in_lidar = tf_base_to_lidar.getOrigin();
@@ -587,25 +673,32 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
             odom_state_.initialized = true;
         }
 
-        if (pending_cloud_) {
-            const rclcpp::Time pending_stamp(pending_cloud_->header.stamp);
-            const double pending_diff_sec = (pending_stamp - odom_stamp).seconds();
-            if (std::abs(pending_diff_sec) <= kCloudOdomStampToleranceSec) {
-                pending_cloud_to_publish = pending_cloud_;
-                pending_cloud_.reset();
-            } else if (pending_diff_sec < -kCloudOdomStampToleranceSec) {
-                RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                                     "pending registered_scan 未在 %.3f s 容差内等到匹配 odom，已丢弃 "
-                                     "(cloud=%.3f, odom=%.3f, diff=%.3f)",
-                                     kCloudOdomStampToleranceSec, pending_stamp.seconds(), odom_stamp.seconds(),
-                                     pending_diff_sec);
-                pending_cloud_.reset();
+        while (!pending_clouds_.empty()) {
+            const auto& pending_cloud = pending_clouds_.front();
+            const rclcpp::Time pending_stamp(pending_cloud->header.stamp);
+            const auto pending_lookup = lookupOdometryStampLocked(pending_stamp, guarded_max_diff_sec);
+
+            if (pending_lookup.has_match && !pending_lookup.cloud_ahead_of_latest) {
+                pending_clouds_to_publish.emplace_back(pending_cloud);
+                pending_clouds_.pop_front();
+                continue;
             }
+
+            if (!pending_lookup.has_history || pending_lookup.cloud_ahead_of_latest) {
+                break;
+            }
+
+            RCLCPP_WARN_THROTTLE(
+                this->get_logger(), *this->get_clock(), 2000,
+                "pending registered_scan 在 odom 历史窗口内未找到匹配帧，已丢弃 (cloud=%.3f, nearest_odom=%.3f, diff=%.3f)",
+                pending_stamp.seconds(), pending_lookup.closest_stamp.seconds(), pending_lookup.closest_signed_diff_sec);
+            pending_clouds_.pop_front();
         }
     }
 
-    if (pending_cloud_to_publish) {
-        publishRegisteredCloud(pending_cloud_to_publish, odom_stamp, tf_input_odom_to_output_odom_snapshot);
+    for (const auto& pending_cloud_to_publish : pending_clouds_to_publish) {
+        publishRegisteredCloud(pending_cloud_to_publish, rclcpp::Time(pending_cloud_to_publish->header.stamp),
+                               tf_input_odom_to_output_odom_snapshot);
     }
 
     odom_pub_->publish(out);
