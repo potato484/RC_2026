@@ -6,13 +6,75 @@
   - rc26_odom_interface (坐标变换: lidar_odom -> odom)
   - rc26_sensor_scan (发布 odom -> chassis 变换 + sensor_scan)
 """
+import os
+
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, LogInfo, OpaqueFunction, RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
+
+
+def _as_bool(value: str) -> bool:
+    return value.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def _create_point_lio_actions(context, *, namespace, use_sim_time, prior_pcd_file, point_lio_config_file,
+                              point_lio_profile, slam, param_overrides_file, point_lio_dir):
+    namespace_value = namespace.perform(context)
+    use_sim_time_value = _as_bool(use_sim_time.perform(context))
+    prior_pcd_file_value = prior_pcd_file.perform(context)
+    explicit_config_file = point_lio_config_file.perform(context).strip()
+    requested_profile = point_lio_profile.perform(context).strip().lower() or 'auto'
+    slam_value = _as_bool(slam.perform(context))
+    param_overrides_value = param_overrides_file.perform(context)
+
+    profile_to_file = {
+        'cruise_light': os.path.join(point_lio_dir, 'config', 'mid360_cruise_light.yaml'),
+        'mapping_dense': os.path.join(point_lio_dir, 'config', 'mid360_mapping_dense.yaml'),
+    }
+
+    if explicit_config_file:
+        resolved_config_file = explicit_config_file
+        selected_mode = f'custom:{explicit_config_file}'
+    else:
+        resolved_profile = requested_profile
+        if requested_profile == 'auto':
+            resolved_profile = 'mapping_dense' if slam_value else 'cruise_light'
+
+        if resolved_profile not in profile_to_file:
+            raise RuntimeError(
+                f"不支持的 point_lio_profile={requested_profile}，可选: auto | cruise_light | mapping_dense")
+
+        resolved_config_file = profile_to_file[resolved_profile]
+        selected_mode = f'profile:{resolved_profile}'
+
+    if not os.path.exists(resolved_config_file):
+        raise RuntimeError(f'Point-LIO 配置文件不存在: {resolved_config_file}')
+
+    point_lio_node = Node(
+        package='rc26_point_lio',
+        executable='pointlio_mapping',
+        name='point_lio',
+        namespace=namespace_value,
+        output='screen',
+        parameters=[
+            resolved_config_file,
+            param_overrides_value,
+            {'use_sim_time': use_sim_time_value},
+            {'prior_pcd.prior_pcd_map_path': prior_pcd_file_value},
+            {'odometry.publish_odometry_without_downsample': False},
+            {'frame.body_frame': 'point_lio_body'},
+            {'publish.tf_send_en': False},
+        ],
+    )
+
+    return [
+        LogInfo(msg=f'[odometry] Point-LIO 使用 {selected_mode} -> {resolved_config_file}'),
+        point_lio_node,
+    ]
 
 
 def generate_launch_description():
@@ -25,9 +87,11 @@ def generate_launch_description():
     namespace = LaunchConfiguration('namespace')
     use_sim_time = LaunchConfiguration('use_sim_time')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
+    slam = LaunchConfiguration('slam')
     odometry_use_rviz = LaunchConfiguration('odometry_use_rviz')
     start_mid360_driver = LaunchConfiguration('start_mid360_driver')
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
+    point_lio_profile = LaunchConfiguration('point_lio_profile')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     recover_mid360_lidar_ip = LaunchConfiguration('recover_mid360_lidar_ip')
     recover_mid360_host_ip = LaunchConfiguration('recover_mid360_host_ip')
@@ -51,6 +115,11 @@ def generate_launch_description():
         default_value='',
         description='先验点云文件路径 (建图模式下可为空)')
 
+    declare_slam = DeclareLaunchArgument(
+        'slam',
+        default_value='false',
+        description='是否处于建图模式（用于 auto 选择 Point-LIO profile）')
+
     declare_use_rviz = DeclareLaunchArgument(
         'odometry_use_rviz',
         default_value='true',
@@ -63,8 +132,13 @@ def generate_launch_description():
 
     declare_point_lio_config_file = DeclareLaunchArgument(
         'point_lio_config_file',
-        default_value=PathJoinSubstitution([point_lio_dir, 'config', 'mid360.yaml']),
-        description='Point-LIO 参数文件路径（建图/调试时可切换不同配置）')
+        default_value='',
+        description='Point-LIO 参数文件路径；非空时优先级高于 point_lio_profile')
+
+    declare_point_lio_profile = DeclareLaunchArgument(
+        'point_lio_profile',
+        default_value='auto',
+        description='Point-LIO 预设: auto | cruise_light | mapping_dense')
 
     declare_recover_mid360_stream = DeclareLaunchArgument(
         'recover_mid360_stream',
@@ -145,27 +219,18 @@ def generate_launch_description():
     )
 
     # rc26_point_lio 里程计节点
-    point_lio_node = Node(
-        package='rc26_point_lio',
-        executable='pointlio_mapping',
-        name='point_lio',
-        namespace=namespace,
-        output='screen',
-        parameters=[
-            point_lio_config_file,
-            param_overrides_file,
-            {'use_sim_time': use_sim_time},
-            {'prior_pcd.prior_pcd_map_path': prior_pcd_file},
-            # 集成里程计链要求 /state_estimation 与 /cloud_registered 共享同一 LiDAR 时戳。
-            # 若开启无下采样高频里程计，Point-LIO 会以 time_current 给里程计打戳，
-            # 下游 odom_interface / sensor_scan 会因为与点云时戳偏差过大而持续丢帧。
-            {'odometry.publish_odometry_without_downsample': False},
-            # Point-LIO 的 body_frame 实际对应其内部 body/IMU 语义，
-            # 不能直接伪装成 livox_frame；否则 odom_interface 会把 body pose 当成 LiDAR pose 再乘一次静态外参，
-            # 造成启动即存在的固定偏差。
-            {'frame.body_frame': 'point_lio_body'},
-            {'publish.tf_send_en': False},
-        ],
+    point_lio_actions = OpaqueFunction(
+        function=lambda context: _create_point_lio_actions(
+            context,
+            namespace=namespace,
+            use_sim_time=use_sim_time,
+            prior_pcd_file=prior_pcd_file,
+            point_lio_config_file=point_lio_config_file,
+            point_lio_profile=point_lio_profile,
+            slam=slam,
+            param_overrides_file=param_overrides_file,
+            point_lio_dir=point_lio_dir,
+        )
     )
 
     # rc26_odom_interface: 将 rc26_point_lio 输出从 lidar_odom 转换到 odom 系
@@ -249,9 +314,11 @@ def generate_launch_description():
         declare_namespace,
         declare_use_sim_time,
         declare_prior_pcd_file,
+        declare_slam,
         declare_use_rviz,
         declare_start_mid360_driver,
         declare_point_lio_config_file,
+        declare_point_lio_profile,
         declare_recover_mid360_stream,
         declare_recover_mid360_lidar_ip,
         declare_recover_mid360_host_ip,
@@ -265,7 +332,7 @@ def generate_launch_description():
         recover_mid360_process,
         start_mid360_after_recover,
         mid360_driver_node,
-        point_lio_node,
+        point_lio_actions,
         odom_interface_node,
         sensor_scan_node,
         lio_state_predictor_node,

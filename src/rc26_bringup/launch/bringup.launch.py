@@ -11,9 +11,11 @@ src R2导航系统 - 主启动文件
   - 地图服务 (nav2_map_server)
 
 """
+import os
+
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, GroupAction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, GroupAction, LogInfo
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
@@ -29,6 +31,7 @@ def generate_launch_description():
     kfs_keepout_dir = get_package_share_directory('rc26_kfs_keepout')
     point_lio_dir = get_package_share_directory('rc26_point_lio')
     visualization_dir = get_package_share_directory('rc26_visualization')
+    display_available = 'true' if (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')) else 'false'
 
     # 启动参数
     namespace = LaunchConfiguration('namespace')
@@ -37,6 +40,7 @@ def generate_launch_description():
     map_file = LaunchConfiguration('map')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
+    point_lio_profile = LaunchConfiguration('point_lio_profile')
     params_file = LaunchConfiguration('params_file')
     terrain_params_file = LaunchConfiguration('terrain_params_file')
     use_rviz = LaunchConfiguration('use_rviz')
@@ -78,8 +82,13 @@ def generate_launch_description():
 
     declare_point_lio_config_file = DeclareLaunchArgument(
         'point_lio_config_file',
-        default_value=PathJoinSubstitution([point_lio_dir, 'config', 'mid360.yaml']),
-        description='Point-LIO 参数文件路径（建图/调试时可切换不同配置）')
+        default_value='',
+        description='Point-LIO 参数文件路径；非空时优先级高于 point_lio_profile')
+
+    declare_point_lio_profile = DeclareLaunchArgument(
+        'point_lio_profile',
+        default_value='auto',
+        description='Point-LIO 预设: auto | cruise_light | mapping_dense；auto 会按 slam 自动选择')
 
     declare_params_file = DeclareLaunchArgument(
         'params_file',
@@ -169,8 +178,10 @@ def generate_launch_description():
         launch_arguments={
             'namespace': namespace,
             'use_sim_time': use_sim_time,
+            'slam': slam,
             'prior_pcd_file': prior_pcd_file,
             'point_lio_config_file': point_lio_config_file,
+            'point_lio_profile': point_lio_profile,
             'odometry_use_rviz': 'false',
             'recover_mid360_stream': recover_mid360_stream,
         }.items()
@@ -421,7 +432,15 @@ def generate_launch_description():
             )
         ],
         condition=IfCondition(PythonExpression([
-            "'", visualization_backend, "' == 'rviz'"
+            "'", visualization_backend, "' == 'rviz' and '", display_available, "' == 'true'"
+        ]))
+    )
+
+    rviz_headless_notice = LogInfo(
+        msg='[bringup] 未检测到 DISPLAY/WAYLAND_DISPLAY，跳过 RViz；可改用 visualization_backend:=foxglove 或 none。',
+        condition=IfCondition(PythonExpression([
+            "'", visualization_backend, "' == 'rviz' and '", use_rviz, "' == 'true' and '",
+            display_available, "' != 'true'"
         ]))
     )
 
@@ -433,6 +452,7 @@ def generate_launch_description():
         declare_map,
         declare_prior_pcd_file,
         declare_point_lio_config_file,
+        declare_point_lio_profile,
         declare_params_file,
         declare_terrain_params_file,
         declare_use_rviz,
@@ -462,6 +482,7 @@ def generate_launch_description():
         decision_node,
         visualization_status_node,
         realsense_group,
+        rviz_headless_notice,
         foxglove_group,
         rviz_group,
     ])

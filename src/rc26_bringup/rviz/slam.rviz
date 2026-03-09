@@ -12,6 +12,17 @@ Visualization Manager:
       Name: TF
       Value: true
     - Class: rviz_default_plugins/PointCloud2
+      Name: LaserMapFull
+      Topic:
+        Value: /laser_map_full
+        Queue Size: 1
+      Value: true
+      Size (m): 0.04
+      Style: Points
+      Color: 80; 255; 120
+      Color Transformer: FlatColor
+      Reliability Policy: Best Effort
+    - Class: rviz_default_plugins/PointCloud2
       Name: RegisteredCloud
       Topic:
         Value: /registered_scan

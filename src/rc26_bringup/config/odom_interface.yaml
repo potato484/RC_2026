@@ -26,5 +26,5 @@ odom_interface:
     zero_origin_warmup_frames: 10  # 需要累计的静止帧数（10Hz 雷达约 1 秒）
     zero_origin_max_linear_speed_mps: 0.05  # 归零阶段判定静止的线速度阈值
     zero_origin_max_angular_speed_radps: 0.10  # 归零阶段判定静止的角速度阈值
-    debug_pose_log: true
+    debug_pose_log: false  # 默认关闭高频位姿调试日志，避免持续刷屏
     debug_pose_log_interval_sec: 0.5

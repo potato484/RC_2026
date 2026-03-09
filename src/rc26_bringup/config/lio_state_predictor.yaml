@@ -19,5 +19,5 @@ lio_state_predictor:
     degenerate_score_timeout_sec: 0.2
     max_prediction_horizon_sec: 0.35
     startup_no_prediction_sec: 1.0
-    debug_pose_log: true
+    debug_pose_log: false  # 默认关闭高频预测/对比调试日志，避免持续刷屏
     debug_pose_log_interval_sec: 0.5
