@@ -5,6 +5,7 @@
   - rc26_point_lio (LiDAR-IMU 里程计)
   - rc26_odom_interface (坐标变换: lidar_odom -> odom)
   - rc26_sensor_scan (发布 odom -> chassis 变换 + sensor_scan)
+  - rc26_lio_state_predictor (可选，提供控制态预测)
 """
 import os
 
@@ -65,7 +66,6 @@ def _create_point_lio_actions(context, *, namespace, use_sim_time, prior_pcd_fil
             param_overrides_value,
             {'use_sim_time': use_sim_time_value},
             {'prior_pcd.prior_pcd_map_path': prior_pcd_file_value},
-            {'odometry.publish_odometry_without_downsample': False},
             {'frame.body_frame': 'point_lio_body'},
             {'publish.tf_send_en': False},
         ],
@@ -92,6 +92,7 @@ def generate_launch_description():
     start_mid360_driver = LaunchConfiguration('start_mid360_driver')
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
     point_lio_profile = LaunchConfiguration('point_lio_profile')
+    enable_lio_state_predictor = LaunchConfiguration('enable_lio_state_predictor')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     recover_mid360_lidar_ip = LaunchConfiguration('recover_mid360_lidar_ip')
     recover_mid360_host_ip = LaunchConfiguration('recover_mid360_host_ip')
@@ -139,6 +140,11 @@ def generate_launch_description():
         'point_lio_profile',
         default_value='auto',
         description='Point-LIO 预设: auto | cruise_light | mapping_dense')
+
+    declare_enable_lio_state_predictor = DeclareLaunchArgument(
+        'enable_lio_state_predictor',
+        default_value='true',
+        description='是否启动 lio_state_predictor；纯建图最小模式建议关闭以减少 stale 告警和额外负载')
 
     declare_recover_mid360_stream = DeclareLaunchArgument(
         'recover_mid360_stream',
@@ -269,6 +275,7 @@ def generate_launch_description():
             lio_state_predictor_yaml,
             {'use_sim_time': use_sim_time},
         ],
+        condition=IfCondition(enable_lio_state_predictor)
     )
 
     # 静态TF: base_link -> livox_frame (与 Point-LIO 外参对齐)
@@ -319,6 +326,7 @@ def generate_launch_description():
         declare_start_mid360_driver,
         declare_point_lio_config_file,
         declare_point_lio_profile,
+        declare_enable_lio_state_predictor,
         declare_recover_mid360_stream,
         declare_recover_mid360_lidar_ip,
         declare_recover_mid360_host_ip,

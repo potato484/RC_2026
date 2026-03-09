@@ -194,6 +194,9 @@ def generate_launch_description():
             'prior_pcd_file': prior_pcd_file,
             'point_lio_config_file': point_lio_config_file,
             'point_lio_profile': point_lio_profile,
+            'enable_lio_state_predictor': PythonExpression([
+                "not ('", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true')"
+            ]),
             'odometry_use_rviz': 'false',
             'recover_mid360_stream': recover_mid360_stream,
         }.items()
@@ -405,7 +408,7 @@ def generate_launch_description():
     )
 
     pure_mapping_notice = LogInfo(
-        msg='[bringup] pure_mapping_mode 已启用：建图时仅保留 odometry/localization/RViz 等最小链路，跳过 rc26_terrain、rc26_decision 和 visualization_status。',
+        msg='[bringup] pure_mapping_mode 已启用：建图时仅保留 Point-LIO/odom_interface/localization/RViz 等最小链路，跳过 lio_state_predictor、rc26_terrain、rc26_decision 和 visualization_status。',
         condition=IfCondition(pure_mapping_runtime)
     )
 
