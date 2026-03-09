@@ -173,6 +173,60 @@ void publish_init_map(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::Sh
     pubLaserCloudFullRes->publish(laserCloudmsg);
 }
 
+void publish_full_map(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr& pubLaserCloudMapFull) {
+    if (!map_full_pub_en || !pubLaserCloudMapFull) {
+        return;
+    }
+
+    if (pubLaserCloudMapFull->get_subscription_count() == 0U) {
+        return;
+    }
+
+    static double last_map_full_pub_time = -1.0;
+    if (map_full_publish_interval_sec > 0.0 && last_map_full_pub_time >= 0.0 &&
+        lidar_end_time - last_map_full_pub_time < map_full_publish_interval_sec) {
+        return;
+    }
+
+    if (!ivox_) {
+        return;
+    }
+
+    auto ivox_cloud = std::make_shared<PointCloudXYZI>();
+    size_t total_points = 0;
+    for (const auto& grid_entry : ivox_->grids_map_) {
+        total_points += grid_entry.second->second.Size();
+    }
+
+    if (total_points == 0U) {
+        return;
+    }
+
+    ivox_cloud->points.reserve(total_points);
+    for (const auto& grid_entry : ivox_->grids_map_) {
+        const auto& node = grid_entry.second->second;
+        for (size_t idx = 0; idx < node.Size(); ++idx) {
+            ivox_cloud->points.emplace_back(node.GetPoint(idx));
+        }
+    }
+
+    ivox_cloud->width = static_cast<uint32_t>(ivox_cloud->points.size());
+    ivox_cloud->height = 1;
+    ivox_cloud->is_dense = false;
+
+    PointCloudXYZI map_cloud_filtered;
+    downSizeFilterMap.setInputCloud(ivox_cloud);
+    downSizeFilterMap.filter(map_cloud_filtered);
+
+    sensor_msgs::msg::PointCloud2 laserCloudmsg;
+    pcl::toROSMsg(map_cloud_filtered, laserCloudmsg);
+    laserCloudmsg.header.stamp = get_ros_time(lidar_end_time);
+    laserCloudmsg.header.frame_id = odom_frame;
+    pubLaserCloudMapFull->publish(laserCloudmsg);
+
+    last_map_full_pub_time = lidar_end_time;
+}
+
 PointCloudXYZI::Ptr pcl_wait_pub(new PointCloudXYZI(500000, 1));
 PointCloudXYZI::Ptr pcl_wait_save(new PointCloudXYZI());
 void publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr& pubLaserCloudFullRes) {
@@ -404,6 +458,45 @@ int main(int argc, char** argv) {
                                 name.c_str(), old_v, filter_size_map_min);
                     continue;
                 }
+                if (name == "point_filter_num") {
+                    if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+                        reject("point_filter_num expects integer");
+                        break;
+                    }
+                    const int old_configured = configured_point_filter_num;
+                    const int old_effective = p_pre->point_filter_num;
+                    configured_point_filter_num = std::max(1, static_cast<int>(p.as_int()));
+                    applyEffectivePointFilterNum();
+                    RCLCPP_INFO(LOGGER,
+                                "PARAM_UPDATE,node=laserMapping,param=%s,old=%d,new=%d,effective_point_filter_num=%d",
+                                name.c_str(), old_configured, configured_point_filter_num, p_pre->point_filter_num);
+                    if (old_effective != p_pre->point_filter_num) {
+                        RCLCPP_INFO(LOGGER,
+                                    "PARAM_EFFECT,node=laserMapping,param=point_filter_num,old_effective=%d,new_effective=%d",
+                                    old_effective, p_pre->point_filter_num);
+                    }
+                    continue;
+                }
+                if (name == "point_keep_ratio") {
+                    if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                        reject("point_keep_ratio expects double");
+                        break;
+                    }
+                    const double old_ratio = point_keep_ratio;
+                    const int old_effective = p_pre->point_filter_num;
+                    const double requested_ratio = p.as_double();
+                    point_keep_ratio = requested_ratio > 0.0 ? std::clamp(requested_ratio, 1.0, 100.0) : -1.0;
+                    applyEffectivePointFilterNum();
+                    RCLCPP_INFO(LOGGER,
+                                "PARAM_UPDATE,node=laserMapping,param=%s,old=%.6f,new=%.6f,effective_point_filter_num=%d",
+                                name.c_str(), old_ratio, point_keep_ratio, p_pre->point_filter_num);
+                    if (old_effective != p_pre->point_filter_num) {
+                        RCLCPP_INFO(LOGGER,
+                                    "PARAM_EFFECT,node=laserMapping,param=point_keep_ratio,old_effective=%d,new_effective=%d",
+                                    old_effective, p_pre->point_filter_num);
+                    }
+                    continue;
+                }
                 if (name == "preprocess.det_range") {
                     if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
                         reject("preprocess.det_range expects double");
@@ -447,6 +540,28 @@ int main(int argc, char** argv) {
                     ivox_rebuild_pending = true;
                     RCLCPP_INFO(LOGGER, "PARAM_UPDATE,node=laserMapping,param=%s,old=%.6f,new=%.6f",
                                 name.c_str(), old_v, ivox_options_.resolution_);
+                    continue;
+                }
+                if (name == "publish.map_full_publish_en") {
+                    if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+                        reject("publish.map_full_publish_en expects bool");
+                        break;
+                    }
+                    const bool old_v = map_full_pub_en;
+                    map_full_pub_en = p.as_bool();
+                    RCLCPP_INFO(LOGGER, "PARAM_UPDATE,node=laserMapping,param=%s,old=%s,new=%s",
+                                name.c_str(), old_v ? "true" : "false", map_full_pub_en ? "true" : "false");
+                    continue;
+                }
+                if (name == "publish.map_full_publish_interval_sec") {
+                    if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                        reject("publish.map_full_publish_interval_sec expects double");
+                        break;
+                    }
+                    const double old_v = map_full_publish_interval_sec;
+                    map_full_publish_interval_sec = std::max(0.0, p.as_double());
+                    RCLCPP_INFO(LOGGER, "PARAM_UPDATE,node=laserMapping,param=%s,old=%.6f,new=%.6f",
+                                name.c_str(), old_v, map_full_publish_interval_sec);
                     continue;
                 }
 
@@ -503,6 +618,7 @@ int main(int argc, char** argv) {
         nh->create_publisher<sensor_msgs::msg::PointCloud2>("cloud_registered_body", 20);
     auto pub_laser_cloud_effect = nh->create_publisher<sensor_msgs::msg::PointCloud2>("cloud_effected", 20);
     auto pub_laser_cloud_map = nh->create_publisher<sensor_msgs::msg::PointCloud2>("Laser_map", 20);
+    auto pub_laser_cloud_map_full = nh->create_publisher<sensor_msgs::msg::PointCloud2>("laser_map_full", 2);
     auto pub_odom_aft_mapped = nh->create_publisher<nav_msgs::msg::Odometry>("state_estimation", 20);
     auto pub_path = nh->create_publisher<nav_msgs::msg::Path>("path", 20);
     auto pub_degen_score = nh->create_publisher<std_msgs::msg::Float64>("degenerate_score", 20);
@@ -1174,6 +1290,7 @@ int main(int argc, char** argv) {
                 publish_path(pub_path);
             if (scan_pub_en || pcd_save_en)
                 publish_frame_world(pub_laser_cloud_full_res);
+            publish_full_map(pub_laser_cloud_map_full);
             if (scan_pub_en && scan_body_pub_en)
                 publish_frame_body(pub_laser_cloud_full_res_body);
 

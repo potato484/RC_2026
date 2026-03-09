@@ -5,7 +5,7 @@
         check_satu: True
         init_map_size: 10
         point_filter_num: 1                                 # 兼容旧参数：每 N 个点取 1；若设置 point_keep_ratio，则以百分比参数为准
-        point_keep_ratio: 50.0                            # 动态可调，单位 %；100=全保留，50≈保留一半，25≈保留约四分之一
+        point_keep_ratio: 50.0                             # 巡航轻量：约保留一半输入点，降低带宽/CPU
         space_down_sample: True
         filter_size_surf: 0.2                               # 可选值：0.5、0.3、0.2、0.15、0.1
         filter_size_map: 0.2                               # 可选值：0.5、0.3、0.15、0.1
@@ -73,8 +73,8 @@
             scan_publish_en: True                           # False：关闭所有点云输出
             scan_bodyframe_pub_en: False                    # True：输出 IMU 机体系下的点云
             tf_send_en: True                                # True：发布从 'camera_init' 到 'aft_mapped' 的 TF
-            map_full_publish_en: True                       # 持续发布累计地图，便于 RViz / Foxglove 观察历史建图内容
-            map_full_publish_interval_sec: 1.0              # 累计地图发布周期；0 表示每帧都发，注意带宽/CPU 开销
+            map_full_publish_en: False                      # 巡航轻量：关闭累计地图持续发布
+            map_full_publish_interval_sec: 1.5              # 累计地图发布周期；0 表示每帧都发，注意带宽/CPU 开销
 
         pcd_save:
             pcd_save_en: False

@@ -5,10 +5,10 @@
         check_satu: True
         init_map_size: 10
         point_filter_num: 1                                 # 兼容旧参数：每 N 个点取 1；若设置 point_keep_ratio，则以百分比参数为准
-        point_keep_ratio: 50.0                            # 动态可调，单位 %；100=全保留，50≈保留一半，25≈保留约四分之一
+        point_keep_ratio: 100.0                           # 建图高密：保留全部输入点，再配合更小体素滤波
         space_down_sample: True
-        filter_size_surf: 0.2                               # 可选值：0.5、0.3、0.2、0.15、0.1
-        filter_size_map: 0.2                               # 可选值：0.5、0.3、0.15、0.1
+        filter_size_surf: 0.1                               # 可选值：0.5、0.3、0.2、0.15、0.1
+        filter_size_map: 0.1                                # 可选值：0.5、0.3、0.15、0.1
         ivox_nearby_type: 18                                # 可选值：0、6、18、26
         runtime_pos_log_enable: False                       # 可选值：True
 
@@ -73,10 +73,11 @@
             scan_publish_en: True                           # False：关闭所有点云输出
             scan_bodyframe_pub_en: False                    # True：输出 IMU 机体系下的点云
             tf_send_en: True                                # True：发布从 'camera_init' 到 'aft_mapped' 的 TF
-            map_full_publish_en: True                       # 持续发布累计地图，便于 RViz / Foxglove 观察历史建图内容
+            map_full_publish_en: True                       # 建图高密：持续发布累计地图
             map_full_publish_interval_sec: 1.0              # 累计地图发布周期；0 表示每帧都发，注意带宽/CPU 开销
 
         pcd_save:
-            pcd_save_en: False
+            # 建图专用：开启 PCD 保存（会影响实时性；场地小可用 interval=-1 在退出时生成 scans.pcd）
+            pcd_save_en: True
             interval: -1                                    # 每个 pcd 文件保存的 LiDAR 帧数；
                                                             # -1：所有帧保存到同一个 pcd 文件，帧数过多可能导致内存崩溃。

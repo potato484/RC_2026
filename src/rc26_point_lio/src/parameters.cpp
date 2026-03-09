@@ -1,6 +1,8 @@
 // Maintained by DongXuan Chen <2220362462@qq.com>
 #include "parameters.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 
 namespace {
@@ -15,11 +17,35 @@ std::string ensureLogDirectory() {
     return log_dir.string();
 }
 
+int clampPointFilterNum(const int raw_value) {
+    return std::max(1, raw_value);
+}
+
+double clampPointKeepRatio(const double raw_value) {
+    return std::clamp(raw_value, 1.0, 100.0);
+}
+
+void applyEffectivePointFilterNumImpl() {
+    configured_point_filter_num = clampPointFilterNum(configured_point_filter_num);
+
+    int effective_filter_num = configured_point_filter_num;
+    if (std::isfinite(point_keep_ratio) && point_keep_ratio > 0.0) {
+        point_keep_ratio = clampPointKeepRatio(point_keep_ratio);
+        effective_filter_num = std::max(1, static_cast<int>(std::lround(100.0 / point_keep_ratio)));
+    }
+
+    p_pre->point_filter_num = effective_filter_num;
+}
+
 }  // namespace
 
 LioRuntimeState& runtime() {
     static LioRuntimeState state;
     return state;
+}
+
+void applyEffectivePointFilterNum() {
+    applyEffectivePointFilterNumImpl();
 }
 
 void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
@@ -54,7 +80,10 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
         nh->get_parameter("mapping.plane_thr", plane_thr);
 
         nh->declare_parameter<int>("point_filter_num", 2);
-        nh->get_parameter("point_filter_num", p_pre->point_filter_num);
+        nh->get_parameter("point_filter_num", configured_point_filter_num);
+
+        nh->declare_parameter<double>("point_keep_ratio", -1.0);
+        nh->get_parameter("point_keep_ratio", point_keep_ratio);
 
         nh->declare_parameter<std::string>("common.lid_topic", ".livox.lidar");
         nh->get_parameter("common.lid_topic", lid_topic);
@@ -194,6 +223,12 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
         nh->declare_parameter<bool>("publish.tf_send_en", true);
         nh->get_parameter("publish.tf_send_en", tf_send_en);
 
+        nh->declare_parameter<bool>("publish.map_full_publish_en", false);
+        nh->get_parameter("publish.map_full_publish_en", map_full_pub_en);
+
+        nh->declare_parameter<double>("publish.map_full_publish_interval_sec", 1.0);
+        nh->get_parameter("publish.map_full_publish_interval_sec", map_full_publish_interval_sec);
+
         nh->declare_parameter<bool>("runtime_pos_log_enable", false);
         nh->get_parameter("runtime_pos_log_enable", runtime_pos_log);
 
@@ -223,6 +258,9 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
     } catch (const std::exception& e) {
         RCLCPP_ERROR(nh->get_logger(), "Exception: %s", e.what());
     }
+
+    applyEffectivePointFilterNum();
+    map_full_publish_interval_sec = std::max(0.0, map_full_publish_interval_sec);
 
     if (ivox_nearby_type == 0) {
         ivox_options_.nearby_type_ = IVoxType::NearbyType::CENTER;
