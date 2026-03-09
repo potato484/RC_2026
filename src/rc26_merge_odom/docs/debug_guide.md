@@ -31,6 +31,21 @@ ros2 launch rc26_merge_odom merge_odom.launch.py use_can_odom:=false start_ekf:=
 ros2 run rc26_telecontrol rc26_telecontrol --ros-args -p cmd_vel_topic:=cmd_vel
 ```
 
+若建图链使用：
+
+```bash
+ros2 launch rc26_bringup bringup.launch.py slam:=true pure_mapping_mode:=true
+```
+
+则 `rc26_terrain` 不会启动，`/terrain_speed_limit` 也不会产生。此时若想把底盘执行链路也同步做成最小配置，可改为：
+
+```bash
+ros2 launch rc26_merge_odom merge_odom.launch.py \
+  use_can_odom:=false \
+  start_ekf:=false \
+  terrain_speed_limit_topic:=__disabled__
+```
+
 **预期结果：**
 - 车可以正常遥控移动；
 - `merge_odom_node` 继续执行速度保护与下发；

@@ -18,6 +18,10 @@ def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, 
     start_ekf = start_ekf_value in ('1', 'true', 'yes', 'on')
     odom0_topic_override = can_odom_topic if use_can_odom else wheel_odom_topic
     pose_feedback_topic = 'merge_odom' if start_ekf else odom0_topic_override
+    terrain_speed_limit_topic_raw = LaunchConfiguration('terrain_speed_limit_topic').perform(context).strip()
+    terrain_speed_limit_topic = terrain_speed_limit_topic_raw
+    if terrain_speed_limit_topic_raw.lower() in ('__disabled__', '__none__', 'none', 'off', 'false', '0'):
+        terrain_speed_limit_topic = ''
 
     merge_odom_node = Node(
         package='rc26_merge_odom',
@@ -30,6 +34,7 @@ def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, 
             'feedback_serial_port': LaunchConfiguration('feedback_serial_port').perform(context),
             'target_serial_port': LaunchConfiguration('target_serial_port').perform(context),
             'merge_odom_topic': pose_feedback_topic,
+            'terrain_speed_limit_topic': terrain_speed_limit_topic,
         }]
     )
 
@@ -80,6 +85,7 @@ def generate_launch_description():
     target_serial_port_default = str(merge_params.get('target_serial_port', '/dev/ttyUSB1'))
     can_odom_topic_default = str(merge_params.get('can_odom_topic', 'Can_Odom'))
     wheel_odom_topic_default = str(merge_params.get('wheel_odom_topic', 'wheel_odom'))
+    terrain_speed_limit_topic_default = str(merge_params.get('terrain_speed_limit_topic', ''))
 
     use_can_odom_arg = DeclareLaunchArgument(
         'use_can_odom',
@@ -107,6 +113,10 @@ def generate_launch_description():
         'target_serial_port', default_value=target_serial_port_default,
         description='MCU target serial port (velocity target + ODOM_DATA upstream)')
 
+    terrain_speed_limit_topic_arg = DeclareLaunchArgument(
+        'terrain_speed_limit_topic', default_value=terrain_speed_limit_topic_default,
+        description='Terrain speed limit topic for PoseSender; use __disabled__ to disable terrain-based linear speed suppression')
+
     return LaunchDescription([
         use_can_odom_arg,
         start_ekf_arg,
@@ -114,6 +124,7 @@ def generate_launch_description():
         imu_port_arg,
         feedback_serial_port_arg,
         target_serial_port_arg,
+        terrain_speed_limit_topic_arg,
         OpaqueFunction(
             function=create_runtime_nodes,
             args=[params_file, ekf_params_file, can_odom_topic_default, wheel_odom_topic_default],

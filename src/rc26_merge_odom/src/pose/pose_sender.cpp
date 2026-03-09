@@ -183,6 +183,8 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
     if (!config_.terrain_speed_limit_topic.empty()) {
         RCLCPP_INFO(node_.get_logger(), "PoseSender terrain_speed_limit 已启用: topic=%s timeout=%dms",
                     config_.terrain_speed_limit_topic.c_str(), config_.terrain_speed_limit_timeout_ms);
+    } else {
+        RCLCPP_INFO(node_.get_logger(), "PoseSender terrain_speed_limit 已禁用，手动遥控不会被地形限速抑制");
     }
 }
 
@@ -366,6 +368,12 @@ float PoseSender::getEffectiveVMax(const std::chrono::steady_clock::time_point& 
     if (terrain_limit_valid && std::isfinite(terrain_limit)) {
         terrain_limit = std::max(0.0f, terrain_limit);
         effective_v_max = std::min(effective_v_max, terrain_limit);
+        if (effective_v_max <= 1e-6f) {
+            RCLCPP_WARN_THROTTLE(
+                node_.get_logger(), *node_.get_clock(), 2000,
+                "terrain_speed_limit 当前为 %.3f m/s，线速度输出被抑制；若为手动摇杆/十字测试，请禁用 terrain_speed_limit_topic",
+                terrain_limit);
+        }
     }
     return effective_v_max;
 }
