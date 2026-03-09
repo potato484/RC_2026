@@ -22,7 +22,7 @@
 #include <string>
 
 #include "message_filters/subscriber.h"
-#include "message_filters/sync_policies/approximate_time.h"
+#include "message_filters/sync_policies/exact_time.h"
 #include "message_filters/synchronizer.h"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -68,7 +68,7 @@ private:
     message_filters::Subscriber<sensor_msgs::msg::PointCloud2> laser_cloud_sub_;
 
     using SyncPolicy =
-        message_filters::sync_policies::ApproximateTime<nav_msgs::msg::Odometry, sensor_msgs::msg::PointCloud2>;
+        message_filters::sync_policies::ExactTime<nav_msgs::msg::Odometry, sensor_msgs::msg::PointCloud2>;
     std::unique_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
 };
 
