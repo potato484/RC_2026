@@ -10,6 +10,8 @@ src R2导航系统 - 主启动文件
   - 决策系统 (rc26_decision)
   - 地图服务 (nav2_map_server)
 
+额外模式:
+  - slam:=true 且 pure_mapping_mode:=true 时，仅保留纯建图最小链路
 """
 import os
 
@@ -37,6 +39,7 @@ def generate_launch_description():
     namespace = LaunchConfiguration('namespace')
     use_sim_time = LaunchConfiguration('use_sim_time')
     slam = LaunchConfiguration('slam')
+    pure_mapping_mode = LaunchConfiguration('pure_mapping_mode')
     map_file = LaunchConfiguration('map')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
@@ -69,6 +72,11 @@ def generate_launch_description():
         'slam',
         default_value='false',
         description='建图模式 (True) 或导航模式 (False)')
+
+    declare_pure_mapping_mode = DeclareLaunchArgument(
+        'pure_mapping_mode',
+        default_value='false',
+        description='纯建图最小模式；仅在 slam:=true 时生效，跳过 terrain/decision/visualization_status')
 
     declare_map = DeclareLaunchArgument(
         'map',
@@ -152,6 +160,10 @@ def generate_launch_description():
         default_value='/kfs_keepout_heartbeat',
         description='KFS keepout heartbeat topic shared by keepout producer and decision gate')
 
+    pure_mapping_runtime = PythonExpression([
+        "'", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true'"
+    ])
+
     # RealSense D455（可选）
     realsense_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -214,7 +226,8 @@ def generate_launch_description():
             'namespace': namespace,
             'use_sim_time': use_sim_time,
             'terrain_params_file': terrain_params_file,
-        }.items()
+        }.items(),
+        condition=UnlessCondition(pure_mapping_runtime)
     )
 
     # 地面高度估计 (rc26_base_ground)
@@ -366,7 +379,10 @@ def generate_launch_description():
                 'keepout_gate.heartbeat_topic': kfs_heartbeat_topic,
             },
         ],
-        condition=IfCondition(use_decision)
+        condition=IfCondition(PythonExpression([
+            "'", use_decision, "'.lower() == 'true' and not ('", slam, "'.lower() == 'true' and '",
+            pure_mapping_mode, "'.lower() == 'true')"
+        ]))
     )
 
     visualization_status_config = PathJoinSubstitution([
@@ -382,7 +398,15 @@ def generate_launch_description():
             visualization_status_config,
             {'use_sim_time': use_sim_time},
         ],
-        condition=IfCondition(visualization_status_enable)
+        condition=IfCondition(PythonExpression([
+            "'", visualization_status_enable, "'.lower() == 'true' and not ('", slam,
+            "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true')"
+        ]))
+    )
+
+    pure_mapping_notice = LogInfo(
+        msg='[bringup] pure_mapping_mode 已启用：建图时仅保留 odometry/localization/RViz 等最小链路，跳过 rc26_terrain、rc26_decision 和 visualization_status。',
+        condition=IfCondition(pure_mapping_runtime)
     )
 
     foxglove_bridge_node = Node(
@@ -449,6 +473,7 @@ def generate_launch_description():
         declare_namespace,
         declare_use_sim_time,
         declare_slam,
+        declare_pure_mapping_mode,
         declare_map,
         declare_prior_pcd_file,
         declare_point_lio_config_file,
@@ -467,6 +492,7 @@ def generate_launch_description():
         declare_kfs_heartbeat_topic,
 
         # 启动模块
+        pure_mapping_notice,
         odometry_launch,
         localization_launch,
         base_ground_node,

@@ -23,11 +23,28 @@
 - 默认开启 PCD 保存。
 
 ```bash
+# 完整建图链路（保留 terrain / visualization_status 等附加模块）
 ros2 launch rc26_bringup bringup.launch.py \
   slam:=true \
   point_lio_profile:=mapping_dense \
   use_decision:=false
 ```
+
+如果当前目标只是纯建图、录制 PCD、查看累计地图，不需要地形语义、决策与状态聚合，可启用更轻量的纯建图模式：
+
+```bash
+# 纯建图最小链路（跳过 rc26_terrain / rc26_decision / visualization_status）
+ros2 launch rc26_bringup bringup.launch.py \
+  slam:=true \
+  pure_mapping_mode:=true \
+  point_lio_profile:=mapping_dense
+```
+
+说明：
+
+- `pure_mapping_mode` 仅在 `slam:=true` 时生效；
+- 该模式仍会保留建图必需的 odometry 与 `map -> odom` 静态变换；
+- 若还想进一步减负，可叠加 `visualization_backend:=none use_rviz:=false` 关闭可视化。
 
 建图完成后：
 
