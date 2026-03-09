@@ -9,3 +9,7 @@ __pycache__/
 Log/
 方案/
 AGENTS.md
+
+# Project-local ROS bag captures
+/rosbags/*
+!/rosbags/README.md
