@@ -23,7 +23,8 @@ def _as_bool(value: str) -> bool:
 
 
 def _create_point_lio_actions(context, *, namespace, use_sim_time, prior_pcd_file, point_lio_config_file,
-                              point_lio_profile, slam, param_overrides_file, point_lio_dir):
+                              point_lio_profile, slam, param_overrides_file, point_lio_dir,
+                              point_lio_publish_odometry_without_downsample):
     namespace_value = namespace.perform(context)
     use_sim_time_value = _as_bool(use_sim_time.perform(context))
     prior_pcd_file_value = prior_pcd_file.perform(context)
@@ -31,6 +32,9 @@ def _create_point_lio_actions(context, *, namespace, use_sim_time, prior_pcd_fil
     requested_profile = point_lio_profile.perform(context).strip().lower() or 'auto'
     slam_value = _as_bool(slam.perform(context))
     param_overrides_value = param_overrides_file.perform(context)
+    publish_odometry_without_downsample_value = _as_bool(
+        point_lio_publish_odometry_without_downsample.perform(context)
+    )
 
     profile_to_file = {
         'cruise_light': os.path.join(point_lio_dir, 'config', 'mid360_cruise_light.yaml'),
@@ -67,12 +71,18 @@ def _create_point_lio_actions(context, *, namespace, use_sim_time, prior_pcd_fil
             {'use_sim_time': use_sim_time_value},
             {'prior_pcd.prior_pcd_map_path': prior_pcd_file_value},
             {'frame.body_frame': 'point_lio_body'},
+            {'odometry.publish_odometry_without_downsample': publish_odometry_without_downsample_value},
             {'publish.tf_send_en': False},
         ],
     )
 
     return [
         LogInfo(msg=f'[odometry] Point-LIO 使用 {selected_mode} -> {resolved_config_file}'),
+        LogInfo(
+            msg='[odometry] 强制 odometry.publish_odometry_without_downsample='
+                f'{str(publish_odometry_without_downsample_value).lower()}，'
+                '确保 state_estimation 与 cloud_registered 时间戳保持同源'
+        ),
         point_lio_node,
     ]
 
@@ -92,6 +102,8 @@ def generate_launch_description():
     start_mid360_driver = LaunchConfiguration('start_mid360_driver')
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
     point_lio_profile = LaunchConfiguration('point_lio_profile')
+    point_lio_publish_odometry_without_downsample = LaunchConfiguration(
+        'point_lio_publish_odometry_without_downsample')
     enable_lio_state_predictor = LaunchConfiguration('enable_lio_state_predictor')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     recover_mid360_lidar_ip = LaunchConfiguration('recover_mid360_lidar_ip')
@@ -140,6 +152,11 @@ def generate_launch_description():
         'point_lio_profile',
         default_value='auto',
         description='Point-LIO 预设: auto | cruise_light | mapping_dense')
+
+    declare_point_lio_publish_odometry_without_downsample = DeclareLaunchArgument(
+        'point_lio_publish_odometry_without_downsample',
+        default_value='false',
+        description='是否允许 Point-LIO 在扫描内部提前发布 state_estimation；默认 false，保持与 cloud_registered 同戳')
 
     declare_enable_lio_state_predictor = DeclareLaunchArgument(
         'enable_lio_state_predictor',
@@ -236,6 +253,7 @@ def generate_launch_description():
             slam=slam,
             param_overrides_file=param_overrides_file,
             point_lio_dir=point_lio_dir,
+            point_lio_publish_odometry_without_downsample=point_lio_publish_odometry_without_downsample,
         )
     )
 
@@ -326,6 +344,7 @@ def generate_launch_description():
         declare_start_mid360_driver,
         declare_point_lio_config_file,
         declare_point_lio_profile,
+        declare_point_lio_publish_odometry_without_downsample,
         declare_enable_lio_state_predictor,
         declare_recover_mid360_stream,
         declare_recover_mid360_lidar_ip,

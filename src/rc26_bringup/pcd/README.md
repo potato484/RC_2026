@@ -45,6 +45,7 @@ ros2 launch rc26_bringup bringup.launch.py \
 - `pure_mapping_mode` 仅在 `slam:=true` 时生效；
 - 该模式仍会保留建图必需的 Point-LIO、`odom_interface` 与 `map -> odom` 静态变换；
 - 该模式会额外跳过 `lio_state_predictor`，避免在高密建图时因上游延迟产生持续 stale 告警；
+- `odometry.launch.py` 默认还会强制 `odometry.publish_odometry_without_downsample:=false`，避免 `state_estimation` 比 `cloud_registered` 超前过多而触发丢云；
 - 若还想进一步减负，可叠加 `visualization_backend:=none use_rviz:=false` 关闭可视化。
 
 建图完成后：

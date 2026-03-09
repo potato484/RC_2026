@@ -194,6 +194,7 @@ def generate_launch_description():
             'prior_pcd_file': prior_pcd_file,
             'point_lio_config_file': point_lio_config_file,
             'point_lio_profile': point_lio_profile,
+            'point_lio_publish_odometry_without_downsample': 'false',
             'enable_lio_state_predictor': PythonExpression([
                 "not ('", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true')"
             ]),

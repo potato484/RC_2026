@@ -161,7 +161,7 @@ ros2 topic echo /state_estimation --once | grep stamp -A 2
 
 验证标准：
 - 如果启用了 `rc26_lio_state_predictor`，请检查 `/control_state` 话题；
-- `odometry.publish_odometry_without_downsample` 现在由所选 Point-LIO profile / YAML 自己决定，`odometry.launch.py` 不再强制覆写；
+- `odometry.launch.py` 默认会强制 `odometry.publish_odometry_without_downsample:=false`，确保 `state_estimation` 与 `cloud_registered` 共用 `lidar_end_time` 时间戳；
 - `rc26_odom_interface` 会自动吸收约 5ms 级的点云/里程计时间戳抖动；只有明显超出 `max_time_diff_sec` 的严重失配才应继续排查。
 
 ### 5.2 验证退化检测（Phase 2 验收）
@@ -222,6 +222,7 @@ ros2 launch rc26_bringup bringup.launch.py \
 | **建图结束后没有生成 PCD** | 未启用 `pcd_save` 或异常退出 | 使用 `mapping_dense` / `mid360_mapping_save.yaml` 并正常退出。 |
 | **/state_estimation 频率低** | 输入频率异常、profile 配置过重或运行负载过高 | 检查 LiDAR/IMU 输入频率、当前 Point-LIO profile 与 CPU 负载。 |
 | **偶发 `点云与里程计时间差 0.201 > 0.200`** | 点云和 odom 回调边界抖动 | 新版 `rc26_odom_interface` 已自动吸收约 5ms 抖动；若仍持续出现，重点排查上游 odom 是否真正卡顿。 |
+| **持续出现 `点云落后最新 odom 0.301s/1.004s`** | Point-LIO 开启了 `publish_odometry_without_downsample`，导致 `state_estimation` 时间戳跑到当前扫描内部 | 使用 `odometry.launch.py` 默认配置，或显式传 `point_lio_publish_odometry_without_downsample:=false`。 |
 | **编译报错 std_msgs 缺失** | 依赖未安装 | 检查 `package.xml` 和 `CMakeLists.txt` 是否包含 `std_msgs`。 |
 
 ---
