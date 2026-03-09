@@ -19,6 +19,8 @@ source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 当 `rc26_bringup bringup.launch.py slam:=true` 已经在发布 `odom -> base_link` 时，不要再额外启动
 `ekf_filter_node`，否则会与建图链的 `odom_interface` 产生 TF 冲突。
 
+若当前任务是遥控建图，建议建图链使用 `point_lio_profile:=mapping_dense`，以获得更高点云密度、累计地图显示与 PCD 保存。
+
 **推荐命令：**
 
 ```bash

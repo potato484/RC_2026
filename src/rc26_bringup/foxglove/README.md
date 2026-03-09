@@ -31,3 +31,10 @@
 - 连接机器人 WebSocket
 - 通过 Layouts -> Import from file 导入本目录 JSON
 - 首选 `operator.json` 作为首页
+
+
+## 建图相关话题
+
+- `/registered_scan`：当前帧配准点云，适合看实时局部效果
+- `/laser_map_full`：累计地图点云，适合看历史建图内容是否持续保留
+- 若使用 `visualization_backend:=foxglove`，建议把这两个点云一起放进工程布局中对照观察
