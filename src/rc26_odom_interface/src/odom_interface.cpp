@@ -144,6 +144,8 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     this->declare_parameter<double>("tf_lookup_timeout_sec", 0.5);
     this->declare_parameter<double>("max_time_diff_sec", 0.2);
     this->declare_parameter<double>("tf_refresh_interval_sec", 1.0);
+    this->declare_parameter<bool>("clamp_cloud_stamp_to_latest_odom", true);
+    this->declare_parameter<bool>("defer_cloud_until_matching_odom", true);
     this->declare_parameter<bool>("use_input_twist", true);
     this->declare_parameter<bool>("zero_origin_to_first_frame", true);
     this->declare_parameter<int>("zero_origin_warmup_frames", 10);
@@ -160,6 +162,8 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     this->get_parameter("tf_lookup_timeout_sec", tf_timeout_sec_);
     this->get_parameter("max_time_diff_sec", max_time_diff_sec_);
     this->get_parameter("tf_refresh_interval_sec", tf_refresh_interval_sec_);
+    this->get_parameter("clamp_cloud_stamp_to_latest_odom", clamp_cloud_stamp_to_latest_odom_);
+    this->get_parameter("defer_cloud_until_matching_odom", defer_cloud_until_matching_odom_);
     this->get_parameter("use_input_twist", use_input_twist_);
     this->get_parameter("zero_origin_to_first_frame", zero_origin_to_first_frame_);
     this->get_parameter("zero_origin_warmup_frames", zero_origin_warmup_frames_);
@@ -261,8 +265,9 @@ void OdomInterfaceNode::pointCloudCallback(const sensor_msgs::msg::PointCloud2::
         return;
     }
 
+    const rclcpp::Time cloud_stamp(msg->header.stamp);
     if (max_time_diff_sec_ > 0.0) {
-        const double diff_sec = std::abs((rclcpp::Time(msg->header.stamp) - latest_stamp).seconds());
+        const double diff_sec = std::abs((cloud_stamp - latest_stamp).seconds());
         if (diff_sec > max_time_diff_sec_) {
             RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
                                  "点云与里程计时间差 %.3f > %.3f，丢弃点云", diff_sec, max_time_diff_sec_);
@@ -270,6 +275,31 @@ void OdomInterfaceNode::pointCloudCallback(const sensor_msgs::msg::PointCloud2::
         }
     }
 
+    if (defer_cloud_until_matching_odom_ && latest_stamp.nanoseconds() > 0 && cloud_stamp > latest_stamp) {
+        std::lock_guard<std::mutex> lock(transform_mutex_);
+        if (pending_cloud_ &&
+            (pending_cloud_->header.stamp.sec != msg->header.stamp.sec ||
+             pending_cloud_->header.stamp.nanosec != msg->header.stamp.nanosec)) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                                 "等待同戳 odom 时收到更新点云，替换旧的 pending registered_scan");
+        }
+        pending_cloud_ = msg;
+        return;
+    }
+
+    rclcpp::Time output_stamp = cloud_stamp;
+    if (clamp_cloud_stamp_to_latest_odom_ && latest_stamp.nanoseconds() > 0 && output_stamp > latest_stamp) {
+        const double lead_sec = (output_stamp - latest_stamp).seconds();
+        output_stamp = latest_stamp;
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                             "registered_scan 时间戳超前 odom %.3f s，已钳制到最新 odom 时间", lead_sec);
+    }
+    publishRegisteredCloud(msg, output_stamp, tf_input_odom_to_output_odom);
+}
+
+void OdomInterfaceNode::publishRegisteredCloud(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& msg,
+                                               const rclcpp::Time& output_stamp,
+                                               const tf2::Transform& tf_input_odom_to_output_odom) {
     if (zero_origin_to_first_frame_) {
         sensor_msgs::msg::PointCloud2 out;
         try {
@@ -279,13 +309,15 @@ void OdomInterfaceNode::pointCloudCallback(const sensor_msgs::msg::PointCloud2::
                                  "首帧归零后的点云变换失败: %s", ex.what());
             return;
         }
-        out.header.stamp = msg->header.stamp;
+        out.header.stamp = output_stamp;
         out.header.frame_id = odom_frame_;
         pcd_pub_->publish(out);
         return;
     }
 
-    pcd_pub_->publish(*msg);
+    sensor_msgs::msg::PointCloud2 out = *msg;
+    out.header.stamp = output_stamp;
+    pcd_pub_->publish(out);
 }
 
 void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSharedPtr msg) {
@@ -433,12 +465,15 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
 
     // [P3] 速度来源可切换：优先使用 Point-LIO 输入 twist，必要时回退到差分估计
     bool update_state = true;
+    sensor_msgs::msg::PointCloud2::ConstSharedPtr pending_cloud_to_publish;
+    tf2::Transform tf_input_odom_to_output_odom_snapshot;
     {
         std::lock_guard<std::mutex> lock(transform_mutex_);
         if (!odom_pose_ready_ || odom_stamp > latest_odometry_stamp_) {
             latest_odometry_stamp_ = odom_stamp;
         }
         odom_pose_ready_ = true;
+        tf_input_odom_to_output_odom_snapshot = tf_input_odom_to_output_odom_;
 
         if (use_input_twist_) {
             const tf2::Vector3 r_base_in_lidar = tf_base_to_lidar.getOrigin();
@@ -534,6 +569,23 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
             odom_state_.previous_stamp = odom_stamp;
             odom_state_.initialized = true;
         }
+
+        if (pending_cloud_) {
+            const rclcpp::Time pending_stamp(pending_cloud_->header.stamp);
+            if (pending_stamp.nanoseconds() == odom_stamp.nanoseconds()) {
+                pending_cloud_to_publish = pending_cloud_;
+                pending_cloud_.reset();
+            } else if (pending_stamp < odom_stamp) {
+                RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                                     "pending registered_scan 未等到同戳 odom，已丢弃 (cloud=%.3f, odom=%.3f)",
+                                     pending_stamp.seconds(), odom_stamp.seconds());
+                pending_cloud_.reset();
+            }
+        }
+    }
+
+    if (pending_cloud_to_publish) {
+        publishRegisteredCloud(pending_cloud_to_publish, odom_stamp, tf_input_odom_to_output_odom_snapshot);
     }
 
     odom_pub_->publish(out);
