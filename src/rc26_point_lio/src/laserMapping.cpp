@@ -2,6 +2,7 @@
 // #include <so3_math.hpp>
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <malloc.h>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
@@ -32,7 +33,7 @@ bool init_map = false, flg_first_scan = true;
 // Time Log Variables
 double match_time = 0, solve_time = 0, propag_time = 0, update_time = 0;
 
-bool flg_reset = false, flg_exit = false;
+bool flg_reset = false;
 
 // surf feature in map
 PointCloudXYZI::Ptr feats_undistort(new PointCloudXYZI());
@@ -53,12 +54,6 @@ int sleep_time = 0;
 auto LOGGER = rclcpp::get_logger("laserMapping");
 std::mutex runtime_param_mutex;
 bool ivox_rebuild_pending = false;
-
-void SigHandle(int sig) {
-    flg_exit = true;
-    RCLCPP_WARN(LOGGER, "catch sig %d", sig);
-    sig_buffer.notify_all();
-}
 
 PointCloudXYZI::Ptr loadPointcloudFromPcd(const std::string& file_path) {
     auto pcd_ptr = std::make_shared<PointCloudXYZI>();
@@ -229,6 +224,78 @@ void publish_full_map(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::Sh
 
 PointCloudXYZI::Ptr pcl_wait_pub(new PointCloudXYZI(500000, 1));
 PointCloudXYZI::Ptr pcl_wait_save(new PointCloudXYZI());
+int pending_pcd_scan_count = 0;
+
+std::filesystem::path ensurePcdDirectory() {
+    const auto pcd_dir = std::filesystem::path(ROOT_DIR) / "PCD";
+    std::error_code ec;
+
+    const bool exists = std::filesystem::exists(pcd_dir, ec);
+    if (ec) {
+        RCLCPP_ERROR(LOGGER, "Failed to stat PCD directory %s: %s", pcd_dir.string().c_str(), ec.message().c_str());
+        return {};
+    }
+
+    if (!exists && !std::filesystem::create_directories(pcd_dir, ec) && ec) {
+        RCLCPP_ERROR(LOGGER, "Failed to create PCD directory %s: %s", pcd_dir.string().c_str(), ec.message().c_str());
+        return {};
+    }
+
+    return pcd_dir;
+}
+
+std::string nextPcdOutputPath() {
+    const auto pcd_dir = ensurePcdDirectory();
+    if (pcd_dir.empty()) {
+        return {};
+    }
+
+    if (pcd_save_interval > 0) {
+        ++pcd_index;
+        return (pcd_dir / ("scans_" + std::to_string(pcd_index) + ".pcd")).string();
+    }
+
+    return (pcd_dir / "scans.pcd").string();
+}
+
+bool flushPendingPcd(const char* reason) {
+    if (!pcd_save_en || !pcl_wait_save || pcl_wait_save->empty()) {
+        return true;
+    }
+
+    const auto output_path = nextPcdOutputPath();
+    if (output_path.empty()) {
+        return false;
+    }
+
+    pcl::PCDWriter pcd_writer;
+    const int rc = pcd_writer.writeBinary(output_path, *pcl_wait_save);
+    if (rc != 0) {
+        RCLCPP_ERROR(LOGGER, "Failed to save accumulated cloud to %s on %s (points=%zu, rc=%d)",
+                     output_path.c_str(), reason, pcl_wait_save->size(), rc);
+        return false;
+    }
+
+    RCLCPP_INFO(LOGGER, "Saved accumulated cloud to %s on %s (points=%zu)", output_path.c_str(), reason,
+                pcl_wait_save->size());
+    pcl_wait_save->clear();
+    pending_pcd_scan_count = 0;
+    return true;
+}
+
+void accumulatePcdForSave() {
+    if (!pcd_save_en || !feats_down_world || feats_down_world->empty()) {
+        return;
+    }
+
+    *pcl_wait_save += *feats_down_world;
+    ++pending_pcd_scan_count;
+
+    if (pcd_save_interval > 0 && pending_pcd_scan_count >= pcd_save_interval) {
+        flushPendingPcd("interval flush");
+    }
+}
+
 void publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr& pubLaserCloudFullRes) {
     if (scan_pub_en) {
         sensor_msgs::msg::PointCloud2 laserCloudmsg;
@@ -237,26 +304,10 @@ void publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>:
         laserCloudmsg.header.stamp = get_ros_time(lidar_end_time);
         laserCloudmsg.header.frame_id = odom_frame;
         pubLaserCloudFullRes->publish(laserCloudmsg);
-
-        //--------------------------save map-----------------------------------
-        // 1. make sure you have enough memories
-        // 2. noted that pcd save will influence the real-time performances
-        if (pcd_save_en) {
-            *pcl_wait_save += *feats_down_world;
-
-            static int scan_wait_num = 0;
-            scan_wait_num++;
-            if (!pcl_wait_save->empty() && pcd_save_interval > 0 && scan_wait_num >= pcd_save_interval) {
-                pcd_index++;
-                string all_points_dir(string(string(ROOT_DIR) + "PCD/scans_") + to_string(pcd_index) + string(".pcd"));
-                pcl::PCDWriter pcd_writer;
-                std::cout << "current scan saved to /PCD/" << all_points_dir << '\n';
-                pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
-                pcl_wait_save->clear();
-                scan_wait_num = 0;
-            }
-        }
     }
+
+    // PCD 保存不应依赖 scan_publish_en；即使关闭实时点云输出，只要启用 pcd_save，也应持续累计并在退出时落盘。
+    accumulatePcdForSave();
 }
 
 void publish_frame_body(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr& pubLaserCloudFull_body) {
@@ -625,12 +676,9 @@ int main(int argc, char** argv) {
     auto tf_broadcaster = std::make_shared<tf2_ros::TransformBroadcaster>(nh);
 
     //------------------------------------------------------------------------------------------------------
-    signal(SIGINT, SigHandle);
     (void)dyn_params_handler;
     rclcpp::Rate rate(500);
     while (rclcpp::ok()) {
-        if (flg_exit)
-            break;
         executor.spin_some();
         {
             std::lock_guard<std::mutex> lk(runtime_param_mutex);
@@ -1339,13 +1387,9 @@ int main(int argc, char** argv) {
     //--------------------------save map-----------------------------------
     // 1. make sure you have enough memories
     // 2. noted that pcd save will influence the real-time performances
-    if (!pcl_wait_save->empty() && pcd_save_en) {
-        string file_name = string("scans.pcd");
-        string all_points_dir(string(string(ROOT_DIR) + "PCD/") + file_name);
-        pcl::PCDWriter pcd_writer;
-        pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
-    }
+    flushPendingPcd("shutdown");
     fout_out.close();
     fout_imu_pbp.close();
+    rclcpp::shutdown();
     return 0;
 }

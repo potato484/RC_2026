@@ -12,7 +12,6 @@ extern double move_start_time, online_calib_starts_time;
 
 extern V3D gravity_lio;
 extern mutex mtx_buffer;
-extern condition_variable sig_buffer;
 extern int scan_count;
 extern int frame_ct, wait_num;
 extern std::deque<PointCloudXYZI::Ptr> lidar_buffer;
