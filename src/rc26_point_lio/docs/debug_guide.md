@@ -161,7 +161,8 @@ ros2 topic echo /state_estimation --once | grep stamp -A 2
 
 验证标准：
 - 如果启用了 `rc26_lio_state_predictor`，请检查 `/control_state` 话题；
-- 确认 `odometry.publish_odometry_without_downsample` 仍被 odometry 链路强制为 `False`，避免与 `cloud_registered` 时间戳失配。
+- `odometry.publish_odometry_without_downsample` 现在由所选 Point-LIO profile / YAML 自己决定，`odometry.launch.py` 不再强制覆写；
+- `rc26_odom_interface` 会自动吸收约 5ms 级的点云/里程计时间戳抖动；只有明显超出 `max_time_diff_sec` 的严重失配才应继续排查。
 
 ### 5.2 验证退化检测（Phase 2 验收）
 
@@ -219,7 +220,8 @@ ros2 launch rc26_bringup bringup.launch.py \
 | **累计地图不显示** | `publish.map_full_publish_en=false` 或无订阅者 | 打开参数并确认 RViz/Foxglove 已订阅 `/laser_map_full`。 |
 | **之前建好的内容没有留存显示** | 只在看 `/registered_scan` 单帧点云 | 切换观察 `/laser_map_full`。 |
 | **建图结束后没有生成 PCD** | 未启用 `pcd_save` 或异常退出 | 使用 `mapping_dense` / `mid360_mapping_save.yaml` 并正常退出。 |
-| **/state_estimation 频率低** | 下采样或输入频率异常 | 检查 LiDAR/IMU 输入频率与运行负载。 |
+| **/state_estimation 频率低** | 输入频率异常、profile 配置过重或运行负载过高 | 检查 LiDAR/IMU 输入频率、当前 Point-LIO profile 与 CPU 负载。 |
+| **偶发 `点云与里程计时间差 0.201 > 0.200`** | 点云和 odom 回调边界抖动 | 新版 `rc26_odom_interface` 已自动吸收约 5ms 抖动；若仍持续出现，重点排查上游 odom 是否真正卡顿。 |
 | **编译报错 std_msgs 缺失** | 依赖未安装 | 检查 `package.xml` 和 `CMakeLists.txt` 是否包含 `std_msgs`。 |
 
 ---

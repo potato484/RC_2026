@@ -42,7 +42,8 @@ namespace rc26_odom_interface {
 //  - 坐标链路约定:
 //      * 全局约定为 map -> odom -> base_link -> laser_link
 //  - 时间同步约束:
-//      * 使用 max_time_diff_sec_ 限制点云与里程计的时间差，防止严重对不齐
+//      * 使用 max_time_diff_sec_ 限制点云与里程计的严重失配
+//      * 对毫秒级回调抖动做小容差吸收，避免边界值误丢云
 class OdomInterfaceNode : public rclcpp::Node {
 public:
     explicit OdomInterfaceNode(const rclcpp::NodeOptions& options);
@@ -93,7 +94,7 @@ private:
     double max_time_diff_sec_{0.2};        // 点云与里程计之间允许的最大时间差 (秒)
     double tf_refresh_interval_sec_{1.0};  // TF 断连时的重新拉取周期 (秒)
     bool clamp_cloud_stamp_to_latest_odom_{true};  // 防止输出点云时间戳超前于已发布 odom
-    bool defer_cloud_until_matching_odom_{true};  // 点云超前时先缓存，等待同戳 odom 到达再发布
+    bool defer_cloud_until_matching_odom_{true};  // 点云超前时先缓存，等待同一扫描对应 odom 到达再发布
     tf2::Transform tf_input_odom_to_output_odom_;  // 首帧平移归零: 将 Point-LIO odom 平移到 base_link 首帧原点
     tf2::Vector3 zero_origin_translation_sum_{0.0, 0.0, 0.0};
     nav_msgs::msg::Path odom_path_msg_;

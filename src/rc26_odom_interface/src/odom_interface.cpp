@@ -32,6 +32,7 @@ namespace rc26_odom_interface {
 namespace {
 
 constexpr size_t kMaxPathPoses = 2000;
+constexpr double kCloudOdomStampToleranceSec = 0.005;  // 吸收 ROS 回调调度造成的毫秒级时间戳抖动
 
 visualization_msgs::msg::MarkerArray makePoseMarkerArray(const std::string& frame_id,
                                                          const builtin_interfaces::msg::Time& stamp,
@@ -266,25 +267,41 @@ void OdomInterfaceNode::pointCloudCallback(const sensor_msgs::msg::PointCloud2::
     }
 
     const rclcpp::Time cloud_stamp(msg->header.stamp);
-    if (max_time_diff_sec_ > 0.0) {
-        const double diff_sec = std::abs((cloud_stamp - latest_stamp).seconds());
-        if (diff_sec > max_time_diff_sec_) {
+    const bool has_latest_stamp = latest_stamp.nanoseconds() > 0;
+    const double signed_diff_sec = has_latest_stamp ? (cloud_stamp - latest_stamp).seconds() : 0.0;
+    const double abs_diff_sec = std::abs(signed_diff_sec);
+    const double guarded_max_diff_sec =
+        max_time_diff_sec_ > 0.0 ? (max_time_diff_sec_ + kCloudOdomStampToleranceSec) : 0.0;
+
+    // 点云略超前于最新 odom 时，优先走等待匹配 / 时间戳钳制，而不是直接按绝对时间差丢弃。
+    if (has_latest_stamp && signed_diff_sec > kCloudOdomStampToleranceSec) {
+        if (defer_cloud_until_matching_odom_) {
+            std::lock_guard<std::mutex> lock(transform_mutex_);
+            if (pending_cloud_ &&
+                (pending_cloud_->header.stamp.sec != msg->header.stamp.sec ||
+                 pending_cloud_->header.stamp.nanosec != msg->header.stamp.nanosec)) {
+                RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                                     "等待匹配 odom 时收到更新点云，替换旧的 pending registered_scan");
+            }
+            pending_cloud_ = msg;
+            return;
+        }
+
+        if (max_time_diff_sec_ > 0.0 && abs_diff_sec > guarded_max_diff_sec) {
             RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                                 "点云与里程计时间差 %.3f > %.3f，丢弃点云", diff_sec, max_time_diff_sec_);
+                                 "点云超前最新 odom %.3f s，超过 %.3f s 限制且未启用等待匹配，丢弃点云",
+                                 signed_diff_sec, max_time_diff_sec_);
             return;
         }
     }
 
-    if (defer_cloud_until_matching_odom_ && latest_stamp.nanoseconds() > 0 && cloud_stamp > latest_stamp) {
-        std::lock_guard<std::mutex> lock(transform_mutex_);
-        if (pending_cloud_ &&
-            (pending_cloud_->header.stamp.sec != msg->header.stamp.sec ||
-             pending_cloud_->header.stamp.nanosec != msg->header.stamp.nanosec)) {
+    if (max_time_diff_sec_ > 0.0) {
+        if (signed_diff_sec < -kCloudOdomStampToleranceSec && abs_diff_sec > guarded_max_diff_sec) {
             RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                                 "等待同戳 odom 时收到更新点云，替换旧的 pending registered_scan");
+                                 "点云落后最新 odom %.3f s，超过 %.3f s 限制，丢弃点云", abs_diff_sec,
+                                 max_time_diff_sec_);
+            return;
         }
-        pending_cloud_ = msg;
-        return;
     }
 
     rclcpp::Time output_stamp = cloud_stamp;
@@ -572,13 +589,16 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
 
         if (pending_cloud_) {
             const rclcpp::Time pending_stamp(pending_cloud_->header.stamp);
-            if (pending_stamp.nanoseconds() == odom_stamp.nanoseconds()) {
+            const double pending_diff_sec = (pending_stamp - odom_stamp).seconds();
+            if (std::abs(pending_diff_sec) <= kCloudOdomStampToleranceSec) {
                 pending_cloud_to_publish = pending_cloud_;
                 pending_cloud_.reset();
-            } else if (pending_stamp < odom_stamp) {
+            } else if (pending_diff_sec < -kCloudOdomStampToleranceSec) {
                 RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                                     "pending registered_scan 未等到同戳 odom，已丢弃 (cloud=%.3f, odom=%.3f)",
-                                     pending_stamp.seconds(), odom_stamp.seconds());
+                                     "pending registered_scan 未在 %.3f s 容差内等到匹配 odom，已丢弃 "
+                                     "(cloud=%.3f, odom=%.3f, diff=%.3f)",
+                                     kCloudOdomStampToleranceSec, pending_stamp.seconds(), odom_stamp.seconds(),
+                                     pending_diff_sec);
                 pending_cloud_.reset();
             }
         }
