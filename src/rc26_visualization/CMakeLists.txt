@@ -16,6 +16,7 @@ find_package(rclcpp REQUIRED)
 find_package(rc26_interfaces REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 
 add_library(visualization_status_core
   src/visualization_status_core.cpp
@@ -46,6 +47,7 @@ ament_target_dependencies(rc26_visualization_status_node
   rc26_interfaces
   sensor_msgs
   std_msgs
+  std_srvs
 )
 
 install(DIRECTORY include/

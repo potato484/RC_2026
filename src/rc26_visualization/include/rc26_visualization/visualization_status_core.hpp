@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <limits>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
@@ -174,6 +175,22 @@ public:
 
 private:
   VisualizationStatusConfig config_;
+};
+
+class TopicTimeoutTracker {
+public:
+  uint32_t observe(const std::vector<TopicWatchInput>& monitored_topics);
+  void resetBaseline(const std::vector<TopicWatchInput>& monitored_topics);
+  uint32_t total() const {
+    return total_;
+  }
+
+private:
+  static bool isStale(const TopicWatchInput& topic);
+  static std::string topicKey(const TopicWatchInput& topic);
+
+  uint32_t total_{0U};
+  std::unordered_map<std::string, bool> stale_states_;
 };
 
 }  // namespace rc26_visualization
