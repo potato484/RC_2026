@@ -30,10 +30,10 @@ ros2 launch rc26_bringup bringup.launch.py \
   use_decision:=false
 ```
 
-如果当前目标只是纯建图、录制 PCD、查看累计地图，不需要地形语义、决策与状态聚合，可启用更轻量的纯建图模式：
+如果当前目标只是纯建图、录制 PCD、查看累计地图，不需要地形语义与决策，可启用更轻量的纯建图模式；该模式仍会保留前端需要的状态聚合输出：
 
 ```bash
-# 纯建图最小链路（跳过 rc26_terrain / rc26_decision / visualization_status）
+# 纯建图最小链路（跳过 rc26_terrain / rc26_decision，但保留 visualization_status）
 ros2 launch rc26_bringup bringup.launch.py \
   slam:=true \
   pure_mapping_mode:=true \

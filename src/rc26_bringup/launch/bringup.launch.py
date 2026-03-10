@@ -11,7 +11,7 @@ src R2导航系统 - 主启动文件
   - 地图服务 (nav2_map_server)
 
 额外模式:
-  - slam:=true 且 pure_mapping_mode:=true 时，仅保留纯建图最小链路
+  - slam:=true 且 pure_mapping_mode:=true 时，保留纯建图最小运动链路，同时继续发布可视化诊断总线
 """
 import os
 
@@ -76,7 +76,7 @@ def generate_launch_description():
     declare_pure_mapping_mode = DeclareLaunchArgument(
         'pure_mapping_mode',
         default_value='false',
-        description='纯建图最小模式；仅在 slam:=true 时生效，跳过 terrain/decision/visualization_status')
+        description='纯建图最小模式；仅在 slam:=true 时生效，跳过 terrain/decision，但保留 visualization_status 供前端显示')
 
     declare_map = DeclareLaunchArgument(
         'map',
@@ -402,14 +402,11 @@ def generate_launch_description():
             visualization_status_config,
             {'use_sim_time': use_sim_time},
         ],
-        condition=IfCondition(PythonExpression([
-            "'", visualization_status_enable, "'.lower() == 'true' and not ('", slam,
-            "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true')"
-        ]))
+        condition=IfCondition(visualization_status_enable)
     )
 
     pure_mapping_notice = LogInfo(
-        msg='[bringup] pure_mapping_mode 已启用：建图时仅保留 Point-LIO/odom_interface/localization/RViz 等最小链路，跳过 lio_state_predictor、rc26_terrain、rc26_decision 和 visualization_status。',
+        msg='[bringup] pure_mapping_mode 已启用：建图时仅保留 Point-LIO/odom_interface/localization 等最小运动链路，跳过 lio_state_predictor、rc26_terrain 和 rc26_decision，但继续发布 visualization_status 供前端显示。',
         condition=IfCondition(pure_mapping_runtime)
     )
 
