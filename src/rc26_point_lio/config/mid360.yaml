@@ -76,6 +76,11 @@
             map_full_publish_en: True                       # 持续发布累计地图，便于 RViz / Foxglove 观察历史建图内容
             map_full_publish_interval_sec: 1.0              # 累计地图发布周期；0 表示每帧都发，注意带宽/CPU 开销
 
+        output_filter:
+            world_z_filter_en: False                        # 仅过滤发布/保存的世界系点云，不影响内部里程计地图
+            world_z_min: -10.0                              # odom/world 系 z 下限；去地面时通常逐步上调到接近地面高度
+            world_z_max: 10.0                               # odom/world 系 z 上限
+
         pcd_save:
             pcd_save_en: False
             interval: -1                                    # 每个 pcd 文件保存的 LiDAR 帧数；

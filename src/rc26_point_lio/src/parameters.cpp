@@ -229,6 +229,15 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
         nh->declare_parameter<double>("publish.map_full_publish_interval_sec", 1.0);
         nh->get_parameter("publish.map_full_publish_interval_sec", map_full_publish_interval_sec);
 
+        nh->declare_parameter<bool>("output_filter.world_z_filter_en", false);
+        nh->get_parameter("output_filter.world_z_filter_en", output_world_z_filter_en);
+
+        nh->declare_parameter<double>("output_filter.world_z_min", -10.0);
+        nh->get_parameter("output_filter.world_z_min", output_world_z_min);
+
+        nh->declare_parameter<double>("output_filter.world_z_max", 10.0);
+        nh->get_parameter("output_filter.world_z_max", output_world_z_max);
+
         nh->declare_parameter<bool>("runtime_pos_log_enable", false);
         nh->get_parameter("runtime_pos_log_enable", runtime_pos_log);
 
@@ -261,6 +270,9 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
 
     applyEffectivePointFilterNum();
     map_full_publish_interval_sec = std::max(0.0, map_full_publish_interval_sec);
+    if (output_world_z_min > output_world_z_max) {
+        std::swap(output_world_z_min, output_world_z_max);
+    }
 
     if (ivox_nearby_type == 0) {
         ivox_options_.nearby_type_ = IVoxType::NearbyType::CENTER;
