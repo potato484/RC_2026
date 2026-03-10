@@ -14,7 +14,6 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     bringup_dir = get_package_share_directory('rc26_bringup')
-    _dir = get_package_share_directory('')
 
     namespace = LaunchConfiguration('namespace')
     use_sim_time = LaunchConfiguration('use_sim_time')
@@ -24,7 +23,6 @@ def generate_launch_description():
     enable_graph_backend = LaunchConfiguration('enable_graph_backend')
     p4_candidate_enable = LaunchConfiguration('p4_candidate_enable')
     min_inliers = LaunchConfiguration('min_inliers')
-    param_overrides_file = PathJoinSubstitution([_dir, 'config', 'param_overrides.yaml'])
 
     declare_namespace = DeclareLaunchArgument(
         'namespace', default_value='')
@@ -61,7 +59,6 @@ def generate_launch_description():
         output='screen',
         parameters=[
             PathJoinSubstitution([bringup_dir, 'config', 'localization.yaml']),
-            param_overrides_file,
             {'use_sim_time': use_sim_time},
             {'prior_pcd_file': prior_pcd_file},
             {'competition_mode': competition_mode},

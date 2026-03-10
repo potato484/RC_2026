@@ -54,7 +54,7 @@ def _resolve_point_lio_profile(requested_profile: str, *, slam_value: bool) -> t
 
 
 def _create_point_lio_actions(context, *, namespace, use_sim_time, prior_pcd_file, point_lio_config_file,
-                              point_lio_profile, slam, param_overrides_file, point_lio_dir,
+                              point_lio_profile, slam, point_lio_dir,
                               point_lio_publish_odometry_without_downsample):
     namespace_value = namespace.perform(context)
     use_sim_time_value = _as_bool(use_sim_time.perform(context))
@@ -62,7 +62,6 @@ def _create_point_lio_actions(context, *, namespace, use_sim_time, prior_pcd_fil
     explicit_config_file = point_lio_config_file.perform(context).strip()
     requested_profile = point_lio_profile.perform(context).strip().lower() or 'auto'
     slam_value = _as_bool(slam.perform(context))
-    param_overrides_value = param_overrides_file.perform(context)
     publish_odometry_without_downsample_value = _as_bool(
         point_lio_publish_odometry_without_downsample.perform(context)
     )
@@ -87,7 +86,6 @@ def _create_point_lio_actions(context, *, namespace, use_sim_time, prior_pcd_fil
     if profile_overrides:
         parameters.append(profile_overrides)
     parameters.extend([
-        param_overrides_value,
         {'use_sim_time': use_sim_time_value},
         {'prior_pcd.prior_pcd_map_path': prior_pcd_file_value},
         {'frame.body_frame': 'point_lio_body'},
@@ -117,7 +115,6 @@ def _create_point_lio_actions(context, *, namespace, use_sim_time, prior_pcd_fil
 
 def generate_launch_description():
     bringup_dir = get_package_share_directory('rc26_bringup')
-    _dir = get_package_share_directory('')
     point_lio_dir = get_package_share_directory('rc26_point_lio')
     mid360_driver_dir = get_package_share_directory('rc26_mid360_driver')
 
@@ -138,7 +135,6 @@ def generate_launch_description():
     recover_mid360_host_ip = LaunchConfiguration('recover_mid360_host_ip')
     recover_mid360_timeout = LaunchConfiguration('recover_mid360_timeout')
     recover_mid360_warmup_before_reboot = LaunchConfiguration('recover_mid360_warmup_before_reboot')
-    param_overrides_file = PathJoinSubstitution([_dir, 'config', 'param_overrides.yaml'])
 
     # 参数声明
     declare_namespace = DeclareLaunchArgument(
@@ -279,7 +275,6 @@ def generate_launch_description():
             point_lio_config_file=point_lio_config_file,
             point_lio_profile=point_lio_profile,
             slam=slam,
-            param_overrides_file=param_overrides_file,
             point_lio_dir=point_lio_dir,
             point_lio_publish_odometry_without_downsample=point_lio_publish_odometry_without_downsample,
         )
