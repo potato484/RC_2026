@@ -351,5 +351,93 @@ TEST(VisualizationStatusCoreTest, DisabledSubsystemsExposeMetadataWithoutTrigger
   EXPECT_EQ(std::find(codes.begin(), codes.end(), "NAV_STOP_REQUIRED"), codes.end());
 }
 
+TEST(TopicTimeoutTrackerTest, CountsOnlyFreshToStaleTransitions) {
+  TopicTimeoutTracker tracker;
+  auto topics = makeNominalInput().monitored_topics;
+
+  EXPECT_EQ(tracker.observe(topics), 0U);
+
+  for (auto& topic : topics) {
+    if (topic.code_suffix == "ODOM") {
+      topic.age_sec = 0.80;
+    }
+  }
+  EXPECT_EQ(tracker.observe(topics), 1U);
+
+  for (auto& topic : topics) {
+    if (topic.code_suffix == "ODOM") {
+      topic.age_sec = 0.95;
+    }
+  }
+  EXPECT_EQ(tracker.observe(topics), 1U);
+
+  for (auto& topic : topics) {
+    if (topic.code_suffix == "ODOM") {
+      topic.age_sec = 0.05;
+    }
+  }
+  EXPECT_EQ(tracker.observe(topics), 1U);
+
+  for (auto& topic : topics) {
+    if (topic.code_suffix == "ODOM") {
+      topic.age_sec = 0.75;
+    }
+  }
+  EXPECT_EQ(tracker.observe(topics), 2U);
+}
+
+TEST(TopicTimeoutTrackerTest, ResetBaselinePreventsImmediateRecountOfCurrentStaleTopics) {
+  TopicTimeoutTracker tracker;
+  auto topics = makeNominalInput().monitored_topics;
+  for (auto& topic : topics) {
+    if (topic.code_suffix == "ODOM") {
+      topic.age_sec = 0.80;
+    }
+  }
+
+  EXPECT_EQ(tracker.observe(topics), 1U);
+  tracker.resetBaseline(topics);
+  EXPECT_EQ(tracker.total(), 0U);
+  EXPECT_EQ(tracker.observe(topics), 0U);
+
+  for (auto& topic : topics) {
+    if (topic.code_suffix == "ODOM") {
+      topic.age_sec = 0.05;
+    }
+  }
+  EXPECT_EQ(tracker.observe(topics), 0U);
+
+  for (auto& topic : topics) {
+    if (topic.code_suffix == "ODOM") {
+      topic.age_sec = 0.80;
+    }
+  }
+  EXPECT_EQ(tracker.observe(topics), 1U);
+}
+
+TEST(VisualizationStatusCoreTest, EmptySourceSignalFallsBackToSystemInternal) {
+  VisualizationStatusConfig config;
+  config.control_degraded_topic = "";
+  VisualizationStatusCore core(config);
+  std_msgs::msg::Header header;
+  auto input = makeNominalInput();
+  input.control_degraded.value = true;
+
+  auto output = core.evaluate(input, header);
+  EXPECT_EQ(findEvent(output.events, "CONTROL_DEGRADED").source_signal, "system_internal");
+}
+
+TEST(VisualizationStatusCoreTest, ExplicitUnknownSourceFallsBackToUnnamedModule) {
+  VisualizationStatusConfig config;
+  config.control_degraded_topic = "Unknown Source";
+  VisualizationStatusCore core(config);
+  std_msgs::msg::Header header;
+  auto input = makeNominalInput();
+  input.control_degraded.value = true;
+
+  auto output = core.evaluate(input, header);
+  EXPECT_EQ(findEvent(output.events, "CONTROL_DEGRADED").source_signal, "unnamed_module");
+}
+
 }  // namespace
 }  // namespace rc26_visualization

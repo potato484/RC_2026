@@ -1,6 +1,7 @@
 #include "rc26_visualization/visualization_status_core.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <iomanip>
@@ -115,6 +116,44 @@ std::string boolString(bool value) {
   return value ? "true" : "false";
 }
 
+std::string trimCopy(std::string_view value) {
+  const auto first = std::find_if_not(value.begin(), value.end(), [](unsigned char ch) {
+    return std::isspace(ch) != 0;
+  });
+  if (first == value.end()) {
+    return "";
+  }
+  const auto last = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char ch) {
+    return std::isspace(ch) != 0;
+  }).base();
+  return std::string(first, last);
+}
+
+std::string lowerCopy(std::string_view value) {
+  std::string normalized;
+  normalized.reserve(value.size());
+  for (const unsigned char ch : value) {
+    normalized.push_back(static_cast<char>(std::tolower(ch)));
+  }
+  return normalized;
+}
+
+bool isUnknownSource(std::string_view value) {
+  const std::string normalized = lowerCopy(trimCopy(value));
+  return normalized == "unknown" || normalized == "unknown source";
+}
+
+std::string normalizeSourceSignal(const std::string& source_signal) {
+  const std::string trimmed = trimCopy(source_signal);
+  if (trimmed.empty()) {
+    return "system_internal";
+  }
+  if (isUnknownSource(trimmed)) {
+    return "unnamed_module";
+  }
+  return trimmed;
+}
+
 int64_t headerTimeMs(const std_msgs::msg::Header& header) {
   return static_cast<int64_t>(header.stamp.sec) * 1000LL + static_cast<int64_t>(header.stamp.nanosec / 1000000U);
 }
@@ -180,7 +219,7 @@ rc26_interfaces::msg::VisualizationEvent makeEvent(
   event.severity = severity;
   event.title = title;
   event.detail = detail;
-  event.source_signal = source_signal;
+  event.source_signal = normalizeSourceSignal(source_signal);
   event.recommendation = recommendation;
   event.active = true;
   event.latched = latched;
@@ -201,6 +240,35 @@ VisualizationStatusCore::VisualizationStatusCore(VisualizationStatusConfig confi
 
 void VisualizationStatusCore::setConfig(const VisualizationStatusConfig& config) {
   config_ = config;
+}
+
+uint32_t TopicTimeoutTracker::observe(const std::vector<TopicWatchInput>& monitored_topics) {
+  for (const auto& topic : monitored_topics) {
+    const std::string key = topicKey(topic);
+    const bool stale = isStale(topic);
+    const bool previous = stale_states_[key];
+    if (stale && !previous) {
+      ++total_;
+    }
+    stale_states_[key] = stale;
+  }
+  return total_;
+}
+
+void TopicTimeoutTracker::resetBaseline(const std::vector<TopicWatchInput>& monitored_topics) {
+  total_ = 0U;
+  stale_states_.clear();
+  for (const auto& topic : monitored_topics) {
+    stale_states_[topicKey(topic)] = isStale(topic);
+  }
+}
+
+bool TopicTimeoutTracker::isStale(const TopicWatchInput& topic) {
+  return topic.required && (!topic.received || topic.age_sec > topic.max_age_sec);
+}
+
+std::string TopicTimeoutTracker::topicKey(const TopicWatchInput& topic) {
+  return topic.code_suffix.empty() ? topic.topic_name : topic.code_suffix;
 }
 
 VisualizationStatusCore::Output VisualizationStatusCore::evaluate(

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
+#include <diagnostic_msgs/msg/key_value.hpp>
 #include <nav2_msgs/msg/costmap_filter_info.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/odometry.hpp>
@@ -21,6 +22,7 @@
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <std_srvs/srv/trigger.hpp>
 
 #include "rc26_visualization/visualization_status_core.hpp"
 
@@ -78,6 +80,7 @@ public:
     declareParameters();
     loadParameters();
     setupPublishers();
+    setupServices();
     setupSubscriptions();
     setupTimer();
   }
@@ -227,6 +230,19 @@ private:
     summary_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("r2/diag/summary", 10);
     operator_status_pub_ = this->create_publisher<rc26_interfaces::msg::OperatorStatus>("r2/diag/operator_status", 10);
     events_pub_ = this->create_publisher<rc26_interfaces::msg::VisualizationEventArray>("r2/diag/events", 10);
+  }
+
+  void setupServices() {
+    reset_topic_timeouts_service_ = this->create_service<std_srvs::srv::Trigger>(
+        "r2/diag/reset_topic_timeout_count",
+        [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> /*request*/,
+               std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+          std::lock_guard<std::mutex> lock(data_mutex_);
+          const auto input = buildInputLocked();
+          timeout_tracker_.resetBaseline(input.monitored_topics);
+          response->success = true;
+          response->message = "topic timeout counter reset";
+        });
   }
 
   void setupSubscriptions() {
@@ -393,152 +409,187 @@ private:
     publish_timer_ = this->create_wall_timer(std::chrono::milliseconds(period_ms), [this]() { publishStatus(); });
   }
 
+  EvaluationInput buildInputLocked() {
+    EvaluationInput input;
+    input.localization.received = localization_health_.received;
+    input.localization.age_sec = ageSec(*this->get_clock(), localization_health_.received, localization_health_.stamp);
+    if (localization_health_.received) {
+      input.localization.level = localization_health_.msg.level;
+      input.localization.reason = localization_health_.msg.reason;
+      input.localization.state = localization_health_.msg.localization_state;
+      input.localization.control_degraded = localization_health_.msg.control_degraded;
+      input.localization.sigma_xy = localization_health_.msg.sigma_xy;
+      input.localization.sigma_yaw = localization_health_.msg.sigma_yaw;
+      input.localization.degenerate_score = localization_health_.msg.degenerate_score;
+      input.localization.h_min_eig = localization_health_.msg.h_min_eig;
+    }
+
+    input.backend.received = localization_backend_.received;
+    input.backend.age_sec = ageSec(*this->get_clock(), localization_backend_.received, localization_backend_.stamp);
+    if (localization_backend_.received) {
+      input.backend.optimizer_ready = localization_backend_.msg.optimizer_ready;
+      input.backend.optimizer_state = localization_backend_.msg.optimizer_state;
+      input.backend.graph_health = localization_backend_.msg.graph_health;
+      input.backend.last_local_reg_age_sec = localization_backend_.msg.last_local_reg_age_sec;
+      input.backend.last_loop_age_sec = localization_backend_.msg.last_loop_age_sec;
+      input.backend.last_anchor_age_sec = localization_backend_.msg.last_anchor_age_sec;
+      input.backend.imu_spike = localization_backend_.msg.imu_spike;
+    }
+
+    input.control_degraded.received = control_degraded_.received;
+    input.control_degraded.age_sec = ageSec(*this->get_clock(), control_degraded_.received, control_degraded_.stamp);
+    input.control_degraded.value = control_degraded_.value;
+
+    input.control_degenerate_score.received = control_degenerate_score_.received;
+    input.control_degenerate_score.age_sec = ageSec(*this->get_clock(), control_degenerate_score_.received, control_degenerate_score_.stamp);
+    input.control_degenerate_score.value = control_degenerate_score_.value;
+
+    input.compute_time_ms.received = compute_time_ms_.received;
+    input.compute_time_ms.age_sec = ageSec(*this->get_clock(), compute_time_ms_.received, compute_time_ms_.stamp);
+    input.compute_time_ms.value = compute_time_ms_.value;
+
+    input.pose_age_ms.received = pose_age_ms_.received;
+    input.pose_age_ms.age_sec = ageSec(*this->get_clock(), pose_age_ms_.received, pose_age_ms_.stamp);
+    input.pose_age_ms.value = pose_age_ms_.value;
+
+    input.collision_d_min.received = collision_d_min_.received;
+    input.collision_d_min.age_sec = ageSec(*this->get_clock(), collision_d_min_.received, collision_d_min_.stamp);
+    input.collision_d_min.value = collision_d_min_.value;
+
+    input.controller_mode.received = controller_mode_.received;
+    input.controller_mode.age_sec = ageSec(*this->get_clock(), controller_mode_.received, controller_mode_.stamp);
+    input.controller_mode.value = controller_mode_.value;
+
+    input.nav_safety.received = nav_safety_.received;
+    input.nav_safety.age_sec = ageSec(*this->get_clock(), nav_safety_.received, nav_safety_.stamp);
+    if (nav_safety_.received) {
+      input.nav_safety.current_profile = nav_safety_.msg.current_profile;
+      input.nav_safety.reason = nav_safety_.msg.reason;
+      input.nav_safety.stop_required = nav_safety_.msg.stop_required;
+      input.nav_safety.timed_out = nav_safety_.msg.timed_out;
+    }
+
+    input.mechanism.received = mechanism_state_.received;
+    input.mechanism.age_sec = ageSec(*this->get_clock(), mechanism_state_.received, mechanism_state_.stamp);
+    if (mechanism_state_.received) {
+      input.mechanism.comm_health_level = mechanism_state_.msg.comm_health_level;
+    }
+
+    input.keepout.filter_info_received = costmap_filter_info_.received;
+    input.keepout.filter_info_age_sec = ageSec(*this->get_clock(), costmap_filter_info_.received, costmap_filter_info_.stamp);
+    input.keepout.mask_received = kfs_filter_mask_.received;
+    input.keepout.mask_age_sec = ageSec(*this->get_clock(), kfs_filter_mask_.received, kfs_filter_mask_.stamp);
+    input.keepout.heartbeat_received = kfs_heartbeat_.received;
+    input.keepout.heartbeat_age_sec = ageSec(*this->get_clock(), kfs_heartbeat_.received, kfs_heartbeat_.stamp);
+    input.keepout.heartbeat_enabled = kfs_heartbeat_.value;
+
+    input.terrain.obstacles_received = terrain_obstacles_.received;
+    input.terrain.obstacles_age_sec = ageSec(*this->get_clock(), terrain_obstacles_.received, terrain_obstacles_.stamp);
+    input.terrain.obstacles_active = terrain_obstacles_.received && cloudActive(terrain_obstacles_.msg);
+    input.terrain.drop_received = terrain_drop_.received;
+    input.terrain.drop_age_sec = ageSec(*this->get_clock(), terrain_drop_.received, terrain_drop_.stamp);
+    input.terrain.drop_active = terrain_drop_.received && cloudActive(terrain_drop_.msg);
+
+    for (const auto& topic_watch : topic_watch_configs_) {
+      TopicWatchInput watch;
+      watch.code_suffix = topic_watch.code_suffix;
+      watch.topic_name = topic_watch.topic_name;
+      watch.max_age_sec = topic_watch.max_age_sec;
+      watch.required = topic_watch.required;
+      if (topic_watch.code_suffix == "LOCALIZATION_HEALTH") {
+        watch.received = localization_health_.received;
+        watch.age_sec = input.localization.age_sec;
+      } else if (topic_watch.code_suffix == "LOCALIZATION_BACKEND_STATUS") {
+        watch.received = localization_backend_.received;
+        watch.age_sec = input.backend.age_sec;
+      } else if (topic_watch.code_suffix == "CONTROL_DEGRADED") {
+        watch.received = control_degraded_.received;
+        watch.age_sec = input.control_degraded.age_sec;
+      } else if (topic_watch.code_suffix == "CONTROL_DEGENERATE_SCORE") {
+        watch.received = control_degenerate_score_.received;
+        watch.age_sec = input.control_degenerate_score.age_sec;
+      } else if (topic_watch.code_suffix == "COMPUTE_TIME_MS") {
+        watch.received = compute_time_ms_.received;
+        watch.age_sec = input.compute_time_ms.age_sec;
+      } else if (topic_watch.code_suffix == "POSE_AGE_MS") {
+        watch.received = pose_age_ms_.received;
+        watch.age_sec = input.pose_age_ms.age_sec;
+      } else if (topic_watch.code_suffix == "COLLISION_D_MIN") {
+        watch.received = collision_d_min_.received;
+        watch.age_sec = input.collision_d_min.age_sec;
+      } else if (topic_watch.code_suffix == "NAV_SAFETY_STATE") {
+        watch.received = nav_safety_.received;
+        watch.age_sec = input.nav_safety.age_sec;
+      } else if (topic_watch.code_suffix == "MECHANISM_STATE") {
+        watch.received = mechanism_state_.received;
+        watch.age_sec = input.mechanism.age_sec;
+      } else if (topic_watch.code_suffix == "COSTMAP_FILTER_INFO") {
+        watch.received = costmap_filter_info_.received;
+        watch.age_sec = input.keepout.filter_info_age_sec;
+      } else if (topic_watch.code_suffix == "KFS_FILTER_MASK") {
+        watch.received = kfs_filter_mask_.received;
+        watch.age_sec = input.keepout.mask_age_sec;
+      } else if (topic_watch.code_suffix == "KFS_KEEPOUT_HEARTBEAT") {
+        watch.received = kfs_heartbeat_.received;
+        watch.age_sec = input.keepout.heartbeat_age_sec;
+      } else if (topic_watch.code_suffix == "TERRAIN_OBSTACLES") {
+        watch.received = terrain_obstacles_.received;
+        watch.age_sec = input.terrain.obstacles_age_sec;
+      } else if (topic_watch.code_suffix == "TERRAIN_DROP") {
+        watch.received = terrain_drop_.received;
+        watch.age_sec = input.terrain.drop_age_sec;
+      } else if (topic_watch.code_suffix == "ODOM") {
+        watch.received = odom_.received;
+        watch.age_sec = ageSec(*this->get_clock(), odom_.received, odom_.stamp);
+      } else if (topic_watch.code_suffix == "CONTROL_STATE") {
+        watch.received = control_state_.received;
+        watch.age_sec = ageSec(*this->get_clock(), control_state_.received, control_state_.stamp);
+      }
+      input.monitored_topics.push_back(std::move(watch));
+    }
+
+    return input;
+  }
+
+  static void setStatusValue(diagnostic_msgs::msg::DiagnosticStatus& status, const std::string& key, const std::string& value) {
+    auto iter = std::find_if(status.values.begin(), status.values.end(), [&key](const auto& item) {
+      return item.key == key;
+    });
+    if (iter == status.values.end()) {
+      diagnostic_msgs::msg::KeyValue item;
+      item.key = key;
+      item.value = value;
+      status.values.push_back(std::move(item));
+      return;
+    }
+    iter->value = value;
+  }
+
+  static void applyTimeoutTotal(diagnostic_msgs::msg::DiagnosticArray& summary, uint32_t timeout_total) {
+    auto iter = std::find_if(summary.status.begin(), summary.status.end(), [](const auto& status) {
+      return status.name == "r2/topics";
+    });
+    if (iter == summary.status.end()) {
+      return;
+    }
+    setStatusValue(*iter, "timeout_total", std::to_string(timeout_total));
+  }
+
   void publishStatus() {
     EvaluationInput input;
+    uint32_t timeout_total = 0U;
     {
       std::lock_guard<std::mutex> lock(data_mutex_);
-      input.localization.received = localization_health_.received;
-      input.localization.age_sec = ageSec(*this->get_clock(), localization_health_.received, localization_health_.stamp);
-      if (localization_health_.received) {
-        input.localization.level = localization_health_.msg.level;
-        input.localization.reason = localization_health_.msg.reason;
-        input.localization.state = localization_health_.msg.localization_state;
-        input.localization.control_degraded = localization_health_.msg.control_degraded;
-        input.localization.sigma_xy = localization_health_.msg.sigma_xy;
-        input.localization.sigma_yaw = localization_health_.msg.sigma_yaw;
-        input.localization.degenerate_score = localization_health_.msg.degenerate_score;
-        input.localization.h_min_eig = localization_health_.msg.h_min_eig;
-      }
-
-      input.backend.received = localization_backend_.received;
-      input.backend.age_sec = ageSec(*this->get_clock(), localization_backend_.received, localization_backend_.stamp);
-      if (localization_backend_.received) {
-        input.backend.optimizer_ready = localization_backend_.msg.optimizer_ready;
-        input.backend.optimizer_state = localization_backend_.msg.optimizer_state;
-        input.backend.graph_health = localization_backend_.msg.graph_health;
-        input.backend.last_local_reg_age_sec = localization_backend_.msg.last_local_reg_age_sec;
-        input.backend.last_loop_age_sec = localization_backend_.msg.last_loop_age_sec;
-        input.backend.last_anchor_age_sec = localization_backend_.msg.last_anchor_age_sec;
-        input.backend.imu_spike = localization_backend_.msg.imu_spike;
-      }
-
-      input.control_degraded.received = control_degraded_.received;
-      input.control_degraded.age_sec = ageSec(*this->get_clock(), control_degraded_.received, control_degraded_.stamp);
-      input.control_degraded.value = control_degraded_.value;
-
-      input.control_degenerate_score.received = control_degenerate_score_.received;
-      input.control_degenerate_score.age_sec = ageSec(*this->get_clock(), control_degenerate_score_.received, control_degenerate_score_.stamp);
-      input.control_degenerate_score.value = control_degenerate_score_.value;
-
-      input.compute_time_ms.received = compute_time_ms_.received;
-      input.compute_time_ms.age_sec = ageSec(*this->get_clock(), compute_time_ms_.received, compute_time_ms_.stamp);
-      input.compute_time_ms.value = compute_time_ms_.value;
-
-      input.pose_age_ms.received = pose_age_ms_.received;
-      input.pose_age_ms.age_sec = ageSec(*this->get_clock(), pose_age_ms_.received, pose_age_ms_.stamp);
-      input.pose_age_ms.value = pose_age_ms_.value;
-
-      input.collision_d_min.received = collision_d_min_.received;
-      input.collision_d_min.age_sec = ageSec(*this->get_clock(), collision_d_min_.received, collision_d_min_.stamp);
-      input.collision_d_min.value = collision_d_min_.value;
-
-      input.controller_mode.received = controller_mode_.received;
-      input.controller_mode.age_sec = ageSec(*this->get_clock(), controller_mode_.received, controller_mode_.stamp);
-      input.controller_mode.value = controller_mode_.value;
-
-      input.nav_safety.received = nav_safety_.received;
-      input.nav_safety.age_sec = ageSec(*this->get_clock(), nav_safety_.received, nav_safety_.stamp);
-      if (nav_safety_.received) {
-        input.nav_safety.current_profile = nav_safety_.msg.current_profile;
-        input.nav_safety.reason = nav_safety_.msg.reason;
-        input.nav_safety.stop_required = nav_safety_.msg.stop_required;
-        input.nav_safety.timed_out = nav_safety_.msg.timed_out;
-      }
-
-      input.mechanism.received = mechanism_state_.received;
-      input.mechanism.age_sec = ageSec(*this->get_clock(), mechanism_state_.received, mechanism_state_.stamp);
-      if (mechanism_state_.received) {
-        input.mechanism.comm_health_level = mechanism_state_.msg.comm_health_level;
-      }
-
-      input.keepout.filter_info_received = costmap_filter_info_.received;
-      input.keepout.filter_info_age_sec = ageSec(*this->get_clock(), costmap_filter_info_.received, costmap_filter_info_.stamp);
-      input.keepout.mask_received = kfs_filter_mask_.received;
-      input.keepout.mask_age_sec = ageSec(*this->get_clock(), kfs_filter_mask_.received, kfs_filter_mask_.stamp);
-      input.keepout.heartbeat_received = kfs_heartbeat_.received;
-      input.keepout.heartbeat_age_sec = ageSec(*this->get_clock(), kfs_heartbeat_.received, kfs_heartbeat_.stamp);
-      input.keepout.heartbeat_enabled = kfs_heartbeat_.value;
-
-      input.terrain.obstacles_received = terrain_obstacles_.received;
-      input.terrain.obstacles_age_sec = ageSec(*this->get_clock(), terrain_obstacles_.received, terrain_obstacles_.stamp);
-      input.terrain.obstacles_active = terrain_obstacles_.received && cloudActive(terrain_obstacles_.msg);
-      input.terrain.drop_received = terrain_drop_.received;
-      input.terrain.drop_age_sec = ageSec(*this->get_clock(), terrain_drop_.received, terrain_drop_.stamp);
-      input.terrain.drop_active = terrain_drop_.received && cloudActive(terrain_drop_.msg);
-
-      for (const auto& topic_watch : topic_watch_configs_) {
-        TopicWatchInput watch;
-        watch.code_suffix = topic_watch.code_suffix;
-        watch.topic_name = topic_watch.topic_name;
-        watch.max_age_sec = topic_watch.max_age_sec;
-        watch.required = topic_watch.required;
-        if (topic_watch.code_suffix == "LOCALIZATION_HEALTH") {
-          watch.received = localization_health_.received;
-          watch.age_sec = input.localization.age_sec;
-        } else if (topic_watch.code_suffix == "LOCALIZATION_BACKEND_STATUS") {
-          watch.received = localization_backend_.received;
-          watch.age_sec = input.backend.age_sec;
-        } else if (topic_watch.code_suffix == "CONTROL_DEGRADED") {
-          watch.received = control_degraded_.received;
-          watch.age_sec = input.control_degraded.age_sec;
-        } else if (topic_watch.code_suffix == "CONTROL_DEGENERATE_SCORE") {
-          watch.received = control_degenerate_score_.received;
-          watch.age_sec = input.control_degenerate_score.age_sec;
-        } else if (topic_watch.code_suffix == "COMPUTE_TIME_MS") {
-          watch.received = compute_time_ms_.received;
-          watch.age_sec = input.compute_time_ms.age_sec;
-        } else if (topic_watch.code_suffix == "POSE_AGE_MS") {
-          watch.received = pose_age_ms_.received;
-          watch.age_sec = input.pose_age_ms.age_sec;
-        } else if (topic_watch.code_suffix == "COLLISION_D_MIN") {
-          watch.received = collision_d_min_.received;
-          watch.age_sec = input.collision_d_min.age_sec;
-        } else if (topic_watch.code_suffix == "NAV_SAFETY_STATE") {
-          watch.received = nav_safety_.received;
-          watch.age_sec = input.nav_safety.age_sec;
-        } else if (topic_watch.code_suffix == "MECHANISM_STATE") {
-          watch.received = mechanism_state_.received;
-          watch.age_sec = input.mechanism.age_sec;
-        } else if (topic_watch.code_suffix == "COSTMAP_FILTER_INFO") {
-          watch.received = costmap_filter_info_.received;
-          watch.age_sec = input.keepout.filter_info_age_sec;
-        } else if (topic_watch.code_suffix == "KFS_FILTER_MASK") {
-          watch.received = kfs_filter_mask_.received;
-          watch.age_sec = input.keepout.mask_age_sec;
-        } else if (topic_watch.code_suffix == "KFS_KEEPOUT_HEARTBEAT") {
-          watch.received = kfs_heartbeat_.received;
-          watch.age_sec = input.keepout.heartbeat_age_sec;
-        } else if (topic_watch.code_suffix == "TERRAIN_OBSTACLES") {
-          watch.received = terrain_obstacles_.received;
-          watch.age_sec = input.terrain.obstacles_age_sec;
-        } else if (topic_watch.code_suffix == "TERRAIN_DROP") {
-          watch.received = terrain_drop_.received;
-          watch.age_sec = input.terrain.drop_age_sec;
-        } else if (topic_watch.code_suffix == "ODOM") {
-          watch.received = odom_.received;
-          watch.age_sec = ageSec(*this->get_clock(), odom_.received, odom_.stamp);
-        } else if (topic_watch.code_suffix == "CONTROL_STATE") {
-          watch.received = control_state_.received;
-          watch.age_sec = ageSec(*this->get_clock(), control_state_.received, control_state_.stamp);
-        }
-        input.monitored_topics.push_back(std::move(watch));
-      }
+      input = buildInputLocked();
+      timeout_total = timeout_tracker_.observe(input.monitored_topics);
     }
 
     std_msgs::msg::Header header;
     header.stamp = this->now();
     header.frame_id = "map";
     auto output = core_.evaluate(input, header);
+    output.operator_status.topic_timeout_count = timeout_total;
+    applyTimeoutTotal(output.summary, timeout_total);
     summary_pub_->publish(output.summary);
     operator_status_pub_->publish(output.operator_status);
     events_pub_->publish(output.events);
@@ -565,6 +616,7 @@ private:
 
   std::mutex data_mutex_;
   VisualizationStatusCore core_;
+  TopicTimeoutTracker timeout_tracker_;
   std::vector<TopicWatchConfig> topic_watch_configs_;
 
   MessageCache<rc26_interfaces::msg::LocalizationHealth> localization_health_;
@@ -588,6 +640,8 @@ private:
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr summary_pub_;
   rclcpp::Publisher<rc26_interfaces::msg::OperatorStatus>::SharedPtr operator_status_pub_;
   rclcpp::Publisher<rc26_interfaces::msg::VisualizationEventArray>::SharedPtr events_pub_;
+
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_topic_timeouts_service_;
 
   rclcpp::Subscription<rc26_interfaces::msg::LocalizationHealth>::SharedPtr localization_health_sub_;
   rclcpp::Subscription<rc26_interfaces::msg::LocalizationBackendStatus>::SharedPtr localization_backend_sub_;
