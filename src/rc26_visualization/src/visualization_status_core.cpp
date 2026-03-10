@@ -29,6 +29,14 @@ std::string formatSec(double value) {
   return formatDouble(value, 2) + " s";
 }
 
+std::string formatMs(double value, int precision = 1) {
+  return formatDouble(value, precision) + " ms";
+}
+
+std::string formatMeters(double value, int precision = 2) {
+  return formatDouble(value, precision) + " m";
+}
+
 uint8_t maxLevel(uint8_t left, uint8_t right) {
   return std::max(left, right);
 }
@@ -324,16 +332,32 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
   }
 
   if (config_.localization_present && status.localization_level >= kLevelYellow) {
+    std::ostringstream detail;
+    detail << "localization_state=" << status.localization_state
+           << "; reason=" << status.localization_reason
+           << "; sigma_xy=" << formatDouble(input.localization.sigma_xy, 3)
+           << "; sigma_yaw=" << formatDouble(input.localization.sigma_yaw, 3)
+           << "; h_min_eig=" << formatDouble(input.localization.h_min_eig, 2)
+           << "; degenerate_score=" << formatDouble(input.localization.degenerate_score, 3);
     events.push_back(makeEvent(
-        "LOCALIZATION_DEGRADED", status.localization_level, "定位退化", status.localization_reason,
+        "LOCALIZATION_DEGRADED", status.localization_level, "定位退化", detail.str(),
         config_.localization_health_topic, "确认定位输入、重定位状态和环境可观测性，必要时切人工接管。", true));
   }
 
   if (config_.localization_present && backend_level >= kLevelYellow) {
     std::ostringstream detail;
-    detail << backend_reason << "; optimizer_state=" << input.backend.optimizer_state
+    detail << "backend_reason=" << backend_reason
+           << "; optimizer_state=" << input.backend.optimizer_state
            << "; graph_health=" << formatDouble(input.backend.graph_health, 2)
-           << "; last_local_reg_age_sec=" << formatDouble(input.backend.last_local_reg_age_sec, 2)
+           << " (warn<" << formatDouble(config_.backend_graph_health_warn, 2)
+           << ", error<" << formatDouble(config_.backend_graph_health_error, 2) << ")"
+           << "; last_local_reg_age_sec=" << formatSec(input.backend.last_local_reg_age_sec)
+           << " (warn>" << formatSec(config_.backend_local_reg_warn_sec)
+           << ", error>" << formatSec(config_.backend_local_reg_error_sec) << ")"
+           << "; last_loop_age_sec=" << formatSec(input.backend.last_loop_age_sec)
+           << "; last_anchor_age_sec=" << formatSec(input.backend.last_anchor_age_sec)
+           << "; status_age_sec=" << formatSec(input.backend.age_sec)
+           << " (limit " << formatSec(config_.backend_status_max_age_ms / 1000.0) << ")"
            << "; imu_spike=" << (input.backend.imu_spike ? "true" : "false");
     events.push_back(makeEvent(
         "LOCALIZATION_BACKEND_WARN", backend_level, "定位后端告警", detail.str(),
@@ -343,7 +367,10 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
 
   if (config_.controller_present && status.control_degraded) {
     std::ostringstream detail;
-    detail << "control_degraded=true, degenerate_score=" << formatDouble(status.control_degenerate_score, 3);
+    detail << "control_degraded=true"
+           << "; degenerate_score=" << formatDouble(status.control_degenerate_score, 3)
+           << "; control_degraded_age_sec=" << formatSec(input.control_degraded.age_sec)
+           << "; degenerate_score_age_sec=" << formatSec(input.control_degenerate_score.age_sec);
     events.push_back(makeEvent(
         "CONTROL_DEGRADED", kLevelOrange, "控制退化", detail.str(), config_.control_degraded_topic,
         "降低速度并检查预测里程计与退化分数来源；必要时切换保底视图确认轨迹。", true));
@@ -351,9 +378,10 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
 
   if (config_.controller_present && pose_age_level >= kLevelYellow) {
     std::ostringstream detail;
-    detail << "pose_age_ms=" << formatDouble(status.pose_age_ms, 1)
-           << ", thresholds=[" << formatDouble(pose_age_yellow_ms, 1) << ", "
-           << formatDouble(pose_age_orange_ms, 1) << ", " << formatDouble(pose_age_red_ms, 1) << "]";
+    detail << "pose_age_ms=" << formatMs(status.pose_age_ms, 1)
+           << "; yellow=" << formatMs(pose_age_yellow_ms, 1)
+           << "; orange=" << formatMs(pose_age_orange_ms, 1)
+           << "; red=" << formatMs(pose_age_red_ms, 1);
     events.push_back(makeEvent(
         "POSE_STALE", pose_age_level, "位姿时效下降", detail.str(), config_.pose_age_ms_topic,
         "检查定位链路刷新率与控制输入时间戳，避免继续高速运动。", false));
@@ -361,9 +389,10 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
 
   if (config_.controller_present && control_time_level >= kLevelYellow) {
     std::ostringstream detail;
-    detail << "compute_time_ms=" << formatDouble(status.compute_time_ms, 1)
-           << ", thresholds=[" << formatDouble(control_time_yellow_ms, 1) << ", "
-           << formatDouble(control_time_orange_ms, 1) << ", " << formatDouble(control_time_red_ms, 1) << "]";
+    detail << "compute_time_ms=" << formatMs(status.compute_time_ms, 1)
+           << "; yellow=" << formatMs(control_time_yellow_ms, 1)
+           << "; orange=" << formatMs(control_time_orange_ms, 1)
+           << "; red=" << formatMs(control_time_red_ms, 1);
     events.push_back(makeEvent(
         "CONTROL_OVERRUN", control_time_level, "控制周期超限", detail.str(), config_.compute_time_ms_topic,
         "降低任务负载并检查控制器实时性，必要时暂停自动导航。", false));
@@ -371,8 +400,10 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
 
   if (config_.controller_present && obstacle_level >= kLevelYellow) {
     std::ostringstream detail;
-    detail << "collision_d_min=" << formatDouble(status.collision_d_min, 2)
-           << " m, brake_margin=" << formatDouble(config_.brake_margin_m, 2) << " m";
+    detail << "collision_d_min=" << formatMeters(status.collision_d_min, 2)
+           << "; yellow_limit=" << formatMeters(obstacle_yellow, 2)
+           << "; orange_limit=" << formatMeters(obstacle_orange, 2)
+           << "; red_limit=" << formatMeters(obstacle_red, 2);
     events.push_back(makeEvent(
         "OBSTACLE_NEAR", obstacle_level, "近障碍风险", detail.str(), config_.collision_d_min_topic,
         "确认局部代价图和障碍物来源，必要时减速或人工接管。", false));
@@ -421,10 +452,12 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
   }
   if (config_.keepout_present && status.keepout_level >= kLevelYellow) {
     std::ostringstream detail;
-    detail << status.keepout_reason << "; filter_age=" << formatSec(input.keepout.filter_info_age_sec)
-           << ", mask_age=" << formatSec(input.keepout.mask_age_sec)
-           << ", heartbeat_age=" << formatSec(input.keepout.heartbeat_age_sec)
-           << ", heartbeat_enabled=" << (input.keepout.heartbeat_enabled ? "true" : "false");
+    detail << "keepout_reason=" << status.keepout_reason
+           << "; filter_age_sec=" << formatSec(input.keepout.filter_info_age_sec)
+           << "; mask_age_sec=" << formatSec(input.keepout.mask_age_sec)
+           << "; heartbeat_age_sec=" << formatSec(input.keepout.heartbeat_age_sec)
+           << "; max_age_sec=" << formatSec(keepout_limit_sec)
+           << "; heartbeat_enabled=" << (input.keepout.heartbeat_enabled ? "true" : "false");
     events.push_back(makeEvent(
         "KEEPOUT_STALE", status.keepout_level, "Keepout 失效风险", detail.str(),
         config_.costmap_filter_info_topic + "," + config_.kfs_filter_mask_topic + "," + config_.kfs_heartbeat_topic,
@@ -474,15 +507,23 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
   }
 
   if (config_.nav_safety_present && input.nav_safety.stop_required) {
+    std::ostringstream detail;
+    detail << "current_profile=" << input.nav_safety.current_profile
+           << "; stop_required=true"
+           << "; timed_out=" << (input.nav_safety.timed_out ? "true" : "false")
+           << "; reason=" << (input.nav_safety.reason.empty() ? "nav_safety_state.stop_required=true" : input.nav_safety.reason);
     events.push_back(makeEvent(
-        "NAV_STOP_REQUIRED", kLevelRed, "导航要求停车",
-        input.nav_safety.reason.empty() ? "nav_safety_state.stop_required=true" : input.nav_safety.reason,
+        "NAV_STOP_REQUIRED", kLevelRed, "导航要求停车", detail.str(),
         config_.nav_safety_topic, "立即确认障碍物、超时或策略切换原因，必要时人工接管。", true));
   }
   if (config_.nav_safety_present && input.nav_safety.timed_out) {
+    std::ostringstream detail;
+    detail << "current_profile=" << input.nav_safety.current_profile
+           << "; stop_required=" << (input.nav_safety.stop_required ? "true" : "false")
+           << "; timed_out=true"
+           << "; reason=" << (input.nav_safety.reason.empty() ? "nav_safety_state.timed_out=true" : input.nav_safety.reason);
     events.push_back(makeEvent(
-        "NAV_TIMED_OUT", kLevelRed, "导航超时",
-        input.nav_safety.reason.empty() ? "nav_safety_state.timed_out=true" : input.nav_safety.reason,
+        "NAV_TIMED_OUT", kLevelRed, "导航超时", detail.str(),
         config_.nav_safety_topic, "检查 profile watchdog、地形策略和上层任务状态，避免继续自动推进。", true));
   }
 
@@ -510,7 +551,10 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
   if (config_.mechanism_present && status.mechanism_level >= kLevelYellow && input.mechanism.received) {
     std::ostringstream detail;
     detail << "comm_health_level=" << static_cast<int>(input.mechanism.comm_health_level)
-           << ", age=" << formatSec(input.mechanism.age_sec);
+           << "; age_sec=" << formatSec(input.mechanism.age_sec)
+           << "; warn_level=" << static_cast<int>(config_.mechanism_warn_level)
+           << "; error_level=" << static_cast<int>(config_.mechanism_error_level)
+           << "; max_age_sec=" << formatSec(mechanism_limit_sec);
     events.push_back(makeEvent(
         "MECHANISM_COMM_WARN", status.mechanism_level, "机构通信异常", detail.str(),
         config_.mechanism_state_topic, "检查机构串口链路、下位机状态和动作执行反馈。", true));
@@ -602,6 +646,10 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
       {
           {"state", status.localization_state},
           {"reason", status.localization_reason},
+          {"sigma_xy", formatDouble(input.localization.sigma_xy, 3)},
+          {"sigma_yaw", formatDouble(input.localization.sigma_yaw, 3)},
+          {"h_min_eig", formatDouble(input.localization.h_min_eig, 2)},
+          {"degenerate_score", formatDouble(input.localization.degenerate_score, 3)},
           {"backend_reason", backend_reason},
           {"backend_optimizer_state", input.backend.optimizer_state},
           {"graph_health", formatDouble(input.backend.graph_health, 2)},

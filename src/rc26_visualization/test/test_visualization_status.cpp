@@ -19,7 +19,10 @@ EvaluationInput makeNominalInput() {
   input.localization.reason = "ok";
   input.localization.state = "TRACKING";
   input.localization.control_degraded = false;
+  input.localization.sigma_xy = 0.03;
+  input.localization.sigma_yaw = 0.02;
   input.localization.degenerate_score = 0.85;
+  input.localization.h_min_eig = 92.0;
 
   input.backend.received = true;
   input.backend.age_sec = 0.05;
@@ -133,6 +136,24 @@ std::string valueForKey(const diagnostic_msgs::msg::DiagnosticStatus& status, st
   return iter->value;
 }
 
+const rc26_interfaces::msg::VisualizationEvent& findEvent(
+    const rc26_interfaces::msg::VisualizationEventArray& events, std::string_view code) {
+  const auto iter = std::find_if(events.events.begin(), events.events.end(), [code](const auto& event) {
+    return event.code == code;
+  });
+  EXPECT_NE(iter, events.events.end());
+  if (iter == events.events.end()) {
+    return events.events.front();
+  }
+  return *iter;
+}
+
+void expectContainsAll(std::string_view value, std::initializer_list<std::string_view> parts) {
+  for (const auto part : parts) {
+    EXPECT_NE(value.find(part), std::string_view::npos) << "missing substring: " << part;
+  }
+}
+
 TEST(VisualizationStatusCoreTest, NominalCruiseStaysGreen) {
   VisualizationStatusCore core;
   std_msgs::msg::Header header;
@@ -172,6 +193,8 @@ TEST(VisualizationStatusCoreTest, NearObstacleRaisesControllerAlert) {
   EXPECT_EQ(output.operator_status.controller_level, kLevelOrange);
   EXPECT_EQ(output.operator_status.overall_level, kLevelOrange);
   EXPECT_NE(std::find(codes.begin(), codes.end(), "OBSTACLE_NEAR"), codes.end());
+  expectContainsAll(findEvent(output.events, "OBSTACLE_NEAR").detail,
+                    {"collision_d_min=0.25 m", "yellow_limit=0.45 m", "orange_limit=0.30 m", "red_limit=0.15 m"});
 }
 
 TEST(VisualizationStatusCoreTest, KeepoutStaleTriggersRedEvent) {
@@ -194,6 +217,8 @@ TEST(VisualizationStatusCoreTest, KeepoutStaleTriggersRedEvent) {
   EXPECT_EQ(output.operator_status.keepout_level, kLevelRed);
   EXPECT_EQ(output.operator_status.overall_level, kLevelRed);
   EXPECT_NE(std::find(codes.begin(), codes.end(), "KEEPOUT_STALE"), codes.end());
+  expectContainsAll(findEvent(output.events, "KEEPOUT_STALE").detail,
+                    {"filter_age_sec=0.45 s", "mask_age_sec=0.45 s", "heartbeat_age_sec=0.45 s", "max_age_sec=0.30 s"});
 }
 
 TEST(VisualizationStatusCoreTest, LocalizationOrControlDegradeIsDetected) {
@@ -203,7 +228,14 @@ TEST(VisualizationStatusCoreTest, LocalizationOrControlDegradeIsDetected) {
   input.localization.level = kLevelRed;
   input.localization.reason = "RELOC_FAILED";
   input.localization.state = "RELOCALIZING";
+  input.localization.sigma_xy = 0.42;
+  input.localization.sigma_yaw = 0.31;
+  input.localization.h_min_eig = 1.23;
+  input.localization.degenerate_score = 0.12;
+  input.backend.graph_health = 0.45;
+  input.backend.last_local_reg_age_sec = 0.90;
   input.control_degraded.value = true;
+  input.control_degenerate_score.value = 0.01;
 
   auto output = core.evaluate(input, header);
   const auto codes = eventCodes(output.events);
@@ -212,6 +244,48 @@ TEST(VisualizationStatusCoreTest, LocalizationOrControlDegradeIsDetected) {
   EXPECT_EQ(output.operator_status.overall_level, kLevelRed);
   EXPECT_NE(std::find(codes.begin(), codes.end(), "LOCALIZATION_DEGRADED"), codes.end());
   EXPECT_NE(std::find(codes.begin(), codes.end(), "CONTROL_DEGRADED"), codes.end());
+  EXPECT_NE(std::find(codes.begin(), codes.end(), "LOCALIZATION_BACKEND_WARN"), codes.end());
+  expectContainsAll(findEvent(output.events, "LOCALIZATION_DEGRADED").detail,
+                    {"localization_state=RELOCALIZING", "reason=RELOC_FAILED", "sigma_xy=0.420",
+                     "sigma_yaw=0.310", "h_min_eig=1.23", "degenerate_score=0.120"});
+  expectContainsAll(findEvent(output.events, "CONTROL_DEGRADED").detail,
+                    {"control_degraded=true", "degenerate_score=0.010", "control_degraded_age_sec=0.05 s",
+                     "degenerate_score_age_sec=0.05 s"});
+  expectContainsAll(findEvent(output.events, "LOCALIZATION_BACKEND_WARN").detail,
+                    {"graph_health=0.45", "warn<0.60", "error<0.30", "last_local_reg_age_sec=0.90 s",
+                     "warn>0.75 s", "error>1.50 s", "imu_spike=false"});
+}
+
+TEST(VisualizationStatusCoreTest, TimingNavMechanismAndTopicDetailsExposeEvidence) {
+  VisualizationStatusCore core;
+  std_msgs::msg::Header header;
+  auto input = makeNominalInput();
+  input.pose_age_ms.value = 240.0;
+  input.compute_time_ms.value = 40.0;
+  input.nav_safety.stop_required = true;
+  input.nav_safety.timed_out = true;
+  input.nav_safety.reason = "watchdog timeout";
+  input.mechanism.comm_health_level = 1U;
+  for (auto& topic : input.monitored_topics) {
+    if (topic.code_suffix == "ODOM") {
+      topic.age_sec = 0.80;
+    }
+  }
+
+  auto output = core.evaluate(input, header);
+
+  expectContainsAll(findEvent(output.events, "POSE_STALE").detail,
+                    {"pose_age_ms=240.0 ms", "yellow=100.0 ms", "orange=160.0 ms", "red=200.0 ms"});
+  expectContainsAll(findEvent(output.events, "CONTROL_OVERRUN").detail,
+                    {"compute_time_ms=40.0 ms", "yellow=16.7 ms", "orange=26.7 ms", "red=33.3 ms"});
+  expectContainsAll(findEvent(output.events, "NAV_STOP_REQUIRED").detail,
+                    {"current_profile=normal", "stop_required=true", "timed_out=true", "reason=watchdog timeout"});
+  expectContainsAll(findEvent(output.events, "NAV_TIMED_OUT").detail,
+                    {"current_profile=normal", "stop_required=true", "timed_out=true", "reason=watchdog timeout"});
+  expectContainsAll(findEvent(output.events, "MECHANISM_COMM_WARN").detail,
+                    {"comm_health_level=1", "age_sec=0.10 s", "warn_level=1", "error_level=2", "max_age_sec=1.00 s"});
+  expectContainsAll(findEvent(output.events, "TOPIC_STALE_ODOM").detail,
+                    {"age=0.80 s", "limit=0.50 s"});
 }
 
 TEST(VisualizationStatusCoreTest, DisabledSubsystemsExposeMetadataWithoutTriggeringFailures) {
