@@ -11,9 +11,14 @@
 - 默认地址：`ws://<机器人IP>:8765`
 - 端口可通过 `foxglove_port:=8765` 调整
 
+## 入口分工
+
+- `operator.json`：legacy 过渡骨架，保留给 Foxglove Studio 导入对照
+- `engineering.json`、`diagnostic.json`：继续作为工程联调与故障排查布局资产
+
 ## 布局文件
 
-- `operator.json`：值守首页，优先查看 `r2/diag/operator_status`、`r2/diag/events`、控制趋势
+- `operator.json`：legacy 值守骨架，保留 `r2/diag/operator_status`、`r2/diag/events`、控制趋势视角
 - `engineering.json`：工程联调，配合轨迹、点云、lookahead 与曲率标记使用
 - `diagnostic.json`：故障排查，重点关注 `r2/diag/summary`、keepout/terrain/topic freshness
 
@@ -30,7 +35,7 @@
 - 打开 Foxglove
 - 连接机器人 WebSocket
 - 通过 Layouts -> Import from file 导入本目录 JSON
-- 首选 `operator.json` 作为首页
+- 若需要 Foxglove Studio 布局，`operator.json` 仅作为 legacy 过渡骨架
 
 
 ## 建图相关话题
