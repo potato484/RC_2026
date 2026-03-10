@@ -404,7 +404,10 @@ private:
         input.localization.reason = localization_health_.msg.reason;
         input.localization.state = localization_health_.msg.localization_state;
         input.localization.control_degraded = localization_health_.msg.control_degraded;
+        input.localization.sigma_xy = localization_health_.msg.sigma_xy;
+        input.localization.sigma_yaw = localization_health_.msg.sigma_yaw;
         input.localization.degenerate_score = localization_health_.msg.degenerate_score;
+        input.localization.h_min_eig = localization_health_.msg.h_min_eig;
       }
 
       input.backend.received = localization_backend_.received;

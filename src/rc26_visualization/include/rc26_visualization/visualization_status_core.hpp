@@ -43,7 +43,10 @@ struct LocalizationInput {
   std::string reason{"waiting localization health"};
   std::string state{"UNKNOWN"};
   bool control_degraded{false};
-  double degenerate_score{0.0};
+  double sigma_xy{std::numeric_limits<double>::quiet_NaN()};
+  double sigma_yaw{std::numeric_limits<double>::quiet_NaN()};
+  double degenerate_score{std::numeric_limits<double>::quiet_NaN()};
+  double h_min_eig{std::numeric_limits<double>::quiet_NaN()};
 };
 
 struct BackendInput {
