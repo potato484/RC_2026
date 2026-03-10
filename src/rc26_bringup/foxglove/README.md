@@ -13,6 +13,7 @@
 
 ## 入口分工
 
+- 浏览器值守首页主入口：`/home/aidlux/RC_2026/web/r2_dashboard/`
 - `operator.json`：legacy 过渡骨架，保留给 Foxglove Studio 导入对照
 - `engineering.json`、`diagnostic.json`：继续作为工程联调与故障排查布局资产
 
@@ -35,6 +36,7 @@
 - 打开 Foxglove
 - 连接机器人 WebSocket
 - 通过 Layouts -> Import from file 导入本目录 JSON
+- 若只做值守，优先使用浏览器首页 `web/r2_dashboard`
 - 若需要 Foxglove Studio 布局，`operator.json` 仅作为 legacy 过渡骨架
 
 
