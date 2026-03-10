@@ -135,6 +135,13 @@ private:
     this->declare_parameter<double>("watchdog.terrain_drop_max_age_ms", 1000.0);
     this->declare_parameter<double>("watchdog.odom_max_age_ms", 500.0);
     this->declare_parameter<double>("watchdog.control_state_max_age_ms", 500.0);
+
+    this->declare_parameter<bool>("summary.localization_present", true);
+    this->declare_parameter<bool>("summary.controller_present", true);
+    this->declare_parameter<bool>("summary.keepout_present", true);
+    this->declare_parameter<bool>("summary.terrain_present", true);
+    this->declare_parameter<bool>("summary.nav_safety_present", true);
+    this->declare_parameter<bool>("summary.mechanism_present", true);
   }
 
   void loadParameters() {
@@ -180,6 +187,7 @@ private:
     config.compute_time_ms_topic = topic_compute_time_ms_;
     config.pose_age_ms_topic = topic_pose_age_ms_;
     config.collision_d_min_topic = topic_collision_d_min_;
+    config.controller_mode_topic = topic_controller_mode_;
     config.nav_safety_topic = topic_nav_safety_;
     config.mechanism_state_topic = topic_mechanism_state_;
     config.costmap_filter_info_topic = topic_costmap_filter_info_;
@@ -187,23 +195,29 @@ private:
     config.kfs_heartbeat_topic = topic_kfs_heartbeat_;
     config.terrain_obstacles_topic = topic_terrain_obstacles_;
     config.terrain_drop_topic = topic_terrain_drop_;
+    config.localization_present = this->get_parameter("summary.localization_present").as_bool();
+    config.controller_present = this->get_parameter("summary.controller_present").as_bool();
+    config.keepout_present = this->get_parameter("summary.keepout_present").as_bool();
+    config.terrain_present = this->get_parameter("summary.terrain_present").as_bool();
+    config.nav_safety_present = this->get_parameter("summary.nav_safety_present").as_bool();
+    config.mechanism_present = this->get_parameter("summary.mechanism_present").as_bool();
     core_.setConfig(config);
 
     topic_watch_configs_ = {
-        {"LOCALIZATION_HEALTH", topic_localization_health_, this->get_parameter("watchdog.localization_health_max_age_ms").as_double() / 1000.0, true},
-        {"LOCALIZATION_BACKEND_STATUS", topic_localization_backend_, this->get_parameter("watchdog.localization_backend_status_max_age_ms").as_double() / 1000.0, true},
-        {"CONTROL_DEGRADED", topic_control_degraded_, this->get_parameter("watchdog.control_degraded_max_age_ms").as_double() / 1000.0, true},
-        {"CONTROL_DEGENERATE_SCORE", topic_control_degenerate_score_, this->get_parameter("watchdog.control_degenerate_score_max_age_ms").as_double() / 1000.0, true},
-        {"COMPUTE_TIME_MS", topic_compute_time_ms_, this->get_parameter("watchdog.compute_time_ms_max_age_ms").as_double() / 1000.0, true},
-        {"POSE_AGE_MS", topic_pose_age_ms_, this->get_parameter("watchdog.pose_age_ms_max_age_ms").as_double() / 1000.0, true},
-        {"COLLISION_D_MIN", topic_collision_d_min_, this->get_parameter("watchdog.collision_d_min_max_age_ms").as_double() / 1000.0, true},
-        {"NAV_SAFETY_STATE", topic_nav_safety_, this->get_parameter("watchdog.nav_safety_state_max_age_ms").as_double() / 1000.0, true},
-        {"MECHANISM_STATE", topic_mechanism_state_, this->get_parameter("watchdog.mechanism_state_max_age_ms").as_double() / 1000.0, true},
-        {"COSTMAP_FILTER_INFO", topic_costmap_filter_info_, this->get_parameter("watchdog.costmap_filter_info_max_age_ms").as_double() / 1000.0, true},
-        {"KFS_FILTER_MASK", topic_kfs_filter_mask_, this->get_parameter("watchdog.kfs_filter_mask_max_age_ms").as_double() / 1000.0, true},
-        {"KFS_KEEPOUT_HEARTBEAT", topic_kfs_heartbeat_, this->get_parameter("watchdog.kfs_keepout_heartbeat_max_age_ms").as_double() / 1000.0, true},
-        {"TERRAIN_OBSTACLES", topic_terrain_obstacles_, this->get_parameter("watchdog.terrain_obstacles_max_age_ms").as_double() / 1000.0, true},
-        {"TERRAIN_DROP", topic_terrain_drop_, this->get_parameter("watchdog.terrain_drop_max_age_ms").as_double() / 1000.0, true},
+        {"LOCALIZATION_HEALTH", topic_localization_health_, this->get_parameter("watchdog.localization_health_max_age_ms").as_double() / 1000.0, config.localization_present},
+        {"LOCALIZATION_BACKEND_STATUS", topic_localization_backend_, this->get_parameter("watchdog.localization_backend_status_max_age_ms").as_double() / 1000.0, config.localization_present},
+        {"CONTROL_DEGRADED", topic_control_degraded_, this->get_parameter("watchdog.control_degraded_max_age_ms").as_double() / 1000.0, config.controller_present},
+        {"CONTROL_DEGENERATE_SCORE", topic_control_degenerate_score_, this->get_parameter("watchdog.control_degenerate_score_max_age_ms").as_double() / 1000.0, config.controller_present},
+        {"COMPUTE_TIME_MS", topic_compute_time_ms_, this->get_parameter("watchdog.compute_time_ms_max_age_ms").as_double() / 1000.0, config.controller_present},
+        {"POSE_AGE_MS", topic_pose_age_ms_, this->get_parameter("watchdog.pose_age_ms_max_age_ms").as_double() / 1000.0, config.controller_present},
+        {"COLLISION_D_MIN", topic_collision_d_min_, this->get_parameter("watchdog.collision_d_min_max_age_ms").as_double() / 1000.0, config.controller_present},
+        {"NAV_SAFETY_STATE", topic_nav_safety_, this->get_parameter("watchdog.nav_safety_state_max_age_ms").as_double() / 1000.0, config.nav_safety_present},
+        {"MECHANISM_STATE", topic_mechanism_state_, this->get_parameter("watchdog.mechanism_state_max_age_ms").as_double() / 1000.0, config.mechanism_present},
+        {"COSTMAP_FILTER_INFO", topic_costmap_filter_info_, this->get_parameter("watchdog.costmap_filter_info_max_age_ms").as_double() / 1000.0, config.keepout_present},
+        {"KFS_FILTER_MASK", topic_kfs_filter_mask_, this->get_parameter("watchdog.kfs_filter_mask_max_age_ms").as_double() / 1000.0, config.keepout_present},
+        {"KFS_KEEPOUT_HEARTBEAT", topic_kfs_heartbeat_, this->get_parameter("watchdog.kfs_keepout_heartbeat_max_age_ms").as_double() / 1000.0, config.keepout_present},
+        {"TERRAIN_OBSTACLES", topic_terrain_obstacles_, this->get_parameter("watchdog.terrain_obstacles_max_age_ms").as_double() / 1000.0, config.terrain_present},
+        {"TERRAIN_DROP", topic_terrain_drop_, this->get_parameter("watchdog.terrain_drop_max_age_ms").as_double() / 1000.0, config.terrain_present},
         {"ODOM", topic_odom_, this->get_parameter("watchdog.odom_max_age_ms").as_double() / 1000.0, true},
         {"CONTROL_STATE", topic_control_state_, this->get_parameter("watchdog.control_state_max_age_ms").as_double() / 1000.0, true},
     };

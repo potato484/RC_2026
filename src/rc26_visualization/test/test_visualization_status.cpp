@@ -1,7 +1,9 @@
 #include <algorithm>
+#include <string_view>
 #include <string>
 #include <vector>
 
+#include <diagnostic_msgs/msg/diagnostic_status.hpp>
 #include "gtest/gtest.h"
 
 #include "rc26_visualization/visualization_status_core.hpp"
@@ -108,11 +110,39 @@ std::vector<std::string> eventCodes(const rc26_interfaces::msg::VisualizationEve
   return codes;
 }
 
+const diagnostic_msgs::msg::DiagnosticStatus& findStatus(
+    const diagnostic_msgs::msg::DiagnosticArray& summary, std::string_view name) {
+  const auto iter = std::find_if(summary.status.begin(), summary.status.end(), [name](const auto& status) {
+    return status.name == name;
+  });
+  EXPECT_NE(iter, summary.status.end());
+  if (iter == summary.status.end()) {
+    return summary.status.front();
+  }
+  return *iter;
+}
+
+std::string valueForKey(const diagnostic_msgs::msg::DiagnosticStatus& status, std::string_view key) {
+  const auto iter = std::find_if(status.values.begin(), status.values.end(), [key](const auto& item) {
+    return item.key == key;
+  });
+  EXPECT_NE(iter, status.values.end());
+  if (iter == status.values.end()) {
+    return {};
+  }
+  return iter->value;
+}
+
 TEST(VisualizationStatusCoreTest, NominalCruiseStaysGreen) {
   VisualizationStatusCore core;
   std_msgs::msg::Header header;
+  header.stamp.sec = 123;
+  header.stamp.nanosec = 400000000U;
   header.frame_id = "map";
   auto output = core.evaluate(makeNominalInput(), header);
+  const auto& localization = findStatus(output.summary, "r2/localization");
+  const auto& controller = findStatus(output.summary, "r2/controller");
+  const auto& keepout = findStatus(output.summary, "r2/keepout");
 
   EXPECT_EQ(output.operator_status.overall_level, kLevelGreen);
   EXPECT_EQ(output.operator_status.controller_level, kLevelGreen);
@@ -120,6 +150,14 @@ TEST(VisualizationStatusCoreTest, NominalCruiseStaysGreen) {
   EXPECT_EQ(output.operator_status.topic_timeout_count, 0U);
   EXPECT_TRUE(output.events.events.empty());
   EXPECT_EQ(output.summary.status.size(), 7U);
+  EXPECT_EQ(valueForKey(localization, "present"), "true");
+  EXPECT_EQ(valueForKey(localization, "enabled"), "true");
+  EXPECT_EQ(valueForKey(localization, "received"), "true");
+  EXPECT_EQ(valueForKey(localization, "source_topics"), "/localization/health,/localization/backend_status");
+  EXPECT_EQ(valueForKey(localization, "last_update_ms"), "123350");
+  EXPECT_EQ(valueForKey(controller, "source_topics"),
+            "/control_degraded,control_degenerate_score,compute_time_ms,pose_age_ms,collision_d_min,controller_server/NMPCFollowPath/mode");
+  EXPECT_EQ(valueForKey(keepout, "source_topics"), "/costmap_filter_info,/kfs_filter_mask,/kfs_keepout_heartbeat");
 }
 
 TEST(VisualizationStatusCoreTest, NearObstacleRaisesControllerAlert) {
@@ -174,6 +212,69 @@ TEST(VisualizationStatusCoreTest, LocalizationOrControlDegradeIsDetected) {
   EXPECT_EQ(output.operator_status.overall_level, kLevelRed);
   EXPECT_NE(std::find(codes.begin(), codes.end(), "LOCALIZATION_DEGRADED"), codes.end());
   EXPECT_NE(std::find(codes.begin(), codes.end(), "CONTROL_DEGRADED"), codes.end());
+}
+
+TEST(VisualizationStatusCoreTest, DisabledSubsystemsExposeMetadataWithoutTriggeringFailures) {
+  VisualizationStatusConfig config;
+  config.controller_present = false;
+  config.keepout_present = false;
+  config.nav_safety_present = false;
+  config.terrain_present = false;
+
+  VisualizationStatusCore core(config);
+  std_msgs::msg::Header header;
+  header.stamp.sec = 55;
+  auto input = makeNominalInput();
+  input.control_degraded.received = false;
+  input.control_degenerate_score.received = false;
+  input.compute_time_ms.received = false;
+  input.pose_age_ms.received = false;
+  input.collision_d_min.received = false;
+  input.controller_mode.received = false;
+  input.keepout.filter_info_received = false;
+  input.keepout.mask_received = false;
+  input.keepout.heartbeat_received = false;
+  input.nav_safety.received = false;
+  input.terrain.obstacles_received = false;
+  input.terrain.drop_received = false;
+  for (auto& topic : input.monitored_topics) {
+    if (topic.code_suffix == "CONTROL_DEGRADED" || topic.code_suffix == "CONTROL_DEGENERATE_SCORE" ||
+        topic.code_suffix == "COMPUTE_TIME_MS" || topic.code_suffix == "POSE_AGE_MS" ||
+        topic.code_suffix == "COLLISION_D_MIN" || topic.code_suffix == "NAV_SAFETY_STATE" ||
+        topic.code_suffix == "COSTMAP_FILTER_INFO" || topic.code_suffix == "KFS_FILTER_MASK" ||
+        topic.code_suffix == "KFS_KEEPOUT_HEARTBEAT" || topic.code_suffix == "TERRAIN_OBSTACLES" ||
+        topic.code_suffix == "TERRAIN_DROP") {
+      topic.required = false;
+      topic.received = false;
+      topic.age_sec = kInf;
+    }
+  }
+
+  auto output = core.evaluate(input, header);
+  const auto codes = eventCodes(output.events);
+  const auto& controller = findStatus(output.summary, "r2/controller");
+  const auto& keepout = findStatus(output.summary, "r2/keepout");
+  const auto& terrain = findStatus(output.summary, "r2/terrain");
+  const auto& nav = findStatus(output.summary, "r2/nav_safety");
+
+  EXPECT_EQ(output.operator_status.overall_level, kLevelGreen);
+  EXPECT_EQ(output.operator_status.controller_level, kLevelGreen);
+  EXPECT_EQ(output.operator_status.keepout_level, kLevelGreen);
+  EXPECT_EQ(output.operator_status.nav_safety_level, kLevelGreen);
+  EXPECT_EQ(output.operator_status.terrain_level, kLevelGreen);
+  EXPECT_EQ(output.operator_status.topic_timeout_count, 0U);
+  EXPECT_EQ(controller.level, diagnostic_msgs::msg::DiagnosticStatus::OK);
+  EXPECT_EQ(controller.message, "module disabled in current mode");
+  EXPECT_EQ(valueForKey(controller, "present"), "false");
+  EXPECT_EQ(valueForKey(controller, "enabled"), "false");
+  EXPECT_EQ(valueForKey(controller, "received"), "false");
+  EXPECT_TRUE(valueForKey(controller, "last_update_ms").empty());
+  EXPECT_EQ(valueForKey(keepout, "present"), "false");
+  EXPECT_EQ(valueForKey(terrain, "present"), "false");
+  EXPECT_EQ(valueForKey(nav, "present"), "false");
+  EXPECT_EQ(std::find(codes.begin(), codes.end(), "CONTROL_DEGRADED"), codes.end());
+  EXPECT_EQ(std::find(codes.begin(), codes.end(), "KEEPOUT_STALE"), codes.end());
+  EXPECT_EQ(std::find(codes.begin(), codes.end(), "NAV_STOP_REQUIRED"), codes.end());
 }
 
 }  // namespace
