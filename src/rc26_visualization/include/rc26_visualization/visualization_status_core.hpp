@@ -124,6 +124,7 @@ struct VisualizationStatusConfig {
   std::string compute_time_ms_topic{"compute_time_ms"};
   std::string pose_age_ms_topic{"pose_age_ms"};
   std::string collision_d_min_topic{"collision_d_min"};
+  std::string controller_mode_topic{"controller_server/NMPCFollowPath/mode"};
   std::string nav_safety_topic{"nav_safety_state"};
   std::string mechanism_state_topic{"/mechanism/state"};
   std::string costmap_filter_info_topic{"/costmap_filter_info"};
@@ -131,6 +132,12 @@ struct VisualizationStatusConfig {
   std::string kfs_heartbeat_topic{"/kfs_keepout_heartbeat"};
   std::string terrain_obstacles_topic{"terrain_obstacles"};
   std::string terrain_drop_topic{"terrain_drop"};
+  bool localization_present{true};
+  bool controller_present{true};
+  bool keepout_present{true};
+  bool terrain_present{true};
+  bool nav_safety_present{true};
+  bool mechanism_present{true};
 };
 
 struct EvaluationInput {
