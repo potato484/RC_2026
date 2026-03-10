@@ -96,7 +96,7 @@ def generate_launch_description():
     declare_point_lio_profile = DeclareLaunchArgument(
         'point_lio_profile',
         default_value='auto',
-        description='Point-LIO 预设: auto | cruise_light | mapping_dense；auto 会按 slam 自动选择')
+        description='Point-LIO 预设: auto | base | cruise_light | mapping_dense；auto 会按 slam 自动选择')
 
     declare_params_file = DeclareLaunchArgument(
         'params_file',

@@ -22,6 +22,37 @@ def _as_bool(value: str) -> bool:
     return value.strip().lower() in ('1', 'true', 'yes', 'on')
 
 
+def _resolve_point_lio_profile(requested_profile: str, *, slam_value: bool) -> tuple[str, dict]:
+    profile_aliases = {
+        'default': 'base',
+    }
+    profile_overrides = {
+        'base': {},
+        'cruise_light': {
+            'publish.map_full_publish_en': False,
+            'publish.map_full_publish_interval_sec': 1.5,
+        },
+        'mapping_dense': {
+            'point_keep_ratio': 100.0,
+            'filter_size_surf': 0.1,
+            'filter_size_map': 0.1,
+            'pcd_save.pcd_save_en': True,
+        },
+    }
+
+    resolved_profile = requested_profile or 'auto'
+    if resolved_profile == 'auto':
+        resolved_profile = 'mapping_dense' if slam_value else 'cruise_light'
+
+    resolved_profile = profile_aliases.get(resolved_profile, resolved_profile)
+    if resolved_profile not in profile_overrides:
+        supported_profiles = 'auto | base | cruise_light | mapping_dense'
+        raise RuntimeError(
+            f'不支持的 point_lio_profile={requested_profile}，可选: {supported_profiles}')
+
+    return resolved_profile, profile_overrides[resolved_profile]
+
+
 def _create_point_lio_actions(context, *, namespace, use_sim_time, prior_pcd_file, point_lio_config_file,
                               point_lio_profile, slam, param_overrides_file, point_lio_dir,
                               point_lio_publish_odometry_without_downsample):
@@ -35,29 +66,34 @@ def _create_point_lio_actions(context, *, namespace, use_sim_time, prior_pcd_fil
     publish_odometry_without_downsample_value = _as_bool(
         point_lio_publish_odometry_without_downsample.perform(context)
     )
-
-    profile_to_file = {
-        'cruise_light': os.path.join(point_lio_dir, 'config', 'mid360_cruise_light.yaml'),
-        'mapping_dense': os.path.join(point_lio_dir, 'config', 'mid360_mapping_dense.yaml'),
-    }
+    base_config_file = os.path.join(point_lio_dir, 'config', 'mid360.yaml')
 
     if explicit_config_file:
         resolved_config_file = explicit_config_file
         selected_mode = f'custom:{explicit_config_file}'
+        profile_overrides = {}
     else:
-        resolved_profile = requested_profile
-        if requested_profile == 'auto':
-            resolved_profile = 'mapping_dense' if slam_value else 'cruise_light'
-
-        if resolved_profile not in profile_to_file:
-            raise RuntimeError(
-                f"不支持的 point_lio_profile={requested_profile}，可选: auto | cruise_light | mapping_dense")
-
-        resolved_config_file = profile_to_file[resolved_profile]
+        resolved_profile, profile_overrides = _resolve_point_lio_profile(
+            requested_profile,
+            slam_value=slam_value,
+        )
+        resolved_config_file = base_config_file
         selected_mode = f'profile:{resolved_profile}'
 
     if not os.path.exists(resolved_config_file):
         raise RuntimeError(f'Point-LIO 配置文件不存在: {resolved_config_file}')
+
+    parameters = [resolved_config_file]
+    if profile_overrides:
+        parameters.append(profile_overrides)
+    parameters.extend([
+        param_overrides_value,
+        {'use_sim_time': use_sim_time_value},
+        {'prior_pcd.prior_pcd_map_path': prior_pcd_file_value},
+        {'frame.body_frame': 'point_lio_body'},
+        {'odometry.publish_odometry_without_downsample': publish_odometry_without_downsample_value},
+        {'publish.tf_send_en': False},
+    ])
 
     point_lio_node = Node(
         package='rc26_point_lio',
@@ -65,19 +101,11 @@ def _create_point_lio_actions(context, *, namespace, use_sim_time, prior_pcd_fil
         name='point_lio',
         namespace=namespace_value,
         output='screen',
-        parameters=[
-            resolved_config_file,
-            param_overrides_value,
-            {'use_sim_time': use_sim_time_value},
-            {'prior_pcd.prior_pcd_map_path': prior_pcd_file_value},
-            {'frame.body_frame': 'point_lio_body'},
-            {'odometry.publish_odometry_without_downsample': publish_odometry_without_downsample_value},
-            {'publish.tf_send_en': False},
-        ],
+        parameters=parameters,
     )
 
     return [
-        LogInfo(msg=f'[odometry] Point-LIO 使用 {selected_mode} -> {resolved_config_file}'),
+        LogInfo(msg=f'[odometry] Point-LIO 使用 {selected_mode}，基础配置 {resolved_config_file}'),
         LogInfo(
             msg='[odometry] 强制 odometry.publish_odometry_without_downsample='
                 f'{str(publish_odometry_without_downsample_value).lower()}，'
@@ -151,7 +179,7 @@ def generate_launch_description():
     declare_point_lio_profile = DeclareLaunchArgument(
         'point_lio_profile',
         default_value='auto',
-        description='Point-LIO 预设: auto | cruise_light | mapping_dense')
+        description='Point-LIO 预设: auto | base | cruise_light | mapping_dense')
 
     declare_point_lio_publish_odometry_without_downsample = DeclareLaunchArgument(
         'point_lio_publish_odometry_without_downsample',
