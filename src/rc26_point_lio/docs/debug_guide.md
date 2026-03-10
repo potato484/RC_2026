@@ -43,13 +43,14 @@ ros2 launch rc26_bringup bringup.launch.py slam:=false point_lio_profile:=cruise
 ```bash
 ros2 launch rc26_bringup bringup.launch.py \
   slam:=true \
-  point_lio_config_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/config/mid360_mapping_dense.yaml \
+  point_lio_config_file:=/abs/path/to/custom_point_lio.yaml \
   use_decision:=false
 ```
 
 说明：
 - `point_lio_config_file` 非空时优先级高于 `point_lio_profile`。
 - `point_lio_profile:=auto` 会根据 `slam` 自动切换。
+- 当前仓库默认只保留 `mid360.yaml` 一份主配置，`cruise_light` / `mapping_dense` 由 launch 在运行时做参数覆盖。
 
 ## 3. 基础功能测试（回放数据包）
 
@@ -149,6 +150,36 @@ ros2 param set /point_lio filter_size_map 0.1
 - `filter_size_surf` / `filter_size_map` 控制体素滤波强度；
 - 最终视觉密度由两者共同决定。
 
+### 4.4 建图时地上也有点云，是否正常
+
+通常是正常现象。
+
+原因：
+- MID-360 官方规格给出的垂直视场角为 `-7 deg ~ +52 deg`，本身就能扫到地面；
+- 当前仓库这版 Point-LIO 默认不会主动做地面删除；
+- 地面点对 `z / roll / pitch` 稳定性通常是有帮助的，因此不建议先入为主地把它当成噪声。
+
+建议先区分两种情况：
+- **只是地面有一层点**：通常正常，可不处理，或者仅对输出地图做高度裁剪。
+- **地面很厚、倾斜、漂移、分层明显**：更像外参、重力方向、静态 TF、安装角或时间同步问题。
+
+如果只是想让输出地图和保存的 PCD 更干净，可直接这样调：
+
+```bash
+ros2 param set /point_lio output_filter.world_z_filter_en true
+ros2 param set /point_lio output_filter.world_z_min -0.08
+```
+
+调参方法：
+- 先在 RViz 里观察 `odom` 系下地面大概落在哪个高度；
+- 逐步上调 `output_filter.world_z_min`，例如 `-0.10 -> -0.08 -> -0.06`；
+- 不要一次裁得太狠，否则容易误删低矮障碍物、底盘附近结构或坡面点。
+
+注意：
+- 该过滤只作用于 `/cloud_registered`、`/laser_map_full` 和保存出来的 PCD；
+- 它不会修改 Point-LIO 内部用于里程计匹配的 ivox 地图；
+- 如果实物安装存在俯仰角，但 `extrinsic_R` 或静态 TF 仍按零角度配置，地面表现会明显异常。
+
 ## 5. 进阶性能验证
 
 ### 5.1 验证控制延迟（Phase 0/3 验收）
@@ -193,6 +224,7 @@ ros2 launch rc26_bringup bringup.launch.py slam:=true point_lio_profile:=mapping
 - `mapping_dense` 默认开启 `pcd_save.pcd_save_en`;
 - 节点正常退出时，会将累计点云写入 `src/rc26_point_lio/PCD/scans.pcd`;
 - 若 `pcd_save.interval > 0`，会分段写成 `scans_1.pcd`、`scans_2.pcd` 等。
+- 若启用了 `output_filter.world_z_filter_*`，保存出来的 PCD 也会按同样的世界系高度阈值裁剪。
 
 建议：
 - 建图结束后使用 `Ctrl+C` 正常退出，不要直接强杀进程；
@@ -219,7 +251,8 @@ ros2 launch rc26_bringup bringup.launch.py \
 | **当前帧点云偏稀** | `point_keep_ratio` 太低 或 `filter_size_surf` 太大 | 先提高 `point_keep_ratio`，再减小 `filter_size_surf`。 |
 | **累计地图不显示** | `publish.map_full_publish_en=false` 或无订阅者 | 打开参数并确认 RViz/Foxglove 已订阅 `/laser_map_full`。 |
 | **之前建好的内容没有留存显示** | 只在看 `/registered_scan` 单帧点云 | 切换观察 `/laser_map_full`。 |
-| **建图结束后没有生成 PCD** | 未启用 `pcd_save` 或异常退出 | 使用 `mapping_dense` / `mid360_mapping_save.yaml` 并正常退出。 |
+| **建图时地上也有点云** | MID-360 本身会看到地面，且 Point-LIO 默认不删地面 | 若只是薄薄一层通常正常；若只想清理显示/PCD，使用 `output_filter.world_z_filter_*`；若地面厚、斜、漂，改查外参与重力方向。 |
+| **建图结束后没有生成 PCD** | 未启用 `pcd_save` 或异常退出 | 使用 `mapping_dense` 并正常退出。 |
 | **/state_estimation 频率低** | 输入频率异常、profile 配置过重或运行负载过高 | 检查 LiDAR/IMU 输入频率、当前 Point-LIO profile 与 CPU 负载。 |
 | **偶发 `点云与里程计时间差 0.201 > 0.200`** | 点云和 odom 回调边界抖动 | 新版 `rc26_odom_interface` 已自动吸收约 5ms 抖动；若仍持续出现，重点排查上游 odom 是否真正卡顿。 |
 | **持续出现 `点云落后最新 odom 0.301s/1.004s`** | Point-LIO 开启了 `publish_odometry_without_downsample`，导致 `state_estimation` 时间戳跑到当前扫描内部 | 使用 `odometry.launch.py` 默认配置，或显式传 `point_lio_publish_odometry_without_downsample:=false`。 |
@@ -229,4 +262,4 @@ ros2 launch rc26_bringup bringup.launch.py \
 
 **备注**：
 - 直接改 YAML 后无需重新编译，但需要重启节点；
-- 运行时热更新仅对白名单参数生效，例如 `point_keep_ratio`、`filter_size_surf`、`filter_size_map`、`publish.map_full_publish_en` 与 `publish.map_full_publish_interval_sec`。
+- 运行时热更新仅对白名单参数生效，例如 `point_keep_ratio`、`filter_size_surf`、`filter_size_map`、`publish.map_full_publish_en`、`publish.map_full_publish_interval_sec` 与 `output_filter.world_z_filter_*`。

@@ -36,12 +36,12 @@ colcon build --symlink-install --parallel-workers 3 --packages-select rc26_point
 ```
 
 ## 配置文件说明
-当前仓库内和 Point-LIO 相关的常用配置如下：
+当前仓库内和 Point-LIO 相关的配置已经收敛为“1 份主 YAML + 若干 launch profile”：
 
-- `src/rc26_point_lio/config/mid360.yaml`：通用默认配置，适合直接调参与兼容旧流程。
-- `src/rc26_point_lio/config/mid360_cruise_light.yaml`：轻量巡航配置，默认约保留 50% 输入点，并关闭累计地图持续发布。
-- `src/rc26_point_lio/config/mid360_mapping_dense.yaml`：高密建图配置，保留全部输入点、降低体素滤波尺寸，并开启累计地图与 PCD 保存。
-- `src/rc26_point_lio/config/mid360_mapping_save.yaml`：保留的建图保存配置，适合兼容旧脚本或对比测试。
+- `src/rc26_point_lio/config/mid360.yaml`：唯一主配置，保存 Mid-360 的公共参数与默认值。
+- `point_lio_profile:=base`：直接使用主配置，不额外覆盖。
+- `point_lio_profile:=cruise_light`：在主配置基础上关闭累计地图持续发布，适合巡航轻载。
+- `point_lio_profile:=mapping_dense`：在主配置基础上保留全部输入点、减小体素滤波尺寸并开启 PCD 保存，适合建图。
 
 ## 推荐启动方式
 推荐通过 `rc26_bringup` 统一启动，让 `slam` 与 `point_lio_profile` 一起决定 Point-LIO 配置。
@@ -62,6 +62,9 @@ ros2 launch rc26_bringup bringup.launch.py slam:=true point_lio_profile:=mapping
 
 # 强制轻量巡航
 ros2 launch rc26_bringup bringup.launch.py slam:=false point_lio_profile:=cruise_light use_decision:=false
+
+# 强制建图
+ros2 launch rc26_bringup bringup.launch.py slam:=true point_lio_profile:=mapping_dense use_decision:=false
 ```
 
 ### 3. 显式指定自定义 YAML
@@ -69,11 +72,11 @@ ros2 launch rc26_bringup bringup.launch.py slam:=false point_lio_profile:=cruise
 ```bash
 ros2 launch rc26_bringup bringup.launch.py \
   slam:=true \
-  point_lio_config_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/config/mid360_mapping_dense.yaml \
+  point_lio_config_file:=/abs/path/to/custom_point_lio.yaml \
   use_decision:=false
 ```
 
-当 `point_lio_config_file` 非空时，其优先级高于 `point_lio_profile`。
+当 `point_lio_config_file` 非空时，其优先级高于 `point_lio_profile`，会直接加载你提供的 YAML。
 
 ## 运行时动态调参
 以下参数支持运行时动态调整：
@@ -88,6 +91,10 @@ ros2 param set /point_lio publish.map_full_publish_en true
 # 将累计地图发布周期调成 0.5 秒
 ros2 param set /point_lio publish.map_full_publish_interval_sec 0.5
 
+# 仅清理输出点云里的低位点，不影响内部里程计地图
+ros2 param set /point_lio output_filter.world_z_filter_en true
+ros2 param set /point_lio output_filter.world_z_min -0.08
+
 # 调小单帧点云体素滤波尺寸，让 registered_scan 更稠密
 ros2 param set /point_lio filter_size_surf 0.1
 ```
@@ -96,6 +103,20 @@ ros2 param set /point_lio filter_size_surf 0.1
 - `point_keep_ratio` 取值区间建议为 `1.0 ~ 100.0`，其中 `100.0` 表示尽可能保留全部输入点。
 - `point_keep_ratio` 是“百分比语义”，最终显示密度还会受 `filter_size_surf` / `filter_size_map` 影响，因此不是严格数学百分比。
 - 若希望回退到旧的“每 N 个点取 1 个”语义，可将 `point_keep_ratio` 设为负值，然后直接使用 `point_filter_num`。
+- `output_filter.world_z_filter_*` 仅作用于 `/cloud_registered`、`/laser_map_full` 和保存出来的 PCD，不会修改 Point-LIO 内部用于里程计的 ivox 地图。
+- `output_filter.world_z_min` / `world_z_max` 使用 `odom/world` 系高度。若机器人起始时 IMU 不在地面原点，地面通常会落在一个负值附近，建议在 RViz 观察后逐步上调下限，而不是一次裁得很狠。
+
+## 地面点云说明
+- 建图时在地面上看到点云，通常是正常现象，不应默认视为异常。
+- Livox MID-360 官方规格给出的垂直视场角为 `-7 deg ~ +52 deg`，因此雷达本身就会看到地面。
+- 当前仓库这版 Point-LIO 默认不会主动删除地面点，预处理主要是盲区、量程、抽样和体素滤波。
+- 对 LIO 而言，地面往往能提供 `z / roll / pitch` 的平面约束，因此不建议直接从内部里程计地图中粗暴删地面。
+- 如果目标只是让 RViz 累计地图或导出的 PCD 更干净，优先使用 `output_filter.world_z_filter_*` 做输出侧高度裁剪。
+- 如果地面看起来不是“薄的一层”，而是明显发厚、倾斜、上下漂移或分层，优先检查 `extrinsic_T/R`、`gravity`、静态 TF、安装角与时间同步，而不是只调过滤阈值。
+
+相关外部资料：
+- Livox MID-360 Specs: <https://www.livoxtech.com/mid-360/specs>
+- PCL PassThrough: <https://pointclouds.org/documentation/classpcl_1_1_pass_through>
 
 ## 地图保存与复用
 若启用建图保存，Point-LIO 会将累计地图写入：
@@ -104,7 +125,7 @@ ros2 param set /point_lio filter_size_surf 0.1
 - 或 `${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans_<N>.pcd`（当 `pcd_save.interval > 0` 时）
 
 推荐流程：
-1. 使用 `mapping_dense` 或 `mid360_mapping_save.yaml` 建图；
+1. 使用 `mapping_dense` 建图；
 2. 完成后正常 `Ctrl+C` 退出，让节点将剩余累计点写盘；
 3. 将生成的 `PCD` 作为 `prior_pcd_file` 提供给定位链路；
 4. 也可以复制到 `src/rc26_bringup/pcd/` 目录集中管理。
@@ -122,6 +143,10 @@ ros2 param set /point_lio filter_size_surf 0.1
 - 如何保存 PCD 并复用到定位链路
 
 请查阅 `docs/debug_guide.md` 获取详细信息。
+
+若需要标定 `LiDAR -> IMU` 外参，请查阅：
+
+- `docs/lidar_to_imu_extrinsic_calibration.md`
 
 ## 维护者
 - 原始作者: Dongjiao He (HKU-MARS)

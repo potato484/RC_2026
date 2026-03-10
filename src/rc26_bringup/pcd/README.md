@@ -54,6 +54,12 @@ ros2 launch rc26_bringup bringup.launch.py \
 2. Point-LIO 会将累计地图写入 `src/rc26_point_lio/PCD/scans.pcd`；
 3. 若 `pcd_save.interval > 0`，则会分段保存为 `scans_1.pcd`、`scans_2.pcd` 等。
 
+补充说明：
+
+- 建图得到的 PCD 默认可能包含地面点，这通常是正常现象，不表示建图失败；
+- MID-360 本身具备向下观测能力，而 Point-LIO 默认不会主动删除地面；
+- 如果只是希望导出的 PCD 更干净，可在建图时启用 `output_filter.world_z_filter_en`，并调节 `output_filter.world_z_min` 只裁剪输出地图，不影响内部里程计地图。
+
 ## 作为定位先验地图使用
 
 ```bash
