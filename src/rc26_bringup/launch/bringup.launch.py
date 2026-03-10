@@ -400,7 +400,15 @@ def generate_launch_description():
         output='screen',
         parameters=[
             visualization_status_config,
-            {'use_sim_time': use_sim_time},
+            {
+                'use_sim_time': use_sim_time,
+                'summary.localization_present': True,
+                'summary.controller_present': PythonExpression(["not ('", slam, "'.lower() == 'true')"]),
+                'summary.keepout_present': PythonExpression(["not ('", slam, "'.lower() == 'true')"]),
+                'summary.terrain_present': PythonExpression(["not ('", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true')"]),
+                'summary.nav_safety_present': PythonExpression(["not ('", slam, "'.lower() == 'true')"]),
+                'summary.mechanism_present': True,
+            },
         ],
         condition=IfCondition(visualization_status_enable)
     )
