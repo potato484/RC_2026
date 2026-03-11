@@ -46,6 +46,7 @@ def generate_launch_description():
     point_lio_profile = LaunchConfiguration('point_lio_profile')
     params_file = LaunchConfiguration('params_file')
     terrain_params_file = LaunchConfiguration('terrain_params_file')
+    terrain_grid_map_params_file = LaunchConfiguration('terrain_grid_map_params_file')
     use_rviz = LaunchConfiguration('use_rviz')
     visualization_backend = LaunchConfiguration('visualization_backend')
     visualization_status_enable = LaunchConfiguration('visualization_status_enable')
@@ -109,6 +110,13 @@ def generate_launch_description():
             get_package_share_directory('rc26_terrain'), 'config', 'terrain_semantic.yaml'
         ]),
         description='rc26_terrain 参数文件')
+
+    declare_terrain_grid_map_params_file = DeclareLaunchArgument(
+        'terrain_grid_map_params_file',
+        default_value=PathJoinSubstitution([
+            get_package_share_directory('rc26_terrain'), 'config', 'terrain_grid_map_bridge.yaml'
+        ]),
+        description='terrain_grid_map_bridge 参数文件')
 
     declare_use_rviz = DeclareLaunchArgument(
         'use_rviz',
@@ -350,6 +358,19 @@ def generate_launch_description():
         condition=UnlessCondition(slam)
     )
 
+    terrain_grid_map_bridge_node = Node(
+        package='rc26_terrain',
+        executable='terrain_grid_map_bridge_node',
+        name='terrain_grid_map_bridge',
+        namespace=namespace,
+        output='screen',
+        parameters=[
+            terrain_grid_map_params_file,
+            {'use_sim_time': use_sim_time},
+        ],
+        condition=UnlessCondition(slam)
+    )
+
     # costmap_filter_info_server：向 Nav2 KeepoutFilter 广播掩码元数据
     costmap_filter_info_server = Node(
         package='nav2_map_server',
@@ -489,6 +510,7 @@ def generate_launch_description():
         declare_point_lio_profile,
         declare_params_file,
         declare_terrain_params_file,
+        declare_terrain_grid_map_params_file,
         declare_use_rviz,
         declare_visualization_backend,
         declare_visualization_status_enable,
@@ -511,6 +533,7 @@ def generate_launch_description():
         costmap_filter_info_server,
         map_server_lifecycle_manager,
         kfs_block_fuser_node,
+        terrain_grid_map_bridge_node,
         nav_mode_manager_node,
         terrain_mode_adapter_node,
         nav2_launch,
