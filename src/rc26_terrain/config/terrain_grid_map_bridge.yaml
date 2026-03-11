@@ -1,0 +1,15 @@
+/**:
+  ros__parameters:
+    terrain_features_topic: "terrain_features"
+    kfs_mask_topic: "/kfs_filter_mask"
+    output_topic: "/terrain_grid_map"
+    map_frame: "map"
+    base_frame: "base_link"
+    tf_timeout_sec: 0.1
+    keepout_stale_timeout_sec: 2.0
+    enable_mf_semantics: true
+    mf_grid_layout_file: ""
+    step_edge_height_thresh_m: 0.10
+    slope_norm_limit: 0.35
+    roughness_norm_limit: 0.08
+    diagnostics_topic: "diagnostics"

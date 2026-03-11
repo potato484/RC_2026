@@ -134,7 +134,7 @@
     top_z_max_delta_m: 0.7
 
     # ===== P1: terrain features bus =====
-    enable_terrain_features_pub: false
+    enable_terrain_features_pub: true
     terrain_features_topic: "terrain_features"
     terrain_features_publish_hz: 5.0
 
