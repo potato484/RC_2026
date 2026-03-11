@@ -136,7 +136,7 @@
     # ===== P1: terrain features bus =====
     enable_terrain_features_pub: true
     terrain_features_topic: "terrain_features"
-    terrain_features_publish_hz: 5.0
+    terrain_features_publish_hz: 3.5
 
     # ===== P2: terrain speed limit =====
     enable_terrain_speed_limit_pub: true
