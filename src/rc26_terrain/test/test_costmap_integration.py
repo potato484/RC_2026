@@ -53,6 +53,14 @@ def _max_nearest_skew_sec(ref_stamps, probe_stamps) -> float:
     return max_skew
 
 
+def _drain_executor(executor: SingleThreadedExecutor, budget_sec: float) -> None:
+    deadline = time.monotonic() + budget_sec
+    first_spin = True
+    while time.monotonic() < deadline:
+        executor.spin_once(timeout_sec=0.02 if first_spin else 0.0)
+        first_spin = False
+
+
 def _shutdown_lifecycle_manager(node, executor, timeout_sec: float = 5.0) -> bool:
     client = node.create_client(
         ManageLifecycleNodes,
@@ -296,6 +304,9 @@ class TestCostmapIntegration(unittest.TestCase):
         terrain_qos = QoSProfile(depth=10)
         terrain_qos.reliability = ReliabilityPolicy.BEST_EFFORT
         terrain_qos.durability = DurabilityPolicy.VOLATILE
+        scan_qos = QoSProfile(depth=50)
+        scan_qos.reliability = ReliabilityPolicy.RELIABLE
+        scan_qos.durability = DurabilityPolicy.VOLATILE
 
         def on_odom(msg: Odometry):
             odom_msgs.append(msg)
@@ -311,7 +322,7 @@ class TestCostmapIntegration(unittest.TestCase):
             PointCloud2,
             "/registered_scan",
             on_registered_scan,
-            terrain_qos,
+            scan_qos,
         )
         sub_terrain_obstacles = node.create_subscription(
             PointCloud2,
@@ -335,7 +346,7 @@ class TestCostmapIntegration(unittest.TestCase):
         next_costmap_probe = 0.0
         try:
             while time.time() < deadline:
-                executor.spin_once(timeout_sec=0.2)
+                _drain_executor(executor, 0.2)
 
                 try:
                     tf_buffer.lookup_transform("base_link", "livox_frame", rclpy.time.Time())
@@ -362,7 +373,7 @@ class TestCostmapIntegration(unittest.TestCase):
                         future = costmap_client.call_async(GetCostmap.Request())
                         call_deadline = time.time() + 1.0
                         while time.time() < call_deadline and not future.done():
-                            executor.spin_once(timeout_sec=0.05)
+                            _drain_executor(executor, 0.05)
 
                         if not future.done():
                             failed_calls += 1
