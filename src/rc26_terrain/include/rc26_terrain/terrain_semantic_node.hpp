@@ -164,7 +164,7 @@ private:
     double      top_z_max_delta_m_{0.7};
     std::string terrain_features_topic_{"terrain_features"};
     bool        enable_terrain_features_pub_{false};
-    double      terrain_features_publish_hz_{5.0};
+    double      terrain_features_publish_hz_{3.5};
     std::string terrain_speed_limit_topic_{"terrain_speed_limit"};
     bool        enable_terrain_speed_limit_pub_{true};
     double      terrain_speed_limit_publish_hz_{5.0};
