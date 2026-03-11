@@ -368,6 +368,17 @@ TEST_F(TerrainGridMapBridgeTest, ProducesMfSemanticLayersFromLayout) {
     EXPECT_NEAR(map.at(kLayerHeightError, index), 0.05, 1e-3);
 }
 
+TEST_F(TerrainGridMapBridgeTest, RejectsMalformedFeatureGridMessages) {
+    publishMapToBaseStaticTransform(0.0, 0.0, 0.0, 0.0);
+
+    auto malformed = makeFeatureGrid(5, 1.0f);
+    malformed.h_ground.pop_back();
+
+    const size_t before = currentGridMapCount();
+    feature_pub_->publish(malformed);
+    EXPECT_FALSE(waitForNewGridMap(before, 500ms));
+}
+
 TEST_F(TerrainGridMapBridgeTest, HandlesTfAndFeatureErrorsAndKeepoutStale) {
     auto feature = makeFeatureGrid(5, 1.0f);
     const size_t before_no_tf = currentGridMapCount();
