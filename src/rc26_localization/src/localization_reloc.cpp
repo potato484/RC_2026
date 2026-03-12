@@ -622,8 +622,10 @@ void LocalizationNode::markRelocalizationSuccess(const Eigen::Isometry3d& map_to
                                                  const pcl::PointCloud<pcl::PointXYZ>::Ptr& anchor_cloud) {
     const bool graph_mode = enable_graph_backend_ && !legacy_hard_reloc_enable_;
     bool graph_anchor_applied = false;
+    Eigen::Matrix<double, 6, 6> cov_snapshot = Eigen::Matrix<double, 6, 6>::Zero();
+    const rclcpp::Time success_stamp = this->now();
     if (graph_mode) {
-        graph_anchor_applied = processGraphBackendAnchor(map_to_odom, this->now(), anchor_cloud);
+        graph_anchor_applied = processGraphBackendAnchor(map_to_odom, success_stamp, anchor_cloud);
         if (!graph_anchor_applied) {
             RCLCPP_WARN(this->get_logger(), "图后端锚点接入失败，保持当前 map->odom，拒绝硬切");
             setLocalizationState(LocalizationState::SUSPECT, "relocalization_anchor_rejected");
@@ -636,6 +638,22 @@ void LocalizationNode::markRelocalizationSuccess(const Eigen::Isometry3d& map_to
     if (!graph_mode) {
         std::lock_guard<std::mutex> lock(result_mutex_);
         result_t_ = previous_result_t_ = map_to_odom;
+        cov_snapshot = last_pose_cov_;
+    } else {
+        Eigen::Isometry3d smoother_target = map_to_odom;
+        {
+            std::lock_guard<std::mutex> graph_lock(graph_mutex_);
+            if (graph_backend_initialized_ && map_to_odom_smoother_) {
+                if (map_to_odom_smoother_->isInitialized()) {
+                    smoother_target = map_to_odom_smoother_->target();
+                }
+                map_to_odom_smoother_->reset(map_to_odom, success_stamp);
+                map_to_odom_smoother_->setTarget(smoother_target, success_stamp);
+            }
+        }
+        std::lock_guard<std::mutex> lock(result_mutex_);
+        result_t_ = previous_result_t_ = map_to_odom;
+        cov_snapshot = last_pose_cov_;
     }
     if (esikf_enable_) {
         std::lock_guard<std::mutex> lk(esikf_mutex_);
@@ -643,10 +661,13 @@ void LocalizationNode::markRelocalizationSuccess(const Eigen::Isometry3d& map_to
     }
     {
         std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
-        last_successful_registration_time_ = this->now();
+        last_successful_registration_time_ = success_stamp;
         last_local_registration_time_ = last_successful_registration_time_;
     }
     consecutive_high_error_count_.store(0);
+    resetConfidenceState();
+    locked_pose_fallback_active_.store(false);
+    saveLockedPoseSnapshot(map_to_odom, cov_snapshot, success_stamp);
     setLocalizationState(LocalizationState::TRACKING, graph_mode ? "relocalization_graph_anchor_ok"
                                                                   : "relocalization_success");
     publishLocalizationHealth(graph_mode ? "relocalization_graph_anchor_ok" : "relocalization_success");
@@ -973,28 +994,33 @@ void LocalizationNode::performGlobalRelocalization(RelocTriggerReason reason,
 }
 
 bool LocalizationNode::tryGetReliableMapToOdom(Eigen::Isometry3d& map_to_odom) {
-    if (!isMapToOdomReliableState(getLocalizationState())) {
-        return false;
-    }
+    const LocalizationState state = getLocalizationState();
+    const bool state_reliable = isMapToOdomReliableState(state);
 
-    rclcpp::Time last_success_snapshot;
-    {
-        std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
-        last_success_snapshot = last_successful_registration_time_;
-    }
-    const double stale_sec = (this->now() - last_success_snapshot).seconds();
-    if (stale_sec > acrylic_filter_max_stale_sec_) {
+    if (state_reliable) {
+        rclcpp::Time last_success_snapshot;
+        {
+            std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
+            last_success_snapshot = last_successful_registration_time_;
+        }
+        const double stale_sec = (this->now() - last_success_snapshot).seconds();
+        if (stale_sec <= acrylic_filter_max_stale_sec_) {
+            std::lock_guard<std::mutex> lock(result_mutex_);
+            map_to_odom = result_t_;
+            return true;
+        }
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                             "亚克力过滤跳过: map->odom 过期 %.2fs > %.2fs", stale_sec, acrylic_filter_max_stale_sec_);
-        setLocalizationState(LocalizationState::SUSPECT, "map_to_odom_stale");
-        return false;
+                             "亚克力过滤使用当前 map->odom 失败: 过期 %.2fs > %.2fs", stale_sec, acrylic_filter_max_stale_sec_);
     }
 
-    {
-        std::lock_guard<std::mutex> lock(result_mutex_);
-        map_to_odom = result_t_;
+    if (tryGetLockedPoseSnapshot(map_to_odom)) {
+        RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                             "tryGetReliableMapToOdom 使用 last_locked_map_to_odom 回退");
+        return true;
     }
-    return true;
+
+    setLocalizationState(LocalizationState::SUSPECT, "map_to_odom_unreliable");
+    return false;
 }
 
 void LocalizationNode::applyAcrylicROIFilter(pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
