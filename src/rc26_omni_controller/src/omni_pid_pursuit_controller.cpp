@@ -21,6 +21,7 @@
 #include <cmath>
 #include <limits>
 
+#include "grid_map_ros/GridMapRosConverter.hpp"
 #include "nav2_core/exceptions.hpp"
 #include "nav2_costmap_2d/costmap_filters/filter_values.hpp"
 #include "nav2_util/geometry_utils.hpp"
@@ -123,6 +124,29 @@ void OmniPidPursuitController::configure(const rclcpp_lifecycle::LifecycleNode::
     declare_parameter_if_not_declared(node, plugin_name_ + ".lhi_red_stop_enable", rclcpp::ParameterValue(true));
     declare_parameter_if_not_declared(node, plugin_name_ + ".degraded_v_scale", rclcpp::ParameterValue(0.3));
     declare_parameter_if_not_declared(node, plugin_name_ + ".degraded_w_scale", rclcpp::ParameterValue(0.5));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_enable", rclcpp::ParameterValue(true));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_grid_topic",
+                                      rclcpp::ParameterValue(std::string("/terrain_grid_map_local")));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_traversability_layer",
+                                      rclcpp::ParameterValue(std::string("traversability")));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_fresh_layer",
+                                      rclcpp::ParameterValue(std::string("fresh")));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_slope_x_layer",
+                                      rclcpp::ParameterValue(std::string("slope_x")));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_slope_y_layer",
+                                      rclcpp::ParameterValue(std::string("slope_y")));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_roughness_layer",
+                                      rclcpp::ParameterValue(std::string("roughness")));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_step_up_layer",
+                                      rclcpp::ParameterValue(std::string("step_up")));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_sample_count", rclcpp::ParameterValue(12));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_scale_min", rclcpp::ParameterValue(0.35));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_lateral_scale_min", rclcpp::ParameterValue(0.2));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_yaw_scale_min", rclcpp::ParameterValue(0.25));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_slope_limit", rclcpp::ParameterValue(0.45));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_roughness_limit", rclcpp::ParameterValue(0.35));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_step_up_limit", rclcpp::ParameterValue(0.08));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_stale_timeout_sec", rclcpp::ParameterValue(0.4));
 
     node->get_parameter(plugin_name_ + ".translation_kp", translation_kp_);
     node->get_parameter(plugin_name_ + ".translation_ki", translation_ki_);
@@ -186,6 +210,31 @@ void OmniPidPursuitController::configure(const rclcpp_lifecycle::LifecycleNode::
     node->get_parameter(plugin_name_ + ".lhi_red_stop_enable", lhi_red_stop_enable_);
     node->get_parameter(plugin_name_ + ".degraded_v_scale", degraded_v_scale_);
     node->get_parameter(plugin_name_ + ".degraded_w_scale", degraded_w_scale_);
+    node->get_parameter(plugin_name_ + ".terrain_enable", terrain_enable_);
+    node->get_parameter(plugin_name_ + ".terrain_grid_topic", terrain_grid_topic_);
+    node->get_parameter(plugin_name_ + ".terrain_traversability_layer", terrain_traversability_layer_);
+    node->get_parameter(plugin_name_ + ".terrain_fresh_layer", terrain_fresh_layer_);
+    node->get_parameter(plugin_name_ + ".terrain_slope_x_layer", terrain_slope_x_layer_);
+    node->get_parameter(plugin_name_ + ".terrain_slope_y_layer", terrain_slope_y_layer_);
+    node->get_parameter(plugin_name_ + ".terrain_roughness_layer", terrain_roughness_layer_);
+    node->get_parameter(plugin_name_ + ".terrain_step_up_layer", terrain_step_up_layer_);
+    node->get_parameter(plugin_name_ + ".terrain_sample_count", terrain_sample_count_);
+    node->get_parameter(plugin_name_ + ".terrain_scale_min", terrain_scale_min_);
+    node->get_parameter(plugin_name_ + ".terrain_lateral_scale_min", terrain_lateral_scale_min_);
+    node->get_parameter(plugin_name_ + ".terrain_yaw_scale_min", terrain_yaw_scale_min_);
+    node->get_parameter(plugin_name_ + ".terrain_slope_limit", terrain_slope_limit_);
+    node->get_parameter(plugin_name_ + ".terrain_roughness_limit", terrain_roughness_limit_);
+    node->get_parameter(plugin_name_ + ".terrain_step_up_limit", terrain_step_up_limit_);
+    node->get_parameter(plugin_name_ + ".terrain_stale_timeout_sec", terrain_stale_timeout_sec_);
+
+    terrain_sample_count_ = std::clamp(terrain_sample_count_, 3, 64);
+    terrain_scale_min_ = std::clamp(terrain_scale_min_, 0.05, 1.0);
+    terrain_lateral_scale_min_ = std::clamp(terrain_lateral_scale_min_, 0.05, 1.0);
+    terrain_yaw_scale_min_ = std::clamp(terrain_yaw_scale_min_, 0.05, 1.0);
+    terrain_slope_limit_ = std::max(1e-3, terrain_slope_limit_);
+    terrain_roughness_limit_ = std::max(1e-3, terrain_roughness_limit_);
+    terrain_step_up_limit_ = std::max(1e-3, terrain_step_up_limit_);
+    terrain_stale_timeout_sec_ = std::max(0.0, terrain_stale_timeout_sec_);
 
     node->get_parameter("controller_frequency", control_frequency);
 
@@ -226,6 +275,16 @@ void OmniPidPursuitController::configure(const rclcpp_lifecycle::LifecycleNode::
     plan_prune_idx_ = 0;
     resetMotionState();
     last_velocity_scaling_factor_ = v_linear_max_;
+
+    if (terrain_enable_) {
+        rclcpp::QoS terrain_qos(rclcpp::KeepLast(1));
+        terrain_qos.reliable();
+        terrain_qos.transient_local();
+        terrain_grid_sub_ = node->create_subscription<grid_map_msgs::msg::GridMap>(
+            terrain_grid_topic_, terrain_qos,
+            std::bind(&OmniPidPursuitController::terrainGridCallback, this, std::placeholders::_1));
+    }
+
     refreshPoseCovSubscription(node);
 }
 
@@ -246,6 +305,7 @@ void OmniPidPursuitController::cleanup() {
     collision_d_min_pub_.reset();
     v_safe_pub_.reset();
     collision_check_outside_map_count_pub_.reset();
+    terrain_grid_sub_.reset();
     pose_cov_sub_.reset();
     localization_health_sub_.reset();
     control_degraded_sub_.reset();
@@ -255,6 +315,11 @@ void OmniPidPursuitController::cleanup() {
     plan_cumulative_distances_.clear();
     plan_prune_idx_ = 0;
     costmap_snapshot_cache_.data.clear();
+    {
+        std::lock_guard<std::mutex> terrain_lock(terrain_mutex_);
+        terrain_map_.reset();
+        terrain_map_stamp_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+    }
     resetMotionState();
     tf_.reset();
     costmap_ros_.reset();
@@ -837,6 +902,181 @@ void OmniPidPursuitController::resetMotionState() noexcept {
     }
 }
 
+void OmniPidPursuitController::terrainGridCallback(const grid_map_msgs::msg::GridMap::SharedPtr msg) {
+    if (!msg) {
+        return;
+    }
+
+    grid_map::GridMap converted;
+    if (!grid_map::GridMapRosConverter::fromMessage(*msg, converted)) {
+        if (clock_) {
+            RCLCPP_WARN_THROTTLE(logger_, *clock_, 2000, "FollowPath failed to convert terrain grid map message");
+        }
+        return;
+    }
+
+    rclcpp::Time stamp = clock_ ? clock_->now() : rclcpp::Time(0, 0, RCL_ROS_TIME);
+    if (msg->header.stamp.sec != 0 || msg->header.stamp.nanosec != 0) {
+        stamp = rclcpp::Time(msg->header.stamp, clock_ ? clock_->get_clock_type() : RCL_ROS_TIME);
+    }
+
+    std::lock_guard<std::mutex> lock(terrain_mutex_);
+    terrain_map_ = std::make_shared<grid_map::GridMap>(std::move(converted));
+    terrain_map_stamp_ = stamp;
+}
+
+bool OmniPidPursuitController::readTerrainLayerValue(const grid_map::GridMap& map,
+                                                     const std::string& layer,
+                                                     const grid_map::Position& pos,
+                                                     float& value) const {
+    if (layer.empty() || !map.exists(layer)) {
+        return false;
+    }
+
+    grid_map::Index index;
+    if (!map.getIndex(pos, index) || !map.isValid(index, layer)) {
+        return false;
+    }
+
+    value = map.at(layer, index);
+    return std::isfinite(static_cast<double>(value));
+}
+
+TerrainScaleFactors OmniPidPursuitController::evaluateTerrainScales(const nav_msgs::msg::Path& transformed_plan,
+                                                                    int lookahead_end_idx,
+                                                                    const tf2::Transform& transform_global_from_base,
+                                                                    double path_tx,
+                                                                    double path_ty) const {
+    TerrainScaleFactors out;
+    if (!terrain_enable_ || transformed_plan.poses.empty()) {
+        return out;
+    }
+
+    std::shared_ptr<grid_map::GridMap> terrain_map;
+    rclcpp::Time terrain_stamp(0, 0, RCL_ROS_TIME);
+    {
+        std::lock_guard<std::mutex> lock(terrain_mutex_);
+        terrain_map = terrain_map_;
+        terrain_stamp = terrain_map_stamp_;
+    }
+
+    if (!terrain_map) {
+        return out;
+    }
+
+    if (clock_ && terrain_stale_timeout_sec_ > 0.0 && terrain_stamp.nanoseconds() > 0) {
+        const double age = (clock_->now() - terrain_stamp).seconds();
+        if (age > terrain_stale_timeout_sec_) {
+            return out;
+        }
+    }
+
+    const std::string costmap_frame = costmap_ros_ ? costmap_ros_->getGlobalFrameID() : "";
+    if (!terrain_map->getFrameId().empty() && !costmap_frame.empty() &&
+        terrain_map->getFrameId() != costmap_frame) {
+        if (clock_) {
+            RCLCPP_WARN_THROTTLE(
+                logger_, *clock_, 3000,
+                "FollowPath terrain frame mismatch: terrain=%s costmap=%s",
+                terrain_map->getFrameId().c_str(), costmap_frame.c_str());
+        }
+        return out;
+    }
+
+    const double norm = std::hypot(path_tx, path_ty);
+    if (norm < 1e-6) {
+        return out;
+    }
+    const double tx = path_tx / norm;
+    const double ty = path_ty / norm;
+
+    const int max_idx = std::clamp(lookahead_end_idx, 0, static_cast<int>(transformed_plan.poses.size()) - 1);
+    const int sample_count = std::clamp(terrain_sample_count_, 3, 64);
+    int valid_samples = 0;
+    double min_linear_score = 1.0;
+    double min_lateral_score = 1.0;
+    double min_yaw_score = 1.0;
+
+    for (int i = 0; i < sample_count; ++i) {
+        const double ratio = sample_count == 1 ? 1.0 : static_cast<double>(i) / static_cast<double>(sample_count - 1);
+        const int index = std::clamp(static_cast<int>(std::round(ratio * static_cast<double>(max_idx))), 0, max_idx);
+
+        const auto& p = transformed_plan.poses[static_cast<size_t>(index)].pose.position;
+        const tf2::Vector3 p_global = transform_global_from_base * tf2::Vector3(p.x, p.y, 0.0);
+        const grid_map::Position sample_pos(p_global.x(), p_global.y());
+
+        if (!terrain_fresh_layer_.empty() && terrain_map->exists(terrain_fresh_layer_)) {
+            float fresh = 0.0f;
+            if (!readTerrainLayerValue(*terrain_map, terrain_fresh_layer_, sample_pos, fresh) || fresh < 0.5f) {
+                continue;
+            }
+        }
+
+        float traversability = 0.0f;
+        if (!readTerrainLayerValue(*terrain_map, terrain_traversability_layer_, sample_pos, traversability)) {
+            continue;
+        }
+
+        double linear_score = std::clamp(static_cast<double>(traversability), 0.0, 1.0);
+        double lateral_score = linear_score;
+        double yaw_score = linear_score;
+
+        float slope_x = 0.0f;
+        float slope_y = 0.0f;
+        const bool has_slope_x = readTerrainLayerValue(*terrain_map, terrain_slope_x_layer_, sample_pos, slope_x);
+        const bool has_slope_y = readTerrainLayerValue(*terrain_map, terrain_slope_y_layer_, sample_pos, slope_y);
+        if (has_slope_x && has_slope_y) {
+            const double slope_along = std::abs(static_cast<double>(slope_x) * tx + static_cast<double>(slope_y) * ty);
+            const double slope_lateral =
+                std::abs(-static_cast<double>(slope_x) * ty + static_cast<double>(slope_y) * tx);
+            const double slope_limit = std::max(terrain_slope_limit_, 1e-6);
+            const double along_score = std::clamp(1.0 - slope_along / slope_limit, 0.0, 1.0);
+            const double lateral_score_local = std::clamp(1.0 - slope_lateral / slope_limit, 0.0, 1.0);
+            linear_score = std::min(linear_score, along_score);
+            lateral_score = std::min(lateral_score, lateral_score_local);
+            yaw_score = std::min(yaw_score, lateral_score_local);
+        }
+
+        float roughness = 0.0f;
+        if (readTerrainLayerValue(*terrain_map, terrain_roughness_layer_, sample_pos, roughness)) {
+            const double rough = std::max(0.0, static_cast<double>(roughness));
+            const double rough_limit = std::max(terrain_roughness_limit_, 1e-6);
+            const double linear_rough_score = std::clamp(1.0 - rough / rough_limit, 0.0, 1.0);
+            const double lateral_rough_score = std::clamp(1.0 - rough / (rough_limit * 0.8), 0.0, 1.0);
+            linear_score = std::min(linear_score, linear_rough_score);
+            lateral_score = std::min(lateral_score, lateral_rough_score);
+            yaw_score = std::min(yaw_score, lateral_rough_score);
+        }
+
+        float step_up = 0.0f;
+        if (readTerrainLayerValue(*terrain_map, terrain_step_up_layer_, sample_pos, step_up)) {
+            const double step_limit = std::max(terrain_step_up_limit_, 1e-6);
+            const double step_score = std::clamp(1.0 - std::max(0.0, static_cast<double>(step_up)) / step_limit, 0.0, 1.0);
+            lateral_score = std::min(lateral_score, step_score);
+            yaw_score = std::min(yaw_score, step_score);
+        }
+
+        min_linear_score = std::min(min_linear_score, std::clamp(linear_score, 0.0, 1.0));
+        min_lateral_score = std::min(min_lateral_score, std::clamp(lateral_score, 0.0, 1.0));
+        min_yaw_score = std::min(min_yaw_score, std::clamp(yaw_score, 0.0, 1.0));
+        ++valid_samples;
+    }
+
+    if (valid_samples == 0) {
+        return out;
+    }
+
+    auto scoreToScale = [](double min_scale, double score) {
+        const double clamped_score = std::clamp(score, 0.0, 1.0);
+        return min_scale + (1.0 - min_scale) * clamped_score;
+    };
+    out.linear = scoreToScale(terrain_scale_min_, min_linear_score);
+    out.lateral = scoreToScale(terrain_lateral_scale_min_, min_lateral_score);
+    out.yaw = scoreToScale(terrain_yaw_scale_min_, min_yaw_score);
+    out.applied = true;
+    return out;
+}
+
 geometry_msgs::msg::TwistStamped
 OmniPidPursuitController::computeVelocityCommands(const geometry_msgs::msg::PoseStamped& pose,
                                                   const geometry_msgs::msg::Twist& velocity,
@@ -1043,6 +1283,16 @@ OmniPidPursuitController::computeVelocityCommands(const geometry_msgs::msg::Pose
         double vx = lin_vel * tx - lateral_error_gain_ * e_perp * ty;
         double vy = lin_vel * ty + lateral_error_gain_ * e_perp * tx;
         double wz = angular_vel;
+
+        const TerrainScaleFactors terrain_scales =
+            evaluateTerrainScales(transformed_plan, lookahead_end_idx, transform_map_from_base, tx, ty);
+        if (terrain_scales.applied) {
+            const double lateral_scale = std::min(terrain_scales.linear, terrain_scales.lateral);
+            const double yaw_scale = std::min(terrain_scales.linear, terrain_scales.yaw);
+            vx *= terrain_scales.linear;
+            vy *= lateral_scale;
+            wz *= yaw_scale;
+        }
 
         if (loc_uncertainty_enable_) {
             double sx = 2.0;

@@ -25,6 +25,9 @@
   <depend>std_msgs</depend>
   <depend>rc26_interfaces</depend>
   <depend>rc26_omni_controller</depend>
+  <depend>grid_map_core</depend>
+  <depend>grid_map_ros</depend>
+  <depend>grid_map_msgs</depend>
   <depend>osqp_vendor</depend>
 
   <export>

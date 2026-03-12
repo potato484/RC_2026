@@ -7,10 +7,12 @@
 #include <limits>
 #include <string>
 
+#include "grid_map_ros/GridMapRosConverter.hpp"
 #include "nav2_core/exceptions.hpp"
 #include "nav2_costmap_2d/costmap_filters/filter_values.hpp"
 #include "nav2_util/node_utils.hpp"
 #include "pluginlib/class_list_macros.hpp"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
 #ifndef RC26_NMPC_HAS_OSQP
 #define RC26_NMPC_HAS_OSQP 0
@@ -122,6 +124,23 @@ void NmpcController::configure(const rclcpp_lifecycle::LifecycleNode::WeakPtr& p
 
     declare_parameter_if_not_declared(node, plugin_name_ + ".handover_a_lin", rclcpp::ParameterValue(2.2));
     declare_parameter_if_not_declared(node, plugin_name_ + ".handover_a_ang", rclcpp::ParameterValue(4.0));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_enable", rclcpp::ParameterValue(true));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_grid_topic",
+                                      rclcpp::ParameterValue(std::string("/terrain_grid_map_local")));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_traversability_layer",
+                                      rclcpp::ParameterValue(std::string("traversability")));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_fresh_layer",
+                                      rclcpp::ParameterValue(std::string("fresh")));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_roughness_layer",
+                                      rclcpp::ParameterValue(std::string("roughness")));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_step_up_layer",
+                                      rclcpp::ParameterValue(std::string("step_up")));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_sample_count", rclcpp::ParameterValue(10));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_horizon_points", rclcpp::ParameterValue(24));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_scale_min", rclcpp::ParameterValue(0.35));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_roughness_limit", rclcpp::ParameterValue(0.35));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_step_up_limit", rclcpp::ParameterValue(0.08));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_stale_timeout_sec", rclcpp::ParameterValue(0.4));
 
     declare_parameter_if_not_declared(node, plugin_name_ + ".fallback_controller_id",
                                       rclcpp::ParameterValue(std::string("FollowPath")));
@@ -167,6 +186,18 @@ void NmpcController::configure(const rclcpp_lifecycle::LifecycleNode::WeakPtr& p
 
     node->get_parameter(plugin_name_ + ".handover_a_lin", handover_a_lin_);
     node->get_parameter(plugin_name_ + ".handover_a_ang", handover_a_ang_);
+    node->get_parameter(plugin_name_ + ".terrain_enable", terrain_enable_);
+    node->get_parameter(plugin_name_ + ".terrain_grid_topic", terrain_grid_topic_);
+    node->get_parameter(plugin_name_ + ".terrain_traversability_layer", terrain_traversability_layer_);
+    node->get_parameter(plugin_name_ + ".terrain_fresh_layer", terrain_fresh_layer_);
+    node->get_parameter(plugin_name_ + ".terrain_roughness_layer", terrain_roughness_layer_);
+    node->get_parameter(plugin_name_ + ".terrain_step_up_layer", terrain_step_up_layer_);
+    node->get_parameter(plugin_name_ + ".terrain_sample_count", terrain_sample_count_);
+    node->get_parameter(plugin_name_ + ".terrain_horizon_points", terrain_horizon_points_);
+    node->get_parameter(plugin_name_ + ".terrain_scale_min", terrain_scale_min_);
+    node->get_parameter(plugin_name_ + ".terrain_roughness_limit", terrain_roughness_limit_);
+    node->get_parameter(plugin_name_ + ".terrain_step_up_limit", terrain_step_up_limit_);
+    node->get_parameter(plugin_name_ + ".terrain_stale_timeout_sec", terrain_stale_timeout_sec_);
 
     node->get_parameter(plugin_name_ + ".fallback_controller_id", fallback_controller_id_);
     node->get_parameter(plugin_name_ + ".profile_orange", profile_orange_);
@@ -195,6 +226,12 @@ void NmpcController::configure(const rclcpp_lifecycle::LifecycleNode::WeakPtr& p
     aw_max_ = std::max(0.0, aw_max_);
     handover_a_lin_ = std::max(0.0, handover_a_lin_);
     handover_a_ang_ = std::max(0.0, handover_a_ang_);
+    terrain_sample_count_ = std::clamp(terrain_sample_count_, 3, 64);
+    terrain_horizon_points_ = std::clamp(terrain_horizon_points_, 6, 120);
+    terrain_scale_min_ = std::clamp(terrain_scale_min_, 0.05, 1.0);
+    terrain_roughness_limit_ = std::max(1e-3, terrain_roughness_limit_);
+    terrain_step_up_limit_ = std::max(1e-3, terrain_step_up_limit_);
+    terrain_stale_timeout_sec_ = std::max(0.0, terrain_stale_timeout_sec_);
 
     control_state_sub_ = node->create_subscription<nav_msgs::msg::Odometry>(
         "/control_state", rclcpp::SensorDataQoS(), [this](const nav_msgs::msg::Odometry::SharedPtr msg) {
@@ -226,6 +263,15 @@ void NmpcController::configure(const rclcpp_lifecycle::LifecycleNode::WeakPtr& p
             }
         });
 
+    if (terrain_enable_) {
+        rclcpp::QoS terrain_qos(rclcpp::KeepLast(1));
+        terrain_qos.reliable();
+        terrain_qos.transient_local();
+        terrain_sub_ = node->create_subscription<grid_map_msgs::msg::GridMap>(
+            terrain_grid_topic_, terrain_qos,
+            std::bind(&NmpcController::terrainGridCallback, this, std::placeholders::_1));
+    }
+
     controller_mode_pub_ = node->create_publisher<std_msgs::msg::String>(plugin_name_ + "/mode", rclcpp::QoS(10));
 
     nav_mode_client_ = node->create_client<rc26_interfaces::srv::SetNavMode>("set_nav_mode");
@@ -250,6 +296,7 @@ void NmpcController::cleanup() {
     control_state_sub_.reset();
     health_sub_.reset();
     backend_sub_.reset();
+    terrain_sub_.reset();
     controller_mode_pub_.reset();
     nav_mode_client_.reset();
 
@@ -259,6 +306,11 @@ void NmpcController::cleanup() {
         latest_control_state_.reset();
         latest_health_.reset();
         latest_backend_.reset();
+    }
+    {
+        std::lock_guard<std::mutex> terrain_lock(terrain_mutex_);
+        terrain_map_.reset();
+        terrain_map_stamp_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
     }
 
     resetRuntimeState();
@@ -331,6 +383,7 @@ geometry_msgs::msg::TwistStamped NmpcController::computeVelocityCommands(const g
 
     bool localization_red = false;
     const double quality_scale = computeQualityScale(now, localization_red);
+    terrain_scale_ = computeTerrainScale(pose, now);
     const auto measured_velocity = readMeasuredVelocity(velocity, now);
 
     SolveReport solve_report;
@@ -397,6 +450,7 @@ void NmpcController::resetRuntimeState() {
     has_last_command_ = false;
     last_command_stamp_ = clock_ ? clock_->now() : rclcpp::Time(0, 0, RCL_ROS_TIME);
     speed_limit_scale_ = 1.0;
+    terrain_scale_ = 1.0;
 }
 
 void NmpcController::requestNavProfile(const std::string& profile, const std::string& reason) {
@@ -554,12 +608,212 @@ geometry_msgs::msg::Twist NmpcController::applySlewRateLimit(const geometry_msgs
     return out;
 }
 
+void NmpcController::terrainGridCallback(const grid_map_msgs::msg::GridMap::SharedPtr msg) {
+    if (!msg) {
+        return;
+    }
+
+    grid_map::GridMap converted;
+    if (!grid_map::GridMapRosConverter::fromMessage(*msg, converted)) {
+        if (clock_) {
+            RCLCPP_WARN_THROTTLE(logger_, *clock_, 2000, "NMPC failed to convert terrain grid map message");
+        }
+        return;
+    }
+
+    rclcpp::Time stamp = clock_ ? clock_->now() : rclcpp::Time(0, 0, RCL_ROS_TIME);
+    if (msg->header.stamp.sec != 0 || msg->header.stamp.nanosec != 0) {
+        stamp = rclcpp::Time(msg->header.stamp, clock_ ? clock_->get_clock_type() : RCL_ROS_TIME);
+    }
+
+    std::lock_guard<std::mutex> lock(terrain_mutex_);
+    terrain_map_ = std::make_shared<grid_map::GridMap>(std::move(converted));
+    terrain_map_stamp_ = stamp;
+}
+
+bool NmpcController::readTerrainLayerValue(const grid_map::GridMap& map,
+                                           const std::string& layer,
+                                           const grid_map::Position& pos,
+                                           float& value) const {
+    if (layer.empty() || !map.exists(layer)) {
+        return false;
+    }
+
+    grid_map::Index index;
+    if (!map.getIndex(pos, index) || !map.isValid(index, layer)) {
+        return false;
+    }
+    value = map.at(layer, index);
+    return std::isfinite(static_cast<double>(value));
+}
+
+double NmpcController::computeTerrainScale(const geometry_msgs::msg::PoseStamped& pose, const rclcpp::Time& now) const {
+    if (!terrain_enable_) {
+        return 1.0;
+    }
+
+    std::shared_ptr<grid_map::GridMap> terrain_map;
+    rclcpp::Time terrain_stamp(0, 0, RCL_ROS_TIME);
+    {
+        std::lock_guard<std::mutex> lock(terrain_mutex_);
+        terrain_map = terrain_map_;
+        terrain_stamp = terrain_map_stamp_;
+    }
+    if (!terrain_map) {
+        return 1.0;
+    }
+    if (terrain_stale_timeout_sec_ > 0.0 && terrain_stamp.nanoseconds() > 0) {
+        const double age = (now - terrain_stamp).seconds();
+        if (age > terrain_stale_timeout_sec_) {
+            return 1.0;
+        }
+    }
+
+    nav_msgs::msg::Path plan;
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        plan = global_plan_;
+    }
+    if (plan.poses.empty()) {
+        return 1.0;
+    }
+
+    std::string plan_frame = plan.header.frame_id;
+    if (plan_frame.empty()) {
+        plan_frame = pose.header.frame_id;
+    }
+    if (plan_frame.empty()) {
+        return 1.0;
+    }
+
+    geometry_msgs::msg::PoseStamped robot_pose_in_plan = pose;
+    robot_pose_in_plan.header.frame_id = pose.header.frame_id;
+    if (robot_pose_in_plan.header.frame_id.empty()) {
+        robot_pose_in_plan.header.frame_id = plan_frame;
+    }
+    if (robot_pose_in_plan.header.frame_id != plan_frame) {
+        if (!tf_) {
+            return 1.0;
+        }
+        try {
+            const auto tf_plan_from_robot = tf_->lookupTransform(
+                plan_frame, robot_pose_in_plan.header.frame_id, tf2::TimePointZero);
+            tf2::doTransform(robot_pose_in_plan, robot_pose_in_plan, tf_plan_from_robot);
+            robot_pose_in_plan.header.frame_id = plan_frame;
+        } catch (const tf2::TransformException& ex) {
+            if (clock_) {
+                RCLCPP_WARN_THROTTLE(
+                    logger_, *clock_, 3000, "NMPC terrain sampling pose transform failed: %s", ex.what());
+            }
+            return 1.0;
+        }
+    }
+
+    size_t nearest_index = 0;
+    double nearest_dist_sq = std::numeric_limits<double>::max();
+    for (size_t i = 0; i < plan.poses.size(); ++i) {
+        const auto& p = plan.poses[i].pose.position;
+        const double dx = p.x - robot_pose_in_plan.pose.position.x;
+        const double dy = p.y - robot_pose_in_plan.pose.position.y;
+        const double d2 = dx * dx + dy * dy;
+        if (d2 < nearest_dist_sq) {
+            nearest_dist_sq = d2;
+            nearest_index = i;
+        }
+    }
+
+    const size_t end_index = std::min(
+        plan.poses.size() - 1, nearest_index + static_cast<size_t>(std::max(1, terrain_horizon_points_)));
+    if (end_index < nearest_index) {
+        return 1.0;
+    }
+
+    const int sample_count = std::clamp(terrain_sample_count_, 3, 64);
+    const std::string terrain_frame = terrain_map->getFrameId();
+    const bool need_transform = !terrain_frame.empty() && terrain_frame != plan_frame;
+
+    geometry_msgs::msg::TransformStamped tf_terrain_from_plan;
+    if (need_transform) {
+        if (!tf_) {
+            return 1.0;
+        }
+        try {
+            tf_terrain_from_plan = tf_->lookupTransform(terrain_frame, plan_frame, tf2::TimePointZero);
+        } catch (const tf2::TransformException& ex) {
+            if (clock_) {
+                RCLCPP_WARN_THROTTLE(
+                    logger_, *clock_, 3000, "NMPC terrain sampling frame transform failed: %s", ex.what());
+            }
+            return 1.0;
+        }
+    }
+
+    double min_score = 1.0;
+    int valid_samples = 0;
+    for (int i = 0; i < sample_count; ++i) {
+        const double ratio = sample_count == 1 ? 1.0 : static_cast<double>(i) / static_cast<double>(sample_count - 1);
+        const size_t index = nearest_index +
+                             static_cast<size_t>(std::lround(ratio * static_cast<double>(end_index - nearest_index)));
+        const auto clamped_index = std::min(index, end_index);
+
+        geometry_msgs::msg::PoseStamped sample_pose = plan.poses[clamped_index];
+        if (sample_pose.header.frame_id.empty()) {
+            sample_pose.header.frame_id = plan_frame;
+        }
+
+        geometry_msgs::msg::PoseStamped sample_pose_in_terrain = sample_pose;
+        if (need_transform) {
+            tf2::doTransform(sample_pose, sample_pose_in_terrain, tf_terrain_from_plan);
+        }
+
+        const grid_map::Position sample_pos(sample_pose_in_terrain.pose.position.x, sample_pose_in_terrain.pose.position.y);
+
+        if (!terrain_fresh_layer_.empty() && terrain_map->exists(terrain_fresh_layer_)) {
+            float fresh = 0.0f;
+            if (!readTerrainLayerValue(*terrain_map, terrain_fresh_layer_, sample_pos, fresh) || fresh < 0.5f) {
+                continue;
+            }
+        }
+
+        float traversability = 0.0f;
+        if (!readTerrainLayerValue(*terrain_map, terrain_traversability_layer_, sample_pos, traversability)) {
+            continue;
+        }
+
+        double score = std::clamp(static_cast<double>(traversability), 0.0, 1.0);
+
+        float roughness = 0.0f;
+        if (readTerrainLayerValue(*terrain_map, terrain_roughness_layer_, sample_pos, roughness)) {
+            const double rough = std::max(0.0, static_cast<double>(roughness));
+            const double rough_score = std::clamp(1.0 - rough / std::max(terrain_roughness_limit_, 1e-6), 0.0, 1.0);
+            score = std::min(score, rough_score);
+        }
+
+        float step_up = 0.0f;
+        if (readTerrainLayerValue(*terrain_map, terrain_step_up_layer_, sample_pos, step_up)) {
+            const double step_score =
+                std::clamp(1.0 - std::max(0.0, static_cast<double>(step_up)) / std::max(terrain_step_up_limit_, 1e-6), 0.0, 1.0);
+            score = std::min(score, step_score);
+        }
+
+        min_score = std::min(min_score, score);
+        ++valid_samples;
+    }
+
+    if (valid_samples == 0) {
+        return 1.0;
+    }
+
+    const double scale = terrain_scale_min_ + (1.0 - terrain_scale_min_) * std::clamp(min_score, 0.0, 1.0);
+    return std::clamp(scale, terrain_scale_min_, 1.0);
+}
+
 SolveReport NmpcController::solveConstrainedCommand(const geometry_msgs::msg::Twist& reference_cmd,
                                                     const std::array<double, 3>& measured_velocity, double dt,
                                                     double quality_scale) const {
     SolveReport report;
 
-    const double scale = std::clamp(quality_scale * speed_limit_scale_, min_quality_scale_, 1.0);
+    const double scale = std::clamp(quality_scale * speed_limit_scale_ * terrain_scale_, min_quality_scale_, 1.0);
 
     const std::array<double, 3> u_ref = {
         reference_cmd.linear.x,

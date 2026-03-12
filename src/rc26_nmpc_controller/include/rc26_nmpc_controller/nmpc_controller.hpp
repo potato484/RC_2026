@@ -8,6 +8,8 @@
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
+#include "grid_map_core/grid_map_core.hpp"
+#include "grid_map_msgs/msg/grid_map.hpp"
 #include "nav2_core/controller.hpp"
 #include "nav2_costmap_2d/costmap_2d_ros.hpp"
 #include "nav_msgs/msg/odometry.hpp"
@@ -63,6 +65,12 @@ private:
     void requestNavProfile(const std::string& profile, const std::string& reason);
     double computeQualityScale(const rclcpp::Time& now, bool& localization_red) const;
     geometry_msgs::msg::Twist applySlewRateLimit(const geometry_msgs::msg::Twist& target, double dt) const;
+    void terrainGridCallback(const grid_map_msgs::msg::GridMap::SharedPtr msg);
+    bool readTerrainLayerValue(const grid_map::GridMap& map,
+                               const std::string& layer,
+                               const grid_map::Position& pos,
+                               float& value) const;
+    double computeTerrainScale(const geometry_msgs::msg::PoseStamped& pose, const rclcpp::Time& now) const;
 
     SolveReport solveConstrainedCommand(const geometry_msgs::msg::Twist& reference_cmd,
                                         const std::array<double, 3>& measured_velocity, double dt,
@@ -98,7 +106,11 @@ private:
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr control_state_sub_;
     rclcpp::Subscription<rc26_interfaces::msg::LocalizationHealth>::SharedPtr health_sub_;
     rclcpp::Subscription<rc26_interfaces::msg::LocalizationBackendStatus>::SharedPtr backend_sub_;
+    rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr terrain_sub_;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr controller_mode_pub_;
+    std::shared_ptr<grid_map::GridMap> terrain_map_;
+    rclcpp::Time terrain_map_stamp_{0, 0, RCL_ROS_TIME};
+    mutable std::mutex terrain_mutex_;
 
     rclcpp::Client<rc26_interfaces::srv::SetNavMode>::SharedPtr nav_mode_client_;
 
@@ -162,6 +174,21 @@ private:
 
     // External speed limit from Nav2 costmap filters
     double speed_limit_scale_{1.0};
+    double terrain_scale_{1.0};
+
+    // Terrain sampler for first-step NMPC terrain-aware scaling
+    bool terrain_enable_{true};
+    std::string terrain_grid_topic_{"/terrain_grid_map_local"};
+    std::string terrain_traversability_layer_{"traversability"};
+    std::string terrain_fresh_layer_{"fresh"};
+    std::string terrain_roughness_layer_{"roughness"};
+    std::string terrain_step_up_layer_{"step_up"};
+    int terrain_sample_count_{10};
+    int terrain_horizon_points_{24};
+    double terrain_scale_min_{0.35};
+    double terrain_roughness_limit_{0.35};
+    double terrain_step_up_limit_{0.08};
+    double terrain_stale_timeout_sec_{0.4};
 
     // Profiles to trigger when fallback is active
     std::string fallback_controller_id_{"FollowPath"};
