@@ -54,11 +54,14 @@ private:
     std::string terrain_features_topic_{"terrain_features"};
     std::string kfs_mask_topic_{"/kfs_filter_mask"};
     std::string output_topic_{"/terrain_grid_map"};
+    std::string output_topic_local_{"/terrain_grid_map_local"};
     std::string diagnostics_topic_{"diagnostics"};
     std::string map_frame_{"map"};
+    std::string local_frame_{"odom"};
     std::string base_frame_{"base_link"};
     double tf_timeout_sec_{0.1};
     double keepout_stale_timeout_sec_{2.0};
+    bool publish_local_map_{true};
     bool enable_mf_semantics_{true};
     std::string mf_grid_layout_file_{""};
     double step_edge_height_thresh_m_{0.10};
@@ -77,6 +80,7 @@ private:
     rclcpp::Subscription<rc26_interfaces::msg::TerrainFeatureGrid>::SharedPtr sub_features_;
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr sub_keepout_;
     rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr pub_grid_map_;
+    rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr pub_grid_map_local_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr pub_diagnostics_;
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::unique_ptr<tf2_ros::TransformListener> tf_listener_;

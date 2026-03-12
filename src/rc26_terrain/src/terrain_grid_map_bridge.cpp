@@ -30,9 +30,13 @@ constexpr const char* kLayerSigmaH = "sigma_h";
 constexpr const char* kLayerFresh = "fresh";
 constexpr const char* kLayerDensity = "density";
 constexpr const char* kLayerSlope = "slope";
+constexpr const char* kLayerSlopeX = "slope_x";
+constexpr const char* kLayerSlopeY = "slope_y";
 constexpr const char* kLayerRoughness = "roughness";
 constexpr const char* kLayerObstacleProb = "obstacle_prob";
 constexpr const char* kLayerDropProb = "drop_prob";
+constexpr const char* kLayerStepUp = "step_up";
+constexpr const char* kLayerClimbableProb = "climbable_prob";
 constexpr const char* kLayerKfsKeepout = "kfs_keepout";
 
 constexpr const char* kLayerBlockId = "block_id";
@@ -86,7 +90,10 @@ TerrainGridMapBridge::TerrainGridMapBridge(const rclcpp::NodeOptions& options)
     this->declare_parameter<std::string>("terrain_features_topic", terrain_features_topic_);
     this->declare_parameter<std::string>("kfs_mask_topic", kfs_mask_topic_);
     this->declare_parameter<std::string>("output_topic", output_topic_);
+    this->declare_parameter<bool>("publish_local_map", publish_local_map_);
+    this->declare_parameter<std::string>("output_topic_local", output_topic_local_);
     this->declare_parameter<std::string>("map_frame", map_frame_);
+    this->declare_parameter<std::string>("local_frame", local_frame_);
     this->declare_parameter<std::string>("base_frame", base_frame_);
     this->declare_parameter<double>("tf_timeout_sec", tf_timeout_sec_);
     this->declare_parameter<double>("keepout_stale_timeout_sec", keepout_stale_timeout_sec_);
@@ -100,7 +107,10 @@ TerrainGridMapBridge::TerrainGridMapBridge(const rclcpp::NodeOptions& options)
     this->get_parameter("terrain_features_topic", terrain_features_topic_);
     this->get_parameter("kfs_mask_topic", kfs_mask_topic_);
     this->get_parameter("output_topic", output_topic_);
+    this->get_parameter("publish_local_map", publish_local_map_);
+    this->get_parameter("output_topic_local", output_topic_local_);
     this->get_parameter("map_frame", map_frame_);
+    this->get_parameter("local_frame", local_frame_);
     this->get_parameter("base_frame", base_frame_);
     this->get_parameter("tf_timeout_sec", tf_timeout_sec_);
     this->get_parameter("keepout_stale_timeout_sec", keepout_stale_timeout_sec_);
@@ -145,6 +155,10 @@ TerrainGridMapBridge::TerrainGridMapBridge(const rclcpp::NodeOptions& options)
     tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
 
     pub_grid_map_ = this->create_publisher<grid_map_msgs::msg::GridMap>(output_topic_, makeOutputQos());
+    if (publish_local_map_) {
+        pub_grid_map_local_ =
+            this->create_publisher<grid_map_msgs::msg::GridMap>(output_topic_local_, makeOutputQos());
+    }
     pub_diagnostics_ =
         this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(diagnostics_topic_, makeDiagnosticsQos());
 
@@ -156,12 +170,17 @@ TerrainGridMapBridge::TerrainGridMapBridge(const rclcpp::NodeOptions& options)
         kfs_mask_topic_, makeKeepoutQos(),
         std::bind(&TerrainGridMapBridge::keepoutCallback, this, std::placeholders::_1));
 
-    RCLCPP_INFO(this->get_logger(),
-                "terrain_grid_map_bridge started: feature_topic=%s keepout_topic=%s output_topic=%s map_frame=%s",
-                terrain_features_topic_.c_str(),
-                kfs_mask_topic_.c_str(),
-                output_topic_.c_str(),
-                map_frame_.c_str());
+    RCLCPP_INFO(
+        this->get_logger(),
+        "terrain_grid_map_bridge started: feature_topic=%s keepout_topic=%s output_topic=%s map_frame=%s "
+        "publish_local_map=%s output_topic_local=%s local_frame=%s",
+        terrain_features_topic_.c_str(),
+        kfs_mask_topic_.c_str(),
+        output_topic_.c_str(),
+        map_frame_.c_str(),
+        publish_local_map_ ? "true" : "false",
+        output_topic_local_.c_str(),
+        local_frame_.c_str());
 }
 
 void TerrainGridMapBridge::keepoutCallback(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr& msg) {
@@ -207,26 +226,69 @@ void TerrainGridMapBridge::featureCallback(
             rclcpp::Duration::from_seconds(tf_timeout_sec_));
     } catch (const tf2::TransformException& ex) {
         diagnostics.tf_ok = false;
-        diagnostics.detail = std::string("lookup map<-base_link failed: ") + ex.what();
+        diagnostics.detail = std::string("lookup ") + map_frame_ + "<-" + base_frame_ + " failed: " + ex.what();
         publishDiagnostics(feature_stamp, diagnostics);
         return;
     }
 
-    const auto& translation = tf_map_base.transform.translation;
-    const double base_x_map = translation.x;
-    const double base_y_map = translation.y;
-    const double base_z_map = translation.z;
+    const auto toPose2D = [](const geometry_msgs::msg::TransformStamped& tf_msg,
+                             double& out_x,
+                             double& out_y,
+                             double& out_z,
+                             double& out_cos_yaw,
+                             double& out_sin_yaw) {
+        out_x = tf_msg.transform.translation.x;
+        out_y = tf_msg.transform.translation.y;
+        out_z = tf_msg.transform.translation.z;
 
-    tf2::Quaternion q;
-    tf2::fromMsg(tf_map_base.transform.rotation, q);
-    double roll = 0.0;
-    double pitch = 0.0;
-    double yaw = 0.0;
-    tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
-    (void)roll;
-    (void)pitch;
-    const double cos_yaw = std::cos(yaw);
-    const double sin_yaw = std::sin(yaw);
+        tf2::Quaternion q;
+        tf2::fromMsg(tf_msg.transform.rotation, q);
+        double roll = 0.0;
+        double pitch = 0.0;
+        double yaw = 0.0;
+        tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+        (void)roll;
+        (void)pitch;
+        out_cos_yaw = std::cos(yaw);
+        out_sin_yaw = std::sin(yaw);
+    };
+
+    double base_x_map = 0.0;
+    double base_y_map = 0.0;
+    double base_z_map = 0.0;
+    double cos_yaw_map = 1.0;
+    double sin_yaw_map = 0.0;
+    toPose2D(tf_map_base, base_x_map, base_y_map, base_z_map, cos_yaw_map, sin_yaw_map);
+
+    double base_x_local = base_x_map;
+    double base_y_local = base_y_map;
+    double base_z_local = base_z_map;
+    double cos_yaw_local = cos_yaw_map;
+    double sin_yaw_local = sin_yaw_map;
+
+    if (publish_local_map_) {
+        if (local_frame_ == map_frame_) {
+            base_x_local = base_x_map;
+            base_y_local = base_y_map;
+            base_z_local = base_z_map;
+            cos_yaw_local = cos_yaw_map;
+            sin_yaw_local = sin_yaw_map;
+        } else {
+            geometry_msgs::msg::TransformStamped tf_local_base;
+            try {
+                tf_local_base = tf_buffer_->lookupTransform(
+                    local_frame_, base_frame_, feature_stamp,
+                    rclcpp::Duration::from_seconds(tf_timeout_sec_));
+            } catch (const tf2::TransformException& ex) {
+                diagnostics.tf_ok = false;
+                diagnostics.detail =
+                    std::string("lookup ") + local_frame_ + "<-" + base_frame_ + " failed: " + ex.what();
+                publishDiagnostics(feature_stamp, diagnostics);
+                return;
+            }
+            toPose2D(tf_local_base, base_x_local, base_y_local, base_z_local, cos_yaw_local, sin_yaw_local);
+        }
+    }
 
     const int width = static_cast<int>(msg->width);
     const int height = static_cast<int>(msg->height);
@@ -240,10 +302,15 @@ void TerrainGridMapBridge::featureCallback(
         kLayerFresh,
         kLayerDensity,
         kLayerSlope,
+        kLayerSlopeX,
+        kLayerSlopeY,
         kLayerRoughness,
         kLayerObstacleProb,
         kLayerDropProb,
+        kLayerStepUp,
+        kLayerClimbableProb,
         kLayerKfsKeepout,
+        kLayerTraversability,
     };
     if (enable_mf_semantics_) {
         layers.push_back(kLayerBlockId);
@@ -251,22 +318,7 @@ void TerrainGridMapBridge::featureCallback(
         layers.push_back(kLayerHeightError);
         layers.push_back(kLayerEdgeStrength);
         layers.push_back(kLayerStepEdgeMask);
-        layers.push_back(kLayerTraversability);
     }
-
-    grid_map::GridMap output_map(layers);
-    output_map.setFrameId(map_frame_);
-    const int64_t stamp_ns = feature_stamp.nanoseconds();
-    output_map.setTimestamp(static_cast<grid_map::Time>(std::max<int64_t>(0, stamp_ns)));
-    output_map.setGeometry(grid_map::Length(width * resolution, height * resolution),
-                           resolution,
-                           grid_map::Position(base_x_map, base_y_map));
-    output_map.setBasicLayers({kLayerElevationAbs});
-
-    for (const auto& layer : layers) {
-        output_map[layer].setConstant(kNaNf);
-    }
-    output_map[kLayerFresh].setZero();
 
     nav_msgs::msg::OccupancyGrid::ConstSharedPtr keepout_mask;
     double keepout_age_sec = std::numeric_limits<double>::infinity();
@@ -287,60 +339,6 @@ void TerrainGridMapBridge::featureCallback(
         diagnostics.keepout_stale = true;
     }
 
-    const auto srcIndex = [width](int ix, int iy) -> size_t {
-        return static_cast<size_t>(ix * width + iy);
-    };
-
-    for (grid_map::GridMapIterator it(output_map); !it.isPastEnd(); ++it) {
-        const grid_map::Index index(*it);
-        grid_map::Position position;
-        if (!output_map.getPosition(index, position)) {
-            continue;
-        }
-
-        const double dx = position.x() - base_x_map;
-        const double dy = position.y() - base_y_map;
-        const double x_bl = cos_yaw * dx + sin_yaw * dy;
-        const double y_bl = -sin_yaw * dx + cos_yaw * dy;
-
-        const int ix = static_cast<int>(std::llround(x_bl / resolution)) + half_width;
-        const int iy = static_cast<int>(std::llround(y_bl / resolution)) + half_width;
-        if (ix < 0 || ix >= width || iy < 0 || iy >= width) {
-            continue;
-        }
-
-        const size_t source_idx = srcIndex(ix, iy);
-        if (source_idx >= msg->in_radius.size() || msg->in_radius[source_idx] == 0U) {
-            continue;
-        }
-
-        const bool fresh = msg->fresh[source_idx] != 0U;
-        output_map.at(kLayerFresh, index) = fresh ? 1.0f : 0.0f;
-        output_map.at(kLayerObstacleProb, index) = msg->p_obstacle[source_idx];
-        output_map.at(kLayerDropProb, index) = msg->p_drop[source_idx];
-
-        if (keepout_available) {
-            const auto keepout_value = sampleKeepoutValue(*keepout_mask, position.x(), position.y());
-            if (keepout_value.has_value()) {
-                output_map.at(kLayerKfsKeepout, index) = *keepout_value;
-            }
-        }
-
-        if (!fresh) {
-            continue;
-        }
-
-        output_map.at(kLayerElevationAbs, index) =
-            static_cast<float>(base_z_map) + msg->h_ground[source_idx];
-        output_map.at(kLayerElevationTopAbs, index) =
-            static_cast<float>(base_z_map) + msg->h_top[source_idx];
-        output_map.at(kLayerSigmaH, index) = msg->sigma_h[source_idx];
-        output_map.at(kLayerDensity, index) = static_cast<float>(msg->density[source_idx]);
-        output_map.at(kLayerSlope, index) =
-            std::max(std::abs(msg->slope_x[source_idx]), std::abs(msg->slope_y[source_idx]));
-        output_map.at(kLayerRoughness, index) = msg->roughness[source_idx];
-    }
-
     const bool semantics_active = enable_mf_semantics_ && mf_layout_ready_;
     if (enable_mf_semantics_) {
         if (!mf_layout_ready_) {
@@ -353,7 +351,31 @@ void TerrainGridMapBridge::featureCallback(
         }
     }
 
-    if (semantics_active) {
+    const auto srcIndex = [width](int ix, int iy) -> size_t {
+        return static_cast<size_t>(ix * width + iy);
+    };
+
+    const auto buildOutputMap = [&](const std::string& frame_id,
+                                    double base_x,
+                                    double base_y,
+                                    double base_z,
+                                    double cos_yaw,
+                                    double sin_yaw,
+                                    bool sample_keepout) {
+        grid_map::GridMap output_map(layers);
+        output_map.setFrameId(frame_id);
+        const int64_t stamp_ns = feature_stamp.nanoseconds();
+        output_map.setTimestamp(static_cast<grid_map::Time>(std::max<int64_t>(0, stamp_ns)));
+        output_map.setGeometry(grid_map::Length(width * resolution, height * resolution),
+                               resolution,
+                               grid_map::Position(base_x, base_y));
+        output_map.setBasicLayers({kLayerElevationAbs});
+
+        for (const auto& layer : layers) {
+            output_map[layer].setConstant(kNaNf);
+        }
+        output_map[kLayerFresh].setZero();
+
         for (grid_map::GridMapIterator it(output_map); !it.isPastEnd(); ++it) {
             const grid_map::Index index(*it);
             grid_map::Position position;
@@ -361,59 +383,122 @@ void TerrainGridMapBridge::featureCallback(
                 continue;
             }
 
-            const int block_id = resolveBlockId(position.x(), position.y());
-            if (block_id <= 0) {
+            const double dx = position.x() - base_x;
+            const double dy = position.y() - base_y;
+            const double x_bl = cos_yaw * dx + sin_yaw * dy;
+            const double y_bl = -sin_yaw * dx + cos_yaw * dy;
+
+            const int ix = static_cast<int>(std::llround(x_bl / resolution)) + half_width;
+            const int iy = static_cast<int>(std::llround(y_bl / resolution)) + half_width;
+            if (ix < 0 || ix >= width || iy < 0 || iy >= height) {
                 continue;
             }
 
-            output_map.at(kLayerBlockId, index) = static_cast<float>(block_id);
-            const auto expected_height = expectedHeightForGridId(block_id);
-            if (!expected_height.has_value()) {
+            const size_t source_idx = srcIndex(ix, iy);
+            if (source_idx >= msg->in_radius.size() || msg->in_radius[source_idx] == 0U) {
                 continue;
             }
 
-            output_map.at(kLayerExpectedHeight, index) = static_cast<float>(*expected_height);
-            if (output_map.isValid(index, kLayerElevationAbs)) {
-                output_map.at(kLayerHeightError, index) =
-                    output_map.at(kLayerElevationAbs, index) -
-                    static_cast<float>(*expected_height);
+            const bool fresh = msg->fresh[source_idx] != 0U;
+            output_map.at(kLayerFresh, index) = fresh ? 1.0f : 0.0f;
+            output_map.at(kLayerObstacleProb, index) = msg->p_obstacle[source_idx];
+            output_map.at(kLayerDropProb, index) = msg->p_drop[source_idx];
+            output_map.at(kLayerStepUp, index) = msg->step_up[source_idx];
+            output_map.at(kLayerClimbableProb, index) = msg->p_climbable[source_idx];
+
+            if (sample_keepout && keepout_available) {
+                const auto keepout_value = sampleKeepoutValue(*keepout_mask, position.x(), position.y());
+                if (keepout_value.has_value()) {
+                    output_map.at(kLayerKfsKeepout, index) = *keepout_value;
+                }
+            }
+
+            if (!fresh) {
+                continue;
+            }
+
+            output_map.at(kLayerElevationAbs, index) =
+                static_cast<float>(base_z) + msg->h_ground[source_idx];
+            output_map.at(kLayerElevationTopAbs, index) =
+                static_cast<float>(base_z) + msg->h_top[source_idx];
+            output_map.at(kLayerSigmaH, index) = msg->sigma_h[source_idx];
+            output_map.at(kLayerDensity, index) = static_cast<float>(msg->density[source_idx]);
+            output_map.at(kLayerSlopeX, index) = msg->slope_x[source_idx];
+            output_map.at(kLayerSlopeY, index) = msg->slope_y[source_idx];
+            output_map.at(kLayerSlope, index) =
+                std::max(std::abs(msg->slope_x[source_idx]), std::abs(msg->slope_y[source_idx]));
+            output_map.at(kLayerRoughness, index) = msg->roughness[source_idx];
+        }
+
+        if (semantics_active) {
+            for (grid_map::GridMapIterator it(output_map); !it.isPastEnd(); ++it) {
+                const grid_map::Index index(*it);
+                grid_map::Position position;
+                if (!output_map.getPosition(index, position)) {
+                    continue;
+                }
+
+                const int block_id = resolveBlockId(position.x(), position.y());
+                if (block_id <= 0) {
+                    continue;
+                }
+
+                output_map.at(kLayerBlockId, index) = static_cast<float>(block_id);
+                const auto expected_height = expectedHeightForGridId(block_id);
+                if (!expected_height.has_value()) {
+                    continue;
+                }
+
+                output_map.at(kLayerExpectedHeight, index) = static_cast<float>(*expected_height);
+                if (output_map.isValid(index, kLayerElevationAbs)) {
+                    output_map.at(kLayerHeightError, index) =
+                        output_map.at(kLayerElevationAbs, index) -
+                        static_cast<float>(*expected_height);
+                }
+            }
+
+            const grid_map::Size map_size = output_map.getSize();
+            const std::array<grid_map::Index, 4> kNeighbors = {
+                grid_map::Index(1, 0),
+                grid_map::Index(-1, 0),
+                grid_map::Index(0, 1),
+                grid_map::Index(0, -1),
+            };
+
+            for (grid_map::GridMapIterator it(output_map); !it.isPastEnd(); ++it) {
+                const grid_map::Index index(*it);
+                if (!output_map.isValid(index, kLayerElevationAbs)) {
+                    continue;
+                }
+
+                const float center_elevation = output_map.at(kLayerElevationAbs, index);
+                float edge_strength = 0.0f;
+                bool has_neighbor = false;
+                for (const auto& offset : kNeighbors) {
+                    const grid_map::Index neighbor = index + offset;
+                    if (neighbor(0) < 0 || neighbor(0) >= map_size(0) ||
+                        neighbor(1) < 0 || neighbor(1) >= map_size(1)) {
+                        continue;
+                    }
+                    if (!output_map.isValid(neighbor, kLayerElevationAbs)) {
+                        continue;
+                    }
+                    const float neighbor_elevation = output_map.at(kLayerElevationAbs, neighbor);
+                    edge_strength = std::max(edge_strength, std::abs(neighbor_elevation - center_elevation));
+                    has_neighbor = true;
+                }
+                if (has_neighbor) {
+                    output_map.at(kLayerEdgeStrength, index) = edge_strength;
+                    output_map.at(kLayerStepEdgeMask, index) =
+                        edge_strength >= static_cast<float>(step_edge_height_thresh_m_) ? 1.0f : 0.0f;
+                }
             }
         }
 
-        const grid_map::Size map_size = output_map.getSize();
-        const std::array<grid_map::Index, 4> kNeighbors = {
-            grid_map::Index(1, 0),
-            grid_map::Index(-1, 0),
-            grid_map::Index(0, 1),
-            grid_map::Index(0, -1),
-        };
-
         for (grid_map::GridMapIterator it(output_map); !it.isPastEnd(); ++it) {
             const grid_map::Index index(*it);
-            if (!output_map.isValid(index, kLayerElevationAbs)) {
+            if (output_map.at(kLayerFresh, index) <= 0.5f) {
                 continue;
-            }
-
-            const float center_elevation = output_map.at(kLayerElevationAbs, index);
-            float edge_strength = 0.0f;
-            bool has_neighbor = false;
-            for (const auto& offset : kNeighbors) {
-                const grid_map::Index neighbor = index + offset;
-                if (neighbor(0) < 0 || neighbor(0) >= map_size(0) ||
-                    neighbor(1) < 0 || neighbor(1) >= map_size(1)) {
-                    continue;
-                }
-                if (!output_map.isValid(neighbor, kLayerElevationAbs)) {
-                    continue;
-                }
-                const float neighbor_elevation = output_map.at(kLayerElevationAbs, neighbor);
-                edge_strength = std::max(edge_strength, std::abs(neighbor_elevation - center_elevation));
-                has_neighbor = true;
-            }
-            if (has_neighbor) {
-                output_map.at(kLayerEdgeStrength, index) = edge_strength;
-                output_map.at(kLayerStepEdgeMask, index) =
-                    edge_strength >= static_cast<float>(step_edge_height_thresh_m_) ? 1.0f : 0.0f;
             }
 
             const float slope = output_map.at(kLayerSlope, index);
@@ -425,10 +510,8 @@ void TerrainGridMapBridge::featureCallback(
                 continue;
             }
 
-            const float slope_norm =
-                clamp01(slope / static_cast<float>(slope_norm_limit_));
-            const float roughness_norm =
-                clamp01(roughness / static_cast<float>(roughness_norm_limit_));
+            const float slope_norm = clamp01(slope / static_cast<float>(slope_norm_limit_));
+            const float roughness_norm = clamp01(roughness / static_cast<float>(roughness_norm_limit_));
             float max_term = 0.0f;
             max_term = std::max(max_term, 0.35f * slope_norm);
             max_term = std::max(max_term, 0.20f * roughness_norm);
@@ -442,11 +525,35 @@ void TerrainGridMapBridge::featureCallback(
 
             output_map.at(kLayerTraversability, index) = clamp01(1.0f - max_term);
         }
-    }
 
+        return output_map;
+    };
+
+    auto output_map = buildOutputMap(map_frame_,
+                                     base_x_map,
+                                     base_y_map,
+                                     base_z_map,
+                                     cos_yaw_map,
+                                     sin_yaw_map,
+                                     true);
     auto output_msg = grid_map::GridMapRosConverter::toMessage(output_map);
     if (output_msg) {
         pub_grid_map_->publish(std::move(*output_msg));
+    }
+
+    if (publish_local_map_ && pub_grid_map_local_) {
+        const bool sample_local_keepout = keepout_available && (local_frame_ == map_frame_);
+        auto output_map_local = buildOutputMap(local_frame_,
+                                               base_x_local,
+                                               base_y_local,
+                                               base_z_local,
+                                               cos_yaw_local,
+                                               sin_yaw_local,
+                                               sample_local_keepout);
+        auto output_msg_local = grid_map::GridMapRosConverter::toMessage(output_map_local);
+        if (output_msg_local) {
+            pub_grid_map_local_->publish(std::move(*output_msg_local));
+        }
     }
 
     publishDiagnostics(feature_stamp, diagnostics);
@@ -499,6 +606,8 @@ bool TerrainGridMapBridge::validateFeatureMessage(
     if (!check_size(msg.roughness.size(), "roughness")) return false;
     if (!check_size(msg.p_obstacle.size(), "p_obstacle")) return false;
     if (!check_size(msg.p_drop.size(), "p_drop")) return false;
+    if (!check_size(msg.step_up.size(), "step_up")) return false;
+    if (!check_size(msg.p_climbable.size(), "p_climbable")) return false;
 
     return true;
 }
@@ -680,7 +789,10 @@ void TerrainGridMapBridge::publishDiagnostics(const rclcpp::Time& stamp,
     add_key_value("terrain_features_topic", terrain_features_topic_);
     add_key_value("kfs_mask_topic", kfs_mask_topic_);
     add_key_value("output_topic", output_topic_);
+    add_key_value("publish_local_map", publish_local_map_ ? "true" : "false");
+    add_key_value("output_topic_local", output_topic_local_);
     add_key_value("map_frame", map_frame_);
+    add_key_value("local_frame", local_frame_);
     add_key_value("base_frame", base_frame_);
     add_key_value("keepout_available", state.keepout_available ? "true" : "false");
     add_key_value("keepout_stale", state.keepout_stale ? "true" : "false");

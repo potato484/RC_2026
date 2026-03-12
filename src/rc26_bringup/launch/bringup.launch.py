@@ -368,7 +368,25 @@ def generate_launch_description():
             terrain_grid_map_params_file,
             {'use_sim_time': use_sim_time},
         ],
-        condition=UnlessCondition(slam)
+        condition=UnlessCondition(pure_mapping_runtime)
+    )
+
+    terrain_speed_limit_bridge_node = Node(
+        package='rc26_terrain_nav2',
+        executable='terrain_speed_limit_bridge_node',
+        name='terrain_speed_limit_bridge',
+        namespace=namespace,
+        output='screen',
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'input_topic': 'terrain_speed_limit',
+            'output_topic': '/controller_server/speed_limit',
+            'output_topic_compat': '/speed_limit',
+            'min_speed_limit': 0.0,
+            'max_speed_limit': 2.5,
+            'publish_no_limit_on_nan': True,
+        }],
+        condition=UnlessCondition(pure_mapping_runtime)
     )
 
     # costmap_filter_info_server：向 Nav2 KeepoutFilter 广播掩码元数据
@@ -534,6 +552,7 @@ def generate_launch_description():
         map_server_lifecycle_manager,
         kfs_block_fuser_node,
         terrain_grid_map_bridge_node,
+        terrain_speed_limit_bridge_node,
         nav_mode_manager_node,
         terrain_mode_adapter_node,
         nav2_launch,

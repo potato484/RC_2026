@@ -30,6 +30,8 @@ using namespace std::chrono_literals;
 
 constexpr const char* kLayerElevationAbs = "elevation_abs";
 constexpr const char* kLayerElevationTopAbs = "elevation_top_abs";
+constexpr const char* kLayerSlopeX = "slope_x";
+constexpr const char* kLayerSlopeY = "slope_y";
 constexpr const char* kLayerKfsKeepout = "kfs_keepout";
 constexpr const char* kLayerBlockId = "block_id";
 constexpr const char* kLayerExpectedHeight = "expected_height";
@@ -55,27 +57,7 @@ protected:
         executor_ = std::make_unique<rclcpp::executors::SingleThreadedExecutor>();
         harness_node_ = std::make_shared<rclcpp::Node>("terrain_grid_map_bridge_test_harness");
 
-        const auto mf_layout_file =
-            ament_index_cpp::get_package_share_directory("rc26_kfs_keepout") +
-            "/config/mf_grid_layout.yaml";
-
-        rclcpp::NodeOptions bridge_options;
-        bridge_options.parameter_overrides({
-            rclcpp::Parameter("terrain_features_topic", "terrain_features"),
-            rclcpp::Parameter("kfs_mask_topic", "/kfs_filter_mask"),
-            rclcpp::Parameter("output_topic", "/terrain_grid_map"),
-            rclcpp::Parameter("map_frame", "map"),
-            rclcpp::Parameter("base_frame", "base_link"),
-            rclcpp::Parameter("tf_timeout_sec", 0.2),
-            rclcpp::Parameter("keepout_stale_timeout_sec", 0.15),
-            rclcpp::Parameter("enable_mf_semantics", true),
-            rclcpp::Parameter("mf_grid_layout_file", mf_layout_file),
-            rclcpp::Parameter("step_edge_height_thresh_m", 0.10),
-            rclcpp::Parameter("slope_norm_limit", 0.35),
-            rclcpp::Parameter("roughness_norm_limit", 0.08),
-            rclcpp::Parameter("diagnostics_topic", "diagnostics"),
-        });
-        bridge_node_ = std::make_shared<rc26_terrain::TerrainGridMapBridge>(bridge_options);
+        bridge_node_ = std::make_shared<rc26_terrain::TerrainGridMapBridge>(makeBridgeOptions(true));
 
         executor_->add_node(harness_node_);
         executor_->add_node(bridge_node_);
@@ -91,6 +73,7 @@ protected:
                 .reliable()
                 .durability(rclcpp::DurabilityPolicy::TransientLocal));
         static_tf_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(harness_node_);
+        publishMapToOdomStaticTransform();
 
         grid_map_sub_ = harness_node_->create_subscription<grid_map_msgs::msg::GridMap>(
             "/terrain_grid_map",
@@ -103,10 +86,22 @@ protected:
                 ++grid_map_msg_count_;
             });
 
+        local_grid_map_sub_ = harness_node_->create_subscription<grid_map_msgs::msg::GridMap>(
+            "/terrain_grid_map_local",
+            rclcpp::QoS(rclcpp::KeepLast(1))
+                .reliable()
+                .durability(rclcpp::DurabilityPolicy::TransientLocal),
+            [this](const grid_map_msgs::msg::GridMap::SharedPtr msg) {
+                std::lock_guard<std::mutex> lock(local_map_mutex_);
+                last_local_grid_map_msg_ = msg;
+                ++local_grid_map_msg_count_;
+            });
+
         spinFor(150ms);
     }
 
     void TearDown() override {
+        local_grid_map_sub_.reset();
         grid_map_sub_.reset();
         static_tf_broadcaster_.reset();
         keepout_pub_.reset();
@@ -128,6 +123,38 @@ protected:
             last_grid_map_msg_.reset();
             grid_map_msg_count_ = 0;
         }
+        {
+            std::lock_guard<std::mutex> lock(local_map_mutex_);
+            last_local_grid_map_msg_.reset();
+            local_grid_map_msg_count_ = 0;
+        }
+    }
+
+    rclcpp::NodeOptions makeBridgeOptions(bool enable_mf_semantics) const {
+        const auto mf_layout_file =
+            ament_index_cpp::get_package_share_directory("rc26_kfs_keepout") +
+            "/config/mf_grid_layout.yaml";
+
+        rclcpp::NodeOptions bridge_options;
+        bridge_options.parameter_overrides({
+            rclcpp::Parameter("terrain_features_topic", "terrain_features"),
+            rclcpp::Parameter("kfs_mask_topic", "/kfs_filter_mask"),
+            rclcpp::Parameter("output_topic", "/terrain_grid_map"),
+            rclcpp::Parameter("publish_local_map", true),
+            rclcpp::Parameter("output_topic_local", "/terrain_grid_map_local"),
+            rclcpp::Parameter("map_frame", "map"),
+            rclcpp::Parameter("local_frame", "odom"),
+            rclcpp::Parameter("base_frame", "base_link"),
+            rclcpp::Parameter("tf_timeout_sec", 0.2),
+            rclcpp::Parameter("keepout_stale_timeout_sec", 0.15),
+            rclcpp::Parameter("enable_mf_semantics", enable_mf_semantics),
+            rclcpp::Parameter("mf_grid_layout_file", mf_layout_file),
+            rclcpp::Parameter("step_edge_height_thresh_m", 0.10),
+            rclcpp::Parameter("slope_norm_limit", 0.35),
+            rclcpp::Parameter("roughness_norm_limit", 0.08),
+            rclcpp::Parameter("diagnostics_topic", "diagnostics"),
+        });
+        return bridge_options;
     }
 
     builtin_interfaces::msg::Time nowAsMsg() const {
@@ -162,6 +189,8 @@ protected:
         msg.roughness.assign(size, 0.01f);
         msg.p_obstacle.assign(size, 0.2f);
         msg.p_drop.assign(size, 0.1f);
+        msg.step_up.assign(size, 0.0f);
+        msg.p_climbable.assign(size, 0.0f);
         return msg;
     }
 
@@ -198,6 +227,19 @@ protected:
         spinFor(120ms);
     }
 
+    void publishMapToOdomStaticTransform() {
+        geometry_msgs::msg::TransformStamped tf;
+        tf.header.stamp = nowAsMsg();
+        tf.header.frame_id = "map";
+        tf.child_frame_id = "odom";
+        tf.transform.translation.x = 0.0;
+        tf.transform.translation.y = 0.0;
+        tf.transform.translation.z = 0.0;
+        tf.transform.rotation.w = 1.0;
+        static_tf_broadcaster_->sendTransform(tf);
+        spinFor(80ms);
+    }
+
     void spinFor(std::chrono::milliseconds duration) {
         const auto deadline = std::chrono::steady_clock::now() + duration;
         while (std::chrono::steady_clock::now() < deadline) {
@@ -209,6 +251,11 @@ protected:
     size_t currentGridMapCount() const {
         std::lock_guard<std::mutex> lock(map_mutex_);
         return grid_map_msg_count_;
+    }
+
+    size_t currentLocalGridMapCount() const {
+        std::lock_guard<std::mutex> lock(local_map_mutex_);
+        return local_grid_map_msg_count_;
     }
 
     bool waitForNewGridMap(size_t previous_count, std::chrono::milliseconds timeout) {
@@ -226,9 +273,29 @@ protected:
         return false;
     }
 
+    bool waitForNewLocalGridMap(size_t previous_count, std::chrono::milliseconds timeout) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (std::chrono::steady_clock::now() < deadline) {
+            executor_->spin_some();
+            {
+                std::lock_guard<std::mutex> lock(local_map_mutex_);
+                if (local_grid_map_msg_count_ > previous_count) {
+                    return true;
+                }
+            }
+            std::this_thread::sleep_for(5ms);
+        }
+        return false;
+    }
+
     grid_map_msgs::msg::GridMap::SharedPtr takeLastGridMap() const {
         std::lock_guard<std::mutex> lock(map_mutex_);
         return last_grid_map_msg_;
+    }
+
+    grid_map_msgs::msg::GridMap::SharedPtr takeLastLocalGridMap() const {
+        std::lock_guard<std::mutex> lock(local_map_mutex_);
+        return last_local_grid_map_msg_;
     }
 
     bool convertToGridMap(const grid_map_msgs::msg::GridMap& msg, grid_map::GridMap& map) const {
@@ -242,10 +309,14 @@ protected:
     rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr keepout_pub_;
     std::shared_ptr<tf2_ros::StaticTransformBroadcaster> static_tf_broadcaster_;
     rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr grid_map_sub_;
+    rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr local_grid_map_sub_;
 
     mutable std::mutex map_mutex_;
     grid_map_msgs::msg::GridMap::SharedPtr last_grid_map_msg_;
     size_t grid_map_msg_count_{0};
+    mutable std::mutex local_map_mutex_;
+    grid_map_msgs::msg::GridMap::SharedPtr last_local_grid_map_msg_;
+    size_t local_grid_map_msg_count_{0};
 };
 
 TEST_F(TerrainGridMapBridgeTest, RecoversAbsoluteElevationLayers) {
@@ -273,6 +344,34 @@ TEST_F(TerrainGridMapBridgeTest, RecoversAbsoluteElevationLayers) {
     ASSERT_TRUE(map.isValid(index, kLayerElevationTopAbs));
     EXPECT_NEAR(map.at(kLayerElevationAbs, index), 1.2, 1e-4);
     EXPECT_NEAR(map.at(kLayerElevationTopAbs, index), 1.5, 1e-4);
+}
+
+TEST_F(TerrainGridMapBridgeTest, PublishesLocalMapWithSlopeLayersInOdomFrame) {
+    publishMapToBaseStaticTransform(0.3, -0.2, 0.6, 0.0);
+
+    auto feature = makeFeatureGrid(5, 1.0f);
+    const size_t center = static_cast<size_t>(2 * 5 + 2);
+    feature.slope_x[center] = 0.12f;
+    feature.slope_y[center] = -0.07f;
+
+    const size_t before_local = currentLocalGridMapCount();
+    feature_pub_->publish(feature);
+    ASSERT_TRUE(waitForNewLocalGridMap(before_local, 2s));
+
+    const auto local_msg = takeLastLocalGridMap();
+    ASSERT_NE(local_msg, nullptr);
+    EXPECT_EQ(local_msg->header.frame_id, "odom");
+
+    grid_map::GridMap local_map;
+    ASSERT_TRUE(convertToGridMap(*local_msg, local_map));
+
+    grid_map::Index index;
+    ASSERT_TRUE(local_map.getIndex(grid_map::Position(0.3, -0.2), index));
+    ASSERT_TRUE(local_map.isValid(index, kLayerTraversability));
+    ASSERT_TRUE(local_map.isValid(index, kLayerSlopeX));
+    ASSERT_TRUE(local_map.isValid(index, kLayerSlopeY));
+    EXPECT_NEAR(local_map.at(kLayerSlopeX, index), 0.12, 1e-5);
+    EXPECT_NEAR(local_map.at(kLayerSlopeY, index), -0.07, 1e-5);
 }
 
 TEST_F(TerrainGridMapBridgeTest, YawResamplingKeepsMostCellsFilled) {
@@ -307,6 +406,36 @@ TEST_F(TerrainGridMapBridgeTest, YawResamplingKeepsMostCellsFilled) {
     ASSERT_GT(total_cells, 0);
     const double valid_ratio = static_cast<double>(valid_cells) / static_cast<double>(total_cells);
     EXPECT_GT(valid_ratio, 0.70);
+}
+
+TEST_F(TerrainGridMapBridgeTest, TraversabilityStillPublishedWhenMfSemanticsDisabled) {
+    executor_->remove_node(bridge_node_);
+    bridge_node_.reset();
+
+    bridge_node_ = std::make_shared<rc26_terrain::TerrainGridMapBridge>(makeBridgeOptions(false));
+    executor_->add_node(bridge_node_);
+    spinFor(150ms);
+
+    publishMapToBaseStaticTransform(0.0, 0.0, 0.0, 0.0);
+    auto feature = makeFeatureGrid(5, 1.0f);
+
+    const size_t before = currentGridMapCount();
+    feature_pub_->publish(feature);
+    ASSERT_TRUE(waitForNewGridMap(before, 2s));
+
+    const auto msg = takeLastGridMap();
+    ASSERT_NE(msg, nullptr);
+    EXPECT_EQ(msg->header.frame_id, "map");
+
+    grid_map::GridMap map;
+    ASSERT_TRUE(convertToGridMap(*msg, map));
+
+    grid_map::Index center;
+    ASSERT_TRUE(map.getIndex(grid_map::Position(0.0, 0.0), center));
+    ASSERT_TRUE(map.isValid(center, kLayerTraversability));
+    EXPECT_FALSE(map.exists(kLayerBlockId));
+    EXPECT_FALSE(map.exists(kLayerExpectedHeight));
+    EXPECT_FALSE(map.exists(kLayerHeightError));
 }
 
 TEST_F(TerrainGridMapBridgeTest, SamplesKeepoutMaskValuesCorrectly) {

@@ -175,6 +175,7 @@ private:
     double      speed_limit_w_slope_{1.0};
     double      speed_limit_w_roughness_{1.0};
     double      speed_limit_w_drop_{2.0};
+    double      speed_limit_w_climbable_{0.8};
     double      speed_limit_k_tci_{1.0};
     double      speed_limit_emergency_drop_thresh_{0.8};
 

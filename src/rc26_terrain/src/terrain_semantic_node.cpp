@@ -192,6 +192,7 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->declare_parameter<double>     ("speed_limit_w_slope", speed_limit_w_slope_);
     this->declare_parameter<double>     ("speed_limit_w_roughness", speed_limit_w_roughness_);
     this->declare_parameter<double>     ("speed_limit_w_drop", speed_limit_w_drop_);
+    this->declare_parameter<double>     ("speed_limit_w_climbable", speed_limit_w_climbable_);
     this->declare_parameter<double>     ("speed_limit_k_tci", speed_limit_k_tci_);
     this->declare_parameter<double>     ("speed_limit_emergency_drop_thresh",
                                          speed_limit_emergency_drop_thresh_);
@@ -304,6 +305,7 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->get_parameter("speed_limit_w_slope", speed_limit_w_slope_);
     this->get_parameter("speed_limit_w_roughness", speed_limit_w_roughness_);
     this->get_parameter("speed_limit_w_drop", speed_limit_w_drop_);
+    this->get_parameter("speed_limit_w_climbable", speed_limit_w_climbable_);
     this->get_parameter("speed_limit_k_tci", speed_limit_k_tci_);
     this->get_parameter("speed_limit_emergency_drop_thresh", speed_limit_emergency_drop_thresh_);
     this->get_parameter("latency_warn_ms",        latency_warn_ms_);
@@ -362,6 +364,7 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     speed_limit_w_slope_ = std::max(0.0, speed_limit_w_slope_);
     speed_limit_w_roughness_ = std::max(0.0, speed_limit_w_roughness_);
     speed_limit_w_drop_ = std::max(0.0, speed_limit_w_drop_);
+    speed_limit_w_climbable_ = std::max(0.0, speed_limit_w_climbable_);
     speed_limit_k_tci_ = std::max(0.0, speed_limit_k_tci_);
     speed_limit_emergency_drop_thresh_ = std::clamp(speed_limit_emergency_drop_thresh_, 0.0, 1.0);
     if (enable_terrain_features_pub_ && terrain_features_topic_.empty()) {
@@ -1317,6 +1320,8 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
         feature_msg.roughness.assign(sz, 0.0f);
         feature_msg.p_obstacle.assign(sz, 0.0f);
         feature_msg.p_drop.assign(sz, 0.0f);
+        feature_msg.step_up.assign(sz, 0.0f);
+        feature_msg.p_climbable.assign(sz, 0.0f);
     }
 
     obstacle_cells_count_ = 0;
@@ -1327,6 +1332,7 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
     double roi_max_slope = 0.0;
     double roi_max_rough = 0.0;
     double roi_max_p_drop = 0.0;
+    double roi_max_p_climbable = 0.0;
 
     for (int cell = 0; cell < num_cells_; cell++) {
         const size_t idx = static_cast<size_t>(cell);
@@ -1346,6 +1352,8 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
             static_cast<float>(obstacle_score_[idx]) / static_cast<float>(score_max_), 0.0f, 1.0f);
         const float drop_prob = std::clamp(
             static_cast<float>(drop_score_[idx]) / static_cast<float>(score_max_), 0.0f, 1.0f);
+        float step_up = 0.0f;
+        float climbable_prob = 0.0f;
 
         if (should_publish_features) {
             feature_msg.in_radius[idx] = cell_in_radius_[idx] ? 1U : 0U;
@@ -1359,6 +1367,8 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
             feature_msg.roughness[idx] = fresh ? roughness_[idx] : 0.0f;
             feature_msg.p_obstacle[idx] = obstacle_prob;
             feature_msg.p_drop[idx] = drop_prob;
+            feature_msg.step_up[idx] = 0.0f;
+            feature_msg.p_climbable[idx] = 0.0f;
         }
 
         if (!cell_in_radius_[idx]) continue;
@@ -1374,6 +1384,46 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
             ++kfs_cells_count;
         }
 
+        if (fresh && !is_obstacle && !is_drop) {
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    if (dx == 0 && dy == 0) continue;
+                    const int nx = ix + dx, ny = iy + dy;
+                    if (nx < 0 || nx >= width_ || ny < 0 || ny >= width_) continue;
+
+                    const size_t nidx = static_cast<size_t>(nx * width_ + ny);
+                    const double nlast = last_seen_sec_[nidx];
+                    const bool nfresh = (nlast >= 0.0) && ((stamp_sec - nlast) <= stale_time_sec_);
+                    if (!nfresh) continue;
+
+                    const float diff = ground_z_filtered_[nidx] - ground_z_filtered_[idx];
+                    step_up = std::max(step_up, diff);
+                }
+            }
+
+            if (step_up >= static_cast<float>(climbable_min_dz_m_) &&
+                step_up <= static_cast<float>(h_climb_m_)) {
+                const double denom = std::max(1e-6, h_climb_m_ - climbable_min_dz_m_);
+                climbable_prob = std::clamp(
+                    static_cast<float>((static_cast<double>(step_up) - climbable_min_dz_m_) / denom),
+                    0.0f, 1.0f);
+                if (publish_climbable) {
+                    pcl::PointXYZI p;
+                    p.x = static_cast<float>(x);
+                    p.y = static_cast<float>(y);
+                    p.z = z;
+                    p.intensity = step_up;
+                    climb_cloud.push_back(p);
+                    ++climbable_cells_count_;
+                }
+            }
+        }
+
+        if (should_publish_features) {
+            feature_msg.step_up[idx] = fresh ? step_up : 0.0f;
+            feature_msg.p_climbable[idx] = climbable_prob;
+        }
+
         if (fresh &&
             x_rel >= 0.0 && x_rel <= speed_limit_forward_look_m_ &&
             std::abs(y_rel) <= speed_limit_half_width_m_) {
@@ -1383,6 +1433,7 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
             roi_max_slope = std::max(roi_max_slope, cell_slope);
             roi_max_rough = std::max(roi_max_rough, static_cast<double>(roughness_[idx]));
             roi_max_p_drop = std::max(roi_max_p_drop, static_cast<double>(drop_prob));
+            roi_max_p_climbable = std::max(roi_max_p_climbable, static_cast<double>(climbable_prob));
         }
 
         if (is_obstacle || is_kfs_occupied) {
@@ -1431,35 +1482,6 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
                 obs_cloud.push_back(p);
         }
 
-        // 可攀爬台阶特征（调试/定位用）：0 < ΔZ <= h_climb 且不属于致命障碍/跌落
-        if (publish_climbable && fresh && !is_obstacle && !is_drop) {
-            float dz_up = 0.0f;
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dy = -1; dy <= 1; dy++) {
-                    if (dx == 0 && dy == 0) continue;
-                    const int nx = ix + dx, ny = iy + dy;
-                    if (nx < 0 || nx >= width_ || ny < 0 || ny >= width_) continue;
-
-                    const size_t nidx = static_cast<size_t>(nx * width_ + ny);
-                    const double nlast = last_seen_sec_[nidx];
-                    const bool nfresh = (nlast >= 0.0) && ((stamp_sec - nlast) <= stale_time_sec_);
-                    if (!nfresh) continue;
-
-                    const float diff = ground_z_filtered_[nidx] - ground_z_filtered_[idx];
-                    dz_up = std::max(dz_up, diff);
-                }
-            }
-            if (dz_up >= static_cast<float>(climbable_min_dz_m_) &&
-                dz_up <= static_cast<float>(h_climb_m_)) {
-                pcl::PointXYZI p;
-                p.x = static_cast<float>(x);
-                p.y = static_cast<float>(y);
-                p.z = z;
-                p.intensity = dz_up;  // 便于 RViz 可视化
-                climb_cloud.push_back(p);
-                ++climbable_cells_count_;
-            }
-        }
     }
     kfs_occupied_count_ = kfs_cells_count;
 
@@ -1527,7 +1549,8 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
         } else if (roi_fresh_count > 0) {
             const double tci = speed_limit_w_slope_ * roi_max_slope +
                                speed_limit_w_roughness_ * roi_max_rough +
-                               speed_limit_w_drop_ * roi_max_p_drop;
+                               speed_limit_w_drop_ * roi_max_p_drop +
+                               speed_limit_w_climbable_ * roi_max_p_climbable;
             v_limit = static_cast<float>(speed_limit_v_max_mps_ * std::exp(-speed_limit_k_tci_ * tci));
             v_limit = std::clamp(v_limit, static_cast<float>(speed_limit_min_mps_),
                                  static_cast<float>(speed_limit_v_max_mps_));
