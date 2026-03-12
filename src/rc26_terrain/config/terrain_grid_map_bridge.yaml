@@ -23,8 +23,15 @@
     tf_timeout_sec: 0.1
     keepout_stale_timeout_sec: 2.0
     enable_mf_semantics: true
+    mf_world_layout_file: ""
     mf_grid_layout_file: ""
+    mf_kfs_state_topic: "/mf_kfs_state"
+    mf_kfs_min_confidence: 0.6
+    rule_legality_enforce_ramp_corridor: false
+    enable_filter_chain: false
+    filter_chain_parameter_name: "terrain_filter_chain"
     step_edge_height_thresh_m: 0.10
+    traversable_edge_height_delta_limit_m: 0.25
     slope_norm_limit: 0.35
     roughness_norm_limit: 0.08
     height_error_limit_m: 0.25

@@ -93,6 +93,7 @@ def generate_test_description():
         output="screen",
         parameters=[
             os.path.join(terrain_dir, "config", "terrain_grid_map_bridge.yaml"),
+            os.path.join(terrain_dir, "config", "terrain_filter_chain.yaml"),
             {"use_sim_time": False},
         ],
     )
@@ -204,6 +205,12 @@ class TestTerrainGridMapBridgeLaunch(unittest.TestCase):
                 "climbable_prob",
                 "block_id",
                 "expected_height",
+                "block_occupied",
+                "traversable_edge_mask",
+                "ramp_corridor_mask",
+                "battle_approach_mask",
+                "rule_legality",
+                "traversability_continuous",
                 "traversability",
             }
             self.assertTrue(

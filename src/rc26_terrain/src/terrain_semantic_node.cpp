@@ -5,6 +5,7 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <limits>
 #include <stdexcept>
 
@@ -507,7 +508,7 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     if (mf_grid_layout_file_.empty()) {
         try {
             const auto keepout_share = ament_index_cpp::get_package_share_directory("rc26_kfs_keepout");
-            mf_grid_layout_file_ = keepout_share + "/config/mf_grid_layout.yaml";
+            mf_grid_layout_file_ = keepout_share + "/config/r2_mf_world.yaml";
         } catch (const std::exception&) {
             mf_grid_layout_file_.clear();
         }
@@ -926,15 +927,32 @@ void TerrainSemanticNode::initGrid() {
 
 bool TerrainSemanticNode::loadMfGridLayout(const std::string& path) {
     try {
-        YAML::Node root = YAML::LoadFile(path);
-        if (!root["grids"]) {
+        std::filesystem::path resolved(path);
+        if (resolved.is_relative()) {
+            resolved = std::filesystem::current_path() / resolved;
+        }
+        YAML::Node root = YAML::LoadFile(resolved.string());
+        if (root["world_layout_file"]) {
+            std::filesystem::path nested = root["world_layout_file"].as<std::string>();
+            if (nested.empty()) {
+                return false;
+            }
+            if (nested.is_relative()) {
+                nested = resolved.parent_path() / nested;
+            }
+            return loadMfGridLayout(nested.string());
+        }
+
+        const bool use_blocks = root["blocks"] && root["blocks"].IsSequence();
+        const YAML::Node cells_node = use_blocks ? root["blocks"] : root["grids"];
+        if (!cells_node) {
             return false;
         }
         mf_grid_valid_.fill(0U);
         if (root["meta"] && root["meta"]["team"]) {
             mf_layout_team_ = root["meta"]["team"].as<std::string>();
         }
-        for (const auto& grid : root["grids"]) {
+        for (const auto& grid : cells_node) {
             const int id = grid["id"].as<int>();
             if (id < 1 || id > 12) {
                 continue;
