@@ -149,6 +149,7 @@
     speed_limit_w_slope: 1.0
     speed_limit_w_roughness: 1.0
     speed_limit_w_drop: 2.0
+    speed_limit_w_climbable: 0.8
     speed_limit_k_tci: 1.0
     speed_limit_emergency_drop_thresh: 0.8
 

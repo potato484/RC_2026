@@ -3,7 +3,10 @@
     terrain_features_topic: "terrain_features"
     kfs_mask_topic: "/kfs_filter_mask"
     output_topic: "/terrain_grid_map"
+    publish_local_map: true
+    output_topic_local: "/terrain_grid_map_local"
     map_frame: "map"
+    local_frame: "odom"
     base_frame: "base_link"
     tf_timeout_sec: 0.1
     keepout_stale_timeout_sec: 2.0

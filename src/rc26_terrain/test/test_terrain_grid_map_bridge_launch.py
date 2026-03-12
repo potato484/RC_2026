@@ -136,6 +136,7 @@ class TestTerrainGridMapBridgeLaunch(unittest.TestCase):
         terrain_qos.durability = DurabilityPolicy.VOLATILE
 
         grid_msgs = []
+        local_grid_msgs = []
         obstacle_msgs = []
         drop_msgs = []
 
@@ -143,6 +144,12 @@ class TestTerrainGridMapBridgeLaunch(unittest.TestCase):
             GridMap,
             "/terrain_grid_map",
             lambda msg: grid_msgs.append(msg),
+            grid_qos,
+        )
+        sub_grid_local = node.create_subscription(
+            GridMap,
+            "/terrain_grid_map_local",
+            lambda msg: local_grid_msgs.append(msg),
             grid_qos,
         )
         sub_obstacle = node.create_subscription(
@@ -162,17 +169,26 @@ class TestTerrainGridMapBridgeLaunch(unittest.TestCase):
         try:
             while time.time() < deadline:
                 executor.spin_once(timeout_sec=0.2)
-                if len(grid_msgs) >= 2 and len(obstacle_msgs) >= 2 and len(drop_msgs) >= 2:
+                if (len(grid_msgs) >= 2 and len(local_grid_msgs) >= 2 and
+                        len(obstacle_msgs) >= 2 and len(drop_msgs) >= 2):
                     break
 
             self.assertGreaterEqual(len(grid_msgs), 1, "/terrain_grid_map 未收到消息")
             latest = grid_msgs[-1]
             self.assertEqual(latest.header.frame_id, "map")
 
+            self.assertGreaterEqual(len(local_grid_msgs), 1, "/terrain_grid_map_local 未收到消息")
+            latest_local = local_grid_msgs[-1]
+            self.assertEqual(latest_local.header.frame_id, "odom")
+
             required_layers = {
                 "elevation_abs",
                 "elevation_top_abs",
+                "slope_x",
+                "slope_y",
                 "kfs_keepout",
+                "step_up",
+                "climbable_prob",
                 "block_id",
                 "expected_height",
                 "traversability",
@@ -181,11 +197,13 @@ class TestTerrainGridMapBridgeLaunch(unittest.TestCase):
                 required_layers.issubset(set(latest.layers)),
                 f"图层缺失: expect={required_layers}, actual={set(latest.layers)}",
             )
+            self.assertIn("traversability", set(latest_local.layers))
 
             self.assertGreater(len(obstacle_msgs), 0, "/terrain_obstacles 未收到消息")
             self.assertGreater(len(drop_msgs), 0, "/terrain_drop 未收到消息")
         finally:
             node.destroy_subscription(sub_grid)
+            node.destroy_subscription(sub_grid_local)
             node.destroy_subscription(sub_obstacle)
             node.destroy_subscription(sub_drop)
             executor.remove_node(node)
