@@ -232,6 +232,7 @@ local_costmap:
         inscribed_threshold: 0.45
         drop_lethal_threshold: 0.8
         climbable_soft_cost_max: 80.0
+        stale_timeout_sec: 0.6
         unknown_policy: "keep"
 
       inflation_layer:

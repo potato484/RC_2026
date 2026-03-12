@@ -391,11 +391,14 @@ def generate_launch_description():
         parameters=[{
             'use_sim_time': use_sim_time,
             'input_topic': 'terrain_speed_limit',
-            'output_topic': '/controller_server/speed_limit',
-            'output_topic_compat': '/speed_limit',
+            'output_topic': 'controller_server/speed_limit',
+            'output_topic_compat': 'speed_limit',
             'min_speed_limit': 0.0,
             'max_speed_limit': 2.5,
             'publish_no_limit_on_nan': True,
+            'republish_period_sec': 0.2,
+            'stale_timeout_sec': 0.6,
+            'stale_policy': 'no_limit',
         }],
         condition=UnlessCondition(pure_mapping_runtime)
     )
@@ -504,6 +507,7 @@ def generate_launch_description():
         package='rviz2',
         executable='rviz2',
         name='rviz2',
+        namespace=namespace,
         arguments=['-d', rviz_nav_config],
         parameters=[{'use_sim_time': use_sim_time}],
         condition=UnlessCondition(slam)
@@ -513,6 +517,7 @@ def generate_launch_description():
         package='rviz2',
         executable='rviz2',
         name='rviz2',
+        namespace=namespace,
         arguments=['-d', rviz_slam_config],
         parameters=[{'use_sim_time': use_sim_time}],
         condition=IfCondition(slam)

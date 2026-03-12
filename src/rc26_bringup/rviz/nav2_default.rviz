@@ -17,7 +17,7 @@ Visualization Manager:
     - Class: rviz_default_plugins/Map
       Name: Map
       Topic:
-        Value: /map
+        Value: map
       Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
@@ -29,27 +29,27 @@ Visualization Manager:
       Height Transformer: GridMapLayer
       Name: TerrainGridMap
       Topic:
-        Value: /terrain_grid_map
+        Value: terrain_grid_map
       Value: true
     - Class: rviz_default_plugins/Map
       Name: LocalCostmap
       Topic:
-        Value: /local_costmap/costmap
+        Value: local_costmap/costmap
       Value: true
     - Class: rviz_default_plugins/Path
       Name: GlobalPath
       Topic:
-        Value: /plan
+        Value: plan
       Value: true
     - Class: rviz_default_plugins/Path
       Name: LocalPath
       Topic:
-        Value: /local_plan
+        Value: local_plan
       Value: true
     - Class: rviz_default_plugins/PointCloud2
       Name: LidarPointCloud
       Topic:
-        Value: /livox/lidar
+        Value: livox/lidar
         Queue Size: 5
       Value: false
       Size (m): 0.02
@@ -62,9 +62,9 @@ Visualization Manager:
   Tools:
     - Class: rviz_default_plugins/MoveCamera
     - Class: rviz_default_plugins/SetInitialPose
-      Topic: /initialpose
+      Topic: initialpose
     - Class: rviz_default_plugins/SetGoal
-      Topic: /goal_pose
+      Topic: goal_pose
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
