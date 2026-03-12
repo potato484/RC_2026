@@ -7,6 +7,7 @@
 #include <string>
 
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
+#include "grid_map_core/grid_map_core.hpp"
 #include "grid_map_msgs/msg/grid_map.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -55,6 +56,8 @@ private:
     std::string kfs_mask_topic_{"/kfs_filter_mask"};
     std::string output_topic_{"/terrain_grid_map"};
     std::string output_topic_local_{"/terrain_grid_map_local"};
+    std::string output_topic_raw_{"/terrain_grid_map_raw"};
+    std::string output_topic_local_raw_{"/terrain_grid_map_local_raw"};
     std::string diagnostics_topic_{"diagnostics"};
     std::string map_frame_{"map"};
     std::string local_frame_{"odom"};
@@ -62,11 +65,18 @@ private:
     double tf_timeout_sec_{0.1};
     double keepout_stale_timeout_sec_{2.0};
     bool publish_local_map_{true};
+    bool fusion_enable_{true};
+    bool fusion_publish_raw_{true};
+    double fusion_time_constant_sec_{0.7};
+    double fusion_unknown_decay_sec_{1.2};
     bool enable_mf_semantics_{true};
     std::string mf_grid_layout_file_{""};
     double step_edge_height_thresh_m_{0.10};
     double slope_norm_limit_{0.35};
     double roughness_norm_limit_{0.08};
+    double height_error_limit_m_{0.25};
+    double traversability_height_error_weight_{0.20};
+    double traversability_step_edge_weight_{0.20};
 
     // MF layout state.
     std::array<MfCell, 13> mf_cells_{};
@@ -81,9 +91,13 @@ private:
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr sub_keepout_;
     rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr pub_grid_map_;
     rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr pub_grid_map_local_;
+    rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr pub_grid_map_raw_;
+    rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr pub_grid_map_local_raw_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr pub_diagnostics_;
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
+    std::optional<grid_map::GridMap> fused_map_;
+    rclcpp::Time last_fusion_stamp_{0, 0, RCL_ROS_TIME};
 
     // Cached keepout grid.
     mutable std::mutex keepout_mutex_;
