@@ -128,7 +128,12 @@
     freeze_max_frames: 3
     ground_ema_alpha_slow: 0.25
     enable_pitch_compensation: true
-    enable_roll_compensation: false
+    enable_roll_compensation: false  # 兼容旧参数，建议改用 roll_compensation_mode
+    roll_compensation_mode: "gated"  # off | gated | always
+    roll_gate_deg: 5.0
+    include_kfs_in_obstacles: false
+    publish_kfs_obstacles_debug: true
+    output_kfs_obstacles_debug_topic: "terrain_kfs_obstacles_debug"
     stair_gate_speed_mps: 0.25
     stair_pitch_gate_deg: 6.0
     top_z_max_delta_m: 0.7
@@ -152,6 +157,8 @@
     speed_limit_w_climbable: 0.8
     speed_limit_k_tci: 1.0
     speed_limit_emergency_drop_thresh: 0.8
+    enable_risk_model: false
+    risk_model_file: ""
 
     # ===== P0.3: latency diagnostics =====
     latency_warn_ms: 12.0

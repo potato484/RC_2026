@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -176,6 +177,12 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->declare_parameter<double>     ("ground_ema_alpha_slow",  ground_ema_alpha_slow_);
     this->declare_parameter<bool>       ("enable_pitch_compensation", enable_pitch_compensation_);
     this->declare_parameter<bool>       ("enable_roll_compensation", enable_roll_compensation_);
+    this->declare_parameter<std::string>("roll_compensation_mode", roll_compensation_mode_);
+    this->declare_parameter<double>     ("roll_gate_deg", roll_gate_deg_);
+    this->declare_parameter<bool>       ("include_kfs_in_obstacles", include_kfs_in_obstacles_);
+    this->declare_parameter<bool>       ("publish_kfs_obstacles_debug", publish_kfs_obstacles_debug_);
+    this->declare_parameter<std::string>("output_kfs_obstacles_debug_topic",
+                                         output_kfs_obstacles_debug_topic_);
     this->declare_parameter<double>     ("stair_gate_speed_mps",   stair_gate_speed_mps_);
     this->declare_parameter<double>     ("stair_pitch_gate_deg",   stair_pitch_gate_deg_);
     this->declare_parameter<double>     ("top_z_max_delta_m",      top_z_max_delta_m_);
@@ -196,6 +203,8 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->declare_parameter<double>     ("speed_limit_k_tci", speed_limit_k_tci_);
     this->declare_parameter<double>     ("speed_limit_emergency_drop_thresh",
                                          speed_limit_emergency_drop_thresh_);
+    this->declare_parameter<bool>       ("enable_risk_model", enable_risk_model_);
+    this->declare_parameter<std::string>("risk_model_file", risk_model_file_);
 
     // P0.3: latency diagnostics
     this->declare_parameter<double>     ("latency_warn_ms",        latency_warn_ms_);
@@ -289,6 +298,11 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->get_parameter("ground_ema_alpha_slow",  ground_ema_alpha_slow_);
     this->get_parameter("enable_pitch_compensation", enable_pitch_compensation_);
     this->get_parameter("enable_roll_compensation", enable_roll_compensation_);
+    this->get_parameter("roll_compensation_mode", roll_compensation_mode_);
+    this->get_parameter("roll_gate_deg", roll_gate_deg_);
+    this->get_parameter("include_kfs_in_obstacles", include_kfs_in_obstacles_);
+    this->get_parameter("publish_kfs_obstacles_debug", publish_kfs_obstacles_debug_);
+    this->get_parameter("output_kfs_obstacles_debug_topic", output_kfs_obstacles_debug_topic_);
     this->get_parameter("stair_gate_speed_mps",   stair_gate_speed_mps_);
     this->get_parameter("stair_pitch_gate_deg",   stair_pitch_gate_deg_);
     this->get_parameter("top_z_max_delta_m",      top_z_max_delta_m_);
@@ -308,6 +322,8 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->get_parameter("speed_limit_w_climbable", speed_limit_w_climbable_);
     this->get_parameter("speed_limit_k_tci", speed_limit_k_tci_);
     this->get_parameter("speed_limit_emergency_drop_thresh", speed_limit_emergency_drop_thresh_);
+    this->get_parameter("enable_risk_model", enable_risk_model_);
+    this->get_parameter("risk_model_file", risk_model_file_);
     this->get_parameter("latency_warn_ms",        latency_warn_ms_);
     this->get_parameter("latency_error_ms",       latency_error_ms_);
     this->get_parameter("latency_trigger_frames", latency_trigger_frames_);
@@ -352,6 +368,27 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     min_obstacle_area_cells_ = std::max(1, min_obstacle_area_cells_);
     min_drop_area_cells_ = std::max(1, min_drop_area_cells_);
     ground_ema_alpha_slow_ = std::clamp(ground_ema_alpha_slow_, 0.01, 1.0);
+    roll_gate_deg_ = std::max(0.0, roll_gate_deg_);
+    std::transform(roll_compensation_mode_.begin(), roll_compensation_mode_.end(),
+                   roll_compensation_mode_.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (roll_compensation_mode_.empty()) {
+        roll_compensation_mode_ = enable_roll_compensation_ ? "always" : "off";
+    }
+    if (roll_compensation_mode_ != "off" &&
+        roll_compensation_mode_ != "gated" &&
+        roll_compensation_mode_ != "always") {
+        RCLCPP_WARN(this->get_logger(),
+                    "roll_compensation_mode='%s' 非法，回退为 off",
+                    roll_compensation_mode_.c_str());
+        roll_compensation_mode_ = "off";
+    }
+    enable_roll_compensation_ = roll_compensation_mode_ != "off";
+    if (publish_kfs_obstacles_debug_ && output_kfs_obstacles_debug_topic_.empty()) {
+        RCLCPP_WARN(this->get_logger(),
+                    "publish_kfs_obstacles_debug=true 但 output_kfs_obstacles_debug_topic 为空，已自动禁用");
+        publish_kfs_obstacles_debug_ = false;
+    }
     stair_gate_speed_mps_ = std::max(0.0, stair_gate_speed_mps_);
     stair_pitch_gate_deg_ = std::max(0.0, stair_pitch_gate_deg_);
     top_z_max_delta_m_ = std::max(0.1, top_z_max_delta_m_);
@@ -376,6 +413,31 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
         RCLCPP_WARN(this->get_logger(),
                     "enable_terrain_speed_limit_pub=true 但 terrain_speed_limit_topic 为空，已自动禁用限速发布");
         enable_terrain_speed_limit_pub_ = false;
+    }
+    if (enable_risk_model_) {
+        if (risk_model_file_.empty()) {
+            try {
+                const auto terrain_share =
+                    ament_index_cpp::get_package_share_directory("rc26_terrain");
+                risk_model_file_ = terrain_share + "/config/terrain_risk_model.yaml";
+            } catch (const std::exception& ex) {
+                RCLCPP_WARN(this->get_logger(),
+                            "risk_model_file 为空且无法解析默认模型文件: %s", ex.what());
+            }
+        }
+        std::string load_error;
+        terrain_risk_model_ready_ =
+            !risk_model_file_.empty() &&
+            terrain_risk_model_.loadFromFile(risk_model_file_, load_error) &&
+            terrain_risk_model_.enabled();
+        if (!terrain_risk_model_ready_) {
+            RCLCPP_WARN(this->get_logger(),
+                        "risk model 未启用，回退 score proxy：file=%s err=%s",
+                        risk_model_file_.empty() ? "(empty)" : risk_model_file_.c_str(),
+                        load_error.empty() ? "model disabled" : load_error.c_str());
+        }
+    } else {
+        terrain_risk_model_ready_ = false;
     }
     latency_trigger_frames_ = std::max(1, latency_trigger_frames_);
     latency_recover_frames_ = std::max(1, latency_recover_frames_);
@@ -460,6 +522,11 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
         pub_climbable_ =
             this->create_publisher<sensor_msgs::msg::PointCloud2>(output_climbable_topic_, output_qos);
     }
+    if (publish_kfs_obstacles_debug_) {
+        pub_kfs_obstacles_debug_ =
+            this->create_publisher<sensor_msgs::msg::PointCloud2>(
+                output_kfs_obstacles_debug_topic_, output_qos);
+    }
     if (enable_diagnostics_) {
         pub_diagnostics_ =
             this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(diagnostics_topic_, diag_qos);
@@ -512,9 +579,16 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
                                             std::bind(&TerrainSemanticNode::healthTimerCallback, this));
 
     RCLCPP_INFO(this->get_logger(),
-                "rc26_terrain 已启动: 栅格=%dx%d 分辨率=%.2fm 半径=%.1fm, 输入=%s, 输出=%s/%s",
+                "rc26_terrain 已启动: 栅格=%dx%d 分辨率=%.2fm 半径=%.1fm, 输入=%s, 输出=%s/%s, "
+                "roll_mode=%s roll_gate=%.1fdeg include_kfs_in_obstacles=%s kfs_debug_topic=%s "
+                "risk_model=%s model_file=%s",
                 width_, width_, grid_resolution_m_, perception_radius_m_,
-                input_cloud_topic_.c_str(), output_obstacles_topic_.c_str(), output_drop_topic_.c_str());
+                input_cloud_topic_.c_str(), output_obstacles_topic_.c_str(), output_drop_topic_.c_str(),
+                roll_compensation_mode_.c_str(), roll_gate_deg_,
+                include_kfs_in_obstacles_ ? "true" : "false",
+                publish_kfs_obstacles_debug_ ? output_kfs_obstacles_debug_topic_.c_str() : "disabled",
+                terrain_risk_model_ready_ ? "enabled" : "fallback_proxy",
+                risk_model_file_.empty() ? "(empty)" : risk_model_file_.c_str());
 }
 
 void TerrainSemanticNode::odomCallback(const nav_msgs::msg::Odometry::ConstSharedPtr& msg) {
@@ -700,6 +774,9 @@ void TerrainSemanticNode::publishDiagnostics(const rclcpp::Time& stamp, int leve
     addKV("base_ground_stable", base_ground_stable_ ? "true" : "false");
     addKV("last_linear_speed_mps", std::to_string(last_linear_speed_mps_));
     addKV("last_pitch_deg", std::to_string(last_pitch_rad_ * 180.0 / M_PI));
+    addKV("last_roll_deg", std::to_string(last_roll_rad_ * 180.0 / M_PI));
+    addKV("roll_compensation_mode", roll_compensation_mode_);
+    addKV("roll_gate_deg", std::to_string(roll_gate_deg_));
     addKV("freeze_max_frames", std::to_string(freeze_max_frames_));
     addKV("last_max_freeze_count", std::to_string(last_max_freeze_count_));
 
@@ -732,6 +809,13 @@ void TerrainSemanticNode::publishDiagnostics(const rclcpp::Time& stamp, int leve
     addKV("tf_chain_code", std::to_string(static_cast<int>(last_tf_validation_code_)));
     addKV("tf_chain_message", last_tf_validation_message_);
     addKV("kfs_occupied_cells", std::to_string(stats.kfs_occupied_cells));
+    addKV("include_kfs_in_obstacles", include_kfs_in_obstacles_ ? "true" : "false");
+    addKV("publish_kfs_obstacles_debug", publish_kfs_obstacles_debug_ ? "true" : "false");
+    addKV("output_kfs_obstacles_debug_topic",
+          publish_kfs_obstacles_debug_ ? output_kfs_obstacles_debug_topic_ : "disabled");
+    addKV("risk_model_enabled", enable_risk_model_ ? "true" : "false");
+    addKV("risk_model_ready", terrain_risk_model_ready_ ? "true" : "false");
+    addKV("risk_model_file", risk_model_file_.empty() ? "(empty)" : risk_model_file_);
     addKV("obstacle_cells", std::to_string(stats.obstacle_cells));
     addKV("drop_cells", std::to_string(stats.drop_cells));
     addKV("climbable_cells", std::to_string(stats.climbable_cells));
@@ -1286,9 +1370,10 @@ void TerrainSemanticNode::classifyAndUpdate(double stamp_sec) {
 void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_x,
                                          double base_y, double base_z,
                                          double cos_yaw, double sin_yaw) {
-    pcl::PointCloud<pcl::PointXYZI> obs_cloud, drop_cloud, climb_cloud;
+    pcl::PointCloud<pcl::PointXYZI> obs_cloud, drop_cloud, climb_cloud, kfs_debug_cloud;
     const double stamp_sec = stamp.seconds();
     const bool publish_climbable = static_cast<bool>(pub_climbable_);
+    const bool publish_kfs_debug = static_cast<bool>(pub_kfs_obstacles_debug_);
     const bool should_publish_features =
         static_cast<bool>(pub_features_) && isThrottleReady(stamp, last_features_pub_time_, terrain_features_publish_hz_);
     const bool should_publish_speed_limit =
@@ -1348,10 +1433,12 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
         const double last = last_seen_sec_[idx];
         const bool fresh = (last >= 0.0) && ((stamp_sec - last) <= stale_time_sec_);
         if (fresh) z = ground_z_filtered_[idx];
-        const float obstacle_prob = std::clamp(
+        const float obstacle_prob_proxy = std::clamp(
             static_cast<float>(obstacle_score_[idx]) / static_cast<float>(score_max_), 0.0f, 1.0f);
-        const float drop_prob = std::clamp(
+        const float drop_prob_proxy = std::clamp(
             static_cast<float>(drop_score_[idx]) / static_cast<float>(score_max_), 0.0f, 1.0f);
+        float obstacle_prob = obstacle_prob_proxy;
+        float drop_prob = drop_prob_proxy;
         float step_up = 0.0f;
         float climbable_prob = 0.0f;
 
@@ -1365,8 +1452,6 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
             feature_msg.slope_x[idx] = fresh ? slope_x_[idx] : 0.0f;
             feature_msg.slope_y[idx] = fresh ? slope_y_[idx] : 0.0f;
             feature_msg.roughness[idx] = fresh ? roughness_[idx] : 0.0f;
-            feature_msg.p_obstacle[idx] = obstacle_prob;
-            feature_msg.p_drop[idx] = drop_prob;
             feature_msg.step_up[idx] = 0.0f;
             feature_msg.p_climbable[idx] = 0.0f;
         }
@@ -1419,7 +1504,23 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
             }
         }
 
+        if (fresh && terrain_risk_model_ready_) {
+            TerrainRiskFeatures risk_features;
+            risk_features.slope_abs = std::max(std::abs(slope_x_[idx]), std::abs(slope_y_[idx]));
+            risk_features.roughness = roughness_[idx];
+            risk_features.sigma_h = sigma_h_[idx];
+            risk_features.step_up = step_up;
+            risk_features.height_span = std::max(0.0f, top_z_[idx] - ground_z_filtered_[idx]);
+            risk_features.obstacle_proxy = obstacle_prob_proxy;
+            risk_features.drop_proxy = drop_prob_proxy;
+            risk_features.climbable_prob = climbable_prob;
+            obstacle_prob = terrain_risk_model_.predictObstacle(risk_features, obstacle_prob_proxy);
+            drop_prob = terrain_risk_model_.predictDrop(risk_features, drop_prob_proxy);
+        }
+
         if (should_publish_features) {
+            feature_msg.p_obstacle[idx] = obstacle_prob;
+            feature_msg.p_drop[idx] = drop_prob;
             feature_msg.step_up[idx] = fresh ? step_up : 0.0f;
             feature_msg.p_climbable[idx] = climbable_prob;
         }
@@ -1436,13 +1537,26 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
             roi_max_p_climbable = std::max(roi_max_p_climbable, static_cast<double>(climbable_prob));
         }
 
-        if (is_obstacle || is_kfs_occupied) {
+        if (is_obstacle) {
             pcl::PointXYZI p;
             p.x = static_cast<float>(x);
             p.y = static_cast<float>(y);
-            p.z = is_kfs_occupied ? (z + 0.35F) : z;
-            p.intensity = is_kfs_occupied ? 200.0F : static_cast<float>(obstacle_score_[idx]);
+            p.z = z;
+            p.intensity = static_cast<float>(obstacle_score_[idx]);
             obs_cloud.push_back(p);
+        }
+        if (is_kfs_occupied) {
+            pcl::PointXYZI p;
+            p.x = static_cast<float>(x);
+            p.y = static_cast<float>(y);
+            p.z = z + 0.35F;
+            p.intensity = 200.0F;
+            if (include_kfs_in_obstacles_ && !is_obstacle) {
+                obs_cloud.push_back(p);
+            }
+            if (publish_kfs_debug) {
+                kfs_debug_cloud.push_back(p);
+            }
         }
         if (is_drop) {
             bool in_sector = true;
@@ -1496,17 +1610,22 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
         std::string reason;
         bool ok_obs = sanitizeAndValidateCloud(obs_cloud, "obstacles", reason);
         bool ok_drop = sanitizeAndValidateCloud(drop_cloud, "drop", reason);
+        bool ok_kfs_debug = true;
+        if (publish_kfs_debug) {
+            ok_kfs_debug = sanitizeAndValidateCloud(kfs_debug_cloud, "kfs_debug", reason);
+        }
 
         int total_points = static_cast<int>(obs_cloud.size() + drop_cloud.size());
         if (publish_climbable) total_points += static_cast<int>(climb_cloud.size());
+        if (publish_kfs_debug) total_points += static_cast<int>(kfs_debug_cloud.size());
 
-        if (!ok_obs || !ok_drop || total_points > output_max_points_total_) {
+        if (!ok_obs || !ok_drop || !ok_kfs_debug || total_points > output_max_points_total_) {
             const auto decision = safety_guard_.forceFailSafe("output_sanity", "输出点云异常: " + reason);
             syncSafetyGuardState(decision);
 
             RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                "输出点云异常: obs=%zu drop=%zu total=%d, %s",
-                obs_cloud.size(), drop_cloud.size(), total_points, reason.c_str());
+                "输出点云异常: obs=%zu drop=%zu kfs_dbg=%zu total=%d, %s",
+                obs_cloud.size(), drop_cloud.size(), kfs_debug_cloud.size(), total_points, reason.c_str());
 
             publishSpeedLimitValue(stamp, 0.0f, true);
             publishEmergencyStop(stamp);
@@ -1519,7 +1638,7 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
         syncSafetyGuardState(safety_guard_.decision());
     }
 
-    sensor_msgs::msg::PointCloud2 obs_msg, drop_msg, climb_msg;
+    sensor_msgs::msg::PointCloud2 obs_msg, drop_msg, climb_msg, kfs_debug_msg;
     pcl::toROSMsg(obs_cloud, obs_msg);
     obs_msg.header.stamp = stamp;
     obs_msg.header.frame_id = target_frame_;
@@ -1535,6 +1654,12 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
         climb_msg.header.stamp = stamp;
         climb_msg.header.frame_id = target_frame_;
         pub_climbable_->publish(climb_msg);
+    }
+    if (publish_kfs_debug) {
+        pcl::toROSMsg(kfs_debug_cloud, kfs_debug_msg);
+        kfs_debug_msg.header.stamp = stamp;
+        kfs_debug_msg.header.frame_id = target_frame_;
+        pub_kfs_obstacles_debug_->publish(kfs_debug_msg);
     }
 
     if (should_publish_features) {
@@ -1726,6 +1851,10 @@ void TerrainSemanticNode::cloudCallback(
     syncSafetyGuardState(safety_guard_.decision());
 
     const double r2 = perception_radius_m_ * perception_radius_m_;
+    const bool apply_roll_compensation =
+        (roll_compensation_mode_ == "always") ||
+        (roll_compensation_mode_ == "gated" &&
+         std::abs(last_roll_rad_) >= (roll_gate_deg_ * M_PI / 180.0));
 
     // 将点云投影到以机器人为中心的局部栅格（核心判别使用相对高度，不依赖绝对 Z）
     for (const auto& p : cloud_ds->points) {
@@ -1742,7 +1871,7 @@ void TerrainSemanticNode::cloudCallback(
         if (enable_pitch_compensation_ && x_rel > 0.0) {
             z_corr -= x_rel * std::tan(last_pitch_rad_);
         }
-        if (enable_roll_compensation_) {
+        if (apply_roll_compensation) {
             z_corr -= y_rel * std::tan(last_roll_rad_);
         }
         const double rel_z = z_corr - base_z;

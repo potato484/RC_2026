@@ -14,6 +14,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rc26_interfaces/msg/mf_kfs_state.hpp"
 #include "rc26_interfaces/msg/terrain_feature_grid.hpp"
+#include "rc26_terrain/terrain_risk_model.hpp"
 #include "rc26_terrain/safety_guard.hpp"
 #include "rc26_terrain/tf_chain_validator.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
@@ -159,6 +160,11 @@ private:
     double      ground_ema_alpha_slow_{0.25};
     bool        enable_pitch_compensation_{true};
     bool        enable_roll_compensation_{false};
+    std::string roll_compensation_mode_{""};  // off|gated|always
+    double      roll_gate_deg_{5.0};
+    bool        include_kfs_in_obstacles_{false};
+    bool        publish_kfs_obstacles_debug_{true};
+    std::string output_kfs_obstacles_debug_topic_{"terrain_kfs_obstacles_debug"};
     double      stair_gate_speed_mps_{0.25};
     double      stair_pitch_gate_deg_{6.0};
     double      top_z_max_delta_m_{0.7};
@@ -178,6 +184,8 @@ private:
     double      speed_limit_w_climbable_{0.8};
     double      speed_limit_k_tci_{1.0};
     double      speed_limit_emergency_drop_thresh_{0.8};
+    bool        enable_risk_model_{false};
+    std::string risk_model_file_{""};
 
     // P0.3: latency diagnostics
     double latency_warn_ms_{12.0};
@@ -222,6 +230,7 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_obstacles_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_drop_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_climbable_;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_kfs_obstacles_debug_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr pub_diagnostics_;
     rclcpp::Publisher<rc26_interfaces::msg::TerrainFeatureGrid>::SharedPtr pub_features_;
     rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_speed_limit_;
@@ -274,6 +283,8 @@ private:
     std::array<double, 13> mf_grid_y_{};
     std::array<uint8_t, 13> mf_grid_valid_{};
     std::string mf_layout_team_;
+    TerrainRiskModel terrain_risk_model_;
+    bool terrain_risk_model_ready_{false};
 };
 
 }  // namespace rc26_terrain

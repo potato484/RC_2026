@@ -63,6 +63,7 @@ endif()
 add_library(${PROJECT_NAME}_component SHARED
   src/terrain_semantic_node.cpp
   src/terrain_grid_map_bridge.cpp
+  src/terrain_risk_model.cpp
 )
 add_library(point_cloud_preprocessor STATIC
   src/point_cloud_preprocessor.cpp
@@ -119,6 +120,12 @@ install(DIRECTORY config launch rviz docs
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+  scripts/export_terrain_training_dataset.py
+  scripts/fit_terrain_logistic.py
+  DESTINATION share/${PROJECT_NAME}/scripts
+)
+
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(launch_testing_ament_cmake REQUIRED)
@@ -143,6 +150,9 @@ if(BUILD_TESTING)
     grid_map_msgs
   )
   target_link_libraries(test_terrain_grid_map_bridge ${PROJECT_NAME}_component)
+
+  ament_add_gtest(test_terrain_risk_model test/test_terrain_risk_model.cpp)
+  target_link_libraries(test_terrain_risk_model ${PROJECT_NAME}_component)
 
   add_launch_test(test/test_costmap_integration.py TIMEOUT 60)
   add_launch_test(test/test_terrain_grid_map_bridge_launch.py TIMEOUT 90)
