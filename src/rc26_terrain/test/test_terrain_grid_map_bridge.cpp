@@ -23,6 +23,7 @@
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "tf2_ros/static_transform_broadcaster.h"
+#include "visualization_msgs/msg/marker_array.hpp"
 
 namespace {
 
@@ -108,11 +109,33 @@ protected:
                 last_local_grid_map_msg_ = msg;
                 ++local_grid_map_msg_count_;
             });
+        marker_array_sub_ = harness_node_->create_subscription<visualization_msgs::msg::MarkerArray>(
+            "/terrain_grid_map_markers",
+            rclcpp::QoS(rclcpp::KeepLast(1))
+                .reliable()
+                .durability(rclcpp::DurabilityPolicy::TransientLocal),
+            [this](const visualization_msgs::msg::MarkerArray::SharedPtr msg) {
+                std::lock_guard<std::mutex> lock(marker_mutex_);
+                last_marker_array_msg_ = msg;
+                ++marker_array_msg_count_;
+            });
+        local_marker_array_sub_ = harness_node_->create_subscription<visualization_msgs::msg::MarkerArray>(
+            "/terrain_grid_map_local_markers",
+            rclcpp::QoS(rclcpp::KeepLast(1))
+                .reliable()
+                .durability(rclcpp::DurabilityPolicy::TransientLocal),
+            [this](const visualization_msgs::msg::MarkerArray::SharedPtr msg) {
+                std::lock_guard<std::mutex> lock(local_marker_mutex_);
+                last_local_marker_array_msg_ = msg;
+                ++local_marker_array_msg_count_;
+            });
 
         spinFor(150ms);
     }
 
     void TearDown() override {
+        local_marker_array_sub_.reset();
+        marker_array_sub_.reset();
         local_grid_map_sub_.reset();
         grid_map_sub_.reset();
         grid_map_raw_sub_.reset();
@@ -146,6 +169,16 @@ protected:
             last_grid_map_raw_msg_.reset();
             grid_map_raw_msg_count_ = 0;
         }
+        {
+            std::lock_guard<std::mutex> lock(marker_mutex_);
+            last_marker_array_msg_.reset();
+            marker_array_msg_count_ = 0;
+        }
+        {
+            std::lock_guard<std::mutex> lock(local_marker_mutex_);
+            last_local_marker_array_msg_.reset();
+            local_marker_array_msg_count_ = 0;
+        }
     }
 
     rclcpp::NodeOptions makeBridgeOptions(bool enable_mf_semantics) const {
@@ -160,12 +193,18 @@ protected:
             rclcpp::Parameter("output_topic", "/terrain_grid_map"),
             rclcpp::Parameter("publish_local_map", true),
             rclcpp::Parameter("output_topic_local", "/terrain_grid_map_local"),
+            rclcpp::Parameter("publish_marker_array", true),
+            rclcpp::Parameter("output_marker_topic", "/terrain_grid_map_markers"),
+            rclcpp::Parameter("output_marker_topic_local", "/terrain_grid_map_local_markers"),
             rclcpp::Parameter("fusion_enable", true),
             rclcpp::Parameter("fusion_publish_raw", true),
             rclcpp::Parameter("output_topic_raw", "/terrain_grid_map_raw"),
             rclcpp::Parameter("output_topic_local_raw", "/terrain_grid_map_local_raw"),
             rclcpp::Parameter("fusion_time_constant_sec", 0.4),
             rclcpp::Parameter("fusion_unknown_decay_sec", 1.0),
+            rclcpp::Parameter("marker_height_min_m", 0.03),
+            rclcpp::Parameter("marker_height_scale_m", 0.2),
+            rclcpp::Parameter("marker_alpha", 0.85),
             rclcpp::Parameter("map_frame", "map"),
             rclcpp::Parameter("local_frame", "odom"),
             rclcpp::Parameter("base_frame", "base_link"),
@@ -290,6 +329,16 @@ protected:
         return grid_map_raw_msg_count_;
     }
 
+    size_t currentMarkerArrayCount() const {
+        std::lock_guard<std::mutex> lock(marker_mutex_);
+        return marker_array_msg_count_;
+    }
+
+    size_t currentLocalMarkerArrayCount() const {
+        std::lock_guard<std::mutex> lock(local_marker_mutex_);
+        return local_marker_array_msg_count_;
+    }
+
     bool waitForNewGridMap(size_t previous_count, std::chrono::milliseconds timeout) {
         const auto deadline = std::chrono::steady_clock::now() + timeout;
         while (std::chrono::steady_clock::now() < deadline) {
@@ -335,6 +384,36 @@ protected:
         return false;
     }
 
+    bool waitForNewMarkerArray(size_t previous_count, std::chrono::milliseconds timeout) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (std::chrono::steady_clock::now() < deadline) {
+            executor_->spin_some();
+            {
+                std::lock_guard<std::mutex> lock(marker_mutex_);
+                if (marker_array_msg_count_ > previous_count) {
+                    return true;
+                }
+            }
+            std::this_thread::sleep_for(5ms);
+        }
+        return false;
+    }
+
+    bool waitForNewLocalMarkerArray(size_t previous_count, std::chrono::milliseconds timeout) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (std::chrono::steady_clock::now() < deadline) {
+            executor_->spin_some();
+            {
+                std::lock_guard<std::mutex> lock(local_marker_mutex_);
+                if (local_marker_array_msg_count_ > previous_count) {
+                    return true;
+                }
+            }
+            std::this_thread::sleep_for(5ms);
+        }
+        return false;
+    }
+
     grid_map_msgs::msg::GridMap::SharedPtr takeLastGridMap() const {
         std::lock_guard<std::mutex> lock(map_mutex_);
         return last_grid_map_msg_;
@@ -350,6 +429,16 @@ protected:
         return last_grid_map_raw_msg_;
     }
 
+    visualization_msgs::msg::MarkerArray::SharedPtr takeLastMarkerArray() const {
+        std::lock_guard<std::mutex> lock(marker_mutex_);
+        return last_marker_array_msg_;
+    }
+
+    visualization_msgs::msg::MarkerArray::SharedPtr takeLastLocalMarkerArray() const {
+        std::lock_guard<std::mutex> lock(local_marker_mutex_);
+        return last_local_marker_array_msg_;
+    }
+
     bool convertToGridMap(const grid_map_msgs::msg::GridMap& msg, grid_map::GridMap& map) const {
         return grid_map::GridMapRosConverter::fromMessage(msg, map);
     }
@@ -363,6 +452,8 @@ protected:
     rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr grid_map_sub_;
     rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr grid_map_raw_sub_;
     rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr local_grid_map_sub_;
+    rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr marker_array_sub_;
+    rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr local_marker_array_sub_;
 
     mutable std::mutex map_mutex_;
     grid_map_msgs::msg::GridMap::SharedPtr last_grid_map_msg_;
@@ -373,6 +464,12 @@ protected:
     mutable std::mutex local_map_mutex_;
     grid_map_msgs::msg::GridMap::SharedPtr last_local_grid_map_msg_;
     size_t local_grid_map_msg_count_{0};
+    mutable std::mutex marker_mutex_;
+    visualization_msgs::msg::MarkerArray::SharedPtr last_marker_array_msg_;
+    size_t marker_array_msg_count_{0};
+    mutable std::mutex local_marker_mutex_;
+    visualization_msgs::msg::MarkerArray::SharedPtr last_local_marker_array_msg_;
+    size_t local_marker_array_msg_count_{0};
 };
 
 TEST_F(TerrainGridMapBridgeTest, RecoversAbsoluteElevationLayers) {
@@ -467,6 +564,39 @@ TEST_F(TerrainGridMapBridgeTest, PublishesLocalMapWithSlopeLayersInOdomFrame) {
     ASSERT_TRUE(local_map.isValid(index, kLayerSlopeY));
     EXPECT_NEAR(local_map.at(kLayerSlopeX, index), 0.12, 1e-5);
     EXPECT_NEAR(local_map.at(kLayerSlopeY, index), -0.07, 1e-5);
+}
+
+TEST_F(TerrainGridMapBridgeTest, PublishesMarkerArraysForFoxgloveVisualization) {
+    publishMapToBaseStaticTransform(0.2, -0.1, 0.7, 0.0);
+
+    auto feature = makeFeatureGrid(5, 1.0f);
+    const size_t center = static_cast<size_t>(2 * 5 + 2);
+    feature.h_ground[center] = 0.25f;
+    feature.p_obstacle[center] = 0.8f;
+
+    const size_t before_global = currentMarkerArrayCount();
+    const size_t before_local = currentLocalMarkerArrayCount();
+    feature_pub_->publish(feature);
+    ASSERT_TRUE(waitForNewMarkerArray(before_global, 2s));
+    ASSERT_TRUE(waitForNewLocalMarkerArray(before_local, 2s));
+
+    const auto global_markers = takeLastMarkerArray();
+    const auto local_markers = takeLastLocalMarkerArray();
+    ASSERT_NE(global_markers, nullptr);
+    ASSERT_NE(local_markers, nullptr);
+    ASSERT_GE(global_markers->markers.size(), 2U);
+    ASSERT_GE(local_markers->markers.size(), 2U);
+
+    const auto& global_cubes = global_markers->markers.back();
+    const auto& local_cubes = local_markers->markers.back();
+    EXPECT_EQ(global_cubes.type, visualization_msgs::msg::Marker::CUBE_LIST);
+    EXPECT_EQ(local_cubes.type, visualization_msgs::msg::Marker::CUBE_LIST);
+    EXPECT_FALSE(global_cubes.points.empty());
+    EXPECT_FALSE(local_cubes.points.empty());
+    EXPECT_EQ(global_cubes.points.size(), global_cubes.colors.size());
+    EXPECT_EQ(local_cubes.points.size(), local_cubes.colors.size());
+    EXPECT_EQ(global_cubes.header.frame_id, "map");
+    EXPECT_EQ(local_cubes.header.frame_id, "odom");
 }
 
 TEST_F(TerrainGridMapBridgeTest, YawResamplingKeepsMostCellsFilled) {

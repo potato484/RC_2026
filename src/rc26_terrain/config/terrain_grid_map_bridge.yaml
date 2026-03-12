@@ -5,12 +5,18 @@
     output_topic: "/terrain_grid_map"
     publish_local_map: true
     output_topic_local: "/terrain_grid_map_local"
+    publish_marker_array: true
+    output_marker_topic: "/terrain_grid_map_markers"
+    output_marker_topic_local: "/terrain_grid_map_local_markers"
     fusion_enable: true
     fusion_publish_raw: true
     output_topic_raw: "/terrain_grid_map_raw"
     output_topic_local_raw: "/terrain_grid_map_local_raw"
     fusion_time_constant_sec: 0.7
     fusion_unknown_decay_sec: 1.2
+    marker_height_min_m: 0.03
+    marker_height_scale_m: 0.20
+    marker_alpha: 0.85
     map_frame: "map"
     local_frame: "odom"
     base_frame: "base_link"

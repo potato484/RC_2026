@@ -14,6 +14,7 @@
 #include "rc26_interfaces/msg/terrain_feature_grid.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
+#include "visualization_msgs/msg/marker_array.hpp"
 
 namespace rc26_terrain {
 
@@ -58,6 +59,8 @@ private:
     std::string output_topic_local_{"/terrain_grid_map_local"};
     std::string output_topic_raw_{"/terrain_grid_map_raw"};
     std::string output_topic_local_raw_{"/terrain_grid_map_local_raw"};
+    std::string output_marker_topic_{"/terrain_grid_map_markers"};
+    std::string output_marker_topic_local_{"/terrain_grid_map_local_markers"};
     std::string diagnostics_topic_{"diagnostics"};
     std::string map_frame_{"map"};
     std::string local_frame_{"odom"};
@@ -65,10 +68,14 @@ private:
     double tf_timeout_sec_{0.1};
     double keepout_stale_timeout_sec_{2.0};
     bool publish_local_map_{true};
+    bool publish_marker_array_{true};
     bool fusion_enable_{true};
     bool fusion_publish_raw_{true};
     double fusion_time_constant_sec_{0.7};
     double fusion_unknown_decay_sec_{1.2};
+    double marker_height_min_m_{0.03};
+    double marker_height_scale_m_{0.20};
+    double marker_alpha_{0.85};
     bool enable_mf_semantics_{true};
     std::string mf_grid_layout_file_{""};
     double step_edge_height_thresh_m_{0.10};
@@ -93,6 +100,8 @@ private:
     rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr pub_grid_map_local_;
     rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr pub_grid_map_raw_;
     rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr pub_grid_map_local_raw_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_marker_array_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_marker_array_local_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr pub_diagnostics_;
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
