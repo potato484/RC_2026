@@ -16,9 +16,12 @@
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "grid_map_core/grid_map_core.hpp"
 #include "grid_map_ros/GridMapRosConverter.hpp"
+#include "std_msgs/msg/color_rgba.hpp"
 #include "tf2/LinearMath/Matrix3x3.h"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+#include "visualization_msgs/msg/marker.hpp"
+#include "visualization_msgs/msg/marker_array.hpp"
 #include "yaml-cpp/yaml.h"
 
 namespace {
@@ -86,6 +89,99 @@ inline bool isFinite(float value) {
     return std::isfinite(static_cast<double>(value));
 }
 
+std_msgs::msg::ColorRGBA makeTerrainColor(float traversability,
+                                          float obstacle_prob,
+                                          float drop_prob,
+                                          float alpha) {
+    std_msgs::msg::ColorRGBA color;
+    const float trav = clamp01(traversability);
+    const float obstacle = clamp01(obstacle_prob);
+    const float drop = clamp01(drop_prob);
+
+    if (drop > obstacle && drop > 0.45f) {
+        color.r = 0.20f + 0.30f * (1.0f - drop);
+        color.g = 0.35f + 0.25f * (1.0f - drop);
+        color.b = 0.85f;
+    } else if (obstacle > 0.45f) {
+        color.r = 0.95f;
+        color.g = 0.35f + 0.25f * (1.0f - obstacle);
+        color.b = 0.18f;
+    } else {
+        color.r = 0.95f * (1.0f - trav);
+        color.g = 0.25f + 0.70f * trav;
+        color.b = 0.18f + 0.30f * trav;
+    }
+    color.a = clamp01(alpha);
+    return color;
+}
+
+visualization_msgs::msg::MarkerArray makeTerrainMarkerArray(const grid_map::GridMap& map,
+                                                            const rclcpp::Time& stamp,
+                                                            const std::string& marker_ns,
+                                                            double marker_height_min_m,
+                                                            double marker_height_scale,
+                                                            double marker_alpha) {
+    visualization_msgs::msg::MarkerArray markers;
+
+    visualization_msgs::msg::Marker clear;
+    clear.action = visualization_msgs::msg::Marker::DELETEALL;
+    markers.markers.push_back(clear);
+
+    visualization_msgs::msg::Marker cubes;
+    cubes.header.frame_id = map.getFrameId();
+    cubes.header.stamp = stamp;
+    cubes.ns = marker_ns;
+    cubes.id = 0;
+    cubes.type = visualization_msgs::msg::Marker::CUBE_LIST;
+    cubes.action = visualization_msgs::msg::Marker::ADD;
+    cubes.pose.orientation.w = 1.0;
+    cubes.frame_locked = true;
+    cubes.scale.x = std::max(1e-3, map.getResolution() * 0.96);
+    cubes.scale.y = std::max(1e-3, map.getResolution() * 0.96);
+    // Keep cubes thin so the height is dominated by Z placement, not by extrusion thickness.
+    cubes.scale.z = std::max(marker_height_min_m, map.getResolution() * marker_height_scale);
+
+    const bool has_traversability = map.exists(kLayerTraversability);
+    const bool has_obstacle = map.exists(kLayerObstacleProb);
+    const bool has_drop = map.exists(kLayerDropProb);
+
+    for (grid_map::GridMapIterator it(map); !it.isPastEnd(); ++it) {
+        const grid_map::Index index(*it);
+        if (!map.isValid(index, kLayerElevationAbs)) {
+            continue;
+        }
+
+        grid_map::Position position;
+        if (!map.getPosition(index, position)) {
+            continue;
+        }
+
+        geometry_msgs::msg::Point point;
+        point.x = position.x();
+        point.y = position.y();
+        point.z = static_cast<double>(map.at(kLayerElevationAbs, index));
+        cubes.points.push_back(point);
+
+        const float traversability =
+            has_traversability && map.isValid(index, kLayerTraversability)
+                ? map.at(kLayerTraversability, index)
+                : 0.5f;
+        const float obstacle_prob =
+            has_obstacle && map.isValid(index, kLayerObstacleProb)
+                ? map.at(kLayerObstacleProb, index)
+                : 0.0f;
+        const float drop_prob =
+            has_drop && map.isValid(index, kLayerDropProb)
+                ? map.at(kLayerDropProb, index)
+                : 0.0f;
+        cubes.colors.push_back(
+            makeTerrainColor(traversability, obstacle_prob, drop_prob, static_cast<float>(marker_alpha)));
+    }
+
+    markers.markers.push_back(std::move(cubes));
+    return markers;
+}
+
 }  // namespace
 
 namespace rc26_terrain {
@@ -97,12 +193,18 @@ TerrainGridMapBridge::TerrainGridMapBridge(const rclcpp::NodeOptions& options)
     this->declare_parameter<std::string>("output_topic", output_topic_);
     this->declare_parameter<bool>("publish_local_map", publish_local_map_);
     this->declare_parameter<std::string>("output_topic_local", output_topic_local_);
+    this->declare_parameter<bool>("publish_marker_array", publish_marker_array_);
+    this->declare_parameter<std::string>("output_marker_topic", output_marker_topic_);
+    this->declare_parameter<std::string>("output_marker_topic_local", output_marker_topic_local_);
     this->declare_parameter<bool>("fusion_enable", fusion_enable_);
     this->declare_parameter<bool>("fusion_publish_raw", fusion_publish_raw_);
     this->declare_parameter<std::string>("output_topic_raw", output_topic_raw_);
     this->declare_parameter<std::string>("output_topic_local_raw", output_topic_local_raw_);
     this->declare_parameter<double>("fusion_time_constant_sec", fusion_time_constant_sec_);
     this->declare_parameter<double>("fusion_unknown_decay_sec", fusion_unknown_decay_sec_);
+    this->declare_parameter<double>("marker_height_min_m", marker_height_min_m_);
+    this->declare_parameter<double>("marker_height_scale_m", marker_height_scale_m_);
+    this->declare_parameter<double>("marker_alpha", marker_alpha_);
     this->declare_parameter<std::string>("map_frame", map_frame_);
     this->declare_parameter<std::string>("local_frame", local_frame_);
     this->declare_parameter<std::string>("base_frame", base_frame_);
@@ -125,12 +227,18 @@ TerrainGridMapBridge::TerrainGridMapBridge(const rclcpp::NodeOptions& options)
     this->get_parameter("output_topic", output_topic_);
     this->get_parameter("publish_local_map", publish_local_map_);
     this->get_parameter("output_topic_local", output_topic_local_);
+    this->get_parameter("publish_marker_array", publish_marker_array_);
+    this->get_parameter("output_marker_topic", output_marker_topic_);
+    this->get_parameter("output_marker_topic_local", output_marker_topic_local_);
     this->get_parameter("fusion_enable", fusion_enable_);
     this->get_parameter("fusion_publish_raw", fusion_publish_raw_);
     this->get_parameter("output_topic_raw", output_topic_raw_);
     this->get_parameter("output_topic_local_raw", output_topic_local_raw_);
     this->get_parameter("fusion_time_constant_sec", fusion_time_constant_sec_);
     this->get_parameter("fusion_unknown_decay_sec", fusion_unknown_decay_sec_);
+    this->get_parameter("marker_height_min_m", marker_height_min_m_);
+    this->get_parameter("marker_height_scale_m", marker_height_scale_m_);
+    this->get_parameter("marker_alpha", marker_alpha_);
     this->get_parameter("map_frame", map_frame_);
     this->get_parameter("local_frame", local_frame_);
     this->get_parameter("base_frame", base_frame_);
@@ -152,6 +260,9 @@ TerrainGridMapBridge::TerrainGridMapBridge(const rclcpp::NodeOptions& options)
     keepout_stale_timeout_sec_ = std::max(0.01, keepout_stale_timeout_sec_);
     fusion_time_constant_sec_ = std::max(1e-3, fusion_time_constant_sec_);
     fusion_unknown_decay_sec_ = std::max(0.0, fusion_unknown_decay_sec_);
+    marker_height_min_m_ = std::max(1e-3, marker_height_min_m_);
+    marker_height_scale_m_ = std::max(0.0, marker_height_scale_m_);
+    marker_alpha_ = std::clamp(marker_alpha_, 0.0, 1.0);
     step_edge_height_thresh_m_ = std::max(0.0, step_edge_height_thresh_m_);
     slope_norm_limit_ = std::max(1e-6, slope_norm_limit_);
     roughness_norm_limit_ = std::max(1e-6, roughness_norm_limit_);
@@ -193,6 +304,14 @@ TerrainGridMapBridge::TerrainGridMapBridge(const rclcpp::NodeOptions& options)
         pub_grid_map_local_ =
             this->create_publisher<grid_map_msgs::msg::GridMap>(output_topic_local_, makeOutputQos());
     }
+    if (publish_marker_array_) {
+        pub_marker_array_ =
+            this->create_publisher<visualization_msgs::msg::MarkerArray>(output_marker_topic_, makeOutputQos());
+        if (publish_local_map_) {
+            pub_marker_array_local_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+                output_marker_topic_local_, makeOutputQos());
+        }
+    }
     if (fusion_publish_raw_) {
         pub_grid_map_raw_ =
             this->create_publisher<grid_map_msgs::msg::GridMap>(output_topic_raw_, makeOutputQos());
@@ -217,6 +336,7 @@ TerrainGridMapBridge::TerrainGridMapBridge(const rclcpp::NodeOptions& options)
         "terrain_grid_map_bridge started: feature_topic=%s keepout_topic=%s output_topic=%s map_frame=%s "
         "publish_local_map=%s output_topic_local=%s local_frame=%s fusion_enable=%s "
         "fusion_publish_raw=%s output_topic_raw=%s output_topic_local_raw=%s "
+        "publish_marker_array=%s output_marker_topic=%s output_marker_topic_local=%s "
         "fusion_tau=%.2f fusion_decay=%.2f",
         terrain_features_topic_.c_str(),
         kfs_mask_topic_.c_str(),
@@ -229,6 +349,9 @@ TerrainGridMapBridge::TerrainGridMapBridge(const rclcpp::NodeOptions& options)
         fusion_publish_raw_ ? "true" : "false",
         output_topic_raw_.c_str(),
         output_topic_local_raw_.c_str(),
+        publish_marker_array_ ? "true" : "false",
+        output_marker_topic_.c_str(),
+        output_marker_topic_local_.c_str(),
         fusion_time_constant_sec_,
         fusion_unknown_decay_sec_);
 }
@@ -783,6 +906,14 @@ void TerrainGridMapBridge::featureCallback(
     if (output_msg) {
         pub_grid_map_->publish(std::move(*output_msg));
     }
+    if (publish_marker_array_ && pub_marker_array_) {
+        pub_marker_array_->publish(makeTerrainMarkerArray(output_map,
+                                                          feature_stamp,
+                                                          "terrain_grid_map",
+                                                          marker_height_min_m_,
+                                                          marker_height_scale_m_,
+                                                          marker_alpha_));
+    }
 
     if (publish_local_map_ && pub_grid_map_local_) {
         const bool sample_local_keepout = keepout_available && (local_frame_ == map_frame_);
@@ -802,6 +933,14 @@ void TerrainGridMapBridge::featureCallback(
         auto output_msg_local = grid_map::GridMapRosConverter::toMessage(output_map_local_raw);
         if (output_msg_local) {
             pub_grid_map_local_->publish(std::move(*output_msg_local));
+        }
+        if (publish_marker_array_ && pub_marker_array_local_) {
+            pub_marker_array_local_->publish(makeTerrainMarkerArray(output_map_local_raw,
+                                                                    feature_stamp,
+                                                                    "terrain_grid_map_local",
+                                                                    marker_height_min_m_,
+                                                                    marker_height_scale_m_,
+                                                                    marker_alpha_));
         }
     }
 

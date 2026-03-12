@@ -28,6 +28,7 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(grid_map_core REQUIRED)
 find_package(grid_map_ros REQUIRED)
 find_package(grid_map_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 find_package(PCL REQUIRED COMPONENTS common filters)
 find_package(yaml-cpp REQUIRED)
 
@@ -48,6 +49,7 @@ set(DEPENDENCIES
   grid_map_core
   grid_map_ros
   grid_map_msgs
+  visualization_msgs
   ament_index_cpp
 )
 
@@ -148,6 +150,7 @@ if(BUILD_TESTING)
     grid_map_core
     grid_map_ros
     grid_map_msgs
+    visualization_msgs
   )
   target_link_libraries(test_terrain_grid_map_bridge ${PROJECT_NAME}_component)
 
