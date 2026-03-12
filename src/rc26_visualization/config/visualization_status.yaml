@@ -18,6 +18,8 @@ rc26_visualization_status_node:
       kfs_keepout_heartbeat: "/kfs_keepout_heartbeat"
       terrain_obstacles: "terrain_obstacles"
       terrain_drop: "terrain_drop"
+      terrain_grid_map_local: "/terrain_grid_map_local"
+      terrain_speed_limit: "terrain_speed_limit"
       odom: "odom"
       control_state: "control_state"
 
@@ -37,6 +39,10 @@ rc26_visualization_status_node:
       mechanism_warn_level: 1
       mechanism_error_level: 2
       topics_orange_count: 3
+      terrain_speed_limit_nominal_mps: 2.0
+      terrain_speed_limit_margin_mps: 0.05
+      terrain_climbable_active_threshold: 0.20
+      terrain_step_edge_active_threshold: 0.50
 
     watchdog:
       localization_health_max_age_ms: 1000.0
@@ -53,5 +59,7 @@ rc26_visualization_status_node:
       kfs_keepout_heartbeat_max_age_ms: 300.0
       terrain_obstacles_max_age_ms: 1000.0
       terrain_drop_max_age_ms: 1000.0
+      terrain_grid_map_local_max_age_ms: 1000.0
+      terrain_speed_limit_max_age_ms: 1000.0
       odom_max_age_ms: 500.0
       control_state_max_age_ms: 500.0
