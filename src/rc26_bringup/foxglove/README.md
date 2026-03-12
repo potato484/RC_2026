@@ -19,9 +19,9 @@
 
 ## 布局文件
 
-- `operator.json`：legacy 值守骨架，保留 `r2/diag/operator_status`、`r2/diag/events`、控制趋势视角
-- `engineering.json`：工程联调，配合轨迹、点云、lookahead 与曲率标记使用
-- `diagnostic.json`：故障排查，重点关注 `r2/diag/summary`、keepout/terrain/topic freshness
+- `operator.json`：legacy 值守骨架，保留 `r2/diag/operator_status`、`r2/diag/events`、控制趋势视角；默认显示 `/terrain_grid_map_markers`、`/registered_scan`、`/laser_map_full`
+- `engineering.json`：工程联调，配合轨迹、点云、lookahead 与曲率标记使用；默认显示 `/terrain_grid_map_local_markers`、`/registered_scan`、`/laser_map_full`
+- `diagnostic.json`：故障排查，重点关注 `r2/diag/summary`、keepout/terrain/topic freshness；默认显示 `/terrain_grid_map_markers`、`/registered_scan`、`/laser_map_full`
 
 ## 常见告警
 
@@ -44,4 +44,6 @@
 
 - `/registered_scan`：当前帧配准点云，适合看实时局部效果
 - `/laser_map_full`：累计地图点云，适合看历史建图内容是否持续保留
-- 若使用 `visualization_backend:=foxglove`，建议把这两个点云一起放进工程布局中对照观察
+- `/terrain_grid_map_markers`：`map` 系下的 2.5D 栅格 marker，可在 `diagnostic.json` / `operator.json` 直接看到
+- `/terrain_grid_map_local_markers`：`odom` 系下的 2.5D 栅格 marker，可在 `engineering.json` 直接看到
+- `engineering.json` 已默认打开 `/registered_scan` 和 `/laser_map_full`，可直接和 2.5D 栅格一起对照观察
