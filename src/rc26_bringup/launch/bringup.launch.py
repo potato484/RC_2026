@@ -221,6 +221,13 @@ def generate_launch_description():
             'recover_mid360_stream': recover_mid360_stream,
         }.items()
     )
+    # Scope child launch arguments so odometry's internal overrides
+    # (for example enable_terrain_grid_map:=false) do not leak back
+    # into the parent bringup context and suppress top-level terrain nodes.
+    odometry_group = GroupAction(
+        actions=[odometry_launch],
+        scoped=True,
+    )
 
     # 定位模块
     # - 导航模式: 启动 rc26_localization
@@ -571,7 +578,7 @@ def generate_launch_description():
         # 启动模块
         pure_mapping_notice,
         pure_mapping_terrain_grid_notice,
-        odometry_launch,
+        odometry_group,
         localization_launch,
         base_ground_node,
         terrain_launch,
