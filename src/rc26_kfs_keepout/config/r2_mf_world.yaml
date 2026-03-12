@@ -1,0 +1,34 @@
+meta:
+  team: "blue"
+  layout_version: "r2_mf_world_v1"
+  mirror_rule: "explicit_team_layout"
+  validated: true
+  grid_spacing_m: 1.2
+  block_half_extent_m: 0.6
+  shared_edge_band_width_m: 0.08
+  safe_offset: 0.20
+  jump_margin: 0.20
+
+blocks:
+  - {id: 1,  x: 0.0, y: 0.0, depth: 2, expected_height_m: 0.4}
+  - {id: 2,  x: 1.2, y: 0.0, depth: 1, expected_height_m: 0.2}
+  - {id: 3,  x: 2.4, y: 0.0, depth: 2, expected_height_m: 0.4}
+  - {id: 4,  x: 0.0, y: 1.2, depth: 1, expected_height_m: 0.2}
+  - {id: 5,  x: 1.2, y: 1.2, depth: 2, expected_height_m: 0.4}
+  - {id: 6,  x: 2.4, y: 1.2, depth: 3, expected_height_m: 0.6}
+  - {id: 7,  x: 0.0, y: 2.4, depth: 2, expected_height_m: 0.4}
+  - {id: 8,  x: 1.2, y: 2.4, depth: 3, expected_height_m: 0.6}
+  - {id: 9,  x: 2.4, y: 2.4, depth: 2, expected_height_m: 0.4}
+  - {id: 10, x: 0.0, y: 3.6, depth: 1, expected_height_m: 0.2}
+  - {id: 11, x: 1.2, y: 3.6, depth: 2, expected_height_m: 0.4}
+  - {id: 12, x: 2.4, y: 3.6, depth: 1, expected_height_m: 0.2}
+
+entry_blocks: [1, 2, 3]
+exit_blocks: [10, 11, 12]
+
+ramp_corridors:
+  - {x_min: -0.4, x_max: 2.8, y_min: -0.3, y_max: 0.3}
+  - {x_min: -0.4, x_max: 2.8, y_min: 3.3, y_max: 3.9}
+
+battle_approach_zones:
+  - {x_min: -0.5, x_max: 2.9, y_min: 3.8, y_max: 4.8}
