@@ -50,6 +50,7 @@ private:
     double inscribed_threshold_{0.45};
     double drop_lethal_threshold_{0.8};
     double climbable_soft_cost_max_{80.0};
+    double stale_timeout_sec_{0.0};
     std::string unknown_policy_{"keep"};
 };
 

@@ -40,7 +40,13 @@ void applyUnknownPolicy(nav2_costmap_2d::Costmap2D& master_grid,
     }
 
     const unsigned char old_cost = master_grid.getCost(mx, my);
-    if (target == nav2_costmap_2d::NO_INFORMATION || old_cost == nav2_costmap_2d::NO_INFORMATION) {
+    if (target == nav2_costmap_2d::NO_INFORMATION) {
+        if (old_cost == nav2_costmap_2d::NO_INFORMATION) {
+            master_grid.setCost(mx, my, target);
+        }
+        return;
+    }
+    if (old_cost == nav2_costmap_2d::NO_INFORMATION) {
         master_grid.setCost(mx, my, target);
         return;
     }
@@ -88,6 +94,7 @@ void TerrainTraversabilityLayer::onInitialize() {
     declareParameter("inscribed_threshold", rclcpp::ParameterValue(inscribed_threshold_));
     declareParameter("drop_lethal_threshold", rclcpp::ParameterValue(drop_lethal_threshold_));
     declareParameter("climbable_soft_cost_max", rclcpp::ParameterValue(climbable_soft_cost_max_));
+    declareParameter("stale_timeout_sec", rclcpp::ParameterValue(stale_timeout_sec_));
     declareParameter("unknown_policy", rclcpp::ParameterValue(unknown_policy_));
 
     node->get_parameter(getFullName("enabled"), enabled_);
@@ -100,6 +107,7 @@ void TerrainTraversabilityLayer::onInitialize() {
     node->get_parameter(getFullName("inscribed_threshold"), inscribed_threshold_);
     node->get_parameter(getFullName("drop_lethal_threshold"), drop_lethal_threshold_);
     node->get_parameter(getFullName("climbable_soft_cost_max"), climbable_soft_cost_max_);
+    node->get_parameter(getFullName("stale_timeout_sec"), stale_timeout_sec_);
     node->get_parameter(getFullName("unknown_policy"), unknown_policy_);
 
     lethal_threshold_ = std::clamp(lethal_threshold_, 0.0, 1.0);
@@ -109,6 +117,7 @@ void TerrainTraversabilityLayer::onInitialize() {
     }
     drop_lethal_threshold_ = std::clamp(drop_lethal_threshold_, 0.0, 1.0);
     climbable_soft_cost_max_ = std::clamp(climbable_soft_cost_max_, 0.0, 252.0);
+    stale_timeout_sec_ = std::max(0.0, stale_timeout_sec_);
     unknown_policy_ = normalizePolicy(unknown_policy_);
     if (unknown_policy_ != "keep" && unknown_policy_ != "lethal" &&
         unknown_policy_ != "inscribed" && unknown_policy_ != "no_information") {
@@ -132,7 +141,7 @@ void TerrainTraversabilityLayer::onInitialize() {
         logger_,
         "TerrainTraversabilityLayer initialized: topic=%s traversability_layer=%s fresh_layer=%s "
         "drop_layer=%s climbable_layer=%s lethal_threshold=%.3f inscribed_threshold=%.3f "
-        "climbable_soft_cost_max=%.1f unknown_policy=%s",
+        "climbable_soft_cost_max=%.1f stale_timeout=%.3f unknown_policy=%s",
         terrain_grid_topic_.c_str(),
         traversability_layer_.c_str(),
         fresh_layer_.c_str(),
@@ -141,6 +150,7 @@ void TerrainTraversabilityLayer::onInitialize() {
         lethal_threshold_,
         inscribed_threshold_,
         climbable_soft_cost_max_,
+        stale_timeout_sec_,
         unknown_policy_.c_str());
 }
 
@@ -152,14 +162,12 @@ void TerrainTraversabilityLayer::terrainGridCallback(const grid_map_msgs::msg::G
     grid_map::GridMap converted;
     if (!grid_map::GridMapRosConverter::fromMessage(*msg, converted)) {
         RCLCPP_WARN_THROTTLE(logger_, *clock_, 2000, "Failed to convert terrain grid map message");
-        current_ = false;
         return;
     }
 
     std::lock_guard<std::mutex> lock(terrain_mutex_);
     terrain_map_ = std::make_shared<grid_map::GridMap>(std::move(converted));
     last_terrain_stamp_ = rclcpp::Time(msg->header.stamp);
-    current_ = true;
 }
 
 void TerrainTraversabilityLayer::updateBounds(double, double, double,
@@ -194,9 +202,11 @@ void TerrainTraversabilityLayer::updateCosts(nav2_costmap_2d::Costmap2D& master_
     }
 
     std::shared_ptr<grid_map::GridMap> terrain_map;
+    rclcpp::Time terrain_stamp(0, 0, RCL_ROS_TIME);
     {
         std::lock_guard<std::mutex> lock(terrain_mutex_);
         terrain_map = terrain_map_;
+        terrain_stamp = last_terrain_stamp_;
     }
 
     if (!terrain_map) {
@@ -212,6 +222,31 @@ void TerrainTraversabilityLayer::updateCosts(nav2_costmap_2d::Costmap2D& master_
             terrain_map->getFrameId().c_str(), global_frame.c_str());
         current_ = false;
         return;
+    }
+
+    if (stale_timeout_sec_ > 0.0 && terrain_stamp.nanoseconds() > 0) {
+        const double age_sec = (clock_->now() - terrain_stamp).seconds();
+        if (age_sec > stale_timeout_sec_) {
+            RCLCPP_WARN_THROTTLE(
+                logger_, *clock_, 3000,
+                "TerrainTraversabilityLayer input stale: age=%.3f timeout=%.3f",
+                age_sec, stale_timeout_sec_);
+
+            const int clamped_min_i = std::max(0, min_i);
+            const int clamped_min_j = std::max(0, min_j);
+            const int clamped_max_i = std::min(static_cast<int>(master_grid.getSizeInCellsX()), max_i);
+            const int clamped_max_j = std::min(static_cast<int>(master_grid.getSizeInCellsY()), max_j);
+            for (int j = clamped_min_j; j < clamped_max_j; ++j) {
+                for (int i = clamped_min_i; i < clamped_max_i; ++i) {
+                    applyUnknownPolicy(master_grid,
+                                       static_cast<unsigned int>(i),
+                                       static_cast<unsigned int>(j),
+                                       unknown_policy_);
+                }
+            }
+            current_ = false;
+            return;
+        }
     }
 
     const int clamped_min_i = std::max(0, min_i);
@@ -305,6 +340,9 @@ bool TerrainTraversabilityLayer::readLayerValue(const grid_map::GridMap& map,
 }
 
 void TerrainTraversabilityLayer::reset() {
+    std::lock_guard<std::mutex> lock(terrain_mutex_);
+    terrain_map_.reset();
+    last_terrain_stamp_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
     current_ = false;
 }
 
