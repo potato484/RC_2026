@@ -135,6 +135,7 @@ def generate_launch_description():
     enable_terrain_grid_map = LaunchConfiguration('enable_terrain_grid_map')
     terrain_params_file = LaunchConfiguration('terrain_params_file')
     terrain_grid_map_params_file = LaunchConfiguration('terrain_grid_map_params_file')
+    terrain_filter_chain_params_file = LaunchConfiguration('terrain_filter_chain_params_file')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     recover_mid360_lidar_ip = LaunchConfiguration('recover_mid360_lidar_ip')
     recover_mid360_host_ip = LaunchConfiguration('recover_mid360_host_ip')
@@ -206,6 +207,11 @@ def generate_launch_description():
         'terrain_grid_map_params_file',
         default_value=PathJoinSubstitution([terrain_dir, 'config', 'terrain_grid_map_bridge.yaml']),
         description='terrain_grid_map_bridge 参数文件')
+
+    declare_terrain_filter_chain_params_file = DeclareLaunchArgument(
+        'terrain_filter_chain_params_file',
+        default_value=PathJoinSubstitution([terrain_dir, 'config', 'terrain_filter_chain.yaml']),
+        description='terrain_grid_map_bridge filter chain 参数文件')
 
     declare_recover_mid360_stream = DeclareLaunchArgument(
         'recover_mid360_stream',
@@ -360,6 +366,7 @@ def generate_launch_description():
         output='screen',
         parameters=[
             terrain_grid_map_params_file,
+            terrain_filter_chain_params_file,
             {'use_sim_time': use_sim_time},
         ],
         condition=IfCondition(enable_terrain_grid_map)
@@ -423,6 +430,7 @@ def generate_launch_description():
         declare_enable_terrain_grid_map,
         declare_terrain_params_file,
         declare_terrain_grid_map_params_file,
+        declare_terrain_filter_chain_params_file,
         declare_recover_mid360_stream,
         declare_recover_mid360_lidar_ip,
         declare_recover_mid360_host_ip,

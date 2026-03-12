@@ -47,6 +47,7 @@ def generate_launch_description():
     params_file = LaunchConfiguration('params_file')
     terrain_params_file = LaunchConfiguration('terrain_params_file')
     terrain_grid_map_params_file = LaunchConfiguration('terrain_grid_map_params_file')
+    terrain_filter_chain_params_file = LaunchConfiguration('terrain_filter_chain_params_file')
     enable_terrain_grid_map = LaunchConfiguration('enable_terrain_grid_map')
     use_rviz = LaunchConfiguration('use_rviz')
     visualization_backend = LaunchConfiguration('visualization_backend')
@@ -118,6 +119,13 @@ def generate_launch_description():
             get_package_share_directory('rc26_terrain'), 'config', 'terrain_grid_map_bridge.yaml'
         ]),
         description='terrain_grid_map_bridge 参数文件')
+
+    declare_terrain_filter_chain_params_file = DeclareLaunchArgument(
+        'terrain_filter_chain_params_file',
+        default_value=PathJoinSubstitution([
+            get_package_share_directory('rc26_terrain'), 'config', 'terrain_filter_chain.yaml'
+        ]),
+        description='terrain_grid_map_bridge filter chain 参数文件')
 
     declare_enable_terrain_grid_map = DeclareLaunchArgument(
         'enable_terrain_grid_map',
@@ -347,7 +355,7 @@ def generate_launch_description():
     )
 
     # KFS keepout 融合节点
-    kfs_grid_layout = PathJoinSubstitution([kfs_keepout_dir, 'config', 'mf_grid_layout.yaml'])
+    kfs_grid_layout = PathJoinSubstitution([kfs_keepout_dir, 'config', 'r2_mf_world.yaml'])
     kfs_block_fuser_node = Node(
         package='rc26_kfs_keepout',
         executable='kfs_block_fuser_node',
@@ -384,6 +392,7 @@ def generate_launch_description():
         output='screen',
         parameters=[
             terrain_grid_map_params_file,
+            terrain_filter_chain_params_file,
             {'use_sim_time': use_sim_time},
         ],
         condition=IfCondition(terrain_grid_map_runtime)
@@ -563,6 +572,7 @@ def generate_launch_description():
         declare_params_file,
         declare_terrain_params_file,
         declare_terrain_grid_map_params_file,
+        declare_terrain_filter_chain_params_file,
         declare_enable_terrain_grid_map,
         declare_use_rviz,
         declare_visualization_backend,
