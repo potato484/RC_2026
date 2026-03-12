@@ -5,6 +5,12 @@
     output_topic: "/terrain_grid_map"
     publish_local_map: true
     output_topic_local: "/terrain_grid_map_local"
+    fusion_enable: true
+    fusion_publish_raw: true
+    output_topic_raw: "/terrain_grid_map_raw"
+    output_topic_local_raw: "/terrain_grid_map_local_raw"
+    fusion_time_constant_sec: 0.7
+    fusion_unknown_decay_sec: 1.2
     map_frame: "map"
     local_frame: "odom"
     base_frame: "base_link"
@@ -15,4 +21,7 @@
     step_edge_height_thresh_m: 0.10
     slope_norm_limit: 0.35
     roughness_norm_limit: 0.08
+    height_error_limit_m: 0.25
+    traversability_height_error_weight: 0.20
+    traversability_step_edge_weight: 0.20
     diagnostics_topic: "diagnostics"

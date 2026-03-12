@@ -45,6 +45,11 @@ constexpr const char* kLayerHeightError = "height_error";
 constexpr const char* kLayerEdgeStrength = "edge_strength";
 constexpr const char* kLayerStepEdgeMask = "step_edge_mask";
 constexpr const char* kLayerTraversability = "traversability";
+constexpr const char* kLayerAgeSec = "age_sec";
+constexpr const char* kLayerHitCount = "hit_count";
+constexpr const char* kLayerElevationFused = "elevation_fused";
+constexpr const char* kLayerTraversabilityFused = "traversability_fused";
+constexpr const char* kLayerStepEdgeConfidence = "step_edge_confidence";
 
 inline rclcpp::QoS makeFeatureQos() {
     return rclcpp::QoS(rclcpp::KeepLast(5))
@@ -92,6 +97,12 @@ TerrainGridMapBridge::TerrainGridMapBridge(const rclcpp::NodeOptions& options)
     this->declare_parameter<std::string>("output_topic", output_topic_);
     this->declare_parameter<bool>("publish_local_map", publish_local_map_);
     this->declare_parameter<std::string>("output_topic_local", output_topic_local_);
+    this->declare_parameter<bool>("fusion_enable", fusion_enable_);
+    this->declare_parameter<bool>("fusion_publish_raw", fusion_publish_raw_);
+    this->declare_parameter<std::string>("output_topic_raw", output_topic_raw_);
+    this->declare_parameter<std::string>("output_topic_local_raw", output_topic_local_raw_);
+    this->declare_parameter<double>("fusion_time_constant_sec", fusion_time_constant_sec_);
+    this->declare_parameter<double>("fusion_unknown_decay_sec", fusion_unknown_decay_sec_);
     this->declare_parameter<std::string>("map_frame", map_frame_);
     this->declare_parameter<std::string>("local_frame", local_frame_);
     this->declare_parameter<std::string>("base_frame", base_frame_);
@@ -102,6 +113,11 @@ TerrainGridMapBridge::TerrainGridMapBridge(const rclcpp::NodeOptions& options)
     this->declare_parameter<double>("step_edge_height_thresh_m", step_edge_height_thresh_m_);
     this->declare_parameter<double>("slope_norm_limit", slope_norm_limit_);
     this->declare_parameter<double>("roughness_norm_limit", roughness_norm_limit_);
+    this->declare_parameter<double>("height_error_limit_m", height_error_limit_m_);
+    this->declare_parameter<double>("traversability_height_error_weight",
+                                    traversability_height_error_weight_);
+    this->declare_parameter<double>("traversability_step_edge_weight",
+                                    traversability_step_edge_weight_);
     this->declare_parameter<std::string>("diagnostics_topic", diagnostics_topic_);
 
     this->get_parameter("terrain_features_topic", terrain_features_topic_);
@@ -109,6 +125,12 @@ TerrainGridMapBridge::TerrainGridMapBridge(const rclcpp::NodeOptions& options)
     this->get_parameter("output_topic", output_topic_);
     this->get_parameter("publish_local_map", publish_local_map_);
     this->get_parameter("output_topic_local", output_topic_local_);
+    this->get_parameter("fusion_enable", fusion_enable_);
+    this->get_parameter("fusion_publish_raw", fusion_publish_raw_);
+    this->get_parameter("output_topic_raw", output_topic_raw_);
+    this->get_parameter("output_topic_local_raw", output_topic_local_raw_);
+    this->get_parameter("fusion_time_constant_sec", fusion_time_constant_sec_);
+    this->get_parameter("fusion_unknown_decay_sec", fusion_unknown_decay_sec_);
     this->get_parameter("map_frame", map_frame_);
     this->get_parameter("local_frame", local_frame_);
     this->get_parameter("base_frame", base_frame_);
@@ -119,13 +141,25 @@ TerrainGridMapBridge::TerrainGridMapBridge(const rclcpp::NodeOptions& options)
     this->get_parameter("step_edge_height_thresh_m", step_edge_height_thresh_m_);
     this->get_parameter("slope_norm_limit", slope_norm_limit_);
     this->get_parameter("roughness_norm_limit", roughness_norm_limit_);
+    this->get_parameter("height_error_limit_m", height_error_limit_m_);
+    this->get_parameter("traversability_height_error_weight",
+                        traversability_height_error_weight_);
+    this->get_parameter("traversability_step_edge_weight",
+                        traversability_step_edge_weight_);
     this->get_parameter("diagnostics_topic", diagnostics_topic_);
 
     tf_timeout_sec_ = std::max(0.01, tf_timeout_sec_);
     keepout_stale_timeout_sec_ = std::max(0.01, keepout_stale_timeout_sec_);
+    fusion_time_constant_sec_ = std::max(1e-3, fusion_time_constant_sec_);
+    fusion_unknown_decay_sec_ = std::max(0.0, fusion_unknown_decay_sec_);
     step_edge_height_thresh_m_ = std::max(0.0, step_edge_height_thresh_m_);
     slope_norm_limit_ = std::max(1e-6, slope_norm_limit_);
     roughness_norm_limit_ = std::max(1e-6, roughness_norm_limit_);
+    height_error_limit_m_ = std::max(1e-6, height_error_limit_m_);
+    traversability_height_error_weight_ =
+        std::clamp(traversability_height_error_weight_, 0.0, 1.0);
+    traversability_step_edge_weight_ =
+        std::clamp(traversability_step_edge_weight_, 0.0, 1.0);
 
     if (enable_mf_semantics_) {
         if (mf_grid_layout_file_.empty()) {
@@ -159,6 +193,14 @@ TerrainGridMapBridge::TerrainGridMapBridge(const rclcpp::NodeOptions& options)
         pub_grid_map_local_ =
             this->create_publisher<grid_map_msgs::msg::GridMap>(output_topic_local_, makeOutputQos());
     }
+    if (fusion_publish_raw_) {
+        pub_grid_map_raw_ =
+            this->create_publisher<grid_map_msgs::msg::GridMap>(output_topic_raw_, makeOutputQos());
+        if (publish_local_map_) {
+            pub_grid_map_local_raw_ =
+                this->create_publisher<grid_map_msgs::msg::GridMap>(output_topic_local_raw_, makeOutputQos());
+        }
+    }
     pub_diagnostics_ =
         this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(diagnostics_topic_, makeDiagnosticsQos());
 
@@ -173,14 +215,22 @@ TerrainGridMapBridge::TerrainGridMapBridge(const rclcpp::NodeOptions& options)
     RCLCPP_INFO(
         this->get_logger(),
         "terrain_grid_map_bridge started: feature_topic=%s keepout_topic=%s output_topic=%s map_frame=%s "
-        "publish_local_map=%s output_topic_local=%s local_frame=%s",
+        "publish_local_map=%s output_topic_local=%s local_frame=%s fusion_enable=%s "
+        "fusion_publish_raw=%s output_topic_raw=%s output_topic_local_raw=%s "
+        "fusion_tau=%.2f fusion_decay=%.2f",
         terrain_features_topic_.c_str(),
         kfs_mask_topic_.c_str(),
         output_topic_.c_str(),
         map_frame_.c_str(),
         publish_local_map_ ? "true" : "false",
         output_topic_local_.c_str(),
-        local_frame_.c_str());
+        local_frame_.c_str(),
+        fusion_enable_ ? "true" : "false",
+        fusion_publish_raw_ ? "true" : "false",
+        output_topic_raw_.c_str(),
+        output_topic_local_raw_.c_str(),
+        fusion_time_constant_sec_,
+        fusion_unknown_decay_sec_);
 }
 
 void TerrainGridMapBridge::keepoutCallback(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr& msg) {
@@ -312,6 +362,13 @@ void TerrainGridMapBridge::featureCallback(
         kLayerKfsKeepout,
         kLayerTraversability,
     };
+    if (fusion_enable_) {
+        layers.push_back(kLayerAgeSec);
+        layers.push_back(kLayerHitCount);
+        layers.push_back(kLayerElevationFused);
+        layers.push_back(kLayerTraversabilityFused);
+        layers.push_back(kLayerStepEdgeConfidence);
+    }
     if (enable_mf_semantics_) {
         layers.push_back(kLayerBlockId);
         layers.push_back(kLayerExpectedHeight);
@@ -517,10 +574,21 @@ void TerrainGridMapBridge::featureCallback(
             max_term = std::max(max_term, 0.20f * roughness_norm);
             max_term = std::max(max_term, 0.25f * clamp01(obstacle_prob));
             max_term = std::max(max_term, 0.35f * clamp01(drop_prob));
-
-            const float kfs_keepout = output_map.at(kLayerKfsKeepout, index);
-            if (isFinite(kfs_keepout)) {
-                max_term = std::max(max_term, clamp01(kfs_keepout));
+            if (semantics_active) {
+                const float height_error = output_map.at(kLayerHeightError, index);
+                if (isFinite(height_error)) {
+                    const float err_norm = clamp01(
+                        std::abs(height_error) / static_cast<float>(height_error_limit_m_));
+                    max_term = std::max(
+                        max_term,
+                        static_cast<float>(traversability_height_error_weight_) * err_norm);
+                }
+                const float step_edge = output_map.at(kLayerStepEdgeMask, index);
+                if (isFinite(step_edge)) {
+                    max_term = std::max(
+                        max_term,
+                        static_cast<float>(traversability_step_edge_weight_) * clamp01(step_edge));
+                }
             }
 
             output_map.at(kLayerTraversability, index) = clamp01(1.0f - max_term);
@@ -529,13 +597,188 @@ void TerrainGridMapBridge::featureCallback(
         return output_map;
     };
 
-    auto output_map = buildOutputMap(map_frame_,
-                                     base_x_map,
-                                     base_y_map,
-                                     base_z_map,
-                                     cos_yaw_map,
-                                     sin_yaw_map,
-                                     true);
+    auto output_map_raw = buildOutputMap(map_frame_,
+                                         base_x_map,
+                                         base_y_map,
+                                         base_z_map,
+                                         cos_yaw_map,
+                                         sin_yaw_map,
+                                         true);
+    auto output_map = output_map_raw;
+
+    if (fusion_enable_) {
+        const double dt_sec =
+            (last_fusion_stamp_.nanoseconds() > 0 &&
+             feature_stamp.nanoseconds() > last_fusion_stamp_.nanoseconds())
+                ? (feature_stamp - last_fusion_stamp_).seconds()
+                : fusion_time_constant_sec_;
+        const float alpha = static_cast<float>(std::clamp(
+            dt_sec / std::max(1e-3, fusion_time_constant_sec_), 0.0, 1.0));
+
+        const std::array<const char*, 14> kBlendLayers = {
+            kLayerElevationAbs,     kLayerElevationTopAbs, kLayerSigmaH,      kLayerDensity,
+            kLayerSlope,            kLayerSlopeX,          kLayerSlopeY,      kLayerRoughness,
+            kLayerObstacleProb,     kLayerDropProb,        kLayerStepUp,      kLayerClimbableProb,
+            kLayerTraversability,   kLayerEdgeStrength,
+        };
+        const std::array<const char*, 4> kCarryOnlyLayers = {
+            kLayerBlockId, kLayerExpectedHeight, kLayerHeightError, kLayerStepEdgeMask,
+        };
+
+        const auto readPrevValue = [&](const char* layer,
+                                       const grid_map::Position& position,
+                                       float& value) -> bool {
+            if (!fused_map_.has_value() || !fused_map_->exists(layer)) {
+                return false;
+            }
+            grid_map::Index prev_index;
+            if (!fused_map_->getIndex(position, prev_index)) {
+                return false;
+            }
+            if (!fused_map_->isValid(prev_index, layer)) {
+                return false;
+            }
+            value = fused_map_->at(layer, prev_index);
+            return isFinite(value);
+        };
+
+        for (grid_map::GridMapIterator it(output_map); !it.isPastEnd(); ++it) {
+            const grid_map::Index index(*it);
+            grid_map::Position position;
+            if (!output_map.getPosition(index, position)) {
+                continue;
+            }
+
+            const bool raw_fresh = output_map.at(kLayerFresh, index) > 0.5f;
+            float prev_age = 0.0f;
+            float prev_hit_count = 0.0f;
+            const bool has_prev_age = readPrevValue(kLayerAgeSec, position, prev_age);
+            const bool has_prev_hit = readPrevValue(kLayerHitCount, position, prev_hit_count);
+            const float updated_hit = has_prev_hit ? prev_hit_count + 1.0f : 1.0f;
+
+            auto blendLayerIfPossible = [&](const char* layer) {
+                if (!output_map.exists(layer)) {
+                    return;
+                }
+                if (!output_map.isValid(index, layer)) {
+                    return;
+                }
+                float prev_value = 0.0f;
+                if (!readPrevValue(layer, position, prev_value)) {
+                    return;
+                }
+                const float raw_value = output_map.at(layer, index);
+                output_map.at(layer, index) = (1.0f - alpha) * prev_value + alpha * raw_value;
+            };
+
+            auto copyPreviousIfExists = [&](const char* layer) {
+                if (!output_map.exists(layer)) {
+                    return;
+                }
+                float prev_value = 0.0f;
+                if (readPrevValue(layer, position, prev_value)) {
+                    output_map.at(layer, index) = prev_value;
+                } else {
+                    output_map.at(layer, index) = kNaNf;
+                }
+            };
+
+            if (raw_fresh) {
+                for (const auto* layer : kBlendLayers) {
+                    blendLayerIfPossible(layer);
+                }
+                for (const auto* layer : kCarryOnlyLayers) {
+                    if (!output_map.exists(layer) || !output_map.isValid(index, layer)) {
+                        copyPreviousIfExists(layer);
+                    }
+                }
+
+                float prev_conf = 0.0f;
+                const bool has_prev_conf = readPrevValue(kLayerStepEdgeConfidence, position, prev_conf);
+                float edge_mask = 0.0f;
+                if (output_map.exists(kLayerStepEdgeMask) && output_map.isValid(index, kLayerStepEdgeMask)) {
+                    edge_mask = clamp01(output_map.at(kLayerStepEdgeMask, index));
+                }
+                output_map.at(kLayerStepEdgeConfidence, index) =
+                    has_prev_conf ? ((1.0f - alpha) * prev_conf + alpha * edge_mask) : edge_mask;
+                output_map.at(kLayerAgeSec, index) = 0.0f;
+                output_map.at(kLayerHitCount, index) = updated_hit;
+            } else {
+                const float age_next = has_prev_age ? (prev_age + static_cast<float>(dt_sec))
+                                                    : std::numeric_limits<float>::infinity();
+                const bool keep_memory =
+                    has_prev_age && std::isfinite(age_next) &&
+                    age_next <= static_cast<float>(fusion_unknown_decay_sec_);
+                if (keep_memory) {
+                    for (const auto* layer : kBlendLayers) {
+                        copyPreviousIfExists(layer);
+                    }
+                    for (const auto* layer : kCarryOnlyLayers) {
+                        copyPreviousIfExists(layer);
+                    }
+                    float prev_conf = 0.0f;
+                    if (readPrevValue(kLayerStepEdgeConfidence, position, prev_conf)) {
+                        const float decay =
+                            static_cast<float>(std::exp(-dt_sec / fusion_time_constant_sec_));
+                        output_map.at(kLayerStepEdgeConfidence, index) = prev_conf * decay;
+                    } else {
+                        output_map.at(kLayerStepEdgeConfidence, index) = kNaNf;
+                    }
+                    output_map.at(kLayerFresh, index) = 1.0f;
+                    output_map.at(kLayerAgeSec, index) = age_next;
+                    output_map.at(kLayerHitCount, index) = has_prev_hit ? prev_hit_count : 0.0f;
+                } else {
+                    for (const auto* layer : kBlendLayers) {
+                        if (output_map.exists(layer)) {
+                            output_map.at(layer, index) = kNaNf;
+                        }
+                    }
+                    for (const auto* layer : kCarryOnlyLayers) {
+                        if (output_map.exists(layer)) {
+                            output_map.at(layer, index) = kNaNf;
+                        }
+                    }
+                    if (output_map.exists(kLayerStepEdgeConfidence)) {
+                        output_map.at(kLayerStepEdgeConfidence, index) = kNaNf;
+                    }
+                    output_map.at(kLayerFresh, index) = 0.0f;
+                    output_map.at(kLayerAgeSec, index) = age_next;
+                    output_map.at(kLayerHitCount, index) = has_prev_hit ? prev_hit_count : 0.0f;
+                }
+            }
+
+            if (output_map.exists(kLayerElevationFused)) {
+                if (output_map.isValid(index, kLayerElevationAbs)) {
+                    output_map.at(kLayerElevationFused, index) =
+                        output_map.at(kLayerElevationAbs, index);
+                } else {
+                    output_map.at(kLayerElevationFused, index) = kNaNf;
+                }
+            }
+            if (output_map.exists(kLayerTraversabilityFused)) {
+                if (output_map.isValid(index, kLayerTraversability)) {
+                    output_map.at(kLayerTraversabilityFused, index) =
+                        output_map.at(kLayerTraversability, index);
+                } else {
+                    output_map.at(kLayerTraversabilityFused, index) = kNaNf;
+                }
+            }
+        }
+
+        fused_map_ = output_map;
+        last_fusion_stamp_ = feature_stamp;
+    } else {
+        fused_map_.reset();
+        last_fusion_stamp_ = feature_stamp;
+    }
+
+    if (fusion_publish_raw_ && pub_grid_map_raw_) {
+        auto output_msg_raw = grid_map::GridMapRosConverter::toMessage(output_map_raw);
+        if (output_msg_raw) {
+            pub_grid_map_raw_->publish(std::move(*output_msg_raw));
+        }
+    }
+
     auto output_msg = grid_map::GridMapRosConverter::toMessage(output_map);
     if (output_msg) {
         pub_grid_map_->publish(std::move(*output_msg));
@@ -543,14 +786,20 @@ void TerrainGridMapBridge::featureCallback(
 
     if (publish_local_map_ && pub_grid_map_local_) {
         const bool sample_local_keepout = keepout_available && (local_frame_ == map_frame_);
-        auto output_map_local = buildOutputMap(local_frame_,
-                                               base_x_local,
-                                               base_y_local,
-                                               base_z_local,
-                                               cos_yaw_local,
-                                               sin_yaw_local,
-                                               sample_local_keepout);
-        auto output_msg_local = grid_map::GridMapRosConverter::toMessage(output_map_local);
+        auto output_map_local_raw = buildOutputMap(local_frame_,
+                                                   base_x_local,
+                                                   base_y_local,
+                                                   base_z_local,
+                                                   cos_yaw_local,
+                                                   sin_yaw_local,
+                                                   sample_local_keepout);
+        if (fusion_publish_raw_ && pub_grid_map_local_raw_) {
+            auto output_msg_local_raw = grid_map::GridMapRosConverter::toMessage(output_map_local_raw);
+            if (output_msg_local_raw) {
+                pub_grid_map_local_raw_->publish(std::move(*output_msg_local_raw));
+            }
+        }
+        auto output_msg_local = grid_map::GridMapRosConverter::toMessage(output_map_local_raw);
         if (output_msg_local) {
             pub_grid_map_local_->publish(std::move(*output_msg_local));
         }
@@ -791,6 +1040,12 @@ void TerrainGridMapBridge::publishDiagnostics(const rclcpp::Time& stamp,
     add_key_value("output_topic", output_topic_);
     add_key_value("publish_local_map", publish_local_map_ ? "true" : "false");
     add_key_value("output_topic_local", output_topic_local_);
+    add_key_value("fusion_enable", fusion_enable_ ? "true" : "false");
+    add_key_value("fusion_publish_raw", fusion_publish_raw_ ? "true" : "false");
+    add_key_value("output_topic_raw", output_topic_raw_);
+    add_key_value("output_topic_local_raw", output_topic_local_raw_);
+    add_key_value("fusion_time_constant_sec", std::to_string(fusion_time_constant_sec_));
+    add_key_value("fusion_unknown_decay_sec", std::to_string(fusion_unknown_decay_sec_));
     add_key_value("map_frame", map_frame_);
     add_key_value("local_frame", local_frame_);
     add_key_value("base_frame", base_frame_);
@@ -801,6 +1056,11 @@ void TerrainGridMapBridge::publishDiagnostics(const rclcpp::Time& stamp,
     add_key_value("mf_layout_team", mf_layout_team_);
     add_key_value("mf_layout_file", mf_grid_layout_file_);
     add_key_value("mf_layout_status", mf_layout_status_);
+    add_key_value("height_error_limit_m", std::to_string(height_error_limit_m_));
+    add_key_value("traversability_height_error_weight",
+                  std::to_string(traversability_height_error_weight_));
+    add_key_value("traversability_step_edge_weight",
+                  std::to_string(traversability_step_edge_weight_));
 
     diagnostic_msgs::msg::DiagnosticArray diagnostics_msg;
     diagnostics_msg.header.stamp = stamp;

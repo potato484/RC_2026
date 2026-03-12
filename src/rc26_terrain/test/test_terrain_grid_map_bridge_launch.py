@@ -136,6 +136,7 @@ class TestTerrainGridMapBridgeLaunch(unittest.TestCase):
         terrain_qos.durability = DurabilityPolicy.VOLATILE
 
         grid_msgs = []
+        grid_raw_msgs = []
         local_grid_msgs = []
         obstacle_msgs = []
         drop_msgs = []
@@ -150,6 +151,12 @@ class TestTerrainGridMapBridgeLaunch(unittest.TestCase):
             GridMap,
             "/terrain_grid_map_local",
             lambda msg: local_grid_msgs.append(msg),
+            grid_qos,
+        )
+        sub_grid_raw = node.create_subscription(
+            GridMap,
+            "/terrain_grid_map_raw",
+            lambda msg: grid_raw_msgs.append(msg),
             grid_qos,
         )
         sub_obstacle = node.create_subscription(
@@ -169,13 +176,19 @@ class TestTerrainGridMapBridgeLaunch(unittest.TestCase):
         try:
             while time.time() < deadline:
                 executor.spin_once(timeout_sec=0.2)
-                if (len(grid_msgs) >= 2 and len(local_grid_msgs) >= 2 and
+                if (len(grid_msgs) >= 2 and len(grid_raw_msgs) >= 2 and len(local_grid_msgs) >= 2 and
                         len(obstacle_msgs) >= 2 and len(drop_msgs) >= 2):
                     break
 
             self.assertGreaterEqual(len(grid_msgs), 1, "/terrain_grid_map 未收到消息")
             latest = grid_msgs[-1]
             self.assertEqual(latest.header.frame_id, "map")
+            self.assertIn("age_sec", set(latest.layers))
+            self.assertIn("hit_count", set(latest.layers))
+
+            self.assertGreaterEqual(len(grid_raw_msgs), 1, "/terrain_grid_map_raw 未收到消息")
+            latest_raw = grid_raw_msgs[-1]
+            self.assertEqual(latest_raw.header.frame_id, "map")
 
             self.assertGreaterEqual(len(local_grid_msgs), 1, "/terrain_grid_map_local 未收到消息")
             latest_local = local_grid_msgs[-1]
@@ -204,6 +217,7 @@ class TestTerrainGridMapBridgeLaunch(unittest.TestCase):
         finally:
             node.destroy_subscription(sub_grid)
             node.destroy_subscription(sub_grid_local)
+            node.destroy_subscription(sub_grid_raw)
             node.destroy_subscription(sub_obstacle)
             node.destroy_subscription(sub_drop)
             executor.remove_node(node)

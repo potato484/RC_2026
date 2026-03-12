@@ -37,6 +37,8 @@ constexpr const char* kLayerBlockId = "block_id";
 constexpr const char* kLayerExpectedHeight = "expected_height";
 constexpr const char* kLayerHeightError = "height_error";
 constexpr const char* kLayerTraversability = "traversability";
+constexpr const char* kLayerAgeSec = "age_sec";
+constexpr const char* kLayerHitCount = "hit_count";
 
 class TerrainGridMapBridgeTest : public ::testing::Test {
 protected:
@@ -85,6 +87,16 @@ protected:
                 last_grid_map_msg_ = msg;
                 ++grid_map_msg_count_;
             });
+        grid_map_raw_sub_ = harness_node_->create_subscription<grid_map_msgs::msg::GridMap>(
+            "/terrain_grid_map_raw",
+            rclcpp::QoS(rclcpp::KeepLast(1))
+                .reliable()
+                .durability(rclcpp::DurabilityPolicy::TransientLocal),
+            [this](const grid_map_msgs::msg::GridMap::SharedPtr msg) {
+                std::lock_guard<std::mutex> lock(raw_map_mutex_);
+                last_grid_map_raw_msg_ = msg;
+                ++grid_map_raw_msg_count_;
+            });
 
         local_grid_map_sub_ = harness_node_->create_subscription<grid_map_msgs::msg::GridMap>(
             "/terrain_grid_map_local",
@@ -103,6 +115,7 @@ protected:
     void TearDown() override {
         local_grid_map_sub_.reset();
         grid_map_sub_.reset();
+        grid_map_raw_sub_.reset();
         static_tf_broadcaster_.reset();
         keepout_pub_.reset();
         feature_pub_.reset();
@@ -128,6 +141,11 @@ protected:
             last_local_grid_map_msg_.reset();
             local_grid_map_msg_count_ = 0;
         }
+        {
+            std::lock_guard<std::mutex> lock(raw_map_mutex_);
+            last_grid_map_raw_msg_.reset();
+            grid_map_raw_msg_count_ = 0;
+        }
     }
 
     rclcpp::NodeOptions makeBridgeOptions(bool enable_mf_semantics) const {
@@ -142,6 +160,12 @@ protected:
             rclcpp::Parameter("output_topic", "/terrain_grid_map"),
             rclcpp::Parameter("publish_local_map", true),
             rclcpp::Parameter("output_topic_local", "/terrain_grid_map_local"),
+            rclcpp::Parameter("fusion_enable", true),
+            rclcpp::Parameter("fusion_publish_raw", true),
+            rclcpp::Parameter("output_topic_raw", "/terrain_grid_map_raw"),
+            rclcpp::Parameter("output_topic_local_raw", "/terrain_grid_map_local_raw"),
+            rclcpp::Parameter("fusion_time_constant_sec", 0.4),
+            rclcpp::Parameter("fusion_unknown_decay_sec", 1.0),
             rclcpp::Parameter("map_frame", "map"),
             rclcpp::Parameter("local_frame", "odom"),
             rclcpp::Parameter("base_frame", "base_link"),
@@ -152,6 +176,9 @@ protected:
             rclcpp::Parameter("step_edge_height_thresh_m", 0.10),
             rclcpp::Parameter("slope_norm_limit", 0.35),
             rclcpp::Parameter("roughness_norm_limit", 0.08),
+            rclcpp::Parameter("height_error_limit_m", 0.25),
+            rclcpp::Parameter("traversability_height_error_weight", 0.2),
+            rclcpp::Parameter("traversability_step_edge_weight", 0.2),
             rclcpp::Parameter("diagnostics_topic", "diagnostics"),
         });
         return bridge_options;
@@ -258,6 +285,11 @@ protected:
         return local_grid_map_msg_count_;
     }
 
+    size_t currentRawGridMapCount() const {
+        std::lock_guard<std::mutex> lock(raw_map_mutex_);
+        return grid_map_raw_msg_count_;
+    }
+
     bool waitForNewGridMap(size_t previous_count, std::chrono::milliseconds timeout) {
         const auto deadline = std::chrono::steady_clock::now() + timeout;
         while (std::chrono::steady_clock::now() < deadline) {
@@ -288,6 +320,21 @@ protected:
         return false;
     }
 
+    bool waitForNewRawGridMap(size_t previous_count, std::chrono::milliseconds timeout) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (std::chrono::steady_clock::now() < deadline) {
+            executor_->spin_some();
+            {
+                std::lock_guard<std::mutex> lock(raw_map_mutex_);
+                if (grid_map_raw_msg_count_ > previous_count) {
+                    return true;
+                }
+            }
+            std::this_thread::sleep_for(5ms);
+        }
+        return false;
+    }
+
     grid_map_msgs::msg::GridMap::SharedPtr takeLastGridMap() const {
         std::lock_guard<std::mutex> lock(map_mutex_);
         return last_grid_map_msg_;
@@ -296,6 +343,11 @@ protected:
     grid_map_msgs::msg::GridMap::SharedPtr takeLastLocalGridMap() const {
         std::lock_guard<std::mutex> lock(local_map_mutex_);
         return last_local_grid_map_msg_;
+    }
+
+    grid_map_msgs::msg::GridMap::SharedPtr takeLastRawGridMap() const {
+        std::lock_guard<std::mutex> lock(raw_map_mutex_);
+        return last_grid_map_raw_msg_;
     }
 
     bool convertToGridMap(const grid_map_msgs::msg::GridMap& msg, grid_map::GridMap& map) const {
@@ -309,11 +361,15 @@ protected:
     rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr keepout_pub_;
     std::shared_ptr<tf2_ros::StaticTransformBroadcaster> static_tf_broadcaster_;
     rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr grid_map_sub_;
+    rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr grid_map_raw_sub_;
     rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr local_grid_map_sub_;
 
     mutable std::mutex map_mutex_;
     grid_map_msgs::msg::GridMap::SharedPtr last_grid_map_msg_;
     size_t grid_map_msg_count_{0};
+    mutable std::mutex raw_map_mutex_;
+    grid_map_msgs::msg::GridMap::SharedPtr last_grid_map_raw_msg_;
+    size_t grid_map_raw_msg_count_{0};
     mutable std::mutex local_map_mutex_;
     grid_map_msgs::msg::GridMap::SharedPtr last_local_grid_map_msg_;
     size_t local_grid_map_msg_count_{0};
@@ -344,6 +400,45 @@ TEST_F(TerrainGridMapBridgeTest, RecoversAbsoluteElevationLayers) {
     ASSERT_TRUE(map.isValid(index, kLayerElevationTopAbs));
     EXPECT_NEAR(map.at(kLayerElevationAbs, index), 1.2, 1e-4);
     EXPECT_NEAR(map.at(kLayerElevationTopAbs, index), 1.5, 1e-4);
+}
+
+TEST_F(TerrainGridMapBridgeTest, PublishesRawAndFusedMapsWithFusionLayers) {
+    publishMapToBaseStaticTransform(0.0, 0.0, 0.8, 0.0);
+
+    auto feature = makeFeatureGrid(5, 1.0f);
+    const size_t center = static_cast<size_t>(2 * 5 + 2);
+    feature.h_ground[center] = 0.15f;
+
+    const size_t before_fused = currentGridMapCount();
+    const size_t before_raw = currentRawGridMapCount();
+    feature_pub_->publish(feature);
+    ASSERT_TRUE(waitForNewGridMap(before_fused, 2s));
+    ASSERT_TRUE(waitForNewRawGridMap(before_raw, 2s));
+
+    const auto fused_msg = takeLastGridMap();
+    const auto raw_msg = takeLastRawGridMap();
+    ASSERT_NE(fused_msg, nullptr);
+    ASSERT_NE(raw_msg, nullptr);
+
+    grid_map::GridMap fused_map;
+    grid_map::GridMap raw_map;
+    ASSERT_TRUE(convertToGridMap(*fused_msg, fused_map));
+    ASSERT_TRUE(convertToGridMap(*raw_msg, raw_map));
+
+    grid_map::Index fused_index;
+    grid_map::Index raw_index;
+    ASSERT_TRUE(fused_map.getIndex(grid_map::Position(0.0, 0.0), fused_index));
+    ASSERT_TRUE(raw_map.getIndex(grid_map::Position(0.0, 0.0), raw_index));
+
+    ASSERT_TRUE(fused_map.exists(kLayerAgeSec));
+    ASSERT_TRUE(fused_map.exists(kLayerHitCount));
+    ASSERT_TRUE(raw_map.exists(kLayerAgeSec));
+    ASSERT_TRUE(raw_map.exists(kLayerHitCount));
+
+    EXPECT_NEAR(fused_map.at(kLayerAgeSec, fused_index), 0.0, 1e-5);
+    EXPECT_GE(fused_map.at(kLayerHitCount, fused_index), 1.0);
+    EXPECT_TRUE(std::isnan(raw_map.at(kLayerAgeSec, raw_index)));
+    EXPECT_TRUE(std::isnan(raw_map.at(kLayerHitCount, raw_index)));
 }
 
 TEST_F(TerrainGridMapBridgeTest, PublishesLocalMapWithSlopeLayersInOdomFrame) {
