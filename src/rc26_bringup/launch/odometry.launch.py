@@ -6,6 +6,7 @@
   - rc26_odom_interface (坐标变换: lidar_odom -> odom)
   - rc26_sensor_scan (发布 odom -> chassis 变换 + sensor_scan)
   - rc26_lio_state_predictor (可选，提供控制态预测)
+  - rc26_terrain + terrain_grid_map_bridge (可选，发布 2.5D terrain grid map)
 """
 import os
 
@@ -117,6 +118,7 @@ def generate_launch_description():
     bringup_dir = get_package_share_directory('rc26_bringup')
     point_lio_dir = get_package_share_directory('rc26_point_lio')
     mid360_driver_dir = get_package_share_directory('rc26_mid360_driver')
+    terrain_dir = get_package_share_directory('rc26_terrain')
 
     # 启动参数
     namespace = LaunchConfiguration('namespace')
@@ -130,6 +132,9 @@ def generate_launch_description():
     point_lio_publish_odometry_without_downsample = LaunchConfiguration(
         'point_lio_publish_odometry_without_downsample')
     enable_lio_state_predictor = LaunchConfiguration('enable_lio_state_predictor')
+    enable_terrain_grid_map = LaunchConfiguration('enable_terrain_grid_map')
+    terrain_params_file = LaunchConfiguration('terrain_params_file')
+    terrain_grid_map_params_file = LaunchConfiguration('terrain_grid_map_params_file')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     recover_mid360_lidar_ip = LaunchConfiguration('recover_mid360_lidar_ip')
     recover_mid360_host_ip = LaunchConfiguration('recover_mid360_host_ip')
@@ -186,6 +191,21 @@ def generate_launch_description():
         'enable_lio_state_predictor',
         default_value='true',
         description='是否启动 lio_state_predictor；纯建图最小模式建议关闭以减少 stale 告警和额外负载')
+
+    declare_enable_terrain_grid_map = DeclareLaunchArgument(
+        'enable_terrain_grid_map',
+        default_value='false',
+        description='是否额外启动 terrain_semantic + terrain_grid_map_bridge，以发布 /terrain_grid_map 2.5D 栅格地图')
+
+    declare_terrain_params_file = DeclareLaunchArgument(
+        'terrain_params_file',
+        default_value=PathJoinSubstitution([terrain_dir, 'config', 'terrain_semantic.yaml']),
+        description='rc26_terrain 参数文件')
+
+    declare_terrain_grid_map_params_file = DeclareLaunchArgument(
+        'terrain_grid_map_params_file',
+        default_value=PathJoinSubstitution([terrain_dir, 'config', 'terrain_grid_map_bridge.yaml']),
+        description='terrain_grid_map_bridge 参数文件')
 
     declare_recover_mid360_stream = DeclareLaunchArgument(
         'recover_mid360_stream',
@@ -319,6 +339,32 @@ def generate_launch_description():
         condition=IfCondition(enable_lio_state_predictor)
     )
 
+    terrain_semantic_node = Node(
+        package='rc26_terrain',
+        executable='rc26_terrain_node',
+        name='terrain_semantic',
+        namespace=namespace,
+        output='screen',
+        parameters=[
+            terrain_params_file,
+            {'use_sim_time': use_sim_time},
+        ],
+        condition=IfCondition(enable_terrain_grid_map)
+    )
+
+    terrain_grid_map_bridge_node = Node(
+        package='rc26_terrain',
+        executable='terrain_grid_map_bridge_node',
+        name='terrain_grid_map_bridge',
+        namespace=namespace,
+        output='screen',
+        parameters=[
+            terrain_grid_map_params_file,
+            {'use_sim_time': use_sim_time},
+        ],
+        condition=IfCondition(enable_terrain_grid_map)
+    )
+
     # 静态TF: base_link -> livox_frame (与 Point-LIO 外参对齐)
     static_tf_livox = Node(
         package='tf2_ros',
@@ -357,6 +403,11 @@ def generate_launch_description():
         condition=IfCondition(odometry_use_rviz)
     )
 
+    terrain_grid_map_notice = LogInfo(
+        msg='[odometry] enable_terrain_grid_map=true：额外启动 rc26_terrain 与 terrain_grid_map_bridge，用于发布 /terrain_grid_map 2.5D 栅格地图。',
+        condition=IfCondition(enable_terrain_grid_map)
+    )
+
     return LaunchDescription([
         # 参数声明
         declare_namespace,
@@ -369,6 +420,9 @@ def generate_launch_description():
         declare_point_lio_profile,
         declare_point_lio_publish_odometry_without_downsample,
         declare_enable_lio_state_predictor,
+        declare_enable_terrain_grid_map,
+        declare_terrain_params_file,
+        declare_terrain_grid_map_params_file,
         declare_recover_mid360_stream,
         declare_recover_mid360_lidar_ip,
         declare_recover_mid360_host_ip,
@@ -376,6 +430,7 @@ def generate_launch_description():
         declare_recover_mid360_warmup_before_reboot,
 
         # 节点
+        terrain_grid_map_notice,
         static_tf_livox,
         static_tf_point_lio_body,
         static_tf_control_livox,
@@ -386,5 +441,7 @@ def generate_launch_description():
         odom_interface_node,
         sensor_scan_node,
         lio_state_predictor_node,
+        terrain_semantic_node,
+        terrain_grid_map_bridge_node,
         rviz_node,
     ])

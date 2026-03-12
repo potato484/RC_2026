@@ -47,6 +47,7 @@ def generate_launch_description():
     params_file = LaunchConfiguration('params_file')
     terrain_params_file = LaunchConfiguration('terrain_params_file')
     terrain_grid_map_params_file = LaunchConfiguration('terrain_grid_map_params_file')
+    enable_terrain_grid_map = LaunchConfiguration('enable_terrain_grid_map')
     use_rviz = LaunchConfiguration('use_rviz')
     visualization_backend = LaunchConfiguration('visualization_backend')
     visualization_status_enable = LaunchConfiguration('visualization_status_enable')
@@ -118,6 +119,11 @@ def generate_launch_description():
         ]),
         description='terrain_grid_map_bridge 参数文件')
 
+    declare_enable_terrain_grid_map = DeclareLaunchArgument(
+        'enable_terrain_grid_map',
+        default_value='false',
+        description='是否额外启用 terrain_semantic + terrain_grid_map_bridge；可在 pure_mapping_mode 或独立建图时打开 2.5D 栅格地图显示')
+
     declare_use_rviz = DeclareLaunchArgument(
         'use_rviz',
         default_value='true',
@@ -171,6 +177,10 @@ def generate_launch_description():
     pure_mapping_runtime = PythonExpression([
         "'", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true'"
     ])
+    terrain_grid_map_runtime = PythonExpression([
+        "not ('", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true') "
+        "or '", enable_terrain_grid_map, "'.lower() == 'true'"
+    ])
 
     # RealSense D455（可选）
     realsense_launch = IncludeLaunchDescription(
@@ -206,6 +216,7 @@ def generate_launch_description():
             'enable_lio_state_predictor': PythonExpression([
                 "not ('", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true')"
             ]),
+            'enable_terrain_grid_map': 'false',
             'odometry_use_rviz': 'false',
             'recover_mid360_stream': recover_mid360_stream,
         }.items()
@@ -239,7 +250,7 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'terrain_params_file': terrain_params_file,
         }.items(),
-        condition=UnlessCondition(pure_mapping_runtime)
+        condition=IfCondition(terrain_grid_map_runtime)
     )
 
     # 地面高度估计 (rc26_base_ground)
@@ -368,7 +379,7 @@ def generate_launch_description():
             terrain_grid_map_params_file,
             {'use_sim_time': use_sim_time},
         ],
-        condition=UnlessCondition(pure_mapping_runtime)
+        condition=IfCondition(terrain_grid_map_runtime)
     )
 
     terrain_speed_limit_bridge_node = Node(
@@ -444,7 +455,7 @@ def generate_launch_description():
                 'summary.localization_present': True,
                 'summary.controller_present': PythonExpression(["not ('", slam, "'.lower() == 'true')"]),
                 'summary.keepout_present': PythonExpression(["not ('", slam, "'.lower() == 'true')"]),
-                'summary.terrain_present': PythonExpression(["not ('", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true')"]),
+                'summary.terrain_present': terrain_grid_map_runtime,
                 'summary.nav_safety_present': PythonExpression(["not ('", slam, "'.lower() == 'true')"]),
                 'summary.mechanism_present': True,
             },
@@ -454,7 +465,18 @@ def generate_launch_description():
 
     pure_mapping_notice = LogInfo(
         msg='[bringup] pure_mapping_mode 已启用：建图时仅保留 Point-LIO/odom_interface/localization 等最小运动链路，跳过 lio_state_predictor、rc26_terrain 和 rc26_decision，但继续发布 visualization_status 供前端显示。',
-        condition=IfCondition(pure_mapping_runtime)
+        condition=IfCondition(PythonExpression([
+            "'", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true' and '",
+            enable_terrain_grid_map, "'.lower() != 'true'"
+        ]))
+    )
+
+    pure_mapping_terrain_grid_notice = LogInfo(
+        msg='[bringup] pure_mapping_mode 已启用，同时 enable_terrain_grid_map=true：额外启动 rc26_terrain 与 terrain_grid_map_bridge，用于发布 /terrain_grid_map 2.5D 栅格地图。',
+        condition=IfCondition(PythonExpression([
+            "'", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true' and '",
+            enable_terrain_grid_map, "'.lower() == 'true'"
+        ]))
     )
 
     foxglove_bridge_node = Node(
@@ -529,6 +551,7 @@ def generate_launch_description():
         declare_params_file,
         declare_terrain_params_file,
         declare_terrain_grid_map_params_file,
+        declare_enable_terrain_grid_map,
         declare_use_rviz,
         declare_visualization_backend,
         declare_visualization_status_enable,
@@ -542,6 +565,7 @@ def generate_launch_description():
 
         # 启动模块
         pure_mapping_notice,
+        pure_mapping_terrain_grid_notice,
         odometry_launch,
         localization_launch,
         base_ground_node,
