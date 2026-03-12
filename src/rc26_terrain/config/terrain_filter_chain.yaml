@@ -1,0 +1,25 @@
+/**:
+  ros__parameters:
+    terrain_filter_chain:
+      filter1:
+        name: traversability_rule_fusion
+        type: gridMapFilters/MathExpressionFilter
+        params:
+          output_layer: traversability
+          expression: traversability_continuous * rule_legality
+
+      filter2:
+        name: traversability_lower_threshold
+        type: gridMapFilters/ThresholdFilter
+        params:
+          layer: traversability
+          lower_threshold: 0.0
+          set_to: 0.0
+
+      filter3:
+        name: traversability_upper_threshold
+        type: gridMapFilters/ThresholdFilter
+        params:
+          layer: traversability
+          upper_threshold: 1.0
+          set_to: 1.0

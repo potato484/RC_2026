@@ -18,6 +18,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp/executors/single_threaded_executor.hpp"
 #include "rclcpp/qos.hpp"
+#include "rc26_interfaces/msg/mf_kfs_cell.hpp"
+#include "rc26_interfaces/msg/mf_kfs_state.hpp"
 #include "rc26_interfaces/msg/terrain_feature_grid.hpp"
 #include "rc26_terrain/terrain_grid_map_bridge.hpp"
 #include "tf2/LinearMath/Quaternion.h"
@@ -37,6 +39,12 @@ constexpr const char* kLayerKfsKeepout = "kfs_keepout";
 constexpr const char* kLayerBlockId = "block_id";
 constexpr const char* kLayerExpectedHeight = "expected_height";
 constexpr const char* kLayerHeightError = "height_error";
+constexpr const char* kLayerBlockOccupied = "block_occupied";
+constexpr const char* kLayerTraversableEdgeMask = "traversable_edge_mask";
+constexpr const char* kLayerRampCorridorMask = "ramp_corridor_mask";
+constexpr const char* kLayerBattleApproachMask = "battle_approach_mask";
+constexpr const char* kLayerRuleLegality = "rule_legality";
+constexpr const char* kLayerTraversabilityContinuous = "traversability_continuous";
 constexpr const char* kLayerTraversability = "traversability";
 constexpr const char* kLayerAgeSec = "age_sec";
 constexpr const char* kLayerHitCount = "hit_count";
@@ -75,6 +83,9 @@ protected:
             rclcpp::QoS(rclcpp::KeepLast(1))
                 .reliable()
                 .durability(rclcpp::DurabilityPolicy::TransientLocal));
+        kfs_state_pub_ = harness_node_->create_publisher<rc26_interfaces::msg::MfKfsState>(
+            "/mf_kfs_state",
+            rclcpp::QoS(rclcpp::KeepLast(5)).reliable());
         static_tf_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(harness_node_);
         publishMapToOdomStaticTransform();
 
@@ -140,6 +151,7 @@ protected:
         grid_map_sub_.reset();
         grid_map_raw_sub_.reset();
         static_tf_broadcaster_.reset();
+        kfs_state_pub_.reset();
         keepout_pub_.reset();
         feature_pub_.reset();
 
@@ -184,7 +196,7 @@ protected:
     rclcpp::NodeOptions makeBridgeOptions(bool enable_mf_semantics) const {
         const auto mf_layout_file =
             ament_index_cpp::get_package_share_directory("rc26_kfs_keepout") +
-            "/config/mf_grid_layout.yaml";
+            "/config/r2_mf_world.yaml";
 
         rclcpp::NodeOptions bridge_options;
         bridge_options.parameter_overrides({
@@ -211,8 +223,13 @@ protected:
             rclcpp::Parameter("tf_timeout_sec", 0.2),
             rclcpp::Parameter("keepout_stale_timeout_sec", 0.15),
             rclcpp::Parameter("enable_mf_semantics", enable_mf_semantics),
+            rclcpp::Parameter("mf_world_layout_file", mf_layout_file),
             rclcpp::Parameter("mf_grid_layout_file", mf_layout_file),
+            rclcpp::Parameter("mf_kfs_state_topic", "/mf_kfs_state"),
+            rclcpp::Parameter("mf_kfs_min_confidence", 0.6),
+            rclcpp::Parameter("rule_legality_enforce_ramp_corridor", false),
             rclcpp::Parameter("step_edge_height_thresh_m", 0.10),
+            rclcpp::Parameter("traversable_edge_height_delta_limit_m", 0.25),
             rclcpp::Parameter("slope_norm_limit", 0.35),
             rclcpp::Parameter("roughness_norm_limit", 0.08),
             rclcpp::Parameter("height_error_limit_m", 0.25),
@@ -276,6 +293,19 @@ protected:
             -1, 0, 100,
         };
         return grid;
+    }
+
+    rc26_interfaces::msg::MfKfsState makeKfsState(uint8_t grid_id, uint8_t kfs_type, float confidence) const {
+        rc26_interfaces::msg::MfKfsState msg;
+        msg.header.stamp = nowAsMsg();
+        msg.header.frame_id = "map";
+        msg.team = "blue";
+        rc26_interfaces::msg::MfKfsCell cell;
+        cell.grid_id = grid_id;
+        cell.kfs_type = kfs_type;
+        cell.confidence = confidence;
+        msg.cells.push_back(cell);
+        return msg;
     }
 
     void publishMapToBaseStaticTransform(double x, double y, double z, double yaw_rad) {
@@ -448,6 +478,7 @@ protected:
     std::shared_ptr<rc26_terrain::TerrainGridMapBridge> bridge_node_;
     rclcpp::Publisher<rc26_interfaces::msg::TerrainFeatureGrid>::SharedPtr feature_pub_;
     rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr keepout_pub_;
+    rclcpp::Publisher<rc26_interfaces::msg::MfKfsState>::SharedPtr kfs_state_pub_;
     std::shared_ptr<tf2_ros::StaticTransformBroadcaster> static_tf_broadcaster_;
     rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr grid_map_sub_;
     rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr grid_map_raw_sub_;
@@ -715,11 +746,44 @@ TEST_F(TerrainGridMapBridgeTest, ProducesMfSemanticLayersFromLayout) {
     ASSERT_TRUE(map.isValid(index, kLayerBlockId));
     ASSERT_TRUE(map.isValid(index, kLayerExpectedHeight));
     ASSERT_TRUE(map.isValid(index, kLayerHeightError));
+    ASSERT_TRUE(map.isValid(index, kLayerRuleLegality));
+    ASSERT_TRUE(map.isValid(index, kLayerTraversabilityContinuous));
     ASSERT_TRUE(map.isValid(index, kLayerTraversability));
 
     EXPECT_NEAR(map.at(kLayerBlockId, index), 2.0, 1e-4);
     EXPECT_NEAR(map.at(kLayerExpectedHeight, index), 0.2, 1e-4);
     EXPECT_NEAR(map.at(kLayerHeightError, index), 0.05, 1e-3);
+    EXPECT_TRUE(map.exists(kLayerBlockOccupied));
+    EXPECT_TRUE(map.exists(kLayerTraversableEdgeMask));
+    EXPECT_TRUE(map.exists(kLayerRampCorridorMask));
+    EXPECT_TRUE(map.exists(kLayerBattleApproachMask));
+}
+
+TEST_F(TerrainGridMapBridgeTest, MapsMfKfsStateIntoBlockOccupiedAndRuleLegality) {
+    publishMapToBaseStaticTransform(1.2, 0.0, 0.0, 0.0);
+
+    kfs_state_pub_->publish(makeKfsState(2U, 2U, 1.0f));  // block 2 occupied by R2
+    spinFor(120ms);
+
+    auto feature = makeFeatureGrid(5, 1.0f);
+    const size_t before = currentGridMapCount();
+    feature_pub_->publish(feature);
+    ASSERT_TRUE(waitForNewGridMap(before, 2s));
+
+    const auto msg = takeLastGridMap();
+    ASSERT_NE(msg, nullptr);
+    grid_map::GridMap map;
+    ASSERT_TRUE(convertToGridMap(*msg, map));
+
+    grid_map::Index index;
+    ASSERT_TRUE(map.getIndex(grid_map::Position(1.2, 0.0), index));
+    ASSERT_TRUE(map.isValid(index, kLayerBlockOccupied));
+    ASSERT_TRUE(map.isValid(index, kLayerRuleLegality));
+    ASSERT_TRUE(map.isValid(index, kLayerTraversability));
+
+    EXPECT_NEAR(map.at(kLayerBlockOccupied, index), 1.0, 1e-5);
+    EXPECT_NEAR(map.at(kLayerRuleLegality, index), 0.0, 1e-5);
+    EXPECT_NEAR(map.at(kLayerTraversability, index), 0.0, 1e-5);
 }
 
 TEST_F(TerrainGridMapBridgeTest, RejectsMalformedFeatureGridMessages) {

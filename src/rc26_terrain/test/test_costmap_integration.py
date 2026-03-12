@@ -214,6 +214,7 @@ def generate_test_description():
         output="screen",
         parameters=[
             os.path.join(terrain_dir, "config", "terrain_grid_map_bridge.yaml"),
+            os.path.join(terrain_dir, "config", "terrain_filter_chain.yaml"),
             {
                 "use_sim_time": False,
                 "enable_mf_semantics": False,
