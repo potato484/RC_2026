@@ -135,11 +135,23 @@ void NmpcController::configure(const rclcpp_lifecycle::LifecycleNode::WeakPtr& p
                                       rclcpp::ParameterValue(std::string("roughness")));
     declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_step_up_layer",
                                       rclcpp::ParameterValue(std::string("step_up")));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_rule_legality_layer",
+                                      rclcpp::ParameterValue(std::string("rule_legality")));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_kfs_keepout_layer",
+                                      rclcpp::ParameterValue(std::string("kfs_keepout")));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_block_occupied_layer",
+                                      rclcpp::ParameterValue(std::string("block_occupied")));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_ramp_corridor_layer",
+                                      rclcpp::ParameterValue(std::string("ramp_corridor_mask")));
     declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_sample_count", rclcpp::ParameterValue(10));
     declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_horizon_points", rclcpp::ParameterValue(24));
     declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_scale_min", rclcpp::ParameterValue(0.35));
     declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_roughness_limit", rclcpp::ParameterValue(0.35));
     declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_step_up_limit", rclcpp::ParameterValue(0.08));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_rule_legality_threshold", rclcpp::ParameterValue(0.5));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_keepout_threshold", rclcpp::ParameterValue(0.5));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_block_occupied_threshold", rclcpp::ParameterValue(0.5));
+    declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_enforce_ramp_corridor", rclcpp::ParameterValue(false));
     declare_parameter_if_not_declared(node, plugin_name_ + ".terrain_stale_timeout_sec", rclcpp::ParameterValue(0.4));
 
     declare_parameter_if_not_declared(node, plugin_name_ + ".fallback_controller_id",
@@ -192,11 +204,19 @@ void NmpcController::configure(const rclcpp_lifecycle::LifecycleNode::WeakPtr& p
     node->get_parameter(plugin_name_ + ".terrain_fresh_layer", terrain_fresh_layer_);
     node->get_parameter(plugin_name_ + ".terrain_roughness_layer", terrain_roughness_layer_);
     node->get_parameter(plugin_name_ + ".terrain_step_up_layer", terrain_step_up_layer_);
+    node->get_parameter(plugin_name_ + ".terrain_rule_legality_layer", terrain_rule_legality_layer_);
+    node->get_parameter(plugin_name_ + ".terrain_kfs_keepout_layer", terrain_kfs_keepout_layer_);
+    node->get_parameter(plugin_name_ + ".terrain_block_occupied_layer", terrain_block_occupied_layer_);
+    node->get_parameter(plugin_name_ + ".terrain_ramp_corridor_layer", terrain_ramp_corridor_layer_);
     node->get_parameter(plugin_name_ + ".terrain_sample_count", terrain_sample_count_);
     node->get_parameter(plugin_name_ + ".terrain_horizon_points", terrain_horizon_points_);
     node->get_parameter(plugin_name_ + ".terrain_scale_min", terrain_scale_min_);
     node->get_parameter(plugin_name_ + ".terrain_roughness_limit", terrain_roughness_limit_);
     node->get_parameter(plugin_name_ + ".terrain_step_up_limit", terrain_step_up_limit_);
+    node->get_parameter(plugin_name_ + ".terrain_rule_legality_threshold", terrain_rule_legality_threshold_);
+    node->get_parameter(plugin_name_ + ".terrain_keepout_threshold", terrain_keepout_threshold_);
+    node->get_parameter(plugin_name_ + ".terrain_block_occupied_threshold", terrain_block_occupied_threshold_);
+    node->get_parameter(plugin_name_ + ".terrain_enforce_ramp_corridor", terrain_enforce_ramp_corridor_);
     node->get_parameter(plugin_name_ + ".terrain_stale_timeout_sec", terrain_stale_timeout_sec_);
 
     node->get_parameter(plugin_name_ + ".fallback_controller_id", fallback_controller_id_);
@@ -231,6 +251,9 @@ void NmpcController::configure(const rclcpp_lifecycle::LifecycleNode::WeakPtr& p
     terrain_scale_min_ = std::clamp(terrain_scale_min_, 0.05, 1.0);
     terrain_roughness_limit_ = std::max(1e-3, terrain_roughness_limit_);
     terrain_step_up_limit_ = std::max(1e-3, terrain_step_up_limit_);
+    terrain_rule_legality_threshold_ = std::clamp(terrain_rule_legality_threshold_, 0.0, 1.0);
+    terrain_keepout_threshold_ = std::clamp(terrain_keepout_threshold_, 0.0, 1.0);
+    terrain_block_occupied_threshold_ = std::clamp(terrain_block_occupied_threshold_, 0.0, 1.0);
     terrain_stale_timeout_sec_ = std::max(0.0, terrain_stale_timeout_sec_);
 
     control_state_sub_ = node->create_subscription<nav_msgs::msg::Odometry>(
@@ -384,6 +407,23 @@ geometry_msgs::msg::TwistStamped NmpcController::computeVelocityCommands(const g
     bool localization_red = false;
     const double quality_scale = computeQualityScale(now, localization_red);
     terrain_scale_ = computeTerrainScale(pose, now);
+    if (terrain_scale_ <= 1e-3) {
+        geometry_msgs::msg::TwistStamped out;
+        out.header = pose.header;
+        if (out.header.stamp.sec == 0 && out.header.stamp.nanosec == 0) {
+            out.header.stamp = now;
+        }
+        out.twist = geometry_msgs::msg::Twist();
+        last_command_ = out.twist;
+        has_last_command_ = true;
+        last_command_stamp_ = now;
+        if (controller_mode_pub_ && controller_mode_pub_->is_activated()) {
+            std_msgs::msg::String mode_msg;
+            mode_msg.data = "nmpc:terrain_blocked";
+            controller_mode_pub_->publish(mode_msg);
+        }
+        return out;
+    }
     const auto measured_velocity = readMeasuredVelocity(velocity, now);
 
     SolveReport solve_report;
@@ -772,6 +812,35 @@ double NmpcController::computeTerrainScale(const geometry_msgs::msg::PoseStamped
             float fresh = 0.0f;
             if (!readTerrainLayerValue(*terrain_map, terrain_fresh_layer_, sample_pos, fresh) || fresh < 0.5f) {
                 continue;
+            }
+        }
+
+        float rule_legality = 1.0f;
+        if (!terrain_rule_legality_layer_.empty() &&
+            readTerrainLayerValue(*terrain_map, terrain_rule_legality_layer_, sample_pos, rule_legality) &&
+            rule_legality <= static_cast<float>(terrain_rule_legality_threshold_)) {
+            return 0.0;
+        }
+
+        float keepout = 0.0f;
+        if (!terrain_kfs_keepout_layer_.empty() &&
+            readTerrainLayerValue(*terrain_map, terrain_kfs_keepout_layer_, sample_pos, keepout) &&
+            keepout >= static_cast<float>(terrain_keepout_threshold_)) {
+            return 0.0;
+        }
+
+        float block_occupied = 0.0f;
+        if (!terrain_block_occupied_layer_.empty() &&
+            readTerrainLayerValue(*terrain_map, terrain_block_occupied_layer_, sample_pos, block_occupied) &&
+            block_occupied >= static_cast<float>(terrain_block_occupied_threshold_)) {
+            return 0.0;
+        }
+
+        if (terrain_enforce_ramp_corridor_ && !terrain_ramp_corridor_layer_.empty()) {
+            float ramp_mask = 0.0f;
+            if (readTerrainLayerValue(*terrain_map, terrain_ramp_corridor_layer_, sample_pos, ramp_mask) &&
+                ramp_mask < 0.5f) {
+                return 0.0;
             }
         }
 

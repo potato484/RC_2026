@@ -46,9 +46,13 @@ private:
     std::string fresh_layer_{"fresh"};
     std::string drop_layer_{"drop_prob"};
     std::string climbable_layer_{"climbable_prob"};
+    std::string rule_legality_layer_{"rule_legality"};
+    std::string kfs_keepout_layer_{"kfs_keepout"};
     double lethal_threshold_{0.25};
     double inscribed_threshold_{0.45};
     double drop_lethal_threshold_{0.8};
+    double rule_legality_lethal_threshold_{0.5};
+    double keepout_lethal_threshold_{0.5};
     double climbable_soft_cost_max_{80.0};
     double stale_timeout_sec_{0.0};
     std::string unknown_policy_{"keep"};
