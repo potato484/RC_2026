@@ -1,24 +1,4 @@
-# mf_grid_layout.yaml
-# 梅林区格子中心坐标（map frame），由场地标定后填写
-# grid_id: 1..12, x/y 单位为米
-# 若文件缺失或格式非法，KfsBlockFuser 启动时 keepout_enabled=false
-
-meta:
-  team: "blue"
-  layout_version: "r2_mf_v1"
-  validated: true
-  grid_spacing_m: 1.2
-
-grids:
-  - {id: 1,  x: 0.0, y: 0.0}
-  - {id: 2,  x: 1.2, y: 0.0}
-  - {id: 3,  x: 2.4, y: 0.0}
-  - {id: 4,  x: 0.0, y: 1.2}
-  - {id: 5,  x: 1.2, y: 1.2}
-  - {id: 6,  x: 2.4, y: 1.2}
-  - {id: 7,  x: 0.0, y: 2.4}
-  - {id: 8,  x: 1.2, y: 2.4}
-  - {id: 9,  x: 2.4, y: 2.4}
-  - {id: 10, x: 0.0, y: 3.6}
-  - {id: 11, x: 1.2, y: 3.6}
-  - {id: 12, x: 2.4, y: 3.6}
+# Backward-compatible shim.
+# Legacy modules may still pass this path as "mf_grid_layout_file" / "grid_layout_file".
+# The canonical source of truth is r2_mf_world.yaml in the same folder.
+world_layout_file: "r2_mf_world.yaml"
