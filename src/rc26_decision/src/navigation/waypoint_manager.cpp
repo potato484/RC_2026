@@ -1,7 +1,11 @@
 #include "rc26_decision/navigation/waypoint_manager.hpp"
 
+#include <ament_index_cpp/get_package_share_directory.hpp>
+
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <filesystem>
 #include <stdexcept>
 
 #include <yaml-cpp/yaml.h>
@@ -241,12 +245,118 @@ bool generateMerlinPoints(const MerlinAnchors& anchors, const MerlinParams& para
 
             const std::string center_name = "mf_block_" + std::to_string(id) + "_center";
             const std::string stand_name = "mf_block_" + std::to_string(id) + "_stand";
+            const std::string grid_name = "mf_grid_" + std::to_string(id);
 
-            out_points.emplace(center_name, make_spec(center));
-            out_points.emplace(stand_name, make_spec(stand));
+            out_points.insert_or_assign(center_name, make_spec(center));
+            out_points.insert_or_assign(stand_name, make_spec(stand));
+            out_points.insert_or_assign(grid_name, make_spec(center));
         }
     }
 
+    return true;
+}
+
+bool loadWorldLayoutYaml(const std::string& layout_path,
+                         YAML::Node& out_root,
+                         std::string& resolved_path,
+                         std::string& err) {
+    std::filesystem::path current(layout_path);
+    if (current.is_relative()) {
+        current = std::filesystem::current_path() / current;
+    }
+    current = current.lexically_normal();
+
+    for (int hop = 0; hop < 4; ++hop) {
+        YAML::Node root = YAML::LoadFile(current.string());
+        if (root["world_layout_file"]) {
+            std::filesystem::path next = root["world_layout_file"].as<std::string>();
+            if (next.empty()) {
+                err = "world_layout_file is empty";
+                return false;
+            }
+            if (next.is_relative()) {
+                next = current.parent_path() / next;
+            }
+            current = next.lexically_normal();
+            continue;
+        }
+        out_root = root;
+        resolved_path = current.string();
+        return true;
+    }
+    err = "too many world_layout_file redirects";
+    return false;
+}
+
+bool generateMerlinPointsFromWorldLayout(const std::string& layout_path,
+                                         std::unordered_map<std::string, SmartWaypointSpec>& out_points,
+                                         rclcpp::Logger& logger) {
+    YAML::Node root;
+    std::string resolved;
+    std::string err;
+    if (!loadWorldLayoutYaml(layout_path, root, resolved, err)) {
+        RCLCPP_WARN(logger, "WaypointManager: world layout load failed (%s): %s", layout_path.c_str(), err.c_str());
+        return false;
+    }
+
+    const YAML::Node blocks = root["blocks"];
+    if (!blocks || !blocks.IsSequence()) {
+        RCLCPP_WARN(logger, "WaypointManager: world layout missing blocks sequence: %s", resolved.c_str());
+        return false;
+    }
+
+    std::array<Vec2, 13> centers{};
+    std::array<bool, 13> valid{};
+    for (const auto& block : blocks) {
+        const int id = block["id"].as<int>();
+        if (id < 1 || id > 12) {
+            continue;
+        }
+        centers[static_cast<size_t>(id)] = Vec2{block["x"].as<double>(), block["y"].as<double>()};
+        valid[static_cast<size_t>(id)] = true;
+    }
+    for (int id = 1; id <= 12; ++id) {
+        if (!valid[static_cast<size_t>(id)]) {
+            RCLCPP_WARN(logger, "WaypointManager: world layout missing block id=%d (%s)", id, resolved.c_str());
+            return false;
+        }
+    }
+
+    const YAML::Node meta = root["meta"];
+    const double safe_offset = meta && meta["safe_offset"] ? meta["safe_offset"].as<double>() : 0.20;
+
+    Vec2 vx = normalize(centers[2] - centers[1]);
+    if (norm(vx) < 1e-6) {
+        vx = Vec2{1.0, 0.0};
+    }
+    Vec2 vy = normalize(centers[4] - centers[1]);
+    if (norm(vy) < 1e-6) {
+        vy = Vec2{-vx.y, vx.x};
+    }
+    const double yaw_align = std::atan2(vx.y, vx.x);
+
+    auto make_spec = [&](const Vec2& p) {
+        SmartWaypointSpec s;
+        s.pose.x = p.x;
+        s.pose.y = p.y;
+        s.pose.yaw = yaw_align;
+        s.nav_profile = "safe";
+        s.speed_profile = "SLOW";
+        s.timeout_sec = 10.0f;
+        s.tolerance.xy_tolerance = 0.10;
+        s.tolerance.yaw_tolerance = 0.25;
+        return s;
+    };
+
+    for (int id = 1; id <= 12; ++id) {
+        const Vec2 center = centers[static_cast<size_t>(id)];
+        const Vec2 stand = center - (safe_offset * vy);
+        out_points.insert_or_assign("mf_grid_" + std::to_string(id), make_spec(center));
+        out_points.insert_or_assign("mf_block_" + std::to_string(id) + "_center", make_spec(center));
+        out_points.insert_or_assign("mf_block_" + std::to_string(id) + "_stand", make_spec(stand));
+    }
+
+    RCLCPP_INFO(logger, "WaypointManager: generated Merlin points from world layout: %s", resolved.c_str());
     return true;
 }
 
@@ -271,10 +381,40 @@ bool WaypointManager::loadFromYamlFile(const std::string& yaml_path) {
 
         const YAML::Node merlin = root["merlin_config"];
         if (merlin && merlin.IsMap()) {
+            bool generated_from_world_layout = false;
+            std::string world_layout_file;
+            if (merlin["world_layout_file"] && merlin["world_layout_file"].IsScalar()) {
+                world_layout_file = merlin["world_layout_file"].as<std::string>();
+            }
+            if (world_layout_file.empty()) {
+                try {
+                    world_layout_file =
+                        ament_index_cpp::get_package_share_directory("rc26_kfs_keepout") +
+                        "/config/r2_mf_world.yaml";
+                } catch (const std::exception&) {
+                    world_layout_file.clear();
+                }
+            } else {
+                std::filesystem::path path(world_layout_file);
+                if (path.is_relative()) {
+                    const std::filesystem::path yaml_parent =
+                        std::filesystem::path(yaml_path).parent_path();
+                    world_layout_file = (yaml_parent / path).lexically_normal().string();
+                }
+            }
+            if (!world_layout_file.empty()) {
+                generated_from_world_layout =
+                    generateMerlinPointsFromWorldLayout(world_layout_file, new_points, logger_);
+                if (generated_from_world_layout) {
+                    new_merlin_graph = buildMerlinAdjacencyGraph();
+                }
+            }
+
             const YAML::Node anchors_node = merlin["anchors"];
             const YAML::Node params_node = merlin["params"];
 
-            if (anchors_node && anchors_node.IsMap() && anchors_node["block_1"] && anchors_node["block_2"] &&
+            if (!generated_from_world_layout &&
+                anchors_node && anchors_node.IsMap() && anchors_node["block_1"] && anchors_node["block_2"] &&
                 anchors_node["block_4"]) {
                 const MerlinAnchors anchors = parseMerlinAnchors(anchors_node);
                 const MerlinParams params = parseMerlinParams(params_node);
