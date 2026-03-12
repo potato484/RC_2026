@@ -1,11 +1,42 @@
 #include "rc26_nav_mode_manager/profile_loader.hpp"
 
+#include <cmath>
 #include <fstream>
+
 #include <yaml-cpp/yaml.h>
 
 namespace rc26_nav_mode_manager {
 
 namespace {
+
+bool assignCompatibleControllerLimit(const YAML::Node& ctrl,
+                                     const std::string& profile_name,
+                                     const char* legacy_key,
+                                     const char* canonical_key,
+                                     std::optional<double>& output,
+                                     std::string& error) {
+    const auto legacy = ctrl[legacy_key];
+    const auto canonical = ctrl[canonical_key];
+    if (!legacy && !canonical) {
+        return true;
+    }
+
+    if (legacy && canonical) {
+        const double legacy_value = legacy.as<double>();
+        const double canonical_value = canonical.as<double>();
+        if (std::abs(legacy_value - canonical_value) > 1e-9) {
+            error = "Profile '" + profile_name + "' has conflicting controller fields '" +
+                    std::string(legacy_key) + "' and '" + canonical_key + "'";
+            return false;
+        }
+        output = canonical_value;
+        return true;
+    }
+
+    output = canonical ? canonical.as<double>() : legacy.as<double>();
+    return true;
+}
+
 }  // namespace
 
 bool ProfileLoader::validateProfile(const NavProfile& profile, std::string& error) {
@@ -124,8 +155,25 @@ ProfileLoader::LoadResult ProfileLoader::loadFromFile(const std::string& file_pa
                 if (ctrl["v_linear_max"]) profile.controller.v_linear_max = ctrl["v_linear_max"].as<double>();
                 if (ctrl["v_angular_max"]) profile.controller.v_angular_max = ctrl["v_angular_max"].as<double>();
                 if (ctrl["v_linear_min"]) profile.controller.v_linear_min = ctrl["v_linear_min"].as<double>();
-                if (ctrl["acc_linear"]) profile.controller.acc_linear = ctrl["acc_linear"].as<double>();
-                if (ctrl["acc_angular"]) profile.controller.acc_angular = ctrl["acc_angular"].as<double>();
+                std::string compatibility_error;
+                if (!assignCompatibleControllerLimit(ctrl,
+                                                     name,
+                                                     "acc_linear",
+                                                     "a_linear_max",
+                                                     profile.controller.acc_linear,
+                                                     compatibility_error)) {
+                    result.error_message = compatibility_error;
+                    return result;
+                }
+                if (!assignCompatibleControllerLimit(ctrl,
+                                                     name,
+                                                     "acc_angular",
+                                                     "a_angular_max",
+                                                     profile.controller.acc_angular,
+                                                     compatibility_error)) {
+                    result.error_message = compatibility_error;
+                    return result;
+                }
                 if (ctrl["transition_timeout_ms"]) {
                     int v = ctrl["transition_timeout_ms"].as<int>();
                     profile.controller.transition_timeout_ms = (v > 0) ? v : 500;
