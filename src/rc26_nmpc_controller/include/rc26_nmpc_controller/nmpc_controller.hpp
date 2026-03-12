@@ -183,11 +183,19 @@ private:
     std::string terrain_fresh_layer_{"fresh"};
     std::string terrain_roughness_layer_{"roughness"};
     std::string terrain_step_up_layer_{"step_up"};
+    std::string terrain_rule_legality_layer_{"rule_legality"};
+    std::string terrain_kfs_keepout_layer_{"kfs_keepout"};
+    std::string terrain_block_occupied_layer_{"block_occupied"};
+    std::string terrain_ramp_corridor_layer_{"ramp_corridor_mask"};
     int terrain_sample_count_{10};
     int terrain_horizon_points_{24};
     double terrain_scale_min_{0.35};
     double terrain_roughness_limit_{0.35};
     double terrain_step_up_limit_{0.08};
+    double terrain_rule_legality_threshold_{0.5};
+    double terrain_keepout_threshold_{0.5};
+    double terrain_block_occupied_threshold_{0.5};
+    bool terrain_enforce_ramp_corridor_{false};
     double terrain_stale_timeout_sec_{0.4};
 
     // Profiles to trigger when fallback is active

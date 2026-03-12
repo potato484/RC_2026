@@ -90,9 +90,15 @@ void TerrainTraversabilityLayer::onInitialize() {
     declareParameter("fresh_layer", rclcpp::ParameterValue(fresh_layer_));
     declareParameter("drop_layer", rclcpp::ParameterValue(drop_layer_));
     declareParameter("climbable_layer", rclcpp::ParameterValue(climbable_layer_));
+    declareParameter("rule_legality_layer", rclcpp::ParameterValue(rule_legality_layer_));
+    declareParameter("kfs_keepout_layer", rclcpp::ParameterValue(kfs_keepout_layer_));
     declareParameter("lethal_threshold", rclcpp::ParameterValue(lethal_threshold_));
     declareParameter("inscribed_threshold", rclcpp::ParameterValue(inscribed_threshold_));
     declareParameter("drop_lethal_threshold", rclcpp::ParameterValue(drop_lethal_threshold_));
+    declareParameter("rule_legality_lethal_threshold",
+                     rclcpp::ParameterValue(rule_legality_lethal_threshold_));
+    declareParameter("keepout_lethal_threshold",
+                     rclcpp::ParameterValue(keepout_lethal_threshold_));
     declareParameter("climbable_soft_cost_max", rclcpp::ParameterValue(climbable_soft_cost_max_));
     declareParameter("stale_timeout_sec", rclcpp::ParameterValue(stale_timeout_sec_));
     declareParameter("unknown_policy", rclcpp::ParameterValue(unknown_policy_));
@@ -103,9 +109,13 @@ void TerrainTraversabilityLayer::onInitialize() {
     node->get_parameter(getFullName("fresh_layer"), fresh_layer_);
     node->get_parameter(getFullName("drop_layer"), drop_layer_);
     node->get_parameter(getFullName("climbable_layer"), climbable_layer_);
+    node->get_parameter(getFullName("rule_legality_layer"), rule_legality_layer_);
+    node->get_parameter(getFullName("kfs_keepout_layer"), kfs_keepout_layer_);
     node->get_parameter(getFullName("lethal_threshold"), lethal_threshold_);
     node->get_parameter(getFullName("inscribed_threshold"), inscribed_threshold_);
     node->get_parameter(getFullName("drop_lethal_threshold"), drop_lethal_threshold_);
+    node->get_parameter(getFullName("rule_legality_lethal_threshold"), rule_legality_lethal_threshold_);
+    node->get_parameter(getFullName("keepout_lethal_threshold"), keepout_lethal_threshold_);
     node->get_parameter(getFullName("climbable_soft_cost_max"), climbable_soft_cost_max_);
     node->get_parameter(getFullName("stale_timeout_sec"), stale_timeout_sec_);
     node->get_parameter(getFullName("unknown_policy"), unknown_policy_);
@@ -116,6 +126,8 @@ void TerrainTraversabilityLayer::onInitialize() {
         std::swap(inscribed_threshold_, lethal_threshold_);
     }
     drop_lethal_threshold_ = std::clamp(drop_lethal_threshold_, 0.0, 1.0);
+    rule_legality_lethal_threshold_ = std::clamp(rule_legality_lethal_threshold_, 0.0, 1.0);
+    keepout_lethal_threshold_ = std::clamp(keepout_lethal_threshold_, 0.0, 1.0);
     climbable_soft_cost_max_ = std::clamp(climbable_soft_cost_max_, 0.0, 252.0);
     stale_timeout_sec_ = std::max(0.0, stale_timeout_sec_);
     unknown_policy_ = normalizePolicy(unknown_policy_);
@@ -140,13 +152,16 @@ void TerrainTraversabilityLayer::onInitialize() {
     RCLCPP_INFO(
         logger_,
         "TerrainTraversabilityLayer initialized: topic=%s traversability_layer=%s fresh_layer=%s "
-        "drop_layer=%s climbable_layer=%s lethal_threshold=%.3f inscribed_threshold=%.3f "
-        "climbable_soft_cost_max=%.1f stale_timeout=%.3f unknown_policy=%s",
+        "drop_layer=%s climbable_layer=%s rule_legality_layer=%s kfs_keepout_layer=%s "
+        "lethal_threshold=%.3f inscribed_threshold=%.3f climbable_soft_cost_max=%.1f "
+        "stale_timeout=%.3f unknown_policy=%s",
         terrain_grid_topic_.c_str(),
         traversability_layer_.c_str(),
         fresh_layer_.c_str(),
         drop_layer_.c_str(),
         climbable_layer_.c_str(),
+        rule_legality_layer_.c_str(),
+        kfs_keepout_layer_.c_str(),
         lethal_threshold_,
         inscribed_threshold_,
         climbable_soft_cost_max_,
@@ -264,6 +279,34 @@ void TerrainTraversabilityLayer::updateCosts(nav2_costmap_2d::Costmap2D& master_
             float fresh = 0.0f;
             if (!readLayerValue(*terrain_map, fresh_layer_, pos, fresh) || fresh < 0.5f) {
                 applyUnknownPolicy(master_grid, static_cast<unsigned int>(i), static_cast<unsigned int>(j), unknown_policy_);
+                continue;
+            }
+
+            float rule_legality = 1.0f;
+            if (!rule_legality_layer_.empty() &&
+                readLayerValue(*terrain_map, rule_legality_layer_, pos, rule_legality) &&
+                rule_legality <= static_cast<float>(rule_legality_lethal_threshold_)) {
+                const unsigned int mx = static_cast<unsigned int>(i);
+                const unsigned int my = static_cast<unsigned int>(j);
+                const unsigned char old_cost = master_grid.getCost(mx, my);
+                const unsigned char target = nav2_costmap_2d::LETHAL_OBSTACLE;
+                master_grid.setCost(
+                    mx, my,
+                    old_cost == nav2_costmap_2d::NO_INFORMATION ? target : std::max(old_cost, target));
+                continue;
+            }
+
+            float keepout = 0.0f;
+            if (!kfs_keepout_layer_.empty() &&
+                readLayerValue(*terrain_map, kfs_keepout_layer_, pos, keepout) &&
+                keepout >= static_cast<float>(keepout_lethal_threshold_)) {
+                const unsigned int mx = static_cast<unsigned int>(i);
+                const unsigned int my = static_cast<unsigned int>(j);
+                const unsigned char old_cost = master_grid.getCost(mx, my);
+                const unsigned char target = nav2_costmap_2d::LETHAL_OBSTACLE;
+                master_grid.setCost(
+                    mx, my,
+                    old_cost == nav2_costmap_2d::NO_INFORMATION ? target : std::max(old_cost, target));
                 continue;
             }
 

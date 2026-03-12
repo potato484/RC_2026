@@ -83,11 +83,19 @@ controller_server:
       terrain_fresh_layer: "fresh"
       terrain_roughness_layer: "roughness"
       terrain_step_up_layer: "step_up"
+      terrain_rule_legality_layer: "rule_legality"
+      terrain_kfs_keepout_layer: "kfs_keepout"
+      terrain_block_occupied_layer: "block_occupied"
+      terrain_ramp_corridor_layer: "ramp_corridor_mask"
       terrain_sample_count: 10
       terrain_horizon_points: 24
       terrain_scale_min: 0.35
       terrain_roughness_limit: 0.35
       terrain_step_up_limit: 0.08
+      terrain_rule_legality_threshold: 0.5
+      terrain_keepout_threshold: 0.5
+      terrain_block_occupied_threshold: 0.5
+      terrain_enforce_ramp_corridor: false
       terrain_stale_timeout_sec: 0.4
       profile_orange: "loc_orange"
       profile_red: "loc_red_hold"
@@ -158,6 +166,10 @@ controller_server:
       terrain_slope_y_layer: "slope_y"
       terrain_roughness_layer: "roughness"
       terrain_step_up_layer: "step_up"
+      terrain_rule_legality_layer: "rule_legality"
+      terrain_kfs_keepout_layer: "kfs_keepout"
+      terrain_block_occupied_layer: "block_occupied"
+      terrain_ramp_corridor_layer: "ramp_corridor_mask"
       terrain_sample_count: 12
       terrain_scale_min: 0.35
       terrain_lateral_scale_min: 0.2
@@ -165,6 +177,10 @@ controller_server:
       terrain_slope_limit: 0.45
       terrain_roughness_limit: 0.35
       terrain_step_up_limit: 0.08
+      terrain_rule_legality_threshold: 0.5
+      terrain_keepout_threshold: 0.5
+      terrain_block_occupied_threshold: 0.5
+      terrain_enforce_ramp_corridor: false
       terrain_stale_timeout_sec: 0.4
 
 local_costmap:
@@ -228,9 +244,13 @@ local_costmap:
         fresh_layer: "fresh"
         drop_layer: "drop_prob"
         climbable_layer: "climbable_prob"
+        rule_legality_layer: "rule_legality"
+        kfs_keepout_layer: "kfs_keepout"
         lethal_threshold: 0.25
         inscribed_threshold: 0.45
         drop_lethal_threshold: 0.8
+        rule_legality_lethal_threshold: 0.5
+        keepout_lethal_threshold: 0.5
         climbable_soft_cost_max: 80.0
         stale_timeout_sec: 0.6
         unknown_policy: "keep"
