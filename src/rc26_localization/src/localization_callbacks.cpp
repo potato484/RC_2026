@@ -156,7 +156,7 @@ void LocalizationNode::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
             last_imu_stamp_valid_ = true;
         }
 
-        if (dt > 0.0 && dt < 0.2) {
+        if (!locked_pose_fallback_active_.load() && dt > 0.0 && dt < 0.2) {
             Eigen::Isometry3d predicted = Eigen::Isometry3d::Identity();
             {
                 std::lock_guard<std::mutex> lk(esikf_mutex_);
@@ -165,8 +165,12 @@ void LocalizationNode::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
                     Eigen::Vector3d(msg->angular_velocity.x, msg->angular_velocity.y, msg->angular_velocity.z), dt);
                 predicted = esikf_.getMapToOdom();
             }
-            std::lock_guard<std::mutex> lock(result_mutex_);
-            result_t_ = predicted;
+            if (!locked_pose_fallback_active_.load()) {
+                std::lock_guard<std::mutex> lock(result_mutex_);
+                if (!locked_pose_fallback_active_.load()) {
+                    result_t_ = predicted;
+                }
+            }
         }
     }
 }

@@ -108,7 +108,7 @@ void LocalizationNode::performRegistration() {
         initial_guess = previous_result_t_;
     }
 
-    if (dynamic_filter_enable_ && state == LocalizationState::TRACKING) {
+    if (dynamic_filter_enable_ && isMapToOdomReliableState(state)) {
         const auto static_mask = static_voxel_filter_.computeStaticMask(source_, initial_guess.matrix());
         if (static_mask.size() == source_->size()) {
             auto filtered_source = std::make_shared<pcl::PointCloud<pcl::PointCovariance>>();
@@ -132,7 +132,10 @@ void LocalizationNode::performRegistration() {
     if (degen_enable_) {
         degen_analysis = analyzeObservability(source_);
     }
-    last_degen_ = degen_analysis;
+    {
+        std::lock_guard<std::mutex> lk(result_mutex_);
+        last_degen_ = degen_analysis;
+    }
 
     auto configure_local_registration = [this](auto& reg) {
         reg->reduction.num_threads = num_threads_;
@@ -231,14 +234,15 @@ void LocalizationNode::performRegistration() {
                                  : std::numeric_limits<double>::max();
     const auto sigma_obs = buildObsCovariance(result);
     const auto sigma_pose = reorderCovariance(sigma_obs, kPoseCovarianceOrder);
-    {
-        std::lock_guard<std::mutex> lk(result_mutex_);
-        last_pose_cov_ = sigma_obs;
-    }
+    const double sigma_xy = std::sqrt(std::max(0.0, sigma_obs(3, 3) + sigma_obs(4, 4)));
+    const double sigma_yaw_deg = std::sqrt(std::max(0.0, sigma_obs(2, 2))) * 180.0 / M_PI;
+    const bool acceptable_match = isAcceptableLocalMatch(result.converged, normalized_error, result.num_inliers);
+    const bool good_match = isGoodLocalMatch(acceptable_match, normalized_error, result.num_inliers,
+                                             sigma_xy, sigma_yaw_deg, h_min);
 
     Eigen::Isometry3d constrained_pose = result.T_target_source;
     if (degen_enable_ && result.converged) {
-        constrained_pose = constrainUpdate(result.T_target_source, initial_guess, last_degen_);
+        constrained_pose = constrainUpdate(result.T_target_source, initial_guess, degen_analysis);
     }
 
     // S1: IMU Spike 门控（种子更新前，同时暂停绑架计数）
@@ -268,7 +272,7 @@ void LocalizationNode::performRegistration() {
                          "配准: converged=%d, inliers=%zu, normalized_error=%.4f (阈值=%.4f)", result.converged,
                          result.num_inliers, normalized_error, kidnap_fitness_threshold_);
 
-    if (detectKidnapping(normalized_error, result.num_inliers, last_degen_)) {
+    if (detectKidnapping(normalized_error, result.num_inliers, degen_analysis)) {
         RCLCPP_WARN(this->get_logger(), "检测到绑架，提交重定位请求...");
         requestRelocalization(RelocTriggerReason::KIDNAP, cloud_to_register);
         publishDiagnostics(normalized_error, result.num_inliers, true, result);
@@ -276,12 +280,11 @@ void LocalizationNode::performRegistration() {
         return;
     }
 
-    const bool bad_quality =
-        (normalized_error > freeze_update_err_) || (result.num_inliers < static_cast<size_t>(min_inliers_));
+    const LocalizationState state_before_update = getLocalizationState();
     Eigen::Isometry3d slope_corrected_pose = constrained_pose;
 
     // T8: 坡道法向一致性门控 + 姿态主导权（transform 更新前）
-    if (!bad_quality && result.converged && slope_roll_pitch_from_imu_ && imu_attitude_valid_) {
+    if (acceptable_match && slope_roll_pitch_from_imu_ && imu_attitude_valid_) {
         const Eigen::Matrix3d R = constrained_pose.rotation();
         const double pitch_gicp = std::asin(-R(2, 0));
         const double roll_gicp  = std::atan2(R(2, 1), R(2, 2));
@@ -298,6 +301,10 @@ void LocalizationNode::performRegistration() {
             RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 500,
                 "T8: slope normal inconsistency %.1f deg > %.1f deg, frame rejected",
                 dev_deg, slope_normal_consistency_deg_);
+            updateConfidenceState(false, false, "slope_normal_inconsistent");
+            if (state_before_update == LocalizationState::LOCKED) {
+                (void)restoreLockedPoseSnapshot("slope_normal_inconsistent");
+            }
             publish_status("slope_normal_inconsistent", true);
             return;
         }
@@ -320,58 +327,83 @@ void LocalizationNode::performRegistration() {
             prev_z + (slope_corrected_pose.translation().z() - prev_z) * z_alpha;
     }
 
-    if (!bad_quality) {
-        std::lock_guard<std::mutex> lock(result_mutex_);
-        if (result.converged) {
-            Eigen::Isometry3d committed_pose = slope_corrected_pose;
-            if (esikf_enable_) {
-                std::lock_guard<std::mutex> lk(esikf_mutex_);
-                esikf_.update(slope_corrected_pose.matrix(), sigma_pose);
-                committed_pose = esikf_.getMapToOdom();
+    bool frame_acceptable = acceptable_match;
+    bool frame_good = good_match;
+    bool locked_jump_rejected = false;
+    bool locked_snapshot_fallback = false;
+    bool committed_success = false;
+    Eigen::Isometry3d committed_pose_snapshot = Eigen::Isometry3d::Identity();
+    if (acceptable_match) {
+        Eigen::Isometry3d pose_before_update = Eigen::Isometry3d::Identity();
+        {
+            std::lock_guard<std::mutex> lock(result_mutex_);
+            pose_before_update = result_t_;
+        }
+
+        Eigen::Isometry3d committed_pose = slope_corrected_pose;
+        if (esikf_enable_) {
+            std::lock_guard<std::mutex> lk(esikf_mutex_);
+            esikf_.update(slope_corrected_pose.matrix(), sigma_pose);
+            committed_pose = esikf_.getMapToOdom();
+        }
+
+        if (state_before_update == LocalizationState::LOCKED) {
+            double delta_translation_m = 0.0;
+            double delta_yaw_deg = 0.0;
+            if (isLockedUpdateJumpRejected(pose_before_update, committed_pose, delta_translation_m, delta_yaw_deg)) {
+                locked_jump_rejected = true;
+                frame_acceptable = false;
+                frame_good = false;
+                if (esikf_enable_) {
+                    std::lock_guard<std::mutex> lk(esikf_mutex_);
+                    esikf_.reset(pose_before_update);
+                }
+                RCLCPP_WARN(this->get_logger(),
+                            "LOCKED态拒绝大跳变更新: d_trans=%.3fm(阈值=%.3fm), d_yaw=%.2f°(阈值=%.2f°)",
+                            delta_translation_m, lock_jump_reject_translation_m_,
+                            delta_yaw_deg, lock_jump_reject_yaw_deg_);
             }
+        }
+
+        if (!locked_jump_rejected) {
+            std::lock_guard<std::mutex> lock(result_mutex_);
             result_t_ = previous_result_t_ = committed_pose;
-        } else {
-            Eigen::Vector3d delta_translation = constrained_pose.translation() - previous_result_t_.translation();
-
-            Eigen::Quaterniond q_result(constrained_pose.rotation());
-            Eigen::Quaterniond q_prev(previous_result_t_.rotation());
-            Eigen::Quaterniond q_diff = q_result * q_prev.inverse();
-            if (q_diff.w() < 0) {
-                q_diff.coeffs() = -q_diff.coeffs();
-            }
-            double delta_rotation = 2.0 * std::acos(std::min(1.0, std::abs(q_diff.w())));
-
-            if (delta_translation.norm() < max_delta_translation_ && delta_rotation < max_delta_rotation_) {
-                previous_result_t_ = constrained_pose;
-                RCLCPP_WARN(this->get_logger(), "GICP 配准未收敛，偏移量 %.3fm / %.2f° 可接受，更新初值",
-                            delta_translation.norm(), delta_rotation * 180.0 / M_PI);
-            } else {
-                RCLCPP_WARN(this->get_logger(), "GICP 配准未收敛，偏移量 %.3fm / %.2f° 过大，保持原初值",
-                            delta_translation.norm(), delta_rotation * 180.0 / M_PI);
-            }
+            last_pose_cov_ = sigma_obs;
+            committed_success = true;
+            committed_pose_snapshot = committed_pose;
         }
     } else {
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
                              "配准质量低 (error=%.4f, inliers=%zu < %d), 冻结 TF 更新", normalized_error,
                              result.num_inliers, min_inliers_);
-        setLocalizationState(LocalizationState::SUSPECT, "local_quality_bad");
     }
 
-    if (result.converged && !bad_quality) {
+    updateConfidenceState(frame_acceptable, frame_good,
+                          locked_jump_rejected ? "locked_jump_rejected"
+                                               : (frame_good ? "good_match"
+                                                             : (frame_acceptable ? "acceptable_match"
+                                                                                 : "bad_match")));
+
+    if (!frame_acceptable && !locked_jump_rejected && state_before_update == LocalizationState::LOCKED) {
+        locked_snapshot_fallback = restoreLockedPoseSnapshot("local_quality_bad");
+    }
+
+    if (committed_success) {
+        locked_pose_fallback_active_.store(false);
         {
             std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
             last_successful_registration_time_ = this->now();
         }
-        setLocalizationState(LocalizationState::TRACKING, "local_registration_ok");
+        const LocalizationState state_after_update = getLocalizationState();
+        const bool entered_locked = state_before_update != LocalizationState::LOCKED &&
+                                    state_after_update == LocalizationState::LOCKED;
+        if ((state_after_update == LocalizationState::LOCKED && frame_good) || entered_locked) {
+            saveLockedPoseSnapshot(committed_pose_snapshot, sigma_obs, this->now());
+        }
     }
 
-    if (result.converged && !bad_quality && enable_graph_backend_) {
-        Eigen::Isometry3d map_to_odom_snapshot = Eigen::Isometry3d::Identity();
-        {
-            std::lock_guard<std::mutex> lock(result_mutex_);
-            map_to_odom_snapshot = result_t_;
-        }
-        (void)processGraphBackendOnLocalRegistration(cloud_to_register, map_to_odom_snapshot, this->now());
+    if (committed_success && enable_graph_backend_) {
+        (void)processGraphBackendOnLocalRegistration(cloud_to_register, committed_pose_snapshot, this->now());
     }
 
     rclcpp::Time last_success_snapshot;
@@ -399,10 +431,15 @@ void LocalizationNode::performRegistration() {
         static_cast<int>(!hessian_degen_enable_ && s2_enable_ && result.converged &&
                          s2_min_eig < s2_hessian_min_eigenvalue_),
         s2_min_eig, s2_consec,
-        last_degen_.degen_risk.x(), last_degen_.degen_risk.y(), last_degen_.degen_risk.z());
+        degen_analysis.degen_risk.x(), degen_analysis.degen_risk.y(), degen_analysis.degen_risk.z());
 
+    const bool bad_quality = !frame_acceptable;
+    const std::string status_reason = locked_snapshot_fallback ? "locked_snapshot_fallback"
+                                     : (locked_jump_rejected ? "locked_jump_rejected"
+                                                             : (bad_quality ? "local_quality_bad"
+                                                                            : "local_registration_ok"));
     publishDiagnostics(normalized_error, result.num_inliers, bad_quality, result);
-    publish_status(bad_quality ? "local_quality_bad" : "local_registration_ok", true);
+    publish_status(status_reason, true);
 }
 
 LocalizationNode::DegenAnalysis
@@ -557,9 +594,14 @@ Eigen::Matrix<double, 6, 6> LocalizationNode::buildObsCovariance(
         R_obs(3, 3) = 0.05;
         R_obs(4, 4) = 0.05;
 
+        DegenAnalysis degen_snapshot;
+        {
+            std::lock_guard<std::mutex> lk(result_mutex_);
+            degen_snapshot = last_degen_;
+        }
         const std::array<int, 3> obs_indices{3, 4, 2};
         for (size_t i = 0; i < obs_indices.size(); ++i) {
-            const double risk = last_degen_.degen_risk(static_cast<Eigen::Index>(i));
+            const double risk = degen_snapshot.degen_risk(static_cast<Eigen::Index>(i));
             R_obs(obs_indices[i], obs_indices[i]) = (risk > 0.5) ? kDiagObsNoiseDegenerate : kDiagObsNoiseNominal;
         }
         return R_obs;
@@ -619,15 +661,17 @@ void LocalizationNode::publishDiagnostics(double normalized_error, size_t inlier
     kv("state", toString(getLocalizationState()));
     kv("normalized_error", std::to_string(normalized_error));
     kv("inliers", std::to_string(inliers));
-    kv("degen_risk_x", std::to_string(last_degen_.degen_risk.x()));
-    kv("degen_risk_y", std::to_string(last_degen_.degen_risk.y()));
-    kv("degen_risk_yaw", std::to_string(last_degen_.degen_risk.z()));
-    kv("fully_degenerate", last_degen_.is_fully_degenerate ? "1" : "0");
+    DegenAnalysis degen_snapshot;
     Eigen::Matrix<double, 6, 6> pose_cov = Eigen::Matrix<double, 6, 6>::Zero();
     {
         std::lock_guard<std::mutex> lk(result_mutex_);
+        degen_snapshot = last_degen_;
         pose_cov = last_pose_cov_;
     }
+    kv("degen_risk_x", std::to_string(degen_snapshot.degen_risk.x()));
+    kv("degen_risk_y", std::to_string(degen_snapshot.degen_risk.y()));
+    kv("degen_risk_yaw", std::to_string(degen_snapshot.degen_risk.z()));
+    kv("fully_degenerate", degen_snapshot.is_fully_degenerate ? "1" : "0");
     double h_min = 0.0;
     double h_max = 0.0;
     double h_cond = 1e12;
@@ -652,7 +696,7 @@ void LocalizationNode::publishTransform() {
     }
 
     const rclcpp::Time now_stamp = this->now();
-    if (enable_graph_backend_) {
+    if (enable_graph_backend_ && !locked_pose_fallback_active_.load()) {
         Eigen::Isometry3d smoothed_map_to_odom = Eigen::Isometry3d::Identity();
         bool has_smoothed_output = false;
         {
@@ -662,9 +706,13 @@ void LocalizationNode::publishTransform() {
             }
         }
         if (has_smoothed_output) {
-            std::lock_guard<std::mutex> result_lock(result_mutex_);
-            result_t_ = smoothed_map_to_odom;
-            previous_result_t_ = smoothed_map_to_odom;
+            if (!locked_pose_fallback_active_.load()) {
+                std::lock_guard<std::mutex> result_lock(result_mutex_);
+                if (!locked_pose_fallback_active_.load()) {
+                    result_t_ = smoothed_map_to_odom;
+                    previous_result_t_ = smoothed_map_to_odom;
+                }
+            }
         }
     }
 
