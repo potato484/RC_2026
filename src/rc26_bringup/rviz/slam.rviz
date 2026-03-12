@@ -14,7 +14,7 @@ Visualization Manager:
     - Class: rviz_default_plugins/PointCloud2
       Name: LaserMapFull
       Topic:
-        Value: /laser_map_full
+        Value: laser_map_full
         Queue Size: 1
       Value: true
       Size (m): 0.04
@@ -25,7 +25,7 @@ Visualization Manager:
     - Class: rviz_default_plugins/PointCloud2
       Name: RegisteredCloud
       Topic:
-        Value: /registered_scan
+        Value: registered_scan
         Queue Size: 5
       Value: true
       Size (m): 0.03
@@ -37,34 +37,34 @@ Visualization Manager:
       Color: 220; 60; 60
       Name: OdomPath
       Topic:
-        Value: /odom_path
+        Value: odom_path
       Value: true
     - Alpha: 1
       Class: rviz_default_plugins/Path
       Color: 60; 220; 60
       Name: ControlPath
       Topic:
-        Value: /control_path
+        Value: control_path
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Name: OdomPoseMarkers
       Topic:
-        Value: /odom_pose_markers
+        Value: odom_pose_markers
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Name: ControlPoseMarkers
       Topic:
-        Value: /control_pose_markers
+        Value: control_pose_markers
       Value: true
     - Class: rviz_default_plugins/PointStamped
       Name: LookaheadPoint
       Topic:
-        Value: /lookahead_point
+        Value: lookahead_point
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Name: CurvatureMarkers
       Topic:
-        Value: /curvature_points_marker_array
+        Value: curvature_points_marker_array
       Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
@@ -76,12 +76,12 @@ Visualization Manager:
       Height Transformer: GridMapLayer
       Name: TerrainGridMap
       Topic:
-        Value: /terrain_grid_map
+        Value: terrain_grid_map
       Value: true
     - Class: rviz_default_plugins/PointCloud2
       Name: TerrainObstacles
       Topic:
-        Value: /terrain_obstacles
+        Value: terrain_obstacles
         Queue Size: 5
       Value: true
       Size (m): 0.05
@@ -92,7 +92,7 @@ Visualization Manager:
     - Class: rviz_default_plugins/PointCloud2
       Name: TerrainDrop
       Topic:
-        Value: /terrain_drop
+        Value: terrain_drop
         Queue Size: 5
       Value: true
       Size (m): 0.05
