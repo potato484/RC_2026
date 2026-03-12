@@ -71,6 +71,7 @@ public:
 private:
     enum class LocalizationState : uint8_t {
         TRACKING,
+        LOCKED,
         SUSPECT,
         FAST_RECOVERY,
         GLOBAL_RECOVERY,
@@ -176,6 +177,22 @@ private:
     LocalizationState getLocalizationState() const;
     bool isRelocatingState(LocalizationState state) const;
     bool isMapToOdomReliableState(LocalizationState state) const;
+    bool isAcceptableLocalMatch(bool converged, double normalized_error, size_t inliers) const;
+    bool isGoodLocalMatch(bool acceptable_match, double normalized_error, size_t inliers,
+                          double sigma_xy, double sigma_yaw_deg, double h_min_eig) const;
+    void updateConfidenceState(bool acceptable_match, bool good_match, const char* reason);
+    void resetConfidenceState();
+    void saveLockedPoseSnapshot(const Eigen::Isometry3d& map_to_odom,
+                                const Eigen::Matrix<double, 6, 6>& cov,
+                                const rclcpp::Time& stamp);
+    bool tryGetLockedPoseSnapshot(Eigen::Isometry3d& map_to_odom,
+                                  Eigen::Matrix<double, 6, 6>* cov = nullptr,
+                                  rclcpp::Time* stamp = nullptr) const;
+    bool restoreLockedPoseSnapshot(const char* reason);
+    bool isLockedUpdateJumpRejected(const Eigen::Isometry3d& pose_before_update,
+                                    const Eigen::Isometry3d& pose_after_update,
+                                    double& delta_translation_m,
+                                    double& delta_yaw_deg) const;
     void markRelocalizationSuccess(const Eigen::Isometry3d& map_to_odom,
                                    const pcl::PointCloud<pcl::PointXYZ>::Ptr& anchor_cloud = nullptr);
     void publishRelocMetrics(const RelocMetrics& metrics) const;
@@ -274,6 +291,7 @@ private:
     std::string plan_topic_{"local_plan"};
 
     // 状态
+    rclcpp::Time node_start_time_;
     rclcpp::Time last_scan_time_;
     Eigen::Isometry3d result_t_;
     Eigen::Isometry3d previous_result_t_;
@@ -282,8 +300,8 @@ private:
     bool map_needs_transform_{false};
     double tf_timeout_sec_{1.0};
     std::mutex cloud_mutex_;              // 保护 accumulated_cloud_ 的互斥锁
-    mutable std::mutex result_mutex_;     // 保护 result_t_、previous_result_t_ 和协方差快照
-    std::mutex registration_time_mutex_;  // 保护 last_successful_registration_time_
+    mutable std::mutex result_mutex_;     // 保护 result_t_、previous_result_t_、协方差/退化快照与锁定位姿快照
+    std::mutex registration_time_mutex_;  // 保护成功/尝试配准时间戳
     std::mutex map_mutex_;
 
     // 绑架检测状态
@@ -312,6 +330,25 @@ private:
     // I1: 冻结门控参数
     double freeze_update_err_{0.3};  // normalized_error 超过此值时冻结 TF 更新
     int min_inliers_{200};           // 内点数低于此值时冻结 TF 更新
+    std::atomic<int> acceptable_match_streak_{0};
+    std::atomic<int> good_match_streak_{0};
+    std::atomic<int> bad_match_streak_{0};
+    std::atomic<int> low_confidence_streak_{0};
+    int acceptable_match_streak_to_recover_{2};
+    int good_match_streak_to_lock_{5};
+    int bad_match_streak_to_suspect_{3};
+    int low_confidence_streak_to_unlock_{2};
+    double locked_min_startup_sec_{2.0};
+    double lock_good_normalized_error_max_{0.20};
+    int lock_good_min_inliers_{300};
+    double lock_jump_reject_translation_m_{0.30};
+    double lock_jump_reject_yaw_deg_{8.0};
+    double locked_pose_max_stale_sec_{1.5};
+    bool has_last_locked_map_to_odom_{false};
+    Eigen::Isometry3d last_locked_map_to_odom_{Eigen::Isometry3d::Identity()};
+    Eigen::Matrix<double, 6, 6> last_locked_pose_cov_{Eigen::Matrix<double, 6, 6>::Zero()};
+    rclcpp::Time last_locked_pose_stamp_;
+    std::atomic<bool> locked_pose_fallback_active_{false};
 
     // I2: 重试区先验
     bool retry_zone_enable_{false};

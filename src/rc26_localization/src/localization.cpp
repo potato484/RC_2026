@@ -135,6 +135,7 @@ static void detectQcs8550Buckets(
 LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     : Node("localization", options), result_t_(Eigen::Isometry3d::Identity()),
       previous_result_t_(Eigen::Isometry3d::Identity()) {
+    node_start_time_ = this->now();
     // 声明参数：全部在 YAML 中集中配置，避免魔法数散落在代码里
     this->declare_parameter("num_threads", 4);
     this->declare_parameter("num_neighbors", 20);
@@ -251,6 +252,16 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     // I1: 冻结门控参数
     this->declare_parameter("freeze_update_err", 0.3);
     this->declare_parameter("min_inliers", 200);
+    this->declare_parameter("acceptable_match_streak_to_recover", 2);
+    this->declare_parameter("good_match_streak_to_lock", 5);
+    this->declare_parameter("bad_match_streak_to_suspect", 3);
+    this->declare_parameter("low_confidence_streak_to_unlock", 2);
+    this->declare_parameter("locked_min_startup_sec", 2.0);
+    this->declare_parameter("lock_good_normalized_error_max", 0.20);
+    this->declare_parameter("lock_good_min_inliers", 300);
+    this->declare_parameter("lock_jump_reject_translation_m", 0.30);
+    this->declare_parameter("lock_jump_reject_yaw_deg", 8.0);
+    this->declare_parameter("locked_pose_max_stale_sec", 1.5);
 
     // I2: 重试区先验参数
     this->declare_parameter("retry_zone_enable", false);
@@ -458,6 +469,16 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
 
     this->get_parameter("freeze_update_err", freeze_update_err_);
     this->get_parameter("min_inliers", min_inliers_);
+    this->get_parameter("acceptable_match_streak_to_recover", acceptable_match_streak_to_recover_);
+    this->get_parameter("good_match_streak_to_lock", good_match_streak_to_lock_);
+    this->get_parameter("bad_match_streak_to_suspect", bad_match_streak_to_suspect_);
+    this->get_parameter("low_confidence_streak_to_unlock", low_confidence_streak_to_unlock_);
+    this->get_parameter("locked_min_startup_sec", locked_min_startup_sec_);
+    this->get_parameter("lock_good_normalized_error_max", lock_good_normalized_error_max_);
+    this->get_parameter("lock_good_min_inliers", lock_good_min_inliers_);
+    this->get_parameter("lock_jump_reject_translation_m", lock_jump_reject_translation_m_);
+    this->get_parameter("lock_jump_reject_yaw_deg", lock_jump_reject_yaw_deg_);
+    this->get_parameter("locked_pose_max_stale_sec", locked_pose_max_stale_sec_);
 
     this->get_parameter("retry_zone_enable", retry_zone_enable_);
     this->get_parameter("retry_zone_x", retry_zone_x_);
@@ -629,6 +650,9 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     // 启动阶段沿用旧观测协方差量级，避免行为突变
     last_pose_cov_.setZero();
     last_pose_cov_.diagonal() << 1e6, 1e6, 1e6, 1e-2, 1e-2, 1e-2;
+    last_locked_pose_cov_ = last_pose_cov_;
+    resetConfidenceState();
+    locked_pose_fallback_active_.store(false);
 
     // 初始化配准成功时间（线程安全）
     {
@@ -670,8 +694,8 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     route_observability_pub_ =
         this->create_publisher<rc26_interfaces::msg::RouteObservability>(route_observability_topic_, 10);
 
-    // S1/T8: IMU 订阅
-    if (s1_enable_ || slope_roll_pitch_from_imu_) {
+    // S1/T8/ESIKF: 只要任一链路依赖 IMU，就必须保证回调存在。
+    if (s1_enable_ || slope_roll_pitch_from_imu_ || esikf_enable_) {
         imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
             s1_imu_topic_, 10, std::bind(&LocalizationNode::imuCallback, this, std::placeholders::_1));
     }
@@ -760,13 +784,181 @@ bool LocalizationNode::isRelocatingState(LocalizationState state) const {
 }
 
 bool LocalizationNode::isMapToOdomReliableState(LocalizationState state) const {
-    return state == LocalizationState::TRACKING;
+    return state == LocalizationState::TRACKING || state == LocalizationState::LOCKED;
+}
+
+bool LocalizationNode::isAcceptableLocalMatch(bool converged, double normalized_error, size_t inliers) const {
+    return converged && normalized_error <= freeze_update_err_ && inliers >= static_cast<size_t>(std::max(min_inliers_, 0));
+}
+
+bool LocalizationNode::isGoodLocalMatch(bool acceptable_match, double normalized_error, size_t inliers,
+                                        double sigma_xy, double sigma_yaw_deg, double h_min_eig) const {
+    if (!acceptable_match) {
+        return false;
+    }
+
+    const double good_error_max = std::min(lock_good_normalized_error_max_, freeze_update_err_);
+    const size_t good_min_inliers = static_cast<size_t>(std::max(lock_good_min_inliers_, min_inliers_));
+    if (normalized_error > good_error_max || inliers < good_min_inliers) {
+        return false;
+    }
+    if (sigma_xy >= lhi_green_sigma_xy_max_ || sigma_yaw_deg >= lhi_green_sigma_yaw_deg_max_ ||
+        h_min_eig <= lhi_green_h_min_eig_min_) {
+        return false;
+    }
+    if (control_degraded_.load()) {
+        return false;
+    }
+    if (imu_spike_active_.load() || imu_spike_recent_.load()) {
+        return false;
+    }
+    if (backend_map_to_odom_jump_suppressed_.load()) {
+        return false;
+    }
+    return true;
+}
+
+void LocalizationNode::updateConfidenceState(bool acceptable_match, bool good_match, const char* reason) {
+    if (acceptable_match) {
+        acceptable_match_streak_.fetch_add(1);
+        bad_match_streak_.store(0);
+    } else {
+        acceptable_match_streak_.store(0);
+        bad_match_streak_.fetch_add(1);
+    }
+
+    if (good_match) {
+        good_match_streak_.fetch_add(1);
+        low_confidence_streak_.store(0);
+    } else {
+        good_match_streak_.store(0);
+        low_confidence_streak_.fetch_add(1);
+    }
+
+    const LocalizationState state = getLocalizationState();
+    const int acceptable_streak = acceptable_match_streak_.load();
+    const int good_streak = good_match_streak_.load();
+    const int bad_streak = bad_match_streak_.load();
+    const int low_conf_streak = low_confidence_streak_.load();
+    const double startup_age_sec = std::max(0.0, (this->now() - node_start_time_).seconds());
+
+    if (!acceptable_match && bad_streak >= bad_match_streak_to_suspect_) {
+        setLocalizationState(LocalizationState::SUSPECT, reason ? reason : "local_match_unacceptable");
+        return;
+    }
+
+    if ((state == LocalizationState::SUSPECT || state == LocalizationState::RELOC_FAILED) &&
+        acceptable_streak >= acceptable_match_streak_to_recover_) {
+        if (good_streak >= good_match_streak_to_lock_ && startup_age_sec >= locked_min_startup_sec_) {
+            setLocalizationState(LocalizationState::LOCKED, reason ? reason : "recover_to_locked");
+        } else {
+            setLocalizationState(LocalizationState::TRACKING, reason ? reason : "recover_to_tracking");
+        }
+        return;
+    }
+
+    if (state == LocalizationState::LOCKED && !good_match &&
+        low_conf_streak >= low_confidence_streak_to_unlock_) {
+        setLocalizationState(LocalizationState::TRACKING, reason ? reason : "locked_low_confidence_unlock");
+        return;
+    }
+
+    if ((state == LocalizationState::TRACKING || state == LocalizationState::SUSPECT ||
+         state == LocalizationState::RELOC_FAILED) &&
+        good_streak >= good_match_streak_to_lock_ && startup_age_sec >= locked_min_startup_sec_) {
+        setLocalizationState(LocalizationState::LOCKED, reason ? reason : "good_streak_lock");
+    }
+}
+
+void LocalizationNode::resetConfidenceState() {
+    acceptable_match_streak_.store(0);
+    good_match_streak_.store(0);
+    bad_match_streak_.store(0);
+    low_confidence_streak_.store(0);
+}
+
+void LocalizationNode::saveLockedPoseSnapshot(const Eigen::Isometry3d& map_to_odom,
+                                              const Eigen::Matrix<double, 6, 6>& cov,
+                                              const rclcpp::Time& stamp) {
+    std::lock_guard<std::mutex> lock(result_mutex_);
+    has_last_locked_map_to_odom_ = true;
+    last_locked_map_to_odom_ = map_to_odom;
+    last_locked_pose_cov_ = cov;
+    last_locked_pose_stamp_ = stamp;
+}
+
+bool LocalizationNode::tryGetLockedPoseSnapshot(Eigen::Isometry3d& map_to_odom,
+                                                Eigen::Matrix<double, 6, 6>* cov,
+                                                rclcpp::Time* stamp) const {
+    rclcpp::Time snapshot_stamp;
+    {
+        std::lock_guard<std::mutex> lock(result_mutex_);
+        if (!has_last_locked_map_to_odom_) {
+            return false;
+        }
+        map_to_odom = last_locked_map_to_odom_;
+        snapshot_stamp = last_locked_pose_stamp_;
+        if (cov) {
+            *cov = last_locked_pose_cov_;
+        }
+        if (stamp) {
+            *stamp = snapshot_stamp;
+        }
+    }
+
+    const rclcpp::Time now_stamp = this->now();
+    if (snapshot_stamp.get_clock_type() != now_stamp.get_clock_type()) {
+        return false;
+    }
+    const double snapshot_age_sec = (now_stamp - snapshot_stamp).seconds();
+    if (snapshot_age_sec < 0.0 || snapshot_age_sec > locked_pose_max_stale_sec_) {
+        return false;
+    }
+    return true;
+}
+
+bool LocalizationNode::restoreLockedPoseSnapshot(const char* reason) {
+    Eigen::Isometry3d snapshot_pose = Eigen::Isometry3d::Identity();
+    Eigen::Matrix<double, 6, 6> snapshot_cov = Eigen::Matrix<double, 6, 6>::Zero();
+    rclcpp::Time snapshot_stamp;
+    if (!tryGetLockedPoseSnapshot(snapshot_pose, &snapshot_cov, &snapshot_stamp)) {
+        return false;
+    }
+
+    // 先置位回退冻结，阻止 graph smoother / IMU 预测在恢复过程中再次覆盖可靠快照。
+    locked_pose_fallback_active_.store(true);
+    {
+        std::lock_guard<std::mutex> lock(result_mutex_);
+        result_t_ = snapshot_pose;
+        previous_result_t_ = snapshot_pose;
+        last_pose_cov_ = snapshot_cov;
+    }
+    if (esikf_enable_) {
+        std::lock_guard<std::mutex> lk(esikf_mutex_);
+        esikf_.reset(snapshot_pose);
+    }
+    RCLCPP_WARN(this->get_logger(), "回退到 last_locked_map_to_odom (reason=%s, age=%.3fs)",
+                reason ? reason : "n/a", (this->now() - snapshot_stamp).seconds());
+    return true;
+}
+
+bool LocalizationNode::isLockedUpdateJumpRejected(const Eigen::Isometry3d& pose_before_update,
+                                                  const Eigen::Isometry3d& pose_after_update,
+                                                  double& delta_translation_m,
+                                                  double& delta_yaw_deg) const {
+    const Eigen::Isometry3d delta = pose_before_update.inverse() * pose_after_update;
+    delta_translation_m = delta.translation().norm();
+    const double yaw = std::atan2(delta.rotation()(1, 0), delta.rotation()(0, 0));
+    delta_yaw_deg = std::abs(yaw) * 180.0 / M_PI;
+    return delta_translation_m > lock_jump_reject_translation_m_ || delta_yaw_deg > lock_jump_reject_yaw_deg_;
 }
 
 const char* LocalizationNode::toString(LocalizationState state) {
     switch (state) {
         case LocalizationState::TRACKING:
             return "TRACKING";
+        case LocalizationState::LOCKED:
+            return "LOCKED";
         case LocalizationState::SUSPECT:
             return "SUSPECT";
         case LocalizationState::FAST_RECOVERY:
@@ -799,6 +991,10 @@ uint8_t LocalizationNode::computeHealthLevel(double sigma_xy, double sigma_yaw_d
                                              std::string& out_reason) const {
     const LocalizationState state = getLocalizationState();
     const bool control_degraded = control_degraded_.load();
+    const bool fallback_active = locked_pose_fallback_active_.load();
+    const bool in_green_band = sigma_xy < lhi_green_sigma_xy_max_ &&
+                               sigma_yaw_deg < lhi_green_sigma_yaw_deg_max_ &&
+                               h_min_eig > lhi_green_h_min_eig_min_;
 
     if (state == LocalizationState::FAST_RECOVERY) {
         out_reason = "fast_recovery_running";
@@ -829,6 +1025,10 @@ uint8_t LocalizationNode::computeHealthLevel(double sigma_xy, double sigma_yaw_d
         return rc26_interfaces::msg::LocalizationHealth::RED;
     }
 
+    if (fallback_active) {
+        out_reason = "locked_snapshot_fallback";
+        return rc26_interfaces::msg::LocalizationHealth::ORANGE;
+    }
     if (state == LocalizationState::SUSPECT) {
         out_reason = "state_suspect";
         return rc26_interfaces::msg::LocalizationHealth::ORANGE;
@@ -850,9 +1050,8 @@ uint8_t LocalizationNode::computeHealthLevel(double sigma_xy, double sigma_yaw_d
         return rc26_interfaces::msg::LocalizationHealth::ORANGE;
     }
 
-    if (state == LocalizationState::TRACKING &&
-        (sigma_xy >= lhi_yellow_sigma_xy_min_ || sigma_yaw_deg >= lhi_yellow_sigma_yaw_deg_min_ ||
-         h_min_eig <= lhi_yellow_h_min_eig_max_)) {
+    if (sigma_xy >= lhi_yellow_sigma_xy_min_ || sigma_yaw_deg >= lhi_yellow_sigma_yaw_deg_min_ ||
+        h_min_eig <= lhi_yellow_h_min_eig_max_) {
         if (sigma_xy >= lhi_yellow_sigma_xy_min_) {
             out_reason = "sigma_xy_warn";
         } else if (sigma_yaw_deg >= lhi_yellow_sigma_yaw_deg_min_) {
@@ -863,13 +1062,26 @@ uint8_t LocalizationNode::computeHealthLevel(double sigma_xy, double sigma_yaw_d
         return rc26_interfaces::msg::LocalizationHealth::YELLOW;
     }
 
-    if (state == LocalizationState::TRACKING && sigma_xy < lhi_green_sigma_xy_max_ &&
-        sigma_yaw_deg < lhi_green_sigma_yaw_deg_max_ && h_min_eig > lhi_green_h_min_eig_min_ && !control_degraded) {
-        out_reason = "tracking_nominal";
+    if (state == LocalizationState::LOCKED && low_confidence_streak_.load() > 0) {
+        out_reason = "locked_low_confidence";
+        return rc26_interfaces::msg::LocalizationHealth::YELLOW;
+    }
+
+    if (state == LocalizationState::LOCKED && in_green_band && !control_degraded) {
+        out_reason = "locked_nominal";
         return rc26_interfaces::msg::LocalizationHealth::GREEN;
     }
 
-    out_reason = fallback_reason.empty() ? "tracking_uncertain" : fallback_reason;
+    if (state == LocalizationState::TRACKING && in_green_band) {
+        out_reason = "tracking_not_locked";
+        return rc26_interfaces::msg::LocalizationHealth::YELLOW;
+    }
+
+    if (!fallback_reason.empty()) {
+        out_reason = fallback_reason;
+    } else {
+        out_reason = (state == LocalizationState::LOCKED) ? "locked_uncertain" : "tracking_uncertain";
+    }
     return rc26_interfaces::msg::LocalizationHealth::YELLOW;
 }
 
@@ -895,13 +1107,13 @@ void LocalizationNode::publishLocalizationHealth(const std::string& fallback_rea
     const double sigma_yaw = std::sqrt(std::max(0.0, pose_cov(2, 2)));
     const double sigma_yaw_deg = sigma_yaw * 180.0 / M_PI;
 
-    rclcpp::Time last_local_reg_time;
+    rclcpp::Time last_success_reg_time;
     {
         std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
-        last_local_reg_time = last_local_registration_time_;
+        last_success_reg_time = last_successful_registration_time_;
     }
     const rclcpp::Time now_stamp = this->now();
-    const double last_local_reg_age_sec = std::max(0.0, (now_stamp - last_local_reg_time).seconds());
+    const double last_local_reg_age_sec = std::max(0.0, (now_stamp - last_success_reg_time).seconds());
     uint32_t candidate_conflict_count = backend_candidate_conflict_count_.load();
     bool optimizer_ready = false;
     if (enable_graph_backend_) {
@@ -947,13 +1159,13 @@ void LocalizationNode::publishBackendStatus() {
         return;
     }
 
-    rclcpp::Time last_local_reg_time;
+    rclcpp::Time last_success_reg_time;
     {
         std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
-        last_local_reg_time = last_local_registration_time_;
+        last_success_reg_time = last_successful_registration_time_;
     }
     const rclcpp::Time now_stamp = this->now();
-    const double last_local_reg_age_sec = std::max(0.0, (now_stamp - last_local_reg_time).seconds());
+    const double last_local_reg_age_sec = std::max(0.0, (now_stamp - last_success_reg_time).seconds());
 
     PoseGraphStatus graph_status_snapshot;
     bool graph_status_valid = false;
@@ -1235,6 +1447,55 @@ void LocalizationNode::validateAndNormalizeParams() {
         RCLCPP_WARN(this->get_logger(), "min_inliers=%d 非法，已钳制为 0", min_inliers_);
         min_inliers_ = 0;
     }
+    if (acceptable_match_streak_to_recover_ < 1) {
+        RCLCPP_WARN(this->get_logger(),
+                    "acceptable_match_streak_to_recover=%d 非法，已回退为 2",
+                    acceptable_match_streak_to_recover_);
+        acceptable_match_streak_to_recover_ = 2;
+    }
+    if (good_match_streak_to_lock_ < 1) {
+        RCLCPP_WARN(this->get_logger(), "good_match_streak_to_lock=%d 非法，已回退为 5", good_match_streak_to_lock_);
+        good_match_streak_to_lock_ = 5;
+    }
+    if (bad_match_streak_to_suspect_ < 1) {
+        RCLCPP_WARN(this->get_logger(), "bad_match_streak_to_suspect=%d 非法，已回退为 3",
+                    bad_match_streak_to_suspect_);
+        bad_match_streak_to_suspect_ = 3;
+    }
+    if (low_confidence_streak_to_unlock_ < 1) {
+        RCLCPP_WARN(this->get_logger(), "low_confidence_streak_to_unlock=%d 非法，已回退为 2",
+                    low_confidence_streak_to_unlock_);
+        low_confidence_streak_to_unlock_ = 2;
+    }
+    if (locked_min_startup_sec_ < 0.0) {
+        RCLCPP_WARN(this->get_logger(), "locked_min_startup_sec=%.4f 非法，已回退为 2.0", locked_min_startup_sec_);
+        locked_min_startup_sec_ = 2.0;
+    }
+    if (lock_good_normalized_error_max_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(),
+                    "lock_good_normalized_error_max=%.4f 非法，已回退为 freeze_update_err=%.4f",
+                    lock_good_normalized_error_max_, freeze_update_err_);
+        lock_good_normalized_error_max_ = freeze_update_err_;
+    }
+    if (lock_good_min_inliers_ < 0) {
+        RCLCPP_WARN(this->get_logger(), "lock_good_min_inliers=%d 非法，已钳制为 0", lock_good_min_inliers_);
+        lock_good_min_inliers_ = 0;
+    }
+    if (lock_jump_reject_translation_m_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "lock_jump_reject_translation_m=%.4f 非法，已回退为 0.30",
+                    lock_jump_reject_translation_m_);
+        lock_jump_reject_translation_m_ = 0.30;
+    }
+    if (lock_jump_reject_yaw_deg_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "lock_jump_reject_yaw_deg=%.4f 非法，已回退为 8.0", lock_jump_reject_yaw_deg_);
+        lock_jump_reject_yaw_deg_ = 8.0;
+    }
+    if (locked_pose_max_stale_sec_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "locked_pose_max_stale_sec=%.4f 非法，已回退为 1.5", locked_pose_max_stale_sec_);
+        locked_pose_max_stale_sec_ = 1.5;
+    }
+    lock_good_min_inliers_ = std::max(lock_good_min_inliers_, min_inliers_);
+    lock_good_normalized_error_max_ = std::max(lock_good_normalized_error_max_, 1e-6);
     if (retry_zone_fast_accept_th_ <= 0.0) {
         RCLCPP_WARN(this->get_logger(), "retry_zone_fast_accept_th=%.4f 非法，已回退为 global_fitness_threshold=%.4f",
                     retry_zone_fast_accept_th_, global_fitness_threshold_);

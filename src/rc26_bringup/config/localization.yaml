@@ -176,6 +176,26 @@ localization:
     freeze_update_err: 0.3
     # 允许更新TF的最小内点数，低于此值时冻结TF更新（按降采样后点数调整）
     min_inliers: 200
+    # 从 SUSPECT/RELOC_FAILED 恢复到 TRACKING 的最小 acceptable 连续帧数
+    acceptable_match_streak_to_recover: 2
+    # 进入 LOCKED 所需的 good 连续帧数
+    good_match_streak_to_lock: 5
+    # 进入 SUSPECT 所需的 unacceptable 连续帧数
+    bad_match_streak_to_suspect: 3
+    # LOCKED 退回 TRACKING 所需的低置信连续帧数
+    low_confidence_streak_to_unlock: 2
+    # 启动后允许进入 LOCKED 的最小时间（秒）
+    locked_min_startup_sec: 2.0
+    # 判定 good_match 的更严格误差阈值（最终与 freeze_update_err 取更小值）
+    lock_good_normalized_error_max: 0.20
+    # 判定 good_match 的更严格最小内点数
+    lock_good_min_inliers: 300
+    # LOCKED 下拒绝大跳变的平移阈值（米）
+    lock_jump_reject_translation_m: 0.30
+    # LOCKED 下拒绝大跳变的航向阈值（度）
+    lock_jump_reject_yaw_deg: 8.0
+    # last_locked_map_to_odom 快照最大有效时长（秒）
+    locked_pose_max_stale_sec: 1.5
     
     # ========== 全局重定位参数 ==========
     # 全局 ICP 最大迭代次数，影响重定位精细对齐质量和耗时
@@ -197,7 +217,7 @@ localization:
 
     # ========== I2: 重试区先验初值注入 ==========
     # 比赛模式防呆开关（开启后要求 retry_zone_enable=true 且 x/y 不为默认占位值）
-    competition_mode: true
+    competition_mode: false
     # 是否启用重试区快速通道（绑架后优先用重试区坐标+ICP，跳过全局搜索）
     retry_zone_enable: true
     # 重试区中心点 map 坐标 x（建图后标定）
