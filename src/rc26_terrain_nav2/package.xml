@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rc26_terrain_nav2</name>
+  <version>0.1.0</version>
+  <description>Nav2 terrain integration plugins and bridges for R2</description>
+  <maintainer email="dev@rc2026.com">RC2026</maintainer>
+  <maintainer email="2220362462@qq.com">DongXuan Chen</maintainer>
+  <license>Apache-2.0</license>
+
+  <author email="2220362462@qq.com">DongXuan Chen</author>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>nav2_msgs</depend>
+  <depend>nav2_costmap_2d</depend>
+  <depend>pluginlib</depend>
+  <depend>grid_map_core</depend>
+  <depend>grid_map_ros</depend>
+  <depend>grid_map_msgs</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+    <nav2_costmap_2d plugin="${prefix}/rc26_terrain_nav2.xml" />
+  </export>
+</package>

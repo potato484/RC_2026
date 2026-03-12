@@ -1,0 +1,7 @@
+<library path="terrain_traversability_layer">
+  <class
+    type="rc26_terrain_nav2::TerrainTraversabilityLayer"
+    base_class_type="nav2_costmap_2d::Layer">
+    <description>Continuous terrain traversability cost layer from /terrain_grid_map_local.</description>
+  </class>
+</library>
