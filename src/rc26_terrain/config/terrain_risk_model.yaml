@@ -1,0 +1,27 @@
+terrain_risk_model:
+  # 默认关闭；启用后 TerrainSemanticNode 将按 logistic 系数在线推理 p_obstacle/p_drop。
+  enabled: false
+
+  obstacle:
+    enabled: true
+    intercept: -2.60
+    coefficients:
+      slope_abs: 1.40
+      roughness: 0.90
+      sigma_h: 0.65
+      step_up: 1.10
+      height_span: 0.45
+      obstacle_proxy: 2.20
+      climbable_prob: -0.35
+
+  drop:
+    enabled: true
+    intercept: -2.20
+    coefficients:
+      slope_abs: 0.70
+      roughness: 0.80
+      sigma_h: 0.95
+      step_up: -0.20
+      height_span: 0.55
+      drop_proxy: 2.30
+      climbable_prob: -0.20
