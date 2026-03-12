@@ -15,6 +15,17 @@
       },
       "followMode": "follow-pose",
       "followTf": "map",
+      "topics": {
+        "/registered_scan": {
+          "visible": true
+        },
+        "/laser_map_full": {
+          "visible": true
+        },
+        "/terrain_grid_map_markers": {
+          "visible": true
+        }
+      },
       "scene": {
         "transforms": { "showLabel": true, "editable": true },
         "enableStats": true,
