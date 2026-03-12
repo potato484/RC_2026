@@ -94,6 +94,14 @@ struct TerrainInput {
   bool drop_received{false};
   double drop_age_sec{kInf};
   bool drop_active{false};
+  bool grid_received{false};
+  double grid_age_sec{kInf};
+  double traversability_min{std::numeric_limits<double>::quiet_NaN()};
+  bool climbable_active{false};
+  bool step_edge_active{false};
+  bool speed_limit_received{false};
+  double speed_limit_age_sec{kInf};
+  bool speed_limited{false};
 };
 
 struct TopicWatchInput {
@@ -136,6 +144,12 @@ struct VisualizationStatusConfig {
   std::string kfs_heartbeat_topic{"/kfs_keepout_heartbeat"};
   std::string terrain_obstacles_topic{"terrain_obstacles"};
   std::string terrain_drop_topic{"terrain_drop"};
+  std::string terrain_grid_topic{"/terrain_grid_map_local"};
+  std::string terrain_speed_limit_topic{"terrain_speed_limit"};
+  double terrain_speed_limit_nominal_mps{2.0};
+  double terrain_speed_limit_margin_mps{0.05};
+  double terrain_climbable_active_threshold{0.20};
+  double terrain_step_edge_active_threshold{0.50};
   bool localization_present{true};
   bool controller_present{true};
   bool keepout_present{true};

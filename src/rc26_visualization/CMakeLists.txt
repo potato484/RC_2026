@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(ament_cmake REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
+find_package(grid_map_msgs REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -27,6 +28,7 @@ target_include_directories(visualization_status_core PUBLIC
 )
 ament_target_dependencies(visualization_status_core
   diagnostic_msgs
+  grid_map_msgs
   nav2_msgs
   nav_msgs
   rclcpp
@@ -41,6 +43,7 @@ add_executable(rc26_visualization_status_node
 target_link_libraries(rc26_visualization_status_node visualization_status_core)
 ament_target_dependencies(rc26_visualization_status_node
   diagnostic_msgs
+  grid_map_msgs
   nav2_msgs
   nav_msgs
   rclcpp
@@ -78,6 +81,7 @@ if(BUILD_TESTING)
   )
   ament_target_dependencies(test_visualization_status
     diagnostic_msgs
+    grid_map_msgs
     nav2_msgs
     nav_msgs
     rclcpp

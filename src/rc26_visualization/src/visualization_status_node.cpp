@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -8,6 +9,7 @@
 
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <diagnostic_msgs/msg/key_value.hpp>
+#include <grid_map_msgs/msg/grid_map.hpp>
 #include <nav2_msgs/msg/costmap_filter_info.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/odometry.hpp>
@@ -20,6 +22,7 @@
 #include <rc26_interfaces/msg/visualization_event_array.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_srvs/srv/trigger.hpp>
@@ -48,6 +51,69 @@ double ageSec(rclcpp::Clock& clock, bool received, const rclcpp::Time& stamp) {
 
 bool cloudActive(const sensor_msgs::msg::PointCloud2& msg) {
   return msg.width > 0 && msg.height > 0;
+}
+
+struct TerrainGridSummary {
+  bool has_traversability{false};
+  double traversability_min{std::numeric_limits<double>::quiet_NaN()};
+  bool climbable_active{false};
+  bool step_edge_active{false};
+};
+
+int findLayerIndex(const grid_map_msgs::msg::GridMap& msg, const std::string& layer_name) {
+  const auto iter = std::find(msg.layers.begin(), msg.layers.end(), layer_name);
+  if (iter == msg.layers.end()) {
+    return -1;
+  }
+  return static_cast<int>(std::distance(msg.layers.begin(), iter));
+}
+
+TerrainGridSummary summarizeTerrainGrid(const grid_map_msgs::msg::GridMap& msg,
+                                        double climbable_threshold,
+                                        double step_edge_threshold) {
+  TerrainGridSummary summary;
+  const int traversability_idx = findLayerIndex(msg, "traversability");
+  const int climbable_idx = findLayerIndex(msg, "climbable_prob");
+  const int step_edge_idx = findLayerIndex(msg, "step_edge_mask");
+
+  if (traversability_idx >= 0 && traversability_idx < static_cast<int>(msg.data.size())) {
+    const auto& data = msg.data[static_cast<size_t>(traversability_idx)].data;
+    double min_value = std::numeric_limits<double>::infinity();
+    for (const float value : data) {
+      if (!std::isfinite(static_cast<double>(value))) {
+        continue;
+      }
+      min_value = std::min(min_value, static_cast<double>(value));
+    }
+    if (std::isfinite(min_value)) {
+      summary.has_traversability = true;
+      summary.traversability_min = min_value;
+    }
+  }
+
+  if (climbable_idx >= 0 && climbable_idx < static_cast<int>(msg.data.size())) {
+    const auto& data = msg.data[static_cast<size_t>(climbable_idx)].data;
+    for (const float value : data) {
+      if (std::isfinite(static_cast<double>(value)) &&
+          static_cast<double>(value) >= climbable_threshold) {
+        summary.climbable_active = true;
+        break;
+      }
+    }
+  }
+
+  if (step_edge_idx >= 0 && step_edge_idx < static_cast<int>(msg.data.size())) {
+    const auto& data = msg.data[static_cast<size_t>(step_edge_idx)].data;
+    for (const float value : data) {
+      if (std::isfinite(static_cast<double>(value)) &&
+          static_cast<double>(value) >= step_edge_threshold) {
+        summary.step_edge_active = true;
+        break;
+      }
+    }
+  }
+
+  return summary;
 }
 
 template <typename MsgT>
@@ -103,6 +169,8 @@ private:
     this->declare_parameter<std::string>("topics.kfs_keepout_heartbeat", "/kfs_keepout_heartbeat");
     this->declare_parameter<std::string>("topics.terrain_obstacles", "terrain_obstacles");
     this->declare_parameter<std::string>("topics.terrain_drop", "terrain_drop");
+    this->declare_parameter<std::string>("topics.terrain_grid_map_local", "/terrain_grid_map_local");
+    this->declare_parameter<std::string>("topics.terrain_speed_limit", "terrain_speed_limit");
     this->declare_parameter<std::string>("topics.odom", "odom");
     this->declare_parameter<std::string>("topics.control_state", "control_state");
 
@@ -121,6 +189,10 @@ private:
     this->declare_parameter<int>("thresholds.mechanism_warn_level", 1);
     this->declare_parameter<int>("thresholds.mechanism_error_level", 2);
     this->declare_parameter<int>("thresholds.topics_orange_count", 3);
+    this->declare_parameter<double>("thresholds.terrain_speed_limit_nominal_mps", 2.0);
+    this->declare_parameter<double>("thresholds.terrain_speed_limit_margin_mps", 0.05);
+    this->declare_parameter<double>("thresholds.terrain_climbable_active_threshold", 0.20);
+    this->declare_parameter<double>("thresholds.terrain_step_edge_active_threshold", 0.50);
 
     this->declare_parameter<double>("watchdog.localization_health_max_age_ms", 1000.0);
     this->declare_parameter<double>("watchdog.localization_backend_status_max_age_ms", 1500.0);
@@ -136,6 +208,8 @@ private:
     this->declare_parameter<double>("watchdog.kfs_keepout_heartbeat_max_age_ms", 300.0);
     this->declare_parameter<double>("watchdog.terrain_obstacles_max_age_ms", 1000.0);
     this->declare_parameter<double>("watchdog.terrain_drop_max_age_ms", 1000.0);
+    this->declare_parameter<double>("watchdog.terrain_grid_map_local_max_age_ms", 1000.0);
+    this->declare_parameter<double>("watchdog.terrain_speed_limit_max_age_ms", 1000.0);
     this->declare_parameter<double>("watchdog.odom_max_age_ms", 500.0);
     this->declare_parameter<double>("watchdog.control_state_max_age_ms", 500.0);
 
@@ -164,8 +238,18 @@ private:
     topic_kfs_heartbeat_ = this->get_parameter("topics.kfs_keepout_heartbeat").as_string();
     topic_terrain_obstacles_ = this->get_parameter("topics.terrain_obstacles").as_string();
     topic_terrain_drop_ = this->get_parameter("topics.terrain_drop").as_string();
+    topic_terrain_grid_map_local_ = this->get_parameter("topics.terrain_grid_map_local").as_string();
+    topic_terrain_speed_limit_ = this->get_parameter("topics.terrain_speed_limit").as_string();
     topic_odom_ = this->get_parameter("topics.odom").as_string();
     topic_control_state_ = this->get_parameter("topics.control_state").as_string();
+    terrain_speed_limit_nominal_mps_ =
+        this->get_parameter("thresholds.terrain_speed_limit_nominal_mps").as_double();
+    terrain_speed_limit_margin_mps_ =
+        this->get_parameter("thresholds.terrain_speed_limit_margin_mps").as_double();
+    terrain_climbable_active_threshold_ =
+        this->get_parameter("thresholds.terrain_climbable_active_threshold").as_double();
+    terrain_step_edge_active_threshold_ =
+        this->get_parameter("thresholds.terrain_step_edge_active_threshold").as_double();
 
     VisualizationStatusConfig config;
     config.loc_timeout_sec = this->get_parameter("thresholds.loc_timeout_sec").as_double();
@@ -198,6 +282,12 @@ private:
     config.kfs_heartbeat_topic = topic_kfs_heartbeat_;
     config.terrain_obstacles_topic = topic_terrain_obstacles_;
     config.terrain_drop_topic = topic_terrain_drop_;
+    config.terrain_grid_topic = topic_terrain_grid_map_local_;
+    config.terrain_speed_limit_topic = topic_terrain_speed_limit_;
+    config.terrain_speed_limit_nominal_mps = terrain_speed_limit_nominal_mps_;
+    config.terrain_speed_limit_margin_mps = terrain_speed_limit_margin_mps_;
+    config.terrain_climbable_active_threshold = terrain_climbable_active_threshold_;
+    config.terrain_step_edge_active_threshold = terrain_step_edge_active_threshold_;
     config.localization_present = this->get_parameter("summary.localization_present").as_bool();
     config.controller_present = this->get_parameter("summary.controller_present").as_bool();
     config.keepout_present = this->get_parameter("summary.keepout_present").as_bool();
@@ -221,6 +311,8 @@ private:
         {"KFS_KEEPOUT_HEARTBEAT", topic_kfs_heartbeat_, this->get_parameter("watchdog.kfs_keepout_heartbeat_max_age_ms").as_double() / 1000.0, config.keepout_present},
         {"TERRAIN_OBSTACLES", topic_terrain_obstacles_, this->get_parameter("watchdog.terrain_obstacles_max_age_ms").as_double() / 1000.0, config.terrain_present},
         {"TERRAIN_DROP", topic_terrain_drop_, this->get_parameter("watchdog.terrain_drop_max_age_ms").as_double() / 1000.0, config.terrain_present},
+        {"TERRAIN_GRID_MAP_LOCAL", topic_terrain_grid_map_local_, this->get_parameter("watchdog.terrain_grid_map_local_max_age_ms").as_double() / 1000.0, config.terrain_present},
+        {"TERRAIN_SPEED_LIMIT", topic_terrain_speed_limit_, this->get_parameter("watchdog.terrain_speed_limit_max_age_ms").as_double() / 1000.0, config.terrain_present},
         {"ODOM", topic_odom_, this->get_parameter("watchdog.odom_max_age_ms").as_double() / 1000.0, true},
         {"CONTROL_STATE", topic_control_state_, this->get_parameter("watchdog.control_state_max_age_ms").as_double() / 1000.0, true},
     };
@@ -385,6 +477,30 @@ private:
           terrain_drop_.msg = *msg;
         });
 
+    terrain_grid_map_local_sub_ = this->create_subscription<grid_map_msgs::msg::GridMap>(
+        topic_terrain_grid_map_local_,
+        keepout_qos,
+        [this](const grid_map_msgs::msg::GridMap::SharedPtr msg) {
+          std::lock_guard<std::mutex> lock(data_mutex_);
+          terrain_grid_map_local_.received = true;
+          terrain_grid_map_local_.stamp = stampOrNow(*this, msg->header);
+          terrain_grid_map_local_.msg = *msg;
+          terrain_grid_summary_ = summarizeTerrainGrid(
+              *msg,
+              terrain_climbable_active_threshold_,
+              terrain_step_edge_active_threshold_);
+        });
+
+    terrain_speed_limit_sub_ = this->create_subscription<std_msgs::msg::Float32>(
+        topic_terrain_speed_limit_,
+        reliable_qos,
+        [this](const std_msgs::msg::Float32::SharedPtr msg) {
+          std::lock_guard<std::mutex> lock(data_mutex_);
+          terrain_speed_limit_.received = true;
+          terrain_speed_limit_.stamp = this->now();
+          terrain_speed_limit_.value = static_cast<double>(msg->data);
+        });
+
     odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
         topic_odom_, sensor_qos,
         [this](const nav_msgs::msg::Odometry::SharedPtr msg) {
@@ -489,6 +605,22 @@ private:
     input.terrain.drop_received = terrain_drop_.received;
     input.terrain.drop_age_sec = ageSec(*this->get_clock(), terrain_drop_.received, terrain_drop_.stamp);
     input.terrain.drop_active = terrain_drop_.received && cloudActive(terrain_drop_.msg);
+    input.terrain.grid_received = terrain_grid_map_local_.received;
+    input.terrain.grid_age_sec =
+        ageSec(*this->get_clock(), terrain_grid_map_local_.received, terrain_grid_map_local_.stamp);
+    input.terrain.traversability_min = terrain_grid_summary_.has_traversability
+                                           ? terrain_grid_summary_.traversability_min
+                                           : std::numeric_limits<double>::quiet_NaN();
+    input.terrain.climbable_active = terrain_grid_summary_.climbable_active;
+    input.terrain.step_edge_active = terrain_grid_summary_.step_edge_active;
+    input.terrain.speed_limit_received = terrain_speed_limit_.received;
+    input.terrain.speed_limit_age_sec =
+        ageSec(*this->get_clock(), terrain_speed_limit_.received, terrain_speed_limit_.stamp);
+    const double limited_threshold =
+        std::max(0.0, terrain_speed_limit_nominal_mps_ - terrain_speed_limit_margin_mps_);
+    input.terrain.speed_limited =
+        terrain_speed_limit_.received && std::isfinite(terrain_speed_limit_.value) &&
+        terrain_speed_limit_.value < limited_threshold;
 
     for (const auto& topic_watch : topic_watch_configs_) {
       TopicWatchInput watch;
@@ -538,6 +670,12 @@ private:
       } else if (topic_watch.code_suffix == "TERRAIN_DROP") {
         watch.received = terrain_drop_.received;
         watch.age_sec = input.terrain.drop_age_sec;
+      } else if (topic_watch.code_suffix == "TERRAIN_GRID_MAP_LOCAL") {
+        watch.received = terrain_grid_map_local_.received;
+        watch.age_sec = input.terrain.grid_age_sec;
+      } else if (topic_watch.code_suffix == "TERRAIN_SPEED_LIMIT") {
+        watch.received = terrain_speed_limit_.received;
+        watch.age_sec = input.terrain.speed_limit_age_sec;
       } else if (topic_watch.code_suffix == "ODOM") {
         watch.received = odom_.received;
         watch.age_sec = ageSec(*this->get_clock(), odom_.received, odom_.stamp);
@@ -611,8 +749,14 @@ private:
   std::string topic_kfs_heartbeat_;
   std::string topic_terrain_obstacles_;
   std::string topic_terrain_drop_;
+  std::string topic_terrain_grid_map_local_;
+  std::string topic_terrain_speed_limit_;
   std::string topic_odom_;
   std::string topic_control_state_;
+  double terrain_speed_limit_nominal_mps_{2.0};
+  double terrain_speed_limit_margin_mps_{0.05};
+  double terrain_climbable_active_threshold_{0.20};
+  double terrain_step_edge_active_threshold_{0.50};
 
   std::mutex data_mutex_;
   VisualizationStatusCore core_;
@@ -634,6 +778,9 @@ private:
   ValueCache<bool> kfs_heartbeat_;
   MessageCache<sensor_msgs::msg::PointCloud2> terrain_obstacles_;
   MessageCache<sensor_msgs::msg::PointCloud2> terrain_drop_;
+  MessageCache<grid_map_msgs::msg::GridMap> terrain_grid_map_local_;
+  TerrainGridSummary terrain_grid_summary_;
+  ValueCache<double> terrain_speed_limit_;
   MessageCache<nav_msgs::msg::Odometry> odom_;
   MessageCache<nav_msgs::msg::Odometry> control_state_;
 
@@ -658,6 +805,8 @@ private:
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr kfs_heartbeat_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr terrain_obstacles_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr terrain_drop_sub_;
+  rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr terrain_grid_map_local_sub_;
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr terrain_speed_limit_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr control_state_sub_;
 

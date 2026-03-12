@@ -314,6 +314,12 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
   status.terrain_online = false;
   status.terrain_obstacle_active = config_.terrain_present && input.terrain.obstacles_active;
   status.terrain_drop_active = config_.terrain_present && input.terrain.drop_active;
+  status.terrain_traversability_min = config_.terrain_present
+                                          ? static_cast<float>(input.terrain.traversability_min)
+                                          : std::numeric_limits<float>::quiet_NaN();
+  status.terrain_speed_limited = config_.terrain_present && input.terrain.speed_limited;
+  status.terrain_climbable_active = config_.terrain_present && input.terrain.climbable_active;
+  status.terrain_step_edge_active = config_.terrain_present && input.terrain.step_edge_active;
   status.nav_safety_level = kLevelGreen;
   status.nav_profile =
       !config_.nav_safety_present ? "disabled" : (input.nav_safety.received ? input.nav_safety.current_profile : "unknown");
@@ -535,14 +541,24 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
   const double terrain_limit_sec = config_.terrain_max_age_ms / 1000.0;
   const bool obstacles_fresh = input.terrain.obstacles_received && input.terrain.obstacles_age_sec <= terrain_limit_sec;
   const bool drop_fresh = input.terrain.drop_received && input.terrain.drop_age_sec <= terrain_limit_sec;
-  status.terrain_online = config_.terrain_present && (obstacles_fresh || drop_fresh);
+  const bool grid_fresh = input.terrain.grid_received && input.terrain.grid_age_sec <= terrain_limit_sec;
+  const bool speed_limit_fresh =
+      input.terrain.speed_limit_received && input.terrain.speed_limit_age_sec <= terrain_limit_sec;
+  status.terrain_online = config_.terrain_present && (obstacles_fresh || drop_fresh || grid_fresh || speed_limit_fresh);
+  const bool traversability_low =
+      std::isfinite(input.terrain.traversability_min) && input.terrain.traversability_min <= 0.6;
+  const bool terrain_hazard_active =
+      input.terrain.obstacles_active || input.terrain.drop_active ||
+      input.terrain.climbable_active || input.terrain.step_edge_active ||
+      input.terrain.speed_limited || traversability_low;
   if (!config_.terrain_present) {
     status.terrain_level = kLevelGreen;
-  } else if (!input.terrain.obstacles_received && !input.terrain.drop_received) {
+  } else if (!input.terrain.obstacles_received && !input.terrain.drop_received &&
+             !input.terrain.grid_received && !input.terrain.speed_limit_received) {
     status.terrain_level = kLevelOrange;
   } else if (!status.terrain_online) {
     status.terrain_level = kLevelOrange;
-  } else if (input.terrain.obstacles_active || input.terrain.drop_active) {
+  } else if (terrain_hazard_active) {
     status.terrain_level = kLevelYellow;
   } else {
     status.terrain_level = kLevelGreen;
@@ -691,7 +707,9 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
        input.keepout.heartbeat_received ? input.keepout.heartbeat_age_sec : kInf});
   const double terrain_last_age = latestAgeSec(
       {input.terrain.obstacles_received ? input.terrain.obstacles_age_sec : kInf,
-       input.terrain.drop_received ? input.terrain.drop_age_sec : kInf});
+       input.terrain.drop_received ? input.terrain.drop_age_sec : kInf,
+       input.terrain.grid_received ? input.terrain.grid_age_sec : kInf,
+       input.terrain.speed_limit_received ? input.terrain.speed_limit_age_sec : kInf});
   const double topics_last_age = [&input]() {
     double best = kInf;
     for (const auto& monitored_topic : input.monitored_topics) {
@@ -772,16 +790,24 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
       {
           config_.terrain_present,
           config_.terrain_present,
-          input.terrain.obstacles_received || input.terrain.drop_received,
+          input.terrain.obstacles_received || input.terrain.drop_received ||
+              input.terrain.grid_received || input.terrain.speed_limit_received,
           formatLastUpdateMs(header, terrain_last_age),
-          {config_.terrain_obstacles_topic, config_.terrain_drop_topic},
+          {config_.terrain_obstacles_topic, config_.terrain_drop_topic,
+           config_.terrain_grid_topic, config_.terrain_speed_limit_topic},
       },
       {
           {"online", boolString(status.terrain_online)},
           {"terrain_obstacle_active", boolString(status.terrain_obstacle_active)},
           {"terrain_drop_active", boolString(status.terrain_drop_active)},
+          {"terrain_climbable_active", boolString(status.terrain_climbable_active)},
+          {"terrain_step_edge_active", boolString(status.terrain_step_edge_active)},
+          {"terrain_speed_limited", boolString(status.terrain_speed_limited)},
+          {"terrain_traversability_min", formatDouble(status.terrain_traversability_min, 3)},
           {"obstacles_age_sec", formatDouble(input.terrain.obstacles_age_sec, 2)},
           {"drop_age_sec", formatDouble(input.terrain.drop_age_sec, 2)},
+          {"grid_age_sec", formatDouble(input.terrain.grid_age_sec, 2)},
+          {"speed_limit_age_sec", formatDouble(input.terrain.speed_limit_age_sec, 2)},
       }));
 
   output.summary.status.push_back(makeStatus(
