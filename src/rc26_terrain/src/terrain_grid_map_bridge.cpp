@@ -502,17 +502,19 @@ void TerrainGridMapBridge::featureCallback(
 
     nav_msgs::msg::OccupancyGrid::ConstSharedPtr keepout_mask;
     double keepout_age_sec = std::numeric_limits<double>::infinity();
+    bool keepout_received = false;
     {
         std::lock_guard<std::mutex> lock(keepout_mutex_);
         keepout_mask = keepout_mask_;
-        if (keepout_received_) {
+        keepout_received = keepout_received_;
+        if (keepout_received) {
             keepout_age_sec = (this->get_clock()->now() - keepout_receive_time_).seconds();
         }
     }
 
-    const bool keepout_available = keepout_received_ && keepout_mask &&
+    const bool keepout_available = keepout_received && keepout_mask &&
                                    (keepout_age_sec <= keepout_stale_timeout_sec_);
-    if (!keepout_received_ || !keepout_mask) {
+    if (!keepout_received || !keepout_mask) {
         diagnostics.keepout_available = false;
     } else if (!keepout_available) {
         diagnostics.keepout_available = false;

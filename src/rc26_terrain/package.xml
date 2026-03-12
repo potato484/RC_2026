@@ -43,6 +43,7 @@
   <test_depend>nav2_lifecycle_manager</test_depend>
   <test_depend>nav2_msgs</test_depend>
   <test_depend>rc26_bringup</test_depend>
+  <test_depend>rc26_terrain_nav2</test_depend>
   <test_depend>tf2_ros</test_depend>
 
   <export>
