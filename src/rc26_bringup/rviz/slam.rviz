@@ -74,9 +74,14 @@ Visualization Manager:
       Color Transformer: GridMapLayer
       Height Layer: elevation_abs
       Height Transformer: GridMapLayer
-      Name: TerrainGridMap
+      Name: TerrainGridMapLocal
       Topic:
-        Value: terrain_grid_map
+        Value: terrain_grid_map_local
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Name: TerrainGridMapLocalMarkers
+      Topic:
+        Value: terrain_grid_map_local_markers
       Value: true
     - Class: rviz_default_plugins/PointCloud2
       Name: TerrainObstacles
