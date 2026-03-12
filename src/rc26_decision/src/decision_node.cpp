@@ -144,6 +144,11 @@ public:
                 merlin_map->initRedMap();
             }
             blackboard->set("merlin_map", merlin_map);
+
+            auto merlin_rule_world_model = std::make_shared<MerlinRuleWorldModel>(*this);
+            blackboard->set("merlin_rule_world_model", merlin_rule_world_model);
+            auto battle_grid_state = std::make_shared<BattleGridState>();
+            blackboard->set("battle_grid_state", battle_grid_state);
             RCLCPP_INFO(this->get_logger(), "Cold-start merlin_map initialized for team=%s", team.c_str());
         }
 

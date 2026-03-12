@@ -10,6 +10,7 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include "rc26_decision/common/bt_action_node.hpp"
+#include "rc26_decision/mf/merlin_rule_world_model.hpp"
 #include "rc26_interfaces/action/execute_mechanism.hpp"
 #include "rc26_interfaces/srv/set_nav_mode.hpp"
 
@@ -201,8 +202,13 @@ public:
     BT::NodeStatus tick() override;
 
 private:
-    int findAdjacentR2KFS(int current, std::shared_ptr<MerlinMapManager> map);
-    int findBestPathToExit(int current, int exit_grid, std::shared_ptr<MerlinMapManager> map);
+    int findAdjacentR2KFS(int current,
+                          std::shared_ptr<MerlinMapManager> map,
+                          const std::shared_ptr<MerlinRuleWorldModel>& world_model);
+    int findBestPathToExit(int current,
+                           int exit_grid,
+                           std::shared_ptr<MerlinMapManager> map,
+                           const std::shared_ptr<MerlinRuleWorldModel>& world_model);
 };
 
 // ============================================================================

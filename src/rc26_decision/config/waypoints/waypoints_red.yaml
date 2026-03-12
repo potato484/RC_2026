@@ -102,6 +102,10 @@ static_points:
 # 每格尺寸: 1200mm x 1200mm
 # ==============================================================================
 merlin_config:
+  # 统一静态真值文件。为空时 WaypointManager 会使用 rc26_kfs_keepout 默认布局文件。
+  world_layout_file: ""
+
+  # 兼容回退：仅当 world_layout_file 无法加载时才使用 anchors 推导点位。
   # 锚点坐标 (用于计算其他格子位置)
   anchors:
     block_1: {x: 0.0, y: 0.0}   # TODO: 1号格中心坐标
@@ -113,66 +117,3 @@ merlin_config:
     grid_size: 1.2              # 格子边长 (米)
     safe_offset: 0.20           # 安全偏移量
     jump_margin: 0.20           # 跨越余量
-
-  # 12个格子的导航点 (中心坐标)
-  grids:
-    mf_grid_1:
-      x: 0.0    # TODO: 实测填充
-      y: 0.0
-      theta: 0.0
-      depth: 2  # 高度400mm
-    mf_grid_2:
-      x: 0.0    # TODO: 实测填充 (入口格)
-      y: 0.0
-      theta: 0.0
-      depth: 1  # 高度200mm
-    mf_grid_3:
-      x: 0.0    # TODO: 实测填充
-      y: 0.0
-      theta: 0.0
-      depth: 2  # 高度400mm
-    mf_grid_4:
-      x: 0.0    # TODO: 实测填充
-      y: 0.0
-      theta: 0.0
-      depth: 3  # 高度600mm (最高)
-    mf_grid_5:
-      x: 0.0    # TODO: 实测填充
-      y: 0.0
-      theta: 0.0
-      depth: 2  # 高度400mm
-    mf_grid_6:
-      x: 0.0    # TODO: 实测填充
-      y: 0.0
-      theta: 0.0
-      depth: 1  # 高度200mm
-    mf_grid_7:
-      x: 0.0    # TODO: 实测填充
-      y: 0.0
-      theta: 0.0
-      depth: 2  # 高度400mm
-    mf_grid_8:
-      x: 0.0    # TODO: 实测填充
-      y: 0.0
-      theta: 0.0
-      depth: 3  # 高度600mm (最高)
-    mf_grid_9:
-      x: 0.0    # TODO: 实测填充
-      y: 0.0
-      theta: 0.0
-      depth: 2  # 高度400mm
-    mf_grid_10:
-      x: 0.0    # TODO: 实测填充 (优先出口)
-      y: 0.0
-      theta: 0.0
-      depth: 1  # 高度200mm (最低出口)
-    mf_grid_11:
-      x: 0.0    # TODO: 实测填充
-      y: 0.0
-      theta: 0.0
-      depth: 2  # 高度400mm
-    mf_grid_12:
-      x: 0.0    # TODO: 实测填充
-      y: 0.0
-      theta: 0.0
-      depth: 1  # 高度200mm

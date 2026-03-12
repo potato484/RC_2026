@@ -102,6 +102,10 @@ static_points:
 # 每格尺寸: 1200mm x 1200mm
 # ==============================================================================
 merlin_config:
+  # 统一静态真值文件。为空时 WaypointManager 会使用 rc26_kfs_keepout 默认布局文件。
+  world_layout_file: ""
+
+  # 兼容回退：仅当 world_layout_file 无法加载时才使用 anchors 推导点位。
   anchors:
     block_1: {x: 0.0, y: 0.0}   # TODO: 1号格中心坐标
     block_2: {x: 0.0, y: 0.0}   # TODO: 2号格中心坐标 (入口格)
@@ -111,65 +115,3 @@ merlin_config:
     grid_size: 1.2
     safe_offset: 0.20
     jump_margin: 0.20
-
-  grids:
-    mf_grid_1:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
-      depth: 2  # 400mm
-    mf_grid_2:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
-      depth: 1  # 200mm (入口格)
-    mf_grid_3:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
-      depth: 2  # 400mm
-    mf_grid_4:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
-      depth: 1  # 200mm (蓝方与红方对称)
-    mf_grid_5:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
-      depth: 2  # 400mm
-    mf_grid_6:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
-      depth: 3  # 600mm (蓝方最高)
-    mf_grid_7:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
-      depth: 2  # 400mm
-    mf_grid_8:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
-      depth: 3  # 600mm
-    mf_grid_9:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
-      depth: 2  # 400mm
-    mf_grid_10:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
-      depth: 1  # 200mm (优先出口)
-    mf_grid_11:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
-      depth: 2  # 400mm
-    mf_grid_12:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
-      depth: 1  # 200mm

@@ -388,7 +388,7 @@ BT::NodeStatus CheckLoadCondition::tick() {
     getInput("min_load", min_load);
     getInput("max_load", max_load);
     int kfs_count = 0;
-    config().blackboard->get("kfs_on_board", kfs_count);
+    (void)config().blackboard->get("kfs_on_board", kfs_count);
     return (kfs_count >= min_load && kfs_count <= max_load)
            ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
 }
@@ -478,17 +478,6 @@ BT::NodeStatus ScanSurroundingsAction::onStart() {
     (void)config().blackboard->get("current_grid", current_grid);
 
     const int front = map_->getAdjacentGrid(current_grid, MFDirection::FRONT);
-    const int left = map_->getAdjacentGrid(current_grid, MFDirection::LEFT);
-    const int right = map_->getAdjacentGrid(current_grid, MFDirection::RIGHT);
-
-    for (const int grid_id : {front, left, right}) {
-        if (grid_id < 1 || grid_id > 12) {
-            continue;
-        }
-        if (map_->getKFS(grid_id) == KFSType::UNKNOWN) {
-            map_->setKFS(grid_id, KFSType::NONE);
-        }
-    }
 
     bool vision_has_target = false;
     int vision_attr_kind = static_cast<int>(rc26_vision::AttributeKind::Unknown);
@@ -547,9 +536,19 @@ BT::NodeStatus SelectNextGridAction::tick() {
     (void)config().blackboard->get("merlin_map", map);
     if (!map) return BT::NodeStatus::FAILURE;
 
+    std::shared_ptr<MerlinRuleWorldModel> world_model;
+    (void)config().blackboard->get("merlin_rule_world_model", world_model);
+    if (world_model) {
+        int resolved_grid = -1;
+        if (world_model->resolveCurrentBlock(resolved_grid) && resolved_grid >= 1 && resolved_grid <= 12) {
+            current = resolved_grid;
+            config().blackboard->set("current_grid", current);
+        }
+    }
+
     // P1: 贪婪抓取
     if (kfs_count < target_kfs) {
-        int grab = findAdjacentR2KFS(current, map);
+        int grab = findAdjacentR2KFS(current, map, world_model);
         if (grab > 0) {
             setOutput("next_action", std::string("GRAB"));
             setOutput("target_grid", grab);
@@ -557,7 +556,7 @@ BT::NodeStatus SelectNextGridAction::tick() {
         }
     }
     // P2: 赶路
-    int next = findBestPathToExit(current, exit_grid, map);
+    int next = findBestPathToExit(current, exit_grid, map, world_model);
     if (next > 0) {
         setOutput("next_action", std::string("MOVE"));
         setOutput("target_grid", next);
@@ -569,21 +568,40 @@ BT::NodeStatus SelectNextGridAction::tick() {
     return BT::NodeStatus::SUCCESS;
 }
 
-int SelectNextGridAction::findAdjacentR2KFS(int current, std::shared_ptr<MerlinMapManager> map) {
+int SelectNextGridAction::findAdjacentR2KFS(int current,
+                                            std::shared_ptr<MerlinMapManager> map,
+                                            const std::shared_ptr<MerlinRuleWorldModel>& world_model) {
+    const auto can_move = [&](int from, int to) -> bool {
+        if (world_model && world_model->isReady()) {
+            return world_model->canMove(from, to).allowed;
+        }
+        return map->canTraverse(from, to);
+    };
+
     for (auto dir : {MFDirection::FRONT, MFDirection::LEFT, MFDirection::RIGHT}) {
         int adj = map->getAdjacentGrid(current, dir);
-        if (adj > 0 && map->getKFS(adj) == KFSType::R2 && map->canTraverse(current, adj)) {
+        if (adj > 0 && map->getKFS(adj) == KFSType::R2 && can_move(current, adj)) {
             return adj;
         }
     }
     return -1;
 }
 
-int SelectNextGridAction::findBestPathToExit(int current, int exit_grid, std::shared_ptr<MerlinMapManager> map) {
+int SelectNextGridAction::findBestPathToExit(int current,
+                                             int exit_grid,
+                                             std::shared_ptr<MerlinMapManager> map,
+                                             const std::shared_ptr<MerlinRuleWorldModel>& world_model) {
+    const auto can_move = [&](int from, int to) -> bool {
+        if (world_model && world_model->isReady()) {
+            return world_model->canMove(from, to).allowed;
+        }
+        return map->canTraverse(from, to);
+    };
+
     int best = -1, min_dist = 100;
     for (auto dir : {MFDirection::FRONT, MFDirection::LEFT, MFDirection::RIGHT}) {
         int adj = map->getAdjacentGrid(current, dir);
-        if (adj > 0 && map->isWalkable(current, adj)) {
+        if (adj > 0 && map->getKFS(adj) == KFSType::NONE && can_move(current, adj)) {
             int dist = std::abs((adj - 1) / 3 - (exit_grid - 1) / 3) +
                        std::abs((adj - 1) % 3 - (exit_grid - 1) % 3);
             if (dist < min_dist) {
@@ -607,9 +625,9 @@ BT::PortsList CheckExitCondition::providedPorts() {
 
 BT::NodeStatus CheckExitCondition::tick() {
     int current = 0, kfs_count = 0, target_kfs = 2;
-    config().blackboard->get("current_grid", current);
-    config().blackboard->get("kfs_on_board", kfs_count);
-    config().blackboard->get("target_kfs_count", target_kfs);
+    (void)config().blackboard->get("current_grid", current);
+    (void)config().blackboard->get("kfs_on_board", kfs_count);
+    (void)config().blackboard->get("target_kfs_count", target_kfs);
     bool at_exit = (current == 10 || current == 11 || current == 12);
     return (at_exit && kfs_count >= target_kfs) ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
 }
@@ -626,10 +644,10 @@ BT::PortsList CheckR1BlockingCondition::providedPorts() {
 
 BT::NodeStatus CheckR1BlockingCondition::tick() {
     std::shared_ptr<MerlinMapManager> map;
-    config().blackboard->get("merlin_map", map);
+    (void)config().blackboard->get("merlin_map", map);
     if (!map) return BT::NodeStatus::FAILURE;
     int current = 2;
-    config().blackboard->get("current_grid", current);
+    (void)config().blackboard->get("current_grid", current);
     int front = map->getAdjacentGrid(current, MFDirection::FRONT);
     if (front > 0 && map->getKFS(front) == KFSType::R1) {
         return BT::NodeStatus::SUCCESS;
@@ -649,7 +667,7 @@ BT::PortsList IncrementKFSCountAction::providedPorts() {
 
 BT::NodeStatus IncrementKFSCountAction::tick() {
     int count = 0;
-    config().blackboard->get("kfs_on_board", count);
+    (void)config().blackboard->get("kfs_on_board", count);
     config().blackboard->set("kfs_on_board", count + 1);
     return BT::NodeStatus::SUCCESS;
 }
@@ -716,17 +734,37 @@ BT::NodeStatus NavToMerlinGridAction::onStart() {
         return log_guard_fail("missing merlin_map");
     }
 
-    if (grid_id != current_grid) {
-        const int cur_row = (current_grid - 1) / 3;
-        const int cur_col = (current_grid - 1) % 3;
-        const int dst_row = (grid_id - 1) / 3;
-        const int dst_col = (grid_id - 1) % 3;
-        const int manhattan = std::abs(dst_row - cur_row) + std::abs(dst_col - cur_col);
-        if (manhattan != 1) {
-            return log_guard_fail("non-adjacent target (diagonal/cross-grid move blocked)");
+    std::shared_ptr<MerlinRuleWorldModel> world_model;
+    (void)config().blackboard->get("merlin_rule_world_model", world_model);
+    const bool world_model_ready = world_model && world_model->isReady();
+    if (world_model) {
+        int resolved_grid = -1;
+        std::string resolve_reason;
+        if (world_model->resolveCurrentBlock(resolved_grid, &resolve_reason) &&
+            resolved_grid >= 1 && resolved_grid <= 12) {
+            current_grid = resolved_grid;
+            config().blackboard->set("current_grid", current_grid);
         }
-        if (!map->canTraverse(current_grid, grid_id)) {
-            return log_guard_fail("height delta too large for traverse");
+    }
+
+    if (grid_id != current_grid) {
+        if (world_model_ready) {
+            const auto verdict = world_model->canMove(current_grid, grid_id);
+            if (!verdict.allowed) {
+                return log_guard_fail(std::string("world_model veto: ") + verdict.reason);
+            }
+        } else {
+            const int cur_row = (current_grid - 1) / 3;
+            const int cur_col = (current_grid - 1) % 3;
+            const int dst_row = (grid_id - 1) / 3;
+            const int dst_col = (grid_id - 1) % 3;
+            const int manhattan = std::abs(dst_row - cur_row) + std::abs(dst_col - cur_col);
+            if (manhattan != 1) {
+                return log_guard_fail("non-adjacent target (diagonal/cross-grid move blocked)");
+            }
+            if (!map->canTraverse(current_grid, grid_id)) {
+                return log_guard_fail("height delta too large for traverse");
+            }
         }
     }
 

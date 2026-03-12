@@ -3,6 +3,7 @@
 
 #include <behaviortree_cpp/bt_factory.h>
 
+#include "rc26_decision/combat/battle_grid_state.hpp"
 #include "rc26_decision/common/bt_action_node.hpp"
 #include "rc26_interfaces/action/execute_mechanism.hpp"
 #include "rc26_interfaces/action/place_kfs_grid.hpp"
@@ -31,6 +32,10 @@ public:
 protected:
     bool buildGoal(Goal& goal) override;
     BT::NodeStatus handleResult(const WrappedResult& result, uint16_t& error_code) override;
+
+private:
+    uint8_t pending_grid_position_{0};
+    uint8_t pending_layer_{0};
 };
 
 // 放置 KFS 到地面节点
