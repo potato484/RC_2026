@@ -55,6 +55,7 @@ add_library(${PROJECT_NAME}_nodes SHARED
 )
 
 ament_target_dependencies(${PROJECT_NAME}_nodes
+  ament_index_cpp
   rclcpp
   rclcpp_action
   behaviortree_cpp
@@ -146,6 +147,6 @@ install(
 ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME}_nodes)
-ament_export_dependencies(rclcpp rclcpp_action behaviortree_cpp geometry_msgs nav_msgs nav2_msgs std_msgs tf2 tf2_ros tf2_geometry_msgs grid_map_core grid_map_ros grid_map_msgs rc26_serial rc26_interfaces rc26_vision)
+ament_export_dependencies(ament_index_cpp rclcpp rclcpp_action behaviortree_cpp geometry_msgs nav_msgs nav2_msgs std_msgs tf2 tf2_ros tf2_geometry_msgs grid_map_core grid_map_ros grid_map_msgs rc26_serial rc26_interfaces rc26_vision)
 
 ament_package()
