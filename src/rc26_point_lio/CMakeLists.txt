@@ -42,7 +42,6 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rcl_interfaces REQUIRED)
-find_package(rclpy REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -54,8 +53,6 @@ find_package(tf2_ros REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(glog REQUIRED)
 find_package(OpenMP QUIET)
-find_package(PythonLibs REQUIRED) # Consider using Pybind11 for ROS2
-find_path(MATPLOTLIB_CPP_INCLUDE_DIRS "matplotlibcpp.hpp")
 
 if(OPENMP_FOUND)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
@@ -66,7 +63,6 @@ include_directories(
   include
   ${EIGEN3_INCLUDE_DIR}
   ${PCL_INCLUDE_DIRS}
-  ${PYTHON_INCLUDE_DIRS}
 )
 
 link_directories(
@@ -87,7 +83,6 @@ add_executable(pointlio_mapping
 ament_target_dependencies(pointlio_mapping
   rclcpp
   rcl_interfaces
-  rclpy
   geometry_msgs
   nav_msgs
   sensor_msgs
@@ -98,8 +93,7 @@ ament_target_dependencies(pointlio_mapping
   tf2_ros
 )
 
-target_link_libraries(pointlio_mapping ${PCL_LIBRARIES} ${PYTHON_LIBRARIES})
-target_include_directories(pointlio_mapping PRIVATE ${PYTHON_INCLUDE_DIRS})
+target_link_libraries(pointlio_mapping ${PCL_LIBRARIES})
 
 # Install the executable
 install(TARGETS
@@ -116,7 +110,6 @@ install(
 ament_export_dependencies(
   rclcpp
   rcl_interfaces
-  rclpy
   geometry_msgs
   nav_msgs
   sensor_msgs

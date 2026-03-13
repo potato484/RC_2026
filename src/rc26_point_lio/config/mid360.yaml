@@ -25,6 +25,7 @@
             enable: False
             prior_pcd_map_path: ""
             init_pose: [ 0.0, 0.0, 0.0 ]
+            skip_frames: 200                              # 启用先验地图后，延迟多少帧再执行 MapIncremental()
 
         preprocess:
             # NOTE: In this Point-LIO fork, MID360 is enumerated as 5 (see `rc26_point_lio/src/preprocess.hpp`).
