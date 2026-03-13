@@ -41,6 +41,7 @@
 #include "rc26_localization/online_scan_context_db.hpp"
 #include "rc26_localization/pose_graph_backend.hpp"
 #include "rc26_localization/route_observability_evaluator.hpp"
+#include "rc26_localization/scan_context_ring_index.hpp"
 #include "rc26_localization/static_voxel_filter.hpp"
 #include "small_gicp/ann/kdtree_omp.hpp"
 #include "small_gicp/factors/gicp_factor.hpp"
@@ -103,6 +104,13 @@ private:
         Eigen::Vector2d center_xy{Eigen::Vector2d::Zero()};
         Eigen::MatrixXf descriptor;
         Eigen::VectorXf ring_key;
+        Eigen::VectorXf sector_key;
+    };
+
+    enum class GraphAnchorAttachResult : uint8_t {
+        VALIDATED_ANCHOR,
+        TRUSTED_RELOC_ANCHOR,
+        REJECTED_ANCHOR,
     };
 
     struct DegenAnalysis {
@@ -160,15 +168,17 @@ private:
     bool processGraphBackendOnLocalRegistration(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
                                                 const Eigen::Isometry3d& map_to_odom,
                                                 const rclcpp::Time& stamp);
-    bool processGraphBackendAnchor(const Eigen::Isometry3d& map_to_odom, const rclcpp::Time& stamp,
-                                   const pcl::PointCloud<pcl::PointXYZ>::Ptr& anchor_cloud = nullptr);
+    GraphAnchorAttachResult processGraphBackendAnchor(const Eigen::Isometry3d& map_to_odom, const rclcpp::Time& stamp,
+                                                      const pcl::PointCloud<pcl::PointXYZ>::Ptr& anchor_cloud = nullptr);
     bool tryLookupOdomToBase(const rclcpp::Time& stamp, Eigen::Isometry3d& odom_to_base) const;
     std::vector<ExternalCandidate> consumeExternalCandidates(const rclcpp::Time& now, size_t max_count);
     pcl::PointCloud<pcl::PointXYZ>::Ptr buildMapPatchAround(const Eigen::Vector2d& center_map, double radius_m);
     void applyExternalAnchorCandidates(const KeyframeData& inserted, bool& graph_changed, const rclcpp::Time& stamp);
 
     // 全局重定位（后台线程）
-    void performGlobalRelocalization(RelocTriggerReason reason, pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud = nullptr);
+    void performGlobalRelocalization(RelocTriggerReason reason, pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud = nullptr,
+                                     const Eigen::Isometry3d& request_odom_to_base = Eigen::Isometry3d::Identity(),
+                                     bool request_odom_valid = false, const rclcpp::Time& request_stamp = rclcpp::Time(0));
     void requestRelocalization(RelocTriggerReason reason, pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud);
     void relocWorkerLoop();
 
@@ -194,7 +204,9 @@ private:
                                     double& delta_translation_m,
                                     double& delta_yaw_deg) const;
     void markRelocalizationSuccess(const Eigen::Isometry3d& map_to_odom,
-                                   const pcl::PointCloud<pcl::PointXYZ>::Ptr& anchor_cloud = nullptr);
+                                   const pcl::PointCloud<pcl::PointXYZ>::Ptr& anchor_cloud = nullptr,
+                                   const Eigen::Isometry3d& request_odom_to_base = Eigen::Isometry3d::Identity(),
+                                   bool request_odom_valid = false, const rclcpp::Time& request_stamp = rclcpp::Time(0));
     void publishRelocMetrics(const RelocMetrics& metrics) const;
     static const char* toString(LocalizationState state);
     static const char* toString(RelocTriggerReason reason);
@@ -207,6 +219,10 @@ private:
     Eigen::MatrixXf makeScanContextDescriptor(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
                                               const Eigen::Vector2d& center_xy) const;
     Eigen::VectorXf makeRingKey(const Eigen::MatrixXf& descriptor) const;
+    Eigen::VectorXf makeSectorKey(const Eigen::MatrixXf& descriptor) const;
+    int fastAlignUsingSectorKey(const Eigen::VectorXf& query_sector, const Eigen::VectorXf& target_sector) const;
+    double bestSectorSimilarityWindowed(const Eigen::MatrixXf& query_desc, const Eigen::MatrixXf& target_desc,
+                                        int coarse_shift, int window_radius, int& best_shift) const;
     double bestSectorSimilarity(const Eigen::MatrixXf& query_desc, const Eigen::MatrixXf& target_desc,
                                 int& best_shift) const;
     bool tryGlobalChannel(const pcl::PointCloud<pcl::PointXYZ>::Ptr& source_down,
@@ -321,6 +337,9 @@ private:
     bool reloc_request_pending_{false};
     RelocTriggerReason reloc_pending_reason_{RelocTriggerReason::TIMEOUT};
     pcl::PointCloud<pcl::PointXYZ>::Ptr reloc_pending_cloud_;
+    Eigen::Isometry3d reloc_request_odom_to_base_{Eigen::Isometry3d::Identity()};
+    bool reloc_request_odom_valid_{false};
+    rclcpp::Time reloc_request_stamp_;
 
     // [修复] 配准失败超时机制
     rclcpp::Time last_successful_registration_time_;
@@ -396,6 +415,7 @@ private:
     int sc_min_points_per_submap_{80};
     bool sc_db_ready_{false};
     std::vector<ScanContextEntry> sc_database_;
+    std::shared_ptr<ScanContextRingKeyIndex> sc_ring_index_;
     std::mutex sc_mutex_;
 
     // 退化分析（替代 S2 二值门控）

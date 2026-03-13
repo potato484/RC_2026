@@ -526,6 +526,7 @@ rcl_interfaces::msg::SetParametersResult LocalizationNode::dynamicParametersCall
             sc_db_ready_ = false;
             std::lock_guard<std::mutex> lk(sc_mutex_);
             sc_database_.clear();
+            sc_ring_index_.reset();
         }
     }
 

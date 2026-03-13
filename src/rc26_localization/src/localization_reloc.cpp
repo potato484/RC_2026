@@ -18,6 +18,10 @@
 
 namespace rc26_localization {
 
+namespace {
+constexpr int kScanContextYawWindow = 3;
+}  // namespace
+
 void LocalizationNode::publishRelocMetrics(const RelocMetrics& metrics) const {
     RCLCPP_INFO(this->get_logger(),
                 "RELOC_METRIC,trigger_reason=%s,path_used=%s,t_total_ms=%.2f,t_l0_ms=%.2f,t_l1_ms=%.2f,t_l2_ms=%.2f,"
@@ -32,13 +36,26 @@ void LocalizationNode::requestRelocalization(RelocTriggerReason reason, pcl::Poi
         return;
     }
 
+    const rclcpp::Time request_stamp = this->now();
+    Eigen::Isometry3d request_odom_to_base = Eigen::Isometry3d::Identity();
+    const bool request_odom_valid = tryLookupOdomToBase(request_stamp, request_odom_to_base);
+
     {
         std::lock_guard<std::mutex> lock(reloc_request_mutex_);
         reloc_pending_reason_ = reason;
         if (source_cloud && !source_cloud->empty()) {
             reloc_pending_cloud_ = source_cloud;
+        } else {
+            reloc_pending_cloud_.reset();
         }
+        reloc_request_odom_to_base_ = request_odom_to_base;
+        reloc_request_odom_valid_ = request_odom_valid;
+        reloc_request_stamp_ = request_stamp;
         reloc_request_pending_ = true;
+    }
+
+    if (!request_odom_valid) {
+        RCLCPP_WARN(this->get_logger(), "重定位请求: 无法获取请求时刻 odom->base TF，成功后将回退到未补偿写回");
     }
 
     setLocalizationState(LocalizationState::SUSPECT, "reloc_requested");
@@ -249,6 +266,7 @@ bool LocalizationNode::buildScanContextDatabase() {
             entry.center_xy = Eigen::Vector2d(cx, cy);
             entry.descriptor = makeScanContextDescriptor(submap, entry.center_xy);
             entry.ring_key = makeRingKey(entry.descriptor);
+            entry.sector_key = makeSectorKey(entry.descriptor);
             if (entry.ring_key.size() == 0) {
                 continue;
             }
@@ -260,13 +278,26 @@ bool LocalizationNode::buildScanContextDatabase() {
         return false;
     }
 
+    auto ring_index = std::make_shared<ScanContextRingKeyIndex>();
+    std::vector<Eigen::VectorXf> ring_keys;
+    ring_keys.reserve(database.size());
+    for (const auto& entry : database) {
+        ring_keys.push_back(entry.ring_key);
+    }
+    if (!ring_index->build(ring_keys)) {
+        ring_index.reset();
+        RCLCPP_WARN(this->get_logger(), "Scan Context ring_key KD-tree 构建失败，回退线性检索");
+    }
+
     {
         std::lock_guard<std::mutex> lock(sc_mutex_);
         sc_database_ = std::move(database);
+        sc_ring_index_ = ring_index;
         sc_db_ready_ = true;
     }
 
-    RCLCPP_INFO(this->get_logger(), "Scan Context 数据库构建完成: entries=%zu", sc_database_.size());
+    RCLCPP_INFO(this->get_logger(), "Scan Context 数据库构建完成: entries=%zu, ring_index=%s", sc_database_.size(),
+                ring_index ? "ready" : "fallback_linear");
     return true;
 }
 
@@ -312,8 +343,52 @@ Eigen::VectorXf LocalizationNode::makeRingKey(const Eigen::MatrixXf& descriptor)
     return descriptor.rowwise().mean();
 }
 
-double LocalizationNode::bestSectorSimilarity(const Eigen::MatrixXf& query_desc, const Eigen::MatrixXf& target_desc,
-                                              int& best_shift) const {
+Eigen::VectorXf LocalizationNode::makeSectorKey(const Eigen::MatrixXf& descriptor) const {
+    if (descriptor.rows() == 0 || descriptor.cols() == 0) {
+        return Eigen::VectorXf();
+    }
+    return descriptor.colwise().mean().transpose();
+}
+
+int LocalizationNode::fastAlignUsingSectorKey(const Eigen::VectorXf& query_sector,
+                                              const Eigen::VectorXf& target_sector) const {
+    if (query_sector.size() == 0 || target_sector.size() == 0 || query_sector.size() != target_sector.size()) {
+        return 0;
+    }
+
+    const int cols = query_sector.size();
+    const double query_norm = std::sqrt(std::max(0.0, static_cast<double>(query_sector.squaredNorm())));
+    if (query_norm <= kNearZero) {
+        return 0;
+    }
+
+    int best_shift = 0;
+    double best_sim = -1.0;
+    for (int shift = 0; shift < cols; ++shift) {
+        double dot = 0.0;
+        double target_sq = 0.0;
+        for (int c = 0; c < cols; ++c) {
+            const double q = query_sector(c);
+            const double t = target_sector((c + shift) % cols);
+            dot += q * t;
+            target_sq += t * t;
+        }
+
+        if (target_sq <= kNearZero) {
+            continue;
+        }
+
+        const double sim = dot / (query_norm * std::sqrt(target_sq));
+        if (sim > best_sim) {
+            best_sim = sim;
+            best_shift = shift;
+        }
+    }
+    return best_shift;
+}
+
+double LocalizationNode::bestSectorSimilarityWindowed(const Eigen::MatrixXf& query_desc, const Eigen::MatrixXf& target_desc,
+                                                      int coarse_shift, int window_radius, int& best_shift) const {
     best_shift = 0;
     if (query_desc.rows() != target_desc.rows() || query_desc.cols() != target_desc.cols() || query_desc.size() == 0) {
         return -1.0;
@@ -321,6 +396,14 @@ double LocalizationNode::bestSectorSimilarity(const Eigen::MatrixXf& query_desc,
 
     const int rows = query_desc.rows();
     const int cols = query_desc.cols();
+
+    auto wrap_shift = [cols](int shift) {
+        int wrapped = (cols > 0) ? (shift % cols) : 0;
+        if (wrapped < 0) {
+            wrapped += cols;
+        }
+        return wrapped;
+    };
 
     double query_sq = 0.0;
     for (int r = 0; r < rows; ++r) {
@@ -333,8 +416,10 @@ double LocalizationNode::bestSectorSimilarity(const Eigen::MatrixXf& query_desc,
         return -1.0;
     }
 
+    const int bounded_window = std::clamp(window_radius, 0, cols / 2);
     double best_sim = -1.0;
-    for (int shift = 0; shift < cols; ++shift) {
+    for (int delta = -bounded_window; delta <= bounded_window; ++delta) {
+        const int shift = wrap_shift(coarse_shift + delta);
         double dot = 0.0;
         double target_sq = 0.0;
         for (int r = 0; r < rows; ++r) {
@@ -358,6 +443,12 @@ double LocalizationNode::bestSectorSimilarity(const Eigen::MatrixXf& query_desc,
     }
 
     return best_sim;
+}
+
+double LocalizationNode::bestSectorSimilarity(const Eigen::MatrixXf& query_desc, const Eigen::MatrixXf& target_desc,
+                                              int& best_shift) const {
+    const int full_window = std::max<int>(0, static_cast<int>(query_desc.cols() / 2));
+    return bestSectorSimilarityWindowed(query_desc, target_desc, 0, full_window, best_shift);
 }
 
 bool LocalizationNode::tryRetryZoneFastChannel(const pcl::PointCloud<pcl::PointXYZ>::Ptr& source_down,
@@ -494,19 +585,45 @@ bool LocalizationNode::tryScanContextGlobalChannel(const pcl::PointCloud<pcl::Po
 
     const Eigen::MatrixXf query_desc = makeScanContextDescriptor(source_down, query_center);
     const Eigen::VectorXf query_ring = makeRingKey(query_desc);
+    const Eigen::VectorXf query_sector = makeSectorKey(query_desc);
     if (query_ring.size() == 0) {
         return false;
     }
 
-    std::vector<std::pair<double, size_t>> ranked;
+    std::vector<ScanContextEntry> database_snapshot;
+    std::shared_ptr<ScanContextRingKeyIndex> ring_index_snapshot;
     {
         std::lock_guard<std::mutex> lock(sc_mutex_);
-        ranked.reserve(sc_database_.size());
-        for (size_t i = 0; i < sc_database_.size(); ++i) {
-            if (sc_database_[i].ring_key.size() != query_ring.size()) {
+        database_snapshot = sc_database_;
+        ring_index_snapshot = sc_ring_index_;
+    }
+
+    if (database_snapshot.empty()) {
+        return false;
+    }
+
+    std::vector<std::pair<double, size_t>> ranked;
+    const size_t topk = std::min<size_t>(static_cast<size_t>(std::max(sc_topk_, 1)),
+                                         database_snapshot.size());
+
+    if (ring_index_snapshot && !ring_index_snapshot->empty() && ring_index_snapshot->dimension() == query_ring.size()) {
+        const auto neighbors = ring_index_snapshot->knnSearch(query_ring, topk);
+        ranked.reserve(neighbors.size());
+        for (const auto& neighbor : neighbors) {
+            if (neighbor.index >= database_snapshot.size()) {
                 continue;
             }
-            const double dist = (sc_database_[i].ring_key - query_ring).norm();
+            ranked.emplace_back(neighbor.distance, neighbor.index);
+        }
+    }
+
+    if (ranked.empty()) {
+        ranked.reserve(database_snapshot.size());
+        for (size_t i = 0; i < database_snapshot.size(); ++i) {
+            if (database_snapshot[i].ring_key.size() != query_ring.size()) {
+                continue;
+            }
+            const double dist = (database_snapshot[i].ring_key - query_ring).norm();
             ranked.emplace_back(dist, i);
         }
     }
@@ -516,8 +633,8 @@ bool LocalizationNode::tryScanContextGlobalChannel(const pcl::PointCloud<pcl::Po
     }
 
     std::sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
-    if (static_cast<int>(ranked.size()) > sc_topk_) {
-        ranked.resize(static_cast<size_t>(sc_topk_));
+    if (ranked.size() > topk) {
+        ranked.resize(topk);
     }
 
     auto source_cov =
@@ -546,19 +663,20 @@ bool LocalizationNode::tryScanContextGlobalChannel(const pcl::PointCloud<pcl::Po
         if (stop_flag && stop_flag->load()) {
             return false;
         }
-        (void)ring_dist;
-
-        ScanContextEntry entry;
-        {
-            std::lock_guard<std::mutex> lock(sc_mutex_);
-            if (idx >= sc_database_.size()) {
-                continue;
-            }
-            entry = sc_database_[idx];
+        if (idx >= database_snapshot.size()) {
+            continue;
         }
+        const ScanContextEntry& entry = database_snapshot[idx];
 
-        int best_shift = 0;
-        const double similarity = bestSectorSimilarity(query_desc, entry.descriptor, best_shift);
+        const bool use_sector_seed =
+            query_sector.size() > 0 && entry.sector_key.size() > 0 && query_sector.size() == entry.sector_key.size();
+        const int coarse_shift = use_sector_seed ? fastAlignUsingSectorKey(query_sector, entry.sector_key) : 0;
+        const int window_radius =
+            use_sector_seed ? kScanContextYawWindow : std::max<int>(0, static_cast<int>(query_desc.cols() / 2));
+
+        int best_shift = coarse_shift;
+        const double similarity =
+            bestSectorSimilarityWindowed(query_desc, entry.descriptor, coarse_shift, window_radius, best_shift);
         if (similarity < 0.0) {
             continue;
         }
@@ -592,8 +710,9 @@ bool LocalizationNode::tryScanContextGlobalChannel(const pcl::PointCloud<pcl::Po
         double cost = computeCandidateCost(fitness, seed, refined) + std::max(0.0, sim_cost - sc_sim_threshold_);
 
         RCLCPP_INFO(this->get_logger(),
-                    "SC候选 idx=%zu shift=%d sim=%.3f fitness=%.4f J=%.4f center=(%.2f,%.2f)", idx, best_shift,
-                    similarity, fitness, cost, entry.center_xy.x(), entry.center_xy.y());
+                    "SC候选 idx=%zu ring=%.4f coarse=%d shift=%d sim=%.3f fitness=%.4f J=%.4f center=(%.2f,%.2f)",
+                    idx, ring_dist, coarse_shift, best_shift, similarity, fitness, cost, entry.center_xy.x(),
+                    entry.center_xy.y());
 
         if (!found || cost < best_cost || (std::abs(cost - best_cost) < 1e-6 && fitness < best_fitness)) {
             found = true;
@@ -619,14 +738,32 @@ bool LocalizationNode::tryScanContextGlobalChannel(const pcl::PointCloud<pcl::Po
 }
 
 void LocalizationNode::markRelocalizationSuccess(const Eigen::Isometry3d& map_to_odom,
-                                                 const pcl::PointCloud<pcl::PointXYZ>::Ptr& anchor_cloud) {
+                                                 const pcl::PointCloud<pcl::PointXYZ>::Ptr& anchor_cloud,
+                                                 const Eigen::Isometry3d& request_odom_to_base,
+                                                 bool request_odom_valid, const rclcpp::Time& request_stamp) {
     const bool graph_mode = enable_graph_backend_ && !legacy_hard_reloc_enable_;
-    bool graph_anchor_applied = false;
+    GraphAnchorAttachResult graph_anchor_result = GraphAnchorAttachResult::VALIDATED_ANCHOR;
     Eigen::Matrix<double, 6, 6> cov_snapshot = Eigen::Matrix<double, 6, 6>::Zero();
     const rclcpp::Time success_stamp = this->now();
+
+    Eigen::Isometry3d compensated_map_to_odom = map_to_odom;
+    if (request_odom_valid) {
+        Eigen::Isometry3d odom_to_base_now = Eigen::Isometry3d::Identity();
+        if (tryLookupOdomToBase(success_stamp, odom_to_base_now)) {
+            const Eigen::Isometry3d map_to_base_request = map_to_odom * request_odom_to_base;
+            compensated_map_to_odom = map_to_base_request * odom_to_base_now.inverse();
+            RCLCPP_INFO(this->get_logger(), "重定位接管: 已应用 odom 运动补偿(request=%ld, success=%ld)",
+                        request_stamp.nanoseconds(), success_stamp.nanoseconds());
+        } else {
+            RCLCPP_WARN(this->get_logger(), "重定位接管: 成功时刻 odom->base 不可用，回退未补偿写回");
+        }
+    } else if (request_stamp.nanoseconds() > 0) {
+        RCLCPP_WARN(this->get_logger(), "重定位接管: 请求时刻 odom->base 无快照，回退未补偿写回");
+    }
+
     if (graph_mode) {
-        graph_anchor_applied = processGraphBackendAnchor(map_to_odom, success_stamp, anchor_cloud);
-        if (!graph_anchor_applied) {
+        graph_anchor_result = processGraphBackendAnchor(compensated_map_to_odom, success_stamp, anchor_cloud);
+        if (graph_anchor_result == GraphAnchorAttachResult::REJECTED_ANCHOR) {
             RCLCPP_WARN(this->get_logger(), "图后端锚点接入失败，保持当前 map->odom，拒绝硬切");
             setLocalizationState(LocalizationState::SUSPECT, "relocalization_anchor_rejected");
             publishLocalizationHealth("relocalization_anchor_rejected");
@@ -637,27 +774,27 @@ void LocalizationNode::markRelocalizationSuccess(const Eigen::Isometry3d& map_to
     }
     if (!graph_mode) {
         std::lock_guard<std::mutex> lock(result_mutex_);
-        result_t_ = previous_result_t_ = map_to_odom;
+        result_t_ = previous_result_t_ = compensated_map_to_odom;
         cov_snapshot = last_pose_cov_;
     } else {
-        Eigen::Isometry3d smoother_target = map_to_odom;
+        Eigen::Isometry3d smoother_target = compensated_map_to_odom;
         {
             std::lock_guard<std::mutex> graph_lock(graph_mutex_);
             if (graph_backend_initialized_ && map_to_odom_smoother_) {
                 if (map_to_odom_smoother_->isInitialized()) {
                     smoother_target = map_to_odom_smoother_->target();
                 }
-                map_to_odom_smoother_->reset(map_to_odom, success_stamp);
+                map_to_odom_smoother_->reset(compensated_map_to_odom, success_stamp);
                 map_to_odom_smoother_->setTarget(smoother_target, success_stamp);
             }
         }
         std::lock_guard<std::mutex> lock(result_mutex_);
-        result_t_ = previous_result_t_ = map_to_odom;
+        result_t_ = previous_result_t_ = compensated_map_to_odom;
         cov_snapshot = last_pose_cov_;
     }
     if (esikf_enable_) {
         std::lock_guard<std::mutex> lk(esikf_mutex_);
-        esikf_.reset(map_to_odom);
+        esikf_.reset(compensated_map_to_odom);
     }
     {
         std::lock_guard<std::mutex> time_lock(registration_time_mutex_);
@@ -667,16 +804,23 @@ void LocalizationNode::markRelocalizationSuccess(const Eigen::Isometry3d& map_to
     consecutive_high_error_count_.store(0);
     resetConfidenceState();
     locked_pose_fallback_active_.store(false);
-    saveLockedPoseSnapshot(map_to_odom, cov_snapshot, success_stamp);
-    setLocalizationState(LocalizationState::TRACKING, graph_mode ? "relocalization_graph_anchor_ok"
-                                                                  : "relocalization_success");
-    publishLocalizationHealth(graph_mode ? "relocalization_graph_anchor_ok" : "relocalization_success");
+    saveLockedPoseSnapshot(compensated_map_to_odom, cov_snapshot, success_stamp);
+    const char* success_reason = "relocalization_success";
+    if (graph_mode) {
+        success_reason = (graph_anchor_result == GraphAnchorAttachResult::TRUSTED_RELOC_ANCHOR)
+                             ? "relocalization_graph_anchor_trusted"
+                             : "relocalization_graph_anchor_validated";
+    }
+    setLocalizationState(LocalizationState::TRACKING, success_reason);
+    publishLocalizationHealth(success_reason);
     publishBackendStatus();
     publishRouteObservability();
 }
 
 void LocalizationNode::performGlobalRelocalization(RelocTriggerReason reason,
-                                                   pcl::PointCloud<pcl::PointXYZ>::Ptr passed_cloud) {
+                                                   pcl::PointCloud<pcl::PointXYZ>::Ptr passed_cloud,
+                                                   const Eigen::Isometry3d& request_odom_to_base,
+                                                   bool request_odom_valid, const rclcpp::Time& request_stamp) {
     RelocMetrics metrics;
     metrics.trigger_reason = reason;
 
@@ -907,7 +1051,8 @@ void LocalizationNode::performGlobalRelocalization(RelocTriggerReason reason,
             if (accepted) {
                 metrics.path_used = winner;
                 metrics.accepted = true;
-                markRelocalizationSuccess(best_pose, source_cloud);
+                markRelocalizationSuccess(best_pose, source_cloud, request_odom_to_base, request_odom_valid,
+                                          request_stamp);
             } else {
                 metrics.path_used = "parallel_failed";
             }
@@ -922,7 +1067,8 @@ void LocalizationNode::performGlobalRelocalization(RelocTriggerReason reason,
                     metrics.path_used = "L0";
                     metrics.winner_channel = "L0";
                     metrics.accepted = true;
-                    markRelocalizationSuccess(best_pose, source_cloud);
+                    markRelocalizationSuccess(best_pose, source_cloud, request_odom_to_base, request_odom_valid,
+                                              request_stamp);
                 }
                 RCLCPP_INFO(
                     get_logger(),
@@ -941,7 +1087,8 @@ void LocalizationNode::performGlobalRelocalization(RelocTriggerReason reason,
                     metrics.path_used = "L1";
                     metrics.winner_channel = "L1";
                     metrics.accepted = true;
-                    markRelocalizationSuccess(best_pose, source_cloud);
+                    markRelocalizationSuccess(best_pose, source_cloud, request_odom_to_base, request_odom_valid,
+                                              request_stamp);
                 }
                 RCLCPP_INFO(
                     get_logger(),
@@ -960,7 +1107,8 @@ void LocalizationNode::performGlobalRelocalization(RelocTriggerReason reason,
                     metrics.path_used = "L2";
                     metrics.winner_channel = "L2";
                     metrics.accepted = true;
-                    markRelocalizationSuccess(best_pose, source_cloud);
+                    markRelocalizationSuccess(best_pose, source_cloud, request_odom_to_base, request_odom_valid,
+                                              request_stamp);
                 } else {
                     metrics.path_used = "L2_failed";
                 }

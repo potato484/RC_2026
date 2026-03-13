@@ -23,6 +23,7 @@ struct KeyframeData {
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud{new pcl::PointCloud<pcl::PointXYZ>()};
     Eigen::MatrixXf descriptor;
     Eigen::VectorXf ring_key;
+    Eigen::VectorXf sector_key;
     double sigma_xy{0.0};
     double sigma_yaw_deg{0.0};
     double h_min_eig{0.0};
