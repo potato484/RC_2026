@@ -1375,6 +1375,9 @@ void LocalizationNode::relocWorkerLoop() {
 
         RelocTriggerReason reason = RelocTriggerReason::TIMEOUT;
         pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud;
+        Eigen::Isometry3d request_odom_to_base = Eigen::Isometry3d::Identity();
+        bool request_odom_valid = false;
+        rclcpp::Time request_stamp;
 
         {
             std::unique_lock<std::mutex> lock(reloc_request_mutex_);
@@ -1388,11 +1391,15 @@ void LocalizationNode::relocWorkerLoop() {
 
             reason = reloc_pending_reason_;
             source_cloud = reloc_pending_cloud_;
+            request_odom_to_base = reloc_request_odom_to_base_;
+            request_odom_valid = reloc_request_odom_valid_;
+            request_stamp = reloc_request_stamp_;
             reloc_pending_cloud_.reset();
+            reloc_request_odom_valid_ = false;
             reloc_request_pending_ = false;
         }
 
-        performGlobalRelocalization(reason, source_cloud);
+        performGlobalRelocalization(reason, source_cloud, request_odom_to_base, request_odom_valid, request_stamp);
     }
 }
 

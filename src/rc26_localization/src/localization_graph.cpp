@@ -16,6 +16,8 @@ double normalizeAngle(double angle_rad) {
 double yawOf(const Eigen::Isometry3d& pose) {
     return std::atan2(pose.rotation()(1, 0), pose.rotation()(0, 0));
 }
+
+constexpr double kTrustedRelocAnchorNoiseScale = 2.0;
 }  // namespace
 
 void LocalizationNode::initializeGraphBackend() {
@@ -261,6 +263,7 @@ bool LocalizationNode::processGraphBackendOnLocalRegistration(const pcl::PointCl
     const Eigen::Vector2d keyframe_center(candidate.pose_odom.translation().x(), candidate.pose_odom.translation().y());
     candidate.descriptor = makeScanContextDescriptor(candidate.cloud, keyframe_center);
     candidate.ring_key = makeRingKey(candidate.descriptor);
+    candidate.sector_key = makeSectorKey(candidate.descriptor);
 
     std::lock_guard<std::mutex> graph_lock(graph_mutex_);
     if (!graph_backend_initialized_ || !keyframe_manager_ || !online_sc_db_ || !constraint_validator_ ||
@@ -282,6 +285,7 @@ bool LocalizationNode::processGraphBackendOnLocalRegistration(const pcl::PointCl
         record.center_xy = keyframe_center;
         record.descriptor = inserted.descriptor;
         record.ring_key = inserted.ring_key;
+        record.sector_key = inserted.sector_key;
         online_sc_db_->addRecord(record);
     }
 
@@ -379,16 +383,17 @@ bool LocalizationNode::processGraphBackendOnLocalRegistration(const pcl::PointCl
     return updated;
 }
 
-bool LocalizationNode::processGraphBackendAnchor(const Eigen::Isometry3d& map_to_odom, const rclcpp::Time& stamp,
-                                                 const pcl::PointCloud<pcl::PointXYZ>::Ptr& anchor_cloud) {
+LocalizationNode::GraphAnchorAttachResult LocalizationNode::processGraphBackendAnchor(
+    const Eigen::Isometry3d& map_to_odom, const rclcpp::Time& stamp,
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr& anchor_cloud) {
     if (!enable_graph_backend_) {
-        return false;
+        return GraphAnchorAttachResult::REJECTED_ANCHOR;
     }
 
     Eigen::Isometry3d odom_to_base = Eigen::Isometry3d::Identity();
     if (!tryLookupOdomToBase(stamp, odom_to_base)) {
         RCLCPP_WARN(this->get_logger(), "图后端锚点: 无法获取 odom->base TF");
-        return false;
+        return GraphAnchorAttachResult::REJECTED_ANCHOR;
     }
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr raw_anchor_cloud(new pcl::PointCloud<pcl::PointXYZ>());
@@ -424,6 +429,7 @@ bool LocalizationNode::processGraphBackendAnchor(const Eigen::Isometry3d& map_to
         const Eigen::Vector2d center(anchor_keyframe.pose_odom.translation().x(), anchor_keyframe.pose_odom.translation().y());
         anchor_keyframe.descriptor = makeScanContextDescriptor(keyframe_cloud, center);
         anchor_keyframe.ring_key = makeRingKey(anchor_keyframe.descriptor);
+        anchor_keyframe.sector_key = makeSectorKey(anchor_keyframe.descriptor);
     }
     {
         std::lock_guard<std::mutex> result_lock(result_mutex_);
@@ -438,16 +444,63 @@ bool LocalizationNode::processGraphBackendAnchor(const Eigen::Isometry3d& map_to
     std::lock_guard<std::mutex> graph_lock(graph_mutex_);
     if (!graph_backend_initialized_ || !keyframe_manager_ || !online_sc_db_ || !constraint_validator_ ||
         !pose_graph_backend_ || !map_to_odom_smoother_) {
-        return false;
+        return GraphAnchorAttachResult::REJECTED_ANCHOR;
     }
-    const bool has_graph_history = keyframe_manager_->size() > 0U;
-    if (has_graph_history && (!keyframe_cloud || keyframe_cloud->empty())) {
-        pose_graph_backend_->markAnchorCandidate(false, false, stamp);
+
+    const auto previous = keyframe_manager_->latest();
+
+    bool anchor_accepted = !previous.has_value();
+    bool trusted_reloc_anchor = false;
+    bool anchor_conflict = false;
+    std::string anchor_reason = anchor_accepted ? "bootstrap_anchor" : "validation_not_run";
+    if (previous.has_value() && anchor_keyframe.cloud && !anchor_keyframe.cloud->empty() &&
+        previous->cloud && !previous->cloud->empty()) {
+        ConstraintValidationInput validation_input;
+        validation_input.type = ConstraintType::ANCHOR;
+        validation_input.from_id = previous->id;
+        validation_input.to_id = previous->id + 1U;
+        validation_input.initial_relative_pose = previous->pose_map_guess.inverse() * anchor_keyframe.pose_map_guess;
+        validation_input.source_cloud = anchor_keyframe.cloud;
+        validation_input.target_cloud = previous->cloud;
+        validation_input.imu_spike = imu_spike_active_.load() || imu_spike_recent_.load();
+        const auto validation_result = constraint_validator_->validate(validation_input);
+        anchor_accepted = validation_result.accepted;
+        anchor_conflict = validation_result.conflict;
+        anchor_reason = validation_result.reason;
+        if (!anchor_accepted && anchor_conflict) {
+            anchor_reason = "validation_conflict";
+        }
+    } else if (previous.has_value()) {
+        anchor_reason = (!anchor_keyframe.cloud || anchor_keyframe.cloud->empty()) ? "empty_anchor_cloud"
+                                                                                   : "empty_previous_cloud";
+        anchor_accepted = false;
+    }
+
+    if (!anchor_accepted && !anchor_conflict && previous.has_value()) {
+        if (anchor_reason == "empty_anchor_cloud") {
+            trusted_reloc_anchor = true;
+            RCLCPP_WARN(this->get_logger(), "图后端锚点: trusted_reloc_empty_anchor");
+        } else if (anchor_reason == "empty_previous_cloud") {
+            trusted_reloc_anchor = true;
+            RCLCPP_WARN(this->get_logger(), "图后端锚点: trusted_reloc_empty_previous");
+        }
+    }
+
+    const bool anchor_applied = anchor_accepted || trusted_reloc_anchor;
+    pose_graph_backend_->markAnchorCandidate(anchor_applied, anchor_conflict, stamp);
+    if (!anchor_applied) {
+        if (anchor_reason == "empty_anchor_cloud") {
+            RCLCPP_WARN(this->get_logger(), "图后端锚点验证失败: reason=empty_anchor_cloud");
+        } else if (anchor_reason == "empty_previous_cloud") {
+            RCLCPP_WARN(this->get_logger(), "图后端锚点验证失败: reason=empty_previous_cloud");
+        } else if (anchor_reason == "validation_conflict") {
+            RCLCPP_WARN(this->get_logger(), "图后端锚点验证失败: reason=validation_conflict");
+        }
+        RCLCPP_WARN(this->get_logger(), "图后端锚点验证失败: reason=%s", anchor_reason.c_str());
         graph_status_cache_ = pose_graph_backend_->statusSnapshot(this->now());
         backend_candidate_conflict_count_.store(graph_status_cache_.candidate_conflict_count);
         backend_map_to_odom_jump_suppressed_.store(graph_status_cache_.map_to_odom_jump_suppressed);
-        RCLCPP_WARN(this->get_logger(), "图后端锚点: 缺少当前候选点云，拒绝未验证锚点入图");
-        return false;
+        return GraphAnchorAttachResult::REJECTED_ANCHOR;
     }
 
     KeyframeData inserted = keyframe_manager_->push(std::move(anchor_keyframe));
@@ -458,12 +511,15 @@ bool LocalizationNode::processGraphBackendAnchor(const Eigen::Isometry3d& map_to
         record.center_xy = Eigen::Vector2d(inserted.pose_odom.translation().x(), inserted.pose_odom.translation().y());
         record.descriptor = inserted.descriptor;
         record.ring_key = inserted.ring_key;
+        record.sector_key = inserted.sector_key;
         online_sc_db_->addRecord(record);
     }
 
     bool graph_changed = pose_graph_backend_->addKeyframeNode(inserted.id, inserted.pose_map_guess);
+    if (!graph_changed) {
+        RCLCPP_ERROR(this->get_logger(), "图后端锚点: addKeyframeNode 失败，keyframe=%u", inserted.id);
+    }
 
-    const auto previous = keyframe_manager_->previous();
     if (previous.has_value()) {
         GraphConstraint odom_constraint;
         odom_constraint.kind = GraphConstraintKind::ODOM;
@@ -476,37 +532,18 @@ bool LocalizationNode::processGraphBackendAnchor(const Eigen::Isometry3d& map_to
         graph_changed = pose_graph_backend_->addConstraint(odom_constraint) || graph_changed;
     }
 
-    bool anchor_accepted = !previous.has_value();
-    bool anchor_conflict = false;
-    std::string anchor_reason = anchor_accepted ? "bootstrap_anchor" : "validation_not_run";
-    if (previous.has_value() && inserted.cloud && !inserted.cloud->empty() &&
-        previous->cloud && !previous->cloud->empty()) {
-        ConstraintValidationInput validation_input;
-        validation_input.type = ConstraintType::ANCHOR;
-        validation_input.from_id = previous->id;
-        validation_input.to_id = inserted.id;
-        validation_input.initial_relative_pose = previous->pose_map_guess.inverse() * inserted.pose_map_guess;
-        validation_input.source_cloud = inserted.cloud;
-        validation_input.target_cloud = previous->cloud;
-        validation_input.imu_spike = imu_spike_active_.load() || imu_spike_recent_.load();
-        const auto validation_result = constraint_validator_->validate(validation_input);
-        anchor_accepted = validation_result.accepted;
-        anchor_conflict = validation_result.conflict;
-        anchor_reason = validation_result.reason;
-    } else if (previous.has_value()) {
-        anchor_reason = (!inserted.cloud || inserted.cloud->empty()) ? "empty_anchor_cloud" : "empty_previous_cloud";
-        anchor_accepted = false;
+    const double noise_scale = trusted_reloc_anchor ? kTrustedRelocAnchorNoiseScale : 1.0;
+    const Eigen::Isometry3d observed_pose_map = map_to_odom * inserted.pose_odom;
+    const bool anchor_prior_added =
+        pose_graph_backend_->addAnchorPrior(inserted.id, observed_pose_map, graph_anchor_sigma_translation_m_ * noise_scale,
+                                            graph_anchor_sigma_yaw_deg_ * noise_scale * M_PI / 180.0, true);
+    if (!anchor_prior_added) {
+        RCLCPP_ERROR(this->get_logger(), "图后端锚点: addAnchorPrior 失败，keyframe=%u", inserted.id);
     }
-    pose_graph_backend_->markAnchorCandidate(anchor_accepted, anchor_conflict, stamp);
-    if (anchor_accepted) {
-        const Eigen::Isometry3d observed_pose_map = map_to_odom * inserted.pose_odom;
-        graph_changed = pose_graph_backend_
-                            ->addAnchorPrior(inserted.id, observed_pose_map, graph_anchor_sigma_translation_m_,
-                                             graph_anchor_sigma_yaw_deg_ * M_PI / 180.0, true) ||
-                        graph_changed;
-    } else {
-        RCLCPP_WARN(this->get_logger(), "图后端锚点验证失败: reason=%s", anchor_reason.c_str());
-    }
+    graph_changed = anchor_prior_added || graph_changed;
+
+    const GraphAnchorAttachResult attach_result =
+        anchor_accepted ? GraphAnchorAttachResult::VALIDATED_ANCHOR : GraphAnchorAttachResult::TRUSTED_RELOC_ANCHOR;
 
     bool updated = false;
     if (graph_changed) {
@@ -535,7 +572,8 @@ bool LocalizationNode::processGraphBackendAnchor(const Eigen::Isometry3d& map_to
     graph_status_cache_ = pose_graph_backend_->statusSnapshot(this->now());
     backend_candidate_conflict_count_.store(graph_status_cache_.candidate_conflict_count);
     backend_map_to_odom_jump_suppressed_.store(graph_status_cache_.map_to_odom_jump_suppressed);
-    return updated;
+    (void)updated;
+    return attach_result;
 }
 
 }  // namespace rc26_localization
