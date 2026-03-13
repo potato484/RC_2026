@@ -2,8 +2,10 @@
 // #include <so3_math.hpp>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <malloc.h>
+#include <memory>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <pcl/filters/voxel_grid.h>
@@ -49,7 +51,8 @@ nav_msgs::msg::Path path;
 nav_msgs::msg::Odometry odomAftMapped;
 geometry_msgs::msg::PoseStamped msg_body_pose;
 
-int sleep_time = 0;
+int prior_pcd_waited_frames = 0;
+bool prior_pcd_incremental_delay_active = false;
 
 auto LOGGER = rclcpp::get_logger("laserMapping");
 std::mutex runtime_param_mutex;
@@ -683,6 +686,24 @@ int main(int argc, char** argv) {
                                 name.c_str(), old_v, map_full_publish_interval_sec);
                     continue;
                 }
+                if (name == "prior_pcd.skip_frames") {
+                    if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+                        reject("prior_pcd.skip_frames expects integer");
+                        break;
+                    }
+                    const int old_v = prior_pcd_skip_frames;
+                    const int64_t requested_v = p.as_int();
+                    const int64_t clamped_v = std::max<int64_t>(0, requested_v);
+                    prior_pcd_skip_frames = static_cast<int>(clamped_v);
+                    if (requested_v != clamped_v) {
+                        RCLCPP_WARN(LOGGER,
+                                    "prior_pcd.skip_frames=%ld is invalid, clamped to %ld",
+                                    static_cast<long>(requested_v), static_cast<long>(clamped_v));
+                    }
+                    RCLCPP_INFO(LOGGER, "PARAM_UPDATE,node=laserMapping,param=%s,old=%d,new=%d",
+                                name.c_str(), old_v, prior_pcd_skip_frames);
+                    continue;
+                }
                 if (name == "output_filter.world_z_filter_en") {
                     if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
                         reject("output_filter.world_z_filter_en expects bool");
@@ -757,10 +778,11 @@ int main(int argc, char** argv) {
     /*** debug record ***/
     open_file();
 
-    FILE* fp = nullptr;
+    using FileHandle = std::unique_ptr<FILE, int (*)(FILE*)>;
+    FileHandle fp(nullptr, &fclose);
     string pos_log_dir = root_dir + "/Log/pos_log.txt";
-    fp = fopen(pos_log_dir.c_str(), "w");
-    if (fp == nullptr) {
+    fp.reset(fopen(pos_log_dir.c_str(), "w"));
+    if (!fp) {
         RCLCPP_WARN(LOGGER, "Failed to open log file: %s", pos_log_dir.c_str());
     }
 
@@ -811,6 +833,8 @@ int main(int argc, char** argv) {
                 is_first_frame = true;
                 flg_reset = false;
                 init_map = false;
+                prior_pcd_waited_frames = 0;
+                prior_pcd_incremental_delay_active = false;
 
                 { ivox_.reset(new IVoxType(ivox_options_)); }
             }
@@ -913,13 +937,18 @@ int main(int argc, char** argv) {
                     if (enable_prior_pcd) {
                         auto map_cloud = loadPointcloudFromPcd(prior_pcd_map_path);
                         if (!map_cloud || map_cloud->empty()) {
-                            RCLCPP_ERROR(LOGGER, "Prior PCD load failed or empty: %s, using init_feats_world instead",
+                            RCLCPP_ERROR(LOGGER,
+                                         "Prior PCD load failed or empty: %s, fallback to init_feats_world and "
+                                         "disable prior incremental delay",
                                          prior_pcd_map_path.c_str());
+                            prior_pcd_incremental_delay_active = false;
                             ivox_->AddPoints(init_feats_world->points);
                         } else {
+                            prior_pcd_incremental_delay_active = true;
                             ivox_->AddPoints(map_cloud->points);
                         }
                     } else {
+                        prior_pcd_incremental_delay_active = false;
                         ivox_->AddPoints(init_feats_world->points);
                     }
                     publish_init_map(pub_laser_cloud_map);
@@ -1101,7 +1130,7 @@ int main(int argc, char** argv) {
                             }
                         }
 
-                        {
+                        if (pub_degen_score->get_subscription_count() > 0U) {
                             double degenerate_score = 1.0;
                             if (g_degen_S.allFinite()) {
                                 Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es(g_degen_S);
@@ -1428,9 +1457,9 @@ int main(int argc, char** argv) {
             /*** add the feature points to map ***/
             t3 = omp_get_wtime();
             if (feats_down_size > 4) {
-                if (enable_prior_pcd) {
-                    sleep_time++;
-                    if (sleep_time > 200) {
+                if (prior_pcd_incremental_delay_active) {
+                    prior_pcd_waited_frames++;
+                    if (prior_pcd_waited_frames > prior_pcd_skip_frames) {
                         MapIncremental();
                     }
                 } else {
@@ -1484,7 +1513,7 @@ int main(int argc, char** argv) {
                                  << feats_undistort->points.size() << '\n';
                     }
                 }
-                dump_lio_state_to_log(fp);
+                dump_lio_state_to_log(fp.get());
             }
         }
         rate.sleep();

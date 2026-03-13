@@ -9,7 +9,6 @@
 #include <mutex>
 #include <thread>
 
-#include <Python.h>
 #include <geometry_msgs/msg/vector3.hpp>
 #include <ivox/ivox3d.hpp>
 #include <math.h>
@@ -119,6 +118,7 @@ struct LioRuntimeState {
     bool enable_prior_pcd = false;
     string prior_pcd_map_path;
     std::vector<double> init_pose;
+    int prior_pcd_skip_frames = 200;
     std::string odom_frame = "odom";
     std::string body_frame = "body";
     MeasureGroup Measures;
@@ -213,6 +213,7 @@ DECLARE_LIO_STATE_REF(t_last);
 DECLARE_LIO_STATE_REF(enable_prior_pcd);
 DECLARE_LIO_STATE_REF(prior_pcd_map_path);
 DECLARE_LIO_STATE_REF(init_pose);
+DECLARE_LIO_STATE_REF(prior_pcd_skip_frames);
 DECLARE_LIO_STATE_REF(odom_frame);
 DECLARE_LIO_STATE_REF(body_frame);
 DECLARE_LIO_STATE_REF(Measures);

@@ -2,6 +2,7 @@
 #include "parameters.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cmath>
 #include <filesystem>
 
@@ -23,6 +24,38 @@ int clampPointFilterNum(const int raw_value) {
 
 double clampPointKeepRatio(const double raw_value) {
     return std::clamp(raw_value, 1.0, 100.0);
+}
+
+int clampPriorPcdSkipFrames(const int raw_value) {
+    return std::max(0, raw_value);
+}
+
+bool hasFiniteEntries(const std::vector<double>& values, const size_t count) {
+    if (values.size() < count) {
+        return false;
+    }
+    return std::all_of(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(count),
+                       [](const double value) { return std::isfinite(value); });
+}
+
+void ensureSizedFiniteVector(std::vector<double>& values,
+                             const size_t expected_size,
+                             const std::vector<double>& fallback,
+                             const char* name,
+                             const rclcpp::Logger& logger) {
+    if (values.size() < expected_size) {
+        RCLCPP_WARN(logger, "%s size %zu < %zu, fallback to defaults", name, values.size(), expected_size);
+        values = fallback;
+    } else if (values.size() > expected_size) {
+        RCLCPP_WARN(logger, "%s size %zu > %zu, extra entries will be ignored", name, values.size(), expected_size);
+    }
+    values.resize(expected_size);
+
+    if (!hasFiniteEntries(values, expected_size)) {
+        RCLCPP_WARN(logger, "%s contains non-finite entries, fallback to defaults", name);
+        values = fallback;
+        values.resize(expected_size);
+    }
 }
 
 void applyEffectivePointFilterNumImpl() {
@@ -111,6 +144,9 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
 
         nh->declare_parameter<std::vector<double>>("prior_pcd.init_pose", std::vector<double>());
         nh->get_parameter("prior_pcd.init_pose", init_pose);
+
+        nh->declare_parameter<int>("prior_pcd.skip_frames", 200);
+        nh->get_parameter("prior_pcd.skip_frames", prior_pcd_skip_frames);
 
         nh->declare_parameter<double>("filter_size_surf", 0.5);
         nh->get_parameter("filter_size_surf", filter_size_surf_min);
@@ -286,28 +322,37 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
         ivox_options_.nearby_type_ = IVoxType::NearbyType::NEARBY18;
     }
 
-    if (gravity.size() < 3) {
-        RCLCPP_WARN(nh->get_logger(), "mapping.gravity size %zu < 3, using default [0,0,-9.81]", gravity.size());
-        gravity = {0.0, 0.0, -9.81};
+    const std::vector<double> default_gravity = {0.0, 0.0, -9.81};
+    const std::vector<double> default_extrin_t = {0.0, 0.0, 0.0};
+    const std::vector<double> default_extrin_r = {1.0, 0.0, 0.0,
+                                                   0.0, 1.0, 0.0,
+                                                   0.0, 0.0, 1.0};
+
+    ensureSizedFiniteVector(gravity, 3, default_gravity, "mapping.gravity", nh->get_logger());
+    const double gravity_norm = std::sqrt(gravity[0] * gravity[0] + gravity[1] * gravity[1] + gravity[2] * gravity[2]);
+    if (!std::isfinite(gravity_norm) || gravity_norm < 1e-3) {
+        RCLCPP_WARN(nh->get_logger(), "mapping.gravity norm invalid (%.6f), fallback to [0,0,-9.81]", gravity_norm);
+        gravity = default_gravity;
     }
-    if (gravity_init.size() < 3) {
-        RCLCPP_WARN(nh->get_logger(), "mapping.gravity_init size %zu < 3, using gravity as fallback",
-                    gravity_init.size());
-        gravity_init = gravity;
-    }
-    if (extrinT.size() < 3) {
-        RCLCPP_WARN(nh->get_logger(), "mapping.extrinsic_T size %zu < 3, using zeros", extrinT.size());
-        extrinT.assign(3, 0.0);
-    }
-    if (extrinR.size() < 9) {
-        RCLCPP_WARN(nh->get_logger(), "mapping.extrinsic_R size %zu < 9, using identity", extrinR.size());
-        extrinR = {1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0};
-    }
+    ensureSizedFiniteVector(gravity_init, 3, gravity, "mapping.gravity_init", nh->get_logger());
+    ensureSizedFiniteVector(extrinT, 3, default_extrin_t, "mapping.extrinsic_T", nh->get_logger());
+    ensureSizedFiniteVector(extrinR, 9, default_extrin_r, "mapping.extrinsic_R", nh->get_logger());
+
     if (init_pose.size() < 3) {
         if (enable_prior_pcd) {
             RCLCPP_WARN(nh->get_logger(), "prior_pcd.init_pose size %zu < 3, using zeros", init_pose.size());
         }
         init_pose.assign(3, 0.0);
+    } else {
+        if (init_pose.size() > 3) {
+            RCLCPP_WARN(nh->get_logger(), "prior_pcd.init_pose size %zu > 3, extra entries will be ignored",
+                        init_pose.size());
+        }
+        init_pose.resize(3);
+        if (!hasFiniteEntries(init_pose, 3)) {
+            RCLCPP_WARN(nh->get_logger(), "prior_pcd.init_pose contains non-finite values, using zeros");
+            init_pose.assign(3, 0.0);
+        }
     }
     if (adaptive_residual_thr < 0.0) {
         adaptive_residual_thr = 0.0;
@@ -317,6 +362,14 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
     }
     if (adaptive_second_iter_max < 0) {
         adaptive_second_iter_max = 0;
+    }
+    if (!std::isfinite(acc_norm) || std::abs(acc_norm) < 1e-6) {
+        RCLCPP_WARN(nh->get_logger(), "mapping.acc_norm=%.6f invalid, fallback to 1.0", acc_norm);
+        acc_norm = 1.0;
+    }
+    if (prior_pcd_skip_frames < 0) {
+        RCLCPP_WARN(nh->get_logger(), "prior_pcd.skip_frames=%d < 0, clamp to 0", prior_pcd_skip_frames);
+        prior_pcd_skip_frames = clampPriorPcdSkipFrames(prior_pcd_skip_frames);
     }
 
     p_imu->gravity_ << VEC_FROM_ARRAY(gravity);
