@@ -47,6 +47,21 @@
 - `legacy_hard_reloc_enable`：是否允许旧版重定位硬切（仅紧急回退用，默认 `false`）。
 - `p4_candidate_enable`：是否启用 P4 外部候选输入。
 
+## 2026-03 定位改进落地（S1/S2/S3）
+
+- 重定位接管新增请求时刻 `odom->base` 快照，并在成功接管时做运动补偿，避免“请求时刻到成功时刻”位姿滞后。
+- 图后端锚点接入从二态改为三态：`validated_anchor` / `trusted_reloc_anchor` / `rejected_anchor`。  
+  仅在“点云不足但前端解可信”时允许受限信任接入，`validation_conflict` 仍硬拒绝。
+- Scan Context 静态库与在线库统一为 `descriptor + ring_key + sector_key + center_xy`，查询流程升级为：
+  1. `ring_key` 索引 TopK
+  2. `sector_key` 粗 yaw 对齐
+  3. descriptor 窗口精排
+  4. GICP 几何验证
+- 参数管理按“默认 + overlay”收口，新增：
+  - `src/rc26_bringup/config/localization_overlay_default.yaml`
+  - `src/rc26_bringup/config/localization_eval_overlay.yaml`
+  - `src/rc26_bringup/config/localization_eval_overlay_synthetic.yaml`（仅 synthetic 验收）
+
 ## 实验能力说明
 - `bevplace_enable`：BEVPlace 候选分支，当前定义为实验能力，默认 `false`，不在比赛主链启用。
 - `esikf_enable`：ESIKF 融合分支，当前定义为实验能力，默认 `false`，仅用于离线验证或专项调试。

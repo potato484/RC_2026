@@ -89,6 +89,8 @@ ros2 topic echo /localization/route_observability --once
   --workspace "${RC26_WS:-$HOME/RC_2026}" \
   --synthetic-input \
   --duration 60 \
+  --config-profile eval \
+  --overlay-file "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/config/localization_eval_overlay_synthetic.yaml" \
   --competition-mode false \
   --enable-graph-backend true
 
@@ -97,11 +99,18 @@ ros2 topic echo /localization/route_observability --once
   --workspace "${RC26_WS:-$HOME/RC_2026}" \
   --synthetic-input \
   --duration 30 \
+  --config-profile eval \
+  --overlay-file "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/config/localization_eval_overlay_synthetic.yaml" \
   --competition-mode false \
   --enable-graph-backend true \
   --p4-candidate-enable true \
   --min-inliers 20
 ```
+
+说明：
+
+- 若使用实测 bag，`--bag` 参数可传 bag 目录（含 `metadata.yaml`）或 `.mcap/.db3` 文件路径。
+- synthetic overlay 仅用于最小地图链路验收，不建议直接作为比赛默认参数。
 
 ---
 
