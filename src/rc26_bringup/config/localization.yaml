@@ -9,6 +9,8 @@
 # TF 树结构:
 #   map -> odom -> base_link -> laser_link
 #   其中 map->odom 由本节点发布
+# Layer B 定位层职责:
+#   消费 Layer A(odom_interface) 的 odom 与 registered_scan，并作为 map->odom 唯一权威发布者
 
 localization:
   ros__parameters:
@@ -245,7 +247,7 @@ localization:
     # acrylic_roi_boxes 关闭时保持未配置；开启后再填 [xmin,ymin,zmin,xmax,ymax,zmax, ...]
 
     # ========== L2: Scan Context ==========
-    # BEVPlace++（当前版本保留参数，运行时自动回退 SC）
+    # BEVPlace++（实验能力，默认关闭；当前版本保留参数并自动回退到 SC 主链）
     bevplace_enable: false
     bevplace_model_path: ""
     bevplace_index_path: ""
@@ -299,7 +301,7 @@ localization:
     s3_enable: true
     s3_min_score_gap: 0.03
 
-    # ========== Phase 4: ESIKF ==========
+    # ========== Phase 4: ESIKF（实验能力，默认关闭） ==========
     esikf_enable: false
     esikf_accel_noise: 0.1
     esikf_gyro_noise: 0.01
