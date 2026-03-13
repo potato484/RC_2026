@@ -19,6 +19,8 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     slam = LaunchConfiguration('slam')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
+    localization_params_file = LaunchConfiguration('localization_params_file')
+    localization_overlay_file = LaunchConfiguration('localization_overlay_file')
     competition_mode = LaunchConfiguration('competition_mode')
     enable_graph_backend = LaunchConfiguration('enable_graph_backend')
     p4_candidate_enable = LaunchConfiguration('p4_candidate_enable')
@@ -37,6 +39,16 @@ def generate_launch_description():
         'prior_pcd_file',
         default_value=PathJoinSubstitution([bringup_dir, 'pcd', 'default.pcd']),
         description='先验点云文件路径')
+
+    declare_localization_params_file = DeclareLaunchArgument(
+        'localization_params_file',
+        default_value=PathJoinSubstitution([bringup_dir, 'config', 'localization.yaml']),
+        description='基础定位参数文件路径')
+
+    declare_localization_overlay_file = DeclareLaunchArgument(
+        'localization_overlay_file',
+        default_value=PathJoinSubstitution([bringup_dir, 'config', 'localization_overlay_default.yaml']),
+        description='定位参数 overlay 文件路径（可切换 eval 配置）')
 
     declare_competition_mode = DeclareLaunchArgument(
         'competition_mode', default_value='true', description='比赛模式防呆开关')
@@ -58,7 +70,8 @@ def generate_launch_description():
         namespace=namespace,
         output='screen',
         parameters=[
-            PathJoinSubstitution([bringup_dir, 'config', 'localization.yaml']),
+            localization_params_file,
+            localization_overlay_file,
             {'use_sim_time': use_sim_time},
             {'prior_pcd_file': prior_pcd_file},
             {'competition_mode': competition_mode},
@@ -89,6 +102,8 @@ def generate_launch_description():
         declare_use_sim_time,
         declare_slam,
         declare_prior_pcd_file,
+        declare_localization_params_file,
+        declare_localization_overlay_file,
         declare_competition_mode,
         declare_enable_graph_backend,
         declare_p4_candidate_enable,
