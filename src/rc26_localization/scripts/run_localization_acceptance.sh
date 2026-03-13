@@ -6,9 +6,12 @@ usage() {
 一键执行 rc26_localization 验收（编译 + 启动 + 可选 rosbag 回放 + 指标汇总）
 
 用法:
-  run_localization_acceptance.sh --map /abs/path/to/prior.pcd [--bag /abs/path/to/test.mcap]
+  run_localization_acceptance.sh --map /abs/path/to/prior.pcd [--bag /abs/path/to/test_bag_dir_or_file]
                                  [--duration 180] [--workspace ${RC26_WS:-$HOME/RC_2026}]
                                  [--use-sim-time auto|true|false] [--output-dir /tmp/xxx]
+                                 [--config-profile default|eval]
+                                 [--params-file /abs/path/to/localization.yaml]
+                                 [--overlay-file /abs/path/to/localization_overlay.yaml]
                                  [--competition-mode true|false]
                                  [--enable-graph-backend true|false]
                                  [--p4-candidate-enable true|false]
@@ -20,7 +23,7 @@ usage() {
   export RC26_WS=${RC26_WS:-$HOME/RC_2026}
   ./src/rc26_localization/scripts/run_localization_acceptance.sh \
     --map ${RC26_WS}/src/rc26_bringup/pcd/my_map.pcd \
-    --bag /data/loc_long_corridor.mcap \
+    --bag /data/loc_long_corridor \
     --duration 240
 EOF
 }
@@ -37,10 +40,14 @@ DEFAULT_WORKSPACE=$(cd "${RC26_WS:-${SCRIPT_DIR}/../../..}" && pwd)
 WORKSPACE="${DEFAULT_WORKSPACE}"
 MAP_FILE=""
 BAG_FILE=""
+BAG_PLAY_URI=""
 DURATION=120
 USE_SIM_TIME="auto"
 OUTPUT_DIR=""
 SKIP_BUILD=0
+CONFIG_PROFILE="default"
+PARAMS_FILE=""
+OVERLAY_FILE=""
 COMPETITION_MODE="false"
 ENABLE_GRAPH_BACKEND="false"
 SYNTHETIC_INPUT=0
@@ -71,6 +78,18 @@ while [[ $# -gt 0 ]]; do
             ;;
         --output-dir)
             OUTPUT_DIR="${2:-}"
+            shift 2
+            ;;
+        --config-profile)
+            CONFIG_PROFILE="${2:-}"
+            shift 2
+            ;;
+        --params-file)
+            PARAMS_FILE="${2:-}"
+            shift 2
+            ;;
+        --overlay-file)
+            OVERLAY_FILE="${2:-}"
             shift 2
             ;;
         --competition-mode)
@@ -117,6 +136,12 @@ fi
 if [[ -n "${OUTPUT_DIR}" ]]; then
     OUTPUT_DIR=$(expand_path "${OUTPUT_DIR}")
 fi
+if [[ -n "${PARAMS_FILE}" ]]; then
+    PARAMS_FILE=$(expand_path "${PARAMS_FILE}")
+fi
+if [[ -n "${OVERLAY_FILE}" ]]; then
+    OVERLAY_FILE=$(expand_path "${OVERLAY_FILE}")
+fi
 
 if [[ -z "${MAP_FILE}" ]]; then
     MAP_FILE="${WORKSPACE}/src/rc26_bringup/pcd/default.pcd"
@@ -126,12 +151,34 @@ if [[ ! -f "${MAP_FILE}" ]]; then
     echo "[ERROR] 地图文件不存在: ${MAP_FILE}" >&2
     exit 1
 fi
-if [[ -n "${BAG_FILE}" && ! -f "${BAG_FILE}" ]]; then
-    echo "[ERROR] rosbag 文件不存在: ${BAG_FILE}" >&2
-    exit 1
+if [[ -n "${BAG_FILE}" ]]; then
+    if [[ -d "${BAG_FILE}" ]]; then
+        if [[ ! -f "${BAG_FILE}/metadata.yaml" ]]; then
+            echo "[ERROR] rosbag 目录缺少 metadata.yaml: ${BAG_FILE}" >&2
+            exit 1
+        fi
+        BAG_PLAY_URI="${BAG_FILE}"
+    elif [[ -f "${BAG_FILE}" ]]; then
+        BAG_PLAY_URI="${BAG_FILE}"
+        case "${BAG_FILE}" in
+            *.db3|*.mcap)
+                BAG_DIR=$(dirname "${BAG_FILE}")
+                if [[ -f "${BAG_DIR}/metadata.yaml" ]]; then
+                    BAG_PLAY_URI="${BAG_DIR}"
+                fi
+                ;;
+        esac
+    else
+        echo "[ERROR] rosbag 路径不存在: ${BAG_FILE}" >&2
+        exit 1
+    fi
 fi
 if [[ "${USE_SIM_TIME}" != "auto" && "${USE_SIM_TIME}" != "true" && "${USE_SIM_TIME}" != "false" ]]; then
     echo "[ERROR] --use-sim-time 仅支持 auto|true|false" >&2
+    exit 1
+fi
+if [[ "${CONFIG_PROFILE}" != "default" && "${CONFIG_PROFILE}" != "eval" ]]; then
+    echo "[ERROR] --config-profile 仅支持 default|eval" >&2
     exit 1
 fi
 if [[ "${COMPETITION_MODE}" != "true" && "${COMPETITION_MODE}" != "false" ]]; then
@@ -152,6 +199,25 @@ if ! [[ "${DURATION}" =~ ^[0-9]+$ ]] || [[ "${DURATION}" -le 0 ]]; then
 fi
 if ! [[ "${MIN_INLIERS}" =~ ^[0-9]+$ ]] || [[ "${MIN_INLIERS}" -le 0 ]]; then
     echo "[ERROR] --min-inliers 需为正整数" >&2
+    exit 1
+fi
+
+if [[ -z "${PARAMS_FILE}" ]]; then
+    PARAMS_FILE="${WORKSPACE}/src/rc26_bringup/config/localization.yaml"
+fi
+if [[ -z "${OVERLAY_FILE}" ]]; then
+    if [[ "${CONFIG_PROFILE}" == "eval" ]]; then
+        OVERLAY_FILE="${WORKSPACE}/src/rc26_bringup/config/localization_eval_overlay.yaml"
+    else
+        OVERLAY_FILE="${WORKSPACE}/src/rc26_bringup/config/localization_overlay_default.yaml"
+    fi
+fi
+if [[ ! -f "${PARAMS_FILE}" ]]; then
+    echo "[ERROR] 基础参数文件不存在: ${PARAMS_FILE}" >&2
+    exit 1
+fi
+if [[ ! -f "${OVERLAY_FILE}" ]]; then
+    echo "[ERROR] overlay 参数文件不存在: ${OVERLAY_FILE}" >&2
     exit 1
 fi
 
@@ -192,8 +258,14 @@ trap cleanup EXIT INT TERM
 echo "[INFO] 工作空间: ${WORKSPACE}"
 echo "[INFO] 输出目录: ${OUTPUT_DIR}"
 echo "[INFO] use_sim_time=${USE_SIM_TIME}, duration=${DURATION}s"
+echo "[INFO] config_profile=${CONFIG_PROFILE}"
+echo "[INFO] params_file=${PARAMS_FILE}"
+echo "[INFO] overlay_file=${OVERLAY_FILE}"
 echo "[INFO] competition_mode=${COMPETITION_MODE}, enable_graph_backend=${ENABLE_GRAPH_BACKEND}"
 echo "[INFO] p4_candidate_enable=${P4_CANDIDATE_ENABLE}, min_inliers=${MIN_INLIERS}, synthetic_input=${SYNTHETIC_INPUT}"
+if [[ -n "${BAG_PLAY_URI}" ]]; then
+    echo "[INFO] bag_play_uri=${BAG_PLAY_URI}"
+fi
 
 if [[ "${SKIP_BUILD}" -eq 0 ]]; then
     echo "[INFO] 编译 rc26_localization ..."
@@ -217,6 +289,8 @@ echo "[INFO] 启动 localization.launch.py ..."
     ros2 launch rc26_bringup localization.launch.py \
         use_sim_time:="${USE_SIM_TIME}" \
         prior_pcd_file:="${MAP_FILE}" \
+        localization_params_file:="${PARAMS_FILE}" \
+        localization_overlay_file:="${OVERLAY_FILE}" \
         competition_mode:="${COMPETITION_MODE}" \
         enable_graph_backend:="${ENABLE_GRAPH_BACKEND}" \
         p4_candidate_enable:="${P4_CANDIDATE_ENABLE}" \
@@ -282,8 +356,8 @@ if [[ "${SYNTHETIC_INPUT}" -eq 1 ]]; then
 fi
 
 if [[ -n "${BAG_FILE}" ]]; then
-    echo "[INFO] 回放 rosbag: ${BAG_FILE}"
-    ros2 bag play "${BAG_FILE}" --clock > "${OUTPUT_DIR}/raw/bag_play.log" 2>&1 &
+    echo "[INFO] 回放 rosbag: ${BAG_PLAY_URI}"
+    ros2 bag play "${BAG_PLAY_URI}" --clock > "${OUTPUT_DIR}/raw/bag_play.log" 2>&1 &
     BAG_PID=$!
     wait "${BAG_PID}" || true
 elif [[ "${SYNTHETIC_INPUT}" -eq 1 ]]; then
@@ -303,7 +377,7 @@ wait "${HEALTH_HZ_PID}" || true
 wait "${BACKEND_HZ_PID}" || true
 wait "${ROUTE_HZ_PID}" || true
 
-python3 - "${OUTPUT_DIR}/raw/metrics.log" "${OUTPUT_DIR}/acceptance_summary.md" "${MAP_FILE}" "${BAG_FILE}" <<'PY'
+python3 - "${OUTPUT_DIR}/raw/metrics.log" "${OUTPUT_DIR}/acceptance_summary.md" "${MAP_FILE}" "${BAG_FILE}" "${CONFIG_PROFILE}" "${PARAMS_FILE}" "${OVERLAY_FILE}" "${OUTPUT_DIR}/raw/localization.launch.log" <<'PY'
 import pathlib
 import re
 import sys
@@ -313,10 +387,20 @@ metrics_path = pathlib.Path(sys.argv[1])
 summary_path = pathlib.Path(sys.argv[2])
 map_file = sys.argv[3]
 bag_file = sys.argv[4]
+config_profile = sys.argv[5]
+params_file = sys.argv[6]
+overlay_file = sys.argv[7]
+launch_log_path = pathlib.Path(sys.argv[8])
 
 lines = []
 if metrics_path.exists():
     lines = [line.strip() for line in metrics_path.read_text(encoding="utf-8", errors="ignore").splitlines() if line.strip()]
+line_source = "metrics.log"
+if not lines and launch_log_path.exists():
+    launch_lines = launch_log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    keys = ("PERF_METRIC", "RELOC_METRIC", "定位状态切换", "GLOBAL_RECOVERY", "P4候选入图成功")
+    lines = [line.strip() for line in launch_lines if any(k in line for k in keys)]
+    line_source = "localization.launch.log(fallback)"
 
 perf_local = sum("PERF_METRIC phase=LOCAL" in line for line in lines)
 perf_l0 = sum("PERF_METRIC phase=L0" in line for line in lines)
@@ -359,6 +443,10 @@ out.append("")
 out.append("## 输入")
 out.append(f"- map: `{map_file}`")
 out.append(f"- bag: `{bag_file if bag_file else '(未提供，在线采样)'}`")
+out.append(f"- config_profile: `{config_profile}`")
+out.append(f"- params_file: `{params_file}`")
+out.append(f"- overlay_file: `{overlay_file}`")
+out.append(f"- metrics_source: `{line_source}`")
 out.append("")
 out.append("## 核心指标")
 out.append(f"- `PERF_METRIC phase=LOCAL` 条数: **{perf_local}**")
