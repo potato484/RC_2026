@@ -34,6 +34,7 @@ namespace rc26_odom_interface {
 
 // OdomInterfaceNode 节点
 // 作用：将 Point-LIO 输出的里程计 / 点云，转换成导航栈统一使用的坐标系与话题
+// Layer A 职责：生产链中权威发布 odom -> base_link，向 Layer B 持续供给 odom 与 registered_scan。
 //  - 输入:
 //      * state_estimation_topic_ : lidar_odom 坐标系下的里程计 (Point-LIO 输出)
 //      * registered_scan_topic_  : lidar_odom 坐标系下的点云
@@ -108,6 +109,8 @@ private:
     double tf_refresh_interval_sec_{1.0};  // TF 断连时的重新拉取周期 (秒)
     bool clamp_cloud_stamp_to_latest_odom_{true};  // 防止输出点云时间戳超前于已发布 odom
     bool defer_cloud_until_matching_odom_{true};  // 点云超前时先缓存，等待对应 odom 到达后再发布
+    bool publish_debug_path_{true};
+    bool publish_pose_markers_{true};
     tf2::Transform tf_input_odom_to_output_odom_;  // 首帧平移归零: 将 Point-LIO odom 平移到 base_link 首帧原点
     tf2::Vector3 zero_origin_translation_sum_{0.0, 0.0, 0.0};
     nav_msgs::msg::Path odom_path_msg_;
