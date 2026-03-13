@@ -39,6 +39,13 @@ def _resolve_point_lio_profile(requested_profile: str, *, slam_value: bool) -> t
             'filter_size_map': 0.1,
             'pcd_save.pcd_save_en': True,
         },
+        'race_profile': {
+            'publish.path_en': False,
+            'publish.scan_bodyframe_pub_en': False,
+            'publish.map_full_publish_en': False,
+            'publish.map_full_publish_interval_sec': 1.5,
+            'runtime_pos_log_enable': False,
+        },
     }
 
     resolved_profile = requested_profile or 'auto'
@@ -47,7 +54,7 @@ def _resolve_point_lio_profile(requested_profile: str, *, slam_value: bool) -> t
 
     resolved_profile = profile_aliases.get(resolved_profile, resolved_profile)
     if resolved_profile not in profile_overrides:
-        supported_profiles = 'auto | base | cruise_light | mapping_dense'
+        supported_profiles = 'auto | base | cruise_light | mapping_dense | race_profile'
         raise RuntimeError(
             f'不支持的 point_lio_profile={requested_profile}，可选: {supported_profiles}')
 
@@ -181,7 +188,7 @@ def generate_launch_description():
     declare_point_lio_profile = DeclareLaunchArgument(
         'point_lio_profile',
         default_value='auto',
-        description='Point-LIO 预设: auto | base | cruise_light | mapping_dense')
+        description='Point-LIO 预设: auto | base | cruise_light | mapping_dense | race_profile')
 
     declare_point_lio_publish_odometry_without_downsample = DeclareLaunchArgument(
         'point_lio_publish_odometry_without_downsample',

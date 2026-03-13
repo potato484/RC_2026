@@ -42,6 +42,7 @@ colcon build --symlink-install --parallel-workers 3 --packages-select rc26_point
 - `point_lio_profile:=base`：直接使用主配置，不额外覆盖。
 - `point_lio_profile:=cruise_light`：在主配置基础上关闭累计地图持续发布，适合巡航轻载。
 - `point_lio_profile:=mapping_dense`：在主配置基础上保留全部输入点、减小体素滤波尺寸并开启 PCD 保存，适合建图。
+- `point_lio_profile:=race_profile`：比赛最小链预设，关闭路径/机体系点云/累计地图持续发布与运行时位置日志，保留 `registered_scan` 供定位链路使用。
 
 ## 推荐启动方式
 推荐通过 `rc26_bringup` 统一启动，让 `slam` 与 `point_lio_profile` 一起决定 Point-LIO 配置。
@@ -51,6 +52,7 @@ colcon build --symlink-install --parallel-workers 3 --packages-select rc26_point
 ```bash
 # slam:=true 时自动选择 mapping_dense
 # slam:=false 时自动选择 cruise_light
+# race_profile 需显式指定，不会覆盖 auto 语义
 ros2 launch rc26_bringup bringup.launch.py slam:=true visualization_backend:=rviz use_decision:=false
 ```
 
@@ -63,8 +65,8 @@ ros2 launch rc26_bringup bringup.launch.py slam:=true point_lio_profile:=mapping
 # 强制轻量巡航
 ros2 launch rc26_bringup bringup.launch.py slam:=false point_lio_profile:=cruise_light use_decision:=false
 
-# 强制建图
-ros2 launch rc26_bringup bringup.launch.py slam:=true point_lio_profile:=mapping_dense use_decision:=false
+# 强制比赛最小链
+ros2 launch rc26_bringup bringup.launch.py slam:=false point_lio_profile:=race_profile use_decision:=false
 ```
 
 ### 3. 显式指定自定义 YAML
