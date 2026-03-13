@@ -33,7 +33,6 @@
 #include "pcl/common/transforms.h"
 #include "pcl/filters/filter.h"
 #include "pcl/filters/voxel_grid.h"
-#include "pcl/registration/gicp.h"
 #include "pcl/search/kdtree.h"
 #include "pcl_conversions/pcl_conversions.h"
 #include "small_gicp/pcl/pcl_registration.hpp"
@@ -135,6 +134,7 @@ static void detectQcs8550Buckets(
 LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     : Node("localization", options), result_t_(Eigen::Isometry3d::Identity()),
       previous_result_t_(Eigen::Isometry3d::Identity()) {
+    // Layer B 全局校正层：权威发布 map -> odom，消费 Layer A 的 registered_scan 与 odom。
     node_start_time_ = this->now();
     // 声明参数：全部在 YAML 中集中配置，避免魔法数散落在代码里
     this->declare_parameter("num_threads", 4);

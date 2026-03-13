@@ -16,6 +16,7 @@
 
 ## P1 在线后端（关键帧 + Pose2 图 + 平滑 map->odom）
 - 内嵌五个子模块：`KeyframeManager`、`OnlineScanContextDB`、`ConstraintValidator`、`PoseGraphBackend`、`MapToOdomSmoother`。
+- 图后端是可选能力，默认关闭（`enable_graph_backend=false`）。
 - `enable_graph_backend=true` 时，局部配准成功后会触发关键帧入图、回环候选验证、iSAM2 增量更新。
 - `publishTransform()` 保持 20Hz，不新增发布线程；图后端修正通过 `MapToOdomSmoother` 以限斜率方式输出。
 - `markRelocalizationSuccess()` 在图后端模式默认走“锚点入图 + 平滑输出”，仅在失败时回退到 legacy 硬切。
@@ -45,3 +46,7 @@
 - `enable_graph_backend`：是否启用图后端（P0 默认 `false`）。
 - `legacy_hard_reloc_enable`：是否允许旧版重定位硬切（仅紧急回退用，默认 `false`）。
 - `p4_candidate_enable`：是否启用 P4 外部候选输入。
+
+## 实验能力说明
+- `bevplace_enable`：BEVPlace 候选分支，当前定义为实验能力，默认 `false`，不在比赛主链启用。
+- `esikf_enable`：ESIKF 融合分支，当前定义为实验能力，默认 `false`，仅用于离线验证或专项调试。
