@@ -135,6 +135,55 @@ ros2 bag play loc_test_bag --rate 0.5
 ```
 3. 终端 3：使用 RViz2 监控点云匹配情况，或使用 `ros2 topic echo` 监控输出状态。
 
+### 5.1 一键验收脚本（推荐）
+
+`run_localization_acceptance.sh` 已支持基础参数 + overlay 参数分离，以及 `bag` 目录/文件两种输入。
+
+```bash
+cd "${RC26_WS:-$HOME/RC_2026}"
+source install/setup.bash
+
+./src/rc26_localization/scripts/run_localization_acceptance.sh \
+  --map "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/pcd/default.pcd" \
+  --bag /path/to/your_bag_dir_or_file \
+  --duration 240 \
+  --config-profile eval \
+  --enable-graph-backend true
+```
+
+说明：
+
+- `--bag` 可传 ROS2 bag 目录（含 `metadata.yaml`）或具体文件（`.mcap` / `.db3`）。
+- `--config-profile default|eval` 用于在保守参数与验证参数之间切换。
+- 需要精确指定参数时可配合：
+  - `--params-file /abs/path/to/localization.yaml`
+  - `--overlay-file /abs/path/to/localization_overlay.yaml`
+- 验收摘要会记录 `config_profile`、`params_file`、`overlay_file` 与 `metrics_source`。
+
+### 5.2 无实测 bag 时的 synthetic 验收
+
+当现场没有可用定位 bag 时，可先用 synthetic 输入做链路验收。  
+注意：`default.pcd` 是最小烟测地图，建议使用 synthetic 专用 overlay。
+
+```bash
+cd "${RC26_WS:-$HOME/RC_2026}"
+source install/setup.bash
+
+./src/rc26_localization/scripts/run_localization_acceptance.sh \
+  --map "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/pcd/default.pcd" \
+  --duration 120 \
+  --synthetic-input \
+  --config-profile eval \
+  --overlay-file "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/config/localization_eval_overlay_synthetic.yaml" \
+  --enable-graph-backend true \
+  --skip-build
+```
+
+补充：
+
+- 脚本会优先读取 `raw/metrics.log`，为空时自动回退解析 `raw/localization.launch.log`。
+- 在受限环境中可能出现“30 秒内未检测到 localization 节点”的误告警，应结合 `raw/localization.launch.log` 实际判断节点状态。
+
 ## 6. 常见问题排查
 
 - **定位节点已启动但 `/localization/pose_with_cov` 无输出**：先核对 `/livox/lidar`、`/imu/data`、`/odom` 是否都有数据，再检查 launch 中地图、参数文件和命名空间是否加载正确。
