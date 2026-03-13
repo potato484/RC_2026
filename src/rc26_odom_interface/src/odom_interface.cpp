@@ -145,6 +145,7 @@ bool isUsableOdometry(const nav_msgs::msg::Odometry& msg) {
 }  // namespace
 
 OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node("odom_interface", options) {
+    // Layer A 生产桥：本节点是自动链中 odom -> base_link 的唯一权威发布者。
     this->declare_parameter<std::string>("state_estimation_topic", "");
     this->declare_parameter<std::string>("registered_scan_topic", "");
     this->declare_parameter<std::string>("odom_frame", "odom");
@@ -155,6 +156,8 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     this->declare_parameter<double>("tf_refresh_interval_sec", 1.0);
     this->declare_parameter<bool>("clamp_cloud_stamp_to_latest_odom", true);
     this->declare_parameter<bool>("defer_cloud_until_matching_odom", true);
+    this->declare_parameter<bool>("publish_debug_path", true);
+    this->declare_parameter<bool>("publish_pose_markers", true);
     this->declare_parameter<bool>("use_input_twist", true);
     this->declare_parameter<bool>("zero_origin_to_first_frame", true);
     this->declare_parameter<int>("zero_origin_warmup_frames", 10);
@@ -173,6 +176,8 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     this->get_parameter("tf_refresh_interval_sec", tf_refresh_interval_sec_);
     this->get_parameter("clamp_cloud_stamp_to_latest_odom", clamp_cloud_stamp_to_latest_odom_);
     this->get_parameter("defer_cloud_until_matching_odom", defer_cloud_until_matching_odom_);
+    this->get_parameter("publish_debug_path", publish_debug_path_);
+    this->get_parameter("publish_pose_markers", publish_pose_markers_);
     this->get_parameter("use_input_twist", use_input_twist_);
     this->get_parameter("zero_origin_to_first_frame", zero_origin_to_first_frame_);
     this->get_parameter("zero_origin_warmup_frames", zero_origin_warmup_frames_);
@@ -233,14 +238,22 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
 
     pcd_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("registered_scan", 5);
     odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("odom", 5);
-    odom_path_pub_ = this->create_publisher<nav_msgs::msg::Path>("odom_path", 5);
-    odom_pose_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("odom_pose_markers", 5);
+    if (publish_debug_path_) {
+        odom_path_pub_ = this->create_publisher<nav_msgs::msg::Path>("odom_path", 5);
+    }
+    if (publish_pose_markers_) {
+        odom_pose_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("odom_pose_markers", 5);
+    }
     odom_path_msg_.header.frame_id = odom_frame_;
 
     pcd_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
         registered_scan_topic_, 5, std::bind(&OdomInterfaceNode::pointCloudCallback, this, std::placeholders::_1));
     odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
         state_estimation_topic_, 5, std::bind(&OdomInterfaceNode::odometryCallback, this, std::placeholders::_1));
+
+    RCLCPP_INFO(this->get_logger(), "debug publishers: odom_path=%s, odom_pose_markers=%s",
+                publish_debug_path_ ? "enabled" : "disabled",
+                publish_pose_markers_ ? "enabled" : "disabled");
 }
 
 void OdomInterfaceNode::storeOdometryStampLocked(const rclcpp::Time& odom_stamp) {
@@ -703,19 +716,23 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
 
     odom_pub_->publish(out);
 
-    geometry_msgs::msg::PoseStamped odom_pose;
-    odom_pose.header = out.header;
-    odom_pose.pose = out.pose.pose;
-    odom_path_msg_.header.stamp = out.header.stamp;
-    odom_path_msg_.header.frame_id = out.header.frame_id;
-    odom_path_msg_.poses.emplace_back(std::move(odom_pose));
-    if (odom_path_msg_.poses.size() > kMaxPathPoses) {
-        odom_path_msg_.poses.erase(odom_path_msg_.poses.begin());
+    if (publish_debug_path_ && odom_path_pub_) {
+        geometry_msgs::msg::PoseStamped odom_pose;
+        odom_pose.header = out.header;
+        odom_pose.pose = out.pose.pose;
+        odom_path_msg_.header.stamp = out.header.stamp;
+        odom_path_msg_.header.frame_id = out.header.frame_id;
+        odom_path_msg_.poses.emplace_back(std::move(odom_pose));
+        if (odom_path_msg_.poses.size() > kMaxPathPoses) {
+            odom_path_msg_.poses.erase(odom_path_msg_.poses.begin());
+        }
+        odom_path_pub_->publish(odom_path_msg_);
     }
-    odom_path_pub_->publish(odom_path_msg_);
-    odom_pose_markers_pub_->publish(
-        makePoseMarkerArray(out.header.frame_id, out.header.stamp, "odom_pose", out.pose.pose, 0.86F, 0.24F, 0.24F,
-                            "ODOM", 0.22));
+    if (publish_pose_markers_ && odom_pose_markers_pub_) {
+        odom_pose_markers_pub_->publish(
+            makePoseMarkerArray(out.header.frame_id, out.header.stamp, "odom_pose", out.pose.pose, 0.86F, 0.24F,
+                                0.24F, "ODOM", 0.22));
+    }
 
     if (debug_pose_log_) {
         const auto throttle_ms = static_cast<int64_t>(debug_pose_log_interval_sec_ * 1000.0);
