@@ -99,7 +99,7 @@ def generate_launch_description():
     declare_point_lio_profile = DeclareLaunchArgument(
         'point_lio_profile',
         default_value='auto',
-        description='Point-LIO 预设: auto | base | cruise_light | mapping_dense；auto 会按 slam 自动选择')
+        description='Point-LIO 预设: auto | base | cruise_light | mapping_dense | race_profile；auto 会按 slam 自动选择')
 
     declare_params_file = DeclareLaunchArgument(
         'params_file',
@@ -222,7 +222,8 @@ def generate_launch_description():
             'point_lio_profile': point_lio_profile,
             'point_lio_publish_odometry_without_downsample': 'false',
             'enable_lio_state_predictor': PythonExpression([
-                "not ('", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true')"
+                "not (('", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true')",
+                " or ('", point_lio_profile, "'.lower() == 'race_profile'))"
             ]),
             'enable_terrain_grid_map': 'false',
             'odometry_use_rviz': 'false',

@@ -26,6 +26,9 @@ ros2 launch rc26_bringup bringup.launch.py slam:=true visualization_backend:=rvi
 
 # 巡航/轻量模式：auto 会选择 cruise_light
 ros2 launch rc26_bringup bringup.launch.py slam:=false visualization_backend:=rviz use_decision:=false
+
+# race_profile 需要显式指定，不会改写 auto
+ros2 launch rc26_bringup bringup.launch.py slam:=false point_lio_profile:=race_profile use_decision:=false
 ```
 
 ### 2.2 显式指定 profile
@@ -36,6 +39,9 @@ ros2 launch rc26_bringup bringup.launch.py slam:=true point_lio_profile:=mapping
 
 # 强制轻量巡航
 ros2 launch rc26_bringup bringup.launch.py slam:=false point_lio_profile:=cruise_light use_decision:=false
+
+# 强制比赛最小链
+ros2 launch rc26_bringup bringup.launch.py slam:=false point_lio_profile:=race_profile use_decision:=false
 ```
 
 ### 2.3 显式指定 Point-LIO YAML
@@ -50,7 +56,7 @@ ros2 launch rc26_bringup bringup.launch.py \
 说明：
 - `point_lio_config_file` 非空时优先级高于 `point_lio_profile`。
 - `point_lio_profile:=auto` 会根据 `slam` 自动切换。
-- 当前仓库默认只保留 `mid360.yaml` 一份主配置，`cruise_light` / `mapping_dense` 由 launch 在运行时做参数覆盖。
+- 当前仓库默认只保留 `mid360.yaml` 一份主配置，`cruise_light` / `mapping_dense` / `race_profile` 由 launch 在运行时做参数覆盖。
 
 ## 3. 基础功能测试（回放数据包）
 
