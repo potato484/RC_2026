@@ -7,12 +7,49 @@
 在开始任何功能测试前，首先确保代码最新并编译通过。
 
 ```bash
-cd /home/potato/RC_2026
-colcon build --parallel-workers 1 --packages-select rc26_merge_odom
-source install/setup.bash
+cd "${RC26_WS:-$HOME/RC_2026}"
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_merge_odom --cmake-args -DCMAKE_BUILD_TYPE=Release
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
 ## 2. 工程基线与参数调试 (P0)
+
+### 2.0 遥控建图推荐启动方式
+
+当 `rc26_bringup bringup.launch.py slam:=true` 已经在发布 `odom -> base_link` 时，不要再额外启动
+`ekf_filter_node`，否则会与建图链的 `odom_interface` 产生 TF 冲突。
+
+若当前任务是遥控建图，建议建图链使用 `point_lio_profile:=mapping_dense`，以获得更高点云密度、累计地图显示与 PCD 保存。
+
+**推荐命令：**
+
+```bash
+# 仅保留底盘执行与 IMU，不启动 EKF
+ros2 launch rc26_merge_odom merge_odom.launch.py use_can_odom:=false start_ekf:=false
+
+# 遥控输出到 /cmd_vel
+ros2 run rc26_telecontrol rc26_telecontrol --ros-args -p cmd_vel_topic:=cmd_vel
+```
+
+若建图链使用：
+
+```bash
+ros2 launch rc26_bringup bringup.launch.py slam:=true pure_mapping_mode:=true
+```
+
+则 `rc26_terrain` 不会启动，`/terrain_speed_limit` 也不会产生。此时若想把底盘执行链路也同步做成最小配置，可改为：
+
+```bash
+ros2 launch rc26_merge_odom merge_odom.launch.py \
+  use_can_odom:=false \
+  start_ekf:=false \
+  terrain_speed_limit_topic:=__disabled__
+```
+
+**预期结果：**
+- 车可以正常遥控移动；
+- `merge_odom_node` 继续执行速度保护与下发；
+- TF 的 `odom -> base_link` 只由建图链发布，不再冲突。
 
 ### 2.1 验证 Launch 参数联动 (use_can_odom)
 
@@ -144,5 +181,5 @@ source install/setup.bash
 ## 5. 常见问题排查
 
 - **EKF 无里程计输入或 `odom0` 不符合预期**：先按第 2 节重新确认 `use_can_odom` 启动参数，再检查 `/Can_Odom`、`/wheel_odom`、`/wheel_odom_fused` 的实际存在情况与命名是否一致。
-- **`/pose_sender/target_protected` 始终为零或被频繁限速**：检查 `cmd_vel_timeout_ms` 是否过短、`/terrain_speed_limit` 是否超时，以及 IMU 尖峰保护是否在持续触发。
+- **`/pose_sender/target_protected` 始终为零或被频繁限速**：检查 `cmd_vel_timeout_ms` 是否过短、`/terrain_speed_limit` 是否超时，以及 IMU 尖峰保护是否在持续触发；若需要观察详细刷屏日志，可临时将 `stats_log_enable`、`imu_gate_log_enable` 设为 `true`。
 - **融合节点长期停留在单路降级状态**：结合 `/wheel_odom_fuser/health` 排查 CAN/Wheel 任一路的时间戳跳变、话题中断或协方差异常，确认故障切换后是否能自动恢复双路融合。

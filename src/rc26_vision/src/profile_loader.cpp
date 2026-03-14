@@ -1,11 +1,86 @@
 #include "rc26_vision/profile_loader.hpp"
 
-#include <yaml-cpp/yaml.h>
-#include <fstream>
-#include <stdexcept>
+#include <cctype>
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <yaml-cpp/yaml.h>
+#include <stdexcept>
 
 namespace rc26_vision {
+
+namespace {
+
+std::string expandEnvironmentVariables(const std::string& input) {
+    std::string output;
+    output.reserve(input.size());
+
+    for (std::size_t index = 0; index < input.size(); ) {
+        if (input[index] != '$') {
+            output.push_back(input[index++]);
+            continue;
+        }
+
+        if (index + 1 < input.size() && input[index + 1] == '{') {
+            const auto end = input.find('}', index + 2);
+            if (end == std::string::npos) {
+                output.push_back(input[index++]);
+                continue;
+            }
+
+            const auto name = input.substr(index + 2, end - index - 2);
+            if (const char* value = std::getenv(name.c_str())) {
+                output += value;
+            }
+            index = end + 1;
+            continue;
+        }
+
+        std::size_t end = index + 1;
+        if (end >= input.size() || (!std::isalpha(static_cast<unsigned char>(input[end])) && input[end] != '_')) {
+            output.push_back(input[index++]);
+            continue;
+        }
+
+        while (end < input.size()) {
+            const unsigned char ch = static_cast<unsigned char>(input[end]);
+            if (!std::isalnum(ch) && input[end] != '_') {
+                break;
+            }
+            ++end;
+        }
+
+        const auto name = input.substr(index + 1, end - index - 1);
+        if (const char* value = std::getenv(name.c_str())) {
+            output += value;
+        }
+        index = end;
+    }
+
+    return output;
+}
+
+std::filesystem::path resolvePath(const std::string& raw_path, const std::filesystem::path& base_dir) {
+    std::string path_str = expandEnvironmentVariables(raw_path);
+
+    if (!path_str.empty() && path_str.front() == '~') {
+        if (const char* home = std::getenv("HOME")) {
+            if (path_str.size() == 1) {
+                path_str = home;
+            } else if (path_str[1] == '/') {
+                path_str = std::string(home) + path_str.substr(1);
+            }
+        }
+    }
+
+    std::filesystem::path resolved(path_str);
+    if (resolved.is_relative()) {
+        resolved = base_dir / resolved;
+    }
+    return resolved.lexically_normal();
+}
+
+}  // namespace
 
 std::vector<std::string> ProfileLoader::loadLabelsFromFile(const std::string& path) {
     std::vector<std::string> labels;
@@ -24,7 +99,9 @@ std::vector<std::string> ProfileLoader::loadLabelsFromFile(const std::string& pa
 
 VisionConfig ProfileLoader::loadFromYaml(const std::string& yaml_path) {
     VisionConfig config;
-    YAML::Node root = YAML::LoadFile(yaml_path);
+    const auto yaml_file = std::filesystem::absolute(yaml_path);
+    const auto yaml_dir = yaml_file.parent_path();
+    YAML::Node root = YAML::LoadFile(yaml_file.string());
 
     if (!root["vision"]) {
         throw std::runtime_error("Missing 'vision' section in config");
@@ -51,13 +128,13 @@ VisionConfig ProfileLoader::loadFromYaml(const std::string& yaml_path) {
         std::string engine_str = node["engine"].as<std::string>();
         if (engine_str == "aidlite") {
             profile.engine = EngineType::AidLite;
-        } else if (engine_str == "onnxruntime") {
-            profile.engine = EngineType::OnnxRuntime;
+        } else if (engine_str == "opencv_onnx" || engine_str == "onnxruntime") {
+            profile.engine = EngineType::LocalOnnx;
         } else {
             throw std::runtime_error("Profile '" + profile.id + "' has unknown engine: " + engine_str);
         }
 
-        profile.model_path = node["model_path"].as<std::string>();
+        profile.model_path = resolvePath(node["model_path"].as<std::string>(), yaml_dir).string();
         if (!node["conf_thresh"]) {
             throw std::runtime_error("Profile '" + profile.id + "' missing required field: conf_thresh");
         }
@@ -70,7 +147,8 @@ VisionConfig ProfileLoader::loadFromYaml(const std::string& yaml_path) {
         if (node["labels"]) {
             profile.labels = node["labels"].as<std::vector<std::string>>();
         } else if (node["labels_path"]) {
-            profile.labels = loadLabelsFromFile(node["labels_path"].as<std::string>());
+            const auto labels_path = resolvePath(node["labels_path"].as<std::string>(), yaml_dir);
+            profile.labels = loadLabelsFromFile(labels_path.string());
         }
 
         // aidlite config

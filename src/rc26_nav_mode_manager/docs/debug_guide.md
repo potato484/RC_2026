@@ -10,13 +10,13 @@
 
 ```bash
 # 进入工作空间
-cd ~/RC_2026
+cd "${RC26_WS:-$HOME/RC_2026}"
 
 # 仅编译 rc26_nav_mode_manager 模块
-colcon build --parallel-workers 1 --packages-select rc26_nav_mode_manager
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_nav_mode_manager --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 # 刷新环境变量
-source install/setup.bash
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
 启动 `nav_mode_manager` 及其伴随的 `terrain_mode_adapter` 节点：
@@ -37,7 +37,7 @@ ros2 launch rc26_nav_mode_manager nav_mode_manager.launch.py
 打开一个新的终端，依次运行以下模拟命令：
 
 ```bash
-source ~/RC_2026/install/setup.bash
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 
 # 模拟 controller_server 参数服务端
 ros2 run rclcpp_components component_container --ros-args -r __node:=controller_server
@@ -60,7 +60,7 @@ ros2 topic pub /odom nav_msgs/msg/Odometry "{twist: {twist: {linear: {x: 0.0, y:
 在另一个新的终端中，订阅 `nav_safety_state` 话题。该话题以 1Hz 频率广播当前模块的安全状态，是你判断模块是否正常工作的关键。
 
 ```bash
-source ~/RC_2026/install/setup.bash
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 
 # 实时查看当前的导航安全状态
 ros2 topic echo /nav_safety_state

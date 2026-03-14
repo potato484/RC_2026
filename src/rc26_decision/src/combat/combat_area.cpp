@@ -2,6 +2,7 @@
 #include "rc26_decision/combat/combat_area.hpp"
 
 #include <chrono>
+#include <memory>
 
 #include "rc26_serial/protocol.hpp"
 
@@ -56,6 +57,8 @@ PlaceKFSGridAction::PlaceKFSGridAction(const std::string& name, const BT::NodeCo
 BT::PortsList PlaceKFSGridAction::providedPorts() {
     auto ports = BtActionNode<rc26_interfaces::action::PlaceKFSGrid>::basePorts(8.0);
     ports.insert(BT::InputPort<int>("grid_position", "九宫格位置 (1-9)"));
+    ports.insert(BT::InputPort<int>("layer", 0, "目标层 (1-3)，0 表示由 BattleGridState 自动决策"));
+    ports.insert(BT::OutputPort<int>("selected_layer", "实际下发层号"));
     return ports;
 }
 
@@ -64,16 +67,63 @@ bool PlaceKFSGridAction::buildGoal(Goal& goal) {
     if (!getInput("grid_position", grid_position) || grid_position < 1 || grid_position > 9) {
         return false;
     }
+
+    int selected_layer = 0;
+    int requested_layer = 0;
+    (void)getInput("layer", requested_layer);
+
+    if (requested_layer > 0) {
+        if (!BattleGridState::isValidLayer(requested_layer)) {
+            return false;
+        }
+        selected_layer = requested_layer;
+    } else {
+        bool is_lifted = false;
+        if (config().blackboard) {
+            (void)config().blackboard->get("is_lifted", is_lifted);
+        }
+
+        std::shared_ptr<BattleGridState> battle_state;
+        const bool has_state =
+            config().blackboard &&
+            config().blackboard->get("battle_grid_state", battle_state) &&
+            battle_state;
+        if (has_state) {
+            const auto layer = battle_state->selectPlacementLayer(grid_position, is_lifted);
+            if (!layer.has_value()) {
+                return false;
+            }
+            selected_layer = *layer;
+        } else {
+            selected_layer = 1;
+        }
+    }
+
     goal.grid_position = static_cast<uint8_t>(grid_position);
-    goal.layer = 1;
+    goal.layer = static_cast<uint8_t>(selected_layer);
+    pending_grid_position_ = goal.grid_position;
+    pending_layer_ = goal.layer;
+    setOutput("selected_layer", selected_layer);
     return true;
 }
 
 BT::NodeStatus PlaceKFSGridAction::handleResult(const WrappedResult& result, uint16_t& error_code) {
     if (result.code != rclcpp_action::ResultCode::SUCCEEDED || !result.result || !result.result->success) {
         error_code = (result.result ? result.result->error_code : 0);
+        pending_grid_position_ = 0;
+        pending_layer_ = 0;
         return BT::NodeStatus::FAILURE;
     }
+
+    if (config().blackboard && pending_grid_position_ > 0U && pending_layer_ > 0U) {
+        std::shared_ptr<BattleGridState> battle_state;
+        if (config().blackboard->get("battle_grid_state", battle_state) && battle_state) {
+            battle_state->markOccupied(static_cast<int>(pending_grid_position_),
+                                       static_cast<int>(pending_layer_));
+        }
+    }
+    pending_grid_position_ = 0;
+    pending_layer_ = 0;
     error_code = 0;
     return BT::NodeStatus::SUCCESS;
 }

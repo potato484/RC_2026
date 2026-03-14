@@ -25,7 +25,14 @@
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
   <depend>tf2_geometry_msgs</depend>
+  <depend>filters</depend>
+  <depend>grid_map_core</depend>
+  <depend>grid_map_ros</depend>
+  <depend>grid_map_msgs</depend>
+  <depend>visualization_msgs</depend>
   <depend>yaml-cpp</depend>
+  <exec_depend>grid_map_filters</exec_depend>
+  <exec_depend>rosbag2_py</exec_depend>
 
   <test_depend>ament_cmake_gtest</test_depend>
   <test_depend>ament_index_python</test_depend>
@@ -33,10 +40,12 @@
   <test_depend>launch_testing</test_depend>
   <test_depend>launch_testing_ros</test_depend>
   <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>grid_map_msgs</test_depend>
   <test_depend>nav2_costmap_2d</test_depend>
   <test_depend>nav2_lifecycle_manager</test_depend>
   <test_depend>nav2_msgs</test_depend>
   <test_depend>rc26_bringup</test_depend>
+  <test_depend>rc26_terrain_nav2</test_depend>
   <test_depend>tf2_ros</test_depend>
 
   <export>

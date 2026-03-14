@@ -38,6 +38,8 @@ public:
         this->declare_parameter("latency_comp_s", 0.03);
         this->declare_parameter("terrain_speed_limit_topic", "");
         this->declare_parameter("terrain_speed_limit_timeout_ms", 500);
+        this->declare_parameter("stats_log_enable", false);
+        this->declare_parameter("imu_gate_log_enable", false);
 
         std::string feedback_port = this->get_parameter("feedback_serial_port").as_string();
         std::string target_port = this->get_parameter("target_serial_port").as_string();
@@ -95,6 +97,8 @@ public:
         config.terrain_speed_limit_topic = this->get_parameter("terrain_speed_limit_topic").as_string();
         config.terrain_speed_limit_timeout_ms =
             this->get_parameter("terrain_speed_limit_timeout_ms").as_int();
+        config.stats_log_enable = this->get_parameter("stats_log_enable").as_bool();
+        config.imu_gate_log_enable = this->get_parameter("imu_gate_log_enable").as_bool();
 
         pose_sender_ = std::make_unique<rc26_merge_odom::PoseSender>(*this, feedback_serial_, target_serial_, config);
     }

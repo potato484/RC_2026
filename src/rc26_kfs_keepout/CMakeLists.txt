@@ -11,6 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
@@ -20,6 +21,7 @@ find_package(yaml-cpp REQUIRED)
 set(DEPENDENCIES
   rclcpp
   rclcpp_components
+  ament_index_cpp
   nav_msgs
   std_msgs
   diagnostic_msgs

@@ -49,6 +49,8 @@ public:
         float latency_comp_s = 0.03f;
         std::string terrain_speed_limit_topic = "";
         int terrain_speed_limit_timeout_ms = 500;
+        bool stats_log_enable = false;
+        bool imu_gate_log_enable = false;
     };
 
     PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> feedback_serial,

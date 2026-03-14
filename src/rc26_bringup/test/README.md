@@ -6,9 +6,9 @@
 
 ```bash
 # 确保已编译并 source 环境
-cd ~/RC_2026
-colcon build --symlink-install
-source install/setup.bash
+cd "${RC26_WS:-$HOME/RC_2026}"
+colcon build --symlink-install --parallel-workers 3 --cmake-args -DCMAKE_BUILD_TYPE=Release
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
 ---
@@ -64,7 +64,7 @@ ros2 run tf2_ros tf2_echo base_link laser_link
 ```bash
 # 启动测试 (指定先验点云)
 ros2 launch rc26_bringup test_localization.launch.py \
-    prior_pcd_file:=/path/to/prior.pcd
+    prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/pcd/default.pcd
 
 # 验证 TF 发布 (map -> odom)
 ros2 run tf2_ros tf2_echo map odom
@@ -72,9 +72,45 @@ ros2 run tf2_ros tf2_echo map odom
 # 检查协方差与诊断
 ros2 topic echo /localization/pose_with_cov --once
 ros2 topic echo /localization/diagnostics --once
+ros2 topic echo /localization/health --once
+ros2 topic echo /localization/backend_status --once
+ros2 topic echo /localization/route_observability --once
 # diagnostics 中应包含:
 # h_min_eig, h_max_eig, h_cond, sigma_xy, sigma_yaw, obs_cov_source, hard_degen_consec
+# health 中应包含:
+# level, reason, control_degraded, localization_state, sigma_xy, sigma_yaw, h_min_eig, h_cond
+# backend_status 中应包含:
+# optimizer_ready, optimizer_state, graph_health, last_local_reg_age_sec, imu_spike
+# route_observability 中应包含:
+# score, risk_level, repeat_structure_risk, dynamic_risk, recommended_nav_profile
+
+# 一键验收（可选 synthetic 输入，无需 bag）
+./src/rc26_localization/scripts/run_localization_acceptance.sh \
+  --workspace "${RC26_WS:-$HOME/RC_2026}" \
+  --synthetic-input \
+  --duration 60 \
+  --config-profile eval \
+  --overlay-file "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/config/localization_eval_overlay_synthetic.yaml" \
+  --competition-mode false \
+  --enable-graph-backend true
+
+# P4 候选链路验收（在 synthetic 输入中自动发布 learned candidates）
+./src/rc26_localization/scripts/run_localization_acceptance.sh \
+  --workspace "${RC26_WS:-$HOME/RC_2026}" \
+  --synthetic-input \
+  --duration 30 \
+  --config-profile eval \
+  --overlay-file "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/config/localization_eval_overlay_synthetic.yaml" \
+  --competition-mode false \
+  --enable-graph-backend true \
+  --p4-candidate-enable true \
+  --min-inliers 20
 ```
+
+说明：
+
+- 若使用实测 bag，`--bag` 参数可传 bag 目录（含 `metadata.yaml`）或 `.mcap/.db3` 文件路径。
+- synthetic overlay 仅用于最小地图链路验收，不建议直接作为比赛默认参数。
 
 ---
 
@@ -85,6 +121,9 @@ ros2 topic echo /localization/diagnostics --once
 ```bash
 # 启动完整里程计链
 ros2 launch rc26_bringup test_odometry_chain.launch.py
+
+# 若雷达能 ping 通但 /livox/lidar 无数据，可在启动前自动恢复 Mid-360 host_ipcfg
+ros2 launch rc26_bringup test_odometry_chain.launch.py start_mid360_driver:=true recover_mid360_stream:=true
 
 # 验证数据流
 ros2 topic list | grep -E "(state_estimation|odom|odometry|control_state|degenerate_score|control_degraded)"
@@ -108,21 +147,39 @@ ros2 run tf2_tools view_frames
 
 ---
 
-### 6. 控制器插件测试 (rc26_omni_controller)
+### 6. 控制器插件测试 (rc26_nmpc_controller + rc26_omni_controller)
 
-**功能**: 验证全向运动控制器 (需要 Nav2 环境)
+**功能**: 验证定位感知 NMPC 控制器及其回退链路 (需要 Nav2 环境)
 
 ```bash
 # 启动最小化 Nav2 + 控制器测试
 ros2 launch rc26_bringup test_omni_controller.launch.py
 
-# 手动发送导航目标
-ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \
-    "{pose: {header: {frame_id: 'map'}, pose: {position: {x: 1.0, y: 0.0}}}}"
+# 检查隔离后的测试速度输出
+ros2 topic echo /cmd_vel_test --once
 
-# 检查速度输出
-ros2 topic echo /cmd_vel --once
+# 检查控制器当前模式（nmpc / fallback:loc_red / fallback:solver_timeout 等）
+ros2 topic echo /NMPCFollowPath/mode
+
+# 注意：该测试默认使用 test_map -> test_odom -> test_base_link，
+# 不再占用在线系统的 map / odom / base_link / cmd_vel
 ```
+
+#### 6.1 NMPC 回退场景快捷验收
+
+```bash
+# 先下发一条最小 FollowPath 目标（驱动控制器进入 compute 周期）
+# 注意：send_goal 默认阻塞，需后台运行，确保后续注入发生在执行窗口内
+ros2 action send_goal /follow_path nav2_msgs/action/FollowPath "{path: {header: {frame_id: test_odom}, poses: [{header: {frame_id: test_odom}, pose: {position: {x: 0.5, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}, {header: {frame_id: test_odom}, pose: {position: {x: 1.0, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}]}, controller_id: NMPCFollowPath, goal_checker_id: general_goal_checker}" &
+sleep 2
+
+# 注入 LHI=RED，预期日志出现 fallback:loc_red
+timeout 4 ros2 topic pub --qos-reliability best_effort /localization/health rc26_interfaces/msg/LocalizationHealth "{header: {stamp: {sec: 0, nanosec: 0}, frame_id: ''}, level: 3, reason: 'test_red', control_degraded: true, localization_state: 'RELOC_FAILED', sigma_xy: 1.0, sigma_yaw: 1.0, degenerate_score: 0.0, h_min_eig: 0.0, h_cond: 1000.0}" -r 20
+```
+
+如果需要复现 `solver_timeout` / `solver_infeasible` 回退，请参考：
+
+- `src/rc26_nmpc_controller/docs/debug_guide.md`
 
 ---
 
@@ -134,8 +191,9 @@ ros2 topic echo /cmd_vel --once
 | sensor_scan | `/sensor_scan` | laser_link 坐标系点云，`/odometry` 协方差透传 |
 | lio_state_predictor | `/control_state` | 约 200Hz 预测里程计 |
 | rc26_point_lio | `/degenerate_score` | 退化分数持续输出 |
-| localization | `/localization/pose_with_cov` + `/localization/diagnostics` | 持续发布且包含扩展字段 |
-| omni_controller | `/cmd_vel` | 速度指令 |
+| localization | `/localization/pose_with_cov` + `/localization/diagnostics` + `/localization/health` + `/localization/backend_status` + `/localization/route_observability` | 持续发布且包含扩展字段 |
+| nmpc_controller | `/NMPCFollowPath/mode` | 正常为 `nmpc`，异常场景可切到 `fallback:*` |
+| omni_controller | `/cmd_vel` | 速度指令（NMPC 回退链路中由 FollowPath 提供） |
 
 ---
 
@@ -147,6 +205,10 @@ ros2 node list
 
 # 查看所有话题
 ros2 topic list
+
+# 若整车 bringup 前需要自动恢复 Mid-360，可追加：recover_mid360_stream:=true
+# 例如：ros2 launch rc26_bringup bringup.launch.py slam:=false use_decision:=false recover_mid360_stream:=true
+# 首次执行会自动拉取并编译官方 Livox-SDK2，耗时会明显更长；后续直接复用本地缓存。
 
 # 检查节点日志
 ros2 run rqt_console rqt_console

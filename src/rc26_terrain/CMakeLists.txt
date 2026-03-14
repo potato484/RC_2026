@@ -25,6 +25,11 @@ find_package(pcl_conversions REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(filters REQUIRED)
+find_package(grid_map_core REQUIRED)
+find_package(grid_map_ros REQUIRED)
+find_package(grid_map_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 find_package(PCL REQUIRED COMPONENTS common filters)
 find_package(yaml-cpp REQUIRED)
 
@@ -42,6 +47,11 @@ set(DEPENDENCIES
   tf2
   tf2_ros
   tf2_geometry_msgs
+  filters
+  grid_map_core
+  grid_map_ros
+  grid_map_msgs
+  visualization_msgs
   ament_index_cpp
 )
 
@@ -49,9 +59,15 @@ include_directories(
   include
   ${PCL_INCLUDE_DIRS}
 )
+get_target_property(GRID_MAP_CORE_INCLUDE_DIRS grid_map_core::grid_map_core INTERFACE_INCLUDE_DIRECTORIES)
+if(GRID_MAP_CORE_INCLUDE_DIRS)
+  include_directories(${GRID_MAP_CORE_INCLUDE_DIRS})
+endif()
 
 add_library(${PROJECT_NAME}_component SHARED
   src/terrain_semantic_node.cpp
+  src/terrain_grid_map_bridge.cpp
+  src/terrain_risk_model.cpp
 )
 add_library(point_cloud_preprocessor STATIC
   src/point_cloud_preprocessor.cpp
@@ -86,6 +102,10 @@ rclcpp_components_register_node(${PROJECT_NAME}_component
   PLUGIN "rc26_terrain::TerrainSemanticNode"
   EXECUTABLE rc26_terrain_node
 )
+rclcpp_components_register_node(${PROJECT_NAME}_component
+  PLUGIN "rc26_terrain::TerrainGridMapBridge"
+  EXECUTABLE terrain_grid_map_bridge_node
+)
 
 install(TARGETS ${PROJECT_NAME}_component
   point_cloud_preprocessor
@@ -104,6 +124,12 @@ install(DIRECTORY config launch rviz docs
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+  scripts/export_terrain_training_dataset.py
+  scripts/fit_terrain_logistic.py
+  DESTINATION share/${PROJECT_NAME}/scripts
+)
+
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(launch_testing_ament_cmake REQUIRED)
@@ -114,7 +140,27 @@ if(BUILD_TESTING)
   ament_add_gtest(test_safety_guard test/test_safety_guard.cpp)
   target_link_libraries(test_safety_guard safety_guard)
 
+  ament_add_gtest(test_terrain_grid_map_bridge test/test_terrain_grid_map_bridge.cpp)
+  ament_target_dependencies(test_terrain_grid_map_bridge
+    rclcpp
+    rc26_interfaces
+    nav_msgs
+    geometry_msgs
+    tf2
+    tf2_ros
+    tf2_geometry_msgs
+    grid_map_core
+    grid_map_ros
+    grid_map_msgs
+    visualization_msgs
+  )
+  target_link_libraries(test_terrain_grid_map_bridge ${PROJECT_NAME}_component)
+
+  ament_add_gtest(test_terrain_risk_model test/test_terrain_risk_model.cpp)
+  target_link_libraries(test_terrain_risk_model ${PROJECT_NAME}_component)
+
   add_launch_test(test/test_costmap_integration.py TIMEOUT 60)
+  add_launch_test(test/test_terrain_grid_map_bridge_launch.py TIMEOUT 90)
 endif()
 
 ament_package()

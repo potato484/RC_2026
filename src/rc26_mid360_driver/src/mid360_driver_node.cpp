@@ -142,7 +142,7 @@ Mid360DriverNode::Mid360DriverNode(const rclcpp::NodeOptions& options) : Node("m
     const std::string imu_topic = declare_parameter<std::string>("imu_topic");
     const std::string imu_frame = declare_parameter<std::string>("imu_frame");
     const std::string host_ip = declare_parameter<std::string>("host_ip");
-    declare_parameter<double>("lidar_publish_time_interval");
+    const double lidar_publish_time_interval = declare_parameter<double>("lidar_publish_time_interval");
     const bool is_topic_name_with_lidar_ip = declare_parameter<bool>("is_topic_name_with_lidar_ip");
 
     asio::ip::address parsed_host_ip;
@@ -157,7 +157,7 @@ Mid360DriverNode::Mid360DriverNode(const rclcpp::NodeOptions& options) : Node("m
     }
 
     mid360_driver = std::make_unique<mid360_driver::Mid360Driver>(
-        io_context, parsed_host_ip,
+        io_context, parsed_host_ip, lidar_publish_time_interval,
         [this, is_topic_name_with_lidar_ip, lidar_topic, imu_topic, lidar_frame](
             const asio::ip::address& lidar_ip, const FrameMeta& meta, const std::vector<Point>& points) {
             try {

@@ -71,6 +71,17 @@ install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME}
 )
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  ament_add_gtest(test_profile_loader
+    test/test_profile_loader.cpp
+  )
+  target_link_libraries(test_profile_loader
+    ${PROJECT_NAME}
+  )
+endif()
+
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME})
 ament_export_dependencies(${DEPENDENCIES})

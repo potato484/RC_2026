@@ -15,9 +15,13 @@
 #include <vector>
 
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
+#include "grid_map_core/grid_map_core.hpp"
+#include "grid_map_msgs/msg/grid_map.hpp"
 #include "nav2_core/controller.hpp"
+#include "rc26_interfaces/msg/localization_health.hpp"
 #include "rc26_omni_controller/pid.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/u_int32.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
@@ -28,6 +32,13 @@ struct CostmapSnapshot {
     std::vector<uint8_t> data;
     unsigned int width{}, height{};
     double origin_x{}, origin_y{}, resolution{};
+};
+
+struct TerrainScaleFactors {
+    double linear{1.0};
+    double lateral{1.0};
+    double yaw{1.0};
+    bool applied{false};
 };
 
 /**
@@ -85,6 +96,16 @@ private:
     void sanitizeLoadedParameters();
     bool validateParameterUpdate(const std::vector<rclcpp::Parameter>& parameters, std::string& reason) const;
     void resetMotionState() noexcept;
+    void terrainGridCallback(const grid_map_msgs::msg::GridMap::SharedPtr msg);
+    bool readTerrainLayerValue(const grid_map::GridMap& map,
+                               const std::string& layer,
+                               const grid_map::Position& pos,
+                               float& value) const;
+    TerrainScaleFactors evaluateTerrainScales(const nav_msgs::msg::Path& transformed_plan,
+                                              int lookahead_end_idx,
+                                              const tf2::Transform& transform_global_from_base,
+                                              double path_tx,
+                                              double path_ty) const;
 
     double applyCurvatureLimitation(const nav_msgs::msg::Path& path,
                                     const geometry_msgs::msg::PoseStamped& lookahead_pose, double& linear_vel,
@@ -189,11 +210,55 @@ private:
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr collision_d_min_pub_;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64>::SharedPtr v_safe_pub_;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::UInt32>::SharedPtr collision_check_outside_map_count_pub_;
+    rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr terrain_grid_sub_;
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_cov_sub_;
+    rclcpp::Subscription<rc26_interfaces::msg::LocalizationHealth>::SharedPtr localization_health_sub_;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr control_degraded_sub_;
+    std::shared_ptr<grid_map::GridMap> terrain_map_;
     rclcpp::Time last_cov_stamp_;
+    rclcpp::Time terrain_map_stamp_{0, 0, RCL_ROS_TIME};
     double sigma_xy_{0.0};
     double sigma_yaw_{0.0};
     std::mutex cov_mutex_;
+    std::mutex localization_safety_mutex_;
+    mutable std::mutex terrain_mutex_;
+    uint8_t localization_health_level_{rc26_interfaces::msg::LocalizationHealth::GREEN};
+    bool localization_health_control_degraded_{false};
+    bool control_degraded_{false};
+    rclcpp::Time last_localization_health_stamp_;
+    rclcpp::Time last_control_degraded_stamp_;
+    double lhi_yellow_v_scale_{0.8};
+    double lhi_yellow_w_scale_{0.8};
+    double lhi_orange_v_scale_{0.5};
+    double lhi_orange_w_scale_{0.6};
+    double lhi_orange_vy_scale_{0.5};
+    bool lhi_red_stop_enable_{true};
+    double degraded_v_scale_{0.3};
+    double degraded_w_scale_{0.5};
+    bool terrain_enable_{true};
+    std::string terrain_grid_topic_{"/terrain_grid_map_local"};
+    std::string terrain_traversability_layer_{"traversability"};
+    std::string terrain_fresh_layer_{"fresh"};
+    std::string terrain_slope_x_layer_{"slope_x"};
+    std::string terrain_slope_y_layer_{"slope_y"};
+    std::string terrain_roughness_layer_{"roughness"};
+    std::string terrain_step_up_layer_{"step_up"};
+    std::string terrain_rule_legality_layer_{"rule_legality"};
+    std::string terrain_kfs_keepout_layer_{"kfs_keepout"};
+    std::string terrain_block_occupied_layer_{"block_occupied"};
+    std::string terrain_ramp_corridor_layer_{"ramp_corridor_mask"};
+    int terrain_sample_count_{12};
+    double terrain_scale_min_{0.35};
+    double terrain_lateral_scale_min_{0.2};
+    double terrain_yaw_scale_min_{0.25};
+    double terrain_slope_limit_{0.45};
+    double terrain_roughness_limit_{0.35};
+    double terrain_step_up_limit_{0.08};
+    double terrain_rule_legality_threshold_{0.5};
+    double terrain_keepout_threshold_{0.5};
+    double terrain_block_occupied_threshold_{0.5};
+    bool terrain_enforce_ramp_corridor_{false};
+    double terrain_stale_timeout_sec_{0.4};
 
     std::recursive_mutex mutex_;
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;

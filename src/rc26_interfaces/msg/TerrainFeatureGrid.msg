@@ -16,3 +16,5 @@ float32[] slope_y
 float32[] roughness
 float32[] p_obstacle
 float32[] p_drop
+float32[] step_up
+float32[] p_climbable

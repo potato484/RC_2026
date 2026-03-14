@@ -1,0 +1,11 @@
+# 定位验证 overlay（S3/S4）
+# 仅覆盖验证阶段参数，不改比赛默认 localization.yaml
+localization:
+  ros__parameters:
+    enable_graph_backend: true
+    sc_max_radius: 15.0
+    sc_submap_radius: 8.0
+    sc_grid_resolution: 0.75
+    sc_topk: 8
+    sc_sim_threshold: 0.15
+    sc_min_points_per_submap: 60

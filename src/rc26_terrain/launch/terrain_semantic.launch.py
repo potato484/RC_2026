@@ -12,7 +12,7 @@ def generate_launch_description():
 
     namespace = LaunchConfiguration('namespace')
     use_sim_time = LaunchConfiguration('use_sim_time')
-    params_file = LaunchConfiguration('params_file')
+    terrain_params_file = LaunchConfiguration('terrain_params_file')
 
     declare_namespace = DeclareLaunchArgument(
         'namespace',
@@ -25,7 +25,7 @@ def generate_launch_description():
         description='使用仿真时间（/clock）')
 
     declare_params_file = DeclareLaunchArgument(
-        'params_file',
+        'terrain_params_file',
         default_value=default_params,
         description='rc26_terrain 参数文件路径')
 
@@ -35,7 +35,7 @@ def generate_launch_description():
         name='terrain_semantic',
         namespace=namespace,
         output='screen',
-        parameters=[params_file, {'use_sim_time': use_sim_time}],
+        parameters=[terrain_params_file, {'use_sim_time': use_sim_time}],
     )
 
     return LaunchDescription([

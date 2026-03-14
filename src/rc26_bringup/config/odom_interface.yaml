@@ -1,5 +1,6 @@
 odom_interface:
   ros__parameters:
+    # Layer A 生产桥：权威发布 odom -> base_link，并向 Layer B 提供 odom 与 registered_scan
     use_sim_time: false
     
     # ===== 输入话题 (来自 Point-LIO) =====
@@ -13,10 +14,20 @@ odom_interface:
     # ===== 坐标系配置 (map -> odom -> base_link -> laser_link) =====
     odom_frame: "odom"
     base_frame: "base_link"
-    lidar_frame: "livox_frame"
+    lidar_frame: "point_lio_body"  # Point-LIO state_estimation 的 child_frame；其语义是 body/IMU，不是 livox_frame
     
     # ===== 时间同步 =====
     tf_lookup_timeout_sec: 0.5  # TF 查询超时时间
-    max_time_diff_sec: 0.2    # 点云与里程计允许的最大时间差 (秒)，过大将丢弃该点云帧
+    max_time_diff_sec: 0.2    # 点云与里程计允许的最大严重失配时间差 (秒)；代码内部会吸收毫秒级抖动
     tf_refresh_interval_sec: 1.0  # TF 刷新周期
+    clamp_cloud_stamp_to_latest_odom: true  # 若点云 stamp 略超前于最新 odom，则向后钳制，避免下游 TF future extrapolation
+    defer_cloud_until_matching_odom: true  # 点云先到时先缓存，等对应 odom 到达后再发布 registered_scan（支持少量时间抖动）
+    publish_debug_path: true  # 调试路径话题 odom_path；比赛最小链可关闭
+    publish_pose_markers: true  # 调试位姿 marker 话题 odom_pose_markers；比赛最小链可关闭
     use_input_twist: true
+    zero_origin_to_first_frame: true  # 启动阶段做静止均值归零，并对 registered_scan 同步平移
+    zero_origin_warmup_frames: 10  # 需要累计的静止帧数（10Hz 雷达约 1 秒）
+    zero_origin_max_linear_speed_mps: 0.05  # 归零阶段判定静止的线速度阈值
+    zero_origin_max_angular_speed_radps: 0.10  # 归零阶段判定静止的角速度阈值
+    debug_pose_log: false  # 默认关闭高频位姿调试日志，避免持续刷屏
+    debug_pose_log_interval_sec: 0.5

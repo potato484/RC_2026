@@ -46,9 +46,9 @@ void reset_frame_state(FrameState& frame_state) {
     frame_state.has_data = false;
 }
 
-void start_new_frame(FrameState& frame_state, const std::uint8_t frame_cnt) {
+void start_new_frame(FrameState& frame_state, const std::uint8_t frame_cnt, const std::uint16_t initial_udp_cnt) {
     frame_state.current_frame_cnt = frame_cnt;
-    frame_state.expected_udp_cnt = 0;
+    frame_state.expected_udp_cnt = initial_udp_cnt;
     frame_state.frame_min_ts = std::numeric_limits<double>::max();
     frame_state.lost_in_frame = 0;
     frame_state.frame_points.clear();
@@ -186,11 +186,12 @@ double normalize_header_timestamp(const TimestampType time_type, const asio::ip:
 }
 
 Mid360Driver::Mid360Driver(
-    asio::io_context& io_context, const asio::ip::address& host_ip,
+    asio::io_context& io_context, const asio::ip::address& host_ip, const double lidar_publish_time_interval_sec,
     const std::function<void(const asio::ip::address& lidar_ip, const FrameMeta& meta, const std::vector<Point>& points)>&
         on_receive_pointcloud,
     const std::function<void(const asio::ip::address& lidar_ip, const ImuMsg& imu_msg)>& on_receive_imu)
-    : host_ip(host_ip), receive_pointcloud_socket(io_context), receive_imu_socket(io_context),
+    : lidar_publish_time_interval_sec(lidar_publish_time_interval_sec > 0.0 ? lidar_publish_time_interval_sec : 0.0),
+      host_ip(host_ip), receive_pointcloud_socket(io_context), receive_imu_socket(io_context),
       on_receive_pointcloud(on_receive_pointcloud), on_receive_imu(on_receive_imu) {
     try {
         receive_pointcloud_socket.open(asio::ip::udp::v4());
@@ -334,10 +335,15 @@ asio::awaitable<void> Mid360Driver::receive_pointcloud() {
 
         auto& frame_state = frame_state_map[sender_endpoint.address()];
         if (!frame_state.has_data) {
-            start_new_frame(frame_state, header.frame_cnt);
+            start_new_frame(frame_state, header.frame_cnt, header.udp_cnt);
         } else if (header.frame_cnt != frame_state.current_frame_cnt) {
             finalize_frame(sender_endpoint.address(), frame_state, on_receive_pointcloud);
-            start_new_frame(frame_state, header.frame_cnt);
+            start_new_frame(frame_state, header.frame_cnt, header.udp_cnt);
+        } else if (lidar_publish_time_interval_sec > 0.0 &&
+                   frame_state.frame_min_ts != std::numeric_limits<double>::max() &&
+                   header_timestamp - frame_state.frame_min_ts >= lidar_publish_time_interval_sec) {
+            finalize_frame(sender_endpoint.address(), frame_state, on_receive_pointcloud);
+            start_new_frame(frame_state, header.frame_cnt, header.udp_cnt);
         }
 
         if (header.udp_cnt < frame_state.expected_udp_cnt) {

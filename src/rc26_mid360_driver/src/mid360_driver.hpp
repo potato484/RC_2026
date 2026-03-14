@@ -68,6 +68,7 @@ struct IpAddressHasher {
 class Mid360Driver {
 private:
     std::atomic<bool> is_running = true;
+    double lidar_publish_time_interval_sec = 0.0;
     asio::ip::address host_ip;
     asio::ip::udp::socket receive_pointcloud_socket;
     asio::ip::udp::socket receive_imu_socket;
@@ -79,6 +80,7 @@ private:
 
 public:
     Mid360Driver(asio::io_context& io_context, const asio::ip::address& host_ip,
+                 double lidar_publish_time_interval_sec,
                  const std::function<void(const asio::ip::address& lidar_ip, const FrameMeta& meta,
                                           const std::vector<Point>& points)>& on_receive_pointcloud,
                  const std::function<void(const asio::ip::address& lidar_ip, const ImuMsg& imu_msg)>& on_receive_imu);

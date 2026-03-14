@@ -12,7 +12,6 @@ sensor_msgs::msg::Imu imu_last, imu_next;
 PointCloudXYZI::Ptr ptr_con(new PointCloudXYZI());
 double T1[MAXN], s_plot[MAXN], s_plot2[MAXN], s_plot3[MAXN], s_plot11[MAXN];
 
-condition_variable sig_buffer;
 int scan_count = 0;
 int frame_ct = 0, wait_num = 0;
 std::mutex m_time;

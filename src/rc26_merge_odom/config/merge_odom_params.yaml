@@ -26,7 +26,7 @@ can_odom_node:
 # 达妙IMU节点参数
 dm_imu_node:
   ros__parameters:
-    port: "/dev/ttyACM0"
+    port: "/dev/serial/by-id/usb-DM-IMU_DM-IMU_USB_CDC_2025021200-if00"
     baudrate: 921600
     frame_id: "imu_link"
     verbose: false
@@ -79,6 +79,8 @@ pose_sender_node:
     latency_comp_s: 0.03
     terrain_speed_limit_topic: "terrain_speed_limit"
     terrain_speed_limit_timeout_ms: 500
+    stats_log_enable: false
+    imu_gate_log_enable: false
 
 # 轮速软融合节点参数
 wheel_odom_fuser_node:
@@ -141,6 +143,8 @@ merge_odom_node:
     latency_comp_s: 0.03
     terrain_speed_limit_topic: "terrain_speed_limit"
     terrain_speed_limit_timeout_ms: 500
+    stats_log_enable: false
+    imu_gate_log_enable: false
     slip_enable: true
     slip_threshold: 0.5
     slip_k_acc: 0.5

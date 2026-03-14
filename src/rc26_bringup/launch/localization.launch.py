@@ -14,13 +14,17 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     bringup_dir = get_package_share_directory('rc26_bringup')
-    _dir = get_package_share_directory('')
 
     namespace = LaunchConfiguration('namespace')
     use_sim_time = LaunchConfiguration('use_sim_time')
     slam = LaunchConfiguration('slam')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
-    param_overrides_file = PathJoinSubstitution([_dir, 'config', 'param_overrides.yaml'])
+    localization_params_file = LaunchConfiguration('localization_params_file')
+    localization_overlay_file = LaunchConfiguration('localization_overlay_file')
+    competition_mode = LaunchConfiguration('competition_mode')
+    enable_graph_backend = LaunchConfiguration('enable_graph_backend')
+    p4_candidate_enable = LaunchConfiguration('p4_candidate_enable')
+    min_inliers = LaunchConfiguration('min_inliers')
 
     declare_namespace = DeclareLaunchArgument(
         'namespace', default_value='')
@@ -36,6 +40,28 @@ def generate_launch_description():
         default_value=PathJoinSubstitution([bringup_dir, 'pcd', 'default.pcd']),
         description='先验点云文件路径')
 
+    declare_localization_params_file = DeclareLaunchArgument(
+        'localization_params_file',
+        default_value=PathJoinSubstitution([bringup_dir, 'config', 'localization.yaml']),
+        description='基础定位参数文件路径')
+
+    declare_localization_overlay_file = DeclareLaunchArgument(
+        'localization_overlay_file',
+        default_value=PathJoinSubstitution([bringup_dir, 'config', 'localization_overlay_default.yaml']),
+        description='定位参数 overlay 文件路径（可切换 eval 配置）')
+
+    declare_competition_mode = DeclareLaunchArgument(
+        'competition_mode', default_value='true', description='比赛模式防呆开关')
+
+    declare_enable_graph_backend = DeclareLaunchArgument(
+        'enable_graph_backend', default_value='false', description='是否启用图后端')
+
+    declare_p4_candidate_enable = DeclareLaunchArgument(
+        'p4_candidate_enable', default_value='false', description='是否启用 P4 外部候选输入')
+
+    declare_min_inliers = DeclareLaunchArgument(
+        'min_inliers', default_value='200', description='局部配准质量门控最小内点数')
+
     # 导航模式: 启动重定位
     localization_node = Node(
         package='rc26_localization',
@@ -44,10 +70,14 @@ def generate_launch_description():
         namespace=namespace,
         output='screen',
         parameters=[
-            PathJoinSubstitution([bringup_dir, 'config', 'localization.yaml']),
-            param_overrides_file,
+            localization_params_file,
+            localization_overlay_file,
             {'use_sim_time': use_sim_time},
             {'prior_pcd_file': prior_pcd_file},
+            {'competition_mode': competition_mode},
+            {'enable_graph_backend': enable_graph_backend},
+            {'p4_candidate_enable': p4_candidate_enable},
+            {'min_inliers': min_inliers},
         ],
         condition=UnlessCondition(slam)
     )
@@ -58,7 +88,11 @@ def generate_launch_description():
         executable='static_transform_publisher',
         name='map_to_odom_static',
         namespace=namespace,
-        arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom'],
+        arguments=[
+            '--x', '0', '--y', '0', '--z', '0',
+            '--roll', '0', '--pitch', '0', '--yaw', '0',
+            '--frame-id', 'map', '--child-frame-id', 'odom'
+        ],
         parameters=[{'use_sim_time': use_sim_time}],
         condition=IfCondition(slam)
     )
@@ -68,6 +102,12 @@ def generate_launch_description():
         declare_use_sim_time,
         declare_slam,
         declare_prior_pcd_file,
+        declare_localization_params_file,
+        declare_localization_overlay_file,
+        declare_competition_mode,
+        declare_enable_graph_backend,
+        declare_p4_candidate_enable,
+        declare_min_inliers,
         localization_node,
         static_tf_node,
     ])

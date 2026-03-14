@@ -29,12 +29,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'enable_vision',
             default_value='false',
-            description='是否启用 rc26_vision 视觉推理（true/false）'
+            description='是否启用 rc26_vision 视觉推理（AidLite + ONNX/CPU，本地链路）'
         ),
         DeclareLaunchArgument(
             'vision_config_file',
             default_value=default_vision_config_file,
-            description='rc26_vision 模型配置 YAML 路径'
+            description='rc26_vision 模型配置 YAML 路径（默认使用安装后的 vision_models.yaml）'
         ),
         Node(
             package='rc26_decision',

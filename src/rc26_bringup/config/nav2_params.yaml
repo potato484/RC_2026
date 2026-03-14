@@ -17,7 +17,7 @@ bt_navigator:
 controller_server:
   ros__parameters:
     use_sim_time: false
-    controller_frequency: 100.0
+    controller_frequency: 30.0
     odom_topic: control_state
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001
@@ -25,7 +25,7 @@ controller_server:
     failure_tolerance: 0.3
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["general_goal_checker"]
-    controller_plugins: ["FollowPath"]
+    controller_plugins: ["NMPCFollowPath", "FollowPath"]
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
@@ -38,7 +38,69 @@ controller_server:
       xy_goal_tolerance: 0.25
       yaw_goal_tolerance: 0.25
 
-    # 使用自定义全向 PID 控制器 (移植自 pb2025)
+    # 定位感知 NMPC 控制器（P3）
+    NMPCFollowPath:
+      plugin: "rc26_nmpc_controller::NmpcController"
+      solver_time_limit_ms: 3.0
+      solver_timeout_cycles: 2
+      fallback_recover_cycles: 6
+      fallback_min_hold_sec: 0.5
+      use_osqp: true
+      fallback_controller_id: "FollowPath"
+      w_ref_vx: 8.0
+      w_ref_vy: 8.0
+      w_ref_wz: 6.0
+      w_smooth_vx: 2.0
+      w_smooth_vy: 2.0
+      w_smooth_wz: 1.5
+      vx_min: -2.5
+      vx_max: 2.5
+      vy_min: -2.5
+      vy_max: 2.5
+      wz_min: -3.0
+      wz_max: 3.0
+      ax_max: 3.0
+      ay_max: 3.0
+      aw_max: 6.0
+      lhi_yellow_scale: 0.8
+      lhi_orange_scale: 0.5
+      degraded_scale: 0.3
+      backend_not_ready_scale: 0.7
+      backend_stale_scale: 0.7
+      backend_graph_health_ref: 0.7
+      backend_graph_health_min_scale: 0.4
+      jump_suppressed_scale: 0.6
+      imu_spike_scale: 0.6
+      min_quality_scale: 0.08
+      health_timeout_sec: 0.25
+      backend_timeout_sec: 0.5
+      control_state_timeout_sec: 0.25
+      handover_a_lin: 2.2
+      handover_a_ang: 4.0
+      terrain_enable: true
+      terrain_grid_topic: "/terrain_grid_map_local"
+      terrain_traversability_layer: "traversability"
+      terrain_fresh_layer: "fresh"
+      terrain_roughness_layer: "roughness"
+      terrain_step_up_layer: "step_up"
+      terrain_rule_legality_layer: "rule_legality"
+      terrain_kfs_keepout_layer: "kfs_keepout"
+      terrain_block_occupied_layer: "block_occupied"
+      terrain_ramp_corridor_layer: "ramp_corridor_mask"
+      terrain_sample_count: 10
+      terrain_horizon_points: 24
+      terrain_scale_min: 0.35
+      terrain_roughness_limit: 0.35
+      terrain_step_up_limit: 0.08
+      terrain_rule_legality_threshold: 0.5
+      terrain_keepout_threshold: 0.5
+      terrain_block_occupied_threshold: 0.5
+      terrain_enforce_ramp_corridor: false
+      terrain_stale_timeout_sec: 0.4
+      profile_orange: "loc_orange"
+      profile_red: "loc_red_hold"
+
+    # 使用自定义全向 PID 控制器 (移植自 pb2025)，作为 NMPC 回退目标保留
     FollowPath:
       plugin: "rc26_omni_controller::OmniPidPursuitController"
       translation_kp: 3.0
@@ -88,6 +150,38 @@ controller_server:
       loc_k_w: 20.0
       loc_v_scale_min: 0.2
       loc_w_scale_min: 0.3
+      lhi_yellow_v_scale: 0.8
+      lhi_yellow_w_scale: 0.8
+      lhi_orange_v_scale: 0.5
+      lhi_orange_w_scale: 0.6
+      lhi_orange_vy_scale: 0.5
+      lhi_red_stop_enable: true
+      degraded_v_scale: 0.3
+      degraded_w_scale: 0.5
+      terrain_enable: true
+      terrain_grid_topic: "/terrain_grid_map_local"
+      terrain_traversability_layer: "traversability"
+      terrain_fresh_layer: "fresh"
+      terrain_slope_x_layer: "slope_x"
+      terrain_slope_y_layer: "slope_y"
+      terrain_roughness_layer: "roughness"
+      terrain_step_up_layer: "step_up"
+      terrain_rule_legality_layer: "rule_legality"
+      terrain_kfs_keepout_layer: "kfs_keepout"
+      terrain_block_occupied_layer: "block_occupied"
+      terrain_ramp_corridor_layer: "ramp_corridor_mask"
+      terrain_sample_count: 12
+      terrain_scale_min: 0.35
+      terrain_lateral_scale_min: 0.2
+      terrain_yaw_scale_min: 0.25
+      terrain_slope_limit: 0.45
+      terrain_roughness_limit: 0.35
+      terrain_step_up_limit: 0.08
+      terrain_rule_legality_threshold: 0.5
+      terrain_keepout_threshold: 0.5
+      terrain_block_occupied_threshold: 0.5
+      terrain_enforce_ramp_corridor: false
+      terrain_stale_timeout_sec: 0.4
 
 local_costmap:
   local_costmap:
@@ -102,7 +196,7 @@ local_costmap:
       height: 7
       resolution: 0.1
       footprint: "[[0.4, 0.4], [0.4, -0.4], [-0.4, -0.4], [-0.4, 0.4]]"
-      plugins: ["obstacle_layer", "drop_layer", "inflation_layer"]
+      plugins: ["obstacle_layer", "drop_layer", "terrain_traversability_layer", "inflation_layer"]
       filters: ["keepout_filter"]
 
       keepout_filter:
@@ -141,6 +235,25 @@ local_costmap:
           obstacle_min_range: 0.0
           raytrace_max_range: 5.0
           raytrace_min_range: 0.0
+
+      terrain_traversability_layer:
+        plugin: "rc26_terrain_nav2::TerrainTraversabilityLayer"
+        enabled: true
+        terrain_grid_topic: "/terrain_grid_map_local"
+        traversability_layer: "traversability"
+        fresh_layer: "fresh"
+        drop_layer: "drop_prob"
+        climbable_layer: "climbable_prob"
+        rule_legality_layer: "rule_legality"
+        kfs_keepout_layer: "kfs_keepout"
+        lethal_threshold: 0.25
+        inscribed_threshold: 0.45
+        drop_lethal_threshold: 0.8
+        rule_legality_lethal_threshold: 0.5
+        keepout_lethal_threshold: 0.5
+        climbable_soft_cost_max: 80.0
+        stale_timeout_sec: 0.6
+        unknown_policy: "keep"
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"

@@ -1,0 +1,65 @@
+rc26_visualization_status_node:
+  ros__parameters:
+    publish_rate_hz: 5.0
+
+    topics:
+      localization_health: "/localization/health"
+      localization_backend_status: "/localization/backend_status"
+      control_degraded: "/control_degraded"
+      control_degenerate_score: "control_degenerate_score"
+      compute_time_ms: "compute_time_ms"
+      pose_age_ms: "pose_age_ms"
+      collision_d_min: "collision_d_min"
+      controller_mode: "controller_server/NMPCFollowPath/mode"
+      nav_safety_state: "nav_safety_state"
+      mechanism_state: "/mechanism/state"
+      costmap_filter_info: "/costmap_filter_info"
+      kfs_filter_mask: "/kfs_filter_mask"
+      kfs_keepout_heartbeat: "/kfs_keepout_heartbeat"
+      terrain_obstacles: "terrain_obstacles"
+      terrain_drop: "terrain_drop"
+      terrain_grid_map_local: "/terrain_grid_map_local"
+      terrain_speed_limit: "terrain_speed_limit"
+      odom: "odom"
+      control_state: "control_state"
+
+    thresholds:
+      loc_timeout_sec: 0.2
+      controller_period_ms: 33.333
+      brake_margin_m: 0.15
+      keepout_max_age_ms: 300.0
+      terrain_max_age_ms: 1000.0
+      nav_safety_max_age_ms: 2500.0
+      mechanism_max_age_ms: 1000.0
+      backend_status_max_age_ms: 1000.0
+      backend_graph_health_warn: 0.6
+      backend_graph_health_error: 0.3
+      backend_local_reg_warn_sec: 0.75
+      backend_local_reg_error_sec: 1.5
+      mechanism_warn_level: 1
+      mechanism_error_level: 2
+      topics_orange_count: 3
+      terrain_speed_limit_nominal_mps: 2.0
+      terrain_speed_limit_margin_mps: 0.05
+      terrain_climbable_active_threshold: 0.20
+      terrain_step_edge_active_threshold: 0.50
+
+    watchdog:
+      localization_health_max_age_ms: 1000.0
+      localization_backend_status_max_age_ms: 1500.0
+      control_degraded_max_age_ms: 500.0
+      control_degenerate_score_max_age_ms: 500.0
+      compute_time_ms_max_age_ms: 500.0
+      pose_age_ms_max_age_ms: 500.0
+      collision_d_min_max_age_ms: 500.0
+      nav_safety_state_max_age_ms: 2500.0
+      mechanism_state_max_age_ms: 1000.0
+      costmap_filter_info_max_age_ms: 300.0
+      kfs_filter_mask_max_age_ms: 300.0
+      kfs_keepout_heartbeat_max_age_ms: 300.0
+      terrain_obstacles_max_age_ms: 1000.0
+      terrain_drop_max_age_ms: 1000.0
+      terrain_grid_map_local_max_age_ms: 1000.0
+      terrain_speed_limit_max_age_ms: 1000.0
+      odom_max_age_ms: 500.0
+      control_state_max_age_ms: 500.0

@@ -1,18 +1,23 @@
 lio_state_predictor:
   ros__parameters:
-    odometry_topic: "odometry"
+    odometry_topic: "odom"
     imu_topic: "livox/imu"
     degenerate_score_topic: "degenerate_score"
 
     control_state_topic: "control_state"
     control_degenerate_score_topic: "control_degenerate_score"
     control_degraded_topic: "control_degraded"
+    publish_control_tf: true
+    control_tf_child_frame: "base_link_control"
 
     publish_rate_hz: 200.0
     fixed_predict_ahead_sec: 0.0
     pos_cov_increase_m2_per_s: 0.02
     yaw_cov_increase_rad2_per_s: 0.01
     degeneracy_ratio_threshold: 0.02
-    imu_timeout_sec: 0.05
+    imu_timeout_sec: 0.15
     degenerate_score_timeout_sec: 0.2
-    max_prediction_horizon_sec: 0.2
+    max_prediction_horizon_sec: 0.35
+    startup_no_prediction_sec: 1.0
+    debug_pose_log: false  # 默认关闭高频预测/对比调试日志，避免持续刷屏
+    debug_pose_log_interval_sec: 0.5

@@ -4,7 +4,8 @@
         prop_at_freq_of_imu: True
         check_satu: True
         init_map_size: 10
-        point_filter_num: 1                                 # 可选值：4、3
+        point_filter_num: 1                                 # 兼容旧参数：每 N 个点取 1；若设置 point_keep_ratio，则以百分比参数为准
+        point_keep_ratio: 50.0                            # 动态可调，单位 %；100=全保留，50≈保留一半，25≈保留约四分之一
         space_down_sample: True
         filter_size_surf: 0.2                               # 可选值：0.5、0.3、0.2、0.15、0.1
         filter_size_map: 0.2                               # 可选值：0.5、0.3、0.15、0.1
@@ -24,6 +25,7 @@
             enable: False
             prior_pcd_map_path: ""
             init_pose: [ 0.0, 0.0, 0.0 ]
+            skip_frames: 200                              # 启用先验地图后，延迟多少帧再执行 MapIncremental()
 
         preprocess:
             # NOTE: In this Point-LIO fork, MID360 is enumerated as 5 (see `rc26_point_lio/src/preprocess.hpp`).
@@ -72,6 +74,13 @@
             scan_publish_en: True                           # False：关闭所有点云输出
             scan_bodyframe_pub_en: False                    # True：输出 IMU 机体系下的点云
             tf_send_en: True                                # True：发布从 'camera_init' 到 'aft_mapped' 的 TF
+            map_full_publish_en: True                       # 持续发布累计地图，便于 RViz / Foxglove 观察历史建图内容
+            map_full_publish_interval_sec: 1.0              # 累计地图发布周期；0 表示每帧都发，注意带宽/CPU 开销
+
+        output_filter:
+            world_z_filter_en: False                        # 仅过滤发布/保存的世界系点云，不影响内部里程计地图
+            world_z_min: -10.0                              # odom/world 系 z 下限；去地面时通常逐步上调到接近地面高度
+            world_z_max: 10.0                               # odom/world 系 z 上限
 
         pcd_save:
             pcd_save_en: False

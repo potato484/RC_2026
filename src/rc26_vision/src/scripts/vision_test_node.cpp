@@ -1,5 +1,6 @@
 /// 推荐用法（多 Profile 配置）：
-///   ros2 run rc26_vision vision_test_node --ros-args -p vision_config_file:=/path/to/vision_models.yaml
+///   ros2 run rc26_vision vision_test_node --ros-args \
+///     -p vision_config_file:=$(ros2 pkg prefix rc26_vision)/share/rc26_vision/config/vision_models.yaml
 #include <memory>
 #include <string>
 #include <vector>

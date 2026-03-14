@@ -12,30 +12,103 @@ Visualization Manager:
       Name: TF
       Value: true
     - Class: rviz_default_plugins/PointCloud2
-      Name: RawPointCloud
+      Name: LaserMapFull
       Topic:
-        Value: /livox/lidar
-        Queue Size: 5
-      Value: false
-      Size (m): 0.02
+        Value: laser_map_full
+        Queue Size: 1
+      Value: true
+      Size (m): 0.04
       Style: Points
-      Color Transformer: Intensity
+      Color: 80; 255; 120
+      Color Transformer: FlatColor
       Reliability Policy: Best Effort
     - Class: rviz_default_plugins/PointCloud2
       Name: RegisteredCloud
       Topic:
-        Value: /registered_scan
+        Value: registered_scan
         Queue Size: 5
       Value: true
       Size (m): 0.03
       Style: Points
-      Color Transformer: FlatColor
-      Color: 0; 255; 0
+      Color Transformer: Intensity
       Reliability Policy: Best Effort
-    - Class: rviz_default_plugins/Path
-      Name: Path
+    - Alpha: 1
+      Class: rviz_default_plugins/Path
+      Color: 220; 60; 60
+      Name: OdomPath
       Topic:
-        Value: /path
+        Value: odom_path
+      Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/Path
+      Color: 60; 220; 60
+      Name: ControlPath
+      Topic:
+        Value: control_path
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Name: OdomPoseMarkers
+      Topic:
+        Value: odom_pose_markers
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Name: ControlPoseMarkers
+      Topic:
+        Value: control_pose_markers
+      Value: true
+    - Class: rviz_default_plugins/PointStamped
+      Name: LookaheadPoint
+      Topic:
+        Value: lookahead_point
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Name: CurvatureMarkers
+      Topic:
+        Value: curvature_points_marker_array
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Class: grid_map_rviz_plugin/GridMap
+      Color: 200; 200; 200
+      Color Layer: traversability
+      Color Transformer: GridMapLayer
+      Height Layer: elevation_abs
+      Height Transformer: GridMapLayer
+      Name: TerrainGridMapLocal
+      Topic:
+        Value: terrain_grid_map_local
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Name: TerrainGridMapLocalMarkers
+      Topic:
+        Value: terrain_grid_map_local_markers
+      Value: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: TerrainObstacles
+      Topic:
+        Value: terrain_obstacles
+        Queue Size: 5
+      Value: true
+      Size (m): 0.05
+      Style: Points
+      Color: 255; 120; 80
+      Color Transformer: FlatColor
+      Reliability Policy: Best Effort
+    - Class: rviz_default_plugins/PointCloud2
+      Name: TerrainDrop
+      Topic:
+        Value: terrain_drop
+        Queue Size: 5
+      Value: true
+      Size (m): 0.05
+      Style: Points
+      Color: 80; 160; 255
+      Color Transformer: FlatColor
+      Reliability Policy: Best Effort
+    - Class: rviz_default_plugins/Map
+      Name: KeepoutMask
+      Topic:
+        Value: /kfs_filter_mask
       Value: true
   Global Options:
     Fixed Frame: odom

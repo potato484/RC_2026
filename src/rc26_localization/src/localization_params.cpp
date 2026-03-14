@@ -146,6 +146,106 @@ rcl_interfaces::msg::SetParametersResult LocalizationNode::dynamicParametersCall
             log_update_int(name, old_v, min_points_for_registration_);
             continue;
         }
+        if (name == "acceptable_match_streak_to_recover") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+                reject("acceptable_match_streak_to_recover expects integer");
+                break;
+            }
+            const int old_v = acceptable_match_streak_to_recover_;
+            acceptable_match_streak_to_recover_ = std::clamp(static_cast<int>(p.as_int()), 1, 100);
+            log_update_int(name, old_v, acceptable_match_streak_to_recover_);
+            continue;
+        }
+        if (name == "good_match_streak_to_lock") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+                reject("good_match_streak_to_lock expects integer");
+                break;
+            }
+            const int old_v = good_match_streak_to_lock_;
+            good_match_streak_to_lock_ = std::clamp(static_cast<int>(p.as_int()), 1, 100);
+            log_update_int(name, old_v, good_match_streak_to_lock_);
+            continue;
+        }
+        if (name == "bad_match_streak_to_suspect") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+                reject("bad_match_streak_to_suspect expects integer");
+                break;
+            }
+            const int old_v = bad_match_streak_to_suspect_;
+            bad_match_streak_to_suspect_ = std::clamp(static_cast<int>(p.as_int()), 1, 100);
+            log_update_int(name, old_v, bad_match_streak_to_suspect_);
+            continue;
+        }
+        if (name == "low_confidence_streak_to_unlock") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+                reject("low_confidence_streak_to_unlock expects integer");
+                break;
+            }
+            const int old_v = low_confidence_streak_to_unlock_;
+            low_confidence_streak_to_unlock_ = std::clamp(static_cast<int>(p.as_int()), 1, 100);
+            log_update_int(name, old_v, low_confidence_streak_to_unlock_);
+            continue;
+        }
+        if (name == "locked_min_startup_sec") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("locked_min_startup_sec expects double");
+                break;
+            }
+            const double old_v = locked_min_startup_sec_;
+            locked_min_startup_sec_ = std::clamp(p.as_double(), 0.0, 60.0);
+            log_update(name, old_v, locked_min_startup_sec_);
+            continue;
+        }
+        if (name == "lock_good_normalized_error_max") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("lock_good_normalized_error_max expects double");
+                break;
+            }
+            const double old_v = lock_good_normalized_error_max_;
+            lock_good_normalized_error_max_ = std::clamp(p.as_double(), 1e-6, 10.0);
+            log_update(name, old_v, lock_good_normalized_error_max_);
+            continue;
+        }
+        if (name == "lock_good_min_inliers") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+                reject("lock_good_min_inliers expects integer");
+                break;
+            }
+            const int old_v = lock_good_min_inliers_;
+            lock_good_min_inliers_ = std::max(min_inliers_, std::clamp(static_cast<int>(p.as_int()), 0, 100000));
+            log_update_int(name, old_v, lock_good_min_inliers_);
+            continue;
+        }
+        if (name == "lock_jump_reject_translation_m") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("lock_jump_reject_translation_m expects double");
+                break;
+            }
+            const double old_v = lock_jump_reject_translation_m_;
+            lock_jump_reject_translation_m_ = std::clamp(p.as_double(), 0.01, 10.0);
+            log_update(name, old_v, lock_jump_reject_translation_m_);
+            continue;
+        }
+        if (name == "lock_jump_reject_yaw_deg") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("lock_jump_reject_yaw_deg expects double");
+                break;
+            }
+            const double old_v = lock_jump_reject_yaw_deg_;
+            lock_jump_reject_yaw_deg_ = std::clamp(p.as_double(), 0.1, 180.0);
+            log_update(name, old_v, lock_jump_reject_yaw_deg_);
+            continue;
+        }
+        if (name == "locked_pose_max_stale_sec") {
+            if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                reject("locked_pose_max_stale_sec expects double");
+                break;
+            }
+            const double old_v = locked_pose_max_stale_sec_;
+            locked_pose_max_stale_sec_ = std::clamp(p.as_double(), 0.1, 60.0);
+            log_update(name, old_v, locked_pose_max_stale_sec_);
+            continue;
+        }
         if (name == "global_leaf_size") {
             if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
                 reject("global_leaf_size expects double");
@@ -426,6 +526,7 @@ rcl_interfaces::msg::SetParametersResult LocalizationNode::dynamicParametersCall
             sc_db_ready_ = false;
             std::lock_guard<std::mutex> lk(sc_mutex_);
             sc_database_.clear();
+            sc_ring_index_.reset();
         }
     }
 

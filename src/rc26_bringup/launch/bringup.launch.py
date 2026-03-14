@@ -10,13 +10,17 @@ src R2导航系统 - 主启动文件
   - 决策系统 (rc26_decision)
   - 地图服务 (nav2_map_server)
 
+额外模式:
+  - slam:=true 且 pure_mapping_mode:=true 时，保留纯建图最小运动链路，同时继续发布可视化诊断总线
 """
+import os
+
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, GroupAction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, GroupAction, LogInfo
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node, PushRosNamespace
 
 
@@ -28,16 +32,28 @@ def generate_launch_description():
     base_ground_dir = get_package_share_directory('rc26_base_ground')
     kfs_keepout_dir = get_package_share_directory('rc26_kfs_keepout')
     point_lio_dir = get_package_share_directory('rc26_point_lio')
+    visualization_dir = get_package_share_directory('rc26_visualization')
+    display_available = 'true' if (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')) else 'false'
 
     # 启动参数
     namespace = LaunchConfiguration('namespace')
     use_sim_time = LaunchConfiguration('use_sim_time')
     slam = LaunchConfiguration('slam')
+    pure_mapping_mode = LaunchConfiguration('pure_mapping_mode')
     map_file = LaunchConfiguration('map')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
+    point_lio_profile = LaunchConfiguration('point_lio_profile')
     params_file = LaunchConfiguration('params_file')
+    terrain_params_file = LaunchConfiguration('terrain_params_file')
+    terrain_grid_map_params_file = LaunchConfiguration('terrain_grid_map_params_file')
+    terrain_filter_chain_params_file = LaunchConfiguration('terrain_filter_chain_params_file')
+    enable_terrain_grid_map = LaunchConfiguration('enable_terrain_grid_map')
     use_rviz = LaunchConfiguration('use_rviz')
+    visualization_backend = LaunchConfiguration('visualization_backend')
+    visualization_status_enable = LaunchConfiguration('visualization_status_enable')
+    foxglove_port = LaunchConfiguration('foxglove_port')
+    recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     use_decision = LaunchConfiguration('use_decision')
     use_realsense = LaunchConfiguration('use_realsense')
     realsense_serial_no = LaunchConfiguration('realsense_serial_no')
@@ -60,6 +76,11 @@ def generate_launch_description():
         default_value='false',
         description='建图模式 (True) 或导航模式 (False)')
 
+    declare_pure_mapping_mode = DeclareLaunchArgument(
+        'pure_mapping_mode',
+        default_value='false',
+        description='纯建图最小模式；仅在 slam:=true 时生效，跳过 terrain/decision，但保留 visualization_status 供前端显示')
+
     declare_map = DeclareLaunchArgument(
         'map',
         default_value=PathJoinSubstitution([bringup_dir, 'map', 'default.yaml']),
@@ -72,18 +93,69 @@ def generate_launch_description():
 
     declare_point_lio_config_file = DeclareLaunchArgument(
         'point_lio_config_file',
-        default_value=PathJoinSubstitution([point_lio_dir, 'config', 'mid360.yaml']),
-        description='Point-LIO 参数文件路径（建图/调试时可切换不同配置）')
+        default_value='',
+        description='Point-LIO 参数文件路径；非空时优先级高于 point_lio_profile')
+
+    declare_point_lio_profile = DeclareLaunchArgument(
+        'point_lio_profile',
+        default_value='auto',
+        description='Point-LIO 预设: auto | base | cruise_light | mapping_dense | race_profile；auto 会按 slam 自动选择')
 
     declare_params_file = DeclareLaunchArgument(
         'params_file',
         default_value=PathJoinSubstitution([bringup_dir, 'config', 'nav2_params.yaml']),
         description='Nav2 参数文件')
 
+    declare_terrain_params_file = DeclareLaunchArgument(
+        'terrain_params_file',
+        default_value=PathJoinSubstitution([
+            get_package_share_directory('rc26_terrain'), 'config', 'terrain_semantic.yaml'
+        ]),
+        description='rc26_terrain 参数文件')
+
+    declare_terrain_grid_map_params_file = DeclareLaunchArgument(
+        'terrain_grid_map_params_file',
+        default_value=PathJoinSubstitution([
+            get_package_share_directory('rc26_terrain'), 'config', 'terrain_grid_map_bridge.yaml'
+        ]),
+        description='terrain_grid_map_bridge 参数文件')
+
+    declare_terrain_filter_chain_params_file = DeclareLaunchArgument(
+        'terrain_filter_chain_params_file',
+        default_value=PathJoinSubstitution([
+            get_package_share_directory('rc26_terrain'), 'config', 'terrain_filter_chain.yaml'
+        ]),
+        description='terrain_grid_map_bridge filter chain 参数文件')
+
+    declare_enable_terrain_grid_map = DeclareLaunchArgument(
+        'enable_terrain_grid_map',
+        default_value='false',
+        description='是否额外启用 terrain_semantic + terrain_grid_map_bridge；可在 pure_mapping_mode 或独立建图时打开 2.5D 栅格地图显示')
+
     declare_use_rviz = DeclareLaunchArgument(
         'use_rviz',
         default_value='true',
-        description='启动 RViz')
+        description='启动 RViz（兼容参数；当 visualization_backend!=rviz 时忽略）')
+
+    declare_visualization_backend = DeclareLaunchArgument(
+        'visualization_backend',
+        default_value='rviz',
+        description='可视化后端: rviz | foxglove | none')
+
+    declare_visualization_status_enable = DeclareLaunchArgument(
+        'visualization_status_enable',
+        default_value='true',
+        description='是否启动可视化状态/告警聚合节点')
+
+    declare_foxglove_port = DeclareLaunchArgument(
+        'foxglove_port',
+        default_value='8765',
+        description='foxglove_bridge WebSocket 监听端口')
+
+    declare_recover_mid360_stream = DeclareLaunchArgument(
+        'recover_mid360_stream',
+        default_value='false',
+        description='启动前先运行 Mid-360 恢复脚本（必要时重写 host_ipcfg 并软件重启雷达）')
 
     declare_use_decision = DeclareLaunchArgument(
         'use_decision',
@@ -109,6 +181,14 @@ def generate_launch_description():
         'kfs_heartbeat_topic',
         default_value='/kfs_keepout_heartbeat',
         description='KFS keepout heartbeat topic shared by keepout producer and decision gate')
+
+    pure_mapping_runtime = PythonExpression([
+        "'", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true'"
+    ])
+    terrain_grid_map_runtime = PythonExpression([
+        "not ('", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true') "
+        "or '", enable_terrain_grid_map, "'.lower() == 'true'"
+    ])
 
     # RealSense D455（可选）
     realsense_launch = IncludeLaunchDescription(
@@ -136,9 +216,26 @@ def generate_launch_description():
         launch_arguments={
             'namespace': namespace,
             'use_sim_time': use_sim_time,
+            'slam': slam,
             'prior_pcd_file': prior_pcd_file,
             'point_lio_config_file': point_lio_config_file,
+            'point_lio_profile': point_lio_profile,
+            'point_lio_publish_odometry_without_downsample': 'false',
+            'enable_lio_state_predictor': PythonExpression([
+                "not (('", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true')",
+                " or ('", point_lio_profile, "'.lower() == 'race_profile'))"
+            ]),
+            'enable_terrain_grid_map': 'false',
+            'odometry_use_rviz': 'false',
+            'recover_mid360_stream': recover_mid360_stream,
         }.items()
+    )
+    # Scope child launch arguments so odometry's internal overrides
+    # (for example enable_terrain_grid_map:=false) do not leak back
+    # into the parent bringup context and suppress top-level terrain nodes.
+    odometry_group = GroupAction(
+        actions=[odometry_launch],
+        scoped=True,
     )
 
     # 定位模块
@@ -167,7 +264,9 @@ def generate_launch_description():
         launch_arguments={
             'namespace': namespace,
             'use_sim_time': use_sim_time,
-        }.items()
+            'terrain_params_file': terrain_params_file,
+        }.items(),
+        condition=IfCondition(terrain_grid_map_runtime)
     )
 
     # 地面高度估计 (rc26_base_ground)
@@ -257,7 +356,7 @@ def generate_launch_description():
     )
 
     # KFS keepout 融合节点
-    kfs_grid_layout = PathJoinSubstitution([kfs_keepout_dir, 'config', 'mf_grid_layout.yaml'])
+    kfs_grid_layout = PathJoinSubstitution([kfs_keepout_dir, 'config', 'r2_mf_world.yaml'])
     kfs_block_fuser_node = Node(
         package='rc26_kfs_keepout',
         executable='kfs_block_fuser_node',
@@ -284,6 +383,41 @@ def generate_launch_description():
             'dwell_cycles': 3,
         }],
         condition=UnlessCondition(slam)
+    )
+
+    terrain_grid_map_bridge_node = Node(
+        package='rc26_terrain',
+        executable='terrain_grid_map_bridge_node',
+        name='terrain_grid_map_bridge',
+        namespace=namespace,
+        output='screen',
+        parameters=[
+            terrain_grid_map_params_file,
+            terrain_filter_chain_params_file,
+            {'use_sim_time': use_sim_time},
+        ],
+        condition=IfCondition(terrain_grid_map_runtime)
+    )
+
+    terrain_speed_limit_bridge_node = Node(
+        package='rc26_terrain_nav2',
+        executable='terrain_speed_limit_bridge_node',
+        name='terrain_speed_limit_bridge',
+        namespace=namespace,
+        output='screen',
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'input_topic': 'terrain_speed_limit',
+            'output_topic': 'controller_server/speed_limit',
+            'output_topic_compat': 'speed_limit',
+            'min_speed_limit': 0.0,
+            'max_speed_limit': 2.5,
+            'publish_no_limit_on_nan': True,
+            'republish_period_sec': 0.2,
+            'stale_timeout_sec': 0.6,
+            'stale_policy': 'no_limit',
+        }],
+        condition=UnlessCondition(pure_mapping_runtime)
     )
 
     # costmap_filter_info_server：向 Nav2 KeepoutFilter 广播掩码元数据
@@ -319,17 +453,78 @@ def generate_launch_description():
                 'keepout_gate.heartbeat_topic': kfs_heartbeat_topic,
             },
         ],
-        condition=IfCondition(use_decision)
+        condition=IfCondition(PythonExpression([
+            "'", use_decision, "'.lower() == 'true' and not ('", slam, "'.lower() == 'true' and '",
+            pure_mapping_mode, "'.lower() == 'true')"
+        ]))
+    )
+
+    visualization_status_config = PathJoinSubstitution([
+        visualization_dir, 'config', 'visualization_status.yaml'
+    ])
+    visualization_status_node = Node(
+        package='rc26_visualization',
+        executable='rc26_visualization_status_node',
+        name='rc26_visualization_status_node',
+        namespace=namespace,
+        output='screen',
+        parameters=[
+            visualization_status_config,
+            {
+                'use_sim_time': use_sim_time,
+                'summary.localization_present': True,
+                'summary.controller_present': PythonExpression(["not ('", slam, "'.lower() == 'true')"]),
+                'summary.keepout_present': PythonExpression(["not ('", slam, "'.lower() == 'true')"]),
+                'summary.terrain_present': terrain_grid_map_runtime,
+                'summary.nav_safety_present': PythonExpression(["not ('", slam, "'.lower() == 'true')"]),
+                'summary.mechanism_present': True,
+            },
+        ],
+        condition=IfCondition(visualization_status_enable)
+    )
+
+    pure_mapping_notice = LogInfo(
+        msg='[bringup] pure_mapping_mode 已启用：建图时仅保留 Point-LIO/odom_interface/localization 等最小运动链路，跳过 lio_state_predictor、rc26_terrain 和 rc26_decision，但继续发布 visualization_status 供前端显示。',
+        condition=IfCondition(PythonExpression([
+            "'", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true' and '",
+            enable_terrain_grid_map, "'.lower() != 'true'"
+        ]))
+    )
+
+    pure_mapping_terrain_grid_notice = LogInfo(
+        msg='[bringup] pure_mapping_mode 已启用，同时 enable_terrain_grid_map=true：额外启动 rc26_terrain 与 terrain_grid_map_bridge，用于发布 /terrain_grid_map 2.5D 栅格地图。',
+        condition=IfCondition(PythonExpression([
+            "'", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true' and '",
+            enable_terrain_grid_map, "'.lower() == 'true'"
+        ]))
+    )
+
+    foxglove_bridge_node = Node(
+        package='foxglove_bridge',
+        executable='foxglove_bridge',
+        name='foxglove_bridge',
+        namespace=namespace,
+        output='screen',
+        parameters=[{
+            'port': foxglove_port,
+            'address': '0.0.0.0',
+            'use_sim_time': use_sim_time,
+        }]
+    )
+
+    foxglove_group = GroupAction(
+        actions=[foxglove_bridge_node],
+        condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'foxglove'"]))
     )
 
     # RViz：导航模式使用 nav2_default.rviz，建图模式使用 slam.rviz
     rviz_nav_config = PathJoinSubstitution([bringup_dir, 'rviz', 'nav2_default.rviz'])
     rviz_slam_config = PathJoinSubstitution([bringup_dir, 'rviz', 'slam.rviz'])
-
     rviz_nav_node = Node(
         package='rviz2',
         executable='rviz2',
         name='rviz2',
+        namespace=namespace,
         arguments=['-d', rviz_nav_config],
         parameters=[{'use_sim_time': use_sim_time}],
         condition=UnlessCondition(slam)
@@ -339,14 +534,30 @@ def generate_launch_description():
         package='rviz2',
         executable='rviz2',
         name='rviz2',
+        namespace=namespace,
         arguments=['-d', rviz_slam_config],
         parameters=[{'use_sim_time': use_sim_time}],
         condition=IfCondition(slam)
     )
 
     rviz_group = GroupAction(
-        actions=[rviz_nav_node, rviz_slam_node],
-        condition=IfCondition(use_rviz),
+        actions=[
+            GroupAction(
+                actions=[rviz_nav_node, rviz_slam_node],
+                condition=IfCondition(use_rviz)
+            )
+        ],
+        condition=IfCondition(PythonExpression([
+            "'", visualization_backend, "' == 'rviz' and '", display_available, "' == 'true'"
+        ]))
+    )
+
+    rviz_headless_notice = LogInfo(
+        msg='[bringup] 未检测到 DISPLAY/WAYLAND_DISPLAY，跳过 RViz；可改用 visualization_backend:=foxglove 或 none。',
+        condition=IfCondition(PythonExpression([
+            "'", visualization_backend, "' == 'rviz' and '", use_rviz, "' == 'true' and '",
+            display_available, "' != 'true'"
+        ]))
     )
 
     return LaunchDescription([
@@ -354,11 +565,21 @@ def generate_launch_description():
         declare_namespace,
         declare_use_sim_time,
         declare_slam,
+        declare_pure_mapping_mode,
         declare_map,
         declare_prior_pcd_file,
         declare_point_lio_config_file,
+        declare_point_lio_profile,
         declare_params_file,
+        declare_terrain_params_file,
+        declare_terrain_grid_map_params_file,
+        declare_terrain_filter_chain_params_file,
+        declare_enable_terrain_grid_map,
         declare_use_rviz,
+        declare_visualization_backend,
+        declare_visualization_status_enable,
+        declare_foxglove_port,
+        declare_recover_mid360_stream,
         declare_use_decision,
         declare_use_realsense,
         declare_realsense_serial_no,
@@ -366,7 +587,9 @@ def generate_launch_description():
         declare_kfs_heartbeat_topic,
 
         # 启动模块
-        odometry_launch,
+        pure_mapping_notice,
+        pure_mapping_terrain_grid_notice,
+        odometry_group,
         localization_launch,
         base_ground_node,
         terrain_launch,
@@ -375,10 +598,15 @@ def generate_launch_description():
         costmap_filter_info_server,
         map_server_lifecycle_manager,
         kfs_block_fuser_node,
+        terrain_grid_map_bridge_node,
+        terrain_speed_limit_bridge_node,
         nav_mode_manager_node,
         terrain_mode_adapter_node,
         nav2_launch,
         decision_node,
+        visualization_status_node,
         realsense_group,
+        rviz_headless_notice,
+        foxglove_group,
         rviz_group,
     ])

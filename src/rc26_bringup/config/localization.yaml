@@ -9,6 +9,8 @@
 # TF 树结构:
 #   map -> odom -> base_link -> laser_link
 #   其中 map->odom 由本节点发布
+# Layer B 定位层职责:
+#   消费 Layer A(odom_interface) 的 odom 与 registered_scan，并作为 map->odom 唯一权威发布者
 
 localization:
   ros__parameters:
@@ -79,6 +81,87 @@ localization:
     tf_timeout_sec: 1.0
     pose_cov_topic: "/localization/pose_with_cov"
     diagnostics_topic: "/localization/diagnostics"
+    health_topic: "/localization/health"
+    backend_status_topic: "/localization/backend_status"
+    route_observability_topic: "/localization/route_observability"
+    control_degraded_topic: "/control_degraded"
+    plan_topic: "local_plan"
+    enable_graph_backend: false
+    legacy_hard_reloc_enable: false
+
+    # ========== P1: 在线图后端参数 ==========
+    # 关键帧触发阈值（平移/偏航/时间）
+    graph_keyframe_translation_thresh_m: 0.4
+    graph_keyframe_yaw_thresh_deg: 6.0
+    graph_keyframe_time_thresh_sec: 1.0
+    # 关键帧额外触发条件（退化上升沿）
+    graph_keyframe_trigger_on_degraded_rising: true
+    graph_keyframe_trigger_on_hessian_drop: true
+    graph_keyframe_trigger_on_sigma_cross: true
+    # 在线回环召回
+    graph_loop_topk: 5
+    graph_loop_min_keyframe_gap: 5
+    graph_loop_similarity_min: 0.2
+    # 图因子噪声（单位：m / deg）
+    graph_odom_sigma_translation_m: 0.05
+    graph_odom_sigma_yaw_deg: 2.0
+    graph_loop_sigma_translation_m: 0.08
+    graph_loop_sigma_yaw_deg: 3.0
+    graph_anchor_sigma_translation_m: 0.12
+    graph_anchor_sigma_yaw_deg: 5.0
+    # map->odom 平滑输出（限斜率）
+    graph_smoother_max_translation_speed_mps: 0.25
+    graph_smoother_max_yaw_speed_degps: 10.0
+    # 诊断: 判定一次“跳变被平滑抑制”的阈值
+    graph_jump_detect_translation_m: 0.3
+    graph_jump_detect_yaw_deg: 10.0
+    # 约束几何验证器（small_gicp）
+    graph_validator_accept_fitness_threshold: 0.1
+    graph_validator_conflict_fitness_threshold: 0.25
+    graph_validator_max_corr_dist_m: 1.0
+    graph_validator_max_iterations: 50
+
+    # ========== P0: Localization Health Index ==========
+    lhi_green_sigma_xy_max: 0.12
+    lhi_green_sigma_yaw_deg_max: 4.0
+    lhi_green_h_min_eig_min: 50.0
+    lhi_yellow_sigma_xy_min: 0.12
+    lhi_yellow_sigma_yaw_deg_min: 4.0
+    lhi_yellow_h_min_eig_max: 50.0
+    lhi_orange_sigma_xy_min: 0.25
+    lhi_orange_sigma_yaw_deg_min: 8.0
+    lhi_orange_h_min_eig_max: 20.0
+    lhi_red_sigma_xy_min: 1.0
+    lhi_red_last_local_reg_age_sec: 2.0
+    lhi_red_conflict_count_threshold: 3
+
+    # ========== P0: backend status 占位参数 ==========
+    backend_status_optimizer_state: "legacy_localization_only"
+    backend_status_graph_health_placeholder: 0.0
+    backend_status_loop_age_placeholder_sec: -1.0
+    backend_status_anchor_age_placeholder_sec: -1.0
+
+    # ========== P2: RouteObservability ==========
+    route_window_min_m: 2.0
+    route_window_max_m: 5.0
+    route_sample_step_m: 0.5
+    route_map_near_dist_m: 0.7
+    route_risk_medium_threshold: 0.45
+    route_risk_high_threshold: 0.70
+    route_anchor_effective_dist_m: 2.0
+    route_loop_recent_age_sec: 8.0
+
+    # ========== P4: 外部候选增强（仅候选，无 TF 写权限） ==========
+    p4_candidate_enable: false
+    p4_dynamic_candidates_topic: "/localization/p4/dynamic_candidates"
+    p4_visual_candidates_topic: "/localization/p4/visual_candidates"
+    p4_learned_candidates_topic: "/localization/p4/learned_candidates"
+    p4_candidate_patch_radius_m: 8.0
+    p4_candidate_max_stale_sec: 2.0
+    p4_candidate_max_queue_size: 64
+    p4_candidate_max_per_cycle: 2
+    p4_candidate_sigma_translation_m: 0.12
+    p4_candidate_sigma_yaw_deg: 5.0
     
     # 初始位姿 [x, y, z, roll, pitch, yaw]
     # 若不在 RViz 中手动设置 initialpose，可在此给出一个初始猜测
@@ -95,6 +178,26 @@ localization:
     freeze_update_err: 0.3
     # 允许更新TF的最小内点数，低于此值时冻结TF更新（按降采样后点数调整）
     min_inliers: 200
+    # 从 SUSPECT/RELOC_FAILED 恢复到 TRACKING 的最小 acceptable 连续帧数
+    acceptable_match_streak_to_recover: 2
+    # 进入 LOCKED 所需的 good 连续帧数
+    good_match_streak_to_lock: 5
+    # 进入 SUSPECT 所需的 unacceptable 连续帧数
+    bad_match_streak_to_suspect: 3
+    # LOCKED 退回 TRACKING 所需的低置信连续帧数
+    low_confidence_streak_to_unlock: 2
+    # 启动后允许进入 LOCKED 的最小时间（秒）
+    locked_min_startup_sec: 2.0
+    # 判定 good_match 的更严格误差阈值（最终与 freeze_update_err 取更小值）
+    lock_good_normalized_error_max: 0.20
+    # 判定 good_match 的更严格最小内点数
+    lock_good_min_inliers: 300
+    # LOCKED 下拒绝大跳变的平移阈值（米）
+    lock_jump_reject_translation_m: 0.30
+    # LOCKED 下拒绝大跳变的航向阈值（度）
+    lock_jump_reject_yaw_deg: 8.0
+    # last_locked_map_to_odom 快照最大有效时长（秒）
+    locked_pose_max_stale_sec: 1.5
     
     # ========== 全局重定位参数 ==========
     # 全局 ICP 最大迭代次数，影响重定位精细对齐质量和耗时
@@ -116,7 +219,7 @@ localization:
 
     # ========== I2: 重试区先验初值注入 ==========
     # 比赛模式防呆开关（开启后要求 retry_zone_enable=true 且 x/y 不为默认占位值）
-    competition_mode: true
+    competition_mode: false
     # 是否启用重试区快速通道（绑架后优先用重试区坐标+ICP，跳过全局搜索）
     retry_zone_enable: true
     # 重试区中心点 map 坐标 x（建图后标定）
@@ -141,10 +244,10 @@ localization:
     acrylic_filter_max_stale_sec: 1.0
     # AABB 盒体列表（map 坐标系），每 6 个数为一组 [xmin,ymin,zmin,xmax,ymax,zmax]
     # 示例: [x1min, y1min, z1min, x1max, y1max, z1max, x2min, y2min, ...]
-    acrylic_roi_boxes: []
+    # acrylic_roi_boxes 关闭时保持未配置；开启后再填 [xmin,ymin,zmin,xmax,ymax,zmax, ...]
 
     # ========== L2: Scan Context ==========
-    # BEVPlace++（当前版本保留参数，运行时自动回退 SC）
+    # BEVPlace++（实验能力，默认关闭；当前版本保留参数并自动回退到 SC 主链）
     bevplace_enable: false
     bevplace_model_path: ""
     bevplace_index_path: ""
@@ -198,7 +301,7 @@ localization:
     s3_enable: true
     s3_min_score_gap: 0.03
 
-    # ========== Phase 4: ESIKF ==========
+    # ========== Phase 4: ESIKF（实验能力，默认关闭） ==========
     esikf_enable: false
     esikf_accel_noise: 0.1
     esikf_gyro_noise: 0.01

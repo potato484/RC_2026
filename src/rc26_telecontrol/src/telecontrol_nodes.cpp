@@ -383,7 +383,7 @@ geometry_msgs::msg::Twist StickTelecontrolNode::compute_target_twist(
     apply_deadzone_hysteresis(axis_value(joy_msg, k_left_stick_x_axis), k_left_stick_x_axis) *
     linear_speed_limit();
   target_twist.angular.z =
-    apply_deadzone_hysteresis(axis_value(joy_msg, k_right_stick_yaw_axis), k_right_stick_yaw_axis) *
+    -apply_deadzone_hysteresis(axis_value(joy_msg, k_right_stick_yaw_axis), k_right_stick_yaw_axis) *
     angular_speed_limit();
   return target_twist;
 }
@@ -436,9 +436,9 @@ geometry_msgs::msg::Twist DpadTelecontrolNode::compute_target_twist(
   const bool x_pressed = button_pressed(joy_msg, k_x_button);
   const bool b_pressed = button_pressed(joy_msg, k_b_button);
   if (x_pressed && !b_pressed) {
-    target_twist.angular.z = angular_speed_limit();
-  } else if (b_pressed && !x_pressed) {
     target_twist.angular.z = -angular_speed_limit();
+  } else if (b_pressed && !x_pressed) {
+    target_twist.angular.z = angular_speed_limit();
   }
 
   return target_twist;

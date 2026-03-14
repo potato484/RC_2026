@@ -15,12 +15,15 @@
 
 #pragma once
 
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
 
 #include "nav_msgs/msg/odometry.hpp"
+#include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "visualization_msgs/msg/marker_array.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "tf2/LinearMath/Transform.h"
 #include "tf2_ros/buffer.h"
@@ -31,6 +34,7 @@ namespace rc26_odom_interface {
 
 // OdomInterfaceNode 节点
 // 作用：将 Point-LIO 输出的里程计 / 点云，转换成导航栈统一使用的坐标系与话题
+// Layer A 职责：生产链中权威发布 odom -> base_link，向 Layer B 持续供给 odom 与 registered_scan。
 //  - 输入:
 //      * state_estimation_topic_ : lidar_odom 坐标系下的里程计 (Point-LIO 输出)
 //      * registered_scan_topic_  : lidar_odom 坐标系下的点云
@@ -40,21 +44,40 @@ namespace rc26_odom_interface {
 //  - 坐标链路约定:
 //      * 全局约定为 map -> odom -> base_link -> laser_link
 //  - 时间同步约束:
-//      * 使用 max_time_diff_sec_ 限制点云与里程计的时间差，防止严重对不齐
+//      * 使用 max_time_diff_sec_ 限制点云与里程计的严重失配
+//      * 对毫秒级回调抖动做小容差吸收，避免边界值误丢云
 class OdomInterfaceNode : public rclcpp::Node {
 public:
     explicit OdomInterfaceNode(const rclcpp::NodeOptions& options);
 
 private:
+    struct OdomHistoryLookupResult {
+        bool has_history{false};
+        bool has_match{false};
+        rclcpp::Time closest_stamp;
+        double closest_signed_diff_sec{0.0};
+        bool cloud_ahead_of_latest{false};
+    };
+
     void pointCloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg);
 
     void odometryCallback(const nav_msgs::msg::Odometry::ConstSharedPtr msg);
+
+    void publishRegisteredCloud(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& msg,
+                                const rclcpp::Time& output_stamp,
+                                const tf2::Transform& tf_input_odom_to_output_odom);
+
+    void storeOdometryStampLocked(const rclcpp::Time& odom_stamp);
+
+    OdomHistoryLookupResult lookupOdometryStampLocked(const rclcpp::Time& stamp, double max_abs_diff_sec) const;
 
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pcd_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
 
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pcd_pub_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
+    rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr odom_path_pub_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr odom_pose_markers_pub_;
 
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
@@ -73,9 +96,26 @@ private:
     rclcpp::Time last_tf_lookup_;
     bool odom_pose_ready_{false};
     bool use_input_twist_{true};
+    bool zero_origin_to_first_frame_{true};
+    bool odom_origin_initialized_{false};
+    int zero_origin_warmup_frames_{10};
+    int zero_origin_accumulated_frames_{0};
+    double zero_origin_max_linear_speed_mps_{0.05};
+    double zero_origin_max_angular_speed_radps_{0.10};
+    bool debug_pose_log_{false};
+    double debug_pose_log_interval_sec_{1.0};
     double tf_timeout_sec_{0.5};           // TF 查询超时时间 (秒)
     double max_time_diff_sec_{0.2};        // 点云与里程计之间允许的最大时间差 (秒)
     double tf_refresh_interval_sec_{1.0};  // TF 断连时的重新拉取周期 (秒)
+    bool clamp_cloud_stamp_to_latest_odom_{true};  // 防止输出点云时间戳超前于已发布 odom
+    bool defer_cloud_until_matching_odom_{true};  // 点云超前时先缓存，等待对应 odom 到达后再发布
+    bool publish_debug_path_{true};
+    bool publish_pose_markers_{true};
+    tf2::Transform tf_input_odom_to_output_odom_;  // 首帧平移归零: 将 Point-LIO odom 平移到 base_link 首帧原点
+    tf2::Vector3 zero_origin_translation_sum_{0.0, 0.0, 0.0};
+    nav_msgs::msg::Path odom_path_msg_;
+    std::deque<rclcpp::Time> odometry_stamp_history_;
+    std::deque<sensor_msgs::msg::PointCloud2::ConstSharedPtr> pending_clouds_;
 
     // [C2 修复] 速度估计所需的状态变量
     struct OdomState {

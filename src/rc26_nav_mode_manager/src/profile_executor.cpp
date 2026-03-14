@@ -16,8 +16,8 @@ const std::vector<std::string>& controllerParamNames() {
         "FollowPath.v_linear_max",
         "FollowPath.v_angular_max",
         "FollowPath.v_linear_min",
-        "FollowPath.acc_linear",
-        "FollowPath.acc_angular",
+        "FollowPath.a_linear_max",
+        "FollowPath.a_angular_max",
     };
     return names;
 }
@@ -271,15 +271,15 @@ bool ProfileExecutor::stepParams(const NavProfile& profile, std::string& error) 
     }();
 
     if (need_phase1) {
-        double cur_acc = controller_param_snapshot_.count("FollowPath.acc_linear")
-                         ? controller_param_snapshot_["FollowPath.acc_linear"] : *ctrl.acc_linear;
+        double cur_acc = controller_param_snapshot_.count("FollowPath.a_linear_max")
+                         ? controller_param_snapshot_["FollowPath.a_linear_max"] : *ctrl.acc_linear;
         std::vector<rclcpp::Parameter> phase1;
         phase1.reserve(2);
-        phase1.emplace_back("FollowPath.acc_linear",
+        phase1.emplace_back("FollowPath.a_linear_max",
                             std::min(cur_acc, *ctrl.acc_linear * 0.5));
-        if (ctrl.acc_angular && controller_param_snapshot_.count("FollowPath.acc_angular")) {
-            double cur_ang = controller_param_snapshot_["FollowPath.acc_angular"];
-            phase1.emplace_back("FollowPath.acc_angular",
+        if (ctrl.acc_angular && controller_param_snapshot_.count("FollowPath.a_angular_max")) {
+            double cur_ang = controller_param_snapshot_["FollowPath.a_angular_max"];
+            phase1.emplace_back("FollowPath.a_angular_max",
                                 std::min(cur_ang, *ctrl.acc_angular * 0.5));
         }
         auto f1 = controller_param_client_->set_parameters(phase1);
@@ -313,8 +313,8 @@ bool ProfileExecutor::stepParams(const NavProfile& profile, std::string& error) 
     if (ctrl.v_linear_max) params.emplace_back("FollowPath.v_linear_max", *ctrl.v_linear_max);
     if (ctrl.v_angular_max) params.emplace_back("FollowPath.v_angular_max", *ctrl.v_angular_max);
     if (ctrl.v_linear_min) params.emplace_back("FollowPath.v_linear_min", *ctrl.v_linear_min);
-    if (ctrl.acc_linear)   params.emplace_back("FollowPath.acc_linear",   *ctrl.acc_linear);
-    if (ctrl.acc_angular)  params.emplace_back("FollowPath.acc_angular",  *ctrl.acc_angular);
+    if (ctrl.acc_linear)   params.emplace_back("FollowPath.a_linear_max",   *ctrl.acc_linear);
+    if (ctrl.acc_angular)  params.emplace_back("FollowPath.a_angular_max",  *ctrl.acc_angular);
 
     auto future = controller_param_client_->set_parameters(params);
     if (future.wait_for(std::chrono::duration<double>(param_timeout_sec_)) != std::future_status::ready) {

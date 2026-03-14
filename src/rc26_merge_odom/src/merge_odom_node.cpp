@@ -61,6 +61,8 @@ public:
         this->declare_parameter("latency_comp_s", 0.03);
         this->declare_parameter("terrain_speed_limit_topic", "");
         this->declare_parameter("terrain_speed_limit_timeout_ms", 500);
+        this->declare_parameter("stats_log_enable", false);
+        this->declare_parameter("imu_gate_log_enable", false);
 
         // 自适应协方差参数 (WheelOdom)
         this->declare_parameter("slip_enable", true);
@@ -199,6 +201,8 @@ public:
                 this->get_parameter("terrain_speed_limit_topic").as_string();
             pose_config.terrain_speed_limit_timeout_ms =
                 this->get_parameter("terrain_speed_limit_timeout_ms").as_int();
+            pose_config.stats_log_enable = this->get_parameter("stats_log_enable").as_bool();
+            pose_config.imu_gate_log_enable = this->get_parameter("imu_gate_log_enable").as_bool();
 
             pose_sender_ =
                 std::make_unique<rc26_merge_odom::PoseSender>(*this, feedback_serial_, target_serial_, pose_config);

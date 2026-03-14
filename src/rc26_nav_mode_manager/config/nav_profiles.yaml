@@ -110,3 +110,48 @@ profiles:
     controller:
       v_linear_max: 0.6
       v_angular_max: 0.5
+
+  loc_yellow:
+    fallback_profile: safe
+    watchdog:
+      timeout_sec: 8.0
+      stop_required_on_timeout: false
+    precheck:
+      require_stopped: false
+    costmap:
+      clear_on_switch: false
+    controller:
+      v_linear_max: 0.45
+      v_angular_max: 0.7
+      acc_linear: 0.4
+      acc_angular: 0.6
+
+  loc_orange:
+    fallback_profile: safe_low
+    watchdog:
+      timeout_sec: 10.0
+      stop_required_on_timeout: false
+    precheck:
+      require_stopped: false
+    costmap:
+      clear_on_switch: false
+    controller:
+      v_linear_max: 0.25
+      v_angular_max: 0.45
+      acc_linear: 0.25
+      acc_angular: 0.4
+
+  loc_red_hold:
+    fallback_profile: safe_low
+    watchdog:
+      timeout_sec: 0
+      stop_required_on_timeout: true
+    precheck:
+      require_stopped: true
+    costmap:
+      clear_on_switch: false
+    controller:
+      v_linear_max: 0.0
+      v_angular_max: 0.0
+      acc_linear: 0.2
+      acc_angular: 0.2

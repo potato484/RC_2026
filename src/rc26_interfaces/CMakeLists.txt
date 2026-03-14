@@ -26,7 +26,13 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MfKfsCell.msg"
   "msg/MfKfsState.msg"
   "msg/TerrainFeatureGrid.msg"
+  "msg/LocalizationHealth.msg"
+  "msg/LocalizationBackendStatus.msg"
+  "msg/OperatorStatus.msg"
+  "msg/RouteObservability.msg"
   "srv/SetNavMode.srv"
+  "msg/VisualizationEvent.msg"
+  "msg/VisualizationEventArray.msg"
   DEPENDENCIES action_msgs builtin_interfaces geometry_msgs std_msgs
 )
 

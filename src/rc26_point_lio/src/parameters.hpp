@@ -9,7 +9,6 @@
 #include <mutex>
 #include <thread>
 
-#include <Python.h>
 #include <geometry_msgs/msg/vector3.hpp>
 #include <ivox/ivox3d.hpp>
 #include <math.h>
@@ -58,6 +57,8 @@ struct LioRuntimeState {
     bool extrinsic_est_en = true;
     bool publish_odometry_without_downsample = false;
     int init_map_size = 10;
+    int configured_point_filter_num = 1;
+    double point_keep_ratio = -1.0;
     int con_frame_num = 1;
     double match_s = 81.0;
     double satu_acc = 0.0;
@@ -95,6 +96,11 @@ struct LioRuntimeState {
     bool scan_pub_en = false;
     bool scan_body_pub_en = false;
     bool tf_send_en = false;
+    bool map_full_pub_en = false;
+    double map_full_publish_interval_sec = 1.0;
+    bool output_world_z_filter_en = false;
+    double output_world_z_min = -10.0;
+    double output_world_z_max = 10.0;
     shared_ptr<Preprocess> p_pre;
     shared_ptr<ImuProcess> p_imu;
     std::vector<double> extrinT = std::vector<double>(3, 0.0);
@@ -112,6 +118,7 @@ struct LioRuntimeState {
     bool enable_prior_pcd = false;
     string prior_pcd_map_path;
     std::vector<double> init_pose;
+    int prior_pcd_skip_frames = 200;
     std::string odom_frame = "odom";
     std::string body_frame = "body";
     MeasureGroup Measures;
@@ -145,6 +152,8 @@ DECLARE_LIO_STATE_REF(space_down_sample);
 DECLARE_LIO_STATE_REF(extrinsic_est_en);
 DECLARE_LIO_STATE_REF(publish_odometry_without_downsample);
 DECLARE_LIO_STATE_REF(init_map_size);
+DECLARE_LIO_STATE_REF(configured_point_filter_num);
+DECLARE_LIO_STATE_REF(point_keep_ratio);
 DECLARE_LIO_STATE_REF(con_frame_num);
 DECLARE_LIO_STATE_REF(match_s);
 DECLARE_LIO_STATE_REF(satu_acc);
@@ -182,6 +191,11 @@ DECLARE_LIO_STATE_REF(path_en);
 DECLARE_LIO_STATE_REF(scan_pub_en);
 DECLARE_LIO_STATE_REF(scan_body_pub_en);
 DECLARE_LIO_STATE_REF(tf_send_en);
+DECLARE_LIO_STATE_REF(map_full_pub_en);
+DECLARE_LIO_STATE_REF(map_full_publish_interval_sec);
+DECLARE_LIO_STATE_REF(output_world_z_filter_en);
+DECLARE_LIO_STATE_REF(output_world_z_min);
+DECLARE_LIO_STATE_REF(output_world_z_max);
 DECLARE_LIO_STATE_REF(p_pre);
 DECLARE_LIO_STATE_REF(p_imu);
 DECLARE_LIO_STATE_REF(extrinT);
@@ -199,6 +213,7 @@ DECLARE_LIO_STATE_REF(t_last);
 DECLARE_LIO_STATE_REF(enable_prior_pcd);
 DECLARE_LIO_STATE_REF(prior_pcd_map_path);
 DECLARE_LIO_STATE_REF(init_pose);
+DECLARE_LIO_STATE_REF(prior_pcd_skip_frames);
 DECLARE_LIO_STATE_REF(odom_frame);
 DECLARE_LIO_STATE_REF(body_frame);
 DECLARE_LIO_STATE_REF(Measures);
@@ -207,6 +222,7 @@ DECLARE_LIO_STATE_REF(fout_imu_pbp);
 
 #undef DECLARE_LIO_STATE_REF
 void readParameters(std::shared_ptr<rclcpp::Node>& n);
+void applyEffectivePointFilterNum();
 void open_file();
 Eigen::Matrix<double, 3, 1> SO3ToEuler(const SO3& orient);
 void reset_cov(Eigen::Matrix<double, 24, 24>& P_init);

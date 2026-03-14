@@ -4,7 +4,9 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
 
+#include "ament_index_cpp/get_package_share_directory.hpp"
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
@@ -135,14 +137,22 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     }
 
     if (grid_layout_file_.empty()) {
-        keepout_disable_reason_ = "grid_layout_file is empty";
-        keepout_enabled_ = false;
-    } else {
+        try {
+            const auto share_dir = ament_index_cpp::get_package_share_directory("rc26_kfs_keepout");
+            grid_layout_file_ = share_dir + "/config/r2_mf_world.yaml";
+        } catch (const std::exception& ex) {
+            keepout_disable_reason_ = std::string("cannot resolve default grid layout: ") + ex.what();
+        }
+    }
+    if (!grid_layout_file_.empty()) {
         layout_loaded_ = loadGridLayout(grid_layout_file_);
         keepout_enabled_ = layout_loaded_;
         if (!keepout_enabled_ && keepout_disable_reason_.empty()) {
             keepout_disable_reason_ = "invalid grid layout";
         }
+    } else {
+        keepout_disable_reason_ = "grid_layout_file is empty";
+        keepout_enabled_ = false;
     }
 
     if (!keepout_enabled_) {
@@ -183,19 +193,34 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
 
 bool KfsBlockFuser::loadGridLayout(const std::string& path) {
     try {
-        YAML::Node root = YAML::LoadFile(path);
+        std::filesystem::path resolved(path);
+        if (resolved.is_relative()) {
+            resolved = std::filesystem::current_path() / resolved;
+        }
+        YAML::Node root = YAML::LoadFile(resolved.string());
+        if (root["world_layout_file"]) {
+            std::filesystem::path nested = root["world_layout_file"].as<std::string>();
+            if (nested.empty()) {
+                keepout_disable_reason_ = "world_layout_file is empty";
+                return false;
+            }
+            if (nested.is_relative()) {
+                nested = resolved.parent_path() / nested;
+            }
+            return loadGridLayout(nested.string());
+        }
         if (!root["meta"]) {
             keepout_disable_reason_ = "missing 'meta' key";
             return false;
         }
         const auto meta = root["meta"];
-        if (!meta["team"] || !meta["layout_version"] || !meta["validated"] || !meta["grid_spacing_m"]) {
-            keepout_disable_reason_ = "meta requires team/layout_version/validated/grid_spacing_m";
+        if (!meta["team"] || !meta["grid_spacing_m"]) {
+            keepout_disable_reason_ = "meta requires team/grid_spacing_m";
             return false;
         }
         layout_team_ = meta["team"].as<std::string>();
-        layout_version_ = meta["layout_version"].as<std::string>();
-        layout_validated_ = meta["validated"].as<bool>();
+        layout_version_ = meta["layout_version"] ? meta["layout_version"].as<std::string>() : "unknown";
+        layout_validated_ = meta["validated"] ? meta["validated"].as<bool>() : true;
         layout_grid_spacing_m_ = meta["grid_spacing_m"].as<double>();
         if (layout_team_.empty()) {
             keepout_disable_reason_ = "layout team is empty";
@@ -210,12 +235,14 @@ bool KfsBlockFuser::loadGridLayout(const std::string& path) {
             return false;
         }
 
-        if (!root["grids"]) {
-            keepout_disable_reason_ = "missing 'grids' key";
+        const bool use_blocks = root["blocks"] && root["blocks"].IsSequence();
+        const YAML::Node cells_node = use_blocks ? root["blocks"] : root["grids"];
+        if (!cells_node) {
+            keepout_disable_reason_ = "missing blocks/grids key";
             return false;
         }
         std::array<bool, kGridCount> seen{};
-        for (const auto& g : root["grids"]) {
+        for (const auto& g : cells_node) {
             int id = g["id"].as<int>();
             if (id < 1 || id > 12) {
                 keepout_disable_reason_ = "grid id out of range";

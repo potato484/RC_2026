@@ -26,6 +26,8 @@
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>joint_state_publisher</exec_depend>
   <exec_depend>rviz2</exec_depend>
+  <exec_depend>grid_map_rviz_plugin</exec_depend>
+  <exec_depend>foxglove_bridge</exec_depend>
   
   <!-- 里程计模块 -->
   <exec_depend>rc26_mid360_driver</exec_depend>
@@ -36,10 +38,12 @@
   
   <!-- 自定义包 -->
   <exec_depend>rc26_localization</exec_depend>
+  <exec_depend>rc26_terrain_nav2</exec_depend>
   <exec_depend>rc26_omni_controller</exec_depend>
+  <exec_depend>rc26_nmpc_controller</exec_depend>
   <exec_depend>rc26_decision</exec_depend>
   <exec_depend>rc26_kfs_keepout</exec_depend>
-  <exec_depend></exec_depend>
+  <exec_depend>rc26_visualization</exec_depend>
   <exec_depend>realsense2_camera</exec_depend>
 
   <export>

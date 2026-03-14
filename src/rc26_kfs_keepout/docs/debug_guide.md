@@ -7,9 +7,9 @@
 在进行测试之前，确保模块已经正确编译：
 
 ```bash
-cd /home/potato/RC_2026
-colcon build --parallel-workers 1 --packages-select rc26_kfs_keepout rc26_decision
-source install/setup.bash
+cd "${RC26_WS:-$HOME/RC_2026}"
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_kfs_keepout rc26_decision --cmake-args -DCMAKE_BUILD_TYPE=Release
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
 ## 2. 基础启动测试

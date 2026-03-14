@@ -24,19 +24,34 @@ def parse_bool(value: str) -> bool:
 
 
 class MockOdomScanNode(Node):
-    def __init__(self, rate_hz: float, obstacle_enable: bool, ground_enable: bool) -> None:
+    def __init__(
+        self,
+        rate_hz: float,
+        obstacle_enable: bool,
+        ground_enable: bool,
+        ground_tilt_x: float,
+        ground_tilt_y: float,
+        ground_step: float,
+    ) -> None:
         super().__init__("mock_odom_scan")
 
         self._rate_hz = rate_hz if rate_hz > 0.0 else 10.0
         self._obstacle_enable = obstacle_enable
         self._ground_enable = ground_enable
+        self._ground_tilt_x = ground_tilt_x
+        self._ground_tilt_y = ground_tilt_y
+        self._ground_step = max(0.01, ground_step)
 
         self._odom_pub = self.create_publisher(Odometry, "/odom", 20)
         self._scan_pub = self.create_publisher(PointCloud2, "/registered_scan", 20)
         self._tf_broadcaster = TransformBroadcaster(self)
 
         self._start_sec = self.get_clock().now().nanoseconds * 1e-9
-        self._ground_points = self._make_ground_points()
+        self._ground_points = self._make_ground_points(
+            ground_tilt_x,
+            ground_tilt_y,
+            self._ground_step,
+        )
         self._obstacle_points = self._make_obstacle_points()
 
         self.create_timer(1.0 / self._rate_hz, self._on_timer)
@@ -44,7 +59,10 @@ class MockOdomScanNode(Node):
             "mock_odom_scan started: "
             f"rate_hz={self._rate_hz:.2f} "
             f"obstacle_enable={self._obstacle_enable} "
-            f"ground_enable={self._ground_enable}"
+            f"ground_enable={self._ground_enable} "
+            f"ground_tilt_x={self._ground_tilt_x:.3f} "
+            f"ground_tilt_y={self._ground_tilt_y:.3f} "
+            f"ground_step={self._ground_step:.3f}"
         )
 
     @staticmethod
@@ -55,10 +73,14 @@ class MockOdomScanNode(Node):
             value += step
 
     @staticmethod
-    def _make_ground_points() -> List[Tuple[float, float, float]]:
+    def _make_ground_points(
+        tilt_x: float,
+        tilt_y: float,
+        ground_step: float,
+    ) -> List[Tuple[float, float, float]]:
         points: List[Tuple[float, float, float]] = []
         radius = 1.5
-        step = 0.06
+        step = max(0.01, ground_step)
         max_index = int(math.ceil(radius / step))
         for ix in range(-max_index, max_index + 1):
             x = ix * step
@@ -66,7 +88,8 @@ class MockOdomScanNode(Node):
                 y = iy * step
                 if x * x + y * y <= radius * radius:
                     # livox 在 base_link 上方 0.13m，地面在雷达坐标系近似 z=-0.13
-                    points.append((x, y, -0.13))
+                    z = -0.13 + tilt_x * x + tilt_y * y
+                    points.append((x, y, z))
         return points
 
     @staticmethod
@@ -146,10 +169,35 @@ def main() -> None:
         default=True,
         help="whether to publish ground points (true/false)",
     )
+    parser.add_argument(
+        "--ground_tilt_x",
+        type=float,
+        default=0.0,
+        help="ground plane tilt coefficient along x in livox frame",
+    )
+    parser.add_argument(
+        "--ground_tilt_y",
+        type=float,
+        default=0.0,
+        help="ground plane tilt coefficient along y in livox frame",
+    )
+    parser.add_argument(
+        "--ground_step",
+        type=float,
+        default=0.06,
+        help="ground point spacing in meters",
+    )
     args, ros_args = parser.parse_known_args()
 
     rclpy.init(args=ros_args)
-    node = MockOdomScanNode(args.rate_hz, args.obstacle_enable, args.ground_enable)
+    node = MockOdomScanNode(
+        args.rate_hz,
+        args.obstacle_enable,
+        args.ground_enable,
+        args.ground_tilt_x,
+        args.ground_tilt_y,
+        args.ground_step,
+    )
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

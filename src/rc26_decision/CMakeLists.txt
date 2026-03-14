@@ -21,7 +21,11 @@ find_package(nav_msgs REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(grid_map_core REQUIRED)
+find_package(grid_map_ros REQUIRED)
+find_package(grid_map_msgs REQUIRED)
 find_package(rc26_serial REQUIRED)
 find_package(rc26_interfaces REQUIRED)
 find_package(rc26_vision REQUIRED)
@@ -38,14 +42,20 @@ include_directories(include)
 add_library(${PROJECT_NAME}_nodes SHARED
   src/mc/mc_area.cpp
   src/mf/mf_area.cpp
+  src/mf/merlin_rule_world_model.cpp
+  src/combat/battle_grid_state.cpp
   src/combat/combat_area.cpp
   src/navigation/waypoint_manager.cpp
   src/navigation/smart_waypoint_navigator.cpp
   src/navigation/bt_nav_to_smart_point.cpp
+  src/navigation/bt_check_localization_health.cpp
+  src/navigation/bt_localization_observe_spin.cpp
+  src/navigation/bt_localization_anchor_recover.cpp
   src/vision/bt_nodes.cpp
 )
 
 ament_target_dependencies(${PROJECT_NAME}_nodes
+  ament_index_cpp
   rclcpp
   rclcpp_action
   behaviortree_cpp
@@ -54,7 +64,11 @@ ament_target_dependencies(${PROJECT_NAME}_nodes
   nav2_msgs
   std_msgs
   tf2
+  tf2_ros
   tf2_geometry_msgs
+  grid_map_core
+  grid_map_ros
+  grid_map_msgs
   rc26_serial
   rc26_interfaces
   rc26_vision
@@ -83,7 +97,11 @@ ament_target_dependencies(decision_node
   nav2_msgs
   std_msgs
   tf2
+  tf2_ros
   tf2_geometry_msgs
+  grid_map_core
+  grid_map_ros
+  grid_map_msgs
   rc26_serial
   rc26_interfaces
   rc26_vision
@@ -129,6 +147,6 @@ install(
 ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME}_nodes)
-ament_export_dependencies(rclcpp rclcpp_action behaviortree_cpp geometry_msgs nav_msgs nav2_msgs std_msgs tf2 tf2_geometry_msgs rc26_serial rc26_interfaces rc26_vision)
+ament_export_dependencies(ament_index_cpp rclcpp rclcpp_action behaviortree_cpp geometry_msgs nav_msgs nav2_msgs std_msgs tf2 tf2_ros tf2_geometry_msgs grid_map_core grid_map_ros grid_map_msgs rc26_serial rc26_interfaces rc26_vision)
 
 ament_package()

@@ -1,4 +1,6 @@
-/// ros2 run rc26_vision yolo_inference_test --model /home/potato/RC_2026/src/rc26_vision/models/best.onnx     --input /home/potato/RC_2026/test/test14.png --show --show-width 960 --show-height 540
+/// RC26_WS=${RC26_WS:-$HOME/RC_2026}
+/// 当前默认走 AidLux 本地 ONNX/CPU 链路（AidLite）
+/// ros2 run rc26_vision yolo_inference_test --model ${RC26_WS}/src/rc26_vision/models/best.onnx --input ${RC26_WS}/test/test14.png --show --show-width 960 --show-height 540
 #include <iostream>
 #include <string>
 #include <vector>

@@ -9,7 +9,7 @@
 #include <stdexcept>
 #include <utility>
 
-using namespace aidlite;
+using namespace Aidlux::Aidlite;
 
 namespace rc26_vision {
 

@@ -7,9 +7,9 @@
 首先，确保仅编译当前相关的包，以限制编译核心使用：
 
 ```bash
-cd /home/potato/RC_2026
-colcon build --parallel-workers 1 --packages-select rc26_base_ground
-source install/setup.bash
+cd "${RC26_WS:-$HOME/RC_2026}"
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_base_ground --cmake-args -DCMAKE_BUILD_TYPE=Release
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
 ## 2. 节点启动与基础检查
@@ -28,7 +28,7 @@ ros2 node list | grep base_ground_estimator
 
 ## 3. 核心输出验证 (话题数据检查)
 
-打开新的终端（记得 `source install/setup.bash`），通过以下命令观察各状态话题的输出是否符合预期。
+打开新的终端（记得 `source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"`），通过以下命令观察各状态话题的输出是否符合预期。
 
 ### 3.1 检查地形层级 (Level)
 当前机器人所处的离散台阶层级（0, 1, 2, 3...）：

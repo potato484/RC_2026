@@ -3,15 +3,15 @@
 ## 1. 编译模块
 在进行任何调试前，请确保模块已成功编译（由于 R2 算力平台限制，推荐限制编译核心数以防内存溢出）：
 ```bash
-cd ~/RC_2026
-colcon build --parallel-workers 1 --packages-select rc26_localization
+cd "${RC26_WS:-$HOME/RC_2026}"
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_localization --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
 ## 2. 启动定位节点
 通过 Launch 文件启动定位节点及其依赖的参数文件：
 ```bash
 # 刷新工作空间环境变量
-source install/setup.bash
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 
 # 启动定位节点（包含参数加载）
 ros2 launch rc26_bringup localization.launch.py
@@ -76,6 +76,49 @@ ros2 topic echo /localization/diagnostics
 ros2 topic echo /localization/pose_with_cov
 ```
 
+### 4.3 查看 P0 健康度与后端状态
+```bash
+# LHI: 给控制器/决策层的语义化定位健康度
+ros2 topic echo /localization/health
+
+# 后端状态: P0 阶段为占位字段，P1 后切换为真实图后端状态
+ros2 topic echo /localization/backend_status
+
+# 路径可观测性: P2 阶段用于定位 guard 提前保守
+ros2 topic echo /localization/route_observability
+```
+**关键字段说明**：
+- `health.level`: `GREEN/YELLOW/ORANGE/RED`，用于控制器二层速度钳位。
+- `health.reason`: 当前触发主因，例如 `sigma_xy_warn`、`control_degraded`、`global_recovery_running`。
+- `backend_status.optimizer_ready`: P0 阶段固定 `false`（占位），P1 启用图后端后为真实状态。
+- `backend_status.last_local_reg_age_sec`: 距离最近一次局部配准输出的时间，超阈值会触发 `RED`。
+- `route_observability.risk_level`: `LOW/MEDIUM/HIGH`，用于决策层提前切 `loc_yellow/loc_orange`。
+- `route_observability.recommended_nav_profile`: 评估器给出的外层 profile 建议。
+
+### 4.4 P0/P1 开关参数
+```bash
+# 是否启用图后端（P0 默认 false，P1 开始逐步开启）
+ros2 param get /localization enable_graph_backend
+
+# 是否允许旧版硬切重定位（仅紧急回退使用，默认 false）
+ros2 param get /localization legacy_hard_reloc_enable
+```
+
+### 4.5 P4 外部候选输入自检
+```bash
+# 是否启用外部候选输入链路
+ros2 param get /localization p4_candidate_enable
+
+# 查看三路候选话题（dynamic / visual / learned）
+ros2 topic info /localization/p4/dynamic_candidates
+ros2 topic info /localization/p4/visual_candidates
+ros2 topic info /localization/p4/learned_candidates
+```
+说明：
+- 外部候选仅作为“候选生成器”，无权直接修改 `map->odom`。
+- 候选必须通过 `ConstraintValidator` 几何验证后，才会以锚点先验形式进入 Pose2 图后端。
+- 候选被拒绝时会记录在日志与后端冲突计数中，不会触发 TF 硬跳。
+
 ## 5. 结合 Bag 包离线调试 (推荐)
 为了可重复地复现问题，强烈推荐录制比赛/测试时的数据包（Bag），并在 PC 端离线回放调试：
 
@@ -91,6 +134,55 @@ ros2 bag record -o loc_test_bag /livox/lidar /imu/data /odom /tf /tf_static
 ros2 bag play loc_test_bag --rate 0.5
 ```
 3. 终端 3：使用 RViz2 监控点云匹配情况，或使用 `ros2 topic echo` 监控输出状态。
+
+### 5.1 一键验收脚本（推荐）
+
+`run_localization_acceptance.sh` 已支持基础参数 + overlay 参数分离，以及 `bag` 目录/文件两种输入。
+
+```bash
+cd "${RC26_WS:-$HOME/RC_2026}"
+source install/setup.bash
+
+./src/rc26_localization/scripts/run_localization_acceptance.sh \
+  --map "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/pcd/default.pcd" \
+  --bag /path/to/your_bag_dir_or_file \
+  --duration 240 \
+  --config-profile eval \
+  --enable-graph-backend true
+```
+
+说明：
+
+- `--bag` 可传 ROS2 bag 目录（含 `metadata.yaml`）或具体文件（`.mcap` / `.db3`）。
+- `--config-profile default|eval` 用于在保守参数与验证参数之间切换。
+- 需要精确指定参数时可配合：
+  - `--params-file /abs/path/to/localization.yaml`
+  - `--overlay-file /abs/path/to/localization_overlay.yaml`
+- 验收摘要会记录 `config_profile`、`params_file`、`overlay_file` 与 `metrics_source`。
+
+### 5.2 无实测 bag 时的 synthetic 验收
+
+当现场没有可用定位 bag 时，可先用 synthetic 输入做链路验收。
+注意：`default.pcd` 是最小烟测地图，建议使用 synthetic 专用 overlay。
+
+```bash
+cd "${RC26_WS:-$HOME/RC_2026}"
+source install/setup.bash
+
+./src/rc26_localization/scripts/run_localization_acceptance.sh \
+  --map "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/pcd/default.pcd" \
+  --duration 120 \
+  --synthetic-input \
+  --config-profile eval \
+  --overlay-file "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/config/localization_eval_overlay_synthetic.yaml" \
+  --enable-graph-backend true \
+  --skip-build
+```
+
+补充：
+
+- 脚本会优先读取 `raw/metrics.log`，为空时自动回退解析 `raw/localization.launch.log`。
+- 在受限环境中可能出现“30 秒内未检测到 localization 节点”的误告警，应结合 `raw/localization.launch.log` 实际判断节点状态。
 
 ## 6. 常见问题排查
 
