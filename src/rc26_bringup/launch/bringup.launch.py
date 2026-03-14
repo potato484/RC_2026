@@ -17,7 +17,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, GroupAction, LogInfo
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, GroupAction, IncludeLaunchDescription, LogInfo
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
@@ -53,6 +53,7 @@ def generate_launch_description():
     visualization_backend = LaunchConfiguration('visualization_backend')
     visualization_status_enable = LaunchConfiguration('visualization_status_enable')
     foxglove_port = LaunchConfiguration('foxglove_port')
+    foxglove_layout_dir = LaunchConfiguration('foxglove_layout_dir')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     use_decision = LaunchConfiguration('use_decision')
     use_realsense = LaunchConfiguration('use_realsense')
@@ -151,6 +152,11 @@ def generate_launch_description():
         'foxglove_port',
         default_value='8765',
         description='foxglove_bridge WebSocket 监听端口')
+
+    declare_foxglove_layout_dir = DeclareLaunchArgument(
+        'foxglove_layout_dir',
+        default_value='/tmp/rc26_foxglove_layouts/current',
+        description='自动生成的 Foxglove 布局输出目录（按当前 namespace 重写 topicPath）')
 
     declare_recover_mid360_stream = DeclareLaunchArgument(
         'recover_mid360_stream',
@@ -512,8 +518,32 @@ def generate_launch_description():
         }]
     )
 
+    foxglove_layout_render = ExecuteProcess(
+        cmd=[
+            'python3',
+            PathJoinSubstitution([bringup_dir, 'scripts', 'render_foxglove_layouts.py']),
+            '--source-dir',
+            PathJoinSubstitution([bringup_dir, 'foxglove']),
+            '--output-dir',
+            foxglove_layout_dir,
+            '--namespace',
+            namespace,
+        ],
+        output='screen',
+        condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'foxglove'"]))
+    )
+
+    foxglove_layout_notice = LogInfo(
+        msg=[
+            '[bringup] Foxglove layouts rendered to ',
+            foxglove_layout_dir,
+            ' ; import operator.json / engineering.json / diagnostic.json from that directory.',
+        ],
+        condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'foxglove'"]))
+    )
+
     foxglove_group = GroupAction(
-        actions=[foxglove_bridge_node],
+        actions=[foxglove_layout_render, foxglove_layout_notice, foxglove_bridge_node],
         condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'foxglove'"]))
     )
 
@@ -579,6 +609,7 @@ def generate_launch_description():
         declare_visualization_backend,
         declare_visualization_status_enable,
         declare_foxglove_port,
+        declare_foxglove_layout_dir,
         declare_recover_mid360_stream,
         declare_use_decision,
         declare_use_realsense,

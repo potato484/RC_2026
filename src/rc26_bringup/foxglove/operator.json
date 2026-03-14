@@ -49,8 +49,12 @@
         }
       }
     },
-    "RawMessages!operator-status": {},
-    "RawMessages!operator-events": {},
+    "RawMessages!operator-status": { "topicPath": "/r2/diag/operator_status" },
+    "RawMessages!operator-events": { "topicPath": "/r2/diag/events" },
+    "RawMessages!bt-model": { "topicPath": "/r2/bt/model" },
+    "RawMessages!bt-snapshot": { "topicPath": "/r2/bt/snapshot" },
+    "RawMessages!bt-blackboard": { "topicPath": "/r2/bt/blackboard" },
+    "RawMessages!bt-events": { "topicPath": "/r2/bt/events" },
     "Plot!operator-trends": {}
   },
   "globalVariables": {},
@@ -64,12 +68,32 @@
       "splitPercentage": 72
     },
     "second": {
-      "first": "RawMessages!operator-status",
-      "second": "RawMessages!operator-events",
+      "first": {
+        "first": "RawMessages!operator-status",
+        "second": "RawMessages!operator-events",
+        "direction": "column",
+        "splitPercentage": 45
+      },
+      "second": {
+        "first": {
+          "first": "RawMessages!bt-model",
+          "second": "RawMessages!bt-snapshot",
+          "direction": "column",
+          "splitPercentage": 50
+        },
+        "second": {
+          "first": "RawMessages!bt-blackboard",
+          "second": "RawMessages!bt-events",
+          "direction": "column",
+          "splitPercentage": 50
+        },
+        "direction": "row",
+        "splitPercentage": 50
+      },
       "direction": "column",
-      "splitPercentage": 45
+      "splitPercentage": 35
     },
     "direction": "row",
-    "splitPercentage": 72
+    "splitPercentage": 60
   }
 }
