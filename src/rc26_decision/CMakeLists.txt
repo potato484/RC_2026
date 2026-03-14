@@ -81,7 +81,10 @@ target_link_libraries(${PROJECT_NAME}_nodes
 # ============================================================================
 # 可执行文件：决策主节点
 # ============================================================================
-add_executable(decision_node src/decision_node.cpp)
+add_executable(decision_node
+  src/decision_node.cpp
+  src/bt/bt_runtime_publisher.cpp
+)
 
 target_link_libraries(decision_node
   ${PROJECT_NAME}_nodes

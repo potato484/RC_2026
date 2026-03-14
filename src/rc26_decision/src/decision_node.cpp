@@ -10,6 +10,7 @@
 #include <std_msgs/msg/int8.hpp>
 #include <vector>
 
+#include "rc26_decision/bt/bt_runtime_publisher.hpp"
 #include "rc26_decision/combat/combat_area.hpp"
 #include "rc26_decision/mc/mc_area.hpp"
 #include "rc26_decision/mf/mf_area.hpp"
@@ -371,6 +372,9 @@ public:
     RCLCPP_INFO(this->get_logger(), "加载行为树: %s", tree_path.c_str());
     tree_ = factory_.createTreeFromFile(tree_path, blackboard);
 
+    bt_runtime_publisher_ = std::make_unique<BtRuntimePublisher>(
+        this, tree_, blackboard_, tree_file);
+
     // 创建定时器执行 tick
     int tick_rate_ms = this->get_parameter("tick_rate_ms").as_int();
     timer_ = this->create_wall_timer(std::chrono::milliseconds(tick_rate_ms),
@@ -390,7 +394,14 @@ public:
 
 private:
   void tickTree() {
+    auto t0 = std::chrono::steady_clock::now();
     BT::NodeStatus status = tree_.tickOnce();
+    auto t1 = std::chrono::steady_clock::now();
+    float dur_ms = std::chrono::duration<float, std::milli>(t1 - t0).count();
+
+    if (bt_runtime_publisher_) {
+      bt_runtime_publisher_->onTick(status, dur_ms);
+    }
 
     // KFS 状态变化立即发布（周期定时器仍保留 5Hz 保底）
     (void)publishKfsState(false);
@@ -483,6 +494,7 @@ private:
   rclcpp::Subscription<rc26_interfaces::msg::RouteObservability>::SharedPtr
       localization_route_sub_;
   std::shared_ptr<rc26_vision::VisionInferenceManager> vision_manager_;
+  std::unique_ptr<BtRuntimePublisher> bt_runtime_publisher_;
 };
 
 } // namespace rc26_decision

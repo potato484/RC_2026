@@ -33,6 +33,15 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SetNavMode.srv"
   "msg/VisualizationEvent.msg"
   "msg/VisualizationEventArray.msg"
+  "msg/BehaviorTreePort.msg"
+  "msg/BehaviorTreeNodeModel.msg"
+  "msg/BehaviorTreeModel.msg"
+  "msg/BehaviorTreeNodeState.msg"
+  "msg/BehaviorTreeSnapshot.msg"
+  "msg/BehaviorTreeBlackboardEntry.msg"
+  "msg/BehaviorTreeBlackboard.msg"
+  "msg/BehaviorTreeEvent.msg"
+  "msg/BehaviorTreeEventArray.msg"
   DEPENDENCIES action_msgs builtin_interfaces geometry_msgs std_msgs
 )
 
