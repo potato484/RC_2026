@@ -28,7 +28,9 @@
             </Inverter>
             <Sequence>
               <NavToSmartPoint target_name="mf_entry_back"/>
-              <Delay delay_msec="5000"/>
+              <Delay delay_msec="5000">
+                <AlwaysSuccess/>
+              </Delay>
             </Sequence>
           </Fallback>
         </Sequence>
@@ -75,7 +77,9 @@
             <SubTree ID="MoveToGridSeq" _autoremap="true"/>
           </Sequence>
           <!-- Case: WAIT (default) -->
-          <Delay delay_msec="1000"/>
+          <Delay delay_msec="1000">
+            <AlwaysSuccess/>
+          </Delay>
         </Fallback>
       </Sequence>
     </KeepRunningUntilFailure>

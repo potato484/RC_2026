@@ -11,7 +11,9 @@
                                    time_allowance_sec="{loc_spin_time_allowance_sec}"
                                    action_name="{loc_spin_action_name}"/>
           <LocalizationAnchorRecover/>
-          <Delay delay_msec="300"/>
+          <Delay delay_msec="300">
+            <AlwaysSuccess/>
+          </Delay>
         </Fallback>
       </Sequence>
 
