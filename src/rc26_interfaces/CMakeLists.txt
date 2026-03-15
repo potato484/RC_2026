@@ -42,10 +42,14 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/BehaviorTreeBlackboard.msg"
   "msg/BehaviorTreeEvent.msg"
   "msg/BehaviorTreeEventArray.msg"
+  "msg/BehaviorTreeTraceLine.msg"
+  "msg/BehaviorTreeTrace.msg"
+  "msg/BehaviorTreeDebugState.msg"
   "msg/BehaviorTreeLocalizedValue.msg"
   "msg/BehaviorTreeLocalizationEntry.msg"
   "msg/BehaviorTreeLocalizedNode.msg"
   "msg/BehaviorTreeLocalization.msg"
+  "srv/ControlBehaviorTree.srv"
   DEPENDENCIES action_msgs builtin_interfaces geometry_msgs std_msgs
 )
 
