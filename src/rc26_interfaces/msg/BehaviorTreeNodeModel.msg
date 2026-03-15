@@ -4,7 +4,11 @@ string registration_name
 uint8 node_type
 string full_path
 string subtree_id
+string subtree_ref_id
 uint16 parent_uid
+uint16 child_index
+uint16 child_count
+uint16 depth
 uint16[] children_uids
 BehaviorTreePort[] ports
 

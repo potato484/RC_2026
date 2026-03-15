@@ -4,14 +4,17 @@
 #include <behaviortree_cpp/basic_types.h>
 #include <behaviortree_cpp/control_node.h>
 #include <behaviortree_cpp/decorator_node.h>
+#include <behaviortree_cpp/decorators/subtree_node.h>
 
 #include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <iomanip>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
 #include "rc26_interfaces/msg/behavior_tree_event.hpp"
@@ -302,6 +305,7 @@ void BtRuntimePublisher::buildAndPublishModel() {
   children_map_.clear();
   subtree_map_.clear();
   depth_map_.clear();
+  std::unordered_map<uint16_t, uint16_t> child_index_map;
 
   for (auto &subtree : tree_.subtrees) {
     model.subtree_ids.push_back(subtree->tree_ID);
@@ -309,15 +313,18 @@ void BtRuntimePublisher::buildAndPublishModel() {
       subtree_map_[node->UID()] = subtree->tree_ID;
 
       if (auto *ctrl = dynamic_cast<const BT::ControlNode *>(node.get())) {
+        uint16_t child_index = 0;
         for (auto *child : ctrl->children()) {
           children_map_[node->UID()].push_back(child->UID());
           parent_map_[child->UID()] = node->UID();
+          child_index_map[child->UID()] = child_index++;
         }
       } else if (auto *dec =
                      dynamic_cast<const BT::DecoratorNode *>(node.get())) {
         if (dec->child()) {
           children_map_[node->UID()].push_back(dec->child()->UID());
           parent_map_[dec->child()->UID()] = node->UID();
+          child_index_map[dec->child()->UID()] = 0;
         }
       }
     }
@@ -350,14 +357,31 @@ void BtRuntimePublisher::buildAndPublishModel() {
         subtree_it != subtree_map_.end()) {
       model_node.subtree_id = subtree_it->second;
     }
+    if (const auto *subtree_node =
+            dynamic_cast<const BT::SubTreeNode *>(node)) {
+      model_node.subtree_ref_id = subtree_node->subtreeID();
+    }
     if (const auto parent_it = parent_map_.find(node->UID());
         parent_it != parent_map_.end()) {
       model_node.parent_uid = parent_it->second;
+    }
+    if (const auto child_index_it = child_index_map.find(node->UID());
+        child_index_it != child_index_map.end()) {
+      model_node.child_index = child_index_it->second;
+    }
+    if (const auto depth_it = depth_map_.find(node->UID());
+        depth_it != depth_map_.end()) {
+      model_node.depth = static_cast<uint16_t>(
+          std::min(depth_it->second,
+                   static_cast<size_t>(std::numeric_limits<uint16_t>::max())));
     }
     if (const auto child_it = children_map_.find(node->UID());
         child_it != children_map_.end()) {
       model_node.children_uids = child_it->second;
     }
+    model_node.child_count = static_cast<uint16_t>(
+        std::min(model_node.children_uids.size(),
+                 static_cast<size_t>(std::numeric_limits<uint16_t>::max())));
 
     const auto &config = node->config();
     const auto *manifest = config.manifest;
