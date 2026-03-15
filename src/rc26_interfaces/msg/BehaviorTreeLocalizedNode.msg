@@ -1,0 +1,14 @@
+uint16 uid
+string locale
+string display_name
+string original_name
+string registration_name
+string registration_display_name
+string subtree_id
+string subtree_display_name
+string tooltip
+string summary
+string scenario
+string attention
+string markdown
+string[] related_blackboard_keys
