@@ -1,11 +1,13 @@
 #include "rc26_decision/bt/bt_runtime_publisher.hpp"
 
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <behaviortree_cpp/basic_types.h>
 #include <behaviortree_cpp/control_node.h>
 #include <behaviortree_cpp/decorator_node.h>
 
 #include <algorithm>
 
+#include "rc26_decision/bt/chinese_localization_module.hpp"
 #include "rc26_interfaces/msg/behavior_tree_event.hpp"
 #include "rc26_interfaces/msg/behavior_tree_node_model.hpp"
 #include "rc26_interfaces/msg/behavior_tree_node_state.hpp"
@@ -29,8 +31,15 @@ BtRuntimePublisher::BtRuntimePublisher(rclcpp::Node *node, BT::Tree &tree,
                                         "r2/bt/blackboard");
   node_->declare_parameter<std::string>("bt_runtime.events_topic",
                                         "r2/bt/events");
+  node_->declare_parameter<std::string>("bt_runtime.localization_topic",
+                                        "r2/bt/localization");
   node_->declare_parameter<int>("bt_runtime.snapshot_decimation", 1);
   node_->declare_parameter<int>("bt_runtime.blackboard_publish_ms", 200);
+  node_->declare_parameter<int>("bt_runtime.localization_reload_ms", 1000);
+  node_->declare_parameter<std::string>(
+      "bt_runtime.localization_config",
+      ament_index_cpp::get_package_share_directory("rc26_decision") +
+          "/config/bt_localization.yaml");
   node_->declare_parameter<std::vector<std::string>>(
       "bt_runtime.blackboard_whitelist",
       std::vector<std::string>{
@@ -96,6 +105,15 @@ BtRuntimePublisher::BtRuntimePublisher(rclcpp::Node *node, BT::Tree &tree,
       node_->get_parameter("bt_runtime.blackboard_topic").as_string();
   auto events_topic =
       node_->get_parameter("bt_runtime.events_topic").as_string();
+  auto localization_topic =
+      node_->get_parameter("bt_runtime.localization_topic").as_string();
+  auto localization_config =
+      node_->get_parameter("bt_runtime.localization_config").as_string();
+  if (localization_config.empty()) {
+    localization_config =
+        ament_index_cpp::get_package_share_directory("rc26_decision") +
+        "/config/bt_localization.yaml";
+  }
 
   rclcpp::QoS model_qos(rclcpp::KeepLast(1));
   model_qos.reliable().transient_local();
@@ -111,6 +129,9 @@ BtRuntimePublisher::BtRuntimePublisher(rclcpp::Node *node, BT::Tree &tree,
   pub_blackboard_ =
       node_->create_publisher<rc26_interfaces::msg::BehaviorTreeBlackboard>(
           bb_topic, volatile_qos);
+  pub_localization_ =
+      node_->create_publisher<rc26_interfaces::msg::BehaviorTreeLocalization>(
+          localization_topic, model_qos);
 
   rclcpp::QoS events_qos(rclcpp::KeepLast(100));
   events_qos.reliable();
@@ -144,7 +165,20 @@ BtRuntimePublisher::BtRuntimePublisher(rclcpp::Node *node, BT::Tree &tree,
   bb_timer_ = node_->create_wall_timer(std::chrono::milliseconds(bb_ms),
                                        [this]() { publishBlackboard(); });
 
+  localization_module_ = std::make_unique<ChineseLocalizationModule>(
+      node_, std::move(localization_config));
+  int localization_reload_ms =
+      node_->get_parameter("bt_runtime.localization_reload_ms").as_int();
+  localization_reload_ms = std::max(localization_reload_ms, 200);
+  localization_timer_ = node_->create_wall_timer(
+      std::chrono::milliseconds(localization_reload_ms), [this]() {
+        if (localization_module_ && localization_module_->reloadIfChanged()) {
+          publishLocalization();
+        }
+      });
+
   buildAndPublishModel();
+  publishLocalization();
 }
 
 void BtRuntimePublisher::onTick(BT::NodeStatus tree_status,
@@ -374,6 +408,16 @@ void BtRuntimePublisher::publishBlackboard() {
   }
 
   pub_blackboard_->publish(msg);
+}
+
+void BtRuntimePublisher::publishLocalization() {
+  if (!pub_localization_ || !localization_module_) {
+    return;
+  }
+
+  auto msg = localization_module_->buildMessage(tree_file_, all_nodes_, bb_whitelist_);
+  msg.header.stamp = node_->get_clock()->now();
+  pub_localization_->publish(msg);
 }
 
 // ─── events ─────────────────────────────────────────────────────────────

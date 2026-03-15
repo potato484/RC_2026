@@ -51,8 +51,11 @@ rc26_decision:
     bt_runtime.snapshot_topic: "r2/bt/snapshot"
     bt_runtime.blackboard_topic: "r2/bt/blackboard"
     bt_runtime.events_topic: "r2/bt/events"
+    bt_runtime.localization_topic: "r2/bt/localization"
     bt_runtime.snapshot_decimation: 1
     bt_runtime.blackboard_publish_ms: 200
+    bt_runtime.localization_reload_ms: 1000
+    bt_runtime.localization_config: ""
     bt_runtime.blackboard_whitelist:
       - "vision_running"
       - "vision_ok"

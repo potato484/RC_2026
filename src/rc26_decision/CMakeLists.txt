@@ -84,10 +84,12 @@ target_link_libraries(${PROJECT_NAME}_nodes
 add_executable(decision_node
   src/decision_node.cpp
   src/bt/bt_runtime_publisher.cpp
+  src/bt/chinese_localization_module.cpp
 )
 
 target_link_libraries(decision_node
   ${PROJECT_NAME}_nodes
+  yaml-cpp
 )
 
 ament_target_dependencies(decision_node
