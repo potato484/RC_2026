@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .glass-panel {
+    @apply bg-glass backdrop-blur-glass shadow-glass border border-white/40 rounded-3xl;
+  }
+  .glass-button {
+    @apply bg-white/50 hover:bg-white/80 backdrop-blur-md shadow-sm border border-white/50 rounded-2xl transition-all duration-300;
+  }
+}
+
+.react-flow__node {
+  border-radius: 1.5rem !important;
+}
