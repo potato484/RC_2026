@@ -13,7 +13,6 @@
 
 ## 入口分工
 
-- 浏览器值守首页主入口：`/home/aidlux/RC_2026/web/r2_dashboard/`
 - `src/rc26_bringup/foxglove/*.json`：仓库内模板资产
 - bringup 在 `visualization_backend:=foxglove` 时会自动生成当前 namespace 对应的有效布局文件
 
@@ -27,7 +26,7 @@
 
 ## BT 运行态话题
 
-先通过 Foxglove 验证 `r2/bt/*` 话题，确认数据正确后再切换到 `web/r2_dashboard` 自定义监控台。
+先通过 Foxglove 验证 `r2/bt/*` 话题，确认数据正确后再导入仓库内布局或现场定制布局继续值守。
 
 - `r2/bt/model`：静态树结构（transient_local，晚连可拿到）
 - `r2/bt/snapshot`：每次 tick 后的节点状态快照
@@ -49,7 +48,7 @@
 - 打开 Foxglove
 - 连接机器人 WebSocket
 - 通过 Layouts -> Import from file 导入 `/tmp/rc26_foxglove_layouts/current/` 下的生成文件
-- 若只做值守，优先使用浏览器首页 `web/r2_dashboard`
+- 若只做值守，优先使用 `operator.json` 作为基础值守布局
 - 若需要自定义输出位置，可在 bringup 时传 `foxglove_layout_dir:=<path>`
 
 

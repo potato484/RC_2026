@@ -14,10 +14,6 @@ AGENTS.md
 /rosbags/*
 !/rosbags/README.md
 
-
-
-
-
 # Logs
 logs
 *.log
