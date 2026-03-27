@@ -3,7 +3,8 @@ import { Play, Pause, RotateCcw, Activity, Cpu } from 'lucide-react';
 import { useStore } from '../store/useStore';
 
 export const Header = () => {
-  const { isSimulating, isPlaying, activePhase, toggleSimulate, togglePlay } = useStore();
+  const { isSimulating, isPlaying, activePhase, toggleSimulate, togglePlay, resetTreeState, activeNodeId, nodes } = useStore();
+  const activeNode = nodes.find(n => n.id === activeNodeId);
 
   return (
     <header className="glass-panel p-4 flex items-center justify-between mb-4">
@@ -14,7 +15,11 @@ export const Header = () => {
         </div>
         <div className="text-2xl text-blue-600 font-medium flex items-center gap-2">
           <Activity className="animate-pulse" />
-          正在思考下一步：寻找 5 号格
+          {isPlaying ? (
+             <span>正在执行: {activeNode ? activeNode.label : '...'}</span>
+          ) : (
+             <span>已暂停 / 待命</span>
+          )}
         </div>
       </div>
 
@@ -31,7 +36,7 @@ export const Header = () => {
           <button onClick={togglePlay} className="glass-button p-3 hover:text-blue-600">
             {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
           </button>
-          <button className="glass-button p-3 hover:text-amber-600">
+          <button onClick={resetTreeState} className="glass-button p-3 hover:text-amber-600">
             <RotateCcw className="w-6 h-6" />
           </button>
         </div>

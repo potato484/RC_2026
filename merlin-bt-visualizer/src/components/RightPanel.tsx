@@ -1,78 +1,120 @@
-
 import { useStore } from '../store/useStore';
-import { motion, AnimatePresence } from 'framer-motion';
-import { BrainCircuit, Database } from 'lucide-react';
+import { Database, Target, MapPin, Activity, ListOrdered, Clock } from 'lucide-react';
+import { TimelineEvent } from '../types';
+
+const typeTranslations: Record<string, string> = {
+  sequence: '顺序',
+  selector: '选择',
+  condition: '条件',
+  action: '动作',
+  decorator: '装饰',
+  subtree: '子树',
+};
 
 export const RightPanel = () => {
-  const { nodes, activeNodeId, blackboard } = useStore();
-  const activeNode = nodes.find(n => n.id === activeNodeId) || nodes.find(n => n.state === 'running');
+  const { blackboard, activeNodeId, nodes, timeline } = useStore();
+  const activeNode = nodes.find(n => n.id === activeNodeId);
 
   return (
-    <div className="w-80 flex flex-col gap-4 ml-4">
-      {/* Node Info Card */}
-      <div className="glass-panel p-6 flex-1 flex flex-col">
-        <div className="flex items-center gap-3 text-gray-500 mb-6 font-bold">
-          <BrainCircuit className="w-6 h-6" />
-          <span>当前焦点</span>
-        </div>
+    <div className="w-[320px] ml-4 flex flex-col gap-4">
+      {/* Node Info Panel */}
+      <div className="glass-panel p-4 flex-1">
+        <h3 className="text-lg font-bold flex items-center gap-2 mb-4 text-slate-800">
+          <Activity className="w-5 h-5 text-blue-500" />
+          节点详情
+        </h3>
         
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeNode?.id || 'empty'}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="flex-1 flex flex-col items-center justify-center text-center gap-6"
-          >
-            {activeNode ? (
-              <>
-                <div className="text-6xl text-blue-500">
-                  {activeNode.state === 'success' ? '✅' : activeNode.state === 'failure' ? '❌' : activeNode.state === 'running' ? '⏳' : '💤'}
-                </div>
-                <h2 className="text-3xl font-bold text-gray-800">{activeNode.label}</h2>
-                <p className="text-xl text-gray-600 bg-white/60 p-4 rounded-2xl w-full">
-                  {activeNode.desc}
-                </p>
-                <div className="px-6 py-2 rounded-full font-bold text-xl bg-blue-100 text-blue-600 uppercase">
-                  {activeNode.state}
-                </div>
-              </>
-            ) : (
-              <div className="text-gray-400 text-xl font-medium">点击左侧节点查看详情</div>
-            )}
-          </motion.div>
-        </AnimatePresence>
+        {activeNode ? (
+          <div className="space-y-4">
+            <div className="p-3 bg-white/50 rounded-xl border border-slate-200">
+              <div className="text-sm text-slate-500 mb-1">节点名称</div>
+              <div className="font-semibold text-slate-800">{activeNode.label}</div>
+            </div>
+            <div className="p-3 bg-white/50 rounded-xl border border-slate-200">
+              <div className="text-sm text-slate-500 mb-1">节点类型</div>
+              <div className="font-semibold text-slate-800">{typeTranslations[activeNode.type] || activeNode.type}</div>
+            </div>
+            <div className="p-3 bg-white/50 rounded-xl border border-slate-200">
+              <div className="text-sm text-slate-500 mb-1">节点描述</div>
+              <div className="text-sm text-slate-700">{activeNode.desc}</div>
+            </div>
+            <div className="p-3 bg-white/50 rounded-xl border border-slate-200">
+              <div className="text-sm text-slate-500 mb-1">当前状态</div>
+              <div className={`font-semibold inline-flex items-center gap-2 px-2 py-1 rounded-md
+                ${activeNode.state === 'running' ? 'bg-blue-100 text-blue-700' :
+                  activeNode.state === 'success' ? 'bg-emerald-100 text-emerald-700' :
+                  activeNode.state === 'failure' ? 'bg-red-100 text-red-700' :
+                  'bg-slate-100 text-slate-700'}`}
+              >
+                {activeNode.state === 'running' && '运行中'}
+                {activeNode.state === 'success' && '成功'}
+                {activeNode.state === 'failure' && '失败'}
+                {activeNode.state === 'idle' && '空闲'}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="h-full flex flex-col items-center justify-center text-slate-400 opacity-60">
+            <ListOrdered className="w-12 h-12 mb-2" />
+            <p>点击左侧节点查看详情</p>
+          </div>
+        )}
       </div>
 
-      {/* Blackboard Card */}
-      <div className="glass-panel p-6 flex-[1.5] flex flex-col">
-        <div className="flex items-center gap-3 text-gray-500 mb-4 font-bold">
-          <Database className="w-6 h-6" />
-          <span>黑板记忆 (最新)</span>
+      {/* Timeline Panel */}
+      <div className="glass-panel p-4 flex-1 flex flex-col">
+        <h3 className="text-lg font-bold flex items-center gap-2 mb-4 text-slate-800">
+          <Clock className="w-5 h-5 text-indigo-500" />
+          执行日志
+        </h3>
+        <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
+          {timeline.length > 0 ? timeline.map((event: TimelineEvent) => (
+            <div key={event.id} className="relative pl-4 border-l-2 border-slate-200 pb-2 last:pb-0">
+              <div className={`absolute -left-1.5 top-1.5 w-2.5 h-2.5 rounded-full ${
+                event.status === 'success' ? 'bg-emerald-500 ring-2 ring-emerald-200' :
+                event.status === 'warning' ? 'bg-amber-500 ring-2 ring-amber-200' :
+                'bg-blue-500 ring-2 ring-blue-200'
+              }`} />
+              <div className="text-xs text-slate-400 font-mono mb-0.5">{event.time}</div>
+              <div className="text-sm text-slate-700">{event.desc}</div>
+            </div>
+          )) : (
+             <div className="h-full flex flex-col items-center justify-center text-slate-400 opacity-60">
+                <Clock className="w-8 h-8 mb-2" />
+                <p className="text-sm">暂无日志</p>
+             </div>
+          )}
         </div>
+      </div>
+
+      {/* Blackboard Panel */}
+      <div className="glass-panel p-4 h-[300px] flex flex-col">
+        <h3 className="text-lg font-bold flex items-center gap-2 mb-4 text-slate-800">
+          <Database className="w-5 h-5 text-emerald-500" />
+          全局黑板
+        </h3>
         
-        <div className="flex flex-col gap-3 overflow-y-auto pr-2">
-          <AnimatePresence>
-            {blackboard.map((item) => (
-              <motion.div
-                key={item.key}
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="bg-white/60 p-4 rounded-2xl flex flex-col gap-2"
-              >
-                <div className="flex justify-between items-center">
-                  <span className="text-lg font-bold text-gray-700">{item.desc}</span>
-                  <span className={`px-4 py-1 rounded-xl font-bold text-lg ${
-                    item.value === '是' ? 'bg-emerald-100 text-emerald-600' :
-                    item.value === '否' ? 'bg-red-100 text-red-600' :
-                    'bg-blue-100 text-blue-600'
-                  }`}>
-                    {item.value}
-                  </span>
-                </div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
+        <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
+          {blackboard.length > 0 ? blackboard.map((item) => (
+            <div key={item.key} className="p-3 bg-white/50 rounded-xl border border-slate-200 hover:border-emerald-300 transition-colors">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-semibold text-slate-700 font-mono">{item.key}</span>
+                <span className="text-xs text-slate-400">
+                  {new Date(item.updatedAt).toLocaleTimeString()}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {item.key.includes('target') ? <Target className="w-4 h-4 text-rose-500" /> : <MapPin className="w-4 h-4 text-blue-500" />}
+                <span className="font-bold text-emerald-600">{item.value}</span>
+              </div>
+              <div className="text-xs text-slate-500 mt-1">{item.desc}</div>
+            </div>
+          )) : (
+            <div className="h-full flex flex-col items-center justify-center text-slate-400 opacity-60">
+              <Database className="w-8 h-8 mb-2" />
+              <p className="text-sm">黑板暂无数据</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

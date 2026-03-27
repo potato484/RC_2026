@@ -2,7 +2,7 @@ export type NodeState = 'idle' | 'running' | 'success' | 'failure';
 
 export interface BTNode {
   id: string;
-  type: 'action' | 'condition' | 'sequence' | 'selector';
+  type: 'action' | 'condition' | 'sequence' | 'selector' | 'decorator' | 'subtree';
   label: string;
   state: NodeState;
   desc: string;
