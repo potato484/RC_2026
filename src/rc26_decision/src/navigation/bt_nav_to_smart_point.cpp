@@ -2,9 +2,6 @@
 
 #include <memory>
 
-#include "rc26_decision/navigation/bt_check_localization_health.hpp"
-#include "rc26_decision/navigation/bt_localization_anchor_recover.hpp"
-#include "rc26_decision/navigation/bt_localization_observe_spin.hpp"
 #include "rc26_decision/navigation/smart_waypoint_navigator.hpp"
 #include "rc26_decision/navigation/waypoint_manager.hpp"
 
@@ -69,9 +66,6 @@ void NavToSmartPointAction::onHalted() {
 
 void registerNavigationNodes(BT::BehaviorTreeFactory& factory) {
     factory.registerNodeType<NavToSmartPointAction>("NavToSmartPoint");
-    factory.registerNodeType<CheckLocalizationHealth>("CheckLocalizationHealth");
-    factory.registerNodeType<LocalizationObserveSpin>("LocalizationObserveSpin");
-    factory.registerNodeType<LocalizationAnchorRecover>("LocalizationAnchorRecover");
 }
 
 }  // namespace rc26_decision

@@ -48,9 +48,6 @@ add_library(${PROJECT_NAME}_nodes SHARED
   src/navigation/waypoint_manager.cpp
   src/navigation/smart_waypoint_navigator.cpp
   src/navigation/bt_nav_to_smart_point.cpp
-  src/navigation/bt_check_localization_health.cpp
-  src/navigation/bt_localization_observe_spin.cpp
-  src/navigation/bt_localization_anchor_recover.cpp
   src/vision/bt_nodes.cpp
 )
 
