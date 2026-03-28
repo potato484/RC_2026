@@ -1,5 +1,6 @@
+
 import { useMemo, useCallback } from 'react';
-import { ReactFlow, Background, Edge, Node } from '@xyflow/react';
+import { ReactFlow, Background, Edge, Node, MarkerType } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useStore } from '../store/useStore';
 import { CustomNode } from './CustomNode';
@@ -51,8 +52,13 @@ export const TreeVisualizer = () => {
       source: edge.source,
       target: edge.target,
       animated: isRunning,
-      style: { stroke: isRunning ? '#3b82f6' : '#cbd5e1', strokeWidth: 4 },
-      type: 'smoothstep'
+      style: { stroke: isRunning ? '#f59e0b' : '#94a3b8', strokeWidth: isRunning ? 3 : 2 },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        width: 15,
+        height: 15,
+        color: isRunning ? '#f59e0b' : '#94a3b8',
+      },
     };
   }), [nodes, visibleEdges]);
 
@@ -61,7 +67,7 @@ export const TreeVisualizer = () => {
   }, [toggleNodeCollapse]);
 
   return (
-    <div className="w-full h-full glass-panel overflow-hidden">
+    <div className="w-full h-full glass-panel overflow-hidden bg-white/40">
       <ReactFlow
         nodes={flowNodes}
         edges={flowEdges}
@@ -73,7 +79,7 @@ export const TreeVisualizer = () => {
         minZoom={0.1}
         className="bg-transparent"
       >
-        <Background color="#cbd5e1" gap={20} size={2} />
+        <Background color="#cbd5e1" gap={24} size={2} className="opacity-50" />
       </ReactFlow>
     </div>
   );

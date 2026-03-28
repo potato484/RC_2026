@@ -13,7 +13,7 @@ export const Header = () => {
           <span className="text-3xl">🎯</span>
           <h1 className="text-2xl font-bold text-gray-800">当前：{activePhase}</h1>
         </div>
-        <div className="text-2xl text-blue-600 font-medium flex items-center gap-2">
+        <div className="text-2xl text-slate-700 font-medium flex items-center gap-2">
           <Activity className="animate-pulse" />
           {isPlaying ? (
              <span>正在执行: {activeNode ? activeNode.label : '...'}</span>
@@ -33,7 +33,7 @@ export const Header = () => {
         </button>
 
         <div className="flex items-center gap-2 bg-white/60 p-2 rounded-2xl">
-          <button onClick={togglePlay} className="glass-button p-3 hover:text-blue-600">
+          <button onClick={togglePlay} className="glass-button p-3 hover:text-slate-700">
             {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
           </button>
           <button onClick={resetTreeState} className="glass-button p-3 hover:text-amber-600">

@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const phases = [
   { id: '武馆区', icon: Swords, color: 'text-rose-500', bg: 'bg-rose-100' },
-  { id: '梅林区', icon: Map, color: 'text-blue-500', bg: 'bg-blue-100' },
+  { id: '梅林区', icon: Map, color: 'text-sky-500', bg: 'bg-sky-100' },
   { id: '对抗区', icon: Crosshair, color: 'text-purple-500', bg: 'bg-purple-100' },
 ];
 
@@ -60,11 +60,11 @@ export const Sidebar = () => {
                 onClick={() => setActiveTree(treeId)}
                 className={`relative flex items-center gap-2 w-full p-3 rounded-xl transition-all duration-300 text-left ${
                   isTreeActive 
-                    ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20' 
+                    ? 'bg-slate-700 text-white shadow-md shadow-slate-500/20'
                     : 'text-slate-600 hover:bg-white/60 hover:text-slate-900'
                 }`}
               >
-                <Target className={`w-4 h-4 shrink-0 ${isTreeActive ? 'text-blue-100' : 'text-slate-400'}`} />
+                <Target className={`w-4 h-4 shrink-0 ${isTreeActive ? 'text-slate-100' : 'text-slate-400'}`} />
                 <span className="text-sm font-medium truncate" title={treeName}>
                   {treeName}
                 </span>

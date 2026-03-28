@@ -186,7 +186,7 @@ function App() {
   }, [isPlaying, isSimulating]);
 
   return (
-    <div className="w-screen h-screen p-4 flex flex-col relative overflow-hidden bg-cover bg-center" style={{ backgroundImage: 'radial-gradient(circle at top left, #e0eafc, #cfdef3)' }}>
+    <div className="w-screen h-screen p-4 flex flex-col relative overflow-hidden bg-slate-50">
       <Header />
       <div className="flex-1 flex overflow-hidden">
         <Sidebar />

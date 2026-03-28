@@ -1,5 +1,12 @@
 export type NodeState = 'idle' | 'running' | 'success' | 'failure';
 
+export interface NodeAttachedModifier {
+  id: string;
+  type: string;
+  label: string;
+  desc: string;
+}
+
 export interface BTNode {
   id: string;
   type: 'action' | 'condition' | 'sequence' | 'selector' | 'decorator' | 'subtree';
@@ -11,6 +18,8 @@ export interface BTNode {
   treeId?: string;
   subTreeId?: string;
   collapsed?: boolean;
+  decorators?: NodeAttachedModifier[];
+  conditions?: NodeAttachedModifier[];
 }
 
 export interface ParsedTree {

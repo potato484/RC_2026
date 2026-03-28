@@ -15,7 +15,7 @@ const actionTranslations: Record<string, { label: string, desc: string }> = {
   'CheckExitCondition': { label: '检查退出条件', desc: '判断是否已经抓满指定数量的KFS' },
   'StairDescend': { label: '下台阶', desc: '执行下台阶的控制序列' },
   'Delay': { label: '延迟等待', desc: '暂停执行一段时间' },
-  'AlwaysSuccess': { label: '始终成功', desc: '强制返回成功状态' },
+  'AlwaysSuccess': { label: '强制放行 (忽略错误)', desc: '无论如何都返回成功，通常用于忽略非致命错误' },
   'ScriptCondition': { label: '脚本条件判断', desc: '执行黑板脚本以判断条件真假' },
   'Script': { label: '执行脚本', desc: '更新黑板变量' },
   'FollowManualRobot': { label: '跟随手动机器人', desc: '使用传感器跟随前方的手动机器人' },
@@ -77,7 +77,9 @@ const translateName = (name: string, fallbackLabel: string) => {
 
   if (exactMatches[translated]) return exactMatches[translated];
 
-  translated = translated.replace(/Sequence/g, '流程');
+  translated = translated.replace(/ReactiveSequence/g, '自适应顺序流程');
+  translated = translated.replace(/ReactiveFallback/g, '自适应备选流程');
+  translated = translated.replace(/Sequence/g, '顺序流程');
   translated = translated.replace(/Seq/g, '流程');
   translated = translated.replace(/Main/g, '主流程');
   translated = translated.replace(/Entry/g, '进门');
@@ -85,6 +87,8 @@ const translateName = (name: string, fallbackLabel: string) => {
   translated = translated.replace(/Exit/g, '出门');
   translated = translated.replace(/Grab/g, '抓取');
   translated = translated.replace(/Move/g, '移动');
+  translated = translated.replace(/Init/g, '初始化');
+  translated = translated.replace(/Body/g, '主体');
   translated = translated.replace(/MF_/g, '梅林区_');
   translated = translated.replace(/Combat_/g, '对抗区_');
   translated = translated.replace(/MC_/g, '武馆区_');
@@ -96,6 +100,93 @@ const translateName = (name: string, fallbackLabel: string) => {
   
   return translated;
 };
+
+function compressTree(nodes: BTNode[], edges: { id: string; source: string; target: string }[]) {
+  let modified = true;
+  while (modified) {
+    modified = false;
+    
+    // 1. 压缩 Decorator 到其子节点
+    const decorators = nodes.filter(n => n.type === 'decorator');
+    for (const dec of decorators) {
+      const outEdgeIndex = edges.findIndex(e => e.source === dec.id);
+      if (outEdgeIndex !== -1) {
+        const outEdge = edges[outEdgeIndex];
+        const childIndex = nodes.findIndex(n => n.id === outEdge.target);
+        if (childIndex !== -1) {
+          const child = nodes[childIndex];
+          
+          if (!child.decorators) child.decorators = [];
+          child.decorators.push({
+            id: dec.id,
+            type: dec.type,
+            label: dec.label,
+            desc: dec.desc
+          });
+          
+          const inEdge = edges.find(e => e.target === dec.id);
+          if (inEdge) {
+            inEdge.target = child.id;
+          }
+          child.parentId = dec.parentId;
+          
+          nodes.splice(nodes.findIndex(n => n.id === dec.id), 1);
+          edges.splice(outEdgeIndex, 1);
+          
+          modified = true;
+          break;
+        }
+      }
+    }
+    if (modified) continue;
+
+    // 2. 压缩 Condition 到其父节点（通常是控制流节点）
+    const conditions = nodes.filter(n => n.type === 'condition');
+    for (const cond of conditions) {
+      const inEdgeIndex = edges.findIndex(e => e.target === cond.id);
+      if (inEdgeIndex !== -1) {
+        const inEdge = edges[inEdgeIndex];
+        const parentIndex = nodes.findIndex(n => n.id === inEdge.source);
+        if (parentIndex !== -1) {
+          const parent = nodes[parentIndex];
+          
+          if (!parent.conditions) parent.conditions = [];
+          // 如果条件节点上有被压缩的装饰器，也一并带过去
+          const decoratorPrefix = cond.decorators ? cond.decorators.map(d => `[${d.label}] `).join('') : '';
+          
+          parent.conditions.push({
+            id: cond.id,
+            type: cond.type,
+            label: decoratorPrefix + cond.label,
+            desc: cond.desc
+          });
+          
+          nodes.splice(nodes.findIndex(n => n.id === cond.id), 1);
+          edges.splice(inEdgeIndex, 1);
+          
+          modified = true;
+          break;
+        }
+      }
+    }
+  }
+
+  // 重新计算 siblingIndex
+  const childrenMap = new Map<string, BTNode[]>();
+  nodes.forEach(n => {
+    if (n.parentId) {
+      if (!childrenMap.has(n.parentId)) childrenMap.set(n.parentId, []);
+      childrenMap.get(n.parentId)!.push(n);
+    }
+  });
+  
+  childrenMap.forEach((children) => {
+    // 假设原本的顺序大致保留
+    children.forEach((child, index) => {
+      child.siblingIndex = index + 1;
+    });
+  });
+}
 
 export function parseBTXml(xmlString: string, mainTreeId?: string): ParsedArea {
   const parser = new DOMParser();
@@ -123,19 +214,24 @@ export function parseBTXml(xmlString: string, mainTreeId?: string): ParsedArea {
     const edges: { id: string; source: string; target: string }[] = [];
     let idCounter = 0;
 
-    function traverse(element: Element, parentId?: string, siblingIndex: number = 0) {
+    // 预先建立所有行为树定义的索引，方便子树展开时查找
+    const treeDefinitions = new Map<string, Element>();
+    treeElements.forEach(el => {
+      const id = el.getAttribute('ID');
+      if (id) treeDefinitions.set(id, el);
+    });
+
+    function traverse(element: Element, parentId?: string, siblingIndex: number = 0, subtreeScope?: string) {
       if (element.nodeType !== Node.ELEMENT_NODE) return;
       
       const tagName = element.tagName;
       if (tagName === 'BehaviorTree') {
         const children = Array.from(element.children);
-        if (children.length > 0) {
-          traverse(children[0]);
-        }
+        children.forEach((child, idx) => traverse(child, parentId, idx + 1, subtreeScope));
         return;
       }
 
-      const id = `${treeId}_node_${idCounter++}`;
+      const id = `${treeId}_${idCounter++}`; // 简化并确保 ID 唯一
       const nameAttr = element.getAttribute('name');
       const idAttr = element.getAttribute('ID');
       
@@ -149,27 +245,38 @@ export function parseBTXml(xmlString: string, mainTreeId?: string): ParsedArea {
       let rawLabel = nameAttr || idAttr || tagName;
       let fallbackActionLabel = actionTranslations[tagName]?.label || '';
       
+      const code = element.getAttribute('code');
+      if (tagName === 'Script' && code) {
+        fallbackActionLabel = translateParam(code);
+      } else if (tagName === 'ScriptCondition' && code) {
+        fallbackActionLabel = `检查: ${translateParam(code)}`;
+      }
+
       if (!fallbackActionLabel) {
-         if (type === 'sequence') fallbackActionLabel = '顺序执行';
-         else if (type === 'selector') fallbackActionLabel = '选择执行';
-         else if (type === 'subtree') fallbackActionLabel = '执行子树';
-         else if (tagName === 'RetryUntilSuccessful') fallbackActionLabel = '重试直到成功';
-         else if (tagName === 'KeepRunningUntilFailure') fallbackActionLabel = '持续运行';
-         else if (tagName === 'Inverter') fallbackActionLabel = '状态反转';
-         else if (tagName === 'ForceFailure') fallbackActionLabel = '强制失败';
+         if (tagName === 'Sequence') fallbackActionLabel = '顺序流程';
+         else if (tagName === 'ReactiveSequence') fallbackActionLabel = '自适应顺序';
+         else if (tagName === 'Fallback') fallbackActionLabel = '备选流程';
+         else if (tagName === 'ReactiveFallback') fallbackActionLabel = '自适应备选';
+         else if (tagName === 'SubTree') fallbackActionLabel = translateName(idAttr || '', idAttr || '');
+         else if (tagName === 'RetryUntilSuccessful') fallbackActionLabel = '一直重试';
+         else if (tagName === 'KeepRunningUntilFailure') fallbackActionLabel = '死循环 (直到出错)';
+         else if (tagName === 'Inverter') fallbackActionLabel = '结果取反 (非)';
+         else if (tagName === 'ForceFailure') fallbackActionLabel = '必定失败 (拦截拦截)';
          else fallbackActionLabel = '未知操作';
       }
 
       let label = translateName(rawLabel, fallbackActionLabel);
-      let desc = '';
+      if ((label === 'Sequence' || label === 'Fallback' || (idAttr && label === idAttr)) && fallbackActionLabel) {
+        label = fallbackActionLabel;
+      }
       
+      let desc = '';
       if (actionTranslations[tagName]) {
         desc = actionTranslations[tagName].desc;
-        
         const mode = element.getAttribute('mode');
         const targetName = element.getAttribute('target_name');
         const delay = element.getAttribute('delay_msec');
-        const code = element.getAttribute('code');
+        const codeAttr = element.getAttribute('code');
         const gridId = element.getAttribute('grid_id') || element.getAttribute('grid_position');
         const distance = element.getAttribute('follow_distance');
         const staticTime = element.getAttribute('static_time');
@@ -182,19 +289,13 @@ export function parseBTXml(xmlString: string, mainTreeId?: string): ParsedArea {
         if (distanceThreshold) desc += ` [距离阈值: ${distanceThreshold}米]`;
         if (delay) desc += ` [等待: ${delay}毫秒]`;
         if (staticTime) desc += ` [静止时间: ${staticTime}秒]`;
-        if (code) desc += ` [操作: ${translateParam(code)}]`;
+        if (codeAttr) desc += ` [操作: ${translateParam(codeAttr)}]`;
       } else {
-        if (type === 'sequence') { desc = '顺序节点 (从左到右依次执行所有子节点，只要有一个失败，整体就判定为失败)'; }
-        if (type === 'selector') { desc = '选择节点 (从左到右依次尝试执行子节点，只要有一个成功，整体就判定为成功)'; }
-        if (type === 'subtree') { desc = '子树节点 (跳转并执行另一个行为树的完整流程)'; }
-        if (tagName === 'KeepRunningUntilFailure') { desc = '循环节点 (不断重复执行内部的逻辑，直到某一次执行返回失败为止)'; }
-        if (tagName === 'RetryUntilSuccessful') { 
-          const attempts = element.getAttribute('num_attempts');
-          desc = `重试节点 (不断尝试执行，直到成功为止。最多允许重试 ${attempts || '无限'} 次)`; 
-        }
-        if (tagName === 'Inverter') { desc = '反转节点 (把成功的结果变成失败，把失败的结果变成成功)'; }
-        if (tagName === 'ForceFailure') { desc = '强制失败节点 (不管内部执行结果如何，最终一定返回失败)'; }
-        
+        if (tagName === 'Sequence') desc = '顺序节点 (从左到右依次执行，必须全部成功)';
+        else if (tagName === 'ReactiveSequence') desc = '自适应顺序节点 (每步都会重新检查前面已完成的步骤)';
+        else if (tagName === 'Fallback') desc = '备选方案节点 (只要有一个成功就停止)';
+        else if (tagName === 'ReactiveFallback') desc = '自适应备选节点 (持续监测高优先级条件)';
+        else if (tagName === 'SubTree') desc = `${label}`;
         if (!desc) desc = `类型为 ${tagName} 的控制节点`;
       }
 
@@ -207,25 +308,39 @@ export function parseBTXml(xmlString: string, mainTreeId?: string): ParsedArea {
         parentId,
         siblingIndex,
         treeId: treeId,
-        subTreeId: tagName === 'SubTree' ? idAttr || undefined : undefined
+        subTreeId: subtreeScope
       };
 
       nodes.push(node);
 
       if (parentId) {
-        edges.push({
-          id: `e-${parentId}-${id}`,
-          source: parentId,
-          target: id
-        });
+        edges.push({ id: `e-${parentId}-${id}`, source: parentId, target: id });
       }
 
-      Array.from(element.children).forEach((child, index) => traverse(child, id, index + 1));
-      
-      // Do NOT expand subtree inline anymore!
+      // 递归处理子节点
+      if (tagName === 'SubTree') {
+        const subId = element.getAttribute('ID');
+        const subDef = subId ? treeDefinitions.get(subId) : null;
+        if (subDef) {
+          const subName = translateName(subId || '', subId || '');
+          const subChildren = Array.from(subDef.children);
+          // 如果子树定义里只有一个顶级 Sequence/Fallback，直接展开其内容到 SubTree 节点下
+          if (subChildren.length === 1 && (subChildren[0].tagName === 'Sequence' || subChildren[0].tagName === 'Fallback')) {
+            const containerChildren = Array.from(subChildren[0].children);
+            containerChildren.forEach((child, idx) => traverse(child, id, idx + 1, subName));
+          } else {
+            subChildren.forEach((child, idx) => traverse(child, id, idx + 1, subName));
+          }
+        }
+      } else {
+        Array.from(element.children).forEach((child, idx) => traverse(child, id, idx + 1, subtreeScope));
+      }
     }
 
     traverse(treeEl);
+    
+    // 应用压缩逻辑，把装饰器和条件挂载到实际执行节点或父节点上
+    compressTree(nodes, edges);
     
     parsedTrees[treeId] = { id: treeId, name: treeName, nodes, edges };
   });
@@ -237,20 +352,34 @@ export function layoutNodes(nodes: BTNode[], edges: { id: string; source: string
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
   
-  // 优化间距：减小水平和垂直间距，让树更紧凑
-  // align: 'UL' 或者默认均可，这里使用更紧凑的配置
+  // 优化间距：调整布局参数适应横向布局 (LR = Left to Right)
   dagreGraph.setGraph({ 
-    rankdir: 'TB', 
-    nodesep: 30, // 缩小兄弟节点之间的水平间距
-    ranksep: 60, // 缩小层级之间的垂直间距
-    edgesep: 10,
+    rankdir: 'LR', // 从左到右布局
+    nodesep: 80,   // 节点间的垂直间距
+    ranksep: 160,  // 大幅拉大层级间的水平间距，给连线曲线留出呼吸空间
+    edgesep: 20,
     marginx: 20,
     marginy: 20
   });
 
+  const getNodeSize = (type: string) => {
+    switch (type) {
+      case 'sequence':
+      case 'selector':
+        return { width: 140, height: 48 };
+      case 'condition':
+      case 'decorator':
+        return { width: 180, height: 48 };
+      case 'action':
+      case 'subtree':
+      default:
+        return { width: 240, height: 80 };
+    }
+  };
+
   nodes.forEach((node) => {
-    // CustomNode dimensions are w-[240px] h-[80px]
-    dagreGraph.setNode(node.id, { width: 240, height: 80 });
+    const { width, height } = getNodeSize(node.type);
+    dagreGraph.setNode(node.id, { width, height });
   });
 
   edges.forEach((edge) => {
@@ -261,12 +390,13 @@ export function layoutNodes(nodes: BTNode[], edges: { id: string; source: string
 
   const flowNodes: FlowNode[] = nodes.map((node) => {
     const nodeWithPosition = dagreGraph.node(node.id);
+    const { width, height } = getNodeSize(node.type);
     return {
       id: node.id,
       type: 'custom',
       position: {
-        x: nodeWithPosition.x - 240 / 2,
-        y: nodeWithPosition.y - 80 / 2,
+        x: nodeWithPosition.x - width / 2,
+        y: nodeWithPosition.y - height / 2,
       },
       data: { ...node },
     };

@@ -20,7 +20,7 @@ export const RightPanel = () => {
       {/* Node Info Panel */}
       <div className="glass-panel p-4 flex-none max-h-[300px] flex flex-col">
         <h3 className="text-lg font-bold flex items-center gap-2 mb-4 text-slate-800 flex-none">
-          <Activity className="w-5 h-5 text-blue-500" />
+          <Activity className="w-5 h-5 text-slate-600" />
           节点详情
         </h3>
         
@@ -41,7 +41,7 @@ export const RightPanel = () => {
             <div className="p-3 bg-white/50 rounded-xl border border-slate-200 flex-none">
               <div className="text-sm text-slate-500 mb-1">当前状态</div>
               <div className={`font-semibold inline-flex items-center gap-2 px-2 py-1 rounded-md
-                ${activeNode.state === 'running' ? 'bg-blue-100 text-blue-700' :
+                ${activeNode.state === 'running' ? 'bg-amber-100 text-amber-700' :
                   activeNode.state === 'success' ? 'bg-emerald-100 text-emerald-700' :
                   activeNode.state === 'failure' ? 'bg-red-100 text-red-700' :
                   'bg-slate-100 text-slate-700'}`}
@@ -73,7 +73,7 @@ export const RightPanel = () => {
               <div className={`absolute -left-1.5 top-1.5 w-2.5 h-2.5 rounded-full ${
                 event.status === 'success' ? 'bg-emerald-500 ring-2 ring-emerald-200' :
                 event.status === 'warning' ? 'bg-amber-500 ring-2 ring-amber-200' :
-                'bg-blue-500 ring-2 ring-blue-200'
+                'bg-slate-500 ring-2 ring-slate-200'
               }`} />
               <div className="text-xs text-slate-400 font-mono mb-0.5">{event.time}</div>
               <div className="text-sm text-slate-700 break-words">{event.desc}</div>
@@ -104,7 +104,7 @@ export const RightPanel = () => {
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                {item.key.includes('target') ? <Target className="w-4 h-4 text-rose-500" /> : <MapPin className="w-4 h-4 text-blue-500" />}
+                {item.key.includes('target') ? <Target className="w-4 h-4 text-rose-500" /> : <MapPin className="w-4 h-4 text-slate-500" />}
                 <span className="font-bold text-emerald-600">{item.value}</span>
               </div>
               <div className="text-xs text-slate-500 mt-1">{item.desc}</div>
