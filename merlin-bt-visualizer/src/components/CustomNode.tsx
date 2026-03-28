@@ -1,6 +1,6 @@
 import { Handle, Position } from '@xyflow/react';
 import { motion } from 'framer-motion';
-import { Brain, Eye, Footprints, Hand, CheckCircle2, XCircle, Loader2, LucideIcon, ArrowRight, CornerDownRight, RotateCw, GitBranch, TerminalSquare, AlertCircle, PlayCircle, Clock } from 'lucide-react';
+import { Brain, Eye, Footprints, Hand, CheckCircle2, XCircle, Loader2, LucideIcon, ArrowRight, CornerDownRight, RotateCw, GitBranch, TerminalSquare, AlertCircle, PlayCircle, Clock, ChevronDown, ChevronRight } from 'lucide-react';
 import { BTNode } from '../types';
 
 const iconMap: Record<string, LucideIcon | Record<string, LucideIcon>> = {
@@ -52,31 +52,57 @@ export const CustomNode = ({ data }: { data: BTNode }) => {
 
   const bgColor = bgColors[data.type] || bgColors.action;
   const stateColor = stateColors[data.state] || stateColors.idle;
+  
+  // Show expand/collapse indicator for nodes that likely have children
+  const hasChildren = data.type === 'sequence' || data.type === 'selector' || data.type === 'decorator' || data.type === 'subtree';
 
   return (
     <motion.div
       animate={isRunning ? { scale: [1, 1.02, 1], transition: { repeat: Infinity, duration: 1.5 } } : { scale: 1 }}
-      className={`relative px-4 py-3 rounded-xl border-2 flex items-center gap-3 transition-all duration-300 bg-white ${stateColor} min-w-[200px]`}
+      className={`relative px-3 py-3 rounded-xl border-2 flex items-center gap-2 transition-all duration-300 bg-white ${stateColor} w-[240px] h-[80px] group cursor-pointer hover:border-blue-400`}
     >
       <Handle type="target" position={Position.Top} className="opacity-0" />
       
-      <div className={`p-2 rounded-lg ${bgColor}`}>
-        {isRunning ? <Loader2 className="w-6 h-6 animate-spin" /> : <Icon className="w-6 h-6" />}
+      {/* Sibling Index Badge for execution order */}
+      {data.siblingIndex !== undefined && data.siblingIndex > 0 && (
+        <div className="absolute -left-2 -top-2 w-5 h-5 rounded-full bg-indigo-500 text-white flex items-center justify-center text-[10px] font-bold shadow-sm z-10">
+          {data.siblingIndex}
+        </div>
+      )}
+
+      <div className={`p-2 rounded-lg ${bgColor} relative flex-none`}>
+        {isRunning ? <Loader2 className="w-5 h-5 animate-spin" /> : <Icon className="w-5 h-5" />}
       </div>
       
-      <div className="flex-1 overflow-hidden">
-        <div className="text-sm font-bold truncate" title={data.label}>{data.label}</div>
-        <div className="text-xs text-gray-500 font-mono mt-0.5 truncate" title={data.desc}>{data.desc}</div>
+      <div className="flex-1 overflow-hidden flex flex-col justify-center">
+        <div className="flex items-center justify-between gap-1">
+          <div className="text-sm font-bold truncate" title={data.label}>{data.label}</div>
+          {hasChildren && (
+            <div className="text-slate-400 bg-slate-100 rounded p-0.5 flex-none" title="双击折叠/展开">
+              {data.collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </div>
+          )}
+        </div>
+        <div className="text-[11px] text-gray-500 font-mono mt-0.5 truncate" title={data.desc}>
+          {data.collapsed ? '（已折叠）' : data.desc}
+        </div>
         
         {/* Type Badge */}
-        <div className="absolute -top-2.5 left-4 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-white shadow-sm">
+        <div className="absolute -top-2.5 right-3 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-white shadow-sm">
           {typeTranslations[data.type] || data.type}
         </div>
       </div>
 
-      <div className="absolute -top-3 -right-3">
-        {data.state === 'success' && <CheckCircle2 className="w-6 h-6 text-emerald-500 bg-white rounded-full" />}
-        {data.state === 'failure' && <XCircle className="w-6 h-6 text-red-500 bg-white rounded-full" />}
+      {/* Tooltip for scripts / details on hover */}
+      <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block w-max max-w-[250px] p-2 bg-slate-800 text-white text-xs rounded-lg shadow-xl z-50 pointer-events-none">
+        <div className="font-bold mb-1 border-b border-slate-600 pb-1">{data.label}</div>
+        <div className="whitespace-pre-wrap break-words">{data.desc || '暂无详细说明'}</div>
+        <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-slate-800"></div>
+      </div>
+
+      <div className="absolute -top-2 -right-2">
+        {data.state === 'success' && <CheckCircle2 className="w-5 h-5 text-emerald-500 bg-white rounded-full" />}
+        {data.state === 'failure' && <XCircle className="w-5 h-5 text-red-500 bg-white rounded-full" />}
       </div>
 
       <Handle type="source" position={Position.Bottom} className="opacity-0" />

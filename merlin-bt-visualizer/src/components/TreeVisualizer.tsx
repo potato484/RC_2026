@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { ReactFlow, Background, Edge, Node } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useStore } from '../store/useStore';
@@ -10,13 +10,41 @@ const nodeTypes = {
 };
 
 export const TreeVisualizer = () => {
-  const { nodes, edges, setActiveNode } = useStore();
+  const { nodes, edges, setActiveNode, toggleNodeCollapse } = useStore();
 
-  const flowNodes: Node[] = useMemo(() => {
-    return layoutNodes(nodes, edges);
+  const { visibleNodes, visibleEdges } = useMemo(() => {
+    // 找出所有被折叠的节点 ID
+    const collapsedIds = new Set<string>();
+    
+    // 递归查找所有应该被隐藏的子节点
+    const hiddenIds = new Set<string>();
+    
+    const findHidden = (parentId: string) => {
+      const childEdges = edges.filter(e => e.source === parentId);
+      childEdges.forEach(edge => {
+        hiddenIds.add(edge.target);
+        findHidden(edge.target);
+      });
+    };
+
+    nodes.forEach(node => {
+      if (node.collapsed) {
+        collapsedIds.add(node.id);
+        findHidden(node.id);
+      }
+    });
+
+    const vNodes = nodes.filter(n => !hiddenIds.has(n.id));
+    const vEdges = edges.filter(e => !hiddenIds.has(e.target));
+    
+    return { visibleNodes: vNodes, visibleEdges: vEdges };
   }, [nodes, edges]);
 
-  const flowEdges: Edge[] = useMemo(() => edges.map(edge => {
+  const flowNodes: Node[] = useMemo(() => {
+    return layoutNodes(visibleNodes, visibleEdges);
+  }, [visibleNodes, visibleEdges]);
+
+  const flowEdges: Edge[] = useMemo(() => visibleEdges.map(edge => {
     const isRunning = nodes.find(n => n.id === edge.target)?.state === 'running';
     return {
       id: edge.id,
@@ -26,7 +54,11 @@ export const TreeVisualizer = () => {
       style: { stroke: isRunning ? '#3b82f6' : '#cbd5e1', strokeWidth: 4 },
       type: 'smoothstep'
     };
-  }), [nodes, edges]);
+  }), [nodes, visibleEdges]);
+
+  const onNodeDoubleClick = useCallback((_: React.MouseEvent, node: Node) => {
+    toggleNodeCollapse(node.id);
+  }, [toggleNodeCollapse]);
 
   return (
     <div className="w-full h-full glass-panel overflow-hidden">
@@ -35,8 +67,10 @@ export const TreeVisualizer = () => {
         edges={flowEdges}
         nodeTypes={nodeTypes}
         onNodeClick={(_, node) => setActiveNode(node.id)}
+        onNodeDoubleClick={onNodeDoubleClick}
         onPaneClick={() => setActiveNode(null)}
         fitView
+        minZoom={0.1}
         className="bg-transparent"
       >
         <Background color="#cbd5e1" gap={20} size={2} />

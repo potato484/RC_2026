@@ -60,6 +60,17 @@ function App() {
         if (node.label.includes('Nav')) {
           updateBlackboard({ key: 'location', value: node.label.replace('NavTo', ''), desc: '当前位置', updatedAt: Date.now() });
         }
+        
+        // Simulate Script node updates to blackboard
+        if (node.label.includes('执行脚本') && node.desc.includes('=')) {
+           const assignments = node.desc.match(/([a-zA-Z_0-9]+):=([^;\]]+)/g);
+           if (assignments) {
+              assignments.forEach(assignment => {
+                 const [key, val] = assignment.split(':=');
+                 updateBlackboard({ key: key.trim(), value: val.trim(), desc: `脚本更新: ${node.label}`, updatedAt: Date.now() });
+              });
+           }
+        }
       } else if (node.type === 'condition') {
         result = Math.random() > 0.2 ? 'success' : 'failure';
       } else if (node.type === 'sequence') {

@@ -16,29 +16,29 @@ export const RightPanel = () => {
   const activeNode = nodes.find(n => n.id === activeNodeId);
 
   return (
-    <div className="w-[320px] ml-4 flex flex-col gap-4">
+    <div className="w-[320px] ml-4 flex flex-col gap-4 h-full overflow-hidden">
       {/* Node Info Panel */}
-      <div className="glass-panel p-4 flex-1">
-        <h3 className="text-lg font-bold flex items-center gap-2 mb-4 text-slate-800">
+      <div className="glass-panel p-4 flex-none max-h-[300px] flex flex-col">
+        <h3 className="text-lg font-bold flex items-center gap-2 mb-4 text-slate-800 flex-none">
           <Activity className="w-5 h-5 text-blue-500" />
           节点详情
         </h3>
         
         {activeNode ? (
-          <div className="space-y-4">
-            <div className="p-3 bg-white/50 rounded-xl border border-slate-200">
+          <div className="space-y-4 overflow-y-auto pr-2 custom-scrollbar flex-1 min-h-0">
+            <div className="p-3 bg-white/50 rounded-xl border border-slate-200 flex-none">
               <div className="text-sm text-slate-500 mb-1">节点名称</div>
-              <div className="font-semibold text-slate-800">{activeNode.label}</div>
+              <div className="font-semibold text-slate-800 break-all">{activeNode.label}</div>
             </div>
-            <div className="p-3 bg-white/50 rounded-xl border border-slate-200">
+            <div className="p-3 bg-white/50 rounded-xl border border-slate-200 flex-none">
               <div className="text-sm text-slate-500 mb-1">节点类型</div>
               <div className="font-semibold text-slate-800">{typeTranslations[activeNode.type] || activeNode.type}</div>
             </div>
-            <div className="p-3 bg-white/50 rounded-xl border border-slate-200">
+            <div className="p-3 bg-white/50 rounded-xl border border-slate-200 flex-none">
               <div className="text-sm text-slate-500 mb-1">节点描述</div>
               <div className="text-sm text-slate-700">{activeNode.desc}</div>
             </div>
-            <div className="p-3 bg-white/50 rounded-xl border border-slate-200">
+            <div className="p-3 bg-white/50 rounded-xl border border-slate-200 flex-none">
               <div className="text-sm text-slate-500 mb-1">当前状态</div>
               <div className={`font-semibold inline-flex items-center gap-2 px-2 py-1 rounded-md
                 ${activeNode.state === 'running' ? 'bg-blue-100 text-blue-700' :
@@ -54,7 +54,7 @@ export const RightPanel = () => {
             </div>
           </div>
         ) : (
-          <div className="h-full flex flex-col items-center justify-center text-slate-400 opacity-60">
+          <div className="h-full flex flex-col items-center justify-center text-slate-400 opacity-60 flex-1 min-h-0">
             <ListOrdered className="w-12 h-12 mb-2" />
             <p>点击左侧节点查看详情</p>
           </div>
@@ -62,12 +62,12 @@ export const RightPanel = () => {
       </div>
 
       {/* Timeline Panel */}
-      <div className="glass-panel p-4 flex-1 flex flex-col">
-        <h3 className="text-lg font-bold flex items-center gap-2 mb-4 text-slate-800">
+      <div className="glass-panel p-4 flex-1 flex flex-col min-h-0">
+        <h3 className="text-lg font-bold flex items-center gap-2 mb-4 text-slate-800 flex-none">
           <Clock className="w-5 h-5 text-indigo-500" />
           执行日志
         </h3>
-        <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar min-h-0">
           {timeline.length > 0 ? timeline.map((event: TimelineEvent) => (
             <div key={event.id} className="relative pl-4 border-l-2 border-slate-200 pb-2 last:pb-0">
               <div className={`absolute -left-1.5 top-1.5 w-2.5 h-2.5 rounded-full ${
@@ -76,7 +76,7 @@ export const RightPanel = () => {
                 'bg-blue-500 ring-2 ring-blue-200'
               }`} />
               <div className="text-xs text-slate-400 font-mono mb-0.5">{event.time}</div>
-              <div className="text-sm text-slate-700">{event.desc}</div>
+              <div className="text-sm text-slate-700 break-words">{event.desc}</div>
             </div>
           )) : (
              <div className="h-full flex flex-col items-center justify-center text-slate-400 opacity-60">
@@ -88,13 +88,13 @@ export const RightPanel = () => {
       </div>
 
       {/* Blackboard Panel */}
-      <div className="glass-panel p-4 h-[300px] flex flex-col">
-        <h3 className="text-lg font-bold flex items-center gap-2 mb-4 text-slate-800">
+      <div className="glass-panel p-4 h-[250px] flex-none flex flex-col">
+        <h3 className="text-lg font-bold flex items-center gap-2 mb-4 text-slate-800 flex-none">
           <Database className="w-5 h-5 text-emerald-500" />
           全局黑板
         </h3>
         
-        <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar min-h-0">
           {blackboard.length > 0 ? blackboard.map((item) => (
             <div key={item.key} className="p-3 bg-white/50 rounded-xl border border-slate-200 hover:border-emerald-300 transition-colors">
               <div className="flex items-center justify-between mb-1">

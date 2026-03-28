@@ -7,6 +7,16 @@ export interface BTNode {
   state: NodeState;
   desc: string;
   parentId?: string;
+  siblingIndex?: number;
+  treeId?: string;
+  subTreeId?: string;
+  collapsed?: boolean;
+}
+
+export interface ParsedTree {
+  id: string;
+  nodes: BTNode[];
+  edges: { id: string; source: string; target: string }[];
 }
 
 export interface TimelineEvent {

@@ -122,7 +122,7 @@ export function parseBTXml(xmlString: string, mainTreeId?: string): ParsedTree {
   const edges: { id: string; source: string; target: string }[] = [];
   let idCounter = 0;
 
-  function traverse(element: Element, parentId?: string) {
+  function traverse(element: Element, parentId?: string, siblingIndex: number = 0) {
     if (element.nodeType !== Node.ELEMENT_NODE) return;
     
     const tagName = element.tagName;
@@ -184,16 +184,16 @@ export function parseBTXml(xmlString: string, mainTreeId?: string): ParsedTree {
       if (staticTime) desc += ` [静止时间: ${staticTime}秒]`;
       if (code) desc += ` [操作: ${translateParam(code)}]`;
     } else {
-      if (type === 'sequence') { desc = '依次执行所有子节点，遇到失败则失败'; }
-      if (type === 'selector') { desc = '依次执行子节点，遇到成功则成功'; }
-      if (type === 'subtree') { desc = '跳转执行另一个行为树'; }
-      if (tagName === 'KeepRunningUntilFailure') { desc = '不断循环执行子节点直到其返回失败'; }
+      if (type === 'sequence') { desc = '顺序节点 (从左到右依次执行所有子节点，只要有一个失败，整体就判定为失败)'; }
+      if (type === 'selector') { desc = '选择节点 (从左到右依次尝试执行子节点，只要有一个成功，整体就判定为成功)'; }
+      if (type === 'subtree') { desc = '子树节点 (跳转并执行另一个行为树的完整流程)'; }
+      if (tagName === 'KeepRunningUntilFailure') { desc = '循环节点 (不断重复执行内部的逻辑，直到某一次执行返回失败为止)'; }
       if (tagName === 'RetryUntilSuccessful') { 
         const attempts = element.getAttribute('num_attempts');
-        desc = `最多重试 ${attempts || '无限'} 次`; 
+        desc = `重试节点 (不断尝试执行，直到成功为止。最多允许重试 ${attempts || '无限'} 次)`; 
       }
-      if (tagName === 'Inverter') { desc = '成功变失败，失败变成功'; }
-      if (tagName === 'ForceFailure') { desc = '无论子节点结果如何，都返回失败'; }
+      if (tagName === 'Inverter') { desc = '反转节点 (把成功的结果变成失败，把失败的结果变成成功)'; }
+      if (tagName === 'ForceFailure') { desc = '强制失败节点 (不管内部执行结果如何，最终一定返回失败)'; }
       
       if (!desc) desc = `类型为 ${tagName} 的控制节点`;
     }
@@ -204,7 +204,9 @@ export function parseBTXml(xmlString: string, mainTreeId?: string): ParsedTree {
       label,
       state: 'idle',
       desc,
-      parentId
+      parentId,
+      siblingIndex,
+      collapsed: type === 'subtree' // 默认折叠子树，优化观感
     };
 
     nodes.push(node);
@@ -217,7 +219,19 @@ export function parseBTXml(xmlString: string, mainTreeId?: string): ParsedTree {
       });
     }
 
-    Array.from(element.children).forEach(child => traverse(child, id));
+    // Traverse children
+    Array.from(element.children).forEach((child, index) => traverse(child, id, index + 1));
+
+    // Expand SubTree contents
+    if (tagName === 'SubTree') {
+      const subTreeId = element.getAttribute('ID');
+      if (subTreeId) {
+        const subTreeEl = trees.find(t => t.getAttribute('ID') === subTreeId);
+        if (subTreeEl) {
+          Array.from(subTreeEl.children).forEach((child, index) => traverse(child, id, index + 1));
+        }
+      }
+    }
   }
 
   traverse(targetTree);
@@ -228,11 +242,21 @@ export function parseBTXml(xmlString: string, mainTreeId?: string): ParsedTree {
 export function layoutNodes(nodes: BTNode[], edges: { id: string; source: string; target: string }[]) {
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
-  dagreGraph.setGraph({ rankdir: 'TB', nodesep: 100, ranksep: 100 });
+  
+  // 优化间距：减小水平和垂直间距，让树更紧凑
+  // align: 'UL' 或者默认均可，这里使用更紧凑的配置
+  dagreGraph.setGraph({ 
+    rankdir: 'TB', 
+    nodesep: 30, // 缩小兄弟节点之间的水平间距
+    ranksep: 60, // 缩小层级之间的垂直间距
+    edgesep: 10,
+    marginx: 20,
+    marginy: 20
+  });
 
   nodes.forEach((node) => {
-    // Estimate size based on standard CustomNode dimensions
-    dagreGraph.setNode(node.id, { width: 250, height: 100 });
+    // CustomNode dimensions are w-[240px] h-[80px]
+    dagreGraph.setNode(node.id, { width: 240, height: 80 });
   });
 
   edges.forEach((edge) => {
@@ -247,8 +271,8 @@ export function layoutNodes(nodes: BTNode[], edges: { id: string; source: string
       id: node.id,
       type: 'custom',
       position: {
-        x: nodeWithPosition.x - 250 / 2,
-        y: nodeWithPosition.y - 100 / 2,
+        x: nodeWithPosition.x - 240 / 2,
+        y: nodeWithPosition.y - 80 / 2,
       },
       data: { ...node },
     };
