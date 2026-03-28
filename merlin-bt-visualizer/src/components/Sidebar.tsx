@@ -1,7 +1,7 @@
 
-import { Swords, Map, Crosshair, Target } from 'lucide-react';
+import { Swords, Map, Crosshair, Target, FolderTree, FileJson } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 
 const phases = [
   { id: '武馆区', icon: Swords, color: 'text-rose-500', bg: 'bg-rose-100' },
@@ -47,31 +47,54 @@ export const Sidebar = () => {
         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 px-2">
           子树列表
         </h3>
-        <AnimatePresence mode="popLayout">
+        <div className="flex flex-col gap-1 w-full">
           {treeList.map((treeId) => {
-            const isTreeActive = activeTreeId === treeId;
-            const treeName = trees[treeId]?.name || treeId;
-            return (
-              <motion.button
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -10 }}
-                key={treeId}
-                onClick={() => setActiveTree(treeId)}
-                className={`relative flex items-center gap-2 w-full p-3 rounded-xl transition-all duration-300 text-left ${
-                  isTreeActive 
-                    ? 'bg-slate-700 text-white shadow-md shadow-slate-500/20'
-                    : 'text-slate-600 hover:bg-white/60 hover:text-slate-900'
-                }`}
-              >
-                <Target className={`w-4 h-4 shrink-0 ${isTreeActive ? 'text-slate-100' : 'text-slate-400'}`} />
-                <span className="text-sm font-medium truncate" title={treeName}>
-                  {treeName}
-                </span>
-              </motion.button>
-            );
+            const tree = trees[treeId];
+            if (!tree || (tree.parentTreeId && trees[tree.parentTreeId])) return null;
+
+            const renderTreeItem = (id: string, depth: number) => {
+              const currentTree = trees[id];
+              if (!currentTree) return null;
+              const isTreeActive = activeTreeId === id;
+              const treeName = currentTree.name || id;
+              
+              const childTrees = treeList.filter(childId => trees[childId]?.parentTreeId === id);
+
+              return (
+                <div key={id} className="flex flex-col w-full">
+                  <button
+                    onClick={() => setActiveTree(id)}
+                    style={{ paddingLeft: `${0.75 + depth * 1.0}rem` }}
+                    className={`relative flex items-center gap-2 w-full py-2.5 pr-3 rounded-xl transition-all duration-200 text-left ${
+                      isTreeActive 
+                        ? 'bg-slate-700 text-white shadow-md shadow-slate-500/20'
+                        : 'text-slate-600 hover:bg-white/60 hover:text-slate-900'
+                    }`}
+                  >
+                    {depth === 0 ? (
+                      <Target className={`w-4 h-4 shrink-0 ${isTreeActive ? 'text-slate-100' : 'text-slate-400'}`} />
+                    ) : childTrees.length > 0 ? (
+                      <FolderTree className={`w-3.5 h-3.5 shrink-0 ${isTreeActive ? 'text-indigo-200' : 'text-indigo-400'}`} />
+                    ) : (
+                      <FileJson className={`w-3.5 h-3.5 shrink-0 ${isTreeActive ? 'text-slate-300' : 'text-slate-400'}`} />
+                    )}
+                    <span className="text-sm font-medium truncate" title={treeName}>
+                      {treeName}
+                    </span>
+                  </button>
+                  
+                  {childTrees.length > 0 && (
+                    <div className="flex flex-col mt-0.5 relative gap-0.5">
+                      {childTrees.map(childId => renderTreeItem(childId, depth + 1))}
+                    </div>
+                  )}
+                </div>
+              );
+            };
+
+            return renderTreeItem(treeId, 0);
           })}
-        </AnimatePresence>
+        </div>
       </div>
     </div>
   );

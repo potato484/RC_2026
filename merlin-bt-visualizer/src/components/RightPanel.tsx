@@ -38,6 +38,23 @@ export const RightPanel = () => {
               <div className="text-sm text-slate-500 mb-1">节点描述</div>
               <div className="text-sm text-slate-700">{activeNode.desc}</div>
             </div>
+
+            {/* Attached Decorators */}
+            {activeNode.decorators && activeNode.decorators.length > 0 && (
+              <div className="space-y-2 flex-none">
+                <div className="text-sm text-slate-500 px-1">附加装饰器</div>
+                {activeNode.decorators.map((mod) => (
+                  <div key={mod.id} className="p-3 bg-rose-50/50 rounded-xl border border-rose-100">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-2 h-2 rounded-full bg-rose-400" />
+                      <div className="font-semibold text-rose-800 text-sm">{mod.label}</div>
+                    </div>
+                    <div className="text-xs text-rose-700/80">{mod.desc}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="p-3 bg-white/50 rounded-xl border border-slate-200 flex-none">
               <div className="text-sm text-slate-500 mb-1">当前状态</div>
               <div className={`font-semibold inline-flex items-center gap-2 px-2 py-1 rounded-md

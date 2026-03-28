@@ -9,7 +9,7 @@ export interface NodeAttachedModifier {
 
 export interface BTNode {
   id: string;
-  type: 'action' | 'condition' | 'sequence' | 'selector' | 'decorator' | 'subtree';
+  type: 'action' | 'sequence' | 'selector' | 'decorator' | 'subtree';
   label: string;
   state: NodeState;
   desc: string;
@@ -19,7 +19,6 @@ export interface BTNode {
   subTreeId?: string;
   collapsed?: boolean;
   decorators?: NodeAttachedModifier[];
-  conditions?: NodeAttachedModifier[];
 }
 
 export interface ParsedTree {
@@ -27,6 +26,7 @@ export interface ParsedTree {
   name?: string;
   nodes: BTNode[];
   edges: { id: string; source: string; target: string }[];
+  parentTreeId?: string;
 }
 
 export interface ParsedArea {

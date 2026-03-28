@@ -37,8 +37,7 @@ export const CustomNode = ({ data }: { data: BTNode }) => {
     else if (data.label.includes('抓取')) Icon = Hand;
     else if (data.label.includes('设置')) Icon = PlayCircle;
     else if (data.label.includes('延迟')) Icon = Clock;
-  } else if (data.type === 'condition') {
-    if (data.label.includes('检测') || data.label.includes('检查')) Icon = AlertCircle;
+    else if (data.label.includes('检测') || data.label.includes('检查')) Icon = AlertCircle;
   }
 
   const baseBgColor = bgColors[data.type] || bgColors.action;
@@ -48,7 +47,7 @@ export const CustomNode = ({ data }: { data: BTNode }) => {
   const isSubTreeContainer = data.type === 'subtree';
 
   const isControlFlow = data.type === 'sequence' || data.type === 'selector';
-  const isModifier = data.type === 'condition' || data.type === 'decorator';
+  const isModifier = data.type === 'decorator';
   const isAction = data.type === 'action' || data.type === 'subtree';
 
   let sizeClass = '';
@@ -65,48 +64,38 @@ export const CustomNode = ({ data }: { data: BTNode }) => {
     shapeClass = 'rounded-xl'; // 大卡片
   }
 
-  // 整理所有附加的 modifiers (decorators 和 conditions)
+  // 整理所有附加的 modifiers (decorators)
   const attachedModifiers = [];
   if (data.decorators && data.decorators.length > 0) {
     attachedModifiers.push(...data.decorators.map(d => ({ ...d, isDecorator: true })));
-  }
-  if (data.conditions && data.conditions.length > 0) {
-    attachedModifiers.push(...data.conditions.map(c => ({ ...c, isDecorator: false })));
   }
 
   return (
     <div className="relative">
       {/* 附加修饰器：横向紧凑排列，紧贴节点左上方 */}
       {attachedModifiers.length > 0 && (
-        <div className="absolute bottom-full left-0 mb-1 flex flex-wrap gap-1 w-max max-w-[300px] z-20 pointer-events-none">
+        <div className="absolute bottom-full left-0 mb-1 flex flex-wrap gap-1 w-max max-w-[320px] z-20">
           {attachedModifiers.map((mod) => (
             <div 
               key={mod.id} 
-              className={`text-[9px] px-1.5 py-0.5 rounded shadow-sm border whitespace-nowrap flex items-center gap-0.5 ${
+              className={`text-[10px] px-2 py-0.5 rounded shadow-sm border whitespace-nowrap flex items-center gap-1 cursor-pointer transition-colors ${
                 mod.isDecorator 
-                  ? 'bg-rose-50 text-rose-600 border-rose-200' 
-                  : 'bg-slate-50 text-slate-600 border-slate-200'
+                  ? 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100' 
+                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
               }`}
+              title={mod.desc}
             >
-              {mod.isDecorator ? <RotateCw className="w-2.5 h-2.5" /> : <Eye className="w-2.5 h-2.5" />}
+              {mod.isDecorator ? <RotateCw className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
               <span className="font-bold">{mod.label}</span>
             </div>
           ))}
         </div>
       )}
 
-      {/* 子树内部节点标识：如果节点属于某个子树，在左上方显示具体的流程来源 */}
-      {data.subTreeId && !isSubTreeContainer && (
-        <div className="absolute -top-2 left-2 px-1.5 py-0.5 bg-indigo-600 text-white text-[9px] rounded shadow-sm z-30 font-bold pointer-events-none border border-indigo-400">
-          来自: {data.subTreeId}
-        </div>
-      )}
-
       <motion.div
         animate={isRunning ? { scale: [1, 1.02, 1], transition: { repeat: Infinity, duration: 1.5 } } : { scale: 1 }}
-        className={`relative border-2 flex items-center transition-all duration-300 bg-white cursor-pointer hover:border-slate-400 ${sizeClass} ${shapeClass} ${stateColor} ${
-          data.subTreeId && !isSubTreeContainer ? 'bg-indigo-50/50' : ''
-        }`}
+        className={`relative border-2 flex items-center transition-all duration-300 bg-white cursor-pointer hover:border-slate-400 ${sizeClass} ${shapeClass} ${stateColor}`}
+        title={data.subTreeId && !isSubTreeContainer ? `来自子树: ${data.subTreeId}` : undefined}
       >
         <Handle type="target" position={Position.Left} className="opacity-0" />
         

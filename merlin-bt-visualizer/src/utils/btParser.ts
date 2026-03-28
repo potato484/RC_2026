@@ -15,7 +15,7 @@ const actionTranslations: Record<string, { label: string, desc: string }> = {
   'CheckExitCondition': { label: '检查退出条件', desc: '判断是否已经抓满指定数量的KFS' },
   'StairDescend': { label: '下台阶', desc: '执行下台阶的控制序列' },
   'Delay': { label: '延迟等待', desc: '暂停执行一段时间' },
-  'AlwaysSuccess': { label: '强制放行 (忽略错误)', desc: '无论如何都返回成功，通常用于忽略非致命错误' },
+  'AlwaysSuccess': { label: '始终返回成功', desc: '无论如何都返回成功，通常用于忽略非致命错误' },
   'ScriptCondition': { label: '脚本条件判断', desc: '执行黑板脚本以判断条件真假' },
   'Script': { label: '执行脚本', desc: '更新黑板变量' },
   'FollowManualRobot': { label: '跟随手动机器人', desc: '使用传感器跟随前方的手动机器人' },
@@ -120,7 +120,7 @@ function compressTree(nodes: BTNode[], edges: { id: string; source: string; targ
           child.decorators.push({
             id: dec.id,
             type: dec.type,
-            label: dec.label,
+            label: dec.label, // 这里的 label 已经是 traverse 中生成的包含参数的 label
             desc: dec.desc
           });
           
@@ -132,37 +132,6 @@ function compressTree(nodes: BTNode[], edges: { id: string; source: string; targ
           
           nodes.splice(nodes.findIndex(n => n.id === dec.id), 1);
           edges.splice(outEdgeIndex, 1);
-          
-          modified = true;
-          break;
-        }
-      }
-    }
-    if (modified) continue;
-
-    // 2. 压缩 Condition 到其父节点（通常是控制流节点）
-    const conditions = nodes.filter(n => n.type === 'condition');
-    for (const cond of conditions) {
-      const inEdgeIndex = edges.findIndex(e => e.target === cond.id);
-      if (inEdgeIndex !== -1) {
-        const inEdge = edges[inEdgeIndex];
-        const parentIndex = nodes.findIndex(n => n.id === inEdge.source);
-        if (parentIndex !== -1) {
-          const parent = nodes[parentIndex];
-          
-          if (!parent.conditions) parent.conditions = [];
-          // 如果条件节点上有被压缩的装饰器，也一并带过去
-          const decoratorPrefix = cond.decorators ? cond.decorators.map(d => `[${d.label}] `).join('') : '';
-          
-          parent.conditions.push({
-            id: cond.id,
-            type: cond.type,
-            label: decoratorPrefix + cond.label,
-            desc: cond.desc
-          });
-          
-          nodes.splice(nodes.findIndex(n => n.id === cond.id), 1);
-          edges.splice(inEdgeIndex, 1);
           
           modified = true;
           break;
@@ -206,6 +175,19 @@ export function parseBTXml(xmlString: string, mainTreeId?: string): ParsedArea {
     targetMainTreeId = firstTreeId || 'unknown';
   }
 
+  // 计算树之间的父子关系
+  const treeHierarchy = new Map<string, string>(); // childId -> parentId
+  treeElements.forEach(treeEl => {
+    const parentId = treeEl.getAttribute('ID') || 'unknown';
+    const subTrees = Array.from(treeEl.querySelectorAll('SubTree'));
+    subTrees.forEach(sub => {
+      const childId = sub.getAttribute('ID');
+      if (childId) {
+        treeHierarchy.set(childId, parentId);
+      }
+    });
+  });
+
   treeElements.forEach((treeEl) => {
     const treeId = treeEl.getAttribute('ID') || 'unknown';
     const treeNameAttr = treeEl.getAttribute('name') || treeId;
@@ -240,7 +222,6 @@ export function parseBTXml(xmlString: string, mainTreeId?: string): ParsedArea {
       else if (['Fallback', 'ReactiveFallback'].includes(tagName)) type = 'selector';
       else if (['Inverter', 'ForceSuccess', 'ForceFailure', 'Repeat', 'RetryUntilSuccessful', 'KeepRunningUntilFailure', 'Delay'].includes(tagName)) type = 'decorator';
       else if (tagName === 'SubTree') type = 'subtree';
-      else if (tagName.includes('Condition') || tagName.startsWith('Check')) type = 'condition';
 
       let rawLabel = nameAttr || idAttr || tagName;
       let fallbackActionLabel = actionTranslations[tagName]?.label || '';
@@ -260,8 +241,8 @@ export function parseBTXml(xmlString: string, mainTreeId?: string): ParsedArea {
          else if (tagName === 'SubTree') fallbackActionLabel = translateName(idAttr || '', idAttr || '');
          else if (tagName === 'RetryUntilSuccessful') fallbackActionLabel = '一直重试';
          else if (tagName === 'KeepRunningUntilFailure') fallbackActionLabel = '死循环 (直到出错)';
-         else if (tagName === 'Inverter') fallbackActionLabel = '结果取反 (非)';
-         else if (tagName === 'ForceFailure') fallbackActionLabel = '必定失败 (拦截拦截)';
+         else if (tagName === 'Inverter') fallbackActionLabel = '条件取反 (不满足时成功)';
+         else if (tagName === 'ForceFailure') fallbackActionLabel = '必定失败';
          else fallbackActionLabel = '未知操作';
       }
 
@@ -273,30 +254,64 @@ export function parseBTXml(xmlString: string, mainTreeId?: string): ParsedArea {
       let desc = '';
       if (actionTranslations[tagName]) {
         desc = actionTranslations[tagName].desc;
-        const mode = element.getAttribute('mode');
-        const targetName = element.getAttribute('target_name');
-        const delay = element.getAttribute('delay_msec');
-        const codeAttr = element.getAttribute('code');
-        const gridId = element.getAttribute('grid_id') || element.getAttribute('grid_position');
-        const distance = element.getAttribute('follow_distance');
-        const staticTime = element.getAttribute('static_time');
-        const distanceThreshold = element.getAttribute('distance_threshold');
-        
-        if (mode) desc += ` [模式: ${translateParam(mode)}]`;
-        if (targetName) desc += ` [目标: ${translateParam(targetName)}]`;
-        if (gridId) desc += ` [目标格: ${translateParam(gridId)}]`;
-        if (distance) desc += ` [距离: ${distance}米]`;
-        if (distanceThreshold) desc += ` [距离阈值: ${distanceThreshold}米]`;
-        if (delay) desc += ` [等待: ${delay}毫秒]`;
-        if (staticTime) desc += ` [静止时间: ${staticTime}秒]`;
-        if (codeAttr) desc += ` [操作: ${translateParam(codeAttr)}]`;
       } else {
         if (tagName === 'Sequence') desc = '顺序节点 (从左到右依次执行，必须全部成功)';
         else if (tagName === 'ReactiveSequence') desc = '自适应顺序节点 (每步都会重新检查前面已完成的步骤)';
         else if (tagName === 'Fallback') desc = '备选方案节点 (只要有一个成功就停止)';
         else if (tagName === 'ReactiveFallback') desc = '自适应备选节点 (持续监测高优先级条件)';
         else if (tagName === 'SubTree') desc = `${label}`;
+        else if (tagName === 'RetryUntilSuccessful') desc = '一直重试直到子节点返回成功';
+        else if (tagName === 'KeepRunningUntilFailure') desc = '循环执行直到子节点返回失败';
+        else if (tagName === 'Inverter') desc = '将子节点的结果取反';
+        else if (tagName === 'Delay') desc = '在执行子节点前进行延迟';
+        else if (tagName === 'Repeat') desc = '重复执行子节点指定次数';
         if (!desc) desc = `类型为 ${tagName} 的控制节点`;
+      }
+
+      // 提取所有属性并增强描述与标签
+      const details: string[] = [];
+      const attributeMap: Record<string, string> = {};
+      
+      // 使用最可靠的 NamedNodeMap 遍历方式，并统一转为小写处理
+      const attrMap = element.attributes;
+      for (let i = 0; i < attrMap.length; i++) {
+        const attr = attrMap[i];
+        if (attr) {
+          attributeMap[attr.name.toLowerCase()] = attr.value;
+        }
+      }
+
+      // 明确检查所有可能的属性名称（不区分大小写）
+      const possibleAttrs = [
+        { keys: ['delay_msec', 'delay'], label: '时长', unit: 'ms' },
+        { keys: ['num_attempts', 'attempts'], label: '重试', unit: '次' },
+        { keys: ['count', 'num_cycles', 'num_attempts'], label: '次数', unit: '次' },
+        { keys: ['mode'], label: '模式', unit: '' },
+        { keys: ['target_name', 'target'], label: '目标', unit: '' },
+        { keys: ['grid_id', 'grid_position', 'grid'], label: '目标格', unit: '' },
+        { keys: ['follow_distance', 'distance'], label: '距离', unit: '米' },
+        { keys: ['distance_threshold', 'threshold'], label: '阈值', unit: '米' },
+        { keys: ['static_time'], label: '静止', unit: 's' },
+        { keys: ['code'], label: '代码', unit: '' }
+      ];
+
+      possibleAttrs.forEach(config => {
+        for (const key of config.keys) {
+          const val = attributeMap[key.toLowerCase()];
+          if (val !== undefined && val !== null) {
+            let translatedValue = translateParam(val);
+            if (config.unit) translatedValue += config.unit;
+            details.push(`${config.label}: ${translatedValue}`);
+            break; 
+          }
+        }
+      });
+
+      if (details.length > 0) {
+        const detailsStr = ` (${details.join(', ')})`;
+        desc += ` [${details.join(', ')}]`;
+        // 强制追加到 label 后面，确保在画布上可见
+        label += detailsStr;
       }
 
       const node: BTNode = {
@@ -342,7 +357,13 @@ export function parseBTXml(xmlString: string, mainTreeId?: string): ParsedArea {
     // 应用压缩逻辑，把装饰器和条件挂载到实际执行节点或父节点上
     compressTree(nodes, edges);
     
-    parsedTrees[treeId] = { id: treeId, name: treeName, nodes, edges };
+    parsedTrees[treeId] = { 
+      id: treeId, 
+      name: treeName, 
+      nodes, 
+      edges,
+      parentTreeId: treeHierarchy.get(treeId)
+    };
   });
 
   return { mainTreeId: targetMainTreeId, trees: parsedTrees };
@@ -367,7 +388,6 @@ export function layoutNodes(nodes: BTNode[], edges: { id: string; source: string
       case 'sequence':
       case 'selector':
         return { width: 140, height: 48 };
-      case 'condition':
       case 'decorator':
         return { width: 180, height: 48 };
       case 'action':
@@ -378,8 +398,10 @@ export function layoutNodes(nodes: BTNode[], edges: { id: string; source: string
   };
 
   nodes.forEach((node) => {
-    const { width, height } = getNodeSize(node.type);
-    dagreGraph.setNode(node.id, { width, height });
+    const { height } = getNodeSize(node.type);
+    // 使用统一的最大宽度 (240) 让 dagre 计算布局，
+    // 这样在同一层级的节点会基于同一个中心点对齐，从而保证左边缘完全对齐
+    dagreGraph.setNode(node.id, { width: 240, height });
   });
 
   edges.forEach((edge) => {
@@ -390,12 +412,13 @@ export function layoutNodes(nodes: BTNode[], edges: { id: string; source: string
 
   const flowNodes: FlowNode[] = nodes.map((node) => {
     const nodeWithPosition = dagreGraph.node(node.id);
-    const { width, height } = getNodeSize(node.type);
+    const { height } = getNodeSize(node.type);
     return {
       id: node.id,
       type: 'custom',
       position: {
-        x: nodeWithPosition.x - width / 2,
+        // 强制所有节点基于统一的 240 宽度来计算左边界，实现同层级节点严格左对齐
+        x: nodeWithPosition.x - 120,
         y: nodeWithPosition.y - height / 2,
       },
       data: { ...node },

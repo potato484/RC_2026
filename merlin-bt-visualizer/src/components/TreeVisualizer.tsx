@@ -52,6 +52,7 @@ export const TreeVisualizer = () => {
       source: edge.source,
       target: edge.target,
       animated: isRunning,
+      type: 'smoothstep',
       style: { stroke: isRunning ? '#f59e0b' : '#94a3b8', strokeWidth: isRunning ? 3 : 2 },
       markerEnd: {
         type: MarkerType.ArrowClosed,

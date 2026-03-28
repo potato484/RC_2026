@@ -34,9 +34,7 @@ function App() {
 
       // We need to look up the node from the trees map because it might not be in the current active `nodes`
       const tree = useStore.getState().trees[currentTreeId];
-      if (!tree) return 'failure';
-      
-      const node = tree.nodes.find(n => n.id === nodeId);
+      const node = nodes.find(n => n.id === nodeId);
       if (!node) return 'failure';
 
       // Optionally auto-switch view to the tree currently executing (if you want the visualizer to follow execution)
@@ -80,8 +78,6 @@ function App() {
               });
            }
         }
-      } else if (node.type === 'condition') {
-        result = Math.random() > 0.2 ? 'success' : 'failure';
       } else if (node.type === 'sequence') {
         for (const childId of childrenIds) {
           const childResult = await executeNode(childId, currentTreeId);
