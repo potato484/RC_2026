@@ -9,7 +9,7 @@ __pycache__/
 Log/
 方案/
 AGENTS.md
-
+.windsurf
 # Project-local ROS bag captures
 /rosbags/*
 !/rosbags/README.md

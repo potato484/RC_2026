@@ -1,11 +1,6 @@
 import type { Node as FlowNode } from '@xyflow/react';
 import dagre from 'dagre';
-import { BTNode } from '../types';
-
-export interface ParsedTree {
-  nodes: BTNode[];
-  edges: { id: string; source: string; target: string }[];
-}
+import { BTNode, ParsedTree, ParsedArea } from '../types';
 
 const actionTranslations: Record<string, { label: string, desc: string }> = {
   'NavToSmartPoint': { label: '导航到点', desc: '控制底盘移动到指定的预设智能点' },
@@ -102,141 +97,140 @@ const translateName = (name: string, fallbackLabel: string) => {
   return translated;
 };
 
-export function parseBTXml(xmlString: string, mainTreeId?: string): ParsedTree {
+export function parseBTXml(xmlString: string, mainTreeId?: string): ParsedArea {
   const parser = new DOMParser();
   const xmlDoc = parser.parseFromString(xmlString, 'text/xml');
   const rootElement = xmlDoc.querySelector('root');
   
   if (!rootElement) throw new Error('Invalid BT XML');
 
-  const trees = Array.from(rootElement.querySelectorAll('BehaviorTree'));
-  if (trees.length === 0) return { nodes: [], edges: [] };
+  const treeElements = Array.from(rootElement.querySelectorAll('BehaviorTree'));
+  if (treeElements.length === 0) return { mainTreeId: '', trees: {} };
 
-  const targetTree = mainTreeId 
-    ? trees.find(t => t.getAttribute('ID') === mainTreeId) 
-    : trees[0];
-
-  if (!targetTree) return { nodes: [], edges: [] };
-
-  const nodes: BTNode[] = [];
-  const edges: { id: string; source: string; target: string }[] = [];
-  let idCounter = 0;
-
-  function traverse(element: Element, parentId?: string, siblingIndex: number = 0) {
-    if (element.nodeType !== Node.ELEMENT_NODE) return;
-    
-    const tagName = element.tagName;
-    if (tagName === 'BehaviorTree') {
-      const children = Array.from(element.children);
-      if (children.length > 0) {
-        traverse(children[0]);
-      }
-      return;
-    }
-
-    const id = `node_${idCounter++}`;
-    const nameAttr = element.getAttribute('name');
-    const idAttr = element.getAttribute('ID');
-    
-    let type: BTNode['type'] = 'action';
-    if (['Sequence', 'ReactiveSequence'].includes(tagName)) type = 'sequence';
-    else if (['Fallback', 'ReactiveFallback'].includes(tagName)) type = 'selector';
-    else if (['Inverter', 'ForceSuccess', 'ForceFailure', 'Repeat', 'RetryUntilSuccessful', 'KeepRunningUntilFailure', 'Delay'].includes(tagName)) type = 'decorator';
-    else if (tagName === 'SubTree') type = 'subtree';
-    else if (tagName.includes('Condition') || tagName.startsWith('Check')) type = 'condition';
-
-    let rawLabel = nameAttr || idAttr || tagName;
-    let fallbackActionLabel = actionTranslations[tagName]?.label || '';
-    
-    // Use type names as ultimate fallback
-    if (!fallbackActionLabel) {
-       if (type === 'sequence') fallbackActionLabel = '顺序执行';
-       else if (type === 'selector') fallbackActionLabel = '选择执行';
-       else if (type === 'subtree') fallbackActionLabel = '执行子树';
-       else if (tagName === 'RetryUntilSuccessful') fallbackActionLabel = '重试直到成功';
-       else if (tagName === 'KeepRunningUntilFailure') fallbackActionLabel = '持续运行';
-       else if (tagName === 'Inverter') fallbackActionLabel = '状态反转';
-       else if (tagName === 'ForceFailure') fallbackActionLabel = '强制失败';
-       else fallbackActionLabel = '未知操作';
-    }
-
-    let label = translateName(rawLabel, fallbackActionLabel);
-    let desc = '';
-    
-    if (actionTranslations[tagName]) {
-      desc = actionTranslations[tagName].desc;
-      
-      const mode = element.getAttribute('mode');
-      const targetName = element.getAttribute('target_name');
-      const delay = element.getAttribute('delay_msec');
-      const code = element.getAttribute('code');
-      const gridId = element.getAttribute('grid_id') || element.getAttribute('grid_position');
-      const distance = element.getAttribute('follow_distance');
-      const staticTime = element.getAttribute('static_time');
-      const distanceThreshold = element.getAttribute('distance_threshold');
-      
-      if (mode) desc += ` [模式: ${translateParam(mode)}]`;
-      if (targetName) desc += ` [目标: ${translateParam(targetName)}]`;
-      if (gridId) desc += ` [目标格: ${translateParam(gridId)}]`;
-      if (distance) desc += ` [距离: ${distance}米]`;
-      if (distanceThreshold) desc += ` [距离阈值: ${distanceThreshold}米]`;
-      if (delay) desc += ` [等待: ${delay}毫秒]`;
-      if (staticTime) desc += ` [静止时间: ${staticTime}秒]`;
-      if (code) desc += ` [操作: ${translateParam(code)}]`;
-    } else {
-      if (type === 'sequence') { desc = '顺序节点 (从左到右依次执行所有子节点，只要有一个失败，整体就判定为失败)'; }
-      if (type === 'selector') { desc = '选择节点 (从左到右依次尝试执行子节点，只要有一个成功，整体就判定为成功)'; }
-      if (type === 'subtree') { desc = '子树节点 (跳转并执行另一个行为树的完整流程)'; }
-      if (tagName === 'KeepRunningUntilFailure') { desc = '循环节点 (不断重复执行内部的逻辑，直到某一次执行返回失败为止)'; }
-      if (tagName === 'RetryUntilSuccessful') { 
-        const attempts = element.getAttribute('num_attempts');
-        desc = `重试节点 (不断尝试执行，直到成功为止。最多允许重试 ${attempts || '无限'} 次)`; 
-      }
-      if (tagName === 'Inverter') { desc = '反转节点 (把成功的结果变成失败，把失败的结果变成成功)'; }
-      if (tagName === 'ForceFailure') { desc = '强制失败节点 (不管内部执行结果如何，最终一定返回失败)'; }
-      
-      if (!desc) desc = `类型为 ${tagName} 的控制节点`;
-    }
-
-    const node: BTNode = {
-      id,
-      type,
-      label,
-      state: 'idle',
-      desc,
-      parentId,
-      siblingIndex,
-      collapsed: type === 'subtree' // 默认折叠子树，优化观感
-    };
-
-    nodes.push(node);
-
-    if (parentId) {
-      edges.push({
-        id: `e-${parentId}-${id}`,
-        source: parentId,
-        target: id
-      });
-    }
-
-    // Traverse children
-    Array.from(element.children).forEach((child, index) => traverse(child, id, index + 1));
-
-    // Expand SubTree contents
-    if (tagName === 'SubTree') {
-      const subTreeId = element.getAttribute('ID');
-      if (subTreeId) {
-        const subTreeEl = trees.find(t => t.getAttribute('ID') === subTreeId);
-        if (subTreeEl) {
-          Array.from(subTreeEl.children).forEach((child, index) => traverse(child, id, index + 1));
-        }
-      }
-    }
+  const parsedTrees: Record<string, ParsedTree> = {};
+  
+  let targetMainTreeId = mainTreeId;
+  if (!targetMainTreeId) {
+    const firstTreeId = treeElements[0].getAttribute('ID');
+    targetMainTreeId = firstTreeId || 'unknown';
   }
 
-  traverse(targetTree);
+  treeElements.forEach((treeEl) => {
+    const treeId = treeEl.getAttribute('ID') || 'unknown';
+    const treeNameAttr = treeEl.getAttribute('name') || treeId;
+    const treeName = translateName(treeNameAttr, treeNameAttr);
+    const nodes: BTNode[] = [];
+    const edges: { id: string; source: string; target: string }[] = [];
+    let idCounter = 0;
 
-  return { nodes, edges };
+    function traverse(element: Element, parentId?: string, siblingIndex: number = 0) {
+      if (element.nodeType !== Node.ELEMENT_NODE) return;
+      
+      const tagName = element.tagName;
+      if (tagName === 'BehaviorTree') {
+        const children = Array.from(element.children);
+        if (children.length > 0) {
+          traverse(children[0]);
+        }
+        return;
+      }
+
+      const id = `${treeId}_node_${idCounter++}`;
+      const nameAttr = element.getAttribute('name');
+      const idAttr = element.getAttribute('ID');
+      
+      let type: BTNode['type'] = 'action';
+      if (['Sequence', 'ReactiveSequence'].includes(tagName)) type = 'sequence';
+      else if (['Fallback', 'ReactiveFallback'].includes(tagName)) type = 'selector';
+      else if (['Inverter', 'ForceSuccess', 'ForceFailure', 'Repeat', 'RetryUntilSuccessful', 'KeepRunningUntilFailure', 'Delay'].includes(tagName)) type = 'decorator';
+      else if (tagName === 'SubTree') type = 'subtree';
+      else if (tagName.includes('Condition') || tagName.startsWith('Check')) type = 'condition';
+
+      let rawLabel = nameAttr || idAttr || tagName;
+      let fallbackActionLabel = actionTranslations[tagName]?.label || '';
+      
+      if (!fallbackActionLabel) {
+         if (type === 'sequence') fallbackActionLabel = '顺序执行';
+         else if (type === 'selector') fallbackActionLabel = '选择执行';
+         else if (type === 'subtree') fallbackActionLabel = '执行子树';
+         else if (tagName === 'RetryUntilSuccessful') fallbackActionLabel = '重试直到成功';
+         else if (tagName === 'KeepRunningUntilFailure') fallbackActionLabel = '持续运行';
+         else if (tagName === 'Inverter') fallbackActionLabel = '状态反转';
+         else if (tagName === 'ForceFailure') fallbackActionLabel = '强制失败';
+         else fallbackActionLabel = '未知操作';
+      }
+
+      let label = translateName(rawLabel, fallbackActionLabel);
+      let desc = '';
+      
+      if (actionTranslations[tagName]) {
+        desc = actionTranslations[tagName].desc;
+        
+        const mode = element.getAttribute('mode');
+        const targetName = element.getAttribute('target_name');
+        const delay = element.getAttribute('delay_msec');
+        const code = element.getAttribute('code');
+        const gridId = element.getAttribute('grid_id') || element.getAttribute('grid_position');
+        const distance = element.getAttribute('follow_distance');
+        const staticTime = element.getAttribute('static_time');
+        const distanceThreshold = element.getAttribute('distance_threshold');
+        
+        if (mode) desc += ` [模式: ${translateParam(mode)}]`;
+        if (targetName) desc += ` [目标: ${translateParam(targetName)}]`;
+        if (gridId) desc += ` [目标格: ${translateParam(gridId)}]`;
+        if (distance) desc += ` [距离: ${distance}米]`;
+        if (distanceThreshold) desc += ` [距离阈值: ${distanceThreshold}米]`;
+        if (delay) desc += ` [等待: ${delay}毫秒]`;
+        if (staticTime) desc += ` [静止时间: ${staticTime}秒]`;
+        if (code) desc += ` [操作: ${translateParam(code)}]`;
+      } else {
+        if (type === 'sequence') { desc = '顺序节点 (从左到右依次执行所有子节点，只要有一个失败，整体就判定为失败)'; }
+        if (type === 'selector') { desc = '选择节点 (从左到右依次尝试执行子节点，只要有一个成功，整体就判定为成功)'; }
+        if (type === 'subtree') { desc = '子树节点 (跳转并执行另一个行为树的完整流程)'; }
+        if (tagName === 'KeepRunningUntilFailure') { desc = '循环节点 (不断重复执行内部的逻辑，直到某一次执行返回失败为止)'; }
+        if (tagName === 'RetryUntilSuccessful') { 
+          const attempts = element.getAttribute('num_attempts');
+          desc = `重试节点 (不断尝试执行，直到成功为止。最多允许重试 ${attempts || '无限'} 次)`; 
+        }
+        if (tagName === 'Inverter') { desc = '反转节点 (把成功的结果变成失败，把失败的结果变成成功)'; }
+        if (tagName === 'ForceFailure') { desc = '强制失败节点 (不管内部执行结果如何，最终一定返回失败)'; }
+        
+        if (!desc) desc = `类型为 ${tagName} 的控制节点`;
+      }
+
+      const node: BTNode = {
+        id,
+        type,
+        label,
+        state: 'idle',
+        desc,
+        parentId,
+        siblingIndex,
+        treeId: treeId,
+        subTreeId: tagName === 'SubTree' ? idAttr || undefined : undefined
+      };
+
+      nodes.push(node);
+
+      if (parentId) {
+        edges.push({
+          id: `e-${parentId}-${id}`,
+          source: parentId,
+          target: id
+        });
+      }
+
+      Array.from(element.children).forEach((child, index) => traverse(child, id, index + 1));
+      
+      // Do NOT expand subtree inline anymore!
+    }
+
+    traverse(treeEl);
+    
+    parsedTrees[treeId] = { id: treeId, name: treeName, nodes, edges };
+  });
+
+  return { mainTreeId: targetMainTreeId, trees: parsedTrees };
 }
 
 export function layoutNodes(nodes: BTNode[], edges: { id: string; source: string; target: string }[]) {

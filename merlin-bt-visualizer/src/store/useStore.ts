@@ -1,20 +1,13 @@
-/*
- * @Author: potato484 2220362462@qq.com
- * @Date: 2026-03-27 23:39:44
- * @LastEditors: potato484 2220362462@qq.com
- * @LastEditTime: 2026-03-28 11:07:57
- * @FilePath: /RC_2026/merlin-bt-visualizer/src/store/useStore.ts
- * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
- */
+
 import { create } from 'zustand';
-import { BTNode, TimelineEvent, BlackboardItem } from '../types';
+import { BTNode, TimelineEvent, BlackboardItem, ParsedArea, ParsedTree } from '../types';
 import { parseBTXml } from '../utils/btParser';
 import mfTreeXml from '../../../src/rc26_decision/behavior_trees/mf_tree.xml?raw';
 import combatTreeXml from '../../../src/rc26_decision/behavior_trees/combat_tree.xml?raw';
 import mcTreeXml from '../../../src/rc26_decision/behavior_trees/mc_tree.xml?raw';
 
 // Parse initial trees
-const trees = {
+const areas: Record<'梅林区' | '武馆区' | '对抗区', ParsedArea> = {
   '梅林区': parseBTXml(mfTreeXml),
   '武馆区': parseBTXml(mcTreeXml),
   '对抗区': parseBTXml(combatTreeXml),
@@ -24,6 +17,8 @@ interface AppState {
   isSimulating: boolean;
   isPlaying: boolean;
   activePhase: '武馆区' | '梅林区' | '对抗区';
+  activeTreeId: string;
+  trees: Record<string, ParsedTree>;
   nodes: BTNode[];
   edges: { id: string; source: string; target: string }[];
   activeNodeId: string | null;
@@ -33,6 +28,7 @@ interface AppState {
   toggleSimulate: () => void;
   togglePlay: () => void;
   setActivePhase: (phase: '武馆区' | '梅林区' | '对抗区') => void;
+  setActiveTree: (treeId: string) => void;
   setActiveNode: (id: string | null) => void;
   addTimelineEvent: (event: TimelineEvent) => void;
   updateBlackboard: (item: BlackboardItem) => void;
@@ -41,49 +37,140 @@ interface AppState {
   resetTreeState: () => void;
 }
 
-export const useStore = create<AppState>((set) => ({
-  isSimulating: true,
-  isPlaying: false,
-  activePhase: '梅林区',
-  nodes: trees['梅林区'].nodes,
-  edges: trees['梅林区'].edges,
-  activeNodeId: null,
-  timeline: [],
-  blackboard: [],
+export const useStore = create<AppState>((set) => {
+  const initialPhase = '梅林区';
+  const initialArea = areas[initialPhase];
+  const initialTreeId = initialArea.mainTreeId || Object.keys(initialArea.trees)[0];
+  const initialTree = initialArea.trees[initialTreeId] || { nodes: [], edges: [] };
 
-  toggleSimulate: () => set((state) => ({ isSimulating: !state.isSimulating })),
-  togglePlay: () => set((state) => ({ isPlaying: !state.isPlaying })),
-  setActivePhase: (phase) => set((state) => {
-    if (state.activePhase === phase) return {};
-    return { 
-      activePhase: phase,
-      nodes: trees[phase].nodes,
-      edges: trees[phase].edges,
-      isPlaying: false,
-      timeline: [],
-      blackboard: []
-    };
-  }),
-  setActiveNode: (id) => set({ activeNodeId: id }),
-  addTimelineEvent: (event) => set((state) => ({ 
-    timeline: [event, ...state.timeline].slice(0, 50) 
-  })),
-  updateBlackboard: (item) => set((state) => {
-    const exists = state.blackboard.findIndex(i => i.key === item.key);
-    let newBb = [...state.blackboard];
-    if (exists >= 0) newBb[exists] = item;
-    else newBb = [item, ...newBb];
-    return { blackboard: newBb.slice(0, 10) };
-  }),
-  updateNodeState: (id, nodeState) => set((state) => ({
-    nodes: state.nodes.map(n => n.id === id ? { ...n, state: nodeState } : n)
-  })),
-  toggleNodeCollapse: (id) => set((state) => ({
-    nodes: state.nodes.map(n => n.id === id ? { ...n, collapsed: !n.collapsed } : n)
-  })),
-  resetTreeState: () => set((state) => ({
-    nodes: state.nodes.map(n => ({ ...n, state: 'idle' as const })),
+  return {
+    isSimulating: true,
+    isPlaying: false,
+    activePhase: initialPhase,
+    activeTreeId: initialTreeId,
+    trees: initialArea.trees,
+    nodes: initialTree.nodes,
+    edges: initialTree.edges,
     activeNodeId: null,
-    isPlaying: false
-  }))
-}));
+    timeline: [],
+    blackboard: [],
+
+    toggleSimulate: () => set((state) => ({ isSimulating: !state.isSimulating })),
+    togglePlay: () => set((state) => ({ isPlaying: !state.isPlaying })),
+    
+    setActivePhase: (phase) => set((state) => {
+      if (state.activePhase === phase) return {};
+      const area = areas[phase];
+      const treeId = area.mainTreeId || Object.keys(area.trees)[0];
+      const tree = area.trees[treeId] || { nodes: [], edges: [] };
+      return { 
+        activePhase: phase,
+        activeTreeId: treeId,
+        trees: area.trees,
+        nodes: tree.nodes,
+        edges: tree.edges,
+        isPlaying: false,
+        timeline: [],
+        blackboard: []
+      };
+    }),
+
+    setActiveTree: (treeId) => set((state) => {
+      if (state.activeTreeId === treeId) return {};
+      const tree = state.trees[treeId];
+      if (!tree) return {};
+      return {
+        activeTreeId: treeId,
+        nodes: tree.nodes,
+        edges: tree.edges,
+        activeNodeId: null
+      };
+    }),
+
+    setActiveNode: (id) => set({ activeNodeId: id }),
+    
+    addTimelineEvent: (event) => set((state) => ({ 
+      timeline: [event, ...state.timeline].slice(0, 50) 
+    })),
+    
+    updateBlackboard: (item) => set((state) => {
+      const exists = state.blackboard.findIndex(i => i.key === item.key);
+      let newBb = [...state.blackboard];
+      if (exists >= 0) newBb[exists] = item;
+      else newBb = [item, ...newBb];
+      return { blackboard: newBb.slice(0, 10) };
+    }),
+    
+    updateNodeState: (id, nodeState) => set((state) => {
+      // Need to update state in the specific tree
+      const newTrees = { ...state.trees };
+      let updated = false;
+      let newNodes = state.nodes;
+
+      for (const treeId in newTrees) {
+        const tree = newTrees[treeId];
+        const nodeIndex = tree.nodes.findIndex(n => n.id === id);
+        if (nodeIndex !== -1) {
+          const newTreeNodes = [...tree.nodes];
+          newTreeNodes[nodeIndex] = { ...newTreeNodes[nodeIndex], state: nodeState };
+          newTrees[treeId] = { ...tree, nodes: newTreeNodes };
+          
+          if (treeId === state.activeTreeId) {
+            newNodes = newTreeNodes;
+          }
+          updated = true;
+          break; // node IDs are unique across trees due to prefix
+        }
+      }
+
+      if (!updated) return {};
+      return { trees: newTrees, nodes: newNodes };
+    }),
+
+    toggleNodeCollapse: (id) => set((state) => {
+      const newTrees = { ...state.trees };
+      let updated = false;
+      let newNodes = state.nodes;
+
+      for (const treeId in newTrees) {
+        const tree = newTrees[treeId];
+        const nodeIndex = tree.nodes.findIndex(n => n.id === id);
+        if (nodeIndex !== -1) {
+          const newTreeNodes = [...tree.nodes];
+          newTreeNodes[nodeIndex] = { ...newTreeNodes[nodeIndex], collapsed: !newTreeNodes[nodeIndex].collapsed };
+          newTrees[treeId] = { ...tree, nodes: newTreeNodes };
+          
+          if (treeId === state.activeTreeId) {
+            newNodes = newTreeNodes;
+          }
+          updated = true;
+          break;
+        }
+      }
+
+      if (!updated) return {};
+      return { trees: newTrees, nodes: newNodes };
+    }),
+
+    resetTreeState: () => set((state) => {
+      const newTrees: Record<string, ParsedTree> = {};
+      let newNodes = state.nodes;
+      
+      for (const treeId in state.trees) {
+        const tree = state.trees[treeId];
+        const resetNodes = tree.nodes.map(n => ({ ...n, state: 'idle' as const }));
+        newTrees[treeId] = { ...tree, nodes: resetNodes };
+        if (treeId === state.activeTreeId) {
+          newNodes = resetNodes;
+        }
+      }
+
+      return {
+        trees: newTrees,
+        nodes: newNodes,
+        activeNodeId: null,
+        isPlaying: false
+      };
+    })
+  };
+});

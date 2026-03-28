@@ -15,8 +15,14 @@ export interface BTNode {
 
 export interface ParsedTree {
   id: string;
+  name?: string;
   nodes: BTNode[];
   edges: { id: string; source: string; target: string }[];
+}
+
+export interface ParsedArea {
+  mainTreeId: string;
+  trees: Record<string, ParsedTree>;
 }
 
 export interface TimelineEvent {

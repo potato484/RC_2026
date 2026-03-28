@@ -17,23 +17,32 @@ function App() {
     if (!isPlaying || !isSimulating) return;
 
     const state = useStore.getState();
-    const { nodes, edges } = state;
+    const { nodes, edges, setActiveTree } = state;
     if (nodes.length === 0) return;
 
     let timeoutId: ReturnType<typeof setTimeout>;
     let currentStack: string[] = [];
     
-    // Find root (node with no incoming edges)
+    // Find root (node with no incoming edges) in current active tree
     const targets = new Set(edges.map(e => e.target));
     const root = nodes.find(n => !targets.has(n.id));
     
     if (!root) return;
 
-    const executeNode = async (nodeId: string): Promise<'success' | 'failure' | 'running'> => {
+    const executeNode = async (nodeId: string, currentTreeId: string): Promise<'success' | 'failure' | 'running'> => {
       if (!isPlayingRef.current) return 'failure';
 
-      const node = useStore.getState().nodes.find(n => n.id === nodeId);
+      // We need to look up the node from the trees map because it might not be in the current active `nodes`
+      const tree = useStore.getState().trees[currentTreeId];
+      if (!tree) return 'failure';
+      
+      const node = tree.nodes.find(n => n.id === nodeId);
       if (!node) return 'failure';
+
+      // Optionally auto-switch view to the tree currently executing (if you want the visualizer to follow execution)
+      // if (useStore.getState().activeTreeId !== currentTreeId) {
+      //   setActiveTree(currentTreeId);
+      // }
 
       currentStack.push(nodeId);
       updateNodeState(nodeId, 'running');
@@ -42,7 +51,7 @@ function App() {
       await new Promise(resolve => { timeoutId = setTimeout(resolve, 800); });
       if (!isPlayingRef.current) return 'failure';
 
-      const childrenEdges = edges.filter(e => e.source === nodeId);
+      const childrenEdges = tree.edges.filter(e => e.source === nodeId);
       const childrenIds = childrenEdges.map(e => e.target);
 
       let result: 'success' | 'failure' | 'running' = 'success';
@@ -75,7 +84,7 @@ function App() {
         result = Math.random() > 0.2 ? 'success' : 'failure';
       } else if (node.type === 'sequence') {
         for (const childId of childrenIds) {
-          const childResult = await executeNode(childId);
+          const childResult = await executeNode(childId, currentTreeId);
           if (!isPlayingRef.current) return 'failure';
           if (childResult === 'failure') {
             result = 'failure';
@@ -89,7 +98,7 @@ function App() {
       } else if (node.type === 'selector') {
         result = 'failure';
         for (const childId of childrenIds) {
-          const childResult = await executeNode(childId);
+          const childResult = await executeNode(childId, currentTreeId);
           if (!isPlayingRef.current) return 'failure';
           if (childResult === 'success') {
             result = 'success';
@@ -102,14 +111,35 @@ function App() {
         }
       } else if (node.type === 'decorator') {
         if (node.label === 'Inverter') {
-          const childResult = await executeNode(childrenIds[0]);
+          const childResult = await executeNode(childrenIds[0], currentTreeId);
           result = childResult === 'success' ? 'failure' : childResult === 'failure' ? 'success' : 'running';
         } else {
-           result = await executeNode(childrenIds[0]);
+           result = await executeNode(childrenIds[0], currentTreeId);
         }
       } else if (node.type === 'subtree') {
-         if (childrenIds.length > 0) {
-            result = await executeNode(childrenIds[0]);
+         // Jump to subtree
+         const targetTreeId = node.subTreeId;
+         if (targetTreeId && useStore.getState().trees[targetTreeId]) {
+            const targetTree = useStore.getState().trees[targetTreeId];
+            const targetTreeEdges = targetTree.edges;
+            const targetTargets = new Set(targetTreeEdges.map(e => e.target));
+            const targetRoot = targetTree.nodes.find(n => !targetTargets.has(n.id));
+            
+            if (targetRoot) {
+              // Optionally switch view to target tree while it executes
+              const prevActive = useStore.getState().activeTreeId;
+              setActiveTree(targetTreeId);
+              
+              result = await executeNode(targetRoot.id, targetTreeId);
+              
+              // Switch back
+              if (isPlayingRef.current) {
+                setActiveTree(prevActive);
+              }
+            }
+         } else {
+            // Fallback if subtree not found
+            result = 'failure';
          }
       }
 
@@ -122,14 +152,22 @@ function App() {
 
     const runTree = async () => {
       // Reset all
-      useStore.getState().nodes.forEach(n => updateNodeState(n.id, 'idle'));
+      useStore.getState().resetTreeState();
       
+      const currentState = useStore.getState();
+      const currentActiveTreeId = currentState.activeTreeId;
+      const currentTreeEdges = currentState.trees[currentActiveTreeId]?.edges || [];
+      const t = new Set(currentTreeEdges.map(e => e.target));
+      const currentRoot = currentState.trees[currentActiveTreeId]?.nodes.find(n => !t.has(n.id));
+      
+      if (!currentRoot) return;
+
       while (isPlayingRef.current) {
-        await executeNode(root.id);
+        await executeNode(currentRoot.id, currentActiveTreeId);
         if (!isPlayingRef.current) break;
         await new Promise(resolve => { timeoutId = setTimeout(resolve, 1500); });
         if (isPlayingRef.current) {
-          useStore.getState().nodes.forEach(n => updateNodeState(n.id, 'idle'));
+          useStore.getState().resetTreeState();
         }
       }
     };
@@ -143,7 +181,7 @@ function App() {
 
   useEffect(() => {
     if (!isPlaying && !isSimulating) {
-      console.log('已进入实机模式，等待接收真实行为树状态...');
+      console.log('已进入实机模式，等待接收真实行为状态...');
     }
   }, [isPlaying, isSimulating]);
 
