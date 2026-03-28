@@ -27,10 +27,12 @@ interface AppState {
   
   toggleSimulate: () => void;
   togglePlay: () => void;
+  stopPlay: () => void;
   setActivePhase: (phase: '武馆区' | '梅林区' | '对抗区') => void;
   setActiveTree: (treeId: string) => void;
   setActiveNode: (id: string | null) => void;
   addTimelineEvent: (event: TimelineEvent) => void;
+  clearTimeline: () => void;
   updateBlackboard: (item: BlackboardItem) => void;
   updateNodeState: (id: string, state: BTNode['state']) => void;
   toggleNodeCollapse: (id: string) => void;
@@ -55,8 +57,15 @@ export const useStore = create<AppState>((set) => {
     timeline: [],
     blackboard: [],
 
-    toggleSimulate: () => set((state) => ({ isSimulating: !state.isSimulating })),
+    toggleSimulate: () => set((state) => {
+      const nextSim = !state.isSimulating;
+      return { 
+        isSimulating: nextSim,
+        isPlaying: nextSim // 自动在模拟时执行，实机时暂停
+      };
+    }),
     togglePlay: () => set((state) => ({ isPlaying: !state.isPlaying })),
+    stopPlay: () => set({ isPlaying: false }),
     
     setActivePhase: (phase) => set((state) => {
       if (state.activePhase === phase) return {};
@@ -69,7 +78,6 @@ export const useStore = create<AppState>((set) => {
         trees: area.trees,
         nodes: tree.nodes,
         edges: tree.edges,
-        isPlaying: false,
         timeline: [],
         blackboard: []
       };
@@ -92,6 +100,8 @@ export const useStore = create<AppState>((set) => {
     addTimelineEvent: (event) => set((state) => ({ 
       timeline: [event, ...state.timeline].slice(0, 50) 
     })),
+    
+    clearTimeline: () => set({ timeline: [] }),
     
     updateBlackboard: (item) => set((state) => {
       const exists = state.blackboard.findIndex(i => i.key === item.key);
@@ -168,8 +178,7 @@ export const useStore = create<AppState>((set) => {
       return {
         trees: newTrees,
         nodes: newNodes,
-        activeNodeId: null,
-        isPlaying: false
+        activeNodeId: null
       };
     })
   };

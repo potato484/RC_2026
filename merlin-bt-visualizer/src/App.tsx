@@ -6,7 +6,7 @@ import { RightPanel } from './components/RightPanel';
 import { useStore } from './store/useStore';
 
 function App() {
-  const { isPlaying, isSimulating, updateNodeState, addTimelineEvent, updateBlackboard } = useStore();
+  const { isPlaying, isSimulating, activePhase, updateNodeState, addTimelineEvent, updateBlackboard } = useStore();
   const isPlayingRef = useRef(isPlaying);
   
   useEffect(() => {
@@ -17,9 +17,10 @@ function App() {
     if (!isPlaying || !isSimulating) return;
 
     const state = useStore.getState();
-    const { nodes, edges, setActiveTree } = state;
+    const { nodes, edges } = state;
     if (nodes.length === 0) return;
 
+    let isActive = true;
     let timeoutId: ReturnType<typeof setTimeout>;
     let currentStack: string[] = [];
     
@@ -30,7 +31,7 @@ function App() {
     if (!root) return;
 
     const executeNode = async (nodeId: string, currentTreeId: string): Promise<'success' | 'failure' | 'running'> => {
-      if (!isPlayingRef.current) return 'failure';
+      if (!isPlayingRef.current || !isActive) return 'failure';
 
       // We need to look up the node from the trees map because it might not be in the current active `nodes`
       const tree = useStore.getState().trees[currentTreeId];
@@ -47,7 +48,7 @@ function App() {
       
       // Simulate delay for visualization
       await new Promise(resolve => { timeoutId = setTimeout(resolve, 800); });
-      if (!isPlayingRef.current) return 'failure';
+      if (!isPlayingRef.current || !isActive) return 'failure';
 
       const childrenEdges = tree.edges.filter(e => e.source === nodeId);
       const childrenIds = childrenEdges.map(e => e.target);
@@ -63,14 +64,14 @@ function App() {
       });
 
       if (node.type === 'action') {
-        result = Math.random() > 0.1 ? 'success' : 'failure';
+        result = 'success'; // 模拟模式下默认全部动作成功
         if (node.label.includes('Nav')) {
           updateBlackboard({ key: 'location', value: node.label.replace('NavTo', ''), desc: '当前位置', updatedAt: Date.now() });
         }
         
         // Simulate Script node updates to blackboard
         if (node.label.includes('执行脚本') && node.desc.includes('=')) {
-           const assignments = node.desc.match(/([a-zA-Z_0-9]+):=([^;\]]+)/g);
+           const assignments = node.desc.match(/([a-zA-Z_0-9]+):=([^;\\]]+)/g);
            if (assignments) {
               assignments.forEach(assignment => {
                  const [key, val] = assignment.split(':=');
@@ -78,10 +79,16 @@ function App() {
               });
            }
         }
+      } else if (node.type === ('condition' as string)) {
+        // 条件节点在模拟模式下默认成功，除非它是被 Inverter 包裹的阻塞检查
+        result = 'success'; 
+        if (node.label.includes('CheckR1Blocking') || node.label.includes('CheckExitCondition')) {
+           result = 'failure'; // 模拟不阻塞/不退出，让树继续跑
+        }
       } else if (node.type === 'sequence') {
         for (const childId of childrenIds) {
           const childResult = await executeNode(childId, currentTreeId);
-          if (!isPlayingRef.current) return 'failure';
+          if (!isPlayingRef.current || !isActive) return 'failure';
           if (childResult === 'failure') {
             result = 'failure';
             break;
@@ -95,7 +102,7 @@ function App() {
         result = 'failure';
         for (const childId of childrenIds) {
           const childResult = await executeNode(childId, currentTreeId);
-          if (!isPlayingRef.current) return 'failure';
+          if (!isPlayingRef.current || !isActive) return 'failure';
           if (childResult === 'success') {
             result = 'success';
             break;
@@ -106,40 +113,50 @@ function App() {
           }
         }
       } else if (node.type === 'decorator') {
-        if (node.label === 'Inverter') {
+        // Now decorators are mostly attached to nodes natively by parser, but just in case some are left standalone
+        if (node.label === 'Inverter' || node.label.includes('条件取反')) {
           const childResult = await executeNode(childrenIds[0], currentTreeId);
           result = childResult === 'success' ? 'failure' : childResult === 'failure' ? 'success' : 'running';
+        } else if (node.label.includes('RetryUntilSuccessful') || node.label.includes('重试') || node.label.includes('KeepRunningUntilFailure') || node.label.includes('循环执行')) {
+           const childResult = await executeNode(childrenIds[0], currentTreeId);
+           result = childResult === 'failure' ? 'success' : childResult;
         } else {
            result = await executeNode(childrenIds[0], currentTreeId);
         }
       } else if (node.type === 'subtree') {
-         // Jump to subtree
-         const targetTreeId = node.subTreeId;
-         if (targetTreeId && useStore.getState().trees[targetTreeId]) {
-            const targetTree = useStore.getState().trees[targetTreeId];
-            const targetTreeEdges = targetTree.edges;
-            const targetTargets = new Set(targetTreeEdges.map(e => e.target));
-            const targetRoot = targetTree.nodes.find(n => !targetTargets.has(n.id));
-            
-            if (targetRoot) {
-              // Optionally switch view to target tree while it executes
-              const prevActive = useStore.getState().activeTreeId;
-              setActiveTree(targetTreeId);
-              
-              result = await executeNode(targetRoot.id, targetTreeId);
-              
-              // Switch back
-              if (isPlayingRef.current) {
-                setActiveTree(prevActive);
-              }
-            }
-         } else {
-            // Fallback if subtree not found
-            result = 'failure';
+         // Subtrees are already expanded by btParser into the current graph. 
+         // Since it unfolds the root Sequence, we treat the SubTree node itself as a Sequence.
+         for (const childId of childrenIds) {
+           const childResult = await executeNode(childId, currentTreeId);
+           if (!isPlayingRef.current || !isActive) return 'failure';
+           if (childResult === 'failure') {
+             result = 'failure';
+             break;
+           }
+           if (childResult === 'running') {
+             result = 'running';
+             break;
+           }
          }
       }
 
-      if (isPlayingRef.current) {
+      // Check decorators attached to the node
+      if (node.decorators && node.decorators.length > 0) {
+        for (const dec of node.decorators) {
+          if (dec.label === 'Inverter' || dec.label.includes('条件取反')) {
+             result = result === 'success' ? 'failure' : result === 'failure' ? 'success' : 'running';
+          } else if (dec.label.includes('RetryUntilSuccessful') || dec.label.includes('重试') || dec.label.includes('KeepRunningUntilFailure') || dec.label.includes('循环') || dec.label.includes('死循环')) {
+             // 模拟模式下为了防卡死，重试直接视为成功或者至少不卡住抛出失败
+             if (result === 'failure') result = 'success';
+          } else if (dec.label === 'ForceSuccess' || dec.label.includes('始终成功') || dec.label.includes('必定成功')) {
+             result = 'success';
+          } else if (dec.label === 'ForceFailure' || dec.label.includes('必定失败')) {
+             result = 'failure';
+          }
+        }
+      }
+
+      if (isPlayingRef.current && isActive) {
         updateNodeState(nodeId, result);
       }
       currentStack.pop();
@@ -158,12 +175,19 @@ function App() {
       
       if (!currentRoot) return;
 
-      while (isPlayingRef.current) {
+      if (isPlayingRef.current && isActive) {
         await executeNode(currentRoot.id, currentActiveTreeId);
-        if (!isPlayingRef.current) break;
-        await new Promise(resolve => { timeoutId = setTimeout(resolve, 1500); });
-        if (isPlayingRef.current) {
-          useStore.getState().resetTreeState();
+        
+        // Tree finished execution
+        if (isActive) {
+          addTimelineEvent({
+            id: Date.now().toString() + Math.random(),
+            time: new Date().toLocaleTimeString(),
+            desc: `行为树执行完毕`,
+            icon: 'scan',
+            status: 'success'
+          });
+          useStore.getState().stopPlay();
         }
       }
     };
@@ -171,9 +195,10 @@ function App() {
     runTree();
 
     return () => {
+      isActive = false;
       clearTimeout(timeoutId);
     };
-  }, [isPlaying, isSimulating]);
+  }, [isPlaying, isSimulating, activePhase]);
 
   useEffect(() => {
     if (!isPlaying && !isSimulating) {

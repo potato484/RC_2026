@@ -1,5 +1,5 @@
 import { useStore } from '../store/useStore';
-import { Database, Target, MapPin, Activity, ListOrdered, Clock } from 'lucide-react';
+import { Database, Target, MapPin, Activity, ListOrdered, Clock, Trash2 } from 'lucide-react';
 import { TimelineEvent } from '../types';
 
 const typeTranslations: Record<string, string> = {
@@ -12,7 +12,7 @@ const typeTranslations: Record<string, string> = {
 };
 
 export const RightPanel = () => {
-  const { blackboard, activeNodeId, nodes, timeline } = useStore();
+  const { blackboard, activeNodeId, nodes, timeline, clearTimeline } = useStore();
   const activeNode = nodes.find(n => n.id === activeNodeId);
 
   return (
@@ -80,10 +80,21 @@ export const RightPanel = () => {
 
       {/* Timeline Panel */}
       <div className="glass-panel p-4 flex-1 flex flex-col min-h-0">
-        <h3 className="text-lg font-bold flex items-center gap-2 mb-4 text-slate-800 flex-none">
-          <Clock className="w-5 h-5 text-indigo-500" />
-          执行日志
-        </h3>
+        <div className="flex items-center justify-between mb-4 flex-none">
+          <h3 className="text-lg font-bold flex items-center gap-2 text-slate-800">
+            <Clock className="w-5 h-5 text-indigo-500" />
+            执行日志
+          </h3>
+          {timeline.length > 0 && (
+            <button 
+              onClick={clearTimeline}
+              className="p-2 hover:bg-rose-100 text-slate-400 hover:text-rose-500 rounded-lg transition-colors group"
+              title="清空日志"
+            >
+              <Trash2 className="w-4 h-4 group-hover:scale-110 transition-transform" />
+            </button>
+          )}
+        </div>
         <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar min-h-0">
           {timeline.length > 0 ? timeline.map((event: TimelineEvent) => (
             <div key={event.id} className="relative pl-4 border-l-2 border-slate-200 pb-2 last:pb-0">
