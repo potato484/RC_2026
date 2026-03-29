@@ -23,8 +23,8 @@
 - 查看模式的全局状态由 `Zustand` 管理，核心字段包括 `appMode`、`isSimulating`、`isPlaying`、`activePhase`、`activeTreeId`、`trees`、`nodes`、`edges`、`activeNodeId`、`timeline`、`blackboard`；切区时会重置日志和黑板，切树时会切换当前展示树。
 - 编辑模式新增了独立的语义模型与状态管理：`merlin-bt-visualizer/src/types/editor.ts` 定义 `EditorDocument / EditorTree / EditorNode`；`useEditorStore.ts` 维护 `document`、`activeTreeId`、`selectedNodeId`、`collapsedNodes`、`flowNodes`、`flowEdges`，并提供 `loadXml`、`updateNodeAttributes`、`addChildNode`、`deleteNode`、`exportXml` 等动作。
 - 编辑模式的核心链路是：`editorParser.ts` 把原始 XML 解析成 `EditorDocument`，`editorProjection.ts` 把当前树投影为 React Flow 画布节点/连线，`editorSerializer.ts` 再把编辑后的语义树序列化回 XML。`EditorVisualizer` 负责画布展示与 XML 下载，`EditorRightPanel` 负责属性编辑、增删属性、添加子节点、删除非根节点，以及实时 XML 预览，`EditorNode.tsx` 负责区分控制节点、装饰器、叶子节点、子树节点的可视化外观。
-- `TreeVisualizer` 仍支持点击节点查看详情、双击节点折叠/展开子树，运行中的边会高亮动画；节点本体由 `CustomNode.tsx` 渲染，不同类型使用不同图标、尺寸和状态样式。编辑模式使用的是另一套 `editorNode` 节点类型，不与查看模式复用同一个数据模型。
-- 当前“模拟模式”仍完全在前端本地执行，入口逻辑在 `App.tsx`。但它已经不是旧描述里的确定性回放了：动作节点使用 `Math.random() > 0.1` 决定成功/失败，`sequence` / `selector` / `decorator` / `subtree` 都有对应分支，导航与脚本节点会向 `timeline` / `blackboard` 写入演示数据；单步延迟大约 `800ms`，一轮结束后的再次启动间隔约 `1500ms`，日志最多保留 `50` 条，黑板最多保留 `10` 条。
+- `TreeVisualizer` 仍支持点击节点查看详情、双击节点折叠/展开子树，运行中的边会高亮动画；节点本体由 `CustomNode.tsx` 渲染，不同类型使用不同图标、尺寸和状态样式。`RightPanel` 现在除了展示节点详情、执行日志、黑板变量外，还支持手动清空日志。编辑模式使用的是另一套 `editorNode` 节点类型，不与查看模式复用同一个数据模型。
+- 当前“模拟模式”仍完全在前端本地执行，入口逻辑在 `App.tsx`。它现在是一套确定性的单次执行器：动作节点默认成功，特定条件节点（如 `CheckR1Blocking`、`CheckExitCondition`）按硬编码逻辑返回失败，`sequence` / `selector` / `decorator` / `subtree` 都有对应分支，导航与脚本节点会向 `timeline` / `blackboard` 写入演示数据；单步延迟大约 `800ms`，整棵树跑完后会追加“执行完毕”日志并通过 `stopPlay()` 自动停止，日志最多保留 `50` 条，黑板最多保留 `10` 条。
 - 当前“实机模式”依然没有真正接入 ROS 2 / WebSocket / Foxglove / rosbridge / HTTP API。代码里仍然没有 `fetch`、`axios`、`WebSocket`、`react-router` 等联机接入层实现，切到实机模式时仍只是输出“等待接收真实行为树状态”的日志提示。
 - 当前编辑器也还不是完整生产级行为树 IDE：没有保存回仓库文件的能力，没有后端持久化，没有拖线重连/节点拖拽编辑语义，没有 schema 校验、撤销重做、冲突处理或多人协作。
 - 当前前端的准确定位应更新为：“一个读取 `rc26_decision` 行为树 XML 的本地可视化/演示工具，外加一套可在浏览器内做基础属性编辑并导出 XML 的初步编辑器，以及一套 Foxglove 布局模板。”不要把它误判为已经接通真实机器人状态流的完整在线驾驶舱。
