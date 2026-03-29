@@ -3,10 +3,12 @@ import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { TreeVisualizer } from './components/TreeVisualizer';
 import { RightPanel } from './components/RightPanel';
+import { EditorVisualizer } from './components/EditorVisualizer';
+import { EditorRightPanel } from './components/EditorRightPanel';
 import { useStore } from './store/useStore';
 
 function App() {
-  const { isPlaying, isSimulating, activePhase, updateNodeState, addTimelineEvent, updateBlackboard } = useStore();
+  const { isPlaying, isSimulating, activePhase, updateNodeState, addTimelineEvent, updateBlackboard, appMode } = useStore();
   const isPlayingRef = useRef(isPlaying);
   
   useEffect(() => {
@@ -212,9 +214,9 @@ function App() {
       <div className="flex-1 flex overflow-hidden">
         <Sidebar />
         <div className="flex-1 relative">
-          <TreeVisualizer />
+          {appMode === 'viewer' ? <TreeVisualizer /> : <EditorVisualizer />}
         </div>
-        <RightPanel />
+        {appMode === 'viewer' ? <RightPanel /> : <EditorRightPanel />}
       </div>
     </div>
   );

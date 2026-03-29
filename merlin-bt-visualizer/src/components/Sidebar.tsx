@@ -1,6 +1,6 @@
-
 import { Swords, Map, Crosshair, Target, FolderTree, FileJson } from 'lucide-react';
 import { useStore } from '../store/useStore';
+import { useEditorStore } from '../store/useEditorStore';
 import { motion } from 'framer-motion';
 
 const phases = [
@@ -10,8 +10,17 @@ const phases = [
 ];
 
 export const Sidebar = () => {
-  const { activePhase, setActivePhase, activeTreeId, setActiveTree, trees } = useStore();
+  const { activePhase, setActivePhase, activeTreeId, setActiveTree, trees, appMode } = useStore();
+  const editorDocument = useEditorStore(state => state.document);
+  const editorActiveTreeId = useEditorStore(state => state.activeTreeId);
+  const setEditorActiveTree = useEditorStore(state => state.setActiveTree);
+
   const treeList = Object.keys(trees);
+  
+  const handlePhaseChange = (phaseId: string) => {
+    setActivePhase(phaseId as any);
+    // If in editor mode, the Header component handles the XML loading
+  };
 
   return (
     <div className="glass-panel w-48 flex flex-col gap-4 p-4 py-8 mr-4 overflow-y-auto">
@@ -22,7 +31,7 @@ export const Sidebar = () => {
           return (
             <button
               key={p.id}
-              onClick={() => setActivePhase(p.id as any)}
+              onClick={() => handlePhaseChange(p.id)}
               className="relative flex flex-col items-center gap-2 w-full group"
             >
               {isActive && (
@@ -48,52 +57,77 @@ export const Sidebar = () => {
           子树列表
         </h3>
         <div className="flex flex-col gap-1 w-full">
-          {treeList.map((treeId) => {
-            const tree = trees[treeId];
-            if (!tree || (tree.parentTreeId && trees[tree.parentTreeId])) return null;
-
-            const renderTreeItem = (id: string, depth: number) => {
-              const currentTree = trees[id];
-              if (!currentTree) return null;
-              const isTreeActive = activeTreeId === id;
-              const treeName = currentTree.name || id;
+          {appMode === 'viewer' ? (
+            // Viewer Mode Trees
+            treeList.map((treeId) => {
+              const tree = trees[treeId];
+              if (!tree || (tree.parentTreeId && trees[tree.parentTreeId])) return null;
               
-              const childTrees = treeList.filter(childId => trees[childId]?.parentTreeId === id);
-
-              return (
-                <div key={id} className="flex flex-col w-full">
-                  <button
-                    onClick={() => setActiveTree(id)}
-                    style={{ paddingLeft: `${0.75 + depth * 1.0}rem` }}
-                    className={`relative flex items-center gap-2 w-full py-2.5 pr-3 rounded-xl transition-all duration-200 text-left ${
-                      isTreeActive 
-                        ? 'bg-slate-700 text-white shadow-md shadow-slate-500/20'
-                        : 'text-slate-600 hover:bg-white/60 hover:text-slate-900'
-                    }`}
-                  >
-                    {depth === 0 ? (
-                      <Target className={`w-4 h-4 shrink-0 ${isTreeActive ? 'text-slate-100' : 'text-slate-400'}`} />
-                    ) : childTrees.length > 0 ? (
-                      <FolderTree className={`w-3.5 h-3.5 shrink-0 ${isTreeActive ? 'text-indigo-200' : 'text-indigo-400'}`} />
-                    ) : (
-                      <FileJson className={`w-3.5 h-3.5 shrink-0 ${isTreeActive ? 'text-slate-300' : 'text-slate-400'}`} />
+              const renderTreeItem = (id: string, depth: number) => {
+                const currentTree = trees[id];
+                if (!currentTree) return null;
+                const isTreeActive = activeTreeId === id;
+                const treeName = currentTree.name || id;
+                
+                const childTrees = treeList.filter(childId => trees[childId]?.parentTreeId === id);
+                
+                return (
+                  <div key={id} className="flex flex-col w-full">
+                    <button
+                      onClick={() => setActiveTree(id)}
+                      style={{ paddingLeft: `${0.75 + depth * 1.0}rem` }}
+                      className={`relative flex items-center gap-2 w-full py-2.5 pr-3 rounded-xl transition-all duration-200 text-left ${
+                        isTreeActive
+                          ? 'bg-slate-700 text-white shadow-md shadow-slate-500/20'
+                          : 'text-slate-600 hover:bg-white/60 hover:text-slate-900'
+                      }`}
+                    >
+                      {depth === 0 ? (
+                        <Target className={`w-4 h-4 shrink-0 ${isTreeActive ? 'text-slate-100' : 'text-slate-400'}`} />
+                      ) : childTrees.length > 0 ? (
+                        <FolderTree className={`w-3.5 h-3.5 shrink-0 ${isTreeActive ? 'text-indigo-200' : 'text-indigo-400'}`} />
+                      ) : (
+                        <FileJson className={`w-3.5 h-3.5 shrink-0 ${isTreeActive ? 'text-slate-300' : 'text-slate-400'}`} />
+                      )}
+                      <span className="text-sm font-medium truncate" title={treeName}>
+                        {treeName}
+                      </span>
+                    </button>
+                    
+                    {childTrees.length > 0 && (
+                      <div className="flex flex-col mt-0.5 relative gap-0.5">
+                        {childTrees.map(childId => renderTreeItem(childId, depth + 1))}
+                      </div>
                     )}
-                    <span className="text-sm font-medium truncate" title={treeName}>
-                      {treeName}
-                    </span>
-                  </button>
-                  
-                  {childTrees.length > 0 && (
-                    <div className="flex flex-col mt-0.5 relative gap-0.5">
-                      {childTrees.map(childId => renderTreeItem(childId, depth + 1))}
-                    </div>
-                  )}
-                </div>
-              );
-            };
+                  </div>
+                );
+              };
 
-            return renderTreeItem(treeId, 0);
-          })}
+              return renderTreeItem(treeId, 0);
+            })
+          ) : (
+            // Editor Mode Trees
+            editorDocument?.trees.map((tree) => {
+              const isTreeActive = editorActiveTreeId === tree.id;
+              const treeName = tree.name || tree.id;
+              return (
+                <button
+                  key={tree.id}
+                  onClick={() => setEditorActiveTree(tree.id)}
+                  className={`relative flex items-center gap-2 w-full py-2.5 px-3 rounded-xl transition-all duration-200 text-left ${
+                    isTreeActive
+                      ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                      : 'text-slate-600 hover:bg-white/60 hover:text-slate-900'
+                  }`}
+                >
+                  <Target className={`w-4 h-4 shrink-0 ${isTreeActive ? 'text-slate-100' : 'text-slate-400'}`} />
+                  <span className="text-sm font-medium truncate" title={treeName}>
+                    {treeName}
+                  </span>
+                </button>
+              );
+            })
+          )}
         </div>
       </div>
     </div>

@@ -14,6 +14,7 @@ const areas: Record<'梅林区' | '武馆区' | '对抗区', ParsedArea> = {
 };
 
 interface AppState {
+  appMode: 'viewer' | 'editor';
   isSimulating: boolean;
   isPlaying: boolean;
   activePhase: '武馆区' | '梅林区' | '对抗区';
@@ -25,6 +26,7 @@ interface AppState {
   timeline: TimelineEvent[];
   blackboard: BlackboardItem[];
   
+  setAppMode: (mode: 'viewer' | 'editor') => void;
   toggleSimulate: () => void;
   togglePlay: () => void;
   stopPlay: () => void;
@@ -46,6 +48,7 @@ export const useStore = create<AppState>((set) => {
   const initialTree = initialArea.trees[initialTreeId] || { nodes: [], edges: [] };
 
   return {
+    appMode: 'viewer',
     isSimulating: true,
     isPlaying: false,
     activePhase: initialPhase,
@@ -57,6 +60,7 @@ export const useStore = create<AppState>((set) => {
     timeline: [],
     blackboard: [],
 
+    setAppMode: (mode) => set({ appMode: mode }),
     toggleSimulate: () => set((state) => {
       const nextSim = !state.isSimulating;
       return { 
