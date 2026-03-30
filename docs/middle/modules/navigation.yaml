@@ -1,0 +1,98 @@
+openapi: 3.1.0
+info:
+  title: RC26 R2 Navigation ROS2 Contract
+  version: 0.3.0
+  description: 导航安全与导航模式服务接口
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: Topic
+  - name: Service
+paths:
+  /ros2/topics/nav_safety_state:
+    get:
+      tags: [Topic]
+      summary: 读取 topic nav_safety_state 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: nav_safety_state
+        message_type: rc26_interfaces/msg/NavSafetyState
+      responses:
+        '200':
+          description: rc26_interfaces/msg/NavSafetyState
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NavSafetyState'
+  /ros2/services/set_nav_mode:
+    post:
+      tags: [Service]
+      summary: 调用 service set_nav_mode
+      x-ros:
+        interface_kind: service
+        name: set_nav_mode
+        service_type: rc26_interfaces/srv/SetNavMode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetNavModeRequest'
+      responses:
+        '200':
+          description: rc26_interfaces/srv/SetNavMode response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetNavModeResponse'
+components:
+  schemas:
+    Time:
+      type: object
+      required: [sec, nanosec]
+      properties:
+        sec:
+          type: integer
+        nanosec:
+          type: integer
+    Header:
+      type: object
+      required: [stamp, frame_id]
+      properties:
+        stamp:
+          $ref: '#/components/schemas/Time'
+        frame_id:
+          type: string
+    NavSafetyState:
+      type: object
+      required: [header, current_profile, reason, stop_required, timed_out]
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        current_profile:
+          type: string
+        reason:
+          type: string
+        stop_required:
+          type: boolean
+        timed_out:
+          type: boolean
+    SetNavModeRequest:
+      type: object
+      required: [profile, timeout, reason]
+      properties:
+        profile:
+          type: string
+        timeout:
+          type: number
+          format: float
+        reason:
+          type: string
+    SetNavModeResponse:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string

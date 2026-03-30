@@ -1,0 +1,64 @@
+openapi: 3.1.0
+info:
+  title: RC26 R2 ROS2 Interface Index
+  version: 0.3.0-modular
+  summary: 按模块拆分的 R2 ROS2 接口目录
+  description: |
+    本目录按“ROS2 的 topic / service 本身就是后端接口”来组织。
+
+    这里的 openapi.yaml 不再承载全部 schema，而是作为模块索引。
+    具体模块接口请查看 docs/middle/modules 下的独立 YAML。
+paths: {}
+x-contract-rules:
+  backend_interface_is_ros2: true
+  keep_ros_field_names: true
+  keep_ros_enum_values: true
+  keep_ros_time_shape: true
+  project_scope: R2 only
+x-modules:
+  - name: behavior_tree
+    file: docs/middle/modules/behavior_tree.yaml
+    topics:
+      - r2/bt/model
+      - r2/bt/localization
+      - r2/bt/snapshot
+      - r2/bt/blackboard
+      - r2/bt/events
+      - r2/bt/trace
+      - r2/bt/debug_state
+    services:
+      - r2/bt/control
+  - name: localization
+    file: docs/middle/modules/localization.yaml
+    topics:
+      - /localization/health
+      - /localization/backend_status
+      - /localization/route_observability
+    services: []
+  - name: navigation
+    file: docs/middle/modules/navigation.yaml
+    topics:
+      - nav_safety_state
+    services:
+      - set_nav_mode
+  - name: diagnostics
+    file: docs/middle/modules/diagnostics.yaml
+    topics:
+      - r2/diag/operator_status
+      - r2/diag/events
+    services:
+      - r2/diag/reset_topic_timeout_count
+  - name: vision
+    file: docs/middle/modules/vision.yaml
+    topics:
+      - /vision/tip_detections
+    services: []
+  - name: mechanism
+    file: docs/middle/modules/mechanism.yaml
+    topics:
+      - /mechanism/state
+    services: []
+  - name: stream
+    file: docs/middle/modules/stream.yaml
+    topics: []
+    services: []

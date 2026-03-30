@@ -1,0 +1,552 @@
+openapi: 3.1.0
+info:
+  title: RC26 R2 Behavior Tree ROS2 Contract
+  version: 0.3.0
+  description: |
+    行为树模块接口。
+
+    字段名保持 rc26_interfaces 中的原始 ROS2 定义，不做 camelCase 转换。
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: Topic
+  - name: Service
+paths:
+  /ros2/topics/r2/bt/model:
+    get:
+      tags: [Topic]
+      summary: 读取 topic r2/bt/model 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: r2/bt/model
+        message_type: rc26_interfaces/msg/BehaviorTreeModel
+      responses:
+        '200':
+          description: rc26_interfaces/msg/BehaviorTreeModel
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BehaviorTreeModel'
+  /ros2/topics/r2/bt/localization:
+    get:
+      tags: [Topic]
+      summary: 读取 topic r2/bt/localization 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: r2/bt/localization
+        message_type: rc26_interfaces/msg/BehaviorTreeLocalization
+      responses:
+        '200':
+          description: rc26_interfaces/msg/BehaviorTreeLocalization
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BehaviorTreeLocalization'
+  /ros2/topics/r2/bt/snapshot:
+    get:
+      tags: [Topic]
+      summary: 读取 topic r2/bt/snapshot 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: r2/bt/snapshot
+        message_type: rc26_interfaces/msg/BehaviorTreeSnapshot
+      responses:
+        '200':
+          description: rc26_interfaces/msg/BehaviorTreeSnapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BehaviorTreeSnapshot'
+  /ros2/topics/r2/bt/blackboard:
+    get:
+      tags: [Topic]
+      summary: 读取 topic r2/bt/blackboard 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: r2/bt/blackboard
+        message_type: rc26_interfaces/msg/BehaviorTreeBlackboard
+      responses:
+        '200':
+          description: rc26_interfaces/msg/BehaviorTreeBlackboard
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BehaviorTreeBlackboard'
+  /ros2/topics/r2/bt/events:
+    get:
+      tags: [Topic]
+      summary: 读取 topic r2/bt/events 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: r2/bt/events
+        message_type: rc26_interfaces/msg/BehaviorTreeEventArray
+      responses:
+        '200':
+          description: rc26_interfaces/msg/BehaviorTreeEventArray
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BehaviorTreeEventArray'
+  /ros2/topics/r2/bt/trace:
+    get:
+      tags: [Topic]
+      summary: 读取 topic r2/bt/trace 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: r2/bt/trace
+        message_type: rc26_interfaces/msg/BehaviorTreeTrace
+      responses:
+        '200':
+          description: rc26_interfaces/msg/BehaviorTreeTrace
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BehaviorTreeTrace'
+  /ros2/topics/r2/bt/debug_state:
+    get:
+      tags: [Topic]
+      summary: 读取 topic r2/bt/debug_state 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: r2/bt/debug_state
+        message_type: rc26_interfaces/msg/BehaviorTreeDebugState
+      responses:
+        '200':
+          description: rc26_interfaces/msg/BehaviorTreeDebugState
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BehaviorTreeDebugState'
+  /ros2/services/r2/bt/control:
+    post:
+      tags: [Service]
+      summary: 调用 service r2/bt/control
+      x-ros:
+        interface_kind: service
+        name: r2/bt/control
+        service_type: rc26_interfaces/srv/ControlBehaviorTree
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ControlBehaviorTreeRequest'
+      responses:
+        '200':
+          description: rc26_interfaces/srv/ControlBehaviorTree response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControlBehaviorTreeResponse'
+components:
+  schemas:
+    Time:
+      type: object
+      required: [sec, nanosec]
+      properties:
+        sec:
+          type: integer
+        nanosec:
+          type: integer
+          minimum: 0
+          maximum: 999999999
+    Header:
+      type: object
+      required: [stamp, frame_id]
+      properties:
+        stamp:
+          $ref: '#/components/schemas/Time'
+        frame_id:
+          type: string
+    BehaviorTreePort:
+      type: object
+      required: [name, remapped_key, declared_type, direction]
+      properties:
+        name:
+          type: string
+        remapped_key:
+          type: string
+        declared_type:
+          type: string
+        direction:
+          type: integer
+          enum: [0, 1, 2]
+    BehaviorTreeNodeModel:
+      type: object
+      required:
+        - uid
+        - instance_name
+        - registration_name
+        - node_type
+        - full_path
+        - subtree_id
+        - subtree_ref_id
+        - parent_uid
+        - child_index
+        - child_count
+        - depth
+        - children_uids
+        - ports
+      properties:
+        uid:
+          type: integer
+        instance_name:
+          type: string
+        registration_name:
+          type: string
+        node_type:
+          type: integer
+          enum: [0, 1, 2, 3, 4, 5]
+        full_path:
+          type: string
+        subtree_id:
+          type: string
+        subtree_ref_id:
+          type: string
+        parent_uid:
+          type: integer
+        child_index:
+          type: integer
+        child_count:
+          type: integer
+        depth:
+          type: integer
+        children_uids:
+          type: array
+          items:
+            type: integer
+        ports:
+          type: array
+          items:
+            $ref: '#/components/schemas/BehaviorTreePort'
+    BehaviorTreeModel:
+      type: object
+      required: [header, tree_file, main_tree_id, root_uid, subtree_ids, nodes]
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        tree_file:
+          type: string
+        main_tree_id:
+          type: string
+        root_uid:
+          type: integer
+        subtree_ids:
+          type: array
+          items:
+            type: string
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/BehaviorTreeNodeModel'
+    BehaviorTreeLocalizedValue:
+      type: object
+      required: [raw_value, display_name, explanation]
+      properties:
+        raw_value:
+          type: string
+        display_name:
+          type: string
+        explanation:
+          type: string
+    BehaviorTreeLocalizationEntry:
+      type: object
+      required:
+        - kind
+        - key
+        - locale
+        - display_name
+        - tooltip
+        - summary
+        - scenario
+        - attention
+        - markdown
+        - related_blackboard_keys
+        - values
+      properties:
+        kind:
+          type: string
+        key:
+          type: string
+        locale:
+          type: string
+        display_name:
+          type: string
+        tooltip:
+          type: string
+        summary:
+          type: string
+        scenario:
+          type: string
+        attention:
+          type: string
+        markdown:
+          type: string
+        related_blackboard_keys:
+          type: array
+          items:
+            type: string
+        values:
+          type: array
+          items:
+            $ref: '#/components/schemas/BehaviorTreeLocalizedValue'
+    BehaviorTreeLocalizedNode:
+      type: object
+      required:
+        - uid
+        - locale
+        - display_name
+        - original_name
+        - registration_name
+        - registration_display_name
+        - subtree_id
+        - subtree_display_name
+        - tooltip
+        - summary
+        - scenario
+        - attention
+        - markdown
+        - related_blackboard_keys
+      properties:
+        uid:
+          type: integer
+        locale:
+          type: string
+        display_name:
+          type: string
+        original_name:
+          type: string
+        registration_name:
+          type: string
+        registration_display_name:
+          type: string
+        subtree_id:
+          type: string
+        subtree_display_name:
+          type: string
+        tooltip:
+          type: string
+        summary:
+          type: string
+        scenario:
+          type: string
+        attention:
+          type: string
+        markdown:
+          type: string
+        related_blackboard_keys:
+          type: array
+          items:
+            type: string
+    BehaviorTreeLocalization:
+      type: object
+      required: [header, tree_file, locale, version, nodes, blackboard_keys, catalog_entries]
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        tree_file:
+          type: string
+        locale:
+          type: string
+        version:
+          type: string
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/BehaviorTreeLocalizedNode'
+        blackboard_keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/BehaviorTreeLocalizationEntry'
+        catalog_entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/BehaviorTreeLocalizationEntry'
+    BehaviorTreeNodeState:
+      type: object
+      required: [uid, status]
+      properties:
+        uid:
+          type: integer
+        status:
+          type: integer
+          enum: [0, 1, 2, 3, 4]
+    BehaviorTreeSnapshot:
+      type: object
+      required: [header, tick_seq, tree_status, tick_duration_ms, active_subtree_id, running_path_uids, nodes]
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        tick_seq:
+          type: integer
+        tree_status:
+          type: integer
+          enum: [0, 1, 2, 3, 4]
+        tick_duration_ms:
+          type: number
+          format: float
+        active_subtree_id:
+          type: string
+        running_path_uids:
+          type: array
+          items:
+            type: integer
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/BehaviorTreeNodeState'
+    BehaviorTreeBlackboardEntry:
+      type: object
+      required: [key, type_name, value]
+      properties:
+        key:
+          type: string
+        type_name:
+          type: string
+        value:
+          type: string
+    BehaviorTreeBlackboard:
+      type: object
+      required: [header, entries]
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/BehaviorTreeBlackboardEntry'
+    BehaviorTreeEvent:
+      type: object
+      required: [stamp, uid, node_name, full_path, prev_status, status]
+      properties:
+        stamp:
+          $ref: '#/components/schemas/Time'
+        uid:
+          type: integer
+        node_name:
+          type: string
+        full_path:
+          type: string
+        prev_status:
+          type: integer
+          enum: [0, 1, 2, 3, 4]
+        status:
+          type: integer
+          enum: [0, 1, 2, 3, 4]
+    BehaviorTreeEventArray:
+      type: object
+      required: [header, events]
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/BehaviorTreeEvent'
+    BehaviorTreeDebugState:
+      type: object
+      required: [header, manual_mode, playing, terminal, tick_seq, tree_status, play_interval_ms, tree_file]
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        manual_mode:
+          type: boolean
+        playing:
+          type: boolean
+        terminal:
+          type: boolean
+        tick_seq:
+          type: integer
+        tree_status:
+          type: integer
+          enum: [0, 1, 2, 3, 4]
+        play_interval_ms:
+          type: integer
+        tree_file:
+          type: string
+    BehaviorTreeTraceLine:
+      type: object
+      required:
+        - stamp
+        - tick_seq
+        - line_seq
+        - uid
+        - node_name
+        - display_name
+        - registration_name
+        - registration_display_name
+        - full_path
+        - depth
+        - kind
+        - status
+        - detail
+        - formatted_text
+      properties:
+        stamp:
+          $ref: '#/components/schemas/Time'
+        tick_seq:
+          type: integer
+        line_seq:
+          type: integer
+        uid:
+          type: integer
+        node_name:
+          type: string
+        display_name:
+          type: string
+        registration_name:
+          type: string
+        registration_display_name:
+          type: string
+        full_path:
+          type: string
+        depth:
+          type: integer
+        kind:
+          type: string
+        status:
+          type: integer
+          enum: [0, 1, 2, 3, 4]
+        detail:
+          type: string
+        formatted_text:
+          type: string
+    BehaviorTreeTrace:
+      type: object
+      required: [header, tick_seq, tree_status, lines]
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        tick_seq:
+          type: integer
+        tree_status:
+          type: integer
+          enum: [0, 1, 2, 3, 4]
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/BehaviorTreeTraceLine'
+    ControlBehaviorTreeRequest:
+      type: object
+      required: [command, play_interval_ms]
+      properties:
+        command:
+          type: integer
+          enum: [1, 2, 3, 4]
+        play_interval_ms:
+          type: integer
+    ControlBehaviorTreeResponse:
+      type: object
+      required: [accepted, message, tick_seq, tree_status, playing]
+      properties:
+        accepted:
+          type: boolean
+        message:
+          type: string
+        tick_seq:
+          type: integer
+        tree_status:
+          type: integer
+          enum: [0, 1, 2, 3, 4]
+        playing:
+          type: boolean

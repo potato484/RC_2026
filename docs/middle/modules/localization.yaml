@@ -1,0 +1,197 @@
+openapi: 3.1.0
+info:
+  title: RC26 R2 Localization ROS2 Contract
+  version: 0.3.0
+  description: 定位模块接口
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: Topic
+paths:
+  /ros2/topics/localization/health:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /localization/health 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: /localization/health
+        message_type: rc26_interfaces/msg/LocalizationHealth
+      responses:
+        '200':
+          description: rc26_interfaces/msg/LocalizationHealth
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalizationHealth'
+  /ros2/topics/localization/backend_status:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /localization/backend_status 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: /localization/backend_status
+        message_type: rc26_interfaces/msg/LocalizationBackendStatus
+      responses:
+        '200':
+          description: rc26_interfaces/msg/LocalizationBackendStatus
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalizationBackendStatus'
+  /ros2/topics/localization/route_observability:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /localization/route_observability 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: /localization/route_observability
+        message_type: rc26_interfaces/msg/RouteObservability
+      responses:
+        '200':
+          description: rc26_interfaces/msg/RouteObservability
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteObservability'
+components:
+  schemas:
+    Time:
+      type: object
+      required: [sec, nanosec]
+      properties:
+        sec:
+          type: integer
+        nanosec:
+          type: integer
+    Header:
+      type: object
+      required: [stamp, frame_id]
+      properties:
+        stamp:
+          $ref: '#/components/schemas/Time'
+        frame_id:
+          type: string
+    LocalizationHealth:
+      type: object
+      required:
+        - header
+        - level
+        - reason
+        - control_degraded
+        - localization_state
+        - sigma_xy
+        - sigma_yaw
+        - degenerate_score
+        - h_min_eig
+        - h_cond
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        level:
+          type: integer
+          enum: [0, 1, 2, 3]
+        reason:
+          type: string
+        control_degraded:
+          type: boolean
+        localization_state:
+          type: string
+        sigma_xy:
+          type: number
+          format: double
+        sigma_yaw:
+          type: number
+          format: double
+        degenerate_score:
+          type: number
+          format: double
+        h_min_eig:
+          type: number
+          format: double
+        h_cond:
+          type: number
+          format: double
+    LocalizationBackendStatus:
+      type: object
+      required:
+        - header
+        - optimizer_ready
+        - optimizer_state
+        - active_keyframe_id
+        - graph_health
+        - loop_candidate_count
+        - accepted_loop_count
+        - accepted_anchor_count
+        - last_local_reg_age_sec
+        - last_loop_age_sec
+        - last_anchor_age_sec
+        - candidate_conflict_count
+        - map_to_odom_jump_suppressed
+        - imu_spike
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        optimizer_ready:
+          type: boolean
+        optimizer_state:
+          type: string
+        active_keyframe_id:
+          type: integer
+        graph_health:
+          type: number
+          format: double
+        loop_candidate_count:
+          type: integer
+        accepted_loop_count:
+          type: integer
+        accepted_anchor_count:
+          type: integer
+        last_local_reg_age_sec:
+          type: number
+          format: double
+        last_loop_age_sec:
+          type: number
+          format: double
+        last_anchor_age_sec:
+          type: number
+          format: double
+        candidate_conflict_count:
+          type: integer
+        map_to_odom_jump_suppressed:
+          type: boolean
+        imu_spike:
+          type: boolean
+    RouteObservability:
+      type: object
+      required:
+        - header
+        - score
+        - risk_level
+        - repeat_structure_risk
+        - dynamic_risk
+        - loop_opportunity_score
+        - anchor_opportunity_score
+        - recommended_nav_profile
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        score:
+          type: number
+          format: double
+        risk_level:
+          type: integer
+          enum: [0, 1, 2]
+        repeat_structure_risk:
+          type: number
+          format: double
+        dynamic_risk:
+          type: number
+          format: double
+        loop_opportunity_score:
+          type: number
+          format: double
+        anchor_opportunity_score:
+          type: number
+          format: double
+        recommended_nav_profile:
+          type: string
