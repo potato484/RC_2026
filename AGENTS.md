@@ -1,33 +1,91 @@
-**核心准则**
-- 检索项目代码或实现方案时，优先使用 `ace-tool`。
-- 对项目做任何修改前，如果需要了解模块职责、系统边界、接口约定或现有实现背景，先阅读 `docs/` 中与任务相关的文档，再回到代码核对细节。
-- 对具体代码进行修改时，先遵循 `docs/` 中已经明确的实现说明、接口契约和架构约束；如果文档与代码或真实接口冲突，以代码和实际接口为准，并明确说明冲突点，不得无说明地忽略。
-- 涉及职责边界、依赖方向、运行时权威归属或接口语义的改动，先看 `docs/fitness/` 与 `docs/middle/`，确认这是不是一次普通补丁，还是一次需要显式说明的架构变更。
-- 如果改动改变了包职责、输入输出、接口契约或模块边界，必须同步更新相关 README 和 `docs/` 文档。
-- 如果 `ace-tool` / `grok` 在当前会话不可用，明确说明不确定性后，使用本地代码与可用工具继续推进，不阻塞任务。
-- 当前项目仅为 R2 这个自动机器人设计，R1 只是手动机器人。
+# AGENTS.md
 
-**修改前优先阅读的文档**
-- 涉及整体边界、职责拆分、依赖方向、文档同步规则时，先读 `docs/fitness/shared_rules.md`，再按任务类型继续读对应专题文档。
-- 涉及 `src/` 下 ROS2 工作区、包职责、运行时分层、bringup、控制、决策、感知、可视化边界时，优先读 `docs/fitness/architecture_fitness_ros2_workspace.md`，并补读 `docs/backend/archive/` 下对应包文档。
-- 涉及 `merlin-bt-visualizer` 或前端行为边界时，优先读 `docs/frontend/achieve.md` 和 `docs/fitness/architecture_fitness_frontend.md`。
-- 涉及 ROS2 topic、service、前后端字段、桥接层接口语义时，优先读 `docs/middle/openapi.yaml` 和 `docs/middle/modules/*.yaml`。
-- 需要快速建立某个 `rc26_*` 包的上下文时，优先把 `docs/backend/archive/<pkg>.md` 作为入口；真正落地改代码前，必须再回到对应源码和实际接口确认。
+本文件面向在 `/home/potato/RC_2026` 根仓库内协作的 AI 代理与开发者。
 
-**判断依据**
+当前仓库不是单一应用，而是一个以 `docs/` 为约束中心、以 `src/` 为 R2 自动机器人主运行时工作区的聚合根目录，主要包含：
+
+- `docs/`：项目上下文、边界、约束、接口与维护准则
+- `src/`：R2 自动机器人主运行时 ROS2 工作区
+- `merlin-bt-visualizer/`：本地行为树可视化与编辑前端
+- `MVP技术方案/`：调研、方案推演与草稿资料，不是当前运行时真源
+- `build/`、`install/`、`log/`：构建与运行产物，不是设计约束真源
+
+## 核心准则
+
+### 1. 检索项目上下文时，优先使用 `ace-tool`
+
+- 检索项目代码、模块位置、实现方案或相关上下文时，优先使用 `ace-tool`，不要先靠人工猜路径或盲搜。
+- 如果 `ace-tool` 或 `grok-search` 在当前会话不可用，必须明确说明由此带来的不确定性，然后继续使用本地代码与当前可用工具推进任务，不得因此阻塞。
+
+### 2. 对项目做任何修改前，先读 `docs/`
+
+- 只要需要了解模块职责、系统边界、接口约定、实现方式或现有背景，第一步都应先阅读 `docs/` 中与任务相关的文档，再回到代码核对细节。
+- 只要准备修改具体代码，必须先确认相关 `docs/` 文档已经覆盖了该模块的实现口径和约束，再开始改动。
+- 不允许绕过 `docs/` 直接按个人习惯重写结构、替换分层或引入与现有约束冲突的实现。
+
+### 3. 按改动范围选择要先读的文档
+
+- 整体边界、职责拆分、依赖方向、文档同步规则：先读 `docs/fitness/README.md`
+- 修改 ROS2 工作区、运行时职责、bringup、控制、决策、感知、可视化边界：先读 `docs/backend/README.md` 与 `docs/fitness/architecture_fitness_ros2_workspace/README.md`
+- 需要快速建立某个 `rc26_*` 包的上下文：优先进入 `docs/backend/archive/<pkg>/README.md`
+- 修改前端或 `merlin-bt-visualizer`：先读 `docs/frontend/README.md` 与 `docs/fitness/architecture_fitness_frontend/README.md`
+- 修改 ROS2 topic、service、前后端字段、中间层契约或桥接接口语义：先读 `docs/fitness/README.md`，再读 `docs/middle/openapi.yaml` 与 `docs/middle/modules/*.yaml`
+
+### 4. 改具体代码时，先遵循 `docs/` 中已明确的实现和约束
+
+- 文档里已经定义的职责边界、模块分层、接口形式、运行方式、依赖方向、运行时权威归属、接口语义和验证要求，默认都应视为实现约束，而不是可选建议。
+- 修改时优先在现有结构内延续实现，不要无依据地改变目录职责、通信协议、数据边界或运行路径。
+- 如果一个需求会突破 `docs/` 现有边界，必须先明确说明突破点，再同步更新文档，而不是只改代码。
+
+### 5. 涉及边界和契约的改动，先判断这是不是架构变更
+
+- 只要改动涉及职责边界、依赖方向、运行时权威归属或接口语义，先阅读 `docs/fitness/` 与 `docs/middle/`，确认这究竟是一次普通补丁，还是一次需要显式说明的架构变更。
+- 若判断为架构级变更，必须同时说明变更原因、影响范围、兼容策略和文档更新点，不能伪装成普通重构或小修补。
+
+### 6. 文档、代码与真实接口冲突时的处理规则
+
+- 不要跳过文档，也不要静默忽略冲突。
+- 如果 `docs/` 与代码或真实接口冲突，以当前代码行为和真实接口为准。
+- 处理冲突时，必须在改动说明中明确写出冲突点，并让文档与代码重新一致，避免仓库继续失真。
+
+### 7. 影响职责、输入输出或边界的改动，必须同步更新文档
+
+- 如果改动改变了包职责、输入输出、接口契约或模块边界，必须同步更新相关 `README` 和 `docs/` 文档。
+- 不允许只改实现、不改说明，把新的真实行为留给后续人员自己猜。
+
+### 8. 改完具体代码后，必须把简短总结回写到对应 `docs/` 模块
+
+- 只要对具体代码做了实际修改，完成实现后就必须把“这次改了什么、为什么这样改、改完后有什么新的注意点或边界”用简短的话语写回 `/home/potato/RC_2026/docs` 中与该改动最直接对应的文档和模块。
+- 这类回写应优先更新现有入口 `README.md` 或对应模块 `README.md`，让文档继续反映修改后的真实实现，而不是把新增事实只留在代码 diff 里。
+- 如果改动涉及新增模块、新功能、新页面、新服务、新链路或新的接口语义，必须按当前 `docs/` 的目录式结构在对应板块新增模块文档，并同步更新该板块的入口 `README.md`、索引和相关联文档。
+- 这类文档回写不是流水账式 changelog，而是简短、事实性、便于后续维护的总结与思考，重点是帮助后续协作者快速理解“当前真实实现已经变成了什么”。
+- 不允许只改代码而不把新的真实行为写回对应 `docs/` 模块，也不允许新增模块后只加代码目录、不补文档入口。
+
+### 9. 判断依据、环境与验证规则
+
 - 建立上下文时，以 `docs/`、项目代码和可获取的搜索结果为主要依据，避免无依据猜测。
 - 最终判断以项目代码、实际接口和可验证结果为准；`docs/` 的作用是帮助快速建立正确上下文，并为实现提供约束。
-- 在调用编程语言的非内置库时，优先查阅官方文档或权威资料（`grok`、`context7` 等）；若无法联网检索，先标注风险再编码。
-- 优先处理当前仓库内容，不把仓库外假设当作已知事实。
+- 在调用编程语言的非内置库时，优先查阅官方文档或权威资料，例如 `grok`、`context7`；若无法联网检索，先标注风险再编码。
 - 工作环境为 Linux Ubuntu 22.04；涉及 Python 命令统一使用 `python3`。
 - 编译验证统一使用 `MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select <pkg...>`；需要提速时优先小幅调高 `MAKEFLAGS`，不要直接提高 `--parallel-workers`。
 
-**R2 项目背景**
-- R2 算力平台基于 Qualcomm QCS8550，采用 4nm 工艺，CPU 算力 300k DMIPS，集成 Adreno 740 GPU（3000 GFLOPS），提供 48 TOPS INT8 AI 推理能力，运行环境支持 AidLux（Android 13 + Ubuntu 22.04）深度融合，硬件配置为 16GB LPDDR5x + 256GB UFS 4.0。
-- R2 是四驱麦克纳姆轮底盘；高精度陀螺仪位于底盘中心，用于位姿融合下发。达妙陀螺仪在比赛时间内没有明显漂移，处于可控范围。相关实现可参考 `rc26_merge_odom`，`rc26_telecontrol` 用于人为遥控测试 R2 机器人。
+## RC_2026 特定事实
 
-**`docs/` 目录说明**
-- `docs/backend/archive/`：按 ROS2 包拆分的后端模块归档说明，用于快速理解各 `rc26_*` 包的职责、输入输出、边界和当前实现状态，适合作为建立模块上下文的入口。
-- `docs/frontend/`：当前前端工程的实现说明与边界文档。现阶段核心文件是 `docs/frontend/achieve.md`，用来说明 `merlin-bt-visualizer` 已实现什么、没实现什么，以及它的准确定位，避免把它误判成在线驾驶舱。
-- `docs/fitness/`：团队共同遵守的架构与维护准则目录。`shared_rules.md` 是总入口，`architecture_fitness_frontend.md` 面向前端约束，`architecture_fitness_ros2_workspace.md` 面向 ROS2 工作区约束；涉及边界、职责、依赖方向、文档同步规则时优先看这里。
-- `docs/middle/`：中间层接口目录，用 OpenAPI 风格 YAML 去索引和描述“ROS2 topic/service 本身就是接口”这件事。`docs/middle/openapi.yaml` 是模块总索引，`docs/middle/modules/*.yaml` 按 `behavior_tree`、`diagnostics`、`localization`、`mechanism`、`navigation`、`stream`、`vision` 等主题拆分接口契约，适合给前端、桥接层、文档整理时统一字段和接口认知。
+- 当前项目仅为 R2 这个自动机器人设计，R1 只是手动机器人。
+- `src/` 是 R2 自动机器人的主运行时工作区；`merlin-bt-visualizer` 只是本地工程工具，不是机器人运行时权威后端。
+- R2 算力平台基于 Qualcomm QCS8550，运行环境支持 AidLux（Android 13 + Ubuntu 22.04）深度融合，硬件配置为 16GB LPDDR5x + 256GB UFS 4.0。
+- R2 是四驱麦克纳姆轮底盘；高精度陀螺仪位于底盘中心，用于位姿融合下发。相关实现可参考 `rc26_merge_odom`，`rc26_telecontrol` 用于人为遥控测试 R2 机器人。
+
+## 执行顺序
+
+在这个根仓库内协作时，默认按以下顺序获取上下文和约束：
+
+1. 先用 `ace-tool` 检索与任务相关的代码和文档位置
+2. 先读 `docs/` 下与任务直接相关的入口文档，例如 `docs/backend/README.md`、`docs/frontend/README.md`、`docs/fitness/README.md`
+3. 再读更具体的模块入口，例如 `docs/backend/archive/<pkg>/README.md`、`docs/frontend/<topic>/README.md`、`docs/fitness/<topic>/README.md`
+4. 再进入具体代码目录实施修改与验证
+5. 修改完成后，把简短总结与必要的新增模块说明回写到对应 `docs/` 文档，再交付结果
+
+一句话要求：
+
+> 在 `/home/potato/RC_2026` 中做任何实际修改前，先用 `ace-tool` 与 `docs/` 的入口 `README.md` 建立上下文；改完代码后，再把简短总结和必要的模块更新写回对应 `docs/` 文档。
