@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""Offline graph YAML validator for rc26_topo_nav."""
+
+import sys
+import yaml
+import math
+from pathlib import Path
+
+
+def validate_graph(data: dict) -> list[str]:
+    errors = []
+
+    nodes = {n["id"]: n for n in data.get("nodes", [])}
+    edges = data.get("edges", [])
+    tasks = data.get("tasks", [])
+    routes = data.get("routes", [])
+    grid_spacing = data.get("meta", {}).get("grid_spacing_m", 1.2)
+    tol = grid_spacing * 0.1
+
+    # Edge endpoint existence
+    for e in edges:
+        if e["from"] not in nodes:
+            errors.append(f"Edge '{e['id']}' references missing from-node '{e['from']}'")
+        if e["to"] not in nodes:
+            errors.append(f"Edge '{e['id']}' references missing to-node '{e['to']}'")
+
+    # MF edges: only manhattan-adjacent (no diagonal)
+    for e in edges:
+        fn = nodes.get(e["from"])
+        tn = nodes.get(e["to"])
+        if not fn or not tn:
+            continue
+        if fn.get("block_id", 0) > 0 and tn.get("block_id", 0) > 0:
+            dx = abs(fn["pose"]["x"] - tn["pose"]["x"])
+            dy = abs(fn["pose"]["y"] - tn["pose"]["y"])
+            is_x = abs(dx - grid_spacing) < tol and dy < tol
+            is_y = abs(dy - grid_spacing) < tol and dx < tol
+            if not is_x and not is_y:
+                errors.append(
+                    f"Edge '{e['id']}' between MF blocks is diagonal or non-adjacent"
+                )
+
+    # Task candidate nodes exist
+    for t in tasks:
+        if not t.get("candidate_nodes"):
+            errors.append(f"Task '{t['task_tag']}' has no candidate nodes")
+        for cn in t.get("candidate_nodes", []):
+            if cn not in nodes:
+                errors.append(f"Task '{t['task_tag']}' references missing node '{cn}'")
+
+    edge_pairs = {(e["from"], e["to"]) for e in edges if e.get("from") in nodes and e.get("to") in nodes}
+    for route in routes:
+        route_tag = route.get("route_tag", "<missing>")
+        route_nodes = route.get("nodes", [])
+        if not route_nodes:
+            errors.append(f"Route '{route_tag}' has no nodes")
+            continue
+        for node_id in route_nodes:
+            if node_id not in nodes:
+                errors.append(f"Route '{route_tag}' references missing node '{node_id}'")
+        for idx in range(1, len(route_nodes)):
+            pair = (route_nodes[idx - 1], route_nodes[idx])
+            if pair not in edge_pairs:
+                errors.append(
+                    f"Route '{route_tag}' has no direct edge from '{pair[0]}' to '{pair[1]}'"
+                )
+
+    return errors
+
+
+def validate_symmetry(blue: dict, red: dict) -> list[str]:
+    errors = []
+    b_nodes = {n["id"] for n in blue.get("nodes", [])}
+    r_nodes = {n["id"] for n in red.get("nodes", [])}
+    if b_nodes != r_nodes:
+        errors.append("Node ID sets differ between blue and red graphs")
+
+    b_edges = {e["id"] for e in blue.get("edges", [])}
+    r_edges = {e["id"] for e in red.get("edges", [])}
+    if b_edges != r_edges:
+        errors.append("Edge ID sets differ between blue and red graphs")
+
+    b_tasks = {t["task_tag"] for t in blue.get("tasks", [])}
+    r_tasks = {t["task_tag"] for t in red.get("tasks", [])}
+    if b_tasks != r_tasks:
+        errors.append("Task tag sets differ between blue and red graphs")
+
+    b_routes = {r["route_tag"] for r in blue.get("routes", [])}
+    r_routes = {r["route_tag"] for r in red.get("routes", [])}
+    if b_routes != r_routes:
+        errors.append("Route tag sets differ between blue and red graphs")
+
+    return errors
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(f"Usage: {sys.argv[0]} <blue.yaml> [red.yaml]")
+        sys.exit(1)
+
+    blue_path = Path(sys.argv[1])
+    with open(blue_path) as f:
+        blue = yaml.safe_load(f)
+
+    errors = validate_graph(blue)
+    for e in errors:
+        print(f"[BLUE ERROR] {e}")
+
+    if len(sys.argv) >= 3:
+        red_path = Path(sys.argv[2])
+        with open(red_path) as f:
+            red = yaml.safe_load(f)
+        errors += validate_graph(red)
+        for e in validate_graph(red):
+            print(f"[RED ERROR] {e}")
+        sym_errors = validate_symmetry(blue, red)
+        errors += sym_errors
+        for e in sym_errors:
+            print(f"[SYMMETRY ERROR] {e}")
+
+    if errors:
+        print(f"\nValidation FAILED: {len(errors)} error(s)")
+        sys.exit(1)
+    else:
+        print("Validation PASSED")
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

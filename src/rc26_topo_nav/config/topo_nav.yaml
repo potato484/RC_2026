@@ -1,0 +1,16 @@
+topo_nav_node:
+  ros__parameters:
+    team: "blue"
+    graph_file: ""
+    execution_backend: "nav2_follow_path"
+    xhu:
+      exec_timeout_sec: 45.0
+      hold_replan_timeout_sec: 2.0
+    weights:
+      time: 1.0
+      height_risk: 2.0
+      drop_risk: 3.0
+      localization_risk: 2.0
+      dynamic_block: 1000.0
+      confirm_required: 1.5
+      slow_only: 2.0
