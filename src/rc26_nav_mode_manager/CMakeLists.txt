@@ -45,6 +45,12 @@ add_library(${PROJECT_NAME} SHARED
 ament_target_dependencies(${PROJECT_NAME} ${DEPENDENCIES})
 target_link_libraries(${PROJECT_NAME} yaml-cpp)
 
+add_executable(xhu_motion_mode_manager_node
+  src/xhu_motion_mode_manager.cpp
+)
+ament_target_dependencies(xhu_motion_mode_manager_node ${DEPENDENCIES})
+target_link_libraries(xhu_motion_mode_manager_node yaml-cpp)
+
 rclcpp_components_register_node(${PROJECT_NAME}
   PLUGIN "rc26_nav_mode_manager::NavModeManager"
   EXECUTABLE nav_mode_manager_node
@@ -61,6 +67,10 @@ install(TARGETS ${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
+)
+
+install(TARGETS xhu_motion_mode_manager_node
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
 install(DIRECTORY include/
