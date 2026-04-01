@@ -10,6 +10,7 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(action_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -17,20 +18,27 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/AssembleWeapon.action"
   "action/PlaceKFSGrid.action"
   "action/ExecuteMechanism.action"
+  "action/NavigateTopoTarget.action"
   "msg/TipDetection.msg"
   "msg/TipDetectionArray.msg"
   "msg/MechanismState.msg"
   "msg/NavSafetyState.msg"
   "msg/NavTolerance.msg"
   "msg/SmartWaypoint.msg"
+  "msg/XhuSemanticCorridor.msg"
+  "msg/XhuMotionModeState.msg"
+  "msg/XhuTrackingState.msg"
   "msg/MfKfsCell.msg"
   "msg/MfKfsState.msg"
+  "msg/MfBlockOverlayCell.msg"
+  "msg/MfBlockOverlay.msg"
   "msg/TerrainFeatureGrid.msg"
   "msg/LocalizationHealth.msg"
   "msg/LocalizationBackendStatus.msg"
   "msg/OperatorStatus.msg"
   "msg/RouteObservability.msg"
   "srv/SetNavMode.srv"
+  "srv/SetXhuMotionMode.srv"
   "msg/VisualizationEvent.msg"
   "msg/VisualizationEventArray.msg"
   "msg/BehaviorTreePort.msg"
@@ -50,7 +58,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/BehaviorTreeLocalizedNode.msg"
   "msg/BehaviorTreeLocalization.msg"
   "srv/ControlBehaviorTree.srv"
-  DEPENDENCIES action_msgs builtin_interfaces geometry_msgs std_msgs
+  DEPENDENCIES action_msgs builtin_interfaces geometry_msgs nav_msgs std_msgs
 )
 
 ament_package()

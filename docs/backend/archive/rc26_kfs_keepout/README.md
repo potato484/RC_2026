@@ -17,7 +17,13 @@
 - 维护 Log-Odds 概率状态，而不是直接信任单帧观测
 - 对状态变化做去抖和按需发布
 - 生成 Nav2 KeepoutFilter 能直接使用的 `OccupancyGrid`
+- 同时发布 `MfBlockOverlay`，给 `rc26_topo_nav` 直接消费离散格状态
 - 为导航安全门控提供更稳定的“当前哪些格子不可过”的结果
+
+`config/r2_mf_world.yaml` 当前作为共享几何底座使用：
+
+- `meta.team` 设为 `shared`，不再把布局几何硬编码为蓝方
+- overlay 的 `team` 以实时 `MfKfsState.team` 为准，只有缺失时才回落到布局 team
 
 ## 源码入口与阅读顺序
 - 先看 `src/kfs_block_fuser.cpp`，这个包的业务逻辑几乎都在单文件里。
@@ -45,5 +51,5 @@
 ## 模块边界
 
 - 它不做原始感知，不负责识别 KFS
-- 它不做路径规划，只是给 Nav2 提供约束输入
+- 它不做路径规划，只给 Nav2 和 topo_nav 提供约束输入
 - 它不替代 `rc26_terrain` 的地形风险图，两者属于不同来源的安全信息

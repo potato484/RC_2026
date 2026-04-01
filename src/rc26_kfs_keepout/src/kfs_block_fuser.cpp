@@ -168,6 +168,9 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     pub_heartbeat_ = this->create_publisher<std_msgs::msg::Bool>(
         heartbeat_topic_,
         rclcpp::QoS(rclcpp::KeepLast(1)).reliable());
+    pub_block_overlay_ = this->create_publisher<rc26_interfaces::msg::MfBlockOverlay>(
+        "/mf_block_overlay",
+        rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability(rclcpp::DurabilityPolicy::TransientLocal));
     nav_mode_client_ = this->create_client<rc26_interfaces::srv::SetNavMode>("set_nav_mode");
 
     sub_ = this->create_subscription<rc26_interfaces::msg::MfKfsState>(
@@ -219,6 +222,7 @@ bool KfsBlockFuser::loadGridLayout(const std::string& path) {
             return false;
         }
         layout_team_ = meta["team"].as<std::string>();
+        active_team_ = layout_team_;
         layout_version_ = meta["layout_version"] ? meta["layout_version"].as<std::string>() : "unknown";
         layout_validated_ = meta["validated"] ? meta["validated"].as<bool>() : true;
         layout_grid_spacing_m_ = meta["grid_spacing_m"].as<double>();
@@ -314,7 +318,7 @@ void KfsBlockFuser::onKfsState(
     if (!msg) {
         return;
     }
-    if (!layout_team_.empty()) {
+    if (!layout_team_.empty() && toLowerCopy(layout_team_) != "shared") {
         const std::string msg_team = toLowerCopy(msg->team);
         const std::string expected_team = toLowerCopy(layout_team_);
         if (msg_team.empty() || msg_team != expected_team) {
@@ -355,6 +359,9 @@ void KfsBlockFuser::onKfsState(
             publishDiagnostics();
             publishHeartbeat();
         }
+    }
+    if (!msg->team.empty()) {
+        active_team_ = msg->team;
     }
     if (!keepout_enabled_) {
         return;
@@ -575,6 +582,36 @@ void KfsBlockFuser::publishMask() {
     }
 
     pub_mask_->publish(grid);
+    publishBlockOverlay();
+}
+
+void KfsBlockFuser::publishBlockOverlay() {
+    rc26_interfaces::msg::MfBlockOverlay overlay;
+    overlay.header.stamp = this->get_clock()->now();
+    overlay.header.frame_id = "map";
+    overlay.team = active_team_.empty() ? layout_team_ : active_team_;
+
+    for (int i = 1; i <= 12; i++) {
+        const size_t idx = static_cast<size_t>(i);
+        rc26_interfaces::msg::MfBlockOverlayCell cell;
+        cell.grid_id = static_cast<uint8_t>(i);
+
+        double prob = 1.0 / (1.0 + std::exp(-log_odds_[idx]));
+        cell.confidence = static_cast<float>(prob);
+
+        if (blocked_state_[idx] == 1) {
+            cell.state = rc26_interfaces::msg::MfBlockOverlayCell::BLOCKED;
+        } else if (prob < free_thresh_) {
+            cell.state = rc26_interfaces::msg::MfBlockOverlayCell::FREE;
+        } else {
+            cell.state = rc26_interfaces::msg::MfBlockOverlayCell::UNKNOWN;
+        }
+
+        cell.keepout_active = (keepout_enabled_ && blocked_state_[idx] == 1);
+        overlay.cells.push_back(cell);
+    }
+
+    pub_block_overlay_->publish(overlay);
 }
 
 void KfsBlockFuser::publishHeartbeat() {
@@ -626,6 +663,7 @@ void KfsBlockFuser::publishDiagnostics() {
     addKV("ttl_mode", ttl_mode_);
     addKV("dwell_cycles", std::to_string(dwell_cycles_));
     addKV("layout_team", layout_team_);
+    addKV("active_team", active_team_);
     addKV("layout_version", layout_version_);
     addKV("layout_validated", layout_validated_ ? "true" : "false");
     addKV("layout_grid_spacing_m", std::to_string(layout_grid_spacing_m_));

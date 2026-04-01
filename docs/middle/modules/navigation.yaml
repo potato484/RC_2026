@@ -1,13 +1,14 @@
 openapi: 3.1.0
 info:
   title: RC26 R2 Navigation ROS2 Contract
-  version: 0.3.0
-  description: 导航安全与导航模式服务接口
+  version: 0.5.0
+  description: 导航安全、拓扑导航和 xhu_direct 运行时接口契约
 servers:
   - url: http://localhost:8080
 tags:
   - name: Topic
   - name: Service
+  - name: Action
 paths:
   /ros2/topics/nav_safety_state:
     get:
@@ -24,10 +25,70 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NavSafetyState'
+  /ros2/topics/mf_block_overlay:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /mf_block_overlay 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: /mf_block_overlay
+        message_type: rc26_interfaces/msg/MfBlockOverlay
+      responses:
+        '200':
+          description: rc26_interfaces/msg/MfBlockOverlay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MfBlockOverlay'
+  /ros2/topics/xhu_nav_corridor_cmd:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /xhu_nav/corridor_cmd 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: /xhu_nav/corridor_cmd
+        message_type: rc26_interfaces/msg/XhuSemanticCorridor
+      responses:
+        '200':
+          description: rc26_interfaces/msg/XhuSemanticCorridor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/XhuSemanticCorridor'
+  /ros2/topics/xhu_nav_motion_mode_state:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /xhu_nav/motion_mode_state 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: /xhu_nav/motion_mode_state
+        message_type: rc26_interfaces/msg/XhuMotionModeState
+      responses:
+        '200':
+          description: rc26_interfaces/msg/XhuMotionModeState
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/XhuMotionModeState'
+  /ros2/topics/xhu_nav_tracking_state:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /xhu_nav/tracking_state 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: /xhu_nav/tracking_state
+        message_type: rc26_interfaces/msg/XhuTrackingState
+      responses:
+        '200':
+          description: rc26_interfaces/msg/XhuTrackingState
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/XhuTrackingState'
   /ros2/services/set_nav_mode:
     post:
       tags: [Service]
-      summary: 调用 service set_nav_mode
+      summary: 调用 service set_nav_mode（legacy/topo）
       x-ros:
         interface_kind: service
         name: set_nav_mode
@@ -45,6 +106,48 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SetNavModeResponse'
+  /ros2/services/set_xhu_motion_mode:
+    post:
+      tags: [Service]
+      summary: 调用 service set_xhu_motion_mode（xhu_direct）
+      x-ros:
+        interface_kind: service
+        name: set_xhu_motion_mode
+        service_type: rc26_interfaces/srv/SetXhuMotionMode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetXhuMotionModeRequest'
+      responses:
+        '200':
+          description: rc26_interfaces/srv/SetXhuMotionMode response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetXhuMotionModeResponse'
+  /ros2/actions/navigate_topo_target:
+    post:
+      tags: [Action]
+      summary: 拓扑导航 action（rc26_topo_nav）
+      x-ros:
+        interface_kind: action
+        name: navigate_topo_target
+        action_type: rc26_interfaces/action/NavigateTopoTarget
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NavigateTopoTargetGoal'
+      responses:
+        '200':
+          description: NavigateTopoTarget result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NavigateTopoTargetResult'
 components:
   schemas:
     Time:
@@ -63,6 +166,61 @@ components:
           $ref: '#/components/schemas/Time'
         frame_id:
           type: string
+    Point:
+      type: object
+      required: [x, y, z]
+      properties:
+        x:
+          type: number
+          format: double
+        y:
+          type: number
+          format: double
+        z:
+          type: number
+          format: double
+    Quaternion:
+      type: object
+      required: [x, y, z, w]
+      properties:
+        x:
+          type: number
+          format: double
+        y:
+          type: number
+          format: double
+        z:
+          type: number
+          format: double
+        w:
+          type: number
+          format: double
+    Pose:
+      type: object
+      required: [position, orientation]
+      properties:
+        position:
+          $ref: '#/components/schemas/Point'
+        orientation:
+          $ref: '#/components/schemas/Quaternion'
+    PoseStamped:
+      type: object
+      required: [header, pose]
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        pose:
+          $ref: '#/components/schemas/Pose'
+    Path:
+      type: object
+      required: [header, poses]
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        poses:
+          type: array
+          items:
+            $ref: '#/components/schemas/PoseStamped'
     NavSafetyState:
       type: object
       required: [header, current_profile, reason, stop_required, timed_out]
@@ -83,6 +241,7 @@ components:
       properties:
         profile:
           type: string
+          description: legacy/topo 模式 profile，典型值：plane_move、mf_traverse、mf_exit、ramp_up、ramp_down、hold
         timeout:
           type: number
           format: float
@@ -95,4 +254,218 @@ components:
         success:
           type: boolean
         message:
+          type: string
+    SetXhuMotionModeRequest:
+      type: object
+      required: [mode, timeout, reason]
+      properties:
+        mode:
+          type: string
+          description: xhu_direct 运动模式名称（通常与 edge.required_mode 对齐）
+        timeout:
+          type: number
+          format: float
+        reason:
+          type: string
+    SetXhuMotionModeResponse:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+    NavigateTopoTargetGoal:
+      type: object
+      required: [target_type, target_id, team, allow_replan]
+      properties:
+        target_type:
+          type: integer
+          enum: [0, 1, 2]
+          description: 0=node, 1=task, 2=route
+        target_id:
+          type: string
+          description: 当 target_type=0 时为 node_id；=1 时为 task_tag；=2 时为 route_tag
+        team:
+          type: string
+          description: 目标阵营，必须与 topo_nav 运行时 team 一致
+        allow_replan:
+          type: boolean
+    NavigateTopoTargetResult:
+      type: object
+      required: [success, terminal_node_id, failure_code, failure_reason]
+      properties:
+        success:
+          type: boolean
+        terminal_node_id:
+          type: string
+        failure_code:
+          type: string
+        failure_reason:
+          type: string
+    NavigateTopoTargetFeedback:
+      type: object
+      required: [active_node_id, active_edge_id, exec_state, replan_count]
+      properties:
+        active_node_id:
+          type: string
+        active_edge_id:
+          type: string
+        exec_state:
+          type: string
+        replan_count:
+          type: integer
+          minimum: 0
+    MfBlockOverlayCell:
+      type: object
+      required: [grid_id, state, confidence, keepout_active]
+      properties:
+        grid_id:
+          type: integer
+          minimum: 1
+          maximum: 12
+        state:
+          type: integer
+          enum: [0, 1, 2]
+          description: 0=FREE, 1=BLOCKED, 2=UNKNOWN
+        confidence:
+          type: number
+          format: float
+        keepout_active:
+          type: boolean
+    MfBlockOverlay:
+      type: object
+      required: [header, team, cells]
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        team:
+          type: string
+        cells:
+          type: array
+          items:
+            $ref: '#/components/schemas/MfBlockOverlayCell'
+    XhuSemanticCorridor:
+      type: object
+      required:
+        - header
+        - corridor_id
+        - edge_id
+        - from_node_id
+        - to_node_id
+        - motion_type
+        - required_mode
+        - path
+        - max_linear_speed
+        - max_angular_speed
+        - stop_at_end
+        - allow_reverse
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        corridor_id:
+          type: string
+        edge_id:
+          type: string
+        from_node_id:
+          type: string
+        to_node_id:
+          type: string
+        motion_type:
+          type: string
+        required_mode:
+          type: string
+        path:
+          $ref: '#/components/schemas/Path'
+        max_linear_speed:
+          type: number
+          format: float
+        max_angular_speed:
+          type: number
+          format: float
+        stop_at_end:
+          type: boolean
+        allow_reverse:
+          type: boolean
+    XhuMotionModeState:
+      type: object
+      required:
+        - header
+        - active_mode
+        - reason
+        - stop_required
+        - timed_out
+        - max_linear_speed
+        - max_angular_speed
+        - max_linear_accel
+        - max_angular_accel
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        active_mode:
+          type: string
+        reason:
+          type: string
+        stop_required:
+          type: boolean
+        timed_out:
+          type: boolean
+        max_linear_speed:
+          type: number
+          format: float
+        max_angular_speed:
+          type: number
+          format: float
+        max_linear_accel:
+          type: number
+          format: float
+        max_angular_accel:
+          type: number
+          format: float
+    XhuTrackingState:
+      type: object
+      required:
+        - header
+        - corridor_id
+        - edge_id
+        - status
+        - terminal
+        - cross_track_error
+        - heading_error
+        - distance_to_goal
+        - cmd_vx
+        - cmd_vy
+        - cmd_wz
+        - reason
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        corridor_id:
+          type: string
+        edge_id:
+          type: string
+        status:
+          type: string
+          description: PASS | HOLD | REPLAN | ABORT
+        terminal:
+          type: boolean
+        cross_track_error:
+          type: number
+          format: float
+        heading_error:
+          type: number
+          format: float
+        distance_to_goal:
+          type: number
+          format: float
+        cmd_vx:
+          type: number
+          format: float
+        cmd_vy:
+          type: number
+          format: float
+        cmd_wz:
+          type: number
+          format: float
+        reason:
           type: string
