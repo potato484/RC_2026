@@ -14,6 +14,10 @@ ament_auto_add_library(${PROJECT_NAME} SHARED
   src/pid.cpp
 )
 
+ament_auto_add_executable(xhu_motion_follower_node
+  src/xhu_motion_follower.cpp
+)
+
 get_target_property(GRID_MAP_CORE_INCLUDE_DIRS grid_map_core::grid_map_core INTERFACE_INCLUDE_DIRECTORIES)
 if(GRID_MAP_CORE_INCLUDE_DIRS)
   target_include_directories(${PROJECT_NAME} PRIVATE ${GRID_MAP_CORE_INCLUDE_DIRS})
