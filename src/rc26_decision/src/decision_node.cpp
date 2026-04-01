@@ -20,6 +20,7 @@
 #include "rc26_decision/mc/mc_area.hpp"
 #include "rc26_decision/mf/mf_area.hpp"
 #include "rc26_decision/navigation/bt_nav_to_smart_point.hpp"
+#include "rc26_decision/navigation/bt_topo_nav.hpp"
 #include "rc26_decision/navigation/smart_waypoint_navigator.hpp"
 #include "rc26_decision/navigation/waypoint_manager.hpp"
 #include "rc26_decision/vision/bt_nodes.hpp"
@@ -278,6 +279,7 @@ public:
     registerMFAreaNodes(factory_);
     registerCombatAreaNodes(factory_);
     registerNavigationNodes(factory_);
+    registerTopoNavNodes(factory_);
     registerVisionNodes(factory_);
 
     tick_rate_ms_ = this->get_parameter("tick_rate_ms").as_int();

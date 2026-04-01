@@ -1,0 +1,11 @@
+<!-- RC2026 xhu_direct 首轮主树：
+     仅启用已完成 topo 迁移的 MF 子树，避免未迁移区域继续依赖 navigate_to_pose。 -->
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+  <include path="mf_tree_topo.xml"/>
+
+  <BehaviorTree ID="MainTree">
+    <Sequence>
+      <SubTree ID="MFAreaTree" _autoremap="true"/>
+    </Sequence>
+  </BehaviorTree>
+</root>

@@ -1,0 +1,17 @@
+<!-- RC2026 主行为树（topo 模式） -->
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+
+  <!-- 保留 MC / Combat 旧树，只把 MF 子树切到 topo 版本 -->
+  <include path="mc_tree.xml"/>
+  <include path="mf_tree_topo.xml"/>
+  <include path="combat_tree.xml"/>
+
+  <BehaviorTree ID="MainTree">
+    <Sequence>
+      <SubTree ID="MCAreaTree" _autoremap="true"/>
+      <SubTree ID="MFAreaTree" _autoremap="true"/>
+      <SubTree ID="CombatAreaTree" _autoremap="true"/>
+    </Sequence>
+  </BehaviorTree>
+
+</root>

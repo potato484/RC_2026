@@ -9,7 +9,7 @@
 - 构建产物：
   - 共享库 `rc26_decision_nodes`
   - 可执行文件 `decision_node`
-- 行为树文件：`behavior_trees/main_tree.xml`、`mc_tree.xml`、`mf_tree.xml`、`combat_tree.xml`
+- 行为树文件：`behavior_trees/main_tree.xml`、`main_tree_topo.xml`、`main_tree_xhu_direct.xml`、`mc_tree.xml`、`mf_tree.xml`、`mf_tree_topo.xml`、`combat_tree.xml`
 - 参数文件：`config/decision_params.yaml`
 - 本地化配置：`config/bt_localization.yaml`
 
@@ -19,6 +19,8 @@
 - `src/mf/mf_area.cpp`、`src/mf/merlin_rule_world_model.cpp`：梅林区流程和规则世界模型
 - `src/combat/battle_grid_state.cpp`、`src/combat/combat_area.cpp`：对抗区状态与行为
 - `src/navigation/waypoint_manager.cpp`、`smart_waypoint_navigator.cpp`、`bt_nav_to_smart_point.cpp`：智能航点、Nav2 目标下发、导航档位切换
+- `src/navigation/bt_topo_nav.cpp`：拓扑导航 BT 节点（NavToTopoNode、NavToTaskPose、ExecuteTopoRoute），通过 NavigateTopoTarget action 与 rc26_topo_nav 对接
+  - 当 `NavToTaskPose` 提供 `grid_id` 时，会直接把 Merlin 已选中的目标格映射成 `mf_b<grid_id>`，避免 topo_nav 重新替用户选格
 - `src/vision/bt_nodes.cpp`：`VisionStart`、`VisionStop`、`VisionSetModel`、`WaitVisionTarget` 等 BT 节点
 
 `decision_node` 当前除了装树和 tick 行为树，还实现了两条重要辅助链路：
@@ -34,6 +36,17 @@
 - `rc26_vision`：通过 `VisionInferenceManager` 提供视觉黑板输入
 - Nav2：通过 `SmartWaypointNavigator` 下发 `navigate_to_pose`
 - `rc26_nav_mode_manager`：通过 `SetNavMode` 服务切档
+
+当前 topo 迁移只切换 MF 子树：
+
+- `main_tree_topo.xml` 继续复用 `mc_tree.xml` 和 `combat_tree.xml`
+- `mf_tree_topo.xml` 负责把 MF 导航改为 `NavigateTopoTarget`
+- MF 目标格选择仍由 `MerlinRuleWorldModel` / `SelectNextGrid` 决定，不下沉到 `rc26_topo_nav`
+
+`xhu_direct` 首轮口径：
+
+- `main_tree_xhu_direct.xml` 当前仅挂载 `MFAreaTree`（`mf_tree_topo.xml`），不再加载 `mc_tree.xml` 与 `combat_tree.xml`
+- 这样做是为了避免未迁移区域继续通过 `navigate_to_pose` 触发 Nav2 运行时依赖
 
 ## 源码入口与阅读顺序
 - 先看 `behavior_trees/main_tree.xml` 以及各区域 XML，理解“树上声明了什么阶段顺序”。
