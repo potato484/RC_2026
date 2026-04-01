@@ -8,6 +8,10 @@
 - 如果后续需要为某个包补充更细的实现解剖、调用链、时序图或故障排查文档，优先继续放在该包目录内。
 - 文档如果涉及职责边界、输入输出、权威归属或接口语义变化，仍然需要同步更新相关 README、`docs/fitness/` 和 `docs/middle/` 契约文档。
 
+## 当前专题状态
+
+- [`xhu_direct_current_status_2026-04-01`](xhu_direct_current_status_2026-04-01.md): 记录当前导航架构真实落地状态，以及 2026-04-01 根目录外部参考仓库清理结果。`(file: xhu_direct_current_status_2026-04-01.md)`
+
 ## 包目录索引
 
 ### 装配与决策
@@ -29,10 +33,11 @@
 
 ### 控制与执行
 
+- [`rc26_topo_nav`](archive/rc26_topo_nav/README.md): R2 比赛特化拓扑导航中层；当前支持 `nav2_follow_path` 与 `xhu_direct` 双执行后端，负责 route/corridor 产出和 `/xhu_nav/*` 运行时可观测输出。`(file: archive/rc26_topo_nav/README.md)`
 - [`rc26_mechanism`](archive/rc26_mechanism/README.md): R2 的机构执行与生命周期管理模块，负责把上层动作语义可靠地下发给下位机，并回传状态。`(file: archive/rc26_mechanism/README.md)`
-- [`rc26_nav_mode_manager`](archive/rc26_nav_mode_manager/README.md): R2 的导航安全模式管理器，负责在不同风险场景下切换导航参数档位，并协调地形感知参数随之同步变化。`(file: archive/rc26_nav_mode_manager/README.md)`
+- [`rc26_nav_mode_manager`](archive/rc26_nav_mode_manager/README.md): R2 的导航/运动模式管理宿主包；同时承载 legacy `SetNavMode` 管理器和 `xhu_direct` 运行时 `xhu_motion_mode_manager`。`(file: archive/rc26_nav_mode_manager/README.md)`
 - [`rc26_nmpc_controller`](archive/rc26_nmpc_controller/README.md): 挂载到 Nav2 `controller_server` 上的定位感知型 NMPC 控制器插件。`(file: archive/rc26_nmpc_controller/README.md)`
-- [`rc26_omni_controller`](archive/rc26_omni_controller/README.md): R2 麦克纳姆底盘的 Nav2 局部控制器插件，采用 PID + Pure Pursuit 的全向路径跟踪方案。`(file: archive/rc26_omni_controller/README.md)`
+- [`rc26_omni_controller`](archive/rc26_omni_controller/README.md): R2 麦克纳姆底盘控制宿主包；保留 Nav2 控制器插件，同时新增 `xhu_motion_follower` 独立节点用于 `xhu_direct` 直连跟踪。`(file: archive/rc26_omni_controller/README.md)`
 - [`rc26_telecontrol`](archive/rc26_telecontrol/README.md): R2 的人工遥控测试包，用来在调试和联调阶段通过手柄向底盘发送速度指令。`(file: archive/rc26_telecontrol/README.md)`
 - [`rc26_serial`](archive/rc26_serial/README.md): 整个 R2 仓库的串口通信基础库，给机构控制、底盘下发和其他串口链路复用。`(file: archive/rc26_serial/README.md)`
 

@@ -1,0 +1,26 @@
+xhu_motion_follower:
+  ros__parameters:
+    odom_topic: "control_state"
+    map_frame: "map"
+    base_frame: "base_link"
+    control_frequency_hz: 30.0
+    lookahead_distance: 0.60
+    goal_tolerance_xy: 0.15
+    goal_tolerance_yaw: 0.30
+    corridor_timeout_sec: 45.0
+    odom_timeout_sec: 0.30
+    hold_to_abort_sec: 3.00
+    kp_linear_x: 1.20
+    kp_linear_y: 1.00
+    kp_angular: 1.80
+    default_max_linear_speed: 0.80
+    default_max_angular_speed: 1.00
+    default_max_linear_accel: 0.60
+    default_max_angular_accel: 0.80
+    lhi_yellow_v_scale: 0.80
+    lhi_yellow_w_scale: 0.80
+    lhi_orange_v_scale: 0.50
+    lhi_orange_w_scale: 0.60
+    lhi_orange_vy_scale: 0.50
+    terrain_obstacle_threshold: 0.60
+    terrain_drop_threshold: 0.80

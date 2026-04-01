@@ -9,7 +9,7 @@
 - 主启动文件：`src/rc26_bringup/launch/bringup.launch.py`
 - 分链路启动：`localization.launch.py`、`odometry.launch.py`、`odometry_mock.launch.py`、`realsense_d455.launch.py`
 - 单模块测试：`test_localization.launch.py`、`test_odom_interface.launch.py`、`test_odometry_chain.launch.py`、`test_omni_controller.launch.py`、`test_sensor_scan.launch.py`
-- 关键配置：`config/localization.yaml`、`config/nav2_params.yaml`、`config/odom_interface.yaml`、`config/sensor_scan_generation.yaml`、`config/realsense_d455.yaml`
+- 关键配置：`config/localization.yaml`、`config/nav2_params.yaml`、`config/nav2_params_topo.yaml`、`config/nav_profiles_topo.yaml`、`config/xhu_motion_follower.yaml`、`config/odom_interface.yaml`、`config/sensor_scan_generation.yaml`、`config/realsense_d455.yaml`
 - 辅助脚本：`scripts/mock_point_lio.py`、`scripts/r2_acceptance_probe.py`、`scripts/render_foxglove_layouts.py`
 
 `bringup.launch.py` 当前会把以下链路装配到一起：
@@ -17,8 +17,19 @@
 - 里程计链：`rc26_mid360_driver`、`rc26_point_lio`、`rc26_odom_interface`、`rc26_sensor_scan`
 - 定位链：`rc26_localization`
 - 基础地形链：`rc26_base_ground`、`rc26_terrain`
-- 导航链：Nav2、自定义控制器、`rc26_nav_mode_manager`
+- 导航链：支持 `legacy / topo(topo_nav2) / xhu_direct` 三态，按模式装配 Nav2 运行时或 `xhu` 直连执行链
 - 安全/规则链：`rc26_kfs_keepout`、`rc26_terrain_nav2`
+
+`bringup.launch.py` 支持 `navigation_stack_mode` 参数：
+- `legacy`（默认）：当前完整 Nav2 栈 + 双控制器
+- `topo` / `topo_nav2`：rc26_topo_nav + 精简 Nav2（仅 FollowPath 控制器）+ `nav_profiles_topo.yaml` 六档 profile
+- `xhu_direct`：`rc26_topo_nav(execution_backend=xhu_direct)` + `xhu_motion_mode_manager_node` + `xhu_motion_follower_node`，不启动 Nav2 navigation runtime
+- topo/xhu_direct 模式下会按 `team` 选择 `r2_field_graph_blue.yaml` / `r2_field_graph_red.yaml`
+- 决策树文件会按模式切换：
+  - `legacy` → `main_tree.xml`
+  - `topo` → `main_tree_topo.xml`
+  - `xhu_direct` → `main_tree_xhu_direct.xml`
+- `xhu_direct` 下 `terrain_speed_limit_bridge_node` 不启动（避免继续向 `controller_server` 输出速度限制）
 - 决策链：`rc26_decision`
 - 状态聚合：`rc26_visualization`
 - 可选可视化：RViz、Foxglove

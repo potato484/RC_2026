@@ -1,0 +1,174 @@
+# Nav2 params for topo mode: only controller_server with FollowPath
+# planner_server retained minimally for legacy areas not yet migrated
+
+controller_server:
+  ros__parameters:
+    use_sim_time: false
+    controller_frequency: 30.0
+    odom_topic: control_state
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 0.3
+    progress_checker_plugins: ["progress_checker"]
+    goal_checker_plugins: ["general_goal_checker"]
+    controller_plugins: ["FollowPath"]
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.5
+      movement_time_allowance: 10.0
+
+    general_goal_checker:
+      stateful: true
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.25
+      yaw_goal_tolerance: 0.25
+
+    FollowPath:
+      plugin: "rc26_omni_controller::OmniPidPursuitController"
+      translation_kp: 3.0
+      translation_ki: 0.1
+      translation_kd: 0.3
+      enable_rotation: true
+      rotation_kp: 3.0
+      rotation_ki: 0.1
+      rotation_kd: 0.3
+      transform_tolerance: 0.1
+      min_max_sum_error: 1.0
+      lookahead_dist: 0.8
+      use_velocity_scaled_lookahead_dist: true
+      lookahead_time: 1.0
+      min_lookahead_dist: 0.5
+      max_lookahead_dist: 1.5
+      use_interpolation: false
+      use_rotate_to_heading: true
+      use_rotate_to_heading_threshold: 0.1
+      min_approach_linear_velocity: 0.5
+      approach_velocity_scaling_dist: 1.0
+      v_linear_min: -2.5
+      v_linear_max: 2.5
+      v_angular_min: -3.0
+      v_angular_max: 3.0
+      a_linear_max: 3.0
+      a_angular_max: 6.0
+      brake_margin: 0.15
+      brake_accel: 0.8
+      lateral_error_gain: 1.5
+      lateral_error_max: 0.3
+      enable_curvature_ff: false
+      a_lim_x: 1.0
+      a_lim_y: 0.6
+      a_lateral_max: 3.0
+      curvature_forward_dist: 0.7
+      curvature_backward_dist: 0.3
+      max_velocity_scaling_factor_rate: 0.9
+      kv_ff: 0.4
+      goal_dist_scale: 1.0
+      wheel_base: 0.62326
+      track_width: 0.7
+      wheel_speed_max: -1.0
+      loc_uncertainty_enable: true
+      loc_timeout_sec: 0.2
+      loc_k_v: 50.0
+      loc_k_w: 20.0
+      loc_v_scale_min: 0.2
+      loc_w_scale_min: 0.3
+      lhi_yellow_v_scale: 0.8
+      lhi_yellow_w_scale: 0.8
+      lhi_orange_v_scale: 0.5
+      lhi_orange_w_scale: 0.6
+      lhi_orange_vy_scale: 0.5
+      lhi_red_stop_enable: true
+      degraded_v_scale: 0.3
+      degraded_w_scale: 0.5
+      terrain_enable: true
+      terrain_grid_topic: "/terrain_grid_map_local"
+      terrain_traversability_layer: "traversability"
+      terrain_fresh_layer: "fresh"
+      terrain_slope_x_layer: "slope_x"
+      terrain_slope_y_layer: "slope_y"
+      terrain_roughness_layer: "roughness"
+      terrain_step_up_layer: "step_up"
+      terrain_rule_legality_layer: "rule_legality"
+      terrain_kfs_keepout_layer: "kfs_keepout"
+      terrain_block_occupied_layer: "block_occupied"
+      terrain_ramp_corridor_layer: "ramp_corridor_mask"
+      terrain_sample_count: 12
+      terrain_scale_min: 0.35
+      terrain_lateral_scale_min: 0.2
+      terrain_yaw_scale_min: 0.25
+      terrain_slope_limit: 0.45
+      terrain_roughness_limit: 0.35
+      terrain_step_up_limit: 0.08
+      terrain_rule_legality_threshold: 0.5
+      terrain_keepout_threshold: 0.5
+      terrain_block_occupied_threshold: 0.5
+      terrain_enforce_ramp_corridor: false
+      terrain_stale_timeout_sec: 0.4
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      use_sim_time: false
+      update_frequency: 20.0
+      publish_frequency: 10.0
+      global_frame: odom
+      robot_base_frame: base_link
+      rolling_window: true
+      width: 7
+      height: 7
+      resolution: 0.1
+      footprint: "[[0.4, 0.4], [0.4, -0.4], [-0.4, -0.4], [-0.4, 0.4]]"
+      plugins: ["obstacle_layer", "inflation_layer"]
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: terrain_obs
+        terrain_obs:
+          topic: terrain_obstacles
+          data_type: "PointCloud2"
+          marking: true
+          clearing: false
+          max_obstacle_height: 2.0
+          min_obstacle_height: 0.0
+          obstacle_max_range: 4.0
+          obstacle_min_range: 0.0
+          raytrace_max_range: 5.0
+          raytrace_min_range: 0.0
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 10.0
+        inflation_radius: 0.55
+
+# planner_server retained minimally for any remaining legacy areas
+planner_server:
+  ros__parameters:
+    use_sim_time: false
+    expected_planner_frequency: 5.0
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.5
+      use_astar: true
+      allow_unknown: true
+
+behavior_server:
+  ros__parameters:
+    use_sim_time: false
+    odom_topic: control_state
+    local_costmap_topic: local_costmap/costmap_raw
+    global_costmap_topic: global_costmap/costmap_raw
+    local_frame: odom
+    global_frame: map
+    robot_base_frame: base_link
+    transform_tolerance: 0.1
+    behavior_plugins: ["spin", "backup", "wait"]
+    spin:
+      plugin: "nav2_behaviors/Spin"
+    backup:
+      plugin: "nav2_behaviors/BackUp"
+    wait:
+      plugin: "nav2_behaviors/Wait"
