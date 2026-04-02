@@ -7,6 +7,7 @@
 ## 当前实现
 
 - Action Server: `navigate_topo_target`
+- 运行时仍通过 `graph_file` 加载静态 topo YAML，不在节点启动时动态从点云或地图自动建图
 - 发布:
   - `/topo_nav/route`
   - `/topo_nav/corridor`
@@ -38,8 +39,63 @@
 - [src/edge_executor.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/edge_executor.cpp)
 - [src/planner.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/planner.cpp)
 
+## 图配置口径
+
+- `config/r2_field_graph_blue.yaml` 和 `config/r2_field_graph_red.yaml` 现在是离线生成产物
+- 共享几何真源来自 [r2_mf_world.yaml](/home/potato/RC_2026/src/rc26_kfs_keepout/config/r2_mf_world.yaml)，只负责 MF 块位姿、高度和基础场地区域事实
+- topo 语义补充来自 [r2_field_graph_overlay.yaml](/home/potato/RC_2026/src/rc26_topo_nav/config/r2_field_graph_overlay.yaml)，只负责入口/出口 staging、坡道点、任务/路线，以及无法从几何稳定推导的节点和边成本
+- 当前 v1 只覆盖 MF 主区与入口/出口坡道链路，不负责把任意 `.pcd` 地图自动变成任意 3D 导航点网络
+
+## 维护方式
+
+- 生成命令:
+  - `python3 src/rc26_topo_nav/scripts/generate_graph.py --world-layout src/rc26_kfs_keepout/config/r2_mf_world.yaml --overlay src/rc26_topo_nav/config/r2_field_graph_overlay.yaml --team blue --out src/rc26_topo_nav/config/r2_field_graph_blue.yaml`
+  - `python3 src/rc26_topo_nav/scripts/generate_graph.py --world-layout src/rc26_kfs_keepout/config/r2_mf_world.yaml --overlay src/rc26_topo_nav/config/r2_field_graph_overlay.yaml --team red --out src/rc26_topo_nav/config/r2_field_graph_red.yaml`
+- 一致性检查:
+  - `python3 src/rc26_topo_nav/scripts/generate_graph.py --world-layout src/rc26_kfs_keepout/config/r2_mf_world.yaml --overlay src/rc26_topo_nav/config/r2_field_graph_overlay.yaml --team blue --out src/rc26_topo_nav/config/r2_field_graph_blue.yaml --check-existing`
+  - `python3 src/rc26_topo_nav/scripts/generate_graph.py --world-layout src/rc26_kfs_keepout/config/r2_mf_world.yaml --overlay src/rc26_topo_nav/config/r2_field_graph_overlay.yaml --team red --out src/rc26_topo_nav/config/r2_field_graph_red.yaml --check-existing`
+- 图合法性检查:
+  - `python3 src/rc26_topo_nav/scripts/validate_graph.py src/rc26_topo_nav/config/r2_field_graph_blue.yaml src/rc26_topo_nav/config/r2_field_graph_red.yaml`
+
+## 静态可视化
+
+- `render_graph_html.py` 可以把当前 `graph_file` 直接渲染成单文件 HTML，离线查看 topo 算法真正使用的 `nodes / edges / tasks / routes`
+- 这个工具不依赖 ROS 节点启动、不依赖实机，也不依赖 RViz 运行态 topic；适合静态检查图是否建对、路线是否串对、任务候选点是否合理
+- 生成命令:
+  - `python3 src/rc26_topo_nav/scripts/render_graph_html.py --graph src/rc26_topo_nav/config/r2_field_graph_blue.yaml --out /tmp/r2_field_graph_blue.html`
+  - `python3 src/rc26_topo_nav/scripts/render_graph_html.py --graph src/rc26_topo_nav/config/r2_field_graph_red.yaml --out /tmp/r2_field_graph_red.html`
+- 页面能力:
+  - 节点颜色区分 `mf_edge_pose / staging / ramp_entry / ramp_exit`
+  - 边颜色区分 `plane_move / ramp_up / ramp_down`
+  - 点击 route 可高亮预设链路
+  - 点击 task 可高亮候选节点
+  - 点击节点或边可直接查看完整字段
+
+## 仿真场地联动可视化
+
+- `render_graph_sim_html.py` 会把 topo 图和 `RC_Sim_001_github` 的 Gazebo 场地对齐到同一张离线 HTML 页面
+- 对齐方式不是人工写死偏移，而是用 `kfs_config_v2_aligned.yaml` 里的 `meilin.<team>` 坐标自动拟合 `graph_file` 的 MF block 网格，再把 staging / ramp 节点按同一平移落到仿真世界里
+- 页面除了顶视图叠图，还会离线复现 planner 当前真实代价逻辑：
+  - priority queue 扩展顺序
+  - 每次 edge relax / keep-best / blocked 的步骤
+  - 最终路径的 `motion_type` 和 `z / height_change` 语义剖面
+- Gazebo 场地不是再画抽象框，而是直接投影 `robocon2026.dae` 的真实面片；但页面会主动过滤 `柱体 / 杆架 / 细碎竖向小面` 这类噪声，只保留更容易看懂比赛场地颜色分区、台面和围栏轮廓的部分
+- 页面的人机可读层现在优先用中文说明：
+  - `motion_type / node_type / goal_kind / frame type` 都会显示中文解释
+  - `node_id / edge_id / task_tag / route_tag` 不再只裸露英文变量，而是先显示中文含义，再附原始 ID 供开发排查
+  - `高度变化 dZ / 本段代价 / 累计代价` 等字段会直接在页面上解释是什么意思
+- 这个工具仍然是离线观察工具，不改变 `rc26_topo_nav` 运行时只加载静态 `graph_file` 的边界
+- 生成命令:
+  - `python3 src/rc26_topo_nav/scripts/render_graph_sim_html.py --graph src/rc26_topo_nav/config/r2_field_graph_blue.yaml --world RC_Sim_001_github/src/rc01_world/worlds/robocon2026_v2_aligned.world --kfs-config RC_Sim_001_github/src/rc01_kfs_manager/config/kfs_config_v2_aligned.yaml --out /tmp/r2_field_graph_blue_sim.html`
+  - `python3 src/rc26_topo_nav/scripts/render_graph_sim_html.py --graph src/rc26_topo_nav/config/r2_field_graph_red.yaml --world RC_Sim_001_github/src/rc01_world/worlds/robocon2026_v2_aligned.world --kfs-config RC_Sim_001_github/src/rc01_kfs_manager/config/kfs_config_v2_aligned.yaml --out /tmp/r2_field_graph_red_sim.html`
+- 常用观察参数:
+  - `--start <node_id> --goal-node <node_id>`: 看单点到单点的搜索过程
+  - `--goal-task <task_tag>`: 看 task 候选点比较和最终选中结果
+  - `--blocked-node <id>` / `--blocked-edge <id>`: 模拟动态阻塞后的规划变化
+
 ## 当前边界
 
 - 负责 topo 图搜索与单边执行调度
 - 不负责底层速度控制求解
 - 只对接 topo/xhu 自研执行接口
+- 不拥有场地几何真源；图几何事实由 `rc26_kfs_keepout/config/r2_mf_world.yaml` 提供

@@ -12,7 +12,7 @@ Log/
 # Project-local ROS bag captures
 /rosbags/*
 !/rosbags/README.md
-
+.playwright-mcp
 # Logs
 logs
 *.log

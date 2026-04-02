@@ -141,6 +141,13 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
   - 失效/降级语义
 - **规则**：跨层边界变化时，必须同步更新对应 README 和本文档。
 
+### 3.12 共享场地几何必须单一真源
+
+- **规则**：像 MF 主区 block 几何、入口/出口 block 集合这类会同时被 keepout、topo graph 等多个包消费的场地事实，必须只有一个文档化配置真源。
+- **当前口径**：`src/rc26_kfs_keepout/config/r2_mf_world.yaml` 是当前 MF 主区共享几何真源。
+- **规则**：`rc26_topo_nav` 可以基于这个真源离线生成 `graph_file`，但运行时仍应加载静态 topo YAML，不应在节点启动流程里临时发明另一套动态建图逻辑。
+- **规则**：无法从共享几何稳定推导出的 topo 语义，例如 staging 点、坡道边、任务路由、手工调过的 node/edge cost，必须明确留在 `rc26_topo_nav` 自己的 overlay 或文档里，而不是偷偷塞回底层几何文件。
+
 ## 4. ROS2 工作区 Fitness Function
 
 ### 4.1 `bringup` 纯度检查
