@@ -105,3 +105,31 @@ TEST_F(PlannerTest, RouteTagFailsWhenDeclaredEdgeBlocked) {
     auto result = planRouteTag(graph_, "a", "entry_route", n_ov_, e_ov_, weights_);
     EXPECT_FALSE(result.success);
 }
+
+TEST_F(PlannerTest, TraceCapturesPlannerFramesAndPath) {
+    auto trace = planRouteTrace(graph_, "a", "c", n_ov_, e_ov_, weights_);
+    ASSERT_TRUE(trace.result.success);
+    EXPECT_EQ(trace.result.node_path.size(), 3u);
+    ASSERT_GE(trace.frames.size(), 4u);
+    EXPECT_EQ(trace.frames.front().event, TraceEventType::INIT);
+    EXPECT_EQ(trace.frames.back().event, TraceEventType::GOAL);
+    EXPECT_EQ(trace.frames.back().best_path.back(), "c");
+}
+
+TEST_F(PlannerTest, TraceWithHeuristicStillFindsOptimalPath) {
+    PlannerTraceOptions options;
+    options.heuristic_scale = 1.0;
+
+    auto trace = planRouteTrace(graph_, "a", "c", n_ov_, e_ov_, weights_, options);
+    ASSERT_TRUE(trace.result.success);
+    EXPECT_EQ(trace.result.node_path.size(), 3u);
+    EXPECT_EQ(trace.result.node_path[1], "b");
+}
+
+TEST_F(PlannerTest, TaskTraceRecordsCandidateSelection) {
+    auto trace = planToTaskTrace(graph_, "a", "grab", n_ov_, e_ov_, weights_);
+    ASSERT_TRUE(trace.result.success);
+    ASSERT_EQ(trace.candidate_results.size(), 2u);
+    EXPECT_EQ(trace.selected_candidate, "b");
+    EXPECT_EQ(trace.frames.back().event, TraceEventType::CANDIDATE_SELECTED);
+}

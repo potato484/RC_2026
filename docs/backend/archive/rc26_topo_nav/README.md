@@ -38,6 +38,10 @@
 - [src/topo_nav_node.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/topo_nav_node.cpp)
 - [src/edge_executor.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/edge_executor.cpp)
 - [src/planner.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/planner.cpp)
+- [src/planner_trace_cli.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/planner_trace_cli.cpp)
+- [scripts/topo_sim_server.py](/home/potato/RC_2026/src/rc26_topo_nav/scripts/topo_sim_server.py)
+- [scripts/topo_sim_algorithms.py](/home/potato/RC_2026/src/rc26_topo_nav/scripts/topo_sim_algorithms.py)
+- [sim_viewer/src/App.tsx](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/App.tsx)
 
 ## 图配置口径
 
@@ -93,9 +97,37 @@
   - `--goal-task <task_tag>`: 看 task 候选点比较和最终选中结果
   - `--blocked-node <id>` / `--blocked-edge <id>`: 模拟动态阻塞后的规划变化
 
+## 3D 仿真 viewer
+
+- 当前包新增了一个本地 3D 仿真工具链：
+  - `planner_trace_cli`：把 C++ planner 当前真实搜索过程导出为 JSON trace，作为 A* 观察真源
+  - `topo_sim_server.py`：把 topo 图、Gazebo world、KFS 对齐配置和只读运行时状态整理成 HTTP / WebSocket adapter
+  - `sim_viewer`：用 Three.js / React 把完整 mesh 场景、路径、关键节点、open set、扩展树和候选轨迹渲染成可交互 3D 页面
+- viewer 当前支持：
+  - 离线 A* / RRT / DWA 回放
+  - `orbit / follow / first_person / top_ortho / side_ortho` 多视角
+  - 起点绿色、目标点红色、路径蓝色的三维路径层
+  - 只读 live ROS 观察：`/topo_nav/route`、`/topo_nav/corridor`、`/xhu_nav/active_edge`、`/xhu_nav/semantic_gate`、`/mf_block_overlay`、`/xhu_nav/tracking_state`
+- 当前实现特别注意把“完整渲染几何”和“规划碰撞 keep-out”分开：
+  - viewer 会尽量显示完整 world mesh
+  - RRT / DWA 的平面 keep-out 只取围栏等竖向障碍和 block overlay，不把可通行平台表面错误地当成二维障碍物
+
+## 本地启动方式
+
+- 包构建:
+  - `MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_topo_nav`
+- 启动 adapter:
+  - `python3 src/rc26_topo_nav/scripts/topo_sim_server.py`
+- 前端开发态:
+  - `cd src/rc26_topo_nav/sim_viewer && npm run dev`
+- 前端静态构建:
+  - `cd src/rc26_topo_nav/sim_viewer && npm run build`
+- 当前 `dist/` 构建完成后，`topo_sim_server.py` 会优先直接返回该静态页面；开发态仍然推荐走 Vite 代理到 `127.0.0.1:8796`
+
 ## 当前边界
 
 - 负责 topo 图搜索与单边执行调度
 - 不负责底层速度控制求解
 - 只对接 topo/xhu 自研执行接口
 - 不拥有场地几何真源；图几何事实由 `rc26_kfs_keepout/config/r2_mf_world.yaml` 提供
+- `sim_viewer` 和 `topo_sim_server.py` 是当前包附带的本地观测工具，不是运行时导航权威

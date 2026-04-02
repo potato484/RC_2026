@@ -51,16 +51,26 @@ add_executable(topo_nav_node src/main.cpp)
 target_link_libraries(topo_nav_node ${PROJECT_NAME}_lib)
 ament_target_dependencies(topo_nav_node ${DEPS})
 
+add_executable(planner_trace_cli src/planner_trace_cli.cpp)
+target_link_libraries(planner_trace_cli ${PROJECT_NAME}_lib)
+ament_target_dependencies(planner_trace_cli ${DEPS})
+
 # Graph scripts
 install(PROGRAMS
   scripts/validate_graph.py
   scripts/generate_graph.py
   scripts/render_graph_html.py
   scripts/render_graph_sim_html.py
+  scripts/topo_sim_server.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
-install(TARGETS topo_nav_node DESTINATION lib/${PROJECT_NAME})
+install(FILES
+  scripts/topo_sim_algorithms.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(TARGETS topo_nav_node planner_trace_cli DESTINATION lib/${PROJECT_NAME})
 install(TARGETS ${PROJECT_NAME}_lib DESTINATION lib)
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config/ DESTINATION share/${PROJECT_NAME}/config)
@@ -89,6 +99,11 @@ if(BUILD_TESTING)
   add_test(
     NAME test_render_graph_sim_html
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_render_graph_sim_html.py
+  )
+
+  add_test(
+    NAME test_topo_sim_server
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_topo_sim_server.py
   )
 endif()
 

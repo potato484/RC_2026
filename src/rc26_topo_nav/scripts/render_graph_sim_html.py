@@ -302,19 +302,21 @@ def world_feature_profile(
     z_span: float,
     *,
     default_opacity: float,
+    filter_noise: bool = True,
 ) -> dict[str, Any] | None:
-    if node_name in NOISE_WORLD_NODES:
-        return None
-    if area_xy < 0.004:
-        return None
-    if z_span > 0.05 and area_xy < 0.16:
-        return None
-    if node_name == "主地图" and area_xy < 0.03 and not is_marking_material(material_symbol):
-        return None
-    if node_name == "2-3区围栏" and area_xy < 0.02:
-        return None
-    if node_name in SUBTLE_WORLD_NODES and area_xy < 0.08:
-        return None
+    if filter_noise:
+        if node_name in NOISE_WORLD_NODES:
+            return None
+        if area_xy < 0.004:
+            return None
+        if z_span > 0.05 and area_xy < 0.16:
+            return None
+        if node_name == "主地图" and area_xy < 0.03 and not is_marking_material(material_symbol):
+            return None
+        if node_name == "2-3区围栏" and area_xy < 0.02:
+            return None
+        if node_name in SUBTLE_WORLD_NODES and area_xy < 0.08:
+            return None
 
     if node_name == "2-3区围栏":
         return {
@@ -457,7 +459,12 @@ def parse_collada_geometry_primitives(root: ET.Element, ns: dict[str, str]) -> d
     return geometry_primitives
 
 
-def parse_collada_scene_features(dae_path: Path, model_pose: dict[str, float]) -> list[dict[str, Any]]:
+def parse_collada_scene_features(
+    dae_path: Path,
+    model_pose: dict[str, float],
+    *,
+    filter_noise: bool = True,
+) -> list[dict[str, Any]]:
     root = ET.parse(dae_path).getroot()
     ns = {"c": "http://www.collada.org/2005/11/COLLADASchema"}
     material_styles = parse_collada_material_styles(root, ns)
@@ -511,6 +518,7 @@ def parse_collada_scene_features(dae_path: Path, model_pose: dict[str, float]) -
                 area_xy,
                 z_span,
                 default_opacity=float(style["opacity"]),
+                filter_noise=filter_noise,
             )
             if feature_profile is None:
                 continue
@@ -545,7 +553,12 @@ def parse_collada_scene_features(dae_path: Path, model_pose: dict[str, float]) -
     return features
 
 
-def parse_world_context(world_path: Path, model_root: Path) -> dict[str, Any]:
+def parse_world_context(
+    world_path: Path,
+    model_root: Path,
+    *,
+    filter_noise: bool = True,
+) -> dict[str, Any]:
     root = ET.parse(world_path).getroot()
     world = root.find("world")
     if world is None:
@@ -572,7 +585,7 @@ def parse_world_context(world_path: Path, model_root: Path) -> dict[str, Any]:
     if field_uri:
         dae_path = model_root / "robocon2026_world" / "meshes" / "robocon2026.dae"
         if dae_path.is_file():
-            scene_features = parse_collada_scene_features(dae_path, field_pose)
+            scene_features = parse_collada_scene_features(dae_path, field_pose, filter_noise=filter_noise)
 
     return {
         "field_pose": field_pose,
