@@ -2,11 +2,11 @@
 
 ## 1. 工程定位
 
-当前仓库里唯一已经成型的自研 Web 前端是 `merlin-bt-visualizer`。它的核心任务不是联机控车，而是围绕 `rc26_decision` 行为树 XML 做本地查看、基础编辑和演示。
+当前仓库里已经有两套成型的自研 Web 前端，但这份总览主要记录 `merlin-bt-visualizer` 这条行为树工具链。
 
-- 它是单页本地工作台，不是多页面站点。
-- 它消费仓库中的 XML 和本地模拟逻辑，不拥有机器人运行时控制权。
-- 它当前的价值是“看 XML、改 XML、演示 XML”，而不是“接管运行时”。
+- `merlin-bt-visualizer` 的核心任务不是联机控车，而是围绕 `rc26_decision` 行为树 XML 做本地查看、基础编辑和演示。
+- `src/rc26_topo_nav/sim_viewer` 是另一条独立的 3D topo 仿真 viewer 链，详见 [topo_sim_viewer/README.md](/home/potato/RC_2026/docs/frontend/topo_sim_viewer/README.md)。
+- 这两套工具都不拥有机器人运行时控制权。
 
 ## 2. 入口、输入源与开发边界
 

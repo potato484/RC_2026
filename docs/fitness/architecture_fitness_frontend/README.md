@@ -2,7 +2,7 @@
 
 ## 1. 目的
 
-本文档只讨论当前仓库前端，也就是 `merlin-bt-visualizer` 的架构边界和维护规则。
+本文档讨论当前仓库已经存在的本地前端工具，主要包括 `merlin-bt-visualizer` 和 `src/rc26_topo_nav/sim_viewer` 的架构边界与维护规则。
 
 它的目标不是描述“理想中的在线驾驶舱”，而是约束当前已经存在的本地前端工具，避免它在演化过程中失去边界。
 
@@ -49,14 +49,15 @@
   - ROS2 -> WebSocket 转换层
   - 权限和持久化服务层
 - 不允许让 React 页面直接耦合底层 ROS2 细节。
+- 当前 `src/rc26_topo_nav/scripts/topo_sim_server.py` 就是一个允许存在的本地 adapter 例子：它负责把 topo 图、world 几何和只读 ROS 状态转换成浏览器消费模型，但不拥有运行时导航权威。
 
 ## 3. 当前项目的前端规则
 
-### 3.1 `merlin-bt-visualizer` 不是自研“后端”
+### 3.1 `merlin-bt-visualizer` 和 `src/rc26_topo_nav/sim_viewer` 都不是自研“后端”
 
-- 它只消费仓库 XML 和本地模拟逻辑。
-- 它不拥有机器人控制权。
-- 它不能替代 `rc26_visualization`、`rc26_decision` 或其他 ROS2 包的运行时职责。
+- 它们只消费仓库真源、仿真 world 或 adapter 输出。
+- 它们都不拥有机器人控制权。
+- 它们不能替代 `rc26_visualization`、`rc26_decision`、`rc26_topo_nav` 或其他 ROS2 包的运行时职责。
 
 ### 3.2 查看模式只负责看，不负责回写真源
 
@@ -72,6 +73,13 @@
 
 - `App.tsx` 里的执行器只能用于本地演示、UI 联调、交互说明。
 - 它不是机器人运行时的行为树执行器，不得和真实决策链混淆。
+
+### 3.5 三维 topo viewer 只做观测和离线回放
+
+- `src/rc26_topo_nav/sim_viewer` 可以做完整 3D mesh 渲染、路径回放和只读 live 观察。
+- A* 真正的搜索逻辑仍以 `rc26_topo_nav` C++ planner + `planner_trace_cli` 为准，不允许在前端里复制一套“更真实”的规划真源。
+- RRT / DWA 在当前实现里是本地仿真算法，它们输出的是同一套 viewer 帧结构，不改变 ROS2 运行时契约。
+- 场景完整几何用于渲染，不等于所有 mesh 面都自动变成规划障碍；碰撞 keep-out 的选择仍然属于 adapter / 算法层职责。
 
 ## 4. 前端 Fitness Function
 
@@ -105,7 +113,8 @@
 对当前仓库，前端的正式立场应当是：
 
 - `merlin-bt-visualizer` 是本地工程工具
-- 它的当前核心价值是“看 XML、改 XML、演示 XML”
-- 它不是在线机器人后端
-- 它不是运行时控制面
+- `src/rc26_topo_nav/sim_viewer` 也是本地工程工具
+- 它们的当前核心价值分别是“看 XML、改 XML、演示 XML”和“看 topo 场景、看路径、看规划过程”
+- 它们都不是在线机器人后端
+- 它们都不是运行时控制面
 - 如果以后要在线化，必须单独设计 adapter 架构
