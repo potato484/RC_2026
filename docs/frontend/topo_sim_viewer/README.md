@@ -23,8 +23,9 @@
   - [src/planner.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/planner.cpp)
   - [src/planner_trace_cli.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/planner_trace_cli.cpp)
   - [r2_field_graph_blue.yaml](/home/potato/RC_2026/src/rc26_topo_nav/config/r2_field_graph_blue.yaml)
-  - [robocon2026_v2_aligned.world](/home/potato/RC_2026/RC_Sim_001_github/src/rc01_world/worlds/robocon2026_v2_aligned.world)
-  - [kfs_config_v2_aligned.yaml](/home/potato/RC_2026/RC_Sim_001_github/src/rc01_kfs_manager/config/kfs_config_v2_aligned.yaml)
+  - [robocon2026_v2_aligned.world](/home/potato/RC_2026/src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world)
+  - [kfs_config_v2_aligned.yaml](/home/potato/RC_2026/src/rc26_topo_nav/sim_assets/config/kfs_config_v2_aligned.yaml)
+  - [robocon2026_world/model.sdf](/home/potato/RC_2026/src/rc26_topo_nav/sim_assets/models/robocon2026_world/model.sdf)
 
 ## 3. 当前能力
 
@@ -41,6 +42,9 @@
 - 只读 live 模式
   - 通过 `topo_sim_server.py` 订阅 `/topo_nav/route`、`/topo_nav/corridor`、`/xhu_nav/active_edge`、`/xhu_nav/semantic_gate`、`/mf_block_overlay`、`/xhu_nav/tracking_state`。
   - 页面只做观察，不回写 ROS2，不修改规划状态。
+- 包内资产
+  - viewer 默认依赖 `src/rc26_topo_nav/sim_assets` 里的最小保留资产，不再要求外部 `RC_Sim_001_github` 目录继续存在。
+  - 当前保留集只包含 viewer/server 所需的 `.world`、KFS 对齐配置，以及 `robocon2026_world` 模型。
 
 ## 4. 启动方式
 
@@ -48,6 +52,9 @@
   - `MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_topo_nav`
 - 启动 adapter
   - `python3 src/rc26_topo_nav/scripts/topo_sim_server.py`
+- 默认资源路径
+  - `src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world`
+  - `src/rc26_topo_nav/sim_assets/config/kfs_config_v2_aligned.yaml`
 - 前端开发态
   - `cd src/rc26_topo_nav/sim_viewer && npm run dev`
 - 前端构建态

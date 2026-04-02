@@ -42,6 +42,9 @@
 - [scripts/topo_sim_server.py](/home/potato/RC_2026/src/rc26_topo_nav/scripts/topo_sim_server.py)
 - [scripts/topo_sim_algorithms.py](/home/potato/RC_2026/src/rc26_topo_nav/scripts/topo_sim_algorithms.py)
 - [sim_viewer/src/App.tsx](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/App.tsx)
+- [sim_assets/worlds/robocon2026_v2_aligned.world](/home/potato/RC_2026/src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world)
+- [sim_assets/config/kfs_config_v2_aligned.yaml](/home/potato/RC_2026/src/rc26_topo_nav/sim_assets/config/kfs_config_v2_aligned.yaml)
+- [sim_assets/models/robocon2026_world/model.sdf](/home/potato/RC_2026/src/rc26_topo_nav/sim_assets/models/robocon2026_world/model.sdf)
 
 ## 图配置口径
 
@@ -77,7 +80,7 @@
 
 ## 仿真场地联动可视化
 
-- `render_graph_sim_html.py` 会把 topo 图和 `RC_Sim_001_github` 的 Gazebo 场地对齐到同一张离线 HTML 页面
+- `render_graph_sim_html.py` 会把 topo 图和 `rc26_topo_nav` 包内保留的 Gazebo 场地资产对齐到同一张离线 HTML 页面
 - 对齐方式不是人工写死偏移，而是用 `kfs_config_v2_aligned.yaml` 里的 `meilin.<team>` 坐标自动拟合 `graph_file` 的 MF block 网格，再把 staging / ramp 节点按同一平移落到仿真世界里
 - 页面除了顶视图叠图，还会离线复现 planner 当前真实代价逻辑：
   - priority queue 扩展顺序
@@ -89,9 +92,10 @@
   - `node_id / edge_id / task_tag / route_tag` 不再只裸露英文变量，而是先显示中文含义，再附原始 ID 供开发排查
   - `高度变化 dZ / 本段代价 / 累计代价` 等字段会直接在页面上解释是什么意思
 - 这个工具仍然是离线观察工具，不改变 `rc26_topo_nav` 运行时只加载静态 `graph_file` 的边界
+- 当前最小可保留资产已经内置在 [sim_assets](/home/potato/RC_2026/src/rc26_topo_nav/sim_assets) 下，默认路径不再依赖外部 `RC_Sim_001_github`
 - 生成命令:
-  - `python3 src/rc26_topo_nav/scripts/render_graph_sim_html.py --graph src/rc26_topo_nav/config/r2_field_graph_blue.yaml --world RC_Sim_001_github/src/rc01_world/worlds/robocon2026_v2_aligned.world --kfs-config RC_Sim_001_github/src/rc01_kfs_manager/config/kfs_config_v2_aligned.yaml --out /tmp/r2_field_graph_blue_sim.html`
-  - `python3 src/rc26_topo_nav/scripts/render_graph_sim_html.py --graph src/rc26_topo_nav/config/r2_field_graph_red.yaml --world RC_Sim_001_github/src/rc01_world/worlds/robocon2026_v2_aligned.world --kfs-config RC_Sim_001_github/src/rc01_kfs_manager/config/kfs_config_v2_aligned.yaml --out /tmp/r2_field_graph_red_sim.html`
+  - `python3 src/rc26_topo_nav/scripts/render_graph_sim_html.py --graph src/rc26_topo_nav/config/r2_field_graph_blue.yaml --world src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world --kfs-config src/rc26_topo_nav/sim_assets/config/kfs_config_v2_aligned.yaml --out /tmp/r2_field_graph_blue_sim.html`
+  - `python3 src/rc26_topo_nav/scripts/render_graph_sim_html.py --graph src/rc26_topo_nav/config/r2_field_graph_red.yaml --world src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world --kfs-config src/rc26_topo_nav/sim_assets/config/kfs_config_v2_aligned.yaml --out /tmp/r2_field_graph_red_sim.html`
 - 常用观察参数:
   - `--start <node_id> --goal-node <node_id>`: 看单点到单点的搜索过程
   - `--goal-task <task_tag>`: 看 task 候选点比较和最终选中结果
@@ -101,7 +105,7 @@
 
 - 当前包新增了一个本地 3D 仿真工具链：
   - `planner_trace_cli`：把 C++ planner 当前真实搜索过程导出为 JSON trace，作为 A* 观察真源
-  - `topo_sim_server.py`：把 topo 图、Gazebo world、KFS 对齐配置和只读运行时状态整理成 HTTP / WebSocket adapter
+  - `topo_sim_server.py`：把 topo 图、包内 `sim_assets` 下的 Gazebo world / KFS 对齐配置，以及只读运行时状态整理成 HTTP / WebSocket adapter
   - `sim_viewer`：用 Three.js / React 把完整 mesh 场景、路径、关键节点、open set、扩展树和候选轨迹渲染成可交互 3D 页面
 - viewer 当前支持：
   - 离线 A* / RRT / DWA 回放
@@ -118,6 +122,9 @@
   - `MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_topo_nav`
 - 启动 adapter:
   - `python3 src/rc26_topo_nav/scripts/topo_sim_server.py`
+- 默认 asset:
+  - `topo_sim_server.py` 默认读取 `src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world`
+  - `topo_sim_server.py` 默认读取 `src/rc26_topo_nav/sim_assets/config/kfs_config_v2_aligned.yaml`
 - 前端开发态:
   - `cd src/rc26_topo_nav/sim_viewer && npm run dev`
 - 前端静态构建:
