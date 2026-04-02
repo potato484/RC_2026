@@ -12,14 +12,12 @@ def generate_launch_description():
     team = LaunchConfiguration('team')
     graph_file = LaunchConfiguration('graph_file')
     use_sim_time = LaunchConfiguration('use_sim_time')
-    execution_backend = LaunchConfiguration('execution_backend')
     xhu_exec_timeout_sec = LaunchConfiguration('xhu_exec_timeout_sec')
     xhu_hold_replan_timeout_sec = LaunchConfiguration('xhu_hold_replan_timeout_sec')
 
     return LaunchDescription([
         DeclareLaunchArgument('team', default_value='blue'),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
-        DeclareLaunchArgument('execution_backend', default_value='nav2_follow_path'),
         DeclareLaunchArgument('xhu_exec_timeout_sec', default_value='45.0'),
         DeclareLaunchArgument('xhu_hold_replan_timeout_sec', default_value='2.0'),
         DeclareLaunchArgument(
@@ -38,7 +36,6 @@ def generate_launch_description():
                     'team': team,
                     'graph_file': graph_file,
                     'use_sim_time': use_sim_time,
-                    'execution_backend': execution_backend,
                     'xhu.exec_timeout_sec': xhu_exec_timeout_sec,
                     'xhu.hold_replan_timeout_sec': xhu_hold_replan_timeout_sec,
                 },

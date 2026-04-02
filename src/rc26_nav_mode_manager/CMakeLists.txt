@@ -10,64 +10,25 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(rclcpp_components REQUIRED)
 find_package(nav_msgs REQUIRED)
-find_package(nav2_msgs REQUIRED)
-find_package(sensor_msgs REQUIRED)
 find_package(rc26_interfaces REQUIRED)
-find_package(std_msgs REQUIRED)
-find_package(diagnostic_msgs REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 
 set(DEPENDENCIES
   rclcpp
-  rclcpp_components
   nav_msgs
-  nav2_msgs
-  sensor_msgs
   rc26_interfaces
-  std_msgs
-  diagnostic_msgs
   ament_index_cpp
 )
 
 include_directories(include)
-
-add_library(${PROJECT_NAME} SHARED
-  src/nav_mode_manager.cpp
-  src/profile_loader.cpp
-  src/profile_db.cpp
-  src/profile_executor.cpp
-  src/watchdog_timer.cpp
-  src/terrain_mode_adapter.cpp
-)
-ament_target_dependencies(${PROJECT_NAME} ${DEPENDENCIES})
-target_link_libraries(${PROJECT_NAME} yaml-cpp)
 
 add_executable(xhu_motion_mode_manager_node
   src/xhu_motion_mode_manager.cpp
 )
 ament_target_dependencies(xhu_motion_mode_manager_node ${DEPENDENCIES})
 target_link_libraries(xhu_motion_mode_manager_node yaml-cpp)
-
-rclcpp_components_register_node(${PROJECT_NAME}
-  PLUGIN "rc26_nav_mode_manager::NavModeManager"
-  EXECUTABLE nav_mode_manager_node
-  EXECUTOR MultiThreadedExecutor
-)
-
-rclcpp_components_register_node(${PROJECT_NAME}
-  PLUGIN "rc26_nav_mode_manager::TerrainModeAdapter"
-  EXECUTABLE terrain_mode_adapter_node
-  EXECUTOR SingleThreadedExecutor
-)
-
-install(TARGETS ${PROJECT_NAME}
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION bin
-)
 
 install(TARGETS xhu_motion_mode_manager_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
@@ -83,17 +44,15 @@ install(DIRECTORY launch config
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
-
-  ament_add_gtest(test_profile_loader
-    test/test_profile_loader.cpp
+  ament_add_gtest(test_profile_loader test/test_profile_loader.cpp)
+  target_sources(test_profile_loader PRIVATE
+    src/profile_loader.cpp
   )
-  target_link_libraries(test_profile_loader
-    ${PROJECT_NAME}
-  )
+  target_link_libraries(test_profile_loader yaml-cpp)
+  ament_target_dependencies(test_profile_loader ${DEPENDENCIES})
 endif()
 
 ament_export_include_directories(include)
-ament_export_libraries(${PROJECT_NAME})
 ament_export_dependencies(${DEPENDENCIES})
 
 ament_package()

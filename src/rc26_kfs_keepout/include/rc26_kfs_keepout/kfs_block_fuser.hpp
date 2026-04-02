@@ -8,10 +8,9 @@
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "rc26_interfaces/msg/mf_kfs_state.hpp"
 #include "rc26_interfaces/msg/mf_block_overlay.hpp"
 #include "rc26_interfaces/msg/mf_block_overlay_cell.hpp"
-#include "rc26_interfaces/srv/set_nav_mode.hpp"
+#include "rc26_interfaces/msg/mf_kfs_state.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/u_int8.hpp"
 
@@ -31,7 +30,6 @@ private:
     void publishDiagnostics();
     bool loadGridLayout(const std::string& yaml_path);
     bool validateGridSpacing(double expected_spacing_m, double tolerance_m, std::string& detail) const;
-    void triggerSafeMode(const std::string& reason);
 
     // 参数
     double min_confidence_{0.60};
@@ -84,7 +82,6 @@ private:
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr pub_diagnostics_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_heartbeat_;
     rclcpp::Publisher<rc26_interfaces::msg::MfBlockOverlay>::SharedPtr pub_block_overlay_;
-    rclcpp::Client<rc26_interfaces::srv::SetNavMode>::SharedPtr nav_mode_client_;
     rclcpp::TimerBase::SharedPtr decay_timer_;
 
     rclcpp::Time last_decay_time_;

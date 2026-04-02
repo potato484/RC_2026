@@ -77,12 +77,6 @@ WaitOutcome waitForFuture(
 }  // namespace
 
 EdgeExecutor::EdgeExecutor(rclcpp::Node* node) : node_(node) {
-    if (!node_->has_parameter("execution_backend")) {
-        node_->declare_parameter("execution_backend", "nav2_follow_path");
-    }
-    const auto execution_backend = node_->get_parameter("execution_backend").as_string();
-    use_xhu_backend_ = (toLowerCopy(execution_backend) == "xhu_direct");
-
     if (!node_->has_parameter("xhu.exec_timeout_sec")) {
         node_->declare_parameter("xhu.exec_timeout_sec", xhu_exec_timeout_sec_);
     }
@@ -113,10 +107,6 @@ EdgeExecutor::EdgeExecutor(rclcpp::Node* node) : node_(node) {
     tracking_state_ttl_sec_ =
         std::max(xhu_tracking_state_timeout_sec_, node_->get_parameter("xhu.tracking_state_ttl_sec").as_double());
 
-    if (!use_xhu_backend_) {
-        follow_path_client_ = rclcpp_action::create_client<FollowPathAction>(node_, "follow_path");
-    }
-    nav_mode_client_ = node_->create_client<rc26_interfaces::srv::SetNavMode>("set_nav_mode");
     xhu_mode_client_ = node_->create_client<rc26_interfaces::srv::SetXhuMotionMode>("set_xhu_motion_mode");
 
     corridor_pub_ = node_->create_publisher<rc26_interfaces::msg::XhuSemanticCorridor>(
@@ -127,9 +117,8 @@ EdgeExecutor::EdgeExecutor(rclcpp::Node* node) : node_(node) {
 
     RCLCPP_INFO(
         node_->get_logger(),
-        "EdgeExecutor backend=%s, xhu_exec_timeout=%.1fs, xhu_hold_replan_timeout=%.1fs, "
+        "EdgeExecutor backend=xhu_direct, xhu_exec_timeout=%.1fs, xhu_hold_replan_timeout=%.1fs, "
         "accept_timeout=%.1fs, tracking_timeout=%.1fs",
-        use_xhu_backend_ ? "xhu_direct" : "nav2_follow_path",
         xhu_exec_timeout_sec_, xhu_hold_replan_timeout_sec_,
         xhu_corridor_accept_timeout_sec_, xhu_tracking_state_timeout_sec_);
 }
@@ -180,58 +169,29 @@ bool EdgeExecutor::requestMode(
         return true;
     }
 
-    if (use_xhu_backend_) {
-        if (!xhu_mode_client_->wait_for_service(std::chrono::seconds(2))) {
-            error = "set_xhu_motion_mode service not available";
-            return false;
-        }
-
-        auto request = std::make_shared<rc26_interfaces::srv::SetXhuMotionMode::Request>();
-        request->mode = profile;
-        request->timeout = 0.0F;
-        request->reason = reason;
-
-        auto future = xhu_mode_client_->async_send_request(request);
-        const auto wait_result = waitForFuture(future, std::chrono::seconds(3));
-        if (wait_result != WaitOutcome::READY) {
-            error = "set_xhu_motion_mode request timed out";
-            if (wait_result == WaitOutcome::SHUTDOWN) {
-                error = "set_xhu_motion_mode interrupted by shutdown";
-            }
-            return false;
-        }
-
-        const auto response = future.get();
-        if (!response || !response->success) {
-            error = response ? response->message : "set_xhu_motion_mode returned null response";
-            return false;
-        }
-        return true;
-    }
-
-    if (!nav_mode_client_->wait_for_service(std::chrono::seconds(2))) {
-        error = "set_nav_mode service not available";
+    if (!xhu_mode_client_->wait_for_service(std::chrono::seconds(2))) {
+        error = "set_xhu_motion_mode service not available";
         return false;
     }
 
-    auto request = std::make_shared<rc26_interfaces::srv::SetNavMode::Request>();
-    request->profile = profile;
+    auto request = std::make_shared<rc26_interfaces::srv::SetXhuMotionMode::Request>();
+    request->mode = profile;
     request->timeout = 0.0F;
     request->reason = reason;
 
-    auto future = nav_mode_client_->async_send_request(request);
+    auto future = xhu_mode_client_->async_send_request(request);
     const auto wait_result = waitForFuture(future, std::chrono::seconds(3));
     if (wait_result != WaitOutcome::READY) {
-        error = "set_nav_mode request timed out";
+        error = "set_xhu_motion_mode request timed out";
         if (wait_result == WaitOutcome::SHUTDOWN) {
-            error = "set_nav_mode interrupted by shutdown";
+            error = "set_xhu_motion_mode interrupted by shutdown";
         }
         return false;
     }
 
     const auto response = future.get();
     if (!response || !response->success) {
-        error = response ? response->message : "set_nav_mode returned null response";
+        error = response ? response->message : "set_xhu_motion_mode returned null response";
         return false;
     }
 
@@ -317,15 +277,10 @@ nav_msgs::msg::Path EdgeExecutor::generateCorridor(
 
 EdgeExecutor::ExecResult EdgeExecutor::executeEdge(
     const FieldGraph& graph,
-    const GraphEdge& edge,
-    const std::string& controller_id) {
+    const GraphEdge& edge) {
     cancelled_.store(false);
     state_ = EdgeExecState::EXECUTING;
-
-    if (use_xhu_backend_) {
-        return executeEdgeViaXhu(graph, edge);
-    }
-    return executeEdgeViaNav2(graph, edge, controller_id);
+    return executeEdgeViaXhu(graph, edge);
 }
 
 EdgeExecutor::ExecResult EdgeExecutor::executeEdgeViaXhu(
@@ -484,136 +439,10 @@ EdgeExecutor::ExecResult EdgeExecutor::executeEdgeViaXhu(
     return result;
 }
 
-EdgeExecutor::ExecResult EdgeExecutor::executeEdgeViaNav2(
-    const FieldGraph& graph,
-    const GraphEdge& edge,
-    const std::string& controller_id) {
-    ExecResult result;
-
-    std::string mode_error;
-    if (!requestMode(edge.required_mode, "topo_edge:" + edge.id, mode_error)) {
-        result.failure_reason =
-            "Failed to set nav mode '" + edge.required_mode + "': " + mode_error;
-        state_ = EdgeExecState::FAILED;
-        return result;
-    }
-
-    if (!follow_path_client_) {
-        follow_path_client_ = rclcpp_action::create_client<FollowPathAction>(node_, "follow_path");
-    }
-    if (!follow_path_client_->wait_for_action_server(std::chrono::seconds(5))) {
-        result.failure_reason = "FollowPath action server not available";
-        state_ = EdgeExecState::FAILED;
-        return result;
-    }
-
-    auto corridor = generateCorridor(graph, edge);
-    if (corridor.poses.empty()) {
-        result.failure_reason = "Empty corridor for edge '" + edge.id + "'";
-        state_ = EdgeExecState::FAILED;
-        return result;
-    }
-
-    // retry loop: one local retry + one replan request
-    for (int attempt = 0; attempt < 2; ++attempt) {
-        if (cancelled_.load()) {
-            state_ = EdgeExecState::FAILED;
-            result.final_state = EdgeExecState::FAILED;
-            result.failure_reason = "Cancelled";
-            return result;
-        }
-
-        auto goal_msg = FollowPathAction::Goal();
-        goal_msg.path = corridor;
-        goal_msg.controller_id = controller_id;
-
-        auto send_goal_options = rclcpp_action::Client<FollowPathAction>::SendGoalOptions();
-        auto future = follow_path_client_->async_send_goal(goal_msg, send_goal_options);
-
-        const auto send_result = waitForFuture(future, std::chrono::seconds(30), &cancelled_);
-        if (send_result == WaitOutcome::CANCELLED) {
-            state_ = EdgeExecState::FAILED;
-            result.final_state = EdgeExecState::FAILED;
-            result.failure_reason = "Cancelled";
-            return result;
-        }
-        if (send_result != WaitOutcome::READY) {
-            if (attempt == 0) {
-                state_ = EdgeExecState::LOCAL_RETRY;
-                continue;
-            }
-            result.failure_reason = send_result == WaitOutcome::SHUTDOWN
-                                        ? "FollowPath goal send interrupted by shutdown"
-                                        : "FollowPath goal send timed out";
-            state_ = EdgeExecState::REPLAN_REQUESTED;
-            result.final_state = EdgeExecState::REPLAN_REQUESTED;
-            return result;
-        }
-
-        auto goal_handle = future.get();
-        if (!goal_handle) {
-            if (attempt == 0) {
-                state_ = EdgeExecState::LOCAL_RETRY;
-                continue;
-            }
-            result.failure_reason = "FollowPath goal rejected";
-            state_ = EdgeExecState::REPLAN_REQUESTED;
-            result.final_state = EdgeExecState::REPLAN_REQUESTED;
-            return result;
-        }
-
-        auto result_future = follow_path_client_->async_get_result(goal_handle);
-        const auto exec_wait_result =
-            waitForFuture(result_future, std::chrono::seconds(60), &cancelled_);
-        if (exec_wait_result == WaitOutcome::CANCELLED) {
-            state_ = EdgeExecState::FAILED;
-            result.final_state = EdgeExecState::FAILED;
-            result.failure_reason = "Cancelled";
-            return result;
-        }
-        if (exec_wait_result != WaitOutcome::READY) {
-            if (attempt == 0) {
-                state_ = EdgeExecState::LOCAL_RETRY;
-                continue;
-            }
-            result.failure_reason = exec_wait_result == WaitOutcome::SHUTDOWN
-                                        ? "FollowPath execution interrupted by shutdown"
-                                        : "FollowPath execution timed out";
-            state_ = EdgeExecState::REPLAN_REQUESTED;
-            result.final_state = EdgeExecState::REPLAN_REQUESTED;
-            return result;
-        }
-
-        auto wrapped = result_future.get();
-        if (wrapped.code == rclcpp_action::ResultCode::SUCCEEDED) {
-            state_ = EdgeExecState::SUCCEEDED;
-            result.success = true;
-            result.final_state = EdgeExecState::SUCCEEDED;
-            return result;
-        }
-
-        // first failure -> local retry; second -> replan
-        if (attempt == 0) {
-            state_ = EdgeExecState::LOCAL_RETRY;
-            RCLCPP_WARN(node_->get_logger(),
-                "Edge '%s' first attempt failed, retrying locally", edge.id.c_str());
-        }
-    }
-
-    result.failure_reason = "Edge execution failed after retry";
-    state_ = EdgeExecState::REPLAN_REQUESTED;
-    result.final_state = EdgeExecState::REPLAN_REQUESTED;
-    return result;
-}
-
 void EdgeExecutor::cancel() {
     cancelled_.store(true);
-    if (use_xhu_backend_) {
-        std::string error;
-        (void)requestMode("hold", "topo_cancelled", error);
-        return;
-    }
-    follow_path_client_->async_cancel_all_goals();
+    std::string error;
+    (void)requestMode("hold", "topo_cancelled", error);
 }
 
 }  // namespace rc26_topo_nav

@@ -8,11 +8,8 @@
 #include <unordered_map>
 #include <utility>
 #include <rclcpp/rclcpp.hpp>
-#include <rclcpp_action/rclcpp_action.hpp>
-#include <nav2_msgs/action/follow_path.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
-#include <rc26_interfaces/srv/set_nav_mode.hpp>
 #include <rc26_interfaces/srv/set_xhu_motion_mode.hpp>
 #include <rc26_interfaces/msg/xhu_semantic_corridor.hpp>
 #include <rc26_interfaces/msg/xhu_tracking_state.hpp>
@@ -32,9 +29,6 @@ class EdgeExecutor {
 public:
     explicit EdgeExecutor(rclcpp::Node* node);
 
-    using FollowPathAction = nav2_msgs::action::FollowPath;
-    using FollowPathGoalHandle = rclcpp_action::ClientGoalHandle<FollowPathAction>;
-
     struct ExecResult {
         bool success = false;
         EdgeExecState final_state = EdgeExecState::FAILED;
@@ -43,8 +37,7 @@ public:
 
     ExecResult executeEdge(
         const FieldGraph& graph,
-        const GraphEdge& edge,
-        const std::string& controller_id);
+        const GraphEdge& edge);
 
     nav_msgs::msg::Path generateCorridor(
         const FieldGraph& graph,
@@ -53,7 +46,7 @@ public:
     void cancel();
     bool requestMode(const std::string& profile, const std::string& reason, std::string& error);
     EdgeExecState state() const { return state_; }
-    bool usingXhuBackend() const { return use_xhu_backend_; }
+    bool usingXhuBackend() const { return true; }
 
 private:
     struct TrackingEntry {
@@ -70,18 +63,11 @@ private:
         const std::string& required_mode,
         const std::string& motion_type);
 
-    ExecResult executeEdgeViaNav2(
-        const FieldGraph& graph,
-        const GraphEdge& edge,
-        const std::string& controller_id);
-
     ExecResult executeEdgeViaXhu(
         const FieldGraph& graph,
         const GraphEdge& edge);
 
     rclcpp::Node* node_;
-    rclcpp_action::Client<FollowPathAction>::SharedPtr follow_path_client_;
-    rclcpp::Client<rc26_interfaces::srv::SetNavMode>::SharedPtr nav_mode_client_;
     rclcpp::Client<rc26_interfaces::srv::SetXhuMotionMode>::SharedPtr xhu_mode_client_;
     rclcpp::Publisher<rc26_interfaces::msg::XhuSemanticCorridor>::SharedPtr corridor_pub_;
     rclcpp::Subscription<rc26_interfaces::msg::XhuTrackingState>::SharedPtr tracking_sub_;
@@ -90,7 +76,6 @@ private:
     std::atomic<uint64_t> corridor_seq_{0};
     EdgeExecState state_ = EdgeExecState::IDLE;
     std::atomic<bool> cancelled_{false};
-    bool use_xhu_backend_ = false;
     double xhu_exec_timeout_sec_ = 45.0;
     double xhu_hold_replan_timeout_sec_ = 2.0;
     double xhu_corridor_accept_timeout_sec_ = 2.0;

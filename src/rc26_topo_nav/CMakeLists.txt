@@ -14,7 +14,6 @@ find_package(geometry_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
-find_package(nav2_msgs REQUIRED)
 find_package(rc26_interfaces REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(yaml-cpp REQUIRED)
@@ -28,7 +27,6 @@ set(DEPS
   diagnostic_msgs
   std_msgs
   visualization_msgs
-  nav2_msgs
   rc26_interfaces
   tf2_ros
 )

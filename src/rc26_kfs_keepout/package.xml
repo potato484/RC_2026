@@ -3,7 +3,7 @@
 <package format="3">
   <name>rc26_kfs_keepout</name>
   <version>0.1.0</version>
-  <description>KFS keepout fuser: converts MfKfsState to Nav2 KeepoutFilter OccupancyGrid</description>
+  <description>KFS keepout fuser: converts MfKfsState to self-developed navigation keepout constraints</description>
   <maintainer email="dev@rc26.local">RC26 Team</maintainer>
   <maintainer email="2220362462@qq.com">DongXuan Chen</maintainer>
   <license>Apache-2.0</license>

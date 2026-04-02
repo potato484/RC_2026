@@ -11,7 +11,6 @@
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
-#include "rc26_interfaces/srv/set_nav_mode.hpp"
 #include "yaml-cpp/yaml.h"
 
 namespace rc26_kfs_keepout {
@@ -171,7 +170,6 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     pub_block_overlay_ = this->create_publisher<rc26_interfaces::msg::MfBlockOverlay>(
         "/mf_block_overlay",
         rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability(rclcpp::DurabilityPolicy::TransientLocal));
-    nav_mode_client_ = this->create_client<rc26_interfaces::srv::SetNavMode>("set_nav_mode");
 
     sub_ = this->create_subscription<rc26_interfaces::msg::MfKfsState>(
         kfs_topic, rclcpp::QoS(10).reliable(),
@@ -336,7 +334,8 @@ void KfsBlockFuser::onKfsState(
                 dwell_count_.fill(0);
                 mask_dirty_ = false;
                 publishMask();
-                triggerSafeMode("kfs_team_mismatch");
+                RCLCPP_WARN(this->get_logger(),
+                            "keepout disabled due to layout/team mismatch; downstream gate must handle degraded navigation safety");
             }
             publishDiagnostics();
             publishHeartbeat();
@@ -674,17 +673,6 @@ void KfsBlockFuser::publishDiagnostics() {
     arr.header.stamp = this->get_clock()->now();
     arr.status.push_back(status);
     pub_diagnostics_->publish(arr);
-}
-
-void KfsBlockFuser::triggerSafeMode(const std::string& reason) {
-    if (!nav_mode_client_ || !nav_mode_client_->wait_for_service(std::chrono::seconds(0))) {
-        return;
-    }
-    auto req = std::make_shared<rc26_interfaces::srv::SetNavMode::Request>();
-    req->profile = "safe";
-    req->timeout = 0.0f;
-    req->reason = reason;
-    (void)nav_mode_client_->async_send_request(req);
 }
 
 }  // namespace rc26_kfs_keepout

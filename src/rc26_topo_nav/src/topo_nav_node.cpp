@@ -50,7 +50,6 @@ TopoNavNode::TopoNavNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("weights.dynamic_block", 1000.0);
     this->declare_parameter("weights.confirm_required", 1.5);
     this->declare_parameter("weights.slow_only", 2.0);
-    this->declare_parameter("execution_backend", "nav2_follow_path");
     this->declare_parameter("xhu.exec_timeout_sec", 45.0);
     this->declare_parameter("xhu.hold_replan_timeout_sec", 2.0);
 
@@ -323,7 +322,7 @@ void TopoNavNode::execute(std::shared_ptr<GoalHandle> goal_handle) {
                 auto corridor = edge_executor_->generateCorridor(graph_, edge);
                 diagnostics_->publishCorridor(corridor);
 
-                auto exec_result = edge_executor_->executeEdge(graph_, edge, "FollowPath");
+                auto exec_result = edge_executor_->executeEdge(graph_, edge);
                 if (exec_result.success) {
                     start_node = edge.to;
                     continue;

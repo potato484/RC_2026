@@ -484,12 +484,12 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
   }
 
   const double keepout_limit_sec = config_.keepout_max_age_ms / 1000.0;
-  const bool filter_fresh = input.keepout.filter_info_received && input.keepout.filter_info_age_sec <= keepout_limit_sec;
+  const bool overlay_fresh = input.keepout.overlay_received && input.keepout.overlay_age_sec <= keepout_limit_sec;
   const bool mask_fresh = input.keepout.mask_received && input.keepout.mask_age_sec <= keepout_limit_sec;
   const bool heartbeat_fresh =
       input.keepout.heartbeat_received && input.keepout.heartbeat_age_sec <= keepout_limit_sec;
   const double keepout_ratio = std::max(
-      input.keepout.filter_info_received && keepout_limit_sec > 0.0 ? input.keepout.filter_info_age_sec / keepout_limit_sec : 0.0,
+      input.keepout.overlay_received && keepout_limit_sec > 0.0 ? input.keepout.overlay_age_sec / keepout_limit_sec : 0.0,
       std::max(input.keepout.mask_received && keepout_limit_sec > 0.0 ? input.keepout.mask_age_sec / keepout_limit_sec : 0.0,
                input.keepout.heartbeat_received && keepout_limit_sec > 0.0 ? input.keepout.heartbeat_age_sec / keepout_limit_sec : 0.0));
   if (!config_.keepout_present) {
@@ -497,16 +497,16 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
     status.keepout_reason = disabledReason;
     status.keepout_ready = false;
   } else {
-    if (!input.keepout.filter_info_received) {
+    if (!input.keepout.overlay_received) {
       status.keepout_level = kLevelRed;
-      status.keepout_reason = "waiting /costmap_filter_info";
+      status.keepout_reason = "waiting keepout overlay";
     } else if (!input.keepout.mask_received && !input.keepout.heartbeat_received) {
       status.keepout_level = kLevelRed;
       status.keepout_reason = "waiting keepout mask or heartbeat";
     } else if (input.keepout.heartbeat_received && !input.keepout.heartbeat_enabled) {
       status.keepout_level = kLevelRed;
       status.keepout_reason = "keepout heartbeat disabled";
-    } else if (!filter_fresh || (!mask_fresh && !heartbeat_fresh)) {
+    } else if (!overlay_fresh || (!mask_fresh && !heartbeat_fresh)) {
       status.keepout_level = kLevelRed;
       status.keepout_reason = "keepout inputs stale";
     } else if (keepout_ratio > 0.8) {
@@ -527,14 +527,14 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
   if (config_.keepout_present && status.keepout_level >= kLevelYellow) {
     std::ostringstream detail;
     detail << "keepout_reason=" << status.keepout_reason
-           << "; filter_age_sec=" << formatSec(input.keepout.filter_info_age_sec)
+           << "; overlay_age_sec=" << formatSec(input.keepout.overlay_age_sec)
            << "; mask_age_sec=" << formatSec(input.keepout.mask_age_sec)
            << "; heartbeat_age_sec=" << formatSec(input.keepout.heartbeat_age_sec)
            << "; max_age_sec=" << formatSec(keepout_limit_sec)
            << "; heartbeat_enabled=" << (input.keepout.heartbeat_enabled ? "true" : "false");
     events.push_back(makeEvent(
         "KEEPOUT_STALE", status.keepout_level, "Keepout 失效风险", detail.str(),
-        config_.costmap_filter_info_topic + "," + config_.kfs_filter_mask_topic + "," + config_.kfs_heartbeat_topic,
+        config_.block_overlay_topic + "," + config_.kfs_filter_mask_topic + "," + config_.kfs_heartbeat_topic,
         "检查 keepout 掩码、元数据和心跳链路，确认防区仍在更新。", true));
   }
 
@@ -575,10 +575,10 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
     status.nav_safety_level = kLevelGreen;
   } else if (!input.nav_safety.received) {
     status.nav_safety_level = kLevelOrange;
-    reasons.emplace_back(status.nav_safety_level, "waiting nav safety state");
+    reasons.emplace_back(status.nav_safety_level, "waiting xhu motion state");
   } else if (input.nav_safety.age_sec > nav_limit_sec) {
     status.nav_safety_level = kLevelOrange;
-    reasons.emplace_back(status.nav_safety_level, staleReason(config_.nav_safety_topic, input.nav_safety.age_sec, nav_limit_sec));
+    reasons.emplace_back(status.nav_safety_level, staleReason(config_.nav_mode_state_topic, input.nav_safety.age_sec, nav_limit_sec));
   } else if (input.nav_safety.timed_out) {
     status.nav_safety_level = kLevelRed;
     reasons.emplace_back(status.nav_safety_level, input.nav_safety.reason.empty() ? "navigation timed out" : input.nav_safety.reason);
@@ -595,20 +595,20 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
     detail << "current_profile=" << input.nav_safety.current_profile
            << "; stop_required=true"
            << "; timed_out=" << (input.nav_safety.timed_out ? "true" : "false")
-           << "; reason=" << (input.nav_safety.reason.empty() ? "nav_safety_state.stop_required=true" : input.nav_safety.reason);
+           << "; reason=" << (input.nav_safety.reason.empty() ? "xhu_motion_mode_state.stop_required=true" : input.nav_safety.reason);
     events.push_back(makeEvent(
         "NAV_STOP_REQUIRED", kLevelRed, "导航要求停车", detail.str(),
-        config_.nav_safety_topic, "立即确认障碍物、超时或策略切换原因，必要时人工接管。", true));
+        config_.nav_mode_state_topic, "立即确认障碍物、超时或策略切换原因，必要时人工接管。", true));
   }
   if (config_.nav_safety_present && input.nav_safety.timed_out) {
     std::ostringstream detail;
     detail << "current_profile=" << input.nav_safety.current_profile
            << "; stop_required=" << (input.nav_safety.stop_required ? "true" : "false")
            << "; timed_out=true"
-           << "; reason=" << (input.nav_safety.reason.empty() ? "nav_safety_state.timed_out=true" : input.nav_safety.reason);
+           << "; reason=" << (input.nav_safety.reason.empty() ? "xhu_motion_mode_state.timed_out=true" : input.nav_safety.reason);
     events.push_back(makeEvent(
         "NAV_TIMED_OUT", kLevelRed, "导航超时", detail.str(),
-        config_.nav_safety_topic, "检查 profile watchdog、地形策略和上层任务状态，避免继续自动推进。", true));
+        config_.nav_mode_state_topic, "检查 profile watchdog、地形策略和上层任务状态，避免继续自动推进。", true));
   }
 
   const double mechanism_limit_sec = config_.mechanism_max_age_ms / 1000.0;
@@ -702,7 +702,7 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
        input.collision_d_min.received ? input.collision_d_min.age_sec : kInf,
        input.controller_mode.received ? input.controller_mode.age_sec : kInf});
   const double keepout_last_age = latestAgeSec(
-      {input.keepout.filter_info_received ? input.keepout.filter_info_age_sec : kInf,
+      {input.keepout.overlay_received ? input.keepout.overlay_age_sec : kInf,
        input.keepout.mask_received ? input.keepout.mask_age_sec : kInf,
        input.keepout.heartbeat_received ? input.keepout.heartbeat_age_sec : kInf});
   const double terrain_last_age = latestAgeSec(
@@ -750,10 +750,13 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
           config_.controller_present,
           config_.controller_present,
           input.control_degraded.received || input.control_degenerate_score.received || input.compute_time_ms.received ||
-              input.pose_age_ms.received || input.collision_d_min.received || input.controller_mode.received,
+              input.pose_age_ms.received || input.collision_d_min.received || input.controller_mode.received ||
+              input.nav_safety.received,
           formatLastUpdateMs(header, controller_last_age),
-          {config_.control_degraded_topic, config_.control_degenerate_score_topic, config_.compute_time_ms_topic,
-           config_.pose_age_ms_topic, config_.collision_d_min_topic, config_.controller_mode_topic},
+          {config_.control_degraded_topic, config_.control_degenerate_score_topic,
+           config_.compute_time_ms_topic, config_.pose_age_ms_topic,
+           config_.collision_d_min_topic, config_.controller_mode_topic,
+           config_.nav_tracking_topic},
       },
       {
           {"mode", status.controller_mode},
@@ -769,13 +772,13 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
       {
           config_.keepout_present,
           config_.keepout_present,
-          input.keepout.filter_info_received || input.keepout.mask_received || input.keepout.heartbeat_received,
+          input.keepout.overlay_received || input.keepout.mask_received || input.keepout.heartbeat_received,
           formatLastUpdateMs(header, keepout_last_age),
-          {config_.costmap_filter_info_topic, config_.kfs_filter_mask_topic, config_.kfs_heartbeat_topic},
+          {config_.block_overlay_topic, config_.kfs_filter_mask_topic, config_.kfs_heartbeat_topic},
       },
       {
           {"ready", boolString(status.keepout_ready)},
-          {"filter_age_sec", formatDouble(input.keepout.filter_info_age_sec, 2)},
+          {"overlay_age_sec", formatDouble(input.keepout.overlay_age_sec, 2)},
           {"mask_age_sec", formatDouble(input.keepout.mask_age_sec, 2)},
           {"heartbeat_age_sec", formatDouble(input.keepout.heartbeat_age_sec, 2)},
           {"heartbeat_enabled", boolString(input.keepout.heartbeat_enabled)},
@@ -821,7 +824,7 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
           config_.nav_safety_present,
           input.nav_safety.received,
           formatLastUpdateMs(header, input.nav_safety.age_sec),
-          {config_.nav_safety_topic},
+          {config_.nav_mode_state_topic, config_.nav_tracking_topic},
       },
       {
           {"profile", status.nav_profile},

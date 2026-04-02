@@ -38,9 +38,12 @@ x-modules:
   - name: navigation
     file: docs/middle/modules/navigation.yaml
     topics:
-      - nav_safety_state
+      - /mf_block_overlay
+      - /xhu_nav/corridor_cmd
+      - /xhu_nav/motion_mode_state
+      - /xhu_nav/tracking_state
     services:
-      - set_nav_mode
+      - set_xhu_motion_mode
   - name: diagnostics
     file: docs/middle/modules/diagnostics.yaml
     topics:
