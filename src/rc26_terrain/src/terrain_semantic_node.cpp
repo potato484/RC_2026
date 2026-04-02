@@ -739,7 +739,7 @@ void TerrainSemanticNode::publishVirtualFence(const rclcpp::Time& stamp, double 
     fence_msg.header.stamp = stamp;
     fence_msg.header.frame_id = target_frame_;
 
-    // 发布到两个话题，确保 Nav2 任一观测源配置都能生效
+    // 发布到两个话题，确保下游执行链任一观测源配置都能生效
     if (pub_obstacles_) pub_obstacles_->publish(fence_msg);
     if (pub_drop_) pub_drop_->publish(fence_msg);
 }
@@ -1601,7 +1601,7 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
             }
         }
 
-        // Unknown 区域策略：保守模式下将 Unknown 视为风险点输出给 Nav2
+        // Unknown 区域策略：保守模式下将 Unknown 视为风险点输出给下游导航链
         if (!fresh && !is_obstacle && !is_drop && unknown_policy_ == "conservative") {
             pcl::PointXYZI p;
             p.x = static_cast<float>(x);
