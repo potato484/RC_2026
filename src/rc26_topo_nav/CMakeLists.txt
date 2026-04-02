@@ -6,6 +6,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(ament_index_cpp REQUIRED)
@@ -50,8 +51,14 @@ add_executable(topo_nav_node src/main.cpp)
 target_link_libraries(topo_nav_node ${PROJECT_NAME}_lib)
 ament_target_dependencies(topo_nav_node ${DEPS})
 
-# Graph validator script
-install(PROGRAMS scripts/validate_graph.py DESTINATION lib/${PROJECT_NAME})
+# Graph scripts
+install(PROGRAMS
+  scripts/validate_graph.py
+  scripts/generate_graph.py
+  scripts/render_graph_html.py
+  scripts/render_graph_sim_html.py
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 install(TARGETS topo_nav_node DESTINATION lib/${PROJECT_NAME})
 install(TARGETS ${PROJECT_NAME}_lib DESTINATION lib)
@@ -68,6 +75,21 @@ if(BUILD_TESTING)
   ament_add_gtest(test_planner test/test_planner.cpp)
   target_link_libraries(test_planner ${PROJECT_NAME}_lib)
   ament_target_dependencies(test_planner ${DEPS})
+
+  add_test(
+    NAME test_generate_graph
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_generate_graph.py
+  )
+
+  add_test(
+    NAME test_render_graph_html
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_render_graph_html.py
+  )
+
+  add_test(
+    NAME test_render_graph_sim_html
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_render_graph_sim_html.py
+  )
 endif()
 
 ament_package()

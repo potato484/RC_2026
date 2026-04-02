@@ -1,659 +1,647 @@
 meta:
-  team: "blue"
-  schema_version: "1.0"
-  source: "r2_mf_world_v1"
+  team: blue
+  schema_version: '1.0'
+  source: r2_mf_world_v1
   grid_spacing_m: 1.2
-  coordinate_frame: "map"
-
-# MF 块布局 (蓝方视角)
-#   10  11  12   (出口行 y=3.6)
-#    7   8   9   (y=2.4)
-#    4   5   6   (y=1.2)
-#    1   2   3   (入口行 y=0.0)
-
+  coordinate_frame: map
+  generated: true
+  world_layout_file: r2_mf_world.yaml
+  overlay_file: r2_field_graph_overlay.yaml
 nodes:
-  # --- MF 入口 staging ---
-  - id: "mf_entry_staging"
-    type: "staging"
-    pose: {x: 1.2, y: -0.6, z: 0.0, yaw: 1.5708}
-    level: 0
-    phase_mask: 0xFF
-    block_id: 0
-    base_cost: 0.0
-    operation_tag: ""
-
-  # --- MF 入口行 (block 1-3, y=0.0) ---
-  - id: "mf_b1"
-    type: "mf_edge_pose"
-    pose: {x: 0.0, y: 0.0, z: 0.2, yaw: 1.5708}
-    level: 1
-    phase_mask: 0xFF
-    block_id: 1
-    base_cost: 1.0
-    operation_tag: "grab"
-
-  - id: "mf_b2"
-    type: "mf_edge_pose"
-    pose: {x: 1.2, y: 0.0, z: 0.1, yaw: 1.5708}
-    level: 1
-    phase_mask: 0xFF
-    block_id: 2
-    base_cost: 0.5
-    operation_tag: "grab"
-
-  - id: "mf_b3"
-    type: "mf_edge_pose"
-    pose: {x: 2.4, y: 0.0, z: 0.2, yaw: 1.5708}
-    level: 1
-    phase_mask: 0xFF
-    block_id: 3
-    base_cost: 1.0
-    operation_tag: "grab"
-
-  # --- MF 第二行 (block 4-6, y=1.2) ---
-  - id: "mf_b4"
-    type: "mf_edge_pose"
-    pose: {x: 0.0, y: 1.2, z: 0.1, yaw: 1.5708}
-    level: 1
-    phase_mask: 0xFF
-    block_id: 4
-    base_cost: 1.0
-    operation_tag: "grab"
-
-  - id: "mf_b5"
-    type: "mf_edge_pose"
-    pose: {x: 1.2, y: 1.2, z: 0.2, yaw: 1.5708}
-    level: 1
-    phase_mask: 0xFF
-    block_id: 5
-    base_cost: 1.0
-    operation_tag: "grab"
-
-  - id: "mf_b6"
-    type: "mf_edge_pose"
-    pose: {x: 2.4, y: 1.2, z: 0.3, yaw: 1.5708}
-    level: 1
-    phase_mask: 0xFF
-    block_id: 6
-    base_cost: 1.5
-    operation_tag: "grab"
-
-  # --- MF 第三行 (block 7-9, y=2.4) ---
-  - id: "mf_b7"
-    type: "mf_edge_pose"
-    pose: {x: 0.0, y: 2.4, z: 0.2, yaw: 1.5708}
-    level: 1
-    phase_mask: 0xFF
-    block_id: 7
-    base_cost: 1.0
-    operation_tag: "grab"
-
-  - id: "mf_b8"
-    type: "mf_edge_pose"
-    pose: {x: 1.2, y: 2.4, z: 0.3, yaw: 1.5708}
-    level: 1
-    phase_mask: 0xFF
-    block_id: 8
-    base_cost: 1.5
-    operation_tag: "grab"
-
-  - id: "mf_b9"
-    type: "mf_edge_pose"
-    pose: {x: 2.4, y: 2.4, z: 0.2, yaw: 1.5708}
-    level: 1
-    phase_mask: 0xFF
-    block_id: 9
-    base_cost: 1.0
-    operation_tag: "grab"
-
-  # --- MF 出口行 (block 10-12, y=3.6) ---
-  - id: "mf_b10"
-    type: "mf_edge_pose"
-    pose: {x: 0.0, y: 3.6, z: 0.1, yaw: 1.5708}
-    level: 1
-    phase_mask: 0xFF
-    block_id: 10
-    base_cost: 1.0
-    operation_tag: "grab"
-
-  - id: "mf_b11"
-    type: "mf_edge_pose"
-    pose: {x: 1.2, y: 3.6, z: 0.2, yaw: 1.5708}
-    level: 1
-    phase_mask: 0xFF
-    block_id: 11
-    base_cost: 1.0
-    operation_tag: "grab"
-
-  - id: "mf_b12"
-    type: "mf_edge_pose"
-    pose: {x: 2.4, y: 3.6, z: 0.1, yaw: 1.5708}
-    level: 1
-    phase_mask: 0xFF
-    block_id: 12
-    base_cost: 1.0
-    operation_tag: "grab"
-
-  # --- MF 出口 staging ---
-  - id: "mf_exit_staging"
-    type: "staging"
-    pose: {x: 1.2, y: 4.2, z: 0.0, yaw: 1.5708}
-    level: 0
-    phase_mask: 0xFF
-    block_id: 0
-    base_cost: 0.0
-    operation_tag: ""
-
-  # --- 坡道入口 (入口侧) ---
-  - id: "ramp_entry_south"
-    type: "ramp_entry"
-    pose: {x: 1.2, y: -0.3, z: 0.0, yaw: 1.5708}
-    level: 0
-    phase_mask: 0xFF
-    block_id: 0
-    base_cost: 2.0
-    operation_tag: ""
-
-  # --- 坡道出口 (出口侧) ---
-  - id: "ramp_exit_north"
-    type: "ramp_exit"
-    pose: {x: 1.2, y: 3.9, z: 0.0, yaw: 1.5708}
-    level: 0
-    phase_mask: 0xFF
-    block_id: 0
-    base_cost: 2.0
-    operation_tag: ""
-
+- id: mf_entry_staging
+  type: staging
+  pose:
+    x: 1.2
+    y: -0.6
+    z: 0.0
+    yaw: 1.5708
+  level: 0
+  phase_mask: 255
+  block_id: 0
+  base_cost: 0.0
+  operation_tag: ''
+- id: mf_b1
+  type: mf_edge_pose
+  pose:
+    x: 0.0
+    y: 0.0
+    z: 0.2
+    yaw: 1.5708
+  level: 1
+  phase_mask: 255
+  block_id: 1
+  base_cost: 1.0
+  operation_tag: grab
+- id: mf_b2
+  type: mf_edge_pose
+  pose:
+    x: 1.2
+    y: 0.0
+    z: 0.1
+    yaw: 1.5708
+  level: 1
+  phase_mask: 255
+  block_id: 2
+  base_cost: 0.5
+  operation_tag: grab
+- id: mf_b3
+  type: mf_edge_pose
+  pose:
+    x: 2.4
+    y: 0.0
+    z: 0.2
+    yaw: 1.5708
+  level: 1
+  phase_mask: 255
+  block_id: 3
+  base_cost: 1.0
+  operation_tag: grab
+- id: mf_b4
+  type: mf_edge_pose
+  pose:
+    x: 0.0
+    y: 1.2
+    z: 0.1
+    yaw: 1.5708
+  level: 1
+  phase_mask: 255
+  block_id: 4
+  base_cost: 1.0
+  operation_tag: grab
+- id: mf_b5
+  type: mf_edge_pose
+  pose:
+    x: 1.2
+    y: 1.2
+    z: 0.2
+    yaw: 1.5708
+  level: 1
+  phase_mask: 255
+  block_id: 5
+  base_cost: 1.0
+  operation_tag: grab
+- id: mf_b6
+  type: mf_edge_pose
+  pose:
+    x: 2.4
+    y: 1.2
+    z: 0.3
+    yaw: 1.5708
+  level: 1
+  phase_mask: 255
+  block_id: 6
+  base_cost: 1.5
+  operation_tag: grab
+- id: mf_b7
+  type: mf_edge_pose
+  pose:
+    x: 0.0
+    y: 2.4
+    z: 0.2
+    yaw: 1.5708
+  level: 1
+  phase_mask: 255
+  block_id: 7
+  base_cost: 1.0
+  operation_tag: grab
+- id: mf_b8
+  type: mf_edge_pose
+  pose:
+    x: 1.2
+    y: 2.4
+    z: 0.3
+    yaw: 1.5708
+  level: 1
+  phase_mask: 255
+  block_id: 8
+  base_cost: 1.5
+  operation_tag: grab
+- id: mf_b9
+  type: mf_edge_pose
+  pose:
+    x: 2.4
+    y: 2.4
+    z: 0.2
+    yaw: 1.5708
+  level: 1
+  phase_mask: 255
+  block_id: 9
+  base_cost: 1.0
+  operation_tag: grab
+- id: mf_b10
+  type: mf_edge_pose
+  pose:
+    x: 0.0
+    y: 3.6
+    z: 0.1
+    yaw: 1.5708
+  level: 1
+  phase_mask: 255
+  block_id: 10
+  base_cost: 1.0
+  operation_tag: grab
+- id: mf_b11
+  type: mf_edge_pose
+  pose:
+    x: 1.2
+    y: 3.6
+    z: 0.2
+    yaw: 1.5708
+  level: 1
+  phase_mask: 255
+  block_id: 11
+  base_cost: 1.0
+  operation_tag: grab
+- id: mf_b12
+  type: mf_edge_pose
+  pose:
+    x: 2.4
+    y: 3.6
+    z: 0.1
+    yaw: 1.5708
+  level: 1
+  phase_mask: 255
+  block_id: 12
+  base_cost: 1.0
+  operation_tag: grab
+- id: mf_exit_staging
+  type: staging
+  pose:
+    x: 1.2
+    y: 4.2
+    z: 0.0
+    yaw: 1.5708
+  level: 0
+  phase_mask: 255
+  block_id: 0
+  base_cost: 0.0
+  operation_tag: ''
+- id: ramp_entry_south
+  type: ramp_entry
+  pose:
+    x: 1.2
+    y: -0.3
+    z: 0.0
+    yaw: 1.5708
+  level: 0
+  phase_mask: 255
+  block_id: 0
+  base_cost: 2.0
+  operation_tag: ''
+- id: ramp_exit_north
+  type: ramp_exit
+  pose:
+    x: 1.2
+    y: 3.9
+    z: 0.0
+    yaw: 1.5708
+  level: 0
+  phase_mask: 255
+  block_id: 0
+  base_cost: 2.0
+  operation_tag: ''
 edges:
-  # --- MF 入口 staging -> 入口行 ---
-  - id: "e_staging_b2"
-    from: "mf_entry_staging"
-    to: "mf_b2"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: true
-    can_block: false
-    phase_mask: 0xFF
-    base_cost: 2.0
-
-  # --- 入口行相邻 (曼哈顿, 无对角) ---
-  - id: "e_b1_b2"
-    from: "mf_b1"
-    to: "mf_b2"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b2_b1"
-    from: "mf_b2"
-    to: "mf_b1"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b2_b3"
-    from: "mf_b2"
-    to: "mf_b3"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b3_b2"
-    from: "mf_b3"
-    to: "mf_b2"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  # --- 行间相邻 (row 1 <-> row 2, 仅纵向) ---
-  - id: "e_b1_b4"
-    from: "mf_b1"
-    to: "mf_b4"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b4_b1"
-    from: "mf_b4"
-    to: "mf_b1"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b2_b5"
-    from: "mf_b2"
-    to: "mf_b5"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b5_b2"
-    from: "mf_b5"
-    to: "mf_b2"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b3_b6"
-    from: "mf_b3"
-    to: "mf_b6"
-    motion_type: "plane_move"
-    height_change: 0.2
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.5
-
-  - id: "e_b6_b3"
-    from: "mf_b6"
-    to: "mf_b3"
-    motion_type: "plane_move"
-    height_change: 0.2
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.5
-
-  # --- 行间相邻 (row 2 <-> row 2, 横向) ---
-  - id: "e_b4_b5"
-    from: "mf_b4"
-    to: "mf_b5"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b5_b4"
-    from: "mf_b5"
-    to: "mf_b4"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b5_b6"
-    from: "mf_b5"
-    to: "mf_b6"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b6_b5"
-    from: "mf_b6"
-    to: "mf_b5"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  # --- 行间相邻 (row 2 <-> row 3, 纵向) ---
-  - id: "e_b4_b7"
-    from: "mf_b4"
-    to: "mf_b7"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b7_b4"
-    from: "mf_b7"
-    to: "mf_b4"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b5_b8"
-    from: "mf_b5"
-    to: "mf_b8"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b8_b5"
-    from: "mf_b8"
-    to: "mf_b5"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b6_b9"
-    from: "mf_b6"
-    to: "mf_b9"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b9_b6"
-    from: "mf_b9"
-    to: "mf_b6"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  # --- 行间相邻 (row 3 <-> row 3, 横向) ---
-  - id: "e_b7_b8"
-    from: "mf_b7"
-    to: "mf_b8"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b8_b7"
-    from: "mf_b8"
-    to: "mf_b7"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b8_b9"
-    from: "mf_b8"
-    to: "mf_b9"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b9_b8"
-    from: "mf_b9"
-    to: "mf_b8"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  # --- 行间相邻 (row 3 <-> row 4, 纵向) ---
-  - id: "e_b7_b10"
-    from: "mf_b7"
-    to: "mf_b10"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b10_b7"
-    from: "mf_b10"
-    to: "mf_b7"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b8_b11"
-    from: "mf_b8"
-    to: "mf_b11"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b11_b8"
-    from: "mf_b11"
-    to: "mf_b8"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b9_b12"
-    from: "mf_b9"
-    to: "mf_b12"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b12_b9"
-    from: "mf_b12"
-    to: "mf_b9"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  # --- 出口行横向 ---
-  - id: "e_b10_b11"
-    from: "mf_b10"
-    to: "mf_b11"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b11_b10"
-    from: "mf_b11"
-    to: "mf_b10"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b11_b12"
-    from: "mf_b11"
-    to: "mf_b12"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  - id: "e_b12_b11"
-    from: "mf_b12"
-    to: "mf_b11"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_traverse"
-    requires_confirmation: false
-    can_block: true
-    phase_mask: 0xFF
-    base_cost: 1.0
-
-  # --- 出口行 -> 出口 staging ---
-  - id: "e_b10_exit"
-    from: "mf_b10"
-    to: "mf_exit_staging"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_exit"
-    requires_confirmation: false
-    can_block: false
-    phase_mask: 0xFF
-    base_cost: 2.0
-
-  - id: "e_b11_exit"
-    from: "mf_b11"
-    to: "mf_exit_staging"
-    motion_type: "plane_move"
-    height_change: 0.2
-    required_mode: "mf_exit"
-    requires_confirmation: false
-    can_block: false
-    phase_mask: 0xFF
-    base_cost: 2.0
-
-  - id: "e_b12_exit"
-    from: "mf_b12"
-    to: "mf_exit_staging"
-    motion_type: "plane_move"
-    height_change: 0.1
-    required_mode: "mf_exit"
-    requires_confirmation: false
-    can_block: false
-    phase_mask: 0xFF
-    base_cost: 2.0
-
-  # --- 坡道边 ---
-  - id: "e_ramp_up_south"
-    from: "ramp_entry_south"
-    to: "mf_entry_staging"
-    motion_type: "ramp_up"
-    height_change: 0.2
-    required_mode: "ramp_up"
-    requires_confirmation: true
-    can_block: false
-    phase_mask: 0xFF
-    base_cost: 5.0
-    control_points:
-      - {x: 1.2, y: -0.45, z: 0.05, yaw: 1.5708}
-
-  - id: "e_ramp_down_north"
-    from: "mf_exit_staging"
-    to: "ramp_exit_north"
-    motion_type: "ramp_down"
-    height_change: 0.2
-    required_mode: "ramp_down"
-    requires_confirmation: true
-    can_block: false
-    phase_mask: 0xFF
-    base_cost: 5.0
-    control_points:
-      - {x: 1.2, y: 4.05, z: 0.05, yaw: 1.5708}
-
+- id: e_staging_b2
+  from: mf_entry_staging
+  to: mf_b2
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: true
+  can_block: false
+  phase_mask: 255
+  base_cost: 2.0
+- id: e_b1_b2
+  from: mf_b1
+  to: mf_b2
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b2_b1
+  from: mf_b2
+  to: mf_b1
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b2_b3
+  from: mf_b2
+  to: mf_b3
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b3_b2
+  from: mf_b3
+  to: mf_b2
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b1_b4
+  from: mf_b1
+  to: mf_b4
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b4_b1
+  from: mf_b4
+  to: mf_b1
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b2_b5
+  from: mf_b2
+  to: mf_b5
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b5_b2
+  from: mf_b5
+  to: mf_b2
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b3_b6
+  from: mf_b3
+  to: mf_b6
+  motion_type: plane_move
+  height_change: 0.2
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.5
+- id: e_b6_b3
+  from: mf_b6
+  to: mf_b3
+  motion_type: plane_move
+  height_change: 0.2
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.5
+- id: e_b4_b5
+  from: mf_b4
+  to: mf_b5
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b5_b4
+  from: mf_b5
+  to: mf_b4
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b5_b6
+  from: mf_b5
+  to: mf_b6
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b6_b5
+  from: mf_b6
+  to: mf_b5
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b4_b7
+  from: mf_b4
+  to: mf_b7
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b7_b4
+  from: mf_b7
+  to: mf_b4
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b5_b8
+  from: mf_b5
+  to: mf_b8
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b8_b5
+  from: mf_b8
+  to: mf_b5
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b6_b9
+  from: mf_b6
+  to: mf_b9
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b9_b6
+  from: mf_b9
+  to: mf_b6
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b7_b8
+  from: mf_b7
+  to: mf_b8
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b8_b7
+  from: mf_b8
+  to: mf_b7
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b8_b9
+  from: mf_b8
+  to: mf_b9
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b9_b8
+  from: mf_b9
+  to: mf_b8
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b7_b10
+  from: mf_b7
+  to: mf_b10
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b10_b7
+  from: mf_b10
+  to: mf_b7
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b8_b11
+  from: mf_b8
+  to: mf_b11
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b11_b8
+  from: mf_b11
+  to: mf_b8
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b9_b12
+  from: mf_b9
+  to: mf_b12
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b12_b9
+  from: mf_b12
+  to: mf_b9
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b10_b11
+  from: mf_b10
+  to: mf_b11
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b11_b10
+  from: mf_b11
+  to: mf_b10
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b11_b12
+  from: mf_b11
+  to: mf_b12
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b12_b11
+  from: mf_b12
+  to: mf_b11
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_traverse
+  requires_confirmation: false
+  can_block: true
+  phase_mask: 255
+  base_cost: 1.0
+- id: e_b10_exit
+  from: mf_b10
+  to: mf_exit_staging
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_exit
+  requires_confirmation: false
+  can_block: false
+  phase_mask: 255
+  base_cost: 2.0
+- id: e_b11_exit
+  from: mf_b11
+  to: mf_exit_staging
+  motion_type: plane_move
+  height_change: 0.2
+  required_mode: mf_exit
+  requires_confirmation: false
+  can_block: false
+  phase_mask: 255
+  base_cost: 2.0
+- id: e_b12_exit
+  from: mf_b12
+  to: mf_exit_staging
+  motion_type: plane_move
+  height_change: 0.1
+  required_mode: mf_exit
+  requires_confirmation: false
+  can_block: false
+  phase_mask: 255
+  base_cost: 2.0
+- id: e_ramp_up_south
+  from: ramp_entry_south
+  to: mf_entry_staging
+  motion_type: ramp_up
+  height_change: 0.2
+  required_mode: ramp_up
+  requires_confirmation: true
+  can_block: false
+  phase_mask: 255
+  base_cost: 5.0
+  control_points:
+  - x: 1.2
+    y: -0.45
+    z: 0.05
+    yaw: 1.5708
+- id: e_ramp_down_north
+  from: mf_exit_staging
+  to: ramp_exit_north
+  motion_type: ramp_down
+  height_change: 0.2
+  required_mode: ramp_down
+  requires_confirmation: true
+  can_block: false
+  phase_mask: 255
+  base_cost: 5.0
+  control_points:
+  - x: 1.2
+    y: 4.05
+    z: 0.05
+    yaw: 1.5708
 tasks:
-  - task_tag: "mf_grab"
-    candidate_nodes:
-      - "mf_b1"
-      - "mf_b2"
-      - "mf_b3"
-      - "mf_b4"
-      - "mf_b5"
-      - "mf_b6"
-      - "mf_b7"
-      - "mf_b8"
-      - "mf_b9"
-      - "mf_b10"
-      - "mf_b11"
-      - "mf_b12"
-    selection_policy: "min_total_cost"
-
-  - task_tag: "mf_exit"
-    candidate_nodes:
-      - "mf_exit_staging"
-    selection_policy: "min_total_cost"
-
-  - task_tag: "mf_entry"
-    candidate_nodes:
-      - "mf_entry_staging"
-    selection_policy: "min_total_cost"
-
+- task_tag: mf_grab
+  candidate_nodes:
+  - mf_b1
+  - mf_b2
+  - mf_b3
+  - mf_b4
+  - mf_b5
+  - mf_b6
+  - mf_b7
+  - mf_b8
+  - mf_b9
+  - mf_b10
+  - mf_b11
+  - mf_b12
+  selection_policy: min_total_cost
+- task_tag: mf_exit
+  candidate_nodes:
+  - mf_exit_staging
+  selection_policy: min_total_cost
+- task_tag: mf_entry
+  candidate_nodes:
+  - mf_entry_staging
+  selection_policy: min_total_cost
 routes:
-  - route_tag: "mf_entry_default"
-    nodes:
-      - "ramp_entry_south"
-      - "mf_entry_staging"
-      - "mf_b2"
-
-  - route_tag: "mf_exit_default"
-    nodes:
-      - "mf_exit_staging"
-      - "ramp_exit_north"
+- route_tag: mf_entry_default
+  nodes:
+  - ramp_entry_south
+  - mf_entry_staging
+  - mf_b2
+- route_tag: mf_exit_default
+  nodes:
+  - mf_exit_staging
+  - ramp_exit_north
