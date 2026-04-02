@@ -21,11 +21,12 @@ def load_module(name: str, path: Path):
 
 PKG_ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE_ROOT = PKG_ROOT.parents[1]
-SIM_ROOT = WORKSPACE_ROOT / "RC_Sim_001_github"
+SIM_ROOT = PKG_ROOT / "sim_assets"
 
 GRAPH_BLUE = PKG_ROOT / "config" / "r2_field_graph_blue.yaml"
-SIM_WORLD = SIM_ROOT / "src" / "rc01_world" / "worlds" / "robocon2026_v2_aligned.world"
-SIM_KFS = SIM_ROOT / "src" / "rc01_kfs_manager" / "config" / "kfs_config_v2_aligned.yaml"
+SIM_WORLD = SIM_ROOT / "worlds" / "robocon2026_v2_aligned.world"
+SIM_KFS = SIM_ROOT / "config" / "kfs_config_v2_aligned.yaml"
+SIM_MODEL_ROOT = SIM_ROOT / "models"
 
 REN = load_module("render_graph_sim_html", PKG_ROOT / "scripts" / "render_graph_sim_html.py")
 
@@ -40,7 +41,7 @@ class Args:
 
 class RenderGraphSimHtmlTest(unittest.TestCase):
     def test_world_projection_filters_mesh_noise(self):
-        world_context = REN.parse_world_context(SIM_WORLD, SIM_WORLD.parent.parent / "models")
+        world_context = REN.parse_world_context(SIM_WORLD, SIM_MODEL_ROOT)
         scene_features = world_context["scene_features"]
         names = {feature["name"] for feature in scene_features}
 
@@ -82,7 +83,7 @@ class RenderGraphSimHtmlTest(unittest.TestCase):
         document = REN.load_yaml(GRAPH_BLUE)
         sim_config = REN.load_yaml(SIM_KFS)
         alignment = REN.derive_graph_alignment(document, sim_config, "blue")
-        world_context = REN.parse_world_context(SIM_WORLD, SIM_WORLD.parent.parent / "models")
+        world_context = REN.parse_world_context(SIM_WORLD, SIM_MODEL_ROOT)
         meilin_slots = REN.build_meilin_slots(sim_config, "blue")
         overlay_state = REN.build_overlay_state(Args(), document)
         planning = REN.run_planning(

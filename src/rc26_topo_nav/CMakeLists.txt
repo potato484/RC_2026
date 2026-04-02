@@ -75,6 +75,7 @@ install(TARGETS ${PROJECT_NAME}_lib DESTINATION lib)
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config/ DESTINATION share/${PROJECT_NAME}/config)
 install(DIRECTORY launch/ DESTINATION share/${PROJECT_NAME}/launch)
+install(DIRECTORY sim_assets/ DESTINATION share/${PROJECT_NAME}/sim_assets)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)

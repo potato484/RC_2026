@@ -17,12 +17,11 @@ def load_module(name: str, path: Path):
 
 
 PKG_ROOT = Path(__file__).resolve().parents[1]
-WORKSPACE_ROOT = PKG_ROOT.parents[1]
-SIM_ROOT = WORKSPACE_ROOT / "RC_Sim_001_github"
+SIM_ROOT = PKG_ROOT / "sim_assets"
 
 GRAPH_BLUE = PKG_ROOT / "config" / "r2_field_graph_blue.yaml"
-SIM_WORLD = SIM_ROOT / "src" / "rc01_world" / "worlds" / "robocon2026_v2_aligned.world"
-SIM_KFS = SIM_ROOT / "src" / "rc01_kfs_manager" / "config" / "kfs_config_v2_aligned.yaml"
+SIM_WORLD = SIM_ROOT / "worlds" / "robocon2026_v2_aligned.world"
+SIM_KFS = SIM_ROOT / "config" / "kfs_config_v2_aligned.yaml"
 
 SERVER = load_module("topo_sim_server", PKG_ROOT / "scripts" / "topo_sim_server.py")
 

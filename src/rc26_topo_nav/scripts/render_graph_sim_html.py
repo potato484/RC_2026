@@ -2272,7 +2272,7 @@ def render_html(
             "    <section class=\"panel main-panel\">",
             "      <header class=\"header\">",
             f"        <h1>{html.escape(title)}</h1>",
-            "        <p>这页把 `rc26_topo_nav` 的拓扑导航图、`RC_Sim_001_github` 的 Gazebo 场地，以及离线规划过程放在同一坐标系里观察。主视图是仿真世界顶视图；路径代价仍然按当前 planner 的真实逻辑计算，所以你能同时看见场地位置、搜索顺序和高度语义。</p>",
+            "        <p>这页把 `rc26_topo_nav` 的拓扑导航图、包内保留的 Gazebo 场地资产，以及离线规划过程放在同一坐标系里观察。主视图是仿真世界顶视图；路径代价仍然按当前 planner 的真实逻辑计算，所以你能同时看见场地位置、搜索顺序和高度语义。</p>",
             "      </header>",
             "      <section class=\"meta-grid\">",
             f"        <div class=\"meta-card\"><span class=\"label\">当前队伍</span><span class=\"value\">{html.escape(team_display)}</span></div>",
@@ -2375,11 +2375,16 @@ def write_html(path: Path, content: str) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Render rc26_topo_nav graph, RC_Sim world context, and offline planner trace into one HTML page."
+        description="Render rc26_topo_nav graph, Gazebo world context, and offline planner trace into one HTML page."
     )
     parser.add_argument("--graph", type=Path, required=True, help="Input topo graph YAML")
     parser.add_argument("--out", type=Path, required=True, help="Output HTML path")
-    parser.add_argument("--world", type=Path, default=None, help="Gazebo world file from RC_Sim_001_github")
+    parser.add_argument(
+        "--world",
+        type=Path,
+        default=None,
+        help="Gazebo world file, typically src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world",
+    )
     parser.add_argument("--kfs-config", type=Path, default=None, help="KFS config with meilin coordinates")
     parser.add_argument("--model-root", type=Path, default=None, help="Optional model root for resolving model://robocon2026_world")
     parser.add_argument("--start", type=str, default=None, help="Planner start node")

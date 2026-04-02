@@ -25,13 +25,83 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+try:
+    from ament_index_python.packages import (  # type: ignore
+        PackageNotFoundError,
+        get_package_prefix,
+        get_package_share_directory,
+    )
+except ImportError:  # pragma: no cover - optional in source-tree runs
+    PackageNotFoundError = None
+    get_package_prefix = None
+    get_package_share_directory = None
+
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-PKG_ROOT = SCRIPT_DIR.parent
-WORKSPACE_ROOT = PKG_ROOT.parents[1]
-FRONTEND_ROOT = PKG_ROOT / "sim_viewer"
+
+
+def detect_source_pkg_root() -> Path | None:
+    candidate = SCRIPT_DIR.parent
+    if (candidate / "scripts").is_dir() and (candidate / "config").is_dir():
+        return candidate
+    return None
+
+
+def detect_share_root() -> Path | None:
+    if get_package_share_directory is None or PackageNotFoundError is None:
+        return None
+    try:
+        return Path(get_package_share_directory("rc26_topo_nav"))
+    except PackageNotFoundError:
+        return None
+
+
+def detect_package_prefix() -> Path | None:
+    if get_package_prefix is None or PackageNotFoundError is None:
+        return None
+    try:
+        return Path(get_package_prefix("rc26_topo_nav"))
+    except PackageNotFoundError:
+        return None
+
+
+SOURCE_PKG_ROOT = detect_source_pkg_root()
+SHARE_ROOT = detect_share_root()
+PACKAGE_PREFIX = detect_package_prefix()
+PKG_ROOT = SOURCE_PKG_ROOT or SHARE_ROOT or SCRIPT_DIR.parent
+WORKSPACE_ROOT = SOURCE_PKG_ROOT.parents[1] if SOURCE_PKG_ROOT is not None else None
+
+
+def preferred_package_path(*parts: str) -> Path:
+    candidates: list[Path] = []
+    if SOURCE_PKG_ROOT is not None:
+        candidates.append(SOURCE_PKG_ROOT.joinpath(*parts))
+    if SHARE_ROOT is not None:
+        candidates.append(SHARE_ROOT.joinpath(*parts))
+    if not candidates:
+        return PKG_ROOT.joinpath(*parts)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def resolve_frontend_root() -> Path:
+    candidates: list[Path] = []
+    if SOURCE_PKG_ROOT is not None:
+        candidates.append(SOURCE_PKG_ROOT / "sim_viewer")
+    if SHARE_ROOT is not None:
+        candidates.append(SHARE_ROOT / "sim_viewer")
+    if not candidates:
+        return PKG_ROOT / "sim_viewer"
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return candidates[0]
+
+
+FRONTEND_ROOT = resolve_frontend_root()
 FRONTEND_DIST = FRONTEND_ROOT / "dist"
-SIM_ROOT = WORKSPACE_ROOT / "RC_Sim_001_github"
 
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
@@ -61,15 +131,18 @@ RENDER = load_module("render_graph_sim_html", SCRIPT_DIR / "render_graph_sim_htm
 
 
 def default_graph_for_team(team: str) -> Path:
-    return PKG_ROOT / "config" / ("r2_field_graph_red.yaml" if team.lower() == "red" else "r2_field_graph_blue.yaml")
+    return preferred_package_path(
+        "config",
+        "r2_field_graph_red.yaml" if team.lower() == "red" else "r2_field_graph_blue.yaml",
+    )
 
 
 def default_world_file() -> Path:
-    return SIM_ROOT / "src" / "rc01_world" / "worlds" / "robocon2026_v2_aligned.world"
+    return preferred_package_path("sim_assets", "worlds", "robocon2026_v2_aligned.world")
 
 
 def default_kfs_config_file() -> Path:
-    return SIM_ROOT / "src" / "rc01_kfs_manager" / "config" / "kfs_config_v2_aligned.yaml"
+    return preferred_package_path("sim_assets", "config", "kfs_config_v2_aligned.yaml")
 
 
 def round_float(value: float, digits: int = 4) -> float:
@@ -263,23 +336,15 @@ def blocked_sim_points(manifest: dict[str, Any], blocked_nodes: list[str]) -> li
 
 def resolve_cli_binary() -> Path:
     candidates: list[Path] = []
-    try:
-        from ament_index_python.packages import PackageNotFoundError, get_package_prefix  # type: ignore
-
-        try:
-            prefix = Path(get_package_prefix("rc26_topo_nav"))
-            candidates.append(prefix / "lib" / "rc26_topo_nav" / "planner_trace_cli")
-        except PackageNotFoundError:
-            pass
-    except ImportError:
-        pass
-
-    candidates.extend(
-        [
-            WORKSPACE_ROOT / "install" / "rc26_topo_nav" / "lib" / "rc26_topo_nav" / "planner_trace_cli",
-            WORKSPACE_ROOT / "build" / "rc26_topo_nav" / "planner_trace_cli",
-        ]
-    )
+    if PACKAGE_PREFIX is not None:
+        candidates.append(PACKAGE_PREFIX / "lib" / "rc26_topo_nav" / "planner_trace_cli")
+    if WORKSPACE_ROOT is not None:
+        candidates.extend(
+            [
+                WORKSPACE_ROOT / "install" / "rc26_topo_nav" / "lib" / "rc26_topo_nav" / "planner_trace_cli",
+                WORKSPACE_ROOT / "build" / "rc26_topo_nav" / "planner_trace_cli",
+            ]
+        )
     which_path = shutil.which("planner_trace_cli")
     if which_path:
         candidates.append(Path(which_path))
@@ -292,8 +357,12 @@ def resolve_cli_binary() -> Path:
 
 def planner_cli_env() -> dict[str, str]:
     env = os.environ.copy()
-    runtime_dirs = sorted(path for path in (WORKSPACE_ROOT / "install").glob("*/lib") if path.is_dir())
-    runtime_dirs.append(WORKSPACE_ROOT / "build" / "rc26_topo_nav")
+    runtime_dirs: list[Path] = []
+    if PACKAGE_PREFIX is not None:
+        runtime_dirs.append(PACKAGE_PREFIX / "lib")
+    if WORKSPACE_ROOT is not None:
+        runtime_dirs.extend(sorted(path for path in (WORKSPACE_ROOT / "install").glob("*/lib") if path.is_dir()))
+        runtime_dirs.append(WORKSPACE_ROOT / "build" / "rc26_topo_nav")
     existing = env.get("LD_LIBRARY_PATH", "")
     merged = [str(path) for path in runtime_dirs if path.is_dir()]
     if existing:
@@ -329,7 +398,7 @@ def run_planner_trace_cli(
         command,
         capture_output=True,
         text=True,
-        cwd=WORKSPACE_ROOT,
+        cwd=WORKSPACE_ROOT or PACKAGE_PREFIX or PKG_ROOT,
         env=planner_cli_env(),
     )
     if completed.returncode not in (0, 2):
