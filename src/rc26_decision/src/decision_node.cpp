@@ -19,10 +19,7 @@
 #include "rc26_decision/combat/combat_area.hpp"
 #include "rc26_decision/mc/mc_area.hpp"
 #include "rc26_decision/mf/mf_area.hpp"
-#include "rc26_decision/navigation/bt_nav_to_smart_point.hpp"
 #include "rc26_decision/navigation/bt_topo_nav.hpp"
-#include "rc26_decision/navigation/smart_waypoint_navigator.hpp"
-#include "rc26_decision/navigation/waypoint_manager.hpp"
 #include "rc26_decision/vision/bt_nodes.hpp"
 #include "rc26_interfaces/msg/mechanism_state.hpp"
 #include "rc26_interfaces/msg/mf_kfs_cell.hpp"
@@ -45,16 +42,7 @@ public:
                                          "r2/bt/control");
     this->declare_parameter<std::string>("mechanism_state_topic",
                                          "/mechanism/state");
-    this->declare_parameter<std::string>("nav2_action_name",
-                                         "navigate_to_pose");
-    this->declare_parameter<std::string>("nav2_goal_frame", "map");
-    this->declare_parameter<std::string>("controller_server_node",
-                                         "controller_server");
-    this->declare_parameter<std::string>("odom_topic", "odom");
     this->declare_parameter<std::string>("team", "blue");
-    this->declare_parameter<std::string>("waypoints_file", "");
-    this->declare_parameter<double>("stop_linear_eps_mps", 0.05);
-    this->declare_parameter<double>("stop_angular_eps_rps", 0.1);
     this->declare_parameter<std::string>("base_ground_level_topic",
                                          "base_ground/level");
     this->declare_parameter<std::string>("base_ground_stair_delta_topic",
@@ -125,27 +113,7 @@ public:
       }
     }
 
-    // 创建 WaypointManager 并加载配置
     {
-      std::string waypoints_file =
-          this->get_parameter("waypoints_file").as_string();
-      if (waypoints_file.empty()) {
-        std::string team = this->get_parameter("team").as_string();
-        std::string package_path =
-            ament_index_cpp::get_package_share_directory("rc26_decision");
-        waypoints_file =
-            package_path + "/config/waypoints/waypoints_" + team + ".yaml";
-      }
-      waypoint_manager_ = std::make_shared<WaypointManager>();
-      if (!waypoint_manager_->loadFromYamlFile(waypoints_file)) {
-        RCLCPP_ERROR(this->get_logger(), "Failed to load waypoints: %s",
-                     waypoints_file.c_str());
-      } else {
-        RCLCPP_INFO(this->get_logger(), "Loaded waypoints from: %s",
-                    waypoints_file.c_str());
-      }
-      blackboard->set("waypoint_manager", waypoint_manager_);
-
       const std::string team = this->get_parameter("team").as_string();
       blackboard->set("team", team);
 
@@ -169,25 +137,6 @@ public:
             "Cold-start merlin_map fell back to legacy depths for team=%s: %s",
             team.c_str(), merlin_map->layoutStatus().c_str());
       }
-    }
-
-    // 创建 SmartWaypointNavigator 并共享到黑板
-    {
-      const auto nav2_action_name =
-          this->get_parameter("nav2_action_name").as_string();
-      const auto nav2_goal_frame =
-          this->get_parameter("nav2_goal_frame").as_string();
-      const auto controller_node =
-          this->get_parameter("controller_server_node").as_string();
-      const auto odom_topic = this->get_parameter("odom_topic").as_string();
-      const double stop_lin =
-          this->get_parameter("stop_linear_eps_mps").as_double();
-      const double stop_ang =
-          this->get_parameter("stop_angular_eps_rps").as_double();
-      smart_waypoint_navigator_ = std::make_shared<SmartWaypointNavigator>(
-          *this, nav2_action_name, nav2_goal_frame, controller_node, odom_topic,
-          stop_lin, stop_ang);
-      blackboard->set("smart_waypoint_navigator", smart_waypoint_navigator_);
     }
 
     // 初始化运行状态
@@ -278,7 +227,6 @@ public:
     registerMCAreaNodes(factory_);
     registerMFAreaNodes(factory_);
     registerCombatAreaNodes(factory_);
-    registerNavigationNodes(factory_);
     registerTopoNavNodes(factory_);
     registerVisionNodes(factory_);
 
@@ -404,10 +352,6 @@ private:
   void rebuildBehaviorTree() {
     stopAutoTicking();
     stopManualPlay(false);
-    if (smart_waypoint_navigator_) {
-      smart_waypoint_navigator_->cancelAndStop();
-      blackboard_->set("smart_waypoint_navigator", smart_waypoint_navigator_);
-    }
     if (tree_.rootNode()) {
       tree_.haltTree();
     }
@@ -637,8 +581,6 @@ private:
   bool manual_mode_{false};
   bool playing_{false};
   bool terminal_{false};
-  std::shared_ptr<WaypointManager> waypoint_manager_;
-  std::shared_ptr<SmartWaypointNavigator> smart_waypoint_navigator_;
   rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr base_ground_level_sub_;
   rclcpp::Subscription<std_msgs::msg::Int8>::SharedPtr
       base_ground_stair_delta_sub_;

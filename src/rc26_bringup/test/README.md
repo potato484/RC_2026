@@ -17,7 +17,7 @@ source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 
 ### 1. 里程计接口测试 (rc26_odom_interface)
 
-**功能**: 验证 Point-LIO → Nav2 坐标转换是否正常
+**功能**: 验证 Point-LIO → 统一 odom/tf 坐标转换是否正常
 
 ```bash
 # 启动测试 (需要 rc26_point_lio 数据源)
@@ -147,39 +147,29 @@ ros2 run tf2_tools view_frames
 
 ---
 
-### 6. 控制器插件测试 (rc26_nmpc_controller + rc26_omni_controller)
+### 6. 自研导航链测试 (rc26_topo_nav + rc26_nav_mode_manager + rc26_omni_controller)
 
-**功能**: 验证定位感知 NMPC 控制器及其回退链路 (需要 Nav2 环境)
-
-```bash
-# 启动最小化 Nav2 + 控制器测试
-ros2 launch rc26_bringup test_omni_controller.launch.py
-
-# 检查隔离后的测试速度输出
-ros2 topic echo /cmd_vel_test --once
-
-# 检查控制器当前模式（nmpc / fallback:loc_red / fallback:solver_timeout 等）
-ros2 topic echo /NMPCFollowPath/mode
-
-# 注意：该测试默认使用 test_map -> test_odom -> test_base_link，
-# 不再占用在线系统的 map / odom / base_link / cmd_vel
-```
-
-#### 6.1 NMPC 回退场景快捷验收
+**功能**: 验证 topo/xhu 走廊下发、模式切换和执行反馈链路
 
 ```bash
-# 先下发一条最小 FollowPath 目标（驱动控制器进入 compute 周期）
-# 注意：send_goal 默认阻塞，需后台运行，确保后续注入发生在执行窗口内
-ros2 action send_goal /follow_path nav2_msgs/action/FollowPath "{path: {header: {frame_id: test_odom}, poses: [{header: {frame_id: test_odom}, pose: {position: {x: 0.5, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}, {header: {frame_id: test_odom}, pose: {position: {x: 1.0, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}]}, controller_id: NMPCFollowPath, goal_checker_id: general_goal_checker}" &
-sleep 2
+ros2 launch rc26_bringup bringup.launch.py \
+  slam:=false \
+  use_decision:=false \
+  visualization_backend:=rviz \
+  prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/pcd/default.pcd
 
-# 注入 LHI=RED，预期日志出现 fallback:loc_red
-timeout 4 ros2 topic pub --qos-reliability best_effort /localization/health rc26_interfaces/msg/LocalizationHealth "{header: {stamp: {sec: 0, nanosec: 0}, frame_id: ''}, level: 3, reason: 'test_red', control_degraded: true, localization_state: 'RELOC_FAILED', sigma_xy: 1.0, sigma_yaw: 1.0, degenerate_score: 0.0, h_min_eig: 0.0, h_cond: 1000.0}" -r 20
+ros2 topic echo /xhu_nav/motion_mode_state
+ros2 topic echo /xhu_nav/tracking_state
+ros2 topic echo /xhu_nav/semantic_gate
+ros2 topic echo /cmd_vel
 ```
 
-如果需要复现 `solver_timeout` / `solver_infeasible` 回退，请参考：
+如需手动切模式：
 
-- `src/rc26_nmpc_controller/docs/debug_guide.md`
+```bash
+ros2 service call /set_xhu_motion_mode rc26_interfaces/srv/SetXhuMotionMode \
+  "{mode: 'plane_move', timeout: 0.0, reason: 'manual_check'}"
+```
 
 ---
 
@@ -192,8 +182,8 @@ timeout 4 ros2 topic pub --qos-reliability best_effort /localization/health rc26
 | lio_state_predictor | `/control_state` | 约 200Hz 预测里程计 |
 | rc26_point_lio | `/degenerate_score` | 退化分数持续输出 |
 | localization | `/localization/pose_with_cov` + `/localization/diagnostics` + `/localization/health` + `/localization/backend_status` + `/localization/route_observability` | 持续发布且包含扩展字段 |
-| nmpc_controller | `/NMPCFollowPath/mode` | 正常为 `nmpc`，异常场景可切到 `fallback:*` |
-| omni_controller | `/cmd_vel` | 速度指令（NMPC 回退链路中由 FollowPath 提供） |
+| topo_nav/xhu | `/xhu_nav/motion_mode_state` + `/xhu_nav/tracking_state` | 模式与执行反馈持续更新 |
+| omni_controller | `/cmd_vel` | 速度指令由 `xhu_motion_follower` 输出 |
 
 ---
 

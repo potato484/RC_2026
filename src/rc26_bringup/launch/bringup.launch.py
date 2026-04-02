@@ -6,9 +6,8 @@ src R2导航系统 - 主启动文件
   - 定位 (rc26_localization)
   - 地面高度估计 (rc26_base_ground)
   - 地形分析 (rc26_terrain)
-  - Nav2 导航栈 (含自定义控制器)
+  - xhu 自研导航链 (rc26_topo_nav + xhu_motion_mode_manager + xhu_motion_follower)
   - 决策系统 (rc26_decision)
-  - 地图服务 (nav2_map_server)
 
 额外模式:
   - slam:=true 且 pure_mapping_mode:=true 时，保留纯建图最小运动链路，同时继续发布可视化诊断总线
@@ -27,12 +26,12 @@ from launch_ros.actions import Node, PushRosNamespace
 def generate_launch_description():
     # 获取包路径
     bringup_dir = get_package_share_directory('rc26_bringup')
-    nav2_bringup_dir = get_package_share_directory('nav2_bringup')
     decision_dir = get_package_share_directory('rc26_decision')
     base_ground_dir = get_package_share_directory('rc26_base_ground')
     kfs_keepout_dir = get_package_share_directory('rc26_kfs_keepout')
     point_lio_dir = get_package_share_directory('rc26_point_lio')
     topo_nav_dir = get_package_share_directory('rc26_topo_nav')
+    nav_mode_manager_dir = get_package_share_directory('rc26_nav_mode_manager')
     visualization_dir = get_package_share_directory('rc26_visualization')
     display_available = 'true' if (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')) else 'false'
 
@@ -41,11 +40,9 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     slam = LaunchConfiguration('slam')
     pure_mapping_mode = LaunchConfiguration('pure_mapping_mode')
-    map_file = LaunchConfiguration('map')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
     point_lio_profile = LaunchConfiguration('point_lio_profile')
-    params_file = LaunchConfiguration('params_file')
     terrain_params_file = LaunchConfiguration('terrain_params_file')
     terrain_grid_map_params_file = LaunchConfiguration('terrain_grid_map_params_file')
     terrain_filter_chain_params_file = LaunchConfiguration('terrain_filter_chain_params_file')
@@ -62,7 +59,6 @@ def generate_launch_description():
     realsense_config_file = LaunchConfiguration('realsense_config_file')
     kfs_heartbeat_topic = LaunchConfiguration('kfs_heartbeat_topic')
     team = LaunchConfiguration('team')
-    navigation_stack_mode = LaunchConfiguration('navigation_stack_mode')
 
     # 参数声明
     declare_namespace = DeclareLaunchArgument(
@@ -85,11 +81,6 @@ def generate_launch_description():
         default_value='false',
         description='纯建图最小模式；仅在 slam:=true 时生效，跳过 terrain/decision，但保留 visualization_status 供前端显示')
 
-    declare_map = DeclareLaunchArgument(
-        'map',
-        default_value=PathJoinSubstitution([bringup_dir, 'map', 'default.yaml']),
-        description='地图文件路径')
-
     declare_prior_pcd_file = DeclareLaunchArgument(
         'prior_pcd_file',
         default_value=PathJoinSubstitution([bringup_dir, 'pcd', 'default.pcd']),
@@ -104,11 +95,6 @@ def generate_launch_description():
         'point_lio_profile',
         default_value='auto',
         description='Point-LIO 预设: auto | base | cruise_light | mapping_dense | race_profile；auto 会按 slam 自动选择')
-
-    declare_params_file = DeclareLaunchArgument(
-        'params_file',
-        default_value=PathJoinSubstitution([bringup_dir, 'config', 'nav2_params.yaml']),
-        description='Nav2 参数文件')
 
     declare_terrain_params_file = DeclareLaunchArgument(
         'terrain_params_file',
@@ -195,37 +181,10 @@ def generate_launch_description():
         'team',
         default_value='blue',
         description='Active competition side: blue | red')
-
-    declare_navigation_stack_mode = DeclareLaunchArgument(
-        'navigation_stack_mode',
-        default_value='legacy',
-        description='Navigation stack mode: legacy | topo | topo_nav2 | xhu_direct')
-
-    is_topo_mode = PythonExpression([
-        "'",
-        navigation_stack_mode,
-        "'.lower() == 'topo' or '",
-        navigation_stack_mode,
-        "'.lower() == 'topo_nav2'"
-    ])
-    is_xhu_mode = PythonExpression(["'", navigation_stack_mode, "'.lower() == 'xhu_direct'"])
-    is_nav2_runtime_mode = PythonExpression(["'", navigation_stack_mode, "'.lower() != 'xhu_direct'"])
-
-    # Choose params file based on navigation_stack_mode
-    nav2_params_topo_file = PathJoinSubstitution([bringup_dir, 'config', 'nav2_params_topo.yaml'])
-    nav_profiles_topo_file = PathJoinSubstitution([bringup_dir, 'config', 'nav_profiles_topo.yaml'])
     topo_graph_blue_file = PathJoinSubstitution([topo_nav_dir, 'config', 'r2_field_graph_blue.yaml'])
     topo_graph_red_file = PathJoinSubstitution([topo_nav_dir, 'config', 'r2_field_graph_red.yaml'])
     topo_graph_file = PythonExpression([
         "'", topo_graph_red_file, "' if '", team, "'.lower() == 'red' else '", topo_graph_blue_file, "'"
-    ])
-    decision_tree_file = PythonExpression([
-        "'main_tree_xhu_direct.xml' if '", navigation_stack_mode, "'.lower() == 'xhu_direct' "
-        "else ('main_tree_topo.xml' if ('",
-        navigation_stack_mode,
-        "'.lower() == 'topo' or '",
-        navigation_stack_mode,
-        "'.lower() == 'topo_nav2') else 'main_tree.xml')"
     ])
 
     pure_mapping_runtime = PythonExpression([
@@ -330,77 +289,8 @@ def generate_launch_description():
         condition=UnlessCondition(slam)
     )
 
-    # Nav2 导航栈：使用统一的参数文件 nav2_params.yaml，包含控制器 / costmap / BT 配置
-    # legacy 模式使用完整 nav2_params.yaml；topo 模式使用精简 nav2_params_topo.yaml
-    nav2_effective_params = PythonExpression([
-        "'",
-        nav2_params_topo_file,
-        "' if ('",
-        navigation_stack_mode,
-        "'.lower() == 'topo' or '",
-        navigation_stack_mode,
-        "'.lower() == 'topo_nav2') else '",
-        params_file,
-        "'"
-    ])
-    nav2_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution([nav2_bringup_dir, 'launch', 'navigation_launch.py'])
-        ),
-        launch_arguments={
-            'namespace': namespace,
-            'use_sim_time': use_sim_time,
-            'params_file': nav2_effective_params,
-            'autostart': 'true',
-        }.items(),
-        condition=IfCondition(PythonExpression([
-            "'", slam, "'.lower() != 'true' and '", navigation_stack_mode, "'.lower() != 'xhu_direct'"
-        ]))
-    )
-
-    # 导航模式管理器 (rc26_nav_mode_manager)
-    nav_mode_manager_node = Node(
-        package='rc26_nav_mode_manager',
-        executable='nav_mode_manager_node',
-        name='nav_mode_manager',
-        namespace=namespace,
-        output='screen',
-        parameters=[{
-            'use_sim_time': use_sim_time,
-            'costmap_node_name': 'local_costmap/local_costmap',
-            'odom_topic': 'odom',
-            'obstacles_topic': 'terrain_obstacles',
-            'default_timeout_sec': 5.0,
-            'profiles_file': PythonExpression([
-                "'",
-                nav_profiles_topo_file,
-                "' if ('",
-                navigation_stack_mode,
-                "'.lower() == 'topo' or '",
-                navigation_stack_mode,
-                "'.lower() == 'topo_nav2') else ''"
-            ]),
-        }],
-        condition=IfCondition(PythonExpression([
-            "'", slam, "'.lower() != 'true' and '", navigation_stack_mode, "'.lower() != 'xhu_direct'"
-        ]))
-    )
-
-    terrain_mode_adapter_node = Node(
-        package='rc26_nav_mode_manager',
-        executable='terrain_mode_adapter_node',
-        name='terrain_mode_adapter',
-        namespace=namespace,
-        output='screen',
-        parameters=[{
-            'use_sim_time': use_sim_time,
-            'terrain_node_name': 'terrain_semantic',
-        }],
-        condition=IfCondition(PythonExpression([
-            "'", slam, "'.lower() != 'true' and '", navigation_stack_mode, "'.lower() != 'xhu_direct'"
-        ]))
-    )
-
+    # xhu 自研运动模式管理器
+    xhu_profiles_file = PathJoinSubstitution([nav_mode_manager_dir, 'config', 'nav_profiles.yaml'])
     xhu_motion_mode_manager_node = Node(
         package='rc26_nav_mode_manager',
         executable='xhu_motion_mode_manager_node',
@@ -410,12 +300,10 @@ def generate_launch_description():
         parameters=[{
             'use_sim_time': use_sim_time,
             'odom_topic': 'control_state',
-            'profiles_file': nav_profiles_topo_file,
+            'profiles_file': xhu_profiles_file,
             'default_mode': 'hold',
         }],
-        condition=IfCondition(PythonExpression([
-            "'", slam, "'.lower() != 'true' and '", navigation_stack_mode, "'.lower() == 'xhu_direct'"
-        ]))
+        condition=UnlessCondition(slam)
     )
 
     xhu_motion_follower_params = PathJoinSubstitution([bringup_dir, 'config', 'xhu_motion_follower.yaml'])
@@ -429,12 +317,10 @@ def generate_launch_description():
             xhu_motion_follower_params,
             {'use_sim_time': use_sim_time},
         ],
-        condition=IfCondition(PythonExpression([
-            "'", slam, "'.lower() != 'true' and '", navigation_stack_mode, "'.lower() == 'xhu_direct'"
-        ]))
+        condition=UnlessCondition(slam)
     )
 
-    # rc26_topo_nav (topo / xhu_direct 模式)
+    # rc26_topo_nav
     topo_nav_node = Node(
         package='rc26_topo_nav',
         executable='topo_nav_node',
@@ -447,42 +333,7 @@ def generate_launch_description():
                 'use_sim_time': use_sim_time,
                 'team': team,
                 'graph_file': topo_graph_file,
-                'execution_backend': PythonExpression([
-                    "'xhu_direct' if '", navigation_stack_mode, "'.lower() == 'xhu_direct' else 'nav2_follow_path'"
-                ]),
             },
-        ],
-        condition=IfCondition(PythonExpression([
-            "('", navigation_stack_mode, "'.lower() == 'topo' or '",
-            navigation_stack_mode, "'.lower() == 'topo_nav2' or '",
-            navigation_stack_mode, "'.lower() == 'xhu_direct') and not ('",
-            slam, "'.lower() == 'true')"
-        ]))
-    )
-
-    # 地图服务：仅启动 map_server（不启动 AMCL，避免与 rc26_localization 的 map->odom 冲突）
-    map_server_node = Node(
-        package='nav2_map_server',
-        executable='map_server',
-        name='map_server',
-        namespace=namespace,
-        output='screen',
-        parameters=[
-            {'use_sim_time': use_sim_time},
-            {'yaml_filename': map_file},
-        ],
-        condition=UnlessCondition(slam)
-    )
-    map_server_lifecycle_manager = Node(
-        package='nav2_lifecycle_manager',
-        executable='lifecycle_manager',
-        name='lifecycle_manager_map_server',
-        namespace=namespace,
-        output='screen',
-        parameters=[
-            {'use_sim_time': use_sim_time},
-            {'autostart': True},
-            {'node_names': ['map_server', 'costmap_filter_info_server']},
         ],
         condition=UnlessCondition(slam)
     )
@@ -531,48 +382,6 @@ def generate_launch_description():
         condition=IfCondition(terrain_grid_map_runtime)
     )
 
-    terrain_speed_limit_bridge_node = Node(
-        package='rc26_terrain_nav2',
-        executable='terrain_speed_limit_bridge_node',
-        name='terrain_speed_limit_bridge',
-        namespace=namespace,
-        output='screen',
-        parameters=[{
-            'use_sim_time': use_sim_time,
-            'input_topic': 'terrain_speed_limit',
-            'output_topic': 'controller_server/speed_limit',
-            'output_topic_compat': 'speed_limit',
-            'min_speed_limit': 0.0,
-            'max_speed_limit': 2.5,
-            'publish_no_limit_on_nan': True,
-            'republish_period_sec': 0.2,
-            'stale_timeout_sec': 0.6,
-            'stale_policy': 'no_limit',
-        }],
-        condition=IfCondition(PythonExpression([
-            "not ('", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true') and '",
-            navigation_stack_mode, "'.lower() != 'xhu_direct'"
-        ]))
-    )
-
-    # costmap_filter_info_server：向 Nav2 KeepoutFilter 广播掩码元数据
-    costmap_filter_info_server = Node(
-        package='nav2_map_server',
-        executable='costmap_filter_info_server',
-        name='costmap_filter_info_server',
-        namespace=namespace,
-        output='screen',
-        parameters=[{
-            'use_sim_time': use_sim_time,
-            'type': 0,
-            'filter_info_topic': '/costmap_filter_info',
-            'mask_topic': '/kfs_filter_mask',
-            'base': 0.0,
-            'multiplier': 1.0,
-        }],
-        condition=UnlessCondition(slam)
-    )
-
     # 决策系统：行为树节点（rc26_decision/decision_node），默认启用，可通过 use_decision 控制
     decision_params = PathJoinSubstitution([decision_dir, 'config', 'decision_params.yaml'])
     decision_node = Node(
@@ -586,7 +395,7 @@ def generate_launch_description():
             {
                 'use_sim_time': use_sim_time,
                 'team': team,
-                'tree_file': decision_tree_file,
+                'tree_file': 'main_tree.xml',
                 'keepout_gate.heartbeat_topic': kfs_heartbeat_topic,
             },
         ],
@@ -613,9 +422,7 @@ def generate_launch_description():
                 'summary.controller_present': PythonExpression(["not ('", slam, "'.lower() == 'true')"]),
                 'summary.keepout_present': PythonExpression(["not ('", slam, "'.lower() == 'true')"]),
                 'summary.terrain_present': terrain_grid_map_runtime,
-                'summary.nav_safety_present': PythonExpression([
-                    "not ('", slam, "'.lower() == 'true') and '", navigation_stack_mode, "'.lower() != 'xhu_direct'"
-                ]),
+                'summary.nav_safety_present': PythonExpression(["not ('", slam, "'.lower() == 'true')"]),
                 'summary.mechanism_present': True,
             },
         ],
@@ -680,8 +487,8 @@ def generate_launch_description():
         condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'foxglove'"]))
     )
 
-    # RViz：导航模式使用 nav2_default.rviz，建图模式使用 slam.rviz
-    rviz_nav_config = PathJoinSubstitution([bringup_dir, 'rviz', 'nav2_default.rviz'])
+    # RViz：导航模式使用自研导航布局，建图模式使用 slam.rviz
+    rviz_nav_config = PathJoinSubstitution([bringup_dir, 'rviz', 'navigation_default.rviz'])
     rviz_slam_config = PathJoinSubstitution([bringup_dir, 'rviz', 'slam.rviz'])
     rviz_nav_node = Node(
         package='rviz2',
@@ -729,11 +536,9 @@ def generate_launch_description():
         declare_use_sim_time,
         declare_slam,
         declare_pure_mapping_mode,
-        declare_map,
         declare_prior_pcd_file,
         declare_point_lio_config_file,
         declare_point_lio_profile,
-        declare_params_file,
         declare_terrain_params_file,
         declare_terrain_grid_map_params_file,
         declare_terrain_filter_chain_params_file,
@@ -750,7 +555,6 @@ def generate_launch_description():
         declare_realsense_config_file,
         declare_kfs_heartbeat_topic,
         declare_team,
-        declare_navigation_stack_mode,
 
         # 启动模块
         pure_mapping_notice,
@@ -760,17 +564,10 @@ def generate_launch_description():
         base_ground_node,
         terrain_launch,
 
-        map_server_node,
-        costmap_filter_info_server,
-        map_server_lifecycle_manager,
         kfs_block_fuser_node,
         terrain_grid_map_bridge_node,
-        terrain_speed_limit_bridge_node,
-        nav_mode_manager_node,
-        terrain_mode_adapter_node,
         xhu_motion_mode_manager_node,
         xhu_motion_follower_node,
-        nav2_launch,
         topo_nav_node,
         decision_node,
         visualization_status_node,

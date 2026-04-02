@@ -18,7 +18,6 @@ find_package(behaviortree_cpp REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
-find_package(nav2_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -45,9 +44,6 @@ add_library(${PROJECT_NAME}_nodes SHARED
   src/mf/merlin_rule_world_model.cpp
   src/combat/battle_grid_state.cpp
   src/combat/combat_area.cpp
-  src/navigation/waypoint_manager.cpp
-  src/navigation/smart_waypoint_navigator.cpp
-  src/navigation/bt_nav_to_smart_point.cpp
   src/navigation/bt_topo_nav.cpp
   src/vision/bt_nodes.cpp
 )
@@ -59,7 +55,6 @@ ament_target_dependencies(${PROJECT_NAME}_nodes
   behaviortree_cpp
   geometry_msgs
   nav_msgs
-  nav2_msgs
   std_msgs
   tf2
   tf2_ros
@@ -97,7 +92,6 @@ ament_target_dependencies(decision_node
   ament_index_cpp
   geometry_msgs
   nav_msgs
-  nav2_msgs
   std_msgs
   tf2
   tf2_ros
@@ -150,6 +144,6 @@ install(
 ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME}_nodes)
-ament_export_dependencies(ament_index_cpp rclcpp rclcpp_action behaviortree_cpp geometry_msgs nav_msgs nav2_msgs std_msgs tf2 tf2_ros tf2_geometry_msgs grid_map_core grid_map_ros grid_map_msgs rc26_serial rc26_interfaces rc26_vision)
+ament_export_dependencies(ament_index_cpp rclcpp rclcpp_action behaviortree_cpp geometry_msgs nav_msgs std_msgs tf2 tf2_ros tf2_geometry_msgs grid_map_core grid_map_ros grid_map_msgs rc26_serial rc26_interfaces rc26_vision)
 
 ament_package()

@@ -39,8 +39,8 @@
 
 - `LOCALIZATION_DEGRADED`：定位退化，优先检查 `/localization/health`
 - `CONTROL_DEGRADED`：控制退化，优先检查 `/control_degraded` 与 `control_degenerate_score`
-- `KEEPOUT_STALE`：keepout 输入陈旧，检查 `/costmap_filter_info`、`/kfs_filter_mask`、`/kfs_keepout_heartbeat`
-- `NAV_STOP_REQUIRED` / `NAV_TIMED_OUT`：导航策略要求停车或 watchdog 超时，检查 `/nav_safety_state`
+- `KEEPOUT_STALE`：keepout 输入陈旧，检查 `/mf_block_overlay`、`/kfs_filter_mask`、`/kfs_keepout_heartbeat`
+- `NAV_STOP_REQUIRED` / `NAV_TIMED_OUT`：导航运行时要求停车或 watchdog 超时，检查 `/xhu_nav/motion_mode_state` 与 `/xhu_nav/tracking_state`
 - `MECHANISM_COMM_WARN`：机构通信异常，检查 `/mechanism/state`
 
 ## 导入布局

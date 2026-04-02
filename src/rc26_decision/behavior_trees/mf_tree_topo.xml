@@ -1,5 +1,5 @@
 <!-- 梅林区行为树 (MF Area) - Topo Nav 版本
-     导航调用从 SetNavMode + NavToSmartPoint/NavToMerlinGrid 迁移为 topo 节点。
+     自 2026-04 起仅保留 topo/xhu 自研导航链，旧点位导航节点已移除。
      模式切换由 rc26_topo_nav 的 edge required_mode 驱动，BT 不再显式切档。 -->
 <root BTCPP_format="4">
   <BehaviorTree ID="MFAreaTree">

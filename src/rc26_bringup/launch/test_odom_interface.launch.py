@@ -1,7 +1,7 @@
 """
 rc26_odom_interface 模块测试
 
-功能: 验证 Point-LIO 到 Nav2 的坐标转换
+功能: 验证 Point-LIO 到统一 odom/tf 接口的坐标转换
 前置: 需要 rc26_point_lio 运行或 rosbag 回放
 
 测试指令:

@@ -933,8 +933,7 @@ std::string BtRuntimePublisher::knownNodeDetail(const BT::TreeNode &node,
     return oss.str();
   }
 
-  if (reg == "NavToSmartPoint" || reg == "NavToMerlinGrid" ||
-      reg == "SetNavMode" || reg == "LocalizationObserveSpin") {
+  if (reg == "LocalizationObserveSpin") {
     return collectPortSummary(node);
   }
 

@@ -139,13 +139,6 @@ custom_types:
     scenario: "当 `SelectNextGrid` 选择 GRAB 时进入。"
     attention: "若连续失败，要检查当前格子、机构状态和地图更新结果。"
     related_blackboard_keys: ["current_grid", "target_grid", "kfs_on_board", "last_action_error_code"]
-  SetNavMode:
-    display_name: "切换导航档位"
-    tooltip: "切换当前导航策略档位，例如安全、穿越或红档停车。"
-    summary: "用于在不同风险环境下切换底盘运动策略。"
-    scenario: "进入狭窄区域、定位退化、准备离场时都会切档。"
-    attention: "档位频繁来回切，通常要看 `loc_recommended_profile` 是否抖动。"
-    related_blackboard_keys: ["loc_recommended_profile", "loc_last_profile", "loc_guard_required"]
   ScanSurroundings:
     display_name: "扫描周围环境"
     tooltip: "更新周围格子和目标信息。"
@@ -490,7 +483,7 @@ blackboard_keys:
   loc_recommended_profile:
     display_name: "推荐导航档位"
     tooltip: "定位守护建议当前使用的导航策略档位。"
-    summary: "它会直接影响 `SetNavMode` 节点切到哪个档位。"
+    summary: "它会直接影响定位守护逻辑选择的运动约束档位。"
     scenario: "定位变差时，这个值常从 `normal` 切到 `loc_yellow` 或更保守档位。"
     attention: "如果这个值频繁变化，说明定位风险在抖动。"
     related_blackboard_keys: ["loc_level", "loc_last_profile", "loc_guard_required"]

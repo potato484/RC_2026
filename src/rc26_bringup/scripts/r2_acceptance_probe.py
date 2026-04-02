@@ -9,7 +9,6 @@ from typing import Dict, List, Optional, Tuple
 
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray
-from nav2_msgs.srv import GetCostmap
 from nav_msgs.msg import Odometry
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
@@ -131,21 +130,6 @@ class AcceptanceProbe:
         self.diag_last_values: Dict[str, str] = {}
         self.diag_last_message = ""
         self.diag_last_level = 0
-
-        self.costmap_service_candidates = [self.args.costmap_service]
-        for item in self.args.costmap_service_fallbacks.split(","):
-            name = item.strip()
-            if name and name not in self.costmap_service_candidates:
-                self.costmap_service_candidates.append(name)
-
-        self.costmap_clients = {
-            service: self.node.create_client(GetCostmap, service)
-            for service in self.costmap_service_candidates
-        }
-        self.active_costmap_service = self.args.costmap_service
-        self.costmap_response_count = 0
-        self.costmap_failed_calls = 0
-        self.costmap_max_cost = 0
 
         self.tf_seen_map_odom = False
         self.tf_seen_odom_base = False
@@ -284,57 +268,13 @@ class AcceptanceProbe:
         except TransformException:
             pass
 
-    def _call_costmap_once(self):
-        if not self.args.require_costmap:
-            return
-
-        selected_service = None
-        selected_client = None
-        for service in self.costmap_service_candidates:
-            client = self.costmap_clients[service]
-            if client.wait_for_service(timeout_sec=0.05):
-                selected_service = service
-                selected_client = client
-                break
-
-        if selected_client is None:
-            self.costmap_failed_calls += 1
-            return
-        self.active_costmap_service = selected_service or self.active_costmap_service
-
-        future = selected_client.call_async(GetCostmap.Request())
-        deadline = time.monotonic() + 1.5
-        while time.monotonic() < deadline and not future.done():
-            self.executor.spin_once(timeout_sec=0.05)
-
-        if not future.done():
-            self.costmap_failed_calls += 1
-            return
-        if future.exception() is not None:
-            self.costmap_failed_calls += 1
-            return
-
-        response = future.result()
-        if response is None or not response.map.data:
-            self.costmap_failed_calls += 1
-            return
-
-        self.costmap_response_count += 1
-        self.costmap_max_cost = max(self.costmap_max_cost, max(response.map.data))
-
     def run(self) -> List[Check]:
         start = time.monotonic()
         end = start + self.args.duration_sec
-        next_costmap_probe = start + self.args.warmup_sec
 
         while time.monotonic() < end:
             self.executor.spin_once(timeout_sec=0.1)
             self._probe_tf()
-
-            now = time.monotonic()
-            if self.args.require_costmap and now >= next_costmap_probe:
-                self._call_costmap_once()
-                next_costmap_probe = now + self.args.costmap_probe_interval_sec
 
         checks = self._build_checks()
         return checks
@@ -492,41 +432,12 @@ class AcceptanceProbe:
                     ),
                 )
             )
-            if self.args.require_costmap:
-                checks.append(
-                    Check(
-                        name="Costmap/non_zero_cost",
-                        ok=self.costmap_max_cost > 0,
-                        detail=(
-                            f"max_cost={self.costmap_max_cost} responses={self.costmap_response_count} "
-                            f"failed_calls={self.costmap_failed_calls} service={self.active_costmap_service}"
-                        ),
-                    )
-                )
-            else:
-                checks.append(
-                    Check(
-                        name="Costmap/non_zero_cost",
-                        ok=True,
-                        detail="SKIPPED (require_costmap=false)",
-                    )
-                )
         else:
             checks.append(
                 Check(
                     name="Terrain/topic_alive",
                     ok=self.terrain_obstacles_total > 0,
                     detail=f"obstacles_total={self.terrain_obstacles_total}",
-                )
-            )
-            checks.append(
-                Check(
-                    name="Costmap/service_alive",
-                    ok=(self.costmap_response_count > 0 if self.args.require_costmap else True),
-                    detail=(
-                        f"responses={self.costmap_response_count} failed_calls={self.costmap_failed_calls} "
-                        f"service={self.active_costmap_service}"
-                    ),
                 )
             )
 
@@ -573,7 +484,7 @@ class AcceptanceProbe:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="R2 全链路验收探针（TF/时戳/频率/costmap）")
+    parser = argparse.ArgumentParser(description="R2 全链路验收探针（TF/时戳/频率/xhu keepout）")
     parser.add_argument("--duration_sec", type=float, default=60.0, help="采样总时长")
     parser.add_argument("--warmup_sec", type=float, default=3.0, help="启动后预热时长")
 
@@ -598,15 +509,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected_lidar_xyz_tol", type=float, default=0.02)
     parser.add_argument("--expected_lidar_rpy_tol_rad", type=float, default=0.05)
 
-    parser.add_argument("--require_costmap", type=parse_bool, default=True, help="是否检查 costmap 服务")
-    parser.add_argument("--costmap_service", default="/local_costmap/get_costmap")
-    parser.add_argument(
-        "--costmap_service_fallbacks",
-        default="/local_costmap/local_costmap/get_costmap,/costmap/get_costmap",
-        help="逗号分隔的 costmap 服务回退列表",
-    )
-    parser.add_argument("--costmap_probe_interval_sec", type=float, default=0.5)
-
     parser.add_argument("--expect_obstacle", type=parse_bool, default=False, help="是否要求出现障碍非零代价")
     parser.add_argument(
         "--min_non_empty_obstacle_msgs",
@@ -627,7 +529,6 @@ def print_report(checks: List[Check], args):
         "config: "
         f"duration={args.duration_sec:.1f}s "
         f"require_map_chain={args.require_map_chain} "
-        f"require_costmap={args.require_costmap} "
         f"expect_obstacle={args.expect_obstacle}"
     )
     for check in checks:

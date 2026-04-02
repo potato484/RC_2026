@@ -227,52 +227,76 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 
 **变更类型**：架构级 — 新增导航表达层
 
-**变更原因**：MF 和坡道链路从"Nav2 2D 全局规划 + 多层 3D 桥接"迁移到"拓扑图搜索 + 单边执行"，解决原有主链问题表达不匹配（2D planner 规划离散合法站位）的根因。
+**变更原因**：MF 和坡道链路从“旧二维全局规划 + 多层三维桥接”迁移到“拓扑图搜索 + 单边执行”，解决原有主链问题表达不匹配（二维 planner 很难直接表达离散合法站位）的根因。
 
 **变更范围**：
 - 新增 `rc26_topo_nav` 包（graph_loader / overlay_reducer / planner / edge_executor / diagnostics）
 - 新增 `NavigateTopoTarget.action`、`MfBlockOverlay.msg`、`MfBlockOverlayCell.msg`
 - `rc26_kfs_keepout` 新增 MfBlockOverlay 离散输出
 - `rc26_decision` 新增 NavToTopoNode / NavToTaskPose / ExecuteTopoRoute BT 节点，新增 `mf_tree_topo.xml`
-- `rc26_bringup` 新增 `navigation_stack_mode` 模式切换（`legacy/topo`，并兼容 `topo_nav2` 别名），topo 模式精简 Nav2 配置
+- `rc26_bringup` 新增分模式导航装配入口，topo 模式装配 topo 图、profile 和对应主树
 
 **当前落地口径**：
-- `rc26_bringup` 在 topo 模式下会把 `rc26_decision` 切到 `main_tree_topo.xml`，并把 `team` / topo graph / topo nav profiles 一起装配给运行链
+- `rc26_bringup` 在 topo 模式下会把 `rc26_decision` 切到独立 topo 主树，并把 `team` / topo graph / topo nav profiles 一起装配给运行链
 - `rc26_decision` 仍然拥有 MF 目标格选择；`NavToTaskPose(grid_id)` 只是把已选格映射为 topo node，不让 `rc26_topo_nav` 反向接管任务选格
 - `rc26_kfs_keepout` 的 `r2_mf_world.yaml` 作为 shared 几何底座使用，真正发布到 `MfBlockOverlay.team` 的阵营来自运行态 KFS 输入
 - `rc26_topo_nav` 图文件当前支持 `routes` 和 `edges.control_points`，分别服务 `ExecuteTopoRoute` 和坡道 / 转折 corridor 细化
 
-**兼容策略**：`navigation_stack_mode` 默认 `legacy`，原有链路完全不受影响；topo（含 `topo_nav2`）模式需显式启用。
+**兼容策略**：`navigation_stack_mode` 默认 `legacy`，原有链路完全不受影响；topo 模式需显式启用。
 
 **不变的边界**：
 - TF 权威归属不变（rc26_odom_interface）
-- 控制器权威不变（Nav2 controller_server）
+- 控制器权威暂不变化
 - 任务策略仍在 rc26_decision（MerlinRuleWorldModel / SelectNextGrid）
 
 ### 7.2 xhu_direct 首轮落地（2026-04-01）
 
 **变更类型**：架构级 — 导航执行后端新增 `xhu_direct`
 
-**变更原因**：在保留 `legacy/topo(topo_nav2)` 兼容路径的前提下，为方案 2 提供“去 Nav2 导航运行时”的可运行首轮链路，验证 corridor 直连执行闭环。
+**变更原因**：在保留 `legacy/topo` 兼容路径的前提下，为方案 2 提供“去旧兼容导航运行时”的可运行首轮链路，验证 corridor 直连执行闭环。
 
 **变更范围**：
 - `rc26_interfaces` 新增 `XhuSemanticCorridor.msg`、`XhuMotionModeState.msg`、`XhuTrackingState.msg`、`SetXhuMotionMode.srv`
 - `rc26_nav_mode_manager` 新增 `xhu_motion_mode_manager_node`（独立模式管理、停稳预检查、watchdog 回退）
 - `rc26_omni_controller` 新增 `xhu_motion_follower_node`（订阅 corridor/语义状态，直接输出 `cmd_vel`）
-- `rc26_topo_nav` `edge_executor` 新增双后端执行路径：`nav2_follow_path` / `xhu_direct`
+- `rc26_topo_nav` `edge_executor` 新增双后端执行路径：旧兼容执行后端 / `xhu_direct`
 - `rc26_topo_nav` diagnostics 新增 `/xhu_nav/route`、`/xhu_nav/corridor`、`/xhu_nav/diagnostics`、`/xhu_nav/active_edge`、`/xhu_nav/semantic_gate`、`/xhu_nav/risk_markers`
 - `rc26_bringup` 新增 `navigation_stack_mode:=xhu_direct` 装配路径，挂载 `xhu_motion_mode_manager` + `xhu_motion_follower` + `rc26_topo_nav(execution_backend=xhu_direct)`
-- `rc26_decision` 新增 `main_tree_xhu_direct.xml`（首轮仅启用 MF topo 子树）
+- `rc26_decision` 新增独立 `xhu_direct` 主树（首轮仅启用 MF topo 子树）
 
 **当前落地口径**：
-- `xhu_direct` 模式下不启动 Nav2 `navigation_launch.py`，因此不拉起 `planner_server` / `controller_server` / `behavior_server`
-- `xhu_direct` 模式下 `terrain_speed_limit_bridge` 不启动，主链不再向 `controller_server/speed_limit` 输出速度限制
+- `xhu_direct` 模式下不启动旧规划执行进程
+- `xhu_direct` 模式下旧地形限速桥接不启动，主链也不再向旧速度限制入口输出值
 - `rc26_topo_nav` 在 `xhu_direct` 下通过 `set_xhu_motion_mode` + `/xhu_nav/corridor_cmd` 驱动执行，并根据 `/xhu_nav/tracking_state` 判定 `PASS/HOLD/REPLAN/ABORT`
 
 **兼容策略**：
 - `navigation_stack_mode` 默认仍为 `legacy`
-- `topo` / `topo_nav2` 模式继续保留 `nav2_follow_path` 执行路径作为过渡与回归对照
+- `topo` 模式继续保留旧兼容执行路径作为过渡与回归对照
 
 **当前未完成项（显式记录）**：
 - `xhu_direct` 首轮仅覆盖 MF topo 子树；MC / 对抗区仍未迁移到统一 topo 目标表达
-- Nav2 运行时仍在 `legacy/topo` 模式可用，尚未进入“比赛正式配置只保留 `xhu_direct`”阶段
+- 旧兼容运行时仍在 `legacy/topo` 模式可用，尚未进入“比赛正式配置只保留 `xhu_direct`”阶段
+
+### 7.3 旧导航链彻底退场（2026-04-02）
+
+**变更类型**：架构级 — 删除旧导航运行时与兼容执行后端
+
+**变更原因**：用户已明确要求仓库只保留自研导航实现，不再维护旧兼容导航路径、旧 waypoint 导航桥接或相关兼容接口。
+
+**变更范围**：
+- 删除旧二维执行器包
+- 删除旧地形兼容桥接包
+- 删除 `rc26_decision` 中旧 waypoint 导航桥接实现
+- 删除 `rc26_interfaces` 中旧 waypoint / 安全 / 模式切换接口
+- 删除 `rc26_bringup` 中所有旧兼容参数与测试入口
+- `rc26_topo_nav` 收口为单一 xhu 执行器
+- `rc26_nav_mode_manager` 收口为单一 `xhu_motion_mode_manager_node`
+- `rc26_omni_controller` 收口为单一 `xhu_motion_follower_node`
+
+**当前落地口径**：
+- `slam:=false` 时整车固定装配 topo/xhu 自研导航链
+- `rc26_decision` 固定使用 `main_tree.xml`
+- 运动模式权威为 `set_xhu_motion_mode + /xhu_nav/motion_mode_state`
+- 执行反馈权威为 `/xhu_nav/tracking_state`
+
+**兼容策略**：无。旧兼容导航链和相关接口已从 `src/` 中删除。

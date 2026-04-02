@@ -3,7 +3,7 @@
 
   <!-- 引入子树定义 -->
   <include path="mc_tree.xml"/>
-  <include path="mf_tree.xml"/>
+  <include path="mf_tree_topo.xml"/>
   <include path="combat_tree.xml"/>
 
   <!-- 主树：顺序执行三个区域子树 -->
@@ -11,7 +11,7 @@
     <Sequence>
       <!-- 武馆阶段 -->
       <SubTree ID="MCAreaTree" _autoremap="true"/>
-      <!-- 梅林阶段 -->
+      <!-- 梅林阶段（统一走 topo/xhu） -->
       <SubTree ID="MFAreaTree" _autoremap="true"/>
       <!-- 对抗阶段 -->
       <SubTree ID="CombatAreaTree" _autoremap="true"/>

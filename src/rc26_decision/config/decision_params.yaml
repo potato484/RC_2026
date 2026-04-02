@@ -32,8 +32,7 @@ rc26_decision:
     loc_retry_waypoints: ["loc_retry_zone_1"]
     loc_anchor_waypoints: ["loc_anchor_1", "loc_anchor_2"]
 
-    # speed_profile 全局缩放系数（用于点位里的 speed_profile: FAST/SLOW/CREEP）
-    # 最终会缩放 controller_server 的 FollowPath.v_linear_max / FollowPath.v_angular_max
+    # speed_profile 全局缩放系数（保留给局部决策节奏与动作选择使用）
     speed_profile_scales.fast: 1.0
     speed_profile_scales.slow: 0.4
     speed_profile_scales.creep: 0.2
