@@ -2,22 +2,34 @@
 import { create } from 'zustand';
 import { BTNode, TimelineEvent, BlackboardItem, ParsedArea, ParsedTree } from '../types';
 import { parseBTXml } from '../utils/btParser';
-import mfTreeXml from '../../../src/rc26_decision/behavior_trees/mf_tree.xml?raw';
-import combatTreeXml from '../../../src/rc26_decision/behavior_trees/combat_tree.xml?raw';
-import mcTreeXml from '../../../src/rc26_decision/behavior_trees/mc_tree.xml?raw';
+import {
+  BehaviorTreePhase,
+  getBehaviorTreeXmlForPhase,
+  setBehaviorTreeXmlForPhase
+} from '../utils/behaviorTreeSources';
 
-// Parse initial trees
-const areas: Record<'梅林区' | '武馆区' | '对抗区', ParsedArea> = {
-  '梅林区': parseBTXml(mfTreeXml),
-  '武馆区': parseBTXml(mcTreeXml),
-  '对抗区': parseBTXml(combatTreeXml),
+const buildParsedArea = (phase: BehaviorTreePhase): ParsedArea => parseBTXml(getBehaviorTreeXmlForPhase(phase));
+
+const parsedAreas: Record<BehaviorTreePhase, ParsedArea> = {
+  '梅林区': buildParsedArea('梅林区'),
+  '武馆区': buildParsedArea('武馆区'),
+  '对抗区': buildParsedArea('对抗区'),
+};
+
+const getParsedArea = (phase: BehaviorTreePhase): ParsedArea => parsedAreas[phase];
+
+const replaceParsedArea = (phase: BehaviorTreePhase, xmlContent: string): ParsedArea => {
+  setBehaviorTreeXmlForPhase(phase, xmlContent);
+  const nextArea = parseBTXml(xmlContent);
+  parsedAreas[phase] = nextArea;
+  return nextArea;
 };
 
 interface AppState {
   appMode: 'viewer' | 'editor';
   isSimulating: boolean;
   isPlaying: boolean;
-  activePhase: '武馆区' | '梅林区' | '对抗区';
+  activePhase: BehaviorTreePhase;
   activeTreeId: string;
   trees: Record<string, ParsedTree>;
   nodes: BTNode[];
@@ -30,7 +42,7 @@ interface AppState {
   toggleSimulate: () => void;
   togglePlay: () => void;
   stopPlay: () => void;
-  setActivePhase: (phase: '武馆区' | '梅林区' | '对抗区') => void;
+  setActivePhase: (phase: BehaviorTreePhase) => void;
   setActiveTree: (treeId: string) => void;
   setActiveNode: (id: string | null) => void;
   addTimelineEvent: (event: TimelineEvent) => void;
@@ -38,12 +50,13 @@ interface AppState {
   updateBlackboard: (item: BlackboardItem) => void;
   updateNodeState: (id: string, state: BTNode['state']) => void;
   toggleNodeCollapse: (id: string) => void;
+  replacePhaseXml: (phase: BehaviorTreePhase, xmlContent: string) => void;
   resetTreeState: () => void;
 }
 
 export const useStore = create<AppState>((set) => {
   const initialPhase = '梅林区';
-  const initialArea = areas[initialPhase];
+  const initialArea = getParsedArea(initialPhase);
   const initialTreeId = initialArea.mainTreeId || Object.keys(initialArea.trees)[0];
   const initialTree = initialArea.trees[initialTreeId] || { nodes: [], edges: [] };
 
@@ -73,7 +86,7 @@ export const useStore = create<AppState>((set) => {
     
     setActivePhase: (phase) => set((state) => {
       if (state.activePhase === phase) return {};
-      const area = areas[phase];
+      const area = getParsedArea(phase);
       const treeId = area.mainTreeId || Object.keys(area.trees)[0];
       const tree = area.trees[treeId] || { nodes: [], edges: [] };
       return { 
@@ -164,6 +177,24 @@ export const useStore = create<AppState>((set) => {
 
       if (!updated) return {};
       return { trees: newTrees, nodes: newNodes };
+    }),
+
+    replacePhaseXml: (phase, xmlContent) => set((state) => {
+      const nextArea = replaceParsedArea(phase, xmlContent);
+      if (state.activePhase !== phase) return {};
+
+      const nextActiveTreeId = nextArea.trees[state.activeTreeId]
+        ? state.activeTreeId
+        : nextArea.mainTreeId || Object.keys(nextArea.trees)[0];
+      const nextTree = nextArea.trees[nextActiveTreeId] || { nodes: [], edges: [] };
+
+      return {
+        trees: nextArea.trees,
+        activeTreeId: nextActiveTreeId,
+        nodes: nextTree.nodes,
+        edges: nextTree.edges,
+        activeNodeId: null,
+      };
     }),
 
     resetTreeState: () => set((state) => {

@@ -50,12 +50,10 @@ export const EditorNodeComponent = ({ data }: EditorNodeProps) => {
   }
 
   // Format attributes for display
-  const attrEntries = Object.entries(data.attributes);
-  const displayAttrs = attrEntries.slice(0, 2).map(([k, v]) => `${k}="${v}"`).join(' ');
-  const hasMoreAttrs = attrEntries.length > 2;
+  const hasAttributeSummary = Boolean(data.attributeSummary);
 
   return (
-    <div className={`relative rounded-xl border-2 transition-all duration-200 ${bgClass} ${borderClass}`}>
+    <div data-testid="editor-node-card" className={`relative rounded-xl border-2 transition-all duration-200 ${bgClass} ${borderClass}`}>
       <motion.div
         whileHover={{ scale: 1.02 }}
         className="px-4 py-3 min-w-[140px] flex flex-col gap-2"
@@ -67,14 +65,14 @@ export const EditorNodeComponent = ({ data }: EditorNodeProps) => {
           <div className={`p-1.5 rounded-md bg-white/60 ${iconClass}`}>
             <Icon className="w-4 h-4" />
           </div>
-          <div className={`flex-1 font-bold text-sm truncate ${textClass}`} title={data.tagName}>
-            {data.tagName}
+          <div className={`flex-1 font-bold text-sm truncate ${textClass}`} title={String(data.displayDesc || data.displayLabel)}>
+            {String(data.displayLabel)}
           </div>
         </div>
 
-        {attrEntries.length > 0 && (
-          <div className="text-xs font-mono text-slate-500 truncate" title={Object.entries(data.attributes).map(([k,v]) => `${k}="${v}"`).join(' ')}>
-            {displayAttrs} {hasMoreAttrs && '...'}
+        {(hasAttributeSummary || data.displayDesc) && (
+          <div className="text-xs text-slate-500 truncate" title={String(data.attributeSummary || data.displayDesc)}>
+            {String(data.attributeSummary || data.displayDesc)}
           </div>
         )}
 

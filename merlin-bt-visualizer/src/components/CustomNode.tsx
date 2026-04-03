@@ -71,7 +71,7 @@ export const CustomNode = ({ data }: { data: BTNode }) => {
   }
 
   return (
-    <div className="relative">
+    <div className="relative" data-testid="viewer-node-card">
       {/* 附加修饰器：横向紧凑排列，紧贴节点左上方 */}
       {attachedModifiers.length > 0 && (
         <div className="absolute bottom-full left-0 mb-1 flex flex-wrap gap-1 w-max max-w-[320px] z-20">

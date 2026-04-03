@@ -4,8 +4,31 @@ import { xmlToEditorDocument } from '../utils/editorParser';
 import { editorDocumentToXml } from '../utils/editorSerializer';
 import { Node as FlowNode, Edge as FlowEdge } from '@xyflow/react';
 import { projectTreeToFlow } from '../utils/editorProjection';
+import { BehaviorTreePhase } from '../utils/behaviorTreeSources';
+
+interface EditorPhaseDraft {
+  document: EditorDocument;
+  activeTreeId: string | null;
+  collapsedNodes: Set<string>;
+  selectedNodeId: string | null;
+}
+
+const createDraftFromDocument = (document: EditorDocument): EditorPhaseDraft => ({
+  document,
+  activeTreeId: document.trees[0]?.id ?? null,
+  collapsedNodes: new Set(),
+  selectedNodeId: null,
+});
+
+const cloneDraft = (draft: EditorPhaseDraft): EditorPhaseDraft => ({
+  ...draft,
+  collapsedNodes: new Set(draft.collapsedNodes),
+});
 
 interface EditorState {
+  currentPhase: BehaviorTreePhase | null;
+  phaseDrafts: Partial<Record<BehaviorTreePhase, EditorPhaseDraft>>;
+
   // Data Model
   document: EditorDocument | null;
   activeTreeId: string | null;
@@ -17,7 +40,7 @@ interface EditorState {
   selectedNodeId: string | null;
   
   // Actions
-  loadXml: (xmlContent: string) => void;
+  ensurePhaseLoaded: (phase: BehaviorTreePhase, xmlContent: string) => void;
   setActiveTree: (treeId: string) => void;
   toggleNodeCollapse: (nodeId: string) => void;
   setSelectedNode: (nodeId: string | null) => void;
@@ -39,7 +62,30 @@ const findNodeById = (node: EditorNode, id: string): EditorNode | null => {
   return null;
 };
 
+const syncCurrentDraft = (
+  state: Pick<EditorState, 'currentPhase' | 'phaseDrafts' | 'document' | 'activeTreeId' | 'collapsedNodes' | 'selectedNodeId'>,
+  overrides: Partial<Pick<EditorPhaseDraft, 'document' | 'activeTreeId' | 'collapsedNodes' | 'selectedNodeId'>> = {}
+): Partial<Record<BehaviorTreePhase, EditorPhaseDraft>> => {
+  if (!state.currentPhase || !state.document) return state.phaseDrafts;
+
+  const nextDraft: EditorPhaseDraft = {
+    document: 'document' in overrides && overrides.document ? overrides.document : state.document,
+    activeTreeId: 'activeTreeId' in overrides ? overrides.activeTreeId ?? null : state.activeTreeId,
+    collapsedNodes: 'collapsedNodes' in overrides && overrides.collapsedNodes
+      ? new Set(overrides.collapsedNodes)
+      : new Set(state.collapsedNodes),
+    selectedNodeId: 'selectedNodeId' in overrides ? overrides.selectedNodeId ?? null : state.selectedNodeId,
+  };
+
+  return {
+    ...state.phaseDrafts,
+    [state.currentPhase]: nextDraft,
+  };
+};
+
 export const useEditorStore = create<EditorState>((set, get) => ({
+  currentPhase: null,
+  phaseDrafts: {},
   document: null,
   activeTreeId: null,
   collapsedNodes: new Set(),
@@ -47,26 +93,47 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   flowEdges: [],
   selectedNodeId: null,
 
-  loadXml: (xmlContent: string) => {
-    try {
-      const doc = xmlToEditorDocument(xmlContent);
-      const firstTreeId = doc.trees.length > 0 ? doc.trees[0].id : null;
-      
-      set({ 
-        document: doc, 
-        activeTreeId: firstTreeId,
-        collapsedNodes: new Set(),
-        selectedNodeId: null
+  ensurePhaseLoaded: (phase, xmlContent) => {
+    const cachedDraft = get().phaseDrafts[phase];
+    if (cachedDraft) {
+      const nextDraft = cloneDraft(cachedDraft);
+      set({
+        currentPhase: phase,
+        document: nextDraft.document,
+        activeTreeId: nextDraft.activeTreeId,
+        collapsedNodes: nextDraft.collapsedNodes,
+        selectedNodeId: nextDraft.selectedNodeId,
       });
-      
+      get()._updateFlow();
+      return;
+    }
+
+    try {
+      const draft = createDraftFromDocument(xmlToEditorDocument(xmlContent));
+      set((state) => ({
+        currentPhase: phase,
+        phaseDrafts: {
+          ...state.phaseDrafts,
+          [phase]: cloneDraft(draft),
+        },
+        document: draft.document,
+        activeTreeId: draft.activeTreeId,
+        collapsedNodes: draft.collapsedNodes,
+        selectedNodeId: draft.selectedNodeId,
+      }));
+
       get()._updateFlow();
     } catch (error) {
-      console.error("Failed to parse XML:", error);
+      console.error('Failed to parse XML:', error);
     }
   },
 
   setActiveTree: (treeId: string) => {
-    set({ activeTreeId: treeId, selectedNodeId: null });
+    set((state) => ({
+      activeTreeId: treeId,
+      selectedNodeId: null,
+      phaseDrafts: syncCurrentDraft(state, { activeTreeId: treeId, selectedNodeId: null }),
+    }));
     get()._updateFlow();
   },
 
@@ -78,12 +145,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     } else {
       newCollapsed.add(nodeId);
     }
-    set({ collapsedNodes: newCollapsed });
+    set((state) => ({
+      collapsedNodes: newCollapsed,
+      phaseDrafts: syncCurrentDraft(state, { collapsedNodes: newCollapsed }),
+    }));
     get()._updateFlow();
   },
 
   setSelectedNode: (nodeId: string | null) => {
-    set({ selectedNodeId: nodeId });
+    set((state) => ({
+      selectedNodeId: nodeId,
+      phaseDrafts: syncCurrentDraft(state, { selectedNodeId: nodeId }),
+    }));
   },
 
   updateNodeAttributes: (nodeId: string, attributes: Record<string, string>) => {
@@ -105,7 +178,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
 
     if (updated) {
-      set({ document: newDoc });
+      set((state) => ({
+        document: newDoc,
+        phaseDrafts: syncCurrentDraft(state, { document: newDoc }),
+      }));
       get()._updateFlow();
     }
   },
@@ -141,7 +217,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
 
     if (updated) {
-      set({ document: newDoc });
+      set((state) => ({
+        document: newDoc,
+        phaseDrafts: syncCurrentDraft(state, { document: newDoc }),
+      }));
       get()._updateFlow();
     }
   },
@@ -179,7 +258,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
 
     if (updated) {
-      set({ document: newDoc, selectedNodeId: null });
+      set((state) => ({
+        document: newDoc,
+        selectedNodeId: null,
+        phaseDrafts: syncCurrentDraft(state, { document: newDoc, selectedNodeId: null }),
+      }));
       get()._updateFlow();
     }
   },

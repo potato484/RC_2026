@@ -16,6 +16,7 @@
   - 技术栈：`Vite + React 18 + TypeScript + Tailwind CSS + Zustand + @xyflow/react + dagre + framer-motion + lucide-react`
   - 工程入口：`merlin-bt-visualizer/src/main.tsx` -> `merlin-bt-visualizer/src/App.tsx`
   - 启动脚本：`npm run dev`、`npm run build`、`npm run preview`
+  - 测试与交付入口：`npm --prefix merlin-bt-visualizer run test`、`npm run merlin:test:e2e`、`npm run merlin:preflight`、`npm run merlin:cd:package`
   - 原始输入源：`src/rc26_decision/behavior_trees/mf_tree.xml`、`mc_tree.xml`、`combat_tree.xml`
 - `src/rc26_topo_nav/sim_viewer`
   - 围绕 `rc26_topo_nav` 的三维路径规划仿真与观测工具，负责渲染完整场地 mesh、路径回放和只读实时观察。
@@ -23,7 +24,7 @@
   - 工程入口：`src/rc26_topo_nav/sim_viewer/src/main.tsx` -> `src/rc26_topo_nav/sim_viewer/src/App.tsx`
   - 启动脚本：`npm run dev`、`npm run build`
   - 数据入口：`src/rc26_topo_nav/scripts/topo_sim_server.py` 提供本地 HTTP / WebSocket adapter，消费 topo 图、Gazebo world、KFS 对齐配置和运行时只读 topic
-  - **最新变更说明**：此工具已完成渲染引擎从 Three.js 到 Babylon.js 的升级，支持 WebGPU 优先渲染，并进一步收口为“画布优先 + 上下文图层 + 同页调试抽屉”的观测台：离线模式默认空闲，需要用户手动生成运行；起点/目标默认通过场景吸附选点设置；`blocked` 同时支持离线手填节点映射和 live block overlay；详细变量、summary 和 live 键值不再常驻主界面。当前根仓库还新增了 `docs/test/` 下的 preflight / E2E / release 收口脚本，以及对应的 GitHub CI/CD workflow。
+  - **最新变更说明**：此工具已完成渲染引擎从 Three.js 到 Babylon.js 的升级，支持 WebGPU 优先渲染，并进一步收口为“画布优先 + 上下文图层 + 同页调试抽屉”的观测台：离线模式默认空闲，需要用户手动生成运行；起点/目标默认通过场景吸附选点设置；`blocked` 同时支持离线手填节点映射和 live block overlay；详细变量、summary 和 live 键值不再常驻主界面。当前又新增了“任意点 3D 路线”模式，浏览器可在地面、坡面、阶梯表面点击起终点，经 adapter 预览 dense `surface_graph` 路线后，再通过 ROS action 下发给运行时执行。当前根仓库还新增了 `docs/test/` 下的 preflight / E2E / release 收口脚本，以及对应的 GitHub CI/CD workflow。
 
 ## 2. 当前能力总览
 
@@ -31,13 +32,15 @@
 
 - `merlin-bt-visualizer`
   - 查看模式：读取三份行为树 XML，解析成展示模型，完成分区切换、树切换、节点详情、执行日志和黑板可视化。
-  - 编辑模式：把原始 XML 解析成可逆编辑语义，支持基础属性修改、添加子节点、删除非根节点，并导出 XML。
+  - 编辑模式：把原始 XML 解析成可逆编辑语义，支持基础属性修改、添加子节点、删除非根节点，并导出 XML；开发态还可通过本地保存适配层把当前区域 XML 写回源文件。
   - 本地模拟执行：在浏览器里用一套确定性演示逻辑跑单次行为树执行，驱动节点状态、时间线和黑板更新。
+  - 自动化验证：当前已补齐独立 GitHub CI / CD 与 Playwright E2E，查看态、编辑态联动和开发态写回都能通过脚本复现。
 - `src/rc26_topo_nav/sim_viewer`
   - 完整三维场景：渲染 `robocon2026_v2_aligned.world` / `robocon2026.dae` 提取出的 mesh 面、材质色、光照和阴影。使用 Babylon.js 渲染管线。
   - 清晰路径层：用三维 tube / line / marker 显示 A* / RRT / DWA 路径、关键点、前沿、扩展树和候选轨迹，并按当前算法/模式收口图层开关。
   - 多视角交互：支持 `orbit / follow / first_person / top_ortho / side_perspective`，侧视使用透视视角和立柱式 marker，避免画面过于平。
   - 本地 adapter：离线模式下回放 A* 运行时 trace 与 RRT / DWA 仿真帧；实时模式下只读消费 `/topo_nav/route`、`/topo_nav/corridor`、`/xhu_nav/active_edge`、`/xhu_nav/semantic_gate`、`/mf_block_overlay`、`/xhu_nav/tracking_state`。
+  - 任意点路线：`sim_viewer` 现在支持 `Topo 节点 / 任意点 3D 路线` 两种路线模式；后者会把场景点击点投影到最近可通行 surface sample，先生成完整三维路径，再可选下发 `navigate_surface_route` 给运行时。
   - 视觉与体验：拥有工业战术沙盘风格的明亮玻璃态 UI，主界面默认只保留画布、少量图层符号、视角按钮和运行控制；详细数值、表单和 debug 字段折叠到同页“高级 / 调试”面板。
 
 当前仍然没有的能力也必须一开始就看清：

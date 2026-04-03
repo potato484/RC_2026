@@ -1,10 +1,14 @@
 import { Node as FlowNode, Edge as FlowEdge } from '@xyflow/react';
 import dagre from 'dagre';
 import { EditorTree, EditorNode } from '../types/editor';
+import { getBehaviorTreeNodeDisplay, summarizeBehaviorTreeAttributes } from './btDisplay';
 
 export interface EditorFlowNodeData extends Record<string, unknown> {
   editorNodeId: string;
   tagName: string;
+  displayLabel: string;
+  displayDesc: string;
+  attributeSummary: string;
   attributes: Record<string, string>;
   uiType: 'control' | 'decorator' | 'leaf' | 'subtree';
   isRoot?: boolean;
@@ -22,9 +26,13 @@ export function projectTreeToFlow(
     // Actually, React Flow can handle hiding nodes if we just filter them out,
     // but dagre layout needs to know about visibility to layout correctly.
     
+    const display = getBehaviorTreeNodeDisplay(node.tagName, node.attributes);
     const nodeData: EditorFlowNodeData = {
       editorNodeId: node.id,
       tagName: node.tagName,
+      displayLabel: display.label,
+      displayDesc: display.desc,
+      attributeSummary: summarizeBehaviorTreeAttributes(node.attributes).join(' · '),
       attributes: { ...node.attributes },
       uiType: node.uiType,
       isRoot
@@ -104,4 +112,3 @@ export function projectTreeToFlow(
 
   return { nodes, edges };
 }
-

@@ -6,9 +6,12 @@ import { RightPanel } from './components/RightPanel';
 import { EditorVisualizer } from './components/EditorVisualizer';
 import { EditorRightPanel } from './components/EditorRightPanel';
 import { useStore } from './store/useStore';
+import { useEditorStore } from './store/useEditorStore';
+import { getBehaviorTreeXmlForPhase } from './utils/behaviorTreeSources';
 
 function App() {
   const { isPlaying, isSimulating, activePhase, updateNodeState, addTimelineEvent, updateBlackboard, appMode } = useStore();
+  const ensureEditorPhaseLoaded = useEditorStore((state) => state.ensurePhaseLoaded);
   const isPlayingRef = useRef(isPlaying);
   
   useEffect(() => {
@@ -207,6 +210,11 @@ function App() {
       console.log('已进入实机模式，等待接收真实行为状态...');
     }
   }, [isPlaying, isSimulating]);
+
+  useEffect(() => {
+    if (appMode !== 'editor') return;
+    ensureEditorPhaseLoaded(activePhase, getBehaviorTreeXmlForPhase(activePhase));
+  }, [activePhase, appMode, ensureEditorPhaseLoaded]);
 
   return (
     <div className="w-screen h-screen p-4 flex flex-col relative overflow-hidden bg-slate-50">

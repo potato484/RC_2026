@@ -68,7 +68,7 @@ export const TreeVisualizer = () => {
   }, [toggleNodeCollapse]);
 
   return (
-    <div className="w-full h-full glass-panel overflow-hidden bg-white/40">
+    <div className="w-full h-full glass-panel overflow-hidden bg-white/40" data-testid="viewer-canvas">
       <ReactFlow
         nodes={flowNodes}
         edges={flowEdges}

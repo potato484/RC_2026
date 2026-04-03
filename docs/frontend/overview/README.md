@@ -12,10 +12,16 @@
 
 - `merlin-bt-visualizer/src/main.tsx:1-10`
   - 只负责挂载 React 根节点，把全局样式和 `App` 接起来。
-- `merlin-bt-visualizer/src/App.tsx:10-225`
-  - 是真正的页面编排器，决定当前是查看模式还是编辑模式，并在查看模式下驱动本地模拟执行器。
-- `merlin-bt-visualizer/vite.config.ts:12-16`
-  - 通过 `server.fs.allow: ['..']` 允许开发态读取前端目录上一级的 XML。
+- `merlin-bt-visualizer/src/App.tsx:12-230`
+  - 是真正的页面编排器，决定当前是查看模式还是编辑模式，在查看模式下驱动本地模拟执行器，并在编辑模式下把当前区域同步到编辑 store。
+- `merlin-bt-visualizer/src/utils/behaviorTreeSources.ts:1-10`
+  - 集中管理三份区域 XML 的原始导入，避免查看链和编辑链各自维护一份区域来源。
+- `merlin-bt-visualizer/vite.config.ts:1-70`
+  - 开发态通过 `server.fs.allow: ['..']` 读取前端目录上一级的 XML，并额外提供一个本地保存 API，把当前区域 XML 写回工作区源文件。
+- `merlin-bt-visualizer/playwright.config.ts` + `merlin-bt-visualizer/e2e/*.spec.ts`
+  - 收口 `merlin-bt-visualizer` 的浏览器自动化验证，覆盖查看态/编辑态联动和开发态写回两条真实链路。
+- `docs/test/merlin_bt_visualizer/*`
+  - 收口 `merlin-bt-visualizer` 的本地 preflight、E2E 与 release 打包脚本，供根仓库 `package.json` 和 GitHub workflow 复用。
 - 原始输入源
   - `src/rc26_decision/behavior_trees/mf_tree.xml`
   - `src/rc26_decision/behavior_trees/mc_tree.xml`
@@ -28,13 +34,16 @@
 前端不是一坨混在一起的 UI，而是已经拆成三条相对清晰的链路：
 
 - 查看链
-  - `src/store/useStore.ts:9-189` 是查看模式的状态真源，负责区域切换、当前子树切换、节点运行态、执行日志、黑板和模拟/实机模式标志。
-  - `src/utils/btParser.ts:160-429` 是查看链专用解析器和布局器，会做中文标签翻译、装饰器压缩、子树展开等展示增强。
+  - `src/store/useStore.ts:7-185` 是查看模式的状态真源，负责区域切换、当前子树切换、节点运行态、执行日志、黑板和模拟/实机模式标志。
+  - `src/utils/btDisplay.ts:1-205` 提供查看链和编辑链共用的中文名称、参数和值翻译规则。
+  - `src/utils/btParser.ts:5-168` 是查看链专用解析器和布局器，消费共享翻译规则，并继续负责装饰器压缩、子树展开等展示增强。
 - 编辑链
-  - `src/store/useEditorStore.ts:42-209` 是编辑模式的状态真源，负责 XML 载入、当前 `BehaviorTree` 选择、画布投影、属性修改、增删节点和 XML 导出。
-  - `src/utils/editorParser.ts:7-128` + `src/utils/editorProjection.ts:13-106` + `src/utils/editorSerializer.ts:7-103` 组成 round-trip 三件套，保留的是可逆语义，不是只为展示服务的简化模型。
+  - `src/store/useEditorStore.ts:86-291` 是编辑模式的状态真源，负责按区域缓存草稿、当前 `BehaviorTree` 选择、画布投影、属性修改、增删节点和 XML 导出。
+  - `src/utils/editorParser.ts:7-121` + `src/utils/editorProjection.ts:16-111` + `src/utils/editorSerializer.ts:7-103` 组成 round-trip 三件套，保留的是可逆语义，不是只为展示服务的简化模型。
+  - `src/utils/editorTreeView.ts:1-33` 从 `SubTree` 引用关系派生出和查看模式一致的树列表层级与中文树名。
+  - `vite.config.ts` 的本地保存适配层只在 `npm run dev` 下可用；它把当前区域 XML 写回 `src/rc26_decision/behavior_trees/*.xml`，不等于前端拥有通用后端持久化能力。
 - 本地模拟执行链
-  - `src/App.tsx:18-203` 实现浏览器内本地演示执行逻辑，驱动节点运行态、时间线和黑板。
+  - `src/App.tsx:21-217` 实现浏览器内本地演示执行逻辑，并在编辑态切区时驱动区域草稿恢复。
 
 ## 4. 页面装配导读
 
@@ -42,25 +51,31 @@
 
 - `merlin-bt-visualizer/src/App.tsx:10-16`
   - 读取查看模式状态，并维护异步执行期的 `isPlayingRef`。
-- `merlin-bt-visualizer/src/App.tsx:211-222`
+- `merlin-bt-visualizer/src/App.tsx:214-229`
   - 页面骨架非常直接：`Header + Sidebar + 中央画布 + 右侧面板`，只是中间和右侧会在查看/编辑两套组件之间切换。
 
 ### 4.2 组件层的职责共识
 
 - `src/components/*.tsx`
   - UI 组件层基本只消费 store 和 parser 输出，没有自己维护另一套 XML 真源。
-- `merlin-bt-visualizer/src/components/Header.tsx:13-24`
-  - 查看/编辑模式切换时，决定加载哪份原始 XML 进入编辑 store。
-- `merlin-bt-visualizer/src/components/Sidebar.tsx:60-129`
-  - 同一个组件承担两种模式下的树列表展示，但实际消费的是不同 store。
+- `merlin-bt-visualizer/src/components/Header.tsx:8-14`
+  - 只负责查看/编辑模式切换，不再自己决定加载哪份 XML。
+- `merlin-bt-visualizer/src/components/Sidebar.tsx:13-162`
+  - 同一个组件承担两种模式下的树列表展示，两边都按主树/子树层级组织列表；编辑模式会跟着当前区域草稿同步切换。
+- `merlin-bt-visualizer/src/components/EditorVisualizer.tsx:12-129`
+  - 负责编辑画布、导出源文件，以及开发态“保存到源文件”按钮。
 - `merlin-bt-visualizer/src/components/RightPanel.tsx:21-147`
   - 负责查看模式下的节点详情、执行日志和黑板。
-- `merlin-bt-visualizer/src/components/EditorRightPanel.tsx:22-118`
-  - 负责编辑模式下的属性操作入口和实时 XML 预览。
+- `merlin-bt-visualizer/src/components/EditorRightPanel.tsx:23-243`
+  - 负责编辑模式下的属性操作入口和实时 XML 预览，同时展示中文节点标题和原始标签名。
 
 ## 5. 维护时的共识
 
 - 查看模型和编辑模型不能重新混成一套。
 - 组件应继续只消费状态和工具输出，不要在组件内部悄悄复制 XML 解释逻辑。
+- 如果要调整中文展示口径，优先改 `src/utils/btDisplay.ts`，不要让查看态和编辑态各自维护一份翻译表。
+- 编辑模式现在按区域保留内存草稿；切区或暂时退出编辑不应丢失当前会话内的改动，但刷新页面后仍会从 XML 真源重新加载。
+- 如果要维护“保存到源文件”能力，必须继续把它限制在明确的本地适配层里，而不是让 React 页面直接假装拥有文件系统写权限。
+- 如果要维护自动化测试链路，优先继续复用 `docs/test/merlin_bt_visualizer/*` 和 `merlin-bt-visualizer/e2e/*.spec.ts`，不要再把 merlin 的测试入口散落回仓库根目录。
 - 本地模拟执行器只能当演示逻辑维护，不能把它写成真实运行时适配层。
 - 文档描述必须和真实能力一致，不能把本地演示说成联机能力。
