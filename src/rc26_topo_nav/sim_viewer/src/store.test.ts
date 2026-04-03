@@ -100,4 +100,24 @@ describe('useSimStore', () => {
     expect(useSimStore.getState().goalValue).toBe('node-a');
     expect(useSimStore.getState().statusMessage).toBe(UI_LABELS.statusLoaded);
   });
+
+  it('hydrates run state from the create-run response before websocket meta arrives', () => {
+    useSimStore.getState().setRunMeta('abc12345', {
+      state: 'paused',
+      cursor: 0,
+      frameCount: 3,
+      summary: { framesCount: 3, goalKind: 'node', goalValue: 'node-a' },
+    });
+
+    expect(useSimStore.getState().runId).toBe('abc12345');
+    expect(useSimStore.getState().runState).toBe('paused');
+    expect(useSimStore.getState().cursor).toBe(0);
+    expect(useSimStore.getState().frameCount).toBe(3);
+    expect(useSimStore.getState().runSummary).toEqual({
+      framesCount: 3,
+      goalKind: 'node',
+      goalValue: 'node-a',
+    });
+    expect(useSimStore.getState().statusMessage).toContain('手动离线运行已创建');
+  });
 });

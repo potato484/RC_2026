@@ -286,6 +286,12 @@ export default function App() {
         blocked_edges: [],
         ...mapGoalPayload(goalKind, goalValue),
       });
+      setRunMeta(response.runId, {
+        state: response.state,
+        cursor: 0,
+        frameCount: response.frameCount,
+        summary: response.summary,
+      });
       const socket = openRunSocket(response.runId, {
         onMeta: (message: RunMetaMessage) => {
           setRunMeta(response.runId, message);

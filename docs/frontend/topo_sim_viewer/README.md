@@ -56,6 +56,7 @@
   - 当前保留集只包含 viewer/server 所需的 `.world`、KFS 对齐配置，以及 `robocon2026_world` 模型。
 - 测试与交付链路
   - 前端 API 现在支持通过 `VITE_API_BASE_URL` 和 `VITE_WS_BASE_URL` 切换 HTTP / WebSocket 后端来源，让浏览器 E2E 可以稳定改连 stub backend，而不再强依赖 Vite dev proxy。
+  - 离线运行创建后，页面会先使用 `POST /api/runs` 的返回值写入 `runId / state / frameCount / summary`，随后再由 run WebSocket 补齐首帧与后续状态；这样浏览器控制区不会被首条 `meta` 的时序抖动卡在“仍不可操作”。
   - 根仓库新增 [docs/test/README.md](/home/potato/RC_2026/docs/test/README.md) 作为测试入口，收口 `npm run preflight`、`npm run test:e2e`、`npm run cd:package` 以及 `.github/workflows/ci.yml`、`.github/workflows/cd.yml`。
 
 ## 4. 启动方式

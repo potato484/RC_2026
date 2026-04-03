@@ -61,7 +61,10 @@ interface SimState {
   setBlockedNodeText: (value: string) => void;
   setViewMode: (viewMode: ViewMode) => void;
   toggleLayer: (layer: keyof LayerState) => void;
-  setRunMeta: (runId: string, meta: RunMetaMessage) => void;
+  setRunMeta: (
+    runId: string,
+    meta: Pick<RunMetaMessage, 'state' | 'cursor' | 'frameCount' | 'summary'>,
+  ) => void;
   setRunFrame: (payload: { state: string; cursor: number; frameCount?: number; summary?: RunSummary; frame?: PlannerFrame | null }) => void;
   setLiveEvent: (event: LiveEvent) => void;
   setStatusMessage: (message: string) => void;
