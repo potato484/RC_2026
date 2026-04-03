@@ -11,6 +11,7 @@ function createSceneManifest(): SceneManifest {
     meta: {
       team: 'blue',
       graph_file: 'graph.yaml',
+      surface_graph_file: 'surface.yaml',
       world_file: 'scene.world',
       kfs_config_file: 'kfs.yaml',
       full_geometry: true,
@@ -29,19 +30,10 @@ function createSceneManifest(): SceneManifest {
       lights: [],
     },
     sceneFeatures: [],
-    graphNodes: [
-      {
-        id: 'node-a',
-        type: 'staging',
-        block_id: 0,
-        base_cost: 0,
-        operation_tag: '',
-        pose: { x: 0, y: 0, z: 0, yaw: 0 },
-      },
-    ],
+    graphNodes: [],
     graphEdges: [],
-    tasks: [{ task_tag: 'task-a', candidate_nodes: ['node-a'] }],
-    routes: [{ route_tag: 'route-a', nodes: ['node-a'] }],
+    tasks: [],
+    routes: [],
     meilinSlots: [],
     cameraPresets: [
       {
@@ -53,7 +45,7 @@ function createSceneManifest(): SceneManifest {
     ],
     defaults: {
       startNode: 'node-a',
-      goalNode: 'node-a',
+      goalNode: 'node-b',
     },
   };
 }
@@ -66,77 +58,32 @@ describe('useSimStore', () => {
     });
   });
 
-  it('toggles layers and resets run state', () => {
-    useSimStore.getState().toggleLayer('graph');
-    expect(useSimStore.getState().layers.graph).toBe(true);
-
-    useSimStore.setState({
-      runId: 'abc123',
-      runState: 'playing',
-      frameCount: 10,
-      cursor: 4,
-    });
-    useSimStore.getState().resetRun();
-
-    expect(useSimStore.getState().runId).toBeNull();
-    expect(useSimStore.getState().frameCount).toBe(0);
-    expect(useSimStore.getState().cursor).toBe(0);
-  });
-
-  it('starts in a scene-first layout with graph overlays hidden', () => {
+  it('starts in a route-observer layout with frontier overlays enabled', () => {
     expect(initialState.layers.scene).toBe(true);
+    expect(initialState.layers.openSet).toBe(true);
+    expect(initialState.layers.expanded).toBe(true);
     expect(initialState.layers.graph).toBe(false);
-    expect(initialState.layers.keyNodes).toBe(false);
-    expect(initialState.layers.openSet).toBe(false);
-    expect(initialState.layers.expanded).toBe(false);
     expect(initialState.layers.tree).toBe(false);
-    expect(initialState.layers.candidates).toBe(false);
   });
 
-  it('sets the scene-ready status message after the scene manifest loads', () => {
+  it('toggles layers independently', () => {
+    useSimStore.getState().toggleLayer('shadows');
+    expect(useSimStore.getState().layers.shadows).toBe(false);
+
+    useSimStore.getState().toggleLayer('scene');
+    expect(useSimStore.getState().layers.scene).toBe(false);
+  });
+
+  it('sets the scene-ready status once the manifest arrives', () => {
     useSimStore.getState().setScene(createSceneManifest());
 
-    expect(useSimStore.getState().startNode).toBe('node-a');
-    expect(useSimStore.getState().goalValue).toBe('node-a');
+    expect(useSimStore.getState().scene?.meta.surface_graph_file).toBe('surface.yaml');
     expect(useSimStore.getState().statusMessage).toBe(UI_LABELS.statusLoaded);
+    expect(useSimStore.getState().loadingScene).toBe(false);
   });
 
-  it('hydrates run state from the create-run response before websocket meta arrives', () => {
-    useSimStore.getState().setRunMeta('abc12345', {
-      state: 'paused',
-      cursor: 0,
-      frameCount: 3,
-      summary: { framesCount: 3, goalKind: 'node', goalValue: 'node-a' },
-    });
-
-    expect(useSimStore.getState().runId).toBe('abc12345');
-    expect(useSimStore.getState().runState).toBe('paused');
-    expect(useSimStore.getState().cursor).toBe(0);
-    expect(useSimStore.getState().frameCount).toBe(3);
-    expect(useSimStore.getState().runSummary).toEqual({
-      framesCount: 3,
-      goalKind: 'node',
-      goalValue: 'node-a',
-    });
-    expect(useSimStore.getState().statusMessage).toContain('手动离线运行已创建');
-  });
-
-  it('updates run cursor from control responses even before a websocket frame arrives', () => {
-    useSimStore.setState({
-      ...useSimStore.getState(),
-      runId: 'abc12345',
-      runState: 'paused',
-      frameCount: 3,
-      cursor: 0,
-    });
-
-    useSimStore.getState().setRunFrame({
-      state: 'paused',
-      cursor: 1,
-    });
-
-    expect(useSimStore.getState().runState).toBe('paused');
-    expect(useSimStore.getState().cursor).toBe(1);
-    expect(useSimStore.getState().frameCount).toBe(3);
+  it('stores explicit status messages from route actions', () => {
+    useSimStore.getState().setStatusMessage('3D 路线已生成');
+    expect(useSimStore.getState().statusMessage).toBe('3D 路线已生成');
   });
 });

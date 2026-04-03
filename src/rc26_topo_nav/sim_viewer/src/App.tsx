@@ -1,33 +1,40 @@
-import { startTransition, useEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
 
-import { createRun, controlRun, fetchSceneManifest, mapGoalPayload, openLiveSocket, openRunSocket, startLive } from './api';
+import { executeSurfaceRoute, fetchSceneManifest, traceSurfaceRoute } from './api';
 import { SceneCanvas } from './components/SceneCanvas';
-import { DEBUG_KEY_LABELS, ALGORITHM_LABELS, GOAL_KIND_LABELS, NODE_TYPE_LABELS, RUN_MODE_LABELS, TEAM_LABELS, TEAM_SHORT_LABELS, UI_LABELS, VIEW_MODE_LABELS, VIEW_MODE_SHORT_LABELS, withRawLabel } from './labels';
-import { deriveBlockedGridIds, deriveLayerControls, parseBlockedNodes } from './layerModel';
+import {
+  formatFrameLabel,
+  formatFramePhase,
+  MOTION_TYPE_LABELS,
+  TEAM_LABELS,
+  TEAM_SHORT_LABELS,
+  UI_LABELS,
+  VIEW_MODE_LABELS,
+  VIEW_MODE_SHORT_LABELS,
+} from './labels';
+import { deriveLayerControls } from './layerModel';
 import { useSimStore } from './store';
-import type { GoalKind, GraphNode, PickMode, RunFrameMessage, RunMetaMessage, Team, ViewMode } from './types';
+import type {
+  PickMode,
+  PlannerFrame,
+  PlannerTraceFrame,
+  Pose3,
+  RouteTraceSummary,
+  SceneManifest,
+  SurfaceRouteSegment,
+  Team,
+  ViewMode,
+} from './types';
 
-function nodeById(nodes: GraphNode[], nodeId: string): GraphNode | undefined {
-  return nodes.find((node) => node.id === nodeId);
-}
-
-function hasLiveSnapshotContent(event: { activeEdge?: string; gateStatus?: string; trackingState?: { corridorId?: string } | null } | null | undefined): boolean {
-  return Boolean(
-    event?.activeEdge ||
-    event?.gateStatus ||
-    event?.trackingState?.corridorId,
-  );
-}
-
-function nodeDisplayLabel(node: GraphNode | null | undefined): string {
-  if (!node) {
+function formatPose(pose: Pose3 | null): string {
+  if (!pose) {
     return 'N/A';
   }
-  return `${node.id} · ${NODE_TYPE_LABELS[node.type] || node.type}`;
+  return `${pose.x.toFixed(2)}, ${pose.y.toFixed(2)}, ${pose.z.toFixed(2)}`;
 }
 
-function formatDebugValue(value: unknown): string {
+function formatMetricValue(value: unknown): string {
   if (typeof value === 'number') {
     return Number.isInteger(value) ? String(value) : value.toFixed(3);
   }
@@ -43,94 +50,76 @@ function formatDebugValue(value: unknown): string {
   return String(value);
 }
 
-function formatDebugKey(key: string): string {
-  return DEBUG_KEY_LABELS[key] ?? key;
+function buildTraceNodePoseMap(
+  scene: SceneManifest | null,
+  traceNodePoses: Record<string, Pose3>,
+): Map<string, Pose3> {
+  const nodePoseMap = new Map<string, Pose3>();
+  if (!scene) {
+    return nodePoseMap;
+  }
+  scene.graphNodes.forEach((node) => {
+    nodePoseMap.set(node.id, node.pose);
+  });
+  Object.entries(traceNodePoses).forEach(([nodeId, pose]) => {
+    nodePoseMap.set(nodeId, pose);
+  });
+  return nodePoseMap;
 }
 
-function formatRunState(runId: string | null, runState: string): string {
-  if (!runId) {
-    return '未创建';
+function hydratePlannerFrame(
+  frame: PlannerTraceFrame | null,
+  nodePoseMap: Map<string, Pose3>,
+): PlannerFrame | null {
+  if (!frame) {
+    return null;
   }
-  if (runState === 'playing') {
-    return '播放中';
-  }
-  if (runState === 'paused') {
-    return '已暂停';
-  }
-  if (runState === 'finished') {
-    return '已结束';
-  }
-  return runState;
+
+  const openSet = frame.openSet.flatMap((entry) => {
+    const pose = entry.pose ?? nodePoseMap.get(entry.nodeId);
+    if (!pose) {
+      return [];
+    }
+    return [{ ...entry, pose }];
+  });
+  const expandedNodes = frame.expandedNodes.flatMap((entry) => {
+    const pose = entry.pose ?? nodePoseMap.get(entry.nodeId);
+    if (!pose) {
+      return [];
+    }
+    return [{ ...entry, pose }];
+  });
+  const bestPathPoints =
+    frame.bestPath.points && frame.bestPath.points.length > 0
+      ? frame.bestPath.points
+      : frame.bestPath.nodeIds.flatMap((nodeId) => {
+          const pose = nodePoseMap.get(nodeId);
+          return pose ? [pose] : [];
+        });
+
+  return {
+    ...frame,
+    openSet,
+    expandedNodes,
+    bestPath: {
+      ...frame.bestPath,
+      points: bestPathPoints,
+    },
+  };
 }
 
-function GoalSelector({
-  goalKind,
-  goalValue,
-  setGoalKind,
-  setGoalValue,
+function RouteStats({
+  title,
+  value,
 }: {
-  goalKind: GoalKind;
-  goalValue: string;
-  setGoalKind: (value: GoalKind) => void;
-  setGoalValue: (value: string) => void;
+  title: string;
+  value: string;
 }) {
-  const scene = useSimStore((state) => state.scene);
-
-  const goalOptions = useMemo(() => {
-    if (!scene) {
-      return [] as Array<{ value: string; label: string }>;
-    }
-    if (goalKind === 'task') {
-      return scene.tasks.map((task) => ({ value: task.task_tag, label: task.task_tag }));
-    }
-    if (goalKind === 'route') {
-      return scene.routes.map((route) => ({ value: route.route_tag, label: route.route_tag }));
-    }
-    return scene.graphNodes.map((node) => ({
-      value: node.id,
-      label: `${node.id} · ${NODE_TYPE_LABELS[node.type] || node.type}`,
-    }));
-  }, [goalKind, scene]);
-
-  useEffect(() => {
-    if (!scene) {
-      return;
-    }
-    if (goalKind === 'node' && !goalOptions.some((option) => option.value === goalValue)) {
-      setGoalValue(scene.defaults.goalNode);
-      return;
-    }
-    if (goalKind === 'task' && goalOptions.length > 0 && !goalOptions.some((option) => option.value === goalValue)) {
-      setGoalValue(goalOptions[0].value);
-      return;
-    }
-    if (goalKind === 'route' && goalOptions.length > 0 && !goalOptions.some((option) => option.value === goalValue)) {
-      setGoalValue(goalOptions[0].value);
-    }
-  }, [goalKind, goalOptions, goalValue, scene, setGoalValue]);
-
   return (
-    <>
-      <label className="field-label" htmlFor="goal-kind">
-        {UI_LABELS.fieldGoalKind}
-      </label>
-      <select id="goal-kind" className="field-input" value={goalKind} onChange={(event) => setGoalKind(event.target.value as GoalKind)}>
-        {Object.entries(GOAL_KIND_LABELS).map(([key, label]) => (
-          <option key={key} value={key}>{label}</option>
-        ))}
-      </select>
-
-      <label className="field-label" htmlFor="goal-value">
-        {UI_LABELS.fieldGoalValue}
-      </label>
-      <select id="goal-value" className="field-input" value={goalValue} onChange={(event) => setGoalValue(event.target.value)}>
-        {goalOptions.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </>
+    <div className="stat-card">
+      <span className="stat-label">{title}</span>
+      <span className="stat-value">{value}</span>
+    </div>
   );
 }
 
@@ -138,49 +127,95 @@ export default function App() {
   const scene = useSimStore((state) => state.scene);
   const loadingScene = useSimStore((state) => state.loadingScene);
   const team = useSimStore((state) => state.team);
-  const algorithm = useSimStore((state) => state.algorithm);
-  const mode = useSimStore((state) => state.mode);
-  const goalKind = useSimStore((state) => state.goalKind);
-  const strictRuntime = useSimStore((state) => state.strictRuntime);
-  const animationSpeed = useSimStore((state) => state.animationSpeed);
-  const startNode = useSimStore((state) => state.startNode);
-  const goalValue = useSimStore((state) => state.goalValue);
-  const blockedNodeText = useSimStore((state) => state.blockedNodeText);
   const viewMode = useSimStore((state) => state.viewMode);
   const layers = useSimStore((state) => state.layers);
-  const runId = useSimStore((state) => state.runId);
-  const runState = useSimStore((state) => state.runState);
-  const cursor = useSimStore((state) => state.cursor);
-  const frameCount = useSimStore((state) => state.frameCount);
-  const currentFrame = useSimStore((state) => state.currentFrame);
-  const runSummary = useSimStore((state) => state.runSummary);
-  const liveEvent = useSimStore((state) => state.liveEvent);
   const statusMessage = useSimStore((state) => state.statusMessage);
 
   const setTeam = useSimStore((state) => state.setTeam);
-  const setAlgorithm = useSimStore((state) => state.setAlgorithm);
-  const setMode = useSimStore((state) => state.setMode);
-  const setGoalKind = useSimStore((state) => state.setGoalKind);
-  const setStrictRuntime = useSimStore((state) => state.setStrictRuntime);
-  const setAnimationSpeed = useSimStore((state) => state.setAnimationSpeed);
   const setSceneLoading = useSimStore((state) => state.setSceneLoading);
   const setScene = useSimStore((state) => state.setScene);
-  const setStartNode = useSimStore((state) => state.setStartNode);
-  const setGoalValue = useSimStore((state) => state.setGoalValue);
-  const setBlockedNodeText = useSimStore((state) => state.setBlockedNodeText);
   const setViewMode = useSimStore((state) => state.setViewMode);
   const toggleLayer = useSimStore((state) => state.toggleLayer);
-  const setRunMeta = useSimStore((state) => state.setRunMeta);
-  const setRunFrame = useSimStore((state) => state.setRunFrame);
-  const setLiveEvent = useSimStore((state) => state.setLiveEvent);
   const setStatusMessage = useSimStore((state) => state.setStatusMessage);
-  const resetRun = useSimStore((state) => state.resetRun);
 
-  const runSocketRef = useRef<WebSocket | null>(null);
-  const liveSocketRef = useRef<WebSocket | null>(null);
   const [pickMode, setPickMode] = useState<PickMode>('idle');
-  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
-  const [debugOpen, setDebugOpen] = useState(false);
+  const [surfaceStartPick, setSurfaceStartPick] = useState<Pose3 | null>(null);
+  const [surfaceGoalPick, setSurfaceGoalPick] = useState<Pose3 | null>(null);
+  const [surfaceHoverPose, setSurfaceHoverPose] = useState<Pose3 | null>(null);
+  const [surfaceProjectedStart, setSurfaceProjectedStart] = useState<Pose3 | null>(null);
+  const [surfaceProjectedGoal, setSurfaceProjectedGoal] = useState<Pose3 | null>(null);
+  const [surfacePath, setSurfacePath] = useState<Pose3[]>([]);
+  const [surfaceSegments, setSurfaceSegments] = useState<SurfaceRouteSegment[]>([]);
+  const [traceFrames, setTraceFrames] = useState<PlannerTraceFrame[]>([]);
+  const [traceNodePoses, setTraceNodePoses] = useState<Record<string, Pose3>>({});
+  const [traceSummary, setTraceSummary] = useState<RouteTraceSummary | null>(null);
+  const [traceIndex, setTraceIndex] = useState(0);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
+
+  const traceNodePoseMap = useMemo(
+    () => buildTraceNodePoseMap(scene, traceNodePoses),
+    [scene, traceNodePoses],
+  );
+  const currentFrame = useMemo(
+    () => hydratePlannerFrame(
+      traceFrames.length > 0 ? traceFrames[Math.min(traceIndex, traceFrames.length - 1)] : null,
+      traceNodePoseMap,
+    ),
+    [traceFrames, traceIndex, traceNodePoseMap],
+  );
+
+  const layerControls = useMemo(
+    () => deriveLayerControls({ layers, frame: currentFrame }),
+    [layers, currentFrame],
+  );
+  const primaryLayerControls = layerControls.filter((control) => control.group === 'primary' && control.visible);
+  const appearanceLayerControls = layerControls.filter((control) => control.group === 'advanced' && control.visible);
+
+  const startPose = surfaceProjectedStart ?? surfaceStartPick;
+  const goalPose = surfaceProjectedGoal ?? surfaceGoalPick;
+  const viewModes: ViewMode[] = ['orbit', 'top_ortho', 'side_perspective'];
+  const frameMetrics = Object.entries(currentFrame?.metrics ?? {}).filter(([key]) => key !== 'traceMode');
+  const traceTitle = currentFrame ? formatFrameLabel(currentFrame.label, currentFrame.phase) : UI_LABELS.hintTraceEmpty;
+  const traceProgressText = traceFrames.length > 0 ? `${traceIndex + 1} / ${traceFrames.length}` : '0 / 0';
+  const traceFrameTotal = traceSummary?.framesCount ?? traceFrames.length;
+  const traceFrameOverview =
+    traceSummary?.framesSampled && traceFrameTotal > traceFrames.length
+      ? `${traceFrames.length} / ${traceFrameTotal}`
+      : `${traceFrames.length}`;
+  const traceProgressDetail =
+    traceSummary?.framesSampled && traceFrameTotal > traceFrames.length
+      ? `${traceProgressText}（原始 ${traceFrameTotal} 帧）`
+      : traceProgressText;
+  const hasError = statusMessage.includes('失败') || statusMessage.includes('error');
+  const busy = isGenerating || isExecuting;
+  const routeReady = surfacePath.length > 0 && traceFrames.length > 0;
+  const pickHint =
+    pickMode === 'surface_start'
+      ? UI_LABELS.hintPickSurfaceStart
+      : pickMode === 'surface_goal'
+        ? UI_LABELS.hintPickSurfaceGoal
+        : UI_LABELS.hintPickIdle;
+
+  function clearGeneratedRoute() {
+    setSurfaceProjectedStart(null);
+    setSurfaceProjectedGoal(null);
+    setSurfacePath([]);
+    setSurfaceSegments([]);
+    setTraceFrames([]);
+    setTraceNodePoses({});
+    setTraceSummary(null);
+    setTraceIndex(0);
+  }
+
+  function clearAllRoute() {
+    setPickMode('idle');
+    setSurfaceHoverPose(null);
+    setSurfaceStartPick(null);
+    setSurfaceGoalPick(null);
+    clearGeneratedRoute();
+    setStatusMessage(UI_LABELS.statusLoaded);
+  }
 
   useEffect(() => {
     let active = true;
@@ -207,210 +242,117 @@ export default function App() {
   }, [setScene, setSceneLoading, setStatusMessage, team]);
 
   useEffect(() => {
-    return () => {
-      runSocketRef.current?.close();
-      liveSocketRef.current?.close();
-    };
-  }, []);
-
-  useEffect(() => {
     setPickMode('idle');
-    setHoveredNodeId(null);
-  }, [team, mode]);
+    setSurfaceHoverPose(null);
+    setSurfaceStartPick(null);
+    setSurfaceGoalPick(null);
+    clearGeneratedRoute();
+  }, [team]);
 
-  useEffect(() => {
-    if (pickMode === 'idle') {
-      setHoveredNodeId(null);
-    }
-  }, [pickMode]);
-
-  const blockedNodeIds = useMemo(() => parseBlockedNodes(blockedNodeText), [blockedNodeText]);
-  const blockedGridIds = useMemo(
-    () => deriveBlockedGridIds({ scene, mode, liveEvent, blockedNodeIds }),
-    [scene, mode, liveEvent, blockedNodeIds],
-  );
-  const layerControls = useMemo(
-    () => deriveLayerControls({ layers, mode, algorithm, frame: currentFrame, blockedGridIds }),
-    [layers, mode, algorithm, currentFrame, blockedGridIds],
-  );
-
-  const startNodeData = scene ? nodeById(scene.graphNodes, startNode) ?? null : null;
-  const goalNodeData = scene && goalKind === 'node' ? nodeById(scene.graphNodes, goalValue) ?? null : null;
-  const hoveredNodeData = scene && hoveredNodeId ? nodeById(scene.graphNodes, hoveredNodeId) ?? null : null;
-  const startPose = startNodeData?.pose ?? null;
-  const goalPose =
-    scene && goalKind === 'node'
-      ? goalNodeData?.pose ?? null
-      : (currentFrame && currentFrame.bestPath.points.length > 0
-          ? currentFrame.bestPath.points[currentFrame.bestPath.points.length - 1]
-          : null);
-  const hoverPose = hoveredNodeData?.pose ?? null;
-
-  const effectiveAlgorithm = currentFrame?.algorithm ?? algorithm;
-  const primaryLayerControls = layerControls.filter((control) => control.group === 'primary' && control.visible);
-  const appearanceLayerControls = layerControls.filter((control) => control.group === 'advanced');
-  const manualRunHint = mode === 'offline-sim' ? UI_LABELS.hintManualRunOnly : UI_LABELS.hintLiveReadonly;
-  const pickHint =
-    mode !== 'offline-sim'
-      ? UI_LABELS.hintLiveReadonly
-      : pickMode === 'start'
-        ? UI_LABELS.hintPickStart
-        : pickMode === 'goal'
-          ? UI_LABELS.hintPickGoal
-          : UI_LABELS.hintPickIdle;
-  const frameMetrics = Object.entries(currentFrame?.metrics ?? {});
-  const summaryEntries = Object.entries(runSummary ?? {});
-  const liveEntries = [
-    { key: 'activeEdge', value: liveEvent?.activeEdge ?? 'N/A' },
-    { key: 'gateStatus', value: liveEvent?.gateStatus ?? 'N/A' },
-    { key: 'corridorId', value: liveEvent?.trackingState?.corridorId ?? 'N/A' },
-    { key: 'distanceToGoal', value: liveEvent?.trackingState?.distanceToGoal ?? null },
-  ];
-  const runStateText = formatRunState(runId, runState);
-  const progressText = runId ? `${cursor} / ${Math.max(frameCount - 1, 0)}` : (mode === 'live-ros' ? 'LIVE' : '待运行');
-  const blockedSummary = blockedGridIds.length > 0
-    ? `${blockedGridIds.length} 个阻塞区`
-    : mode === 'live-ros'
-      ? '等待实时阻塞区'
-      : blockedNodeIds.length > 0
-        ? '当前配置未映射到可视阻塞区'
-        : '未配置';
-  const liveSummary = liveEvent
-    ? [liveEvent.activeEdge, liveEvent.gateStatus].filter(Boolean).join(' · ') || '实时桥接已启动'
-    : '尚未启动';
-  const frameTitle = currentFrame?.label ?? (runId ? UI_LABELS.hintFrameRunReady : UI_LABELS.hintFrameIdle);
-  const viewModes: ViewMode[] = ['orbit', 'follow', 'first_person', 'top_ortho', 'side_perspective'];
-  const hasError = statusMessage.includes('失败') || statusMessage.includes('error');
-  const isRunning = runState === 'playing';
-
-  function restoreManualStatus() {
-    setStatusMessage(runId ? UI_LABELS.hintFrameRunReady : UI_LABELS.statusLoaded);
-  }
-
-  function handlePickModeChange(nextMode: Exclude<PickMode, 'idle'>) {
-    if (!scene || mode !== 'offline-sim') {
+  function handlePickModeChange(nextMode: 'surface_start' | 'surface_goal') {
+    if (!scene) {
       return;
     }
-    if (nextMode === 'goal' && goalKind !== 'node') {
-      setGoalKind('node');
-    }
     setPickMode(nextMode);
-    setHoveredNodeId(null);
-    setStatusMessage(nextMode === 'start' ? UI_LABELS.hintPickStart : UI_LABELS.hintPickGoal);
+    setSurfaceHoverPose(null);
+    setStatusMessage(nextMode === 'surface_start' ? UI_LABELS.hintPickSurfaceStart : UI_LABELS.hintPickSurfaceGoal);
   }
 
   function handleCancelPick() {
     setPickMode('idle');
-    restoreManualStatus();
+    setSurfaceHoverPose(null);
+    setStatusMessage(routeReady ? UI_LABELS.hintGenerate : UI_LABELS.hintPickIdle);
   }
 
-  function handleHoverNodeChange(nodeId: string | null) {
-    setHoveredNodeId(nodeId);
-  }
-
-  function handleScenePick(nodeId: string) {
-    if (!scene || pickMode === 'idle') {
+  function handleSurfaceScenePick(pose: Pose3) {
+    if (pickMode !== 'surface_start' && pickMode !== 'surface_goal') {
       return;
     }
 
-    const pickedNode = nodeById(scene.graphNodes, nodeId);
-    if (!pickedNode) {
-      return;
-    }
-
-    if (pickMode === 'start') {
-      setStartNode(nodeId);
-      setStatusMessage(`起点已吸附到 ${nodeDisplayLabel(pickedNode)}，可直接生成离线运行`);
+    clearGeneratedRoute();
+    if (pickMode === 'surface_start') {
+      setSurfaceStartPick(pose);
+      setStatusMessage('起点已记录，继续在场景中设置终点');
     } else {
-      if (goalKind !== 'node') {
-        setGoalKind('node');
-      }
-      setGoalValue(nodeId);
-      setStatusMessage(`目标已吸附到 ${nodeDisplayLabel(pickedNode)}，可直接生成离线运行`);
+      setSurfaceGoalPick(pose);
+      setStatusMessage('终点已记录，可以生成 3D 路线');
     }
-
     setPickMode('idle');
   }
 
-  async function handleCreateRun() {
-    if (!scene) {
+  async function handleGenerateRoute() {
+    if (!surfaceStartPick || !surfaceGoalPick) {
+      setStatusMessage('先在场景里设置起点和终点');
       return;
     }
-    runSocketRef.current?.close();
-    setPickMode('idle');
-    setHoveredNodeId(null);
-    resetRun();
+
+    setIsGenerating(true);
     try {
-      const response = await createRun({
-        algorithm,
-        mode: 'offline-sim',
+      const response = await traceSurfaceRoute({
         team,
-        start_node: startNode,
-        strict_runtime: strictRuntime,
-        animation_speed: animationSpeed,
-        blocked_nodes: blockedNodeIds,
-        blocked_edges: [],
-        ...mapGoalPayload(goalKind, goalValue),
+        start_pick_world: surfaceStartPick,
+        goal_pick_world: surfaceGoalPick,
       });
-      setRunMeta(response.runId, {
-        state: response.state,
-        cursor: 0,
-        frameCount: response.frameCount,
-        summary: response.summary,
-      });
-      const socket = openRunSocket(response.runId, {
-        onMeta: (message: RunMetaMessage) => {
-          setRunMeta(response.runId, message);
-        },
-        onFrame: (message: RunFrameMessage) => {
-          setRunFrame({
-            state: message.state,
-            cursor: message.cursor,
-            frameCount: message.frameCount,
-            summary: message.summary,
-            frame: message.frame,
-          });
-        },
-        onError: (message: string) => setStatusMessage(message),
-      });
-      runSocketRef.current = socket;
+      if (!response.success) {
+        clearGeneratedRoute();
+        setStatusMessage(`3D 路线生成失败: ${response.failure_reason || response.failure_code}`);
+        return;
+      }
+
+      setSurfaceProjectedStart(response.projected_start);
+      setSurfaceProjectedGoal(response.projected_goal);
+      setSurfacePath(response.path_points);
+      setSurfaceSegments(response.segments);
+      setTraceSummary(response.summary);
+      setTraceFrames(response.frames);
+      setTraceNodePoses(response.node_poses ?? {});
+      setTraceIndex(Math.max(response.frames.length - 1, 0));
+      const sampledHint =
+        response.summary.framesSampled && (response.summary.framesCount ?? response.frames.length) > response.frames.length
+          ? `，回放已压缩为 ${response.frames.length} / ${response.summary.framesCount} 帧`
+          : `，${response.frames.length} 帧`;
+      setStatusMessage(`3D 路线已生成，共 ${response.segments.length} 段${sampledHint}`);
     } catch (error) {
-      setStatusMessage(`创建运行失败: ${String(error)}`);
+      clearGeneratedRoute();
+      setStatusMessage(`3D 路线生成失败: ${String(error)}`);
+    } finally {
+      setIsGenerating(false);
     }
   }
 
-  async function handleRunControl(action: 'play' | 'pause' | 'step' | 'reset') {
-    if (!runId) {
+  async function handleExecuteRoute() {
+    if (!surfaceStartPick || !surfaceGoalPick) {
+      setStatusMessage('先在场景里设置起点和终点');
       return;
     }
-    try {
-      const response = await controlRun(runId, action, undefined, animationSpeed);
-      setRunFrame({
-        state: response.state,
-        cursor: response.cursor,
-      });
-    } catch (error) {
-      setStatusMessage(`运行控制失败: ${String(error)}`);
+    if (!routeReady) {
+      setStatusMessage('先生成 3D 路线，再决定是否执行');
+      return;
     }
-  }
 
-  async function handleLiveStart() {
-    liveSocketRef.current?.close();
-    setPickMode('idle');
-    setHoveredNodeId(null);
+    setIsExecuting(true);
     try {
-      const response = await startLive();
-      if (hasLiveSnapshotContent(response.snapshot)) {
-        setLiveEvent(response.snapshot!);
-      } else {
-        setStatusMessage('实时 ROS 只读桥接已启动');
-      }
-      liveSocketRef.current = openLiveSocket({
-        onEvent: (event) => setLiveEvent(event),
-        onError: (message: string) => setStatusMessage(message),
+      const response = await executeSurfaceRoute({
+        team,
+        start_pick_world: surfaceStartPick,
+        goal_pick_world: surfaceGoalPick,
       });
+      if (response.preview.success) {
+        setSurfaceProjectedStart(response.preview.projected_start);
+        setSurfaceProjectedGoal(response.preview.projected_goal);
+        setSurfacePath(response.preview.path_points);
+        setSurfaceSegments(response.preview.segments);
+      }
+      if (!response.accepted) {
+        const reason = response.preview.failure_reason || response.preview.failure_code || 'goal rejected';
+        setStatusMessage(`路线未被接受: ${reason}`);
+        return;
+      }
+      setStatusMessage('路线已下发给运行时，机器人需已经在起点附近');
     } catch (error) {
-      setStatusMessage(`实时桥接启动失败: ${String(error)}`);
+      setStatusMessage(`路线执行失败: ${String(error)}`);
+    } finally {
+      setIsExecuting(false);
     }
   }
 
@@ -418,22 +360,13 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">RC26 TOPO NAV</p>
+          <p className="eyebrow">{UI_LABELS.appEyebrow}</p>
           <h1 className="title">{UI_LABELS.appTitle}</h1>
           <p className="subtitle">{UI_LABELS.appSubtitle}</p>
         </div>
         <div className="topbar-actions">
-          <button
-            className={clsx('secondary-button', 'debug-toggle', debugOpen && 'debug-toggle-active')}
-            type="button"
-            aria-expanded={debugOpen}
-            aria-controls="debug-panel"
-            onClick={() => setDebugOpen((value) => !value)}
-          >
-            {UI_LABELS.btnDebugPanel}
-          </button>
           <div className="status-pill">
-            <span className={clsx('status-dot', hasError && 'error', isRunning && 'warning')} />
+            <span className={clsx('status-dot', hasError && 'error', busy && 'warning')} />
             {statusMessage}
           </div>
         </div>
@@ -449,7 +382,7 @@ export default function App() {
                   type="button"
                   className={clsx('mode-button', team === id && 'mode-button-active')}
                   onClick={() => setTeam(id)}
-                  disabled={loadingScene}
+                  disabled={loadingScene || isGenerating || isExecuting}
                   aria-label={TEAM_LABELS[id]}
                   title={TEAM_LABELS[id]}
                 >
@@ -457,81 +390,49 @@ export default function App() {
                 </button>
               ))}
             </div>
-            <div className="command-group" aria-label={UI_LABELS.fieldMode}>
-              {(['offline-sim', 'live-ros'] as const).map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  className={clsx('mode-button', mode === id && 'mode-button-active')}
-                  onClick={() => setMode(id)}
-                >
-                  {RUN_MODE_LABELS[id]}
-                </button>
-              ))}
+            <div className="command-note">
+              {UI_LABELS.routeModeHint}
             </div>
-            {mode === 'offline-sim' && (
-              <div className="command-group" aria-label={UI_LABELS.fieldAlgo}>
-                {(['astar', 'rrt', 'dwa'] as const).map((id) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={clsx('mode-button', algorithm === id && 'mode-button-active')}
-                    onClick={() => setAlgorithm(id)}
-                  >
-                    {id === 'astar' ? 'A*' : id.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="command-note">{manualRunHint}</div>
           </div>
 
           <div className="canvas-frame">
             <SceneCanvas
               scene={scene}
               frame={currentFrame}
-              liveEvent={liveEvent}
+              liveEvent={null}
               viewMode={viewMode}
               layers={layers}
               startPose={startPose}
               goalPose={goalPose}
-              hoverPose={hoverPose}
-              blockedGridIds={blockedGridIds}
-              pickMode={mode === 'offline-sim' ? pickMode : 'idle'}
-              onHoverNodeChange={handleHoverNodeChange}
-              onPickNode={handleScenePick}
+              hoverPose={surfaceHoverPose}
+              manualPath={[]}
+              blockedGridIds={[]}
+              pickMode={pickMode}
+              onHoverWorldChange={setSurfaceHoverPose}
+              onPickWorld={handleSurfaceScenePick}
             />
 
             <div className="canvas-overlay">
               <div className="canvas-overlay-card canvas-overlay-card-strong">
-                <strong>{mode === 'live-ros' ? RUN_MODE_LABELS[mode] : ALGORITHM_LABELS[effectiveAlgorithm]}</strong>
-                <span>{runStateText} · {progressText}</span>
+                <strong>{UI_LABELS.routeTitle}</strong>
+                <span>{routeReady ? `已生成 ${traceFrameOverview} 帧搜索回放` : '等待生成路线'}</span>
               </div>
               <div className={clsx('canvas-overlay-card', 'canvas-overlay-emphasis', pickMode !== 'idle' && 'canvas-overlay-active')}>
-                {hoveredNodeData && pickMode !== 'idle'
-                  ? `${UI_LABELS.fieldHoverNode}: ${nodeDisplayLabel(hoveredNodeData)}`
+                {pickMode === 'idle'
+                  ? UI_LABELS.hintGenerate
                   : pickHint}
               </div>
-              {!debugOpen && (
-                <div className="canvas-overlay-card">
-                  {UI_LABELS.hintDebugClosed}
-                </div>
-              )}
             </div>
 
             <div className="canvas-hud canvas-hud-top-left">
               <div className="hud-stack">
                 <div className="hud-card">
-                  <span className="hud-section-title">{UI_LABELS.fieldStart}</span>
-                  <strong>{nodeDisplayLabel(startNodeData)}</strong>
+                  <span className="hud-section-title">起点</span>
+                  <strong>{formatPose(startPose)}</strong>
                 </div>
                 <div className="hud-card">
-                  <span className="hud-section-title">{UI_LABELS.fieldGoalValue}</span>
-                  <strong>{goalKind === 'node' ? nodeDisplayLabel(goalNodeData) : withRawLabel(GOAL_KIND_LABELS[goalKind], goalValue || 'N/A')}</strong>
-                </div>
-                <div className="hud-card">
-                  <span className="hud-section-title">{mode === 'live-ros' ? UI_LABELS.panelLive : UI_LABELS.panelState}</span>
-                  <strong>{mode === 'live-ros' ? liveSummary : `${runStateText} · ${progressText}`}</strong>
+                  <span className="hud-section-title">终点</span>
+                  <strong>{formatPose(goalPose)}</strong>
                 </div>
               </div>
             </div>
@@ -554,6 +455,24 @@ export default function App() {
                       title={control.reason ? `${control.label} · ${control.reason}` : control.label}
                       onClick={() => toggleLayer(control.key)}
                       disabled={!control.enabled}
+                    >
+                      <span className={clsx('layer-mark', `layer-mark-${control.key}`)} aria-hidden="true" />
+                      <span className="layer-text">{control.shortLabel}</span>
+                    </button>
+                  ))}
+                  {appearanceLayerControls.map((control) => (
+                    <button
+                      key={control.key}
+                      type="button"
+                      className={clsx(
+                        'layer-button',
+                        `layer-button-${control.tone}`,
+                        control.active && 'layer-button-active',
+                      )}
+                      aria-pressed={control.active}
+                      aria-label={control.label}
+                      title={control.label}
+                      onClick={() => toggleLayer(control.key)}
                     >
                       <span className={clsx('layer-mark', `layer-mark-${control.key}`)} aria-hidden="true" />
                       <span className="layer-text">{control.shortLabel}</span>
@@ -586,18 +505,18 @@ export default function App() {
                 <span className="hud-section-title">{UI_LABELS.panelPick}</span>
                 <div className="button-grid pick-dock">
                   <button
-                    className={clsx('mode-button', pickMode === 'start' && 'mode-button-active')}
+                    className={clsx('mode-button', pickMode === 'surface_start' && 'mode-button-active')}
                     type="button"
-                    onClick={() => handlePickModeChange('start')}
-                    disabled={!scene || mode !== 'offline-sim'}
+                    onClick={() => handlePickModeChange('surface_start')}
+                    disabled={!scene || loadingScene || isGenerating || isExecuting}
                   >
                     {UI_LABELS.btnPickStart}
                   </button>
                   <button
-                    className={clsx('mode-button', pickMode === 'goal' && 'mode-button-active')}
+                    className={clsx('mode-button', pickMode === 'surface_goal' && 'mode-button-active')}
                     type="button"
-                    onClick={() => handlePickModeChange('goal')}
-                    disabled={!scene || mode !== 'offline-sim'}
+                    onClick={() => handlePickModeChange('surface_goal')}
+                    disabled={!scene || loadingScene || isGenerating || isExecuting}
                   >
                     {UI_LABELS.btnPickGoal}
                   </button>
@@ -615,180 +534,152 @@ export default function App() {
 
             <div className="canvas-hud canvas-hud-bottom-right">
               <div className="hud-card hud-card-wide">
-                <span className="hud-section-title">{mode === 'offline-sim' ? UI_LABELS.panelState : UI_LABELS.panelLive}</span>
-                {mode === 'offline-sim' ? (
-                  <div className="button-row run-dock">
-                    <button
-                      className="primary-button"
-                      type="button"
-                      onClick={handleCreateRun}
-                      disabled={!scene || loadingScene}
-                    >
-                      {UI_LABELS.btnGenerateRun}
-                    </button>
-                    <button className="secondary-button" type="button" onClick={() => handleRunControl(runState === 'playing' ? 'pause' : 'play')} disabled={!runId}>
-                      {runState === 'playing' ? UI_LABELS.btnPause : UI_LABELS.btnPlay}
-                    </button>
-                    <button className="secondary-button" type="button" onClick={() => handleRunControl('step')} disabled={!runId || runState === 'playing'}>
-                      {UI_LABELS.btnStep}
-                    </button>
-                    <button className="secondary-button" type="button" onClick={() => handleRunControl('reset')} disabled={!runId}>
-                      {UI_LABELS.btnReset}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="button-row run-dock">
-                    <button className="primary-button" type="button" onClick={handleLiveStart}>
-                      {UI_LABELS.btnStartLive}
-                    </button>
-                  </div>
-                )}
+                <span className="hud-section-title">{UI_LABELS.panelRoute}</span>
+                <div className="button-row run-dock">
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={handleGenerateRoute}
+                    disabled={!scene || loadingScene || !surfaceStartPick || !surfaceGoalPick || isGenerating}
+                  >
+                    {isGenerating ? '生成中...' : UI_LABELS.btnGenerateRoute}
+                  </button>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={handleExecuteRoute}
+                    disabled={!routeReady || isExecuting}
+                  >
+                    {isExecuting ? '下发中...' : UI_LABELS.btnExecuteRoute}
+                  </button>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={clearAllRoute}
+                    disabled={loadingScene}
+                  >
+                    {UI_LABELS.btnClearRoute}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         </section>
 
-        {debugOpen && (
-          <section id="debug-panel" className="panel debug-panel">
-            <div className="debug-grid">
-              <section className="panel-section">
-                <h2>{UI_LABELS.panelFallback}</h2>
-                <label className="field-label" htmlFor="start-node">{UI_LABELS.fieldStart}</label>
-                <select id="start-node" className="field-input" value={startNode} onChange={(event) => setStartNode(event.target.value)}>
-                  {scene?.graphNodes.map((node) => (
-                    <option key={node.id} value={node.id}>
-                      {node.id} · {NODE_TYPE_LABELS[node.type] || node.type}
-                    </option>
-                  ))}
-                </select>
+        <section className="panel debug-panel">
+          <div className="debug-grid">
+            <section className="panel-section">
+              <h2>{UI_LABELS.panelRoute}</h2>
+              <div className="trace-card">
+                <div className="trace-title">点击与投影结果</div>
+                <div className="metrics-list">
+                  <div className="metric-row">
+                    <span>请求起点</span>
+                    <strong>{formatPose(surfaceStartPick)}</strong>
+                  </div>
+                  <div className="metric-row">
+                    <span>请求终点</span>
+                    <strong>{formatPose(surfaceGoalPick)}</strong>
+                  </div>
+                  <div className="metric-row">
+                    <span>投影起点</span>
+                    <strong>{formatPose(surfaceProjectedStart)}</strong>
+                  </div>
+                  <div className="metric-row">
+                    <span>投影终点</span>
+                    <strong>{formatPose(surfaceProjectedGoal)}</strong>
+                  </div>
+                  <div className="metric-row">
+                    <span>{UI_LABELS.fieldStartNode}</span>
+                    <strong>{traceSummary?.projectedStartNodeId ?? 'N/A'}</strong>
+                  </div>
+                  <div className="metric-row">
+                    <span>{UI_LABELS.fieldGoalNode}</span>
+                    <strong>{traceSummary?.projectedGoalNodeId ?? 'N/A'}</strong>
+                  </div>
+                </div>
+              </div>
 
-                <GoalSelector goalKind={goalKind} goalValue={goalValue} setGoalKind={setGoalKind} setGoalValue={setGoalValue} />
+              <div className="debug-divider" />
 
-                <label className="field-label" htmlFor="blocked-nodes">{UI_LABELS.fieldBlocked}</label>
-                <input
-                  id="blocked-nodes"
-                  className="field-input"
-                  value={blockedNodeText}
-                  onChange={(event) => setBlockedNodeText(event.target.value)}
-                  placeholder="例如 mf_b4,mf_b5"
+              <div className="stats-grid">
+                <RouteStats title={UI_LABELS.statPathPoints} value={String(surfacePath.length)} />
+                <RouteStats title={UI_LABELS.statSegments} value={String(surfaceSegments.length)} />
+                <RouteStats
+                  title={UI_LABELS.statCost}
+                  value={traceSummary?.totalCost == null ? 'N/A' : formatMetricValue(traceSummary.totalCost)}
                 />
+                <RouteStats title={UI_LABELS.statFrame} value={traceProgressDetail} />
+              </div>
+            </section>
 
-                <label className="toggle-row">
-                  <input type="checkbox" checked={strictRuntime} onChange={(event) => setStrictRuntime(event.target.checked)} />
-                  <span>{UI_LABELS.fieldStrict}</span>
-                </label>
+            <section className="panel-section">
+              <h2>{UI_LABELS.panelTrace}</h2>
+              <div className="trace-card">
+                <div className="trace-title">{traceTitle}</div>
+                <div className="trace-meta">
+                  <span>{currentFrame ? formatFramePhase(currentFrame.phase) : '等待生成'}</span>
+                  <span>{`帧 ${traceProgressDetail}`}</span>
+                </div>
 
-                <label className="field-label" htmlFor="speed">{UI_LABELS.fieldSpeed}</label>
+                <div className="debug-divider" />
+
+                <label className="field-label" htmlFor="trace-index">{UI_LABELS.fieldTraceIndex}</label>
                 <input
-                  id="speed"
+                  id="trace-index"
                   className="range-input"
                   type="range"
-                  min={0.5}
-                  max={4}
-                  step={0.5}
-                  value={animationSpeed}
-                  onChange={(event) => setAnimationSpeed(Number(event.target.value))}
+                  min={0}
+                  max={Math.max(traceFrames.length - 1, 0)}
+                  step={1}
+                  value={Math.min(traceIndex, Math.max(traceFrames.length - 1, 0))}
+                  onChange={(event) => setTraceIndex(Number(event.target.value))}
+                  disabled={traceFrames.length === 0}
                 />
-                <div className="range-readout">{animationSpeed.toFixed(1)}x</div>
-              </section>
+                <div className="range-readout">{traceProgressDetail}</div>
 
-              <section className="panel-section">
-                <h2>{UI_LABELS.panelAppearance}</h2>
                 <div className="metrics-list">
-                  {appearanceLayerControls.map((control) => (
-                    <label key={control.key} className="toggle-row">
-                      <input type="checkbox" checked={control.active} onChange={() => toggleLayer(control.key)} />
-                      <span>{control.label}</span>
-                    </label>
-                  ))}
-                </div>
-
-                <div className="debug-divider" />
-
-                <h2>{UI_LABELS.panelView}</h2>
-                <div className="button-grid">
-                  {viewModes.map((id) => (
-                    <button
-                      key={id}
-                      className={clsx('mode-button', viewMode === id && 'mode-button-active')}
-                      type="button"
-                      onClick={() => setViewMode(id)}
-                    >
-                      {VIEW_MODE_LABELS[id]}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="debug-divider" />
-
-                <h2>{UI_LABELS.panelState}</h2>
-                <div className="stats-grid">
-                  <div className="stat-card">
-                    <span className="stat-label">{UI_LABELS.statRunId}</span>
-                    <span className="stat-value">{runId ? runId.slice(0, 8) : 'N/A'}</span>
+                  <div className="metric-row">
+                    <span>{UI_LABELS.statFrontier}</span>
+                    <strong>{currentFrame?.openSet.length ?? 0}</strong>
                   </div>
-                  <div className="stat-card">
-                    <span className="stat-label">{UI_LABELS.statCursor}</span>
-                    <span className="stat-value">{progressText}</span>
+                  <div className="metric-row">
+                    <span>{UI_LABELS.statExpanded}</span>
+                    <strong>{currentFrame?.expandedNodes.length ?? 0}</strong>
                   </div>
-                  <div className="stat-card">
-                    <span className="stat-label">{UI_LABELS.statState}</span>
-                    <span className="stat-value">{runStateText}</span>
-                  </div>
-                  <div className="stat-card">
-                    <span className="stat-label">{UI_LABELS.fieldBlocked}</span>
-                    <span className="stat-value">{blockedSummary}</span>
-                  </div>
-                </div>
-              </section>
-
-              <section className="panel-section">
-                <h2>{UI_LABELS.panelFrame}</h2>
-                <div className="trace-card">
-                  <div className="trace-title">{frameTitle}</div>
-                  <div className="trace-meta">
-                    <span>{ALGORITHM_LABELS[effectiveAlgorithm] || effectiveAlgorithm}</span>
-                    <span>{currentFrame?.phase ?? (runId ? '等待播放' : '空闲')}</span>
-                  </div>
-                  <div className="metrics-list">
-                    {frameMetrics.length === 0 && <div className="empty-note">{runId ? UI_LABELS.hintFrameRunReady : UI_LABELS.hintRunIdle}</div>}
-                    {frameMetrics.map(([key, value]) => (
-                      <div key={key} className="metric-row">
-                        <span>{formatDebugKey(key)}</span>
-                        <strong>{formatDebugValue(value)}</strong>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="debug-divider" />
-
-                <h2>{UI_LABELS.panelSummary}</h2>
-                <div className="metrics-list">
-                  {summaryEntries.length === 0 && <div className="empty-note">{UI_LABELS.hintSummaryEmpty}</div>}
-                  {summaryEntries.map(([key, value]) => (
+                  {frameMetrics.length === 0 && <div className="empty-note">{UI_LABELS.hintTraceEmpty}</div>}
+                  {frameMetrics.map(([key, value]) => (
                     <div key={key} className="metric-row">
-                      <span>{formatDebugKey(key)}</span>
-                      <strong>{formatDebugValue(value)}</strong>
+                      <span>{key}</span>
+                      <strong>{formatMetricValue(value)}</strong>
                     </div>
                   ))}
                 </div>
+              </div>
+            </section>
 
-                <div className="debug-divider" />
-
-                <h2>{UI_LABELS.panelLive}</h2>
+            <section className="panel-section">
+              <h2>{UI_LABELS.panelSegments}</h2>
+              <div className="trace-card">
+                <div className="trace-title">路线语义分段</div>
+                <div className="trace-meta">
+                  <span>{UI_LABELS.hintExecute}</span>
+                </div>
                 <div className="metrics-list">
-                  {liveEntries.map((entry) => (
-                    <div key={entry.key} className="metric-row">
-                      <span>{formatDebugKey(entry.key)}</span>
-                      <strong>{formatDebugValue(entry.value)}</strong>
+                  {surfaceSegments.length === 0 && <div className="empty-note">{UI_LABELS.hintTraceEmpty}</div>}
+                  {surfaceSegments.map((segment) => (
+                    <div key={segment.segment_id} className="metric-row">
+                      <span>{`${segment.from_node_id} -> ${segment.to_node_id}`}</span>
+                      <strong>
+                        {`${MOTION_TYPE_LABELS[segment.motion_type] ?? segment.motion_type} · ${segment.point_count} 点`}
+                      </strong>
                     </div>
                   ))}
                 </div>
-              </section>
-            </div>
-          </section>
-        )}
+              </div>
+            </section>
+          </div>
+        </section>
       </main>
     </div>
   );

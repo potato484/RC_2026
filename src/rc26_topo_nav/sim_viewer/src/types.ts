@@ -1,8 +1,6 @@
 export type Team = 'blue' | 'red';
 export type Algorithm = 'astar' | 'rrt' | 'dwa';
-export type RunMode = 'offline-sim' | 'live-ros';
-export type GoalKind = 'node' | 'task' | 'route';
-export type PickMode = 'idle' | 'start' | 'goal';
+export type PickMode = 'idle' | 'start' | 'goal' | 'surface_start' | 'surface_goal';
 export type ViewMode = 'orbit' | 'follow' | 'first_person' | 'top_ortho' | 'side_ortho' | 'side_perspective';
 
 export interface Pose3 {
@@ -58,6 +56,7 @@ export interface SceneManifest {
   meta: {
     team: Team;
     graph_file: string;
+    surface_graph_file?: string;
     world_file: string;
     kfs_config_file: string;
     full_geometry: boolean;
@@ -95,16 +94,16 @@ export interface SceneManifest {
   };
 }
 
-export interface OpenSetEntry {
+export interface OpenSetEntryRef {
   nodeId: string;
-  pose: Pose3;
   gCost: number;
   fCost: number;
+  pose?: Pose3;
 }
 
-export interface ExpandedNode {
+export interface ExpandedNodeRef {
   nodeId: string;
-  pose: Pose3;
+  pose?: Pose3;
 }
 
 export interface CandidateTrajectory {
@@ -116,17 +115,17 @@ export interface CandidateTrajectory {
   clearance?: number;
 }
 
-export interface PlannerFrame {
+export interface PlannerTraceFrame {
   stepIndex: number;
   algorithm: Algorithm;
   phase: string;
   label: string;
   robotPose: Pose3 | null;
-  openSet: OpenSetEntry[];
-  expandedNodes: ExpandedNode[];
+  openSet: OpenSetEntryRef[];
+  expandedNodes: ExpandedNodeRef[];
   bestPath: {
     nodeIds: string[];
-    points: Pose3[];
+    points?: Pose3[];
   };
   treeSegments: Array<{ from: Pose3; to: Pose3 }>;
   candidateTrajectories: CandidateTrajectory[];
@@ -134,36 +133,70 @@ export interface PlannerFrame {
   metrics: Record<string, string | number | boolean | null>;
 }
 
-export interface RunSummary {
+export interface OpenSetEntry extends OpenSetEntryRef {
+  pose: Pose3;
+}
+
+export interface ExpandedNode extends ExpandedNodeRef {
+  pose: Pose3;
+}
+
+export interface PlannerFrame extends Omit<PlannerTraceFrame, 'openSet' | 'expandedNodes' | 'bestPath'> {
+  openSet: OpenSetEntry[];
+  expandedNodes: ExpandedNode[];
+  bestPath: {
+    nodeIds: string[];
+    points: Pose3[];
+  };
+}
+
+export interface SurfaceRouteSegment {
+  segment_id: string;
+  from_node_id: string;
+  to_node_id: string;
+  motion_type: string;
+  required_mode: string;
+  point_count: number;
+}
+
+export interface RouteTraceSummary {
   goalKind?: string;
   goalValue?: string;
   framesCount?: number;
-  totalCost?: number;
-  selectedCandidate?: string;
+  returnedFramesCount?: number;
+  framesSampled?: boolean;
+  totalCost?: number | null;
+  selectedCandidate?: string | null;
   candidateResults?: Array<Record<string, unknown>>;
-  iterations?: number;
-  tree_size?: number;
-  goal_distance?: number | null;
-  steps?: number;
+  projectedStartNodeId?: string;
+  projectedGoalNodeId?: string;
+  requestedStart?: Pose3;
+  requestedGoal?: Pose3;
 }
 
-export interface RunMetaMessage {
-  type: 'meta';
-  runId: string;
-  state: string;
-  cursor: number;
-  frameCount: number;
-  summary: RunSummary;
+export interface SurfaceRoutePreviewResponse {
+  success: boolean;
+  failure_code: string;
+  failure_reason: string;
+  projected_start_node_id?: string;
+  projected_goal_node_id?: string;
+  projected_start: Pose3;
+  projected_goal: Pose3;
+  path_points: Pose3[];
+  segments: SurfaceRouteSegment[];
+  team?: Team;
+  surface_graph_file?: string;
 }
 
-export interface RunFrameMessage {
-  type: 'frame' | 'state';
-  runId: string;
-  state: string;
-  cursor: number;
-  frameCount?: number;
-  summary?: RunSummary;
-  frame?: PlannerFrame | null;
+export interface SurfaceRouteTraceResponse extends SurfaceRoutePreviewResponse {
+  summary: RouteTraceSummary;
+  node_poses?: Record<string, Pose3>;
+  frames: PlannerTraceFrame[];
+}
+
+export interface SurfaceRouteExecuteResponse {
+  accepted: boolean;
+  preview: SurfaceRoutePreviewResponse;
 }
 
 export interface LiveTrackingState {

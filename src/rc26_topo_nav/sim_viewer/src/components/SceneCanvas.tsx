@@ -3,7 +3,7 @@ import * as BABYLON from '@babylonjs/core';
 import '@babylonjs/core/Engines/WebGPU/Extensions/engine.alpha';
 
 import type { LayerState } from '../store';
-import { findNearestGraphNode } from '../scenePicking';
+import { findNearestGraphNode, worldPointToPose } from '../scenePicking';
 import type { CameraPreset, LiveEvent, PlannerFrame, Pose3, PickMode, SceneManifest, ViewMode } from '../types';
 
 export interface SceneCanvasProps {
@@ -15,10 +15,13 @@ export interface SceneCanvasProps {
   startPose: Pose3 | null;
   goalPose: Pose3 | null;
   hoverPose: Pose3 | null;
+  manualPath?: Pose3[];
   blockedGridIds: number[];
   pickMode: PickMode;
   onHoverNodeChange?: (nodeId: string | null) => void;
   onPickNode?: (nodeId: string) => void;
+  onHoverWorldChange?: (pose: Pose3 | null) => void;
+  onPickWorld?: (pose: Pose3) => void;
 }
 
 function hexToColor3(hex: string): BABYLON.Color3 {
@@ -32,6 +35,13 @@ function hexToColor3(hex: string): BABYLON.Color3 {
 
 function vec3(p: Pose3 | {x: number, y: number, z: number, world_z?: number}) {
   return new BABYLON.Vector3(p.x, p.y, p.world_z ?? p.z);
+}
+
+function liftedVec3(
+  p: Pose3 | {x: number, y: number, z: number, world_z?: number},
+  lift = 0,
+) {
+  return new BABYLON.Vector3(p.x, p.y, (p.world_z ?? p.z) + lift);
 }
 
 function poseZ(p: Pose3) {
@@ -76,6 +86,11 @@ type MaterialOptions = {
   unlit?: boolean;
 };
 
+type ShadowOptions = {
+  cast?: boolean;
+  receive?: boolean;
+};
+
 class BabylonSceneManager {
   public engine: any = null;
   public scene: BABYLON.Scene | null = null;
@@ -94,6 +109,8 @@ class BabylonSceneManager {
   private hoveredNodeId: string | null = null;
   private hoverCallback: ((nodeId: string | null) => void) | null = null;
   private pickCallback: ((nodeId: string) => void) | null = null;
+  private hoverWorldCallback: ((pose: Pose3 | null) => void) | null = null;
+  private pickWorldCallback: ((pose: Pose3) => void) | null = null;
   
   private dynamicParent!: BABYLON.TransformNode;
   private dynamicMeshes: BABYLON.Node[] = [];
@@ -120,7 +137,9 @@ class BabylonSceneManager {
     this.scene.fogEnd = 104;
 
     const ambient = new BABYLON.HemisphericLight("ambient", new BABYLON.Vector3(0, 0, 1), this.scene);
-    ambient.intensity = 0.8;
+    ambient.intensity = 1.05;
+    const fill = new BABYLON.HemisphericLight("fill", new BABYLON.Vector3(-0.35, 0.25, 0.65), this.scene);
+    fill.intensity = 0.42;
 
     this.dynamicParent = new BABYLON.TransformNode("dynamic", this.scene);
 
@@ -186,11 +205,12 @@ class BabylonSceneManager {
     cam.orthoBottom = -halfHeight;
   }
 
-  private applyMeshShadows(mesh: BABYLON.Mesh) {
-    if (this.shadowGen) {
+  private applyMeshShadows(mesh: BABYLON.Mesh, options: ShadowOptions = {}) {
+    const { cast = true, receive = true } = options;
+    if (cast && this.shadowGen) {
       this.shadowGen.addShadowCaster(mesh);
     }
-    mesh.receiveShadows = true;
+    mesh.receiveShadows = receive;
   }
 
   private createPinMarker(
@@ -236,11 +256,11 @@ class BabylonSceneManager {
     head.isPickable = !dynamic;
 
     if (dynamic) {
-      this.addDynamicMesh(stem);
-      this.addDynamicMesh(head);
+      this.addDynamicMesh(stem, { cast: false, receive: false });
+      this.addDynamicMesh(head, { cast: false, receive: false });
     } else {
-      this.applyMeshShadows(stem);
-      this.applyMeshShadows(head);
+      this.applyMeshShadows(stem, { cast: false, receive: false });
+      this.applyMeshShadows(head, { cast: false, receive: false });
     }
   }
 
@@ -276,9 +296,9 @@ class BabylonSceneManager {
     mesh.isPickable = !dynamic;
 
     if (dynamic) {
-      this.addDynamicMesh(mesh);
+      this.addDynamicMesh(mesh, { cast: false, receive: false });
     } else {
-      this.applyMeshShadows(mesh);
+      this.applyMeshShadows(mesh, { cast: false, receive: false });
     }
   }
 
@@ -322,6 +342,26 @@ class BabylonSceneManager {
     });
   }
 
+  private pickWorldPointFromPointer(): Pose3 | null {
+    if (!this.scene || typeof this.scene.pick !== 'function') {
+      return null;
+    }
+
+    const pickInfo = this.scene.pick(
+      this.scene.pointerX,
+      this.scene.pointerY,
+      (mesh: { name?: string }) => BabylonSceneManager.isPickableStaticMesh(mesh),
+    );
+    if (!pickInfo?.hit || !pickInfo.pickedPoint) {
+      return null;
+    }
+    return worldPointToPose({
+      x: pickInfo.pickedPoint.x,
+      y: pickInfo.pickedPoint.y,
+      z: pickInfo.pickedPoint.z,
+    });
+  }
+
   private installPointerObserver() {
     if (!this.scene || this.pointerObserver || !this.scene.onPointerObservable?.add) {
       return;
@@ -334,15 +374,27 @@ class BabylonSceneManager {
       }
 
       if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERMOVE) {
-        this.setHoveredNode(this.pickNearestNodeFromPointer()?.id ?? null);
+        if (this.pickMode === 'surface_start' || this.pickMode === 'surface_goal') {
+          this.hoverWorldCallback?.(this.pickWorldPointFromPointer());
+        } else {
+          this.setHoveredNode(this.pickNearestNodeFromPointer()?.id ?? null);
+        }
         return;
       }
 
       if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERPICK) {
-        const nearestNode = this.pickNearestNodeFromPointer();
-        if (nearestNode) {
-          this.setHoveredNode(nearestNode.id);
-          this.pickCallback?.(nearestNode.id);
+        if (this.pickMode === 'surface_start' || this.pickMode === 'surface_goal') {
+          const worldPoint = this.pickWorldPointFromPointer();
+          if (worldPoint) {
+            this.hoverWorldCallback?.(worldPoint);
+            this.pickWorldCallback?.(worldPoint);
+          }
+        } else {
+          const nearestNode = this.pickNearestNodeFromPointer();
+          if (nearestNode) {
+            this.setHoveredNode(nearestNode.id);
+            this.pickCallback?.(nearestNode.id);
+          }
         }
       }
     });
@@ -353,15 +405,20 @@ class BabylonSceneManager {
     pickMode: PickMode,
     onHoverNodeChange?: (nodeId: string | null) => void,
     onPickNode?: (nodeId: string) => void,
+    onHoverWorldChange?: (pose: Pose3 | null) => void,
+    onPickWorld?: (pose: Pose3) => void,
   ) {
     this.activeManifest = manifest;
     this.pickMode = pickMode;
     this.hoverCallback = onHoverNodeChange ?? null;
     this.pickCallback = onPickNode ?? null;
+    this.hoverWorldCallback = onHoverWorldChange ?? null;
+    this.pickWorldCallback = onPickWorld ?? null;
     this.installPointerObserver();
 
     if (pickMode === 'idle') {
       this.setHoveredNode(null);
+      this.hoverWorldCallback?.(null);
     }
   }
 
@@ -421,7 +478,7 @@ class BabylonSceneManager {
       const dir = new BABYLON.Vector3(lData.pose.x, lData.pose.y, lData.pose.z);
       const dirLight = new BABYLON.DirectionalLight(`static_light_${i}`, new BABYLON.Vector3(-dir.x, -dir.y, -dir.z), this.scene!);
       dirLight.position = dir;
-      dirLight.intensity = 1.6;
+      dirLight.intensity = 1.15;
       dirLight.diffuse = new BABYLON.Color3(lData.diffuse[0]/255, lData.diffuse[1]/255, lData.diffuse[2]/255);
       
       if (layers.shadows && lData.cast_shadows) {
@@ -447,7 +504,7 @@ class BabylonSceneManager {
           isVerticalStructure ? 0.01 : isPlatform ? 0.08 : 0.02,
           {
             backFaceCulling: false,
-            emissiveScale: isVerticalStructure ? 0.004 : isMarking ? 0.06 : isPlatform ? 0.025 : 0.012,
+            emissiveScale: isVerticalStructure ? 0.008 : isMarking ? 0.07 : isPlatform ? 0.05 : 0.04,
             unlit: false,
           },
         );
@@ -477,7 +534,9 @@ class BabylonSceneManager {
         vertexData.applyToMesh(mesh);
         mesh.material = mat;
         mesh.isPickable = true;
-        this.applyMeshShadows(mesh);
+        this.applyMeshShadows(mesh, isVerticalStructure
+          ? { cast: true, receive: true }
+          : { cast: false, receive: false });
       });
     }
 
@@ -501,18 +560,18 @@ class BabylonSceneManager {
         if (pts.length < 2) {
           return;
         }
-        const tube = BABYLON.MeshBuilder.CreateTube(`static_edge_${edge.id}`, { path: pts, radius: 0.024, cap: BABYLON.Mesh.CAP_ALL }, this.scene!);
+        const tube = BABYLON.MeshBuilder.CreateTube(`static_edge_${edge.id}`, { path: pts, radius: 0.014, cap: BABYLON.Mesh.CAP_ALL }, this.scene!);
         tube.material = this.getMat(
           `edge-${edge.id}`,
           edge.motion_type.includes('ramp') ? '#9c6644' : '#5f7484',
-          0.54,
+          0.44,
           0.52,
           0.04,
           {
-            emissiveScale: 0.015,
+            emissiveScale: 0.03,
           },
         );
-        this.applyMeshShadows(tube);
+        this.applyMeshShadows(tube, { cast: false, receive: false });
       });
     }
   }
@@ -522,14 +581,20 @@ class BabylonSceneManager {
     this.dynamicMeshes = [];
   }
 
-  private addDynamicMesh(mesh: BABYLON.Mesh | BABYLON.LinesMesh | BABYLON.TransformNode) {
+  private addDynamicMesh(
+    mesh: BABYLON.Mesh | BABYLON.LinesMesh | BABYLON.TransformNode,
+    options: ShadowOptions = {},
+  ) {
+    const { cast = true, receive = false } = options;
     if (!mesh.parent) {
       mesh.parent = this.dynamicParent;
     }
     this.dynamicMeshes.push(mesh as BABYLON.Node);
-    if (this.shadowGen && mesh instanceof BABYLON.Mesh) {
-      this.shadowGen.addShadowCaster(mesh);
-      mesh.receiveShadows = true;
+    if (mesh instanceof BABYLON.Mesh) {
+      if (cast && this.shadowGen) {
+        this.shadowGen.addShadowCaster(mesh);
+      }
+      mesh.receiveShadows = receive;
     }
   }
 
@@ -541,6 +606,7 @@ class BabylonSceneManager {
     startPose: Pose3 | null,
     goalPose: Pose3 | null,
     hoverPose: Pose3 | null,
+    manualPath: Pose3[] | undefined,
     blockedGridIds: number[],
     pickMode: PickMode,
   ) {
@@ -571,7 +637,9 @@ class BabylonSceneManager {
     }
 
     const offlinePath = frame?.bestPath.points ?? [];
+    const manualPreviewPath = manualPath ?? [];
     const pathGoal = offlinePath.length > 0 ? offlinePath[offlinePath.length - 1] : goalPose;
+    const surfaceTrace = frame?.metrics?.traceMode === 'surface_route';
     
     if (pathGoal) {
       this.createPinMarker('dyn_goal', pathGoal, '#d62828', {
@@ -596,17 +664,49 @@ class BabylonSceneManager {
       });
     }
 
-    const createTube = (pts: Pose3[], color: string, radius: number, opacity: number) => {
+    const createTube = (
+      pts: Pose3[],
+      color: string,
+      radius: number,
+      opacity: number,
+      lift: number,
+    ) => {
       if (pts.length < 2) return;
-      const vPts = pts.map(p => vec3(p));
+      const vPts = pts.map(p => liftedVec3(p, lift));
+
+      const halo = BABYLON.MeshBuilder.CreateTube("dyn_tube_halo", {
+        path: vPts,
+        radius: radius * 1.75,
+        cap: BABYLON.Mesh.CAP_ALL,
+      }, this.scene!);
+      halo.material = this.getMat(`tube_halo_${color}_${radius}_${lift}`, color, opacity * 0.2, 0.12, 0.02, {
+        emissiveScale: 0.22,
+        unlit: true,
+        backFaceCulling: false,
+      });
+      halo.renderingGroupId = 1;
+      this.addDynamicMesh(halo, { cast: false, receive: false });
+
       const tube = BABYLON.MeshBuilder.CreateTube("dyn_tube", { path: vPts, radius, cap: BABYLON.Mesh.CAP_ALL }, this.scene!);
-      tube.material = this.getMat(`tube_${color}`, color, opacity, 0.28, 0.18);
-      this.addDynamicMesh(tube);
+      tube.material = this.getMat(`tube_${color}_${radius}_${lift}`, color, opacity, 0.14, 0.04, {
+        emissiveScale: 0.18,
+        unlit: true,
+        backFaceCulling: false,
+      });
+      tube.renderingGroupId = 2;
+      this.addDynamicMesh(tube, { cast: false, receive: false });
     };
 
-    createTube(offlinePath, '#355070', 0.055, 0.92);
-    createTube(liveEvent?.routePath ?? [], '#0ea5e9', 0.05, 0.82);
-    createTube(liveEvent?.corridorPath ?? [], '#fb8500', 0.04, 0.82);
+    createTube(manualPreviewPath, '#2f80ed', 0.018, 0.96, 0.07);
+    createTube(
+      offlinePath,
+      surfaceTrace ? '#2f80ed' : '#355070',
+      surfaceTrace ? 0.018 : 0.024,
+      0.96,
+      surfaceTrace ? 0.07 : 0.06,
+    );
+    createTube(liveEvent?.routePath ?? [], '#0ea5e9', 0.02, 0.88, 0.065);
+    createTube(liveEvent?.corridorPath ?? [], '#fb8500', 0.016, 0.88, 0.055);
 
     if (layers.tree && frame?.treeSegments) {
       frame.treeSegments.forEach((seg, i) => {
@@ -620,7 +720,7 @@ class BabylonSceneManager {
     if (layers.candidates && frame?.candidateTrajectories) {
       frame.candidateTrajectories.forEach((traj, i) => {
         if (traj.selected) {
-          createTube(traj.points, '#ff7b00', 0.028, 0.88);
+          createTube(traj.points, '#ff7b00', 0.012, 0.9, 0.03);
         }
         const lines = BABYLON.MeshBuilder.CreateLines(`dyn_cand_${i}`, { points: traj.points.map(p => vec3(p)) }, this.scene!);
         lines.color = hexToColor3(traj.selected ? '#ff7b00' : traj.collision ? '#adb5bd' : '#94d2bd');
@@ -681,7 +781,7 @@ class BabylonSceneManager {
 
       this.addDynamicMesh(cone);
       this.addDynamicMesh(cyl);
-      this.addDynamicMesh(grp);
+      this.addDynamicMesh(grp, { cast: false, receive: false });
     }
   }
 
@@ -820,11 +920,12 @@ export function SceneCanvas(props: SceneCanvasProps) {
         props.startPose,
         props.goalPose,
         props.hoverPose,
+        props.manualPath,
         props.blockedGridIds,
         props.pickMode,
       );
     }
-  }, [engineReady, props.scene, props.frame, props.liveEvent, props.layers, props.startPose, props.goalPose, props.hoverPose, props.blockedGridIds, props.pickMode]);
+  }, [engineReady, props.scene, props.frame, props.liveEvent, props.layers, props.startPose, props.goalPose, props.hoverPose, props.manualPath, props.blockedGridIds, props.pickMode]);
 
   useEffect(() => {
     if (engineReady && managerRef.current && props.scene) {
@@ -839,9 +940,11 @@ export function SceneCanvas(props: SceneCanvasProps) {
         props.pickMode,
         props.onHoverNodeChange,
         props.onPickNode,
+        props.onHoverWorldChange,
+        props.onPickWorld,
       );
     }
-  }, [engineReady, props.scene, props.pickMode, props.onHoverNodeChange, props.onPickNode]);
+  }, [engineReady, props.scene, props.pickMode, props.onHoverNodeChange, props.onPickNode, props.onHoverWorldChange, props.onPickWorld]);
 
   if (!props.scene) {
     return <div className="canvas-placeholder">场景未加载，无法渲染 3D 视图。</div>;

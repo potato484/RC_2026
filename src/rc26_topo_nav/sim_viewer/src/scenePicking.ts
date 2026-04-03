@@ -37,3 +37,13 @@ export function findNearestGraphNode(
 
   return nearestNode;
 }
+
+export function worldPointToPose(point: PickedWorldPoint) {
+  return {
+    x: point.x,
+    y: point.y,
+    z: point.z,
+    yaw: 0,
+    world_z: point.z,
+  };
+}

@@ -1,110 +1,99 @@
-# rc26_topo_nav 3D 仿真 Viewer
+# rc26_topo_nav 3D 路线观察台
 
 ## 1. 工程定位
 
-`src/rc26_topo_nav/sim_viewer` 是围绕 `rc26_topo_nav` 建的本地三维观测工具，用来把 topo 图搜索过程、Gazebo 场地几何和只读运行时状态放到同一个 WebGL / WebGPU 页面里观察。
+`src/rc26_topo_nav/sim_viewer` 当前已经从“多模式拓扑仿真沙盘”收口成单用途工具：只观察比赛场地里任意一点到任意一点的 3D 路线，以及这条路线在当前 A* 算法里的具体推导过程。
 
-- 它是本地工具，不是机器人运行时后端。
-- 它的实时模式只读消费 adapter 输出，不拥有任何控制权。
-- A* 的真逻辑仍然来自 `rc26_topo_nav` C++ planner，不在前端里复制一套规划真源。
-- **视觉风格**：采用工业战术沙盘风格，UI 和图形元素均已中文化，强化“观察台”的层级与质感。
+- 它是本地观测工具，不是机器人运行时权威后端。
+- 它不再暴露 `Topo 节点 / 任意点 3D 路线` 双模式，也不再暴露离线 `RRT / DWA`、live ROS 只读桥接和 run WebSocket 播放控制。
+- 浏览器当前只保留三条主链：
+  - 在地面、坡面、阶梯表面直接点起点和终点
+  - 生成完整 3D 路线
+  - 用滑块回看 `surface_graph + planner_trace_cli` 导出的逐帧搜索过程
+- 页面仍保留“执行当前路线”按钮，但它只是把当前起终点对应的 surface route 下发给 `navigate_surface_route`；机器人必须已经在起点附近，不会自动补一段接驳路线。
 
 ## 2. 入口与链路
 
 - 前端入口
   - [src/main.tsx](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/main.tsx)
   - [src/App.tsx](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/App.tsx)
-  - [src/components/SceneCanvas.tsx](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/components/SceneCanvas.tsx) (Babylon.js 渲染核心)
+  - [src/components/SceneCanvas.tsx](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/components/SceneCanvas.tsx)
   - [src/store.ts](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/store.ts)
   - [src/api.ts](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/api.ts)
-  - [src/labels.ts](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/labels.ts) (中文映射集)
 - 本地 adapter
   - [scripts/topo_sim_server.py](/home/potato/RC_2026/src/rc26_topo_nav/scripts/topo_sim_server.py)
-  - [scripts/topo_sim_algorithms.py](/home/potato/RC_2026/src/rc26_topo_nav/scripts/topo_sim_algorithms.py)
-  - [docs/test/e2e/topo_sim_stub_server.py](/home/potato/RC_2026/docs/test/e2e/topo_sim_stub_server.py) (浏览器 E2E 使用的 stub backend)
-- 运行时 / 几何真源
-  - [src/planner.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/planner.cpp)
+- 运行时真源
   - [src/planner_trace_cli.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/planner_trace_cli.cpp)
-  - [r2_field_graph_blue.yaml](/home/potato/RC_2026/src/rc26_topo_nav/config/r2_field_graph_blue.yaml)
-  - [robocon2026_v2_aligned.world](/home/potato/RC_2026/src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world)
-  - [kfs_config_v2_aligned.yaml](/home/potato/RC_2026/src/rc26_topo_nav/sim_assets/config/kfs_config_v2_aligned.yaml)
-  - [robocon2026_world/model.sdf](/home/potato/RC_2026/src/rc26_topo_nav/sim_assets/models/robocon2026_world/model.sdf)
+  - [src/surface_route_cli.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/surface_route_cli.cpp)
+  - [config/r2_surface_graph_blue.yaml](/home/potato/RC_2026/src/rc26_topo_nav/config/r2_surface_graph_blue.yaml)
+  - [config/r2_surface_graph_red.yaml](/home/potato/RC_2026/src/rc26_topo_nav/config/r2_surface_graph_red.yaml)
 
-## 3. 当前能力
+## 3. 当前真实能力
 
 - 完整三维场景
-  - 通过 `render_graph_sim_html.py` 里的世界解析链抽取 world / dae 面片，在页面中以 mesh 面而不是线框渲染。
-  - `scene-manifest` 现在会为 Babylon viewer 额外保留“投影到 XY 近似为 0、但 3D 面积足够大”的结构性竖直面，用来恢复梅林阶梯 riser、平台侧壁和类似连接面；离线 2D HTML 仍保持旧的投影简化，不把这些竖直面重新塞回 SVG 叠图。
-  - 使用 Babylon.js 引擎，优先尝试 WebGPU 渲染，自动回退到 WebGL。场景包含环境背景、方向光、阴影和 PBR 材质。
-- 路径与算法过程
-  - 起点绿色、目标点红色、规划路径蓝色。
-  - 主画面改成“画布优先”结构：起点/目标默认通过场景选点设置，详细表单与键值字段折叠到同页“高级 / 调试”面板。
-  - 图层控制不再把所有层平铺成一组通用复选框；页面会按当前算法和模式只暴露有意义的图层，例如 A* 下显示 `路径节点 / 前沿 / 已探查`，RRT 下显示 `搜索树`，DWA 下显示 `候选轨迹`。
-  - `blocked` 不再只依赖 live block overlay；离线模式会把高级面板里手填的 blocked nodes 映射到可视阻塞区，实时模式则继续消费 `/mf_block_overlay`。
-  - A* 复用 C++ runtime planner trace；RRT / DWA 是本地仿真算法，但输出同一套帧结构。
-  - 页面现在默认采用“场景优先”首屏：初始会先展示场地与基础路径语义，`graph / keyNodes / openSet / expanded / tree / candidates` 图层默认关闭，避免未生成运行时被 topo 节点球体淹没。
-  - 页面默认不会自动生成或自动播放离线运行；只有用户手动设置起点/目标后点击“生成手动离线运行”，播放/单步/重置才会对该离线回放生效。
-  - 场景点击不是把浏览器点击点直接下发为任意坐标目标；前端会把点击到的场地位置吸附到最近 topo 节点，再回写到 `start_node / goal_node`，保持后端契约仍然是 topo-native 目标。
-- 交互相机
-  - 支持 `orbit / follow / first_person / top_ortho / side_perspective` 多视角；`side_perspective` 现在使用更低、更近的斜侧机位，不再像高空投影图。
-  - 支持鼠标旋转、平移、滚轮缩放。
-- 立体感增强
-  - topo 节点、起点、目标点和选点预览都使用带立柱的 pin marker，而不是贴地圆点；其中静态 topo 图节点已改成更低、更细的弱化标记，避免抢占场地主体视觉。
-  - 图边改为细 tube，而不是单纯线段，侧视更容易看出高度和前后关系。
-  - `SceneCanvas` 会把这类结构性竖直面渲染成更暗、更粗糙、低 emissive 的材质，同一台阶的顶面与立面在低机位下更容易看出前后和高差关系。
-- 只读 live 模式
-  - 通过 `topo_sim_server.py` 订阅 `/topo_nav/route`、`/topo_nav/corridor`、`/xhu_nav/active_edge`、`/xhu_nav/semantic_gate`、`/mf_block_overlay`、`/xhu_nav/tracking_state`。
-  - 页面只做观察，不回写 ROS2，不修改规划状态。
-- 包内资产
-  - viewer 默认依赖 `src/rc26_topo_nav/sim_assets` 里的最小保留资产，不再要求外部 `RC_Sim_001_github` 目录继续存在。
-  - 当前保留集只包含 viewer/server 所需的 `.world`、KFS 对齐配置，以及 `robocon2026_world` 模型。
-- 测试与交付链路
-  - 前端 API 现在支持通过 `VITE_API_BASE_URL` 和 `VITE_WS_BASE_URL` 切换 HTTP / WebSocket 后端来源，让浏览器 E2E 可以稳定改连 stub backend，而不再强依赖 Vite dev proxy。
-  - 离线运行创建后，页面会先使用 `POST /api/runs` 的返回值写入 `runId / state / frameCount / summary`；后续 `播放 / 暂停 / 单步 / 重置` 也会先使用 `POST /api/runs/{id}/control` 的返回值同步 `state / cursor`，随后再由 run WebSocket 补齐首帧与后续状态；这样浏览器控制区不会被首条 `meta` 或首条 `frame` 的时序抖动卡住。
-  - 根仓库新增 [docs/test/README.md](/home/potato/RC_2026/docs/test/README.md) 作为测试入口，收口 `npm run preflight`、`npm run test:e2e`、`npm run cd:package` 以及 `.github/workflows/ci.yml`、`.github/workflows/cd.yml`。
+  - Babylon.js 继续负责渲染比赛场地 mesh、材质、光照与相机。
+  - `scene-manifest` 仍保留结构性竖直面，保证侧视能看出梅林阶梯、平台侧壁和坡面体积。
+  - 阴影策略维持“结构竖面保留体积阴影，地面/坡面/平台表面不统一接收动态阴影”，避免大面积阴影压暗可通行区域。
+- 任意点 3D 路线
+  - 页面只允许在场地 mesh 上直接选取世界坐标起点和终点。
+  - `POST /api/surface-route/trace` 会先复用 `surface_route_cli` 把点击点投影到最近可通行 surface sample，再复用 `planner_trace_cli` 基于投影后的起终点节点生成 A* 逐帧 trace。
+  - 返回结果同时包含：
+    - 投影后的起点/终点 pose
+    - 投影后的起点/终点 node id
+    - 完整 3D 路径点序列
+    - 语义分段列表
+    - 逐帧 `PlannerFrame`
+- 搜索回放
+  - 页面不再提供 play/pause/step/reset，只保留一个滑块控制当前帧。
+  - 当前帧会显示 `frontier / expanded / current best path`，用于观察搜索如何逐步逼近最终路线。
+  - 展示层默认按中文显示回放语义；`planner_trace_cli` 原始 message 如 `goal reached`、`better path discovered` 会在前端映射成中文，不再直接透传英文提示。
+  - `surface-route` trace 现在继续复用真实 `surface_route_cli -> planner_trace_cli`，但回放传输层已经压缩成：
+    - 采样后的 `frames`
+    - 本次回放实际涉及到的 `node_poses` 字典
+    - 浏览器本地按 `nodeId` 复原 open-set / expanded / best-path 的可视化点位
+  - adapter 不再在每次 trace 请求里重新解析整份 dense `surface_graph` YAML，从而避免页面长时间停留在“生成中...”。
+  - 顶部只保留 `scene / frontier / expanded / shadows` 四个有意义的图层开关。
+- 相机与读图
+  - 当前只保留 `orbit / top_ortho / side_perspective` 三个真正有用的观察视角。
+  - surface trace 路线现在沿用更细的 tube 半径，并保持轻微抬高和淡 halo，减少侧视时被地表边缘吞没的问题。
 
-## 4. 启动方式
+## 4. API 口径
 
-- 根目录一键启动
-  - `./start_r2_topo_nav_sim.sh`
-  - 这条入口会先增量构建 `rc26_topo_nav`，并按需补齐 `sim_viewer/dist`，启动 `topo_sim_server.py` 后自动打开浏览器，适合本地直接联调 viewer
+`topo_sim_server.py` 当前与这个页面直接相关的接口已经收口为：
+
+- `GET /api/scene-manifest`
+- `POST /api/surface-route/preview`
+- `POST /api/surface-route/trace`
+- `POST /api/surface-route/execute`
+
+其中真正驱动页面主流程的是 `POST /api/surface-route/trace`。
+
+当前这个接口的实现要点是：
+
+- `surface_route_cli` 继续负责把浏览器点击点投影到真实可通行 `surface_graph`
+- `planner_trace_cli --max-frames` 继续负责导出真实 A* 搜索过程，但只输出采样后的帧
+- `planner_trace_cli` 额外输出当前回放涉及节点的 `node_poses`
+- `topo_sim_server.py` 直接复用 preview 阶段已经得到的 `path_points / segments`，不再为 trace 额外重读 surface graph YAML
+
+## 5. 启动与验证
+
 - 构建 ROS 包
-  - `MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_topo_nav`
-- source 运行时环境
-  - `source install/setup.bash`
+  - `MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_interfaces rc26_topo_nav`
 - 启动 adapter
+  - `source install/setup.bash`
   - `python3 src/rc26_topo_nav/scripts/topo_sim_server.py`
-- 默认资源路径
-  - `src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world`
-  - `src/rc26_topo_nav/sim_assets/config/kfs_config_v2_aligned.yaml`
 - 前端开发态
   - `cd src/rc26_topo_nav/sim_viewer && npm run dev`
 - 前端构建态
   - `cd src/rc26_topo_nav/sim_viewer && npm run build`
-- 浏览器 E2E
-  - `npm run test:e2e`
-- 本地预演
-  - `npm run preflight`
-  - `npm run preflight:strict`
+- 前端单元测试
+  - `cd src/rc26_topo_nav/sim_viewer && npm run test`
+- Python 回归测试
+  - `python3 -m unittest src/rc26_topo_nav/test/test_topo_sim_server.py`
 
-开发态由 Vite 把 `/api` 和 `/ws` 代理到 `127.0.0.1:8796`。构建态下，如果 `sim_viewer/dist` 已存在，`topo_sim_server.py` 会直接返回该静态页面。
+## 6. 这次收口后的维护备注
 
-浏览器 E2E 默认不直接连接真实 `topo_sim_server.py`，而是通过 `docs/test/e2e/topo_sim_stub_server.py` 提供最小 HTTP / WebSocket 契约面，再以 `VITE_API_BASE_URL` 和 `VITE_WS_BASE_URL` 重建 `sim_viewer` preview。这么做的目的不是替代真实 planner 联调，而是让 CI 能稳定覆盖“页面能否加载、离线运行能否创建、单步是否推进、live 状态是否能显示”这条浏览器真链路。
-
-当前 `SceneCanvas` 会在 `scene-manifest` 真正返回、`canvas` 已经挂载后再初始化 Babylon 引擎；开发态下也会忽略 React `StrictMode` 触发的过期异步初始化，避免首屏停留在“场景已加载”但中间画布仍为空白的状态。为了让比赛场地在浏览器里既保留颜色也保留立体感，当前 Babylon 画布使用不透明背景清屏，world 面片改为保留受光材质与阴影层次；同时 viewer 专用 manifest 会额外保留结构性竖直面，避免梅林阶梯再次被压成只剩顶面色块。
-
-当前 viewer 的手动交互口径也已明确：
-
-- 离线模式默认空闲，不再自动播“演示 run”。
-- 用户默认通过画面上的“在场景中设起点 / 设目标”模式完成选点；`start_node / goal_node / goal_task / goal_route`、blocked node 原始输入和 shadows 开关下沉到“高级 / 调试”面板。
-- 场景选点只负责吸附到最近 topo 节点，并把结果同步回表单后备入口；这让前端看起来像“点场地”，但后端 API 仍然只接收 topo 图里的节点/任务/路线语义。
-- `topo_sim_server.py` 的 live 线程现在会在 `rclpy` 外部关闭时安静退出，不再因为 `ExternalShutdownException` 在服务关闭时打出一段无意义 traceback。
-
-## 5. 当前边界
-
-- 它不是运行时导航权威，`rc26_topo_nav` 节点和相关 topic 才是。
-- 它不是浏览器直接控车入口，live 模式只读。
-- 它不改写 topo 图、world 或 KFS 真源。
-- “显示完整 3D 几何”不等于“所有 mesh 面都自动转成规划障碍”。
-
-当前实现里，完整 world mesh 用于渲染；RRT / DWA 的 keep-out 只取围栏等竖向障碍和 block overlay，避免把可通行平台表面错误地当成二维障碍。
+- 现在如果再给页面加回 `Topo 节点模式`、`RRT / DWA`、live ROS 观察或 run 控制，就不再是普通 UI 补丁，而是一次功能边界扩张。
+- 如果未来需要继续观察“任意点 3D 路线”的算法演绎，优先复用 `surface_route_cli -> planner_trace_cli -> /api/surface-route/trace` 这条链，不要在前端复制第二套规划逻辑。
+- 如果以后再出现“生成中...”长期不返回，优先先看 `surface-route` trace 的总 payload、大图 YAML 是否被重复解析，以及 CLI 是否仍然在输出未采样的超大 trace，而不是先怀疑 React 状态机。
+- 当前文档反映的真实现状是：`sim_viewer` 已经是一个单用途 3D 路线观察台，而不是通用导航实验场。
