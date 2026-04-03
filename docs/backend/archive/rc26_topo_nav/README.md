@@ -106,11 +106,13 @@
 - 当前包新增了一个本地 3D 仿真工具链：
   - `planner_trace_cli`：把 C++ planner 当前真实搜索过程导出为 JSON trace，作为 A* 观察真源
   - `topo_sim_server.py`：把 topo 图、包内 `sim_assets` 下的 Gazebo world / KFS 对齐配置，以及只读运行时状态整理成 HTTP / WebSocket adapter
-  - `sim_viewer`：用 Three.js / React 把完整 mesh 场景、路径、关键节点、open set、扩展树和候选轨迹渲染成可交互 3D 页面
+  - `sim_viewer`：基于 Babylon.js / React 将完整 mesh 场景、路径、关键节点、open set、扩展树和候选轨迹渲染成可交互的 3D 战术沙盘页面。
 - viewer 当前支持：
   - 离线 A* / RRT / DWA 回放
-  - `orbit / follow / first_person / top_ortho / side_ortho` 多视角
+  - `orbit / follow / first_person / top_ortho / side_perspective` 多视角切换；侧视现在默认走透视视角，避免侧面完全压平
+  - 工业战术沙盘风格的高级 UI 界面，以及全中文化的字段与控制图例
   - 起点绿色、目标点红色、路径蓝色的三维路径层
+  - 显式“在场景中设起点 / 设目标”模式：浏览器点击场地任意位置后，会吸附到最近 topo 节点，再写回 `start_node / goal_node`
   - 只读 live ROS 观察：`/topo_nav/route`、`/topo_nav/corridor`、`/xhu_nav/active_edge`、`/xhu_nav/semantic_gate`、`/mf_block_overlay`、`/xhu_nav/tracking_state`
 - 当前实现特别注意把“完整渲染几何”和“规划碰撞 keep-out”分开：
   - viewer 会尽量显示完整 world mesh

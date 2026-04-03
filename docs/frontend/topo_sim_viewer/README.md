@@ -2,20 +2,22 @@
 
 ## 1. 工程定位
 
-`src/rc26_topo_nav/sim_viewer` 是围绕 `rc26_topo_nav` 建的本地三维观测工具，用来把 topo 图搜索过程、Gazebo 场地几何和只读运行时状态放到同一个 WebGL 页面里观察。
+`src/rc26_topo_nav/sim_viewer` 是围绕 `rc26_topo_nav` 建的本地三维观测工具，用来把 topo 图搜索过程、Gazebo 场地几何和只读运行时状态放到同一个 WebGL / WebGPU 页面里观察。
 
 - 它是本地工具，不是机器人运行时后端。
 - 它的实时模式只读消费 adapter 输出，不拥有任何控制权。
 - A* 的真逻辑仍然来自 `rc26_topo_nav` C++ planner，不在前端里复制一套规划真源。
+- **视觉风格**：采用工业战术沙盘风格，UI 和图形元素均已中文化，强化“观察台”的层级与质感。
 
 ## 2. 入口与链路
 
 - 前端入口
   - [src/main.tsx](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/main.tsx)
   - [src/App.tsx](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/App.tsx)
-  - [src/components/SceneCanvas.tsx](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/components/SceneCanvas.tsx)
+  - [src/components/SceneCanvas.tsx](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/components/SceneCanvas.tsx) (Babylon.js 渲染核心)
   - [src/store.ts](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/store.ts)
   - [src/api.ts](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/api.ts)
+  - [src/labels.ts](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/labels.ts) (中文映射集)
 - 本地 adapter
   - [scripts/topo_sim_server.py](/home/potato/RC_2026/src/rc26_topo_nav/scripts/topo_sim_server.py)
   - [scripts/topo_sim_algorithms.py](/home/potato/RC_2026/src/rc26_topo_nav/scripts/topo_sim_algorithms.py)
@@ -31,14 +33,19 @@
 
 - 完整三维场景
   - 通过 `render_graph_sim_html.py` 里的世界解析链抽取 world / dae 面片，在页面中以 mesh 面而不是线框渲染。
-  - Three.js 场景包含环境背景、方向光、阴影和 surface 材质。
+  - 使用 Babylon.js 引擎，优先尝试 WebGPU 渲染，自动回退到 WebGL。场景包含环境背景、方向光、阴影和 PBR 材质。
 - 路径与算法过程
   - 起点绿色、目标点红色、规划路径蓝色。
   - 可选显示关键节点、open set、已扩展节点、RRT 树段和 DWA 候选轨迹。
   - A* 复用 C++ runtime planner trace；RRT / DWA 是本地仿真算法，但输出同一套帧结构。
+  - 页面默认不会自动生成或自动播放离线运行；只有用户手动设置起点/目标后点击“生成手动离线运行”，播放/单步/重置才会对该离线回放生效。
+  - 场景点击不是把浏览器点击点直接下发为任意坐标目标；前端会把点击到的场地位置吸附到最近 topo 节点，再回写到 `start_node` / `goal_node` 表单字段，保持后端契约仍然是 topo-native 目标。
 - 交互相机
-  - 支持 `orbit`、`follow`、`first_person`、`top_ortho`、`side_ortho`。
-  - 支持鼠标旋转、平移、滚轮缩放和视角 gizmo。
+  - 支持 `orbit / follow / first_person / top_ortho / side_perspective` 多视角；侧视现在默认使用透视相机，不再只给出压扁空间感的侧视正交。
+  - 支持鼠标旋转、平移、滚轮缩放。
+- 立体感增强
+  - topo 节点、起点、目标点和选点预览都使用带立柱的 pin marker，而不是贴地圆点。
+  - 图边改为细 tube，而不是单纯线段，侧视更容易看出高度和前后关系。
 - 只读 live 模式
   - 通过 `topo_sim_server.py` 订阅 `/topo_nav/route`、`/topo_nav/corridor`、`/xhu_nav/active_edge`、`/xhu_nav/semantic_gate`、`/mf_block_overlay`、`/xhu_nav/tracking_state`。
   - 页面只做观察，不回写 ROS2，不修改规划状态。
@@ -61,6 +68,14 @@
   - `cd src/rc26_topo_nav/sim_viewer && npm run build`
 
 开发态由 Vite 把 `/api` 和 `/ws` 代理到 `127.0.0.1:8796`。构建态下，如果 `sim_viewer/dist` 已存在，`topo_sim_server.py` 会直接返回该静态页面。
+
+当前 `SceneCanvas` 会在 `scene-manifest` 真正返回、`canvas` 已经挂载后再初始化 Babylon 引擎；开发态下也会忽略 React `StrictMode` 触发的过期异步初始化，避免首屏停留在“场景已加载”但中间画布仍为空白的状态。为了让比赛场地颜色在浏览器里稳定可见，当前 Babylon 画布使用不透明背景清屏，并优先按 `scene-manifest` 提供的 `fill` 颜色直接显示 world 面片，而不是把整张场地压成偏灰的受光面。
+
+当前 viewer 的手动交互口径也已明确：
+
+- 离线模式默认空闲，不再自动播“演示 run”。
+- 用户既可以在左侧表单选 `start_node / goal_node / goal_task / goal_route`，也可以显式开启“在场景中设起点 / 设目标”模式。
+- 场景选点只负责吸附到最近 topo 节点，并把结果同步回表单；这让前端看起来像“点场地”，但后端 API 仍然只接收 topo 图里的节点/任务/路线语义。
 
 ## 5. 当前边界
 

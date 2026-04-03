@@ -19,10 +19,11 @@
   - 原始输入源：`src/rc26_decision/behavior_trees/mf_tree.xml`、`mc_tree.xml`、`combat_tree.xml`
 - `src/rc26_topo_nav/sim_viewer`
   - 围绕 `rc26_topo_nav` 的三维路径规划仿真与观测工具，负责渲染完整场地 mesh、路径回放和只读实时观察。
-  - 技术栈：`Vite + React 18 + TypeScript + Zustand + @react-three/fiber + drei + Three.js`
+  - 技术栈：`Vite + React 18 + TypeScript + Zustand + Babylon.js (WebGPU 优先)`
   - 工程入口：`src/rc26_topo_nav/sim_viewer/src/main.tsx` -> `src/rc26_topo_nav/sim_viewer/src/App.tsx`
   - 启动脚本：`npm run dev`、`npm run build`
   - 数据入口：`src/rc26_topo_nav/scripts/topo_sim_server.py` 提供本地 HTTP / WebSocket adapter，消费 topo 图、Gazebo world、KFS 对齐配置和运行时只读 topic
+  - **最新变更说明**：此工具已完成渲染引擎从 Three.js 到 Babylon.js 的升级，支持 WebGPU 优先渲染，并全面采用工业战术沙盘视觉风格，展示层已 100% 中文化；离线模式默认空闲，需要用户手动生成运行，且支持在场景中点击并吸附到最近 topo 节点来设置起点/目标，保持“只读观察 + topo-native 契约”定位不变。
 
 ## 2. 当前能力总览
 
@@ -33,10 +34,11 @@
   - 编辑模式：把原始 XML 解析成可逆编辑语义，支持基础属性修改、添加子节点、删除非根节点，并导出 XML。
   - 本地模拟执行：在浏览器里用一套确定性演示逻辑跑单次行为树执行，驱动节点状态、时间线和黑板更新。
 - `src/rc26_topo_nav/sim_viewer`
-  - 完整三维场景：渲染 `robocon2026_v2_aligned.world` / `robocon2026.dae` 提取出的 mesh 面、材质色、光照和阴影。
+  - 完整三维场景：渲染 `robocon2026_v2_aligned.world` / `robocon2026.dae` 提取出的 mesh 面、材质色、光照和阴影。使用 Babylon.js 渲染管线。
   - 清晰路径层：用三维 tube / line 显示 A* / RRT / DWA 路径、关键点、open set、扩展树和候选轨迹。
-  - 多视角交互：支持 `orbit / follow / first_person / top_ortho / side_ortho`。
+  - 多视角交互：支持 `orbit / follow / first_person / top_ortho / side_perspective`，侧视使用透视视角和立柱式 marker，避免画面过于平。
   - 本地 adapter：离线模式下回放 A* 运行时 trace 与 RRT / DWA 仿真帧；实时模式下只读消费 `/topo_nav/route`、`/topo_nav/corridor`、`/xhu_nav/active_edge`、`/xhu_nav/semantic_gate`、`/mf_block_overlay`、`/xhu_nav/tracking_state`。
+  - 视觉与体验：拥有高级暗色玻璃态 UI、工业战术沙盘风格，UI 字段与图形图例完全中文化；支持显式“设起点/设目标”选点模式，点击场地后自动吸附到最近 topo 节点并同步回表单。
 
 当前仍然没有的能力也必须一开始就看清：
 
@@ -52,7 +54,7 @@
 - [`viewer_mode`](viewer_mode/README.md): 查看模式的数据流、查看链关键文件和组件职责。`(file: viewer_mode/README.md)`
 - [`editor_mode`](editor_mode/README.md): 编辑模式的 round-trip 语义链、编辑链关键文件和交互入口。`(file: editor_mode/README.md)`
 - [`local_simulator`](local_simulator/README.md): `App.tsx` 里的本地模拟执行器实现、运行步骤与误读风险。`(file: local_simulator/README.md)`
-- [`topo_sim_viewer`](topo_sim_viewer/README.md): `rc26_topo_nav` 3D 仿真 viewer、FastAPI adapter、Three.js 场景与运行边界。`(file: topo_sim_viewer/README.md)`
+- [`topo_sim_viewer`](topo_sim_viewer/README.md): `rc26_topo_nav` 3D 仿真 viewer、FastAPI adapter、Babylon.js 场景与运行边界。`(file: topo_sim_viewer/README.md)`
 - [`boundaries`](boundaries/README.md): 当前前端的明确边界、未实现能力和准确定位。`(file: boundaries/README.md)`
 
 ## 4. 推荐阅读顺序
@@ -83,4 +85,4 @@
 截至当前代码状态，这个仓库里的前端更准确的定义是：
 
 - `merlin-bt-visualizer`: 读取 `rc26_decision` 行为树 XML 的本地可视化/演示工具，加上一套浏览器内基础属性编辑与 XML 导出的初步编辑器。
-- `src/rc26_topo_nav/sim_viewer`: 读取 topo 图、仿真 world 和只读运行时状态的本地三维观测工具，不是导航运行时权威后端。
+- `src/rc26_topo_nav/sim_viewer`: 读取 topo 图、仿真 world 和只读运行时状态的本地三维观测工具（基于 Babylon.js），不是导航运行时权威后端。
