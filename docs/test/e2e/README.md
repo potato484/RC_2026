@@ -31,7 +31,7 @@ package.json
 | `docs/test/e2e/ensure-playwright-ready.sh` | 当前浏览器 E2E 的 Playwright 运行时守门脚本。负责检查 Python Playwright 包、Chromium 主浏览器和 `chromium_headless_shell` 是否齐全，并在缺失时补执行安装。 |
 | `docs/test/e2e/run-e2e-local.sh` | 当前浏览器 E2E 主入口。负责找可用端口、启动 `topo_sim_stub_server.py`、以 `dist-e2e/` 重建 `sim_viewer` 静态预览，并在失败时打印对应日志尾部。 |
 | `docs/test/e2e/topo_sim_stub_server.py` | 当前契约型 stub backend。它不跑真实 ROS2 或 `planner_trace_cli`，只覆盖浏览器 E2E 需要的最小 HTTP / WebSocket 接口面。 |
-| `docs/test/e2e/sim_viewer_flow.py` | 当前 sim_viewer E2E 用例本体。覆盖首屏加载、手动生成离线运行、单步推进、图层切换，以及 live 模式桥接状态展示这条用户链路。 |
+| `docs/test/e2e/sim_viewer_flow.py` | 当前 sim_viewer E2E 用例本体。覆盖首屏加载、手动生成离线运行、单步推进、图层切换，以及 live 模式桥接状态展示这条用户链路。离线运行创建阶段当前优先断言“单步按钮已可用 + 帧进度与标签已出现”这类稳定状态，而不是依赖顶部瞬时状态文案。 |
 | `src/rc26_topo_nav/sim_viewer/src/api.ts` | 当前前端 API 入口。现在支持通过 `VITE_API_BASE_URL` 与 `VITE_WS_BASE_URL` 切换后端来源，让浏览器 E2E 不再依赖 dev proxy。 |
 
 ## 4. 当前输出与注意点

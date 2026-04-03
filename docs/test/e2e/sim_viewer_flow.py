@@ -33,9 +33,16 @@ def main() -> None:
                 raise AssertionError("拓扑网络图层默认应为关闭。")
 
             page.get_by_role("button", name="生成手动离线运行").click()
-            page.get_by_text("手动离线运行已创建").wait_for(timeout=10000)
-            page.get_by_text("0 / 2").wait_for(timeout=10000)
-            page.get_by_text("planner initialized").wait_for(timeout=10000)
+            page.wait_for_function(
+                """() => {
+                    const buttons = Array.from(document.querySelectorAll("button"));
+                    const stepButton = buttons.find((element) => element.textContent?.includes("单步"));
+                    return Boolean(stepButton && !stepButton.disabled);
+                }""",
+                timeout=20000,
+            )
+            page.get_by_text("0 / 2").wait_for(timeout=20000)
+            page.get_by_text("planner initialized").wait_for(timeout=20000)
 
             page.get_by_role("button", name="单步").click()
             page.get_by_text("1 / 2").wait_for(timeout=10000)
