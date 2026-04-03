@@ -316,7 +316,11 @@ export default function App() {
   async function handleRunControl(action: 'play' | 'pause' | 'step' | 'reset') {
     if (!runId) return;
     try {
-      await controlRun(runId, action, undefined, animationSpeed);
+      const response = await controlRun(runId, action, undefined, animationSpeed);
+      setRunFrame({
+        state: response.state,
+        cursor: response.cursor,
+      });
     } catch (error) {
       setStatusMessage(`运行控制失败: ${String(error)}`);
     }

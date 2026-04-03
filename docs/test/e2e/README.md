@@ -33,7 +33,7 @@ package.json
 | `docs/test/e2e/topo_sim_stub_server.py` | 当前契约型 stub backend。它不跑真实 ROS2 或 `planner_trace_cli`，只覆盖浏览器 E2E 需要的最小 HTTP / WebSocket 接口面。当前实现会串行化同一条 run / live WebSocket 上的发送，避免 create-run 首帧、subscribe 初始化和 step/live 更新在 CI runner 上乱序。 |
 | `docs/test/e2e/sim_viewer_flow.py` | 当前 sim_viewer E2E 用例本体。覆盖首屏加载、手动生成离线运行、单步推进、图层切换，以及 live 模式桥接状态展示这条用户链路。离线运行创建阶段当前优先断言“单步按钮已可用 + 进度从 `0 / 2` 推进到 `1 / 2`”这类稳定状态，而不是依赖顶部瞬时状态文案或首帧标签文本。 |
 | `src/rc26_topo_nav/sim_viewer/src/api.ts` | 当前前端 API 入口。现在支持通过 `VITE_API_BASE_URL` 与 `VITE_WS_BASE_URL` 切换后端来源，让浏览器 E2E 不再依赖 dev proxy。 |
-| `src/rc26_topo_nav/sim_viewer/src/App.tsx` / `src/rc26_topo_nav/sim_viewer/src/store.ts` | 当前离线运行创建后的 UI 初始化不再完全依赖首条 WebSocket `meta`；页面会先用 `POST /api/runs` 的响应写入 `runId / state / frameCount / summary`，再由后续 WebSocket 继续补齐首帧与实时更新，减少 CI runner 上的首包时序抖动。 |
+| `src/rc26_topo_nav/sim_viewer/src/App.tsx` / `src/rc26_topo_nav/sim_viewer/src/store.ts` | 当前离线运行创建后的 UI 初始化不再完全依赖首条 WebSocket `meta`；页面会先用 `POST /api/runs` 的响应写入 `runId / state / frameCount / summary`，按钮控制也会先用 `POST /api/runs/{id}/control` 的返回值更新 `state / cursor`，再由后续 WebSocket 继续补齐首帧与实时更新，减少 CI runner 上的首包时序抖动。 |
 
 ## 4. 当前输出与注意点
 

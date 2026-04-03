@@ -120,4 +120,23 @@ describe('useSimStore', () => {
     });
     expect(useSimStore.getState().statusMessage).toContain('手动离线运行已创建');
   });
+
+  it('updates run cursor from control responses even before a websocket frame arrives', () => {
+    useSimStore.setState({
+      ...useSimStore.getState(),
+      runId: 'abc12345',
+      runState: 'paused',
+      frameCount: 3,
+      cursor: 0,
+    });
+
+    useSimStore.getState().setRunFrame({
+      state: 'paused',
+      cursor: 1,
+    });
+
+    expect(useSimStore.getState().runState).toBe('paused');
+    expect(useSimStore.getState().cursor).toBe(1);
+    expect(useSimStore.getState().frameCount).toBe(3);
+  });
 });

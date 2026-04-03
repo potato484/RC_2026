@@ -21,6 +21,13 @@ export interface CreateRunResponse {
   state: string;
 }
 
+export interface RunControlResponse {
+  runId: string;
+  state: string;
+  cursor: number;
+  speed?: number;
+}
+
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/$/, '');
 const explicitWsBase = (import.meta.env.VITE_WS_BASE_URL ?? '').trim().replace(/\/$/, '');
 
@@ -77,7 +84,7 @@ export async function controlRun(
   action: 'play' | 'pause' | 'step' | 'reset' | 'seek',
   cursor?: number,
   speed?: number,
-): Promise<void> {
+): Promise<RunControlResponse> {
   const response = await fetch(apiUrl(`/api/runs/${runId}/control`), {
     method: 'POST',
     headers: {
@@ -88,6 +95,7 @@ export async function controlRun(
   if (!response.ok) {
     throw new Error(`Failed to control run: ${response.status}`);
   }
+  return response.json();
 }
 
 export async function startLive(namespace = ''): Promise<void> {
