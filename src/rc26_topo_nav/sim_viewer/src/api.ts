@@ -28,6 +28,12 @@ export interface RunControlResponse {
   speed?: number;
 }
 
+export interface StartLiveResponse {
+  status: string;
+  namespace: string;
+  snapshot?: LiveEvent;
+}
+
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/$/, '');
 const explicitWsBase = (import.meta.env.VITE_WS_BASE_URL ?? '').trim().replace(/\/$/, '');
 
@@ -98,7 +104,7 @@ export async function controlRun(
   return response.json();
 }
 
-export async function startLive(namespace = ''): Promise<void> {
+export async function startLive(namespace = ''): Promise<StartLiveResponse> {
   const response = await fetch(apiUrl('/api/live/start'), {
     method: 'POST',
     headers: {
@@ -109,6 +115,7 @@ export async function startLive(namespace = ''): Promise<void> {
   if (!response.ok) {
     throw new Error(`Failed to start live mode: ${response.status}`);
   }
+  return response.json();
 }
 
 export function openRunSocket(

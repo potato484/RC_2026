@@ -709,12 +709,16 @@ class LiveRosBridge:
     async def start(self, namespace: str = "") -> dict[str, Any]:
         self.namespace = namespace
         if self.thread and self.thread.is_alive():
-            return {"status": "running", "namespace": self.namespace}
+            with self._lock:
+                snapshot = dict(self.state)
+            return {"status": "running", "namespace": self.namespace, "snapshot": {"type": "live_state", **snapshot}}
         self.loop = asyncio.get_running_loop()
         self.stop_event.clear()
         self.thread = threading.Thread(target=self._spin, name="topo-sim-live-bridge", daemon=True)
         self.thread.start()
-        return {"status": "starting", "namespace": self.namespace}
+        with self._lock:
+            snapshot = dict(self.state)
+        return {"status": "starting", "namespace": self.namespace, "snapshot": {"type": "live_state", **snapshot}}
 
     def _topic(self, name: str) -> str:
         namespace = self.namespace.strip("/")

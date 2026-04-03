@@ -452,8 +452,9 @@ class LiveBridge:
             },
             "timestamp": time.time(),
         }
-        await self.broadcast({"type": "live_state", **self.state})
-        return {"status": "starting", "namespace": namespace}
+        snapshot = {"type": "live_state", **self.state}
+        await self.broadcast(snapshot)
+        return {"status": "starting", "namespace": namespace, "snapshot": snapshot}
 
     async def subscribe(self, websocket: WebSocket) -> None:
         await websocket.accept()

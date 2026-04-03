@@ -21,6 +21,14 @@ function nodeById(nodes: GraphNode[], nodeId: string): GraphNode | undefined {
   return nodes.find((node) => node.id === nodeId);
 }
 
+function hasLiveSnapshotContent(event: { activeEdge?: string; gateStatus?: string; trackingState?: { corridorId?: string } | null } | null | undefined): boolean {
+  return Boolean(
+    event?.activeEdge ||
+    event?.gateStatus ||
+    event?.trackingState?.corridorId,
+  );
+}
+
 function parseBlockedNodes(value: string): string[] {
   return value
     .split(',')
@@ -331,12 +339,16 @@ export default function App() {
     setPickMode('idle');
     setHoveredNodeId(null);
     try {
-      await startLive();
+      const response = await startLive();
+      if (hasLiveSnapshotContent(response.snapshot)) {
+        setLiveEvent(response.snapshot!);
+      } else {
+        setStatusMessage('实时 ROS 只读桥接已启动');
+      }
       liveSocketRef.current = openLiveSocket({
         onEvent: (event) => setLiveEvent(event),
         onError: (message: string) => setStatusMessage(message),
       });
-      setStatusMessage('实时 ROS 只读桥接已启动');
     } catch (error) {
       setStatusMessage(`实时桥接启动失败: ${String(error)}`);
     }
