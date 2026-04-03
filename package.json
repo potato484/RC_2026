@@ -1,0 +1,11 @@
+{
+  "name": "rc26-test-orchestration",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "preflight": "bash docs/test/local-preflight.sh",
+    "preflight:strict": "bash docs/test/local-preflight.sh --strict",
+    "test:e2e": "bash docs/test/e2e/run-e2e-local.sh",
+    "cd:package": "bash docs/test/release/package-release.sh"
+  }
+}
