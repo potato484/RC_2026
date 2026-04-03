@@ -9,11 +9,12 @@
 
 ## 1. 当前文档范围
 
-`docs/test/` 当前只讨论三类内容：
+`docs/test/` 当前主要讨论四类内容：
 
 - 提交前的本地预演与预测链路
 - 浏览器 E2E 的真实执行入口
 - release 打包与远端 deploy 的执行入口
+- `merlin-bt-visualizer` 的独立 CI/CD/E2E 链路
 
 它不直接替代：
 
@@ -28,6 +29,7 @@
 - [`preflight`](./preflight/README.md): 本地预演链路说明，包含执行顺序、输出产物、严格模式和与 CI/CD/E2E 的对应关系。`(file: preflight/README.md)`
 - [`e2e`](./e2e/README.md): 浏览器 E2E 入口与 sim_viewer stub 链路说明，覆盖 `ensure-playwright-ready.sh`、`run-e2e-local.sh`、`topo_sim_stub_server.py` 和 `sim_viewer_flow.py`。`(file: e2e/README.md)`
 - [`release`](./release/README.md): release 打包与远端部署说明，覆盖 `package-release.sh` 和 `deploy-via-ssh.sh`。`(file: release/README.md)`
+- [`merlin_bt_visualizer`](./merlin_bt_visualizer/README.md): `merlin-bt-visualizer` 的独立 preflight / E2E / release 收口，覆盖 `local-preflight.sh`、`run-e2e-local.sh`、`package-release.sh` 与对应 GitHub workflow。`(file: merlin_bt_visualizer/README.md)`
 
 ## 3. 推荐阅读顺序
 
@@ -37,6 +39,7 @@
 2. 再看 [preflight/README.md](./preflight/README.md)，建立本地预演的执行顺序、输出产物和退出语义认知。
 3. 如果要核对真实浏览器链路，再看 [e2e/README.md](./e2e/README.md) 以及 `docs/test/e2e/run-e2e-local.sh`、`docs/test/e2e/topo_sim_stub_server.py`。
 4. 如果要核对真实交付链路，再看 [release/README.md](./release/README.md) 以及 `docs/test/release/package-release.sh`、`docs/test/release/deploy-via-ssh.sh` 和 `.github/workflows/cd.yml`。
+5. 如果要维护 `merlin-bt-visualizer` 的独立测试链路，再看 [merlin_bt_visualizer/README.md](./merlin_bt_visualizer/README.md) 以及对应 shell 脚本和 `.github/workflows/merlin-bt-visualizer-*.yml`。
 
 ## 4. 按改动范围同步文档
 
@@ -44,9 +47,10 @@
 - 改根仓库 `package.json` 里 `preflight`、`preflight:strict`、`test:e2e`、`cd:package` 的入口绑定时，必须同步更新本文和 [preflight/README.md](./preflight/README.md)。
 - 如果改动影响 `docs/test/e2e/ensure-playwright-ready.sh`、`docs/test/e2e/run-e2e-local.sh`、`docs/test/e2e/topo_sim_stub_server.py` 或 `docs/test/e2e/sim_viewer_flow.py` 的真实行为，也要同步更新对应模块文档和 [preflight/README.md](./preflight/README.md)。
 - 如果改动影响 `docs/test/release/package-release.sh`、`docs/test/release/deploy-via-ssh.sh` 或 `.github/workflows/cd.yml` 的真实行为，也要同步更新 [release/README.md](./release/README.md)。
+- 改 `docs/test/merlin_bt_visualizer/*`、根仓库 `package.json` 里的 `merlin:*` 入口，或 `.github/workflows/merlin-bt-visualizer-*.yml` 时，也要同步更新 [merlin_bt_visualizer/README.md](./merlin_bt_visualizer/README.md)。
 
 ## 5. 当前正式定位
 
 截至当前仓库状态，`docs/test/` 的正式定位应当是：
 
-一组围绕“提交前本地预演、浏览器 E2E 与 release 交付”组织起来的测试文档与脚本入口。它负责把 `sim_viewer` 这条前端链路的预测入口、真实 E2E 执行器和交付脚本统一收口到 `docs/test/` 下，降低根级杂散脚本继续膨胀的风险。
+一组围绕“提交前本地预演、浏览器 E2E 与 release 交付”组织起来的测试文档与脚本入口。它当前同时收口 `sim_viewer` 和 `merlin-bt-visualizer` 两条前端链路的预测入口、真实 E2E 执行器和交付脚本，降低根级杂散脚本继续膨胀的风险。

@@ -6,6 +6,10 @@
     "preflight": "bash docs/test/local-preflight.sh",
     "preflight:strict": "bash docs/test/local-preflight.sh --strict",
     "test:e2e": "bash docs/test/e2e/run-e2e-local.sh",
-    "cd:package": "bash docs/test/release/package-release.sh"
+    "cd:package": "bash docs/test/release/package-release.sh",
+    "merlin:preflight": "bash docs/test/merlin_bt_visualizer/local-preflight.sh",
+    "merlin:preflight:strict": "bash docs/test/merlin_bt_visualizer/local-preflight.sh --strict",
+    "merlin:test:e2e": "bash docs/test/merlin_bt_visualizer/run-e2e-local.sh",
+    "merlin:cd:package": "bash docs/test/merlin_bt_visualizer/package-release.sh"
   }
 }

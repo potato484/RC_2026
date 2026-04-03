@@ -1,0 +1,37 @@
+name: merlin-bt-visualizer-cd
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'merlin-bt-visualizer-v*'
+
+jobs:
+  package-release:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: merlin-bt-visualizer/package-lock.json
+
+      - name: Install merlin dependencies
+        run: npm --prefix merlin-bt-visualizer ci
+
+      - name: Build merlin release package
+        run: npm run merlin:cd:package
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: merlin-bt-visualizer-release
+          path: |
+            release/merlin_bt_visualizer
+            release/merlin_bt_visualizer.tgz
+          if-no-files-found: error
