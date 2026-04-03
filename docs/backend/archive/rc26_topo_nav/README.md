@@ -120,6 +120,9 @@
 
 ## 本地启动方式
 
+- 根目录便捷脚本:
+  - `./start_r2_topo_nav_sim.sh`
+  - 脚本会先增量构建 `rc26_topo_nav`，并按需补齐 `sim_viewer/dist`，拉起 `topo_sim_server.py`，等待 `/api/health` 就绪后自动打开浏览器；默认前台保活，`Ctrl+C` 一次性关闭
 - 包构建:
   - `MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_topo_nav`
 - 启动 adapter:

@@ -56,11 +56,14 @@
   - 当前保留集只包含 viewer/server 所需的 `.world`、KFS 对齐配置，以及 `robocon2026_world` 模型。
 - 测试与交付链路
   - 前端 API 现在支持通过 `VITE_API_BASE_URL` 和 `VITE_WS_BASE_URL` 切换 HTTP / WebSocket 后端来源，让浏览器 E2E 可以稳定改连 stub backend，而不再强依赖 Vite dev proxy。
-  - 离线运行创建后，页面会先使用 `POST /api/runs` 的返回值写入 `runId / state / frameCount / summary`，随后再由 run WebSocket 补齐首帧与后续状态；这样浏览器控制区不会被首条 `meta` 的时序抖动卡在“仍不可操作”。
+  - 离线运行创建后，页面会先使用 `POST /api/runs` 的返回值写入 `runId / state / frameCount / summary`；后续 `播放 / 暂停 / 单步 / 重置` 也会先使用 `POST /api/runs/{id}/control` 的返回值同步 `state / cursor`，随后再由 run WebSocket 补齐首帧与后续状态；这样浏览器控制区不会被首条 `meta` 或首条 `frame` 的时序抖动卡住。
   - 根仓库新增 [docs/test/README.md](/home/potato/RC_2026/docs/test/README.md) 作为测试入口，收口 `npm run preflight`、`npm run test:e2e`、`npm run cd:package` 以及 `.github/workflows/ci.yml`、`.github/workflows/cd.yml`。
 
 ## 4. 启动方式
 
+- 根目录一键启动
+  - `./start_r2_topo_nav_sim.sh`
+  - 这条入口会先增量构建 `rc26_topo_nav`，并按需补齐 `sim_viewer/dist`，启动 `topo_sim_server.py` 后自动打开浏览器，适合本地直接联调 viewer
 - 构建 ROS 包
   - `MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_topo_nav`
 - source 运行时环境
