@@ -38,8 +38,9 @@
   - `src/utils/btDisplay.ts:1-205` 提供查看链和编辑链共用的中文名称、参数和值翻译规则。
   - `src/utils/btParser.ts:5-168` 是查看链专用解析器和布局器，消费共享翻译规则，并继续负责装饰器压缩、子树展开等展示增强。
 - 编辑链
-  - `src/store/useEditorStore.ts:86-291` 是编辑模式的状态真源，负责按区域缓存草稿、当前 `BehaviorTree` 选择、画布投影、属性修改、增删节点和 XML 导出。
+  - `src/store/useEditorStore.ts:86-291` 是编辑模式的状态真源，负责按区域缓存草稿、当前 `BehaviorTree` 选择、画布投影、属性修改、结构插入、节点包裹、复合节点切换和 XML 导出。
   - `src/utils/editorParser.ts:7-121` + `src/utils/editorProjection.ts:16-111` + `src/utils/editorSerializer.ts:7-103` 组成 round-trip 三件套，保留的是可逆语义，不是只为展示服务的简化模型。
+  - `src/generated/btNodeRegistry.ts` + `src/utils/btRegistry.ts` 是编辑链新增的节点定义真源，统一维护官方节点、机器人模块、自定义端口、默认属性和复合节点切换规则。
   - `src/utils/editorTreeView.ts:1-33` 从 `SubTree` 引用关系派生出和查看模式一致的树列表层级与中文树名。
   - `vite.config.ts` 的本地保存适配层只在 `npm run dev` 下可用；它把当前区域 XML 写回 `src/rc26_decision/behavior_trees/*.xml`，不等于前端拥有通用后端持久化能力。
 - 本地模拟执行链
@@ -63,19 +64,34 @@
 - `merlin-bt-visualizer/src/components/Sidebar.tsx:13-162`
   - 同一个组件承担两种模式下的树列表展示，两边都按主树/子树层级组织列表；编辑模式会跟着当前区域草稿同步切换。
 - `merlin-bt-visualizer/src/components/EditorVisualizer.tsx:12-129`
-  - 负责编辑画布、导出源文件，以及开发态“保存到源文件”按钮。
+  - 负责编辑画布、节点库、右键菜单、导出源文件，以及开发态“保存到源文件”按钮。
 - `merlin-bt-visualizer/src/components/RightPanel.tsx:21-147`
   - 负责查看模式下的节点详情、执行日志和黑板。
 - `merlin-bt-visualizer/src/components/EditorRightPanel.tsx:23-243`
-  - 负责编辑模式下的属性操作入口和实时 XML 预览，同时展示中文节点标题和原始标签名。
+  - 负责编辑模式下的属性操作入口、端口绑定编辑、结构插入/包裹、结构预览和实时 XML 预览，同时展示中文节点标题和原始标签名。
 
 ## 5. 维护时的共识
 
 - 查看模型和编辑模型不能重新混成一套。
 - 组件应继续只消费状态和工具输出，不要在组件内部悄悄复制 XML 解释逻辑。
 - 如果要调整中文展示口径，优先改 `src/utils/btDisplay.ts`，不要让查看态和编辑态各自维护一份翻译表。
+- 如果要新增或修改可编辑节点，优先更新 `src/generated/btNodeRegistry.ts` 与 `src/i18n/btTerms.ts`，再改具体组件交互。
 - 编辑模式现在按区域保留内存草稿；切区或暂时退出编辑不应丢失当前会话内的改动，但刷新页面后仍会从 XML 真源重新加载。
 - 如果要维护“保存到源文件”能力，必须继续把它限制在明确的本地适配层里，而不是让 React 页面直接假装拥有文件系统写权限。
 - 如果要维护自动化测试链路，优先继续复用 `docs/test/merlin_bt_visualizer/*` 和 `merlin-bt-visualizer/e2e/*.spec.ts`，不要再把 merlin 的测试入口散落回仓库根目录。
 - 本地模拟执行器只能当演示逻辑维护，不能把它写成真实运行时适配层。
 - 文档描述必须和真实能力一致，不能把本地演示说成联机能力。
+
+## 6. 2026-04-03 编辑链补充
+
+- `merlin-bt-visualizer` 当前已从“基础 XML 改写”升级为“注册表驱动的中文行为树编辑工作台”。
+- 当前编辑链新增了：
+  - 节点库搜索与拖拽插入
+  - 复合节点一键切换
+  - 任意位置前插、后插、首子插、末子插
+  - 装饰器与复合节点包裹
+  - 端口/黑板绑定可视化编辑
+  - 统一中文映射与默认中文界面
+- 这部分的详细设计和完整映射表分别见：
+  - [editor_mode/README.md](/home/potato/RC_2026/docs/frontend/editor_mode/README.md)
+  - [editor_mode/bt_terms_mapping.md](/home/potato/RC_2026/docs/frontend/editor_mode/bt_terms_mapping.md)

@@ -90,3 +90,66 @@
 - 当前 `docs/test/merlin_bt_visualizer/run-e2e-local.sh` 会把开发态写回目标重定向到临时目录，因此浏览器 E2E 可以验证这条链路而不污染仓库真源。
 - 新增节点类型、属性能力或树结构操作时，优先先把编辑语义模型补完整，再考虑画布怎么展示。
 - 只做到“看起来能显示”不算完成，必须继续验证导出后的 XML 语义仍然可逆。
+
+## 4. 2026-04-03 实现补充
+
+这次编辑模式已经从“基础属性改写器”升级成“注册表驱动的完整行为树编辑器”，当前真实实现如下：
+
+- `merlin-bt-visualizer/src/generated/btNodeRegistry.ts`
+  - 统一维护官方节点和机器人模块节点的注册表。
+  - 每个节点都显式给出 `tagName / 中文名 / 来源 / 类别 / 子节点策略 / 默认属性 / 端口定义 / 检索关键词`。
+  - 当前覆盖范围包括：
+    - 官方控制节点：`Sequence / SequenceWithMemory / SequenceStar / ReactiveSequence / Fallback / ReactiveFallback / Parallel / ParallelAll / IfThenElse / WhileDoElse / RoundRobin / Switch2-6`
+    - 官方装饰节点：`Inverter / ForceSuccess / ForceFailure / Repeat / RetryUntilSuccessful / KeepRunningUntilFailure / Delay / Timeout`
+    - 官方叶子与结构节点：`Script / ScriptCondition / AlwaysSuccess / AlwaysFailure / SubTree`
+    - 当前项目机器人模块：武馆区、梅林区、导航、对抗区、视觉相关 Action / Condition
+- `merlin-bt-visualizer/src/utils/btRegistry.ts`
+  - 负责把原始 XML 节点补充为带定义元数据的 `EditorNode`。
+  - 统一处理端口绑定解析、节点来源识别、节点类别识别、复合节点切换候选、以及“从定义创建新节点”。
+- `merlin-bt-visualizer/src/store/useEditorStore.ts`
+  - 当前已经支持：
+    - 单属性更新
+    - 在当前节点前后插入兄弟节点
+    - 作为首个或末尾子节点插入
+    - 用装饰器或复合节点包裹当前节点
+    - 一键切换复合节点类型，并保留原有子节点和属性
+    - 区域级草稿缓存与 XML round-trip 导出
+  - 2026-04-03 额外修复了 `wrap` 包裹操作在非根节点上丢失结构替换的问题。
+- `merlin-bt-visualizer/src/components/EditorPalette.tsx`
+  - 新增节点库面板，按“机器人模块 / 官方节点”分栏展示。
+  - 支持搜索、拖拽插入、以及直接插入到当前选中节点。
+- `merlin-bt-visualizer/src/components/EditorNode.tsx`
+  - 节点卡片新增快速插入槽：
+    - 前插
+    - 后插
+    - 子插
+  - 对支持切换的复合节点提供一键切换按钮。
+- `merlin-bt-visualizer/src/components/EditorContextMenu.tsx`
+  - 新增右键菜单，当前支持折叠/展开、切换复合节点类型、包裹为结果反转、包裹为重试直到成功、删除节点。
+- `merlin-bt-visualizer/src/components/EditorRightPanel.tsx`
+  - 右侧面板现在同时承担：
+    - 中文节点信息展示
+    - 端口/黑板绑定编辑
+    - 附加属性编辑
+    - 结构插入与包裹
+    - 当前树结构预览
+    - 当前 XML 源文件预览
+- `merlin-bt-visualizer/src/i18n/useLocaleStore.ts`
+  - 当前默认语言固定为 `zh-CN`。
+  - `en-US` 字典只保留为后续调试与扩展准备，当前产品界面默认仍强制中文。
+- `merlin-bt-visualizer/src/i18n/btTerms.ts` + `merlin-bt-visualizer/src/utils/btDisplay.ts`
+  - 当前已经统一承接树名、实例名、属性键、枚举值、黑板键的中文映射与摘要生成。
+  - 完整映射表见 [bt_terms_mapping.md](/home/potato/RC_2026/docs/frontend/editor_mode/bt_terms_mapping.md)。
+
+### 4.1 当前编辑交互的真实边界
+
+- 当前编辑器仍然是本地工程工具，不拥有机器人运行时权威。
+- 当前“保存到源文件”依旧只在开发态通过 Vite 本地适配层生效。
+- 当前节点库以静态注册表为真源；如果 `rc26_decision` 新增了 BT 节点注册或新的中文本地化条目，必须同步补 `btNodeRegistry.ts` 与 `btTerms.ts`。
+
+### 4.2 本次验证结果
+
+- `npm --prefix merlin-bt-visualizer run test`
+  - 通过，已覆盖编辑草稿缓存、节点插入/包裹/切换、XML round-trip、中文显示与查看态 XML 刷新。
+- `npm --prefix merlin-bt-visualizer run build`
+  - 通过，当前编辑模式相关 TypeScript 与生产构建已稳定。

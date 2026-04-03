@@ -1,128 +1,87 @@
 import { EditorDocument, EditorTree, EditorNode } from '../types/editor';
+import { enrichEditorNode, refreshEditorDocumentNodes } from './btRegistry';
 
-/**
- * Parses a raw XML string into an EditorDocument model.
- * It strictly preserves structural and semantic details for round-tripping.
- */
 export function xmlToEditorDocument(xmlString: string): EditorDocument {
   const parser = new DOMParser();
   const xmlDoc = parser.parseFromString(xmlString, 'text/xml');
 
-  // Check for parsing errors
   const parseError = xmlDoc.getElementsByTagName('parsererror');
   if (parseError.length > 0) {
-    throw new Error('XML parsing failed: ' + parseError[0].textContent);
+    throw new Error(`XML 解析失败：${parseError[0].textContent}`);
   }
 
   const rootElement = xmlDoc.documentElement;
   if (rootElement.tagName !== 'root') {
-    throw new Error('Invalid BehaviorTree XML: Root element must be <root>');
+    throw new Error('非法的行为树 XML：根节点必须是 <root>');
   }
 
   const rootAttributes: Record<string, string> = {};
-  for (let i = 0; i < rootElement.attributes.length; i++) {
-    const attr = rootElement.attributes[i];
-    rootAttributes[attr.name] = attr.value;
+  for (let index = 0; index < rootElement.attributes.length; index += 1) {
+    const attribute = rootElement.attributes[index];
+    rootAttributes[attribute.name] = attribute.value;
   }
 
   const includes: string[] = [];
   const trees: EditorTree[] = [];
 
-  // Parse direct children of <root>
-  for (let i = 0; i < rootElement.children.length; i++) {
-    const child = rootElement.children[i];
-
+  for (let index = 0; index < rootElement.children.length; index += 1) {
+    const child = rootElement.children[index];
     if (child.tagName === 'include') {
-      const path = child.getAttribute('path');
-      if (path) {
-        includes.push(path);
+      const includePath = child.getAttribute('path');
+      if (includePath) {
+        includes.push(includePath);
       }
-    } else if (child.tagName === 'BehaviorTree') {
+      continue;
+    }
+
+    if (child.tagName === 'BehaviorTree') {
       trees.push(parseEditorTree(child));
     }
   }
 
-  return {
+  return refreshEditorDocumentNodes({
     rootAttributes,
     includes,
-    trees
-  };
+    trees,
+  });
 }
 
 function parseEditorTree(treeElement: Element): EditorTree {
   const id = treeElement.getAttribute('ID') || 'UnknownTree';
   const name = treeElement.getAttribute('name') || undefined;
 
-  // Find the first actual element child as the root node
-  let rootNodeElement = null;
-  for (let i = 0; i < treeElement.children.length; i++) {
-    rootNodeElement = treeElement.children[i];
-    break; // BehaviorTree usually has only one root node child
-  }
-
+  const rootNodeElement = Array.from(treeElement.children).find((child) => child.nodeType === Node.ELEMENT_NODE) ?? null;
   if (!rootNodeElement) {
-    throw new Error(`BehaviorTree ${id} has no root node.`);
+    throw new Error(`行为树 ${id} 没有根节点。`);
   }
 
   return {
     id,
     name,
-    rootNode: parseEditorNode(rootNodeElement)
+    rootNode: parseEditorNode(rootNodeElement),
   };
 }
 
 function parseEditorNode(nodeElement: Element): EditorNode {
-  const tagName = nodeElement.tagName;
   const attributes: Record<string, string> = {};
-  
-  for (let i = 0; i < nodeElement.attributes.length; i++) {
-    const attr = nodeElement.attributes[i];
-    attributes[attr.name] = attr.value;
+  for (let index = 0; index < nodeElement.attributes.length; index += 1) {
+    const attribute = nodeElement.attributes[index];
+    attributes[attribute.name] = attribute.value;
   }
 
-  const children: EditorNode[] = [];
-  for (let i = 0; i < nodeElement.children.length; i++) {
-    children.push(parseEditorNode(nodeElement.children[i]));
-  }
+  const children = Array.from(nodeElement.children).map((child) => parseEditorNode(child));
 
-  return {
-    id: `node_${Math.random().toString(36).substr(2, 9)}`,
-    tagName,
+  const node: EditorNode = {
+    id: `node_${Math.random().toString(36).slice(2, 11)}`,
+    tagName: nodeElement.tagName,
+    definitionId: nodeElement.tagName,
+    nodeKind: 'action',
+    source: 'unknown',
     attributes,
+    portBindings: {},
     children,
-    uiType: determineUiType(tagName, children.length)
+    uiType: 'leaf',
   };
-}
 
-const CONTROL_NODES = new Set([
-  'Sequence', 'ReactiveSequence', 'SequenceStar', 
-  'Fallback', 'ReactiveFallback', 'Parallel', 'IfThenElse', 'Switch2', 'Switch3', 'Switch4', 'Switch5', 'Switch6'
-]);
-
-const DECORATOR_NODES = new Set([
-  'Inverter', 'ForceSuccess', 'ForceFailure', 
-  'Repeat', 'RetryUntilSuccessful', 'KeepRunningUntilFailure',
-  'Timeout', 'Delay'
-]);
-
-function determineUiType(tagName: string, childCount: number): 'control' | 'decorator' | 'leaf' | 'subtree' {
-  if (tagName === 'SubTree') {
-    return 'subtree';
-  }
-  if (CONTROL_NODES.has(tagName)) {
-    return 'control';
-  }
-  if (DECORATOR_NODES.has(tagName)) {
-    return 'decorator';
-  }
-  
-  // Basic heuristic if tag name is not in predefined lists
-  if (childCount > 0) {
-    if (childCount === 1) {
-      return 'decorator';
-    }
-    return 'control';
-  }
-  
-  return 'leaf';
+  return enrichEditorNode(node);
 }

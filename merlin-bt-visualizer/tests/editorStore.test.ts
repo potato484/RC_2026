@@ -51,7 +51,44 @@ describe('Editor store phase drafts', () => {
       .flowNodes
       .map((node) => String((node.data as { displayLabel?: string }).displayLabel ?? ''));
 
-    expect(displayLabels).toContain('武馆区主流程');
-    expect(displayLabels).toContain('抓取矛头');
+    expect(displayLabels.some((label) => label.includes('武馆顺序流程'))).toBe(true);
+    expect(displayLabels.some((label) => label.includes('取矛头'))).toBe(true);
+  });
+
+  test('should insert, wrap and replace nodes while preserving structure', () => {
+    useEditorStore.getState().ensurePhaseLoaded('武馆区', behaviorTreeXmlByPhase['武馆区']);
+
+    const initialTree = useEditorStore.getState().document!.trees[0];
+    const rootId = initialTree.rootNode.id;
+    const firstChildId = initialTree.rootNode.children[0].id;
+
+    useEditorStore.getState().insertNode(firstChildId, 'after', 'Delay');
+    let rootNode = useEditorStore.getState().document!.trees[0].rootNode;
+    expect(rootNode.children.map((child) => child.tagName)).toEqual(['GrabTip', 'Delay', 'RetryUntilSuccessful']);
+    expect(rootNode.children[1].attributes.delay_msec).toBe('1000');
+
+    useEditorStore.getState().insertNode(firstChildId, 'wrap', 'Inverter');
+    rootNode = useEditorStore.getState().document!.trees[0].rootNode;
+    expect(rootNode.children[0].tagName).toBe('Inverter');
+    expect(rootNode.children[0].children[0].tagName).toBe('GrabTip');
+
+    useEditorStore.getState().replaceNodeType(rootId, 'Fallback');
+    rootNode = useEditorStore.getState().document!.trees[0].rootNode;
+    expect(rootNode.tagName).toBe('Fallback');
+    expect(rootNode.children[0].tagName).toBe('Inverter');
+  });
+
+  test('should cycle composite node types without losing existing children', () => {
+    useEditorStore.getState().ensurePhaseLoaded('武馆区', behaviorTreeXmlByPhase['武馆区']);
+
+    const initialTree = useEditorStore.getState().document!.trees[0];
+    const rootId = initialTree.rootNode.id;
+    const childIds = initialTree.rootNode.children.map((child) => child.id);
+
+    useEditorStore.getState().cycleCompositeType(rootId);
+
+    const cycledRoot = useEditorStore.getState().document!.trees[0].rootNode;
+    expect(cycledRoot.tagName).toBe('SequenceWithMemory');
+    expect(cycledRoot.children.map((child) => child.id)).toEqual(childIds);
   });
 });

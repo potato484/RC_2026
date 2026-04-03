@@ -58,7 +58,7 @@ export const Sidebar = () => {
 
       <div className="flex flex-col gap-2 w-full">
         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 px-2">
-          子树列表
+          决策树
         </h3>
         <div className="flex flex-col gap-1 w-full" data-testid={appMode === 'viewer' ? 'viewer-tree-list' : 'editor-tree-list'}>
           {appMode === 'viewer' ? (

@@ -1,7 +1,16 @@
-import { Node as FlowNode, Edge as FlowEdge } from '@xyflow/react';
+import { Edge as FlowEdge, Node as FlowNode } from '@xyflow/react';
 import dagre from 'dagre';
-import { EditorTree, EditorNode } from '../types/editor';
-import { getBehaviorTreeNodeDisplay, summarizeBehaviorTreeAttributes } from './btDisplay';
+import { EditorNode, EditorTree } from '../types/editor';
+import {
+  canNodeAcceptChildren,
+  getCompositeSwitchCandidates,
+  getBtNodeDefinition,
+} from './btRegistry';
+import {
+  getBehaviorTreeNodeCategoryLabel,
+  getBehaviorTreeNodeDisplay,
+  summarizeBehaviorTreeAttributes,
+} from './btDisplay';
 
 export interface EditorFlowNodeData extends Record<string, unknown> {
   editorNodeId: string;
@@ -9,10 +18,40 @@ export interface EditorFlowNodeData extends Record<string, unknown> {
   displayLabel: string;
   displayDesc: string;
   attributeSummary: string;
+  categoryLabel: string;
+  sourceLabel: string;
   attributes: Record<string, string>;
-  uiType: 'control' | 'decorator' | 'leaf' | 'subtree';
+  uiType: EditorNode['uiType'];
   isRoot?: boolean;
+  canAcceptChildren: boolean;
+  hasChildren: boolean;
+  switchCandidates: string[];
+  selected?: boolean;
 }
+
+const getNodeSize = (uiType: EditorNode['uiType']) => {
+  switch (uiType) {
+    case 'control':
+      return { width: 240, height: 92 };
+    case 'decorator':
+      return { width: 230, height: 86 };
+    case 'subtree':
+      return { width: 250, height: 92 };
+    case 'leaf':
+    default:
+      return { width: 260, height: 96 };
+  }
+};
+
+const getSourceLabel = (node: EditorNode): string => {
+  if (node.source === 'official') {
+    return '官方';
+  }
+  if (node.source === 'robot') {
+    return '机器人模块';
+  }
+  return '未注册';
+};
 
 export function projectTreeToFlow(
   tree: EditorTree,
@@ -22,26 +61,31 @@ export function projectTreeToFlow(
   const edges: FlowEdge[] = [];
 
   const traverse = (node: EditorNode, parentId?: string, isRoot = false) => {
-    // Determine if this node should be visible based on parent's collapsed state
-    // Actually, React Flow can handle hiding nodes if we just filter them out,
-    // but dagre layout needs to know about visibility to layout correctly.
-    
+    const definition = getBtNodeDefinition(node.tagName);
     const display = getBehaviorTreeNodeDisplay(node.tagName, node.attributes);
+    const sourceLabel = getSourceLabel(node);
+    const categoryLabel = getBehaviorTreeNodeCategoryLabel(definition?.category ?? node.nodeKind);
+
     const nodeData: EditorFlowNodeData = {
       editorNodeId: node.id,
       tagName: node.tagName,
       displayLabel: display.label,
       displayDesc: display.desc,
-      attributeSummary: summarizeBehaviorTreeAttributes(node.attributes).join(' · '),
+      attributeSummary: summarizeBehaviorTreeAttributes(node.attributes, node.tagName).join(' · '),
+      categoryLabel,
+      sourceLabel,
       attributes: { ...node.attributes },
       uiType: node.uiType,
-      isRoot
+      isRoot,
+      canAcceptChildren: canNodeAcceptChildren(node),
+      hasChildren: node.children.length > 0,
+      switchCandidates: getCompositeSwitchCandidates(node.tagName).map((entry) => entry.labelZh),
     };
 
     nodes.push({
       id: node.id,
-      type: 'editorNode', // Custom node type for editor
-      position: { x: 0, y: 0 }, // Will be set by layout
+      type: 'editorNode',
+      position: { x: 0, y: 0 },
       data: nodeData,
     });
 
@@ -56,57 +100,40 @@ export function projectTreeToFlow(
     }
 
     if (!collapsedNodeIds.has(node.id)) {
-      node.children.forEach(child => traverse(child, node.id));
+      node.children.forEach((child) => traverse(child, node.id));
     }
   };
 
-  if (tree.rootNode) {
-    traverse(tree.rootNode, undefined, true);
-  }
+  traverse(tree.rootNode, undefined, true);
 
-  // Layout with dagre
-  const dagreGraph = new dagre.graphlib.Graph();
-  dagreGraph.setDefaultEdgeLabel(() => ({}));
-  
-  dagreGraph.setGraph({ 
+  const graph = new dagre.graphlib.Graph();
+  graph.setDefaultEdgeLabel(() => ({}));
+  graph.setGraph({
     rankdir: 'LR',
-    nodesep: 50,
-    ranksep: 100,
-    edgesep: 20,
-    marginx: 20,
-    marginy: 20
+    nodesep: 64,
+    ranksep: 120,
+    edgesep: 18,
+    marginx: 24,
+    marginy: 24,
   });
 
-  const getNodeSize = (uiType: string) => {
-    switch (uiType) {
-      case 'control':
-        return { width: 160, height: 50 };
-      case 'decorator':
-        return { width: 180, height: 50 };
-      case 'subtree':
-      case 'leaf':
-      default:
-        return { width: 220, height: 60 };
-    }
-  };
-
   nodes.forEach((node) => {
-    const { height } = getNodeSize((node.data as unknown as EditorFlowNodeData).uiType);
-    dagreGraph.setNode(node.id, { width: 220, height }); // Fixed width for alignment
+    const nodeSize = getNodeSize((node.data as EditorFlowNodeData).uiType);
+    graph.setNode(node.id, nodeSize);
   });
 
   edges.forEach((edge) => {
-    dagreGraph.setEdge(edge.source, edge.target);
+    graph.setEdge(edge.source, edge.target);
   });
 
-  dagre.layout(dagreGraph);
+  dagre.layout(graph);
 
   nodes.forEach((node) => {
-    const nodeWithPosition = dagreGraph.node(node.id);
-    const { height } = getNodeSize((node.data as unknown as EditorFlowNodeData).uiType);
+    const position = graph.node(node.id);
+    const nodeSize = getNodeSize((node.data as EditorFlowNodeData).uiType);
     node.position = {
-      x: nodeWithPosition.x - 110, // Half of 220
-      y: nodeWithPosition.y - height / 2,
+      x: position.x - nodeSize.width / 2,
+      y: position.y - nodeSize.height / 2,
     };
   });
 

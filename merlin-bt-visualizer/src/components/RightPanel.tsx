@@ -1,6 +1,7 @@
 import { useStore } from '../store/useStore';
 import { Database, Target, MapPin, Activity, ListOrdered, Clock, Trash2 } from 'lucide-react';
 import { TimelineEvent } from '../types';
+import { translateBlackboardKey } from '../utils/btDisplay';
 
 const typeTranslations: Record<string, string> = {
   sequence: '顺序',
@@ -126,7 +127,7 @@ export const RightPanel = () => {
           {blackboard.length > 0 ? blackboard.map((item) => (
             <div key={item.key} className="p-3 bg-white/50 rounded-xl border border-slate-200 hover:border-emerald-300 transition-colors">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-semibold text-slate-700 font-mono">{item.key}</span>
+                <span className="text-sm font-semibold text-slate-700">{translateBlackboardKey(item.key)}</span>
                 <span className="text-xs text-slate-400">
                   {new Date(item.updatedAt).toLocaleTimeString()}
                 </span>
@@ -135,7 +136,7 @@ export const RightPanel = () => {
                 {item.key.includes('target') ? <Target className="w-4 h-4 text-rose-500" /> : <MapPin className="w-4 h-4 text-slate-500" />}
                 <span className="font-bold text-emerald-600">{item.value}</span>
               </div>
-              <div className="text-xs text-slate-500 mt-1">{item.desc}</div>
+              <div className="text-xs text-slate-500">{item.desc}</div>
             </div>
           )) : (
             <div className="h-full flex flex-col items-center justify-center text-slate-400 opacity-60">

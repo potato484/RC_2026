@@ -49,6 +49,14 @@ describe('Editor Parser and Serializer', () => {
     const grabTip = rootNode.children[0];
     expect(grabTip.tagName).toBe("GrabTip");
     expect(grabTip.attributes.name).toBe("grab_tip");
+    expect(rootNode.nodeKind).toBe('control');
+    expect(rootNode.uiType).toBe('control');
+    expect(grabTip.definitionId).toBe('GrabTip');
+    expect(grabTip.nodeKind).toBe('action');
+    expect(grabTip.source).toBe('robot');
+    expect(grabTip.uiType).toBe('leaf');
+    expect(grabTip.portBindings.name.bindingValue).toBe('grab_tip');
+    expect(grabTip.portBindings.timeout_sec).toBeTruthy();
   });
 
   test('should serialize EditorDocument back to XML', () => {

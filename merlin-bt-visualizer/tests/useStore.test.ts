@@ -47,8 +47,13 @@ describe('Viewer store XML refresh', () => {
     useStore.getState().replacePhaseXml('武馆区', updatedXml);
 
     const hasUpdatedRetryDisplay = useStore.getState().nodes.some((node) => {
-      if (node.label.includes('3次') || node.desc.includes('3次')) return true;
-      return node.decorators?.some((decorator) => decorator.label.includes('3次') || decorator.desc.includes('3次')) ?? false;
+      if (node.label.includes('重试次数：3') || node.desc.includes('重试次数：3')) return true;
+      return (
+        node.decorators?.some(
+          (decorator) =>
+            decorator.label.includes('重试次数：3') || decorator.desc.includes('重试次数：3')
+        ) ?? false
+      );
     });
 
     expect(getBehaviorTreeXmlForPhase('武馆区')).toContain('num_attempts="3"');

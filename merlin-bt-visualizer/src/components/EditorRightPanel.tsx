@@ -1,277 +1,398 @@
+import { useEffect, useMemo, useState } from 'react';
+import { CornerDownRight, Database, GitBranch, Info, Layers3, Plus, Trash2 } from 'lucide-react';
 import { useEditorStore } from '../store/useEditorStore';
-import { Settings, Plus, X, Trash2, CornerDownRight } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { EditorNode } from '../types/editor';
+import { BtPortSchema } from '../generated/btNodeRegistry';
 import {
   getBehaviorTreeAttributeDisplays,
   getBehaviorTreeNodeCategoryLabel,
-  getBehaviorTreeNodeDisplay
+  getBehaviorTreeNodeDisplay,
+  getBehaviorTreeTreeName,
+  translateBlackboardKey,
 } from '../utils/btDisplay';
 import { buildEditorTreePreview } from '../utils/editorTreeView';
+import { formatPortBindingValue, getBtNodeDefinition, getBtNodeRegistry } from '../utils/btRegistry';
 
-export const EditorRightPanel = () => {
-  const { 
-    selectedNodeId, 
-    document, 
-    activeTreeId,
-    updateNodeAttributes,
-    addChildNode,
-    deleteNode,
-  } = useEditorStore();
-
-  const [attributes, setAttributes] = useState<Record<string, string>>({});
-  const [newKey, setNewKey] = useState('');
-  const [newValue, setNewValue] = useState('');
-  const [newChildTag, setNewChildTag] = useState('');
-  const [activeTab, setActiveTab] = useState<'props' | 'preview'>('props');
-  const [editingAttributeKey, setEditingAttributeKey] = useState<string | null>(null);
-
-  // Find selected node to display properties
-  let selectedNode = null;
-  const activeTree = activeTreeId && document ? document.trees.find(t => t.id === activeTreeId) : null;
-  if (selectedNodeId && document && activeTreeId) {
-    const findNodeById = (node: any, id: string): any => {
-      if (node.id === id) return node;
-      for (const child of node.children) {
-        const found = findNodeById(child, id);
-        if (found) return found;
-      }
-      return null;
-    };
-
-    if (activeTree) {
-      selectedNode = findNodeById(activeTree.rootNode, selectedNodeId);
+const findNodeById = (node: EditorNode, nodeId: string): EditorNode | null => {
+  if (node.id === nodeId) {
+    return node;
+  }
+  for (const child of node.children) {
+    const found = findNodeById(child, nodeId);
+    if (found) {
+      return found;
     }
   }
+  return null;
+};
 
-  // Load attributes when selected node changes
+const bindingModeOptions = [
+  { value: 'literal', label: '固定值' },
+  { value: 'blackboard', label: '黑板' },
+  { value: 'root_blackboard', label: '根黑板' },
+] as const;
+
+export const EditorRightPanel = () => {
+  const {
+    selectedNodeId,
+    document,
+    activeTreeId,
+    updateSingleAttribute,
+    deleteNode,
+    exportXml,
+    insertNode,
+    replaceNodeType,
+  } = useEditorStore();
+
+  const [activeTab, setActiveTab] = useState<'info' | 'preview' | 'source'>('info');
+  const [insertPosition, setInsertPosition] = useState<'before' | 'after' | 'prepend_child' | 'append_child'>('append_child');
+  const [insertTagName, setInsertTagName] = useState('Sequence');
+  const [wrapTagName, setWrapTagName] = useState('Inverter');
+  const [newKey, setNewKey] = useState('');
+  const [newValue, setNewValue] = useState('');
+
+  const activeTree = useMemo(
+    () => (activeTreeId && document ? document.trees.find((tree) => tree.id === activeTreeId) ?? null : null),
+    [activeTreeId, document]
+  );
+
+  const selectedNode = useMemo(() => {
+    if (!activeTree || !selectedNodeId) {
+      return null;
+    }
+    return findNodeById(activeTree.rootNode, selectedNodeId);
+  }, [activeTree, selectedNodeId]);
+
   useEffect(() => {
-    if (selectedNode) {
-      setAttributes({ ...selectedNode.attributes });
-    } else {
-      setAttributes({});
-    }
     setNewKey('');
     setNewValue('');
-    setNewChildTag('');
-    setEditingAttributeKey(null);
-  }, [selectedNode?.id]);
+  }, [selectedNodeId]);
 
-  const handleAttrChange = (key: string, value: string) => {
-    setAttributes(prev => ({ ...prev, [key]: value }));
-  };
-
-  const handleRemoveAttr = (key: string) => {
-    const newAttrs = { ...attributes };
-    delete newAttrs[key];
-    setAttributes(newAttrs);
-    if (selectedNodeId) {
-      updateNodeAttributes(selectedNodeId, newAttrs);
-    }
-  };
-
-  const handleAddAttr = () => {
-    if (!newKey.trim()) return;
-    const newAttrs = { ...attributes, [newKey]: newValue };
-    setAttributes(newAttrs);
-    setNewKey('');
-    setNewValue('');
-    if (selectedNodeId) {
-      updateNodeAttributes(selectedNodeId, newAttrs);
-    }
-  };
-
-  const handleSaveAttrs = () => {
-    if (selectedNodeId) {
-      updateNodeAttributes(selectedNodeId, attributes);
-    }
-  };
-
-  const handleAddChild = () => {
-    if (!newChildTag.trim() || !selectedNodeId) return;
-    addChildNode(selectedNodeId, newChildTag.trim());
-    setNewChildTag('');
-  };
-
-  const handleDeleteNode = () => {
-    if (selectedNodeId) {
-      deleteNode(selectedNodeId);
-    }
-  };
-
-  const selectedNodeDisplay = selectedNode
-    ? getBehaviorTreeNodeDisplay(selectedNode.tagName, selectedNode.attributes)
-    : null;
-  const selectedNodeAttributes = getBehaviorTreeAttributeDisplays(attributes);
+  const registry = useMemo(() => getBtNodeRegistry(), []);
+  const selectedNodeDisplay = selectedNode ? getBehaviorTreeNodeDisplay(selectedNode.tagName, selectedNode.attributes) : null;
+  const selectedDefinition = selectedNode ? getBtNodeDefinition(selectedNode.tagName) : undefined;
+  const sourcePreview = exportXml() ?? '当前没有可导出的源文件内容';
   const currentStructurePreview = document ? buildEditorTreePreview(document, activeTreeId) : '当前没有可预览的结构';
+  const attributeDisplays = selectedNode ? getBehaviorTreeAttributeDisplays(selectedNode.attributes, selectedNode.tagName) : [];
 
-  return (
-    <div className="w-[380px] h-full flex flex-col gap-4 ml-4">
-      <div className="glass-panel p-4 flex-1 flex flex-col" data-testid="editor-right-panel">
-        {/* Tabs */}
-        <div className="flex items-center gap-2 mb-4 pb-2 border-b border-slate-200">
-          <button 
-            onClick={() => setActiveTab('props')}
-            data-testid="editor-tab-props"
-            className={`flex-1 py-2 text-sm font-bold transition-colors border-b-2 ${activeTab === 'props' ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-          >
-            节点信息
-          </button>
-          <button 
-            onClick={() => setActiveTab('preview')}
-            data-testid="editor-tab-preview"
-            className={`flex-1 py-2 text-sm font-bold transition-colors border-b-2 ${activeTab === 'preview' ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-          >
-            结构预览
-          </button>
+  const extraAttributes = attributeDisplays.filter(
+    (attribute) => !selectedDefinition?.portSchemas.some((port) => port.name === attribute.rawKey)
+  );
+
+  const renderPortField = (port: BtPortSchema) => {
+    if (!selectedNode) {
+      return null;
+    }
+    const binding = selectedNode.portBindings[port.name];
+    const currentMode = binding?.mode ?? (port.direction === 'output' ? 'blackboard' : 'literal');
+    const currentValue = binding?.bindingValue ?? port.defaultValue ?? '';
+
+    return (
+      <div key={port.name} className="rounded-2xl border border-slate-200 bg-white/80 p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-slate-800">{port.labelZh}</div>
+            <div className="mt-1 text-xs leading-5 text-slate-500">{port.descriptionZh}</div>
+          </div>
+          <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-500">
+            {port.direction === 'input' ? '输入' : port.direction === 'output' ? '输出' : '双向'}
+          </span>
         </div>
 
-        {activeTab === 'preview' ? (
-          <div data-testid="editor-structure-preview" className="flex-1 overflow-y-auto custom-scrollbar bg-slate-800 rounded-xl p-4 text-slate-300 font-mono text-xs whitespace-pre">
+        <div className="mt-3 flex gap-2">
+          <select
+            value={currentMode}
+            onChange={(event) =>
+              updateSingleAttribute(
+                selectedNode.id,
+                port.name,
+                formatPortBindingValue(event.target.value as 'literal' | 'blackboard' | 'root_blackboard', currentValue)
+              )
+            }
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
+          >
+            {bindingModeOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <input
+            value={currentValue}
+            onChange={(event) =>
+              updateSingleAttribute(
+                selectedNode.id,
+                port.name,
+                formatPortBindingValue(currentMode, event.target.value)
+              )
+            }
+            placeholder={port.defaultValue ? `默认值：${port.defaultValue}` : '请输入参数或黑板键'}
+            className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-400"
+          />
+        </div>
+
+        {currentMode !== 'literal' && currentValue && (
+          <div className="mt-2 text-xs text-emerald-700">
+            当前绑定：{currentMode === 'root_blackboard' ? '根黑板' : '黑板'} {translateBlackboardKey(currentValue)}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const handleAddAttribute = () => {
+    if (!selectedNode || !newKey.trim()) {
+      return;
+    }
+    updateSingleAttribute(selectedNode.id, newKey.trim(), newValue);
+    setNewKey('');
+    setNewValue('');
+  };
+
+  return (
+    <div className="ml-4 flex h-full w-[420px] flex-col gap-4">
+      <div className="glass-panel flex min-h-0 flex-1 flex-col p-4" data-testid="editor-right-panel">
+        <div className="mb-4 flex items-center gap-2 border-b border-slate-200 pb-2">
+          {[
+            { id: 'info', label: '节点信息' },
+            { id: 'preview', label: '结构预览' },
+            { id: 'source', label: '源文件预览' },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id as 'info' | 'preview' | 'source')}
+              data-testid={tab.id === 'preview' ? 'editor-tab-preview' : undefined}
+              className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition-colors ${
+                activeTab === tab.id ? 'bg-sky-100 text-sky-700' : 'text-slate-500 hover:bg-slate-100'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === 'preview' && (
+          <div data-testid="editor-structure-preview" className="min-h-0 flex-1 overflow-y-auto rounded-2xl bg-slate-900 p-4 font-mono text-xs leading-6 text-slate-200">
             {currentStructurePreview}
           </div>
-        ) : (
+        )}
+
+        {activeTab === 'source' && (
+          <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl bg-slate-950 p-4 font-mono text-xs leading-6 text-slate-200">
+            {sourcePreview}
+          </div>
+        )}
+
+        {activeTab === 'info' && (
           <>
             {!selectedNode ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
-                <Settings className="w-12 h-12 mb-4 opacity-50" />
-                <p>请在画布中选中一个节点以编辑属性</p>
+              <div className="flex flex-1 flex-col items-center justify-center text-slate-400">
+                <Info className="mb-3 h-12 w-12 opacity-60" />
+                <p>请在画布中选中一个节点以编辑</p>
               </div>
             ) : (
-              <>
-                <div className="flex items-center justify-between mb-4 pb-4 border-b border-slate-200">
-                  <div className="flex flex-col gap-1">
-                    <h3 className="text-lg font-bold flex items-center gap-2 text-slate-800">
-                      <Settings className="w-5 h-5 text-blue-500" />
-                      {selectedNodeDisplay?.label || '编辑节点'}
-                    </h3>
-                    <span className="text-xs bg-slate-100 text-slate-500 px-2 py-1 rounded truncate max-w-[200px]">
-                      {getBehaviorTreeNodeCategoryLabel(selectedNode.uiType)}
-                    </span>
-                  </div>
-                  <button 
-                    onClick={handleDeleteNode}
-                    className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
-                    title="删除节点"
-                  >
-                    <Trash2 className="w-5 h-5" />
-                  </button>
-                </div>
-
-                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                  {selectedNodeDisplay?.desc && (
-                    <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                      <div className="text-xs font-semibold text-slate-500 mb-1">节点说明</div>
-                      <div className="text-sm text-slate-700">{selectedNodeDisplay.desc}</div>
-                    </div>
-                  )}
-
-                  <div className="mb-4 text-xs text-slate-400">
-                    默认使用中文解释显示属性和值；只有展开某项的原始值输入后，才会看到底层源文件内容。
-                  </div>
-
-                  <div className="space-y-4">
-                    {selectedNodeAttributes.map((attribute) => (
-                      <div key={attribute.rawKey} className="flex flex-col gap-2 p-3 bg-white/50 rounded-lg border border-slate-200">
-                        <div className="flex items-center justify-between">
-                          <label className="text-sm font-semibold text-slate-700">{attribute.label}</label>
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => setEditingAttributeKey((current) => current === attribute.rawKey ? null : attribute.rawKey)}
-                              className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-md transition-colors"
-                            >
-                              {editingAttributeKey === attribute.rawKey ? '收起原值' : '修改原值'}
-                            </button>
-                            <button 
-                              onClick={() => handleRemoveAttr(attribute.rawKey)}
-                              className="text-slate-400 hover:text-red-500 transition-colors"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="text-sm font-medium text-slate-800 break-all">
-                          {attribute.value}
-                        </div>
-
-                        {editingAttributeKey === attribute.rawKey && (
-                          <input
-                            type="text"
-                            value={attribute.rawValue}
-                            onChange={(e) => handleAttrChange(attribute.rawKey, e.target.value)}
-                            onBlur={handleSaveAttrs}
-                            className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
-                          />
+              <div className="min-h-0 flex flex-1 flex-col">
+                <div className="mb-4 rounded-2xl border border-slate-200 bg-white/80 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-800">{selectedNodeDisplay?.label}</h3>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                        <span className="rounded-full bg-sky-100 px-2 py-1 font-semibold text-sky-700">
+                          {getBehaviorTreeNodeCategoryLabel(selectedNode.nodeKind)}
+                        </span>
+                        <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-500">
+                          {selectedNode.source === 'official' ? '官方节点' : selectedNode.source === 'robot' ? '机器人模块' : '未注册节点'}
+                        </span>
+                        {activeTree && (
+                          <span className="rounded-full bg-violet-100 px-2 py-1 font-semibold text-violet-700">
+                            {getBehaviorTreeTreeName(activeTree.id, activeTree.name)}
+                          </span>
                         )}
                       </div>
-                    ))}
+                    </div>
 
-                    {Object.keys(attributes).length === 0 && (
-                      <div className="text-sm text-center text-slate-400 py-4 border border-dashed border-slate-200 rounded-lg">
-                        该节点暂无属性
-                      </div>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => deleteNode(selectedNode.id)}
+                      className="rounded-xl p-2 text-rose-500 transition-colors hover:bg-rose-50"
+                      title="删除节点"
+                    >
+                      <Trash2 className="h-5 w-5" />
+                    </button>
                   </div>
+
+                  <p className="mt-3 text-sm leading-6 text-slate-600">{selectedNodeDisplay?.desc}</p>
                 </div>
 
-                <div className="mt-4 pt-4 border-t border-slate-200 flex flex-col gap-4">
-                  <div>
-                    <h4 className="text-sm font-semibold text-slate-700 mb-2">添加新属性</h4>
-                    <div className="flex flex-col gap-2">
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  {selectedDefinition && selectedDefinition.portSchemas.length > 0 && (
+                    <section className="mb-4">
+                      <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
+                        <Database className="h-4 w-4 text-emerald-600" />
+                        端口与参数
+                      </div>
+                      <div className="space-y-3">{selectedDefinition.portSchemas.map(renderPortField)}</div>
+                    </section>
+                  )}
+
+                  {extraAttributes.length > 0 && (
+                    <section className="mb-4">
+                      <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
+                        <Plus className="h-4 w-4 text-slate-500" />
+                        附加属性
+                      </div>
+                      <div className="space-y-2">
+                        {extraAttributes.map((attribute) => (
+                          <div key={attribute.rawKey} className="rounded-2xl border border-slate-200 bg-white/80 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-sm font-semibold text-slate-700">{attribute.label}</div>
+                              <button
+                                type="button"
+                                onClick={() => updateSingleAttribute(selectedNode.id, attribute.rawKey, '')}
+                                className="rounded-lg px-2 py-1 text-xs font-semibold text-rose-500 transition-colors hover:bg-rose-50"
+                              >
+                                移除
+                              </button>
+                            </div>
+                            <input
+                              value={attribute.rawValue}
+                              onChange={(event) => updateSingleAttribute(selectedNode.id, attribute.rawKey, event.target.value)}
+                              className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  <section className="mb-4">
+                    <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
+                      <Plus className="h-4 w-4 text-slate-500" />
+                      添加附加属性
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white/80 p-3">
                       <div className="flex gap-2">
                         <input
-                          type="text"
+                          value={newKey}
+                          onChange={(event) => setNewKey(event.target.value)}
                           placeholder="新属性键名"
                           data-testid="new-attribute-key"
-                          value={newKey}
-                          onChange={(e) => setNewKey(e.target.value)}
-                          className="flex-1 min-w-0 px-3 py-1.5 bg-white border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                          className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
                         />
                         <input
-                          type="text"
+                          value={newValue}
+                          onChange={(event) => setNewValue(event.target.value)}
                           placeholder="新属性值"
                           data-testid="new-attribute-value"
-                          value={newValue}
-                          onChange={(e) => setNewValue(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && handleAddAttr()}
-                          className="flex-1 min-w-0 px-3 py-1.5 bg-white border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                          className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
                         />
                       </div>
                       <button
-                        onClick={handleAddAttr}
-                        disabled={!newKey.trim()}
+                        type="button"
+                        onClick={handleAddAttribute}
                         data-testid="add-attribute-button"
-                        className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="mt-3 w-full rounded-xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
                       >
-                        <Plus className="w-4 h-4" />
                         添加属性
                       </button>
                     </div>
-                  </div>
-                  
-                  <div className="pt-4 border-t border-slate-100">
-                    <h4 className="text-sm font-semibold text-slate-700 mb-2">添加子节点</h4>
-                    <div className="flex flex-col gap-2">
-                      <input
-                        type="text"
-                        placeholder="请输入子节点类型"
-                        value={newChildTag}
-                        onChange={(e) => setNewChildTag(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleAddChild()}
-                        className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                      />
-                      <button
-                        onClick={handleAddChild}
-                        disabled={!newChildTag.trim()}
-                        className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                  </section>
+
+                  <section className="mb-4">
+                    <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
+                      <GitBranch className="h-4 w-4 text-sky-600" />
+                      复合节点切换
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {['Sequence', 'SequenceWithMemory', 'ReactiveSequence', 'Fallback', 'ReactiveFallback', 'Parallel', 'ParallelAll'].map((tag) => {
+                        const definition = getBtNodeDefinition(tag);
+                        if (!definition || selectedNode.tagName === tag) {
+                          return null;
+                        }
+                        return (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => replaceNodeType(selectedNode.id, tag)}
+                            className="rounded-xl bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-100"
+                          >
+                            {definition.labelZh}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+
+                  <section className="mb-4">
+                    <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
+                      <Layers3 className="h-4 w-4 text-violet-600" />
+                      结构操作
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white/80 p-3">
+                      <label className="mb-2 block text-xs font-semibold text-slate-500">插入位置</label>
+                      <select
+                        value={insertPosition}
+                        onChange={(event) =>
+                          setInsertPosition(event.target.value as 'before' | 'after' | 'prepend_child' | 'append_child')
+                        }
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
                       >
-                        <CornerDownRight className="w-4 h-4" />
-                        添加子节点
+                        <option value="before">在当前节点前插入</option>
+                        <option value="after">在当前节点后插入</option>
+                        <option value="prepend_child">作为首个子节点插入</option>
+                        <option value="append_child">作为末尾子节点插入</option>
+                      </select>
+
+                      <label className="mb-2 mt-3 block text-xs font-semibold text-slate-500">节点模板</label>
+                      <select
+                        value={insertTagName}
+                        onChange={(event) => setInsertTagName(event.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
+                      >
+                        {registry.map((entry) => (
+                          <option key={entry.tagName} value={entry.tagName}>
+                            {entry.labelZh}
+                          </option>
+                        ))}
+                      </select>
+
+                      <button
+                        type="button"
+                        onClick={() => insertNode(selectedNode.id, insertPosition, insertTagName)}
+                        className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-700"
+                      >
+                        <CornerDownRight className="h-4 w-4" />
+                        执行插入
+                      </button>
+
+                      <label className="mb-2 mt-4 block text-xs font-semibold text-slate-500">包裹模板</label>
+                      <select
+                        value={wrapTagName}
+                        onChange={(event) => setWrapTagName(event.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
+                      >
+                        {['Inverter', 'RetryUntilSuccessful', 'Delay', 'ForceSuccess', 'ForceFailure', 'Sequence', 'Fallback', 'Parallel'].map((tag) => {
+                          const definition = getBtNodeDefinition(tag);
+                          return definition ? (
+                            <option key={tag} value={tag}>
+                              {definition.labelZh}
+                            </option>
+                          ) : null;
+                        })}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => insertNode(selectedNode.id, 'wrap', wrapTagName)}
+                        className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-violet-700"
+                      >
+                        <GitBranch className="h-4 w-4" />
+                        执行包裹
                       </button>
                     </div>
-                  </div>
+                  </section>
                 </div>
-              </>
+              </div>
             )}
           </>
         )}
