@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 
+import { UI_LABELS } from './labels';
 import type {
   Algorithm,
   GoalKind,
@@ -100,7 +101,7 @@ export const useSimStore = create<SimState>((set) => ({
   currentFrame: null,
   runSummary: null,
   liveEvent: null,
-  statusMessage: '等待加载场景',
+  statusMessage: UI_LABELS.statusWaiting,
   setTeam: (team) => set({ team }),
   setAlgorithm: (algorithm) => set({ algorithm }),
   setMode: (mode) => set({ mode }),
@@ -123,7 +124,7 @@ export const useSimStore = create<SimState>((set) => ({
         loadingScene: false,
         startNode: state.startNode || scene.defaults.startNode,
         goalValue: state.goalValue || goalValue,
-        statusMessage: '场景已加载',
+        statusMessage: UI_LABELS.statusLoaded,
       };
     }),
   setStartNode: (startNode) => set({ startNode }),
@@ -144,7 +145,7 @@ export const useSimStore = create<SimState>((set) => ({
       frameCount: meta.frameCount,
       cursor: meta.cursor,
       runSummary: meta.summary,
-      statusMessage: `运行已创建: ${runId.slice(0, 8)}`,
+      statusMessage: `手动离线运行已创建: ${runId.slice(0, 8)}，可播放回放`,
     }),
   setRunFrame: ({ state, cursor, frameCount, summary, frame }) =>
     set((store) => ({

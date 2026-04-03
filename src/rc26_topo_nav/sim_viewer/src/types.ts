@@ -2,7 +2,8 @@ export type Team = 'blue' | 'red';
 export type Algorithm = 'astar' | 'rrt' | 'dwa';
 export type RunMode = 'offline-sim' | 'live-ros';
 export type GoalKind = 'node' | 'task' | 'route';
-export type ViewMode = 'orbit' | 'follow' | 'first_person' | 'top_ortho' | 'side_ortho';
+export type PickMode = 'idle' | 'start' | 'goal';
+export type ViewMode = 'orbit' | 'follow' | 'first_person' | 'top_ortho' | 'side_ortho' | 'side_perspective';
 
 export interface Pose3 {
   x: number;

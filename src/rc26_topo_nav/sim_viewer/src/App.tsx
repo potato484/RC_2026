@@ -1,10 +1,21 @@
-import { startTransition, useEffect, useMemo, useRef } from 'react';
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 
 import { createRun, controlRun, fetchSceneManifest, mapGoalPayload, openLiveSocket, openRunSocket, startLive } from './api';
 import { SceneCanvas } from './components/SceneCanvas';
 import { useSimStore } from './store';
-import type { GoalKind, GraphNode, RunFrameMessage, RunMetaMessage, Team } from './types';
+import { 
+  UI_LABELS, 
+  TEAM_LABELS, 
+  GOAL_KIND_LABELS, 
+  RUN_MODE_LABELS, 
+  ALGORITHM_LABELS,
+  VIEW_MODE_LABELS,
+  LAYER_LABELS,
+  NODE_TYPE_LABELS,
+  withRawLabel 
+} from './labels';
+import type { GoalKind, GraphNode, PickMode, RunFrameMessage, RunMetaMessage, Team, ViewMode } from './types';
 
 function nodeById(nodes: GraphNode[], nodeId: string): GraphNode | undefined {
   return nodes.find((node) => node.id === nodeId);
@@ -15,6 +26,13 @@ function parseBlockedNodes(value: string): string[] {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function nodeDisplayLabel(node: GraphNode | null | undefined): string {
+  if (!node) {
+    return 'N/A';
+  }
+  return `${node.id} · ${NODE_TYPE_LABELS[node.type] || node.type}`;
 }
 
 function GoalSelector({
@@ -40,7 +58,10 @@ function GoalSelector({
     if (goalKind === 'route') {
       return scene.routes.map((route) => ({ value: route.route_tag, label: route.route_tag }));
     }
-    return scene.graphNodes.map((node) => ({ value: node.id, label: `${node.id} · ${node.type}` }));
+    return scene.graphNodes.map((node) => ({ 
+      value: node.id, 
+      label: `${node.id} · ${NODE_TYPE_LABELS[node.type] || node.type}` 
+    }));
   }, [goalKind, scene]);
 
   useEffect(() => {
@@ -63,16 +84,16 @@ function GoalSelector({
   return (
     <>
       <label className="field-label" htmlFor="goal-kind">
-        目标类型
+        {UI_LABELS.fieldGoalKind}
       </label>
       <select id="goal-kind" className="field-input" value={goalKind} onChange={(event) => setGoalKind(event.target.value as GoalKind)}>
-        <option value="node">导航点</option>
-        <option value="task">任务</option>
-        <option value="route">预设路线</option>
+        {Object.entries(GOAL_KIND_LABELS).map(([key, label]) => (
+          <option key={key} value={key}>{label}</option>
+        ))}
       </select>
 
       <label className="field-label" htmlFor="goal-value">
-        目标值
+        {UI_LABELS.fieldGoalValue}
       </label>
       <select id="goal-value" className="field-input" value={goalValue} onChange={(event) => setGoalValue(event.target.value)}>
         {goalOptions.map((option) => (
@@ -107,6 +128,7 @@ export default function App() {
   const runSummary = useSimStore((state) => state.runSummary);
   const liveEvent = useSimStore((state) => state.liveEvent);
   const statusMessage = useSimStore((state) => state.statusMessage);
+  
   const setTeam = useSimStore((state) => state.setTeam);
   const setAlgorithm = useSimStore((state) => state.setAlgorithm);
   const setMode = useSimStore((state) => state.setMode);
@@ -128,25 +150,23 @@ export default function App() {
 
   const runSocketRef = useRef<WebSocket | null>(null);
   const liveSocketRef = useRef<WebSocket | null>(null);
+  const [pickMode, setPickMode] = useState<PickMode>('idle');
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
     setSceneLoading(true);
     fetchSceneManifest(team)
       .then((manifest) => {
-        if (!active) {
-          return;
-        }
+        if (!active) return;
         startTransition(() => {
           setScene(manifest);
         });
       })
       .catch((error) => {
-        if (!active) {
-          return;
-        }
+        if (!active) return;
         setSceneLoading(false);
-        setStatusMessage(`场景加载失败: ${String(error)}`);
+        setStatusMessage(`${UI_LABELS.statusError}: ${String(error)}`);
       });
     return () => {
       active = false;
@@ -160,19 +180,98 @@ export default function App() {
     };
   }, []);
 
-  const startPose = scene ? nodeById(scene.graphNodes, startNode)?.pose ?? null : null;
+  useEffect(() => {
+    setPickMode('idle');
+    setHoveredNodeId(null);
+  }, [team, mode]);
+
+  useEffect(() => {
+    if (pickMode === 'idle') {
+      setHoveredNodeId(null);
+    }
+  }, [pickMode]);
+
+  const startNodeData = scene ? nodeById(scene.graphNodes, startNode) ?? null : null;
+  const goalNodeData = scene && goalKind === 'node' ? nodeById(scene.graphNodes, goalValue) ?? null : null;
+  const hoveredNodeData = scene && hoveredNodeId ? nodeById(scene.graphNodes, hoveredNodeId) ?? null : null;
+  const startPose = startNodeData?.pose ?? null;
   const goalPose =
     scene && goalKind === 'node'
-      ? nodeById(scene.graphNodes, goalValue)?.pose ?? null
+      ? goalNodeData?.pose ?? null
       : (currentFrame && currentFrame.bestPath.points.length > 0
           ? currentFrame.bestPath.points[currentFrame.bestPath.points.length - 1]
           : null);
+  const hoverPose = hoveredNodeData?.pose ?? null;
 
-  async function handleCreateRun() {
-    if (!scene) {
+  const manualRunHint = mode === 'offline-sim' ? UI_LABELS.hintManualRunOnly : UI_LABELS.hintLiveReadonly;
+  const pickHint =
+    mode !== 'offline-sim'
+      ? UI_LABELS.hintLiveReadonly
+      : pickMode === 'start'
+        ? UI_LABELS.hintPickStart
+        : pickMode === 'goal'
+          ? UI_LABELS.hintPickGoal
+          : UI_LABELS.hintPickIdle;
+  const frameTitle =
+    currentFrame?.label ??
+    (runId ? UI_LABELS.hintFrameRunReady : UI_LABELS.hintFrameIdle);
+  const frameMetrics = Object.entries(currentFrame?.metrics ?? {});
+  const summaryEntries = Object.entries(runSummary ?? {});
+
+  function restoreManualStatus() {
+    setStatusMessage(runId ? UI_LABELS.hintFrameRunReady : UI_LABELS.statusLoaded);
+  }
+
+  function handlePickModeChange(nextMode: Exclude<PickMode, 'idle'>) {
+    if (!scene || mode !== 'offline-sim') {
       return;
     }
+    if (nextMode === 'goal' && goalKind !== 'node') {
+      setGoalKind('node');
+    }
+    setPickMode(nextMode);
+    setHoveredNodeId(null);
+    setStatusMessage(nextMode === 'start' ? UI_LABELS.hintPickStart : UI_LABELS.hintPickGoal);
+  }
+
+  function handleCancelPick() {
+    setPickMode('idle');
+    restoreManualStatus();
+  }
+
+  function handleHoverNodeChange(nodeId: string | null) {
+    setHoveredNodeId(nodeId);
+  }
+
+  function handleScenePick(nodeId: string) {
+    if (!scene || pickMode === 'idle') {
+      return;
+    }
+
+    const pickedNode = nodeById(scene.graphNodes, nodeId);
+    if (!pickedNode) {
+      return;
+    }
+
+    if (pickMode === 'start') {
+      setStartNode(nodeId);
+      setStatusMessage(`起点已吸附到 ${nodeDisplayLabel(pickedNode)}，可直接生成离线运行`);
+    } else {
+      if (goalKind !== 'node') {
+        setGoalKind('node');
+      }
+      setGoalValue(nodeId);
+      setStatusMessage(`目标已吸附到 ${nodeDisplayLabel(pickedNode)}，可直接生成离线运行`);
+    }
+
+    setPickMode('idle');
+  }
+
+  async function handleCreateRun() {
+    if (!scene) return;
     runSocketRef.current?.close();
+    setPickMode('idle');
+    setHoveredNodeId(null);
     resetRun();
     const blockedNodes = parseBlockedNodes(blockedNodeText);
     try {
@@ -209,9 +308,7 @@ export default function App() {
   }
 
   async function handleRunControl(action: 'play' | 'pause' | 'step' | 'reset') {
-    if (!runId) {
-      return;
-    }
+    if (!runId) return;
     try {
       await controlRun(runId, action, undefined, animationSpeed);
     } catch (error) {
@@ -221,6 +318,8 @@ export default function App() {
 
   async function handleLiveStart() {
     liveSocketRef.current?.close();
+    setPickMode('idle');
+    setHoveredNodeId(null);
     try {
       await startLive();
       liveSocketRef.current = openLiveSocket({
@@ -234,27 +333,21 @@ export default function App() {
   }
 
   const layerKeys = Object.keys(layers) as Array<keyof typeof layers>;
-  const viewModes: Array<{ id: typeof viewMode; label: string }> = [
-    { id: 'orbit', label: 'Orbit' },
-    { id: 'follow', label: 'Follow' },
-    { id: 'first_person', label: 'First Person' },
-    { id: 'top_ortho', label: 'Top Ortho' },
-    { id: 'side_ortho', label: 'Side Ortho' },
-  ];
+  const viewModes: ViewMode[] = ['orbit', 'follow', 'first_person', 'top_ortho', 'side_perspective'];
+
+  const hasError = statusMessage.includes('失败') || statusMessage.includes('error');
+  const isRunning = runState === 'playing';
 
   return (
     <div className="app-shell">
-      <div className="background-glow background-glow-left" />
-      <div className="background-glow background-glow-right" />
-
       <header className="topbar">
         <div>
           <p className="eyebrow">RC26 TOPO NAV</p>
-          <h1 className="title">Path Planning 3D Simulator</h1>
-          <p className="subtitle">完整 mesh 场地、真实路径颜色层、轨道相机与 A* / RRT / DWA 仿真共用一套 WebGL 观察面。</p>
+          <h1 className="title">{UI_LABELS.appTitle}</h1>
+          <p className="subtitle">{UI_LABELS.appSubtitle}</p>
         </div>
         <div className="status-pill">
-          <span className="status-dot" />
+          <span className={clsx("status-dot", hasError && "error", isRunning && "warning")} />
           {statusMessage}
         </div>
       </header>
@@ -262,48 +355,40 @@ export default function App() {
       <main className="workspace-grid">
         <aside className="panel panel-left">
           <section className="panel-section">
-            <h2>运行配置</h2>
-            <label className="field-label" htmlFor="team-select">
-              阵营
-            </label>
+            <h2>{UI_LABELS.panelConfig}</h2>
+            <label className="field-label" htmlFor="team-select">{UI_LABELS.fieldTeam}</label>
             <select id="team-select" className="field-input" value={team} onChange={(event) => setTeam(event.target.value as Team)}>
-              <option value="blue">Blue</option>
-              <option value="red">Red</option>
+              {Object.entries(TEAM_LABELS).map(([key, label]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
             </select>
 
-            <label className="field-label" htmlFor="mode-select">
-              模式
-            </label>
+            <label className="field-label" htmlFor="mode-select">{UI_LABELS.fieldMode}</label>
             <select id="mode-select" className="field-input" value={mode} onChange={(event) => setMode(event.target.value as typeof mode)}>
-              <option value="offline-sim">Offline Simulation</option>
-              <option value="live-ros">Live ROS</option>
+              {Object.entries(RUN_MODE_LABELS).map(([key, label]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
             </select>
 
-            <label className="field-label" htmlFor="algorithm-select">
-              算法
-            </label>
+            <label className="field-label" htmlFor="algorithm-select">{UI_LABELS.fieldAlgo}</label>
             <select id="algorithm-select" className="field-input" value={algorithm} onChange={(event) => setAlgorithm(event.target.value as typeof algorithm)}>
-              <option value="astar">A* / Runtime Trace</option>
-              <option value="rrt">RRT</option>
-              <option value="dwa">Holonomic DWA</option>
+              {Object.entries(ALGORITHM_LABELS).map(([key, label]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
             </select>
 
-            <label className="field-label" htmlFor="start-node">
-              起点节点
-            </label>
+            <label className="field-label" htmlFor="start-node">{UI_LABELS.fieldStart}</label>
             <select id="start-node" className="field-input" value={startNode} onChange={(event) => setStartNode(event.target.value)}>
               {scene?.graphNodes.map((node) => (
                 <option key={node.id} value={node.id}>
-                  {node.id} · {node.type}
+                  {node.id} · {NODE_TYPE_LABELS[node.type] || node.type}
                 </option>
               ))}
             </select>
 
             <GoalSelector goalKind={goalKind} goalValue={goalValue} setGoalKind={setGoalKind} setGoalValue={setGoalValue} />
 
-            <label className="field-label" htmlFor="blocked-nodes">
-              阻塞节点
-            </label>
+            <label className="field-label" htmlFor="blocked-nodes">{UI_LABELS.fieldBlocked}</label>
             <input
               id="blocked-nodes"
               className="field-input"
@@ -314,12 +399,10 @@ export default function App() {
 
             <label className="toggle-row">
               <input type="checkbox" checked={strictRuntime} onChange={(event) => setStrictRuntime(event.target.checked)} />
-              <span>A* 复用运行时真逻辑</span>
+              <span>{UI_LABELS.fieldStrict}</span>
             </label>
 
-            <label className="field-label" htmlFor="speed">
-              播放倍率
-            </label>
+            <label className="field-label" htmlFor="speed">{UI_LABELS.fieldSpeed}</label>
             <input
               id="speed"
               className="range-input"
@@ -332,39 +415,85 @@ export default function App() {
             />
             <div className="range-readout">{animationSpeed.toFixed(1)}x</div>
 
-            <div className="button-row">
-              <button className="primary-button" type="button" onClick={handleCreateRun} disabled={!scene || loadingScene || mode !== 'offline-sim'}>
-                生成离线 run
+            <div className="button-row" style={{ marginTop: 16 }}>
+              <button className="primary-button" type="button" onClick={handleCreateRun} disabled={!scene || loadingScene || mode !== 'offline-sim'} style={{ flex: 1 }}>
+                {UI_LABELS.btnGenerateRun}
               </button>
-              <button className="secondary-button" type="button" onClick={handleLiveStart} disabled={mode !== 'live-ros'}>
-                启动实时桥接
+              <button className="secondary-button" type="button" onClick={handleLiveStart} disabled={mode !== 'live-ros'} style={{ flex: 1 }}>
+                {UI_LABELS.btnStartLive}
+              </button>
+            </div>
+            <p className="inline-hint">{manualRunHint}</p>
+          </section>
+
+          <section className="panel-section">
+            <h2>{UI_LABELS.panelPick}</h2>
+            <div className="trace-card pick-card">
+              <div className="metric-row">
+                <span>{UI_LABELS.fieldStart}</span>
+                <strong>{nodeDisplayLabel(startNodeData)}</strong>
+              </div>
+              <div className="metric-row">
+                <span>{UI_LABELS.fieldGoalValue}</span>
+                <strong>{goalKind === 'node' ? nodeDisplayLabel(goalNodeData) : withRawLabel(GOAL_KIND_LABELS[goalKind], goalValue || 'N/A')}</strong>
+              </div>
+              <div className="metric-row">
+                <span>{UI_LABELS.fieldHoverNode}</span>
+                <strong>{hoveredNodeData ? nodeDisplayLabel(hoveredNodeData) : UI_LABELS.hintPickPreviewEmpty}</strong>
+              </div>
+            </div>
+            <p className="inline-hint">{pickHint}</p>
+            <div className="button-grid pick-button-grid">
+              <button
+                className={clsx('mode-button', pickMode === 'start' && 'mode-button-active')}
+                type="button"
+                onClick={() => handlePickModeChange('start')}
+                disabled={!scene || mode !== 'offline-sim'}
+              >
+                {UI_LABELS.btnPickStart}
+              </button>
+              <button
+                className={clsx('mode-button', pickMode === 'goal' && 'mode-button-active')}
+                type="button"
+                onClick={() => handlePickModeChange('goal')}
+                disabled={!scene || mode !== 'offline-sim'}
+              >
+                {UI_LABELS.btnPickGoal}
+              </button>
+              <button
+                className="secondary-button pick-cancel-button"
+                type="button"
+                onClick={handleCancelPick}
+                disabled={pickMode === 'idle'}
+              >
+                {UI_LABELS.btnCancelPick}
               </button>
             </div>
           </section>
 
           <section className="panel-section">
-            <h2>视图模式</h2>
+            <h2>{UI_LABELS.panelView}</h2>
             <div className="button-grid">
-              {viewModes.map((item) => (
+              {viewModes.map((id) => (
                 <button
-                  key={item.id}
-                  className={clsx('mode-button', viewMode === item.id && 'mode-button-active')}
+                  key={id}
+                  className={clsx('mode-button', viewMode === id && 'mode-button-active')}
                   type="button"
-                  onClick={() => setViewMode(item.id)}
+                  onClick={() => setViewMode(id as ViewMode)}
                 >
-                  {item.label}
+                  {VIEW_MODE_LABELS[id]}
                 </button>
               ))}
             </div>
           </section>
 
           <section className="panel-section">
-            <h2>图层开关</h2>
+            <h2>{UI_LABELS.panelLayers}</h2>
             <div className="layer-grid">
               {layerKeys.map((layer) => (
                 <label key={layer} className="toggle-row">
                   <input type="checkbox" checked={layers[layer]} onChange={() => toggleLayer(layer)} />
-                  <span>{layer}</span>
+                  <span>{LAYER_LABELS[layer] || layer}</span>
                 </label>
               ))}
             </div>
@@ -373,22 +502,25 @@ export default function App() {
 
         <section className="panel panel-canvas">
           <div className="canvas-toolbar">
-            <div className="legend">
-              <span className="legend-chip legend-start">Start</span>
-              <span className="legend-chip legend-goal">Goal</span>
-              <span className="legend-chip legend-path">Path</span>
-              <span className="legend-chip legend-open">Open Set</span>
-              <span className="legend-chip legend-tree">Tree / Candidates</span>
+            <div className="toolbar-stack">
+              <div className="legend">
+                <span className="legend-chip legend-start">{UI_LABELS.legendStart}</span>
+                <span className="legend-chip legend-goal">{UI_LABELS.legendGoal}</span>
+                <span className="legend-chip legend-path">{UI_LABELS.legendPath}</span>
+                <span className="legend-chip legend-open">{UI_LABELS.legendOpen}</span>
+                <span className="legend-chip legend-tree">{UI_LABELS.legendTree}</span>
+              </div>
+              <div className="toolbar-note">{manualRunHint}</div>
             </div>
             <div className="button-row">
               <button className="secondary-button" type="button" onClick={() => handleRunControl(runState === 'playing' ? 'pause' : 'play')} disabled={!runId}>
-                {runState === 'playing' ? '暂停' : '播放'}
+                {runState === 'playing' ? UI_LABELS.btnPause : UI_LABELS.btnPlay}
               </button>
-              <button className="secondary-button" type="button" onClick={() => handleRunControl('step')} disabled={!runId}>
-                单步
+              <button className="secondary-button" type="button" onClick={() => handleRunControl('step')} disabled={!runId || runState === 'playing'}>
+                {UI_LABELS.btnStep}
               </button>
               <button className="secondary-button" type="button" onClick={() => handleRunControl('reset')} disabled={!runId}>
-                重置
+                {UI_LABELS.btnReset}
               </button>
             </div>
           </div>
@@ -402,45 +534,70 @@ export default function App() {
               layers={layers}
               startPose={startPose}
               goalPose={goalPose}
+              hoverPose={hoverPose}
+              pickMode={mode === 'offline-sim' ? pickMode : 'idle'}
+              onHoverNodeChange={handleHoverNodeChange}
+              onPickNode={handleScenePick}
             />
+            <div className="canvas-overlay">
+              <div className="canvas-overlay-card">
+                {runId ? UI_LABELS.hintFrameRunReady : UI_LABELS.hintRunIdle}
+              </div>
+              <div className={clsx('canvas-overlay-card', 'canvas-overlay-emphasis', pickMode !== 'idle' && 'canvas-overlay-active')}>
+                {hoveredNodeData && pickMode !== 'idle'
+                  ? `${UI_LABELS.fieldHoverNode}: ${nodeDisplayLabel(hoveredNodeData)}`
+                  : pickHint}
+              </div>
+            </div>
           </div>
         </section>
 
         <aside className="panel panel-right">
-          <section className="panel-section">
-            <h2>运行状态</h2>
+          <section className="panel-section" style={{ marginTop: 0, paddingTop: 0, borderTop: 'none' }}>
+            <h2>{UI_LABELS.panelState}</h2>
             <div className="stats-grid">
               <div className="stat-card">
-                <span className="stat-label">Run ID</span>
+                <span className="stat-label">{UI_LABELS.statRunId}</span>
                 <span className="stat-value">{runId ? runId.slice(0, 8) : 'N/A'}</span>
               </div>
               <div className="stat-card">
-                <span className="stat-label">Cursor</span>
+                <span className="stat-label">{UI_LABELS.statCursor}</span>
                 <span className="stat-value">
                   {cursor} / {Math.max(frameCount - 1, 0)}
                 </span>
               </div>
               <div className="stat-card">
-                <span className="stat-label">State</span>
-                <span className="stat-value">{runState}</span>
+                <span className="stat-label">{UI_LABELS.statState}</span>
+                <span className="stat-value">
+                  {runId
+                    ? runState === 'playing'
+                      ? '播放中'
+                      : runState === 'paused'
+                        ? '已暂停'
+                        : runState === 'finished'
+                          ? '已结束'
+                          : runState
+                    : '未创建'}
+                </span>
               </div>
               <div className="stat-card">
-                <span className="stat-label">Scene Faces</span>
+                <span className="stat-label">{UI_LABELS.statFaces}</span>
                 <span className="stat-value">{scene?.sceneFeatures.length ?? 0}</span>
               </div>
             </div>
           </section>
 
           <section className="panel-section">
-            <h2>当前帧</h2>
+            <h2>{UI_LABELS.panelFrame}</h2>
             <div className="trace-card">
-              <div className="trace-title">{currentFrame?.label ?? '尚未开始播放'}</div>
+              <div className="trace-title">{frameTitle}</div>
               <div className="trace-meta">
-                <span>{currentFrame?.algorithm ?? algorithm}</span>
-                <span>{currentFrame?.phase ?? 'idle'}</span>
+                <span>{currentFrame?.algorithm ? ALGORITHM_LABELS[currentFrame.algorithm] || currentFrame.algorithm : ALGORITHM_LABELS[algorithm] || algorithm}</span>
+                <span>{currentFrame?.phase ?? (runId ? '等待播放 (queued)' : '空闲 (idle)')}</span>
               </div>
               <div className="metrics-list">
-                {Object.entries(currentFrame?.metrics ?? {}).map(([key, value]) => (
+                {frameMetrics.length === 0 && <div className="empty-note">{runId ? UI_LABELS.hintFrameRunReady : UI_LABELS.hintRunIdle}</div>}
+                {frameMetrics.map(([key, value]) => (
                   <div key={key} className="metric-row">
                     <span>{key}</span>
                     <strong>{String(value)}</strong>
@@ -451,9 +608,10 @@ export default function App() {
           </section>
 
           <section className="panel-section">
-            <h2>摘要</h2>
+            <h2>{UI_LABELS.panelSummary}</h2>
             <div className="metrics-list">
-              {Object.entries(runSummary ?? {}).map(([key, value]) => (
+              {summaryEntries.length === 0 && <div className="empty-note">{UI_LABELS.hintSummaryEmpty}</div>}
+              {summaryEntries.map(([key, value]) => (
                 <div key={key} className="metric-row">
                   <span>{key}</span>
                   <strong>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</strong>
@@ -463,22 +621,22 @@ export default function App() {
           </section>
 
           <section className="panel-section">
-            <h2>实时桥接</h2>
+            <h2>{UI_LABELS.panelLive}</h2>
             <div className="metrics-list">
               <div className="metric-row">
-                <span>Active Edge</span>
+                <span>{UI_LABELS.liveActiveEdge}</span>
                 <strong>{liveEvent?.activeEdge ?? 'N/A'}</strong>
               </div>
               <div className="metric-row">
-                <span>Gate</span>
+                <span>{UI_LABELS.liveGate}</span>
                 <strong>{liveEvent?.gateStatus ?? 'N/A'}</strong>
               </div>
               <div className="metric-row">
-                <span>Corridor</span>
+                <span>{UI_LABELS.liveCorridor}</span>
                 <strong>{liveEvent?.trackingState?.corridorId ?? 'N/A'}</strong>
               </div>
               <div className="metric-row">
-                <span>Distance</span>
+                <span>{UI_LABELS.liveDistance}</span>
                 <strong>{liveEvent?.trackingState?.distanceToGoal?.toFixed?.(3) ?? 'N/A'}</strong>
               </div>
             </div>
