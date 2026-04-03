@@ -8,7 +8,7 @@
 
 - [`rc26_bringup`](archive/rc26_bringup/README.md): R2 整车链路统一装配入口；导航模式下固定装配 topo/xhu 自研导航链。`(file: archive/rc26_bringup/README.md)`
 - [`rc26_decision`](archive/rc26_decision/README.md): R2 主决策包；通过 topo/xhu 导航链发起导航调用。`(file: archive/rc26_decision/README.md)`
-- [`rc26_interfaces`](archive/rc26_interfaces/README.md): R2 自定义 ROS 2 接口契约包；覆盖 topo/xhu 与决策运行时接口。`(file: archive/rc26_interfaces/README.md)`
+- [`rc26_interfaces`](archive/rc26_interfaces/README.md): R2 自定义 ROS 2 接口契约包；覆盖 topo/xhu 与决策运行时接口，当前包含 `NavigateTopoTarget` 与 `NavigateSurfaceRoute` 两条导航 action。`(file: archive/rc26_interfaces/README.md)`
 
 ### 里程计、定位与点云主链
 
@@ -23,7 +23,7 @@
 
 ### 控制与执行
 
-- [`rc26_topo_nav`](archive/rc26_topo_nav/README.md): 拓扑导航表达与单边执行器；当前只通过 `set_xhu_motion_mode + /xhu_nav/corridor_cmd` 驱动执行。`(file: archive/rc26_topo_nav/README.md)`
+- [`rc26_topo_nav`](archive/rc26_topo_nav/README.md): 拓扑导航表达与单边执行器；当前同时支持 topo 节点目标和基于 dense `surface_graph` 的任意点 3D 路线，并统一通过 `set_xhu_motion_mode + /xhu_nav/corridor_cmd` 驱动执行。`(file: archive/rc26_topo_nav/README.md)`
 - [`rc26_nav_mode_manager`](archive/rc26_nav_mode_manager/README.md): 自研导航运动模式管理器；提供 `set_xhu_motion_mode` 与 `/xhu_nav/motion_mode_state` 主线。`(file: archive/rc26_nav_mode_manager/README.md)`
 - [`rc26_omni_controller`](archive/rc26_omni_controller/README.md): 自研走廊跟踪执行器宿主包；提供 `xhu_motion_follower_node` 执行链。`(file: archive/rc26_omni_controller/README.md)`
 - [`rc26_mechanism`](archive/rc26_mechanism/README.md): 机构执行与生命周期管理。`(file: archive/rc26_mechanism/README.md)`

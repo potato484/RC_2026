@@ -6,8 +6,12 @@
 
 ## 当前实现
 
-- Action Server: `navigate_topo_target`
-- 运行时仍通过 `graph_file` 加载静态 topo YAML，不在节点启动时动态从点云或地图自动建图
+- Action Server:
+  - `navigate_topo_target`
+  - `navigate_surface_route`
+- 运行时仍通过静态 YAML 建图，不在节点启动时动态从点云或地图自动建图：
+  - `graph_file` 负责 topo 节点 / route / task 规划
+  - `surface_graph_file` 负责任意点 3D 路线规划与执行
 - 发布:
   - `/topo_nav/route`
   - `/topo_nav/corridor`
@@ -24,6 +28,13 @@
   - 地形与 base_ground 相关输入
 - 服务客户端:
   - `set_xhu_motion_mode`
+
+## 任意点 3D 路线当前口径
+
+- `navigate_surface_route` 面向浏览器或上游模块传入的世界坐标起点/终点。
+- 当前实现不是直接在 mesh 上插临时锚点，而是把点击点投影到最近可通行 `surface_graph` sample node，再复用现有 `FieldGraph + A* + XhuSemanticCorridor` 执行主链。
+- 运行时要求机器人已经足够接近投影后的起点；当前不会从机器人当前位置自动补一段“接驳到起点”的前置路径。
+- 规划成功后会发布完整 `planned_path` 到 `/topo_nav/route`，并按 surface segment 逐段发布 corridor 到 `/topo_nav/corridor` 与 `/xhu_nav/corridor_cmd`。
 
 ## 执行链当前口径
 
@@ -47,9 +58,11 @@
 ## 图配置口径
 
 - `config/r2_field_graph_blue.yaml` 和 `config/r2_field_graph_red.yaml` 现在是离线生成产物
+- `config/r2_surface_graph_blue.yaml` 和 `config/r2_surface_graph_red.yaml` 是 dense 可通行表面图生成产物，覆盖比赛场地中的地面、坡面与阶梯可行走表面 sample
 - 共享几何真源来自 [r2_mf_world.yaml](/home/potato/RC_2026/src/rc26_kfs_keepout/config/r2_mf_world.yaml)，只负责 MF 块位姿、高度和基础场地区域事实
 - topo 语义补充来自 [r2_field_graph_overlay.yaml](/home/potato/RC_2026/src/rc26_topo_nav/config/r2_field_graph_overlay.yaml)，只负责入口/出口 staging、坡道点、任务/路线，以及无法从几何稳定推导的节点和边成本
-- 当前 v1 只覆盖 MF 主区与入口/出口坡道链路，不负责把任意 `.pcd` 地图自动变成任意 3D 导航点网络
+- surface graph 语义补充来自 [r2_surface_graph_overlay.yaml](/home/potato/RC_2026/src/rc26_topo_nav/config/r2_surface_graph_overlay.yaml)，只负责定义哪些 mesh 面可采样、采样密度和跨面连接阈值
+- 当前 v1 不负责把任意 `.pcd` 地图自动变成任意 3D 导航点网络；dense surface graph 仍然基于仓库内固定比赛场地 world 生成
 
 ## 维护方式
 
@@ -61,6 +74,9 @@
   - `python3 src/rc26_topo_nav/scripts/generate_graph.py --world-layout src/rc26_kfs_keepout/config/r2_mf_world.yaml --overlay src/rc26_topo_nav/config/r2_field_graph_overlay.yaml --team red --out src/rc26_topo_nav/config/r2_field_graph_red.yaml --check-existing`
 - 图合法性检查:
   - `python3 src/rc26_topo_nav/scripts/validate_graph.py src/rc26_topo_nav/config/r2_field_graph_blue.yaml src/rc26_topo_nav/config/r2_field_graph_red.yaml`
+- surface graph 生成命令:
+  - `python3 src/rc26_topo_nav/scripts/generate_surface_graph.py --team blue --world src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world --overlay src/rc26_topo_nav/config/r2_surface_graph_overlay.yaml --out src/rc26_topo_nav/config/r2_surface_graph_blue.yaml`
+  - `python3 src/rc26_topo_nav/scripts/generate_surface_graph.py --team red --world src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world --overlay src/rc26_topo_nav/config/r2_surface_graph_overlay.yaml --out src/rc26_topo_nav/config/r2_surface_graph_red.yaml`
 
 ## 静态可视化
 
@@ -103,21 +119,25 @@
 
 - 当前包新增了一个本地 3D 仿真工具链：
   - `planner_trace_cli`：把 C++ planner 当前真实搜索过程导出为 JSON trace，作为 A* 观察真源
-  - `topo_sim_server.py`：把 topo 图、包内 `sim_assets` 下的 Gazebo world / KFS 对齐配置，以及只读运行时状态整理成 HTTP / WebSocket adapter
-  - `sim_viewer`：基于 Babylon.js / React 将完整 mesh 场景、路径、关键节点、open set、扩展树和候选轨迹渲染成可交互的 3D 战术沙盘页面。
+  - `surface_route_cli`：把浏览器点击的世界坐标起终点投影到 dense `surface_graph` 上，得到运行时真实会走的起终点节点和完整路径
+  - `topo_sim_server.py`：把 `surface_route_cli + planner_trace_cli + sim_assets` 组合成 HTTP adapter，提供场景、路线预览、路线 trace 和可选执行接口
+  - `sim_viewer`：基于 Babylon.js / React 的单用途 3D 路线观察台，只显示任意点路线和它的搜索推导过程
 - viewer 当前支持：
-  - 离线 A* / RRT / DWA 回放
-  - `orbit / follow / first_person / top_ortho / side_perspective` 多视角切换；侧视现在使用更低、更近的透视机位，避免继续像高空投影图
-  - 工业战术沙盘风格的高级 UI 界面，以及全中文化的字段与控制图例
-  - viewer 首屏默认优先展示场地主体；`graph / keyNodes / openSet / expanded / tree / candidates` 默认关闭，减少未生成运行前的 topo 节点干扰
-  - 起点绿色、目标点红色、路径蓝色的三维路径层
-  - 显式“在场景中设起点 / 设目标”模式：浏览器点击场地任意位置后，会吸附到最近 topo 节点，再写回 `start_node / goal_node`
-  - 只读 live ROS 观察：`/topo_nav/route`、`/topo_nav/corridor`、`/xhu_nav/active_edge`、`/xhu_nav/semantic_gate`、`/mf_block_overlay`、`/xhu_nav/tracking_state`
+  - 浏览器直接在地面、坡面、阶梯表面设置起点和终点
+  - `POST /api/surface-route/trace` 返回：
+    - 投影后的起点/终点 pose
+    - 投影后的起点/终点 node id
+    - 完整 3D 路径点
+    - 路径语义分段
+    - 逐帧 `PlannerFrame` 搜索过程
+  - 页面只保留一个滑块回放 trace，不再提供 play/pause/step/reset
+  - 页面只保留 `scene / frontier / expanded / shadows` 四个图层开关，以及 `orbit / top_ortho / side_perspective` 三个视角
+  - `POST /api/surface-route/execute` 仍可选下发 `navigate_surface_route`，但执行前提不变：机器人已经接近被点击的起点
 - 当前实现特别注意把“完整渲染几何”和“规划碰撞 keep-out”分开：
   - viewer 会尽量显示完整 world mesh
   - world 面片现在保留受光和阴影层次，减少“只有颜色分区、没有体积感”的平面观感；`scene-manifest` 还会为 viewer 额外保留结构性竖直面，恢复梅林阶梯和平台侧壁的连接体积感
   - 这条“保留结构性竖直面”的逻辑只服务 Babylon 3D viewer；`render_graph_sim_html.py` 的离线 2D HTML 仍维持投影简化，不把这些竖直面重新变成难读的 SVG 线束
-  - RRT / DWA 的平面 keep-out 只取围栏等竖向障碍和 block overlay，不把可通行平台表面错误地当成二维障碍物
+  - 当前 surface trace 仍然严格复用现有 planner，而不是在前端复制一套规划逻辑
 
 ## 本地启动方式
 
@@ -142,7 +162,8 @@
 ## 当前边界
 
 - 负责 topo 图搜索与单边执行调度
+- 负责 dense `surface_graph` 上的任意点 3D 路线规划与分段执行
 - 不负责底层速度控制求解
 - 只对接 topo/xhu 自研执行接口
 - 不拥有场地几何真源；图几何事实由 `rc26_kfs_keepout/config/r2_mf_world.yaml` 提供
-- `sim_viewer` 和 `topo_sim_server.py` 是当前包附带的本地观测工具，不是运行时导航权威
+- `sim_viewer` 和 `topo_sim_server.py` 是当前包附带的本地观测与受控下发工具，不是运行时导航权威；真正执行仍以 `rc26_topo_nav` action server 为准

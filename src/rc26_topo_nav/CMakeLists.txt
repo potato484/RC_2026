@@ -16,6 +16,8 @@ find_package(diagnostic_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(rc26_interfaces REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
@@ -29,6 +31,8 @@ set(DEPS
   std_msgs
   visualization_msgs
   rc26_interfaces
+  tf2
+  tf2_geometry_msgs
   tf2_ros
 )
 
@@ -39,6 +43,7 @@ add_library(${PROJECT_NAME}_lib SHARED
   src/graph_loader.cpp
   src/overlay_reducer.cpp
   src/planner.cpp
+  src/surface_route.cpp
   src/edge_executor.cpp
   src/diagnostics.cpp
   src/topo_nav_node.cpp
@@ -55,10 +60,15 @@ add_executable(planner_trace_cli src/planner_trace_cli.cpp)
 target_link_libraries(planner_trace_cli ${PROJECT_NAME}_lib)
 ament_target_dependencies(planner_trace_cli ${DEPS})
 
+add_executable(surface_route_cli src/surface_route_cli.cpp)
+target_link_libraries(surface_route_cli ${PROJECT_NAME}_lib)
+ament_target_dependencies(surface_route_cli ${DEPS})
+
 # Graph scripts
 install(PROGRAMS
   scripts/validate_graph.py
   scripts/generate_graph.py
+  scripts/generate_surface_graph.py
   scripts/render_graph_html.py
   scripts/render_graph_sim_html.py
   scripts/topo_sim_server.py
@@ -70,7 +80,7 @@ install(FILES
   DESTINATION lib/${PROJECT_NAME}
 )
 
-install(TARGETS topo_nav_node planner_trace_cli DESTINATION lib/${PROJECT_NAME})
+install(TARGETS topo_nav_node planner_trace_cli surface_route_cli DESTINATION lib/${PROJECT_NAME})
 install(TARGETS ${PROJECT_NAME}_lib DESTINATION lib)
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config/ DESTINATION share/${PROJECT_NAME}/config)
@@ -105,6 +115,11 @@ if(BUILD_TESTING)
   add_test(
     NAME test_topo_sim_server
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_topo_sim_server.py
+  )
+
+  add_test(
+    NAME test_generate_surface_graph
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_generate_surface_graph.py
   )
 endif()
 

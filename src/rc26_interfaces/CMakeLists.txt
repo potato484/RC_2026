@@ -19,6 +19,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/PlaceKFSGrid.action"
   "action/ExecuteMechanism.action"
   "action/NavigateTopoTarget.action"
+  "action/NavigateSurfaceRoute.action"
   "msg/TipDetection.msg"
   "msg/TipDetectionArray.msg"
   "msg/MechanismState.msg"

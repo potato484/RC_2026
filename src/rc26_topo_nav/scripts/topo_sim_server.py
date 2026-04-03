@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import importlib.util
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -70,6 +71,8 @@ SHARE_ROOT = detect_share_root()
 PACKAGE_PREFIX = detect_package_prefix()
 PKG_ROOT = SOURCE_PKG_ROOT or SHARE_ROOT or SCRIPT_DIR.parent
 WORKSPACE_ROOT = SOURCE_PKG_ROOT.parents[1] if SOURCE_PKG_ROOT is not None else None
+PLANNER_TRACE_CLI_TIMEOUT_SEC = 20.0
+SURFACE_ROUTE_CLI_TIMEOUT_SEC = 10.0
 
 
 def preferred_package_path(*parts: str) -> Path:
@@ -134,6 +137,13 @@ def default_graph_for_team(team: str) -> Path:
     return preferred_package_path(
         "config",
         "r2_field_graph_red.yaml" if team.lower() == "red" else "r2_field_graph_blue.yaml",
+    )
+
+
+def default_surface_graph_for_team(team: str) -> Path:
+    return preferred_package_path(
+        "config",
+        "r2_surface_graph_red.yaml" if team.lower() == "red" else "r2_surface_graph_blue.yaml",
     )
 
 
@@ -326,6 +336,7 @@ def build_scene_manifest(
         "meta": {
             "team": team,
             "graph_file": str(graph_file),
+            "surface_graph_file": str(default_surface_graph_for_team(team)),
             "world_file": str(world_file),
             "kfs_config_file": str(kfs_config_file),
             "full_geometry": include_full_geometry,
@@ -370,6 +381,27 @@ def resolve_cli_binary() -> Path:
     raise FileNotFoundError("planner_trace_cli not found; build rc26_topo_nav first")
 
 
+def resolve_surface_cli_binary() -> Path:
+    candidates: list[Path] = []
+    if PACKAGE_PREFIX is not None:
+        candidates.append(PACKAGE_PREFIX / "lib" / "rc26_topo_nav" / "surface_route_cli")
+    if WORKSPACE_ROOT is not None:
+        candidates.extend(
+            [
+                WORKSPACE_ROOT / "install" / "rc26_topo_nav" / "lib" / "rc26_topo_nav" / "surface_route_cli",
+                WORKSPACE_ROOT / "build" / "rc26_topo_nav" / "surface_route_cli",
+            ]
+        )
+    which_path = shutil.which("surface_route_cli")
+    if which_path:
+        candidates.append(Path(which_path))
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError("surface_route_cli not found; build rc26_topo_nav first")
+
+
 def planner_cli_env() -> dict[str, str]:
     env = os.environ.copy()
     runtime_dirs: list[Path] = []
@@ -409,16 +441,116 @@ def run_planner_trace_cli(
     if heuristic_scale > 0.0:
         command.extend(["--heuristic-scale", str(heuristic_scale)])
 
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        cwd=WORKSPACE_ROOT or PACKAGE_PREFIX or PKG_ROOT,
-        env=planner_cli_env(),
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            cwd=WORKSPACE_ROOT or PACKAGE_PREFIX or PKG_ROOT,
+            env=planner_cli_env(),
+            timeout=PLANNER_TRACE_CLI_TIMEOUT_SEC,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            "planner_trace_cli timed out\n"
+            f"command: {' '.join(command)}\n"
+            f"timeout_sec: {PLANNER_TRACE_CLI_TIMEOUT_SEC}"
+        ) from exc
     if completed.returncode not in (0, 2):
         raise RuntimeError(
             "planner_trace_cli failed\n"
+            f"command: {' '.join(command)}\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+    )
+    return json.loads(completed.stdout)
+
+
+def run_graph_trace_cli(
+    *,
+    graph_file: Path,
+    start_node: str,
+    goal_node: str,
+    heuristic_scale: float = 0.0,
+    max_frames: int | None = None,
+) -> dict[str, Any]:
+    cli_binary = resolve_cli_binary()
+    command = [
+        str(cli_binary),
+        "--graph",
+        str(graph_file),
+        "--start",
+        start_node,
+        "--goal-node",
+        goal_node,
+    ]
+    if heuristic_scale > 0.0:
+        command.extend(["--heuristic-scale", str(heuristic_scale)])
+    if max_frames is not None and max_frames > 0:
+        command.extend(["--max-frames", str(max_frames)])
+
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            cwd=WORKSPACE_ROOT or PACKAGE_PREFIX or PKG_ROOT,
+            env=planner_cli_env(),
+            timeout=PLANNER_TRACE_CLI_TIMEOUT_SEC,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            "planner_trace_cli timed out\n"
+            f"command: {' '.join(command)}\n"
+            f"timeout_sec: {PLANNER_TRACE_CLI_TIMEOUT_SEC}"
+        ) from exc
+    if completed.returncode not in (0, 2):
+        raise RuntimeError(
+            "planner_trace_cli failed\n"
+            f"command: {' '.join(command)}\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+    return json.loads(completed.stdout)
+
+
+def run_surface_route_cli(
+    *,
+    graph_file: Path,
+    start_pose: dict[str, float],
+    goal_pose: dict[str, float],
+    projection_radius_m: float,
+) -> dict[str, Any]:
+    cli_binary = resolve_surface_cli_binary()
+    command = [
+        str(cli_binary),
+        "--graph",
+        str(graph_file),
+        "--start-pose",
+        f"{start_pose['x']},{start_pose['y']},{start_pose['z']},{start_pose.get('yaw', 0.0)}",
+        "--goal-pose",
+        f"{goal_pose['x']},{goal_pose['y']},{goal_pose['z']},{goal_pose.get('yaw', 0.0)}",
+        "--projection-radius",
+        str(projection_radius_m),
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            cwd=WORKSPACE_ROOT or PACKAGE_PREFIX or PKG_ROOT,
+            env=planner_cli_env(),
+            timeout=SURFACE_ROUTE_CLI_TIMEOUT_SEC,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            "surface_route_cli timed out\n"
+            f"command: {' '.join(command)}\n"
+            f"timeout_sec: {SURFACE_ROUTE_CLI_TIMEOUT_SEC}"
+        ) from exc
+    if completed.returncode not in (0, 2):
+        raise RuntimeError(
+            "surface_route_cli failed\n"
             f"command: {' '.join(command)}\n"
             f"stdout:\n{completed.stdout}\n"
             f"stderr:\n{completed.stderr}"
@@ -433,39 +565,78 @@ def frame_pose_from_node(manifest: dict[str, Any], node_id: str) -> dict[str, fl
     return None
 
 
-def normalize_astar_trace(raw_trace: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
-    graph_document = RENDER.load_yaml(Path(manifest["meta"]["graph_file"]))
-    node_map = {node["id"]: node for node in manifest["graphNodes"]}
-    best_path_points = polyline_from_edge_ids(
-        graph_document,
-        [str(edge_id) for edge_id in raw_trace.get("edge_path", [])],
-        fallback_node_path=[str(node_id) for node_id in raw_trace.get("node_path", [])],
-    )
-    scene_rects = build_obstacle_rects(manifest["sceneFeatures"])
+def normalize_astar_trace_document(
+    raw_trace: dict[str, Any],
+    graph_document: dict[str, Any] | None,
+    *,
+    node_pose_map: dict[str, dict[str, float]],
+    summary_overrides: dict[str, Any] | None = None,
+    trace_mode: str | None = None,
+    obstacles: list[dict[str, float]] | None = None,
+    path_points_override: list[dict[str, float]] | None = None,
+) -> dict[str, Any]:
+    raw_frames = raw_trace.get("frames", [])
+    total_frame_count = int(raw_trace.get("frame_count_total", len(raw_frames)))
+    emitted_frame_count = int(raw_trace.get("frame_count_emitted", len(raw_frames)))
+    frames_sampled = bool(raw_trace.get("frames_sampled", False))
+    compact_transport = trace_mode == "surface_route"
+    if path_points_override is not None:
+        best_path_points = path_points_override
+    elif graph_document is not None:
+        best_path_points = polyline_from_edge_ids(
+            graph_document,
+            [str(edge_id) for edge_id in raw_trace.get("edge_path", [])],
+            fallback_node_path=[str(node_id) for node_id in raw_trace.get("node_path", [])],
+        )
+    else:
+        best_path_points = [
+            pose
+            for node_id in raw_trace.get("node_path", [])
+            if (pose := node_pose_map.get(str(node_id))) is not None
+        ]
 
     frames = []
-    for frame in raw_trace.get("frames", []):
+    for frame in raw_frames:
         active_node = str(frame.get("node_id", ""))
-        robot_pose = node_map.get(active_node, {}).get("pose") if active_node else None
+        robot_pose = node_pose_map.get(active_node) if active_node else None
         frontier = []
         for entry in frame.get("frontier", []):
-            pose = node_map.get(str(entry.get("node_id", "")), {}).get("pose")
+            pose = node_pose_map.get(str(entry.get("node_id", "")))
             if pose is None:
                 continue
-            frontier.append(
-                {
-                    "nodeId": str(entry["node_id"]),
-                    "pose": pose,
-                    "gCost": float(entry.get("g_cost", 0.0)),
-                    "fCost": float(entry.get("f_cost", 0.0)),
-                }
-            )
+            frontier_entry = {
+                "nodeId": str(entry["node_id"]),
+                "gCost": float(entry.get("g_cost", 0.0)),
+                "fCost": float(entry.get("f_cost", 0.0)),
+            }
+            if not compact_transport:
+                frontier_entry["pose"] = pose
+            frontier.append(frontier_entry)
         expanded_nodes = []
         for node_id in frame.get("expanded_nodes", []):
-            pose = node_map.get(str(node_id), {}).get("pose")
+            pose = node_pose_map.get(str(node_id))
             if pose is not None:
-                expanded_nodes.append({"nodeId": str(node_id), "pose": pose})
-        frame_path_points = polyline_from_node_ids(graph_document, [str(node_id) for node_id in frame.get("best_path", [])])
+                expanded_entry = {"nodeId": str(node_id)}
+                if not compact_transport:
+                    expanded_entry["pose"] = pose
+                expanded_nodes.append(expanded_entry)
+        frame_path = {"nodeIds": [str(node_id) for node_id in frame.get("best_path", [])]}
+        if not compact_transport:
+            if graph_document is not None:
+                frame_path["points"] = polyline_from_node_ids(graph_document, frame_path["nodeIds"])
+            else:
+                frame_path["points"] = [
+                    pose
+                    for node_id in frame_path["nodeIds"]
+                    if (pose := node_pose_map.get(node_id)) is not None
+                ]
+        metrics: dict[str, str | float | bool | None] = {
+            "gCost": float(frame.get("g_cost", 0.0)),
+            "fCost": float(frame.get("f_cost", 0.0)),
+            "stepCost": float(frame.get("step_cost", 0.0)),
+        }
+        if trace_mode:
+            metrics["traceMode"] = trace_mode
         frames.append(
             {
                 "stepIndex": int(frame.get("step_index", len(frames))),
@@ -475,36 +646,47 @@ def normalize_astar_trace(raw_trace: dict[str, Any], manifest: dict[str, Any]) -
                 "robotPose": robot_pose,
                 "openSet": frontier,
                 "expandedNodes": expanded_nodes,
-                "bestPath": {
-                    "nodeIds": [str(node_id) for node_id in frame.get("best_path", [])],
-                    "points": frame_path_points,
-                },
+                "bestPath": frame_path,
                 "treeSegments": [],
                 "candidateTrajectories": [],
                 "selectedTrajectory": [],
-                "metrics": {
-                    "gCost": float(frame.get("g_cost", 0.0)),
-                    "fCost": float(frame.get("f_cost", 0.0)),
-                    "stepCost": float(frame.get("step_cost", 0.0)),
-                },
+                "metrics": metrics,
             }
         )
+
+    summary = {
+        "goalKind": raw_trace.get("goal_kind", "node"),
+        "goalValue": raw_trace.get("goal_value", ""),
+        "framesCount": total_frame_count,
+        "returnedFramesCount": emitted_frame_count,
+        "framesSampled": frames_sampled,
+        "totalCost": raw_trace.get("total_cost"),
+        "selectedCandidate": raw_trace.get("selected_candidate"),
+        "candidateResults": raw_trace.get("candidate_results", []),
+    }
+    if summary_overrides:
+        summary.update(summary_overrides)
 
     return {
         "success": bool(raw_trace.get("success", False)),
         "algorithm": "astar",
-        "summary": {
-            "goalKind": raw_trace.get("goal_kind", "node"),
-            "goalValue": raw_trace.get("goal_value", ""),
-            "framesCount": len(frames),
-            "totalCost": raw_trace.get("total_cost"),
-            "selectedCandidate": raw_trace.get("selected_candidate"),
-            "candidateResults": raw_trace.get("candidate_results", []),
-        },
+        "summary": summary,
         "path_points": best_path_points,
         "frames": frames,
-        "obstacles": scene_rects,
+        "obstacles": obstacles or [],
     }
+
+
+def normalize_astar_trace(raw_trace: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
+    graph_document = RENDER.load_yaml(Path(manifest["meta"]["graph_file"]))
+    node_pose_map = {str(node["id"]): node["pose"] for node in manifest["graphNodes"]}
+    scene_rects = build_obstacle_rects(manifest["sceneFeatures"])
+    return normalize_astar_trace_document(
+        raw_trace,
+        graph_document,
+        node_pose_map=node_pose_map,
+        obstacles=scene_rects,
+    )
 
 
 def resolve_goal_pose_from_trace(manifest: dict[str, Any], astar_run: dict[str, Any]) -> dict[str, float]:
@@ -583,6 +765,38 @@ class PlannerRunRequest(BaseModel):
     random_seed: int = 7
 
 
+class SurfacePointRequest(BaseModel):
+    x: float
+    y: float
+    z: float
+    yaw: float = 0.0
+
+
+class SurfaceRoutePreviewRequest(BaseModel):
+    team: Literal["blue", "red"] = "blue"
+    start_pick_world: SurfacePointRequest
+    goal_pick_world: SurfacePointRequest
+    surface_graph_file: str | None = None
+    projection_radius_m: float = Field(default=0.30, ge=0.05, le=1.0)
+
+
+class SurfaceRouteExecuteRequest(BaseModel):
+    team: Literal["blue", "red"] = "blue"
+    start_pick_world: SurfacePointRequest
+    goal_pick_world: SurfacePointRequest
+    surface_graph_file: str | None = None
+    projection_radius_m: float = Field(default=0.30, ge=0.05, le=1.0)
+    allow_replan: bool = False
+
+
+class SurfaceRouteTraceRequest(BaseModel):
+    team: Literal["blue", "red"] = "blue"
+    start_pick_world: SurfacePointRequest
+    goal_pick_world: SurfacePointRequest
+    surface_graph_file: str | None = None
+    projection_radius_m: float = Field(default=0.30, ge=0.05, le=1.0)
+
+
 class RunControlRequest(BaseModel):
     action: Literal["play", "pause", "step", "reset", "seek"]
     cursor: int | None = None
@@ -596,6 +810,25 @@ class LiveStartRequest(BaseModel):
 # The adapter is imported directly in unit tests via importlib, so rebuild the
 # models with an explicit typing namespace instead of relying on module lookup.
 PlannerRunRequest.model_rebuild(_types_namespace={"Literal": Literal})
+SurfacePointRequest.model_rebuild()
+SurfaceRoutePreviewRequest.model_rebuild(
+    _types_namespace={
+        "Literal": Literal,
+        "SurfacePointRequest": SurfacePointRequest,
+    }
+)
+SurfaceRouteExecuteRequest.model_rebuild(
+    _types_namespace={
+        "Literal": Literal,
+        "SurfacePointRequest": SurfacePointRequest,
+    }
+)
+SurfaceRouteTraceRequest.model_rebuild(
+    _types_namespace={
+        "Literal": Literal,
+        "SurfacePointRequest": SurfacePointRequest,
+    }
+)
 RunControlRequest.model_rebuild(_types_namespace={"Literal": Literal})
 LiveStartRequest.model_rebuild()
 
@@ -863,6 +1096,123 @@ def request_paths(request: PlannerRunRequest) -> tuple[Path, Path, Path]:
     return graph_file, world_file, kfs_file
 
 
+def surface_graph_path(team: str, explicit: str | None) -> Path:
+    return Path(explicit) if explicit else default_surface_graph_for_team(team)
+
+
+def preview_surface_route(
+    request: SurfaceRoutePreviewRequest | SurfaceRouteExecuteRequest | SurfaceRouteTraceRequest,
+) -> dict[str, Any]:
+    graph_file = surface_graph_path(request.team, request.surface_graph_file)
+    payload = run_surface_route_cli(
+        graph_file=graph_file,
+        start_pose=request.start_pick_world.model_dump(),
+        goal_pose=request.goal_pick_world.model_dump(),
+        projection_radius_m=request.projection_radius_m,
+    )
+    payload["team"] = request.team
+    payload["surface_graph_file"] = str(graph_file)
+    return payload
+
+
+def trace_surface_route(request: SurfaceRouteTraceRequest) -> dict[str, Any]:
+    preview = preview_surface_route(request)
+    if not preview.get("success", False):
+        preview["summary"] = {
+            "goalKind": "node",
+            "goalValue": "",
+            "framesCount": 0,
+            "totalCost": None,
+            "selectedCandidate": None,
+            "candidateResults": [],
+        }
+        preview["frames"] = []
+        return preview
+
+    start_node_id = str(preview.get("projected_start_node_id", ""))
+    goal_node_id = str(preview.get("projected_goal_node_id", ""))
+    if not start_node_id or not goal_node_id:
+        raise RuntimeError("surface_route_cli output missing projected node ids")
+
+    graph_file = Path(preview["surface_graph_file"])
+    raw_trace = run_graph_trace_cli(
+        graph_file=graph_file,
+        start_node=start_node_id,
+        goal_node=goal_node_id,
+        heuristic_scale=0.0,
+        max_frames=200,
+    )
+    node_pose_map = {
+        str(node_id): pose_point(pose)
+        for node_id, pose in raw_trace.get("node_poses", {}).items()
+    }
+    trace = normalize_astar_trace_document(
+        raw_trace,
+        None,
+        node_pose_map=node_pose_map,
+        summary_overrides={
+            "requestedStart": request.start_pick_world.model_dump(),
+            "requestedGoal": request.goal_pick_world.model_dump(),
+            "projectedStartNodeId": start_node_id,
+            "projectedGoalNodeId": goal_node_id,
+        },
+        trace_mode="surface_route",
+        path_points_override=preview.get("path_points", []),
+    )
+    preview["summary"] = trace["summary"]
+    preview["frames"] = trace["frames"]
+    preview["node_poses"] = node_pose_map
+    return preview
+
+
+def send_surface_route_goal(request: SurfaceRouteExecuteRequest) -> dict[str, Any]:
+    try:
+        import rclpy
+        from rclpy.action import ActionClient
+        from rc26_interfaces.action import NavigateSurfaceRoute
+    except ImportError as exc:
+        raise HTTPException(status_code=503, detail=f"Surface route execute unavailable: {exc}") from exc
+
+    did_init = False
+    if not rclpy.ok():
+        rclpy.init(args=None)
+        did_init = True
+
+    node = rclpy.create_node("topo_sim_surface_route_client")
+    try:
+        client = ActionClient(node, NavigateSurfaceRoute, "navigate_surface_route")
+        if not client.wait_for_server(timeout_sec=1.0):
+            raise HTTPException(status_code=503, detail="navigate_surface_route action server not available")
+
+        goal = NavigateSurfaceRoute.Goal()
+        goal.start_pose.header.frame_id = "map"
+        goal.goal_pose.header.frame_id = "map"
+        goal.start_pose.pose.position.x = float(request.start_pick_world.x)
+        goal.start_pose.pose.position.y = float(request.start_pick_world.y)
+        goal.start_pose.pose.position.z = float(request.start_pick_world.z)
+        goal.start_pose.pose.orientation.z = math.sin(float(request.start_pick_world.yaw) * 0.5)
+        goal.start_pose.pose.orientation.w = math.cos(float(request.start_pick_world.yaw) * 0.5)
+        goal.goal_pose.pose.position.x = float(request.goal_pick_world.x)
+        goal.goal_pose.pose.position.y = float(request.goal_pick_world.y)
+        goal.goal_pose.pose.position.z = float(request.goal_pick_world.z)
+        goal.goal_pose.pose.orientation.z = math.sin(float(request.goal_pick_world.yaw) * 0.5)
+        goal.goal_pose.pose.orientation.w = math.cos(float(request.goal_pick_world.yaw) * 0.5)
+        goal.team = request.team
+        goal.allow_replan = request.allow_replan
+
+        future = client.send_goal_async(goal)
+        while rclpy.ok() and not future.done():
+            rclpy.spin_once(node, timeout_sec=0.1)
+        goal_handle = future.result()
+        if goal_handle is None:
+            raise HTTPException(status_code=500, detail="navigate_surface_route returned no goal handle")
+        return {"accepted": bool(goal_handle.accepted)}
+    finally:
+        node.destroy_node()
+        if did_init and rclpy.ok():
+            rclpy.shutdown()
+
+
 @app.get("/api/health")
 async def health() -> dict[str, Any]:
     return {"ok": True, "runs": len(RUNS), "frontend_dist": str(FRONTEND_DIST)}
@@ -905,6 +1255,25 @@ async def create_run(request: PlannerRunRequest) -> dict[str, Any]:
         "summary": run.summary,
         "state": run.state,
     }
+
+
+@app.post("/api/surface-route/preview")
+async def surface_route_preview(request: SurfaceRoutePreviewRequest) -> dict[str, Any]:
+    return preview_surface_route(request)
+
+
+@app.post("/api/surface-route/trace")
+async def surface_route_trace(request: SurfaceRouteTraceRequest) -> dict[str, Any]:
+    return trace_surface_route(request)
+
+
+@app.post("/api/surface-route/execute")
+async def surface_route_execute(request: SurfaceRouteExecuteRequest) -> dict[str, Any]:
+    preview = preview_surface_route(request)
+    if not preview.get("success", False):
+        return {"accepted": False, "preview": preview}
+    action_result = send_surface_route_goal(request)
+    return {"accepted": action_result["accepted"], "preview": preview}
 
 
 @app.post("/api/runs/{run_id}/control")

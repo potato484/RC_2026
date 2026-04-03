@@ -1,0 +1,18 @@
+meta:
+  schema_version: "1.0"
+
+sampling:
+  spacing_m: 0.18
+  min_surface_area_xy: 0.025
+  plane_height_epsilon_m: 0.05
+  neighbor_radius_m: 0.27
+  transition_radius_m: 0.24
+  max_transition_height_m: 0.32
+
+traversable_render_classes:
+  - world-ground
+  - world-platform
+  - world-marking
+
+excluded_feature_names:
+  - "2-3区围栏"

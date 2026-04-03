@@ -39,6 +39,14 @@ public:
         const FieldGraph& graph,
         const GraphEdge& edge);
 
+    ExecResult executeCorridor(
+        const std::string& corridor_label,
+        const std::string& from_node_id,
+        const std::string& to_node_id,
+        const std::string& motion_type,
+        const std::string& required_mode,
+        const nav_msgs::msg::Path& corridor_path);
+
     nav_msgs::msg::Path generateCorridor(
         const FieldGraph& graph,
         const GraphEdge& edge) const;
@@ -66,6 +74,14 @@ private:
     ExecResult executeEdgeViaXhu(
         const FieldGraph& graph,
         const GraphEdge& edge);
+
+    ExecResult executeCorridorViaXhu(
+        const std::string& corridor_label,
+        const std::string& from_node_id,
+        const std::string& to_node_id,
+        const std::string& motion_type,
+        const std::string& required_mode,
+        const nav_msgs::msg::Path& corridor_path);
 
     rclcpp::Node* node_;
     rclcpp::Client<rc26_interfaces::srv::SetXhuMotionMode>::SharedPtr xhu_mode_client_;

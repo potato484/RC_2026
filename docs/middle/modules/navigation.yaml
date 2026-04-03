@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: RC26 R2 Navigation ROS2 Contract
-  version: 0.5.0
+  version: 0.6.0
   description: topo/xhu 自研导航运行时接口契约
 servers:
   - url: http://localhost:8080
@@ -112,6 +112,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NavigateTopoTargetResult'
+  /ros2/actions/navigate_surface_route:
+    post:
+      tags: [Action]
+      summary: 任意点 3D 路线 action（rc26_topo_nav）
+      x-ros:
+        interface_kind: action
+        name: navigate_surface_route
+        action_type: rc26_interfaces/action/NavigateSurfaceRoute
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NavigateSurfaceRouteGoal'
+      responses:
+        '200':
+          description: NavigateSurfaceRoute result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NavigateSurfaceRouteResult'
 components:
   schemas:
     Time:
@@ -240,6 +261,56 @@ components:
         active_node_id:
           type: string
         active_edge_id:
+          type: string
+        exec_state:
+          type: string
+        replan_count:
+          type: integer
+          minimum: 0
+    NavigateSurfaceRouteGoal:
+      type: object
+      required: [start_pose, goal_pose, team, allow_replan]
+      properties:
+        start_pose:
+          $ref: '#/components/schemas/PoseStamped'
+        goal_pose:
+          $ref: '#/components/schemas/PoseStamped'
+        team:
+          type: string
+          description: 目标阵营，必须与 topo_nav 运行时 team 一致
+        allow_replan:
+          type: boolean
+          description: 当前实现已透传该字段，但 surface 路线执行仍以单次规划为主
+    NavigateSurfaceRouteResult:
+      type: object
+      required:
+        - success
+        - projected_start_pose
+        - projected_goal_pose
+        - planned_path
+        - terminal_segment_id
+        - failure_code
+        - failure_reason
+      properties:
+        success:
+          type: boolean
+        projected_start_pose:
+          $ref: '#/components/schemas/PoseStamped'
+        projected_goal_pose:
+          $ref: '#/components/schemas/PoseStamped'
+        planned_path:
+          $ref: '#/components/schemas/Path'
+        terminal_segment_id:
+          type: string
+        failure_code:
+          type: string
+        failure_reason:
+          type: string
+    NavigateSurfaceRouteFeedback:
+      type: object
+      required: [active_segment_id, exec_state, replan_count]
+      properties:
+        active_segment_id:
           type: string
         exec_state:
           type: string

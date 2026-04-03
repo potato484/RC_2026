@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rc26_topo_nav/planner.hpp"
 #include "rc26_topo_nav/types.hpp"
 #include "rc26_topo_nav/edge_executor.hpp"
 #include <rclcpp/rclcpp.hpp>
@@ -14,10 +15,12 @@ class Diagnostics {
 public:
     explicit Diagnostics(rclcpp::Node* node);
 
-    void publishRoute(const std::vector<std::string>& node_path, const FieldGraph& graph);
+    void publishRoute(const PlanResult& plan, const FieldGraph& graph);
+    void publishRoute(const nav_msgs::msg::Path& route);
     void publishCorridor(const nav_msgs::msg::Path& corridor);
     void publishDiagnostic(const std::string& status, const std::string& message);
     void publishActiveEdge(const GraphEdge& edge, const FieldGraph& graph, const std::string& gate_status);
+    void publishActiveLabel(const std::string& active_id, const std::string& gate_status);
 
 private:
     visualization_msgs::msg::MarkerArray buildRiskMarkers(

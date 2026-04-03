@@ -208,6 +208,7 @@ std::pair<float, float> EdgeExecutor::inferSpeedLimits(
         return {0.0F, 0.0F};
     }
     if (mode == "ramp_up" || mode == "ramp_down" ||
+        mode == "stair_up" || mode == "stair_down" ||
         motion == "ramp_up" || motion == "ramp_down") {
         return {0.30F, 0.35F};
     }
@@ -283,27 +284,60 @@ EdgeExecutor::ExecResult EdgeExecutor::executeEdge(
     return executeEdgeViaXhu(graph, edge);
 }
 
+EdgeExecutor::ExecResult EdgeExecutor::executeCorridor(
+    const std::string& corridor_label,
+    const std::string& from_node_id,
+    const std::string& to_node_id,
+    const std::string& motion_type,
+    const std::string& required_mode,
+    const nav_msgs::msg::Path& corridor_path) {
+    cancelled_.store(false);
+    state_ = EdgeExecState::EXECUTING;
+    return executeCorridorViaXhu(
+        corridor_label,
+        from_node_id,
+        to_node_id,
+        motion_type,
+        required_mode,
+        corridor_path);
+}
+
 EdgeExecutor::ExecResult EdgeExecutor::executeEdgeViaXhu(
     const FieldGraph& graph,
     const GraphEdge& edge) {
+    return executeCorridorViaXhu(
+        edge.id,
+        edge.from,
+        edge.to,
+        edge.motion_type,
+        edge.required_mode,
+        generateCorridor(graph, edge));
+}
+
+EdgeExecutor::ExecResult EdgeExecutor::executeCorridorViaXhu(
+    const std::string& corridor_label,
+    const std::string& from_node_id,
+    const std::string& to_node_id,
+    const std::string& motion_type,
+    const std::string& required_mode,
+    const nav_msgs::msg::Path& corridor_path) {
     ExecResult result;
 
     std::string mode_error;
-    if (!requestMode(edge.required_mode, "topo_edge:" + edge.id, mode_error)) {
+    if (!requestMode(required_mode, "nav_segment:" + corridor_label, mode_error)) {
         result.failure_reason =
-            "Failed to set xhu motion mode '" + edge.required_mode + "': " + mode_error;
+            "Failed to set xhu motion mode '" + required_mode + "': " + mode_error;
         state_ = EdgeExecState::FAILED;
         return result;
     }
 
-    const auto corridor_path = generateCorridor(graph, edge);
     if (corridor_path.poses.empty()) {
-        result.failure_reason = "Empty corridor for edge '" + edge.id + "'";
+        result.failure_reason = "Empty corridor for segment '" + corridor_label + "'";
         state_ = EdgeExecState::FAILED;
         return result;
     }
 
-    const auto corridor_id = edge.id + "_" + std::to_string(corridor_seq_.fetch_add(1));
+    const auto corridor_id = corridor_label + "_" + std::to_string(corridor_seq_.fetch_add(1));
     clearTrackingState(corridor_id);
     ScopeExit clear_tracking([this, &corridor_id]() { clearTrackingState(corridor_id); });
 
@@ -311,13 +345,13 @@ EdgeExecutor::ExecResult EdgeExecutor::executeEdgeViaXhu(
     corridor_msg.header.stamp = node_->now();
     corridor_msg.header.frame_id = "map";
     corridor_msg.corridor_id = corridor_id;
-    corridor_msg.edge_id = edge.id;
-    corridor_msg.from_node_id = edge.from;
-    corridor_msg.to_node_id = edge.to;
-    corridor_msg.motion_type = edge.motion_type;
-    corridor_msg.required_mode = edge.required_mode;
+    corridor_msg.edge_id = corridor_label;
+    corridor_msg.from_node_id = from_node_id;
+    corridor_msg.to_node_id = to_node_id;
+    corridor_msg.motion_type = motion_type;
+    corridor_msg.required_mode = required_mode;
     corridor_msg.path = corridor_path;
-    const auto [max_linear, max_angular] = inferSpeedLimits(edge.required_mode, edge.motion_type);
+    const auto [max_linear, max_angular] = inferSpeedLimits(required_mode, motion_type);
     corridor_msg.max_linear_speed = max_linear;
     corridor_msg.max_angular_speed = max_angular;
     corridor_msg.stop_at_end = true;

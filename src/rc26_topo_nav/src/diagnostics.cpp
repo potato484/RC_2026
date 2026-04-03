@@ -1,4 +1,5 @@
 #include "rc26_topo_nav/diagnostics.hpp"
+#include "rc26_topo_nav/surface_route.hpp"
 
 #include <cmath>
 #include <std_msgs/msg/color_rgba.hpp>
@@ -44,23 +45,17 @@ Diagnostics::Diagnostics(rclcpp::Node* node) : node_(node) {
         "/xhu_nav/risk_markers", 10);
 }
 
-void Diagnostics::publishRoute(const std::vector<std::string>& node_path,
-                               const FieldGraph& graph) {
-    nav_msgs::msg::Path msg;
-    msg.header.frame_id = "map";
-    msg.header.stamp = node_->now();
+void Diagnostics::publishRoute(const PlanResult& plan, const FieldGraph& graph) {
+    publishRoute(buildExpandedPath(graph, plan.edge_indices, plan.node_path, node_->now(), "map"));
+}
 
-    for (const auto& nid : node_path) {
-        auto it = graph.nodes.find(nid);
-        if (it == graph.nodes.end()) continue;
-        geometry_msgs::msg::PoseStamped ps;
-        ps.header = msg.header;
-        ps.pose.position.x = it->second.pose.x;
-        ps.pose.position.y = it->second.pose.y;
-        ps.pose.position.z = it->second.pose.z;
-        ps.pose.orientation.z = std::sin(it->second.pose.yaw / 2.0);
-        ps.pose.orientation.w = std::cos(it->second.pose.yaw / 2.0);
-        msg.poses.push_back(ps);
+void Diagnostics::publishRoute(const nav_msgs::msg::Path& route) {
+    auto msg = route;
+    if (msg.header.frame_id.empty()) {
+        msg.header.frame_id = "map";
+    }
+    if (msg.header.stamp.sec == 0 && msg.header.stamp.nanosec == 0) {
+        msg.header.stamp = node_->now();
     }
     route_pub_->publish(msg);
     xhu_route_pub_->publish(msg);
@@ -149,18 +144,21 @@ visualization_msgs::msg::MarkerArray Diagnostics::buildRiskMarkers(
     return markers;
 }
 
-void Diagnostics::publishActiveEdge(
-    const GraphEdge& edge,
-    const FieldGraph& graph,
-    const std::string& gate_status) {
+void Diagnostics::publishActiveLabel(const std::string& active_id, const std::string& gate_status) {
     std_msgs::msg::String edge_msg;
-    edge_msg.data = edge.id + ":" + edge.from + "->" + edge.to;
+    edge_msg.data = active_id;
     active_edge_pub_->publish(edge_msg);
 
     std_msgs::msg::String gate_msg;
     gate_msg.data = gate_status;
     semantic_gate_pub_->publish(gate_msg);
+}
 
+void Diagnostics::publishActiveEdge(
+    const GraphEdge& edge,
+    const FieldGraph& graph,
+    const std::string& gate_status) {
+    publishActiveLabel(edge.id + ":" + edge.from + "->" + edge.to, gate_status);
     risk_markers_pub_->publish(buildRiskMarkers(edge, graph, gate_status));
 }
 

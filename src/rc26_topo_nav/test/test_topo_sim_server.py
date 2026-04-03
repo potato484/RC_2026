@@ -20,6 +20,7 @@ PKG_ROOT = Path(__file__).resolve().parents[1]
 SIM_ROOT = PKG_ROOT / "sim_assets"
 
 GRAPH_BLUE = PKG_ROOT / "config" / "r2_field_graph_blue.yaml"
+SURFACE_GRAPH_BLUE = PKG_ROOT / "config" / "r2_surface_graph_blue.yaml"
 SIM_WORLD = SIM_ROOT / "worlds" / "robocon2026_v2_aligned.world"
 SIM_KFS = SIM_ROOT / "config" / "kfs_config_v2_aligned.yaml"
 
@@ -46,6 +47,7 @@ class TopoSimServerTest(unittest.TestCase):
             if feature["name"] == "主地图" and feature["area_xy"] < 1e-4 and feature["z_span"] >= 0.35
         ]
         self.assertGreater(len(structural_vertical_faces), 0)
+        self.assertEqual(manifest["meta"]["surface_graph_file"], str(SURFACE_GRAPH_BLUE))
 
     def test_structural_vertical_viewer_faces_do_not_become_2d_keepouts(self):
         rects = SERVER.build_obstacle_rects(
@@ -132,6 +134,129 @@ class TopoSimServerTest(unittest.TestCase):
         )
         dwa_snapshot = SERVER.run_offline_request(dwa_request, manifest)
         self.assertGreater(len(dwa_snapshot["frames"]), 1)
+
+    def test_surface_route_preview_returns_projected_path(self):
+        request = SERVER.SurfaceRoutePreviewRequest(
+            team="blue",
+            surface_graph_file=str(SURFACE_GRAPH_BLUE),
+            start_pick_world={"x": -1.29, "y": 3.77, "z": 0.41, "yaw": 0.0},
+            goal_pick_world={"x": -1.11, "y": 3.03, "z": 0.01, "yaw": 0.0},
+        )
+
+        preview = SERVER.preview_surface_route(request)
+
+        self.assertTrue(preview["success"])
+        self.assertEqual(preview["team"], "blue")
+        self.assertEqual(preview["surface_graph_file"], str(SURFACE_GRAPH_BLUE))
+        self.assertTrue(preview["projected_start_node_id"])
+        self.assertTrue(preview["projected_goal_node_id"])
+        self.assertEqual(preview["projected_start"]["x"], -1.29)
+        self.assertEqual(preview["projected_goal"]["y"], 3.03)
+        self.assertGreater(len(preview["path_points"]), 20)
+        self.assertGreater(len(preview["segments"]), 1)
+
+    def test_surface_route_trace_returns_search_frames(self):
+        request = SERVER.SurfaceRouteTraceRequest(
+            team="blue",
+            surface_graph_file=str(SURFACE_GRAPH_BLUE),
+            start_pick_world={"x": -1.29, "y": 3.77, "z": 0.41, "yaw": 0.0},
+            goal_pick_world={"x": -1.11, "y": 3.03, "z": 0.01, "yaw": 0.0},
+        )
+
+        trace = SERVER.trace_surface_route(request)
+
+        self.assertTrue(trace["success"])
+        self.assertGreater(len(trace["frames"]), 5)
+        self.assertEqual(trace["summary"]["projectedStartNodeId"], trace["projected_start_node_id"])
+        self.assertEqual(trace["summary"]["projectedGoalNodeId"], trace["projected_goal_node_id"])
+        self.assertEqual(trace["frames"][-1]["metrics"]["traceMode"], "surface_route")
+        self.assertGreater(len(trace["frames"][-1]["bestPath"]["nodeIds"]), 2)
+        self.assertIn("node_poses", trace)
+        self.assertIn(trace["projected_start_node_id"], trace["node_poses"])
+        self.assertNotIn("pose", trace["frames"][0]["openSet"][0])
+        self.assertNotIn("points", trace["frames"][-1]["bestPath"])
+
+    def test_surface_route_preview_rejects_non_traversable_point(self):
+        request = SERVER.SurfaceRoutePreviewRequest(
+            team="blue",
+            surface_graph_file=str(SURFACE_GRAPH_BLUE),
+            start_pick_world={"x": 99.0, "y": 99.0, "z": 0.0, "yaw": 0.0},
+            goal_pick_world={"x": -1.11, "y": 3.03, "z": 0.01, "yaw": 0.0},
+        )
+
+        preview = SERVER.preview_surface_route(request)
+
+        self.assertFalse(preview["success"])
+        self.assertEqual(preview["failure_code"], "POINT_NOT_TRAVERSABLE")
+
+    def test_normalize_astar_trace_document_preserves_sampled_frame_metadata(self):
+        graph_document = {
+            "nodes": [
+                {"id": "n1", "pose": {"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0}},
+                {"id": "n2", "pose": {"x": 1.0, "y": 0.0, "z": 0.0, "yaw": 0.0}},
+            ],
+            "edges": [],
+        }
+        raw_trace = {
+            "success": True,
+            "goal_kind": "node",
+            "goal_value": "n2",
+            "total_cost": 1.0,
+            "selected_candidate": None,
+            "candidate_results": [],
+            "node_path": ["n1", "n2"],
+            "edge_path": [],
+            "frame_count_total": 1200,
+            "frame_count_emitted": 120,
+            "frames_sampled": True,
+            "frames": [
+                {
+                    "event": "init",
+                    "step_index": 0,
+                    "node_id": "n1",
+                    "from_node": "",
+                    "edge_id": "",
+                    "g_cost": 0.0,
+                    "f_cost": 1.0,
+                    "step_cost": 0.0,
+                    "message": "init",
+                    "frontier": [{"node_id": "n1", "g_cost": 0.0, "f_cost": 1.0}],
+                    "best_path": ["n1"],
+                    "expanded_nodes": [],
+                },
+                {
+                    "event": "goal",
+                    "step_index": 1199,
+                    "node_id": "n2",
+                    "from_node": "n1",
+                    "edge_id": "",
+                    "g_cost": 1.0,
+                    "f_cost": 1.0,
+                    "step_cost": 1.0,
+                    "message": "goal",
+                    "frontier": [],
+                    "best_path": ["n1", "n2"],
+                    "expanded_nodes": ["n2"],
+                },
+            ],
+        }
+
+        normalized = SERVER.normalize_astar_trace_document(
+            raw_trace,
+            graph_document,
+            node_pose_map={
+                "n1": {"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0},
+                "n2": {"x": 1.0, "y": 0.0, "z": 0.0, "yaw": 0.0},
+            },
+            trace_mode="surface_route",
+        )
+
+        self.assertEqual(normalized["summary"]["framesCount"], 1200)
+        self.assertEqual(normalized["summary"]["returnedFramesCount"], 120)
+        self.assertTrue(normalized["summary"]["framesSampled"])
+        self.assertEqual(len(normalized["frames"]), 2)
+        self.assertNotIn("pose", normalized["frames"][0]["openSet"][0])
+        self.assertNotIn("points", normalized["frames"][1]["bestPath"])
 
 
 if __name__ == "__main__":

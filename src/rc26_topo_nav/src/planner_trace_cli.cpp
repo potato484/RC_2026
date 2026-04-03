@@ -1,12 +1,15 @@
 #include "rc26_topo_nav/graph_loader.hpp"
 #include "rc26_topo_nav/planner.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
+#include <cmath>
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -76,6 +79,7 @@ struct ParsedArgs {
     std::string goal_node;
     std::string goal_task;
     std::string goal_route;
+    size_t max_frames = 0;
     PlannerTraceOptions options;
     std::unordered_map<std::string, NodeOverlay> node_overlays;
     std::unordered_map<std::string, EdgeOverlay> edge_overlays;
@@ -160,6 +164,16 @@ bool parseArgs(const int argc, char** argv, ParsedArgs& args, std::string& error
                 error = "Invalid heuristic scale: " + std::string(value);
                 return false;
             }
+        } else if (flag == "--max-frames") {
+            const char* value = requireValue(flag);
+            if (value == nullptr) return false;
+            char* end = nullptr;
+            const auto parsed = std::strtoul(value, &end, 10);
+            if (end == nullptr || *end != '\0') {
+                error = "Invalid max frame count: " + std::string(value);
+                return false;
+            }
+            args.max_frames = static_cast<size_t>(parsed);
         } else {
             error = "Unknown flag: " + flag;
             return false;
@@ -212,11 +226,102 @@ void printFrontier(std::ostream& out, const std::vector<TraceFrontierEntry>& ent
     out << "]";
 }
 
-void printFrames(std::ostream& out, const PlanTraceResult& trace) {
+void printPose(std::ostream& out, const Pose3& pose) {
+    out << "{"
+        << "\"x\":" << pose.x << ","
+        << "\"y\":" << pose.y << ","
+        << "\"z\":" << pose.z << ","
+        << "\"yaw\":" << pose.yaw
+        << "}";
+}
+
+std::vector<size_t> buildFrameIndices(const size_t total_frames, const size_t max_frames) {
+    std::vector<size_t> indices;
+    if (total_frames == 0) {
+        return indices;
+    }
+    if (max_frames == 0 || total_frames <= max_frames) {
+        indices.reserve(total_frames);
+        for (size_t index = 0; index < total_frames; ++index) {
+            indices.push_back(index);
+        }
+        return indices;
+    }
+
+    indices.reserve(max_frames);
+    const double step = static_cast<double>(total_frames - 1) / static_cast<double>(max_frames - 1);
+    for (size_t sample_index = 0; sample_index < max_frames; ++sample_index) {
+        size_t frame_index = static_cast<size_t>(std::llround(step * static_cast<double>(sample_index)));
+        if (!indices.empty() && frame_index <= indices.back()) {
+            frame_index = std::min(total_frames - 1, indices.back() + 1);
+        }
+        indices.push_back(frame_index);
+    }
+    indices.back() = total_frames - 1;
+    return indices;
+}
+
+std::vector<std::string> collectReferencedNodeIds(
+    const PlanTraceResult& trace,
+    const std::vector<size_t>& frame_indices) {
+    std::vector<std::string> node_ids;
+    std::unordered_set<std::string> seen;
+    auto append = [&](const std::string& node_id) {
+        if (node_id.empty()) {
+            return;
+        }
+        if (seen.insert(node_id).second) {
+            node_ids.push_back(node_id);
+        }
+    };
+
+    for (const auto& node_id : trace.result.node_path) {
+        append(node_id);
+    }
+    for (const size_t frame_index : frame_indices) {
+        const auto& frame = trace.frames[frame_index];
+        append(frame.node_id);
+        append(frame.from_node);
+        for (const auto& frontier_entry : frame.frontier) {
+            append(frontier_entry.node_id);
+        }
+        for (const auto& node_id : frame.expanded_nodes) {
+            append(node_id);
+        }
+        for (const auto& node_id : frame.best_path) {
+            append(node_id);
+        }
+    }
+    std::sort(node_ids.begin(), node_ids.end());
+    return node_ids;
+}
+
+void printNodePoses(
+    std::ostream& out,
+    const FieldGraph& graph,
+    const std::vector<std::string>& node_ids) {
+    out << "{";
+    bool first = true;
+    for (const auto& node_id : node_ids) {
+        const auto node_it = graph.nodes.find(node_id);
+        if (node_it == graph.nodes.end()) {
+            continue;
+        }
+        if (!first) {
+            out << ",";
+        }
+        first = false;
+        out << quoted(node_id) << ":";
+        printPose(out, node_it->second.pose);
+    }
+    out << "}";
+}
+
+void printFrames(std::ostream& out, const PlanTraceResult& trace, const std::vector<size_t>& frame_indices) {
     out << "[";
-    for (size_t index = 0; index < trace.frames.size(); ++index) {
-        const auto& frame = trace.frames[index];
-        if (index > 0) {
+    for (size_t emitted_index = 0; emitted_index < frame_indices.size(); ++emitted_index) {
+        const auto& frame = trace.frames[frame_indices[emitted_index]];
+        if (emitted_index > 0) {
             out << ",";
         }
         out << "{"
@@ -262,7 +367,11 @@ void printTraceJson(
     const FieldGraph& graph,
     const PlanTraceResult& trace,
     const std::string& goal_kind,
-    const std::string& goal_value) {
+    const std::string& goal_value,
+    const size_t max_frames) {
+    const auto frame_indices = buildFrameIndices(trace.frames.size(), max_frames);
+    const auto referenced_node_ids = collectReferencedNodeIds(trace, frame_indices);
+    const bool frames_sampled = frame_indices.size() != trace.frames.size();
     out << "{"
         << "\"success\":" << (trace.result.success ? "true" : "false") << ","
         << "\"goal_kind\":" << quoted(goal_kind) << ","
@@ -283,8 +392,13 @@ void printTraceJson(
     }
     out << "],\"candidate_results\":";
     printCandidateResults(out, trace.candidate_results);
+    out << ",\"node_poses\":";
+    printNodePoses(out, graph, referenced_node_ids);
+    out << ",\"frame_count_total\":" << trace.frames.size();
+    out << ",\"frame_count_emitted\":" << frame_indices.size();
+    out << ",\"frames_sampled\":" << (frames_sampled ? "true" : "false");
     out << ",\"frames\":";
-    printFrames(out, trace);
+    printFrames(out, trace, frame_indices);
     out << "}";
 }
 
@@ -355,7 +469,7 @@ int main(int argc, char** argv) {
             args.options);
     }
 
-    printTraceJson(std::cout, load_result.graph, trace, goal_kind, goal_value);
+    printTraceJson(std::cout, load_result.graph, trace, goal_kind, goal_value, args.max_frames);
     std::cout << "\n";
     return trace.result.success ? 0 : 2;
 }

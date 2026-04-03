@@ -17,6 +17,7 @@
   - `RouteObservability.msg`
 - 自研导航:
   - `NavigateTopoTarget.action`
+  - `NavigateSurfaceRoute.action`
   - `SetXhuMotionMode.srv`
   - `MfBlockOverlay.msg`
   - `MfBlockOverlayCell.msg`
