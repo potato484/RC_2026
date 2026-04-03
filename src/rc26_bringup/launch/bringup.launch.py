@@ -59,6 +59,7 @@ def generate_launch_description():
     realsense_config_file = LaunchConfiguration('realsense_config_file')
     kfs_heartbeat_topic = LaunchConfiguration('kfs_heartbeat_topic')
     team = LaunchConfiguration('team')
+    chassis_model = LaunchConfiguration('chassis_model')
 
     # 参数声明
     declare_namespace = DeclareLaunchArgument(
@@ -156,6 +157,11 @@ def generate_launch_description():
         'use_decision',
         default_value='true',
         description='启动决策系统')
+
+    declare_chassis_model = DeclareLaunchArgument(
+        'chassis_model',
+        default_value='tracked_diff',
+        description='底盘模型: mecanum_4wheel | tracked_diff')
 
     declare_use_realsense = DeclareLaunchArgument(
         'use_realsense',
@@ -315,7 +321,10 @@ def generate_launch_description():
         output='screen',
         parameters=[
             xhu_motion_follower_params,
-            {'use_sim_time': use_sim_time},
+            {
+                'use_sim_time': use_sim_time,
+                'chassis_model': chassis_model,
+            },
         ],
         condition=UnlessCondition(slam)
     )
@@ -548,6 +557,7 @@ def generate_launch_description():
         declare_visualization_status_enable,
         declare_foxglove_port,
         declare_foxglove_layout_dir,
+        declare_chassis_model,
         declare_recover_mid360_stream,
         declare_use_decision,
         declare_use_realsense,

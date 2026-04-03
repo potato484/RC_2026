@@ -8,6 +8,7 @@
 class WheelOdomFuserNode : public rclcpp::Node {
 public:
     WheelOdomFuserNode() : Node("wheel_odom_fuser_node") {
+        this->declare_parameter("chassis_model", "tracked_diff");
         this->declare_parameter("publish_rate_hz", 50);
         this->declare_parameter("data_timeout_ms", 100.0);
         this->declare_parameter("omega_sigma_rps", 0.5);
@@ -21,6 +22,7 @@ public:
         this->declare_parameter("health_topic", "wheel_odom_fuser/health");
 
         rc26_merge_odom::WheelOdomFuser::Config config;
+        config.chassis_model = this->get_parameter("chassis_model").as_string();
         config.publish_rate_hz = static_cast<int>(this->get_parameter("publish_rate_hz").as_int());
         config.data_timeout_ms = this->get_parameter("data_timeout_ms").as_double();
         config.omega_sigma_rps = this->get_parameter("omega_sigma_rps").as_double();

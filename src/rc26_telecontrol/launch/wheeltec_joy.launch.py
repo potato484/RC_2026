@@ -34,6 +34,11 @@ def generate_launch_description():
             description='Maximum linear velocity (m/s)'
         ),
         DeclareLaunchArgument(
+            'chassis_model',
+            default_value='tracked_diff',
+            description='Chassis model: mecanum_4wheel | tracked_diff'
+        ),
+        DeclareLaunchArgument(
             'v_angular',
             default_value='0.5',
             description='Maximum angular velocity (rad/s)'
@@ -100,6 +105,7 @@ def generate_launch_description():
             parameters=[
                 config_stick,
                 {
+                    'chassis_model': LaunchConfiguration('chassis_model'),
                     'v_linear': LaunchConfiguration('v_linear'),
                     'v_angular': LaunchConfiguration('v_angular'),
                     'joy_deadzone': LaunchConfiguration('joy_deadzone'),
@@ -122,6 +128,7 @@ def generate_launch_description():
             parameters=[
                 config_dpad,
                 {
+                    'chassis_model': LaunchConfiguration('chassis_model'),
                     'v_linear': LaunchConfiguration('v_linear'),
                     'v_angular': LaunchConfiguration('v_angular'),
                     'joy_timeout_s': LaunchConfiguration('joy_timeout_s'),

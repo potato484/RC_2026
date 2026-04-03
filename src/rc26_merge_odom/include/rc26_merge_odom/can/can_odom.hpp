@@ -1,5 +1,5 @@
 // RC2026 CAN里程计模块
-// 从CAN总线读取四驱麦轮电机转速，计算并发布轮式里程计
+// 从 CAN 总线读取底盘电机转速，计算并发布轮式里程计
 #pragma once
 
 #include <array>
@@ -14,6 +14,8 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <std_msgs/msg/float32.hpp>
+
+#include "rc26_merge_odom/chassis_model.hpp"
 
 namespace rc26_merge_odom {
 
@@ -42,11 +44,14 @@ struct MotorFeedback {
 class CanOdom {
 public:
     struct Config {
+        std::string chassis_model = "tracked_diff";
         std::string can_interface = "can0";
         double wheel_radius = 0.07625;
         double wheel_base = 0.62326;
         double track_width = 0.7;
         double gear_ratio = 3591.0 / 187.0;
+        uint32_t left_motor_can_id = CAN_BASE_ID + 1;
+        uint32_t right_motor_can_id = CAN_BASE_ID + 2;
         int publish_rate_hz = 50;
         std::string odom_topic = "Can_Odom";
         std::string odom_frame = "odom";
@@ -86,12 +91,15 @@ private:
 
     rclcpp::Node& node_;
     Config config_;
+    ChassisModel chassis_model_ = ChassisModel::kMecanum4Wheel;
 
     double rpm_to_wheel_speed_factor_;
 
     int can_socket_ = -1;
 
     std::array<MotorFeedback, WHEEL_COUNT> motor_feedback_;
+    MotorFeedback left_motor_feedback_;
+    MotorFeedback right_motor_feedback_;
     mutable std::mutex feedback_mutex_;
 
     double x_ = 0.0;
@@ -128,6 +136,7 @@ private:
     void parseCanFrame(uint32_t can_id, const uint8_t* data, uint8_t len);
     void imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg);
     void publishOdometry();
+    void trackSpeedsToBodyVelocity(double v_left, double v_right, double& vx, double& vy, double& omega) const;
     void wheelSpeedsToBodyVelocity(double v_fl, double v_rl, double v_rr, double v_fr, double& vx, double& vy,
                                    double& omega) const;
 };

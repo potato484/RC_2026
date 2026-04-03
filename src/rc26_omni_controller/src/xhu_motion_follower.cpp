@@ -3,6 +3,7 @@
 #include <tf2/exceptions.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <limits>
 #include <utility>
@@ -47,6 +48,7 @@ XhuMotionFollower::XhuMotionFollower(const rclcpp::NodeOptions &options)
   declare_parameter<std::string>("odom_topic", "control_state");
   declare_parameter<std::string>("map_frame", "map");
   declare_parameter<std::string>("base_frame", "base_link");
+  declare_parameter<std::string>("chassis_model", "tracked_diff");
   declare_parameter<double>("control_frequency_hz", 30.0);
   declare_parameter<double>("lookahead_distance", 0.6);
   declare_parameter<double>("goal_tolerance_xy", 0.15);
@@ -58,6 +60,9 @@ XhuMotionFollower::XhuMotionFollower(const rclcpp::NodeOptions &options)
   declare_parameter<double>("kp_linear_x", 1.2);
   declare_parameter<double>("kp_linear_y", 1.0);
   declare_parameter<double>("kp_angular", 1.8);
+  declare_parameter<double>("curvature_gain", 1.0);
+  declare_parameter<double>("heading_slowdown_start_rad", 0.35);
+  declare_parameter<double>("heading_stop_rad", 0.8);
   declare_parameter<double>("default_max_linear_speed", 0.8);
   declare_parameter<double>("default_max_angular_speed", 1.0);
   declare_parameter<double>("default_max_linear_accel", 0.6);
@@ -77,6 +82,13 @@ XhuMotionFollower::XhuMotionFollower(const rclcpp::NodeOptions &options)
   const auto odom_topic = get_parameter("odom_topic").as_string();
   map_frame_ = get_parameter("map_frame").as_string();
   base_frame_ = get_parameter("base_frame").as_string();
+  chassis_model_ = toLowerCopy(get_parameter("chassis_model").as_string());
+  if (chassis_model_ != "tracked_diff" && chassis_model_ != "mecanum_4wheel") {
+    RCLCPP_WARN(get_logger(), "chassis_model=%s invalid, fallback to tracked_diff",
+                chassis_model_.c_str());
+    chassis_model_ = "tracked_diff";
+  }
+  tracked_diff_mode_ = chassis_model_ == "tracked_diff";
   control_frequency_hz_ = std::max(5.0, get_parameter("control_frequency_hz").as_double());
   lookahead_distance_ = std::max(0.05, get_parameter("lookahead_distance").as_double());
   goal_tolerance_xy_ = std::max(0.02, get_parameter("goal_tolerance_xy").as_double());
@@ -88,6 +100,11 @@ XhuMotionFollower::XhuMotionFollower(const rclcpp::NodeOptions &options)
   kp_linear_x_ = std::max(0.0, get_parameter("kp_linear_x").as_double());
   kp_linear_y_ = std::max(0.0, get_parameter("kp_linear_y").as_double());
   kp_angular_ = std::max(0.0, get_parameter("kp_angular").as_double());
+  curvature_gain_ = std::max(0.0, get_parameter("curvature_gain").as_double());
+  heading_slowdown_start_rad_ =
+      std::max(0.0, get_parameter("heading_slowdown_start_rad").as_double());
+  heading_stop_rad_ = std::max(heading_slowdown_start_rad_ + 1e-3,
+                               get_parameter("heading_stop_rad").as_double());
   default_max_linear_speed_ =
       std::max(0.05, get_parameter("default_max_linear_speed").as_double());
   default_max_angular_speed_ =
@@ -139,6 +156,8 @@ XhuMotionFollower::XhuMotionFollower(const rclcpp::NodeOptions &options)
       std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::duration<double>(1.0 / control_frequency_hz_)),
       std::bind(&XhuMotionFollower::controlLoop, this));
+
+  RCLCPP_INFO(get_logger(), "xhu_motion_follower ready, chassis_model=%s", chassis_model_.c_str());
 }
 
 void XhuMotionFollower::onCorridor(
@@ -529,8 +548,9 @@ void XhuMotionFollower::controlLoop() {
   }
 
   const size_t nearest_index = findNearestIndex(path, robot_x, robot_y, nearest_index_hint);
-  const double current_speed =
-      std::hypot(last_cmd_snapshot.linear.x, last_cmd_snapshot.linear.y);
+  const double current_speed = tracked_diff_mode_
+                                   ? std::fabs(last_cmd_snapshot.linear.x)
+                                   : std::hypot(last_cmd_snapshot.linear.x, last_cmd_snapshot.linear.y);
   const double dynamic_lookahead =
       std::max(lookahead_distance_, brake_margin_m_ + current_speed * 0.8);
   const size_t lookahead_index = findLookaheadIndex(path, nearest_index, dynamic_lookahead);
@@ -587,9 +607,28 @@ void XhuMotionFollower::controlLoop() {
     return;
   }
 
-  double cmd_vx = kp_linear_x_ * err_x;
-  double cmd_vy = kp_linear_y_ * err_y;
-  double cmd_wz = kp_angular_ * heading_error;
+  double cmd_vx = 0.0;
+  double cmd_vy = 0.0;
+  double cmd_wz = 0.0;
+  if (tracked_diff_mode_) {
+    cmd_vx = kp_linear_x_ * err_x;
+    const double curvature = (dx * dx + dy * dy) > 1e-6 ? (2.0 * err_y / (dx * dx + dy * dy)) : 0.0;
+    cmd_wz = kp_angular_ * heading_error + curvature_gain_ * cmd_vx * curvature;
+
+    const double abs_heading_error = std::fabs(heading_error);
+    if (abs_heading_error >= heading_stop_rad_) {
+      cmd_vx = 0.0;
+      cmd_wz = kp_angular_ * heading_error;
+    } else if (abs_heading_error >= heading_slowdown_start_rad_) {
+      const double denom = std::max(heading_stop_rad_ - heading_slowdown_start_rad_, 1e-6);
+      const double scale = 1.0 - (abs_heading_error - heading_slowdown_start_rad_) / denom;
+      cmd_vx *= clamp(scale, 0.0, 1.0);
+    }
+  } else {
+    cmd_vx = kp_linear_x_ * err_x;
+    cmd_vy = kp_linear_y_ * err_y;
+    cmd_wz = kp_angular_ * heading_error;
+  }
 
   if (!corridor->allow_reverse && cmd_vx < 0.0) {
     cmd_vx = 0.0;
@@ -597,11 +636,15 @@ void XhuMotionFollower::controlLoop() {
 
   if (loc_health_level == rc26_interfaces::msg::LocalizationHealth::YELLOW) {
     cmd_vx *= lhi_yellow_v_scale_;
-    cmd_vy *= lhi_yellow_v_scale_;
+    if (!tracked_diff_mode_) {
+      cmd_vy *= lhi_yellow_v_scale_;
+    }
     cmd_wz *= lhi_yellow_w_scale_;
   } else if (loc_health_level == rc26_interfaces::msg::LocalizationHealth::ORANGE) {
     cmd_vx *= lhi_orange_v_scale_;
-    cmd_vy *= lhi_orange_vy_scale_;
+    if (!tracked_diff_mode_) {
+      cmd_vy *= lhi_orange_vy_scale_;
+    }
     cmd_wz *= lhi_orange_w_scale_;
   }
 
@@ -614,11 +657,16 @@ void XhuMotionFollower::controlLoop() {
     angular_limit = std::min(angular_limit, static_cast<double>(corridor->max_angular_speed));
   }
 
-  const double planar_norm = std::hypot(cmd_vx, cmd_vy);
-  if (planar_norm > linear_limit && planar_norm > 1e-6) {
-    const double scale = linear_limit / planar_norm;
-    cmd_vx *= scale;
-    cmd_vy *= scale;
+  if (tracked_diff_mode_) {
+    cmd_vx = clamp(cmd_vx, -linear_limit, linear_limit);
+    cmd_vy = 0.0;
+  } else {
+    const double planar_norm = std::hypot(cmd_vx, cmd_vy);
+    if (planar_norm > linear_limit && planar_norm > 1e-6) {
+      const double scale = linear_limit / planar_norm;
+      cmd_vx *= scale;
+      cmd_vy *= scale;
+    }
   }
   cmd_wz = clamp(cmd_wz, -angular_limit, angular_limit);
 
@@ -631,11 +679,15 @@ void XhuMotionFollower::controlLoop() {
     const double max_dv = std::max(0.0, mode_linear_accel) * dt;
     const double max_dw = std::max(0.0, mode_angular_accel) * dt;
     cmd_vx = clamp(cmd_vx, last_cmd_.linear.x - max_dv, last_cmd_.linear.x + max_dv);
-    cmd_vy = clamp(cmd_vy, last_cmd_.linear.y - max_dv, last_cmd_.linear.y + max_dv);
+    if (tracked_diff_mode_) {
+      cmd_vy = 0.0;
+    } else {
+      cmd_vy = clamp(cmd_vy, last_cmd_.linear.y - max_dv, last_cmd_.linear.y + max_dv);
+    }
     cmd_wz = clamp(cmd_wz, last_cmd_.angular.z - max_dw, last_cmd_.angular.z + max_dw);
 
     last_cmd_.linear.x = cmd_vx;
-    last_cmd_.linear.y = cmd_vy;
+    last_cmd_.linear.y = tracked_diff_mode_ ? 0.0 : cmd_vy;
     last_cmd_.angular.z = cmd_wz;
     cmd_pub_->publish(last_cmd_);
 

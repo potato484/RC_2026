@@ -22,6 +22,7 @@ def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, 
     terrain_speed_limit_topic = terrain_speed_limit_topic_raw
     if terrain_speed_limit_topic_raw.lower() in ('__disabled__', '__none__', 'none', 'off', 'false', '0'):
         terrain_speed_limit_topic = ''
+    chassis_model = LaunchConfiguration('chassis_model').perform(context).strip()
 
     merge_odom_node = Node(
         package='rc26_merge_odom',
@@ -35,6 +36,7 @@ def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, 
             'target_serial_port': LaunchConfiguration('target_serial_port').perform(context),
             'merge_odom_topic': pose_feedback_topic,
             'terrain_speed_limit_topic': terrain_speed_limit_topic,
+            'chassis_model': chassis_model,
         }]
     )
 
@@ -86,6 +88,7 @@ def generate_launch_description():
     can_odom_topic_default = str(merge_params.get('can_odom_topic', 'Can_Odom'))
     wheel_odom_topic_default = str(merge_params.get('wheel_odom_topic', 'wheel_odom'))
     terrain_speed_limit_topic_default = str(merge_params.get('terrain_speed_limit_topic', ''))
+    chassis_model_default = str(merge_params.get('chassis_model', 'mecanum_4wheel'))
 
     use_can_odom_arg = DeclareLaunchArgument(
         'use_can_odom',
@@ -116,6 +119,9 @@ def generate_launch_description():
     terrain_speed_limit_topic_arg = DeclareLaunchArgument(
         'terrain_speed_limit_topic', default_value=terrain_speed_limit_topic_default,
         description='Terrain speed limit topic for PoseSender; use __disabled__ to disable terrain-based linear speed suppression')
+    chassis_model_arg = DeclareLaunchArgument(
+        'chassis_model', default_value=chassis_model_default,
+        description='Chassis model: mecanum_4wheel | tracked_diff')
 
     return LaunchDescription([
         use_can_odom_arg,
@@ -125,6 +131,7 @@ def generate_launch_description():
         feedback_serial_port_arg,
         target_serial_port_arg,
         terrain_speed_limit_topic_arg,
+        chassis_model_arg,
         OpaqueFunction(
             function=create_runtime_nodes,
             args=[params_file, ekf_params_file, can_odom_topic_default, wheel_odom_topic_default],

@@ -15,6 +15,7 @@ export interface SceneCanvasProps {
   startPose: Pose3 | null;
   goalPose: Pose3 | null;
   hoverPose: Pose3 | null;
+  blockedGridIds: number[];
   pickMode: PickMode;
   onHoverNodeChange?: (nodeId: string | null) => void;
   onPickNode?: (nodeId: string) => void;
@@ -240,6 +241,44 @@ class BabylonSceneManager {
     } else {
       this.applyMeshShadows(stem);
       this.applyMeshShadows(head);
+    }
+  }
+
+  private createPulseMarker(
+    name: string,
+    pose: Pose3,
+    color: string,
+    {
+      diameter,
+      lift,
+      opacity = 1,
+      dynamic = false,
+      shape = 'sphere',
+    }: {
+      diameter: number;
+      lift: number;
+      opacity?: number;
+      dynamic?: boolean;
+      shape?: 'sphere' | 'box';
+    },
+  ) {
+    if (!this.scene) {
+      return;
+    }
+
+    const mesh = shape === 'box'
+      ? BABYLON.MeshBuilder.CreateBox(name, { size: diameter }, this.scene)
+      : BABYLON.MeshBuilder.CreateSphere(name, { diameter, segments: 14 }, this.scene);
+    mesh.position = new BABYLON.Vector3(pose.x, pose.y, poseZ(pose) + lift);
+    mesh.material = this.getMat(`pulse_${color}_${shape}`, color, opacity, 0.42, 0.04, {
+      emissiveScale: 0.08,
+    });
+    mesh.isPickable = !dynamic;
+
+    if (dynamic) {
+      this.addDynamicMesh(mesh);
+    } else {
+      this.applyMeshShadows(mesh);
     }
   }
 
@@ -502,19 +541,22 @@ class BabylonSceneManager {
     startPose: Pose3 | null,
     goalPose: Pose3 | null,
     hoverPose: Pose3 | null,
+    blockedGridIds: number[],
     pickMode: PickMode,
   ) {
     if (!this.scene || !this.isReady) return;
     this.clearDynamic();
     if (!manifest) return;
 
-    if (layers.blocked && liveEvent?.blockOverlay) {
-      const blockedIds = new Set(liveEvent.blockOverlay.filter(c => c.state === 1).map(c => c.gridId));
+    if (layers.blocked && blockedGridIds.length > 0) {
+      const blockedIds = new Set(blockedGridIds);
       const blockedSlots = manifest.meilinSlots.filter(s => blockedIds.has(s.block_id));
       blockedSlots.forEach(slot => {
         const mesh = BABYLON.MeshBuilder.CreateBox(`dyn_blocked_${slot.block_id}`, { width: 0.72, depth: 0.72, height: 0.42 }, this.scene!);
         mesh.position = new BABYLON.Vector3(slot.x, slot.y, slot.z + 0.22);
-        mesh.material = this.getMat('blocked', '#d62828', 0.58);
+        mesh.material = this.getMat('blocked', '#d62828', 0.42, 0.56, 0.02, {
+          emissiveScale: 0.09,
+        });
         this.addDynamicMesh(mesh);
       });
     }
@@ -542,10 +584,13 @@ class BabylonSceneManager {
 
     if (layers.keyNodes) {
       offlinePath.forEach((p, i) => {
-        this.createPinMarker(`dyn_pathnode_${i}`, p, '#fcbf49', {
-          headDiameter: 0.13,
-          stemDiameter: 0.036,
-          lift: 0.07,
+        if (i === 0 || i === offlinePath.length - 1) {
+          return;
+        }
+        this.createPulseMarker(`dyn_pathnode_${i}`, p, '#fcbf49', {
+          diameter: 0.14,
+          lift: 0.05,
+          opacity: 0.9,
           dynamic: true,
         });
       });
@@ -567,26 +612,28 @@ class BabylonSceneManager {
       frame.treeSegments.forEach((seg, i) => {
         const lines = BABYLON.MeshBuilder.CreateLines(`dyn_tree_${i}`, { points: [vec3(seg.from), vec3(seg.to)] }, this.scene!);
         lines.color = hexToColor3('#4ea8de');
-        lines.alpha = 0.42;
+        lines.alpha = 0.52;
         this.addDynamicMesh(lines);
       });
     }
 
     if (layers.candidates && frame?.candidateTrajectories) {
       frame.candidateTrajectories.forEach((traj, i) => {
+        if (traj.selected) {
+          createTube(traj.points, '#ff7b00', 0.028, 0.88);
+        }
         const lines = BABYLON.MeshBuilder.CreateLines(`dyn_cand_${i}`, { points: traj.points.map(p => vec3(p)) }, this.scene!);
         lines.color = hexToColor3(traj.selected ? '#ff7b00' : traj.collision ? '#adb5bd' : '#94d2bd');
-        lines.alpha = traj.selected ? 0.95 : 0.34;
+        lines.alpha = traj.selected ? 0.26 : 0.34;
         this.addDynamicMesh(lines);
       });
     }
 
     if (layers.openSet && frame?.openSet) {
       frame.openSet.forEach(entry => {
-        this.createPinMarker(`dyn_open_${entry.nodeId}`, entry.pose, '#219ebc', {
-          headDiameter: 0.144,
-          stemDiameter: 0.032,
-          lift: 0.06,
+        this.createPulseMarker(`dyn_open_${entry.nodeId}`, entry.pose, '#219ebc', {
+          diameter: 0.15,
+          lift: 0.07,
           opacity: 0.92,
           dynamic: true,
         });
@@ -595,12 +642,12 @@ class BabylonSceneManager {
 
     if (layers.expanded && frame?.expandedNodes) {
       frame.expandedNodes.forEach(entry => {
-        this.createPinMarker(`dyn_exp_${entry.nodeId}`, entry.pose, '#ffb703', {
-          headDiameter: 0.11,
-          stemDiameter: 0.03,
-          lift: 0.05,
-          opacity: 0.72,
+        this.createPulseMarker(`dyn_exp_${entry.nodeId}`, entry.pose, '#ffb703', {
+          diameter: 0.1,
+          lift: 0.04,
+          opacity: 0.78,
           dynamic: true,
+          shape: 'box',
         });
       });
     }
@@ -773,10 +820,11 @@ export function SceneCanvas(props: SceneCanvasProps) {
         props.startPose,
         props.goalPose,
         props.hoverPose,
+        props.blockedGridIds,
         props.pickMode,
       );
     }
-  }, [engineReady, props.scene, props.frame, props.liveEvent, props.layers, props.startPose, props.goalPose, props.hoverPose, props.pickMode]);
+  }, [engineReady, props.scene, props.frame, props.liveEvent, props.layers, props.startPose, props.goalPose, props.hoverPose, props.blockedGridIds, props.pickMode]);
 
   useEffect(() => {
     if (engineReady && managerRef.current && props.scene) {

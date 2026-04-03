@@ -48,24 +48,36 @@ export const TASK_REASON_LABELS: Record<string, string> = {
 };
 
 export const VIEW_MODE_LABELS: Record<string, string> = {
-  orbit: '轨道环绕 (Orbit)',
-  follow: '目标跟随 (Follow)',
-  first_person: '第一人称 (First Person)',
-  top_ortho: '顶部正交 (Top Ortho)',
-  side_ortho: '侧视正交 (Side Ortho)',
-  side_perspective: '侧视透视 (Side Perspective)',
+  orbit: '轨道环绕',
+  follow: '目标跟随',
+  first_person: '第一人称',
+  top_ortho: '顶部正交',
+  side_ortho: '侧视正交',
+  side_perspective: '侧视透视',
 };
 
 export const LAYER_LABELS: Record<string, string> = {
-  scene: '场景几何 (Scene)',
-  graph: '拓扑网络 (Graph)',
-  keyNodes: '关键节点 (Key Nodes)',
-  openSet: '开放集合 (Open Set)',
-  expanded: '已扩展点 (Expanded)',
-  tree: '搜索树/候选 (Tree)',
-  candidates: '候选轨迹 (Candidates)',
-  shadows: '实时阴影 (Shadows)',
-  blocked: '阻塞区域 (Blocked)',
+  scene: '场景',
+  graph: '拓扑',
+  keyNodes: '路径节点',
+  openSet: '前沿',
+  expanded: '已探查',
+  tree: '搜索树',
+  candidates: '候选轨迹',
+  shadows: '阴影',
+  blocked: '阻塞区',
+};
+
+export const LAYER_SHORT_LABELS: Record<string, string> = {
+  scene: '景',
+  graph: '图',
+  keyNodes: '径',
+  openSet: '前',
+  expanded: '展',
+  tree: '树',
+  candidates: '轨',
+  shadows: '影',
+  blocked: '阻',
 };
 
 export const ALGORITHM_LABELS: Record<string, string> = {
@@ -75,15 +87,53 @@ export const ALGORITHM_LABELS: Record<string, string> = {
 };
 
 export const RUN_MODE_LABELS: Record<string, string> = {
-  'offline-sim': '离线仿真 (Offline Sim)',
-  'live-ros': '实时只读 (Live ROS)',
+  'offline-sim': '离线仿真',
+  'live-ros': '实时只读',
+};
+
+export const TEAM_SHORT_LABELS: Record<string, string> = {
+  blue: '蓝',
+  red: '红',
+};
+
+export const VIEW_MODE_SHORT_LABELS: Record<string, string> = {
+  orbit: '环',
+  follow: '跟',
+  first_person: '首',
+  top_ortho: '俯',
+  side_ortho: '侧',
+  side_perspective: '侧透',
+};
+
+export const DEBUG_KEY_LABELS: Record<string, string> = {
+  gCost: 'G 成本',
+  fCost: 'F 成本',
+  stepCost: '步长成本',
+  iteration: '迭代',
+  tree_size: '树规模',
+  goal_distance: '距目标',
+  target_distance: '距追踪点',
+  candidate_count: '候选数',
+  framesCount: '帧数',
+  totalCost: '总代价',
+  steps: '步数',
+  iterations: '迭代数',
+  selectedCandidate: '选中候选',
+  goalKind: '目标类型',
+  goalValue: '目标值',
+  state: '状态',
+  activeEdge: '激活边',
+  gateStatus: '语义门',
+  corridorId: '走廊 ID',
+  distanceToGoal: '距目标距离',
+  blockedNodes: '阻塞节点',
 };
 
 export const UI_LABELS = {
   appTitle: '3D 战术观测沙盘',
-  appSubtitle: '完整 Mesh 场地、真实路径颜色层、多视角相机与 A* / RRT / DWA 仿真共用 WebGPU 观测面。',
+  appSubtitle: '场地、路径与搜索过程共用一块三维观测面。',
   statusWaiting: '正在加载场景',
-  statusLoaded: '场景已加载，等待手动设置起点/目标并生成离线运行',
+  statusLoaded: '场景已就绪，可在画面上设起点或终点',
   statusError: '场景加载失败',
   panelConfig: '运行配置',
   panelView: '观测视角',
@@ -93,6 +143,9 @@ export const UI_LABELS = {
   panelFrame: '当前帧',
   panelSummary: '运行摘要',
   panelLive: '实时桥接',
+  panelDebug: '高级 / 调试',
+  panelAppearance: '外观与视角',
+  panelFallback: '表单后备入口',
   btnGenerateRun: '生成手动离线运行',
   btnStartLive: '启动实时桥接',
   btnPlay: '播放回放',
@@ -102,6 +155,7 @@ export const UI_LABELS = {
   btnPickStart: '在场景中设起点',
   btnPickGoal: '在场景中设目标',
   btnCancelPick: '取消选点',
+  btnDebugPanel: '高级 / 调试',
   fieldTeam: '阵营',
   fieldMode: '模式',
   fieldAlgo: '算法',
@@ -123,18 +177,19 @@ export const UI_LABELS = {
   legendStart: '起点',
   legendGoal: '终点',
   legendPath: '路径',
-  legendOpen: '开放集',
-  legendTree: '搜索树/候选',
-  hintManualRunOnly: '页面默认不会自动播放；只有手动生成离线运行后，播放/单步/重置才会生效。',
+  legendOpen: '前沿',
+  legendTree: '搜索树',
+  hintManualRunOnly: '离线运行不会自动生成；先在画面上选点，再手动启动。',
   hintLiveReadonly: '实时模式只读观察 ROS 状态，不接受浏览器选点。',
-  hintPickIdle: '可在表单里直接选节点，也可打开场景选点模式；点击场景任意位置会吸附到最近导航点。',
+  hintPickIdle: '主入口是场景选点；需要精确指定时，再展开高级面板使用表单。',
   hintPickStart: '起点选点已开启：点击场景任意位置，会吸附到最近导航点并写入起点。',
   hintPickGoal: '目标选点已开启：点击场景任意位置，会吸附到最近导航点并写入目标节点。',
   hintPickPreviewEmpty: '移动鼠标到场地或节点上方可预览吸附结果。',
-  hintRunIdle: '尚未生成离线运行，右侧不会自动出现播放内容。',
+  hintRunIdle: '尚未生成离线运行。',
   hintFrameIdle: '等待手动生成离线运行',
   hintFrameRunReady: '离线运行已创建，可播放或单步查看。',
   hintSummaryEmpty: '尚无运行摘要',
+  hintDebugClosed: '主界面已收口为观测优先；详细字段收在高级 / 调试。',
 };
 
 export function withRawLabel(displayName: string, rawValue: string): string {

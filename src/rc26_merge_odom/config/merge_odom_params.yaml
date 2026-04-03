@@ -3,11 +3,14 @@
 # CAN里程计节点参数
 can_odom_node:
   ros__parameters:
+    chassis_model: "tracked_diff"
     can_interface: "can0"
     wheel_radius: 0.07625
     wheel_base: 0.62326
     track_width: 0.7
     gear_ratio: 19.2032  # 3591/187
+    left_motor_can_id: 513   # 0x201, tracked_diff 模式左侧驱动电机
+    right_motor_can_id: 514  # 0x202, tracked_diff 模式右侧驱动电机
     publish_rate_hz: 50
     odom_topic: "Can_Odom"
     odom_frame: "odom"
@@ -38,6 +41,8 @@ dm_imu_node:
 # 串口轮式里程计节点参数
 wheel_odom_node:
   ros__parameters:
+    chassis_model: "tracked_diff"
+    wheel_feedback_format: "tracked_lr_8b"
     serial_port: "/dev/ttyUSB0"
     baudrate: 1000000
     wheel_base: 0.08
@@ -51,6 +56,7 @@ wheel_odom_node:
 # 速度发送节点参数 (独立模式)
 pose_sender_node:
   ros__parameters:
+    chassis_model: "tracked_diff"
     feedback_serial_port: "/dev/ttyUSB0"
     target_serial_port: "/dev/ttyUSB1"
     baudrate: 1000000
@@ -64,6 +70,9 @@ pose_sender_node:
     w_max_rps: 4.0
     a_max_mps2: 15.0
     alpha_max_rps2: 40.0
+    track_width_m: 0.7
+    track_speed_max_mps: 2.0
+    track_accel_max_mps2: 15.0
     imu_gate_enable: true
     imu_gate_ema_alpha: 0.98
     imu_gate_chi2_threshold: 6.635
@@ -85,6 +94,7 @@ pose_sender_node:
 # 轮速软融合节点参数
 wheel_odom_fuser_node:
   ros__parameters:
+    chassis_model: "tracked_diff"
     can_odom_topic: "Can_Odom"
     wheel_odom_topic: "wheel_odom"
     imu_topic: "DM_IMU"
@@ -102,17 +112,22 @@ merge_odom_node:
   ros__parameters:
     # 里程计源选择: true=can_odom, false=wheel_odom
     use_can_odom: false
+    # 底盘模型: mecanum_4wheel | tracked_diff
+    chassis_model: "tracked_diff"
     # CAN参数
     can_interface: "can0"
     wheel_radius: 0.07625
     wheel_base: 0.62326
     track_width: 0.7
     gear_ratio: 19.2032
+    left_motor_can_id: 513   # 0x201, tracked_diff 模式左侧驱动电机
+    right_motor_can_id: 514  # 0x202, tracked_diff 模式右侧驱动电机
     can_publish_rate_hz: 50
     can_odom_topic: "Can_Odom"
     wheel_odom_topic: "wheel_odom"
     odom_frame: "odom"
     base_frame: "base_link"
+    wheel_feedback_format: "tracked_lr_8b"
     # 双串口参数 (MCU速度闭环)
     feedback_serial_port: "/dev/ttyUSB0"
     target_serial_port: "/dev/ttyUSB1"
@@ -128,6 +143,9 @@ merge_odom_node:
     w_max_rps: 4.0
     a_max_mps2: 15.0
     alpha_max_rps2: 40.0
+    track_width_m: 0.7
+    track_speed_max_mps: 2.0
+    track_accel_max_mps2: 15.0
     imu_gate_enable: true
     imu_gate_ema_alpha: 0.98
     imu_gate_chi2_threshold: 6.635

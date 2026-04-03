@@ -26,11 +26,14 @@ def main() -> None:
         try:
             page.goto("/", wait_until="networkidle")
             page.get_by_role("heading", name="3D 战术观测沙盘").wait_for()
-            page.get_by_text("场景已加载，等待手动设置起点/目标并生成离线运行").wait_for(timeout=10000)
+            page.get_by_text("场景已就绪，可在画面上设起点或终点").wait_for(timeout=10000)
 
-            graph_toggle = page.get_by_role("checkbox", name="拓扑网络 (Graph)")
-            if graph_toggle.is_checked():
-                raise AssertionError("拓扑网络图层默认应为关闭。")
+            graph_toggle = page.get_by_role("button", name="拓扑")
+            if graph_toggle.get_attribute("aria-pressed") != "false":
+                raise AssertionError("拓扑图层默认应为关闭。")
+
+            page.get_by_role("button", name="高级 / 调试").click()
+            page.get_by_label("起点节点").wait_for(timeout=5000)
 
             page.get_by_role("button", name="生成手动离线运行").click()
             page.wait_for_function(
@@ -41,23 +44,60 @@ def main() -> None:
                 }""",
                 timeout=20000,
             )
-            page.get_by_text("0 / 2").wait_for(timeout=20000)
+            page.wait_for_function(
+                """() => {
+                    return Array.from(document.querySelectorAll(".stat-value"))
+                      .some((element) => element.textContent?.trim() === "0 / 2");
+                }""",
+                timeout=20000,
+            )
 
             page.get_by_role("button", name="单步").click()
-            page.get_by_text("1 / 2").wait_for(timeout=20000)
+            page.wait_for_function(
+                """() => {
+                    return Array.from(document.querySelectorAll(".stat-value"))
+                      .some((element) => element.textContent?.trim() === "1 / 2");
+                }""",
+                timeout=20000,
+            )
 
-            graph_toggle.check()
-            if not graph_toggle.is_checked():
-                raise AssertionError("拓扑网络图层勾选后应保持选中状态。")
+            graph_toggle.click()
+            page.wait_for_function(
+                """() => {
+                    const button = Array.from(document.querySelectorAll("button"))
+                      .find((element) => element.getAttribute("aria-label") === "拓扑");
+                    return button?.getAttribute("aria-pressed") === "true";
+                }""",
+                timeout=5000,
+            )
 
-            page.get_by_role("combobox", name="模式").select_option("live-ros")
+            page.get_by_role("button", name="实时只读").click()
+            page.get_by_role("button", name="阻塞区").wait_for(timeout=5000)
             live_button = page.get_by_role("button", name="启动实时桥接")
             live_button.wait_for(timeout=5000)
             live_button.click()
 
-            page.get_by_text("stub_edge_live").wait_for(timeout=10000)
-            page.get_by_text("stub_corridor").wait_for(timeout=10000)
-            page.get_by_text("0.48").wait_for(timeout=10000)
+            page.wait_for_function(
+                """() => {
+                    return Array.from(document.querySelectorAll(".metric-row strong"))
+                      .some((element) => element.textContent?.trim() == "stub_edge_live");
+                }""",
+                timeout=10000,
+            )
+            page.wait_for_function(
+                """() => {
+                    return Array.from(document.querySelectorAll(".metric-row strong"))
+                      .some((element) => element.textContent?.trim() == "stub_corridor");
+                }""",
+                timeout=10000,
+            )
+            page.wait_for_function(
+                """() => {
+                    return Array.from(document.querySelectorAll(".metric-row strong"))
+                      .some((element) => element.textContent?.trim() == "0.480");
+                }""",
+                timeout=10000,
+            )
         except PlaywrightTimeoutError:
             save_failure_artifacts(page)
             browser.close()

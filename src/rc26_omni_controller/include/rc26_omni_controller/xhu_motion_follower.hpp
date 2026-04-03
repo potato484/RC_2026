@@ -104,6 +104,8 @@ private:
 
   std::string map_frame_;
   std::string base_frame_;
+  std::string chassis_model_{"tracked_diff"};
+  bool tracked_diff_mode_{false};
   double control_frequency_hz_{30.0};
   double lookahead_distance_{0.6};
   double goal_tolerance_xy_{0.15};
@@ -115,6 +117,9 @@ private:
   double kp_linear_x_{1.2};
   double kp_linear_y_{1.0};
   double kp_angular_{1.8};
+  double curvature_gain_{1.0};
+  double heading_slowdown_start_rad_{0.35};
+  double heading_stop_rad_{0.8};
   double default_max_linear_speed_{0.8};
   double default_max_angular_speed_{1.0};
   double default_max_linear_accel_{0.6};

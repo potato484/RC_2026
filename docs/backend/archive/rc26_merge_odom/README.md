@@ -36,6 +36,18 @@
 - `launch/wheel_odom_only.launch.py`
 - `launch/dm_imu_only.launch.py`
 
+当前实现新增了统一的 `chassis_model` 参数，支持两种底盘口径：
+
+- `mecanum_4wheel`：保留现有四轮全向解算与二维速度保护
+- `tracked_diff`：按真实两电机差速底盘运行；串口 `wheel_odom` 接收 `v_left / v_right` 两路浮点速度，`can_odom` 接收左右两个驱动电机反馈，输出 `vx / wz`，运行时固定 `vy=0`
+
+与履带模式直接相关的新配置口径有两项：
+
+- `wheel_feedback_format`：串口 `ODOM_DATA` 的 payload 形态，支持 `legacy_4wheel_16b | tracked_lr_8b`
+- `left_motor_can_id / right_motor_can_id`：履带模式下左右驱动电机的 CAN 反馈 ID
+
+当前仓库默认底盘模式已经切到 `tracked_diff`；若要回切四轮，需显式把 `chassis_model` 改回 `mecanum_4wheel`，并把 `wheel_feedback_format` 一并改回 `legacy_4wheel_16b`。
+
 ## 源码入口与阅读顺序
 - 先看 `launch/merge_odom_fused.launch.py` 和 `launch/merge_odom.launch.py`，理解这个子系统是如何把多个节点拼起来的。
 - 再看 `src/merge_odom_node.cpp`，它是总装入口。
@@ -71,3 +83,10 @@
 - 这个包输出的是局部融合里程计和下发保护，不是全局定位
 - 它不替代 `rc26_localization` 的地图配准职责
 - 它也不做上层路径规划，只为控制和定位提供更稳的底层状态与执行接口
+
+## 近期实现说明
+
+- `wheel_odom` 保留老四轮 `16B / 4 float` 串口解析，同时新增 `tracked_lr_8b` 接收格式；履带模式的真实输入现在是 `v_left / v_right` 两个 `float32`。
+- `can_odom` 保留老四电机 CAN 解算；履带模式切换为左右两个电机 ID，可在 YAML 里分别配置。
+- `wheel_odom_fuser` 在履带模式下继续保留双源融合，但把 `vy` 收敛为非完整约束量。
+- `PoseSender` 在履带模式下仍按 `(vx, vy, wz)` 协议下发，但会在保护器里强制 `vy=0`，并改为左右履带空间限速/限加速度。

@@ -418,6 +418,7 @@ describe('SceneCanvas', () => {
             startPose={null}
             goalPose={null}
             hoverPose={null}
+            blockedGridIds={[]}
             pickMode="idle"
           />
         </div>
@@ -457,6 +458,7 @@ describe('SceneCanvas', () => {
           startPose={null}
           goalPose={null}
           hoverPose={null}
+          blockedGridIds={[]}
           pickMode="idle"
         />
       </div>,
@@ -475,6 +477,7 @@ describe('SceneCanvas', () => {
           startPose={null}
           goalPose={null}
           hoverPose={null}
+          blockedGridIds={[]}
           pickMode="idle"
         />
       </div>,
@@ -545,6 +548,7 @@ describe('SceneCanvas', () => {
           startPose={null}
           goalPose={null}
           hoverPose={null}
+          blockedGridIds={[]}
           pickMode="idle"
         />
       </div>,
@@ -577,6 +581,7 @@ describe('SceneCanvas', () => {
           startPose={null}
           goalPose={null}
           hoverPose={null}
+          blockedGridIds={[]}
           pickMode="idle"
         />
       </div>,
@@ -606,6 +611,7 @@ describe('SceneCanvas', () => {
           startPose={null}
           goalPose={null}
           hoverPose={null}
+          blockedGridIds={[]}
           pickMode="idle"
         />
       </div>,
@@ -632,6 +638,7 @@ describe('SceneCanvas', () => {
           startPose={null}
           goalPose={null}
           hoverPose={null}
+          blockedGridIds={[]}
           pickMode="goal"
           onHoverNodeChange={onHoverNodeChange}
           onPickNode={onPickNode}
@@ -669,5 +676,93 @@ describe('SceneCanvas', () => {
     });
 
     expect(onPickNode).toHaveBeenCalledWith('node-b');
+  });
+
+  it('renders astar dynamic overlays when contextual layers are enabled', async () => {
+    render(
+      <div style={{ width: '640px', height: '360px' }}>
+        <SceneCanvas
+          scene={createSceneManifest()}
+          frame={{
+            stepIndex: 1,
+            algorithm: 'astar',
+            phase: 'relax',
+            label: 'A* frame',
+            robotPose: null,
+            openSet: [{ nodeId: 'node-a', pose: { x: 0, y: 0, z: 0, yaw: 0 }, gCost: 1, fCost: 2 }],
+            expandedNodes: [{ nodeId: 'node-b', pose: { x: 1, y: 0, z: 0, yaw: 0 } }],
+            bestPath: {
+              nodeIds: ['node-a', 'node-mid', 'node-b'],
+              points: [
+                { x: 0, y: 0, z: 0, yaw: 0 },
+                { x: 0.5, y: 0.2, z: 0, yaw: 0 },
+                { x: 1, y: 0, z: 0, yaw: 0 },
+              ],
+            },
+            treeSegments: [],
+            candidateTrajectories: [],
+            selectedTrajectory: [],
+            metrics: {},
+          }}
+          liveEvent={null}
+          viewMode="orbit"
+          layers={{ ...layers, keyNodes: true, openSet: true, expanded: true }}
+          startPose={null}
+          goalPose={null}
+          hoverPose={null}
+          blockedGridIds={[]}
+          pickMode="idle"
+        />
+      </div>,
+    );
+
+    await waitFor(() => {
+      expect(mockState.pendingInitResolvers).toHaveLength(1);
+    });
+
+    await act(async () => {
+      mockState.pendingInitResolvers[0]();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(mockState.liveMeshNames).toContain('dyn_pathnode_1');
+      expect(mockState.liveMeshNames).toContain('dyn_open_node-a');
+      expect(mockState.liveMeshNames).toContain('dyn_exp_node-b');
+    });
+  });
+
+  it('renders blocked overlays from offline blocked grid ids without live data', async () => {
+    render(
+      <div style={{ width: '640px', height: '360px' }}>
+        <SceneCanvas
+          scene={createSceneManifest({
+            meilinSlots: [{ block_id: 7, x: 0.6, y: 0.2, z: 0 }],
+          })}
+          frame={null}
+          liveEvent={null}
+          viewMode="orbit"
+          layers={{ ...layers, blocked: true }}
+          startPose={null}
+          goalPose={null}
+          hoverPose={null}
+          blockedGridIds={[7]}
+          pickMode="idle"
+        />
+      </div>,
+    );
+
+    await waitFor(() => {
+      expect(mockState.pendingInitResolvers).toHaveLength(1);
+    });
+
+    await act(async () => {
+      mockState.pendingInitResolvers[0]();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(mockState.liveMeshNames).toContain('dyn_blocked_7');
+    });
   });
 });

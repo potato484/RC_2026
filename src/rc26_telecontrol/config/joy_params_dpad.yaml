@@ -6,6 +6,7 @@ joy_node:
 
 rc26_telecontrol_dpad:
   ros__parameters:
+    chassis_model: "tracked_diff"
     v_linear: 0.2
     v_angular: 0.5
     joy_timeout_s: 0.3

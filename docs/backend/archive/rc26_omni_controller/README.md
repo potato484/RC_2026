@@ -30,3 +30,10 @@
 
 - 负责 corridor 跟踪与执行反馈
 - 不负责 topo 图搜索和模式决策
+
+## 近期实现说明
+
+- 当前控制器新增 `chassis_model` 参数，支持 `mecanum_4wheel | tracked_diff` 两种底盘模式。
+- 当前默认底盘模式已切到 `tracked_diff`，bringup 不再默认按全向控制律运行。
+- 四轮模式继续按全向控制律输出 `cmd_vel.linear.y`。
+- 履带模式改为单车体跟踪：横向误差通过曲率项和朝向误差项转成 `linear.x + angular.z`，运行时固定 `cmd_vel.linear.y=0`。

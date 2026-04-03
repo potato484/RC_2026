@@ -37,3 +37,7 @@
 
 - 负责装配，不承载算法本体
 - 当前整车导航模式下只会启动自研 topo/xhu 链
+
+## 近期实现说明
+
+- 当前 bringup 的默认 `chassis_model` 已切到 `tracked_diff`，下游 `xhu_motion_follower` 会默认按履带差速模式装配。

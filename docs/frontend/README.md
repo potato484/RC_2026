@@ -23,7 +23,7 @@
   - 工程入口：`src/rc26_topo_nav/sim_viewer/src/main.tsx` -> `src/rc26_topo_nav/sim_viewer/src/App.tsx`
   - 启动脚本：`npm run dev`、`npm run build`
   - 数据入口：`src/rc26_topo_nav/scripts/topo_sim_server.py` 提供本地 HTTP / WebSocket adapter，消费 topo 图、Gazebo world、KFS 对齐配置和运行时只读 topic
-  - **最新变更说明**：此工具已完成渲染引擎从 Three.js 到 Babylon.js 的升级，支持 WebGPU 优先渲染，并全面采用工业战术沙盘视觉风格，展示层已 100% 中文化；离线模式默认空闲，需要用户手动生成运行，且支持在场景中点击并吸附到最近 topo 节点来设置起点/目标，保持“只读观察 + topo-native 契约”定位不变。当前根仓库还新增了 `docs/test/` 下的 preflight / E2E / release 收口脚本，以及对应的 GitHub CI/CD workflow。
+  - **最新变更说明**：此工具已完成渲染引擎从 Three.js 到 Babylon.js 的升级，支持 WebGPU 优先渲染，并进一步收口为“画布优先 + 上下文图层 + 同页调试抽屉”的观测台：离线模式默认空闲，需要用户手动生成运行；起点/目标默认通过场景吸附选点设置；`blocked` 同时支持离线手填节点映射和 live block overlay；详细变量、summary 和 live 键值不再常驻主界面。当前根仓库还新增了 `docs/test/` 下的 preflight / E2E / release 收口脚本，以及对应的 GitHub CI/CD workflow。
 
 ## 2. 当前能力总览
 
@@ -35,10 +35,10 @@
   - 本地模拟执行：在浏览器里用一套确定性演示逻辑跑单次行为树执行，驱动节点状态、时间线和黑板更新。
 - `src/rc26_topo_nav/sim_viewer`
   - 完整三维场景：渲染 `robocon2026_v2_aligned.world` / `robocon2026.dae` 提取出的 mesh 面、材质色、光照和阴影。使用 Babylon.js 渲染管线。
-  - 清晰路径层：用三维 tube / line 显示 A* / RRT / DWA 路径、关键点、open set、扩展树和候选轨迹。
+  - 清晰路径层：用三维 tube / line / marker 显示 A* / RRT / DWA 路径、关键点、前沿、扩展树和候选轨迹，并按当前算法/模式收口图层开关。
   - 多视角交互：支持 `orbit / follow / first_person / top_ortho / side_perspective`，侧视使用透视视角和立柱式 marker，避免画面过于平。
   - 本地 adapter：离线模式下回放 A* 运行时 trace 与 RRT / DWA 仿真帧；实时模式下只读消费 `/topo_nav/route`、`/topo_nav/corridor`、`/xhu_nav/active_edge`、`/xhu_nav/semantic_gate`、`/mf_block_overlay`、`/xhu_nav/tracking_state`。
-  - 视觉与体验：拥有高级暗色玻璃态 UI、工业战术沙盘风格，UI 字段与图形图例完全中文化；支持显式“设起点/设目标”选点模式，点击场地后自动吸附到最近 topo 节点并同步回表单。
+  - 视觉与体验：拥有工业战术沙盘风格的明亮玻璃态 UI，主界面默认只保留画布、少量图层符号、视角按钮和运行控制；详细数值、表单和 debug 字段折叠到同页“高级 / 调试”面板。
 
 当前仍然没有的能力也必须一开始就看清：
 

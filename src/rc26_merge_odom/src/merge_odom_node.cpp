@@ -14,6 +14,7 @@ public:
     MergeOdomNode() : Node("merge_odom_node") {
         // 里程计源选择
         this->declare_parameter("use_can_odom", true);
+        this->declare_parameter("chassis_model", "tracked_diff");
 
         // CAN里程计参数
         this->declare_parameter("can_interface", "can0");
@@ -21,12 +22,15 @@ public:
         this->declare_parameter("wheel_base", 0.62326);
         this->declare_parameter("track_width", 0.7);
         this->declare_parameter("gear_ratio", 3591.0 / 187.0);
+        this->declare_parameter("left_motor_can_id", 0x201);
+        this->declare_parameter("right_motor_can_id", 0x202);
         this->declare_parameter("can_publish_rate_hz", 50);
         this->declare_parameter("can_odom_topic", "Can_Odom");
         this->declare_parameter("wheel_odom_topic", "wheel_odom");
         this->declare_parameter("odom_frame", "odom");
         this->declare_parameter("base_frame", "base_link");
         this->declare_parameter("data_timeout_ms", 100.0);
+        this->declare_parameter("wheel_feedback_format", "tracked_lr_8b");
 
         // 双串口参数
         this->declare_parameter("feedback_serial_port", "/dev/ttyUSB0");
@@ -46,6 +50,9 @@ public:
         this->declare_parameter("w_max_rps", 4.0);
         this->declare_parameter("a_max_mps2", 15.0);
         this->declare_parameter("alpha_max_rps2", 40.0);
+        this->declare_parameter("track_width_m", 0.7);
+        this->declare_parameter("track_speed_max_mps", 2.0);
+        this->declare_parameter("track_accel_max_mps2", 15.0);
         this->declare_parameter("imu_gate_enable", true);
         this->declare_parameter("imu_gate_ema_alpha", 0.98);
         this->declare_parameter("imu_gate_chi2_threshold", 6.635);
@@ -118,11 +125,16 @@ public:
         // 根据配置初始化里程计
         if (use_can_odom) {
             rc26_merge_odom::CanOdom::Config can_config;
+            can_config.chassis_model = this->get_parameter("chassis_model").as_string();
             can_config.can_interface = this->get_parameter("can_interface").as_string();
             can_config.wheel_radius = this->get_parameter("wheel_radius").as_double();
             can_config.wheel_base = wheel_base;
             can_config.track_width = track_width;
             can_config.gear_ratio = this->get_parameter("gear_ratio").as_double();
+            can_config.left_motor_can_id =
+                static_cast<uint32_t>(this->get_parameter("left_motor_can_id").as_int());
+            can_config.right_motor_can_id =
+                static_cast<uint32_t>(this->get_parameter("right_motor_can_id").as_int());
             can_config.publish_rate_hz = publish_rate_hz;
             can_config.odom_topic = odom_topic;
             can_config.odom_frame = odom_frame;
@@ -145,6 +157,8 @@ public:
             RCLCPP_INFO(this->get_logger(), "使用 CAN 里程计");
         } else {
             rc26_merge_odom::WheelOdom::Config wheel_config;
+            wheel_config.chassis_model = this->get_parameter("chassis_model").as_string();
+            wheel_config.wheel_feedback_format = this->get_parameter("wheel_feedback_format").as_string();
             wheel_config.wheel_base = wheel_base;
             wheel_config.track_width = track_width;
             wheel_config.publish_rate_hz = publish_rate_hz;
@@ -172,6 +186,7 @@ public:
         // 初始化速度发送
         if (feedback_ok || target_ok) {
             rc26_merge_odom::PoseSender::Config pose_config;
+            pose_config.chassis_model = this->get_parameter("chassis_model").as_string();
             pose_config.cmd_vel_topic = this->get_parameter("cmd_vel_topic").as_string();
             pose_config.odom_topic = this->get_parameter("merge_odom_topic").as_string();
             pose_config.imu_topic = this->get_parameter("imu_topic").as_string();
@@ -182,6 +197,11 @@ public:
             pose_config.w_max_rps = static_cast<float>(this->get_parameter("w_max_rps").as_double());
             pose_config.a_max_mps2 = static_cast<float>(this->get_parameter("a_max_mps2").as_double());
             pose_config.alpha_max_rps2 = static_cast<float>(this->get_parameter("alpha_max_rps2").as_double());
+            pose_config.track_width_m = static_cast<float>(this->get_parameter("track_width_m").as_double());
+            pose_config.track_speed_max_mps =
+                static_cast<float>(this->get_parameter("track_speed_max_mps").as_double());
+            pose_config.track_accel_max_mps2 =
+                static_cast<float>(this->get_parameter("track_accel_max_mps2").as_double());
             pose_config.imu_gate_enable = this->get_parameter("imu_gate_enable").as_bool();
             pose_config.imu_gate_ema_alpha = static_cast<float>(this->get_parameter("imu_gate_ema_alpha").as_double());
             pose_config.imu_gate_chi2_threshold =

@@ -21,6 +21,13 @@
 - 滑动窗口健康度统计
 - 长度与负载保护
 
+当前真实协议口径里，`ODOM_DATA(0x20)` 已经不再固定只有四轮 `4 float`：
+
+- 四轮模式：`<v_fl, v_rl, v_rr, v_fr>`
+- 履带模式：`<v_left, v_right>`
+
+上位机下发给 MCU 的 `POSE_FEEDBACK/POSE_TARGET` 仍保持 `(vx, vy, wz)` 三浮点协议不变。
+
 ## 源码入口与阅读顺序
 - 先看 `src/serial_driver.cpp`，这是整个仓库复用的串口底座。
 - 再看两个测试文件，理解 ACK/RTO 和环形解析器的验收点。

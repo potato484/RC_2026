@@ -38,11 +38,13 @@
   - 使用 Babylon.js 引擎，优先尝试 WebGPU 渲染，自动回退到 WebGL。场景包含环境背景、方向光、阴影和 PBR 材质。
 - 路径与算法过程
   - 起点绿色、目标点红色、规划路径蓝色。
-  - 可选显示关键节点、open set、已扩展节点、RRT 树段和 DWA 候选轨迹。
+  - 主画面改成“画布优先”结构：起点/目标默认通过场景选点设置，详细表单与键值字段折叠到同页“高级 / 调试”面板。
+  - 图层控制不再把所有层平铺成一组通用复选框；页面会按当前算法和模式只暴露有意义的图层，例如 A* 下显示 `路径节点 / 前沿 / 已探查`，RRT 下显示 `搜索树`，DWA 下显示 `候选轨迹`。
+  - `blocked` 不再只依赖 live block overlay；离线模式会把高级面板里手填的 blocked nodes 映射到可视阻塞区，实时模式则继续消费 `/mf_block_overlay`。
   - A* 复用 C++ runtime planner trace；RRT / DWA 是本地仿真算法，但输出同一套帧结构。
   - 页面现在默认采用“场景优先”首屏：初始会先展示场地与基础路径语义，`graph / keyNodes / openSet / expanded / tree / candidates` 图层默认关闭，避免未生成运行时被 topo 节点球体淹没。
   - 页面默认不会自动生成或自动播放离线运行；只有用户手动设置起点/目标后点击“生成手动离线运行”，播放/单步/重置才会对该离线回放生效。
-  - 场景点击不是把浏览器点击点直接下发为任意坐标目标；前端会把点击到的场地位置吸附到最近 topo 节点，再回写到 `start_node` / `goal_node` 表单字段，保持后端契约仍然是 topo-native 目标。
+  - 场景点击不是把浏览器点击点直接下发为任意坐标目标；前端会把点击到的场地位置吸附到最近 topo 节点，再回写到 `start_node / goal_node`，保持后端契约仍然是 topo-native 目标。
 - 交互相机
   - 支持 `orbit / follow / first_person / top_ortho / side_perspective` 多视角；`side_perspective` 现在使用更低、更近的斜侧机位，不再像高空投影图。
   - 支持鼠标旋转、平移、滚轮缩放。
@@ -94,8 +96,8 @@
 当前 viewer 的手动交互口径也已明确：
 
 - 离线模式默认空闲，不再自动播“演示 run”。
-- 用户既可以在左侧表单选 `start_node / goal_node / goal_task / goal_route`，也可以显式开启“在场景中设起点 / 设目标”模式。
-- 场景选点只负责吸附到最近 topo 节点，并把结果同步回表单；这让前端看起来像“点场地”，但后端 API 仍然只接收 topo 图里的节点/任务/路线语义。
+- 用户默认通过画面上的“在场景中设起点 / 设目标”模式完成选点；`start_node / goal_node / goal_task / goal_route`、blocked node 原始输入和 shadows 开关下沉到“高级 / 调试”面板。
+- 场景选点只负责吸附到最近 topo 节点，并把结果同步回表单后备入口；这让前端看起来像“点场地”，但后端 API 仍然只接收 topo 图里的节点/任务/路线语义。
 - `topo_sim_server.py` 的 live 线程现在会在 `rclpy` 外部关闭时安静退出，不再因为 `ExternalShutdownException` 在服务关闭时打出一段无意义 traceback。
 
 ## 5. 当前边界

@@ -9,8 +9,8 @@ Usage:
 
 Options:
   --mode <stick|dpad>         Control mode, default: stick
-                              stick = 左摇杆平移 + 右摇杆旋转
-                              dpad  = 十字键平移 + X右旋/B左旋
+                              stick = 履带模式，左摇杆前后 + 右摇杆旋转
+                              dpad  = 履带模式，十字键前后 + X右旋/B左旋
   --v-linear <m/s>            Max linear speed, default: 0.2
   --v-angular <rad/s>         Max angular speed, default: 0.5
   --cmd-vel-topic <topic>     Teleop output topic, default: cmd_vel
@@ -71,6 +71,7 @@ setup_file="${workspace_dir}/install/setup.bash"
 terrain_speed_limit_disabled_sentinel="__disabled__"
 
 mode="stick"
+chassis_model="tracked_diff"
 v_linear="0.2"
 v_angular="0.5"
 cmd_vel_topic="cmd_vel"
@@ -213,6 +214,7 @@ merge_odom_cmd=(
   "use_can_odom:=${use_can_odom}"
   "start_ekf:=${start_ekf}"
   "terrain_speed_limit_topic:=${terrain_speed_limit_topic}"
+  "chassis_model:=${chassis_model}"
 )
 
 joy_cmd=(
@@ -227,6 +229,7 @@ teleop_cmd=(
   ros2 run rc26_telecontrol "${teleop_executable}"
   --ros-args
   -p "cmd_vel_topic:=${cmd_vel_topic}"
+  -p "chassis_model:=${chassis_model}"
   -p "v_linear:=${v_linear}"
   -p "v_angular:=${v_angular}"
   -p "joy_timeout_s:=${joy_timeout_s}"
@@ -258,6 +261,7 @@ source_with_relaxed_nounset "${setup_file}"
 
 echo "Workspace: ${workspace_dir}"
 echo "Mode: ${mode}"
+echo "Chassis model: ${chassis_model}"
 echo "cmd_vel topic: ${cmd_vel_topic}"
 if [[ "${terrain_speed_limit_topic}" != "${terrain_speed_limit_disabled_sentinel}" ]]; then
   echo "Terrain speed limit topic: ${terrain_speed_limit_topic}"

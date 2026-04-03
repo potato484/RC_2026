@@ -10,6 +10,7 @@
 class PoseSenderNode : public rclcpp::Node {
 public:
     PoseSenderNode() : Node("pose_sender_node") {
+        this->declare_parameter("chassis_model", "tracked_diff");
         this->declare_parameter("feedback_serial_port", "/dev/ttyUSB0");
         this->declare_parameter("target_serial_port", "/dev/ttyUSB1");
         this->declare_parameter("baudrate", 1000000);
@@ -23,6 +24,9 @@ public:
         this->declare_parameter("w_max_rps", 4.0);
         this->declare_parameter("a_max_mps2", 15.0);
         this->declare_parameter("alpha_max_rps2", 40.0);
+        this->declare_parameter("track_width_m", 0.7);
+        this->declare_parameter("track_speed_max_mps", 2.0);
+        this->declare_parameter("track_accel_max_mps2", 15.0);
         this->declare_parameter("imu_gate_enable", true);
         this->declare_parameter("imu_gate_ema_alpha", 0.98);
         this->declare_parameter("imu_gate_chi2_threshold", 6.635);
@@ -69,6 +73,7 @@ public:
         }
 
         rc26_merge_odom::PoseSender::Config config;
+        config.chassis_model = this->get_parameter("chassis_model").as_string();
         config.cmd_vel_topic = this->get_parameter("cmd_vel_topic").as_string();
         config.odom_topic = this->get_parameter("odom_topic").as_string();
         config.imu_topic = this->get_parameter("imu_topic").as_string();
@@ -79,6 +84,10 @@ public:
         config.w_max_rps = static_cast<float>(this->get_parameter("w_max_rps").as_double());
         config.a_max_mps2 = static_cast<float>(this->get_parameter("a_max_mps2").as_double());
         config.alpha_max_rps2 = static_cast<float>(this->get_parameter("alpha_max_rps2").as_double());
+        config.track_width_m = static_cast<float>(this->get_parameter("track_width_m").as_double());
+        config.track_speed_max_mps = static_cast<float>(this->get_parameter("track_speed_max_mps").as_double());
+        config.track_accel_max_mps2 =
+            static_cast<float>(this->get_parameter("track_accel_max_mps2").as_double());
         config.imu_gate_enable = this->get_parameter("imu_gate_enable").as_bool();
         config.imu_gate_ema_alpha = static_cast<float>(this->get_parameter("imu_gate_ema_alpha").as_double());
         config.imu_gate_chi2_threshold =

@@ -1,5 +1,6 @@
 xhu_motion_follower:
   ros__parameters:
+    chassis_model: "tracked_diff"
     odom_topic: "control_state"
     map_frame: "map"
     base_frame: "base_link"
@@ -13,6 +14,9 @@ xhu_motion_follower:
     kp_linear_x: 1.20
     kp_linear_y: 1.00
     kp_angular: 1.80
+    curvature_gain: 1.00
+    heading_slowdown_start_rad: 0.35
+    heading_stop_rad: 0.80
     default_max_linear_speed: 0.80
     default_max_angular_speed: 1.00
     default_max_linear_accel: 0.60

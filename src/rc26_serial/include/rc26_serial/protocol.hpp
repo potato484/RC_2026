@@ -73,7 +73,7 @@ enum class FeedbackID : uint8_t {
     HEARTBEAT_ACK = 0x10,          // 心跳响应
     STAIR_CLIMB_DONE = 0x11,       // 上阶梯完成
     STAIR_DESCEND_DONE = 0x12,     // 下阶梯完成
-    ODOM_DATA = 0x20,              // 轮式里程计数据 (v_fl, v_rl, v_rr, v_fr) 单位: m/s
+    ODOM_DATA = 0x20,              // 轮式里程计数据：四轮模式=<v_fl,v_rl,v_rr,v_fr>，履带模式=<v_left,v_right>，单位: m/s
     ACTION_FAIL = 0xFE,            // 动作执行失败，payload: [failed_cmd_id, error_code]
     ERROR = 0xFF,                  // 系统致命异常
 };

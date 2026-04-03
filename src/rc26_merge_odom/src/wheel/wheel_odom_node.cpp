@@ -10,6 +10,8 @@
 class WheelOdomNode : public rclcpp::Node {
 public:
     WheelOdomNode() : Node("wheel_odom_node") {
+        this->declare_parameter("chassis_model", "tracked_diff");
+        this->declare_parameter("wheel_feedback_format", "tracked_lr_8b");
         this->declare_parameter("serial_port", "/dev/ttyUSB0");
         this->declare_parameter("baudrate", 1000000);
         this->declare_parameter("wheel_base", 0.62326);
@@ -29,6 +31,8 @@ public:
         }
 
         rc26_merge_odom::WheelOdom::Config config;
+        config.chassis_model = this->get_parameter("chassis_model").as_string();
+        config.wheel_feedback_format = this->get_parameter("wheel_feedback_format").as_string();
         config.wheel_base = this->get_parameter("wheel_base").as_double();
         config.track_width = this->get_parameter("track_width").as_double();
         config.publish_rate_hz = this->get_parameter("publish_rate_hz").as_int();

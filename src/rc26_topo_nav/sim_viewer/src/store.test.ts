@@ -93,7 +93,7 @@ describe('useSimStore', () => {
     expect(initialState.layers.candidates).toBe(false);
   });
 
-  it('sets a manual-idle status message after the scene manifest loads', () => {
+  it('sets the scene-ready status message after the scene manifest loads', () => {
     useSimStore.getState().setScene(createSceneManifest());
 
     expect(useSimStore.getState().startNode).toBe('node-a');

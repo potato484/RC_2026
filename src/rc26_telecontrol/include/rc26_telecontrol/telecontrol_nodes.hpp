@@ -30,6 +30,7 @@ protected:
   double angular_speed_limit() const noexcept;
   double joy_deadzone() const noexcept;
   double deadzone_hyst() const noexcept;
+  bool tracked_diff_mode() const noexcept;
 
   bool button_pressed(const JoyMsgConstSharedPtr & joy_msg, int button_index) const noexcept;
   double axis_value(const JoyMsgConstSharedPtr & joy_msg, std::size_t axis_index) const noexcept;
@@ -83,6 +84,7 @@ private:
   const bool use_deadzone_hysteresis_;
   std::string control_mode_description_;
   std::string cmd_vel_topic_{"cmd_vel_teleop"};
+  std::string chassis_model_{"tracked_diff"};
   double v_linear_{0.2};
   double v_angular_{0.5};
   double joy_deadzone_{0.15};

@@ -57,3 +57,11 @@
 - 这个包服务于 R2 的人工测试与接管，不是自动决策模块
 - 它不生成路径，也不做定位或地形理解
 - 当前项目主目标仍是 R2 自动机器人，`rc26_telecontrol` 更偏调试/验证链路
+
+## 近期实现说明
+
+- 当前遥控链新增 `chassis_model` 参数，支持 `mecanum_4wheel | tracked_diff` 两种底盘模式。
+- 当前默认底盘模式已切到 `tracked_diff`，因此遥控默认不会再输出横向速度。
+- 四轮模式保持原有 `linear.x / linear.y / angular.z` 控制口径。
+- 履带模式下，Stick 和 Dpad 都只输出 `linear.x + angular.z`，`linear.y` 在节点内部被固定为 0。
+- 仓库根目录的 `start_r2_teleop.sh` 现已显式向 `rc26_merge_odom` 和 `rc26_telecontrol` 传入 `chassis_model:=tracked_diff`，遥控联调不再依赖各包内部默认值。
