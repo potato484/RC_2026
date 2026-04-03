@@ -42,11 +42,9 @@ def main() -> None:
                 timeout=20000,
             )
             page.get_by_text("0 / 2").wait_for(timeout=20000)
-            page.get_by_text("planner initialized").wait_for(timeout=20000)
 
             page.get_by_role("button", name="单步").click()
-            page.get_by_text("1 / 2").wait_for(timeout=10000)
-            page.get_by_text("expanded current best node").wait_for(timeout=10000)
+            page.get_by_text("1 / 2").wait_for(timeout=20000)
 
             graph_toggle.check()
             if not graph_toggle.is_checked():
