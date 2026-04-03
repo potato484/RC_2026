@@ -328,6 +328,7 @@ class StubRun:
         self.cursor = 0
         self.speed = request.animation_speed
         self.subscribers: set[WebSocket] = set()
+        self._send_lock = asyncio.Lock()
         self._ticker_task = asyncio.create_task(self._ticker_loop())
 
     async def _ticker_loop(self) -> None:
@@ -360,16 +361,22 @@ class StubRun:
         stale: list[WebSocket] = []
         for websocket in list(self.subscribers):
             try:
-                await websocket.send_json(payload)
+                await self._send_json(websocket, payload)
             except Exception:
                 stale.append(websocket)
         for websocket in stale:
             self.subscribers.discard(websocket)
 
+    async def _send_json(self, websocket: WebSocket, payload: dict[str, Any]) -> None:
+        # CI 上 create-run、subscribe、step 可能高度重叠；串行化同一 run 的发送，避免首帧与 step 更新乱序。
+        async with self._send_lock:
+            await websocket.send_json(payload)
+
     async def subscribe(self, websocket: WebSocket) -> None:
         await websocket.accept()
         self.subscribers.add(websocket)
-        await websocket.send_json(
+        await self._send_json(
+            websocket,
             {
                 "type": "meta",
                 "runId": self.id,
@@ -377,9 +384,9 @@ class StubRun:
                 "cursor": self.cursor,
                 "frameCount": len(self.frames),
                 "summary": self.summary,
-            }
+            },
         )
-        await websocket.send_json(self.current_payload())
+        await self._send_json(websocket, self.current_payload())
 
     async def unsubscribe(self, websocket: WebSocket) -> None:
         self.subscribers.discard(websocket)
@@ -407,6 +414,7 @@ class LiveBridge:
     def __init__(self) -> None:
         self.started = False
         self.subscribers: set[WebSocket] = set()
+        self._send_lock = asyncio.Lock()
         self.state = {
             "routePath": [],
             "corridorPath": [],
@@ -450,7 +458,7 @@ class LiveBridge:
     async def subscribe(self, websocket: WebSocket) -> None:
         await websocket.accept()
         self.subscribers.add(websocket)
-        await websocket.send_json({"type": "live_state", **self.state})
+        await self._send_json(websocket, {"type": "live_state", **self.state})
 
     async def unsubscribe(self, websocket: WebSocket) -> None:
         self.subscribers.discard(websocket)
@@ -459,11 +467,15 @@ class LiveBridge:
         stale: list[WebSocket] = []
         for websocket in list(self.subscribers):
             try:
-                await websocket.send_json(payload)
+                await self._send_json(websocket, payload)
             except Exception:
                 stale.append(websocket)
         for websocket in stale:
             self.subscribers.discard(websocket)
+
+    async def _send_json(self, websocket: WebSocket, payload: dict[str, Any]) -> None:
+        async with self._send_lock:
+            await websocket.send_json(payload)
 
 
 app = FastAPI(title="RC26 Topo Sim E2E Stub", version="0.1.0")
