@@ -240,41 +240,44 @@ export const EditorVisualizer = () => {
         </div>
       )}
 
-      <ReactFlow
-        nodes={nodesWithSelection}
-        edges={flowEdges}
-        nodeTypes={nodeTypes}
-        onNodeClick={(_, node: Node) => {
-          setSelectedNode(node.id);
-          setContextMenu(null);
-        }}
-        onNodeDoubleClick={(_, node: Node) => {
-          toggleNodeCollapse(node.id);
-        }}
-        onNodeContextMenu={(event, node) => {
-          event.preventDefault();
-          setSelectedNode(node.id);
-          setContextMenu({
-            nodeId: node.id,
-            tagName: String((node.data as { tagName?: string }).tagName ?? ''),
-            x: event.clientX - 24,
-            y: event.clientY - 24,
-          });
-        }}
-        onPaneClick={() => {
-          setSelectedNode(null);
-          setContextMenu(null);
-        }}
-        fitView
-        nodesDraggable={false}
-        nodesConnectable={false}
-        elementsSelectable
-        minZoom={0.1}
-        className="bg-transparent"
-      >
-        <Background color="#cbd5e1" gap={24} size={2} className="opacity-50" />
-        <Controls className="!border-slate-200 !bg-white/80 backdrop-blur-sm" />
-      </ReactFlow>
+      <div className="absolute bottom-0 left-[352px] right-0 top-20">
+        {/* 给浮动节点库和顶部保存条预留安全区，避免初始节点被遮住后无法选中。 */}
+        <ReactFlow
+          nodes={nodesWithSelection}
+          edges={flowEdges}
+          nodeTypes={nodeTypes}
+          onNodeClick={(_, node: Node) => {
+            setSelectedNode(node.id);
+            setContextMenu(null);
+          }}
+          onNodeDoubleClick={(_, node: Node) => {
+            toggleNodeCollapse(node.id);
+          }}
+          onNodeContextMenu={(event, node) => {
+            event.preventDefault();
+            setSelectedNode(node.id);
+            setContextMenu({
+              nodeId: node.id,
+              tagName: String((node.data as { tagName?: string }).tagName ?? ''),
+              x: event.clientX - 24,
+              y: event.clientY - 24,
+            });
+          }}
+          onPaneClick={() => {
+            setSelectedNode(null);
+            setContextMenu(null);
+          }}
+          fitView
+          nodesDraggable={false}
+          nodesConnectable={false}
+          elementsSelectable
+          minZoom={0.1}
+          className="bg-transparent"
+        >
+          <Background color="#cbd5e1" gap={24} size={2} className="opacity-50" />
+          <Controls className="!border-slate-200 !bg-white/80 backdrop-blur-sm" />
+        </ReactFlow>
+      </div>
 
       {contextMenu && (
         <EditorContextMenu

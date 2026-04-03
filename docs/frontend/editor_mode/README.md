@@ -20,6 +20,7 @@
    根据 `SubTree` 引用关系派生编辑态树列表的主树/子树层级和中文树名。
 8. `src/components/EditorVisualizer.tsx:12-92`
    负责编辑画布、节点选中状态同步、源文件导出，以及开发态“保存到源文件”按钮。
+   当前 ReactFlow 视口会主动给左侧节点库和顶部保存条预留安全区，避免初始节点落在浮层下方后无法点击。
 9. `src/components/EditorRightPanel.tsx:95-243`
    通过递归查找当前选中节点，并提供属性增删改、添加子节点、删除非根节点和中文结构预览；默认优先展示中文属性名和值，只在显式展开时露出原始 XML 内容。
 10. `src/utils/editorSerializer.ts:7-103`
@@ -71,6 +72,7 @@
   - 编辑模式树列表按主树/子树层级展示，并跟着当前区域草稿同步切换。
 - `src/components/EditorVisualizer.tsx:12-92`
   - 编辑画布、选中状态同步、源文件导出和保存到源文件。
+  - 2026-04-04 额外给 ReactFlow 视口预留了左侧节点库和顶部保存条的安全区，避免初始节点被浮层盖住后无法选中。
 - `src/components/EditorNode.tsx:57-82`
   - 编辑画布节点主标题和摘要都优先显示中文解释，不再默认暴露原始标签名。
 - `src/components/EditorRightPanel.tsx:23-51`
