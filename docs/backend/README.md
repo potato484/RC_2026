@@ -2,17 +2,13 @@
 
 `docs/backend/archive/` 采用“每个 ROS2 包一个目录”的结构。各目录下的 `README.md` 是当前真实实现的入口文档。
 
-## 当前专题状态
-
-- [`xhu_direct_current_status_2026-04-01`](xhu_direct_current_status_2026-04-01.md): 记录 2026-04-02 收口为 topo/xhu 自研链后的导航真实状态。`(file: xhu_direct_current_status_2026-04-01.md)`
-
 ## 包目录索引
 
 ### 装配与决策
 
 - [`rc26_bringup`](archive/rc26_bringup/README.md): R2 整车链路统一装配入口；导航模式下固定装配 topo/xhu 自研导航链。`(file: archive/rc26_bringup/README.md)`
-- [`rc26_decision`](archive/rc26_decision/README.md): R2 主决策包；当前只保留 topo/xhu 自研导航调用路径。`(file: archive/rc26_decision/README.md)`
-- [`rc26_interfaces`](archive/rc26_interfaces/README.md): R2 自定义 ROS 2 接口契约包；当前仅保留 topo/xhu 与决策运行时所需接口。`(file: archive/rc26_interfaces/README.md)`
+- [`rc26_decision`](archive/rc26_decision/README.md): R2 主决策包；通过 topo/xhu 导航链发起导航调用。`(file: archive/rc26_decision/README.md)`
+- [`rc26_interfaces`](archive/rc26_interfaces/README.md): R2 自定义 ROS 2 接口契约包；覆盖 topo/xhu 与决策运行时接口。`(file: archive/rc26_interfaces/README.md)`
 
 ### 里程计、定位与点云主链
 
@@ -28,8 +24,8 @@
 ### 控制与执行
 
 - [`rc26_topo_nav`](archive/rc26_topo_nav/README.md): 拓扑导航表达与单边执行器；当前只通过 `set_xhu_motion_mode + /xhu_nav/corridor_cmd` 驱动执行。`(file: archive/rc26_topo_nav/README.md)`
-- [`rc26_nav_mode_manager`](archive/rc26_nav_mode_manager/README.md): 自研导航运动模式管理器；当前只保留 `xhu_motion_mode_manager_node`。`(file: archive/rc26_nav_mode_manager/README.md)`
-- [`rc26_omni_controller`](archive/rc26_omni_controller/README.md): 自研走廊跟踪执行器宿主包；当前只保留 `xhu_motion_follower_node`。`(file: archive/rc26_omni_controller/README.md)`
+- [`rc26_nav_mode_manager`](archive/rc26_nav_mode_manager/README.md): 自研导航运动模式管理器；提供 `set_xhu_motion_mode` 与 `/xhu_nav/motion_mode_state` 主线。`(file: archive/rc26_nav_mode_manager/README.md)`
+- [`rc26_omni_controller`](archive/rc26_omni_controller/README.md): 自研走廊跟踪执行器宿主包；提供 `xhu_motion_follower_node` 执行链。`(file: archive/rc26_omni_controller/README.md)`
 - [`rc26_mechanism`](archive/rc26_mechanism/README.md): 机构执行与生命周期管理。`(file: archive/rc26_mechanism/README.md)`
 - [`rc26_telecontrol`](archive/rc26_telecontrol/README.md): 人工遥控测试包。`(file: archive/rc26_telecontrol/README.md)`
 - [`rc26_serial`](archive/rc26_serial/README.md): 串口通信基础库。`(file: archive/rc26_serial/README.md)`
@@ -43,11 +39,4 @@
 ### 感知与可视化
 
 - [`rc26_vision`](archive/rc26_vision/README.md): 视觉推理与弹头定位。`(file: archive/rc26_vision/README.md)`
-- [`rc26_visualization`](archive/rc26_visualization/README.md): 状态聚合与运维诊断；已切换到 xhu 自研导航话题。`(file: archive/rc26_visualization/README.md)`
-
-## 已移除的旧导航包
-
-- 旧二维执行器包
-- 旧地形兼容桥接包
-
-上述包已从 `src/` 中删除，不再属于当前后端运行时边界。
+- [`rc26_visualization`](archive/rc26_visualization/README.md): 状态聚合与运维诊断；消费 xhu 导航状态与 keepout 约束输入。`(file: archive/rc26_visualization/README.md)`

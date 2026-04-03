@@ -14,10 +14,6 @@
 - `XhuMotionModeState.msg`
 - `XhuTrackingState.msg`
 
-## 当前清理状态
-
-旧兼容导航契约已从该包移除，当前清单只覆盖 topo/xhu 主链和决策运行时所需接口。
-
 ## 当前边界
 
 - 只定义消息、服务、动作

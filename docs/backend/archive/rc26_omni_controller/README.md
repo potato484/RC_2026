@@ -26,10 +26,6 @@
   - `/xhu_nav/tracking_state`
   - `/xhu_nav/semantic_gate`
 
-## 当前清理状态
-
-旧插件化执行器资产已移除，当前只保留 corridor 跟踪与状态回传所需实现。
-
 ## 当前边界
 
 - 负责 corridor 跟踪与执行反馈

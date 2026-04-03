@@ -25,11 +25,9 @@
 - 服务客户端:
   - `set_xhu_motion_mode`
 
-## 关键变化
+## 执行链当前口径
 
-- 已删除旧兼容执行后端
-- 已删除双后端选择参数
-- `edge_executor` 现在只做两件事：
+- `edge_executor` 负责两件事：
   - 切换 xhu 运动模式
   - 发布 `XhuSemanticCorridor` 并等待 `XhuTrackingState`
 

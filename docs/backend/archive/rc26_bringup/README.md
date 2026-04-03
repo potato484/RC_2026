@@ -33,12 +33,6 @@
   - `scripts/r2_acceptance_probe.py`
   - `scripts/render_foxglove_layouts.py`
 
-## 已删除资产
-
-- 旧分模式导航装配入口
-- 旧兼容参数文件
-- 旧控制器专项测试入口
-
 ## 当前边界
 
 - 负责装配，不承载算法本体

@@ -27,14 +27,8 @@
 - MF 导航通过 `NavigateTopoTarget` action 对接 `rc26_topo_nav`
 - `main_tree.xml` 已作为唯一主树入口
 
-## 当前清理状态
-
-- 旧 waypoint 导航桥接实现已移除
-- 独立 waypoint 配置已移除
-- 旧分模式主树已移除
-
 ## 当前边界
 
 - 负责流程编排和策略切换
 - 不直接做底层控制求解
-- 不再直接持有底层导航目标协议或独立 waypoint 文件
+- 通过统一 topo 目标协议驱动导航执行链

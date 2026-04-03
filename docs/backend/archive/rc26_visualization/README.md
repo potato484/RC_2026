@@ -19,10 +19,9 @@
   - `/kfs_filter_mask`
   - `/kfs_keepout_heartbeat`
 
-## 关键变化
+## 当前诊断输入口径
 
 - 诊断输入已经完全收口到 xhu 主链与 keepout 约束输入
-- 当前不再维护任何旧兼容导航状态映射
 
 ## 当前边界
 
