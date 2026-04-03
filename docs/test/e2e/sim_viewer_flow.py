@@ -18,6 +18,47 @@ def save_failure_artifacts(page) -> None:
     (ARTIFACT_DIR / "sim-viewer-e2e-failure.html").write_text(page.content(), encoding="utf-8")
 
 
+def click_canvas_fraction(page, x_ratio: float, y_ratio: float) -> None:
+    canvas = page.locator("canvas")
+    canvas.wait_for(state="visible", timeout=10000)
+    box = canvas.bounding_box()
+    if box is None:
+        raise AssertionError("未能获取 3D 画布尺寸，无法执行选点。")
+
+    canvas.click(
+        position={
+            "x": box["width"] * x_ratio,
+            "y": box["height"] * y_ratio,
+        }
+    )
+
+
+def click_canvas_until_status(page, positions: list[tuple[float, float]], expected_text: str) -> None:
+    last_error: Exception | None = None
+    for x_ratio, y_ratio in positions:
+        click_canvas_fraction(page, x_ratio, y_ratio)
+        try:
+            page.get_by_text(expected_text).wait_for(timeout=2500)
+            return
+        except PlaywrightTimeoutError as error:
+            last_error = error
+
+    raise AssertionError(f"多次点击画布后仍未看到预期状态: {expected_text}") from last_error
+
+
+def set_trace_index(page, index: int) -> None:
+    slider = page.locator("#trace-index")
+    slider.wait_for(state="visible", timeout=5000)
+    current = int(slider.input_value() or "0")
+    if current == index:
+        return
+
+    slider.focus()
+    key = "ArrowLeft" if index < current else "ArrowRight"
+    for _ in range(abs(index - current)):
+        slider.press(key)
+
+
 def main() -> None:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
@@ -25,78 +66,58 @@ def main() -> None:
 
         try:
             page.goto("/", wait_until="networkidle")
-            page.get_by_role("heading", name="3D 战术观测沙盘").wait_for()
-            page.get_by_text("场景已就绪，可在画面上设起点或终点").wait_for(timeout=10000)
+            page.get_by_role("heading", name="3D 路线观察台").wait_for()
+            page.get_by_text("场景已就绪，先在场景里点起点和终点").wait_for(timeout=10000)
 
-            graph_toggle = page.get_by_role("button", name="拓扑")
-            if graph_toggle.get_attribute("aria-pressed") != "false":
-                raise AssertionError("拓扑图层默认应为关闭。")
+            expanded_toggle = page.get_by_role("button", name="已探查")
+            if expanded_toggle.get_attribute("aria-pressed") != "true":
+                raise AssertionError("已探查图层默认应为开启。")
 
-            page.get_by_role("button", name="高级 / 调试").click()
-            page.get_by_label("起点节点").wait_for(timeout=5000)
+            page.get_by_role("button", name="顶部正交").click()
 
-            page.get_by_role("button", name="生成手动离线运行").click()
-            page.wait_for_function(
-                """() => {
-                    const buttons = Array.from(document.querySelectorAll("button"));
-                    const stepButton = buttons.find((element) => element.textContent?.includes("单步"));
-                    return Boolean(stepButton && !stepButton.disabled);
-                }""",
-                timeout=20000,
-            )
-            page.wait_for_function(
-                """() => {
-                    return Array.from(document.querySelectorAll(".stat-value"))
-                      .some((element) => element.textContent?.trim() === "0 / 2");
-                }""",
-                timeout=20000,
+            page.get_by_role("button", name="设起点").click()
+            click_canvas_until_status(
+                page,
+                positions=[(0.47, 0.53), (0.46, 0.55), (0.48, 0.51), (0.45, 0.57)],
+                expected_text="起点已记录，继续在场景中设置终点",
             )
 
-            page.get_by_role("button", name="单步").click()
-            page.wait_for_function(
-                """() => {
-                    return Array.from(document.querySelectorAll(".stat-value"))
-                      .some((element) => element.textContent?.trim() === "1 / 2");
-                }""",
-                timeout=20000,
+            page.get_by_role("button", name="设终点").click()
+            click_canvas_until_status(
+                page,
+                positions=[(0.53, 0.47), (0.54, 0.45), (0.52, 0.49), (0.55, 0.43)],
+                expected_text="终点已记录，可以生成 3D 路线",
             )
 
-            graph_toggle.click()
+            page.get_by_role("button", name="生成 3D 路线").click()
+            page.get_by_text("3D 路线已生成", exact=False).wait_for(timeout=20000)
+            page.get_by_text("已生成 3 帧搜索回放").wait_for(timeout=10000)
+            page.get_by_text("stub_start", exact=True).wait_for(timeout=10000)
+            page.get_by_text("stub_goal", exact=True).wait_for(timeout=10000)
+            page.wait_for_function(
+                """() => document.querySelector(".range-readout")?.textContent?.trim() === "3 / 3" """,
+                timeout=10000,
+            )
+
+            expanded_toggle.click()
             page.wait_for_function(
                 """() => {
                     const button = Array.from(document.querySelectorAll("button"))
-                      .find((element) => element.getAttribute("aria-label") === "拓扑");
-                    return button?.getAttribute("aria-pressed") === "true";
+                      .find((element) => element.getAttribute("aria-label") === "已探查");
+                    return button?.getAttribute("aria-pressed") === "false";
                 }""",
                 timeout=5000,
             )
 
-            page.get_by_role("button", name="实时只读").click()
-            page.get_by_role("button", name="阻塞区").wait_for(timeout=5000)
-            live_button = page.get_by_role("button", name="启动实时桥接")
-            live_button.wait_for(timeout=5000)
-            live_button.click()
-
+            set_trace_index(page, 0)
             page.wait_for_function(
-                """() => {
-                    return Array.from(document.querySelectorAll(".metric-row strong"))
-                      .some((element) => element.textContent?.trim() == "stub_edge_live");
-                }""",
-                timeout=10000,
+                """() => Array.from(document.querySelectorAll(".panel-section .trace-title"))
+                    .some((element) => element.textContent?.trim() === "初始化前沿")""",
+                timeout=5000,
             )
             page.wait_for_function(
-                """() => {
-                    return Array.from(document.querySelectorAll(".metric-row strong"))
-                      .some((element) => element.textContent?.trim() == "stub_corridor");
-                }""",
-                timeout=10000,
-            )
-            page.wait_for_function(
-                """() => {
-                    return Array.from(document.querySelectorAll(".metric-row strong"))
-                      .some((element) => element.textContent?.trim() == "0.480");
-                }""",
-                timeout=10000,
+                """() => document.querySelector(".range-readout")?.textContent?.trim() === "1 / 3" """,
+                timeout=5000,
             )
         except PlaywrightTimeoutError:
             save_failure_artifacts(page)

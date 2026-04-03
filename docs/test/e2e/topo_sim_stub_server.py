@@ -262,7 +262,7 @@ def make_frames() -> list[dict[str, Any]]:
             "stepIndex": 2,
             "algorithm": "astar",
             "phase": "goal",
-            "label": "reached stub goal",
+            "label": "goal reached",
             "robotPose": {"x": 1.4, "y": 0.9, "z": 0.0, "yaw": 0.0},
             "openSet": [],
             "expandedNodes": [
@@ -282,7 +282,7 @@ def make_frames() -> list[dict[str, Any]]:
             ],
             "candidateTrajectories": [],
             "selectedTrajectory": [],
-            "metrics": {"gCost": 2.5, "fCost": 2.5, "stepCost": 1.5},
+            "metrics": {"gCost": 2.5, "fCost": 2.5, "stepCost": 1.5, "traceMode": "surface_route"},
         },
     ]
 
@@ -309,6 +309,87 @@ class RunControlRequest(BaseModel):
 
 class LiveStartRequest(BaseModel):
     namespace: str = ""
+
+
+class Pose3Request(BaseModel):
+    x: float
+    y: float
+    z: float
+    yaw: float = 0.0
+
+
+class SurfaceRouteRequest(BaseModel):
+    team: str = "blue"
+    start_pick_world: Pose3Request
+    goal_pick_world: Pose3Request
+    projection_radius_m: float | None = None
+
+
+def make_surface_route_segments() -> list[dict[str, Any]]:
+    return [
+        {
+            "segment_id": "stub_seg_a",
+            "from_node_id": "stub_start",
+            "to_node_id": "stub_mid",
+            "motion_type": "plane_move",
+            "required_mode": "mf_traverse",
+            "point_count": 2,
+        },
+        {
+            "segment_id": "stub_seg_b",
+            "from_node_id": "stub_mid",
+            "to_node_id": "stub_goal",
+            "motion_type": "ramp_down",
+            "required_mode": "mf_exit",
+            "point_count": 2,
+        },
+    ]
+
+
+def make_surface_route_preview_payload(request: SurfaceRouteRequest) -> dict[str, Any]:
+    return {
+        "success": True,
+        "failure_code": "",
+        "failure_reason": "",
+        "projected_start_node_id": "stub_start",
+        "projected_goal_node_id": "stub_goal",
+        "projected_start": {"x": -1.4, "y": -0.9, "z": 0.0, "yaw": 0.0},
+        "projected_goal": {"x": 1.4, "y": 0.9, "z": 0.0, "yaw": 0.0},
+        "path_points": [
+            {"x": -1.4, "y": -0.9, "z": 0.0, "yaw": 0.0},
+            {"x": 0.0, "y": 0.0, "z": 0.35, "yaw": 0.0},
+            {"x": 1.4, "y": 0.9, "z": 0.0, "yaw": 0.0},
+        ],
+        "segments": make_surface_route_segments(),
+        "team": request.team,
+        "surface_graph_file": f"stub_surface_graph_{request.team}.yaml",
+    }
+
+
+def make_surface_route_trace_payload(request: SurfaceRouteRequest) -> dict[str, Any]:
+    frames = make_frames()
+    preview = make_surface_route_preview_payload(request)
+    return {
+        **preview,
+        "summary": {
+            "goalKind": "node",
+            "goalValue": "stub_goal",
+            "framesCount": len(frames),
+            "returnedFramesCount": len(frames),
+            "framesSampled": False,
+            "totalCost": 2.5,
+            "projectedStartNodeId": "stub_start",
+            "projectedGoalNodeId": "stub_goal",
+            "requestedStart": request.start_pick_world.model_dump(),
+            "requestedGoal": request.goal_pick_world.model_dump(),
+        },
+        "node_poses": {
+            "stub_start": {"x": -1.4, "y": -0.9, "z": 0.0, "yaw": 0.0},
+            "stub_mid": {"x": 0.0, "y": 0.0, "z": 0.35, "yaw": 0.0},
+            "stub_goal": {"x": 1.4, "y": 0.9, "z": 0.0, "yaw": 0.0},
+        },
+        "frames": frames,
+    }
 
 
 class StubRun:
@@ -502,6 +583,24 @@ async def scene_manifest(team: str = "blue", full_geometry: bool = True) -> dict
     manifest = make_scene_manifest(team)
     manifest["meta"]["full_geometry"] = bool(full_geometry)
     return manifest
+
+
+@app.post("/api/surface-route/preview")
+async def surface_route_preview(request: SurfaceRouteRequest) -> dict[str, Any]:
+    return make_surface_route_preview_payload(request)
+
+
+@app.post("/api/surface-route/trace")
+async def surface_route_trace(request: SurfaceRouteRequest) -> dict[str, Any]:
+    return make_surface_route_trace_payload(request)
+
+
+@app.post("/api/surface-route/execute")
+async def surface_route_execute(request: SurfaceRouteRequest) -> dict[str, Any]:
+    return {
+        "accepted": True,
+        "preview": make_surface_route_preview_payload(request),
+    }
 
 
 @app.post("/api/runs")

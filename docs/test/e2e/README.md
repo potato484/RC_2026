@@ -30,10 +30,10 @@ package.json
 | --- | --- |
 | `docs/test/e2e/ensure-playwright-ready.sh` | 当前浏览器 E2E 的 Playwright 运行时守门脚本。负责检查 Python Playwright 包、Chromium 主浏览器和 `chromium_headless_shell` 是否齐全，并在缺失时补执行安装。 |
 | `docs/test/e2e/run-e2e-local.sh` | 当前浏览器 E2E 主入口。负责找可用端口、启动 `topo_sim_stub_server.py`、以 `dist-e2e/` 重建 `sim_viewer` 静态预览，并在失败时打印对应日志尾部。 |
-| `docs/test/e2e/topo_sim_stub_server.py` | 当前契约型 stub backend。它不跑真实 ROS2 或 `planner_trace_cli`，只覆盖浏览器 E2E 需要的最小 HTTP / WebSocket 接口面。当前实现会串行化同一条 run / live WebSocket 上的发送，避免 create-run 首帧、subscribe 初始化和 step/live 更新在 CI runner 上乱序。 |
-| `docs/test/e2e/sim_viewer_flow.py` | 当前 sim_viewer E2E 用例本体。覆盖首屏加载、打开“高级 / 调试”、手动生成离线运行、单步推进、主画面图层按钮切换，以及 live 模式桥接状态展示这条用户链路。离线运行创建阶段当前优先断言“单步按钮已可用 + 进度从 `0 / 2` 推进到 `1 / 2`”这类稳定状态，而不是依赖顶部瞬时状态文案或首帧标签文本。 |
+| `docs/test/e2e/topo_sim_stub_server.py` | 当前契约型 stub backend。它不跑真实 ROS2 或 `planner_trace_cli`，但会补齐浏览器 E2E 需要的 `scene-manifest`、`surface-route preview / trace / execute` 以及旧 run / live 兼容接口面，保证 `sim_viewer` 的静态预览在本地和 CI 上都能走通当前主链。 |
+| `docs/test/e2e/sim_viewer_flow.py` | 当前 sim_viewer E2E 用例本体。覆盖首屏加载、切到顶部正交视角、在 Babylon 画布里实际设起点/终点、生成 `surface-route` trace、切换“已探查”图层，以及拖动“回放帧”滑块回看首帧这条真实用户链路。脚本会按多组坐标重试画布点击，降低 CI 里因视口细微差异导致单次选点失效的概率。 |
 | `src/rc26_topo_nav/sim_viewer/src/api.ts` | 当前前端 API 入口。现在支持通过 `VITE_API_BASE_URL` 与 `VITE_WS_BASE_URL` 切换后端来源，让浏览器 E2E 不再依赖 dev proxy。 |
-| `src/rc26_topo_nav/sim_viewer/src/App.tsx` / `src/rc26_topo_nav/sim_viewer/src/store.ts` | 当前页面已改成“画布优先 + 同页调试抽屉”结构：主界面默认只保留画布、图层按钮、视角切换和运行控制；`start_node / goal_node / blocked nodes / summary / live raw fields` 下沉到“高级 / 调试”。离线运行创建后的 UI 初始化仍然不完全依赖首条 WebSocket `meta`；页面会先用 `POST /api/runs` 的响应写入 `runId / state / frameCount / summary`，按钮控制也会先用 `POST /api/runs/{id}/control` 的返回值更新 `state / cursor`。实时桥接启动时，页面也会优先消费 `POST /api/live/start` 的 `snapshot`，再由后续 WebSocket 继续补齐和刷新，减少 CI runner 上的首包时序抖动。 |
+| `src/rc26_topo_nav/sim_viewer/src/App.tsx` / `src/rc26_topo_nav/sim_viewer/src/store.ts` | 当前页面已经收口成“单用途 3D 路线观察台”。主界面只保留画布、图层按钮、视角切换、场景选点、`生成 3D 路线`、回放滑块与可选执行；不再暴露旧的 `高级 / 调试`、离线 run WebSocket 控制或 live 只读桥接。 |
 
 ## 4. 当前输出与注意点
 
