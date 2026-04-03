@@ -107,10 +107,17 @@ def build_obstacle_rects(
     rects: list[dict[str, float]] = []
     for feature in scene_features:
         render_class = str(feature.get("render_class", ""))
+        area_xy = float(feature.get("area_xy", 0.0))
         z_span = float(feature.get("z_span", 0.0))
         # Full 3D meshes are rendered in the viewer, but only vertical barriers
         # should become 2D planning keep-outs. Horizontal platform surfaces are
         # drivable support geometry and would incorrectly cover start/goal slots.
+        #
+        # The viewer may now preserve stair risers and platform side walls as
+        # near-zero XY structural surfaces for rendering depth. They should not
+        # collapse into 2D keep-outs unless they are explicit fence geometry.
+        if render_class != "world-fence" and area_xy < 1e-4 and z_span >= 0.18:
+            continue
         is_planning_barrier = render_class == "world-fence" or z_span >= 0.18
         if not is_planning_barrier:
             continue

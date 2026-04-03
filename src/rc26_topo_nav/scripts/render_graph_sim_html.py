@@ -11,7 +11,7 @@ import math
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
@@ -45,6 +45,13 @@ WORLD_FEATURE_FILL = [
 HIDDEN_WORLD_NODES = {"空物体", "Spear", "hand", "fist", "平面.005"}
 NOISE_WORLD_NODES = {"柱体", "杆架", "主地图.002"}
 SUBTLE_WORLD_NODES = {"平面.006"}
+
+WORLD_GEOMETRY_MODE_PROJECTION = "projection"
+WORLD_GEOMETRY_MODE_VIEWER_3D = "viewer_3d"
+WORLD_SURFACE_AREA_EPSILON = 1e-4
+STRUCTURAL_VERTICAL_SURFACE_XY_EPSILON = 1e-4
+STRUCTURAL_VERTICAL_SURFACE_AREA_MIN = 0.08
+STRUCTURAL_VERTICAL_Z_SPAN_MIN = 0.05
 
 TEAM_LABELS = {
     "blue": "蓝方",
@@ -291,6 +298,41 @@ def polygon_z_span(points: list[tuple[float, float, float]]) -> float:
     return round_float(max(z_values) - min(z_values), 4)
 
 
+def polygon_area_3d(points: list[tuple[float, float, float]]) -> float:
+    if len(points) < 3:
+        return 0.0
+
+    origin = points[0]
+    area = 0.0
+    for left, right in zip(points[1:-1], points[2:]):
+        ax = left[0] - origin[0]
+        ay = left[1] - origin[1]
+        az = left[2] - origin[2]
+        bx = right[0] - origin[0]
+        by = right[1] - origin[1]
+        bz = right[2] - origin[2]
+        cx = ay * bz - az * by
+        cy = az * bx - ax * bz
+        cz = ax * by - ay * bx
+        area += math.sqrt(cx * cx + cy * cy + cz * cz) * 0.5
+    return area
+
+
+def is_structural_vertical_surface(
+    *,
+    geometry_mode: Literal["projection", "viewer_3d"],
+    area_xy: float,
+    area_3d: float,
+    z_span: float,
+) -> bool:
+    return (
+        geometry_mode == WORLD_GEOMETRY_MODE_VIEWER_3D
+        and area_xy < STRUCTURAL_VERTICAL_SURFACE_XY_EPSILON
+        and area_3d >= STRUCTURAL_VERTICAL_SURFACE_AREA_MIN
+        and z_span >= STRUCTURAL_VERTICAL_Z_SPAN_MIN
+    )
+
+
 def is_marking_material(material_symbol: str) -> bool:
     return "白线" in material_symbol or "开始" in material_symbol
 
@@ -302,20 +344,21 @@ def world_feature_profile(
     z_span: float,
     *,
     default_opacity: float,
+    preserve_vertical_surface: bool = False,
     filter_noise: bool = True,
 ) -> dict[str, Any] | None:
     if filter_noise:
         if node_name in NOISE_WORLD_NODES:
             return None
-        if area_xy < 0.004:
+        if area_xy < 0.004 and not preserve_vertical_surface:
             return None
-        if z_span > 0.05 and area_xy < 0.16:
+        if z_span > 0.05 and area_xy < 0.16 and not preserve_vertical_surface:
             return None
-        if node_name == "主地图" and area_xy < 0.03 and not is_marking_material(material_symbol):
+        if node_name == "主地图" and area_xy < 0.03 and not is_marking_material(material_symbol) and not preserve_vertical_surface:
             return None
-        if node_name == "2-3区围栏" and area_xy < 0.02:
+        if node_name == "2-3区围栏" and area_xy < 0.02 and not preserve_vertical_surface:
             return None
-        if node_name in SUBTLE_WORLD_NODES and area_xy < 0.08:
+        if node_name in SUBTLE_WORLD_NODES and area_xy < 0.08 and not preserve_vertical_surface:
             return None
 
     if node_name == "2-3区围栏":
@@ -463,6 +506,7 @@ def parse_collada_scene_features(
     dae_path: Path,
     model_pose: dict[str, float],
     *,
+    geometry_mode: Literal["projection", "viewer_3d"] = WORLD_GEOMETRY_MODE_PROJECTION,
     filter_noise: bool = True,
 ) -> list[dict[str, Any]]:
     root = ET.parse(dae_path).getroot()
@@ -506,11 +550,20 @@ def parse_collada_scene_features(
 
             xy_points = [(point[0], point[1]) for point in projected_points_3d]
             area_xy = polygon_area_xy(xy_points)
-            if area_xy < 1e-4:
+            area_3d = polygon_area_3d(projected_points_3d)
+            if area_3d < WORLD_SURFACE_AREA_EPSILON:
                 continue
 
             avg_z = sum(point[2] for point in projected_points_3d) / len(projected_points_3d)
             z_span = polygon_z_span(projected_points_3d)
+            preserve_vertical_surface = is_structural_vertical_surface(
+                geometry_mode=geometry_mode,
+                area_xy=area_xy,
+                area_3d=area_3d,
+                z_span=z_span,
+            )
+            if area_xy < WORLD_SURFACE_AREA_EPSILON and not preserve_vertical_surface:
+                continue
             style = symbol_styles.get(primitive["material_symbol"], {"fill": WORLD_FEATURE_FILL[index % len(WORLD_FEATURE_FILL)], "opacity": 0.92})
             feature_profile = world_feature_profile(
                 node_name,
@@ -518,6 +571,7 @@ def parse_collada_scene_features(
                 area_xy,
                 z_span,
                 default_opacity=float(style["opacity"]),
+                preserve_vertical_surface=preserve_vertical_surface,
                 filter_noise=filter_noise,
             )
             if feature_profile is None:
@@ -557,6 +611,7 @@ def parse_world_context(
     world_path: Path,
     model_root: Path,
     *,
+    geometry_mode: Literal["projection", "viewer_3d"] = WORLD_GEOMETRY_MODE_PROJECTION,
     filter_noise: bool = True,
 ) -> dict[str, Any]:
     root = ET.parse(world_path).getroot()
@@ -585,7 +640,12 @@ def parse_world_context(
     if field_uri:
         dae_path = model_root / "robocon2026_world" / "meshes" / "robocon2026.dae"
         if dae_path.is_file():
-            scene_features = parse_collada_scene_features(dae_path, field_pose, filter_noise=filter_noise)
+            scene_features = parse_collada_scene_features(
+                dae_path,
+                field_pose,
+                geometry_mode=geometry_mode,
+                filter_noise=filter_noise,
+            )
 
     return {
         "field_pose": field_pose,
@@ -2414,7 +2474,11 @@ def main() -> int:
     scene_features: list[dict[str, Any]] = []
     if args.world:
         model_root = args.model_root or (args.world.parent.parent / "models")
-        world_context = parse_world_context(args.world, model_root)
+        world_context = parse_world_context(
+            args.world,
+            model_root,
+            geometry_mode=WORLD_GEOMETRY_MODE_PROJECTION,
+        )
         scene_features = world_context["scene_features"]
 
     overlay_state = build_overlay_state(args, document)

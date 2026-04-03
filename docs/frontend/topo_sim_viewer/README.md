@@ -34,6 +34,7 @@
 
 - 完整三维场景
   - 通过 `render_graph_sim_html.py` 里的世界解析链抽取 world / dae 面片，在页面中以 mesh 面而不是线框渲染。
+  - `scene-manifest` 现在会为 Babylon viewer 额外保留“投影到 XY 近似为 0、但 3D 面积足够大”的结构性竖直面，用来恢复梅林阶梯 riser、平台侧壁和类似连接面；离线 2D HTML 仍保持旧的投影简化，不把这些竖直面重新塞回 SVG 叠图。
   - 使用 Babylon.js 引擎，优先尝试 WebGPU 渲染，自动回退到 WebGL。场景包含环境背景、方向光、阴影和 PBR 材质。
 - 路径与算法过程
   - 起点绿色、目标点红色、规划路径蓝色。
@@ -48,6 +49,7 @@
 - 立体感增强
   - topo 节点、起点、目标点和选点预览都使用带立柱的 pin marker，而不是贴地圆点；其中静态 topo 图节点已改成更低、更细的弱化标记，避免抢占场地主体视觉。
   - 图边改为细 tube，而不是单纯线段，侧视更容易看出高度和前后关系。
+  - `SceneCanvas` 会把这类结构性竖直面渲染成更暗、更粗糙、低 emissive 的材质，同一台阶的顶面与立面在低机位下更容易看出前后和高差关系。
 - 只读 live 模式
   - 通过 `topo_sim_server.py` 订阅 `/topo_nav/route`、`/topo_nav/corridor`、`/xhu_nav/active_edge`、`/xhu_nav/semantic_gate`、`/mf_block_overlay`、`/xhu_nav/tracking_state`。
   - 页面只做观察，不回写 ROS2，不修改规划状态。
@@ -87,7 +89,7 @@
 
 浏览器 E2E 默认不直接连接真实 `topo_sim_server.py`，而是通过 `docs/test/e2e/topo_sim_stub_server.py` 提供最小 HTTP / WebSocket 契约面，再以 `VITE_API_BASE_URL` 和 `VITE_WS_BASE_URL` 重建 `sim_viewer` preview。这么做的目的不是替代真实 planner 联调，而是让 CI 能稳定覆盖“页面能否加载、离线运行能否创建、单步是否推进、live 状态是否能显示”这条浏览器真链路。
 
-当前 `SceneCanvas` 会在 `scene-manifest` 真正返回、`canvas` 已经挂载后再初始化 Babylon 引擎；开发态下也会忽略 React `StrictMode` 触发的过期异步初始化，避免首屏停留在“场景已加载”但中间画布仍为空白的状态。为了让比赛场地在浏览器里既保留颜色也保留立体感，当前 Babylon 画布使用不透明背景清屏，world 面片改为保留受光材质与阴影层次，而不是继续做成偏平的纯色贴图面。
+当前 `SceneCanvas` 会在 `scene-manifest` 真正返回、`canvas` 已经挂载后再初始化 Babylon 引擎；开发态下也会忽略 React `StrictMode` 触发的过期异步初始化，避免首屏停留在“场景已加载”但中间画布仍为空白的状态。为了让比赛场地在浏览器里既保留颜色也保留立体感，当前 Babylon 画布使用不透明背景清屏，world 面片改为保留受光材质与阴影层次；同时 viewer 专用 manifest 会额外保留结构性竖直面，避免梅林阶梯再次被压成只剩顶面色块。
 
 当前 viewer 的手动交互口径也已明确：
 

@@ -40,6 +40,46 @@ class TopoSimServerTest(unittest.TestCase):
         self.assertGreater(len(manifest["graphNodes"]), 10)
         self.assertGreater(len(manifest["graphEdges"]), 10)
         self.assertEqual(manifest["meta"]["team"], "blue")
+        structural_vertical_faces = [
+            feature
+            for feature in manifest["sceneFeatures"]
+            if feature["name"] == "主地图" and feature["area_xy"] < 1e-4 and feature["z_span"] >= 0.35
+        ]
+        self.assertGreater(len(structural_vertical_faces), 0)
+
+    def test_structural_vertical_viewer_faces_do_not_become_2d_keepouts(self):
+        rects = SERVER.build_obstacle_rects(
+            [
+                {
+                    "id": "stair-riser",
+                    "render_class": "world-ground",
+                    "area_xy": 0.0,
+                    "z_span": 0.4,
+                    "points": [
+                        {"x": 1.2, "y": 0.0, "z": 0.0},
+                        {"x": 1.2, "y": 0.0, "z": 0.4},
+                        {"x": 1.2, "y": 0.4, "z": 0.4},
+                        {"x": 1.2, "y": 0.4, "z": 0.0},
+                    ],
+                },
+                {
+                    "id": "fence-panel",
+                    "render_class": "world-fence",
+                    "area_xy": 0.0,
+                    "z_span": 0.4,
+                    "points": [
+                        {"x": 2.0, "y": 0.0, "z": 0.0},
+                        {"x": 2.0, "y": 0.0, "z": 0.4},
+                        {"x": 2.0, "y": 0.4, "z": 0.4},
+                        {"x": 2.0, "y": 0.4, "z": 0.0},
+                    ],
+                },
+            ]
+        )
+
+        rect_ids = {rect["id"] for rect in rects}
+        self.assertNotIn("stair-riser", rect_ids)
+        self.assertIn("fence-panel", rect_ids)
 
     def test_offline_astar_run_uses_runtime_trace_cli(self):
         manifest = SERVER.build_scene_manifest(

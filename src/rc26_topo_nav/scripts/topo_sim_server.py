@@ -273,6 +273,11 @@ def build_scene_manifest(
     world_context = RENDER.parse_world_context(
         world_file,
         world_file.parent.parent / "models",
+        geometry_mode=(
+            RENDER.WORLD_GEOMETRY_MODE_VIEWER_3D
+            if include_full_geometry
+            else RENDER.WORLD_GEOMETRY_MODE_PROJECTION
+        ),
         filter_noise=not include_full_geometry,
     )
     scene_features = world_context["scene_features"]

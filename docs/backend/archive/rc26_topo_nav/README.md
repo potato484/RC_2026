@@ -115,7 +115,8 @@
   - 只读 live ROS 观察：`/topo_nav/route`、`/topo_nav/corridor`、`/xhu_nav/active_edge`、`/xhu_nav/semantic_gate`、`/mf_block_overlay`、`/xhu_nav/tracking_state`
 - 当前实现特别注意把“完整渲染几何”和“规划碰撞 keep-out”分开：
   - viewer 会尽量显示完整 world mesh
-  - world 面片现在保留受光和阴影层次，减少“只有颜色分区、没有体积感”的平面观感
+  - world 面片现在保留受光和阴影层次，减少“只有颜色分区、没有体积感”的平面观感；`scene-manifest` 还会为 viewer 额外保留结构性竖直面，恢复梅林阶梯和平台侧壁的连接体积感
+  - 这条“保留结构性竖直面”的逻辑只服务 Babylon 3D viewer；`render_graph_sim_html.py` 的离线 2D HTML 仍维持投影简化，不把这些竖直面重新变成难读的 SVG 线束
   - RRT / DWA 的平面 keep-out 只取围栏等竖向障碍和 block overlay，不把可通行平台表面错误地当成二维障碍物
 
 ## 本地启动方式

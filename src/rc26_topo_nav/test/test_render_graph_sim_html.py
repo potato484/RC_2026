@@ -51,6 +51,34 @@ class RenderGraphSimHtmlTest(unittest.TestCase):
         self.assertIn("主地图", names)
         self.assertIn("区域三放置架", names)
 
+    def test_viewer_3d_mode_preserves_structural_vertical_faces(self):
+        projection_context = REN.parse_world_context(
+            SIM_WORLD,
+            SIM_MODEL_ROOT,
+            filter_noise=False,
+        )
+        viewer_context = REN.parse_world_context(
+            SIM_WORLD,
+            SIM_MODEL_ROOT,
+            geometry_mode=REN.WORLD_GEOMETRY_MODE_VIEWER_3D,
+            filter_noise=False,
+        )
+
+        projection_vertical_faces = [
+            feature
+            for feature in projection_context["scene_features"]
+            if feature["name"] == "主地图" and feature["area_xy"] < 1e-4 and feature["z_span"] >= 0.35
+        ]
+        viewer_vertical_faces = [
+            feature
+            for feature in viewer_context["scene_features"]
+            if feature["name"] == "主地图" and feature["area_xy"] < 1e-4 and feature["z_span"] >= 0.35
+        ]
+
+        self.assertEqual(projection_vertical_faces, [])
+        self.assertGreater(len(viewer_vertical_faces), 0)
+        self.assertGreater(len(viewer_context["scene_features"]), len(projection_context["scene_features"]))
+
     def test_blue_graph_aligns_to_blue_meilin_slots(self):
         document = REN.load_yaml(GRAPH_BLUE)
         sim_config = REN.load_yaml(SIM_KFS)

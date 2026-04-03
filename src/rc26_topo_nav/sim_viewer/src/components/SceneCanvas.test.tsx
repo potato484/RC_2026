@@ -329,7 +329,7 @@ const layers = {
   blocked: false,
 };
 
-function createSceneManifest(): SceneManifest {
+function createSceneManifest(overrides: Partial<SceneManifest> = {}): SceneManifest {
   return {
     meta: {
       team: 'blue',
@@ -392,6 +392,7 @@ function createSceneManifest(): SceneManifest {
       startNode: 'node-a',
       goalNode: 'node-a',
     },
+    ...overrides,
   };
 }
 
@@ -490,6 +491,77 @@ describe('SceneCanvas', () => {
 
     await waitFor(() => {
       expect(mockState.staticMeshNames).toContain('static_node_node-a');
+    });
+  });
+
+  it('renders structural vertical scene features together with horizontal surfaces', async () => {
+    const scene = createSceneManifest({
+      sceneFeatures: [
+        {
+          id: 'platform_top',
+          name: '主地图',
+          material_symbol: 'ground',
+          fill: '#7f8c99',
+          opacity: 0.9,
+          render_class: 'world-ground',
+          avg_z: 0.4,
+          z_span: 0,
+          area_xy: 0.48,
+          points: [
+            { x: 0, y: 0, z: 0.4, yaw: 0 },
+            { x: 1.2, y: 0, z: 0.4, yaw: 0 },
+            { x: 1.2, y: 0.4, z: 0.4, yaw: 0 },
+            { x: 0, y: 0.4, z: 0.4, yaw: 0 },
+          ],
+        },
+        {
+          id: 'platform_riser',
+          name: '主地图',
+          material_symbol: 'ground',
+          fill: '#7f8c99',
+          opacity: 0.9,
+          render_class: 'world-ground',
+          avg_z: 0.2,
+          z_span: 0.4,
+          area_xy: 0,
+          points: [
+            { x: 1.2, y: 0, z: 0, yaw: 0 },
+            { x: 1.2, y: 0, z: 0.4, yaw: 0 },
+            { x: 1.2, y: 0.4, z: 0.4, yaw: 0 },
+            { x: 1.2, y: 0.4, z: 0, yaw: 0 },
+          ],
+        },
+      ],
+    });
+
+    render(
+      <div style={{ width: '640px', height: '360px' }}>
+        <SceneCanvas
+          scene={scene}
+          frame={null}
+          liveEvent={null}
+          viewMode="orbit"
+          layers={{ ...layers, scene: true, graph: false }}
+          startPose={null}
+          goalPose={null}
+          hoverPose={null}
+          pickMode="idle"
+        />
+      </div>,
+    );
+
+    await waitFor(() => {
+      expect(mockState.pendingInitResolvers).toHaveLength(1);
+    });
+
+    await act(async () => {
+      mockState.pendingInitResolvers[0]();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(mockState.staticMeshNames).toContain('static_feat_platform_top');
+      expect(mockState.staticMeshNames).toContain('static_feat_platform_riser');
     });
   });
 

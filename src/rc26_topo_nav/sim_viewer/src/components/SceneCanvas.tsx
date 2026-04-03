@@ -59,6 +59,16 @@ function scaleColor3(color: BABYLON.Color3, factor: number): BABYLON.Color3 {
   return new BABYLON.Color3(color.r * factor, color.g * factor, color.b * factor);
 }
 
+function shadeHexColor(hex: string, factor: number): string {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!result) {
+    return hex;
+  }
+
+  const scale = (value: string) => Math.max(0, Math.min(255, Math.round(parseInt(value, 16) * factor)));
+  return `#${scale(result[1]).toString(16).padStart(2, '0')}${scale(result[2]).toString(16).padStart(2, '0')}${scale(result[3]).toString(16).padStart(2, '0')}`;
+}
+
 type MaterialOptions = {
   backFaceCulling?: boolean;
   emissiveScale?: number;
@@ -386,15 +396,19 @@ class BabylonSceneManager {
         const isMarking = feature.render_class === 'world-marking';
         const isPlatform = feature.render_class === 'world-platform';
         const isFence = feature.render_class === 'world-fence';
+        const isVerticalStructure = feature.z_span > 0.05 && feature.area_xy < 1e-4;
+        const baseColor = isVerticalStructure
+          ? shadeHexColor(feature.fill, isPlatform ? 0.82 : isFence ? 0.78 : 0.72)
+          : feature.fill;
         const mat = this.getMat(
           `feat-${feature.id}`,
-          feature.fill,
+          baseColor,
           feature.opacity,
-          isPlatform ? 0.58 : isFence ? 0.68 : 0.88,
-          isPlatform ? 0.08 : 0.02,
+          isVerticalStructure ? 0.92 : isPlatform ? 0.58 : isFence ? 0.68 : 0.88,
+          isVerticalStructure ? 0.01 : isPlatform ? 0.08 : 0.02,
           {
             backFaceCulling: false,
-            emissiveScale: isMarking ? 0.06 : isPlatform ? 0.025 : 0.012,
+            emissiveScale: isVerticalStructure ? 0.004 : isMarking ? 0.06 : isPlatform ? 0.025 : 0.012,
             unlit: false,
           },
         );
