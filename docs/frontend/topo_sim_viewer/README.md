@@ -21,6 +21,7 @@
 - 本地 adapter
   - [scripts/topo_sim_server.py](/home/potato/RC_2026/src/rc26_topo_nav/scripts/topo_sim_server.py)
   - [scripts/topo_sim_algorithms.py](/home/potato/RC_2026/src/rc26_topo_nav/scripts/topo_sim_algorithms.py)
+  - [docs/test/e2e/topo_sim_stub_server.py](/home/potato/RC_2026/docs/test/e2e/topo_sim_stub_server.py) (浏览器 E2E 使用的 stub backend)
 - 运行时 / 几何真源
   - [src/planner.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/planner.cpp)
   - [src/planner_trace_cli.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/planner_trace_cli.cpp)
@@ -38,13 +39,14 @@
   - 起点绿色、目标点红色、规划路径蓝色。
   - 可选显示关键节点、open set、已扩展节点、RRT 树段和 DWA 候选轨迹。
   - A* 复用 C++ runtime planner trace；RRT / DWA 是本地仿真算法，但输出同一套帧结构。
+  - 页面现在默认采用“场景优先”首屏：初始会先展示场地与基础路径语义，`graph / keyNodes / openSet / expanded / tree / candidates` 图层默认关闭，避免未生成运行时被 topo 节点球体淹没。
   - 页面默认不会自动生成或自动播放离线运行；只有用户手动设置起点/目标后点击“生成手动离线运行”，播放/单步/重置才会对该离线回放生效。
   - 场景点击不是把浏览器点击点直接下发为任意坐标目标；前端会把点击到的场地位置吸附到最近 topo 节点，再回写到 `start_node` / `goal_node` 表单字段，保持后端契约仍然是 topo-native 目标。
 - 交互相机
-  - 支持 `orbit / follow / first_person / top_ortho / side_perspective` 多视角；侧视现在默认使用透视相机，不再只给出压扁空间感的侧视正交。
+  - 支持 `orbit / follow / first_person / top_ortho / side_perspective` 多视角；`side_perspective` 现在使用更低、更近的斜侧机位，不再像高空投影图。
   - 支持鼠标旋转、平移、滚轮缩放。
 - 立体感增强
-  - topo 节点、起点、目标点和选点预览都使用带立柱的 pin marker，而不是贴地圆点。
+  - topo 节点、起点、目标点和选点预览都使用带立柱的 pin marker，而不是贴地圆点；其中静态 topo 图节点已改成更低、更细的弱化标记，避免抢占场地主体视觉。
   - 图边改为细 tube，而不是单纯线段，侧视更容易看出高度和前后关系。
 - 只读 live 模式
   - 通过 `topo_sim_server.py` 订阅 `/topo_nav/route`、`/topo_nav/corridor`、`/xhu_nav/active_edge`、`/xhu_nav/semantic_gate`、`/mf_block_overlay`、`/xhu_nav/tracking_state`。
@@ -52,11 +54,16 @@
 - 包内资产
   - viewer 默认依赖 `src/rc26_topo_nav/sim_assets` 里的最小保留资产，不再要求外部 `RC_Sim_001_github` 目录继续存在。
   - 当前保留集只包含 viewer/server 所需的 `.world`、KFS 对齐配置，以及 `robocon2026_world` 模型。
+- 测试与交付链路
+  - 前端 API 现在支持通过 `VITE_API_BASE_URL` 和 `VITE_WS_BASE_URL` 切换 HTTP / WebSocket 后端来源，让浏览器 E2E 可以稳定改连 stub backend，而不再强依赖 Vite dev proxy。
+  - 根仓库新增 [docs/test/README.md](/home/potato/RC_2026/docs/test/README.md) 作为测试入口，收口 `npm run preflight`、`npm run test:e2e`、`npm run cd:package` 以及 `.github/workflows/ci.yml`、`.github/workflows/cd.yml`。
 
 ## 4. 启动方式
 
 - 构建 ROS 包
   - `MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_topo_nav`
+- source 运行时环境
+  - `source install/setup.bash`
 - 启动 adapter
   - `python3 src/rc26_topo_nav/scripts/topo_sim_server.py`
 - 默认资源路径
@@ -66,16 +73,24 @@
   - `cd src/rc26_topo_nav/sim_viewer && npm run dev`
 - 前端构建态
   - `cd src/rc26_topo_nav/sim_viewer && npm run build`
+- 浏览器 E2E
+  - `npm run test:e2e`
+- 本地预演
+  - `npm run preflight`
+  - `npm run preflight:strict`
 
 开发态由 Vite 把 `/api` 和 `/ws` 代理到 `127.0.0.1:8796`。构建态下，如果 `sim_viewer/dist` 已存在，`topo_sim_server.py` 会直接返回该静态页面。
 
-当前 `SceneCanvas` 会在 `scene-manifest` 真正返回、`canvas` 已经挂载后再初始化 Babylon 引擎；开发态下也会忽略 React `StrictMode` 触发的过期异步初始化，避免首屏停留在“场景已加载”但中间画布仍为空白的状态。为了让比赛场地颜色在浏览器里稳定可见，当前 Babylon 画布使用不透明背景清屏，并优先按 `scene-manifest` 提供的 `fill` 颜色直接显示 world 面片，而不是把整张场地压成偏灰的受光面。
+浏览器 E2E 默认不直接连接真实 `topo_sim_server.py`，而是通过 `docs/test/e2e/topo_sim_stub_server.py` 提供最小 HTTP / WebSocket 契约面，再以 `VITE_API_BASE_URL` 和 `VITE_WS_BASE_URL` 重建 `sim_viewer` preview。这么做的目的不是替代真实 planner 联调，而是让 CI 能稳定覆盖“页面能否加载、离线运行能否创建、单步是否推进、live 状态是否能显示”这条浏览器真链路。
+
+当前 `SceneCanvas` 会在 `scene-manifest` 真正返回、`canvas` 已经挂载后再初始化 Babylon 引擎；开发态下也会忽略 React `StrictMode` 触发的过期异步初始化，避免首屏停留在“场景已加载”但中间画布仍为空白的状态。为了让比赛场地在浏览器里既保留颜色也保留立体感，当前 Babylon 画布使用不透明背景清屏，world 面片改为保留受光材质与阴影层次，而不是继续做成偏平的纯色贴图面。
 
 当前 viewer 的手动交互口径也已明确：
 
 - 离线模式默认空闲，不再自动播“演示 run”。
 - 用户既可以在左侧表单选 `start_node / goal_node / goal_task / goal_route`，也可以显式开启“在场景中设起点 / 设目标”模式。
 - 场景选点只负责吸附到最近 topo 节点，并把结果同步回表单；这让前端看起来像“点场地”，但后端 API 仍然只接收 topo 图里的节点/任务/路线语义。
+- `topo_sim_server.py` 的 live 线程现在会在 `rclpy` 外部关闭时安静退出，不再因为 `ExternalShutdownException` 在服务关闭时打出一段无意义 traceback。
 
 ## 5. 当前边界
 

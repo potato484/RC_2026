@@ -23,7 +23,7 @@
   - 工程入口：`src/rc26_topo_nav/sim_viewer/src/main.tsx` -> `src/rc26_topo_nav/sim_viewer/src/App.tsx`
   - 启动脚本：`npm run dev`、`npm run build`
   - 数据入口：`src/rc26_topo_nav/scripts/topo_sim_server.py` 提供本地 HTTP / WebSocket adapter，消费 topo 图、Gazebo world、KFS 对齐配置和运行时只读 topic
-  - **最新变更说明**：此工具已完成渲染引擎从 Three.js 到 Babylon.js 的升级，支持 WebGPU 优先渲染，并全面采用工业战术沙盘视觉风格，展示层已 100% 中文化；离线模式默认空闲，需要用户手动生成运行，且支持在场景中点击并吸附到最近 topo 节点来设置起点/目标，保持“只读观察 + topo-native 契约”定位不变。
+  - **最新变更说明**：此工具已完成渲染引擎从 Three.js 到 Babylon.js 的升级，支持 WebGPU 优先渲染，并全面采用工业战术沙盘视觉风格，展示层已 100% 中文化；离线模式默认空闲，需要用户手动生成运行，且支持在场景中点击并吸附到最近 topo 节点来设置起点/目标，保持“只读观察 + topo-native 契约”定位不变。当前根仓库还新增了 `docs/test/` 下的 preflight / E2E / release 收口脚本，以及对应的 GitHub CI/CD workflow。
 
 ## 2. 当前能力总览
 

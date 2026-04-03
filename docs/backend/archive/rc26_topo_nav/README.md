@@ -107,13 +107,15 @@
   - `sim_viewer`：基于 Babylon.js / React 将完整 mesh 场景、路径、关键节点、open set、扩展树和候选轨迹渲染成可交互的 3D 战术沙盘页面。
 - viewer 当前支持：
   - 离线 A* / RRT / DWA 回放
-  - `orbit / follow / first_person / top_ortho / side_perspective` 多视角切换；侧视现在默认走透视视角，避免侧面完全压平
+  - `orbit / follow / first_person / top_ortho / side_perspective` 多视角切换；侧视现在使用更低、更近的透视机位，避免继续像高空投影图
   - 工业战术沙盘风格的高级 UI 界面，以及全中文化的字段与控制图例
+  - viewer 首屏默认优先展示场地主体；`graph / keyNodes / openSet / expanded / tree / candidates` 默认关闭，减少未生成运行前的 topo 节点干扰
   - 起点绿色、目标点红色、路径蓝色的三维路径层
   - 显式“在场景中设起点 / 设目标”模式：浏览器点击场地任意位置后，会吸附到最近 topo 节点，再写回 `start_node / goal_node`
   - 只读 live ROS 观察：`/topo_nav/route`、`/topo_nav/corridor`、`/xhu_nav/active_edge`、`/xhu_nav/semantic_gate`、`/mf_block_overlay`、`/xhu_nav/tracking_state`
 - 当前实现特别注意把“完整渲染几何”和“规划碰撞 keep-out”分开：
   - viewer 会尽量显示完整 world mesh
+  - world 面片现在保留受光和阴影层次，减少“只有颜色分区、没有体积感”的平面观感
   - RRT / DWA 的平面 keep-out 只取围栏等竖向障碍和 block overlay，不把可通行平台表面错误地当成二维障碍物
 
 ## 本地启动方式
@@ -121,6 +123,7 @@
 - 包构建:
   - `MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_topo_nav`
 - 启动 adapter:
+  - `source install/setup.bash`
   - `python3 src/rc26_topo_nav/scripts/topo_sim_server.py`
 - 默认 asset:
   - `topo_sim_server.py` 默认读取 `src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world`
@@ -130,6 +133,7 @@
 - 前端静态构建:
   - `cd src/rc26_topo_nav/sim_viewer && npm run build`
 - 当前 `dist/` 构建完成后，`topo_sim_server.py` 会优先直接返回该静态页面；开发态仍然推荐走 Vite 代理到 `127.0.0.1:8796`
+- 当前根仓库还新增了 `docs/test/` 下的浏览器 E2E / preflight / release 收口脚本；其中 E2E 默认通过 stub backend 覆盖浏览器真交互，不直接依赖真实 ROS2 / planner binary。
 
 ## 当前边界
 
