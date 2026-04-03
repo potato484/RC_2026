@@ -59,6 +59,12 @@ function scaleColor3(color: BABYLON.Color3, factor: number): BABYLON.Color3 {
   return new BABYLON.Color3(color.r * factor, color.g * factor, color.b * factor);
 }
 
+type MaterialOptions = {
+  backFaceCulling?: boolean;
+  emissiveScale?: number;
+  unlit?: boolean;
+};
+
 class BabylonSceneManager {
   public engine: any = null;
   public scene: BABYLON.Scene | null = null;
@@ -99,8 +105,8 @@ class BabylonSceneManager {
     this.scene.clearColor = colorTupleToColor4([0.92, 0.93, 0.94, 1], '#e6edf0');
     this.scene.fogMode = BABYLON.Scene.FOGMODE_LINEAR;
     this.scene.fogColor = hexToColor3('#d1d5db');
-    this.scene.fogStart = 26;
-    this.scene.fogEnd = 72;
+    this.scene.fogStart = 38;
+    this.scene.fogEnd = 104;
 
     const ambient = new BABYLON.HemisphericLight("ambient", new BABYLON.Vector3(0, 0, 1), this.scene);
     ambient.intensity = 0.8;
@@ -310,23 +316,34 @@ class BabylonSceneManager {
     }
   }
 
-  private getMat(id: string, colorHex: string, opacity: number = 1.0, roughness = 0.6, metalness = 0.1): BABYLON.PBRMaterial {
-    const key = `${id}-${colorHex}-${opacity}`;
+  private getMat(
+    id: string,
+    colorHex: string,
+    opacity: number = 1.0,
+    roughness = 0.6,
+    metalness = 0.1,
+    options: MaterialOptions = {},
+  ): BABYLON.PBRMaterial {
+    const {
+      backFaceCulling,
+      emissiveScale = 0.04,
+      unlit = false,
+    } = options;
+    const key = `${id}-${colorHex}-${opacity}-${roughness}-${metalness}-${backFaceCulling ?? 'auto'}-${emissiveScale}-${unlit}`;
     if (this.materials.has(key)) return this.materials.get(key) as BABYLON.PBRMaterial;
     
     const pbr = new BABYLON.PBRMaterial(key, this.scene!);
     const albedoColor = hexToColor3(colorHex);
-    const isSceneFeature = id.startsWith('feat-');
     pbr.albedoColor = albedoColor;
-    pbr.emissiveColor = isSceneFeature ? scaleColor3(albedoColor, 0.18) : scaleColor3(albedoColor, 0.04);
+    pbr.emissiveColor = scaleColor3(albedoColor, emissiveScale);
     pbr.alpha = opacity;
     pbr.metallic = metalness;
     pbr.roughness = roughness;
-    pbr.backFaceCulling = !isSceneFeature;
+    pbr.backFaceCulling = backFaceCulling ?? true;
     if (opacity < 1.0) {
       pbr.transparencyMode = BABYLON.PBRMaterial.MATERIAL_ALPHABLEND;
     }
-    pbr.unlit = isSceneFeature;
+    pbr.unlit = unlit;
     this.materials.set(key, pbr);
     return pbr;
   }
@@ -336,13 +353,20 @@ class BabylonSceneManager {
     this.activeManifest = manifest;
 
     this.scene.clearColor = colorTupleToColor4(manifest.lights.background, '#d6dde3');
-    
-    this.scene.meshes.forEach(m => {
-      if (m.name.startsWith("static_")) m.dispose();
-    });
-    this.scene.lights.forEach(l => {
-      if (l.name.startsWith("static_light_")) l.dispose();
-    });
+    if (this.shadowGen) {
+      if (typeof (this.shadowGen as { dispose?: () => void }).dispose === 'function') {
+        (this.shadowGen as { dispose: () => void }).dispose();
+      }
+      this.shadowGen = null;
+    }
+
+    // Babylon 会在 dispose 时修改 scene 内部数组；先复制目标集合，避免边遍历边删除时跳过元素。
+    this.scene.meshes
+      .filter((mesh) => mesh.name.startsWith("static_"))
+      .forEach((mesh) => mesh.dispose());
+    this.scene.lights
+      .filter((light) => light.name.startsWith("static_light_"))
+      .forEach((light) => light.dispose());
 
     manifest.lights.lights.forEach((lData, i) => {
       const dir = new BABYLON.Vector3(lData.pose.x, lData.pose.y, lData.pose.z);
@@ -359,7 +383,21 @@ class BabylonSceneManager {
 
     if (layers.scene) {
       manifest.sceneFeatures.forEach(feature => {
-        const mat = this.getMat(`feat-${feature.id}`, feature.fill, feature.opacity, 0.64, feature.render_class === 'world-platform' ? 0.12 : 0.04);
+        const isMarking = feature.render_class === 'world-marking';
+        const isPlatform = feature.render_class === 'world-platform';
+        const isFence = feature.render_class === 'world-fence';
+        const mat = this.getMat(
+          `feat-${feature.id}`,
+          feature.fill,
+          feature.opacity,
+          isPlatform ? 0.58 : isFence ? 0.68 : 0.88,
+          isPlatform ? 0.08 : 0.02,
+          {
+            backFaceCulling: false,
+            emissiveScale: isMarking ? 0.06 : isPlatform ? 0.025 : 0.012,
+            unlit: false,
+          },
+        );
         
         const positions: number[] = [];
         const indices: number[] = [];
@@ -397,9 +435,10 @@ class BabylonSceneManager {
           node.pose,
           node.type.includes('staging') ? '#8ecae6' : '#f4a261',
           {
-            headDiameter: 0.16,
-            stemDiameter: 0.042,
-            lift: 0.09,
+            headDiameter: 0.09,
+            stemDiameter: 0.024,
+            lift: 0.035,
+            opacity: 0.72,
           },
         );
       });
@@ -413,9 +452,12 @@ class BabylonSceneManager {
         tube.material = this.getMat(
           `edge-${edge.id}`,
           edge.motion_type.includes('ramp') ? '#9c6644' : '#5f7484',
-          0.68,
-          0.44,
+          0.54,
+          0.52,
           0.04,
+          {
+            emissiveScale: 0.015,
+          },
         );
         this.applyMeshShadows(tube);
       });
@@ -614,7 +656,7 @@ class BabylonSceneManager {
 
     const presetMap = Object.fromEntries(presets.map(p => [p.id, p]));
     if (viewMode === 'side_perspective') {
-      const sidePreset = presetMap.side_perspective ?? presetMap.side_ortho;
+      const sidePreset = presetMap.side_perspective;
       const spanX = Math.max(manifest.bounds.max_x - manifest.bounds.min_x, 1);
       const spanY = Math.max(manifest.bounds.max_y - manifest.bounds.min_y, 1);
       const spanZ = Math.max(manifest.bounds.max_z - manifest.bounds.min_z, 1);
@@ -623,26 +665,16 @@ class BabylonSceneManager {
       const centerZ = (manifest.bounds.min_z + manifest.bounds.max_z) / 2;
       const target = sidePreset
         ? vec3(sidePreset.target)
-        : new BABYLON.Vector3(centerX, centerY, centerZ + spanZ * 0.2);
+        : new BABYLON.Vector3(centerX, centerY, centerZ + spanZ * 0.32);
 
       let position: BABYLON.Vector3;
       if (sidePreset) {
-        const source = vec3(sidePreset.position);
-        const dirX = source.x - target.x;
-        const dirY = source.y - target.y;
-        const dirZ = source.z - target.z;
-        const dirLen = Math.sqrt((dirX * dirX) + (dirY * dirY) + (dirZ * dirZ)) || 1;
-        const distance = Math.max(spanX, spanY) * 1.35 + spanZ * 1.4 + 8;
-        position = new BABYLON.Vector3(
-          target.x + (dirX / dirLen) * distance,
-          target.y + (dirY / dirLen) * distance,
-          Math.max(target.z + spanZ * 1.1 + 3.4, target.z + (dirZ / dirLen) * distance),
-        );
+        position = vec3(sidePreset.position);
       } else {
         position = new BABYLON.Vector3(
-          manifest.bounds.max_x + spanX * 0.8,
-          centerY - spanY * 0.42,
-          manifest.bounds.max_z + spanZ * 1.3 + 4.8,
+          manifest.bounds.max_x + spanX * 0.34,
+          centerY - spanY * 0.62,
+          manifest.bounds.max_z + spanZ * 0.42 + 1.9,
         );
       }
 

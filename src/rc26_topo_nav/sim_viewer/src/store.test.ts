@@ -68,7 +68,7 @@ describe('useSimStore', () => {
 
   it('toggles layers and resets run state', () => {
     useSimStore.getState().toggleLayer('graph');
-    expect(useSimStore.getState().layers.graph).toBe(false);
+    expect(useSimStore.getState().layers.graph).toBe(true);
 
     useSimStore.setState({
       runId: 'abc123',
@@ -81,6 +81,16 @@ describe('useSimStore', () => {
     expect(useSimStore.getState().runId).toBeNull();
     expect(useSimStore.getState().frameCount).toBe(0);
     expect(useSimStore.getState().cursor).toBe(0);
+  });
+
+  it('starts in a scene-first layout with graph overlays hidden', () => {
+    expect(initialState.layers.scene).toBe(true);
+    expect(initialState.layers.graph).toBe(false);
+    expect(initialState.layers.keyNodes).toBe(false);
+    expect(initialState.layers.openSet).toBe(false);
+    expect(initialState.layers.expanded).toBe(false);
+    expect(initialState.layers.tree).toBe(false);
+    expect(initialState.layers.candidates).toBe(false);
   });
 
   it('sets a manual-idle status message after the scene manifest loads', () => {

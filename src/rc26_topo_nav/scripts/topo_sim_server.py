@@ -239,6 +239,16 @@ def build_camera_presets(bounds: dict[str, float]) -> list[dict[str, Any]]:
             "position": {"x": bounds["max_x"] + span * 0.65, "y": center_y, "z": bounds["max_z"] + span * 0.18},
             "target": {"x": center_x, "y": center_y, "z": max(0.25, bounds["max_z"] * 0.35)},
         },
+        {
+            "id": "side_perspective",
+            "kind": "perspective",
+            "position": {
+                "x": bounds["max_x"] + span * 0.34,
+                "y": center_y - span * 0.62,
+                "z": bounds["max_z"] + span * 0.12,
+            },
+            "target": {"x": center_x, "y": center_y, "z": max(0.45, bounds["max_z"] * 0.42)},
+        },
     ]
 
 
@@ -786,12 +796,17 @@ class LiveRosBridge:
             10,
         )
 
-        while rclpy.ok() and not self.stop_event.is_set():
-            rclpy.spin_once(node, timeout_sec=0.1)
-
-        node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+        try:
+            while rclpy.ok() and not self.stop_event.is_set():
+                rclpy.spin_once(node, timeout_sec=0.1)
+        except KeyboardInterrupt:
+            pass
+        except rclpy.executors.ExternalShutdownException:
+            pass
+        finally:
+            node.destroy_node()
+            if rclpy.ok():
+                rclpy.shutdown()
 
     def _schedule_broadcast(self, payload: dict[str, Any]) -> None:
         if self.loop is None:

@@ -70,12 +70,12 @@ interface SimState {
 
 const defaultLayers: LayerState = {
   scene: true,
-  graph: true,
-  keyNodes: true,
-  openSet: true,
-  expanded: true,
-  tree: true,
-  candidates: true,
+  graph: false,
+  keyNodes: false,
+  openSet: false,
+  expanded: false,
+  tree: false,
+  candidates: false,
   shadows: true,
   blocked: true,
 };

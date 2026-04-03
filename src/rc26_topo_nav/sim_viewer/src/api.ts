@@ -21,9 +21,27 @@ export interface CreateRunResponse {
   state: string;
 }
 
-const apiBase = '';
+const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/$/, '');
+const explicitWsBase = (import.meta.env.VITE_WS_BASE_URL ?? '').trim().replace(/\/$/, '');
+
+function apiUrl(path: string): string {
+  return `${apiBase}${path}`;
+}
 
 function websocketBase(path: string): string {
+  if (explicitWsBase) {
+    return `${explicitWsBase}${path}`;
+  }
+
+  if (apiBase) {
+    const url = new URL(apiBase, window.location.origin);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    url.pathname = `${url.pathname.replace(/\/$/, '')}${path}`;
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  }
+
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const isDev = window.location.port === '5176';
   if (isDev) {
@@ -33,7 +51,7 @@ function websocketBase(path: string): string {
 }
 
 export async function fetchSceneManifest(team: Team): Promise<SceneManifest> {
-  const response = await fetch(`${apiBase}/api/scene-manifest?team=${team}&full_geometry=true`);
+  const response = await fetch(apiUrl(`/api/scene-manifest?team=${team}&full_geometry=true`));
   if (!response.ok) {
     throw new Error(`Failed to load scene manifest: ${response.status}`);
   }
@@ -41,7 +59,7 @@ export async function fetchSceneManifest(team: Team): Promise<SceneManifest> {
 }
 
 export async function createRun(payload: CreateRunPayload): Promise<CreateRunResponse> {
-  const response = await fetch(`${apiBase}/api/runs`, {
+  const response = await fetch(apiUrl('/api/runs'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -60,7 +78,7 @@ export async function controlRun(
   cursor?: number,
   speed?: number,
 ): Promise<void> {
-  const response = await fetch(`${apiBase}/api/runs/${runId}/control`, {
+  const response = await fetch(apiUrl(`/api/runs/${runId}/control`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -73,7 +91,7 @@ export async function controlRun(
 }
 
 export async function startLive(namespace = ''): Promise<void> {
-  const response = await fetch(`${apiBase}/api/live/start`, {
+  const response = await fetch(apiUrl('/api/live/start'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

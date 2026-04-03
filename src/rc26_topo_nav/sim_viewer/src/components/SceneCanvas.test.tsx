@@ -10,6 +10,7 @@ vi.mock('@babylonjs/core', () => {
   const mockState = {
     pendingInitResolvers: [] as Array<() => void>,
     staticMeshNames: [] as string[],
+    liveMeshNames: [] as string[],
     pointerObservers: [] as Array<(info: { type: number }) => void>,
     pickResult: null as null | { hit: boolean; pickedPoint: Vector3; pickedMesh: { name: string } },
   };
@@ -109,24 +110,32 @@ vi.mock('@babylonjs/core', () => {
 
   class HemisphericLight {
     public intensity = 0;
+    private sceneRef: Scene;
 
     constructor(public name: string, _direction: Vector3, scene: Scene) {
+      this.sceneRef = scene;
       scene.lights.push(this);
     }
 
-    dispose() {}
+    dispose() {
+      this.sceneRef.lights = this.sceneRef.lights.filter((entry) => entry !== this);
+    }
   }
 
   class DirectionalLight {
     public position: Vector3 | null = null;
     public intensity = 0;
     public diffuse: Color3 | null = null;
+    private sceneRef: Scene;
 
     constructor(public name: string, _direction: Vector3, scene: Scene) {
+      this.sceneRef = scene;
       scene.lights.push(this);
     }
 
-    dispose() {}
+    dispose() {
+      this.sceneRef.lights = this.sceneRef.lights.filter((entry) => entry !== this);
+    }
   }
 
   class TransformNode {
@@ -221,15 +230,21 @@ vi.mock('@babylonjs/core', () => {
     public receiveShadows = false;
     public hasVertexData = false;
     public isPickable = false;
+    private sceneRef: Scene;
 
     constructor(public name: string, scene: Scene) {
+      this.sceneRef = scene;
       scene.meshes.push(this);
+      mockState.liveMeshNames.push(name);
       if (name.startsWith('static_')) {
         mockState.staticMeshNames.push(name);
       }
     }
 
-    dispose() {}
+    dispose() {
+      this.sceneRef.meshes = this.sceneRef.meshes.filter((entry) => entry !== this);
+      mockState.liveMeshNames = mockState.liveMeshNames.filter((entry) => entry !== this.name);
+    }
   }
 
   class ShadowGenerator {
@@ -238,6 +253,8 @@ vi.mock('@babylonjs/core', () => {
     constructor(_size: number, _light: DirectionalLight) {}
 
     addShadowCaster(_mesh: Mesh) {}
+
+    dispose() {}
   }
 
   const MeshBuilder = {
@@ -294,6 +311,7 @@ const mockState = (BABYLON as typeof BABYLON & {
   __mockState: {
     pendingInitResolvers: Array<() => void>;
     staticMeshNames: string[];
+    liveMeshNames: string[];
     pointerObservers: Array<(info: { type: number }) => void>;
     pickResult: null | { hit: boolean; pickedPoint: InstanceType<typeof BABYLON.Vector3>; pickedMesh: { name: string } };
   };
@@ -381,6 +399,7 @@ describe('SceneCanvas', () => {
   beforeEach(() => {
     mockState.pendingInitResolvers.length = 0;
     mockState.staticMeshNames.length = 0;
+    mockState.liveMeshNames.length = 0;
     mockState.pointerObservers.length = 0;
     mockState.pickResult = null;
   });
@@ -471,6 +490,58 @@ describe('SceneCanvas', () => {
 
     await waitFor(() => {
       expect(mockState.staticMeshNames).toContain('static_node_node-a');
+    });
+  });
+
+  it('removes static topo meshes when the graph layer is toggled off', async () => {
+    const { rerender } = render(
+      <div style={{ width: '640px', height: '360px' }}>
+        <SceneCanvas
+          scene={createSceneManifest()}
+          frame={null}
+          liveEvent={null}
+          viewMode="orbit"
+          layers={layers}
+          startPose={null}
+          goalPose={null}
+          hoverPose={null}
+          pickMode="idle"
+        />
+      </div>,
+    );
+
+    await waitFor(() => {
+      expect(mockState.pendingInitResolvers).toHaveLength(1);
+    });
+
+    await act(async () => {
+      mockState.pendingInitResolvers[0]();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(mockState.liveMeshNames).toContain('static_node_node-a');
+    });
+
+    rerender(
+      <div style={{ width: '640px', height: '360px' }}>
+        <SceneCanvas
+          scene={createSceneManifest()}
+          frame={null}
+          liveEvent={null}
+          viewMode="orbit"
+          layers={{ ...layers, graph: false }}
+          startPose={null}
+          goalPose={null}
+          hoverPose={null}
+          pickMode="idle"
+        />
+      </div>,
+    );
+
+    await waitFor(() => {
+      expect(mockState.liveMeshNames).not.toContain('static_node_node-a');
+      expect(mockState.liveMeshNames).not.toContain('static_node_node-b');
     });
   });
 
