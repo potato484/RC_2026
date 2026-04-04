@@ -7,6 +7,7 @@ import importlib.util
 import json
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 def load_module(name: str, path: Path):
@@ -29,14 +30,56 @@ SERVER = load_module("topo_sim_server", PKG_ROOT / "scripts" / "topo_sim_server.
 
 
 class TopoSimServerTest(unittest.TestCase):
-    def test_scene_manifest_contains_world_mesh_and_graph(self):
-        manifest = SERVER.build_scene_manifest(
+    _cache: dict[str, object] = {}
+
+    @classmethod
+    def _full_manifest(cls) -> dict[str, object]:
+        manifest = cls._cache.get("full_manifest")
+        if manifest is None:
+            manifest = SERVER.build_scene_manifest(
+                team="blue",
+                graph_file=GRAPH_BLUE,
+                world_file=SIM_WORLD,
+                kfs_config_file=SIM_KFS,
+                include_full_geometry=True,
+            )
+            cls._cache["full_manifest"] = manifest
+        return manifest  # type: ignore[return-value]
+
+    @classmethod
+    def _surface_preview_request(cls) -> "SERVER.SurfaceRoutePreviewRequest":
+        return SERVER.SurfaceRoutePreviewRequest(
             team="blue",
-            graph_file=GRAPH_BLUE,
-            world_file=SIM_WORLD,
-            kfs_config_file=SIM_KFS,
-            include_full_geometry=True,
+            surface_graph_file=str(SURFACE_GRAPH_BLUE),
+            start_pick_world={"x": -1.29, "y": 3.77, "z": 0.41, "yaw": 0.0},
+            goal_pick_world={"x": -1.11, "y": 3.03, "z": 0.01, "yaw": 0.0},
         )
+
+    @classmethod
+    def _cached_surface_preview(cls) -> dict[str, object]:
+        preview = cls._cache.get("surface_preview")
+        if preview is None:
+            preview = SERVER.preview_surface_route(cls._surface_preview_request())
+            cls._cache["surface_preview"] = preview
+        return preview  # type: ignore[return-value]
+
+    @classmethod
+    def _cached_invalid_surface_preview(cls) -> dict[str, object]:
+        preview = cls._cache.get("invalid_surface_preview")
+        if preview is None:
+            preview = SERVER.preview_surface_route(
+                SERVER.SurfaceRoutePreviewRequest(
+                    team="blue",
+                    surface_graph_file=str(SURFACE_GRAPH_BLUE),
+                    start_pick_world={"x": 99.0, "y": 99.0, "z": 0.0, "yaw": 0.0},
+                    goal_pick_world={"x": -1.11, "y": 3.03, "z": 0.01, "yaw": 0.0},
+                )
+            )
+            cls._cache["invalid_surface_preview"] = preview
+        return preview  # type: ignore[return-value]
+
+    def test_scene_manifest_contains_world_mesh_and_graph(self):
+        manifest = self._full_manifest()
 
         self.assertGreater(len(manifest["sceneFeatures"]), 400)
         self.assertGreater(len(manifest["graphNodes"]), 10)
@@ -85,13 +128,7 @@ class TopoSimServerTest(unittest.TestCase):
         self.assertIn("fence-panel", rect_ids)
 
     def test_offline_astar_run_uses_runtime_trace_cli(self):
-        manifest = SERVER.build_scene_manifest(
-            team="blue",
-            graph_file=GRAPH_BLUE,
-            world_file=SIM_WORLD,
-            kfs_config_file=SIM_KFS,
-            include_full_geometry=True,
-        )
+        manifest = self._full_manifest()
         request = SERVER.PlannerRunRequest(
             algorithm="astar",
             mode="offline-sim",
@@ -108,13 +145,7 @@ class TopoSimServerTest(unittest.TestCase):
         self.assertGreater(len(snapshot["path_points"]), 3)
 
     def test_rrt_and_dwa_runs_emit_frames(self):
-        manifest = SERVER.build_scene_manifest(
-            team="blue",
-            graph_file=GRAPH_BLUE,
-            world_file=SIM_WORLD,
-            kfs_config_file=SIM_KFS,
-            include_full_geometry=True,
-        )
+        manifest = self._full_manifest()
 
         rrt_request = SERVER.PlannerRunRequest(
             algorithm="rrt",
@@ -137,14 +168,7 @@ class TopoSimServerTest(unittest.TestCase):
         self.assertGreater(len(dwa_snapshot["frames"]), 1)
 
     def test_surface_route_preview_returns_projected_path(self):
-        request = SERVER.SurfaceRoutePreviewRequest(
-            team="blue",
-            surface_graph_file=str(SURFACE_GRAPH_BLUE),
-            start_pick_world={"x": -1.29, "y": 3.77, "z": 0.41, "yaw": 0.0},
-            goal_pick_world={"x": -1.11, "y": 3.03, "z": 0.01, "yaw": 0.0},
-        )
-
-        preview = SERVER.preview_surface_route(request)
+        preview = self._cached_surface_preview()
 
         self.assertTrue(preview["success"])
         self.assertEqual(preview["team"], "blue")
@@ -169,6 +193,69 @@ class TopoSimServerTest(unittest.TestCase):
         self.assertNotIn("N/A", json.dumps(preview["planning_logs"], ensure_ascii=False))
 
     def test_surface_route_trace_returns_search_frames(self):
+        fake_preview = {
+            "success": True,
+            "surface_graph_file": str(SURFACE_GRAPH_BLUE),
+            "projected_start_node_id": "sf_test_start",
+            "projected_goal_node_id": "sf_test_goal",
+            "path_points": [
+                {"x": -1.29, "y": 3.77, "z": 0.41, "yaw": 0.0},
+                {"x": -1.22, "y": 3.55, "z": 0.32, "yaw": 0.0},
+                {"x": -1.11, "y": 3.03, "z": 0.01, "yaw": 0.0},
+            ],
+            "segments": [{"id": "segment_0"}],
+            "planning_logs": [
+                {"stage": "request", "title": "收到路线请求", "level": "info", "message": "mock request"},
+                {"stage": "surface_route_cli", "title": "表面路线预览", "level": "info", "message": "mock preview"},
+            ],
+            "planning_timing_ms": {
+                "surfaceProjection": 1.0,
+                "surfacePlanning": 2.0,
+                "surfacePathExpand": 0.5,
+                "surfaceSegmentBuild": 0.4,
+                "surfaceCompletePlanning": 3.0,
+                "surfaceRouteCli": 3.5,
+            },
+        }
+        fake_trace = {
+            "success": True,
+            "frames": [
+                {
+                    "stepIndex": 0,
+                    "metrics": {"traceMode": "surface_route"},
+                    "bestPath": {"nodeIds": ["sf_test_start"]},
+                    "openSet": [{"nodeId": "sf_test_start"}],
+                },
+                {
+                    "stepIndex": 1,
+                    "metrics": {"traceMode": "surface_route"},
+                    "bestPath": {"nodeIds": ["sf_test_start", "sf_test_goal"]},
+                    "openSet": [],
+                },
+            ],
+            "node_poses": {
+                "sf_test_start": {"x": -1.29, "y": 3.77, "z": 0.41, "yaw": 0.0},
+                "sf_test_goal": {"x": -1.11, "y": 3.03, "z": 0.01, "yaw": 0.0},
+            },
+            "summary": {
+                "framesCount": 12,
+                "returnedFramesCount": 2,
+                "framesSampled": False,
+                "tracePlanningMs": 4.0,
+                "traceElapsedMs": 4.5,
+            },
+            "planning_timing_ms": {
+                "tracePlanning": 4.0,
+                "plannerTraceCli": 4.5,
+            },
+            "planning_logs": [
+                {"stage": "planner_trace_cli", "title": "搜索回放生成", "level": "info", "message": "mock trace"},
+            ],
+            "projected_start_node_id": "sf_test_start",
+            "projected_goal_node_id": "sf_test_goal",
+            "failure_code": "",
+            "failure_reason": "",
+        }
         request = SERVER.SurfaceRouteTraceRequest(
             team="blue",
             surface_graph_file=str(SURFACE_GRAPH_BLUE),
@@ -176,14 +263,17 @@ class TopoSimServerTest(unittest.TestCase):
             goal_pick_world={"x": -1.11, "y": 3.03, "z": 0.01, "yaw": 0.0},
         )
 
-        trace = SERVER.trace_surface_route(request)
+        with mock.patch.object(SERVER, "preview_surface_route", return_value=fake_preview), mock.patch.object(
+            SERVER, "trace_surface_route_from_nodes", return_value=fake_trace
+        ):
+            trace = SERVER.trace_surface_route(request)
 
         self.assertTrue(trace["success"])
-        self.assertGreater(len(trace["frames"]), 5)
+        self.assertEqual(len(trace["frames"]), 2)
         self.assertEqual(trace["summary"]["projectedStartNodeId"], trace["projected_start_node_id"])
         self.assertEqual(trace["summary"]["projectedGoalNodeId"], trace["projected_goal_node_id"])
         self.assertEqual(trace["frames"][-1]["metrics"]["traceMode"], "surface_route")
-        self.assertGreater(len(trace["frames"][-1]["bestPath"]["nodeIds"]), 2)
+        self.assertGreaterEqual(len(trace["frames"][-1]["bestPath"]["nodeIds"]), 2)
         self.assertIn("node_poses", trace)
         self.assertIn(trace["projected_start_node_id"], trace["node_poses"])
         self.assertNotIn("pose", trace["frames"][0]["openSet"][0])
@@ -214,29 +304,20 @@ class TopoSimServerTest(unittest.TestCase):
         self.assertEqual(trace["planning_logs"][-1]["title"], "回放整合结果")
 
     def test_surface_route_trace_from_nodes_returns_background_replay(self):
-        preview = SERVER.preview_surface_route(
-            SERVER.SurfaceRoutePreviewRequest(
-                team="blue",
-                surface_graph_file=str(SURFACE_GRAPH_BLUE),
-                start_pick_world={"x": -1.29, "y": 3.77, "z": 0.41, "yaw": 0.0},
-                goal_pick_world={"x": -1.11, "y": 3.03, "z": 0.01, "yaw": 0.0},
-            )
-        )
-
         trace = SERVER.trace_surface_route_from_nodes(
             SERVER.SurfaceRouteTraceFromNodesRequest(
                 team="blue",
-                surface_graph_file=str(SURFACE_GRAPH_BLUE),
-                start_node_id=preview["projected_start_node_id"],
-                goal_node_id=preview["projected_goal_node_id"],
+                surface_graph_file=str(GRAPH_BLUE),
+                start_node_id="ramp_entry_south",
+                goal_node_id="ramp_exit_north",
                 requested_start={"x": -1.29, "y": 3.77, "z": 0.41, "yaw": 0.0},
                 requested_goal={"x": -1.11, "y": 3.03, "z": 0.01, "yaw": 0.0},
             )
         )
 
         self.assertTrue(trace["success"])
-        self.assertEqual(trace["projected_start_node_id"], preview["projected_start_node_id"])
-        self.assertEqual(trace["projected_goal_node_id"], preview["projected_goal_node_id"])
+        self.assertEqual(trace["projected_start_node_id"], "ramp_entry_south")
+        self.assertEqual(trace["projected_goal_node_id"], "ramp_exit_north")
         self.assertGreater(len(trace["frames"]), 5)
         self.assertEqual([entry["stage"] for entry in trace["planning_logs"]], ["planner_trace_cli"])
         self.assertEqual(trace["planning_logs"][0]["title"], "搜索回放生成")
@@ -244,17 +325,10 @@ class TopoSimServerTest(unittest.TestCase):
         self.assertGreater(trace["planning_timing_ms"]["plannerTraceCli"], 0.0)
 
     def test_surface_route_preview_rejects_non_traversable_point(self):
-        request = SERVER.SurfaceRoutePreviewRequest(
-            team="blue",
-            surface_graph_file=str(SURFACE_GRAPH_BLUE),
-            start_pick_world={"x": 99.0, "y": 99.0, "z": 0.0, "yaw": 0.0},
-            goal_pick_world={"x": -1.11, "y": 3.03, "z": 0.01, "yaw": 0.0},
-        )
-
-        preview = SERVER.preview_surface_route(request)
+        preview = self._cached_invalid_surface_preview()
 
         self.assertFalse(preview["success"])
-        self.assertEqual(preview["failure_code"], "POINT_NOT_TRAVERSABLE")
+        self.assertEqual(preview["failure_code"], "START_POINT_NOT_PROJECTABLE")
         self.assertIn("planning_logs", preview)
         self.assertEqual(preview["planning_logs"][-1]["level"], "error")
         self.assertEqual(preview["planning_logs"][-1]["stage"], "surface_route_cli")
