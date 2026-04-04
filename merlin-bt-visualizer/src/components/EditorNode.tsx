@@ -8,7 +8,6 @@ import {
   Eye,
   FolderTree,
   GitBranch,
-  RefreshCcw,
   RotateCw,
 } from 'lucide-react';
 import { EditorFlowNodeData } from '../utils/editorProjection';
@@ -62,7 +61,6 @@ const QuickSlot = ({
 
 export const EditorNodeComponent = ({ data }: EditorNodeProps) => {
   const toggleNodeCollapse = useEditorStore((state) => state.toggleNodeCollapse);
-  const cycleCompositeType = useEditorStore((state) => state.cycleCompositeType);
 
   const visualType = data.nodeKind === 'control' ? 'control' : data.nodeKind;
   const Icon = iconMap[visualType] ?? Boxes;
@@ -145,22 +143,6 @@ export const EditorNodeComponent = ({ data }: EditorNodeProps) => {
                 </div>
 
                 <div className="flex items-center gap-1">
-                  {data.switchCandidates.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        cycleCompositeType(data.editorNodeId);
-                      }}
-                      className={`rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-sky-700 ${
-                        data.selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                      }`}
-                      title="一键切换复合节点类型"
-                    >
-                      <RefreshCcw className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-
                   {data.hasChildren && (
                     <button
                       type="button"

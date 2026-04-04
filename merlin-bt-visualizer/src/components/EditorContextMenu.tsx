@@ -1,33 +1,26 @@
 import { MouseEvent } from 'react';
-import { getCompositeSwitchCandidates } from '../utils/btRegistry';
 
 interface EditorContextMenuProps {
   nodeId: string;
-  tagName: string;
   x: number;
   y: number;
   onClose: () => void;
   onToggleCollapse: (nodeId: string) => void;
   onDelete: (nodeId: string) => void;
-  onReplace: (nodeId: string, tagName: string) => void;
   onWrapInverter: (nodeId: string) => void;
   onWrapRetry: (nodeId: string) => void;
 }
 
 export const EditorContextMenu = ({
   nodeId,
-  tagName,
   x,
   y,
   onClose,
   onToggleCollapse,
   onDelete,
-  onReplace,
   onWrapInverter,
   onWrapRetry,
 }: EditorContextMenuProps) => {
-  const switchCandidates = getCompositeSwitchCandidates(tagName);
-
   const handleClick = (event: MouseEvent<HTMLButtonElement>, callback: () => void) => {
     event.stopPropagation();
     callback();
@@ -47,17 +40,6 @@ export const EditorContextMenu = ({
       >
         折叠 / 展开
       </button>
-
-      {switchCandidates.map((candidate) => (
-        <button
-          key={candidate.tagName}
-          type="button"
-          onClick={(event) => handleClick(event, () => onReplace(nodeId, candidate.tagName))}
-          className="w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-        >
-          切换为 {candidate.labelZh}
-        </button>
-      ))}
 
       <button
         type="button"

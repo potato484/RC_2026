@@ -8,13 +8,11 @@ import {
   getBehaviorTreeNodeCategoryLabel,
   getBehaviorTreeNodeDisplay,
   getBehaviorTreeTreeName,
-  translateBlackboardKey,
 } from '../utils/btDisplay';
 import { buildAlongBranchInsertCatalog, getInsertCategoryLabel } from '../utils/editorInsertCatalog';
 import { buildEditorTreePreview } from '../utils/editorTreeView';
 import {
   canNodeAddBranch,
-  formatPortBindingValue,
   getBtNodeDefinition,
   getBtNodeRegistry,
   getAlongBranchWrapperEntries,
@@ -34,11 +32,18 @@ const findNodeById = (node: EditorNode, nodeId: string): EditorNode | null => {
   return null;
 };
 
-const bindingModeOptions = [
-  { value: 'literal', label: '固定值' },
-  { value: 'blackboard', label: '黑板' },
-  { value: 'root_blackboard', label: '根黑板' },
-] as const;
+const numericLiteralValueTypes = new Set(['int', 'double', 'float', 'uint16']);
+
+const isVisibleNumericPort = (port: BtPortSchema): boolean => {
+  const normalizedType = port.valueType.trim().toLowerCase();
+  const bindingMode = port.bindingMode ?? 'literal';
+  return port.direction === 'input' && bindingMode === 'literal' && numericLiteralValueTypes.has(normalizedType);
+};
+
+const getNumericInputMode = (valueType: string): 'numeric' | 'decimal' => {
+  const normalizedType = valueType.trim().toLowerCase();
+  return normalizedType === 'double' || normalizedType === 'float' ? 'decimal' : 'numeric';
+};
 
 export const EditorRightPanel = () => {
   const {
@@ -50,7 +55,6 @@ export const EditorRightPanel = () => {
     exportXml,
     insertAlongBranch,
     insertBranch,
-    replaceNodeType,
     wrapNode,
   } = useEditorStore();
 
@@ -89,6 +93,10 @@ export const EditorRightPanel = () => {
   const sourcePreview = exportXml() ?? '当前没有可导出的源文件内容';
   const currentStructurePreview = document ? buildEditorTreePreview(document, activeTreeId) : '当前没有可预览的结构';
   const attributeDisplays = selectedNode ? getBehaviorTreeAttributeDisplays(selectedNode.attributes, selectedNode.tagName) : [];
+  const visiblePortSchemas = useMemo(
+    () => selectedDefinition?.portSchemas.filter(isVisibleNumericPort) ?? [],
+    [selectedDefinition]
+  );
   const registeredAttributeNames = new Set(selectedDefinition?.portSchemas.map((port) => port.name) ?? []);
   const readonlyAttributes = attributeDisplays.filter(
     (attribute) => !registeredAttributeNames.has(attribute.rawKey)
@@ -149,12 +157,15 @@ export const EditorRightPanel = () => {
       return null;
     }
 
-    const binding = selectedNode.portBindings[port.name];
-    const currentMode = binding?.mode ?? (port.direction === 'output' ? 'blackboard' : 'literal');
-    const currentValue = binding?.bindingValue ?? port.defaultValue ?? '';
+    const currentValue = selectedNode.attributes[port.name] ?? port.defaultValue ?? '';
+    const placeholder = port.defaultValue ? `默认值：${port.defaultValue}` : '请输入数值';
 
     return (
-      <div key={port.name} className="rounded-2xl border border-slate-200 bg-white/80 p-3">
+      <div
+        key={port.name}
+        data-testid={`editor-port-field-${port.name}`}
+        className="rounded-2xl border border-slate-200 bg-white/80 p-3"
+      >
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-sm font-semibold text-slate-800">{port.labelZh}</div>
@@ -165,43 +176,18 @@ export const EditorRightPanel = () => {
           </span>
         </div>
 
-        <div className="mt-3 flex gap-2">
-          <select
-            value={currentMode}
-            onChange={(event) =>
-              updateRegisteredAttribute(
-                selectedNode.id,
-                port.name,
-                formatPortBindingValue(event.target.value as 'literal' | 'blackboard' | 'root_blackboard', currentValue)
-              )
-            }
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
-          >
-            {bindingModeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+        <div className="mt-3">
           <input
             value={currentValue}
             onChange={(event) =>
-              updateRegisteredAttribute(
-                selectedNode.id,
-                port.name,
-                formatPortBindingValue(currentMode, event.target.value)
-              )
+              updateRegisteredAttribute(selectedNode.id, port.name, event.target.value)
             }
-            placeholder={port.defaultValue ? `默认值：${port.defaultValue}` : '请输入参数或黑板键'}
-            className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-400"
+            data-testid={`editor-port-value-${port.name}`}
+            inputMode={getNumericInputMode(port.valueType)}
+            placeholder={placeholder}
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-400"
           />
         </div>
-
-        {currentMode !== 'literal' && currentValue && (
-          <div className="mt-2 text-xs text-emerald-700">
-            当前绑定：{currentMode === 'root_blackboard' ? '根黑板' : '黑板'} {translateBlackboardKey(currentValue)}
-          </div>
-        )}
       </div>
     );
   };
@@ -252,7 +238,7 @@ export const EditorRightPanel = () => {
             {!selectedNode ? (
               <div className="flex flex-1 flex-col items-center justify-center text-slate-400">
                 <Info className="mb-3 h-12 w-12 opacity-60" />
-                <p>请在画布中选中一个节点以查看说明或配置已定义参数</p>
+                <p>请在画布中选中一个节点以查看说明或配置数值参数</p>
               </div>
             ) : (
               <div className="min-h-0 flex flex-1 flex-col">
@@ -293,16 +279,16 @@ export const EditorRightPanel = () => {
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                  {selectedDefinition && selectedDefinition.portSchemas.length > 0 && (
+                  {visiblePortSchemas.length > 0 && (
                     <section className="mb-4">
                       <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
                         <Database className="h-4 w-4 text-emerald-600" />
                         已定义参数
                       </div>
                       <div className="mb-2 text-xs leading-5 text-slate-500">
-                        这里只允许编辑节点定义里已经声明的参数，不支持临时添加新属性。
+                        这里只显示节点定义里真正需要手改的数值参数，不再展示字符串、布尔或黑板绑定类端口。
                       </div>
-                      <div className="space-y-3">{selectedDefinition.portSchemas.map(renderPortField)}</div>
+                      <div className="space-y-3">{visiblePortSchemas.map(renderPortField)}</div>
                     </section>
                   )}
 
@@ -332,31 +318,6 @@ export const EditorRightPanel = () => {
                       </div>
                     </section>
                   )}
-
-                  <section className="mb-4">
-                    <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
-                      <GitBranch className="h-4 w-4 text-sky-600" />
-                      复合节点切换
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {['Sequence', 'SequenceWithMemory', 'ReactiveSequence', 'Fallback', 'ReactiveFallback', 'Parallel', 'ParallelAll'].map((tag) => {
-                        const definition = getBtNodeDefinition(tag);
-                        if (!definition || selectedNode.tagName === tag) {
-                          return null;
-                        }
-                        return (
-                          <button
-                            key={tag}
-                            type="button"
-                            onClick={() => replaceNodeType(selectedNode.id, tag)}
-                            className="rounded-xl bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-100"
-                          >
-                            {definition.labelZh}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </section>
 
                   <section className="mb-4">
                     <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">

@@ -34,6 +34,18 @@ interface DraggedAlongBranchInsertPayload {
   wrapperTagName: string;
 }
 
+export function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (target.isContentEditable) {
+    return true;
+  }
+
+  return Boolean(target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]'));
+}
+
 function parseDraggedInsertRequest(event: React.DragEvent<HTMLDivElement>): DraggedAlongBranchInsertPayload | null {
   const requestPayload = event.dataTransfer.getData('application/x-bt-along-branch-insert');
   if (requestPayload) {
@@ -81,7 +93,6 @@ export const EditorVisualizer = () => {
     setSelectedNode,
     toggleNodeCollapse,
     deleteNode,
-    replaceNodeType,
     exportXml,
     activeTreeId,
     insertAlongBranch,
@@ -96,7 +107,7 @@ export const EditorVisualizer = () => {
     type: 'idle',
     message: '',
   });
-  const [contextMenu, setContextMenu] = useState<{ nodeId: string; tagName: string; x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   const [activeEdgeMenuId, setActiveEdgeMenuId] = useState<string | null>(null);
   const [knowledgeBaseOpen, setKnowledgeBaseOpen] = useState(false);
   const [toolbarInsertOpen, setToolbarInsertOpen] = useState(false);
@@ -323,21 +334,22 @@ export const EditorVisualizer = () => {
         return;
       }
 
-      if (event.key === 'Delete' || event.key === 'Backspace') {
+      if (event.key === 'Delete') {
+        if (isEditableKeyboardTarget(event.target)) {
+          return;
+        }
         event.preventDefault();
         deleteNode(selectedNodeId);
+        return;
+      }
+
+      if (event.key === 'Backspace' && isEditableKeyboardTarget(event.target)) {
         return;
       }
 
       if (event.key === ' ') {
         event.preventDefault();
         toggleNodeCollapse(selectedNodeId);
-        return;
-      }
-
-      if (event.key.toLowerCase() === 't') {
-        event.preventDefault();
-        useEditorStore.getState().cycleCompositeType(selectedNodeId);
         return;
       }
 
@@ -549,7 +561,6 @@ export const EditorVisualizer = () => {
             setToolbarInsertOpen(false);
             setContextMenu({
               nodeId: node.id,
-              tagName: String((node.data as { tagName?: string }).tagName ?? ''),
               x: event.clientX - 24,
               y: event.clientY - 24,
             });
@@ -576,13 +587,11 @@ export const EditorVisualizer = () => {
       {contextMenu && (
         <EditorContextMenu
           nodeId={contextMenu.nodeId}
-          tagName={contextMenu.tagName}
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
           onToggleCollapse={toggleNodeCollapse}
           onDelete={deleteNode}
-          onReplace={replaceNodeType}
           onWrapInverter={(nodeId) => wrapNode(nodeId, 'Inverter')}
           onWrapRetry={(nodeId) => wrapNode(nodeId, 'RetryUntilSuccessful')}
         />
