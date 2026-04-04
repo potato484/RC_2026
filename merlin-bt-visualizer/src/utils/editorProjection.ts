@@ -1,11 +1,7 @@
 import { Edge as FlowEdge, Node as FlowNode } from '@xyflow/react';
 import dagre from 'dagre';
 import { EditorNode, EditorTree } from '../types/editor';
-import {
-  canNodeAcceptChildren,
-  getCompositeSwitchCandidates,
-  getBtNodeDefinition,
-} from './btRegistry';
+import { canNodeAcceptChildren, getBtNodeDefinition } from './btRegistry';
 import {
   getBehaviorTreeNodeCategoryLabel,
   getBehaviorTreeNodeDisplay,
@@ -29,7 +25,6 @@ export interface EditorFlowNodeData extends Record<string, unknown> {
   canAcceptChildren: boolean;
   hasChildren: boolean;
   collapsed: boolean;
-  switchCandidates: string[];
   selected?: boolean;
 }
 
@@ -77,7 +72,6 @@ export function projectTreeToFlow(
       canAcceptChildren: canNodeAcceptChildren(node),
       hasChildren: node.children.length > 0,
       collapsed: collapsedNodeIds.has(node.id),
-      switchCandidates: getCompositeSwitchCandidates(node.tagName).map((entry) => entry.labelZh),
     };
 
     nodes.push({

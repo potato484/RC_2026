@@ -61,24 +61,6 @@ export function getBtNodeDefinition(tagName: string): BtNodeRegistryEntry | unde
   return btNodeRegistryByTag[tagName];
 }
 
-export function getCompositeSwitchCandidates(tagName: string): BtNodeRegistryEntry[] {
-  const current = getBtNodeDefinition(tagName);
-  if (!current?.switchGroup) {
-    return [];
-  }
-
-  return btNodeRegistry.filter((entry) => entry.switchGroup === current.switchGroup && entry.tagName !== tagName);
-}
-
-export function getCompositeSwitchGroupEntries(tagName: string): BtNodeRegistryEntry[] {
-  const current = getBtNodeDefinition(tagName);
-  if (!current?.switchGroup) {
-    return [];
-  }
-
-  return btNodeRegistry.filter((entry) => entry.switchGroup === current.switchGroup);
-}
-
 export function getAlongBranchWrapperEntries(): BtNodeRegistryEntry[] {
   return alongBranchWrapperTags
     .map((tagName) => getBtNodeDefinition(tagName))

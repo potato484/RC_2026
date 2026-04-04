@@ -57,11 +57,10 @@ describe('Editor store phase drafts', () => {
     expect(displayLabels.some((label) => label.includes('取矛头'))).toBe(true);
   });
 
-  test('should insert, wrap and replace nodes while preserving structure', () => {
+  test('should insert and wrap nodes while preserving structure', () => {
     useEditorStore.getState().ensurePhaseLoaded('武馆区', behaviorTreeXmlByPhase['武馆区']);
 
     const initialTree = useEditorStore.getState().document!.trees[0];
-    const rootId = initialTree.rootNode.id;
     const firstChildId = initialTree.rootNode.children[0].id;
 
     useEditorStore.getState().insertAlongBranch(firstChildId, {
@@ -79,25 +78,6 @@ describe('Editor store phase drafts', () => {
     expect(rootNode.children[0].tagName).toBe('Sequence');
     expect(rootNode.children[0].children[0].tagName).toBe('Inverter');
     expect(rootNode.children[0].children[0].children[0].tagName).toBe('GrabTip');
-
-    useEditorStore.getState().replaceNodeType(rootId, 'Fallback');
-    rootNode = useEditorStore.getState().document!.trees[0].rootNode;
-    expect(rootNode.tagName).toBe('Fallback');
-    expect(rootNode.children[0].tagName).toBe('Sequence');
-  });
-
-  test('should cycle composite node types without losing existing children', () => {
-    useEditorStore.getState().ensurePhaseLoaded('武馆区', behaviorTreeXmlByPhase['武馆区']);
-
-    const initialTree = useEditorStore.getState().document!.trees[0];
-    const rootId = initialTree.rootNode.id;
-    const childIds = initialTree.rootNode.children.map((child) => child.id);
-
-    useEditorStore.getState().cycleCompositeType(rootId);
-
-    const cycledRoot = useEditorStore.getState().document!.trees[0].rootNode;
-    expect(cycledRoot.tagName).toBe('SequenceWithMemory');
-    expect(cycledRoot.children.map((child) => child.id)).toEqual(childIds);
   });
 
   test('should only update parameters declared in the node registry', () => {

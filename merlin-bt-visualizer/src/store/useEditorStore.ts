@@ -16,7 +16,6 @@ import {
   createNodeFromDefinition,
   enrichEditorNode,
   getBtNodeDefinition,
-  getCompositeSwitchGroupEntries,
   isAlongBranchWrapperTag,
   refreshEditorDocumentNodes,
 } from '../utils/btRegistry';
@@ -67,8 +66,6 @@ interface EditorState {
   insertBranch: (nodeId: string, childIndex: number, tagName: string) => void;
   insertBranchTemplate: (nodeId: string, childIndex: number, template: EditorInsertTemplate) => void;
   wrapNode: (nodeId: string, tagName: string) => void;
-  replaceNodeType: (nodeId: string, tagName: string) => void;
-  cycleCompositeType: (nodeId: string) => void;
   deleteNode: (nodeId: string) => void;
   undo: () => void;
   redo: () => void;
@@ -514,53 +511,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), {
       selectedNodeId: wrapperNode.id,
     });
-  },
-
-  replaceNodeType: (nodeId, tagName) => {
-    const { document } = get();
-    if (!document) {
-      return;
-    }
-
-    const nextDocument = cloneDocument(document);
-    const location = findNodeLocation(nextDocument, nodeId);
-    if (!location) {
-      return;
-    }
-
-    const definition = getBtNodeDefinition(tagName);
-    location.node.tagName = tagName;
-    location.node.definitionId = definition?.id ?? tagName;
-    location.node.attributes = {
-      ...(definition?.defaultAttributes ?? {}),
-      ...location.node.attributes,
-    };
-
-    nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(
-      nextDocument.trees[location.treeIndex].rootNode
-    );
-    replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), {
-      selectedNodeId: location.node.id,
-    });
-  },
-
-  cycleCompositeType: (nodeId) => {
-    const { document } = get();
-    if (!document) {
-      return;
-    }
-    const location = findNodeLocation(document, nodeId);
-    if (!location) {
-      return;
-    }
-
-    const candidates = getCompositeSwitchGroupEntries(location.node.tagName);
-    if (candidates.length <= 1) {
-      return;
-    }
-    const currentIndex = candidates.findIndex((entry) => entry.tagName === location.node.tagName);
-    const nextEntry = candidates[(currentIndex + 1) % candidates.length];
-    get().replaceNodeType(nodeId, nextEntry.tagName);
   },
 
   deleteNode: (nodeId) => {

@@ -22,7 +22,6 @@ export interface BtNodeRegistryEntry {
   uiType: EditorUiType;
   labelZh: string;
   descriptionZh: string;
-  switchGroup?: string;
   childPolicy: {
     min: number;
     max: number | null;
@@ -100,14 +99,6 @@ const withActionBasePorts = (
       defaultValue: '8',
       bindingMode: 'literal',
     },
-    {
-      name: 'error_code',
-      labelZh: '错误码输出',
-      direction: 'output',
-      valueType: 'uint16',
-      descriptionZh: '动作执行失败时写回的错误码黑板键。',
-      bindingMode: 'blackboard',
-    },
     ...extraPorts,
   ],
   keywordsZh: [labelZh, group],
@@ -124,7 +115,6 @@ export const btNodeRegistry: BtNodeRegistryEntry[] = [
     uiType: 'control',
     labelZh: '顺序节点',
     descriptionZh: '按顺序一个个执行，前一步成功才会继续。',
-    switchGroup: 'standard-composite',
     childPolicy: { min: 1, max: null },
     defaultAttributes: {},
     portSchemas: [],
@@ -140,7 +130,6 @@ export const btNodeRegistry: BtNodeRegistryEntry[] = [
     uiType: 'control',
     labelZh: '记忆顺序节点',
     descriptionZh: '中途失败或运行中会记住进度，下次从断点接着走。',
-    switchGroup: 'standard-composite',
     childPolicy: { min: 1, max: null },
     defaultAttributes: {},
     portSchemas: [],
@@ -156,7 +145,6 @@ export const btNodeRegistry: BtNodeRegistryEntry[] = [
     uiType: 'control',
     labelZh: '记忆顺序节点',
     descriptionZh: '旧版写法的记忆顺序节点，行为和记忆顺序基本一致。',
-    switchGroup: 'standard-composite',
     childPolicy: { min: 1, max: null },
     defaultAttributes: {},
     portSchemas: [],
@@ -172,7 +160,6 @@ export const btNodeRegistry: BtNodeRegistryEntry[] = [
     uiType: 'control',
     labelZh: '响应式顺序节点',
     descriptionZh: '每次都会先重查前置条件，适合一边守护一边推进。',
-    switchGroup: 'standard-composite',
     childPolicy: { min: 1, max: null },
     defaultAttributes: {},
     portSchemas: [],
@@ -188,7 +175,6 @@ export const btNodeRegistry: BtNodeRegistryEntry[] = [
     uiType: 'control',
     labelZh: '回退节点',
     descriptionZh: '按顺序试备选方案，哪个先成功就用哪个。',
-    switchGroup: 'standard-composite',
     childPolicy: { min: 1, max: null },
     defaultAttributes: {},
     portSchemas: [],
@@ -204,7 +190,6 @@ export const btNodeRegistry: BtNodeRegistryEntry[] = [
     uiType: 'control',
     labelZh: '响应式回退节点',
     descriptionZh: '高优先级分支一旦满足，会立刻打断当前方案。',
-    switchGroup: 'standard-composite',
     childPolicy: { min: 1, max: null },
     defaultAttributes: {},
     portSchemas: [],
@@ -220,7 +205,6 @@ export const btNodeRegistry: BtNodeRegistryEntry[] = [
     uiType: 'control',
     labelZh: '并行节点',
     descriptionZh: '同时推进多个子节点，达到阈值后给出结果。',
-    switchGroup: 'standard-composite',
     childPolicy: { min: 2, max: null },
     defaultAttributes: {
       success_count: '-1',
@@ -258,7 +242,6 @@ export const btNodeRegistry: BtNodeRegistryEntry[] = [
     uiType: 'control',
     labelZh: '全并行节点',
     descriptionZh: '等所有子节点都跑完，再统一结算结果。',
-    switchGroup: 'standard-composite',
     childPolicy: { min: 2, max: null },
     defaultAttributes: {
       max_failures: '1',
@@ -316,7 +299,6 @@ export const btNodeRegistry: BtNodeRegistryEntry[] = [
     uiType: 'control',
     labelZh: '轮询节点',
     descriptionZh: '每轮换一个起点尝试，适合几个平级方案轮着上。',
-    switchGroup: 'standard-composite',
     childPolicy: { min: 1, max: null },
     defaultAttributes: {},
     portSchemas: [],
