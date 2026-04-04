@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: RC26 R2 Navigation ROS2 Contract
-  version: 0.6.0
+  version: 0.7.0
   description: topo/xhu 自研导航运行时接口契约
 servers:
   - url: http://localhost:8080
@@ -25,6 +25,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MfBlockOverlay'
+  /ros2/topics/surface_graph_overlay:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /surface_graph_overlay 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: /surface_graph_overlay
+        message_type: rc26_interfaces/msg/SurfaceGraphOverlay
+      responses:
+        '200':
+          description: rc26_interfaces/msg/SurfaceGraphOverlay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SurfaceGraphOverlay'
   /ros2/topics/xhu_nav_corridor_cmd:
     get:
       tags: [Topic]
@@ -151,6 +166,14 @@ components:
           $ref: '#/components/schemas/Time'
         frame_id:
           type: string
+    Duration:
+      type: object
+      required: [sec, nanosec]
+      properties:
+        sec:
+          type: integer
+        nanosec:
+          type: integer
     Point:
       type: object
       required: [x, y, z]
@@ -206,6 +229,28 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PoseStamped'
+    SurfaceGraphOverlay:
+      type: object
+      required: [header, team, source, ttl, blocked_node_ids, blocked_edge_ids]
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        team:
+          type: string
+          description: 目标阵营；空字符串或 `shared` 代表不区分阵营
+        source:
+          type: string
+          description: 动态 overlay 来源标识；`rc26_topo_nav` 以 `source + ttl` 维护版本
+        ttl:
+          $ref: '#/components/schemas/Duration'
+        blocked_node_ids:
+          type: array
+          items:
+            type: string
+        blocked_edge_ids:
+          type: array
+          items:
+            type: string
     SetXhuMotionModeRequest:
       type: object
       required: [mode, timeout, reason]

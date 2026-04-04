@@ -30,6 +30,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MfKfsState.msg"
   "msg/MfBlockOverlayCell.msg"
   "msg/MfBlockOverlay.msg"
+  "msg/SurfaceGraphOverlay.msg"
   "msg/TerrainFeatureGrid.msg"
   "msg/LocalizationHealth.msg"
   "msg/LocalizationBackendStatus.msg"
