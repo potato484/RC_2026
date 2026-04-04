@@ -13,11 +13,12 @@ import {
 import { useEditorStore } from '../store/useEditorStore';
 import { useStore } from '../store/useStore';
 import { CANVAS_BACKGROUND } from '../utils/btCanvasTheme';
-import { EditorInsertTemplate } from '../types/editor';
+import { EditorAlongBranchInsertRequest, EditorInsertTemplate } from '../types/editor';
 import { EditorNodeComponent } from './EditorNode';
 import { EditorPalette } from './EditorPalette';
 import { EditorContextMenu } from './EditorContextMenu';
 import { EditorInsertEdge } from './EditorInsertEdge';
+import { EditorInsertMenu } from './EditorInsertMenu';
 
 const nodeTypes = {
   editorNode: EditorNodeComponent,
@@ -27,7 +28,24 @@ const edgeTypes = {
   editorInsertEdge: EditorInsertEdge,
 };
 
-function parseDraggedTemplate(event: React.DragEvent<HTMLDivElement>): EditorInsertTemplate | null {
+interface DraggedAlongBranchInsertPayload {
+  template: EditorInsertTemplate;
+  wrapperTagName: string;
+}
+
+function parseDraggedInsertRequest(event: React.DragEvent<HTMLDivElement>): DraggedAlongBranchInsertPayload | null {
+  const requestPayload = event.dataTransfer.getData('application/x-bt-along-branch-insert');
+  if (requestPayload) {
+    try {
+      const parsed = JSON.parse(requestPayload) as DraggedAlongBranchInsertPayload;
+      if (parsed?.template?.tagName && parsed.wrapperTagName) {
+        return parsed;
+      }
+    } catch {
+      return null;
+    }
+  }
+
   const payload = event.dataTransfer.getData('application/x-bt-node-template');
   if (!payload) {
     return null;
@@ -36,10 +54,16 @@ function parseDraggedTemplate(event: React.DragEvent<HTMLDivElement>): EditorIns
   try {
     const parsed = JSON.parse(payload) as EditorInsertTemplate;
     if (parsed?.tagName) {
-      return parsed;
+      return {
+        template: parsed,
+        wrapperTagName: '',
+      };
     }
   } catch {
-    return { tagName: payload };
+    return {
+      template: { tagName: payload },
+      wrapperTagName: '',
+    };
   }
 
   return null;
@@ -49,6 +73,7 @@ export const EditorVisualizer = () => {
   const activePhase = useStore((state) => state.activePhase);
   const replacePhaseXml = useStore((state) => state.replacePhaseXml);
   const {
+    document: editorDocument,
     flowNodes,
     flowEdges,
     selectedNodeId,
@@ -58,9 +83,9 @@ export const EditorVisualizer = () => {
     replaceNodeType,
     exportXml,
     activeTreeId,
-    insertNode: insertNodeAt,
-    insertNodeTemplate,
-    insertNodeOnEdge,
+    insertAlongBranch,
+    insertAlongBranchOnEdge,
+    wrapNode,
     undo,
     redo,
     canUndo,
@@ -73,6 +98,10 @@ export const EditorVisualizer = () => {
   const [contextMenu, setContextMenu] = useState<{ nodeId: string; tagName: string; x: number; y: number } | null>(null);
   const [activeEdgeMenuId, setActiveEdgeMenuId] = useState<string | null>(null);
   const [mobilePaletteOpen, setMobilePaletteOpen] = useState(false);
+  const [branchInsertDialog, setBranchInsertDialog] = useState<{
+    nodeId: string;
+    position: 'before' | 'after';
+  } | null>(null);
 
   const nodesWithSelection = useMemo(
     () =>
@@ -95,15 +124,16 @@ export const EditorVisualizer = () => {
           isMenuOpen: activeEdgeMenuId === edge.id,
           onToggleMenu: (edgeId: string | null) => {
             setContextMenu(null);
+            setBranchInsertDialog(null);
             setActiveEdgeMenuId(edgeId);
           },
-          onInsertTemplate: (parentNodeId: string, childNodeId: string, template: EditorInsertTemplate) => {
-            insertNodeOnEdge(parentNodeId, childNodeId, template);
+          onInsertTemplate: (parentNodeId: string, childNodeId: string, request: EditorAlongBranchInsertRequest) => {
+            insertAlongBranchOnEdge(parentNodeId, childNodeId, request);
             setActiveEdgeMenuId(null);
           },
         },
       })) as Edge[],
-    [activeEdgeMenuId, flowEdges, insertNodeOnEdge]
+    [activeEdgeMenuId, flowEdges, insertAlongBranchOnEdge]
   );
 
   const saveXmlToSource = useCallback(async () => {
@@ -170,45 +200,64 @@ export const EditorVisualizer = () => {
   const handleDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
       event.preventDefault();
-      const template = parseDraggedTemplate(event);
-      if (!template) {
+      const requestPayload = parseDraggedInsertRequest(event);
+      if (!requestPayload?.template?.tagName || !requestPayload.wrapperTagName) {
         return;
       }
 
-      const element = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null;
+      const element = window.document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null;
       const slot = element?.closest('[data-drop-zone]') as HTMLElement | null;
       if (slot) {
         const nodeId = slot.dataset.nodeId;
-        const mode = slot.dataset.dropZone as 'before' | 'after' | 'append_child' | undefined;
+        const mode = slot.dataset.dropZone as 'before' | 'after' | undefined;
         if (nodeId && mode) {
-          insertNodeTemplate(nodeId, mode, template);
+          insertAlongBranch(nodeId, {
+            position: mode,
+            wrapperTagName: requestPayload.wrapperTagName,
+            template: requestPayload.template,
+          });
           setContextMenu(null);
           setActiveEdgeMenuId(null);
+          setBranchInsertDialog(null);
           return;
         }
       }
 
       const edgeTrigger = element?.closest('[data-edge-source][data-edge-target]') as HTMLElement | null;
       if (edgeTrigger?.dataset.edgeSource && edgeTrigger.dataset.edgeTarget) {
-        insertNodeOnEdge(edgeTrigger.dataset.edgeSource, edgeTrigger.dataset.edgeTarget, template);
+        insertAlongBranchOnEdge(edgeTrigger.dataset.edgeSource, edgeTrigger.dataset.edgeTarget, {
+          position: 'before',
+          wrapperTagName: requestPayload.wrapperTagName,
+          template: requestPayload.template,
+        });
         setContextMenu(null);
         setActiveEdgeMenuId(null);
+        setBranchInsertDialog(null);
         return;
       }
 
       const nodeCard = element?.closest('[data-editor-node-id]') as HTMLElement | null;
       if (nodeCard?.dataset.editorNodeId) {
-        insertNodeTemplate(nodeCard.dataset.editorNodeId, 'append_child', template);
+        insertAlongBranch(nodeCard.dataset.editorNodeId, {
+          position: 'after',
+          wrapperTagName: requestPayload.wrapperTagName,
+          template: requestPayload.template,
+        });
         setContextMenu(null);
         setActiveEdgeMenuId(null);
+        setBranchInsertDialog(null);
         return;
       }
 
       if (selectedNodeId) {
-        insertNodeTemplate(selectedNodeId, 'append_child', template);
+        insertAlongBranch(selectedNodeId, {
+          position: 'after',
+          wrapperTagName: requestPayload.wrapperTagName,
+          template: requestPayload.template,
+        });
       }
     },
-    [insertNodeOnEdge, insertNodeTemplate, selectedNodeId]
+    [insertAlongBranch, insertAlongBranchOnEdge, selectedNodeId]
   );
 
   const handleKeydown = useCallback(
@@ -262,16 +311,20 @@ export const EditorVisualizer = () => {
 
       if (event.key.toLowerCase() === 'a' && event.shiftKey) {
         event.preventDefault();
-        insertNodeAt(selectedNodeId, 'after', 'Sequence');
+        setContextMenu(null);
+        setActiveEdgeMenuId(null);
+        setBranchInsertDialog({ nodeId: selectedNodeId, position: 'before' });
         return;
       }
 
       if (event.key.toLowerCase() === 'a') {
         event.preventDefault();
-        insertNodeAt(selectedNodeId, 'append_child', 'Sequence');
+        setContextMenu(null);
+        setActiveEdgeMenuId(null);
+        setBranchInsertDialog({ nodeId: selectedNodeId, position: 'after' });
       }
     },
-    [deleteNode, insertNodeAt, redo, saveXmlToSource, selectedNodeId, toggleNodeCollapse, undo]
+    [deleteNode, redo, saveXmlToSource, selectedNodeId, toggleNodeCollapse, undo]
   );
 
   useEffect(() => {
@@ -322,7 +375,7 @@ export const EditorVisualizer = () => {
       </div>
 
       <div className="max-w-[340px] rounded-2xl bg-white/92 px-4 py-3 text-xs font-semibold leading-5 text-slate-500 shadow">
-        连线中点可直接插入节点；删除键删除，空格折叠，T 切换复合节点，Ctrl/Cmd+Z 撤销，Shift+Ctrl/Cmd+Z 重做。
+        连线中点和 A/Shift+A 都会先弹出“控制包装 + 节点模板”选择，再显式创建顺序/回退/并行等结构。删除键删除，空格折叠，T 切换复合节点。
       </div>
     </div>
   );
@@ -417,6 +470,7 @@ export const EditorVisualizer = () => {
             setSelectedNode(node.id);
             setContextMenu(null);
             setActiveEdgeMenuId(null);
+            setBranchInsertDialog(null);
           }}
           onNodeDoubleClick={(_, node: Node) => {
             toggleNodeCollapse(node.id);
@@ -425,6 +479,7 @@ export const EditorVisualizer = () => {
             event.preventDefault();
             setSelectedNode(node.id);
             setActiveEdgeMenuId(null);
+            setBranchInsertDialog(null);
             setContextMenu({
               nodeId: node.id,
               tagName: String((node.data as { tagName?: string }).tagName ?? ''),
@@ -436,6 +491,7 @@ export const EditorVisualizer = () => {
             setSelectedNode(null);
             setContextMenu(null);
             setActiveEdgeMenuId(null);
+            setBranchInsertDialog(null);
           }}
           fitView
           nodesDraggable={false}
@@ -459,9 +515,50 @@ export const EditorVisualizer = () => {
           onToggleCollapse={toggleNodeCollapse}
           onDelete={deleteNode}
           onReplace={replaceNodeType}
-          onWrapInverter={(nodeId) => insertNodeAt(nodeId, 'wrap', 'Inverter')}
-          onWrapRetry={(nodeId) => insertNodeAt(nodeId, 'wrap', 'RetryUntilSuccessful')}
+          onWrapInverter={(nodeId) => wrapNode(nodeId, 'Inverter')}
+          onWrapRetry={(nodeId) => wrapNode(nodeId, 'RetryUntilSuccessful')}
         />
+      )}
+
+      {branchInsertDialog && (
+        <div
+          className="fixed inset-0 z-40 bg-slate-950/18 p-3"
+          onClick={() => setBranchInsertDialog(null)}
+        >
+          <div
+            className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 lg:block"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <EditorInsertMenu
+              document={editorDocument}
+              activeTreeId={activeTreeId}
+              mode="floating"
+              position={branchInsertDialog.position}
+              onInsert={(request) => {
+                insertAlongBranch(branchInsertDialog.nodeId, request);
+                setBranchInsertDialog(null);
+              }}
+              onClose={() => setBranchInsertDialog(null)}
+            />
+          </div>
+
+          <div
+            className="absolute inset-x-3 bottom-3 lg:hidden"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <EditorInsertMenu
+              document={editorDocument}
+              activeTreeId={activeTreeId}
+              mode="sheet"
+              position={branchInsertDialog.position}
+              onInsert={(request) => {
+                insertAlongBranch(branchInsertDialog.nodeId, request);
+                setBranchInsertDialog(null);
+              }}
+              onClose={() => setBranchInsertDialog(null)}
+            />
+          </div>
+        </div>
       )}
 
       {mobilePaletteOpen && (

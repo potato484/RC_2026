@@ -1,7 +1,8 @@
 import { useDeferredValue, useMemo, useState } from 'react';
 import { Boxes, Search, X } from 'lucide-react';
 import { useEditorStore } from '../store/useEditorStore';
-import { buildEditorInsertCatalog, getInsertCategoryLabel } from '../utils/editorInsertCatalog';
+import { buildAlongBranchInsertCatalog, getInsertCategoryLabel } from '../utils/editorInsertCatalog';
+import { getAlongBranchWrapperEntries } from '../utils/btRegistry';
 
 interface EditorPaletteProps {
   className?: string;
@@ -15,16 +16,19 @@ export const EditorPalette = ({
   onRequestClose,
 }: EditorPaletteProps) => {
   const [query, setQuery] = useState('');
+  const [wrapperTagName, setWrapperTagName] = useState('');
   const deferredQuery = useDeferredValue(query);
   const document = useEditorStore((state) => state.document);
   const activeTreeId = useEditorStore((state) => state.activeTreeId);
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId);
-  const insertNodeTemplate = useEditorStore((state) => state.insertNodeTemplate);
+  const insertAlongBranch = useEditorStore((state) => state.insertAlongBranch);
+  const wrapperOptions = useMemo(() => getAlongBranchWrapperEntries(), []);
 
   const sections = useMemo(
-    () => buildEditorInsertCatalog(document, activeTreeId, deferredQuery),
+    () => buildAlongBranchInsertCatalog(document, activeTreeId, deferredQuery),
     [activeTreeId, deferredQuery, document]
   );
+  const isReadyToInsert = Boolean(selectedNodeId && wrapperTagName);
 
   return (
     <div
@@ -48,11 +52,25 @@ export const EditorPalette = ({
           )}
         </div>
         <p className="mt-1 text-xs text-slate-500">
-          直接插到当前选中节点下方，或拖到节点插槽和连线中点快速接入。
+          先选控制包装，再拖到节点前后插槽或连线中点做同支线插入；新增支线请在右侧面板显式添加。
         </p>
       </div>
 
       <div className="border-b border-slate-200 px-4 py-3">
+        <label className="mb-2 block text-xs font-semibold text-slate-500">同支线包装控制</label>
+        <select
+          value={wrapperTagName}
+          onChange={(event) => setWrapperTagName(event.target.value)}
+          className="mb-3 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
+        >
+          <option value="">先选择顺序 / 回退 / 并行等控制关系</option>
+          {wrapperOptions.map((option) => (
+            <option key={option.tagName} value={option.tagName}>
+              {option.labelZh}
+            </option>
+          ))}
+        </select>
+
         <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2">
           <Search className="h-4 w-4 text-slate-400" />
           <input
@@ -79,15 +97,29 @@ export const EditorPalette = ({
                 {section.items.map((item) => (
                   <div
                     key={item.id}
-                    draggable
+                    draggable={Boolean(wrapperTagName)}
                     onDragStart={(event) => {
+                      if (!wrapperTagName) {
+                        event.preventDefault();
+                        return;
+                      }
+
+                      event.dataTransfer.setData(
+                        'application/x-bt-along-branch-insert',
+                        JSON.stringify({
+                          template: item.template,
+                          wrapperTagName,
+                        })
+                      );
                       event.dataTransfer.setData(
                         'application/x-bt-node-template',
                         JSON.stringify(item.template)
                       );
                       event.dataTransfer.effectAllowed = 'copy';
                     }}
-                    className="rounded-2xl border border-slate-200 bg-white/92 p-3 shadow-sm transition hover:border-slate-300"
+                    className={`rounded-2xl border border-slate-200 bg-white/92 p-3 shadow-sm transition hover:border-slate-300 ${
+                      wrapperTagName ? '' : 'opacity-75'
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
@@ -109,20 +141,24 @@ export const EditorPalette = ({
 
                     <button
                       type="button"
-                      disabled={!selectedNodeId}
+                      disabled={!isReadyToInsert}
                       onClick={() => {
-                        if (!selectedNodeId) {
+                        if (!selectedNodeId || !wrapperTagName) {
                           return;
                         }
 
-                        insertNodeTemplate(selectedNodeId, 'append_child', item.template);
+                        insertAlongBranch(selectedNodeId, {
+                          position: 'after',
+                          wrapperTagName,
+                          template: item.template,
+                        });
                         if (onRequestClose) {
                           onRequestClose();
                         }
                       }}
                       className="mt-3 w-full rounded-xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      插入到当前选中节点
+                      {!wrapperTagName ? '先选包装控制' : '在当前节点后插入'}
                     </button>
                   </div>
                 ))}

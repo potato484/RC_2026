@@ -43,7 +43,7 @@ const QuickSlot = ({
   visible,
 }: {
   nodeId: string;
-  mode: 'before' | 'after' | 'append_child';
+  mode: 'before' | 'after';
   label: string;
   className: string;
   visible: boolean;
@@ -106,16 +106,6 @@ export const EditorNodeComponent = ({ data }: EditorNodeProps) => {
           label="后"
           visible={showQuickSlots}
           className="-bottom-3 left-1/2 -translate-x-1/2 group-hover:opacity-100"
-        />
-      )}
-
-      {data.canAcceptChildren && (
-        <QuickSlot
-          nodeId={data.editorNodeId}
-          mode="append_child"
-          label="子"
-          visible={showQuickSlots}
-          className="right-[-18px] top-1/2 -translate-y-1/2 group-hover:opacity-100"
         />
       )}
 

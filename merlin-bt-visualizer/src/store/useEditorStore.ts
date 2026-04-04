@@ -1,22 +1,23 @@
 import { create } from 'zustand';
 import { Edge as FlowEdge, Node as FlowNode } from '@xyflow/react';
 import {
+  EditorAlongBranchInsertRequest,
   EditorDocument,
   EditorHistoryEntry,
-  EditorInsertTemplate,
   EditorNode,
+  EditorInsertTemplate,
 } from '../types/editor';
 import { BehaviorTreePhase } from '../utils/behaviorTreeSources';
 import { xmlToEditorDocument } from '../utils/editorParser';
 import { editorDocumentToXml } from '../utils/editorSerializer';
 import { projectTreeToFlow } from '../utils/editorProjection';
 import {
-  canNodeAcceptChildren,
-  EditorInsertPosition,
+  canNodeAddBranch,
   createNodeFromDefinition,
   enrichEditorNode,
   getBtNodeDefinition,
   getCompositeSwitchGroupEntries,
+  isAlongBranchWrapperTag,
   refreshEditorDocumentNodes,
 } from '../utils/btRegistry';
 
@@ -56,9 +57,16 @@ interface EditorState {
   setSelectedNode: (nodeId: string | null) => void;
   updateNodeAttributes: (nodeId: string, attributes: Record<string, string>) => void;
   updateSingleAttribute: (nodeId: string, key: string, value: string) => void;
-  insertNode: (nodeId: string, position: EditorInsertPosition, tagName: string) => void;
-  insertNodeTemplate: (nodeId: string, position: EditorInsertPosition, template: EditorInsertTemplate) => void;
-  insertNodeOnEdge: (parentNodeId: string, childNodeId: string, template: EditorInsertTemplate) => void;
+  updateRegisteredAttribute: (nodeId: string, key: string, value: string) => void;
+  insertAlongBranch: (nodeId: string, request: EditorAlongBranchInsertRequest) => void;
+  insertAlongBranchOnEdge: (
+    parentNodeId: string,
+    childNodeId: string,
+    request: EditorAlongBranchInsertRequest
+  ) => void;
+  insertBranch: (nodeId: string, childIndex: number, tagName: string) => void;
+  insertBranchTemplate: (nodeId: string, childIndex: number, template: EditorInsertTemplate) => void;
+  wrapNode: (nodeId: string, tagName: string) => void;
   replaceNodeType: (nodeId: string, tagName: string) => void;
   cycleCompositeType: (nodeId: string) => void;
   deleteNode: (nodeId: string) => void;
@@ -190,6 +198,36 @@ const createNodeFromTemplate = (template: EditorInsertTemplate): EditorNode => {
   };
 
   return enrichEditorNode(node);
+};
+
+const replaceNodeAtLocation = (
+  document: EditorDocument,
+  location: NodeLocation,
+  replacementNode: EditorNode
+) => {
+  if (location.parent) {
+    location.parent.children.splice(location.childIndex, 1, replacementNode);
+    return;
+  }
+
+  document.trees[location.treeIndex].rootNode = replacementNode;
+};
+
+const insertAlongBranchAtLocation = (
+  document: EditorDocument,
+  location: NodeLocation,
+  request: EditorAlongBranchInsertRequest
+): string | null => {
+  if (!isAlongBranchWrapperTag(request.wrapperTagName)) {
+    return null;
+  }
+
+  const insertedNode = createNodeFromTemplate(request.template);
+  const wrapperNode = createNodeFromDefinition(request.wrapperTagName);
+  wrapperNode.children =
+    request.position === 'before' ? [insertedNode, location.node] : [location.node, insertedNode];
+  replaceNodeAtLocation(document, location, wrapperNode);
+  return wrapperNode.id;
 };
 
 const replaceDocumentState = (
@@ -360,11 +398,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument));
   },
 
-  insertNode: (nodeId, position, tagName) => {
-    get().insertNodeTemplate(nodeId, position, { tagName });
-  },
-
-  insertNodeTemplate: (nodeId, position, template) => {
+  updateRegisteredAttribute: (nodeId, key, value) => {
     const { document } = get();
     if (!document) {
       return;
@@ -376,66 +410,42 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return;
     }
 
-    const nextNode = createNodeFromTemplate(template);
-
-    if (position === 'wrap') {
-      nextNode.children = [location.node];
-      if (location.parent) {
-        location.parent.children.splice(location.childIndex, 1, nextNode);
-      } else {
-        nextDocument.trees[location.treeIndex].rootNode = nextNode;
-      }
-      nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(
-        nextDocument.trees[location.treeIndex].rootNode
-      );
-      replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), {
-        selectedNodeId: nextNode.id,
-      });
+    const definition = getBtNodeDefinition(location.node.tagName);
+    if (!definition?.portSchemas.some((port) => port.name === key)) {
       return;
     }
 
-    if (position === 'prepend_child' || position === 'append_child') {
-      if (!canNodeAcceptChildren(location.node)) {
-        if (!location.parent) {
-          return;
-        }
-        const fallbackSiblingIndex =
-          position === 'prepend_child' ? location.childIndex : location.childIndex + 1;
-        location.parent.children.splice(fallbackSiblingIndex, 0, nextNode);
-        nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(
-          nextDocument.trees[location.treeIndex].rootNode
-        );
-        replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), {
-          selectedNodeId: nextNode.id,
-        });
-        return;
-      }
-      const childIndex = position === 'prepend_child' ? 0 : location.node.children.length;
-      location.node.children.splice(childIndex, 0, nextNode);
-      nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(
-        nextDocument.trees[location.treeIndex].rootNode
-      );
-      replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), {
-        selectedNodeId: nextNode.id,
-      });
+    if (!value.trim()) {
+      delete location.node.attributes[key];
+    } else {
+      location.node.attributes[key] = value;
+    }
+
+    replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument));
+  },
+
+  insertAlongBranch: (nodeId, request) => {
+    const { document } = get();
+    if (!document) {
       return;
     }
 
-    if (!location.parent) {
+    const nextDocument = cloneDocument(document);
+    const location = findNodeLocation(nextDocument, nodeId);
+    if (!location) {
       return;
     }
 
-    const siblingIndex = position === 'before' ? location.childIndex : location.childIndex + 1;
-    location.parent.children.splice(siblingIndex, 0, nextNode);
-    nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(
-      nextDocument.trees[location.treeIndex].rootNode
-    );
+    const insertedNodeId = insertAlongBranchAtLocation(nextDocument, location, request);
+    if (!insertedNodeId) {
+      return;
+    }
     replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), {
-      selectedNodeId: nextNode.id,
+      selectedNodeId: insertedNodeId,
     });
   },
 
-  insertNodeOnEdge: (parentNodeId, childNodeId, template) => {
+  insertAlongBranchOnEdge: (parentNodeId, childNodeId, request) => {
     const { document } = get();
     if (!document) {
       return;
@@ -447,23 +457,62 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return;
     }
 
-    const insertedNode = createNodeFromTemplate(template);
-    let selectedNodeId = insertedNode.id;
-
-    if (canNodeAcceptChildren(insertedNode)) {
-      insertedNode.children = [childLocation.node];
-      childLocation.parent.children.splice(childLocation.childIndex, 1, insertedNode);
-    } else {
-      const sequenceBridge = createNodeFromDefinition('Sequence');
-      sequenceBridge.children = [insertedNode, childLocation.node];
-      childLocation.parent.children.splice(childLocation.childIndex, 1, sequenceBridge);
+    const selectedNodeId = insertAlongBranchAtLocation(nextDocument, childLocation, request);
+    if (!selectedNodeId) {
+      return;
     }
-
-    nextDocument.trees[childLocation.treeIndex].rootNode = enrichEditorNode(
-      nextDocument.trees[childLocation.treeIndex].rootNode
-    );
     replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), {
       selectedNodeId,
+    });
+  },
+
+  insertBranch: (nodeId, childIndex, tagName) => {
+    get().insertBranchTemplate(nodeId, childIndex, { tagName });
+  },
+
+  insertBranchTemplate: (nodeId, childIndex, template) => {
+    const { document } = get();
+    if (!document) {
+      return;
+    }
+
+    const nextDocument = cloneDocument(document);
+    const location = findNodeLocation(nextDocument, nodeId);
+    if (!location) {
+      return;
+    }
+
+    if (!canNodeAddBranch(location.node, location.node.children.length)) {
+      return;
+    }
+
+    const insertedNode = createNodeFromTemplate(template);
+    const normalizedIndex = Math.max(0, Math.min(childIndex, location.node.children.length));
+    location.node.children.splice(normalizedIndex, 0, insertedNode);
+
+    replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), {
+      selectedNodeId: insertedNode.id,
+    });
+  },
+
+  wrapNode: (nodeId, tagName) => {
+    const { document } = get();
+    if (!document) {
+      return;
+    }
+
+    const nextDocument = cloneDocument(document);
+    const location = findNodeLocation(nextDocument, nodeId);
+    if (!location) {
+      return;
+    }
+
+    const wrapperNode = createNodeFromDefinition(tagName);
+    wrapperNode.children = [location.node];
+    replaceNodeAtLocation(nextDocument, location, wrapperNode);
+
+    replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), {
+      selectedNodeId: wrapperNode.id,
     });
   },
 

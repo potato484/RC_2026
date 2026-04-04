@@ -30,6 +30,12 @@ export interface EditorInsertTemplate {
   presetAttributes?: Record<string, string>;
 }
 
+export interface EditorAlongBranchInsertRequest {
+  position: 'before' | 'after';
+  wrapperTagName: string;
+  template: EditorInsertTemplate;
+}
+
 export interface EditorTree {
   id: string;
   name?: string;

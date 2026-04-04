@@ -2,7 +2,7 @@ import { MouseEvent } from 'react';
 import { BaseEdge, Edge, EdgeLabelRenderer, EdgeProps, getSmoothStepPath } from '@xyflow/react';
 import { Plus } from 'lucide-react';
 import { useEditorStore } from '../store/useEditorStore';
-import { EditorInsertTemplate } from '../types/editor';
+import { EditorAlongBranchInsertRequest } from '../types/editor';
 import { EditorFlowEdgeData } from '../utils/editorProjection';
 import { EditorInsertMenu } from './EditorInsertMenu';
 
@@ -12,7 +12,7 @@ interface EditorInsertEdgeRuntimeData extends EditorFlowEdgeData {
   onInsertTemplate?: (
     parentNodeId: string,
     childNodeId: string,
-    template: EditorInsertTemplate
+    request: EditorAlongBranchInsertRequest
   ) => void;
 }
 
@@ -48,8 +48,8 @@ export const EditorInsertEdge = ({
     data?.onToggleMenu?.(id);
   };
 
-  const handleInsert = (template: EditorInsertTemplate) => {
-    data?.onInsertTemplate?.(source, target, template);
+  const handleInsert = (request: EditorAlongBranchInsertRequest) => {
+    data?.onInsertTemplate?.(source, target, request);
     data?.onToggleMenu?.(null);
   };
 
@@ -80,7 +80,7 @@ export const EditorInsertEdge = ({
             type="button"
             onClick={handleOpen}
             className="nodrag nopan pointer-events-auto absolute left-1/2 top-1/2 z-50 flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200/90 bg-white/88 text-slate-500 opacity-25 shadow-md transition hover:border-sky-300 hover:text-sky-700 hover:opacity-100 focus:opacity-100"
-            aria-label="在线条中插入节点"
+            aria-label="沿当前支线插入节点"
             data-testid="editor-edge-insert-trigger"
           >
             <Plus className="h-4 w-4" />
@@ -94,6 +94,7 @@ export const EditorInsertEdge = ({
                     document={document}
                     activeTreeId={activeTreeId}
                     mode="floating"
+                    position="before"
                     onInsert={handleInsert}
                     onClose={() => data.onToggleMenu?.(null)}
                   />
@@ -105,6 +106,7 @@ export const EditorInsertEdge = ({
                   document={document}
                   activeTreeId={activeTreeId}
                   mode="sheet"
+                  position="before"
                   onInsert={handleInsert}
                   onClose={() => data.onToggleMenu?.(null)}
                 />

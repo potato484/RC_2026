@@ -8,6 +8,20 @@ import {
 import { BtNodeRegistryEntry, btNodeRegistry, btNodeRegistryByTag } from '../generated/btNodeRegistry';
 
 export type EditorInsertPosition = 'before' | 'after' | 'prepend_child' | 'append_child' | 'wrap';
+export type EditorBranchInsertPosition = 'before' | 'after';
+
+const alongBranchWrapperTags = [
+  'Sequence',
+  'SequenceWithMemory',
+  'ReactiveSequence',
+  'Fallback',
+  'ReactiveFallback',
+  'RoundRobin',
+  'Parallel',
+  'ParallelAll',
+] as const;
+
+const alongBranchWrapperTagSet = new Set<string>(alongBranchWrapperTags);
 
 const fallbackControlNodes = new Set([
   'Sequence',
@@ -65,6 +79,16 @@ export function getCompositeSwitchGroupEntries(tagName: string): BtNodeRegistryE
   return btNodeRegistry.filter((entry) => entry.switchGroup === current.switchGroup);
 }
 
+export function getAlongBranchWrapperEntries(): BtNodeRegistryEntry[] {
+  return alongBranchWrapperTags
+    .map((tagName) => getBtNodeDefinition(tagName))
+    .filter((entry): entry is BtNodeRegistryEntry => Boolean(entry));
+}
+
+export function isAlongBranchWrapperTag(tagName: string): boolean {
+  return alongBranchWrapperTagSet.has(tagName);
+}
+
 export function getNodeUiType(tagName: string, childCount: number): EditorUiType {
   const definition = getBtNodeDefinition(tagName);
   if (definition) {
@@ -117,6 +141,24 @@ export function canNodeAcceptChildren(nodeOrTagName: EditorNode | string): boole
   const tagName = typeof nodeOrTagName === 'string' ? nodeOrTagName : nodeOrTagName.tagName;
   const policy = getNodeChildPolicy(tagName);
   return policy.max === null || policy.max > 0;
+}
+
+export function canNodeAddBranch(nodeOrTagName: EditorNode | string, childCount?: number): boolean {
+  const tagName = typeof nodeOrTagName === 'string' ? nodeOrTagName : nodeOrTagName.tagName;
+  const nextChildCount =
+    childCount ?? (typeof nodeOrTagName === 'string' ? 0 : nodeOrTagName.children.length);
+  const policy = getNodeChildPolicy(tagName);
+  const kind = typeof nodeOrTagName === 'string' ? getNodeKind(tagName, nextChildCount) : nodeOrTagName.nodeKind;
+
+  if (kind !== 'control') {
+    return false;
+  }
+
+  if (!canNodeAcceptChildren(tagName) || (policy.max !== null && policy.max <= 1)) {
+    return false;
+  }
+
+  return policy.max === null || nextChildCount < policy.max;
 }
 
 export function parsePortBinding(attributeName: string, rawValue: string): EditorPortBinding {

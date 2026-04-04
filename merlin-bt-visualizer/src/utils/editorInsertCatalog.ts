@@ -23,6 +23,12 @@ export interface EditorInsertCatalogSection {
   items: EditorInsertCatalogItem[];
 }
 
+export type EditorInsertCatalogCategory = EditorInsertCatalogItem['category'];
+
+interface EditorInsertCatalogOptions {
+  includeCategories?: EditorInsertCatalogCategory[];
+}
+
 const registryEntries = getBtNodeRegistry();
 
 const categoryLabels: Record<EditorInsertCatalogItem['category'], string> = {
@@ -176,7 +182,8 @@ function buildSubtreeItems(
 export function buildEditorInsertCatalog(
   document: EditorDocument | null | undefined,
   activeTreeId: string | null | undefined,
-  query = ''
+  query = '',
+  options: EditorInsertCatalogOptions = {}
 ): EditorInsertCatalogSection[] {
   const registryByCategory = {
     action: registryEntries
@@ -219,7 +226,10 @@ export function buildEditorInsertCatalog(
     },
   ];
 
+  const allowedCategories = options.includeCategories ? new Set(options.includeCategories) : null;
+
   return sections
+    .filter((section) => !allowedCategories || allowedCategories.has(section.id as EditorInsertCatalogCategory))
     .map((section) => ({
       ...section,
       items:
@@ -228,6 +238,16 @@ export function buildEditorInsertCatalog(
           : section.items.sort((left, right) => left.label.localeCompare(right.label, 'zh-CN')),
     }))
     .filter((section) => section.items.length > 0);
+}
+
+export function buildAlongBranchInsertCatalog(
+  document: EditorDocument | null | undefined,
+  activeTreeId: string | null | undefined,
+  query = ''
+): EditorInsertCatalogSection[] {
+  return buildEditorInsertCatalog(document, activeTreeId, query, {
+    includeCategories: ['common', 'action', 'condition', 'subtree'],
+  });
 }
 
 export function getInsertCategoryLabel(category: EditorInsertCatalogItem['category']): string {

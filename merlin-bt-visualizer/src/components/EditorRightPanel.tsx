@@ -10,8 +10,16 @@ import {
   getBehaviorTreeTreeName,
   translateBlackboardKey,
 } from '../utils/btDisplay';
+import { buildAlongBranchInsertCatalog, getInsertCategoryLabel } from '../utils/editorInsertCatalog';
 import { buildEditorTreePreview } from '../utils/editorTreeView';
-import { formatPortBindingValue, getBtNodeDefinition, getBtNodeRegistry } from '../utils/btRegistry';
+import {
+  canNodeAddBranch,
+  formatPortBindingValue,
+  getBtNodeDefinition,
+  getBtNodeRegistry,
+  getAlongBranchWrapperEntries,
+  getNodeChildPolicy,
+} from '../utils/btRegistry';
 
 const findNodeById = (node: EditorNode, nodeId: string): EditorNode | null => {
   if (node.id === nodeId) {
@@ -37,19 +45,22 @@ export const EditorRightPanel = () => {
     selectedNodeId,
     document,
     activeTreeId,
-    updateSingleAttribute,
+    updateRegisteredAttribute,
     deleteNode,
     exportXml,
-    insertNode,
+    insertAlongBranch,
+    insertBranch,
     replaceNodeType,
+    wrapNode,
   } = useEditorStore();
 
   const [activeTab, setActiveTab] = useState<'info' | 'preview' | 'source'>('info');
-  const [insertPosition, setInsertPosition] = useState<'before' | 'after' | 'prepend_child' | 'append_child'>('append_child');
-  const [insertTagName, setInsertTagName] = useState('Sequence');
+  const [insertPosition, setInsertPosition] = useState<'before' | 'after'>('after');
+  const [alongBranchItemId, setAlongBranchItemId] = useState('');
+  const [alongBranchWrapperTagName, setAlongBranchWrapperTagName] = useState('');
+  const [branchInsertTagName, setBranchInsertTagName] = useState('Sequence');
   const [wrapTagName, setWrapTagName] = useState('Inverter');
-  const [newKey, setNewKey] = useState('');
-  const [newValue, setNewValue] = useState('');
+  const [branchInsertIndex, setBranchInsertIndex] = useState(0);
 
   const activeTree = useMemo(
     () => (activeTreeId && document ? document.trees.find((tree) => tree.id === activeTreeId) ?? null : null),
@@ -64,25 +75,80 @@ export const EditorRightPanel = () => {
   }, [activeTree, selectedNodeId]);
 
   useEffect(() => {
-    setNewKey('');
-    setNewValue('');
-  }, [selectedNodeId]);
+    setBranchInsertIndex(selectedNode?.children.length ?? 0);
+  }, [selectedNodeId, selectedNode?.children.length]);
 
   const registry = useMemo(() => getBtNodeRegistry(), []);
+  const alongBranchWrapperOptions = useMemo(() => getAlongBranchWrapperEntries(), []);
+  const alongBranchItems = useMemo(
+    () => buildAlongBranchInsertCatalog(document, activeTreeId).flatMap((section) => section.items),
+    [activeTreeId, document]
+  );
   const selectedNodeDisplay = selectedNode ? getBehaviorTreeNodeDisplay(selectedNode.tagName, selectedNode.attributes) : null;
   const selectedDefinition = selectedNode ? getBtNodeDefinition(selectedNode.tagName) : undefined;
   const sourcePreview = exportXml() ?? '当前没有可导出的源文件内容';
   const currentStructurePreview = document ? buildEditorTreePreview(document, activeTreeId) : '当前没有可预览的结构';
   const attributeDisplays = selectedNode ? getBehaviorTreeAttributeDisplays(selectedNode.attributes, selectedNode.tagName) : [];
-
-  const extraAttributes = attributeDisplays.filter(
-    (attribute) => !selectedDefinition?.portSchemas.some((port) => port.name === attribute.rawKey)
+  const registeredAttributeNames = new Set(selectedDefinition?.portSchemas.map((port) => port.name) ?? []);
+  const readonlyAttributes = attributeDisplays.filter(
+    (attribute) => !registeredAttributeNames.has(attribute.rawKey)
   );
+  const isRootSelected = Boolean(selectedNode && activeTree && activeTree.rootNode.id === selectedNode.id);
+  const childPolicy = selectedNode ? getNodeChildPolicy(selectedNode.tagName) : null;
+  const isBranchContainer = Boolean(
+    selectedNode &&
+      selectedNode.nodeKind === 'control' &&
+      childPolicy &&
+      (childPolicy.max === null || childPolicy.max > 1)
+  );
+  const branchLimitLabel =
+    childPolicy?.max === null ? '无上限' : childPolicy ? `最多 ${childPolicy.max} 条` : '';
+  const canAddBranch = Boolean(
+    selectedNode &&
+      isBranchContainer &&
+      canNodeAddBranch(selectedNode, selectedNode.children.length)
+  );
+
+  const branchInsertOptions = selectedNode
+    ? Array.from({ length: selectedNode.children.length + 1 }, (_, index) => ({
+        value: index,
+        label:
+          index === 0
+            ? '插入到最前面'
+            : index === selectedNode.children.length
+              ? `追加到第 ${index} 条分支后`
+              : `插入到第 ${index} 条分支后`,
+      }))
+    : [];
+  const selectedAlongBranchItem = alongBranchItems.find((item) => item.id === alongBranchItemId) ?? null;
+
+  useEffect(() => {
+    if (alongBranchItems.length === 0) {
+      setAlongBranchItemId('');
+      return;
+    }
+
+    if (!alongBranchItems.some((item) => item.id === alongBranchItemId)) {
+      setAlongBranchItemId(alongBranchItems[0].id);
+    }
+  }, [alongBranchItemId, alongBranchItems]);
+
+  useEffect(() => {
+    if (registry.length === 0) {
+      setBranchInsertTagName('');
+      return;
+    }
+
+    if (!registry.some((entry) => entry.tagName === branchInsertTagName)) {
+      setBranchInsertTagName(registry[0].tagName);
+    }
+  }, [branchInsertTagName, registry]);
 
   const renderPortField = (port: BtPortSchema) => {
     if (!selectedNode) {
       return null;
     }
+
     const binding = selectedNode.portBindings[port.name];
     const currentMode = binding?.mode ?? (port.direction === 'output' ? 'blackboard' : 'literal');
     const currentValue = binding?.bindingValue ?? port.defaultValue ?? '';
@@ -103,7 +169,7 @@ export const EditorRightPanel = () => {
           <select
             value={currentMode}
             onChange={(event) =>
-              updateSingleAttribute(
+              updateRegisteredAttribute(
                 selectedNode.id,
                 port.name,
                 formatPortBindingValue(event.target.value as 'literal' | 'blackboard' | 'root_blackboard', currentValue)
@@ -120,7 +186,7 @@ export const EditorRightPanel = () => {
           <input
             value={currentValue}
             onChange={(event) =>
-              updateSingleAttribute(
+              updateRegisteredAttribute(
                 selectedNode.id,
                 port.name,
                 formatPortBindingValue(currentMode, event.target.value)
@@ -138,15 +204,6 @@ export const EditorRightPanel = () => {
         )}
       </div>
     );
-  };
-
-  const handleAddAttribute = () => {
-    if (!selectedNode || !newKey.trim()) {
-      return;
-    }
-    updateSingleAttribute(selectedNode.id, newKey.trim(), newValue);
-    setNewKey('');
-    setNewValue('');
   };
 
   return (
@@ -173,15 +230,21 @@ export const EditorRightPanel = () => {
         </div>
 
         {activeTab === 'preview' && (
-          <div data-testid="editor-structure-preview" className="min-h-0 flex-1 overflow-y-auto rounded-2xl bg-slate-900 p-4 font-mono text-xs leading-6 text-slate-200">
+          <pre
+            data-testid="editor-structure-preview"
+            className="min-h-0 flex-1 overflow-auto rounded-2xl bg-slate-900 p-4 font-mono text-xs leading-6 text-slate-200 whitespace-pre-wrap break-words"
+          >
             {currentStructurePreview}
-          </div>
+          </pre>
         )}
 
         {activeTab === 'source' && (
-          <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl bg-slate-950 p-4 font-mono text-xs leading-6 text-slate-200">
+          <pre
+            data-testid="editor-source-preview"
+            className="min-h-0 flex-1 overflow-auto rounded-2xl bg-slate-950 p-4 font-mono text-xs leading-6 text-slate-200 whitespace-pre"
+          >
             {sourcePreview}
-          </div>
+          </pre>
         )}
 
         {activeTab === 'info' && (
@@ -189,7 +252,7 @@ export const EditorRightPanel = () => {
             {!selectedNode ? (
               <div className="flex flex-1 flex-col items-center justify-center text-slate-400">
                 <Info className="mb-3 h-12 w-12 opacity-60" />
-                <p>请在画布中选中一个节点以编辑</p>
+                <p>请在画布中选中一个节点以查看说明或配置已定义参数</p>
               </div>
             ) : (
               <div className="min-h-0 flex flex-1 flex-col">
@@ -218,8 +281,9 @@ export const EditorRightPanel = () => {
                     <button
                       type="button"
                       onClick={() => deleteNode(selectedNode.id)}
-                      className="rounded-xl p-2 text-rose-500 transition-colors hover:bg-rose-50"
-                      title="删除节点"
+                      disabled={isRootSelected}
+                      className="rounded-xl p-2 text-rose-500 transition-colors hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      title={isRootSelected ? '根节点不能直接删除' : '删除节点'}
                     >
                       <Trash2 className="h-5 w-5" />
                     </button>
@@ -233,74 +297,41 @@ export const EditorRightPanel = () => {
                     <section className="mb-4">
                       <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
                         <Database className="h-4 w-4 text-emerald-600" />
-                        端口与参数
+                        已定义参数
+                      </div>
+                      <div className="mb-2 text-xs leading-5 text-slate-500">
+                        这里只允许编辑节点定义里已经声明的参数，不支持临时添加新属性。
                       </div>
                       <div className="space-y-3">{selectedDefinition.portSchemas.map(renderPortField)}</div>
                     </section>
                   )}
 
-                  {extraAttributes.length > 0 && (
+                  {readonlyAttributes.length > 0 && (
                     <section className="mb-4">
                       <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
-                        <Plus className="h-4 w-4 text-slate-500" />
-                        附加属性
+                        <Info className="h-4 w-4 text-slate-500" />
+                        保留的原始属性
+                      </div>
+                      <div className="mb-2 text-xs leading-5 text-slate-500">
+                        这些属性来自原始 XML，但当前节点定义没有把它们声明为可编辑参数，因此这里只读展示并在导出时原样保留。
                       </div>
                       <div className="space-y-2">
-                        {extraAttributes.map((attribute) => (
+                        {readonlyAttributes.map((attribute) => (
                           <div key={attribute.rawKey} className="rounded-2xl border border-slate-200 bg-white/80 p-3">
                             <div className="flex items-center justify-between gap-3">
                               <div className="text-sm font-semibold text-slate-700">{attribute.label}</div>
-                              <button
-                                type="button"
-                                onClick={() => updateSingleAttribute(selectedNode.id, attribute.rawKey, '')}
-                                className="rounded-lg px-2 py-1 text-xs font-semibold text-rose-500 transition-colors hover:bg-rose-50"
-                              >
-                                移除
-                              </button>
+                              <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-500">
+                                只读
+                              </span>
                             </div>
-                            <input
-                              value={attribute.rawValue}
-                              onChange={(event) => updateSingleAttribute(selectedNode.id, attribute.rawKey, event.target.value)}
-                              className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
-                            />
+                            <div className="mt-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                              {attribute.rawValue || '空'}
+                            </div>
                           </div>
                         ))}
                       </div>
                     </section>
                   )}
-
-                  <section className="mb-4">
-                    <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
-                      <Plus className="h-4 w-4 text-slate-500" />
-                      添加附加属性
-                    </div>
-                    <div className="rounded-2xl border border-slate-200 bg-white/80 p-3">
-                      <div className="flex gap-2">
-                        <input
-                          value={newKey}
-                          onChange={(event) => setNewKey(event.target.value)}
-                          placeholder="新属性键名"
-                          data-testid="new-attribute-key"
-                          className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
-                        />
-                        <input
-                          value={newValue}
-                          onChange={(event) => setNewValue(event.target.value)}
-                          placeholder="新属性值"
-                          data-testid="new-attribute-value"
-                          className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleAddAttribute}
-                        data-testid="add-attribute-button"
-                        className="mt-3 w-full rounded-xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
-                      >
-                        添加属性
-                      </button>
-                    </div>
-                  </section>
 
                   <section className="mb-4">
                     <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
@@ -330,46 +361,166 @@ export const EditorRightPanel = () => {
                   <section className="mb-4">
                     <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
                       <Layers3 className="h-4 w-4 text-violet-600" />
-                      结构操作
+                      同支线插入
                     </div>
                     <div className="rounded-2xl border border-slate-200 bg-white/80 p-3">
+                      <div className="mb-3 text-xs leading-5 text-slate-500">
+                        前插和后插都会先显式新建一层控制包装，再把“原节点 + 新节点”串成同一条执行链。这里只插动作、条件或子树；新增支线请走下面的独立入口。
+                      </div>
+
                       <label className="mb-2 block text-xs font-semibold text-slate-500">插入位置</label>
                       <select
                         value={insertPosition}
-                        onChange={(event) =>
-                          setInsertPosition(event.target.value as 'before' | 'after' | 'prepend_child' | 'append_child')
-                        }
+                        onChange={(event) => setInsertPosition(event.target.value as 'before' | 'after')}
                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
                       >
                         <option value="before">在当前节点前插入</option>
                         <option value="after">在当前节点后插入</option>
-                        <option value="prepend_child">作为首个子节点插入</option>
-                        <option value="append_child">作为末尾子节点插入</option>
                       </select>
 
-                      <label className="mb-2 mt-3 block text-xs font-semibold text-slate-500">节点模板</label>
+                      <label className="mb-2 mt-3 block text-xs font-semibold text-slate-500">控制包装</label>
                       <select
-                        value={insertTagName}
-                        onChange={(event) => setInsertTagName(event.target.value)}
+                        value={alongBranchWrapperTagName}
+                        onChange={(event) => setAlongBranchWrapperTagName(event.target.value)}
+                        data-testid="editor-along-branch-wrapper-select"
                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
                       >
-                        {registry.map((entry) => (
+                        <option value="">先选择顺序 / 回退 / 并行等控制关系</option>
+                        {alongBranchWrapperOptions.map((entry) => (
                           <option key={entry.tagName} value={entry.tagName}>
                             {entry.labelZh}
                           </option>
                         ))}
                       </select>
 
+                      <label className="mb-2 mt-3 block text-xs font-semibold text-slate-500">节点模板</label>
+                      <select
+                        value={alongBranchItemId}
+                        onChange={(event) => setAlongBranchItemId(event.target.value)}
+                        data-testid="editor-along-branch-template-select"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
+                      >
+                        {alongBranchItems.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.label} · {getInsertCategoryLabel(item.category)}
+                          </option>
+                        ))}
+                      </select>
+
                       <button
                         type="button"
-                        onClick={() => insertNode(selectedNode.id, insertPosition, insertTagName)}
-                        className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-700"
+                        onClick={() => {
+                          if (!selectedAlongBranchItem || !alongBranchWrapperTagName) {
+                            return;
+                          }
+
+                          insertAlongBranch(selectedNode.id, {
+                            position: insertPosition,
+                            wrapperTagName: alongBranchWrapperTagName,
+                            template: selectedAlongBranchItem.template,
+                          });
+                        }}
+                        disabled={!selectedAlongBranchItem || !alongBranchWrapperTagName}
+                        className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-300"
                       >
                         <CornerDownRight className="h-4 w-4" />
-                        执行插入
+                        执行同支线插入
                       </button>
+                    </div>
+                  </section>
 
-                      <label className="mb-2 mt-4 block text-xs font-semibold text-slate-500">包裹模板</label>
+                  {isBranchContainer && (
+                    <section className="mb-4">
+                      <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
+                        <Plus className="h-4 w-4 text-emerald-600" />
+                        新增支线
+                      </div>
+                      <div className="rounded-2xl border border-slate-200 bg-white/80 p-3">
+                        <div className="mb-3 text-xs leading-5 text-slate-500">
+                          这里只显式给当前控制节点新增一条 child 分支，不承担沿现有支线串接逻辑的职责。
+                        </div>
+
+                        <div className="mb-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-xs font-semibold text-slate-500">当前分支</div>
+                            <div className="text-[11px] text-slate-400">
+                              {selectedNode.children.length} 条
+                              {branchLimitLabel ? ` / ${branchLimitLabel}` : ''}
+                            </div>
+                          </div>
+
+                          <div className="mt-2 space-y-2">
+                            {selectedNode.children.length === 0 ? (
+                              <div className="rounded-xl bg-white px-3 py-2 text-sm text-slate-500">
+                                当前还没有分支，可直接新增第 1 条分支。
+                              </div>
+                            ) : (
+                              selectedNode.children.map((child, index) => {
+                                const childDisplay = getBehaviorTreeNodeDisplay(child.tagName, child.attributes);
+                                return (
+                                  <div key={child.id} className="rounded-xl bg-white px-3 py-2 text-sm text-slate-600">
+                                    <span className="font-semibold text-slate-700">第 {index + 1} 条</span>
+                                    {' · '}
+                                    {childDisplay.label}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+
+                        <label className="mb-2 block text-xs font-semibold text-slate-500">插入位置</label>
+                        <select
+                          value={branchInsertIndex}
+                          onChange={(event) => setBranchInsertIndex(Number(event.target.value))}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
+                        >
+                          {branchInsertOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+
+                        <label className="mb-2 mt-3 block text-xs font-semibold text-slate-500">节点模板</label>
+                        <select
+                          value={branchInsertTagName}
+                          onChange={(event) => setBranchInsertTagName(event.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
+                        >
+                          {registry.map((entry) => (
+                            <option key={entry.tagName} value={entry.tagName}>
+                              {entry.labelZh}
+                            </option>
+                          ))}
+                        </select>
+
+                        <button
+                          type="button"
+                          onClick={() => insertBranch(selectedNode.id, branchInsertIndex, branchInsertTagName)}
+                          disabled={!canAddBranch}
+                          className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
+                        >
+                          <Plus className="h-4 w-4" />
+                          新增分支
+                        </button>
+
+                        {!canAddBranch && (
+                          <div className="mt-2 text-xs leading-5 text-amber-700">
+                            当前控制节点已达到分支上限，不能继续新增支线。
+                          </div>
+                        )}
+                      </div>
+                    </section>
+                  )}
+
+                  <section className="mb-4">
+                    <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
+                      <GitBranch className="h-4 w-4 text-violet-600" />
+                      包裹当前节点
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white/80 p-3">
+                      <label className="mb-2 block text-xs font-semibold text-slate-500">包裹模板</label>
                       <select
                         value={wrapTagName}
                         onChange={(event) => setWrapTagName(event.target.value)}
@@ -386,7 +537,7 @@ export const EditorRightPanel = () => {
                       </select>
                       <button
                         type="button"
-                        onClick={() => insertNode(selectedNode.id, 'wrap', wrapTagName)}
+                        onClick={() => wrapNode(selectedNode.id, wrapTagName)}
                         className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-violet-700"
                       >
                         <GitBranch className="h-4 w-4" />

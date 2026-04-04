@@ -1,17 +1,19 @@
 import { useDeferredValue, useMemo, useState } from 'react';
 import { Bot, FolderTree, GitBranch, Search, Sparkles, Waypoints, X } from 'lucide-react';
-import { EditorDocument, EditorInsertTemplate } from '../types/editor';
+import { EditorAlongBranchInsertRequest, EditorDocument, EditorInsertTemplate } from '../types/editor';
 import {
-  buildEditorInsertCatalog,
+  buildAlongBranchInsertCatalog,
   EditorInsertCatalogItem,
   getInsertCategoryLabel,
 } from '../utils/editorInsertCatalog';
+import { EditorBranchInsertPosition, getAlongBranchWrapperEntries } from '../utils/btRegistry';
 
 interface EditorInsertMenuProps {
   document: EditorDocument | null;
   activeTreeId: string | null;
   mode: 'floating' | 'sheet';
-  onInsert: (template: EditorInsertTemplate) => void;
+  position: EditorBranchInsertPosition;
+  onInsert: (request: EditorAlongBranchInsertRequest) => void;
   onClose: () => void;
 }
 
@@ -27,16 +29,33 @@ export const EditorInsertMenu = ({
   document,
   activeTreeId,
   mode,
+  position,
   onInsert,
   onClose,
 }: EditorInsertMenuProps) => {
   const [query, setQuery] = useState('');
+  const [wrapperTagName, setWrapperTagName] = useState('');
   const deferredQuery = useDeferredValue(query);
 
+  const wrapperOptions = useMemo(() => getAlongBranchWrapperEntries(), []);
   const sections = useMemo(
-    () => buildEditorInsertCatalog(document, activeTreeId, deferredQuery),
+    () => buildAlongBranchInsertCatalog(document, activeTreeId, deferredQuery),
     [activeTreeId, deferredQuery, document]
   );
+  const isReadyToInsert = Boolean(wrapperTagName);
+  const positionLabel = position === 'before' ? '前插' : '后插';
+
+  const handleInsert = (template: EditorInsertTemplate) => {
+    if (!wrapperTagName) {
+      return;
+    }
+
+    onInsert({
+      position,
+      wrapperTagName,
+      template,
+    });
+  };
 
   return (
     <div
@@ -48,9 +67,9 @@ export const EditorInsertMenu = ({
       <div className="border-b border-slate-200 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="text-sm font-bold text-slate-800">在线条中插入节点</div>
+            <div className="text-sm font-bold text-slate-800">沿当前支线{positionLabel}节点</div>
             <p className="mt-1 text-xs leading-5 text-slate-500">
-              选一个节点后会自动接好前后结构，不需要再手动拖线。
+              先选控制包装，再选动作、条件或子树。编辑器会显式新建一层包装节点，不会再偷偷塞进已有顺序链。
             </p>
           </div>
           <button
@@ -61,6 +80,36 @@ export const EditorInsertMenu = ({
           >
             <X className="h-4 w-4" />
           </button>
+        </div>
+
+        <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+          <div className="flex items-center gap-2 text-xs font-bold tracking-wide text-slate-500">
+            <GitBranch className="h-3.5 w-3.5 text-sky-600" />
+            <span>控制包装</span>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {wrapperOptions.map((option) => (
+              <button
+                key={option.tagName}
+                type="button"
+                onClick={() => setWrapperTagName(option.tagName)}
+                className={`rounded-2xl border px-3 py-2 text-left text-xs font-semibold transition ${
+                  wrapperTagName === option.tagName
+                    ? 'border-sky-300 bg-sky-50 text-sky-700'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                }`}
+                aria-pressed={wrapperTagName === option.tagName}
+              >
+                <div>{option.labelZh}</div>
+                <div className="mt-1 text-[11px] font-medium text-slate-400">{option.tagName}</div>
+              </button>
+            ))}
+          </div>
+          {!isReadyToInsert && (
+            <div className="mt-2 text-[11px] leading-5 text-amber-700">
+              先明确这次是顺序、回退、并行还是其他控制关系，再选下面要插入的节点。
+            </div>
+          )}
         </div>
 
         <div className="mt-3 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2">
@@ -92,8 +141,9 @@ export const EditorInsertMenu = ({
                     <button
                       key={item.id}
                       type="button"
-                      onClick={() => onInsert(item.template)}
-                      className="flex w-full items-start gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50"
+                      onClick={() => handleInsert(item.template)}
+                      disabled={!isReadyToInsert}
+                      className="flex w-full items-start gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
                     >
                       <div className="mt-0.5 rounded-xl bg-slate-100 p-2 text-slate-600">
                         <Icon className="h-4 w-4" />
