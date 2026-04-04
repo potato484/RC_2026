@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Download,
   LibraryBig,
+  Plus,
   Redo2,
   Save,
   Undo2,
@@ -15,10 +16,10 @@ import { useStore } from '../store/useStore';
 import { CANVAS_BACKGROUND } from '../utils/btCanvasTheme';
 import { EditorAlongBranchInsertRequest, EditorInsertTemplate } from '../types/editor';
 import { EditorNodeComponent } from './EditorNode';
-import { EditorPalette } from './EditorPalette';
 import { EditorContextMenu } from './EditorContextMenu';
 import { EditorInsertEdge } from './EditorInsertEdge';
 import { EditorInsertMenu } from './EditorInsertMenu';
+import { EditorKnowledgeBase } from './EditorKnowledgeBase';
 
 const nodeTypes = {
   editorNode: EditorNodeComponent,
@@ -97,7 +98,8 @@ export const EditorVisualizer = () => {
   });
   const [contextMenu, setContextMenu] = useState<{ nodeId: string; tagName: string; x: number; y: number } | null>(null);
   const [activeEdgeMenuId, setActiveEdgeMenuId] = useState<string | null>(null);
-  const [mobilePaletteOpen, setMobilePaletteOpen] = useState(false);
+  const [knowledgeBaseOpen, setKnowledgeBaseOpen] = useState(false);
+  const [toolbarInsertOpen, setToolbarInsertOpen] = useState(false);
   const [branchInsertDialog, setBranchInsertDialog] = useState<{
     nodeId: string;
     position: 'before' | 'after';
@@ -125,6 +127,8 @@ export const EditorVisualizer = () => {
           onToggleMenu: (edgeId: string | null) => {
             setContextMenu(null);
             setBranchInsertDialog(null);
+            setKnowledgeBaseOpen(false);
+            setToolbarInsertOpen(false);
             setActiveEdgeMenuId(edgeId);
           },
           onInsertTemplate: (parentNodeId: string, childNodeId: string, request: EditorAlongBranchInsertRequest) => {
@@ -135,6 +139,26 @@ export const EditorVisualizer = () => {
       })) as Edge[],
     [activeEdgeMenuId, flowEdges, insertAlongBranchOnEdge]
   );
+
+  const openKnowledgeBase = useCallback(() => {
+    setContextMenu(null);
+    setActiveEdgeMenuId(null);
+    setBranchInsertDialog(null);
+    setToolbarInsertOpen(false);
+    setKnowledgeBaseOpen(true);
+  }, []);
+
+  const openToolbarInsert = useCallback(() => {
+    if (!selectedNodeId) {
+      return;
+    }
+
+    setContextMenu(null);
+    setActiveEdgeMenuId(null);
+    setBranchInsertDialog(null);
+    setKnowledgeBaseOpen(false);
+    setToolbarInsertOpen(true);
+  }, [selectedNodeId]);
 
   const saveXmlToSource = useCallback(async () => {
     const xml = exportXml();
@@ -219,6 +243,8 @@ export const EditorVisualizer = () => {
           setContextMenu(null);
           setActiveEdgeMenuId(null);
           setBranchInsertDialog(null);
+          setKnowledgeBaseOpen(false);
+          setToolbarInsertOpen(false);
           return;
         }
       }
@@ -233,6 +259,8 @@ export const EditorVisualizer = () => {
         setContextMenu(null);
         setActiveEdgeMenuId(null);
         setBranchInsertDialog(null);
+        setKnowledgeBaseOpen(false);
+        setToolbarInsertOpen(false);
         return;
       }
 
@@ -246,6 +274,8 @@ export const EditorVisualizer = () => {
         setContextMenu(null);
         setActiveEdgeMenuId(null);
         setBranchInsertDialog(null);
+        setKnowledgeBaseOpen(false);
+        setToolbarInsertOpen(false);
         return;
       }
 
@@ -255,6 +285,8 @@ export const EditorVisualizer = () => {
           wrapperTagName: requestPayload.wrapperTagName,
           template: requestPayload.template,
         });
+        setKnowledgeBaseOpen(false);
+        setToolbarInsertOpen(false);
       }
     },
     [insertAlongBranch, insertAlongBranchOnEdge, selectedNodeId]
@@ -313,6 +345,8 @@ export const EditorVisualizer = () => {
         event.preventDefault();
         setContextMenu(null);
         setActiveEdgeMenuId(null);
+        setKnowledgeBaseOpen(false);
+        setToolbarInsertOpen(false);
         setBranchInsertDialog({ nodeId: selectedNodeId, position: 'before' });
         return;
       }
@@ -321,6 +355,8 @@ export const EditorVisualizer = () => {
         event.preventDefault();
         setContextMenu(null);
         setActiveEdgeMenuId(null);
+        setKnowledgeBaseOpen(false);
+        setToolbarInsertOpen(false);
         setBranchInsertDialog({ nodeId: selectedNodeId, position: 'after' });
       }
     },
@@ -333,8 +369,28 @@ export const EditorVisualizer = () => {
   }, [handleKeydown]);
 
   const desktopToolbar = (
-    <div className="absolute left-[352px] right-4 top-4 z-20 hidden items-start justify-between gap-4 lg:flex">
+    <div className="absolute left-4 right-4 top-4 z-20 hidden items-start justify-between gap-4 lg:flex">
       <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={openKnowledgeBase}
+          data-testid="editor-knowledge-base-button"
+          className="flex items-center gap-1.5 rounded-xl bg-white/92 px-3 py-2 text-sm font-semibold text-slate-700 shadow transition hover:bg-white"
+        >
+          <LibraryBig className="h-4 w-4" />
+          节点知识库
+        </button>
+        <button
+          type="button"
+          onClick={openToolbarInsert}
+          disabled={!selectedNodeId}
+          data-testid="editor-toolbar-insert-button"
+          className="flex items-center gap-1.5 rounded-xl bg-violet-600 px-3 py-2 text-sm font-semibold text-white shadow transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-violet-300"
+          title={selectedNodeId ? '向当前选中节点前后插入新节点' : '先在画布中选中一个节点'}
+        >
+          <Plus className="h-4 w-4" />
+          插入节点
+        </button>
         <button
           type="button"
           onClick={undo}
@@ -374,22 +430,35 @@ export const EditorVisualizer = () => {
         </button>
       </div>
 
-      <div className="max-w-[340px] rounded-2xl bg-white/92 px-4 py-3 text-xs font-semibold leading-5 text-slate-500 shadow">
-        连线中点和 A/Shift+A 都会先弹出“控制包装 + 节点模板”选择，再显式创建顺序/回退/并行等结构。删除键删除，空格折叠，T 切换复合节点。
+      <div className="max-w-[360px] rounded-2xl bg-white/92 px-4 py-3 text-xs font-semibold leading-5 text-slate-500 shadow">
+        “节点知识库”只负责查说明，“插入节点”负责改结构。工具栏插入必须先选中目标节点，再显式选择前插或后插；边中点和 A/Shift+A 仍保留快捷入口。
       </div>
     </div>
   );
 
   const mobileToolbar = (
     <div className="absolute inset-x-3 bottom-3 z-20 flex items-center justify-between gap-2 rounded-[22px] border border-white/70 bg-white/94 px-3 py-2 shadow-2xl backdrop-blur lg:hidden">
-      <button
-        type="button"
-        onClick={() => setMobilePaletteOpen(true)}
-        className="flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700"
-      >
-        <LibraryBig className="h-4 w-4" />
-        节点库
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={openKnowledgeBase}
+          data-testid="editor-mobile-knowledge-base-button"
+          className="flex items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700"
+        >
+          <LibraryBig className="h-4 w-4" />
+          知识库
+        </button>
+        <button
+          type="button"
+          onClick={openToolbarInsert}
+          disabled={!selectedNodeId}
+          data-testid="editor-mobile-insert-button"
+          className="flex items-center gap-1.5 rounded-xl bg-violet-600 px-3 py-2 text-sm font-semibold text-white disabled:bg-violet-300"
+        >
+          <Plus className="h-4 w-4" />
+          插入
+        </button>
+      </div>
 
       <div className="flex items-center gap-1">
         <button
@@ -437,10 +506,6 @@ export const EditorVisualizer = () => {
       className="relative h-full w-full overflow-hidden rounded-[28px] border border-white/50 bg-white/45"
       data-testid="editor-canvas"
     >
-      <div className="absolute left-4 top-20 z-20 hidden h-[calc(100%-6.5rem)] w-[320px] lg:block">
-        <EditorPalette className="h-full w-full" />
-      </div>
-
       {desktopToolbar}
       {mobileToolbar}
 
@@ -460,7 +525,7 @@ export const EditorVisualizer = () => {
         </div>
       )}
 
-      <div className="absolute inset-0 top-0 lg:bottom-0 lg:left-[352px] lg:right-0 lg:top-20">
+      <div className="absolute inset-0 top-0 lg:bottom-0 lg:right-0 lg:top-20">
         <ReactFlow
           nodes={nodesWithSelection}
           edges={edgesWithActions}
@@ -480,6 +545,8 @@ export const EditorVisualizer = () => {
             setSelectedNode(node.id);
             setActiveEdgeMenuId(null);
             setBranchInsertDialog(null);
+            setKnowledgeBaseOpen(false);
+            setToolbarInsertOpen(false);
             setContextMenu({
               nodeId: node.id,
               tagName: String((node.data as { tagName?: string }).tagName ?? ''),
@@ -492,6 +559,7 @@ export const EditorVisualizer = () => {
             setContextMenu(null);
             setActiveEdgeMenuId(null);
             setBranchInsertDialog(null);
+            setToolbarInsertOpen(false);
           }}
           fitView
           nodesDraggable={false}
@@ -561,15 +629,57 @@ export const EditorVisualizer = () => {
         </div>
       )}
 
-      {mobilePaletteOpen && (
-        <div className="fixed inset-0 z-40 bg-slate-950/18 p-3 lg:hidden" onClick={() => setMobilePaletteOpen(false)}>
-          <div className="absolute inset-x-3 bottom-3 top-20" onClick={(event) => event.stopPropagation()}>
-            <EditorPalette
-              className="h-full w-full"
-              mode="sheet"
-              onRequestClose={() => setMobilePaletteOpen(false)}
+      {toolbarInsertOpen && (
+        <div className="fixed inset-0 z-40 bg-slate-950/18 p-3" onClick={() => setToolbarInsertOpen(false)}>
+          <div
+            className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 lg:block"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <EditorInsertMenu
+              document={editorDocument}
+              activeTreeId={activeTreeId}
+              mode="floating"
+              positionMode="choose"
+              onInsert={(request) => {
+                if (!selectedNodeId) {
+                  return;
+                }
+                insertAlongBranch(selectedNodeId, request);
+                setToolbarInsertOpen(false);
+              }}
+              onClose={() => setToolbarInsertOpen(false)}
             />
           </div>
+
+          <div className="absolute inset-x-3 bottom-3 top-20 lg:hidden" onClick={(event) => event.stopPropagation()}>
+            <EditorInsertMenu
+              document={editorDocument}
+              activeTreeId={activeTreeId}
+              mode="sheet"
+              positionMode="choose"
+              onInsert={(request) => {
+                if (!selectedNodeId) {
+                  return;
+                }
+                insertAlongBranch(selectedNodeId, request);
+                setToolbarInsertOpen(false);
+              }}
+              onClose={() => setToolbarInsertOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {knowledgeBaseOpen && (
+        <div
+          className="absolute inset-0 z-40 overflow-hidden bg-slate-50/98 backdrop-blur-[2px]"
+          data-testid="editor-knowledge-overlay"
+        >
+          <EditorKnowledgeBase
+            className="h-full w-full"
+            mode="workspace"
+            onRequestClose={() => setKnowledgeBaseOpen(false)}
+          />
         </div>
       )}
     </div>

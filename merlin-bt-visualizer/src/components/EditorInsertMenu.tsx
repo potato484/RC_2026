@@ -12,7 +12,8 @@ interface EditorInsertMenuProps {
   document: EditorDocument | null;
   activeTreeId: string | null;
   mode: 'floating' | 'sheet';
-  position: EditorBranchInsertPosition;
+  position?: EditorBranchInsertPosition;
+  positionMode?: 'fixed' | 'choose';
   onInsert: (request: EditorAlongBranchInsertRequest) => void;
   onClose: () => void;
 }
@@ -29,12 +30,16 @@ export const EditorInsertMenu = ({
   document,
   activeTreeId,
   mode,
-  position,
+  position = 'after',
+  positionMode = 'fixed',
   onInsert,
   onClose,
 }: EditorInsertMenuProps) => {
   const [query, setQuery] = useState('');
   const [wrapperTagName, setWrapperTagName] = useState('');
+  const [selectedPosition, setSelectedPosition] = useState<EditorBranchInsertPosition | null>(
+    positionMode === 'choose' ? null : position
+  );
   const deferredQuery = useDeferredValue(query);
 
   const wrapperOptions = useMemo(() => getAlongBranchWrapperEntries(), []);
@@ -42,16 +47,24 @@ export const EditorInsertMenu = ({
     () => buildAlongBranchInsertCatalog(document, activeTreeId, deferredQuery),
     [activeTreeId, deferredQuery, document]
   );
-  const isReadyToInsert = Boolean(wrapperTagName);
-  const positionLabel = position === 'before' ? '前插' : '后插';
+  const activePosition = positionMode === 'choose' ? selectedPosition : position;
+  const isReadyToInsert = Boolean(wrapperTagName && activePosition);
+  const positionLabel = activePosition === 'before' ? '前插' : '后插';
+
+  const heading =
+    positionMode === 'choose' ? '向当前节点插入新节点' : `沿当前支线${positionLabel}节点`;
+  const description =
+    positionMode === 'choose'
+      ? '先选前插还是后插，再选控制包装和节点模板。编辑器会显式新建一层包装节点，不会偷偷塞进已有顺序链。'
+      : '先选控制包装，再选动作、条件或子树。编辑器会显式新建一层包装节点，不会再偷偷塞进已有顺序链。';
 
   const handleInsert = (template: EditorInsertTemplate) => {
-    if (!wrapperTagName) {
+    if (!wrapperTagName || !activePosition) {
       return;
     }
 
     onInsert({
-      position,
+      position: activePosition,
       wrapperTagName,
       template,
     });
@@ -67,10 +80,8 @@ export const EditorInsertMenu = ({
       <div className="border-b border-slate-200 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="text-sm font-bold text-slate-800">沿当前支线{positionLabel}节点</div>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              先选控制包装，再选动作、条件或子树。编辑器会显式新建一层包装节点，不会再偷偷塞进已有顺序链。
-            </p>
+            <div className="text-sm font-bold text-slate-800">{heading}</div>
+            <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
           </div>
           <button
             type="button"
@@ -81,6 +92,42 @@ export const EditorInsertMenu = ({
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {positionMode === 'choose' && (
+          <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+            <div className="flex items-center gap-2 text-xs font-bold tracking-wide text-slate-500">
+              <Waypoints className="h-3.5 w-3.5 text-violet-600" />
+              <span>插入位置</span>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {[
+                { value: 'before', label: '前插', desc: '新节点放在当前节点前面' },
+                { value: 'after', label: '后插', desc: '新节点放在当前节点后面' },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setSelectedPosition(option.value as EditorBranchInsertPosition)}
+                  data-testid={`editor-insert-position-${option.value}`}
+                  className={`rounded-2xl border px-3 py-2 text-left text-xs font-semibold transition ${
+                    selectedPosition === option.value
+                      ? 'border-violet-300 bg-violet-50 text-violet-700'
+                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                  }`}
+                  aria-pressed={selectedPosition === option.value}
+                >
+                  <div>{option.label}</div>
+                  <div className="mt-1 text-[11px] font-medium text-slate-400">{option.desc}</div>
+                </button>
+              ))}
+            </div>
+            {!activePosition && (
+              <div className="mt-2 text-[11px] leading-5 text-amber-700">
+                先明确这次是前插还是后插，避免工具栏入口默认把新节点偷偷塞到后面。
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
           <div className="flex items-center gap-2 text-xs font-bold tracking-wide text-slate-500">
@@ -107,7 +154,7 @@ export const EditorInsertMenu = ({
           </div>
           {!isReadyToInsert && (
             <div className="mt-2 text-[11px] leading-5 text-amber-700">
-              先明确这次是顺序、回退、并行还是其他控制关系，再选下面要插入的节点。
+              先明确插入位置和控制关系，再选下面要插入的节点。
             </div>
           )}
         </div>

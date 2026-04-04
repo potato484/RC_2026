@@ -41,6 +41,7 @@
   - `src/store/useEditorStore.ts` 是编辑模式的状态真源，负责按区域缓存草稿、当前 `BehaviorTree` 选择、画布投影、定义内参数修改、同支线插入、显式新增支线、节点包裹、复合节点切换和 XML 导出；当前同支线插入会强制要求用户选择包装控制节点，并始终生成一层显式包装结构。
   - `src/utils/editorParser.ts:7-121` + `src/utils/editorProjection.ts:16-111` + `src/utils/editorSerializer.ts:7-103` 组成 round-trip 三件套，保留的是可逆语义，不是只为展示服务的简化模型。
   - `src/generated/btNodeRegistry.ts` + `src/utils/btRegistry.ts` 是编辑链新增的节点定义真源，统一维护官方节点、机器人模块、已声明端口、默认属性和复合节点切换规则。
+  - `src/utils/editorInsertCatalog.ts` 统一生成插入目录和知识库目录；节点知识库当前按业务类目分栏，而不是再按动作 / 条件 / 控制这种节点类型直接平铺。
   - `src/utils/editorTreeView.ts:1-33` 从 `SubTree` 引用关系派生出和查看模式一致的树列表层级与中文树名。
   - `vite.config.ts` 的本地保存适配层只在 `npm run dev` 下可用；它把当前区域 XML 写回 `src/rc26_decision/behavior_trees/*.xml`，不等于前端拥有通用后端持久化能力。
 - 本地模拟执行链
@@ -64,7 +65,7 @@
 - `merlin-bt-visualizer/src/components/Sidebar.tsx:13-162`
   - 同一个组件承担两种模式下的树列表展示，两边都按主树/子树层级组织列表；编辑模式会跟着当前区域草稿同步切换。
 - `merlin-bt-visualizer/src/components/EditorVisualizer.tsx:12-129`
-  - 负责编辑画布、节点库、右键菜单、导出源文件，以及开发态“保存到源文件”按钮。
+  - 负责编辑画布、覆盖式工具栏知识库、独立插入菜单、右键菜单、导出源文件，以及开发态“保存到源文件”按钮。
 - `merlin-bt-visualizer/src/components/RightPanel.tsx:21-147`
   - 负责查看模式下的节点详情、执行日志和黑板。
 - `merlin-bt-visualizer/src/components/EditorRightPanel.tsx:23-243`
@@ -86,7 +87,8 @@
 
 - `merlin-bt-visualizer` 当前已从“基础 XML 改写”升级为“注册表驱动的中文行为树编辑工作台”。
 - 当前编辑链新增了：
-  - 节点库搜索与拖拽插入
+  - 按业务分类浏览的节点知识库、当前类目内搜索与端口说明检索
+  - 工具栏独立插入菜单
   - 连线中点一键插入节点
   - 复合节点一键切换
   - 沿当前支线的前插、后插
@@ -103,7 +105,7 @@
 - 2026-04-04 起，查看态和编辑态的画布主题已经收口到共享的节点尺寸、边样式和布局参数；编辑态只在选中、悬停或抽屉里额外暴露编辑控件，不再维护另一套明显不同的节点外观。
 - 页面壳层现在也开始按“画布优先”响应式收口：
   - 桌面端仍是侧栏 + 画布 + 面板
-  - 窄屏下改为画布主视图，决策树和检查器通过抽屉进入，编辑节点库通过底部 sheet 进入
+  - 窄屏下改为画布主视图，决策树和检查器通过抽屉进入；节点知识库改成覆盖当前编辑画布区域的独立工作区，插入菜单仍通过底部 sheet 进入
 - 这部分的详细设计和完整映射表分别见：
   - [editor_mode/README.md](/home/potato/RC_2026/docs/frontend/editor_mode/README.md)
   - [editor_mode/bt_terms_mapping.md](/home/potato/RC_2026/docs/frontend/editor_mode/bt_terms_mapping.md)
