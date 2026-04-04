@@ -14,7 +14,8 @@
 
 ## 当前实现特点
 
-- 适配麦克纳姆底盘的全向跟踪
+- 当前默认适配履带式底盘的差速走廊跟踪
+- 保留 `mecanum_4wheel` 兼容模式，便于旧链路回归和参数对照
 - 根据 `XhuMotionModeState` 统一约束线速度/角速度与加速度
 - 当 corridor、odom、模式状态或关键语义输入缺失时，优先进入 `HOLD`
 - 对 topo 执行器回传 `PASS / HOLD / REPLAN / ABORT`

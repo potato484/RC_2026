@@ -44,7 +44,7 @@ ros2 node list | grep joy
 ```bash
 ros2 topic echo /cmd_vel_teleop
 ```
-此时操作手柄，观察终端输出的 `linear.x`, `linear.y`, `angular.z` 数值是否随着手柄的动作发生变化。
+此时操作手柄，观察终端输出的 `linear.x` 与 `angular.z` 是否随着手柄动作发生变化。当前 R2 默认按 `tracked_diff` 运行，`linear.y` 应保持为 `0`；只有显式切回 `mecanum_4wheel` 时才会出现横向速度输出。
 
 ## 3. 核心机制验证
 
@@ -63,7 +63,7 @@ ros2 topic echo /cmd_vel_teleop
    ros2 topic echo /cmd_vel_teleop
    ```
 2. 迅速将摇杆推到最大位置。
-3. 观察输出的线速度（`linear.x` 或 `linear.y`）是否是逐步爬升到最大值，而不是瞬间跳变到最大值。
+3. 观察输出的目标速度是否是逐步爬升到最大值，而不是瞬间跳变到最大值。当前履带模式重点看 `linear.x`；若显式切回 `mecanum_4wheel`，再额外验证 `linear.y` 的限加速度表现。
 
 ### 3.3 停车指令重复发送测试
 
