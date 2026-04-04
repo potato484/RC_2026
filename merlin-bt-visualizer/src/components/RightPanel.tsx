@@ -17,7 +17,7 @@ export const RightPanel = () => {
   const activeNode = nodes.find(n => n.id === activeNodeId);
 
   return (
-    <div className="w-[320px] ml-4 flex flex-col gap-4 h-full overflow-hidden">
+    <div className="flex h-full w-full flex-col gap-4 overflow-hidden lg:ml-4 lg:max-w-[320px]">
       {/* Node Info Panel */}
       <div className="glass-panel p-4 flex-none max-h-[300px] flex flex-col">
         <h3 className="text-lg font-bold flex items-center gap-2 mb-4 text-slate-800 flex-none">

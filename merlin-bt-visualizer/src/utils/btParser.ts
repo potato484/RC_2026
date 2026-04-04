@@ -2,6 +2,7 @@ import type { Node as FlowNode } from '@xyflow/react';
 import dagre from 'dagre';
 import { BTNode, ParsedTree, ParsedArea } from '../types';
 import { getBehaviorTreeNodeDisplay, getBehaviorTreeTreeName, translateName } from './btDisplay';
+import { CANVAS_LAYOUT, getCanvasNodeSize } from './btCanvasTheme';
 
 function compressTree(nodes: BTNode[], edges: { id: string; source: string; target: string }[]) {
   let modified = true;
@@ -186,33 +187,10 @@ export function parseBTXml(xmlString: string, mainTreeId?: string): ParsedArea {
 export function layoutNodes(nodes: BTNode[], edges: { id: string; source: string; target: string }[]) {
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
-  
-  // 优化间距：调整布局参数适应横向布局 (LR = Left to Right)
-  dagreGraph.setGraph({ 
-    rankdir: 'LR', // 从左到右布局
-    nodesep: 80,   // 节点间的垂直间距
-    ranksep: 160,  // 大幅拉大层级间的水平间距，给连线曲线留出呼吸空间
-    edgesep: 20,
-    marginx: 20,
-    marginy: 20
-  });
-
-  const getNodeSize = (type: string) => {
-    switch (type) {
-      case 'sequence':
-      case 'selector':
-        return { width: 140, height: 48 };
-      case 'decorator':
-        return { width: 180, height: 48 };
-      case 'action':
-      case 'subtree':
-      default:
-        return { width: 240, height: 80 };
-    }
-  };
+  dagreGraph.setGraph(CANVAS_LAYOUT);
 
   nodes.forEach((node) => {
-    const { height } = getNodeSize(node.type);
+    const { height } = getCanvasNodeSize(node.type);
     // 使用统一的最大宽度 (240) 让 dagre 计算布局，
     // 这样在同一层级的节点会基于同一个中心点对齐，从而保证左边缘完全对齐
     dagreGraph.setNode(node.id, { width: 240, height });
@@ -226,7 +204,7 @@ export function layoutNodes(nodes: BTNode[], edges: { id: string; source: string
 
   const flowNodes: FlowNode[] = nodes.map((node) => {
     const nodeWithPosition = dagreGraph.node(node.id);
-    const { height } = getNodeSize(node.type);
+    const { height } = getCanvasNodeSize(node.type);
     return {
       id: node.id,
       type: 'custom',

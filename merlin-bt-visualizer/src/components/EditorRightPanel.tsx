@@ -150,7 +150,7 @@ export const EditorRightPanel = () => {
   };
 
   return (
-    <div className="ml-4 flex h-full w-[420px] flex-col gap-4">
+    <div className="flex h-full w-full flex-col gap-4 lg:ml-4 lg:max-w-[420px]">
       <div className="glass-panel flex min-h-0 flex-1 flex-col p-4" data-testid="editor-right-panel">
         <div className="mb-4 flex items-center gap-2 border-b border-slate-200 pb-2">
           {[
@@ -203,6 +203,9 @@ export const EditorRightPanel = () => {
                         </span>
                         <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-500">
                           {selectedNode.source === 'official' ? '官方节点' : selectedNode.source === 'robot' ? '机器人模块' : '未注册节点'}
+                        </span>
+                        <span className="rounded-full bg-white px-2 py-1 font-semibold text-slate-500 ring-1 ring-slate-200">
+                          {selectedNode.tagName}
                         </span>
                         {activeTree && (
                           <span className="rounded-full bg-violet-100 px-2 py-1 font-semibold text-violet-700">

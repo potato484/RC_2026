@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { FolderTree, PanelsTopLeft } from 'lucide-react';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { TreeVisualizer } from './components/TreeVisualizer';
@@ -13,6 +14,8 @@ function App() {
   const { isPlaying, isSimulating, activePhase, updateNodeState, addTimelineEvent, updateBlackboard, appMode } = useStore();
   const ensureEditorPhaseLoaded = useEditorStore((state) => state.ensurePhaseLoaded);
   const isPlayingRef = useRef(isPlaying);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   
   useEffect(() => {
     isPlayingRef.current = isPlaying;
@@ -216,16 +219,68 @@ function App() {
     ensureEditorPhaseLoaded(activePhase, getBehaviorTreeXmlForPhase(activePhase));
   }, [activePhase, appMode, ensureEditorPhaseLoaded]);
 
+  useEffect(() => {
+    setMobileSidebarOpen(false);
+    setMobilePanelOpen(false);
+  }, [activePhase, appMode]);
+
   return (
-    <div className="w-screen h-screen p-4 flex flex-col relative overflow-hidden bg-slate-50">
+    <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-slate-50 p-3 lg:p-4">
       <Header />
-      <div className="flex-1 flex overflow-hidden">
-        <Sidebar />
-        <div className="flex-1 relative">
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        <div className="hidden shrink-0 lg:block">
+          <Sidebar />
+        </div>
+
+        <div className="relative min-h-0 flex-1">
+          <div className="absolute left-3 top-3 z-30 flex items-center gap-2 lg:hidden">
+            <button
+              type="button"
+              onClick={() => setMobileSidebarOpen(true)}
+              className="flex items-center gap-2 rounded-2xl bg-white/92 px-3 py-2 text-sm font-semibold text-slate-700 shadow-lg backdrop-blur"
+            >
+              <FolderTree className="h-4 w-4" />
+              决策树
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobilePanelOpen(true)}
+              className="flex items-center gap-2 rounded-2xl bg-white/92 px-3 py-2 text-sm font-semibold text-slate-700 shadow-lg backdrop-blur"
+            >
+              <PanelsTopLeft className="h-4 w-4" />
+              {appMode === 'viewer' ? '详情' : '检查器'}
+            </button>
+          </div>
+
           {appMode === 'viewer' ? <TreeVisualizer /> : <EditorVisualizer />}
         </div>
-        {appMode === 'viewer' ? <RightPanel /> : <EditorRightPanel />}
+
+        <div className="hidden shrink-0 lg:flex">
+          {appMode === 'viewer' ? <RightPanel /> : <EditorRightPanel />}
+        </div>
       </div>
+
+      {mobileSidebarOpen && (
+        <div className="fixed inset-0 z-40 bg-slate-950/20 p-3 lg:hidden" onClick={() => setMobileSidebarOpen(false)}>
+          <div
+            className="h-full w-[86vw] max-w-[18rem]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Sidebar />
+          </div>
+        </div>
+      )}
+
+      {mobilePanelOpen && (
+        <div className="fixed inset-0 z-40 bg-slate-950/20 p-3 lg:hidden" onClick={() => setMobilePanelOpen(false)}>
+          <div
+            className="absolute inset-x-3 bottom-3 top-24"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {appMode === 'viewer' ? <RightPanel /> : <EditorRightPanel />}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,10 +1,11 @@
 
 import { useMemo, useCallback } from 'react';
-import { ReactFlow, Background, Edge, Node, MarkerType } from '@xyflow/react';
+import { ReactFlow, Background, Edge, Node } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useStore } from '../store/useStore';
 import { CustomNode } from './CustomNode';
 import { layoutNodes } from '../utils/btParser';
+import { CANVAS_BACKGROUND, createCanvasEdgeProps } from '../utils/btCanvasTheme';
 
 const nodeTypes = {
   custom: CustomNode,
@@ -51,15 +52,7 @@ export const TreeVisualizer = () => {
       id: edge.id,
       source: edge.source,
       target: edge.target,
-      animated: isRunning,
-      type: 'smoothstep',
-      style: { stroke: isRunning ? '#f59e0b' : '#94a3b8', strokeWidth: isRunning ? 3 : 2 },
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        width: 15,
-        height: 15,
-        color: isRunning ? '#f59e0b' : '#94a3b8',
-      },
+      ...createCanvasEdgeProps(isRunning),
     };
   }), [nodes, visibleEdges]);
 
@@ -80,7 +73,7 @@ export const TreeVisualizer = () => {
         minZoom={0.1}
         className="bg-transparent"
       >
-        <Background color="#cbd5e1" gap={24} size={2} className="opacity-50" />
+        <Background {...CANVAS_BACKGROUND} className="opacity-50" />
       </ReactFlow>
     </div>
   );

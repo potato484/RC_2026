@@ -26,7 +26,7 @@ export const Sidebar = () => {
   };
 
   return (
-    <div className="glass-panel w-48 flex flex-col gap-4 p-4 py-8 mr-4 overflow-y-auto" data-testid="phase-sidebar">
+    <div className="glass-panel flex h-full w-full max-w-[18rem] flex-col gap-4 overflow-y-auto p-4 py-6 lg:w-48 lg:py-8" data-testid="phase-sidebar">
       <div className="flex flex-col gap-4 items-center mb-6">
         {phases.map((p) => {
           const isActive = activePhase === p.id;
