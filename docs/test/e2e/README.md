@@ -30,10 +30,10 @@ package.json
 | --- | --- |
 | `docs/test/e2e/ensure-playwright-ready.sh` | 当前浏览器 E2E 的 Playwright 运行时守门脚本。负责检查 Python Playwright 包、Chromium 主浏览器和 `chromium_headless_shell` 是否齐全，并在缺失时补执行安装。 |
 | `docs/test/e2e/run-e2e-local.sh` | 当前浏览器 E2E 主入口。负责找可用端口、启动 `topo_sim_stub_server.py`、以 `dist-e2e/` 重建 `sim_viewer` 静态预览，并在失败时打印对应日志尾部。 |
-| `docs/test/e2e/topo_sim_stub_server.py` | 当前契约型 stub backend。它不跑真实 ROS2 或 `planner_trace_cli`，但会补齐浏览器 E2E 需要的 `scene-manifest`、`surface-route preview / trace / execute` 以及旧 run / live 兼容接口面，保证 `sim_viewer` 的静态预览在本地和 CI 上都能走通当前主链。 |
-| `docs/test/e2e/sim_viewer_flow.py` | 当前 sim_viewer E2E 用例本体。覆盖首屏加载、切到顶部正交视角、在 Babylon 画布里实际设起点/终点、生成 `surface-route` trace、切换“已探查”图层，以及拖动“回放帧”滑块回看首帧这条真实用户链路。脚本会按多组坐标重试画布点击，降低 CI 里因视口细微差异导致单次选点失效的概率。 |
+| `docs/test/e2e/topo_sim_stub_server.py` | 当前契约型 stub backend。它不跑真实 ROS2 或 `planner_trace_cli`，但会补齐浏览器 E2E 需要的 `scene-manifest`、`surface-route preview / trace-from-nodes / trace / execute` 以及旧 run / live 兼容接口面，保证 `sim_viewer` 的静态预览在本地和 CI 上都能走通当前主链。 |
+| `docs/test/e2e/sim_viewer_flow.py` | 当前 sim_viewer E2E 用例本体。覆盖首屏加载、切到顶部正交视角、在 Babylon 画布里实际设起点/终点、点击“生成三维路线”、等待 preview-first 主链补齐搜索回放、切换“已探查”图层，以及拖动“回放帧”滑块回看首帧这条真实用户链路。脚本会按多组坐标重试画布点击，降低 CI 里因视口细微差异导致单次选点失效的概率。 |
 | `src/rc26_topo_nav/sim_viewer/src/api.ts` | 当前前端 API 入口。现在支持通过 `VITE_API_BASE_URL` 与 `VITE_WS_BASE_URL` 切换后端来源，让浏览器 E2E 不再依赖 dev proxy。 |
-| `src/rc26_topo_nav/sim_viewer/src/App.tsx` / `src/rc26_topo_nav/sim_viewer/src/store.ts` | 当前页面已经收口成“单用途 3D 路线观察台”。主界面只保留画布、图层按钮、视角切换、场景选点、`生成 3D 路线`、回放滑块与可选执行；不再暴露旧的 `高级 / 调试`、离线 run WebSocket 控制或 live 只读桥接。 |
+| `src/rc26_topo_nav/sim_viewer/src/App.tsx` / `src/rc26_topo_nav/sim_viewer/src/store.ts` | 当前页面已经收口成“单用途三维路线观察台”。主界面只保留画布、图层按钮、视角切换、场景选点、`生成三维路线`、回放滑块与可选执行；不再暴露旧的 `高级 / 调试`、离线 run WebSocket 控制或 live 只读桥接。 |
 
 ## 4. 当前输出与注意点
 

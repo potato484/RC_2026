@@ -66,7 +66,7 @@ def main() -> None:
 
         try:
             page.goto("/", wait_until="networkidle")
-            page.get_by_role("heading", name="3D 路线观察台").wait_for()
+            page.get_by_role("heading", name="三维路线观察台").wait_for()
             page.get_by_text("场景已就绪，先在场景里点起点和终点").wait_for(timeout=10000)
 
             expanded_toggle = page.get_by_role("button", name="已探查")
@@ -86,14 +86,14 @@ def main() -> None:
             click_canvas_until_status(
                 page,
                 positions=[(0.53, 0.47), (0.54, 0.45), (0.52, 0.49), (0.55, 0.43)],
-                expected_text="终点已记录，可以生成 3D 路线",
+                expected_text="终点已记录，可以生成三维路线",
             )
 
-            page.get_by_role("button", name="生成 3D 路线").click()
-            page.get_by_text("3D 路线已生成", exact=False).wait_for(timeout=20000)
+            page.get_by_role("button", name="生成三维路线").click()
+            page.get_by_text("三维路线与搜索回放已就绪", exact=False).wait_for(timeout=20000)
             page.get_by_text("已生成 3 帧搜索回放").wait_for(timeout=10000)
-            page.get_by_text("stub_start", exact=True).wait_for(timeout=10000)
-            page.get_by_text("stub_goal", exact=True).wait_for(timeout=10000)
+            page.get_by_text("表面起点采样点", exact=True).wait_for(timeout=10000)
+            page.get_by_text("表面终点采样点", exact=True).wait_for(timeout=10000)
             page.wait_for_function(
                 """() => document.querySelector(".range-readout")?.textContent?.trim() === "3 / 3" """,
                 timeout=10000,

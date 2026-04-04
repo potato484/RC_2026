@@ -325,11 +325,20 @@ class SurfaceRouteRequest(BaseModel):
     projection_radius_m: float | None = None
 
 
+class SurfaceRouteTraceFromNodesRequest(BaseModel):
+    team: str = "blue"
+    start_node_id: str
+    goal_node_id: str
+    surface_graph_file: str | None = None
+    requested_start: Pose3Request | None = None
+    requested_goal: Pose3Request | None = None
+
+
 def make_surface_route_segments() -> list[dict[str, Any]]:
     return [
         {
             "segment_id": "stub_seg_a",
-            "from_node_id": "stub_start",
+            "from_node_id": "sf_start",
             "to_node_id": "stub_mid",
             "motion_type": "plane_move",
             "required_mode": "mf_traverse",
@@ -338,7 +347,7 @@ def make_surface_route_segments() -> list[dict[str, Any]]:
         {
             "segment_id": "stub_seg_b",
             "from_node_id": "stub_mid",
-            "to_node_id": "stub_goal",
+            "to_node_id": "sf_goal",
             "motion_type": "ramp_down",
             "required_mode": "mf_exit",
             "point_count": 2,
@@ -351,8 +360,8 @@ def make_surface_route_preview_payload(request: SurfaceRouteRequest) -> dict[str
         "success": True,
         "failure_code": "",
         "failure_reason": "",
-        "projected_start_node_id": "stub_start",
-        "projected_goal_node_id": "stub_goal",
+        "projected_start_node_id": "sf_start",
+        "projected_goal_node_id": "sf_goal",
         "projected_start": {"x": -1.4, "y": -0.9, "z": 0.0, "yaw": 0.0},
         "projected_goal": {"x": 1.4, "y": 0.9, "z": 0.0, "yaw": 0.0},
         "path_points": [
@@ -363,32 +372,131 @@ def make_surface_route_preview_payload(request: SurfaceRouteRequest) -> dict[str
         "segments": make_surface_route_segments(),
         "team": request.team,
         "surface_graph_file": f"stub_surface_graph_{request.team}.yaml",
+        "planning_timing_ms": {
+            "surfaceProjection": 4.5,
+            "surfacePlanning": 12.4,
+            "surfacePathExpand": 3.2,
+            "surfaceSegmentBuild": 1.6,
+            "surfaceCompletePlanning": 21.7,
+            "surfaceRouteCli": 24.1,
+        },
+        "planning_logs": [
+            {
+                "stage": "request",
+                "level": "info",
+                "title": "收到路线请求",
+                "message": "已准备表面图投影与路径规划输入",
+                "elapsed_ms": None,
+                "fields": [],
+            },
+            {
+                "stage": "surface_route_cli",
+                "level": "info",
+                "title": "表面路线预览",
+                "message": "已完成点击点投影并生成路线",
+                "elapsed_ms": 24.1,
+                "fields": [],
+            },
+        ],
     }
 
 
-def make_surface_route_trace_payload(request: SurfaceRouteRequest) -> dict[str, Any]:
+def make_surface_route_trace_from_nodes_payload(request: SurfaceRouteTraceFromNodesRequest) -> dict[str, Any]:
     frames = make_frames()
-    preview = make_surface_route_preview_payload(request)
     return {
-        **preview,
+        "success": True,
+        "failure_code": "",
+        "failure_reason": "",
+        "projected_start_node_id": request.start_node_id,
+        "projected_goal_node_id": request.goal_node_id,
+        "team": request.team,
+        "surface_graph_file": request.surface_graph_file or f"stub_surface_graph_{request.team}.yaml",
+        "planning_timing_ms": {
+            "tracePlanning": 18.3,
+            "plannerTraceCli": 28.4,
+        },
+        "planning_logs": [
+            {
+                "stage": "planner_trace_cli",
+                "level": "info",
+                "title": "搜索回放生成",
+                "message": "已按运行时启发式导出搜索回放",
+                "elapsed_ms": 28.4,
+                "fields": [],
+            },
+        ],
         "summary": {
             "goalKind": "node",
-            "goalValue": "stub_goal",
+            "goalValue": request.goal_node_id,
             "framesCount": len(frames),
             "returnedFramesCount": len(frames),
             "framesSampled": False,
             "totalCost": 2.5,
-            "projectedStartNodeId": "stub_start",
-            "projectedGoalNodeId": "stub_goal",
-            "requestedStart": request.start_pick_world.model_dump(),
-            "requestedGoal": request.goal_pick_world.model_dump(),
+            "projectedStartNodeId": request.start_node_id,
+            "projectedGoalNodeId": request.goal_node_id,
+            "requestedStart": request.requested_start.model_dump() if request.requested_start else None,
+            "requestedGoal": request.requested_goal.model_dump() if request.requested_goal else None,
+            "tracePlanningMs": 18.3,
+            "traceElapsedMs": 28.4,
         },
         "node_poses": {
-            "stub_start": {"x": -1.4, "y": -0.9, "z": 0.0, "yaw": 0.0},
+            request.start_node_id: {"x": -1.4, "y": -0.9, "z": 0.0, "yaw": 0.0},
             "stub_mid": {"x": 0.0, "y": 0.0, "z": 0.35, "yaw": 0.0},
-            "stub_goal": {"x": 1.4, "y": 0.9, "z": 0.0, "yaw": 0.0},
+            request.goal_node_id: {"x": 1.4, "y": 0.9, "z": 0.0, "yaw": 0.0},
         },
         "frames": frames,
+    }
+
+
+def make_surface_route_trace_payload(request: SurfaceRouteRequest) -> dict[str, Any]:
+    preview = make_surface_route_preview_payload(request)
+    trace = make_surface_route_trace_from_nodes_payload(
+        SurfaceRouteTraceFromNodesRequest(
+            team=request.team,
+            start_node_id=preview["projected_start_node_id"],
+            goal_node_id=preview["projected_goal_node_id"],
+            surface_graph_file=preview["surface_graph_file"],
+            requested_start=request.start_pick_world,
+            requested_goal=request.goal_pick_world,
+        )
+    )
+    total_elapsed_ms = round(
+        float(preview["planning_timing_ms"]["surfaceRouteCli"]) +
+        float(trace["planning_timing_ms"]["plannerTraceCli"]),
+        2,
+    )
+    return {
+        **preview,
+        "planning_timing_ms": {
+            **preview["planning_timing_ms"],
+            **trace["planning_timing_ms"],
+            "surfaceRouteTraceTotal": total_elapsed_ms,
+        },
+        "planning_logs": [
+            *preview["planning_logs"],
+            *trace["planning_logs"],
+            {
+                "stage": "trace_pipeline",
+                "level": "info",
+                "title": "回放整合结果",
+                "message": "已组合路线预览结果与后台搜索回放输出",
+                "elapsed_ms": total_elapsed_ms,
+                "fields": [],
+            },
+        ],
+        "summary": {
+            **trace["summary"],
+            "surfaceProjectionMs": preview["planning_timing_ms"]["surfaceProjection"],
+            "surfacePlanningMs": preview["planning_timing_ms"]["surfacePlanning"],
+            "surfacePathExpandMs": preview["planning_timing_ms"]["surfacePathExpand"],
+            "surfaceSegmentBuildMs": preview["planning_timing_ms"]["surfaceSegmentBuild"],
+            "surfaceCompletePlanningMs": preview["planning_timing_ms"]["surfaceCompletePlanning"],
+            "previewElapsedMs": preview["planning_timing_ms"]["surfaceRouteCli"],
+            "traceElapsedMs": trace["planning_timing_ms"]["plannerTraceCli"],
+            "totalElapsedMs": total_elapsed_ms,
+        },
+        "node_poses": trace["node_poses"],
+        "frames": trace["frames"],
     }
 
 
@@ -593,6 +701,11 @@ async def surface_route_preview(request: SurfaceRouteRequest) -> dict[str, Any]:
 @app.post("/api/surface-route/trace")
 async def surface_route_trace(request: SurfaceRouteRequest) -> dict[str, Any]:
     return make_surface_route_trace_payload(request)
+
+
+@app.post("/api/surface-route/trace-from-nodes")
+async def surface_route_trace_from_nodes(request: SurfaceRouteTraceFromNodesRequest) -> dict[str, Any]:
+    return make_surface_route_trace_from_nodes_payload(request)
 
 
 @app.post("/api/surface-route/execute")
