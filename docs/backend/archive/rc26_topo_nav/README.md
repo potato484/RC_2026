@@ -125,16 +125,50 @@
   - `sim_viewer`：基于 Babylon.js / React 的单用途 3D 路线观察台，只显示任意点路线和它的搜索推导过程
 - viewer 当前支持：
   - 浏览器直接在地面、坡面、阶梯表面设置起点和终点
-  - `POST /api/surface-route/trace` 返回：
+  - `POST /api/surface-route/preview` 现在先返回：
+    - 投影后的起点/终点 pose
+    - 投影后的起点/终点 node id
+    - 完整 3D 路径点
+    - 路径语义分段
+    - `surface_route_cli` 的结构化规划日志与耗时
+    - 其中前端主指标 `完整规划时间` 当前固定对应 `surface_route_cli.timing_ms.completePlanning`
+  - `POST /api/surface-route/trace-from-nodes` 再基于 preview 已得到的投影 node id 后台补充：
+    - `planner_trace_cli` 的结构化回放日志与耗时
+    - 逐帧 `PlannerFrame` 搜索过程
+    - 回放涉及节点的 `node_poses`
+  - `POST /api/surface-route/trace` 仍保留为兼容接口，但内部已经改成 `preview -> trace-from-nodes` 组合调用；它返回：
     - 投影后的起点/终点 pose
     - 投影后的起点/终点 node id
     - 完整 3D 路径点
     - 路径语义分段
     - `surface_route_cli / planner_trace_cli` 的结构化规划日志与耗时
+    - 其中精确 timing 现在进一步拆成：
+      - `surface_route_cli.timing_ms.projection`: 点击点投影到 `surface_graph` 的耗时
+      - `surface_route_cli.timing_ms.routePlanning`: 图上路径搜索的耗时
+      - `surface_route_cli.timing_ms.pathExpand`: 从 node/edge 路径展开成完整三维路径点的耗时
+      - `surface_route_cli.timing_ms.segmentBuild`: 根据 motion_type / required_mode 生成语义分段的耗时
+      - `surface_route_cli.timing_ms.completePlanning`: 从请求世界坐标到完整可执行路径与分段就绪的总耗时
+      - `planner_trace_cli.timing_ms.planning`: 生成搜索回放时 A* 真正执行的耗时
     - 逐帧 `PlannerFrame` 搜索过程
+  - 当前 dense `surface_graph` 的真实运行时规划已经从 trace 捕获路径里拆出：
+    - `planRoute / planToTask / planRouteTag` 不再通过 `planRouteTrace(...).result` 间接执行
+    - `surface_route_cli` 会按当前 `surface_graph` 的最小边代价密度自动估算可采纳启发式，避免真实 surface 路径规划继续退化成纯 Dijkstra
+    - 以同一组点击点 spot check，`surface_route_cli.timing_ms.routePlanning` 已从约 `717 ms` 降到约 `17.6 ms`
   - 页面只保留一个滑块回放 trace，不再提供 play/pause/step/reset
   - 页面只保留 `scene / frontier / expanded / shadows` 四个图层开关，以及 `orbit / top_ortho / side_perspective` 三个视角
-  - 页面右侧当前会直接展示本次 surface route 生成链路的规划日志，便于区分“路线没出来”究竟卡在点击点投影、A* 路径规划还是 trace 导出阶段
+  - 页面现在改成“画布优先 + 摘要条 + 下方双列检视器”结构：
+    - 摘要条和画布右下优先显示 `完整规划时间 / 投影耗时 / 路径搜索耗时 / 路径展开耗时 / 分段生成耗时`
+    - `网页预览链路 / 回放链路` 继续保留，但只作为 Web 侧诊断耗时
+    - 左列固定放 `搜索回放 + 规划日志`
+    - 右列固定放 `当前路线 + 规划时间拆解 + 路线分段`
+    - 这样宽屏下不会再出现左下大块空白，同时浏览器会先显示 preview 路线，再后台补回放
+    - 画布右上还会固定显示颜色图例，明确说明蓝色圆点是 `前沿点`、黄色方块是 `已探查点`
+  - 当前 viewer 用户可见文案已经统一中文化：
+    - `N/A` 改成 `暂无`
+    - `surface_route_cli / planner_trace_cli / A*` 不再直接暴露给现场用户
+    - 回放 metrics 的 `gCost / fCost / stepCost` 会在前端映射成中文
+    - preview/trace 返回的 `projected_start_node_id / projected_goal_node_id / segment.from_node_id / segment.to_node_id` 现在会在前端映射成中文节点名显示
+    - preview/trace 的失败码、失败原因，以及浏览器侧请求异常，前端都会优先转成中文提示，不再直接向用户暴露英文异常文本
   - `POST /api/surface-route/execute` 仍可选下发 `navigate_surface_route`，但执行前提不变：机器人已经接近被点击的起点
 - 当前实现特别注意把“完整渲染几何”和“规划碰撞 keep-out”分开：
   - viewer 会尽量显示完整 world mesh
