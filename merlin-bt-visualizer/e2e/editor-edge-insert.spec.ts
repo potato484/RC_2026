@@ -8,6 +8,7 @@ test('编辑态支持点击连线中点插入节点，并可撤销重做', async
   await page.getByTestId('editor-edge-insert-trigger').first().click({ force: true });
   await expect(page.locator('[data-testid="editor-insert-menu"]:visible').first()).toBeVisible();
 
+  await page.getByRole('button', { name: /顺序节点/ }).first().click();
   await page.getByRole('button', { name: /等待视觉目标/ }).first().click();
   await expect(page.getByTestId('editor-node-card').filter({ hasText: '等待视觉目标' }).first()).toBeVisible();
 
