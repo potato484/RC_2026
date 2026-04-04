@@ -298,3 +298,29 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - 这仍然是受地表约束的 `SE(2.5)` body-aware 全局规划，不是自由 `SE(3)` planner
 - `rc26_topo_nav` 仍不拥有动态障碍语义、机构状态机和底层速度控制
 - `xhu_motion_follower` 仍是 corridor 跟踪与局部安全停机层，不变成全局 collision planner
+
+### 7.4 rc26_surface_body_planner 与 dynamic surface overlay 引入（2026-04-04）
+
+**变更类型**：架构级 - 在不破坏 `rc26_topo_nav` 边界的前提下补齐独立 body planner backend 与动态阻塞输入层
+
+**变更原因**：
+- 仅靠 `body_planning` overlay 还不足以表达姿态相关转向扫掠
+- `NavigateSurfaceRoute.allow_replan` 需要对运行中新的 surface block 语义有明确输入和可解释的重规划触发点
+
+**变更范围**：
+- 新增 `rc26_surface_body_planner` 包，提供 heading-aware `surface_node + heading_bin` A* 库与 CLI
+- `rc26_topo_nav` 新增 `surface_planner_backend=legacy|body_planner` 和 `surface_body_planner.*` 参数
+- `rc26_interfaces` 新增 `SurfaceGraphOverlay.msg`
+- `OverlayReducer` 新增 dynamic surface overlay 归并、TTL 过期与 overlay version
+- `executeSurface()` 新增 segment 边界 overlay version 检查与 route-level replan
+
+**落地方式**：
+- `rc26_topo_nav` 继续拥有 action 契约、点投影、overlay 归并、segment execution 和失败码分诊
+- `rc26_surface_body_planner` 只负责更高保真的全车体全局搜索，不引入 ROS 运行时权威
+- `SurfaceGraphOverlay.msg` 只作为 runtime 动态阻塞输入层；是否重规划仍由 `rc26_topo_nav` 调度
+
+**不变的边界**：
+- `rc26_decision` 仍保有任务决策权
+- `rc26_localization` 仍保有定位权威
+- `rc26_omni_controller` / `xhu_motion_follower` 仍保有 corridor 跟踪权威
+- 动态障碍预测、机构状态机和局部避障仍未被吞进 `rc26_topo_nav`

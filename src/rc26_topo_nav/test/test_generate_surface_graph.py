@@ -44,6 +44,16 @@ class GenerateSurfaceGraphTest(unittest.TestCase):
             errors = VAL.validate_graph(load_yaml(expected))
             self.assertEqual(errors, [], f"{expected.name} validation errors: {errors}")
 
+    def test_validate_graph_summary_reports_surface_density(self):
+        summary = VAL.graph_summary(load_yaml(EXPECTED_BLUE))
+        self.assertEqual(summary["team"], "blue")
+        self.assertEqual(summary["schema_version"], "1.1")
+        self.assertEqual(summary["node_count"], 4758)
+        self.assertEqual(summary["edge_count"], 33990)
+        self.assertEqual(summary["surface_node_count"], 4758)
+        self.assertEqual(summary["surface_edge_count"], 33990)
+        self.assertIn("schema=1.1", VAL.format_graph_summary(summary))
+
     def test_dump_graph_keeps_expected_meta_shape(self):
         document = GEN.dump_graph(
             team="blue",
@@ -58,6 +68,22 @@ class GenerateSurfaceGraphTest(unittest.TestCase):
         self.assertEqual(document["meta"]["grid_spacing_m"], 0.18)
         self.assertEqual(document["tasks"], [])
         self.assertEqual(document["routes"], [])
+
+    def test_canonicalize_surface_graph_document_sorts_graph_collections(self):
+        document = {
+            "meta": {"team": "blue", "schema_version": "1.1"},
+            "nodes": [{"id": "n2"}, {"id": "n1"}],
+            "edges": [{"id": "e2"}, {"id": "e1"}],
+            "tasks": [{"task_tag": "task_b"}, {"task_tag": "task_a"}],
+            "routes": [{"route_tag": "route_b"}, {"route_tag": "route_a"}],
+        }
+
+        canonical = GEN.canonicalize_graph_document(document)
+
+        self.assertEqual([item["id"] for item in canonical["nodes"]], ["n1", "n2"])
+        self.assertEqual([item["id"] for item in canonical["edges"]], ["e1", "e2"])
+        self.assertEqual([item["task_tag"] for item in canonical["tasks"]], ["task_a", "task_b"])
+        self.assertEqual([item["route_tag"] for item in canonical["routes"]], ["route_a", "route_b"])
 
     def test_build_nodes_adds_clearance_and_pitch_annotations(self):
         scene_features = [
@@ -179,6 +205,35 @@ class GenerateSurfaceGraphTest(unittest.TestCase):
             self.assertEqual(generated["edges"][0], expected["edges"][0])
             self.assertEqual(generated["edges"][-1], expected["edges"][-1])
             self.assertEqual(VAL.validate_graph(generated), [])
+
+            check_existing = subprocess.run(
+                [
+                    sys.executable,
+                    str(PKG_ROOT / "scripts" / "generate_surface_graph.py"),
+                    "--team",
+                    "blue",
+                    "--world",
+                    str(WORLD_FILE),
+                    "--overlay",
+                    str(OVERLAY),
+                    "--out",
+                    str(out),
+                    "--check-existing",
+                ],
+                cwd=WORKSPACE_ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(
+                check_existing.returncode,
+                0,
+                msg=(
+                    "surface graph --check-existing failed:\n"
+                    f"stdout:\n{check_existing.stdout}\nstderr:\n{check_existing.stderr}"
+                ),
+            )
+            self.assertIn("Surface graph matches existing file", check_existing.stdout)
+            self.assertIn("nodes=4758", check_existing.stdout)
 
     def test_red_surface_graph_keeps_same_density(self):
         red = load_yaml(EXPECTED_RED)

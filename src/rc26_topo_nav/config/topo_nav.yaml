@@ -9,6 +9,7 @@ topo_nav_node:
     surface_start_match_z_m: 0.10
     surface_start_match_yaw_deg: 25.0
     surface_anchor_radius_m: 0.30
+    surface_planner_backend: "body_planner"
     body_planning:
       enabled: true
       require_annotated_surface_graph: true
@@ -16,6 +17,12 @@ topo_nav_node:
       max_surface_pitch_deg: 35.0
       max_edge_slope_deg: 35.0
       max_step_height_m: 0.18
+    surface_body_planner:
+      heading_bin_count: 16
+      max_heading_change_deg: 85.0
+      turn_cost_weight: 0.75
+      node_turn_clearance_gain: 1.0
+      edge_turn_clearance_gain: 0.75
     xhu:
       exec_timeout_sec: 45.0
       hold_replan_timeout_sec: 2.0

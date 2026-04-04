@@ -3,6 +3,7 @@
 #include "rc26_topo_nav/surface_route.hpp"
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
@@ -89,6 +90,9 @@ struct ParsedArgs {
     Pose3 goal;
     double projection_radius_m = 0.30;
     SurfaceBodyPlanningConfig body_planning;
+    SurfacePlannerOptions planner_options{SurfacePlannerBackend::BODY_PLANNER, {}, std::nullopt};
+    std::vector<std::string> blocked_nodes;
+    std::vector<std::string> blocked_edges;
 };
 
 bool parseArgs(int argc, char** argv, ParsedArgs& args, std::string& error) {
@@ -146,6 +150,20 @@ bool parseArgs(int argc, char** argv, ParsedArgs& args, std::string& error) {
             }
         } else if (flag == "--disable-body-planning") {
             args.body_planning.enabled = false;
+        } else if (flag == "--planner-backend") {
+            const char* value = requireValue(flag);
+            if (value == nullptr) {
+                return false;
+            }
+            const std::string backend = value;
+            if (backend == "legacy") {
+                args.planner_options.backend = SurfacePlannerBackend::LEGACY;
+            } else if (backend == "body_planner") {
+                args.planner_options.backend = SurfacePlannerBackend::BODY_PLANNER;
+            } else {
+                error = "Invalid --planner-backend, expected legacy|body_planner";
+                return false;
+            }
         } else if (flag == "--body-clearance-margin") {
             const char* value = requireValue(flag);
             if (value == nullptr) {
@@ -190,6 +208,76 @@ bool parseArgs(int argc, char** argv, ParsedArgs& args, std::string& error) {
                 error = "Invalid --max-step-height-m";
                 return false;
             }
+        } else if (flag == "--heading-bin-count") {
+            const char* value = requireValue(flag);
+            if (value == nullptr) {
+                return false;
+            }
+            char* end = nullptr;
+            args.planner_options.body_planner.heading_bin_count =
+                static_cast<int>(std::strtol(value, &end, 10));
+            if (end == nullptr || *end != '\0') {
+                error = "Invalid --heading-bin-count";
+                return false;
+            }
+        } else if (flag == "--max-heading-change-deg") {
+            const char* value = requireValue(flag);
+            if (value == nullptr) {
+                return false;
+            }
+            char* end = nullptr;
+            args.planner_options.body_planner.max_heading_change_deg = std::strtod(value, &end);
+            if (end == nullptr || *end != '\0') {
+                error = "Invalid --max-heading-change-deg";
+                return false;
+            }
+        } else if (flag == "--turn-cost-weight") {
+            const char* value = requireValue(flag);
+            if (value == nullptr) {
+                return false;
+            }
+            char* end = nullptr;
+            args.planner_options.body_planner.turn_cost_weight = std::strtod(value, &end);
+            if (end == nullptr || *end != '\0') {
+                error = "Invalid --turn-cost-weight";
+                return false;
+            }
+        } else if (flag == "--node-turn-clearance-gain") {
+            const char* value = requireValue(flag);
+            if (value == nullptr) {
+                return false;
+            }
+            char* end = nullptr;
+            args.planner_options.body_planner.node_turn_clearance_gain = std::strtod(value, &end);
+            if (end == nullptr || *end != '\0') {
+                error = "Invalid --node-turn-clearance-gain";
+                return false;
+            }
+        } else if (flag == "--edge-turn-clearance-gain") {
+            const char* value = requireValue(flag);
+            if (value == nullptr) {
+                return false;
+            }
+            char* end = nullptr;
+            args.planner_options.body_planner.edge_turn_clearance_gain = std::strtod(value, &end);
+            if (end == nullptr || *end != '\0') {
+                error = "Invalid --edge-turn-clearance-gain";
+                return false;
+            }
+        } else if (flag == "--blocked-node") {
+            const char* value = requireValue(flag);
+            if (value == nullptr || std::string(value).empty()) {
+                error = "Invalid --blocked-node";
+                return false;
+            }
+            args.blocked_nodes.emplace_back(value);
+        } else if (flag == "--blocked-edge") {
+            const char* value = requireValue(flag);
+            if (value == nullptr || std::string(value).empty()) {
+                error = "Invalid --blocked-edge";
+                return false;
+            }
+            args.blocked_edges.emplace_back(value);
         } else {
             error = "Unknown flag: " + flag;
             return false;
@@ -200,12 +288,16 @@ bool parseArgs(int argc, char** argv, ParsedArgs& args, std::string& error) {
         error = "Missing required flag --graph";
         return false;
     }
-    if (args.robot_geometry_file.empty() && args.body_planning.enabled) {
+    const bool geometry_required =
+        args.body_planning.enabled ||
+        args.planner_options.backend == SurfacePlannerBackend::BODY_PLANNER;
+    if (args.robot_geometry_file.empty() && geometry_required) {
         try {
             const auto pkg_dir = ament_index_cpp::get_package_share_directory("rc26_robot_geometry");
             args.robot_geometry_file = pkg_dir + "/config/r2_body_geometry.yaml";
         } catch (...) {
             args.body_planning.enabled = false;
+            args.planner_options.backend = SurfacePlannerBackend::LEGACY;
         }
     }
     return true;
@@ -256,6 +348,39 @@ void printSegments(std::ostream& out, const std::vector<SurfacePlanSegment>& seg
     out << "]";
 }
 
+bool applySyntheticRuntimeOverlays(
+    const FieldGraph& graph,
+    const ParsedArgs& args,
+    std::unordered_map<std::string, NodeOverlay>& node_overlays,
+    std::unordered_map<std::string, EdgeOverlay>& edge_overlays,
+    std::string& error) {
+    for (const auto& node_id : args.blocked_nodes) {
+        if (graph.nodes.find(node_id) == graph.nodes.end()) {
+            error = "Unknown --blocked-node id: " + node_id;
+            return false;
+        }
+        auto& overlay = node_overlays[node_id];
+        overlay.state = NodeState::BLOCKED;
+        overlay.extra_cost = std::max(overlay.extra_cost, 1000.0);
+    }
+
+    for (const auto& edge_id : args.blocked_edges) {
+        const auto edge_it = std::find_if(
+            graph.edges.begin(),
+            graph.edges.end(),
+            [&](const GraphEdge& edge) { return edge.id == edge_id; });
+        if (edge_it == graph.edges.end()) {
+            error = "Unknown --blocked-edge id: " + edge_id;
+            return false;
+        }
+        auto& overlay = edge_overlays[edge_id];
+        overlay.state = EdgeState::BLOCKED;
+        overlay.extra_cost = std::max(overlay.extra_cost, 1000.0);
+    }
+
+    return true;
+}
+
 }  // namespace
 }  // namespace rc26_topo_nav
 
@@ -285,10 +410,21 @@ int main(int argc, char** argv) {
     }
 
     PlannerWeights weights;
-    std::unordered_map<std::string, NodeOverlay> node_overlays;
-    std::unordered_map<std::string, EdgeOverlay> edge_overlays;
+    std::unordered_map<std::string, NodeOverlay> runtime_node_overlays;
+    std::unordered_map<std::string, EdgeOverlay> runtime_edge_overlays;
+    if (!applySyntheticRuntimeOverlays(
+            load_result.graph, args, runtime_node_overlays, runtime_edge_overlays, error)) {
+        std::cerr << "[ERROR] " << error << "\n";
+        return 1;
+    }
+
+    auto node_overlays = runtime_node_overlays;
+    auto edge_overlays = runtime_edge_overlays;
     SurfaceBodyPlanningStats body_planning_stats;
-    if (args.body_planning.enabled) {
+    const bool geometry_required =
+        args.body_planning.enabled ||
+        args.planner_options.backend == SurfacePlannerBackend::BODY_PLANNER;
+    if (geometry_required) {
         std::string geometry_error;
         const auto geometry = loadRobotGeometryProfile(
             args.robot_geometry_file, args.robot_geometry_profile, geometry_error);
@@ -296,20 +432,26 @@ int main(int argc, char** argv) {
             std::cerr << "[ERROR] Failed to load robot geometry: " << geometry_error << "\n";
             return 1;
         }
-        std::string body_planning_error;
-        body_planning_stats = applySurfaceBodyPlanningOverlays(
-            load_result.graph,
-            *geometry,
-            args.body_planning,
-            node_overlays,
-            edge_overlays,
-            &body_planning_error);
-        if (!body_planning_error.empty()) {
-            std::cerr << "[ERROR] " << body_planning_error << "\n";
-            return 1;
+        args.planner_options.geometry = SurfacePlannerGeometry{
+            geometry->half_length_m,
+            geometry->half_width_m,
+        };
+        if (args.body_planning.enabled) {
+            std::string body_planning_error;
+            body_planning_stats = applySurfaceBodyPlanningOverlays(
+                load_result.graph,
+                *geometry,
+                args.body_planning,
+                node_overlays,
+                edge_overlays,
+                &body_planning_error);
+            if (!body_planning_error.empty()) {
+                std::cerr << "[ERROR] " << body_planning_error << "\n";
+                return 1;
+            }
         }
     }
-    const auto plan = planSurfaceRoute(
+    auto plan = planSurfaceRoute(
         load_result.graph,
         args.start,
         args.goal,
@@ -318,7 +460,36 @@ int main(int argc, char** argv) {
         weights,
         args.projection_radius_m,
         rclcpp::Time(0),
+        args.planner_options,
         "map");
+    if (!plan.success) {
+        const auto failure_analysis = classifySurfacePlanFailure(
+            load_result.graph,
+            args.start,
+            args.goal,
+            runtime_node_overlays,
+            runtime_edge_overlays,
+            runtime_node_overlays,
+            runtime_edge_overlays,
+            node_overlays,
+            edge_overlays,
+            weights,
+            args.projection_radius_m,
+            plan,
+            "");
+        if (!failure_analysis.failure_code.empty()) {
+            plan.failure_code = failure_analysis.failure_code;
+        }
+        if (!failure_analysis.failure_reason.empty()) {
+            plan.failure_reason = failure_analysis.failure_reason;
+        }
+        if (!plan.projected_start.success && failure_analysis.best_projected_start.success) {
+            plan.projected_start = failure_analysis.best_projected_start;
+        }
+        if (!plan.projected_goal.success && failure_analysis.best_projected_goal.success) {
+            plan.projected_goal = failure_analysis.best_projected_goal;
+        }
+    }
 
     std::cout << "{"
               << "\"success\":" << (plan.success ? "true" : "false") << ","
@@ -341,6 +512,7 @@ int main(int argc, char** argv) {
     printPath(std::cout, plan.planned_path);
     std::cout << ",\"segments\":";
     printSegments(std::cout, plan.segments);
+    std::cout << ",\"planner_backend\":" << quoted(plan.planner_backend);
     std::cout << ",\"body_planning\":{"
               << "\"enabled\":" << (args.body_planning.enabled ? "true" : "false") << ","
               << "\"annotations_available\":" << (body_planning_stats.annotations_available ? "true" : "false") << ","
@@ -349,6 +521,10 @@ int main(int argc, char** argv) {
               << "\"blocked_edges_clearance\":" << body_planning_stats.blocked_edges_clearance << ","
               << "\"blocked_edges_slope\":" << body_planning_stats.blocked_edges_slope << ","
               << "\"blocked_edges_step\":" << body_planning_stats.blocked_edges_step
+              << "}";
+    std::cout << ",\"runtime_overlay\":{"
+              << "\"blocked_node_count\":" << args.blocked_nodes.size() << ","
+              << "\"blocked_edge_count\":" << args.blocked_edges.size()
               << "}";
     std::cout << ",\"timing_ms\":{"
               << "\"projection\":" << plan.projection_ms << ","

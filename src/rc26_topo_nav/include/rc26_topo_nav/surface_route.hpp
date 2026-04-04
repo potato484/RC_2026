@@ -1,11 +1,13 @@
 #pragma once
 
 #include "rc26_topo_nav/planner.hpp"
+#include "rc26_surface_body_planner/planner.hpp"
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <rclcpp/rclcpp.hpp>
 
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -36,8 +38,10 @@ struct SurfacePlanResult {
     SurfaceProjectionResult projected_start;
     SurfaceProjectionResult projected_goal;
     PlanResult plan;
+    std::vector<double> heading_path;
     nav_msgs::msg::Path planned_path;
     std::vector<SurfacePlanSegment> segments;
+    std::string planner_backend;
     std::string failure_code;
     std::string failure_reason;
     double projection_ms = 0.0;
@@ -45,6 +49,29 @@ struct SurfacePlanResult {
     double path_expand_ms = 0.0;
     double segment_build_ms = 0.0;
     double complete_planning_ms = 0.0;
+};
+
+struct SurfaceFailureAnalysis {
+    std::string failure_code;
+    std::string failure_reason;
+    SurfaceProjectionResult best_projected_start;
+    SurfaceProjectionResult best_projected_goal;
+};
+
+enum class SurfacePlannerBackend : uint8_t {
+    LEGACY = 0,
+    BODY_PLANNER = 1,
+};
+
+struct SurfacePlannerGeometry {
+    double half_length_m = 0.0;
+    double half_width_m = 0.0;
+};
+
+struct SurfacePlannerOptions {
+    SurfacePlannerBackend backend = SurfacePlannerBackend::LEGACY;
+    rc26_surface_body_planner::PlannerConfig body_planner;
+    std::optional<SurfacePlannerGeometry> geometry;
 };
 
 Pose3 pose3FromPoseStamped(const geometry_msgs::msg::PoseStamped& msg);
@@ -93,6 +120,28 @@ SurfacePlanResult planSurfaceRoute(
     const PlannerWeights& weights,
     double projection_radius_m,
     const rclcpp::Time& stamp,
+    const SurfacePlannerOptions& options,
+    const std::string& frame_id = "map");
+
+SurfacePlanResult planSurfaceRoute(
+    const FieldGraph& graph,
+    const Pose3& requested_start,
+    const Pose3& requested_goal,
+    const PlannerWeights& weights,
+    double projection_radius_m,
+    const rclcpp::Time& stamp,
+    const SurfacePlannerOptions& options,
+    const std::string& frame_id = "map");
+
+SurfacePlanResult planSurfaceRoute(
+    const FieldGraph& graph,
+    const Pose3& requested_start,
+    const Pose3& requested_goal,
+    const std::unordered_map<std::string, NodeOverlay>& node_overlays,
+    const std::unordered_map<std::string, EdgeOverlay>& edge_overlays,
+    const PlannerWeights& weights,
+    double projection_radius_m,
+    const rclcpp::Time& stamp,
     const std::string& frame_id = "map");
 
 SurfacePlanResult planSurfaceRoute(
@@ -103,5 +152,20 @@ SurfacePlanResult planSurfaceRoute(
     double projection_radius_m,
     const rclcpp::Time& stamp,
     const std::string& frame_id = "map");
+
+SurfaceFailureAnalysis classifySurfacePlanFailure(
+    const FieldGraph& graph,
+    const Pose3& requested_start,
+    const Pose3& requested_goal,
+    const std::unordered_map<std::string, NodeOverlay>& static_node_overlays,
+    const std::unordered_map<std::string, EdgeOverlay>& static_edge_overlays,
+    const std::unordered_map<std::string, NodeOverlay>& runtime_node_overlays,
+    const std::unordered_map<std::string, EdgeOverlay>& runtime_edge_overlays,
+    const std::unordered_map<std::string, NodeOverlay>& final_node_overlays,
+    const std::unordered_map<std::string, EdgeOverlay>& final_edge_overlays,
+    const PlannerWeights& weights,
+    double projection_radius_m,
+    const SurfacePlanResult& final_plan,
+    const std::string& dynamic_overlay_reason = "");
 
 }  // namespace rc26_topo_nav

@@ -6,6 +6,7 @@
 #include <cmath>
 #include <exception>
 #include <functional>
+#include <sstream>
 #include <thread>
 #include <utility>
 
@@ -47,6 +48,56 @@ double elapsedMilliseconds(
     return std::chrono::duration<double, std::milli>(end - begin).count();
 }
 
+SurfacePlannerBackend parseSurfacePlannerBackend(const std::string& raw_value) {
+    const auto normalized = toLowerCopy(raw_value);
+    if (normalized == "body_planner") {
+        return SurfacePlannerBackend::BODY_PLANNER;
+    }
+    return SurfacePlannerBackend::LEGACY;
+}
+
+std::string joinStrings(const std::vector<std::string>& values, const char* separator) {
+    std::ostringstream ss;
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        if (index > 0) {
+            ss << separator;
+        }
+        ss << values[index];
+    }
+    return ss.str();
+}
+
+std::string dynamicOverlayReason(const OverlaySnapshot& snapshot) {
+    if (snapshot.active_dynamic_sources.empty()) {
+        return "";
+    }
+    return "source=" + joinStrings(snapshot.active_dynamic_sources, ",");
+}
+
+bool remainingSegmentsBlockedByDynamicOverlay(
+    const OverlaySnapshot& snapshot,
+    const FieldGraph& graph,
+    const std::vector<SurfacePlanSegment>& segments,
+    const std::size_t start_index) {
+    for (std::size_t segment_index = start_index; segment_index < segments.size(); ++segment_index) {
+        const auto& segment = segments[segment_index];
+        if (snapshot.dynamic_blocked_nodes.find(segment.from_node_id) != snapshot.dynamic_blocked_nodes.end() ||
+            snapshot.dynamic_blocked_nodes.find(segment.to_node_id) != snapshot.dynamic_blocked_nodes.end()) {
+            return true;
+        }
+        for (const auto edge_index : segment.edge_indices) {
+            if (edge_index >= graph.edges.size()) {
+                continue;
+            }
+            if (snapshot.dynamic_blocked_edges.find(graph.edges[edge_index].id) !=
+                snapshot.dynamic_blocked_edges.end()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 class ScopeExit {
 public:
     explicit ScopeExit(std::function<void()> fn) : fn_(std::move(fn)) {}
@@ -84,6 +135,7 @@ TopoNavNode::TopoNavNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("surface_start_match_z_m", surface_start_match_z_m_);
     this->declare_parameter("surface_start_match_yaw_deg", surface_start_match_yaw_deg_);
     this->declare_parameter("surface_anchor_radius_m", surface_anchor_radius_m_);
+    this->declare_parameter("surface_planner_backend", "body_planner");
     this->declare_parameter("robot_geometry_file", "");
     this->declare_parameter("robot_geometry_profile", "compact");
     this->declare_parameter("body_planning.enabled", surface_body_planning_.enabled);
@@ -102,6 +154,21 @@ TopoNavNode::TopoNavNode(const rclcpp::NodeOptions& options)
     this->declare_parameter(
         "body_planning.max_step_height_m",
         surface_body_planning_.max_step_height_m);
+    this->declare_parameter(
+        "surface_body_planner.heading_bin_count",
+        surface_planner_options_.body_planner.heading_bin_count);
+    this->declare_parameter(
+        "surface_body_planner.max_heading_change_deg",
+        surface_planner_options_.body_planner.max_heading_change_deg);
+    this->declare_parameter(
+        "surface_body_planner.turn_cost_weight",
+        surface_planner_options_.body_planner.turn_cost_weight);
+    this->declare_parameter(
+        "surface_body_planner.node_turn_clearance_gain",
+        surface_planner_options_.body_planner.node_turn_clearance_gain);
+    this->declare_parameter(
+        "surface_body_planner.edge_turn_clearance_gain",
+        surface_planner_options_.body_planner.edge_turn_clearance_gain);
 
     team_ = this->get_parameter("team").as_string();
     std::string graph_file = this->get_parameter("graph_file").as_string();
@@ -130,6 +197,8 @@ TopoNavNode::TopoNavNode(const rclcpp::NodeOptions& options)
     surface_start_match_z_m_ = this->get_parameter("surface_start_match_z_m").as_double();
     surface_start_match_yaw_deg_ = this->get_parameter("surface_start_match_yaw_deg").as_double();
     surface_anchor_radius_m_ = this->get_parameter("surface_anchor_radius_m").as_double();
+    surface_planner_options_.backend = parseSurfacePlannerBackend(
+        this->get_parameter("surface_planner_backend").as_string());
     surface_body_planning_.enabled = this->get_parameter("body_planning.enabled").as_bool();
     surface_body_planning_.require_annotated_surface_graph =
         this->get_parameter("body_planning.require_annotated_surface_graph").as_bool();
@@ -141,6 +210,16 @@ TopoNavNode::TopoNavNode(const rclcpp::NodeOptions& options)
         this->get_parameter("body_planning.max_edge_slope_deg").as_double();
     surface_body_planning_.max_step_height_m =
         this->get_parameter("body_planning.max_step_height_m").as_double();
+    surface_planner_options_.body_planner.heading_bin_count =
+        this->get_parameter("surface_body_planner.heading_bin_count").as_int();
+    surface_planner_options_.body_planner.max_heading_change_deg =
+        this->get_parameter("surface_body_planner.max_heading_change_deg").as_double();
+    surface_planner_options_.body_planner.turn_cost_weight =
+        this->get_parameter("surface_body_planner.turn_cost_weight").as_double();
+    surface_planner_options_.body_planner.node_turn_clearance_gain =
+        this->get_parameter("surface_body_planner.node_turn_clearance_gain").as_double();
+    surface_planner_options_.body_planner.edge_turn_clearance_gain =
+        this->get_parameter("surface_body_planner.edge_turn_clearance_gain").as_double();
     const std::string robot_geometry_file = this->get_parameter("robot_geometry_file").as_string();
     const std::string robot_geometry_profile =
         this->get_parameter("robot_geometry_profile").as_string();
@@ -157,6 +236,10 @@ TopoNavNode::TopoNavNode(const rclcpp::NodeOptions& options)
                 geometry_error.c_str());
         } else {
             robot_geometry_ = geometry;
+            surface_planner_options_.geometry = SurfacePlannerGeometry{
+                geometry->half_length_m,
+                geometry->half_width_m,
+            };
             const double previous_anchor_radius = surface_anchor_radius_m_;
             surface_anchor_radius_m_ = std::max(
                 surface_anchor_radius_m_,
@@ -173,6 +256,16 @@ TopoNavNode::TopoNavNode(const rclcpp::NodeOptions& options)
                 previous_anchor_radius);
         }
     }
+    RCLCPP_INFO(
+        get_logger(),
+        "Surface planner backend=%s heading_bin_count=%d max_heading_change_deg=%.1f "
+        "turn_cost_weight=%.2f",
+        surface_planner_options_.backend == SurfacePlannerBackend::BODY_PLANNER
+            ? "body_planner"
+            : "legacy",
+        surface_planner_options_.body_planner.heading_bin_count,
+        surface_planner_options_.body_planner.max_heading_change_deg,
+        surface_planner_options_.body_planner.turn_cost_weight);
 
     // Load graph
     if (!graph_file.empty()) {
@@ -621,12 +714,15 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
         Pose3 requested_start_pose = start_pose;
         uint32_t replan_count = 0;
 
-        if (surface_body_planning_.enabled && !robot_geometry_) {
+        const bool geometry_required =
+            surface_body_planning_.enabled ||
+            surface_planner_options_.backend == SurfacePlannerBackend::BODY_PLANNER;
+        if (geometry_required && !robot_geometry_) {
             result->success = false;
             result->failure_code = "ROBOT_GEOMETRY_UNAVAILABLE";
-            result->failure_reason = "Surface body planning enabled without robot geometry";
+            result->failure_reason = "Surface planner requires robot geometry";
             goal_handle->abort(result);
-            diagnostics_->publishDiagnostic("ERROR", "Surface body planning missing robot geometry");
+            diagnostics_->publishDiagnostic("ERROR", "Surface planner missing robot geometry");
             return;
         }
 
@@ -659,9 +755,24 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
                 return;
             }
 
-            std::unordered_map<std::string, NodeOverlay> node_overlays;
-            std::unordered_map<std::string, EdgeOverlay> edge_overlays;
-            overlay_reducer_->applyOverlays(surface_graph_, node_overlays, edge_overlays);
+            std::unordered_map<std::string, NodeOverlay> static_node_overlays;
+            std::unordered_map<std::string, EdgeOverlay> static_edge_overlays;
+            overlay_reducer_->applyOverlays(
+                surface_graph_,
+                static_node_overlays,
+                static_edge_overlays,
+                OverlayApplicationMode::STATIC_ONLY);
+
+            std::unordered_map<std::string, NodeOverlay> runtime_node_overlays;
+            std::unordered_map<std::string, EdgeOverlay> runtime_edge_overlays;
+            overlay_reducer_->applyOverlays(
+                surface_graph_,
+                runtime_node_overlays,
+                runtime_edge_overlays,
+                OverlayApplicationMode::ALL);
+            const auto runtime_overlay_snapshot = overlay_reducer_->snapshot();
+            auto node_overlays = runtime_node_overlays;
+            auto edge_overlays = runtime_edge_overlays;
             if (surface_body_planning_.enabled) {
                 std::string body_planning_error;
                 const auto stats = applySurfaceBodyPlanningOverlays(
@@ -701,6 +812,7 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
                 weights_,
                 surface_anchor_radius_m_,
                 now,
+                surface_planner_options_,
                 "map");
             const auto plan_end = std::chrono::steady_clock::now();
             const double plan_ms = elapsedMilliseconds(plan_begin, plan_end);
@@ -712,6 +824,28 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
             result->planned_path = surface_plan.planned_path;
 
             if (!surface_plan.success) {
+                const auto failure_analysis = classifySurfacePlanFailure(
+                    surface_graph_,
+                    planning_start_pose,
+                    goal_pose,
+                    static_node_overlays,
+                    static_edge_overlays,
+                    runtime_node_overlays,
+                    runtime_edge_overlays,
+                    node_overlays,
+                    edge_overlays,
+                    weights_,
+                    surface_anchor_radius_m_,
+                    surface_plan,
+                    dynamicOverlayReason(runtime_overlay_snapshot));
+                if (failure_analysis.best_projected_start.success) {
+                    result->projected_start_pose = poseStampedFromPose3(
+                        failure_analysis.best_projected_start.pose, "map", now);
+                }
+                if (failure_analysis.best_projected_goal.success) {
+                    result->projected_goal_pose = poseStampedFromPose3(
+                        failure_analysis.best_projected_goal.pose, "map", now);
+                }
                 RCLCPP_WARN(
                     get_logger(),
                     "Surface planning failed: attempt=%d start=(%.3f, %.3f, %.3f) "
@@ -723,13 +857,23 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
                     surface_plan.projected_start.node_id.c_str(),
                     surface_plan.projected_goal.node_id.c_str(),
                     plan_ms,
-                    surface_plan.failure_code.c_str(),
-                    surface_plan.failure_reason.c_str());
+                    failure_analysis.failure_code.empty()
+                        ? surface_plan.failure_code.c_str()
+                        : failure_analysis.failure_code.c_str(),
+                    failure_analysis.failure_reason.empty()
+                        ? surface_plan.failure_reason.c_str()
+                        : failure_analysis.failure_reason.c_str());
                 result->success = false;
-                result->failure_code = surface_plan.failure_code;
-                result->failure_reason = surface_plan.failure_reason;
+                result->failure_code = failure_analysis.failure_code.empty()
+                    ? surface_plan.failure_code
+                    : failure_analysis.failure_code;
+                result->failure_reason = failure_analysis.failure_reason.empty()
+                    ? surface_plan.failure_reason
+                    : failure_analysis.failure_reason;
                 goal_handle->abort(result);
-                diagnostics_->publishDiagnostic("ERROR", "Surface route planning failed");
+                diagnostics_->publishDiagnostic(
+                    "ERROR",
+                    "Surface route planning failed: " + result->failure_code);
                 return;
             }
 
@@ -737,13 +881,14 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
                 get_logger(),
                 "Surface planning succeeded: attempt=%d start=(%.3f, %.3f, %.3f) "
                 "goal=(%.3f, %.3f, %.3f) projected_start=%s projected_goal=%s "
-                "elapsed_ms=%.2f node_count=%zu edge_count=%zu path_points=%zu "
+                "backend=%s elapsed_ms=%.2f node_count=%zu edge_count=%zu path_points=%zu "
                 "segments=%zu total_cost=%.3f",
                 plan_attempt + 1,
                 planning_start_pose.x, planning_start_pose.y, planning_start_pose.z,
                 goal_pose.x, goal_pose.y, goal_pose.z,
                 surface_plan.projected_start.node_id.c_str(),
                 surface_plan.projected_goal.node_id.c_str(),
+                surface_plan.planner_backend.c_str(),
                 plan_ms,
                 surface_plan.plan.node_path.size(),
                 surface_plan.plan.edge_indices.size(),
@@ -790,7 +935,9 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
             diagnostics_->publishRoute(surface_plan.planned_path);
 
             bool route_completed = true;
-            for (const auto& segment : surface_plan.segments) {
+            const uint64_t planned_overlay_version = runtime_overlay_snapshot.version;
+            for (std::size_t segment_index = 0; segment_index < surface_plan.segments.size(); ++segment_index) {
+                const auto& segment = surface_plan.segments[segment_index];
                 if (goal_handle->is_canceling()) {
                     edge_executor_->cancel();
                     result->success = false;
@@ -808,6 +955,49 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
                     result->failure_reason = "Localization RED during surface execution";
                     goal_handle->abort(result);
                     diagnostics_->publishDiagnostic("WARN", "Hold: localization RED during surface execution");
+                    return;
+                }
+
+                const auto current_overlay_snapshot = overlay_reducer_->snapshot();
+                if (current_overlay_snapshot.version != planned_overlay_version) {
+                    if (goal->allow_replan && plan_attempt < MAX_REPLAN_ATTEMPTS) {
+                        Pose3 next_start_pose;
+                        if (!currentRobotPose(next_start_pose)) {
+                            const auto fallback_it = surface_graph_.nodes.find(segment.from_node_id);
+                            next_start_pose = fallback_it != surface_graph_.nodes.end()
+                                ? fallback_it->second.pose
+                                : surface_plan.projected_start.pose;
+                        }
+                        requested_start_pose = next_start_pose;
+                        replan_count++;
+                        result->terminal_segment_id = segment.id;
+                        route_completed = false;
+                        diagnostics_->publishActiveLabel(segment.id, "REPLAN");
+                        diagnostics_->publishDiagnostic(
+                            "WARN",
+                            current_overlay_snapshot.active_dynamic_sources.empty()
+                                ? "Surface route replanning due to overlay update"
+                                : "Surface route replanning due to dynamic overlay update");
+                        break;
+                    }
+
+                    const bool dynamic_block = remainingSegmentsBlockedByDynamicOverlay(
+                        current_overlay_snapshot,
+                        surface_graph_,
+                        surface_plan.segments,
+                        segment_index);
+                    result->success = false;
+                    result->terminal_segment_id = segment.id;
+                    result->failure_code = dynamic_block
+                        ? "SURFACE_PATH_BLOCKED_BY_DYNAMIC_OVERLAY"
+                        : "SURFACE_PATH_BLOCKED_BY_RUNTIME_OVERLAY";
+                    result->failure_reason = dynamic_block
+                        ? "Dynamic surface overlay updated before segment dispatch (" +
+                            dynamicOverlayReason(current_overlay_snapshot) + ")"
+                        : "Runtime overlay updated before segment dispatch";
+                    diagnostics_->publishActiveLabel(segment.id, "ABORT");
+                    goal_handle->abort(result);
+                    diagnostics_->publishDiagnostic("ERROR", "Surface route blocked before segment dispatch");
                     return;
                 }
 

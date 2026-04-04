@@ -16,6 +16,7 @@ find_package(diagnostic_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(rc26_interfaces REQUIRED)
+find_package(rc26_surface_body_planner REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -31,6 +32,7 @@ set(DEPS
   std_msgs
   visualization_msgs
   rc26_interfaces
+  rc26_surface_body_planner
   tf2
   tf2_geometry_msgs
   tf2_ros
@@ -97,6 +99,10 @@ if(BUILD_TESTING)
   ament_add_gtest(test_planner test/test_planner.cpp)
   target_link_libraries(test_planner ${PROJECT_NAME}_lib)
   ament_target_dependencies(test_planner ${DEPS})
+
+  ament_add_gtest(test_overlay_reducer test/test_overlay_reducer.cpp)
+  target_link_libraries(test_overlay_reducer ${PROJECT_NAME}_lib)
+  ament_target_dependencies(test_overlay_reducer ${DEPS})
 
   add_test(
     NAME test_generate_graph

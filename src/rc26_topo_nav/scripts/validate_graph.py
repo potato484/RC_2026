@@ -87,6 +87,38 @@ def validate_graph(data: dict) -> list[str]:
     return errors
 
 
+def graph_summary(data: dict) -> dict[str, object]:
+    nodes = list(data.get("nodes", []))
+    edges = list(data.get("edges", []))
+    surface_nodes = [node for node in nodes if node.get("type") == "surface_point"]
+    node_types = {node["id"]: node.get("type") for node in nodes if "id" in node}
+    surface_edges = [
+        edge
+        for edge in edges
+        if node_types.get(edge.get("from")) == "surface_point"
+        and node_types.get(edge.get("to")) == "surface_point"
+    ]
+    return {
+        "team": str(data.get("meta", {}).get("team", "")),
+        "schema_version": str(data.get("meta", {}).get("schema_version", "")),
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+        "surface_node_count": len(surface_nodes),
+        "surface_edge_count": len(surface_edges),
+    }
+
+
+def format_graph_summary(summary: dict[str, object]) -> str:
+    return (
+        f"team={summary['team']} "
+        f"schema={summary['schema_version']} "
+        f"nodes={summary['node_count']} "
+        f"edges={summary['edge_count']} "
+        f"surface_nodes={summary['surface_node_count']} "
+        f"surface_edges={summary['surface_edge_count']}"
+    )
+
+
 def validate_symmetry(blue: dict, red: dict) -> list[str]:
     errors = []
     b_nodes = {n["id"] for n in blue.get("nodes", [])}
@@ -141,7 +173,9 @@ def main():
         print(f"\nValidation FAILED: {len(errors)} error(s)")
         sys.exit(1)
     else:
-        print("Validation PASSED")
+        print(f"Validation PASSED: {format_graph_summary(graph_summary(blue))}")
+        if len(sys.argv) >= 3:
+            print(f"Validation PASSED (peer): {format_graph_summary(graph_summary(red))}")
         sys.exit(0)
 
 

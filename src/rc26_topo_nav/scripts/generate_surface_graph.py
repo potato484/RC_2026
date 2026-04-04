@@ -19,6 +19,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import render_graph_sim_html as RENDER  # noqa: E402
+import validate_graph as VALIDATE  # noqa: E402
 
 
 def point_in_polygon(point: tuple[float, float], polygon: list[tuple[float, float]]) -> bool:
@@ -669,6 +670,20 @@ def dump_graph(
     }
 
 
+def canonicalize_graph_document(document: dict[str, Any]) -> dict[str, Any]:
+    canonical = yaml.safe_load(yaml.safe_dump(document, sort_keys=False))
+    canonical["nodes"] = sorted(canonical.get("nodes", []), key=lambda item: item["id"])
+    canonical["edges"] = sorted(canonical.get("edges", []), key=lambda item: item["id"])
+    canonical["tasks"] = sorted(canonical.get("tasks", []), key=lambda item: item.get("task_tag", ""))
+    canonical["routes"] = sorted(canonical.get("routes", []), key=lambda item: item.get("route_tag", ""))
+    return canonical
+
+
+def dump_yaml(path: Path, document: dict[str, Any]) -> None:
+    with path.open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(document, handle, sort_keys=False, allow_unicode=True)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate a dense traversable surface graph")
     default_world = SCRIPT_DIR.parent / "sim_assets" / "worlds" / "robocon2026_v2_aligned.world"
@@ -677,6 +692,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--world", type=Path, default=default_world)
     parser.add_argument("--overlay", type=Path, default=default_overlay)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument(
+        "--check-existing",
+        action="store_true",
+        help="Do not overwrite output; fail if the generated surface graph differs from the current file",
+    )
     return parser.parse_args()
 
 
@@ -725,9 +745,28 @@ def main() -> int:
         edges=edges,
     )
 
+    errors = VALIDATE.validate_graph(graph)
+    if errors:
+        for item in errors:
+            print(f"[ERROR] {item}", file=sys.stderr)
+        return 1
+
+    summary = VALIDATE.format_graph_summary(VALIDATE.graph_summary(graph))
+
+    if args.check_existing:
+        if not args.out.is_file():
+            print(f"[ERROR] Output file does not exist for --check-existing: {args.out}", file=sys.stderr)
+            return 1
+        existing = RENDER.load_yaml(args.out)
+        if canonicalize_graph_document(existing) != canonicalize_graph_document(graph):
+            print(f"[ERROR] Generated surface graph differs from existing file: {args.out}", file=sys.stderr)
+            return 1
+        print(f"[OK] Surface graph matches existing file: {args.out} ({summary})")
+        return 0
+
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    with args.out.open("w", encoding="utf-8") as handle:
-        yaml.safe_dump(graph, handle, sort_keys=False, allow_unicode=True)
+    dump_yaml(args.out, graph)
+    print(f"[OK] Generated {args.out} ({summary})")
     return 0
 
 

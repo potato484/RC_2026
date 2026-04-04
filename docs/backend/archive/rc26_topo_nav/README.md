@@ -29,6 +29,7 @@
   - `/localization/backend_status`
   - `/localization/route_observability`
   - `/mf_block_overlay`
+  - `/surface_graph_overlay`
   - `/xhu_nav/tracking_state`
   - 地形与 base_ground 相关输入
 - 服务客户端:
@@ -41,12 +42,20 @@
 - 运行时要求机器人已经足够接近投影后的起点；当前不会从机器人当前位置自动补一段“接驳到起点”的前置路径。
 - 规划成功后会发布完整 `planned_path` 到 `/topo_nav/route`，并按 surface segment 逐段发布 corridor 到 `/topo_nav/corridor` 与 `/xhu_nav/corridor_cmd`。
 - 当前 surface route 规划已经接入运行时 overlay：`/mf_block_overlay`、地形风险、localization health / route observability 等约束会先经 `OverlayReducer` 归并，再作用到 `surface_graph` 的 node / edge overlay。
-- 当前 `NavigateSurfaceRoute.allow_replan=true` 时，surface route 已经补齐 route-level replan 闭环：如果 segment 执行阶段收到 `REPLAN_REQUESTED`，`topo_nav_node` 会基于当前机器人位姿重新做 surface 规划，而不再直接把 action 终止给上游。
+- 当前 `NavigateSurfaceRoute.allow_replan=true` 时，surface route 已经补齐 route-level replan 闭环：
+  - 如果 segment 执行阶段收到 `REPLAN_REQUESTED`，`topo_nav_node` 会基于当前机器人位姿重新做 surface 规划，而不再直接把 action 终止给上游
+  - 如果 segment 边界检测到 overlay version 变化，`topo_nav_node` 也会在发出下一段 corridor 前重规划，避免继续执行过期路线
 - 当前 surface route 已经升级到保守的 body-aware 全局规划口径：
   - 离线 `surface_graph` 现在带有 `center_clearance_m / surface_pitch_deg / slope_deg / nominal_yaw / same_surface` 注解
   - runtime `body_planning` 会基于 `rc26_robot_geometry` profile 对 surface node / edge 施加几何约束
-  - node clearance 当前作为软惩罚，pitch / edge lateral clearance / slope / step 仍是硬约束
-- 当前仍不是 swept-volume + 动态障碍预测的完整 3D collision planner；它的真实边界仍是“静态 dense surface graph + body-aware overlay + route-level replan”。
+  - `surface_planner_backend=body_planner` 时，`rc26_topo_nav` 还会调用独立 `rc26_surface_body_planner` 做 heading-aware 搜索；起始朝向当前不作为硬约束，但转向扫掠仍会受 node / edge clearance 约束
+  - node clearance 当前在 overlay 层仍作为软惩罚，pitch / edge lateral clearance / slope / step 仍是硬约束
+- 当前 surface route 的失败码已经改成按层分诊：
+  - 先区分起点/终点是否根本无法投影到 dense `surface_graph`
+  - 再区分是否是 runtime overlay 造成的不可投影/不可通行
+  - 最后才区分是否是 body-aware 几何约束导致的不可投影/不可通行
+  - 因此现在可以稳定区分 `*_POINT_NOT_PROJECTABLE / *_POINT_BLOCKED_BY_OVERLAY / *_POINT_BLOCKED_BY_BODY_CONSTRAINT / SURFACE_GRAPH_DISCONNECTED / SURFACE_PATH_BLOCKED_BY_RUNTIME_OVERLAY / SURFACE_PATH_BLOCKED_BY_DYNAMIC_OVERLAY / BODY_CONSTRAINT_UNSATISFIED`
+- 当前仍不是 swept-volume + 动态障碍预测的完整 3D collision planner；它的真实边界仍是“静态 dense surface graph + body-aware overlay + 独立 body planner backend + route-level replan”。
 
 ## 当前几何配置口径
 
@@ -58,12 +67,18 @@
   - `body.half_width_m`：约束 surface edge 的 lateral clearance
   - `body.half_width_m + body_planning.clearance_margin_m`：作为 body-aware overlay 的最小可通行宽度
 - 当前默认 body-aware 运行参数在 [config/topo_nav.yaml](/home/potato/RC_2026/src/rc26_topo_nav/config/topo_nav.yaml) 中声明，主要包括：
+  - `surface_planner_backend`
   - `body_planning.enabled`
   - `body_planning.require_annotated_surface_graph`
   - `body_planning.clearance_margin_m`
   - `body_planning.max_surface_pitch_deg`
   - `body_planning.max_edge_slope_deg`
   - `body_planning.max_step_height_m`
+  - `surface_body_planner.heading_bin_count`
+  - `surface_body_planner.max_heading_change_deg`
+  - `surface_body_planner.turn_cost_weight`
+  - `surface_body_planner.node_turn_clearance_gain`
+  - `surface_body_planner.edge_turn_clearance_gain`
 
 ## 执行链当前口径
 
@@ -110,7 +125,17 @@
 - surface graph 生成命令:
   - `python3 src/rc26_topo_nav/scripts/generate_surface_graph.py --team blue --world src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world --overlay src/rc26_topo_nav/config/r2_surface_graph_overlay.yaml --out src/rc26_topo_nav/config/r2_surface_graph_blue.yaml`
   - `python3 src/rc26_topo_nav/scripts/generate_surface_graph.py --team red --world src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world --overlay src/rc26_topo_nav/config/r2_surface_graph_overlay.yaml --out src/rc26_topo_nav/config/r2_surface_graph_red.yaml`
+- surface graph 一致性检查:
+  - `python3 src/rc26_topo_nav/scripts/generate_surface_graph.py --team blue --world src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world --overlay src/rc26_topo_nav/config/r2_surface_graph_overlay.yaml --out src/rc26_topo_nav/config/r2_surface_graph_blue.yaml --check-existing`
+  - `python3 src/rc26_topo_nav/scripts/generate_surface_graph.py --team red --world src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world --overlay src/rc26_topo_nav/config/r2_surface_graph_overlay.yaml --out src/rc26_topo_nav/config/r2_surface_graph_red.yaml --check-existing`
+- `validate_graph.py` 和 `generate_surface_graph.py` 当前都会输出简短 summary，至少包含 `team / schema / nodes / edges / surface_nodes / surface_edges`，方便快速判断离线资产是否落到预期版本。
 - 当前 surface graph 生成比旧版更慢，因为会对每条 edge 做 lateral clearance 采样；这是离线成本，不在 runtime 主链内。
+- `surface_route_cli` 当前支持：
+  - 用 `--blocked-node <id>` / `--blocked-edge <id>` 注入合成 runtime overlay，便于离线 spot check `runtime overlay` 和 `body-aware` 两层失败码
+  - 用 `--planner-backend legacy|body_planner` 和 `--heading-bin-count / --max-heading-change-deg / --turn-cost-weight / --node-turn-clearance-gain / --edge-turn-clearance-gain` 做独立 body planner spot check
+- `OverlayReducer` 当前已经支持 `SurfaceGraphOverlay.msg`：
+  - 按 `source + ttl` 维护动态 blocked node / edge 集合
+  - 对外暴露 overlay version，供 `executeSurface()` 在 segment 边界触发 route-level replan
 
 ## 静态可视化
 
@@ -157,6 +182,7 @@
   - `topo_sim_server.py`：把 `surface_route_cli + planner_trace_cli + sim_assets` 组合成 HTTP adapter，提供场景、路线预览、路线 trace 和可选执行接口
   - `sim_viewer`：基于 Babylon.js / React 的单用途 3D 路线观察台，只显示任意点路线和它的搜索推导过程
 - `topo_sim_server.py` 当前在 source-tree 运行时会优先解析 `src/install` / `src/build` 下最新构建出的 CLI，而不是误用根仓库旧的 install binary。
+- viewer 预览链路当前默认已经跟随 `surface_route_cli` 的 `body_planner` backend，但起始朝向不再被当成硬约束，避免浏览器点击时因为任意 `yaw` 误触发 `BODY_CONSTRAINT_UNSATISFIED`
 - viewer 当前支持：
   - 浏览器直接在地面、坡面、阶梯表面设置起点和终点
   - `POST /api/surface-route/preview` 现在先返回：

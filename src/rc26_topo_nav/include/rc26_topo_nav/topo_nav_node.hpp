@@ -75,6 +75,7 @@ private:
     std::string team_;
     std::optional<RobotGeometryProfile> robot_geometry_;
     SurfaceBodyPlanningConfig surface_body_planning_;
+    SurfacePlannerOptions surface_planner_options_;
     double surface_start_match_xy_m_ = 0.30;
     double surface_start_match_z_m_ = 0.10;
     double surface_start_match_yaw_deg_ = 25.0;

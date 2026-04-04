@@ -6,6 +6,46 @@
 
 namespace rc26_topo_nav {
 
+namespace {
+
+int64_t durationToNanoseconds(const builtin_interfaces::msg::Duration& duration) {
+    return static_cast<int64_t>(duration.sec) * 1000000000LL +
+        static_cast<int64_t>(duration.nanosec);
+}
+
+template<typename Key, typename Value>
+bool unorderedMapEquals(
+    const std::unordered_map<Key, Value>& left,
+    const std::unordered_map<Key, Value>& right) {
+    return left == right;
+}
+
+bool dynamicOverlayStateEquals(
+    const OverlayReducer::DynamicSurfaceOverlayState& left,
+    const OverlayReducer::DynamicSurfaceOverlayState& right) {
+    return left.source == right.source &&
+           left.has_expiry == right.has_expiry &&
+           left.expires_at_ns == right.expires_at_ns &&
+           left.blocked_node_ids == right.blocked_node_ids &&
+           left.blocked_edge_ids == right.blocked_edge_ids;
+}
+
+void mergeBlockedSource(
+    std::unordered_map<std::string, std::string>& blocked_ids,
+    const std::string& id,
+    const std::string& source) {
+    auto& label = blocked_ids[id];
+    if (label.empty()) {
+        label = source;
+        return;
+    }
+    if (label.find(source) == std::string::npos) {
+        label += "," + source;
+    }
+}
+
+}  // namespace
+
 OverlayReducer::OverlayReducer(rclcpp::Node* node) : node_(node) {
     expected_team_ = toLowerCopy(node_->get_parameter("team").as_string());
 
@@ -29,6 +69,10 @@ OverlayReducer::OverlayReducer(rclcpp::Node* node) : node_(node) {
         "/mf_block_overlay", 10,
         std::bind(&OverlayReducer::onBlockOverlay, this, std::placeholders::_1));
 
+    surface_graph_overlay_sub_ = node_->create_subscription<rc26_interfaces::msg::SurfaceGraphOverlay>(
+        "/surface_graph_overlay", 10,
+        std::bind(&OverlayReducer::onSurfaceGraphOverlay, this, std::placeholders::_1));
+
     level_sub_ = node_->create_subscription<std_msgs::msg::Int32>(
         "base_ground/level", 10,
         std::bind(&OverlayReducer::onLevel, this, std::placeholders::_1));
@@ -49,9 +93,31 @@ std::string OverlayReducer::toLowerCopy(std::string value) {
     return value;
 }
 
+void OverlayReducer::bumpOverlayVersionLocked() {
+    ++overlay_version_;
+}
+
+void OverlayReducer::pruneExpiredDynamicOverlaysLocked(const int64_t now_ns) {
+    bool changed = false;
+    for (auto it = dynamic_surface_overlays_.begin(); it != dynamic_surface_overlays_.end();) {
+        if (it->second.has_expiry && it->second.expires_at_ns <= now_ns) {
+            it = dynamic_surface_overlays_.erase(it);
+            changed = true;
+            continue;
+        }
+        ++it;
+    }
+    if (changed) {
+        bumpOverlayVersionLocked();
+    }
+}
+
 void OverlayReducer::onLocHealth(const rc26_interfaces::msg::LocalizationHealth::SharedPtr msg) {
     std::lock_guard<std::mutex> lock(mu_);
-    loc_health_level_ = msg->level;
+    if (loc_health_level_ != msg->level) {
+        loc_health_level_ = msg->level;
+        bumpOverlayVersionLocked();
+    }
 }
 
 void OverlayReducer::onLocBackend(
@@ -61,12 +127,24 @@ void OverlayReducer::onLocBackend(
 
 void OverlayReducer::onRouteObs(const rc26_interfaces::msg::RouteObservability::SharedPtr msg) {
     std::lock_guard<std::mutex> lock(mu_);
-    route_obs_risk_ = msg->risk_level;
+    if (route_obs_risk_ != msg->risk_level) {
+        route_obs_risk_ = msg->risk_level;
+        bumpOverlayVersionLocked();
+    }
 }
 
 void OverlayReducer::onTerrainGrid(
     const rc26_interfaces::msg::TerrainFeatureGrid::SharedPtr msg) {
     std::lock_guard<std::mutex> lock(mu_);
+    const bool changed =
+        terrain_resolution_m_ != msg->resolution_m ||
+        terrain_width_ != msg->width ||
+        terrain_height_ != msg->height ||
+        terrain_origin_x_ != msg->origin.position.x ||
+        terrain_origin_y_ != msg->origin.position.y ||
+        terrain_p_obstacle_ != msg->p_obstacle ||
+        terrain_p_drop_ != msg->p_drop;
+
     terrain_resolution_m_ = msg->resolution_m;
     terrain_width_ = msg->width;
     terrain_height_ = msg->height;
@@ -74,6 +152,9 @@ void OverlayReducer::onTerrainGrid(
     terrain_origin_y_ = msg->origin.position.y;
     terrain_p_obstacle_ = msg->p_obstacle;
     terrain_p_drop_ = msg->p_drop;
+    if (changed) {
+        bumpOverlayVersionLocked();
+    }
 }
 
 void OverlayReducer::onBlockOverlay(
@@ -86,14 +167,61 @@ void OverlayReducer::onBlockOverlay(
         return;
     }
 
-    std::lock_guard<std::mutex> lock(mu_);
-    block_confidence_.clear();
+    std::unordered_map<int, float> next_block_confidence;
     for (const auto& cell : msg->cells) {
         float confidence = cell.confidence;
         if (cell.state == rc26_interfaces::msg::MfBlockOverlayCell::BLOCKED) {
             confidence = std::max(confidence, 1.0F);
         }
-        block_confidence_[cell.grid_id] = confidence;
+        next_block_confidence[cell.grid_id] = confidence;
+    }
+
+    std::lock_guard<std::mutex> lock(mu_);
+    if (!unorderedMapEquals(block_confidence_, next_block_confidence)) {
+        block_confidence_ = std::move(next_block_confidence);
+        bumpOverlayVersionLocked();
+    }
+}
+
+void OverlayReducer::onSurfaceGraphOverlay(
+    const rc26_interfaces::msg::SurfaceGraphOverlay::SharedPtr msg) {
+    const std::string msg_team = toLowerCopy(msg->team);
+    const bool has_team = !msg_team.empty();
+    const bool accept_team =
+        !has_team || msg_team == "shared" || expected_team_.empty() || msg_team == expected_team_;
+    if (!accept_team) {
+        return;
+    }
+
+    DynamicSurfaceOverlayState next_state;
+    next_state.source = msg->source.empty() ? "surface_graph_overlay" : msg->source;
+    next_state.blocked_node_ids.insert(msg->blocked_node_ids.begin(), msg->blocked_node_ids.end());
+    next_state.blocked_edge_ids.insert(msg->blocked_edge_ids.begin(), msg->blocked_edge_ids.end());
+
+    const int64_t ttl_ns = durationToNanoseconds(msg->ttl);
+    if (ttl_ns > 0) {
+        const auto stamp = (msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0)
+            ? node_->now()
+            : rclcpp::Time(msg->header.stamp);
+        next_state.has_expiry = true;
+        next_state.expires_at_ns = stamp.nanoseconds() + ttl_ns;
+    }
+
+    std::lock_guard<std::mutex> lock(mu_);
+    pruneExpiredDynamicOverlaysLocked(node_->now().nanoseconds());
+
+    if (next_state.blocked_node_ids.empty() && next_state.blocked_edge_ids.empty()) {
+        if (dynamic_surface_overlays_.erase(next_state.source) > 0) {
+            bumpOverlayVersionLocked();
+        }
+        return;
+    }
+
+    const auto existing_it = dynamic_surface_overlays_.find(next_state.source);
+    if (existing_it == dynamic_surface_overlays_.end() ||
+        !dynamicOverlayStateEquals(existing_it->second, next_state)) {
+        dynamic_surface_overlays_[next_state.source] = std::move(next_state);
+        bumpOverlayVersionLocked();
     }
 }
 
@@ -115,6 +243,32 @@ void OverlayReducer::onStableOperation(const std_msgs::msg::Bool::SharedPtr msg)
 bool OverlayReducer::shouldHold() const {
     std::lock_guard<std::mutex> lock(mu_);
     return loc_health_level_ >= rc26_interfaces::msg::LocalizationHealth::RED;
+}
+
+uint64_t OverlayReducer::overlayVersion() {
+    std::lock_guard<std::mutex> lock(mu_);
+    pruneExpiredDynamicOverlaysLocked(node_->now().nanoseconds());
+    return overlay_version_;
+}
+
+OverlaySnapshot OverlayReducer::snapshot() {
+    std::lock_guard<std::mutex> lock(mu_);
+    pruneExpiredDynamicOverlaysLocked(node_->now().nanoseconds());
+
+    OverlaySnapshot snapshot;
+    snapshot.version = overlay_version_;
+    snapshot.active_dynamic_sources.reserve(dynamic_surface_overlays_.size());
+    for (const auto& [source, overlay] : dynamic_surface_overlays_) {
+        snapshot.active_dynamic_sources.push_back(source);
+        for (const auto& node_id : overlay.blocked_node_ids) {
+            mergeBlockedSource(snapshot.dynamic_blocked_nodes, node_id, source);
+        }
+        for (const auto& edge_id : overlay.blocked_edge_ids) {
+            mergeBlockedSource(snapshot.dynamic_blocked_edges, edge_id, source);
+        }
+    }
+    std::sort(snapshot.active_dynamic_sources.begin(), snapshot.active_dynamic_sources.end());
+    return snapshot;
 }
 
 bool OverlayReducer::edgeHitsTerrainRisk(const FieldGraph& graph, const GraphEdge& edge) const {
@@ -177,8 +331,10 @@ bool OverlayReducer::edgeHitsTerrainRisk(const FieldGraph& graph, const GraphEdg
 void OverlayReducer::applyOverlays(
     const FieldGraph& graph,
     std::unordered_map<std::string, NodeOverlay>& node_overlays,
-    std::unordered_map<std::string, EdgeOverlay>& edge_overlays) const {
+    std::unordered_map<std::string, EdgeOverlay>& edge_overlays,
+    const OverlayApplicationMode mode) {
     std::lock_guard<std::mutex> lock(mu_);
+    pruneExpiredDynamicOverlaysLocked(node_->now().nanoseconds());
 
     node_overlays.clear();
     edge_overlays.clear();
@@ -195,6 +351,16 @@ void OverlayReducer::applyOverlays(
             if (node.block_id == grid_id) {
                 node_overlays[node_id].state = NodeState::BLOCKED;
                 node_overlays[node_id].extra_cost = 1000.0;
+            }
+        }
+    }
+
+    if (mode == OverlayApplicationMode::ALL) {
+        for (const auto& [_, overlay] : dynamic_surface_overlays_) {
+            for (const auto& node_id : overlay.blocked_node_ids) {
+                auto& node_overlay = node_overlays[node_id];
+                node_overlay.state = NodeState::BLOCKED;
+                node_overlay.extra_cost = std::max(node_overlay.extra_cost, 1000.0);
             }
         }
     }
@@ -222,6 +388,16 @@ void OverlayReducer::applyOverlays(
             target_node_it->second.state == NodeState::BLOCKED) {
             overlay.state = EdgeState::BLOCKED;
             overlay.extra_cost = 1000.0;
+        }
+
+        if (mode == OverlayApplicationMode::ALL) {
+            for (const auto& [_, dynamic_overlay] : dynamic_surface_overlays_) {
+                if (dynamic_overlay.blocked_edge_ids.find(edge.id) != dynamic_overlay.blocked_edge_ids.end()) {
+                    overlay.state = EdgeState::BLOCKED;
+                    overlay.extra_cost = 1000.0;
+                    break;
+                }
+            }
         }
 
         if (overlay.state != EdgeState::BLOCKED && edgeHitsTerrainRisk(graph, edge)) {

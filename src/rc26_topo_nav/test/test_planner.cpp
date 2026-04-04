@@ -3,6 +3,7 @@
 #include "rc26_topo_nav/planner.hpp"
 #include "rc26_topo_nav/graph_loader.hpp"
 #include "rc26_topo_nav/surface_route.hpp"
+#include <cmath>
 #include <fstream>
 
 using namespace rc26_topo_nav;
@@ -49,6 +50,55 @@ protected:
         e_ov_["e2"] = {EdgeState::ENABLED, 0};
         e_ov_["e3"] = {EdgeState::ENABLED, 0};
         e_ov_["e4"] = {EdgeState::ENABLED, 0};
+    }
+
+    void annotateGraphAsSurface() {
+        for (auto& [_, node] : graph_.nodes) {
+            node.type = "surface_point";
+            node.center_clearance_m = 1.0;
+            node.surface_pitch_deg = 0.0;
+        }
+        for (auto& edge : graph_.edges) {
+            edge.center_clearance_m = 1.0;
+            edge.horizontal_length_m = 1.2;
+            edge.slope_deg = 0.0;
+            edge.nominal_yaw = 0.0;
+            edge.same_surface = true;
+        }
+    }
+
+    SurfaceBodyPlanningConfig defaultBodyPlanningConfig() const {
+        SurfaceBodyPlanningConfig config;
+        config.enabled = true;
+        config.require_annotated_surface_graph = true;
+        config.clearance_margin_m = 0.02;
+        config.max_surface_pitch_deg = 35.0;
+        config.max_edge_slope_deg = 35.0;
+        config.max_step_height_m = 0.18;
+        return config;
+    }
+
+    RobotGeometryProfile defaultGeometryProfile() const {
+        RobotGeometryProfile geometry;
+        geometry.name = "test";
+        geometry.half_length_m = 0.30;
+        geometry.half_width_m = 0.20;
+        return geometry;
+    }
+
+    SurfacePlannerOptions defaultBodyPlannerOptions() const {
+        SurfacePlannerOptions options;
+        options.backend = SurfacePlannerBackend::BODY_PLANNER;
+        options.geometry = SurfacePlannerGeometry{
+            defaultGeometryProfile().half_length_m,
+            defaultGeometryProfile().half_width_m,
+        };
+        options.body_planner.heading_bin_count = 16;
+        options.body_planner.max_heading_change_deg = 95.0;
+        options.body_planner.turn_cost_weight = 0.25;
+        options.body_planner.node_turn_clearance_gain = 1.0;
+        options.body_planner.edge_turn_clearance_gain = 0.75;
+        return options;
     }
 };
 
@@ -198,16 +248,7 @@ TEST_F(PlannerTest, SurfaceRouteHonorsRuntimeOverlays) {
 }
 
 TEST_F(PlannerTest, SurfaceBodyPlanningBlocksNarrowAndSteepGraphElements) {
-    for (auto& [_, node] : graph_.nodes) {
-        node.type = "surface_point";
-        node.center_clearance_m = 1.0;
-        node.surface_pitch_deg = 0.0;
-    }
-    for (auto& edge : graph_.edges) {
-        edge.center_clearance_m = 1.0;
-        edge.horizontal_length_m = 1.2;
-        edge.slope_deg = 0.0;
-    }
+    annotateGraphAsSurface();
     graph_.nodes["b"].center_clearance_m = 0.19;
     graph_.nodes["c"].surface_pitch_deg = 41.0;
     graph_.edges[0].center_clearance_m = 0.19;
@@ -215,18 +256,8 @@ TEST_F(PlannerTest, SurfaceBodyPlanningBlocksNarrowAndSteepGraphElements) {
     graph_.edges[1].horizontal_length_m = 0.10;
     graph_.edges[1].height_change = 0.22;
 
-    RobotGeometryProfile geometry;
-    geometry.name = "test";
-    geometry.half_length_m = 0.30;
-    geometry.half_width_m = 0.20;
-
-    SurfaceBodyPlanningConfig config;
-    config.enabled = true;
-    config.require_annotated_surface_graph = true;
-    config.clearance_margin_m = 0.02;
-    config.max_surface_pitch_deg = 35.0;
-    config.max_edge_slope_deg = 35.0;
-    config.max_step_height_m = 0.18;
+    const auto geometry = defaultGeometryProfile();
+    const auto config = defaultBodyPlanningConfig();
 
     std::unordered_map<std::string, NodeOverlay> node_overlays;
     std::unordered_map<std::string, EdgeOverlay> edge_overlays;
@@ -246,4 +277,281 @@ TEST_F(PlannerTest, SurfaceBodyPlanningBlocksNarrowAndSteepGraphElements) {
     EXPECT_EQ(node_overlays["c"].state, NodeState::BLOCKED);
     EXPECT_EQ(edge_overlays["e1"].state, EdgeState::BLOCKED);
     EXPECT_EQ(edge_overlays["e2"].state, EdgeState::BLOCKED);
+}
+
+TEST_F(PlannerTest, SurfaceFailureClassificationDetectsOverlayBlockedStart) {
+    annotateGraphAsSurface();
+    n_ov_["a"].state = NodeState::BLOCKED;
+
+    const Pose3 requested_start{0.05, 0.0, 0.0, 0.0};
+    const Pose3 requested_goal{2.35, 0.0, 0.0, 0.0};
+    const auto final_plan = planSurfaceRoute(
+        graph_,
+        requested_start,
+        requested_goal,
+        n_ov_,
+        e_ov_,
+        weights_,
+        0.20,
+        rclcpp::Time(0),
+        "map");
+    ASSERT_FALSE(final_plan.success);
+
+    const auto analysis = classifySurfacePlanFailure(
+        graph_,
+        requested_start,
+        requested_goal,
+        n_ov_,
+        e_ov_,
+        n_ov_,
+        e_ov_,
+        n_ov_,
+        e_ov_,
+        weights_,
+        0.20,
+        final_plan);
+
+    EXPECT_EQ(analysis.failure_code, "START_POINT_BLOCKED_BY_OVERLAY");
+    EXPECT_TRUE(analysis.best_projected_goal.success);
+    EXPECT_EQ(analysis.best_projected_goal.node_id, "c");
+}
+
+TEST_F(PlannerTest, SurfaceFailureClassificationDetectsBodyBlockedGoalProjection) {
+    annotateGraphAsSurface();
+    graph_.nodes["c"].surface_pitch_deg = 41.0;
+
+    auto final_node_overlays = n_ov_;
+    auto final_edge_overlays = e_ov_;
+    std::string error;
+    (void)applySurfaceBodyPlanningOverlays(
+        graph_,
+        defaultGeometryProfile(),
+        defaultBodyPlanningConfig(),
+        final_node_overlays,
+        final_edge_overlays,
+        &error);
+    ASSERT_TRUE(error.empty());
+
+    const Pose3 requested_start{0.05, 0.0, 0.0, 0.0};
+    const Pose3 requested_goal{2.35, 0.0, 0.0, 0.0};
+    const auto final_plan = planSurfaceRoute(
+        graph_,
+        requested_start,
+        requested_goal,
+        final_node_overlays,
+        final_edge_overlays,
+        weights_,
+        0.20,
+        rclcpp::Time(0),
+        "map");
+    ASSERT_FALSE(final_plan.success);
+
+    const auto analysis = classifySurfacePlanFailure(
+        graph_,
+        requested_start,
+        requested_goal,
+        n_ov_,
+        e_ov_,
+        n_ov_,
+        e_ov_,
+        final_node_overlays,
+        final_edge_overlays,
+        weights_,
+        0.20,
+        final_plan);
+
+    EXPECT_EQ(analysis.failure_code, "GOAL_POINT_BLOCKED_BY_BODY_CONSTRAINT");
+    EXPECT_TRUE(analysis.best_projected_goal.success);
+    EXPECT_EQ(analysis.best_projected_goal.node_id, "c");
+}
+
+TEST_F(PlannerTest, SurfaceFailureClassificationDetectsRuntimeOverlayBlockedPath) {
+    annotateGraphAsSurface();
+    e_ov_["e1"].state = EdgeState::BLOCKED;
+    e_ov_["e4"].state = EdgeState::BLOCKED;
+
+    const Pose3 requested_start{0.05, 0.0, 0.0, 0.0};
+    const Pose3 requested_goal{2.35, 0.0, 0.0, 0.0};
+    const auto final_plan = planSurfaceRoute(
+        graph_,
+        requested_start,
+        requested_goal,
+        n_ov_,
+        e_ov_,
+        weights_,
+        0.20,
+        rclcpp::Time(0),
+        "map");
+    ASSERT_FALSE(final_plan.success);
+
+    const auto analysis = classifySurfacePlanFailure(
+        graph_,
+        requested_start,
+        requested_goal,
+        n_ov_,
+        e_ov_,
+        n_ov_,
+        e_ov_,
+        n_ov_,
+        e_ov_,
+        weights_,
+        0.20,
+        final_plan);
+
+    EXPECT_EQ(analysis.failure_code, "SURFACE_PATH_BLOCKED_BY_RUNTIME_OVERLAY");
+}
+
+TEST_F(PlannerTest, SurfaceFailureClassificationDetectsDisconnectedBaseGraph) {
+    annotateGraphAsSurface();
+    graph_.edges = {graph_.edges[0], graph_.edges[2]};
+    graph_.adjacency.clear();
+    graph_.adjacency["a"].push_back(0);
+    graph_.adjacency["b"].push_back(1);
+
+    const Pose3 requested_start{0.05, 0.0, 0.0, 0.0};
+    const Pose3 requested_goal{2.35, 0.0, 0.0, 0.0};
+    const auto final_plan = planSurfaceRoute(
+        graph_,
+        requested_start,
+        requested_goal,
+        n_ov_,
+        e_ov_,
+        weights_,
+        0.20,
+        rclcpp::Time(0),
+        "map");
+    ASSERT_FALSE(final_plan.success);
+
+    const auto analysis = classifySurfacePlanFailure(
+        graph_,
+        requested_start,
+        requested_goal,
+        n_ov_,
+        e_ov_,
+        n_ov_,
+        e_ov_,
+        n_ov_,
+        e_ov_,
+        weights_,
+        0.20,
+        final_plan);
+
+    EXPECT_EQ(analysis.failure_code, "SURFACE_GRAPH_DISCONNECTED");
+}
+
+TEST_F(PlannerTest, SurfaceFailureClassificationDetectsBodyConstraintUnsatisfiedPath) {
+    annotateGraphAsSurface();
+    graph_.edges[0].center_clearance_m = 0.19;
+    graph_.edges[3].center_clearance_m = 0.19;
+
+    auto final_node_overlays = n_ov_;
+    auto final_edge_overlays = e_ov_;
+    std::string error;
+    (void)applySurfaceBodyPlanningOverlays(
+        graph_,
+        defaultGeometryProfile(),
+        defaultBodyPlanningConfig(),
+        final_node_overlays,
+        final_edge_overlays,
+        &error);
+    ASSERT_TRUE(error.empty());
+
+    const Pose3 requested_start{0.05, 0.0, 0.0, 0.0};
+    const Pose3 requested_goal{2.35, 0.0, 0.0, 0.0};
+    const auto final_plan = planSurfaceRoute(
+        graph_,
+        requested_start,
+        requested_goal,
+        final_node_overlays,
+        final_edge_overlays,
+        weights_,
+        0.20,
+        rclcpp::Time(0),
+        "map");
+    ASSERT_FALSE(final_plan.success);
+
+    const auto analysis = classifySurfacePlanFailure(
+        graph_,
+        requested_start,
+        requested_goal,
+        n_ov_,
+        e_ov_,
+        n_ov_,
+        e_ov_,
+        final_node_overlays,
+        final_edge_overlays,
+        weights_,
+        0.20,
+        final_plan);
+
+    EXPECT_EQ(analysis.failure_code, "BODY_CONSTRAINT_UNSATISFIED");
+}
+
+TEST_F(PlannerTest, SurfaceBodyPlannerBackendChoosesTurnFeasibleRoute) {
+    annotateGraphAsSurface();
+    const double kHalfPi = std::acos(-1.0) * 0.5;
+    const double kQuarterPi = std::acos(-1.0) * 0.25;
+    graph_.nodes["b"].center_clearance_m = 0.18;
+    graph_.edges[0].nominal_yaw = 0.0;
+    graph_.edges[1].nominal_yaw = kHalfPi;
+    graph_.edges[3].nominal_yaw = kQuarterPi;
+
+    const Pose3 requested_start{0.05, 0.0, 0.0, 0.0};
+    const Pose3 requested_goal{2.35, 0.0, 0.0, 0.0};
+    const auto plan = planSurfaceRoute(
+        graph_,
+        requested_start,
+        requested_goal,
+        n_ov_,
+        e_ov_,
+        weights_,
+        1.0,
+        rclcpp::Time(0),
+        defaultBodyPlannerOptions(),
+        "map");
+
+    ASSERT_TRUE(plan.success);
+    ASSERT_EQ(plan.plan.edge_indices.size(), 1u);
+    EXPECT_EQ(graph_.edges[plan.plan.edge_indices.front()].id, "e4");
+    ASSERT_EQ(plan.heading_path.size(), 2u);
+}
+
+TEST_F(PlannerTest, SurfaceFailureClassificationDetectsDynamicOverlayBlockedPath) {
+    annotateGraphAsSurface();
+    auto runtime_node_overlays = n_ov_;
+    auto runtime_edge_overlays = e_ov_;
+    runtime_edge_overlays["e1"].state = EdgeState::BLOCKED;
+    runtime_edge_overlays["e4"].state = EdgeState::BLOCKED;
+
+    const Pose3 requested_start{0.05, 0.0, 0.0, 0.0};
+    const Pose3 requested_goal{2.35, 0.0, 0.0, 0.0};
+    const auto final_plan = planSurfaceRoute(
+        graph_,
+        requested_start,
+        requested_goal,
+        runtime_node_overlays,
+        runtime_edge_overlays,
+        weights_,
+        0.20,
+        rclcpp::Time(0),
+        "map");
+    ASSERT_FALSE(final_plan.success);
+
+    const auto analysis = classifySurfacePlanFailure(
+        graph_,
+        requested_start,
+        requested_goal,
+        n_ov_,
+        e_ov_,
+        runtime_node_overlays,
+        runtime_edge_overlays,
+        runtime_node_overlays,
+        runtime_edge_overlays,
+        weights_,
+        0.20,
+        final_plan,
+        "source=unit_test_dynamic");
+
+    EXPECT_EQ(analysis.failure_code, "SURFACE_PATH_BLOCKED_BY_DYNAMIC_OVERLAY");
+    EXPECT_NE(analysis.failure_reason.find("unit_test_dynamic"), std::string::npos);
 }
