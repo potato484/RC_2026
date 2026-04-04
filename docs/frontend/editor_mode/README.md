@@ -22,7 +22,7 @@
    负责编辑画布、节点选中状态同步、源文件导出，以及开发态“保存到源文件”按钮。
    当前桌面端已经移除画布左侧常驻节点库，ReactFlow 只需要给顶部工具栏预留安全区；节点解释改由工具栏触发的覆盖式知识库承接，打开后会完整盖住当前编辑画布区域，避免底层编辑内容继续透出；新增节点改由独立插入菜单承接。
 9. `src/components/EditorRightPanel.tsx`
-   通过递归查找当前选中节点，并提供定义内参数编辑、同支线插入、显式新增支线、删除非根节点和中文结构预览；未注册但原始存在的属性只读展示并在导出时保留。
+   通过递归查找当前选中节点，并提供定义内数值参数编辑、同支线插入、显式新增支线、删除非根节点和中文结构预览；未注册但原始存在的属性只读展示并在导出时保留。
 10. `src/utils/editorSerializer.ts:7-103`
     最终把 `EditorDocument` 重新序列化成 XML 字符串，并做基础格式化。
 11. `merlin-bt-visualizer/vite.config.ts:1-70`
@@ -89,7 +89,7 @@
 - `src/components/EditorRightPanel.tsx:23-51`
   - 在编辑文档里递归查找当前选中节点。
 - `src/components/EditorRightPanel.tsx`
-  - 定义内参数编辑、显式新增支线、同支线插入、删除节点的交互入口。
+  - 定义内数值参数编辑、显式新增支线、同支线插入、删除节点的交互入口。
 - `src/components/EditorRightPanel.tsx:95-122`
   - 中文结构预览。
 
@@ -119,14 +119,13 @@
     - 当前项目机器人模块：武馆区、梅林区、导航、对抗区、视觉相关 Action / Condition
 - `merlin-bt-visualizer/src/utils/btRegistry.ts`
   - 负责把原始 XML 节点补充为带定义元数据的 `EditorNode`。
-  - 统一处理端口绑定解析、节点来源识别、节点类别识别、复合节点切换候选、以及“从定义创建新节点”。
+  - 统一处理端口绑定解析、节点来源识别、节点类别识别，以及“从定义创建新节点”。
 - `merlin-bt-visualizer/src/store/useEditorStore.ts`
   - 当前已经支持：
     - 已声明参数更新
     - 沿当前支线的前插 / 后插
     - 控制节点上的显式新增支线
     - 用装饰器或复合节点包裹当前节点
-    - 一键切换复合节点类型，并保留原有子节点和属性
     - 区域级草稿缓存与 XML round-trip 导出
   - 2026-04-03 额外修复了 `wrap` 包裹操作在非根节点上丢失结构替换的问题。
 - `merlin-bt-visualizer/src/components/EditorKnowledgeBase.tsx`
@@ -137,13 +136,12 @@
   - 节点卡片新增快速插入槽：
     - 前插
     - 后插
-  - 对支持切换的复合节点提供一键切换按钮。
 - `merlin-bt-visualizer/src/components/EditorContextMenu.tsx`
-  - 新增右键菜单，当前支持折叠/展开、切换复合节点类型、包裹为结果反转、包裹为重试直到成功、删除节点。
+  - 新增右键菜单，当前支持折叠/展开、包裹为结果反转、包裹为重试直到成功、删除节点。
 - `merlin-bt-visualizer/src/components/EditorRightPanel.tsx`
   - 右侧面板现在同时承担：
     - 中文节点信息展示
-    - 定义内参数 / 黑板绑定编辑
+    - 定义内数值参数编辑
     - 未注册原始属性的只读展示
     - 同支线插入、新增支线与包裹
     - 当前树结构预览
@@ -185,7 +183,7 @@
 - 编辑态现在补齐了按区域草稿历史：
   - `Ctrl/Cmd+Z` 撤销
   - `Shift+Ctrl/Cmd+Z` 或 `Ctrl/Cmd+Y` 重做
-  - 结构插入、边插入、属性修改、删除、节点替换都会进入历史栈。
+  - 结构插入、边插入、属性修改、删除都会进入历史栈。
 - 编辑态节点外观、边样式和布局参数已经和查看态统一到同一套画布主题：
   - 控制节点、装饰节点、叶子节点的尺寸与间距不再另起一套。
   - 折叠后只按可见节点重新布局，不再保留多余空洞。
@@ -196,9 +194,22 @@
 - `src/generated/btNodeRegistry.ts`
   - 所有官方节点和机器人模块节点的中文说明都已改成更口语化、1-2 行内的说明文本，后续如果再补节点，继续沿用这套表达风格。
 
+### 4.4 2026-04-04 检查器参数收口补充
+
+- `merlin-bt-visualizer/src/components/EditorRightPanel.tsx`
+  - 右侧检查器现在只显示“纯数字 + 纯固定值输入”的已声明参数；字符串、布尔、输出端口、黑板绑定端口和 `both` 端口都不再出现在“已定义参数”区。
+  - 已显示的参数当前只保留数值输入框，不再在这个区块里暴露“固定值 / 黑板 / 根黑板”切换。
+  - 已声明但被隐藏的端口不会转移到“保留的原始属性”区；它们仍然参与解析与导出，只是不再作为终端用户常规编辑入口。
+  - 动作节点的 `error_code` 不再作为常规“已定义参数”暴露；如果旧 XML 里仍然手工写了 `error_code`，检查器会把它放到“保留的原始属性”里只读展示并继续 round-trip 保留。
+- `src/components/EditorVisualizer.tsx`
+  - 编辑态全局快捷键现在会避开输入框、下拉框和可编辑区域；在参数输入过程中按 `Backspace` 不会再误删整个节点。
+  - 画布级删除快捷键收口为 `Delete`；`Backspace` 回到文本编辑自身的原生语义。
+- 当前项目里如果需要排查最近一次机构动作失败，更推荐直接查看 `last_action_error_code` 黑板键。
+  - 该键由决策节点订阅机制状态后主动写入黑板和发布链路，不依赖每个动作节点在 XML 里单独 remap `error_code`。
+
 ### 4.2 本次验证结果
 
 - `npm --prefix merlin-bt-visualizer run test`
-  - 通过，已覆盖编辑草稿缓存、节点插入/包裹/切换、XML round-trip、中文显示与查看态 XML 刷新。
+  - 通过，已覆盖编辑草稿缓存、节点插入/包裹、XML round-trip、中文显示与查看态 XML 刷新。
 - `npm --prefix merlin-bt-visualizer run build`
   - 通过，当前编辑模式相关 TypeScript 与生产构建已稳定。
