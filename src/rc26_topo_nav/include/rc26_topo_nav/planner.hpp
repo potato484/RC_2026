@@ -40,6 +40,10 @@ enum class TraceEventType : uint8_t {
     CANDIDATE_SELECTED,
 };
 
+struct PlannerRunOptions {
+    double heuristic_scale = 0.0;
+};
+
 struct PlannerTraceOptions {
     double heuristic_scale = 0.0;
     bool capture_frontier = true;
@@ -79,9 +83,15 @@ struct PlanTraceResult {
     std::vector<PlanTraceFrame> frames;
     std::vector<TaskCandidateResult> candidate_results;
     std::string selected_candidate;
+    double planning_ms = 0.0;
 };
 
 const char* traceEventTypeName(TraceEventType event);
+
+double estimateAdmissibleHeuristicScale(
+    const FieldGraph& graph,
+    const PlannerWeights& weights,
+    double safety_margin = 0.99);
 
 PlanTraceResult planRouteTrace(
     const FieldGraph& graph,
@@ -116,7 +126,8 @@ PlanResult planRoute(
     const std::string& goal_node,
     const std::unordered_map<std::string, NodeOverlay>& node_overlays,
     const std::unordered_map<std::string, EdgeOverlay>& edge_overlays,
-    const PlannerWeights& weights);
+    const PlannerWeights& weights,
+    const PlannerRunOptions& options = {});
 
 PlanResult planToTask(
     const FieldGraph& graph,
@@ -124,7 +135,8 @@ PlanResult planToTask(
     const std::string& task_tag,
     const std::unordered_map<std::string, NodeOverlay>& node_overlays,
     const std::unordered_map<std::string, EdgeOverlay>& edge_overlays,
-    const PlannerWeights& weights);
+    const PlannerWeights& weights,
+    const PlannerRunOptions& options = {});
 
 PlanResult planRouteTag(
     const FieldGraph& graph,
@@ -132,6 +144,7 @@ PlanResult planRouteTag(
     const std::string& route_tag,
     const std::unordered_map<std::string, NodeOverlay>& node_overlays,
     const std::unordered_map<std::string, EdgeOverlay>& edge_overlays,
-    const PlannerWeights& weights);
+    const PlannerWeights& weights,
+    const PlannerRunOptions& options = {});
 
 }  // namespace rc26_topo_nav

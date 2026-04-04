@@ -244,6 +244,13 @@ int main(int argc, char** argv) {
     printPath(std::cout, plan.planned_path);
     std::cout << ",\"segments\":";
     printSegments(std::cout, plan.segments);
+    std::cout << ",\"timing_ms\":{"
+              << "\"projection\":" << plan.projection_ms << ","
+              << "\"routePlanning\":" << plan.route_planning_ms << ","
+              << "\"pathExpand\":" << plan.path_expand_ms << ","
+              << "\"segmentBuild\":" << plan.segment_build_ms << ","
+              << "\"completePlanning\":" << plan.complete_planning_ms
+              << "}";
     std::cout << "}\n";
     return plan.success ? 0 : 2;
 }

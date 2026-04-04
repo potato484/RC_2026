@@ -59,6 +59,23 @@ TEST_F(PlannerTest, FindsDirectPath) {
     EXPECT_EQ(result.node_path[2], "c");
 }
 
+TEST_F(PlannerTest, FastRouteMatchesTraceRouteResult) {
+    PlannerRunOptions run_options;
+    run_options.heuristic_scale = 0.5;
+
+    PlannerTraceOptions trace_options;
+    trace_options.heuristic_scale = run_options.heuristic_scale;
+
+    const auto fast = planRoute(graph_, "a", "c", n_ov_, e_ov_, weights_, run_options);
+    const auto trace = planRouteTrace(graph_, "a", "c", n_ov_, e_ov_, weights_, trace_options);
+
+    ASSERT_TRUE(fast.success);
+    ASSERT_TRUE(trace.result.success);
+    EXPECT_EQ(fast.node_path, trace.result.node_path);
+    EXPECT_EQ(fast.edge_indices, trace.result.edge_indices);
+    EXPECT_DOUBLE_EQ(fast.total_cost, trace.result.total_cost);
+}
+
 TEST_F(PlannerTest, BlockedNodeAvoidance) {
     n_ov_["b"].state = NodeState::BLOCKED;
     // Can't reach blocked node b directly
@@ -77,6 +94,23 @@ TEST_F(PlannerTest, TaskPicksMinCost) {
     ASSERT_TRUE(result.success);
     // 'b' is closer than 'c', should pick 'b'
     EXPECT_EQ(result.node_path.back(), "b");
+}
+
+TEST_F(PlannerTest, FastTaskMatchesTraceTaskResult) {
+    PlannerRunOptions run_options;
+    run_options.heuristic_scale = 0.5;
+
+    PlannerTraceOptions trace_options;
+    trace_options.heuristic_scale = run_options.heuristic_scale;
+
+    const auto fast = planToTask(graph_, "a", "grab", n_ov_, e_ov_, weights_, run_options);
+    const auto trace = planToTaskTrace(graph_, "a", "grab", n_ov_, e_ov_, weights_, trace_options);
+
+    ASSERT_TRUE(fast.success);
+    ASSERT_TRUE(trace.result.success);
+    EXPECT_EQ(fast.node_path, trace.result.node_path);
+    EXPECT_EQ(fast.edge_indices, trace.result.edge_indices);
+    EXPECT_DOUBLE_EQ(fast.total_cost, trace.result.total_cost);
 }
 
 TEST_F(PlannerTest, TaskSkipsBlockedCandidate) {
@@ -124,6 +158,11 @@ TEST_F(PlannerTest, TraceWithHeuristicStillFindsOptimalPath) {
     ASSERT_TRUE(trace.result.success);
     EXPECT_EQ(trace.result.node_path.size(), 3u);
     EXPECT_EQ(trace.result.node_path[1], "b");
+}
+
+TEST_F(PlannerTest, EstimatedHeuristicScaleMatchesMinimumEdgeDensity) {
+    const double scale = estimateAdmissibleHeuristicScale(graph_, weights_);
+    EXPECT_NEAR(scale, (1.0 / 1.2) * 0.99, 1e-9);
 }
 
 TEST_F(PlannerTest, TaskTraceRecordsCandidateSelection) {

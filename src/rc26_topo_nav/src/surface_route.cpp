@@ -1,5 +1,6 @@
 #include "rc26_topo_nav/surface_route.hpp"
 
+#include <chrono>
 #include <cmath>
 #include <limits>
 
@@ -46,6 +47,11 @@ void appendPathPose(
     const std::string& frame_id,
     const rclcpp::Time& stamp) {
     path.poses.push_back(makePoseStamped(pose, frame_id, stamp));
+}
+
+double elapsedMilliseconds(const std::chrono::steady_clock::time_point& begin) {
+    return std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - begin).count();
 }
 
 }  // namespace
@@ -212,15 +218,21 @@ SurfacePlanResult planSurfaceRoute(
     const rclcpp::Time& stamp,
     const std::string& frame_id) {
     SurfacePlanResult result;
+    const auto complete_begin = std::chrono::steady_clock::now();
+    const auto projection_begin = std::chrono::steady_clock::now();
     result.projected_start = projectPoseToSurfaceGraph(graph, requested_start, projection_radius_m);
     if (!result.projected_start.success) {
+        result.projection_ms = elapsedMilliseconds(projection_begin);
+        result.complete_planning_ms = elapsedMilliseconds(complete_begin);
         result.failure_code = "POINT_NOT_TRAVERSABLE";
         result.failure_reason = "Start point is not on a traversable surface";
         return result;
     }
 
     result.projected_goal = projectPoseToSurfaceGraph(graph, requested_goal, projection_radius_m);
+    result.projection_ms = elapsedMilliseconds(projection_begin);
     if (!result.projected_goal.success) {
+        result.complete_planning_ms = elapsedMilliseconds(complete_begin);
         result.failure_code = "POINT_NOT_TRAVERSABLE";
         result.failure_reason = "Goal point is not on a traversable surface";
         return result;
@@ -228,15 +240,21 @@ SurfacePlanResult planSurfaceRoute(
 
     const std::unordered_map<std::string, NodeOverlay> node_overlays;
     const std::unordered_map<std::string, EdgeOverlay> edge_overlays;
+    PlannerRunOptions run_options;
+    run_options.heuristic_scale = estimateAdmissibleHeuristicScale(graph, weights);
+    const auto planning_begin = std::chrono::steady_clock::now();
     result.plan = planRoute(
         graph,
         result.projected_start.node_id,
         result.projected_goal.node_id,
         node_overlays,
         edge_overlays,
-        weights);
+        weights,
+        run_options);
+    result.route_planning_ms = elapsedMilliseconds(planning_begin);
 
     if (!result.plan.success) {
+        result.complete_planning_ms = elapsedMilliseconds(complete_begin);
         result.failure_code = "NO_SURFACE_PATH";
         result.failure_reason = result.plan.failure_reason.empty()
             ? "Planner could not find a traversable surface path"
@@ -244,13 +262,18 @@ SurfacePlanResult planSurfaceRoute(
         return result;
     }
 
+    const auto path_expand_begin = std::chrono::steady_clock::now();
     result.planned_path = buildExpandedPath(
         graph,
         result.plan.edge_indices,
         result.plan.node_path,
         stamp,
         frame_id);
+    result.path_expand_ms = elapsedMilliseconds(path_expand_begin);
+    const auto segment_build_begin = std::chrono::steady_clock::now();
     result.segments = buildSurfacePlanSegments(graph, result.plan, stamp, frame_id);
+    result.segment_build_ms = elapsedMilliseconds(segment_build_begin);
+    result.complete_planning_ms = elapsedMilliseconds(complete_begin);
     result.success = true;
     return result;
 }

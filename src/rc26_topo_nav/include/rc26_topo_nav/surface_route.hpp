@@ -39,6 +39,11 @@ struct SurfacePlanResult {
     std::vector<SurfacePlanSegment> segments;
     std::string failure_code;
     std::string failure_reason;
+    double projection_ms = 0.0;
+    double route_planning_ms = 0.0;
+    double path_expand_ms = 0.0;
+    double segment_build_ms = 0.0;
+    double complete_planning_ms = 0.0;
 };
 
 Pose3 pose3FromPoseStamped(const geometry_msgs::msg::PoseStamped& msg);

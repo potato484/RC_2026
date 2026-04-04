@@ -394,6 +394,9 @@ void printTraceJson(
     printCandidateResults(out, trace.candidate_results);
     out << ",\"node_poses\":";
     printNodePoses(out, graph, referenced_node_ids);
+    out << ",\"timing_ms\":{";
+    out << "\"planning\":" << trace.planning_ms;
+    out << "}";
     out << ",\"frame_count_total\":" << trace.frames.size();
     out << ",\"frame_count_emitted\":" << frame_indices.size();
     out << ",\"frames_sampled\":" << (frames_sampled ? "true" : "false");
