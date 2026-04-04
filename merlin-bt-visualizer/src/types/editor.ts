@@ -25,6 +25,11 @@ export interface EditorNode {
   uiType: EditorUiType;
 }
 
+export interface EditorInsertTemplate {
+  tagName: string;
+  presetAttributes?: Record<string, string>;
+}
+
 export interface EditorTree {
   id: string;
   name?: string;
@@ -35,4 +40,9 @@ export interface EditorDocument {
   rootAttributes: Record<string, string>;
   includes: string[];
   trees: EditorTree[];
+}
+
+export interface EditorHistoryEntry {
+  document: EditorDocument;
+  selectedNodeId: string | null;
 }

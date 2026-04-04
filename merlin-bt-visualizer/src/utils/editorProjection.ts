@@ -11,37 +11,32 @@ import {
   getBehaviorTreeNodeDisplay,
   summarizeBehaviorTreeAttributes,
 } from './btDisplay';
+import { CANVAS_LAYOUT, createCanvasEdgeProps, getCanvasNodeSize } from './btCanvasTheme';
 
 export interface EditorFlowNodeData extends Record<string, unknown> {
   editorNodeId: string;
   tagName: string;
   displayLabel: string;
   displayDesc: string;
+  baseDescription: string;
   attributeSummary: string;
   categoryLabel: string;
   sourceLabel: string;
+  nodeKind: EditorNode['nodeKind'];
   attributes: Record<string, string>;
   uiType: EditorNode['uiType'];
   isRoot?: boolean;
   canAcceptChildren: boolean;
   hasChildren: boolean;
+  collapsed: boolean;
   switchCandidates: string[];
   selected?: boolean;
 }
 
-const getNodeSize = (uiType: EditorNode['uiType']) => {
-  switch (uiType) {
-    case 'control':
-      return { width: 240, height: 92 };
-    case 'decorator':
-      return { width: 230, height: 86 };
-    case 'subtree':
-      return { width: 250, height: 92 };
-    case 'leaf':
-    default:
-      return { width: 260, height: 96 };
-  }
-};
+export interface EditorFlowEdgeData extends Record<string, unknown> {
+  parentNodeId: string;
+  childNodeId: string;
+}
 
 const getSourceLabel = (node: EditorNode): string => {
   if (node.source === 'official') {
@@ -71,14 +66,17 @@ export function projectTreeToFlow(
       tagName: node.tagName,
       displayLabel: display.label,
       displayDesc: display.desc,
+      baseDescription: definition?.descriptionZh ?? display.desc,
       attributeSummary: summarizeBehaviorTreeAttributes(node.attributes, node.tagName).join(' · '),
       categoryLabel,
       sourceLabel,
+      nodeKind: node.nodeKind,
       attributes: { ...node.attributes },
       uiType: node.uiType,
       isRoot,
       canAcceptChildren: canNodeAcceptChildren(node),
       hasChildren: node.children.length > 0,
+      collapsed: collapsedNodeIds.has(node.id),
       switchCandidates: getCompositeSwitchCandidates(node.tagName).map((entry) => entry.labelZh),
     };
 
@@ -94,8 +92,12 @@ export function projectTreeToFlow(
         id: `e-${parentId}-${node.id}`,
         source: parentId,
         target: node.id,
-        type: 'smoothstep',
-        style: { stroke: '#94a3b8', strokeWidth: 2 },
+        ...createCanvasEdgeProps(),
+        type: 'editorInsertEdge',
+        data: {
+          parentNodeId: parentId,
+          childNodeId: node.id,
+        } satisfies EditorFlowEdgeData,
       });
     }
 
@@ -108,17 +110,10 @@ export function projectTreeToFlow(
 
   const graph = new dagre.graphlib.Graph();
   graph.setDefaultEdgeLabel(() => ({}));
-  graph.setGraph({
-    rankdir: 'LR',
-    nodesep: 64,
-    ranksep: 120,
-    edgesep: 18,
-    marginx: 24,
-    marginy: 24,
-  });
+  graph.setGraph(CANVAS_LAYOUT);
 
   nodes.forEach((node) => {
-    const nodeSize = getNodeSize((node.data as EditorFlowNodeData).uiType);
+    const nodeSize = getCanvasNodeSize((node.data as EditorFlowNodeData).nodeKind);
     graph.setNode(node.id, nodeSize);
   });
 
@@ -130,9 +125,9 @@ export function projectTreeToFlow(
 
   nodes.forEach((node) => {
     const position = graph.node(node.id);
-    const nodeSize = getNodeSize((node.data as EditorFlowNodeData).uiType);
+    const nodeSize = getCanvasNodeSize((node.data as EditorFlowNodeData).nodeKind);
     node.position = {
-      x: position.x - nodeSize.width / 2,
+      x: position.x - 120,
       y: position.y - nodeSize.height / 2,
     };
   });

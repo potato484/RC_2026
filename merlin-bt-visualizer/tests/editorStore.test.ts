@@ -16,6 +16,8 @@ describe('Editor store phase drafts', () => {
       flowNodes: [],
       flowEdges: [],
       selectedNodeId: null,
+      canUndo: false,
+      canRedo: false,
     });
   });
 
@@ -90,5 +92,69 @@ describe('Editor store phase drafts', () => {
     const cycledRoot = useEditorStore.getState().document!.trees[0].rootNode;
     expect(cycledRoot.tagName).toBe('SequenceWithMemory');
     expect(cycledRoot.children.map((child) => child.id)).toEqual(childIds);
+  });
+
+  test('should insert leaf and subtree templates on an edge with auto sequence bridge', () => {
+    useEditorStore.getState().ensurePhaseLoaded('梅林区', behaviorTreeXmlByPhase['梅林区']);
+
+    const rootNode = useEditorStore.getState().document!.trees[0].rootNode;
+    const firstChild = rootNode.children[0];
+
+    useEditorStore.getState().insertNodeOnEdge(rootNode.id, firstChild.id, { tagName: 'WaitVisionTarget' });
+
+    let nextRoot = useEditorStore.getState().document!.trees[0].rootNode;
+    expect(nextRoot.children[0].tagName).toBe('Sequence');
+    expect(nextRoot.children[0].children.map((child) => child.tagName)).toEqual(['WaitVisionTarget', firstChild.tagName]);
+
+    const bridgedNode = nextRoot.children[0].children[0];
+    expect(bridgedNode.tagName).toBe('WaitVisionTarget');
+
+    useEditorStore.getState().insertNodeOnEdge(nextRoot.id, nextRoot.children[1].id, {
+      tagName: 'SubTree',
+      presetAttributes: { ID: 'MF_Loop', _autoremap: 'true' },
+    });
+
+    nextRoot = useEditorStore.getState().document!.trees[0].rootNode;
+    expect(nextRoot.children[1].tagName).toBe('Sequence');
+    expect(nextRoot.children[1].children[0].tagName).toBe('SubTree');
+    expect(nextRoot.children[1].children[0].attributes.ID).toBe('MF_Loop');
+    expect(nextRoot.children[1].children[0].attributes._autoremap).toBe('true');
+  });
+
+  test('should insert control nodes on an edge without creating an extra bridge', () => {
+    useEditorStore.getState().ensurePhaseLoaded('武馆区', behaviorTreeXmlByPhase['武馆区']);
+
+    const rootNode = useEditorStore.getState().document!.trees[0].rootNode;
+    const firstChild = rootNode.children[0];
+
+    useEditorStore.getState().insertNodeOnEdge(rootNode.id, firstChild.id, { tagName: 'Fallback' });
+
+    const nextRoot = useEditorStore.getState().document!.trees[0].rootNode;
+    expect(nextRoot.children[0].tagName).toBe('Fallback');
+    expect(nextRoot.children[0].children).toHaveLength(1);
+    expect(nextRoot.children[0].children[0].tagName).toBe(firstChild.tagName);
+  });
+
+  test('should undo and redo structural edits within the same phase draft', () => {
+    useEditorStore.getState().ensurePhaseLoaded('武馆区', behaviorTreeXmlByPhase['武馆区']);
+
+    const rootNode = useEditorStore.getState().document!.trees[0].rootNode;
+    const firstChild = rootNode.children[0];
+
+    useEditorStore.getState().insertNodeOnEdge(rootNode.id, firstChild.id, { tagName: 'WaitVisionTarget' });
+    expect(useEditorStore.getState().canUndo).toBe(true);
+
+    let nextRoot = useEditorStore.getState().document!.trees[0].rootNode;
+    expect(nextRoot.children[0].tagName).toBe('Sequence');
+
+    useEditorStore.getState().undo();
+    nextRoot = useEditorStore.getState().document!.trees[0].rootNode;
+    expect(nextRoot.children[0].tagName).toBe(firstChild.tagName);
+    expect(useEditorStore.getState().canRedo).toBe(true);
+
+    useEditorStore.getState().redo();
+    nextRoot = useEditorStore.getState().document!.trees[0].rootNode;
+    expect(nextRoot.children[0].tagName).toBe('Sequence');
+    expect(nextRoot.children[0].children[0].tagName).toBe('WaitVisionTarget');
   });
 });

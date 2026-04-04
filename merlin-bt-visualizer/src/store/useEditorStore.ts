@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import { Edge as FlowEdge, Node as FlowNode } from '@xyflow/react';
-import { EditorDocument, EditorNode } from '../types/editor';
+import {
+  EditorDocument,
+  EditorHistoryEntry,
+  EditorInsertTemplate,
+  EditorNode,
+} from '../types/editor';
 import { BehaviorTreePhase } from '../utils/behaviorTreeSources';
 import { xmlToEditorDocument } from '../utils/editorParser';
 import { editorDocumentToXml } from '../utils/editorSerializer';
@@ -15,11 +20,15 @@ import {
   refreshEditorDocumentNodes,
 } from '../utils/btRegistry';
 
+const HISTORY_LIMIT = 60;
+
 interface EditorPhaseDraft {
   document: EditorDocument;
   activeTreeId: string | null;
   collapsedNodes: Set<string>;
   selectedNodeId: string | null;
+  history: EditorHistoryEntry[];
+  future: EditorHistoryEntry[];
 }
 
 interface NodeLocation {
@@ -39,6 +48,8 @@ interface EditorState {
   flowNodes: FlowNode[];
   flowEdges: FlowEdge[];
   selectedNodeId: string | null;
+  canUndo: boolean;
+  canRedo: boolean;
   ensurePhaseLoaded: (phase: BehaviorTreePhase, xmlContent: string) => void;
   setActiveTree: (treeId: string) => void;
   toggleNodeCollapse: (nodeId: string) => void;
@@ -46,18 +57,37 @@ interface EditorState {
   updateNodeAttributes: (nodeId: string, attributes: Record<string, string>) => void;
   updateSingleAttribute: (nodeId: string, key: string, value: string) => void;
   insertNode: (nodeId: string, position: EditorInsertPosition, tagName: string) => void;
+  insertNodeTemplate: (nodeId: string, position: EditorInsertPosition, template: EditorInsertTemplate) => void;
+  insertNodeOnEdge: (parentNodeId: string, childNodeId: string, template: EditorInsertTemplate) => void;
   replaceNodeType: (nodeId: string, tagName: string) => void;
   cycleCompositeType: (nodeId: string) => void;
   deleteNode: (nodeId: string) => void;
+  undo: () => void;
+  redo: () => void;
   exportXml: () => string | null;
   _updateFlow: () => void;
 }
+
+const cloneHistoryEntry = (entry: EditorHistoryEntry): EditorHistoryEntry => ({
+  document: JSON.parse(JSON.stringify(entry.document)) as EditorDocument,
+  selectedNodeId: entry.selectedNodeId,
+});
+
+const snapshotDocument = (
+  document: EditorDocument,
+  selectedNodeId: string | null
+): EditorHistoryEntry => ({
+  document: JSON.parse(JSON.stringify(document)) as EditorDocument,
+  selectedNodeId,
+});
 
 const createDraftFromDocument = (document: EditorDocument): EditorPhaseDraft => ({
   document,
   activeTreeId: document.trees[0]?.id ?? null,
   collapsedNodes: new Set(),
   selectedNodeId: null,
+  history: [],
+  future: [],
 });
 
 const cloneDraft = (draft: EditorPhaseDraft): EditorPhaseDraft => ({
@@ -65,10 +95,20 @@ const cloneDraft = (draft: EditorPhaseDraft): EditorPhaseDraft => ({
   activeTreeId: draft.activeTreeId,
   collapsedNodes: new Set(draft.collapsedNodes),
   selectedNodeId: draft.selectedNodeId,
+  history: draft.history.map(cloneHistoryEntry),
+  future: draft.future.map(cloneHistoryEntry),
 });
 
 const cloneDocument = (document: EditorDocument): EditorDocument =>
   refreshEditorDocumentNodes(JSON.parse(JSON.stringify(document)) as EditorDocument);
+
+const trimHistory = (history: EditorHistoryEntry[]): EditorHistoryEntry[] =>
+  history.length > HISTORY_LIMIT ? history.slice(history.length - HISTORY_LIMIT) : history;
+
+const getHistoryFlags = (draft?: Pick<EditorPhaseDraft, 'history' | 'future'> | null) => ({
+  canUndo: (draft?.history.length ?? 0) > 0,
+  canRedo: (draft?.future.length ?? 0) > 0,
+});
 
 const findNodeLocation = (document: EditorDocument, nodeId: string): NodeLocation | null => {
   const visit = (
@@ -111,11 +151,18 @@ const syncCurrentDraft = (
     EditorState,
     'currentPhase' | 'phaseDrafts' | 'document' | 'activeTreeId' | 'collapsedNodes' | 'selectedNodeId'
   >,
-  overrides: Partial<Pick<EditorPhaseDraft, 'document' | 'activeTreeId' | 'collapsedNodes' | 'selectedNodeId'>> = {}
+  overrides: Partial<
+    Pick<
+      EditorPhaseDraft,
+      'document' | 'activeTreeId' | 'collapsedNodes' | 'selectedNodeId' | 'history' | 'future'
+    >
+  > = {}
 ): Partial<Record<BehaviorTreePhase, EditorPhaseDraft>> => {
   if (!state.currentPhase || !state.document) {
     return state.phaseDrafts;
   }
+
+  const currentDraft = state.phaseDrafts[state.currentPhase];
 
   return {
     ...state.phaseDrafts,
@@ -123,27 +170,73 @@ const syncCurrentDraft = (
       document: overrides.document ?? state.document,
       activeTreeId: overrides.activeTreeId !== undefined ? overrides.activeTreeId : state.activeTreeId,
       collapsedNodes: new Set(overrides.collapsedNodes ?? state.collapsedNodes),
-      selectedNodeId: overrides.selectedNodeId !== undefined ? overrides.selectedNodeId : state.selectedNodeId,
+      selectedNodeId:
+        overrides.selectedNodeId !== undefined ? overrides.selectedNodeId : state.selectedNodeId,
+      history: (overrides.history ?? currentDraft?.history ?? []).map(cloneHistoryEntry),
+      future: (overrides.future ?? currentDraft?.future ?? []).map(cloneHistoryEntry),
     },
   };
 };
 
-const updateDocumentState = (
-  set: (partial:
-    | Partial<EditorState>
-    | ((state: EditorState) => Partial<EditorState>)) => void,
+const createNodeFromTemplate = (template: EditorInsertTemplate): EditorNode => {
+  const node = createNodeFromDefinition(template.tagName);
+  if (!template.presetAttributes) {
+    return node;
+  }
+
+  node.attributes = {
+    ...node.attributes,
+    ...template.presetAttributes,
+  };
+
+  return enrichEditorNode(node);
+};
+
+const replaceDocumentState = (
+  set: (
+    partial: Partial<EditorState> | ((state: EditorState) => Partial<EditorState>)
+  ) => void,
   get: () => EditorState,
   document: EditorDocument,
-  selectedNodeId?: string | null
+  options: {
+    selectedNodeId?: string | null;
+    history?: EditorHistoryEntry[];
+    future?: EditorHistoryEntry[];
+    pushHistory?: boolean;
+  } = {}
 ) => {
-  set((state) => ({
-    document,
-    selectedNodeId: selectedNodeId !== undefined ? selectedNodeId : state.selectedNodeId,
-    phaseDrafts: syncCurrentDraft(state, {
+  set((state) => {
+    const selectedNodeId =
+      options.selectedNodeId !== undefined ? options.selectedNodeId : state.selectedNodeId;
+    const currentDraft = state.currentPhase ? state.phaseDrafts[state.currentPhase] : undefined;
+    const history =
+      options.history ??
+      (options.pushHistory === false
+        ? currentDraft?.history ?? []
+        : state.document
+          ? trimHistory([
+              ...(currentDraft?.history ?? []),
+              snapshotDocument(state.document, state.selectedNodeId),
+            ])
+          : currentDraft?.history ?? []);
+    const future =
+      options.future ?? (options.pushHistory === false ? currentDraft?.future ?? [] : []);
+    const nextPhaseDrafts = syncCurrentDraft(state, {
       document,
-      selectedNodeId: selectedNodeId !== undefined ? selectedNodeId : state.selectedNodeId,
-    }),
-  }));
+      selectedNodeId,
+      history,
+      future,
+    });
+
+    return {
+      document,
+      selectedNodeId,
+      phaseDrafts: nextPhaseDrafts,
+      canUndo: history.length > 0,
+      canRedo: future.length > 0,
+    };
+  });
+
   get()._updateFlow();
 };
 
@@ -156,6 +249,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   flowNodes: [],
   flowEdges: [],
   selectedNodeId: null,
+  canUndo: false,
+  canRedo: false,
 
   ensurePhaseLoaded: (phase, xmlContent) => {
     const cachedDraft = get().phaseDrafts[phase];
@@ -167,6 +262,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         activeTreeId: draft.activeTreeId,
         collapsedNodes: draft.collapsedNodes,
         selectedNodeId: draft.selectedNodeId,
+        ...getHistoryFlags(draft),
       });
       get()._updateFlow();
       return;
@@ -183,6 +279,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         ...state.phaseDrafts,
         [phase]: cloneDraft(draft),
       },
+      ...getHistoryFlags(draft),
     }));
     get()._updateFlow();
   },
@@ -234,8 +331,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
     location.node.attributes = { ...attributes };
     location.node.portBindings = enrichEditorNode(location.node).portBindings;
-    nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(nextDocument.trees[location.treeIndex].rootNode);
-    updateDocumentState(set, get, nextDocument);
+    nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(
+      nextDocument.trees[location.treeIndex].rootNode
+    );
+    replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument));
   },
 
   updateSingleAttribute: (nodeId, key, value) => {
@@ -255,11 +354,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     } else {
       location.node.attributes[key] = value;
     }
-    nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(nextDocument.trees[location.treeIndex].rootNode);
-    updateDocumentState(set, get, nextDocument);
+    nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(
+      nextDocument.trees[location.treeIndex].rootNode
+    );
+    replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument));
   },
 
   insertNode: (nodeId, position, tagName) => {
+    get().insertNodeTemplate(nodeId, position, { tagName });
+  },
+
+  insertNodeTemplate: (nodeId, position, template) => {
     const { document } = get();
     if (!document) {
       return;
@@ -271,7 +376,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return;
     }
 
-    const nextNode = createNodeFromDefinition(tagName);
+    const nextNode = createNodeFromTemplate(template);
 
     if (position === 'wrap') {
       nextNode.children = [location.node];
@@ -280,8 +385,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       } else {
         nextDocument.trees[location.treeIndex].rootNode = nextNode;
       }
-      nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(nextDocument.trees[location.treeIndex].rootNode);
-      updateDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), nextNode.id);
+      nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(
+        nextDocument.trees[location.treeIndex].rootNode
+      );
+      replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), {
+        selectedNodeId: nextNode.id,
+      });
       return;
     }
 
@@ -290,16 +399,25 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         if (!location.parent) {
           return;
         }
-        const fallbackSiblingIndex = position === 'prepend_child' ? location.childIndex : location.childIndex + 1;
+        const fallbackSiblingIndex =
+          position === 'prepend_child' ? location.childIndex : location.childIndex + 1;
         location.parent.children.splice(fallbackSiblingIndex, 0, nextNode);
-        nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(nextDocument.trees[location.treeIndex].rootNode);
-        updateDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), nextNode.id);
+        nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(
+          nextDocument.trees[location.treeIndex].rootNode
+        );
+        replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), {
+          selectedNodeId: nextNode.id,
+        });
         return;
       }
       const childIndex = position === 'prepend_child' ? 0 : location.node.children.length;
       location.node.children.splice(childIndex, 0, nextNode);
-      nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(nextDocument.trees[location.treeIndex].rootNode);
-      updateDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), nextNode.id);
+      nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(
+        nextDocument.trees[location.treeIndex].rootNode
+      );
+      replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), {
+        selectedNodeId: nextNode.id,
+      });
       return;
     }
 
@@ -309,8 +427,44 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
     const siblingIndex = position === 'before' ? location.childIndex : location.childIndex + 1;
     location.parent.children.splice(siblingIndex, 0, nextNode);
-    nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(nextDocument.trees[location.treeIndex].rootNode);
-    updateDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), nextNode.id);
+    nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(
+      nextDocument.trees[location.treeIndex].rootNode
+    );
+    replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), {
+      selectedNodeId: nextNode.id,
+    });
+  },
+
+  insertNodeOnEdge: (parentNodeId, childNodeId, template) => {
+    const { document } = get();
+    if (!document) {
+      return;
+    }
+
+    const nextDocument = cloneDocument(document);
+    const childLocation = findNodeLocation(nextDocument, childNodeId);
+    if (!childLocation || !childLocation.parent || childLocation.parent.id !== parentNodeId) {
+      return;
+    }
+
+    const insertedNode = createNodeFromTemplate(template);
+    let selectedNodeId = insertedNode.id;
+
+    if (canNodeAcceptChildren(insertedNode)) {
+      insertedNode.children = [childLocation.node];
+      childLocation.parent.children.splice(childLocation.childIndex, 1, insertedNode);
+    } else {
+      const sequenceBridge = createNodeFromDefinition('Sequence');
+      sequenceBridge.children = [insertedNode, childLocation.node];
+      childLocation.parent.children.splice(childLocation.childIndex, 1, sequenceBridge);
+    }
+
+    nextDocument.trees[childLocation.treeIndex].rootNode = enrichEditorNode(
+      nextDocument.trees[childLocation.treeIndex].rootNode
+    );
+    replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), {
+      selectedNodeId,
+    });
   },
 
   replaceNodeType: (nodeId, tagName) => {
@@ -333,8 +487,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       ...location.node.attributes,
     };
 
-    nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(nextDocument.trees[location.treeIndex].rootNode);
-    updateDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), location.node.id);
+    nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(
+      nextDocument.trees[location.treeIndex].rootNode
+    );
+    replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), {
+      selectedNodeId: location.node.id,
+    });
   },
 
   cycleCompositeType: (nodeId) => {
@@ -369,8 +527,64 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
 
     location.parent.children.splice(location.childIndex, 1);
-    nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(nextDocument.trees[location.treeIndex].rootNode);
-    updateDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), null);
+    nextDocument.trees[location.treeIndex].rootNode = enrichEditorNode(
+      nextDocument.trees[location.treeIndex].rootNode
+    );
+    replaceDocumentState(set, get, refreshEditorDocumentNodes(nextDocument), {
+      selectedNodeId: null,
+    });
+  },
+
+  undo: () => {
+    const state = get();
+    if (!state.currentPhase || !state.document) {
+      return;
+    }
+
+    const draft = state.phaseDrafts[state.currentPhase];
+    if (!draft || draft.history.length === 0) {
+      return;
+    }
+
+    const previous = cloneHistoryEntry(draft.history[draft.history.length - 1]);
+    const nextHistory = draft.history.slice(0, -1).map(cloneHistoryEntry);
+    const nextFuture = trimHistory([
+      ...draft.future.map(cloneHistoryEntry),
+      snapshotDocument(state.document, state.selectedNodeId),
+    ]);
+
+    replaceDocumentState(set, get, refreshEditorDocumentNodes(previous.document), {
+      selectedNodeId: previous.selectedNodeId,
+      history: nextHistory,
+      future: nextFuture,
+      pushHistory: false,
+    });
+  },
+
+  redo: () => {
+    const state = get();
+    if (!state.currentPhase || !state.document) {
+      return;
+    }
+
+    const draft = state.phaseDrafts[state.currentPhase];
+    if (!draft || draft.future.length === 0) {
+      return;
+    }
+
+    const next = cloneHistoryEntry(draft.future[draft.future.length - 1]);
+    const nextFuture = draft.future.slice(0, -1).map(cloneHistoryEntry);
+    const nextHistory = trimHistory([
+      ...draft.history.map(cloneHistoryEntry),
+      snapshotDocument(state.document, state.selectedNodeId),
+    ]);
+
+    replaceDocumentState(set, get, refreshEditorDocumentNodes(next.document), {
+      selectedNodeId: next.selectedNodeId,
+      history: nextHistory,
+      future: nextFuture,
+      pushHistory: false,
+    });
   },
 
   exportXml: () => {
