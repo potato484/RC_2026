@@ -15,7 +15,7 @@ describe('Behavior tree display helpers', () => {
     const display = getBehaviorTreeNodeDisplay('RetryUntilSuccessful', { num_attempts: '3' });
 
     expect(display.label).toBe('重试直到成功装饰器（重试次数：3）');
-    expect(display.desc).toContain('子节点失败会继续重试');
+    expect(display.desc).toContain('失败就继续重试');
     expect(display.desc).toContain('重试次数：3');
   });
 

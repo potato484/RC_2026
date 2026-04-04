@@ -33,8 +33,8 @@ function translateScriptCode(code: string): string {
   if (trimmed.includes("next_action=='GRAB'")) return '判断下一步是否抓取';
   if (trimmed.includes("next_action=='MOVE'")) return '判断下一步是否移动';
   if (trimmed.includes("next_action=='WAIT'")) return '判断下一步是否等待';
-  if (trimmed.includes('target_kfs_count:=2')) return '初始化目标 KFS 数量为 2';
-  if (trimmed.includes('kfs_on_board:=0')) return '初始化已装载 KFS 数量为 0';
+  if (trimmed.includes('target_kfs_count:=2')) return '把目标 KFS 数量先设成 2';
+  if (trimmed.includes('kfs_on_board:=0')) return '把车上 KFS 数量清零';
   if (trimmed.includes('current_grid:=')) {
     const value = trimmed.split('current_grid:=')[1]?.split(/[; ]/)[0] ?? '';
     return value ? `写入当前格子为 ${value}` : '更新当前格子';
