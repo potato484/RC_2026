@@ -24,6 +24,7 @@
 ### 控制与执行
 
 - [`rc26_topo_nav`](archive/rc26_topo_nav/README.md): 拓扑导航表达与单边执行器；当前同时支持 topo 节点目标和基于 dense `surface_graph` 的任意点 3D 路线，并统一通过 `set_xhu_motion_mode + /xhu_nav/corridor_cmd` 驱动执行。`(file: archive/rc26_topo_nav/README.md)`
+- [`rc26_surface_body_planner`](archive/rc26_surface_body_planner/README.md): 独立的 heading-aware surface body planner 库；当前由 `rc26_topo_nav` 作为 `navigate_surface_route` 的可选后端调用。`(file: archive/rc26_surface_body_planner/README.md)`
 - [`rc26_nav_mode_manager`](archive/rc26_nav_mode_manager/README.md): 自研导航运动模式管理器；提供 `set_xhu_motion_mode` 与 `/xhu_nav/motion_mode_state` 主线。`(file: archive/rc26_nav_mode_manager/README.md)`
 - [`rc26_omni_controller`](archive/rc26_omni_controller/README.md): 自研走廊跟踪执行器宿主包；提供 `xhu_motion_follower_node` 执行链。`(file: archive/rc26_omni_controller/README.md)`
 - [`rc26_robot_geometry`](archive/rc26_robot_geometry/README.md): R2 机器人车体轮廓与安全包络共享配置真源；当前通过参数契约供 `rc26_topo_nav` 和 `rc26_omni_controller` 消费。`(file: archive/rc26_robot_geometry/README.md)`
