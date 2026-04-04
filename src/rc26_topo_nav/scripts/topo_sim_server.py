@@ -73,6 +73,13 @@ PKG_ROOT = SOURCE_PKG_ROOT or SHARE_ROOT or SCRIPT_DIR.parent
 WORKSPACE_ROOT = SOURCE_PKG_ROOT.parents[1] if SOURCE_PKG_ROOT is not None else None
 PLANNER_TRACE_CLI_TIMEOUT_SEC = 20.0
 SURFACE_ROUTE_CLI_TIMEOUT_SEC = 10.0
+SURFACE_TRACE_MAX_FRAMES = 200
+SURFACE_HEURISTIC_SCALE_CACHE: dict[str, float] = {}
+DISPLAY_EMPTY_TEXT = "暂无"
+TEAM_DISPLAY_LABELS = {
+    "blue": "蓝方",
+    "red": "红方",
+}
 
 
 def preferred_package_path(*parts: str) -> Path:
@@ -155,6 +162,55 @@ def default_kfs_config_file() -> Path:
     return preferred_package_path("sim_assets", "config", "kfs_config_v2_aligned.yaml")
 
 
+def point_distance_3d(left: dict[str, Any], right: dict[str, Any]) -> float:
+    dx = float(left.get("x", 0.0)) - float(right.get("x", 0.0))
+    dy = float(left.get("y", 0.0)) - float(right.get("y", 0.0))
+    dz = float(left.get("z", 0.0)) - float(right.get("z", 0.0))
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
+
+
+def estimate_surface_graph_heuristic_scale(graph_file: Path, safety_margin: float = 0.99) -> float:
+    cache_key = str(graph_file.resolve())
+    cached = SURFACE_HEURISTIC_SCALE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    document = RENDER.load_yaml(graph_file)
+    nodes = {
+        str(node["id"]): node.get("pose", {})
+        for node in document.get("nodes", [])
+    }
+    min_cost_per_meter = math.inf
+    clamped_margin = max(0.0, min(float(safety_margin), 1.0))
+
+    for edge in document.get("edges", []):
+        from_pose = nodes.get(str(edge.get("from", "")))
+        to_pose = nodes.get(str(edge.get("to", "")))
+        if from_pose is None or to_pose is None:
+            continue
+
+        points = [from_pose, *edge.get("control_points", []), to_pose]
+        travel_distance = sum(
+            point_distance_3d(points[index], points[index + 1])
+            for index in range(len(points) - 1)
+        )
+        if travel_distance <= 1e-9:
+            continue
+
+        edge_cost = float(edge.get("base_cost", 0.0))
+        edge_cost += abs(float(edge.get("height_change", 0.0))) * 2.0
+        if bool(edge.get("requires_confirmation", False)):
+            edge_cost += 1.5
+        if edge_cost <= 0.0 or not math.isfinite(edge_cost):
+            continue
+
+        min_cost_per_meter = min(min_cost_per_meter, edge_cost / travel_distance)
+
+    scale = 0.0 if not math.isfinite(min_cost_per_meter) else min_cost_per_meter * clamped_margin
+    SURFACE_HEURISTIC_SCALE_CACHE[cache_key] = scale
+    return scale
+
+
 def round_float(value: float, digits: int = 4) -> float:
     rounded = round(float(value), digits)
     if abs(rounded) < 10 ** (-digits):
@@ -172,6 +228,19 @@ def format_pose_brief(pose: dict[str, Any]) -> str:
         f"{round_float(pose.get('y', 0.0), 3):.3f}, "
         f"{round_float(pose.get('z', 0.0), 3):.3f})"
     )
+
+
+def format_elapsed_brief(value: Any) -> str:
+    return f"{round_float(float(value), 2):.2f} 毫秒"
+
+
+def format_display_text(value: Any, *, empty: str = DISPLAY_EMPTY_TEXT) -> str:
+    if value is None:
+        return empty
+    if isinstance(value, bool):
+        return "是" if value else "否"
+    text = str(value).strip()
+    return text if text else empty
 
 
 def make_planning_log(
@@ -615,6 +684,7 @@ def normalize_astar_trace_document(
     emitted_frame_count = int(raw_trace.get("frame_count_emitted", len(raw_frames)))
     frames_sampled = bool(raw_trace.get("frames_sampled", False))
     compact_transport = trace_mode == "surface_route"
+    raw_timing = raw_trace.get("timing_ms", {})
     if path_points_override is not None:
         best_path_points = path_points_override
     elif graph_document is not None:
@@ -698,6 +768,7 @@ def normalize_astar_trace_document(
         "totalCost": raw_trace.get("total_cost"),
         "selectedCandidate": raw_trace.get("selected_candidate"),
         "candidateResults": raw_trace.get("candidate_results", []),
+        "tracePlanningMs": raw_timing.get("planning"),
     }
     if summary_overrides:
         summary.update(summary_overrides)
@@ -832,6 +903,15 @@ class SurfaceRouteTraceRequest(BaseModel):
     projection_radius_m: float = Field(default=0.30, ge=0.05, le=1.0)
 
 
+class SurfaceRouteTraceFromNodesRequest(BaseModel):
+    team: Literal["blue", "red"] = "blue"
+    start_node_id: str
+    goal_node_id: str
+    surface_graph_file: str | None = None
+    requested_start: SurfacePointRequest | None = None
+    requested_goal: SurfacePointRequest | None = None
+
+
 class RunControlRequest(BaseModel):
     action: Literal["play", "pause", "step", "reset", "seek"]
     cursor: int | None = None
@@ -859,6 +939,12 @@ SurfaceRouteExecuteRequest.model_rebuild(
     }
 )
 SurfaceRouteTraceRequest.model_rebuild(
+    _types_namespace={
+        "Literal": Literal,
+        "SurfacePointRequest": SurfacePointRequest,
+    }
+)
+SurfaceRouteTraceFromNodesRequest.model_rebuild(
     _types_namespace={
         "Literal": Literal,
         "SurfacePointRequest": SurfacePointRequest,
@@ -1146,12 +1232,12 @@ def preview_surface_route(
             stage="request",
             level="info",
             title="收到路线请求",
-            message="已准备 surface 图投影与路径规划输入",
+            message="已准备表面图投影与路径规划输入",
             fields=[
-                ("阵营", request.team),
+                ("阵营", TEAM_DISPLAY_LABELS.get(request.team, request.team)),
                 ("请求起点", format_pose_brief(requested_start)),
                 ("请求终点", format_pose_brief(requested_goal)),
-                ("投影半径", f"{request.projection_radius_m:.2f} m"),
+                ("投影半径", f"{request.projection_radius_m:.2f} 米"),
             ],
         )
     ]
@@ -1163,29 +1249,45 @@ def preview_surface_route(
         projection_radius_m=request.projection_radius_m,
     )
     preview_elapsed_ms = (time.perf_counter() - preview_begin) * 1000.0
+    cli_timing = payload.get("timing_ms", {})
+    surface_projection_ms = round_float(float(cli_timing.get("projection", 0.0)), 2)
+    surface_planning_ms = round_float(float(cli_timing.get("routePlanning", 0.0)), 2)
+    surface_path_expand_ms = round_float(float(cli_timing.get("pathExpand", 0.0)), 2)
+    surface_segment_build_ms = round_float(float(cli_timing.get("segmentBuild", 0.0)), 2)
+    surface_complete_planning_ms = round_float(float(cli_timing.get("completePlanning", 0.0)), 2)
     payload["team"] = request.team
     payload["surface_graph_file"] = str(graph_file)
     payload["planning_timing_ms"] = {
+        "surfaceProjection": surface_projection_ms,
+        "surfacePlanning": surface_planning_ms,
+        "surfacePathExpand": surface_path_expand_ms,
+        "surfaceSegmentBuild": surface_segment_build_ms,
+        "surfaceCompletePlanning": surface_complete_planning_ms,
         "surfaceRouteCli": round_float(preview_elapsed_ms, 2),
     }
     planning_logs.append(
         make_planning_log(
             stage="surface_route_cli",
             level="info" if payload.get("success", False) else "error",
-            title="surface_route_cli",
+            title="表面路线预览",
             message=(
                 "已完成点击点投影并生成路线"
                 if payload.get("success", False)
-                else "surface 图投影或路线规划失败"
+                else "表面图投影或路线规划失败"
             ),
             elapsed_ms=preview_elapsed_ms,
             fields=[
-                ("起点投影节点", payload.get("projected_start_node_id") or "N/A"),
-                ("终点投影节点", payload.get("projected_goal_node_id") or "N/A"),
+                ("完整规划时间", format_elapsed_brief(surface_complete_planning_ms)),
+                ("投影耗时", format_elapsed_brief(surface_projection_ms)),
+                ("路径搜索耗时", format_elapsed_brief(surface_planning_ms)),
+                ("路径展开耗时", format_elapsed_brief(surface_path_expand_ms)),
+                ("分段生成耗时", format_elapsed_brief(surface_segment_build_ms)),
+                ("起点投影节点", format_display_text(payload.get("projected_start_node_id"))),
+                ("终点投影节点", format_display_text(payload.get("projected_goal_node_id"))),
                 ("路径点数", len(payload.get("path_points", []))),
                 ("分段数", len(payload.get("segments", []))),
-                ("失败码", payload.get("failure_code") or "N/A"),
-                ("失败原因", payload.get("failure_reason") or "N/A"),
+                ("失败码", format_display_text(payload.get("failure_code"))),
+                ("失败原因", format_display_text(payload.get("failure_reason"))),
             ],
         )
     )
@@ -1193,75 +1295,143 @@ def preview_surface_route(
     return payload
 
 
-def trace_surface_route(request: SurfaceRouteTraceRequest) -> dict[str, Any]:
-    preview = preview_surface_route(request)
-    planning_logs = list(preview.get("planning_logs", []))
+def build_failed_surface_trace_response(preview: dict[str, Any]) -> dict[str, Any]:
     planning_timing_ms = dict(preview.get("planning_timing_ms", {}))
     preview_elapsed_ms = planning_timing_ms.get("surfaceRouteCli")
-    if not preview.get("success", False):
-        preview["summary"] = {
-            "goalKind": "node",
-            "goalValue": "",
-            "framesCount": 0,
-            "returnedFramesCount": 0,
-            "framesSampled": False,
-            "totalCost": None,
-            "selectedCandidate": None,
-            "candidateResults": [],
-            "previewElapsedMs": preview_elapsed_ms,
-            "traceElapsedMs": None,
-            "totalElapsedMs": preview_elapsed_ms,
-        }
-        preview["frames"] = []
-        return preview
+    surface_projection_ms = planning_timing_ms.get("surfaceProjection")
+    surface_planning_ms = planning_timing_ms.get("surfacePlanning")
+    surface_path_expand_ms = planning_timing_ms.get("surfacePathExpand")
+    surface_segment_build_ms = planning_timing_ms.get("surfaceSegmentBuild")
+    surface_complete_planning_ms = planning_timing_ms.get("surfaceCompletePlanning")
+    preview["summary"] = {
+        "goalKind": "node",
+        "goalValue": "",
+        "framesCount": 0,
+        "returnedFramesCount": 0,
+        "framesSampled": False,
+        "totalCost": None,
+        "selectedCandidate": None,
+        "candidateResults": [],
+        "surfaceProjectionMs": surface_projection_ms,
+        "surfacePlanningMs": surface_planning_ms,
+        "surfacePathExpandMs": surface_path_expand_ms,
+        "surfaceSegmentBuildMs": surface_segment_build_ms,
+        "surfaceCompletePlanningMs": surface_complete_planning_ms,
+        "tracePlanningMs": None,
+        "previewElapsedMs": preview_elapsed_ms,
+        "traceElapsedMs": None,
+        "totalElapsedMs": preview_elapsed_ms,
+    }
+    preview["frames"] = []
+    preview["node_poses"] = {}
+    return preview
 
-    start_node_id = str(preview.get("projected_start_node_id", ""))
-    goal_node_id = str(preview.get("projected_goal_node_id", ""))
-    if not start_node_id or not goal_node_id:
-        raise RuntimeError("surface_route_cli output missing projected node ids")
 
-    graph_file = Path(preview["surface_graph_file"])
+def trace_surface_route_from_nodes(request: SurfaceRouteTraceFromNodesRequest) -> dict[str, Any]:
+    graph_file = surface_graph_path(request.team, request.surface_graph_file)
+    heuristic_scale = estimate_surface_graph_heuristic_scale(graph_file)
     trace_begin = time.perf_counter()
     raw_trace = run_graph_trace_cli(
         graph_file=graph_file,
-        start_node=start_node_id,
-        goal_node=goal_node_id,
-        heuristic_scale=0.0,
-        max_frames=200,
+        start_node=request.start_node_id,
+        goal_node=request.goal_node_id,
+        heuristic_scale=heuristic_scale,
+        max_frames=SURFACE_TRACE_MAX_FRAMES,
     )
     trace_elapsed_ms = (time.perf_counter() - trace_begin) * 1000.0
-    total_elapsed_ms = (preview_elapsed_ms or 0.0) + trace_elapsed_ms
-    planning_timing_ms["plannerTraceCli"] = round_float(trace_elapsed_ms, 2)
-    planning_timing_ms["surfaceRouteTraceTotal"] = round_float(total_elapsed_ms, 2)
+    trace_planning_ms = round_float(float(raw_trace.get("timing_ms", {}).get("planning", 0.0)), 2)
     node_pose_map = {
         str(node_id): pose_point(pose)
         for node_id, pose in raw_trace.get("node_poses", {}).items()
     }
-    planning_logs.append(
+    trace = normalize_astar_trace_document(
+        raw_trace,
+        None,
+        node_pose_map=node_pose_map,
+        summary_overrides={
+            "requestedStart": request.requested_start.model_dump() if request.requested_start else None,
+            "requestedGoal": request.requested_goal.model_dump() if request.requested_goal else None,
+            "projectedStartNodeId": request.start_node_id,
+            "projectedGoalNodeId": request.goal_node_id,
+            "tracePlanningMs": trace_planning_ms,
+            "traceElapsedMs": round_float(trace_elapsed_ms, 2),
+        },
+        trace_mode="surface_route",
+    )
+    trace["projected_start_node_id"] = request.start_node_id
+    trace["projected_goal_node_id"] = request.goal_node_id
+    trace["failure_code"] = "" if trace.get("success", False) else "TRACE_FAILED"
+    trace["failure_reason"] = str(raw_trace.get("failure_reason", ""))
+    trace["team"] = request.team
+    trace["surface_graph_file"] = str(graph_file)
+    trace["node_poses"] = node_pose_map
+    trace["planning_timing_ms"] = {
+        "tracePlanning": trace_planning_ms,
+        "plannerTraceCli": round_float(trace_elapsed_ms, 2),
+    }
+    trace["planning_logs"] = [
         make_planning_log(
             stage="planner_trace_cli",
             level="info" if raw_trace.get("success", False) else "error",
-            title="planner_trace_cli",
+            title="搜索回放生成",
             message=(
-                "已导出 A* 搜索回放"
+                "已按运行时启发式导出搜索回放"
                 if raw_trace.get("success", False)
-                else "A* 搜索回放导出失败"
+                else "搜索回放导出失败"
             ),
             elapsed_ms=trace_elapsed_ms,
             fields=[
+                ("回放路径搜索耗时", format_elapsed_brief(trace_planning_ms)),
+                ("启发尺度", f"{heuristic_scale:.4f}"),
                 ("原始帧数", raw_trace.get("frame_count_total", len(raw_trace.get("frames", [])))),
                 ("返回帧数", raw_trace.get("frame_count_emitted", len(raw_trace.get("frames", [])))),
                 ("是否采样", "是" if raw_trace.get("frames_sampled", False) else "否"),
                 ("总代价", raw_trace.get("total_cost")),
             ],
         )
+    ]
+    return trace
+
+
+def trace_surface_route(request: SurfaceRouteTraceRequest) -> dict[str, Any]:
+    preview = preview_surface_route(request)
+    if not preview.get("success", False):
+        return build_failed_surface_trace_response(preview)
+
+    start_node_id = str(preview.get("projected_start_node_id", ""))
+    goal_node_id = str(preview.get("projected_goal_node_id", ""))
+    if not start_node_id or not goal_node_id:
+        raise RuntimeError("surface_route_cli output missing projected node ids")
+
+    trace = trace_surface_route_from_nodes(
+        SurfaceRouteTraceFromNodesRequest(
+            team=request.team,
+            surface_graph_file=preview.get("surface_graph_file"),
+            start_node_id=start_node_id,
+            goal_node_id=goal_node_id,
+            requested_start=request.start_pick_world,
+            requested_goal=request.goal_pick_world,
+        )
     )
-    planning_logs.append(
+
+    preview_timing_ms = dict(preview.get("planning_timing_ms", {}))
+    trace_timing_ms = dict(trace.get("planning_timing_ms", {}))
+    preview_elapsed_ms = preview_timing_ms.get("surfaceRouteCli")
+    trace_elapsed_ms = trace_timing_ms.get("plannerTraceCli")
+    total_elapsed_ms = round_float((preview_elapsed_ms or 0.0) + (trace_elapsed_ms or 0.0), 2)
+    merged_timing_ms = {
+        **preview_timing_ms,
+        **trace_timing_ms,
+        "surfaceRouteTraceTotal": total_elapsed_ms,
+    }
+    merged_logs = [
+        *list(preview.get("planning_logs", [])),
+        *list(trace.get("planning_logs", [])),
         make_planning_log(
             stage="trace_pipeline",
-            level="info" if raw_trace.get("success", False) else "warn",
-            title="surface-route/trace",
-            message="已组合路线结果与搜索回放输出",
+            level="info" if trace.get("success", False) else "warn",
+            title="回放整合结果",
+            message="已组合路线预览结果与后台搜索回放输出",
             elapsed_ms=total_elapsed_ms,
             fields=[
                 ("起点投影节点", start_node_id),
@@ -1269,29 +1439,29 @@ def trace_surface_route(request: SurfaceRouteTraceRequest) -> dict[str, Any]:
                 ("路径点数", len(preview.get("path_points", []))),
                 ("分段数", len(preview.get("segments", []))),
             ],
-        )
-    )
-    trace = normalize_astar_trace_document(
-        raw_trace,
-        None,
-        node_pose_map=node_pose_map,
-        summary_overrides={
+        ),
+    ]
+    summary = dict(trace.get("summary", {}))
+    summary.update(
+        {
             "requestedStart": request.start_pick_world.model_dump(),
             "requestedGoal": request.goal_pick_world.model_dump(),
             "projectedStartNodeId": start_node_id,
             "projectedGoalNodeId": goal_node_id,
+            "surfaceProjectionMs": preview_timing_ms.get("surfaceProjection"),
+            "surfacePlanningMs": preview_timing_ms.get("surfacePlanning"),
+            "surfacePathExpandMs": preview_timing_ms.get("surfacePathExpand"),
+            "surfaceSegmentBuildMs": preview_timing_ms.get("surfaceSegmentBuild"),
+            "surfaceCompletePlanningMs": preview_timing_ms.get("surfaceCompletePlanning"),
             "previewElapsedMs": preview_elapsed_ms,
-            "traceElapsedMs": round_float(trace_elapsed_ms, 2),
-            "totalElapsedMs": round_float(total_elapsed_ms, 2),
-        },
-        trace_mode="surface_route",
-        path_points_override=preview.get("path_points", []),
+            "totalElapsedMs": total_elapsed_ms,
+        }
     )
-    preview["summary"] = trace["summary"]
-    preview["frames"] = trace["frames"]
-    preview["node_poses"] = node_pose_map
-    preview["planning_logs"] = planning_logs
-    preview["planning_timing_ms"] = planning_timing_ms
+    preview["summary"] = summary
+    preview["frames"] = trace.get("frames", [])
+    preview["node_poses"] = trace.get("node_poses", {})
+    preview["planning_logs"] = merged_logs
+    preview["planning_timing_ms"] = merged_timing_ms
     return preview
 
 
@@ -1395,6 +1565,11 @@ async def surface_route_preview(request: SurfaceRoutePreviewRequest) -> dict[str
 @app.post("/api/surface-route/trace")
 async def surface_route_trace(request: SurfaceRouteTraceRequest) -> dict[str, Any]:
     return trace_surface_route(request)
+
+
+@app.post("/api/surface-route/trace-from-nodes")
+async def surface_route_trace_from_nodes(request: SurfaceRouteTraceFromNodesRequest) -> dict[str, Any]:
+    return trace_surface_route_from_nodes(request)
 
 
 @app.post("/api/surface-route/execute")

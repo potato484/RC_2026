@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import unittest
 from pathlib import Path
 
@@ -157,7 +158,15 @@ class TopoSimServerTest(unittest.TestCase):
         self.assertIn("planning_logs", preview)
         self.assertEqual(preview["planning_logs"][0]["stage"], "request")
         self.assertEqual(preview["planning_logs"][-1]["stage"], "surface_route_cli")
+        self.assertEqual(preview["planning_logs"][0]["message"], "已准备表面图投影与路径规划输入")
+        self.assertEqual(preview["planning_logs"][-1]["title"], "表面路线预览")
+        self.assertGreaterEqual(preview["planning_timing_ms"]["surfaceProjection"], 0.0)
+        self.assertGreaterEqual(preview["planning_timing_ms"]["surfacePlanning"], 0.0)
+        self.assertGreaterEqual(preview["planning_timing_ms"]["surfacePathExpand"], 0.0)
+        self.assertGreaterEqual(preview["planning_timing_ms"]["surfaceSegmentBuild"], 0.0)
+        self.assertGreaterEqual(preview["planning_timing_ms"]["surfaceCompletePlanning"], 0.0)
         self.assertGreater(preview["planning_timing_ms"]["surfaceRouteCli"], 0.0)
+        self.assertNotIn("N/A", json.dumps(preview["planning_logs"], ensure_ascii=False))
 
     def test_surface_route_trace_returns_search_frames(self):
         request = SERVER.SurfaceRouteTraceRequest(
@@ -184,9 +193,55 @@ class TopoSimServerTest(unittest.TestCase):
             [entry["stage"] for entry in trace["planning_logs"]],
             ["request", "surface_route_cli", "planner_trace_cli", "trace_pipeline"],
         )
+        self.assertGreaterEqual(trace["summary"]["surfaceProjectionMs"], 0.0)
+        self.assertGreaterEqual(trace["summary"]["surfacePlanningMs"], 0.0)
+        self.assertGreaterEqual(trace["summary"]["surfacePathExpandMs"], 0.0)
+        self.assertGreaterEqual(trace["summary"]["surfaceSegmentBuildMs"], 0.0)
+        self.assertGreaterEqual(trace["summary"]["surfaceCompletePlanningMs"], 0.0)
+        self.assertGreater(trace["summary"]["tracePlanningMs"], 0.0)
         self.assertGreater(trace["summary"]["previewElapsedMs"], 0.0)
         self.assertGreater(trace["summary"]["traceElapsedMs"], 0.0)
         self.assertGreater(trace["summary"]["totalElapsedMs"], trace["summary"]["traceElapsedMs"])
+        self.assertGreaterEqual(trace["planning_timing_ms"]["surfaceProjection"], 0.0)
+        self.assertGreaterEqual(trace["planning_timing_ms"]["surfacePlanning"], 0.0)
+        self.assertGreaterEqual(trace["planning_timing_ms"]["surfacePathExpand"], 0.0)
+        self.assertGreaterEqual(trace["planning_timing_ms"]["surfaceSegmentBuild"], 0.0)
+        self.assertGreaterEqual(trace["planning_timing_ms"]["surfaceCompletePlanning"], 0.0)
+        self.assertGreater(trace["planning_timing_ms"]["tracePlanning"], 0.0)
+        self.assertGreater(trace["planning_timing_ms"]["plannerTraceCli"], 0.0)
+        self.assertEqual(trace["planning_logs"][1]["title"], "表面路线预览")
+        self.assertEqual(trace["planning_logs"][2]["title"], "搜索回放生成")
+        self.assertEqual(trace["planning_logs"][-1]["title"], "回放整合结果")
+
+    def test_surface_route_trace_from_nodes_returns_background_replay(self):
+        preview = SERVER.preview_surface_route(
+            SERVER.SurfaceRoutePreviewRequest(
+                team="blue",
+                surface_graph_file=str(SURFACE_GRAPH_BLUE),
+                start_pick_world={"x": -1.29, "y": 3.77, "z": 0.41, "yaw": 0.0},
+                goal_pick_world={"x": -1.11, "y": 3.03, "z": 0.01, "yaw": 0.0},
+            )
+        )
+
+        trace = SERVER.trace_surface_route_from_nodes(
+            SERVER.SurfaceRouteTraceFromNodesRequest(
+                team="blue",
+                surface_graph_file=str(SURFACE_GRAPH_BLUE),
+                start_node_id=preview["projected_start_node_id"],
+                goal_node_id=preview["projected_goal_node_id"],
+                requested_start={"x": -1.29, "y": 3.77, "z": 0.41, "yaw": 0.0},
+                requested_goal={"x": -1.11, "y": 3.03, "z": 0.01, "yaw": 0.0},
+            )
+        )
+
+        self.assertTrue(trace["success"])
+        self.assertEqual(trace["projected_start_node_id"], preview["projected_start_node_id"])
+        self.assertEqual(trace["projected_goal_node_id"], preview["projected_goal_node_id"])
+        self.assertGreater(len(trace["frames"]), 5)
+        self.assertEqual([entry["stage"] for entry in trace["planning_logs"]], ["planner_trace_cli"])
+        self.assertEqual(trace["planning_logs"][0]["title"], "搜索回放生成")
+        self.assertGreater(trace["summary"]["tracePlanningMs"], 0.0)
+        self.assertGreater(trace["planning_timing_ms"]["plannerTraceCli"], 0.0)
 
     def test_surface_route_preview_rejects_non_traversable_point(self):
         request = SERVER.SurfaceRoutePreviewRequest(
@@ -203,6 +258,7 @@ class TopoSimServerTest(unittest.TestCase):
         self.assertIn("planning_logs", preview)
         self.assertEqual(preview["planning_logs"][-1]["level"], "error")
         self.assertEqual(preview["planning_logs"][-1]["stage"], "surface_route_cli")
+        self.assertEqual(preview["planning_logs"][-1]["title"], "表面路线预览")
 
     def test_normalize_astar_trace_document_preserves_sampled_frame_metadata(self):
         graph_document = {

@@ -3,6 +3,7 @@ import type {
   SceneManifest,
   SurfaceRouteExecuteResponse,
   SurfaceRoutePreviewResponse,
+  SurfaceRouteTraceFromNodesResponse,
   SurfaceRouteTraceResponse,
   Team,
 } from './types';
@@ -12,6 +13,15 @@ export interface SurfaceRoutePayload {
   start_pick_world: Pose3;
   goal_pick_world: Pose3;
   projection_radius_m?: number;
+}
+
+export interface SurfaceRouteTraceFromNodesPayload {
+  team: Team;
+  start_node_id: string;
+  goal_node_id: string;
+  surface_graph_file?: string;
+  requested_start?: Pose3;
+  requested_goal?: Pose3;
 }
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/$/, '');
@@ -29,7 +39,7 @@ async function fetchJson<T>(path: string, init?: RequestInit, timeoutMs = 30000)
       signal: controller.signal,
     });
     if (!response.ok) {
-      throw new Error(`${path} failed: ${response.status}`);
+      throw new Error(`接口请求失败，状态码 ${response.status}`);
     }
     return (await response.json()) as T;
   } catch (error) {
@@ -63,6 +73,22 @@ export async function previewSurfaceRoute(payload: SurfaceRoutePayload): Promise
 export async function traceSurfaceRoute(payload: SurfaceRoutePayload): Promise<SurfaceRouteTraceResponse> {
   return fetchJson<SurfaceRouteTraceResponse>(
     '/api/surface-route/trace',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    },
+    30000
+  );
+}
+
+export async function traceSurfaceRouteFromNodes(
+  payload: SurfaceRouteTraceFromNodesPayload,
+): Promise<SurfaceRouteTraceFromNodesResponse> {
+  return fetchJson<SurfaceRouteTraceFromNodesResponse>(
+    '/api/surface-route/trace-from-nodes',
     {
       method: 'POST',
       headers: {

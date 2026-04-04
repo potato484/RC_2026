@@ -186,9 +186,27 @@ export interface RouteTraceSummary {
   projectedGoalNodeId?: string;
   requestedStart?: Pose3;
   requestedGoal?: Pose3;
+  surfaceProjectionMs?: number | null;
+  surfacePlanningMs?: number | null;
+  surfacePathExpandMs?: number | null;
+  surfaceSegmentBuildMs?: number | null;
+  surfaceCompletePlanningMs?: number | null;
+  tracePlanningMs?: number | null;
   previewElapsedMs?: number | null;
   traceElapsedMs?: number | null;
   totalElapsedMs?: number | null;
+}
+
+export interface SurfaceRoutePlanningTiming {
+  surfaceProjection?: number;
+  surfacePlanning?: number;
+  surfacePathExpand?: number;
+  surfaceSegmentBuild?: number;
+  surfaceCompletePlanning?: number;
+  surfaceRouteCli?: number;
+  tracePlanning?: number;
+  plannerTraceCli?: number;
+  surfaceRouteTraceTotal?: number;
 }
 
 export interface SurfaceRoutePreviewResponse {
@@ -204,10 +222,25 @@ export interface SurfaceRoutePreviewResponse {
   team?: Team;
   surface_graph_file?: string;
   planning_logs?: PlanningLogEntry[];
-  planning_timing_ms?: Record<string, number>;
+  planning_timing_ms?: SurfaceRoutePlanningTiming;
 }
 
 export interface SurfaceRouteTraceResponse extends SurfaceRoutePreviewResponse {
+  summary: RouteTraceSummary;
+  node_poses?: Record<string, Pose3>;
+  frames: PlannerTraceFrame[];
+}
+
+export interface SurfaceRouteTraceFromNodesResponse {
+  success: boolean;
+  failure_code: string;
+  failure_reason: string;
+  projected_start_node_id?: string;
+  projected_goal_node_id?: string;
+  team?: Team;
+  surface_graph_file?: string;
+  planning_logs?: PlanningLogEntry[];
+  planning_timing_ms?: SurfaceRoutePlanningTiming;
   summary: RouteTraceSummary;
   node_poses?: Record<string, Pose3>;
   frames: PlannerTraceFrame[];
