@@ -1,0 +1,13 @@
+robot_geometry:
+  defaults:
+    active_profile: "compact"
+  profiles:
+    compact:
+      body:
+        half_length_m: 0.36
+        half_width_m: 0.22
+        height_m: 0.42
+      safety:
+        stop_envelope_half_width_m: 0.24
+      planning:
+        surface_projection_radius_m: 0.35
