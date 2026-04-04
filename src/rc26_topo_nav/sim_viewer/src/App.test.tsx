@@ -5,7 +5,11 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useSimStore } from './store';
-import type { SceneManifest, SurfaceRouteTraceResponse } from './types';
+import type {
+  SceneManifest,
+  SurfaceRoutePreviewResponse,
+  SurfaceRouteTraceFromNodesResponse,
+} from './types';
 
 let lastSceneCanvasProps: Record<string, unknown> | null = null;
 
@@ -18,12 +22,18 @@ vi.mock('./components/SceneCanvas', () => ({
 
 vi.mock('./api', () => ({
   fetchSceneManifest: vi.fn(),
-  traceSurfaceRoute: vi.fn(),
+  previewSurfaceRoute: vi.fn(),
+  traceSurfaceRouteFromNodes: vi.fn(),
   executeSurfaceRoute: vi.fn(),
 }));
 
 import App from './App';
-import { executeSurfaceRoute, fetchSceneManifest, traceSurfaceRoute } from './api';
+import {
+  executeSurfaceRoute,
+  fetchSceneManifest,
+  previewSurfaceRoute,
+  traceSurfaceRouteFromNodes,
+} from './api';
 
 const initialState = useSimStore.getState();
 
@@ -92,7 +102,7 @@ function createSceneManifest(): SceneManifest {
   };
 }
 
-function createTraceResponse(): SurfaceRouteTraceResponse {
+function createPreviewResponse(): SurfaceRoutePreviewResponse {
   return {
     success: true,
     failure_code: '',
@@ -117,6 +127,58 @@ function createTraceResponse(): SurfaceRouteTraceResponse {
     ],
     team: 'blue',
     surface_graph_file: 'surface.yaml',
+    planning_timing_ms: {
+      surfaceProjection: 18.5,
+      surfacePlanning: 24.25,
+      surfacePathExpand: 8.25,
+      surfaceSegmentBuild: 4.87,
+      surfaceCompletePlanning: 55.87,
+      surfaceRouteCli: 44.75,
+    },
+    planning_logs: [
+      {
+        stage: 'request',
+        level: 'info',
+        title: '收到路线请求',
+        message: '已准备表面图投影与路径规划输入',
+        elapsed_ms: null,
+        fields: [],
+      },
+      {
+        stage: 'surface_route_cli',
+        level: 'info',
+        title: '表面路线预览',
+        message: '已完成点击点投影并生成路线',
+        elapsed_ms: 44.75,
+        fields: [],
+      },
+    ],
+  };
+}
+
+function createTraceResponse(): SurfaceRouteTraceFromNodesResponse {
+  return {
+    success: true,
+    failure_code: '',
+    failure_reason: '',
+    projected_start_node_id: 'sf_start',
+    projected_goal_node_id: 'sf_goal',
+    team: 'blue',
+    surface_graph_file: 'surface.yaml',
+    planning_timing_ms: {
+      tracePlanning: 45.5,
+      plannerTraceCli: 82.25,
+    },
+    planning_logs: [
+      {
+        stage: 'planner_trace_cli',
+        level: 'info',
+        title: '搜索回放生成',
+        message: '已按运行时启发式导出搜索回放',
+        elapsed_ms: 82.25,
+        fields: [],
+      },
+    ],
     summary: {
       totalCost: 3.25,
       framesCount: 2,
@@ -124,6 +186,8 @@ function createTraceResponse(): SurfaceRouteTraceResponse {
       framesSampled: false,
       projectedStartNodeId: 'sf_start',
       projectedGoalNodeId: 'sf_goal',
+      tracePlanningMs: 45.5,
+      traceElapsedMs: 82.25,
     },
     node_poses: {
       sf_start: { x: 0, y: 0, z: 0.1, yaw: 0 },
@@ -162,6 +226,28 @@ function createTraceResponse(): SurfaceRouteTraceResponse {
   };
 }
 
+async function pickStartAndGoal() {
+  fireEvent.click(screen.getByRole('button', { name: '设起点' }));
+  await act(async () => {
+    (lastSceneCanvasProps?.onPickWorld as ((pose: { x: number; y: number; z: number; yaw: number }) => void))?.({
+      x: 0,
+      y: 0,
+      z: 0.1,
+      yaw: 0,
+    });
+  });
+
+  fireEvent.click(screen.getByRole('button', { name: '设终点' }));
+  await act(async () => {
+    (lastSceneCanvasProps?.onPickWorld as ((pose: { x: number; y: number; z: number; yaw: number }) => void))?.({
+      x: 1,
+      y: 1,
+      z: 0.3,
+      yaw: 0,
+    });
+  });
+}
+
 describe('App', () => {
   afterEach(() => {
     cleanup();
@@ -171,10 +257,11 @@ describe('App', () => {
     vi.clearAllMocks();
     lastSceneCanvasProps = null;
     vi.mocked(fetchSceneManifest).mockResolvedValue(createSceneManifest());
-    vi.mocked(traceSurfaceRoute).mockResolvedValue(createTraceResponse());
+    vi.mocked(previewSurfaceRoute).mockResolvedValue(createPreviewResponse());
+    vi.mocked(traceSurfaceRouteFromNodes).mockResolvedValue(createTraceResponse());
     vi.mocked(executeSurfaceRoute).mockResolvedValue({
       accepted: true,
-      preview: createTraceResponse(),
+      preview: createPreviewResponse(),
     });
     useSimStore.setState({
       ...initialState,
@@ -185,70 +272,89 @@ describe('App', () => {
   it('renders the single-purpose 3d route observer layout', async () => {
     render(<App />);
 
-    await screen.findByRole('heading', { name: '3D 路线观察台' });
+    await screen.findByRole('heading', { name: '三维路线观察台' });
     await waitFor(() => {
       expect(lastSceneCanvasProps).not.toBeNull();
     });
 
     expect(screen.getByRole('button', { name: '设起点' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '设终点' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '生成 3D 路线' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '生成三维路线' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: '高级 / 调试' })).toBeNull();
     expect(screen.getByRole('button', { name: '场景' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '前沿' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '已探查' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: '搜索树' })).toBeNull();
     expect(screen.getByText('RC26 表面路线')).toBeTruthy();
-    expect(screen.getByText('表面 A* 三维路线')).toBeTruthy();
+    expect(screen.getByText('表面三维路线')).toBeTruthy();
+    expect(screen.getByText('蓝色圆点表示前沿点')).toBeTruthy();
+    expect(screen.getByText('黄色方块表示已探查点')).toBeTruthy();
+    expect(screen.getByTestId('summary-strip')).toBeTruthy();
+    expect(screen.getByTestId('inspector-grid')).toBeTruthy();
   });
 
-  it('records picks, generates a trace, and allows slider replay', async () => {
+  it('enables execute after preview before trace replay finishes', async () => {
+    let resolveTrace: ((value: SurfaceRouteTraceFromNodesResponse) => void) | null = null;
+    vi.mocked(traceSurfaceRouteFromNodes).mockImplementation(
+      () =>
+        new Promise<SurfaceRouteTraceFromNodesResponse>((resolve) => {
+          resolveTrace = resolve;
+        }),
+    );
+
     render(<App />);
 
     await waitFor(() => {
       expect(lastSceneCanvasProps).not.toBeNull();
     });
+    await pickStartAndGoal();
 
-    fireEvent.click(screen.getByRole('button', { name: '设起点' }));
+    fireEvent.click(screen.getByRole('button', { name: '生成三维路线' }));
+
     await waitFor(() => {
-      expect(lastSceneCanvasProps?.pickMode).toBe('surface_start');
+      expect(previewSurfaceRoute).toHaveBeenCalledTimes(1);
     });
-    await act(async () => {
-      (lastSceneCanvasProps?.onPickWorld as ((pose: { x: number; y: number; z: number; yaw: number }) => void))?.({
-        x: 0,
-        y: 0,
-        z: 0.1,
-        yaw: 0,
-      });
+    await waitFor(() => {
+      expect(screen.getByText('表面起点采样点')).toBeTruthy();
+      expect(screen.getByText('表面终点采样点')).toBeTruthy();
+      expect(screen.getByRole('button', { name: '执行当前路线' }).getAttribute('disabled')).toBeNull();
+      expect(screen.getAllByText('55.87 毫秒').length).toBeGreaterThan(0);
     });
 
-    fireEvent.click(screen.getByRole('button', { name: '设终点' }));
-    await waitFor(() => {
-      expect(lastSceneCanvasProps?.pickMode).toBe('surface_goal');
-    });
-    await act(async () => {
-      (lastSceneCanvasProps?.onPickWorld as ((pose: { x: number; y: number; z: number; yaw: number }) => void))?.({
-        x: 1,
-        y: 1,
-        z: 0.3,
-        yaw: 0,
-      });
+    act(() => {
+      resolveTrace?.(createTraceResponse());
     });
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: '生成 3D 路线' }).getAttribute('disabled')).toBeNull();
+      expect(screen.getAllByText('2 / 2').length).toBeGreaterThan(0);
     });
+  });
 
-    fireEvent.click(screen.getByRole('button', { name: '生成 3D 路线' }));
+  it('records picks, generates replay, and allows slider replay', async () => {
+    render(<App />);
 
     await waitFor(() => {
-      expect(traceSurfaceRoute).toHaveBeenCalledTimes(1);
+      expect(lastSceneCanvasProps).not.toBeNull();
+    });
+    await pickStartAndGoal();
+
+    fireEvent.click(screen.getByRole('button', { name: '生成三维路线' }));
+
+    await waitFor(() => {
+      expect(previewSurfaceRoute).toHaveBeenCalledTimes(1);
+      expect(traceSurfaceRouteFromNodes).toHaveBeenCalledTimes(1);
     });
 
-    expect(screen.getByText('sf_start')).toBeTruthy();
-    expect(screen.getByText('sf_goal')).toBeTruthy();
+    expect(screen.getByText('表面起点采样点')).toBeTruthy();
+    expect(screen.getByText('表面终点采样点')).toBeTruthy();
     expect(screen.getByDisplayValue('1')).toBeTruthy();
     expect(screen.getAllByText('2 / 2').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('55.87 毫秒').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('82.25 毫秒').length).toBeGreaterThan(0);
+    expect(screen.getByText('累计代价')).toBeTruthy();
+    expect(screen.getByText('估计总代价')).toBeTruthy();
+    expect(screen.queryByText('sf_start')).toBeNull();
+    expect(screen.queryByText('sf_goal')).toBeNull();
     expect((lastSceneCanvasProps?.frame as { bestPath?: { points?: unknown[] } } | null)?.bestPath?.points).toHaveLength(2);
 
     fireEvent.change(screen.getByLabelText('回放帧'), { target: { value: '0' } });
@@ -265,35 +371,43 @@ describe('App', () => {
     await waitFor(() => {
       expect(lastSceneCanvasProps).not.toBeNull();
     });
+    await pickStartAndGoal();
 
-    fireEvent.click(screen.getByRole('button', { name: '设起点' }));
-    await act(async () => {
-      (lastSceneCanvasProps?.onPickWorld as ((pose: { x: number; y: number; z: number; yaw: number }) => void))?.({
-        x: 0,
-        y: 0,
-        z: 0.1,
-        yaw: 0,
-      });
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: '设终点' }));
-    await act(async () => {
-      (lastSceneCanvasProps?.onPickWorld as ((pose: { x: number; y: number; z: number; yaw: number }) => void))?.({
-        x: 1,
-        y: 1,
-        z: 0.3,
-        yaw: 0,
-      });
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: '生成 3D 路线' }));
+    fireEvent.click(screen.getByRole('button', { name: '生成三维路线' }));
 
     await waitFor(() => {
-      expect(traceSurfaceRoute).toHaveBeenCalledTimes(1);
+      expect(traceSurfaceRouteFromNodes).toHaveBeenCalledTimes(1);
     });
 
     expect(screen.getAllByText('到达目标').length).toBeGreaterThan(0);
     expect(screen.queryByText('goal reached')).toBeNull();
+    expect(screen.queryByText('surface_route_cli')).toBeNull();
+    expect(screen.queryByText('planner_trace_cli')).toBeNull();
+    expect(screen.queryByText('N/A')).toBeNull();
+    expect(screen.queryByText(/A\*/)).toBeNull();
+    expect(screen.queryByText('gCost')).toBeNull();
+    expect(screen.queryByText('fCost')).toBeNull();
+  });
+
+  it('hides raw english request errors behind chinese fallback text', async () => {
+    vi.mocked(previewSurfaceRoute).mockRejectedValueOnce(new Error('Failed to fetch'));
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(lastSceneCanvasProps).not.toBeNull();
+    });
+    await pickStartAndGoal();
+
+    fireEvent.click(screen.getByRole('button', { name: '生成三维路线' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('浏览器到规划服务的请求失败')).toBeTruthy();
+    });
+
+    expect(screen.getByText('三维路线生成失败: 浏览器到规划服务的请求失败')).toBeTruthy();
+    expect(screen.queryByText(/Failed to fetch/)).toBeNull();
+    expect(screen.queryByText(/Error:/)).toBeNull();
   });
 
   it('shows sampled trace counts when the adapter returns a compressed replay', async () => {
@@ -301,35 +415,16 @@ describe('App', () => {
     sampledResponse.summary.framesCount = 1200;
     sampledResponse.summary.returnedFramesCount = 2;
     sampledResponse.summary.framesSampled = true;
-    vi.mocked(traceSurfaceRoute).mockResolvedValue(sampledResponse);
+    vi.mocked(traceSurfaceRouteFromNodes).mockResolvedValue(sampledResponse);
 
     render(<App />);
 
     await waitFor(() => {
       expect(lastSceneCanvasProps).not.toBeNull();
     });
+    await pickStartAndGoal();
 
-    fireEvent.click(screen.getByRole('button', { name: '设起点' }));
-    await act(async () => {
-      (lastSceneCanvasProps?.onPickWorld as ((pose: { x: number; y: number; z: number; yaw: number }) => void))?.({
-        x: 0,
-        y: 0,
-        z: 0.1,
-        yaw: 0,
-      });
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: '设终点' }));
-    await act(async () => {
-      (lastSceneCanvasProps?.onPickWorld as ((pose: { x: number; y: number; z: number; yaw: number }) => void))?.({
-        x: 1,
-        y: 1,
-        z: 0.3,
-        yaw: 0,
-      });
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: '生成 3D 路线' }));
+    fireEvent.click(screen.getByRole('button', { name: '生成三维路线' }));
 
     await waitFor(() => {
       expect(screen.getByText('已生成 2 / 1200 帧搜索回放')).toBeTruthy();

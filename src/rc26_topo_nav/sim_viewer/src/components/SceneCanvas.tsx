@@ -638,7 +638,12 @@ class BabylonSceneManager {
 
     const offlinePath = frame?.bestPath.points ?? [];
     const manualPreviewPath = manualPath ?? [];
-    const pathGoal = offlinePath.length > 0 ? offlinePath[offlinePath.length - 1] : goalPose;
+    const pathGoal =
+      manualPreviewPath.length > 0
+        ? manualPreviewPath[manualPreviewPath.length - 1]
+        : offlinePath.length > 0
+          ? offlinePath[offlinePath.length - 1]
+          : goalPose;
     const surfaceTrace = frame?.metrics?.traceMode === 'surface_route';
     
     if (pathGoal) {
@@ -698,13 +703,15 @@ class BabylonSceneManager {
     };
 
     createTube(manualPreviewPath, '#2f80ed', 0.018, 0.96, 0.07);
-    createTube(
-      offlinePath,
-      surfaceTrace ? '#2f80ed' : '#355070',
-      surfaceTrace ? 0.018 : 0.024,
-      0.96,
-      surfaceTrace ? 0.07 : 0.06,
-    );
+    if (manualPreviewPath.length === 0 || !surfaceTrace) {
+      createTube(
+        offlinePath,
+        surfaceTrace ? '#2f80ed' : '#355070',
+        surfaceTrace ? 0.018 : 0.024,
+        0.96,
+        surfaceTrace ? 0.07 : 0.06,
+      );
+    }
     createTube(liveEvent?.routePath ?? [], '#0ea5e9', 0.02, 0.88, 0.065);
     createTube(liveEvent?.corridorPath ?? [], '#fb8500', 0.016, 0.88, 0.055);
 
@@ -947,7 +954,7 @@ export function SceneCanvas(props: SceneCanvasProps) {
   }, [engineReady, props.scene, props.pickMode, props.onHoverNodeChange, props.onPickNode, props.onHoverWorldChange, props.onPickWorld]);
 
   if (!props.scene) {
-    return <div className="canvas-placeholder">场景未加载，无法渲染 3D 视图。</div>;
+    return <div className="canvas-placeholder">场景未加载，无法渲染三维视图。</div>;
   }
 
   return (

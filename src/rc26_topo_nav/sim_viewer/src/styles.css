@@ -369,6 +369,20 @@ select {
   color: #14293b;
 }
 
+.hud-metric {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  padding: 2px 0 4px;
+  color: #15334c;
+  font-size: 0.84rem;
+}
+
+.hud-metric strong {
+  text-align: right;
+}
+
 .hud-card-wide {
   min-width: min(320px, calc(100vw - 80px));
 }
@@ -385,6 +399,39 @@ select {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.canvas-legend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.canvas-legend-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.canvas-legend-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: #18344a;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.canvas-legend-copy strong {
+  font-family: "Noto Sans SC", "PingFang SC", sans-serif;
+  font-size: 0.84rem;
+  color: #102536;
+}
+
+.canvas-legend-note {
+  color: var(--fg-muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
 }
 
 .layer-button {
@@ -535,6 +582,27 @@ select {
   padding: 18px;
 }
 
+.summary-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.inspector-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 18px;
+  align-items: start;
+}
+
+.inspector-column {
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  min-width: 0;
+}
+
 .debug-grid {
   display: grid;
   grid-template-columns: minmax(280px, 360px) minmax(220px, 320px) minmax(320px, 1fr);
@@ -650,6 +718,7 @@ select {
 .trace-meta {
   display: flex;
   gap: 10px;
+  flex-wrap: wrap;
   margin-top: 6px;
   color: #43617d;
   font-size: 0.86rem;
@@ -690,6 +759,9 @@ select {
   margin-top: 12px;
   display: grid;
   gap: 12px;
+  max-height: 28rem;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .planning-log-item {
@@ -785,6 +857,12 @@ select {
   overflow-wrap: anywhere;
 }
 
+.metrics-list-scroll {
+  max-height: 18rem;
+  overflow: auto;
+  padding-right: 4px;
+}
+
 .canvas-placeholder {
   display: grid;
   place-items: center;
@@ -805,7 +883,7 @@ select {
     top: 118px;
   }
 
-  .debug-grid {
+  .inspector-grid {
     grid-template-columns: 1fr;
   }
 }

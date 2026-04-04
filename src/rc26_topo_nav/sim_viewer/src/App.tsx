@@ -1,11 +1,22 @@
-import { startTransition, useEffect, useMemo, useState } from 'react';
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 
-import { executeSurfaceRoute, fetchSceneManifest, traceSurfaceRoute } from './api';
+import {
+  executeSurfaceRoute,
+  fetchSceneManifest,
+  previewSurfaceRoute,
+  traceSurfaceRouteFromNodes,
+} from './api';
 import { SceneCanvas } from './components/SceneCanvas';
 import {
   formatFrameLabel,
+  formatFrameMetricLabel,
   formatFramePhase,
+  formatFailureSummary,
+  formatNodeLabel,
+  formatNodeTransitionLabel,
+  formatPlanningLogFieldValue,
+  formatUnexpectedError,
   MOTION_TYPE_LABELS,
   TEAM_LABELS,
   TEAM_SHORT_LABELS,
@@ -24,15 +35,17 @@ import type {
   RouteTraceSummary,
   SceneManifest,
   SurfaceRouteSegment,
+  SurfaceRoutePlanningTiming,
+  SurfaceRoutePreviewResponse,
   Team,
   ViewMode,
 } from './types';
 
 function formatPose(pose: Pose3 | null): string {
   if (!pose) {
-    return 'N/A';
+    return UI_LABELS.emptyValue;
   }
-  return `${pose.x.toFixed(2)}, ${pose.y.toFixed(2)}, ${pose.z.toFixed(2)}`;
+  return `${pose.x.toFixed(2)}，${pose.y.toFixed(2)}，${pose.z.toFixed(2)}`;
 }
 
 function formatMetricValue(value: unknown): string {
@@ -40,22 +53,31 @@ function formatMetricValue(value: unknown): string {
     return Number.isInteger(value) ? String(value) : value.toFixed(3);
   }
   if (typeof value === 'boolean') {
-    return value ? 'true' : 'false';
+    return value ? '是' : '否';
   }
   if (value == null) {
-    return 'N/A';
+    return UI_LABELS.emptyValue;
   }
   if (typeof value === 'object') {
-    return JSON.stringify(value);
+    return '已记录';
   }
   return String(value);
 }
 
 function formatElapsedMs(value: number | null | undefined): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return 'N/A';
+    return UI_LABELS.emptyValue;
   }
-  return `${value.toFixed(value >= 100 ? 0 : 2)} ms`;
+  return `${value.toFixed(2)} 毫秒`;
+}
+
+function resolveTimingMs(...values: Array<number | null | undefined>): number | null {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return null;
 }
 
 function formatPlanningLogLevel(level: PlanningLogEntry['level']): string {
@@ -141,6 +163,51 @@ function RouteStats({
   );
 }
 
+function buildPreviewSummary(
+  response: SurfaceRoutePreviewResponse,
+  requestedStart: Pose3,
+  requestedGoal: Pose3,
+): RouteTraceSummary {
+  return {
+    projectedStartNodeId: response.projected_start_node_id,
+    projectedGoalNodeId: response.projected_goal_node_id,
+    requestedStart,
+    requestedGoal,
+    surfaceProjectionMs: response.planning_timing_ms?.surfaceProjection ?? null,
+    surfacePlanningMs: response.planning_timing_ms?.surfacePlanning ?? null,
+    surfacePathExpandMs: response.planning_timing_ms?.surfacePathExpand ?? null,
+    surfaceSegmentBuildMs: response.planning_timing_ms?.surfaceSegmentBuild ?? null,
+    surfaceCompletePlanningMs: response.planning_timing_ms?.surfaceCompletePlanning ?? null,
+    previewElapsedMs: response.planning_timing_ms?.surfaceRouteCli ?? null,
+    tracePlanningMs: null,
+    traceElapsedMs: null,
+    totalElapsedMs: response.planning_timing_ms?.surfaceRouteCli ?? null,
+  };
+}
+
+function mergePlanningTiming(
+  current: SurfaceRoutePlanningTiming | null,
+  next: SurfaceRoutePlanningTiming | null | undefined,
+): SurfaceRoutePlanningTiming | null {
+  if (!current && !next) {
+    return null;
+  }
+  const merged: SurfaceRoutePlanningTiming = {
+    ...(current ?? {}),
+    ...(next ?? {}),
+  };
+  const previewChain = merged.surfaceRouteCli;
+  const traceChain = merged.plannerTraceCli;
+  if (typeof previewChain === 'number' && Number.isFinite(previewChain)) {
+    if (typeof traceChain === 'number' && Number.isFinite(traceChain)) {
+      merged.surfaceRouteTraceTotal = Number((previewChain + traceChain).toFixed(2));
+    } else {
+      merged.surfaceRouteTraceTotal = previewChain;
+    }
+  }
+  return merged;
+}
+
 export default function App() {
   const scene = useSimStore((state) => state.scene);
   const loadingScene = useSimStore((state) => state.loadingScene);
@@ -167,10 +234,13 @@ export default function App() {
   const [traceFrames, setTraceFrames] = useState<PlannerTraceFrame[]>([]);
   const [traceNodePoses, setTraceNodePoses] = useState<Record<string, Pose3>>({});
   const [traceSummary, setTraceSummary] = useState<RouteTraceSummary | null>(null);
+  const [planningTiming, setPlanningTiming] = useState<SurfaceRoutePlanningTiming | null>(null);
   const [planningLogs, setPlanningLogs] = useState<PlanningLogEntry[]>([]);
   const [traceIndex, setTraceIndex] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isTraceLoading, setIsTraceLoading] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
+  const routeRequestSeq = useRef(0);
 
   const traceNodePoseMap = useMemo(
     () => buildTraceNodePoseMap(scene, traceNodePoses),
@@ -194,8 +264,18 @@ export default function App() {
   const startPose = surfaceProjectedStart ?? surfaceStartPick;
   const goalPose = surfaceProjectedGoal ?? surfaceGoalPick;
   const viewModes: ViewMode[] = ['orbit', 'top_ortho', 'side_perspective'];
-  const frameMetrics = Object.entries(currentFrame?.metrics ?? {}).filter(([key]) => key !== 'traceMode');
-  const traceTitle = currentFrame ? formatFrameLabel(currentFrame.label, currentFrame.phase) : UI_LABELS.hintTraceEmpty;
+  const frameMetrics = Object.entries(currentFrame?.metrics ?? {})
+    .filter(([key]) => key !== 'traceMode')
+    .map(([key, value]) => ({
+      key,
+      label: formatFrameMetricLabel(key),
+      value,
+    }));
+  const traceTitle = currentFrame
+    ? formatFrameLabel(currentFrame.label, currentFrame.phase)
+    : isTraceLoading
+      ? UI_LABELS.statusBackgroundReplay
+      : UI_LABELS.hintTraceEmpty;
   const traceProgressText = traceFrames.length > 0 ? `${traceIndex + 1} / ${traceFrames.length}` : '0 / 0';
   const traceFrameTotal = traceSummary?.framesCount ?? traceFrames.length;
   const traceFrameOverview =
@@ -206,9 +286,36 @@ export default function App() {
     traceSummary?.framesSampled && traceFrameTotal > traceFrames.length
       ? `${traceProgressText}（原始 ${traceFrameTotal} 帧）`
       : traceProgressText;
-  const hasError = statusMessage.includes('失败') || statusMessage.includes('error');
-  const busy = isGenerating || isExecuting;
-  const routeReady = surfacePath.length > 0 && traceFrames.length > 0;
+  const routeReady = surfacePath.length > 0;
+  const traceReady = traceFrames.length > 0;
+  const traceStatusText = routeReady
+    ? isTraceLoading
+      ? '路线已生成，回放补齐中'
+      : traceReady
+        ? `已生成 ${traceFrameOverview} 帧搜索回放`
+        : '路线已生成，等待回放'
+    : '等待生成路线';
+  const surfaceCompletePlanningMs = resolveTimingMs(
+    traceSummary?.surfaceCompletePlanningMs,
+    planningTiming?.surfaceCompletePlanning,
+  );
+  const surfaceProjectionMs = resolveTimingMs(traceSummary?.surfaceProjectionMs, planningTiming?.surfaceProjection);
+  const surfacePlanningMs = resolveTimingMs(traceSummary?.surfacePlanningMs, planningTiming?.surfacePlanning);
+  const surfacePathExpandMs = resolveTimingMs(traceSummary?.surfacePathExpandMs, planningTiming?.surfacePathExpand);
+  const surfaceSegmentBuildMs = resolveTimingMs(traceSummary?.surfaceSegmentBuildMs, planningTiming?.surfaceSegmentBuild);
+  const tracePlanningMs = resolveTimingMs(traceSummary?.tracePlanningMs, planningTiming?.tracePlanning);
+  const previewChainMs = resolveTimingMs(traceSummary?.previewElapsedMs, planningTiming?.surfaceRouteCli);
+  const traceChainMs = resolveTimingMs(traceSummary?.traceElapsedMs, planningTiming?.plannerTraceCli);
+  const totalElapsedMs = resolveTimingMs(traceSummary?.totalElapsedMs, planningTiming?.surfaceRouteTraceTotal);
+  const timingHeadlineParts = [
+    surfaceCompletePlanningMs == null ? null : `${UI_LABELS.statCompletePlanning} ${formatElapsedMs(surfaceCompletePlanningMs)}`,
+    previewChainMs == null ? null : `${UI_LABELS.statPreviewChain} ${formatElapsedMs(previewChainMs)}`,
+    tracePlanningMs == null ? null : `${UI_LABELS.statTracePlanning} ${formatElapsedMs(tracePlanningMs)}`,
+    traceChainMs == null ? null : `${UI_LABELS.statTraceChain} ${formatElapsedMs(traceChainMs)}`,
+  ].filter((value): value is string => value != null);
+  const timingHeadline = timingHeadlineParts.length > 0 ? timingHeadlineParts.join('，') : '等待生成时间摘要';
+  const hasError = statusMessage.includes('失败') || statusMessage.includes('错误') || statusMessage.includes('error');
+  const busy = isGenerating || isTraceLoading || isExecuting;
   const pickHint =
     pickMode === 'surface_start'
       ? UI_LABELS.hintPickSurfaceStart
@@ -217,6 +324,7 @@ export default function App() {
         : UI_LABELS.hintPickIdle;
 
   function clearGeneratedRoute() {
+    routeRequestSeq.current += 1;
     setSurfaceProjectedStart(null);
     setSurfaceProjectedGoal(null);
     setSurfacePath([]);
@@ -224,8 +332,10 @@ export default function App() {
     setTraceFrames([]);
     setTraceNodePoses({});
     setTraceSummary(null);
+    setPlanningTiming(null);
     setPlanningLogs([]);
     setTraceIndex(0);
+    setIsTraceLoading(false);
   }
 
   function clearAllRoute() {
@@ -254,7 +364,7 @@ export default function App() {
           return;
         }
         setSceneLoading(false);
-        setStatusMessage(`${UI_LABELS.statusError}: ${String(error)}`);
+        setStatusMessage(`${UI_LABELS.statusError}: ${formatUnexpectedError(error, '场景加载请求失败')}`);
       });
     return () => {
       active = false;
@@ -295,7 +405,7 @@ export default function App() {
       setStatusMessage('起点已记录，继续在场景中设置终点');
     } else {
       setSurfaceGoalPick(pose);
-      setStatusMessage('终点已记录，可以生成 3D 路线');
+      setStatusMessage('终点已记录，可以生成三维路线');
     }
     setPickMode('idle');
   }
@@ -306,52 +416,177 @@ export default function App() {
       return;
     }
 
+    const requestId = routeRequestSeq.current + 1;
+    routeRequestSeq.current = requestId;
+    let previewResponse: SurfaceRoutePreviewResponse | null = null;
     setIsGenerating(true);
+    setIsTraceLoading(false);
+    setSurfaceProjectedStart(null);
+    setSurfaceProjectedGoal(null);
+    setSurfacePath([]);
+    setSurfaceSegments([]);
+    setTraceFrames([]);
+    setTraceNodePoses({});
+    setTraceSummary(null);
+    setTraceIndex(0);
     setPlanningLogs([]);
+    setPlanningTiming(null);
     try {
-      const response = await traceSurfaceRoute({
+      const preview = await previewSurfaceRoute({
         team,
         start_pick_world: surfaceStartPick,
         goal_pick_world: surfaceGoalPick,
       });
-      setPlanningLogs(response.planning_logs ?? []);
-      if (!response.success) {
-        clearGeneratedRoute();
-        setPlanningLogs(response.planning_logs ?? []);
-        setStatusMessage(`3D 路线生成失败: ${response.failure_reason || response.failure_code}`);
+      previewResponse = preview;
+      if (routeRequestSeq.current !== requestId) {
         return;
       }
 
-      setSurfaceProjectedStart(response.projected_start);
-      setSurfaceProjectedGoal(response.projected_goal);
-      setSurfacePath(response.path_points);
-      setSurfaceSegments(response.segments);
-      setTraceSummary(response.summary);
-      setTraceFrames(response.frames);
-      setTraceNodePoses(response.node_poses ?? {});
-      setTraceIndex(Math.max(response.frames.length - 1, 0));
-      const sampledHint =
-        response.summary.framesSampled && (response.summary.framesCount ?? response.frames.length) > response.frames.length
-          ? `，回放已压缩为 ${response.frames.length} / ${response.summary.framesCount} 帧`
-          : `，${response.frames.length} 帧`;
+      setPlanningTiming(preview.planning_timing_ms ?? null);
+      setPlanningLogs(preview.planning_logs ?? []);
+      if (!preview.success) {
+        setSurfaceProjectedStart(null);
+        setSurfaceProjectedGoal(null);
+        setSurfacePath([]);
+        setSurfaceSegments([]);
+        setTraceFrames([]);
+        setTraceNodePoses({});
+        setTraceSummary(null);
+        setTraceIndex(0);
+        setStatusMessage(`三维路线生成失败: ${formatFailureSummary(preview.failure_reason, preview.failure_code)}`);
+        return;
+      }
+
+      setSurfaceProjectedStart(preview.projected_start);
+      setSurfaceProjectedGoal(preview.projected_goal);
+      setSurfacePath(preview.path_points);
+      setSurfaceSegments(preview.segments);
+      setTraceSummary(buildPreviewSummary(preview, surfaceStartPick, surfaceGoalPick));
+      const currentSurfacePlanningMs = resolveTimingMs(
+        preview.planning_timing_ms?.surfaceCompletePlanning,
+      );
+      const currentPreviewChainMs = resolveTimingMs(
+        preview.planning_timing_ms?.surfaceRouteCli,
+      );
+      const planningHint =
+        currentSurfacePlanningMs == null ? '' : `，完整规划 ${formatElapsedMs(currentSurfacePlanningMs)}`;
       const elapsedHint =
-        response.summary.totalElapsedMs == null ? '' : `，总耗时 ${formatElapsedMs(response.summary.totalElapsedMs)}`;
-      setStatusMessage(`3D 路线已生成，共 ${response.segments.length} 段${sampledHint}${elapsedHint}`);
+        currentPreviewChainMs == null ? '' : `，网页预览链路 ${formatElapsedMs(currentPreviewChainMs)}`;
+      setStatusMessage(`三维路线已生成，共 ${preview.segments.length} 段${planningHint}${elapsedHint}，正在后台生成搜索回放`);
     } catch (error) {
-      clearGeneratedRoute();
-      setPlanningLogs([
+      if (routeRequestSeq.current === requestId) {
+        const requestErrorMessage = formatUnexpectedError(error, '浏览器到规划服务的请求失败');
+        setSurfaceProjectedStart(null);
+        setSurfaceProjectedGoal(null);
+        setSurfacePath([]);
+        setSurfaceSegments([]);
+        setTraceFrames([]);
+        setTraceNodePoses({});
+        setTraceSummary(null);
+        setTraceIndex(0);
+        setPlanningTiming(null);
+        setPlanningLogs([
+          {
+            stage: 'browser_request',
+            level: 'error',
+            title: '浏览器请求失败',
+            message: requestErrorMessage,
+            elapsed_ms: null,
+            fields: [],
+          },
+        ]);
+        setStatusMessage(`三维路线生成失败: ${requestErrorMessage}`);
+      }
+    } finally {
+      if (routeRequestSeq.current === requestId) {
+        setIsGenerating(false);
+      }
+    }
+
+    if (routeRequestSeq.current !== requestId) {
+      return;
+    }
+    if (!previewResponse?.success) {
+      return;
+    }
+
+    const startNodeId = previewResponse.projected_start_node_id;
+    const goalNodeId = previewResponse.projected_goal_node_id;
+    if (!startNodeId || !goalNodeId) {
+      setStatusMessage('三维路线已生成，但缺少投影节点，无法补齐搜索回放');
+      return;
+    }
+
+    setIsTraceLoading(true);
+    try {
+      const trace = await traceSurfaceRouteFromNodes({
+        team,
+        surface_graph_file: previewResponse.surface_graph_file,
+        start_node_id: startNodeId,
+        goal_node_id: goalNodeId,
+        requested_start: surfaceStartPick,
+        requested_goal: surfaceGoalPick,
+      });
+      if (routeRequestSeq.current !== requestId) {
+        return;
+      }
+
+      setTraceFrames(trace.frames);
+      setTraceNodePoses(trace.node_poses ?? {});
+      setTraceIndex(Math.max(trace.frames.length - 1, 0));
+      setPlanningTiming((current) => mergePlanningTiming(current, trace.planning_timing_ms ?? null));
+      setPlanningLogs((current) => [...current, ...(trace.planning_logs ?? [])]);
+      setTraceSummary((current) => {
+        const previewSummary = current ?? buildPreviewSummary(previewResponse, surfaceStartPick, surfaceGoalPick);
+        const mergedSummary: RouteTraceSummary = {
+          ...previewSummary,
+          ...trace.summary,
+        };
+        const previewChain = resolveTimingMs(previewSummary.previewElapsedMs, previewResponse.planning_timing_ms?.surfaceRouteCli);
+        const traceChain = resolveTimingMs(trace.summary.traceElapsedMs, trace.planning_timing_ms?.plannerTraceCli);
+        mergedSummary.previewElapsedMs = previewChain;
+        mergedSummary.traceElapsedMs = traceChain;
+        mergedSummary.totalElapsedMs =
+          previewChain == null ? traceChain : traceChain == null ? previewChain : Number((previewChain + traceChain).toFixed(2));
+        mergedSummary.surfaceProjectionMs = previewSummary.surfaceProjectionMs ?? null;
+        mergedSummary.surfacePlanningMs = previewSummary.surfacePlanningMs ?? null;
+        mergedSummary.surfacePathExpandMs = previewSummary.surfacePathExpandMs ?? null;
+        mergedSummary.surfaceSegmentBuildMs = previewSummary.surfaceSegmentBuildMs ?? null;
+        mergedSummary.surfaceCompletePlanningMs = previewSummary.surfaceCompletePlanningMs ?? null;
+        return mergedSummary;
+      });
+
+      if (!trace.success) {
+        setStatusMessage(`三维路线已生成，但搜索回放失败: ${formatFailureSummary(trace.failure_reason, trace.failure_code)}`);
+        return;
+      }
+
+      const sampledHint =
+        trace.summary.framesSampled && (trace.summary.framesCount ?? trace.frames.length) > trace.frames.length
+          ? `，回放已压缩为 ${trace.frames.length} / ${trace.summary.framesCount} 帧`
+          : `，回放 ${trace.frames.length} 帧`;
+      setStatusMessage(`三维路线与搜索回放已就绪，共 ${previewResponse.segments.length} 段${sampledHint}`);
+    } catch (error) {
+      if (routeRequestSeq.current !== requestId) {
+        return;
+      }
+      const traceErrorMessage = formatUnexpectedError(error, '浏览器到回放服务的请求失败');
+      setPlanningLogs((current) => [
+        ...current,
         {
-          stage: 'browser_request',
+          stage: 'browser_trace_request',
           level: 'error',
-          title: '浏览器请求失败',
-          message: String(error),
+          title: '搜索回放请求失败',
+          message: traceErrorMessage,
           elapsed_ms: null,
           fields: [],
         },
       ]);
-      setStatusMessage(`3D 路线生成失败: ${String(error)}`);
+      setStatusMessage(`三维路线已生成，但搜索回放请求失败: ${traceErrorMessage}`);
     } finally {
-      setIsGenerating(false);
+      if (routeRequestSeq.current === requestId) {
+        setIsTraceLoading(false);
+      }
     }
   }
 
@@ -361,7 +596,7 @@ export default function App() {
       return;
     }
     if (!routeReady) {
-      setStatusMessage('先生成 3D 路线，再决定是否执行');
+      setStatusMessage('先生成三维路线，再决定是否执行');
       return;
     }
 
@@ -378,15 +613,16 @@ export default function App() {
         setSurfacePath(response.preview.path_points);
         setSurfaceSegments(response.preview.segments);
       }
+      setPlanningTiming(response.preview.planning_timing_ms ?? null);
       setPlanningLogs(response.preview.planning_logs ?? []);
       if (!response.accepted) {
-        const reason = response.preview.failure_reason || response.preview.failure_code || 'goal rejected';
+        const reason = formatFailureSummary(response.preview.failure_reason, response.preview.failure_code) || '目标被拒绝';
         setStatusMessage(`路线未被接受: ${reason}`);
         return;
       }
       setStatusMessage('路线已下发给运行时，机器人需已经在起点附近');
     } catch (error) {
-      setStatusMessage(`路线执行失败: ${String(error)}`);
+      setStatusMessage(`路线执行失败: ${formatUnexpectedError(error, '路线下发请求失败')}`);
     } finally {
       setIsExecuting(false);
     }
@@ -441,7 +677,7 @@ export default function App() {
               startPose={startPose}
               goalPose={goalPose}
               hoverPose={surfaceHoverPose}
-              manualPath={[]}
+              manualPath={surfacePath}
               blockedGridIds={[]}
               pickMode={pickMode}
               onHoverWorldChange={setSurfaceHoverPose}
@@ -451,7 +687,11 @@ export default function App() {
             <div className="canvas-overlay">
               <div className="canvas-overlay-card canvas-overlay-card-strong">
                 <strong>{UI_LABELS.routeTitle}</strong>
-                <span>{routeReady ? `已生成 ${traceFrameOverview} 帧搜索回放` : '等待生成路线'}</span>
+                <span>{traceStatusText}</span>
+              </div>
+              <div className="canvas-overlay-card">
+                <strong>{UI_LABELS.panelTiming}</strong>
+                <span>{timingHeadline}</span>
               </div>
               <div className={clsx('canvas-overlay-card', 'canvas-overlay-emphasis', pickMode !== 'idle' && 'canvas-overlay-active')}>
                 {pickMode === 'idle'
@@ -534,6 +774,27 @@ export default function App() {
                   ))}
                 </div>
               </div>
+
+              <div className="hud-card hud-card-wide">
+                <span className="hud-section-title">{UI_LABELS.panelLegend}</span>
+                <div className="canvas-legend-list">
+                  <div className="canvas-legend-item">
+                    <span className="layer-mark layer-mark-openSet" aria-hidden="true" />
+                    <div className="canvas-legend-copy">
+                      <strong>{UI_LABELS.legendOpenSet}</strong>
+                      <span>{UI_LABELS.legendOpenSetHint}</span>
+                    </div>
+                  </div>
+                  <div className="canvas-legend-item">
+                    <span className="layer-mark layer-mark-expanded" aria-hidden="true" />
+                    <div className="canvas-legend-copy">
+                      <strong>{UI_LABELS.legendExpanded}</strong>
+                      <span>{UI_LABELS.legendExpandedHint}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="canvas-legend-note">{UI_LABELS.legendLayerHint}</div>
+              </div>
             </div>
 
             <div className="canvas-hud canvas-hud-bottom-left">
@@ -571,6 +832,10 @@ export default function App() {
             <div className="canvas-hud canvas-hud-bottom-right">
               <div className="hud-card hud-card-wide">
                 <span className="hud-section-title">{UI_LABELS.panelRoute}</span>
+                <div className="hud-metric">
+                  <span>{UI_LABELS.statCompletePlanning}</span>
+                  <strong>{formatElapsedMs(surfaceCompletePlanningMs)}</strong>
+                </div>
                 <div className="button-row run-dock">
                   <button
                     className="primary-button"
@@ -578,7 +843,7 @@ export default function App() {
                     onClick={handleGenerateRoute}
                     disabled={!scene || loadingScene || !surfaceStartPick || !surfaceGoalPick || isGenerating}
                   >
-                    {isGenerating ? '生成中...' : UI_LABELS.btnGenerateRoute}
+                    {isGenerating ? UI_LABELS.statusGenerating : UI_LABELS.btnGenerateRoute}
                   </button>
                   <button
                     className="secondary-button"
@@ -586,7 +851,7 @@ export default function App() {
                     onClick={handleExecuteRoute}
                     disabled={!routeReady || isExecuting}
                   >
-                    {isExecuting ? '下发中...' : UI_LABELS.btnExecuteRoute}
+                    {isExecuting ? UI_LABELS.statusDispatching : UI_LABELS.btnExecuteRoute}
                   </button>
                   <button
                     className="secondary-button"
@@ -603,163 +868,228 @@ export default function App() {
         </section>
 
         <section className="panel debug-panel">
-          <div className="debug-grid">
-            <section className="panel-section">
-              <h2>{UI_LABELS.panelRoute}</h2>
-              <div className="trace-card">
-                <div className="trace-title">点击与投影结果</div>
-                <div className="metrics-list">
-                  <div className="metric-row">
-                    <span>请求起点</span>
-                    <strong>{formatPose(surfaceStartPick)}</strong>
-                  </div>
-                  <div className="metric-row">
-                    <span>请求终点</span>
-                    <strong>{formatPose(surfaceGoalPick)}</strong>
-                  </div>
-                  <div className="metric-row">
-                    <span>投影起点</span>
-                    <strong>{formatPose(surfaceProjectedStart)}</strong>
-                  </div>
-                  <div className="metric-row">
-                    <span>投影终点</span>
-                    <strong>{formatPose(surfaceProjectedGoal)}</strong>
-                  </div>
-                  <div className="metric-row">
-                    <span>{UI_LABELS.fieldStartNode}</span>
-                    <strong>{traceSummary?.projectedStartNodeId ?? 'N/A'}</strong>
-                  </div>
-                  <div className="metric-row">
-                    <span>{UI_LABELS.fieldGoalNode}</span>
-                    <strong>{traceSummary?.projectedGoalNodeId ?? 'N/A'}</strong>
-                  </div>
-                </div>
-              </div>
+          <div className="summary-strip" data-testid="summary-strip">
+            <RouteStats title={UI_LABELS.statCompletePlanning} value={formatElapsedMs(surfaceCompletePlanningMs)} />
+            <RouteStats title={UI_LABELS.statSurfaceProjection} value={formatElapsedMs(surfaceProjectionMs)} />
+            <RouteStats title={UI_LABELS.statSurfacePlanning} value={formatElapsedMs(surfacePlanningMs)} />
+            <RouteStats title={UI_LABELS.statPathExpand} value={formatElapsedMs(surfacePathExpandMs)} />
+            <RouteStats title={UI_LABELS.statSegmentBuild} value={formatElapsedMs(surfaceSegmentBuildMs)} />
+            <RouteStats title={UI_LABELS.statPreviewChain} value={formatElapsedMs(previewChainMs)} />
+            <RouteStats title={UI_LABELS.statTracePlanning} value={formatElapsedMs(tracePlanningMs)} />
+            <RouteStats title={UI_LABELS.statTraceChain} value={formatElapsedMs(traceChainMs)} />
+            <RouteStats
+              title={UI_LABELS.statCost}
+              value={traceSummary?.totalCost == null ? UI_LABELS.emptyValue : formatMetricValue(traceSummary.totalCost)}
+            />
+            <RouteStats
+              title={UI_LABELS.statFrame}
+              value={traceReady ? traceProgressDetail : isTraceLoading ? UI_LABELS.statusGenerating : UI_LABELS.emptyValue}
+            />
+            <RouteStats title={UI_LABELS.statPathPoints} value={String(surfacePath.length)} />
+            <RouteStats title={UI_LABELS.statSegments} value={String(surfaceSegments.length)} />
+          </div>
 
-              <div className="debug-divider" />
+          <div className="inspector-grid" data-testid="inspector-grid">
+            <div className="inspector-column">
+              <section className="panel-section">
+                <h2>{UI_LABELS.panelTrace}</h2>
+                <div className="trace-card">
+                  <div className="trace-title">{traceTitle}</div>
+                  <div className="trace-meta">
+                    <span>{currentFrame ? formatFramePhase(currentFrame.phase) : isTraceLoading ? UI_LABELS.statusBackgroundReplay : UI_LABELS.statusPending}</span>
+                    <span>{traceReady ? `帧 ${traceProgressDetail}` : isTraceLoading ? UI_LABELS.statusReplayPending : UI_LABELS.statusReplayEmpty}</span>
+                  </div>
 
-              <div className="stats-grid">
-                <RouteStats title={UI_LABELS.statPathPoints} value={String(surfacePath.length)} />
-                <RouteStats title={UI_LABELS.statSegments} value={String(surfaceSegments.length)} />
-                <RouteStats
-                  title={UI_LABELS.statCost}
-                  value={traceSummary?.totalCost == null ? 'N/A' : formatMetricValue(traceSummary.totalCost)}
-                />
-                <RouteStats title={UI_LABELS.statFrame} value={traceProgressDetail} />
-              </div>
+                  <div className="debug-divider" />
 
-              <div className="debug-divider" />
+                  <label className="field-label" htmlFor="trace-index">{UI_LABELS.fieldTraceIndex}</label>
+                  <input
+                    id="trace-index"
+                    className="range-input"
+                    type="range"
+                    min={0}
+                    max={Math.max(traceFrames.length - 1, 0)}
+                    step={1}
+                    value={Math.min(traceIndex, Math.max(traceFrames.length - 1, 0))}
+                    onChange={(event) => setTraceIndex(Number(event.target.value))}
+                    disabled={traceFrames.length === 0}
+                  />
+                  <div className="range-readout">{traceProgressDetail}</div>
 
-              <div className="trace-card">
-                <div className="trace-title">{UI_LABELS.panelPlanningLogs}</div>
-                <div className="trace-meta">
-                  <span>{UI_LABELS.hintPlanningLogs}</span>
-                  <span>
-                    {traceSummary?.totalElapsedMs == null ? '等待生成' : `总耗时 ${formatElapsedMs(traceSummary.totalElapsedMs)}`}
-                  </span>
-                </div>
-                <div className="planning-log-list">
-                  {planningLogs.length === 0 && <div className="empty-note">{UI_LABELS.hintPlanningLogsEmpty}</div>}
-                  {planningLogs.map((entry, index) => (
-                    <div
-                      key={`${entry.stage}-${index}`}
-                      className={clsx('planning-log-item', `planning-log-item-${entry.level}`)}
-                    >
-                      <div className="planning-log-header">
-                        <div className="planning-log-heading">
-                          <div className="planning-log-title">{entry.title}</div>
-                          <div className="planning-log-message">{entry.message}</div>
-                        </div>
-                        <div className="planning-log-meta">
-                          <span className={clsx('planning-log-badge', `planning-log-badge-${entry.level}`)}>
-                            {formatPlanningLogLevel(entry.level)}
-                          </span>
-                          <span className="planning-log-elapsed">
-                            {entry.elapsed_ms == null ? '等待' : formatElapsedMs(entry.elapsed_ms)}
-                          </span>
-                        </div>
+                  <div className="metrics-list">
+                    <div className="metric-row">
+                      <span>{UI_LABELS.statFrontier}</span>
+                      <strong>{currentFrame?.openSet.length ?? 0}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>{UI_LABELS.statExpanded}</span>
+                      <strong>{currentFrame?.expandedNodes.length ?? 0}</strong>
+                    </div>
+                    {frameMetrics.length === 0 && (
+                      <div className="empty-note">
+                        {isTraceLoading ? '路线已经生成，搜索回放正在后台补齐。' : UI_LABELS.hintTraceEmpty}
                       </div>
-                      {entry.fields.length > 0 && (
-                        <div className="metrics-list planning-log-fields">
-                          {entry.fields.map((field) => (
-                            <div key={`${entry.stage}-${field.label}`} className="metric-row">
-                              <span>{field.label}</span>
-                              <strong className="planning-log-field-value">{field.value}</strong>
-                            </div>
-                          ))}
+                    )}
+                    {frameMetrics.map((metric) => (
+                      <div key={metric.key} className="metric-row">
+                        <span>{metric.label}</span>
+                        <strong>{formatMetricValue(metric.value)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+
+              <section className="panel-section">
+                <h2>{UI_LABELS.panelPlanningLogs}</h2>
+                <div className="trace-card">
+                  <div className="trace-title">{UI_LABELS.panelPlanningLogs}</div>
+                  <div className="trace-meta">
+                    <span>{UI_LABELS.hintPlanningLogs}</span>
+                    <span>{totalElapsedMs == null ? UI_LABELS.statusPending : `${UI_LABELS.statTotalElapsed} ${formatElapsedMs(totalElapsedMs)}`}</span>
+                  </div>
+                  <div className="planning-log-list">
+                    {planningLogs.length === 0 && <div className="empty-note">{UI_LABELS.hintPlanningLogsEmpty}</div>}
+                    {planningLogs.map((entry, index) => (
+                      <div
+                        key={`${entry.stage}-${index}`}
+                        className={clsx('planning-log-item', `planning-log-item-${entry.level}`)}
+                      >
+                        <div className="planning-log-header">
+                          <div className="planning-log-heading">
+                            <div className="planning-log-title">{entry.title}</div>
+                            <div className="planning-log-message">{entry.message}</div>
+                          </div>
+                          <div className="planning-log-meta">
+                            <span className={clsx('planning-log-badge', `planning-log-badge-${entry.level}`)}>
+                              {formatPlanningLogLevel(entry.level)}
+                            </span>
+                            <span className="planning-log-elapsed">
+                              {entry.elapsed_ms == null ? UI_LABELS.statusPending : formatElapsedMs(entry.elapsed_ms)}
+                            </span>
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </section>
-
-            <section className="panel-section">
-              <h2>{UI_LABELS.panelTrace}</h2>
-              <div className="trace-card">
-                <div className="trace-title">{traceTitle}</div>
-                <div className="trace-meta">
-                  <span>{currentFrame ? formatFramePhase(currentFrame.phase) : '等待生成'}</span>
-                  <span>{`帧 ${traceProgressDetail}`}</span>
-                </div>
-
-                <div className="debug-divider" />
-
-                <label className="field-label" htmlFor="trace-index">{UI_LABELS.fieldTraceIndex}</label>
-                <input
-                  id="trace-index"
-                  className="range-input"
-                  type="range"
-                  min={0}
-                  max={Math.max(traceFrames.length - 1, 0)}
-                  step={1}
-                  value={Math.min(traceIndex, Math.max(traceFrames.length - 1, 0))}
-                  onChange={(event) => setTraceIndex(Number(event.target.value))}
-                  disabled={traceFrames.length === 0}
-                />
-                <div className="range-readout">{traceProgressDetail}</div>
-
-                <div className="metrics-list">
-                  <div className="metric-row">
-                    <span>{UI_LABELS.statFrontier}</span>
-                    <strong>{currentFrame?.openSet.length ?? 0}</strong>
+                        {entry.fields.length > 0 && (
+                          <div className="metrics-list planning-log-fields">
+                            {entry.fields.map((field) => (
+                              <div key={`${entry.stage}-${field.label}`} className="metric-row">
+                                <span>{field.label}</span>
+                                <strong className="planning-log-field-value">
+                                  {formatPlanningLogFieldValue(field.label, field.value)}
+                                </strong>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                  <div className="metric-row">
-                    <span>{UI_LABELS.statExpanded}</span>
-                    <strong>{currentFrame?.expandedNodes.length ?? 0}</strong>
-                  </div>
-                  {frameMetrics.length === 0 && <div className="empty-note">{UI_LABELS.hintTraceEmpty}</div>}
-                  {frameMetrics.map(([key, value]) => (
-                    <div key={key} className="metric-row">
-                      <span>{key}</span>
-                      <strong>{formatMetricValue(value)}</strong>
-                    </div>
-                  ))}
                 </div>
-              </div>
-            </section>
+              </section>
+            </div>
 
-            <section className="panel-section">
-              <h2>{UI_LABELS.panelSegments}</h2>
-              <div className="trace-card">
-                <div className="trace-title">路线语义分段</div>
-                <div className="trace-meta">
-                  <span>{UI_LABELS.hintExecute}</span>
-                </div>
-                <div className="metrics-list">
-                  {surfaceSegments.length === 0 && <div className="empty-note">{UI_LABELS.hintTraceEmpty}</div>}
-                  {surfaceSegments.map((segment) => (
-                    <div key={segment.segment_id} className="metric-row">
-                      <span>{`${segment.from_node_id} -> ${segment.to_node_id}`}</span>
-                      <strong>
-                        {`${MOTION_TYPE_LABELS[segment.motion_type] ?? segment.motion_type} · ${segment.point_count} 点`}
-                      </strong>
+            <div className="inspector-column">
+              <section className="panel-section">
+                <h2>{UI_LABELS.panelRoute}</h2>
+                <div className="trace-card">
+                  <div className="trace-title">点击与投影结果</div>
+                  <div className="metrics-list">
+                    <div className="metric-row">
+                      <span>请求起点</span>
+                      <strong>{formatPose(surfaceStartPick)}</strong>
                     </div>
-                  ))}
+                    <div className="metric-row">
+                      <span>请求终点</span>
+                      <strong>{formatPose(surfaceGoalPick)}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>投影起点</span>
+                      <strong>{formatPose(surfaceProjectedStart)}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>投影终点</span>
+                      <strong>{formatPose(surfaceProjectedGoal)}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>{UI_LABELS.fieldStartNode}</span>
+                      <strong>{formatNodeLabel(traceSummary?.projectedStartNodeId)}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>{UI_LABELS.fieldGoalNode}</span>
+                      <strong>{formatNodeLabel(traceSummary?.projectedGoalNodeId)}</strong>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </section>
+              </section>
+
+              <section className="panel-section">
+                <h2>{UI_LABELS.panelTiming}</h2>
+                <div className="trace-card">
+                  <div className="trace-title">完整规划时间拆解</div>
+                  <div className="empty-note">{UI_LABELS.hintTimingFormula}</div>
+                  <div className="empty-note">{UI_LABELS.hintTimingDiagnostic}</div>
+                  <div className="metrics-list">
+                    <div className="metric-row">
+                      <span>{UI_LABELS.statCompletePlanning}</span>
+                      <strong>{formatElapsedMs(surfaceCompletePlanningMs)}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>{UI_LABELS.statSurfaceProjection}</span>
+                      <strong>{formatElapsedMs(surfaceProjectionMs)}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>{UI_LABELS.statSurfacePlanning}</span>
+                      <strong>{formatElapsedMs(surfacePlanningMs)}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>{UI_LABELS.statPathExpand}</span>
+                      <strong>{formatElapsedMs(surfacePathExpandMs)}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>{UI_LABELS.statSegmentBuild}</span>
+                      <strong>{formatElapsedMs(surfaceSegmentBuildMs)}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>{UI_LABELS.statPreviewChain}</span>
+                      <strong>{formatElapsedMs(previewChainMs)}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>{UI_LABELS.statTracePlanning}</span>
+                      <strong>{formatElapsedMs(tracePlanningMs)}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>{UI_LABELS.statTraceChain}</span>
+                      <strong>{formatElapsedMs(traceChainMs)}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>{UI_LABELS.statTotalElapsed}</span>
+                      <strong>{formatElapsedMs(totalElapsedMs)}</strong>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="panel-section">
+                <h2>{UI_LABELS.panelSegments}</h2>
+                <div className="trace-card">
+                  <div className="trace-title">路线语义分段</div>
+                  <div className="trace-meta">
+                    <span>{UI_LABELS.hintExecute}</span>
+                  </div>
+                  <div className="metrics-list metrics-list-scroll">
+                    {surfaceSegments.length === 0 && <div className="empty-note">{UI_LABELS.hintTraceEmpty}</div>}
+                    {surfaceSegments.map((segment) => (
+                      <div key={segment.segment_id} className="metric-row">
+                        <span>{formatNodeTransitionLabel(segment.from_node_id, segment.to_node_id)}</span>
+                        <strong>
+                          {`${MOTION_TYPE_LABELS[segment.motion_type] ?? segment.motion_type}，${segment.point_count} 点`}
+                        </strong>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            </div>
           </div>
         </section>
       </main>
