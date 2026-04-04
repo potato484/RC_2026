@@ -686,6 +686,105 @@ select {
   line-height: 1.5;
 }
 
+.planning-log-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.planning-log-item {
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(248, 251, 255, 0.78);
+}
+
+.planning-log-item-info {
+  border-color: rgba(74, 122, 168, 0.18);
+}
+
+.planning-log-item-warn {
+  border-color: rgba(180, 128, 41, 0.26);
+  background: rgba(255, 249, 235, 0.78);
+}
+
+.planning-log-item-error {
+  border-color: rgba(170, 71, 58, 0.28);
+  background: rgba(255, 244, 241, 0.82);
+}
+
+.planning-log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.planning-log-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.planning-log-title {
+  font-weight: 700;
+  color: #12263a;
+}
+
+.planning-log-message {
+  color: #4f657a;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.planning-log-meta {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+
+.planning-log-badge {
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.planning-log-badge-info {
+  background: rgba(65, 104, 146, 0.12);
+  color: #31567c;
+}
+
+.planning-log-badge-warn {
+  background: rgba(188, 131, 38, 0.14);
+  color: #8a5a12;
+}
+
+.planning-log-badge-error {
+  background: rgba(170, 71, 58, 0.14);
+  color: #9a3023;
+}
+
+.planning-log-elapsed {
+  color: var(--color-primary);
+  font-family: "IBM Plex Mono", "JetBrains Mono", monospace;
+  font-size: 0.8rem;
+}
+
+.planning-log-fields {
+  margin-top: 10px;
+}
+
+.planning-log-fields .metric-row {
+  align-items: flex-start;
+}
+
+.planning-log-field-value {
+  max-width: 62%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .canvas-placeholder {
   display: grid;
   place-items: center;

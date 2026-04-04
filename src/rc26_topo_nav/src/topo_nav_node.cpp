@@ -2,6 +2,7 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <exception>
 #include <functional>
@@ -25,6 +26,25 @@ double yawFromQuaternion(const geometry_msgs::msg::Quaternion& quaternion) {
     const double cosy_cosp =
         1.0 - 2.0 * ((quaternion.y * quaternion.y) + (quaternion.z * quaternion.z));
     return std::atan2(siny_cosp, cosy_cosp);
+}
+
+const char* topoTargetTypeName(const uint8_t target_type) {
+    switch (target_type) {
+        case rc26_interfaces::action::NavigateTopoTarget::Goal::TARGET_NODE:
+            return "node";
+        case rc26_interfaces::action::NavigateTopoTarget::Goal::TARGET_TASK:
+            return "task";
+        case rc26_interfaces::action::NavigateTopoTarget::Goal::TARGET_ROUTE:
+            return "route";
+        default:
+            return "unknown";
+    }
+}
+
+double elapsedMilliseconds(
+    const std::chrono::steady_clock::time_point& begin,
+    const std::chrono::steady_clock::time_point& end) {
+    return std::chrono::duration<double, std::milli>(end - begin).count();
 }
 
 class ScopeExit {
@@ -366,6 +386,7 @@ void TopoNavNode::execute(std::shared_ptr<GoalHandle> goal_handle) {
             std::unordered_map<std::string, EdgeOverlay> edge_overlays;
             overlay_reducer_->applyOverlays(graph_, node_overlays, edge_overlays);
 
+            const auto plan_begin = std::chrono::steady_clock::now();
             PlanResult plan;
             if (goal->target_type == NavigateTopoTarget::Goal::TARGET_NODE) {
                 plan = planRoute(graph_, start_node, goal->target_id,
@@ -384,17 +405,44 @@ void TopoNavNode::execute(std::shared_ptr<GoalHandle> goal_handle) {
                 goal_handle->abort(result);
                 return;
             }
+            const auto plan_end = std::chrono::steady_clock::now();
+            const double plan_ms = elapsedMilliseconds(plan_begin, plan_end);
 
             if (!plan.success || plan.node_path.empty()) {
+                const std::string failure_reason = plan.failure_reason.empty()
+                    ? "Planner returned empty route"
+                    : plan.failure_reason;
+                RCLCPP_WARN(
+                    get_logger(),
+                    "Topo planning failed: attempt=%d target_type=%s target_id=%s start_node=%s elapsed_ms=%.2f "
+                    "reason=%s",
+                    plan_attempt + 1,
+                    topoTargetTypeName(goal->target_type),
+                    goal->target_id.c_str(),
+                    start_node.c_str(),
+                    plan_ms,
+                    failure_reason.c_str());
                 result->success = false;
                 result->terminal_node_id = start_node;
                 result->failure_code = "NO_PATH";
-                result->failure_reason = plan.failure_reason.empty() ? "Planner returned empty route"
-                                                                    : plan.failure_reason;
+                result->failure_reason = failure_reason;
                 goal_handle->abort(result);
                 return;
             }
 
+            RCLCPP_INFO(
+                get_logger(),
+                "Topo planning succeeded: attempt=%d target_type=%s target_id=%s start_node=%s terminal_node=%s "
+                "elapsed_ms=%.2f node_count=%zu edge_count=%zu total_cost=%.3f",
+                plan_attempt + 1,
+                topoTargetTypeName(goal->target_type),
+                goal->target_id.c_str(),
+                start_node.c_str(),
+                plan.node_path.back().c_str(),
+                plan_ms,
+                plan.node_path.size(),
+                plan.edge_indices.size(),
+                plan.total_cost);
             diagnostics_->publishRoute(plan, graph_);
 
             bool route_completed = true;
@@ -510,6 +558,7 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
         const auto now = this->now();
         const auto start_pose = pose3FromPoseStamped(goal->start_pose);
         const auto goal_pose = pose3FromPoseStamped(goal->goal_pose);
+        const auto plan_begin = std::chrono::steady_clock::now();
         const auto surface_plan = planSurfaceRoute(
             surface_graph_,
             start_pose,
@@ -518,6 +567,8 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
             surface_anchor_radius_m_,
             now,
             "map");
+        const auto plan_end = std::chrono::steady_clock::now();
+        const double plan_ms = elapsedMilliseconds(plan_begin, plan_end);
 
         result->projected_start_pose = poseStampedFromPose3(
             surface_plan.projected_start.pose, "map", now);
@@ -526,6 +577,17 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
         result->planned_path = surface_plan.planned_path;
 
         if (!surface_plan.success) {
+            RCLCPP_WARN(
+                get_logger(),
+                "Surface planning failed: start=(%.3f, %.3f, %.3f) goal=(%.3f, %.3f, %.3f) "
+                "projected_start=%s projected_goal=%s elapsed_ms=%.2f code=%s reason=%s",
+                start_pose.x, start_pose.y, start_pose.z,
+                goal_pose.x, goal_pose.y, goal_pose.z,
+                surface_plan.projected_start.node_id.c_str(),
+                surface_plan.projected_goal.node_id.c_str(),
+                plan_ms,
+                surface_plan.failure_code.c_str(),
+                surface_plan.failure_reason.c_str());
             result->success = false;
             result->failure_code = surface_plan.failure_code;
             result->failure_reason = surface_plan.failure_reason;
@@ -533,6 +595,22 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
             diagnostics_->publishDiagnostic("ERROR", "Surface route planning failed");
             return;
         }
+
+        RCLCPP_INFO(
+            get_logger(),
+            "Surface planning succeeded: start=(%.3f, %.3f, %.3f) goal=(%.3f, %.3f, %.3f) "
+            "projected_start=%s projected_goal=%s elapsed_ms=%.2f node_count=%zu edge_count=%zu "
+            "path_points=%zu segments=%zu total_cost=%.3f",
+            start_pose.x, start_pose.y, start_pose.z,
+            goal_pose.x, goal_pose.y, goal_pose.z,
+            surface_plan.projected_start.node_id.c_str(),
+            surface_plan.projected_goal.node_id.c_str(),
+            plan_ms,
+            surface_plan.plan.node_path.size(),
+            surface_plan.plan.edge_indices.size(),
+            surface_plan.planned_path.poses.size(),
+            surface_plan.segments.size(),
+            surface_plan.plan.total_cost);
 
         Pose3 robot_pose;
         if (!currentRobotPose(robot_pose)) {
@@ -549,6 +627,17 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
                 surface_start_match_xy_m_,
                 surface_start_match_z_m_,
                 surface_start_match_yaw_deg_ * M_PI / 180.0)) {
+            RCLCPP_WARN(
+                get_logger(),
+                "Surface plan start pose mismatch after planning: projected_start=%s elapsed_ms=%.2f "
+                "robot=(%.3f, %.3f, %.3f, %.3f) projected=(%.3f, %.3f, %.3f, %.3f)",
+                surface_plan.projected_start.node_id.c_str(),
+                plan_ms,
+                robot_pose.x, robot_pose.y, robot_pose.z, robot_pose.yaw,
+                surface_plan.projected_start.pose.x,
+                surface_plan.projected_start.pose.y,
+                surface_plan.projected_start.pose.z,
+                surface_plan.projected_start.pose.yaw);
             result->success = false;
             result->failure_code = "START_POSE_MISMATCH";
             result->failure_reason = "Robot is not close enough to the requested start pose";

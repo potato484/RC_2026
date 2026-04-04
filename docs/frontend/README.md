@@ -40,6 +40,7 @@
   - 清晰路径层：用更细的三维 tube / marker 显示当前 surface route、前沿点和已探查点；当前只保留 `scene / frontier / expanded / shadows` 四个图层开关。
   - 多视角交互：支持 `orbit / top_ortho / side_perspective` 三个观察视角，专门服务路线读图。
   - 本地 adapter：主链是 `surface_route_cli -> planner_trace_cli -> /api/surface-route/trace`，由后端返回完整 3D 路线和逐帧 A* 推导过程。
+  - Web 侧当前还会把这条生成链路的结构化规划日志一并展示出来，方便直接判断卡在 `surface_route_cli` 还是 `planner_trace_cli`。
   - **最新实现补充**：`surface-route` trace 已改为“真实规划 + 压缩回放”链路。`planner_trace_cli` 只输出采样帧和本次回放涉及节点的 `node_poses`，浏览器本地按 `nodeId` 复原可视化点位，避免重复传输 pose-heavy 大对象与重复解析 dense `surface_graph` YAML。
   - 任意点路线：浏览器直接在地面、坡面、阶梯表面选取起终点，生成 dense `surface_graph` 上的完整路径，并可选下发 `navigate_surface_route`。
   - 视觉与体验：保持工业战术沙盘风格，但主界面已经删掉旧的模式/算法切换和 debug 抽屉，只保留与“看一条 3D 路线如何被算出来”直接相关的操作。

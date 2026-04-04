@@ -159,6 +159,20 @@ export interface SurfaceRouteSegment {
   point_count: number;
 }
 
+export interface PlanningLogField {
+  label: string;
+  value: string;
+}
+
+export interface PlanningLogEntry {
+  stage: string;
+  level: 'info' | 'warn' | 'error';
+  title: string;
+  message: string;
+  elapsed_ms: number | null;
+  fields: PlanningLogField[];
+}
+
 export interface RouteTraceSummary {
   goalKind?: string;
   goalValue?: string;
@@ -172,6 +186,9 @@ export interface RouteTraceSummary {
   projectedGoalNodeId?: string;
   requestedStart?: Pose3;
   requestedGoal?: Pose3;
+  previewElapsedMs?: number | null;
+  traceElapsedMs?: number | null;
+  totalElapsedMs?: number | null;
 }
 
 export interface SurfaceRoutePreviewResponse {
@@ -186,6 +203,8 @@ export interface SurfaceRoutePreviewResponse {
   segments: SurfaceRouteSegment[];
   team?: Team;
   surface_graph_file?: string;
+  planning_logs?: PlanningLogEntry[];
+  planning_timing_ms?: Record<string, number>;
 }
 
 export interface SurfaceRouteTraceResponse extends SurfaceRoutePreviewResponse {

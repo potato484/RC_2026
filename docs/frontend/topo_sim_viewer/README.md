@@ -42,7 +42,9 @@
     - 投影后的起点/终点 node id
     - 完整 3D 路径点序列
     - 语义分段列表
+    - 本次 `surface_route_cli / planner_trace_cli` 的结构化规划日志与耗时
     - 逐帧 `PlannerFrame`
+  - 页面右侧当前额外提供“规划日志”卡片，按调用顺序展示浏览器请求、surface 图投影与路径规划、A* 搜索回放导出，以及整条 trace pipeline 的总耗时。
 - 搜索回放
   - 页面不再提供 play/pause/step/reset，只保留一个滑块控制当前帧。
   - 当前帧会显示 `frontier / expanded / current best path`，用于观察搜索如何逐步逼近最终路线。
@@ -74,6 +76,7 @@
 - `planner_trace_cli --max-frames` 继续负责导出真实 A* 搜索过程，但只输出采样后的帧
 - `planner_trace_cli` 额外输出当前回放涉及节点的 `node_poses`
 - `topo_sim_server.py` 直接复用 preview 阶段已经得到的 `path_points / segments`，不再为 trace 额外重读 surface graph YAML
+- `topo_sim_server.py` 现在还会把 `surface_route_cli` 和 `planner_trace_cli` 的耗时、成功/失败状态、起终点投影节点等信息整理成 `planning_logs`，供浏览器直接展示
 
 ## 5. 启动与验证
 

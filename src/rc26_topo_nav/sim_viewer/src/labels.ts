@@ -100,6 +100,7 @@ export const UI_LABELS = {
   panelRoute: '当前路线',
   panelTrace: '搜索回放',
   panelSegments: '路线分段',
+  panelPlanningLogs: '规划日志',
   btnPickStart: '设起点',
   btnPickGoal: '设终点',
   btnCancelPick: '取消选点',
@@ -123,6 +124,8 @@ export const UI_LABELS = {
   hintGenerate: '生成后使用滑块观察表面 A* 的逐帧展开过程。',
   hintExecute: '执行只会把当前起终点路线下发给运行时；机器人需已在起点附近。',
   hintTraceEmpty: '尚未生成路线。',
+  hintPlanningLogs: '按调用顺序展示本次 surface 路线生成链路。',
+  hintPlanningLogsEmpty: '尚未生成规划日志。',
 };
 
 export function formatFramePhase(phase: string): string {

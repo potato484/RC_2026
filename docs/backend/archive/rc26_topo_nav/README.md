@@ -12,6 +12,7 @@
 - 运行时仍通过静态 YAML 建图，不在节点启动时动态从点云或地图自动建图：
   - `graph_file` 负责 topo 节点 / route / task 规划
   - `surface_graph_file` 负责任意点 3D 路线规划与执行
+- `topo_nav_node` 当前会在 ROS 日志里输出每次 topo / surface 规划的耗时、目标和成功/失败结果，便于现场判断“发布目标后到底卡在规划还是执行”
 - 发布:
   - `/topo_nav/route`
   - `/topo_nav/corridor`
@@ -129,9 +130,11 @@
     - 投影后的起点/终点 node id
     - 完整 3D 路径点
     - 路径语义分段
+    - `surface_route_cli / planner_trace_cli` 的结构化规划日志与耗时
     - 逐帧 `PlannerFrame` 搜索过程
   - 页面只保留一个滑块回放 trace，不再提供 play/pause/step/reset
   - 页面只保留 `scene / frontier / expanded / shadows` 四个图层开关，以及 `orbit / top_ortho / side_perspective` 三个视角
+  - 页面右侧当前会直接展示本次 surface route 生成链路的规划日志，便于区分“路线没出来”究竟卡在点击点投影、A* 路径规划还是 trace 导出阶段
   - `POST /api/surface-route/execute` 仍可选下发 `navigate_surface_route`，但执行前提不变：机器人已经接近被点击的起点
 - 当前实现特别注意把“完整渲染几何”和“规划碰撞 keep-out”分开：
   - viewer 会尽量显示完整 world mesh

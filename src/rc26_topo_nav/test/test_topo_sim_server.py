@@ -154,6 +154,10 @@ class TopoSimServerTest(unittest.TestCase):
         self.assertEqual(preview["projected_goal"]["y"], 3.03)
         self.assertGreater(len(preview["path_points"]), 20)
         self.assertGreater(len(preview["segments"]), 1)
+        self.assertIn("planning_logs", preview)
+        self.assertEqual(preview["planning_logs"][0]["stage"], "request")
+        self.assertEqual(preview["planning_logs"][-1]["stage"], "surface_route_cli")
+        self.assertGreater(preview["planning_timing_ms"]["surfaceRouteCli"], 0.0)
 
     def test_surface_route_trace_returns_search_frames(self):
         request = SERVER.SurfaceRouteTraceRequest(
@@ -175,6 +179,14 @@ class TopoSimServerTest(unittest.TestCase):
         self.assertIn(trace["projected_start_node_id"], trace["node_poses"])
         self.assertNotIn("pose", trace["frames"][0]["openSet"][0])
         self.assertNotIn("points", trace["frames"][-1]["bestPath"])
+        self.assertIn("planning_logs", trace)
+        self.assertEqual(
+            [entry["stage"] for entry in trace["planning_logs"]],
+            ["request", "surface_route_cli", "planner_trace_cli", "trace_pipeline"],
+        )
+        self.assertGreater(trace["summary"]["previewElapsedMs"], 0.0)
+        self.assertGreater(trace["summary"]["traceElapsedMs"], 0.0)
+        self.assertGreater(trace["summary"]["totalElapsedMs"], trace["summary"]["traceElapsedMs"])
 
     def test_surface_route_preview_rejects_non_traversable_point(self):
         request = SERVER.SurfaceRoutePreviewRequest(
@@ -188,6 +200,9 @@ class TopoSimServerTest(unittest.TestCase):
 
         self.assertFalse(preview["success"])
         self.assertEqual(preview["failure_code"], "POINT_NOT_TRAVERSABLE")
+        self.assertIn("planning_logs", preview)
+        self.assertEqual(preview["planning_logs"][-1]["level"], "error")
+        self.assertEqual(preview["planning_logs"][-1]["stage"], "surface_route_cli")
 
     def test_normalize_astar_trace_document_preserves_sampled_frame_metadata(self):
         graph_document = {

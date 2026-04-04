@@ -16,6 +16,7 @@ import {
 import { deriveLayerControls } from './layerModel';
 import { useSimStore } from './store';
 import type {
+  PlanningLogEntry,
   PickMode,
   PlannerFrame,
   PlannerTraceFrame,
@@ -48,6 +49,23 @@ function formatMetricValue(value: unknown): string {
     return JSON.stringify(value);
   }
   return String(value);
+}
+
+function formatElapsedMs(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 'N/A';
+  }
+  return `${value.toFixed(value >= 100 ? 0 : 2)} ms`;
+}
+
+function formatPlanningLogLevel(level: PlanningLogEntry['level']): string {
+  if (level === 'error') {
+    return '失败';
+  }
+  if (level === 'warn') {
+    return '告警';
+  }
+  return '完成';
 }
 
 function buildTraceNodePoseMap(
@@ -149,6 +167,7 @@ export default function App() {
   const [traceFrames, setTraceFrames] = useState<PlannerTraceFrame[]>([]);
   const [traceNodePoses, setTraceNodePoses] = useState<Record<string, Pose3>>({});
   const [traceSummary, setTraceSummary] = useState<RouteTraceSummary | null>(null);
+  const [planningLogs, setPlanningLogs] = useState<PlanningLogEntry[]>([]);
   const [traceIndex, setTraceIndex] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
@@ -205,6 +224,7 @@ export default function App() {
     setTraceFrames([]);
     setTraceNodePoses({});
     setTraceSummary(null);
+    setPlanningLogs([]);
     setTraceIndex(0);
   }
 
@@ -287,14 +307,17 @@ export default function App() {
     }
 
     setIsGenerating(true);
+    setPlanningLogs([]);
     try {
       const response = await traceSurfaceRoute({
         team,
         start_pick_world: surfaceStartPick,
         goal_pick_world: surfaceGoalPick,
       });
+      setPlanningLogs(response.planning_logs ?? []);
       if (!response.success) {
         clearGeneratedRoute();
+        setPlanningLogs(response.planning_logs ?? []);
         setStatusMessage(`3D 路线生成失败: ${response.failure_reason || response.failure_code}`);
         return;
       }
@@ -311,9 +334,21 @@ export default function App() {
         response.summary.framesSampled && (response.summary.framesCount ?? response.frames.length) > response.frames.length
           ? `，回放已压缩为 ${response.frames.length} / ${response.summary.framesCount} 帧`
           : `，${response.frames.length} 帧`;
-      setStatusMessage(`3D 路线已生成，共 ${response.segments.length} 段${sampledHint}`);
+      const elapsedHint =
+        response.summary.totalElapsedMs == null ? '' : `，总耗时 ${formatElapsedMs(response.summary.totalElapsedMs)}`;
+      setStatusMessage(`3D 路线已生成，共 ${response.segments.length} 段${sampledHint}${elapsedHint}`);
     } catch (error) {
       clearGeneratedRoute();
+      setPlanningLogs([
+        {
+          stage: 'browser_request',
+          level: 'error',
+          title: '浏览器请求失败',
+          message: String(error),
+          elapsed_ms: null,
+          fields: [],
+        },
+      ]);
       setStatusMessage(`3D 路线生成失败: ${String(error)}`);
     } finally {
       setIsGenerating(false);
@@ -343,6 +378,7 @@ export default function App() {
         setSurfacePath(response.preview.path_points);
         setSurfaceSegments(response.preview.segments);
       }
+      setPlanningLogs(response.preview.planning_logs ?? []);
       if (!response.accepted) {
         const reason = response.preview.failure_reason || response.preview.failure_code || 'goal rejected';
         setStatusMessage(`路线未被接受: ${reason}`);
@@ -610,6 +646,52 @@ export default function App() {
                   value={traceSummary?.totalCost == null ? 'N/A' : formatMetricValue(traceSummary.totalCost)}
                 />
                 <RouteStats title={UI_LABELS.statFrame} value={traceProgressDetail} />
+              </div>
+
+              <div className="debug-divider" />
+
+              <div className="trace-card">
+                <div className="trace-title">{UI_LABELS.panelPlanningLogs}</div>
+                <div className="trace-meta">
+                  <span>{UI_LABELS.hintPlanningLogs}</span>
+                  <span>
+                    {traceSummary?.totalElapsedMs == null ? '等待生成' : `总耗时 ${formatElapsedMs(traceSummary.totalElapsedMs)}`}
+                  </span>
+                </div>
+                <div className="planning-log-list">
+                  {planningLogs.length === 0 && <div className="empty-note">{UI_LABELS.hintPlanningLogsEmpty}</div>}
+                  {planningLogs.map((entry, index) => (
+                    <div
+                      key={`${entry.stage}-${index}`}
+                      className={clsx('planning-log-item', `planning-log-item-${entry.level}`)}
+                    >
+                      <div className="planning-log-header">
+                        <div className="planning-log-heading">
+                          <div className="planning-log-title">{entry.title}</div>
+                          <div className="planning-log-message">{entry.message}</div>
+                        </div>
+                        <div className="planning-log-meta">
+                          <span className={clsx('planning-log-badge', `planning-log-badge-${entry.level}`)}>
+                            {formatPlanningLogLevel(entry.level)}
+                          </span>
+                          <span className="planning-log-elapsed">
+                            {entry.elapsed_ms == null ? '等待' : formatElapsedMs(entry.elapsed_ms)}
+                          </span>
+                        </div>
+                      </div>
+                      {entry.fields.length > 0 && (
+                        <div className="metrics-list planning-log-fields">
+                          {entry.fields.map((field) => (
+                            <div key={`${entry.stage}-${field.label}`} className="metric-row">
+                              <span>{field.label}</span>
+                              <strong className="planning-log-field-value">{field.value}</strong>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             </section>
 
