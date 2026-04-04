@@ -41,6 +41,7 @@ include_directories(include)
 # Main library
 add_library(${PROJECT_NAME}_lib SHARED
   src/graph_loader.cpp
+  src/body_planning.cpp
   src/overlay_reducer.cpp
   src/planner.cpp
   src/surface_route.cpp

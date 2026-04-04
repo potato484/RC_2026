@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
+#include "rc26_topo_nav/body_planning.hpp"
 #include "rc26_topo_nav/planner.hpp"
 #include "rc26_topo_nav/graph_loader.hpp"
+#include "rc26_topo_nav/surface_route.hpp"
 #include <fstream>
 
 using namespace rc26_topo_nav;
@@ -16,9 +18,9 @@ protected:
         // Build a simple 3-node linear graph: A -> B -> C
         graph_.grid_spacing_m = 1.2;
 
-        GraphNode a{"a", "staging", {0,0,0,0}, 0, 0xFF, 0, 0, ""};
-        GraphNode b{"b", "mf_edge_pose", {1.2,0,0,0}, 1, 0xFF, 1, 1.0, "grab"};
-        GraphNode c{"c", "mf_edge_pose", {2.4,0,0,0}, 1, 0xFF, 2, 1.0, "grab"};
+        GraphNode a{"a", "staging", {0,0,0,0}, 0, 0xFF, 0, 0, "", "", "", "", -1.0, -1.0};
+        GraphNode b{"b", "mf_edge_pose", {1.2,0,0,0}, 1, 0xFF, 1, 1.0, "grab", "", "", "", -1.0, -1.0};
+        GraphNode c{"c", "mf_edge_pose", {2.4,0,0,0}, 1, 0xFF, 2, 1.0, "grab", "", "", "", -1.0, -1.0};
         graph_.nodes["a"] = a;
         graph_.nodes["b"] = b;
         graph_.nodes["c"] = c;
@@ -171,4 +173,77 @@ TEST_F(PlannerTest, TaskTraceRecordsCandidateSelection) {
     ASSERT_EQ(trace.candidate_results.size(), 2u);
     EXPECT_EQ(trace.selected_candidate, "b");
     EXPECT_EQ(trace.frames.back().event, TraceEventType::CANDIDATE_SELECTED);
+}
+
+TEST_F(PlannerTest, SurfaceRouteHonorsRuntimeOverlays) {
+    Pose3 requested_start{0.05, 0.0, 0.0, 0.0};
+    Pose3 requested_goal{2.35, 0.0, 0.0, 0.0};
+    e_ov_["e1"].state = EdgeState::BLOCKED;
+
+    const auto plan = planSurfaceRoute(
+        graph_,
+        requested_start,
+        requested_goal,
+        n_ov_,
+        e_ov_,
+        weights_,
+        1.0,
+        rclcpp::Time(0),
+        "map");
+
+    ASSERT_TRUE(plan.success);
+    ASSERT_EQ(plan.plan.edge_indices.size(), 1u);
+    EXPECT_EQ(graph_.edges[plan.plan.edge_indices.front()].id, "e4");
+    EXPECT_EQ(plan.segments.size(), 1u);
+}
+
+TEST_F(PlannerTest, SurfaceBodyPlanningBlocksNarrowAndSteepGraphElements) {
+    for (auto& [_, node] : graph_.nodes) {
+        node.type = "surface_point";
+        node.center_clearance_m = 1.0;
+        node.surface_pitch_deg = 0.0;
+    }
+    for (auto& edge : graph_.edges) {
+        edge.center_clearance_m = 1.0;
+        edge.horizontal_length_m = 1.2;
+        edge.slope_deg = 0.0;
+    }
+    graph_.nodes["b"].center_clearance_m = 0.19;
+    graph_.nodes["c"].surface_pitch_deg = 41.0;
+    graph_.edges[0].center_clearance_m = 0.19;
+    graph_.edges[1].slope_deg = 42.0;
+    graph_.edges[1].horizontal_length_m = 0.10;
+    graph_.edges[1].height_change = 0.22;
+
+    RobotGeometryProfile geometry;
+    geometry.name = "test";
+    geometry.half_length_m = 0.30;
+    geometry.half_width_m = 0.20;
+
+    SurfaceBodyPlanningConfig config;
+    config.enabled = true;
+    config.require_annotated_surface_graph = true;
+    config.clearance_margin_m = 0.02;
+    config.max_surface_pitch_deg = 35.0;
+    config.max_edge_slope_deg = 35.0;
+    config.max_step_height_m = 0.18;
+
+    std::unordered_map<std::string, NodeOverlay> node_overlays;
+    std::unordered_map<std::string, EdgeOverlay> edge_overlays;
+    std::string error;
+    const auto stats = applySurfaceBodyPlanningOverlays(
+        graph_,
+        geometry,
+        config,
+        node_overlays,
+        edge_overlays,
+        &error);
+
+    EXPECT_TRUE(error.empty());
+    EXPECT_TRUE(stats.annotations_available);
+    EXPECT_NE(node_overlays["b"].extra_cost, 0.0);
+    EXPECT_EQ(stats.penalized_nodes_clearance, 1u);
+    EXPECT_EQ(node_overlays["c"].state, NodeState::BLOCKED);
+    EXPECT_EQ(edge_overlays["e1"].state, EdgeState::BLOCKED);
+    EXPECT_EQ(edge_overlays["e2"].state, EdgeState::BLOCKED);
 }

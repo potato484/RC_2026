@@ -2,6 +2,20 @@ topo_nav_node:
   ros__parameters:
     team: "blue"
     graph_file: ""
+    surface_graph_file: ""
+    robot_geometry_file: ""
+    robot_geometry_profile: "compact"
+    surface_start_match_xy_m: 0.30
+    surface_start_match_z_m: 0.10
+    surface_start_match_yaw_deg: 25.0
+    surface_anchor_radius_m: 0.30
+    body_planning:
+      enabled: true
+      require_annotated_surface_graph: true
+      clearance_margin_m: 0.02
+      max_surface_pitch_deg: 35.0
+      max_edge_slope_deg: 35.0
+      max_step_height_m: 0.18
     xhu:
       exec_timeout_sec: 45.0
       hold_replan_timeout_sec: 2.0

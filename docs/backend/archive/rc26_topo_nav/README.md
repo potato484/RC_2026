@@ -4,6 +4,10 @@
 
 `rc26_topo_nav` 是 R2 当前唯一的导航表达层，负责把 node/task/route 目标转换成 topo route 与语义 corridor，并驱动自研执行链完成单边执行。
 
+当前执行链真实口径是：
+
+- `rc26_topo_nav -> edge_executor -> /xhu_nav/corridor_cmd -> xhu_motion_follower -> cmd_vel`
+
 ## 当前实现
 
 - Action Server:
@@ -36,6 +40,30 @@
 - 当前实现不是直接在 mesh 上插临时锚点，而是把点击点投影到最近可通行 `surface_graph` sample node，再复用现有 `FieldGraph + A* + XhuSemanticCorridor` 执行主链。
 - 运行时要求机器人已经足够接近投影后的起点；当前不会从机器人当前位置自动补一段“接驳到起点”的前置路径。
 - 规划成功后会发布完整 `planned_path` 到 `/topo_nav/route`，并按 surface segment 逐段发布 corridor 到 `/topo_nav/corridor` 与 `/xhu_nav/corridor_cmd`。
+- 当前 surface route 规划已经接入运行时 overlay：`/mf_block_overlay`、地形风险、localization health / route observability 等约束会先经 `OverlayReducer` 归并，再作用到 `surface_graph` 的 node / edge overlay。
+- 当前 `NavigateSurfaceRoute.allow_replan=true` 时，surface route 已经补齐 route-level replan 闭环：如果 segment 执行阶段收到 `REPLAN_REQUESTED`，`topo_nav_node` 会基于当前机器人位姿重新做 surface 规划，而不再直接把 action 终止给上游。
+- 当前 surface route 已经升级到保守的 body-aware 全局规划口径：
+  - 离线 `surface_graph` 现在带有 `center_clearance_m / surface_pitch_deg / slope_deg / nominal_yaw / same_surface` 注解
+  - runtime `body_planning` 会基于 `rc26_robot_geometry` profile 对 surface node / edge 施加几何约束
+  - node clearance 当前作为软惩罚，pitch / edge lateral clearance / slope / step 仍是硬约束
+- 当前仍不是 swept-volume + 动态障碍预测的完整 3D collision planner；它的真实边界仍是“静态 dense surface graph + body-aware overlay + route-level replan”。
+
+## 当前几何配置口径
+
+- 当前新增共享几何参数契约：
+  - `robot_geometry_file`
+  - `robot_geometry_profile`
+- `rc26_topo_nav` 会读取 `rc26_robot_geometry` 提供的 geometry profile，并同时用于：
+  - `planning.surface_projection_radius_m`：保守放大 surface route 的投影锚定半径
+  - `body.half_width_m`：约束 surface edge 的 lateral clearance
+  - `body.half_width_m + body_planning.clearance_margin_m`：作为 body-aware overlay 的最小可通行宽度
+- 当前默认 body-aware 运行参数在 [config/topo_nav.yaml](/home/potato/RC_2026/src/rc26_topo_nav/config/topo_nav.yaml) 中声明，主要包括：
+  - `body_planning.enabled`
+  - `body_planning.require_annotated_surface_graph`
+  - `body_planning.clearance_margin_m`
+  - `body_planning.max_surface_pitch_deg`
+  - `body_planning.max_edge_slope_deg`
+  - `body_planning.max_step_height_m`
 
 ## 执行链当前口径
 
@@ -60,6 +88,10 @@
 
 - `config/r2_field_graph_blue.yaml` 和 `config/r2_field_graph_red.yaml` 现在是离线生成产物
 - `config/r2_surface_graph_blue.yaml` 和 `config/r2_surface_graph_red.yaml` 是 dense 可通行表面图生成产物，覆盖比赛场地中的地面、坡面与阶梯可行走表面 sample
+- 当前 `surface_graph` schema 已升级到 `1.1`，并额外记录：
+  - node: `surface_id / surface_name / render_class / center_clearance_m / surface_pitch_deg`
+  - edge: `horizontal_length_m / slope_deg / center_clearance_m / nominal_yaw / same_surface`
+- `generate_surface_graph.py` 当前不会再直接拿单个 mesh 面片边界当成 clearance 真值；它会先合并可通行支撑面，再按 edge 法向方向离线估算 lateral clearance。
 - 共享几何真源来自 [r2_mf_world.yaml](/home/potato/RC_2026/src/rc26_kfs_keepout/config/r2_mf_world.yaml)，只负责 MF 块位姿、高度和基础场地区域事实
 - topo 语义补充来自 [r2_field_graph_overlay.yaml](/home/potato/RC_2026/src/rc26_topo_nav/config/r2_field_graph_overlay.yaml)，只负责入口/出口 staging、坡道点、任务/路线，以及无法从几何稳定推导的节点和边成本
 - surface graph 语义补充来自 [r2_surface_graph_overlay.yaml](/home/potato/RC_2026/src/rc26_topo_nav/config/r2_surface_graph_overlay.yaml)，只负责定义哪些 mesh 面可采样、采样密度和跨面连接阈值
@@ -78,6 +110,7 @@
 - surface graph 生成命令:
   - `python3 src/rc26_topo_nav/scripts/generate_surface_graph.py --team blue --world src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world --overlay src/rc26_topo_nav/config/r2_surface_graph_overlay.yaml --out src/rc26_topo_nav/config/r2_surface_graph_blue.yaml`
   - `python3 src/rc26_topo_nav/scripts/generate_surface_graph.py --team red --world src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world --overlay src/rc26_topo_nav/config/r2_surface_graph_overlay.yaml --out src/rc26_topo_nav/config/r2_surface_graph_red.yaml`
+- 当前 surface graph 生成比旧版更慢，因为会对每条 edge 做 lateral clearance 采样；这是离线成本，不在 runtime 主链内。
 
 ## 静态可视化
 
@@ -123,6 +156,7 @@
   - `surface_route_cli`：把浏览器点击的世界坐标起终点投影到 dense `surface_graph` 上，得到运行时真实会走的起终点节点和完整路径
   - `topo_sim_server.py`：把 `surface_route_cli + planner_trace_cli + sim_assets` 组合成 HTTP adapter，提供场景、路线预览、路线 trace 和可选执行接口
   - `sim_viewer`：基于 Babylon.js / React 的单用途 3D 路线观察台，只显示任意点路线和它的搜索推导过程
+- `topo_sim_server.py` 当前在 source-tree 运行时会优先解析 `src/install` / `src/build` 下最新构建出的 CLI，而不是误用根仓库旧的 install binary。
 - viewer 当前支持：
   - 浏览器直接在地面、坡面、阶梯表面设置起点和终点
   - `POST /api/surface-route/preview` 现在先返回：
@@ -203,4 +237,5 @@
 - 不负责底层速度控制求解
 - 只对接 topo/xhu 自研执行接口
 - 不拥有场地几何真源；图几何事实由 `rc26_kfs_keepout/config/r2_mf_world.yaml` 提供
+- 不拥有机器人动态轮廓状态机；当前只消费 `rc26_robot_geometry` 提供的静态 geometry profile
 - `sim_viewer` 和 `topo_sim_server.py` 是当前包附带的本地观测与受控下发工具，不是运行时导航权威；真正执行仍以 `rc26_topo_nav` action server 为准

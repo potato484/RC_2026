@@ -24,6 +24,25 @@ def validate_graph(data: dict) -> list[str]:
         if e["to"] not in nodes:
             errors.append(f"Edge '{e['id']}' references missing to-node '{e['to']}'")
 
+    for node_id, node in nodes.items():
+        if node.get("type") != "surface_point":
+            continue
+        if "center_clearance_m" not in node:
+            errors.append(f"Surface node '{node_id}' missing center_clearance_m")
+        if "surface_pitch_deg" not in node:
+            errors.append(f"Surface node '{node_id}' missing surface_pitch_deg")
+
+    for edge in edges:
+        from_node = nodes.get(edge["from"])
+        to_node = nodes.get(edge["to"])
+        if not from_node or not to_node:
+            continue
+        if from_node.get("type") != "surface_point" or to_node.get("type") != "surface_point":
+            continue
+        for key in ("horizontal_length_m", "slope_deg", "center_clearance_m", "nominal_yaw", "same_surface"):
+            if key not in edge:
+                errors.append(f"Surface edge '{edge['id']}' missing {key}")
+
     # MF edges: only manhattan-adjacent (no diagonal)
     for e in edges:
         fn = nodes.get(e["from"])

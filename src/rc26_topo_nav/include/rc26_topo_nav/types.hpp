@@ -20,6 +20,11 @@ struct GraphNode {
     int block_id = 0;
     double base_cost = 0;
     std::string operation_tag;
+    std::string surface_id;
+    std::string surface_name;
+    std::string render_class;
+    double center_clearance_m = -1.0;
+    double surface_pitch_deg = -1.0;
 };
 
 struct GraphEdge {
@@ -34,6 +39,11 @@ struct GraphEdge {
     uint8_t phase_mask = 0xFF;
     double base_cost = 0;
     std::vector<Pose3> control_points;
+    double horizontal_length_m = 0.0;
+    double slope_deg = 0.0;
+    double center_clearance_m = -1.0;
+    double nominal_yaw = 0.0;
+    bool same_surface = false;
 };
 
 struct TaskDef {

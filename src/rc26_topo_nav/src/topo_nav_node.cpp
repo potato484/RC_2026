@@ -84,6 +84,24 @@ TopoNavNode::TopoNavNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("surface_start_match_z_m", surface_start_match_z_m_);
     this->declare_parameter("surface_start_match_yaw_deg", surface_start_match_yaw_deg_);
     this->declare_parameter("surface_anchor_radius_m", surface_anchor_radius_m_);
+    this->declare_parameter("robot_geometry_file", "");
+    this->declare_parameter("robot_geometry_profile", "compact");
+    this->declare_parameter("body_planning.enabled", surface_body_planning_.enabled);
+    this->declare_parameter(
+        "body_planning.require_annotated_surface_graph",
+        surface_body_planning_.require_annotated_surface_graph);
+    this->declare_parameter(
+        "body_planning.clearance_margin_m",
+        surface_body_planning_.clearance_margin_m);
+    this->declare_parameter(
+        "body_planning.max_surface_pitch_deg",
+        surface_body_planning_.max_surface_pitch_deg);
+    this->declare_parameter(
+        "body_planning.max_edge_slope_deg",
+        surface_body_planning_.max_edge_slope_deg);
+    this->declare_parameter(
+        "body_planning.max_step_height_m",
+        surface_body_planning_.max_step_height_m);
 
     team_ = this->get_parameter("team").as_string();
     std::string graph_file = this->get_parameter("graph_file").as_string();
@@ -112,6 +130,49 @@ TopoNavNode::TopoNavNode(const rclcpp::NodeOptions& options)
     surface_start_match_z_m_ = this->get_parameter("surface_start_match_z_m").as_double();
     surface_start_match_yaw_deg_ = this->get_parameter("surface_start_match_yaw_deg").as_double();
     surface_anchor_radius_m_ = this->get_parameter("surface_anchor_radius_m").as_double();
+    surface_body_planning_.enabled = this->get_parameter("body_planning.enabled").as_bool();
+    surface_body_planning_.require_annotated_surface_graph =
+        this->get_parameter("body_planning.require_annotated_surface_graph").as_bool();
+    surface_body_planning_.clearance_margin_m =
+        this->get_parameter("body_planning.clearance_margin_m").as_double();
+    surface_body_planning_.max_surface_pitch_deg =
+        this->get_parameter("body_planning.max_surface_pitch_deg").as_double();
+    surface_body_planning_.max_edge_slope_deg =
+        this->get_parameter("body_planning.max_edge_slope_deg").as_double();
+    surface_body_planning_.max_step_height_m =
+        this->get_parameter("body_planning.max_step_height_m").as_double();
+    const std::string robot_geometry_file = this->get_parameter("robot_geometry_file").as_string();
+    const std::string robot_geometry_profile =
+        this->get_parameter("robot_geometry_profile").as_string();
+
+    if (!robot_geometry_file.empty()) {
+        std::string geometry_error;
+        const auto geometry = loadRobotGeometryProfile(
+            robot_geometry_file, robot_geometry_profile, geometry_error);
+        if (!geometry) {
+            RCLCPP_WARN(
+                get_logger(),
+                "Failed to load robot geometry file '%s': %s",
+                robot_geometry_file.c_str(),
+                geometry_error.c_str());
+        } else {
+            robot_geometry_ = geometry;
+            const double previous_anchor_radius = surface_anchor_radius_m_;
+            surface_anchor_radius_m_ = std::max(
+                surface_anchor_radius_m_,
+                geometry->surface_projection_radius_m);
+            RCLCPP_INFO(
+                get_logger(),
+                "Loaded robot geometry profile=%s half_length=%.3f half_width=%.3f height=%.3f "
+                "surface_anchor_radius=%.3f (was %.3f)",
+                geometry->name.c_str(),
+                geometry->half_length_m,
+                geometry->half_width_m,
+                geometry->height_m,
+                surface_anchor_radius_m_,
+                previous_anchor_radius);
+        }
+    }
 
     // Load graph
     if (!graph_file.empty()) {
@@ -555,99 +616,21 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
             return;
         }
 
-        const auto now = this->now();
         const auto start_pose = pose3FromPoseStamped(goal->start_pose);
         const auto goal_pose = pose3FromPoseStamped(goal->goal_pose);
-        const auto plan_begin = std::chrono::steady_clock::now();
-        const auto surface_plan = planSurfaceRoute(
-            surface_graph_,
-            start_pose,
-            goal_pose,
-            weights_,
-            surface_anchor_radius_m_,
-            now,
-            "map");
-        const auto plan_end = std::chrono::steady_clock::now();
-        const double plan_ms = elapsedMilliseconds(plan_begin, plan_end);
+        Pose3 requested_start_pose = start_pose;
+        uint32_t replan_count = 0;
 
-        result->projected_start_pose = poseStampedFromPose3(
-            surface_plan.projected_start.pose, "map", now);
-        result->projected_goal_pose = poseStampedFromPose3(
-            surface_plan.projected_goal.pose, "map", now);
-        result->planned_path = surface_plan.planned_path;
-
-        if (!surface_plan.success) {
-            RCLCPP_WARN(
-                get_logger(),
-                "Surface planning failed: start=(%.3f, %.3f, %.3f) goal=(%.3f, %.3f, %.3f) "
-                "projected_start=%s projected_goal=%s elapsed_ms=%.2f code=%s reason=%s",
-                start_pose.x, start_pose.y, start_pose.z,
-                goal_pose.x, goal_pose.y, goal_pose.z,
-                surface_plan.projected_start.node_id.c_str(),
-                surface_plan.projected_goal.node_id.c_str(),
-                plan_ms,
-                surface_plan.failure_code.c_str(),
-                surface_plan.failure_reason.c_str());
+        if (surface_body_planning_.enabled && !robot_geometry_) {
             result->success = false;
-            result->failure_code = surface_plan.failure_code;
-            result->failure_reason = surface_plan.failure_reason;
+            result->failure_code = "ROBOT_GEOMETRY_UNAVAILABLE";
+            result->failure_reason = "Surface body planning enabled without robot geometry";
             goal_handle->abort(result);
-            diagnostics_->publishDiagnostic("ERROR", "Surface route planning failed");
+            diagnostics_->publishDiagnostic("ERROR", "Surface body planning missing robot geometry");
             return;
         }
 
-        RCLCPP_INFO(
-            get_logger(),
-            "Surface planning succeeded: start=(%.3f, %.3f, %.3f) goal=(%.3f, %.3f, %.3f) "
-            "projected_start=%s projected_goal=%s elapsed_ms=%.2f node_count=%zu edge_count=%zu "
-            "path_points=%zu segments=%zu total_cost=%.3f",
-            start_pose.x, start_pose.y, start_pose.z,
-            goal_pose.x, goal_pose.y, goal_pose.z,
-            surface_plan.projected_start.node_id.c_str(),
-            surface_plan.projected_goal.node_id.c_str(),
-            plan_ms,
-            surface_plan.plan.node_path.size(),
-            surface_plan.plan.edge_indices.size(),
-            surface_plan.planned_path.poses.size(),
-            surface_plan.segments.size(),
-            surface_plan.plan.total_cost);
-
-        Pose3 robot_pose;
-        if (!currentRobotPose(robot_pose)) {
-            result->success = false;
-            result->failure_code = "NO_TF";
-            result->failure_reason = "Cannot determine robot position";
-            goal_handle->abort(result);
-            return;
-        }
-
-        if (!poseNear(
-                robot_pose,
-                surface_plan.projected_start.pose,
-                surface_start_match_xy_m_,
-                surface_start_match_z_m_,
-                surface_start_match_yaw_deg_ * M_PI / 180.0)) {
-            RCLCPP_WARN(
-                get_logger(),
-                "Surface plan start pose mismatch after planning: projected_start=%s elapsed_ms=%.2f "
-                "robot=(%.3f, %.3f, %.3f, %.3f) projected=(%.3f, %.3f, %.3f, %.3f)",
-                surface_plan.projected_start.node_id.c_str(),
-                plan_ms,
-                robot_pose.x, robot_pose.y, robot_pose.z, robot_pose.yaw,
-                surface_plan.projected_start.pose.x,
-                surface_plan.projected_start.pose.y,
-                surface_plan.projected_start.pose.z,
-                surface_plan.projected_start.pose.yaw);
-            result->success = false;
-            result->failure_code = "START_POSE_MISMATCH";
-            result->failure_reason = "Robot is not close enough to the requested start pose";
-            goal_handle->abort(result);
-            diagnostics_->publishDiagnostic("WARN", "Surface route start pose mismatch");
-            return;
-        }
-
-        diagnostics_->publishRoute(surface_plan.planned_path);
-        for (const auto& segment : surface_plan.segments) {
+        for (int plan_attempt = 0; plan_attempt <= MAX_REPLAN_ATTEMPTS; ++plan_attempt) {
             if (goal_handle->is_canceling()) {
                 edge_executor_->cancel();
                 result->success = false;
@@ -656,22 +639,215 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
                 return;
             }
 
-            diagnostics_->publishActiveLabel(segment.id, "PASS");
-            diagnostics_->publishCorridor(segment.corridor);
+            if (overlay_reducer_->shouldHold()) {
+                std::string hold_error;
+                (void)edge_executor_->requestMode("hold", "loc_red_surface_pre_plan", hold_error);
+                result->success = false;
+                result->failure_code = "LOC_RED_HOLD";
+                result->failure_reason = "Localization RED, surface route aborted";
+                goal_handle->abort(result);
+                diagnostics_->publishDiagnostic("WARN", "Hold: localization RED before surface planning");
+                return;
+            }
 
-            feedback->active_segment_id = segment.id;
-            feedback->exec_state = "EXECUTING";
-            feedback->replan_count = 0;
-            goal_handle->publish_feedback(feedback);
+            Pose3 planning_start_pose = requested_start_pose;
+            if (plan_attempt > 0 && !currentRobotPose(planning_start_pose)) {
+                result->success = false;
+                result->failure_code = "NO_TF";
+                result->failure_reason = "Cannot determine robot position for surface replan";
+                goal_handle->abort(result);
+                return;
+            }
 
-            const auto exec_result = edge_executor_->executeCorridor(
-                segment.id,
-                segment.from_node_id,
-                segment.to_node_id,
-                segment.motion_type,
-                segment.required_mode,
-                segment.corridor);
-            if (!exec_result.success) {
+            std::unordered_map<std::string, NodeOverlay> node_overlays;
+            std::unordered_map<std::string, EdgeOverlay> edge_overlays;
+            overlay_reducer_->applyOverlays(surface_graph_, node_overlays, edge_overlays);
+            if (surface_body_planning_.enabled) {
+                std::string body_planning_error;
+                const auto stats = applySurfaceBodyPlanningOverlays(
+                    surface_graph_,
+                    *robot_geometry_,
+                    surface_body_planning_,
+                    node_overlays,
+                    edge_overlays,
+                    &body_planning_error);
+                if (!body_planning_error.empty()) {
+                    result->success = false;
+                    result->failure_code = "SURFACE_GRAPH_NOT_BODY_AWARE";
+                    result->failure_reason = body_planning_error;
+                    goal_handle->abort(result);
+                    diagnostics_->publishDiagnostic("ERROR", body_planning_error);
+                    return;
+                }
+                RCLCPP_INFO(
+                    get_logger(),
+                    "Surface body planning overlays: penalized_nodes_clearance=%zu blocked_nodes_pitch=%zu "
+                    "blocked_edges_clearance=%zu blocked_edges_slope=%zu blocked_edges_step=%zu",
+                    stats.penalized_nodes_clearance,
+                    stats.blocked_nodes_pitch,
+                    stats.blocked_edges_clearance,
+                    stats.blocked_edges_slope,
+                    stats.blocked_edges_step);
+            }
+
+            const auto now = this->now();
+            const auto plan_begin = std::chrono::steady_clock::now();
+            const auto surface_plan = planSurfaceRoute(
+                surface_graph_,
+                planning_start_pose,
+                goal_pose,
+                node_overlays,
+                edge_overlays,
+                weights_,
+                surface_anchor_radius_m_,
+                now,
+                "map");
+            const auto plan_end = std::chrono::steady_clock::now();
+            const double plan_ms = elapsedMilliseconds(plan_begin, plan_end);
+
+            result->projected_start_pose = poseStampedFromPose3(
+                surface_plan.projected_start.pose, "map", now);
+            result->projected_goal_pose = poseStampedFromPose3(
+                surface_plan.projected_goal.pose, "map", now);
+            result->planned_path = surface_plan.planned_path;
+
+            if (!surface_plan.success) {
+                RCLCPP_WARN(
+                    get_logger(),
+                    "Surface planning failed: attempt=%d start=(%.3f, %.3f, %.3f) "
+                    "goal=(%.3f, %.3f, %.3f) projected_start=%s projected_goal=%s "
+                    "elapsed_ms=%.2f code=%s reason=%s",
+                    plan_attempt + 1,
+                    planning_start_pose.x, planning_start_pose.y, planning_start_pose.z,
+                    goal_pose.x, goal_pose.y, goal_pose.z,
+                    surface_plan.projected_start.node_id.c_str(),
+                    surface_plan.projected_goal.node_id.c_str(),
+                    plan_ms,
+                    surface_plan.failure_code.c_str(),
+                    surface_plan.failure_reason.c_str());
+                result->success = false;
+                result->failure_code = surface_plan.failure_code;
+                result->failure_reason = surface_plan.failure_reason;
+                goal_handle->abort(result);
+                diagnostics_->publishDiagnostic("ERROR", "Surface route planning failed");
+                return;
+            }
+
+            RCLCPP_INFO(
+                get_logger(),
+                "Surface planning succeeded: attempt=%d start=(%.3f, %.3f, %.3f) "
+                "goal=(%.3f, %.3f, %.3f) projected_start=%s projected_goal=%s "
+                "elapsed_ms=%.2f node_count=%zu edge_count=%zu path_points=%zu "
+                "segments=%zu total_cost=%.3f",
+                plan_attempt + 1,
+                planning_start_pose.x, planning_start_pose.y, planning_start_pose.z,
+                goal_pose.x, goal_pose.y, goal_pose.z,
+                surface_plan.projected_start.node_id.c_str(),
+                surface_plan.projected_goal.node_id.c_str(),
+                plan_ms,
+                surface_plan.plan.node_path.size(),
+                surface_plan.plan.edge_indices.size(),
+                surface_plan.planned_path.poses.size(),
+                surface_plan.segments.size(),
+                surface_plan.plan.total_cost);
+
+            Pose3 robot_pose;
+            if (!currentRobotPose(robot_pose)) {
+                result->success = false;
+                result->failure_code = "NO_TF";
+                result->failure_reason = "Cannot determine robot position";
+                goal_handle->abort(result);
+                return;
+            }
+
+            if (!poseNear(
+                    robot_pose,
+                    surface_plan.projected_start.pose,
+                    surface_start_match_xy_m_,
+                    surface_start_match_z_m_,
+                    surface_start_match_yaw_deg_ * M_PI / 180.0)) {
+                RCLCPP_WARN(
+                    get_logger(),
+                    "Surface plan start pose mismatch after planning: attempt=%d projected_start=%s "
+                    "elapsed_ms=%.2f robot=(%.3f, %.3f, %.3f, %.3f) "
+                    "projected=(%.3f, %.3f, %.3f, %.3f)",
+                    plan_attempt + 1,
+                    surface_plan.projected_start.node_id.c_str(),
+                    plan_ms,
+                    robot_pose.x, robot_pose.y, robot_pose.z, robot_pose.yaw,
+                    surface_plan.projected_start.pose.x,
+                    surface_plan.projected_start.pose.y,
+                    surface_plan.projected_start.pose.z,
+                    surface_plan.projected_start.pose.yaw);
+                result->success = false;
+                result->failure_code = "START_POSE_MISMATCH";
+                result->failure_reason = "Robot is not close enough to the requested start pose";
+                goal_handle->abort(result);
+                diagnostics_->publishDiagnostic("WARN", "Surface route start pose mismatch");
+                return;
+            }
+
+            diagnostics_->publishRoute(surface_plan.planned_path);
+
+            bool route_completed = true;
+            for (const auto& segment : surface_plan.segments) {
+                if (goal_handle->is_canceling()) {
+                    edge_executor_->cancel();
+                    result->success = false;
+                    result->failure_code = "CANCELLED";
+                    goal_handle->canceled(result);
+                    return;
+                }
+
+                if (overlay_reducer_->shouldHold()) {
+                    std::string hold_error;
+                    (void)edge_executor_->requestMode("hold", "loc_red_surface_exec", hold_error);
+                    result->success = false;
+                    result->terminal_segment_id = segment.id;
+                    result->failure_code = "LOC_RED_HOLD";
+                    result->failure_reason = "Localization RED during surface execution";
+                    goal_handle->abort(result);
+                    diagnostics_->publishDiagnostic("WARN", "Hold: localization RED during surface execution");
+                    return;
+                }
+
+                diagnostics_->publishActiveLabel(segment.id, "PASS");
+                diagnostics_->publishCorridor(segment.corridor);
+
+                feedback->active_segment_id = segment.id;
+                feedback->exec_state = "EXECUTING";
+                feedback->replan_count = replan_count;
+                goal_handle->publish_feedback(feedback);
+
+                const auto exec_result = edge_executor_->executeCorridor(
+                    segment.id,
+                    segment.from_node_id,
+                    segment.to_node_id,
+                    segment.motion_type,
+                    segment.required_mode,
+                    segment.corridor);
+                if (exec_result.success) {
+                    continue;
+                }
+
+                if (exec_result.final_state == EdgeExecState::REPLAN_REQUESTED &&
+                    goal->allow_replan && plan_attempt < MAX_REPLAN_ATTEMPTS) {
+                    Pose3 next_start_pose;
+                    if (!currentRobotPose(next_start_pose)) {
+                        const auto fallback_it = surface_graph_.nodes.find(segment.from_node_id);
+                        next_start_pose = fallback_it != surface_graph_.nodes.end()
+                            ? fallback_it->second.pose
+                            : surface_plan.projected_start.pose;
+                    }
+                    requested_start_pose = next_start_pose;
+                    replan_count++;
+                    result->terminal_segment_id = segment.id;
+                    route_completed = false;
+                    diagnostics_->publishActiveLabel(segment.id, "REPLAN");
+                    diagnostics_->publishDiagnostic("WARN", "Surface route replanning requested");
+                    break;
+                }
+
                 result->success = false;
                 result->terminal_segment_id = segment.id;
                 result->failure_code =
@@ -684,14 +860,23 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
                 diagnostics_->publishDiagnostic("ERROR", "Surface route execution failed");
                 return;
             }
+
+            if (route_completed) {
+                result->success = true;
+                if (!surface_plan.segments.empty()) {
+                    result->terminal_segment_id = surface_plan.segments.back().id;
+                }
+                goal_handle->succeed(result);
+                diagnostics_->publishDiagnostic("OK", "Surface navigation succeeded");
+                return;
+            }
         }
 
-        result->success = true;
-        if (!surface_plan.segments.empty()) {
-            result->terminal_segment_id = surface_plan.segments.back().id;
-        }
-        goal_handle->succeed(result);
-        diagnostics_->publishDiagnostic("OK", "Surface navigation succeeded");
+        result->success = false;
+        result->failure_code = "MAX_REPLAN_EXCEEDED";
+        result->failure_reason = "Exceeded maximum surface replan attempts";
+        goal_handle->abort(result);
+        diagnostics_->publishDiagnostic("ERROR", "Max surface replan exceeded");
     } catch (const std::exception& e) {
         edge_executor_->cancel();
         result->success = false;

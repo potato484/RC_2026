@@ -54,6 +54,13 @@ double elapsedMilliseconds(const std::chrono::steady_clock::time_point& begin) {
         std::chrono::steady_clock::now() - begin).count();
 }
 
+bool nodeAvailableForProjection(
+    const std::string& node_id,
+    const std::unordered_map<std::string, NodeOverlay>& node_overlays) {
+    const auto overlay_it = node_overlays.find(node_id);
+    return overlay_it == node_overlays.end() || overlay_it->second.state != NodeState::BLOCKED;
+}
+
 }  // namespace
 
 Pose3 pose3FromPoseStamped(const geometry_msgs::msg::PoseStamped& msg) {
@@ -92,11 +99,23 @@ SurfaceProjectionResult projectPoseToSurfaceGraph(
     const FieldGraph& graph,
     const Pose3& pose,
     const double max_xy_distance) {
+    static const std::unordered_map<std::string, NodeOverlay> kEmptyNodeOverlays;
+    return projectPoseToSurfaceGraph(graph, pose, max_xy_distance, kEmptyNodeOverlays);
+}
+
+SurfaceProjectionResult projectPoseToSurfaceGraph(
+    const FieldGraph& graph,
+    const Pose3& pose,
+    const double max_xy_distance,
+    const std::unordered_map<std::string, NodeOverlay>& node_overlays) {
     SurfaceProjectionResult result;
     double best_distance_xy = std::numeric_limits<double>::infinity();
     double best_distance_3d = std::numeric_limits<double>::infinity();
 
     for (const auto& [node_id, node] : graph.nodes) {
+        if (!nodeAvailableForProjection(node_id, node_overlays)) {
+            continue;
+        }
         const double dx = node.pose.x - pose.x;
         const double dy = node.pose.y - pose.y;
         const double dz = node.pose.z - pose.z;
@@ -213,6 +232,8 @@ SurfacePlanResult planSurfaceRoute(
     const FieldGraph& graph,
     const Pose3& requested_start,
     const Pose3& requested_goal,
+    const std::unordered_map<std::string, NodeOverlay>& node_overlays,
+    const std::unordered_map<std::string, EdgeOverlay>& edge_overlays,
     const PlannerWeights& weights,
     const double projection_radius_m,
     const rclcpp::Time& stamp,
@@ -220,7 +241,8 @@ SurfacePlanResult planSurfaceRoute(
     SurfacePlanResult result;
     const auto complete_begin = std::chrono::steady_clock::now();
     const auto projection_begin = std::chrono::steady_clock::now();
-    result.projected_start = projectPoseToSurfaceGraph(graph, requested_start, projection_radius_m);
+    result.projected_start = projectPoseToSurfaceGraph(
+        graph, requested_start, projection_radius_m, node_overlays);
     if (!result.projected_start.success) {
         result.projection_ms = elapsedMilliseconds(projection_begin);
         result.complete_planning_ms = elapsedMilliseconds(complete_begin);
@@ -229,7 +251,8 @@ SurfacePlanResult planSurfaceRoute(
         return result;
     }
 
-    result.projected_goal = projectPoseToSurfaceGraph(graph, requested_goal, projection_radius_m);
+    result.projected_goal = projectPoseToSurfaceGraph(
+        graph, requested_goal, projection_radius_m, node_overlays);
     result.projection_ms = elapsedMilliseconds(projection_begin);
     if (!result.projected_goal.success) {
         result.complete_planning_ms = elapsedMilliseconds(complete_begin);
@@ -238,8 +261,6 @@ SurfacePlanResult planSurfaceRoute(
         return result;
     }
 
-    const std::unordered_map<std::string, NodeOverlay> node_overlays;
-    const std::unordered_map<std::string, EdgeOverlay> edge_overlays;
     PlannerRunOptions run_options;
     run_options.heuristic_scale = estimateAdmissibleHeuristicScale(graph, weights);
     const auto planning_begin = std::chrono::steady_clock::now();
@@ -276,6 +297,28 @@ SurfacePlanResult planSurfaceRoute(
     result.complete_planning_ms = elapsedMilliseconds(complete_begin);
     result.success = true;
     return result;
+}
+
+SurfacePlanResult planSurfaceRoute(
+    const FieldGraph& graph,
+    const Pose3& requested_start,
+    const Pose3& requested_goal,
+    const PlannerWeights& weights,
+    const double projection_radius_m,
+    const rclcpp::Time& stamp,
+    const std::string& frame_id) {
+    static const std::unordered_map<std::string, NodeOverlay> kEmptyNodeOverlays;
+    static const std::unordered_map<std::string, EdgeOverlay> kEmptyEdgeOverlays;
+    return planSurfaceRoute(
+        graph,
+        requested_start,
+        requested_goal,
+        kEmptyNodeOverlays,
+        kEmptyEdgeOverlays,
+        weights,
+        projection_radius_m,
+        stamp,
+        frame_id);
 }
 
 }  // namespace rc26_topo_nav

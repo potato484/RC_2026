@@ -70,7 +70,7 @@ SOURCE_PKG_ROOT = detect_source_pkg_root()
 SHARE_ROOT = detect_share_root()
 PACKAGE_PREFIX = detect_package_prefix()
 PKG_ROOT = SOURCE_PKG_ROOT or SHARE_ROOT or SCRIPT_DIR.parent
-WORKSPACE_ROOT = SOURCE_PKG_ROOT.parents[1] if SOURCE_PKG_ROOT is not None else None
+SOURCE_WORKSPACE_ROOT = SOURCE_PKG_ROOT.parent if SOURCE_PKG_ROOT is not None else None
 PLANNER_TRACE_CLI_TIMEOUT_SEC = 20.0
 SURFACE_ROUTE_CLI_TIMEOUT_SEC = 10.0
 SURFACE_TRACE_MAX_FRAMES = 200
@@ -466,15 +466,15 @@ def blocked_sim_points(manifest: dict[str, Any], blocked_nodes: list[str]) -> li
 
 def resolve_cli_binary() -> Path:
     candidates: list[Path] = []
-    if PACKAGE_PREFIX is not None:
-        candidates.append(PACKAGE_PREFIX / "lib" / "rc26_topo_nav" / "planner_trace_cli")
-    if WORKSPACE_ROOT is not None:
+    if SOURCE_WORKSPACE_ROOT is not None:
         candidates.extend(
             [
-                WORKSPACE_ROOT / "install" / "rc26_topo_nav" / "lib" / "rc26_topo_nav" / "planner_trace_cli",
-                WORKSPACE_ROOT / "build" / "rc26_topo_nav" / "planner_trace_cli",
+                SOURCE_WORKSPACE_ROOT / "install" / "rc26_topo_nav" / "lib" / "rc26_topo_nav" / "planner_trace_cli",
+                SOURCE_WORKSPACE_ROOT / "build" / "rc26_topo_nav" / "planner_trace_cli",
             ]
         )
+    if PACKAGE_PREFIX is not None:
+        candidates.append(PACKAGE_PREFIX / "lib" / "rc26_topo_nav" / "planner_trace_cli")
     which_path = shutil.which("planner_trace_cli")
     if which_path:
         candidates.append(Path(which_path))
@@ -487,15 +487,15 @@ def resolve_cli_binary() -> Path:
 
 def resolve_surface_cli_binary() -> Path:
     candidates: list[Path] = []
-    if PACKAGE_PREFIX is not None:
-        candidates.append(PACKAGE_PREFIX / "lib" / "rc26_topo_nav" / "surface_route_cli")
-    if WORKSPACE_ROOT is not None:
+    if SOURCE_WORKSPACE_ROOT is not None:
         candidates.extend(
             [
-                WORKSPACE_ROOT / "install" / "rc26_topo_nav" / "lib" / "rc26_topo_nav" / "surface_route_cli",
-                WORKSPACE_ROOT / "build" / "rc26_topo_nav" / "surface_route_cli",
+                SOURCE_WORKSPACE_ROOT / "install" / "rc26_topo_nav" / "lib" / "rc26_topo_nav" / "surface_route_cli",
+                SOURCE_WORKSPACE_ROOT / "build" / "rc26_topo_nav" / "surface_route_cli",
             ]
         )
+    if PACKAGE_PREFIX is not None:
+        candidates.append(PACKAGE_PREFIX / "lib" / "rc26_topo_nav" / "surface_route_cli")
     which_path = shutil.which("surface_route_cli")
     if which_path:
         candidates.append(Path(which_path))
@@ -509,11 +509,11 @@ def resolve_surface_cli_binary() -> Path:
 def planner_cli_env() -> dict[str, str]:
     env = os.environ.copy()
     runtime_dirs: list[Path] = []
+    if SOURCE_WORKSPACE_ROOT is not None:
+        runtime_dirs.extend(sorted(path for path in (SOURCE_WORKSPACE_ROOT / "install").glob("*/lib") if path.is_dir()))
+        runtime_dirs.append(SOURCE_WORKSPACE_ROOT / "build" / "rc26_topo_nav")
     if PACKAGE_PREFIX is not None:
         runtime_dirs.append(PACKAGE_PREFIX / "lib")
-    if WORKSPACE_ROOT is not None:
-        runtime_dirs.extend(sorted(path for path in (WORKSPACE_ROOT / "install").glob("*/lib") if path.is_dir()))
-        runtime_dirs.append(WORKSPACE_ROOT / "build" / "rc26_topo_nav")
     existing = env.get("LD_LIBRARY_PATH", "")
     merged = [str(path) for path in runtime_dirs if path.is_dir()]
     if existing:
@@ -521,6 +521,18 @@ def planner_cli_env() -> dict[str, str]:
     if merged:
         env["LD_LIBRARY_PATH"] = os.pathsep.join(merged)
     return env
+
+
+def default_robot_geometry_file() -> Path:
+    if SOURCE_WORKSPACE_ROOT is not None:
+        candidate = SOURCE_WORKSPACE_ROOT / "rc26_robot_geometry" / "config" / "r2_body_geometry.yaml"
+        if candidate.is_file():
+            return candidate
+    if PACKAGE_PREFIX is not None:
+        candidate = PACKAGE_PREFIX / "share" / "rc26_robot_geometry" / "config" / "r2_body_geometry.yaml"
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError("rc26_robot_geometry/config/r2_body_geometry.yaml not found")
 
 
 def run_planner_trace_cli(
@@ -550,7 +562,7 @@ def run_planner_trace_cli(
             command,
             capture_output=True,
             text=True,
-            cwd=WORKSPACE_ROOT or PACKAGE_PREFIX or PKG_ROOT,
+            cwd=SOURCE_WORKSPACE_ROOT or PACKAGE_PREFIX or PKG_ROOT,
             env=planner_cli_env(),
             timeout=PLANNER_TRACE_CLI_TIMEOUT_SEC,
         )
@@ -598,7 +610,7 @@ def run_graph_trace_cli(
             command,
             capture_output=True,
             text=True,
-            cwd=WORKSPACE_ROOT or PACKAGE_PREFIX or PKG_ROOT,
+            cwd=SOURCE_WORKSPACE_ROOT or PACKAGE_PREFIX or PKG_ROOT,
             env=planner_cli_env(),
             timeout=PLANNER_TRACE_CLI_TIMEOUT_SEC,
         )
@@ -626,10 +638,15 @@ def run_surface_route_cli(
     projection_radius_m: float,
 ) -> dict[str, Any]:
     cli_binary = resolve_surface_cli_binary()
+    geometry_file = default_robot_geometry_file()
     command = [
         str(cli_binary),
         "--graph",
         str(graph_file),
+        "--robot-geometry-file",
+        str(geometry_file),
+        "--robot-geometry-profile",
+        "compact",
         "--start-pose",
         f"{start_pose['x']},{start_pose['y']},{start_pose['z']},{start_pose.get('yaw', 0.0)}",
         "--goal-pose",
@@ -642,7 +659,7 @@ def run_surface_route_cli(
             command,
             capture_output=True,
             text=True,
-            cwd=WORKSPACE_ROOT or PACKAGE_PREFIX or PKG_ROOT,
+            cwd=SOURCE_WORKSPACE_ROOT or PACKAGE_PREFIX or PKG_ROOT,
             env=planner_cli_env(),
             timeout=SURFACE_ROUTE_CLI_TIMEOUT_SEC,
         )

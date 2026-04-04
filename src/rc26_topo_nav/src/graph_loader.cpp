@@ -58,6 +58,11 @@ LoadResult loadFieldGraph(const std::string& yaml_path) {
             node.block_id = n["block_id"].as<int>(0);
             node.base_cost = n["base_cost"].as<double>(0);
             node.operation_tag = n["operation_tag"].as<std::string>("");
+            node.surface_id = n["surface_id"].as<std::string>("");
+            node.surface_name = n["surface_name"].as<std::string>("");
+            node.render_class = n["render_class"].as<std::string>("");
+            node.center_clearance_m = n["center_clearance_m"].as<double>(-1.0);
+            node.surface_pitch_deg = n["surface_pitch_deg"].as<double>(-1.0);
             g.nodes[node.id] = node;
         }
     }
@@ -77,6 +82,11 @@ LoadResult loadFieldGraph(const std::string& yaml_path) {
             edge.phase_mask = static_cast<uint8_t>(e["phase_mask"].as<int>(0xFF));
             edge.base_cost = e["base_cost"].as<double>(0);
             edge.control_points = parseControlPoints(e["control_points"]);
+            edge.horizontal_length_m = e["horizontal_length_m"].as<double>(0.0);
+            edge.slope_deg = e["slope_deg"].as<double>(0.0);
+            edge.center_clearance_m = e["center_clearance_m"].as<double>(-1.0);
+            edge.nominal_yaw = e["nominal_yaw"].as<double>(0.0);
+            edge.same_surface = e["same_surface"].as<bool>(false);
             g.edges.push_back(edge);
         }
     }
@@ -126,6 +136,38 @@ ValidationResult validateGraph(const FieldGraph& graph) {
         }
         if (graph.nodes.find(edge.to) == graph.nodes.end()) {
             vr.errors.push_back("Edge '" + edge.id + "' references missing to-node '" + edge.to + "'");
+        }
+    }
+
+    for (const auto& [node_id, node] : graph.nodes) {
+        if (node.type != "surface_point") {
+            continue;
+        }
+        if (node.center_clearance_m < 0.0) {
+            vr.errors.push_back("Surface node '" + node_id + "' missing center_clearance_m annotation");
+        }
+        if (node.surface_pitch_deg < 0.0) {
+            vr.errors.push_back("Surface node '" + node_id + "' missing surface_pitch_deg annotation");
+        }
+    }
+
+    for (const auto& edge : graph.edges) {
+        const auto from_it = graph.nodes.find(edge.from);
+        const auto to_it = graph.nodes.find(edge.to);
+        if (from_it == graph.nodes.end() || to_it == graph.nodes.end()) {
+            continue;
+        }
+        if (from_it->second.type != "surface_point" || to_it->second.type != "surface_point") {
+            continue;
+        }
+        if (edge.center_clearance_m < 0.0) {
+            vr.errors.push_back("Surface edge '" + edge.id + "' missing center_clearance_m annotation");
+        }
+        if (edge.horizontal_length_m < 0.0) {
+            vr.errors.push_back("Surface edge '" + edge.id + "' has invalid horizontal_length_m");
+        }
+        if (edge.slope_deg < 0.0) {
+            vr.errors.push_back("Surface edge '" + edge.id + "' has invalid slope_deg");
         }
     }
 

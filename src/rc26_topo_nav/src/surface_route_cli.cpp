@@ -1,6 +1,8 @@
+#include "rc26_topo_nav/body_planning.hpp"
 #include "rc26_topo_nav/graph_loader.hpp"
 #include "rc26_topo_nav/surface_route.hpp"
 
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
@@ -81,9 +83,12 @@ bool parsePose4(const std::string& raw, Pose3& pose) {
 
 struct ParsedArgs {
     std::string graph;
+    std::string robot_geometry_file;
+    std::string robot_geometry_profile = "compact";
     Pose3 start;
     Pose3 goal;
     double projection_radius_m = 0.30;
+    SurfaceBodyPlanningConfig body_planning;
 };
 
 bool parseArgs(int argc, char** argv, ParsedArgs& args, std::string& error) {
@@ -104,6 +109,18 @@ bool parseArgs(int argc, char** argv, ParsedArgs& args, std::string& error) {
                 return false;
             }
             args.graph = value;
+        } else if (flag == "--robot-geometry-file") {
+            const char* value = requireValue(flag);
+            if (value == nullptr) {
+                return false;
+            }
+            args.robot_geometry_file = value;
+        } else if (flag == "--robot-geometry-profile") {
+            const char* value = requireValue(flag);
+            if (value == nullptr) {
+                return false;
+            }
+            args.robot_geometry_profile = value;
         } else if (flag == "--start-pose") {
             const char* value = requireValue(flag);
             if (value == nullptr || !parsePose4(value, args.start)) {
@@ -127,6 +144,52 @@ bool parseArgs(int argc, char** argv, ParsedArgs& args, std::string& error) {
                 error = "Invalid --projection-radius";
                 return false;
             }
+        } else if (flag == "--disable-body-planning") {
+            args.body_planning.enabled = false;
+        } else if (flag == "--body-clearance-margin") {
+            const char* value = requireValue(flag);
+            if (value == nullptr) {
+                return false;
+            }
+            char* end = nullptr;
+            args.body_planning.clearance_margin_m = std::strtod(value, &end);
+            if (end == nullptr || *end != '\0') {
+                error = "Invalid --body-clearance-margin";
+                return false;
+            }
+        } else if (flag == "--max-surface-pitch-deg") {
+            const char* value = requireValue(flag);
+            if (value == nullptr) {
+                return false;
+            }
+            char* end = nullptr;
+            args.body_planning.max_surface_pitch_deg = std::strtod(value, &end);
+            if (end == nullptr || *end != '\0') {
+                error = "Invalid --max-surface-pitch-deg";
+                return false;
+            }
+        } else if (flag == "--max-edge-slope-deg") {
+            const char* value = requireValue(flag);
+            if (value == nullptr) {
+                return false;
+            }
+            char* end = nullptr;
+            args.body_planning.max_edge_slope_deg = std::strtod(value, &end);
+            if (end == nullptr || *end != '\0') {
+                error = "Invalid --max-edge-slope-deg";
+                return false;
+            }
+        } else if (flag == "--max-step-height-m") {
+            const char* value = requireValue(flag);
+            if (value == nullptr) {
+                return false;
+            }
+            char* end = nullptr;
+            args.body_planning.max_step_height_m = std::strtod(value, &end);
+            if (end == nullptr || *end != '\0') {
+                error = "Invalid --max-step-height-m";
+                return false;
+            }
         } else {
             error = "Unknown flag: " + flag;
             return false;
@@ -136,6 +199,14 @@ bool parseArgs(int argc, char** argv, ParsedArgs& args, std::string& error) {
     if (args.graph.empty()) {
         error = "Missing required flag --graph";
         return false;
+    }
+    if (args.robot_geometry_file.empty() && args.body_planning.enabled) {
+        try {
+            const auto pkg_dir = ament_index_cpp::get_package_share_directory("rc26_robot_geometry");
+            args.robot_geometry_file = pkg_dir + "/config/r2_body_geometry.yaml";
+        } catch (...) {
+            args.body_planning.enabled = false;
+        }
     }
     return true;
 }
@@ -214,10 +285,36 @@ int main(int argc, char** argv) {
     }
 
     PlannerWeights weights;
+    std::unordered_map<std::string, NodeOverlay> node_overlays;
+    std::unordered_map<std::string, EdgeOverlay> edge_overlays;
+    SurfaceBodyPlanningStats body_planning_stats;
+    if (args.body_planning.enabled) {
+        std::string geometry_error;
+        const auto geometry = loadRobotGeometryProfile(
+            args.robot_geometry_file, args.robot_geometry_profile, geometry_error);
+        if (!geometry) {
+            std::cerr << "[ERROR] Failed to load robot geometry: " << geometry_error << "\n";
+            return 1;
+        }
+        std::string body_planning_error;
+        body_planning_stats = applySurfaceBodyPlanningOverlays(
+            load_result.graph,
+            *geometry,
+            args.body_planning,
+            node_overlays,
+            edge_overlays,
+            &body_planning_error);
+        if (!body_planning_error.empty()) {
+            std::cerr << "[ERROR] " << body_planning_error << "\n";
+            return 1;
+        }
+    }
     const auto plan = planSurfaceRoute(
         load_result.graph,
         args.start,
         args.goal,
+        node_overlays,
+        edge_overlays,
         weights,
         args.projection_radius_m,
         rclcpp::Time(0),
@@ -244,6 +341,15 @@ int main(int argc, char** argv) {
     printPath(std::cout, plan.planned_path);
     std::cout << ",\"segments\":";
     printSegments(std::cout, plan.segments);
+    std::cout << ",\"body_planning\":{"
+              << "\"enabled\":" << (args.body_planning.enabled ? "true" : "false") << ","
+              << "\"annotations_available\":" << (body_planning_stats.annotations_available ? "true" : "false") << ","
+              << "\"penalized_nodes_clearance\":" << body_planning_stats.penalized_nodes_clearance << ","
+              << "\"blocked_nodes_pitch\":" << body_planning_stats.blocked_nodes_pitch << ","
+              << "\"blocked_edges_clearance\":" << body_planning_stats.blocked_edges_clearance << ","
+              << "\"blocked_edges_slope\":" << body_planning_stats.blocked_edges_slope << ","
+              << "\"blocked_edges_step\":" << body_planning_stats.blocked_edges_step
+              << "}";
     std::cout << ",\"timing_ms\":{"
               << "\"projection\":" << plan.projection_ms << ","
               << "\"routePlanning\":" << plan.route_planning_ms << ","

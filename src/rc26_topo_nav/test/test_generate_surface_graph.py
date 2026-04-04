@@ -54,10 +54,90 @@ class GenerateSurfaceGraphTest(unittest.TestCase):
         )
 
         self.assertEqual(document["meta"]["team"], "blue")
-        self.assertEqual(document["meta"]["source"], "robocon2026_surface_graph_v1")
+        self.assertEqual(document["meta"]["source"], "robocon2026_surface_graph_body_v1")
         self.assertEqual(document["meta"]["grid_spacing_m"], 0.18)
         self.assertEqual(document["tasks"], [])
         self.assertEqual(document["routes"], [])
+
+    def test_build_nodes_adds_clearance_and_pitch_annotations(self):
+        scene_features = [
+            {
+                "id": "surface-a",
+                "name": "test-surface",
+                "render_class": "world-ground",
+                "area_xy": 1.0,
+                "points": [
+                    {"x": 0.0, "y": 0.0, "z": 0.0},
+                    {"x": 1.0, "y": 0.0, "z": 0.0},
+                    {"x": 1.0, "y": 1.0, "z": 0.0},
+                    {"x": 0.0, "y": 1.0, "z": 0.0},
+                ],
+            }
+        ]
+        nodes = GEN.build_nodes(
+            scene_features,
+            spacing_m=0.5,
+            min_surface_area_xy=0.01,
+            traversable_render_classes={"world-ground"},
+            excluded_feature_names=set(),
+        )
+        self.assertGreaterEqual(len(nodes), 1)
+        self.assertIn("center_clearance_m", nodes[0])
+        self.assertIn("surface_pitch_deg", nodes[0])
+        self.assertGreater(nodes[0]["center_clearance_m"], 0.0)
+        self.assertEqual(nodes[0]["surface_pitch_deg"], 0.0)
+
+    def test_build_edges_adds_body_aware_annotations(self):
+        scene_features = [
+            {
+                "id": "surface-a",
+                "name": "test-surface",
+                "render_class": "world-ground",
+                "area_xy": 1.0,
+                "points": [
+                    {"x": 0.0, "y": 0.0, "z": 0.0},
+                    {"x": 1.0, "y": 0.0, "z": 0.0},
+                    {"x": 1.0, "y": 1.0, "z": 0.0},
+                    {"x": 0.0, "y": 1.0, "z": 0.0},
+                ],
+            }
+        ]
+        surface_records, surface_regions = GEN.build_surface_regions(
+            scene_features,
+            min_surface_area_xy=0.01,
+            traversable_render_classes={"world-ground"},
+            excluded_feature_names=set(),
+        )
+        nodes = [
+            {
+                "id": "sf_0_0",
+                "type": "surface_point",
+                "pose": {"x": 0.25, "y": 0.25, "z": 0.0, "yaw": 0.0},
+                "surface_id": "surface-a",
+            },
+            {
+                "id": "sf_0_1",
+                "type": "surface_point",
+                "pose": {"x": 0.75, "y": 0.25, "z": 0.0, "yaw": 0.0},
+                "surface_id": "surface-a",
+            },
+        ]
+        edges = GEN.build_edges(
+            nodes,
+            surface_records,
+            surface_regions,
+            neighbor_radius_m=0.8,
+            transition_radius_m=0.4,
+            max_transition_height_m=0.2,
+            plane_height_epsilon_m=0.05,
+            clearance_sample_spacing_m=0.05,
+        )
+        self.assertEqual(len(edges), 2)
+        self.assertIn("center_clearance_m", edges[0])
+        self.assertIn("slope_deg", edges[0])
+        self.assertIn("horizontal_length_m", edges[0])
+        self.assertTrue(edges[0]["same_surface"])
+        self.assertGreater(edges[0]["center_clearance_m"], 0.0)
 
     def test_cli_generates_expected_blue_surface_graph(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -89,7 +169,11 @@ class GenerateSurfaceGraphTest(unittest.TestCase):
             expected = load_yaml(EXPECTED_BLUE)
             self.assertEqual(generated["meta"]["team"], "blue")
             self.assertEqual(len(generated["nodes"]), 4758)
-            self.assertEqual(len(generated["edges"]), 33266)
+            self.assertEqual(len(generated["edges"]), 33990)
+            self.assertIn("center_clearance_m", generated["nodes"][0])
+            self.assertIn("surface_pitch_deg", generated["nodes"][0])
+            self.assertIn("center_clearance_m", generated["edges"][0])
+            self.assertIn("slope_deg", generated["edges"][0])
             self.assertEqual(generated["nodes"][0], expected["nodes"][0])
             self.assertEqual(generated["nodes"][-1], expected["nodes"][-1])
             self.assertEqual(generated["edges"][0], expected["edges"][0])
@@ -100,7 +184,7 @@ class GenerateSurfaceGraphTest(unittest.TestCase):
         red = load_yaml(EXPECTED_RED)
         self.assertEqual(red["meta"]["team"], "red")
         self.assertEqual(len(red["nodes"]), 4758)
-        self.assertEqual(len(red["edges"]), 33266)
+        self.assertEqual(len(red["edges"]), 33990)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rc26_topo_nav/graph_loader.hpp"
+#include "rc26_topo_nav/body_planning.hpp"
 #include "rc26_topo_nav/overlay_reducer.hpp"
 #include "rc26_topo_nav/planner.hpp"
 #include "rc26_topo_nav/edge_executor.hpp"
@@ -16,6 +17,7 @@
 #include <tf2_ros/transform_listener.h>
 #include <atomic>
 #include <mutex>
+#include <optional>
 #include <thread>
 
 namespace rc26_topo_nav {
@@ -71,6 +73,8 @@ private:
     std::atomic<bool> goal_active_{false};
 
     std::string team_;
+    std::optional<RobotGeometryProfile> robot_geometry_;
+    SurfaceBodyPlanningConfig surface_body_planning_;
     double surface_start_match_xy_m_ = 0.30;
     double surface_start_match_z_m_ = 0.10;
     double surface_start_match_yaw_deg_ = 25.0;

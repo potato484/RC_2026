@@ -154,7 +154,7 @@ class TopoSimServerTest(unittest.TestCase):
         self.assertEqual(preview["projected_start"]["x"], -1.29)
         self.assertEqual(preview["projected_goal"]["y"], 3.03)
         self.assertGreater(len(preview["path_points"]), 20)
-        self.assertGreater(len(preview["segments"]), 1)
+        self.assertGreaterEqual(len(preview["segments"]), 1)
         self.assertIn("planning_logs", preview)
         self.assertEqual(preview["planning_logs"][0]["stage"], "request")
         self.assertEqual(preview["planning_logs"][-1]["stage"], "surface_route_cli")

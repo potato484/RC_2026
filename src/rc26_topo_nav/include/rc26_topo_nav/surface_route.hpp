@@ -7,6 +7,7 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace rc26_topo_nav {
@@ -64,6 +65,12 @@ SurfaceProjectionResult projectPoseToSurfaceGraph(
     const Pose3& pose,
     double max_xy_distance);
 
+SurfaceProjectionResult projectPoseToSurfaceGraph(
+    const FieldGraph& graph,
+    const Pose3& pose,
+    double max_xy_distance,
+    const std::unordered_map<std::string, NodeOverlay>& node_overlays);
+
 nav_msgs::msg::Path buildExpandedPath(
     const FieldGraph& graph,
     const std::vector<size_t>& edge_indices,
@@ -74,6 +81,17 @@ nav_msgs::msg::Path buildExpandedPath(
 std::vector<SurfacePlanSegment> buildSurfacePlanSegments(
     const FieldGraph& graph,
     const PlanResult& plan,
+    const rclcpp::Time& stamp,
+    const std::string& frame_id = "map");
+
+SurfacePlanResult planSurfaceRoute(
+    const FieldGraph& graph,
+    const Pose3& requested_start,
+    const Pose3& requested_goal,
+    const std::unordered_map<std::string, NodeOverlay>& node_overlays,
+    const std::unordered_map<std::string, EdgeOverlay>& edge_overlays,
+    const PlannerWeights& weights,
+    double projection_radius_m,
     const rclcpp::Time& stamp,
     const std::string& frame_id = "map");
 
