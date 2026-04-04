@@ -28,3 +28,9 @@ xhu_motion_follower:
     lhi_orange_vy_scale: 0.50
     terrain_obstacle_threshold: 0.60
     terrain_drop_threshold: 0.80
+    terrain_sample_spacing_m: 0.12
+    stop_envelope_half_width_m: 0.20
+    brake_margin_m: 0.30
+    max_cross_track_error_m: 0.60
+    robot_geometry_file: ""
+    robot_geometry_profile: "compact"

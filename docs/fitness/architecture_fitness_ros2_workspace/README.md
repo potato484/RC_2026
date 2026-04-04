@@ -255,3 +255,46 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - TF 权威归属不变（rc26_odom_interface）
 - 控制器权威暂不变化
 - 任务策略仍在 rc26_decision（MerlinRuleWorldModel / SelectNextGrid）
+
+### 7.2 rc26_robot_geometry 引入（2026-04-04）
+
+**变更类型**：架构级 - 新增共享机器人几何真源
+
+**变更原因**：为后续 body-aware 全车体安全规划建立最小统一几何输入，避免 `rc26_topo_nav`、`rc26_omni_controller` 各自维护一份隐式车体宽度/安全包络常量。
+
+**变更范围**：
+- 新增 `rc26_robot_geometry` config-only 包
+- `rc26_bringup` 新增 `robot_geometry_file` / `robot_geometry_profile` 装配参数
+- `rc26_topo_nav` 消费 geometry profile，用于 surface route 投影锚定半径与 body-aware surface overlay 的保守约束
+- `rc26_omni_controller` 消费 geometry profile，用于 stop envelope 的保守约束
+
+**落地方式**：
+- 共享几何通过参数契约接入，不通过把控制、机构或感知逻辑吞进 `rc26_topo_nav`
+- 当前只引入静态 geometry profile，不新增 topic / service / action
+
+**不变的边界**：
+- `rc26_topo_nav` 仍是导航表达与分段执行调度层，不变成控制器或感知融合器
+- `rc26_omni_controller` 仍是 corridor 跟踪器，不变成全局 body planner
+- 机构展开态、动态障碍和 full-body 3D collision checker 仍需后续独立能力补齐
+
+### 7.3 rc26_topo_nav body-aware surface graph 落地（2026-04-04）
+
+**变更类型**：架构级 - 在现有 surface graph 主链内落地保守型全车体全局规划
+
+**变更原因**：此前 `navigate_surface_route` 只有点路径 + runtime overlay，缺少和车体宽度、坡度、台阶约束直接对应的全局 planner 入口。
+
+**变更范围**：
+- `rc26_topo_nav` 的 `surface_graph` schema 升级到 `1.1`
+- `generate_surface_graph.py` 增加 body-aware 注解生成：merged support surface、node pitch、edge slope、edge lateral clearance
+- `topo_nav_node` 和 `surface_route_cli` 增加 `body_planning.*` 运行参数，并在 surface plan 前把 body-aware overlay 叠加到 runtime overlay
+- `topo_sim_server.py` 改为优先调用 source workspace 中最新构建的 planner CLI
+
+**落地方式**：
+- node clearance 当前只做软惩罚，避免把接缝/转接点一刀切封死
+- edge lateral clearance / slope / step 仍是硬约束，保证真实全车体宽度约束发生在全局搜索前
+- `NavigateSurfaceRoute.allow_replan` 继续沿用现有 route-level replan 闭环，不把动态障碍预测、局部避障或控制器逻辑吞进 `rc26_topo_nav`
+
+**不变的边界**：
+- 这仍然是受地表约束的 `SE(2.5)` body-aware 全局规划，不是自由 `SE(3)` planner
+- `rc26_topo_nav` 仍不拥有动态障碍语义、机构状态机和底层速度控制
+- `xhu_motion_follower` 仍是 corridor 跟踪与局部安全停机层，不变成全局 collision planner

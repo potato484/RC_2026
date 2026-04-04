@@ -30,6 +30,7 @@ def generate_launch_description():
     base_ground_dir = get_package_share_directory('rc26_base_ground')
     kfs_keepout_dir = get_package_share_directory('rc26_kfs_keepout')
     point_lio_dir = get_package_share_directory('rc26_point_lio')
+    robot_geometry_dir = get_package_share_directory('rc26_robot_geometry')
     topo_nav_dir = get_package_share_directory('rc26_topo_nav')
     nav_mode_manager_dir = get_package_share_directory('rc26_nav_mode_manager')
     visualization_dir = get_package_share_directory('rc26_visualization')
@@ -60,6 +61,8 @@ def generate_launch_description():
     kfs_heartbeat_topic = LaunchConfiguration('kfs_heartbeat_topic')
     team = LaunchConfiguration('team')
     chassis_model = LaunchConfiguration('chassis_model')
+    robot_geometry_file = LaunchConfiguration('robot_geometry_file')
+    robot_geometry_profile = LaunchConfiguration('robot_geometry_profile')
 
     # 参数声明
     declare_namespace = DeclareLaunchArgument(
@@ -187,6 +190,17 @@ def generate_launch_description():
         'team',
         default_value='blue',
         description='Active competition side: blue | red')
+
+    declare_robot_geometry_file = DeclareLaunchArgument(
+        'robot_geometry_file',
+        default_value=PathJoinSubstitution([robot_geometry_dir, 'config', 'r2_body_geometry.yaml']),
+        description='统一机器人几何配置文件路径')
+
+    declare_robot_geometry_profile = DeclareLaunchArgument(
+        'robot_geometry_profile',
+        default_value='compact',
+        description='机器人几何 profile 名称')
+
     topo_graph_blue_file = PathJoinSubstitution([topo_nav_dir, 'config', 'r2_field_graph_blue.yaml'])
     topo_graph_red_file = PathJoinSubstitution([topo_nav_dir, 'config', 'r2_field_graph_red.yaml'])
     topo_graph_file = PythonExpression([
@@ -324,6 +338,8 @@ def generate_launch_description():
             {
                 'use_sim_time': use_sim_time,
                 'chassis_model': chassis_model,
+                'robot_geometry_file': robot_geometry_file,
+                'robot_geometry_profile': robot_geometry_profile,
             },
         ],
         condition=UnlessCondition(slam)
@@ -342,6 +358,8 @@ def generate_launch_description():
                 'use_sim_time': use_sim_time,
                 'team': team,
                 'graph_file': topo_graph_file,
+                'robot_geometry_file': robot_geometry_file,
+                'robot_geometry_profile': robot_geometry_profile,
             },
         ],
         condition=UnlessCondition(slam)
@@ -565,6 +583,8 @@ def generate_launch_description():
         declare_realsense_config_file,
         declare_kfs_heartbeat_topic,
         declare_team,
+        declare_robot_geometry_file,
+        declare_robot_geometry_profile,
 
         # 启动模块
         pure_mapping_notice,

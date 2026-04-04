@@ -17,8 +17,8 @@
 - 订阅:
   - `/xhu_nav/corridor_cmd`
   - `/xhu_nav/motion_mode_state`
-  - `/xhu_nav/tracking_state`
   - `/localization/health`
+  - `terrain_features`
   - `control_state`
 - 发布:
   - `cmd_vel`
@@ -29,7 +29,9 @@
 ## 当前边界
 
 - 负责 corridor 跟踪与执行反馈
+- 负责基于地形风险和 stop envelope 的局部保守安全检查
 - 不负责 topo 图搜索和模式决策
+- 不负责完整局部避障器或全域 full-body collision planner
 
 ## 近期实现说明
 
@@ -37,3 +39,8 @@
 - 当前默认底盘模式已切到 `tracked_diff`，bringup 不再默认按全向控制律运行。
 - 四轮模式继续按全向控制律输出 `cmd_vel.linear.y`。
 - 履带模式改为单车体跟踪：横向误差通过曲率项和朝向误差项转成 `linear.x + angular.z`，运行时固定 `cmd_vel.linear.y=0`。
+- 当前新增 `robot_geometry_file` / `robot_geometry_profile` 参数；`xhu_motion_follower` 会从共享几何真源读取 `stop_envelope_half_width_m`，并把本地 `stop_envelope_half_width_m` 参数与几何 profile 取较大值，用于地形风险 ahead sampling。
+
+## 当前冲突说明
+
+- 根仓库 `AGENTS.md` 仍写明 R2 是“四驱麦克纳姆轮底盘”，但当前运行时 bringup 和控制器默认值是 `tracked_diff`。当前代码行为应视为真实运行口径，因此 full-body collision planning 设计必须把“车体几何”与“底盘运动学模式”解耦，不能假设两者永久绑定。

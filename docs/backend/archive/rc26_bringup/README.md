@@ -10,6 +10,7 @@
   - `rc26_topo_nav`
   - `xhu_motion_mode_manager_node`
   - `xhu_motion_follower_node`
+  - `rc26_robot_geometry` 提供的共享几何配置文件
   - `rc26_decision`
   - `rc26_visualization`
 - `slam:=true` 时不启动导航执行链
@@ -41,3 +42,4 @@
 ## 近期实现说明
 
 - 当前 bringup 的默认 `chassis_model` 已切到 `tracked_diff`，下游 `xhu_motion_follower` 会默认按履带差速模式装配。
+- 当前新增 `robot_geometry_file` 与 `robot_geometry_profile` 两个 launch 参数，默认把 `rc26_robot_geometry/config/r2_body_geometry.yaml` 的 `compact` profile 同时装配给 `rc26_topo_nav` 和 `xhu_motion_follower`。

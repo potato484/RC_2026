@@ -13,6 +13,7 @@ find_package(rc26_interfaces REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 add_executable(xhu_motion_follower_node
   src/xhu_motion_follower.cpp
@@ -30,6 +31,7 @@ ament_target_dependencies(xhu_motion_follower_node
   tf2
   tf2_ros
 )
+target_link_libraries(xhu_motion_follower_node yaml-cpp)
 
 install(
   TARGETS xhu_motion_follower_node
@@ -50,6 +52,7 @@ ament_export_dependencies(
   std_msgs
   tf2
   tf2_ros
+  yaml-cpp
 )
 
 ament_package()

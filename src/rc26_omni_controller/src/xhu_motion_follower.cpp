@@ -1,11 +1,13 @@
 #include "rc26_omni_controller/xhu_motion_follower.hpp"
 
 #include <tf2/exceptions.h>
+#include <yaml-cpp/yaml.h>
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <utility>
 
 namespace rc26_omni_controller {
@@ -37,6 +39,68 @@ std::string toLowerCopy(std::string value) {
     return static_cast<char>(std::tolower(c));
   });
   return value;
+}
+
+struct RobotGeometryProfile {
+  std::string name;
+  double half_length_m{0.0};
+  double half_width_m{0.0};
+  double height_m{0.0};
+  double stop_envelope_half_width_m{0.0};
+};
+
+double yamlDouble(const YAML::Node &node, const char *key, double fallback) {
+  if (!node || !node[key]) {
+    return fallback;
+  }
+  return node[key].as<double>();
+}
+
+std::string yamlString(const YAML::Node &node, const char *key, const std::string &fallback) {
+  if (!node || !node[key]) {
+    return fallback;
+  }
+  return node[key].as<std::string>();
+}
+
+std::optional<RobotGeometryProfile> loadRobotGeometryProfile(const std::string &geometry_file,
+                                                             const std::string &requested_profile,
+                                                             std::string &error) {
+  try {
+    const YAML::Node root = YAML::LoadFile(geometry_file);
+    const YAML::Node geometry_root = root["robot_geometry"] ? root["robot_geometry"] : root;
+    const YAML::Node defaults = geometry_root["defaults"];
+    const YAML::Node profiles = geometry_root["profiles"];
+
+    std::string profile_name = requested_profile;
+    if (profile_name.empty()) {
+      profile_name = yamlString(defaults, "active_profile", "");
+    }
+    if (profile_name.empty()) {
+      error = "robot geometry profile is empty";
+      return std::nullopt;
+    }
+    if (!profiles || !profiles[profile_name]) {
+      error = "robot geometry profile not found: " + profile_name;
+      return std::nullopt;
+    }
+
+    const YAML::Node profile_node = profiles[profile_name];
+    const YAML::Node body = profile_node["body"];
+    const YAML::Node safety = profile_node["safety"];
+
+    RobotGeometryProfile profile;
+    profile.name = profile_name;
+    profile.half_length_m = std::max(0.0, yamlDouble(body, "half_length_m", 0.0));
+    profile.half_width_m = std::max(0.0, yamlDouble(body, "half_width_m", 0.0));
+    profile.height_m = std::max(0.0, yamlDouble(body, "height_m", 0.0));
+    profile.stop_envelope_half_width_m =
+        std::max(profile.half_width_m, yamlDouble(safety, "stop_envelope_half_width_m", 0.0));
+    return profile;
+  } catch (const std::exception &e) {
+    error = e.what();
+    return std::nullopt;
+  }
 }
 
 }  // namespace
@@ -78,6 +142,8 @@ XhuMotionFollower::XhuMotionFollower(const rclcpp::NodeOptions &options)
   declare_parameter<double>("stop_envelope_half_width_m", 0.20);
   declare_parameter<double>("brake_margin_m", 0.30);
   declare_parameter<double>("max_cross_track_error_m", 0.60);
+  declare_parameter<std::string>("robot_geometry_file", "");
+  declare_parameter<std::string>("robot_geometry_profile", "compact");
 
   const auto odom_topic = get_parameter("odom_topic").as_string();
   map_frame_ = get_parameter("map_frame").as_string();
@@ -128,6 +194,27 @@ XhuMotionFollower::XhuMotionFollower(const rclcpp::NodeOptions &options)
   brake_margin_m_ = std::max(0.0, get_parameter("brake_margin_m").as_double());
   max_cross_track_error_m_ =
       std::max(goal_tolerance_xy_, get_parameter("max_cross_track_error_m").as_double());
+  const auto robot_geometry_file = get_parameter("robot_geometry_file").as_string();
+  const auto robot_geometry_profile = get_parameter("robot_geometry_profile").as_string();
+
+  if (!robot_geometry_file.empty()) {
+    std::string geometry_error;
+    const auto geometry = loadRobotGeometryProfile(
+        robot_geometry_file, robot_geometry_profile, geometry_error);
+    if (!geometry) {
+      RCLCPP_WARN(get_logger(), "failed to load robot geometry file '%s': %s",
+                  robot_geometry_file.c_str(), geometry_error.c_str());
+    } else {
+      stop_envelope_half_width_m_ =
+          std::max(stop_envelope_half_width_m_, geometry->stop_envelope_half_width_m);
+      RCLCPP_INFO(
+          get_logger(),
+          "loaded robot geometry profile=%s half_length=%.3f half_width=%.3f "
+          "stop_envelope_half_width=%.3f",
+          geometry->name.c_str(), geometry->half_length_m, geometry->half_width_m,
+          stop_envelope_half_width_m_);
+    }
+  }
 
   corridor_sub_ = create_subscription<rc26_interfaces::msg::XhuSemanticCorridor>(
       "/xhu_nav/corridor_cmd", 10,
@@ -157,7 +244,8 @@ XhuMotionFollower::XhuMotionFollower(const rclcpp::NodeOptions &options)
           std::chrono::duration<double>(1.0 / control_frequency_hz_)),
       std::bind(&XhuMotionFollower::controlLoop, this));
 
-  RCLCPP_INFO(get_logger(), "xhu_motion_follower ready, chassis_model=%s", chassis_model_.c_str());
+  RCLCPP_INFO(get_logger(), "xhu_motion_follower ready, chassis_model=%s stop_envelope_half_width=%.3f",
+              chassis_model_.c_str(), stop_envelope_half_width_m_);
 }
 
 void XhuMotionFollower::onCorridor(
