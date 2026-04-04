@@ -67,6 +67,7 @@ package.json
 - 默认 E2E 产物目录：`artifacts/merlin-bt-visualizer/e2e/`
 - 默认 preflight 报告目录：`artifacts/merlin-bt-visualizer/preflight/<timestamp>/summary.md`
 - 默认 release 目录：`release/merlin_bt_visualizer/`
+- `run-e2e-local.sh` 默认优先尝试 `4173/4174`，如果本机已有别的服务占用，会自动顺延到下一个可用端口，避免预检时误连到错误站点。
 - E2E 当前拆成两段：
   - `preview` 段验证“查看态 / 编辑态是否跟随区域切换、默认展示是否继续收口中文”
   - `dev` 段验证“保存到源文件”是否真的写回目标文件

@@ -7,24 +7,26 @@ const saveDirectory = process.env.E2E_SAVE_DIR;
 test.skip(!saveDirectory, '缺少 E2E_SAVE_DIR，无法校验开发态写回链路');
 
 test('开发态保存按钮会把当前区域改动写回临时源文件', async ({ page }) => {
-  const attributeKey = `测试字段${Date.now()}`;
-  const attributeValue = `自动化写回${Date.now()}`;
   const merlinSavePath = path.resolve(saveDirectory as string, 'mf_tree.xml');
 
   await page.goto('/');
   await page.getByTestId('app-mode-toggle').click();
   await expect(page.getByTestId('editor-canvas')).toBeVisible();
 
-  await page.getByTestId('editor-node-card').first().click();
-  await expect(page.getByTestId('editor-right-panel')).toBeVisible();
+  await page.getByTestId('editor-node-card').first().click({ force: true });
+  await expect(page.getByTestId('editor-toolbar-insert-button')).toBeEnabled();
+  await page.getByTestId('editor-toolbar-insert-button').click();
 
-  await page.getByTestId('new-attribute-key').fill(attributeKey);
-  await page.getByTestId('new-attribute-value').fill(attributeValue);
-  await page.getByTestId('add-attribute-button').click();
+  const visibleInsertMenu = page.locator('[data-testid="editor-insert-menu"]:visible').first();
+  await expect(visibleInsertMenu).toBeVisible();
+  await visibleInsertMenu.getByTestId('editor-insert-position-after').click();
+  await visibleInsertMenu.getByRole('button', { name: /顺序节点/ }).first().click();
+  await visibleInsertMenu.getByRole('button', { name: /等待视觉目标/ }).first().click();
+  await expect(page.getByTestId('editor-node-card').filter({ hasText: '等待视觉目标' }).first()).toBeVisible();
 
   await page.getByTestId('save-source-button').click();
   await expect(page.getByTestId('save-state-banner')).toContainText('已写回 梅林区 对应的源文件');
 
   const savedXml = await fs.readFile(merlinSavePath, 'utf-8');
-  expect(savedXml).toContain(`${attributeKey}="${attributeValue}"`);
+  expect(savedXml).toContain('<WaitVisionTarget');
 });

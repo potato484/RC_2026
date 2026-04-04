@@ -9,11 +9,37 @@ SAVE_TARGET_DIR="$ARTIFACT_DIR/save-targets"
 PREVIEW_LOG="$LOG_DIR/preview.log"
 PREVIEW_BUILD_LOG="$LOG_DIR/preview-build.log"
 DEV_LOG="$LOG_DIR/dev.log"
-PREVIEW_PORT="${MERLIN_E2E_PREVIEW_PORT:-4173}"
-DEV_PORT="${MERLIN_E2E_DEV_PORT:-4174}"
+REQUESTED_PREVIEW_PORT="${MERLIN_E2E_PREVIEW_PORT:-4173}"
+REQUESTED_DEV_PORT="${MERLIN_E2E_DEV_PORT:-4174}"
 
 PREVIEW_PID=""
 DEV_PID=""
+
+pick_available_port() {
+  python3 - "$@" <<'PY'
+import socket
+import sys
+
+start = int(sys.argv[1])
+blocked = {int(value) for value in sys.argv[2:] if value}
+
+for port in range(start, 65536):
+    if port in blocked:
+        continue
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            continue
+
+    print(port)
+    break
+else:
+    raise SystemExit("No available TCP port found.")
+PY
+}
 
 wait_for_http() {
   local url="$1"
@@ -56,6 +82,17 @@ trap cleanup EXIT
 
 rm -rf "$ARTIFACT_DIR"
 mkdir -p "$LOG_DIR" "$SAVE_TARGET_DIR"
+
+PREVIEW_PORT="$(pick_available_port "$REQUESTED_PREVIEW_PORT")"
+DEV_PORT="$(pick_available_port "$REQUESTED_DEV_PORT" "$PREVIEW_PORT")"
+
+if [[ "$PREVIEW_PORT" != "$REQUESTED_PREVIEW_PORT" ]]; then
+  echo "==> 静态预览端口 $REQUESTED_PREVIEW_PORT 已被占用，改用 $PREVIEW_PORT"
+fi
+
+if [[ "$DEV_PORT" != "$REQUESTED_DEV_PORT" ]]; then
+  echo "==> 开发态端口 $REQUESTED_DEV_PORT 已被占用，改用 $DEV_PORT"
+fi
 
 bash "$ROOT_DIR/docs/test/merlin_bt_visualizer/ensure-playwright-ready.sh"
 
