@@ -38,9 +38,9 @@
   - `src/utils/btDisplay.ts:1-205` 提供查看链和编辑链共用的中文名称、参数和值翻译规则。
   - `src/utils/btParser.ts:5-168` 是查看链专用解析器和布局器，消费共享翻译规则，并继续负责装饰器压缩、子树展开等展示增强。
 - 编辑链
-  - `src/store/useEditorStore.ts:86-291` 是编辑模式的状态真源，负责按区域缓存草稿、当前 `BehaviorTree` 选择、画布投影、属性修改、结构插入、节点包裹、复合节点切换和 XML 导出。
+  - `src/store/useEditorStore.ts` 是编辑模式的状态真源，负责按区域缓存草稿、当前 `BehaviorTree` 选择、画布投影、定义内参数修改、同支线插入、显式新增支线、节点包裹、复合节点切换和 XML 导出；当前同支线插入会强制要求用户选择包装控制节点，并始终生成一层显式包装结构。
   - `src/utils/editorParser.ts:7-121` + `src/utils/editorProjection.ts:16-111` + `src/utils/editorSerializer.ts:7-103` 组成 round-trip 三件套，保留的是可逆语义，不是只为展示服务的简化模型。
-  - `src/generated/btNodeRegistry.ts` + `src/utils/btRegistry.ts` 是编辑链新增的节点定义真源，统一维护官方节点、机器人模块、自定义端口、默认属性和复合节点切换规则。
+  - `src/generated/btNodeRegistry.ts` + `src/utils/btRegistry.ts` 是编辑链新增的节点定义真源，统一维护官方节点、机器人模块、已声明端口、默认属性和复合节点切换规则。
   - `src/utils/editorTreeView.ts:1-33` 从 `SubTree` 引用关系派生出和查看模式一致的树列表层级与中文树名。
   - `vite.config.ts` 的本地保存适配层只在 `npm run dev` 下可用；它把当前区域 XML 写回 `src/rc26_decision/behavior_trees/*.xml`，不等于前端拥有通用后端持久化能力。
 - 本地模拟执行链
@@ -68,7 +68,7 @@
 - `merlin-bt-visualizer/src/components/RightPanel.tsx:21-147`
   - 负责查看模式下的节点详情、执行日志和黑板。
 - `merlin-bt-visualizer/src/components/EditorRightPanel.tsx:23-243`
-  - 负责编辑模式下的属性操作入口、端口绑定编辑、结构插入/包裹、结构预览和实时 XML 预览，同时展示中文节点标题和原始标签名。
+  - 负责编辑模式下的定义内参数编辑、同支线插入、显式新增支线、节点包裹、结构预览和实时 XML 预览，同时展示中文节点标题和原始标签名；当前同支线插入会把“控制包装选择”和“新增支线”明确拆开。
 
 ## 5. 维护时的共识
 
@@ -89,11 +89,17 @@
   - 节点库搜索与拖拽插入
   - 连线中点一键插入节点
   - 复合节点一键切换
-  - 任意位置前插、后插、首子插、末子插
+  - 沿当前支线的前插、后插
+  - 控制节点上的显式新增支线
   - 装饰器与复合节点包裹
   - 按区域缓存的撤销 / 重做历史
-  - 端口/黑板绑定可视化编辑
+  - 定义内参数 / 黑板绑定可视化编辑
+  - 原始但未注册属性的只读保留与导出
   - 统一中文映射与默认中文界面
+- 2026-04-04 的最新结构编排约束补充：
+  - 同支线插入只能选“动作 / 条件 / 子树”，不能把控制节点混作普通动作去插。
+  - 用户必须显式选择 `Sequence / SequenceWithMemory / ReactiveSequence / Fallback / ReactiveFallback / RoundRobin / Parallel / ParallelAll` 之一作为包装控制。
+  - 每次同支线插入都会新建一层可见包装节点，把“原节点 + 新节点”包起来，不再直接往现有顺序父节点 `splice` 一个新兄弟。
 - 2026-04-04 起，查看态和编辑态的画布主题已经收口到共享的节点尺寸、边样式和布局参数；编辑态只在选中、悬停或抽屉里额外暴露编辑控件，不再维护另一套明显不同的节点外观。
 - 页面壳层现在也开始按“画布优先”响应式收口：
   - 桌面端仍是侧栏 + 画布 + 面板

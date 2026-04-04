@@ -21,8 +21,8 @@
 8. `src/components/EditorVisualizer.tsx:12-92`
    负责编辑画布、节点选中状态同步、源文件导出，以及开发态“保存到源文件”按钮。
    当前 ReactFlow 视口会主动给左侧节点库和顶部保存条预留安全区，避免初始节点落在浮层下方后无法点击。
-9. `src/components/EditorRightPanel.tsx:95-243`
-   通过递归查找当前选中节点，并提供属性增删改、添加子节点、删除非根节点和中文结构预览；默认优先展示中文属性名和值，只在显式展开时露出原始 XML 内容。
+9. `src/components/EditorRightPanel.tsx`
+   通过递归查找当前选中节点，并提供定义内参数编辑、同支线插入、显式新增支线、删除非根节点和中文结构预览；未注册但原始存在的属性只读展示并在导出时保留。
 10. `src/utils/editorSerializer.ts:7-103`
     最终把 `EditorDocument` 重新序列化成 XML 字符串，并做基础格式化。
 11. `merlin-bt-visualizer/vite.config.ts:1-70`
@@ -34,8 +34,8 @@
 
 - `src/store/useEditorStore.ts:96-129`
   - 按区域初始化或恢复编辑草稿。
-- `src/store/useEditorStore.ts:131-225`
-  - 修改属性、添加子节点，并把变化同步回当前区域草稿。
+- `src/store/useEditorStore.ts`
+  - 修改已声明参数、同支线插入、显式新增支线与节点包裹，并把变化同步回当前区域草稿。
 - `src/store/useEditorStore.ts:228-267`
   - 删除非根节点，并同步清理当前区域选中态。
 - `src/store/useEditorStore.ts:276-290`
@@ -80,11 +80,11 @@
 - `src/components/EditorInsertMenu.tsx`
   - 统一承接“常用机器人模块 / 动作 / 条件 / 控制 / 子树”插入目录，支持子树预设和移动端底部 sheet。
 - `src/components/EditorNode.tsx:57-82`
-  - 编辑画布节点现在复用查看态风格的节点壳层，只在选中或悬停时露出编辑控件。
+  - 编辑画布节点现在复用查看态风格的节点壳层，只在选中或悬停时露出前插 / 后插控件。
 - `src/components/EditorRightPanel.tsx:23-51`
   - 在编辑文档里递归查找当前选中节点。
-- `src/components/EditorRightPanel.tsx:53-93`
-  - 属性增删改、添加子节点、删除节点的交互入口。
+- `src/components/EditorRightPanel.tsx`
+  - 定义内参数编辑、显式新增支线、同支线插入、删除节点的交互入口。
 - `src/components/EditorRightPanel.tsx:95-122`
   - 中文结构预览。
 
@@ -93,7 +93,7 @@
 - 修改 `editorParser`、`editorProjection`、`editorSerializer` 时，必须把它们视为一组 round-trip 能力一起维护。
 - 修改 `btCanvasTheme`、`CustomNode`、`EditorNode` 或 edge 主题时，要同时检查查看态和编辑态的视觉是否仍然同源，不要再让两条链的节点尺寸、边样式和折叠空间处理重新漂移。
 - 如果是改中文显示或树名规则，优先改 `btDisplay.ts` 和 `editorTreeView.ts`，不要在 `EditorNode` 或 `Sidebar` 组件里再复制一套解释逻辑。
-- 右侧属性区现在默认隐藏原始英文键值；如果要继续保持“编辑态默认不露英文”，新增属性展示时也应先补中文属性映射，而不是直接把原始键值露出来。
+- 右侧参数区现在只允许编辑注册表里已声明的参数；如果后端动作新增了真实可配置字段，应先补 `btNodeRegistry.ts`，不要在浏览器里临时开“附加属性”口子。
 - 编辑模式现在按区域保留浏览器内存草稿；切区、切回或暂时退出编辑时应能恢复该区域草稿，但刷新页面后仍会回到 XML 真源。
 - “保存到源文件”当前只在 `npm run dev` 下可用，因为它依赖 Vite 的本地适配层；`build/preview` 仍然只保证导出源文件，不保证直接写回工作区文件。
 - 当前 `docs/test/merlin_bt_visualizer/run-e2e-local.sh` 会把开发态写回目标重定向到临时目录，因此浏览器 E2E 可以验证这条链路而不污染仓库真源。
@@ -102,7 +102,7 @@
 
 ## 4. 2026-04-03 实现补充
 
-这次编辑模式已经从“基础属性改写器”升级成“注册表驱动的完整行为树编辑器”，当前真实实现如下：
+这次编辑模式已经从“基础属性改写器”升级成“注册表驱动、边界收紧的行为树编辑器”，当前真实实现如下：
 
 - `merlin-bt-visualizer/src/generated/btNodeRegistry.ts`
   - 统一维护官方节点和机器人模块节点的注册表。
@@ -117,30 +117,29 @@
   - 统一处理端口绑定解析、节点来源识别、节点类别识别、复合节点切换候选、以及“从定义创建新节点”。
 - `merlin-bt-visualizer/src/store/useEditorStore.ts`
   - 当前已经支持：
-    - 单属性更新
-    - 在当前节点前后插入兄弟节点
-    - 作为首个或末尾子节点插入
+    - 已声明参数更新
+    - 沿当前支线的前插 / 后插
+    - 控制节点上的显式新增支线
     - 用装饰器或复合节点包裹当前节点
     - 一键切换复合节点类型，并保留原有子节点和属性
     - 区域级草稿缓存与 XML round-trip 导出
   - 2026-04-03 额外修复了 `wrap` 包裹操作在非根节点上丢失结构替换的问题。
 - `merlin-bt-visualizer/src/components/EditorPalette.tsx`
   - 新增节点库面板，按“机器人模块 / 官方节点”分栏展示。
-  - 支持搜索、拖拽插入、以及直接插入到当前选中节点。
+  - 支持搜索、拖拽插入，以及默认沿当前选中节点所在支线后插。
 - `merlin-bt-visualizer/src/components/EditorNode.tsx`
   - 节点卡片新增快速插入槽：
     - 前插
     - 后插
-    - 子插
   - 对支持切换的复合节点提供一键切换按钮。
 - `merlin-bt-visualizer/src/components/EditorContextMenu.tsx`
   - 新增右键菜单，当前支持折叠/展开、切换复合节点类型、包裹为结果反转、包裹为重试直到成功、删除节点。
 - `merlin-bt-visualizer/src/components/EditorRightPanel.tsx`
   - 右侧面板现在同时承担：
     - 中文节点信息展示
-    - 端口/黑板绑定编辑
-    - 附加属性编辑
-    - 结构插入与包裹
+    - 定义内参数 / 黑板绑定编辑
+    - 未注册原始属性的只读展示
+    - 同支线插入、新增支线与包裹
     - 当前树结构预览
     - 当前 XML 源文件预览
 - `merlin-bt-visualizer/src/i18n/useLocaleStore.ts`
@@ -155,14 +154,23 @@
 - 当前编辑器仍然是本地工程工具，不拥有机器人运行时权威。
 - 当前“保存到源文件”依旧只在开发态通过 Vite 本地适配层生效。
 - 当前节点库以静态注册表为真源；如果 `rc26_decision` 新增了 BT 节点注册或新的中文本地化条目，必须同步补 `btNodeRegistry.ts` 与 `btTerms.ts`。
+- 当前浏览器不会凭空新增任意 XML 属性；未在注册表声明的字段最多只读展示，真实可编辑参数必须回到节点定义里补齐。
 
 ### 4.3 2026-04-04 编辑体验重构补充
 
 - 编辑态连线现在支持“点边即插入”：
   - 点击任意可见连线的中点，会立刻弹出插入菜单。
-  - 插入菜单统一提供：常用机器人模块、动作节点、条件节点、控制节点、子树节点。
-  - 插入控制/装饰节点时，会直接把原子树挂到新节点下。
-  - 插入动作/条件/子树这类叶子节点时，会自动在该边上补一层 `Sequence`，实现“新节点 + 原子树”自动接好。
+  - 插入菜单和键盘 `A / Shift+A` 弹层现在统一提供：常用机器人模块、动作节点、条件节点、子树节点。
+  - 边插入的固定语义是“沿当前支线前插到目标节点之前”。
+  - 用户必须先显式选择包装控制节点，再选择要插入的动作、条件或子树。
+  - 当前允许作为包装控制的节点只有：`Sequence / SequenceWithMemory / ReactiveSequence / Fallback / ReactiveFallback / RoundRobin / Parallel / ParallelAll`。
+  - 不管目标节点原来挂在什么父节点下，同支线插入都会新建一层可见包装节点，把“原节点 + 新节点”包起来；编辑器不再直接往现有顺序父节点里 `splice` 新兄弟，也不再偷偷固定补一层 `Sequence`。
+- 编辑态现在把“同支线插入”和“新增支线”拆成两套显式入口：
+  - 节点前后插槽、节点库快速插入、键盘 `A / Shift+A`、连线中点菜单都统一走“同支线插入”，但每次都必须先明确控制包装关系。
+  - 新增支线只允许在右侧检查器里对控制节点显式加 child，不再通过节点卡片侧边快捷槽隐式触发。
+- 右侧检查器与预览补充：
+  - `结构预览` 和 `源文件预览` 已改成真正保留换行与缩进的预格式化面板，不再把多行文本挤成一段。
+  - 节点信息面板不再提供“附加属性 / 添加附加属性”入口。
 - 编辑态现在补齐了按区域草稿历史：
   - `Ctrl/Cmd+Z` 撤销
   - `Shift+Ctrl/Cmd+Z` 或 `Ctrl/Cmd+Y` 重做
