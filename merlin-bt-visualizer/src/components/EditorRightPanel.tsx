@@ -10,6 +10,7 @@ import {
   getBehaviorTreeTreeName,
 } from '../utils/btDisplay';
 import { buildAlongBranchInsertCatalog, getInsertCategoryLabel } from '../utils/editorInsertCatalog';
+import { editorDocumentToActiveTreePreviewXml } from '../utils/editorSerializer';
 import { buildEditorTreePreview } from '../utils/editorTreeView';
 import {
   canNodeAddBranch,
@@ -52,7 +53,6 @@ export const EditorRightPanel = () => {
     activeTreeId,
     updateRegisteredAttribute,
     deleteNode,
-    exportXml,
     insertAlongBranch,
     insertBranch,
     wrapNode,
@@ -90,7 +90,9 @@ export const EditorRightPanel = () => {
   );
   const selectedNodeDisplay = selectedNode ? getBehaviorTreeNodeDisplay(selectedNode.tagName, selectedNode.attributes) : null;
   const selectedDefinition = selectedNode ? getBtNodeDefinition(selectedNode.tagName) : undefined;
-  const sourcePreview = exportXml() ?? '当前没有可导出的源文件内容';
+  const sourcePreview = document
+    ? editorDocumentToActiveTreePreviewXml(document, activeTreeId) ?? '当前没有可导出的源文件内容'
+    : '当前没有可导出的源文件内容';
   const currentStructurePreview = document ? buildEditorTreePreview(document, activeTreeId) : '当前没有可预览的结构';
   const attributeDisplays = selectedNode ? getBehaviorTreeAttributeDisplays(selectedNode.attributes, selectedNode.tagName) : [];
   const visiblePortSchemas = useMemo(

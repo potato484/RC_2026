@@ -11,7 +11,7 @@
  */
 import { expect, test, describe } from 'vitest';
 import { xmlToEditorDocument } from '../src/utils/editorParser';
-import { editorDocumentToXml } from '../src/utils/editorSerializer';
+import { editorDocumentToActiveTreePreviewXml, editorDocumentToXml } from '../src/utils/editorSerializer';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -75,6 +75,45 @@ describe('Editor Parser and Serializer', () => {
     expect(rootNode.tagName).toBe("Sequence");
     expect(rootNode.attributes.name).toBe("MC_Sequence");
     expect(rootNode.children.length).toBe(2);
+  });
+
+  test('should serialize only the active tree for XML preview while keeping the root wrapper', () => {
+    const multiTreeXml = `
+<root BTCPP_format="4">
+  <include path="shared_nodes.xml"/>
+  <BehaviorTree ID="TreeA" name="Primary">
+    <Sequence>
+      <GrabTip name="grab_tip"/>
+    </Sequence>
+  </BehaviorTree>
+  <BehaviorTree ID="TreeB">
+    <Fallback>
+      <AssembleWeapon name="assemble"/>
+    </Fallback>
+  </BehaviorTree>
+</root>
+`.trim();
+    const doc = xmlToEditorDocument(multiTreeXml);
+
+    const previewXml = editorDocumentToActiveTreePreviewXml(doc, 'TreeB');
+    expect(previewXml).not.toBeNull();
+    if (!previewXml) {
+      throw new Error('Expected active tree preview XML to be available');
+    }
+
+    expect(previewXml).toContain('<root BTCPP_format="4">');
+    expect(previewXml).toContain('<include path="shared_nodes.xml"/>');
+    expect(previewXml).toContain('<BehaviorTree ID="TreeB">');
+    expect(previewXml).toContain('<Fallback>');
+    expect(previewXml).not.toContain('<BehaviorTree ID="TreeA" name="Primary">');
+    expect(previewXml).not.toContain('grab_tip');
+  });
+
+  test('should return null when previewing a missing active tree', () => {
+    const doc = xmlToEditorDocument(mcTreeXml);
+
+    expect(editorDocumentToActiveTreePreviewXml(doc, 'UnknownTree')).toBeNull();
+    expect(editorDocumentToActiveTreePreviewXml(doc, null)).toBeNull();
   });
 
   const testRoundTrip = (xmlContent: string) => {

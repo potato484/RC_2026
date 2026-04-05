@@ -1,10 +1,35 @@
-import { EditorDocument, EditorNode } from '../types/editor';
+import { EditorDocument, EditorNode, EditorTree } from '../types/editor';
 
 /**
  * Serializes an EditorDocument model back into an XML string.
  * It strictly preserves structural and semantic details for round-tripping.
  */
 export function editorDocumentToXml(doc: EditorDocument): string {
+  return serializeEditorDocument(doc, doc.trees);
+}
+
+/**
+ * Builds a complete XML document preview for the current active tree only.
+ * It keeps the root wrapper and include declarations, but narrows BehaviorTree
+ * entries to the selected tree so the preview scope matches the structure view.
+ */
+export function editorDocumentToActiveTreePreviewXml(
+  doc: EditorDocument,
+  activeTreeId: string | null
+): string | null {
+  if (!activeTreeId) {
+    return null;
+  }
+
+  const activeTree = doc.trees.find((tree) => tree.id === activeTreeId);
+  if (!activeTree) {
+    return null;
+  }
+
+  return serializeEditorDocument(doc, [activeTree]);
+}
+
+function serializeEditorDocument(doc: EditorDocument, trees: EditorTree[]): string {
   const xmlDoc = document.implementation.createDocument(null, 'root', null);
   const rootElement = xmlDoc.documentElement;
 
@@ -21,17 +46,8 @@ export function editorDocumentToXml(doc: EditorDocument): string {
   }
 
   // Add BehaviorTrees
-  for (const tree of doc.trees) {
-    const treeElement = xmlDoc.createElement('BehaviorTree');
-    treeElement.setAttribute('ID', tree.id);
-    if (tree.name) {
-      treeElement.setAttribute('name', tree.name);
-    }
-
-    const rootNodeElement = serializeEditorNode(tree.rootNode, xmlDoc);
-    treeElement.appendChild(rootNodeElement);
-    
-    rootElement.appendChild(treeElement);
+  for (const tree of trees) {
+    rootElement.appendChild(serializeEditorTree(tree, xmlDoc));
   }
 
   // Use XMLSerializer to convert to string
@@ -40,6 +56,19 @@ export function editorDocumentToXml(doc: EditorDocument): string {
 
   // Apply some basic formatting to match the compact style
   return formatXml(xmlString);
+}
+
+function serializeEditorTree(tree: EditorTree, xmlDoc: Document): Element {
+  const treeElement = xmlDoc.createElement('BehaviorTree');
+  treeElement.setAttribute('ID', tree.id);
+  if (tree.name) {
+    treeElement.setAttribute('name', tree.name);
+  }
+
+  const rootNodeElement = serializeEditorNode(tree.rootNode, xmlDoc);
+  treeElement.appendChild(rootNodeElement);
+
+  return treeElement;
 }
 
 function serializeEditorNode(node: EditorNode, xmlDoc: Document): Element {
@@ -101,4 +130,3 @@ function formatXml(xml: string): string {
   
   return formatted.trim();
 }
-

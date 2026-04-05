@@ -74,6 +74,53 @@ describe('EditorRightPanel', () => {
     expect(sourcePreview.textContent).toContain('<root');
   });
 
+  test('scopes source preview to the current active tree while keeping the root wrapper', () => {
+    const document = xmlToEditorDocument(`
+      <root BTCPP_format="4">
+        <include path="shared_nodes.xml" />
+        <BehaviorTree ID="TreeA" name="Primary">
+          <Sequence>
+            <GrabTip name="grab_tip" />
+          </Sequence>
+        </BehaviorTree>
+        <BehaviorTree ID="TreeB" name="Secondary">
+          <Fallback>
+            <AssembleWeapon name="assemble" />
+          </Fallback>
+        </BehaviorTree>
+      </root>
+    `);
+    const activeTree = document.trees[1];
+
+    useEditorStore.setState({
+      currentPhase: '武馆区',
+      phaseDrafts: {},
+      document,
+      activeTreeId: activeTree.id,
+      collapsedNodes: new Set(),
+      flowNodes: [],
+      flowEdges: [],
+      selectedNodeId: activeTree.rootNode.children[0]?.id ?? activeTree.rootNode.id,
+      canUndo: false,
+      canRedo: false,
+    });
+
+    render(<EditorRightPanel />);
+
+    fireEvent.click(screen.getByTestId('editor-tab-preview'));
+    expect(screen.getByTestId('editor-structure-preview').textContent).toContain('执行组装');
+    expect(screen.getByTestId('editor-structure-preview').textContent).not.toContain('取矛头');
+
+    fireEvent.click(screen.getByText('源文件预览'));
+    const sourcePreview = screen.getByTestId('editor-source-preview');
+    expect(sourcePreview.textContent).toContain('<root BTCPP_format="4">');
+    expect(sourcePreview.textContent).toContain('<include path="shared_nodes.xml"/>');
+    expect(sourcePreview.textContent).toContain('<BehaviorTree ID="TreeB" name="Secondary">');
+    expect(sourcePreview.textContent).toContain('assemble');
+    expect(sourcePreview.textContent).not.toContain('<BehaviorTree ID="TreeA" name="Primary">');
+    expect(sourcePreview.textContent).not.toContain('grab_tip');
+  });
+
   test('shows add-branch controls only for eligible control nodes', () => {
     useEditorStore.getState().ensurePhaseLoaded('武馆区', behaviorTreeXmlByPhase['武馆区']);
 
