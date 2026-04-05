@@ -12,13 +12,8 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
-  <depend>rclcpp_components</depend>
   <depend>nav_msgs</depend>
-  <depend>nav2_msgs</depend>
-  <depend>sensor_msgs</depend>
   <depend>rc26_interfaces</depend>
-  <depend>std_msgs</depend>
-  <depend>diagnostic_msgs</depend>
   <depend>yaml-cpp</depend>
   <depend>ament_index_cpp</depend>
   <test_depend>ament_cmake_gtest</test_depend>

@@ -1,0 +1,106 @@
+<!-- 梅林区行为树 (MF Area) - Topo Nav 版本
+     自 2026-04 起仅保留 topo/xhu 自研导航链，旧点位导航节点已移除。
+     模式切换由 rc26_topo_nav 的 edge required_mode 驱动，BT 不再显式切档。 -->
+<root BTCPP_format="4">
+  <BehaviorTree ID="MFAreaTree">
+    <Sequence name="MF_Main">
+      <Script code="target_kfs_count:=2; exit_grid:=10; kfs_on_board:=0; current_grid:=2"/>
+
+      <SubTree ID="MF_Entry" _autoremap="true"/>
+      <SubTree ID="MF_Loop" _autoremap="true"/>
+      <SubTree ID="MF_Exit" _autoremap="true"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- MF_Entry: 进门阶段 (topo 版) -->
+  <BehaviorTree ID="MF_Entry">
+    <Sequence name="Entry_Seq">
+      <NavToTopoNode node_id="mf_entry_staging"/>
+
+      <!-- 检测并等待R1让路 -->
+      <RetryUntilSuccessful num_attempts="10">
+        <Sequence>
+          <ScanSurroundings/>
+          <Fallback>
+            <Inverter>
+              <CheckR1Blocking/>
+            </Inverter>
+            <Sequence>
+              <NavToTopoNode node_id="mf_entry_staging"/>
+              <Delay delay_msec="5000">
+                <AlwaysSuccess/>
+              </Delay>
+            </Sequence>
+          </Fallback>
+        </Sequence>
+      </RetryUntilSuccessful>
+
+      <!-- 进入2号格 -->
+      <NavToTopoNode node_id="mf_b2"/>
+      <Script code="current_grid:=2"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- MF_Loop: 核心循环 (topo 版) -->
+  <BehaviorTree ID="MF_Loop">
+    <KeepRunningUntilFailure>
+      <Sequence name="Loop_Body">
+        <Fallback>
+          <Inverter>
+            <CheckExitCondition/>
+          </Inverter>
+          <ForceFailure>
+            <AlwaysSuccess/>
+          </ForceFailure>
+        </Fallback>
+
+        <ScanSurroundings/>
+        <SelectNextGrid next_action="{next_action}" target_grid="{target_grid}"/>
+
+        <Fallback>
+          <!-- Case: GRAB -->
+          <Sequence>
+            <ScriptCondition code="next_action=='GRAB'"/>
+            <SubTree ID="GrabKFSSeq" _autoremap="true"/>
+          </Sequence>
+          <!-- Case: MOVE -->
+          <Sequence>
+            <ScriptCondition code="next_action=='MOVE'"/>
+            <SubTree ID="MoveToGridSeq" _autoremap="true"/>
+          </Sequence>
+          <!-- Case: WAIT -->
+          <Delay delay_msec="1000">
+            <AlwaysSuccess/>
+          </Delay>
+        </Fallback>
+      </Sequence>
+    </KeepRunningUntilFailure>
+  </BehaviorTree>
+
+  <!-- GrabKFSSeq: 抓取子树 (topo 版) -->
+  <BehaviorTree ID="GrabKFSSeq">
+    <Sequence>
+      <NavToTaskPose task_tag="mf_grab" grid_id="{target_grid}"/>
+      <Script code="current_grid:=target_grid"/>
+      <GrabKFS/>
+      <IncrementKFSCount/>
+      <UpdateMapKFS grid_id="{target_grid}" kfs_type="0"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- MoveToGridSeq: 移动子树 (topo 版) -->
+  <BehaviorTree ID="MoveToGridSeq">
+    <Sequence>
+      <NavToTaskPose task_tag="mf_grab" grid_id="{target_grid}"/>
+      <Script code="current_grid:=target_grid"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- MF_Exit: 出门阶段 (topo 版) -->
+  <BehaviorTree ID="MF_Exit">
+    <Sequence name="Exit_Seq">
+      <NavToTopoNode node_id="mf_exit_staging"/>
+      <StairDescend/>
+    </Sequence>
+  </BehaviorTree>
+</root>

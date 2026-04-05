@@ -8,18 +8,34 @@
 
 ```bash
 cd "${RC26_WS:-$HOME/RC_2026}"
-colcon build --symlink-install --parallel-workers 3 --packages-select rc26_interfaces rc26_serial rc26_mechanism --cmake-args -DCMAKE_BUILD_TYPE=Release
+MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_interfaces rc26_serial rc26_mechanism rc26_merge_odom --cmake-args -DCMAKE_BUILD_TYPE=Release
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
 ## 2. 启动机制节点
 
-使用 launch 文件启动 `mechanism_server`，推荐配合 `rc26_serial` 一起测试，或者使用模拟的 HAL 层。
+当前需要区分两种调试方式：
+
+- 真机共享串口链路：先启动 `rc26_merge_odom`，再让 `rc26_mechanism` 使用 `shared_serial` HAL
+- 脱离底盘单包调试：直接启动 `rc26_mechanism`，继续使用 `serial|sim|fault|replay` 等 HAL
+
+### 2.1 真机共享串口链路
 
 ```bash
-# 启动 mechanism_server 节点
-ros2 launch rc26_mechanism mechanism.launch.py
+# 终端 1：先启动 merge_odom，让它持有目标 MCU 串口
+ros2 launch rc26_merge_odom merge_odom.launch.py chassis_model:=tracked_diff
+
+# 终端 2：再启动 mechanism_server，并切到 shared_serial HAL
+ros2 launch rc26_mechanism mechanism.launch.py hal_type:=shared_serial
 ```
+
+### 2.2 单包隔离调试
+
+```bash
+ros2 launch rc26_mechanism mechanism.launch.py hal_type:=serial
+```
+
+若没有真实硬件，可把 `serial` 替换为 `sim|fault|replay`。
 
 ## 3. 生命周期状态管理 (Lifecycle)
 
@@ -44,6 +60,7 @@ ros2 lifecycle set /mechanism_server activate
 ```
 
 *注意：只有处于 `active` 状态时，Action Server 才会接受目标，串口/模拟硬件接口才会真正打开。*
+*对于 `shared_serial` HAL，这里的“打开”指的是 transport service/topic 联通可用，而不是 `rc26_mechanism` 自己再次占用真实串口。*
 
 ### 3.4 停用节点 (active -> inactive)
 
@@ -70,6 +87,27 @@ ros2 topic echo /mechanism/state
 ros2 action send_goal /mechanism/execute rc26_interfaces/action/ExecuteMechanism "{command_id: 1, payload: [], timeout_sec: 5.0}" --feedback
 ```
 *(假设 command_id=1 为某个特定的基础动作，请根据实际底层协议定义调整)*
+
+前置履带动作当前也通过这个入口测试：
+
+```bash
+ros2 action send_goal /mechanism/execute rc26_interfaces/action/ExecuteMechanism "{command_id: 17, payload: [], timeout_sec: 8.0}" --feedback
+ros2 action send_goal /mechanism/execute rc26_interfaces/action/ExecuteMechanism "{command_id: 18, payload: [], timeout_sec: 8.0}" --feedback
+```
+
+- `17 (0x11)`：抬升前置履带，等待 `0x13`
+- `18 (0x12)`：放下前置履带，等待 `0x14`
+- 若 MCU 没有回对应 `DONE`，goal 会按 timeout 失败，而不是在“发送成功”时提前返回 success
+- 当前真实链路里，MCU 会在遥控模式停止发送数据后再回 `0x13 / 0x14`
+
+### 5.1.1 观察共享串口桥接反馈
+
+如果当前用的是 `shared_serial` HAL，可以直接观察 merge_odom 桥接出来的 topic / service：
+
+```bash
+ros2 topic echo /mechanism/transport/feedback
+ros2 service call /mechanism/transport/send_command rc26_interfaces/srv/SendMechanismTransportCommand "{command_id: 17, payload: []}"
+```
 
 ### 5.2 发送抓取矿石指令 (GrabTip)
 
@@ -121,5 +159,5 @@ ros2 run rqt_console rqt_console
 ## 8. 常见问题排查
 
 - **Action Server 找不到或目标被立即拒绝**：优先检查 `/mechanism_server` 当前是否已进入 `active` 状态；若仍处于 `unconfigured` 或 `inactive`，Action 请求不会被受理。
-- **Action 长时间无反馈或超时**：结合 `/mechanism/state` 与串口链路日志排查底层执行是否真正下发；若依赖 `rc26_serial`，还需确认串口设备、权限和下位机电源状态正常。
+- **Action 长时间无反馈或超时**：结合 `/mechanism/state`、`/mechanism/transport/feedback` 与串口链路日志排查底层执行是否真正下发；若使用 `shared_serial`，还要确认 `rc26_merge_odom` 是否已经启动并成功持有目标串口。
 - **状态话题不刷新**：检查节点是否已经成功激活，以及启动终端中是否存在 HAL 初始化失败、生命周期状态切换失败或串口重连异常的日志。

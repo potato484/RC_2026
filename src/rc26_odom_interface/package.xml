@@ -3,7 +3,7 @@
 <package format="3">
   <name>rc26_odom_interface</name>
   <version>1.3.2</version>
-  <description>里程计坐标转换接口 (Point-LIO → Nav2)</description>
+  <description>里程计坐标转换接口 (Point-LIO → R2 unified odom/tf)</description>
   <maintainer email="lihanchen2004@163.com">Lihan Chen</maintainer>
   <maintainer email="2220362462@qq.com">DongXuan Chen</maintainer>
   <license>Apache-2.0</license>

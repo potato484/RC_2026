@@ -3,19 +3,18 @@
 
   <!-- 引入子树定义 -->
   <include path="mc_tree.xml"/>
-  <include path="mf_tree.xml"/>
+  <include path="mf_tree_topo.xml"/>
   <include path="combat_tree.xml"/>
-  <include path="loc_guard_tree.xml"/>
 
   <!-- 主树：顺序执行三个区域子树 -->
   <BehaviorTree ID="MainTree">
     <Sequence>
       <!-- 武馆阶段 -->
-      <SubTree ID="GuardedMCAreaTree" _autoremap="true"/>
-      <!-- 梅林阶段 -->
-      <SubTree ID="GuardedMFAreaTree" _autoremap="true"/>
+      <SubTree ID="MCAreaTree" _autoremap="true"/>
+      <!-- 梅林阶段（统一走 topo/xhu） -->
+      <SubTree ID="MFAreaTree" _autoremap="true"/>
       <!-- 对抗阶段 -->
-      <SubTree ID="GuardedCombatAreaTree" _autoremap="true"/>
+      <SubTree ID="CombatAreaTree" _autoremap="true"/>
     </Sequence>
   </BehaviorTree>
 

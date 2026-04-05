@@ -159,7 +159,6 @@ if(BUILD_TESTING)
   ament_add_gtest(test_terrain_risk_model test/test_terrain_risk_model.cpp)
   target_link_libraries(test_terrain_risk_model ${PROJECT_NAME}_component)
 
-  add_launch_test(test/test_costmap_integration.py TIMEOUT 60)
   add_launch_test(test/test_terrain_grid_map_bridge_launch.py TIMEOUT 90)
 endif()
 

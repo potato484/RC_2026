@@ -1,0 +1,81 @@
+# Topo mode profiles: reduced set of 6 deterministic action modes
+profiles:
+  plane_move:
+    fallback_profile: hold
+    watchdog:
+      timeout_sec: 0
+      stop_required_on_timeout: false
+    precheck:
+      require_stopped: false
+    costmap:
+      clear_on_switch: false
+    controller:
+      v_linear_max: 0.8
+      v_angular_max: 1.0
+
+  mf_traverse:
+    fallback_profile: hold
+    watchdog:
+      timeout_sec: 10.0
+      stop_required_on_timeout: false
+    precheck:
+      require_stopped: true
+    costmap:
+      clear_on_switch: true
+    controller:
+      v_linear_max: 0.5
+      v_angular_max: 0.5
+
+  mf_exit:
+    fallback_profile: hold
+    watchdog:
+      timeout_sec: 10.0
+      stop_required_on_timeout: true
+    precheck:
+      require_stopped: true
+    costmap:
+      clear_on_switch: true
+    controller:
+      v_linear_max: 0.5
+      v_angular_max: 0.5
+
+  ramp_up:
+    fallback_profile: hold
+    watchdog:
+      timeout_sec: 30.0
+      stop_required_on_timeout: false
+    precheck:
+      require_stopped: true
+    costmap:
+      clear_on_switch: true
+    controller:
+      v_linear_max: 0.3
+      v_angular_max: 0.3
+
+  ramp_down:
+    fallback_profile: hold
+    watchdog:
+      timeout_sec: 30.0
+      stop_required_on_timeout: false
+    precheck:
+      require_stopped: true
+    costmap:
+      clear_on_switch: true
+    controller:
+      v_linear_max: 0.2
+      v_angular_max: 0.3
+
+  hold:
+    fallback_profile: hold
+    watchdog:
+      timeout_sec: 0
+      stop_required_on_timeout: true
+    precheck:
+      require_stopped: true
+    costmap:
+      clear_on_switch: false
+    controller:
+      v_linear_max: 0.0
+      v_angular_max: 0.0
+      acc_linear: 0.2
+      acc_angular: 0.2

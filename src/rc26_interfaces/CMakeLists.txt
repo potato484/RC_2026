@@ -10,6 +10,7 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(action_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -17,23 +18,47 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/AssembleWeapon.action"
   "action/PlaceKFSGrid.action"
   "action/ExecuteMechanism.action"
+  "action/NavigateTopoTarget.action"
+  "action/NavigateSurfaceRoute.action"
   "msg/TipDetection.msg"
   "msg/TipDetectionArray.msg"
   "msg/MechanismState.msg"
-  "msg/NavSafetyState.msg"
-  "msg/NavTolerance.msg"
-  "msg/SmartWaypoint.msg"
+  "msg/MechanismTransportFeedback.msg"
+  "msg/XhuSemanticCorridor.msg"
+  "msg/XhuMotionModeState.msg"
+  "msg/XhuTrackingState.msg"
   "msg/MfKfsCell.msg"
   "msg/MfKfsState.msg"
+  "msg/MfBlockOverlayCell.msg"
+  "msg/MfBlockOverlay.msg"
+  "msg/SurfaceGraphOverlay.msg"
   "msg/TerrainFeatureGrid.msg"
   "msg/LocalizationHealth.msg"
   "msg/LocalizationBackendStatus.msg"
   "msg/OperatorStatus.msg"
   "msg/RouteObservability.msg"
-  "srv/SetNavMode.srv"
+  "srv/SetXhuMotionMode.srv"
+  "srv/SendMechanismTransportCommand.srv"
   "msg/VisualizationEvent.msg"
   "msg/VisualizationEventArray.msg"
-  DEPENDENCIES action_msgs builtin_interfaces geometry_msgs std_msgs
+  "msg/BehaviorTreePort.msg"
+  "msg/BehaviorTreeNodeModel.msg"
+  "msg/BehaviorTreeModel.msg"
+  "msg/BehaviorTreeNodeState.msg"
+  "msg/BehaviorTreeSnapshot.msg"
+  "msg/BehaviorTreeBlackboardEntry.msg"
+  "msg/BehaviorTreeBlackboard.msg"
+  "msg/BehaviorTreeEvent.msg"
+  "msg/BehaviorTreeEventArray.msg"
+  "msg/BehaviorTreeTraceLine.msg"
+  "msg/BehaviorTreeTrace.msg"
+  "msg/BehaviorTreeDebugState.msg"
+  "msg/BehaviorTreeLocalizedValue.msg"
+  "msg/BehaviorTreeLocalizationEntry.msg"
+  "msg/BehaviorTreeLocalizedNode.msg"
+  "msg/BehaviorTreeLocalization.msg"
+  "srv/ControlBehaviorTree.srv"
+  DEPENDENCIES action_msgs builtin_interfaces geometry_msgs nav_msgs std_msgs
 )
 
 ament_package()

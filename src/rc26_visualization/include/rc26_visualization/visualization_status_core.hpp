@@ -78,8 +78,8 @@ struct MechanismInput {
 };
 
 struct KeepoutInput {
-  bool filter_info_received{false};
-  double filter_info_age_sec{kInf};
+  bool overlay_received{false};
+  double overlay_age_sec{kInf};
   bool mask_received{false};
   double mask_age_sec{kInf};
   bool heartbeat_received{false};
@@ -99,9 +99,6 @@ struct TerrainInput {
   double traversability_min{std::numeric_limits<double>::quiet_NaN()};
   bool climbable_active{false};
   bool step_edge_active{false};
-  bool speed_limit_received{false};
-  double speed_limit_age_sec{kInf};
-  bool speed_limited{false};
 };
 
 struct TopicWatchInput {
@@ -136,18 +133,16 @@ struct VisualizationStatusConfig {
   std::string compute_time_ms_topic{"compute_time_ms"};
   std::string pose_age_ms_topic{"pose_age_ms"};
   std::string collision_d_min_topic{"collision_d_min"};
-  std::string controller_mode_topic{"controller_server/NMPCFollowPath/mode"};
-  std::string nav_safety_topic{"nav_safety_state"};
+  std::string controller_mode_topic{"/xhu_nav/semantic_gate"};
+  std::string nav_mode_state_topic{"/xhu_nav/motion_mode_state"};
+  std::string nav_tracking_topic{"/xhu_nav/tracking_state"};
   std::string mechanism_state_topic{"/mechanism/state"};
-  std::string costmap_filter_info_topic{"/costmap_filter_info"};
+  std::string block_overlay_topic{"/mf_block_overlay"};
   std::string kfs_filter_mask_topic{"/kfs_filter_mask"};
   std::string kfs_heartbeat_topic{"/kfs_keepout_heartbeat"};
   std::string terrain_obstacles_topic{"terrain_obstacles"};
   std::string terrain_drop_topic{"terrain_drop"};
   std::string terrain_grid_topic{"/terrain_grid_map_local"};
-  std::string terrain_speed_limit_topic{"terrain_speed_limit"};
-  double terrain_speed_limit_nominal_mps{2.0};
-  double terrain_speed_limit_margin_mps{0.05};
   double terrain_climbable_active_threshold{0.20};
   double terrain_step_edge_active_threshold{0.50};
   bool localization_present{true};

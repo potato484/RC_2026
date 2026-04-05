@@ -19,7 +19,6 @@
 #include "rc26_terrain/tf_chain_validator.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "std_msgs/msg/bool.hpp"
-#include "std_msgs/msg/float32.hpp"
 #include "tf2/LinearMath/Transform.h"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
@@ -50,7 +49,6 @@ private:
     SafetyGuardInput buildSafetyGuardInput(const rclcpp::Time& now) const;
     void syncSafetyGuardState(const SafetyGuardDecision& decision);
     TfValidationReport validateTfChain(const rclcpp::Time& now) const;
-    void publishSpeedLimitValue(const rclcpp::Time& stamp, float v_limit, bool force = false);
     void updateKfsOccupied(const rc26_interfaces::msg::MfKfsState& msg);
     bool loadMfGridLayout(const std::string& path);
     bool sanitizeAndValidateCloud(pcl::PointCloud<pcl::PointXYZI>& cloud,
@@ -123,9 +121,6 @@ private:
     int output_qos_depth_{5};
     std::string output_qos_reliability_{"best_effort"};
     std::string output_qos_durability_{"volatile"};
-    int speed_limit_qos_depth_{10};
-    std::string speed_limit_qos_reliability_{"reliable"};
-    std::string speed_limit_qos_durability_{"volatile"};
     int diagnostics_qos_depth_{10};
     std::string diagnostics_qos_reliability_{"reliable"};
     std::string diagnostics_qos_durability_{"volatile"};
@@ -171,19 +166,6 @@ private:
     std::string terrain_features_topic_{"terrain_features"};
     bool        enable_terrain_features_pub_{false};
     double      terrain_features_publish_hz_{3.5};
-    std::string terrain_speed_limit_topic_{"terrain_speed_limit"};
-    bool        enable_terrain_speed_limit_pub_{true};
-    double      terrain_speed_limit_publish_hz_{5.0};
-    double      speed_limit_forward_look_m_{2.0};
-    double      speed_limit_half_width_m_{0.4};
-    double      speed_limit_v_max_mps_{2.0};
-    double      speed_limit_min_mps_{0.2};
-    double      speed_limit_w_slope_{1.0};
-    double      speed_limit_w_roughness_{1.0};
-    double      speed_limit_w_drop_{2.0};
-    double      speed_limit_w_climbable_{0.8};
-    double      speed_limit_k_tci_{1.0};
-    double      speed_limit_emergency_drop_thresh_{0.8};
     bool        enable_risk_model_{false};
     std::string risk_model_file_{""};
 
@@ -233,7 +215,6 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_kfs_obstacles_debug_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr pub_diagnostics_;
     rclcpp::Publisher<rc26_interfaces::msg::TerrainFeatureGrid>::SharedPtr pub_features_;
-    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_speed_limit_;
     rclcpp::TimerBase::SharedPtr health_timer_;
     SafetyGuard safety_guard_;
     std::unique_ptr<TfChainValidator> tf_chain_validator_;
@@ -267,7 +248,6 @@ private:
     bool thermal_throttle_requested_{false};
     rclcpp::Time thermal_throttle_last_true_stamp_{0, 0, RCL_ROS_TIME};
     rclcpp::Time last_features_pub_time_{0, 0, RCL_ROS_TIME};
-    rclcpp::Time last_speed_limit_pub_time_{0, 0, RCL_ROS_TIME};
     bool last_tf_validation_ok_{false};
     TfChainStatusCode last_tf_validation_code_{TfChainStatusCode::kInvalidSpecification};
     std::string last_tf_validation_message_{"未验证"};

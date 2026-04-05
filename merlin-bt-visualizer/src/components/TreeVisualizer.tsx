@@ -1,0 +1,80 @@
+
+import { useMemo, useCallback } from 'react';
+import { ReactFlow, Background, Edge, Node } from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+import { useStore } from '../store/useStore';
+import { CustomNode } from './CustomNode';
+import { layoutNodes } from '../utils/btParser';
+import { CANVAS_BACKGROUND, createCanvasEdgeProps } from '../utils/btCanvasTheme';
+
+const nodeTypes = {
+  custom: CustomNode,
+};
+
+export const TreeVisualizer = () => {
+  const { nodes, edges, setActiveNode, toggleNodeCollapse } = useStore();
+
+  const { visibleNodes, visibleEdges } = useMemo(() => {
+    // 找出所有被折叠的节点 ID
+    const collapsedIds = new Set<string>();
+    
+    // 递归查找所有应该被隐藏的子节点
+    const hiddenIds = new Set<string>();
+    
+    const findHidden = (parentId: string) => {
+      const childEdges = edges.filter(e => e.source === parentId);
+      childEdges.forEach(edge => {
+        hiddenIds.add(edge.target);
+        findHidden(edge.target);
+      });
+    };
+
+    nodes.forEach(node => {
+      if (node.collapsed) {
+        collapsedIds.add(node.id);
+        findHidden(node.id);
+      }
+    });
+
+    const vNodes = nodes.filter(n => !hiddenIds.has(n.id));
+    const vEdges = edges.filter(e => !hiddenIds.has(e.target));
+    
+    return { visibleNodes: vNodes, visibleEdges: vEdges };
+  }, [nodes, edges]);
+
+  const flowNodes: Node[] = useMemo(() => {
+    return layoutNodes(visibleNodes, visibleEdges);
+  }, [visibleNodes, visibleEdges]);
+
+  const flowEdges: Edge[] = useMemo(() => visibleEdges.map(edge => {
+    const isRunning = nodes.find(n => n.id === edge.target)?.state === 'running';
+    return {
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      ...createCanvasEdgeProps(isRunning),
+    };
+  }), [nodes, visibleEdges]);
+
+  const onNodeDoubleClick = useCallback((_: React.MouseEvent, node: Node) => {
+    toggleNodeCollapse(node.id);
+  }, [toggleNodeCollapse]);
+
+  return (
+    <div className="w-full h-full glass-panel overflow-hidden bg-white/40" data-testid="viewer-canvas">
+      <ReactFlow
+        nodes={flowNodes}
+        edges={flowEdges}
+        nodeTypes={nodeTypes}
+        onNodeClick={(_, node) => setActiveNode(node.id)}
+        onNodeDoubleClick={onNodeDoubleClick}
+        onPaneClick={() => setActiveNode(null)}
+        fitView
+        minZoom={0.1}
+        className="bg-transparent"
+      >
+        <Background {...CANVAS_BACKGROUND} className="opacity-50" />
+      </ReactFlow>
+    </div>
+  );
+};

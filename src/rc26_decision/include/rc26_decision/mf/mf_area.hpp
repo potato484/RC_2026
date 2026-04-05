@@ -14,7 +14,6 @@
 #include "rc26_decision/common/bt_action_node.hpp"
 #include "rc26_decision/mf/merlin_rule_world_model.hpp"
 #include "rc26_interfaces/action/execute_mechanism.hpp"
-#include "rc26_interfaces/srv/set_nav_mode.hpp"
 
 namespace rc26_decision {
 
@@ -172,23 +171,6 @@ public:
 };
 
 // ============================================================================
-// 新增节点：导航模式切换
-// ============================================================================
-class SetNavModeAction : public BT::StatefulActionNode {
-public:
-  SetNavModeAction(const std::string &name, const BT::NodeConfig &config);
-  static BT::PortsList providedPorts();
-  BT::NodeStatus onStart() override;
-  BT::NodeStatus onRunning() override;
-  void onHalted() override;
-
-private:
-  rclcpp::Client<rc26_interfaces::srv::SetNavMode>::SharedPtr client_;
-  rclcpp::Client<rc26_interfaces::srv::SetNavMode>::SharedFuture future_;
-  bool waiting_{false};
-};
-
-// ============================================================================
 // 新增节点：扫描周围环境
 // ============================================================================
 class ScanSurroundingsAction : public BT::StatefulActionNode {
@@ -272,18 +254,6 @@ public:
   UpdateMapKFSAction(const std::string &name, const BT::NodeConfig &config);
   static BT::PortsList providedPorts();
   BT::NodeStatus tick() override;
-};
-
-// ============================================================================
-// 新增节点：导航到梅林格子
-// ============================================================================
-class NavToMerlinGridAction : public BT::StatefulActionNode {
-public:
-  NavToMerlinGridAction(const std::string &name, const BT::NodeConfig &config);
-  static BT::PortsList providedPorts();
-  BT::NodeStatus onStart() override;
-  BT::NodeStatus onRunning() override;
-  void onHalted() override;
 };
 
 // 注册 MF 区域所有节点

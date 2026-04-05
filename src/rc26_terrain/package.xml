@@ -3,7 +3,7 @@
 <package format="3">
   <name>rc26_terrain</name>
   <version>0.1.0</version>
-  <description>Terrain semantic segmentation for Nav2 (obstacles + drop hazards)</description>
+  <description>Terrain semantic segmentation for R2 self-developed navigation (obstacles + drop hazards)</description>
   <maintainer email="dev@rc2026.com">RC2026</maintainer>
   <maintainer email="2220362462@qq.com">DongXuan Chen</maintainer>
   <license>Apache-2.0</license>
@@ -38,14 +38,7 @@
   <test_depend>ament_index_python</test_depend>
   <test_depend>launch_testing_ament_cmake</test_depend>
   <test_depend>launch_testing</test_depend>
-  <test_depend>launch_testing_ros</test_depend>
-  <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>grid_map_msgs</test_depend>
-  <test_depend>nav2_costmap_2d</test_depend>
-  <test_depend>nav2_lifecycle_manager</test_depend>
-  <test_depend>nav2_msgs</test_depend>
-  <test_depend>rc26_bringup</test_depend>
-  <test_depend>rc26_terrain_nav2</test_depend>
   <test_depend>tf2_ros</test_depend>
 
   <export>

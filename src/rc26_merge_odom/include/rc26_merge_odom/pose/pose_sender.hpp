@@ -15,8 +15,8 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <std_msgs/msg/bool.hpp>
-#include <std_msgs/msg/float32.hpp>
 
+#include "rc26_merge_odom/chassis_model.hpp"
 #include "rc26_serial/serial_driver.hpp"
 
 namespace rc26_merge_odom {
@@ -24,6 +24,7 @@ namespace rc26_merge_odom {
 class PoseSender {
 public:
     struct Config {
+        std::string chassis_model = "tracked_diff";
         std::string cmd_vel_topic = "cmd_vel";
         std::string odom_topic = "merge_odom";
         std::string imu_topic = "DM_IMU";
@@ -34,6 +35,9 @@ public:
         float w_max_rps = 4.0f;
         float a_max_mps2 = 15.0f;
         float alpha_max_rps2 = 40.0f;
+        float track_width_m = 0.7f;
+        float track_speed_max_mps = 2.0f;
+        float track_accel_max_mps2 = 15.0f;
         bool imu_gate_enable = true;
         float imu_gate_ema_alpha = 0.98f;
         float imu_gate_chi2_threshold = 6.635f;
@@ -47,8 +51,6 @@ public:
         float dob_kd = 0.3f;
         bool latency_comp_enable = true;
         float latency_comp_s = 0.03f;
-        std::string terrain_speed_limit_topic = "";
-        int terrain_speed_limit_timeout_ms = 500;
         bool stats_log_enable = false;
         bool imu_gate_log_enable = false;
     };
@@ -88,11 +90,11 @@ private:
     std::shared_ptr<rc26_decision::SerialDriver> feedback_serial_;
     std::shared_ptr<rc26_decision::SerialDriver> target_serial_;
     Config config_;
+    ChassisModel chassis_model_ = ChassisModel::kMecanum4Wheel;
 
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
-    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr terrain_speed_limit_sub_;
     rclcpp::TimerBase::SharedPtr feedback_timer_;
     rclcpp::TimerBase::SharedPtr target_timer_;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr feedback_protected_pub_;
@@ -109,15 +111,12 @@ private:
     std::chrono::steady_clock::time_point prev_feedback_output_time_;
     std::chrono::steady_clock::time_point prev_target_output_time_;
     std::chrono::steady_clock::time_point prev_odom_time_;
-    std::chrono::steady_clock::time_point terrain_speed_limit_time_;
     bool cmd_vel_received_ = false;
     bool timeout_zero_sent_ = false;
     bool prev_feedback_output_valid_ = false;
     bool prev_target_output_valid_ = false;
     bool prev_odom_valid_ = false;
-    bool terrain_speed_limit_received_ = false;
     bool wheel_accel_valid_ = false;
-    float terrain_speed_limit_mps_ = NAN;
     float wheel_accel_mps2_ = 0.0f;
 
     mutable std::mutex imu_cache_mutex_;
@@ -146,15 +145,15 @@ private:
     void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
     void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
     void imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg);
-    void terrainSpeedLimitCallback(const std_msgs::msg::Float32::SharedPtr msg);
     void feedbackTimerCallback();
     void targetTimerCallback();
 
     std::chrono::milliseconds sensorFreshnessTimeout() const;
     bool hasFreshOdomLocked(const std::chrono::steady_clock::time_point& now) const;
     bool getFreshImuCache(const std::chrono::steady_clock::time_point& now, ImuCache& imu_cache) const;
-    float getEffectiveVMax(const std::chrono::steady_clock::time_point& now) const;
+    float getEffectiveVMax(const std::chrono::steady_clock::time_point&) const;
     void applyImuSpikeScale(Velocity& velocity, const std::chrono::steady_clock::time_point& now);
+    void normalizeVelocityForChassis(Velocity& velocity) const;
     bool imuSpikeActive() const;
     Velocity applyFallbackProtect(Velocity raw, const Velocity& prev_vel, double dt, float effective_v_max) const;
     Velocity applyGovernorProtect(Velocity raw, const Velocity& prev_vel, double dt, float effective_v_max) const;

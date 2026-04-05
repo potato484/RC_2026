@@ -162,7 +162,7 @@ source install/setup.bash
 
 ### 5.2 无实测 bag 时的 synthetic 验收
 
-当现场没有可用定位 bag 时，可先用 synthetic 输入做链路验收。  
+当现场没有可用定位 bag 时，可先用 synthetic 输入做链路验收。
 注意：`default.pcd` 是最小烟测地图，建议使用 synthetic 专用 overlay。
 
 ```bash

@@ -62,4 +62,3 @@ private:
 };
 
 }  // namespace rc26_localization
-

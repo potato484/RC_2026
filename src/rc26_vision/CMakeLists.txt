@@ -23,8 +23,22 @@ find_package(OpenCV REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
 # AidLux local ONNX inference chain.
-find_path(AIDLITE_INCLUDE aidlux/aidlite/aidlite.hpp HINTS /usr/local/include REQUIRED)
-find_library(AIDLITE_LIB aidlite HINTS /usr/local/lib REQUIRED)
+find_path(AIDLITE_INCLUDE aidlux/aidlite/aidlite.hpp HINTS /usr/local/include)
+find_library(AIDLITE_LIB aidlite HINTS /usr/local/lib)
+
+set(RC26_VISION_ENGINE_SOURCES
+  src/yolo_engine.cpp
+  src/vision_inference_manager.cpp
+  src/profile_loader.cpp
+)
+
+if(AIDLITE_INCLUDE AND AIDLITE_LIB)
+  message(STATUS "rc26_vision: AidLite detected, enabling real inference backend")
+  list(APPEND RC26_VISION_ENGINE_SOURCES src/aidlite_engine.cpp)
+else()
+  message(WARNING "rc26_vision: AidLite not found, building stub backend; inference will fail at runtime")
+  list(APPEND RC26_VISION_ENGINE_SOURCES src/aidlite_engine_stub.cpp)
+endif()
 
 # ============================================================================
 # 头文件目录
@@ -32,17 +46,17 @@ find_library(AIDLITE_LIB aidlite HINTS /usr/local/lib REQUIRED)
 include_directories(
   include
   ${OpenCV_INCLUDE_DIRS}
-  ${AIDLITE_INCLUDE}
 )
+
+if(AIDLITE_INCLUDE)
+  include_directories(${AIDLITE_INCLUDE})
+endif()
 
 # ============================================================================
 # 库：视觉推理
 # ============================================================================
 add_library(${PROJECT_NAME} SHARED
-  src/yolo_engine.cpp
-  src/aidlite_engine.cpp
-  src/vision_inference_manager.cpp
-  src/profile_loader.cpp
+  ${RC26_VISION_ENGINE_SOURCES}
 )
 
 ament_target_dependencies(${PROJECT_NAME}
@@ -60,10 +74,13 @@ ament_target_dependencies(${PROJECT_NAME}
 
 target_link_libraries(${PROJECT_NAME}
   ${OpenCV_LIBS}
-  ${AIDLITE_LIB}
   yaml-cpp
   pthread
 )
+
+if(AIDLITE_LIB)
+  target_link_libraries(${PROJECT_NAME} ${AIDLITE_LIB})
+endif()
 
 # ============================================================================
 # 测试节点

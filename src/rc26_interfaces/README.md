@@ -1,77 +1,54 @@
 # rc26_interfaces
 
-RC2026 机器人自定义 ROS2 接口包，包含消息 (msg)、服务 (srv) 和动作 (action) 定义。
+`rc26_interfaces` 是 R2 当前运行时的接口真源。这个包只定义跨包消息、服务和动作，不包含任何业务逻辑。
 
-## 1. 消息 (Messages)
+## 当前接口范围
 
-### 机构与硬件状态
-* **`MechanismState.msg`**
-  * 描述下位机/执行机构的实时状态。
-  * 关键字段：
-    * `tip_state`: 弹头状态
-    * `hal_open`: 硬件层是否就绪
-    * `locked_tip_slot`: 当前锁定的弹槽 ID
-    * `assembled_count`: 已组装完成的数量
-    * `comm_health_level`: 通信健康度等级
+- 行为树运行时:
+  - `BehaviorTreeModel.msg`
+  - `BehaviorTreeSnapshot.msg`
+  - `BehaviorTreeTrace.msg`
+  - `BehaviorTreeEvent*.msg`
+  - `BehaviorTreeBlackboard*.msg`
+  - `BehaviorTreeLocalization*.msg`
+- 定位:
+  - `LocalizationHealth.msg`
+  - `LocalizationBackendStatus.msg`
+  - `RouteObservability.msg`
+- 自研导航:
+  - `NavigateTopoTarget.action`
+  - `NavigateSurfaceRoute.action`
+  - `SetXhuMotionMode.srv`
+  - `MfBlockOverlay.msg`
+  - `MfBlockOverlayCell.msg`
+  - `XhuSemanticCorridor.msg`
+  - `XhuMotionModeState.msg`
+  - `XhuTrackingState.msg`
+- 机构与任务:
+  - `MechanismState.msg`
+  - `MechanismTransportFeedback.msg`
+  - `ExecuteMechanism.action`
+  - `GrabTip.action`
+  - `AssembleWeapon.action`
+  - `PlaceKFSGrid.action`
+  - `SendMechanismTransportCommand.srv`
+- 感知与规则:
+  - `MfKfsState.msg`
+  - `MfKfsCell.msg`
+  - `TerrainFeatureGrid.msg`
+  - `TipDetection.msg`
+  - `TipDetectionArray.msg`
+- 可视化与诊断:
+  - `OperatorStatus.msg`
+  - `VisualizationEvent.msg`
+  - `VisualizationEventArray.msg`
 
-### 感知与环境 (KFS/Tip/Terrain)
-* **`MfKfsState.msg`**
-  * 描述矿石/兑换站 (KFS) 的整体状态。
-  * 包含 `MfKfsCell[]` 数组。
-* **`MfKfsCell.msg`**
-  * 单个矿石/格子单元信息。
-  * 字段: `grid_id`, `kfs_type`, `confidence`。
-* **`TipDetection.msg`**
-  * 视觉/传感器检测到的弹头信息。
-  * 字段: `tip_index`, `position_map` (地图系坐标), `depth_m`, `spacing_valid`。
-* **`TipDetectionArray.msg`**
-  * 包含多个 `TipDetection` 的数组。
-* **`TerrainFeatureGrid.msg`**
-  * 地形特征网格数据，用于路径规划和可通行性分析。
-  * 包含高度 (`h_ground`, `h_top`)、坡度 (`slope_x`, `slope_y`)、粗糙度 (`roughness`)、障碍物概率 (`p_obstacle`) 等层级数据。
+## 当前清理状态
 
-### 导航与决策
-* **`SmartWaypoint.msg`**
-  * 智能导航目标点，包含行为决策信息。
-  * 字段：
-    * `pose`: 目标位姿
-    * `strategy_tag`: 策略标签 (如 "attack", "retreat")
-    * `tolerance`: 容差设置 (`NavTolerance`)
-    * `nav_safety_mode`: 导航模式 (0=NORMAL, 1=MF_SAFE, 2=MF_TRAVERSE, 3=MF_EXIT)
-    * `speed_profile`: 速度配置
-* **`NavTolerance.msg`**
-  * 导航到达判定容差。
-  * 字段: `xy_tolerance`, `yaw_tolerance`。
-* **`NavSafetyState.msg`**
-  * 导航模块的安全状态反馈。
-  * 字段: `current_profile`, `stop_required`, `reason`。
+旧兼容导航契约已从接口清单中移除，当前只保留 topo/xhu 主链与决策运行时实际使用的消息、服务和动作。
 
-## 2. 服务 (Services)
+## 维护原则
 
-* **`SetNavMode.srv`**
-  * 动态切换导航模式或配置。
-  * **Request**: `profile` (配置名), `timeout`, `reason`
-  * **Response**: `success`, `message`
-
-## 3. 动作 (Actions)
-
-用于长时间运行的任务，支持反馈和取消。
-
-* **`AssembleWeapon.action`**
-  * 触发武器组装流程。
-  * **Result**: `success`, `error_code`
-* **`ExecuteMechanism.action`**
-  * 执行通用机构指令。
-  * **Goal**: `command_id`, `payload`, `timeout_sec`
-* **`GrabTip.action`**
-  * 执行抓取弹头任务。
-  * **Goal**: `tip_index` (目标弹头索引)
-* **`PlaceKFSGrid.action`**
-  * 执行放置 KFS 网格任务。
-  * **Goal**: `grid_position`, `layer`
-
-## 构建依赖
-* `builtin_interfaces`
-* `geometry_msgs`
-* `std_msgs`
-* `action_msgs`
+- 任何跨包字段语义变更，都必须同步更新 [docs/middle/modules/navigation.yaml](/home/potato/RC_2026/docs/middle/modules/navigation.yaml) 或对应模块契约文档。
+- 新接口优先围绕 `rc26_topo_nav + xhu_motion_mode_manager + xhu_motion_follower` 这条自研链设计，不再为历史兼容链增加冗余字段。
+- 判断“接口是否真实存在”时，以 [CMakeLists.txt](/home/potato/RC_2026/src/rc26_interfaces/CMakeLists.txt) 中 `rosidl_generate_interfaces()` 的清单为准。

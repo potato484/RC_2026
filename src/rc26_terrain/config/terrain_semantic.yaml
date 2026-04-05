@@ -5,7 +5,7 @@
     input_cloud_topic: "registered_scan"
     # 里程计输入：odom_interface 输出的 /odom（用于健康监测 + 失效保护备用位姿）
     odom_topic: "odom"
-    # 输出：提供给 Nav2 costmap 的“真障碍/跌落风险”点云
+    # 输出：提供给自研导航链的“真障碍/跌落风险”点云
     output_obstacles_topic: "terrain_obstacles"
     output_drop_topic: "terrain_drop"
     # 可攀爬台阶特征（调试/定位用，不接入 costmap）：置空可关闭
@@ -63,7 +63,7 @@
 
     # ===== Unknown 策略 =====
     # aggressive: 忽略 unknown（默认，行为更激进）
-    # conservative: 将 unknown 视为风险点输出给 Nav2（更保守）
+    # conservative: 将 unknown 视为风险点输出给自研导航链（更保守）
     unknown_policy: "aggressive"
     # conservative 模式下 unknown 输出到哪个话题：drop 或 obstacles
     unknown_output: "drop"
@@ -80,7 +80,7 @@
     stale_time_sec: 0.7
     decay_time_sec: 2.0  # 点云时间衰减（秒），超过此时间的历史数据将被清除
 
-    # ===== QoS 配置（默认兼容 Nav2 ObstacleLayer 的 SensorDataQoS） =====
+    # ===== QoS 配置（默认与下游感知/执行链保持 SensorDataQoS 兼容） =====
     cloud_qos_depth: 5
     cloud_qos_reliability: "best_effort"   # best_effort/reliable/system_default
     cloud_qos_durability: "volatile"       # volatile/transient_local/system_default
@@ -90,9 +90,6 @@
     output_qos_depth: 5
     output_qos_reliability: "best_effort"
     output_qos_durability: "volatile"
-    speed_limit_qos_depth: 10
-    speed_limit_qos_reliability: "reliable"
-    speed_limit_qos_durability: "volatile"
     diagnostics_qos_depth: 10
     diagnostics_qos_reliability: "reliable"
     diagnostics_qos_durability: "volatile"
@@ -107,7 +104,7 @@
     fail_safe_strategy: "virtual_fence"
     virtual_fence_radius_m: 0.6
     virtual_fence_num_points: 36
-    virtual_fence_height_m: 0.2  # 建议 > 0 避免被 Nav2 min_obstacle_height 过滤
+    virtual_fence_height_m: 0.2  # 建议 > 0，避免下游按最小障碍高度过滤
 
     # ===== 输出点云验证 =====
     output_sanity_check_enable: true
@@ -142,21 +139,6 @@
     enable_terrain_features_pub: true
     terrain_features_topic: "terrain_features"
     terrain_features_publish_hz: 3.5
-
-    # ===== P2: terrain speed limit =====
-    enable_terrain_speed_limit_pub: true
-    terrain_speed_limit_topic: "terrain_speed_limit"
-    terrain_speed_limit_publish_hz: 5.0
-    speed_limit_forward_look_m: 2.0
-    speed_limit_half_width_m: 0.4
-    speed_limit_v_max_mps: 2.0
-    speed_limit_min_mps: 0.2
-    speed_limit_w_slope: 1.0
-    speed_limit_w_roughness: 1.0
-    speed_limit_w_drop: 2.0
-    speed_limit_w_climbable: 0.8
-    speed_limit_k_tci: 1.0
-    speed_limit_emergency_drop_thresh: 0.8
     enable_risk_model: false
     risk_model_file: ""
 

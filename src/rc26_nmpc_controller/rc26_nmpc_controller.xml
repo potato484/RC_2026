@@ -1,9 +1,0 @@
-<class_libraries>
-  <library path="rc26_nmpc_controller">
-    <class type="rc26_nmpc_controller::NmpcController" base_class_type="nav2_core::Controller">
-      <description>
-        Localization-aware NMPC controller with OSQP backend and rc26_omni_controller fallback.
-      </description>
-    </class>
-  </library>
-</class_libraries>

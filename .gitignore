@@ -8,15 +8,11 @@ __pycache__/
 *.pyc
 Log/
 方案/
-AGENTS.md
-
+.windsurf
 # Project-local ROS bag captures
 /rosbags/*
 !/rosbags/README.md
-
-# Web dashboard artifacts
-/web/r2_dashboard/node_modules/
-/web/r2_dashboard/dist/
+.playwright-mcp
 # Logs
 logs
 *.log
@@ -28,6 +24,7 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-e2e
 dist-ssr
 *.local
 
@@ -42,3 +39,5 @@ dist-ssr
 *.sln
 *.sw?
 .ace-tool/
+/artifacts/
+/release/

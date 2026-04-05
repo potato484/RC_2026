@@ -50,7 +50,7 @@
 ## 2026-03 定位改进落地（S1/S2/S3）
 
 - 重定位接管新增请求时刻 `odom->base` 快照，并在成功接管时做运动补偿，避免“请求时刻到成功时刻”位姿滞后。
-- 图后端锚点接入从二态改为三态：`validated_anchor` / `trusted_reloc_anchor` / `rejected_anchor`。  
+- 图后端锚点接入从二态改为三态：`validated_anchor` / `trusted_reloc_anchor` / `rejected_anchor`。
   仅在“点云不足但前端解可信”时允许受限信任接入，`validation_conflict` 仍硬拒绝。
 - Scan Context 静态库与在线库统一为 `descriptor + ring_key + sector_key + center_xy`，查询流程升级为：
   1. `ring_key` 索引 TopK

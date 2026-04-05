@@ -76,12 +76,15 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
     };
 
     const int raw_cmd_vel_timeout_ms = config_.cmd_vel_timeout_ms;
-    const int raw_terrain_speed_limit_timeout_ms = config_.terrain_speed_limit_timeout_ms;
     const int raw_spike_freeze_duration_ms = config_.spike_freeze_duration_ms;
+    const std::string raw_chassis_model = config_.chassis_model;
     const float raw_v_max_mps = config_.v_max_mps;
     const float raw_w_max_rps = config_.w_max_rps;
     const float raw_a_max_mps2 = config_.a_max_mps2;
     const float raw_alpha_max_rps2 = config_.alpha_max_rps2;
+    const float raw_track_width_m = config_.track_width_m;
+    const float raw_track_speed_max_mps = config_.track_speed_max_mps;
+    const float raw_track_accel_max_mps2 = config_.track_accel_max_mps2;
     const float raw_imu_gate_ema_alpha = config_.imu_gate_ema_alpha;
     const float raw_imu_gate_chi2_threshold = config_.imu_gate_chi2_threshold;
     const float raw_accel_agree_threshold_mps2 = config_.accel_agree_threshold_mps2;
@@ -93,13 +96,16 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
     const std::string raw_odom_topic = config_.odom_topic;
     const std::string raw_imu_topic = config_.imu_topic;
 
+    config_.chassis_model = normalizeChassisModel(config_.chassis_model);
     config_.cmd_vel_timeout_ms = std::max(0, config_.cmd_vel_timeout_ms);
-    config_.terrain_speed_limit_timeout_ms = std::max(0, config_.terrain_speed_limit_timeout_ms);
     config_.spike_freeze_duration_ms = std::max(0, config_.spike_freeze_duration_ms);
     config_.v_max_mps = std::fabs(config_.v_max_mps);
     config_.w_max_rps = std::fabs(config_.w_max_rps);
     config_.a_max_mps2 = std::fabs(config_.a_max_mps2);
     config_.alpha_max_rps2 = std::fabs(config_.alpha_max_rps2);
+    config_.track_width_m = std::max(std::fabs(config_.track_width_m), kEpsilon);
+    config_.track_speed_max_mps = std::fabs(config_.track_speed_max_mps);
+    config_.track_accel_max_mps2 = std::fabs(config_.track_accel_max_mps2);
     config_.imu_gate_ema_alpha = std::clamp(config_.imu_gate_ema_alpha, 0.0f, 0.9999f);
     config_.imu_gate_chi2_threshold = std::max(0.1f, config_.imu_gate_chi2_threshold);
     config_.accel_agree_threshold_mps2 = std::max(0.0f, config_.accel_agree_threshold_mps2);
@@ -116,15 +122,18 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
     if (config_.imu_topic.empty()) {
         config_.imu_topic = Config{}.imu_topic;
     }
+    chassis_model_ = parseChassisModel(config_.chassis_model);
 
+    logNormalized("chassis_model", raw_chassis_model, config_.chassis_model);
     logNormalized("cmd_vel_timeout_ms", raw_cmd_vel_timeout_ms, config_.cmd_vel_timeout_ms);
-    logNormalized("terrain_speed_limit_timeout_ms", raw_terrain_speed_limit_timeout_ms,
-                  config_.terrain_speed_limit_timeout_ms);
     logNormalized("spike_freeze_duration_ms", raw_spike_freeze_duration_ms, config_.spike_freeze_duration_ms);
     logNormalized("v_max_mps", raw_v_max_mps, config_.v_max_mps);
     logNormalized("w_max_rps", raw_w_max_rps, config_.w_max_rps);
     logNormalized("a_max_mps2", raw_a_max_mps2, config_.a_max_mps2);
     logNormalized("alpha_max_rps2", raw_alpha_max_rps2, config_.alpha_max_rps2);
+    logNormalized("track_width_m", raw_track_width_m, config_.track_width_m);
+    logNormalized("track_speed_max_mps", raw_track_speed_max_mps, config_.track_speed_max_mps);
+    logNormalized("track_accel_max_mps2", raw_track_accel_max_mps2, config_.track_accel_max_mps2);
     logNormalized("imu_gate_ema_alpha", raw_imu_gate_ema_alpha, config_.imu_gate_ema_alpha);
     logNormalized("imu_gate_chi2_threshold", raw_imu_gate_chi2_threshold, config_.imu_gate_chi2_threshold);
     logNormalized("accel_agree_threshold_mps2", raw_accel_agree_threshold_mps2,
@@ -152,12 +161,6 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
     imu_sub_ = node_.create_subscription<sensor_msgs::msg::Imu>(
         config_.imu_topic, 20, std::bind(&PoseSender::imuCallback, this, std::placeholders::_1));
 
-    if (!config_.terrain_speed_limit_topic.empty()) {
-        terrain_speed_limit_sub_ = node_.create_subscription<std_msgs::msg::Float32>(
-            config_.terrain_speed_limit_topic, 10,
-            std::bind(&PoseSender::terrainSpeedLimitCallback, this, std::placeholders::_1));
-    }
-
     feedback_protected_pub_ = node_.create_publisher<geometry_msgs::msg::TwistStamped>(
         "pose_sender/feedback_protected", 10);
     target_protected_pub_ = node_.create_publisher<geometry_msgs::msg::TwistStamped>("pose_sender/target_protected",
@@ -173,19 +176,14 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
     target_timer_ = node_.create_wall_timer(target_period, std::bind(&PoseSender::targetTimerCallback, this));
 
     RCLCPP_INFO(node_.get_logger(),
-                "PoseSender 启动 (双串口模式)，cmd_vel: %s, odom: %s, imu: %s, 反馈: %d Hz, 目标: %d Hz",
+                "PoseSender 启动 (双串口模式)，cmd_vel: %s, odom: %s, imu: %s, 反馈: %d Hz, 目标: %d Hz, "
+                "chassis_model=%s",
                 config_.cmd_vel_topic.c_str(), config_.odom_topic.c_str(), config_.imu_topic.c_str(),
-                config_.feedback_send_rate_hz, config_.target_send_rate_hz);
+                config_.feedback_send_rate_hz, config_.target_send_rate_hz, chassisModelName(chassis_model_));
     RCLCPP_INFO(node_.get_logger(),
                 "PoseSender 保护参数: imu_gate=%s governor=%s dob=%s cmd_vel_timeout=%dms",
                 config_.imu_gate_enable ? "on" : "off", config_.governor_enable ? "on" : "off",
                 config_.dob_enable ? "on" : "off", config_.cmd_vel_timeout_ms);
-    if (!config_.terrain_speed_limit_topic.empty()) {
-        RCLCPP_INFO(node_.get_logger(), "PoseSender terrain_speed_limit 已启用: topic=%s timeout=%dms",
-                    config_.terrain_speed_limit_topic.c_str(), config_.terrain_speed_limit_timeout_ms);
-    } else {
-        RCLCPP_INFO(node_.get_logger(), "PoseSender terrain_speed_limit 已禁用，手动遥控不会被地形限速抑制");
-    }
 }
 
 PoseSender::~PoseSender() {
@@ -219,8 +217,12 @@ void PoseSender::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
         const double dt = std::chrono::duration<double>(now - prev_odom_time_).count();
         if (isValidDt(dt)) {
             const float dvx = feedback_vel_.vx - prev_odom_vel_.vx;
-            const float dvy = feedback_vel_.vy - prev_odom_vel_.vy;
-            wheel_accel_mps2_ = std::hypot(dvx, dvy) / static_cast<float>(dt);
+            if (isTrackedDiffModel(chassis_model_)) {
+                wheel_accel_mps2_ = std::fabs(dvx) / static_cast<float>(dt);
+            } else {
+                const float dvy = feedback_vel_.vy - prev_odom_vel_.vy;
+                wheel_accel_mps2_ = std::hypot(dvx, dvy) / static_cast<float>(dt);
+            }
             wheel_accel_valid_ = true;
         } else {
             wheel_accel_valid_ = false;
@@ -317,16 +319,6 @@ void PoseSender::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
     }
 }
 
-void PoseSender::terrainSpeedLimitCallback(const std_msgs::msg::Float32::SharedPtr msg) {
-    if (!msg) {
-        return;
-    }
-    std::lock_guard<std::mutex> lock(data_mutex_);
-    terrain_speed_limit_mps_ = msg->data;
-    terrain_speed_limit_time_ = std::chrono::steady_clock::now();
-    terrain_speed_limit_received_ = true;
-}
-
 std::chrono::milliseconds PoseSender::sensorFreshnessTimeout() const {
     const int fastest_rate_hz = std::max(std::max(config_.feedback_send_rate_hz, config_.target_send_rate_hz), 1);
     const int period_ms = std::max(1, static_cast<int>(std::ceil(1000.0 / static_cast<double>(fastest_rate_hz))));
@@ -346,36 +338,18 @@ bool PoseSender::getFreshImuCache(const std::chrono::steady_clock::time_point& n
     return true;
 }
 
-float PoseSender::getEffectiveVMax(const std::chrono::steady_clock::time_point& now) const {
+float PoseSender::getEffectiveVMax(const std::chrono::steady_clock::time_point&) const {
     float effective_v_max = std::fabs(config_.v_max_mps);
-    if (config_.terrain_speed_limit_topic.empty()) {
-        return effective_v_max;
-    }
-
-    float terrain_limit = NAN;
-    bool terrain_limit_valid = false;
-    {
-        std::lock_guard<std::mutex> lock(data_mutex_);
-        if (terrain_speed_limit_received_) {
-            const int timeout_ms = std::max(0, config_.terrain_speed_limit_timeout_ms);
-            if (now - terrain_speed_limit_time_ <= std::chrono::milliseconds(timeout_ms)) {
-                terrain_limit = terrain_speed_limit_mps_;
-                terrain_limit_valid = true;
-            }
-        }
-    }
-
-    if (terrain_limit_valid && std::isfinite(terrain_limit)) {
-        terrain_limit = std::max(0.0f, terrain_limit);
-        effective_v_max = std::min(effective_v_max, terrain_limit);
-        if (effective_v_max <= 1e-6f) {
-            RCLCPP_WARN_THROTTLE(
-                node_.get_logger(), *node_.get_clock(), 2000,
-                "terrain_speed_limit 当前为 %.3f m/s，线速度输出被抑制；若为手动摇杆/十字测试，请禁用 terrain_speed_limit_topic",
-                terrain_limit);
-        }
+    if (isTrackedDiffModel(chassis_model_)) {
+        effective_v_max = std::min(effective_v_max, std::fabs(config_.track_speed_max_mps));
     }
     return effective_v_max;
+}
+
+void PoseSender::normalizeVelocityForChassis(Velocity& velocity) const {
+    if (isTrackedDiffModel(chassis_model_)) {
+        velocity.vy = 0.0f;
+    }
 }
 
 void PoseSender::applyImuSpikeScale(Velocity& velocity, const std::chrono::steady_clock::time_point& now) {
@@ -407,6 +381,7 @@ void PoseSender::applyImuSpikeScale(Velocity& velocity, const std::chrono::stead
     velocity.vx *= scale;
     velocity.vy *= scale;
     velocity.wz *= scale;
+    normalizeVelocityForChassis(velocity);
 }
 
 bool PoseSender::imuSpikeActive() const {
@@ -420,6 +395,52 @@ bool PoseSender::imuSpikeActive() const {
 
 PoseSender::Velocity PoseSender::applyFallbackProtect(Velocity raw, const Velocity& prev_vel, double dt,
                                                       float effective_v_max) const {
+    normalizeVelocityForChassis(raw);
+
+    if (isTrackedDiffModel(chassis_model_)) {
+        const float w_limit = std::fabs(config_.w_max_rps);
+        const float track_speed_limit = std::max(std::fabs(config_.track_speed_max_mps), kEpsilon);
+        const float track_accel_limit = std::fabs(config_.track_accel_max_mps2);
+        const float half_track_width = std::max(std::fabs(config_.track_width_m) * 0.5f, kEpsilon);
+
+        Velocity prev_projected = prev_vel;
+        normalizeVelocityForChassis(prev_projected);
+
+        float raw_vx = std::clamp(raw.vx, -effective_v_max, effective_v_max);
+        float raw_wz = std::clamp(raw.wz, -w_limit, w_limit);
+
+        float left = raw_vx - raw_wz * half_track_width;
+        float right = raw_vx + raw_wz * half_track_width;
+
+        const float max_track_mag = std::max(std::fabs(left), std::fabs(right));
+        if (max_track_mag > track_speed_limit) {
+            const float scale = track_speed_limit / max_track_mag;
+            left *= scale;
+            right *= scale;
+        }
+
+        if (isValidDt(dt)) {
+            const float dv_limit = track_accel_limit * static_cast<float>(dt);
+            const float prev_left = prev_projected.vx - prev_projected.wz * half_track_width;
+            const float prev_right = prev_projected.vx + prev_projected.wz * half_track_width;
+            left = std::clamp(left, prev_left - dv_limit, prev_left + dv_limit);
+            right = std::clamp(right, prev_right - dv_limit, prev_right + dv_limit);
+        }
+
+        const float vx = (left + right) * 0.5f;
+        if (std::fabs(vx) > effective_v_max) {
+            const float shift = vx > 0.0f ? (vx - effective_v_max) : (vx + effective_v_max);
+            left -= shift;
+            right -= shift;
+        }
+
+        Velocity output;
+        output.vx = (left + right) * 0.5f;
+        output.vy = 0.0f;
+        output.wz = std::clamp((right - left) / (2.0f * half_track_width), -w_limit, w_limit);
+        return output;
+    }
+
     const float w_limit = std::fabs(config_.w_max_rps);
     const float a_limit = std::fabs(config_.a_max_mps2);
     const float alpha_limit = std::fabs(config_.alpha_max_rps2);
@@ -452,10 +473,63 @@ PoseSender::Velocity PoseSender::applyFallbackProtect(Velocity raw, const Veloci
 
 PoseSender::Velocity PoseSender::applyGovernorProtect(Velocity raw, const Velocity& prev_vel, double dt,
                                                       float effective_v_max) const {
+    normalizeVelocityForChassis(raw);
     const bool dt_valid = isValidDt(dt);
     const float w_limit = std::fabs(config_.w_max_rps);
     const float a_limit = std::fabs(config_.a_max_mps2);
     const float alpha_limit = std::fabs(config_.alpha_max_rps2);
+
+    if (isTrackedDiffModel(chassis_model_)) {
+        const float track_speed_limit = std::max(std::fabs(config_.track_speed_max_mps), kEpsilon);
+        const float track_accel_limit = std::fabs(config_.track_accel_max_mps2);
+        const float half_track_width = std::max(std::fabs(config_.track_width_m) * 0.5f, kEpsilon);
+
+        Velocity prev_projected = prev_vel;
+        normalizeVelocityForChassis(prev_projected);
+
+        const float lambda = std::max(0.0f, config_.governor_lambda);
+        const float inv_denom = 1.0f / (1.0f + lambda);
+
+        float raw_vx = std::clamp(raw.vx, -effective_v_max, effective_v_max);
+        float raw_wz = std::clamp(raw.wz, -w_limit, w_limit);
+        const float raw_left = raw_vx - raw_wz * half_track_width;
+        const float raw_right = raw_vx + raw_wz * half_track_width;
+        const float prev_left = prev_projected.vx - prev_projected.wz * half_track_width;
+        const float prev_right = prev_projected.vx + prev_projected.wz * half_track_width;
+
+        float left = (raw_left + lambda * prev_left) * inv_denom;
+        float right = (raw_right + lambda * prev_right) * inv_denom;
+
+        if (dt_valid) {
+            const float dv_limit = track_accel_limit * static_cast<float>(dt);
+            left = std::clamp(left, prev_left - dv_limit, prev_left + dv_limit);
+            right = std::clamp(right, prev_right - dv_limit, prev_right + dv_limit);
+        }
+
+        const float max_track_mag = std::max(std::fabs(left), std::fabs(right));
+        if (max_track_mag > track_speed_limit) {
+            const float scale = track_speed_limit / max_track_mag;
+            left *= scale;
+            right *= scale;
+        }
+
+        const float vx = (left + right) * 0.5f;
+        if (std::fabs(vx) > effective_v_max) {
+            const float shift = vx > 0.0f ? (vx - effective_v_max) : (vx + effective_v_max);
+            left -= shift;
+            right -= shift;
+        }
+
+        Velocity output;
+        output.vx = (left + right) * 0.5f;
+        output.vy = 0.0f;
+        output.wz = std::clamp((right - left) / (2.0f * half_track_width), -w_limit, w_limit);
+        if (dt_valid) {
+            const float dw_limit = alpha_limit * static_cast<float>(dt);
+            output.wz = std::clamp(output.wz, prev_projected.wz - dw_limit, prev_projected.wz + dw_limit);
+        }
+        return output;
+    }
 
     Velocity prev_projected = prev_vel;
     projectToCircle(prev_projected.vx, prev_projected.vy, effective_v_max);
@@ -527,6 +601,7 @@ PoseSender::Velocity PoseSender::protectVelocity(Velocity raw, Velocity& prev_ve
     const auto now = std::chrono::steady_clock::now();
 
     Velocity command = raw;
+    normalizeVelocityForChassis(command);
     if (enable_dob && config_.dob_enable && isValidDt(dt)) {
         Velocity actual;
         bool actual_valid = false;
@@ -534,6 +609,7 @@ PoseSender::Velocity PoseSender::protectVelocity(Velocity raw, Velocity& prev_ve
             std::lock_guard<std::mutex> lock(data_mutex_);
             if (hasFreshOdomLocked(now)) {
                 actual = feedback_vel_;
+                normalizeVelocityForChassis(actual);
                 actual_valid = true;
             }
         }
@@ -562,6 +638,7 @@ PoseSender::Velocity PoseSender::protectVelocity(Velocity raw, Velocity& prev_ve
             command.wz += config_.dob_kd * dob_hat_.wz;
         }
     }
+    normalizeVelocityForChassis(command);
 
     const float effective_v_max = getEffectiveVMax(now);
 
@@ -596,9 +673,12 @@ void PoseSender::feedbackTimerCallback() {
         ImuCache imu_cache;
         if (getFreshImuCache(now, imu_cache)) {
             feedback.vx += imu_cache.ax * config_.latency_comp_s;
-            feedback.vy += imu_cache.ay * config_.latency_comp_s;
+            if (!isTrackedDiffModel(chassis_model_)) {
+                feedback.vy += imu_cache.ay * config_.latency_comp_s;
+            }
         }
     }
+    normalizeVelocityForChassis(feedback);
 
     double dt = 0.0;
     Velocity prev_feedback;
@@ -707,6 +787,7 @@ void PoseSender::targetTimerCallback() {
     if (!send_target && !send_zero) {
         return;
     }
+    normalizeVelocityForChassis(target);
 
     double dt = 0.0;
     Velocity prev_target;

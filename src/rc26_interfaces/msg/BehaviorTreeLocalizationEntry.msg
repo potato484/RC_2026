@@ -1,0 +1,11 @@
+string kind
+string key
+string locale
+string display_name
+string tooltip
+string summary
+string scenario
+string attention
+string markdown
+string[] related_blackboard_keys
+BehaviorTreeLocalizedValue[] values

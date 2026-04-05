@@ -11,25 +11,16 @@
   <author email="2220362462@qq.com">DongXuan Chen</author>
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <depend>nav2_common</depend>
-  <depend>nav2_core</depend>
-  <depend>nav2_util</depend>
-  <depend>nav2_costmap_2d</depend>
   <depend>rclcpp</depend>
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
-  <depend>nav2_msgs</depend>
+  <depend>nav_msgs</depend>
   <depend>rc26_interfaces</depend>
-  <depend>grid_map_core</depend>
-  <depend>grid_map_ros</depend>
-  <depend>grid_map_msgs</depend>
-  <depend>pluginlib</depend>
   <depend>tf2</depend>
-  <depend>tf2_geometry_msgs</depend>
-  <depend>visualization_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>yaml-cpp</depend>
 
   <export>
     <build_type>ament_cmake</build_type>
-    <nav2_core plugin="${prefix}/rc26_omni_controller.xml" />
   </export>
 </package>

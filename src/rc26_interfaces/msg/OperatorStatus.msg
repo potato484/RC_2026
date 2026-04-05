@@ -29,7 +29,6 @@ bool terrain_online
 bool terrain_obstacle_active
 bool terrain_drop_active
 float32 terrain_traversability_min
-bool terrain_speed_limited
 bool terrain_climbable_active
 bool terrain_step_edge_active
 

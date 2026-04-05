@@ -1,155 +1,76 @@
 profiles:
-  # profile 名称（如 normal/safe/stair_up）会被上层（SmartWaypointNavigator）通过 service `set_nav_mode`
-  # 传入；NavModeManager 会按这里的配置执行：
-  # - precheck：是否要求切换前机器人停稳
-  # - costmap：是否切换时清 local costmap（用于关键地形）
-  # - controller：动态限速等（通过 controller_server 参数服务）
-  # - watchdog：超时保护（超时自动回退并通过 nav_safety_state 提示 stop_required/timed_out）
-  safe:
-    fallback_profile: safe
+  plane_move:
+    fallback_profile: hold
     watchdog:
       timeout_sec: 0
       stop_required_on_timeout: false
     precheck:
       require_stopped: false
-    costmap:
-      clear_on_switch: false
-    controller:
-      v_linear_max: 0.3
-      v_angular_max: 0.5
-
-  safe_low:
-    fallback_profile: safe
-    watchdog:
-      timeout_sec: 5.0
-      stop_required_on_timeout: false
-    precheck:
-      require_stopped: false
-    costmap:
-      clear_on_switch: false
-    controller:
-      v_linear_max: 0.15
-      v_angular_max: 0.3
-      acc_linear: 0.2
-      acc_angular: 0.3
-
-  normal:
-    fallback_profile: safe
-    watchdog:
-      timeout_sec: 0
-      stop_required_on_timeout: false
-    precheck:
-      require_stopped: false
-    costmap:
-      clear_on_switch: false
     controller:
       v_linear_max: 0.8
       v_angular_max: 1.0
-
-  stair_up:
-    fallback_profile: safe_low
-    watchdog:
-      timeout_sec: 30.0
-      stop_required_on_timeout: false
-    precheck:
-      require_stopped: true
-    costmap:
-      clear_on_switch: true
-    controller:
-      v_linear_max: 0.3
-      v_angular_max: 0.3
-
-  stair_down:
-    fallback_profile: safe_low
-    watchdog:
-      timeout_sec: 30.0
-      stop_required_on_timeout: false
-    precheck:
-      require_stopped: true
-    costmap:
-      clear_on_switch: true
-    controller:
-      v_linear_max: 0.2
-      v_angular_max: 0.3
+      acc_linear: 0.6
+      acc_angular: 0.8
 
   mf_traverse:
-    fallback_profile: safe_low
+    fallback_profile: hold
     watchdog:
       timeout_sec: 10.0
       stop_required_on_timeout: false
     precheck:
       require_stopped: true
-    costmap:
-      clear_on_switch: true
     controller:
       v_linear_max: 0.5
       v_angular_max: 0.5
+      acc_linear: 0.5
+      acc_angular: 0.5
 
   mf_exit:
-    fallback_profile: safe
+    fallback_profile: hold
     watchdog:
       timeout_sec: 10.0
       stop_required_on_timeout: true
     precheck:
       require_stopped: true
-    costmap:
-      clear_on_switch: true
     controller:
       v_linear_max: 0.5
       v_angular_max: 0.5
-
-  mf_approach:
-    fallback_profile: safe
-    watchdog:
-      timeout_sec: 15.0
-      stop_required_on_timeout: true
-    precheck:
-      require_stopped: false
-    costmap:
-      clear_on_switch: false
-    controller:
-      v_linear_max: 0.6
-      v_angular_max: 0.5
-
-  loc_yellow:
-    fallback_profile: safe
-    watchdog:
-      timeout_sec: 8.0
-      stop_required_on_timeout: false
-    precheck:
-      require_stopped: false
-    costmap:
-      clear_on_switch: false
-    controller:
-      v_linear_max: 0.45
-      v_angular_max: 0.7
       acc_linear: 0.4
-      acc_angular: 0.6
-
-  loc_orange:
-    fallback_profile: safe_low
-    watchdog:
-      timeout_sec: 10.0
-      stop_required_on_timeout: false
-    precheck:
-      require_stopped: false
-    costmap:
-      clear_on_switch: false
-    controller:
-      v_linear_max: 0.25
-      v_angular_max: 0.45
-      acc_linear: 0.25
       acc_angular: 0.4
 
-  loc_red_hold:
-    fallback_profile: safe_low
+  ramp_up:
+    fallback_profile: hold
+    watchdog:
+      timeout_sec: 30.0
+      stop_required_on_timeout: false
+    precheck:
+      require_stopped: true
+    controller:
+      v_linear_max: 0.3
+      v_angular_max: 0.35
+      acc_linear: 0.3
+      acc_angular: 0.3
+
+  ramp_down:
+    fallback_profile: hold
+    watchdog:
+      timeout_sec: 30.0
+      stop_required_on_timeout: false
+    precheck:
+      require_stopped: true
+    controller:
+      v_linear_max: 0.3
+      v_angular_max: 0.35
+      acc_linear: 0.25
+      acc_angular: 0.3
+
+  hold:
+    fallback_profile: hold
     watchdog:
       timeout_sec: 0
       stop_required_on_timeout: true
     precheck:
       require_stopped: true
-    costmap:
-      clear_on_switch: false
     controller:
       v_linear_max: 0.0
       v_angular_max: 0.0

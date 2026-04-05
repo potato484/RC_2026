@@ -568,7 +568,7 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
     out.pose.covariance = msg->pose.covariance;
     std::fill(out.twist.covariance.begin(), out.twist.covariance.end(), 0.0);
 
-    // Publish TF: odom -> base_link (so RViz/Nav2 can resolve the TF tree even if downstream sync drops frames).
+    // Publish TF: odom -> base_link so downstream visualization/control can resolve the TF tree even if sync drops frames.
     geometry_msgs::msg::TransformStamped tf_msg;
     tf_msg.header.stamp = msg->header.stamp;
     tf_msg.header.frame_id = odom_frame_;

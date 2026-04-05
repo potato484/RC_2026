@@ -69,8 +69,8 @@ EvaluationInput makeNominalInput() {
   input.mechanism.age_sec = 0.10;
   input.mechanism.comm_health_level = 0U;
 
-  input.keepout.filter_info_received = true;
-  input.keepout.filter_info_age_sec = 0.05;
+  input.keepout.overlay_received = true;
+  input.keepout.overlay_age_sec = 0.05;
   input.keepout.mask_received = true;
   input.keepout.mask_age_sec = 0.05;
   input.keepout.heartbeat_received = true;
@@ -88,9 +88,6 @@ EvaluationInput makeNominalInput() {
   input.terrain.traversability_min = 0.92;
   input.terrain.climbable_active = false;
   input.terrain.step_edge_active = false;
-  input.terrain.speed_limit_received = true;
-  input.terrain.speed_limit_age_sec = 0.10;
-  input.terrain.speed_limited = false;
 
   input.monitored_topics = {
       {"LOCALIZATION_HEALTH", "/localization/health", 1.0, true, true, 0.05},
@@ -100,15 +97,15 @@ EvaluationInput makeNominalInput() {
       {"COMPUTE_TIME_MS", "compute_time_ms", 0.5, true, true, 0.05},
       {"POSE_AGE_MS", "pose_age_ms", 0.5, true, true, 0.05},
       {"COLLISION_D_MIN", "collision_d_min", 0.5, true, true, 0.05},
-      {"NAV_SAFETY_STATE", "nav_safety_state", 2.5, true, true, 0.10},
+      {"MOTION_MODE_STATE", "/xhu_nav/motion_mode_state", 2.5, true, true, 0.10},
+      {"TRACKING_STATE", "/xhu_nav/tracking_state", 1.5, true, true, 0.10},
       {"MECHANISM_STATE", "/mechanism/state", 1.0, true, true, 0.10},
-      {"COSTMAP_FILTER_INFO", "/costmap_filter_info", 0.3, true, true, 0.05},
+      {"BLOCK_OVERLAY", "/mf_block_overlay", 0.3, true, true, 0.05},
       {"KFS_FILTER_MASK", "/kfs_filter_mask", 0.3, true, true, 0.05},
       {"KFS_KEEPOUT_HEARTBEAT", "/kfs_keepout_heartbeat", 0.3, true, true, 0.05},
       {"TERRAIN_OBSTACLES", "terrain_obstacles", 1.0, true, true, 0.10},
       {"TERRAIN_DROP", "terrain_drop", 1.0, true, true, 0.10},
       {"TERRAIN_GRID_MAP_LOCAL", "/terrain_grid_map_local", 1.0, true, true, 0.10},
-      {"TERRAIN_SPEED_LIMIT", "terrain_speed_limit", 1.0, true, true, 0.10},
       {"ODOM", "odom", 0.5, true, true, 0.05},
       {"CONTROL_STATE", "control_state", 0.5, true, true, 0.05},
   };
@@ -178,7 +175,6 @@ TEST(VisualizationStatusCoreTest, NominalCruiseStaysGreen) {
   EXPECT_EQ(output.operator_status.overall_level, kLevelGreen);
   EXPECT_EQ(output.operator_status.controller_level, kLevelGreen);
   EXPECT_TRUE(output.operator_status.keepout_ready);
-  EXPECT_FALSE(output.operator_status.terrain_speed_limited);
   EXPECT_FALSE(output.operator_status.terrain_climbable_active);
   EXPECT_FALSE(output.operator_status.terrain_step_edge_active);
   EXPECT_NEAR(output.operator_status.terrain_traversability_min, 0.92f, 1e-5f);
@@ -191,8 +187,8 @@ TEST(VisualizationStatusCoreTest, NominalCruiseStaysGreen) {
   EXPECT_EQ(valueForKey(localization, "source_topics"), "/localization/health,/localization/backend_status");
   EXPECT_EQ(valueForKey(localization, "last_update_ms"), "123350");
   EXPECT_EQ(valueForKey(controller, "source_topics"),
-            "/control_degraded,control_degenerate_score,compute_time_ms,pose_age_ms,collision_d_min,controller_server/NMPCFollowPath/mode");
-  EXPECT_EQ(valueForKey(keepout, "source_topics"), "/costmap_filter_info,/kfs_filter_mask,/kfs_keepout_heartbeat");
+            "/control_degraded,control_degenerate_score,compute_time_ms,pose_age_ms,collision_d_min,/xhu_nav/semantic_gate,/xhu_nav/tracking_state");
+  EXPECT_EQ(valueForKey(keepout, "source_topics"), "/mf_block_overlay,/kfs_filter_mask,/kfs_keepout_heartbeat");
 }
 
 TEST(VisualizationStatusCoreTest, NearObstacleRaisesControllerAlert) {
@@ -215,11 +211,11 @@ TEST(VisualizationStatusCoreTest, KeepoutStaleTriggersRedEvent) {
   VisualizationStatusCore core;
   std_msgs::msg::Header header;
   auto input = makeNominalInput();
-  input.keepout.filter_info_age_sec = 0.45;
+  input.keepout.overlay_age_sec = 0.45;
   input.keepout.mask_age_sec = 0.45;
   input.keepout.heartbeat_age_sec = 0.45;
   for (auto& topic : input.monitored_topics) {
-    if (topic.code_suffix == "COSTMAP_FILTER_INFO" || topic.code_suffix == "KFS_FILTER_MASK" ||
+    if (topic.code_suffix == "BLOCK_OVERLAY" || topic.code_suffix == "KFS_FILTER_MASK" ||
         topic.code_suffix == "KFS_KEEPOUT_HEARTBEAT") {
       topic.age_sec = 0.45;
     }
@@ -232,7 +228,7 @@ TEST(VisualizationStatusCoreTest, KeepoutStaleTriggersRedEvent) {
   EXPECT_EQ(output.operator_status.overall_level, kLevelRed);
   EXPECT_NE(std::find(codes.begin(), codes.end(), "KEEPOUT_STALE"), codes.end());
   expectContainsAll(findEvent(output.events, "KEEPOUT_STALE").detail,
-                    {"filter_age_sec=0.45 s", "mask_age_sec=0.45 s", "heartbeat_age_sec=0.45 s", "max_age_sec=0.30 s"});
+                    {"overlay_age_sec=0.45 s", "mask_age_sec=0.45 s", "heartbeat_age_sec=0.45 s", "max_age_sec=0.30 s"});
 }
 
 TEST(VisualizationStatusCoreTest, LocalizationOrControlDegradeIsDetected) {
@@ -319,22 +315,21 @@ TEST(VisualizationStatusCoreTest, DisabledSubsystemsExposeMetadataWithoutTrigger
   input.pose_age_ms.received = false;
   input.collision_d_min.received = false;
   input.controller_mode.received = false;
-  input.keepout.filter_info_received = false;
+  input.keepout.overlay_received = false;
   input.keepout.mask_received = false;
   input.keepout.heartbeat_received = false;
   input.nav_safety.received = false;
   input.terrain.obstacles_received = false;
   input.terrain.drop_received = false;
   input.terrain.grid_received = false;
-  input.terrain.speed_limit_received = false;
   for (auto& topic : input.monitored_topics) {
     if (topic.code_suffix == "CONTROL_DEGRADED" || topic.code_suffix == "CONTROL_DEGENERATE_SCORE" ||
         topic.code_suffix == "COMPUTE_TIME_MS" || topic.code_suffix == "POSE_AGE_MS" ||
-        topic.code_suffix == "COLLISION_D_MIN" || topic.code_suffix == "NAV_SAFETY_STATE" ||
-        topic.code_suffix == "COSTMAP_FILTER_INFO" || topic.code_suffix == "KFS_FILTER_MASK" ||
+        topic.code_suffix == "COLLISION_D_MIN" || topic.code_suffix == "MOTION_MODE_STATE" ||
+        topic.code_suffix == "TRACKING_STATE" || topic.code_suffix == "BLOCK_OVERLAY" ||
+        topic.code_suffix == "KFS_FILTER_MASK" ||
         topic.code_suffix == "KFS_KEEPOUT_HEARTBEAT" || topic.code_suffix == "TERRAIN_OBSTACLES" ||
-        topic.code_suffix == "TERRAIN_DROP" || topic.code_suffix == "TERRAIN_GRID_MAP_LOCAL" ||
-        topic.code_suffix == "TERRAIN_SPEED_LIMIT") {
+        topic.code_suffix == "TERRAIN_DROP" || topic.code_suffix == "TERRAIN_GRID_MAP_LOCAL") {
       topic.required = false;
       topic.received = false;
       topic.age_sec = kInf;

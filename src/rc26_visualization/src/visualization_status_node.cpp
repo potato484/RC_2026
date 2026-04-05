@@ -10,19 +10,19 @@
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <diagnostic_msgs/msg/key_value.hpp>
 #include <grid_map_msgs/msg/grid_map.hpp>
-#include <nav2_msgs/msg/costmap_filter_info.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rc26_interfaces/msg/localization_backend_status.hpp>
 #include <rc26_interfaces/msg/localization_health.hpp>
 #include <rc26_interfaces/msg/mechanism_state.hpp>
-#include <rc26_interfaces/msg/nav_safety_state.hpp>
+#include <rc26_interfaces/msg/mf_block_overlay.hpp>
 #include <rc26_interfaces/msg/operator_status.hpp>
 #include <rc26_interfaces/msg/visualization_event_array.hpp>
+#include <rc26_interfaces/msg/xhu_motion_mode_state.hpp>
+#include <rc26_interfaces/msg/xhu_tracking_state.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <std_msgs/msg/bool.hpp>
-#include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_srvs/srv/trigger.hpp>
@@ -161,16 +161,16 @@ private:
     this->declare_parameter<std::string>("topics.compute_time_ms", "compute_time_ms");
     this->declare_parameter<std::string>("topics.pose_age_ms", "pose_age_ms");
     this->declare_parameter<std::string>("topics.collision_d_min", "collision_d_min");
-    this->declare_parameter<std::string>("topics.controller_mode", "controller_server/NMPCFollowPath/mode");
-    this->declare_parameter<std::string>("topics.nav_safety_state", "nav_safety_state");
+    this->declare_parameter<std::string>("topics.controller_mode", "/xhu_nav/semantic_gate");
+    this->declare_parameter<std::string>("topics.motion_mode_state", "/xhu_nav/motion_mode_state");
+    this->declare_parameter<std::string>("topics.tracking_state", "/xhu_nav/tracking_state");
     this->declare_parameter<std::string>("topics.mechanism_state", "/mechanism/state");
-    this->declare_parameter<std::string>("topics.costmap_filter_info", "/costmap_filter_info");
+    this->declare_parameter<std::string>("topics.block_overlay", "/mf_block_overlay");
     this->declare_parameter<std::string>("topics.kfs_filter_mask", "/kfs_filter_mask");
     this->declare_parameter<std::string>("topics.kfs_keepout_heartbeat", "/kfs_keepout_heartbeat");
     this->declare_parameter<std::string>("topics.terrain_obstacles", "terrain_obstacles");
     this->declare_parameter<std::string>("topics.terrain_drop", "terrain_drop");
     this->declare_parameter<std::string>("topics.terrain_grid_map_local", "/terrain_grid_map_local");
-    this->declare_parameter<std::string>("topics.terrain_speed_limit", "terrain_speed_limit");
     this->declare_parameter<std::string>("topics.odom", "odom");
     this->declare_parameter<std::string>("topics.control_state", "control_state");
 
@@ -179,7 +179,7 @@ private:
     this->declare_parameter<double>("thresholds.brake_margin_m", 0.15);
     this->declare_parameter<double>("thresholds.keepout_max_age_ms", 300.0);
     this->declare_parameter<double>("thresholds.terrain_max_age_ms", 1000.0);
-    this->declare_parameter<double>("thresholds.nav_safety_max_age_ms", 2500.0);
+    this->declare_parameter<double>("thresholds.nav_runtime_max_age_ms", 2500.0);
     this->declare_parameter<double>("thresholds.mechanism_max_age_ms", 1000.0);
     this->declare_parameter<double>("thresholds.backend_status_max_age_ms", 1000.0);
     this->declare_parameter<double>("thresholds.backend_graph_health_warn", 0.6);
@@ -189,8 +189,6 @@ private:
     this->declare_parameter<int>("thresholds.mechanism_warn_level", 1);
     this->declare_parameter<int>("thresholds.mechanism_error_level", 2);
     this->declare_parameter<int>("thresholds.topics_orange_count", 3);
-    this->declare_parameter<double>("thresholds.terrain_speed_limit_nominal_mps", 2.0);
-    this->declare_parameter<double>("thresholds.terrain_speed_limit_margin_mps", 0.05);
     this->declare_parameter<double>("thresholds.terrain_climbable_active_threshold", 0.20);
     this->declare_parameter<double>("thresholds.terrain_step_edge_active_threshold", 0.50);
 
@@ -201,15 +199,15 @@ private:
     this->declare_parameter<double>("watchdog.compute_time_ms_max_age_ms", 500.0);
     this->declare_parameter<double>("watchdog.pose_age_ms_max_age_ms", 500.0);
     this->declare_parameter<double>("watchdog.collision_d_min_max_age_ms", 500.0);
-    this->declare_parameter<double>("watchdog.nav_safety_state_max_age_ms", 2500.0);
+    this->declare_parameter<double>("watchdog.motion_mode_state_max_age_ms", 2500.0);
+    this->declare_parameter<double>("watchdog.tracking_state_max_age_ms", 1500.0);
     this->declare_parameter<double>("watchdog.mechanism_state_max_age_ms", 1000.0);
-    this->declare_parameter<double>("watchdog.costmap_filter_info_max_age_ms", 300.0);
+    this->declare_parameter<double>("watchdog.block_overlay_max_age_ms", 300.0);
     this->declare_parameter<double>("watchdog.kfs_filter_mask_max_age_ms", 300.0);
     this->declare_parameter<double>("watchdog.kfs_keepout_heartbeat_max_age_ms", 300.0);
     this->declare_parameter<double>("watchdog.terrain_obstacles_max_age_ms", 1000.0);
     this->declare_parameter<double>("watchdog.terrain_drop_max_age_ms", 1000.0);
     this->declare_parameter<double>("watchdog.terrain_grid_map_local_max_age_ms", 1000.0);
-    this->declare_parameter<double>("watchdog.terrain_speed_limit_max_age_ms", 1000.0);
     this->declare_parameter<double>("watchdog.odom_max_age_ms", 500.0);
     this->declare_parameter<double>("watchdog.control_state_max_age_ms", 500.0);
 
@@ -231,21 +229,17 @@ private:
     topic_pose_age_ms_ = this->get_parameter("topics.pose_age_ms").as_string();
     topic_collision_d_min_ = this->get_parameter("topics.collision_d_min").as_string();
     topic_controller_mode_ = this->get_parameter("topics.controller_mode").as_string();
-    topic_nav_safety_ = this->get_parameter("topics.nav_safety_state").as_string();
+    topic_motion_mode_state_ = this->get_parameter("topics.motion_mode_state").as_string();
+    topic_tracking_state_ = this->get_parameter("topics.tracking_state").as_string();
     topic_mechanism_state_ = this->get_parameter("topics.mechanism_state").as_string();
-    topic_costmap_filter_info_ = this->get_parameter("topics.costmap_filter_info").as_string();
+    topic_block_overlay_ = this->get_parameter("topics.block_overlay").as_string();
     topic_kfs_filter_mask_ = this->get_parameter("topics.kfs_filter_mask").as_string();
     topic_kfs_heartbeat_ = this->get_parameter("topics.kfs_keepout_heartbeat").as_string();
     topic_terrain_obstacles_ = this->get_parameter("topics.terrain_obstacles").as_string();
     topic_terrain_drop_ = this->get_parameter("topics.terrain_drop").as_string();
     topic_terrain_grid_map_local_ = this->get_parameter("topics.terrain_grid_map_local").as_string();
-    topic_terrain_speed_limit_ = this->get_parameter("topics.terrain_speed_limit").as_string();
     topic_odom_ = this->get_parameter("topics.odom").as_string();
     topic_control_state_ = this->get_parameter("topics.control_state").as_string();
-    terrain_speed_limit_nominal_mps_ =
-        this->get_parameter("thresholds.terrain_speed_limit_nominal_mps").as_double();
-    terrain_speed_limit_margin_mps_ =
-        this->get_parameter("thresholds.terrain_speed_limit_margin_mps").as_double();
     terrain_climbable_active_threshold_ =
         this->get_parameter("thresholds.terrain_climbable_active_threshold").as_double();
     terrain_step_edge_active_threshold_ =
@@ -257,7 +251,7 @@ private:
     config.brake_margin_m = this->get_parameter("thresholds.brake_margin_m").as_double();
     config.keepout_max_age_ms = this->get_parameter("thresholds.keepout_max_age_ms").as_double();
     config.terrain_max_age_ms = this->get_parameter("thresholds.terrain_max_age_ms").as_double();
-    config.nav_safety_max_age_ms = this->get_parameter("thresholds.nav_safety_max_age_ms").as_double();
+    config.nav_safety_max_age_ms = this->get_parameter("thresholds.nav_runtime_max_age_ms").as_double();
     config.mechanism_max_age_ms = this->get_parameter("thresholds.mechanism_max_age_ms").as_double();
     config.backend_status_max_age_ms = this->get_parameter("thresholds.backend_status_max_age_ms").as_double();
     config.backend_graph_health_warn = this->get_parameter("thresholds.backend_graph_health_warn").as_double();
@@ -275,17 +269,15 @@ private:
     config.pose_age_ms_topic = topic_pose_age_ms_;
     config.collision_d_min_topic = topic_collision_d_min_;
     config.controller_mode_topic = topic_controller_mode_;
-    config.nav_safety_topic = topic_nav_safety_;
+    config.nav_mode_state_topic = topic_motion_mode_state_;
+    config.nav_tracking_topic = topic_tracking_state_;
     config.mechanism_state_topic = topic_mechanism_state_;
-    config.costmap_filter_info_topic = topic_costmap_filter_info_;
+    config.block_overlay_topic = topic_block_overlay_;
     config.kfs_filter_mask_topic = topic_kfs_filter_mask_;
     config.kfs_heartbeat_topic = topic_kfs_heartbeat_;
     config.terrain_obstacles_topic = topic_terrain_obstacles_;
     config.terrain_drop_topic = topic_terrain_drop_;
     config.terrain_grid_topic = topic_terrain_grid_map_local_;
-    config.terrain_speed_limit_topic = topic_terrain_speed_limit_;
-    config.terrain_speed_limit_nominal_mps = terrain_speed_limit_nominal_mps_;
-    config.terrain_speed_limit_margin_mps = terrain_speed_limit_margin_mps_;
     config.terrain_climbable_active_threshold = terrain_climbable_active_threshold_;
     config.terrain_step_edge_active_threshold = terrain_step_edge_active_threshold_;
     config.localization_present = this->get_parameter("summary.localization_present").as_bool();
@@ -304,15 +296,15 @@ private:
         {"COMPUTE_TIME_MS", topic_compute_time_ms_, this->get_parameter("watchdog.compute_time_ms_max_age_ms").as_double() / 1000.0, config.controller_present},
         {"POSE_AGE_MS", topic_pose_age_ms_, this->get_parameter("watchdog.pose_age_ms_max_age_ms").as_double() / 1000.0, config.controller_present},
         {"COLLISION_D_MIN", topic_collision_d_min_, this->get_parameter("watchdog.collision_d_min_max_age_ms").as_double() / 1000.0, config.controller_present},
-        {"NAV_SAFETY_STATE", topic_nav_safety_, this->get_parameter("watchdog.nav_safety_state_max_age_ms").as_double() / 1000.0, config.nav_safety_present},
+        {"MOTION_MODE_STATE", topic_motion_mode_state_, this->get_parameter("watchdog.motion_mode_state_max_age_ms").as_double() / 1000.0, config.nav_safety_present},
+        {"TRACKING_STATE", topic_tracking_state_, this->get_parameter("watchdog.tracking_state_max_age_ms").as_double() / 1000.0, config.nav_safety_present},
         {"MECHANISM_STATE", topic_mechanism_state_, this->get_parameter("watchdog.mechanism_state_max_age_ms").as_double() / 1000.0, config.mechanism_present},
-        {"COSTMAP_FILTER_INFO", topic_costmap_filter_info_, this->get_parameter("watchdog.costmap_filter_info_max_age_ms").as_double() / 1000.0, config.keepout_present},
+        {"BLOCK_OVERLAY", topic_block_overlay_, this->get_parameter("watchdog.block_overlay_max_age_ms").as_double() / 1000.0, config.keepout_present},
         {"KFS_FILTER_MASK", topic_kfs_filter_mask_, this->get_parameter("watchdog.kfs_filter_mask_max_age_ms").as_double() / 1000.0, config.keepout_present},
         {"KFS_KEEPOUT_HEARTBEAT", topic_kfs_heartbeat_, this->get_parameter("watchdog.kfs_keepout_heartbeat_max_age_ms").as_double() / 1000.0, config.keepout_present},
         {"TERRAIN_OBSTACLES", topic_terrain_obstacles_, this->get_parameter("watchdog.terrain_obstacles_max_age_ms").as_double() / 1000.0, config.terrain_present},
         {"TERRAIN_DROP", topic_terrain_drop_, this->get_parameter("watchdog.terrain_drop_max_age_ms").as_double() / 1000.0, config.terrain_present},
         {"TERRAIN_GRID_MAP_LOCAL", topic_terrain_grid_map_local_, this->get_parameter("watchdog.terrain_grid_map_local_max_age_ms").as_double() / 1000.0, config.terrain_present},
-        {"TERRAIN_SPEED_LIMIT", topic_terrain_speed_limit_, this->get_parameter("watchdog.terrain_speed_limit_max_age_ms").as_double() / 1000.0, config.terrain_present},
         {"ODOM", topic_odom_, this->get_parameter("watchdog.odom_max_age_ms").as_double() / 1000.0, true},
         {"CONTROL_STATE", topic_control_state_, this->get_parameter("watchdog.control_state_max_age_ms").as_double() / 1000.0, true},
     };
@@ -414,13 +406,22 @@ private:
           controller_mode_.value = msg->data;
         });
 
-    nav_safety_sub_ = this->create_subscription<rc26_interfaces::msg::NavSafetyState>(
-        topic_nav_safety_, reliable_qos,
-        [this](const rc26_interfaces::msg::NavSafetyState::SharedPtr msg) {
+    motion_mode_state_sub_ = this->create_subscription<rc26_interfaces::msg::XhuMotionModeState>(
+        topic_motion_mode_state_, reliable_qos,
+        [this](const rc26_interfaces::msg::XhuMotionModeState::SharedPtr msg) {
           std::lock_guard<std::mutex> lock(data_mutex_);
-          nav_safety_.received = true;
-          nav_safety_.stamp = stampOrNow(*this, msg->header);
-          nav_safety_.msg = *msg;
+          motion_mode_state_.received = true;
+          motion_mode_state_.stamp = stampOrNow(*this, msg->header);
+          motion_mode_state_.msg = *msg;
+        });
+
+    tracking_state_sub_ = this->create_subscription<rc26_interfaces::msg::XhuTrackingState>(
+        topic_tracking_state_, reliable_qos,
+        [this](const rc26_interfaces::msg::XhuTrackingState::SharedPtr msg) {
+          std::lock_guard<std::mutex> lock(data_mutex_);
+          tracking_state_.received = true;
+          tracking_state_.stamp = stampOrNow(*this, msg->header);
+          tracking_state_.msg = *msg;
         });
 
     mechanism_state_sub_ = this->create_subscription<rc26_interfaces::msg::MechanismState>(
@@ -432,13 +433,13 @@ private:
           mechanism_state_.msg = *msg;
         });
 
-    costmap_filter_info_sub_ = this->create_subscription<nav2_msgs::msg::CostmapFilterInfo>(
-        topic_costmap_filter_info_, keepout_qos,
-        [this](const nav2_msgs::msg::CostmapFilterInfo::SharedPtr msg) {
+    block_overlay_sub_ = this->create_subscription<rc26_interfaces::msg::MfBlockOverlay>(
+        topic_block_overlay_, keepout_qos,
+        [this](const rc26_interfaces::msg::MfBlockOverlay::SharedPtr msg) {
           std::lock_guard<std::mutex> lock(data_mutex_);
-          costmap_filter_info_.received = true;
-          costmap_filter_info_.stamp = stampOrNow(*this, msg->header);
-          costmap_filter_info_.msg = *msg;
+          block_overlay_.received = true;
+          block_overlay_.stamp = stampOrNow(*this, msg->header);
+          block_overlay_.msg = *msg;
         });
 
     kfs_filter_mask_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
@@ -489,16 +490,6 @@ private:
               *msg,
               terrain_climbable_active_threshold_,
               terrain_step_edge_active_threshold_);
-        });
-
-    terrain_speed_limit_sub_ = this->create_subscription<std_msgs::msg::Float32>(
-        topic_terrain_speed_limit_,
-        reliable_qos,
-        [this](const std_msgs::msg::Float32::SharedPtr msg) {
-          std::lock_guard<std::mutex> lock(data_mutex_);
-          terrain_speed_limit_.received = true;
-          terrain_speed_limit_.stamp = this->now();
-          terrain_speed_limit_.value = static_cast<double>(msg->data);
         });
 
     odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
@@ -576,13 +567,32 @@ private:
     input.controller_mode.age_sec = ageSec(*this->get_clock(), controller_mode_.received, controller_mode_.stamp);
     input.controller_mode.value = controller_mode_.value;
 
-    input.nav_safety.received = nav_safety_.received;
-    input.nav_safety.age_sec = ageSec(*this->get_clock(), nav_safety_.received, nav_safety_.stamp);
-    if (nav_safety_.received) {
-      input.nav_safety.current_profile = nav_safety_.msg.current_profile;
-      input.nav_safety.reason = nav_safety_.msg.reason;
-      input.nav_safety.stop_required = nav_safety_.msg.stop_required;
-      input.nav_safety.timed_out = nav_safety_.msg.timed_out;
+    const double motion_mode_age =
+        ageSec(*this->get_clock(), motion_mode_state_.received, motion_mode_state_.stamp);
+    const double tracking_state_age =
+        ageSec(*this->get_clock(), tracking_state_.received, tracking_state_.stamp);
+    input.nav_safety.received = motion_mode_state_.received || tracking_state_.received;
+    input.nav_safety.age_sec = std::min(motion_mode_age, tracking_state_age);
+    if (!std::isfinite(input.nav_safety.age_sec)) {
+      input.nav_safety.age_sec = motion_mode_age;
+    }
+    if (motion_mode_state_.received) {
+      input.nav_safety.current_profile = motion_mode_state_.msg.active_mode;
+      input.nav_safety.reason = motion_mode_state_.msg.reason;
+      input.nav_safety.stop_required = motion_mode_state_.msg.stop_required;
+      input.nav_safety.timed_out = motion_mode_state_.msg.timed_out;
+    }
+    if (tracking_state_.received) {
+      if (input.controller_mode.value.empty()) {
+        input.controller_mode.value = tracking_state_.msg.status;
+      }
+      if (tracking_state_.msg.terminal &&
+          (tracking_state_.msg.status == "ABORT" || tracking_state_.msg.status == "abort")) {
+        input.nav_safety.stop_required = true;
+      }
+      if (!tracking_state_.msg.reason.empty()) {
+        input.nav_safety.reason = tracking_state_.msg.reason;
+      }
     }
 
     input.mechanism.received = mechanism_state_.received;
@@ -591,8 +601,8 @@ private:
       input.mechanism.comm_health_level = mechanism_state_.msg.comm_health_level;
     }
 
-    input.keepout.filter_info_received = costmap_filter_info_.received;
-    input.keepout.filter_info_age_sec = ageSec(*this->get_clock(), costmap_filter_info_.received, costmap_filter_info_.stamp);
+    input.keepout.overlay_received = block_overlay_.received;
+    input.keepout.overlay_age_sec = ageSec(*this->get_clock(), block_overlay_.received, block_overlay_.stamp);
     input.keepout.mask_received = kfs_filter_mask_.received;
     input.keepout.mask_age_sec = ageSec(*this->get_clock(), kfs_filter_mask_.received, kfs_filter_mask_.stamp);
     input.keepout.heartbeat_received = kfs_heartbeat_.received;
@@ -613,14 +623,6 @@ private:
                                            : std::numeric_limits<double>::quiet_NaN();
     input.terrain.climbable_active = terrain_grid_summary_.climbable_active;
     input.terrain.step_edge_active = terrain_grid_summary_.step_edge_active;
-    input.terrain.speed_limit_received = terrain_speed_limit_.received;
-    input.terrain.speed_limit_age_sec =
-        ageSec(*this->get_clock(), terrain_speed_limit_.received, terrain_speed_limit_.stamp);
-    const double limited_threshold =
-        std::max(0.0, terrain_speed_limit_nominal_mps_ - terrain_speed_limit_margin_mps_);
-    input.terrain.speed_limited =
-        terrain_speed_limit_.received && std::isfinite(terrain_speed_limit_.value) &&
-        terrain_speed_limit_.value < limited_threshold;
 
     for (const auto& topic_watch : topic_watch_configs_) {
       TopicWatchInput watch;
@@ -649,15 +651,16 @@ private:
       } else if (topic_watch.code_suffix == "COLLISION_D_MIN") {
         watch.received = collision_d_min_.received;
         watch.age_sec = input.collision_d_min.age_sec;
-      } else if (topic_watch.code_suffix == "NAV_SAFETY_STATE") {
-        watch.received = nav_safety_.received;
+      } else if (topic_watch.code_suffix == "MOTION_MODE_STATE" ||
+                 topic_watch.code_suffix == "TRACKING_STATE") {
+        watch.received = input.nav_safety.received;
         watch.age_sec = input.nav_safety.age_sec;
       } else if (topic_watch.code_suffix == "MECHANISM_STATE") {
         watch.received = mechanism_state_.received;
         watch.age_sec = input.mechanism.age_sec;
-      } else if (topic_watch.code_suffix == "COSTMAP_FILTER_INFO") {
-        watch.received = costmap_filter_info_.received;
-        watch.age_sec = input.keepout.filter_info_age_sec;
+      } else if (topic_watch.code_suffix == "BLOCK_OVERLAY") {
+        watch.received = block_overlay_.received;
+        watch.age_sec = input.keepout.overlay_age_sec;
       } else if (topic_watch.code_suffix == "KFS_FILTER_MASK") {
         watch.received = kfs_filter_mask_.received;
         watch.age_sec = input.keepout.mask_age_sec;
@@ -673,9 +676,6 @@ private:
       } else if (topic_watch.code_suffix == "TERRAIN_GRID_MAP_LOCAL") {
         watch.received = terrain_grid_map_local_.received;
         watch.age_sec = input.terrain.grid_age_sec;
-      } else if (topic_watch.code_suffix == "TERRAIN_SPEED_LIMIT") {
-        watch.received = terrain_speed_limit_.received;
-        watch.age_sec = input.terrain.speed_limit_age_sec;
       } else if (topic_watch.code_suffix == "ODOM") {
         watch.received = odom_.received;
         watch.age_sec = ageSec(*this->get_clock(), odom_.received, odom_.stamp);
@@ -742,19 +742,17 @@ private:
   std::string topic_pose_age_ms_;
   std::string topic_collision_d_min_;
   std::string topic_controller_mode_;
-  std::string topic_nav_safety_;
+  std::string topic_motion_mode_state_;
+  std::string topic_tracking_state_;
   std::string topic_mechanism_state_;
-  std::string topic_costmap_filter_info_;
+  std::string topic_block_overlay_;
   std::string topic_kfs_filter_mask_;
   std::string topic_kfs_heartbeat_;
   std::string topic_terrain_obstacles_;
   std::string topic_terrain_drop_;
   std::string topic_terrain_grid_map_local_;
-  std::string topic_terrain_speed_limit_;
   std::string topic_odom_;
   std::string topic_control_state_;
-  double terrain_speed_limit_nominal_mps_{2.0};
-  double terrain_speed_limit_margin_mps_{0.05};
   double terrain_climbable_active_threshold_{0.20};
   double terrain_step_edge_active_threshold_{0.50};
 
@@ -771,16 +769,16 @@ private:
   ValueCache<double> pose_age_ms_;
   ValueCache<double> collision_d_min_;
   ValueCache<std::string> controller_mode_;
-  MessageCache<rc26_interfaces::msg::NavSafetyState> nav_safety_;
+  MessageCache<rc26_interfaces::msg::XhuMotionModeState> motion_mode_state_;
+  MessageCache<rc26_interfaces::msg::XhuTrackingState> tracking_state_;
   MessageCache<rc26_interfaces::msg::MechanismState> mechanism_state_;
-  MessageCache<nav2_msgs::msg::CostmapFilterInfo> costmap_filter_info_;
+  MessageCache<rc26_interfaces::msg::MfBlockOverlay> block_overlay_;
   MessageCache<nav_msgs::msg::OccupancyGrid> kfs_filter_mask_;
   ValueCache<bool> kfs_heartbeat_;
   MessageCache<sensor_msgs::msg::PointCloud2> terrain_obstacles_;
   MessageCache<sensor_msgs::msg::PointCloud2> terrain_drop_;
   MessageCache<grid_map_msgs::msg::GridMap> terrain_grid_map_local_;
   TerrainGridSummary terrain_grid_summary_;
-  ValueCache<double> terrain_speed_limit_;
   MessageCache<nav_msgs::msg::Odometry> odom_;
   MessageCache<nav_msgs::msg::Odometry> control_state_;
 
@@ -798,15 +796,15 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr pose_age_ms_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr collision_d_min_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr controller_mode_sub_;
-  rclcpp::Subscription<rc26_interfaces::msg::NavSafetyState>::SharedPtr nav_safety_sub_;
+  rclcpp::Subscription<rc26_interfaces::msg::XhuMotionModeState>::SharedPtr motion_mode_state_sub_;
+  rclcpp::Subscription<rc26_interfaces::msg::XhuTrackingState>::SharedPtr tracking_state_sub_;
   rclcpp::Subscription<rc26_interfaces::msg::MechanismState>::SharedPtr mechanism_state_sub_;
-  rclcpp::Subscription<nav2_msgs::msg::CostmapFilterInfo>::SharedPtr costmap_filter_info_sub_;
+  rclcpp::Subscription<rc26_interfaces::msg::MfBlockOverlay>::SharedPtr block_overlay_sub_;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr kfs_filter_mask_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr kfs_heartbeat_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr terrain_obstacles_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr terrain_drop_sub_;
   rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr terrain_grid_map_local_sub_;
-  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr terrain_speed_limit_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr control_state_sub_;
 

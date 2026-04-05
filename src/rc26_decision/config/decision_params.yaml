@@ -3,6 +3,9 @@ rc26_decision:
     # 行为树配置
     tree_file: "main_tree.xml"
     tick_rate_ms: 100
+    tick_mode: "auto"  # "auto" | "manual"
+    manual_play_interval_ms: 300
+    bt_control_service: "r2/bt/control"
 
     mechanism_state_topic: "/mechanism/state"
 
@@ -29,8 +32,7 @@ rc26_decision:
     loc_retry_waypoints: ["loc_retry_zone_1"]
     loc_anchor_waypoints: ["loc_anchor_1", "loc_anchor_2"]
 
-    # speed_profile 全局缩放系数（用于点位里的 speed_profile: FAST/SLOW/CREEP）
-    # 最终会缩放 controller_server 的 FollowPath.v_linear_max / FollowPath.v_angular_max
+    # speed_profile 全局缩放系数（保留给局部决策节奏与动作选择使用）
     speed_profile_scales.fast: 1.0
     speed_profile_scales.slow: 0.4
     speed_profile_scales.creep: 0.2
@@ -45,3 +47,59 @@ rc26_decision:
     # MC 端头架中心（map）
     tip_rack_center_x: 0.0
     tip_rack_center_y: 0.0
+
+    bt_runtime.enable: true
+    bt_runtime.model_topic: "r2/bt/model"
+    bt_runtime.snapshot_topic: "r2/bt/snapshot"
+    bt_runtime.blackboard_topic: "r2/bt/blackboard"
+    bt_runtime.events_topic: "r2/bt/events"
+    bt_runtime.trace_topic: "r2/bt/trace"
+    bt_runtime.debug_state_topic: "r2/bt/debug_state"
+    bt_runtime.localization_topic: "r2/bt/localization"
+    bt_runtime.snapshot_decimation: 1
+    bt_runtime.blackboard_publish_ms: 200
+    bt_runtime.localization_reload_ms: 1000
+    bt_runtime.localization_config: ""
+    bt_runtime.blackboard_whitelist:
+      - "vision_running"
+      - "vision_ok"
+      - "vision_has_target"
+      - "vision_attr_kind"
+      - "vision_distance_m"
+      - "vision_score"
+      - "vision_bbox_cx"
+      - "vision_bbox_cy"
+      - "vision_current_model"
+      - "mechanism_tip_state"
+      - "mechanism_hal_open"
+      - "mechanism_locked_tip_slot"
+      - "mechanism_comm_health_level"
+      - "last_action_error_code"
+      - "system_error"
+      - "loc_level"
+      - "loc_reason"
+      - "loc_control_degraded"
+      - "loc_graph_health"
+      - "loc_optimizer_ready"
+      - "loc_route_score"
+      - "loc_route_risk_level"
+      - "loc_recommended_profile"
+      - "loc_last_profile"
+      - "loc_guard_required"
+      - "loc_guard_reason"
+      - "current_level"
+      - "stair_delta"
+      - "base_ground_stable"
+      - "is_lifted"
+      - "stable_operation"
+      - "stair_climb_done"
+      - "stair_descend_done"
+      - "level_start"
+      - "team"
+      - "target_kfs_count"
+      - "kfs_on_board"
+      - "current_grid"
+      - "next_action"
+      - "target_grid"
+      - "exit_grid"
+      - "merlin_last_transition_reason"

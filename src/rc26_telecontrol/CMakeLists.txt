@@ -7,7 +7,10 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(rc26_interfaces REQUIRED)
+find_package(rc26_serial REQUIRED)
 find_package(sensor_msgs REQUIRED)
 
 add_library(telecontrol_nodes STATIC
@@ -50,10 +53,25 @@ ament_target_dependencies(rc26_telecontrol_dpad
   sensor_msgs
 )
 
+add_executable(rc26_telecontrol_front_track_test src/front_track_button_test_node.cpp)
+target_compile_features(rc26_telecontrol_front_track_test PUBLIC cxx_std_17)
+target_include_directories(rc26_telecontrol_front_track_test PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+ament_target_dependencies(rc26_telecontrol_front_track_test
+  rclcpp
+  rclcpp_action
+  rc26_interfaces
+  rc26_serial
+  sensor_msgs
+)
+
 install(TARGETS
   telecontrol_nodes
   rc26_telecontrol
   rc26_telecontrol_dpad
+  rc26_telecontrol_front_track_test
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -64,5 +82,19 @@ install(DIRECTORY include/
 install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME}
 )
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  ament_add_gtest(test_front_track_button_logic
+    test/test_front_track_button_logic.cpp
+  )
+  target_include_directories(test_front_track_button_logic PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+  ament_target_dependencies(test_front_track_button_logic
+    rc26_serial
+  )
+endif()
 
 ament_package()

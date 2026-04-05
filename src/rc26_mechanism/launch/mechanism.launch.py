@@ -33,7 +33,7 @@ def generate_launch_description():
     hal_type_arg = DeclareLaunchArgument(
         'hal_type',
         default_value='serial',
-        description='Mechanism HAL type: serial|sim|fault|replay',
+        description='Mechanism HAL type: serial|shared_serial|sim|fault|replay',
     )
     sim_action_latency_arg = DeclareLaunchArgument(
         'sim_action_latency_ms',

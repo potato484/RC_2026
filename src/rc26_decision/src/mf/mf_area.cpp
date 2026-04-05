@@ -9,8 +9,6 @@
 #include <cmath>
 #include <filesystem>
 
-#include "rc26_decision/navigation/smart_waypoint_navigator.hpp"
-#include "rc26_decision/navigation/waypoint_manager.hpp"
 #include "rc26_serial/protocol.hpp"
 #include "rc26_vision/types.hpp"
 #include "yaml-cpp/yaml.h"
@@ -624,65 +622,6 @@ BT::NodeStatus CheckLoadCondition::tick() {
 }
 
 // ============================================================================
-// SetNavModeAction - 导航模式切换
-// ============================================================================
-SetNavModeAction::SetNavModeAction(const std::string &name,
-                                   const BT::NodeConfig &config)
-    : BT::StatefulActionNode(name, config) {}
-
-BT::PortsList SetNavModeAction::providedPorts() {
-  return {
-      BT::InputPort<std::string>("mode", "MF_SAFE", "导航模式"),
-  };
-}
-
-BT::NodeStatus SetNavModeAction::onStart() {
-  rclcpp::Node *node = nullptr;
-  if (!config().blackboard->get("node", node) || !node) {
-    return BT::NodeStatus::FAILURE;
-  }
-  std::string mode = "MF_SAFE";
-  getInput("mode", mode);
-  std::string profile = mode;
-  std::transform(
-      profile.begin(), profile.end(), profile.begin(),
-      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-  if (profile == "mf_safe") {
-    profile = "safe";
-  } else if (profile == "normal") {
-    profile = "normal";
-  }
-
-  client_ =
-      node->create_client<rc26_interfaces::srv::SetNavMode>("set_nav_mode");
-  if (!client_->wait_for_service(std::chrono::milliseconds(100))) {
-    return BT::NodeStatus::FAILURE;
-  }
-  auto request = std::make_shared<rc26_interfaces::srv::SetNavMode::Request>();
-  request->profile = profile;
-  request->timeout = 0.0F;
-  request->reason = "mf_area_bt";
-  auto future_and_id = client_->async_send_request(request);
-  future_ = future_and_id.future.share();
-  waiting_ = true;
-  return BT::NodeStatus::RUNNING;
-}
-
-BT::NodeStatus SetNavModeAction::onRunning() {
-  if (!waiting_)
-    return BT::NodeStatus::FAILURE;
-  auto status = future_.wait_for(std::chrono::milliseconds(10));
-  if (status == std::future_status::ready) {
-    waiting_ = false;
-    auto result = future_.get();
-    return result->success ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
-  }
-  return BT::NodeStatus::RUNNING;
-}
-
-void SetNavModeAction::onHalted() { waiting_ = false; }
-
-// ============================================================================
 // ScanSurroundingsAction - 扫描周围环境
 // ============================================================================
 ScanSurroundingsAction::ScanSurroundingsAction(const std::string &name,
@@ -999,133 +938,6 @@ BT::NodeStatus UpdateMapKFSAction::tick() {
   return BT::NodeStatus::SUCCESS;
 }
 
-// ============================================================================
-// NavToMerlinGridAction - 导航到梅林格子
-// ============================================================================
-NavToMerlinGridAction::NavToMerlinGridAction(const std::string &name,
-                                             const BT::NodeConfig &config)
-    : BT::StatefulActionNode(name, config) {}
-
-BT::PortsList NavToMerlinGridAction::providedPorts() {
-  return {
-      BT::InputPort<int>("grid_id", "目标格子编号 (1-12)"),
-  };
-}
-
-BT::NodeStatus NavToMerlinGridAction::onStart() {
-  int grid_id = 0;
-  if (!getInput("grid_id", grid_id) || grid_id < 1 || grid_id > 12) {
-    return BT::NodeStatus::FAILURE;
-  }
-
-  auto log_guard_fail = [&](const std::string &reason) {
-    config().blackboard->set("merlin_last_transition_reason", reason);
-    rclcpp::Node *node = nullptr;
-    if (config().blackboard->get("node", node) && node) {
-      RCLCPP_WARN(node->get_logger(), "NavToMerlinGrid guard reject: %s",
-                  reason.c_str());
-    }
-    return BT::NodeStatus::FAILURE;
-  };
-
-  int current_grid = 0;
-  if (!config().blackboard->get("current_grid", current_grid) ||
-      current_grid < 1 || current_grid > 12) {
-    return log_guard_fail("invalid current_grid");
-  }
-
-  std::shared_ptr<MerlinMapManager> map;
-  if (!config().blackboard->get("merlin_map", map) || !map) {
-    return log_guard_fail("missing merlin_map");
-  }
-
-  std::shared_ptr<MerlinRuleWorldModel> world_model;
-  (void)config().blackboard->get("merlin_rule_world_model", world_model);
-  const bool world_model_ready = world_model && world_model->isReady();
-  if (world_model) {
-    int resolved_grid = -1;
-    std::string resolve_reason;
-    if (world_model->resolveCurrentBlock(resolved_grid, &resolve_reason) &&
-        resolved_grid >= 1 && resolved_grid <= 12) {
-      current_grid = resolved_grid;
-      config().blackboard->set("current_grid", current_grid);
-    }
-  }
-
-  if (grid_id != current_grid) {
-    if (world_model_ready) {
-      const auto verdict = world_model->canMove(current_grid, grid_id);
-      if (!verdict.allowed) {
-        return log_guard_fail(std::string("world_model veto: ") +
-                              verdict.reason);
-      }
-      config().blackboard->set("merlin_last_transition_reason",
-                               std::string("ok"));
-    } else {
-      const int cur_row = (current_grid - 1) / 3;
-      const int cur_col = (current_grid - 1) % 3;
-      const int dst_row = (grid_id - 1) / 3;
-      const int dst_col = (grid_id - 1) % 3;
-      const int manhattan =
-          std::abs(dst_row - cur_row) + std::abs(dst_col - cur_col);
-      if (manhattan != 1) {
-        return log_guard_fail(
-            "non-adjacent target (diagonal/cross-grid move blocked)");
-      }
-      if (!map->canTraverse(current_grid, grid_id)) {
-        return log_guard_fail("height delta too large for traverse");
-      }
-      config().blackboard->set("merlin_last_transition_reason",
-                               std::string("legacy_guard_ok"));
-    }
-  } else {
-    config().blackboard->set("merlin_last_transition_reason",
-                             std::string("same_block"));
-  }
-
-  std::string target_name = "mf_grid_" + std::to_string(grid_id);
-
-  std::shared_ptr<WaypointManager> waypoint_manager;
-  if (!config().blackboard->get("waypoint_manager", waypoint_manager) ||
-      !waypoint_manager) {
-    return BT::NodeStatus::FAILURE;
-  }
-  std::shared_ptr<SmartWaypointNavigator> navigator;
-  if (!config().blackboard->get("smart_waypoint_navigator", navigator) ||
-      !navigator) {
-    return BT::NodeStatus::FAILURE;
-  }
-  const SmartWaypointSpec *wp = waypoint_manager->find(target_name);
-  if (!wp) {
-    return BT::NodeStatus::FAILURE;
-  }
-  return navigator->start(*wp) ? BT::NodeStatus::RUNNING
-                               : BT::NodeStatus::FAILURE;
-}
-
-BT::NodeStatus NavToMerlinGridAction::onRunning() {
-  std::shared_ptr<SmartWaypointNavigator> navigator;
-  if (!config().blackboard->get("smart_waypoint_navigator", navigator) ||
-      !navigator) {
-    return BT::NodeStatus::FAILURE;
-  }
-  auto st = navigator->tick();
-  if (st == SmartWaypointNavigator::Status::Running)
-    return BT::NodeStatus::RUNNING;
-  if (st == SmartWaypointNavigator::Status::Succeeded)
-    return BT::NodeStatus::SUCCESS;
-  return BT::NodeStatus::FAILURE;
-}
-
-void NavToMerlinGridAction::onHalted() {
-  std::shared_ptr<SmartWaypointNavigator> navigator;
-  if (config().blackboard->get("smart_waypoint_navigator", navigator) &&
-      navigator) {
-    navigator->cancelAndStop();
-  }
-}
-
-// ============================================================================
 // 注册函数
 // ============================================================================
 void registerMFAreaNodes(BT::BehaviorTreeFactory &factory) {
@@ -1137,14 +949,12 @@ void registerMFAreaNodes(BT::BehaviorTreeFactory &factory) {
   factory.registerNodeType<RotateAction>("Rotate");
   factory.registerNodeType<CheckKFSCondition>("CheckKFS");
   factory.registerNodeType<CheckLoadCondition>("CheckLoad");
-  factory.registerNodeType<SetNavModeAction>("SetNavMode");
   factory.registerNodeType<ScanSurroundingsAction>("ScanSurroundings");
   factory.registerNodeType<SelectNextGridAction>("SelectNextGrid");
   factory.registerNodeType<CheckExitCondition>("CheckExitCondition");
   factory.registerNodeType<CheckR1BlockingCondition>("CheckR1Blocking");
   factory.registerNodeType<IncrementKFSCountAction>("IncrementKFSCount");
   factory.registerNodeType<UpdateMapKFSAction>("UpdateMapKFS");
-  factory.registerNodeType<NavToMerlinGridAction>("NavToMerlinGrid");
 }
 
 } // namespace rc26_decision

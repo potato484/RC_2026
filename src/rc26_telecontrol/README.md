@@ -15,7 +15,21 @@
 *   **Stick (摇杆) 模式**：通过左/右摇杆进行连续性的线速度与角速度控制，适合平滑的行驶和精细的方向调整。
 *   **Dpad (十字键) 模式**：通过方向键（D-Pad）进行离散的固定速度控制，适合简单的步进式移动或测试。
 
-在启动时，系统通过互斥的启动参数确保两种模式不会同时运行，避免指令冲突。
+在启动时，系统通过互斥的启动参数确保两种模式不会同时运行，避免指令冲突。仓库根目录的 `start_r2_teleop.sh` 当前默认直接以 `Dpad` 模式启动。
+
+当前仓库实际按 `Xbox 360 Controller` 的输入编号解释手柄：
+
+*   十字键：`axes[7]` 为上下，`axes[6]` 为左右。
+*   中间功能键：`select`、`start`、`mode` 当前未被 `rc26_telecontrol` 消费。
+*   右侧按键：`A=button[0]`、`B=button[1]`、`X=button[2]`、`Y=button[3]`。
+*   摇杆：左摇杆左右 `axes[0]`、前后 `axes[1]`；右摇杆左右 `axes[3]`、前后 `axes[4]`。
+
+结合当前代码的真实控制口径：
+
+*   **Stick 模式**：`linear.x <- axes[1]`，`angular.z <- axes[3]`，`linear.y <- axes[0]`（仅四轮全向模式启用）。
+*   **Dpad 模式**：`linear.x <- axes[7]`，`angular.z <- X/B`，`linear.y <- axes[6]`（仅四轮全向模式启用）。
+*   当前默认底盘模式为 `tracked_diff`，因此运行时只真正消费 `linear.x + angular.z`，`linear.y` 会被固定为 `0`，右摇杆前后 `axes[4]` 目前也未参与控制。
+*   当前新增独立测试节点 `rc26_telecontrol_front_track_test`：`Y(button[3])` 触发前置履带抬升，`A(button[0])` 触发前置履带放下；该节点通过 `/mechanism/execute` action 发送机构目标，不直接写串口。
 
 ### 2.2 多重安全保障机制
 
@@ -44,14 +58,25 @@
 *   **看门狗超时时间**：定义容忍断联的最长极限。
 *   **安全开关配置**：开启状态及绑定的按键索引。
 
+当前默认配置位于 `config/joy_params.yaml` 与 `config/joy_params_dpad.yaml`：
+
+*   `device_name = Xbox 360 Controller`
+*   `v_linear = 0.2`
+*   `v_angular = 0.5`
+*   `joy_timeout_s = 0.3`
+*   `stop_repeat_n = 10`
+*   `require_deadman = false`
+*   `deadman_button = 4`
+
 ## 4. 架构与数据流向
 
 1.  **输入**：通过订阅标准的手柄话题（如 `/joy`），获取原始的轴向浮点数和按键布尔数组。
 2.  **处理节点**：
     *   `wheeltec_joy` (Stick 模式处理)
     *   `wheeltec_joy_dpad` (Dpad 模式处理)
+    *   `rc26_telecontrol_front_track_test` (Y/A 到机构 action 的测试桥接)
     节点内部按顺序执行：看门狗检查 -> 安全开关检查 -> 死区过滤 -> 加速度限制计算 -> 重复发包逻辑。
-3.  **输出**：将计算后平滑且安全的速度结果，打包成标准的速度控制消息（如 `geometry_msgs::msg::Twist`），发布到指定话题（如 `/cmd_vel_teleop`），交由底盘运动学节点执行。
+3.  **输出**：将计算后平滑且安全的速度结果，打包成标准的速度控制消息（如 `geometry_msgs::msg::Twist`），发布到指定话题。包内默认参数仍是 `/cmd_vel_teleop`，但仓库根目录的 `start_r2_teleop.sh` 会显式改为 `/cmd_vel` 以接入当前底盘执行链。
 
 ## 5. 调试指南
 

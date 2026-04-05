@@ -8,16 +8,15 @@ Usage:
   ./start_r2_teleop.sh [options]
 
 Options:
-  --mode <stick|dpad>         Control mode, default: stick
-                              stick = 左摇杆平移 + 右摇杆旋转
-                              dpad  = 十字键平移 + X右旋/B左旋
+  --mode <stick|dpad>         Control mode, default: dpad
+                              stick = 履带模式，左摇杆前后 + 右摇杆旋转
+                              dpad  = 履带模式，十字键前后 + X右旋/B左旋
+  --pose-mode <imu|no-imu>    Enable fused pose mode with EKF
+                              imu    = EKF uses IMU
+                              no-imu = EKF ignores IMU, but dm_imu_node and PoseSender IMU protection stay on
   --v-linear <m/s>            Max linear speed, default: 0.2
   --v-angular <rad/s>         Max angular speed, default: 0.5
   --cmd-vel-topic <topic>     Teleop output topic, default: cmd_vel
-  --terrain-speed-limit-topic <topic>
-                              PoseSender terrain speed limit topic, default: disabled for manual teleop test
-  --enable-terrain-speed-limit
-                              Re-enable terrain_speed_limit topic (default topic: terrain_speed_limit)
   --device-name <name>        Joystick device name, default: Xbox 360 Controller
   --joy-node-deadzone <val>   joy_node deadzone, default: 0.01
   --autorepeat-rate <hz>      joy_node autorepeat rate, default: 50.0
@@ -36,6 +35,8 @@ Options:
 
 Examples:
   ./start_r2_teleop.sh
+  ./start_r2_teleop.sh --pose-mode imu
+  ./start_r2_teleop.sh --pose-mode no-imu
   ./start_r2_teleop.sh --mode dpad
   ./start_r2_teleop.sh --mode stick --v-linear 0.4 --v-angular 0.8
   ./start_r2_teleop.sh --mode dpad --cmd-vel-topic cmd_vel
@@ -68,13 +69,13 @@ source_with_relaxed_nounset() {
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 workspace_dir="${RC26_WS:-${script_dir}}"
 setup_file="${workspace_dir}/install/setup.bash"
-terrain_speed_limit_disabled_sentinel="__disabled__"
 
-mode="stick"
+mode="dpad"
+pose_mode=""
+chassis_model="tracked_diff"
 v_linear="0.2"
 v_angular="0.5"
 cmd_vel_topic="cmd_vel"
-terrain_speed_limit_topic="${terrain_speed_limit_disabled_sentinel}"
 device_name="Xbox 360 Controller"
 joy_node_deadzone="0.01"
 autorepeat_rate="50.0"
@@ -88,12 +89,17 @@ require_deadman="false"
 deadman_button="4"
 use_can_odom="false"
 start_ekf="false"
+use_imu_for_ekf="true"
 dry_run="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode)
       mode="${2:-}"
+      shift 2
+      ;;
+    --pose-mode)
+      pose_mode="${2:-}"
       shift 2
       ;;
     --v-linear)
@@ -107,17 +113,6 @@ while [[ $# -gt 0 ]]; do
     --cmd-vel-topic)
       cmd_vel_topic="${2:-}"
       shift 2
-      ;;
-    --terrain-speed-limit-topic)
-      terrain_speed_limit_topic="${2:-}"
-      if [[ -z "${terrain_speed_limit_topic}" ]]; then
-        terrain_speed_limit_topic="${terrain_speed_limit_disabled_sentinel}"
-      fi
-      shift 2
-      ;;
-    --enable-terrain-speed-limit)
-      terrain_speed_limit_topic="terrain_speed_limit"
-      shift
       ;;
     --device-name)
       device_name="${2:-}"
@@ -203,6 +198,24 @@ case "${mode}" in
     ;;
 esac
 
+case "${pose_mode}" in
+  "")
+    ;;
+  imu)
+    start_ekf="true"
+    use_imu_for_ekf="true"
+    ;;
+  no-imu)
+    start_ekf="true"
+    use_imu_for_ekf="false"
+    ;;
+  *)
+    echo "Invalid --pose-mode: ${pose_mode}. Expected imu or no-imu." >&2
+    usage
+    exit 1
+    ;;
+esac
+
 if [[ ! -f "${setup_file}" ]]; then
   echo "setup.bash not found: ${setup_file}" >&2
   exit 1
@@ -212,7 +225,13 @@ merge_odom_cmd=(
   ros2 launch rc26_merge_odom merge_odom.launch.py
   "use_can_odom:=${use_can_odom}"
   "start_ekf:=${start_ekf}"
-  "terrain_speed_limit_topic:=${terrain_speed_limit_topic}"
+  "use_imu_for_ekf:=${use_imu_for_ekf}"
+  "chassis_model:=${chassis_model}"
+)
+
+mechanism_cmd=(
+  ros2 launch rc26_mechanism mechanism.launch.py
+  "hal_type:=shared_serial"
 )
 
 joy_cmd=(
@@ -227,6 +246,7 @@ teleop_cmd=(
   ros2 run rc26_telecontrol "${teleop_executable}"
   --ros-args
   -p "cmd_vel_topic:=${cmd_vel_topic}"
+  -p "chassis_model:=${chassis_model}"
   -p "v_linear:=${v_linear}"
   -p "v_angular:=${v_angular}"
   -p "joy_timeout_s:=${joy_timeout_s}"
@@ -235,6 +255,10 @@ teleop_cmd=(
   -p "stop_repeat_n:=${stop_repeat_n}"
   -p "require_deadman:=${require_deadman}"
   -p "deadman_button:=${deadman_button}"
+)
+
+button_test_cmd=(
+  ros2 run rc26_telecontrol rc26_telecontrol_front_track_test
 )
 
 if [[ "${mode}" == "stick" ]]; then
@@ -247,10 +271,19 @@ fi
 if [[ "${dry_run}" == "true" ]]; then
   echo "Workspace: ${workspace_dir}"
   echo "Mode: ${mode}"
+  if [[ -n "${pose_mode}" ]]; then
+    echo "Pose mode: ${pose_mode}"
+  else
+    echo "Pose mode: disabled"
+  fi
   print_cmd source "${setup_file}"
   print_cmd "${merge_odom_cmd[@]}"
+  print_cmd "${mechanism_cmd[@]}"
+  print_cmd ros2 lifecycle set /mechanism_server configure
+  print_cmd ros2 lifecycle set /mechanism_server activate
   print_cmd "${joy_cmd[@]}"
   print_cmd "${teleop_cmd[@]}"
+  print_cmd "${button_test_cmd[@]}"
   exit 0
 fi
 
@@ -258,12 +291,8 @@ source_with_relaxed_nounset "${setup_file}"
 
 echo "Workspace: ${workspace_dir}"
 echo "Mode: ${mode}"
+echo "Chassis model: ${chassis_model}"
 echo "cmd_vel topic: ${cmd_vel_topic}"
-if [[ "${terrain_speed_limit_topic}" != "${terrain_speed_limit_disabled_sentinel}" ]]; then
-  echo "Terrain speed limit topic: ${terrain_speed_limit_topic}"
-else
-  echo "Terrain speed limit topic: disabled (manual teleop test mode)"
-fi
 echo "Linear speed limit: ${v_linear} m/s"
 echo "Angular speed limit: ${v_angular} rad/s"
 echo "Press Ctrl+C to stop all nodes."
@@ -282,11 +311,36 @@ cleanup() {
   exit "${exit_code}"
 }
 
+run_lifecycle_transition() {
+  local transition="$1"
+  local max_attempts="${2:-20}"
+  local sleep_seconds="${3:-0.5}"
+  local attempt
+
+  print_cmd ros2 lifecycle set /mechanism_server "${transition}"
+  for ((attempt=1; attempt<=max_attempts; attempt++)); do
+    if ros2 lifecycle set /mechanism_server "${transition}"; then
+      return 0
+    fi
+    sleep "${sleep_seconds}"
+  done
+
+  echo "Failed to transition /mechanism_server via ${transition}" >&2
+  return 1
+}
+
 trap cleanup EXIT INT TERM
 
 print_cmd "${merge_odom_cmd[@]}"
 "${merge_odom_cmd[@]}" &
 pids+=("$!")
+
+print_cmd "${mechanism_cmd[@]}"
+"${mechanism_cmd[@]}" &
+pids+=("$!")
+
+run_lifecycle_transition configure
+run_lifecycle_transition activate
 
 print_cmd "${joy_cmd[@]}"
 "${joy_cmd[@]}" &
@@ -294,6 +348,10 @@ pids+=("$!")
 
 print_cmd "${teleop_cmd[@]}"
 "${teleop_cmd[@]}" &
+pids+=("$!")
+
+print_cmd "${button_test_cmd[@]}"
+"${button_test_cmd[@]}" &
 pids+=("$!")
 
 wait -n "${pids[@]}"

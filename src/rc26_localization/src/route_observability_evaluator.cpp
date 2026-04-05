@@ -159,4 +159,3 @@ double RouteObservabilityEvaluator::computeMinDistanceToPoint(const std::vector<
 }
 
 }  // namespace rc26_localization
-

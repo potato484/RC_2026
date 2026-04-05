@@ -1,0 +1,50 @@
+openapi: 3.1.0
+info:
+  title: RC26 R2 Unified Stream Contract
+  version: 0.3.0
+  description: |
+    统一实时订阅流。
+
+    用于前端一次性订阅多个 ROS2 topic。
+    payload 必须保持与原始 ROS2 .msg 同构。
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: Stream
+paths:
+  /ros2/stream/sse:
+    get:
+      tags: [Stream]
+      summary: 统一 SSE 订阅流
+      parameters:
+        - name: topics
+          in: query
+          required: false
+          schema:
+            type: string
+          description: 逗号分隔的 topic 列表
+      responses:
+        '200':
+          description: SSE 实时流
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              examples:
+                default:
+                  value: |
+                    event: ros2.topic
+                    data: {"topic":"r2/bt/snapshot","message_type":"rc26_interfaces/msg/BehaviorTreeSnapshot","payload":{"header":{"stamp":{"sec":1743262200,"nanosec":123456789},"frame_id":""},"tick_seq":42,"tree_status":1,"tick_duration_ms":3.41,"active_subtree_id":"MFAreaTree","running_path_uids":[1,4,9],"nodes":[{"uid":1,"status":1}]}}
+components:
+  schemas:
+    Ros2SseEnvelope:
+      type: object
+      required: [topic, message_type, payload]
+      properties:
+        topic:
+          type: string
+        message_type:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true

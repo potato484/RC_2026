@@ -11,7 +11,7 @@ ALT_HEAD = bytes([0x55, 0xAA])
 ALT_TAIL = bytes([0xAA, 0x55])
 MAX_PAYLOAD_SIZE = 32
 ODOM_CMD = 0x20
-ODOM_PAYLOAD_LEN = 16
+ODOM_PAYLOAD_LENS = {8, 16}
 
 
 def crc32_mpeg2(data: bytes) -> int:
@@ -121,27 +121,24 @@ def parse_stream(data: bytes) -> None:
         cmd = data[head_pos + 5]
         len_counts[length] = len_counts.get(length, 0) + 1
         cmd_counts[cmd] = cmd_counts.get(cmd, 0) + 1
-        if cmd == ODOM_CMD:
-            frame_size = 11 + 1 + ODOM_PAYLOAD_LEN
-        else:
-            frame_size = 11 + length
+        frame_size = 11 + length
         if head_pos + frame_size > len(data):
             break
 
         frame = data[head_pos : head_pos + frame_size]
         total += 1
-        if cmd == ODOM_CMD:
-            ok, reason, info = decode_frame(frame, head_bytes, tail_bytes, force_payload_len=ODOM_PAYLOAD_LEN)
-        else:
-            ok, reason, info = decode_frame(frame, head_bytes, tail_bytes)
+        ok, reason, info = decode_frame(frame, head_bytes, tail_bytes)
         if ok:
             ok_count += 1
             cmd = info["cmd"]
             payload = info["payload"]
             print(f"[OK] frame#{ok_count} seq={info['seq']} retry={info['retry']} cmd=0x{cmd:02X} payload_len={len(payload)}")
             if cmd == ODOM_CMD:
-                if len(payload) != 16:
-                    print("  ODOM_DATA payload length mismatch (expected 16)")
+                if len(payload) not in ODOM_PAYLOAD_LENS:
+                    print("  ODOM_DATA payload length mismatch (expected 8 or 16)")
+                elif len(payload) == 8:
+                    v_left, v_right = struct.unpack("<ff", payload)
+                    print(f"  ODOM_DATA v_left={v_left:.4f} v_right={v_right:.4f}")
                 else:
                     v_fl, v_rl, v_rr, v_fr = struct.unpack("<ffff", payload)
                     print(f"  ODOM_DATA v_fl={v_fl:.4f} v_rl={v_rl:.4f} v_rr={v_rr:.4f} v_fr={v_fr:.4f}")

@@ -1,6 +1,7 @@
 #include "rc26_telecontrol/telecontrol_nodes.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <functional>
 #include <utility>
@@ -18,6 +19,19 @@ constexpr std::size_t k_dpad_x_axis = 6;
 constexpr std::size_t k_dpad_y_axis = 7;
 constexpr int k_x_button = 2;
 constexpr int k_b_button = 1;
+
+std::string normalize_chassis_model(std::string value)
+{
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  if (value == "tracked" || value == "tracked_diff" || value == "track" || value == "diff" ||
+      value == "differential")
+  {
+    return "tracked_diff";
+  }
+  return "tracked_diff";
+}
 }  // namespace
 
 TelecontrolNodeBase::TelecontrolNodeBase(
@@ -69,6 +83,11 @@ double TelecontrolNodeBase::deadzone_hyst() const noexcept
   return deadzone_hyst_;
 }
 
+bool TelecontrolNodeBase::tracked_diff_mode() const noexcept
+{
+  return chassis_model_ == "tracked_diff";
+}
+
 bool TelecontrolNodeBase::button_pressed(
   const JoyMsgConstSharedPtr & joy_msg,
   int button_index) const noexcept
@@ -104,6 +123,7 @@ void TelecontrolNodeBase::reset_control_state() noexcept
 void TelecontrolNodeBase::declare_parameters()
 {
   declare_parameter<std::string>("cmd_vel_topic", cmd_vel_topic_);
+  declare_parameter<std::string>("chassis_model", chassis_model_);
   declare_parameter<double>("v_linear", v_linear_);
   declare_parameter<double>("v_angular", v_angular_);
   if (use_deadzone_hysteresis_) {
@@ -121,6 +141,7 @@ void TelecontrolNodeBase::declare_parameters()
 void TelecontrolNodeBase::load_parameters()
 {
   get_parameter("cmd_vel_topic", cmd_vel_topic_);
+  get_parameter("chassis_model", chassis_model_);
   get_parameter("v_linear", v_linear_);
   get_parameter("v_angular", v_angular_);
   if (use_deadzone_hysteresis_) {
@@ -172,6 +193,12 @@ void TelecontrolNodeBase::normalize_parameters()
     const std::string before = std::move(cmd_vel_topic_);
     cmd_vel_topic_ = "cmd_vel_teleop";
     log_normalized_parameter("cmd_vel_topic", before, cmd_vel_topic_);
+  }
+
+  {
+    const std::string before = chassis_model_;
+    chassis_model_ = normalize_chassis_model(chassis_model_);
+    log_normalized_parameter("chassis_model", before, chassis_model_);
   }
 
   normalize_abs_double("v_linear", v_linear_, 0.2);
@@ -234,7 +261,8 @@ void TelecontrolNodeBase::log_startup() const
     "max_accel=%.2f, max_alpha=%.2f, stop_repeat_n=%d, require_deadman=%s, deadman_button=%d",
     max_accel_, max_alpha_, stop_repeat_n_, require_deadman_ ? "true" : "false",
     deadman_button_);
-  RCLCPP_INFO(get_logger(), "publish cmd_vel topic: %s", cmd_vel_topic_.c_str());
+  RCLCPP_INFO(get_logger(), "publish cmd_vel topic: %s, chassis_model=%s", cmd_vel_topic_.c_str(),
+              chassis_model_.c_str());
   if (joy_timeout_s_ == 0.0) {
     RCLCPP_WARN(get_logger(), "Watchdog disabled by joy_timeout_s<=0.");
   }
@@ -322,7 +350,11 @@ void TelecontrolNodeBase::publish_zero_now() noexcept
 void TelecontrolNodeBase::clamp_target_twist(geometry_msgs::msg::Twist & twist) const noexcept
 {
   twist.linear.x = std::clamp(twist.linear.x, -v_linear_, v_linear_);
-  twist.linear.y = std::clamp(twist.linear.y, -v_linear_, v_linear_);
+  if (tracked_diff_mode()) {
+    twist.linear.y = 0.0;
+  } else {
+    twist.linear.y = std::clamp(twist.linear.y, -v_linear_, v_linear_);
+  }
   twist.angular.z = std::clamp(twist.angular.z, -v_angular_, v_angular_);
 }
 
@@ -379,9 +411,11 @@ geometry_msgs::msg::Twist StickTelecontrolNode::compute_target_twist(
   target_twist.linear.x =
     apply_deadzone_hysteresis(axis_value(joy_msg, k_left_stick_y_axis), k_left_stick_y_axis) *
     linear_speed_limit();
-  target_twist.linear.y =
-    apply_deadzone_hysteresis(axis_value(joy_msg, k_left_stick_x_axis), k_left_stick_x_axis) *
-    linear_speed_limit();
+  if (!tracked_diff_mode()) {
+    target_twist.linear.y =
+      apply_deadzone_hysteresis(axis_value(joy_msg, k_left_stick_x_axis), k_left_stick_x_axis) *
+      linear_speed_limit();
+  }
   target_twist.angular.z =
     -apply_deadzone_hysteresis(axis_value(joy_msg, k_right_stick_yaw_axis), k_right_stick_yaw_axis) *
     angular_speed_limit();
@@ -431,7 +465,9 @@ geometry_msgs::msg::Twist DpadTelecontrolNode::compute_target_twist(
 {
   geometry_msgs::msg::Twist target_twist{};
   target_twist.linear.x = axis_value(joy_msg, k_dpad_y_axis) * linear_speed_limit();
-  target_twist.linear.y = axis_value(joy_msg, k_dpad_x_axis) * linear_speed_limit();
+  if (!tracked_diff_mode()) {
+    target_twist.linear.y = axis_value(joy_msg, k_dpad_x_axis) * linear_speed_limit();
+  }
 
   const bool x_pressed = button_pressed(joy_msg, k_x_button);
   const bool b_pressed = button_pressed(joy_msg, k_b_button);
