@@ -13,16 +13,16 @@
 
 ## 当前有效配置
 
-- [config/nav_profiles.yaml](/home/potato/RC_2026/src/rc26_nav_mode_manager/config/nav_profiles.yaml)
-- [launch/xhu_motion_mode_manager.launch.py](/home/potato/RC_2026/src/rc26_nav_mode_manager/launch/xhu_motion_mode_manager.launch.py)
+- [config/nav_profiles.yaml](/home/aidlux/RC_2026/src/rc26_nav_mode_manager/config/nav_profiles.yaml)
+- [launch/xhu_motion_mode_manager.launch.py](/home/aidlux/RC_2026/src/rc26_nav_mode_manager/launch/xhu_motion_mode_manager.launch.py)
 
 当前仓库已经清理旧模式桥接和旧配置资产，当前只保留 `xhu_motion_mode_manager_node` 及 `nav_profiles.yaml`。
 
 ## 源码入口
 
-- [src/xhu_motion_mode_manager.cpp](/home/potato/RC_2026/src/rc26_nav_mode_manager/src/xhu_motion_mode_manager.cpp): 节点主实现
-- [include/rc26_nav_mode_manager/xhu_motion_mode_manager.hpp](/home/potato/RC_2026/src/rc26_nav_mode_manager/include/rc26_nav_mode_manager/xhu_motion_mode_manager.hpp): 运行时状态与接口
-- [src/profile_loader.cpp](/home/potato/RC_2026/src/rc26_nav_mode_manager/src/profile_loader.cpp): 配置解析与兼容字段校验
+- [src/xhu_motion_mode_manager.cpp](/home/aidlux/RC_2026/src/rc26_nav_mode_manager/src/xhu_motion_mode_manager.cpp): 节点主实现
+- [include/rc26_nav_mode_manager/xhu_motion_mode_manager.hpp](/home/aidlux/RC_2026/src/rc26_nav_mode_manager/include/rc26_nav_mode_manager/xhu_motion_mode_manager.hpp): 运行时状态与接口
+- [src/profile_loader.cpp](/home/aidlux/RC_2026/src/rc26_nav_mode_manager/src/profile_loader.cpp): 配置解析与兼容字段校验
 
 ## 当前约束
 

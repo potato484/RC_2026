@@ -24,10 +24,10 @@
 
 ## 源码入口
 
-- [src/xhu_motion_mode_manager.cpp](/home/potato/RC_2026/src/rc26_nav_mode_manager/src/xhu_motion_mode_manager.cpp)
-- [src/profile_loader.cpp](/home/potato/RC_2026/src/rc26_nav_mode_manager/src/profile_loader.cpp)
-- [src/profile_db.cpp](/home/potato/RC_2026/src/rc26_nav_mode_manager/src/profile_db.cpp)
-- [src/watchdog_timer.cpp](/home/potato/RC_2026/src/rc26_nav_mode_manager/src/watchdog_timer.cpp)
+- [src/xhu_motion_mode_manager.cpp](/home/aidlux/RC_2026/src/rc26_nav_mode_manager/src/xhu_motion_mode_manager.cpp)
+- [src/profile_loader.cpp](/home/aidlux/RC_2026/src/rc26_nav_mode_manager/src/profile_loader.cpp)
+- [src/profile_db.cpp](/home/aidlux/RC_2026/src/rc26_nav_mode_manager/src/profile_db.cpp)
+- [src/watchdog_timer.cpp](/home/aidlux/RC_2026/src/rc26_nav_mode_manager/src/watchdog_timer.cpp)
 
 ## 当前边界
 

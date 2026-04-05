@@ -5,7 +5,7 @@
 当前仓库里已经有两套成型的自研 Web 前端，但这份总览主要记录 `merlin-bt-visualizer` 这条行为树工具链。
 
 - `merlin-bt-visualizer` 的核心任务不是联机控车，而是围绕 `rc26_decision` 行为树 XML 做本地查看、基础编辑和演示。
-- `src/rc26_topo_nav/sim_viewer` 是另一条独立的 3D topo 仿真 viewer 链，详见 [topo_sim_viewer/README.md](/home/potato/RC_2026/docs/frontend/topo_sim_viewer/README.md)。
+- `src/rc26_topo_nav/sim_viewer` 是另一条独立的 3D topo 仿真 viewer 链，详见 [topo_sim_viewer/README.md](/home/aidlux/RC_2026/docs/frontend/topo_sim_viewer/README.md)。
 - 这两套工具都不拥有机器人运行时控制权。
 
 ## 2. 入口、输入源与开发边界
@@ -106,5 +106,5 @@
   - 桌面端仍是侧栏 + 画布 + 面板
   - 窄屏下改为画布主视图，决策树和检查器通过抽屉进入；节点知识库改成覆盖当前编辑画布区域的独立工作区，插入菜单仍通过底部 sheet 进入
 - 这部分的详细设计和完整映射表分别见：
-  - [editor_mode/README.md](/home/potato/RC_2026/docs/frontend/editor_mode/README.md)
-  - [editor_mode/bt_terms_mapping.md](/home/potato/RC_2026/docs/frontend/editor_mode/bt_terms_mapping.md)
+  - [editor_mode/README.md](/home/aidlux/RC_2026/docs/frontend/editor_mode/README.md)
+  - [editor_mode/bt_terms_mapping.md](/home/aidlux/RC_2026/docs/frontend/editor_mode/bt_terms_mapping.md)

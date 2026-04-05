@@ -49,6 +49,6 @@
 
 ## 维护原则
 
-- 任何跨包字段语义变更，都必须同步更新 [docs/middle/modules/navigation.yaml](/home/potato/RC_2026/docs/middle/modules/navigation.yaml) 或对应模块契约文档。
+- 任何跨包字段语义变更，都必须同步更新 [docs/middle/modules/navigation.yaml](/home/aidlux/RC_2026/docs/middle/modules/navigation.yaml) 或对应模块契约文档。
 - 新接口优先围绕 `rc26_topo_nav + xhu_motion_mode_manager + xhu_motion_follower` 这条自研链设计，不再为历史兼容链增加冗余字段。
-- 判断“接口是否真实存在”时，以 [CMakeLists.txt](/home/potato/RC_2026/src/rc26_interfaces/CMakeLists.txt) 中 `rosidl_generate_interfaces()` 的清单为准。
+- 判断“接口是否真实存在”时，以 [CMakeLists.txt](/home/aidlux/RC_2026/src/rc26_interfaces/CMakeLists.txt) 中 `rosidl_generate_interfaces()` 的清单为准。

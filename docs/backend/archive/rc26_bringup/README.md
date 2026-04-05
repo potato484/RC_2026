@@ -19,7 +19,7 @@
 ## 当前关键文件
 
 - 主启动:
-  - [launch/bringup.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/bringup.launch.py)
+  - [launch/bringup.launch.py](/home/aidlux/RC_2026/src/rc26_bringup/launch/bringup.launch.py)
 - 子链路:
   - `launch/localization.launch.py`
   - `launch/odometry.launch.py`

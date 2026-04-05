@@ -7,7 +7,7 @@
 ## 当前实现
 
 - 当前是 config-only 包：
-  - [config/r2_body_geometry.yaml](/home/potato/RC_2026/src/rc26_robot_geometry/config/r2_body_geometry.yaml)
+  - [config/r2_body_geometry.yaml](/home/aidlux/RC_2026/src/rc26_robot_geometry/config/r2_body_geometry.yaml)
 - 当前提供 `compact` profile，包含：
   - `body.half_length_m`
   - `body.half_width_m`

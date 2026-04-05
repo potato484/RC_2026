@@ -47,4 +47,4 @@
 
 - 只定义消息、服务、动作
 - `SurfaceGraphOverlay.msg` 当前用于把离散 blocked `node_id / edge_id` 和 TTL 传给 `rc26_topo_nav`，它只表达 runtime 动态阻塞输入，不改变 `NavigateSurfaceRoute` action 形态
-- 接口是否存在以 [src/rc26_interfaces/CMakeLists.txt](/home/potato/RC_2026/src/rc26_interfaces/CMakeLists.txt) 为准
+- 接口是否存在以 [src/rc26_interfaces/CMakeLists.txt](/home/aidlux/RC_2026/src/rc26_interfaces/CMakeLists.txt) 为准

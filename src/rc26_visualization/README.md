@@ -44,5 +44,5 @@
 
 核心实现见：
 
-- [src/visualization_status_node.cpp](/home/potato/RC_2026/src/rc26_visualization/src/visualization_status_node.cpp)
-- [src/visualization_status_core.cpp](/home/potato/RC_2026/src/rc26_visualization/src/visualization_status_core.cpp)
+- [src/visualization_status_node.cpp](/home/aidlux/RC_2026/src/rc26_visualization/src/visualization_status_node.cpp)
+- [src/visualization_status_core.cpp](/home/aidlux/RC_2026/src/rc26_visualization/src/visualization_status_core.cpp)

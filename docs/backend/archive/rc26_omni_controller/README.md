@@ -9,8 +9,8 @@
 - 构建产物:
   - `xhu_motion_follower_node`
 - 关键源码:
-  - [src/xhu_motion_follower.cpp](/home/potato/RC_2026/src/rc26_omni_controller/src/xhu_motion_follower.cpp)
-  - [include/rc26_omni_controller/xhu_motion_follower.hpp](/home/potato/RC_2026/src/rc26_omni_controller/include/rc26_omni_controller/xhu_motion_follower.hpp)
+  - [src/xhu_motion_follower.cpp](/home/aidlux/RC_2026/src/rc26_omni_controller/src/xhu_motion_follower.cpp)
+  - [include/rc26_omni_controller/xhu_motion_follower.hpp](/home/aidlux/RC_2026/src/rc26_omni_controller/include/rc26_omni_controller/xhu_motion_follower.hpp)
 
 ## 当前接口
 
