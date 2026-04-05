@@ -42,23 +42,13 @@
 
 也就是说，`/mechanism/execute` 仍然是上层动作执行入口，但真机串口发送职责已经下沉到 `rc26_merge_odom`。
 
-当前 `ExecuteMechanism` 通用入口已经覆盖一批按 `command_id` 直接下发的串口动作，其中包含前置履带：
-
-- `FRONT_TRACK_UP = 0x11`
-- `FRONT_TRACK_DOWN = 0x12`
-
-这两个动作的成功条件不是“命令写串口成功”，而是等待 MCU 回传：
-
-- `FRONT_TRACK_UP_DONE = 0x13`
-- `FRONT_TRACK_DOWN_DONE = 0x14`
-
-当前约定下，这两个 `DONE` 会在 MCU 内部确认遥控发送链已经结束后再上报，因此上位机不额外实现 teleop 停止编排，只消费最终终态反馈。
+当前 `ExecuteMechanism` 通用入口已经不再覆盖前置履带；前置履带遥控链改为直接调用 `/mechanism/transport/send_command`，并由 `merge_odom` 在目标串口上按 `50Hz` 连续下发 `FRONT_TRACK_UP(0x0E)` / `FRONT_TRACK_DOWN(0x0F)`。
 
 仓库根目录的 `start_r2_teleop.sh` 现在会显式：
 
-- 启动 `rc26_mechanism mechanism.launch.py hal_type:=shared_serial`
-- 自动执行 `/mechanism_server` 的 `configure` 和 `activate`
-- 让遥控按钮测试节点直接走 `/mechanism/execute`
+- 启动 `rc26_merge_odom`
+- 让遥控按钮测试节点直接走 `/mechanism/transport/send_command`
+- 不再默认拉起 `rc26_mechanism`
 
 ## 源码入口与阅读顺序
 - 先看 `launch/mechanism.launch.py`，确认 HAL 选择和生命周期装配。
@@ -91,11 +81,11 @@
 
 ## 近期实现说明
 
-- `ExecuteMechanism` 仍是机构动作的统一执行入口；前置履带抬升/放下通过 `0x11 / 0x12` 下发，并等待 `0x13 / 0x14` 完成反馈。
+- `ExecuteMechanism` 继续作为机构动作的统一执行入口，但前置履带已从这个入口中移除。
 - 真机链路新增 `shared_serial` HAL，`rc26_mechanism` 不再和 `rc26_merge_odom` 竞争打开同一个目标串口。
 - `/mechanism/transport/send_command` 与 `/mechanism/transport/feedback` 现在是 mechanism 与 merge_odom 之间的内部桥接契约。
-- 遥控模式下停止发送数据后，MCU 才回传前置履带完成反馈；机制侧只认最终反馈，不在上位机额外拼 teleop 停止流程。
-- 新增 `test_shared_serial_transport`，覆盖共享串口发送、反馈收敛、服务异常和超时场景。
+- 遥控模式下的前置履带控制已改成 teleop 直接走 transport service，`rc26_mechanism` 不再消费 `FRONT_TRACK_UP/DOWN`。
+- `test_shared_serial_transport` 继续覆盖共享串口发送、反馈收敛、服务异常和超时场景，同时验证前置履带命令会被 `/mechanism/execute` 拒绝。
 
 ## 模块边界
 

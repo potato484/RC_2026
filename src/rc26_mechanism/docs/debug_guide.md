@@ -84,21 +84,21 @@ ros2 topic echo /mechanism/state
 ### 5.1 发送通用机制指令 (ExecuteMechanism)
 
 ```bash
-ros2 action send_goal /mechanism/execute rc26_interfaces/action/ExecuteMechanism "{command_id: 1, payload: [], timeout_sec: 5.0}" --feedback
+ros2 action send_goal /mechanism/execute rc26_interfaces/action/ExecuteMechanism "{command_id: 7, payload: [], timeout_sec: 5.0}" --feedback
 ```
-*(假设 command_id=1 为某个特定的基础动作，请根据实际底层协议定义调整)*
+*(当前 `7 (0x07)` 对应 `GRAB_KFS`，属于受支持的通用机构命令示例。)*
 
-前置履带动作当前也通过这个入口测试：
+前置履带动作已经不再通过这个入口测试：
 
 ```bash
-ros2 action send_goal /mechanism/execute rc26_interfaces/action/ExecuteMechanism "{command_id: 17, payload: [], timeout_sec: 8.0}" --feedback
-ros2 action send_goal /mechanism/execute rc26_interfaces/action/ExecuteMechanism "{command_id: 18, payload: [], timeout_sec: 8.0}" --feedback
+ros2 service call /mechanism/transport/send_command rc26_interfaces/srv/SendMechanismTransportCommand "{command_id: 14, payload: []}"
+ros2 service call /mechanism/transport/send_command rc26_interfaces/srv/SendMechanismTransportCommand "{command_id: 15, payload: []}"
 ```
 
-- `17 (0x11)`：抬升前置履带，等待 `0x13`
-- `18 (0x12)`：放下前置履带，等待 `0x14`
-- 若 MCU 没有回对应 `DONE`，goal 会按 timeout 失败，而不是在“发送成功”时提前返回 success
-- 当前真实链路里，MCU 会在遥控模式停止发送数据后再回 `0x13 / 0x14`
+- `14 (0x0E)`：抬升前置履带
+- `15 (0x0F)`：放下前置履带
+- `FRONT_TRACK_UP/DOWN` 已从 `/mechanism/execute` 的受支持命令集中移除
+- 遥控链会直接走 transport service；若 MCU 回传 `0x13 / 0x14`，可在 `/mechanism/transport/feedback` 里观察
 
 ### 5.1.1 观察共享串口桥接反馈
 
@@ -106,7 +106,7 @@ ros2 action send_goal /mechanism/execute rc26_interfaces/action/ExecuteMechanism
 
 ```bash
 ros2 topic echo /mechanism/transport/feedback
-ros2 service call /mechanism/transport/send_command rc26_interfaces/srv/SendMechanismTransportCommand "{command_id: 17, payload: []}"
+ros2 service call /mechanism/transport/send_command rc26_interfaces/srv/SendMechanismTransportCommand "{command_id: 7, payload: []}"
 ```
 
 ### 5.2 发送抓取矿石指令 (GrabTip)
@@ -135,7 +135,7 @@ ros2 action send_goal /mechanism/assemble_weapon rc26_interfaces/action/Assemble
 
 首先，在一个终端发送目标：
 ```bash
-ros2 action send_goal /mechanism/execute rc26_interfaces/action/ExecuteMechanism "{command_id: 2, timeout_sec: 10.0}"
+ros2 action send_goal /mechanism/execute rc26_interfaces/action/ExecuteMechanism "{command_id: 7, timeout_sec: 10.0}"
 ```
 
 然后在另一个终端快速找到 Goal ID 并取消：

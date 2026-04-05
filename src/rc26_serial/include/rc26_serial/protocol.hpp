@@ -29,27 +29,24 @@ constexpr uint8_t MAX_RECONNECT_ATTEMPTS = 10;    // 最大重连尝试次数
 // 下行指令 ID (上位机 -> MCU)
 // ============================================================================
 enum class CommandID : uint8_t {
-    NAV_NORMAL = 0x00,        // 非梅林区导航
-    NAV_STAIR_UP = 0x01,      // 梅林区上阶梯导航
-    NAV_STAIR_DOWN = 0x02,    // 梅林区下阶梯导航
-    STOP = 0x03,              // 急停指令
-    GRAB_TIP = 0x04,          // 抓取端头
-    ASSEMBLE_WEAPON = 0x05,   // 组装兵器
-    ROTATE_POS_90 = 0x06,     // 旋转 +90°
-    ROTATE_NEG_90 = 0x07,     // 旋转 -90°
-    ROTATE_POS_180 = 0x08,    // 旋转 +180°
-    ROTATE_NEG_180 = 0x09,    // 旋转 -180°
-    GRAB_KFS = 0x0A,          // 梅林区夹取 KFS
-    MECH_UP_MERLIN = 0x0B,    // 梅林区机构抬升
-    MECH_DOWN_MERLIN = 0x0C,  // 梅林区机构下降
-    MECH_UP_DUEL = 0x0D,      // 对抗区机构抬升
-    PLACE_KFS_GRID = 0x0E,    // 对抗区放置 KFS 到九宫格
-    PLACE_KFS_GROUND = 0x0F,  // 对抗区放置 KFS 到地面
-    HEARTBEAT = 0x10,         // 心跳查询请求
-    FRONT_TRACK_UP = 0x11,    // 抬升前置履带
-    FRONT_TRACK_DOWN = 0x12,  // 放下前置履带
-    POSE_FEEDBACK = 0x21,     // 反馈速度 (vx, vy, wz) - MCU速度闭环
-    POSE_TARGET = 0x22,       // 目标速度 (vx, vy, wz) - MCU速度闭环
+    STOP = 0x00,              // 急停指令
+    GRAB_TIP = 0x01,          // 抓取端头
+    ASSEMBLE_WEAPON = 0x02,   // 组装兵器
+    ROTATE_POS_90 = 0x03,     // 旋转 +90°
+    ROTATE_NEG_90 = 0x04,     // 旋转 -90°
+    ROTATE_POS_180 = 0x05,    // 旋转 +180°
+    ROTATE_NEG_180 = 0x06,    // 旋转 -180°
+    GRAB_KFS = 0x07,          // 梅林区夹取 KFS
+    MECH_UP_MERLIN = 0x08,    // 梅林区机构抬升
+    MECH_DOWN_MERLIN = 0x09,  // 梅林区机构下降
+    MECH_UP_DUEL = 0x0A,      // 对抗区机构抬升
+    PLACE_KFS_GRID = 0x0B,    // 对抗区放置 KFS 到九宫格
+    PLACE_KFS_GROUND = 0x0C,  // 对抗区放置 KFS 到地面
+    HEARTBEAT = 0x0D,         // 心跳查询请求
+    FRONT_TRACK_UP = 0x0E,    // 抬升前置履带
+    FRONT_TRACK_DOWN = 0x0F,  // 放下前置履带
+    POSE_FEEDBACK = 0x1E,     // 反馈速度 (vx, vy, wz) - MCU速度闭环
+    POSE_TARGET = 0x1F,       // 目标速度 (vx, vy, wz) - MCU速度闭环
 };
 
 // ============================================================================
@@ -115,7 +112,7 @@ struct FrameHeader {
     uint8_t head[2];  // 0xAA, 0x55
     uint8_t seq;      // 序列号
     uint8_t len;      // cmd(1B) + payload(NB)，1字节
-    uint8_t retry;    // 重发次数：0x00, 0x03, 0x06, 0x09
+    uint8_t retry;    // 可靠命令的重发编号；连续命令固定为 0x00
     uint8_t cmd;      // 命令 ID
 };
 

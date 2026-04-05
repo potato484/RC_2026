@@ -63,7 +63,7 @@ pose_sender_node:
     cmd_vel_topic: "cmd_vel"
     odom_topic: "merge_odom"
     feedback_send_rate_hz: 50
-    target_send_rate_hz: 25
+    target_send_rate_hz: 50
     cmd_vel_timeout_ms: 200
     imu_topic: "DM_IMU"
     v_max_mps: 2.0
@@ -134,7 +134,7 @@ merge_odom_node:
     cmd_vel_topic: "cmd_vel"
     merge_odom_topic: "merge_odom"
     feedback_send_rate_hz: 50
-    target_send_rate_hz: 25
+    target_send_rate_hz: 50
     cmd_vel_timeout_ms: 200
     imu_topic: "DM_IMU"
     v_max_mps: 2.0

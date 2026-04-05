@@ -62,12 +62,12 @@
 
 除此之外，当前还新增了一个独立的机构按钮测试节点：
 
-- `Y(button[3]) -> FRONT_TRACK_UP (0x11)`
-- `A(button[0]) -> FRONT_TRACK_DOWN (0x12)`
-- 通过 `/mechanism/execute` action 发送机构命令，不直接写串口
-- 只认按键上升沿，长按不会重复发 goal
+- `Y(button[3]) -> FRONT_TRACK_UP (0x0E)`
+- `A(button[0]) -> FRONT_TRACK_DOWN (0x0F)`
+- 直接调用 `/mechanism/transport/send_command`，不再经过 `/mechanism/execute`
+- 按住按钮时按 `50Hz` 连续下发
 - `Y` 与 `A` 同帧按下时直接忽略
-- 上一个机构 goal 未结束时，新的 Y/A 触发会被抑制
+- 松开按钮后立即停止发送
 
 并且做了较多安全处理：
 
@@ -78,13 +78,13 @@
 ## 源码入口与阅读顺序
 - 先看 `launch/wheeltec_joy.launch.py`，确认 stick / dpad 模式如何二选一。
 - 再看 `src/telecontrol_nodes.cpp`，公共参数、看门狗、deadman、限斜率都在这里。
-- 然后看 `src/front_track_button_test_node.cpp`，确认 Y/A 如何映射到机构 action。
+- 然后看 `src/front_track_button_test_node.cpp`，确认 Y/A 如何映射到共享 transport 连续发送。
 - 最后看 `src/wheeltec_joy.cpp`、`src/wheeltec_joy_dpad.cpp` 和两个 YAML。
 
 ## 目录解剖
 - `telecontrol_nodes.cpp`：基类、参数声明、摇杆输入处理、限幅、看门狗和两种控制模式实现。
 - `wheeltec_joy.cpp` / `wheeltec_joy_dpad.cpp`：两个独立可执行入口。
-- `front_track_button_test_node.cpp`：Y/A 到 `/mechanism/execute` 的测试桥接节点。
+- `front_track_button_test_node.cpp`：Y/A 到 `/mechanism/transport/send_command` 的连续发送桥接节点。
 - `config/joy_params*.yaml`：手柄映射和安全参数。
 - `launch/wheeltec_joy.launch.py`：模式切换和 `joy_node` 装配。
 
@@ -112,8 +112,9 @@
 - 四轮模式保持原有 `linear.x / linear.y / angular.z` 控制口径。
 - 履带模式下，Stick 和 Dpad 都只输出 `linear.x + angular.z`，`linear.y` 在节点内部被固定为 0。
 - `start_r2_teleop.sh` 现在默认用 `dpad` 模式启动，而不是 stick。
-- `start_r2_teleop.sh` 会额外拉起 `rc26_telecontrol_front_track_test`，用于把 `Y/A` 直接映射成前置履带抬升/放下动作。
+- `start_r2_teleop.sh` 会额外拉起 `rc26_telecontrol_front_track_test`，用于把 `Y/A` 直接映射成前置履带 `0x0E / 0x0F` 的连续命令。
 - 在 dpad 模式里，旋转仍由 `X/B` 控制；`Y/A` 不参与速度输出，只交给前置履带测试节点。
 - 仓库根目录的 `start_r2_teleop.sh` 现已显式向 `rc26_merge_odom` 和 `rc26_telecontrol` 传入 `chassis_model:=tracked_diff`，遥控联调不再依赖各包内部默认值。
+- `start_r2_teleop.sh` 不再默认拉起 `rc26_mechanism`；teleop 前置履带联调只依赖 `merge_odom` 持有目标串口并提供 transport service。
 - `start_r2_teleop.sh` 现支持 `--pose-mode imu|no-imu`：两种模式都会自动拉起 `merge_odom.launch.py` 的 EKF，区别只在于最终融合位姿是否消费 IMU；`no-imu` 不会停掉 `dm_imu_node` 或 `PoseSender` 的 IMU 保护。
 - `terrain_speed_limit` 运行时链路已从系统中删除；teleop 链不再需要额外关闭地形限速，也不存在重新接回该链路的脚本入口。

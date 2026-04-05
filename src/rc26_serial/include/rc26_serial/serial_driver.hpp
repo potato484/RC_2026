@@ -103,6 +103,10 @@ public:
     bool sendCommand(CommandID cmd, const std::vector<uint8_t>& payload = {});
     bool sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload, uint8_t& out_seq);
     bool sendCommand(CommandID cmd, const std::vector<uint8_t>& payload, uint8_t& out_seq);
+    bool sendCommandNoAck(uint8_t cmd, const std::vector<uint8_t>& payload = {});
+    bool sendCommandNoAck(CommandID cmd, const std::vector<uint8_t>& payload = {});
+    bool sendCommandNoAck(uint8_t cmd, const std::vector<uint8_t>& payload, uint8_t& out_seq);
+    bool sendCommandNoAck(CommandID cmd, const std::vector<uint8_t>& payload, uint8_t& out_seq);
     uint8_t lastSentSeq() const { return seq_.load(std::memory_order_relaxed); }
     const CommHealth& commHealth() const { return comm_health_; }
     float avgRttMs() const;
@@ -168,8 +172,6 @@ private:
     bool isLinkActive() const;
     void invokeCallbackSafely(const char* name, const std::function<void()>& callback);
     void invokeDebugCallback(bool is_tx, const std::vector<uint8_t>& data, const DebugCallback& callback);
-
-    bool sendCommandNoAck(uint8_t cmd, const std::vector<uint8_t>& payload);
 
     void beginWaitAck(uint8_t seq, uint8_t cmd);
     void endWaitAck();

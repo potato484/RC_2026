@@ -8,7 +8,7 @@
 
 ```bash
 cd "${RC26_WS:-$HOME/RC_2026}"
-MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_interfaces rc26_serial rc26_merge_odom rc26_mechanism rc26_telecontrol --cmake-args -DCMAKE_BUILD_TYPE=Release
+MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_interfaces rc26_serial rc26_merge_odom rc26_telecontrol --cmake-args -DCMAKE_BUILD_TYPE=Release
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
@@ -42,8 +42,6 @@ ros2 launch rc26_telecontrol wheeltec_joy.launch.py control_mode:=dpad
 
 - 使用 `dpad` 模式，而不是 stick
 - 启动 `rc26_merge_odom`
-- 启动 `rc26_mechanism mechanism.launch.py hal_type:=shared_serial`
-- 自动执行 `/mechanism_server` 的 `configure` 和 `activate`
 - 启动 `rc26_telecontrol_front_track_test`
 
 ### 2.4 验证节点与话题
@@ -52,7 +50,7 @@ ros2 launch rc26_telecontrol wheeltec_joy.launch.py control_mode:=dpad
 
 ```bash
 ros2 node list | grep -E 'joy|telecontrol|mechanism|merge_odom'
-# 预期输出至少包含：/joy_node, /rc26_telecontrol_dpad 或 /rc26_telecontrol, /rc26_telecontrol_front_track_test, /mechanism_server, /merge_odom_node
+# 预期输出至少包含：/joy_node, /rc26_telecontrol_dpad 或 /rc26_telecontrol, /rc26_telecontrol_front_track_test, /merge_odom_node
 ```
 
 检查控制指令话题：
@@ -102,10 +100,10 @@ ros2 topic echo /cmd_vel
 
 当前还新增了独立的机构按钮测试映射：
 
-- `Y(button[3]) -> /mechanism/execute -> FRONT_TRACK_UP (0x11)`
-- `A(button[0]) -> /mechanism/execute -> FRONT_TRACK_DOWN (0x12)`
+- `Y(button[3]) -> /mechanism/transport/send_command -> FRONT_TRACK_UP (0x0E)`
+- `A(button[0]) -> /mechanism/transport/send_command -> FRONT_TRACK_DOWN (0x0F)`
 
-这个测试节点不直接操作串口，而是复用 `rc26_mechanism` 的 action 入口；真机下实际串口发送会再经由 `rc26_merge_odom` 的共享桥接完成。
+这个测试节点不直接操作串口，而是直接复用 `rc26_merge_odom` 的共享 transport；真机下实际串口发送由 `merge_odom` 持有的目标串口完成。
 
 ## 3. 核心机制验证
 
@@ -165,22 +163,22 @@ Deadman 机制要求必须按住指定按键（默认 LB / 按键 4）才能控�
 
 ### 3.6 前置履带按钮测试
 
-当 `rc26_mechanism` 和 `rc26_telecontrol_front_track_test` 已经运行时，可以直接用手柄做前置履带联调：
+当 `rc26_merge_odom` 和 `rc26_telecontrol_front_track_test` 已经运行时，可以直接用手柄做前置履带联调：
 
-1. 按 `Y(button[3])`，应触发 `/mechanism/execute` 的 `FRONT_TRACK_UP (0x11)`。
-2. 按 `A(button[0])`，应触发 `/mechanism/execute` 的 `FRONT_TRACK_DOWN (0x12)`。
-3. 长按同一个键不会重复触发；必须松开再按才会再次发 goal。
+1. 按住 `Y(button[3])`，应按 `50Hz` 连续触发 `FRONT_TRACK_UP (0x0E)`。
+2. 按住 `A(button[0])`，应按 `50Hz` 连续触发 `FRONT_TRACK_DOWN (0x0F)`。
+3. 松开按键后应立即停止发送。
 4. 若 `Y` 与 `A` 同帧按下，测试节点会直接忽略本次输入。
-5. 上一个机构 goal 未结束时，新的 Y/A 会被拒绝。
+5. 若上一个 transport service 请求尚未返回，本周期会直接跳过，避免请求堆积。
 
 可以同时观察：
 
 ```bash
-ros2 topic echo /mechanism/state
 ros2 topic echo /mechanism/transport/feedback
+ros2 service type /mechanism/transport/send_command
 ```
 
-若 MCU 在遥控模式停止发送数据后回传 `0x13 / 0x14`，对应 goal 才会成功结束。
+若 MCU 在遥控模式停止发送数据后回传 `0x13 / 0x14`，会继续出现在 `/mechanism/transport/feedback` 中，但 teleop 节点本身不再等待 goal 终态。
 
 ## 4. 参数动态覆盖测试
 
@@ -205,4 +203,4 @@ ros2 param get /rc26_telecontrol max_accel
 - **手柄已连接但控制话题无输出**：先检查 `/joy` 是否有数据，再确认当前启动的是 Stick 还是 Dpad 模式，并确认自己监听的是 `/cmd_vel` 还是 `/cmd_vel_teleop`。
 - **输出始终为零**：优先检查是否开启了 `require_deadman` 且未按住安全键，或 `joy_timeout_s` 过短导致 Watchdog 持续触发零速保持。
 - **速度变化过猛或回中后仍有残余速度**：检查手柄硬件中心漂移，并适当调大死区相关参数或减小 `max_accel`，验证限加速度逻辑是否仍然生效。
-- **Y/A 按下没有触发前置履带动作**：先确认 `/mechanism_server` 已激活、`rc26_telecontrol_front_track_test` 已启动，并检查 `/mechanism/transport/send_command` 服务与 `/mechanism/transport/feedback` topic 是否存在。
+- **Y/A 按下没有触发前置履带动作**：先确认 `merge_odom_node` 已启动并成功持有目标串口、`rc26_telecontrol_front_track_test` 已启动，并检查 `/mechanism/transport/send_command` 服务与 `/mechanism/transport/feedback` topic 是否存在。

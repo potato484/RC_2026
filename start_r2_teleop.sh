@@ -229,11 +229,6 @@ merge_odom_cmd=(
   "chassis_model:=${chassis_model}"
 )
 
-mechanism_cmd=(
-  ros2 launch rc26_mechanism mechanism.launch.py
-  "hal_type:=shared_serial"
-)
-
 joy_cmd=(
   ros2 run joy joy_node
   --ros-args
@@ -278,9 +273,6 @@ if [[ "${dry_run}" == "true" ]]; then
   fi
   print_cmd source "${setup_file}"
   print_cmd "${merge_odom_cmd[@]}"
-  print_cmd "${mechanism_cmd[@]}"
-  print_cmd ros2 lifecycle set /mechanism_server configure
-  print_cmd ros2 lifecycle set /mechanism_server activate
   print_cmd "${joy_cmd[@]}"
   print_cmd "${teleop_cmd[@]}"
   print_cmd "${button_test_cmd[@]}"
@@ -311,36 +303,11 @@ cleanup() {
   exit "${exit_code}"
 }
 
-run_lifecycle_transition() {
-  local transition="$1"
-  local max_attempts="${2:-20}"
-  local sleep_seconds="${3:-0.5}"
-  local attempt
-
-  print_cmd ros2 lifecycle set /mechanism_server "${transition}"
-  for ((attempt=1; attempt<=max_attempts; attempt++)); do
-    if ros2 lifecycle set /mechanism_server "${transition}"; then
-      return 0
-    fi
-    sleep "${sleep_seconds}"
-  done
-
-  echo "Failed to transition /mechanism_server via ${transition}" >&2
-  return 1
-}
-
 trap cleanup EXIT INT TERM
 
 print_cmd "${merge_odom_cmd[@]}"
 "${merge_odom_cmd[@]}" &
 pids+=("$!")
-
-print_cmd "${mechanism_cmd[@]}"
-"${mechanism_cmd[@]}" &
-pids+=("$!")
-
-run_lifecycle_transition configure
-run_lifecycle_transition activate
 
 print_cmd "${joy_cmd[@]}"
 "${joy_cmd[@]}" &

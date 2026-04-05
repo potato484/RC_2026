@@ -17,7 +17,7 @@ public:
         this->declare_parameter("cmd_vel_topic", "cmd_vel");
         this->declare_parameter("odom_topic", "merge_odom");
         this->declare_parameter("feedback_send_rate_hz", 50);
-        this->declare_parameter("target_send_rate_hz", 25);
+        this->declare_parameter("target_send_rate_hz", 50);
         this->declare_parameter("cmd_vel_timeout_ms", 200);
         this->declare_parameter("imu_topic", "DM_IMU");
         this->declare_parameter("v_max_mps", 2.0);

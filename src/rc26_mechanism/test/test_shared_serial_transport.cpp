@@ -35,8 +35,7 @@ class FakeMechanismTransportProvider : public rclcpp::Node
 public:
   enum class Mode
   {
-    kFrontTrackUpSuccess,
-    kFrontTrackDownSuccess,
+    kSuccess,
     kRejectSend,
     kNoFeedback,
   };
@@ -78,6 +77,20 @@ public:
   }
 
 private:
+  static uint8_t doneFeedbackForCommand(uint8_t command_id)
+  {
+    using CID = rc26_serial::CommandID;
+    using FID = rc26_serial::FeedbackID;
+    switch (static_cast<CID>(command_id)) {
+      case CID::GRAB_KFS:
+        return static_cast<uint8_t>(FID::GRAB_KFS_DONE);
+      case CID::MECH_UP_DUEL:
+        return static_cast<uint8_t>(FID::MECH_UP_DUEL_DONE);
+      default:
+        return static_cast<uint8_t>(FID::ERROR);
+    }
+  }
+
   void handleSendCommand(
     const std::shared_ptr<rc26_interfaces::srv::SendMechanismTransportCommand::Request> request,
     std::shared_ptr<rc26_interfaces::srv::SendMechanismTransportCommand::Response> response)
@@ -104,10 +117,7 @@ private:
       return;
     }
 
-    const uint8_t feedback_id =
-      mode == Mode::kFrontTrackDownSuccess ?
-      static_cast<uint8_t>(rc26_serial::FeedbackID::FRONT_TRACK_DOWN_DONE) :
-      static_cast<uint8_t>(rc26_serial::FeedbackID::FRONT_TRACK_UP_DONE);
+    const uint8_t feedback_id = doneFeedbackForCommand(request->command_id);
 
     auto feedback_pub = feedback_pub_;
     auto alive = alive_;
@@ -124,7 +134,7 @@ private:
   }
 
   mutable std::mutex mutex_;
-  Mode mode_{Mode::kFrontTrackUpSuccess};
+  Mode mode_{Mode::kSuccess};
   uint8_t next_seq_{1};
   std::vector<RequestRecord> requests_;
   std::shared_ptr<std::atomic<bool>> alive_{std::make_shared<std::atomic<bool>>(true)};
@@ -218,6 +228,17 @@ protected:
     return result_future.get();
   }
 
+  GoalHandle::SharedPtr sendGoalExpectReject(uint8_t command_id, float timeout_sec)
+  {
+    ExecuteMechanism::Goal goal;
+    goal.command_id = command_id;
+    goal.timeout_sec = timeout_sec;
+
+    auto goal_handle_future = action_client_->async_send_goal(goal);
+    EXPECT_EQ(goal_handle_future.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    return goal_handle_future.get();
+  }
+
   std::shared_ptr<FakeMechanismTransportProvider> transport_provider_;
   std::shared_ptr<MechanismLifecycleServer> mechanism_server_;
   std::shared_ptr<rclcpp::Node> action_client_node_;
@@ -226,11 +247,11 @@ protected:
   std::thread spin_thread_;
 };
 
-TEST_F(SharedSerialTransportTest, FrontTrackUpSucceedsViaTransportBridge)
+TEST_F(SharedSerialTransportTest, GrabKfsSucceedsViaTransportBridge)
 {
-  transport_provider_->setMode(FakeMechanismTransportProvider::Mode::kFrontTrackUpSuccess);
+  transport_provider_->setMode(FakeMechanismTransportProvider::Mode::kSuccess);
 
-  const auto result = sendGoal(static_cast<uint8_t>(rc26_serial::CommandID::FRONT_TRACK_UP), 1.0F);
+  const auto result = sendGoal(static_cast<uint8_t>(rc26_serial::CommandID::GRAB_KFS), 1.0F);
 
   ASSERT_NE(result.result, nullptr);
   EXPECT_EQ(result.code, rclcpp_action::ResultCode::SUCCEEDED);
@@ -239,14 +260,14 @@ TEST_F(SharedSerialTransportTest, FrontTrackUpSucceedsViaTransportBridge)
 
   const auto requests = transport_provider_->requests();
   ASSERT_EQ(requests.size(), 1U);
-  EXPECT_EQ(requests.front().command_id, static_cast<uint8_t>(rc26_serial::CommandID::FRONT_TRACK_UP));
+  EXPECT_EQ(requests.front().command_id, static_cast<uint8_t>(rc26_serial::CommandID::GRAB_KFS));
 }
 
-TEST_F(SharedSerialTransportTest, FrontTrackDownSucceedsViaTransportBridge)
+TEST_F(SharedSerialTransportTest, MechUpDuelSucceedsViaTransportBridge)
 {
-  transport_provider_->setMode(FakeMechanismTransportProvider::Mode::kFrontTrackDownSuccess);
+  transport_provider_->setMode(FakeMechanismTransportProvider::Mode::kSuccess);
 
-  const auto result = sendGoal(static_cast<uint8_t>(rc26_serial::CommandID::FRONT_TRACK_DOWN), 1.0F);
+  const auto result = sendGoal(static_cast<uint8_t>(rc26_serial::CommandID::MECH_UP_DUEL), 1.0F);
 
   ASSERT_NE(result.result, nullptr);
   EXPECT_EQ(result.code, rclcpp_action::ResultCode::SUCCEEDED);
@@ -255,14 +276,25 @@ TEST_F(SharedSerialTransportTest, FrontTrackDownSucceedsViaTransportBridge)
 
   const auto requests = transport_provider_->requests();
   ASSERT_EQ(requests.size(), 1U);
-  EXPECT_EQ(requests.front().command_id, static_cast<uint8_t>(rc26_serial::CommandID::FRONT_TRACK_DOWN));
+  EXPECT_EQ(requests.front().command_id, static_cast<uint8_t>(rc26_serial::CommandID::MECH_UP_DUEL));
+}
+
+TEST_F(SharedSerialTransportTest, FrontTrackCommandIsRejectedByMechanismAction)
+{
+  transport_provider_->setMode(FakeMechanismTransportProvider::Mode::kSuccess);
+
+  const auto goal_handle =
+    sendGoalExpectReject(static_cast<uint8_t>(rc26_serial::CommandID::FRONT_TRACK_UP), 1.0F);
+
+  EXPECT_EQ(goal_handle, nullptr);
+  EXPECT_TRUE(transport_provider_->requests().empty());
 }
 
 TEST_F(SharedSerialTransportTest, RejectedTransportSendAbortsGoal)
 {
   transport_provider_->setMode(FakeMechanismTransportProvider::Mode::kRejectSend);
 
-  const auto result = sendGoal(static_cast<uint8_t>(rc26_serial::CommandID::FRONT_TRACK_UP), 1.0F);
+  const auto result = sendGoal(static_cast<uint8_t>(rc26_serial::CommandID::GRAB_KFS), 1.0F);
 
   ASSERT_NE(result.result, nullptr);
   EXPECT_EQ(result.code, rclcpp_action::ResultCode::ABORTED);
@@ -274,7 +306,7 @@ TEST_F(SharedSerialTransportTest, MissingTransportFeedbackTimesOut)
 {
   transport_provider_->setMode(FakeMechanismTransportProvider::Mode::kNoFeedback);
 
-  const auto result = sendGoal(static_cast<uint8_t>(rc26_serial::CommandID::FRONT_TRACK_DOWN), 0.2F);
+  const auto result = sendGoal(static_cast<uint8_t>(rc26_serial::CommandID::MECH_UP_DUEL), 0.2F);
 
   ASSERT_NE(result.result, nullptr);
   EXPECT_EQ(result.code, rclcpp_action::ResultCode::ABORTED);

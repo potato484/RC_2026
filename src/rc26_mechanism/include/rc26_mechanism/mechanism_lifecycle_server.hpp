@@ -138,10 +138,6 @@ private:
     bool mech_up_duel_failed_{false};
     bool place_ground_done_{false};
     bool place_ground_failed_{false};
-    bool front_track_up_done_{false};
-    bool front_track_up_failed_{false};
-    bool front_track_down_done_{false};
-    bool front_track_down_failed_{false};
     bool rotate_done_{false};
     bool rotate_failed_{false};
     std::unordered_map<uint8_t, std::shared_ptr<CommandContext>> pending_contexts_;

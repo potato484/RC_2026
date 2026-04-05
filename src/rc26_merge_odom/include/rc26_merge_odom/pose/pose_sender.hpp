@@ -29,7 +29,7 @@ public:
         std::string odom_topic = "merge_odom";
         std::string imu_topic = "DM_IMU";
         int feedback_send_rate_hz = 50;
-        int target_send_rate_hz = 25;
+        int target_send_rate_hz = 50;
         int cmd_vel_timeout_ms = 200;
         float v_max_mps = 2.0f;
         float w_max_rps = 4.0f;
