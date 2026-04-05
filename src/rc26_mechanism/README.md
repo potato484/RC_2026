@@ -33,5 +33,5 @@
 
 - 本文档为纯描述性说明文档。关于具体的接口定义（消息类型、Action 文件）请参阅 `rc26_interfaces` 仓库。
 - 当前真实部署推荐 `hal_type:=shared_serial`，避免与 `rc26_merge_odom` 同时竞争打开 `/dev/ttyUSB1`。
-- 前置履带动作通过 `ExecuteMechanism` 下发：`0x11` 抬升、`0x12` 放下，成功条件分别是收到 `0x13 / 0x14`。
+- 前置履带动作已从 `ExecuteMechanism` 中移除；遥控链当前直接调用 `/mechanism/transport/send_command` 连续下发 `0x0E / 0x0F`。
 - 关于如何在开发或实车环境下通过命令行调试本模块，请参阅 `docs/debug_guide.md`。

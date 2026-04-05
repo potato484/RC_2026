@@ -142,10 +142,6 @@ std::optional<uint8_t> ReplayMechanismHAL::doneFeedbackForCommand(uint8_t cmd_id
         return static_cast<uint8_t>(FID::MECH_UP_DUEL_DONE);
     case CID::PLACE_KFS_GROUND:
         return static_cast<uint8_t>(FID::PLACE_KFS_GROUND_DONE);
-    case CID::FRONT_TRACK_UP:
-        return static_cast<uint8_t>(FID::FRONT_TRACK_UP_DONE);
-    case CID::FRONT_TRACK_DOWN:
-        return static_cast<uint8_t>(FID::FRONT_TRACK_DOWN_DONE);
     case CID::ROTATE_POS_90:
         return static_cast<uint8_t>(FID::ROTATE_POS_90_DONE);
     case CID::ROTATE_NEG_90:
