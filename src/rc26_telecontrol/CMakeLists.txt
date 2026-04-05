@@ -7,7 +7,6 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(rclcpp_action REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(rc26_interfaces REQUIRED)
 find_package(rc26_serial REQUIRED)
@@ -61,7 +60,6 @@ target_include_directories(rc26_telecontrol_front_track_test PUBLIC
 )
 ament_target_dependencies(rc26_telecontrol_front_track_test
   rclcpp
-  rclcpp_action
   rc26_interfaces
   rc26_serial
   sensor_msgs

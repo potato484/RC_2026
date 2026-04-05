@@ -39,11 +39,11 @@
 除了底盘相关职责外，`merge_odom_node` 现在还承担真实目标 MCU 串口 `/dev/ttyUSB1` 的唯一 owner：
 
 - `PoseSender` 继续复用这条串口下发底盘速度目标
-- `MechanismTransportBridge` 新增内部桥接接口，供 `rc26_mechanism` 复用同一串口
+- `MechanismTransportBridge` 继续作为共享桥接接口，供 `rc26_mechanism` 与 teleop 前置履带按钮节点复用同一串口
 - service：`/mechanism/transport/send_command`
 - topic：`/mechanism/transport/feedback`
 
-其中桥接层会过滤 `ACK / HEARTBEAT_ACK / ODOM_DATA` 这类高频非业务反馈，只把机构执行真正关心的反馈继续发布给 `rc26_mechanism`
+其中桥接层会过滤 `ACK / HEARTBEAT_ACK / ODOM_DATA` 这类高频非业务反馈，只把业务侧真正关心的反馈继续发布出去；`FRONT_TRACK_UP/DOWN` 在桥接层会直接走 no-ACK 单发，其它机制命令仍保留 ACK 路径。
 
 `launch/merge_odom.launch.py` 当前除了 `use_can_odom` / `start_ekf` 外，还支持 `use_imu_for_ekf`：
 
@@ -106,8 +106,9 @@
 - `can_odom` 保留老四电机 CAN 解算；履带模式切换为左右两个电机 ID，可在 YAML 里分别配置。
 - `wheel_odom_fuser` 在履带模式下继续保留双源融合，但把 `vy` 收敛为非完整约束量。
 - `PoseSender` 在履带模式下仍按 `(vx, vy, wz)` 协议下发，但会在保护器里强制 `vy=0`，并改为左右履带空间限速/限加速度。
-- `merge_odom_node` 现在额外挂出 `/mechanism/transport/send_command` 与 `/mechanism/transport/feedback`，把机构命令复用到同一条目标串口上。
+- `PoseSender` 现在把 `POSE_FEEDBACK(0x1E)` 与 `POSE_TARGET(0x1F)` 都固定为 `50Hz` 连续下发；自动导航链仍可保持 `30Hz /cmd_vel`，由 PoseSender 在串口侧重发最近一次目标速度。
+- `merge_odom_node` 现在额外挂出 `/mechanism/transport/send_command` 与 `/mechanism/transport/feedback`，把机构命令和前置履带遥控命令都复用到同一条目标串口上。
 - 真实部署下，`rc26_mechanism` 不应再单独打开 `/dev/ttyUSB1`；若 teleop 或 bringup 已经启动 `merge_odom`，则机制侧应使用 `hal_type:=shared_serial`。
 - `terrain_speed_limit` 运行时链路已经从 `rc26_merge_odom` 中删除；`PoseSender` 不再消费来自 `rc26_terrain` 的外部限速话题。
 - 遥控链现在可以通过仓库根目录的 `start_r2_teleop.sh --pose-mode imu|no-imu` 切换“启用融合位姿且是否让 EKF 使用 IMU”；`no-imu` 只移除 EKF 的 IMU 输入，不改动 `dm_imu_node` 和执行保护链。
-- 遥控链通过 `start_r2_teleop.sh` 启动时，不再需要额外传地形限速相关参数；teleop 模式天然不会受 terrain 限速影响，同时会自动把机构共享串口桥一起拉起。
+- 遥控链通过 `start_r2_teleop.sh` 启动时，不再需要额外传地形限速相关参数；teleop 模式天然不会受 terrain 限速影响，同时会自动把前置履带直连 transport 的按钮节点一起拉起，不再默认拉起 `rc26_mechanism`。

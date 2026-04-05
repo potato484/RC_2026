@@ -7,41 +7,49 @@ namespace rc26_telecontrol
 namespace
 {
 
-TEST(FrontTrackButtonLogicTest, YRisingEdgeTriggersUpOnlyOnce)
+TEST(FrontTrackButtonLogicTest, YHoldKeepsRequestingUp)
 {
   FrontTrackButtonLogic logic;
-  EXPECT_EQ(logic.update(false, false, false), FrontTrackButtonEvent::kNone);
-  EXPECT_EQ(logic.update(true, false, false), FrontTrackButtonEvent::kFrontTrackUp);
-  EXPECT_EQ(logic.update(true, false, false), FrontTrackButtonEvent::kNone);
+  EXPECT_EQ(logic.update(false, false), FrontTrackButtonCommand::kNone);
+  EXPECT_EQ(logic.update(true, false), FrontTrackButtonCommand::kFrontTrackUp);
+  EXPECT_EQ(logic.update(true, false), FrontTrackButtonCommand::kFrontTrackUp);
 }
 
-TEST(FrontTrackButtonLogicTest, ARisingEdgeTriggersDownOnlyOnce)
+TEST(FrontTrackButtonLogicTest, AHoldKeepsRequestingDown)
 {
   FrontTrackButtonLogic logic;
-  EXPECT_EQ(logic.update(false, false, false), FrontTrackButtonEvent::kNone);
-  EXPECT_EQ(logic.update(false, true, false), FrontTrackButtonEvent::kFrontTrackDown);
-  EXPECT_EQ(logic.update(false, true, false), FrontTrackButtonEvent::kNone);
+  EXPECT_EQ(logic.update(false, false), FrontTrackButtonCommand::kNone);
+  EXPECT_EQ(logic.update(false, true), FrontTrackButtonCommand::kFrontTrackDown);
+  EXPECT_EQ(logic.update(false, true), FrontTrackButtonCommand::kFrontTrackDown);
 }
 
-TEST(FrontTrackButtonLogicTest, SimultaneousRiseIsIgnoredAsConflict)
+TEST(FrontTrackButtonLogicTest, SimultaneousPressIsConflict)
 {
   FrontTrackButtonLogic logic;
-  EXPECT_EQ(logic.update(true, true, false), FrontTrackButtonEvent::kConflict);
+  EXPECT_EQ(logic.update(true, true), FrontTrackButtonCommand::kConflict);
 }
 
-TEST(FrontTrackButtonLogicTest, BusyStateIgnoresNewTrigger)
+TEST(FrontTrackButtonLogicTest, ReleaseStopsCommand)
 {
   FrontTrackButtonLogic logic;
-  EXPECT_EQ(logic.update(false, false, false), FrontTrackButtonEvent::kNone);
-  EXPECT_EQ(logic.update(true, false, true), FrontTrackButtonEvent::kBusyIgnored);
+  EXPECT_EQ(logic.update(true, false), FrontTrackButtonCommand::kFrontTrackUp);
+  EXPECT_EQ(logic.update(false, false), FrontTrackButtonCommand::kNone);
 }
 
-TEST(FrontTrackButtonLogicTest, ReleaseAndPressAgainTriggersAgain)
+TEST(FrontTrackButtonLogicTest, DirectionSwitchChangesCommandImmediately)
 {
   FrontTrackButtonLogic logic;
-  EXPECT_EQ(logic.update(true, false, false), FrontTrackButtonEvent::kFrontTrackUp);
-  EXPECT_EQ(logic.update(false, false, false), FrontTrackButtonEvent::kNone);
-  EXPECT_EQ(logic.update(true, false, false), FrontTrackButtonEvent::kFrontTrackUp);
+  EXPECT_EQ(logic.update(true, false), FrontTrackButtonCommand::kFrontTrackUp);
+  EXPECT_EQ(logic.update(false, true), FrontTrackButtonCommand::kFrontTrackDown);
+}
+
+TEST(FrontTrackButtonLogicTest, CommandIdMatchesRenumberedProtocol)
+{
+  EXPECT_EQ(commandIdForCommand(FrontTrackButtonCommand::kFrontTrackUp),
+    static_cast<uint8_t>(rc26_serial::CommandID::FRONT_TRACK_UP));
+  EXPECT_EQ(commandIdForCommand(FrontTrackButtonCommand::kFrontTrackDown),
+    static_cast<uint8_t>(rc26_serial::CommandID::FRONT_TRACK_DOWN));
+  EXPECT_FALSE(commandIdForCommand(FrontTrackButtonCommand::kConflict).has_value());
 }
 
 }  // namespace

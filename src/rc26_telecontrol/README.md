@@ -29,7 +29,7 @@
 *   **Stick 模式**：`linear.x <- axes[1]`，`angular.z <- axes[3]`，`linear.y <- axes[0]`（仅四轮全向模式启用）。
 *   **Dpad 模式**：`linear.x <- axes[7]`，`angular.z <- X/B`，`linear.y <- axes[6]`（仅四轮全向模式启用）。
 *   当前默认底盘模式为 `tracked_diff`，因此运行时只真正消费 `linear.x + angular.z`，`linear.y` 会被固定为 `0`，右摇杆前后 `axes[4]` 目前也未参与控制。
-*   当前新增独立测试节点 `rc26_telecontrol_front_track_test`：`Y(button[3])` 触发前置履带抬升，`A(button[0])` 触发前置履带放下；该节点通过 `/mechanism/execute` action 发送机构目标，不直接写串口。
+*   当前新增独立测试节点 `rc26_telecontrol_front_track_test`：`Y(button[3])` 按住时按 `50Hz` 连续下发 `FRONT_TRACK_UP (0x0E)`，`A(button[0])` 按住时按 `50Hz` 连续下发 `FRONT_TRACK_DOWN (0x0F)`；该节点直接调用 `/mechanism/transport/send_command`，不再经过 `/mechanism/execute`。
 
 ### 2.2 多重安全保障机制
 
@@ -74,7 +74,7 @@
 2.  **处理节点**：
     *   `wheeltec_joy` (Stick 模式处理)
     *   `wheeltec_joy_dpad` (Dpad 模式处理)
-    *   `rc26_telecontrol_front_track_test` (Y/A 到机构 action 的测试桥接)
+    *   `rc26_telecontrol_front_track_test` (Y/A 到共享 transport 的连续发送桥接)
     节点内部按顺序执行：看门狗检查 -> 安全开关检查 -> 死区过滤 -> 加速度限制计算 -> 重复发包逻辑。
 3.  **输出**：将计算后平滑且安全的速度结果，打包成标准的速度控制消息（如 `geometry_msgs::msg::Twist`），发布到指定话题。包内默认参数仍是 `/cmd_vel_teleop`，但仓库根目录的 `start_r2_teleop.sh` 会显式改为 `/cmd_vel` 以接入当前底盘执行链。
 
