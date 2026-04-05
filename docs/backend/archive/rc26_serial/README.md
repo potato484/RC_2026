@@ -33,6 +33,12 @@
 - 两者都按 `50Hz` 连续发送
 - 两者都走公开的 `sendCommandNoAck()` 路径，不等待 ACK
 
+当前仓库的双串口职责速记是：
+
+- `feedback_serial_port`：`ODOM_DATA` 上行接收口，同时也是 `POSE_FEEDBACK` 的下行发送口
+- `target_serial_port`：`POSE_TARGET` 下行发送口，同时被 `/mechanism/transport/*` 复用来收发机构与前置履带命令
+- 如果只记“反馈口 / 目标口”这两个历史名字，很容易误以为 `feedback_serial_port` 只收不发，或误以为 `target_serial_port` 还负责 `ODOM_DATA`；当前真实实现都不是这样
+
 当前协议已经定义前置履带动作相关编号，但遥控链不再通过 `rc26_mechanism` 的 Action 兼容路径消费，而是直接走共享 transport：
 
 - 下行命令：

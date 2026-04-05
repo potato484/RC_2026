@@ -7,6 +7,14 @@
 #include "rc26_merge_odom/pose/pose_sender.hpp"
 #include "rc26_serial/serial_driver.hpp"
 
+namespace {
+
+bool serialPortDisabled(const std::string& port) {
+    return port.empty() || port == "__disabled__" || port == "disabled";
+}
+
+}  // namespace
+
 class PoseSenderNode : public rclcpp::Node {
 public:
     PoseSenderNode() : Node("pose_sender_node") {
@@ -47,22 +55,35 @@ public:
         std::string target_port = this->get_parameter("target_serial_port").as_string();
         int baudrate = this->get_parameter("baudrate").as_int();
 
-        if (!feedback_port.empty() && feedback_port == target_port) {
+        const bool feedback_disabled = serialPortDisabled(feedback_port);
+        const bool target_disabled = serialPortDisabled(target_port);
+
+        if (!feedback_disabled && !target_disabled && feedback_port == target_port) {
             RCLCPP_FATAL(this->get_logger(), "feedback_serial_port 与 target_serial_port 指向同一设备: %s",
                          feedback_port.c_str());
             throw std::invalid_argument("feedback_serial_port and target_serial_port must be different");
         }
 
-        feedback_serial_ = std::make_shared<rc26_decision::SerialDriver>();
-        bool feedback_ok = feedback_serial_->open(feedback_port, baudrate);
-        if (!feedback_ok) {
-            RCLCPP_WARN(this->get_logger(), "反馈串口打开失败: %s", feedback_port.c_str());
+        bool feedback_ok = false;
+        if (feedback_disabled) {
+            RCLCPP_INFO(this->get_logger(), "反馈串口已禁用");
+        } else {
+            feedback_serial_ = std::make_shared<rc26_decision::SerialDriver>();
+            feedback_ok = feedback_serial_->open(feedback_port, baudrate);
+            if (!feedback_ok) {
+                RCLCPP_WARN(this->get_logger(), "反馈串口打开失败: %s", feedback_port.c_str());
+            }
         }
 
-        target_serial_ = std::make_shared<rc26_decision::SerialDriver>();
-        bool target_ok = target_serial_->open(target_port, baudrate);
-        if (!target_ok) {
-            RCLCPP_WARN(this->get_logger(), "目标串口打开失败: %s", target_port.c_str());
+        bool target_ok = false;
+        if (target_disabled) {
+            RCLCPP_INFO(this->get_logger(), "目标串口已禁用");
+        } else {
+            target_serial_ = std::make_shared<rc26_decision::SerialDriver>();
+            target_ok = target_serial_->open(target_port, baudrate);
+            if (!target_ok) {
+                RCLCPP_WARN(this->get_logger(), "目标串口打开失败: %s", target_port.c_str());
+            }
         }
 
         if (!feedback_ok && !target_ok) {

@@ -123,11 +123,11 @@ def generate_launch_description():
 
     feedback_serial_port_arg = DeclareLaunchArgument(
         'feedback_serial_port', default_value=feedback_serial_port_default,
-        description='MCU feedback serial port (velocity feedback)')
+        description='MCU feedback serial port (ODOM_DATA receive + POSE_FEEDBACK send)')
 
     target_serial_port_arg = DeclareLaunchArgument(
         'target_serial_port', default_value=target_serial_port_default,
-        description='MCU target serial port (velocity target + ODOM_DATA upstream)')
+        description='MCU target serial port (POSE_TARGET + /mechanism/transport/*)')
 
     chassis_model_arg = DeclareLaunchArgument(
         'chassis_model', default_value=chassis_model_default,

@@ -23,7 +23,7 @@ def generate_launch_description():
     serial_port_arg = DeclareLaunchArgument(
         'serial_port',
         default_value='/dev/ttyUSB1',
-        description='Mechanism serial port path',
+        description='Mechanism serial port path (used only when hal_type=serial; real robot should prefer shared_serial)',
     )
     serial_baud_arg = DeclareLaunchArgument(
         'serial_baud',
@@ -33,7 +33,7 @@ def generate_launch_description():
     hal_type_arg = DeclareLaunchArgument(
         'hal_type',
         default_value='serial',
-        description='Mechanism HAL type: serial|shared_serial|sim|fault|replay',
+        description='Mechanism HAL type: serial|shared_serial|sim|fault|replay; shared_serial reuses rc26_merge_odom target_serial_port',
     )
     sim_action_latency_arg = DeclareLaunchArgument(
         'sim_action_latency_ms',

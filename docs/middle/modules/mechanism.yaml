@@ -8,6 +8,8 @@ info:
     注意：
     - 机构动作执行入口仍是 action `/mechanism/execute`
     - 本文档额外覆盖 mechanism 与 merge_odom 之间的内部 transport topic/service 契约
+    - `/mechanism/transport/*` 复用的是 `rc26_merge_odom` 已打开的 `target_serial_port`
+    - `feedback_serial_port` 主要承载 `ODOM_DATA` 与 `POSE_FEEDBACK`，不作为 mechanism transport 的物理链路
 servers:
   - url: http://localhost:8080
 tags:
@@ -33,6 +35,9 @@ paths:
     get:
       tags: [Topic]
       summary: 读取 topic /mechanism/transport/feedback 的最新消息
+      description: |
+        该 topic 由 `rc26_merge_odom` 从 `target_serial_port` 上收到的业务反馈转发而来。
+        `ACK / HEARTBEAT_ACK / ODOM_DATA` 会在桥接层被过滤，不会发布到这里。
       x-ros:
         interface_kind: topic
         name: /mechanism/transport/feedback
@@ -48,6 +53,9 @@ paths:
     post:
       tags: [Service]
       summary: 调用 service /mechanism/transport/send_command 下发共享串口机构命令
+      description: |
+        该 service 实际通过 `rc26_merge_odom` 已持有的 `target_serial_port` 下发命令。
+        它不经过 `feedback_serial_port`，因此机制与前置履带链路排障时应优先检查目标串口 owner 是否正常。
       x-ros:
         interface_kind: service
         name: /mechanism/transport/send_command

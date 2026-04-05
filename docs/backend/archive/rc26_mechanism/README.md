@@ -40,6 +40,12 @@
 - 下行发送经由 `/mechanism/transport/send_command`
 - 上行反馈经由 `/mechanism/transport/feedback`
 
+串口职责速记：
+
+- `feedback_serial_port` 是底盘反馈链路，主要对应 `ODOM_DATA` 接收和 `POSE_FEEDBACK` 发送，`rc26_mechanism` 不直接使用它
+- `target_serial_port` 才是 mechanism 共享 transport 复用的真实物理链路，同时承载 `POSE_TARGET` 与机构/前置履带命令
+- 因此只要 `/mechanism/transport/*` 异常，优先排查 `merge_odom` 是否成功持有 `target_serial_port`，而不是先看 `feedback_serial_port`
+
 也就是说，`/mechanism/execute` 仍然是上层动作执行入口，但真机串口发送职责已经下沉到 `rc26_merge_odom`。
 
 当前 `ExecuteMechanism` 通用入口已经不再覆盖前置履带；前置履带遥控链改为直接调用 `/mechanism/transport/send_command`，并由 `merge_odom` 在目标串口上按 `50Hz` 连续下发 `FRONT_TRACK_UP(0x0E)` / `FRONT_TRACK_DOWN(0x0F)`。
