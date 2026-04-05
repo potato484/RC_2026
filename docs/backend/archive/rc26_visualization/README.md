@@ -22,6 +22,7 @@
 ## 当前诊断输入口径
 
 - 诊断输入已经完全收口到 xhu 主链与 keepout 约束输入
+- 地形侧只消费 `terrain_obstacles`、`terrain_drop` 与 `/terrain_grid_map_local`，不再监控 `terrain_speed_limit`
 
 ## 当前边界
 

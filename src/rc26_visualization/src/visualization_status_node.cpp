@@ -23,7 +23,6 @@
 #include <rc26_interfaces/msg/xhu_tracking_state.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <std_msgs/msg/bool.hpp>
-#include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_srvs/srv/trigger.hpp>
@@ -172,7 +171,6 @@ private:
     this->declare_parameter<std::string>("topics.terrain_obstacles", "terrain_obstacles");
     this->declare_parameter<std::string>("topics.terrain_drop", "terrain_drop");
     this->declare_parameter<std::string>("topics.terrain_grid_map_local", "/terrain_grid_map_local");
-    this->declare_parameter<std::string>("topics.terrain_speed_limit", "terrain_speed_limit");
     this->declare_parameter<std::string>("topics.odom", "odom");
     this->declare_parameter<std::string>("topics.control_state", "control_state");
 
@@ -191,8 +189,6 @@ private:
     this->declare_parameter<int>("thresholds.mechanism_warn_level", 1);
     this->declare_parameter<int>("thresholds.mechanism_error_level", 2);
     this->declare_parameter<int>("thresholds.topics_orange_count", 3);
-    this->declare_parameter<double>("thresholds.terrain_speed_limit_nominal_mps", 2.0);
-    this->declare_parameter<double>("thresholds.terrain_speed_limit_margin_mps", 0.05);
     this->declare_parameter<double>("thresholds.terrain_climbable_active_threshold", 0.20);
     this->declare_parameter<double>("thresholds.terrain_step_edge_active_threshold", 0.50);
 
@@ -212,7 +208,6 @@ private:
     this->declare_parameter<double>("watchdog.terrain_obstacles_max_age_ms", 1000.0);
     this->declare_parameter<double>("watchdog.terrain_drop_max_age_ms", 1000.0);
     this->declare_parameter<double>("watchdog.terrain_grid_map_local_max_age_ms", 1000.0);
-    this->declare_parameter<double>("watchdog.terrain_speed_limit_max_age_ms", 1000.0);
     this->declare_parameter<double>("watchdog.odom_max_age_ms", 500.0);
     this->declare_parameter<double>("watchdog.control_state_max_age_ms", 500.0);
 
@@ -243,13 +238,8 @@ private:
     topic_terrain_obstacles_ = this->get_parameter("topics.terrain_obstacles").as_string();
     topic_terrain_drop_ = this->get_parameter("topics.terrain_drop").as_string();
     topic_terrain_grid_map_local_ = this->get_parameter("topics.terrain_grid_map_local").as_string();
-    topic_terrain_speed_limit_ = this->get_parameter("topics.terrain_speed_limit").as_string();
     topic_odom_ = this->get_parameter("topics.odom").as_string();
     topic_control_state_ = this->get_parameter("topics.control_state").as_string();
-    terrain_speed_limit_nominal_mps_ =
-        this->get_parameter("thresholds.terrain_speed_limit_nominal_mps").as_double();
-    terrain_speed_limit_margin_mps_ =
-        this->get_parameter("thresholds.terrain_speed_limit_margin_mps").as_double();
     terrain_climbable_active_threshold_ =
         this->get_parameter("thresholds.terrain_climbable_active_threshold").as_double();
     terrain_step_edge_active_threshold_ =
@@ -288,9 +278,6 @@ private:
     config.terrain_obstacles_topic = topic_terrain_obstacles_;
     config.terrain_drop_topic = topic_terrain_drop_;
     config.terrain_grid_topic = topic_terrain_grid_map_local_;
-    config.terrain_speed_limit_topic = topic_terrain_speed_limit_;
-    config.terrain_speed_limit_nominal_mps = terrain_speed_limit_nominal_mps_;
-    config.terrain_speed_limit_margin_mps = terrain_speed_limit_margin_mps_;
     config.terrain_climbable_active_threshold = terrain_climbable_active_threshold_;
     config.terrain_step_edge_active_threshold = terrain_step_edge_active_threshold_;
     config.localization_present = this->get_parameter("summary.localization_present").as_bool();
@@ -318,7 +305,6 @@ private:
         {"TERRAIN_OBSTACLES", topic_terrain_obstacles_, this->get_parameter("watchdog.terrain_obstacles_max_age_ms").as_double() / 1000.0, config.terrain_present},
         {"TERRAIN_DROP", topic_terrain_drop_, this->get_parameter("watchdog.terrain_drop_max_age_ms").as_double() / 1000.0, config.terrain_present},
         {"TERRAIN_GRID_MAP_LOCAL", topic_terrain_grid_map_local_, this->get_parameter("watchdog.terrain_grid_map_local_max_age_ms").as_double() / 1000.0, config.terrain_present},
-        {"TERRAIN_SPEED_LIMIT", topic_terrain_speed_limit_, this->get_parameter("watchdog.terrain_speed_limit_max_age_ms").as_double() / 1000.0, config.terrain_present},
         {"ODOM", topic_odom_, this->get_parameter("watchdog.odom_max_age_ms").as_double() / 1000.0, true},
         {"CONTROL_STATE", topic_control_state_, this->get_parameter("watchdog.control_state_max_age_ms").as_double() / 1000.0, true},
     };
@@ -506,16 +492,6 @@ private:
               terrain_step_edge_active_threshold_);
         });
 
-    terrain_speed_limit_sub_ = this->create_subscription<std_msgs::msg::Float32>(
-        topic_terrain_speed_limit_,
-        reliable_qos,
-        [this](const std_msgs::msg::Float32::SharedPtr msg) {
-          std::lock_guard<std::mutex> lock(data_mutex_);
-          terrain_speed_limit_.received = true;
-          terrain_speed_limit_.stamp = this->now();
-          terrain_speed_limit_.value = static_cast<double>(msg->data);
-        });
-
     odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
         topic_odom_, sensor_qos,
         [this](const nav_msgs::msg::Odometry::SharedPtr msg) {
@@ -647,14 +623,6 @@ private:
                                            : std::numeric_limits<double>::quiet_NaN();
     input.terrain.climbable_active = terrain_grid_summary_.climbable_active;
     input.terrain.step_edge_active = terrain_grid_summary_.step_edge_active;
-    input.terrain.speed_limit_received = terrain_speed_limit_.received;
-    input.terrain.speed_limit_age_sec =
-        ageSec(*this->get_clock(), terrain_speed_limit_.received, terrain_speed_limit_.stamp);
-    const double limited_threshold =
-        std::max(0.0, terrain_speed_limit_nominal_mps_ - terrain_speed_limit_margin_mps_);
-    input.terrain.speed_limited =
-        terrain_speed_limit_.received && std::isfinite(terrain_speed_limit_.value) &&
-        terrain_speed_limit_.value < limited_threshold;
 
     for (const auto& topic_watch : topic_watch_configs_) {
       TopicWatchInput watch;
@@ -708,9 +676,6 @@ private:
       } else if (topic_watch.code_suffix == "TERRAIN_GRID_MAP_LOCAL") {
         watch.received = terrain_grid_map_local_.received;
         watch.age_sec = input.terrain.grid_age_sec;
-      } else if (topic_watch.code_suffix == "TERRAIN_SPEED_LIMIT") {
-        watch.received = terrain_speed_limit_.received;
-        watch.age_sec = input.terrain.speed_limit_age_sec;
       } else if (topic_watch.code_suffix == "ODOM") {
         watch.received = odom_.received;
         watch.age_sec = ageSec(*this->get_clock(), odom_.received, odom_.stamp);
@@ -786,11 +751,8 @@ private:
   std::string topic_terrain_obstacles_;
   std::string topic_terrain_drop_;
   std::string topic_terrain_grid_map_local_;
-  std::string topic_terrain_speed_limit_;
   std::string topic_odom_;
   std::string topic_control_state_;
-  double terrain_speed_limit_nominal_mps_{2.0};
-  double terrain_speed_limit_margin_mps_{0.05};
   double terrain_climbable_active_threshold_{0.20};
   double terrain_step_edge_active_threshold_{0.50};
 
@@ -817,7 +779,6 @@ private:
   MessageCache<sensor_msgs::msg::PointCloud2> terrain_drop_;
   MessageCache<grid_map_msgs::msg::GridMap> terrain_grid_map_local_;
   TerrainGridSummary terrain_grid_summary_;
-  ValueCache<double> terrain_speed_limit_;
   MessageCache<nav_msgs::msg::Odometry> odom_;
   MessageCache<nav_msgs::msg::Odometry> control_state_;
 
@@ -844,7 +805,6 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr terrain_obstacles_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr terrain_drop_sub_;
   rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr terrain_grid_map_local_sub_;
-  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr terrain_speed_limit_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr control_state_sub_;
 

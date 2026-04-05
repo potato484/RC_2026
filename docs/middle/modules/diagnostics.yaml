@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: RC26 R2 Diagnostics ROS2 Contract
-  version: 0.3.0
+  version: 0.4.0
   description: 运维聚合诊断接口
 servers:
   - url: http://localhost:8080
@@ -96,7 +96,6 @@ components:
         - terrain_obstacle_active
         - terrain_drop_active
         - terrain_traversability_min
-        - terrain_speed_limited
         - terrain_climbable_active
         - terrain_step_edge_active
         - nav_safety_level
@@ -160,8 +159,6 @@ components:
         terrain_traversability_min:
           type: number
           format: float
-        terrain_speed_limited:
-          type: boolean
         terrain_climbable_active:
           type: boolean
         terrain_step_edge_active:

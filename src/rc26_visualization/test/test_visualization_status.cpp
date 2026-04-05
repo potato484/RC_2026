@@ -88,9 +88,6 @@ EvaluationInput makeNominalInput() {
   input.terrain.traversability_min = 0.92;
   input.terrain.climbable_active = false;
   input.terrain.step_edge_active = false;
-  input.terrain.speed_limit_received = true;
-  input.terrain.speed_limit_age_sec = 0.10;
-  input.terrain.speed_limited = false;
 
   input.monitored_topics = {
       {"LOCALIZATION_HEALTH", "/localization/health", 1.0, true, true, 0.05},
@@ -109,7 +106,6 @@ EvaluationInput makeNominalInput() {
       {"TERRAIN_OBSTACLES", "terrain_obstacles", 1.0, true, true, 0.10},
       {"TERRAIN_DROP", "terrain_drop", 1.0, true, true, 0.10},
       {"TERRAIN_GRID_MAP_LOCAL", "/terrain_grid_map_local", 1.0, true, true, 0.10},
-      {"TERRAIN_SPEED_LIMIT", "terrain_speed_limit", 1.0, true, true, 0.10},
       {"ODOM", "odom", 0.5, true, true, 0.05},
       {"CONTROL_STATE", "control_state", 0.5, true, true, 0.05},
   };
@@ -179,7 +175,6 @@ TEST(VisualizationStatusCoreTest, NominalCruiseStaysGreen) {
   EXPECT_EQ(output.operator_status.overall_level, kLevelGreen);
   EXPECT_EQ(output.operator_status.controller_level, kLevelGreen);
   EXPECT_TRUE(output.operator_status.keepout_ready);
-  EXPECT_FALSE(output.operator_status.terrain_speed_limited);
   EXPECT_FALSE(output.operator_status.terrain_climbable_active);
   EXPECT_FALSE(output.operator_status.terrain_step_edge_active);
   EXPECT_NEAR(output.operator_status.terrain_traversability_min, 0.92f, 1e-5f);
@@ -327,7 +322,6 @@ TEST(VisualizationStatusCoreTest, DisabledSubsystemsExposeMetadataWithoutTrigger
   input.terrain.obstacles_received = false;
   input.terrain.drop_received = false;
   input.terrain.grid_received = false;
-  input.terrain.speed_limit_received = false;
   for (auto& topic : input.monitored_topics) {
     if (topic.code_suffix == "CONTROL_DEGRADED" || topic.code_suffix == "CONTROL_DEGENERATE_SCORE" ||
         topic.code_suffix == "COMPUTE_TIME_MS" || topic.code_suffix == "POSE_AGE_MS" ||
@@ -335,8 +329,7 @@ TEST(VisualizationStatusCoreTest, DisabledSubsystemsExposeMetadataWithoutTrigger
         topic.code_suffix == "TRACKING_STATE" || topic.code_suffix == "BLOCK_OVERLAY" ||
         topic.code_suffix == "KFS_FILTER_MASK" ||
         topic.code_suffix == "KFS_KEEPOUT_HEARTBEAT" || topic.code_suffix == "TERRAIN_OBSTACLES" ||
-        topic.code_suffix == "TERRAIN_DROP" || topic.code_suffix == "TERRAIN_GRID_MAP_LOCAL" ||
-        topic.code_suffix == "TERRAIN_SPEED_LIMIT") {
+        topic.code_suffix == "TERRAIN_DROP" || topic.code_suffix == "TERRAIN_GRID_MAP_LOCAL") {
       topic.required = false;
       topic.received = false;
       topic.age_sec = kInf;

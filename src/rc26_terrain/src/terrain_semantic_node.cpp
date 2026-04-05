@@ -141,9 +141,6 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->declare_parameter<int>("output_qos_depth", output_qos_depth_);
     this->declare_parameter<std::string>("output_qos_reliability", output_qos_reliability_);
     this->declare_parameter<std::string>("output_qos_durability", output_qos_durability_);
-    this->declare_parameter<int>("speed_limit_qos_depth", speed_limit_qos_depth_);
-    this->declare_parameter<std::string>("speed_limit_qos_reliability", speed_limit_qos_reliability_);
-    this->declare_parameter<std::string>("speed_limit_qos_durability", speed_limit_qos_durability_);
     this->declare_parameter<int>("diagnostics_qos_depth", diagnostics_qos_depth_);
     this->declare_parameter<std::string>("diagnostics_qos_reliability", diagnostics_qos_reliability_);
     this->declare_parameter<std::string>("diagnostics_qos_durability", diagnostics_qos_durability_);
@@ -190,20 +187,6 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->declare_parameter<std::string>("terrain_features_topic", terrain_features_topic_);
     this->declare_parameter<bool>       ("enable_terrain_features_pub", enable_terrain_features_pub_);
     this->declare_parameter<double>     ("terrain_features_publish_hz", terrain_features_publish_hz_);
-    this->declare_parameter<std::string>("terrain_speed_limit_topic", terrain_speed_limit_topic_);
-    this->declare_parameter<bool>       ("enable_terrain_speed_limit_pub", enable_terrain_speed_limit_pub_);
-    this->declare_parameter<double>     ("terrain_speed_limit_publish_hz", terrain_speed_limit_publish_hz_);
-    this->declare_parameter<double>     ("speed_limit_forward_look_m", speed_limit_forward_look_m_);
-    this->declare_parameter<double>     ("speed_limit_half_width_m", speed_limit_half_width_m_);
-    this->declare_parameter<double>     ("speed_limit_v_max_mps", speed_limit_v_max_mps_);
-    this->declare_parameter<double>     ("speed_limit_min_mps", speed_limit_min_mps_);
-    this->declare_parameter<double>     ("speed_limit_w_slope", speed_limit_w_slope_);
-    this->declare_parameter<double>     ("speed_limit_w_roughness", speed_limit_w_roughness_);
-    this->declare_parameter<double>     ("speed_limit_w_drop", speed_limit_w_drop_);
-    this->declare_parameter<double>     ("speed_limit_w_climbable", speed_limit_w_climbable_);
-    this->declare_parameter<double>     ("speed_limit_k_tci", speed_limit_k_tci_);
-    this->declare_parameter<double>     ("speed_limit_emergency_drop_thresh",
-                                         speed_limit_emergency_drop_thresh_);
     this->declare_parameter<bool>       ("enable_risk_model", enable_risk_model_);
     this->declare_parameter<std::string>("risk_model_file", risk_model_file_);
 
@@ -272,9 +255,6 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->get_parameter("output_qos_depth", output_qos_depth_);
     this->get_parameter("output_qos_reliability", output_qos_reliability_);
     this->get_parameter("output_qos_durability", output_qos_durability_);
-    this->get_parameter("speed_limit_qos_depth", speed_limit_qos_depth_);
-    this->get_parameter("speed_limit_qos_reliability", speed_limit_qos_reliability_);
-    this->get_parameter("speed_limit_qos_durability", speed_limit_qos_durability_);
     this->get_parameter("diagnostics_qos_depth", diagnostics_qos_depth_);
     this->get_parameter("diagnostics_qos_reliability", diagnostics_qos_reliability_);
     this->get_parameter("diagnostics_qos_durability", diagnostics_qos_durability_);
@@ -310,19 +290,6 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->get_parameter("terrain_features_topic", terrain_features_topic_);
     this->get_parameter("enable_terrain_features_pub", enable_terrain_features_pub_);
     this->get_parameter("terrain_features_publish_hz", terrain_features_publish_hz_);
-    this->get_parameter("terrain_speed_limit_topic", terrain_speed_limit_topic_);
-    this->get_parameter("enable_terrain_speed_limit_pub", enable_terrain_speed_limit_pub_);
-    this->get_parameter("terrain_speed_limit_publish_hz", terrain_speed_limit_publish_hz_);
-    this->get_parameter("speed_limit_forward_look_m", speed_limit_forward_look_m_);
-    this->get_parameter("speed_limit_half_width_m", speed_limit_half_width_m_);
-    this->get_parameter("speed_limit_v_max_mps", speed_limit_v_max_mps_);
-    this->get_parameter("speed_limit_min_mps", speed_limit_min_mps_);
-    this->get_parameter("speed_limit_w_slope", speed_limit_w_slope_);
-    this->get_parameter("speed_limit_w_roughness", speed_limit_w_roughness_);
-    this->get_parameter("speed_limit_w_drop", speed_limit_w_drop_);
-    this->get_parameter("speed_limit_w_climbable", speed_limit_w_climbable_);
-    this->get_parameter("speed_limit_k_tci", speed_limit_k_tci_);
-    this->get_parameter("speed_limit_emergency_drop_thresh", speed_limit_emergency_drop_thresh_);
     this->get_parameter("enable_risk_model", enable_risk_model_);
     this->get_parameter("risk_model_file", risk_model_file_);
     this->get_parameter("latency_warn_ms",        latency_warn_ms_);
@@ -394,26 +361,10 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     stair_pitch_gate_deg_ = std::max(0.0, stair_pitch_gate_deg_);
     top_z_max_delta_m_ = std::max(0.1, top_z_max_delta_m_);
     terrain_features_publish_hz_ = std::max(terrain_features_publish_hz_, 0.0);
-    terrain_speed_limit_publish_hz_ = std::max(terrain_speed_limit_publish_hz_, 0.0);
-    speed_limit_forward_look_m_ = std::max(0.0, speed_limit_forward_look_m_);
-    speed_limit_half_width_m_ = std::max(0.0, speed_limit_half_width_m_);
-    speed_limit_v_max_mps_ = std::max(0.0, speed_limit_v_max_mps_);
-    speed_limit_min_mps_ = std::clamp(speed_limit_min_mps_, 0.0, speed_limit_v_max_mps_);
-    speed_limit_w_slope_ = std::max(0.0, speed_limit_w_slope_);
-    speed_limit_w_roughness_ = std::max(0.0, speed_limit_w_roughness_);
-    speed_limit_w_drop_ = std::max(0.0, speed_limit_w_drop_);
-    speed_limit_w_climbable_ = std::max(0.0, speed_limit_w_climbable_);
-    speed_limit_k_tci_ = std::max(0.0, speed_limit_k_tci_);
-    speed_limit_emergency_drop_thresh_ = std::clamp(speed_limit_emergency_drop_thresh_, 0.0, 1.0);
     if (enable_terrain_features_pub_ && terrain_features_topic_.empty()) {
         RCLCPP_WARN(this->get_logger(),
                     "enable_terrain_features_pub=true 但 terrain_features_topic 为空，已自动禁用特征总线发布");
         enable_terrain_features_pub_ = false;
-    }
-    if (enable_terrain_speed_limit_pub_ && terrain_speed_limit_topic_.empty()) {
-        RCLCPP_WARN(this->get_logger(),
-                    "enable_terrain_speed_limit_pub=true 但 terrain_speed_limit_topic 为空，已自动禁用限速发布");
-        enable_terrain_speed_limit_pub_ = false;
     }
     if (enable_risk_model_) {
         if (risk_model_file_.empty()) {
@@ -489,8 +440,6 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     const auto cloud_qos = makeQoS(cloud_qos_depth_, cloud_qos_reliability_, cloud_qos_durability_);
     const auto odom_qos = makeQoS(odom_qos_depth_, odom_qos_reliability_, odom_qos_durability_);
     const auto output_qos = makeQoS(output_qos_depth_, output_qos_reliability_, output_qos_durability_);
-    const auto speed_limit_qos =
-        makeQoS(speed_limit_qos_depth_, speed_limit_qos_reliability_, speed_limit_qos_durability_);
     const auto diag_qos =
         makeQoS(diagnostics_qos_depth_, diagnostics_qos_reliability_, diagnostics_qos_durability_);
 
@@ -535,10 +484,6 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     if (enable_terrain_features_pub_) {
         pub_features_ =
             this->create_publisher<rc26_interfaces::msg::TerrainFeatureGrid>(terrain_features_topic_, output_qos);
-    }
-    if (enable_terrain_speed_limit_pub_) {
-        pub_speed_limit_ =
-            this->create_publisher<std_msgs::msg::Float32>(terrain_speed_limit_topic_, speed_limit_qos);
     }
 
     sub_odom_ = this->create_subscription<nav_msgs::msg::Odometry>(
@@ -707,10 +652,8 @@ void TerrainSemanticNode::healthTimerCallback() {
 
     if (decision.required_intervention == SafetyIntervention::kVirtualFence && have_last_pose_) {
         publishVirtualFence(now, last_base_x_, last_base_y_, last_base_z_, last_cos_yaw_, last_sin_yaw_);
-        publishSpeedLimitValue(now, 0.0f, true);
     } else if (decision.required_intervention != SafetyIntervention::kNone) {
         publishEmergencyStop(now);
-        publishSpeedLimitValue(now, 0.0f, true);
     }
 
     publishDiagnostics(now, decision.diagnostic_level, decision.diagnostic_message);
@@ -856,23 +799,6 @@ bool TerrainSemanticNode::isThrottleReady(const rclcpp::Time& stamp,
         return true;
     }
     return (stamp - last_pub_time).seconds() >= (1.0 / publish_hz);
-}
-
-void TerrainSemanticNode::publishSpeedLimitValue(const rclcpp::Time& stamp, float v_limit, bool force) {
-    if (!pub_speed_limit_) {
-        return;
-    }
-    if (!force && !isThrottleReady(stamp, last_speed_limit_pub_time_, terrain_speed_limit_publish_hz_)) {
-        return;
-    }
-
-    std_msgs::msg::Float32 speed_limit_msg;
-    const float safe_limit = std::clamp(std::isfinite(v_limit) ? v_limit : 0.0f,
-                                        0.0f,
-                                        static_cast<float>(speed_limit_v_max_mps_));
-    speed_limit_msg.data = safe_limit;
-    pub_speed_limit_->publish(speed_limit_msg);
-    last_speed_limit_pub_time_ = stamp;
 }
 
 void TerrainSemanticNode::initGrid() {
@@ -1394,8 +1320,6 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
     const bool publish_kfs_debug = static_cast<bool>(pub_kfs_obstacles_debug_);
     const bool should_publish_features =
         static_cast<bool>(pub_features_) && isThrottleReady(stamp, last_features_pub_time_, terrain_features_publish_hz_);
-    const bool should_publish_speed_limit =
-        static_cast<bool>(pub_speed_limit_) && isThrottleReady(stamp, last_speed_limit_pub_time_, terrain_speed_limit_publish_hz_);
 
     rc26_interfaces::msg::TerrainFeatureGrid feature_msg;
     if (should_publish_features) {
@@ -1431,11 +1355,6 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
     drop_cells_count_ = 0;
     climbable_cells_count_ = 0;
     int kfs_cells_count = 0;
-    int roi_fresh_count = 0;
-    double roi_max_slope = 0.0;
-    double roi_max_rough = 0.0;
-    double roi_max_p_drop = 0.0;
-    double roi_max_p_climbable = 0.0;
 
     for (int cell = 0; cell < num_cells_; cell++) {
         const size_t idx = static_cast<size_t>(cell);
@@ -1543,18 +1462,6 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
             feature_msg.p_climbable[idx] = climbable_prob;
         }
 
-        if (fresh &&
-            x_rel >= 0.0 && x_rel <= speed_limit_forward_look_m_ &&
-            std::abs(y_rel) <= speed_limit_half_width_m_) {
-            ++roi_fresh_count;
-            const double cell_slope = std::max(std::abs(static_cast<double>(slope_x_[idx])),
-                                               std::abs(static_cast<double>(slope_y_[idx])));
-            roi_max_slope = std::max(roi_max_slope, cell_slope);
-            roi_max_rough = std::max(roi_max_rough, static_cast<double>(roughness_[idx]));
-            roi_max_p_drop = std::max(roi_max_p_drop, static_cast<double>(drop_prob));
-            roi_max_p_climbable = std::max(roi_max_p_climbable, static_cast<double>(climbable_prob));
-        }
-
         if (is_obstacle) {
             pcl::PointXYZI p;
             p.x = static_cast<float>(x);
@@ -1645,7 +1552,6 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
                 "输出点云异常: obs=%zu drop=%zu kfs_dbg=%zu total=%d, %s",
                 obs_cloud.size(), drop_cloud.size(), kfs_debug_cloud.size(), total_points, reason.c_str());
 
-            publishSpeedLimitValue(stamp, 0.0f, true);
             publishEmergencyStop(stamp);
             publishDiagnostics(stamp, diagnostic_msgs::msg::DiagnosticStatus::ERROR,
                 "输出点云异常: " + reason);
@@ -1683,25 +1589,6 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
     if (should_publish_features) {
         pub_features_->publish(feature_msg);
         last_features_pub_time_ = stamp;
-    }
-
-    if (should_publish_speed_limit) {
-        float v_limit = static_cast<float>(speed_limit_v_max_mps_);
-        if (fail_safe_active_ || latency_intervention_active_) {
-            v_limit = 0.0f;
-        } else if (roi_fresh_count > 0) {
-            const double tci = speed_limit_w_slope_ * roi_max_slope +
-                               speed_limit_w_roughness_ * roi_max_rough +
-                               speed_limit_w_drop_ * roi_max_p_drop +
-                               speed_limit_w_climbable_ * roi_max_p_climbable;
-            v_limit = static_cast<float>(speed_limit_v_max_mps_ * std::exp(-speed_limit_k_tci_ * tci));
-            v_limit = std::clamp(v_limit, static_cast<float>(speed_limit_min_mps_),
-                                 static_cast<float>(speed_limit_v_max_mps_));
-            if (roi_max_p_drop >= speed_limit_emergency_drop_thresh_) {
-                v_limit = 0.0f;
-            }
-        }
-        publishSpeedLimitValue(stamp, v_limit, true);
     }
 }
 
@@ -1761,8 +1648,6 @@ void TerrainSemanticNode::cloudCallback(
             publishEmergencyStop(this->get_clock()->now());
         }
 
-        publishSpeedLimitValue(stamp, 0.0f, true);
-
         publishDiagnosticsWithLatency(diagnostic_msgs::msg::DiagnosticStatus::ERROR, "TF(base) 查询失败");
         return;
     }
@@ -1810,9 +1695,6 @@ void TerrainSemanticNode::cloudCallback(
         }
         classifyAndUpdate(stamp_sec);
         publishOutputs(stamp, base_x, base_y, base_z, cos_yaw, sin_yaw);
-        if (fail_safe_active_) {
-            publishSpeedLimitValue(stamp, 0.0f, true);
-        }
         if (fail_safe_active_ && enable_fail_safe_ && fail_safe_strategy_ == "virtual_fence") {
             publishVirtualFence(stamp, base_x, base_y, base_z, cos_yaw, sin_yaw);
         }
@@ -1856,9 +1738,6 @@ void TerrainSemanticNode::cloudCallback(
             publishVirtualFence(stamp, base_x, base_y, base_z, cos_yaw, sin_yaw);
         } else if (fail_safe_active_) {
             publishEmergencyStop(stamp);
-        }
-        if (fail_safe_active_) {
-            publishSpeedLimitValue(stamp, 0.0f, true);
         }
         publishDiagnosticsWithLatency(diagnostic_msgs::msg::DiagnosticStatus::ERROR,
                                       std::string("点云预处理失败: ") + ex.what());

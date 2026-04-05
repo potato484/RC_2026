@@ -90,9 +90,6 @@
     output_qos_depth: 5
     output_qos_reliability: "best_effort"
     output_qos_durability: "volatile"
-    speed_limit_qos_depth: 10
-    speed_limit_qos_reliability: "reliable"
-    speed_limit_qos_durability: "volatile"
     diagnostics_qos_depth: 10
     diagnostics_qos_reliability: "reliable"
     diagnostics_qos_durability: "volatile"
@@ -142,21 +139,6 @@
     enable_terrain_features_pub: true
     terrain_features_topic: "terrain_features"
     terrain_features_publish_hz: 3.5
-
-    # ===== P2: terrain speed limit =====
-    enable_terrain_speed_limit_pub: true
-    terrain_speed_limit_topic: "terrain_speed_limit"
-    terrain_speed_limit_publish_hz: 5.0
-    speed_limit_forward_look_m: 2.0
-    speed_limit_half_width_m: 0.4
-    speed_limit_v_max_mps: 2.0
-    speed_limit_min_mps: 0.2
-    speed_limit_w_slope: 1.0
-    speed_limit_w_roughness: 1.0
-    speed_limit_w_drop: 2.0
-    speed_limit_w_climbable: 0.8
-    speed_limit_k_tci: 1.0
-    speed_limit_emergency_drop_thresh: 0.8
     enable_risk_model: false
     risk_model_file: ""
 

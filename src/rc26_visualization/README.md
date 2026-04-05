@@ -25,7 +25,6 @@
   - `terrain_obstacles`
   - `terrain_drop`
   - `/terrain_grid_map_local`
-  - `terrain_speed_limit`
 - 机构:
   - `/mechanism/state`
 
@@ -41,7 +40,7 @@
 - 不直接控制机器人
 - 不替代各子模块自身诊断
 - 负责把分散状态收敛为值守可读语义
-- 当前诊断语义已完全围绕 xhu 自研导航话题组织
+- 当前诊断语义已完全围绕 xhu 自研导航话题组织，`OperatorStatus` 也不再暴露 `terrain_speed_limited`
 
 核心实现见：
 
