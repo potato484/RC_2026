@@ -40,8 +40,6 @@ public:
         this->declare_parameter("dob_kd", 0.3);
         this->declare_parameter("latency_comp_enable", true);
         this->declare_parameter("latency_comp_s", 0.03);
-        this->declare_parameter("terrain_speed_limit_topic", "");
-        this->declare_parameter("terrain_speed_limit_timeout_ms", 500);
         this->declare_parameter("stats_log_enable", false);
         this->declare_parameter("imu_gate_log_enable", false);
 
@@ -103,9 +101,6 @@ public:
         config.dob_kd = static_cast<float>(this->get_parameter("dob_kd").as_double());
         config.latency_comp_enable = this->get_parameter("latency_comp_enable").as_bool();
         config.latency_comp_s = static_cast<float>(this->get_parameter("latency_comp_s").as_double());
-        config.terrain_speed_limit_topic = this->get_parameter("terrain_speed_limit_topic").as_string();
-        config.terrain_speed_limit_timeout_ms =
-            this->get_parameter("terrain_speed_limit_timeout_ms").as_int();
         config.stats_log_enable = this->get_parameter("stats_log_enable").as_bool();
         config.imu_gate_log_enable = this->get_parameter("imu_gate_log_enable").as_bool();
 

@@ -1,12 +1,18 @@
 openapi: 3.1.0
 info:
   title: RC26 R2 Mechanism ROS2 Contract
-  version: 0.3.0
-  description: 机构状态接口
+  version: 0.4.0
+  description: |
+    机构状态与共享串口桥接接口。
+
+    注意：
+    - 机构动作执行入口仍是 action `/mechanism/execute`
+    - 本文档额外覆盖 mechanism 与 merge_odom 之间的内部 transport topic/service 契约
 servers:
   - url: http://localhost:8080
 tags:
   - name: Topic
+  - name: Service
 paths:
   /ros2/topics/mechanism/state:
     get:
@@ -23,6 +29,42 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MechanismState'
+  /ros2/topics/mechanism/transport/feedback:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /mechanism/transport/feedback 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: /mechanism/transport/feedback
+        message_type: rc26_interfaces/msg/MechanismTransportFeedback
+      responses:
+        '200':
+          description: rc26_interfaces/msg/MechanismTransportFeedback
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MechanismTransportFeedback'
+  /ros2/services/mechanism/transport/send_command:
+    post:
+      tags: [Service]
+      summary: 调用 service /mechanism/transport/send_command 下发共享串口机构命令
+      x-ros:
+        interface_kind: service
+        name: /mechanism/transport/send_command
+        service_type: rc26_interfaces/srv/SendMechanismTransportCommand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMechanismTransportCommandRequest'
+      responses:
+        '200':
+          description: rc26_interfaces/srv/SendMechanismTransportCommand.Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendMechanismTransportCommandResponse'
 components:
   schemas:
     Time:
@@ -85,3 +127,45 @@ components:
           format: float
         comm_health_level:
           type: integer
+    MechanismTransportFeedback:
+      type: object
+      required: [seq, feedback_id, payload]
+      properties:
+        seq:
+          type: integer
+          minimum: 0
+          maximum: 255
+        feedback_id:
+          type: integer
+          minimum: 0
+          maximum: 255
+        payload:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+            maximum: 255
+    SendMechanismTransportCommandRequest:
+      type: object
+      required: [command_id, payload]
+      properties:
+        command_id:
+          type: integer
+          minimum: 0
+          maximum: 255
+        payload:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+            maximum: 255
+    SendMechanismTransportCommandResponse:
+      type: object
+      required: [accepted, seq]
+      properties:
+        accepted:
+          type: boolean
+        seq:
+          type: integer
+          minimum: 0
+          maximum: 255

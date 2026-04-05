@@ -1,13 +1,131 @@
 // RC2026 融合里程计主节点
 // 整合CAN/Wheel里程计和速度发送功能（双串口架构）
+#include <chrono>
+#include <deque>
+#include <functional>
+#include <mutex>
 #include <stdexcept>
 
 #include <rclcpp/rclcpp.hpp>
 
+#include "rc26_interfaces/msg/mechanism_transport_feedback.hpp"
+#include "rc26_interfaces/srv/send_mechanism_transport_command.hpp"
 #include "rc26_merge_odom/can/can_odom.hpp"
 #include "rc26_merge_odom/pose/pose_sender.hpp"
 #include "rc26_merge_odom/wheel/wheel_odom.hpp"
+#include "rc26_serial/protocol.hpp"
 #include "rc26_serial/serial_driver.hpp"
+
+namespace {
+
+constexpr char kMechanismTransportSendCommandService[] = "/mechanism/transport/send_command";
+constexpr char kMechanismTransportFeedbackTopic[] = "/mechanism/transport/feedback";
+constexpr auto kMechanismTransportFlushPeriod = std::chrono::milliseconds(10);
+
+bool shouldPublishTransportFeedback(uint8_t feedback_id) {
+    using FeedbackID = rc26_serial::FeedbackID;
+    switch (static_cast<FeedbackID>(feedback_id)) {
+    case FeedbackID::ACK:
+    case FeedbackID::HEARTBEAT_ACK:
+    case FeedbackID::ODOM_DATA:
+        return false;
+    default:
+        return true;
+    }
+}
+
+class MechanismTransportBridge {
+public:
+    using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
+    using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
+
+    MechanismTransportBridge(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> target_serial)
+        : node_(node), target_serial_(std::move(target_serial)) {
+        feedback_pub_ =
+            node_.create_publisher<FeedbackMsg>(kMechanismTransportFeedbackTopic, rclcpp::QoS(32).reliable());
+        send_command_srv_ = node_.create_service<SendCommandSrv>(
+            kMechanismTransportSendCommandService,
+            std::bind(&MechanismTransportBridge::handleSendCommand, this, std::placeholders::_1,
+                      std::placeholders::_2));
+        flush_timer_ = node_.create_wall_timer(
+            kMechanismTransportFlushPeriod, std::bind(&MechanismTransportBridge::flushFeedbackQueue, this));
+
+        if (target_serial_) {
+            target_serial_->setReceiveCallback(
+                [this](uint8_t seq, uint8_t feedback_id, const std::vector<uint8_t>& payload) {
+                    enqueueFeedback(seq, feedback_id, payload);
+                });
+        }
+    }
+
+    ~MechanismTransportBridge() {
+        if (target_serial_) {
+            target_serial_->setReceiveCallback({});
+        }
+    }
+
+private:
+    void handleSendCommand(const std::shared_ptr<SendCommandSrv::Request> request,
+                           std::shared_ptr<SendCommandSrv::Response> response) {
+        response->accepted = false;
+        response->seq = 0;
+
+        if (!target_serial_ || !target_serial_->isOpen()) {
+            RCLCPP_WARN(node_.get_logger(), "mechanism transport send rejected: target serial unavailable");
+            return;
+        }
+
+        uint8_t seq = 0;
+        const bool ok = target_serial_->sendCommand(request->command_id, request->payload, seq);
+        if (!ok) {
+            RCLCPP_WARN(node_.get_logger(), "mechanism transport send failed: cmd=0x%02X err=%s",
+                        request->command_id, target_serial_->lastError().c_str());
+            return;
+        }
+
+        response->accepted = true;
+        response->seq = seq;
+    }
+
+    void enqueueFeedback(uint8_t seq, uint8_t feedback_id, const std::vector<uint8_t>& payload) {
+        if (!shouldPublishTransportFeedback(feedback_id)) {
+            return;
+        }
+
+        FeedbackMsg feedback;
+        feedback.seq = seq;
+        feedback.feedback_id = feedback_id;
+        feedback.payload = payload;
+
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        pending_feedback_.push_back(std::move(feedback));
+    }
+
+    void flushFeedbackQueue() {
+        std::deque<FeedbackMsg> batch;
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex_);
+            if (pending_feedback_.empty()) {
+                return;
+            }
+            batch.swap(pending_feedback_);
+        }
+
+        for (const auto& feedback : batch) {
+            feedback_pub_->publish(feedback);
+        }
+    }
+
+    rclcpp::Node& node_;
+    std::shared_ptr<rc26_decision::SerialDriver> target_serial_;
+    rclcpp::Publisher<FeedbackMsg>::SharedPtr feedback_pub_;
+    rclcpp::Service<SendCommandSrv>::SharedPtr send_command_srv_;
+    rclcpp::TimerBase::SharedPtr flush_timer_;
+    std::mutex queue_mutex_;
+    std::deque<FeedbackMsg> pending_feedback_;
+};
+
+}  // namespace
 
 class MergeOdomNode : public rclcpp::Node {
 public:
@@ -66,8 +184,6 @@ public:
         this->declare_parameter("dob_kd", 0.3);
         this->declare_parameter("latency_comp_enable", true);
         this->declare_parameter("latency_comp_s", 0.03);
-        this->declare_parameter("terrain_speed_limit_topic", "");
-        this->declare_parameter("terrain_speed_limit_timeout_ms", 500);
         this->declare_parameter("stats_log_enable", false);
         this->declare_parameter("imu_gate_log_enable", false);
 
@@ -217,16 +333,14 @@ public:
             pose_config.dob_kd = static_cast<float>(this->get_parameter("dob_kd").as_double());
             pose_config.latency_comp_enable = this->get_parameter("latency_comp_enable").as_bool();
             pose_config.latency_comp_s = static_cast<float>(this->get_parameter("latency_comp_s").as_double());
-            pose_config.terrain_speed_limit_topic =
-                this->get_parameter("terrain_speed_limit_topic").as_string();
-            pose_config.terrain_speed_limit_timeout_ms =
-                this->get_parameter("terrain_speed_limit_timeout_ms").as_int();
             pose_config.stats_log_enable = this->get_parameter("stats_log_enable").as_bool();
             pose_config.imu_gate_log_enable = this->get_parameter("imu_gate_log_enable").as_bool();
 
             pose_sender_ =
                 std::make_unique<rc26_merge_odom::PoseSender>(*this, feedback_serial_, target_serial_, pose_config);
         }
+
+        mechanism_transport_bridge_ = std::make_unique<MechanismTransportBridge>(*this, target_serial_);
 
         RCLCPP_INFO(this->get_logger(), "融合里程计节点启动 (双串口模式)");
     }
@@ -237,6 +351,7 @@ private:
     std::shared_ptr<rc26_decision::SerialDriver> feedback_serial_;
     std::shared_ptr<rc26_decision::SerialDriver> target_serial_;
     std::unique_ptr<rc26_merge_odom::PoseSender> pose_sender_;
+    std::unique_ptr<MechanismTransportBridge> mechanism_transport_bridge_;
 };
 
 int main(int argc, char** argv) {

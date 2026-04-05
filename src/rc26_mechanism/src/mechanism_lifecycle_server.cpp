@@ -10,6 +10,7 @@
 #include "rc26_mechanism/hal/fault_injecting_hal.hpp"
 #include "rc26_mechanism/hal/replay_mechanism_hal.hpp"
 #include "rc26_mechanism/hal/serial_mechanism_hal.hpp"
+#include "rc26_mechanism/hal/shared_serial_mechanism_hal.hpp"
 #include "rc26_mechanism/hal/sim_mechanism_hal.hpp"
 #include "rc26_serial/protocol.hpp"
 
@@ -62,6 +63,8 @@ bool isTerminalOrFailureFeedback(uint8_t fb_id) {
     case FID::MECH_DOWN_MERLIN_DONE:
     case FID::MECH_UP_DUEL_DONE:
     case FID::PLACE_KFS_GROUND_DONE:
+    case FID::FRONT_TRACK_UP_DONE:
+    case FID::FRONT_TRACK_DOWN_DONE:
     case FID::ROTATE_POS_90_DONE:
     case FID::ROTATE_NEG_90_DONE:
     case FID::ROTATE_POS_180_DONE:
@@ -119,6 +122,9 @@ MechanismLifecycleServer::on_configure(const rclcpp_lifecycle::State&) {
         hal_ = std::make_unique<SerialMechanismHAL>(port, baud);
         RCLCPP_INFO(this->get_logger(), "configured mechanism HAL: serial (%s @ %ld)", port.c_str(),
                     static_cast<long>(baud));
+    } else if (hal_type == "shared_serial") {
+        hal_ = std::make_unique<SharedSerialMechanismHAL>(*this);
+        RCLCPP_INFO(this->get_logger(), "configured mechanism HAL: shared_serial");
     } else if (hal_type == "sim") {
         SimMechanismHAL::Config cfg{};
         cfg.action_latency = std::chrono::milliseconds(this->get_parameter("sim_action_latency_ms").as_int());
@@ -953,6 +959,8 @@ bool MechanismLifecycleServer::isCommandSupported(uint8_t cmd_id) const {
     case CID::MECH_DOWN_MERLIN:
     case CID::MECH_UP_DUEL:
     case CID::PLACE_KFS_GROUND:
+    case CID::FRONT_TRACK_UP:
+    case CID::FRONT_TRACK_DOWN:
     case CID::ROTATE_POS_90:
     case CID::ROTATE_NEG_90:
     case CID::ROTATE_POS_180:
@@ -983,6 +991,10 @@ bool MechanismLifecycleServer::isTerminalFeedbackForCommand(uint8_t cmd_id, uint
         return fb_id == static_cast<uint8_t>(FID::MECH_UP_DUEL_DONE);
     case CID::PLACE_KFS_GROUND:
         return fb_id == static_cast<uint8_t>(FID::PLACE_KFS_GROUND_DONE);
+    case CID::FRONT_TRACK_UP:
+        return fb_id == static_cast<uint8_t>(FID::FRONT_TRACK_UP_DONE);
+    case CID::FRONT_TRACK_DOWN:
+        return fb_id == static_cast<uint8_t>(FID::FRONT_TRACK_DOWN_DONE);
     case CID::ROTATE_POS_90:
         return fb_id == static_cast<uint8_t>(FID::ROTATE_POS_90_DONE);
     case CID::ROTATE_NEG_90:
@@ -1004,6 +1016,8 @@ std::chrono::milliseconds MechanismLifecycleServer::defaultTimeoutForCommand(uin
     case CID::MECH_DOWN_MERLIN:
     case CID::MECH_UP_DUEL:
     case CID::PLACE_KFS_GROUND:
+    case CID::FRONT_TRACK_UP:
+    case CID::FRONT_TRACK_DOWN:
     case CID::ROTATE_POS_90:
     case CID::ROTATE_NEG_90:
     case CID::ROTATE_POS_180:
@@ -1048,6 +1062,14 @@ bool MechanismLifecycleServer::commandFlagsFor(uint8_t cmd_id, bool*& done, bool
     case CID::PLACE_KFS_GROUND:
         done = &place_ground_done_;
         failed = &place_ground_failed_;
+        return true;
+    case CID::FRONT_TRACK_UP:
+        done = &front_track_up_done_;
+        failed = &front_track_up_failed_;
+        return true;
+    case CID::FRONT_TRACK_DOWN:
+        done = &front_track_down_done_;
+        failed = &front_track_down_failed_;
         return true;
     case CID::ROTATE_POS_90:
     case CID::ROTATE_NEG_90:
@@ -1288,6 +1310,12 @@ void MechanismLifecycleServer::onSerialFeedback(uint8_t seq, uint8_t fb_id,
         break;
     case FID::PLACE_KFS_GROUND_DONE:
         place_ground_done_ = true;
+        break;
+    case FID::FRONT_TRACK_UP_DONE:
+        front_track_up_done_ = true;
+        break;
+    case FID::FRONT_TRACK_DOWN_DONE:
+        front_track_down_done_ = true;
         break;
     case FID::ROTATE_POS_90_DONE:
     case FID::ROTATE_NEG_90_DONE:

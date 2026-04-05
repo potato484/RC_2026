@@ -28,10 +28,26 @@
 
 上位机下发给 MCU 的 `POSE_FEEDBACK/POSE_TARGET` 仍保持 `(vx, vy, wz)` 三浮点协议不变。
 
+当前协议已经定义前置履带动作相关编号，并由 `rc26_mechanism` 的通用执行入口消费：
+
+- 下行命令：
+  - `FRONT_TRACK_UP = 0x11`
+  - `FRONT_TRACK_DOWN = 0x12`
+- 上行完成反馈：
+  - `FRONT_TRACK_UP_DONE = 0x13`
+  - `FRONT_TRACK_DOWN_DONE = 0x14`
+
+当前真实口径是：
+
+- `/mechanism/execute` 已支持 `0x11 / 0x12`
+- `0x13 / 0x14` 作为这两个动作的完成反馈
+- MCU 侧会在遥控发送链真正结束后，再回传对应 `DONE`
+- 真机部署时，目标 MCU 串口由 `rc26_merge_odom` 独占打开；`rc26_mechanism` 通过 `/mechanism/transport/send_command` 与 `/mechanism/transport/feedback` 复用这条串口，而不是再次直连同一设备
+
 ## 源码入口与阅读顺序
 - 先看 `src/serial_driver.cpp`，这是整个仓库复用的串口底座。
 - 再看两个测试文件，理解 ACK/RTO 和环形解析器的验收点。
-- 最后回到上层调用者，比如 `rc26_mechanism` 或 `rc26_merge_odom`，确认是哪一层在赋予业务语义。
+- 最后回到上层调用者，比如 `rc26_mechanism` 或 `rc26_merge_odom`，确认是哪一层在赋予业务语义，以及哪一层拥有真实串口所有权。
 
 ## 目录解剖
 - `serial_driver.cpp`：打开/关闭串口、重连、帧封装、ACK 等待、接收线程和回调分发。

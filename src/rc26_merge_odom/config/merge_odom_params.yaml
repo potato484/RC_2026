@@ -86,8 +86,6 @@ pose_sender_node:
     dob_kd: 0.3
     latency_comp_enable: true
     latency_comp_s: 0.03
-    terrain_speed_limit_topic: "terrain_speed_limit"
-    terrain_speed_limit_timeout_ms: 500
     stats_log_enable: false
     imu_gate_log_enable: false
 
@@ -159,8 +157,6 @@ merge_odom_node:
     dob_kd: 0.3
     latency_comp_enable: true
     latency_comp_s: 0.03
-    terrain_speed_limit_topic: "terrain_speed_limit"
-    terrain_speed_limit_timeout_ms: 500
     stats_log_enable: false
     imu_gate_log_enable: false
     slip_enable: true

@@ -21,6 +21,7 @@
   <depend>diagnostic_msgs</depend>
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
+  <depend>rc26_interfaces</depend>
   <depend>robot_localization</depend>
   <depend>rc26_serial</depend>
 

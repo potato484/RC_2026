@@ -76,7 +76,6 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
     };
 
     const int raw_cmd_vel_timeout_ms = config_.cmd_vel_timeout_ms;
-    const int raw_terrain_speed_limit_timeout_ms = config_.terrain_speed_limit_timeout_ms;
     const int raw_spike_freeze_duration_ms = config_.spike_freeze_duration_ms;
     const std::string raw_chassis_model = config_.chassis_model;
     const float raw_v_max_mps = config_.v_max_mps;
@@ -99,7 +98,6 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
 
     config_.chassis_model = normalizeChassisModel(config_.chassis_model);
     config_.cmd_vel_timeout_ms = std::max(0, config_.cmd_vel_timeout_ms);
-    config_.terrain_speed_limit_timeout_ms = std::max(0, config_.terrain_speed_limit_timeout_ms);
     config_.spike_freeze_duration_ms = std::max(0, config_.spike_freeze_duration_ms);
     config_.v_max_mps = std::fabs(config_.v_max_mps);
     config_.w_max_rps = std::fabs(config_.w_max_rps);
@@ -128,8 +126,6 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
 
     logNormalized("chassis_model", raw_chassis_model, config_.chassis_model);
     logNormalized("cmd_vel_timeout_ms", raw_cmd_vel_timeout_ms, config_.cmd_vel_timeout_ms);
-    logNormalized("terrain_speed_limit_timeout_ms", raw_terrain_speed_limit_timeout_ms,
-                  config_.terrain_speed_limit_timeout_ms);
     logNormalized("spike_freeze_duration_ms", raw_spike_freeze_duration_ms, config_.spike_freeze_duration_ms);
     logNormalized("v_max_mps", raw_v_max_mps, config_.v_max_mps);
     logNormalized("w_max_rps", raw_w_max_rps, config_.w_max_rps);
@@ -165,12 +161,6 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
     imu_sub_ = node_.create_subscription<sensor_msgs::msg::Imu>(
         config_.imu_topic, 20, std::bind(&PoseSender::imuCallback, this, std::placeholders::_1));
 
-    if (!config_.terrain_speed_limit_topic.empty()) {
-        terrain_speed_limit_sub_ = node_.create_subscription<std_msgs::msg::Float32>(
-            config_.terrain_speed_limit_topic, 10,
-            std::bind(&PoseSender::terrainSpeedLimitCallback, this, std::placeholders::_1));
-    }
-
     feedback_protected_pub_ = node_.create_publisher<geometry_msgs::msg::TwistStamped>(
         "pose_sender/feedback_protected", 10);
     target_protected_pub_ = node_.create_publisher<geometry_msgs::msg::TwistStamped>("pose_sender/target_protected",
@@ -194,12 +184,6 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
                 "PoseSender 保护参数: imu_gate=%s governor=%s dob=%s cmd_vel_timeout=%dms",
                 config_.imu_gate_enable ? "on" : "off", config_.governor_enable ? "on" : "off",
                 config_.dob_enable ? "on" : "off", config_.cmd_vel_timeout_ms);
-    if (!config_.terrain_speed_limit_topic.empty()) {
-        RCLCPP_INFO(node_.get_logger(), "PoseSender terrain_speed_limit 已启用: topic=%s timeout=%dms",
-                    config_.terrain_speed_limit_topic.c_str(), config_.terrain_speed_limit_timeout_ms);
-    } else {
-        RCLCPP_INFO(node_.get_logger(), "PoseSender terrain_speed_limit 已禁用，手动遥控不会被地形限速抑制");
-    }
 }
 
 PoseSender::~PoseSender() {
@@ -335,16 +319,6 @@ void PoseSender::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
     }
 }
 
-void PoseSender::terrainSpeedLimitCallback(const std_msgs::msg::Float32::SharedPtr msg) {
-    if (!msg) {
-        return;
-    }
-    std::lock_guard<std::mutex> lock(data_mutex_);
-    terrain_speed_limit_mps_ = msg->data;
-    terrain_speed_limit_time_ = std::chrono::steady_clock::now();
-    terrain_speed_limit_received_ = true;
-}
-
 std::chrono::milliseconds PoseSender::sensorFreshnessTimeout() const {
     const int fastest_rate_hz = std::max(std::max(config_.feedback_send_rate_hz, config_.target_send_rate_hz), 1);
     const int period_ms = std::max(1, static_cast<int>(std::ceil(1000.0 / static_cast<double>(fastest_rate_hz))));
@@ -364,37 +338,10 @@ bool PoseSender::getFreshImuCache(const std::chrono::steady_clock::time_point& n
     return true;
 }
 
-float PoseSender::getEffectiveVMax(const std::chrono::steady_clock::time_point& now) const {
+float PoseSender::getEffectiveVMax(const std::chrono::steady_clock::time_point&) const {
     float effective_v_max = std::fabs(config_.v_max_mps);
     if (isTrackedDiffModel(chassis_model_)) {
         effective_v_max = std::min(effective_v_max, std::fabs(config_.track_speed_max_mps));
-    }
-    if (config_.terrain_speed_limit_topic.empty()) {
-        return effective_v_max;
-    }
-
-    float terrain_limit = NAN;
-    bool terrain_limit_valid = false;
-    {
-        std::lock_guard<std::mutex> lock(data_mutex_);
-        if (terrain_speed_limit_received_) {
-            const int timeout_ms = std::max(0, config_.terrain_speed_limit_timeout_ms);
-            if (now - terrain_speed_limit_time_ <= std::chrono::milliseconds(timeout_ms)) {
-                terrain_limit = terrain_speed_limit_mps_;
-                terrain_limit_valid = true;
-            }
-        }
-    }
-
-    if (terrain_limit_valid && std::isfinite(terrain_limit)) {
-        terrain_limit = std::max(0.0f, terrain_limit);
-        effective_v_max = std::min(effective_v_max, terrain_limit);
-        if (effective_v_max <= 1e-6f) {
-            RCLCPP_WARN_THROTTLE(
-                node_.get_logger(), *node_.get_clock(), 2000,
-                "terrain_speed_limit 当前为 %.3f m/s，线速度输出被抑制；若为手动摇杆/十字测试，请禁用 terrain_speed_limit_topic",
-                terrain_limit);
-        }
     }
     return effective_v_max;
 }

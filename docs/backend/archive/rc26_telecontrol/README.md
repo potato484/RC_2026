@@ -10,6 +10,7 @@
   - 静态库 `telecontrol_nodes`
   - 可执行文件 `rc26_telecontrol`
   - 可执行文件 `rc26_telecontrol_dpad`
+  - 可执行文件 `rc26_telecontrol_front_track_test`
 - 启动文件：`launch/wheeltec_joy.launch.py`
 - 配置文件：
   - `config/joy_params.yaml`
@@ -18,11 +19,55 @@
   - `src/telecontrol_nodes.cpp`
   - `src/wheeltec_joy.cpp`
   - `src/wheeltec_joy_dpad.cpp`
+  - `src/front_track_button_test_node.cpp`
 
 当前已经实现两套控制模式：
 
 - Stick 模式：连续摇杆控制
 - Dpad 模式：离散十字键控制
+
+当前仓库默认按 `Xbox 360 Controller` 的轴/按键编号解释输入，实际映射口径如下：
+
+- 十字键：
+  - 上/下：`axes[7]`
+  - 左/右：`axes[6]`
+- 中间功能键：
+  - `select`
+  - `start`
+  - `mode`
+  - 这 3 个键当前未被 `rc26_telecontrol` 消费
+- 右侧 ABXY：
+  - `A`：`button[0]`
+  - `B`：`button[1]`
+  - `X`：`button[2]`
+  - `Y`：`button[3]`
+- 摇杆：
+  - 左摇杆左右：`axes[0]`
+  - 左摇杆前后：`axes[1]`
+  - 右摇杆左右：`axes[3]`
+  - 右摇杆前后：`axes[4]`
+
+在当前代码里，这些输入真正参与控制的方式是：
+
+- Stick 模式：
+  - `linear.x <- 左摇杆前后 axes[1]`
+  - `angular.z <- 右摇杆左右 axes[3]`
+  - `linear.y <- 左摇杆左右 axes[0]`，仅 `mecanum_4wheel` 模式启用
+- Dpad 模式：
+  - `linear.x <- axes[7]`
+  - `angular.z <- X(button[2]) / B(button[1])`
+  - `linear.y <- axes[6]`，仅 `mecanum_4wheel` 模式启用
+
+当前默认底盘模式是 `tracked_diff`，因此运行时只真正使用 `linear.x + angular.z`；`linear.y` 会被固定为 0，右摇杆前后 `axes[4]` 当前也未参与控制。
+
+除此之外，当前还新增了一个独立的机构按钮测试节点：
+
+- `Y(button[3]) -> FRONT_TRACK_UP (0x11)`
+- `A(button[0]) -> FRONT_TRACK_DOWN (0x12)`
+- 通过 `/mechanism/execute` action 发送机构命令，不直接写串口
+- 只认按键上升沿，长按不会重复发 goal
+- `Y` 与 `A` 同帧按下时直接忽略
+- 上一个机构 goal 未结束时，新的 Y/A 触发会被抑制
 
 并且做了较多安全处理：
 
@@ -33,18 +78,20 @@
 ## 源码入口与阅读顺序
 - 先看 `launch/wheeltec_joy.launch.py`，确认 stick / dpad 模式如何二选一。
 - 再看 `src/telecontrol_nodes.cpp`，公共参数、看门狗、deadman、限斜率都在这里。
+- 然后看 `src/front_track_button_test_node.cpp`，确认 Y/A 如何映射到机构 action。
 - 最后看 `src/wheeltec_joy.cpp`、`src/wheeltec_joy_dpad.cpp` 和两个 YAML。
 
 ## 目录解剖
 - `telecontrol_nodes.cpp`：基类、参数声明、摇杆输入处理、限幅、看门狗和两种控制模式实现。
 - `wheeltec_joy.cpp` / `wheeltec_joy_dpad.cpp`：两个独立可执行入口。
+- `front_track_button_test_node.cpp`：Y/A 到 `/mechanism/execute` 的测试桥接节点。
 - `config/joy_params*.yaml`：手柄映射和安全参数。
 - `launch/wheeltec_joy.launch.py`：模式切换和 `joy_node` 装配。
 
 ## 关键文件体量
-- `src/telecontrol_nodes.cpp`：447 行。
-- `launch/wheeltec_joy.launch.py`：137 行。
-- `README.md`：58 行。
+- `src/telecontrol_nodes.cpp`：483 行。
+- `launch/wheeltec_joy.launch.py`：144 行。
+- `README.md`：119 行。
 
 ## 关键源码行段速览
 - `src/rc26_telecontrol/src/telecontrol_nodes.cpp:23-138`：基类构造、参数声明与规范化。
@@ -64,4 +111,9 @@
 - 当前默认底盘模式已切到 `tracked_diff`，因此遥控默认不会再输出横向速度。
 - 四轮模式保持原有 `linear.x / linear.y / angular.z` 控制口径。
 - 履带模式下，Stick 和 Dpad 都只输出 `linear.x + angular.z`，`linear.y` 在节点内部被固定为 0。
+- `start_r2_teleop.sh` 现在默认用 `dpad` 模式启动，而不是 stick。
+- `start_r2_teleop.sh` 会额外拉起 `rc26_telecontrol_front_track_test`，用于把 `Y/A` 直接映射成前置履带抬升/放下动作。
+- 在 dpad 模式里，旋转仍由 `X/B` 控制；`Y/A` 不参与速度输出，只交给前置履带测试节点。
 - 仓库根目录的 `start_r2_teleop.sh` 现已显式向 `rc26_merge_odom` 和 `rc26_telecontrol` 传入 `chassis_model:=tracked_diff`，遥控联调不再依赖各包内部默认值。
+- `start_r2_teleop.sh` 现支持 `--pose-mode imu|no-imu`：两种模式都会自动拉起 `merge_odom.launch.py` 的 EKF，区别只在于最终融合位姿是否消费 IMU；`no-imu` 不会停掉 `dm_imu_node` 或 `PoseSender` 的 IMU 保护。
+- `terrain_speed_limit` 运行时链路已从系统中删除；teleop 链不再需要额外关闭地形限速，也不存在重新接回该链路的脚本入口。

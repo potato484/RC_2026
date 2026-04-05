@@ -8,7 +8,7 @@
 
 ```bash
 cd "${RC26_WS:-$HOME/RC_2026}"
-colcon build --symlink-install --parallel-workers 3 --packages-select rc26_telecontrol --cmake-args -DCMAKE_BUILD_TYPE=Release
+MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_interfaces rc26_serial rc26_merge_odom rc26_mechanism rc26_telecontrol --cmake-args -DCMAKE_BUILD_TYPE=Release
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
@@ -30,27 +30,88 @@ ros2 launch rc26_telecontrol wheeltec_joy.launch.py control_mode:=stick
 ros2 launch rc26_telecontrol wheeltec_joy.launch.py control_mode:=dpad
 ```
 
-### 2.3 验证节点与话题
+### 2.3 一键启动当前真实遥控链
 
-在另一个终端中，检查节点是否正确启动（只有一个 `joy_node`）：
+仓库根目录脚本已经变成当前推荐入口：
 
 ```bash
-ros2 node list | grep joy
-# 预期输出包含：/joy_node, /rc26_telecontrol 或 /rc26_telecontrol_dpad
+./start_r2_teleop.sh
+```
+
+这个脚本当前会默认：
+
+- 使用 `dpad` 模式，而不是 stick
+- 启动 `rc26_merge_odom`
+- 启动 `rc26_mechanism mechanism.launch.py hal_type:=shared_serial`
+- 自动执行 `/mechanism_server` 的 `configure` 和 `activate`
+- 启动 `rc26_telecontrol_front_track_test`
+
+### 2.4 验证节点与话题
+
+在另一个终端中，检查节点是否正确启动：
+
+```bash
+ros2 node list | grep -E 'joy|telecontrol|mechanism|merge_odom'
+# 预期输出至少包含：/joy_node, /rc26_telecontrol_dpad 或 /rc26_telecontrol, /rc26_telecontrol_front_track_test, /mechanism_server, /merge_odom_node
 ```
 
 检查控制指令话题：
 
 ```bash
-ros2 topic echo /cmd_vel_teleop
+ros2 topic echo /cmd_vel
 ```
+若是单独用 `rc26_telecontrol` 包 launch，默认仍可能发布到 `/cmd_vel_teleop`；而根目录 `start_r2_teleop.sh` 会显式覆盖为 `/cmd_vel`。
+
 此时操作手柄，观察终端输出的 `linear.x` 与 `angular.z` 是否随着手柄动作发生变化。当前 R2 默认按 `tracked_diff` 运行，`linear.y` 应保持为 `0`；只有显式切回 `mecanum_4wheel` 时才会出现横向速度输出。
+
+### 2.5 当前手柄映射
+
+当前仓库默认按 `Xbox 360 Controller` 的编号解释 `/joy`：
+
+- 十字键：
+  - 上/下：`axes[7]`
+  - 左/右：`axes[6]`
+- 中间功能键：
+  - `select`
+  - `start`
+  - `mode`
+  - 当前都未被 `rc26_telecontrol` 消费
+- 右侧按键：
+  - `A = button[0]`
+  - `B = button[1]`
+  - `X = button[2]`
+  - `Y = button[3]`
+- 摇杆：
+  - 左摇杆左右：`axes[0]`
+  - 左摇杆前后：`axes[1]`
+  - 右摇杆左右：`axes[3]`
+  - 右摇杆前后：`axes[4]`
+
+当前代码真正使用这些输入的方式是：
+
+- Stick 模式：
+  - `linear.x <- axes[1]`
+  - `angular.z <- axes[3]`
+  - `linear.y <- axes[0]`，仅四轮全向模式启用
+- Dpad 模式：
+  - `linear.x <- axes[7]`
+  - `angular.z <- X(button[2]) / B(button[1])`
+  - `linear.y <- axes[6]`，仅四轮全向模式启用
+
+当前默认底盘模式为 `tracked_diff`，因此运行时只真正消费 `linear.x + angular.z`；`linear.y` 会保持为 0，`axes[4]` 当前不参与控制。
+
+当前还新增了独立的机构按钮测试映射：
+
+- `Y(button[3]) -> /mechanism/execute -> FRONT_TRACK_UP (0x11)`
+- `A(button[0]) -> /mechanism/execute -> FRONT_TRACK_DOWN (0x12)`
+
+这个测试节点不直接操作串口，而是复用 `rc26_mechanism` 的 action 入口；真机下实际串口发送会再经由 `rc26_merge_odom` 的共享桥接完成。
 
 ## 3. 核心机制验证
 
 ### 3.1 死区 (Deadzone) 测试
 
-1. 保持摇杆在中心位置（未触碰），观察 `/cmd_vel_teleop` 话题输出是否完全为 `0.0`。
+1. 保持摇杆在中心位置（未触碰），观察当前实际输出话题是否完全为 `0.0`。如果是根目录脚本，默认看 `/cmd_vel`；如果是包内 launch，默认看 `/cmd_vel_teleop`。
 2. 轻微推动摇杆，在不超过死区阈值（默认 0.15）时，输出应保持为 `0.0`。
 3. 继续推动摇杆越过阈值，输出应平滑变化，无高频的 `0/非0` 抖动（得益于滞回控制）。
 
@@ -60,8 +121,9 @@ ros2 topic echo /cmd_vel_teleop
 
 1. 启动节点并监听速度：
    ```bash
-   ros2 topic echo /cmd_vel_teleop
+   ros2 topic echo /cmd_vel
    ```
+   若当前不是通过根目录脚本启动，而是直接使用包内 launch，请改为监听 `/cmd_vel_teleop`。
 2. 迅速将摇杆推到最大位置。
 3. 观察输出的目标速度是否是逐步爬升到最大值，而不是瞬间跳变到最大值。当前履带模式重点看 `linear.x`；若显式切回 `mecanum_4wheel`，再额外验证 `linear.y` 的限加速度表现。
 
@@ -71,7 +133,7 @@ ros2 topic echo /cmd_vel_teleop
 
 1. 推动摇杆使其有速度输出。
 2. 突然松开摇杆使其回到中心。
-3. 观察 `/cmd_vel_teleop` 输出，会连续打印 N 次（默认 10 次）全 0 的速度指令，随后停止发布（终端不再滚动刷新新数据）。
+3. 观察输出话题，会连续打印 N 次（默认 10 次）全 0 的速度指令，随后停止发布（终端不再滚动刷新新数据）。
 
 ### 3.4 Watchdog (看门狗) 超时保护测试
 
@@ -83,7 +145,7 @@ ros2 topic echo /cmd_vel_teleop
    ```bash
    pkill -f joy_node
    ```
-4. 观察监听 `/cmd_vel_teleop` 的终端，应在设定时间（默认 0.3s）内收到全 0 的速度指令，并持续输出全 0 以保持车辆停止。
+4. 观察监听控制话题的终端，应在设定时间（默认 0.3s）内收到全 0 的速度指令，并持续输出全 0 以保持车辆停止。
 5. 查看 launch 终端的日志输出，应看到类似警告：
    ```text
    [WARN] [rc26_telecontrol]: Joy timeout (X.XXs), holding zero.
@@ -97,9 +159,28 @@ Deadman 机制要求必须按住指定按键（默认 LB / 按键 4）才能控�
    ```bash
    ros2 launch rc26_telecontrol wheeltec_joy.launch.py require_deadman:=true
    ```
-2. 不按 LB 键，直接推摇杆，观察 `/cmd_vel_teleop` 是否一直输出为 0。
+2. 不按 LB 键，直接推摇杆，观察控制话题是否一直输出为 0。
 3. 按住 LB 键，同时推摇杆，观察是否正常输出速度指令。
 4. 在有速度输出的情况下，松开 LB 键，观察输出是否立即归零。
+
+### 3.6 前置履带按钮测试
+
+当 `rc26_mechanism` 和 `rc26_telecontrol_front_track_test` 已经运行时，可以直接用手柄做前置履带联调：
+
+1. 按 `Y(button[3])`，应触发 `/mechanism/execute` 的 `FRONT_TRACK_UP (0x11)`。
+2. 按 `A(button[0])`，应触发 `/mechanism/execute` 的 `FRONT_TRACK_DOWN (0x12)`。
+3. 长按同一个键不会重复触发；必须松开再按才会再次发 goal。
+4. 若 `Y` 与 `A` 同帧按下，测试节点会直接忽略本次输入。
+5. 上一个机构 goal 未结束时，新的 Y/A 会被拒绝。
+
+可以同时观察：
+
+```bash
+ros2 topic echo /mechanism/state
+ros2 topic echo /mechanism/transport/feedback
+```
+
+若 MCU 在遥控模式停止发送数据后回传 `0x13 / 0x14`，对应 goal 才会成功结束。
 
 ## 4. 参数动态覆盖测试
 
@@ -121,6 +202,7 @@ ros2 param get /rc26_telecontrol max_accel
 
 ## 5. 常见问题排查
 
-- **手柄已连接但 `/cmd_vel_teleop` 无输出**：先检查 `/joy` 是否有数据，再确认当前启动的是 Stick 还是 Dpad 模式，避免监听了错误的节点名或话题名。
+- **手柄已连接但控制话题无输出**：先检查 `/joy` 是否有数据，再确认当前启动的是 Stick 还是 Dpad 模式，并确认自己监听的是 `/cmd_vel` 还是 `/cmd_vel_teleop`。
 - **输出始终为零**：优先检查是否开启了 `require_deadman` 且未按住安全键，或 `joy_timeout_s` 过短导致 Watchdog 持续触发零速保持。
 - **速度变化过猛或回中后仍有残余速度**：检查手柄硬件中心漂移，并适当调大死区相关参数或减小 `max_accel`，验证限加速度逻辑是否仍然生效。
+- **Y/A 按下没有触发前置履带动作**：先确认 `/mechanism_server` 已激活、`rc26_telecontrol_front_track_test` 已启动，并检查 `/mechanism/transport/send_command` 服务与 `/mechanism/transport/feedback` topic 是否存在。

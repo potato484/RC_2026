@@ -17,6 +17,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(rc26_interfaces REQUIRED)
 find_package(rc26_serial REQUIRED)
 
 # CAN里程计库
@@ -139,6 +140,7 @@ ament_target_dependencies(merge_odom_node
   nav_msgs
   sensor_msgs
   geometry_msgs
+  rc26_interfaces
   rc26_serial
 )
 
@@ -205,6 +207,6 @@ install(DIRECTORY
 
 ament_export_include_directories(include)
 ament_export_libraries(can_odom wheel_odom pose_sender wheel_odom_fuser dm_imu_driver)
-ament_export_dependencies(rclcpp nav_msgs sensor_msgs std_msgs geometry_msgs diagnostic_msgs tf2 rc26_serial)
+ament_export_dependencies(rclcpp nav_msgs sensor_msgs std_msgs geometry_msgs diagnostic_msgs tf2 rc26_interfaces rc26_serial)
 
 ament_package()

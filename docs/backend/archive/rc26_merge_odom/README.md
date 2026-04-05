@@ -2,7 +2,7 @@
 
 ## 模块定位
 
-`rc26_merge_odom` 是 R2 当前的多源里程计融合与位姿下发包，负责把轮速、CAN 里程计、达妙 IMU 和控制下发整合到同一条运行链路里。
+`rc26_merge_odom` 是 R2 当前的多源里程计融合、位姿下发和目标 MCU 串口桥接包，负责把轮速、CAN 里程计、达妙 IMU、底盘控制下发与机构共享串口整合到同一条运行链路里。
 
 ## 当前实现
 
@@ -36,6 +36,21 @@
 - `launch/wheel_odom_only.launch.py`
 - `launch/dm_imu_only.launch.py`
 
+除了底盘相关职责外，`merge_odom_node` 现在还承担真实目标 MCU 串口 `/dev/ttyUSB1` 的唯一 owner：
+
+- `PoseSender` 继续复用这条串口下发底盘速度目标
+- `MechanismTransportBridge` 新增内部桥接接口，供 `rc26_mechanism` 复用同一串口
+- service：`/mechanism/transport/send_command`
+- topic：`/mechanism/transport/feedback`
+
+其中桥接层会过滤 `ACK / HEARTBEAT_ACK / ODOM_DATA` 这类高频非业务反馈，只把机构执行真正关心的反馈继续发布给 `rc26_mechanism`
+
+`launch/merge_odom.launch.py` 当前除了 `use_can_odom` / `start_ekf` 外，还支持 `use_imu_for_ekf`：
+
+- `use_imu_for_ekf=true`：EKF 按默认口径继续融合 `DM_IMU`
+- `use_imu_for_ekf=false`：只把 `imu0` 和 `imu0_*` 从 EKF 参数里移除，最终 `merge_odom` 改为纯 wheel/CAN 输入的 EKF 输出
+- 这个开关只影响 EKF 的最终融合位姿，不会停掉 `dm_imu_node`，也不会关闭 `PoseSender`、`can_odom`、`wheel_odom` 内部对 IMU 的保护/辅助使用
+
 当前实现新增了统一的 `chassis_model` 参数，支持两种底盘口径：
 
 - `mecanum_4wheel`：保留现有四轮全向解算与二维速度保护
@@ -55,20 +70,20 @@
 - 最后看参数 YAML 和调试脚本，确认串口/CAN/速度保护的部署值。
 
 ## 目录解剖
-- `src/merge_odom_node.cpp`：统一创建和装配 CAN、轮速、IMU、融合器、位姿下发器。
+- `src/merge_odom_node.cpp`：统一创建和装配 CAN、轮速、IMU、融合器、位姿下发器，以及机构共享串口桥。
 - `src/can/`：CAN 里程计采集与解码。
 - `src/wheel/`：轮里程计串口接入和速度解算。
 - `src/imu/`：达妙 IMU 驱动与解析。
 - `src/fuser/`：CAN/轮里程计软融合。
-- `src/pose/`：结合反馈、地形限速和保护器向下位机发速度。
+- `src/pose/`：结合反馈和保护器向下位机发速度。
 
 ## 关键文件体量
-- `src/pose/pose_sender.cpp`：794 行，下发保护逻辑最重。
+- `src/pose/pose_sender.cpp`：875 行，下发保护逻辑最重。
 - `src/imu/dm_imu_driver.cpp`：454 行。
-- `src/can/can_odom.cpp`：396 行。
-- `src/fuser/wheel_odom_fuser.cpp`：353 行。
-- `src/wheel/wheel_odom.cpp`：304 行。
-- `src/merge_odom_node.cpp`：234 行，总装入口。
+- `src/can/can_odom.cpp`：475 行。
+- `src/fuser/wheel_odom_fuser.cpp`：369 行。
+- `src/wheel/wheel_odom.cpp`：380 行。
+- `src/merge_odom_node.cpp`：369 行，总装入口。
 
 ## 关键源码行段速览
 - `src/rc26_merge_odom/src/merge_odom_node.cpp:1-221`：节点组合、参数分发和各子模块 wiring；`222-234`：`main()`。
@@ -76,13 +91,14 @@
 - `src/rc26_merge_odom/src/wheel/wheel_odom.cpp:21-134`：串口轮速解包与机体系速度换算；`135-304`：里程计发布、状态获取与复位。
 - `src/rc26_merge_odom/src/imu/dm_imu_driver.cpp:107-216`：串口打开与初始化；`247-374`：接收线程和缓冲解析；`375-454`：帧级解析。
 - `src/rc26_merge_odom/src/fuser/wheel_odom_fuser.cpp:42-163`：输入缓存和源状态构造；`164-315`：定时融合主路径；`316-353`：健康度发布。
-- `src/rc26_merge_odom/src/pose/pose_sender.cpp:56-319`：输入订阅和基础状态缓存；`320-586`：地形限速、IMU spike、fallback/governor 保护；`587-794`：反馈和目标发送定时器。
+- `src/rc26_merge_odom/src/pose/pose_sender.cpp`：输入订阅和基础状态缓存、IMU spike 与 fallback/governor 保护、反馈和目标发送定时器。
 
 ## 模块边界
 
 - 这个包输出的是局部融合里程计和下发保护，不是全局定位
 - 它不替代 `rc26_localization` 的地图配准职责
 - 它也不做上层路径规划，只为控制和定位提供更稳的底层状态与执行接口
+- 它现在拥有目标 MCU 串口的运行时权威，但并不替代 `rc26_mechanism` 的动作语义和 Action 服务职责
 
 ## 近期实现说明
 
@@ -90,3 +106,8 @@
 - `can_odom` 保留老四电机 CAN 解算；履带模式切换为左右两个电机 ID，可在 YAML 里分别配置。
 - `wheel_odom_fuser` 在履带模式下继续保留双源融合，但把 `vy` 收敛为非完整约束量。
 - `PoseSender` 在履带模式下仍按 `(vx, vy, wz)` 协议下发，但会在保护器里强制 `vy=0`，并改为左右履带空间限速/限加速度。
+- `merge_odom_node` 现在额外挂出 `/mechanism/transport/send_command` 与 `/mechanism/transport/feedback`，把机构命令复用到同一条目标串口上。
+- 真实部署下，`rc26_mechanism` 不应再单独打开 `/dev/ttyUSB1`；若 teleop 或 bringup 已经启动 `merge_odom`，则机制侧应使用 `hal_type:=shared_serial`。
+- `terrain_speed_limit` 运行时链路已经从 `rc26_merge_odom` 中删除；`PoseSender` 不再消费来自 `rc26_terrain` 的外部限速话题。
+- 遥控链现在可以通过仓库根目录的 `start_r2_teleop.sh --pose-mode imu|no-imu` 切换“启用融合位姿且是否让 EKF 使用 IMU”；`no-imu` 只移除 EKF 的 IMU 输入，不改动 `dm_imu_node` 和执行保护链。
+- 遥控链通过 `start_r2_teleop.sh` 启动时，不再需要额外传地形限速相关参数；teleop 模式天然不会受 terrain 限速影响，同时会自动把机构共享串口桥一起拉起。

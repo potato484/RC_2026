@@ -11,17 +11,23 @@ from ament_index_python.packages import get_package_share_directory
 import yaml
 
 
+def parse_launch_bool(value):
+    return value.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def drop_sensor_parameters(parameters, base_name):
+    return {
+        key: value for key, value in parameters.items()
+        if key != base_name and not key.startswith(f'{base_name}_')
+    }
+
+
 def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, wheel_odom_topic):
-    use_can_odom_value = LaunchConfiguration('use_can_odom').perform(context).strip().lower()
-    use_can_odom = use_can_odom_value in ('1', 'true', 'yes', 'on')
-    start_ekf_value = LaunchConfiguration('start_ekf').perform(context).strip().lower()
-    start_ekf = start_ekf_value in ('1', 'true', 'yes', 'on')
+    use_can_odom = parse_launch_bool(LaunchConfiguration('use_can_odom').perform(context))
+    start_ekf = parse_launch_bool(LaunchConfiguration('start_ekf').perform(context))
+    use_imu_for_ekf = parse_launch_bool(LaunchConfiguration('use_imu_for_ekf').perform(context))
     odom0_topic_override = can_odom_topic if use_can_odom else wheel_odom_topic
     pose_feedback_topic = 'merge_odom' if start_ekf else odom0_topic_override
-    terrain_speed_limit_topic_raw = LaunchConfiguration('terrain_speed_limit_topic').perform(context).strip()
-    terrain_speed_limit_topic = terrain_speed_limit_topic_raw
-    if terrain_speed_limit_topic_raw.lower() in ('__disabled__', '__none__', 'none', 'off', 'false', '0'):
-        terrain_speed_limit_topic = ''
     chassis_model = LaunchConfiguration('chassis_model').perform(context).strip()
 
     merge_odom_node = Node(
@@ -35,7 +41,6 @@ def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, 
             'feedback_serial_port': LaunchConfiguration('feedback_serial_port').perform(context),
             'target_serial_port': LaunchConfiguration('target_serial_port').perform(context),
             'merge_odom_topic': pose_feedback_topic,
-            'terrain_speed_limit_topic': terrain_speed_limit_topic,
             'chassis_model': chassis_model,
         }]
     )
@@ -53,14 +58,19 @@ def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, 
     nodes = [merge_odom_node, dm_imu_node]
 
     if start_ekf:
+        with open(ekf_params_file, 'r', encoding='utf-8') as f:
+            ekf_yaml = yaml.safe_load(f) or {}
+        ekf_parameters = dict(((ekf_yaml.get('ekf_filter_node') or {}).get('ros__parameters') or {}))
+        ekf_parameters['odom0'] = odom0_topic_override
+        if not use_imu_for_ekf:
+            ekf_parameters = drop_sensor_parameters(ekf_parameters, 'imu0')
+
         ekf_node = Node(
             package='robot_localization',
             executable='ekf_node',
             name='ekf_filter_node',
             output='screen',
-            parameters=[ekf_params_file, {
-                'odom0': odom0_topic_override,
-            }],
+            parameters=[ekf_parameters],
             remappings=[
                 ('odometry/filtered', 'merge_odom'),
             ]
@@ -87,7 +97,6 @@ def generate_launch_description():
     target_serial_port_default = str(merge_params.get('target_serial_port', '/dev/ttyUSB1'))
     can_odom_topic_default = str(merge_params.get('can_odom_topic', 'Can_Odom'))
     wheel_odom_topic_default = str(merge_params.get('wheel_odom_topic', 'wheel_odom'))
-    terrain_speed_limit_topic_default = str(merge_params.get('terrain_speed_limit_topic', ''))
     chassis_model_default = str(merge_params.get('chassis_model', 'mecanum_4wheel'))
 
     use_can_odom_arg = DeclareLaunchArgument(
@@ -99,6 +108,10 @@ def generate_launch_description():
         'start_ekf',
         default_value='true',
         description='Whether to start robot_localization EKF. For teleop + SLAM, set false to avoid odom->base_link TF conflict.')
+    use_imu_for_ekf_arg = DeclareLaunchArgument(
+        'use_imu_for_ekf',
+        default_value='true',
+        description='Whether EKF fuses IMU input. false removes imu0/imu0_* from EKF only; dm_imu_node and merge_odom protections still run.')
 
     can_interface_arg = DeclareLaunchArgument(
         'can_interface', default_value=can_interface_default,
@@ -116,9 +129,6 @@ def generate_launch_description():
         'target_serial_port', default_value=target_serial_port_default,
         description='MCU target serial port (velocity target + ODOM_DATA upstream)')
 
-    terrain_speed_limit_topic_arg = DeclareLaunchArgument(
-        'terrain_speed_limit_topic', default_value=terrain_speed_limit_topic_default,
-        description='Terrain speed limit topic for PoseSender; use __disabled__ to disable terrain-based linear speed suppression')
     chassis_model_arg = DeclareLaunchArgument(
         'chassis_model', default_value=chassis_model_default,
         description='Chassis model: mecanum_4wheel | tracked_diff')
@@ -126,11 +136,11 @@ def generate_launch_description():
     return LaunchDescription([
         use_can_odom_arg,
         start_ekf_arg,
+        use_imu_for_ekf_arg,
         can_interface_arg,
         imu_port_arg,
         feedback_serial_port_arg,
         target_serial_port_arg,
-        terrain_speed_limit_topic_arg,
         chassis_model_arg,
         OpaqueFunction(
             function=create_runtime_nodes,

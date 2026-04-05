@@ -26,10 +26,12 @@
   - `XhuTrackingState.msg`
 - 机构与任务:
   - `MechanismState.msg`
+  - `MechanismTransportFeedback.msg`
   - `ExecuteMechanism.action`
   - `GrabTip.action`
   - `AssembleWeapon.action`
   - `PlaceKFSGrid.action`
+  - `SendMechanismTransportCommand.srv`
 - 感知与规则:
   - `MfKfsState.msg`
   - `MfKfsCell.msg`

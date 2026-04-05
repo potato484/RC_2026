@@ -20,6 +20,7 @@ include_directories(include)
 
 add_library(${PROJECT_NAME}_component SHARED
   src/serial_mechanism_hal.cpp
+  src/shared_serial_mechanism_hal.cpp
   src/sim_mechanism_hal.cpp
   src/fault_injecting_hal.cpp
   src/replay_mechanism_hal.cpp
@@ -55,6 +56,25 @@ install(
   DIRECTORY launch/
   DESTINATION share/${PROJECT_NAME}/launch
 )
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  ament_add_gtest(test_shared_serial_transport
+    test/test_shared_serial_transport.cpp
+  )
+  target_link_libraries(test_shared_serial_transport ${PROJECT_NAME}_component)
+  target_include_directories(test_shared_serial_transport PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+  ament_target_dependencies(test_shared_serial_transport
+    rclcpp
+    rclcpp_action
+    rclcpp_lifecycle
+    rc26_interfaces
+    rc26_serial
+  )
+endif()
 
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME}_component)

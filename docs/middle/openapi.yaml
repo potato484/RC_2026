@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: RC26 R2 ROS2 Interface Index
-  version: 0.3.0-modular
+  version: 0.4.0-modular
   summary: 按模块拆分的 R2 ROS2 接口目录
   description: |
     本目录按“ROS2 的 topic / service 本身就是后端接口”来组织。
@@ -60,7 +60,9 @@ x-modules:
     file: docs/middle/modules/mechanism.yaml
     topics:
       - /mechanism/state
-    services: []
+      - /mechanism/transport/feedback
+    services:
+      - /mechanism/transport/send_command
   - name: stream
     file: docs/middle/modules/stream.yaml
     topics: []
