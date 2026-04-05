@@ -599,7 +599,7 @@ export const EditorVisualizer = () => {
 
       {branchInsertDialog && (
         <div
-          className="fixed inset-0 z-40 bg-slate-950/18 p-3"
+          className="fixed inset-0 z-40 bg-slate-950/24 p-3 backdrop-blur-[1.5px]"
           onClick={() => setBranchInsertDialog(null)}
         >
           <div
@@ -639,7 +639,10 @@ export const EditorVisualizer = () => {
       )}
 
       {toolbarInsertOpen && (
-        <div className="fixed inset-0 z-40 bg-slate-950/18 p-3" onClick={() => setToolbarInsertOpen(false)}>
+        <div
+          className="fixed inset-0 z-40 bg-slate-950/24 p-3 backdrop-blur-[1.5px]"
+          onClick={() => setToolbarInsertOpen(false)}
+        >
           <div
             className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 lg:block"
             onClick={(event) => event.stopPropagation()}

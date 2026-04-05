@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CornerDownRight, Database, GitBranch, Info, Layers3, Plus, Trash2 } from 'lucide-react';
+import {
+  ChevronDown,
+  CornerDownRight,
+  Database,
+  GitBranch,
+  Info,
+  Layers3,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import { useEditorStore } from '../store/useEditorStore';
 import { EditorNode } from '../types/editor';
-import { BtPortSchema } from '../generated/btNodeRegistry';
+import { BtNodeRegistryEntry, BtPortSchema } from '../generated/btNodeRegistry';
 import {
   getBehaviorTreeAttributeDisplays,
   getBehaviorTreeNodeCategoryLabel,
@@ -19,6 +28,11 @@ import {
   getAlongBranchWrapperEntries,
   getNodeChildPolicy,
 } from '../utils/btRegistry';
+import {
+  EditorOptionPicker,
+  EditorOptionPickerItem,
+  EditorOptionPickerSection,
+} from './EditorOptionPicker';
 
 const findNodeById = (node: EditorNode, nodeId: string): EditorNode | null => {
   if (node.id === nodeId) {
@@ -46,6 +60,103 @@ const getNumericInputMode = (valueType: string): 'numeric' | 'decimal' => {
   return normalizedType === 'double' || normalizedType === 'float' ? 'decimal' : 'numeric';
 };
 
+type EditorPickerKind =
+  | 'insert-position'
+  | 'along-branch-wrapper'
+  | 'along-branch-template'
+  | 'branch-template'
+  | 'wrap-template';
+
+const branchInsertCategoryOrder: Array<{
+  id: BtNodeRegistryEntry['category'];
+  title: string;
+}> = [
+  { id: 'control', title: '控制节点' },
+  { id: 'decorator', title: '装饰节点' },
+  { id: 'action', title: '动作节点' },
+  { id: 'condition', title: '条件节点' },
+  { id: 'subtree', title: '子树节点' },
+];
+
+const wrapTemplateTags = [
+  'Inverter',
+  'RetryUntilSuccessful',
+  'Delay',
+  'ForceSuccess',
+  'ForceFailure',
+  'Sequence',
+  'Fallback',
+  'Parallel',
+] as const;
+
+const getRegistrySourceLabel = (entry: Pick<BtNodeRegistryEntry, 'source'>) =>
+  entry.source === 'robot' ? '机器人模块' : '官方节点';
+
+const buildRegistrySearchTokens = (entry: BtNodeRegistryEntry) => [
+  entry.labelZh,
+  entry.descriptionZh,
+  entry.tagName,
+  entry.group,
+  getRegistrySourceLabel(entry),
+  getBehaviorTreeNodeCategoryLabel(entry.category),
+  ...entry.keywordsZh,
+  ...entry.keywordsEn,
+  ...entry.portSchemas.flatMap((port) => [
+    port.name,
+    port.labelZh,
+    port.descriptionZh,
+    port.valueType,
+    port.defaultValue ?? '',
+  ]),
+];
+
+const buildRegistryPickerItem = (
+  entry: BtNodeRegistryEntry,
+  badge = getBehaviorTreeNodeCategoryLabel(entry.category)
+): EditorOptionPickerItem => ({
+  id: entry.tagName,
+  label: entry.labelZh,
+  description: entry.descriptionZh,
+  badge,
+  meta: `${getRegistrySourceLabel(entry)} · ${entry.group}`,
+  detail: entry.tagName,
+  searchTokens: buildRegistrySearchTokens(entry),
+});
+
+const PickerTrigger = ({
+  label,
+  value,
+  detail,
+  placeholder,
+  onClick,
+  testId,
+}: {
+  label: string;
+  value?: string | null;
+  detail?: string;
+  placeholder: string;
+  onClick: () => void;
+  testId: string;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    data-testid={testId}
+    className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50"
+  >
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-semibold text-slate-500">{label}</div>
+        <div className={`mt-1 text-sm font-semibold ${value ? 'text-slate-800' : 'text-slate-400'}`}>
+          {value || placeholder}
+        </div>
+        {detail && <div className="mt-1 text-xs text-slate-400">{detail}</div>}
+      </div>
+      <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+    </div>
+  </button>
+);
+
 export const EditorRightPanel = () => {
   const {
     selectedNodeId,
@@ -65,6 +176,7 @@ export const EditorRightPanel = () => {
   const [branchInsertTagName, setBranchInsertTagName] = useState('Sequence');
   const [wrapTagName, setWrapTagName] = useState('Inverter');
   const [branchInsertIndex, setBranchInsertIndex] = useState(0);
+  const [activePicker, setActivePicker] = useState<EditorPickerKind | null>(null);
 
   const activeTree = useMemo(
     () => (activeTreeId && document ? document.trees.find((tree) => tree.id === activeTreeId) ?? null : null),
@@ -131,6 +243,110 @@ export const EditorRightPanel = () => {
       }))
     : [];
   const selectedAlongBranchItem = alongBranchItems.find((item) => item.id === alongBranchItemId) ?? null;
+  const selectedAlongBranchWrapper =
+    alongBranchWrapperOptions.find((entry) => entry.tagName === alongBranchWrapperTagName) ?? null;
+  const selectedBranchTemplate = registry.find((entry) => entry.tagName === branchInsertTagName) ?? null;
+
+  const wrapTemplateOptions = useMemo(
+    () =>
+      wrapTemplateTags
+        .map((tagName) => getBtNodeDefinition(tagName))
+        .filter((entry): entry is BtNodeRegistryEntry => Boolean(entry)),
+    []
+  );
+  const selectedWrapTemplate = wrapTemplateOptions.find((entry) => entry.tagName === wrapTagName) ?? null;
+
+  const insertPositionSections = useMemo<EditorOptionPickerSection[]>(
+    () => [
+      {
+        id: 'insert-position',
+        title: '插入方向',
+        layout: 'grid',
+        items: [
+          {
+            id: 'before',
+            label: '前插',
+            description: '新节点放在当前节点前面。',
+            detail: 'before',
+            searchTokens: ['前插', 'before', '在当前节点前插入'],
+          },
+          {
+            id: 'after',
+            label: '后插',
+            description: '新节点放在当前节点后面。',
+            detail: 'after',
+            searchTokens: ['后插', 'after', '在当前节点后插入'],
+          },
+        ],
+      },
+    ],
+    []
+  );
+
+  const alongBranchWrapperSections = useMemo<EditorOptionPickerSection[]>(
+    () => [
+      {
+        id: 'along-branch-wrapper',
+        title: '控制包装',
+        layout: 'grid',
+        items: alongBranchWrapperOptions.map((entry) => ({
+          ...buildRegistryPickerItem(entry, '控制包装'),
+          meta: entry.group,
+        })),
+      },
+    ],
+    [alongBranchWrapperOptions]
+  );
+
+  const alongBranchTemplateSections = useMemo<EditorOptionPickerSection[]>(
+    () =>
+      buildAlongBranchInsertCatalog(document, activeTreeId).map((section) => ({
+        id: section.id,
+        title: section.title,
+        layout: 'grid',
+        items: section.items.map((item) => ({
+          id: item.id,
+          label: item.label,
+          description: item.description,
+          badge: getInsertCategoryLabel(item.category),
+          meta: `${item.sourceLabel} · ${item.groupLabel}`,
+          detail: item.tagLabel,
+          searchTokens: item.searchTokens,
+        })),
+      })),
+    [activeTreeId, document]
+  );
+
+  const branchTemplateSections = useMemo<EditorOptionPickerSection[]>(
+    () =>
+      branchInsertCategoryOrder
+        .map((sectionMeta) => {
+          const items = registry
+            .filter((entry) => entry.category === sectionMeta.id)
+            .map((entry) => buildRegistryPickerItem(entry));
+
+          return {
+            id: sectionMeta.id,
+            title: sectionMeta.title,
+            layout: 'grid' as const,
+            items,
+          };
+        })
+        .filter((section) => section.items.length > 0),
+    [registry]
+  );
+
+  const wrapTemplateSections = useMemo<EditorOptionPickerSection[]>(
+    () => [
+      {
+        id: 'wrap-template',
+        title: '包裹模板',
+        layout: 'grid',
+        items: wrapTemplateOptions.map((entry) => buildRegistryPickerItem(entry, '包裹')),
+      },
+    ],
+    [wrapTemplateOptions]
+  );
 
   useEffect(() => {
     if (alongBranchItems.length === 0) {
@@ -153,6 +369,109 @@ export const EditorRightPanel = () => {
       setBranchInsertTagName(registry[0].tagName);
     }
   }, [branchInsertTagName, registry]);
+
+  useEffect(() => {
+    if (selectedWrapTemplate || wrapTemplateOptions.length === 0) {
+      return;
+    }
+
+    setWrapTagName(wrapTemplateOptions[0].tagName);
+  }, [selectedWrapTemplate, wrapTemplateOptions]);
+
+  useEffect(() => {
+    setActivePicker(null);
+  }, [activeTreeId, document, selectedNodeId]);
+
+  const activePickerConfig = useMemo(() => {
+    if (!activePicker) {
+      return null;
+    }
+
+    switch (activePicker) {
+      case 'insert-position':
+        return {
+          title: '选择插入位置',
+          description: '先定前插还是后插，再继续选包装和模板。',
+          sections: insertPositionSections,
+          selectedId: insertPosition,
+          dataTestId: 'editor-picker-insert-position',
+        };
+      case 'along-branch-wrapper':
+        return {
+          title: '选择控制包装',
+          description: '这里先定执行关系，真正插入仍由下方按钮触发。',
+          sections: alongBranchWrapperSections,
+          selectedId: alongBranchWrapperTagName,
+          dataTestId: 'editor-picker-along-branch-wrapper',
+        };
+      case 'along-branch-template':
+        return {
+          title: '选择同支线节点模板',
+          description: '这里只列动作、条件和子树模板。',
+          sections: alongBranchTemplateSections,
+          selectedId: alongBranchItemId,
+          searchPlaceholder: '搜索动作、条件、子树或模块名',
+          dataTestId: 'editor-picker-along-branch-template',
+        };
+      case 'branch-template':
+        return {
+          title: '选择新增分支模板',
+          description: '给这条新分支挑一个起始节点。',
+          sections: branchTemplateSections,
+          selectedId: branchInsertTagName,
+          searchPlaceholder: '搜索节点、模块、分组或英文标识',
+          dataTestId: 'editor-picker-branch-template',
+        };
+      case 'wrap-template':
+        return {
+          title: '选择包裹模板',
+          description: '这里只回填模板，执行包裹仍要点下面的按钮。',
+          sections: wrapTemplateSections,
+          selectedId: wrapTagName,
+          dataTestId: 'editor-picker-wrap-template',
+        };
+      default:
+        return null;
+    }
+  }, [
+    activePicker,
+    alongBranchItemId,
+    alongBranchTemplateSections,
+    alongBranchWrapperSections,
+    alongBranchWrapperTagName,
+    branchInsertTagName,
+    branchTemplateSections,
+    insertPosition,
+    insertPositionSections,
+    wrapTagName,
+    wrapTemplateSections,
+  ]);
+
+  const handlePickerSelect = (itemId: string) => {
+    if (!activePicker) {
+      return;
+    }
+
+    switch (activePicker) {
+      case 'insert-position':
+        setInsertPosition(itemId as 'before' | 'after');
+        break;
+      case 'along-branch-wrapper':
+        setAlongBranchWrapperTagName(itemId);
+        break;
+      case 'along-branch-template':
+        setAlongBranchItemId(itemId);
+        break;
+      case 'branch-template':
+        setBranchInsertTagName(itemId);
+        break;
+      case 'wrap-template':
+        setWrapTagName(itemId);
+        break;
+    }
+
+    setActivePicker(null);
+  };
 
   const renderPortField = (port: BtPortSchema) => {
     if (!selectedNode) {
@@ -331,44 +650,40 @@ export const EditorRightPanel = () => {
                         前插和后插都会先显式新建一层控制包装，再把“原节点 + 新节点”串成同一条执行链。这里只插动作、条件或子树；新增支线请走下面的独立入口。
                       </div>
 
-                      <label className="mb-2 block text-xs font-semibold text-slate-500">插入位置</label>
-                      <select
-                        value={insertPosition}
-                        onChange={(event) => setInsertPosition(event.target.value as 'before' | 'after')}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
-                      >
-                        <option value="before">在当前节点前插入</option>
-                        <option value="after">在当前节点后插入</option>
-                      </select>
+                      <PickerTrigger
+                        label="插入位置"
+                        value={insertPosition === 'before' ? '在当前节点前插入' : '在当前节点后插入'}
+                        detail={insertPosition}
+                        placeholder="先选择前插或后插"
+                        onClick={() => setActivePicker('insert-position')}
+                        testId="editor-picker-trigger-insert-position"
+                      />
 
-                      <label className="mb-2 mt-3 block text-xs font-semibold text-slate-500">控制包装</label>
-                      <select
-                        value={alongBranchWrapperTagName}
-                        onChange={(event) => setAlongBranchWrapperTagName(event.target.value)}
-                        data-testid="editor-along-branch-wrapper-select"
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
-                      >
-                        <option value="">先选择顺序 / 回退 / 并行等控制关系</option>
-                        {alongBranchWrapperOptions.map((entry) => (
-                          <option key={entry.tagName} value={entry.tagName}>
-                            {entry.labelZh}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="mt-3">
+                        <PickerTrigger
+                          label="控制包装"
+                          value={selectedAlongBranchWrapper?.labelZh ?? null}
+                          detail={selectedAlongBranchWrapper?.tagName}
+                          placeholder="先选择顺序 / 回退 / 并行等控制关系"
+                          onClick={() => setActivePicker('along-branch-wrapper')}
+                          testId="editor-picker-trigger-along-branch-wrapper"
+                        />
+                      </div>
 
-                      <label className="mb-2 mt-3 block text-xs font-semibold text-slate-500">节点模板</label>
-                      <select
-                        value={alongBranchItemId}
-                        onChange={(event) => setAlongBranchItemId(event.target.value)}
-                        data-testid="editor-along-branch-template-select"
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
-                      >
-                        {alongBranchItems.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.label} · {getInsertCategoryLabel(item.category)}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="mt-3">
+                        <PickerTrigger
+                          label="节点模板"
+                          value={selectedAlongBranchItem?.label ?? null}
+                          detail={
+                            selectedAlongBranchItem
+                              ? `${getInsertCategoryLabel(selectedAlongBranchItem.category)} · ${selectedAlongBranchItem.tagLabel}`
+                              : undefined
+                          }
+                          placeholder="点击选择要插入的动作、条件或子树"
+                          onClick={() => setActivePicker('along-branch-template')}
+                          testId="editor-picker-trigger-along-branch-template"
+                        />
+                      </div>
 
                       <button
                         type="button"
@@ -445,18 +760,20 @@ export const EditorRightPanel = () => {
                           ))}
                         </select>
 
-                        <label className="mb-2 mt-3 block text-xs font-semibold text-slate-500">节点模板</label>
-                        <select
-                          value={branchInsertTagName}
-                          onChange={(event) => setBranchInsertTagName(event.target.value)}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
-                        >
-                          {registry.map((entry) => (
-                            <option key={entry.tagName} value={entry.tagName}>
-                              {entry.labelZh}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="mt-3">
+                          <PickerTrigger
+                            label="节点模板"
+                            value={selectedBranchTemplate?.labelZh ?? null}
+                            detail={
+                              selectedBranchTemplate
+                                ? `${getBehaviorTreeNodeCategoryLabel(selectedBranchTemplate.category)} · ${selectedBranchTemplate.tagName}`
+                                : undefined
+                            }
+                            placeholder="点击选择这条新分支的起始节点"
+                            onClick={() => setActivePicker('branch-template')}
+                            testId="editor-picker-trigger-branch-template"
+                          />
+                        </div>
 
                         <button
                           type="button"
@@ -483,21 +800,14 @@ export const EditorRightPanel = () => {
                       包裹当前节点
                     </div>
                     <div className="rounded-2xl border border-slate-200 bg-white/80 p-3">
-                      <label className="mb-2 block text-xs font-semibold text-slate-500">包裹模板</label>
-                      <select
-                        value={wrapTagName}
-                        onChange={(event) => setWrapTagName(event.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
-                      >
-                        {['Inverter', 'RetryUntilSuccessful', 'Delay', 'ForceSuccess', 'ForceFailure', 'Sequence', 'Fallback', 'Parallel'].map((tag) => {
-                          const definition = getBtNodeDefinition(tag);
-                          return definition ? (
-                            <option key={tag} value={tag}>
-                              {definition.labelZh}
-                            </option>
-                          ) : null;
-                        })}
-                      </select>
+                      <PickerTrigger
+                        label="包裹模板"
+                        value={selectedWrapTemplate?.labelZh ?? null}
+                        detail={selectedWrapTemplate?.tagName}
+                        placeholder="点击选择包裹模板"
+                        onClick={() => setActivePicker('wrap-template')}
+                        testId="editor-picker-trigger-wrap-template"
+                      />
                       <button
                         type="button"
                         onClick={() => wrapNode(selectedNode.id, wrapTagName)}
@@ -514,6 +824,19 @@ export const EditorRightPanel = () => {
           </>
         )}
       </div>
+
+      {activePickerConfig && (
+        <EditorOptionPicker
+          title={activePickerConfig.title}
+          description={activePickerConfig.description}
+          sections={activePickerConfig.sections}
+          selectedId={activePickerConfig.selectedId}
+          searchPlaceholder={activePickerConfig.searchPlaceholder}
+          dataTestId={activePickerConfig.dataTestId}
+          onSelect={handlePickerSelect}
+          onClose={() => setActivePicker(null)}
+        />
+      )}
     </div>
   );
 };

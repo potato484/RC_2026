@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { EditorRightPanel } from '../src/components/EditorRightPanel';
 import { useEditorStore } from '../src/store/useEditorStore';
 import { behaviorTreeXmlByPhase } from '../src/utils/behaviorTreeSources';
@@ -146,15 +146,127 @@ describe('EditorRightPanel', () => {
     const insertButton = screen.getByRole('button', { name: '执行同支线插入' });
     expect((insertButton as HTMLButtonElement).disabled).toBe(true);
 
-    const templateSelect = screen.getByTestId('editor-along-branch-template-select') as HTMLSelectElement;
-    expect(Array.from(templateSelect.options).some((option) => option.text.includes('顺序节点'))).toBe(false);
-    expect(Array.from(templateSelect.options).some((option) => option.text.includes('动作'))).toBe(true);
+    fireEvent.click(screen.getByTestId('editor-picker-trigger-along-branch-template'));
+    const templatePicker = screen.getByTestId('editor-picker-along-branch-template');
+    expect(within(templatePicker).queryByText('顺序节点')).toBeNull();
+    expect(within(templatePicker).getByText('抓取矛头')).toBeTruthy();
+    fireEvent.click(templatePicker);
 
-    fireEvent.change(screen.getByTestId('editor-along-branch-wrapper-select'), {
-      target: { value: 'Fallback' },
-    });
+    fireEvent.click(screen.getByTestId('editor-picker-trigger-along-branch-wrapper'));
+    const fallbackButton = within(screen.getByTestId('editor-picker-along-branch-wrapper'))
+      .getAllByRole('button')
+      .find(
+        (button) =>
+          button.textContent?.includes('回退节点') &&
+          button.textContent?.includes('Fallback') &&
+          !button.textContent?.includes('ReactiveFallback')
+      );
+
+    expect(fallbackButton).toBeTruthy();
+    fireEvent.click(
+      fallbackButton as HTMLButtonElement
+    );
 
     expect((insertButton as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  test('opens overlay pickers for all structural choices in the right panel', () => {
+    useEditorStore.getState().ensurePhaseLoaded('武馆区', behaviorTreeXmlByPhase['武馆区']);
+
+    const rootId = useEditorStore.getState().document!.trees[0].rootNode.id;
+    useEditorStore.getState().setSelectedNode(rootId);
+
+    render(<EditorRightPanel />);
+
+    const pickerCases = [
+      {
+        triggerId: 'editor-picker-trigger-insert-position',
+        pickerId: 'editor-picker-insert-position',
+      },
+      {
+        triggerId: 'editor-picker-trigger-along-branch-wrapper',
+        pickerId: 'editor-picker-along-branch-wrapper',
+      },
+      {
+        triggerId: 'editor-picker-trigger-along-branch-template',
+        pickerId: 'editor-picker-along-branch-template',
+      },
+      {
+        triggerId: 'editor-picker-trigger-branch-template',
+        pickerId: 'editor-picker-branch-template',
+      },
+      {
+        triggerId: 'editor-picker-trigger-wrap-template',
+        pickerId: 'editor-picker-wrap-template',
+      },
+    ];
+
+    pickerCases.forEach(({ triggerId, pickerId }) => {
+      fireEvent.click(screen.getByTestId(triggerId));
+      expect(screen.getByTestId(pickerId)).toBeTruthy();
+      fireEvent.click(screen.getByTestId(pickerId));
+      expect(screen.queryByTestId(pickerId)).toBeNull();
+    });
+  });
+
+  test('renders node template pickers as two-column grids', () => {
+    useEditorStore.getState().ensurePhaseLoaded('武馆区', behaviorTreeXmlByPhase['武馆区']);
+
+    const rootId = useEditorStore.getState().document!.trees[0].rootNode.id;
+    useEditorStore.getState().setSelectedNode(rootId);
+
+    render(<EditorRightPanel />);
+
+    fireEvent.click(screen.getByTestId('editor-picker-trigger-along-branch-template'));
+    const alongBranchTemplatePicker = screen.getByTestId('editor-picker-along-branch-template');
+    const alongBranchTemplateButton = within(alongBranchTemplatePicker)
+      .getAllByRole('button')
+      .find((button) => button.textContent?.includes('抓取矛头'));
+
+    expect(alongBranchTemplateButton).toBeTruthy();
+    expect(alongBranchTemplateButton?.parentElement?.className).toContain('grid-cols-2');
+    fireEvent.click(alongBranchTemplatePicker);
+
+    fireEvent.click(screen.getByTestId('editor-picker-trigger-branch-template'));
+    const branchTemplatePicker = screen.getByTestId('editor-picker-branch-template');
+    const branchTemplateButton = within(branchTemplatePicker)
+      .getAllByRole('button')
+      .find((button) => button.textContent?.includes('顺序节点'));
+
+    expect(branchTemplateButton).toBeTruthy();
+    expect(branchTemplateButton?.parentElement?.className).toContain('grid-cols-2');
+  });
+
+  test('selects a wrap template without mutating the tree until execute is clicked', () => {
+    loadCustomDocument(`
+      <root BTCPP_format="4">
+        <BehaviorTree ID="WrapTree">
+          <Sequence>
+            <GrabTip />
+          </Sequence>
+        </BehaviorTree>
+      </root>
+    `);
+
+    render(<EditorRightPanel />);
+
+    fireEvent.click(screen.getByTestId('editor-picker-trigger-wrap-template'));
+    const delayButton = within(screen.getByTestId('editor-picker-wrap-template'))
+      .getAllByRole('button')
+      .find((button) => button.textContent?.includes('Delay'));
+
+    expect(delayButton).toBeTruthy();
+    fireEvent.click(
+      delayButton as HTMLButtonElement
+    );
+
+    expect(screen.queryByTestId('editor-picker-wrap-template')).toBeNull();
+    expect(screen.getByTestId('editor-picker-trigger-wrap-template').textContent).toContain('延时装饰器');
+    expect(useEditorStore.getState().document!.trees[0].rootNode.children[0].tagName).toBe('GrabTip');
+
+    fireEvent.click(screen.getByRole('button', { name: '执行包裹' }));
+
+    expect(useEditorStore.getState().document!.trees[0].rootNode.children[0].tagName).toBe('Delay');
   });
 
   test('shows numeric literal inputs for numeric-only nodes', () => {
