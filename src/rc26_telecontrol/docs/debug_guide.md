@@ -8,7 +8,7 @@
 
 ```bash
 cd "${RC26_WS:-$HOME/RC_2026}"
-MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_interfaces rc26_serial rc26_merge_odom rc26_telecontrol --cmake-args -DCMAKE_BUILD_TYPE=Release
+MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_interfaces rc26_serial rc26_merge_odom rc26_telecontrol --cmake-args -DCMAKE_BUILD_TYPE=Release
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 

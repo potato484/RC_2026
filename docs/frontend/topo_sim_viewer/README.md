@@ -15,18 +15,18 @@
 ## 2. 入口与链路
 
 - 前端入口
-  - [src/main.tsx](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/main.tsx)
-  - [src/App.tsx](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/App.tsx)
-  - [src/components/SceneCanvas.tsx](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/components/SceneCanvas.tsx)
-  - [src/store.ts](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/store.ts)
-  - [src/api.ts](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/api.ts)
+  - [src/main.tsx](/home/aidlux/RC_2026/src/rc26_topo_nav/sim_viewer/src/main.tsx)
+  - [src/App.tsx](/home/aidlux/RC_2026/src/rc26_topo_nav/sim_viewer/src/App.tsx)
+  - [src/components/SceneCanvas.tsx](/home/aidlux/RC_2026/src/rc26_topo_nav/sim_viewer/src/components/SceneCanvas.tsx)
+  - [src/store.ts](/home/aidlux/RC_2026/src/rc26_topo_nav/sim_viewer/src/store.ts)
+  - [src/api.ts](/home/aidlux/RC_2026/src/rc26_topo_nav/sim_viewer/src/api.ts)
 - 本地 adapter
-  - [scripts/topo_sim_server.py](/home/potato/RC_2026/src/rc26_topo_nav/scripts/topo_sim_server.py)
+  - [scripts/topo_sim_server.py](/home/aidlux/RC_2026/src/rc26_topo_nav/scripts/topo_sim_server.py)
 - 运行时真源
-  - [src/planner_trace_cli.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/planner_trace_cli.cpp)
-  - [src/surface_route_cli.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/surface_route_cli.cpp)
-  - [config/r2_surface_graph_blue.yaml](/home/potato/RC_2026/src/rc26_topo_nav/config/r2_surface_graph_blue.yaml)
-  - [config/r2_surface_graph_red.yaml](/home/potato/RC_2026/src/rc26_topo_nav/config/r2_surface_graph_red.yaml)
+  - [src/planner_trace_cli.cpp](/home/aidlux/RC_2026/src/rc26_topo_nav/src/planner_trace_cli.cpp)
+  - [src/surface_route_cli.cpp](/home/aidlux/RC_2026/src/rc26_topo_nav/src/surface_route_cli.cpp)
+  - [config/r2_surface_graph_blue.yaml](/home/aidlux/RC_2026/src/rc26_topo_nav/config/r2_surface_graph_blue.yaml)
+  - [config/r2_surface_graph_red.yaml](/home/aidlux/RC_2026/src/rc26_topo_nav/config/r2_surface_graph_red.yaml)
 
 ## 3. 当前真实能力
 
@@ -112,7 +112,7 @@
 ## 5. 启动与验证
 
 - 构建 ROS 包
-  - `MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_interfaces rc26_topo_nav`
+  - `MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_interfaces rc26_topo_nav`
 - 启动 adapter
   - `source install/setup.bash`
   - `python3 src/rc26_topo_nav/scripts/topo_sim_server.py`

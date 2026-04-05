@@ -4,11 +4,11 @@
 
 ## 1. 编译与环境准备
 
-首先，确保仅编译当前相关的包，以限制编译核心使用：
+首先，确保仅编译当前相关的包，并使用当前 AidLux 环境下实测更快的默认构建参数：
 
 ```bash
 cd "${RC26_WS:-$HOME/RC_2026}"
-colcon build --symlink-install --parallel-workers 3 --packages-select rc26_base_ground --cmake-args -DCMAKE_BUILD_TYPE=Release
+MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_base_ground --cmake-args -DCMAKE_BUILD_TYPE=Release
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 

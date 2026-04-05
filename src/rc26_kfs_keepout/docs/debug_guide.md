@@ -8,7 +8,7 @@
 
 ```bash
 cd "${RC26_WS:-$HOME/RC_2026}"
-colcon build --symlink-install --parallel-workers 3 --packages-select rc26_kfs_keepout rc26_decision --cmake-args -DCMAKE_BUILD_TYPE=Release
+MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_kfs_keepout rc26_decision --cmake-args -DCMAKE_BUILD_TYPE=Release
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 

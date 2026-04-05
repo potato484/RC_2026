@@ -1,10 +1,10 @@
 # rc26_localization 调试指南
 
 ## 1. 编译模块
-在进行任何调试前，请确保模块已成功编译（由于 R2 算力平台限制，推荐限制编译核心数以防内存溢出）：
+在进行任何调试前，请确保模块已成功编译（当前 AidLux 环境下推荐直接使用下述默认构建参数）：
 ```bash
 cd "${RC26_WS:-$HOME/RC_2026}"
-colcon build --symlink-install --parallel-workers 3 --packages-select rc26_localization --cmake-args -DCMAKE_BUILD_TYPE=Release
+MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_localization --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
 ## 2. 启动定位节点

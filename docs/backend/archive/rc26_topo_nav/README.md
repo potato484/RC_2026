@@ -66,7 +66,7 @@
   - `planning.surface_projection_radius_m`：保守放大 surface route 的投影锚定半径
   - `body.half_width_m`：约束 surface edge 的 lateral clearance
   - `body.half_width_m + body_planning.clearance_margin_m`：作为 body-aware overlay 的最小可通行宽度
-- 当前默认 body-aware 运行参数在 [config/topo_nav.yaml](/home/potato/RC_2026/src/rc26_topo_nav/config/topo_nav.yaml) 中声明，主要包括：
+- 当前默认 body-aware 运行参数在 [config/topo_nav.yaml](/home/aidlux/RC_2026/src/rc26_topo_nav/config/topo_nav.yaml) 中声明，主要包括：
   - `surface_planner_backend`
   - `body_planning.enabled`
   - `body_planning.require_annotated_surface_graph`
@@ -88,16 +88,16 @@
 
 ## 源码入口
 
-- [src/topo_nav_node.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/topo_nav_node.cpp)
-- [src/edge_executor.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/edge_executor.cpp)
-- [src/planner.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/planner.cpp)
-- [src/planner_trace_cli.cpp](/home/potato/RC_2026/src/rc26_topo_nav/src/planner_trace_cli.cpp)
-- [scripts/topo_sim_server.py](/home/potato/RC_2026/src/rc26_topo_nav/scripts/topo_sim_server.py)
-- [scripts/topo_sim_algorithms.py](/home/potato/RC_2026/src/rc26_topo_nav/scripts/topo_sim_algorithms.py)
-- [sim_viewer/src/App.tsx](/home/potato/RC_2026/src/rc26_topo_nav/sim_viewer/src/App.tsx)
-- [sim_assets/worlds/robocon2026_v2_aligned.world](/home/potato/RC_2026/src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world)
-- [sim_assets/config/kfs_config_v2_aligned.yaml](/home/potato/RC_2026/src/rc26_topo_nav/sim_assets/config/kfs_config_v2_aligned.yaml)
-- [sim_assets/models/robocon2026_world/model.sdf](/home/potato/RC_2026/src/rc26_topo_nav/sim_assets/models/robocon2026_world/model.sdf)
+- [src/topo_nav_node.cpp](/home/aidlux/RC_2026/src/rc26_topo_nav/src/topo_nav_node.cpp)
+- [src/edge_executor.cpp](/home/aidlux/RC_2026/src/rc26_topo_nav/src/edge_executor.cpp)
+- [src/planner.cpp](/home/aidlux/RC_2026/src/rc26_topo_nav/src/planner.cpp)
+- [src/planner_trace_cli.cpp](/home/aidlux/RC_2026/src/rc26_topo_nav/src/planner_trace_cli.cpp)
+- [scripts/topo_sim_server.py](/home/aidlux/RC_2026/src/rc26_topo_nav/scripts/topo_sim_server.py)
+- [scripts/topo_sim_algorithms.py](/home/aidlux/RC_2026/src/rc26_topo_nav/scripts/topo_sim_algorithms.py)
+- [sim_viewer/src/App.tsx](/home/aidlux/RC_2026/src/rc26_topo_nav/sim_viewer/src/App.tsx)
+- [sim_assets/worlds/robocon2026_v2_aligned.world](/home/aidlux/RC_2026/src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world)
+- [sim_assets/config/kfs_config_v2_aligned.yaml](/home/aidlux/RC_2026/src/rc26_topo_nav/sim_assets/config/kfs_config_v2_aligned.yaml)
+- [sim_assets/models/robocon2026_world/model.sdf](/home/aidlux/RC_2026/src/rc26_topo_nav/sim_assets/models/robocon2026_world/model.sdf)
 
 ## 图配置口径
 
@@ -107,9 +107,9 @@
   - node: `surface_id / surface_name / render_class / center_clearance_m / surface_pitch_deg`
   - edge: `horizontal_length_m / slope_deg / center_clearance_m / nominal_yaw / same_surface`
 - `generate_surface_graph.py` 当前不会再直接拿单个 mesh 面片边界当成 clearance 真值；它会先合并可通行支撑面，再按 edge 法向方向离线估算 lateral clearance。
-- 共享几何真源来自 [r2_mf_world.yaml](/home/potato/RC_2026/src/rc26_kfs_keepout/config/r2_mf_world.yaml)，只负责 MF 块位姿、高度和基础场地区域事实
-- topo 语义补充来自 [r2_field_graph_overlay.yaml](/home/potato/RC_2026/src/rc26_topo_nav/config/r2_field_graph_overlay.yaml)，只负责入口/出口 staging、坡道点、任务/路线，以及无法从几何稳定推导的节点和边成本
-- surface graph 语义补充来自 [r2_surface_graph_overlay.yaml](/home/potato/RC_2026/src/rc26_topo_nav/config/r2_surface_graph_overlay.yaml)，只负责定义哪些 mesh 面可采样、采样密度和跨面连接阈值
+- 共享几何真源来自 [r2_mf_world.yaml](/home/aidlux/RC_2026/src/rc26_kfs_keepout/config/r2_mf_world.yaml)，只负责 MF 块位姿、高度和基础场地区域事实
+- topo 语义补充来自 [r2_field_graph_overlay.yaml](/home/aidlux/RC_2026/src/rc26_topo_nav/config/r2_field_graph_overlay.yaml)，只负责入口/出口 staging、坡道点、任务/路线，以及无法从几何稳定推导的节点和边成本
+- surface graph 语义补充来自 [r2_surface_graph_overlay.yaml](/home/aidlux/RC_2026/src/rc26_topo_nav/config/r2_surface_graph_overlay.yaml)，只负责定义哪些 mesh 面可采样、采样密度和跨面连接阈值
 - 当前 v1 不负责把任意 `.pcd` 地图自动变成任意 3D 导航点网络；dense surface graph 仍然基于仓库内固定比赛场地 world 生成
 
 ## 维护方式
@@ -165,7 +165,7 @@
   - `node_id / edge_id / task_tag / route_tag` 不再只裸露英文变量，而是先显示中文含义，再附原始 ID 供开发排查
   - `高度变化 dZ / 本段代价 / 累计代价` 等字段会直接在页面上解释是什么意思
 - 这个工具仍然是离线观察工具，不改变 `rc26_topo_nav` 运行时只加载静态 `graph_file` 的边界
-- 当前最小可保留资产已经内置在 [sim_assets](/home/potato/RC_2026/src/rc26_topo_nav/sim_assets) 下，默认路径不再依赖外部 `RC_Sim_001_github`
+- 当前最小可保留资产已经内置在 [sim_assets](/home/aidlux/RC_2026/src/rc26_topo_nav/sim_assets) 下，默认路径不再依赖外部 `RC_Sim_001_github`
 - 生成命令:
   - `python3 src/rc26_topo_nav/scripts/render_graph_sim_html.py --graph src/rc26_topo_nav/config/r2_field_graph_blue.yaml --world src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world --kfs-config src/rc26_topo_nav/sim_assets/config/kfs_config_v2_aligned.yaml --out /tmp/r2_field_graph_blue_sim.html`
   - `python3 src/rc26_topo_nav/scripts/render_graph_sim_html.py --graph src/rc26_topo_nav/config/r2_field_graph_red.yaml --world src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world --kfs-config src/rc26_topo_nav/sim_assets/config/kfs_config_v2_aligned.yaml --out /tmp/r2_field_graph_red_sim.html`
@@ -242,7 +242,7 @@
   - `./start_r2_topo_nav_sim.sh`
   - 脚本会先增量构建 `rc26_topo_nav`，并按需补齐 `sim_viewer/dist`，拉起 `topo_sim_server.py`，等待 `/api/health` 就绪后自动打开浏览器；默认前台保活，`Ctrl+C` 一次性关闭
 - 包构建:
-  - `MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_topo_nav`
+  - `MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_topo_nav`
 - 启动 adapter:
   - `source install/setup.bash`
   - `python3 src/rc26_topo_nav/scripts/topo_sim_server.py`

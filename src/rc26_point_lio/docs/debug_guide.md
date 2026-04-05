@@ -7,7 +7,7 @@
 在开始测试前，请确保工作空间已正确编译。建议使用以下命令单独编译里程计相关包，以节省时间。
 
 ```bash
-colcon build --symlink-install --parallel-workers 3 --packages-select rc26_point_lio rc26_odom_interface rc26_sensor_scan rc26_lio_state_predictor rc26_bringup --cmake-args -DCMAKE_BUILD_TYPE=Release
+MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_point_lio rc26_odom_interface rc26_sensor_scan rc26_lio_state_predictor rc26_bringup --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
 确保 source 环境：

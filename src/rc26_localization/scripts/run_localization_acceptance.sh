@@ -271,7 +271,7 @@ if [[ "${SKIP_BUILD}" -eq 0 ]]; then
     echo "[INFO] 编译 rc26_localization ..."
     (
         cd "${WORKSPACE}"
-        colcon build --symlink-install --parallel-workers 3 --packages-select rc26_interfaces rc26_localization rc26_bringup --cmake-args -DCMAKE_BUILD_TYPE=Release
+        MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_interfaces rc26_localization rc26_bringup --cmake-args -DCMAKE_BUILD_TYPE=Release
     ) | tee "${OUTPUT_DIR}/raw/build.log"
 else
     echo "[INFO] 跳过编译 (--skip-build)"

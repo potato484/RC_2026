@@ -7,7 +7,7 @@
 ```bash
 # 确保已编译并 source 环境
 cd "${RC26_WS:-$HOME/RC_2026}"
-colcon build --symlink-install --parallel-workers 3 --cmake-args -DCMAKE_BUILD_TYPE=Release
+MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --cmake-args -DCMAKE_BUILD_TYPE=Release
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 

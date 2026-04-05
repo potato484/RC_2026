@@ -32,7 +32,7 @@ Point-LIO 是一个鲁棒、高带宽的 LiDAR 惯性里程计，基于逐点更
 请使用标准的 ROS 2 编译工具（如 colcon）进行编译。建议与下游链路一起编译验证：
 
 ```bash
-colcon build --symlink-install --parallel-workers 3 --packages-select rc26_point_lio rc26_bringup --cmake-args -DCMAKE_BUILD_TYPE=Release
+MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_point_lio rc26_bringup --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
 ## 配置文件说明

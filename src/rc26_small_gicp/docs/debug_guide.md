@@ -1,10 +1,10 @@
 # rc26_small_gicp 调试指南
 
 ## 1. 编译库文件
-`rc26_small_gicp` 作为一个独立的点云配准 C++ 库，提供了基础算法。在调试之前，需要先编译整个工程（R2 环境下推荐限制编译核心数）：
+`rc26_small_gicp` 作为一个独立的点云配准 C++ 库，提供了基础算法。在调试之前，需要先编译整个工程（当前 AidLux 环境下推荐直接使用下述默认构建参数）：
 ```bash
 cd "${RC26_WS:-$HOME/RC_2026}"
-colcon build --symlink-install --parallel-workers 3 --packages-select rc26_small_gicp --cmake-args -DCMAKE_BUILD_TYPE=Release
+MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_small_gicp --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
 ## 2. 编写测试程序
@@ -76,6 +76,6 @@ kcachegrind callgrind.out.xxxx
 
 ## 5. 常见问题排查
 
-- **测试程序编译时报找不到头文件或库**：确认已完成 `colcon build --symlink-install --parallel-workers 3 --packages-select rc26_small_gicp --cmake-args -DCMAKE_BUILD_TYPE=Release`，并在当前终端执行 `source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"` 后再编译依赖示例。
+- **测试程序编译时报找不到头文件或库**：确认已完成 `MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_small_gicp --cmake-args -DCMAKE_BUILD_TYPE=Release`，并在当前终端执行 `source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"` 后再编译依赖示例。
 - **`result.converged` 持续为 `false`**：优先减小初始位姿误差，并检查 `max_dist_sq` 是否过小、点云重叠区域是否足够，同时关注 `result.num_inliers` 是否明显偏低。
 - **CPU 占用过高或线程打满**：先限制 `OMP_NUM_THREADS`，再观察 `htop` 中各核心是否均衡；在 R2 平台联调时不建议默认放开过多 OpenMP 线程。

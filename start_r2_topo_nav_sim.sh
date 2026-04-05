@@ -327,7 +327,7 @@ if [[ "${dry_run}" == "true" ]]; then
   echo "Viewer URL: ${viewer_url}"
 
   if [[ "${backend_build_mode}" != "skip" ]]; then
-    print_cmd env MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_topo_nav
+    print_cmd env MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_topo_nav
   fi
 
   if [[ "${frontend_build_mode}" != "skip" ]]; then
@@ -344,7 +344,7 @@ if [[ "${backend_build_mode}" != "skip" ]]; then
   echo "==> Building rc26_topo_nav"
   (
     cd "${root_dir}"
-    env MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_topo_nav
+    env MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_topo_nav
   )
 elif [[ ! -f "${setup_file}" || ! -x "${planner_trace_cli}" ]]; then
   echo "Missing install/setup.bash or planner_trace_cli; rerun without --skip-build." >&2

@@ -7,7 +7,7 @@
 在进行测试前，请确保模块已正确编译。
 
 ```bash
-colcon build --symlink-install --parallel-workers 3 --packages-select rc26_lio_state_predictor --cmake-args -DCMAKE_BUILD_TYPE=Release
+MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_lio_state_predictor --cmake-args -DCMAKE_BUILD_TYPE=Release
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 

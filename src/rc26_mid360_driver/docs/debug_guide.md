@@ -4,11 +4,11 @@
 
 ## 1. 编译驱动
 
-在工作空间根目录下，限制编译核心数以适应环境：
+在工作空间根目录下，优先使用当前 AidLux 环境下实测更快的默认构建参数：
 
 ```bash
 cd "${RC26_WS:-$HOME/RC_2026}"
-colcon build --symlink-install --parallel-workers 3 --packages-select rc26_mid360_driver --cmake-args -DCMAKE_BUILD_TYPE=Release
+MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_mid360_driver --cmake-args -DCMAKE_BUILD_TYPE=Release
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 

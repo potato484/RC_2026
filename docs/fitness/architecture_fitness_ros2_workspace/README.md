@@ -68,8 +68,10 @@
 - **规则**：本仓库统一使用下列命令做包级编译验证：
 
 ```bash
-MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select <pkg...>
+MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select <pkg...>
 ```
+
+- **说明**：这是当前 AidLux 环境下默认的包级验证命令；只有在明确是多包独立链路且资源余量充足时，才继续尝试把 `--parallel-workers` 提到 `3`。
 
 ## 3. 为当前 ROS2 工作区树立的架构准则
 
