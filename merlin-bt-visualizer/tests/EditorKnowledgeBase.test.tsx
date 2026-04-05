@@ -54,6 +54,12 @@ describe('EditorKnowledgeBase', () => {
 
     const detail = screen.getByTestId('editor-knowledge-detail');
     expect(detail.textContent).toContain('云台移动');
+    expect(detail.textContent).toContain('一句话认识');
+    expect(detail.textContent).toContain('什么时候用');
+    expect(detail.textContent).toContain('运行结果怎么理解');
+    expect(detail.textContent).toContain('参数怎么填');
+    expect(detail.textContent).toContain('新手提示');
+    expect(detail.textContent).toContain('一个典型用法');
     expect(detail.textContent).toContain('俯仰角');
     expect(detail.textContent).toContain('偏航角');
     expect(screen.queryByText('控制包装')).toBeNull();

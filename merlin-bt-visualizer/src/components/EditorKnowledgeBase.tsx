@@ -43,6 +43,31 @@ function getDirectionLabel(direction: 'input' | 'output' | 'inout'): string {
   return '双向';
 }
 
+function getPlacementQuickHint(item: EditorKnowledgeBaseItem): string {
+  if (item.category === 'control') {
+    return '它负责安排下面的步骤怎么跑。';
+  }
+  if (item.category === 'decorator') {
+    return '它只能包住 1 个子节点，用来改结果或节奏。';
+  }
+  if (item.category === 'subtree') {
+    return '它不接子节点，而是直接跳到另一棵树。';
+  }
+  return '它自己不再往下挂节点，是真正执行或判断的一步。';
+}
+
+function renderGuideSection(title: string, content: string, testId?: string) {
+  return (
+    <section
+      className="rounded-3xl border border-slate-200 bg-white/92 p-5"
+      data-testid={testId}
+    >
+      <div className="mb-2 text-sm font-bold text-slate-800">{title}</div>
+      <p className="text-sm leading-7 text-slate-600">{content}</p>
+    </section>
+  );
+}
+
 function getSourceStyle(source: EditorKnowledgeBaseItem['source']): string {
   if (source === 'robot') {
     return 'bg-emerald-100 text-emerald-700';
@@ -329,11 +354,42 @@ export const EditorKnowledgeBase = ({
                   <p className="mt-4 text-sm leading-7 text-slate-600">{selectedItem.description}</p>
                 </section>
 
+                {renderGuideSection('一句话认识', selectedItem.guideZh.overviewZh, 'editor-knowledge-overview')}
+
+                {renderGuideSection('什么时候用', selectedItem.guideZh.whenToUseZh)}
+
                 <section className="rounded-3xl border border-slate-200 bg-white/92 p-5">
-                  <div className="mb-3 text-sm font-bold text-slate-800">声明端口</div>
+                  <div className="mb-2 text-sm font-bold text-slate-800">应该放在哪里</div>
+                  <p className="text-sm leading-7 text-slate-600">{selectedItem.guideZh.placementZh}</p>
+                  <div className="mt-3 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                    <div>子节点约束：{formatChildPolicy(selectedItem.childPolicy)}</div>
+                    <div className="mt-1">{getPlacementQuickHint(selectedItem)}</div>
+                  </div>
+                </section>
+
+                <section className="rounded-3xl border border-slate-200 bg-white/92 p-5">
+                  <div className="mb-3 text-sm font-bold text-slate-800">运行结果怎么理解</div>
+                  <div className="grid gap-3 lg:grid-cols-3">
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                      <div className="text-sm font-semibold text-slate-800">运行中</div>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">{selectedItem.guideZh.runningZh}</p>
+                    </div>
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
+                      <div className="text-sm font-semibold text-emerald-800">成功</div>
+                      <p className="mt-2 text-sm leading-6 text-emerald-900/85">{selectedItem.guideZh.successZh}</p>
+                    </div>
+                    <div className="rounded-2xl border border-rose-200 bg-rose-50/70 p-4">
+                      <div className="text-sm font-semibold text-rose-800">失败</div>
+                      <p className="mt-2 text-sm leading-6 text-rose-900/85">{selectedItem.guideZh.failureZh}</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="rounded-3xl border border-slate-200 bg-white/92 p-5">
+                  <div className="mb-3 text-sm font-bold text-slate-800">参数怎么填</div>
                   {selectedItem.portSchemas.length === 0 ? (
                     <div className="rounded-2xl bg-slate-50 px-4 py-4 text-sm text-slate-500">
-                      这个节点当前没有声明端口，通常只通过子节点结构表达行为。
+                      这个节点当前没有额外参数。使用时重点看它放在什么位置、它会返回什么结果，以及它前后应该接哪些节点。
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -359,11 +415,25 @@ export const EditorKnowledgeBase = ({
                             </div>
                           </div>
                           <p className="mt-2 text-sm leading-6 text-slate-600">{port.descriptionZh}</p>
+                          <div className="mt-3 rounded-2xl bg-white px-3 py-3 text-sm text-slate-600 ring-1 ring-slate-200">
+                            <div className="font-semibold text-slate-700">新手提示</div>
+                            <p className="mt-1 leading-6">{port.beginnerHintZh}</p>
+                          </div>
+                          {port.exampleValueZh && (
+                            <div className="mt-3 rounded-2xl bg-emerald-50 px-3 py-3 text-sm text-emerald-900/85">
+                              <div className="font-semibold text-emerald-800">示例填法</div>
+                              <p className="mt-1 break-all font-mono text-[13px] leading-6">{port.exampleValueZh}</p>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
                   )}
                 </section>
+
+                {renderGuideSection('新手避坑', selectedItem.guideZh.pitfallsZh)}
+
+                {renderGuideSection('一个典型用法', selectedItem.guideZh.exampleZh)}
 
                 <section className="rounded-3xl border border-slate-200 bg-white/92 p-5">
                   <div className="mb-3 text-sm font-bold text-slate-800">检索关键词</div>

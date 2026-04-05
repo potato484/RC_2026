@@ -1,8 +1,17 @@
-import { BtNodeRegistryEntry, BtPortSchema } from '../generated/btNodeRegistry';
+import { BtNodeRegistryEntry } from '../generated/btNodeRegistry';
 import { EditorDocument, EditorInsertTemplate, EditorNodeKind, EditorNodeSource } from '../types/editor';
 import { getBehaviorTreeNodeCategoryLabel, getBehaviorTreeTreeName } from './btDisplay';
 import { getBtNodeRegistry } from './btRegistry';
 import { behaviorTreeXmlByPhase, BehaviorTreePhase } from './behaviorTreeSources';
+import {
+  BtKnowledgeBasePortSchema,
+  BtNodeGuideZh,
+  buildDynamicSubtreeGuideZh,
+  buildKnowledgeBaseGuideZh,
+  buildKnowledgeBasePortSchemas,
+  buildKnowledgeBaseSearchTokens,
+  buildSubtreePortDocOverrides,
+} from './btKnowledgeBaseDocs';
 
 export interface EditorInsertCatalogItem {
   id: string;
@@ -40,6 +49,7 @@ export interface EditorKnowledgeBaseItem {
   category: EditorNodeKind;
   label: string;
   description: string;
+  guideZh: BtNodeGuideZh;
   tagName: string;
   tagLabel: string;
   groupLabel: string;
@@ -49,7 +59,7 @@ export interface EditorKnowledgeBaseItem {
     min: number;
     max: number | null;
   };
-  portSchemas: BtPortSchema[];
+  portSchemas: BtKnowledgeBasePortSchema[];
   keywordsZh: string[];
   keywordsEn: string[];
   searchTokens: string[];
@@ -135,6 +145,14 @@ function buildRegistrySearchTokens(entry: BtNodeRegistryEntry): string[] {
   ];
 }
 
+function buildKnowledgeBaseItemSearchTokens(
+  entry: BtNodeRegistryEntry,
+  guideZh: BtNodeGuideZh,
+  portSchemas: BtKnowledgeBasePortSchema[]
+): string[] {
+  return buildKnowledgeBaseSearchTokens(entry, guideZh, portSchemas);
+}
+
 function buildRegistryItem(
   entry: BtNodeRegistryEntry,
   category: EditorInsertCatalogItem['category']
@@ -187,22 +205,26 @@ function buildRegistryKnowledgeItem(
   entry: BtNodeRegistryEntry,
   knowledgeBaseCategoryId = resolveKnowledgeBaseCategoryId(entry)
 ): EditorKnowledgeBaseItem {
+  const guideZh = buildKnowledgeBaseGuideZh(entry);
+  const portSchemas = buildKnowledgeBasePortSchemas(entry);
+
   return {
     id: `${knowledgeBaseCategoryId}:${entry.tagName}`,
     knowledgeBaseCategoryId,
     category: entry.category,
     label: entry.labelZh,
     description: entry.descriptionZh,
+    guideZh,
     tagName: entry.tagName,
     tagLabel: entry.tagName,
     groupLabel: entry.group,
     source: entry.source,
     sourceLabel: getSourceLabel(entry),
     childPolicy: entry.childPolicy,
-    portSchemas: entry.portSchemas,
+    portSchemas,
     keywordsZh: entry.keywordsZh,
     keywordsEn: entry.keywordsEn,
-    searchTokens: buildRegistrySearchTokens(entry),
+    searchTokens: buildKnowledgeBaseItemSearchTokens(entry, guideZh, portSchemas),
   };
 }
 
@@ -344,14 +366,26 @@ function buildSubtreeKnowledgeItems(
     .filter((tree) => tree.id !== activeTreeId)
     .map<EditorKnowledgeBaseItem>((tree) => {
       const treeLabel = getBehaviorTreeTreeName(tree.id, tree.name);
+      const guideZh = buildDynamicSubtreeGuideZh(treeLabel);
+      const portSchemas = buildKnowledgeBasePortSchemas(
+        subtreeDefinition,
+        buildSubtreePortDocOverrides(tree.id)
+      );
       return {
         ...buildRegistryKnowledgeItem(subtreeDefinition, 'subtree'),
         id: `subtree:${tree.id}`,
         label: treeLabel,
         description: `跳到“${treeLabel}”继续执行，并默认开启自动映射。`,
+        guideZh,
         tagLabel: tree.id,
         groupLabel: '当前文档子树',
-        searchTokens: [...buildRegistrySearchTokens(subtreeDefinition), treeLabel, tree.id, '自动映射'],
+        portSchemas,
+        searchTokens: [
+          ...buildKnowledgeBaseItemSearchTokens(subtreeDefinition, guideZh, portSchemas),
+          treeLabel,
+          tree.id,
+          '自动映射',
+        ],
       };
     });
 
@@ -363,7 +397,15 @@ function buildSubtreeKnowledgeItems(
           id: 'subtree:generic',
           description: '跳到另一棵行为树继续执行，默认自动继承同名端口。',
           groupLabel: '官方结构节点',
-          searchTokens: [...buildRegistrySearchTokens(subtreeDefinition), '自动映射'],
+          guideZh: buildDynamicSubtreeGuideZh('另一棵子树'),
+          searchTokens: [
+            ...buildKnowledgeBaseItemSearchTokens(
+              subtreeDefinition,
+              buildDynamicSubtreeGuideZh('另一棵子树'),
+              buildKnowledgeBasePortSchemas(subtreeDefinition)
+            ),
+            '自动映射',
+          ],
         },
       ];
 }
