@@ -653,13 +653,23 @@ void SerialDriver::notifyAck(uint8_t seq, uint8_t cmd) {
 }
 
 bool SerialDriver::sendCommandNoAck(uint8_t cmd, const std::vector<uint8_t>& payload) {
+    uint8_t ignored_seq = 0;
+    return sendCommandNoAck(cmd, payload, ignored_seq);
+}
+
+bool SerialDriver::sendCommandNoAck(CommandID cmd, const std::vector<uint8_t>& payload) {
+    uint8_t ignored_seq = 0;
+    return sendCommandNoAck(cmd, payload, ignored_seq);
+}
+
+bool SerialDriver::sendCommandNoAck(uint8_t cmd, const std::vector<uint8_t>& payload, uint8_t& out_seq) {
     if (!isLinkActive()) {
         setLastError(fd_ < 0 ? "串口未打开" : "串口连接未激活");
         return false;
     }
 
-    uint8_t seq = nextSeq();
-    std::vector<uint8_t> frame = buildFrame(seq, cmd, payload, 0x00);
+    out_seq = nextSeq();
+    std::vector<uint8_t> frame = buildFrame(out_seq, cmd, payload, 0x00);
     if (frame.empty()) {
         return false;
     }
@@ -679,6 +689,10 @@ bool SerialDriver::sendCommandNoAck(uint8_t cmd, const std::vector<uint8_t>& pay
         invokeDebugCallback(true, frame, cb);
     }
     return ok;
+}
+
+bool SerialDriver::sendCommandNoAck(CommandID cmd, const std::vector<uint8_t>& payload, uint8_t& out_seq) {
+    return sendCommandNoAck(static_cast<uint8_t>(cmd), payload, out_seq);
 }
 
 bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload) {
@@ -806,36 +820,11 @@ float SerialDriver::avgRttMs() const {
 }
 
 bool SerialDriver::sendPose(CommandID cmd, float vx, float vy, float wz, uint8_t& out_seq) {
-    if (!isLinkActive()) {
-        setLastError(fd_ < 0 ? "串口未打开" : "串口连接未激活");
-        return false;
-    }
-
     std::vector<uint8_t> payload(12);
     std::memcpy(&payload[0], &vx, sizeof(float));
     std::memcpy(&payload[4], &vy, sizeof(float));
     std::memcpy(&payload[8], &wz, sizeof(float));
-    out_seq = nextSeq();
-    std::vector<uint8_t> frame = buildFrame(out_seq, static_cast<uint8_t>(cmd), payload, 0x00);
-    if (frame.empty()) {
-        return false;
-    }
-
-    std::lock_guard<std::mutex> lock(send_mutex_);
-    if (!isLinkActive()) {
-        setLastError(fd_ < 0 ? "串口未打开" : "串口连接未激活");
-        return false;
-    }
-    bool ok = writeAll(frame.data(), frame.size());
-    if (ok) {
-        DebugCallback cb;
-        {
-            std::lock_guard<std::mutex> cb_lock(callback_mutex_);
-            cb = debug_callback_;
-        }
-        invokeDebugCallback(true, frame, cb);
-    }
-    return ok;
+    return sendCommandNoAck(cmd, payload, out_seq);
 }
 
 bool SerialDriver::sendPose(CommandID cmd, float vx, float vy, float wz) {

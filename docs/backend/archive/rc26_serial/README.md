@@ -26,23 +26,28 @@
 - 四轮模式：`<v_fl, v_rl, v_rr, v_fr>`
 - 履带模式：`<v_left, v_right>`
 
-上位机下发给 MCU 的 `POSE_FEEDBACK/POSE_TARGET` 仍保持 `(vx, vy, wz)` 三浮点协议不变。
+上位机下发给 MCU 的 `POSE_FEEDBACK/POSE_TARGET` 仍保持 `(vx, vy, wz)` 三浮点协议不变，但当前编号与发送口径已经更新为：
 
-当前协议已经定义前置履带动作相关编号，并由 `rc26_mechanism` 的通用执行入口消费：
+- `POSE_FEEDBACK = 0x1E`
+- `POSE_TARGET = 0x1F`
+- 两者都按 `50Hz` 连续发送
+- 两者都走公开的 `sendCommandNoAck()` 路径，不等待 ACK
+
+当前协议已经定义前置履带动作相关编号，但遥控链不再通过 `rc26_mechanism` 的 Action 兼容路径消费，而是直接走共享 transport：
 
 - 下行命令：
-  - `FRONT_TRACK_UP = 0x11`
-  - `FRONT_TRACK_DOWN = 0x12`
+  - `FRONT_TRACK_UP = 0x0E`
+  - `FRONT_TRACK_DOWN = 0x0F`
 - 上行完成反馈：
   - `FRONT_TRACK_UP_DONE = 0x13`
   - `FRONT_TRACK_DOWN_DONE = 0x14`
 
 当前真实口径是：
 
-- `/mechanism/execute` 已支持 `0x11 / 0x12`
-- `0x13 / 0x14` 作为这两个动作的完成反馈
-- MCU 侧会在遥控发送链真正结束后，再回传对应 `DONE`
-- 真机部署时，目标 MCU 串口由 `rc26_merge_odom` 独占打开；`rc26_mechanism` 通过 `/mechanism/transport/send_command` 与 `/mechanism/transport/feedback` 复用这条串口，而不是再次直连同一设备
+- `rc26_telecontrol_front_track_test` 会在按钮按住期间按 `50Hz` 连续调用 `/mechanism/transport/send_command`
+- `FRONT_TRACK_UP/DOWN` 通过 `merge_odom` 桥接走 no-ACK 单发，不做重传
+- `0x13 / 0x14` 仍作为这两个动作的完成反馈发布到 `/mechanism/transport/feedback`
+- 真机部署时，目标 MCU 串口仍由 `rc26_merge_odom` 独占打开；其它上层只复用 transport，不再次直连同一设备
 
 ## 源码入口与阅读顺序
 - 先看 `src/serial_driver.cpp`，这是整个仓库复用的串口底座。
@@ -50,7 +55,7 @@
 - 最后回到上层调用者，比如 `rc26_mechanism` 或 `rc26_merge_odom`，确认是哪一层在赋予业务语义，以及哪一层拥有真实串口所有权。
 
 ## 目录解剖
-- `serial_driver.cpp`：打开/关闭串口、重连、帧封装、ACK 等待、接收线程和回调分发。
+- `serial_driver.cpp`：同时暴露可靠 `sendCommand()` 和公开的 no-ACK `sendCommandNoAck()`。
 - `test/test_adaptive_timeout.cpp`：自适应超时测试。
 - `test/test_ring_parser.cpp`：流式解析测试。
 

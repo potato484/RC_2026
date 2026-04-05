@@ -56,7 +56,7 @@ public:
     SerialTestNode() : Node("serial_test0_node") {
         this->declare_parameter<std::string>("serial_port", "/dev/ttyUSB0");
         this->declare_parameter<int>("baudrate", static_cast<int>(UART_BAUDRATE));
-        this->declare_parameter<int>("test_cmd", static_cast<int>(CommandID::NAV_STAIR_UP));
+        this->declare_parameter<int>("test_cmd", static_cast<int>(CommandID::HEARTBEAT));
         this->declare_parameter<std::string>("test_payload_hex", "");
         this->declare_parameter<int>("period_ms", 1000);
 
