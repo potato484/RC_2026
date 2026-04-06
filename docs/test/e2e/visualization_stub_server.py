@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stub backend for sim_viewer browser E2E."""
+"""Stub backend for visualization viewer browser E2E."""
 
 from __future__ import annotations
 
@@ -15,14 +15,120 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 
+VIEWER_TITLE = "RC26 全局比赛场地闭环可视化平台"
+VIEWER_SUBTITLE = "统一消费 live 运行态、离线路径回放、行为树阶段和机构状态，不再依赖外部 Foxglove。"
+LOCAL_PLANNER_SCENARIOS = [
+    {
+        "name": "pass_straight",
+        "label": "直行通过",
+        "snapshot_file": "local_planner/pass_straight.yaml",
+    }
+]
+
+
+def make_display_catalog() -> list[dict[str, Any]]:
+    return [
+        {"id": "scene", "label": "场地", "short_label": "场", "group": "primary", "tone": "scene"},
+        {"id": "route", "label": "路线", "short_label": "线", "group": "primary", "tone": "path"},
+        {"id": "corridor", "label": "走廊", "short_label": "廊", "group": "primary", "tone": "path"},
+        {"id": "lookahead", "label": "预瞄", "short_label": "瞄", "group": "primary", "tone": "path"},
+        {"id": "robotPose", "label": "机器人", "short_label": "机", "group": "primary", "tone": "state"},
+        {"id": "phaseZones", "label": "阶段区", "short_label": "区", "group": "primary", "tone": "risk"},
+        {"id": "blocked", "label": "Keepout", "short_label": "禁", "group": "primary", "tone": "risk"},
+        {"id": "openSet", "label": "前沿", "short_label": "前", "group": "advanced", "tone": "search"},
+        {"id": "expanded", "label": "已探查", "short_label": "展", "group": "advanced", "tone": "search"},
+        {"id": "graph", "label": "图结构", "short_label": "图", "group": "advanced", "tone": "search"},
+        {"id": "keyNodes", "label": "关键点", "short_label": "点", "group": "advanced", "tone": "path"},
+        {"id": "tree", "label": "搜索树", "short_label": "树", "group": "advanced", "tone": "search"},
+        {"id": "candidates", "label": "候选轨迹", "short_label": "轨", "group": "advanced", "tone": "search"},
+        {"id": "shadows", "label": "阴影", "short_label": "影", "group": "advanced", "tone": "appearance"},
+    ]
+
+
+def make_layout_presets() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "operator",
+            "label": "操作员",
+            "description": "优先看场地、机器人、路线、当前阶段和关键风险。",
+            "visible_displays": ["scene", "route", "corridor", "lookahead", "robotPose", "phaseZones", "blocked", "shadows"],
+        },
+        {
+            "id": "engineering",
+            "label": "工程",
+            "description": "打开 graph、搜索回放和更多调试图层。",
+            "visible_displays": [
+                "scene",
+                "route",
+                "corridor",
+                "lookahead",
+                "robotPose",
+                "phaseZones",
+                "blocked",
+                "openSet",
+                "expanded",
+                "graph",
+                "keyNodes",
+                "tree",
+                "candidates",
+                "shadows",
+            ],
+        },
+        {
+            "id": "diagnostic",
+            "label": "诊断",
+            "description": "保留场地主视图，但更关注诊断、定位和机构状态。",
+            "visible_displays": ["scene", "route", "robotPose", "phaseZones", "blocked", "shadows"],
+        },
+    ]
+
+
+def make_semantic_zones() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "mf_zone",
+            "label": "梅林区",
+            "phase_key": "MFAreaTree",
+            "color": "#2a9d8f",
+            "source": "visualization_e2e_stub",
+            "viewer_only": False,
+            "polygon": [
+                {"x": -0.8, "y": -0.5, "z": 0.03, "yaw": 0.0},
+                {"x": 1.6, "y": -0.5, "z": 0.03, "yaw": 0.0},
+                {"x": 1.6, "y": 1.2, "z": 0.03, "yaw": 0.0},
+                {"x": -0.8, "y": 1.2, "z": 0.03, "yaw": 0.0},
+            ],
+        },
+        {
+            "id": "combat_zone",
+            "label": "对抗区",
+            "phase_key": "CombatAreaTree",
+            "color": "#e76f51",
+            "source": "visualization_e2e_stub",
+            "viewer_only": True,
+            "polygon": [
+                {"x": -2.0, "y": -1.2, "z": 0.03, "yaw": 0.0},
+                {"x": -1.0, "y": -1.2, "z": 0.03, "yaw": 0.0},
+                {"x": -1.0, "y": 0.2, "z": 0.03, "yaw": 0.0},
+                {"x": -2.0, "y": 0.2, "z": 0.03, "yaw": 0.0},
+            ],
+        },
+    ]
+
+
 def make_scene_manifest(team: str) -> dict[str, Any]:
     return {
         "meta": {
             "team": team,
             "graph_file": "stub_graph.yaml",
+            "surface_graph_file": f"stub_surface_graph_{team}.yaml",
             "world_file": "stub_world.world",
             "kfs_config_file": "stub_kfs.yaml",
             "full_geometry": True,
+        },
+        "viewerMeta": {
+            "viewer_title": VIEWER_TITLE,
+            "viewer_subtitle": VIEWER_SUBTITLE,
         },
         "bounds": {
             "min_x": -2.5,
@@ -194,6 +300,9 @@ def make_scene_manifest(team: str) -> dict[str, Any]:
                 "target": {"x": 0.0, "y": 0.0, "z": 0.4, "yaw": 0.0},
             },
         ],
+        "semanticZones": make_semantic_zones(),
+        "displayCatalog": make_display_catalog(),
+        "layoutPresets": make_layout_presets(),
         "defaults": {"startNode": "stub_start", "goalNode": "stub_goal"},
     }
 
@@ -332,6 +441,11 @@ class SurfaceRouteTraceFromNodesRequest(BaseModel):
     surface_graph_file: str | None = None
     requested_start: Pose3Request | None = None
     requested_goal: Pose3Request | None = None
+
+
+class LocalPlannerTraceRequest(BaseModel):
+    scenario_name: str | None = None
+    snapshot_file: str | None = None
 
 
 def make_surface_route_segments() -> list[dict[str, Any]]:
@@ -500,6 +614,40 @@ def make_surface_route_trace_payload(request: SurfaceRouteRequest) -> dict[str, 
     }
 
 
+def make_local_planner_trace_payload(request: LocalPlannerTraceRequest) -> dict[str, Any]:
+    snapshot_label = request.scenario_name or "pass_straight"
+    snapshot_file = request.snapshot_file or f"local_planner/{snapshot_label}.yaml"
+    return {
+        "success": True,
+        "snapshotLabel": snapshot_label,
+        "snapshot_file": snapshot_file,
+        "traceMode": "local_planner",
+        "result": {
+            "status": "ok",
+            "reason": "",
+            "hasSolution": True,
+            "blockedByKeepout": False,
+            "blockedByTerrain": False,
+            "shouldRotateRecovery": False,
+            "cmd": {"vx": 0.12, "vy": 0.0, "wz": 0.0},
+            "bestScore": 1.0,
+            "clearanceMarginM": 0.22,
+        },
+        "summary": {
+            "candidateCount": 3,
+            "linearLimit": 0.8,
+            "angularLimit": 1.2,
+            "preferredLinearSpeed": 0.5,
+            "currentPathDistance": 1.2,
+            "goalHeadingError": 0.1,
+            "semanticRevision": 3,
+            "finalStatus": "ok",
+            "finalReason": "",
+        },
+        "frames": [],
+    }
+
+
 class StubRun:
     def __init__(self, request: PlannerRunRequest):
         self.id = uuid.uuid4().hex
@@ -604,43 +752,186 @@ class LiveBridge:
         self.started = False
         self.subscribers: set[WebSocket] = set()
         self._send_lock = asyncio.Lock()
-        self.state = {
+        self.state = self._build_state(started=False)
+
+    def _build_state(self, started: bool) -> dict[str, Any]:
+        state: dict[str, Any] = {
             "routePath": [],
             "corridorPath": [],
+            "localPlannerPreviewPath": [],
+            "controlState": None,
             "activeEdge": "",
             "gateStatus": "",
             "blockOverlay": [],
+            "motionModeState": None,
             "trackingState": None,
+            "localPlannerState": None,
+            "recoveryState": None,
+            "semanticSummary": None,
+            "localizationHealth": None,
+            "localizationBackendStatus": None,
+            "operatorStatus": None,
+            "visualizationEvents": [],
+            "mechanismState": None,
+            "btSnapshot": None,
+            "btEvents": [],
             "timestamp": time.time(),
         }
+        if not started:
+            return state
+
+        state.update(
+            {
+                "routePath": [
+                    {"x": -1.4, "y": -0.9, "z": 0.0, "yaw": 0.0},
+                    {"x": 0.0, "y": 0.0, "z": 0.35, "yaw": 0.0},
+                    {"x": 1.4, "y": 0.9, "z": 0.0, "yaw": 0.0},
+                ],
+                "corridorPath": [
+                    {"x": -1.2, "y": -0.8, "z": 0.0, "yaw": 0.0},
+                    {"x": 0.0, "y": 0.0, "z": 0.35, "yaw": 0.0},
+                    {"x": 1.2, "y": 0.8, "z": 0.0, "yaw": 0.0},
+                ],
+                "localPlannerPreviewPath": [
+                    {"x": -0.2, "y": -0.05, "z": 0.35, "yaw": 0.0},
+                    {"x": 0.35, "y": 0.22, "z": 0.28, "yaw": 0.0},
+                    {"x": 0.9, "y": 0.6, "z": 0.1, "yaw": 0.0},
+                ],
+                "controlState": {
+                    "pose": {"x": 0.4, "y": 0.2, "z": 0.1, "yaw": 0.15},
+                    "linear": {"x": 0.1, "y": 0.0, "z": 0.0},
+                    "angular": {"x": 0.0, "y": 0.0, "z": 0.2},
+                },
+                "activeEdge": "stub_edge_live",
+                "gateStatus": "gate_open",
+                "blockOverlay": [{"gridId": 4, "state": 1, "confidence": 0.92, "keepoutActive": True}],
+                "motionModeState": {
+                    "activeMode": "surface_route",
+                    "reason": "follow corridor",
+                    "stopRequired": False,
+                    "timedOut": False,
+                    "maxLinearSpeed": 0.8,
+                    "maxAngularSpeed": 1.2,
+                },
+                "trackingState": {
+                    "corridorId": "stub_corridor",
+                    "edgeId": "stub_edge_live",
+                    "status": "tracking",
+                    "terminal": False,
+                    "distanceToGoal": 0.48,
+                    "reason": "",
+                    "cmd": {"vx": 0.3, "vy": 0.0, "wz": 0.0},
+                },
+                "localPlannerState": {
+                    "corridorId": "stub_corridor",
+                    "edgeId": "stub_edge_live",
+                    "status": "running",
+                    "terminal": False,
+                    "observeOnly": False,
+                    "semanticRevision": 3,
+                    "cmd": {"vx": 0.12, "vy": 0.0, "wz": 0.04},
+                    "bestScore": 1.04,
+                    "clearanceMarginM": 0.22,
+                    "reason": "clear",
+                },
+                "recoveryState": {
+                    "corridorId": "stub_corridor",
+                    "edgeId": "stub_edge_live",
+                    "recoveryName": "none",
+                    "status": "idle",
+                    "terminal": False,
+                    "elapsedSec": 0.0,
+                    "reason": "",
+                },
+                "semanticSummary": {
+                    "revision": 3,
+                    "terrainAvailable": True,
+                    "keepoutAvailable": True,
+                    "blockedCells": 4,
+                    "slowCells": 1,
+                    "maxObstacleProbability": 0.35,
+                    "maxDropProbability": 0.12,
+                    "activeSources": ["terrain_grid", "keepout_overlay"],
+                    "activeReasons": ["keepout"],
+                },
+                "localizationHealth": {
+                    "level": 1,
+                    "reason": "imu warmup",
+                    "localizationState": "tracking",
+                    "controlDegraded": False,
+                    "sigmaXy": 0.03,
+                    "sigmaYaw": 0.02,
+                },
+                "localizationBackendStatus": {
+                    "optimizerReady": True,
+                    "optimizerState": "healthy",
+                    "graphHealth": 0.96,
+                    "loopCandidateCount": 2,
+                    "acceptedLoopCount": 1,
+                    "acceptedAnchorCount": 4,
+                    "imuSpike": False,
+                },
+                "operatorStatus": {
+                    "overallLevel": 1,
+                    "overallReason": "等待定位收敛",
+                    "localizationLevel": 1,
+                    "localizationReason": "sigma warmup",
+                    "controllerLevel": 0,
+                    "navSafetyLevel": 0,
+                    "terrainLevel": 0,
+                    "keepoutLevel": 1,
+                    "mechanismLevel": 0,
+                    "activeEventCodes": ["LOC_WARN"],
+                    "topicTimeoutCount": 0,
+                },
+                "visualizationEvents": [
+                    {
+                        "code": "LOC_WARN",
+                        "severity": 2,
+                        "title": "定位提醒",
+                        "detail": "定位尚未完全收敛",
+                        "sourceSignal": "/localization/health",
+                        "recommendation": "观察 2 秒",
+                        "active": True,
+                    }
+                ],
+                "mechanismState": {
+                    "tipState": 1,
+                    "halOpen": False,
+                    "lockedTipSlot": 2,
+                    "assembledCount": 3,
+                    "lastErrorCode": 0,
+                    "cmdElapsedMs": 18,
+                    "ackTimeoutCount": 0,
+                    "reconnectCount": 0,
+                    "parseErrorCount": 0,
+                    "avgRttMs": 4.5,
+                    "commHealthLevel": 0,
+                },
+                "btSnapshot": {
+                    "tickSeq": 8,
+                    "treeStatus": 1,
+                    "tickDurationMs": 12.4,
+                    "activeSubtreeId": "MFAreaTree",
+                    "runningPathUids": [101, 102],
+                },
+                "btEvents": [
+                    {
+                        "uid": 101,
+                        "nodeName": "NavigateSurfaceRoute",
+                        "fullPath": "Root/Planner/NavigateSurfaceRoute",
+                        "status": 1,
+                        "prevStatus": 0,
+                    }
+                ],
+                "timestamp": time.time(),
+            }
+        )
+        return state
 
     async def start(self, namespace: str = "") -> dict[str, Any]:
         self.started = True
-        self.state = {
-            "routePath": [
-                {"x": -1.4, "y": -0.9, "z": 0.0, "yaw": 0.0},
-                {"x": 0.0, "y": 0.0, "z": 0.35, "yaw": 0.0},
-                {"x": 1.4, "y": 0.9, "z": 0.0, "yaw": 0.0},
-            ],
-            "corridorPath": [
-                {"x": -1.2, "y": -0.8, "z": 0.0, "yaw": 0.0},
-                {"x": 0.0, "y": 0.0, "z": 0.35, "yaw": 0.0},
-                {"x": 1.2, "y": 0.8, "z": 0.0, "yaw": 0.0},
-            ],
-            "activeEdge": "stub_edge_live",
-            "gateStatus": "gate_open",
-            "blockOverlay": [{"gridId": 4, "state": 1, "confidence": 0.92, "keepoutActive": True}],
-            "trackingState": {
-                "corridorId": "stub_corridor",
-                "edgeId": "stub_edge_live",
-                "status": "tracking",
-                "terminal": False,
-                "distanceToGoal": 0.48,
-                "reason": "",
-                "cmd": {"vx": 0.3, "vy": 0.0, "wz": 0.0},
-            },
-            "timestamp": time.time(),
-        }
+        self.state = self._build_state(started=True)
         snapshot = {"type": "live_state", **self.state}
         await self.broadcast(snapshot)
         return {"status": "starting", "namespace": namespace, "snapshot": snapshot}
@@ -668,7 +959,7 @@ class LiveBridge:
             await websocket.send_json(payload)
 
 
-app = FastAPI(title="RC26 Topo Sim E2E Stub", version="0.1.0")
+app = FastAPI(title="RC26 Visualization E2E Stub", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -716,6 +1007,16 @@ async def surface_route_execute(request: SurfaceRouteRequest) -> dict[str, Any]:
     }
 
 
+@app.get("/api/local-planner/scenarios")
+async def local_planner_scenarios() -> dict[str, Any]:
+    return {"scenarios": LOCAL_PLANNER_SCENARIOS}
+
+
+@app.post("/api/local-planner/trace")
+async def local_planner_trace(request: LocalPlannerTraceRequest) -> dict[str, Any]:
+    return make_local_planner_trace_payload(request)
+
+
 @app.post("/api/runs")
 async def create_run(request: PlannerRunRequest) -> dict[str, Any]:
     run = StubRun(request)
@@ -760,7 +1061,7 @@ async def live_events(websocket: WebSocket) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the sim_viewer E2E stub backend")
+    parser = argparse.ArgumentParser(description="Run the visualization viewer E2E stub backend")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8877)
     return parser.parse_args()

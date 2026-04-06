@@ -1,10 +1,10 @@
-name: topo-sim-viewer-cd
+name: rc26-visualization-viewer-cd
 
 on:
   workflow_dispatch:
   push:
     tags:
-      - 'topo-sim-viewer-v*'
+      - 'rc26-visualization-viewer-v*'
 
 jobs:
   package-release:
@@ -19,8 +19,8 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install sim_viewer dependencies
-        run: npm --prefix src/rc26_topo_nav/sim_viewer ci
+      - name: Install visualization viewer dependencies
+        run: npm --prefix src/rc26_visualization/viewer ci
 
       - name: Build release package
         run: npm run cd:package
@@ -28,7 +28,7 @@ jobs:
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rc26-topo-sim-viewer-release
+          name: rc26-visualization-viewer-release
           path: release/
 
   deploy-via-ssh:
@@ -43,7 +43,7 @@ jobs:
       - name: Download release artifact
         uses: actions/download-artifact@v4
         with:
-          name: rc26-topo-sim-viewer-release
+          name: rc26-visualization-viewer-release
           path: release/
 
       - name: Install rsync
@@ -52,8 +52,8 @@ jobs:
       - name: Prepare SSH key
         run: |
           mkdir -p "$HOME/.ssh"
-          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > "$HOME/.ssh/rc26_topo_sim_deploy"
-          chmod 600 "$HOME/.ssh/rc26_topo_sim_deploy"
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > "$HOME/.ssh/rc26_visualization_deploy"
+          chmod 600 "$HOME/.ssh/rc26_visualization_deploy"
 
       - name: Deploy release via SSH
         env:
@@ -62,5 +62,5 @@ jobs:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
         run: |
-          export DEPLOY_SSH_KEY_PATH="$HOME/.ssh/rc26_topo_sim_deploy"
+          export DEPLOY_SSH_KEY_PATH="$HOME/.ssh/rc26_visualization_deploy"
           bash docs/test/release/deploy-via-ssh.sh
