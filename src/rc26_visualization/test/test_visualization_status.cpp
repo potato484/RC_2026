@@ -65,6 +65,33 @@ EvaluationInput makeNominalInput() {
   input.nav_safety.stop_required = false;
   input.nav_safety.timed_out = false;
 
+  input.local_planner.received = true;
+  input.local_planner.age_sec = 0.10;
+  input.local_planner.status = "PASS";
+  input.local_planner.terminal = false;
+  input.local_planner.semantic_revision = 7.0;
+  input.local_planner.best_score = 0.11;
+  input.local_planner.clearance_margin_m = 0.24;
+  input.local_planner.reason = "tracking";
+
+  input.recovery_runtime.received = true;
+  input.recovery_runtime.age_sec = 0.10;
+  input.recovery_runtime.recovery_name = "none";
+  input.recovery_runtime.status = "IDLE";
+  input.recovery_runtime.terminal = false;
+  input.recovery_runtime.elapsed_sec = 0.0;
+  input.recovery_runtime.reason = "tracking";
+
+  input.semantic_runtime.received = true;
+  input.semantic_runtime.age_sec = 0.10;
+  input.semantic_runtime.revision = 7U;
+  input.semantic_runtime.terrain_available = true;
+  input.semantic_runtime.keepout_available = true;
+  input.semantic_runtime.blocked_cells = 0U;
+  input.semantic_runtime.slow_cells = 0U;
+  input.semantic_runtime.max_obstacle_probability = 0.05;
+  input.semantic_runtime.max_drop_probability = 0.03;
+
   input.mechanism.received = true;
   input.mechanism.age_sec = 0.10;
   input.mechanism.comm_health_level = 0U;
@@ -99,6 +126,9 @@ EvaluationInput makeNominalInput() {
       {"COLLISION_D_MIN", "collision_d_min", 0.5, true, true, 0.05},
       {"MOTION_MODE_STATE", "/xhu_nav/motion_mode_state", 2.5, true, true, 0.10},
       {"TRACKING_STATE", "/xhu_nav/tracking_state", 1.5, true, true, 0.10},
+      {"LOCAL_PLANNER_STATE", "/xhu_nav/local_planner_state", 1.5, true, true, 0.10},
+      {"RECOVERY_STATE", "/xhu_nav/recovery_state", 1.5, true, true, 0.10},
+      {"SEMANTIC_LAYER_SUMMARY", "/xhu_nav/semantic_layer_summary", 1.5, true, true, 0.10},
       {"MECHANISM_STATE", "/mechanism/state", 1.0, true, true, 0.10},
       {"BLOCK_OVERLAY", "/mf_block_overlay", 0.3, true, true, 0.05},
       {"KFS_FILTER_MASK", "/kfs_filter_mask", 0.3, true, true, 0.05},
@@ -205,6 +235,37 @@ TEST(VisualizationStatusCoreTest, NearObstacleRaisesControllerAlert) {
   EXPECT_NE(std::find(codes.begin(), codes.end(), "OBSTACLE_NEAR"), codes.end());
   expectContainsAll(findEvent(output.events, "OBSTACLE_NEAR").detail,
                     {"collision_d_min=0.25 m", "yellow_limit=0.45 m", "orange_limit=0.30 m", "red_limit=0.15 m"});
+}
+
+TEST(VisualizationStatusCoreTest, LocalPlannerRuntimeSignalsBecomeEvents) {
+  VisualizationStatusCore core;
+  std_msgs::msg::Header header;
+  auto input = makeNominalInput();
+  input.local_planner.status = "WAITING_ON_BLOCK";
+  input.local_planner.reason = "keepout blocked";
+  input.local_planner.clearance_margin_m = 0.05;
+  input.recovery_runtime.recovery_name = "rotate_in_place";
+  input.recovery_runtime.status = "RUNNING";
+  input.recovery_runtime.elapsed_sec = 1.2;
+  input.recovery_runtime.reason = "heading mismatch";
+  input.semantic_runtime.blocked_cells = 12U;
+  input.semantic_runtime.slow_cells = 4U;
+  input.semantic_runtime.active_sources = {"keepout", "terrain"};
+  input.semantic_runtime.active_reasons = {"blocked_zone"};
+
+  auto output = core.evaluate(input, header);
+  const auto codes = eventCodes(output.events);
+  const auto& nav_safety = findStatus(output.summary, "r2/nav_safety");
+
+  EXPECT_NE(std::find(codes.begin(), codes.end(), "LOCAL_PLANNER_WAITING"), codes.end());
+  EXPECT_NE(std::find(codes.begin(), codes.end(), "LOCAL_RECOVERY_RUNNING"), codes.end());
+  EXPECT_NE(std::find(codes.begin(), codes.end(), "SEMANTIC_LAYER_BLOCKED"), codes.end());
+  EXPECT_EQ(valueForKey(nav_safety, "local_planner_status"), "WAITING_ON_BLOCK");
+  EXPECT_EQ(valueForKey(nav_safety, "recovery_status"), "RUNNING");
+  EXPECT_EQ(valueForKey(nav_safety, "semantic_blocked_cells"), "12");
+  expectContainsAll(
+      findEvent(output.events, "SEMANTIC_LAYER_BLOCKED").detail,
+      {"blocked_cells=12", "slow_cells=4", "active_sources=keepout, terrain"});
 }
 
 TEST(VisualizationStatusCoreTest, KeepoutStaleTriggersRedEvent) {

@@ -608,6 +608,71 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
         config_.nav_mode_state_topic, "检查 profile watchdog、地形策略和上层任务状态，避免继续自动推进。", true));
   }
 
+  if (config_.nav_safety_present && input.local_planner.received) {
+    const std::string planner_status = lowerCopy(input.local_planner.status);
+    if (planner_status == "waiting_on_block") {
+      std::ostringstream detail;
+      detail << "status=" << input.local_planner.status
+             << "; reason=" << input.local_planner.reason
+             << "; clearance_margin_m=" << formatMeters(input.local_planner.clearance_margin_m, 3)
+             << "; semantic_revision=" << formatDouble(input.local_planner.semantic_revision, 0);
+      events.push_back(makeEvent(
+          "LOCAL_PLANNER_WAITING", kLevelOrange, "局部规划等待障碍解除", detail.str(),
+          config_.local_planner_state_topic,
+          "检查 keepout/地形阻塞来源，确认是否需要上层重规划或人工介入。", false));
+    } else if (planner_status == "local_collision_blocked") {
+      std::ostringstream detail;
+      detail << "status=" << input.local_planner.status
+             << "; reason=" << input.local_planner.reason
+             << "; clearance_margin_m=" << formatMeters(input.local_planner.clearance_margin_m, 3)
+             << "; best_score=" << formatDouble(input.local_planner.best_score, 3);
+      events.push_back(makeEvent(
+          "LOCAL_COLLISION_BLOCKED", kLevelOrange, "局部规划碰撞阻塞", detail.str(),
+          config_.local_planner_state_topic,
+          "检查局部路径预览、地形栅格与当前 corridor，必要时触发上层切换路径。", false));
+    }
+  }
+
+  if (config_.nav_safety_present && input.recovery_runtime.received &&
+      lowerCopy(input.recovery_runtime.status) == "running" &&
+      lowerCopy(input.recovery_runtime.recovery_name) != "none") {
+    std::ostringstream detail;
+    detail << "recovery_name=" << input.recovery_runtime.recovery_name
+           << "; status=" << input.recovery_runtime.status
+           << "; elapsed_sec=" << formatSec(input.recovery_runtime.elapsed_sec)
+           << "; reason=" << input.recovery_runtime.reason;
+    events.push_back(makeEvent(
+        "LOCAL_RECOVERY_RUNNING", kLevelYellow, "局部恢复动作运行中", detail.str(),
+        config_.recovery_state_topic,
+        "关注恢复动作是否持续过长，必要时允许上层快速退出当前 corridor。", false));
+  }
+
+  if (config_.nav_safety_present && input.semantic_runtime.received) {
+    if (input.semantic_runtime.blocked_cells > 0U) {
+      std::ostringstream detail;
+      detail << "revision=" << input.semantic_runtime.revision
+             << "; blocked_cells=" << input.semantic_runtime.blocked_cells
+             << "; slow_cells=" << input.semantic_runtime.slow_cells
+             << "; active_sources=" << joinStrings(input.semantic_runtime.active_sources)
+             << "; active_reasons=" << joinStrings(input.semantic_runtime.active_reasons);
+      events.push_back(makeEvent(
+          "SEMANTIC_LAYER_BLOCKED", kLevelOrange, "语义层存在阻塞区", detail.str(),
+          config_.semantic_layer_summary_topic,
+          "确认 keepout/terrain 语义层是否符合当前通行策略，避免继续依赖过期 corridor。", false));
+    } else if (input.semantic_runtime.slow_cells > 0U) {
+      std::ostringstream detail;
+      detail << "revision=" << input.semantic_runtime.revision
+             << "; slow_cells=" << input.semantic_runtime.slow_cells
+             << "; max_obstacle_probability=" << formatDouble(input.semantic_runtime.max_obstacle_probability, 3)
+             << "; max_drop_probability=" << formatDouble(input.semantic_runtime.max_drop_probability, 3)
+             << "; active_sources=" << joinStrings(input.semantic_runtime.active_sources);
+      events.push_back(makeEvent(
+          "SEMANTIC_LAYER_SLOW_ONLY", kLevelYellow, "语义层要求限速通行", detail.str(),
+          config_.semantic_layer_summary_topic,
+          "确认限速来源是否合理，并结合局部规划 clearance 判断是否需要切换策略。", false));
+    }
+  }
+
   const double mechanism_limit_sec = config_.mechanism_max_age_ms / 1000.0;
   if (!config_.mechanism_present) {
     status.mechanism_level = kLevelGreen;
@@ -706,6 +771,11 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
       {input.terrain.obstacles_received ? input.terrain.obstacles_age_sec : kInf,
        input.terrain.drop_received ? input.terrain.drop_age_sec : kInf,
        input.terrain.grid_received ? input.terrain.grid_age_sec : kInf});
+  const double nav_runtime_last_age = latestAgeSec(
+      {input.nav_safety.received ? input.nav_safety.age_sec : kInf,
+       input.local_planner.received ? input.local_planner.age_sec : kInf,
+       input.recovery_runtime.received ? input.recovery_runtime.age_sec : kInf,
+       input.semantic_runtime.received ? input.semantic_runtime.age_sec : kInf});
   const double topics_last_age = [&input]() {
     double best = kInf;
     for (const auto& monitored_topic : input.monitored_topics) {
@@ -814,15 +884,28 @@ VisualizationStatusCore::Output VisualizationStatusCore::evaluate(
       {
           config_.nav_safety_present,
           config_.nav_safety_present,
-          input.nav_safety.received,
-          formatLastUpdateMs(header, input.nav_safety.age_sec),
-          {config_.nav_mode_state_topic, config_.nav_tracking_topic},
+          input.nav_safety.received || input.local_planner.received ||
+              input.recovery_runtime.received || input.semantic_runtime.received,
+          formatLastUpdateMs(header, nav_runtime_last_age),
+          {config_.nav_mode_state_topic, config_.nav_tracking_topic,
+           config_.local_planner_state_topic, config_.recovery_state_topic,
+           config_.semantic_layer_summary_topic},
       },
       {
           {"profile", status.nav_profile},
           {"stop_required", boolString(status.nav_stop_required)},
           {"timed_out", boolString(status.nav_timed_out)},
           {"reason", input.nav_safety.reason},
+          {"local_planner_status", input.local_planner.status},
+          {"local_planner_reason", input.local_planner.reason},
+          {"recovery_name", input.recovery_runtime.recovery_name},
+          {"recovery_status", input.recovery_runtime.status},
+          {"recovery_reason", input.recovery_runtime.reason},
+          {"semantic_revision", std::to_string(input.semantic_runtime.revision)},
+          {"semantic_blocked_cells", std::to_string(input.semantic_runtime.blocked_cells)},
+          {"semantic_slow_cells", std::to_string(input.semantic_runtime.slow_cells)},
+          {"semantic_active_sources", joinStrings(input.semantic_runtime.active_sources)},
+          {"semantic_active_reasons", joinStrings(input.semantic_runtime.active_reasons)},
       }));
 
   output.summary.status.push_back(makeStatus(

@@ -71,6 +71,41 @@ struct NavSafetyInput {
   bool timed_out{false};
 };
 
+struct LocalPlannerRuntimeInput {
+  bool received{false};
+  double age_sec{kInf};
+  std::string status{"UNKNOWN"};
+  bool terminal{false};
+  double semantic_revision{0.0};
+  double best_score{std::numeric_limits<double>::quiet_NaN()};
+  double clearance_margin_m{std::numeric_limits<double>::quiet_NaN()};
+  std::string reason;
+};
+
+struct RecoveryRuntimeInput {
+  bool received{false};
+  double age_sec{kInf};
+  std::string recovery_name{"none"};
+  std::string status{"IDLE"};
+  bool terminal{false};
+  double elapsed_sec{std::numeric_limits<double>::quiet_NaN()};
+  std::string reason;
+};
+
+struct SemanticRuntimeInput {
+  bool received{false};
+  double age_sec{kInf};
+  uint64_t revision{0U};
+  bool terrain_available{false};
+  bool keepout_available{false};
+  uint32_t blocked_cells{0U};
+  uint32_t slow_cells{0U};
+  double max_obstacle_probability{std::numeric_limits<double>::quiet_NaN()};
+  double max_drop_probability{std::numeric_limits<double>::quiet_NaN()};
+  std::vector<std::string> active_sources;
+  std::vector<std::string> active_reasons;
+};
+
 struct MechanismInput {
   bool received{false};
   double age_sec{kInf};
@@ -136,6 +171,9 @@ struct VisualizationStatusConfig {
   std::string controller_mode_topic{"/xhu_nav/semantic_gate"};
   std::string nav_mode_state_topic{"/xhu_nav/motion_mode_state"};
   std::string nav_tracking_topic{"/xhu_nav/tracking_state"};
+  std::string local_planner_state_topic{"/xhu_nav/local_planner_state"};
+  std::string recovery_state_topic{"/xhu_nav/recovery_state"};
+  std::string semantic_layer_summary_topic{"/xhu_nav/semantic_layer_summary"};
   std::string mechanism_state_topic{"/mechanism/state"};
   std::string block_overlay_topic{"/mf_block_overlay"};
   std::string kfs_filter_mask_topic{"/kfs_filter_mask"};
@@ -163,6 +201,9 @@ struct EvaluationInput {
   NumericSample collision_d_min;
   TextSample controller_mode;
   NavSafetyInput nav_safety;
+  LocalPlannerRuntimeInput local_planner;
+  RecoveryRuntimeInput recovery_runtime;
+  SemanticRuntimeInput semantic_runtime;
   MechanismInput mechanism;
   KeepoutInput keepout;
   TerrainInput terrain;

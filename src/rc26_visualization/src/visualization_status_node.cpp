@@ -19,7 +19,10 @@
 #include <rc26_interfaces/msg/mf_block_overlay.hpp>
 #include <rc26_interfaces/msg/operator_status.hpp>
 #include <rc26_interfaces/msg/visualization_event_array.hpp>
+#include <rc26_interfaces/msg/xhu_local_planner_state.hpp>
 #include <rc26_interfaces/msg/xhu_motion_mode_state.hpp>
+#include <rc26_interfaces/msg/xhu_recovery_state.hpp>
+#include <rc26_interfaces/msg/xhu_semantic_layer_summary.hpp>
 #include <rc26_interfaces/msg/xhu_tracking_state.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <std_msgs/msg/bool.hpp>
@@ -164,6 +167,9 @@ private:
     this->declare_parameter<std::string>("topics.controller_mode", "/xhu_nav/semantic_gate");
     this->declare_parameter<std::string>("topics.motion_mode_state", "/xhu_nav/motion_mode_state");
     this->declare_parameter<std::string>("topics.tracking_state", "/xhu_nav/tracking_state");
+    this->declare_parameter<std::string>("topics.local_planner_state", "/xhu_nav/local_planner_state");
+    this->declare_parameter<std::string>("topics.recovery_state", "/xhu_nav/recovery_state");
+    this->declare_parameter<std::string>("topics.semantic_layer_summary", "/xhu_nav/semantic_layer_summary");
     this->declare_parameter<std::string>("topics.mechanism_state", "/mechanism/state");
     this->declare_parameter<std::string>("topics.block_overlay", "/mf_block_overlay");
     this->declare_parameter<std::string>("topics.kfs_filter_mask", "/kfs_filter_mask");
@@ -201,6 +207,9 @@ private:
     this->declare_parameter<double>("watchdog.collision_d_min_max_age_ms", 500.0);
     this->declare_parameter<double>("watchdog.motion_mode_state_max_age_ms", 2500.0);
     this->declare_parameter<double>("watchdog.tracking_state_max_age_ms", 1500.0);
+    this->declare_parameter<double>("watchdog.local_planner_state_max_age_ms", 1500.0);
+    this->declare_parameter<double>("watchdog.recovery_state_max_age_ms", 1500.0);
+    this->declare_parameter<double>("watchdog.semantic_layer_summary_max_age_ms", 1500.0);
     this->declare_parameter<double>("watchdog.mechanism_state_max_age_ms", 1000.0);
     this->declare_parameter<double>("watchdog.block_overlay_max_age_ms", 300.0);
     this->declare_parameter<double>("watchdog.kfs_filter_mask_max_age_ms", 300.0);
@@ -231,6 +240,9 @@ private:
     topic_controller_mode_ = this->get_parameter("topics.controller_mode").as_string();
     topic_motion_mode_state_ = this->get_parameter("topics.motion_mode_state").as_string();
     topic_tracking_state_ = this->get_parameter("topics.tracking_state").as_string();
+    topic_local_planner_state_ = this->get_parameter("topics.local_planner_state").as_string();
+    topic_recovery_state_ = this->get_parameter("topics.recovery_state").as_string();
+    topic_semantic_layer_summary_ = this->get_parameter("topics.semantic_layer_summary").as_string();
     topic_mechanism_state_ = this->get_parameter("topics.mechanism_state").as_string();
     topic_block_overlay_ = this->get_parameter("topics.block_overlay").as_string();
     topic_kfs_filter_mask_ = this->get_parameter("topics.kfs_filter_mask").as_string();
@@ -271,6 +283,9 @@ private:
     config.controller_mode_topic = topic_controller_mode_;
     config.nav_mode_state_topic = topic_motion_mode_state_;
     config.nav_tracking_topic = topic_tracking_state_;
+    config.local_planner_state_topic = topic_local_planner_state_;
+    config.recovery_state_topic = topic_recovery_state_;
+    config.semantic_layer_summary_topic = topic_semantic_layer_summary_;
     config.mechanism_state_topic = topic_mechanism_state_;
     config.block_overlay_topic = topic_block_overlay_;
     config.kfs_filter_mask_topic = topic_kfs_filter_mask_;
@@ -298,6 +313,9 @@ private:
         {"COLLISION_D_MIN", topic_collision_d_min_, this->get_parameter("watchdog.collision_d_min_max_age_ms").as_double() / 1000.0, config.controller_present},
         {"MOTION_MODE_STATE", topic_motion_mode_state_, this->get_parameter("watchdog.motion_mode_state_max_age_ms").as_double() / 1000.0, config.nav_safety_present},
         {"TRACKING_STATE", topic_tracking_state_, this->get_parameter("watchdog.tracking_state_max_age_ms").as_double() / 1000.0, config.nav_safety_present},
+        {"LOCAL_PLANNER_STATE", topic_local_planner_state_, this->get_parameter("watchdog.local_planner_state_max_age_ms").as_double() / 1000.0, config.nav_safety_present},
+        {"RECOVERY_STATE", topic_recovery_state_, this->get_parameter("watchdog.recovery_state_max_age_ms").as_double() / 1000.0, config.nav_safety_present},
+        {"SEMANTIC_LAYER_SUMMARY", topic_semantic_layer_summary_, this->get_parameter("watchdog.semantic_layer_summary_max_age_ms").as_double() / 1000.0, config.nav_safety_present},
         {"MECHANISM_STATE", topic_mechanism_state_, this->get_parameter("watchdog.mechanism_state_max_age_ms").as_double() / 1000.0, config.mechanism_present},
         {"BLOCK_OVERLAY", topic_block_overlay_, this->get_parameter("watchdog.block_overlay_max_age_ms").as_double() / 1000.0, config.keepout_present},
         {"KFS_FILTER_MASK", topic_kfs_filter_mask_, this->get_parameter("watchdog.kfs_filter_mask_max_age_ms").as_double() / 1000.0, config.keepout_present},
@@ -422,6 +440,33 @@ private:
           tracking_state_.received = true;
           tracking_state_.stamp = stampOrNow(*this, msg->header);
           tracking_state_.msg = *msg;
+        });
+
+    local_planner_state_sub_ = this->create_subscription<rc26_interfaces::msg::XhuLocalPlannerState>(
+        topic_local_planner_state_, reliable_qos,
+        [this](const rc26_interfaces::msg::XhuLocalPlannerState::SharedPtr msg) {
+          std::lock_guard<std::mutex> lock(data_mutex_);
+          local_planner_state_.received = true;
+          local_planner_state_.stamp = stampOrNow(*this, msg->header);
+          local_planner_state_.msg = *msg;
+        });
+
+    recovery_state_sub_ = this->create_subscription<rc26_interfaces::msg::XhuRecoveryState>(
+        topic_recovery_state_, reliable_qos,
+        [this](const rc26_interfaces::msg::XhuRecoveryState::SharedPtr msg) {
+          std::lock_guard<std::mutex> lock(data_mutex_);
+          recovery_state_.received = true;
+          recovery_state_.stamp = stampOrNow(*this, msg->header);
+          recovery_state_.msg = *msg;
+        });
+
+    semantic_layer_summary_sub_ = this->create_subscription<rc26_interfaces::msg::XhuSemanticLayerSummary>(
+        topic_semantic_layer_summary_, reliable_qos,
+        [this](const rc26_interfaces::msg::XhuSemanticLayerSummary::SharedPtr msg) {
+          std::lock_guard<std::mutex> lock(data_mutex_);
+          semantic_layer_summary_.received = true;
+          semantic_layer_summary_.stamp = stampOrNow(*this, msg->header);
+          semantic_layer_summary_.msg = *msg;
         });
 
     mechanism_state_sub_ = this->create_subscription<rc26_interfaces::msg::MechanismState>(
@@ -595,6 +640,47 @@ private:
       }
     }
 
+    input.local_planner.received = local_planner_state_.received;
+    input.local_planner.age_sec =
+        ageSec(*this->get_clock(), local_planner_state_.received, local_planner_state_.stamp);
+    if (local_planner_state_.received) {
+      input.local_planner.status = local_planner_state_.msg.status;
+      input.local_planner.terminal = local_planner_state_.msg.terminal;
+      input.local_planner.semantic_revision =
+          static_cast<double>(local_planner_state_.msg.semantic_revision);
+      input.local_planner.best_score = local_planner_state_.msg.best_score;
+      input.local_planner.clearance_margin_m = local_planner_state_.msg.clearance_margin_m;
+      input.local_planner.reason = local_planner_state_.msg.reason;
+    }
+
+    input.recovery_runtime.received = recovery_state_.received;
+    input.recovery_runtime.age_sec =
+        ageSec(*this->get_clock(), recovery_state_.received, recovery_state_.stamp);
+    if (recovery_state_.received) {
+      input.recovery_runtime.recovery_name = recovery_state_.msg.recovery_name;
+      input.recovery_runtime.status = recovery_state_.msg.status;
+      input.recovery_runtime.terminal = recovery_state_.msg.terminal;
+      input.recovery_runtime.elapsed_sec = recovery_state_.msg.elapsed_sec;
+      input.recovery_runtime.reason = recovery_state_.msg.reason;
+    }
+
+    input.semantic_runtime.received = semantic_layer_summary_.received;
+    input.semantic_runtime.age_sec =
+        ageSec(*this->get_clock(), semantic_layer_summary_.received, semantic_layer_summary_.stamp);
+    if (semantic_layer_summary_.received) {
+      input.semantic_runtime.revision = semantic_layer_summary_.msg.revision;
+      input.semantic_runtime.terrain_available = semantic_layer_summary_.msg.terrain_available;
+      input.semantic_runtime.keepout_available = semantic_layer_summary_.msg.keepout_available;
+      input.semantic_runtime.blocked_cells = semantic_layer_summary_.msg.blocked_cells;
+      input.semantic_runtime.slow_cells = semantic_layer_summary_.msg.slow_cells;
+      input.semantic_runtime.max_obstacle_probability =
+          semantic_layer_summary_.msg.max_obstacle_probability;
+      input.semantic_runtime.max_drop_probability =
+          semantic_layer_summary_.msg.max_drop_probability;
+      input.semantic_runtime.active_sources = semantic_layer_summary_.msg.active_sources;
+      input.semantic_runtime.active_reasons = semantic_layer_summary_.msg.active_reasons;
+    }
+
     input.mechanism.received = mechanism_state_.received;
     input.mechanism.age_sec = ageSec(*this->get_clock(), mechanism_state_.received, mechanism_state_.stamp);
     if (mechanism_state_.received) {
@@ -655,6 +741,15 @@ private:
                  topic_watch.code_suffix == "TRACKING_STATE") {
         watch.received = input.nav_safety.received;
         watch.age_sec = input.nav_safety.age_sec;
+      } else if (topic_watch.code_suffix == "LOCAL_PLANNER_STATE") {
+        watch.received = input.local_planner.received;
+        watch.age_sec = input.local_planner.age_sec;
+      } else if (topic_watch.code_suffix == "RECOVERY_STATE") {
+        watch.received = input.recovery_runtime.received;
+        watch.age_sec = input.recovery_runtime.age_sec;
+      } else if (topic_watch.code_suffix == "SEMANTIC_LAYER_SUMMARY") {
+        watch.received = input.semantic_runtime.received;
+        watch.age_sec = input.semantic_runtime.age_sec;
       } else if (topic_watch.code_suffix == "MECHANISM_STATE") {
         watch.received = mechanism_state_.received;
         watch.age_sec = input.mechanism.age_sec;
@@ -744,6 +839,9 @@ private:
   std::string topic_controller_mode_;
   std::string topic_motion_mode_state_;
   std::string topic_tracking_state_;
+  std::string topic_local_planner_state_;
+  std::string topic_recovery_state_;
+  std::string topic_semantic_layer_summary_;
   std::string topic_mechanism_state_;
   std::string topic_block_overlay_;
   std::string topic_kfs_filter_mask_;
@@ -771,6 +869,9 @@ private:
   ValueCache<std::string> controller_mode_;
   MessageCache<rc26_interfaces::msg::XhuMotionModeState> motion_mode_state_;
   MessageCache<rc26_interfaces::msg::XhuTrackingState> tracking_state_;
+  MessageCache<rc26_interfaces::msg::XhuLocalPlannerState> local_planner_state_;
+  MessageCache<rc26_interfaces::msg::XhuRecoveryState> recovery_state_;
+  MessageCache<rc26_interfaces::msg::XhuSemanticLayerSummary> semantic_layer_summary_;
   MessageCache<rc26_interfaces::msg::MechanismState> mechanism_state_;
   MessageCache<rc26_interfaces::msg::MfBlockOverlay> block_overlay_;
   MessageCache<nav_msgs::msg::OccupancyGrid> kfs_filter_mask_;
@@ -798,6 +899,9 @@ private:
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr controller_mode_sub_;
   rclcpp::Subscription<rc26_interfaces::msg::XhuMotionModeState>::SharedPtr motion_mode_state_sub_;
   rclcpp::Subscription<rc26_interfaces::msg::XhuTrackingState>::SharedPtr tracking_state_sub_;
+  rclcpp::Subscription<rc26_interfaces::msg::XhuLocalPlannerState>::SharedPtr local_planner_state_sub_;
+  rclcpp::Subscription<rc26_interfaces::msg::XhuRecoveryState>::SharedPtr recovery_state_sub_;
+  rclcpp::Subscription<rc26_interfaces::msg::XhuSemanticLayerSummary>::SharedPtr semantic_layer_summary_sub_;
   rclcpp::Subscription<rc26_interfaces::msg::MechanismState>::SharedPtr mechanism_state_sub_;
   rclcpp::Subscription<rc26_interfaces::msg::MfBlockOverlay>::SharedPtr block_overlay_sub_;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr kfs_filter_mask_sub_;
