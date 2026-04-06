@@ -9,12 +9,15 @@
 - 构建产物:
   - `rc26_local_3d_planner_core`
   - `local_3d_planner_node`
+  - `local_planner_trace_cli`
 - 关键源码:
   - [include/rc26_local_3d_planner/planner_core.hpp](/home/potato/RC_2026/src/rc26_local_3d_planner/include/rc26_local_3d_planner/planner_core.hpp)
   - [src/planner_core.cpp](/home/potato/RC_2026/src/rc26_local_3d_planner/src/planner_core.cpp)
   - [src/local_3d_planner_node.cpp](/home/potato/RC_2026/src/rc26_local_3d_planner/src/local_3d_planner_node.cpp)
+  - [src/local_planner_trace_cli.cpp](/home/potato/RC_2026/src/rc26_local_3d_planner/src/local_planner_trace_cli.cpp)
 - 关键配置:
   - [config/local_3d_planner.yaml](/home/potato/RC_2026/src/rc26_local_3d_planner/config/local_3d_planner.yaml)
+  - [scenarios/](/home/potato/RC_2026/src/rc26_local_3d_planner/scenarios)
 
 ## 当前接口
 
@@ -43,6 +46,10 @@
   - 无解且 `blocked_cells > 0` 时返回 `WAITING_ON_BLOCK`
   - 无解但允许原地旋转且 goal heading 偏差足够大时返回 `RECOVERY_RUNNING`
   - 其余无解情况返回 `LOCAL_COLLISION_BLOCKED`
+- `PlannerCore::plan(...)` 当前支持可选输出 `PlannerTrace`：
+  - 逐条候选轨迹的采样点、得分和淘汰原因
+  - 最终选中轨迹与最终状态
+  - 供 CLI 和前端离线观察直接复用，不再额外复制一套假想候选生成逻辑
 
 ## 当前边界
 
@@ -57,3 +64,12 @@
 - 当前新增 `local_3d_planner_node` 作为 observe-only 观测节点，主要用于在 legacy follower 链下先暴露 planner state / recovery state / preview。
 - 当前 `PlannerCore` 已被 `xhu_motion_runtime_node` 复用，避免在执行器包里复制一套局部评分逻辑。
 - CMake 当前只导出可复用的 `rc26_local_3d_planner_core` 库，不把 `local_3d_planner_node` 可执行文件作为跨包链接目标导出。
+- 当前新增 `local_planner_trace_cli --snapshot <yaml>`，可以把局部规划快照导出成 JSON trace，作为 `topo_sim_server + sim_viewer` 的局部规划案例真源。
+- 包内当前内置四个最小回归场景：
+  - `pass_straight`
+  - `waiting_on_block`
+  - `rotate_recovery`
+  - `local_collision_blocked`
+- 当前测试已经覆盖两层回归：
+  - `test_planner_core.cpp` 验证 PASS / WAITING_ON_BLOCK / RECOVERY_RUNNING / LOCAL_COLLISION_BLOCKED 状态判定
+  - `test_local_planner_trace_cli.py` 验证 CLI 能稳定导出上述案例的 trace 结构

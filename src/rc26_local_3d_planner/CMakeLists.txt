@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(ament_cmake REQUIRED)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -48,6 +49,23 @@ ament_target_dependencies(local_3d_planner_node
   tf2_ros
 )
 
+add_executable(local_planner_trace_cli
+  src/local_planner_trace_cli.cpp
+)
+target_include_directories(local_planner_trace_cli PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(local_planner_trace_cli ${PROJECT_NAME}_core yaml-cpp)
+ament_target_dependencies(local_planner_trace_cli
+  geometry_msgs
+  nav_msgs
+  rclcpp
+  rc26_interfaces
+  tf2
+  tf2_ros
+)
+
 install(
   TARGETS ${PROJECT_NAME}_core
   EXPORT export_${PROJECT_NAME}
@@ -56,7 +74,7 @@ install(
 )
 
 install(
-  TARGETS local_3d_planner_node
+  TARGETS local_3d_planner_node local_planner_trace_cli
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -69,6 +87,39 @@ install(
   DIRECTORY config/
   DESTINATION share/${PROJECT_NAME}/config
 )
+
+install(
+  DIRECTORY scenarios/
+  DESTINATION share/${PROJECT_NAME}/scenarios
+)
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  ament_add_gtest(test_planner_core
+    test/test_planner_core.cpp
+  )
+  target_link_libraries(test_planner_core ${PROJECT_NAME}_core yaml-cpp)
+  target_include_directories(test_planner_core PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+  ament_target_dependencies(test_planner_core
+    geometry_msgs
+    nav_msgs
+    rclcpp
+    rc26_interfaces
+    tf2
+    tf2_ros
+  )
+
+  add_test(
+    NAME test_local_planner_trace_cli
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/test/test_local_planner_trace_cli.py
+            $<TARGET_FILE:local_planner_trace_cli>
+            ${CMAKE_CURRENT_SOURCE_DIR}/scenarios
+  )
+endif()
 
 ament_export_include_directories(include)
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)

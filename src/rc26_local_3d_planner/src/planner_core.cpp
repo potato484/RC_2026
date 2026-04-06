@@ -25,6 +25,10 @@ std::string yamlString(const YAML::Node& node, const char* key, const std::strin
     return node[key].as<std::string>();
 }
 
+TracePose makeTracePose(const double x, const double y, const double yaw) {
+    return TracePose{x, y, 0.0, yaw};
+}
+
 }  // namespace
 
 PlannerCore::PlannerCore(PlannerConfig config) : config_(std::move(config)) {}
@@ -181,17 +185,29 @@ std::optional<RobotGeometryProfile> PlannerCore::loadRobotGeometryProfile(
     }
 }
 
-PlannerResult PlannerCore::plan(const PlannerInput& input) const {
+PlannerResult PlannerCore::plan(const PlannerInput& input, PlannerTrace* trace) const {
     PlannerResult result;
     result.status = "HOLD";
     result.reason = "planner input unavailable";
+    if (trace != nullptr) {
+        *trace = PlannerTrace{};
+        trace->semantic_revision = input.has_semantic_summary ? input.semantic_summary.revision : 0U;
+    }
 
     if (!input.has_pose) {
         result.reason = "robot pose unavailable";
+        if (trace != nullptr) {
+            trace->final_status = result.status;
+            trace->final_reason = result.reason;
+        }
         return result;
     }
     if (input.corridor.path.poses.empty()) {
         result.reason = "corridor path empty";
+        if (trace != nullptr) {
+            trace->final_status = result.status;
+            trace->final_reason = result.reason;
+        }
         return result;
     }
 
@@ -235,12 +251,20 @@ PlannerResult PlannerCore::plan(const PlannerInput& input) const {
     const double preferred_linear_speed = input.corridor.preferred_linear_speed > 0.0F
                                               ? input.corridor.preferred_linear_speed
                                               : std::min(0.35, linear_limit);
+    if (trace != nullptr) {
+        trace->linear_limit = linear_limit;
+        trace->angular_limit = angular_limit;
+        trace->preferred_linear_speed = preferred_linear_speed;
+        trace->current_path_distance = current_path_distance;
+        trace->goal_heading_error = goal_heading_error;
+    }
 
     double best_score = std::numeric_limits<double>::infinity();
     double best_clearance = 0.0;
     std::vector<SimState> best_states;
     double best_cmd_vx = 0.0;
     double best_cmd_wz = 0.0;
+    std::size_t best_candidate_index = std::numeric_limits<std::size_t>::max();
 
     for (const double sampled_vx : config_.sample_linear_speeds) {
         if (sampled_vx < 0.0 && !input.corridor.allow_reverse) {
@@ -254,6 +278,9 @@ PlannerResult PlannerCore::plan(const PlannerInput& input) const {
                 continue;
             }
 
+            CandidateTrajectoryTrace candidate;
+            candidate.sampled_vx = sampled_vx;
+            candidate.sampled_wz = sampled_wz;
             SimState state{input.robot_x, input.robot_y, input.robot_yaw};
             std::vector<SimState> states;
             states.push_back(state);
@@ -308,6 +335,17 @@ PlannerResult PlannerCore::plan(const PlannerInput& input) const {
 
             if (collision) {
                 result.blocked_by_terrain = true;
+                candidate.collision = true;
+                candidate.reject_reason = "terrain_collision";
+                candidate.clearance_margin_m =
+                    min_clearance * config_.stop_envelope_half_width_m;
+                for (const auto& sampled_state : states) {
+                    candidate.points.push_back(
+                        makeTracePose(sampled_state.x, sampled_state.y, sampled_state.yaw));
+                }
+                if (trace != nullptr) {
+                    trace->candidates.push_back(std::move(candidate));
+                }
                 continue;
             }
 
@@ -322,12 +360,40 @@ PlannerResult PlannerCore::plan(const PlannerInput& input) const {
                 config_.speed_preference_weight * std::abs(preferred_linear_speed - sampled_vx) +
                 config_.angular_effort_weight * std::abs(sampled_wz) +
                 config_.clearance_weight * (1.0 - min_clearance);
+            candidate.score = score;
+            candidate.path_distance = path_distance;
+            candidate.heading_error = sampled_heading_error;
+            candidate.speed_error = std::abs(preferred_linear_speed - sampled_vx);
+            candidate.angular_effort = std::abs(sampled_wz);
+            candidate.clearance_margin_m =
+                min_clearance * config_.stop_envelope_half_width_m;
+            candidate.reject_reason = "candidate_scored";
+            for (const auto& sampled_state : states) {
+                candidate.points.push_back(
+                    makeTracePose(sampled_state.x, sampled_state.y, sampled_state.yaw));
+            }
             if (score < best_score) {
                 best_score = score;
                 best_clearance = min_clearance;
                 best_states = std::move(states);
                 best_cmd_vx = sampled_vx;
                 best_cmd_wz = sampled_wz;
+                candidate.selected = true;
+                best_candidate_index =
+                    trace != nullptr ? trace->candidates.size() : best_candidate_index;
+            }
+            if (trace != nullptr) {
+                trace->candidates.push_back(std::move(candidate));
+            }
+        }
+    }
+
+    if (trace != nullptr && best_candidate_index < trace->candidates.size()) {
+        for (std::size_t index = 0; index < trace->candidates.size(); ++index) {
+            trace->candidates[index].selected = index == best_candidate_index;
+            if (index != best_candidate_index &&
+                trace->candidates[index].reject_reason == "candidate_scored") {
+                trace->candidates[index].reject_reason = "higher_score";
             }
         }
     }
@@ -346,6 +412,10 @@ PlannerResult PlannerCore::plan(const PlannerInput& input) const {
             best_states, input.corridor.header.stamp, input.corridor.header.frame_id.empty()
                                                     ? "map"
                                                     : input.corridor.header.frame_id);
+        if (trace != nullptr) {
+            trace->final_status = result.status;
+            trace->final_reason = result.reason;
+        }
         return result;
     }
 
@@ -362,6 +432,10 @@ PlannerResult PlannerCore::plan(const PlannerInput& input) const {
         result.recovery_state.recovery_name = "rotate_in_place";
         result.recovery_state.status = "SUGGESTED";
         result.recovery_state.reason = result.reason;
+        if (trace != nullptr) {
+            trace->final_status = result.status;
+            trace->final_reason = result.reason;
+        }
         return result;
     }
 
@@ -369,11 +443,19 @@ PlannerResult PlannerCore::plan(const PlannerInput& input) const {
         result.blocked_by_keepout = true;
         result.status = "WAITING_ON_BLOCK";
         result.reason = "keepout blocked";
+        if (trace != nullptr) {
+            trace->final_status = result.status;
+            trace->final_reason = result.reason;
+        }
         return result;
     }
 
     result.status = "LOCAL_COLLISION_BLOCKED";
     result.reason = "terrain collision";
+    if (trace != nullptr) {
+        trace->final_status = result.status;
+        trace->final_reason = result.reason;
+    }
     return result;
 }
 

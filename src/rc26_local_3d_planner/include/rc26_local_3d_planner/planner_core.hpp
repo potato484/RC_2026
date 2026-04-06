@@ -75,6 +75,40 @@ struct PlannerResult {
     rc26_interfaces::msg::XhuRecoveryState recovery_state;
 };
 
+struct TracePose {
+    double x{0.0};
+    double y{0.0};
+    double z{0.0};
+    double yaw{0.0};
+};
+
+struct CandidateTrajectoryTrace {
+    double sampled_vx{0.0};
+    double sampled_wz{0.0};
+    double score{0.0};
+    double path_distance{0.0};
+    double heading_error{0.0};
+    double speed_error{0.0};
+    double angular_effort{0.0};
+    double clearance_margin_m{0.0};
+    bool collision{false};
+    bool selected{false};
+    std::string reject_reason;
+    std::vector<TracePose> points;
+};
+
+struct PlannerTrace {
+    double linear_limit{0.0};
+    double angular_limit{0.0};
+    double preferred_linear_speed{0.0};
+    double current_path_distance{0.0};
+    double goal_heading_error{0.0};
+    uint64_t semantic_revision{0U};
+    std::string final_status;
+    std::string final_reason;
+    std::vector<CandidateTrajectoryTrace> candidates;
+};
+
 class PlannerCore {
 public:
     explicit PlannerCore(PlannerConfig config = PlannerConfig{});
@@ -82,7 +116,7 @@ public:
     void setConfig(const PlannerConfig& config);
     const PlannerConfig& config() const { return config_; }
 
-    PlannerResult plan(const PlannerInput& input) const;
+    PlannerResult plan(const PlannerInput& input, PlannerTrace* trace = nullptr) const;
 
     static std::optional<RobotGeometryProfile> loadRobotGeometryProfile(
         const std::string& geometry_file, const std::string& requested_profile,
