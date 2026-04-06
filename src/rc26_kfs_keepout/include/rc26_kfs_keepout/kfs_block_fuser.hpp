@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,7 @@ private:
     void publishDiagnostics();
     bool loadGridLayout(const std::string& yaml_path);
     bool validateGridSpacing(double expected_spacing_m, double tolerance_m, std::string& detail) const;
+    bool isSlowGrid(uint8_t grid_id) const;
 
     // 参数
     double min_confidence_{0.60};
@@ -58,6 +60,7 @@ private:
     bool layout_validated_{false};
     double layout_grid_spacing_m_{1.2};
     double grid_spacing_tolerance_m_{0.05};
+    std::set<uint8_t> slow_grid_ids_;
 
     // 状态
     static constexpr int kGridCount = 13;  // index 0 unused, 1..12

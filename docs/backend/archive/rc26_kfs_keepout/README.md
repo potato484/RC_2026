@@ -15,6 +15,12 @@
   - `config/r2_mf_world.yaml`
   - `config/mf_grid_layout.yaml`
 
+## 当前 overlay 语义
+
+- `/mf_block_overlay` 当前除了 `FREE / BLOCKED / UNKNOWN` 外，还支持 `SLOW` 单元状态。
+- `kfs_block_fuser_node` 新增 `slow_grid_ids` 参数后，会把指定格子发布为 `SLOW`，并保持 `keepout_active=true`，用于提示上游执行链降速而不是直接判死阻塞。
+- 该扩展没有改变原始 mask/占据计算方式；它只补充 overlay 的语义层，供 `rc26_terrain` 摘要和局部执行链消费。
+
 ## 共享几何口径
 
 - [r2_mf_world.yaml](/home/potato/RC_2026/src/rc26_kfs_keepout/config/r2_mf_world.yaml) 现在同时作为 `rc26_kfs_keepout` 和 `rc26_topo_nav` 的 MF 主区共享几何真源
@@ -26,4 +32,5 @@
 - 不做路径规划
 - 只面向 topo/xhu 约束输入
 - 当前主要服务 `rc26_topo_nav`、`rc26_decision` 和 `rc26_visualization`
+- `SLOW` 语义当前只表达保守通行区域，不在本模块内直接把机器人切到 recovery 或 stop
 - team mismatch 只会关闭 keepout 输出并通过 diagnostics 暴露降级状态，不在本模块内直接接管机器人控制
