@@ -158,6 +158,29 @@ class VisualizationServerTest(unittest.TestCase):
         self.assertGreater(preview["planning_timing_ms"]["surfaceRouteCli"], 0.0)
         self.assertNotIn("N/A", json.dumps(preview["planning_logs"], ensure_ascii=False))
 
+    def test_surface_route_preview_returns_reference_path_when_body_constraints_reject_route(self):
+        preview = SERVER.preview_surface_route(
+            SERVER.SurfaceRoutePreviewRequest(
+                team="blue",
+                surface_graph_file=str(SURFACE_GRAPH_BLUE),
+                start_pick_world={"x": -1.39, "y": -5.66, "z": 0.01, "yaw": 0.0},
+                goal_pick_world={"x": -2.93, "y": 0.08, "z": 0.61, "yaw": 0.0},
+            )
+        )
+
+        self.assertFalse(preview["success"])
+        self.assertEqual(preview["failure_code"], "BODY_CONSTRAINT_UNSATISFIED")
+        self.assertEqual(preview["projected_start_node_id"], "sf_179_6")
+        self.assertEqual(preview["projected_goal_node_id"], "sf_431_17")
+        self.assertEqual(len(preview["path_points"]), 0)
+        self.assertEqual(len(preview["segments"]), 0)
+        self.assertTrue(preview["fallback_available"])
+        self.assertEqual(preview["fallback_planner_backend"], "legacy")
+        self.assertGreater(len(preview["fallback_path_points"]), 20)
+        self.assertGreaterEqual(len(preview["fallback_segments"]), 3)
+        log_titles = [entry["title"] for entry in preview["planning_logs"]]
+        self.assertIn("参考路线回退", log_titles)
+
     def test_surface_route_trace_returns_search_frames(self):
         fake_preview = {
             "success": True,

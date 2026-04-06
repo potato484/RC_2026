@@ -265,12 +265,16 @@ export interface SurfaceRoutePreviewResponse {
   success: boolean;
   failure_code: string;
   failure_reason: string;
+  fallback_available?: boolean;
+  fallback_planner_backend?: string;
   projected_start_node_id?: string;
   projected_goal_node_id?: string;
   projected_start: Pose3;
   projected_goal: Pose3;
   path_points: Pose3[];
   segments: SurfaceRouteSegment[];
+  fallback_path_points?: Pose3[];
+  fallback_segments?: SurfaceRouteSegment[];
   team?: Team;
   surface_graph_file?: string;
   planning_logs?: PlanningLogEntry[];

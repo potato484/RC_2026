@@ -35,6 +35,10 @@
 
 - 页面标题、布局预设和阶段区来自 `field_scene_manifest.yaml`
 - `operator / engineering / diagnostic` 三套 preset 会直接改写图层集合
+- 触发 `surface-route` 生成时，viewer 会自动重新打开 `route` 图层，避免诊断布局把新生成的路线完全隐藏
+- preview 路线会额外渲染高对比底衬、亮色主线和路径珠点，保证在俯视缩放较远时也能直接看见路线走向
+- 当 body-aware surface route 因车体约束失败时，viewer 会继续渲染 `visualization_server.py` 回退出的 `legacy` 参考路线，并把它标成“仅供观察、不可执行”
+- 失败原因的中文化不再只支持精确匹配；像 `heading change ...`、`node clearance ...` 这类 body planner 细节现在也会直接显示成中文摘要
 - 场景里会同时渲染 route、corridor、lookahead、robotPose、phaseZones 和 keepout
 - `controlState.pose` 会优先作为机器人 live 位姿
 - `btSnapshot.activeSubtreeId` 会驱动阶段区高亮

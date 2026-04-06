@@ -881,6 +881,8 @@ def run_surface_route_cli(
     start_pose: dict[str, float],
     goal_pose: dict[str, float],
     projection_radius_m: float,
+    planner_backend: str | None = None,
+    disable_body_planning: bool = False,
 ) -> dict[str, Any]:
     cli_binary = resolve_surface_cli_binary()
     geometry_file = default_robot_geometry_file()
@@ -899,6 +901,10 @@ def run_surface_route_cli(
         "--projection-radius",
         str(projection_radius_m),
     ]
+    if planner_backend:
+        command.extend(["--planner-backend", planner_backend])
+    if disable_body_planning:
+        command.append("--disable-body-planning")
     try:
         completed = subprocess.run(
             command,
@@ -1771,6 +1777,41 @@ def preview_surface_route(
         goal_pose=requested_goal,
         projection_radius_m=request.projection_radius_m,
     )
+    payload["fallback_available"] = False
+    payload["fallback_path_points"] = []
+    payload["fallback_segments"] = []
+    payload["fallback_planner_backend"] = ""
+
+    if payload.get("failure_code") == "BODY_CONSTRAINT_UNSATISFIED":
+        reference_begin = time.perf_counter()
+        reference_payload = run_surface_route_cli(
+            graph_file=graph_file,
+            start_pose=requested_start,
+            goal_pose=requested_goal,
+            projection_radius_m=request.projection_radius_m,
+            planner_backend="legacy",
+            disable_body_planning=True,
+        )
+        reference_elapsed_ms = (time.perf_counter() - reference_begin) * 1000.0
+        if reference_payload.get("success", False) and reference_payload.get("path_points"):
+            payload["fallback_available"] = True
+            payload["fallback_path_points"] = reference_payload.get("path_points", [])
+            payload["fallback_segments"] = reference_payload.get("segments", [])
+            payload["fallback_planner_backend"] = str(reference_payload.get("planner_backend", "legacy"))
+            planning_logs.append(
+                make_planning_log(
+                    stage="surface_route_reference",
+                    level="warn",
+                    title="参考路线回退",
+                    message="车体约束拒绝执行路线，已额外生成仅供观察的参考路线",
+                    elapsed_ms=reference_elapsed_ms,
+                    fields=[
+                        ("参考规划后端", payload["fallback_planner_backend"]),
+                        ("参考路径点数", len(payload["fallback_path_points"])),
+                        ("参考分段数", len(payload["fallback_segments"])),
+                    ],
+                )
+            )
     preview_elapsed_ms = (time.perf_counter() - preview_begin) * 1000.0
     cli_timing = payload.get("timing_ms", {})
     surface_projection_ms = round_float(float(cli_timing.get("projection", 0.0)), 2)
@@ -1788,14 +1829,17 @@ def preview_surface_route(
         "surfaceCompletePlanning": surface_complete_planning_ms,
         "surfaceRouteCli": round_float(preview_elapsed_ms, 2),
     }
+    has_reference_route = bool(payload.get("fallback_available"))
     planning_logs.append(
         make_planning_log(
             stage="surface_route_cli",
-            level="info" if payload.get("success", False) else "error",
+            level="info" if payload.get("success", False) else "warn" if has_reference_route else "error",
             title="表面路线预览",
             message=(
                 "已完成点击点投影并生成路线"
                 if payload.get("success", False)
+                else "车体约束拒绝执行路线，已生成参考路线用于可视化"
+                if has_reference_route
                 else "表面图投影或路线规划失败"
             ),
             elapsed_ms=preview_elapsed_ms,
@@ -1809,6 +1853,8 @@ def preview_surface_route(
                 ("终点投影节点", format_display_text(payload.get("projected_goal_node_id"))),
                 ("路径点数", len(payload.get("path_points", []))),
                 ("分段数", len(payload.get("segments", []))),
+                ("参考路径点数", len(payload.get("fallback_path_points", [])) if has_reference_route else None),
+                ("参考分段数", len(payload.get("fallback_segments", [])) if has_reference_route else None),
                 ("失败码", format_display_text(payload.get("failure_code"))),
                 ("失败原因", format_display_text(payload.get("failure_reason"))),
             ],

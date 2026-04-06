@@ -62,6 +62,7 @@ const SPECIAL_NODE_LABELS: Record<string, string> = {
 const FAILURE_CODE_LABELS: Record<string, string> = {
   POINT_NOT_TRAVERSABLE: '请求点不在可通行表面上',
   NO_SURFACE_PATH: '没有可达的表面路线',
+  BODY_CONSTRAINT_UNSATISFIED: '车体约束拒绝了这条表面路线',
   TRACE_FAILED: '搜索回放生成失败',
   NO_PATH: '没有可达路径',
   INVALID_TARGET_TYPE: '目标类型无效',
@@ -72,9 +73,55 @@ const FAILURE_REASON_LABELS: Record<string, string> = {
   'Goal point is not on a traversable surface': '终点不在可通行表面上',
   'Planner could not find a traversable surface path': '未找到可通行的表面路线',
   'No traversable surface node near the requested point': '请求点附近没有可通行表面节点',
+  'Body-aware constraints removed every traversable route between the projected start and goal':
+    '车体约束过滤掉了起点到终点之间的全部可行路线',
   'Unsupported topo target_type': '不支持的拓扑目标类型',
   'Planner returned empty route': '规划器返回了空路线',
 };
+
+function formatFailureNumber(value: string): string {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return value;
+  }
+  return parsed.toFixed(3).replace(/\.?0+$/, '');
+}
+
+function translateFailureDetail(detail: string): string | null {
+  const headingMatch = detail.match(/^heading change ([\d.]+) deg exceeds max_heading_change_deg$/);
+  if (headingMatch) {
+    return `朝向变化 ${formatFailureNumber(headingMatch[1])} 度，超过允许上限`;
+  }
+
+  const nodeClearanceMatch = detail.match(
+    /^node clearance ([\d.]+) m is below required turn clearance ([\d.]+) m$/,
+  );
+  if (nodeClearanceMatch) {
+    return `节点净空 ${formatFailureNumber(nodeClearanceMatch[1])} 米，低于转向所需净空 ${formatFailureNumber(nodeClearanceMatch[2])} 米`;
+  }
+
+  const edgeClearanceMatch = detail.match(
+    /^edge clearance ([\d.]+) m is below required turn clearance ([\d.]+) m$/,
+  );
+  if (edgeClearanceMatch) {
+    return `边净空 ${formatFailureNumber(edgeClearanceMatch[1])} 米，低于转向所需净空 ${formatFailureNumber(edgeClearanceMatch[2])} 米`;
+  }
+
+  if (/[\u4e00-\u9fff]/.test(detail)) {
+    return detail;
+  }
+  return null;
+}
+
+function matchFailureReasonTemplate(reason: string): [template: string, localized: string] | null {
+  const entries = Object.entries(FAILURE_REASON_LABELS);
+  for (const [template, localized] of entries) {
+    if (reason === template || reason.startsWith(`${template} (`) || reason.startsWith(`${template}:`)) {
+      return [template, localized];
+    }
+  }
+  return null;
+}
 
 export const VIEW_MODE_LABELS: Record<string, string> = {
   orbit: '轨道环绕',
@@ -278,8 +325,20 @@ export function formatFailureReason(reason: string | null | undefined): string {
   if (!reason) {
     return UI_LABELS.emptyValue;
   }
-  const localized = FAILURE_REASON_LABELS[reason];
-  if (localized) {
+  const matched = matchFailureReasonTemplate(reason);
+  if (matched) {
+    const [template, localized] = matched;
+    if (reason === template) {
+      return localized;
+    }
+    if (reason.startsWith(`${template} (`) && reason.endsWith(')')) {
+      const translatedDetail = translateFailureDetail(reason.slice(template.length + 2, -1).trim());
+      return translatedDetail ? `${localized}（${translatedDetail}）` : localized;
+    }
+    if (reason.startsWith(`${template}:`)) {
+      const translatedDetail = translateFailureDetail(reason.slice(template.length + 1).trim());
+      return translatedDetail ? `${localized}（${translatedDetail}）` : localized;
+    }
     return localized;
   }
   if (/[\u4e00-\u9fff]/.test(reason)) {

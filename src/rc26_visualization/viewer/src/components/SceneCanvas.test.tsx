@@ -740,6 +740,47 @@ describe('SceneCanvas', () => {
     });
   });
 
+  it('renders a prominent preview route when manual path points are present', async () => {
+    render(
+      <div style={{ width: '640px', height: '360px' }}>
+        <SceneCanvas
+          scene={createSceneManifest()}
+          frame={null}
+          liveEvent={null}
+          viewMode="orbit"
+          layers={layers}
+          startPose={{ x: 0, y: 0, z: 0, yaw: 0 }}
+          goalPose={{ x: 1, y: 0, z: 0, yaw: 0 }}
+          hoverPose={null}
+          manualPath={[
+            { x: 0, y: 0, z: 0, yaw: 0 },
+            { x: 0.45, y: 0.18, z: 0.08, yaw: 0 },
+            { x: 1, y: 0, z: 0, yaw: 0 },
+          ]}
+          blockedGridIds={[]}
+          pickMode="idle"
+        />
+      </div>,
+    );
+
+    await waitFor(() => {
+      expect(mockState.pendingInitResolvers).toHaveLength(1);
+    });
+
+    await act(async () => {
+      mockState.pendingInitResolvers[0]();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(mockState.liveMeshNames).toContain('dyn_route_preview_halo');
+      expect(mockState.liveMeshNames).toContain('dyn_route_preview_tube');
+      expect(mockState.liveMeshNames).toContain('dyn_route_preview_line');
+      expect(mockState.liveMeshNames).toContain('dyn_route_preview_bead_0');
+      expect(mockState.liveMeshNames).toContain('dyn_route_preview_bead_2');
+    });
+  });
+
   it('renders blocked overlays from offline blocked grid ids without live data', async () => {
     render(
       <div style={{ width: '640px', height: '360px' }}>

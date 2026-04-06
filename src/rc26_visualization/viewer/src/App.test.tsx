@@ -240,6 +240,61 @@ function createPreviewResponse(): SurfaceRoutePreviewResponse {
   };
 }
 
+function createRejectedPreviewResponse(): SurfaceRoutePreviewResponse {
+  return {
+    ...createPreviewResponse(),
+    success: false,
+    failure_code: 'BODY_CONSTRAINT_UNSATISFIED',
+    failure_reason:
+      'Body-aware constraints removed every traversable route between the projected start and goal (heading change 180 deg exceeds max_heading_change_deg)',
+    path_points: [],
+    segments: [],
+    fallback_available: true,
+    fallback_planner_backend: 'legacy',
+    fallback_path_points: [
+      { x: 0, y: 0, z: 0.1, yaw: 0 },
+      { x: 0.45, y: 0.2, z: 0.2, yaw: 0 },
+      { x: 1, y: 1, z: 0.3, yaw: 0 },
+    ],
+    fallback_segments: [
+      {
+        segment_id: 'fallback-seg-1',
+        from_node_id: 'sf_start',
+        to_node_id: 'sf_goal',
+        motion_type: 'plane_move',
+        required_mode: 'normal',
+        point_count: 3,
+      },
+    ],
+    planning_logs: [
+      {
+        stage: 'request',
+        level: 'info',
+        title: '收到路线请求',
+        message: '已准备表面图投影与路径规划输入',
+        elapsed_ms: null,
+        fields: [],
+      },
+      {
+        stage: 'surface_route_reference',
+        level: 'warn',
+        title: '参考路线回退',
+        message: '车体约束拒绝执行路线，已额外生成仅供观察的参考路线',
+        elapsed_ms: 40.1,
+        fields: [],
+      },
+      {
+        stage: 'surface_route_cli',
+        level: 'warn',
+        title: '表面路线预览',
+        message: '车体约束拒绝执行路线，已生成参考路线用于可视化',
+        elapsed_ms: 55.87,
+        fields: [],
+      },
+    ],
+  };
+}
+
 function createTraceResponse(): SurfaceRouteTraceFromNodesResponse {
   return {
     success: true,
@@ -569,6 +624,29 @@ describe('App', () => {
     });
   });
 
+  it('re-enables the route layer when generating a route from a diagnostic layout', async () => {
+    render(<App />);
+
+    await waitFor(() => {
+      expect(lastSceneCanvasProps).not.toBeNull();
+    });
+
+    const routeButton = screen.getByRole('button', { name: '路线' });
+    fireEvent.click(screen.getByRole('button', { name: '诊断' }));
+
+    await waitFor(() => {
+      expect(routeButton.getAttribute('aria-pressed')).toBe('false');
+    });
+
+    await pickStartAndGoal();
+    fireEvent.click(screen.getByRole('button', { name: '生成三维路线' }));
+
+    await waitFor(() => {
+      expect(previewSurfaceRoute).toHaveBeenCalledTimes(1);
+      expect(routeButton.getAttribute('aria-pressed')).toBe('true');
+    });
+  });
+
   it('records picks, generates replay, and hydrates compact trace node poses', async () => {
     render(<App />);
 
@@ -612,5 +690,29 @@ describe('App', () => {
     expect(screen.getByText('三维路线生成失败: 浏览器到规划服务的请求失败')).toBeTruthy();
     expect(screen.queryByText(/Failed to fetch/)).toBeNull();
     expect(screen.queryByText(/Error:/)).toBeNull();
+  });
+
+  it('renders a reference route and blocks execution when body constraints reject the route', async () => {
+    vi.mocked(previewSurfaceRoute).mockResolvedValueOnce(createRejectedPreviewResponse());
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(lastSceneCanvasProps).not.toBeNull();
+    });
+    await pickStartAndGoal();
+
+    fireEvent.click(screen.getByRole('button', { name: '生成三维路线' }));
+
+    await waitFor(() => {
+      expect(previewSurfaceRoute).toHaveBeenCalledTimes(1);
+      expect(traceSurfaceRouteFromNodes).not.toHaveBeenCalled();
+      expect(lastSceneCanvasProps?.manualPathRejected).toBe(true);
+    });
+
+    expect(lastSceneCanvasProps?.manualPath).toEqual(createRejectedPreviewResponse().fallback_path_points);
+    expect(screen.getByText(/车体约束过滤掉了起点到终点之间的全部可行路线/)).toBeTruthy();
+    expect(screen.getByText(/已显示 legacy 参考路线/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: '执行当前路线' }).getAttribute('disabled')).not.toBeNull();
   });
 });

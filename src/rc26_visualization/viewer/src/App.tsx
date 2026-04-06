@@ -229,6 +229,24 @@ function buildPreviewSummary(
   };
 }
 
+function previewDisplayPath(response: SurfaceRoutePreviewResponse): Pose3[] {
+  if (response.success) {
+    return response.path_points;
+  }
+  return response.fallback_path_points ?? [];
+}
+
+function previewDisplaySegments(response: SurfaceRoutePreviewResponse): SurfaceRouteSegment[] {
+  if (response.success) {
+    return response.segments;
+  }
+  return response.fallback_segments ?? [];
+}
+
+function previewHasReferenceRoute(response: SurfaceRoutePreviewResponse): boolean {
+  return !response.success && previewDisplayPath(response).length > 0;
+}
+
 function mergePlanningTiming(
   current: SurfaceRoutePlanningTiming | null,
   next: SurfaceRoutePlanningTiming | null | undefined,
@@ -282,6 +300,7 @@ export default function App() {
   const setViewMode = useSimStore((state) => state.setViewMode);
   const applyLayoutPreset = useSimStore((state) => state.applyLayoutPreset);
   const toggleLayer = useSimStore((state) => state.toggleLayer);
+  const setLayerVisible = useSimStore((state) => state.setLayerVisible);
   const setStatusMessage = useSimStore((state) => state.setStatusMessage);
 
   const [pickMode, setPickMode] = useState<PickMode>('idle');
@@ -292,6 +311,7 @@ export default function App() {
   const [surfaceProjectedGoal, setSurfaceProjectedGoal] = useState<Pose3 | null>(null);
   const [surfacePath, setSurfacePath] = useState<Pose3[]>([]);
   const [surfaceSegments, setSurfaceSegments] = useState<SurfaceRouteSegment[]>([]);
+  const [routeAccepted, setRouteAccepted] = useState(false);
   const [traceFrames, setTraceFrames] = useState<PlannerTraceFrame[]>([]);
   const [traceNodePoses, setTraceNodePoses] = useState<Record<string, Pose3>>({});
   const [traceSummary, setTraceSummary] = useState<RouteTraceSummary | null>(null);
@@ -374,9 +394,12 @@ export default function App() {
       ? `${traceProgressText}（原始 ${traceFrameTotal} 帧）`
       : traceProgressText;
   const routeReady = surfacePath.length > 0;
+  const routeRejected = routeReady && !routeAccepted;
   const traceReady = traceFrames.length > 0;
   const traceStatusText = routeReady
-    ? isTraceLoading
+    ? routeRejected
+      ? '车体约束拒绝该路线，当前显示参考路径'
+      : isTraceLoading
       ? '路线已生成，回放补齐中'
       : traceReady
         ? `已生成 ${traceFrameOverview} 帧搜索回放`
@@ -428,6 +451,7 @@ export default function App() {
     setSurfaceProjectedGoal(null);
     setSurfacePath([]);
     setSurfaceSegments([]);
+    setRouteAccepted(false);
     setTraceFrames([]);
     setTraceNodePoses({});
     setTraceSummary(null);
@@ -571,6 +595,10 @@ export default function App() {
       return;
     }
 
+    // Route generation should always surface the resulting preview, even if the
+    // active layout preset previously hid the route layer.
+    setLayerVisible('route', true);
+
     const requestId = routeRequestSeq.current + 1;
     routeRequestSeq.current = requestId;
     let previewResponse: SurfaceRoutePreviewResponse | null = null;
@@ -580,6 +608,7 @@ export default function App() {
     setSurfaceProjectedGoal(null);
     setSurfacePath([]);
     setSurfaceSegments([]);
+    setRouteAccepted(false);
     setTraceFrames([]);
     setTraceNodePoses({});
     setTraceSummary(null);
@@ -600,14 +629,24 @@ export default function App() {
       setPlanningTiming(preview.planning_timing_ms ?? null);
       setPlanningLogs(preview.planning_logs ?? []);
       if (!preview.success) {
-        setSurfaceProjectedStart(null);
-        setSurfaceProjectedGoal(null);
-        setSurfacePath([]);
-        setSurfaceSegments([]);
+        const fallbackPath = previewDisplayPath(preview);
+        const fallbackSegments = previewDisplaySegments(preview);
+        setSurfaceProjectedStart(preview.projected_start ?? null);
+        setSurfaceProjectedGoal(preview.projected_goal ?? null);
+        setSurfacePath(fallbackPath);
+        setSurfaceSegments(fallbackSegments);
+        setRouteAccepted(false);
         setTraceFrames([]);
         setTraceNodePoses({});
         setTraceSummary(null);
         setTraceIndex(0);
+        if (previewHasReferenceRoute(preview)) {
+          const backendLabel = preview.fallback_planner_backend?.trim() || 'legacy';
+          setStatusMessage(
+            `三维路线未通过车体约束: ${formatFailureSummary(preview.failure_reason, preview.failure_code)}，已显示 ${backendLabel} 参考路线`,
+          );
+          return;
+        }
         setStatusMessage(`三维路线生成失败: ${formatFailureSummary(preview.failure_reason, preview.failure_code)}`);
         return;
       }
@@ -616,6 +655,7 @@ export default function App() {
       setSurfaceProjectedGoal(preview.projected_goal);
       setSurfacePath(preview.path_points);
       setSurfaceSegments(preview.segments);
+      setRouteAccepted(true);
       setTraceSummary(buildPreviewSummary(preview, surfaceStartPick, surfaceGoalPick));
       const currentSurfacePlanningMs = resolveTimingMs(
         preview.planning_timing_ms?.surfaceCompletePlanning,
@@ -635,6 +675,7 @@ export default function App() {
         setSurfaceProjectedGoal(null);
         setSurfacePath([]);
         setSurfaceSegments([]);
+        setRouteAccepted(false);
         setTraceFrames([]);
         setTraceNodePoses({});
         setTraceSummary(null);
@@ -754,6 +795,10 @@ export default function App() {
       setStatusMessage('先生成三维路线，再决定是否执行');
       return;
     }
+    if (!routeAccepted) {
+      setStatusMessage('当前显示的是参考路线，车体约束未通过，不能直接执行');
+      return;
+    }
 
     setIsExecuting(true);
     try {
@@ -767,6 +812,13 @@ export default function App() {
         setSurfaceProjectedGoal(response.preview.projected_goal);
         setSurfacePath(response.preview.path_points);
         setSurfaceSegments(response.preview.segments);
+        setRouteAccepted(true);
+      } else {
+        setSurfaceProjectedStart(response.preview.projected_start ?? null);
+        setSurfaceProjectedGoal(response.preview.projected_goal ?? null);
+        setSurfacePath(previewDisplayPath(response.preview));
+        setSurfaceSegments(previewDisplaySegments(response.preview));
+        setRouteAccepted(false);
       }
       setPlanningTiming(response.preview.planning_timing_ms ?? null);
       setPlanningLogs(response.preview.planning_logs ?? []);
@@ -899,6 +951,7 @@ export default function App() {
               goalPose={goalPose}
               hoverPose={surfaceHoverPose}
               manualPath={surfacePath}
+              manualPathRejected={routeRejected}
               blockedGridIds={blockedGridIds}
               pickMode={pickMode}
               onHoverWorldChange={setSurfaceHoverPose}
@@ -1085,7 +1138,7 @@ export default function App() {
                     className="secondary-button"
                     type="button"
                     onClick={handleExecuteRoute}
-                    disabled={!routeReady || isExecuting}
+                    disabled={!routeAccepted || isExecuting}
                   >
                     {isExecuting ? UI_LABELS.statusDispatching : UI_LABELS.btnExecuteRoute}
                   </button>

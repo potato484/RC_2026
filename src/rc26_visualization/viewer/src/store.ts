@@ -40,6 +40,7 @@ interface SimState {
   setViewMode: (viewMode: ViewMode) => void;
   applyLayoutPreset: (presetId: string) => void;
   toggleLayer: (layer: keyof LayerState) => void;
+  setLayerVisible: (layer: keyof LayerState, visible: boolean) => void;
   setStatusMessage: (message: string) => void;
 }
 
@@ -143,5 +144,17 @@ export const useSimStore = create<SimState>((set) => ({
         [layer]: !state.layers[layer],
       },
     })),
+  setLayerVisible: (layer, visible) =>
+    set((state) => {
+      if (state.layers[layer] === visible) {
+        return state;
+      }
+      return {
+        layers: {
+          ...state.layers,
+          [layer]: visible,
+        },
+      };
+    }),
   setStatusMessage: (statusMessage) => set({ statusMessage }),
 }));

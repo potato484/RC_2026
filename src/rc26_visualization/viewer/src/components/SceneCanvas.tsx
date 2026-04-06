@@ -16,6 +16,7 @@ export interface SceneCanvasProps {
   goalPose: Pose3 | null;
   hoverPose: Pose3 | null;
   manualPath?: Pose3[];
+  manualPathRejected?: boolean;
   blockedGridIds: number[];
   pickMode: PickMode;
   onHoverNodeChange?: (nodeId: string | null) => void;
@@ -657,6 +658,7 @@ class BabylonSceneManager {
     goalPose: Pose3 | null,
     hoverPose: Pose3 | null,
     manualPath: Pose3[] | undefined,
+    manualPathRejected: boolean,
     blockedGridIds: number[],
     pickMode: PickMode,
   ) {
@@ -744,21 +746,35 @@ class BabylonSceneManager {
     }
 
     const createTube = (
+      name: string,
       pts: Pose3[],
       color: string,
       radius: number,
       opacity: number,
       lift: number,
+      {
+        haloColor = color,
+        haloOpacity = opacity * 0.2,
+        haloScale = 1.75,
+        lineColor = shadeHexColor(color, 1.5),
+        lineAlpha = Math.min(1, opacity),
+      }: {
+        haloColor?: string;
+        haloOpacity?: number;
+        haloScale?: number;
+        lineColor?: string;
+        lineAlpha?: number;
+      } = {},
     ) => {
       if (pts.length < 2) return;
       const vPts = pts.map(p => liftedVec3(p, lift));
 
-      const halo = BABYLON.MeshBuilder.CreateTube("dyn_tube_halo", {
+      const halo = BABYLON.MeshBuilder.CreateTube(`${name}_halo`, {
         path: vPts,
-        radius: radius * 1.75,
+        radius: radius * haloScale,
         cap: BABYLON.Mesh.CAP_ALL,
       }, this.scene!);
-      halo.material = this.getMat(`tube_halo_${color}_${radius}_${lift}`, color, opacity * 0.2, 0.12, 0.02, {
+      halo.material = this.getMat(`tube_halo_${haloColor}_${radius}_${lift}_${haloScale}`, haloColor, haloOpacity, 0.12, 0.02, {
         emissiveScale: 0.22,
         unlit: true,
         backFaceCulling: false,
@@ -766,7 +782,7 @@ class BabylonSceneManager {
       halo.renderingGroupId = 1;
       this.addDynamicMesh(halo, { cast: false, receive: false });
 
-      const tube = BABYLON.MeshBuilder.CreateTube("dyn_tube", { path: vPts, radius, cap: BABYLON.Mesh.CAP_ALL }, this.scene!);
+      const tube = BABYLON.MeshBuilder.CreateTube(`${name}_tube`, { path: vPts, radius, cap: BABYLON.Mesh.CAP_ALL }, this.scene!);
       tube.material = this.getMat(`tube_${color}_${radius}_${lift}`, color, opacity, 0.14, 0.04, {
         emissiveScale: 0.18,
         unlit: true,
@@ -774,28 +790,84 @@ class BabylonSceneManager {
       });
       tube.renderingGroupId = 2;
       this.addDynamicMesh(tube, { cast: false, receive: false });
+
+      const centerLine = BABYLON.MeshBuilder.CreateLines(`${name}_line`, {
+        points: pts.map((point) => liftedVec3(point, lift + radius * 0.85)),
+      }, this.scene!);
+      centerLine.color = hexToColor3(lineColor);
+      centerLine.alpha = lineAlpha;
+      centerLine.renderingGroupId = 3;
+      this.addDynamicMesh(centerLine, { cast: false, receive: false });
+    };
+
+    const createBreadcrumbs = (
+      name: string,
+      pts: Pose3[],
+      color: string,
+      diameter: number,
+      lift: number,
+      step = 4,
+      shape: 'sphere' | 'box' = 'sphere',
+    ) => {
+      if (pts.length === 0) {
+        return;
+      }
+      pts.forEach((point, index) => {
+        if (index !== 0 && index !== pts.length - 1 && index % step !== 0) {
+          return;
+        }
+        this.createPulseMarker(`${name}_${index}`, point, color, {
+          diameter,
+          lift,
+          opacity: 0.96,
+          dynamic: true,
+          shape,
+        });
+      });
     };
 
     if (layers.route) {
-      createTube(manualPreviewPath, '#2f80ed', 0.018, 0.96, 0.07);
+      if (manualPathRejected) {
+        createTube('dyn_route_preview', manualPreviewPath, '#fb923c', 0.042, 0.92, 0.19, {
+          haloColor: '#7c2d12',
+          haloOpacity: 0.46,
+          haloScale: 2.2,
+          lineColor: '#fef3c7',
+          lineAlpha: 0.96,
+        });
+        createBreadcrumbs('dyn_route_preview_bead', manualPreviewPath, '#b45309', 0.1, 0.22, 2, 'box');
+      } else {
+        createTube('dyn_route_preview', manualPreviewPath, '#f8fafc', 0.055, 1.0, 0.2, {
+          haloColor: '#111827',
+          haloOpacity: 0.62,
+          haloScale: 2.5,
+          lineColor: '#fde68a',
+          lineAlpha: 1,
+        });
+        createBreadcrumbs('dyn_route_preview_bead', manualPreviewPath, '#fde68a', 0.11, 0.23, 3);
+      }
     }
     if (layers.route && (manualPreviewPath.length === 0 || !surfaceTrace)) {
       createTube(
+        'dyn_route_trace',
         offlinePath,
-        surfaceTrace ? '#2f80ed' : '#355070',
-        surfaceTrace ? 0.018 : 0.024,
+        surfaceTrace ? '#2563eb' : '#355070',
+        surfaceTrace ? 0.03 : 0.034,
         0.96,
-        surfaceTrace ? 0.07 : 0.06,
+        surfaceTrace ? 0.13 : 0.11,
+        {
+          lineColor: '#f8fafc',
+        },
       );
     }
     if (layers.route) {
-      createTube(liveEvent?.routePath ?? [], '#0ea5e9', 0.02, 0.88, 0.065);
+      createTube('dyn_route_live', liveEvent?.routePath ?? [], '#0ea5e9', 0.026, 0.9, 0.12);
     }
     if (layers.corridor) {
-      createTube(liveEvent?.corridorPath ?? [], '#fb8500', 0.016, 0.88, 0.055);
+      createTube('dyn_corridor', liveEvent?.corridorPath ?? [], '#fb8500', 0.022, 0.9, 0.1);
     }
     if (layers.lookahead) {
-      createTube(liveEvent?.localPlannerPreviewPath ?? [], '#2a9d8f', 0.012, 0.84, 0.045);
+      createTube('dyn_lookahead', liveEvent?.localPlannerPreviewPath ?? [], '#2a9d8f', 0.018, 0.86, 0.085);
     }
 
     if (layers.tree && frame?.treeSegments) {
@@ -810,7 +882,7 @@ class BabylonSceneManager {
     if (layers.candidates && frame?.candidateTrajectories) {
       frame.candidateTrajectories.forEach((traj, i) => {
         if (traj.selected) {
-          createTube(traj.points, '#ff7b00', 0.012, 0.9, 0.03);
+          createTube(`dyn_candidate_selected_${i}`, traj.points, '#ff7b00', 0.016, 0.9, 0.06);
         }
         const lines = BABYLON.MeshBuilder.CreateLines(`dyn_cand_${i}`, { points: traj.points.map(p => vec3(p)) }, this.scene!);
         lines.color = hexToColor3(traj.selected ? '#ff7b00' : traj.collision ? '#adb5bd' : '#94d2bd');
@@ -1012,6 +1084,7 @@ export function SceneCanvas(props: SceneCanvasProps) {
         props.goalPose,
         props.hoverPose,
         props.manualPath,
+        props.manualPathRejected ?? false,
         props.blockedGridIds,
         props.pickMode,
       );

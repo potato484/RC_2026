@@ -128,4 +128,15 @@ describe('useSimStore', () => {
     useSimStore.getState().setStatusMessage('3D 路线已生成');
     expect(useSimStore.getState().statusMessage).toBe('3D 路线已生成');
   });
+
+  it('can force a route layer visible without toggling unrelated layers', () => {
+    useSimStore.getState().setScene(createSceneManifest());
+    useSimStore.getState().applyLayoutPreset('diagnostic');
+    useSimStore.getState().setLayerVisible('route', true);
+
+    expect(useSimStore.getState().layers.route).toBe(true);
+    expect(useSimStore.getState().layers.robotPose).toBe(true);
+    expect(useSimStore.getState().layers.blocked).toBe(true);
+    expect(useSimStore.getState().layers.shadows).toBe(false);
+  });
 });

@@ -63,3 +63,5 @@ Web adapter 在此基础上还会只读消费：
 - 原 `topo_sim_server.py` 已迁入并泛化为 `visualization_server.py`
 - bringup 的 Web 主入口已经切到 `visualization_backend:=local_web`
 - Web 端现在统一展示场地、路线、阶段区、keepout、定位健康、机构状态和 BT 快照，不再把 Foxglove 当主入口
+- `start_r2_visualization.sh` 在已 source 当前工作区的 shell 中会显式带上 `--allow-overriding rc26_topo_nav rc26_visualization`，避免重复构建时持续出现 colcon override-check 警告
+- `visualization_server.py` 在 `BODY_CONSTRAINT_UNSATISFIED` 这类 body-aware 失败场景下，会追加一次 `legacy + --disable-body-planning` 参考预览；浏览器可继续看到参考路线，但执行按钮会保持禁用
