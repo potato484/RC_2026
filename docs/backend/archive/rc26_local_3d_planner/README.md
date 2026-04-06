@@ -64,7 +64,7 @@
 - 当前新增 `local_3d_planner_node` 作为 observe-only 观测节点，主要用于在 legacy follower 链下先暴露 planner state / recovery state / preview。
 - 当前 `PlannerCore` 已被 `xhu_motion_runtime_node` 复用，避免在执行器包里复制一套局部评分逻辑。
 - CMake 当前只导出可复用的 `rc26_local_3d_planner_core` 库，不把 `local_3d_planner_node` 可执行文件作为跨包链接目标导出。
-- 当前新增 `local_planner_trace_cli --snapshot <yaml>`，可以把局部规划快照导出成 JSON trace，作为 `topo_sim_server + sim_viewer` 的局部规划案例真源。
+- 当前新增 `local_planner_trace_cli --snapshot <yaml>`，可以把局部规划快照导出成 JSON trace，作为 `visualization_server + viewer` 的局部规划案例真源。
 - 包内当前内置四个最小回归场景：
   - `pass_straight`
   - `waiting_on_block`
