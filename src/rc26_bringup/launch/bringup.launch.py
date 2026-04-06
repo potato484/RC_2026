@@ -14,7 +14,7 @@ src R2导航系统 - 主启动文件
 """
 import os
 
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, GroupAction, IncludeLaunchDescription, LogInfo
 from launch.conditions import IfCondition, UnlessCondition
@@ -26,6 +26,7 @@ from launch_ros.actions import Node, PushRosNamespace
 def generate_launch_description():
     # 获取包路径
     bringup_dir = get_package_share_directory('rc26_bringup')
+    visualization_prefix = get_package_prefix('rc26_visualization')
     decision_dir = get_package_share_directory('rc26_decision')
     base_ground_dir = get_package_share_directory('rc26_base_ground')
     kfs_keepout_dir = get_package_share_directory('rc26_kfs_keepout')
@@ -52,8 +53,8 @@ def generate_launch_description():
     use_rviz = LaunchConfiguration('use_rviz')
     visualization_backend = LaunchConfiguration('visualization_backend')
     visualization_status_enable = LaunchConfiguration('visualization_status_enable')
-    foxglove_port = LaunchConfiguration('foxglove_port')
-    foxglove_layout_dir = LaunchConfiguration('foxglove_layout_dir')
+    visualization_host = LaunchConfiguration('visualization_host')
+    visualization_port = LaunchConfiguration('visualization_port')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     use_decision = LaunchConfiguration('use_decision')
     use_realsense = LaunchConfiguration('use_realsense')
@@ -139,22 +140,22 @@ def generate_launch_description():
     declare_visualization_backend = DeclareLaunchArgument(
         'visualization_backend',
         default_value='rviz',
-        description='可视化后端: rviz | foxglove | none')
+        description='可视化后端: rviz | local_web | none')
 
     declare_visualization_status_enable = DeclareLaunchArgument(
         'visualization_status_enable',
         default_value='true',
         description='是否启动可视化状态/告警聚合节点')
 
-    declare_foxglove_port = DeclareLaunchArgument(
-        'foxglove_port',
-        default_value='8765',
-        description='foxglove_bridge WebSocket 监听端口')
+    declare_visualization_host = DeclareLaunchArgument(
+        'visualization_host',
+        default_value='0.0.0.0',
+        description='local_web viewer 监听地址')
 
-    declare_foxglove_layout_dir = DeclareLaunchArgument(
-        'foxglove_layout_dir',
-        default_value='/tmp/rc26_foxglove_layouts/current',
-        description='自动生成的 Foxglove 布局输出目录（按当前 namespace 重写 topicPath）')
+    declare_visualization_port = DeclareLaunchArgument(
+        'visualization_port',
+        default_value='8796',
+        description='local_web viewer HTTP 监听端口')
 
     declare_recover_mid360_stream = DeclareLaunchArgument(
         'recover_mid360_stream',
@@ -542,46 +543,33 @@ def generate_launch_description():
         ]))
     )
 
-    foxglove_bridge_node = Node(
-        package='foxglove_bridge',
-        executable='foxglove_bridge',
-        name='foxglove_bridge',
-        namespace=namespace,
-        output='screen',
-        parameters=[{
-            'port': foxglove_port,
-            'address': '0.0.0.0',
-            'use_sim_time': use_sim_time,
-        }]
-    )
-
-    foxglove_layout_render = ExecuteProcess(
+    local_web_server = ExecuteProcess(
         cmd=[
             'python3',
-            PathJoinSubstitution([bringup_dir, 'scripts', 'render_foxglove_layouts.py']),
-            '--source-dir',
-            PathJoinSubstitution([bringup_dir, 'foxglove']),
-            '--output-dir',
-            foxglove_layout_dir,
-            '--namespace',
-            namespace,
+            os.path.join(visualization_prefix, 'lib', 'rc26_visualization', 'visualization_server.py'),
+            '--host',
+            visualization_host,
+            '--port',
+            visualization_port,
         ],
         output='screen',
-        condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'foxglove'"]))
+        condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'local_web'"]))
     )
 
-    foxglove_layout_notice = LogInfo(
+    local_web_notice = LogInfo(
         msg=[
-            '[bringup] Foxglove layouts rendered to ',
-            foxglove_layout_dir,
-            ' ; import operator.json / engineering.json / diagnostic.json from that directory.',
+            '[bringup] local_web viewer available at http://',
+            visualization_host,
+            ':',
+            visualization_port,
+            ' ; build rc26_visualization/viewer when dist is missing.',
         ],
-        condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'foxglove'"]))
+        condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'local_web'"]))
     )
 
-    foxglove_group = GroupAction(
-        actions=[foxglove_layout_render, foxglove_layout_notice, foxglove_bridge_node],
-        condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'foxglove'"]))
+    local_web_group = GroupAction(
+        actions=[local_web_notice, local_web_server],
+        condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'local_web'"]))
     )
 
     # RViz：导航模式使用自研导航布局，建图模式使用 slam.rviz
@@ -620,7 +608,7 @@ def generate_launch_description():
     )
 
     rviz_headless_notice = LogInfo(
-        msg='[bringup] 未检测到 DISPLAY/WAYLAND_DISPLAY，跳过 RViz；可改用 visualization_backend:=foxglove 或 none。',
+        msg='[bringup] 未检测到 DISPLAY/WAYLAND_DISPLAY，跳过 RViz；可改用 visualization_backend:=local_web 或 none。',
         condition=IfCondition(PythonExpression([
             "'", visualization_backend, "' == 'rviz' and '", use_rviz, "' == 'true' and '",
             display_available, "' != 'true'"
@@ -643,8 +631,8 @@ def generate_launch_description():
         declare_use_rviz,
         declare_visualization_backend,
         declare_visualization_status_enable,
-        declare_foxglove_port,
-        declare_foxglove_layout_dir,
+        declare_visualization_host,
+        declare_visualization_port,
         declare_chassis_model,
         declare_recover_mid360_stream,
         declare_use_decision,
@@ -679,6 +667,6 @@ def generate_launch_description():
         visualization_status_node,
         realsense_group,
         rviz_headless_notice,
-        foxglove_group,
+        local_web_group,
         rviz_group,
     ])
