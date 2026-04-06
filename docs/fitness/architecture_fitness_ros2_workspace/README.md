@@ -96,6 +96,7 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - **规则**：控制器包可以依赖导航状态、定位健康、地形输入、控制参数。
 - **规则**：控制器包不得吸纳比赛阶段语义、前端需求或临时策略分支。
 - **规则**：任何带有“梅林阶段时这样做”“武馆阶段时那样做”的逻辑，如果不是纯控制保护，大概率应放在决策层而不是控制器层。
+- **补充口径**：允许把可复用的局部轨迹评分/采样 core 独立成控制层库包，例如 `rc26_local_3d_planner`，再由执行器宿主包按需复用；但 `cmd_vel` 权威仍必须由单个运行时执行器节点持有。
 
 ### 3.5 状态估计与感知包负责产出状态，不负责操作员策略
 
@@ -118,6 +119,7 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - **规则**：新增 launch 参数必须显式声明、命名清晰、传递路径清楚。
 - **规则**：参数文件归包所有，不归 `bringup` 统一托管其内部细节。
 - **规则**：`bringup` 只负责选择加载哪个参数文件，不应长期成为所有内部调参逻辑的宿主。
+- **补充口径**：像 `local_execution_backend` 这类“装配期后端选择”参数可以归 `bringup`；而局部规划/执行内部阈值仍应归 `rc26_local_3d_planner` 或 `rc26_omni_controller` 自己的配置文件所有。
 
 ### 3.9 BT blackboard 必须契约化
 
@@ -147,6 +149,12 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - **当前口径**：`src/rc26_kfs_keepout/config/r2_mf_world.yaml` 是当前 MF 主区共享几何真源。
 - **规则**：`rc26_topo_nav` 可以基于这个真源离线生成 `graph_file`，但运行时仍应加载静态 topo YAML，不应在节点启动流程里临时发明另一套动态建图逻辑。
 - **规则**：无法从共享几何稳定推导出的 topo 语义，例如 staging 点、坡道边、任务路由、手工调过的 node/edge cost，必须明确留在 `rc26_topo_nav` 自己的 overlay 或文档里，而不是偷偷塞回底层几何文件。
+
+### 3.13 同一时刻只能有一个局部执行命令权威
+
+- **规则**：如果系统同时存在 observe-only planner、legacy follower 和新 runtime executor，必须在 launch 装配层保证任一时刻只有一个节点发布运动命令。
+- **规则**：observe-only 节点可以发布 preview、planner state、recovery state，但不得在旁路上直接输出 `cmd_vel`。
+- **规则**：`rc26_topo_nav` 仍然只拥有 corridor 表达权，不因为新增 local planner 就越权成为速度命令权威。
 
 ## 4. ROS2 工作区 Fitness Function
 

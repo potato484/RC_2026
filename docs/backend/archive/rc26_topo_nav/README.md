@@ -6,7 +6,7 @@
 
 当前执行链真实口径是：
 
-- `rc26_topo_nav -> edge_executor -> /xhu_nav/corridor_cmd -> xhu_motion_follower -> cmd_vel`
+- `rc26_topo_nav -> edge_executor -> /xhu_nav/corridor_cmd -> (xhu_motion_follower | xhu_motion_runtime) -> cmd_vel`
 
 ## 当前实现
 
@@ -85,6 +85,11 @@
 - `edge_executor` 负责两件事：
   - 切换 xhu 运动模式
   - 发布 `XhuSemanticCorridor` 并等待 `XhuTrackingState`
+- `XhuSemanticCorridor` 当前会额外携带 `preferred_linear_speed / allow_in_place_rotate / speed_limit_reason`，用于把上游速度语义和恢复许可下发给局部执行器。
+- `edge_executor` 当前会把 `WAITING_ON_BLOCK / LOCAL_COLLISION_BLOCKED / RECOVERY_RUNNING` 视为一等运行时状态：
+  - `WAITING_ON_BLOCK` 超时后请求 replan
+  - `RECOVERY_RUNNING` 超时后请求 replan
+  - `LOCAL_COLLISION_BLOCKED` 立即请求 replan
 
 ## 源码入口
 
@@ -261,6 +266,7 @@
 - 负责 topo 图搜索与单边执行调度
 - 负责 dense `surface_graph` 上的任意点 3D 路线规划与分段执行
 - 不负责底层速度控制求解
+- 可以表达局部执行语义，但不拥有局部规划器评分实现；具体 `cmd_vel` 求解仍由下游执行器决定
 - 只对接 topo/xhu 自研执行接口
 - 不拥有场地几何真源；图几何事实由 `rc26_kfs_keepout/config/r2_mf_world.yaml` 提供
 - 不拥有机器人动态轮廓状态机；当前只消费 `rc26_robot_geometry` 提供的静态 geometry profile

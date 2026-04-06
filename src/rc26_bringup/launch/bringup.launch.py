@@ -33,6 +33,7 @@ def generate_launch_description():
     robot_geometry_dir = get_package_share_directory('rc26_robot_geometry')
     topo_nav_dir = get_package_share_directory('rc26_topo_nav')
     nav_mode_manager_dir = get_package_share_directory('rc26_nav_mode_manager')
+    local_planner_dir = get_package_share_directory('rc26_local_3d_planner')
     visualization_dir = get_package_share_directory('rc26_visualization')
     display_available = 'true' if (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')) else 'false'
 
@@ -63,6 +64,10 @@ def generate_launch_description():
     chassis_model = LaunchConfiguration('chassis_model')
     robot_geometry_file = LaunchConfiguration('robot_geometry_file')
     robot_geometry_profile = LaunchConfiguration('robot_geometry_profile')
+    local_execution_backend = LaunchConfiguration('local_execution_backend')
+    enable_local_3d_planner_observe = LaunchConfiguration('enable_local_3d_planner_observe')
+    local_3d_planner_config_file = LaunchConfiguration('local_3d_planner_config_file')
+    xhu_motion_runtime_config_file = LaunchConfiguration('xhu_motion_runtime_config_file')
 
     # 参数声明
     declare_namespace = DeclareLaunchArgument(
@@ -201,6 +206,26 @@ def generate_launch_description():
         default_value='compact',
         description='机器人几何 profile 名称')
 
+    declare_local_execution_backend = DeclareLaunchArgument(
+        'local_execution_backend',
+        default_value='follower',
+        description='局部执行后端: follower | local_3d_planner')
+
+    declare_enable_local_3d_planner_observe = DeclareLaunchArgument(
+        'enable_local_3d_planner_observe',
+        default_value='true',
+        description='在 follower 后端下额外启动 observe-only local_3d_planner')
+
+    declare_local_3d_planner_config_file = DeclareLaunchArgument(
+        'local_3d_planner_config_file',
+        default_value=PathJoinSubstitution([local_planner_dir, 'config', 'local_3d_planner.yaml']),
+        description='local_3d_planner 参数文件')
+
+    declare_xhu_motion_runtime_config_file = DeclareLaunchArgument(
+        'xhu_motion_runtime_config_file',
+        default_value=PathJoinSubstitution([bringup_dir, 'config', 'xhu_motion_runtime.yaml']),
+        description='xhu_motion_runtime 参数文件')
+
     topo_graph_blue_file = PathJoinSubstitution([topo_nav_dir, 'config', 'r2_field_graph_blue.yaml'])
     topo_graph_red_file = PathJoinSubstitution([topo_nav_dir, 'config', 'r2_field_graph_red.yaml'])
     topo_graph_file = PythonExpression([
@@ -213,6 +238,16 @@ def generate_launch_description():
     terrain_grid_map_runtime = PythonExpression([
         "not ('", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true') "
         "or '", enable_terrain_grid_map, "'.lower() == 'true'"
+    ])
+    follower_backend_runtime = PythonExpression([
+        "'", slam, "'.lower() != 'true' and '", local_execution_backend, "'.lower() == 'follower'"
+    ])
+    local_planner_backend_runtime = PythonExpression([
+        "'", slam, "'.lower() != 'true' and '", local_execution_backend, "'.lower() == 'local_3d_planner'"
+    ])
+    observe_local_planner_runtime = PythonExpression([
+        "'", slam, "'.lower() != 'true' and '", local_execution_backend,
+        "'.lower() == 'follower' and '", enable_local_3d_planner_observe, "'.lower() == 'true'"
     ])
 
     # RealSense D455（可选）
@@ -342,7 +377,42 @@ def generate_launch_description():
                 'robot_geometry_profile': robot_geometry_profile,
             },
         ],
-        condition=UnlessCondition(slam)
+        condition=IfCondition(follower_backend_runtime)
+    )
+
+    xhu_motion_runtime_node = Node(
+        package='rc26_omni_controller',
+        executable='xhu_motion_runtime_node',
+        name='xhu_motion_runtime',
+        namespace=namespace,
+        output='screen',
+        parameters=[
+            xhu_motion_runtime_config_file,
+            local_3d_planner_config_file,
+            {
+                'use_sim_time': use_sim_time,
+                'robot_geometry_file': robot_geometry_file,
+                'robot_geometry_profile': robot_geometry_profile,
+            },
+        ],
+        condition=IfCondition(local_planner_backend_runtime)
+    )
+
+    observe_only_local_planner_node = Node(
+        package='rc26_local_3d_planner',
+        executable='local_3d_planner_node',
+        name='local_3d_planner',
+        namespace=namespace,
+        output='screen',
+        parameters=[
+            local_3d_planner_config_file,
+            {
+                'use_sim_time': use_sim_time,
+                'robot_geometry_file': robot_geometry_file,
+                'robot_geometry_profile': robot_geometry_profile,
+            },
+        ],
+        condition=IfCondition(observe_local_planner_runtime)
     )
 
     # rc26_topo_nav
@@ -585,6 +655,10 @@ def generate_launch_description():
         declare_team,
         declare_robot_geometry_file,
         declare_robot_geometry_profile,
+        declare_local_execution_backend,
+        declare_enable_local_3d_planner_observe,
+        declare_local_3d_planner_config_file,
+        declare_xhu_motion_runtime_config_file,
 
         # 启动模块
         pure_mapping_notice,
@@ -598,6 +672,8 @@ def generate_launch_description():
         terrain_grid_map_bridge_node,
         xhu_motion_mode_manager_node,
         xhu_motion_follower_node,
+        xhu_motion_runtime_node,
+        observe_only_local_planner_node,
         topo_nav_node,
         decision_node,
         visualization_status_node,

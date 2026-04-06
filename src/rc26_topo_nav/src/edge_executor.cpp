@@ -92,6 +92,12 @@ EdgeExecutor::EdgeExecutor(rclcpp::Node* node) : node_(node) {
     if (!node_->has_parameter("xhu.tracking_state_timeout_sec")) {
         node_->declare_parameter("xhu.tracking_state_timeout_sec", xhu_tracking_state_timeout_sec_);
     }
+    if (!node_->has_parameter("xhu.wait_on_block_timeout_sec")) {
+        node_->declare_parameter("xhu.wait_on_block_timeout_sec", xhu_wait_on_block_timeout_sec_);
+    }
+    if (!node_->has_parameter("xhu.recovery_timeout_sec")) {
+        node_->declare_parameter("xhu.recovery_timeout_sec", xhu_recovery_timeout_sec_);
+    }
     if (!node_->has_parameter("xhu.tracking_state_ttl_sec")) {
         node_->declare_parameter("xhu.tracking_state_ttl_sec", tracking_state_ttl_sec_);
     }
@@ -104,6 +110,10 @@ EdgeExecutor::EdgeExecutor(rclcpp::Node* node) : node_(node) {
         std::max(0.1, node_->get_parameter("xhu.corridor_republish_period_sec").as_double());
     xhu_tracking_state_timeout_sec_ =
         std::max(0.2, node_->get_parameter("xhu.tracking_state_timeout_sec").as_double());
+    xhu_wait_on_block_timeout_sec_ =
+        std::max(0.1, node_->get_parameter("xhu.wait_on_block_timeout_sec").as_double());
+    xhu_recovery_timeout_sec_ =
+        std::max(0.1, node_->get_parameter("xhu.recovery_timeout_sec").as_double());
     tracking_state_ttl_sec_ =
         std::max(xhu_tracking_state_timeout_sec_, node_->get_parameter("xhu.tracking_state_ttl_sec").as_double());
 
@@ -118,9 +128,11 @@ EdgeExecutor::EdgeExecutor(rclcpp::Node* node) : node_(node) {
     RCLCPP_INFO(
         node_->get_logger(),
         "EdgeExecutor backend=xhu_direct, xhu_exec_timeout=%.1fs, xhu_hold_replan_timeout=%.1fs, "
-        "accept_timeout=%.1fs, tracking_timeout=%.1fs",
+        "accept_timeout=%.1fs, tracking_timeout=%.1fs, wait_on_block_timeout=%.1fs, "
+        "recovery_timeout=%.1fs",
         xhu_exec_timeout_sec_, xhu_hold_replan_timeout_sec_,
-        xhu_corridor_accept_timeout_sec_, xhu_tracking_state_timeout_sec_);
+        xhu_corridor_accept_timeout_sec_, xhu_tracking_state_timeout_sec_,
+        xhu_wait_on_block_timeout_sec_, xhu_recovery_timeout_sec_);
 }
 
 void EdgeExecutor::onTrackingState(const rc26_interfaces::msg::XhuTrackingState::SharedPtr msg) {
@@ -216,6 +228,22 @@ std::pair<float, float> EdgeExecutor::inferSpeedLimits(
         return {0.50F, 0.50F};
     }
     return {0.80F, 1.00F};
+}
+
+std::string inferSpeedLimitReason(
+    const std::string& required_mode,
+    const std::string& motion_type) {
+    const auto mode = toLowerCopy(required_mode);
+    const auto motion = toLowerCopy(motion_type);
+    if (mode == "ramp_up" || mode == "ramp_down" ||
+        mode == "stair_up" || mode == "stair_down" ||
+        motion == "ramp_up" || motion == "ramp_down") {
+        return "terrain_profile";
+    }
+    if (mode == "mf_traverse" || mode == "mf_exit") {
+        return "motion_mode_profile";
+    }
+    return "default_profile";
 }
 
 nav_msgs::msg::Path EdgeExecutor::generateCorridor(
@@ -352,10 +380,13 @@ EdgeExecutor::ExecResult EdgeExecutor::executeCorridorViaXhu(
     corridor_msg.required_mode = required_mode;
     corridor_msg.path = corridor_path;
     const auto [max_linear, max_angular] = inferSpeedLimits(required_mode, motion_type);
+    corridor_msg.preferred_linear_speed = max_linear;
     corridor_msg.max_linear_speed = max_linear;
     corridor_msg.max_angular_speed = max_angular;
     corridor_msg.stop_at_end = true;
     corridor_msg.allow_reverse = false;
+    corridor_msg.allow_in_place_rotate = true;
+    corridor_msg.speed_limit_reason = inferSpeedLimitReason(required_mode, motion_type);
     corridor_pub_->publish(corridor_msg);
 
     const auto wait_begin = std::chrono::steady_clock::now();
@@ -363,6 +394,8 @@ EdgeExecutor::ExecResult EdgeExecutor::executeCorridorViaXhu(
     auto last_tracking_update = wait_begin;
     bool received_tracking = false;
     std::optional<std::chrono::steady_clock::time_point> hold_begin;
+    std::optional<std::chrono::steady_clock::time_point> wait_on_block_begin;
+    std::optional<std::chrono::steady_clock::time_point> recovery_begin;
     while (rclcpp::ok()) {
         if (cancelled_.load()) {
             state_ = EdgeExecState::FAILED;
@@ -425,6 +458,38 @@ EdgeExecutor::ExecResult EdgeExecutor::executeCorridorViaXhu(
                 hold_begin.reset();
             }
 
+            if (status == "waiting_on_block" && !tracking->terminal) {
+                if (!wait_on_block_begin.has_value()) {
+                    wait_on_block_begin = now;
+                }
+                const double wait_sec =
+                    std::chrono::duration<double>(now - *wait_on_block_begin).count();
+                if (wait_sec > xhu_wait_on_block_timeout_sec_) {
+                    state_ = EdgeExecState::REPLAN_REQUESTED;
+                    result.final_state = EdgeExecState::REPLAN_REQUESTED;
+                    result.failure_reason = "xhu waiting_on_block exceeded timeout";
+                    return result;
+                }
+            } else {
+                wait_on_block_begin.reset();
+            }
+
+            if (status == "recovery_running" && !tracking->terminal) {
+                if (!recovery_begin.has_value()) {
+                    recovery_begin = now;
+                }
+                const double recovery_sec =
+                    std::chrono::duration<double>(now - *recovery_begin).count();
+                if (recovery_sec > xhu_recovery_timeout_sec_) {
+                    state_ = EdgeExecState::REPLAN_REQUESTED;
+                    result.final_state = EdgeExecState::REPLAN_REQUESTED;
+                    result.failure_reason = "xhu recovery exceeded timeout";
+                    return result;
+                }
+            } else {
+                recovery_begin.reset();
+            }
+
             if (!tracking->terminal && status == "replan") {
                 state_ = EdgeExecState::REPLAN_REQUESTED;
                 result.final_state = EdgeExecState::REPLAN_REQUESTED;
@@ -441,6 +506,14 @@ EdgeExecutor::ExecResult EdgeExecutor::executeCorridorViaXhu(
                 return result;
             }
 
+            if (!tracking->terminal && status == "local_collision_blocked") {
+                state_ = EdgeExecState::REPLAN_REQUESTED;
+                result.final_state = EdgeExecState::REPLAN_REQUESTED;
+                result.failure_reason =
+                    tracking->reason.empty() ? "xhu local collision blocked" : tracking->reason;
+                return result;
+            }
+
             if (tracking->terminal) {
                 if (status == "pass") {
                     state_ = EdgeExecState::SUCCEEDED;
@@ -449,7 +522,9 @@ EdgeExecutor::ExecResult EdgeExecutor::executeCorridorViaXhu(
                     return result;
                 }
 
-                if (status == "replan" || status == "hold") {
+                if (status == "replan" || status == "hold" ||
+                    status == "waiting_on_block" || status == "local_collision_blocked" ||
+                    status == "recovery_running") {
                     state_ = EdgeExecState::REPLAN_REQUESTED;
                     result.final_state = EdgeExecState::REPLAN_REQUESTED;
                     result.failure_reason =

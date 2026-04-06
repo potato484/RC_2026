@@ -97,6 +97,8 @@ private:
     double xhu_corridor_accept_timeout_sec_ = 2.0;
     double xhu_corridor_republish_period_sec_ = 0.5;
     double xhu_tracking_state_timeout_sec_ = 1.5;
+    double xhu_wait_on_block_timeout_sec_ = 2.0;
+    double xhu_recovery_timeout_sec_ = 3.0;
     double tracking_state_ttl_sec_ = 120.0;
 
     static constexpr double INTERPOLATION_SPACING = 0.10;
