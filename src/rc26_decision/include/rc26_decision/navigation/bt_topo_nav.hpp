@@ -13,6 +13,7 @@ public:
     static BT::PortsList providedPorts();
 protected:
     bool buildGoal(Goal& goal) override;
+    void onFeedback(const std::shared_ptr<const Feedback>& feedback) override;
     BT::NodeStatus handleResult(const WrappedResult& result, uint16_t& error_code) override;
 };
 
@@ -22,6 +23,7 @@ public:
     static BT::PortsList providedPorts();
 protected:
     bool buildGoal(Goal& goal) override;
+    void onFeedback(const std::shared_ptr<const Feedback>& feedback) override;
     BT::NodeStatus handleResult(const WrappedResult& result, uint16_t& error_code) override;
 private:
     static std::string merlinGridNodeId(int grid_id);
@@ -33,6 +35,7 @@ public:
     static BT::PortsList providedPorts();
 protected:
     bool buildGoal(Goal& goal) override;
+    void onFeedback(const std::shared_ptr<const Feedback>& feedback) override;
     BT::NodeStatus handleResult(const WrappedResult& result, uint16_t& error_code) override;
 };
 
