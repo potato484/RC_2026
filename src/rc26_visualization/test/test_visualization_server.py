@@ -88,7 +88,11 @@ class VisualizationServerTest(unittest.TestCase):
         self.assertGreater(len(manifest["graphEdges"]), 10)
         self.assertEqual(manifest["meta"]["team"], "blue")
         self.assertEqual(manifest["viewerMeta"]["viewer_title"], "RC26 全局比赛场地闭环可视化平台")
-        self.assertGreaterEqual(len(manifest["semanticZones"]), 4)
+        self.assertEqual(len(manifest["semanticZones"]), 3)
+        self.assertEqual(
+            {zone["phase_key"] for zone in manifest["semanticZones"]},
+            {"MCAreaTree", "MFAreaTree", "CombatAreaTree"},
+        )
         self.assertIn("operator", {preset["id"] for preset in manifest["layoutPresets"]})
         self.assertIn("scene", {display["id"] for display in manifest["displayCatalog"]})
         structural_vertical_faces = [

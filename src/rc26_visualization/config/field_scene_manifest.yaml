@@ -118,58 +118,36 @@ layout_presets:
       - shadows
 
 semantic_zones:
-  - id: mf_zone
-    label: "梅林区"
-    phase_key: "MFAreaTree"
-    color: "#2a9d8f"
-    viewer_only: false
-    source: "r2_mf_world.yaml + r2_field_graph_overlay.yaml"
-    polygon:
-      - {x: -0.65, y: -0.20, z: 0.03, yaw: 0.0}
-      - {x: 3.05, y: -0.20, z: 0.03, yaw: 0.0}
-      - {x: 3.05, y: 4.05, z: 0.03, yaw: 0.0}
-      - {x: -0.65, y: 4.05, z: 0.03, yaw: 0.0}
-  - id: ramp_south
-    label: "南侧坡道入口"
-    phase_key: "MFAreaTree"
-    color: "#e9c46a"
-    viewer_only: false
-    source: "r2_mf_world.yaml.ramp_corridors[0]"
-    polygon:
-      - {x: -0.45, y: -0.35, z: 0.05, yaw: 0.0}
-      - {x: 2.85, y: -0.35, z: 0.05, yaw: 0.0}
-      - {x: 2.85, y: 0.35, z: 0.05, yaw: 0.0}
-      - {x: -0.45, y: 0.35, z: 0.05, yaw: 0.0}
-  - id: ramp_north
-    label: "北侧坡道出口"
-    phase_key: "MFAreaTree"
-    color: "#e9c46a"
-    viewer_only: false
-    source: "r2_mf_world.yaml.ramp_corridors[1]"
-    polygon:
-      - {x: -0.45, y: 3.25, z: 0.05, yaw: 0.0}
-      - {x: 2.85, y: 3.25, z: 0.05, yaw: 0.0}
-      - {x: 2.85, y: 3.95, z: 0.05, yaw: 0.0}
-      - {x: -0.45, y: 3.95, z: 0.05, yaw: 0.0}
   - id: combat_zone
     label: "对抗区"
     phase_key: "CombatAreaTree"
     color: "#e76f51"
     viewer_only: true
-    source: "kfs_config_v2_aligned.yaml.grid + viewer semantic overlay"
+    source: "viewer semantic phase bands (world frame)"
     polygon:
-      - {x: -5.75, y: -1.10, z: 0.03, yaw: 0.0}
-      - {x: -3.85, y: -1.10, z: 0.03, yaw: 0.0}
-      - {x: -3.85, y: 1.10, z: 0.03, yaw: 0.0}
-      - {x: -5.75, y: 1.10, z: 0.03, yaw: 0.0}
+      - {x: -3.90, y: 2.60, z: 0.03, yaw: 0.0}
+      - {x: 3.90, y: 2.60, z: 0.03, yaw: 0.0}
+      - {x: 3.90, y: 4.80, z: 0.03, yaw: 0.0}
+      - {x: -3.90, y: 4.80, z: 0.03, yaw: 0.0}
+  - id: mf_zone
+    label: "梅林区"
+    phase_key: "MFAreaTree"
+    color: "#2a9d8f"
+    viewer_only: true
+    source: "viewer semantic phase bands (world frame)"
+    polygon:
+      - {x: -4.30, y: -3.60, z: 0.03, yaw: 0.0}
+      - {x: 4.30, y: -3.60, z: 0.03, yaw: 0.0}
+      - {x: 4.30, y: 2.60, z: 0.03, yaw: 0.0}
+      - {x: -4.30, y: 2.60, z: 0.03, yaw: 0.0}
   - id: mc_zone
     label: "武馆区"
     phase_key: "MCAreaTree"
     color: "#457b9d"
     viewer_only: true
-    source: "viewer semantic overlay"
+    source: "viewer semantic phase bands (world frame)"
     polygon:
-      - {x: -6.30, y: 1.35, z: 0.03, yaw: 0.0}
-      - {x: -2.85, y: 1.35, z: 0.03, yaw: 0.0}
-      - {x: -2.85, y: 4.95, z: 0.03, yaw: 0.0}
-      - {x: -6.30, y: 4.95, z: 0.03, yaw: 0.0}
+      - {x: -4.95, y: -6.00, z: 0.03, yaw: 0.0}
+      - {x: 4.95, y: -6.00, z: 0.03, yaw: 0.0}
+      - {x: 4.95, y: -3.60, z: 0.03, yaw: 0.0}
+      - {x: -4.95, y: -3.60, z: 0.03, yaw: 0.0}

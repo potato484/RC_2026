@@ -34,6 +34,7 @@
 ## 当前真实实现
 
 - 页面标题、布局预设和阶段区来自 `field_scene_manifest.yaml`
+- `field_scene_manifest.yaml` 里的阶段区现在按三块粗粒度 BT phase band 定义：`MCAreaTree / MFAreaTree / CombatAreaTree`，不再把梅林坡道入口/出口单独画成额外阶段条带
 - `operator / engineering / diagnostic` 三套 preset 会直接改写图层集合
 - 触发 `surface-route` 生成时，viewer 会自动重新打开 `route` 图层，避免诊断布局把新生成的路线完全隐藏
 - preview 路线会额外渲染高对比底衬、亮色主线和路径珠点，保证在俯视缩放较远时也能直接看见路线走向
