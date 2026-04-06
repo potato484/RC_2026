@@ -42,6 +42,9 @@ x-modules:
       - /xhu_nav/corridor_cmd
       - /xhu_nav/motion_mode_state
       - /xhu_nav/tracking_state
+      - /xhu_nav/semantic_layer_summary
+      - /xhu_nav/local_planner_state
+      - /xhu_nav/recovery_state
     services:
       - set_xhu_motion_mode
   - name: diagnostics
