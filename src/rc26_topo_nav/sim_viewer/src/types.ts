@@ -1,5 +1,5 @@
 export type Team = 'blue' | 'red';
-export type Algorithm = 'astar' | 'rrt' | 'dwa';
+export type Algorithm = 'astar' | 'rrt' | 'dwa' | 'local_planner';
 export type PickMode = 'idle' | 'start' | 'goal' | 'surface_start' | 'surface_goal';
 export type ViewMode = 'orbit' | 'follow' | 'first_person' | 'top_ortho' | 'side_ortho' | 'side_perspective';
 
@@ -251,6 +251,46 @@ export interface SurfaceRouteExecuteResponse {
   preview: SurfaceRoutePreviewResponse;
 }
 
+export interface LocalPlannerScenario {
+  name: string;
+  label: string;
+  snapshot_file: string;
+}
+
+export interface LocalPlannerTraceResponse {
+  success: boolean;
+  snapshotLabel: string;
+  snapshot_file?: string;
+  traceMode: 'local_planner';
+  result: {
+    status: string;
+    reason: string;
+    hasSolution: boolean;
+    blockedByKeepout: boolean;
+    blockedByTerrain: boolean;
+    shouldRotateRecovery: boolean;
+    cmd: {
+      vx: number;
+      vy: number;
+      wz: number;
+    };
+    bestScore: number;
+    clearanceMarginM: number;
+  };
+  summary: {
+    candidateCount: number;
+    linearLimit: number;
+    angularLimit: number;
+    preferredLinearSpeed: number;
+    currentPathDistance: number;
+    goalHeadingError: number;
+    semanticRevision: number;
+    finalStatus: string;
+    finalReason: string;
+  };
+  frames: PlannerTraceFrame[];
+}
+
 export interface LiveTrackingState {
   corridorId: string;
   edgeId: string;
@@ -265,10 +305,50 @@ export interface LiveTrackingState {
   };
 }
 
+export interface LiveLocalPlannerState {
+  corridorId: string;
+  edgeId: string;
+  status: string;
+  terminal: boolean;
+  observeOnly: boolean;
+  semanticRevision: number;
+  cmd: {
+    vx: number;
+    vy: number;
+    wz: number;
+  };
+  bestScore: number;
+  clearanceMarginM: number;
+  reason: string;
+}
+
+export interface LiveRecoveryState {
+  corridorId: string;
+  edgeId: string;
+  recoveryName: string;
+  status: string;
+  terminal: boolean;
+  elapsedSec: number;
+  reason: string;
+}
+
+export interface LiveSemanticSummary {
+  revision: number;
+  terrainAvailable: boolean;
+  keepoutAvailable: boolean;
+  blockedCells: number;
+  slowCells: number;
+  maxObstacleProbability: number;
+  maxDropProbability: number;
+  activeSources: string[];
+  activeReasons: string[];
+}
+
 export interface LiveEvent {
   type: 'live_state' | 'live_error';
   routePath?: Pose3[];
   corridorPath?: Pose3[];
+  localPlannerPreviewPath?: Pose3[];
   activeEdge?: string;
   gateStatus?: string;
   blockOverlay?: Array<{
@@ -278,6 +358,9 @@ export interface LiveEvent {
     keepoutActive: boolean;
   }>;
   trackingState?: LiveTrackingState | null;
+  localPlannerState?: LiveLocalPlannerState | null;
+  recoveryState?: LiveRecoveryState | null;
+  semanticSummary?: LiveSemanticSummary | null;
   message?: string;
   timestamp?: number;
 }

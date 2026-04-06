@@ -5,11 +5,15 @@
 `src/rc26_topo_nav/sim_viewer` 当前已经从“多模式拓扑仿真沙盘”收口成单用途工具：只观察比赛场地里任意一点到任意一点的 3D 路线，以及这条路线在当前 A* 算法里的具体推导过程。
 
 - 它是本地观测工具，不是机器人运行时权威后端。
-- 它不再暴露 `Topo 节点 / 任意点 3D 路线` 双模式，也不再暴露离线 `RRT / DWA`、live ROS 只读桥接和 run WebSocket 播放控制。
+- 它不再暴露 `Topo 节点 / 任意点 3D 路线` 双模式，也不再暴露离线 `RRT / DWA` 或旧的 run WebSocket 播放控制。
+- 当前新增的 `live ROS` 只读桥接和 `local planner case` 面板，仍然只服务“观察真实导航链路”这个单一目标，不把页面重新扩成通用导航实验场。
 - 浏览器当前只保留三条主链：
   - 在地面、坡面、阶梯表面直接点起点和终点
   - 生成完整 3D 路线
   - 用滑块回看 `surface_graph + planner_trace_cli` 导出的逐帧搜索过程
+- 浏览器当前还补了两条辅助观测链：
+  - 通过 `/api/live/*` 只读桥接查看 route / corridor / local planner / recovery / semantic runtime
+  - 通过 `/api/local-planner/*` 载入局部规划离线案例
 - 页面仍保留“执行当前路线”按钮，但它只是把当前起终点对应的 surface route 下发给 `navigate_surface_route`；机器人必须已经在起点附近，不会自动补一段接驳路线。
 
 ## 2. 入口与链路
@@ -67,6 +71,18 @@
     - 浏览器本地按 `nodeId` 复原 open-set / expanded / best-path 的可视化点位
   - 浏览器执行按钮现在只依赖 preview 成功，不再要求 trace 已经返回；因此路线可视化和可选下发不会被回放链路阻塞。
   - 顶部只保留 `scene / frontier / expanded / shadows` 四个有意义的图层开关。
+- 运行时观测
+  - 页面启动后会先调用 `POST /api/live/start`，再连接 `WS /api/live/events`。
+  - 右侧 `运行时观测` 面板当前只读显示：
+    - tracking state
+    - local planner state
+    - recovery state
+    - semantic layer summary
+  - 画布还会额外叠加 live `/xhu_nav/lookahead_path`，用于观察局部执行器当前 preview path。
+- 局部规划案例
+  - 页面会先拉取 `GET /api/local-planner/scenarios`，让用户直接选取包内内置案例。
+  - 点击“加载局部规划案例”后，会调用 `POST /api/local-planner/trace`，把 `local_planner_trace_cli` 的候选轨迹结果直接导入当前回放区。
+  - 这条链路是离线观察用，不会修改当前 surface route，也不会向机器人下发动作。
 - 相机与读图
   - 当前只保留 `orbit / top_ortho / side_perspective` 三个真正有用的观察视角。
   - surface trace 路线现在沿用更细的 tube 半径，并保持轻微抬高和淡 halo，减少侧视时被地表边缘吞没的问题。
@@ -76,12 +92,16 @@
 `topo_sim_server.py` 当前与这个页面直接相关的接口已经收口为：
 
 - `GET /api/scene-manifest`
+- `POST /api/live/start`
+- `WS /api/live/events`
+- `GET /api/local-planner/scenarios`
+- `POST /api/local-planner/trace`
 - `POST /api/surface-route/preview`
 - `POST /api/surface-route/trace-from-nodes`
 - `POST /api/surface-route/trace`
 - `POST /api/surface-route/execute`
 
-其中真正驱动页面主流程的是 `POST /api/surface-route/preview` 和 `POST /api/surface-route/trace-from-nodes`。
+其中真正驱动页面主流程的是 `POST /api/surface-route/preview` 和 `POST /api/surface-route/trace-from-nodes`；`/api/live/*` 与 `/api/local-planner/*` 只负责补充观测。
 
 当前这个接口的实现要点是：
 
@@ -108,6 +128,11 @@
     - 回放帧指标如 `gCost / fCost / stepCost` 会映射成中文标签
     - 投影节点、分段起终点现在会把 `sf_* / mf_*` 映射成中文节点名，不再直接裸露内部 node id
     - 失败码、失败原因和浏览器请求异常现在都会在前端兜底成中文，不再直接显示 `Error:` 或英文异常原文
+- `topo_sim_server.py` 当前还会把 live ROS 输入整理成统一 `LiveEvent`：
+  - 路线链：`/topo_nav/route`、`/topo_nav/corridor`
+  - 局部执行链：`/xhu_nav/lookahead_path`、`/xhu_nav/tracking_state`、`/xhu_nav/local_planner_state`、`/xhu_nav/recovery_state`
+  - 约束链：`/xhu_nav/semantic_layer_summary`、`/xhu_nav/semantic_gate`、`/mf_block_overlay`
+- `topo_sim_server.py` 当前还会把 `rc26_local_3d_planner/scenarios` 下的 snapshot 通过 `local_planner_trace_cli` 转成 `LocalPlannerTraceResponse`，供浏览器复用同一套回放区查看候选轨迹。
 
 ## 5. 启动与验证
 
@@ -128,6 +153,7 @@
 ## 6. 这次收口后的维护备注
 
 - 现在如果再给页面加回 `Topo 节点模式`、`RRT / DWA`、live ROS 观察或 run 控制，就不再是普通 UI 补丁，而是一次功能边界扩张。
+- 当前 live 运行时观察和局部规划案例面板已经属于这个页面的正式能力；如果后续继续加新的 runtime 信号，优先延续这两条观测链，不要再新增第三套页面状态机。
 - 如果未来需要继续观察“任意点 3D 路线”的算法演绎，优先复用 `surface_route_cli -> /api/surface-route/preview -> /api/surface-route/trace-from-nodes` 这条链，不要在前端复制第二套规划逻辑。
 - 如果以后再出现“生成中...”长期不返回，先区分究竟是 preview 卡住，还是 trace 后台补齐卡住；两者现在已经是两条独立链路，不要再把“路线没画出来”和“回放没补齐”混成一个问题。
-- 当前文档反映的真实现状是：`sim_viewer` 已经是一个单用途 3D 路线观察台，而不是通用导航实验场。
+- 当前文档反映的真实现状是：`sim_viewer` 仍是一个以表面路线观察为主的单用途工具，只是补充了 live runtime 与局部规划案例两个观测面，而不是通用导航实验场。

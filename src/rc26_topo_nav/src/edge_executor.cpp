@@ -20,6 +20,10 @@ std::string toLowerCopy(std::string value) {
     return value;
 }
 
+std::string normalizeExecState(const std::string& raw_state, const std::string& fallback) {
+    return raw_state.empty() ? fallback : raw_state;
+}
+
 class ScopeExit {
 public:
     explicit ScopeExit(std::function<void()> fn) : fn_(std::move(fn)) {}
@@ -161,6 +165,22 @@ std::optional<rc26_interfaces::msg::XhuTrackingState> EdgeExecutor::latestTracki
 void EdgeExecutor::clearTrackingState(const std::string& corridor_id) {
     std::lock_guard<std::mutex> lock(tracking_mutex_);
     tracking_state_map_.erase(corridor_id);
+}
+
+void EdgeExecutor::setProgressCallback(ProgressCallback callback) {
+    std::lock_guard<std::mutex> lock(progress_mutex_);
+    progress_callback_ = std::move(callback);
+}
+
+void EdgeExecutor::notifyProgress(const ExecProgress& progress) const {
+    ProgressCallback callback;
+    {
+        std::lock_guard<std::mutex> lock(progress_mutex_);
+        callback = progress_callback_;
+    }
+    if (callback) {
+        callback(progress);
+    }
 }
 
 void EdgeExecutor::pruneTrackingStatesLocked(const rclcpp::Time& now) {
@@ -350,22 +370,49 @@ EdgeExecutor::ExecResult EdgeExecutor::executeCorridorViaXhu(
     const std::string& required_mode,
     const nav_msgs::msg::Path& corridor_path) {
     ExecResult result;
+    result.edge_id = corridor_label;
+
+    auto fail = [this, &result](const EdgeExecState final_state,
+                                const std::string& failure_code,
+                                const std::string& failure_reason,
+                                const std::string& exec_state,
+                                const std::string& corridor_id,
+                                const bool terminal) {
+        state_ = final_state;
+        result.success = false;
+        result.final_state = final_state;
+        result.failure_code = failure_code;
+        result.failure_reason = failure_reason;
+        result.exec_state = normalizeExecState(exec_state, "FAILED");
+        result.corridor_id = corridor_id;
+        notifyProgress(
+            ExecProgress{corridor_id, result.edge_id, result.exec_state, failure_reason, terminal});
+        return result;
+    };
 
     std::string mode_error;
     if (!requestMode(required_mode, "nav_segment:" + corridor_label, mode_error)) {
-        result.failure_reason =
-            "Failed to set xhu motion mode '" + required_mode + "': " + mode_error;
-        state_ = EdgeExecState::FAILED;
-        return result;
+        return fail(
+            EdgeExecState::FAILED,
+            "MODE_REQUEST_FAILED",
+            "Failed to set xhu motion mode '" + required_mode + "': " + mode_error,
+            "FAILED",
+            "",
+            true);
     }
 
     if (corridor_path.poses.empty()) {
-        result.failure_reason = "Empty corridor for segment '" + corridor_label + "'";
-        state_ = EdgeExecState::FAILED;
-        return result;
+        return fail(
+            EdgeExecState::FAILED,
+            "EMPTY_CORRIDOR",
+            "Empty corridor for segment '" + corridor_label + "'",
+            "FAILED",
+            "",
+            true);
     }
 
     const auto corridor_id = corridor_label + "_" + std::to_string(corridor_seq_.fetch_add(1));
+    result.corridor_id = corridor_id;
     clearTrackingState(corridor_id);
     ScopeExit clear_tracking([this, &corridor_id]() { clearTrackingState(corridor_id); });
 
@@ -388,6 +435,7 @@ EdgeExecutor::ExecResult EdgeExecutor::executeCorridorViaXhu(
     corridor_msg.allow_in_place_rotate = true;
     corridor_msg.speed_limit_reason = inferSpeedLimitReason(required_mode, motion_type);
     corridor_pub_->publish(corridor_msg);
+    notifyProgress(ExecProgress{corridor_id, corridor_label, "EXECUTING", "corridor published", false});
 
     const auto wait_begin = std::chrono::steady_clock::now();
     auto last_publish = wait_begin;
@@ -396,21 +444,28 @@ EdgeExecutor::ExecResult EdgeExecutor::executeCorridorViaXhu(
     std::optional<std::chrono::steady_clock::time_point> hold_begin;
     std::optional<std::chrono::steady_clock::time_point> wait_on_block_begin;
     std::optional<std::chrono::steady_clock::time_point> recovery_begin;
+    std::string last_progress_key;
     while (rclcpp::ok()) {
         if (cancelled_.load()) {
-            state_ = EdgeExecState::FAILED;
-            result.final_state = EdgeExecState::FAILED;
-            result.failure_reason = "Cancelled";
-            return result;
+            return fail(
+                EdgeExecState::FAILED,
+                "CANCELLED",
+                "Cancelled",
+                "CANCELLED",
+                corridor_id,
+                true);
         }
 
         const auto now = std::chrono::steady_clock::now();
         const double waited_sec = std::chrono::duration<double>(now - wait_begin).count();
         if (waited_sec > xhu_exec_timeout_sec_) {
-            state_ = EdgeExecState::REPLAN_REQUESTED;
-            result.final_state = EdgeExecState::REPLAN_REQUESTED;
-            result.failure_reason = "xhu corridor execution timed out";
-            return result;
+            return fail(
+                EdgeExecState::REPLAN_REQUESTED,
+                "LOCAL_EXEC_TIMEOUT",
+                "xhu corridor execution timed out",
+                "REPLAN",
+                corridor_id,
+                true);
         }
 
         if (!received_tracking &&
@@ -422,24 +477,43 @@ EdgeExecutor::ExecResult EdgeExecutor::executeCorridorViaXhu(
         }
 
         if (!received_tracking && waited_sec > xhu_corridor_accept_timeout_sec_) {
-            state_ = EdgeExecState::FAILED;
-            result.final_state = EdgeExecState::FAILED;
-            result.failure_reason = "No xhu tracking feedback after corridor publish";
-            return result;
+            return fail(
+                EdgeExecState::FAILED,
+                "LOCAL_ACCEPT_TIMEOUT",
+                "No xhu tracking feedback after corridor publish",
+                "FAILED",
+                corridor_id,
+                true);
         }
 
         if (received_tracking &&
             std::chrono::duration<double>(now - last_tracking_update).count() > xhu_tracking_state_timeout_sec_) {
-            state_ = EdgeExecState::FAILED;
-            result.final_state = EdgeExecState::FAILED;
-            result.failure_reason = "xhu tracking feedback timed out";
-            return result;
+            return fail(
+                EdgeExecState::FAILED,
+                "LOCAL_TRACKING_TIMEOUT",
+                "xhu tracking feedback timed out",
+                "FAILED",
+                corridor_id,
+                true);
         }
 
         const auto tracking = latestTrackingState(corridor_id);
         if (tracking.has_value()) {
             received_tracking = true;
             last_tracking_update = now;
+            result.exec_state = normalizeExecState(tracking->status, "EXECUTING");
+            const std::string progress_key =
+                result.exec_state + "|" + (tracking->terminal ? "1" : "0") + "|" + tracking->reason;
+            if (progress_key != last_progress_key) {
+                notifyProgress(ExecProgress{
+                    corridor_id,
+                    corridor_label,
+                    result.exec_state,
+                    tracking->reason,
+                    tracking->terminal,
+                });
+                last_progress_key = progress_key;
+            }
             const auto status = toLowerCopy(tracking->status);
 
             if (status == "hold" && !tracking->terminal) {
@@ -449,10 +523,13 @@ EdgeExecutor::ExecResult EdgeExecutor::executeCorridorViaXhu(
                 const double hold_sec =
                     std::chrono::duration<double>(now - *hold_begin).count();
                 if (hold_sec > xhu_hold_replan_timeout_sec_) {
-                    state_ = EdgeExecState::REPLAN_REQUESTED;
-                    result.final_state = EdgeExecState::REPLAN_REQUESTED;
-                    result.failure_reason = "xhu hold exceeded replan timeout";
-                    return result;
+                    return fail(
+                        EdgeExecState::REPLAN_REQUESTED,
+                        "LOCAL_HOLD_TIMEOUT",
+                        "xhu hold exceeded replan timeout",
+                        result.exec_state,
+                        corridor_id,
+                        true);
                 }
             } else {
                 hold_begin.reset();
@@ -465,10 +542,13 @@ EdgeExecutor::ExecResult EdgeExecutor::executeCorridorViaXhu(
                 const double wait_sec =
                     std::chrono::duration<double>(now - *wait_on_block_begin).count();
                 if (wait_sec > xhu_wait_on_block_timeout_sec_) {
-                    state_ = EdgeExecState::REPLAN_REQUESTED;
-                    result.final_state = EdgeExecState::REPLAN_REQUESTED;
-                    result.failure_reason = "xhu waiting_on_block exceeded timeout";
-                    return result;
+                    return fail(
+                        EdgeExecState::REPLAN_REQUESTED,
+                        "LOCAL_WAIT_TIMEOUT",
+                        "xhu waiting_on_block exceeded timeout",
+                        result.exec_state,
+                        corridor_id,
+                        true);
                 }
             } else {
                 wait_on_block_begin.reset();
@@ -481,37 +561,46 @@ EdgeExecutor::ExecResult EdgeExecutor::executeCorridorViaXhu(
                 const double recovery_sec =
                     std::chrono::duration<double>(now - *recovery_begin).count();
                 if (recovery_sec > xhu_recovery_timeout_sec_) {
-                    state_ = EdgeExecState::REPLAN_REQUESTED;
-                    result.final_state = EdgeExecState::REPLAN_REQUESTED;
-                    result.failure_reason = "xhu recovery exceeded timeout";
-                    return result;
+                    return fail(
+                        EdgeExecState::REPLAN_REQUESTED,
+                        "LOCAL_RECOVERY_TIMEOUT",
+                        "xhu recovery exceeded timeout",
+                        result.exec_state,
+                        corridor_id,
+                        true);
                 }
             } else {
                 recovery_begin.reset();
             }
 
             if (!tracking->terminal && status == "replan") {
-                state_ = EdgeExecState::REPLAN_REQUESTED;
-                result.final_state = EdgeExecState::REPLAN_REQUESTED;
-                result.failure_reason =
-                    tracking->reason.empty() ? "xhu requested replan" : tracking->reason;
-                return result;
+                return fail(
+                    EdgeExecState::REPLAN_REQUESTED,
+                    "LOCAL_REPLAN_REQUESTED",
+                    tracking->reason.empty() ? "xhu requested replan" : tracking->reason,
+                    result.exec_state,
+                    corridor_id,
+                    true);
             }
 
             if (!tracking->terminal && status == "abort") {
-                state_ = EdgeExecState::FAILED;
-                result.final_state = EdgeExecState::FAILED;
-                result.failure_reason =
-                    tracking->reason.empty() ? "xhu follower abort" : tracking->reason;
-                return result;
+                return fail(
+                    EdgeExecState::FAILED,
+                    "EDGE_EXEC_FAILED",
+                    tracking->reason.empty() ? "xhu follower abort" : tracking->reason,
+                    result.exec_state,
+                    corridor_id,
+                    true);
             }
 
             if (!tracking->terminal && status == "local_collision_blocked") {
-                state_ = EdgeExecState::REPLAN_REQUESTED;
-                result.final_state = EdgeExecState::REPLAN_REQUESTED;
-                result.failure_reason =
-                    tracking->reason.empty() ? "xhu local collision blocked" : tracking->reason;
-                return result;
+                return fail(
+                    EdgeExecState::REPLAN_REQUESTED,
+                    "LOCAL_COLLISION_BLOCKED",
+                    tracking->reason.empty() ? "xhu local collision blocked" : tracking->reason,
+                    result.exec_state,
+                    corridor_id,
+                    true);
             }
 
             if (tracking->terminal) {
@@ -519,33 +608,57 @@ EdgeExecutor::ExecResult EdgeExecutor::executeCorridorViaXhu(
                     state_ = EdgeExecState::SUCCEEDED;
                     result.success = true;
                     result.final_state = EdgeExecState::SUCCEEDED;
+                    result.failure_code.clear();
+                    result.failure_reason.clear();
+                    result.exec_state = normalizeExecState(tracking->status, "PASS");
+                    notifyProgress(ExecProgress{
+                        corridor_id,
+                        corridor_label,
+                        result.exec_state,
+                        tracking->reason,
+                        true,
+                    });
                     return result;
                 }
 
                 if (status == "replan" || status == "hold" ||
                     status == "waiting_on_block" || status == "local_collision_blocked" ||
                     status == "recovery_running") {
-                    state_ = EdgeExecState::REPLAN_REQUESTED;
-                    result.final_state = EdgeExecState::REPLAN_REQUESTED;
-                    result.failure_reason =
-                        tracking->reason.empty() ? "xhu requested replan" : tracking->reason;
-                    return result;
+                    return fail(
+                        EdgeExecState::REPLAN_REQUESTED,
+                        status == "local_collision_blocked"
+                            ? "LOCAL_COLLISION_BLOCKED"
+                            : (status == "waiting_on_block"
+                                   ? "LOCAL_WAIT_TIMEOUT"
+                                   : (status == "recovery_running"
+                                          ? "LOCAL_RECOVERY_TIMEOUT"
+                                          : "LOCAL_REPLAN_REQUESTED")),
+                        tracking->reason.empty() ? "xhu requested replan" : tracking->reason,
+                        result.exec_state,
+                        corridor_id,
+                        true);
                 }
 
-                state_ = EdgeExecState::FAILED;
-                result.final_state = EdgeExecState::FAILED;
-                result.failure_reason =
-                    tracking->reason.empty() ? "xhu follower abort" : tracking->reason;
-                return result;
+                return fail(
+                    EdgeExecState::FAILED,
+                    "EDGE_EXEC_FAILED",
+                    tracking->reason.empty() ? "xhu follower abort" : tracking->reason,
+                    result.exec_state,
+                    corridor_id,
+                    true);
             }
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
-    state_ = EdgeExecState::FAILED;
-    result.failure_reason = "rclcpp shutdown";
-    return result;
+    return fail(
+        EdgeExecState::FAILED,
+        "RCLCPP_SHUTDOWN",
+        "rclcpp shutdown",
+        "FAILED",
+        corridor_id,
+        true);
 }
 
 void EdgeExecutor::cancel() {

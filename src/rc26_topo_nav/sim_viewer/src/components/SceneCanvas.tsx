@@ -714,6 +714,7 @@ class BabylonSceneManager {
     }
     createTube(liveEvent?.routePath ?? [], '#0ea5e9', 0.02, 0.88, 0.065);
     createTube(liveEvent?.corridorPath ?? [], '#fb8500', 0.016, 0.88, 0.055);
+    createTube(liveEvent?.localPlannerPreviewPath ?? [], '#2a9d8f', 0.012, 0.84, 0.045);
 
     if (layers.tree && frame?.treeSegments) {
       frame.treeSegments.forEach((seg, i) => {

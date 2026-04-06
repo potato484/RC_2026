@@ -334,6 +334,23 @@ class TopoSimServerTest(unittest.TestCase):
         self.assertEqual(preview["planning_logs"][-1]["stage"], "surface_route_cli")
         self.assertEqual(preview["planning_logs"][-1]["title"], "表面路线预览")
 
+    def test_local_planner_scenarios_list_contains_trace_fixtures(self):
+        scenarios = SERVER.list_local_planner_scenarios()
+        scenario_names = {item["name"] for item in scenarios}
+
+        self.assertIn("pass_straight", scenario_names)
+        self.assertIn("waiting_on_block", scenario_names)
+        self.assertIn("rotate_recovery", scenario_names)
+        self.assertIn("local_collision_blocked", scenario_names)
+
+    def test_live_bridge_state_includes_local_planner_runtime_fields(self):
+        bridge = SERVER.LiveRosBridge()
+
+        self.assertIn("localPlannerPreviewPath", bridge.state)
+        self.assertIn("localPlannerState", bridge.state)
+        self.assertIn("recoveryState", bridge.state)
+        self.assertIn("semanticSummary", bridge.state)
+
     def test_normalize_astar_trace_document_preserves_sampled_frame_metadata(self):
         graph_document = {
             "nodes": [

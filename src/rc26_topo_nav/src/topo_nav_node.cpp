@@ -114,6 +114,10 @@ private:
     std::function<void()> fn_;
 };
 
+std::string execStateOrDefault(const std::string& exec_state) {
+    return exec_state.empty() ? "EXECUTING" : exec_state;
+}
+
 }  // namespace
 
 TopoNavNode::TopoNavNode(const rclcpp::NodeOptions& options)
@@ -514,6 +518,8 @@ void TopoNavNode::execute(std::shared_ptr<GoalHandle> goal_handle) {
         }
 
         uint32_t replan_count = 0;
+        std::string last_replan_failure_code;
+        std::string last_replan_failure_reason;
 
         for (int plan_attempt = 0; plan_attempt <= MAX_REPLAN_ATTEMPTS; ++plan_attempt) {
             if (goal_handle->is_canceling()) {
@@ -622,12 +628,17 @@ void TopoNavNode::execute(std::shared_ptr<GoalHandle> goal_handle) {
 
                 const auto& edge = graph_.edges[plan.edge_indices[i]];
                 diagnostics_->publishActiveEdge(edge, graph_, "PASS");
-
-                feedback->active_node_id = edge.from;
-                feedback->active_edge_id = edge.id;
-                feedback->exec_state = "EXECUTING";
-                feedback->replan_count = replan_count;
-                goal_handle->publish_feedback(feedback);
+                edge_executor_->setProgressCallback(
+                    [goal_handle, feedback, &edge, &replan_count](
+                        const EdgeExecutor::ExecProgress& progress) {
+                        feedback->active_node_id = edge.from;
+                        feedback->active_edge_id =
+                            progress.edge_id.empty() ? edge.id : progress.edge_id;
+                        feedback->exec_state = execStateOrDefault(progress.exec_state);
+                        feedback->replan_count = replan_count;
+                        goal_handle->publish_feedback(feedback);
+                    });
+                ScopeExit clear_progress([this]() { edge_executor_->setProgressCallback({}); });
 
                 auto corridor = edge_executor_->generateCorridor(graph_, edge);
                 diagnostics_->publishCorridor(corridor);
@@ -636,6 +647,13 @@ void TopoNavNode::execute(std::shared_ptr<GoalHandle> goal_handle) {
                 if (exec_result.success) {
                     start_node = edge.to;
                     continue;
+                }
+
+                if (!exec_result.failure_code.empty()) {
+                    last_replan_failure_code = exec_result.failure_code;
+                }
+                if (!exec_result.failure_reason.empty()) {
+                    last_replan_failure_reason = exec_result.failure_reason;
                 }
 
                 if (exec_result.final_state == EdgeExecState::REPLAN_REQUESTED &&
@@ -654,7 +672,8 @@ void TopoNavNode::execute(std::shared_ptr<GoalHandle> goal_handle) {
                 diagnostics_->publishActiveEdge(edge, graph_, "ABORT");
                 result->success = false;
                 result->terminal_node_id = edge.from;
-                result->failure_code = "EDGE_EXEC_FAILED";
+                result->failure_code =
+                    exec_result.failure_code.empty() ? "EDGE_EXEC_FAILED" : exec_result.failure_code;
                 result->failure_reason = exec_result.failure_reason;
                 goal_handle->abort(result);
                 diagnostics_->publishDiagnostic("ERROR", "Edge failed: " + edge.id);
@@ -671,8 +690,12 @@ void TopoNavNode::execute(std::shared_ptr<GoalHandle> goal_handle) {
         }
 
         result->success = false;
-        result->failure_code = "MAX_REPLAN_EXCEEDED";
-        result->failure_reason = "Exceeded maximum replan attempts";
+        result->failure_code = last_replan_failure_code.empty()
+            ? "MAX_REPLAN_EXCEEDED"
+            : last_replan_failure_code;
+        result->failure_reason = last_replan_failure_reason.empty()
+            ? "Exceeded maximum replan attempts"
+            : last_replan_failure_reason;
         goal_handle->abort(result);
         diagnostics_->publishDiagnostic("ERROR", "Max replan exceeded");
     } catch (const std::exception& e) {
@@ -713,6 +736,8 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
         const auto goal_pose = pose3FromPoseStamped(goal->goal_pose);
         Pose3 requested_start_pose = start_pose;
         uint32_t replan_count = 0;
+        std::string last_replan_failure_code;
+        std::string last_replan_failure_reason;
 
         const bool geometry_required =
             surface_body_planning_.enabled ||
@@ -1003,11 +1028,16 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
 
                 diagnostics_->publishActiveLabel(segment.id, "PASS");
                 diagnostics_->publishCorridor(segment.corridor);
-
-                feedback->active_segment_id = segment.id;
-                feedback->exec_state = "EXECUTING";
-                feedback->replan_count = replan_count;
-                goal_handle->publish_feedback(feedback);
+                edge_executor_->setProgressCallback(
+                    [goal_handle, feedback, &segment, &replan_count](
+                        const EdgeExecutor::ExecProgress& progress) {
+                        feedback->active_segment_id =
+                            progress.edge_id.empty() ? segment.id : progress.edge_id;
+                        feedback->exec_state = execStateOrDefault(progress.exec_state);
+                        feedback->replan_count = replan_count;
+                        goal_handle->publish_feedback(feedback);
+                    });
+                ScopeExit clear_progress([this]() { edge_executor_->setProgressCallback({}); });
 
                 const auto exec_result = edge_executor_->executeCorridor(
                     segment.id,
@@ -1018,6 +1048,13 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
                     segment.corridor);
                 if (exec_result.success) {
                     continue;
+                }
+
+                if (!exec_result.failure_code.empty()) {
+                    last_replan_failure_code = exec_result.failure_code;
+                }
+                if (!exec_result.failure_reason.empty()) {
+                    last_replan_failure_reason = exec_result.failure_reason;
                 }
 
                 if (exec_result.final_state == EdgeExecState::REPLAN_REQUESTED &&
@@ -1040,10 +1077,11 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
 
                 result->success = false;
                 result->terminal_segment_id = segment.id;
-                result->failure_code =
-                    exec_result.final_state == EdgeExecState::REPLAN_REQUESTED
-                    ? "SEGMENT_REPLAN_REQUESTED"
-                    : "SEGMENT_EXEC_FAILED";
+                result->failure_code = exec_result.failure_code.empty()
+                    ? (exec_result.final_state == EdgeExecState::REPLAN_REQUESTED
+                           ? "SEGMENT_REPLAN_REQUESTED"
+                           : "SEGMENT_EXEC_FAILED")
+                    : exec_result.failure_code;
                 result->failure_reason = exec_result.failure_reason;
                 diagnostics_->publishActiveLabel(segment.id, "ABORT");
                 goal_handle->abort(result);
@@ -1063,8 +1101,12 @@ void TopoNavNode::executeSurface(std::shared_ptr<SurfaceGoalHandle> goal_handle)
         }
 
         result->success = false;
-        result->failure_code = "MAX_REPLAN_EXCEEDED";
-        result->failure_reason = "Exceeded maximum surface replan attempts";
+        result->failure_code = last_replan_failure_code.empty()
+            ? "MAX_REPLAN_EXCEEDED"
+            : last_replan_failure_code;
+        result->failure_reason = last_replan_failure_reason.empty()
+            ? "Exceeded maximum surface replan attempts"
+            : last_replan_failure_reason;
         goal_handle->abort(result);
         diagnostics_->publishDiagnostic("ERROR", "Max surface replan exceeded");
     } catch (const std::exception& e) {

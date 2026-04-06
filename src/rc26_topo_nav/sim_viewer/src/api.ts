@@ -1,4 +1,6 @@
 import type {
+  LocalPlannerScenario,
+  LocalPlannerTraceResponse,
   Pose3,
   SceneManifest,
   SurfaceRouteExecuteResponse,
@@ -22,6 +24,11 @@ export interface SurfaceRouteTraceFromNodesPayload {
   surface_graph_file?: string;
   requested_start?: Pose3;
   requested_goal?: Pose3;
+}
+
+export interface LocalPlannerTracePayload {
+  scenario_name?: string;
+  snapshot_file?: string;
 }
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/$/, '');
@@ -54,6 +61,41 @@ async function fetchJson<T>(path: string, init?: RequestInit, timeoutMs = 30000)
 
 export async function fetchSceneManifest(team: Team): Promise<SceneManifest> {
   return fetchJson<SceneManifest>(`/api/scene-manifest?team=${team}&full_geometry=true`, undefined, 15000);
+}
+
+export async function startLiveBridge(namespace = ''): Promise<{ status: string }> {
+  return fetchJson<{ status: string }>(
+    '/api/live/start',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ namespace }),
+    },
+    15000
+  );
+}
+
+export async function fetchLocalPlannerScenarios(): Promise<LocalPlannerScenario[]> {
+  const response = await fetchJson<{ scenarios: LocalPlannerScenario[] }>('/api/local-planner/scenarios', undefined, 15000);
+  return response.scenarios;
+}
+
+export async function traceLocalPlannerScenario(
+  payload: LocalPlannerTracePayload,
+): Promise<LocalPlannerTraceResponse> {
+  return fetchJson<LocalPlannerTraceResponse>(
+    '/api/local-planner/trace',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    },
+    20000
+  );
 }
 
 export async function previewSurfaceRoute(payload: SurfaceRoutePayload): Promise<SurfaceRoutePreviewResponse> {

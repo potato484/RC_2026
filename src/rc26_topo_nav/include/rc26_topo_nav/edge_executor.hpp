@@ -3,6 +3,7 @@
 #include "rc26_topo_nav/types.hpp"
 #include "rc26_topo_nav/planner.hpp"
 #include <atomic>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <unordered_map>
@@ -27,11 +28,25 @@ enum class EdgeExecState : uint8_t {
 
 class EdgeExecutor {
 public:
+    struct ExecProgress {
+        std::string corridor_id;
+        std::string edge_id;
+        std::string exec_state;
+        std::string reason;
+        bool terminal = false;
+    };
+
+    using ProgressCallback = std::function<void(const ExecProgress&)>;
+
     explicit EdgeExecutor(rclcpp::Node* node);
 
     struct ExecResult {
         bool success = false;
         EdgeExecState final_state = EdgeExecState::FAILED;
+        std::string exec_state;
+        std::string corridor_id;
+        std::string edge_id;
+        std::string failure_code;
         std::string failure_reason;
     };
 
@@ -55,6 +70,7 @@ public:
     bool requestMode(const std::string& profile, const std::string& reason, std::string& error);
     EdgeExecState state() const { return state_; }
     bool usingXhuBackend() const { return true; }
+    void setProgressCallback(ProgressCallback callback);
 
 private:
     struct TrackingEntry {
@@ -67,6 +83,7 @@ private:
         const std::string& corridor_id) const;
     void clearTrackingState(const std::string& corridor_id);
     void pruneTrackingStatesLocked(const rclcpp::Time& now);
+    void notifyProgress(const ExecProgress& progress) const;
     static std::pair<float, float> inferSpeedLimits(
         const std::string& required_mode,
         const std::string& motion_type);
@@ -89,6 +106,8 @@ private:
     rclcpp::Subscription<rc26_interfaces::msg::XhuTrackingState>::SharedPtr tracking_sub_;
     mutable std::mutex tracking_mutex_;
     std::unordered_map<std::string, TrackingEntry> tracking_state_map_;
+    mutable std::mutex progress_mutex_;
+    ProgressCallback progress_callback_;
     std::atomic<uint64_t> corridor_seq_{0};
     EdgeExecState state_ = EdgeExecState::IDLE;
     std::atomic<bool> cancelled_{false};

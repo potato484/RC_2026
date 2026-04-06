@@ -90,6 +90,11 @@
   - `WAITING_ON_BLOCK` 超时后请求 replan
   - `RECOVERY_RUNNING` 超时后请求 replan
   - `LOCAL_COLLISION_BLOCKED` 立即请求 replan
+- `edge_executor` 当前会把单边执行进度整理成 `exec_state / corridor_id / edge_id / failure_code`，并通过 progress callback 回传给 action server。
+- `navigate_topo_target` 和 `navigate_surface_route` 当前不会再把反馈统一压平成 `EXECUTING`：
+  - feedback 会直接转发运行中的真实 `exec_state`
+  - abort result 会直接暴露根因 `failure_code / failure_reason`
+  - 如果 route-level replan 次数耗尽，也会保留最后一次根因，而不是统一改写成泛化失败
 
 ## 源码入口
 
@@ -185,11 +190,20 @@
   - `planner_trace_cli`：把 C++ planner 当前真实搜索过程导出为 JSON trace，作为 A* 观察真源
   - `surface_route_cli`：把浏览器点击的世界坐标起终点投影到 dense `surface_graph` 上，得到运行时真实会走的起终点节点和完整路径
   - `topo_sim_server.py`：把 `surface_route_cli + planner_trace_cli + sim_assets` 组合成 HTTP adapter，提供场景、路线预览、路线 trace 和可选执行接口
-  - `sim_viewer`：基于 Babylon.js / React 的单用途 3D 路线观察台，只显示任意点路线和它的搜索推导过程
+  - `sim_viewer`：基于 Babylon.js / React 的单用途 3D 路线观察台，以任意点路线观察为主，同时补充 live 运行时观测和局部规划案例回放
 - `topo_sim_server.py` 当前在 source-tree 运行时会优先解析 `src/install` / `src/build` 下最新构建出的 CLI，而不是误用根仓库旧的 install binary。
+- `topo_sim_server.py` 当前还额外接入了 `rc26_local_3d_planner/local_planner_trace_cli`：
+  - `GET /api/local-planner/scenarios`：枚举包内内置 snapshot 场景
+  - `POST /api/local-planner/trace`：把指定场景或 snapshot 导出成候选轨迹 trace
+- `topo_sim_server.py` 当前新增了只读 live ROS bridge：
+  - `POST /api/live/start`
+  - `WS /api/live/events`
+  - 会桥接 `/topo_nav/route`、`/topo_nav/corridor`、`/xhu_nav/lookahead_path`、`/xhu_nav/tracking_state`、`/xhu_nav/local_planner_state`、`/xhu_nav/recovery_state`、`/xhu_nav/semantic_layer_summary`、`/xhu_nav/semantic_gate` 和 `/mf_block_overlay`
 - viewer 预览链路当前默认已经跟随 `surface_route_cli` 的 `body_planner` backend，但起始朝向不再被当成硬约束，避免浏览器点击时因为任意 `yaw` 误触发 `BODY_CONSTRAINT_UNSATISFIED`
 - viewer 当前支持：
   - 浏览器直接在地面、坡面、阶梯表面设置起点和终点
+  - 浏览器通过 live bridge 观察 route / corridor / lookahead path、tracking state、local planner state、recovery state 和 semantic summary
+  - 浏览器直接载入 `local_planner_trace_cli` 导出的局部规划案例，不依赖实机运行时先触发一次规划
   - `POST /api/surface-route/preview` 现在先返回：
     - 投影后的起点/终点 pose
     - 投影后的起点/终点 node id
@@ -240,6 +254,7 @@
   - world 面片现在保留受光和阴影层次，减少“只有颜色分区、没有体积感”的平面观感；`scene-manifest` 还会为 viewer 额外保留结构性竖直面，恢复梅林阶梯和平台侧壁的连接体积感
   - 这条“保留结构性竖直面”的逻辑只服务 Babylon 3D viewer；`render_graph_sim_html.py` 的离线 2D HTML 仍维持投影简化，不把这些竖直面重新变成难读的 SVG 线束
   - 当前 surface trace 仍然严格复用现有 planner，而不是在前端复制一套规划逻辑
+- 当前 viewer 里展示的 live 局部规划 preview path 直接来自 `/xhu_nav/lookahead_path`，它只用于观测下游局部执行器的实时意图，不反向影响 `rc26_topo_nav` 的 action 结果判定
 
 ## 本地启动方式
 

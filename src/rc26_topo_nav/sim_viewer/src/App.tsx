@@ -3,8 +3,11 @@ import clsx from 'clsx';
 
 import {
   executeSurfaceRoute,
+  fetchLocalPlannerScenarios,
   fetchSceneManifest,
   previewSurfaceRoute,
+  startLiveBridge,
+  traceLocalPlannerScenario,
   traceSurfaceRouteFromNodes,
 } from './api';
 import { SceneCanvas } from './components/SceneCanvas';
@@ -27,6 +30,8 @@ import {
 import { deriveLayerControls } from './layerModel';
 import { useSimStore } from './store';
 import type {
+  LocalPlannerScenario,
+  LiveEvent,
   PlanningLogEntry,
   PickMode,
   PlannerFrame,
@@ -62,6 +67,13 @@ function formatMetricValue(value: unknown): string {
     return '已记录';
   }
   return String(value);
+}
+
+function formatStringList(values: string[] | undefined): string {
+  if (!values || values.length === 0) {
+    return UI_LABELS.emptyValue;
+  }
+  return values.join('，');
 }
 
 function formatElapsedMs(value: number | null | undefined): string {
@@ -208,6 +220,21 @@ function mergePlanningTiming(
   return merged;
 }
 
+function buildLiveEventsUrl(): string {
+  const rawBase = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/$/, '');
+  if (rawBase.startsWith('http://') || rawBase.startsWith('https://')) {
+    const url = new URL(rawBase);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    url.pathname = `${url.pathname.replace(/\/$/, '')}/api/live/events`;
+    url.search = '';
+    return url.toString();
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const basePath = rawBase.startsWith('/') ? rawBase : '';
+  return `${protocol}//${window.location.host}${basePath}/api/live/events`;
+}
+
 export default function App() {
   const scene = useSimStore((state) => state.scene);
   const loadingScene = useSimStore((state) => state.loadingScene);
@@ -240,6 +267,16 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isTraceLoading, setIsTraceLoading] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [liveEvent, setLiveEvent] = useState<LiveEvent | null>(null);
+  const [localPlannerScenarios, setLocalPlannerScenarios] = useState<LocalPlannerScenario[]>([]);
+  const [selectedLocalPlannerScenario, setSelectedLocalPlannerScenario] = useState('');
+  const [isLocalPlannerTraceLoading, setIsLocalPlannerTraceLoading] = useState(false);
+  const [localPlannerTraceSummary, setLocalPlannerTraceSummary] = useState<{
+    snapshotLabel: string;
+    finalStatus: string;
+    finalReason: string;
+    candidateCount: number;
+  } | null>(null);
   const routeRequestSeq = useRef(0);
 
   const traceNodePoseMap = useMemo(
@@ -322,6 +359,10 @@ export default function App() {
       : pickMode === 'surface_goal'
         ? UI_LABELS.hintPickSurfaceGoal
         : UI_LABELS.hintPickIdle;
+  const liveTracking = liveEvent?.trackingState ?? null;
+  const livePlanner = liveEvent?.localPlannerState ?? null;
+  const liveRecovery = liveEvent?.recoveryState ?? null;
+  const liveSemantic = liveEvent?.semanticSummary ?? null;
 
   function clearGeneratedRoute() {
     routeRequestSeq.current += 1;
@@ -378,6 +419,57 @@ export default function App() {
     setSurfaceGoalPick(null);
     clearGeneratedRoute();
   }, [team]);
+
+  useEffect(() => {
+    let active = true;
+    fetchLocalPlannerScenarios()
+      .then((scenarios) => {
+        if (!active) {
+          return;
+        }
+        setLocalPlannerScenarios(scenarios);
+        setSelectedLocalPlannerScenario((current) => current || scenarios[0]?.name || '');
+      })
+      .catch(() => {
+        if (active) {
+          setLocalPlannerScenarios([]);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let closed = false;
+    let socket: WebSocket | null = null;
+
+    startLiveBridge()
+      .then(() => {
+        if (closed) {
+          return;
+        }
+        socket = new WebSocket(buildLiveEventsUrl());
+        socket.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data) as LiveEvent;
+            startTransition(() => {
+              setLiveEvent(payload);
+            });
+          } catch {
+            // Ignore malformed live events.
+          }
+        };
+      })
+      .catch(() => {
+        // Live bridge is optional for offline trace usage.
+      });
+
+    return () => {
+      closed = true;
+      socket?.close();
+    };
+  }, []);
 
   function handlePickModeChange(nextMode: 'surface_start' | 'surface_goal') {
     if (!scene) {
@@ -628,6 +720,49 @@ export default function App() {
     }
   }
 
+  async function handleLoadLocalPlannerTrace() {
+    if (!selectedLocalPlannerScenario) {
+      setStatusMessage('先选择一个局部规划案例');
+      return;
+    }
+
+    setIsLocalPlannerTraceLoading(true);
+    try {
+      const trace = await traceLocalPlannerScenario({
+        scenario_name: selectedLocalPlannerScenario,
+      });
+      setTraceFrames(trace.frames);
+      setTraceIndex(Math.max(trace.frames.length - 1, 0));
+      setLocalPlannerTraceSummary({
+        snapshotLabel: trace.snapshotLabel,
+        finalStatus: trace.summary.finalStatus,
+        finalReason: trace.summary.finalReason,
+        candidateCount: trace.summary.candidateCount,
+      });
+      setPlanningLogs([
+        {
+          stage: 'local_planner_trace_cli',
+          level: trace.success ? 'info' : 'error',
+          title: '局部规划案例回放',
+          message: `${trace.snapshotLabel} 已导入局部规划候选轨迹`,
+          elapsed_ms: null,
+          fields: [
+            { label: '最终状态', value: trace.summary.finalStatus },
+            { label: '候选轨迹数', value: String(trace.summary.candidateCount) },
+            { label: '最终原因', value: trace.summary.finalReason || UI_LABELS.emptyValue },
+          ],
+        },
+      ]);
+      setStatusMessage(
+        `已载入局部规划案例 ${trace.snapshotLabel}，最终状态 ${trace.summary.finalStatus}`,
+      );
+    } catch (error) {
+      setStatusMessage(`局部规划案例加载失败: ${formatUnexpectedError(error, '局部规划 trace 请求失败')}`);
+    } finally {
+      setIsLocalPlannerTraceLoading(false);
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -671,7 +806,7 @@ export default function App() {
             <SceneCanvas
               scene={scene}
               frame={currentFrame}
-              liveEvent={null}
+              liveEvent={liveEvent}
               viewMode={viewMode}
               layers={layers}
               startPose={startPose}
@@ -1017,6 +1152,118 @@ export default function App() {
                     <div className="metric-row">
                       <span>{UI_LABELS.fieldGoalNode}</span>
                       <strong>{formatNodeLabel(traceSummary?.projectedGoalNodeId)}</strong>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="panel-section">
+                <h2>{UI_LABELS.panelLiveRuntime}</h2>
+                <div className="trace-card">
+                  <div className="trace-title">运行时局部规划观测</div>
+                  <div className="metrics-list">
+                    <div className="metric-row">
+                      <span>跟踪状态</span>
+                      <strong>{liveTracking?.status ?? UI_LABELS.emptyValue}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>局部规划状态</span>
+                      <strong>{livePlanner?.status ?? UI_LABELS.emptyValue}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>恢复动作</span>
+                      <strong>
+                        {liveRecovery
+                          ? `${liveRecovery.recoveryName} / ${liveRecovery.status}`
+                          : UI_LABELS.emptyValue}
+                      </strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>语义阻塞</span>
+                      <strong>
+                        {liveSemantic
+                          ? `${liveSemantic.blockedCells} blocked / ${liveSemantic.slowCells} slow`
+                          : UI_LABELS.emptyValue}
+                      </strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>活动边</span>
+                      <strong>{liveEvent?.activeEdge || UI_LABELS.emptyValue}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>语义门控</span>
+                      <strong>{liveEvent?.gateStatus || UI_LABELS.emptyValue}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>局部规划原因</span>
+                      <strong>{livePlanner?.reason ?? UI_LABELS.emptyValue}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>恢复原因</span>
+                      <strong>{liveRecovery?.reason ?? UI_LABELS.emptyValue}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>语义来源</span>
+                      <strong>{formatStringList(liveSemantic?.activeSources)}</strong>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="panel-section">
+                <h2>{UI_LABELS.panelLocalPlannerTrace}</h2>
+                <div className="trace-card">
+                  <div className="trace-title">局部规划离线案例</div>
+                  <div className="trace-meta">
+                    <span>{UI_LABELS.hintLocalPlannerTrace}</span>
+                  </div>
+                  <div className="button-row run-dock">
+                    <select
+                      className="secondary-button"
+                      value={selectedLocalPlannerScenario}
+                      onChange={(event) => setSelectedLocalPlannerScenario(event.target.value)}
+                      disabled={localPlannerScenarios.length === 0 || isLocalPlannerTraceLoading}
+                    >
+                      {localPlannerScenarios.length === 0 && (
+                        <option value="">暂无案例</option>
+                      )}
+                      {localPlannerScenarios.map((scenario) => (
+                        <option key={scenario.name} value={scenario.name}>
+                          {scenario.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={handleLoadLocalPlannerTrace}
+                      disabled={!selectedLocalPlannerScenario || isLocalPlannerTraceLoading}
+                    >
+                      {isLocalPlannerTraceLoading
+                        ? UI_LABELS.statusGenerating
+                        : UI_LABELS.btnLoadLocalPlannerTrace}
+                    </button>
+                  </div>
+                  <div className="metrics-list">
+                    <div className="metric-row">
+                      <span>案例标签</span>
+                      <strong>{localPlannerTraceSummary?.snapshotLabel ?? UI_LABELS.emptyValue}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>最终状态</span>
+                      <strong>{localPlannerTraceSummary?.finalStatus ?? UI_LABELS.emptyValue}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>候选轨迹数</span>
+                      <strong>
+                        {localPlannerTraceSummary == null
+                          ? UI_LABELS.emptyValue
+                          : String(localPlannerTraceSummary.candidateCount)}
+                      </strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>最终原因</span>
+                      <strong>{localPlannerTraceSummary?.finalReason ?? UI_LABELS.emptyValue}</strong>
                     </div>
                   </div>
                 </div>

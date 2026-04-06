@@ -71,8 +71,10 @@ SHARE_ROOT = detect_share_root()
 PACKAGE_PREFIX = detect_package_prefix()
 PKG_ROOT = SOURCE_PKG_ROOT or SHARE_ROOT or SCRIPT_DIR.parent
 SOURCE_WORKSPACE_ROOT = SOURCE_PKG_ROOT.parent if SOURCE_PKG_ROOT is not None else None
+SOURCE_REPO_ROOT = SOURCE_PKG_ROOT.parent.parent if SOURCE_PKG_ROOT is not None else None
 PLANNER_TRACE_CLI_TIMEOUT_SEC = 20.0
 SURFACE_ROUTE_CLI_TIMEOUT_SEC = 10.0
+LOCAL_PLANNER_TRACE_CLI_TIMEOUT_SEC = 10.0
 SURFACE_TRACE_MAX_FRAMES = 200
 SURFACE_HEURISTIC_SCALE_CACHE: dict[str, float] = {}
 DISPLAY_EMPTY_TEXT = "暂无"
@@ -94,6 +96,16 @@ def preferred_package_path(*parts: str) -> Path:
         if candidate.exists():
             return candidate
     return candidates[0]
+
+
+def source_workspace_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    for candidate in (SOURCE_REPO_ROOT, SOURCE_WORKSPACE_ROOT):
+        if candidate is None:
+            continue
+        if candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
 
 
 def resolve_frontend_root() -> Path:
@@ -466,11 +478,11 @@ def blocked_sim_points(manifest: dict[str, Any], blocked_nodes: list[str]) -> li
 
 def resolve_cli_binary() -> Path:
     candidates: list[Path] = []
-    if SOURCE_WORKSPACE_ROOT is not None:
+    for workspace_root in source_workspace_candidates():
         candidates.extend(
             [
-                SOURCE_WORKSPACE_ROOT / "install" / "rc26_topo_nav" / "lib" / "rc26_topo_nav" / "planner_trace_cli",
-                SOURCE_WORKSPACE_ROOT / "build" / "rc26_topo_nav" / "planner_trace_cli",
+                workspace_root / "install" / "rc26_topo_nav" / "lib" / "rc26_topo_nav" / "planner_trace_cli",
+                workspace_root / "build" / "rc26_topo_nav" / "planner_trace_cli",
             ]
         )
     if PACKAGE_PREFIX is not None:
@@ -487,11 +499,11 @@ def resolve_cli_binary() -> Path:
 
 def resolve_surface_cli_binary() -> Path:
     candidates: list[Path] = []
-    if SOURCE_WORKSPACE_ROOT is not None:
+    for workspace_root in source_workspace_candidates():
         candidates.extend(
             [
-                SOURCE_WORKSPACE_ROOT / "install" / "rc26_topo_nav" / "lib" / "rc26_topo_nav" / "surface_route_cli",
-                SOURCE_WORKSPACE_ROOT / "build" / "rc26_topo_nav" / "surface_route_cli",
+                workspace_root / "install" / "rc26_topo_nav" / "lib" / "rc26_topo_nav" / "surface_route_cli",
+                workspace_root / "build" / "rc26_topo_nav" / "surface_route_cli",
             ]
         )
     if PACKAGE_PREFIX is not None:
@@ -509,9 +521,12 @@ def resolve_surface_cli_binary() -> Path:
 def planner_cli_env() -> dict[str, str]:
     env = os.environ.copy()
     runtime_dirs: list[Path] = []
-    if SOURCE_WORKSPACE_ROOT is not None:
-        runtime_dirs.extend(sorted(path for path in (SOURCE_WORKSPACE_ROOT / "install").glob("*/lib") if path.is_dir()))
-        runtime_dirs.append(SOURCE_WORKSPACE_ROOT / "build" / "rc26_topo_nav")
+    for workspace_root in source_workspace_candidates():
+        install_root = workspace_root / "install"
+        if install_root.is_dir():
+            runtime_dirs.extend(sorted(path for path in install_root.glob("*/lib") if path.is_dir()))
+        runtime_dirs.append(workspace_root / "build" / "rc26_topo_nav")
+        runtime_dirs.append(workspace_root / "build" / "rc26_local_3d_planner")
     if PACKAGE_PREFIX is not None:
         runtime_dirs.append(PACKAGE_PREFIX / "lib")
     existing = env.get("LD_LIBRARY_PATH", "")
@@ -524,8 +539,11 @@ def planner_cli_env() -> dict[str, str]:
 
 
 def default_robot_geometry_file() -> Path:
-    if SOURCE_WORKSPACE_ROOT is not None:
-        candidate = SOURCE_WORKSPACE_ROOT / "rc26_robot_geometry" / "config" / "r2_body_geometry.yaml"
+    for workspace_root in source_workspace_candidates():
+        candidate = workspace_root / "src" / "rc26_robot_geometry" / "config" / "r2_body_geometry.yaml"
+        if candidate.is_file():
+            return candidate
+        candidate = workspace_root / "rc26_robot_geometry" / "config" / "r2_body_geometry.yaml"
         if candidate.is_file():
             return candidate
     if PACKAGE_PREFIX is not None:
@@ -533,6 +551,137 @@ def default_robot_geometry_file() -> Path:
         if candidate.is_file():
             return candidate
     raise FileNotFoundError("rc26_robot_geometry/config/r2_body_geometry.yaml not found")
+
+
+def detect_local_planner_source_root() -> Path | None:
+    if SOURCE_PKG_ROOT is None:
+        return None
+    for candidate in (
+        SOURCE_PKG_ROOT.parent / "rc26_local_3d_planner",
+        SOURCE_PKG_ROOT.parent.parent / "src" / "rc26_local_3d_planner",
+    ):
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def detect_local_planner_share_root() -> Path | None:
+    if get_package_share_directory is None or PackageNotFoundError is None:
+        return None
+    try:
+        return Path(get_package_share_directory("rc26_local_3d_planner"))
+    except PackageNotFoundError:
+        return None
+
+
+def local_planner_scenarios_dir() -> Path:
+    source_root = detect_local_planner_source_root()
+    if source_root is not None:
+        candidate = source_root / "scenarios"
+        if candidate.is_dir():
+            return candidate
+    share_root = detect_local_planner_share_root()
+    if share_root is not None:
+        candidate = share_root / "scenarios"
+        if candidate.is_dir():
+            return candidate
+    raise FileNotFoundError("rc26_local_3d_planner scenarios directory not found")
+
+
+def resolve_local_planner_cli_binary() -> Path:
+    candidates: list[Path] = []
+    for workspace_root in source_workspace_candidates():
+        candidates.extend(
+            [
+                workspace_root
+                / "install"
+                / "rc26_local_3d_planner"
+                / "lib"
+                / "rc26_local_3d_planner"
+                / "local_planner_trace_cli",
+                workspace_root / "build" / "rc26_local_3d_planner" / "local_planner_trace_cli",
+            ]
+        )
+    if get_package_prefix is not None and PackageNotFoundError is not None:
+        try:
+            candidates.append(
+                Path(get_package_prefix("rc26_local_3d_planner"))
+                / "lib"
+                / "rc26_local_3d_planner"
+                / "local_planner_trace_cli"
+            )
+        except PackageNotFoundError:
+            pass
+    which_path = shutil.which("local_planner_trace_cli")
+    if which_path:
+        candidates.append(Path(which_path))
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError("local_planner_trace_cli not found; build rc26_local_3d_planner first")
+
+
+def list_local_planner_scenarios() -> list[dict[str, Any]]:
+    scenarios: list[dict[str, Any]] = []
+    for snapshot_file in sorted(local_planner_scenarios_dir().glob("*.yaml")):
+        document = RENDER.load_yaml(snapshot_file)
+        scenarios.append(
+            {
+                "name": snapshot_file.stem,
+                "label": str(document.get("label", snapshot_file.stem)),
+                "snapshot_file": str(snapshot_file),
+            }
+        )
+    return scenarios
+
+
+def resolve_local_planner_snapshot(
+    *,
+    scenario_name: str | None = None,
+    snapshot_file: str | None = None,
+) -> Path:
+    if snapshot_file:
+        path = Path(snapshot_file)
+        if not path.is_file():
+            raise FileNotFoundError(f"local planner snapshot not found: {path}")
+        return path
+    if not scenario_name:
+        raise ValueError("scenario_name or snapshot_file is required")
+    path = local_planner_scenarios_dir() / f"{scenario_name}.yaml"
+    if not path.is_file():
+        raise FileNotFoundError(f"local planner scenario not found: {scenario_name}")
+    return path
+
+
+def run_local_planner_trace_cli(snapshot_file: Path) -> dict[str, Any]:
+    cli_binary = resolve_local_planner_cli_binary()
+    command = [str(cli_binary), "--snapshot", str(snapshot_file)]
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            cwd=SOURCE_REPO_ROOT or SOURCE_WORKSPACE_ROOT or PACKAGE_PREFIX or PKG_ROOT,
+            env=planner_cli_env(),
+            timeout=LOCAL_PLANNER_TRACE_CLI_TIMEOUT_SEC,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            "local_planner_trace_cli timed out\n"
+            f"command: {' '.join(command)}\n"
+            f"timeout_sec: {LOCAL_PLANNER_TRACE_CLI_TIMEOUT_SEC}"
+        ) from exc
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "local_planner_trace_cli failed\n"
+            f"command: {' '.join(command)}\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+    payload = json.loads(completed.stdout)
+    payload["snapshot_file"] = str(snapshot_file)
+    return payload
 
 
 def run_planner_trace_cli(
@@ -929,6 +1078,11 @@ class SurfaceRouteTraceFromNodesRequest(BaseModel):
     requested_goal: SurfacePointRequest | None = None
 
 
+class LocalPlannerTraceRequest(BaseModel):
+    scenario_name: str | None = None
+    snapshot_file: str | None = None
+
+
 class RunControlRequest(BaseModel):
     action: Literal["play", "pause", "step", "reset", "seek"]
     cursor: int | None = None
@@ -967,6 +1121,7 @@ SurfaceRouteTraceFromNodesRequest.model_rebuild(
         "SurfacePointRequest": SurfacePointRequest,
     }
 )
+LocalPlannerTraceRequest.model_rebuild()
 RunControlRequest.model_rebuild(_types_namespace={"Literal": Literal})
 LiveStartRequest.model_rebuild()
 
@@ -1075,10 +1230,14 @@ class LiveRosBridge:
         self.state: dict[str, Any] = {
             "routePath": [],
             "corridorPath": [],
+            "localPlannerPreviewPath": [],
             "activeEdge": "",
             "gateStatus": "",
             "blockOverlay": [],
             "trackingState": None,
+            "localPlannerState": None,
+            "recoveryState": None,
+            "semanticSummary": None,
             "timestamp": time.time(),
         }
 
@@ -1106,7 +1265,13 @@ class LiveRosBridge:
         try:
             import rclpy
             from nav_msgs.msg import Path as RosPath
-            from rc26_interfaces.msg import MfBlockOverlay, XhuTrackingState
+            from rc26_interfaces.msg import (
+                MfBlockOverlay,
+                XhuLocalPlannerState,
+                XhuRecoveryState,
+                XhuSemanticLayerSummary,
+                XhuTrackingState,
+            )
             from std_msgs.msg import String
         except ImportError as exc:
             self._schedule_broadcast({"type": "live_error", "message": f"Live ROS bridge import failed: {exc}"})
@@ -1141,6 +1306,12 @@ class LiveRosBridge:
             lambda msg: update_state(corridorPath=path_to_points(msg)),
             10,
         )
+        node.create_subscription(
+            RosPath,
+            self._topic("/xhu_nav/lookahead_path"),
+            lambda msg: update_state(localPlannerPreviewPath=path_to_points(msg)),
+            10,
+        )
         node.create_subscription(String, self._topic("/xhu_nav/active_edge"), lambda msg: update_state(activeEdge=msg.data), 10)
         node.create_subscription(String, self._topic("/xhu_nav/semantic_gate"), lambda msg: update_state(gateStatus=msg.data), 10)
         node.create_subscription(
@@ -1171,6 +1342,59 @@ class LiveRosBridge:
                     "distanceToGoal": float(msg.distance_to_goal),
                     "reason": msg.reason,
                     "cmd": {"vx": float(msg.cmd_vx), "vy": float(msg.cmd_vy), "wz": float(msg.cmd_wz)},
+                }
+            ),
+            10,
+        )
+        node.create_subscription(
+            XhuLocalPlannerState,
+            self._topic("/xhu_nav/local_planner_state"),
+            lambda msg: update_state(
+                localPlannerState={
+                    "corridorId": msg.corridor_id,
+                    "edgeId": msg.edge_id,
+                    "status": msg.status,
+                    "terminal": bool(msg.terminal),
+                    "observeOnly": bool(msg.observe_only),
+                    "semanticRevision": int(msg.semantic_revision),
+                    "cmd": {"vx": float(msg.cmd_vx), "vy": float(msg.cmd_vy), "wz": float(msg.cmd_wz)},
+                    "bestScore": float(msg.best_score),
+                    "clearanceMarginM": float(msg.clearance_margin_m),
+                    "reason": msg.reason,
+                }
+            ),
+            10,
+        )
+        node.create_subscription(
+            XhuRecoveryState,
+            self._topic("/xhu_nav/recovery_state"),
+            lambda msg: update_state(
+                recoveryState={
+                    "corridorId": msg.corridor_id,
+                    "edgeId": msg.edge_id,
+                    "recoveryName": msg.recovery_name,
+                    "status": msg.status,
+                    "terminal": bool(msg.terminal),
+                    "elapsedSec": float(msg.elapsed_sec),
+                    "reason": msg.reason,
+                }
+            ),
+            10,
+        )
+        node.create_subscription(
+            XhuSemanticLayerSummary,
+            self._topic("/xhu_nav/semantic_layer_summary"),
+            lambda msg: update_state(
+                semanticSummary={
+                    "revision": int(msg.revision),
+                    "terrainAvailable": bool(msg.terrain_available),
+                    "keepoutAvailable": bool(msg.keepout_available),
+                    "blockedCells": int(msg.blocked_cells),
+                    "slowCells": int(msg.slow_cells),
+                    "maxObstacleProbability": float(msg.max_obstacle_probability),
+                    "maxDropProbability": float(msg.max_drop_probability),
+                    "activeSources": list(msg.active_sources),
+                    "activeReasons": list(msg.active_reasons),
                 }
             ),
             10,
@@ -1530,6 +1754,14 @@ def send_surface_route_goal(request: SurfaceRouteExecuteRequest) -> dict[str, An
             rclpy.shutdown()
 
 
+def trace_local_planner(request: LocalPlannerTraceRequest) -> dict[str, Any]:
+    snapshot_file = resolve_local_planner_snapshot(
+        scenario_name=request.scenario_name,
+        snapshot_file=request.snapshot_file,
+    )
+    return run_local_planner_trace_cli(snapshot_file)
+
+
 @app.get("/api/health")
 async def health() -> dict[str, Any]:
     return {"ok": True, "runs": len(RUNS), "frontend_dist": str(FRONTEND_DIST)}
@@ -1596,6 +1828,16 @@ async def surface_route_execute(request: SurfaceRouteExecuteRequest) -> dict[str
         return {"accepted": False, "preview": preview}
     action_result = send_surface_route_goal(request)
     return {"accepted": action_result["accepted"], "preview": preview}
+
+
+@app.get("/api/local-planner/scenarios")
+async def local_planner_scenarios() -> dict[str, Any]:
+    return {"scenarios": list_local_planner_scenarios()}
+
+
+@app.post("/api/local-planner/trace")
+async def local_planner_trace(request: LocalPlannerTraceRequest) -> dict[str, Any]:
+    return trace_local_planner(request)
 
 
 @app.post("/api/runs/{run_id}/control")
