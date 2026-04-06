@@ -141,4 +141,31 @@ describe('layerModel', () => {
     expect(controls.find((control) => control.key === 'openSet')).toMatchObject({ enabled: true });
     expect(controls.find((control) => control.key === 'expanded')).toMatchObject({ enabled: true });
   });
+
+  it('keeps frontier and expanded toggles enabled when cumulative trace points exist outside the current frame', () => {
+    const controls = deriveLayerControls({
+      layers: baseLayers,
+      frame: {
+        stepIndex: 1,
+        algorithm: 'astar',
+        phase: 'goal',
+        label: '到达目标',
+        robotPose: null,
+        openSet: [],
+        expandedNodes: [],
+        bestPath: { nodeIds: [], points: [] },
+        treeSegments: [],
+        candidateTrajectories: [],
+        selectedTrajectory: [],
+        metrics: {},
+      },
+      scene: createSceneManifest(),
+      liveEvent: null,
+      traceOpenSetCount: 2,
+      traceExpandedCount: 3,
+    });
+
+    expect(controls.find((control) => control.key === 'openSet')).toMatchObject({ enabled: true });
+    expect(controls.find((control) => control.key === 'expanded')).toMatchObject({ enabled: true });
+  });
 });

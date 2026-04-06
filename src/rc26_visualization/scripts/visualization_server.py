@@ -97,6 +97,7 @@ SURFACE_ROUTE_CLI_TIMEOUT_SEC = 10.0
 LOCAL_PLANNER_TRACE_CLI_TIMEOUT_SEC = 10.0
 SURFACE_TRACE_MAX_FRAMES = 200
 SURFACE_HEURISTIC_SCALE_CACHE: dict[str, float] = {}
+SURFACE_GRAPH_DOCUMENT_CACHE: dict[str, dict[str, Any]] = {}
 DISPLAY_EMPTY_TEXT = "暂无"
 TEAM_DISPLAY_LABELS = {
     "blue": "蓝方",
@@ -272,13 +273,63 @@ def point_distance_3d(left: dict[str, Any], right: dict[str, Any]) -> float:
     return math.sqrt(dx * dx + dy * dy + dz * dz)
 
 
+def load_surface_graph_document(graph_file: Path) -> dict[str, Any]:
+    cache_key = str(graph_file.resolve())
+    cached = SURFACE_GRAPH_DOCUMENT_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    document = RENDER.load_yaml(graph_file)
+    SURFACE_GRAPH_DOCUMENT_CACHE[cache_key] = document
+    return document
+
+
+def nearest_surface_graph_node_id(graph_file: Path, pose: dict[str, Any]) -> str:
+    document = load_surface_graph_document(graph_file)
+    best_node_id = ""
+    best_distance = math.inf
+    for node_id, node in node_lookup(document).items():
+        distance = point_distance_3d(node.get("pose", {}), pose)
+        if distance < best_distance:
+            best_distance = distance
+            best_node_id = node_id
+    return best_node_id
+
+
+def ensure_surface_projection_fields(
+    payload: dict[str, Any],
+    graph_file: Path,
+    *,
+    fallback_payload: dict[str, Any] | None = None,
+) -> None:
+    for pose_key in ("projected_start", "projected_goal"):
+        if payload.get(pose_key) is None and fallback_payload is not None and fallback_payload.get(pose_key) is not None:
+            payload[pose_key] = fallback_payload.get(pose_key)
+
+    projection_keys = (
+        ("projected_start_node_id", "projected_start"),
+        ("projected_goal_node_id", "projected_goal"),
+    )
+    for node_key, pose_key in projection_keys:
+        node_id = str(payload.get(node_key, "")).strip()
+        if not node_id and fallback_payload is not None:
+            node_id = str(fallback_payload.get(node_key, "")).strip()
+        if not node_id:
+            pose = payload.get(pose_key)
+            if not isinstance(pose, dict) and fallback_payload is not None:
+                pose = fallback_payload.get(pose_key)
+            if isinstance(pose, dict):
+                node_id = nearest_surface_graph_node_id(graph_file, pose)
+        if node_id:
+            payload[node_key] = node_id
+
+
 def estimate_surface_graph_heuristic_scale(graph_file: Path, safety_margin: float = 0.99) -> float:
     cache_key = str(graph_file.resolve())
     cached = SURFACE_HEURISTIC_SCALE_CACHE.get(cache_key)
     if cached is not None:
         return cached
 
-    document = RENDER.load_yaml(graph_file)
+    document = load_surface_graph_document(graph_file)
     nodes = {
         str(node["id"]): node.get("pose", {})
         for node in document.get("nodes", [])
@@ -1781,6 +1832,7 @@ def preview_surface_route(
     payload["fallback_path_points"] = []
     payload["fallback_segments"] = []
     payload["fallback_planner_backend"] = ""
+    reference_payload: dict[str, Any] | None = None
 
     if payload.get("failure_code") == "BODY_CONSTRAINT_UNSATISFIED":
         reference_begin = time.perf_counter()
@@ -1812,6 +1864,7 @@ def preview_surface_route(
                     ],
                 )
             )
+    ensure_surface_projection_fields(payload, graph_file, fallback_payload=reference_payload)
     preview_elapsed_ms = (time.perf_counter() - preview_begin) * 1000.0
     cli_timing = payload.get("timing_ms", {})
     surface_projection_ms = round_float(float(cli_timing.get("projection", 0.0)), 2)

@@ -4,11 +4,13 @@ import '@babylonjs/core/Engines/WebGPU/Extensions/engine.alpha';
 
 import type { LayerState } from '../store';
 import { findNearestGraphNode, worldPointToPose } from '../scenePicking';
-import type { LiveEvent, PlannerFrame, Pose3, PickMode, SceneManifest, ViewMode } from '../types';
+import type { ExpandedNode, LiveEvent, OpenSetEntry, PlannerFrame, Pose3, PickMode, SceneManifest, ViewMode } from '../types';
 
 export interface SceneCanvasProps {
   scene: SceneManifest | null;
   frame: PlannerFrame | null;
+  cumulativeOpenSet?: OpenSetEntry[];
+  cumulativeExpandedNodes?: ExpandedNode[];
   liveEvent: LiveEvent | null;
   viewMode: ViewMode;
   layers: LayerState;
@@ -652,6 +654,8 @@ class BabylonSceneManager {
   public updateDynamic(
     manifest: SceneManifest | null, 
     frame: PlannerFrame | null, 
+    cumulativeOpenSet: OpenSetEntry[] | undefined,
+    cumulativeExpandedNodes: ExpandedNode[] | undefined,
     liveEvent: LiveEvent | null, 
     layers: LayerState,
     startPose: Pose3 | null,
@@ -714,6 +718,8 @@ class BabylonSceneManager {
 
     const offlinePath = frame?.bestPath.points ?? [];
     const manualPreviewPath = manualPath ?? [];
+    const visibleOpenSet = cumulativeOpenSet ?? frame?.openSet ?? [];
+    const visibleExpandedNodes = cumulativeExpandedNodes ?? frame?.expandedNodes ?? [];
     const pathGoal =
       manualPreviewPath.length > 0
         ? manualPreviewPath[manualPreviewPath.length - 1]
@@ -891,8 +897,8 @@ class BabylonSceneManager {
       });
     }
 
-    if (layers.openSet && frame?.openSet) {
-      frame.openSet.forEach(entry => {
+    if (layers.openSet) {
+      visibleOpenSet.forEach(entry => {
         this.createPulseMarker(`dyn_open_${entry.nodeId}`, entry.pose, '#219ebc', {
           diameter: 0.15,
           lift: 0.07,
@@ -902,8 +908,8 @@ class BabylonSceneManager {
       });
     }
 
-    if (layers.expanded && frame?.expandedNodes) {
-      frame.expandedNodes.forEach(entry => {
+    if (layers.expanded) {
+      visibleExpandedNodes.forEach(entry => {
         this.createPulseMarker(`dyn_exp_${entry.nodeId}`, entry.pose, '#ffb703', {
           diameter: 0.1,
           lift: 0.04,
@@ -1078,6 +1084,8 @@ export function SceneCanvas(props: SceneCanvasProps) {
       managerRef.current.updateDynamic(
         props.scene,
         props.frame,
+        props.cumulativeOpenSet,
+        props.cumulativeExpandedNodes,
         props.liveEvent,
         props.layers,
         props.startPose,
@@ -1089,7 +1097,7 @@ export function SceneCanvas(props: SceneCanvasProps) {
         props.pickMode,
       );
     }
-  }, [engineReady, props.scene, props.frame, props.liveEvent, props.layers, props.startPose, props.goalPose, props.hoverPose, props.manualPath, props.blockedGridIds, props.pickMode]);
+  }, [engineReady, props.scene, props.frame, props.cumulativeOpenSet, props.cumulativeExpandedNodes, props.liveEvent, props.layers, props.startPose, props.goalPose, props.hoverPose, props.manualPath, props.blockedGridIds, props.pickMode]);
 
   useEffect(() => {
     if (engineReady && managerRef.current && props.scene) {

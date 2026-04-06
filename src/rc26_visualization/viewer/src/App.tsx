@@ -30,8 +30,10 @@ import {
 import { deriveLayerControls } from './layerModel';
 import { useSimStore } from './store';
 import type {
+  ExpandedNode,
   LocalPlannerScenario,
   LiveEvent,
+  OpenSetEntry,
   PlanningLogEntry,
   PickMode,
   PlannerFrame,
@@ -151,6 +153,45 @@ function buildTraceNodePoseMap(
   return nodePoseMap;
 }
 
+function hydrateOpenSetEntries(
+  entries: PlannerTraceFrame['openSet'],
+  nodePoseMap: Map<string, Pose3>,
+): OpenSetEntry[] {
+  return entries.flatMap((entry) => {
+    const pose = entry.pose ?? nodePoseMap.get(entry.nodeId);
+    if (!pose) {
+      return [];
+    }
+    return [{ ...entry, pose }];
+  });
+}
+
+function hydrateExpandedEntries(
+  entries: PlannerTraceFrame['expandedNodes'],
+  nodePoseMap: Map<string, Pose3>,
+): ExpandedNode[] {
+  return entries.flatMap((entry) => {
+    const pose = entry.pose ?? nodePoseMap.get(entry.nodeId);
+    if (!pose) {
+      return [];
+    }
+    return [{ ...entry, pose }];
+  });
+}
+
+function resolveBestPathPoints(
+  bestPath: PlannerTraceFrame['bestPath'],
+  nodePoseMap: Map<string, Pose3>,
+): Pose3[] {
+  if (bestPath.points && bestPath.points.length > 0) {
+    return bestPath.points;
+  }
+  return bestPath.nodeIds.flatMap((nodeId) => {
+    const pose = nodePoseMap.get(nodeId);
+    return pose ? [pose] : [];
+  });
+}
+
 function hydratePlannerFrame(
   frame: PlannerTraceFrame | null,
   nodePoseMap: Map<string, Pose3>,
@@ -159,27 +200,9 @@ function hydratePlannerFrame(
     return null;
   }
 
-  const openSet = frame.openSet.flatMap((entry) => {
-    const pose = entry.pose ?? nodePoseMap.get(entry.nodeId);
-    if (!pose) {
-      return [];
-    }
-    return [{ ...entry, pose }];
-  });
-  const expandedNodes = frame.expandedNodes.flatMap((entry) => {
-    const pose = entry.pose ?? nodePoseMap.get(entry.nodeId);
-    if (!pose) {
-      return [];
-    }
-    return [{ ...entry, pose }];
-  });
-  const bestPathPoints =
-    frame.bestPath.points && frame.bestPath.points.length > 0
-      ? frame.bestPath.points
-      : frame.bestPath.nodeIds.flatMap((nodeId) => {
-          const pose = nodePoseMap.get(nodeId);
-          return pose ? [pose] : [];
-        });
+  const openSet = hydrateOpenSetEntries(frame.openSet, nodePoseMap);
+  const expandedNodes = hydrateExpandedEntries(frame.expandedNodes, nodePoseMap);
+  const bestPathPoints = resolveBestPathPoints(frame.bestPath, nodePoseMap);
 
   return {
     ...frame,
@@ -190,6 +213,42 @@ function hydratePlannerFrame(
       points: bestPathPoints,
     },
   };
+}
+
+function accumulateOpenSetEntries(
+  frames: PlannerTraceFrame[],
+  nodePoseMap: Map<string, Pose3>,
+): OpenSetEntry[] {
+  const seenNodeIds = new Set<string>();
+  const accumulated: OpenSetEntry[] = [];
+  frames.forEach((frame) => {
+    hydrateOpenSetEntries(frame.openSet, nodePoseMap).forEach((entry) => {
+      if (seenNodeIds.has(entry.nodeId)) {
+        return;
+      }
+      seenNodeIds.add(entry.nodeId);
+      accumulated.push(entry);
+    });
+  });
+  return accumulated;
+}
+
+function accumulateExpandedEntries(
+  frames: PlannerTraceFrame[],
+  nodePoseMap: Map<string, Pose3>,
+): ExpandedNode[] {
+  const seenNodeIds = new Set<string>();
+  const accumulated: ExpandedNode[] = [];
+  frames.forEach((frame) => {
+    hydrateExpandedEntries(frame.expandedNodes, nodePoseMap).forEach((entry) => {
+      if (seenNodeIds.has(entry.nodeId)) {
+        return;
+      }
+      seenNodeIds.add(entry.nodeId);
+      accumulated.push(entry);
+    });
+  });
+  return accumulated;
 }
 
 function RouteStats({
@@ -245,6 +304,19 @@ function previewDisplaySegments(response: SurfaceRoutePreviewResponse): SurfaceR
 
 function previewHasReferenceRoute(response: SurfaceRoutePreviewResponse): boolean {
   return !response.success && previewDisplayPath(response).length > 0;
+}
+
+function formatPreviewResultLabel(response: SurfaceRoutePreviewResponse): string {
+  if (response.success) {
+    return `三维路线已生成，共 ${response.segments.length} 段`;
+  }
+
+  const failureSummary = formatFailureSummary(response.failure_reason, response.failure_code);
+  if (previewHasReferenceRoute(response)) {
+    const backendLabel = response.fallback_planner_backend?.trim() || 'legacy';
+    return `三维路线未通过车体约束: ${failureSummary}，已显示 ${backendLabel} 参考路线`;
+  }
+  return `三维路线生成失败: ${failureSummary}`;
 }
 
 function mergePlanningTiming(
@@ -344,10 +416,26 @@ export default function App() {
     ),
     [traceFrames, traceIndex, traceNodePoseMap],
   );
+  const cumulativeOpenSet = useMemo(
+    () => accumulateOpenSetEntries(traceFrames, traceNodePoseMap),
+    [traceFrames, traceNodePoseMap],
+  );
+  const cumulativeExpandedNodes = useMemo(
+    () => accumulateExpandedEntries(traceFrames, traceNodePoseMap),
+    [traceFrames, traceNodePoseMap],
+  );
 
   const layerControls = useMemo(
-    () => deriveLayerControls({ layers, frame: currentFrame, scene, liveEvent }),
-    [layers, currentFrame, scene, liveEvent],
+    () =>
+      deriveLayerControls({
+        layers,
+        frame: currentFrame,
+        scene,
+        liveEvent,
+        traceOpenSetCount: cumulativeOpenSet.length,
+        traceExpandedCount: cumulativeExpandedNodes.length,
+      }),
+    [layers, currentFrame, scene, liveEvent, cumulativeOpenSet.length, cumulativeExpandedNodes.length],
   );
   const primaryLayerControls = layerControls.filter((control) => control.group === 'primary' && control.visible);
   const appearanceLayerControls = layerControls.filter((control) => control.group === 'advanced' && control.visible);
@@ -396,15 +484,32 @@ export default function App() {
   const routeReady = surfacePath.length > 0;
   const routeRejected = routeReady && !routeAccepted;
   const traceReady = traceFrames.length > 0;
+  const traceFailed = planningLogs.some(
+    (entry) => entry.stage === 'browser_trace_request' || (entry.stage === 'planner_trace_cli' && entry.level === 'error'),
+  );
   const traceStatusText = routeReady
     ? routeRejected
-      ? '车体约束拒绝该路线，当前显示参考路径'
+      ? traceFailed
+        ? '当前显示参考路径，搜索回放失败'
+        : isTraceLoading
+        ? '当前显示参考路径，搜索回放补齐中'
+        : traceReady
+          ? `当前显示参考路径，已生成 ${traceFrameOverview} 帧搜索回放`
+          : '当前显示参考路径，等待搜索回放'
+      : traceFailed
+        ? '路线已生成，但搜索回放失败'
+        : isTraceLoading
+        ? '路线已生成，回放补齐中'
+        : traceReady
+          ? `已生成 ${traceFrameOverview} 帧搜索回放`
+          : '路线已生成，等待回放'
+    : traceFailed
+      ? '路线未生成，搜索回放失败'
       : isTraceLoading
-      ? '路线已生成，回放补齐中'
+      ? UI_LABELS.statusBackgroundReplay
       : traceReady
-        ? `已生成 ${traceFrameOverview} 帧搜索回放`
-        : '路线已生成，等待回放'
-    : '等待生成路线';
+        ? `路线未生成，已生成 ${traceFrameOverview} 帧搜索回放`
+        : '等待生成路线';
   const surfaceCompletePlanningMs = resolveTimingMs(
     traceSummary?.surfaceCompletePlanningMs,
     planningTiming?.surfaceCompletePlanning,
@@ -628,6 +733,7 @@ export default function App() {
 
       setPlanningTiming(preview.planning_timing_ms ?? null);
       setPlanningLogs(preview.planning_logs ?? []);
+      setTraceSummary(buildPreviewSummary(preview, surfaceStartPick, surfaceGoalPick));
       if (!preview.success) {
         const fallbackPath = previewDisplayPath(preview);
         const fallbackSegments = previewDisplaySegments(preview);
@@ -638,36 +744,14 @@ export default function App() {
         setRouteAccepted(false);
         setTraceFrames([]);
         setTraceNodePoses({});
-        setTraceSummary(null);
         setTraceIndex(0);
-        if (previewHasReferenceRoute(preview)) {
-          const backendLabel = preview.fallback_planner_backend?.trim() || 'legacy';
-          setStatusMessage(
-            `三维路线未通过车体约束: ${formatFailureSummary(preview.failure_reason, preview.failure_code)}，已显示 ${backendLabel} 参考路线`,
-          );
-          return;
-        }
-        setStatusMessage(`三维路线生成失败: ${formatFailureSummary(preview.failure_reason, preview.failure_code)}`);
-        return;
+      } else {
+        setSurfaceProjectedStart(preview.projected_start);
+        setSurfaceProjectedGoal(preview.projected_goal);
+        setSurfacePath(preview.path_points);
+        setSurfaceSegments(preview.segments);
+        setRouteAccepted(true);
       }
-
-      setSurfaceProjectedStart(preview.projected_start);
-      setSurfaceProjectedGoal(preview.projected_goal);
-      setSurfacePath(preview.path_points);
-      setSurfaceSegments(preview.segments);
-      setRouteAccepted(true);
-      setTraceSummary(buildPreviewSummary(preview, surfaceStartPick, surfaceGoalPick));
-      const currentSurfacePlanningMs = resolveTimingMs(
-        preview.planning_timing_ms?.surfaceCompletePlanning,
-      );
-      const currentPreviewChainMs = resolveTimingMs(
-        preview.planning_timing_ms?.surfaceRouteCli,
-      );
-      const planningHint =
-        currentSurfacePlanningMs == null ? '' : `，完整规划 ${formatElapsedMs(currentSurfacePlanningMs)}`;
-      const elapsedHint =
-        currentPreviewChainMs == null ? '' : `，网页预览链路 ${formatElapsedMs(currentPreviewChainMs)}`;
-      setStatusMessage(`三维路线已生成，共 ${preview.segments.length} 段${planningHint}${elapsedHint}，正在后台生成搜索回放`);
     } catch (error) {
       if (routeRequestSeq.current === requestId) {
         const requestErrorMessage = formatUnexpectedError(error, '浏览器到规划服务的请求失败');
@@ -702,17 +786,18 @@ export default function App() {
     if (routeRequestSeq.current !== requestId) {
       return;
     }
-    if (!previewResponse?.success) {
+    if (!previewResponse) {
       return;
     }
 
     const startNodeId = previewResponse.projected_start_node_id;
     const goalNodeId = previewResponse.projected_goal_node_id;
     if (!startNodeId || !goalNodeId) {
-      setStatusMessage('三维路线已生成，但缺少投影节点，无法补齐搜索回放');
+      setStatusMessage(`${formatPreviewResultLabel(previewResponse)}，但缺少投影节点，无法补齐搜索回放`);
       return;
     }
 
+    setStatusMessage(`${formatPreviewResultLabel(previewResponse)}，正在后台生成搜索回放`);
     setIsTraceLoading(true);
     try {
       const trace = await traceSurfaceRouteFromNodes({
@@ -753,7 +838,9 @@ export default function App() {
       });
 
       if (!trace.success) {
-        setStatusMessage(`三维路线已生成，但搜索回放失败: ${formatFailureSummary(trace.failure_reason, trace.failure_code)}`);
+        setStatusMessage(
+          `${formatPreviewResultLabel(previewResponse)}，但搜索回放失败: ${formatFailureSummary(trace.failure_reason, trace.failure_code)}`,
+        );
         return;
       }
 
@@ -761,7 +848,11 @@ export default function App() {
         trace.summary.framesSampled && (trace.summary.framesCount ?? trace.frames.length) > trace.frames.length
           ? `，回放已压缩为 ${trace.frames.length} / ${trace.summary.framesCount} 帧`
           : `，回放 ${trace.frames.length} 帧`;
-      setStatusMessage(`三维路线与搜索回放已就绪，共 ${previewResponse.segments.length} 段${sampledHint}`);
+      if (previewResponse.success) {
+        setStatusMessage(`三维路线与搜索回放已就绪，共 ${previewResponse.segments.length} 段${sampledHint}`);
+      } else {
+        setStatusMessage(`${formatPreviewResultLabel(previewResponse)}，搜索回放已就绪${sampledHint}`);
+      }
     } catch (error) {
       if (routeRequestSeq.current !== requestId) {
         return;
@@ -778,7 +869,7 @@ export default function App() {
           fields: [],
         },
       ]);
-      setStatusMessage(`三维路线已生成，但搜索回放请求失败: ${traceErrorMessage}`);
+      setStatusMessage(`${formatPreviewResultLabel(previewResponse)}，但搜索回放请求失败: ${traceErrorMessage}`);
     } finally {
       if (routeRequestSeq.current === requestId) {
         setIsTraceLoading(false);
@@ -944,6 +1035,8 @@ export default function App() {
             <SceneCanvas
               scene={scene}
               frame={currentFrame}
+              cumulativeOpenSet={cumulativeOpenSet}
+              cumulativeExpandedNodes={cumulativeExpandedNodes}
               liveEvent={liveEvent}
               viewMode={viewMode}
               layers={layers}
@@ -1224,11 +1317,11 @@ export default function App() {
                   <div className="metrics-list">
                     <div className="metric-row">
                       <span>{UI_LABELS.statFrontier}</span>
-                      <strong>{currentFrame?.openSet.length ?? 0}</strong>
+                      <strong>{cumulativeOpenSet.length}</strong>
                     </div>
                     <div className="metric-row">
                       <span>{UI_LABELS.statExpanded}</span>
-                      <strong>{currentFrame?.expandedNodes.length ?? 0}</strong>
+                      <strong>{cumulativeExpandedNodes.length}</strong>
                     </div>
                     {frameMetrics.length === 0 && (
                       <div className="empty-note">

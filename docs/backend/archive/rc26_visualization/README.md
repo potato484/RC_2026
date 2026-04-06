@@ -40,4 +40,5 @@
 - `viewer` 已从“单用途路线观察台”扩成“统一比赛场地闭环可视化平台”，主界面同时承载路线回放和 live 运行态
 - 当操作员在 `diagnostic` 这类隐藏路线图层的布局里生成三维路线时，viewer 现在会自动重新打开 `route` 图层，避免预览结果被布局状态吞掉
 - 当 body-aware `surface_route_cli` 返回 `BODY_CONSTRAINT_UNSATISFIED` 时，adapter 会再生成一条 `legacy` 参考路线回给浏览器；这条路线只用于观察，不代表 action 已经接受或可直接执行
+- `visualization_server.py` 现在会在 surface-route preview 丢失 `projected_*_node_id` 时，优先复用 fallback 参考预览或按投影点回推 surface graph 最近节点，避免浏览器因为缺节点 ID 而完全拿不到搜索回放
 - `semanticZones` 现在按 3 块 coarse phase band 定义在 world frame 中，直接映射 `MCAreaTree / MFAreaTree / CombatAreaTree`；不再把梅林局部入口/出口坡道条带误当成独立行为树边界

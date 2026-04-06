@@ -740,6 +740,60 @@ describe('SceneCanvas', () => {
     });
   });
 
+  it('renders cumulative search markers even when the current frame no longer contains them', async () => {
+    render(
+      <div style={{ width: '640px', height: '360px' }}>
+        <SceneCanvas
+          scene={createSceneManifest()}
+          frame={{
+            stepIndex: 2,
+            algorithm: 'astar',
+            phase: 'goal',
+            label: 'Goal frame',
+            robotPose: null,
+            openSet: [],
+            expandedNodes: [],
+            bestPath: {
+              nodeIds: ['node-a', 'node-b'],
+              points: [
+                { x: 0, y: 0, z: 0, yaw: 0 },
+                { x: 1, y: 0, z: 0, yaw: 0 },
+              ],
+            },
+            treeSegments: [],
+            candidateTrajectories: [],
+            selectedTrajectory: [],
+            metrics: {},
+          }}
+          cumulativeOpenSet={[{ nodeId: 'node-a', pose: { x: 0, y: 0, z: 0, yaw: 0 }, gCost: 1, fCost: 2 }]}
+          cumulativeExpandedNodes={[{ nodeId: 'node-b', pose: { x: 1, y: 0, z: 0, yaw: 0 } }]}
+          liveEvent={null}
+          viewMode="orbit"
+          layers={{ ...layers, openSet: true, expanded: true }}
+          startPose={null}
+          goalPose={null}
+          hoverPose={null}
+          blockedGridIds={[]}
+          pickMode="idle"
+        />
+      </div>,
+    );
+
+    await waitFor(() => {
+      expect(mockState.pendingInitResolvers).toHaveLength(1);
+    });
+
+    await act(async () => {
+      mockState.pendingInitResolvers[0]();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(mockState.liveMeshNames).toContain('dyn_open_node-a');
+      expect(mockState.liveMeshNames).toContain('dyn_exp_node-b');
+    });
+  });
+
   it('renders a prominent preview route when manual path points are present', async () => {
     render(
       <div style={{ width: '640px', height: '360px' }}>

@@ -185,6 +185,52 @@ class VisualizationServerTest(unittest.TestCase):
         log_titles = [entry["title"] for entry in preview["planning_logs"]]
         self.assertIn("参考路线回退", log_titles)
 
+    def test_surface_route_preview_backfills_projection_node_ids_when_cli_omits_them(self):
+        failed_payload = {
+            "success": False,
+            "failure_code": "BODY_CONSTRAINT_UNSATISFIED",
+            "failure_reason": "mock body-aware failure",
+            "projected_start_node_id": "",
+            "projected_goal_node_id": "",
+            "projected_start": {"x": -1.35, "y": -5.55, "z": 0.01, "yaw": 0.0},
+            "projected_goal": {"x": -2.97, "y": 0.05, "z": 0.61, "yaw": 0.0},
+            "path_points": [],
+            "segments": [],
+            "timing_ms": {},
+        }
+        reference_payload = {
+            "success": True,
+            "failure_code": "",
+            "failure_reason": "",
+            "projected_start_node_id": "",
+            "projected_goal_node_id": "",
+            "projected_start": {"x": -1.35, "y": -5.55, "z": 0.01, "yaw": 0.0},
+            "projected_goal": {"x": -2.97, "y": 0.05, "z": 0.61, "yaw": 0.0},
+            "path_points": [
+                {"x": -1.35, "y": -5.55, "z": 0.01, "yaw": 0.0},
+                {"x": -2.97, "y": 0.05, "z": 0.61, "yaw": 0.0},
+            ],
+            "segments": [{"id": "fallback-segment"}],
+            "planner_backend": "legacy",
+            "timing_ms": {},
+        }
+
+        with mock.patch.object(SERVER, "run_surface_route_cli", side_effect=[failed_payload, reference_payload]):
+            preview = SERVER.preview_surface_route(
+                SERVER.SurfaceRoutePreviewRequest(
+                    team="blue",
+                    surface_graph_file=str(SURFACE_GRAPH_BLUE),
+                    start_pick_world={"x": -1.319, "y": -5.558, "z": 0.01, "yaw": 0.0},
+                    goal_pick_world={"x": -2.936, "y": 0.006, "z": 0.61, "yaw": 0.0},
+                )
+            )
+
+        self.assertEqual(preview["projected_start_node_id"], "sf_179_10")
+        self.assertEqual(preview["projected_goal_node_id"], "sf_431_17")
+        self.assertTrue(preview["fallback_available"])
+        self.assertEqual(preview["fallback_planner_backend"], "legacy")
+        self.assertEqual(len(preview["fallback_path_points"]), 2)
+
     def test_surface_route_trace_returns_search_frames(self):
         fake_preview = {
             "success": True,

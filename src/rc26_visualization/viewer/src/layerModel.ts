@@ -57,13 +57,15 @@ function resolveControlState(
   frame: PlannerFrame | null,
   scene: SceneManifest | null,
   liveEvent: LiveEvent | null,
+  traceOpenSetCount: number,
+  traceExpandedCount: number,
 ): { enabled: boolean; reason?: string } {
   if (key === 'openSet') {
-    const enabled = (frame?.openSet.length ?? 0) > 0;
+    const enabled = traceOpenSetCount > 0;
     return { enabled, reason: enabled ? undefined : fallbackReason(key) };
   }
   if (key === 'expanded') {
-    const enabled = (frame?.expandedNodes.length ?? 0) > 0;
+    const enabled = traceExpandedCount > 0;
     return { enabled, reason: enabled ? undefined : fallbackReason(key) };
   }
   if (key === 'tree') {
@@ -92,14 +94,23 @@ export function deriveLayerControls(params: {
   frame: PlannerFrame | null;
   scene: SceneManifest | null;
   liveEvent: LiveEvent | null;
+  traceOpenSetCount?: number;
+  traceExpandedCount?: number;
 }): LayerControl[] {
-  const { layers, frame, scene, liveEvent } = params;
+  const {
+    layers,
+    frame,
+    scene,
+    liveEvent,
+    traceOpenSetCount = frame?.openSet.length ?? 0,
+    traceExpandedCount = frame?.expandedNodes.length ?? 0,
+  } = params;
   const catalog = scene?.displayCatalog?.length ? scene.displayCatalog : FALLBACK_CATALOG;
 
   return catalog
     .filter((entry): entry is DisplayCatalogEntry & { id: LayerKey } => entry.id in layers)
     .map((entry) => {
-      const status = resolveControlState(entry.id, frame, scene, liveEvent);
+      const status = resolveControlState(entry.id, frame, scene, liveEvent, traceOpenSetCount, traceExpandedCount);
       return {
         key: entry.id,
         label: entry.label,

@@ -669,6 +669,8 @@ describe('App', () => {
     expect(screen.getAllByText('82.25 毫秒').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: '执行当前路线' }).getAttribute('disabled')).toBeNull();
     expect((lastSceneCanvasProps?.frame as { bestPath?: { points?: unknown[] } } | null)?.bestPath?.points).toHaveLength(2);
+    expect((lastSceneCanvasProps?.cumulativeOpenSet as unknown[] | undefined) ?? []).toHaveLength(1);
+    expect((lastSceneCanvasProps?.cumulativeExpandedNodes as unknown[] | undefined) ?? []).toHaveLength(1);
   });
 
   it('surfaces localized request failures without leaking raw english text', async () => {
@@ -692,7 +694,7 @@ describe('App', () => {
     expect(screen.queryByText(/Error:/)).toBeNull();
   });
 
-  it('renders a reference route and blocks execution when body constraints reject the route', async () => {
+  it('renders a reference route, still loads replay, and blocks execution when body constraints reject the route', async () => {
     vi.mocked(previewSurfaceRoute).mockResolvedValueOnce(createRejectedPreviewResponse());
 
     render(<App />);
@@ -706,13 +708,15 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(previewSurfaceRoute).toHaveBeenCalledTimes(1);
-      expect(traceSurfaceRouteFromNodes).not.toHaveBeenCalled();
+      expect(traceSurfaceRouteFromNodes).toHaveBeenCalledTimes(1);
       expect(lastSceneCanvasProps?.manualPathRejected).toBe(true);
     });
 
     expect(lastSceneCanvasProps?.manualPath).toEqual(createRejectedPreviewResponse().fallback_path_points);
+    expect((lastSceneCanvasProps?.cumulativeOpenSet as unknown[] | undefined) ?? []).toHaveLength(1);
+    expect((lastSceneCanvasProps?.cumulativeExpandedNodes as unknown[] | undefined) ?? []).toHaveLength(1);
     expect(screen.getByText(/车体约束过滤掉了起点到终点之间的全部可行路线/)).toBeTruthy();
-    expect(screen.getByText(/已显示 legacy 参考路线/)).toBeTruthy();
+    expect(screen.getByText(/已显示 legacy 参考路线，搜索回放已就绪/)).toBeTruthy();
     expect(screen.getByRole('button', { name: '执行当前路线' }).getAttribute('disabled')).not.toBeNull();
   });
 });
