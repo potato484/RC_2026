@@ -4,7 +4,7 @@ import '@babylonjs/core/Engines/WebGPU/Extensions/engine.alpha';
 
 import type { LayerState } from '../store';
 import { findNearestGraphNode, worldPointToPose } from '../scenePicking';
-import type { CameraPreset, LiveEvent, PlannerFrame, Pose3, PickMode, SceneManifest, ViewMode } from '../types';
+import type { LiveEvent, PlannerFrame, Pose3, PickMode, SceneManifest, ViewMode } from '../types';
 
 export interface SceneCanvasProps {
   scene: SceneManifest | null;
@@ -300,6 +300,56 @@ class BabylonSceneManager {
     } else {
       this.applyMeshShadows(mesh, { cast: false, receive: false });
     }
+  }
+
+  private createZoneOverlay(
+    name: string,
+    polygon: Pose3[],
+    color: string,
+    opacity: number,
+    active: boolean,
+  ) {
+    if (!this.scene || polygon.length < 3) {
+      return;
+    }
+
+    const positions: number[] = [];
+    const indices: number[] = [];
+    for (let index = 1; index < polygon.length - 1; index += 1) {
+      const left = polygon[0];
+      const middle = polygon[index];
+      const right = polygon[index + 1];
+      const base = (index - 1) * 3;
+      positions.push(left.x, left.y, poseZ(left) + 0.04);
+      positions.push(middle.x, middle.y, poseZ(middle) + 0.04);
+      positions.push(right.x, right.y, poseZ(right) + 0.04);
+      indices.push(base, base + 1, base + 2);
+    }
+
+    const mesh = new BABYLON.Mesh(name, this.scene);
+    const vertexData = new BABYLON.VertexData();
+    vertexData.positions = positions;
+    vertexData.indices = indices;
+    const normals: number[] = [];
+    BABYLON.VertexData.ComputeNormals(positions, indices, normals);
+    vertexData.normals = normals;
+    vertexData.applyToMesh(mesh);
+    mesh.material = this.getMat(`zone_${color}_${active ? 'active' : 'idle'}`, color, opacity, 0.1, 0.02, {
+      emissiveScale: active ? 0.26 : 0.14,
+      unlit: true,
+      backFaceCulling: false,
+    });
+    mesh.renderingGroupId = 1;
+    this.addDynamicMesh(mesh, { cast: false, receive: false });
+
+    const outline = BABYLON.MeshBuilder.CreateLines(
+      `${name}_outline`,
+      { points: [...polygon.map((point) => liftedVec3(point, 0.06)), liftedVec3(polygon[0], 0.06)] },
+      this.scene,
+    );
+    outline.color = hexToColor3(color);
+    outline.alpha = active ? 0.78 : 0.42;
+    this.addDynamicMesh(outline, { cast: false, receive: false });
   }
 
   private setHoveredNode(nodeId: string | null) {
@@ -616,14 +666,38 @@ class BabylonSceneManager {
 
     if (layers.blocked && blockedGridIds.length > 0) {
       const blockedIds = new Set(blockedGridIds);
-      const blockedSlots = manifest.meilinSlots.filter(s => blockedIds.has(s.block_id));
-      blockedSlots.forEach(slot => {
-        const mesh = BABYLON.MeshBuilder.CreateBox(`dyn_blocked_${slot.block_id}`, { width: 0.72, depth: 0.72, height: 0.42 }, this.scene!);
-        mesh.position = new BABYLON.Vector3(slot.x, slot.y, slot.z + 0.22);
+      const blockCenters = new Map<number, Pose3>();
+      manifest.meilinSlots.forEach((slot) => {
+        if (blockedIds.has(slot.block_id)) {
+          blockCenters.set(slot.block_id, { x: slot.x, y: slot.y, z: slot.z, yaw: 0 });
+        }
+      });
+      manifest.graphNodes.forEach((node) => {
+        if (blockedIds.has(node.block_id) && !blockCenters.has(node.block_id)) {
+          blockCenters.set(node.block_id, node.pose);
+        }
+      });
+      Array.from(blockCenters.entries()).forEach(([blockId, pose]) => {
+        const mesh = BABYLON.MeshBuilder.CreateBox(`dyn_blocked_${blockId}`, { width: 0.72, depth: 0.72, height: 0.42 }, this.scene!);
+        mesh.position = new BABYLON.Vector3(pose.x, pose.y, poseZ(pose) + 0.22);
         mesh.material = this.getMat('blocked', '#d62828', 0.42, 0.56, 0.02, {
           emissiveScale: 0.09,
         });
         this.addDynamicMesh(mesh);
+      });
+    }
+
+    if (layers.phaseZones && manifest.semanticZones?.length) {
+      const activePhaseKey = liveEvent?.btSnapshot?.activeSubtreeId ?? '';
+      manifest.semanticZones.forEach((zone) => {
+        const isActive = activePhaseKey.length > 0 && zone.phase_key === activePhaseKey;
+        this.createZoneOverlay(
+          `dyn_zone_${zone.id}`,
+          zone.polygon,
+          zone.color,
+          isActive ? 0.3 : 0.12,
+          isActive,
+        );
       });
     }
 
@@ -702,8 +776,10 @@ class BabylonSceneManager {
       this.addDynamicMesh(tube, { cast: false, receive: false });
     };
 
-    createTube(manualPreviewPath, '#2f80ed', 0.018, 0.96, 0.07);
-    if (manualPreviewPath.length === 0 || !surfaceTrace) {
+    if (layers.route) {
+      createTube(manualPreviewPath, '#2f80ed', 0.018, 0.96, 0.07);
+    }
+    if (layers.route && (manualPreviewPath.length === 0 || !surfaceTrace)) {
       createTube(
         offlinePath,
         surfaceTrace ? '#2f80ed' : '#355070',
@@ -712,9 +788,15 @@ class BabylonSceneManager {
         surfaceTrace ? 0.07 : 0.06,
       );
     }
-    createTube(liveEvent?.routePath ?? [], '#0ea5e9', 0.02, 0.88, 0.065);
-    createTube(liveEvent?.corridorPath ?? [], '#fb8500', 0.016, 0.88, 0.055);
-    createTube(liveEvent?.localPlannerPreviewPath ?? [], '#2a9d8f', 0.012, 0.84, 0.045);
+    if (layers.route) {
+      createTube(liveEvent?.routePath ?? [], '#0ea5e9', 0.02, 0.88, 0.065);
+    }
+    if (layers.corridor) {
+      createTube(liveEvent?.corridorPath ?? [], '#fb8500', 0.016, 0.88, 0.055);
+    }
+    if (layers.lookahead) {
+      createTube(liveEvent?.localPlannerPreviewPath ?? [], '#2a9d8f', 0.012, 0.84, 0.045);
+    }
 
     if (layers.tree && frame?.treeSegments) {
       frame.treeSegments.forEach((seg, i) => {
@@ -770,8 +852,9 @@ class BabylonSceneManager {
       });
     }
 
-    if (frame?.robotPose) {
-      const p = frame.robotPose;
+    const robotPose = liveEvent?.controlState?.pose ?? frame?.robotPose ?? null;
+    if (layers.robotPose && robotPose) {
+      const p = robotPose;
       const grp = new BABYLON.TransformNode("dyn_robot", this.scene!);
       grp.position = vec3(p);
       grp.rotation = new BABYLON.Vector3(0, 0, p.yaw); 
@@ -937,9 +1020,13 @@ export function SceneCanvas(props: SceneCanvasProps) {
 
   useEffect(() => {
     if (engineReady && managerRef.current && props.scene) {
-      managerRef.current.updateCamera(props.viewMode, props.frame?.robotPose ?? null, props.scene);
+      managerRef.current.updateCamera(
+        props.viewMode,
+        props.liveEvent?.controlState?.pose ?? props.frame?.robotPose ?? null,
+        props.scene,
+      );
     }
-  }, [engineReady, props.viewMode, props.frame?.robotPose, props.scene]);
+  }, [engineReady, props.viewMode, props.frame?.robotPose, props.liveEvent?.controlState?.pose, props.scene]);
 
   useEffect(() => {
     if (engineReady && managerRef.current) {

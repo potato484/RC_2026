@@ -83,6 +83,38 @@ function formatElapsedMs(value: number | null | undefined): string {
   return `${value.toFixed(2)} 毫秒`;
 }
 
+function formatLevel(level: number | null | undefined): string {
+  if (typeof level !== 'number' || !Number.isFinite(level)) {
+    return UI_LABELS.emptyValue;
+  }
+  if (level <= 0) {
+    return '正常';
+  }
+  if (level === 1) {
+    return '注意';
+  }
+  if (level === 2) {
+    return '告警';
+  }
+  return `严重(${level})`;
+}
+
+function formatSeverity(severity: number | null | undefined): string {
+  if (typeof severity !== 'number' || !Number.isFinite(severity)) {
+    return UI_LABELS.emptyValue;
+  }
+  if (severity <= 1) {
+    return '信息';
+  }
+  if (severity === 2) {
+    return '提醒';
+  }
+  if (severity === 3) {
+    return '告警';
+  }
+  return `严重(${severity})`;
+}
+
 function resolveTimingMs(...values: Array<number | null | undefined>): number | null {
   for (const value of values) {
     if (typeof value === 'number' && Number.isFinite(value)) {
@@ -240,6 +272,7 @@ export default function App() {
   const loadingScene = useSimStore((state) => state.loadingScene);
   const team = useSimStore((state) => state.team);
   const viewMode = useSimStore((state) => state.viewMode);
+  const layoutPresetId = useSimStore((state) => state.layoutPresetId);
   const layers = useSimStore((state) => state.layers);
   const statusMessage = useSimStore((state) => state.statusMessage);
 
@@ -247,6 +280,7 @@ export default function App() {
   const setSceneLoading = useSimStore((state) => state.setSceneLoading);
   const setScene = useSimStore((state) => state.setScene);
   const setViewMode = useSimStore((state) => state.setViewMode);
+  const applyLayoutPreset = useSimStore((state) => state.applyLayoutPreset);
   const toggleLayer = useSimStore((state) => state.toggleLayer);
   const setStatusMessage = useSimStore((state) => state.setStatusMessage);
 
@@ -292,15 +326,31 @@ export default function App() {
   );
 
   const layerControls = useMemo(
-    () => deriveLayerControls({ layers, frame: currentFrame }),
-    [layers, currentFrame],
+    () => deriveLayerControls({ layers, frame: currentFrame, scene, liveEvent }),
+    [layers, currentFrame, scene, liveEvent],
   );
   const primaryLayerControls = layerControls.filter((control) => control.group === 'primary' && control.visible);
   const appearanceLayerControls = layerControls.filter((control) => control.group === 'advanced' && control.visible);
 
   const startPose = surfaceProjectedStart ?? surfaceStartPick;
   const goalPose = surfaceProjectedGoal ?? surfaceGoalPick;
-  const viewModes: ViewMode[] = ['orbit', 'top_ortho', 'side_perspective'];
+  const viewModes: ViewMode[] = ['orbit', 'follow', 'top_ortho', 'side_perspective'];
+  const viewerTitle = scene?.viewerMeta?.viewer_title || UI_LABELS.appTitle;
+  const viewerSubtitle = scene?.viewerMeta?.viewer_subtitle || UI_LABELS.appSubtitle;
+  const layoutPresets = scene?.layoutPresets ?? [];
+  const activeLayoutPreset = layoutPresets.find((preset) => preset.id === layoutPresetId) ?? null;
+  const activePhaseZone =
+    scene?.semanticZones?.find((zone) => zone.phase_key === liveEvent?.btSnapshot?.activeSubtreeId) ?? null;
+  const activeKeepoutCount =
+    liveEvent?.blockOverlay?.filter((cell) => cell.keepoutActive).length ?? 0;
+  const blockedGridIds = useMemo(
+    () =>
+      (liveEvent?.blockOverlay ?? [])
+        .filter((cell) => cell.keepoutActive)
+        .map((cell) => cell.gridId),
+    [liveEvent?.blockOverlay],
+  );
+  const liveRobotPose = liveEvent?.controlState?.pose ?? currentFrame?.robotPose ?? null;
   const frameMetrics = Object.entries(currentFrame?.metrics ?? {})
     .filter(([key]) => key !== 'traceMode')
     .map(([key, value]) => ({
@@ -359,10 +409,18 @@ export default function App() {
       : pickMode === 'surface_goal'
         ? UI_LABELS.hintPickSurfaceGoal
         : UI_LABELS.hintPickIdle;
+  const activeEventList = (liveEvent?.visualizationEvents ?? []).filter((event) => event.active);
+  const btEventList = liveEvent?.btEvents ?? [];
   const liveTracking = liveEvent?.trackingState ?? null;
   const livePlanner = liveEvent?.localPlannerState ?? null;
   const liveRecovery = liveEvent?.recoveryState ?? null;
   const liveSemantic = liveEvent?.semanticSummary ?? null;
+  const liveMotionMode = liveEvent?.motionModeState ?? null;
+  const liveLocalizationHealth = liveEvent?.localizationHealth ?? null;
+  const liveLocalizationBackend = liveEvent?.localizationBackendStatus ?? null;
+  const liveOperatorStatus = liveEvent?.operatorStatus ?? null;
+  const liveMechanismState = liveEvent?.mechanismState ?? null;
+  const liveBtSnapshot = liveEvent?.btSnapshot ?? null;
 
   function clearGeneratedRoute() {
     routeRequestSeq.current += 1;
@@ -445,9 +503,14 @@ export default function App() {
     let socket: WebSocket | null = null;
 
     startLiveBridge()
-      .then(() => {
+      .then((response) => {
         if (closed) {
           return;
+        }
+        if (response.snapshot) {
+          startTransition(() => {
+            setLiveEvent(response.snapshot ?? null);
+          });
         }
         socket = new WebSocket(buildLiveEventsUrl());
         socket.onmessage = (event) => {
@@ -768,10 +831,16 @@ export default function App() {
       <header className="topbar">
         <div>
           <p className="eyebrow">{UI_LABELS.appEyebrow}</p>
-          <h1 className="title">{UI_LABELS.appTitle}</h1>
-          <p className="subtitle">{UI_LABELS.appSubtitle}</p>
+          <h1 className="title">{viewerTitle}</h1>
+          <p className="subtitle">{viewerSubtitle}</p>
         </div>
         <div className="topbar-actions">
+          {activeLayoutPreset && (
+            <div className="status-pill">
+              <span className="status-dot" />
+              {`${UI_LABELS.fieldLayoutPreset}: ${activeLayoutPreset.label}`}
+            </div>
+          )}
           <div className="status-pill">
             <span className={clsx('status-dot', hasError && 'error', busy && 'warning')} />
             {statusMessage}
@@ -797,8 +866,25 @@ export default function App() {
                 </button>
               ))}
             </div>
+            {layoutPresets.length > 0 && (
+              <div className="command-group" aria-label={UI_LABELS.panelLayout}>
+                {layoutPresets.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className={clsx('mode-button', layoutPresetId === preset.id && 'mode-button-active')}
+                    onClick={() => applyLayoutPreset(preset.id)}
+                    aria-label={preset.label}
+                    title={preset.description}
+                    disabled={loadingScene}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="command-note">
-              {UI_LABELS.routeModeHint}
+              {activeLayoutPreset?.description ?? UI_LABELS.routeModeHint}
             </div>
           </div>
 
@@ -813,7 +899,7 @@ export default function App() {
               goalPose={goalPose}
               hoverPose={surfaceHoverPose}
               manualPath={surfacePath}
-              blockedGridIds={[]}
+              blockedGridIds={blockedGridIds}
               pickMode={pickMode}
               onHoverWorldChange={setSurfaceHoverPose}
               onPickWorld={handleSurfaceScenePick}
@@ -827,6 +913,10 @@ export default function App() {
               <div className="canvas-overlay-card">
                 <strong>{UI_LABELS.panelTiming}</strong>
                 <span>{timingHeadline}</span>
+              </div>
+              <div className="canvas-overlay-card">
+                <strong>{UI_LABELS.fieldActivePhase}</strong>
+                <span>{activePhaseZone?.label ?? UI_LABELS.emptyValue}</span>
               </div>
               <div className={clsx('canvas-overlay-card', 'canvas-overlay-emphasis', pickMode !== 'idle' && 'canvas-overlay-active')}>
                 {pickMode === 'idle'
@@ -844,6 +934,10 @@ export default function App() {
                 <div className="hud-card">
                   <span className="hud-section-title">终点</span>
                   <strong>{formatPose(goalPose)}</strong>
+                </div>
+                <div className="hud-card">
+                  <span className="hud-section-title">{UI_LABELS.fieldRobotPose}</span>
+                  <strong>{formatPose(liveRobotPose)}</strong>
                 </div>
               </div>
             </div>
@@ -927,6 +1021,13 @@ export default function App() {
                       <span>{UI_LABELS.legendExpandedHint}</span>
                     </div>
                   </div>
+                  <div className="canvas-legend-item">
+                    <span className="layer-mark layer-mark-phaseZones" aria-hidden="true" />
+                    <div className="canvas-legend-copy">
+                      <strong>{UI_LABELS.legendPhaseZones}</strong>
+                      <span>{UI_LABELS.legendPhaseZonesHint}</span>
+                    </div>
+                  </div>
                 </div>
                 <div className="canvas-legend-note">{UI_LABELS.legendLayerHint}</div>
               </div>
@@ -1004,6 +1105,22 @@ export default function App() {
 
         <section className="panel debug-panel">
           <div className="summary-strip" data-testid="summary-strip">
+            <RouteStats
+              title={UI_LABELS.fieldLayoutPreset}
+              value={activeLayoutPreset?.label ?? UI_LABELS.emptyValue}
+            />
+            <RouteStats
+              title={UI_LABELS.fieldActivePhase}
+              value={activePhaseZone?.label ?? UI_LABELS.emptyValue}
+            />
+            <RouteStats
+              title={UI_LABELS.statEvents}
+              value={String(activeEventList.length)}
+            />
+            <RouteStats
+              title={UI_LABELS.statKeepouts}
+              value={String(activeKeepoutCount)}
+            />
             <RouteStats title={UI_LABELS.statCompletePlanning} value={formatElapsedMs(surfaceCompletePlanningMs)} />
             <RouteStats title={UI_LABELS.statSurfaceProjection} value={formatElapsedMs(surfaceProjectionMs)} />
             <RouteStats title={UI_LABELS.statSurfacePlanning} value={formatElapsedMs(surfacePlanningMs)} />
@@ -1158,10 +1275,34 @@ export default function App() {
               </section>
 
               <section className="panel-section">
-                <h2>{UI_LABELS.panelLiveRuntime}</h2>
+                <h2>{UI_LABELS.panelPlatformStatus}</h2>
                 <div className="trace-card">
-                  <div className="trace-title">运行时局部规划观测</div>
+                  <div className="trace-title">{UI_LABELS.panelPlatformStatus}</div>
+                  <div className="trace-meta">
+                    <span>{UI_LABELS.hintPlatformStatus}</span>
+                    <span>{liveEvent?.timestamp ? new Date(liveEvent.timestamp * 1000).toLocaleTimeString() : UI_LABELS.emptyValue}</span>
+                  </div>
                   <div className="metrics-list">
+                    <div className="metric-row">
+                      <span>{UI_LABELS.fieldRobotPose}</span>
+                      <strong>{formatPose(liveRobotPose)}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>行为树阶段</span>
+                      <strong>{activePhaseZone?.label ?? liveBtSnapshot?.activeSubtreeId ?? UI_LABELS.emptyValue}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>布局预设</span>
+                      <strong>{activeLayoutPreset?.label ?? UI_LABELS.emptyValue}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>运动模式</span>
+                      <strong>
+                        {liveMotionMode
+                          ? `${liveMotionMode.activeMode} / ${liveMotionMode.stopRequired ? '需停' : '可行'}`
+                          : UI_LABELS.emptyValue}
+                      </strong>
+                    </div>
                     <div className="metric-row">
                       <span>跟踪状态</span>
                       <strong>{liveTracking?.status ?? UI_LABELS.emptyValue}</strong>
@@ -1187,6 +1328,38 @@ export default function App() {
                       </strong>
                     </div>
                     <div className="metric-row">
+                      <span>定位健康</span>
+                      <strong>
+                        {liveLocalizationHealth
+                          ? `${formatLevel(liveLocalizationHealth.level)} / ${liveLocalizationHealth.localizationState}`
+                          : UI_LABELS.emptyValue}
+                      </strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>定位后端</span>
+                      <strong>
+                        {liveLocalizationBackend
+                          ? `${liveLocalizationBackend.optimizerState} / 图健康 ${formatMetricValue(liveLocalizationBackend.graphHealth)}`
+                          : UI_LABELS.emptyValue}
+                      </strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>操作员状态</span>
+                      <strong>
+                        {liveOperatorStatus
+                          ? `${formatLevel(liveOperatorStatus.overallLevel)} / ${liveOperatorStatus.overallReason || UI_LABELS.emptyValue}`
+                          : UI_LABELS.emptyValue}
+                      </strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>机构状态</span>
+                      <strong>
+                        {liveMechanismState
+                          ? `tip ${liveMechanismState.tipState} / RTT ${formatMetricValue(liveMechanismState.avgRttMs)}`
+                          : UI_LABELS.emptyValue}
+                      </strong>
+                    </div>
+                    <div className="metric-row">
                       <span>活动边</span>
                       <strong>{liveEvent?.activeEdge || UI_LABELS.emptyValue}</strong>
                     </div>
@@ -1206,6 +1379,41 @@ export default function App() {
                       <span>语义来源</span>
                       <strong>{formatStringList(liveSemantic?.activeSources)}</strong>
                     </div>
+                    <div className="metric-row">
+                      <span>运行路径 UID</span>
+                      <strong>{formatStringList(liveBtSnapshot?.runningPathUids.map((uid) => String(uid)))}</strong>
+                    </div>
+                    <div className="metric-row">
+                      <span>活跃事件数</span>
+                      <strong>{String(activeEventList.length)}</strong>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="panel-section">
+                <h2>{UI_LABELS.panelEvents}</h2>
+                <div className="trace-card">
+                  <div className="trace-title">{UI_LABELS.panelEvents}</div>
+                  <div className="trace-meta">
+                    <span>聚合 `/r2/diag/events` 与 `/r2/bt/events` 的最近状态。</span>
+                  </div>
+                  <div className="metrics-list metrics-list-scroll">
+                    {activeEventList.length === 0 && btEventList.length === 0 && (
+                      <div className="empty-note">{UI_LABELS.hintEventsEmpty}</div>
+                    )}
+                    {activeEventList.map((event) => (
+                      <div key={event.code} className="metric-row metric-row-stack">
+                        <span>{`${event.title} / ${formatSeverity(event.severity)}`}</span>
+                        <strong>{event.recommendation || event.detail || UI_LABELS.emptyValue}</strong>
+                      </div>
+                    ))}
+                    {btEventList.map((event) => (
+                      <div key={`${event.uid}-${event.nodeName}`} className="metric-row metric-row-stack">
+                        <span>{`BT ${event.nodeName}`}</span>
+                        <strong>{event.fullPath || UI_LABELS.emptyValue}</strong>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </section>

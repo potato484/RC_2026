@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FastAPI + WebSocket adapter for the rc26_topo_nav 3D simulation viewer."""
+"""FastAPI + WebSocket adapter for the RC26 global visualization platform."""
 
 from __future__ import annotations
 
@@ -39,39 +39,59 @@ except ImportError:  # pragma: no cover - optional in source-tree runs
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+PACKAGE_NAME = "rc26_visualization"
+TOPO_NAV_PACKAGE_NAME = "rc26_topo_nav"
 
 
-def detect_source_pkg_root() -> Path | None:
-    candidate = SCRIPT_DIR.parent
-    if (candidate / "scripts").is_dir() and (candidate / "config").is_dir():
-        return candidate
+def detect_source_pkg_root(package_name: str) -> Path | None:
+    direct_candidate = SCRIPT_DIR.parent
+    if direct_candidate.name == package_name and (direct_candidate / "scripts").is_dir() and (direct_candidate / "config").is_dir():
+        return direct_candidate
+
+    search_roots = [SCRIPT_DIR, *SCRIPT_DIR.parents]
+    for root in search_roots:
+        for candidate in (root / "src" / package_name, root / package_name):
+            if (candidate / "scripts").is_dir() and (candidate / "config").is_dir():
+                return candidate
     return None
 
 
-def detect_share_root() -> Path | None:
+def detect_share_root(package_name: str) -> Path | None:
     if get_package_share_directory is None or PackageNotFoundError is None:
         return None
     try:
-        return Path(get_package_share_directory("rc26_topo_nav"))
+        return Path(get_package_share_directory(package_name))
     except PackageNotFoundError:
         return None
 
 
-def detect_package_prefix() -> Path | None:
+def detect_package_prefix(package_name: str) -> Path | None:
     if get_package_prefix is None or PackageNotFoundError is None:
         return None
     try:
-        return Path(get_package_prefix("rc26_topo_nav"))
+        return Path(get_package_prefix(package_name))
     except PackageNotFoundError:
         return None
 
 
-SOURCE_PKG_ROOT = detect_source_pkg_root()
-SHARE_ROOT = detect_share_root()
-PACKAGE_PREFIX = detect_package_prefix()
+def package_workspace_root(package_root: Path | None) -> Path | None:
+    if package_root is None:
+        return None
+    if package_root.parent.name == "src":
+        return package_root.parent.parent
+    return package_root.parent
+
+
+SOURCE_PKG_ROOT = detect_source_pkg_root(PACKAGE_NAME)
+SHARE_ROOT = detect_share_root(PACKAGE_NAME)
+PACKAGE_PREFIX = detect_package_prefix(PACKAGE_NAME)
+TOPO_SOURCE_PKG_ROOT = detect_source_pkg_root(TOPO_NAV_PACKAGE_NAME)
+TOPO_SHARE_ROOT = detect_share_root(TOPO_NAV_PACKAGE_NAME)
+TOPO_PACKAGE_PREFIX = detect_package_prefix(TOPO_NAV_PACKAGE_NAME)
 PKG_ROOT = SOURCE_PKG_ROOT or SHARE_ROOT or SCRIPT_DIR.parent
-SOURCE_WORKSPACE_ROOT = SOURCE_PKG_ROOT.parent if SOURCE_PKG_ROOT is not None else None
-SOURCE_REPO_ROOT = SOURCE_PKG_ROOT.parent.parent if SOURCE_PKG_ROOT is not None else None
+SOURCE_WORKSPACE_ROOT = package_workspace_root(SOURCE_PKG_ROOT)
+SOURCE_REPO_ROOT = SOURCE_WORKSPACE_ROOT
+TOPO_SOURCE_WORKSPACE_ROOT = package_workspace_root(TOPO_SOURCE_PKG_ROOT)
 PLANNER_TRACE_CLI_TIMEOUT_SEC = 20.0
 SURFACE_ROUTE_CLI_TIMEOUT_SEC = 10.0
 LOCAL_PLANNER_TRACE_CLI_TIMEOUT_SEC = 10.0
@@ -84,7 +104,7 @@ TEAM_DISPLAY_LABELS = {
 }
 
 
-def preferred_package_path(*parts: str) -> Path:
+def visualization_package_path(*parts: str) -> Path:
     candidates: list[Path] = []
     if SOURCE_PKG_ROOT is not None:
         candidates.append(SOURCE_PKG_ROOT.joinpath(*parts))
@@ -98,9 +118,23 @@ def preferred_package_path(*parts: str) -> Path:
     return candidates[0]
 
 
+def topo_nav_package_path(*parts: str) -> Path:
+    candidates: list[Path] = []
+    if TOPO_SOURCE_PKG_ROOT is not None:
+        candidates.append(TOPO_SOURCE_PKG_ROOT.joinpath(*parts))
+    if TOPO_SHARE_ROOT is not None:
+        candidates.append(TOPO_SHARE_ROOT.joinpath(*parts))
+    if not candidates:
+        return PKG_ROOT.joinpath(*parts)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
 def source_workspace_candidates() -> list[Path]:
     candidates: list[Path] = []
-    for candidate in (SOURCE_REPO_ROOT, SOURCE_WORKSPACE_ROOT):
+    for candidate in (SOURCE_REPO_ROOT, SOURCE_WORKSPACE_ROOT, TOPO_SOURCE_WORKSPACE_ROOT):
         if candidate is None:
             continue
         if candidate not in candidates:
@@ -111,11 +145,11 @@ def source_workspace_candidates() -> list[Path]:
 def resolve_frontend_root() -> Path:
     candidates: list[Path] = []
     if SOURCE_PKG_ROOT is not None:
-        candidates.append(SOURCE_PKG_ROOT / "sim_viewer")
+        candidates.append(SOURCE_PKG_ROOT / "viewer")
     if SHARE_ROOT is not None:
-        candidates.append(SHARE_ROOT / "sim_viewer")
+        candidates.append(SHARE_ROOT / "viewer")
     if not candidates:
-        return PKG_ROOT / "sim_viewer"
+        return PKG_ROOT / "viewer"
     for candidate in candidates:
         if candidate.is_dir():
             return candidate
@@ -128,7 +162,7 @@ FRONTEND_DIST = FRONTEND_ROOT / "dist"
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from topo_sim_algorithms import (  # noqa: E402
+from visualization_algorithms import (  # noqa: E402
     build_obstacle_rects,
     build_world_bounds,
     edge_lookup,
@@ -152,26 +186,83 @@ def load_module(name: str, path: Path):
 RENDER = load_module("render_graph_sim_html", SCRIPT_DIR / "render_graph_sim_html.py")
 
 
+def load_field_scene_manifest() -> dict[str, Any]:
+    manifest_file = default_field_scene_manifest_file()
+    if manifest_file.is_file():
+        return RENDER.load_yaml(manifest_file)
+    return {}
+
+
+def normalize_semantic_zones(document: dict[str, Any]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for zone in document.get("semantic_zones", []):
+        normalized.append(
+            {
+                "id": str(zone.get("id", "")),
+                "label": str(zone.get("label", "")),
+                "phase_key": str(zone.get("phase_key", "")),
+                "color": str(zone.get("color", "#94a3b8")),
+                "source": str(zone.get("source", "")),
+                "viewer_only": bool(zone.get("viewer_only", False)),
+                "polygon": [pose_point(point) for point in zone.get("polygon", [])],
+            }
+        )
+    return normalized
+
+
+def normalize_display_catalog(document: dict[str, Any]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for display in document.get("display_catalog", []):
+        normalized.append(
+            {
+                "id": str(display.get("id", "")),
+                "label": str(display.get("label", "")),
+                "short_label": str(display.get("short_label", "")),
+                "group": str(display.get("group", "advanced")),
+                "tone": str(display.get("tone", "scene")),
+            }
+        )
+    return normalized
+
+
+def normalize_layout_presets(document: dict[str, Any]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for preset in document.get("layout_presets", []):
+        normalized.append(
+            {
+                "id": str(preset.get("id", "")),
+                "label": str(preset.get("label", "")),
+                "description": str(preset.get("description", "")),
+                "visible_displays": [str(item) for item in preset.get("visible_displays", [])],
+            }
+        )
+    return normalized
+
+
 def default_graph_for_team(team: str) -> Path:
-    return preferred_package_path(
+    return topo_nav_package_path(
         "config",
         "r2_field_graph_red.yaml" if team.lower() == "red" else "r2_field_graph_blue.yaml",
     )
 
 
 def default_surface_graph_for_team(team: str) -> Path:
-    return preferred_package_path(
+    return topo_nav_package_path(
         "config",
         "r2_surface_graph_red.yaml" if team.lower() == "red" else "r2_surface_graph_blue.yaml",
     )
 
 
 def default_world_file() -> Path:
-    return preferred_package_path("sim_assets", "worlds", "robocon2026_v2_aligned.world")
+    return topo_nav_package_path("sim_assets", "worlds", "robocon2026_v2_aligned.world")
 
 
 def default_kfs_config_file() -> Path:
-    return preferred_package_path("sim_assets", "config", "kfs_config_v2_aligned.yaml")
+    return topo_nav_package_path("sim_assets", "config", "kfs_config_v2_aligned.yaml")
+
+
+def default_field_scene_manifest_file() -> Path:
+    return visualization_package_path("config", "field_scene_manifest.yaml")
 
 
 def point_distance_3d(left: dict[str, Any], right: dict[str, Any]) -> float:
@@ -393,6 +484,7 @@ def build_scene_manifest(
     kfs_config_file: Path,
     include_full_geometry: bool = True,
 ) -> dict[str, Any]:
+    field_scene_manifest = load_field_scene_manifest()
     document = RENDER.load_yaml(graph_file)
     sim_config = RENDER.load_yaml(kfs_config_file)
     alignment = RENDER.derive_graph_alignment(document, sim_config, team)
@@ -457,6 +549,7 @@ def build_scene_manifest(
             "kfs_config_file": str(kfs_config_file),
             "full_geometry": include_full_geometry,
         },
+        "viewerMeta": field_scene_manifest.get("meta", {}),
         "alignment": alignment,
         "bounds": bounds,
         "lights": parse_world_lights(world_file),
@@ -467,6 +560,9 @@ def build_scene_manifest(
         "routes": document.get("routes", []),
         "meilinSlots": meilin_slots,
         "cameraPresets": build_camera_presets(bounds),
+        "semanticZones": normalize_semantic_zones(field_scene_manifest),
+        "displayCatalog": normalize_display_catalog(field_scene_manifest),
+        "layoutPresets": normalize_layout_presets(field_scene_manifest),
         "defaults": {"startNode": default_start, "goalNode": default_goal},
     }
 
@@ -485,8 +581,8 @@ def resolve_cli_binary() -> Path:
                 workspace_root / "build" / "rc26_topo_nav" / "planner_trace_cli",
             ]
         )
-    if PACKAGE_PREFIX is not None:
-        candidates.append(PACKAGE_PREFIX / "lib" / "rc26_topo_nav" / "planner_trace_cli")
+    if TOPO_PACKAGE_PREFIX is not None:
+        candidates.append(TOPO_PACKAGE_PREFIX / "lib" / "rc26_topo_nav" / "planner_trace_cli")
     which_path = shutil.which("planner_trace_cli")
     if which_path:
         candidates.append(Path(which_path))
@@ -506,8 +602,8 @@ def resolve_surface_cli_binary() -> Path:
                 workspace_root / "build" / "rc26_topo_nav" / "surface_route_cli",
             ]
         )
-    if PACKAGE_PREFIX is not None:
-        candidates.append(PACKAGE_PREFIX / "lib" / "rc26_topo_nav" / "surface_route_cli")
+    if TOPO_PACKAGE_PREFIX is not None:
+        candidates.append(TOPO_PACKAGE_PREFIX / "lib" / "rc26_topo_nav" / "surface_route_cli")
     which_path = shutil.which("surface_route_cli")
     if which_path:
         candidates.append(Path(which_path))
@@ -1231,13 +1327,22 @@ class LiveRosBridge:
             "routePath": [],
             "corridorPath": [],
             "localPlannerPreviewPath": [],
+            "controlState": None,
             "activeEdge": "",
             "gateStatus": "",
             "blockOverlay": [],
+            "motionModeState": None,
             "trackingState": None,
             "localPlannerState": None,
             "recoveryState": None,
             "semanticSummary": None,
+            "localizationHealth": None,
+            "localizationBackendStatus": None,
+            "operatorStatus": None,
+            "visualizationEvents": [],
+            "mechanismState": None,
+            "btSnapshot": None,
+            "btEvents": [],
             "timestamp": time.time(),
         }
 
@@ -1249,7 +1354,7 @@ class LiveRosBridge:
             return {"status": "running", "namespace": self.namespace, "snapshot": {"type": "live_state", **snapshot}}
         self.loop = asyncio.get_running_loop()
         self.stop_event.clear()
-        self.thread = threading.Thread(target=self._spin, name="topo-sim-live-bridge", daemon=True)
+        self.thread = threading.Thread(target=self._spin, name="visualization-live-bridge", daemon=True)
         self.thread.start()
         with self._lock:
             snapshot = dict(self.state)
@@ -1264,10 +1369,19 @@ class LiveRosBridge:
     def _spin(self) -> None:
         try:
             import rclpy
+            from nav_msgs.msg import Odometry
             from nav_msgs.msg import Path as RosPath
             from rc26_interfaces.msg import (
+                BehaviorTreeEventArray,
+                BehaviorTreeSnapshot,
+                LocalizationBackendStatus,
+                LocalizationHealth,
                 MfBlockOverlay,
+                MechanismState,
+                OperatorStatus,
+                VisualizationEventArray,
                 XhuLocalPlannerState,
+                XhuMotionModeState,
                 XhuRecoveryState,
                 XhuSemanticLayerSummary,
                 XhuTrackingState,
@@ -1279,7 +1393,7 @@ class LiveRosBridge:
 
         if not rclpy.ok():
             rclpy.init(args=None)
-        node = rclpy.create_node("topo_sim_live_bridge")
+        node = rclpy.create_node("visualization_live_bridge")
 
         def path_to_points(msg: Any) -> list[dict[str, float]]:
             return [
@@ -1292,6 +1406,19 @@ class LiveRosBridge:
                 for item in msg.poses
             ]
 
+        def odom_to_pose(msg: Any) -> dict[str, float]:
+            orientation = msg.pose.pose.orientation
+            yaw = math.atan2(
+                2.0 * (orientation.w * orientation.z + orientation.x * orientation.y),
+                1.0 - 2.0 * (orientation.y * orientation.y + orientation.z * orientation.z),
+            )
+            return {
+                "x": float(msg.pose.pose.position.x),
+                "y": float(msg.pose.pose.position.y),
+                "z": float(msg.pose.pose.position.z),
+                "yaw": round_float(yaw, 4),
+            }
+
         def update_state(**kwargs: Any) -> None:
             with self._lock:
                 self.state.update(kwargs)
@@ -1299,6 +1426,26 @@ class LiveRosBridge:
                 snapshot = dict(self.state)
             self._schedule_broadcast({"type": "live_state", **snapshot})
 
+        node.create_subscription(
+            Odometry,
+            self._topic("/control_state"),
+            lambda msg: update_state(
+                controlState={
+                    "pose": odom_to_pose(msg),
+                    "linear": {
+                        "x": float(msg.twist.twist.linear.x),
+                        "y": float(msg.twist.twist.linear.y),
+                        "z": float(msg.twist.twist.linear.z),
+                    },
+                    "angular": {
+                        "x": float(msg.twist.twist.angular.x),
+                        "y": float(msg.twist.twist.angular.y),
+                        "z": float(msg.twist.twist.angular.z),
+                    },
+                }
+            ),
+            10,
+        )
         node.create_subscription(RosPath, self._topic("/topo_nav/route"), lambda msg: update_state(routePath=path_to_points(msg)), 10)
         node.create_subscription(
             RosPath,
@@ -1315,6 +1462,21 @@ class LiveRosBridge:
         node.create_subscription(String, self._topic("/xhu_nav/active_edge"), lambda msg: update_state(activeEdge=msg.data), 10)
         node.create_subscription(String, self._topic("/xhu_nav/semantic_gate"), lambda msg: update_state(gateStatus=msg.data), 10)
         node.create_subscription(
+            XhuMotionModeState,
+            self._topic("/xhu_nav/motion_mode_state"),
+            lambda msg: update_state(
+                motionModeState={
+                    "activeMode": msg.active_mode,
+                    "reason": msg.reason,
+                    "stopRequired": bool(msg.stop_required),
+                    "timedOut": bool(msg.timed_out),
+                    "maxLinearSpeed": float(msg.max_linear_speed),
+                    "maxAngularSpeed": float(msg.max_angular_speed),
+                }
+            ),
+            10,
+        )
+        node.create_subscription(
             MfBlockOverlay,
             self._topic("/mf_block_overlay"),
             lambda msg: update_state(
@@ -1327,6 +1489,37 @@ class LiveRosBridge:
                     }
                     for cell in msg.cells
                 ]
+            ),
+            10,
+        )
+        node.create_subscription(
+            LocalizationHealth,
+            self._topic("/localization/health"),
+            lambda msg: update_state(
+                localizationHealth={
+                    "level": int(msg.level),
+                    "reason": msg.reason,
+                    "localizationState": msg.localization_state,
+                    "controlDegraded": bool(msg.control_degraded),
+                    "sigmaXy": float(msg.sigma_xy),
+                    "sigmaYaw": float(msg.sigma_yaw),
+                }
+            ),
+            10,
+        )
+        node.create_subscription(
+            LocalizationBackendStatus,
+            self._topic("/localization/backend_status"),
+            lambda msg: update_state(
+                localizationBackendStatus={
+                    "optimizerReady": bool(msg.optimizer_ready),
+                    "optimizerState": msg.optimizer_state,
+                    "graphHealth": float(msg.graph_health),
+                    "loopCandidateCount": int(msg.loop_candidate_count),
+                    "acceptedLoopCount": int(msg.accepted_loop_count),
+                    "acceptedAnchorCount": int(msg.accepted_anchor_count),
+                    "imuSpike": bool(msg.imu_spike),
+                }
             ),
             10,
         )
@@ -1378,6 +1571,96 @@ class LiveRosBridge:
                     "elapsedSec": float(msg.elapsed_sec),
                     "reason": msg.reason,
                 }
+            ),
+            10,
+        )
+        node.create_subscription(
+            MechanismState,
+            self._topic("/mechanism/state"),
+            lambda msg: update_state(
+                mechanismState={
+                    "tipState": int(msg.tip_state),
+                    "halOpen": bool(msg.hal_open),
+                    "lockedTipSlot": int(msg.locked_tip_slot),
+                    "assembledCount": int(msg.assembled_count),
+                    "lastErrorCode": int(msg.last_error_code),
+                    "cmdElapsedMs": int(msg.cmd_elapsed_ms),
+                    "ackTimeoutCount": int(msg.ack_timeout_count),
+                    "reconnectCount": int(msg.reconnect_count),
+                    "parseErrorCount": int(msg.parse_error_count),
+                    "avgRttMs": float(msg.avg_rtt_ms),
+                    "commHealthLevel": int(msg.comm_health_level),
+                }
+            ),
+            10,
+        )
+        node.create_subscription(
+            OperatorStatus,
+            self._topic("/r2/diag/operator_status"),
+            lambda msg: update_state(
+                operatorStatus={
+                    "overallLevel": int(msg.overall_level),
+                    "overallReason": msg.overall_reason,
+                    "localizationLevel": int(msg.localization_level),
+                    "localizationReason": msg.localization_reason,
+                    "controllerLevel": int(msg.controller_level),
+                    "navSafetyLevel": int(msg.nav_safety_level),
+                    "terrainLevel": int(msg.terrain_level),
+                    "keepoutLevel": int(msg.keepout_level),
+                    "mechanismLevel": int(msg.mechanism_level),
+                    "activeEventCodes": list(msg.active_event_codes),
+                    "topicTimeoutCount": int(msg.topic_timeout_count),
+                }
+            ),
+            10,
+        )
+        node.create_subscription(
+            VisualizationEventArray,
+            self._topic("/r2/diag/events"),
+            lambda msg: update_state(
+                visualizationEvents=[
+                    {
+                        "code": event.code,
+                        "severity": int(event.severity),
+                        "title": event.title,
+                        "detail": event.detail,
+                        "sourceSignal": event.source_signal,
+                        "recommendation": event.recommendation,
+                        "active": bool(event.active),
+                    }
+                    for event in msg.events[-10:]
+                ]
+            ),
+            10,
+        )
+        node.create_subscription(
+            BehaviorTreeSnapshot,
+            self._topic("/r2/bt/snapshot"),
+            lambda msg: update_state(
+                btSnapshot={
+                    "tickSeq": int(msg.tick_seq),
+                    "treeStatus": int(msg.tree_status),
+                    "tickDurationMs": float(msg.tick_duration_ms),
+                    "activeSubtreeId": msg.active_subtree_id,
+                    "runningPathUids": [int(uid) for uid in msg.running_path_uids],
+                }
+            ),
+            10,
+        )
+        node.create_subscription(
+            BehaviorTreeEventArray,
+            self._topic("/r2/bt/events"),
+            lambda msg: update_state(
+                btEvents=[
+                    {
+                        "uid": int(event.uid),
+                        "nodeName": event.node_name,
+                        "fullPath": event.full_path,
+                        "status": int(event.status),
+                        "prevStatus": int(event.prev_status),
+                    }
+                    for event in msg.events[-12:]
+                ]
             ),
             10,
         )
@@ -1438,7 +1721,7 @@ class LiveRosBridge:
             self.subscribers.discard(websocket)
 
 
-app = FastAPI(title="RC26 Topo 3D Simulation Adapter", version="0.1.0")
+app = FastAPI(title="RC26 Visualization Platform", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -1447,7 +1730,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-RUNS: dict[str, SimulationRun] = {}
 LIVE_BRIDGE = LiveRosBridge()
 
 
@@ -1719,7 +2001,7 @@ def send_surface_route_goal(request: SurfaceRouteExecuteRequest) -> dict[str, An
         rclpy.init(args=None)
         did_init = True
 
-    node = rclpy.create_node("topo_sim_surface_route_client")
+        node = rclpy.create_node("visualization_surface_route_client")
     try:
         client = ActionClient(node, NavigateSurfaceRoute, "navigate_surface_route")
         if not client.wait_for_server(timeout_sec=1.0):
@@ -1764,7 +2046,12 @@ def trace_local_planner(request: LocalPlannerTraceRequest) -> dict[str, Any]:
 
 @app.get("/api/health")
 async def health() -> dict[str, Any]:
-    return {"ok": True, "runs": len(RUNS), "frontend_dist": str(FRONTEND_DIST)}
+    return {
+        "ok": True,
+        "platform": "rc26_visualization",
+        "frontend_dist": str(FRONTEND_DIST),
+        "field_scene_manifest": str(default_field_scene_manifest_file()),
+    }
 
 
 @app.get("/api/scene-manifest")
@@ -1783,27 +2070,6 @@ async def scene_manifest(
         include_full_geometry=full_geometry,
     )
     return JSONResponse(manifest)
-
-
-@app.post("/api/runs")
-async def create_run(request: PlannerRunRequest) -> dict[str, Any]:
-    graph_file, world_file, kfs_file = request_paths(request)
-    manifest = build_scene_manifest(
-        team=request.team,
-        graph_file=graph_file,
-        world_file=world_file,
-        kfs_config_file=kfs_file,
-        include_full_geometry=True,
-    )
-    snapshot = run_offline_request(request, manifest)
-    run = SimulationRun(request, snapshot)
-    RUNS[run.id] = run
-    return {
-        "runId": run.id,
-        "frameCount": len(run.frames),
-        "summary": run.summary,
-        "state": run.state,
-    }
 
 
 @app.post("/api/surface-route/preview")
@@ -1840,28 +2106,6 @@ async def local_planner_trace(request: LocalPlannerTraceRequest) -> dict[str, An
     return trace_local_planner(request)
 
 
-@app.post("/api/runs/{run_id}/control")
-async def control_run(run_id: str, request: RunControlRequest) -> dict[str, Any]:
-    run = RUNS.get(run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail=f"Unknown run id: {run_id}")
-    return await run.control(request)
-
-
-@app.websocket("/api/runs/{run_id}/events")
-async def run_events(run_id: str, websocket: WebSocket) -> None:
-    run = RUNS.get(run_id)
-    if run is None:
-        await websocket.close(code=4404, reason="Unknown run id")
-        return
-    await run.subscribe(websocket)
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        await run.unsubscribe(websocket)
-
-
 @app.post("/api/live/start")
 async def live_start(request: LiveStartRequest) -> dict[str, Any]:
     return await LIVE_BRIDGE.start(namespace=request.namespace)
@@ -1878,7 +2122,7 @@ async def live_events(websocket: WebSocket) -> None:
 
 
 if FRONTEND_DIST.is_dir():
-    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="topo-sim-viewer")
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="rc26-visualization-viewer")
 
 
 @app.get("/")
@@ -1886,13 +2130,13 @@ async def root() -> Any:
     if FRONTEND_DIST.is_dir():
         return FileResponse(FRONTEND_DIST / "index.html")
     return {
-        "message": "RC26 topo simulation adapter is running",
+        "message": "RC26 visualization platform is running",
         "hint": f"Build the frontend in {FRONTEND_ROOT} to serve the viewer from this process",
     }
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the rc26_topo_nav 3D simulation adapter")
+    parser = argparse.ArgumentParser(description="Run the rc26_visualization web viewer adapter")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8796)
     return parser.parse_args()

@@ -1,48 +1,65 @@
 # rc26_visualization
 
-`rc26_visualization` 负责把 R2 当前自研导航链上的定位、控制、keepout、地形、机构和运行时语义聚合成统一的诊断输出。
+`rc26_visualization` 现在同时承担两层职责：
+
+- ROS2 诊断聚合：把定位、控制、keepout、地形、机构和导航运行态收敛成 `r2/diag/*`
+- 本地 Web 可视化平台：提供 `viewer/` 前端、`visualization_server.py` adapter 和 bringup 的 `local_web` 入口
+
+## 当前目录真源
+
+- `src/visualization_status_core.cpp`
+- `src/visualization_status_node.cpp`
+- `scripts/visualization_server.py`
+- `scripts/visualization_algorithms.py`
+- `scripts/render_graph_sim_html.py`
+- `viewer/`
+- `config/visualization_status.yaml`
+- `config/field_scene_manifest.yaml`
 
 ## 当前输入
 
-- 定位:
-  - `/localization/health`
-  - `/localization/backend_status`
-- 控制:
-  - `/control_degraded`
-  - `control_degenerate_score`
-  - `compute_time_ms`
-  - `pose_age_ms`
-  - `collision_d_min`
-  - `/xhu_nav/semantic_gate`
-  - `/xhu_nav/tracking_state`
-- 导航运行时:
-  - `/xhu_nav/motion_mode_state`
-- Keepout:
-  - `/mf_block_overlay`
-  - `/kfs_filter_mask`
-  - `/kfs_keepout_heartbeat`
-- 地形:
-  - `terrain_obstacles`
-  - `terrain_drop`
-  - `/terrain_grid_map_local`
-- 机构:
-  - `/mechanism/state`
+诊断聚合继续消费：
+
+- `/xhu_nav/motion_mode_state`
+- `/xhu_nav/tracking_state`
+- `/xhu_nav/local_planner_state`
+- `/xhu_nav/recovery_state`
+- `/xhu_nav/semantic_layer_summary`
+- `/localization/health`
+- `/localization/backend_status`
+- `/mf_block_overlay`
+- `/mechanism/state`
+
+Web adapter 在此基础上还会只读消费：
+
+- `/control_state`
+- `/topo_nav/route`
+- `/topo_nav/corridor`
+- `/xhu_nav/lookahead_path`
+- `/r2/diag/operator_status`
+- `/r2/diag/events`
+- `/r2/bt/snapshot`
+- `/r2/bt/events`
 
 ## 当前输出
 
-- `r2/diag/summary`
 - `r2/diag/operator_status`
 - `r2/diag/events`
 - `r2/diag/reset_topic_timeout_count`
+- `/api/scene-manifest`
+- `/api/surface-route/*`
+- `/api/local-planner/*`
+- `/api/live/*`
 
-## 当前定位
+## 当前边界
 
-- 不直接控制机器人
-- 不替代各子模块自身诊断
-- 负责把分散状态收敛为值守可读语义
-- 当前诊断语义已完全围绕 xhu 自研导航话题组织，`OperatorStatus` 也不再暴露 `terrain_speed_limited`
+- 不拥有导航 action、planner CLI 或 topo 图真源，这些仍属于 `rc26_topo_nav`
+- 不拥有 bringup 装配权，这些仍属于 `rc26_bringup`
+- 不直接控制机器人；Web 端只做只读观测和受控的 `navigate_surface_route` 下发
 
-核心实现见：
+## 本次迁移后的真实实现
 
-- [src/visualization_status_node.cpp](/home/potato/RC_2026/src/rc26_visualization/src/visualization_status_node.cpp)
-- [src/visualization_status_core.cpp](/home/potato/RC_2026/src/rc26_visualization/src/visualization_status_core.cpp)
+- 原 `rc26_topo_nav/sim_viewer` 已迁入 `rc26_visualization/viewer`
+- 原 `topo_sim_server.py` 已迁入并泛化为 `visualization_server.py`
+- bringup 的 Web 主入口已经切到 `visualization_backend:=local_web`
+- Web 端现在统一展示场地、路线、阶段区、keepout、定位健康、机构状态和 BT 快照，不再把 Foxglove 当主入口

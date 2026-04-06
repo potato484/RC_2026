@@ -1,6 +1,7 @@
 import type {
   LocalPlannerScenario,
   LocalPlannerTraceResponse,
+  LiveEvent,
   Pose3,
   SceneManifest,
   SurfaceRouteExecuteResponse,
@@ -63,8 +64,10 @@ export async function fetchSceneManifest(team: Team): Promise<SceneManifest> {
   return fetchJson<SceneManifest>(`/api/scene-manifest?team=${team}&full_geometry=true`, undefined, 15000);
 }
 
-export async function startLiveBridge(namespace = ''): Promise<{ status: string }> {
-  return fetchJson<{ status: string }>(
+export async function startLiveBridge(
+  namespace = '',
+): Promise<{ status: string; namespace?: string; snapshot?: LiveEvent }> {
+  return fetchJson<{ status: string; namespace?: string; snapshot?: LiveEvent }>(
     '/api/live/start',
     {
       method: 'POST',

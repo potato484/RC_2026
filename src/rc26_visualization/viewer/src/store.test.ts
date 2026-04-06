@@ -16,6 +16,9 @@ function createSceneManifest(): SceneManifest {
       kfs_config_file: 'kfs.yaml',
       full_geometry: true,
     },
+    viewerMeta: {
+      viewer_title: 'RC26 全局比赛场地闭环可视化平台',
+    },
     bounds: {
       min_x: -1,
       max_x: 1,
@@ -43,6 +46,29 @@ function createSceneManifest(): SceneManifest {
         target: { x: 0, y: 0, z: 0, yaw: 0 },
       },
     ],
+    displayCatalog: [
+      { id: 'scene', label: '场地', short_label: '场', group: 'primary', tone: 'scene' },
+      { id: 'route', label: '路线', short_label: '线', group: 'primary', tone: 'path' },
+      { id: 'robotPose', label: '机器人', short_label: '机', group: 'primary', tone: 'state' },
+      { id: 'phaseZones', label: '阶段区', short_label: '区', group: 'primary', tone: 'risk' },
+      { id: 'blocked', label: 'Keepout', short_label: '禁', group: 'primary', tone: 'risk' },
+      { id: 'shadows', label: '阴影', short_label: '影', group: 'advanced', tone: 'appearance' },
+    ],
+    layoutPresets: [
+      {
+        id: 'operator',
+        label: '操作员',
+        description: '默认态',
+        visible_displays: ['scene', 'route', 'robotPose', 'phaseZones', 'blocked', 'shadows'],
+      },
+      {
+        id: 'diagnostic',
+        label: '诊断',
+        description: '诊断态',
+        visible_displays: ['scene', 'robotPose', 'blocked'],
+      },
+    ],
+    semanticZones: [],
     defaults: {
       startNode: 'node-a',
       goalNode: 'node-b',
@@ -58,10 +84,12 @@ describe('useSimStore', () => {
     });
   });
 
-  it('starts in a route-observer layout with frontier overlays enabled', () => {
+  it('starts in an operator layout with live runtime layers enabled', () => {
     expect(initialState.layers.scene).toBe(true);
-    expect(initialState.layers.openSet).toBe(true);
-    expect(initialState.layers.expanded).toBe(true);
+    expect(initialState.layers.route).toBe(true);
+    expect(initialState.layers.robotPose).toBe(true);
+    expect(initialState.layers.phaseZones).toBe(true);
+    expect(initialState.layers.blocked).toBe(true);
     expect(initialState.layers.graph).toBe(false);
     expect(initialState.layers.tree).toBe(false);
   });
@@ -74,12 +102,26 @@ describe('useSimStore', () => {
     expect(useSimStore.getState().layers.scene).toBe(false);
   });
 
-  it('sets the scene-ready status once the manifest arrives', () => {
+  it('sets the scene-ready status and reapplies the preferred preset once the manifest arrives', () => {
     useSimStore.getState().setScene(createSceneManifest());
 
     expect(useSimStore.getState().scene?.meta.surface_graph_file).toBe('surface.yaml');
+    expect(useSimStore.getState().layoutPresetId).toBe('operator');
+    expect(useSimStore.getState().layers.route).toBe(true);
+    expect(useSimStore.getState().layers.graph).toBe(false);
     expect(useSimStore.getState().statusMessage).toBe(UI_LABELS.statusLoaded);
     expect(useSimStore.getState().loadingScene).toBe(false);
+  });
+
+  it('applies layout presets from the scene manifest', () => {
+    useSimStore.getState().setScene(createSceneManifest());
+    useSimStore.getState().applyLayoutPreset('diagnostic');
+
+    expect(useSimStore.getState().layoutPresetId).toBe('diagnostic');
+    expect(useSimStore.getState().layers.scene).toBe(true);
+    expect(useSimStore.getState().layers.route).toBe(false);
+    expect(useSimStore.getState().layers.robotPose).toBe(true);
+    expect(useSimStore.getState().layers.shadows).toBe(false);
   });
 
   it('stores explicit status messages from route actions', () => {

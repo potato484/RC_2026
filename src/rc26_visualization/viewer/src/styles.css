@@ -458,6 +458,10 @@ select {
   background: rgba(252, 191, 73, 0.2);
 }
 
+.layer-button-state.layer-button-active {
+  background: rgba(42, 157, 143, 0.16);
+}
+
 .layer-button-risk.layer-button-active {
   background: rgba(214, 40, 40, 0.14);
 }
@@ -494,6 +498,11 @@ select {
 .layer-mark-expanded {
   border-radius: 4px;
   background: rgba(255, 183, 3, 0.9);
+}
+
+.layer-mark-phaseZones {
+  background: linear-gradient(135deg, rgba(42, 157, 143, 0.95) 0%, rgba(233, 196, 106, 0.95) 100%);
+  clip-path: polygon(14% 50%, 50% 10%, 86% 50%, 50% 90%);
 }
 
 .layer-mark-tree {
@@ -747,6 +756,16 @@ select {
   color: var(--fg-base);
   text-align: right;
   font-weight: 600;
+}
+
+.metric-row-stack {
+  display: grid;
+  justify-content: stretch;
+}
+
+.metric-row-stack strong {
+  text-align: left;
+  margin-top: 6px;
 }
 
 .empty-note {

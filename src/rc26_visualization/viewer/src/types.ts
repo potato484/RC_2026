@@ -2,6 +2,22 @@ export type Team = 'blue' | 'red';
 export type Algorithm = 'astar' | 'rrt' | 'dwa' | 'local_planner';
 export type PickMode = 'idle' | 'start' | 'goal' | 'surface_start' | 'surface_goal';
 export type ViewMode = 'orbit' | 'follow' | 'first_person' | 'top_ortho' | 'side_ortho' | 'side_perspective';
+export type DisplayLayerKey =
+  | 'scene'
+  | 'route'
+  | 'corridor'
+  | 'lookahead'
+  | 'robotPose'
+  | 'phaseZones'
+  | 'blocked'
+  | 'graph'
+  | 'keyNodes'
+  | 'openSet'
+  | 'expanded'
+  | 'tree'
+  | 'candidates'
+  | 'shadows';
+export type DisplayTone = 'scene' | 'search' | 'path' | 'risk' | 'appearance' | 'state';
 
 export interface Pose3 {
   x: number;
@@ -52,6 +68,37 @@ export interface CameraPreset {
   target: Pose3;
 }
 
+export interface ViewerMeta {
+  schema_version?: string;
+  viewer_title?: string;
+  viewer_subtitle?: string;
+}
+
+export interface SemanticZone {
+  id: string;
+  label: string;
+  phase_key: string;
+  color: string;
+  source: string;
+  viewer_only: boolean;
+  polygon: Pose3[];
+}
+
+export interface DisplayCatalogEntry {
+  id: DisplayLayerKey;
+  label: string;
+  short_label: string;
+  group: 'primary' | 'advanced';
+  tone: DisplayTone;
+}
+
+export interface LayoutPreset {
+  id: string;
+  label: string;
+  description: string;
+  visible_displays: DisplayLayerKey[];
+}
+
 export interface SceneManifest {
   meta: {
     team: Team;
@@ -61,6 +108,8 @@ export interface SceneManifest {
     kfs_config_file: string;
     full_geometry: boolean;
   };
+  viewerMeta?: ViewerMeta;
+  alignment?: Record<string, unknown> | null;
   bounds: {
     min_x: number;
     max_x: number;
@@ -88,6 +137,9 @@ export interface SceneManifest {
   routes: Array<{ route_tag: string; nodes: string[] }>;
   meilinSlots: Array<{ block_id: number; x: number; y: number; z: number }>;
   cameraPresets: CameraPreset[];
+  semanticZones?: SemanticZone[];
+  displayCatalog?: DisplayCatalogEntry[];
+  layoutPresets?: LayoutPreset[];
   defaults: {
     startNode: string;
     goalNode: string;
@@ -344,11 +396,106 @@ export interface LiveSemanticSummary {
   activeReasons: string[];
 }
 
+export interface LiveControlAxis {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface LiveControlState {
+  pose: Pose3;
+  linear: LiveControlAxis;
+  angular: LiveControlAxis;
+}
+
+export interface LiveMotionModeState {
+  activeMode: string;
+  reason: string;
+  stopRequired: boolean;
+  timedOut: boolean;
+  maxLinearSpeed: number;
+  maxAngularSpeed: number;
+}
+
+export interface LiveLocalizationHealth {
+  level: number;
+  reason: string;
+  localizationState: string;
+  controlDegraded: boolean;
+  sigmaXy: number;
+  sigmaYaw: number;
+}
+
+export interface LiveLocalizationBackendStatus {
+  optimizerReady: boolean;
+  optimizerState: string;
+  graphHealth: number;
+  loopCandidateCount: number;
+  acceptedLoopCount: number;
+  acceptedAnchorCount: number;
+  imuSpike: boolean;
+}
+
+export interface LiveOperatorStatus {
+  overallLevel: number;
+  overallReason: string;
+  localizationLevel: number;
+  localizationReason: string;
+  controllerLevel: number;
+  navSafetyLevel: number;
+  terrainLevel: number;
+  keepoutLevel: number;
+  mechanismLevel: number;
+  activeEventCodes: string[];
+  topicTimeoutCount: number;
+}
+
+export interface LiveVisualizationEventItem {
+  code: string;
+  severity: number;
+  title: string;
+  detail: string;
+  sourceSignal: string;
+  recommendation: string;
+  active: boolean;
+}
+
+export interface LiveMechanismState {
+  tipState: number;
+  halOpen: boolean;
+  lockedTipSlot: number;
+  assembledCount: number;
+  lastErrorCode: number;
+  cmdElapsedMs: number;
+  ackTimeoutCount: number;
+  reconnectCount: number;
+  parseErrorCount: number;
+  avgRttMs: number;
+  commHealthLevel: number;
+}
+
+export interface LiveBtSnapshot {
+  tickSeq: number;
+  treeStatus: number;
+  tickDurationMs: number;
+  activeSubtreeId: string;
+  runningPathUids: number[];
+}
+
+export interface LiveBtEventItem {
+  uid: number;
+  nodeName: string;
+  fullPath: string;
+  status: number;
+  prevStatus: number;
+}
+
 export interface LiveEvent {
   type: 'live_state' | 'live_error';
   routePath?: Pose3[];
   corridorPath?: Pose3[];
   localPlannerPreviewPath?: Pose3[];
+  controlState?: LiveControlState | null;
   activeEdge?: string;
   gateStatus?: string;
   blockOverlay?: Array<{
@@ -357,10 +504,18 @@ export interface LiveEvent {
     confidence: number;
     keepoutActive: boolean;
   }>;
+  motionModeState?: LiveMotionModeState | null;
   trackingState?: LiveTrackingState | null;
   localPlannerState?: LiveLocalPlannerState | null;
   recoveryState?: LiveRecoveryState | null;
   semanticSummary?: LiveSemanticSummary | null;
+  localizationHealth?: LiveLocalizationHealth | null;
+  localizationBackendStatus?: LiveLocalizationBackendStatus | null;
+  operatorStatus?: LiveOperatorStatus | null;
+  visualizationEvents?: LiveVisualizationEventItem[];
+  mechanismState?: LiveMechanismState | null;
+  btSnapshot?: LiveBtSnapshot | null;
+  btEvents?: LiveBtEventItem[];
   message?: string;
   timestamp?: number;
 }

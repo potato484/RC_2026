@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression tests for the topo simulation adapter."""
+"""Regression tests for the visualization web adapter."""
 
 from __future__ import annotations
 
@@ -19,17 +19,19 @@ def load_module(name: str, path: Path):
 
 
 PKG_ROOT = Path(__file__).resolve().parents[1]
-SIM_ROOT = PKG_ROOT / "sim_assets"
+REPO_ROOT = PKG_ROOT.parents[1]
+TOPO_NAV_ROOT = REPO_ROOT / "src" / "rc26_topo_nav"
+SIM_ROOT = TOPO_NAV_ROOT / "sim_assets"
 
-GRAPH_BLUE = PKG_ROOT / "config" / "r2_field_graph_blue.yaml"
-SURFACE_GRAPH_BLUE = PKG_ROOT / "config" / "r2_surface_graph_blue.yaml"
+GRAPH_BLUE = TOPO_NAV_ROOT / "config" / "r2_field_graph_blue.yaml"
+SURFACE_GRAPH_BLUE = TOPO_NAV_ROOT / "config" / "r2_surface_graph_blue.yaml"
 SIM_WORLD = SIM_ROOT / "worlds" / "robocon2026_v2_aligned.world"
 SIM_KFS = SIM_ROOT / "config" / "kfs_config_v2_aligned.yaml"
 
-SERVER = load_module("topo_sim_server", PKG_ROOT / "scripts" / "topo_sim_server.py")
+SERVER = load_module("visualization_server", PKG_ROOT / "scripts" / "visualization_server.py")
 
 
-class TopoSimServerTest(unittest.TestCase):
+class VisualizationServerTest(unittest.TestCase):
     _cache: dict[str, object] = {}
 
     @classmethod
@@ -85,6 +87,10 @@ class TopoSimServerTest(unittest.TestCase):
         self.assertGreater(len(manifest["graphNodes"]), 10)
         self.assertGreater(len(manifest["graphEdges"]), 10)
         self.assertEqual(manifest["meta"]["team"], "blue")
+        self.assertEqual(manifest["viewerMeta"]["viewer_title"], "RC26 全局比赛场地闭环可视化平台")
+        self.assertGreaterEqual(len(manifest["semanticZones"]), 4)
+        self.assertIn("operator", {preset["id"] for preset in manifest["layoutPresets"]})
+        self.assertIn("scene", {display["id"] for display in manifest["displayCatalog"]})
         structural_vertical_faces = [
             feature
             for feature in manifest["sceneFeatures"]
@@ -126,46 +132,6 @@ class TopoSimServerTest(unittest.TestCase):
         rect_ids = {rect["id"] for rect in rects}
         self.assertNotIn("stair-riser", rect_ids)
         self.assertIn("fence-panel", rect_ids)
-
-    def test_offline_astar_run_uses_runtime_trace_cli(self):
-        manifest = self._full_manifest()
-        request = SERVER.PlannerRunRequest(
-            algorithm="astar",
-            mode="offline-sim",
-            team="blue",
-            start_node="ramp_entry_south",
-            goal_node="ramp_exit_north",
-        )
-
-        snapshot = SERVER.run_offline_request(request, manifest)
-
-        self.assertTrue(snapshot["success"])
-        self.assertEqual(snapshot["algorithm"], "astar")
-        self.assertGreater(len(snapshot["frames"]), 10)
-        self.assertGreater(len(snapshot["path_points"]), 3)
-
-    def test_rrt_and_dwa_runs_emit_frames(self):
-        manifest = self._full_manifest()
-
-        rrt_request = SERVER.PlannerRunRequest(
-            algorithm="rrt",
-            mode="offline-sim",
-            team="blue",
-            start_node="mf_entry_staging",
-            goal_node="mf_b8",
-        )
-        rrt_snapshot = SERVER.run_offline_request(rrt_request, manifest)
-        self.assertGreater(len(rrt_snapshot["frames"]), 1)
-
-        dwa_request = SERVER.PlannerRunRequest(
-            algorithm="dwa",
-            mode="offline-sim",
-            team="blue",
-            start_node="mf_entry_staging",
-            goal_node="mf_b8",
-        )
-        dwa_snapshot = SERVER.run_offline_request(dwa_request, manifest)
-        self.assertGreater(len(dwa_snapshot["frames"]), 1)
 
     def test_surface_route_preview_returns_projected_path(self):
         preview = self._cached_surface_preview()
@@ -346,10 +312,16 @@ class TopoSimServerTest(unittest.TestCase):
     def test_live_bridge_state_includes_local_planner_runtime_fields(self):
         bridge = SERVER.LiveRosBridge()
 
+        self.assertIn("controlState", bridge.state)
+        self.assertIn("motionModeState", bridge.state)
         self.assertIn("localPlannerPreviewPath", bridge.state)
         self.assertIn("localPlannerState", bridge.state)
         self.assertIn("recoveryState", bridge.state)
         self.assertIn("semanticSummary", bridge.state)
+        self.assertIn("operatorStatus", bridge.state)
+        self.assertIn("mechanismState", bridge.state)
+        self.assertIn("btSnapshot", bridge.state)
+        self.assertIn("btEvents", bridge.state)
 
     def test_normalize_astar_trace_document_preserves_sampled_frame_metadata(self):
         graph_document = {

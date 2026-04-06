@@ -319,6 +319,12 @@ const mockState = (BABYLON as typeof BABYLON & {
 
 const layers = {
   scene: false,
+  route: true,
+  corridor: true,
+  lookahead: true,
+  robotPose: true,
+  phaseZones: true,
+  blocked: false,
   graph: true,
   keyNodes: false,
   openSet: false,
@@ -326,7 +332,6 @@ const layers = {
   tree: false,
   candidates: false,
   shadows: false,
-  blocked: false,
 };
 
 function createSceneManifest(overrides: Partial<SceneManifest> = {}): SceneManifest {
@@ -374,6 +379,9 @@ function createSceneManifest(overrides: Partial<SceneManifest> = {}): SceneManif
     tasks: [],
     routes: [],
     meilinSlots: [],
+    semanticZones: [],
+    displayCatalog: [],
+    layoutPresets: [],
     cameraPresets: [
       {
         id: 'orbit',
@@ -763,6 +771,69 @@ describe('SceneCanvas', () => {
 
     await waitFor(() => {
       expect(mockState.liveMeshNames).toContain('dyn_blocked_7');
+    });
+  });
+
+  it('renders semantic zones and live robot pose from the visualization event stream', async () => {
+    render(
+      <div style={{ width: '640px', height: '360px' }}>
+        <SceneCanvas
+          scene={createSceneManifest({
+            semanticZones: [
+              {
+                id: 'mf_zone',
+                label: '梅林区',
+                phase_key: 'MFAreaTree',
+                color: '#2a9d8f',
+                source: 'viewer',
+                viewer_only: false,
+                polygon: [
+                  { x: 0, y: 0, z: 0, yaw: 0 },
+                  { x: 1, y: 0, z: 0, yaw: 0 },
+                  { x: 1, y: 1, z: 0, yaw: 0 },
+                ],
+              },
+            ],
+          })}
+          frame={null}
+          liveEvent={{
+            type: 'live_state',
+            controlState: {
+              pose: { x: 0.5, y: 0.4, z: 0.2, yaw: 0.1 },
+              linear: { x: 0, y: 0, z: 0 },
+              angular: { x: 0, y: 0, z: 0 },
+            },
+            btSnapshot: {
+              tickSeq: 1,
+              treeStatus: 1,
+              tickDurationMs: 12.5,
+              activeSubtreeId: 'MFAreaTree',
+              runningPathUids: [11, 12],
+            },
+          }}
+          viewMode="orbit"
+          layers={{ ...layers, graph: false, phaseZones: true, robotPose: true }}
+          startPose={null}
+          goalPose={null}
+          hoverPose={null}
+          blockedGridIds={[]}
+          pickMode="idle"
+        />
+      </div>,
+    );
+
+    await waitFor(() => {
+      expect(mockState.pendingInitResolvers).toHaveLength(1);
+    });
+
+    await act(async () => {
+      mockState.pendingInitResolvers[0]();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(mockState.liveMeshNames).toContain('dyn_zone_mf_zone');
+      expect(mockState.liveMeshNames).toContain('robot_cone');
     });
   });
 });

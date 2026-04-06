@@ -5,22 +5,22 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  ./start_r2_topo_nav_sim.sh [options]
+  ./start_r2_visualization.sh [options]
 
 Options:
-  --host <host>                 Bind host for topo_sim_server.py, default: 127.0.0.1
+  --host <host>                 Bind host for visualization_server.py, default: 127.0.0.1
   --port <port>                 Preferred bind port, default: 8796
-  --skip-build                  Skip the default incremental rc26_topo_nav build
-  --skip-frontend-build         Skip sim_viewer build, even if sources changed
-  --rebuild                     Force rebuild of rc26_topo_nav and sim_viewer
+  --skip-build                  Skip the default incremental rc26_visualization + rc26_topo_nav build
+  --skip-frontend-build         Skip viewer build, even if sources changed
+  --rebuild                     Force rebuild of rc26_visualization, rc26_topo_nav and viewer
   --no-browser                  Do not open a browser automatically
   --dry-run                     Print planned actions only
   -h, --help                    Show this help
 
 Examples:
-  ./start_r2_topo_nav_sim.sh
-  ./start_r2_topo_nav_sim.sh --rebuild
-  ./start_r2_topo_nav_sim.sh --host 0.0.0.0 --port 8800 --no-browser
+  ./start_r2_visualization.sh
+  ./start_r2_visualization.sh --rebuild
+  ./start_r2_visualization.sh --host 0.0.0.0 --port 8800 --no-browser
 EOF
 }
 
@@ -245,10 +245,10 @@ cleanup() {
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root_dir="${RC26_WS:-${script_dir}}"
-pkg_root="${root_dir}/src/rc26_topo_nav"
-frontend_dir="${pkg_root}/sim_viewer"
+pkg_root="${root_dir}/src/rc26_visualization"
+frontend_dir="${pkg_root}/viewer"
 frontend_dist="${frontend_dir}/dist"
-backend_script="${pkg_root}/scripts/topo_sim_server.py"
+backend_script="${pkg_root}/scripts/visualization_server.py"
 setup_file="${root_dir}/install/setup.bash"
 planner_trace_cli="${root_dir}/install/rc26_topo_nav/lib/rc26_topo_nav/planner_trace_cli"
 
@@ -303,12 +303,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ! -d "${pkg_root}" ]]; then
-  echo "rc26_topo_nav package directory not found: ${pkg_root}" >&2
+  echo "rc26_visualization package directory not found: ${pkg_root}" >&2
   exit 1
 fi
 
 if [[ ! -f "${backend_script}" ]]; then
-  echo "topo_sim_server.py not found: ${backend_script}" >&2
+  echo "visualization_server.py not found: ${backend_script}" >&2
   exit 1
 fi
 
@@ -327,7 +327,7 @@ if [[ "${dry_run}" == "true" ]]; then
   echo "Viewer URL: ${viewer_url}"
 
   if [[ "${backend_build_mode}" != "skip" ]]; then
-    print_cmd env MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_topo_nav
+    print_cmd env MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_visualization rc26_topo_nav
   fi
 
   if [[ "${frontend_build_mode}" != "skip" ]]; then
@@ -341,10 +341,10 @@ fi
 
 if [[ "${backend_build_mode}" != "skip" ]]; then
   require_command colcon
-  echo "==> Building rc26_topo_nav"
+  echo "==> Building rc26_visualization + rc26_topo_nav"
   (
     cd "${root_dir}"
-    env MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_topo_nav
+    env MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_visualization rc26_topo_nav
   )
 elif [[ ! -f "${setup_file}" || ! -x "${planner_trace_cli}" ]]; then
   echo "Missing install/setup.bash or planner_trace_cli; rerun without --skip-build." >&2
@@ -353,7 +353,7 @@ fi
 
 if [[ "${frontend_build_mode}" == "force" ]] || ([[ "${frontend_build_mode}" == "auto" ]] && frontend_needs_build); then
   require_command npm
-  echo "==> Building sim_viewer"
+  echo "==> Building rc26_visualization viewer"
   (
     cd "${frontend_dir}"
     if [[ ! -d node_modules ]]; then
@@ -362,10 +362,10 @@ if [[ "${frontend_build_mode}" == "force" ]] || ([[ "${frontend_build_mode}" == 
     npm run build
   )
 elif [[ ! -f "${frontend_dist}/index.html" ]]; then
-  echo "Missing sim_viewer/dist/index.html; rerun without --skip-frontend-build." >&2
+  echo "Missing viewer/dist/index.html; rerun without --skip-frontend-build." >&2
   exit 1
 else
-  echo "==> Reusing existing sim_viewer/dist"
+  echo "==> Reusing existing viewer/dist"
 fi
 
 if [[ ! -f "${setup_file}" ]]; then
@@ -381,15 +381,15 @@ source_with_relaxed_nounset "${setup_file}"
 
 trap cleanup EXIT INT TERM
 
-echo "==> Starting rc26_topo_nav sim server"
+echo "==> Starting rc26_visualization server"
 print_cmd python3 "${backend_script}" --host "${host}" --port "${port}"
 python3 "${backend_script}" --host "${host}" --port "${port}" &
 backend_pid=$!
 
-wait_for_http "${health_url}" "rc26_topo_nav sim server" "${backend_pid}"
+wait_for_http "${health_url}" "rc26_visualization server" "${backend_pid}"
 
 echo "==> Viewer ready: ${viewer_url}"
 open_browser_url "${viewer_url}"
-echo "==> Press Ctrl+C to stop the sim server"
+echo "==> Press Ctrl+C to stop the visualization server"
 
 wait "${backend_pid}"

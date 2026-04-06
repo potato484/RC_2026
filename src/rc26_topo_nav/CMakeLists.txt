@@ -74,12 +74,6 @@ install(PROGRAMS
   scripts/generate_surface_graph.py
   scripts/render_graph_html.py
   scripts/render_graph_sim_html.py
-  scripts/topo_sim_server.py
-  DESTINATION lib/${PROJECT_NAME}
-)
-
-install(FILES
-  scripts/topo_sim_algorithms.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -117,11 +111,6 @@ if(BUILD_TESTING)
   add_test(
     NAME test_render_graph_sim_html
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_render_graph_sim_html.py
-  )
-
-  add_test(
-    NAME test_topo_sim_server
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_topo_sim_server.py
   )
 
   add_test(

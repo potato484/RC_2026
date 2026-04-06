@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(ament_cmake REQUIRED)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_package(diagnostic_msgs REQUIRED)
 find_package(grid_map_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
@@ -58,6 +59,20 @@ install(DIRECTORY config
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(
+  DIRECTORY viewer/
+  DESTINATION share/${PROJECT_NAME}/viewer
+  PATTERN "node_modules" EXCLUDE
+  PATTERN "dist-e2e" EXCLUDE
+)
+
+install(PROGRAMS
+  scripts/visualization_server.py
+  scripts/visualization_algorithms.py
+  scripts/render_graph_sim_html.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 install(TARGETS
   visualization_status_core
   rc26_visualization_status_node
@@ -84,6 +99,11 @@ if(BUILD_TESTING)
     rc26_interfaces
     sensor_msgs
     std_msgs
+  )
+
+  add_test(
+    NAME test_visualization_server
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_visualization_server.py
   )
 endif()
 
