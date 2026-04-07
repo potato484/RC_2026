@@ -14,11 +14,12 @@
 - `src/rc26_visualization/viewer`
   - 读取 `visualization_server.py` 输出的 scene manifest、surface-route 回放、局部规划案例和 live 运行态
   - 统一展示场地 mesh、路线、阶段区、keepout、定位健康、机构状态和 BT 快照
+  - 当前保留为仓库内的本地 Web 可视化工具，不再是 bringup 默认启动的车端可视化后端
 
 ## 当前准确定位
 
 - `merlin-bt-visualizer` 是行为树本地工作台
-- `src/rc26_visualization/viewer` 是 R2 的本地 Web 可视化平台前端
+- `src/rc26_visualization/viewer` 是 R2 的本地 Web 可视化平台前端与迁移期对照工具
 - 两者都不直接拥有 ROS2 运行时控制权
 
 ## 推荐阅读
