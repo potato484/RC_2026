@@ -39,3 +39,6 @@
 
 - 本包不再安装 `topo_sim_server.py`，也不再注册原有 `test_topo_sim_server`
 - 如果调整 graph/world/surface-route CLI 行为，仍然需要同步检查 `rc26_visualization/scripts/visualization_server.py`
+- `test_generate_surface_graph.py` 现在默认只做 checked-in 文件的 manifest 快检、helper 回归和小场景 in-process CLI smoke；
+  对两份 60 万行级 dense `surface_graph` 做完整 YAML parse / validate，以及基于 `robocon2026_v2_aligned.world` 的整图再生成回归，都改为显式 opt-in。
+- 需要手动设置 `RC26_RUN_FULL_SURFACE_GRAPH_REGEN=1` 后再运行完整重验收，避免普通 `ctest` 每次都重跑多分钟的整图加载与生成。

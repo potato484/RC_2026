@@ -4,11 +4,15 @@
 from __future__ import annotations
 
 import importlib.util
+import io
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 import yaml
 
@@ -31,6 +35,7 @@ WORLD_FILE = PKG_ROOT / "sim_assets" / "worlds" / "robocon2026_v2_aligned.world"
 OVERLAY = PKG_ROOT / "config" / "r2_surface_graph_overlay.yaml"
 EXPECTED_BLUE = PKG_ROOT / "config" / "r2_surface_graph_blue.yaml"
 EXPECTED_RED = PKG_ROOT / "config" / "r2_surface_graph_red.yaml"
+RUN_FULL_SURFACE_GRAPH_REGEN = os.environ.get("RC26_RUN_FULL_SURFACE_GRAPH_REGEN") == "1"
 
 
 def load_yaml(path: Path):
@@ -38,12 +43,135 @@ def load_yaml(path: Path):
         return yaml.safe_load(handle)
 
 
+def scan_graph_manifest(path: Path):
+    manifest = {
+        "team": None,
+        "schema_version": None,
+        "source": None,
+        "node_count": 0,
+        "edge_count": 0,
+        "node_clearance_annotations": 0,
+        "node_pitch_annotations": 0,
+        "edge_clearance_annotations": 0,
+        "edge_slope_annotations": 0,
+    }
+    in_nodes = False
+    in_edges = False
+
+    with path.open(encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.rstrip("\n")
+            stripped = line.strip()
+
+            if stripped == "nodes:":
+                in_nodes = True
+                in_edges = False
+                continue
+            if stripped == "edges:":
+                in_nodes = False
+                in_edges = True
+                continue
+            if stripped in {"tasks:", "routes:"}:
+                in_nodes = False
+                in_edges = False
+
+            if manifest["team"] is None and stripped.startswith("team:"):
+                manifest["team"] = stripped.split(":", 1)[1].strip().strip("'\"")
+            if manifest["schema_version"] is None and stripped.startswith("schema_version:"):
+                manifest["schema_version"] = stripped.split(":", 1)[1].strip().strip("'\"")
+            if manifest["source"] is None and stripped.startswith("source:"):
+                manifest["source"] = stripped.split(":", 1)[1].strip().strip("'\"")
+
+            if in_nodes and line.startswith("- id:"):
+                manifest["node_count"] += 1
+            elif in_edges and line.startswith("- id:"):
+                manifest["edge_count"] += 1
+
+            if in_nodes and "center_clearance_m:" in stripped:
+                manifest["node_clearance_annotations"] += 1
+            if in_nodes and "surface_pitch_deg:" in stripped:
+                manifest["node_pitch_annotations"] += 1
+            if in_edges and "center_clearance_m:" in stripped:
+                manifest["edge_clearance_annotations"] += 1
+            if in_edges and "slope_deg:" in stripped:
+                manifest["edge_slope_annotations"] += 1
+
+    return manifest
+
+
 class GenerateSurfaceGraphTest(unittest.TestCase):
+    @staticmethod
+    def make_smoke_world_context():
+        return {
+            "field_pose": {"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0},
+            "includes": [],
+            "scene_features": [
+                {
+                    "id": "surface-a",
+                    "name": "smoke-floor",
+                    "render_class": "world-ground",
+                    "area_xy": 1.0,
+                    "points": [
+                        {"x": 0.0, "y": 0.0, "z": 0.0},
+                        {"x": 1.0, "y": 0.0, "z": 0.0},
+                        {"x": 1.0, "y": 1.0, "z": 0.0},
+                        {"x": 0.0, "y": 1.0, "z": 0.0},
+                    ],
+                }
+            ],
+        }
+
+    def run_main_with_stub_world(self, *args: object):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with mock.patch.object(
+            GEN.RENDER,
+            "parse_world_context",
+            return_value=self.make_smoke_world_context(),
+        ), mock.patch.object(
+            sys,
+            "argv",
+            ["generate_surface_graph.py", *[str(arg) for arg in args]],
+        ), redirect_stdout(stdout), redirect_stderr(stderr):
+            exit_code = GEN.main()
+        return exit_code, stdout.getvalue(), stderr.getvalue()
+
+    @unittest.skipUnless(
+        RUN_FULL_SURFACE_GRAPH_REGEN,
+        "full checked-in surface graph parse/validate is opt-in; set RC26_RUN_FULL_SURFACE_GRAPH_REGEN=1",
+    )
     def test_checked_in_surface_graphs_validate_cleanly(self):
         for expected in (EXPECTED_BLUE, EXPECTED_RED):
             errors = VAL.validate_graph(load_yaml(expected))
             self.assertEqual(errors, [], f"{expected.name} validation errors: {errors}")
 
+    def test_checked_in_surface_graph_manifests_match_expected_density(self):
+        blue = scan_graph_manifest(EXPECTED_BLUE)
+        red = scan_graph_manifest(EXPECTED_RED)
+
+        self.assertEqual(blue["team"], "blue")
+        self.assertEqual(red["team"], "red")
+        self.assertEqual(blue["schema_version"], "1.1")
+        self.assertEqual(red["schema_version"], "1.1")
+        self.assertEqual(blue["source"], "robocon2026_surface_graph_body_v1")
+        self.assertEqual(red["source"], "robocon2026_surface_graph_body_v1")
+        self.assertEqual(blue["node_count"], 4758)
+        self.assertEqual(red["node_count"], 4758)
+        self.assertEqual(blue["edge_count"], 33990)
+        self.assertEqual(red["edge_count"], 33990)
+        self.assertGreater(blue["node_clearance_annotations"], 0)
+        self.assertGreater(red["node_clearance_annotations"], 0)
+        self.assertGreater(blue["node_pitch_annotations"], 0)
+        self.assertGreater(red["node_pitch_annotations"], 0)
+        self.assertGreater(blue["edge_clearance_annotations"], 0)
+        self.assertGreater(red["edge_clearance_annotations"], 0)
+        self.assertGreater(blue["edge_slope_annotations"], 0)
+        self.assertGreater(red["edge_slope_annotations"], 0)
+
+    @unittest.skipUnless(
+        RUN_FULL_SURFACE_GRAPH_REGEN,
+        "full checked-in surface graph summary parse is opt-in; set RC26_RUN_FULL_SURFACE_GRAPH_REGEN=1",
+    )
     def test_validate_graph_summary_reports_surface_density(self):
         summary = VAL.graph_summary(load_yaml(EXPECTED_BLUE))
         self.assertEqual(summary["team"], "blue")
@@ -165,6 +293,66 @@ class GenerateSurfaceGraphTest(unittest.TestCase):
         self.assertTrue(edges[0]["same_surface"])
         self.assertGreater(edges[0]["center_clearance_m"], 0.0)
 
+    def test_cli_smoke_generates_and_checks_existing_small_surface_graph(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out = Path(tmp_dir) / "surface_blue.yaml"
+            fake_world = Path(tmp_dir) / "synthetic.world"
+
+            completed_code, completed_stdout, completed_stderr = self.run_main_with_stub_world(
+                "--team",
+                "blue",
+                "--world",
+                fake_world,
+                "--overlay",
+                OVERLAY,
+                "--out",
+                out,
+            )
+            self.assertEqual(
+                completed_code,
+                0,
+                msg=(
+                    "surface graph smoke generate failed:\n"
+                    f"stdout:\n{completed_stdout}\nstderr:\n{completed_stderr}"
+                ),
+            )
+
+            generated = load_yaml(out)
+            self.assertEqual(generated["meta"]["team"], "blue")
+            self.assertGreater(len(generated["nodes"]), 0)
+            self.assertGreater(len(generated["edges"]), 0)
+            self.assertIn("center_clearance_m", generated["nodes"][0])
+            self.assertIn("surface_pitch_deg", generated["nodes"][0])
+            self.assertIn("center_clearance_m", generated["edges"][0])
+            self.assertIn("slope_deg", generated["edges"][0])
+            self.assertEqual(VAL.validate_graph(generated), [])
+            self.assertIn("Generated", completed_stdout)
+
+            check_code, check_stdout, check_stderr = self.run_main_with_stub_world(
+                "--team",
+                "blue",
+                "--world",
+                fake_world,
+                "--overlay",
+                OVERLAY,
+                "--out",
+                out,
+                "--check-existing",
+            )
+            self.assertEqual(
+                check_code,
+                0,
+                msg=(
+                    "surface graph smoke --check-existing failed:\n"
+                    f"stdout:\n{check_stdout}\nstderr:\n{check_stderr}"
+                ),
+            )
+            self.assertIn("Surface graph matches existing file", check_stdout)
+
+    @unittest.skipUnless(
+        RUN_FULL_SURFACE_GRAPH_REGEN,
+        "full surface graph regeneration is opt-in; set RC26_RUN_FULL_SURFACE_GRAPH_REGEN=1",
+    )
     def test_cli_generates_expected_blue_surface_graph(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             out = Path(tmp_dir) / "surface_blue.yaml"
@@ -236,10 +424,10 @@ class GenerateSurfaceGraphTest(unittest.TestCase):
             self.assertIn("nodes=4758", check_existing.stdout)
 
     def test_red_surface_graph_keeps_same_density(self):
-        red = load_yaml(EXPECTED_RED)
-        self.assertEqual(red["meta"]["team"], "red")
-        self.assertEqual(len(red["nodes"]), 4758)
-        self.assertEqual(len(red["edges"]), 33990)
+        red = scan_graph_manifest(EXPECTED_RED)
+        self.assertEqual(red["team"], "red")
+        self.assertEqual(red["node_count"], 4758)
+        self.assertEqual(red["edge_count"], 33990)
 
 
 if __name__ == "__main__":
