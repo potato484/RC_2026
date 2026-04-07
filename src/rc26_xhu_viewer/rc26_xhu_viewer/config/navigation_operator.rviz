@@ -1,0 +1,66 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: 显示
+  - Class: rviz_common/Views
+    Name: 视角
+  - Class: rviz_common/Time
+    Name: 时间
+Visualization Manager:
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: 地面网格
+      Value: true
+    - Class: rviz_default_plugins/RobotModel
+      Name: 机器人
+      Value: true
+    - Class: rviz_default_plugins/Path
+      Name: 全局路线
+      Topic:
+        Value: /xhu_nav/route
+      Value: true
+    - Class: rviz_default_plugins/Path
+      Name: 走廊
+      Topic:
+        Value: /xhu_nav/corridor
+      Value: true
+    - Class: rviz_default_plugins/Path
+      Name: 预瞄路径
+      Topic:
+        Value: /xhu_nav/lookahead_path
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Name: 风险来源
+      Topic:
+        Value: /xhu_nav/risk_markers
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Class: grid_map_rviz_plugin/GridMap
+      Color Layer: traversability
+      Color Transformer: GridMapLayer
+      Height Layer: elevation_abs
+      Height Transformer: GridMapLayer
+      Name: 地形栅格
+      Topic:
+        Value: terrain_grid_map
+      Value: true
+    - Class: rviz_default_plugins/Map
+      Name: 保持禁行区
+      Topic:
+        Value: /kfs_filter_mask
+      Value: true
+  Global Options:
+    Fixed Frame: map
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/SetInitialPose
+      Topic: initialpose
+    - Class: rviz_default_plugins/SetGoal
+      Topic: goal_pose
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 18
+      Pitch: 1.45
+      Yaw: 0
