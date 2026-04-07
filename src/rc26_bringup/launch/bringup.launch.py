@@ -14,9 +14,9 @@ src R2导航系统 - 主启动文件
 """
 import os
 
-from ament_index_python.packages import get_package_prefix, get_package_share_directory
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, GroupAction, IncludeLaunchDescription, LogInfo
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, LogInfo
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
@@ -26,7 +26,6 @@ from launch_ros.actions import Node, PushRosNamespace
 def generate_launch_description():
     # 获取包路径
     bringup_dir = get_package_share_directory('rc26_bringup')
-    visualization_prefix = get_package_prefix('rc26_visualization')
     decision_dir = get_package_share_directory('rc26_decision')
     base_ground_dir = get_package_share_directory('rc26_base_ground')
     kfs_keepout_dir = get_package_share_directory('rc26_kfs_keepout')
@@ -36,6 +35,7 @@ def generate_launch_description():
     nav_mode_manager_dir = get_package_share_directory('rc26_nav_mode_manager')
     local_planner_dir = get_package_share_directory('rc26_local_3d_planner')
     visualization_dir = get_package_share_directory('rc26_visualization')
+    xhu_viewer_dir = get_package_share_directory('rc26_xhu_viewer')
     display_available = 'true' if (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')) else 'false'
 
     # 启动参数
@@ -52,9 +52,8 @@ def generate_launch_description():
     enable_terrain_grid_map = LaunchConfiguration('enable_terrain_grid_map')
     use_rviz = LaunchConfiguration('use_rviz')
     visualization_backend = LaunchConfiguration('visualization_backend')
+    visualization_layout = LaunchConfiguration('visualization_layout')
     visualization_status_enable = LaunchConfiguration('visualization_status_enable')
-    visualization_host = LaunchConfiguration('visualization_host')
-    visualization_port = LaunchConfiguration('visualization_port')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     use_decision = LaunchConfiguration('use_decision')
     use_realsense = LaunchConfiguration('use_realsense')
@@ -135,27 +134,22 @@ def generate_launch_description():
     declare_use_rviz = DeclareLaunchArgument(
         'use_rviz',
         default_value='true',
-        description='启动 RViz（兼容参数；当 visualization_backend!=rviz 时忽略）')
+        description='启动 RC26 XHU Viewer（兼容参数；当 visualization_backend!=rc26_xhu_viewer 时忽略）')
 
     declare_visualization_backend = DeclareLaunchArgument(
         'visualization_backend',
-        default_value='rviz',
-        description='可视化后端: rviz | local_web | none')
+        default_value='rc26_xhu_viewer',
+        description='可视化后端: rc26_xhu_viewer | none')
+
+    declare_visualization_layout = DeclareLaunchArgument(
+        'visualization_layout',
+        default_value='operator',
+        description='viewer 预设布局: operator | engineering | diagnostic')
 
     declare_visualization_status_enable = DeclareLaunchArgument(
         'visualization_status_enable',
         default_value='true',
         description='是否启动可视化状态/告警聚合节点')
-
-    declare_visualization_host = DeclareLaunchArgument(
-        'visualization_host',
-        default_value='0.0.0.0',
-        description='local_web viewer 监听地址')
-
-    declare_visualization_port = DeclareLaunchArgument(
-        'visualization_port',
-        default_value='8796',
-        description='local_web viewer HTTP 监听端口')
 
     declare_recover_mid360_stream = DeclareLaunchArgument(
         'recover_mid360_stream',
@@ -543,75 +537,41 @@ def generate_launch_description():
         ]))
     )
 
-    local_web_server = ExecuteProcess(
-        cmd=[
-            'python3',
-            os.path.join(visualization_prefix, 'lib', 'rc26_visualization', 'visualization_server.py'),
-            '--host',
-            visualization_host,
-            '--port',
-            visualization_port,
-        ],
-        output='screen',
-        condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'local_web'"]))
+    rviz_alias_notice = LogInfo(
+        msg='[bringup] visualization_backend:=rviz 已降级为兼容别名；当前实际启动 rc26_xhu_viewer。',
+        condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'rviz'"]))
     )
 
-    local_web_notice = LogInfo(
-        msg=[
-            '[bringup] local_web viewer available at http://',
-            visualization_host,
-            ':',
-            visualization_port,
-            ' ; build rc26_visualization/viewer when dist is missing.',
-        ],
-        condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'local_web'"]))
+    xhu_viewer_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([xhu_viewer_dir, 'launch', 'viewer.launch.py'])
+        ),
+        launch_arguments={
+            'namespace': namespace,
+            'use_sim_time': use_sim_time,
+            'slam': slam,
+            'layout': visualization_layout,
+        }.items()
     )
 
-    local_web_group = GroupAction(
-        actions=[local_web_notice, local_web_server],
-        condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'local_web'"]))
-    )
-
-    # RViz：导航模式使用自研导航布局，建图模式使用 slam.rviz
-    rviz_nav_config = PathJoinSubstitution([bringup_dir, 'rviz', 'navigation_default.rviz'])
-    rviz_slam_config = PathJoinSubstitution([bringup_dir, 'rviz', 'slam.rviz'])
-    rviz_nav_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        namespace=namespace,
-        arguments=['-d', rviz_nav_config],
-        parameters=[{'use_sim_time': use_sim_time}],
-        condition=UnlessCondition(slam)
-    )
-
-    rviz_slam_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        namespace=namespace,
-        arguments=['-d', rviz_slam_config],
-        parameters=[{'use_sim_time': use_sim_time}],
-        condition=IfCondition(slam)
-    )
-
-    rviz_group = GroupAction(
+    xhu_viewer_group = GroupAction(
         actions=[
             GroupAction(
-                actions=[rviz_nav_node, rviz_slam_node],
+                actions=[xhu_viewer_launch],
                 condition=IfCondition(use_rviz)
             )
         ],
         condition=IfCondition(PythonExpression([
-            "'", visualization_backend, "' == 'rviz' and '", display_available, "' == 'true'"
+            "('", visualization_backend, "' == 'rc26_xhu_viewer' or '", visualization_backend,
+            "' == 'rviz') and '", display_available, "' == 'true'"
         ]))
     )
 
     rviz_headless_notice = LogInfo(
-        msg='[bringup] 未检测到 DISPLAY/WAYLAND_DISPLAY，跳过 RViz；可改用 visualization_backend:=local_web 或 none。',
+        msg='[bringup] 未检测到 DISPLAY/WAYLAND_DISPLAY，跳过 rc26_xhu_viewer；可改用 visualization_backend:=none。',
         condition=IfCondition(PythonExpression([
-            "'", visualization_backend, "' == 'rviz' and '", use_rviz, "' == 'true' and '",
-            display_available, "' != 'true'"
+            "('", visualization_backend, "' == 'rc26_xhu_viewer' or '", visualization_backend,
+            "' == 'rviz') and '", use_rviz, "' == 'true' and '", display_available, "' != 'true'"
         ]))
     )
 
@@ -630,9 +590,8 @@ def generate_launch_description():
         declare_enable_terrain_grid_map,
         declare_use_rviz,
         declare_visualization_backend,
+        declare_visualization_layout,
         declare_visualization_status_enable,
-        declare_visualization_host,
-        declare_visualization_port,
         declare_chassis_model,
         declare_recover_mid360_stream,
         declare_use_decision,
@@ -666,7 +625,7 @@ def generate_launch_description():
         decision_node,
         visualization_status_node,
         realsense_group,
+        rviz_alias_notice,
         rviz_headless_notice,
-        local_web_group,
-        rviz_group,
+        xhu_viewer_group,
     ])

@@ -8,17 +8,19 @@
 
 `bringup.launch.py` 里的 `visualization_backend` 已经收口为：
 
-- `rviz`
-- `local_web`
+- `rc26_xhu_viewer`
 - `none`
 
 其中：
 
-- `rviz`：启动 RViz 观察面
-- `local_web`：直接拉起 `python3 <prefix>/lib/rc26_visualization/visualization_server.py`
+- `rc26_xhu_viewer`：启动 RC26 自己维护的 RViz 定制入口
 - `none`：不启动可视化进程
 
-Foxglove 已不再是 bringup 的主链路后端，也不再通过 launch 参数自动生成布局。
+同时新增：
+
+- `visualization_layout:=operator | engineering | diagnostic`
+
+Foxglove 和 `local_web` 都不再是 bringup 的主链路后端。
 
 ## 当前关键文件
 
@@ -32,11 +34,12 @@ Foxglove 已不再是 bringup 的主链路后端，也不再通过 launch 参数
 ## 当前边界
 
 - 负责装配，不承载 planner、控制器或可视化平台的实现本体
-- `local_web` 只是把 `rc26_visualization` 接进总装配，不意味着 bringup 自己变成 Web 后端
-- `src/rc26_bringup/foxglove/*.json` 仅保留为历史参考资产，不再参与默认安装和主链路 launch
+- `rc26_xhu_viewer` 只是被装配进总启动链，不意味着 bringup 自己变成可视化实现包
+- `src/rc26_bringup/foxglove/*.json` 与 `src/rc26_visualization/viewer` 都不再是 bringup 默认启动的主可视化后端
 
 ## 本次迁移后的真实变化
 
-- Web 观察主入口从 Foxglove 切换为 `rc26_visualization`
-- `visualization_host` / `visualization_port` 替代旧的 `foxglove_*` 参数
-- headless 环境下推荐 `visualization_backend:=local_web`，而不是再依赖 Foxglove
+- bringup 默认可视化后端从通用 `rviz2` 切到 `rc26_xhu_viewer`
+- `visualization_layout` 用来显式选择 `operator / engineering / diagnostic` 三套 preset
+- headless 环境下不再推荐 `local_web`；没有图形环境时应直接使用 `visualization_backend:=none`
+- `visualization_backend:=rviz` 仅保留为兼容别名，实际仍会转发到 `rc26_xhu_viewer`
