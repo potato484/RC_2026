@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-VIEWER_DIR="$ROOT_DIR/src/rc26_visualization/viewer"
-PACKAGE_ROOT="$ROOT_DIR/release/rc26_visualization_viewer"
-ARCHIVE_PATH="$ROOT_DIR/release/rc26_visualization_viewer.tgz"
+VIEWER_DIR="$ROOT_DIR/src/rc26_xhu_viewer/rc26_xhu_viewer/viewer"
+PACKAGE_ROOT="$ROOT_DIR/release/rc26_xhu_viewer_web"
+ARCHIVE_PATH="$ROOT_DIR/release/rc26_xhu_viewer_web.tgz"
 SKIP_BUILD=0
 
 usage() {
@@ -12,7 +12,7 @@ usage() {
 Usage: bash docs/test/release/package-release.sh [--skip-build]
 
 Options:
-  --skip-build   Reuse existing src/rc26_visualization/viewer/dist.
+  --skip-build   Reuse existing src/rc26_xhu_viewer/rc26_xhu_viewer/viewer/dist.
   -h, --help     Show this help.
 EOF
 }
@@ -44,17 +44,17 @@ mkdir -p "$PACKAGE_ROOT/frontend" "$PACKAGE_ROOT/scripts" "$PACKAGE_ROOT/config"
 
 cp -R "$VIEWER_DIR/dist" "$PACKAGE_ROOT/frontend/dist"
 cp "$VIEWER_DIR/package.json" "$PACKAGE_ROOT/frontend/package.json"
-cp "$ROOT_DIR/src/rc26_visualization/scripts/visualization_server.py" "$PACKAGE_ROOT/scripts/visualization_server.py"
-cp "$ROOT_DIR/src/rc26_visualization/scripts/visualization_algorithms.py" "$PACKAGE_ROOT/scripts/visualization_algorithms.py"
-cp "$ROOT_DIR/src/rc26_visualization/scripts/render_graph_sim_html.py" "$PACKAGE_ROOT/scripts/render_graph_sim_html.py"
+cp "$ROOT_DIR/src/rc26_xhu_viewer/rc26_xhu_viewer/scripts/rc26_xhu_viewer_server.py" "$PACKAGE_ROOT/scripts/rc26_xhu_viewer_server.py"
+cp "$ROOT_DIR/src/rc26_xhu_viewer/rc26_xhu_viewer/scripts/visualization_algorithms.py" "$PACKAGE_ROOT/scripts/visualization_algorithms.py"
+cp "$ROOT_DIR/src/rc26_xhu_viewer/rc26_xhu_viewer/scripts/render_graph_sim_html.py" "$PACKAGE_ROOT/scripts/render_graph_sim_html.py"
 cp -R "$ROOT_DIR/src/rc26_topo_nav/sim_assets" "$PACKAGE_ROOT/sim_assets"
-cp "$ROOT_DIR/src/rc26_visualization/config/field_scene_manifest.yaml" "$PACKAGE_ROOT/config/field_scene_manifest.yaml"
+cp "$ROOT_DIR/src/rc26_xhu_viewer/rc26_xhu_viewer/config/field_scene_manifest.yaml" "$PACKAGE_ROOT/config/field_scene_manifest.yaml"
 cp "$ROOT_DIR/src/rc26_topo_nav/config/r2_field_graph_blue.yaml" "$PACKAGE_ROOT/config/r2_field_graph_blue.yaml"
 cp "$ROOT_DIR/src/rc26_topo_nav/config/r2_field_graph_red.yaml" "$PACKAGE_ROOT/config/r2_field_graph_red.yaml"
 cp "$ROOT_DIR/src/rc26_topo_nav/config/r2_surface_graph_blue.yaml" "$PACKAGE_ROOT/config/r2_surface_graph_blue.yaml"
 cp "$ROOT_DIR/src/rc26_topo_nav/config/r2_surface_graph_red.yaml" "$PACKAGE_ROOT/config/r2_surface_graph_red.yaml"
 
-tar -czf "$ARCHIVE_PATH" -C "$ROOT_DIR/release" rc26_visualization_viewer
+tar -czf "$ARCHIVE_PATH" -C "$ROOT_DIR/release" rc26_xhu_viewer_web
 
 echo "==> Release package ready:"
 echo "    - directory: $PACKAGE_ROOT"

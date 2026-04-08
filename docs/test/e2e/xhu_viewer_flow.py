@@ -15,8 +15,8 @@ ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def save_failure_artifacts(page) -> None:
-    page.screenshot(path=str(ARTIFACT_DIR / "visualization-viewer-e2e-failure.png"), full_page=True)
-    (ARTIFACT_DIR / "visualization-viewer-e2e-failure.html").write_text(page.content(), encoding="utf-8")
+    page.screenshot(path=str(ARTIFACT_DIR / "xhu-viewer-e2e-failure.png"), full_page=True)
+    (ARTIFACT_DIR / "xhu-viewer-e2e-failure.html").write_text(page.content(), encoding="utf-8")
 
 
 def click_canvas_fraction(page, x_ratio: float, y_ratio: float) -> None:
@@ -124,7 +124,7 @@ def main() -> None:
             browser.close()
             raise
 
-        page.screenshot(path=str(ARTIFACT_DIR / "visualization-viewer-e2e-success.png"), full_page=True)
+        page.screenshot(path=str(ARTIFACT_DIR / "xhu-viewer-e2e-success.png"), full_page=True)
         browser.close()
 
 

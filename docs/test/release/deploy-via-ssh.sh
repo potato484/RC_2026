@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-RELEASE_DIR="$ROOT_DIR/release/rc26_visualization_viewer"
+RELEASE_DIR="$ROOT_DIR/release/rc26_xhu_viewer_web"
 
 usage() {
   cat <<'EOF'

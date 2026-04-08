@@ -20,5 +20,5 @@
 
 - 不识别原始 KFS 感知
 - 不直接控制机器人
-- 输出同时服务 `rc26_topo_nav`、`rc26_visualization` 和 keepout gate
+- 输出同时服务 `rc26_topo_nav`、`rc26_xhu_viewer` 和 keepout gate
 - 当 layout team 与运行时 `MfKfsState.team` 不一致时，只会禁用 keepout 输出并发布诊断，不会在本模块内直接触发底盘安全模式

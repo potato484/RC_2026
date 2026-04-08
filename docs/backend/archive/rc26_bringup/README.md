@@ -35,11 +35,12 @@ Foxglove 和 `local_web` 都不再是 bringup 的主链路后端。
 
 - 负责装配，不承载 planner、控制器或可视化平台的实现本体
 - `rc26_xhu_viewer` 只是被装配进总启动链，不意味着 bringup 自己变成可视化实现包
-- `src/rc26_bringup/foxglove/*.json` 与 `src/rc26_visualization/viewer` 都不再是 bringup 默认启动的主可视化后端
+- `src/rc26_bringup/foxglove/*.json` 与 `src/rc26_xhu_viewer/rc26_xhu_viewer/viewer` 都不再是 bringup 默认启动的主可视化后端
 
 ## 本次迁移后的真实变化
 
 - bringup 默认可视化后端从通用 `rviz2` 切到 `rc26_xhu_viewer`
 - `visualization_layout` 用来显式选择 `operator / engineering / diagnostic` 三套 preset
+- `visualization_status_enable` 现在装配的是 `rc26_xhu_viewer_status_node`
 - headless 环境下不再推荐 `local_web`；没有图形环境时应直接使用 `visualization_backend:=none`
 - `visualization_backend:=rviz` 仅保留为兼容别名，实际仍会转发到 `rc26_xhu_viewer`

@@ -53,7 +53,7 @@ colcon build --symlink-install --parallel-workers 3 --packages-select rc26_point
 # slam:=true 时自动选择 mapping_dense
 # slam:=false 时自动选择 cruise_light
 # race_profile 需显式指定，不会覆盖 auto 语义
-ros2 launch rc26_bringup bringup.launch.py slam:=true visualization_backend:=rviz use_decision:=false
+ros2 launch rc26_bringup bringup.launch.py slam:=true visualization_backend:=rc26_xhu_viewer use_decision:=false
 ```
 
 ### 2. 显式指定 profile

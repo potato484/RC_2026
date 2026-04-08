@@ -5,22 +5,22 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  ./start_r2_visualization.sh [options]
+  ./start_rc26_xhu_viewer_web.sh [options]
 
 Options:
-  --host <host>                 Bind host for visualization_server.py, default: 127.0.0.1
+  --host <host>                 Bind host for rc26_xhu_viewer_server.py, default: 127.0.0.1
   --port <port>                 Preferred bind port, default: 8796
-  --skip-build                  Skip the default incremental rc26_visualization + rc26_topo_nav build
+  --skip-build                  Skip the default incremental rc26_xhu_viewer + rc26_topo_nav build
   --skip-frontend-build         Skip viewer build, even if sources changed
-  --rebuild                     Force rebuild of rc26_visualization, rc26_topo_nav and viewer
+  --rebuild                     Force rebuild of rc26_xhu_viewer, rc26_topo_nav and viewer
   --no-browser                  Do not open a browser automatically
   --dry-run                     Print planned actions only
   -h, --help                    Show this help
 
 Examples:
-  ./start_r2_visualization.sh
-  ./start_r2_visualization.sh --rebuild
-  ./start_r2_visualization.sh --host 0.0.0.0 --port 8800 --no-browser
+  ./start_rc26_xhu_viewer_web.sh
+  ./start_rc26_xhu_viewer_web.sh --rebuild
+  ./start_rc26_xhu_viewer_web.sh --host 0.0.0.0 --port 8800 --no-browser
 EOF
 }
 
@@ -245,10 +245,10 @@ cleanup() {
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root_dir="${RC26_WS:-${script_dir}}"
-pkg_root="${root_dir}/src/rc26_visualization"
+pkg_root="${root_dir}/src/rc26_xhu_viewer/rc26_xhu_viewer"
 frontend_dir="${pkg_root}/viewer"
 frontend_dist="${frontend_dir}/dist"
-backend_script="${pkg_root}/scripts/visualization_server.py"
+backend_script="${pkg_root}/scripts/rc26_xhu_viewer_server.py"
 setup_file="${root_dir}/install/setup.bash"
 planner_trace_cli="${root_dir}/install/rc26_topo_nav/lib/rc26_topo_nav/planner_trace_cli"
 
@@ -303,12 +303,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ! -d "${pkg_root}" ]]; then
-  echo "rc26_visualization package directory not found: ${pkg_root}" >&2
+  echo "rc26_xhu_viewer package directory not found: ${pkg_root}" >&2
   exit 1
 fi
 
 if [[ ! -f "${backend_script}" ]]; then
-  echo "visualization_server.py not found: ${backend_script}" >&2
+  echo "rc26_xhu_viewer_server.py not found: ${backend_script}" >&2
   exit 1
 fi
 
@@ -318,7 +318,7 @@ check_python_modules
 
 browser_host="$(resolve_check_host "${host}")"
 requested_port="${preferred_port}"
-port="$(find_available_port "${browser_host}" "${preferred_port}" "rc26_topo_nav sim server")"
+port="$(find_available_port "${browser_host}" "${preferred_port}" "rc26_xhu_viewer web server")"
 viewer_url="http://${browser_host}:${port}/"
 health_url="http://${browser_host}:${port}/api/health"
 
@@ -327,7 +327,7 @@ if [[ "${dry_run}" == "true" ]]; then
   echo "Viewer URL: ${viewer_url}"
 
   if [[ "${backend_build_mode}" != "skip" ]]; then
-    print_cmd env MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --allow-overriding rc26_topo_nav rc26_visualization --packages-select rc26_visualization rc26_topo_nav
+    print_cmd env MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --allow-overriding rc26_topo_nav rc26_xhu_viewer --packages-select rc26_xhu_viewer rc26_topo_nav
   fi
 
   if [[ "${frontend_build_mode}" != "skip" ]]; then
@@ -341,10 +341,10 @@ fi
 
 if [[ "${backend_build_mode}" != "skip" ]]; then
   require_command colcon
-  echo "==> Building rc26_visualization + rc26_topo_nav"
+  echo "==> Building rc26_xhu_viewer + rc26_topo_nav"
   (
     cd "${root_dir}"
-    env MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --allow-overriding rc26_topo_nav rc26_visualization --packages-select rc26_visualization rc26_topo_nav
+    env MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --allow-overriding rc26_topo_nav rc26_xhu_viewer --packages-select rc26_xhu_viewer rc26_topo_nav
   )
 elif [[ ! -f "${setup_file}" || ! -x "${planner_trace_cli}" ]]; then
   echo "Missing install/setup.bash or planner_trace_cli; rerun without --skip-build." >&2
@@ -353,7 +353,7 @@ fi
 
 if [[ "${frontend_build_mode}" == "force" ]] || ([[ "${frontend_build_mode}" == "auto" ]] && frontend_needs_build); then
   require_command npm
-  echo "==> Building rc26_visualization viewer"
+  echo "==> Building rc26_xhu_viewer web frontend"
   (
     cd "${frontend_dir}"
     if [[ ! -d node_modules ]]; then
@@ -381,15 +381,15 @@ source_with_relaxed_nounset "${setup_file}"
 
 trap cleanup EXIT INT TERM
 
-echo "==> Starting rc26_visualization server"
+echo "==> Starting rc26_xhu_viewer server"
 print_cmd python3 "${backend_script}" --host "${host}" --port "${port}"
 python3 "${backend_script}" --host "${host}" --port "${port}" &
 backend_pid=$!
 
-wait_for_http "${health_url}" "rc26_visualization server" "${backend_pid}"
+wait_for_http "${health_url}" "rc26_xhu_viewer server" "${backend_pid}"
 
 echo "==> Viewer ready: ${viewer_url}"
 open_browser_url "${viewer_url}"
-echo "==> Press Ctrl+C to stop the visualization server"
+echo "==> Press Ctrl+C to stop the rc26_xhu_viewer server"
 
 wait "${backend_pid}"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stub backend for visualization viewer browser E2E."""
+"""Stub backend for rc26_xhu_viewer browser E2E."""
 
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ def make_semantic_zones() -> list[dict[str, Any]]:
             "label": "梅林区",
             "phase_key": "MFAreaTree",
             "color": "#2a9d8f",
-            "source": "visualization_e2e_stub",
+            "source": "xhu_viewer_e2e_stub",
             "viewer_only": False,
             "polygon": [
                 {"x": -0.8, "y": -0.5, "z": 0.03, "yaw": 0.0},
@@ -104,7 +104,7 @@ def make_semantic_zones() -> list[dict[str, Any]]:
             "label": "对抗区",
             "phase_key": "CombatAreaTree",
             "color": "#e76f51",
-            "source": "visualization_e2e_stub",
+            "source": "xhu_viewer_e2e_stub",
             "viewer_only": True,
             "polygon": [
                 {"x": -2.0, "y": -1.2, "z": 0.03, "yaw": 0.0},

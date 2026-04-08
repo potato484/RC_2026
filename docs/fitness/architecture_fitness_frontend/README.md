@@ -5,7 +5,7 @@
 本文档约束当前仓库已经存在的前端工具，主要包括：
 
 - `merlin-bt-visualizer`
-- `src/rc26_visualization/viewer`
+- `src/rc26_xhu_viewer/rc26_xhu_viewer/viewer`
 
 目标是保证这些页面继续保持工具属性，而不是在实现上偷偷长成运行时后端。
 
@@ -19,13 +19,13 @@
 ### 2.2 在线化必须经过 adapter boundary
 
 - React 页面不能直接耦合 ROS2 细节
-- 当前允许存在的 adapter 例子就是 `src/rc26_visualization/scripts/visualization_server.py`
+- 当前允许存在的 adapter 例子就是 `src/rc26_xhu_viewer/rc26_xhu_viewer/scripts/rc26_xhu_viewer_server.py`
 - adapter 负责把 topo 图、world、planner trace 和只读 live 话题转换成浏览器模型，但不拥有运行时导航权威
 
 ### 2.3 viewer 不能反向吞掉后端职责
 
-- `src/rc26_visualization/viewer` 可以展示路线、阶段区、keepout、定位健康和 BT 快照
-- 但它不能替代 `rc26_topo_nav`、`rc26_visualization` 或 `rc26_bringup` 的运行时职责
+- `src/rc26_xhu_viewer/rc26_xhu_viewer/viewer` 可以展示路线、阶段区、keepout、定位健康和 BT 快照
+- 但它不能替代 `rc26_topo_nav`、`rc26_xhu_viewer` 或 `rc26_bringup` 的运行时职责
 
 ### 2.4 页面文案必须反映真实能力
 
@@ -34,7 +34,7 @@
 
 ## 3. 当前项目规则
 
-### 3.1 `merlin-bt-visualizer` 和 `src/rc26_visualization/viewer` 都不是自研“后端”
+### 3.1 `merlin-bt-visualizer` 和 `src/rc26_xhu_viewer/rc26_xhu_viewer/viewer` 都不是自研“后端”
 
 - 一个是行为树工作台
 - 一个是比赛场地可视化平台前端
@@ -59,6 +59,6 @@
 ## 5. 当前立场
 
 - `merlin-bt-visualizer` 是本地行为树工具
-- `src/rc26_visualization/viewer` 是本地 Web 可视化平台前端
+- `src/rc26_xhu_viewer/rc26_xhu_viewer/viewer` 是本地 Web 可视化平台前端
 - 它们都不是运行时控制面
 - 如果以后要进一步在线化，必须单独设计新的 adapter 架构

@@ -22,10 +22,10 @@ source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 
 ```bash
 # 建图模式：auto 会选择 mapping_dense
-ros2 launch rc26_bringup bringup.launch.py slam:=true visualization_backend:=rviz use_decision:=false
+ros2 launch rc26_bringup bringup.launch.py slam:=true visualization_backend:=rc26_xhu_viewer use_decision:=false
 
 # 巡航/轻量模式：auto 会选择 cruise_light
-ros2 launch rc26_bringup bringup.launch.py slam:=false visualization_backend:=rviz use_decision:=false
+ros2 launch rc26_bringup bringup.launch.py slam:=false visualization_backend:=rc26_xhu_viewer use_decision:=false
 
 # race_profile 需要显式指定，不会改写 auto
 ros2 launch rc26_bringup bringup.launch.py slam:=false point_lio_profile:=race_profile use_decision:=false

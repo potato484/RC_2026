@@ -2,7 +2,7 @@
 
 ## 模块定位
 
-`src/rc26_visualization/viewer` 是 R2 当前维护中的本地 Web 可视化平台前端。
+`src/rc26_xhu_viewer/rc26_xhu_viewer/viewer` 是 R2 当前维护中的本地 Web 可视化平台前端，NPM 包名为 `rc26-xhu-viewer-web`。
 
 它已经不再只是“任意点 3D 路线观察台”，而是统一承载：
 
@@ -13,12 +13,12 @@
 
 ## 当前关键文件
 
-- [src/main.tsx](/home/potato/RC_2026/src/rc26_visualization/viewer/src/main.tsx)
-- [src/App.tsx](/home/potato/RC_2026/src/rc26_visualization/viewer/src/App.tsx)
-- [src/store.ts](/home/potato/RC_2026/src/rc26_visualization/viewer/src/store.ts)
-- [src/layerModel.ts](/home/potato/RC_2026/src/rc26_visualization/viewer/src/layerModel.ts)
-- [src/components/SceneCanvas.tsx](/home/potato/RC_2026/src/rc26_visualization/viewer/src/components/SceneCanvas.tsx)
-- [src/api.ts](/home/potato/RC_2026/src/rc26_visualization/viewer/src/api.ts)
+- [src/main.tsx](/home/potato/RC_2026/src/rc26_xhu_viewer/rc26_xhu_viewer/viewer/src/main.tsx)
+- [src/App.tsx](/home/potato/RC_2026/src/rc26_xhu_viewer/rc26_xhu_viewer/viewer/src/App.tsx)
+- [src/store.ts](/home/potato/RC_2026/src/rc26_xhu_viewer/rc26_xhu_viewer/viewer/src/store.ts)
+- [src/layerModel.ts](/home/potato/RC_2026/src/rc26_xhu_viewer/rc26_xhu_viewer/viewer/src/layerModel.ts)
+- [src/components/SceneCanvas.tsx](/home/potato/RC_2026/src/rc26_xhu_viewer/rc26_xhu_viewer/viewer/src/components/SceneCanvas.tsx)
+- [src/api.ts](/home/potato/RC_2026/src/rc26_xhu_viewer/rc26_xhu_viewer/viewer/src/api.ts)
 
 ## 当前数据入口
 
@@ -38,7 +38,7 @@
 - `operator / engineering / diagnostic` 三套 preset 会直接改写图层集合
 - 触发 `surface-route` 生成时，viewer 会自动重新打开 `route` 图层，避免诊断布局把新生成的路线完全隐藏
 - preview 路线会额外渲染高对比底衬、亮色主线和路径珠点，保证在俯视缩放较远时也能直接看见路线走向
-- 当 body-aware surface route 因车体约束失败时，viewer 会继续渲染 `visualization_server.py` 回退出的 `legacy` 参考路线，并把它标成“仅供观察、不可执行”
+- 当 body-aware surface route 因车体约束失败时，viewer 会继续渲染 `rc26_xhu_viewer_server.py` 回退出的 `legacy` 参考路线，并把它标成“仅供观察、不可执行”
 - 搜索回放里的前沿点和已探查点改为按整次 trace 累计常显，不再随着回放滑块切到末帧而消失；滑块现在只负责切换当前帧说明、指标和路径高亮
 - 即使 surface route preview 因车体约束失败，只要 preview 已经给出投影起终点节点，viewer 仍会继续请求 `trace-from-nodes`，让参考路线场景也能看到累计搜索点
 - 失败原因的中文化不再只支持精确匹配；像 `heading change ...`、`node clearance ...` 这类 body planner 细节现在也会直接显示成中文摘要

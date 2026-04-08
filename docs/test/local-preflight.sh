@@ -2,7 +2,7 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VISUALIZATION_VIEWER_DIR="$ROOT_DIR/src/rc26_visualization/viewer"
+XHU_VIEWER_WEB_DIR="$ROOT_DIR/src/rc26_xhu_viewer/rc26_xhu_viewer/viewer"
 REPORT_BASE_DIR="${LOCAL_PREFLIGHT_REPORT_BASE_DIR:-$ROOT_DIR/artifacts/preflight}"
 TIMESTAMP="$(date '+%Y%m%d-%H%M%S')"
 REPORT_DIR="$REPORT_BASE_DIR/$TIMESTAMP"
@@ -30,7 +30,7 @@ Usage: bash docs/test/local-preflight.sh [options]
 Options:
   --strict         Exit non-zero on WARN, BLOCKED or FAIL.
   --run-deploy     Execute docs/test/release/deploy-via-ssh.sh when deploy env vars are present.
-  --refresh-deps   Force npm ci for src/rc26_visualization/viewer.
+  --refresh-deps   Force npm ci for src/rc26_xhu_viewer/rc26_xhu_viewer/viewer.
   --skip-e2e       Skip docs/test/e2e/run-e2e-local.sh.
   -h, --help       Show this help.
 EOF
@@ -203,33 +203,33 @@ else
   record_step "python-parity" "preflight" "Python 版本对齐" "WARN" "Detected Python ${PYTHON_MINOR}; repository runtime is Ubuntu 22.04 / Python 3.10 oriented." ""
 fi
 
-if [[ ! -d "$VISUALIZATION_VIEWER_DIR/node_modules" || $REFRESH_DEPS -eq 1 ]]; then
+if [[ ! -d "$XHU_VIEWER_WEB_DIR/node_modules" || $REFRESH_DEPS -eq 1 ]]; then
   run_logged_step \
     "viewer-deps" \
     "ci" \
-    "安装 visualization viewer Node 依赖" \
-    "npm --prefix \"$VISUALIZATION_VIEWER_DIR\" ci"
+    "安装 rc26_xhu_viewer web Node 依赖" \
+    "npm --prefix \"$XHU_VIEWER_WEB_DIR\" ci"
 else
-  record_step "viewer-deps" "ci" "安装 visualization viewer Node 依赖" "PASS" "Reused existing node_modules in src/rc26_visualization/viewer." ""
+  record_step "viewer-deps" "ci" "安装 rc26_xhu_viewer web Node 依赖" "PASS" "Reused existing node_modules in src/rc26_xhu_viewer/rc26_xhu_viewer/viewer." ""
 fi
 
 run_logged_step \
   "viewer-unit" \
   "ci" \
-  "运行 visualization viewer 单测" \
-  "npm --prefix \"$VISUALIZATION_VIEWER_DIR\" test"
+  "运行 rc26_xhu_viewer web 单测" \
+  "npm --prefix \"$XHU_VIEWER_WEB_DIR\" test"
 
 run_logged_step \
   "viewer-build" \
   "ci" \
-  "构建 visualization viewer 前端" \
-  "npm --prefix \"$VISUALIZATION_VIEWER_DIR\" run build"
+  "构建 rc26_xhu_viewer web 前端" \
+  "npm --prefix \"$XHU_VIEWER_WEB_DIR\" run build"
 
 run_logged_step \
   "adapter-pycompile" \
   "ci" \
-  "校验 visualization adapter Python 脚本语法" \
-  "python3 -m py_compile src/rc26_visualization/scripts/visualization_server.py src/rc26_visualization/scripts/visualization_algorithms.py src/rc26_visualization/scripts/render_graph_sim_html.py"
+  "校验 rc26_xhu_viewer adapter Python 脚本语法" \
+  "python3 -m py_compile src/rc26_xhu_viewer/rc26_xhu_viewer/scripts/rc26_xhu_viewer_server.py src/rc26_xhu_viewer/rc26_xhu_viewer/scripts/visualization_algorithms.py src/rc26_xhu_viewer/rc26_xhu_viewer/scripts/render_graph_sim_html.py"
 
 if [[ $SKIP_E2E -eq 1 ]]; then
   record_step "browser-e2e" "e2e" "运行浏览器 E2E" "SKIP" "Skipped by --skip-e2e." ""
@@ -264,8 +264,8 @@ else
   record_step "release-deploy" "cd" "执行远端 deploy" "SKIP" "Missing DEPLOY_HOST / DEPLOY_USER / DEPLOY_PATH; remote deploy gate skipped." ""
 fi
 
-record_note "浏览器 E2E 当前使用 docs/test/e2e/visualization_stub_server.py 契约 stub，而不是依赖真实 ROS2 / planner_trace_cli。"
-record_note "真实 visualization_server.py 仍可用于人工联调；本地预演优先保证 CI 可重复和浏览器路径稳定。"
+record_note "浏览器 E2E 当前使用 docs/test/e2e/xhu_viewer_stub_server.py 契约 stub，而不是依赖真实 ROS2 / planner_trace_cli。"
+record_note "真实 rc26_xhu_viewer_server.py 仍可用于人工联调；本地预演优先保证 CI 可重复和浏览器路径稳定。"
 
 write_report
 
