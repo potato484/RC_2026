@@ -704,3 +704,26 @@ components:
           format: float
         reason:
           type: string
+  # --- M3 新增 (rc26_local_3d_planner) ---
+  /ros2/topics/xhu_nav_local_candidates:
+    get:
+      tags: [Topic]
+      summary: 局部候选轨迹 MarkerArray
+      x-ros:
+        interface_kind: topic
+        name: /xhu_nav/local_candidates
+        message_type: visualization_msgs/msg/MarkerArray
+      responses:
+        '200':
+          description: visualization_msgs/msg/MarkerArray
+  /ros2/topics/xhu_nav_selected_trajectory:
+    get:
+      tags: [Topic]
+      summary: 选中轨迹 Path
+      x-ros:
+        interface_kind: topic
+        name: /xhu_nav/selected_trajectory
+        message_type: nav_msgs/msg/Path
+      responses:
+        '200':
+          description: nav_msgs/msg/Path

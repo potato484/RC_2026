@@ -34,7 +34,6 @@ def generate_launch_description():
     topo_nav_dir = get_package_share_directory('rc26_topo_nav')
     nav_mode_manager_dir = get_package_share_directory('rc26_nav_mode_manager')
     local_planner_dir = get_package_share_directory('rc26_local_3d_planner')
-    visualization_dir = get_package_share_directory('rc26_visualization')
     xhu_viewer_dir = get_package_share_directory('rc26_xhu_viewer')
     display_available = 'true' if (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')) else 'false'
 
@@ -498,12 +497,12 @@ def generate_launch_description():
     )
 
     visualization_status_config = PathJoinSubstitution([
-        visualization_dir, 'config', 'visualization_status.yaml'
+        xhu_viewer_dir, 'config', 'xhu_viewer_status.yaml'
     ])
     visualization_status_node = Node(
-        package='rc26_visualization',
-        executable='rc26_visualization_status_node',
-        name='rc26_visualization_status_node',
+        package='rc26_xhu_viewer',
+        executable='rc26_xhu_viewer_status_node',
+        name='rc26_xhu_viewer_status_node',
         namespace=namespace,
         output='screen',
         parameters=[

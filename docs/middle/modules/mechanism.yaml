@@ -169,3 +169,15 @@ components:
           type: integer
           minimum: 0
           maximum: 255
+  # --- M3 新增 ---
+  /ros2/topics/mechanism/action_history:
+    get:
+      tags: [Topic]
+      summary: 机构动作历史环缓冲
+      x-ros:
+        interface_kind: topic
+        name: /mechanism/action_history
+        message_type: rc26_interfaces/msg/MechanismActionHistory
+      responses:
+        '200':
+          description: rc26_interfaces/msg/MechanismActionHistory
