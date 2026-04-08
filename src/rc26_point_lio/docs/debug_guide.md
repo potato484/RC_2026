@@ -22,10 +22,10 @@ source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 
 ```bash
 # 建图模式：auto 会选择 mapping_dense
-ros2 launch rc26_bringup bringup.launch.py slam:=true visualization_backend:=rc26_xhu_viewer use_decision:=false
+ros2 launch rc26_bringup bringup.launch.py slam:=true visualization_profile:=diagnostic_gui use_decision:=false
 
 # 巡航/轻量模式：auto 会选择 cruise_light
-ros2 launch rc26_bringup bringup.launch.py slam:=false visualization_backend:=rc26_xhu_viewer use_decision:=false
+ros2 launch rc26_bringup bringup.launch.py slam:=false visualization_profile:=diagnostic_gui use_decision:=false
 
 # race_profile 需要显式指定，不会改写 auto
 ros2 launch rc26_bringup bringup.launch.py slam:=false point_lio_profile:=race_profile use_decision:=false
@@ -57,6 +57,7 @@ ros2 launch rc26_bringup bringup.launch.py \
 - `point_lio_config_file` 非空时优先级高于 `point_lio_profile`。
 - `point_lio_profile:=auto` 会根据 `slam` 自动切换。
 - 当前仓库默认只保留 `mid360.yaml` 一份主配置，`cruise_light` / `mapping_dense` / `race_profile` 由 launch 在运行时做参数覆盖。
+- `rc26_point_lio/launch/point_lio.launch.py` 现在是纯 headless 入口；若需要 GUI，请通过 `rc26_bringup/odometry.launch.py` 或单独启动 `rc26_xhu_viewer`。
 
 ## 3. 基础功能测试（回放数据包）
 
@@ -67,8 +68,16 @@ ros2 launch rc26_bringup bringup.launch.py \
 在一个终端中启动里程计节点：
 
 ```bash
-ros2 launch rc26_bringup odometry.launch.py slam:=true point_lio_profile:=mapping_dense odometry_use_rviz:=true
+ros2 launch rc26_bringup odometry.launch.py \
+  slam:=true \
+  point_lio_profile:=mapping_dense \
+  odometry_use_rviz:=true \
+  odometry_visualization_layout:=diagnostic
 ```
+
+说明：
+- `odometry_use_rviz:=true` 现在启动的是 `rc26_xhu_viewer` 调试界面，而不是原生 `rviz2`。
+- 若在无图形环境的车端调试，可直接去掉该参数或显式传 `odometry_use_rviz:=false`。
 
 ### 步骤 3.2：播放数据包
 

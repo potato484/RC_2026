@@ -86,7 +86,9 @@ def generate_launch_description():
     )
 
     declare_rviz = DeclareLaunchArgument(
-        "rviz", default_value="True", description="Flag to launch RViz."
+        "rviz",
+        default_value="false",
+        description="兼容参数；不再直接启动 rviz2。若需 GUI，请改用 rc26_bringup/odometry.launch.py 或单独启动 rc26_xhu_viewer。",
     )
 
     declare_point_lio_cfg_dir = DeclareLaunchArgument(
@@ -111,18 +113,13 @@ def generate_launch_description():
         )
     )
 
-    start_rviz_node = Node(
+    rviz_deprecation_notice = LogInfo(
         condition=IfCondition(use_rviz),
-        package="rviz2",
-        executable="rviz2",
-        namespace=namespace,
-        name="rviz",
-        remappings=remappings,
-        arguments=[
-            "-d",
-            PathJoinSubstitution([point_lio_dir, "rviz_cfg", "loam_livox"]),
-            ".rviz",
-        ],
+        msg=(
+            "[point_lio.launch] rviz:=true 已失效；该入口已改为纯 headless。"
+            " 如需调试可视化，请使用 `ros2 launch rc26_bringup odometry.launch.py odometry_use_rviz:=true`"
+            " 或单独启动 `rc26_xhu_viewer/launch/viewer.launch.py`。"
+        ),
     )
 
     ld = LaunchDescription()
@@ -132,6 +129,6 @@ def generate_launch_description():
     ld.add_action(declare_point_lio_cfg_dir)
     ld.add_action(declare_point_lio_profile)
     ld.add_action(start_point_lio_node)
-    ld.add_action(start_rviz_node)
+    ld.add_action(rviz_deprecation_notice)
 
     return ld
