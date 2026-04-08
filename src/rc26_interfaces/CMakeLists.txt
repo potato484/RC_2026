@@ -60,6 +60,14 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/BehaviorTreeLocalizationEntry.msg"
   "msg/BehaviorTreeLocalizedNode.msg"
   "msg/BehaviorTreeLocalization.msg"
+  "msg/LocalizationKeyframe.msg"
+  "msg/LocalizationLoopClosure.msg"
+  "msg/LocalizationRelocState.msg"
+  "msg/RegistrationDebug.msg"
+  "msg/MechanismActionHistoryEntry.msg"
+  "msg/MechanismActionHistory.msg"
+  "msg/DynamicPrediction.msg"
+  "msg/DynamicPredictionArray.msg"
   "srv/ControlBehaviorTree.srv"
   DEPENDENCIES action_msgs builtin_interfaces geometry_msgs nav_msgs std_msgs
 )

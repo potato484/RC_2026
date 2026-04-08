@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>BT 时间线</title>
+<style>
+body { font-family: "Noto Sans SC", sans-serif; margin: 0; padding: 10px; background: #1e1e1e; color: #ddd; }
+h2 { margin: 0 0 10px 0; font-size: 14px; color: #4db6ac; }
+#timeline { width: 100%; height: calc(100vh - 60px); overflow-y: auto; border: 1px solid #444; padding: 8px; box-sizing: border-box; }
+.event { padding: 4px 8px; margin: 2px 0; border-left: 3px solid #4db6ac; background: #2a2a2a; font-size: 12px; }
+.event.warn { border-left-color: #ffb74d; }
+.event.error { border-left-color: #ef5350; }
+.event .time { color: #888; margin-right: 8px; }
+.event .node { color: #4db6ac; font-weight: bold; margin-right: 8px; }
+.empty { text-align: center; color: #666; padding: 40px; }
+</style>
+</head>
+<body>
+<h2>行为树时间线（2 小时滚动窗口）</h2>
+<div id="timeline"><div class="empty">等待数据...</div></div>
+<script>
+var events = [];
+function render() {
+  var el = document.getElementById("timeline");
+  if (!events.length) { el.innerHTML = '<div class="empty">等待数据...</div>'; return; }
+  el.innerHTML = events.map(function(e) {
+    return '<div class="event ' + (e.level || '') + '"><span class="time">' + e.time + '</span><span class="node">' + (e.node || '') + '</span>' + (e.msg || '') + '</div>';
+  }).join('');
+}
+if (typeof qt !== 'undefined' && qt.webChannelTransport) {
+  new QWebChannel(qt.webChannelTransport, function(channel) {
+    var bridge = channel.objects.bridge;
+    bridge.dataChanged.connect(function() {
+      try { events = JSON.parse(bridge.lastData); render(); } catch (e) {}
+    });
+  });
+}
+</script>
+</body>
+</html>

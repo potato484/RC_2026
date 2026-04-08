@@ -7,110 +7,125 @@ Panels:
     Name: 时间
 Visualization Manager:
   Displays:
-    - Class: rviz_default_plugins/Grid
-      Name: 地面网格
-      Value: true
-    - Class: rviz_default_plugins/TF
-      Name: TF
-      Value: true
-    - Class: rviz_default_plugins/PointCloud2
-      Name: 激光地图
-      Topic:
-        Value: laser_map_full
-        Queue Size: 1
-      Value: true
-      Size (m): 0.04
-      Style: Points
-      Color: 80; 255; 120
-      Color Transformer: FlatColor
-      Reliability Policy: Best Effort
-    - Class: rviz_default_plugins/PointCloud2
-      Name: 匹配点云
-      Topic:
-        Value: registered_scan
-        Queue Size: 5
-      Value: true
-      Size (m): 0.03
-      Style: Points
-      Color Transformer: Intensity
-      Reliability Policy: Best Effort
-    - Alpha: 1
-      Class: rviz_default_plugins/Path
-      Color: 220; 60; 60
-      Name: 里程轨迹
-      Topic:
-        Value: odom_path
-      Value: true
-    - Alpha: 1
-      Class: rviz_default_plugins/Path
-      Color: 60; 220; 60
-      Name: 控制轨迹
-      Topic:
-        Value: control_path
-      Value: true
-    - Class: rviz_default_plugins/MarkerArray
-      Name: 里程位姿标记
-      Topic:
-        Value: odom_pose_markers
-      Value: true
-    - Class: rviz_default_plugins/MarkerArray
-      Name: 控制位姿标记
-      Topic:
-        Value: control_pose_markers
-      Value: true
-    - Class: rviz_default_plugins/PointStamped
-      Name: 预瞄点
-      Topic:
-        Value: lookahead_point
-      Value: true
-    - Class: rviz_default_plugins/MarkerArray
-      Name: 曲率标记
-      Topic:
-        Value: curvature_points_marker_array
-      Value: true
-    - Alpha: 1
-      Autocompute Intensity Bounds: true
-      Class: grid_map_rviz_plugin/GridMap
-      Color Layer: traversability
-      Color Transformer: GridMapLayer
-      Height Layer: elevation_abs
-      Height Transformer: GridMapLayer
-      Name: 局部地形
-      Topic:
-        Value: terrain_grid_map_local
-      Value: true
-    - Class: rviz_default_plugins/MarkerArray
-      Name: 局部地形标记
-      Topic:
-        Value: terrain_grid_map_local_markers
-      Value: true
-    - Class: rviz_default_plugins/PointCloud2
-      Name: 地形障碍
-      Topic:
-        Value: terrain_obstacles
-        Queue Size: 5
-      Value: true
-      Size (m): 0.05
-      Style: Points
-      Color: 255; 120; 80
-      Color Transformer: FlatColor
-      Reliability Policy: Best Effort
-    - Class: rviz_default_plugins/PointCloud2
-      Name: 地形跌落
-      Topic:
-        Value: terrain_drop
-        Queue Size: 5
-      Value: true
-      Size (m): 0.05
-      Style: Points
-      Color: 80; 160; 255
-      Color Transformer: FlatColor
-      Reliability Policy: Best Effort
-    - Class: rviz_default_plugins/Map
-      Name: 保持禁行区
-      Topic:
-        Value: /kfs_filter_mask
-      Value: true
+    - Class: rviz_common/Group
+      Name: 场景基础
+      Displays:
+        - Class: rviz_default_plugins/Grid
+          Name: 地面网格
+          Value: true
+        - Class: rviz_default_plugins/TF
+          Name: TF
+          Value: true
+    - Class: rviz_common/Group
+      Name: 建图点云
+      Displays:
+        - Class: rviz_default_plugins/PointCloud2
+          Name: 激光地图
+          Topic:
+            Value: laser_map_full
+            Queue Size: 1
+          Value: true
+          Size (m): 0.04
+          Style: Points
+          Color: 80; 255; 120
+          Color Transformer: FlatColor
+          Reliability Policy: Best Effort
+        - Class: rviz_default_plugins/PointCloud2
+          Name: 匹配点云
+          Topic:
+            Value: registered_scan
+            Queue Size: 5
+          Value: true
+          Size (m): 0.03
+          Style: Points
+          Color Transformer: Intensity
+          Reliability Policy: Best Effort
+    - Class: rviz_common/Group
+      Name: 轨迹对比
+      Displays:
+        - Alpha: 1
+          Class: rviz_default_plugins/Path
+          Color: 220; 60; 60
+          Name: 里程轨迹
+          Topic:
+            Value: odom_path
+          Value: true
+        - Alpha: 1
+          Class: rviz_default_plugins/Path
+          Color: 60; 220; 60
+          Name: 控制轨迹
+          Topic:
+            Value: control_path
+          Value: true
+        - Class: rviz_default_plugins/MarkerArray
+          Name: 里程位姿标记
+          Topic:
+            Value: odom_pose_markers
+          Value: true
+        - Class: rviz_default_plugins/MarkerArray
+          Name: 控制位姿标记
+          Topic:
+            Value: control_pose_markers
+          Value: true
+        - Class: rviz_default_plugins/PointStamped
+          Name: 预瞄点
+          Topic:
+            Value: lookahead_point
+          Value: true
+        - Class: rviz_default_plugins/MarkerArray
+          Name: 曲率标记
+          Topic:
+            Value: curvature_points_marker_array
+          Value: true
+    - Class: rviz_common/Group
+      Name: 点云诊断
+      Displays:
+        - Class: rviz_default_plugins/PointCloud2
+          Name: 地形障碍
+          Topic:
+            Value: terrain_obstacles
+            Queue Size: 5
+          Value: true
+          Size (m): 0.05
+          Style: Points
+          Color: 255; 120; 80
+          Color Transformer: FlatColor
+          Reliability Policy: Best Effort
+        - Class: rviz_default_plugins/PointCloud2
+          Name: 地形跌落
+          Topic:
+            Value: terrain_drop
+            Queue Size: 5
+          Value: true
+          Size (m): 0.05
+          Style: Points
+          Color: 80; 160; 255
+          Color Transformer: FlatColor
+          Reliability Policy: Best Effort
+    - Class: rviz_common/Group
+      Name: 地形安全
+      Displays:
+        - Alpha: 1
+          Autocompute Intensity Bounds: true
+          Class: grid_map_rviz_plugin/GridMap
+          Color Layer: traversability
+          Color Transformer: GridMapLayer
+          Height Layer: elevation_abs
+          Height Transformer: GridMapLayer
+          Name: 局部地形
+          Topic:
+            Value: terrain_grid_map_local
+          Value: true
+        - Class: rviz_default_plugins/MarkerArray
+          Name: 局部地形标记
+          Topic:
+            Value: terrain_grid_map_local_markers
+          Value: true
+        - Class: rviz_default_plugins/Map
+          Name: 保持禁行区
+          Topic:
+            Value: /kfs_filter_mask
+          Value: true
   Global Options:
     Fixed Frame: odom
     Frame Rate: 20

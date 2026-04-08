@@ -369,6 +369,14 @@ DisplayFactory * VisualizationManager::getDisplayFactory() const
   return display_factory_;
 }
 
+void VisualizationManager::setDisplayFactory(DisplayFactory * factory)
+{
+  if (factory && factory != display_factory_) {
+    delete display_factory_;
+    display_factory_ = factory;
+  }
+}
+
 properties::PropertyTreeModel * VisualizationManager::getDisplayTreeModel() const
 {
   return display_property_tree_model_;

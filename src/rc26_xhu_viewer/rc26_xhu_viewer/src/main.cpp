@@ -5,12 +5,15 @@
 
 #include <QApplication>
 #include <QString>
+#include <QTimer>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rviz_common/logging.hpp"
 #include "rviz_common/ros_integration/ros_client_abstraction.hpp"
-#include "rviz_common/visualizer_app.hpp"
+#include "rviz_rendering/ogre_logging.hpp"
+
+#include "rc26_xhu_viewer_frame.hpp"
 
 namespace
 {
@@ -133,11 +136,43 @@ int main(int argc, char ** argv)
       RCLCPP_ERROR(logger, "%s", msg.c_str());
     });
 
-  rviz_common::VisualizerApp viewer_app(
-    std::make_unique<rviz_common::ros_integration::RosClientAbstraction>());
-  viewer_app.setApp(&qapp);
-  if (!viewer_app.init(filtered_argc, filtered_arg_chars.data())) {
-    return 1;
+  rviz_common::install_rviz_rendering_log_handlers();
+
+  // ROS node init
+  auto ros_client =
+    std::make_unique<rviz_common::ros_integration::RosClientAbstraction>();
+  auto node = ros_client->init(filtered_argc, filtered_arg_chars.data(),
+    "rc26_xhu_viewer", false);
+
+  // Extract display config from args (same way VisualizerApp does)
+  QString display_config;
+  for (size_t i = 1; i < filtered_args.size(); ++i) {
+    if ((filtered_args[i] == "-d" || filtered_args[i] == "--display-config") &&
+      i + 1 < filtered_args.size())
+    {
+      display_config = QString::fromStdString(filtered_args[i + 1]);
+      break;
+    }
   }
-  return qapp.exec();
+
+  auto * frame = new rc26_xhu_viewer::RC26XhuViewerFrame(node);
+  frame->setApp(&qapp);
+  frame->initialize(node, display_config);
+  frame->show();
+
+  // ROS liveness checker
+  auto * continue_timer = new QTimer();
+  QObject::connect(continue_timer, &QTimer::timeout, [&ros_client, frame]() {
+    if (!ros_client->ok()) {
+      frame->setWindowModified(false);
+      QApplication::closeAllWindows();
+    }
+  });
+  continue_timer->start(100);
+
+  int result = qapp.exec();
+  delete continue_timer;
+  delete frame;
+  ros_client->shutdown();
+  return result;
 }

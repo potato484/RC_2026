@@ -277,6 +277,9 @@ public:
   /// Return a factory for creating Display subclasses based on a class id string.
   DisplayFactory * getDisplayFactory() const override;
 
+  /// Replace the display factory (takes ownership, deletes the previous one).
+  void setDisplayFactory(DisplayFactory * factory);
+
   /// Return the display tree model.
   properties::PropertyTreeModel * getDisplayTreeModel() const;
 

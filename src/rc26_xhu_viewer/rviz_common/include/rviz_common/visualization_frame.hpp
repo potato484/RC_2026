@@ -408,11 +408,11 @@ protected:
   initConfigs();
 
   /// Setup the menu bar and menus.
-  void
+  virtual void
   initMenus();
 
   /// Setup the toolbar and the tools in it.
-  void
+  virtual void
   initToolbars();
 
   /// Check for unsaved changes, prompt to save config, etc.

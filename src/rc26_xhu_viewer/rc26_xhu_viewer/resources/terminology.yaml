@@ -1,0 +1,70 @@
+# RC26 工程可视化台 中文术语单一真源
+# 所有 Panel/Display/菜单/状态栏中的中文文案应以本文件为准
+
+menus:
+  file: "文件(&F)"
+  open_config: "打开配置(&O)"
+  save_config: "保存配置(&S)"
+  save_config_as: "另存配置(&A)"
+  recent_configs: "最近配置(&R)"
+  save_image: "保存截图(&I)"
+  quit: "退出(&Q)"
+  panels: "面板(&P)"
+  add_panel: "添加面板(&N)"
+  delete_panel: "删除面板(&D)"
+  fullscreen: "全屏(&F)"
+  help: "帮助(&H)"
+  about: "关于(&A)"
+
+toolbar:
+  tools: "工具"
+
+status_bar:
+  fps_format: "帧率: {fps} FPS"
+
+app:
+  display_name: "RC26 工程可视化台"
+
+gate_levels:
+  operator: "操作态（只读）"
+  engineering: "工程态"
+  diagnostic: "诊断态（危险）"
+
+panels:
+  console_gate: "操作台门禁"
+  localization: "定位状态"
+  registration: "配准调试"
+  lio: "LIO 状态"
+  navigation: "导航状态"
+  terrain: "地形状态"
+  bt_area: "BT 场地区域"
+  bt_tree: "BT 树结构"
+  bt_timeline: "BT 时间线"
+  mechanism: "机构状态"
+  vision: "视觉检测"
+  telecontrol: "遥控状态"
+  serial: "串口日志"
+  operator_status: "操作员状态"
+  history_query: "历史查询"
+
+displays:
+  localization: "定位总览"
+  registration_debug: "配准调试"
+  nav_candidates: "候选轨迹"
+  dynamic_prediction: "动态预测"
+  terrain_semantic: "地形语义"
+
+groups:
+  scene_base: "场景基础"
+  nav_situation: "导航态势"
+  terrain_safety: "地形安全"
+  point_cloud_diag: "点云诊断"
+  mapping_cloud: "建图点云"
+  trajectory_compare: "轨迹对比"
+
+common:
+  waiting_data: "等待数据..."
+  unavailable: "不可用"
+  no_data: "无数据"
+  connected: "已连接"
+  disconnected: "未连接"
