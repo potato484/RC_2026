@@ -119,9 +119,6 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
     if (config_.odom_topic.empty()) {
         config_.odom_topic = Config{}.odom_topic;
     }
-    if (config_.imu_topic.empty()) {
-        config_.imu_topic = Config{}.imu_topic;
-    }
     chassis_model_ = parseChassisModel(config_.chassis_model);
 
     logNormalized("chassis_model", raw_chassis_model, config_.chassis_model);
@@ -158,8 +155,10 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
     odom_sub_ = node_.create_subscription<nav_msgs::msg::Odometry>(
         config_.odom_topic, 10, std::bind(&PoseSender::odomCallback, this, std::placeholders::_1));
 
-    imu_sub_ = node_.create_subscription<sensor_msgs::msg::Imu>(
-        config_.imu_topic, 20, std::bind(&PoseSender::imuCallback, this, std::placeholders::_1));
+    if (!config_.imu_topic.empty()) {
+        imu_sub_ = node_.create_subscription<sensor_msgs::msg::Imu>(
+            config_.imu_topic, 20, std::bind(&PoseSender::imuCallback, this, std::placeholders::_1));
+    }
 
     feedback_protected_pub_ = node_.create_publisher<geometry_msgs::msg::TwistStamped>(
         "pose_sender/feedback_protected", 10);
@@ -178,7 +177,8 @@ PoseSender::PoseSender(rclcpp::Node& node, std::shared_ptr<rc26_decision::Serial
     RCLCPP_INFO(node_.get_logger(),
                 "PoseSender 启动 (双串口模式)，cmd_vel: %s, odom: %s, imu: %s, 反馈: %d Hz, 目标: %d Hz, "
                 "chassis_model=%s",
-                config_.cmd_vel_topic.c_str(), config_.odom_topic.c_str(), config_.imu_topic.c_str(),
+                config_.cmd_vel_topic.c_str(), config_.odom_topic.c_str(),
+                config_.imu_topic.empty() ? "disabled" : config_.imu_topic.c_str(),
                 config_.feedback_send_rate_hz, config_.target_send_rate_hz, chassisModelName(chassis_model_));
     RCLCPP_INFO(node_.get_logger(),
                 "PoseSender 保护参数: imu_gate=%s governor=%s dob=%s cmd_vel_timeout=%dms",

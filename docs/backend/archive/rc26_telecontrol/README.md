@@ -116,5 +116,9 @@
 - 在 dpad 模式里，旋转仍由 `X/B` 控制；`Y/A` 不参与速度输出，只交给前置履带测试节点。
 - 仓库根目录的 `start_r2_teleop.sh` 现已显式向 `rc26_merge_odom` 和 `rc26_telecontrol` 传入 `chassis_model:=tracked_diff`，遥控联调不再依赖各包内部默认值。
 - `start_r2_teleop.sh` 不再默认拉起 `rc26_mechanism`；teleop 前置履带联调只依赖 `merge_odom` 持有目标串口并提供 transport service。
-- `start_r2_teleop.sh` 现支持 `--pose-mode imu|no-imu`：两种模式都会自动拉起 `merge_odom.launch.py` 的 EKF，区别只在于最终融合位姿是否消费 IMU；`no-imu` 不会停掉 `dm_imu_node` 或 `PoseSender` 的 IMU 保护。
+- 仓库根目录的 `start_r2_teleop.sh` 现在通过 `--stack full|minimal-mcu` 统一承载完整遥控链和最小串口链；`start_r2_mcu_teleop.sh` 保留为兼容包装器，等价于 `start_r2_teleop.sh --stack minimal-mcu`。
+- `start_r2_teleop.sh` 现支持 `--pose-mode imu|no-imu|wheel-only`：
+  - `imu`：EKF 融合 `DM_IMU`
+  - `no-imu`：EKF 不融合 IMU，但 `dm_imu_node` 与执行保护链仍保留
+  - `wheel-only`：不启动也不读取 IMU，只用 `wheel_odom` 做最终 `merge_odom` 融合
 - `terrain_speed_limit` 运行时链路已从系统中删除；teleop 链不再需要额外关闭地形限速，也不存在重新接回该链路的脚本入口。

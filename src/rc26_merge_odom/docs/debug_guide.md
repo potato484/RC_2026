@@ -69,6 +69,24 @@ ros2 launch rc26_bringup bringup.launch.py slam:=true pure_mapping_mode:=true
    ```
    **预期输出**：返回字符串 `/Can_Odom`。
 
+### 2.1.1 验证 wheel-only 口径不会读取 IMU
+
+当你需要“只用轮式里程计做最终融合位姿，且完全不读取 IMU”时，当前推荐直接关闭 `start_imu`：
+
+```bash
+ros2 launch rc26_merge_odom merge_odom.launch.py \
+  use_can_odom:=false \
+  start_ekf:=true \
+  use_imu_for_ekf:=false \
+  start_imu:=false
+```
+
+**预期结果：**
+- 不会启动 `dm_imu_node`
+- `/ekf_filter_node` 的 `odom0` 为 `wheel_odom`
+- `merge_odom_node` 内部 `imu_topic` 被置空，`WheelOdom`、`CanOdom`、`PoseSender` 都不会创建 IMU 订阅
+- `slip_enable`、`imu_gate_enable`、`latency_comp_enable` 会被一起关闭，执行链完全按纯 wheel odom 口径运行
+
 ### 2.2 验证 cmd_vel_timeout_ms 参数可见性
 
 检查超时保护参数是否已成功暴露为 ROS2 动态参数。

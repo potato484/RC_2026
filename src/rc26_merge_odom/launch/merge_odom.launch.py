@@ -22,13 +22,22 @@ def drop_sensor_parameters(parameters, base_name):
     }
 
 
-def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, wheel_odom_topic):
+def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, wheel_odom_topic,
+                         imu_topic_default, slip_enable_default, imu_gate_enable_default,
+                         latency_comp_enable_default, stats_log_enable_default):
     use_can_odom = parse_launch_bool(LaunchConfiguration('use_can_odom').perform(context))
     start_ekf = parse_launch_bool(LaunchConfiguration('start_ekf').perform(context))
     use_imu_for_ekf = parse_launch_bool(LaunchConfiguration('use_imu_for_ekf').perform(context))
+    start_imu = parse_launch_bool(LaunchConfiguration('start_imu').perform(context))
+    effective_use_imu_for_ekf = start_imu and use_imu_for_ekf
     odom0_topic_override = can_odom_topic if use_can_odom else wheel_odom_topic
     pose_feedback_topic = 'merge_odom' if start_ekf else odom0_topic_override
     chassis_model = LaunchConfiguration('chassis_model').perform(context).strip()
+    imu_topic = imu_topic_default if start_imu else ''
+    slip_enable = slip_enable_default if start_imu else False
+    imu_gate_enable = imu_gate_enable_default if start_imu else False
+    latency_comp_enable = latency_comp_enable_default if start_imu else False
+    stats_log_enable = parse_launch_bool(LaunchConfiguration('stats_log_enable').perform(context))
 
     merge_odom_node = Node(
         package='rc26_merge_odom',
@@ -41,28 +50,34 @@ def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, 
             'feedback_serial_port': LaunchConfiguration('feedback_serial_port').perform(context),
             'target_serial_port': LaunchConfiguration('target_serial_port').perform(context),
             'merge_odom_topic': pose_feedback_topic,
+            'imu_topic': imu_topic,
+            'slip_enable': slip_enable,
+            'imu_gate_enable': imu_gate_enable,
+            'latency_comp_enable': latency_comp_enable,
+            'stats_log_enable': stats_log_enable,
             'chassis_model': chassis_model,
         }]
     )
 
-    dm_imu_node = Node(
-        package='rc26_merge_odom',
-        executable='dm_imu_node',
-        name='dm_imu_node',
-        output='screen',
-        parameters=[params_file, {
-            'port': LaunchConfiguration('imu_port').perform(context),
-        }]
-    )
-
-    nodes = [merge_odom_node, dm_imu_node]
+    nodes = [merge_odom_node]
+    if start_imu:
+        dm_imu_node = Node(
+            package='rc26_merge_odom',
+            executable='dm_imu_node',
+            name='dm_imu_node',
+            output='screen',
+            parameters=[params_file, {
+                'port': LaunchConfiguration('imu_port').perform(context),
+            }]
+        )
+        nodes.append(dm_imu_node)
 
     if start_ekf:
         with open(ekf_params_file, 'r', encoding='utf-8') as f:
             ekf_yaml = yaml.safe_load(f) or {}
         ekf_parameters = dict(((ekf_yaml.get('ekf_filter_node') or {}).get('ros__parameters') or {}))
         ekf_parameters['odom0'] = odom0_topic_override
-        if not use_imu_for_ekf:
+        if not effective_use_imu_for_ekf:
             ekf_parameters = drop_sensor_parameters(ekf_parameters, 'imu0')
 
         ekf_node = Node(
@@ -97,6 +112,11 @@ def generate_launch_description():
     target_serial_port_default = str(merge_params.get('target_serial_port', '/dev/ttyUSB1'))
     can_odom_topic_default = str(merge_params.get('can_odom_topic', 'Can_Odom'))
     wheel_odom_topic_default = str(merge_params.get('wheel_odom_topic', 'wheel_odom'))
+    imu_topic_default = str(merge_params.get('imu_topic', 'DM_IMU'))
+    slip_enable_default = bool(merge_params.get('slip_enable', True))
+    imu_gate_enable_default = bool(merge_params.get('imu_gate_enable', True))
+    latency_comp_enable_default = bool(merge_params.get('latency_comp_enable', True))
+    stats_log_enable_default = bool(merge_params.get('stats_log_enable', False))
     chassis_model_default = str(merge_params.get('chassis_model', 'mecanum_4wheel'))
 
     use_can_odom_arg = DeclareLaunchArgument(
@@ -112,6 +132,14 @@ def generate_launch_description():
         'use_imu_for_ekf',
         default_value='true',
         description='Whether EKF fuses IMU input. false removes imu0/imu0_* from EKF only; dm_imu_node and merge_odom protections still run.')
+    start_imu_arg = DeclareLaunchArgument(
+        'start_imu',
+        default_value='true',
+        description='Whether to start/read DM IMU. false also disables IMU-dependent slip and PoseSender protections.')
+    stats_log_enable_arg = DeclareLaunchArgument(
+        'stats_log_enable',
+        default_value=str(stats_log_enable_default).lower(),
+        description='Enable PoseSender 1s stats logs')
 
     can_interface_arg = DeclareLaunchArgument(
         'can_interface', default_value=can_interface_default,
@@ -137,6 +165,8 @@ def generate_launch_description():
         use_can_odom_arg,
         start_ekf_arg,
         use_imu_for_ekf_arg,
+        start_imu_arg,
+        stats_log_enable_arg,
         can_interface_arg,
         imu_port_arg,
         feedback_serial_port_arg,
@@ -144,6 +174,16 @@ def generate_launch_description():
         chassis_model_arg,
         OpaqueFunction(
             function=create_runtime_nodes,
-            args=[params_file, ekf_params_file, can_odom_topic_default, wheel_odom_topic_default],
+            args=[
+                params_file,
+                ekf_params_file,
+                can_odom_topic_default,
+                wheel_odom_topic_default,
+                imu_topic_default,
+                slip_enable_default,
+                imu_gate_enable_default,
+                latency_comp_enable_default,
+                stats_log_enable_default,
+            ],
         ),
     ])
