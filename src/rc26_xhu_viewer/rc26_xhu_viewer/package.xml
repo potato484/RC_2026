@@ -3,7 +3,7 @@
 <package format="3">
   <name>rc26_xhu_viewer</name>
   <version>0.1.0</version>
-  <description>RC26 RViz-based operator viewer entry with preset layouts.</description>
+  <description>RC26 RViz GUI shell with preset layouts plus optional plugins and web tools.</description>
   <maintainer email="dev@rc2026.com">RC2026</maintainer>
   <maintainer email="2220362462@qq.com">DongXuan Chen</maintainer>
   <license>Apache-2.0</license>
@@ -13,14 +13,7 @@
   <build_depend>qtbase5-dev</build_depend>
   <build_depend>libsqlite3-dev</build_depend>
   <depend>ament_index_cpp</depend>
-  <depend>diagnostic_msgs</depend>
-  <depend>grid_map_msgs</depend>
-  <depend>nav_msgs</depend>
   <depend>rclcpp</depend>
-  <depend>rc26_interfaces</depend>
-  <depend>sensor_msgs</depend>
-  <depend>std_msgs</depend>
-  <depend>std_srvs</depend>
   <depend>rviz_common</depend>
   <depend>rviz_rendering</depend>
   <depend>rviz_ogre_vendor</depend>
@@ -31,7 +24,6 @@
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
 
-  <test_depend>ament_cmake_gtest</test_depend>
   <test_depend>python3-yaml</test_depend>
 
   <export>

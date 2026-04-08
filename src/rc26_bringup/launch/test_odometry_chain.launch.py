@@ -42,7 +42,7 @@ def generate_launch_description():
     declare_use_rviz = DeclareLaunchArgument(
         'use_rviz',
         default_value='false',
-        description='是否启动 RViz（虚拟测试默认关闭）')
+        description='是否启动 RC26 XHU Viewer 调试界面（虚拟测试默认关闭）')
 
     declare_start_mid360_driver = DeclareLaunchArgument(
         'start_mid360_driver',

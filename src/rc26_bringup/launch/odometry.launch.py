@@ -12,9 +12,10 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, LogInfo, OpaqueFunction, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, LogInfo, OpaqueFunction, RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 
@@ -126,6 +127,8 @@ def generate_launch_description():
     point_lio_dir = get_package_share_directory('rc26_point_lio')
     mid360_driver_dir = get_package_share_directory('rc26_mid360_driver')
     terrain_dir = get_package_share_directory('rc26_terrain')
+    xhu_viewer_dir = get_package_share_directory('rc26_xhu_viewer')
+    display_available = 'true' if (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')) else 'false'
 
     # 启动参数
     namespace = LaunchConfiguration('namespace')
@@ -133,6 +136,7 @@ def generate_launch_description():
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
     slam = LaunchConfiguration('slam')
     odometry_use_rviz = LaunchConfiguration('odometry_use_rviz')
+    odometry_visualization_layout = LaunchConfiguration('odometry_visualization_layout')
     start_mid360_driver = LaunchConfiguration('start_mid360_driver')
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
     point_lio_profile = LaunchConfiguration('point_lio_profile')
@@ -173,7 +177,12 @@ def generate_launch_description():
     declare_use_rviz = DeclareLaunchArgument(
         'odometry_use_rviz',
         default_value='true',
-        description='启动 RViz')
+        description='启动 RC26 XHU Viewer 调试界面')
+
+    declare_odometry_visualization_layout = DeclareLaunchArgument(
+        'odometry_visualization_layout',
+        default_value='diagnostic',
+        description='odometry 调试界面布局: operator | engineering | diagnostic')
 
     declare_start_mid360_driver = DeclareLaunchArgument(
         'start_mid360_driver',
@@ -406,15 +415,36 @@ def generate_launch_description():
         arguments=['--x', '0', '--y', '0', '--z', '0.13', '--roll', '0', '--pitch', '0', '--yaw', '0', '--frame-id', 'base_link_control', '--child-frame-id', 'livox_frame_control'],
     )
 
-    # RViz 可视化
-    rviz_config = PathJoinSubstitution([bringup_dir, 'rviz', 'slam.rviz'])
-    rviz_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        arguments=['-d', rviz_config],
-        parameters=[{'use_sim_time': use_sim_time}],
-        condition=IfCondition(odometry_use_rviz)
+    xhu_viewer_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([xhu_viewer_dir, 'launch', 'viewer.launch.py'])
+        ),
+        launch_arguments={
+            'namespace': namespace,
+            'use_sim_time': use_sim_time,
+            'slam': slam,
+            'layout': odometry_visualization_layout,
+        }.items(),
+        condition=IfCondition(PythonExpression([
+            "'", odometry_use_rviz, "' == 'true' and '", display_available, "' == 'true'"
+        ]))
+    )
+
+    odometry_visualization_notice = LogInfo(
+        msg=[
+            '[odometry] odometry_use_rviz:=true 已切换为启动 rc26_xhu_viewer，layout:=',
+            odometry_visualization_layout,
+        ],
+        condition=IfCondition(PythonExpression([
+            "'", odometry_use_rviz, "' == 'true' and '", display_available, "' == 'true'"
+        ]))
+    )
+
+    odometry_headless_notice = LogInfo(
+        msg='[odometry] 未检测到 DISPLAY/WAYLAND_DISPLAY，跳过 rc26_xhu_viewer；如需最小链路可保持 odometry_use_rviz:=false。',
+        condition=IfCondition(PythonExpression([
+            "'", odometry_use_rviz, "' == 'true' and '", display_available, "' != 'true'"
+        ]))
     )
 
     terrain_grid_map_notice = LogInfo(
@@ -429,6 +459,7 @@ def generate_launch_description():
         declare_prior_pcd_file,
         declare_slam,
         declare_use_rviz,
+        declare_odometry_visualization_layout,
         declare_start_mid360_driver,
         declare_point_lio_config_file,
         declare_point_lio_profile,
@@ -458,5 +489,7 @@ def generate_launch_description():
         lio_state_predictor_node,
         terrain_semantic_node,
         terrain_grid_map_bridge_node,
-        rviz_node,
+        odometry_visualization_notice,
+        odometry_headless_notice,
+        xhu_viewer_launch,
     ])

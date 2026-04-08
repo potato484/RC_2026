@@ -30,7 +30,7 @@
 #include <std_msgs/msg/string.hpp>
 #include <std_srvs/srv/trigger.hpp>
 
-#include "rc26_xhu_viewer/xhu_viewer_status_core.hpp"
+#include "rc26_xhu_viewer_status/xhu_viewer_status_core.hpp"
 
 namespace rc26_xhu_viewer {
 

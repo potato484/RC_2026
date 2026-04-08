@@ -6,7 +6,7 @@
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
 #include "gtest/gtest.h"
 
-#include "rc26_xhu_viewer/xhu_viewer_status_core.hpp"
+#include "rc26_xhu_viewer_status/xhu_viewer_status_core.hpp"
 
 namespace rc26_xhu_viewer {
 namespace {

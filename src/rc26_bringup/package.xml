@@ -33,6 +33,7 @@
   <exec_depend>rc26_decision</exec_depend>
   <exec_depend>rc26_kfs_keepout</exec_depend>
   <exec_depend>rc26_xhu_viewer</exec_depend>
+  <exec_depend>rc26_xhu_viewer_status</exec_depend>
   <exec_depend>realsense2_camera</exec_depend>
 
   <export>
