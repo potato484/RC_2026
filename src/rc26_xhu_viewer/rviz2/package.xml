@@ -6,7 +6,7 @@
   <name>rviz2</name>
   <version>11.2.26</version>
   <description>
-    3D visualization tool for ROS.
+    System-level RViz entrypoint with default RC26 mode and explicit classic compatibility mode.
   </description>
   <maintainer email="jacob@openrobotics.org">Jacob Perron</maintainer>
   <maintainer email="michael.jeronimo@openrobotics.org">Michael Jeronimo</maintainer>
@@ -26,12 +26,21 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <build_depend>qtbase5-dev</build_depend>
+  <build_depend>libsqlite3-dev</build_depend>
 
   <!-- this ensures some basic plugins are available when installing just rviz2 -->
   <exec_depend>rviz_default_plugins</exec_depend>
 
+  <depend>ament_index_cpp</depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp</depend>
   <depend>rviz_common</depend>
   <depend>rviz_ogre_vendor</depend>
+  <depend>rviz_rendering</depend>
+
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>grid_map_rviz_plugin</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
 
   <!-- TODO(jacobperron): Replace with ament_lint_common when ament_copyright is working -->
   <test_depend>ament_cmake_cppcheck</test_depend>
@@ -41,6 +50,7 @@
   <test_depend>ament_cmake_xmllint</test_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>geometry_msgs</test_depend>
+  <test_depend>python3-yaml</test_depend>
   <test_depend>rclcpp</test_depend>
   <test_depend>sensor_msgs</test_depend>
 

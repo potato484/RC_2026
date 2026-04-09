@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression tests for the rc26_xhu_viewer web adapter."""
+"""Regression tests for the rviz2 RC26 web adapter."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ SURFACE_GRAPH_BLUE = TOPO_NAV_ROOT / "config" / "r2_surface_graph_blue.yaml"
 SIM_WORLD = SIM_ROOT / "worlds" / "robocon2026_v2_aligned.world"
 SIM_KFS = SIM_ROOT / "config" / "kfs_config_v2_aligned.yaml"
 
-SERVER = load_module("rc26_xhu_viewer_server", PKG_ROOT / "scripts" / "rc26_xhu_viewer_server.py")
+SERVER = load_module("rviz2_rc26_server", PKG_ROOT / "scripts" / "rc26_xhu_viewer_server.py")
 
 
 class XhuViewerServerTest(unittest.TestCase):

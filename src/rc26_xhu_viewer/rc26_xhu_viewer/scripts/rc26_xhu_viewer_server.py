@@ -39,7 +39,7 @@ except ImportError:  # pragma: no cover - optional in source-tree runs
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-PACKAGE_NAME = "rc26_xhu_viewer"
+PACKAGE_NAME = "rviz2"
 TOPO_NAV_PACKAGE_NAME = "rc26_topo_nav"
 
 
@@ -1458,7 +1458,7 @@ class LiveRosBridge:
 
         if not rclpy.ok():
             rclpy.init(args=None)
-        node = rclpy.create_node("rc26_xhu_viewer_live_bridge")
+        node = rclpy.create_node("rviz2_rc26_live_bridge")
 
         def path_to_points(msg: Any) -> list[dict[str, float]]:
             return [
@@ -2155,7 +2155,7 @@ def trace_local_planner(request: LocalPlannerTraceRequest) -> dict[str, Any]:
 async def health() -> dict[str, Any]:
     return {
         "ok": True,
-        "platform": "rc26_xhu_viewer",
+        "platform": "rviz2",
         "frontend_dist": str(FRONTEND_DIST),
         "field_scene_manifest": str(default_field_scene_manifest_file()),
     }
@@ -2243,7 +2243,7 @@ async def root() -> Any:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the rc26_xhu_viewer web viewer adapter")
+    parser = argparse.ArgumentParser(description="Run the rviz2 RC26 web viewer adapter")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8796)
     return parser.parse_args()

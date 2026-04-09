@@ -6,6 +6,7 @@
 #include <QMenuBar>
 #include <QStatusBar>
 #include <QToolBar>
+#include <QToolButton>
 #include <QActionGroup>
 
 #include "rviz_common/load_resource.hpp"
@@ -23,15 +24,7 @@ RC26XhuViewerFrame::RC26XhuViewerFrame(
 {
 }
 
-void RC26XhuViewerFrame::initialize(
-  rviz_common::ros_integration::RosNodeAbstractionIface::WeakPtr rviz_ros_node,
-  const QString & display_config_file)
-{
-  VisualizationFrame::initialize(rviz_ros_node, display_config_file);
-  injectDisplayFactory();
-}
-
-void RC26XhuViewerFrame::injectDisplayFactory()
+void RC26XhuViewerFrame::configureVisualizationManager()
 {
   if (manager_) {
     manager_->setDisplayFactory(new RC26DisplayFactory());
@@ -95,6 +88,23 @@ void RC26XhuViewerFrame::initToolbars()
     SLOT(onToolbarActionTriggered(QAction *)));
 
   view_menu_->addAction(toolbar_->toggleViewAction());
+
+  add_tool_action_ = new QAction(QString(), toolbar_actions_);
+  add_tool_action_->setToolTip(QStringLiteral("添加工具"));
+  add_tool_action_->setIcon(rviz_common::loadPixmap("package://rviz_common/icons/plus.png"));
+  toolbar_->addAction(add_tool_action_);
+  connect(add_tool_action_, SIGNAL(triggered()), this, SLOT(openNewToolDialog()));
+
+  remove_tool_menu_ = new QMenu(this);
+  auto * remove_tool_button = new QToolButton(this);
+  remove_tool_button->setMenu(remove_tool_menu_);
+  remove_tool_button->setPopupMode(QToolButton::InstantPopup);
+  remove_tool_button->setToolTip(QStringLiteral("移除工具"));
+  remove_tool_button->setIcon(rviz_common::loadPixmap("package://rviz_common/icons/minus.png"));
+  toolbar_->addWidget(remove_tool_button);
+  connect(
+    remove_tool_menu_, SIGNAL(triggered(QAction *)), this,
+    SLOT(onToolbarRemoveTool(QAction *)));
 }
 
 }  // namespace rc26_xhu_viewer

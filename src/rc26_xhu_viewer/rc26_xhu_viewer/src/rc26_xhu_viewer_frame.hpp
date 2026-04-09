@@ -15,16 +15,10 @@ public:
     rviz_common::ros_integration::RosNodeAbstractionIface::WeakPtr rviz_ros_node,
     QWidget * parent = nullptr);
 
-  void initialize(
-    rviz_common::ros_integration::RosNodeAbstractionIface::WeakPtr rviz_ros_node,
-    const QString & display_config_file = "");
-
 protected:
   void initMenus() override;
   void initToolbars() override;
-
-private:
-  void injectDisplayFactory();
+  void configureVisualizationManager() override;
 };
 
 }  // namespace rc26_xhu_viewer
