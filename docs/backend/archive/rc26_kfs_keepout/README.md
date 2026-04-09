@@ -31,6 +31,6 @@
 
 - 不做路径规划
 - 只面向 topo/xhu 约束输入
-- 当前主要服务 `rc26_topo_nav`、`rc26_decision` 和 `rc26_xhu_viewer`
+- 当前主要服务 `rc26_topo_nav`、`rc26_decision` 和魔改 `rviz2`
 - `SLOW` 语义当前只表达保守通行区域，不在本模块内直接把机器人切到 recovery 或 stop
 - team mismatch 只会关闭 keepout 输出并通过 diagnostics 暴露降级状态，不在本模块内直接接管机器人控制

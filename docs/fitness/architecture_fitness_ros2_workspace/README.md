@@ -104,9 +104,10 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - **规则**：它们不得直接编码操作员界面逻辑或布局假设。
 - **规则**：它们应输出结构化结果，让更高层按需消费。
 
-### 3.6 `rc26_xhu_viewer` 是操作员语义聚合边界
+### 3.6 `rc26_xhu_viewer_status + rviz2` 共同构成当前可视化域
 
-- **规则**：操作员看见的整车健康语义应收敛在 `rc26_xhu_viewer`，而不是散落在 Foxglove 布局和 RViz 面板里各写一份。
+- **规则**：操作员看见的整车健康语义应收敛在 `rc26_xhu_viewer_status`，而不是散落在 Foxglove 布局和 RViz 面板里各写一份。
+- **规则**：`rviz2` 当前是系统级 GUI 壳层宿主，只消费这些语义，不拥有它们的运行时权威。
 - **规则**：Foxglove JSON 只是布局资产，不是诊断逻辑载体。
 
 ### 3.7 `rc26_odom_interface` 继续保持 TF 权威
@@ -201,7 +202,7 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 ### 4.9 可视化单向依赖检查
 
 - 问题：聚合诊断和布局是否仍然只是消费状态，而不是反向成为状态和策略生产者？
-- 通过标准：`rc26_xhu_viewer`、Foxglove、RViz 仍处于下游消费侧。
+- 通过标准：`rc26_xhu_viewer_status` 负责聚合语义，`rviz2`、Foxglove 仍处于下游消费侧。
 
 ### 4.10 包级验证检查
 
@@ -232,7 +233,8 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - `rc26_decision` 是比赛流程大脑，不是设备细节宿主。
 - `rc26_mechanism` 和各控制器插件负责安全执行意图。
 - localization、terrain、vision、odom 相关包负责产出规范化机器状态。
-- `rc26_xhu_viewer` 负责把这些技术状态聚合成操作员语义。
+- `rc26_xhu_viewer_status` 负责把这些技术状态聚合成操作员语义。
+- `rviz2` 负责提供系统级 GUI 壳层，并在默认模式下承载 RC26 的 preset 和交互壳层。
 
 任何后续需求如果要打破这些边界，都应视为一次明确的架构变更，而不是普通功能补丁。
 

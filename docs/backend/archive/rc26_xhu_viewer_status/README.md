@@ -10,7 +10,7 @@
 - `r2/xhu_viewer/operator_status`
 - `r2/xhu_viewer/events`
 
-`rc26_xhu_viewer_status` 不承载 RViz GUI、不承载 Web adapter，也不拥有 `.rviz` preset；这些能力继续留在 sibling 包 `rc26_xhu_viewer`。
+`rc26_xhu_viewer_status` 不承载 RViz GUI、不承载 Web adapter，也不拥有 `.rviz` preset；这些能力当前由系统级魔改 `rviz2` 消费或承载。
 
 ## 当前关键文件
 
@@ -52,16 +52,16 @@
 - 默认随 `rc26_bringup` 的 `visualization_status_enable:=true` 装配
 - 不依赖 GUI，不要求 DISPLAY/WAYLAND_DISPLAY
 - 不拥有 RViz 布局、Display/Panel 插件和 Web 前端资源
-- 保留 `rc26_xhu_viewer` 作为同一可视化域的 sibling GUI 包，但运行时职责已经拆开
+- `rviz2` 现在只是这个可视化域的 GUI 壳层宿主，不改变本包的 headless 权威边界
 
-## 本次拆包后的真实变化
+## 当前真实变化
 
-- `xhu_viewer_status_core`、`rc26_xhu_viewer_status_node` 和 `config/xhu_viewer_status.yaml` 已从 `rc26_xhu_viewer` 迁出
-- `rc26_bringup` 现在直接装配 `rc26_xhu_viewer_status/rc26_xhu_viewer_status_node`
-- `rc26_xhu_viewer` 保留 GUI 壳层、`.rviz` preset 和可选插件/Web 工具链
+- `xhu_viewer_status_core`、`rc26_xhu_viewer_status_node` 和 `config/xhu_viewer_status.yaml` 继续独立存在
+- `rc26_bringup` 直接装配本包，不经过 GUI 包转手
+- 默认 GUI 入口已从退役的 `rc26_xhu_viewer` 切到系统级魔改 `rviz2`
 
 ## 注意点
 
-- `r2/xhu_viewer/*` 的操作员语义边界仍然属于同一可视化域，但最小常驻单元现在是 `rc26_xhu_viewer_status`
+- `r2/xhu_viewer/*` 的操作员语义边界仍然在本包，不在 `rviz2`
 - 如果修改 topic 语义、聚合阈值或输出字段，应优先同步本包 README 和 `config/xhu_viewer_status.yaml`
-- 如果修改 GUI preset、Panel/Display 或 Web adapter，不应回头把逻辑塞回本包
+- 如果修改 GUI preset、菜单壳层、Panel/Display 或 Web adapter，应修改 `rviz2` 一侧，不要回头把 GUI 逻辑塞进本包
