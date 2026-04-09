@@ -38,7 +38,6 @@ def generate_launch_description():
     topo_nav_dir = get_package_share_directory('rc26_topo_nav')
     nav_mode_manager_dir = get_package_share_directory('rc26_nav_mode_manager')
     local_planner_dir = get_package_share_directory('rc26_local_3d_planner')
-    xhu_viewer_dir = get_package_share_directory('rc26_xhu_viewer')
     xhu_viewer_status_dir = get_package_share_directory('rc26_xhu_viewer_status')
     display_available = 'true' if (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')) else 'false'
 
@@ -139,7 +138,7 @@ def generate_launch_description():
     declare_use_rviz = DeclareLaunchArgument(
         'use_rviz',
         default_value='true',
-        description='启动 RC26 XHU Viewer（兼容参数；仅在解析后 backend=rc26_xhu_viewer 时生效）')
+        description='启动魔改 rviz2 调试界面（兼容参数；仅在解析后 backend=rviz2 时生效）')
 
     declare_visualization_profile = DeclareLaunchArgument(
         'visualization_profile',
@@ -149,12 +148,12 @@ def generate_launch_description():
     declare_visualization_backend = DeclareLaunchArgument(
         'visualization_backend',
         default_value='',
-        description='兼容覆盖项；可视化后端: rc26_xhu_viewer | none | rviz；留空时跟随 visualization_profile')
+        description='兼容覆盖项；可视化后端: rviz2 | none；留空时跟随 visualization_profile')
 
     declare_visualization_layout = DeclareLaunchArgument(
         'visualization_layout',
         default_value='',
-        description='兼容覆盖项；viewer 预设布局: operator | engineering | diagnostic；留空时跟随 visualization_profile')
+        description='兼容覆盖项；rviz2 RC26 预设布局: operator | engineering | diagnostic；留空时跟随 visualization_profile')
 
     declare_visualization_status_enable = DeclareLaunchArgument(
         'visualization_status_enable',
@@ -256,8 +255,8 @@ def generate_launch_description():
     ])
     resolved_visualization_backend = PythonExpression([
         "'", visualization_backend, "' if '", visualization_backend,
-        "' in ['rc26_xhu_viewer', 'none', 'rviz'] and '", visualization_backend,
-        "' != '' else ('rc26_xhu_viewer' if '", visualization_profile,
+        "' in ['rviz2', 'none'] and '", visualization_backend,
+        "' != '' else ('rviz2' if '", visualization_profile,
         "' in ['operator_gui', 'engineering_gui', 'diagnostic_gui'] else 'none')"
     ])
     resolved_visualization_layout = PythonExpression([
@@ -560,11 +559,6 @@ def generate_launch_description():
         ]))
     )
 
-    rviz_alias_notice = LogInfo(
-        msg='[bringup] visualization_backend:=rviz 已降级为兼容别名；当前实际启动 rc26_xhu_viewer。',
-        condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'rviz'"]))
-    )
-
     visualization_profile_notice = LogInfo(
         msg=[
             '[bringup] visualization_profile:=', visualization_profile,
@@ -574,36 +568,40 @@ def generate_launch_description():
         ]
     )
 
-    xhu_viewer_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution([xhu_viewer_dir, 'launch', 'viewer.launch.py'])
-        ),
-        launch_arguments={
-            'namespace': namespace,
-            'use_sim_time': use_sim_time,
-            'slam': slam,
-            'layout': resolved_visualization_layout,
-        }.items()
+    rviz2_mode = PythonExpression([
+        "'slam' if '", slam, "'.lower() == 'true' else 'navigation'"
+    ])
+
+    rviz2_node = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        namespace=namespace,
+        output='screen',
+        arguments=[
+            '--rc26-mode', rviz2_mode,
+            '--rc26-layout', resolved_visualization_layout,
+        ],
+        parameters=[{'use_sim_time': use_sim_time}],
     )
 
-    xhu_viewer_group = GroupAction(
+    rviz2_group = GroupAction(
         actions=[
             GroupAction(
-                actions=[xhu_viewer_launch],
+                actions=[rviz2_node],
                 condition=IfCondition(use_rviz)
             )
         ],
         condition=IfCondition(PythonExpression([
-            "('", resolved_visualization_backend, "' == 'rc26_xhu_viewer' or '", resolved_visualization_backend,
-            "' == 'rviz') and '", display_available, "' == 'true'"
+            "'", resolved_visualization_backend, "' == 'rviz2' and '", display_available, "' == 'true'"
         ]))
     )
 
     rviz_headless_notice = LogInfo(
-        msg='[bringup] 未检测到 DISPLAY/WAYLAND_DISPLAY，跳过 rc26_xhu_viewer；车端默认建议 visualization_profile:=headless。',
+        msg='[bringup] 未检测到 DISPLAY/WAYLAND_DISPLAY，跳过魔改 rviz2；车端默认建议 visualization_profile:=headless。',
         condition=IfCondition(PythonExpression([
-            "('", resolved_visualization_backend, "' == 'rc26_xhu_viewer' or '", resolved_visualization_backend,
-            "' == 'rviz') and '", use_rviz, "' == 'true' and '", display_available, "' != 'true'"
+            "'", resolved_visualization_backend, "' == 'rviz2' and '", use_rviz,
+            "' == 'true' and '", display_available, "' != 'true'"
         ]))
     )
 
@@ -659,7 +657,6 @@ def generate_launch_description():
         visualization_status_node,
         realsense_group,
         visualization_profile_notice,
-        rviz_alias_notice,
         rviz_headless_notice,
-        xhu_viewer_group,
+        rviz2_group,
     ])

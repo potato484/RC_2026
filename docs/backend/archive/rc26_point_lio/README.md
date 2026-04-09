@@ -64,4 +64,4 @@
 - 它是里程计/建图包，不做全局先验地图重定位
 - 它不负责把传感器结果转换成下游统一里程计接口，那个职责在 `rc26_odom_interface`
 - 它也不负责控制和决策
-- 它的 `launch/point_lio.launch.py` 不再直接拉起 `rviz2`；可视化应通过 `rc26_bringup/launch/odometry.launch.py` 或 `rc26_xhu_viewer/launch/viewer.launch.py` 外部装配
+- 它的 `launch/point_lio.launch.py` 不再直接拉起 `rviz2`；可视化应通过 `rc26_bringup/launch/odometry.launch.py` 或直接运行魔改 `rviz2` 外部装配

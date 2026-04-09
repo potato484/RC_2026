@@ -155,7 +155,7 @@ ros2 run tf2_tools view_frames
 ros2 launch rc26_bringup bringup.launch.py \
   slam:=false \
   use_decision:=false \
-  visualization_backend:=rc26_xhu_viewer \
+  visualization_backend:=rviz2 \
   prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/pcd/default.pcd
 
 ros2 topic echo /xhu_nav/motion_mode_state

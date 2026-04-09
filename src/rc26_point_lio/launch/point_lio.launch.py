@@ -88,7 +88,7 @@ def generate_launch_description():
     declare_rviz = DeclareLaunchArgument(
         "rviz",
         default_value="false",
-        description="兼容参数；不再直接启动 rviz2。若需 GUI，请改用 rc26_bringup/odometry.launch.py 或单独启动 rc26_xhu_viewer。",
+        description="兼容参数；不再直接启动可视化。若需 GUI，请改用 rc26_bringup/odometry.launch.py 或直接运行 rviz2。",
     )
 
     declare_point_lio_cfg_dir = DeclareLaunchArgument(
@@ -118,7 +118,7 @@ def generate_launch_description():
         msg=(
             "[point_lio.launch] rviz:=true 已失效；该入口已改为纯 headless。"
             " 如需调试可视化，请使用 `ros2 launch rc26_bringup odometry.launch.py odometry_use_rviz:=true`"
-            " 或单独启动 `rc26_xhu_viewer/launch/viewer.launch.py`。"
+            " 或直接运行 `ros2 run rviz2 rviz2 --rc26-mode navigation --rc26-layout diagnostic`。"
         ),
     )
 

@@ -57,7 +57,7 @@ ros2 launch rc26_bringup bringup.launch.py \
 - `point_lio_config_file` 非空时优先级高于 `point_lio_profile`。
 - `point_lio_profile:=auto` 会根据 `slam` 自动切换。
 - 当前仓库默认只保留 `mid360.yaml` 一份主配置，`cruise_light` / `mapping_dense` / `race_profile` 由 launch 在运行时做参数覆盖。
-- `rc26_point_lio/launch/point_lio.launch.py` 现在是纯 headless 入口；若需要 GUI，请通过 `rc26_bringup/odometry.launch.py` 或单独启动 `rc26_xhu_viewer`。
+- `rc26_point_lio/launch/point_lio.launch.py` 现在是纯 headless 入口；若需要 GUI，请通过 `rc26_bringup/odometry.launch.py` 或直接运行 `rviz2`。
 
 ## 3. 基础功能测试（回放数据包）
 
@@ -76,7 +76,8 @@ ros2 launch rc26_bringup odometry.launch.py \
 ```
 
 说明：
-- `odometry_use_rviz:=true` 现在启动的是 `rc26_xhu_viewer` 调试界面，而不是原生 `rviz2`。
+- `odometry_use_rviz:=true` 现在启动的是默认进入 RC26 模式的魔改 `rviz2`。
+- 如需完整原生 RViz 体验，请单独运行 `ros2 run rviz2 rviz2 --classic`。
 - 若在无图形环境的车端调试，可直接去掉该参数或显式传 `odometry_use_rviz:=false`。
 
 ### 步骤 3.2：播放数据包
