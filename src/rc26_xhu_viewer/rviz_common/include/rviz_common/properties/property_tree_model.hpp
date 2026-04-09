@@ -31,6 +31,8 @@
 #ifndef RVIZ_COMMON__PROPERTIES__PROPERTY_TREE_MODEL_HPP_
 #define RVIZ_COMMON__PROPERTIES__PROPERTY_TREE_MODEL_HPP_
 
+#include <unordered_set>
+#include <vector>
 #include <QAbstractItemModel>
 
 #include "rviz_common/visibility_control.hpp"
@@ -201,9 +203,32 @@ Q_SIGNALS:
   collapse(const QModelIndex & index);
 
 private:
+  struct PendingInsert
+  {
+    const Property * parent{nullptr};
+    int row{0};
+    int count{0};
+    bool signal{false};
+  };
+
+  void
+  rebuildPropertyCache();
+
+  void
+  cachePropertySubtree(const Property * property);
+
+  void
+  prunePropertySubtree(const Property * property);
+
+  bool
+  containsPropertyPointer(const Property * property) const;
+
   Property * root_property_;
   /// Identifier to add to mimeTypes() entry to keep drag/drops from crossing types.
   QString drag_drop_class_;
+  std::unordered_set<const Property *> property_ptr_cache_;
+  std::vector<PendingInsert> pending_inserts_;
+  std::vector<bool> pending_remove_signals_;
 };
 
 }  // namespace properties

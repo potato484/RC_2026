@@ -47,11 +47,18 @@ PropertyTreeModel::PropertyTreeModel(Property * root_property, QObject * parent)
   root_property_(root_property)
 {
   root_property_->setModel(this);
+  rebuildPropertyCache();
 }
 
 PropertyTreeModel::~PropertyTreeModel()
 {
+  if (root_property_) {
+    // The model is going away, so subtree destruction must not emit more row
+    // notifications against views that are already tearing down.
+    root_property_->setModel(nullptr);
+  }
   delete root_property_;
+  root_property_ = nullptr;
 }
 
 void PropertyTreeModel::setDragDropClass(const QString & drag_drop_class)
@@ -59,28 +66,72 @@ void PropertyTreeModel::setDragDropClass(const QString & drag_drop_class)
   drag_drop_class_ = drag_drop_class;
 }
 
+void PropertyTreeModel::rebuildPropertyCache()
+{
+  property_ptr_cache_.clear();
+  cachePropertySubtree(root_property_);
+}
+
+void PropertyTreeModel::cachePropertySubtree(const Property * property)
+{
+  if (!property) {
+    return;
+  }
+
+  property_ptr_cache_.insert(property);
+  const int num_children = property->numChildren();
+  for (int i = 0; i < num_children; ++i) {
+    cachePropertySubtree(property->childAt(i));
+  }
+}
+
+void PropertyTreeModel::prunePropertySubtree(const Property * property)
+{
+  if (!property) {
+    return;
+  }
+
+  property_ptr_cache_.erase(property);
+  const int num_children = property->numChildren();
+  for (int i = 0; i < num_children; ++i) {
+    prunePropertySubtree(property->childAt(i));
+  }
+}
+
+bool PropertyTreeModel::containsPropertyPointer(const Property * property) const
+{
+  return property && property_ptr_cache_.count(property) != 0;
+}
+
 Property * PropertyTreeModel::getProp(const QModelIndex & index) const
 {
-  if (index.isValid()) {
-    Property * prop = static_cast<Property *>(index.internalPointer());
-    if (prop) {
-      return prop;
-    }
+  if (!index.isValid()) {
+    return root_property_;
   }
-  return root_property_;
+
+  Property * prop = static_cast<Property *>(index.internalPointer());
+  if (containsPropertyPointer(prop)) {
+    return prop;
+  }
+  return nullptr;
 }
 
 void PropertyTreeModel::emitPropertyHiddenChanged(const Property * property)
 {
-  Q_EMIT propertyHiddenChanged(property);
+  if (containsPropertyPointer(property)) {
+    Q_EMIT propertyHiddenChanged(property);
+  }
 }
 
 Qt::ItemFlags PropertyTreeModel::flags(const QModelIndex & index) const
 {
   if (!index.isValid()) {
-    root_property_->getViewFlags(0);
+    return root_property_->getViewFlags(0);
   }
   Property * property = getProp(index);
+  if (!property) {
+    return Qt::NoItemFlags;
+  }
   return property->getViewFlags(index.column());
 }
 
@@ -90,6 +141,9 @@ QModelIndex PropertyTreeModel::index(int row, int column, const QModelIndex & pa
     return QModelIndex();
   }
   Property * parent = getProp(parent_index);
+  if (!parent) {
+    return QModelIndex();
+  }
 
   Property * child = parent->childAt(row);
   if (child) {
@@ -105,21 +159,28 @@ QModelIndex PropertyTreeModel::parent(const QModelIndex & child_index) const
     return QModelIndex();
   }
   Property * child = getProp(child_index);
+  if (!child) {
+    return QModelIndex();
+  }
   return parentIndex(child);
 }
 
 QModelIndex PropertyTreeModel::parentIndex(const Property * child) const
 {
-  if (!child) {
+  if (!child || child == root_property_ || !containsPropertyPointer(child)) {
     return QModelIndex();
   }
   Property * parent = child->getParent();
+  if (!parent || parent == root_property_ || !containsPropertyPointer(parent)) {
+    return QModelIndex();
+  }
   return indexOf(parent);
 }
 
 int PropertyTreeModel::rowCount(const QModelIndex & parent_index) const
 {
-  return getProp(parent_index)->numChildren();
+  Property * property = getProp(parent_index);
+  return property ? property->numChildren() : 0;
 }
 
 int PropertyTreeModel::columnCount(const QModelIndex & parent) const
@@ -134,7 +195,11 @@ QVariant PropertyTreeModel::data(const QModelIndex & index, int role) const
     return QVariant();
   }
 
-  return getProp(index)->getViewData(index.column(), role);
+  Property * property = getProp(index);
+  if (!property) {
+    return QVariant();
+  }
+  return property->getViewData(index.column(), role);
 }
 
 QVariant PropertyTreeModel::headerData(int section, Qt::Orientation orientation, int role) const
@@ -149,6 +214,9 @@ QVariant PropertyTreeModel::headerData(int section, Qt::Orientation orientation,
 bool PropertyTreeModel::setData(const QModelIndex & index, const QVariant & value, int role)
 {
   Property * property = getProp(index);
+  if (!property) {
+    return false;
+  }
 
   if (property->getValue().type() == QVariant::Bool && role == Qt::CheckStateRole) {
     if (property->setValue(value.toInt() != Qt::Unchecked)) {
@@ -221,6 +289,9 @@ bool PropertyTreeModel::dropMimeData(
   QDataStream stream(&encoded, QIODevice::ReadOnly);
 
   Property * dest_parent_property = getProp(dest_parent);
+  if (!dest_parent_property) {
+    return false;
+  }
 
   QList<Property *> source_properties;
 
@@ -232,6 +303,10 @@ bool PropertyTreeModel::dropMimeData(
       return false;
     }
     Property * prop = static_cast<Property *>(pointer);
+    if (!containsPropertyPointer(prop)) {
+      printf("ERROR: dropped mime data refers to a stale property pointer.\n");
+      return false;
+    }
     if (prop == dest_parent_property || prop->isAncestorOf(dest_parent_property)) {
       // Can't drop a row into its own child.
       return false;
@@ -276,7 +351,7 @@ Property * PropertyTreeModel::getRoot() const
 
 QModelIndex PropertyTreeModel::indexOf(Property * property) const
 {
-  if (property == root_property_ || !property) {
+  if (property == root_property_ || !property || !containsPropertyPointer(property)) {
     return QModelIndex();
   }
   return createIndex(property->rowNumberInParent(), 0, property);
@@ -284,42 +359,91 @@ QModelIndex PropertyTreeModel::indexOf(Property * property) const
 
 void PropertyTreeModel::emitDataChanged(Property * property)
 {
+  if (!containsPropertyPointer(property)) {
+    return;
+  }
   if (property->shouldBeSaved()) {
     Q_EMIT configChanged();
   }
   QModelIndex left_index = indexOf(property);
+  if (!left_index.isValid()) {
+    return;
+  }
   QModelIndex right_index = createIndex(left_index.row(), 1, left_index.internalPointer());
   Q_EMIT dataChanged(left_index, right_index);
 }
 
 void PropertyTreeModel::beginInsert(Property * parent_property, int row_within_parent, int count)
 {
-  beginInsertRows(indexOf(parent_property), row_within_parent, row_within_parent + count - 1);
+  const bool should_signal = parent_property && containsPropertyPointer(parent_property);
+  pending_inserts_.push_back({parent_property, row_within_parent, count, should_signal});
+  if (should_signal) {
+    beginInsertRows(indexOf(parent_property), row_within_parent, row_within_parent + count - 1);
+  }
 }
 
 void PropertyTreeModel::endInsert()
 {
-  endInsertRows();
+  if (pending_inserts_.empty()) {
+    rebuildPropertyCache();
+    return;
+  }
+
+  const PendingInsert pending_insert = pending_inserts_.back();
+  pending_inserts_.pop_back();
+  if (pending_insert.signal) {
+    endInsertRows();
+  }
+  if (pending_insert.signal && pending_insert.parent && containsPropertyPointer(pending_insert.parent)) {
+    for (int i = 0; i < pending_insert.count; ++i) {
+      cachePropertySubtree(pending_insert.parent->childAt(pending_insert.row + i));
+    }
+  } else if (pending_insert.signal) {
+    rebuildPropertyCache();
+  }
 }
 
 void PropertyTreeModel::beginRemove(Property * parent_property, int row_within_parent, int count)
 {
-  beginRemoveRows(indexOf(parent_property), row_within_parent, row_within_parent + count - 1);
+  const bool should_signal = parent_property && containsPropertyPointer(parent_property);
+  pending_remove_signals_.push_back(should_signal);
+  if (should_signal) {
+    for (int i = 0; i < count; ++i) {
+      const Property * child = parent_property->childAt(row_within_parent + i);
+      if (child) {
+        prunePropertySubtree(child);
+      }
+    }
+    beginRemoveRows(indexOf(parent_property), row_within_parent, row_within_parent + count - 1);
+  }
 }
 
 void PropertyTreeModel::endRemove()
 {
-  endRemoveRows();
+  if (pending_remove_signals_.empty()) {
+    return;
+  }
+  const bool should_signal = pending_remove_signals_.back();
+  pending_remove_signals_.pop_back();
+  if (should_signal) {
+    endRemoveRows();
+  }
 }
 
 void PropertyTreeModel::expandProperty(Property * property)
 {
-  Q_EMIT expand(indexOf(property));
+  QModelIndex index = indexOf(property);
+  if (index.isValid()) {
+    Q_EMIT expand(index);
+  }
 }
 
 void PropertyTreeModel::collapseProperty(Property * property)
 {
-  Q_EMIT collapse(indexOf(property));
+  QModelIndex index = indexOf(property);
+  if (index.isValid()) {
+    Q_EMIT collapse(index);
+  }
 }
 
 void PropertyTreeModel::printPersistentIndices()

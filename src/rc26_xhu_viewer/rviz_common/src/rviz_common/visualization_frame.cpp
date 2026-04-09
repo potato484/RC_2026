@@ -330,6 +330,7 @@ void VisualizationFrame::initialize(
   auto clock = rviz_ros_node.lock()->get_raw_node()->get_clock();
   manager_ = new VisualizationManager(render_panel_, rviz_ros_node, this, clock);
   manager_->setHelpPath(help_path_);
+  configureVisualizationManager();
   panel_factory_ = new PanelFactory(rviz_ros_node_, manager_);
 
   // Periodically process events for the splash screen.
@@ -379,6 +380,10 @@ VisualizationManager *
 VisualizationFrame::getManager()
 {
   return manager_;
+}
+
+void VisualizationFrame::configureVisualizationManager()
+{
 }
 
 void VisualizationFrame::initConfigs()

@@ -36,6 +36,7 @@
 
 #include "rviz_common/properties/vector_property.hpp"
 #include "rviz_common/properties/color_property.hpp"
+#include "rviz_common/properties/property_tree_model.hpp"
 #include "rviz_common/config.hpp"
 #include "rviz_common/yaml_config_reader.hpp"
 #include "rviz_common/yaml_config_writer.hpp"
@@ -106,6 +107,44 @@ TEST(DisplayGroup, load_properties) {
   EXPECT_FALSE(g.subProp("Steven")->getValue().toBool());
   EXPECT_EQ(17, g.subProp("Steven")->subProp("Count")->getValue().toInt());
   EXPECT_EQ(900, g.subProp("sub group")->subProp("Curly")->subProp("Count")->getValue().toInt());
+}
+
+TEST(DisplayGroup, nested_load_keeps_top_level_entries_in_model) {
+  std::stringstream input(
+    "Displays:\n"
+    " -\n"
+    "   Class: MockDisplay\n"
+    "   Name: Steven\n"
+    "   Value: true\n"
+    "   Count: 17\n"
+    " -\n"
+    "   Name: sub group\n"
+    "   Class: DisplayGroup\n"
+    "   Displays:\n"
+    "    -\n"
+    "      Class: MockDisplay\n"
+    "      Name: Curly\n"
+    "      Value: true\n"
+    "      Count: 900\n"
+  );
+
+  YamlConfigReader reader;
+  Config config;
+  reader.readStream(config, input);
+
+  auto * group = new MockDisplayGroup;
+  rviz_common::properties::PropertyTreeModel model(group);
+  group->load(config);
+
+  auto * steven = group->subProp("Steven");
+  auto * subgroup = group->subProp("sub group");
+  auto * curly = subgroup->subProp("Curly");
+
+  EXPECT_TRUE(steven->getValue().toBool());
+  EXPECT_TRUE(curly->getValue().toBool());
+  EXPECT_TRUE(model.indexOf(steven).isValid());
+  EXPECT_TRUE(model.indexOf(subgroup).isValid());
+  EXPECT_TRUE(model.indexOf(curly).isValid());
 }
 
 TEST(Display, save_properties) {

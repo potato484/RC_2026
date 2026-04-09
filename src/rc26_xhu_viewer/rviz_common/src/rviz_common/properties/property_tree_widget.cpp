@@ -44,6 +44,22 @@ namespace rviz_common
 namespace properties
 {
 
+namespace
+{
+
+bool hasExpandedDescendant(const QSet<QString> & expanded_full_names, const QString & full_name)
+{
+  const QString child_prefix = full_name + "/";
+  for (const QString & entry : expanded_full_names) {
+    if (entry.startsWith(child_prefix)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+}  // namespace
+
 PropertyTreeWidget::PropertyTreeWidget(QWidget * parent)
 : QTreeView(parent),
   model_(nullptr),
@@ -70,9 +86,8 @@ void PropertyTreeWidget::currentChanged(
   const QModelIndex & previous_current_index)
 {
   QTreeView::currentChanged(new_current_index, previous_current_index);
-  Q_EMIT currentPropertyChanged(
-    static_cast<const Property *>(
-      new_current_index.internalPointer() ));
+  const Property * current_property = model_ ? model_->getProp(new_current_index) : nullptr;
+  Q_EMIT currentPropertyChanged(current_property);
 }
 
 void PropertyTreeWidget::selectionChanged(
@@ -139,12 +154,22 @@ void PropertyTreeWidget::saveExpandedEntries(
   Config config, const QModelIndex & parent_index,
   const QString & prefix) const
 {
+  if (!model_) {
+    return;
+  }
+
   int num_children = model_->rowCount(parent_index);
   if (num_children > 0) {
     QHash<QString, int> name_counts;
     for (int i = 0; i < num_children; i++) {
       QModelIndex child_index = model_->index(i, 0, parent_index);
+      if (!child_index.isValid()) {
+        continue;
+      }
       Property * child = model_->getProp(child_index);
+      if (!child) {
+        continue;
+      }
       QString child_name = child->getName();
       if (qobject_cast<StatusList *>(child)) {
         // StatusList objects change their name dynamically, so
@@ -169,7 +194,9 @@ void PropertyTreeWidget::load(const Config & config)
   for (int i = 0; i < num_expanded; i++) {
     expanded_full_names.insert(expanded_list_config.listChildAt(i).getValue().toString() );
   }
-  expandEntries(expanded_full_names, QModelIndex(), "");
+  if (model_ && !expanded_full_names.isEmpty()) {
+    expandEntries(expanded_full_names, QModelIndex(), "");
+  }
 
   float ratio;
   if (config.mapGetFloat("Splitter Ratio", &ratio)) {
@@ -182,22 +209,36 @@ void PropertyTreeWidget::expandEntries(
   const QModelIndex & parent_index,
   const QString & prefix)
 {
+  if (!model_ || expanded_full_names.isEmpty()) {
+    return;
+  }
+
   int num_children = model_->rowCount(parent_index);
   if (num_children > 0) {
     QHash<QString, int> name_counts;
     for (int i = 0; i < num_children; i++) {
       QModelIndex child_index = model_->index(i, 0, parent_index);
+      if (!child_index.isValid()) {
+        continue;
+      }
       Property * child = model_->getProp(child_index);
+      if (!child) {
+        continue;
+      }
       QString child_name = child->getName();
       if (qobject_cast<StatusList *>(child)) {
         child_name = "Status";
       }
       int name_occurrence = ++( name_counts[child_name]);
       QString full_name = prefix + "/" + child_name + QString::number(name_occurrence);
-      if (expanded_full_names.contains(full_name)) {
+      const bool should_expand = expanded_full_names.contains(full_name);
+      const bool should_visit_descendants = hasExpandedDescendant(expanded_full_names, full_name);
+      if (should_expand) {
         setExpanded(child_index, true);
       }
-      expandEntries(expanded_full_names, child_index, full_name);
+      if (should_visit_descendants) {
+        expandEntries(expanded_full_names, child_index, full_name);
+      }
     }
   }
 }

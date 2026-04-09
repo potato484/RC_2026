@@ -415,6 +415,10 @@ protected:
   virtual void
   initToolbars();
 
+  /// Allow subclasses to customize the visualization manager before config load.
+  virtual void
+  configureVisualizationManager();
+
   /// Check for unsaved changes, prompt to save config, etc.
   /**
    * \return true if it is OK to exit, false if not.

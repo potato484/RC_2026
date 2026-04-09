@@ -34,11 +34,23 @@
 
 #include "rviz_common/properties/line_edit_with_button.hpp"
 #include "rviz_common/properties/property.hpp"
+#include "rviz_common/properties/property_tree_model.hpp"
 
 namespace rviz_common
 {
 namespace properties
 {
+
+namespace
+{
+
+Property * getPropertyFromIndex(const QModelIndex & index)
+{
+  auto * model = qobject_cast<const PropertyTreeModel *>(index.model());
+  return model ? model->getProp(index) : nullptr;
+}
+
+}  // namespace
 
 PropertyTreeDelegate::PropertyTreeDelegate(QObject * parent_object)
 : QStyledItemDelegate(parent_object)
@@ -50,7 +62,7 @@ void PropertyTreeDelegate::paint(
   const QStyleOptionViewItem & option,
   const QModelIndex & index) const
 {
-  Property * prop = static_cast<Property *>( index.internalPointer() );
+  Property * prop = getPropertyFromIndex(index);
   if (!prop || !prop->paint(painter, option)) {
     QStyledItemDelegate::paint(painter, option, index);
   }
@@ -61,7 +73,7 @@ QWidget * PropertyTreeDelegate::createEditor(
   const QStyleOptionViewItem & option,
   const QModelIndex & index) const
 {
-  Property * prop = static_cast<Property *>( index.internalPointer() );
+  Property * prop = getPropertyFromIndex(index);
   if (!prop || prop->getReadOnly()) {
     return 0;
   }

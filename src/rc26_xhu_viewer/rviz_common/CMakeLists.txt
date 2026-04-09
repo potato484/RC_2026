@@ -387,6 +387,13 @@ if(BUILD_TESTING)
     target_link_libraries(qos_profile_property_test rviz_common)
   endif()
 
+  ament_add_gtest(rviz_common_property_tree_widget_test
+    test/properties/property_tree_widget_test.cpp
+  )
+  if(TARGET rviz_common_property_tree_widget_test)
+    target_link_libraries(rviz_common_property_tree_widget_test rviz_common Qt5::Widgets)
+  endif()
+
   ament_add_gmock(rviz_common_visualizer_app_test test/visualizer_app_test.cpp)
   if(TARGET rviz_common_visualizer_app_test)
     target_link_libraries(rviz_common_visualizer_app_test rviz_common)
