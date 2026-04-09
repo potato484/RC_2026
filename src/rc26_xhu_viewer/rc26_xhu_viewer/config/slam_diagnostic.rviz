@@ -6,9 +6,11 @@ Panels:
   - Class: rviz_common/Time
     Name: 时间
 Visualization Manager:
+  Value: true
   Displays:
     - Class: rviz_common/Group
       Name: 场景基础
+      Value: true
       Displays:
         - Class: rviz_default_plugins/Grid
           Name: 地面网格
@@ -18,6 +20,7 @@ Visualization Manager:
           Value: true
     - Class: rviz_common/Group
       Name: 建图点云
+      Value: true
       Displays:
         - Class: rviz_default_plugins/PointCloud2
           Name: 激光地图
@@ -42,6 +45,7 @@ Visualization Manager:
           Reliability Policy: Best Effort
     - Class: rviz_common/Group
       Name: 点云诊断
+      Value: true
       Displays:
         - Class: rviz_default_plugins/PointCloud2
           Name: 地形障碍
@@ -67,6 +71,7 @@ Visualization Manager:
           Reliability Policy: Best Effort
     - Class: rviz_common/Group
       Name: 地形安全
+      Value: true
       Displays:
         - Alpha: 1
           Autocompute Intensity Bounds: true
