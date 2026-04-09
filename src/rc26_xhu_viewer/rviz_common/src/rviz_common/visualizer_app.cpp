@@ -41,6 +41,8 @@
 #include <QApplication>  // NOLINT: cpplint is unable to handle the include order here
 #include <QCommandLineParser>  // NOLINT: cpplint is unable to handle the include order here
 #include <QCommandLineOption>  // NOLINT: cpplint is unable to handle the include order here
+#include <QCoreApplication>  // NOLINT: cpplint is unable to handle the include order here
+#include <QEvent>  // NOLINT: cpplint is unable to handle the include order here
 #include <QTimer>  // NOLINT: cpplint is unable to handle the include order here
 
 #include "rviz_common/interaction/selection_manager.hpp"
@@ -173,8 +175,11 @@ bool VisualizerApp::init(int argc, char ** argv)
 VisualizerApp::~VisualizerApp()
 {
   delete continue_timer_;
-  ros_client_abstraction_->shutdown();
   delete frame_;
+  frame_ = nullptr;
+  QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+  QCoreApplication::processEvents();
+  ros_client_abstraction_->shutdown();
 }
 
 void VisualizerApp::startContinueChecker()

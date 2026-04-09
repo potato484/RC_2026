@@ -29,10 +29,12 @@
 
 #include <gmock/gmock.h>
 
+#include <csignal>
 #include <string>
 
 #include "rclcpp/rclcpp.hpp"
 
+#include "rviz_common/ros_integration/ros_client_abstraction.hpp"
 #include "rviz_common/ros_integration/ros_node_abstraction.hpp"
 
 using namespace ::testing;  // NOLINT
@@ -57,4 +59,33 @@ TEST_F(RosNodeAbstractionTestFixture, get_node_name_returns_the_name_of_the_inte
   auto node = rviz_common::ros_integration::RosNodeAbstraction(node_name_);
 
   ASSERT_THAT(node.get_node_name(), Eq(node_name_));
+}
+
+TEST(RosClientAbstraction, shutdown_destroys_created_node_before_context_teardown) {
+  rviz_common::ros_integration::RosClientAbstraction client;
+  auto weak_node = client.init(0, nullptr, "rviz_test_node", false);
+
+  ASSERT_FALSE(weak_node.expired());
+
+  client.shutdown();
+
+  EXPECT_TRUE(weak_node.expired());
+  EXPECT_FALSE(rclcpp::ok());
+}
+
+TEST(RosClientAbstraction, ok_turns_false_after_sigint_without_async_rclcpp_shutdown) {
+  rviz_common::ros_integration::RosClientAbstraction client;
+  auto weak_node = client.init(0, nullptr, "rviz_sigint_test_node", false);
+
+  ASSERT_FALSE(weak_node.expired());
+  ASSERT_TRUE(client.ok());
+
+  std::raise(SIGINT);
+
+  EXPECT_FALSE(client.ok());
+  EXPECT_TRUE(rclcpp::ok());
+
+  client.shutdown();
+  EXPECT_FALSE(rclcpp::ok());
+  EXPECT_FALSE(weak_node.expired());
 }

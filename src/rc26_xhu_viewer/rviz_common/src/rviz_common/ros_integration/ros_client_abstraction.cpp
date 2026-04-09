@@ -30,9 +30,11 @@
 
 #include "rviz_common/ros_integration/ros_client_abstraction.hpp"
 
+#include <csignal>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "rclcpp/rclcpp.hpp"
 
@@ -42,6 +44,49 @@ namespace rviz_common
 {
 namespace ros_integration
 {
+
+namespace
+{
+
+volatile std::sig_atomic_t g_shutdown_signal = 0;
+using SignalHandler = void (*)(int);
+SignalHandler g_previous_sigint_handler = SIG_DFL;
+SignalHandler g_previous_sigterm_handler = SIG_DFL;
+bool g_signal_handlers_installed = false;
+std::vector<std::shared_ptr<RosNodeAbstractionIface>> * g_leaked_signal_exit_nodes = nullptr;
+
+void rvizSignalHandler(int signum)
+{
+  g_shutdown_signal = signum;
+}
+
+void installSignalHandlers()
+{
+  if (g_signal_handlers_installed) {
+    g_shutdown_signal = 0;
+    return;
+  }
+
+  g_previous_sigint_handler = std::signal(SIGINT, rvizSignalHandler);
+  g_previous_sigterm_handler = std::signal(SIGTERM, rvizSignalHandler);
+  g_shutdown_signal = 0;
+  g_signal_handlers_installed = true;
+}
+
+void restoreSignalHandlers()
+{
+  if (!g_signal_handlers_installed) {
+    g_shutdown_signal = 0;
+    return;
+  }
+
+  std::signal(SIGINT, g_previous_sigint_handler);
+  std::signal(SIGTERM, g_previous_sigterm_handler);
+  g_shutdown_signal = 0;
+  g_signal_handlers_installed = false;
+}
+
+}  // namespace
 
 RosClientAbstraction::RosClientAbstraction()
 {}
@@ -56,8 +101,11 @@ RosClientAbstraction::init(int argc, char ** argv, const std::string & name, boo
     throw std::runtime_error("'anonymous_name' feature not implemented");
     // final_name = <the full anonymous node name>;
   }
-  // TODO(wjwwood): this will throw on repeated calls, maybe avoid that?
-  rclcpp::init(argc, argv);
+  // RViz runs a Qt event loop and must destroy its frames and nodes before
+  // ROS shutdown. The default rclcpp signal handler can shut the global
+  // context down asynchronously, which then crashes node teardown on exit.
+  rclcpp::init(argc, argv, rclcpp::InitOptions(), rclcpp::SignalHandlerOptions::None);
+  installSignalHandlers();
   if (rviz_ros_node_ && rviz_ros_node_->get_node_name() == final_name) {
     // TODO(wjwwood): make a better exception type rather than using std::runtime_error.
     throw std::runtime_error("Node with name " + final_name + " already exists.");
@@ -69,13 +117,31 @@ RosClientAbstraction::init(int argc, char ** argv, const std::string & name, boo
 bool
 RosClientAbstraction::ok()
 {
-  return rclcpp::ok() && rviz_ros_node_;
+  return g_shutdown_signal == 0 && rclcpp::ok() && rviz_ros_node_;
 }
 
 void
 RosClientAbstraction::shutdown()
 {
-  rclcpp::shutdown();
+  const bool signal_requested = g_shutdown_signal != 0;
+  restoreSignalHandlers();
+  if (rclcpp::ok()) {
+    rclcpp::shutdown();
+  }
+
+  if (signal_requested && rviz_ros_node_) {
+    // Humble can still crash inside rclcpp::CallbackGroup teardown if a live
+    // RViz node is destroyed on a process signal path after the Qt UI has
+    // already started unwinding. Keep the node alive until process exit in
+    // that specific path instead of crashing on Ctrl+C.
+    if (!g_leaked_signal_exit_nodes) {
+      g_leaked_signal_exit_nodes = new std::vector<std::shared_ptr<RosNodeAbstractionIface>>();
+    }
+    g_leaked_signal_exit_nodes->push_back(std::move(rviz_ros_node_));
+    return;
+  }
+
+  rviz_ros_node_.reset();
 }
 
 }  // namespace ros_integration
