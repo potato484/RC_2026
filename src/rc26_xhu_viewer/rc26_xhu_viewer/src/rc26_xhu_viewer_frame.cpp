@@ -33,42 +33,42 @@ void RC26XhuViewerFrame::configureVisualizationManager()
 
 void RC26XhuViewerFrame::initMenus()
 {
-  file_menu_ = menuBar()->addMenu(QStringLiteral("文件(&F)"));
+  file_menu_ = menuBar()->addMenu(QStringLiteral("文件"));
 
   QAction * open_action = file_menu_->addAction(
-    QStringLiteral("打开配置(&O)"), this, SLOT(onOpen()), QKeySequence("Ctrl+O"));
+    QStringLiteral("打开配置"), this, SLOT(onOpen()), QKeySequence("Ctrl+O"));
   this->addAction(open_action);
 
   QAction * save_action = file_menu_->addAction(
-    QStringLiteral("保存配置(&S)"), this, SLOT(onSave()), QKeySequence("Ctrl+S"));
+    QStringLiteral("保存配置"), this, SLOT(onSave()), QKeySequence("Ctrl+S"));
   this->addAction(save_action);
 
   QAction * save_as_action = file_menu_->addAction(
-    QStringLiteral("另存配置(&A)"), this, SLOT(onSaveAs()), QKeySequence("Ctrl+Shift+S"));
+    QStringLiteral("另存配置"), this, SLOT(onSaveAs()), QKeySequence("Ctrl+Shift+S"));
   this->addAction(save_as_action);
 
-  recent_configs_menu_ = file_menu_->addMenu(QStringLiteral("最近配置(&R)"));
-  file_menu_->addAction(QStringLiteral("保存截图(&I)"), this, SLOT(onSaveImage()));
+  recent_configs_menu_ = file_menu_->addMenu(QStringLiteral("最近配置"));
+  file_menu_->addAction(QStringLiteral("保存截图"), this, SLOT(onSaveImage()));
   file_menu_->addSeparator();
 
   QAction * quit_action = file_menu_->addAction(
-    QStringLiteral("退出(&Q)"), this, SLOT(close()), QKeySequence("Ctrl+Q"));
+    QStringLiteral("退出"), this, SLOT(close()), QKeySequence("Ctrl+Q"));
   this->addAction(quit_action);
 
-  view_menu_ = menuBar()->addMenu(QStringLiteral("面板(&P)"));
-  view_menu_->addAction(QStringLiteral("添加面板(&N)"), this, SLOT(openNewPanelDialog()));
-  delete_view_menu_ = view_menu_->addMenu(QStringLiteral("删除面板(&D)"));
+  view_menu_ = menuBar()->addMenu(QStringLiteral("面板"));
+  view_menu_->addAction(QStringLiteral("添加面板"), this, SLOT(openNewPanelDialog()));
+  delete_view_menu_ = view_menu_->addMenu(QStringLiteral("删除面板"));
   delete_view_menu_->setEnabled(false);
 
   QAction * fullscreen_action = view_menu_->addAction(
-    QStringLiteral("全屏(&F)"), this, SLOT(setFullScreen(bool)), Qt::Key_F11);
+    QStringLiteral("全屏"), this, SLOT(setFullScreen(bool)), Qt::Key_F11);
   fullscreen_action->setCheckable(true);
   this->addAction(fullscreen_action);
   connect(this, SIGNAL(fullScreenChange(bool)), fullscreen_action, SLOT(setChecked(bool)));
   view_menu_->addSeparator();
 
-  QMenu * help_menu = menuBar()->addMenu(QStringLiteral("帮助(&H)"));
-  help_menu->addAction(QStringLiteral("关于(&A)"), this, SLOT(onHelpAbout()));
+  QMenu * help_menu = menuBar()->addMenu(QStringLiteral("帮助"));
+  help_menu->addAction(QStringLiteral("关于"), this, SLOT(onHelpAbout()));
 }
 
 void RC26XhuViewerFrame::initToolbars()
