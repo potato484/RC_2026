@@ -297,7 +297,7 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - `rc26_topo_nav` 的 `surface_graph` schema 升级到 `1.1`
 - `generate_surface_graph.py` 增加 body-aware 注解生成：merged support surface、node pitch、edge slope、edge lateral clearance
 - `topo_nav_node` 和 `surface_route_cli` 增加 `body_planning.*` 运行参数，并在 surface plan 前把 body-aware overlay 叠加到 runtime overlay
-- `rc26_xhu_viewer_server.py` 改为优先调用 source workspace 中最新构建的 planner CLI
+- `rviz2_rc26_server.py` 改为优先调用 source workspace 中最新构建的 planner CLI
 
 **落地方式**：
 - node clearance 当前只做软惩罚，避免把接缝/转接点一刀切封死

@@ -2,7 +2,7 @@
 
 ## 当前允许的前端能力
 
-- 读取 `rc26_xhu_viewer_server.py` 输出的 scene manifest、规划回放和 live 状态
+- 读取 `rviz2_rc26_server.py` 输出的 scene manifest、规划回放和 live 状态
 - 在浏览器里做场地渲染、布局切换、路线回放和只读诊断聚合展示
 - 通过受控 API 下发 `navigate_surface_route`
 
@@ -10,12 +10,13 @@
 
 - 浏览器直接成为 ROS2 控制面
 - 前端自己定义 topo graph、surface graph 或 planner 真源
-- 把 `rc26_xhu_viewer/viewer` 说成在线后端
+- 把 `rviz2/viewer` 说成在线后端
 
 ## 当前 Web 可视化链路边界
 
-- `src/rc26_xhu_viewer/rc26_xhu_viewer/viewer` 只连接本地 `rc26_xhu_viewer_server.py`
-- `rc26_xhu_viewer_server.py` 只是 adapter，不替代 `rc26_topo_nav` action / planner 权威
+- `src/rc26_xhu_viewer/rviz2/viewer` 只连接本地 `rviz2_rc26_server.py`
+- `rviz2_rc26_server.py` 只是 adapter，不替代 `rc26_topo_nav` action / planner 权威
+- `rviz2_rc26_server.py` 对 graph trace 的依赖固定来自 `rc26_topo_nav/scripts/render_graph_sim_html.py`，不在前端链再复制一份算法真源
 - `src/rc26_bringup/foxglove/*.json` 只是历史模板资产，不再是当前前端主链
 
 ## 维护时必须保持的事实
