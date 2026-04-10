@@ -36,6 +36,7 @@
 #include <QVBoxLayout>  // NOLINT: cpplint is unable to handle the include order here
 
 #include "rviz_common/display_context.hpp"
+#include "rviz_common/display_string_manager.hpp"
 
 namespace rviz_common
 {
@@ -61,9 +62,13 @@ void HelpPanel::setHelpFile(const QString & qfile_path)
   QFileInfo path_info(qfile_path);
 
   if (!path_info.exists()) {
-    browser_->setText("Help file '" + qfile_path + "' does not exist.");
+    browser_->setText(
+      DisplayStringManager::instance().localizeDialogText("Help file '%1' does not exist.")
+      .arg(qfile_path));
   } else if (path_info.isDir()) {
-    browser_->setText("Help file '" + qfile_path + "' is a directory, not a file.");
+    browser_->setText(
+      DisplayStringManager::instance().localizeDialogText(
+        "Help file '%1' is a directory, not a file.").arg(qfile_path));
   } else {
     QUrl url = QUrl::fromLocalFile(qfile_path);
     if (browser_->source() == url) {

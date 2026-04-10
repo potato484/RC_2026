@@ -15,213 +15,205 @@ p { margin-left: 10px }
 </style>
 </head>
 <body>
+<h2>快捷键说明</h2>
 
-<h2>Key controls</h2>
-
-<h3>Switching between tools</h3>
+<h3>工具切换</h3>
 <p>
-<em>These controls work in all modes, except for tools capturing all keys (Select tool).</em>
+<em>以下快捷键适用于大多数模式；如果当前工具独占全部按键，则以该工具自身行为为准。</em>
 <table border="0" cellspacing="0" cellpadding="3">
   <tr class="odd">
     <td class="key">C</td>
-    <td>Switch to the Focus Camera tool.</td>
+    <td>切换到聚焦视角工具。</td>
   </tr>
   <tr class="even">
     <td class="key">M</td>
-    <td>Switch to the Move-Camera tool.</td>
+    <td>切换到移动视角工具。</td>
   </tr>
   <tr class="odd">
     <td class="key">N</td>
-    <td>Switch to the Measure tool.</td>
+    <td>切换到测距工具。</td>
   </tr>
   <tr class="even">
     <td class="key">U</td>
-    <td>Switch to the Publish Point tool.</td>
+    <td>切换到发布点位工具。</td>
   </tr>
-  <!--<tr class="even">-->
-    <!--<td class="key">I</td>-->
-    <!--<td>Switch to the Interact tool.</td>-->
-  <!--</tr>-->
   <tr class="odd">
     <td class="key">S</td>
-    <td>Switch to the Select tool.</td>
+    <td>切换到选择工具。</td>
   </tr>
   <tr class="even">
     <td class="key">G</td>
-    <td>Switch to the 2D Goal Pose tool.</td>
+    <td>切换到二维目标位姿工具。</td>
   </tr>
-  <tr class="even">
+  <tr class="odd">
     <td class="key">P</td>
-    <td>Switch to the 2D Pose Estimate tool.</td>
+    <td>切换到二维初始位姿工具。</td>
   </tr>
 </table>
 </p>
 
-<h3>Controlling the viewpoint</h3>
+<h3>视角控制</h3>
 <p>
-<em>These controls only work while using the <b>Move Camera</b> and <b>Interact</b> tools.</em>
+<em>以下快捷键仅在使用移动视角或交互工具时有效。</em>
 <table border="0" cellspacing="0" cellpadding="3">
   <tr class="odd">
     <td class="key">F</td>
-    <td>Move the focus to the 3D point under the mouse.  This does not work for all display objects or all computers (yet).</td>
+    <td>将焦点移动到鼠标下方的三维点。部分对象或部分设备上可能不可用。</td>
   </tr>
   <tr class="even">
     <td class="key">Z</td>
-    <td>Jump back to looking at the origin, the default view position.</td>
+    <td>回到默认视角位置并重新观察原点。</td>
   </tr>
 </table>
 </p>
 <p>
-<em>This control only works while using the <b>Select</b> tool.</em>
+<em>以下快捷键仅在使用选择工具时有效。</em>
 <table border="0" cellspacing="0" cellpadding="3">
   <tr class="odd">
     <td class="key">F</td>
-    <td>Move the focus to the centroid of the currently-selected objects.</td>
+    <td>将焦点移动到当前选中对象的中心位置。</td>
   </tr>
 </table>
 </p>
 
-<h3>Modifying Displays list</h3>
+<h3>显示列表操作</h3>
 <p>
 <table border="0" cellspacing="0" cellpadding="3">
   <tr class="odd">
     <td class="key">Ctrl-N</td>
-    <td>Add a display</td>
+    <td>添加显示项。</td>
   </tr>
   <tr class="even">
     <td class="key">Ctrl-X</td>
-    <td>Remove a display</td>
+    <td>移除显示项。</td>
   </tr>
   <tr class="odd">
     <td class="key">Ctrl-R</td>
-    <td>Rename a display</td>
+    <td>重命名显示项。</td>
   </tr>
 </table>
 </p>
 
-<h3>File operations</h3>
+<h3>文件操作</h3>
 <p>
 <table border="0" cellspacing="0" cellpadding="3">
   <tr class="odd">
     <td class="key">Ctrl-O</td>
-    <td>Open a config file</td>
+    <td>打开配置文件。</td>
   </tr>
   <tr class="even">
     <td class="key">Ctrl-S</td>
-    <td>Save to a config file (opens file chooser)</td>
+    <td>保存配置文件，必要时会弹出文件选择窗口。</td>
   </tr>
   <tr class="odd">
     <td class="key">Ctrl-Q</td>
-    <td>Quit RViz, saving current config into ~/.rviz/display_config first.</td>
+    <td>退出可视化台，并在退出前保存当前配置。</td>
   </tr>
 </table>
 </p>
 
-<h2>Mouse controls</h2>
+<h2>鼠标操作</h2>
 
-<h3>Orbit view controller</h3>
+<h3>环绕视角</h3>
 <p>
   <em>
-  In this view, the viewpoint is always aimed at a focal point.  You
-  can move around the point (orbit it) or you can move the point
-  itself.
+  在该视角下，镜头始终围绕一个焦点观察。你既可以绕着焦点旋转，也可以直接移动焦点本身。
   </em>
 <table border="0" cellspacing="0" cellpadding="3">
   <tr class="odd">
-    <td class="key">Left</td>
-    <td>Drag to rotate around the focal point.</td>
+    <td class="key">左键</td>
+    <td>拖动可绕焦点旋转。</td>
   </tr>
   <tr class="even">
-    <td><div class="key">Middle</div> or<div class="key">Shift-Left</div></td>
-    <td>Drag to move the focal point.</td>
+    <td><div class="key">中键</div> 或 <div class="key">Shift + 左键</div></td>
+    <td>拖动可平移焦点。</td>
   </tr>
   <tr class="odd">
-    <td class="key">Scroll Wheel</td>
-    <td>Roll up or down to zoom towards or away from the focal point.</td>
+    <td class="key">滚轮</td>
+    <td>向上或向下滚动可缩放视角。</td>
   </tr>
   <tr class="even">
-    <td class="key">Right</td>
-    <td>Drag up or down to zoom towards or away from the focal point.</td>
+    <td class="key">右键</td>
+    <td>上下拖动可缩放视角。</td>
   </tr>
   <tr class="odd">
-    <td class="key">Shift-Right</td>
-    <td>Drag up or down to move the focal point forward or backward.</td>
+    <td class="key">Shift + 右键</td>
+    <td>上下拖动可沿前后方向移动焦点。</td>
   </tr>
 </table>
 </p>
 
-<h3>XYOrbit view controller</h3>
+<h3>平面环绕视角</h3>
 <p>
   <em>
-    Similar to the Orbit view controller, but the focal point is kept
-    on the Z=0 (ground) plane.
+    与环绕视角类似，但焦点会被约束在 Z=0 的地面平面上。
   </em>
 <table border="0" cellspacing="0" cellpadding="3">
   <tr class="odd">
-    <td class="key">Left</td>
-    <td>Drag to rotate around the focal point.</td>
+    <td class="key">左键</td>
+    <td>拖动可绕焦点旋转。</td>
   </tr>
   <tr class="even">
-    <td><div class="key">Middle</div> or<div class="key">Shift-Left</div></td>
-    <td>Drag to move the focal point in the ground plane.</td>
+    <td><div class="key">中键</div> 或 <div class="key">Shift + 左键</div></td>
+    <td>拖动可在地面平面内平移焦点。</td>
   </tr>
   <tr class="odd">
-    <td class="key">Scroll Wheel</td>
-    <td>Roll up or down to zoom towards or away from the focal point.</td>
+    <td class="key">滚轮</td>
+    <td>向上或向下滚动可缩放视角。</td>
   </tr>
   <tr class="even">
-    <td class="key">Right</td>
-    <td>Drag up or down to zoom towards or away from the focal point.</td>
+    <td class="key">右键</td>
+    <td>上下拖动可缩放视角。</td>
   </tr>
 </table>
 </p>
 
-<h3>FPS view controller</h3>
+<h3>第一人称视角</h3>
 <p>
   <em>
-    Inspired by first-person shooter games.  Drag to point your head.
+    类似第一人称游戏中的观察方式，拖动鼠标即可改变观察方向。
   </em>
 <table border="0" cellspacing="0" cellpadding="3">
   <tr class="odd">
-    <td class="key">Left</td>
-    <td>Dragging rotates the viewpoint in the direction of the drag.</td>
+    <td class="key">左键</td>
+    <td>拖动可旋转观察方向。</td>
   </tr>
   <tr class="even">
-    <td><div class="key">Middle</div> or<div class="key">Shift-Left</div></td>
-    <td>Drag to strafe (translate) left/right and up/down.</td>
+    <td><div class="key">中键</div> 或 <div class="key">Shift + 左键</div></td>
+    <td>拖动可左右、上下平移视角。</td>
   </tr>
   <tr class="odd">
-    <td class="key">Scroll Wheel</td>
-    <td>Roll up or down to move the viewpoint forwards or back.</td>
+    <td class="key">滚轮</td>
+    <td>向上或向下滚动可前后移动视角。</td>
   </tr>
   <tr class="even">
-    <td class="key">Right</td>
-    <td>Drag up or down to move the viewport forwards or back.</td>
+    <td class="key">右键</td>
+    <td>上下拖动可前后移动视角。</td>
   </tr>
 </table>
 </p>
 
-<h3>TopDownOrtho view controller</h3>
+<h3>俯视正交视角</h3>
 <p>
   <em>
-    Top-down orthographic view.
+    从上往下观察场景的正交视角。
   </em>
 <table border="0" cellspacing="0" cellpadding="3">
   <tr class="odd">
-    <td class="key">Left</td>
-    <td>Dragging left/right rotates the view.</td>
+    <td class="key">左键</td>
+    <td>左右拖动可旋转视角。</td>
   </tr>
   <tr class="even">
-    <td><div class="key">Middle</div> or<div class="key">Shift-Left</div></td>
-    <td>Drag to move the viewpoint in the XY plane.</td>
+    <td><div class="key">中键</div> 或 <div class="key">Shift + 左键</div></td>
+    <td>拖动可在 XY 平面内平移视角。</td>
   </tr>
   <tr class="odd">
-    <td class="key">Scroll Wheel</td>
-    <td>Roll up or down to zoom in or out.</td>
+    <td class="key">滚轮</td>
+    <td>向上或向下滚动可缩放视图。</td>
   </tr>
   <tr class="even">
-    <td class="key">Right</td>
-    <td>Drag up or down to zoom in or out.</td>
+    <td class="key">右键</td>
+    <td>上下拖动可缩放视图。</td>
   </tr>
 </table>
 </p>

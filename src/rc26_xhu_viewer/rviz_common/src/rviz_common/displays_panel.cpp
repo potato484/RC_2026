@@ -42,6 +42,7 @@
 #include <QVBoxLayout>  // NOLINT: cpplint is unable to handle the include order here
 
 #include "display_factory.hpp"
+#include "rviz_common/display_string_manager.hpp"
 #include "rviz_common/display.hpp"
 #include "add_display_dialog.hpp"
 #include "rviz_common/properties/property.hpp"
@@ -59,29 +60,30 @@ DisplaysPanel::DisplaysPanel(
   QWidget * parent)
 : Panel(parent), vis_manager_(manager), rviz_ros_node_(rviz_ros_node)
 {
+  const auto & strings = DisplayStringManager::instance();
   setObjectName("Displays/DisplayPanel");
   tree_with_help_ = new properties::PropertyTreeWithHelp;
   tree_with_help_->setObjectName("DisplayPanel/TreeWithHelp");
   property_grid_ = tree_with_help_->getTree();
 
-  QPushButton * add_button = new QPushButton("Add");
+  QPushButton * add_button = new QPushButton(strings.localizeDialogText("Add"));
   add_button->setObjectName("DisplayPanel/AddDisplayButton");
   add_button->setShortcut(QKeySequence(QString("Ctrl+N")));
-  add_button->setToolTip("Add a new display, Ctrl+N");
-  duplicate_button_ = new QPushButton("Duplicate");
+  add_button->setToolTip(strings.localizeDialogText("Add a new display, Ctrl+N"));
+  duplicate_button_ = new QPushButton(strings.localizeDialogText("Duplicate"));
   duplicate_button_->setObjectName("DisplayPanel/DuplicateDisplayButton");
   duplicate_button_->setShortcut(QKeySequence(QString("Ctrl+D")));
-  duplicate_button_->setToolTip("Duplicate a display, Ctrl+D");
+  duplicate_button_->setToolTip(strings.localizeDialogText("Duplicate a display, Ctrl+D"));
   duplicate_button_->setEnabled(false);
-  remove_button_ = new QPushButton("Remove");
+  remove_button_ = new QPushButton(strings.localizeDialogText("Remove"));
   remove_button_->setObjectName("DisplayPanel/RemoveDisplayButton");
   remove_button_->setShortcut(QKeySequence(QString("Ctrl+X")));
-  remove_button_->setToolTip("Remove displays, Ctrl+X");
+  remove_button_->setToolTip(strings.localizeDialogText("Remove displays, Ctrl+X"));
   remove_button_->setEnabled(false);
-  rename_button_ = new QPushButton("Rename");
+  rename_button_ = new QPushButton(strings.localizeDialogText("Rename"));
   rename_button_->setObjectName("DisplayPanel/RenameDisplayButton");
   rename_button_->setShortcut(QKeySequence(QString("Ctrl+R")));
-  rename_button_->setToolTip("Rename a display, Ctrl+R");
+  rename_button_->setToolTip(strings.localizeDialogText("Rename a display, Ctrl+R"));
   rename_button_->setEnabled(false);
 
   auto button_layout = new QHBoxLayout;
@@ -145,7 +147,10 @@ void DisplaysPanel::onDuplicateDisplay()
   QList<Display *> displays_to_duplicate = property_grid_->getSelectedObjects<Display>();
 
   QList<Display *> duplicated_displays;
-  QProgressDialog progress_dlg("Duplicating displays...", "Cancel", 0, displays_to_duplicate.size(),
+  QProgressDialog progress_dlg(
+    DisplayStringManager::instance().localizeDialogText("Duplicating displays..."),
+    DisplayStringManager::instance().localizeDialogText("Cancel"),
+    0, displays_to_duplicate.size(),
     this);
   progress_dlg.setWindowModality(Qt::WindowModal);
   progress_dlg.show();
@@ -229,7 +234,10 @@ void DisplaysPanel::onRenameDisplay()
 
   QString old_name = display_to_rename->getName();
   QString new_name = QInputDialog::getText(
-    this, "Rename Display", "New Name?", QLineEdit::Normal, old_name);
+    this,
+    DisplayStringManager::instance().localizeDialogText("Rename Display"),
+    DisplayStringManager::instance().localizeDialogText("New Name?"),
+    QLineEdit::Normal, old_name);
 
   if (new_name.isEmpty() || new_name == old_name) {
     return;

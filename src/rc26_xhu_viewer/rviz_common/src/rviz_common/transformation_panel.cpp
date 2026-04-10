@@ -40,6 +40,7 @@
 #include <QtWidgets>  // NOLINT
 
 #include "rviz_common/display_context.hpp"
+#include "rviz_common/display_string_manager.hpp"
 #include "rviz_common/properties/grouped_checkbox_property.hpp"
 #include "rviz_common/properties/grouped_checkbox_property_group.hpp"
 #include "rviz_common/properties/property.hpp"
@@ -81,7 +82,7 @@ properties::PropertyTreeWidget * TransformationPanel::initializeTreeWidget()
 
 QHBoxLayout * TransformationPanel::initializeBottomButtonRow()
 {
-  save_button_ = new QPushButton("Save");
+  save_button_ = new QPushButton(DisplayStringManager::instance().localizeDialogText("Save"));
 
   connect(save_button_, SIGNAL(clicked()), this, SLOT(onSaveClicked()));
 

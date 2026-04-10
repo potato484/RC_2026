@@ -68,6 +68,7 @@
 #include "rviz_common/panel.hpp"
 #include "rviz_common/panel_dock_widget.hpp"
 #include "rviz_common/render_panel.hpp"
+#include "rviz_common/display_string_manager.hpp"
 #include "rviz_common/tool.hpp"
 #include "rviz_common/yaml_config_reader.hpp"
 #include "rviz_common/yaml_config_writer.hpp"
@@ -98,6 +99,32 @@
 
 namespace rviz_common
 {
+
+namespace
+{
+
+void localizeMessageBoxButtons(QMessageBox * box)
+{
+  if (!box) {
+    return;
+  }
+
+  const auto & strings = DisplayStringManager::instance();
+  if (auto * save = box->button(QMessageBox::Save)) {
+    save->setText(strings.localizeDialogText("Save"));
+  }
+  if (auto * discard = box->button(QMessageBox::Discard)) {
+    discard->setText(strings.localizeDialogText("Discard"));
+  }
+  if (auto * cancel = box->button(QMessageBox::Cancel)) {
+    cancel->setText(strings.localizeDialogText("Cancel"));
+  }
+  if (auto * ok = box->button(QMessageBox::Ok)) {
+    ok->setText(strings.localizeDialogText("OK"));
+  }
+}
+
+}  // namespace
 
 VisualizationFrame::VisualizationFrame(
   ros_integration::RosNodeAbstractionIface::WeakPtr rviz_ros_node, QWidget * parent)
@@ -136,15 +163,16 @@ VisualizationFrame::VisualizationFrame(
   QDir splash_path(QString::fromStdString(package_path_) + "/images/splash.png");
   splash_path_ = splash_path.absolutePath();
 
+  const auto & strings = DisplayStringManager::instance();
   auto * reset_button = new QToolButton();
-  reset_button->setText("Reset");
+  reset_button->setText(strings.localizeDialogText("Reset"));
   reset_button->setContentsMargins(0, 0, 0, 0);
   statusBar()->addPermanentWidget(reset_button, 0);
   connect(reset_button, SIGNAL(clicked(bool)), this, SLOT(reset()));
 
   status_label_ = new QLabel("");
   statusBar()->addPermanentWidget(status_label_, 1);
-  connect(this, SIGNAL(statusUpdate(const QString&)), status_label_, SLOT(setText(const QString&)));
+  connect(this, &VisualizationFrame::statusUpdate, status_label_, &QLabel::setText);
 
   fps_label_ = new QLabel("");
   fps_label_->setMinimumWidth(40);
@@ -152,7 +180,7 @@ VisualizationFrame::VisualizationFrame(
   statusBar()->addPermanentWidget(fps_label_, 0);
   original_status_bar_ = statusBar();
 
-  setWindowTitle("RViz[*]");
+  setWindowTitle(strings.localizeDialogText("RViz[*]"));
 }
 
 VisualizationFrame::~VisualizationFrame()
@@ -179,7 +207,7 @@ void VisualizationFrame::setApp(QApplication * app)
 
 void VisualizationFrame::setStatus(const QString & message)
 {
-  Q_EMIT statusUpdate(message);
+  Q_EMIT statusUpdate(DisplayStringManager::instance().localizeStatusText(message));
 }
 
 void VisualizationFrame::updateFps()
@@ -193,7 +221,9 @@ void VisualizationFrame::updateFps()
     frame_count_ = 0;
     last_fps_calc_time_ = std::chrono::steady_clock::now();
     if (original_status_bar_ == statusBar()) {
-      fps_label_->setText(QStringLiteral("帧率: ") + QString::number(static_cast<int>(fps)) + QStringLiteral(" FPS"));
+      fps_label_->setText(
+        QStringLiteral("帧率：") + QString::number(static_cast<int>(fps)) +
+        QStringLiteral(" 帧/秒"));
     }
   }
 }
@@ -260,9 +290,13 @@ void VisualizationFrame::initialize(
     QPixmap splash_image(splash_path_);
     splash_ = new SplashScreen(splash_image);
     splash_->show();
-    connect(this, SIGNAL(statusUpdate(const QString&)), splash_, SLOT(showMessage(const QString&)));
+    connect(this, &VisualizationFrame::statusUpdate, this, [this](const QString & message) {
+      if (splash_) {
+        splash_->showMessage(message);
+      }
+    });
   }
-  Q_EMIT statusUpdate("Initializing");
+  setStatus(QStringLiteral("Initializing"));
 
   // Periodically process events for the splash screen.
   // See: http://doc.qt.io/qt-5/qsplashscreen.html#details
@@ -368,12 +402,10 @@ void VisualizationFrame::initialize(
   splash_ = nullptr;
 
   initialized_ = true;
-  Q_EMIT statusUpdate("RViz is ready.");
+  setStatus(QStringLiteral("RViz is ready."));
 
   connect(manager_, SIGNAL(preUpdate()), this, SLOT(updateFps()));
-  connect(
-    manager_, SIGNAL(statusUpdate(const QString&)), this,
-    SIGNAL(statusUpdate(const QString&)));
+  connect(manager_, &VisualizationManager::statusUpdate, this, &VisualizationFrame::setStatus);
 }
 
 VisualizationManager *
@@ -463,42 +495,43 @@ void VisualizationFrame::savePersistentSettings()
 
 void VisualizationFrame::initMenus()
 {
-  file_menu_ = menuBar()->addMenu("&File");
+  const auto & strings = DisplayStringManager::instance();
+  file_menu_ = menuBar()->addMenu(strings.localizeDialogText("&File"));
 
   QAction * file_menu_open_action = file_menu_->addAction(
-    "&Open Config", this, SLOT(
+    strings.localizeDialogText("&Open Config"), this, SLOT(
       onOpen()), QKeySequence("Ctrl+O"));
   this->addAction(file_menu_open_action);
   QAction * file_menu_save_action = file_menu_->addAction(
-    "&Save Config", this, SLOT(
+    strings.localizeDialogText("&Save Config"), this, SLOT(
       onSave()), QKeySequence("Ctrl+S"));
   this->addAction(file_menu_save_action);
   QAction * file_menu_save_as_action =
     file_menu_->addAction(
-    "Save Config &As", this, SLOT(onSaveAs()),
+    strings.localizeDialogText("Save Config &As"), this, SLOT(onSaveAs()),
     QKeySequence("Ctrl+Shift+S"));
   this->addAction(file_menu_save_as_action);
 
-  recent_configs_menu_ = file_menu_->addMenu("&Recent Configs");
-  file_menu_->addAction("Save &Image", this, SLOT(onSaveImage()));
+  recent_configs_menu_ = file_menu_->addMenu(strings.localizeDialogText("&Recent Configs"));
+  file_menu_->addAction(strings.localizeDialogText("Save &Image"), this, SLOT(onSaveImage()));
   if (show_choose_new_master_option_) {
     file_menu_->addSeparator();
-    file_menu_->addAction("Change &Master", this, SLOT(changeMaster()));
+    file_menu_->addAction(strings.localizeDialogText("Change &Master"), this, SLOT(changeMaster()));
   }
   file_menu_->addSeparator();
 
   QAction * file_menu_quit_action = file_menu_->addAction(
-    "&Quit", this, SLOT(
+    strings.localizeDialogText("&Quit"), this, SLOT(
       close()), QKeySequence("Ctrl+Q"));
   this->addAction(file_menu_quit_action);
 
-  view_menu_ = menuBar()->addMenu("&Panels");
-  view_menu_->addAction("Add &New Panel", this, SLOT(openNewPanelDialog()));
-  delete_view_menu_ = view_menu_->addMenu("&Delete Panel");
+  view_menu_ = menuBar()->addMenu(strings.localizeDialogText("&Panels"));
+  view_menu_->addAction(strings.localizeDialogText("Add &New Panel"), this, SLOT(openNewPanelDialog()));
+  delete_view_menu_ = view_menu_->addMenu(strings.localizeDialogText("&Delete Panel"));
   delete_view_menu_->setEnabled(false);
 
   QAction * fullscreen_action = view_menu_->addAction(
-    "&Fullscreen", this, SLOT(
+    strings.localizeDialogText("&Fullscreen"), this, SLOT(
       setFullScreen(bool)), Qt::Key_F11);
   fullscreen_action->setCheckable(true);
   this->addAction(fullscreen_action);  // Also add to window, or the shortcut doest work
@@ -506,21 +539,22 @@ void VisualizationFrame::initMenus()
   connect(this, SIGNAL(fullScreenChange(bool)), fullscreen_action, SLOT(setChecked(bool)));
   view_menu_->addSeparator();
 
-  QMenu * help_menu = menuBar()->addMenu("&Help");
-  help_menu->addAction("Show &Help panel", this, SLOT(showHelpPanel()));
-  help_menu->addAction("Open rviz wiki in browser", this, SLOT(onHelpWiki()));
+  QMenu * help_menu = menuBar()->addMenu(strings.localizeDialogText("&Help"));
+  help_menu->addAction(strings.localizeDialogText("Show &Help panel"), this, SLOT(showHelpPanel()));
+  help_menu->addAction(strings.localizeDialogText("Open rviz wiki in browser"), this, SLOT(onHelpWiki()));
   help_menu->addSeparator();
-  help_menu->addAction("&About", this, SLOT(onHelpAbout()));
+  help_menu->addAction(strings.localizeDialogText("&About"), this, SLOT(onHelpAbout()));
 }
 
 void VisualizationFrame::initToolbars()
 {
+  const auto & strings = DisplayStringManager::instance();
   QFont font;
   font.setPointSize(font.pointSizeF() * 0.9);
 
   // make toolbar with plugin tools
 
-  toolbar_ = addToolBar("Tools");
+  toolbar_ = addToolBar(strings.localizeDialogText("Tools"));
   toolbar_->setFont(font);
   toolbar_->setContentsMargins(0, 0, 0, 0);
   toolbar_->setObjectName("Tools");
@@ -532,7 +566,7 @@ void VisualizationFrame::initToolbars()
   view_menu_->addAction(toolbar_->toggleViewAction());
 
   add_tool_action_ = new QAction("", toolbar_actions_);
-  add_tool_action_->setToolTip("Add a new tool");
+  add_tool_action_->setToolTip(strings.localizeDialogText("Add a new tool"));
   add_tool_action_->setIcon(loadPixmap("package://rviz_common/icons/plus.png"));
   toolbar_->addAction(add_tool_action_);
   connect(add_tool_action_, SIGNAL(triggered()), this, SLOT(openNewToolDialog()));
@@ -541,7 +575,7 @@ void VisualizationFrame::initToolbars()
   QToolButton * remove_tool_button = new QToolButton();
   remove_tool_button->setMenu(remove_tool_menu_);
   remove_tool_button->setPopupMode(QToolButton::InstantPopup);
-  remove_tool_button->setToolTip("Remove a tool from the toolbar");
+  remove_tool_button->setToolTip(strings.localizeDialogText("Remove a tool from the toolbar"));
   remove_tool_button->setIcon(loadPixmap("package://rviz_common/icons/minus.png"));
   toolbar_->addWidget(remove_tool_button);
   connect(
@@ -652,7 +686,7 @@ void VisualizationFrame::updateRecentConfigMenu()
     if (*it != "") {
       std::string display_name = *it;
       if (display_name == default_display_config_file_) {
-        display_name += " (default)";
+        display_name += DisplayStringManager::instance().localizeDialogText(" (default)").toStdString();
       }
       if (display_name.find(home_dir_) == 0) {
         display_name = (
@@ -766,12 +800,16 @@ void VisualizationFrame::setDisplayConfigFile(const std::string & path)
 {
   display_config_file_ = path;
   std::string title;
+  const auto & strings = DisplayStringManager::instance();
 
   if (display_title_format_.empty()) {
     if (path == default_display_config_file_) {
-      title = "RViz[*]";
+      title = strings.localizeDialogText("RViz[*]").toStdString();
     } else {
-      title = QDir::toNativeSeparators(QString::fromStdString(path)).toStdString() + "[*] - RViz";
+      title =
+        QDir::toNativeSeparators(QString::fromStdString(path)).toStdString() +
+        "[*] - " +
+        strings.localizeDialogText("RViz").toStdString();
     }
   } else {
     auto find_and_replace_token =
@@ -862,7 +900,7 @@ void VisualizationFrame::loadWindowGeometry(const Config & config)
   for (QList<PanelDockWidget *>::iterator it = dock_widgets.begin(); it != dock_widgets.end();
     it++)
   {
-    Config itConfig = config.mapGetChild((*it)->windowTitle());
+    Config itConfig = config.mapGetChild((*it)->stableWindowTitle());
 
     if (itConfig.isValid()) {
       (*it)->load(itConfig);
@@ -897,7 +935,7 @@ void VisualizationFrame::saveWindowGeometry(Config config)
   for (QList<PanelDockWidget *>::iterator it = dock_widgets.begin(); it != dock_widgets.end();
     it++)
   {
-    (*it)->save(config.mapMakeChild((*it)->windowTitle()));
+    (*it)->save(config.mapMakeChild((*it)->stableWindowTitle()));
   }
 }
 
@@ -953,11 +991,14 @@ bool VisualizationFrame::prepareToExit()
   savePersistentSettings();
 
   if (isWindowModified()) {
+    const auto & strings = DisplayStringManager::instance();
     QMessageBox box(this);
-    box.setText("There are unsaved changes.");
-    box.setInformativeText(QString::fromStdString("Save changes to " + display_config_file_ + "?"));
+    box.setText(strings.localizeDialogText("There are unsaved changes."));
+    box.setInformativeText(strings.localizeDialogText("Save changes to %1?").arg(
+      QString::fromStdString(display_config_file_)));
     box.setStandardButtons(QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
     box.setDefaultButton(QMessageBox::Save);
+    localizeMessageBoxButtons(&box);
     int result = box.exec();
     switch (result) {
       case QMessageBox::Save:
@@ -965,13 +1006,14 @@ bool VisualizationFrame::prepareToExit()
           return true;
         } else {
           QMessageBox box(this);
-          box.setWindowTitle("Failed to save.");
+          box.setWindowTitle(strings.localizeDialogText("Failed to save."));
           box.setText(getErrorMessage());
-          box.setInformativeText(
-            QString::fromStdString(
-              "Save copy of " + display_config_file_ + " to another file?"));
+          box.setInformativeText(strings.localizeDialogText(
+              "Save copy of %1 to another file?").arg(
+              QString::fromStdString(display_config_file_)));
           box.setStandardButtons(QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
           box.setDefaultButton(QMessageBox::Save);
+          localizeMessageBoxButtons(&box);
           int result = box.exec();
           switch (result) {
             case QMessageBox::Save:
@@ -995,15 +1037,16 @@ bool VisualizationFrame::prepareToExit()
 
 void VisualizationFrame::onOpen()
 {
+  const auto & strings = DisplayStringManager::instance();
   QString filename = QFileDialog::getOpenFileName(
-    this, "Choose a file to open",
+    this, strings.localizeDialogText("Choose a file to open"),
     QString::fromStdString(last_config_dir_),
-    "RViz config files (" CONFIG_EXTENSION_WILDCARD ")");
+    strings.localizeDialogText("RViz config files (%1)").arg(CONFIG_EXTENSION_WILDCARD));
 
   if (!filename.isEmpty()) {
     if (!QFile(filename).exists()) {
-      QString message = filename + " does not exist!";
-      QMessageBox::critical(this, "Config file does not exist", message);
+      const QString message = strings.localizeDialogText("File '%1' does not exist!").arg(filename);
+      QMessageBox::critical(this, strings.localizeDialogText("Config file does not exist"), message);
       return;
     }
 
@@ -1020,14 +1063,15 @@ void VisualizationFrame::onSave()
   savePersistentSettings();
 
   if (!saveDisplayConfig(QString::fromStdString(display_config_file_))) {
+    const auto & strings = DisplayStringManager::instance();
     QMessageBox box(this);
-    box.setWindowTitle("Failed to save.");
+    box.setWindowTitle(strings.localizeDialogText("Failed to save."));
     box.setText(getErrorMessage());
-    box.setInformativeText(
-      QString::fromStdString(
-        "Save copy of " + display_config_file_ + " to another file?"));
+    box.setInformativeText(strings.localizeDialogText("Save copy of %1 to another file?").arg(
+      QString::fromStdString(display_config_file_)));
     box.setStandardButtons(QMessageBox::Save | QMessageBox::Cancel);
     box.setDefaultButton(QMessageBox::Save);
+    localizeMessageBoxButtons(&box);
     if (box.exec() == QMessageBox::Save) {
       onSaveAs();
     }
@@ -1036,10 +1080,11 @@ void VisualizationFrame::onSave()
 
 void VisualizationFrame::onSaveAs()
 {
+  const auto & strings = DisplayStringManager::instance();
   QString q_filename = QFileDialog::getSaveFileName(
-    this, "Choose a file to save to",
+    this, strings.localizeDialogText("Choose a file to save to"),
     QString::fromStdString(last_config_dir_),
-    "RViz config files (" CONFIG_EXTENSION_WILDCARD ")");
+    strings.localizeDialogText("RViz config files (%1)").arg(CONFIG_EXTENSION_WILDCARD));
 
   if (!q_filename.isEmpty()) {
     if (!q_filename.endsWith("." CONFIG_EXTENSION)) {
@@ -1047,7 +1092,7 @@ void VisualizationFrame::onSaveAs()
     }
 
     if (!saveDisplayConfig(q_filename)) {
-      QMessageBox::critical(this, "Failed to save.", getErrorMessage());
+      QMessageBox::critical(this, strings.localizeDialogText("Failed to save."), getErrorMessage());
     }
 
     std::string filename = q_filename.toStdString();
@@ -1074,8 +1119,9 @@ void VisualizationFrame::onRecentConfigSelected()
     QString path = action->data().toString();
     if (path.size() != 0) {
       if (!QFile(path).exists()) {
-        QString message = path + " does not exist!";
-        QMessageBox::critical(this, "Config file does not exist", message);
+        const auto & strings = DisplayStringManager::instance();
+        const QString message = strings.localizeDialogText("File '%1' does not exist!").arg(path);
+        QMessageBox::critical(this, strings.localizeDialogText("Config file does not exist"), message);
         return;
       }
 
@@ -1086,15 +1132,18 @@ void VisualizationFrame::onRecentConfigSelected()
 
 void VisualizationFrame::addTool(Tool * tool)
 {
-  QAction * action = new QAction(tool->getName(), toolbar_actions_);
+  const auto & strings = DisplayStringManager::instance();
+  const QString visible_name = strings.localizeLabel(tool->getName());
+  QAction * action = new QAction(visible_name, toolbar_actions_);
   action->setIcon(tool->getIcon());
-  action->setIconText(tool->getName());
+  action->setIconText(visible_name);
   action->setCheckable(true);
   toolbar_->insertAction(add_tool_action_, action);
   action_to_tool_map_[action] = tool;
   tool_to_action_map_[tool] = action;
 
-  remove_tool_menu_->addAction(tool->getName());
+  QAction * remove_action = remove_tool_menu_->addAction(visible_name);
+  remove_action->setData(tool->getName());
 
   QObject::connect(
     tool, &Tool::nameChanged, this,
@@ -1110,7 +1159,9 @@ void VisualizationFrame::onToolNameChanged(const QString & name)
   }
 
   // Change the name of the action
-  it->second->setIconText(name);
+  const auto visible_name = DisplayStringManager::instance().localizeLabel(name);
+  it->second->setText(visible_name);
+  it->second->setIconText(visible_name);
 }
 
 void VisualizationFrame::onToolbarActionTriggered(QAction * action)
@@ -1124,7 +1175,10 @@ void VisualizationFrame::onToolbarActionTriggered(QAction * action)
 
 void VisualizationFrame::onToolbarRemoveTool(QAction * remove_tool_menu_action)
 {
-  QString name = remove_tool_menu_action->text();
+  QString name = remove_tool_menu_action->data().toString();
+  if (name.isEmpty()) {
+    name = remove_tool_menu_action->text();
+  }
   for (int i = 0; i < manager_->getToolManager()->numTools(); i++) {
     Tool * tool = manager_->getToolManager()->getTool(i);
     if (tool->getName() == name) {
@@ -1147,7 +1201,7 @@ void VisualizationFrame::removeTool(Tool * tool)
   QList<QAction *> remove_tool_actions = remove_tool_menu_->actions();
   for (int i = 0; i < remove_tool_actions.size(); i++) {
     QAction * removal_action = remove_tool_actions.at(i);
-    if (removal_action->text() == tool_name) {
+    if (removal_action->data().toString() == tool_name || removal_action->text() == tool_name) {
       remove_tool_menu_->removeAction(removal_action);
       break;
     }
@@ -1158,7 +1212,9 @@ void VisualizationFrame::refreshTool(Tool * tool)
 {
   QAction * action = tool_to_action_map_[tool];
   action->setIcon(tool->getIcon());
-  action->setIconText(tool->getName());
+  const auto visible_name = DisplayStringManager::instance().localizeLabel(tool->getName());
+  action->setText(visible_name);
+  action->setIconText(visible_name);
 }
 
 void VisualizationFrame::indicateToolIsCurrent(Tool * tool)
@@ -1171,12 +1227,21 @@ void VisualizationFrame::indicateToolIsCurrent(Tool * tool)
 
 void VisualizationFrame::showHelpPanel()
 {
-  if (!show_help_action_) {
-    QDockWidget * dock = addPanelByName("Help", "rviz_common/Help");
+  QDockWidget * dock = findChild<QDockWidget *>(QStringLiteral("Help"));
+  if (!dock) {
+    dock = addPanelByName("Help", "rviz_common/Help");
+  }
+
+  if (dock && !show_help_action_) {
     show_help_action_ = dock->toggleViewAction();
     connect(dock, SIGNAL(destroyed(QObject*)), this, SLOT(onHelpDestroyed()));
-  } else {
-    show_help_action_->trigger();
+  }
+
+  if (dock) {
+    dock->setVisible(true);
+    dock->show();
+    dock->raise();
+    dock->activateWindow();
   }
 }
 
@@ -1192,22 +1257,25 @@ void VisualizationFrame::onHelpWiki()
 
 void VisualizationFrame::onHelpAbout()
 {
+  const auto & strings = DisplayStringManager::instance();
   QString about_text = QString(
-    "This is RViz version %1 (%2).\n"
+    "当前运行版本：%1。\n"
     "\n"
-    "Compiled against Qt version %3."
-    "\n"
-    "Compiled against OGRE version %4.%5.%6%7 (%8).")
+    "界面框架版本：%2。\n"
+    "渲染引擎版本：%3.%4.%5。")
     .arg(get_version().c_str())
-    .arg(get_distro().c_str())
     .arg(QT_VERSION_STR)
     .arg(OGRE_VERSION_MAJOR)
     .arg(OGRE_VERSION_MINOR)
-    .arg(OGRE_VERSION_PATCH)
-    .arg(OGRE_VERSION_SUFFIX)
-    .arg(OGRE_VERSION_NAME);
+    .arg(OGRE_VERSION_PATCH);
 
-  QMessageBox::about(QApplication::activeWindow(), "About", about_text);
+  QMessageBox box(QApplication::activeWindow());
+  box.setWindowTitle(strings.localizeDialogText("&About"));
+  box.setText(about_text);
+  box.setIcon(QMessageBox::NoIcon);
+  box.setStandardButtons(QMessageBox::Ok);
+  localizeMessageBoxButtons(&box);
+  box.exec();
 }
 
 QWidget * VisualizationFrame::getParentWindow()
@@ -1288,7 +1356,8 @@ QDockWidget * VisualizationFrame::addPanelByName(
   record.dock = addPane(name, panel, area, floating);
   record.panel = panel;
   record.name = name;
-  record.delete_action = delete_view_menu_->addAction(name, this, SLOT(onDeletePanel()));
+  record.delete_action = delete_view_menu_->addAction(
+    DisplayStringManager::instance().localizeLabel(name), this, SLOT(onDeletePanel()));
   custom_panels_.append(record);
   delete_view_menu_->setEnabled(true);
 
@@ -1307,7 +1376,7 @@ PanelDockWidget * VisualizationFrame::addPane(
   dock = new PanelDockWidget(name);
   dock->setContentWidget(panel);
   dock->setFloating(floating);
-  dock->setObjectName(name);   // QMainWindow::saveState() needs objectName to be set.
+  dock->setStableObjectName(name);   // QMainWindow::saveState() needs objectName to be set.
   addDockWidget(area, dock);
 
   // we want to know when that panel becomes visible

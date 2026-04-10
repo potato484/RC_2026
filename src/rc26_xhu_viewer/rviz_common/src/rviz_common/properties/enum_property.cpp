@@ -32,6 +32,7 @@
 
 #include <string>
 
+#include "rviz_common/display_string_manager.hpp"
 #include "rviz_common/properties/combo_box.hpp"
 
 namespace rviz_common
@@ -84,11 +85,16 @@ QWidget * EnumProperty::createEditor(QWidget * parent, const QStyleOptionViewIte
   Q_EMIT requestOptions(this);
 
   ComboBox * cb = new ComboBox(parent);
-  cb->addItems(strings_);
-  cb->setCurrentIndex(strings_.indexOf(getValue().toString() ));
-  QObject::connect(
-    cb, SIGNAL(currentIndexChanged(const QString&)), this,
-    SLOT(setString(const QString&)));
+  const auto & translator = DisplayStringManager::instance();
+  QStringList localized_options;
+  localized_options.reserve(strings_.size());
+  for (const auto & option_name : strings_) {
+    localized_options.push_back(translator.localizeLabel(option_name));
+  }
+  cb->addItems(localized_options);
+  cb->setCurrentIndex(
+    localized_options.indexOf(translator.localizeLabel(getValue().toString())));
+  QObject::connect(cb, &ComboBox::currentTextChanged, this, &EnumProperty::setString);
 
   // TODO(anyone): need to better handle string value which is not in list.
   return cb;
@@ -96,7 +102,7 @@ QWidget * EnumProperty::createEditor(QWidget * parent, const QStyleOptionViewIte
 
 void EnumProperty::setString(const QString & str)
 {
-  setValue(str);
+  setValue(DisplayStringManager::instance().resolveRawFromDisplay(str, strings_));
 }
 
 void EnumProperty::setStringStd(const std::string & str)

@@ -35,6 +35,8 @@
 #include <QHBoxLayout>  // NOLINT: cpplint is unable to handle the include order here
 #include <QTextBrowser>  // NOLINT: cpplint is unable to handle the include order here
 
+#include "rviz_common/display_string_manager.hpp"
+
 namespace rviz_common
 {
 
@@ -44,10 +46,9 @@ FailedPanel::FailedPanel(const QString & desired_class_id, const QString & error
   setClassId(desired_class_id);
 
   QTextBrowser * error_display = new QTextBrowser;
-  error_display->setHtml(
-    "The class required for this panel, '" + getClassId() +
-    "', could not be loaded.<br><b>Error:</b><br>" +
-    error_message_);
+  error_display->setHtml(DisplayStringManager::instance().localizeDialogText(
+      "The class required for this panel, '%1', could not be loaded.<br><b>Error:</b><br>%2")
+    .arg(getClassId(), error_message_));
 
   QHBoxLayout * layout = new QHBoxLayout;
   layout->addWidget(error_display);

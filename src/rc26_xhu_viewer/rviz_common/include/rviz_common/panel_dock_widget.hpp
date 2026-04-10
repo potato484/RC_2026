@@ -53,6 +53,9 @@ class RVIZ_COMMON_PUBLIC PanelDockWidget : public QDockWidget
 public:
   explicit PanelDockWidget(const QString & name);
 
+  QString stableWindowTitle() const;
+  void setStableObjectName(const QString & name);
+
   /// Set the widget which is the main content of the panel.
   void setContentWidget(QWidget * child);
 
@@ -95,6 +98,7 @@ private:
   bool collapsed_;
   bool requested_visibility_;
   bool forced_hidden_;
+  QString stable_window_title_;
   QLabel * icon_label_;
   QLabel * title_label_;
 };

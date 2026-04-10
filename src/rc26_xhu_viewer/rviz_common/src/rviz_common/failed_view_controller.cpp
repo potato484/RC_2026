@@ -33,6 +33,7 @@
 #include <QMessageBox>
 
 #include "rviz_common/display_context.hpp"
+#include "rviz_common/display_string_manager.hpp"
 #include "rviz_common/window_manager_interface.hpp"
 
 namespace rviz_common
@@ -48,8 +49,9 @@ FailedViewController::FailedViewController(
 
 QString FailedViewController::getDescription() const
 {
-  return "The class required for this view controller, '" + getClassId() +
-         "', could not be loaded.<br><b>Error:</b><br>" + error_message_;
+  return DisplayStringManager::instance().localizeDialogText(
+    "The class required for this view controller, '%1', could not be loaded.<br><b>Error:</b><br>%2")
+    .arg(getClassId(), error_message_);
 }
 
 void FailedViewController::load(const Config & config)
@@ -73,9 +75,12 @@ void FailedViewController::onActivate()
   if (context_->getWindowManager() ) {
     parent = context_->getWindowManager()->getParentWindow();
   }
+  const auto & strings = DisplayStringManager::instance();
   QMessageBox::critical(
-    parent, "ViewController '" + getName() + "'unavailable.",
-    getDescription() );
+    parent,
+    strings.localizeDialogText("View controller '%1' unavailable.")
+    .arg(strings.localizeLabel(getName())),
+    getDescription());
 }
 
 void FailedViewController::lookAt(const Ogre::Vector3 & point)

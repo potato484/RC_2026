@@ -53,12 +53,24 @@
 #include "rcl/validate_topic_name.h"
 
 #include "display_factory.hpp"
+#include "rviz_common/display_string_manager.hpp"
 #include "rviz_common/load_resource.hpp"
 #include "rviz_common/logging.hpp"
 #include "rviz_common/ros_integration/ros_node_abstraction.hpp"
 
 namespace rviz_common
 {
+
+namespace
+{
+
+constexpr int kComboDatatypeRole = Qt::UserRole;
+constexpr int kComboRawSuffixRole = Qt::UserRole + 1;
+constexpr int kTopicPathRole = Qt::UserRole + 1;
+constexpr int kFilterRole = Qt::UserRole + 2;
+constexpr int kRawTopicSegmentRole = Qt::UserRole + 3;
+
+}  // namespace
 
 bool validate_ros_topic(const std::string & topic_name, std::string & output_error)
 {
@@ -215,13 +227,14 @@ AddDisplayDialog::AddDisplayDialog(
   datatype_output_(datatype_output)
 {
   //***** Layout
+  const auto & strings = DisplayStringManager::instance();
   setObjectName("AddDisplayDialog");
 
   // Display Type group
-  auto type_box = new QGroupBox("Create visualization");
+  auto type_box = new QGroupBox(strings.localizeDialogText("Create visualization"));
   type_box->setObjectName("AddDisplayDialog/Visualization_Typebox");
 
-  auto description_label = new QLabel("Description:");
+  auto description_label = new QLabel(strings.localizeDialogText("Description:"));
   description_ = new QTextBrowser;
   description_->setMaximumHeight(100);
   description_->setOpenExternalLinks(true);
@@ -234,8 +247,8 @@ AddDisplayDialog::AddDisplayDialog(
 
   tab_widget_ = new QTabWidget;
   tab_widget_->setObjectName("Visualization_Typebox/TabWidget");
-  display_tab_ = tab_widget_->addTab(display_tree, tr("By display type"));
-  topic_tab_ = tab_widget_->addTab(topic_widget, tr("By topic"));
+  display_tab_ = tab_widget_->addTab(display_tree, strings.localizeDialogText("By display type"));
+  topic_tab_ = tab_widget_->addTab(topic_widget, strings.localizeDialogText("By topic"));
 
   auto type_layout = new QVBoxLayout;
   type_layout->addWidget(tab_widget_);
@@ -247,7 +260,7 @@ AddDisplayDialog::AddDisplayDialog(
   // Display Name group
   QGroupBox * name_box = nullptr;
   if (display_name_output_) {
-    name_box = new QGroupBox("Display Name");
+    name_box = new QGroupBox(strings.localizeDialogText("Display Name"));
     name_editor_ = new QLineEdit;
     auto name_layout = new QVBoxLayout;
     name_layout->addWidget(name_editor_);
@@ -258,6 +271,8 @@ AddDisplayDialog::AddDisplayDialog(
   button_box_ =
     new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, Qt::Horizontal);
   button_box_->setObjectName("AddDisplayDialog/ButtonBox");
+  button_box_->button(QDialogButtonBox::Ok)->setText(strings.localizeDialogText("OK"));
+  button_box_->button(QDialogButtonBox::Cancel)->setText(strings.localizeDialogText("Cancel"));
 
   auto main_layout = new QVBoxLayout;
   main_layout->addWidget(type_box);
@@ -345,17 +360,18 @@ void AddDisplayDialog::updateDisplay()
 bool AddDisplayDialog::isValid()
 {
   if (lookup_name_.size() == 0) {
-    setError("Select a Display type.");
+    setError(DisplayStringManager::instance().localizeDialogText("Select a Display type."));
     return false;
   }
   if (display_name_output_) {
     QString display_name = name_editor_->text();
     if (display_name.size() == 0) {
-      setError("Enter a name for the display.");
+      setError(DisplayStringManager::instance().localizeDialogText("Enter a name for the display."));
       return false;
     }
     if (disallowed_display_names_.contains(display_name)) {
-      setError("Name in use.  Display names must be unique.");
+      setError(DisplayStringManager::instance().localizeDialogText(
+          "Name in use. Display names must be unique."));
       return false;
     }
   }
@@ -427,7 +443,7 @@ void DisplayTypeTree::fillTree(Factory * factory)
     auto package_item_entry = package_items.find(plugin.package);
     if (package_item_entry == package_items.end()) {
       package_item = new QTreeWidgetItem(this);
-      package_item->setText(0, plugin.package);
+      package_item->setText(0, DisplayStringManager::instance().localizePackage(plugin.package));
       package_item->setIcon(0, default_package_icon);
 
       package_item->setExpanded(true);
@@ -439,8 +455,9 @@ void DisplayTypeTree::fillTree(Factory * factory)
 
     class_item->setIcon(0, plugin.icon);
 
-    class_item->setText(0, plugin.name);
-    class_item->setWhatsThis(0, plugin.description);
+    class_item->setText(0, DisplayStringManager::instance().localizeLabel(plugin.name));
+    class_item->setWhatsThis(
+      0, DisplayStringManager::instance().localizePluginDescription(plugin.description));
     // Store the lookup name for each class in the UserRole of the item.
     class_item->setData(0, Qt::UserRole, plugin.id);
   }
@@ -461,10 +478,11 @@ TopicDisplayWidget::TopicDisplayWidget(
   tree_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
 #endif
 
-  enable_hidden_box_ = new QCheckBox("Show unvisualizable topics");
+  enable_hidden_box_ = new QCheckBox(
+    DisplayStringManager::instance().localizeDialogText("Show unvisualizable topics"));
   enable_hidden_box_->setCheckState(Qt::Unchecked);
 
-  filter_text = new QLabel("Filter topics by name:");
+  filter_text = new QLabel(DisplayStringManager::instance().localizeDialogText("Filter topics by name:"));
   filter_box_ = new QLineEdit;
 
   auto layout = new QVBoxLayout;
@@ -509,11 +527,14 @@ void TopicDisplayWidget::onCurrentItemChanged(QTreeWidgetItem * curr)
 
     auto combo = qobject_cast<QComboBox *>(tree_->itemWidget(curr, 1));
     if (combo) {
-      QString combo_text = combo->currentText();
-      if (combo_text != "raw") {
-        sd.topic += "/" + combo_text;
+      QString combo_suffix = combo->itemData(combo->currentIndex(), kComboRawSuffixRole).toString();
+      if (combo_suffix.isEmpty()) {
+        combo_suffix = combo->currentText();
       }
-      sd.datatype = combo->itemData(combo->currentIndex()).toString();
+      if (combo_suffix != "raw") {
+        sd.topic += "/" + combo_suffix;
+      }
+      sd.datatype = combo->itemData(combo->currentIndex(), kComboDatatypeRole).toString();
     } else {
       sd.datatype = curr->data(1, Qt::UserRole).toString();
     }
@@ -534,13 +555,10 @@ void TopicDisplayWidget::stateChanged(int state)
 
 void TopicDisplayWidget::applyFilter()
 {
-  const int TOPIC_ROLE = Qt::UserRole + 1;
-  const int FILTER_ROLE = Qt::UserRole + 2;
-
   std::vector<QTreeWidgetItem *> items;
-
   const QString filter = filter_box_->text().trimmed();
   const bool hide_unvisualizable = (enable_hidden_box_->checkState() == Qt::Unchecked);
+  const auto & strings = DisplayStringManager::instance();
 
   // Create list of all items and set data to track whether it matches the filter.
   QTreeWidgetItemIterator it(tree_);
@@ -551,35 +569,40 @@ void TopicDisplayWidget::applyFilter()
     QString topic_path;
     QTreeWidgetItem * parent = item->parent();
     if (parent) {
-      topic_path = parent->data(0, TOPIC_ROLE).toString();
+      topic_path = parent->data(0, kTopicPathRole).toString();
     }
 
-    if (item->text(0).startsWith('/')) {
-      topic_path += item->text(0);
+    QString raw_segment = item->data(0, kRawTopicSegmentRole).toString();
+    if (raw_segment.isEmpty() && item->text(0).startsWith('/')) {
+      raw_segment = item->text(0);
     }
+    topic_path += raw_segment;
+    const QString visible_topic_path = strings.localizeLabel(topic_path);
 
-    item->setData(0, TOPIC_ROLE, topic_path);
+    item->setData(0, kTopicPathRole, topic_path);
     item->setData(
-      0, FILTER_ROLE,
-      filter.isEmpty() || topic_path.contains(filter, Qt::CaseInsensitive));
+      0, kFilterRole,
+      filter.isEmpty() ||
+      topic_path.contains(filter, Qt::CaseInsensitive) ||
+      visible_topic_path.contains(filter, Qt::CaseInsensitive));
   }
 
   // Propagate match information from children nodes to parent nodes.
   for (auto item_it = items.rbegin(); item_it != items.rend(); ++item_it) {
     QTreeWidgetItem * item = *item_it;
-    bool matches_filter = item->data(0, FILTER_ROLE).toBool();
+    bool matches_filter = item->data(0, kFilterRole).toBool();
     for (int i = 0; i < item->childCount(); ++i) {
-      matches_filter = item->child(i)->data(0, FILTER_ROLE).toBool();
+      matches_filter = item->child(i)->data(0, kFilterRole).toBool();
       if (matches_filter) {
         break;
       }
     }
-    item->setData(0, FILTER_ROLE, matches_filter);
+    item->setData(0, kFilterRole, matches_filter);
   }
 
   // Set visibility of items based on filter and hidden checkbox.
   for (QTreeWidgetItem * item : items) {
-    const bool matches_filter = item->data(0, FILTER_ROLE).toBool();
+    const bool matches_filter = item->data(0, kFilterRole).toBool();
     const bool hide_disabled = hide_unvisualizable && item->isDisabled();
     item->setHidden(!matches_filter || hide_disabled);
   }
@@ -609,9 +632,10 @@ void TopicDisplayWidget::fill(DisplayFactory * factory)
 
       auto plugin_info = factory->getPluginInfo(plugin_id);
 
-      row->setText(0, plugin_info.name);
+      row->setText(0, DisplayStringManager::instance().localizeLabel(plugin_info.name));
       row->setIcon(0, plugin_info.icon);
-      row->setWhatsThis(0, plugin_info.description);
+      row->setWhatsThis(
+        0, DisplayStringManager::instance().localizePluginDescription(plugin_info.description));
       row->setData(0, Qt::UserRole, plugin_id);
       row->setData(1, Qt::UserRole, info.datatypes[0]);
 
@@ -621,7 +645,11 @@ void TopicDisplayWidget::fill(DisplayFactory * factory)
         connect(box, SIGNAL(itemClicked(QTreeWidgetItem *, int)),
           this, SLOT(onComboBoxClicked(QTreeWidgetItem *)));
         for (int i = 0; i < info.topic_suffixes.size(); ++i) {
-          box->addItem(info.topic_suffixes[i], info.datatypes[i]);
+          box->addItem(
+            DisplayStringManager::instance().localizeLabel(info.topic_suffixes[i]),
+            info.datatypes[i]);
+          box->setItemData(i, info.datatypes[i], kComboDatatypeRole);
+          box->setItemData(i, info.topic_suffixes[i], kComboRawSuffixRole);
         }
         tree_->setItemWidget(row, 1, box);
         tree_->setColumnWidth(1, std::max(tree_->columnWidth(1), box->width()));
@@ -683,7 +711,11 @@ QTreeWidgetItem * TopicDisplayWidget::insertItem(
     bool match = false;
     for (int c = 0; c < current->childCount(); ++c) {
       QTreeWidgetItem * child = current->child(c);
-      if (child && child->text(0) == part && !child->data(1, Qt::UserRole).isValid()) {
+      if (
+        child &&
+        child->data(0, kRawTopicSegmentRole).toString() == part &&
+        !child->data(1, Qt::UserRole).isValid())
+      {
         match = true;
         current = child;
         break;
@@ -694,7 +726,8 @@ QTreeWidgetItem * TopicDisplayWidget::insertItem(
       auto new_child = new QTreeWidgetItem(current);
       // Only expand first few levels of the tree
       new_child->setExpanded(3 > part_ind);
-      new_child->setText(0, part);
+      new_child->setText(0, DisplayStringManager::instance().localizeLabel(part));
+      new_child->setData(0, kRawTopicSegmentRole, part);
       new_child->setDisabled(disabled);
       current = new_child;
     }

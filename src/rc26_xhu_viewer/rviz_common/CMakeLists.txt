@@ -27,6 +27,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 # do find_package(rviz_ogre_vendor) first to make sure the custom OGRE is found
 find_package(rviz_ogre_vendor REQUIRED)
 
@@ -139,6 +140,7 @@ set(rviz_common_source_files
   src/rviz_common/bit_allocator.cpp
   src/rviz_common/config.cpp
   src/rviz_common/depth_cloud_mld.cpp
+  src/rviz_common/display_string_manager.cpp
   src/rviz_common/display_factory.cpp
   src/rviz_common/display_group.cpp
   src/rviz_common/display.cpp
@@ -243,6 +245,7 @@ target_link_libraries(rviz_common
 
 ament_target_dependencies(rviz_common
   PUBLIC
+  ament_index_cpp
   geometry_msgs
   pluginlib
   rclcpp
@@ -263,6 +266,7 @@ ament_target_dependencies(rviz_common
 target_compile_definitions(rviz_common PRIVATE "RVIZ_COMMON_BUILDING_LIBRARY")
 
 ament_export_dependencies(
+  ament_index_cpp
   rviz_rendering
   geometry_msgs
   pluginlib

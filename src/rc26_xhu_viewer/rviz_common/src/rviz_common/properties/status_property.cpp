@@ -42,7 +42,7 @@ namespace properties
 {
 
 QColor StatusProperty::status_colors_[3] = {QColor(), QColor(192, 128, 0), QColor(192, 32, 32)};
-QString StatusProperty::status_words_[3] = {"Ok", "Warn", "Error"};
+QString StatusProperty::status_words_[3] = {"正常", "警告", "错误"};
 
 StatusProperty::StatusProperty(
   const QString & name,

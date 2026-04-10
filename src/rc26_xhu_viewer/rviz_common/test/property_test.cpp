@@ -31,6 +31,10 @@
 
 #include <gtest/gtest.h>
 
+#include <QApplication>
+
+#include "rviz_common/display_string_manager.hpp"
+#include "rviz_common/panel_dock_widget.hpp"
 #include "rviz_common/properties/property.hpp"
 #include "rviz_common/properties/color_property.hpp"
 #include "rviz_common/properties/vector_property.hpp"
@@ -57,6 +61,15 @@ TEST(Property, value) {
   Property p;
   p.setValue(199);
   EXPECT_EQ(199, p.getValue().toInt() );
+}
+
+TEST(Property, localized_display_name_and_value_keep_raw_storage) {
+  Property p("Grid", "/goal_pose", "The topic on which to publish points.");
+
+  EXPECT_EQ("Grid", p.getName().toStdString());
+  EXPECT_EQ("/goal_pose", p.getValue().toString().toStdString());
+  EXPECT_EQ(QString::fromUtf8("网格"), p.getDisplayName());
+  EXPECT_EQ(QString::fromUtf8("目标位姿"), p.getDisplayValue().toString());
 }
 
 TEST(Property, set_value_events) {
@@ -333,8 +346,42 @@ TEST(EnumProperty, basic) {
   EXPECT_EQ(0, p.getOptionInt() );
 }
 
+TEST(EnumProperty, localized_display_resolves_back_to_raw_value) {
+  EnumProperty p("Line Style", "Lines", "");
+  p.addOption("Lines", 1);
+  p.addOption("Billboards", 2);
+
+  EXPECT_EQ(QString::fromUtf8("线框"), p.getDisplayValue().toString());
+
+  p.setString(QString::fromUtf8("广告牌"));
+  EXPECT_EQ("Billboards", p.getValue().toString().toStdString());
+  EXPECT_EQ(2, p.getOptionInt());
+
+  QStringList raw_candidates;
+  raw_candidates << "Lines" << "Billboards";
+  EXPECT_EQ(
+    QString("Billboards"),
+    rviz_common::DisplayStringManager::instance().resolveRawFromDisplay(
+      QString::fromUtf8("广告牌"), raw_candidates));
+}
+
+TEST(PanelDockWidget, stable_title_stays_raw_when_window_title_is_localized) {
+  rviz_common::PanelDockWidget dock("Displays");
+
+  EXPECT_EQ("Displays", dock.stableWindowTitle().toStdString());
+  EXPECT_EQ("Displays", dock.objectName().toStdString());
+  EXPECT_EQ(QString::fromUtf8("显示"), dock.windowTitle());
+
+  dock.setWindowTitle("Help");
+  EXPECT_EQ("Help", dock.stableWindowTitle().toStdString());
+  EXPECT_EQ("Displays", dock.objectName().toStdString());
+  EXPECT_EQ(QString::fromUtf8("帮助"), dock.windowTitle());
+}
+
 int main(int argc, char ** argv)
 {
+  qputenv("QT_QPA_PLATFORM", QByteArray("offscreen"));
+  QApplication app(argc, argv);
   testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

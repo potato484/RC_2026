@@ -42,44 +42,53 @@
 #include "frame_manager.hpp"
 
 #include "rviz_common/display_group.hpp"
+#include "rviz_common/display_string_manager.hpp"
 
 namespace rviz_common
 {
 
+namespace
+{
+
+constexpr int kSyncSourceNameRole = Qt::UserRole + 1;
+
+}  // namespace
+
 TimePanel::TimePanel(VisualizationManager * manager, QWidget * parent)
 : Panel(parent), vis_manager_(manager)
 {
+  const auto & strings = DisplayStringManager::instance();
   wall_time_label_ = makeTimeLabel();
   wall_elapsed_label_ = makeTimeLabel();
   ros_time_label_ = makeTimeLabel();
   ros_elapsed_label_ = makeTimeLabel();
 
-  experimental_cb_ = new QCheckBox("Experimental");
+  experimental_cb_ = new QCheckBox(strings.localizeDialogText("Experimental"));
   experimental_cb_->setSizePolicy(QSizePolicy(QSizePolicy::Minimum, QSizePolicy::Minimum) );
 
-  pause_button_ = new QPushButton("Pause");
-  pause_button_->setToolTip("Freeze ROS time.");
+  pause_button_ = new QPushButton(strings.localizeDialogText("Pause"));
+  pause_button_->setToolTip(strings.localizeDialogText("Freeze ROS time."));
   pause_button_->setCheckable(true);
 
   sync_mode_selector_ = new QComboBox(this);
-  sync_mode_selector_->addItem("Off");
-  sync_mode_selector_->addItem("Exact");
-  sync_mode_selector_->addItem("Approximate");
+  sync_mode_selector_->addItem(strings.localizeDialogText("Off"));
+  sync_mode_selector_->addItem(strings.localizeDialogText("Exact"));
+  sync_mode_selector_->addItem(strings.localizeDialogText("Approximate"));
   sync_mode_selector_->setSizeAdjustPolicy(QComboBox::AdjustToContents);
   sync_mode_selector_->setToolTip(
-    "Allows you to synchronize the ROS time and Tf transforms to a given source.");
+    strings.localizeDialogText("Allows you to synchronize the ROS time and Tf transforms to a given source."));
 
   // choose time sync signal
   sync_source_selector_ = new QComboBox(this);
   sync_source_selector_->setSizeAdjustPolicy(QComboBox::AdjustToContents);
-  sync_source_selector_->setToolTip("Time source to use for synchronization.");
+  sync_source_selector_->setToolTip(strings.localizeDialogText("Time source to use for synchronization."));
 
   experimental_widget_ = new QWidget(this);
   QHBoxLayout * experimental_layout = new QHBoxLayout(this);
   experimental_layout->addWidget(pause_button_);
-  experimental_layout->addWidget(new QLabel("Synchronization:"));
+  experimental_layout->addWidget(new QLabel(strings.localizeDialogText("Synchronization:")));
   experimental_layout->addWidget(sync_mode_selector_);
-  experimental_layout->addWidget(new QLabel("Source:"));
+  experimental_layout->addWidget(new QLabel(strings.localizeDialogText("Source:")));
   experimental_layout->addWidget(sync_source_selector_);
   experimental_layout->addSpacing(20);
   experimental_layout->setContentsMargins(0, 0, 20, 0);
@@ -87,11 +96,11 @@ TimePanel::TimePanel(VisualizationManager * manager, QWidget * parent)
 
   old_widget_ = new QWidget(this);
   QHBoxLayout * old_layout = new QHBoxLayout(this);
-  old_layout->addWidget(new QLabel("ROS Elapsed:"));
+  old_layout->addWidget(new QLabel(strings.localizeDialogText("ROS Elapsed:")));
   old_layout->addWidget(ros_elapsed_label_);
-  old_layout->addWidget(new QLabel("Wall Time:"));
+  old_layout->addWidget(new QLabel(strings.localizeDialogText("Wall Time:")));
   old_layout->addWidget(wall_time_label_);
-  old_layout->addWidget(new QLabel("Wall Elapsed:"));
+  old_layout->addWidget(new QLabel(strings.localizeDialogText("Wall Elapsed:")));
   old_layout->addWidget(wall_elapsed_label_);
   old_layout->setContentsMargins(0, 0, 20, 0);
   old_widget_->setLayout(old_layout);
@@ -99,7 +108,7 @@ TimePanel::TimePanel(VisualizationManager * manager, QWidget * parent)
   QHBoxLayout * layout = new QHBoxLayout(this);
 
   layout->addWidget(experimental_widget_);
-  layout->addWidget(new QLabel("ROS Time:"));
+  layout->addWidget(new QLabel(strings.localizeDialogText("ROS Time:")));
   layout->addWidget(ros_time_label_);
   layout->addWidget(old_widget_);
   layout->addStretch(100);
@@ -145,7 +154,11 @@ void TimePanel::save(Config config) const
 {
   Panel::save(config);
   config.mapSetValue("SyncMode", sync_mode_selector_->currentIndex() );
-  config.mapSetValue("SyncSource", sync_source_selector_->currentText() );
+  const QString sync_source_name =
+    sync_source_selector_->currentData(kSyncSourceNameRole).toString();
+  config.mapSetValue(
+    "SyncSource",
+    sync_source_name.isEmpty() ? sync_source_selector_->currentText() : sync_source_name);
   config.mapSetValue("Experimental", experimental_cb_->checkState() == Qt::Checked);
 }
 
@@ -174,7 +187,6 @@ void TimePanel::onDisplayAdded(Display * display)
 
 void TimePanel::onDisplayRemoved(Display * display)
 {
-  QString name = display->getName();
   int index = sync_source_selector_->findData(QVariant( (qulonglong)display) );
   if (index >= 0) {
     sync_source_selector_->removeItem(index);
@@ -189,16 +201,24 @@ void TimePanel::onTimeSignal(Display * display, rclcpp::Time time)
   // if we loaded the sync source name from the config, we need to
   // switch to it as soon as we get a signal
   if (index < 0 && name == config_sync_source_) {
-    sync_source_selector_->addItem(name, QVariant( (qulonglong)display) );
+    sync_source_selector_->addItem(
+      DisplayStringManager::instance().localizeLabel(name),
+      QVariant( (qulonglong)display));
     index = sync_source_selector_->findData(QVariant( (qulonglong)display) );
+    sync_source_selector_->setItemData(index, name, kSyncSourceNameRole);
     sync_source_selector_->setCurrentIndex(index);
     config_sync_source_.clear();
   }
 
   if (index < 0) {
-    sync_source_selector_->addItem(name, QVariant( (qulonglong)display) );
+    sync_source_selector_->addItem(
+      DisplayStringManager::instance().localizeLabel(name),
+      QVariant( (qulonglong)display));
+    index = sync_source_selector_->findData(QVariant( (qulonglong)display) );
+    sync_source_selector_->setItemData(index, name, kSyncSourceNameRole);
   } else {
-    sync_source_selector_->setItemText(index, name);
+    sync_source_selector_->setItemText(index, DisplayStringManager::instance().localizeLabel(name));
+    sync_source_selector_->setItemData(index, name, kSyncSourceNameRole);
     if (sync_source_selector_->currentIndex() == index) {
       vis_manager_->getFrameManager()->syncTime(time);
     }

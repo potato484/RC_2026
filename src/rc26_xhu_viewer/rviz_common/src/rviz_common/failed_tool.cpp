@@ -32,8 +32,9 @@
 
 #include <QMessageBox>
 
-#include "rviz_common/window_manager_interface.hpp"
 #include "rviz_common/display_context.hpp"
+#include "rviz_common/display_string_manager.hpp"
+#include "rviz_common/window_manager_interface.hpp"
 
 namespace rviz_common
 {
@@ -62,7 +63,12 @@ void FailedTool::activate()
   if (context_->getWindowManager()) {
     parent = context_->getWindowManager()->getParentWindow();
   }
-  QMessageBox::critical(parent, "Tool '" + getName() + "'unavailable.", getDescription());
+  const auto & strings = DisplayStringManager::instance();
+  QMessageBox::critical(
+    parent,
+    strings.localizeDialogText("Tool '%1' unavailable.")
+    .arg(strings.localizeLabel(getName())),
+    getDescription());
 }
 
 void FailedTool::deactivate()
@@ -70,9 +76,9 @@ void FailedTool::deactivate()
 
 void FailedTool::onInitialize()
 {
-  setDescription(
-    "The class required for this tool, '" + getClassId() +
-    "', could not be loaded.<br><b>Error:</b><br>" + error_message_);
+  setDescription(DisplayStringManager::instance().localizeDialogText(
+      "The class required for this tool, '%1', could not be loaded.<br><b>Error:</b><br>%2")
+    .arg(getClassId(), error_message_));
 }
 
 }  // namespace rviz_common

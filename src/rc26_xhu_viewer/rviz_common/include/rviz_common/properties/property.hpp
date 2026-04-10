@@ -210,6 +210,10 @@ public:
   QString
   getName() const;
 
+  /// Return the visible name shown in the property tree.
+  QString
+  getDisplayName() const;
+
   /// Return the name of this Property as a std::string.
   std::string
   getNameStd() const;
@@ -226,6 +230,10 @@ public:
   virtual
   QString
   getDescription() const;
+
+  /// Return the visible description shown in the property help area.
+  QString
+  getDisplayDescription() const;
 
   /// Set the icon to be displayed next to the property.
   virtual
@@ -325,6 +333,10 @@ public:
   virtual
   QVariant
   getViewData(int column, int role) const;
+
+  /// Return the visible value shown in the property tree.
+  QVariant
+  getDisplayValue() const;
 
   /// Return item flags appropriate for the given column (0 or 1) for this Property.
   /**

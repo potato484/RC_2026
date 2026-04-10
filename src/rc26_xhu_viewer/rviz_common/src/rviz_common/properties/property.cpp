@@ -42,6 +42,7 @@
 #include <QString>  // NOLINT: cpplint is unable to handle the include order here
 #include <QTimer>  // NOLINT: cpplint is unable to handle the include order here
 
+#include "rviz_common/display_string_manager.hpp"
 #include "rviz_common/properties/float_edit.hpp"
 #include "rviz_common/properties/property_tree_model.hpp"
 
@@ -166,6 +167,11 @@ QString Property::getName() const
   return objectName();
 }
 
+QString Property::getDisplayName() const
+{
+  return DisplayStringManager::instance().localizeLabel(getName());
+}
+
 std::string Property::getNameStd() const
 {
   return getName().toStdString();
@@ -189,6 +195,19 @@ void Property::setDescription(const QString & description)
 QString Property::getDescription() const
 {
   return description_;
+}
+
+QString Property::getDisplayDescription() const
+{
+  return DisplayStringManager::instance().localizeDescription(description_);
+}
+
+QVariant Property::getDisplayValue() const
+{
+  if (value_.type() == QVariant::String) {
+    return DisplayStringManager::instance().localizeValue(value_.toString());
+  }
+  return getValue();
 }
 
 Property * Property::subProp(const QString & sub_name)
@@ -263,7 +282,15 @@ QVariant Property::getViewData(int column, int role) const
   switch (column) {
     case 0:  // left column: names
       switch (role) {
-        case Qt::DisplayRole: return getName();
+        case Qt::DisplayRole: return getDisplayName();
+        case Qt::ToolTipRole:
+          {
+            const auto visible_name = getDisplayName();
+            const auto raw_name = getName();
+            const auto raw_tooltip = DisplayStringManager::instance().rawTooltip(
+              raw_name, visible_name);
+            return raw_tooltip.isEmpty() ? getDisplayDescription() : raw_tooltip;
+          }
         case Qt::DecorationRole: return icon_;
         default: return QVariant();
       }
@@ -271,7 +298,16 @@ QVariant Property::getViewData(int column, int role) const
     case 1:  // right column: values
       switch (role) {
         case Qt::DisplayRole:
-        case Qt::EditRole: return value_.type() == QVariant::Bool ? QVariant() : getValue();
+          return value_.type() == QVariant::Bool ? QVariant() : getDisplayValue();
+        case Qt::EditRole:
+          return value_.type() == QVariant::Bool ? QVariant() : getValue();
+        case Qt::ToolTipRole:
+          if (value_.type() == QVariant::String) {
+            const auto raw_value = value_.toString();
+            const auto visible_value = getDisplayValue().toString();
+            return DisplayStringManager::instance().rawTooltip(raw_value, visible_value);
+          }
+          return QVariant();
         case Qt::CheckStateRole:
           if (value_.type() == QVariant::Bool) {
             return value_.toBool() ? Qt::Checked : Qt::Unchecked;

@@ -34,6 +34,7 @@
 
 #include <string>
 
+#include "rviz_common/display_string_manager.hpp"
 #include "rviz_common/properties/editable_combo_box.hpp"
 
 namespace rviz_common
@@ -75,24 +76,28 @@ QWidget * EditableEnumProperty::createEditor(QWidget * parent, const QStyleOptio
   Q_EMIT requestOptions(this);
 
   EditableComboBox * cb = new EditableComboBox(parent);
-  cb->addItems(strings_);
-  cb->setEditText(getValue().toString() );
-  QObject::connect(
-    cb, SIGNAL(currentIndexChanged(const QString&)), this,
-    SLOT(setString(const QString&)));
+  const auto & translator = DisplayStringManager::instance();
+  QStringList localized_options;
+  localized_options.reserve(strings_.size());
+  for (const auto & option_name : strings_) {
+    localized_options.push_back(translator.localizeLabel(option_name));
+  }
+  cb->addItems(localized_options);
+  cb->setEditText(translator.localizeLabel(getValue().toString()));
+  QObject::connect(cb, &EditableComboBox::currentTextChanged, this, &EditableEnumProperty::setString);
 
   // TODO(unknown): need to better handle string value which is not in list.
   return cb;
 }
 
+void EditableEnumProperty::setString(const QString & str)
+{
+  setValue(DisplayStringManager::instance().resolveRawFromDisplay(str, strings_));
+}
+
 void EditableEnumProperty::sortOptions()
 {
   strings_.sort();
-}
-
-void EditableEnumProperty::setString(const QString & str)
-{
-  setValue(str);
 }
 
 }  // namespace properties

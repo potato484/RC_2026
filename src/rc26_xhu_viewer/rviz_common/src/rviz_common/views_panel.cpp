@@ -42,6 +42,7 @@
 #include "rviz_common/properties/property_tree_widget.hpp"
 #include "rviz_common/view_controller.hpp"
 #include "rviz_common/view_manager.hpp"
+#include "rviz_common/display_string_manager.hpp"
 
 namespace rviz_common
 {
@@ -50,17 +51,19 @@ ViewsPanel::ViewsPanel(QWidget * parent)
 : Panel(parent),
   view_man_(nullptr)
 {
+  const auto & strings = DisplayStringManager::instance();
   camera_type_selector_ = new QComboBox;
   properties_view_ = new properties::PropertyTreeWidget();
 
-  save_button_ = new QPushButton("Save");
-  QPushButton * remove_button = new QPushButton("Remove");
-  QPushButton * rename_button = new QPushButton("Rename");
-  QPushButton * zero_button = new QPushButton("Zero");
-  zero_button->setToolTip("Jump to 0,0,0 with the current view controller. Shortcut: Z");
+  save_button_ = new QPushButton(strings.localizeDialogText("Save"));
+  QPushButton * remove_button = new QPushButton(strings.localizeDialogText("Remove"));
+  QPushButton * rename_button = new QPushButton(strings.localizeDialogText("Rename"));
+  QPushButton * zero_button = new QPushButton(strings.localizeDialogText("Zero"));
+  zero_button->setToolTip(strings.localizeDialogText(
+      "Jump to 0,0,0 with the current view controller. Shortcut: Z"));
 
   QHBoxLayout * top_layout = new QHBoxLayout;
-  top_layout->addWidget(new QLabel("Type:"));
+  top_layout->addWidget(new QLabel(strings.localizeDialogText("Type:")));
   top_layout->addWidget(camera_type_selector_);
   top_layout->addStretch();
   top_layout->addWidget(zero_button);
@@ -113,7 +116,9 @@ void ViewsPanel::setViewManager(ViewManager * view_man)
     for (int i = 0; i < ids.size(); i++) {
       const QString & id = ids[i];
       // send the regular-formatted id as userData.
-      camera_type_selector_->addItem(ViewController::formatClassId(id), id);
+      camera_type_selector_->addItem(
+        DisplayStringManager::instance().localizeLabel(ViewController::formatClassId(id)),
+        id);
     }
 
     connect(save_button_, SIGNAL(clicked()), view_man_, SLOT(copyCurrentToList()));
@@ -176,7 +181,10 @@ void ViewsPanel::renameSelected()
 
     QString old_name = view->getName();
     QString new_name = QInputDialog::getText(
-      this, "Rename View", "New Name?", QLineEdit::Normal, old_name);
+      this,
+      DisplayStringManager::instance().localizeDialogText("Rename View"),
+      DisplayStringManager::instance().localizeDialogText("New Name?"),
+      QLineEdit::Normal, old_name);
 
     if (new_name.isEmpty() || new_name == old_name) {
       return;
@@ -194,11 +202,13 @@ void ViewsPanel::onCurrentChanged()
 
   QString formatted_class_id =
     ViewController::formatClassId(view_man_->getCurrent()->getClassId());
+  Q_UNUSED(formatted_class_id);
 
   // Make sure the type selector shows the type of the current view.
   // This is only here in case the type is changed programmatically,
   // instead of via the camera_type_selector_ being used.
-  camera_type_selector_->setCurrentIndex(camera_type_selector_->findText(formatted_class_id));
+  camera_type_selector_->setCurrentIndex(
+    camera_type_selector_->findData(view_man_->getCurrent()->getClassId()));
 
   properties_view_->setAnimated(false);
   view_man_->getCurrent()->expand();

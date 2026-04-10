@@ -48,6 +48,7 @@
 #include <QWindow>  // NOLINT: cpplint is unable to handle the include order here
 
 #include "scaled_image_widget.hpp"
+#include "rviz_common/display_string_manager.hpp"
 
 namespace rviz_common
 {
@@ -63,20 +64,27 @@ ScreenshotDialog::ScreenshotDialog(
   first_time_(true),
   default_save_dir_(default_save_dir)
 {
+  const auto & strings = DisplayStringManager::instance();
   image_widget_ = new ScaledImageWidget(.5);
 
   takeScreenshotNow();
 
-  QCheckBox * full_window_checkbox = new QCheckBox("Save entire rviz window");
+  setWindowTitle(strings.localizeDialogText("Save &Image"));
+  QCheckBox * full_window_checkbox = new QCheckBox(
+    strings.localizeDialogText("Save entire rviz window"));
 
   button_box_ = new QDialogButtonBox(
     QDialogButtonBox::Save |
     QDialogButtonBox::Retry |
     QDialogButtonBox::Cancel);
+  button_box_->button(QDialogButtonBox::Save)->setText(strings.localizeDialogText("Save"));
+  button_box_->button(QDialogButtonBox::Retry)->setText(strings.localizeDialogText("Retry"));
+  button_box_->button(QDialogButtonBox::Cancel)->setText(strings.localizeDialogText("Cancel"));
 
   QVBoxLayout * main_layout = new QVBoxLayout;
   main_layout->addWidget(image_widget_, 100);
-  main_layout->addWidget(new QLabel("Image will be saved at the original resolution."));
+  main_layout->addWidget(new QLabel(strings.localizeDialogText(
+      "Image will be saved at the original resolution.")));
   main_layout->addWidget(full_window_checkbox);
   main_layout->addWidget(button_box_);
 
@@ -154,7 +162,8 @@ void ScreenshotDialog::save()
     "/rviz_screenshot_" +
     QDateTime::currentDateTime().toString("yyyy_MM_dd-hh_mm_ss") +
     ".png";
-  QString filename = QFileDialog::getSaveFileName(this, "Save image", default_save_file);
+  QString filename = QFileDialog::getSaveFileName(
+    this, DisplayStringManager::instance().localizeDialogText("Save image"), default_save_file);
   if (filename != "") {
     QString with_slashes = QDir::fromNativeSeparators(filename);
     QString file_part = with_slashes.section('/', -1);
@@ -182,13 +191,19 @@ void ScreenshotDialog::save()
         }
 
         error_message =
-          "File type '" + suffix + "' is not supported.\n" +
-          "Supported image formats are: " + formats_string + "\n";
+          DisplayStringManager::instance().localizeDialogText("File type '%1' is not supported.\n")
+          .arg(suffix) +
+          DisplayStringManager::instance().localizeDialogText("Supported image formats are: %1\n")
+          .arg(formats_string);
       } else {
-        error_message = "Failed to write image to file " + filename;
+        error_message = DisplayStringManager::instance().localizeDialogText(
+            "Failed to write image to file %1").arg(filename);
       }
 
-      QMessageBox::critical(this, "Error", error_message);
+      QMessageBox::critical(
+        this,
+        DisplayStringManager::instance().localizeDialogText("Error"),
+        error_message);
     }
   }
 }

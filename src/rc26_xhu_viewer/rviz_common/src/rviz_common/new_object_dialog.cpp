@@ -42,6 +42,7 @@
 #include <QTreeWidget>  // NOLINT: cpplint is unable to handle the include order here
 #include <QVBoxLayout>  // NOLINT: cpplint is unable to handle the include order here
 
+#include "rviz_common/display_string_manager.hpp"
 #include "rviz_common/load_resource.hpp"
 
 namespace rviz_common
@@ -63,15 +64,17 @@ NewObjectDialog::NewObjectDialog(
   display_name_output_(display_name_output)
 {
   //***** Layout
+  const auto & strings = DisplayStringManager::instance();
 
   // Display Type group
-  auto type_box = new QGroupBox(object_type + " Type");
+  auto type_box = new QGroupBox(
+    strings.localizeDialogText("%1 Type").arg(strings.localizeLabel(object_type)));
 
   auto tree = new QTreeWidget;
   tree->setHeaderHidden(true);
   fillTree(tree);
 
-  auto description_label = new QLabel("Description:");
+  auto description_label = new QLabel(strings.localizeDialogText("Description:"));
   description_ = new QTextBrowser;
   description_->setMaximumHeight(100);
   description_->setOpenExternalLinks(true);
@@ -86,7 +89,8 @@ NewObjectDialog::NewObjectDialog(
   // Display Name group
   QGroupBox * name_box = nullptr;
   if (display_name_output_) {
-    name_box = new QGroupBox(object_type + " Name");
+    name_box = new QGroupBox(
+      strings.localizeDialogText("%1 Name").arg(strings.localizeLabel(object_type)));
     name_editor_ = new QLineEdit;
     auto name_layout = new QVBoxLayout;
     name_layout->addWidget(name_editor_);
@@ -96,6 +100,8 @@ NewObjectDialog::NewObjectDialog(
   // Buttons
   button_box_ = new QDialogButtonBox(
     QDialogButtonBox::Ok | QDialogButtonBox::Cancel, Qt::Horizontal);
+  button_box_->button(QDialogButtonBox::Ok)->setText(strings.localizeDialogText("OK"));
+  button_box_->button(QDialogButtonBox::Cancel)->setText(strings.localizeDialogText("Cancel"));
 
   auto main_layout = new QVBoxLayout;
   main_layout->addWidget(type_box);
@@ -142,7 +148,7 @@ void NewObjectDialog::fillTree(QTreeWidget * tree)
     mi = package_items.find(plugin.package);
     if (mi == package_items.end()) {
       package_item = new QTreeWidgetItem(tree);
-      package_item->setText(0, plugin.package);
+      package_item->setText(0, DisplayStringManager::instance().localizePackage(plugin.package));
       package_item->setIcon(0, default_package_icon);
 
       package_item->setExpanded(true);
@@ -154,8 +160,9 @@ void NewObjectDialog::fillTree(QTreeWidget * tree)
 
     class_item->setIcon(0, plugin.icon);
 
-    class_item->setText(0, plugin.name);
-    class_item->setWhatsThis(0, plugin.description);
+    class_item->setText(0, DisplayStringManager::instance().localizeLabel(plugin.name));
+    class_item->setWhatsThis(
+      0, DisplayStringManager::instance().localizePluginDescription(plugin.description));
     // Store the lookup name for each class in the UserRole of the item.
     class_item->setData(0, Qt::UserRole, plugin.id);
     class_item->setDisabled(disallowed_class_lookup_names_.contains(plugin.id));
@@ -199,17 +206,18 @@ void NewObjectDialog::onDisplaySelected(QTreeWidgetItem * selected_item)
 bool NewObjectDialog::isValid()
 {
   if (lookup_name_.size() == 0) {
-    setError("Select a Display type.");
+    setError(DisplayStringManager::instance().localizeDialogText("Select a Display type."));
     return false;
   }
   if (display_name_output_) {
     QString display_name = name_editor_->text();
     if (display_name.size() == 0) {
-      setError("Enter a name for the display.");
+      setError(DisplayStringManager::instance().localizeDialogText("Enter a name for the display."));
       return false;
     }
     if (disallowed_display_names_.contains(display_name)) {
-      setError("Name in use.  Display names must be unique.");
+      setError(DisplayStringManager::instance().localizeDialogText(
+          "Name in use. Display names must be unique."));
       return false;
     }
   }

@@ -32,6 +32,7 @@
 
 #include <QColor>  // NOLINT: cpplint is unable to handle the include order here
 
+#include "rviz_common/display_string_manager.hpp"
 #include "rviz_common/load_resource.hpp"
 #include "rviz_common/properties/status_property.hpp"
 
@@ -61,8 +62,9 @@ QVariant FailedDisplay::getViewData(int column, int role) const
 
 QString FailedDisplay::getDescription() const
 {
-  return "The class required for this display, '" + getClassId() +
-         "', could not be loaded.<br><b>Error:</b><br>" + error_message_;
+  return DisplayStringManager::instance().localizeDialogText(
+    "The class required for this display, '%1', could not be loaded.<br><b>Error:</b><br>%2")
+    .arg(getClassId(), error_message_);
 }
 
 void FailedDisplay::load(const Config & config)

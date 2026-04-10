@@ -37,6 +37,7 @@
 #include <QLabel>
 #include <QToolButton>
 
+#include "rviz_common/display_string_manager.hpp"
 #include "rviz_common/load_resource.hpp"
 
 namespace rviz_common
@@ -45,7 +46,9 @@ namespace rviz_common
 PanelDockWidget::PanelDockWidget(const QString & name)
 : QDockWidget(name),
   collapsed_(false),
-  forced_hidden_(false)
+  requested_visibility_(true),
+  forced_hidden_(false),
+  stable_window_title_(name)
 {
   QWidget * title_bar = new QWidget(this);
 
@@ -61,7 +64,7 @@ PanelDockWidget::PanelDockWidget(const QString & name)
 
   connect(close_button, SIGNAL(clicked()), this, SLOT(close()));
 
-  title_label_ = new QLabel(name, this);
+  title_label_ = new QLabel(DisplayStringManager::instance().localizeLabel(name), this);
 
   icon_label_ = new QLabel(this);
   icon_label_->setContentsMargins(2, 2, 0, 0);
@@ -74,12 +77,28 @@ PanelDockWidget::PanelDockWidget(const QString & name)
   title_layout->addWidget(close_button, 0);
   title_bar->setLayout(title_layout);
   setTitleBarWidget(title_bar);
+  setStableObjectName(name);
+  setWindowTitle(name);
 }
 
 void PanelDockWidget::setWindowTitle(QString title)
 {
-  QDockWidget::setWindowTitle(title);
-  title_label_->setText(title);
+  stable_window_title_ = title;
+  const auto visible_title = DisplayStringManager::instance().localizeLabel(title);
+  QDockWidget::setWindowTitle(visible_title);
+  title_label_->setText(visible_title);
+  title_label_->setToolTip(
+    DisplayStringManager::instance().rawTooltip(title, visible_title));
+}
+
+QString PanelDockWidget::stableWindowTitle() const
+{
+  return stable_window_title_;
+}
+
+void PanelDockWidget::setStableObjectName(const QString & name)
+{
+  QDockWidget::setObjectName(name);
 }
 
 
