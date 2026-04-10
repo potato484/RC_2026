@@ -86,7 +86,7 @@ QString loadableSourceCandidate()
 
   const auto source_dir =
     QFileInfo(QString::fromUtf8(__FILE__)).absoluteDir().absoluteFilePath(
-    QStringLiteral("../../../rc26_xhu_viewer/resources/terminology.yaml"));
+    QStringLiteral("../../../rviz2/resources/terminology.yaml"));
   if (QFileInfo::exists(source_dir)) {
     return source_dir;
   }

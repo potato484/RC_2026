@@ -13,11 +13,6 @@ endif()
 option(BUILD_RVIZ2_RC26_PLUGINS "Build RC26 RViz panels/displays/history plugins" OFF)
 option(BUILD_RVIZ2_RC26_WEB_TOOLS "Install RC26 web adapter and frontend assets" OFF)
 
-set(RC26_VIEWER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../rc26_xhu_viewer")
-if(NOT EXISTS "${RC26_VIEWER_SOURCE_DIR}/src/rc26_xhu_viewer_frame.cpp")
-  message(FATAL_ERROR "Missing RC26 viewer staged sources under ${RC26_VIEWER_SOURCE_DIR}")
-endif()
-
 find_package(ament_cmake REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -64,13 +59,7 @@ if(BUILD_RVIZ2_RC26_PLUGINS)
     set(HAS_QT_WEBENGINE FALSE)
     message(STATUS "Qt5WebEngine not found - RC26 web panels will show fallback placeholder")
   endif()
-
-  set(RC26_PLUGIN_DESCRIPTION_FILE "${CMAKE_CURRENT_BINARY_DIR}/plugins_description.xml")
-  configure_file(
-    "${RC26_VIEWER_SOURCE_DIR}/plugins_description.xml"
-    "${RC26_PLUGIN_DESCRIPTION_FILE}"
-    COPYONLY
-  )
+  set(RC26_PLUGIN_DESCRIPTION_FILE "plugins_description.xml")
 else()
   message(STATUS "BUILD_RVIZ2_RC26_PLUGINS=OFF - skipping RC26 plugins, SQLite history, and embedded web panels")
 endif()
@@ -83,11 +72,15 @@ endif()
 
 add_executable(${PROJECT_NAME}
   src/main.cpp
-  ${RC26_VIEWER_SOURCE_DIR}/src/rc26_xhu_viewer_frame.cpp
+  src/launch_mode.cpp
+  src/mode_utils.cpp
+  src/classic_mode.cpp
+  src/rc26/rc26_mode.cpp
+  src/rc26/rviz2_rc26_viewer_frame.cpp
 )
 target_include_directories(${PROJECT_NAME} PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src
-  ${RC26_VIEWER_SOURCE_DIR}/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/rc26
 )
 ament_target_dependencies(${PROJECT_NAME}
   ament_index_cpp
@@ -104,50 +97,50 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 if(BUILD_RVIZ2_RC26_PLUGINS)
-  add_library(rc26_xhu_viewer_plugins SHARED
-    ${RC26_VIEWER_SOURCE_DIR}/src/panels/console_gate_panel.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/panels/localization_panel.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/panels/registration_panel.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/panels/lio_panel.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/panels/navigation_panel.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/panels/terrain_panel.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/panels/bt_area_panel.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/panels/bt_tree_panel.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/panels/bt_timeline_panel.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/panels/mechanism_panel.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/panels/vision_panel.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/panels/telecontrol_panel.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/panels/serial_panel.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/panels/operator_status_panel.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/panels/history_query_panel.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/panels/web_panel_base.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/panels/web_bridge.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/displays/localization_display.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/displays/registration_debug_display.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/displays/nav_candidates_display.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/displays/dynamic_prediction_display.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/displays/terrain_semantic_display.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/history/history_store.cpp
-    ${RC26_VIEWER_SOURCE_DIR}/src/history/history_collector.cpp
+  add_library(rviz2_rc26_plugins SHARED
+    src/rc26/panels/console_gate_panel.cpp
+    src/rc26/panels/localization_panel.cpp
+    src/rc26/panels/registration_panel.cpp
+    src/rc26/panels/lio_panel.cpp
+    src/rc26/panels/navigation_panel.cpp
+    src/rc26/panels/terrain_panel.cpp
+    src/rc26/panels/bt_area_panel.cpp
+    src/rc26/panels/bt_tree_panel.cpp
+    src/rc26/panels/bt_timeline_panel.cpp
+    src/rc26/panels/mechanism_panel.cpp
+    src/rc26/panels/vision_panel.cpp
+    src/rc26/panels/telecontrol_panel.cpp
+    src/rc26/panels/serial_panel.cpp
+    src/rc26/panels/operator_status_panel.cpp
+    src/rc26/panels/history_query_panel.cpp
+    src/rc26/panels/web_panel_base.cpp
+    src/rc26/panels/web_bridge.cpp
+    src/rc26/displays/localization_display.cpp
+    src/rc26/displays/registration_debug_display.cpp
+    src/rc26/displays/nav_candidates_display.cpp
+    src/rc26/displays/dynamic_prediction_display.cpp
+    src/rc26/displays/terrain_semantic_display.cpp
+    src/rc26/history/history_store.cpp
+    src/rc26/history/history_collector.cpp
   )
-  target_include_directories(rc26_xhu_viewer_plugins PRIVATE
-    ${RC26_VIEWER_SOURCE_DIR}/src
+  target_include_directories(rviz2_rc26_plugins PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rc26
     ${SQLITE3_INCLUDE_DIRS}
   )
-  ament_target_dependencies(rc26_xhu_viewer_plugins
+  ament_target_dependencies(rviz2_rc26_plugins
     ament_index_cpp
     rclcpp
     rviz_common
     pluginlib
   )
-  target_link_libraries(rc26_xhu_viewer_plugins
+  target_link_libraries(rviz2_rc26_plugins
     rviz_common::rviz_common
     Qt5::Widgets
     ${SQLITE3_LIBRARIES}
   )
   if(HAS_QT_WEBENGINE)
-    target_compile_definitions(rc26_xhu_viewer_plugins PRIVATE HAS_QT_WEBENGINE)
-    target_link_libraries(rc26_xhu_viewer_plugins
+    target_compile_definitions(rviz2_rc26_plugins PRIVATE HAS_QT_WEBENGINE)
+    target_link_libraries(rviz2_rc26_plugins
       Qt5::WebEngine
       Qt5::WebEngineWidgets
       Qt5::WebChannel
@@ -190,7 +183,7 @@ install(TARGETS ${PROJECT_NAME} DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_RVIZ2_RC26_PLUGINS)
   install(
-    TARGETS rc26_xhu_viewer_plugins
+    TARGETS rviz2_rc26_plugins
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib
     RUNTIME DESTINATION lib/${PROJECT_NAME}
@@ -199,27 +192,27 @@ endif()
 
 install(
   DIRECTORY
-    "${RC26_VIEWER_SOURCE_DIR}/config"
-    "${RC26_VIEWER_SOURCE_DIR}/resources"
+    "${CMAKE_CURRENT_SOURCE_DIR}/config"
+    "${CMAKE_CURRENT_SOURCE_DIR}/resources"
   DESTINATION share/${PROJECT_NAME}
 )
 
 if(BUILD_RVIZ2_RC26_PLUGINS)
   install(
-    DIRECTORY "${RC26_VIEWER_SOURCE_DIR}/web"
+    DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/web"
     DESTINATION share/${PROJECT_NAME}
   )
 endif()
 
 install(
   PROGRAMS
-    "${RC26_VIEWER_SOURCE_DIR}/scripts/validate_viewer_configs.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/validate_viewer_configs.py"
   DESTINATION lib/${PROJECT_NAME}
 )
 
 if(BUILD_RVIZ2_RC26_WEB_TOOLS)
   install(
-    DIRECTORY "${RC26_VIEWER_SOURCE_DIR}/viewer/"
+    DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/viewer/"
     DESTINATION share/${PROJECT_NAME}/viewer
     PATTERN "node_modules" EXCLUDE
     PATTERN "dist-e2e" EXCLUDE
@@ -227,9 +220,8 @@ if(BUILD_RVIZ2_RC26_WEB_TOOLS)
 
   install(
     PROGRAMS
-      "${RC26_VIEWER_SOURCE_DIR}/scripts/rc26_xhu_viewer_server.py"
-      "${RC26_VIEWER_SOURCE_DIR}/scripts/visualization_algorithms.py"
-      "${RC26_VIEWER_SOURCE_DIR}/scripts/render_graph_sim_html.py"
+      "${CMAKE_CURRENT_SOURCE_DIR}/scripts/rviz2_rc26_server.py"
+      "${CMAKE_CURRENT_SOURCE_DIR}/scripts/visualization_algorithms.py"
     DESTINATION lib/${PROJECT_NAME}
   )
 endif()
@@ -238,7 +230,7 @@ if(BUILD_TESTING)
   if(BUILD_RVIZ2_RC26_WEB_TOOLS)
     add_test(
       NAME test_rviz2_rc26_server
-      COMMAND ${Python3_EXECUTABLE} ${RC26_VIEWER_SOURCE_DIR}/test/test_xhu_viewer_server.py
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/rc26/test_rviz2_rc26_server.py
     )
   endif()
 

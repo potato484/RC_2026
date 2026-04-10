@@ -1,0 +1,105 @@
+<library path="rviz2_rc26_plugins">
+  <!-- Panels -->
+  <class name="rviz2_rc26/RC26ConsoleGatePanel"
+         type="rc26_xhu_viewer::RC26ConsoleGatePanel"
+         base_class_type="rviz_common::Panel">
+    <description>RC26 工程操作台门禁面板：操作态/工程态/诊断态分级控制</description>
+  </class>
+  <class name="rviz2_rc26/LocalizationPanel"
+         type="rc26_xhu_viewer::LocalizationPanel"
+         base_class_type="rviz_common::Panel">
+    <description>定位状态面板：健康度/后端状态/路线可观性/重定位</description>
+  </class>
+  <class name="rviz2_rc26/RegistrationPanel"
+         type="rc26_xhu_viewer::RegistrationPanel"
+         base_class_type="rviz_common::Panel">
+    <description>配准调试面板：适配度/内点数/收敛状态</description>
+  </class>
+  <class name="rviz2_rc26/LioPanel"
+         type="rc26_xhu_viewer::LioPanel"
+         base_class_type="rviz_common::Panel">
+    <description>LIO 状态面板：退化评分/控制状态</description>
+  </class>
+  <class name="rviz2_rc26/NavigationPanel"
+         type="rc26_xhu_viewer::NavigationPanel"
+         base_class_type="rviz_common::Panel">
+    <description>导航状态面板：运动模式/跟踪/局部规划/恢复</description>
+  </class>
+  <class name="rviz2_rc26/TerrainPanel"
+         type="rc26_xhu_viewer::TerrainPanel"
+         base_class_type="rviz_common::Panel">
+    <description>地形面板：语义层摘要/地形特征</description>
+  </class>
+  <class name="rviz2_rc26/BtAreaPanel"
+         type="rc26_xhu_viewer::BtAreaPanel"
+         base_class_type="rviz_common::Panel">
+    <description>BT 场地区域面板：当前区域/场地状态</description>
+  </class>
+  <class name="rviz2_rc26/BtTreePanel"
+         type="rc26_xhu_viewer::BtTreePanel"
+         base_class_type="rviz_common::Panel">
+    <description>BT 树结构面板：行为树节点展示</description>
+  </class>
+  <class name="rviz2_rc26/BtTimelinePanel"
+         type="rc26_xhu_viewer::BtTimelinePanel"
+         base_class_type="rviz_common::Panel">
+    <description>BT 时间线面板：事件/追踪时间线</description>
+  </class>
+  <class name="rviz2_rc26/MechanismPanel"
+         type="rc26_xhu_viewer::MechanismPanel"
+         base_class_type="rviz_common::Panel">
+    <description>机构面板：机构状态/动作历史</description>
+  </class>
+  <class name="rviz2_rc26/VisionPanel"
+         type="rc26_xhu_viewer::VisionPanel"
+         base_class_type="rviz_common::Panel">
+    <description>视觉面板：tip 检测结果</description>
+  </class>
+  <class name="rviz2_rc26/TelecontrolPanel"
+         type="rc26_xhu_viewer::TelecontrolPanel"
+         base_class_type="rviz_common::Panel">
+    <description>遥控面板：速度/遥控器状态</description>
+  </class>
+  <class name="rviz2_rc26/SerialPanel"
+         type="rc26_xhu_viewer::SerialPanel"
+         base_class_type="rviz_common::Panel">
+    <description>串口面板：机构 transport 原始帧日志</description>
+  </class>
+  <class name="rviz2_rc26/OperatorStatusPanel"
+         type="rc26_xhu_viewer::OperatorStatusPanel"
+         base_class_type="rviz_common::Panel">
+    <description>操作员状态面板：诊断状态/事件</description>
+  </class>
+  <class name="rviz2_rc26/HistoryQueryPanel"
+         type="rc26_xhu_viewer::HistoryQueryPanel"
+         base_class_type="rviz_common::Panel">
+    <description>历史查询面板：查询本地 2h 历史事件/标量趋势</description>
+  </class>
+
+  <!-- Displays -->
+  <class name="rviz2_rc26/LocalizationDisplay"
+         type="rc26_xhu_viewer::LocalizationDisplay"
+         base_class_type="rviz_common::Display">
+    <description>定位状态总览：位姿协方差、关键帧、回环检测</description>
+  </class>
+  <class name="rviz2_rc26/RegistrationDebugDisplay"
+         type="rc26_xhu_viewer::RegistrationDebugDisplay"
+         base_class_type="rviz_common::Display">
+    <description>点云配准调试：fitness_score、inlier_count、收敛状态</description>
+  </class>
+  <class name="rviz2_rc26/NavCandidatesDisplay"
+         type="rc26_xhu_viewer::NavCandidatesDisplay"
+         base_class_type="rviz_common::Display">
+    <description>导航候选轨迹：局部候选与选中路径</description>
+  </class>
+  <class name="rviz2_rc26/DynamicPredictionDisplay"
+         type="rc26_xhu_viewer::DynamicPredictionDisplay"
+         base_class_type="rviz_common::Display">
+    <description>动态障碍物预测数组</description>
+  </class>
+  <class name="rviz2_rc26/TerrainSemanticDisplay"
+         type="rc26_xhu_viewer::TerrainSemanticDisplay"
+         base_class_type="rviz_common::Display">
+    <description>地形语义栅格 GridMap</description>
+  </class>
+</library>
