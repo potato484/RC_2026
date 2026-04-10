@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-FRONTEND_DIR="$ROOT_DIR/src/rc26_xhu_viewer/rc26_xhu_viewer/viewer"
+FRONTEND_DIR="$ROOT_DIR/src/rc26_xhu_viewer/rviz2/viewer"
 FRONTEND_DIST="$FRONTEND_DIR/dist-e2e"
 ARTIFACT_DIR="${E2E_ARTIFACT_DIR:-$ROOT_DIR/artifacts/e2e}"
 BACKEND_BIND_HOST="${E2E_BACKEND_HOST:-127.0.0.1}"
@@ -177,33 +177,33 @@ FRONTEND_CHECK_HOST="$(resolve_check_host "$FRONTEND_BIND_HOST")"
 REQUESTED_BACKEND_PORT="$BACKEND_PORT"
 REQUESTED_FRONTEND_PORT="$FRONTEND_PORT"
 
-BACKEND_PORT="$(find_available_port "$BACKEND_CHECK_HOST" "$BACKEND_PORT" "rc26_xhu_viewer E2E Stub 后端")"
-FRONTEND_PORT="$(find_available_port "$FRONTEND_CHECK_HOST" "$FRONTEND_PORT" "rc26_xhu_viewer 前端预览服务")"
+BACKEND_PORT="$(find_available_port "$BACKEND_CHECK_HOST" "$BACKEND_PORT" "rviz2_rc26 E2E Stub 后端")"
+FRONTEND_PORT="$(find_available_port "$FRONTEND_CHECK_HOST" "$FRONTEND_PORT" "rviz2_rc26 前端预览服务")"
 
 if [[ "$BACKEND_PORT" != "$REQUESTED_BACKEND_PORT" ]]; then
-  echo "==> rc26_xhu_viewer E2E Stub 后端端口 ${REQUESTED_BACKEND_PORT} 已被占用，改用 ${BACKEND_PORT}"
+  echo "==> rviz2_rc26 E2E Stub 后端端口 ${REQUESTED_BACKEND_PORT} 已被占用，改用 ${BACKEND_PORT}"
 fi
 
 if [[ "$FRONTEND_PORT" != "$REQUESTED_FRONTEND_PORT" ]]; then
-  echo "==> rc26_xhu_viewer 前端预览端口 ${REQUESTED_FRONTEND_PORT} 已被占用，改用 ${FRONTEND_PORT}"
+  echo "==> rviz2_rc26 前端预览端口 ${REQUESTED_FRONTEND_PORT} 已被占用，改用 ${FRONTEND_PORT}"
 fi
 
 FRONTEND_ORIGIN="http://${FRONTEND_CHECK_HOST}:${FRONTEND_PORT}"
 BACKEND_BASE_URL="http://${BACKEND_CHECK_HOST}:${BACKEND_PORT}"
 BACKEND_WS_BASE_URL="ws://${BACKEND_CHECK_HOST}:${BACKEND_PORT}"
 
-echo "==> 启动 rc26_xhu_viewer E2E Stub 后端"
+echo "==> 启动 rviz2_rc26 E2E Stub 后端"
 (
   cd "$ROOT_DIR"
   exec python3 docs/test/e2e/xhu_viewer_stub_server.py --host "$BACKEND_BIND_HOST" --port "$BACKEND_PORT"
 ) >"$BACKEND_LOG" 2>&1 &
 BACKEND_PID=$!
 
-wait_for_http "${BACKEND_BASE_URL}/health" "rc26_xhu_viewer E2E Stub 后端" "$BACKEND_PID" "$BACKEND_LOG"
+wait_for_http "${BACKEND_BASE_URL}/health" "rviz2_rc26 E2E Stub 后端" "$BACKEND_PID" "$BACKEND_LOG"
 
 rm -rf "$FRONTEND_DIST"
 
-echo "==> 使用 E2E Stub API 构建 rc26_xhu_viewer web"
+echo "==> 使用 E2E Stub API 构建 rviz2_rc26 web"
 (
   cd "$FRONTEND_DIR"
   exec env \
@@ -212,16 +212,16 @@ echo "==> 使用 E2E Stub API 构建 rc26_xhu_viewer web"
     npm run build -- --outDir dist-e2e
 )
 
-echo "==> 启动 rc26_xhu_viewer web 静态预览"
+echo "==> 启动 rviz2_rc26 web 静态预览"
 (
   cd "$FRONTEND_DIR"
   exec python3 -m http.server "$FRONTEND_PORT" --bind "$FRONTEND_BIND_HOST" --directory "$FRONTEND_DIST"
 ) >"$FRONTEND_LOG" 2>&1 &
 FRONTEND_PID=$!
 
-wait_for_http "${FRONTEND_ORIGIN}/" "rc26_xhu_viewer web 静态预览" "$FRONTEND_PID" "$FRONTEND_LOG"
+wait_for_http "${FRONTEND_ORIGIN}/" "rviz2_rc26 web 静态预览" "$FRONTEND_PID" "$FRONTEND_LOG"
 
-echo "==> 运行 rc26_xhu_viewer web 浏览器 E2E"
+echo "==> 运行 rviz2_rc26 web 浏览器 E2E"
 exec env \
   E2E_FRONTEND_URL="$FRONTEND_ORIGIN" \
   E2E_ARTIFACT_DIR="$ARTIFACT_DIR" \
