@@ -23,17 +23,17 @@
 - 默认开启 PCD 保存。
 
 ```bash
-# 完整建图链路（保留 terrain / xhu_viewer_status 等附加模块）
+# 完整建图链路（保留 terrain 等附加模块）
 ros2 launch rc26_bringup bringup.launch.py \
   slam:=true \
   point_lio_profile:=mapping_dense \
   use_decision:=false
 ```
 
-如果当前目标只是纯建图、录制 PCD、查看累计地图，不需要地形语义与决策，可启用更轻量的纯建图模式；该模式仍会保留前端需要的状态聚合输出：
+如果当前目标只是纯建图、录制 PCD、查看累计地图，不需要地形语义与决策，可启用更轻量的纯建图模式：
 
 ```bash
-# 纯建图最小链路（跳过 rc26_terrain / rc26_decision，但保留 xhu_viewer_status）
+# 纯建图最小链路（跳过 rc26_terrain / rc26_decision）
 ros2 launch rc26_bringup bringup.launch.py \
   slam:=true \
   pure_mapping_mode:=true \
@@ -46,7 +46,7 @@ ros2 launch rc26_bringup bringup.launch.py \
 - 该模式仍会保留建图必需的 Point-LIO、`odom_interface` 与 `map -> odom` 静态变换；
 - 该模式会额外跳过 `lio_state_predictor`，避免在高密建图时因上游延迟产生持续 stale 告警；
 - `odometry.launch.py` 默认还会强制 `odometry.publish_odometry_without_downsample:=false`，避免 `state_estimation` 比 `cloud_registered` 超前过多而触发丢云；
-- 若还想进一步减负，可叠加 `visualization_backend:=none use_rviz:=false` 关闭可视化。
+- `src/rc26_xhu_viewer` 已删除，当前 bringup 默认就是 headless，不再内置 GUI / 状态聚合子树。
 
 建图完成后：
 

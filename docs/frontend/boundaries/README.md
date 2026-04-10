@@ -2,25 +2,23 @@
 
 ## 当前允许的前端能力
 
-- 读取 `rviz2_rc26_server.py` 输出的 scene manifest、规划回放和 live 状态
-- 在浏览器里做场地渲染、布局切换、路线回放和只读诊断聚合展示
-- 通过受控 API 下发 `navigate_surface_route`
+- 读取行为树 XML、相关文档和本地模拟输入
+- 在浏览器里做行为树查看、编辑和本地模拟执行展示
 
 ## 当前明确不允许的能力
 
 - 浏览器直接成为 ROS2 控制面
-- 前端自己定义 topo graph、surface graph 或 planner 真源
-- 把 `rviz2/viewer` 说成在线后端
+- 前端自己定义 ROS2 运行时真源
+- 把 `merlin-bt-visualizer` 说成机器人后端
 
-## 当前 Web 可视化链路边界
+## 当前边界事实
 
-- `src/rc26_xhu_viewer/rviz2/viewer` 只连接本地 `rviz2_rc26_server.py`
-- `rviz2_rc26_server.py` 只是 adapter，不替代 `rc26_topo_nav` action / planner 权威
-- `rviz2_rc26_server.py` 对 graph trace 的依赖固定来自 `rc26_topo_nav/scripts/render_graph_sim_html.py`，不在前端链再复制一份算法真源
-- `src/rc26_bringup/foxglove/*.json` 只是历史模板资产，不再是当前前端主链
+- `src/rc26_xhu_viewer` 已删除，不再存在仓库内 Web 可视化主链
+- `src/rc26_bringup/foxglove/*.json` 只是历史模板资产，不是当前前端主链
+- 当前前端边界只覆盖 `merlin-bt-visualizer`
 
 ## 维护时必须保持的事实
 
-- viewer 是工具，不是权威后端
-- live 运行态默认只读
-- 新增在线能力时，必须先设计新的 adapter boundary，而不是把 React 页面直接绑到底层 ROS2 细节
+- `merlin-bt-visualizer` 是工具，不是权威后端
+- 如果以后重新引入在线可视化，必须先设计新的 adapter boundary
+- 不能把 React 页面直接绑到底层 ROS2 细节

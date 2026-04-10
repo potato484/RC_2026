@@ -1,17 +1,8 @@
 # 本地预演
 
-`docs/test/local-preflight.sh` 是当前 `rviz2_rc26` Web 工具链的本地预演主入口。
+`docs/test/local-preflight.sh` 已随 `src/rc26_xhu_viewer` 删除而移除。
 
-## 当前执行内容
+## 当前口径
 
-- 可选 `npm ci`
-- `src/rc26_xhu_viewer/rviz2/viewer` 的 `npm test`
-- `src/rc26_xhu_viewer/rviz2/viewer` 的 `npm run build`
-- `src/rc26_xhu_viewer/rviz2/scripts/*.py` 与 `src/rc26_topo_nav/scripts/render_graph_sim_html.py` 的 `py_compile`
-- 浏览器 E2E
-- release 打包
-
-## 当前注意点
-
-- 浏览器 E2E 仍然使用契约 stub，而不是依赖真实 ROS2 / planner CLI
-- 真实 `rviz2_rc26_server.py` 仍建议通过人工联调验证
+- 当前仓库不再维护 viewer 链路的本地预演脚本
+- 如需前端预演，请使用 [../merlin_bt_visualizer/README.md](/home/potato/RC_2026/docs/test/merlin_bt_visualizer/README.md) 中的对应入口

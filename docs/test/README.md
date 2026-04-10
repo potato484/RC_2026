@@ -1,22 +1,20 @@
 # 测试脚本入口
 
-本目录收口根仓库的前端预演、浏览器 E2E 和 release 打包脚本。
+本目录当前主要收口 `merlin-bt-visualizer` 的测试和打包脚本。
 
-当前与 `rviz2_rc26` Web 工具链直接相关的入口是：
+`src/rc26_xhu_viewer` 删除后，旧的 viewer preflight / E2E / release 入口已移除。
 
-- `docs/test/local-preflight.sh`
-- `docs/test/e2e/run-e2e-local.sh`
-- `docs/test/release/package-release.sh`
-- `docs/test/release/deploy-via-ssh.sh`
+当前推荐入口是：
+
+- `docs/test/merlin_bt_visualizer/local-preflight.sh`
+- `docs/test/merlin_bt_visualizer/run-e2e-local.sh`
+- `docs/test/merlin_bt_visualizer/package-release.sh`
 
 ## 当前范围
 
-- `local-preflight.sh`：执行 `rviz2_rc26` Web 前端的 `npm test / build`、Python adapter 语法检查、E2E 和 release 打包
-- `e2e/`：使用契约 stub 启动浏览器链路，验证 `src/rc26_xhu_viewer/rviz2/viewer`
-- `release/`：打包 `rviz2_rc26` Web 前端与 adapter 发布目录
+- `merlin_bt_visualizer/`：行为树工作台的本地预演、E2E 与 release 打包
+- `e2e/`、`preflight/`、`release/` 下只保留被删除 viewer 链路的历史说明
 
 ## 文档索引
 
-- [preflight/README.md](preflight/README.md)
-- [e2e/README.md](e2e/README.md)
-- [release/README.md](release/README.md)
+- [merlin_bt_visualizer/README.md](merlin_bt_visualizer/README.md)

@@ -42,6 +42,7 @@
 ### 感知与可视化
 
 - [`rc26_vision`](archive/rc26_vision/README.md): 视觉推理与弹头定位。`(file: archive/rc26_vision/README.md)`
-- [`rviz2`](archive/rviz2/README.md): 当前系统级覆盖安装的 GUI 主入口；默认进入 RC26 模式，`--classic` 保留完整原生 RViz 体验。`(file: archive/rviz2/README.md)`
-- [`rc26_xhu_viewer_status`](archive/rc26_xhu_viewer_status/README.md): RC26 当前默认常驻的操作员语义聚合运行时；负责发布 `r2/xhu_viewer/*`。`(file: archive/rc26_xhu_viewer_status/README.md)`
-- [`rc26_xhu_viewer`](archive/rc26_xhu_viewer/README.md): 已退役的独立 GUI 包说明；当前只保留历史方案和被 `rviz2` 复用的源码资产 staging 说明。`(file: archive/rc26_xhu_viewer/README.md)`
+
+### 历史可视化目录
+
+- [`rc26_xhu_viewer`](archive/rc26_xhu_viewer/README.md): `src/rc26_xhu_viewer/` 已于 2026-04-10 整体从工作区删除；该目录下文档仅保留历史说明。`(file: archive/rc26_xhu_viewer/README.md)`

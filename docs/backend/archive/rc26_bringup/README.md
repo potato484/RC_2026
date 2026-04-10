@@ -6,31 +6,27 @@
 
 ## 当前可视化装配口径
 
-`bringup.launch.py` 当前推荐优先使用：
+`bringup.launch.py` 现在固定按 headless 口径装配：
 
 - `visualization_profile:=headless`
-- `visualization_profile:=operator_gui`
-- `visualization_profile:=engineering_gui`
-- `visualization_profile:=diagnostic_gui`
 
 其中：
 
-- `headless`：车端默认口径；不启动 GUI，但继续装配 `rc26_xhu_viewer_status_node`
-- `*_gui`：显式按需启动系统级魔改 `rviz2`，并自动选择 RC26 preset
+- `headless`：车端默认口径；不启动 GUI，也不再装配 `rc26_xhu_viewer_status_node`
 
-兼容覆盖项当前收口为：
+以下参数为了兼容旧脚本仍然保留，但已经退化成 no-op：
 
-- `visualization_backend:=rviz2 | none`
-- `visualization_layout:=operator | engineering | diagnostic`
+- `visualization_backend:=none`
+- `visualization_layout:=*`
+- `visualization_status_enable:=*`
 - `use_rviz:=true | false`
 
 旧里程计调试入口 `launch/odometry.launch.py` 也已对齐：
 
-- `odometry_use_rviz:=true` 直接启动魔改 `rviz2`
-- 默认使用 `odometry_visualization_layout:=diagnostic`
-- 无 DISPLAY / WAYLAND_DISPLAY 时自动跳过 GUI，只保留 headless 里程计链
+- `odometry_use_rviz` 与 `odometry_visualization_layout` 只保留兼容参数
+- 当前始终只保留 headless 里程计链
 
-Foxglove 和 `local_web` 都不再是 bringup 的主链路后端。
+Foxglove 和已删除的 `src/rc26_xhu_viewer` 子树都不再是 bringup 的主链路后端。
 
 ## 当前关键文件
 
@@ -44,14 +40,12 @@ Foxglove 和 `local_web` 都不再是 bringup 的主链路后端。
 ## 当前边界
 
 - 负责装配，不承载 planner、控制器或可视化平台的实现本体
-- `rviz2` 只是被装配进总启动链，不意味着 bringup 自己变成 GUI 实现包
-- `rc26_xhu_viewer_status` 仍独立负责 `r2/xhu_viewer/*` 的 headless 聚合
+- 当前工作区默认不再装配第一方 GUI 或操作员聚合包
+- 如需可视化，应由工作区外部工具只读消费现有 ROS2 输出
 
 ## 当前真实变化
 
 - bringup 默认口径仍是 `visualization_profile:=headless`
-- `visualization_profile:=operator_gui | engineering_gui | diagnostic_gui` 现在解析到 `rviz2 + RC26 参数`
-- `visualization_status_enable` 继续装配 `rc26_xhu_viewer_status/rc26_xhu_viewer_status_node`
-- `visualization_backend` 的正式取值已切到 `rviz2|none`
-- `odometry.launch.py` 已改为直接 `Node(package='rviz2', executable='rviz2', ...)`
-- 旧独立 GUI 包 `rc26_xhu_viewer` 已退役，不再作为 bringup 依赖
+- `src/rc26_xhu_viewer/` 已整体删除，不再作为 bringup 依赖
+- `visualization_profile/backend/layout/status_enable/use_rviz` 仅保留兼容参数
+- `odometry.launch.py` 已同步收口为 headless

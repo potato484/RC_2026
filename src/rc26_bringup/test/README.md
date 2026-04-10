@@ -155,7 +155,6 @@ ros2 run tf2_tools view_frames
 ros2 launch rc26_bringup bringup.launch.py \
   slam:=false \
   use_decision:=false \
-  visualization_backend:=rviz2 \
   prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/pcd/default.pcd
 
 ros2 topic echo /xhu_nav/motion_mode_state
@@ -163,6 +162,11 @@ ros2 topic echo /xhu_nav/tracking_state
 ros2 topic echo /xhu_nav/semantic_gate
 ros2 topic echo /cmd_vel
 ```
+
+说明：
+
+- `src/rc26_xhu_viewer` 已删除，`visualization_backend`/`use_rviz` 不再启动仓库内 GUI；
+- 如需可视化，请改用工作区外部工具只读消费现有 topic。
 
 如需手动切模式：
 

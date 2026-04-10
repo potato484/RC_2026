@@ -127,7 +127,6 @@ def generate_launch_description():
     point_lio_dir = get_package_share_directory('rc26_point_lio')
     mid360_driver_dir = get_package_share_directory('rc26_mid360_driver')
     terrain_dir = get_package_share_directory('rc26_terrain')
-    display_available = 'true' if (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')) else 'false'
 
     # 启动参数
     namespace = LaunchConfiguration('namespace')
@@ -175,13 +174,13 @@ def generate_launch_description():
 
     declare_use_rviz = DeclareLaunchArgument(
         'odometry_use_rviz',
-        default_value='true',
-        description='启动魔改 rviz2 调试界面（默认进入 RC26 模式）')
+        default_value='false',
+        description='兼容参数；src/rc26_xhu_viewer 已删除，当前固定为 headless')
 
     declare_odometry_visualization_layout = DeclareLaunchArgument(
         'odometry_visualization_layout',
         default_value='diagnostic',
-        description='odometry 调试界面布局: operator | engineering | diagnostic')
+        description='兼容参数；src/rc26_xhu_viewer 已删除，当前为 no-op')
 
     declare_start_mid360_driver = DeclareLaunchArgument(
         'start_mid360_driver',
@@ -414,41 +413,12 @@ def generate_launch_description():
         arguments=['--x', '0', '--y', '0', '--z', '0.13', '--roll', '0', '--pitch', '0', '--yaw', '0', '--frame-id', 'base_link_control', '--child-frame-id', 'livox_frame_control'],
     )
 
-    rviz2_mode = PythonExpression([
-        "'slam' if '", slam, "'.lower() == 'true' else 'navigation'"
-    ])
-
-    rviz2_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        namespace=namespace,
-        output='screen',
-        arguments=[
-            '--rc26-mode', rviz2_mode,
-            '--rc26-layout', odometry_visualization_layout,
-        ],
-        parameters=[{'use_sim_time': use_sim_time}],
-        condition=IfCondition(PythonExpression([
-            "'", odometry_use_rviz, "' == 'true' and '", display_available, "' == 'true'"
-        ]))
-    )
-
     odometry_visualization_notice = LogInfo(
         msg=[
-            '[odometry] odometry_use_rviz:=true 已切换为启动魔改 rviz2，layout:=',
+            '[odometry] src/rc26_xhu_viewer 已移除；odometry_use_rviz 和 odometry_visualization_layout 仅保留兼容参数，当前固定 headless。requested layout:=',
             odometry_visualization_layout,
         ],
-        condition=IfCondition(PythonExpression([
-            "'", odometry_use_rviz, "' == 'true' and '", display_available, "' == 'true'"
-        ]))
-    )
-
-    odometry_headless_notice = LogInfo(
-        msg='[odometry] 未检测到 DISPLAY/WAYLAND_DISPLAY，跳过魔改 rviz2；如需最小链路可保持 odometry_use_rviz:=false。',
-        condition=IfCondition(PythonExpression([
-            "'", odometry_use_rviz, "' == 'true' and '", display_available, "' != 'true'"
-        ]))
+        condition=IfCondition(odometry_use_rviz)
     )
 
     terrain_grid_map_notice = LogInfo(
@@ -494,6 +464,4 @@ def generate_launch_description():
         terrain_semantic_node,
         terrain_grid_map_bridge_node,
         odometry_visualization_notice,
-        odometry_headless_notice,
-        rviz2_node,
     ])

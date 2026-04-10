@@ -14,13 +14,13 @@
 
 ## 不再由本包拥有的内容
 
-以下 Web 可视化入口已经迁出到 `rviz2`：
+以下内容不在 `rc26_topo_nav` 内实现：
 
-- Babylon.js viewer
-- FastAPI / WebSocket adapter
-- bringup 的主 Web 可视化入口
+- 浏览器前端
+- Web adapter
+- bringup 的主可视化入口
 
-因此，`rc26_topo_nav` 当前不再是浏览器入口包，而是被 `rviz2` 一侧的 RC26 GUI / Web 工具消费的规划与场地数据真源。
+当前这些仓库内实现也已经随 `src/rc26_xhu_viewer` 一并删除。因此，`rc26_topo_nav` 现在只保留规划与场地数据真源身份，不再默认面向某个仓库内 viewer。
 
 ## 当前关键文件
 
@@ -29,17 +29,15 @@
 - [sim_assets/worlds/robocon2026_v2_aligned.world](/home/potato/RC_2026/src/rc26_topo_nav/sim_assets/worlds/robocon2026_v2_aligned.world)
 - [sim_assets/config/kfs_config_v2_aligned.yaml](/home/potato/RC_2026/src/rc26_topo_nav/sim_assets/config/kfs_config_v2_aligned.yaml)
 
-## 与 rviz2_rc26 的当前关系
+## 与外部可视化的当前关系
 
-- `rviz2_rc26_server.py` 默认仍从本包读取 graph、surface graph、world 和 sim_assets
-- `rviz2_rc26_server.py` 还会直接导入本包的 `scripts/render_graph_sim_html.py` 作为 graph trace 单一真源
-- Web 端的路线回放仍然依赖本包导出的 `planner_trace_cli` / `surface_route_cli`
-- 这次迁移没有改变 planner、action、graph schema 的权威归属，只是把浏览器承载层挪到了 `rviz2`
+- 若后续有工作区外部工具需要回放路线或读取场地资产，应直接消费本包的 graph、surface graph、world、sim_assets 与 CLI 输出
+- `scripts/render_graph_sim_html.py` 仍是 graph trace 的单一真源
+- planner、action、graph schema 的权威归属没有因为删除 viewer 子树而改变
 
-## 本次迁移后的注意点
+## 当前注意点
 
 - 本包不再安装 `topo_sim_server.py`，也不再注册原有 `test_topo_sim_server`
-- 如果调整 graph/world/surface-route CLI 行为，仍然需要同步检查 `src/rc26_xhu_viewer/rviz2/scripts/rviz2_rc26_server.py`
 - `test_generate_surface_graph.py` 现在默认只做 checked-in 文件的 manifest 快检、helper 回归和小场景 in-process CLI smoke；
   对两份 60 万行级 dense `surface_graph` 做完整 YAML parse / validate，以及基于 `robocon2026_v2_aligned.world` 的整图再生成回归，都改为显式 opt-in。
 - 需要手动设置 `RC26_RUN_FULL_SURFACE_GRAPH_REGEN=1` 后再运行完整重验收，避免普通 `ctest` 每次都重跑多分钟的整图加载与生成。

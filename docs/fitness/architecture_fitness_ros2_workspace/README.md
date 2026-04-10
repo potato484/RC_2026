@@ -104,11 +104,11 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - **规则**：它们不得直接编码操作员界面逻辑或布局假设。
 - **规则**：它们应输出结构化结果，让更高层按需消费。
 
-### 3.6 `rc26_xhu_viewer_status + rviz2` 共同构成当前可视化域
+### 3.6 `src/` 默认保持 headless，不内置第一方可视化子树
 
-- **规则**：操作员看见的整车健康语义应收敛在 `rc26_xhu_viewer_status`，而不是散落在 Foxglove 布局和 RViz 面板里各写一份。
-- **规则**：`rviz2` 当前是系统级 GUI 壳层宿主，只消费这些语义，不拥有它们的运行时权威。
-- **规则**：Foxglove JSON 只是布局资产，不是诊断逻辑载体。
+- **规则**：当前工作区不再维护 `rc26_xhu_viewer_status`、定制 `rviz2` 或本地 Web viewer。
+- **规则**：如果需要可视化，只能由工作区外部工具只读消费现有 ROS2 输出、CLI 输出或静态资产，不能反向成为运行时权威。
+- **规则**：Foxglove JSON 只是历史布局资产，不是诊断逻辑载体。
 
 ### 3.7 `rc26_odom_interface` 继续保持 TF 权威
 
@@ -199,10 +199,10 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - 问题：BT 改动是否引入了未文档化 blackboard 共享，或者阻塞式长耗时节点？
 - 通过标准：blackboard key 可追踪，长耗时逻辑异步化。
 
-### 4.9 可视化单向依赖检查
+### 4.9 可视化外置单向依赖检查
 
-- 问题：聚合诊断和布局是否仍然只是消费状态，而不是反向成为状态和策略生产者？
-- 通过标准：`rc26_xhu_viewer_status` 负责聚合语义，`rviz2`、Foxglove 仍处于下游消费侧。
+- 问题：这次改动是否又把工作区内置 GUI / viewer 变成运行时强依赖，或者让外部可视化反向成为状态和策略生产者？
+- 通过标准：`src/` 仍保持 headless；任何可视化都只处于下游消费侧。
 
 ### 4.10 包级验证检查
 
@@ -233,8 +233,8 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - `rc26_decision` 是比赛流程大脑，不是设备细节宿主。
 - `rc26_mechanism` 和各控制器插件负责安全执行意图。
 - localization、terrain、vision、odom 相关包负责产出规范化机器状态。
-- `rc26_xhu_viewer_status` 负责把这些技术状态聚合成操作员语义。
-- `rviz2` 负责提供系统级 GUI 壳层，并在默认模式下承载 RC26 的 preset 和交互壳层。
+- `src/` 当前默认保持 headless，不再内置第一方 GUI 或操作员语义聚合包。
+- 如需可视化，应由工作区外部工具只读消费这些状态。
 
 任何后续需求如果要打破这些边界，都应视为一次明确的架构变更，而不是普通功能补丁。
 
@@ -258,6 +258,23 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - `rc26_decision` 仍然拥有 MF 目标格选择；`NavToTaskPose(grid_id)` 只是把已选格映射为 topo node，不让 `rc26_topo_nav` 反向接管任务选格
 - `rc26_kfs_keepout` 的 `r2_mf_world.yaml` 作为 shared 几何底座使用，真正发布到 `MfBlockOverlay.team` 的阵营来自运行态 KFS 输入
 - `rc26_topo_nav` 图文件当前支持 `routes` 和 `edges.control_points`，分别服务 `ExecuteTopoRoute` 和坡道 / 转折 corridor 细化
+
+### 7.4 删除 `src/rc26_xhu_viewer`（2026-04-10）
+
+**变更类型**：架构级 - 移除工作区内置可视化与操作员聚合子树
+
+**变更原因**：用户明确要求删除 `src/rc26_xhu_viewer` 且不保留其实现；为避免留下悬空依赖，`rc26_bringup`、`odometry.launch.py` 与相关脚本同步收口为 headless。
+
+**变更范围**：
+- 删除 `src/rc26_xhu_viewer/` 整棵源码树
+- 删除根目录 `start_rviz2_rc26_web.sh` 与 viewer 相关 preflight / E2E / release 脚本
+- `rc26_bringup` 不再装配 `rviz2` 或 `rc26_xhu_viewer_status`
+- 前端与后端入口文档同步改为历史说明或 headless 口径
+
+**当前落地口径**：
+- `src/` 主运行时默认不再发布 `r2/xhu_viewer/*`
+- `visualization_profile/backend/layout/status_enable/use_rviz` 与 `odometry_use_rviz` 仅保留兼容参数，不再启动仓库内 GUI
+- 如果后续需要重新引入可视化，应作为新的架构变更单独设计
 
 **落地方式**：`rc26_bringup` 通过显式 topo 模式装配 `rc26_topo_nav`，不直接改变其他运行链的权威边界。
 

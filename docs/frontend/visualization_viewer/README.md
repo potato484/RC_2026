@@ -1,58 +1,13 @@
 # visualization_viewer
 
-## 模块定位
+## 当前状态
 
-`src/rc26_xhu_viewer/rviz2/viewer` 是 R2 当前维护中的本地 Web 可视化平台前端，NPM 包名为 `rviz2-rc26-web`。
+`src/rc26_xhu_viewer/rviz2/viewer` 已于 2026-04-10 随整棵 `src/rc26_xhu_viewer/` 删除。
 
-它已经不再只是“任意点 3D 路线观察台”，而是统一承载：
+本文件现在只保留历史说明，不再对应当前可维护源码。
 
-- 场地 mesh 与 topo/surface-route 路线观察
-- 表面路线搜索回放
-- 局部规划案例回放
-- live 运行态、定位健康、keepout、机构状态和 BT 快照
+## 当前口径
 
-## 当前关键文件
-
-- [src/main.tsx](/home/potato/RC_2026/src/rc26_xhu_viewer/rviz2/viewer/src/main.tsx)
-- [src/App.tsx](/home/potato/RC_2026/src/rc26_xhu_viewer/rviz2/viewer/src/App.tsx)
-- [src/store.ts](/home/potato/RC_2026/src/rc26_xhu_viewer/rviz2/viewer/src/store.ts)
-- [src/layerModel.ts](/home/potato/RC_2026/src/rc26_xhu_viewer/rviz2/viewer/src/layerModel.ts)
-- [src/components/SceneCanvas.tsx](/home/potato/RC_2026/src/rc26_xhu_viewer/rviz2/viewer/src/components/SceneCanvas.tsx)
-- [src/components/scene/BabylonSceneManager.ts](/home/potato/RC_2026/src/rc26_xhu_viewer/rviz2/viewer/src/components/scene/BabylonSceneManager.ts)
-- [src/features/trace/traceModel.ts](/home/potato/RC_2026/src/rc26_xhu_viewer/rviz2/viewer/src/features/trace/traceModel.ts)
-- [src/features/live/liveBridge.ts](/home/potato/RC_2026/src/rc26_xhu_viewer/rviz2/viewer/src/features/live/liveBridge.ts)
-- [src/features/viewer/formatting.ts](/home/potato/RC_2026/src/rc26_xhu_viewer/rviz2/viewer/src/features/viewer/formatting.ts)
-- [src/api.ts](/home/potato/RC_2026/src/rc26_xhu_viewer/rviz2/viewer/src/api.ts)
-
-## 当前数据入口
-
-- `/api/scene-manifest`
-- `/api/surface-route/preview`
-- `/api/surface-route/trace-from-nodes`
-- `/api/surface-route/execute`
-- `/api/local-planner/scenarios`
-- `/api/local-planner/trace`
-- `/api/live/start`
-- `/api/live/events`
-
-## 当前真实实现
-
-- 页面标题、布局预设和阶段区来自 `field_scene_manifest.yaml`
-- `field_scene_manifest.yaml` 里的阶段区现在按三块粗粒度 BT phase band 定义：`MCAreaTree / MFAreaTree / CombatAreaTree`，不再把梅林坡道入口/出口单独画成额外阶段条带
-- `operator / engineering / diagnostic` 三套 preset 会直接改写图层集合
-- 触发 `surface-route` 生成时，viewer 会自动重新打开 `route` 图层，避免诊断布局把新生成的路线完全隐藏
-- preview 路线会额外渲染高对比底衬、亮色主线和路径珠点，保证在俯视缩放较远时也能直接看见路线走向
-- 当 body-aware surface route 因车体约束失败时，viewer 会继续渲染 `rviz2_rc26_server.py` 回退出的 `legacy` 参考路线，并把它标成“仅供观察、不可执行”
-- 搜索回放里的前沿点和已探查点改为按整次 trace 累计常显，不再随着回放滑块切到末帧而消失；滑块现在只负责切换当前帧说明、指标和路径高亮
-- 即使 surface route preview 因车体约束失败，只要 preview 已经给出投影起终点节点，viewer 仍会继续请求 `trace-from-nodes`，让参考路线场景也能看到累计搜索点
-- 失败原因的中文化不再只支持精确匹配；像 `heading change ...`、`node clearance ...` 这类 body planner 细节现在也会直接显示成中文摘要
-- 场景里会同时渲染 route、corridor、lookahead、robotPose、phaseZones 和 keepout
-- `controlState.pose` 会优先作为机器人 live 位姿
-- `btSnapshot.activeSubtreeId` 会驱动阶段区高亮
-- 本轮模块化后，`App.tsx` 只保留页面编排，Babylon 场景、trace 转换和 live bridge 已拆到独立模块
-
-## 当前边界
-
-- viewer 不拥有 planner 真源，回放仍以 `rc26_topo_nav` CLI 和 `render_graph_sim_html.py` 输出为准
-- viewer 不是 bringup 或 ROS2 的权威进程
-- 页面允许执行 surface route，但这只是受控 action 下发，不是浏览器直控
+- 仓库当前不再维护 `rviz2-rc26-web`
+- 相关 preflight、E2E、release 和本地启动脚本已一并删除
+- 如果后续重新引入比赛场地 Web viewer，应作为新的模块重新建文档，而不是默认恢复这里

@@ -88,7 +88,7 @@ def generate_launch_description():
     declare_rviz = DeclareLaunchArgument(
         "rviz",
         default_value="false",
-        description="兼容参数；不再直接启动可视化。若需 GUI，请改用 rc26_bringup/odometry.launch.py 或直接运行 rviz2。",
+        description="兼容参数；仓库内可视化子树已删除，此入口固定为 headless。",
     )
 
     declare_point_lio_cfg_dir = DeclareLaunchArgument(
@@ -117,8 +117,7 @@ def generate_launch_description():
         condition=IfCondition(use_rviz),
         msg=(
             "[point_lio.launch] rviz:=true 已失效；该入口已改为纯 headless。"
-            " 如需调试可视化，请使用 `ros2 launch rc26_bringup odometry.launch.py odometry_use_rviz:=true`"
-            " 或直接运行 `ros2 run rviz2 rviz2 --rc26-mode navigation --rc26-layout diagnostic`。"
+            " 如需调试可视化，请改用工作区外部工具只读消费当前 ROS2 输出。"
         ),
     )
 
