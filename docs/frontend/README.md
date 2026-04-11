@@ -15,6 +15,7 @@
 
 - `merlin-bt-visualizer` 是行为树本地工作台
 - 它不直接拥有 ROS2 运行时控制权
+- 旧 `src/rc26_xhu_viewer` 删除后的边界变化，已经归档到本页和 `overview/README.md`、`boundaries/README.md`，不再单独维护历史变更入口
 
 ## 推荐阅读
 

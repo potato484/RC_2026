@@ -31,8 +31,15 @@
 - `src/rc26_topo_nav`、`src/rc26_surface_body_planner`、`src/rc26_local_3d_planner`、`src/rc26_nav_mode_manager`、`src/rc26_omni_controller` 已于 2026-04-10 从工作区实现层退出，并统一收口到本包。
 - 外部 ROS 名称保持不变：`navigate_topo_target`、`navigate_surface_route`、`set_xhu_motion_mode`、`/xhu_nav/*`、`cmd_vel` 继续沿用原契约。
 
+## 当前导航图与规划口径
+
+- `graph_file` 当前同时支持 `routes` 和 `edges.control_points`，分别服务 route 级执行与 corridor 细化
+- `surface_graph` 当前已经按 body-aware 口径工作，离线图里包含 node pitch、edge slope、edge lateral clearance 等约束注解
+- `NavigateSurfaceRoute.allow_replan` 继续沿用 route-level replan；dynamic surface overlay 归并、TTL 过期与 overlay version 检查都已经并入本包运行时
+- `topo`、`body_planner`、`local_planner`、`mode_manager`、`runtime` 虽然都已收口到同一宿主包，但运行时职责仍保持分离
+
 ## 文档收口总结
 
 - `docs/backend/archive/` 不再为上述旧导航实现包保留单独 README
 - 当前如果要理解 3D 导航实现，应只从本页和 `src/rc26_xhu_nav/` 源码入口继续展开
-- 历史演进原因保留在 `docs/fitness/architecture_fitness_ros2_workspace/README.md` 的架构变更记录中
+- 已经落地的架构变化已直接折叠进本页、`rc26_bringup`、`rc26_interfaces`、`rc26_kfs_keepout` 与 `rc26_robot_geometry` 的当前实现说明

@@ -6,6 +6,7 @@
 
 - `rc26_topo_nav`、`rc26_surface_body_planner`、`rc26_local_3d_planner`、`rc26_nav_mode_manager`、`rc26_omni_controller` 的独立归档页已删除
 - 当前导航实现统一查看 [`rc26_xhu_nav`](archive/rc26_xhu_nav/README.md)
+- 已经落地的架构变更直接归档在对应包 README 中，这里不再单独维护长期变更流水账入口
 
 ## 包目录索引
 
@@ -43,7 +44,3 @@
 ### 感知与可视化
 
 - [`rc26_vision`](archive/rc26_vision/README.md): 视觉推理与弹头定位。`(file: archive/rc26_vision/README.md)`
-
-### 历史可视化目录
-
-- [`rc26_xhu_viewer`](archive/rc26_xhu_viewer/README.md): `src/rc26_xhu_viewer/` 已于 2026-04-10 整体从工作区删除；该目录下文档仅保留历史说明。`(file: archive/rc26_xhu_viewer/README.md)`

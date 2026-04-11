@@ -24,6 +24,7 @@
 ## 共享几何口径
 
 - [r2_mf_world.yaml](/home/potato/RC_2026/src/rc26_kfs_keepout/config/r2_mf_world.yaml) 现在同时作为 `rc26_kfs_keepout` 和 `rc26_xhu_nav` 的 MF 主区共享几何真源
+- 发布到 `/mf_block_overlay` 的 `team` 当前来自运行时 KFS 输入，而不是 `r2_mf_world.yaml` 内的静态写死阵营
 - 这个文件只描述块位置、高度、入口/出口 block 集合和场地区域事实，不直接定义 topo 任务、staging 点、坡道边和导航代价
 - `rc26_xhu_nav` 会在离线生成阶段读取这里的几何，再叠加自己的 topo overlay 产出运行时 `graph_file`
 
