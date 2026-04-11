@@ -42,6 +42,7 @@
   - `WheelOdom` 从这条链路接收 `ODOM_DATA`
   - `PoseSender` 同时在这条链路上按 `50Hz` 下发 `POSE_FEEDBACK(0x1E)`
   - 这条链路不承载 `rc26_mechanism` 或 teleop 的 transport 命令
+  - 当现场只有目标 MCU 下发串口时，这个参数现在允许显式置为 `__disabled__`，节点会跳过 WheelOdom / POSE_FEEDBACK 并进入目标串口单链路降级模式
 - `target_serial_port`，当前默认 `/dev/ttyUSB1`
   - `PoseSender` 复用这条链路下发 `POSE_TARGET(0x1F)`
   - `MechanismTransportBridge` 继续作为共享桥接接口，供 `rc26_mechanism` 与 teleop 前置履带按钮节点复用同一串口
@@ -122,6 +123,9 @@
   - `imu`：EKF 融合 IMU
   - `no-imu`：EKF 不融合 IMU，但仍继续读取 IMU 供执行保护链使用
   - `wheel-only`：不启动也不读取 IMU，EKF 只基于 `wheel_odom` 输出最终 `merge_odom`
+- `launch/merge_odom.launch.py` 现在会在运行时先规范化 EKF 参数里的科学计数法数值，避免 `wheel-only` / `no-imu` 这类会启用 EKF 的 teleop 路径因 `initial_estimate_covariance` 数组里混入字符串而在 launch 阶段直接报错。
+- `merge_odom_node` 现在接受 `feedback_serial_port:=__disabled__` 的降级输入；如果没有独立反馈串口，会跳过 WheelOdom，但继续保留 `POSE_TARGET` 和 `/mechanism/transport/*` 的目标串口链路。
 - 仓库根目录的 `start_r2_teleop.sh` 现在还支持 `--stack full|minimal-mcu`：默认 `full` 走完整遥控链，`minimal-mcu` 只拉起 `pose_sender_node + joy_node + rc26_telecontrol` 的最小串口链。
+- `start_r2_teleop.sh` 在 `full` 栈下也会自动兼容“只有一个目标串口”的场景：当默认 `target_serial_port=/dev/ttyUSB1` 不存在且 `/dev/ttyUSB0` 存在时，会自动把目标串口切到 `/dev/ttyUSB0`，并把反馈串口降级为 `__disabled__`。
 - `start_r2_mcu_teleop.sh` 现在保留为兼容入口，实际等价于 `start_r2_teleop.sh --stack minimal-mcu`；当反馈串口缺失、和目标串口重复，或调用者显式传 `__disabled__` 时，`PoseSenderNode` 会跳过反馈串口初始化，只保留目标串口下发。
 - 遥控链通过 `start_r2_teleop.sh` 启动时，不再需要额外传地形限速相关参数；teleop 模式天然不会受 terrain 限速影响，同时会自动把前置履带直连 transport 的按钮节点一起拉起，不再默认拉起 `rc26_mechanism`。

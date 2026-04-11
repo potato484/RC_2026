@@ -117,8 +117,9 @@
 - 仓库根目录的 `start_r2_teleop.sh` 现已显式向 `rc26_merge_odom` 和 `rc26_telecontrol` 传入 `chassis_model:=tracked_diff`，遥控联调不再依赖各包内部默认值。
 - `start_r2_teleop.sh` 不再默认拉起 `rc26_mechanism`；teleop 前置履带联调只依赖 `merge_odom` 持有目标串口并提供 transport service。
 - 仓库根目录的 `start_r2_teleop.sh` 现在通过 `--stack full|minimal-mcu` 统一承载完整遥控链和最小串口链；`start_r2_mcu_teleop.sh` 保留为兼容包装器，等价于 `start_r2_teleop.sh --stack minimal-mcu`。
+- `start_r2_teleop.sh` 现在在 `full` 栈下也会自动兼容“只接了一个目标 MCU 下发串口”的现场：若默认 `/dev/ttyUSB1` 不存在但 `/dev/ttyUSB0` 存在，脚本会自动把目标串口切到 `/dev/ttyUSB0`，并把反馈串口降级为 `__disabled__`。
 - `start_r2_teleop.sh` 现支持 `--pose-mode imu|no-imu|wheel-only`：
   - `imu`：EKF 融合 `DM_IMU`
   - `no-imu`：EKF 不融合 IMU，但 `dm_imu_node` 与执行保护链仍保留
-  - `wheel-only`：不启动也不读取 IMU，只用 `wheel_odom` 做最终 `merge_odom` 融合
+  - `wheel-only`：不启动也不读取 IMU；若反馈串口可用，则只用 `wheel_odom` 做最终 `merge_odom` 融合；若现场只有目标串口，则退化为“只保留目标串口下发 + 前置履带 transport”的单链路模式
 - `terrain_speed_limit` 运行时链路已从系统中删除；teleop 链不再需要额外关闭地形限速，也不存在重新接回该链路的脚本入口。

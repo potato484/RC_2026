@@ -325,6 +325,20 @@ fi
 
 feedback_port_notice=""
 if [[ "${stack_mode}" == "full" ]]; then
+  if [[ -z "${target_serial_port}" ]]; then
+    echo "Target serial port must not be empty." >&2
+    exit 1
+  fi
+
+  if [[ "${target_serial_port}" == "/dev/ttyUSB1" && ! -e "${target_serial_port}" && -e "/dev/ttyUSB0" ]]; then
+    target_serial_port="/dev/ttyUSB0"
+  fi
+
+  if [[ -z "${feedback_serial_port}" || "${feedback_serial_port}" == "${target_serial_port}" || ! -e "${feedback_serial_port}" ]]; then
+    feedback_serial_port="__disabled__"
+    feedback_port_notice="feedback serial disabled for this run"
+  fi
+
   merge_odom_cmd=(
     ros2 launch rc26_merge_odom merge_odom.launch.py
     "use_can_odom:=${use_can_odom}"
@@ -385,6 +399,9 @@ if [[ "${dry_run}" == "true" ]]; then
     fi
     echo "Feedback serial: ${feedback_serial_port}"
     echo "Target serial: ${target_serial_port}"
+    if [[ -n "${feedback_port_notice}" ]]; then
+      echo "Notice: ${feedback_port_notice}"
+    fi
     echo "IMU input: $([[ "${start_imu}" == "true" ]] && echo enabled || echo disabled)"
     print_cmd source "${setup_file}"
     print_cmd "${merge_odom_cmd[@]}"
@@ -422,6 +439,9 @@ echo "Angular speed limit: ${v_angular} rad/s"
 if [[ "${stack_mode}" == "full" ]]; then
   echo "Feedback serial: ${feedback_serial_port}"
   echo "Target serial: ${target_serial_port}"
+  if [[ -n "${feedback_port_notice}" ]]; then
+    echo "Notice: ${feedback_port_notice}"
+  fi
   echo "IMU input: $([[ "${start_imu}" == "true" ]] && echo enabled || echo disabled)"
 else
   echo "Feedback serial: ${feedback_serial_port}"

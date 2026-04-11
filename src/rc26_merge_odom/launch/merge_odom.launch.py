@@ -3,12 +3,18 @@
 # 启动: 融合里程计节点(可选CAN/Wheel) + 达妙IMU节点 + (可选)EKF融合节点
 
 import os
+import re
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 import yaml
+
+
+SCIENTIFIC_NOTATION_PATTERN = re.compile(
+    r'^[+-]?(?:\d+(?:\.\d*)?|\.\d+)[eE][+-]?\d+$'
+)
 
 
 def parse_launch_bool(value):
@@ -20,6 +26,24 @@ def drop_sensor_parameters(parameters, base_name):
         key: value for key, value in parameters.items()
         if key != base_name and not key.startswith(f'{base_name}_')
     }
+
+
+def normalize_launch_parameter_scalars(value):
+    if isinstance(value, dict):
+        return {
+            key: normalize_launch_parameter_scalars(subvalue)
+            for key, subvalue in value.items()
+        }
+
+    if isinstance(value, list):
+        return [normalize_launch_parameter_scalars(item) for item in value]
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        if SCIENTIFIC_NOTATION_PATTERN.fullmatch(stripped):
+            return float(stripped)
+
+    return value
 
 
 def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, wheel_odom_topic,
@@ -75,7 +99,9 @@ def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, 
     if start_ekf:
         with open(ekf_params_file, 'r', encoding='utf-8') as f:
             ekf_yaml = yaml.safe_load(f) or {}
-        ekf_parameters = dict(((ekf_yaml.get('ekf_filter_node') or {}).get('ros__parameters') or {}))
+        ekf_parameters = normalize_launch_parameter_scalars(
+            dict(((ekf_yaml.get('ekf_filter_node') or {}).get('ros__parameters') or {}))
+        )
         ekf_parameters['odom0'] = odom0_topic_override
         if not effective_use_imu_for_ekf:
             ekf_parameters = drop_sensor_parameters(ekf_parameters, 'imu0')
