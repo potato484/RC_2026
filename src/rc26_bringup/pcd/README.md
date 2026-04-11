@@ -46,7 +46,7 @@ ros2 launch rc26_bringup bringup.launch.py \
 - 该模式仍会保留建图必需的 Point-LIO、`odom_interface` 与 `map -> odom` 静态变换；
 - 该模式会额外跳过 `lio_state_predictor`，避免在高密建图时因上游延迟产生持续 stale 告警；
 - `odometry.launch.py` 默认还会强制 `odometry.publish_odometry_without_downsample:=false`，避免 `state_estimation` 比 `cloud_registered` 超前过多而触发丢云；
-- `src/rc26_xhu_viewer` 已删除，当前 bringup 默认就是 headless，不再内置 GUI / 状态聚合子树。
+- 当前 bringup / odometry 链路默认就是 headless；如需检查累计地图，可手工运行 `rviz2 -d /home/potato/RC_2026/src/rc26_bringup/rviz/slam.rviz` 只读观察现有 topic。
 
 建图完成后：
 

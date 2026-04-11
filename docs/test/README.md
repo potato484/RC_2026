@@ -1,8 +1,6 @@
 # 测试脚本入口
 
-本目录当前主要收口 `merlin-bt-visualizer` 的测试和打包脚本。
-
-`src/rc26_xhu_viewer` 删除后，旧的 viewer preflight / E2E / release 入口已移除。
+本目录当前只收口 `merlin-bt-visualizer` 的测试和打包脚本。
 
 当前推荐入口是：
 
@@ -13,7 +11,7 @@
 ## 当前范围
 
 - `merlin_bt_visualizer/`：行为树工作台的本地预演、E2E 与 release 打包
-- `e2e/`、`preflight/`、`release/` 下只保留被删除 viewer 链路的历史说明
+- ROS2 运行时包的验收说明继续写在各包 README、launch 文档和 `src/` 子目录里，不再由 `docs/test/` 维护第二套 viewer 历史入口
 
 ## 文档索引
 

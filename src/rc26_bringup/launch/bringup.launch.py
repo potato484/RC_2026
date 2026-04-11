@@ -12,9 +12,9 @@ src R2导航系统 - 主启动文件
 额外模式:
   - slam:=true 且 pure_mapping_mode:=true 时，保留纯建图最小运动链路
 
-默认可视化口径:
-  - visualization_profile:=headless
-  - 不再装配 src/rc26_xhu_viewer 相关 GUI / 状态聚合
+默认装配口径:
+  - 车端 bringup 维持 headless
+  - 如需图形观察，请手工启动工作区外部可视化工具只读消费 ROS2 输出
 """
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -47,11 +47,6 @@ def generate_launch_description():
     terrain_grid_map_params_file = LaunchConfiguration('terrain_grid_map_params_file')
     terrain_filter_chain_params_file = LaunchConfiguration('terrain_filter_chain_params_file')
     enable_terrain_grid_map = LaunchConfiguration('enable_terrain_grid_map')
-    use_rviz = LaunchConfiguration('use_rviz')
-    visualization_profile = LaunchConfiguration('visualization_profile')
-    visualization_backend = LaunchConfiguration('visualization_backend')
-    visualization_layout = LaunchConfiguration('visualization_layout')
-    visualization_status_enable = LaunchConfiguration('visualization_status_enable')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     use_decision = LaunchConfiguration('use_decision')
     use_realsense = LaunchConfiguration('use_realsense')
@@ -127,31 +122,6 @@ def generate_launch_description():
         default_value='false',
         description='是否额外启用 terrain_semantic + terrain_grid_map_bridge；可在 pure_mapping_mode 或独立建图时打开 2.5D 栅格地图显示')
 
-    declare_use_rviz = DeclareLaunchArgument(
-        'use_rviz',
-        default_value='false',
-        description='兼容参数；src/rc26_xhu_viewer 已删除，当前固定为 headless')
-
-    declare_visualization_profile = DeclareLaunchArgument(
-        'visualization_profile',
-        default_value='headless',
-        description='兼容参数；src/rc26_xhu_viewer 已删除，当前仅支持 headless')
-
-    declare_visualization_backend = DeclareLaunchArgument(
-        'visualization_backend',
-        default_value='none',
-        description='兼容参数；src/rc26_xhu_viewer 已删除，当前固定为 none')
-
-    declare_visualization_layout = DeclareLaunchArgument(
-        'visualization_layout',
-        default_value='',
-        description='兼容参数；src/rc26_xhu_viewer 已删除，当前为 no-op')
-
-    declare_visualization_status_enable = DeclareLaunchArgument(
-        'visualization_status_enable',
-        default_value='false',
-        description='兼容参数；rc26_xhu_viewer_status 已删除，当前为 no-op')
-
     declare_recover_mid360_stream = DeclareLaunchArgument(
         'recover_mid360_stream',
         default_value='false',
@@ -225,8 +195,6 @@ def generate_launch_description():
         "not ('", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true') "
         "or '", enable_terrain_grid_map, "'.lower() == 'true'"
     ])
-    resolved_visualization_backend = PythonExpression(["'none'"])
-
     # RealSense D455（可选）
     realsense_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -263,7 +231,6 @@ def generate_launch_description():
                 " or ('", point_lio_profile, "'.lower() == 'race_profile'))"
             ]),
             'enable_terrain_grid_map': 'false',
-            'odometry_use_rviz': 'false',
             'recover_mid360_stream': recover_mid360_stream,
         }.items()
     )
@@ -459,26 +426,6 @@ def generate_launch_description():
         ]))
     )
 
-    visualization_profile_notice = LogInfo(
-        msg=[
-            '[bringup] src/rc26_xhu_viewer 已移除；当前固定 headless。requested profile:=',
-            visualization_profile,
-            ', backend:=', visualization_backend,
-            ', layout:=', visualization_layout,
-            ', status_enable:=', visualization_status_enable,
-            ', use_rviz:=', use_rviz,
-        ]
-    )
-
-    visualization_deprecation_notice = LogInfo(
-        msg='[bringup] visualization_profile/backend/layout/status_enable/use_rviz 仅保留兼容参数；当前工作区已不再内置 xhu viewer / rviz2 / status 子树。',
-        condition=IfCondition(PythonExpression([
-            "'", visualization_profile, "' != 'headless' or ('", visualization_backend, "' not in ['', 'none']) or '",
-            visualization_layout, "' != '' or '", visualization_status_enable, "' == 'true' or '", use_rviz,
-            "' == 'true'"
-        ]))
-    )
-
     return LaunchDescription([
         # 参数声明
         declare_namespace,
@@ -492,11 +439,6 @@ def generate_launch_description():
         declare_terrain_grid_map_params_file,
         declare_terrain_filter_chain_params_file,
         declare_enable_terrain_grid_map,
-        declare_use_rviz,
-        declare_visualization_profile,
-        declare_visualization_backend,
-        declare_visualization_layout,
-        declare_visualization_status_enable,
         declare_chassis_model,
         declare_recover_mid360_stream,
         declare_use_decision,
@@ -525,6 +467,4 @@ def generate_launch_description():
         topo_nav_node,
         decision_node,
         realsense_group,
-        visualization_profile_notice,
-        visualization_deprecation_notice,
     ])

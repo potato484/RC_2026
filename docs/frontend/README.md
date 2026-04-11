@@ -4,8 +4,6 @@
 
 - `merlin-bt-visualizer`
 
-`src/rc26_xhu_viewer/rviz2/viewer` 已于 2026-04-10 随 `src/rc26_xhu_viewer/` 删除；当前文档只保留行为树工具链说明。
-
 ## 当前前端入口
 
 - `merlin-bt-visualizer`
@@ -15,7 +13,7 @@
 
 - `merlin-bt-visualizer` 是行为树本地工作台
 - 它不直接拥有 ROS2 运行时控制权
-- 旧 `src/rc26_xhu_viewer` 删除后的边界变化，已经归档到本页和 `overview/README.md`、`boundaries/README.md`，不再单独维护历史变更入口
+- 它也不承载机器人在线可视化或诊断聚合后端
 
 ## 推荐阅读
 

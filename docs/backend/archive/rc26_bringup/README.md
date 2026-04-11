@@ -4,29 +4,19 @@
 
 `rc26_bringup` 是 R2 整车链路的统一装配入口，负责决定哪些运行时包被拉起，但不拥有这些包内部算法真源。
 
-## 当前可视化装配口径
+## 当前装配口径
 
-`bringup.launch.py` 现在固定按 headless 口径装配：
+`bringup.launch.py` 与 `odometry.launch.py` 现在都固定按 headless 口径装配，不再声明或透传任何 viewer / RViz / Foxglove 兼容参数。
 
-- `visualization_profile:=headless`
+- `bringup.launch.py`
+  - 装配 Point-LIO、里程计接口、定位、terrain、keepout、`rc26_xhu_nav` 和决策
+- `odometry.launch.py`
+  - 装配 Point-LIO、`rc26_odom_interface`、`rc26_sensor_scan`，并可按 `enable_terrain_grid_map` 额外带起 terrain grid map
 
-其中：
+如需图形观察，应手工启动工作区外部可视化工具只读消费当前 ROS2 输出。仓库内仍保留两个可复用的 RViz 预设：
 
-- `headless`：车端默认口径；不启动 GUI，也不再装配 `rc26_xhu_viewer_status_node`
-
-以下参数为了兼容旧脚本仍然保留，但已经退化成 no-op：
-
-- `visualization_backend:=none`
-- `visualization_layout:=*`
-- `visualization_status_enable:=*`
-- `use_rviz:=true | false`
-
-旧里程计调试入口 `launch/odometry.launch.py` 也已对齐：
-
-- `odometry_use_rviz` 与 `odometry_visualization_layout` 只保留兼容参数
-- 当前始终只保留 headless 里程计链
-
-Foxglove 和已删除的 `src/rc26_xhu_viewer` 子树都不再是 bringup 的主链路后端。
+- `src/rc26_bringup/rviz/slam.rviz`
+- `src/rc26_bringup/rviz/navigation_default.rviz`
 
 ## 当前关键文件
 
@@ -44,12 +34,12 @@ Foxglove 和已删除的 `src/rc26_xhu_viewer` 子树都不再是 bringup 的主
 - 当前工作区默认不再装配第一方 GUI 或操作员聚合包
 - 如需可视化，应由工作区外部工具只读消费现有 ROS2 输出
 
-## 当前真实变化
+## 本轮收口
 
-- bringup 默认口径仍是 `visualization_profile:=headless`
-- `src/rc26_xhu_viewer/` 已整体删除，不再作为 bringup 依赖
+- `bringup.launch.py` 删除了 `visualization_profile`、`visualization_backend`、`visualization_layout`、`visualization_status_enable` 和 `use_rviz`
+- `odometry.launch.py` 删除了 `odometry_use_rviz` 与 `odometry_visualization_layout`
+- `test_odometry_chain.launch.py` 不再透传任何可视化兼容参数
+- 仓库内不再维护 `src/rc26_bringup/foxglove/*.json` 旧资产
 - 3D 导航装配已经收口到 `rc26_xhu_nav`，当前固定装配 `topo_nav_node + xhu_motion_mode_manager_node + xhu_motion_runtime_node`
 - `team`、topo graph、robot geometry、local planner/runtime 配置都由 bringup 统一装配给 `rc26_xhu_nav`
 - `local_execution_backend` 与 `enable_local_3d_planner_observe` 已从主启动入口移除，不再保留 follower / observe-only planner 切换
-- `visualization_profile/backend/layout/status_enable/use_rviz` 仅保留兼容参数
-- `odometry.launch.py` 已同步收口为 headless

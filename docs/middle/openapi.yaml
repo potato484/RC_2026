@@ -47,13 +47,6 @@ x-modules:
       - /xhu_nav/recovery_state
     services:
       - set_xhu_motion_mode
-  - name: diagnostics
-    file: docs/middle/modules/diagnostics.yaml
-    topics:
-      - r2/xhu_viewer/operator_status
-      - r2/xhu_viewer/events
-    services:
-      - r2/xhu_viewer/reset_topic_timeout_count
   - name: vision
     file: docs/middle/modules/vision.yaml
     topics:

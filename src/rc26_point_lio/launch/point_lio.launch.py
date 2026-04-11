@@ -3,7 +3,6 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
-from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 
@@ -73,7 +72,6 @@ def generate_launch_description():
     remappings = [("/tf", "tf"), ("/tf_static", "tf_static")]
 
     namespace = LaunchConfiguration("namespace")
-    use_rviz = LaunchConfiguration("rviz")
     point_lio_cfg_dir = LaunchConfiguration("point_lio_cfg_dir")
     point_lio_profile = LaunchConfiguration("point_lio_profile")
 
@@ -83,12 +81,6 @@ def generate_launch_description():
         "namespace",
         default_value="",
         description="Namespace for the node",
-    )
-
-    declare_rviz = DeclareLaunchArgument(
-        "rviz",
-        default_value="false",
-        description="兼容参数；仓库内可视化子树已删除，此入口固定为 headless。",
     )
 
     declare_point_lio_cfg_dir = DeclareLaunchArgument(
@@ -113,21 +105,11 @@ def generate_launch_description():
         )
     )
 
-    rviz_deprecation_notice = LogInfo(
-        condition=IfCondition(use_rviz),
-        msg=(
-            "[point_lio.launch] rviz:=true 已失效；该入口已改为纯 headless。"
-            " 如需调试可视化，请改用工作区外部工具只读消费当前 ROS2 输出。"
-        ),
-    )
-
     ld = LaunchDescription()
 
     ld.add_action(declare_namespace)
-    ld.add_action(declare_rviz)
     ld.add_action(declare_point_lio_cfg_dir)
     ld.add_action(declare_point_lio_profile)
     ld.add_action(start_point_lio_node)
-    ld.add_action(rviz_deprecation_notice)
 
     return ld

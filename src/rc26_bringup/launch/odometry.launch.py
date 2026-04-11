@@ -133,8 +133,6 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
     slam = LaunchConfiguration('slam')
-    odometry_use_rviz = LaunchConfiguration('odometry_use_rviz')
-    odometry_visualization_layout = LaunchConfiguration('odometry_visualization_layout')
     start_mid360_driver = LaunchConfiguration('start_mid360_driver')
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
     point_lio_profile = LaunchConfiguration('point_lio_profile')
@@ -171,16 +169,6 @@ def generate_launch_description():
         'slam',
         default_value='false',
         description='是否处于建图模式（用于 auto 选择 Point-LIO profile）')
-
-    declare_use_rviz = DeclareLaunchArgument(
-        'odometry_use_rviz',
-        default_value='false',
-        description='兼容参数；src/rc26_xhu_viewer 已删除，当前固定为 headless')
-
-    declare_odometry_visualization_layout = DeclareLaunchArgument(
-        'odometry_visualization_layout',
-        default_value='diagnostic',
-        description='兼容参数；src/rc26_xhu_viewer 已删除，当前为 no-op')
 
     declare_start_mid360_driver = DeclareLaunchArgument(
         'start_mid360_driver',
@@ -413,14 +401,6 @@ def generate_launch_description():
         arguments=['--x', '0', '--y', '0', '--z', '0.13', '--roll', '0', '--pitch', '0', '--yaw', '0', '--frame-id', 'base_link_control', '--child-frame-id', 'livox_frame_control'],
     )
 
-    odometry_visualization_notice = LogInfo(
-        msg=[
-            '[odometry] src/rc26_xhu_viewer 已移除；odometry_use_rviz 和 odometry_visualization_layout 仅保留兼容参数，当前固定 headless。requested layout:=',
-            odometry_visualization_layout,
-        ],
-        condition=IfCondition(odometry_use_rviz)
-    )
-
     terrain_grid_map_notice = LogInfo(
         msg='[odometry] enable_terrain_grid_map=true：额外启动 rc26_terrain 与 terrain_grid_map_bridge，用于发布 /terrain_grid_map 2.5D 栅格地图。',
         condition=IfCondition(enable_terrain_grid_map)
@@ -432,8 +412,6 @@ def generate_launch_description():
         declare_use_sim_time,
         declare_prior_pcd_file,
         declare_slam,
-        declare_use_rviz,
-        declare_odometry_visualization_layout,
         declare_start_mid360_driver,
         declare_point_lio_config_file,
         declare_point_lio_profile,
@@ -463,5 +441,4 @@ def generate_launch_description():
         lio_state_predictor_node,
         terrain_semantic_node,
         terrain_grid_map_bridge_node,
-        odometry_visualization_notice,
     ])

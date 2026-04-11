@@ -165,8 +165,8 @@ ros2 topic echo /cmd_vel
 
 说明：
 
-- `src/rc26_xhu_viewer` 已删除，`visualization_backend`/`use_rviz` 不再启动仓库内 GUI；
-- 如需可视化，请改用工作区外部工具只读消费现有 topic。
+- `rc26_bringup` 当前保持 headless，不再通过 launch 参数拉起仓库内 GUI
+- 如需可视化，请改用工作区外部工具只读消费现有 topic，例如手工运行 `rviz2 -d /home/potato/RC_2026/src/rc26_bringup/rviz/navigation_default.rviz`
 
 如需手动切模式：
 

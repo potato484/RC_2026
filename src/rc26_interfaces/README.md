@@ -38,14 +38,16 @@
   - `TerrainFeatureGrid.msg`
   - `TipDetection.msg`
   - `TipDetectionArray.msg`
-- 可视化与诊断:
-  - `OperatorStatus.msg`
-  - `VisualizationEvent.msg`
-  - `VisualizationEventArray.msg`
 
 ## 当前清理状态
 
 旧兼容导航契约已从接口清单中移除，当前只保留 topo/xhu 主链与决策运行时实际使用的消息、服务和动作。
+
+随 `src/rc26_xhu_viewer` 一起退役的诊断可视化消息也已从接口生成清单中移除：
+
+- `OperatorStatus.msg`
+- `VisualizationEvent.msg`
+- `VisualizationEventArray.msg`
 
 ## 维护原则
 

@@ -13,8 +13,8 @@
 
 ## 当前边界事实
 
-- `src/rc26_xhu_viewer` 已删除，不再存在仓库内 Web 可视化主链
-- `src/rc26_bringup/foxglove/*.json` 只是历史模板资产，不是当前前端主链
+- 当前仓库内没有受维护的机器人运行时前端或 viewer 模块
+- 如需图形化观测，应使用工作区外部工具只读消费 ROS2 输出
 - 当前前端边界只覆盖 `merlin-bt-visualizer`
 
 ## 维护时必须保持的事实

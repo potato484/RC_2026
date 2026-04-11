@@ -68,3 +68,12 @@
 - `SurfaceGraphOverlay.msg` 当前用于把离散 blocked `node_id / edge_id` 和 TTL 传给 `rc26_xhu_nav`，它只表达 runtime 动态阻塞输入，不改变 `NavigateSurfaceRoute` action 形态
 - 新增的 local planner / semantic summary 消息只补充执行链内部状态，不改变 `NavigateTopoTarget` 或 `NavigateSurfaceRoute` 的 action 外形
 - 接口是否存在以 [src/rc26_interfaces/CMakeLists.txt](/home/potato/RC_2026/src/rc26_interfaces/CMakeLists.txt) 为准
+
+## 本轮收口
+
+- 随 `src/rc26_xhu_viewer` 一起退役的诊断接口已从 `rc26_interfaces` 移除：
+  - `OperatorStatus.msg`
+  - `VisualizationEvent.msg`
+  - `VisualizationEventArray.msg`
+- `docs/middle/openapi.yaml` 不再维护 `diagnostics` 模块索引
+- 当前 `docs/middle` 里仍保留的模块索引只覆盖行为树、定位、导航、视觉、机构与流媒体这些真实接口
