@@ -96,7 +96,7 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - **规则**：控制器包可以依赖导航状态、定位健康、地形输入、控制参数。
 - **规则**：控制器包不得吸纳比赛阶段语义、前端需求或临时策略分支。
 - **规则**：任何带有“梅林阶段时这样做”“武馆阶段时那样做”的逻辑，如果不是纯控制保护，大概率应放在决策层而不是控制器层。
-- **补充口径**：允许把可复用的局部轨迹评分/采样 core 独立成控制层库包，例如 `rc26_local_3d_planner`，再由执行器宿主包按需复用；但 `cmd_vel` 权威仍必须由单个运行时执行器节点持有。
+- **补充口径**：允许在导航实现宿主包内部保留可复用的 local planner core，例如 `rc26_xhu_nav` 的 local planner 模块，再由 runtime executor 复用；但 `cmd_vel` 权威仍必须由单个运行时执行器节点持有。
 
 ### 3.5 状态估计与感知包负责产出状态，不负责操作员策略
 
@@ -120,7 +120,7 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - **规则**：新增 launch 参数必须显式声明、命名清晰、传递路径清楚。
 - **规则**：参数文件归包所有，不归 `bringup` 统一托管其内部细节。
 - **规则**：`bringup` 只负责选择加载哪个参数文件，不应长期成为所有内部调参逻辑的宿主。
-- **补充口径**：像 `local_execution_backend` 这类“装配期后端选择”参数可以归 `bringup`；而局部规划/执行内部阈值仍应归 `rc26_local_3d_planner` 或 `rc26_omni_controller` 自己的配置文件所有。
+- **补充口径**：像 `graph_file`、`team` 这类装配期选择参数可以归 `bringup`；而局部规划/执行内部阈值仍应归 `rc26_xhu_nav` 自己的配置文件所有。
 
 ### 3.9 BT blackboard 必须契约化
 
@@ -148,14 +148,14 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 
 - **规则**：像 MF 主区 block 几何、入口/出口 block 集合这类会同时被 keepout、topo graph 等多个包消费的场地事实，必须只有一个文档化配置真源。
 - **当前口径**：`src/rc26_kfs_keepout/config/r2_mf_world.yaml` 是当前 MF 主区共享几何真源。
-- **规则**：`rc26_topo_nav` 可以基于这个真源离线生成 `graph_file`，但运行时仍应加载静态 topo YAML，不应在节点启动流程里临时发明另一套动态建图逻辑。
-- **规则**：无法从共享几何稳定推导出的 topo 语义，例如 staging 点、坡道边、任务路由、手工调过的 node/edge cost，必须明确留在 `rc26_topo_nav` 自己的 overlay 或文档里，而不是偷偷塞回底层几何文件。
+- **规则**：`rc26_xhu_nav` 可以基于这个真源离线生成 `graph_file`，但运行时仍应加载静态 topo YAML，不应在节点启动流程里临时发明另一套动态建图逻辑。
+- **规则**：无法从共享几何稳定推导出的 topo 语义，例如 staging 点、坡道边、任务路由、手工调过的 node/edge cost，必须明确留在 `rc26_xhu_nav` 自己的 overlay 或文档里，而不是偷偷塞回底层几何文件。
 
 ### 3.13 同一时刻只能有一个局部执行命令权威
 
 - **规则**：如果系统同时存在 observe-only planner、legacy follower 和新 runtime executor，必须在 launch 装配层保证任一时刻只有一个节点发布运动命令。
 - **规则**：observe-only 节点可以发布 preview、planner state、recovery state，但不得在旁路上直接输出 `cmd_vel`。
-- **规则**：`rc26_topo_nav` 仍然只拥有 corridor 表达权，不因为新增 local planner 就越权成为速度命令权威。
+- **规则**：`rc26_xhu_nav` 必须在包内继续保持“corridor 表达”和“速度命令权威”分离，不能因为收口到单包就把二者写成不可分辨的同层逻辑。
 
 ## 4. ROS2 工作区 Fitness Function
 
@@ -351,3 +351,28 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - `rc26_localization` 仍保有定位权威
 - `rc26_omni_controller` / `xhu_motion_follower` 仍保有 corridor 跟踪权威
 - 动态障碍预测、机构状态机和局部避障仍未被吞进 `rc26_topo_nav`
+
+### 7.5 rc26_xhu_nav 单包收口（2026-04-10）
+
+**变更类型**：架构级 - 将 3D 导航实现从多包收口到单一宿主包
+
+**变更原因**：
+- 当前 3D 导航实现已经稳定演化为 topo graph、body-aware surface planner、local planner、mode manager、runtime executor 的一组强耦合能力
+- 继续分散在多个实现包中，会放大路径迁移、配置查找、测试组织和文档同步成本
+
+**变更范围**：
+- 新增 `rc26_xhu_nav` 包，统一承载 topo/body/local/mode/runtime 五类实现
+- 删除 `src/rc26_topo_nav`、`src/rc26_surface_body_planner`、`src/rc26_local_3d_planner`、`src/rc26_nav_mode_manager`、`src/rc26_omni_controller`
+- `rc26_bringup` 改为只装配 `topo_nav_node`、`xhu_motion_mode_manager_node`、`xhu_motion_runtime_node`
+- 删除 legacy `xhu_motion_follower_node` 与 observe-only `local_3d_planner_node`
+
+**落地方式**：
+- 外部 ROS 契约保持不变：`navigate_topo_target`、`navigate_surface_route`、`set_xhu_motion_mode`、`/xhu_nav/*`、`cmd_vel`
+- 旧的跨包边界收口为 `rc26_xhu_nav` 包内模块边界，但 `topo`、`mode_manager`、`runtime` 的运行时职责仍保持分离
+- `docs/backend/archive/` 中原先分别描述旧导航实现包的独立 README 已删除，当前文档入口统一收口到 `rc26_xhu_nav`
+
+**不变的边界**：
+- `rc26_interfaces` 仍是接口真源
+- `rc26_bringup` 仍只负责装配
+- `rc26_terrain`、`rc26_base_ground`、`rc26_kfs_keepout`、`rc26_localization` 仍是外部状态真源
+- `cmd_vel` 的唯一权威仍是 `xhu_motion_runtime_node`
