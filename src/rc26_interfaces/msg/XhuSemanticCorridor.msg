@@ -1,4 +1,4 @@
-# Corridor contract from rc26_topo_nav to xhu_motion_follower
+# Corridor contract from rc26_xhu_nav topology module to xhu_motion_runtime
 std_msgs/Header header
 string corridor_id
 string edge_id

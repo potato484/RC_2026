@@ -26,7 +26,7 @@
   - `blocked_cells / slow_cells`
   - `max_obstacle_probability / max_drop_probability`
   - `active_sources / active_reasons / revision`
-- 这条摘要 topic 采用 transient-local QoS，主要服务 `rc26_local_3d_planner` 和 `xhu_motion_runtime_node` 的快速状态判断，不替代原始 `terrain_features` 栅格真源。
+- 这条摘要 topic 采用 transient-local QoS，主要服务 `rc26_xhu_nav` 内的 local planner / runtime 执行链快速状态判断，不替代原始 `terrain_features` 栅格真源。
 
 ## 当前边界
 

@@ -35,7 +35,7 @@
 - `XhuLocalPlannerState` 用于暴露局部规划打分结果、建议速度和 observe-only/runtime 状态。
 - `XhuRecoveryState` 用于暴露局部恢复动作建议或运行中恢复状态。
 
-`NavigateSurfaceRoute.action` 的当前语义是：上游传入世界坐标系下的 `start_pose / goal_pose`，`rc26_topo_nav` 先把点击点投影到 dense `surface_graph`，产出 `projected_start_pose / projected_goal_pose / planned_path`，再按 surface segment 顺序执行。当前不负责“从机器人当前位置自动接驳到起点”，运行前提是机器人已经足够接近点击起点。
+`NavigateSurfaceRoute.action` 的当前语义是：上游传入世界坐标系下的 `start_pose / goal_pose`，`rc26_xhu_nav` 先把点击点投影到 dense `surface_graph`，产出 `projected_start_pose / projected_goal_pose / planned_path`，再按 surface segment 顺序执行。当前不负责“从机器人当前位置自动接驳到起点”，运行前提是机器人已经足够接近点击起点。
 
 `NavigateSurfaceRoute.result.failure_code` 当前已稳定为可区分的运行时契约，至少包含：
 
@@ -65,6 +65,6 @@
 ## 当前边界
 
 - 只定义消息、服务、动作
-- `SurfaceGraphOverlay.msg` 当前用于把离散 blocked `node_id / edge_id` 和 TTL 传给 `rc26_topo_nav`，它只表达 runtime 动态阻塞输入，不改变 `NavigateSurfaceRoute` action 形态
+- `SurfaceGraphOverlay.msg` 当前用于把离散 blocked `node_id / edge_id` 和 TTL 传给 `rc26_xhu_nav`，它只表达 runtime 动态阻塞输入，不改变 `NavigateSurfaceRoute` action 形态
 - 新增的 local planner / semantic summary 消息只补充执行链内部状态，不改变 `NavigateTopoTarget` 或 `NavigateSurfaceRoute` 的 action 外形
 - 接口是否存在以 [src/rc26_interfaces/CMakeLists.txt](/home/potato/RC_2026/src/rc26_interfaces/CMakeLists.txt) 为准

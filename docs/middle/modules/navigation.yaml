@@ -154,7 +154,7 @@ paths:
   /ros2/actions/navigate_topo_target:
     post:
       tags: [Action]
-      summary: 拓扑导航 action（rc26_topo_nav）
+      summary: 拓扑导航 action（rc26_xhu_nav）
       x-ros:
         interface_kind: action
         name: navigate_topo_target
@@ -175,7 +175,7 @@ paths:
   /ros2/actions/navigate_surface_route:
     post:
       tags: [Action]
-      summary: 任意点 3D 路线 action（rc26_topo_nav）
+      summary: 任意点 3D 路线 action（rc26_xhu_nav）
       x-ros:
         interface_kind: action
         name: navigate_surface_route
@@ -285,7 +285,7 @@ components:
           description: 目标阵营；空字符串或 `shared` 代表不区分阵营
         source:
           type: string
-          description: 动态 overlay 来源标识；`rc26_topo_nav` 以 `source + ttl` 维护版本
+          description: 动态 overlay 来源标识；`rc26_xhu_nav` 以 `source + ttl` 维护版本
         ttl:
           $ref: '#/components/schemas/Duration'
         blocked_node_ids:
@@ -704,7 +704,7 @@ components:
           format: float
         reason:
           type: string
-  # --- M3 新增 (rc26_local_3d_planner) ---
+  # --- M3 新增 (rc26_xhu_nav local planner) ---
   /ros2/topics/xhu_nav_local_candidates:
     get:
       tags: [Topic]

@@ -147,7 +147,7 @@ ros2 run tf2_tools view_frames
 
 ---
 
-### 6. 自研导航链测试 (rc26_topo_nav + rc26_nav_mode_manager + rc26_omni_controller)
+### 6. 自研导航链测试 (rc26_xhu_nav)
 
 **功能**: 验证 topo/xhu 走廊下发、模式切换和执行反馈链路
 
@@ -186,8 +186,8 @@ ros2 service call /set_xhu_motion_mode rc26_interfaces/srv/SetXhuMotionMode \
 | lio_state_predictor | `/control_state` | 约 200Hz 预测里程计 |
 | rc26_point_lio | `/degenerate_score` | 退化分数持续输出 |
 | localization | `/localization/pose_with_cov` + `/localization/diagnostics` + `/localization/health` + `/localization/backend_status` + `/localization/route_observability` | 持续发布且包含扩展字段 |
-| topo_nav/xhu | `/xhu_nav/motion_mode_state` + `/xhu_nav/tracking_state` | 模式与执行反馈持续更新 |
-| omni_controller | `/cmd_vel` | 速度指令由 `xhu_motion_follower` 输出 |
+| rc26_xhu_nav | `/xhu_nav/motion_mode_state` + `/xhu_nav/tracking_state` + `/xhu_nav/local_planner_state` | 模式、执行反馈和局部规划状态持续更新 |
+| rc26_xhu_nav runtime | `/cmd_vel` | 速度指令由 `xhu_motion_runtime_node` 输出 |
 
 ---
 

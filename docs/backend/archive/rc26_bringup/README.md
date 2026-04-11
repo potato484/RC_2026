@@ -34,8 +34,9 @@ Foxglove 和已删除的 `src/rc26_xhu_viewer` 子树都不再是 bringup 的主
 - [launch/odometry.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/odometry.launch.py)
 - `launch/localization.launch.py`
 - `config/localization.yaml`
-- `config/xhu_motion_follower.yaml`
-- `config/xhu_motion_runtime.yaml`
+- `rc26_xhu_nav/config/topo_nav.yaml`
+- `rc26_xhu_nav/config/local_3d_planner.yaml`
+- `rc26_xhu_nav/config/xhu_motion_runtime.yaml`
 
 ## 当前边界
 
@@ -47,5 +48,7 @@ Foxglove 和已删除的 `src/rc26_xhu_viewer` 子树都不再是 bringup 的主
 
 - bringup 默认口径仍是 `visualization_profile:=headless`
 - `src/rc26_xhu_viewer/` 已整体删除，不再作为 bringup 依赖
+- 3D 导航装配已经收口到 `rc26_xhu_nav`，当前固定装配 `topo_nav_node + xhu_motion_mode_manager_node + xhu_motion_runtime_node`
+- `local_execution_backend` 与 `enable_local_3d_planner_observe` 已从主启动入口移除，不再保留 follower / observe-only planner 切换
 - `visualization_profile/backend/layout/status_enable/use_rviz` 仅保留兼容参数
 - `odometry.launch.py` 已同步收口为 headless

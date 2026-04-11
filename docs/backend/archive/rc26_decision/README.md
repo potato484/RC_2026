@@ -24,9 +24,9 @@
 ## 当前导航调用口径
 
 - 只保留 topo/xhu 自研导航节点
-- MF 导航通过 `NavigateTopoTarget` action 对接 `rc26_topo_nav`
+- MF 导航通过 `NavigateTopoTarget` action 对接 `rc26_xhu_nav`
 - `main_tree.xml` 已作为唯一主树入口
-- 当前导航 BT 节点已经按 action feedback/result 口径消费 `rc26_topo_nav`，不再依赖局部规划器内部状态猜测执行进度
+- 当前导航 BT 节点已经按 action feedback/result 口径消费 `rc26_xhu_nav`，不再依赖局部规划器内部状态猜测执行进度
 - topo action feedback 当前会持续回写以下黑板键，供 Groot2 / 诊断观察：
   - `nav_last_exec_state`
   - `nav_last_active_node_id`
