@@ -8,6 +8,7 @@
 
 - 当前是 config-only 包：
   - [config/r2_body_geometry.yaml](/home/potato/RC_2026/src/rc26_robot_geometry/config/r2_body_geometry.yaml)
+  - YAML 已补充中文内联注释，直接说明 profile 字段的单位、运行时用途与约束关系，便于后续在不翻源码的前提下维护几何口径
 - 当前提供 `compact` profile，包含：
   - `body.half_length_m`
   - `body.half_width_m`
