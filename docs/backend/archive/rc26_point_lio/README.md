@@ -7,7 +7,7 @@
 ## 当前实现
 
 - 主可执行文件：`pointlio_mapping`
-- 启动文件：`launch/point_lio.launch.py`
+- 启动文件：`launch/point_lio.launch.py`（纯 headless Point-LIO 入口，不再声明 `rviz` 兼容参数）
 - 关键配置：
   - `config/mid360.yaml`
   - `config/mid360_mapping_save.yaml`
@@ -64,3 +64,4 @@
 - 它是里程计/建图包，不做全局先验地图重定位
 - 它不负责把传感器结果转换成下游统一里程计接口，那个职责在 `rc26_odom_interface`
 - 它也不负责控制和决策
+- 它的 `launch/point_lio.launch.py` 不再直接拉起任何 GUI；如需观察，请手工运行外部工具只读订阅当前 topic，常用预设可复用 `src/rc26_bringup/rviz/slam.rviz`

@@ -4,11 +4,11 @@
 
 ## 1. 编译模块
 
-首先需要编译对应的模块，建议直接使用当前 AidLux 环境下实测更快的默认构建参数：
+首先需要编译对应的模块，建议加上 `--parallel-workers 1` 限制编译核心：
 
 ```bash
 cd "${RC26_WS:-$HOME/RC_2026}"
-MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_odom_interface rc26_bringup --cmake-args -DCMAKE_BUILD_TYPE=Release
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_odom_interface rc26_bringup --cmake-args -DCMAKE_BUILD_TYPE=Release
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 

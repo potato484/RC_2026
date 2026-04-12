@@ -36,5 +36,5 @@
 - `shared_serial` 复用的是 `rc26_merge_odom` 已打开的 `target_serial_port`；`feedback_serial_port` 只属于底盘反馈链路，不是 mechanism 的物理通道。
 - 前置履带动作已从 `ExecuteMechanism` 中移除；遥控链当前直接调用 `/mechanism/transport/send_command` 连续下发 `0x0E / 0x0F`。
 - `Dpad 左/右` 当前会通过 `rc26_telecontrol_pushrod_dpad` 直接桥成 `0x10 / 0x11`，同样走 `/mechanism/transport/send_command`。
-- `./start_r2_teleop.sh --stack minimal-mcu` 以及兼容入口 `./start_r2_mcu_teleop.sh` 虽然不会启动 `merge_odom_node`，但 `pose_sender_node` 现在也会继续提供 `/mechanism/transport/*`；若要验证 shared_serial HAL，可使用 `full` 栈、`minimal-mcu` 栈或单独启动 `merge_odom.launch.py`。
+- 仓库根目录的 `start_r2_teleop.sh --stack minimal-mcu` 虽然不会启动 `merge_odom_node`，但 `pose_sender_node` 现在也会继续提供 `/mechanism/transport/*`；若要验证 shared_serial HAL，可使用 `full` 栈、`minimal-mcu` 栈或单独启动 `merge_odom.launch.py`。
 - 关于如何在开发或实车环境下通过命令行调试本模块，请参阅 `docs/debug_guide.md`。

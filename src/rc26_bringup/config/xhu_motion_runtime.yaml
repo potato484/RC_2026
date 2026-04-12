@@ -1,0 +1,15 @@
+xhu_motion_runtime:
+  ros__parameters:
+    odom_topic: "control_state"
+    map_frame: "map"
+    base_frame: "base_link"
+    control_frequency_hz: 20.0
+    goal_tolerance_xy: 0.15
+    goal_tolerance_yaw: 0.30
+    mode_state_timeout_sec: 1.0
+    local_planner_wait_timeout_sec: 2.0
+    local_planner_recovery_timeout_sec: 3.0
+    default_max_linear_accel: 0.60
+    default_max_angular_accel: 0.80
+    robot_geometry_file: ""
+    robot_geometry_profile: "compact"

@@ -85,6 +85,51 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/XhuTrackingState'
+  /ros2/topics/xhu_nav_semantic_layer_summary:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /xhu_nav/semantic_layer_summary 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: /xhu_nav/semantic_layer_summary
+        message_type: rc26_interfaces/msg/XhuSemanticLayerSummary
+      responses:
+        '200':
+          description: rc26_interfaces/msg/XhuSemanticLayerSummary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/XhuSemanticLayerSummary'
+  /ros2/topics/xhu_nav_local_planner_state:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /xhu_nav/local_planner_state 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: /xhu_nav/local_planner_state
+        message_type: rc26_interfaces/msg/XhuLocalPlannerState
+      responses:
+        '200':
+          description: rc26_interfaces/msg/XhuLocalPlannerState
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/XhuLocalPlannerState'
+  /ros2/topics/xhu_nav_recovery_state:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /xhu_nav/recovery_state 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: /xhu_nav/recovery_state
+        message_type: rc26_interfaces/msg/XhuRecoveryState
+      responses:
+        '200':
+          description: rc26_interfaces/msg/XhuRecoveryState
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/XhuRecoveryState'
   /ros2/services/set_xhu_motion_mode:
     post:
       tags: [Service]
@@ -109,7 +154,7 @@ paths:
   /ros2/actions/navigate_topo_target:
     post:
       tags: [Action]
-      summary: 拓扑导航 action（rc26_topo_nav）
+      summary: 拓扑导航 action（rc26_xhu_nav）
       x-ros:
         interface_kind: action
         name: navigate_topo_target
@@ -130,7 +175,7 @@ paths:
   /ros2/actions/navigate_surface_route:
     post:
       tags: [Action]
-      summary: 任意点 3D 路线 action（rc26_topo_nav）
+      summary: 任意点 3D 路线 action（rc26_xhu_nav）
       x-ros:
         interface_kind: action
         name: navigate_surface_route
@@ -240,7 +285,7 @@ components:
           description: 目标阵营；空字符串或 `shared` 代表不区分阵营
         source:
           type: string
-          description: 动态 overlay 来源标识；`rc26_topo_nav` 以 `source + ttl` 维护版本
+          description: 动态 overlay 来源标识；`rc26_xhu_nav` 以 `source + ttl` 维护版本
         ttl:
           $ref: '#/components/schemas/Duration'
         blocked_node_ids:
@@ -372,8 +417,8 @@ components:
           maximum: 12
         state:
           type: integer
-          enum: [0, 1, 2]
-          description: 0=FREE, 1=BLOCKED, 2=UNKNOWN
+          enum: [0, 1, 2, 3]
+          description: 0=FREE, 1=BLOCKED, 2=UNKNOWN, 3=SLOW
         confidence:
           type: number
           format: float
@@ -402,10 +447,14 @@ components:
         - motion_type
         - required_mode
         - path
+        - preferred_linear_speed
         - max_linear_speed
         - max_angular_speed
         - stop_at_end
         - allow_reverse
+        - allow_in_place_rotate
+        - speed_limit_reason
+        - active_risk_sources
       properties:
         header:
           $ref: '#/components/schemas/Header'
@@ -423,6 +472,9 @@ components:
           type: string
         path:
           $ref: '#/components/schemas/Path'
+        preferred_linear_speed:
+          type: number
+          format: float
         max_linear_speed:
           type: number
           format: float
@@ -433,6 +485,14 @@ components:
           type: boolean
         allow_reverse:
           type: boolean
+        allow_in_place_rotate:
+          type: boolean
+        speed_limit_reason:
+          type: string
+        active_risk_sources:
+          type: array
+          items:
+            type: string
     XhuMotionModeState:
       type: object
       required:
@@ -492,7 +552,7 @@ components:
           type: string
         status:
           type: string
-          description: PASS | HOLD | REPLAN | ABORT
+          description: PASS | HOLD | REPLAN | ABORT | WAITING_ON_BLOCK | LOCAL_COLLISION_BLOCKED | RECOVERY_RUNNING
         terminal:
           type: boolean
         cross_track_error:
@@ -515,3 +575,155 @@ components:
           format: float
         reason:
           type: string
+    XhuSemanticLayerSummary:
+      type: object
+      required:
+        - header
+        - revision
+        - terrain_available
+        - keepout_available
+        - obstacle_cells
+        - drop_cells
+        - blocked_cells
+        - slow_cells
+        - max_obstacle_probability
+        - max_drop_probability
+        - active_sources
+        - active_reasons
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        revision:
+          type: integer
+          minimum: 0
+        terrain_available:
+          type: boolean
+        keepout_available:
+          type: boolean
+        obstacle_cells:
+          type: integer
+          minimum: 0
+        drop_cells:
+          type: integer
+          minimum: 0
+        blocked_cells:
+          type: integer
+          minimum: 0
+        slow_cells:
+          type: integer
+          minimum: 0
+        max_obstacle_probability:
+          type: number
+          format: float
+        max_drop_probability:
+          type: number
+          format: float
+        active_sources:
+          type: array
+          items:
+            type: string
+        active_reasons:
+          type: array
+          items:
+            type: string
+    XhuLocalPlannerState:
+      type: object
+      required:
+        - header
+        - corridor_id
+        - edge_id
+        - status
+        - terminal
+        - observe_only
+        - semantic_revision
+        - cmd_vx
+        - cmd_vy
+        - cmd_wz
+        - best_score
+        - clearance_margin_m
+        - reason
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        corridor_id:
+          type: string
+        edge_id:
+          type: string
+        status:
+          type: string
+        terminal:
+          type: boolean
+        observe_only:
+          type: boolean
+        semantic_revision:
+          type: integer
+          minimum: 0
+        cmd_vx:
+          type: number
+          format: float
+        cmd_vy:
+          type: number
+          format: float
+        cmd_wz:
+          type: number
+          format: float
+        best_score:
+          type: number
+          format: float
+        clearance_margin_m:
+          type: number
+          format: float
+        reason:
+          type: string
+    XhuRecoveryState:
+      type: object
+      required:
+        - header
+        - corridor_id
+        - edge_id
+        - recovery_name
+        - status
+        - terminal
+        - elapsed_sec
+        - reason
+      properties:
+        header:
+          $ref: '#/components/schemas/Header'
+        corridor_id:
+          type: string
+        edge_id:
+          type: string
+        recovery_name:
+          type: string
+        status:
+          type: string
+        terminal:
+          type: boolean
+        elapsed_sec:
+          type: number
+          format: float
+        reason:
+          type: string
+  # --- M3 新增 (rc26_xhu_nav local planner) ---
+  /ros2/topics/xhu_nav_local_candidates:
+    get:
+      tags: [Topic]
+      summary: 局部候选轨迹 MarkerArray
+      x-ros:
+        interface_kind: topic
+        name: /xhu_nav/local_candidates
+        message_type: visualization_msgs/msg/MarkerArray
+      responses:
+        '200':
+          description: visualization_msgs/msg/MarkerArray
+  /ros2/topics/xhu_nav_selected_trajectory:
+    get:
+      tags: [Topic]
+      summary: 选中轨迹 Path
+      x-ros:
+        interface_kind: topic
+        name: /xhu_nav/selected_trajectory
+        message_type: nav_msgs/msg/Path
+      responses:
+        '200':
+          description: nav_msgs/msg/Path

@@ -42,7 +42,7 @@
   - `WheelOdom` 从这条链路接收 `ODOM_DATA`
   - `PoseSender` 同时在这条链路上按 `50Hz` 下发 `POSE_FEEDBACK(0x1E)`
   - 这条链路不承载 `rc26_mechanism` 或 teleop 的 transport 命令
-  - 当现场只有目标 MCU 下发串口时，这个参数现在允许显式置为 `__disabled__`，节点会跳过 WheelOdom / POSE_FEEDBACK 并进入目标串口单链路降级模式
+  - 当现场只有目标 MCU 下发串口时，这个参数允许显式置为 `__disabled__`，节点会跳过 WheelOdom / POSE_FEEDBACK 并进入目标串口单链路降级模式
 - `target_serial_port`，当前默认 `/dev/ttyUSB1`
   - `PoseSender` 复用这条链路下发 `POSE_TARGET(0x1F)`
   - `MechanismTransportBridge` 继续作为共享桥接接口，供 `rc26_mechanism` 与 teleop 前置履带 / 推杆 sidecar 复用同一串口
@@ -120,7 +120,7 @@
 - `PoseSender` 现在把 `POSE_FEEDBACK(0x1E)` 与 `POSE_TARGET(0x1F)` 都固定为 `50Hz` 连续下发；自动导航链仍可保持 `30Hz /cmd_vel`，由 PoseSender 在串口侧重发最近一次目标速度。
 - `merge_odom_node` 现在额外挂出 `/mechanism/transport/send_command` 与 `/mechanism/transport/feedback`，把机构命令和前置履带遥控命令都复用到同一条目标串口上。
 - `pose_sender_node` 现在也会挂出同一组 `/mechanism/transport/*`，因此 `minimal-mcu` 栈除了速度下发外，也能承接基于 ACK 的共享机构 transport。
-- 新增 `PUSHROD_EXTEND(0x10)` / `PUSHROD_RETRACT(0x11)` 两条 ACK 协议；它们和其它普通机构命令一样走可靠 send + ACK，应答成功即视为 MCU 已收指令，不要求额外 `DONE` 反馈。
+- 新增 `PUSHROD_EXTEND(0x10)` / `PUSHROD_RETRACT(0x11)` 两条 ACK 协议；它们和其它普通机构命令一样走可靠 send + ACK，不要求额外 `DONE` 反馈。
 - 真实部署下，`rc26_mechanism` 不应再单独打开 `/dev/ttyUSB1`；若 teleop 或 bringup 已经启动 `merge_odom`，则机制侧应使用 `hal_type:=shared_serial`。
 - `terrain_speed_limit` 运行时链路已经从 `rc26_merge_odom` 中删除；`PoseSender` 不再消费来自 `rc26_terrain` 的外部限速话题。
 - 遥控链现在可以通过仓库根目录的 `start_r2_teleop.sh --pose-mode imu|no-imu|wheel-only` 切换融合口径：
@@ -131,5 +131,4 @@
 - `merge_odom_node` 现在接受 `feedback_serial_port:=__disabled__` 的降级输入；如果没有独立反馈串口，会跳过 WheelOdom，但继续保留 `POSE_TARGET` 和 `/mechanism/transport/*` 的目标串口链路。
 - 仓库根目录的 `start_r2_teleop.sh` 现在还支持 `--stack full|minimal-mcu`：默认 `full` 走完整遥控链，`minimal-mcu` 会拉起 `pose_sender_node + joy_node + rc26_telecontrol + rc26_telecontrol_pushrod_dpad` 的最小串口链。
 - `start_r2_teleop.sh` 在 `full` 和 `minimal-mcu` 两个栈下都会自动兼容“只有一个目标串口”的场景：当默认 `target_serial_port=/dev/ttyUSB1` 不存在且 `/dev/ttyUSB0` 存在时，会自动把目标串口切到 `/dev/ttyUSB0`，并把反馈串口降级为 `__disabled__`。
-- `start_r2_mcu_teleop.sh` 继续保留为兼容入口，实际等价于 `start_r2_teleop.sh --stack minimal-mcu`；当反馈串口缺失、和目标串口重复，或调用者显式传 `__disabled__` 时，`PoseSenderNode` 会跳过反馈串口初始化，只保留目标串口下发。
 - 遥控链通过 `start_r2_teleop.sh` 启动时，不再需要额外传地形限速相关参数；teleop 模式天然不会受 terrain 限速影响，同时会自动把前置履带直连 transport 的按钮节点一起拉起，不再默认拉起 `rc26_mechanism`。

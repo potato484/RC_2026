@@ -161,7 +161,7 @@
   - `en-US` 字典只保留为后续调试与扩展准备，当前产品界面默认仍强制中文。
 - `merlin-bt-visualizer/src/i18n/btTerms.ts` + `merlin-bt-visualizer/src/utils/btDisplay.ts`
   - 当前已经统一承接树名、实例名、属性键、枚举值、黑板键的中文映射与摘要生成。
-  - 完整映射表见 [bt_terms_mapping.md](/home/aidlux/RC_2026/docs/frontend/editor_mode/bt_terms_mapping.md)。
+  - 完整映射表见 [bt_terms_mapping.md](/home/potato/RC_2026/docs/frontend/editor_mode/bt_terms_mapping.md)。
 
 ### 4.1 当前编辑交互的真实边界
 

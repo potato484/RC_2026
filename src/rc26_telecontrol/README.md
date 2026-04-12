@@ -30,7 +30,7 @@
 *   **Dpad 模式**：`linear.x <- axes[7]`，`angular.z <- X/B`，`linear.y <- axes[6]`（仅四轮全向模式启用）。
 *   当前默认底盘模式为 `tracked_diff`，因此运行时只真正消费 `linear.x + angular.z`，`linear.y` 会被固定为 `0`，右摇杆前后 `axes[4]` 目前也未参与控制。
 *   当前新增独立测试节点 `rc26_telecontrol_front_track_test`：`Y(button[3])` 按住时按 `50Hz` 连续下发 `FRONT_TRACK_UP (0x0E)`，`A(button[0])` 按住时按 `50Hz` 连续下发 `FRONT_TRACK_DOWN (0x0F)`；该节点直接调用 `/mechanism/transport/send_command`，不再经过 `/mechanism/execute`。
-*   当前新增独立 sidecar 节点 `rc26_telecontrol_pushrod_dpad`：`Dpad 左(axes[6] < 0)` 按下沿单次下发 `PUSHROD_EXTEND (0x10)`，`Dpad 右(axes[6] > 0)` 按下沿单次下发 `PUSHROD_RETRACT (0x11)`；该节点同样直接调用 `/mechanism/transport/send_command`，走 ACK 路径，不等待 MCU 额外完成反馈。
+*   当前新增独立 sidecar 节点 `rc26_telecontrol_pushrod_dpad`：`Dpad 左(axes[6] < 0)` 按下沿单次下发 `PUSHROD_EXTEND (0x10)`，`Dpad 右(axes[6] > 0)` 按下沿单次下发 `PUSHROD_RETRACT (0x11)`；该节点同样直接调用 `/mechanism/transport/send_command`，走 ACK 路径，不等待额外完成反馈。
 
 ### 2.2 多重安全保障机制
 
@@ -49,11 +49,10 @@
 
 ### 2.4 统一入口与最小 MCU 链
 
-当前仓库推荐使用根目录 `start_r2_teleop.sh` 作为正式遥控入口，`start_r2_mcu_teleop.sh` 继续保留为兼容包装器：
+当前仓库的正式遥控入口是根目录 `start_r2_teleop.sh`：
 
 *   `--stack full`：启动 `merge_odom + joy_node + telecontrol + rc26_telecontrol_pushrod_dpad + rc26_telecontrol_front_track_test`。这是当前默认口径，支持前置履带按钮联调、推杆 Dpad 联调与 `/mechanism/transport/*` 复用。
 *   `--stack minimal-mcu`：启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_pushrod_dpad`。这个口径的最小可用前提是 `target_serial_port` 可用，并允许 `feedback_serial_port` 禁用；若反馈串口也存在，`PoseSender` 仍会按端口是否存在分别尝试打开。虽然不启动 `merge_odom_node` 和前置履带按钮测试节点，但 `pose_sender_node` 现在也会继续挂出 `/mechanism/transport/*`，因此 ACK 型机构指令仍可联调。
-*   `start_r2_mcu_teleop.sh` 实际等价于 `./start_r2_teleop.sh --stack minimal-mcu`，用于兼容 AidLux 板端旧调用。
 *   `--pose-mode imu|no-imu|wheel-only` 只作用于 `--stack full`：
     *   `imu`：EKF 融合 IMU
     *   `no-imu`：EKF 不融合 IMU，但 `dm_imu_node` 和执行保护链仍保留 IMU

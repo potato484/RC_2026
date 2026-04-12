@@ -8,7 +8,7 @@
 
 ```bash
 cd "${RC26_WS:-$HOME/RC_2026}"
-MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_merge_odom --cmake-args -DCMAKE_BUILD_TYPE=Release
+MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_merge_odom --cmake-args -DCMAKE_BUILD_TYPE=Release
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
@@ -82,10 +82,44 @@ ros2 launch rc26_merge_odom merge_odom.launch.py \
 ```
 
 **预期结果：**
+
 - 不会启动 `dm_imu_node`
 - `/ekf_filter_node` 的 `odom0` 为 `wheel_odom`
 - `merge_odom_node` 内部 `imu_topic` 被置空，`WheelOdom`、`CanOdom`、`PoseSender` 都不会创建 IMU 订阅
 - `slip_enable`、`imu_gate_enable`、`latency_comp_enable` 会被一起关闭，执行链完全按纯 wheel odom 口径运行
+
+### 2.1.2 验证目标串口单链路降级
+
+若现场只有一个目标 MCU 串口，可直接让 `feedback_serial_port` 降级：
+
+```bash
+ros2 launch rc26_merge_odom merge_odom.launch.py \
+  use_can_odom:=false \
+  feedback_serial_port:=__disabled__ \
+  target_serial_port:=/dev/ttyUSB0
+```
+
+**预期结果：**
+
+- `merge_odom_node` 不会因缺失反馈串口直接退出
+- `WheelOdom` 会被跳过
+- 只要 `target_serial_port` 可用，`POSE_TARGET` 与 `/mechanism/transport/*` 会继续保留
+
+### 2.1.3 验证最小 MCU 链也会挂出共享 transport
+
+若当前只想保留目标串口下发，但仍需要调 ACK 型机构命令，可直接启动最小 MCU 链：
+
+```bash
+./start_r2_teleop.sh --stack minimal-mcu --dry-run
+./start_r2_teleop.sh --stack minimal-mcu
+```
+
+**预期结果：**
+
+- `pose_sender_node` 会成功持有 `target_serial_port`
+- `/mechanism/transport/send_command` 与 `/mechanism/transport/feedback` 仍然存在
+- `rc26_telecontrol_pushrod_dpad` 可继续通过 shared transport 下发 `0x10 / 0x11`
+- `rc26_telecontrol_front_track_test` 不会启动，因此前置履带按钮 sidecar 不在最小栈里
 
 ### 2.2 验证 cmd_vel_timeout_ms 参数可见性
 

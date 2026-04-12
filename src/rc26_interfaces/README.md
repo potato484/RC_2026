@@ -38,17 +38,19 @@
   - `TerrainFeatureGrid.msg`
   - `TipDetection.msg`
   - `TipDetectionArray.msg`
-- 可视化与诊断:
-  - `OperatorStatus.msg`
-  - `VisualizationEvent.msg`
-  - `VisualizationEventArray.msg`
 
 ## 当前清理状态
 
 旧兼容导航契约已从接口清单中移除，当前只保留 topo/xhu 主链与决策运行时实际使用的消息、服务和动作。
 
+随 `src/rc26_xhu_viewer` 一起退役的诊断可视化消息也已从接口生成清单中移除：
+
+- `OperatorStatus.msg`
+- `VisualizationEvent.msg`
+- `VisualizationEventArray.msg`
+
 ## 维护原则
 
-- 任何跨包字段语义变更，都必须同步更新 [docs/middle/modules/navigation.yaml](/home/aidlux/RC_2026/docs/middle/modules/navigation.yaml) 或对应模块契约文档。
-- 新接口优先围绕 `rc26_topo_nav + xhu_motion_mode_manager + xhu_motion_follower` 这条自研链设计，不再为历史兼容链增加冗余字段。
-- 判断“接口是否真实存在”时，以 [CMakeLists.txt](/home/aidlux/RC_2026/src/rc26_interfaces/CMakeLists.txt) 中 `rosidl_generate_interfaces()` 的清单为准。
+- 任何跨包字段语义变更，都必须同步更新 [docs/middle/modules/navigation.yaml](/home/potato/RC_2026/docs/middle/modules/navigation.yaml) 或对应模块契约文档。
+- 新接口优先围绕 `rc26_xhu_nav` 这条自研链设计，不再为历史兼容链增加冗余字段。
+- 判断“接口是否真实存在”时，以 [CMakeLists.txt](/home/potato/RC_2026/src/rc26_interfaces/CMakeLists.txt) 中 `rosidl_generate_interfaces()` 的清单为准。

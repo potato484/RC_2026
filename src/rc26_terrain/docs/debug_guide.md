@@ -10,7 +10,7 @@
 
 ```bash
 cd "${RC26_WS:-$HOME/RC_2026}"
-MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_interfaces rc26_terrain rc26_merge_odom --cmake-args -DCMAKE_BUILD_TYPE=Release
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_interfaces rc26_terrain rc26_merge_odom --cmake-args -DCMAKE_BUILD_TYPE=Release
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 

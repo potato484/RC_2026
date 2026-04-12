@@ -23,17 +23,17 @@
 - 默认开启 PCD 保存。
 
 ```bash
-# 完整建图链路（保留 terrain / visualization_status 等附加模块）
+# 完整建图链路（保留 terrain 等附加模块）
 ros2 launch rc26_bringup bringup.launch.py \
   slam:=true \
   point_lio_profile:=mapping_dense \
   use_decision:=false
 ```
 
-如果当前目标只是纯建图、录制 PCD、查看累计地图，不需要地形语义与决策，可启用更轻量的纯建图模式；该模式仍会保留前端需要的状态聚合输出：
+如果当前目标只是纯建图、录制 PCD、查看累计地图，不需要地形语义与决策，可启用更轻量的纯建图模式：
 
 ```bash
-# 纯建图最小链路（跳过 rc26_terrain / rc26_decision，但保留 visualization_status）
+# 纯建图最小链路（跳过 rc26_terrain / rc26_decision）
 ros2 launch rc26_bringup bringup.launch.py \
   slam:=true \
   pure_mapping_mode:=true \
@@ -46,7 +46,7 @@ ros2 launch rc26_bringup bringup.launch.py \
 - 该模式仍会保留建图必需的 Point-LIO、`odom_interface` 与 `map -> odom` 静态变换；
 - 该模式会额外跳过 `lio_state_predictor`，避免在高密建图时因上游延迟产生持续 stale 告警；
 - `odometry.launch.py` 默认还会强制 `odometry.publish_odometry_without_downsample:=false`，避免 `state_estimation` 比 `cloud_registered` 超前过多而触发丢云；
-- 若还想进一步减负，可叠加 `visualization_backend:=none use_rviz:=false` 关闭可视化。
+- 当前 bringup / odometry 链路默认就是 headless；如需检查累计地图，可手工运行 `rviz2 -d /home/potato/RC_2026/src/rc26_bringup/rviz/slam.rviz` 只读观察现有 topic。
 
 建图完成后：
 

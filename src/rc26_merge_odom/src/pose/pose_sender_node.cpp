@@ -56,7 +56,6 @@ public:
         std::string feedback_port = this->get_parameter("feedback_serial_port").as_string();
         std::string target_port = this->get_parameter("target_serial_port").as_string();
         int baudrate = this->get_parameter("baudrate").as_int();
-
         const bool feedback_disabled = serialPortDisabled(feedback_port);
         const bool target_disabled = serialPortDisabled(target_port);
 

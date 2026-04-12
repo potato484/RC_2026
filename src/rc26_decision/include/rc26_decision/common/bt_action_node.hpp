@@ -16,6 +16,7 @@ template <class ActionT>
 class BtActionNode : public BT::StatefulActionNode {
 public:
     using Goal = typename ActionT::Goal;
+    using Feedback = typename ActionT::Feedback;
     using GoalHandle = rclcpp_action::ClientGoalHandle<ActionT>;
     using WrappedResult = typename GoalHandle::WrappedResult;
 
@@ -70,6 +71,11 @@ public:
         setErrorCode(0);
 
         typename rclcpp_action::Client<ActionT>::SendGoalOptions options;
+        options.feedback_callback =
+            [this](typename GoalHandle::SharedPtr /*goal_handle*/,
+                   const std::shared_ptr<const Feedback> feedback) {
+                onFeedback(feedback);
+            };
         options.result_callback = [this](const WrappedResult& result) {
             std::lock_guard<std::mutex> lock(result_mutex_);
             wrapped_result_ = result;
@@ -123,6 +129,7 @@ public:
 
 protected:
     virtual bool buildGoal(Goal& goal) = 0;
+    virtual void onFeedback(const std::shared_ptr<const Feedback>& /*feedback*/) {}
     virtual BT::NodeStatus handleResult(const WrappedResult& result, uint16_t& error_code) = 0;
     virtual void onHaltHook() {}
 

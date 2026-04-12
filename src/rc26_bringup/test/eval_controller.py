@@ -209,7 +209,7 @@ def format_or_na(value: Optional[float], precision: int = 6) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Evaluate rc26_omni_controller metrics from rosbag2.")
+    parser = argparse.ArgumentParser(description="Evaluate rc26_xhu_nav runtime metrics from rosbag2.")
     parser.add_argument("bag", help="rosbag2 directory path or .mcap file")
     parser.add_argument("--odom-topic", default="/odometry", help="Odometry topic")
     parser.add_argument("--plan-topic", default=None, help="Plan topic, e.g. /plan or /local_plan")
@@ -255,7 +255,7 @@ def main() -> int:
         e_xy_rms = compute_path_rms_error(odom_samples, plan_samples) if args.plan_topic else None
         overshoot_pct = compute_overshoot_percent(cmd_vel_samples, odom_samples)
 
-    print("=== rc26_omni_controller bag eval ===")
+    print("=== rc26_xhu_nav runtime bag eval ===")
     print(f"bag: {args.bag}")
     print(f"odom samples: {len(odom_samples)}")
     print(f"plan samples: {len(plan_samples)}")

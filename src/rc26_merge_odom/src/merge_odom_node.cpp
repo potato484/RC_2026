@@ -16,7 +16,6 @@ namespace {
 bool serialPortDisabled(const std::string& port) {
     return port.empty() || port == "__disabled__" || port == "disabled";
 }
-
 }  // namespace
 
 class MergeOdomNode : public rclcpp::Node {
@@ -249,7 +248,8 @@ public:
                 std::make_unique<rc26_merge_odom::PoseSender>(*this, feedback_serial_, target_serial_, pose_config);
         }
 
-        mechanism_transport_bridge_ = std::make_unique<rc26_merge_odom::MechanismTransportBridge>(*this, target_serial_);
+        mechanism_transport_bridge_ =
+            std::make_unique<rc26_merge_odom::MechanismTransportBridge>(*this, target_serial_);
 
         if (feedback_ok && target_ok) {
             RCLCPP_INFO(this->get_logger(), "融合里程计节点启动 (双串口模式)");

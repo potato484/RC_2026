@@ -138,6 +138,8 @@
     # ===== P1: terrain features bus =====
     enable_terrain_features_pub: true
     terrain_features_topic: "terrain_features"
+    enable_semantic_layer_summary_pub: true
+    semantic_layer_summary_topic: "/xhu_nav/semantic_layer_summary"
     terrain_features_publish_hz: 3.5
     enable_risk_model: false
     risk_model_file: ""

@@ -7,7 +7,7 @@
 ```bash
 # 确保已编译并 source 环境
 cd "${RC26_WS:-$HOME/RC_2026}"
-MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --cmake-args -DCMAKE_BUILD_TYPE=Release
+colcon build --symlink-install --parallel-workers 3 --cmake-args -DCMAKE_BUILD_TYPE=Release
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
@@ -147,7 +147,7 @@ ros2 run tf2_tools view_frames
 
 ---
 
-### 6. 自研导航链测试 (rc26_topo_nav + rc26_nav_mode_manager + rc26_omni_controller)
+### 6. 自研导航链测试 (rc26_xhu_nav)
 
 **功能**: 验证 topo/xhu 走廊下发、模式切换和执行反馈链路
 
@@ -155,7 +155,6 @@ ros2 run tf2_tools view_frames
 ros2 launch rc26_bringup bringup.launch.py \
   slam:=false \
   use_decision:=false \
-  visualization_backend:=rviz \
   prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/pcd/default.pcd
 
 ros2 topic echo /xhu_nav/motion_mode_state
@@ -163,6 +162,11 @@ ros2 topic echo /xhu_nav/tracking_state
 ros2 topic echo /xhu_nav/semantic_gate
 ros2 topic echo /cmd_vel
 ```
+
+说明：
+
+- `rc26_bringup` 当前保持 headless，不再通过 launch 参数拉起仓库内 GUI
+- 如需可视化，请改用工作区外部工具只读消费现有 topic，例如手工运行 `rviz2 -d /home/potato/RC_2026/src/rc26_bringup/rviz/navigation_default.rviz`
 
 如需手动切模式：
 
@@ -182,8 +186,8 @@ ros2 service call /set_xhu_motion_mode rc26_interfaces/srv/SetXhuMotionMode \
 | lio_state_predictor | `/control_state` | 约 200Hz 预测里程计 |
 | rc26_point_lio | `/degenerate_score` | 退化分数持续输出 |
 | localization | `/localization/pose_with_cov` + `/localization/diagnostics` + `/localization/health` + `/localization/backend_status` + `/localization/route_observability` | 持续发布且包含扩展字段 |
-| topo_nav/xhu | `/xhu_nav/motion_mode_state` + `/xhu_nav/tracking_state` | 模式与执行反馈持续更新 |
-| omni_controller | `/cmd_vel` | 速度指令由 `xhu_motion_follower` 输出 |
+| rc26_xhu_nav | `/xhu_nav/motion_mode_state` + `/xhu_nav/tracking_state` + `/xhu_nav/local_planner_state` | 模式、执行反馈和局部规划状态持续更新 |
+| rc26_xhu_nav runtime | `/cmd_vel` | 速度指令由 `xhu_motion_runtime_node` 输出 |
 
 ---
 

@@ -53,6 +53,72 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RouteObservability'
+  /ros2/topics/localization/trajectory:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /localization/trajectory（最近 N 帧位姿轨迹）
+      x-ros:
+        interface_kind: topic
+        name: /localization/trajectory
+        message_type: nav_msgs/msg/Path
+      responses:
+        '200':
+          description: nav_msgs/msg/Path
+  /ros2/topics/localization/keyframes:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /localization/keyframes（活跃关键帧位姿）
+      x-ros:
+        interface_kind: topic
+        name: /localization/keyframes
+        message_type: rc26_interfaces/msg/LocalizationKeyframe[]
+      responses:
+        '200':
+          description: LocalizationKeyframe 数组（序列化为独立消息数组类型待定）
+  /ros2/topics/localization/loop_closures:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /localization/loop_closures（闭环边）
+      x-ros:
+        interface_kind: topic
+        name: /localization/loop_closures
+        message_type: rc26_interfaces/msg/LocalizationLoopClosure[]
+      responses:
+        '200':
+          description: LocalizationLoopClosure 数组
+  /ros2/topics/localization/reloc_state:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /localization/reloc_state（重定位进度）
+      x-ros:
+        interface_kind: topic
+        name: /localization/reloc_state
+        message_type: rc26_interfaces/msg/LocalizationRelocState
+      responses:
+        '200':
+          description: rc26_interfaces/msg/LocalizationRelocState
+  /ros2/topics/localization/registration_debug:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /localization/registration_debug（配准收敛/残差/内点数）
+      x-ros:
+        interface_kind: topic
+        name: /localization/registration_debug
+        message_type: rc26_interfaces/msg/RegistrationDebug
+      responses:
+        '200':
+          description: rc26_interfaces/msg/RegistrationDebug
+  /ros2/topics/localization/downsampled_cloud:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /localization/downsampled_cloud（下采样点云 1-2Hz）
+      x-ros:
+        interface_kind: topic
+        name: /localization/downsampled_cloud
+        message_type: sensor_msgs/msg/PointCloud2
+      responses:
+        '200':
+          description: sensor_msgs/msg/PointCloud2
 components:
   schemas:
     Time:

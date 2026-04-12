@@ -1,0 +1,13 @@
+std_msgs/Header header
+string corridor_id
+string edge_id
+string status
+bool terminal
+bool observe_only
+uint64 semantic_revision
+float32 cmd_vx
+float32 cmd_vy
+float32 cmd_wz
+float32 best_score
+float32 clearance_margin_m
+string reason

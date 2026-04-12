@@ -8,7 +8,7 @@
 
 ```bash
 cd "${RC26_WS:-$HOME/RC_2026}"
-MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_interfaces rc26_serial rc26_merge_odom rc26_telecontrol --cmake-args -DCMAKE_BUILD_TYPE=Release
+MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_interfaces rc26_serial rc26_merge_odom rc26_telecontrol --cmake-args -DCMAKE_BUILD_TYPE=Release
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
@@ -42,15 +42,32 @@ ros2 launch rc26_telecontrol wheeltec_joy.launch.py control_mode:=dpad
 
 - 使用 `dpad` 模式，而不是 stick
 - 启动 `rc26_merge_odom`
+- 启动 `rc26_telecontrol_pushrod_dpad`
 - 启动 `rc26_telecontrol_front_track_test`
+
+当前还建议先用 `--dry-run` 检查参数展开：
+
+```bash
+./start_r2_teleop.sh --dry-run
+./start_r2_teleop.sh --dry-run --pose-mode wheel-only
+./start_r2_teleop.sh --dry-run --stack minimal-mcu
+```
+
+注意：
+
+- `--stack full` 才会启动 `rc26_telecontrol_front_track_test`
+- `--stack minimal-mcu` 会启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_pushrod_dpad`；这个口径不会启动前置履带按钮节点，但会继续提供 `/mechanism/transport/*`
+- 若默认 `/dev/ttyUSB1` 不存在但 `/dev/ttyUSB0` 存在，统一脚本在 `full` 和 `minimal-mcu` 两个栈下都会自动切到单目标串口降级口径
 
 ### 2.4 验证节点与话题
 
 在另一个终端中，检查节点是否正确启动：
 
 ```bash
-ros2 node list | grep -E 'joy|telecontrol|mechanism|merge_odom'
-# 预期输出至少包含：/joy_node, /rc26_telecontrol_dpad 或 /rc26_telecontrol, /rc26_telecontrol_front_track_test, /merge_odom_node
+ros2 node list | grep -E 'joy|telecontrol|mechanism|merge_odom|pose_sender'
+# 预期输出至少包含：/joy_node, /rc26_telecontrol_dpad 或 /rc26_telecontrol, /rc26_telecontrol_pushrod_dpad
+# full 栈还应包含：/rc26_telecontrol_front_track_test, /merge_odom_node
+# minimal-mcu 栈则会包含：/pose_sender_node
 ```
 
 检查控制指令话题：
@@ -104,6 +121,12 @@ ros2 topic echo /cmd_vel
 - `A(button[0]) -> /mechanism/transport/send_command -> FRONT_TRACK_DOWN (0x0F)`
 
 这个测试节点不直接操作串口，而是直接复用 `rc26_merge_odom` 的共享 transport；真机下实际串口发送由 `merge_odom` 持有的目标串口完成。
+
+当前还新增了独立的推杆 sidecar 映射：
+
+- `Dpad 左(axes[6] < 0) -> /mechanism/transport/send_command -> PUSHROD_EXTEND (0x10)`
+- `Dpad 右(axes[6] > 0) -> /mechanism/transport/send_command -> PUSHROD_RETRACT (0x11)`
+- 采用按下沿单次触发；按住不会连发，回中后才会重新触发
 
 ## 3. 核心机制验证
 
@@ -180,6 +203,25 @@ ros2 service type /mechanism/transport/send_command
 
 若 MCU 在遥控模式停止发送数据后回传 `0x13 / 0x14`，会继续出现在 `/mechanism/transport/feedback` 中，但 teleop 节点本身不再等待 goal 终态。
 
+### 3.7 推杆 Dpad 测试
+
+当 `rc26_telecontrol_pushrod_dpad` 和 `/mechanism/transport/send_command` 已经可用时，可以直接验证推杆 ACK 指令：
+
+1. 向左拨一次 `Dpad`，应单次触发 `PUSHROD_EXTEND (0x10)`。
+2. 回中后再次向左拨，才会再次触发同一命令。
+3. 向右拨一次 `Dpad`，应单次触发 `PUSHROD_RETRACT (0x11)`。
+4. 从左直接切到右时，应立即改发收杆命令，不需要先回中。
+5. 若 transport service 当前不可用，节点会保留待发命令并继续重试。
+
+可以同时观察：
+
+```bash
+ros2 service type /mechanism/transport/send_command
+ros2 topic echo /mechanism/transport/feedback
+```
+
+`PUSHROD_EXTEND/RETRACT` 走 ACK 路径，成功标准是 service 返回 `accepted=true`；当前不要求 MCU 额外上送独立的 `DONE` 反馈。
+
 ## 4. 参数动态覆盖测试
 
 可以通过 launch 参数在启动时覆盖默认配置。
@@ -204,3 +246,4 @@ ros2 param get /rc26_telecontrol max_accel
 - **输出始终为零**：优先检查是否开启了 `require_deadman` 且未按住安全键，或 `joy_timeout_s` 过短导致 Watchdog 持续触发零速保持。
 - **速度变化过猛或回中后仍有残余速度**：检查手柄硬件中心漂移，并适当调大死区相关参数或减小 `max_accel`，验证限加速度逻辑是否仍然生效。
 - **Y/A 按下没有触发前置履带动作**：先确认 `merge_odom_node` 已启动并成功持有目标串口、`rc26_telecontrol_front_track_test` 已启动，并检查 `/mechanism/transport/send_command` 服务与 `/mechanism/transport/feedback` topic 是否存在。
+- **Dpad 左/右没有触发推杆动作**：先确认 `rc26_telecontrol_pushrod_dpad` 已启动，再检查当前是否已提供 `/mechanism/transport/send_command`；若用 `minimal-mcu`，需要确认 `pose_sender_node` 已成功持有目标串口。
