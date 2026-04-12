@@ -128,8 +128,9 @@
 - 在 dpad 模式里，旋转仍由 `X/B` 控制；`Y/A` 不参与速度输出，只交给前置履带测试节点；`Dpad 左/右` 在履带模式下也不再参与 Twist 横移，而是交给推杆 sidecar 节点。
 - 仓库根目录的 `start_r2_teleop.sh` 现已显式向 `rc26_merge_odom` 和 `rc26_telecontrol` 传入 `chassis_model:=tracked_diff`，遥控联调不再依赖各包内部默认值。
 - `start_r2_teleop.sh` 不再默认拉起 `rc26_mechanism`；teleop 前置履带联调只依赖 `merge_odom` 持有目标串口并提供 transport service。
-- 仓库根目录的 `start_r2_teleop.sh` 现在通过 `--stack full|minimal-mcu` 统一承载完整遥控链和最小串口链；`start_r2_mcu_teleop.sh` 保留为兼容包装器，等价于 `start_r2_teleop.sh --stack minimal-mcu`。
-- `start_r2_teleop.sh` 现在在 `full` 栈下也会自动兼容“只接了一个目标 MCU 下发串口”的现场：若默认 `/dev/ttyUSB1` 不存在但 `/dev/ttyUSB0` 存在，脚本会自动把目标串口切到 `/dev/ttyUSB0`，并把反馈串口降级为 `__disabled__`。
+- 仓库根目录的 `start_r2_teleop.sh` 现在通过 `--stack full|minimal-mcu` 统一承载完整遥控链和最小串口链；`start_r2_mcu_teleop.sh` 继续保留为兼容包装器，等价于 `start_r2_teleop.sh --stack minimal-mcu`。
+- `--stack minimal-mcu` 会启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_pushrod_dpad`；这个口径不会启动 `rc26_telecontrol_front_track_test`，但 `pose_sender_node` 现在也会继续提供 `/mechanism/transport/*`。
+- `start_r2_teleop.sh` 现在在 `full` 和 `minimal-mcu` 两个栈下都会自动兼容“只接了一个目标 MCU 下发串口”的现场：若默认 `/dev/ttyUSB1` 不存在但 `/dev/ttyUSB0` 存在，脚本会自动把目标串口切到 `/dev/ttyUSB0`，并把反馈串口降级为 `__disabled__`。
 - `start_r2_teleop.sh` 现支持 `--pose-mode imu|no-imu|wheel-only`：
   - `imu`：EKF 融合 `DM_IMU`
   - `no-imu`：EKF 不融合 IMU，但 `dm_imu_node` 与执行保护链仍保留
