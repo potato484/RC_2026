@@ -9,11 +9,11 @@ Usage:
 
 Options:
   --stack <full|minimal-mcu>  Startup stack, default: full
-                              full        = merge_odom + joy + telecontrol + front-track
-                              minimal-mcu = pose_sender + joy + telecontrol
+                              full        = merge_odom + joy + telecontrol + pushrod-dpad + front-track
+                              minimal-mcu = pose_sender + joy + telecontrol + pushrod-dpad
   --mode <stick|dpad>         Control mode, default: dpad
                               stick = 履带模式，左摇杆前后 + 右摇杆旋转
-                              dpad  = 履带模式，十字键前后 + X右旋/B左旋
+                              dpad  = 履带模式，十字键前后 + X右旋/B左旋，左/右单次触发推杆
   --pose-mode <imu|no-imu|wheel-only>
                               Only valid for --stack full
                               imu        = EKF uses IMU
@@ -323,6 +323,10 @@ if [[ "${mode}" == "stick" ]]; then
   )
 fi
 
+pushrod_cmd=(
+  ros2 run rc26_telecontrol rc26_telecontrol_pushrod_dpad
+)
+
 feedback_port_notice=""
 if [[ "${stack_mode}" == "full" ]]; then
   if [[ -z "${target_serial_port}" ]]; then
@@ -407,6 +411,7 @@ if [[ "${dry_run}" == "true" ]]; then
     print_cmd "${merge_odom_cmd[@]}"
     print_cmd "${joy_cmd[@]}"
     print_cmd "${teleop_cmd[@]}"
+    print_cmd "${pushrod_cmd[@]}"
     print_cmd "${button_test_cmd[@]}"
   else
     echo "Feedback serial: ${feedback_serial_port}"
@@ -418,6 +423,7 @@ if [[ "${dry_run}" == "true" ]]; then
     print_cmd "${pose_sender_cmd[@]}"
     print_cmd "${joy_cmd[@]}"
     print_cmd "${teleop_cmd[@]}"
+    print_cmd "${pushrod_cmd[@]}"
   fi
   exit 0
 fi
@@ -476,11 +482,13 @@ if [[ "${stack_mode}" == "full" ]]; then
   run_and_track "${merge_odom_cmd[@]}"
   run_and_track "${joy_cmd[@]}"
   run_and_track "${teleop_cmd[@]}"
+  run_and_track "${pushrod_cmd[@]}"
   run_and_track "${button_test_cmd[@]}"
 else
   run_and_track "${pose_sender_cmd[@]}"
   run_and_track "${joy_cmd[@]}"
   run_and_track "${teleop_cmd[@]}"
+  run_and_track "${pushrod_cmd[@]}"
 fi
 
 wait -n "${pids[@]}"

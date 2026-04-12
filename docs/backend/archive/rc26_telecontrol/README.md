@@ -11,6 +11,7 @@
   - 可执行文件 `rc26_telecontrol`
   - 可执行文件 `rc26_telecontrol_dpad`
   - 可执行文件 `rc26_telecontrol_front_track_test`
+  - 可执行文件 `rc26_telecontrol_pushrod_dpad`
 - 启动文件：`launch/wheeltec_joy.launch.py`
 - 配置文件：
   - `config/joy_params.yaml`
@@ -20,6 +21,7 @@
   - `src/wheeltec_joy.cpp`
   - `src/wheeltec_joy_dpad.cpp`
   - `src/front_track_button_test_node.cpp`
+  - `src/pushrod_dpad_node.cpp`
 
 当前已经实现两套控制模式：
 
@@ -60,6 +62,13 @@
 
 当前默认底盘模式是 `tracked_diff`，因此运行时只真正使用 `linear.x + angular.z`；`linear.y` 会被固定为 0，右摇杆前后 `axes[4]` 当前也未参与控制。
 
+当前在 `tracked_diff` 模式下，`axes[6]` 左右又被独立 sidecar 节点复用成了机构语义：
+
+- `Dpad 左 -> PUSHROD_EXTEND (0x10)`
+- `Dpad 右 -> PUSHROD_RETRACT (0x11)`
+- 采用按下沿单次触发；按住不连发，回中或切换到另一侧后才会再次触发
+- 直接调用 `/mechanism/transport/send_command`，走 ACK 路径，不再经过 `/mechanism/execute`
+
 除此之外，当前还新增了一个独立的机构按钮测试节点：
 
 - `Y(button[3]) -> FRONT_TRACK_UP (0x0E)`
@@ -79,12 +88,14 @@
 - 先看 `launch/wheeltec_joy.launch.py`，确认 stick / dpad 模式如何二选一。
 - 再看 `src/telecontrol_nodes.cpp`，公共参数、看门狗、deadman、限斜率都在这里。
 - 然后看 `src/front_track_button_test_node.cpp`，确认 Y/A 如何映射到共享 transport 连续发送。
+- 再看 `src/pushrod_dpad_node.cpp`，确认 Dpad 左/右如何映射到电动推杆 ACK 指令。
 - 最后看 `src/wheeltec_joy.cpp`、`src/wheeltec_joy_dpad.cpp` 和两个 YAML。
 
 ## 目录解剖
 - `telecontrol_nodes.cpp`：基类、参数声明、摇杆输入处理、限幅、看门狗和两种控制模式实现。
 - `wheeltec_joy.cpp` / `wheeltec_joy_dpad.cpp`：两个独立可执行入口。
 - `front_track_button_test_node.cpp`：Y/A 到 `/mechanism/transport/send_command` 的连续发送桥接节点。
+- `pushrod_dpad_node.cpp`：Dpad 左/右到 `/mechanism/transport/send_command` 的单次 ACK 发送桥接节点。
 - `config/joy_params*.yaml`：手柄映射和安全参数。
 - `launch/wheeltec_joy.launch.py`：模式切换和 `joy_node` 装配。
 
@@ -112,8 +123,9 @@
 - 四轮模式保持原有 `linear.x / linear.y / angular.z` 控制口径。
 - 履带模式下，Stick 和 Dpad 都只输出 `linear.x + angular.z`，`linear.y` 在节点内部被固定为 0。
 - `start_r2_teleop.sh` 现在默认用 `dpad` 模式启动，而不是 stick。
+- `start_r2_teleop.sh` 现在会在 `full` 和 `minimal-mcu` 两个栈里都额外挂起 `rc26_telecontrol_pushrod_dpad`，用于把 Dpad 左/右桥到 `0x10 / 0x11`。
 - `start_r2_teleop.sh` 会额外拉起 `rc26_telecontrol_front_track_test`，用于把 `Y/A` 直接映射成前置履带 `0x0E / 0x0F` 的连续命令。
-- 在 dpad 模式里，旋转仍由 `X/B` 控制；`Y/A` 不参与速度输出，只交给前置履带测试节点。
+- 在 dpad 模式里，旋转仍由 `X/B` 控制；`Y/A` 不参与速度输出，只交给前置履带测试节点；`Dpad 左/右` 在履带模式下也不再参与 Twist 横移，而是交给推杆 sidecar 节点。
 - 仓库根目录的 `start_r2_teleop.sh` 现已显式向 `rc26_merge_odom` 和 `rc26_telecontrol` 传入 `chassis_model:=tracked_diff`，遥控联调不再依赖各包内部默认值。
 - `start_r2_teleop.sh` 不再默认拉起 `rc26_mechanism`；teleop 前置履带联调只依赖 `merge_odom` 持有目标串口并提供 transport service。
 - 仓库根目录的 `start_r2_teleop.sh` 现在通过 `--stack full|minimal-mcu` 统一承载完整遥控链和最小串口链；`start_r2_mcu_teleop.sh` 保留为兼容包装器，等价于 `start_r2_teleop.sh --stack minimal-mcu`。

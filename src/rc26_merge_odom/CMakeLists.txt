@@ -20,6 +20,23 @@ find_package(tf2_ros REQUIRED)
 find_package(rc26_interfaces REQUIRED)
 find_package(rc26_serial REQUIRED)
 
+# 共享机构 transport 桥接库
+add_library(mechanism_transport_bridge SHARED
+  src/transport/mechanism_transport_bridge.cpp
+)
+target_include_directories(mechanism_transport_bridge PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(mechanism_transport_bridge
+  rc26_serial::serial_driver
+)
+ament_target_dependencies(mechanism_transport_bridge
+  rclcpp
+  rc26_interfaces
+  rc26_serial
+)
+
 # CAN里程计库
 add_library(can_odom SHARED
   src/can/can_odom.cpp
@@ -97,7 +114,7 @@ ament_target_dependencies(pose_sender
 
 # 位姿下传节点
 add_executable(pose_sender_node src/pose/pose_sender_node.cpp)
-target_link_libraries(pose_sender_node pose_sender)
+target_link_libraries(pose_sender_node pose_sender mechanism_transport_bridge)
 ament_target_dependencies(pose_sender_node
   rclcpp
   nav_msgs
@@ -134,7 +151,7 @@ ament_target_dependencies(wheel_odom_fuser_node
 
 # 融合里程计主节点(整合CAN/Wheel+位姿下传)
 add_executable(merge_odom_node src/merge_odom_node.cpp)
-target_link_libraries(merge_odom_node can_odom wheel_odom pose_sender)
+target_link_libraries(merge_odom_node can_odom wheel_odom pose_sender mechanism_transport_bridge)
 ament_target_dependencies(merge_odom_node
   rclcpp
   nav_msgs
@@ -172,6 +189,7 @@ ament_target_dependencies(single_wheel_test_node
 
 # 安装C++目标
 install(TARGETS
+  mechanism_transport_bridge
   can_odom
   wheel_odom
   pose_sender
@@ -206,7 +224,7 @@ install(DIRECTORY
 )
 
 ament_export_include_directories(include)
-ament_export_libraries(can_odom wheel_odom pose_sender wheel_odom_fuser dm_imu_driver)
+ament_export_libraries(mechanism_transport_bridge can_odom wheel_odom pose_sender wheel_odom_fuser dm_imu_driver)
 ament_export_dependencies(rclcpp nav_msgs sensor_msgs std_msgs geometry_msgs diagnostic_msgs tf2 rc26_interfaces rc26_serial)
 
 ament_package()

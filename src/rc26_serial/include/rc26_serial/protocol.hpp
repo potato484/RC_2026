@@ -45,6 +45,8 @@ enum class CommandID : uint8_t {
     HEARTBEAT = 0x0D,         // 心跳查询请求
     FRONT_TRACK_UP = 0x0E,    // 抬升前置履带
     FRONT_TRACK_DOWN = 0x0F,  // 放下前置履带
+    PUSHROD_EXTEND = 0x10,    // 伸展电动推杆
+    PUSHROD_RETRACT = 0x11,   // 收缩电动推杆
     POSE_FEEDBACK = 0x1E,     // 反馈速度 (vx, vy, wz) - MCU速度闭环
     POSE_TARGET = 0x1F,       // 目标速度 (vx, vy, wz) - MCU速度闭环
 };

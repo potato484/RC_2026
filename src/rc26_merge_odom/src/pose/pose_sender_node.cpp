@@ -1,10 +1,12 @@
 // RC2026 速度发送独立节点
 // 双串口架构：反馈速度 + 目标速度
+#include <memory>
 #include <stdexcept>
 
 #include <rclcpp/rclcpp.hpp>
 
 #include "rc26_merge_odom/pose/pose_sender.hpp"
+#include "rc26_merge_odom/transport/mechanism_transport_bridge.hpp"
 #include "rc26_serial/serial_driver.hpp"
 
 namespace {
@@ -126,12 +128,15 @@ public:
         config.imu_gate_log_enable = this->get_parameter("imu_gate_log_enable").as_bool();
 
         pose_sender_ = std::make_unique<rc26_merge_odom::PoseSender>(*this, feedback_serial_, target_serial_, config);
+        mechanism_transport_bridge_ =
+            std::make_unique<rc26_merge_odom::MechanismTransportBridge>(*this, target_serial_);
     }
 
 private:
     std::shared_ptr<rc26_decision::SerialDriver> feedback_serial_;
     std::shared_ptr<rc26_decision::SerialDriver> target_serial_;
     std::unique_ptr<rc26_merge_odom::PoseSender> pose_sender_;
+    std::unique_ptr<rc26_merge_odom::MechanismTransportBridge> mechanism_transport_bridge_;
 };
 
 int main(int argc, char** argv) {
