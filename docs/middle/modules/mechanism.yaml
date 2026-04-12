@@ -8,6 +8,8 @@ info:
     注意：
     - 机构动作执行入口仍是 action `/mechanism/execute`
     - 本文档额外覆盖 mechanism 与 merge_odom 之间的内部 transport topic/service 契约
+    - `/mechanism/transport/*` 复用的是 `rc26_merge_odom` 已打开的 `target_serial_port`
+    - `feedback_serial_port` 主要承载 `ODOM_DATA` 与 `POSE_FEEDBACK`，不作为 mechanism transport 的物理链路
 servers:
   - url: http://localhost:8080
 tags:

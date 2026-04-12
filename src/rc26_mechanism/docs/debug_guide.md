@@ -29,6 +29,22 @@ ros2 launch rc26_merge_odom merge_odom.launch.py chassis_model:=tracked_diff
 ros2 launch rc26_mechanism mechanism.launch.py hal_type:=shared_serial
 ```
 
+或者直接用统一遥控入口的最小 MCU 栈提供 shared transport：
+
+```bash
+# 终端 1：最小 MCU 栈会由 pose_sender_node 持有 target_serial_port，并继续挂出 /mechanism/transport/*
+./start_r2_teleop.sh --stack minimal-mcu
+
+# 终端 2：再启动 mechanism_server，并切到 shared_serial HAL
+ros2 launch rc26_mechanism mechanism.launch.py hal_type:=shared_serial
+```
+
+补充说明：
+
+- `shared_serial` 复用的是 `rc26_merge_odom` 已打开的 `target_serial_port`
+- `feedback_serial_port` 只属于底盘反馈链路，不参与 mechanism transport
+- `./start_r2_teleop.sh --stack minimal-mcu` 虽然不会启动 `merge_odom_node`，但 `pose_sender_node` 现在也会继续挂出 `/mechanism/transport/*`
+
 ### 2.2 单包隔离调试
 
 ```bash
@@ -93,11 +109,16 @@ ros2 action send_goal /mechanism/execute rc26_interfaces/action/ExecuteMechanism
 ```bash
 ros2 service call /mechanism/transport/send_command rc26_interfaces/srv/SendMechanismTransportCommand "{command_id: 14, payload: []}"
 ros2 service call /mechanism/transport/send_command rc26_interfaces/srv/SendMechanismTransportCommand "{command_id: 15, payload: []}"
+ros2 service call /mechanism/transport/send_command rc26_interfaces/srv/SendMechanismTransportCommand "{command_id: 16, payload: []}"
+ros2 service call /mechanism/transport/send_command rc26_interfaces/srv/SendMechanismTransportCommand "{command_id: 17, payload: []}"
 ```
 
 - `14 (0x0E)`：抬升前置履带
 - `15 (0x0F)`：放下前置履带
+- `16 (0x10)`：伸展电动推杆
+- `17 (0x11)`：收缩电动推杆
 - `FRONT_TRACK_UP/DOWN` 已从 `/mechanism/execute` 的受支持命令集中移除
+- `PUSHROD_EXTEND/RETRACT` 也走 transport service，成功标准是 MCU 返回 ACK
 - 遥控链会直接走 transport service；若 MCU 回传 `0x13 / 0x14`，可在 `/mechanism/transport/feedback` 里观察
 
 ### 5.1.1 观察共享串口桥接反馈

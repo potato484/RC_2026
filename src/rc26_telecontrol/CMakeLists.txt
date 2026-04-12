@@ -65,11 +65,25 @@ ament_target_dependencies(rc26_telecontrol_front_track_test
   sensor_msgs
 )
 
+add_executable(rc26_telecontrol_pushrod_dpad src/pushrod_dpad_node.cpp)
+target_compile_features(rc26_telecontrol_pushrod_dpad PUBLIC cxx_std_17)
+target_include_directories(rc26_telecontrol_pushrod_dpad PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+ament_target_dependencies(rc26_telecontrol_pushrod_dpad
+  rclcpp
+  rc26_interfaces
+  rc26_serial
+  sensor_msgs
+)
+
 install(TARGETS
   telecontrol_nodes
   rc26_telecontrol
   rc26_telecontrol_dpad
   rc26_telecontrol_front_track_test
+  rc26_telecontrol_pushrod_dpad
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -91,6 +105,16 @@ if(BUILD_TESTING)
     ${CMAKE_CURRENT_SOURCE_DIR}/include
   )
   ament_target_dependencies(test_front_track_button_logic
+    rc26_serial
+  )
+
+  ament_add_gtest(test_pushrod_dpad_logic
+    test/test_pushrod_dpad_logic.cpp
+  )
+  target_include_directories(test_pushrod_dpad_logic PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+  ament_target_dependencies(test_pushrod_dpad_logic
     rc26_serial
   )
 endif()

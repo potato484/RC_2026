@@ -69,8 +69,10 @@ WheelOdom::WheelOdom(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDr
     slip_score_pub_ = node_.create_publisher<std_msgs::msg::Float32>("wheel_odom/slip_score", 10);
     cov_state_pub_ = node_.create_publisher<std_msgs::msg::Float32>("wheel_odom/cov_state", 10);
 
-    imu_sub_ = node_.create_subscription<sensor_msgs::msg::Imu>(
-        config_.imu_topic, 20, std::bind(&WheelOdom::imuCallback, this, std::placeholders::_1));
+    if (!config_.imu_topic.empty()) {
+        imu_sub_ = node_.create_subscription<sensor_msgs::msg::Imu>(
+            config_.imu_topic, 20, std::bind(&WheelOdom::imuCallback, this, std::placeholders::_1));
+    }
 
     prev_pub_time_ = std::chrono::steady_clock::now();
     last_data_time_ = prev_pub_time_;
@@ -96,7 +98,8 @@ WheelOdom::WheelOdom(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDr
 
     RCLCPP_INFO(node_.get_logger(),
                 "WheelOdom 启动: topic=%s, imu=%s, rate=%d Hz, slip=%s, chassis_model=%s, feedback_format=%s",
-                config_.odom_topic.c_str(), config_.imu_topic.c_str(), config_.publish_rate_hz,
+                config_.odom_topic.c_str(), config_.imu_topic.empty() ? "disabled" : config_.imu_topic.c_str(),
+                config_.publish_rate_hz,
                 config_.slip_enable ? "on" : "off", chassisModelName(chassis_model_),
                 wheelFeedbackFormatName(wheel_feedback_format_));
 }

@@ -40,14 +40,21 @@
 - 下行发送经由 `/mechanism/transport/send_command`
 - 上行反馈经由 `/mechanism/transport/feedback`
 
+串口职责速记：
+
+- `feedback_serial_port` 是底盘反馈链路，主要对应 `ODOM_DATA` 接收和 `POSE_FEEDBACK` 发送，`rc26_mechanism` 不直接使用它
+- `target_serial_port` 才是 mechanism 共享 transport 复用的真实物理链路，同时承载 `POSE_TARGET` 与机构/遥控 sidecar 命令
+- 因此只要 `/mechanism/transport/*` 异常，优先排查 `rc26_merge_odom` 当前是否由 `merge_odom_node` 或 `pose_sender_node` 成功持有 `target_serial_port`，而不是先看 `feedback_serial_port`
+
 也就是说，`/mechanism/execute` 仍然是上层动作执行入口，但真机串口发送职责已经下沉到 `rc26_merge_odom`。
 
-当前 `ExecuteMechanism` 通用入口已经不再覆盖前置履带；前置履带遥控链改为直接调用 `/mechanism/transport/send_command`，并由 `merge_odom` 在目标串口上按 `50Hz` 连续下发 `FRONT_TRACK_UP(0x0E)` / `FRONT_TRACK_DOWN(0x0F)`。
+当前 `ExecuteMechanism` 通用入口已经不再覆盖前置履带；前置履带遥控链改为直接调用 `/mechanism/transport/send_command`，并由 `rc26_merge_odom` 在目标串口上按 `50Hz` 连续下发 `FRONT_TRACK_UP(0x0E)` / `FRONT_TRACK_DOWN(0x0F)`。当前 teleop 还会把 `Dpad 左/右` 直接桥成 `PUSHROD_EXTEND(0x10)` / `PUSHROD_RETRACT(0x11)`。
 
 仓库根目录的 `start_r2_teleop.sh` 现在会显式：
 
-- 启动 `rc26_merge_odom`
-- 让遥控按钮测试节点直接走 `/mechanism/transport/send_command`
+- 在 `full` 栈启动 `rc26_merge_odom`
+- 在 `minimal-mcu` 栈启动 `pose_sender_node`
+- 让遥控按钮/推杆 sidecar 直接走 `/mechanism/transport/send_command`
 - 不再默认拉起 `rc26_mechanism`
 
 ## 源码入口与阅读顺序
@@ -85,6 +92,7 @@
 - 真机链路新增 `shared_serial` HAL，`rc26_mechanism` 不再和 `rc26_merge_odom` 竞争打开同一个目标串口。
 - `/mechanism/transport/send_command` 与 `/mechanism/transport/feedback` 现在是 mechanism 与 merge_odom 之间的内部桥接契约。
 - 遥控模式下的前置履带控制已改成 teleop 直接走 transport service，`rc26_mechanism` 不再消费 `FRONT_TRACK_UP/DOWN`。
+- 最小 MCU 链现在也会由 `pose_sender_node` 挂出 `/mechanism/transport/*`，shared_serial HAL 不再强依赖 `merge_odom_node` 本体。
 - `test_shared_serial_transport` 继续覆盖共享串口发送、反馈收敛、服务异常和超时场景，同时验证前置履带命令会被 `/mechanism/execute` 拒绝。
 
 ## 模块边界

@@ -30,6 +30,7 @@
 *   **Dpad 模式**：`linear.x <- axes[7]`，`angular.z <- X/B`，`linear.y <- axes[6]`（仅四轮全向模式启用）。
 *   当前默认底盘模式为 `tracked_diff`，因此运行时只真正消费 `linear.x + angular.z`，`linear.y` 会被固定为 `0`，右摇杆前后 `axes[4]` 目前也未参与控制。
 *   当前新增独立测试节点 `rc26_telecontrol_front_track_test`：`Y(button[3])` 按住时按 `50Hz` 连续下发 `FRONT_TRACK_UP (0x0E)`，`A(button[0])` 按住时按 `50Hz` 连续下发 `FRONT_TRACK_DOWN (0x0F)`；该节点直接调用 `/mechanism/transport/send_command`，不再经过 `/mechanism/execute`。
+*   当前新增独立 sidecar 节点 `rc26_telecontrol_pushrod_dpad`：`Dpad 左(axes[6] < 0)` 按下沿单次下发 `PUSHROD_EXTEND (0x10)`，`Dpad 右(axes[6] > 0)` 按下沿单次下发 `PUSHROD_RETRACT (0x11)`；该节点同样直接调用 `/mechanism/transport/send_command`，走 ACK 路径，不等待额外完成反馈。
 
 ### 2.2 多重安全保障机制
 
@@ -45,6 +46,18 @@
 
 *   **死区滞回 (Deadzone Hysteresis)**：为了避免摇杆在中心位置的物理抖动导致频繁发送微小速度指令，系统引入了滞回控制算法。它在死区内外设置了不同的阈值，使得摇杆在刚离开死区和快回到死区时的判定更加稳定，彻底消除了零点附近的震荡。
 *   **加速度硬约束 (Rate Limiting)**：废弃了原有的指数移动平均(EMA)算法，改为使用明确的物理加速度（m/s²）和角加速度（rad/s²）进行限制。这能有效防止摇杆被突然推满时引起的瞬时大电流和机械冲击，使起步和刹车都呈现线性且可预期的变化。
+
+### 2.4 统一入口与最小 MCU 链
+
+当前仓库的正式遥控入口是根目录 `start_r2_teleop.sh`：
+
+*   `--stack full`：启动 `merge_odom + joy_node + telecontrol + rc26_telecontrol_pushrod_dpad + rc26_telecontrol_front_track_test`。这是当前默认口径，支持前置履带按钮联调、推杆 Dpad 联调与 `/mechanism/transport/*` 复用。
+*   `--stack minimal-mcu`：启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_pushrod_dpad`。这个口径的最小可用前提是 `target_serial_port` 可用，并允许 `feedback_serial_port` 禁用；若反馈串口也存在，`PoseSender` 仍会按端口是否存在分别尝试打开。虽然不启动 `merge_odom_node` 和前置履带按钮测试节点，但 `pose_sender_node` 现在也会继续挂出 `/mechanism/transport/*`，因此 ACK 型机构指令仍可联调。
+*   `--pose-mode imu|no-imu|wheel-only` 只作用于 `--stack full`：
+    *   `imu`：EKF 融合 IMU
+    *   `no-imu`：EKF 不融合 IMU，但 `dm_imu_node` 和执行保护链仍保留 IMU
+    *   `wheel-only`：不启动也不读取 IMU
+*   统一脚本在 `full` 和 `minimal-mcu` 两个栈下，若默认 `/dev/ttyUSB1` 不存在但 `/dev/ttyUSB0` 存在，都会自动切换到单目标串口降级口径
 
 ## 3. 参数配置体系
 
@@ -75,6 +88,7 @@
     *   `wheeltec_joy` (Stick 模式处理)
     *   `wheeltec_joy_dpad` (Dpad 模式处理)
     *   `rc26_telecontrol_front_track_test` (Y/A 到共享 transport 的连续发送桥接)
+    *   `rc26_telecontrol_pushrod_dpad` (Dpad 左/右到共享 transport 的单次 ACK 发送桥接)
     节点内部按顺序执行：看门狗检查 -> 安全开关检查 -> 死区过滤 -> 加速度限制计算 -> 重复发包逻辑。
 3.  **输出**：将计算后平滑且安全的速度结果，打包成标准的速度控制消息（如 `geometry_msgs::msg::Twist`），发布到指定话题。包内默认参数仍是 `/cmd_vel_teleop`，但仓库根目录的 `start_r2_teleop.sh` 会显式改为 `/cmd_vel` 以接入当前底盘执行链。
 

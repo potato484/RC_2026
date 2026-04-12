@@ -38,6 +38,8 @@
 - 下行命令：
   - `FRONT_TRACK_UP = 0x0E`
   - `FRONT_TRACK_DOWN = 0x0F`
+  - `PUSHROD_EXTEND = 0x10`
+  - `PUSHROD_RETRACT = 0x11`
 - 上行完成反馈：
   - `FRONT_TRACK_UP_DONE = 0x13`
   - `FRONT_TRACK_DOWN_DONE = 0x14`
@@ -46,6 +48,7 @@
 
 - `rc26_telecontrol_front_track_test` 会在按钮按住期间按 `50Hz` 连续调用 `/mechanism/transport/send_command`
 - `FRONT_TRACK_UP/DOWN` 通过 `merge_odom` 桥接走 no-ACK 单发，不做重传
+- `PUSHROD_EXTEND/RETRACT` 通过共享 transport 走可靠 `sendCommand()` ACK 路径；只要求 MCU 回 `ACK`，不要求再上送独立的完成反馈
 - `0x13 / 0x14` 仍作为这两个动作的完成反馈发布到 `/mechanism/transport/feedback`
 - 真机部署时，目标 MCU 串口仍由 `rc26_merge_odom` 独占打开；其它上层只复用 transport，不再次直连同一设备
 

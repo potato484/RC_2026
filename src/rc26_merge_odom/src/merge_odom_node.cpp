@@ -1,143 +1,21 @@
 // RC2026 融合里程计主节点
 // 整合CAN/Wheel里程计和速度发送功能（双串口架构）
-#include <chrono>
-#include <deque>
-#include <functional>
-#include <mutex>
+#include <memory>
 #include <stdexcept>
 
 #include <rclcpp/rclcpp.hpp>
 
-#include "rc26_interfaces/msg/mechanism_transport_feedback.hpp"
-#include "rc26_interfaces/srv/send_mechanism_transport_command.hpp"
 #include "rc26_merge_odom/can/can_odom.hpp"
 #include "rc26_merge_odom/pose/pose_sender.hpp"
+#include "rc26_merge_odom/transport/mechanism_transport_bridge.hpp"
 #include "rc26_merge_odom/wheel/wheel_odom.hpp"
-#include "rc26_serial/protocol.hpp"
 #include "rc26_serial/serial_driver.hpp"
 
 namespace {
 
-constexpr char kMechanismTransportSendCommandService[] = "/mechanism/transport/send_command";
-constexpr char kMechanismTransportFeedbackTopic[] = "/mechanism/transport/feedback";
-constexpr auto kMechanismTransportFlushPeriod = std::chrono::milliseconds(10);
-
-bool isContinuousTransportCommand(uint8_t command_id) {
-    using CommandID = rc26_serial::CommandID;
-    switch (static_cast<CommandID>(command_id)) {
-    case CommandID::FRONT_TRACK_UP:
-    case CommandID::FRONT_TRACK_DOWN:
-        return true;
-    default:
-        return false;
-    }
+bool serialPortDisabled(const std::string& port) {
+    return port.empty() || port == "__disabled__" || port == "disabled";
 }
-
-bool shouldPublishTransportFeedback(uint8_t feedback_id) {
-    using FeedbackID = rc26_serial::FeedbackID;
-    switch (static_cast<FeedbackID>(feedback_id)) {
-    case FeedbackID::ACK:
-    case FeedbackID::HEARTBEAT_ACK:
-    case FeedbackID::ODOM_DATA:
-        return false;
-    default:
-        return true;
-    }
-}
-
-class MechanismTransportBridge {
-public:
-    using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
-    using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
-
-    MechanismTransportBridge(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> target_serial)
-        : node_(node), target_serial_(std::move(target_serial)) {
-        feedback_pub_ =
-            node_.create_publisher<FeedbackMsg>(kMechanismTransportFeedbackTopic, rclcpp::QoS(32).reliable());
-        send_command_srv_ = node_.create_service<SendCommandSrv>(
-            kMechanismTransportSendCommandService,
-            std::bind(&MechanismTransportBridge::handleSendCommand, this, std::placeholders::_1,
-                      std::placeholders::_2));
-        flush_timer_ = node_.create_wall_timer(
-            kMechanismTransportFlushPeriod, std::bind(&MechanismTransportBridge::flushFeedbackQueue, this));
-
-        if (target_serial_) {
-            target_serial_->setReceiveCallback(
-                [this](uint8_t seq, uint8_t feedback_id, const std::vector<uint8_t>& payload) {
-                    enqueueFeedback(seq, feedback_id, payload);
-                });
-        }
-    }
-
-    ~MechanismTransportBridge() {
-        if (target_serial_) {
-            target_serial_->setReceiveCallback({});
-        }
-    }
-
-private:
-    void handleSendCommand(const std::shared_ptr<SendCommandSrv::Request> request,
-                           std::shared_ptr<SendCommandSrv::Response> response) {
-        response->accepted = false;
-        response->seq = 0;
-
-        if (!target_serial_ || !target_serial_->isOpen()) {
-            RCLCPP_WARN(node_.get_logger(), "mechanism transport send rejected: target serial unavailable");
-            return;
-        }
-
-        uint8_t seq = 0;
-        const bool ok = isContinuousTransportCommand(request->command_id)
-                            ? target_serial_->sendCommandNoAck(request->command_id, request->payload, seq)
-                            : target_serial_->sendCommand(request->command_id, request->payload, seq);
-        if (!ok) {
-            RCLCPP_WARN(node_.get_logger(), "mechanism transport send failed: cmd=0x%02X err=%s",
-                        request->command_id, target_serial_->lastError().c_str());
-            return;
-        }
-
-        response->accepted = true;
-        response->seq = seq;
-    }
-
-    void enqueueFeedback(uint8_t seq, uint8_t feedback_id, const std::vector<uint8_t>& payload) {
-        if (!shouldPublishTransportFeedback(feedback_id)) {
-            return;
-        }
-
-        FeedbackMsg feedback;
-        feedback.seq = seq;
-        feedback.feedback_id = feedback_id;
-        feedback.payload = payload;
-
-        std::lock_guard<std::mutex> lock(queue_mutex_);
-        pending_feedback_.push_back(std::move(feedback));
-    }
-
-    void flushFeedbackQueue() {
-        std::deque<FeedbackMsg> batch;
-        {
-            std::lock_guard<std::mutex> lock(queue_mutex_);
-            if (pending_feedback_.empty()) {
-                return;
-            }
-            batch.swap(pending_feedback_);
-        }
-
-        for (const auto& feedback : batch) {
-            feedback_pub_->publish(feedback);
-        }
-    }
-
-    rclcpp::Node& node_;
-    std::shared_ptr<rc26_decision::SerialDriver> target_serial_;
-    rclcpp::Publisher<FeedbackMsg>::SharedPtr feedback_pub_;
-    rclcpp::Service<SendCommandSrv>::SharedPtr send_command_srv_;
-    rclcpp::TimerBase::SharedPtr flush_timer_;
-    std::mutex queue_mutex_;
-    std::deque<FeedbackMsg> pending_feedback_;
-};
-
 }  // namespace
 
 class MergeOdomNode : public rclcpp::Node {
@@ -217,23 +95,39 @@ public:
         std::string feedback_port = this->get_parameter("feedback_serial_port").as_string();
         std::string target_port = this->get_parameter("target_serial_port").as_string();
         int baudrate = this->get_parameter("baudrate").as_int();
+        const bool feedback_disabled = serialPortDisabled(feedback_port);
+        const bool target_disabled = serialPortDisabled(target_port);
 
-        if (!feedback_port.empty() && feedback_port == target_port) {
+        if (!feedback_disabled && !target_disabled && feedback_port == target_port) {
             RCLCPP_FATAL(this->get_logger(), "feedback_serial_port 与 target_serial_port 指向同一设备: %s",
                          feedback_port.c_str());
             throw std::invalid_argument("feedback_serial_port and target_serial_port must be different");
         }
 
-        feedback_serial_ = std::make_shared<rc26_decision::SerialDriver>();
-        bool feedback_ok = feedback_serial_->open(feedback_port, baudrate);
-        if (!feedback_ok) {
-            RCLCPP_WARN(this->get_logger(), "反馈串口打开失败: %s", feedback_port.c_str());
+        bool feedback_ok = false;
+        if (feedback_disabled) {
+            RCLCPP_WARN(this->get_logger(), "反馈串口已禁用；WheelOdom / POSE_FEEDBACK 将不可用");
+        } else {
+            feedback_serial_ = std::make_shared<rc26_decision::SerialDriver>();
+            feedback_ok = feedback_serial_->open(feedback_port, baudrate);
+            if (!feedback_ok) {
+                RCLCPP_WARN(this->get_logger(), "反馈串口打开失败: %s", feedback_port.c_str());
+            }
         }
 
-        target_serial_ = std::make_shared<rc26_decision::SerialDriver>();
-        bool target_ok = target_serial_->open(target_port, baudrate);
-        if (!target_ok) {
-            RCLCPP_WARN(this->get_logger(), "目标串口打开失败: %s", target_port.c_str());
+        bool target_ok = false;
+        if (target_disabled) {
+            RCLCPP_WARN(this->get_logger(), "目标串口已禁用；POSE_TARGET / mechanism transport 将不可用");
+        } else {
+            target_serial_ = std::make_shared<rc26_decision::SerialDriver>();
+            target_ok = target_serial_->open(target_port, baudrate);
+            if (!target_ok) {
+                RCLCPP_WARN(this->get_logger(), "目标串口打开失败: %s", target_port.c_str());
+            }
+        }
+
+        if (!feedback_ok && !target_ok) {
+            throw std::runtime_error("feedback_serial_port 与 target_serial_port 均不可用");
         }
 
         // 获取共享参数
@@ -246,10 +140,6 @@ public:
         const std::string odom_frame = this->get_parameter("odom_frame").as_string();
         const std::string base_frame = this->get_parameter("base_frame").as_string();
         const double data_timeout_ms = this->get_parameter("data_timeout_ms").as_double();
-
-        if (!use_can_odom && !feedback_ok) {
-            throw std::runtime_error("wheel_odom 模式要求 feedback_serial_port 打开成功");
-        }
 
         // 根据配置初始化里程计
         if (use_can_odom) {
@@ -285,31 +175,36 @@ public:
             }
             RCLCPP_INFO(this->get_logger(), "使用 CAN 里程计");
         } else {
-            rc26_merge_odom::WheelOdom::Config wheel_config;
-            wheel_config.chassis_model = this->get_parameter("chassis_model").as_string();
-            wheel_config.wheel_feedback_format = this->get_parameter("wheel_feedback_format").as_string();
-            wheel_config.wheel_base = wheel_base;
-            wheel_config.track_width = track_width;
-            wheel_config.publish_rate_hz = publish_rate_hz;
-            wheel_config.odom_topic = odom_topic;
-            wheel_config.odom_frame = odom_frame;
-            wheel_config.base_frame = base_frame;
-            wheel_config.data_timeout_ms = data_timeout_ms;
-            wheel_config.imu_topic = this->get_parameter("imu_topic").as_string();
-            wheel_config.slip_enable = this->get_parameter("slip_enable").as_bool();
-            wheel_config.slip_threshold = this->get_parameter("slip_threshold").as_double();
-            wheel_config.slip_k_acc = this->get_parameter("slip_k_acc").as_double();
-            wheel_config.cov_nominal_v = this->get_parameter("cov_nominal_v").as_double();
-            wheel_config.cov_nominal_wz = this->get_parameter("cov_nominal_wz").as_double();
-            wheel_config.cov_slip_v = this->get_parameter("cov_slip_v").as_double();
-            wheel_config.cov_slip_wz = this->get_parameter("cov_slip_wz").as_double();
-            wheel_config.recovery_tau_s = this->get_parameter("recovery_tau_s").as_double();
+            if (!feedback_ok) {
+                RCLCPP_WARN(this->get_logger(),
+                            "feedback_serial_port 不可用，跳过 WheelOdom；当前只保留目标串口下发与 mechanism transport");
+            } else {
+                rc26_merge_odom::WheelOdom::Config wheel_config;
+                wheel_config.chassis_model = this->get_parameter("chassis_model").as_string();
+                wheel_config.wheel_feedback_format = this->get_parameter("wheel_feedback_format").as_string();
+                wheel_config.wheel_base = wheel_base;
+                wheel_config.track_width = track_width;
+                wheel_config.publish_rate_hz = publish_rate_hz;
+                wheel_config.odom_topic = odom_topic;
+                wheel_config.odom_frame = odom_frame;
+                wheel_config.base_frame = base_frame;
+                wheel_config.data_timeout_ms = data_timeout_ms;
+                wheel_config.imu_topic = this->get_parameter("imu_topic").as_string();
+                wheel_config.slip_enable = this->get_parameter("slip_enable").as_bool();
+                wheel_config.slip_threshold = this->get_parameter("slip_threshold").as_double();
+                wheel_config.slip_k_acc = this->get_parameter("slip_k_acc").as_double();
+                wheel_config.cov_nominal_v = this->get_parameter("cov_nominal_v").as_double();
+                wheel_config.cov_nominal_wz = this->get_parameter("cov_nominal_wz").as_double();
+                wheel_config.cov_slip_v = this->get_parameter("cov_slip_v").as_double();
+                wheel_config.cov_slip_wz = this->get_parameter("cov_slip_wz").as_double();
+                wheel_config.recovery_tau_s = this->get_parameter("recovery_tau_s").as_double();
 
-            wheel_odom_ = std::make_unique<rc26_merge_odom::WheelOdom>(*this, feedback_serial_, wheel_config);
-            if (!wheel_odom_->isReady()) {
-                throw std::runtime_error("WheelOdom 初始化失败");
+                wheel_odom_ = std::make_unique<rc26_merge_odom::WheelOdom>(*this, feedback_serial_, wheel_config);
+                if (!wheel_odom_->isReady()) {
+                    throw std::runtime_error("WheelOdom 初始化失败");
+                }
+                RCLCPP_INFO(this->get_logger(), "使用 Wheel 里程计 (反馈串口: %s)", feedback_port.c_str());
             }
-            RCLCPP_INFO(this->get_logger(), "使用 Wheel 里程计 (反馈串口: %s)", feedback_port.c_str());
         }
 
         // 初始化速度发送
@@ -353,9 +248,16 @@ public:
                 std::make_unique<rc26_merge_odom::PoseSender>(*this, feedback_serial_, target_serial_, pose_config);
         }
 
-        mechanism_transport_bridge_ = std::make_unique<MechanismTransportBridge>(*this, target_serial_);
+        mechanism_transport_bridge_ =
+            std::make_unique<rc26_merge_odom::MechanismTransportBridge>(*this, target_serial_);
 
-        RCLCPP_INFO(this->get_logger(), "融合里程计节点启动 (双串口模式)");
+        if (feedback_ok && target_ok) {
+            RCLCPP_INFO(this->get_logger(), "融合里程计节点启动 (双串口模式)");
+        } else if (target_ok) {
+            RCLCPP_INFO(this->get_logger(), "融合里程计节点启动 (目标串口单链路降级模式)");
+        } else {
+            RCLCPP_INFO(this->get_logger(), "融合里程计节点启动 (仅反馈链路模式)");
+        }
     }
 
 private:
@@ -364,7 +266,7 @@ private:
     std::shared_ptr<rc26_decision::SerialDriver> feedback_serial_;
     std::shared_ptr<rc26_decision::SerialDriver> target_serial_;
     std::unique_ptr<rc26_merge_odom::PoseSender> pose_sender_;
-    std::unique_ptr<MechanismTransportBridge> mechanism_transport_bridge_;
+    std::unique_ptr<rc26_merge_odom::MechanismTransportBridge> mechanism_transport_bridge_;
 };
 
 int main(int argc, char** argv) {

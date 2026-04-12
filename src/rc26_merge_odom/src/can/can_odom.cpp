@@ -66,8 +66,10 @@ CanOdom::CanOdom(rclcpp::Node& node, Config config) : node_(node), config_(std::
     odom_pub_ = node_.create_publisher<nav_msgs::msg::Odometry>(config_.odom_topic, 10);
     slip_score_pub_ = node_.create_publisher<std_msgs::msg::Float32>("can_odom/slip_score", 10);
     cov_state_pub_ = node_.create_publisher<std_msgs::msg::Float32>("can_odom/cov_state", 10);
-    imu_sub_ = node_.create_subscription<sensor_msgs::msg::Imu>(
-        config_.imu_topic, 20, std::bind(&CanOdom::imuCallback, this, std::placeholders::_1));
+    if (!config_.imu_topic.empty()) {
+        imu_sub_ = node_.create_subscription<sensor_msgs::msg::Imu>(
+            config_.imu_topic, 20, std::bind(&CanOdom::imuCallback, this, std::placeholders::_1));
+    }
 
     last_update_time_ = std::chrono::steady_clock::now();
     last_slip_time_ = last_update_time_;
@@ -100,13 +102,15 @@ CanOdom::CanOdom(rclcpp::Node& node, Config config) : node_(node), config_(std::
         RCLCPP_INFO(node_.get_logger(),
                     "CAN 里程计启动: interface=%s, odom_topic=%s, imu=%s, rate=%d Hz, slip=%s, chassis_model=%s, "
                     "left_id=0x%03X, right_id=0x%03X",
-                    config_.can_interface.c_str(), config_.odom_topic.c_str(), config_.imu_topic.c_str(),
+                    config_.can_interface.c_str(), config_.odom_topic.c_str(),
+                    config_.imu_topic.empty() ? "disabled" : config_.imu_topic.c_str(),
                     config_.publish_rate_hz, config_.slip_enable ? "on" : "off", chassisModelName(chassis_model_),
                     config_.left_motor_can_id, config_.right_motor_can_id);
     } else {
         RCLCPP_INFO(node_.get_logger(), "CAN 里程计启动: interface=%s, odom_topic=%s, imu=%s, rate=%d Hz, slip=%s, "
                                         "chassis_model=%s",
-                    config_.can_interface.c_str(), config_.odom_topic.c_str(), config_.imu_topic.c_str(),
+                    config_.can_interface.c_str(), config_.odom_topic.c_str(),
+                    config_.imu_topic.empty() ? "disabled" : config_.imu_topic.c_str(),
                     config_.publish_rate_hz, config_.slip_enable ? "on" : "off", chassisModelName(chassis_model_));
     }
 }

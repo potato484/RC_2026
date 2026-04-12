@@ -1,11 +1,21 @@
 // RC2026 速度发送独立节点
 // 双串口架构：反馈速度 + 目标速度
+#include <memory>
 #include <stdexcept>
 
 #include <rclcpp/rclcpp.hpp>
 
 #include "rc26_merge_odom/pose/pose_sender.hpp"
+#include "rc26_merge_odom/transport/mechanism_transport_bridge.hpp"
 #include "rc26_serial/serial_driver.hpp"
+
+namespace {
+
+bool serialPortDisabled(const std::string& port) {
+    return port.empty() || port == "__disabled__" || port == "disabled";
+}
+
+}  // namespace
 
 class PoseSenderNode : public rclcpp::Node {
 public:
@@ -46,23 +56,35 @@ public:
         std::string feedback_port = this->get_parameter("feedback_serial_port").as_string();
         std::string target_port = this->get_parameter("target_serial_port").as_string();
         int baudrate = this->get_parameter("baudrate").as_int();
+        const bool feedback_disabled = serialPortDisabled(feedback_port);
+        const bool target_disabled = serialPortDisabled(target_port);
 
-        if (!feedback_port.empty() && feedback_port == target_port) {
+        if (!feedback_disabled && !target_disabled && feedback_port == target_port) {
             RCLCPP_FATAL(this->get_logger(), "feedback_serial_port 与 target_serial_port 指向同一设备: %s",
                          feedback_port.c_str());
             throw std::invalid_argument("feedback_serial_port and target_serial_port must be different");
         }
 
-        feedback_serial_ = std::make_shared<rc26_decision::SerialDriver>();
-        bool feedback_ok = feedback_serial_->open(feedback_port, baudrate);
-        if (!feedback_ok) {
-            RCLCPP_WARN(this->get_logger(), "反馈串口打开失败: %s", feedback_port.c_str());
+        bool feedback_ok = false;
+        if (feedback_disabled) {
+            RCLCPP_INFO(this->get_logger(), "反馈串口已禁用");
+        } else {
+            feedback_serial_ = std::make_shared<rc26_decision::SerialDriver>();
+            feedback_ok = feedback_serial_->open(feedback_port, baudrate);
+            if (!feedback_ok) {
+                RCLCPP_WARN(this->get_logger(), "反馈串口打开失败: %s", feedback_port.c_str());
+            }
         }
 
-        target_serial_ = std::make_shared<rc26_decision::SerialDriver>();
-        bool target_ok = target_serial_->open(target_port, baudrate);
-        if (!target_ok) {
-            RCLCPP_WARN(this->get_logger(), "目标串口打开失败: %s", target_port.c_str());
+        bool target_ok = false;
+        if (target_disabled) {
+            RCLCPP_INFO(this->get_logger(), "目标串口已禁用");
+        } else {
+            target_serial_ = std::make_shared<rc26_decision::SerialDriver>();
+            target_ok = target_serial_->open(target_port, baudrate);
+            if (!target_ok) {
+                RCLCPP_WARN(this->get_logger(), "目标串口打开失败: %s", target_port.c_str());
+            }
         }
 
         if (!feedback_ok && !target_ok) {
@@ -105,12 +127,15 @@ public:
         config.imu_gate_log_enable = this->get_parameter("imu_gate_log_enable").as_bool();
 
         pose_sender_ = std::make_unique<rc26_merge_odom::PoseSender>(*this, feedback_serial_, target_serial_, config);
+        mechanism_transport_bridge_ =
+            std::make_unique<rc26_merge_odom::MechanismTransportBridge>(*this, target_serial_);
     }
 
 private:
     std::shared_ptr<rc26_decision::SerialDriver> feedback_serial_;
     std::shared_ptr<rc26_decision::SerialDriver> target_serial_;
     std::unique_ptr<rc26_merge_odom::PoseSender> pose_sender_;
+    std::unique_ptr<rc26_merge_odom::MechanismTransportBridge> mechanism_transport_bridge_;
 };
 
 int main(int argc, char** argv) {
