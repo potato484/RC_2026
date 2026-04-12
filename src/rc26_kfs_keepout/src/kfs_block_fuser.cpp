@@ -56,6 +56,7 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     this->declare_parameter<std::string>("ttl_mode",     ttl_mode_);
     this->declare_parameter<int>("dwell_cycles",         dwell_cycles_);
     this->declare_parameter<double>("grid_spacing_tolerance_m", grid_spacing_tolerance_m_);
+    this->declare_parameter<std::vector<int64_t>>("slow_grid_ids", std::vector<int64_t>{});
 
     this->get_parameter("mask_topic",       mask_topic_);
     this->get_parameter("heartbeat_topic",  heartbeat_topic_);
@@ -81,6 +82,7 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     this->get_parameter("ttl_mode",         ttl_mode_);
     this->get_parameter("dwell_cycles",     dwell_cycles_);
     this->get_parameter("grid_spacing_tolerance_m", grid_spacing_tolerance_m_);
+    const auto slow_grid_ids = this->get_parameter("slow_grid_ids").as_integer_array();
     const auto& overrides = this->get_node_options().parameter_overrides();
     const auto has_override = [&overrides](const std::string& name) {
         return std::any_of(
@@ -120,6 +122,13 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     }
     if (decay_target_prob_ >= free_thresh_) {
         decay_target_prob_ = std::max(0.01, free_thresh_ - 0.05);
+    }
+    for (const auto grid_id : slow_grid_ids) {
+        if (grid_id >= 1 && grid_id <= 12) {
+            slow_grid_ids_.insert(static_cast<uint8_t>(grid_id));
+        } else {
+            RCLCPP_WARN(this->get_logger(), "ignoring invalid slow_grid_id=%ld", grid_id);
+        }
     }
 
     std::string kfs_topic;
@@ -309,6 +318,10 @@ bool KfsBlockFuser::validateGridSpacing(double expected_spacing_m, double tolera
         }
     }
     return true;
+}
+
+bool KfsBlockFuser::isSlowGrid(const uint8_t grid_id) const {
+    return keepout_enabled_ && slow_grid_ids_.find(grid_id) != slow_grid_ids_.end();
 }
 
 void KfsBlockFuser::onKfsState(
@@ -600,13 +613,16 @@ void KfsBlockFuser::publishBlockOverlay() {
 
         if (blocked_state_[idx] == 1) {
             cell.state = rc26_interfaces::msg::MfBlockOverlayCell::BLOCKED;
+        } else if (isSlowGrid(static_cast<uint8_t>(i))) {
+            cell.state = rc26_interfaces::msg::MfBlockOverlayCell::SLOW;
         } else if (prob < free_thresh_) {
             cell.state = rc26_interfaces::msg::MfBlockOverlayCell::FREE;
         } else {
             cell.state = rc26_interfaces::msg::MfBlockOverlayCell::UNKNOWN;
         }
 
-        cell.keepout_active = (keepout_enabled_ && blocked_state_[idx] == 1);
+        cell.keepout_active = (keepout_enabled_ &&
+                               (blocked_state_[idx] == 1 || isSlowGrid(static_cast<uint8_t>(i))));
         overlay.cells.push_back(cell);
     }
 
@@ -666,6 +682,7 @@ void KfsBlockFuser::publishDiagnostics() {
     addKV("layout_version", layout_version_);
     addKV("layout_validated", layout_validated_ ? "true" : "false");
     addKV("layout_grid_spacing_m", std::to_string(layout_grid_spacing_m_));
+    addKV("slow_grid_count", std::to_string(slow_grid_ids_.size()));
     addKV("force_release_count", std::to_string(force_release_count_));
     addKV("team_mismatch_detected", team_mismatch_detected_ ? "true" : "false");
 

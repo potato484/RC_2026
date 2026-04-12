@@ -2,44 +2,44 @@
 
 ## 模块定位
 
-`rc26_bringup` 是 R2 整车链路的统一装配入口。
+`rc26_bringup` 是 R2 整车链路的统一装配入口，负责决定哪些运行时包被拉起，但不拥有这些包内部算法真源。
 
-## 当前导航装配口径
+## 当前装配口径
 
-- `slam:=false` 时固定装配：
-  - `rc26_topo_nav`
-  - `xhu_motion_mode_manager_node`
-  - `xhu_motion_follower_node`
-  - `rc26_robot_geometry` 提供的共享几何配置文件
-  - `rc26_decision`
-  - `rc26_visualization`
-- `slam:=true` 时不启动导航执行链
-- 决策统一加载 `main_tree.xml`
+`bringup.launch.py` 与 `odometry.launch.py` 现在都固定按 headless 口径装配，不再声明或透传任何 viewer / RViz / Foxglove 兼容参数。
+
+- `bringup.launch.py`
+  - 装配 Point-LIO、里程计接口、定位、terrain、keepout、`rc26_xhu_nav` 和决策
+- `odometry.launch.py`
+  - 装配 Point-LIO、`rc26_odom_interface`、`rc26_sensor_scan`，并可按 `enable_terrain_grid_map` 额外带起 terrain grid map
+
+如需图形观察，应手工启动工作区外部可视化工具只读消费当前 ROS2 输出。仓库内仍保留两个可复用的 RViz 预设：
+
+- `src/rc26_bringup/rviz/slam.rviz`
+- `src/rc26_bringup/rviz/navigation_default.rviz`
 
 ## 当前关键文件
 
-- 主启动:
-  - [launch/bringup.launch.py](/home/aidlux/RC_2026/src/rc26_bringup/launch/bringup.launch.py)
-- 子链路:
-  - `launch/localization.launch.py`
-  - `launch/odometry.launch.py`
-  - `launch/realsense_d455.launch.py`
-- 配置:
-  - `config/localization.yaml`
-  - `config/xhu_motion_follower.yaml`
-  - `config/odom_interface.yaml`
-  - `config/sensor_scan_generation.yaml`
-  - `config/realsense_d455.yaml`
-- 脚本:
-  - `scripts/r2_acceptance_probe.py`
-  - `scripts/render_foxglove_layouts.py`
+- [launch/bringup.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/bringup.launch.py)
+- [launch/odometry.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/odometry.launch.py)
+- `launch/localization.launch.py`
+- `config/localization.yaml`
+- `rc26_xhu_nav/config/topo_nav.yaml`
+- `rc26_xhu_nav/config/local_3d_planner.yaml`
+- `rc26_xhu_nav/config/xhu_motion_runtime.yaml`
 
 ## 当前边界
 
-- 负责装配，不承载算法本体
-- 当前整车导航模式下只会启动自研 topo/xhu 链
+- 负责装配，不承载 planner、控制器或可视化平台的实现本体
+- 当前工作区默认不再装配第一方 GUI 或操作员聚合包
+- 如需可视化，应由工作区外部工具只读消费现有 ROS2 输出
 
-## 近期实现说明
+## 本轮收口
 
-- 当前 bringup 的默认 `chassis_model` 已切到 `tracked_diff`，下游 `xhu_motion_follower` 会默认按履带差速模式装配。
-- 当前新增 `robot_geometry_file` 与 `robot_geometry_profile` 两个 launch 参数，默认把 `rc26_robot_geometry/config/r2_body_geometry.yaml` 的 `compact` profile 同时装配给 `rc26_topo_nav` 和 `xhu_motion_follower`。
+- `bringup.launch.py` 删除了 `visualization_profile`、`visualization_backend`、`visualization_layout`、`visualization_status_enable` 和 `use_rviz`
+- `odometry.launch.py` 删除了 `odometry_use_rviz` 与 `odometry_visualization_layout`
+- `test_odometry_chain.launch.py` 不再透传任何可视化兼容参数
+- 仓库内不再维护 `src/rc26_bringup/foxglove/*.json` 旧资产
+- 3D 导航装配已经收口到 `rc26_xhu_nav`，当前固定装配 `topo_nav_node + xhu_motion_mode_manager_node + xhu_motion_runtime_node`
+- `team`、topo graph、robot geometry、local planner/runtime 配置都由 bringup 统一装配给 `rc26_xhu_nav`
+- `local_execution_backend` 与 `enable_local_3d_planner_observe` 已从主启动入口移除，不再保留 follower / observe-only planner 切换

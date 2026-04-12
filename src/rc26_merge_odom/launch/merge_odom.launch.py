@@ -4,11 +4,12 @@
 
 import os
 import re
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from ament_index_python.packages import get_package_share_directory
 import yaml
 
 
@@ -48,20 +49,21 @@ def normalize_launch_parameter_scalars(value):
 
 def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, wheel_odom_topic,
                          imu_topic_default, slip_enable_default, imu_gate_enable_default,
-                         latency_comp_enable_default, stats_log_enable_default):
+                         latency_comp_enable_default):
     use_can_odom = parse_launch_bool(LaunchConfiguration('use_can_odom').perform(context))
     start_ekf = parse_launch_bool(LaunchConfiguration('start_ekf').perform(context))
     use_imu_for_ekf = parse_launch_bool(LaunchConfiguration('use_imu_for_ekf').perform(context))
     start_imu = parse_launch_bool(LaunchConfiguration('start_imu').perform(context))
-    effective_use_imu_for_ekf = start_imu and use_imu_for_ekf
+    stats_log_enable = parse_launch_bool(LaunchConfiguration('stats_log_enable').perform(context))
     odom0_topic_override = can_odom_topic if use_can_odom else wheel_odom_topic
     pose_feedback_topic = 'merge_odom' if start_ekf else odom0_topic_override
     chassis_model = LaunchConfiguration('chassis_model').perform(context).strip()
+    effective_use_imu_for_ekf = start_imu and use_imu_for_ekf
     imu_topic = imu_topic_default if start_imu else ''
     slip_enable = slip_enable_default if start_imu else False
     imu_gate_enable = imu_gate_enable_default if start_imu else False
     latency_comp_enable = latency_comp_enable_default if start_imu else False
-    stats_log_enable = parse_launch_bool(LaunchConfiguration('stats_log_enable').perform(context))
+    baudrate = int(LaunchConfiguration('baudrate').perform(context))
 
     merge_odom_node = Node(
         package='rc26_merge_odom',
@@ -73,6 +75,7 @@ def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, 
             'can_interface': LaunchConfiguration('can_interface').perform(context),
             'feedback_serial_port': LaunchConfiguration('feedback_serial_port').perform(context),
             'target_serial_port': LaunchConfiguration('target_serial_port').perform(context),
+            'baudrate': baudrate,
             'merge_odom_topic': pose_feedback_topic,
             'imu_topic': imu_topic,
             'slip_enable': slip_enable,
@@ -136,6 +139,7 @@ def generate_launch_description():
     imu_port_default = str(((params_yaml.get('dm_imu_node') or {}).get('ros__parameters') or {}).get('port', '/dev/ttyACM0'))
     feedback_serial_port_default = str(merge_params.get('feedback_serial_port', '/dev/ttyUSB0'))
     target_serial_port_default = str(merge_params.get('target_serial_port', '/dev/ttyUSB1'))
+    baudrate_default = str(merge_params.get('baudrate', 1000000))
     can_odom_topic_default = str(merge_params.get('can_odom_topic', 'Can_Odom'))
     wheel_odom_topic_default = str(merge_params.get('wheel_odom_topic', 'wheel_odom'))
     imu_topic_default = str(merge_params.get('imu_topic', 'DM_IMU'))
@@ -183,6 +187,10 @@ def generate_launch_description():
         'target_serial_port', default_value=target_serial_port_default,
         description='MCU target serial port (POSE_TARGET + /mechanism/transport/*)')
 
+    baudrate_arg = DeclareLaunchArgument(
+        'baudrate', default_value=baudrate_default,
+        description='MCU serial baudrate')
+
     chassis_model_arg = DeclareLaunchArgument(
         'chassis_model', default_value=chassis_model_default,
         description='Chassis model: mecanum_4wheel | tracked_diff')
@@ -197,6 +205,7 @@ def generate_launch_description():
         imu_port_arg,
         feedback_serial_port_arg,
         target_serial_port_arg,
+        baudrate_arg,
         chassis_model_arg,
         OpaqueFunction(
             function=create_runtime_nodes,
@@ -209,7 +218,6 @@ def generate_launch_description():
                 slip_enable_default,
                 imu_gate_enable_default,
                 latency_comp_enable_default,
-                stats_log_enable_default,
             ],
         ),
     ])

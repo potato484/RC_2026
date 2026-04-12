@@ -8,12 +8,12 @@
 
 ### 1.1 独立编译
 ```bash
-MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_serial --cmake-args -DCMAKE_BUILD_TYPE=Release
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_serial --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
 ### 1.2 联合编译（含依赖模块）
 ```bash
-MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_merge_odom rc26_mechanism rc26_serial --cmake-args -DCMAKE_BUILD_TYPE=Release
+colcon build --symlink-install --parallel-workers 3 --packages-select rc26_merge_odom rc26_mechanism rc26_serial --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
 ### 1.3 运行单元测试

@@ -1,0 +1,24 @@
+xhu_motion_runtime:
+  ros__parameters:
+    odom_topic: "control_state"
+    map_frame: "map"
+    base_frame: "base_link"
+    publish_frequency_hz: 5.0
+    lookahead_distance_m: 0.7
+    horizon_sec: 1.2
+    integration_step_sec: 0.1
+    terrain_obstacle_threshold: 0.6
+    terrain_drop_threshold: 0.8
+    recovery_heading_threshold_rad: 0.55
+    recovery_angular_speed: 0.7
+    slow_zone_speed_scale: 0.6
+    path_alignment_weight: 2.4
+    heading_alignment_weight: 1.8
+    speed_preference_weight: 0.8
+    angular_effort_weight: 0.5
+    clearance_weight: 2.2
+    stop_envelope_half_width_m: 0.24
+    sample_linear_speeds: [0.0, 0.15, 0.30, 0.45]
+    sample_angular_speeds: [-0.8, -0.4, 0.0, 0.4, 0.8]
+    robot_geometry_file: ""
+    robot_geometry_profile: "compact"

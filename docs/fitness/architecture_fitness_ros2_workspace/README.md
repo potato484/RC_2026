@@ -68,10 +68,8 @@
 - **规则**：本仓库统一使用下列命令做包级编译验证：
 
 ```bash
-MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select <pkg...>
+MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select <pkg...>
 ```
-
-- **说明**：这是当前 AidLux 环境下默认的包级验证命令；只有在明确是多包独立链路且资源余量充足时，才继续尝试把 `--parallel-workers` 提到 `3`。
 
 ## 3. 为当前 ROS2 工作区树立的架构准则
 
@@ -98,6 +96,7 @@ MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select <pkg...>
 - **规则**：控制器包可以依赖导航状态、定位健康、地形输入、控制参数。
 - **规则**：控制器包不得吸纳比赛阶段语义、前端需求或临时策略分支。
 - **规则**：任何带有“梅林阶段时这样做”“武馆阶段时那样做”的逻辑，如果不是纯控制保护，大概率应放在决策层而不是控制器层。
+- **补充口径**：允许在导航实现宿主包内部保留可复用的 local planner core，例如 `rc26_xhu_nav` 的 local planner 模块，再由 runtime executor 复用；但 `cmd_vel` 权威仍必须由单个运行时执行器节点持有。
 
 ### 3.5 状态估计与感知包负责产出状态，不负责操作员策略
 
@@ -105,10 +104,11 @@ MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select <pkg...>
 - **规则**：它们不得直接编码操作员界面逻辑或布局假设。
 - **规则**：它们应输出结构化结果，让更高层按需消费。
 
-### 3.6 `rc26_visualization` 是操作员语义聚合边界
+### 3.6 `src/` 默认保持 headless，不内置第一方可视化子树
 
-- **规则**：操作员看见的整车健康语义应收敛在 `rc26_visualization`，而不是散落在 Foxglove 布局和 RViz 面板里各写一份。
-- **规则**：Foxglove JSON 只是布局资产，不是诊断逻辑载体。
+- **规则**：当前工作区不再维护 `rc26_xhu_viewer_status`、定制 `rviz2` 或本地 Web viewer。
+- **规则**：如果需要可视化，只能由工作区外部工具只读消费现有 ROS2 输出、CLI 输出或静态资产，不能反向成为运行时权威。
+- **规则**：Foxglove JSON 只是历史布局资产，不是诊断逻辑载体。
 
 ### 3.7 `rc26_odom_interface` 继续保持 TF 权威
 
@@ -120,6 +120,7 @@ MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select <pkg...>
 - **规则**：新增 launch 参数必须显式声明、命名清晰、传递路径清楚。
 - **规则**：参数文件归包所有，不归 `bringup` 统一托管其内部细节。
 - **规则**：`bringup` 只负责选择加载哪个参数文件，不应长期成为所有内部调参逻辑的宿主。
+- **补充口径**：像 `graph_file`、`team` 这类装配期选择参数可以归 `bringup`；而局部规划/执行内部阈值仍应归 `rc26_xhu_nav` 自己的配置文件所有。
 
 ### 3.9 BT blackboard 必须契约化
 
@@ -147,8 +148,14 @@ MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select <pkg...>
 
 - **规则**：像 MF 主区 block 几何、入口/出口 block 集合这类会同时被 keepout、topo graph 等多个包消费的场地事实，必须只有一个文档化配置真源。
 - **当前口径**：`src/rc26_kfs_keepout/config/r2_mf_world.yaml` 是当前 MF 主区共享几何真源。
-- **规则**：`rc26_topo_nav` 可以基于这个真源离线生成 `graph_file`，但运行时仍应加载静态 topo YAML，不应在节点启动流程里临时发明另一套动态建图逻辑。
-- **规则**：无法从共享几何稳定推导出的 topo 语义，例如 staging 点、坡道边、任务路由、手工调过的 node/edge cost，必须明确留在 `rc26_topo_nav` 自己的 overlay 或文档里，而不是偷偷塞回底层几何文件。
+- **规则**：`rc26_xhu_nav` 可以基于这个真源离线生成 `graph_file`，但运行时仍应加载静态 topo YAML，不应在节点启动流程里临时发明另一套动态建图逻辑。
+- **规则**：无法从共享几何稳定推导出的 topo 语义，例如 staging 点、坡道边、任务路由、手工调过的 node/edge cost，必须明确留在 `rc26_xhu_nav` 自己的 overlay 或文档里，而不是偷偷塞回底层几何文件。
+
+### 3.13 同一时刻只能有一个局部执行命令权威
+
+- **规则**：如果系统同时存在 observe-only planner、legacy follower 和新 runtime executor，必须在 launch 装配层保证任一时刻只有一个节点发布运动命令。
+- **规则**：observe-only 节点可以发布 preview、planner state、recovery state，但不得在旁路上直接输出 `cmd_vel`。
+- **规则**：`rc26_xhu_nav` 必须在包内继续保持“corridor 表达”和“速度命令权威”分离，不能因为收口到单包就把二者写成不可分辨的同层逻辑。
 
 ## 4. ROS2 工作区 Fitness Function
 
@@ -192,10 +199,10 @@ MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select <pkg...>
 - 问题：BT 改动是否引入了未文档化 blackboard 共享，或者阻塞式长耗时节点？
 - 通过标准：blackboard key 可追踪，长耗时逻辑异步化。
 
-### 4.9 可视化单向依赖检查
+### 4.9 可视化外置单向依赖检查
 
-- 问题：聚合诊断和布局是否仍然只是消费状态，而不是反向成为状态和策略生产者？
-- 通过标准：`rc26_visualization`、Foxglove、RViz 仍处于下游消费侧。
+- 问题：这次改动是否又把工作区内置 GUI / viewer 变成运行时强依赖，或者让外部可视化反向成为状态和策略生产者？
+- 通过标准：`src/` 仍保持 headless；任何可视化都只处于下游消费侧。
 
 ### 4.10 包级验证检查
 
@@ -226,103 +233,23 @@ MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select <pkg...>
 - `rc26_decision` 是比赛流程大脑，不是设备细节宿主。
 - `rc26_mechanism` 和各控制器插件负责安全执行意图。
 - localization、terrain、vision、odom 相关包负责产出规范化机器状态。
-- `rc26_visualization` 负责把这些技术状态聚合成操作员语义。
+- `src/` 当前默认保持 headless，不再内置第一方 GUI 或操作员语义聚合包。
+- 如需可视化，应由工作区外部工具只读消费这些状态。
 
 任何后续需求如果要打破这些边界，都应视为一次明确的架构变更，而不是普通功能补丁。
 
-## 7. 架构变更记录
+## 7. 架构变更归档口径
 
-### 7.1 rc26_topo_nav 引入（2026-04-01）
+- 对已经落地并成为当前事实的架构变更，本页不再长期维护逐条变更流水账。
+- 这类变化必须直接归档到对应实现入口文档，让维护者从当前模块 README 就能看到真实边界、装配关系和接口口径。
+- 如果未来再次发生架构级调整，应同时更新本页的准则或最终立场，以及受影响实现的入口 README，而不是把真实现状继续留在独立历史段落里。
 
-**变更类型**：架构级 — 新增导航表达层
+当前需要作为真实入口读取的文档是：
 
-**变更原因**：为了解决 MF 和坡道链路对离散合法站位、坡道链路和单边执行语义的表达需求，引入拓扑图搜索 + 单边执行的导航表达层。
-
-**变更范围**：
-- 新增 `rc26_topo_nav` 包（graph_loader / overlay_reducer / planner / edge_executor / diagnostics）
-- 新增 `NavigateTopoTarget.action`、`MfBlockOverlay.msg`、`MfBlockOverlayCell.msg`
-- `rc26_kfs_keepout` 新增 MfBlockOverlay 离散输出
-- `rc26_decision` 新增 NavToTopoNode / NavToTaskPose / ExecuteTopoRoute BT 节点，新增 `mf_tree_topo.xml`
-- `rc26_bringup` 新增分模式导航装配入口，topo 模式装配 topo 图、profile 和对应主树
-
-**当前落地口径**：
-- `rc26_bringup` 在 topo 模式下会把 `rc26_decision` 切到独立 topo 主树，并把 `team` / topo graph / topo nav profiles 一起装配给运行链
-- `rc26_decision` 仍然拥有 MF 目标格选择；`NavToTaskPose(grid_id)` 只是把已选格映射为 topo node，不让 `rc26_topo_nav` 反向接管任务选格
-- `rc26_kfs_keepout` 的 `r2_mf_world.yaml` 作为 shared 几何底座使用，真正发布到 `MfBlockOverlay.team` 的阵营来自运行态 KFS 输入
-- `rc26_topo_nav` 图文件当前支持 `routes` 和 `edges.control_points`，分别服务 `ExecuteTopoRoute` 和坡道 / 转折 corridor 细化
-
-**落地方式**：`rc26_bringup` 通过显式 topo 模式装配 `rc26_topo_nav`，不直接改变其他运行链的权威边界。
-
-**不变的边界**：
-- TF 权威归属不变（rc26_odom_interface）
-- 控制器权威暂不变化
-- 任务策略仍在 rc26_decision（MerlinRuleWorldModel / SelectNextGrid）
-
-### 7.2 rc26_robot_geometry 引入（2026-04-04）
-
-**变更类型**：架构级 - 新增共享机器人几何真源
-
-**变更原因**：为后续 body-aware 全车体安全规划建立最小统一几何输入，避免 `rc26_topo_nav`、`rc26_omni_controller` 各自维护一份隐式车体宽度/安全包络常量。
-
-**变更范围**：
-- 新增 `rc26_robot_geometry` config-only 包
-- `rc26_bringup` 新增 `robot_geometry_file` / `robot_geometry_profile` 装配参数
-- `rc26_topo_nav` 消费 geometry profile，用于 surface route 投影锚定半径与 body-aware surface overlay 的保守约束
-- `rc26_omni_controller` 消费 geometry profile，用于 stop envelope 的保守约束
-
-**落地方式**：
-- 共享几何通过参数契约接入，不通过把控制、机构或感知逻辑吞进 `rc26_topo_nav`
-- 当前只引入静态 geometry profile，不新增 topic / service / action
-
-**不变的边界**：
-- `rc26_topo_nav` 仍是导航表达与分段执行调度层，不变成控制器或感知融合器
-- `rc26_omni_controller` 仍是 corridor 跟踪器，不变成全局 body planner
-- 机构展开态、动态障碍和 full-body 3D collision checker 仍需后续独立能力补齐
-
-### 7.3 rc26_topo_nav body-aware surface graph 落地（2026-04-04）
-
-**变更类型**：架构级 - 在现有 surface graph 主链内落地保守型全车体全局规划
-
-**变更原因**：此前 `navigate_surface_route` 只有点路径 + runtime overlay，缺少和车体宽度、坡度、台阶约束直接对应的全局 planner 入口。
-
-**变更范围**：
-- `rc26_topo_nav` 的 `surface_graph` schema 升级到 `1.1`
-- `generate_surface_graph.py` 增加 body-aware 注解生成：merged support surface、node pitch、edge slope、edge lateral clearance
-- `topo_nav_node` 和 `surface_route_cli` 增加 `body_planning.*` 运行参数，并在 surface plan 前把 body-aware overlay 叠加到 runtime overlay
-- `topo_sim_server.py` 改为优先调用 source workspace 中最新构建的 planner CLI
-
-**落地方式**：
-- node clearance 当前只做软惩罚，避免把接缝/转接点一刀切封死
-- edge lateral clearance / slope / step 仍是硬约束，保证真实全车体宽度约束发生在全局搜索前
-- `NavigateSurfaceRoute.allow_replan` 继续沿用现有 route-level replan 闭环，不把动态障碍预测、局部避障或控制器逻辑吞进 `rc26_topo_nav`
-
-**不变的边界**：
-- 这仍然是受地表约束的 `SE(2.5)` body-aware 全局规划，不是自由 `SE(3)` planner
-- `rc26_topo_nav` 仍不拥有动态障碍语义、机构状态机和底层速度控制
-- `xhu_motion_follower` 仍是 corridor 跟踪与局部安全停机层，不变成全局 collision planner
-
-### 7.4 rc26_surface_body_planner 与 dynamic surface overlay 引入（2026-04-04）
-
-**变更类型**：架构级 - 在不破坏 `rc26_topo_nav` 边界的前提下补齐独立 body planner backend 与动态阻塞输入层
-
-**变更原因**：
-- 仅靠 `body_planning` overlay 还不足以表达姿态相关转向扫掠
-- `NavigateSurfaceRoute.allow_replan` 需要对运行中新的 surface block 语义有明确输入和可解释的重规划触发点
-
-**变更范围**：
-- 新增 `rc26_surface_body_planner` 包，提供 heading-aware `surface_node + heading_bin` A* 库与 CLI
-- `rc26_topo_nav` 新增 `surface_planner_backend=legacy|body_planner` 和 `surface_body_planner.*` 参数
-- `rc26_interfaces` 新增 `SurfaceGraphOverlay.msg`
-- `OverlayReducer` 新增 dynamic surface overlay 归并、TTL 过期与 overlay version
-- `executeSurface()` 新增 segment 边界 overlay version 检查与 route-level replan
-
-**落地方式**：
-- `rc26_topo_nav` 继续拥有 action 契约、点投影、overlay 归并、segment execution 和失败码分诊
-- `rc26_surface_body_planner` 只负责更高保真的全车体全局搜索，不引入 ROS 运行时权威
-- `SurfaceGraphOverlay.msg` 只作为 runtime 动态阻塞输入层；是否重规划仍由 `rc26_topo_nav` 调度
-
-**不变的边界**：
-- `rc26_decision` 仍保有任务决策权
-- `rc26_localization` 仍保有定位权威
-- `rc26_omni_controller` / `xhu_motion_follower` 仍保有 corridor 跟踪权威
-- 动态障碍预测、机构状态机和局部避障仍未被吞进 `rc26_topo_nav`
+- `rc26_bringup`：`docs/backend/archive/rc26_bringup/README.md`
+- `rc26_decision`：`docs/backend/archive/rc26_decision/README.md`
+- `rc26_interfaces`：`docs/backend/archive/rc26_interfaces/README.md`
+- `rc26_kfs_keepout`：`docs/backend/archive/rc26_kfs_keepout/README.md`
+- `rc26_robot_geometry`：`docs/backend/archive/rc26_robot_geometry/README.md`
+- `rc26_xhu_nav`：`docs/backend/archive/rc26_xhu_nav/README.md`
+- 前端当前边界：`docs/frontend/README.md`、`docs/frontend/overview/README.md`、`docs/frontend/boundaries/README.md`

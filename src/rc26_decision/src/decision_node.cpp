@@ -150,6 +150,12 @@ public:
     blackboard->set("is_lifted", false);
     blackboard->set("stable_operation", false);
     blackboard->set("level_start", static_cast<int32_t>(0));
+    blackboard->set("nav_last_exec_state", std::string("IDLE"));
+    blackboard->set("nav_last_failure_code", std::string(""));
+    blackboard->set("nav_last_failure_reason", std::string(""));
+    blackboard->set("nav_last_active_node_id", std::string(""));
+    blackboard->set("nav_last_active_edge_id", std::string(""));
+    blackboard->set("nav_last_replan_count", static_cast<int>(0));
 
     // 机制状态可观测键（供 Groot2/诊断查看）
     blackboard->set("mechanism_tip_state", 0);

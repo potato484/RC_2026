@@ -8,8 +8,7 @@ info:
     注意：
     - 机构动作执行入口仍是 action `/mechanism/execute`
     - 本文档额外覆盖 mechanism 与 merge_odom 之间的内部 transport topic/service 契约
-    - `/mechanism/transport/*` 复用的是当前由 `rc26_merge_odom` 运行时持有的 `target_serial_port`
-    - `full` 栈通常由 `merge_odom_node` 提供 transport，`minimal-mcu` 栈由 `pose_sender_node` 提供 transport
+    - `/mechanism/transport/*` 复用的是 `rc26_merge_odom` 已打开的 `target_serial_port`
     - `feedback_serial_port` 主要承载 `ODOM_DATA` 与 `POSE_FEEDBACK`，不作为 mechanism transport 的物理链路
 servers:
   - url: http://localhost:8080
@@ -36,10 +35,6 @@ paths:
     get:
       tags: [Topic]
       summary: 读取 topic /mechanism/transport/feedback 的最新消息
-      description: |
-        该 topic 由当前持有 `target_serial_port` 的 `rc26_merge_odom` 运行时转发而来。
-        `full` 栈通常由 `merge_odom_node` 提供，`minimal-mcu` 栈由 `pose_sender_node` 提供。
-        `ACK / HEARTBEAT_ACK / ODOM_DATA` 会在桥接层被过滤，不会发布到这里。
       x-ros:
         interface_kind: topic
         name: /mechanism/transport/feedback
@@ -55,10 +50,6 @@ paths:
     post:
       tags: [Service]
       summary: 调用 service /mechanism/transport/send_command 下发共享串口机构命令
-      description: |
-        该 service 实际通过当前由 `rc26_merge_odom` 运行时持有的 `target_serial_port` 下发命令。
-        `full` 栈通常由 `merge_odom_node` 提供，`minimal-mcu` 栈由 `pose_sender_node` 提供。
-        它不经过 `feedback_serial_port`，因此机制与前置履带链路排障时应优先检查目标串口 owner 是否正常。
       x-ros:
         interface_kind: service
         name: /mechanism/transport/send_command
@@ -180,3 +171,15 @@ components:
           type: integer
           minimum: 0
           maximum: 255
+  # --- M3 新增 ---
+  /ros2/topics/mechanism/action_history:
+    get:
+      tags: [Topic]
+      summary: 机构动作历史环缓冲
+      x-ros:
+        interface_kind: topic
+        name: /mechanism/action_history
+        message_type: rc26_interfaces/msg/MechanismActionHistory
+      responses:
+        '200':
+          description: rc26_interfaces/msg/MechanismActionHistory

@@ -24,6 +24,23 @@
 
 *   **发送序号追踪 (PoseSender Stats)**: 针对高频下发的控制位姿（Pose），增加了序列号（seq）追踪功能。可实时统计 1 秒时间窗口内的发送成功数、失败数以及由链路拥堵导致的缺帧/跳变率，为双链路冗余和微秒级调优提供了直接数据支撑。
 
+### 2.4 当前协议补充
+
+当前与遥控共享 transport 直接相关的命令编号已经扩展到：
+
+*   `FRONT_TRACK_UP = 0x0E`
+*   `FRONT_TRACK_DOWN = 0x0F`
+*   `PUSHROD_EXTEND = 0x10`
+*   `PUSHROD_RETRACT = 0x11`
+
+当前真实运行时口径是：
+
+*   `FRONT_TRACK_UP/DOWN` 通过 `rc26_merge_odom` 的共享 transport 走 no-ACK 单发，适合按住期间连续发送。
+*   `PUSHROD_EXTEND/RETRACT` 通过共享 transport 走可靠 `sendCommand()` ACK 路径；成功标准是 transport service 返回 `accepted=true`，不要求 MCU 再上送独立 `DONE` 反馈。
+*   `rc26_telecontrol_front_track_test` 会在 `Y/A` 按住期间按 `50Hz` 连续调用 `/mechanism/transport/send_command`。
+*   `rc26_telecontrol_pushrod_dpad` 会把 `Dpad 左/右` 直接桥成 `0x10 / 0x11` 的单次 ACK 命令。
+*   真机部署时，目标 MCU 串口仍由 `rc26_merge_odom` 运行时独占打开；其它上层只复用 transport，不再次直连同一设备。
+
 ## 3. 设计原则与平台限制
 
 1.  **协议不可变性**: 所有优化均在完全兼容现有 v3.0 通信协议（含帧头、CRC32 MPEG-2 校验、最大长度限制）的前提下进行，无需修改下位机 MCU 固件。

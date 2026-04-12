@@ -32,7 +32,8 @@ Point-LIO 是一个鲁棒、高带宽的 LiDAR 惯性里程计，基于逐点更
 请使用标准的 ROS 2 编译工具（如 colcon）进行编译。建议与下游链路一起编译验证：
 
 ```bash
-MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_point_lio rc26_bringup --cmake-args -DCMAKE_BUILD_TYPE=Release
+MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 \
+  --packages-select rc26_point_lio rc26_bringup
 ```
 
 ## 配置文件说明
@@ -53,7 +54,7 @@ MAKEFLAGS='-j4 -l4' colcon build --parallel-workers 2 --packages-select rc26_poi
 # slam:=true 时自动选择 mapping_dense
 # slam:=false 时自动选择 cruise_light
 # race_profile 需显式指定，不会覆盖 auto 语义
-ros2 launch rc26_bringup bringup.launch.py slam:=true visualization_backend:=rviz use_decision:=false
+ros2 launch rc26_bringup bringup.launch.py slam:=true use_decision:=false
 ```
 
 ### 2. 显式指定 profile
@@ -135,7 +136,12 @@ ros2 param set /point_lio filter_size_surf 0.1
 ## 可视化说明
 - `/registered_scan`：当前帧配准点云，适合观察实时局部效果。
 - `/laser_map_full`：累计地图点云，适合观察历史建图内容是否持续保留。
-- `slam.rviz` 已默认加入 `LaserMapFull` 显示项。
+- `rc26_point_lio` 相关 launch 现在全部保持 headless，不再声明 `rviz` 或其他 viewer 兼容参数。
+- 如需图形观察，可手工运行外部工具只读消费当前 topic，例如：
+
+```bash
+rviz2 -d /home/potato/RC_2026/src/rc26_bringup/rviz/slam.rviz
+```
 
 ## 调试与测试
 为了帮助开发者快速上手和排查问题，我们在 `docs` 目录下提供了详细的调试指南。该指南包含：

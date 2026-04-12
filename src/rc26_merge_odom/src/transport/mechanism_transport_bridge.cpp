@@ -42,15 +42,18 @@ bool shouldPublishTransportFeedback(uint8_t feedback_id) {
 MechanismTransportBridge::MechanismTransportBridge(
     rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> target_serial)
     : node_(node), target_serial_(std::move(target_serial)) {
-    feedback_pub_ = node_.create_publisher<FeedbackMsg>(kMechanismTransportFeedbackTopic, rclcpp::QoS(32).reliable());
+    feedback_pub_ =
+        node_.create_publisher<FeedbackMsg>(kMechanismTransportFeedbackTopic, rclcpp::QoS(32).reliable());
     send_command_srv_ = node_.create_service<SendCommandSrv>(
         kMechanismTransportSendCommandService,
-        std::bind(&MechanismTransportBridge::handleSendCommand, this, std::placeholders::_1, std::placeholders::_2));
+        std::bind(&MechanismTransportBridge::handleSendCommand, this, std::placeholders::_1,
+                  std::placeholders::_2));
     flush_timer_ = node_.create_wall_timer(
         kMechanismTransportFlushPeriod, std::bind(&MechanismTransportBridge::flushFeedbackQueue, this));
 
     if (target_serial_) {
-        target_serial_->setReceiveCallback([this](uint8_t seq, uint8_t feedback_id, const std::vector<uint8_t>& payload) {
+        target_serial_->setReceiveCallback([this](uint8_t seq, uint8_t feedback_id,
+                                                  const std::vector<uint8_t>& payload) {
             enqueueFeedback(seq, feedback_id, payload);
         });
     }
@@ -86,7 +89,8 @@ void MechanismTransportBridge::handleSendCommand(const std::shared_ptr<SendComma
     response->seq = seq;
 }
 
-void MechanismTransportBridge::enqueueFeedback(uint8_t seq, uint8_t feedback_id, const std::vector<uint8_t>& payload) {
+void MechanismTransportBridge::enqueueFeedback(uint8_t seq, uint8_t feedback_id,
+                                               const std::vector<uint8_t>& payload) {
     if (!shouldPublishTransportFeedback(feedback_id)) {
         return;
     }

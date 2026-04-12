@@ -442,19 +442,13 @@ echo "Chassis model: ${chassis_model}"
 echo "cmd_vel topic: ${cmd_vel_topic}"
 echo "Linear speed limit: ${v_linear} m/s"
 echo "Angular speed limit: ${v_angular} rad/s"
+echo "Feedback serial: ${feedback_serial_port}"
+echo "Target serial: ${target_serial_port}"
+if [[ -n "${feedback_port_notice}" ]]; then
+  echo "Notice: ${feedback_port_notice}"
+fi
 if [[ "${stack_mode}" == "full" ]]; then
-  echo "Feedback serial: ${feedback_serial_port}"
-  echo "Target serial: ${target_serial_port}"
-  if [[ -n "${feedback_port_notice}" ]]; then
-    echo "Notice: ${feedback_port_notice}"
-  fi
   echo "IMU input: $([[ "${start_imu}" == "true" ]] && echo enabled || echo disabled)"
-else
-  echo "Feedback serial: ${feedback_serial_port}"
-  echo "Target serial: ${target_serial_port}"
-  if [[ -n "${feedback_port_notice}" ]]; then
-    echo "Notice: ${feedback_port_notice}"
-  fi
 fi
 echo "Press Ctrl+C to stop all nodes."
 

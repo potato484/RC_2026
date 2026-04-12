@@ -57,9 +57,6 @@ wheel_odom_node:
 pose_sender_node:
   ros__parameters:
     chassis_model: "tracked_diff"
-    # 双串口职责速记:
-    # - feedback_serial_port: 接收 ODOM_DATA，并由 PoseSender 连续发送 POSE_FEEDBACK
-    # - target_serial_port: 连续发送 POSE_TARGET，并复用给 /mechanism/transport/* 收发机构/前置履带命令
     feedback_serial_port: "/dev/ttyUSB0"
     target_serial_port: "/dev/ttyUSB1"
     baudrate: 1000000
@@ -129,9 +126,7 @@ merge_odom_node:
     odom_frame: "odom"
     base_frame: "base_link"
     wheel_feedback_format: "tracked_lr_8b"
-    # 双串口职责速记:
-    # - feedback_serial_port: WheelOdom 从这里接收 ODOM_DATA，PoseSender 也从这里发送 POSE_FEEDBACK
-    # - target_serial_port: PoseSender 从这里发送 POSE_TARGET，/mechanism/transport/* 也复用这条物理链路
+    # 双串口参数 (MCU速度闭环)
     feedback_serial_port: "/dev/ttyUSB0"
     target_serial_port: "/dev/ttyUSB1"
     baudrate: 1000000

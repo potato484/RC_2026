@@ -42,15 +42,11 @@ x-modules:
       - /xhu_nav/corridor_cmd
       - /xhu_nav/motion_mode_state
       - /xhu_nav/tracking_state
+      - /xhu_nav/semantic_layer_summary
+      - /xhu_nav/local_planner_state
+      - /xhu_nav/recovery_state
     services:
       - set_xhu_motion_mode
-  - name: diagnostics
-    file: docs/middle/modules/diagnostics.yaml
-    topics:
-      - r2/diag/operator_status
-      - r2/diag/events
-    services:
-      - r2/diag/reset_topic_timeout_count
   - name: vision
     file: docs/middle/modules/vision.yaml
     topics:

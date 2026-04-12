@@ -12,8 +12,10 @@
 #include "pcl/point_cloud.h"
 #include "pcl/point_types.h"
 #include "rclcpp/rclcpp.hpp"
+#include "rc26_interfaces/msg/mf_block_overlay.hpp"
 #include "rc26_interfaces/msg/mf_kfs_state.hpp"
 #include "rc26_interfaces/msg/terrain_feature_grid.hpp"
+#include "rc26_interfaces/msg/xhu_semantic_layer_summary.hpp"
 #include "rc26_terrain/terrain_risk_model.hpp"
 #include "rc26_terrain/safety_guard.hpp"
 #include "rc26_terrain/tf_chain_validator.hpp"
@@ -50,12 +52,16 @@ private:
     void syncSafetyGuardState(const SafetyGuardDecision& decision);
     TfValidationReport validateTfChain(const rclcpp::Time& now) const;
     void updateKfsOccupied(const rc26_interfaces::msg::MfKfsState& msg);
+    void updateBlockOverlay(const rc26_interfaces::msg::MfBlockOverlay& msg);
     bool loadMfGridLayout(const std::string& path);
     bool sanitizeAndValidateCloud(pcl::PointCloud<pcl::PointXYZI>& cloud,
                                    const std::string& name,
                                    std::string& reason) const;
     void publishDiagnostics(const rclcpp::Time& stamp, int level,
                             const std::string& message) const;
+    void publishSemanticLayerSummary(const rclcpp::Time& stamp, int obstacle_cells,
+                                     int drop_cells, float max_obstacle_probability,
+                                     float max_drop_probability);
 
     // 参数
     std::string input_cloud_topic_;
@@ -164,7 +170,9 @@ private:
     double      stair_pitch_gate_deg_{6.0};
     double      top_z_max_delta_m_{0.7};
     std::string terrain_features_topic_{"terrain_features"};
+    std::string semantic_layer_summary_topic_{"/xhu_nav/semantic_layer_summary"};
     bool        enable_terrain_features_pub_{false};
+    bool        enable_semantic_layer_summary_pub_{true};
     double      terrain_features_publish_hz_{3.5};
     bool        enable_risk_model_{false};
     std::string risk_model_file_{""};
@@ -209,12 +217,14 @@ private:
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_base_ground_stable_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_thermal_throttle_;
     rclcpp::Subscription<rc26_interfaces::msg::MfKfsState>::SharedPtr sub_mf_kfs_;
+    rclcpp::Subscription<rc26_interfaces::msg::MfBlockOverlay>::SharedPtr sub_block_overlay_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_obstacles_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_drop_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_climbable_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_kfs_obstacles_debug_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr pub_diagnostics_;
     rclcpp::Publisher<rc26_interfaces::msg::TerrainFeatureGrid>::SharedPtr pub_features_;
+    rclcpp::Publisher<rc26_interfaces::msg::XhuSemanticLayerSummary>::SharedPtr pub_semantic_layer_summary_;
     rclcpp::TimerBase::SharedPtr health_timer_;
     SafetyGuard safety_guard_;
     std::unique_ptr<TfChainValidator> tf_chain_validator_;
@@ -248,6 +258,7 @@ private:
     bool thermal_throttle_requested_{false};
     rclcpp::Time thermal_throttle_last_true_stamp_{0, 0, RCL_ROS_TIME};
     rclcpp::Time last_features_pub_time_{0, 0, RCL_ROS_TIME};
+    rclcpp::Time last_semantic_summary_pub_time_{0, 0, RCL_ROS_TIME};
     bool last_tf_validation_ok_{false};
     TfChainStatusCode last_tf_validation_code_{TfChainStatusCode::kInvalidSpecification};
     std::string last_tf_validation_message_{"未验证"};
@@ -257,6 +268,11 @@ private:
     int obstacle_cells_count_{0};
     int drop_cells_count_{0};
     int climbable_cells_count_{0};
+    int overlay_blocked_cells_count_{0};
+    int overlay_slow_cells_count_{0};
+    bool overlay_summary_available_{false};
+    uint64_t semantic_summary_revision_{0};
+    std::string semantic_summary_signature_;
 
     // MF 布局映射
     std::array<double, 13> mf_grid_x_{};

@@ -6,17 +6,19 @@ src R2导航系统 - 主启动文件
   - 定位 (rc26_localization)
   - 地面高度估计 (rc26_base_ground)
   - 地形分析 (rc26_terrain)
-  - xhu 自研导航链 (rc26_topo_nav + xhu_motion_mode_manager + xhu_motion_follower)
+  - xhu 自研导航链 (rc26_xhu_nav: topo_nav_node + xhu_motion_mode_manager_node + xhu_motion_runtime_node)
   - 决策系统 (rc26_decision)
 
 额外模式:
-  - slam:=true 且 pure_mapping_mode:=true 时，保留纯建图最小运动链路，同时继续发布可视化诊断总线
-"""
-import os
+  - slam:=true 且 pure_mapping_mode:=true 时，保留纯建图最小运动链路
 
+默认装配口径:
+  - 车端 bringup 维持 headless
+  - 如需图形观察，请手工启动工作区外部可视化工具只读消费 ROS2 输出
+"""
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, GroupAction, IncludeLaunchDescription, LogInfo
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, LogInfo
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
@@ -31,10 +33,7 @@ def generate_launch_description():
     kfs_keepout_dir = get_package_share_directory('rc26_kfs_keepout')
     point_lio_dir = get_package_share_directory('rc26_point_lio')
     robot_geometry_dir = get_package_share_directory('rc26_robot_geometry')
-    topo_nav_dir = get_package_share_directory('rc26_topo_nav')
-    nav_mode_manager_dir = get_package_share_directory('rc26_nav_mode_manager')
-    visualization_dir = get_package_share_directory('rc26_visualization')
-    display_available = 'true' if (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')) else 'false'
+    xhu_nav_dir = get_package_share_directory('rc26_xhu_nav')
 
     # 启动参数
     namespace = LaunchConfiguration('namespace')
@@ -48,11 +47,6 @@ def generate_launch_description():
     terrain_grid_map_params_file = LaunchConfiguration('terrain_grid_map_params_file')
     terrain_filter_chain_params_file = LaunchConfiguration('terrain_filter_chain_params_file')
     enable_terrain_grid_map = LaunchConfiguration('enable_terrain_grid_map')
-    use_rviz = LaunchConfiguration('use_rviz')
-    visualization_backend = LaunchConfiguration('visualization_backend')
-    visualization_status_enable = LaunchConfiguration('visualization_status_enable')
-    foxglove_port = LaunchConfiguration('foxglove_port')
-    foxglove_layout_dir = LaunchConfiguration('foxglove_layout_dir')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     use_decision = LaunchConfiguration('use_decision')
     use_realsense = LaunchConfiguration('use_realsense')
@@ -63,6 +57,8 @@ def generate_launch_description():
     chassis_model = LaunchConfiguration('chassis_model')
     robot_geometry_file = LaunchConfiguration('robot_geometry_file')
     robot_geometry_profile = LaunchConfiguration('robot_geometry_profile')
+    local_3d_planner_config_file = LaunchConfiguration('local_3d_planner_config_file')
+    xhu_motion_runtime_config_file = LaunchConfiguration('xhu_motion_runtime_config_file')
 
     # 参数声明
     declare_namespace = DeclareLaunchArgument(
@@ -83,7 +79,7 @@ def generate_launch_description():
     declare_pure_mapping_mode = DeclareLaunchArgument(
         'pure_mapping_mode',
         default_value='false',
-        description='纯建图最小模式；仅在 slam:=true 时生效，跳过 terrain/decision，但保留 visualization_status 供前端显示')
+        description='纯建图最小模式；仅在 slam:=true 时生效，跳过 terrain/decision 等非必要模块')
 
     declare_prior_pcd_file = DeclareLaunchArgument(
         'prior_pcd_file',
@@ -125,31 +121,6 @@ def generate_launch_description():
         'enable_terrain_grid_map',
         default_value='false',
         description='是否额外启用 terrain_semantic + terrain_grid_map_bridge；可在 pure_mapping_mode 或独立建图时打开 2.5D 栅格地图显示')
-
-    declare_use_rviz = DeclareLaunchArgument(
-        'use_rviz',
-        default_value='true',
-        description='启动 RViz（兼容参数；当 visualization_backend!=rviz 时忽略）')
-
-    declare_visualization_backend = DeclareLaunchArgument(
-        'visualization_backend',
-        default_value='rviz',
-        description='可视化后端: rviz | foxglove | none')
-
-    declare_visualization_status_enable = DeclareLaunchArgument(
-        'visualization_status_enable',
-        default_value='true',
-        description='是否启动可视化状态/告警聚合节点')
-
-    declare_foxglove_port = DeclareLaunchArgument(
-        'foxglove_port',
-        default_value='8765',
-        description='foxglove_bridge WebSocket 监听端口')
-
-    declare_foxglove_layout_dir = DeclareLaunchArgument(
-        'foxglove_layout_dir',
-        default_value='/tmp/rc26_foxglove_layouts/current',
-        description='自动生成的 Foxglove 布局输出目录（按当前 namespace 重写 topicPath）')
 
     declare_recover_mid360_stream = DeclareLaunchArgument(
         'recover_mid360_stream',
@@ -201,8 +172,18 @@ def generate_launch_description():
         default_value='compact',
         description='机器人几何 profile 名称')
 
-    topo_graph_blue_file = PathJoinSubstitution([topo_nav_dir, 'config', 'r2_field_graph_blue.yaml'])
-    topo_graph_red_file = PathJoinSubstitution([topo_nav_dir, 'config', 'r2_field_graph_red.yaml'])
+    declare_local_3d_planner_config_file = DeclareLaunchArgument(
+        'local_3d_planner_config_file',
+        default_value=PathJoinSubstitution([xhu_nav_dir, 'config', 'local_3d_planner.yaml']),
+        description='local_3d_planner 参数文件')
+
+    declare_xhu_motion_runtime_config_file = DeclareLaunchArgument(
+        'xhu_motion_runtime_config_file',
+        default_value=PathJoinSubstitution([xhu_nav_dir, 'config', 'xhu_motion_runtime.yaml']),
+        description='xhu_motion_runtime 参数文件')
+
+    topo_graph_blue_file = PathJoinSubstitution([xhu_nav_dir, 'config', 'r2_field_graph_blue.yaml'])
+    topo_graph_red_file = PathJoinSubstitution([xhu_nav_dir, 'config', 'r2_field_graph_red.yaml'])
     topo_graph_file = PythonExpression([
         "'", topo_graph_red_file, "' if '", team, "'.lower() == 'red' else '", topo_graph_blue_file, "'"
     ])
@@ -214,7 +195,6 @@ def generate_launch_description():
         "not ('", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true') "
         "or '", enable_terrain_grid_map, "'.lower() == 'true'"
     ])
-
     # RealSense D455（可选）
     realsense_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -251,7 +231,6 @@ def generate_launch_description():
                 " or ('", point_lio_profile, "'.lower() == 'race_profile'))"
             ]),
             'enable_terrain_grid_map': 'false',
-            'odometry_use_rviz': 'false',
             'recover_mid360_stream': recover_mid360_stream,
         }.items()
     )
@@ -310,9 +289,9 @@ def generate_launch_description():
     )
 
     # xhu 自研运动模式管理器
-    xhu_profiles_file = PathJoinSubstitution([nav_mode_manager_dir, 'config', 'nav_profiles.yaml'])
+    xhu_profiles_file = PathJoinSubstitution([xhu_nav_dir, 'config', 'nav_profiles.yaml'])
     xhu_motion_mode_manager_node = Node(
-        package='rc26_nav_mode_manager',
+        package='rc26_xhu_nav',
         executable='xhu_motion_mode_manager_node',
         name='xhu_motion_mode_manager',
         namespace=namespace,
@@ -326,18 +305,17 @@ def generate_launch_description():
         condition=UnlessCondition(slam)
     )
 
-    xhu_motion_follower_params = PathJoinSubstitution([bringup_dir, 'config', 'xhu_motion_follower.yaml'])
-    xhu_motion_follower_node = Node(
-        package='rc26_omni_controller',
-        executable='xhu_motion_follower_node',
-        name='xhu_motion_follower',
+    xhu_motion_runtime_node = Node(
+        package='rc26_xhu_nav',
+        executable='xhu_motion_runtime_node',
+        name='xhu_motion_runtime',
         namespace=namespace,
         output='screen',
         parameters=[
-            xhu_motion_follower_params,
+            xhu_motion_runtime_config_file,
+            local_3d_planner_config_file,
             {
                 'use_sim_time': use_sim_time,
-                'chassis_model': chassis_model,
                 'robot_geometry_file': robot_geometry_file,
                 'robot_geometry_profile': robot_geometry_profile,
             },
@@ -345,15 +323,15 @@ def generate_launch_description():
         condition=UnlessCondition(slam)
     )
 
-    # rc26_topo_nav
+    # rc26_xhu_nav topo runtime
     topo_nav_node = Node(
-        package='rc26_topo_nav',
+        package='rc26_xhu_nav',
         executable='topo_nav_node',
         name='topo_nav_node',
         namespace=namespace,
         output='screen',
         parameters=[
-            PathJoinSubstitution([topo_nav_dir, 'config', 'topo_nav.yaml']),
+            PathJoinSubstitution([xhu_nav_dir, 'config', 'topo_nav.yaml']),
             {
                 'use_sim_time': use_sim_time,
                 'team': team,
@@ -432,32 +410,8 @@ def generate_launch_description():
         ]))
     )
 
-    visualization_status_config = PathJoinSubstitution([
-        visualization_dir, 'config', 'visualization_status.yaml'
-    ])
-    visualization_status_node = Node(
-        package='rc26_visualization',
-        executable='rc26_visualization_status_node',
-        name='rc26_visualization_status_node',
-        namespace=namespace,
-        output='screen',
-        parameters=[
-            visualization_status_config,
-            {
-                'use_sim_time': use_sim_time,
-                'summary.localization_present': True,
-                'summary.controller_present': PythonExpression(["not ('", slam, "'.lower() == 'true')"]),
-                'summary.keepout_present': PythonExpression(["not ('", slam, "'.lower() == 'true')"]),
-                'summary.terrain_present': terrain_grid_map_runtime,
-                'summary.nav_safety_present': PythonExpression(["not ('", slam, "'.lower() == 'true')"]),
-                'summary.mechanism_present': True,
-            },
-        ],
-        condition=IfCondition(visualization_status_enable)
-    )
-
     pure_mapping_notice = LogInfo(
-        msg='[bringup] pure_mapping_mode 已启用：建图时仅保留 Point-LIO/odom_interface/localization 等最小运动链路，跳过 lio_state_predictor、rc26_terrain 和 rc26_decision，但继续发布 visualization_status 供前端显示。',
+        msg='[bringup] pure_mapping_mode 已启用：建图时仅保留 Point-LIO/odom_interface/localization 等最小运动链路，跳过 lio_state_predictor、rc26_terrain 和 rc26_decision。',
         condition=IfCondition(PythonExpression([
             "'", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true' and '",
             enable_terrain_grid_map, "'.lower() != 'true'"
@@ -469,91 +423,6 @@ def generate_launch_description():
         condition=IfCondition(PythonExpression([
             "'", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true' and '",
             enable_terrain_grid_map, "'.lower() == 'true'"
-        ]))
-    )
-
-    foxglove_bridge_node = Node(
-        package='foxglove_bridge',
-        executable='foxglove_bridge',
-        name='foxglove_bridge',
-        namespace=namespace,
-        output='screen',
-        parameters=[{
-            'port': foxglove_port,
-            'address': '0.0.0.0',
-            'use_sim_time': use_sim_time,
-        }]
-    )
-
-    foxglove_layout_render = ExecuteProcess(
-        cmd=[
-            'python3',
-            PathJoinSubstitution([bringup_dir, 'scripts', 'render_foxglove_layouts.py']),
-            '--source-dir',
-            PathJoinSubstitution([bringup_dir, 'foxglove']),
-            '--output-dir',
-            foxglove_layout_dir,
-            '--namespace',
-            namespace,
-        ],
-        output='screen',
-        condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'foxglove'"]))
-    )
-
-    foxglove_layout_notice = LogInfo(
-        msg=[
-            '[bringup] Foxglove layouts rendered to ',
-            foxglove_layout_dir,
-            ' ; import operator.json / engineering.json / diagnostic.json from that directory.',
-        ],
-        condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'foxglove'"]))
-    )
-
-    foxglove_group = GroupAction(
-        actions=[foxglove_layout_render, foxglove_layout_notice, foxglove_bridge_node],
-        condition=IfCondition(PythonExpression(["'", visualization_backend, "' == 'foxglove'"]))
-    )
-
-    # RViz：导航模式使用自研导航布局，建图模式使用 slam.rviz
-    rviz_nav_config = PathJoinSubstitution([bringup_dir, 'rviz', 'navigation_default.rviz'])
-    rviz_slam_config = PathJoinSubstitution([bringup_dir, 'rviz', 'slam.rviz'])
-    rviz_nav_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        namespace=namespace,
-        arguments=['-d', rviz_nav_config],
-        parameters=[{'use_sim_time': use_sim_time}],
-        condition=UnlessCondition(slam)
-    )
-
-    rviz_slam_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        namespace=namespace,
-        arguments=['-d', rviz_slam_config],
-        parameters=[{'use_sim_time': use_sim_time}],
-        condition=IfCondition(slam)
-    )
-
-    rviz_group = GroupAction(
-        actions=[
-            GroupAction(
-                actions=[rviz_nav_node, rviz_slam_node],
-                condition=IfCondition(use_rviz)
-            )
-        ],
-        condition=IfCondition(PythonExpression([
-            "'", visualization_backend, "' == 'rviz' and '", display_available, "' == 'true'"
-        ]))
-    )
-
-    rviz_headless_notice = LogInfo(
-        msg='[bringup] 未检测到 DISPLAY/WAYLAND_DISPLAY，跳过 RViz；可改用 visualization_backend:=foxglove 或 none。',
-        condition=IfCondition(PythonExpression([
-            "'", visualization_backend, "' == 'rviz' and '", use_rviz, "' == 'true' and '",
-            display_available, "' != 'true'"
         ]))
     )
 
@@ -570,11 +439,6 @@ def generate_launch_description():
         declare_terrain_grid_map_params_file,
         declare_terrain_filter_chain_params_file,
         declare_enable_terrain_grid_map,
-        declare_use_rviz,
-        declare_visualization_backend,
-        declare_visualization_status_enable,
-        declare_foxglove_port,
-        declare_foxglove_layout_dir,
         declare_chassis_model,
         declare_recover_mid360_stream,
         declare_use_decision,
@@ -585,6 +449,8 @@ def generate_launch_description():
         declare_team,
         declare_robot_geometry_file,
         declare_robot_geometry_profile,
+        declare_local_3d_planner_config_file,
+        declare_xhu_motion_runtime_config_file,
 
         # 启动模块
         pure_mapping_notice,
@@ -597,12 +463,8 @@ def generate_launch_description():
         kfs_block_fuser_node,
         terrain_grid_map_bridge_node,
         xhu_motion_mode_manager_node,
-        xhu_motion_follower_node,
+        xhu_motion_runtime_node,
         topo_nav_node,
         decision_node,
-        visualization_status_node,
         realsense_group,
-        rviz_headless_notice,
-        foxglove_group,
-        rviz_group,
     ])
