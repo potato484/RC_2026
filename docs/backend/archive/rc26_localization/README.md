@@ -39,7 +39,7 @@
 - 先看 `launch/sentry_localization.launch.py` 和 `README.md`，确认这个包怎样被单独拉起。
 - 再看 `src/localization.cpp`，这里是节点状态机和运行时骨架。
 - 然后按职责继续看 `localization_registration.cpp`、`localization_reloc.cpp`、`localization_graph.cpp`、`localization_params.cpp`。
-- 最后看 `scripts/` 和 `docs/`，理解性能剖析、验收和合成输入脚本。
+- 最后看 `scripts/` 和仓库根目录 `调试/rc26_localization调试.md`，理解性能剖析、验收和合成输入脚本。
 
 ## 目录解剖
 - `localization.cpp`：节点骨架、状态机、健康度、后端状态和线程绑定。

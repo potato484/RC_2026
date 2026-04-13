@@ -7,8 +7,55 @@
 ```bash
 # 确保已编译并 source 环境
 cd "${RC26_WS:-$HOME/RC_2026}"
-colcon build --symlink-install --parallel-workers 3 --cmake-args -DCMAKE_BUILD_TYPE=Release
+MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_bringup
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
+```
+
+---
+
+## 联调阶段入口
+
+当前建议先按整车联调顺序跑，再回到下面的模块级测试逐项排障。
+
+### 0. 遥控
+
+```bash
+cd "${RC26_WS:-$HOME/RC_2026}"
+./start_r2_teleop.sh
+```
+
+### 1. 建图
+
+```bash
+ros2 launch rc26_bringup test_mapping.launch.py
+```
+
+### 2. 定位
+
+```bash
+ros2 launch rc26_bringup test_localization_chain.launch.py \
+  prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans.pcd
+```
+
+### 3. 重定位
+
+```bash
+ros2 launch rc26_bringup test_relocalization.launch.py \
+  prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans.pcd
+```
+
+### 4. 回环
+
+```bash
+ros2 launch rc26_bringup test_loop_closure.launch.py \
+  prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans.pcd
+```
+
+### 5. 导航
+
+```bash
+ros2 launch rc26_bringup test_navigation.launch.py \
+  prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans.pcd
 ```
 
 ---

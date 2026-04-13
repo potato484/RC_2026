@@ -120,7 +120,7 @@ install(DIRECTORY include/
   DESTINATION include
 )
 
-install(DIRECTORY config launch rviz docs
+install(DIRECTORY config launch rviz
   DESTINATION share/${PROJECT_NAME}
 )
 

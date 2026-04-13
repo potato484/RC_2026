@@ -144,17 +144,17 @@ rviz2 -d /home/potato/RC_2026/src/rc26_bringup/rviz/slam.rviz
 ```
 
 ## 调试与测试
-为了帮助开发者快速上手和排查问题，我们在 `docs` 目录下提供了详细的调试指南。该指南包含：
+为了帮助开发者快速上手和排查问题，仓库根目录提供了 `调试/rc26_point_lio调试.md`。该文档包含：
 - 如何使用 bag 回放进行基础功能测试
 - 如何验证控制延迟、退化检测等进阶性能
 - 如何检查动态点密度与累计地图发布
 - 如何保存 PCD 并复用到定位链路
 
-请查阅 `docs/debug_guide.md` 获取详细信息。
+请查阅仓库根目录 `调试/rc26_point_lio调试.md` 获取详细信息。
 
 若需要标定 `LiDAR -> IMU` 外参，请查阅：
 
-- `docs/lidar_to_imu_extrinsic_calibration.md`
+- 当前仓库未保留独立外参标定文档；如需补齐，请回查历史资料后单独整理
 
 ## 维护者
 - 原始作者: Dongjiao He (HKU-MARS)

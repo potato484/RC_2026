@@ -179,7 +179,6 @@ install(DIRECTORY config/ DESTINATION share/${PROJECT_NAME}/config)
 install(DIRECTORY launch/ DESTINATION share/${PROJECT_NAME}/launch)
 install(DIRECTORY scenarios/ DESTINATION share/${PROJECT_NAME}/scenarios)
 install(DIRECTORY sim_assets/ DESTINATION share/${PROJECT_NAME}/sim_assets)
-install(DIRECTORY docs/ DESTINATION share/${PROJECT_NAME}/docs)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)

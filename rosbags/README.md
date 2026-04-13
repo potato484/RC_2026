@@ -18,7 +18,6 @@ source install/setup.bash
 ros2 bag record -o rosbags/teleop_left_stick_$(date +%F_%H-%M-%S) \
   /joy \
   /cmd_vel \
-  /terrain_speed_limit \
   /pose_sender/target_protected \
   /pose_sender/feedback_protected \
   /pose_sender/imu_spike_active \
@@ -46,4 +45,4 @@ ros2 bag info rosbags/teleop_left_stick_时间戳
 
 如需针对“左摇杆无法控制平移、右摇杆可以旋转”的问题做专项排查，请参考：
 
-- `src/rc26_telecontrol/docs/left_stick_no_translation_debug.md`
+- 仓库根目录 `调试/rc26_telecontrol调试.md`

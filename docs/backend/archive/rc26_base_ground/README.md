@@ -21,13 +21,13 @@
 ## 源码入口与阅读顺序
 - 先看 `launch/base_ground_estimator.launch.py`，确认节点名、参数文件和发布链路。
 - 再看 `src/base_ground_estimator_node.cpp`，这个包的核心状态机、TF 发布和层级估计都集中在这里。
-- 最后看 `config/base_ground_estimator.yaml` 和 `src/rc26_base_ground/docs/debug_guide.md`，确认阈值、稳定窗口和验收话题。
+- 最后看 `config/base_ground_estimator.yaml` 和仓库根目录 `调试/rc26_base_ground调试.md`，确认阈值、稳定窗口和验收话题。
 
 ## 目录解剖
 - `src/base_ground_estimator_node.cpp`：单文件主实现，负责样本窗口、抬起保护、层级状态和 TF。
 - `config/base_ground_estimator.yaml`：台阶高度、姿态门槛、稳定窗口等部署参数。
 - `launch/base_ground_estimator.launch.py`：单节点装配入口。
-- `src/rc26_base_ground/docs/debug_guide.md`：运行期排查和 topic 验证手册。
+- 仓库根目录 `调试/rc26_base_ground调试.md`：运行期排查和 topic 验证手册。
 
 ## 关键文件体量
 - `src/base_ground_estimator_node.cpp`：537 行，几乎所有运行逻辑都在这里。

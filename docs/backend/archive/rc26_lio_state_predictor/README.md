@@ -18,12 +18,12 @@
 
 ## 源码入口与阅读顺序
 - 先看 `src/lio_state_predictor.cpp`，该包核心逻辑基本都在这一份组件实现里。
-- 再看 `README.md` 和 `docs/debug_guide.md`，确认输入输出和调试关注点。
+- 再看 `README.md` 和仓库根目录 `调试/rc26_lio_state_predictor调试.md`，确认输入输出和调试关注点。
 
 ## 目录解剖
 - `src/lio_state_predictor.cpp`：参数、订阅、预测发布定时器、协方差膨胀和退化状态输出。
 - `README.md`：解释为什么要把 LIO 估计前推到控制当前时刻。
-- `docs/debug_guide.md`：离线 bag 联调步骤。
+- 仓库根目录 `调试/rc26_lio_state_predictor调试.md`：离线 bag 联调步骤。
 
 ## 关键文件体量
 - `src/lio_state_predictor.cpp`：404 行，预测器实现集中。

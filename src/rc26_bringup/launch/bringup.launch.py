@@ -48,6 +48,12 @@ def generate_launch_description():
     terrain_filter_chain_params_file = LaunchConfiguration('terrain_filter_chain_params_file')
     enable_terrain_grid_map = LaunchConfiguration('enable_terrain_grid_map')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
+    localization_params_file = LaunchConfiguration('localization_params_file')
+    localization_overlay_file = LaunchConfiguration('localization_overlay_file')
+    competition_mode = LaunchConfiguration('competition_mode')
+    enable_graph_backend = LaunchConfiguration('enable_graph_backend')
+    p4_candidate_enable = LaunchConfiguration('p4_candidate_enable')
+    min_inliers = LaunchConfiguration('min_inliers')
     use_decision = LaunchConfiguration('use_decision')
     use_realsense = LaunchConfiguration('use_realsense')
     realsense_serial_no = LaunchConfiguration('realsense_serial_no')
@@ -126,6 +132,36 @@ def generate_launch_description():
         'recover_mid360_stream',
         default_value='false',
         description='启动前先运行 Mid-360 恢复脚本（必要时重写 host_ipcfg 并软件重启雷达）')
+
+    declare_localization_params_file = DeclareLaunchArgument(
+        'localization_params_file',
+        default_value=PathJoinSubstitution([bringup_dir, 'config', 'localization.yaml']),
+        description='基础定位参数文件路径')
+
+    declare_localization_overlay_file = DeclareLaunchArgument(
+        'localization_overlay_file',
+        default_value=PathJoinSubstitution([bringup_dir, 'config', 'localization_overlay_default.yaml']),
+        description='定位参数 overlay 文件路径')
+
+    declare_competition_mode = DeclareLaunchArgument(
+        'competition_mode',
+        default_value='true',
+        description='定位 competition_mode 参数')
+
+    declare_enable_graph_backend = DeclareLaunchArgument(
+        'enable_graph_backend',
+        default_value='false',
+        description='是否为 localization 启用图后端')
+
+    declare_p4_candidate_enable = DeclareLaunchArgument(
+        'p4_candidate_enable',
+        default_value='false',
+        description='是否为 localization 启用 P4 外部候选输入')
+
+    declare_min_inliers = DeclareLaunchArgument(
+        'min_inliers',
+        default_value='200',
+        description='localization 局部配准质量门控最小内点数')
 
     declare_use_decision = DeclareLaunchArgument(
         'use_decision',
@@ -254,6 +290,12 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'slam': slam,
             'prior_pcd_file': prior_pcd_file,
+            'localization_params_file': localization_params_file,
+            'localization_overlay_file': localization_overlay_file,
+            'competition_mode': competition_mode,
+            'enable_graph_backend': enable_graph_backend,
+            'p4_candidate_enable': p4_candidate_enable,
+            'min_inliers': min_inliers,
         }.items()
     )
 
@@ -441,6 +483,12 @@ def generate_launch_description():
         declare_enable_terrain_grid_map,
         declare_chassis_model,
         declare_recover_mid360_stream,
+        declare_localization_params_file,
+        declare_localization_overlay_file,
+        declare_competition_mode,
+        declare_enable_graph_backend,
+        declare_p4_candidate_enable,
+        declare_min_inliers,
         declare_use_decision,
         declare_use_realsense,
         declare_realsense_serial_no,
