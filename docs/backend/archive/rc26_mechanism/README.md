@@ -48,7 +48,7 @@
 
 也就是说，`/mechanism/execute` 仍然是上层动作执行入口，但真机串口发送职责已经下沉到 `rc26_merge_odom`。
 
-当前 `ExecuteMechanism` 通用入口已经不再覆盖前置履带；前置履带遥控链改为直接调用 `/mechanism/transport/send_command`，并由 `rc26_merge_odom` 在目标串口上按 `50Hz` 连续下发 `FRONT_TRACK_UP(0x0E)` / `FRONT_TRACK_DOWN(0x0F)`。当前 teleop 还会把 `Dpad 左/右` 直接桥成 `PUSHROD_EXTEND(0x10)` / `PUSHROD_RETRACT(0x11)`。
+当前 `ExecuteMechanism` 通用入口已经不再覆盖前置履带；前置履带遥控链改为直接调用 `/mechanism/transport/send_command`，并由 `rc26_merge_odom` 在目标串口上按下沿单次下发 `FRONT_TRACK_UP(0x0E)` / `FRONT_TRACK_DOWN(0x0F)`。当前 teleop 还会把 `Dpad 左/右` 直接桥成 `PUSHROD_EXTEND(0x10)` / `PUSHROD_RETRACT(0x11)`。
 
 仓库根目录的 `start_r2_teleop.sh` 现在会显式：
 

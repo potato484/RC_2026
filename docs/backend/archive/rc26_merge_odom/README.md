@@ -131,4 +131,4 @@
 - `merge_odom_node` 现在接受 `feedback_serial_port:=__disabled__` 的降级输入；如果没有独立反馈串口，会跳过 WheelOdom，但继续保留 `POSE_TARGET` 和 `/mechanism/transport/*` 的目标串口链路。
 - 仓库根目录的 `start_r2_teleop.sh` 现在还支持 `--stack full|minimal-mcu`：默认 `full` 走完整遥控链，`minimal-mcu` 会拉起 `pose_sender_node + joy_node + rc26_telecontrol + rc26_telecontrol_pushrod_dpad` 的最小串口链。
 - `start_r2_teleop.sh` 在 `full` 和 `minimal-mcu` 两个栈下都会自动兼容“只有一个目标串口”的场景：当默认 `target_serial_port=/dev/ttyUSB1` 不存在且 `/dev/ttyUSB0` 存在时，会自动把目标串口切到 `/dev/ttyUSB0`，并把反馈串口降级为 `__disabled__`。
-- 遥控链通过 `start_r2_teleop.sh` 启动时，不再需要额外传地形限速相关参数；teleop 模式天然不会受 terrain 限速影响，同时会自动把前置履带直连 transport 的按钮节点一起拉起，不再默认拉起 `rc26_mechanism`。
+- 遥控链通过 `start_r2_teleop.sh` 启动时，不再需要额外传地形限速相关参数；teleop 模式天然不会受 terrain 限速影响，同时会自动把前置履带单发 transport 的按钮节点一起拉起，不再默认拉起 `rc26_mechanism`。

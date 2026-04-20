@@ -46,7 +46,7 @@
 
 当前真实口径是：
 
-- `rc26_telecontrol_front_track_test` 会在按钮按住期间按 `50Hz` 连续调用 `/mechanism/transport/send_command`
+- `rc26_telecontrol_front_track_test` 会在 `Y/A` 按下沿单次调用 `/mechanism/transport/send_command`
 - `FRONT_TRACK_UP/DOWN` 通过 `merge_odom` 桥接走 no-ACK 单发，不做重传
 - `PUSHROD_EXTEND/RETRACT` 通过共享 transport 走可靠 `sendCommand()` ACK 路径；只要求 MCU 回 `ACK`，不要求再上送独立的完成反馈
 - `0x13 / 0x14` 仍作为这两个动作的完成反馈发布到 `/mechanism/transport/feedback`

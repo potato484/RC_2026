@@ -74,9 +74,8 @@
 - `Y(button[3]) -> FRONT_TRACK_UP (0x0E)`
 - `A(button[0]) -> FRONT_TRACK_DOWN (0x0F)`
 - 直接调用 `/mechanism/transport/send_command`，不再经过 `/mechanism/execute`
-- 按住按钮时按 `50Hz` 连续下发
+- 采用按下沿单次触发；按住不会连发，松开后再次按下才会重发
 - `Y` 与 `A` 同帧按下时直接忽略
-- 松开按钮后立即停止发送
 
 并且做了较多安全处理：
 
@@ -87,14 +86,14 @@
 ## 源码入口与阅读顺序
 - 先看 `launch/wheeltec_joy.launch.py`，确认 stick / dpad 模式如何二选一。
 - 再看 `src/telecontrol_nodes.cpp`，公共参数、看门狗、deadman、限斜率都在这里。
-- 然后看 `src/front_track_button_test_node.cpp`，确认 Y/A 如何映射到共享 transport 连续发送。
+- 然后看 `src/front_track_button_test_node.cpp`，确认 Y/A 如何映射到共享 transport 单次发送。
 - 再看 `src/pushrod_dpad_node.cpp`，确认 Dpad 左/右如何映射到电动推杆 ACK 指令。
 - 最后看 `src/wheeltec_joy.cpp`、`src/wheeltec_joy_dpad.cpp` 和两个 YAML。
 
 ## 目录解剖
 - `telecontrol_nodes.cpp`：基类、参数声明、摇杆输入处理、限幅、看门狗和两种控制模式实现。
 - `wheeltec_joy.cpp` / `wheeltec_joy_dpad.cpp`：两个独立可执行入口。
-- `front_track_button_test_node.cpp`：Y/A 到 `/mechanism/transport/send_command` 的连续发送桥接节点。
+- `front_track_button_test_node.cpp`：Y/A 到 `/mechanism/transport/send_command` 的单次发送桥接节点。
 - `pushrod_dpad_node.cpp`：Dpad 左/右到 `/mechanism/transport/send_command` 的单次 ACK 发送桥接节点。
 - `config/joy_params*.yaml`：手柄映射和安全参数。
 - `launch/wheeltec_joy.launch.py`：模式切换和 `joy_node` 装配。
@@ -124,7 +123,7 @@
 - 履带模式下，Stick 和 Dpad 都只输出 `linear.x + angular.z`，`linear.y` 在节点内部被固定为 0。
 - `start_r2_teleop.sh` 现在默认用 `dpad` 模式启动，而不是 stick。
 - `start_r2_teleop.sh` 现在会在 `full` 和 `minimal-mcu` 两个栈里都额外挂起 `rc26_telecontrol_pushrod_dpad`，用于把 Dpad 左/右桥到 `0x10 / 0x11`。
-- `start_r2_teleop.sh` 会额外拉起 `rc26_telecontrol_front_track_test`，用于把 `Y/A` 直接映射成前置履带 `0x0E / 0x0F` 的连续命令。
+- `start_r2_teleop.sh` 会额外拉起 `rc26_telecontrol_front_track_test`，用于把 `Y/A` 直接映射成前置履带 `0x0E / 0x0F` 的单发命令。
 - 在 dpad 模式里，旋转仍由 `X/B` 控制；`Y/A` 不参与速度输出，只交给前置履带测试节点；`Dpad 左/右` 在履带模式下也不再参与 Twist 横移，而是交给推杆 sidecar 节点。
 - 仓库根目录的 `start_r2_teleop.sh` 现已显式向 `rc26_merge_odom` 和 `rc26_telecontrol` 传入 `chassis_model:=tracked_diff`，遥控联调不再依赖各包内部默认值。
 - `start_r2_teleop.sh` 不再默认拉起 `rc26_mechanism`；teleop 前置履带联调只依赖 `merge_odom` 持有目标串口并提供 transport service。
@@ -134,5 +133,5 @@
 - `start_r2_teleop.sh` 现支持 `--pose-mode imu|no-imu|wheel-only`：
   - `imu`：EKF 融合 `DM_IMU`
   - `no-imu`：EKF 不融合 IMU，但 `dm_imu_node` 与执行保护链仍保留
-  - `wheel-only`：不启动也不读取 IMU；若反馈串口可用，则只用 `wheel_odom` 做最终 `merge_odom` 融合；若现场只有目标串口，则退化为“只保留目标串口下发 + 前置履带 transport”的单链路模式
+  - `wheel-only`：不启动也不读取 IMU；若反馈串口可用，则只用 `wheel_odom` 做最终 `merge_odom` 融合；若现场只有目标串口，则退化为“只保留目标串口下发 + 前置履带单发 transport”的单链路模式
 - `terrain_speed_limit` 运行时链路已从系统中删除；teleop 链不再需要额外关闭地形限速，也不存在重新接回该链路的脚本入口。

@@ -20,19 +20,34 @@ enum class FrontTrackButtonCommand : uint8_t {
 class FrontTrackButtonLogic
 {
 public:
-  FrontTrackButtonCommand update(bool y_pressed, bool a_pressed) const noexcept
+  std::optional<FrontTrackButtonCommand> update(bool y_pressed, bool a_pressed) noexcept
   {
     if (y_pressed && a_pressed) {
-      return FrontTrackButtonCommand::kConflict;
+      const bool entering_conflict = !(last_y_pressed_ && last_a_pressed_);
+      last_y_pressed_ = true;
+      last_a_pressed_ = true;
+      if (entering_conflict) {
+        return FrontTrackButtonCommand::kConflict;
+      }
+      return std::nullopt;
     }
-    if (y_pressed) {
-      return FrontTrackButtonCommand::kFrontTrackUp;
+
+    std::optional<FrontTrackButtonCommand> event;
+    if (y_pressed && !last_y_pressed_) {
+      event = FrontTrackButtonCommand::kFrontTrackUp;
     }
-    if (a_pressed) {
-      return FrontTrackButtonCommand::kFrontTrackDown;
+    if (a_pressed && !last_a_pressed_) {
+      event = FrontTrackButtonCommand::kFrontTrackDown;
     }
-    return FrontTrackButtonCommand::kNone;
+
+    last_y_pressed_ = y_pressed;
+    last_a_pressed_ = a_pressed;
+    return event;
   }
+
+private:
+  bool last_y_pressed_{false};
+  bool last_a_pressed_{false};
 };
 
 inline std::optional<uint8_t> commandIdForCommand(FrontTrackButtonCommand command) noexcept

@@ -7,33 +7,43 @@ namespace rc26_telecontrol
 namespace
 {
 
-TEST(FrontTrackButtonLogicTest, YHoldKeepsRequestingUp)
+TEST(FrontTrackButtonLogicTest, YRisingEdgeTriggersSingleUp)
 {
   FrontTrackButtonLogic logic;
-  EXPECT_EQ(logic.update(false, false), FrontTrackButtonCommand::kNone);
+  EXPECT_FALSE(logic.update(false, false).has_value());
   EXPECT_EQ(logic.update(true, false), FrontTrackButtonCommand::kFrontTrackUp);
-  EXPECT_EQ(logic.update(true, false), FrontTrackButtonCommand::kFrontTrackUp);
+  EXPECT_FALSE(logic.update(true, false).has_value());
 }
 
-TEST(FrontTrackButtonLogicTest, AHoldKeepsRequestingDown)
+TEST(FrontTrackButtonLogicTest, ARisingEdgeTriggersSingleDown)
 {
   FrontTrackButtonLogic logic;
-  EXPECT_EQ(logic.update(false, false), FrontTrackButtonCommand::kNone);
+  EXPECT_FALSE(logic.update(false, false).has_value());
   EXPECT_EQ(logic.update(false, true), FrontTrackButtonCommand::kFrontTrackDown);
-  EXPECT_EQ(logic.update(false, true), FrontTrackButtonCommand::kFrontTrackDown);
+  EXPECT_FALSE(logic.update(false, true).has_value());
 }
 
-TEST(FrontTrackButtonLogicTest, SimultaneousPressIsConflict)
+TEST(FrontTrackButtonLogicTest, SimultaneousPressReportsConflictOnce)
 {
   FrontTrackButtonLogic logic;
   EXPECT_EQ(logic.update(true, true), FrontTrackButtonCommand::kConflict);
+  EXPECT_FALSE(logic.update(true, true).has_value());
 }
 
 TEST(FrontTrackButtonLogicTest, ReleaseStopsCommand)
 {
   FrontTrackButtonLogic logic;
   EXPECT_EQ(logic.update(true, false), FrontTrackButtonCommand::kFrontTrackUp);
-  EXPECT_EQ(logic.update(false, false), FrontTrackButtonCommand::kNone);
+  EXPECT_FALSE(logic.update(false, false).has_value());
+}
+
+TEST(FrontTrackButtonLogicTest, ReleaseThenRepressTriggersAgain)
+{
+  FrontTrackButtonLogic logic;
+  EXPECT_EQ(logic.update(true, false), FrontTrackButtonCommand::kFrontTrackUp);
+  EXPECT_FALSE(logic.update(true, false).has_value());
+  EXPECT_FALSE(logic.update(false, false).has_value());
+  EXPECT_EQ(logic.update(true, false), FrontTrackButtonCommand::kFrontTrackUp);
 }
 
 TEST(FrontTrackButtonLogicTest, DirectionSwitchChangesCommandImmediately)

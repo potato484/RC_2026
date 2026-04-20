@@ -35,9 +35,9 @@
 
 当前真实运行时口径是：
 
-*   `FRONT_TRACK_UP/DOWN` 通过 `rc26_merge_odom` 的共享 transport 走 no-ACK 单发，适合按住期间连续发送。
+*   `FRONT_TRACK_UP/DOWN` 通过 `rc26_merge_odom` 的共享 transport 走 no-ACK 单发；teleop 侧已经改成按下沿只发一次，按住不连发。
 *   `PUSHROD_EXTEND/RETRACT` 通过共享 transport 走可靠 `sendCommand()` ACK 路径；成功标准是 transport service 返回 `accepted=true`，不要求 MCU 再上送独立 `DONE` 反馈。
-*   `rc26_telecontrol_front_track_test` 会在 `Y/A` 按住期间按 `50Hz` 连续调用 `/mechanism/transport/send_command`。
+*   `rc26_telecontrol_front_track_test` 会在 `Y/A` 按下沿单次调用 `/mechanism/transport/send_command`。
 *   `rc26_telecontrol_pushrod_dpad` 会把 `Dpad 左/右` 直接桥成 `0x10 / 0x11` 的单次 ACK 命令。
 *   真机部署时，目标 MCU 串口仍由 `rc26_merge_odom` 运行时独占打开；其它上层只复用 transport，不再次直连同一设备。
 

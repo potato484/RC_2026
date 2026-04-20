@@ -119,6 +119,7 @@ ros2 topic echo /cmd_vel
 
 - `Y(button[3]) -> /mechanism/transport/send_command -> FRONT_TRACK_UP (0x0E)`
 - `A(button[0]) -> /mechanism/transport/send_command -> FRONT_TRACK_DOWN (0x0F)`
+- 采用按下沿单次触发；按住不会连发，松开后再次按下才会重新触发
 
 这个测试节点不直接操作串口，而是直接复用 `rc26_merge_odom` 的共享 transport；真机下实际串口发送由 `merge_odom` 持有的目标串口完成。
 
@@ -188,11 +189,12 @@ Deadman 机制要求必须按住指定按键（默认 LB / 按键 4）才能控�
 
 当 `rc26_merge_odom` 和 `rc26_telecontrol_front_track_test` 已经运行时，可以直接用手柄做前置履带联调：
 
-1. 按住 `Y(button[3])`，应按 `50Hz` 连续触发 `FRONT_TRACK_UP (0x0E)`。
-2. 按住 `A(button[0])`，应按 `50Hz` 连续触发 `FRONT_TRACK_DOWN (0x0F)`。
-3. 松开按键后应立即停止发送。
-4. 若 `Y` 与 `A` 同帧按下，测试节点会直接忽略本次输入。
-5. 若上一个 transport service 请求尚未返回，本周期会直接跳过，避免请求堆积。
+1. 按一下 `Y(button[3])`，应单次触发 `FRONT_TRACK_UP (0x0E)`。
+2. 按住 `Y(button[3])` 不应重复发送；松开后再次按下，才会再次触发 `0x0E`。
+3. 按一下 `A(button[0])`，应单次触发 `FRONT_TRACK_DOWN (0x0F)`。
+4. 按住 `A(button[0])` 不应重复发送；松开后再次按下，才会再次触发 `0x0F`。
+5. 若 `Y` 与 `A` 同帧按下，测试节点会直接忽略这次冲突输入。
+6. 若 transport service 暂时不可用，节点会保留待发命令并继续重试，不会退化回连发模式。
 
 可以同时观察：
 
@@ -201,7 +203,7 @@ ros2 topic echo /mechanism/transport/feedback
 ros2 service type /mechanism/transport/send_command
 ```
 
-若 MCU 在遥控模式停止发送数据后回传 `0x13 / 0x14`，会继续出现在 `/mechanism/transport/feedback` 中，但 teleop 节点本身不再等待 goal 终态。
+若 MCU 在动作真正完成后回传 `0x13 / 0x14`，会继续出现在 `/mechanism/transport/feedback` 中，但 teleop 节点本身不等待 ACK 或 goal 终态。
 
 ### 3.7 推杆 Dpad 测试
 
