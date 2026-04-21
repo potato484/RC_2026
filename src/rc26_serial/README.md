@@ -35,7 +35,7 @@
 
 当前真实运行时口径是：
 
-*   `FRONT_TRACK_UP/DOWN` 通过 `rc26_merge_odom` 的共享 transport 走 no-ACK 单发；teleop 侧已经改成按下沿只发一次，按住不连发。
+*   `FRONT_TRACK_UP/DOWN` 通过 `rc26_merge_odom` 的共享 transport 走可靠 `sendCommand()` ACK 路径；teleop 侧已经改成按下沿只发一次，按住不连发。命令名仍沿用旧的 `FRONT_TRACK_*`，但当前真实语义已经切到电动推杆上抬 / 后撑。若 MCU 不回 ACK，会像其它可靠命令一样重传并打印超时日志。
 *   `PUSHROD_EXTEND/RETRACT` 通过共享 transport 走可靠 `sendCommand()` ACK 路径；成功标准是 transport service 返回 `accepted=true`，不要求 MCU 再上送独立 `DONE` 反馈。
 *   `rc26_telecontrol_front_track_test` 会在 `Y/A` 按下沿单次调用 `/mechanism/transport/send_command`。
 *   `rc26_telecontrol_pushrod_dpad` 会把 `Dpad 左/右` 直接桥成 `0x10 / 0x11` 的单次 ACK 命令。

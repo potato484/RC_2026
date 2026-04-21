@@ -38,7 +38,7 @@ public:
       k_front_track_dispatch_period, std::bind(&FrontTrackButtonTestNode::dispatchQueuedCommand, this));
     RCLCPP_INFO(
       get_logger(),
-      "front-track button test ready: Y(button[%d])=up(0x%02X), A(button[%d])=down(0x%02X), edge-triggered single-shot",
+      "front-track button test ready: Y(button[%d])=up(0x%02X), A(button[%d])=down(0x%02X), edge-triggered reliable",
       k_front_track_y_button, static_cast<uint8_t>(rc26_serial::CommandID::FRONT_TRACK_UP),
       k_front_track_a_button, static_cast<uint8_t>(rc26_serial::CommandID::FRONT_TRACK_DOWN));
   }
@@ -117,7 +117,7 @@ private:
               return;
             }
             RCLCPP_DEBUG(
-              get_logger(), "front-track transport send accepted: event=%u cmd=0x%02X seq=%u",
+              get_logger(), "front-track transport send accepted after MCU ACK: event=%u cmd=0x%02X seq=%u",
               static_cast<unsigned>(command), command_id, response->seq);
           } catch (const std::exception & ex) {
             RCLCPP_ERROR(

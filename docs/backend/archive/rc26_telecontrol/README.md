@@ -71,10 +71,11 @@
 
 除此之外，当前还新增了一个独立的机构按钮测试节点：
 
-- `Y(button[3]) -> FRONT_TRACK_UP (0x0E)`
-- `A(button[0]) -> FRONT_TRACK_DOWN (0x0F)`
+- `Y(button[3]) -> FRONT_TRACK_UP (0x0E)`，真实语义是电动推杆上抬
+- `A(button[0]) -> FRONT_TRACK_DOWN (0x0F)`，真实语义是电动推杆后撑
 - 直接调用 `/mechanism/transport/send_command`，不再经过 `/mechanism/execute`
 - 采用按下沿单次触发；按住不会连发，松开后再次按下才会重发
+- 现在走 ACK 路径；如果 MCU 不回 ACK，会像其它可靠命令一样自动重传并打印超时日志
 - `Y` 与 `A` 同帧按下时直接忽略
 
 并且做了较多安全处理：
@@ -123,10 +124,10 @@
 - 履带模式下，Stick 和 Dpad 都只输出 `linear.x + angular.z`，`linear.y` 在节点内部被固定为 0。
 - `start_r2_teleop.sh` 现在默认用 `dpad` 模式启动，而不是 stick。
 - `start_r2_teleop.sh` 现在会在 `full` 和 `minimal-mcu` 两个栈里都额外挂起 `rc26_telecontrol_pushrod_dpad`，用于把 Dpad 左/右桥到 `0x10 / 0x11`。
-- `start_r2_teleop.sh` 会额外拉起 `rc26_telecontrol_front_track_test`，用于把 `Y/A` 直接映射成前置履带 `0x0E / 0x0F` 的单发命令。
-- 在 dpad 模式里，旋转仍由 `X/B` 控制；`Y/A` 不参与速度输出，只交给前置履带测试节点；`Dpad 左/右` 在履带模式下也不再参与 Twist 横移，而是交给推杆 sidecar 节点。
+- `start_r2_teleop.sh` 会额外拉起 `rc26_telecontrol_front_track_test`，用于把 `Y/A` 直接映射成电动推杆上抬 / 后撑 `0x0E / 0x0F` 的单发命令。
+- 在 dpad 模式里，旋转仍由 `X/B` 控制；`Y/A` 不参与速度输出，只交给电动推杆上抬/后撑测试节点；`Dpad 左/右` 在履带模式下也不再参与 Twist 横移，而是交给推杆 sidecar 节点。
 - 仓库根目录的 `start_r2_teleop.sh` 现已显式向 `rc26_merge_odom` 和 `rc26_telecontrol` 传入 `chassis_model:=tracked_diff`，遥控联调不再依赖各包内部默认值。
-- `start_r2_teleop.sh` 不再默认拉起 `rc26_mechanism`；teleop 前置履带联调只依赖 `merge_odom` 持有目标串口并提供 transport service。
+- `start_r2_teleop.sh` 不再默认拉起 `rc26_mechanism`；teleop 电动推杆上抬/后撑联调只依赖 `merge_odom` 持有目标串口并提供 transport service。
 - 仓库根目录的 `start_r2_teleop.sh` 现在通过 `--stack full|minimal-mcu` 统一承载完整遥控链和最小串口链；最小 MCU 口径以 `./start_r2_teleop.sh --stack minimal-mcu` 为准。
 - `--stack minimal-mcu` 会启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_pushrod_dpad`；这个口径不会启动 `rc26_telecontrol_front_track_test`，但 `pose_sender_node` 现在也会继续提供 `/mechanism/transport/*`。
 - `start_r2_teleop.sh` 现在在 `full` 和 `minimal-mcu` 两个栈下都会自动兼容“只接了一个目标 MCU 下发串口”的现场：若默认 `/dev/ttyUSB1` 不存在但 `/dev/ttyUSB0` 存在，脚本会自动把目标串口切到 `/dev/ttyUSB0`，并把反馈串口降级为 `__disabled__`。

@@ -33,7 +33,7 @@
 - 两者都按 `50Hz` 连续发送
 - 两者都走公开的 `sendCommandNoAck()` 路径，不等待 ACK
 
-当前协议已经定义前置履带动作相关编号，但遥控链不再通过 `rc26_mechanism` 的 Action 兼容路径消费，而是直接走共享 transport：
+当前协议已经定义一组历史上沿用 `FRONT_TRACK_*` 命名的动作编号，但这些编号当前真实语义已经切到电动推杆上抬 / 后撑；遥控链也不再通过 `rc26_mechanism` 的 Action 兼容路径消费，而是直接走共享 transport：
 
 - 下行命令：
   - `FRONT_TRACK_UP = 0x0E`
@@ -47,9 +47,9 @@
 当前真实口径是：
 
 - `rc26_telecontrol_front_track_test` 会在 `Y/A` 按下沿单次调用 `/mechanism/transport/send_command`
-- `FRONT_TRACK_UP/DOWN` 通过 `merge_odom` 桥接走 no-ACK 单发，不做重传
+- `FRONT_TRACK_UP/DOWN` 通过 `merge_odom` 桥接走可靠 `sendCommand()` ACK 路径；若 MCU 不回 ACK，会像其它可靠命令一样自动重传并打印超时日志
 - `PUSHROD_EXTEND/RETRACT` 通过共享 transport 走可靠 `sendCommand()` ACK 路径；只要求 MCU 回 `ACK`，不要求再上送独立的完成反馈
-- `0x13 / 0x14` 仍作为这两个动作的完成反馈发布到 `/mechanism/transport/feedback`
+- `0x13 / 0x14` 仍作为“电动推杆上抬完成 / 后撑完成”的完成反馈发布到 `/mechanism/transport/feedback`
 - 真机部署时，目标 MCU 串口仍由 `rc26_merge_odom` 独占打开；其它上层只复用 transport，不再次直连同一设备
 
 ## 源码入口与阅读顺序

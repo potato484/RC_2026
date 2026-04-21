@@ -48,7 +48,7 @@
 
 也就是说，`/mechanism/execute` 仍然是上层动作执行入口，但真机串口发送职责已经下沉到 `rc26_merge_odom`。
 
-当前 `ExecuteMechanism` 通用入口已经不再覆盖前置履带；前置履带遥控链改为直接调用 `/mechanism/transport/send_command`，并由 `rc26_merge_odom` 在目标串口上按下沿单次下发 `FRONT_TRACK_UP(0x0E)` / `FRONT_TRACK_DOWN(0x0F)`。当前 teleop 还会把 `Dpad 左/右` 直接桥成 `PUSHROD_EXTEND(0x10)` / `PUSHROD_RETRACT(0x11)`。
+当前 `ExecuteMechanism` 通用入口已经不再覆盖电动推杆上抬/后撑；遥控链改为直接调用 `/mechanism/transport/send_command`，并由 `rc26_merge_odom` 在目标串口上按下沿单次下发 `FRONT_TRACK_UP(0x0E)` / `FRONT_TRACK_DOWN(0x0F)`。这两个历史命令名当前真实语义分别是“电动推杆上抬 / 后撑”，并且已经走可靠 ACK 路径；若 MCU 不回 ACK，会像其它可靠命令一样重传并打印超时日志。当前 teleop 还会把 `Dpad 左/右` 直接桥成 `PUSHROD_EXTEND(0x10)` / `PUSHROD_RETRACT(0x11)`。
 
 仓库根目录的 `start_r2_teleop.sh` 现在会显式：
 
@@ -88,12 +88,12 @@
 
 ## 近期实现说明
 
-- `ExecuteMechanism` 继续作为机构动作的统一执行入口，但前置履带已从这个入口中移除。
+- `ExecuteMechanism` 继续作为机构动作的统一执行入口，但电动推杆上抬/后撑已从这个入口中移除。
 - 真机链路新增 `shared_serial` HAL，`rc26_mechanism` 不再和 `rc26_merge_odom` 竞争打开同一个目标串口。
 - `/mechanism/transport/send_command` 与 `/mechanism/transport/feedback` 现在是 mechanism 与 merge_odom 之间的内部桥接契约。
-- 遥控模式下的前置履带控制已改成 teleop 直接走 transport service，`rc26_mechanism` 不再消费 `FRONT_TRACK_UP/DOWN`。
+- 遥控模式下的电动推杆上抬/后撑控制已改成 teleop 直接走 transport service，`rc26_mechanism` 不再消费 `FRONT_TRACK_UP/DOWN`。
 - 最小 MCU 链现在也会由 `pose_sender_node` 挂出 `/mechanism/transport/*`，shared_serial HAL 不再强依赖 `merge_odom_node` 本体。
-- `test_shared_serial_transport` 继续覆盖共享串口发送、反馈收敛、服务异常和超时场景，同时验证前置履带命令会被 `/mechanism/execute` 拒绝。
+- `test_shared_serial_transport` 继续覆盖共享串口发送、反馈收敛、服务异常和超时场景，同时验证电动推杆上抬/后撑命令会被 `/mechanism/execute` 拒绝。
 
 ## 模块边界
 

@@ -117,9 +117,10 @@ ros2 topic echo /cmd_vel
 
 当前还新增了独立的机构按钮测试映射：
 
-- `Y(button[3]) -> /mechanism/transport/send_command -> FRONT_TRACK_UP (0x0E)`
-- `A(button[0]) -> /mechanism/transport/send_command -> FRONT_TRACK_DOWN (0x0F)`
+- `Y(button[3]) -> /mechanism/transport/send_command -> FRONT_TRACK_UP (0x0E)`，真实语义是电动推杆上抬
+- `A(button[0]) -> /mechanism/transport/send_command -> FRONT_TRACK_DOWN (0x0F)`，真实语义是电动推杆后撑
 - 采用按下沿单次触发；按住不会连发，松开后再次按下才会重新触发
+- transport service 成功返回，当前表示 MCU 已经对该次 `0x0E / 0x0F` 回了 ACK
 
 这个测试节点不直接操作串口，而是直接复用 `rc26_merge_odom` 的共享 transport；真机下实际串口发送由 `merge_odom` 持有的目标串口完成。
 
@@ -185,16 +186,17 @@ Deadman 机制要求必须按住指定按键（默认 LB / 按键 4）才能控�
 3. 按住 LB 键，同时推摇杆，观察是否正常输出速度指令。
 4. 在有速度输出的情况下，松开 LB 键，观察输出是否立即归零。
 
-### 3.6 前置履带按钮测试
+### 3.6 电动推杆上抬/后撑按钮测试
 
-当 `rc26_merge_odom` 和 `rc26_telecontrol_front_track_test` 已经运行时，可以直接用手柄做前置履带联调：
+当 `rc26_merge_odom` 和 `rc26_telecontrol_front_track_test` 已经运行时，可以直接用手柄做电动推杆上抬/后撑联调：
 
 1. 按一下 `Y(button[3])`，应单次触发 `FRONT_TRACK_UP (0x0E)`。
 2. 按住 `Y(button[3])` 不应重复发送；松开后再次按下，才会再次触发 `0x0E`。
 3. 按一下 `A(button[0])`，应单次触发 `FRONT_TRACK_DOWN (0x0F)`。
 4. 按住 `A(button[0])` 不应重复发送；松开后再次按下，才会再次触发 `0x0F`。
 5. 若 `Y` 与 `A` 同帧按下，测试节点会直接忽略这次冲突输入。
-6. 若 transport service 暂时不可用，节点会保留待发命令并继续重试，不会退化回连发模式。
+6. 若 MCU 没有回 ACK，`merge_odom` 会像其它可靠命令一样按同一 `SEQ` 自动重传，并打印 `指令等待超时` 日志。
+7. 若 transport service 暂时不可用，节点会保留待发命令并继续重试，不会退化回连发模式。
 
 可以同时观察：
 
@@ -203,7 +205,7 @@ ros2 topic echo /mechanism/transport/feedback
 ros2 service type /mechanism/transport/send_command
 ```
 
-若 MCU 在动作真正完成后回传 `0x13 / 0x14`，会继续出现在 `/mechanism/transport/feedback` 中，但 teleop 节点本身不等待 ACK 或 goal 终态。
+若 MCU 在动作真正完成后回传 `0x13 / 0x14`，会继续出现在 `/mechanism/transport/feedback` 中；而 transport service 的成功返回只表示该次命令已经收到 MCU 的 ACK。
 
 ### 3.7 推杆 Dpad 测试
 
@@ -247,5 +249,5 @@ ros2 param get /rc26_telecontrol max_accel
 - **手柄已连接但控制话题无输出**：先检查 `/joy` 是否有数据，再确认当前启动的是 Stick 还是 Dpad 模式，并确认自己监听的是 `/cmd_vel` 还是 `/cmd_vel_teleop`。
 - **输出始终为零**：优先检查是否开启了 `require_deadman` 且未按住安全键，或 `joy_timeout_s` 过短导致 Watchdog 持续触发零速保持。
 - **速度变化过猛或回中后仍有残余速度**：检查手柄硬件中心漂移，并适当调大死区相关参数或减小 `max_accel`，验证限加速度逻辑是否仍然生效。
-- **Y/A 按下没有触发前置履带动作**：先确认 `merge_odom_node` 已启动并成功持有目标串口、`rc26_telecontrol_front_track_test` 已启动，并检查 `/mechanism/transport/send_command` 服务与 `/mechanism/transport/feedback` topic 是否存在。
+- **Y/A 按下没有触发电动推杆上抬/后撑动作**：先确认 `merge_odom_node` 已启动并成功持有目标串口、`rc26_telecontrol_front_track_test` 已启动，并检查 `/mechanism/transport/send_command` 服务与 `/mechanism/transport/feedback` topic 是否存在。
 - **Dpad 左/右没有触发推杆动作**：先确认 `rc26_telecontrol_pushrod_dpad` 已启动，再检查当前是否已提供 `/mechanism/transport/send_command`；若用 `minimal-mcu`，需要确认 `pose_sender_node` 已成功持有目标串口。
