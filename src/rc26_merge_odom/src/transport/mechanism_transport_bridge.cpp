@@ -14,17 +14,6 @@ constexpr char kMechanismTransportSendCommandService[] = "/mechanism/transport/s
 constexpr char kMechanismTransportFeedbackTopic[] = "/mechanism/transport/feedback";
 constexpr auto kMechanismTransportFlushPeriod = std::chrono::milliseconds(10);
 
-bool isContinuousTransportCommand(uint8_t command_id) {
-    using CommandID = rc26_serial::CommandID;
-    switch (static_cast<CommandID>(command_id)) {
-    case CommandID::FRONT_TRACK_UP:
-    case CommandID::FRONT_TRACK_DOWN:
-        return true;
-    default:
-        return false;
-    }
-}
-
 bool shouldPublishTransportFeedback(uint8_t feedback_id) {
     using FeedbackID = rc26_serial::FeedbackID;
     switch (static_cast<FeedbackID>(feedback_id)) {
@@ -76,9 +65,7 @@ void MechanismTransportBridge::handleSendCommand(const std::shared_ptr<SendComma
     }
 
     uint8_t seq = 0;
-    const bool ok = isContinuousTransportCommand(request->command_id)
-                        ? target_serial_->sendCommandNoAck(request->command_id, request->payload, seq)
-                        : target_serial_->sendCommand(request->command_id, request->payload, seq);
+    const bool ok = target_serial_->sendCommand(request->command_id, request->payload, seq);
     if (!ok) {
         RCLCPP_WARN(node_.get_logger(), "mechanism transport send failed: cmd=0x%02X err=%s",
                     request->command_id, target_serial_->lastError().c_str());

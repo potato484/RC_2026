@@ -1,9 +1,11 @@
-#include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <deque>
 #include <exception>
 #include <functional>
 #include <memory>
+#include <mutex>
+#include <optional>
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joy.hpp"
@@ -16,7 +18,7 @@ namespace rc26_telecontrol
 
 namespace
 {
-constexpr auto k_front_track_send_period = std::chrono::milliseconds(20);
+constexpr auto k_front_track_dispatch_period = std::chrono::milliseconds(20);
 constexpr char k_mechanism_transport_send_command_service[] = "/mechanism/transport/send_command";
 }  // namespace
 
@@ -32,13 +34,13 @@ public:
     joy_sub_ = create_subscription<sensor_msgs::msg::Joy>(
       "/joy", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort(),
       std::bind(&FrontTrackButtonTestNode::joyCallback, this, std::placeholders::_1));
-    send_timer_ = create_wall_timer(
-      k_front_track_send_period, std::bind(&FrontTrackButtonTestNode::sendContinuousCommand, this));
+    dispatch_timer_ = create_wall_timer(
+      k_front_track_dispatch_period, std::bind(&FrontTrackButtonTestNode::dispatchQueuedCommand, this));
     RCLCPP_INFO(
       get_logger(),
-      "front-track button test ready: Y(button[%d])=up, A(button[%d])=down, send_period=%ldms",
-      k_front_track_y_button, k_front_track_a_button,
-      static_cast<long>(k_front_track_send_period.count()));
+      "front-track button test ready: Y(button[%d])=up(0x%02X), A(button[%d])=down(0x%02X), edge-triggered reliable",
+      k_front_track_y_button, static_cast<uint8_t>(rc26_serial::CommandID::FRONT_TRACK_UP),
+      k_front_track_a_button, static_cast<uint8_t>(rc26_serial::CommandID::FRONT_TRACK_DOWN));
   }
 
 private:
@@ -49,35 +51,50 @@ private:
 
   void joyCallback(const sensor_msgs::msg::Joy::ConstSharedPtr msg)
   {
-    const auto command = button_logic_.update(
+    const auto event = button_logic_.update(
       buttonPressed(msg, static_cast<std::size_t>(k_front_track_y_button)),
       buttonPressed(msg, static_cast<std::size_t>(k_front_track_a_button)));
-    desired_command_.store(command, std::memory_order_relaxed);
-
-    if (command == FrontTrackButtonCommand::kConflict) {
-      RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 1000,
-        "ignore front-track command this cycle: Y and A pressed at the same time");
-    }
-  }
-
-  void sendContinuousCommand()
-  {
-    const auto desired = desired_command_.load(std::memory_order_relaxed);
-    const auto command_id = commandIdForCommand(desired);
-    if (!command_id.has_value()) {
+    if (!event.has_value()) {
       return;
     }
 
-    if (request_in_flight_.exchange(true, std::memory_order_relaxed)) {
+    if (*event == FrontTrackButtonCommand::kConflict) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 1000,
+        "ignore front-track command this cycle: Y and A pressed at the same time");
+      return;
+    }
+
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    queued_commands_.push_back(*event);
+  }
+
+  void dispatchQueuedCommand()
+  {
+    std::optional<FrontTrackButtonCommand> command;
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      if (request_in_flight_ || queued_commands_.empty()) {
+        return;
+      }
+      command = queued_commands_.front();
+      queued_commands_.pop_front();
+      request_in_flight_ = true;
+    }
+
+    const auto command_id = commandIdForCommand(*command);
+    if (!command_id.has_value()) {
+      finishRemoteResponse();
+      RCLCPP_ERROR(get_logger(), "front-track dispatch skipped: unsupported event=%u",
+        static_cast<unsigned>(*command));
       return;
     }
 
     if (!send_command_client_ || !send_command_client_->service_is_ready()) {
-      request_in_flight_.store(false, std::memory_order_relaxed);
+      finishLocalFailure(*command);
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 1000,
-        "front-track command skipped: %s unavailable", k_mechanism_transport_send_command_service);
+        "front-track command queued: %s unavailable", k_mechanism_transport_send_command_service);
       return;
     }
 
@@ -88,19 +105,20 @@ private:
     try {
       send_command_client_->async_send_request(
         request,
-        [this, command_id = *command_id](rclcpp::Client<SendCommandSrv>::SharedFuture future) {
-          request_in_flight_.store(false, std::memory_order_relaxed);
+        [this, command = *command, command_id = *command_id](
+          rclcpp::Client<SendCommandSrv>::SharedFuture future) {
+          finishRemoteResponse();
           try {
             const auto response = future.get();
             if (!response || !response->accepted) {
-              RCLCPP_WARN_THROTTLE(
-                get_logger(), *get_clock(), 1000,
-                "front-track transport send rejected: cmd=0x%02X", command_id);
+              RCLCPP_WARN(
+                get_logger(), "front-track transport send rejected: event=%u cmd=0x%02X",
+                static_cast<unsigned>(command), command_id);
               return;
             }
             RCLCPP_DEBUG(
-              get_logger(), "front-track transport send accepted: cmd=0x%02X seq=%u", command_id,
-              response->seq);
+              get_logger(), "front-track transport send accepted after MCU ACK: event=%u cmd=0x%02X seq=%u",
+              static_cast<unsigned>(command), command_id, response->seq);
           } catch (const std::exception & ex) {
             RCLCPP_ERROR(
               get_logger(), "front-track transport callback failed cmd=0x%02X: %s", command_id,
@@ -108,18 +126,32 @@ private:
           }
         });
     } catch (const std::exception & ex) {
-      request_in_flight_.store(false, std::memory_order_relaxed);
+      finishLocalFailure(*command);
       RCLCPP_ERROR(get_logger(), "failed to send front-track transport request cmd=0x%02X: %s",
         *command_id, ex.what());
     }
   }
 
+  void finishLocalFailure(FrontTrackButtonCommand attempted_command)
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    request_in_flight_ = false;
+    queued_commands_.push_front(attempted_command);
+  }
+
+  void finishRemoteResponse()
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    request_in_flight_ = false;
+  }
+
   FrontTrackButtonLogic button_logic_;
-  std::atomic<FrontTrackButtonCommand> desired_command_{FrontTrackButtonCommand::kNone};
-  std::atomic<bool> request_in_flight_{false};
+  std::mutex state_mutex_;
+  std::deque<FrontTrackButtonCommand> queued_commands_;
+  bool request_in_flight_{false};
   rclcpp::Client<SendCommandSrv>::SharedPtr send_command_client_;
   rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr joy_sub_;
-  rclcpp::TimerBase::SharedPtr send_timer_;
+  rclcpp::TimerBase::SharedPtr dispatch_timer_;
 };
 
 }  // namespace rc26_telecontrol
