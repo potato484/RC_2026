@@ -11,8 +11,10 @@
 
 pose_sender_node:
   ros__parameters:
+    # 参数说明：cmd_vel_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     cmd_vel_topic: "cmd_vel_teleop"
 
 merge_odom_node:
   ros__parameters:
+    # 参数说明：cmd_vel_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     cmd_vel_topic: "cmd_vel_teleop"

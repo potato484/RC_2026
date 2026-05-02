@@ -1,43 +1,72 @@
 /**:
     ros__parameters:
+        # 参数说明：use_imu_as_input - 布尔开关；控制对应能力是否启用。
         use_imu_as_input: False                             # 改为 True 可将 IMU 作为 Point-LIO 的输入
+        # 参数说明：prop_at_freq_of_imu - 是否按 IMU 频率传播状态；开启后预测步频跟随 IMU 输入。
         prop_at_freq_of_imu: True
+        # 参数说明：check_satu - 饱和值检查开关；用于过滤异常饱和的传感器输入。
         check_satu: True
+        # 参数说明：init_map_size - 初始地图容量参数；影响 Point-LIO 地图结构预分配规模。
         init_map_size: 10
+        # 参数说明：point_filter_num - 点云抽样间隔；每 N 个点保留 1 个，若 point_keep_ratio 生效则以比例为准。
         point_filter_num: 1                                 # 可选值：4、3
+        # 参数说明：space_down_sample - 空间降采样开关；用于降低点云密度和计算负载。
         space_down_sample: True
+        # 参数说明：filter_size_surf - 表面特征体素滤波尺寸，单位米；数值越大点云越稀疏。
         filter_size_surf: 0.2                               # 可选值：0.5、0.3、0.2、0.15、0.1
+        # 参数说明：filter_size_map - 地图体素滤波尺寸，单位米；数值越大累计地图越稀疏。
         filter_size_map: 0.2                                # 可选值：0.5、0.3、0.15、0.1
+        # 参数说明：ivox_nearby_type - iVox 邻域搜索模式；决定近邻点查找的连接方式。
         ivox_nearby_type: 18                                # 可选值：0、6、18、26
+        # 参数说明：runtime_pos_log_enable - 布尔开关；控制对应能力是否启用。
         runtime_pos_log_enable: False                       # 可选值：True
 
         common:
+            # 参数说明：lid_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
             lid_topic: "livox/lidar"
+            # 参数说明：imu_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
             imu_topic: "livox/imu"
+            # 参数说明：con_frame - 多帧点云合并开关；开启后会把连续帧合成一帧处理。
             con_frame: False                                # True：需要将多帧 LiDAR 合并为一帧时启用
+            # 参数说明：con_frame_num - 多帧点云合并帧数；仅在 con_frame 启用时生效。
             con_frame_num: 1                                # 合并的帧数
+            # 参数说明：cut_frame - 单帧点云切分开关；开启后会按时间把一帧拆成多个子帧。
             cut_frame: False                                # True：需要将一帧 LiDAR 切分为多个子帧时启用
+            # 参数说明：cut_frame_time_interval - 点云子帧切分时间间隔，单位秒。
             cut_frame_time_interval: 0.1                    # 应为 1/激光频率 的整数分频
+            # 参数说明：time_diff_lidar_to_imu - LiDAR 与 IMU 的时间偏移，单位秒；由外部标定结果给出。
             time_diff_lidar_to_imu: 0.0                     # 由其他算法标定的 LiDAR 与 IMU 时间偏移，例如 LI-Init（见 Readme）
 
         prior_pcd:
+            # 参数说明：enable - 布尔开关；控制对应能力是否启用。
             enable: False
+            # 参数说明：prior_pcd_map_path - 文件或目录路径；相对路径通常按包 share 目录或启动目录解析。
             prior_pcd_map_path: ""
             init_pose: [ 0.0, 0.0, 0.0 ]
 
         preprocess:
             # NOTE: In this Point-LIO fork, MID360 is enumerated as 5 (see `rc26_point_lio/src/preprocess.hpp`).
+            # 参数说明：lidar_type - LiDAR 类型枚举；当前 MID360 在本 fork 中使用 5。
             lidar_type: 5                                   # 5: MID360
+            # 参数说明：scan_line - LiDAR 扫描线数或等效通道数；需要匹配传感器预处理模型。
             scan_line: 4
+            # 参数说明：timestamp_unit - 点云时间戳单位枚举；决定预处理如何解释点内时间字段。
             timestamp_unit: 3                               # PointCloud2 话题中 time/t 字段单位：0-秒，1-毫秒，2-微秒，3-纳秒
+            # 参数说明：blind - 近距离盲区过滤半径，单位米；低于该距离的点会被剔除。
             blind: 0.3
+            # 参数说明：det_range - 最大有效检测距离，单位米；超过该距离的点会被过滤。
             det_range: 8.0                                  # 最大有效测距（米），场地 12m×12m，设 9m 过滤远距离噪声
 
         mapping:
+            # 参数说明：imu_en - IMU 融合开关；控制 Point-LIO 是否使用 IMU 约束。
             imu_en: True
+            # 参数说明：extrinsic_est_en - 外参在线估计开关；剧烈运动时通常关闭以保持稳定。
             extrinsic_est_en: False                         # 剧烈运动时建议设为 False
+            # 参数说明：imu_time_inte - IMU 时间积分间隔，单位秒；通常等于 1/IMU 频率。
             imu_time_inte: 0.005                            # = 1/IMU 频率
+            # 参数说明：lidar_time_inte - LiDAR 帧时间间隔，单位秒；通常等于 1/雷达频率。
             lidar_time_inte: 0.1
+            # 参数说明：satu_acc - IMU 加速度饱和值；用于限制异常加速度输入。
             satu_acc: 3.0                                   # IMU 加速度饱和值（与单位无关）
             satu_gyro: 35.0                                 # IMU 角速度饱和值（与单位无关）
             acc_norm: 1.0                                   # IMU 加速度单位：g 用 1.0；m/s^2 用 9.81
@@ -53,6 +82,7 @@
             plane_thr: 0.05                                 # 平面判别阈值（例如 0.05）；越小越平
             match_s: 81.0
             ivox_grid_resolution: 0.3
+            # 参数说明：adaptive_second_iter_enable - 布尔开关；控制对应能力是否启用。
             adaptive_second_iter_enable: false
             adaptive_residual_thr: 0.08
             adaptive_omega_thr: 2.0
@@ -65,16 +95,22 @@
                            0.0, 0.0, 1.0 ]
 
         odometry:
+            # 参数说明：publish_odometry_without_downsample - 布尔开关；控制对应能力是否启用。
             publish_odometry_without_downsample: True
 
         publish:
+            # 参数说明：path_en - 轨迹输出开关；false 时关闭路径发布或保存。
             path_en: True                                   # False：关闭轨迹输出
+            # 参数说明：scan_publish_en - 点云发布总开关；false 时关闭所有点云输出。
             scan_publish_en: True                           # False：关闭所有点云输出
+            # 参数说明：scan_bodyframe_pub_en - 机体系点云发布开关；true 时输出 IMU/body frame 下的点云。
             scan_bodyframe_pub_en: False                    # True：输出 IMU 机体系下的点云
+            # 参数说明：tf_send_en - TF 发布开关；控制 Point-LIO 是否发布定位 TF。
             tf_send_en: True                                # True：发布从 'camera_init' 到 'aft_mapped' 的 TF
 
         pcd_save:
             # 建图专用：开启 PCD 保存（会影响实时性；场地小可用 interval=-1 在退出时生成 scans.pcd）
             pcd_save_en: True
+            # 参数说明：interval - 周期或间隔；用于控制轮询、播放或发布节奏。
             interval: -1                                    # 每个 pcd 文件保存的 LiDAR 帧数；
                                                             # -1：所有帧保存到同一个 pcd 文件，帧数过多可能导致内存崩溃。

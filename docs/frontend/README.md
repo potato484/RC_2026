@@ -26,3 +26,7 @@
 
 - 改前端能力边界或对外表述时，必须同步 [boundaries/README.md](boundaries/README.md)
 - 改全局入口或工程骨架时，优先同步 [overview/README.md](overview/README.md)
+
+## 配置注释口径
+
+- `merlin-bt-visualizer` 顶层工具链配置已保留常用/高影响字段的中文注释，重点保留 Vite 本地保存插件等项目特有工具链说明，标准工具默认选项不再逐项注释；这些注释不改变它作为本地行为树工具的边界。

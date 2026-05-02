@@ -10,6 +10,7 @@ meilin_seed: -1
 # 开启后跳过随机生成，按以下配置手动放置KFS到梅林区1-12号位置
 # 数组长度应<=8 (3个R1 + 4个True + 1个Fake)
 manual_meilin:
+  # 参数说明：enabled - 布尔开关；控制对应能力是否启用。
   enabled: false
   # red: []   
   # blue: []  
@@ -26,10 +27,13 @@ grid:
   base_x: -4.8 # 九宫格中心基准X坐标 (米)
   base_y: 0.0 # 九宫格中心基准Y坐标 (米)
   base_z_bottom: 1.0 # 底部高度 (米)
+  # 参数说明：pitch_x - 角度参数；单位由字段名或上级配置约定。
   pitch_x: 0.54 # X轴方向间距 (米)
+  # 参数说明：pitch_z - 角度参数；单位由字段名或上级配置约定。
   pitch_z: 0.54 # Z轴方向间距 (米)
   random_range_x: 0.22 # X轴随机偏移范围 (米)
   random_range_y: 0.06 # Y轴随机偏移范围 (米)
+  # 参数说明：random_range_yaw_deg - 角度参数；单位由字段名或上级配置约定。
   random_range_yaw_deg: 30.0 # Yaw旋转随机范围 (度)
 
 

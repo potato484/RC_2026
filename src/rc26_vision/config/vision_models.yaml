@@ -13,7 +13,9 @@ vision:
   models:
     # ========== 默认模型 ==========
     yolo_default:
+      # 参数说明：engine - 模型或推理引擎配置；用于视觉或算法后端加载。
       engine: aidlite                    # AidLux 本地推理链路：推荐 aidlite；兼容旧写法 opencv_onnx | onnxruntime
+      # 参数说明：model_path - 文件或目录路径；相对路径通常按包 share 目录或启动目录解析。
       model_path: "../models/best.onnx"    # 相对当前配置文件: share/rc26_vision/models/best.onnx
       conf_thresh: 0.5                    # 置信度阈值（必填）
       iou_thresh: 0.45                    # NMS IoU 阈值（可选）

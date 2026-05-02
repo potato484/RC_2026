@@ -35,3 +35,7 @@
 - 当前主要服务 `rc26_xhu_nav`、`rc26_decision` 和下游可视化消费者
 - `SLOW` 语义当前只表达保守通行区域，不在本模块内直接把机器人切到 recovery 或 stop
 - team mismatch 只会关闭 keepout 输出并通过 diagnostics 暴露降级状态，不在本模块内直接接管机器人控制
+
+## 配置注释口径
+
+- `config/r2_mf_world.yaml` 与 `config/mf_grid_layout.yaml` 已保留常用/高影响字段的中文注释，重点说明共享几何、入口/出口集合和兼容 shim；重复 block 实例不再逐字段机械注释；本次只改变注释和等价 YAML 展开，不改变共享几何数据。

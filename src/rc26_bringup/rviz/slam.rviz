@@ -72,7 +72,9 @@ Visualization Manager:
       Color: 200; 200; 200
       Color Layer: traversability
       Color Transformer: GridMapLayer
+      # 参数说明：Height Layer - 几何距离参数，单位通常为米。
       Height Layer: elevation_abs
+      # 参数说明：Height Transformer - 几何距离参数，单位通常为米。
       Height Transformer: GridMapLayer
       Name: TerrainGridMapLocal
       Topic:
@@ -111,13 +113,18 @@ Visualization Manager:
         Value: /kfs_filter_mask
       Value: true
   Global Options:
+    # 参数说明：Fixed Frame - RViz 固定坐标系；所有显示项会转换到该 frame。
     Fixed Frame: odom
+    # 参数说明：Frame Rate - RViz 刷新帧率；影响界面更新频率。
     Frame Rate: 30
   Tools:
     - Class: rviz_default_plugins/MoveCamera
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
+      # 参数说明：Distance - 几何距离参数，单位通常为米。
       Distance: 15
+      # 参数说明：Pitch - 俯仰角；单位按该配置约定。
       Pitch: 0.785
+      # 参数说明：Yaw - 偏航角；单位按该配置约定，导航图中通常为弧度。
       Yaw: 0

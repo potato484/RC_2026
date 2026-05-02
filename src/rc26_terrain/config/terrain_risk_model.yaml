@@ -1,8 +1,10 @@
+# 分组说明：terrain_risk_model - 模型或推理引擎配置；用于视觉或算法后端加载。
 terrain_risk_model:
   # 默认关闭；启用后 TerrainSemanticNode 将按 logistic 系数在线推理 p_obstacle/p_drop。
   enabled: false
 
   obstacle:
+    # 参数说明：enabled - 布尔开关；控制对应能力是否启用。
     enabled: true
     intercept: -2.60
     coefficients:
@@ -10,11 +12,13 @@ terrain_risk_model:
       roughness: 0.90
       sigma_h: 0.65
       step_up: 1.10
+      # 参数说明：height_span - 几何距离参数，单位通常为米。
       height_span: 0.45
       obstacle_proxy: 2.20
       climbable_prob: -0.35
 
   drop:
+    # 参数说明：enabled - 布尔开关；控制对应能力是否启用。
     enabled: true
     intercept: -2.20
     coefficients:
@@ -22,6 +26,7 @@ terrain_risk_model:
       roughness: 0.80
       sigma_h: 0.95
       step_up: -0.20
+      # 参数说明：height_span - 几何距离参数，单位通常为米。
       height_span: 0.55
       drop_proxy: 2.30
       climbable_prob: -0.20

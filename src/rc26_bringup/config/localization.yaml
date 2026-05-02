@@ -79,20 +79,31 @@ localization:
     # TF 查询超时 (秒) [M5 修复]
     # 查找 TF 变换的超时时间，网络/计算压力大时可适当调大
     tf_timeout_sec: 1.0
+    # 参数说明：pose_cov_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     pose_cov_topic: "/localization/pose_with_cov"
+    # 参数说明：diagnostics_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     diagnostics_topic: "/localization/diagnostics"
+    # 参数说明：health_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     health_topic: "/localization/health"
+    # 参数说明：backend_status_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     backend_status_topic: "/localization/backend_status"
+    # 参数说明：route_observability_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     route_observability_topic: "/localization/route_observability"
+    # 参数说明：control_degraded_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     control_degraded_topic: "/control_degraded"
+    # 参数说明：plan_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     plan_topic: "local_plan"
+    # 参数说明：enable_graph_backend - 布尔开关；控制对应能力是否启用。
     enable_graph_backend: false
+    # 参数说明：legacy_hard_reloc_enable - 布尔开关；控制对应能力是否启用。
     legacy_hard_reloc_enable: false
 
     # ========== P1: 在线图后端参数 ==========
     # 关键帧触发阈值（平移/偏航/时间）
     graph_keyframe_translation_thresh_m: 0.4
+    # 参数说明：graph_keyframe_yaw_thresh_deg - 角度参数；单位由字段名或上级配置约定。
     graph_keyframe_yaw_thresh_deg: 6.0
+    # 参数说明：graph_keyframe_time_thresh_sec - 时间参数，单位秒。
     graph_keyframe_time_thresh_sec: 1.0
     # 关键帧额外触发条件（退化上升沿）
     graph_keyframe_trigger_on_degraded_rising: true
@@ -104,63 +115,95 @@ localization:
     graph_loop_similarity_min: 0.2
     # 图因子噪声（单位：m / deg）
     graph_odom_sigma_translation_m: 0.05
+    # 参数说明：graph_odom_sigma_yaw_deg - 角度参数；单位由字段名或上级配置约定。
     graph_odom_sigma_yaw_deg: 2.0
+    # 参数说明：graph_loop_sigma_translation_m - 几何距离参数，单位通常为米。
     graph_loop_sigma_translation_m: 0.08
+    # 参数说明：graph_loop_sigma_yaw_deg - 角度参数；单位由字段名或上级配置约定。
     graph_loop_sigma_yaw_deg: 3.0
+    # 参数说明：graph_anchor_sigma_translation_m - 几何距离参数，单位通常为米。
     graph_anchor_sigma_translation_m: 0.12
+    # 参数说明：graph_anchor_sigma_yaw_deg - 角度参数；单位由字段名或上级配置约定。
     graph_anchor_sigma_yaw_deg: 5.0
     # map->odom 平滑输出（限斜率）
     graph_smoother_max_translation_speed_mps: 0.25
+    # 参数说明：graph_smoother_max_yaw_speed_degps - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     graph_smoother_max_yaw_speed_degps: 10.0
     # 诊断: 判定一次“跳变被平滑抑制”的阈值
     graph_jump_detect_translation_m: 0.3
+    # 参数说明：graph_jump_detect_yaw_deg - 角度参数；单位由字段名或上级配置约定。
     graph_jump_detect_yaw_deg: 10.0
     # 约束几何验证器（small_gicp）
     graph_validator_accept_fitness_threshold: 0.1
+    # 参数说明：graph_validator_conflict_fitness_threshold - 阈值；用于判断状态切换、风险等级或过滤条件。
     graph_validator_conflict_fitness_threshold: 0.25
+    # 参数说明：graph_validator_max_corr_dist_m - 几何距离参数，单位通常为米。
     graph_validator_max_corr_dist_m: 1.0
     graph_validator_max_iterations: 50
 
     # ========== P0: Localization Health Index ==========
     lhi_green_sigma_xy_max: 0.12
+    # 参数说明：lhi_green_sigma_yaw_deg_max - 角度参数；单位由字段名或上级配置约定。
     lhi_green_sigma_yaw_deg_max: 4.0
     lhi_green_h_min_eig_min: 50.0
     lhi_yellow_sigma_xy_min: 0.12
+    # 参数说明：lhi_yellow_sigma_yaw_deg_min - 角度参数；单位由字段名或上级配置约定。
     lhi_yellow_sigma_yaw_deg_min: 4.0
     lhi_yellow_h_min_eig_max: 50.0
     lhi_orange_sigma_xy_min: 0.25
+    # 参数说明：lhi_orange_sigma_yaw_deg_min - 角度参数；单位由字段名或上级配置约定。
     lhi_orange_sigma_yaw_deg_min: 8.0
     lhi_orange_h_min_eig_max: 20.0
     lhi_red_sigma_xy_min: 1.0
+    # 参数说明：lhi_red_last_local_reg_age_sec - 时间参数，单位秒。
     lhi_red_last_local_reg_age_sec: 2.0
+    # 参数说明：lhi_red_conflict_count_threshold - 阈值；用于判断状态切换、风险等级或过滤条件。
     lhi_red_conflict_count_threshold: 3
 
     # ========== P0: backend status 占位参数 ==========
     backend_status_optimizer_state: "legacy_localization_only"
     backend_status_graph_health_placeholder: 0.0
+    # 参数说明：backend_status_loop_age_placeholder_sec - 时间参数，单位秒。
     backend_status_loop_age_placeholder_sec: -1.0
+    # 参数说明：backend_status_anchor_age_placeholder_sec - 时间参数，单位秒。
     backend_status_anchor_age_placeholder_sec: -1.0
 
     # ========== P2: RouteObservability ==========
+    # 参数说明：route_window_min_m - 几何距离参数，单位通常为米。
     route_window_min_m: 2.0
+    # 参数说明：route_window_max_m - 几何距离参数，单位通常为米。
     route_window_max_m: 5.0
+    # 参数说明：route_sample_step_m - 几何距离参数，单位通常为米。
     route_sample_step_m: 0.5
+    # 参数说明：route_map_near_dist_m - 几何距离参数，单位通常为米。
     route_map_near_dist_m: 0.7
+    # 参数说明：route_risk_medium_threshold - 阈值；用于判断状态切换、风险等级或过滤条件。
     route_risk_medium_threshold: 0.45
+    # 参数说明：route_risk_high_threshold - 阈值；用于判断状态切换、风险等级或过滤条件。
     route_risk_high_threshold: 0.70
+    # 参数说明：route_anchor_effective_dist_m - 几何距离参数，单位通常为米。
     route_anchor_effective_dist_m: 2.0
+    # 参数说明：route_loop_recent_age_sec - 时间参数，单位秒。
     route_loop_recent_age_sec: 8.0
 
     # ========== P4: 外部候选增强（仅候选，无 TF 写权限） ==========
     p4_candidate_enable: false
+    # 参数说明：p4_dynamic_candidates_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     p4_dynamic_candidates_topic: "/localization/p4/dynamic_candidates"
+    # 参数说明：p4_visual_candidates_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     p4_visual_candidates_topic: "/localization/p4/visual_candidates"
+    # 参数说明：p4_learned_candidates_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     p4_learned_candidates_topic: "/localization/p4/learned_candidates"
+    # 参数说明：p4_candidate_patch_radius_m - 几何距离参数，单位通常为米。
     p4_candidate_patch_radius_m: 8.0
+    # 参数说明：p4_candidate_max_stale_sec - 时间参数，单位秒。
     p4_candidate_max_stale_sec: 2.0
+    # 参数说明：p4_candidate_max_queue_size - P4 候选队列最大长度；用于限制待评估重定位候选数量。
     p4_candidate_max_queue_size: 64
     p4_candidate_max_per_cycle: 2
+    # 参数说明：p4_candidate_sigma_translation_m - 几何距离参数，单位通常为米。
     p4_candidate_sigma_translation_m: 0.12
+    # 参数说明：p4_candidate_sigma_yaw_deg - 角度参数；单位由字段名或上级配置约定。
     p4_candidate_sigma_yaw_deg: 5.0
     
     # 初始位姿 [x, y, z, roll, pitch, yaw]
@@ -249,10 +292,13 @@ localization:
     # ========== L2: Scan Context ==========
     # BEVPlace++（实验能力，默认关闭；当前版本保留参数并自动回退到 SC 主链）
     bevplace_enable: false
+    # 参数说明：bevplace_model_path - 文件或目录路径；相对路径通常按包 share 目录或启动目录解析。
     bevplace_model_path: ""
+    # 参数说明：bevplace_index_path - 文件或目录路径；相对路径通常按包 share 目录或启动目录解析。
     bevplace_index_path: ""
     bevplace_infer_backend: "onnxruntime"
     bevplace_bev_resolution: 0.2
+    # 参数说明：bevplace_bev_size - BEVPlace 鸟瞰图输入尺寸；需要与模型训练配置一致。
     bevplace_bev_size: 128
     bevplace_topk: 5
     # 启用 Scan Context 全局检索链路（L2）
@@ -260,6 +306,7 @@ localization:
     # 描述子参数
     sc_num_rings: 20
     sc_num_sectors: 60
+    # 参数说明：sc_max_radius - 几何距离参数，单位通常为米。
     sc_max_radius: 8.0
     # 地图离线建库参数
     sc_submap_radius: 5.0
@@ -271,10 +318,12 @@ localization:
     sc_sim_threshold: 0.18
     # 退化方向判定阈值（特征值比）
     degen_enable: true
+    # 参数说明：degen_eigenvalue_ratio_threshold - 阈值；用于判断状态切换、风险等级或过滤条件。
     degen_eigenvalue_ratio_threshold: 0.01
 
     # ========== QCS8550 线程亲和 ==========
     qcs8550_affinity_enable: true
+    # 参数说明：qcs8550_realtime_enable - 布尔开关；控制对应能力是否启用。
     qcs8550_realtime_enable: false
     qcs8550_prime_cpu_ids: [0]
     qcs8550_gold_cpu_ids: [1, 2, 3, 4]
@@ -283,9 +332,13 @@ localization:
 
     # ========== S1: IMU Spike 门控 ==========
     s1_enable: true
+    # 参数说明：s1_imu_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     s1_imu_topic: "/livox/imu"
+    # 参数说明：s1_accel_threshold - 阈值；用于判断状态切换、风险等级或过滤条件。
     s1_accel_threshold: 20.0
+    # 参数说明：s1_gyro_threshold - 阈值；用于判断状态切换、风险等级或过滤条件。
     s1_gyro_threshold: 6.0
+    # 参数说明：s1_freeze_duration_ms - 时间参数，单位毫秒。
     s1_freeze_duration_ms: 300
 
     # ========== S2: Hessian 退化轴拒绝（degen_enable=false 时回退） ==========
@@ -303,30 +356,42 @@ localization:
 
     # ========== Phase 4: ESIKF（实验能力，默认关闭） ==========
     esikf_enable: false
+    # 参数说明：esikf_accel_noise - 加速度限制；用于约束速度变化率并保护底盘。
     esikf_accel_noise: 0.1
+    # 参数说明：esikf_gyro_noise - 滤波噪声或协方差参数；影响状态估计信任度。
     esikf_gyro_noise: 0.01
+    # 参数说明：esikf_accel_bias_noise - 加速度限制；用于约束速度变化率并保护底盘。
     esikf_accel_bias_noise: 0.001
+    # 参数说明：esikf_gyro_bias_noise - 滤波噪声或协方差参数；影响状态估计信任度。
     esikf_gyro_bias_noise: 0.0001
 
     # ========== Phase 5: 动态物体过滤 ==========
     dynamic_filter_enable: false
+    # 参数说明：dynamic_filter_voxel_size - 动态点过滤体素尺寸，单位米；用于压低点云密度。
     dynamic_filter_voxel_size: 0.3
+    # 参数说明：dynamic_filter_window_size - 动态点过滤窗口长度；用于时间邻域内的稳定性判断。
     dynamic_filter_window_size: 10
+    # 参数说明：dynamic_filter_stable_threshold - 阈值；用于判断状态切换、风险等级或过滤条件。
     dynamic_filter_stable_threshold: 5
 
     # ========== Phase 6: L0 IMU 超快恢复 ==========
     l0_enable: true
+    # 参数说明：l0_max_imu_gap_ms - 时间参数，单位毫秒。
     l0_max_imu_gap_ms: 1000
 
     # ========== Phase 8: UWB 绝对锚点 ==========
     uwb_enable: false
+    # 参数说明：uwb_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     uwb_topic: "/uwb/position"
+    # 参数说明：uwb_max_stale_sec - 时间参数，单位秒。
     uwb_max_stale_sec: 2.0
+    # 参数说明：uwb_yaw_spread_deg - 角度参数；单位由字段名或上级配置约定。
     uwb_yaw_spread_deg: 30.0
 
     # ========== 丘陵工况坡道约束 ==========
     slope_roll_pitch_from_imu: true
     slope_z_weight: 2.0
+    # 参数说明：slope_normal_consistency_deg - 角度参数；单位由字段名或上级配置约定。
     slope_normal_consistency_deg: 25.0
 
     # NEON 内核模式（A/B 验证达标后切 neon）

@@ -1,36 +1,70 @@
 xhu_motion_follower:
   ros__parameters:
+    # 参数说明：chassis_model - 底盘运动学模型标识；当前履带底盘通常使用 tracked_diff。
     chassis_model: "tracked_diff"
+    # 参数说明：odom_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     odom_topic: "control_state"
+    # 参数说明：map_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     map_frame: "map"
+    # 参数说明：base_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     base_frame: "base_link"
+    # 参数说明：control_frequency_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
     control_frequency_hz: 30.0
+    # 参数说明：lookahead_distance - 几何距离参数，单位通常为米。
     lookahead_distance: 0.60
+    # 参数说明：goal_tolerance_xy - 容差；用于判定到达、匹配或接受误差范围。
     goal_tolerance_xy: 0.15
+    # 参数说明：goal_tolerance_yaw - 容差；用于判定到达、匹配或接受误差范围。
     goal_tolerance_yaw: 0.30
+    # 参数说明：corridor_timeout_sec - 超时时间；超过该值后会触发降级、停止或失败处理。
     corridor_timeout_sec: 45.0
+    # 参数说明：odom_timeout_sec - 超时时间；超过该值后会触发降级、停止或失败处理。
     odom_timeout_sec: 0.30
+    # 参数说明：hold_to_abort_sec - 时间参数，单位秒。
     hold_to_abort_sec: 3.00
+    # 参数说明：kp_linear_x - 控制增益；调大通常会增强响应但也可能放大振荡。
     kp_linear_x: 1.20
+    # 参数说明：kp_linear_y - 控制增益；调大通常会增强响应但也可能放大振荡。
     kp_linear_y: 1.00
+    # 参数说明：kp_angular - 控制增益；调大通常会增强响应但也可能放大振荡。
     kp_angular: 1.80
+    # 参数说明：curvature_gain - 控制增益；调大通常会增强响应但也可能放大振荡。
     curvature_gain: 1.00
+    # 参数说明：heading_slowdown_start_rad - 开始按航向误差降速的阈值，单位弧度。
     heading_slowdown_start_rad: 0.35
+    # 参数说明：heading_stop_rad - 航向误差过大时停止前进的阈值，单位弧度。
     heading_stop_rad: 0.80
+    # 参数说明：default_max_linear_speed - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     default_max_linear_speed: 0.80
+    # 参数说明：default_max_angular_speed - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     default_max_angular_speed: 1.00
+    # 参数说明：default_max_linear_accel - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     default_max_linear_accel: 0.60
+    # 参数说明：default_max_angular_accel - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     default_max_angular_accel: 0.80
+    # 参数说明：lhi_yellow_v_scale - 定位健康黄灯时线速度缩放比例。
     lhi_yellow_v_scale: 0.80
+    # 参数说明：lhi_yellow_w_scale - 定位健康黄灯时角速度缩放比例。
     lhi_yellow_w_scale: 0.80
+    # 参数说明：lhi_orange_v_scale - 定位健康橙灯时线速度缩放比例。
     lhi_orange_v_scale: 0.50
+    # 参数说明：lhi_orange_w_scale - 定位健康橙灯时角速度缩放比例。
     lhi_orange_w_scale: 0.60
+    # 参数说明：lhi_orange_vy_scale - 定位健康橙灯时横向速度缩放比例。
     lhi_orange_vy_scale: 0.50
+    # 参数说明：terrain_obstacle_threshold - 阈值；用于判断状态切换、风险等级或过滤条件。
     terrain_obstacle_threshold: 0.60
+    # 参数说明：terrain_drop_threshold - 阈值；用于判断状态切换、风险等级或过滤条件。
     terrain_drop_threshold: 0.80
+    # 参数说明：terrain_sample_spacing_m - 几何距离参数，单位通常为米。
     terrain_sample_spacing_m: 0.12
+    # 参数说明：stop_envelope_half_width_m - 几何距离参数，单位通常为米。
     stop_envelope_half_width_m: 0.20
+    # 参数说明：brake_margin_m - 安全余量；用于在几何或制动判断中预留缓冲。
     brake_margin_m: 0.30
+    # 参数说明：max_cross_track_error_m - 几何距离参数，单位通常为米。
     max_cross_track_error_m: 0.60
+    # 参数说明：robot_geometry_file - 文件或目录路径；相对路径通常按包 share 目录或启动目录解析。
     robot_geometry_file: ""
+    # 参数说明：robot_geometry_profile - 机器人几何 profile 名；用于从几何配置中选择车体包络。
     robot_geometry_profile: "compact"

@@ -18,3 +18,4 @@
 
 - 前端文档继续只服务 `merlin-bt-visualizer`
 - 任何机器人运行时可视化都不在本目录内维护
+- `merlin-bt-visualizer` 当前只保留 Vite 本地保存等项目特有配置说明，Playwright、Tailwind、PostCSS 和 tsconfig 这类标准工具选项不再逐项注释；本次不新增在线后端能力。

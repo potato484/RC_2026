@@ -8,7 +8,7 @@
 
 - 当前是 config-only 包：
   - [config/r2_body_geometry.yaml](/home/potato/RC_2026/src/rc26_robot_geometry/config/r2_body_geometry.yaml)
-  - YAML 已补充中文内联注释，直接说明 profile 字段的单位、运行时用途与约束关系，便于后续在不翻源码的前提下维护几何口径
+  - YAML 已保留中文内联注释，直接说明 profile 字段的单位、运行时用途与约束关系，便于后续在不翻源码的前提下维护几何口径
 - 当前提供 `compact` profile，包含：
   - `body.half_length_m`
   - `body.half_width_m`
@@ -45,3 +45,7 @@
 - 这个包的引入是一次架构级补强：把“机器人轮廓常量”从散落在导航/控制参数里的隐式事实，收敛成一个可被多个包消费的共享配置真源
 - 当前静态 `compact` profile 已经被 `rc26_xhu_nav` 用于离线 body-aware graph 注解、运行时 body-aware overlay，以及 body-aware 全车体全局搜索；它不再只是投影半径脚手架。
 - 当前仍只有静态 profile，未来如果机构展开态会改变整车轮廓，应由机构状态提供方额外发布“当前 profile / 当前轮廓状态”，再由规划与控制消费；不应把机构状态机直接塞进本包
+
+## 配置注释口径
+
+- `config/r2_body_geometry.yaml` 继续作为 config-only 真源维护，当前中文注释覆盖 profile、车体尺寸、安全包络和 surface projection 半径；本次只改变注释，不改变几何口径。

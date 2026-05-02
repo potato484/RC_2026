@@ -49,3 +49,7 @@
 
 - 当前 `BtActionNode` 已支持 action `feedback_callback`，导航节点可以在 action 运行期间持续刷新黑板状态。
 - `bt_topo_nav.cpp` 当前会在 goal 开始、反馈推进、成功结束、失败结束四个阶段统一维护导航观测键，避免现场只在失败时才看到零散信息。
+
+## 配置注释口径
+
+- `config/decision_params.yaml` 与 `config/bt_localization.yaml` 已保留常用/高影响字段的中文注释，分别重点说明行为树运行参数、服务/topic 和定位守护 profile；`bt_localization.yaml` 的中文解释表不再逐项机械注释；本次只改变注释，不改变决策流程或黑板契约。

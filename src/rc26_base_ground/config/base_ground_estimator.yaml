@@ -1,23 +1,38 @@
 base_ground_estimator:
   ros__parameters:
+    # 参数说明：odom_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     odom_topic: "odom"
+    # 参数说明：parent_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     parent_frame: "odom"
+    # 参数说明：base_ground_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     base_ground_frame: "base_ground"
+    # 参数说明：enable_tf_publish - 布尔开关；控制对应能力是否启用。
     enable_tf_publish: true
+    # 参数说明：tf_timeout_sec - 超时时间；超过该值后会触发降级、停止或失败处理。
     tf_timeout_sec: 0.05
+    # 参数说明：step_height_m - 几何距离参数，单位通常为米。
     step_height_m: 0.20
+    # 参数说明：tol_level_m - 几何距离参数，单位通常为米。
     tol_level_m: 0.04
+    # 参数说明：tol_stable_z_std_m - 几何距离参数，单位通常为米。
     tol_stable_z_std_m: 0.015
     tol_stable_lin_vel_mps: 0.05
     tol_stable_ang_vel_rps: 0.05
     T_confirm: 0.4
+    # 参数说明：window_size - 滑动窗口长度；用于稳定性统计或滤波判断。
     window_size: 3
+    # 参数说明：stability_window_sec - 时间参数，单位秒。
     stability_window_sec: 0.25
     h0_calibration_samples: 10
+    # 参数说明：h0_override_enable - 布尔开关；控制对应能力是否启用。
     h0_override_enable: false
+    # 参数说明：h0_override_m - 几何距离参数，单位通常为米。
     h0_override_m: 0.0
+    # 参数说明：lift_thresh_m - 几何距离参数，单位通常为米。
     lift_thresh_m: 0.35
     lift_time_s: 0.5
+    # 参数说明：tol_pitch_abs_rad - 角度参数；单位由字段名或上级配置约定。
     tol_pitch_abs_rad: 0.15
+    # 参数说明：tol_roll_abs_rad - 角度参数；单位由字段名或上级配置约定。
     tol_roll_abs_rad: 0.15
     tol_z_dot_mps: 0.03

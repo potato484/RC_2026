@@ -2,24 +2,32 @@
   ros__parameters:
     terrain_filter_chain:
       filter1:
+        # 参数说明：name - 条目名称；用于日志、界面或人工识别。
         name: traversability_rule_fusion
+        # 参数说明：type - 条目类型；加载器会按类型决定解释方式或运行时语义。
         type: gridMapFilters/MathExpressionFilter
         params:
           output_layer: traversability
           expression: traversability_continuous * rule_legality
 
       filter2:
+        # 参数说明：name - 条目名称；用于日志、界面或人工识别。
         name: traversability_lower_threshold
+        # 参数说明：type - 条目类型；加载器会按类型决定解释方式或运行时语义。
         type: gridMapFilters/ThresholdFilter
         params:
           layer: traversability
+          # 参数说明：lower_threshold - 阈值；用于判断状态切换、风险等级或过滤条件。
           lower_threshold: 0.0
           set_to: 0.0
 
       filter3:
+        # 参数说明：name - 条目名称；用于日志、界面或人工识别。
         name: traversability_upper_threshold
+        # 参数说明：type - 条目类型；加载器会按类型决定解释方式或运行时语义。
         type: gridMapFilters/ThresholdFilter
         params:
           layer: traversability
+          # 参数说明：upper_threshold - 阈值；用于判断状态切换、风险等级或过滤条件。
           upper_threshold: 1.0
           set_to: 1.0

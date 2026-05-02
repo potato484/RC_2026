@@ -1,15 +1,28 @@
 xhu_motion_runtime:
   ros__parameters:
+    # 参数说明：odom_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     odom_topic: "control_state"
+    # 参数说明：map_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     map_frame: "map"
+    # 参数说明：base_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     base_frame: "base_link"
+    # 参数说明：control_frequency_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
     control_frequency_hz: 20.0
+    # 参数说明：goal_tolerance_xy - 容差；用于判定到达、匹配或接受误差范围。
     goal_tolerance_xy: 0.15
+    # 参数说明：goal_tolerance_yaw - 容差；用于判定到达、匹配或接受误差范围。
     goal_tolerance_yaw: 0.30
+    # 参数说明：mode_state_timeout_sec - 运行 profile 或模式；用于在不同任务、风险等级或后端之间切换参数组。
     mode_state_timeout_sec: 1.0
+    # 参数说明：local_planner_wait_timeout_sec - 超时时间；超过该值后会触发降级、停止或失败处理。
     local_planner_wait_timeout_sec: 2.0
+    # 参数说明：local_planner_recovery_timeout_sec - 超时时间；超过该值后会触发降级、停止或失败处理。
     local_planner_recovery_timeout_sec: 3.0
+    # 参数说明：default_max_linear_accel - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     default_max_linear_accel: 0.60
+    # 参数说明：default_max_angular_accel - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     default_max_angular_accel: 0.80
+    # 参数说明：robot_geometry_file - 文件或目录路径；相对路径通常按包 share 目录或启动目录解析。
     robot_geometry_file: ""
+    # 参数说明：robot_geometry_profile - 机器人几何 profile 名；用于从几何配置中选择车体包络。
     robot_geometry_profile: "compact"

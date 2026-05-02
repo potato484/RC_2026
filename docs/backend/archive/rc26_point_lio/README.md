@@ -65,3 +65,7 @@
 - 它不负责把传感器结果转换成下游统一里程计接口，那个职责在 `rc26_odom_interface`
 - 它也不负责控制和决策
 - 它的 `launch/point_lio.launch.py` 不再直接拉起任何 GUI；如需观察，请手工运行外部工具只读订阅当前 topic，常用预设可复用 `src/rc26_bringup/rviz/slam.rviz`
+
+## 配置注释口径
+
+- `config/mid360.yaml` 与 `config/mid360_mapping_save.yaml` 已保留常用/高影响参数的中文注释，重点说明 Point-LIO 常用预处理、IMU/点云时间、先验点云、滤波、发布和建图保存相关字段；本次只改变注释，不改变 Point-LIO 参数值。

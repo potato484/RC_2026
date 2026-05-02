@@ -1,13 +1,22 @@
+# 分组说明：meta - 元信息分组；记录配置版本、来源、坐标系或生成方式。
 meta:
+  # 参数说明：schema_version - 配置 schema 版本；用于判断字段结构是否兼容当前加载器。
   schema_version: "1.0"
 
 sampling:
+  # 参数说明：spacing_m - 几何距离参数，单位通常为米。
   spacing_m: 0.18
+  # 参数说明：min_surface_area_xy - 下限参数；用于限制过滤范围或有效区间。
   min_surface_area_xy: 0.025
+  # 参数说明：plane_height_epsilon_m - 几何距离参数，单位通常为米。
   plane_height_epsilon_m: 0.05
+  # 参数说明：neighbor_radius_m - 几何距离参数，单位通常为米。
   neighbor_radius_m: 0.27
+  # 参数说明：transition_radius_m - 几何距离参数，单位通常为米。
   transition_radius_m: 0.24
+  # 参数说明：max_transition_height_m - 几何距离参数，单位通常为米。
   max_transition_height_m: 0.32
+  # 参数说明：clearance_sample_spacing_m - 几何距离参数，单位通常为米。
   clearance_sample_spacing_m: 0.05
 
 traversable_render_classes:

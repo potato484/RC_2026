@@ -43,3 +43,9 @@
 - `docs/backend/archive/` 不再为上述旧导航实现包保留单独 README
 - 当前如果要理解 3D 导航实现，应只从本页和 `src/rc26_xhu_nav/` 源码入口继续展开
 - 已经落地的架构变化已直接折叠进本页、`rc26_bringup`、`rc26_interfaces`、`rc26_kfs_keepout` 与 `rc26_robot_geometry` 的当前实现说明
+
+## 配置注释口径
+
+- 手写配置 `config/topo_nav.yaml`、`local_3d_planner.yaml`、`xhu_motion_runtime.yaml`、`nav_profiles.yaml`、overlay YAML 和 `sim_assets/config/kfs_config_v2_aligned.yaml` 已保留常用/高影响参数的中文注释，重点说明 topic、frame、profile、规划权重、执行限幅和高影响 overlay 字段，低频内部字段不再逐项注释。
+- `r2_field_graph_blue/red.yaml` 与 `r2_surface_graph_blue/red.yaml` 是 `generated: true` 的生成图文件，当前采用文件头 schema 注释说明 `meta/nodes/edges/routes/tasks` 字段，不对数万条重复 node/edge 实例逐项复制注释；需要调整图数据时仍应修改共享几何、overlay 或生成脚本后重新生成。
+- 本次只改变注释和少量等价 YAML 展开，不改变导航图数据、规划参数或运行时接口。

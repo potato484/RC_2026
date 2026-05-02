@@ -1,3 +1,8 @@
+# 生成图说明：本文件由 rc26_xhu_nav/scripts/generate_graph.py 根据共享场地几何和 overlay 生成，运行时由 topo_nav_node 直接加载。
+# meta 字段说明：team 表示阵营；schema_version 表示结构版本；source/grid_spacing_m/coordinate_frame 记录生成输入和坐标口径；generated 标记该文件不应手工逐项维护。
+# nodes 字段说明：每个节点用 id/type/pose/level/phase_mask/block_id/base_cost/operation_tag 描述任务点、格子点、位姿和通行代价。
+# edges/routes/tasks 字段说明：edges 描述拓扑连接和代价，routes/tasks 描述可复用任务路线与比赛动作语义。
+# 维护约束：需要调整图结构时应修改 r2_mf_world.yaml、r2_field_graph_overlay.yaml 或生成脚本，再重新生成并校验。
 meta:
   team: blue
   schema_version: '1.0'

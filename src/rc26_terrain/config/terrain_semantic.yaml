@@ -7,6 +7,7 @@
     odom_topic: "odom"
     # 输出：提供给自研导航链的“真障碍/跌落风险”点云
     output_obstacles_topic: "terrain_obstacles"
+    # 参数说明：output_drop_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     output_drop_topic: "terrain_drop"
     # 可攀爬台阶特征（调试/定位用，不接入 costmap）：置空可关闭
     output_climbable_topic: "terrain_climbable"
@@ -14,12 +15,15 @@
     diagnostics_topic: "diagnostics"
     # base_ground 稳定信号（用于台阶工况门控）
     base_ground_stable_topic: "base_ground/stable_terrain"
+    # 参数说明：mf_kfs_state_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     mf_kfs_state_topic: "/mf_kfs_state"
+    # 参数说明：mf_grid_layout_file - 文件或目录路径；相对路径通常按包 share 目录或启动目录解析。
     mf_grid_layout_file: ""
     kfs_min_confidence: 0.6
 
     # ===== 坐标系配置 =====
     target_frame: "odom"
+    # 参数说明：base_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     base_frame: "base_link"
     # TF 查询等待超时（秒）
     tf_timeout_sec: 0.2
@@ -28,27 +32,38 @@
 
     # ===== 输入健康检测（用于失效保护） =====
     cloud_timeout_sec: 0.7
+    # 参数说明：odom_timeout_sec - 超时时间；超过该值后会触发降级、停止或失败处理。
     odom_timeout_sec: 0.7
+    # 参数说明：startup_grace_sec - 时间参数，单位秒。
     startup_grace_sec: 2.5
 
     # ===== 栅格参数 =====
     perception_radius_m: 3.2
+    # 参数说明：grid_resolution_m - 几何距离参数，单位通常为米。
     grid_resolution_m: 0.1
+    # 参数说明：voxel_leaf_size_m - 几何距离参数，单位通常为米。
     voxel_leaf_size_m: 0.05
 
     # ===== 高度过滤（相对机器人，适配倾斜雷达；核心判别不依赖绝对 Z） =====
     min_rel_z_m: -1.5
+    # 参数说明：max_rel_z_m - 几何距离参数，单位通常为米。
     max_rel_z_m: 0.5
+    # 参数说明：dis_ratio_z - 缩放比例；用于按状态或场景调整对应数值。
     dis_ratio_z: 0.1
 
     # ===== 地面/高度估计（分位数 + EMA） =====
     min_points_per_cell: 5
     ground_quantile: 0.25
     top_quantile: 0.95
+    # 参数说明：ground_ema_alpha - 地面高度 EMA 平滑系数；数值越大越快跟随新观测。
     ground_ema_alpha: 0.6
+    # 参数说明：enable_sigma_based_alpha - 布尔开关；控制对应能力是否启用。
     enable_sigma_based_alpha: true
+    # 参数说明：sigma_eps_m - 几何距离参数，单位通常为米。
     sigma_eps_m: 0.01
+    # 参数说明：sigma_alpha_min - sigma 平滑系数下限；用于限制不确定度更新速度。
     sigma_alpha_min: 0.05
+    # 参数说明：sigma_alpha_max - sigma 平滑系数上限；用于限制不确定度更新速度。
     sigma_alpha_max: 0.6
 
     # ===== 语义阈值 =====
@@ -77,7 +92,9 @@
     obstacle_off_score: 3
     drop_on_score: 6
     drop_off_score: 3
+    # 参数说明：stale_time_sec - 时间参数，单位秒。
     stale_time_sec: 0.7
+    # 参数说明：decay_time_sec - 时间参数，单位秒。
     decay_time_sec: 2.0  # 点云时间衰减（秒），超过此时间的历史数据将被清除
 
     # ===== QoS 配置（默认与下游感知/执行链保持 SensorDataQoS 兼容） =====
@@ -93,6 +110,7 @@
     diagnostics_qos_depth: 10
     diagnostics_qos_reliability: "reliable"
     diagnostics_qos_durability: "volatile"
+    # 参数说明：enable_diagnostics - 布尔开关；控制对应能力是否启用。
     enable_diagnostics: true
 
     # ===== 失效保护（Fail-safe） =====
@@ -102,8 +120,10 @@
     # - virtual_fence: 生成圆形虚拟墙(防止移动)
     # - emergency_stop: 生成全向致密阻挡(强制急停)
     fail_safe_strategy: "virtual_fence"
+    # 参数说明：virtual_fence_radius_m - 几何距离参数，单位通常为米。
     virtual_fence_radius_m: 0.6
     virtual_fence_num_points: 36
+    # 参数说明：virtual_fence_height_m - 几何距离参数，单位通常为米。
     virtual_fence_height_m: 0.2  # 建议 > 0，避免下游按最小障碍高度过滤
 
     # ===== 输出点云验证 =====
@@ -114,41 +134,69 @@
     # ===== drop 前向扇区约束 =====
     # 取值 [0,360]; 360 表示关闭过滤(恢复旧行为)
     drop_forward_sector_deg: 180.0
+    # 参数说明：drop_forward_min_x_m - 几何距离参数，单位通常为米。
     drop_forward_min_x_m: 0.0  # 前向最小 X(机器人系)
 
     # ===== P0.2: neighbor modes + denoising =====
+    # 参数说明：obstacle_neighbor_mode - 运行 profile 或模式；用于在不同任务、风险等级或后端之间切换参数组。
     obstacle_neighbor_mode: "edge4"
+    # 参数说明：drop_neighbor_mode - 运行 profile 或模式；用于在不同任务、风险等级或后端之间切换参数组。
     drop_neighbor_mode: "edge8"
+    # 参数说明：min_obstacle_area_cells - 下限参数；用于限制过滤范围或有效区间。
     min_obstacle_area_cells: 3
+    # 参数说明：min_drop_area_cells - 下限参数；用于限制过滤范围或有效区间。
     min_drop_area_cells: 2
+    # 参数说明：jump_thresh_m - 几何距离参数，单位通常为米。
     jump_thresh_m: 0.23
     freeze_max_frames: 3
+    # 参数说明：ground_ema_alpha_slow - 慢速地面高度 EMA 平滑系数；用于更保守的高度更新。
     ground_ema_alpha_slow: 0.25
+    # 参数说明：enable_pitch_compensation - 角度参数；单位由字段名或上级配置约定。
     enable_pitch_compensation: true
+    # 参数说明：enable_roll_compensation - 角度参数；单位由字段名或上级配置约定。
     enable_roll_compensation: false  # 兼容旧参数，建议改用 roll_compensation_mode
+    # 参数说明：roll_compensation_mode - 运行 profile 或模式；用于在不同任务、风险等级或后端之间切换参数组。
     roll_compensation_mode: "gated"  # off | gated | always
+    # 参数说明：roll_gate_deg - 角度参数；单位由字段名或上级配置约定。
     roll_gate_deg: 5.0
     include_kfs_in_obstacles: false
+    # 参数说明：publish_kfs_obstacles_debug - 布尔开关；控制对应能力是否启用。
     publish_kfs_obstacles_debug: true
+    # 参数说明：output_kfs_obstacles_debug_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     output_kfs_obstacles_debug_topic: "terrain_kfs_obstacles_debug"
+    # 参数说明：stair_gate_speed_mps - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     stair_gate_speed_mps: 0.25
+    # 参数说明：stair_pitch_gate_deg - 角度参数；单位由字段名或上级配置约定。
     stair_pitch_gate_deg: 6.0
+    # 参数说明：top_z_max_delta_m - 几何距离参数，单位通常为米。
     top_z_max_delta_m: 0.7
 
     # ===== P1: terrain features bus =====
+    # 参数说明：enable_terrain_features_pub - 布尔开关；控制对应能力是否启用。
     enable_terrain_features_pub: true
+    # 参数说明：terrain_features_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     terrain_features_topic: "terrain_features"
+    # 参数说明：enable_semantic_layer_summary_pub - 布尔开关；控制对应能力是否启用。
     enable_semantic_layer_summary_pub: true
+    # 参数说明：semantic_layer_summary_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     semantic_layer_summary_topic: "/xhu_nav/semantic_layer_summary"
+    # 参数说明：terrain_features_publish_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
     terrain_features_publish_hz: 3.5
+    # 参数说明：enable_risk_model - 布尔开关；控制对应能力是否启用。
     enable_risk_model: false
+    # 参数说明：risk_model_file - 文件或目录路径；相对路径通常按包 share 目录或启动目录解析。
     risk_model_file: ""
 
     # ===== P0.3: latency diagnostics =====
+    # 参数说明：latency_warn_ms - 时间参数，单位毫秒。
     latency_warn_ms: 12.0
+    # 参数说明：latency_error_ms - 时间参数，单位毫秒。
     latency_error_ms: 20.0
     latency_trigger_frames: 3
     latency_recover_frames: 5
+    # 参数说明：latency_intervention_mode - 运行 profile 或模式；用于在不同任务、风险等级或后端之间切换参数组。
     latency_intervention_mode: "virtual_fence"
+    # 参数说明：thermal_throttle_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     thermal_throttle_topic: ""
+    # 参数说明：thermal_throttle_release_sec - 时间参数，单位秒。
     thermal_throttle_release_sec: 0.5

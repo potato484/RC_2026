@@ -1,24 +1,46 @@
 xhu_motion_runtime:
   ros__parameters:
+    # 参数说明：odom_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     odom_topic: "control_state"
+    # 参数说明：map_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     map_frame: "map"
+    # 参数说明：base_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     base_frame: "base_link"
+    # 参数说明：publish_frequency_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
     publish_frequency_hz: 5.0
+    # 参数说明：lookahead_distance_m - 几何距离参数，单位通常为米。
     lookahead_distance_m: 0.7
+    # 参数说明：horizon_sec - 时间参数，单位秒。
     horizon_sec: 1.2
+    # 参数说明：integration_step_sec - 时间参数，单位秒。
     integration_step_sec: 0.1
+    # 参数说明：terrain_obstacle_threshold - 阈值；用于判断状态切换、风险等级或过滤条件。
     terrain_obstacle_threshold: 0.6
+    # 参数说明：terrain_drop_threshold - 阈值；用于判断状态切换、风险等级或过滤条件。
     terrain_drop_threshold: 0.8
+    # 参数说明：recovery_heading_threshold_rad - 阈值；用于判断状态切换、风险等级或过滤条件。
     recovery_heading_threshold_rad: 0.55
+    # 参数说明：recovery_angular_speed - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     recovery_angular_speed: 0.7
+    # 参数说明：slow_zone_speed_scale - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     slow_zone_speed_scale: 0.6
+    # 参数说明：path_alignment_weight - 路径对齐评分权重；数值越大越偏向贴合参考路径。
     path_alignment_weight: 2.4
+    # 参数说明：heading_alignment_weight - 航向对齐评分权重；数值越大越偏向保持目标航向。
     heading_alignment_weight: 1.8
+    # 参数说明：speed_preference_weight - 速度偏好评分权重；影响局部规划对更快轨迹的偏好。
     speed_preference_weight: 0.8
+    # 参数说明：angular_effort_weight - 角速度代价权重；数值越大越抑制剧烈旋转。
     angular_effort_weight: 0.5
+    # 参数说明：clearance_weight - 几何距离参数，单位通常为米。
     clearance_weight: 2.2
+    # 参数说明：stop_envelope_half_width_m - 几何距离参数，单位通常为米。
     stop_envelope_half_width_m: 0.24
+    # 参数说明：sample_linear_speeds - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     sample_linear_speeds: [0.0, 0.15, 0.30, 0.45]
+    # 参数说明：sample_angular_speeds - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     sample_angular_speeds: [-0.8, -0.4, 0.0, 0.4, 0.8]
+    # 参数说明：robot_geometry_file - 文件或目录路径；相对路径通常按包 share 目录或启动目录解析。
     robot_geometry_file: ""
+    # 参数说明：robot_geometry_profile - 机器人几何 profile 名；用于从几何配置中选择车体包络。
     robot_geometry_profile: "compact"

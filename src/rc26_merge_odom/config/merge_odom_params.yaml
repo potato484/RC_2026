@@ -3,21 +3,33 @@
 # CAN里程计节点参数
 can_odom_node:
   ros__parameters:
+    # 参数说明：chassis_model - 底盘运动学模型标识；当前履带底盘通常使用 tracked_diff。
     chassis_model: "tracked_diff"
     can_interface: "can0"
+    # 参数说明：wheel_radius - 几何距离参数，单位通常为米。
     wheel_radius: 0.07625
     wheel_base: 0.62326
+    # 参数说明：track_width - 几何距离参数，单位通常为米。
     track_width: 0.7
+    # 参数说明：gear_ratio - 缩放比例；用于按状态或场景调整对应数值。
     gear_ratio: 19.2032  # 3591/187
     left_motor_can_id: 513   # 0x201, tracked_diff 模式左侧驱动电机
     right_motor_can_id: 514  # 0x202, tracked_diff 模式右侧驱动电机
+    # 参数说明：publish_rate_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
     publish_rate_hz: 50
+    # 参数说明：odom_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     odom_topic: "Can_Odom"
+    # 参数说明：odom_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     odom_frame: "odom"
+    # 参数说明：base_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     base_frame: "base_link"
+    # 参数说明：data_timeout_ms - 超时时间；超过该值后会触发降级、停止或失败处理。
     data_timeout_ms: 100.0
+    # 参数说明：imu_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     imu_topic: "DM_IMU"
+    # 参数说明：slip_enable - 布尔开关；控制对应能力是否启用。
     slip_enable: true
+    # 参数说明：slip_threshold - 阈值；用于判断状态切换、风险等级或过滤条件。
     slip_threshold: 0.5
     slip_k_acc: 0.5
     cov_nominal_v: 0.01
@@ -29,78 +41,129 @@ can_odom_node:
 # 达妙IMU节点参数
 dm_imu_node:
   ros__parameters:
+    # 参数说明：port - 硬件端口或串口标识；实机部署时需要匹配设备映射。
     port: "/dev/serial/by-id/usb-DM-IMU_DM-IMU_USB_CDC_2025021200-if00"
+    # 参数说明：baudrate - 串口波特率；需要与下位机或传感器通信参数一致。
     baudrate: 921600
+    # 参数说明：frame_id - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     frame_id: "imu_link"
     verbose: false
     qos_reliable: true
+    # 参数说明：hampel_enable - 布尔开关；控制对应能力是否启用。
     hampel_enable: true
+    # 参数说明：hampel_window_size - Hampel 滤波窗口长度；用于异常值检测。
     hampel_window_size: 5
     hampel_nsigma: 3.0
 
 # 串口轮式里程计节点参数
 wheel_odom_node:
   ros__parameters:
+    # 参数说明：chassis_model - 底盘运动学模型标识；当前履带底盘通常使用 tracked_diff。
     chassis_model: "tracked_diff"
     wheel_feedback_format: "tracked_lr_8b"
+    # 参数说明：serial_port - 硬件端口或串口标识；实机部署时需要匹配设备映射。
     serial_port: "/dev/ttyUSB0"
+    # 参数说明：baudrate - 串口波特率；需要与下位机或传感器通信参数一致。
     baudrate: 1000000
     wheel_base: 0.08
+    # 参数说明：track_width - 几何距离参数，单位通常为米。
     track_width: 0.125
+    # 参数说明：publish_rate_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
     publish_rate_hz: 50
+    # 参数说明：odom_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     odom_topic: "wheel_odom"
+    # 参数说明：odom_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     odom_frame: "odom"
+    # 参数说明：base_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     base_frame: "base_link"
+    # 参数说明：data_timeout_ms - 超时时间；超过该值后会触发降级、停止或失败处理。
     data_timeout_ms: 100.0
 
 # 速度发送节点参数 (独立模式)
 pose_sender_node:
   ros__parameters:
+    # 参数说明：chassis_model - 底盘运动学模型标识；当前履带底盘通常使用 tracked_diff。
     chassis_model: "tracked_diff"
+    # 参数说明：feedback_serial_port - 硬件端口或串口标识；实机部署时需要匹配设备映射。
     feedback_serial_port: "/dev/ttyUSB0"
+    # 参数说明：target_serial_port - 硬件端口或串口标识；实机部署时需要匹配设备映射。
     target_serial_port: "/dev/ttyUSB1"
+    # 参数说明：baudrate - 串口波特率；需要与下位机或传感器通信参数一致。
     baudrate: 1000000
+    # 参数说明：cmd_vel_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     cmd_vel_topic: "cmd_vel"
+    # 参数说明：odom_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     odom_topic: "merge_odom"
+    # 参数说明：feedback_send_rate_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
     feedback_send_rate_hz: 50
+    # 参数说明：target_send_rate_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
     target_send_rate_hz: 50
+    # 参数说明：cmd_vel_timeout_ms - 超时时间；超过该值后会触发降级、停止或失败处理。
     cmd_vel_timeout_ms: 200
+    # 参数说明：imu_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     imu_topic: "DM_IMU"
+    # 参数说明：v_max_mps - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     v_max_mps: 2.0
+    # 参数说明：w_max_rps - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     w_max_rps: 4.0
     a_max_mps2: 15.0
+    # 参数说明：alpha_max_rps2 - 角加速度上限，单位 rad/s^2；用于限制旋转变化率。
     alpha_max_rps2: 40.0
+    # 参数说明：track_width_m - 几何距离参数，单位通常为米。
     track_width_m: 0.7
+    # 参数说明：track_speed_max_mps - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     track_speed_max_mps: 2.0
+    # 参数说明：track_accel_max_mps2 - 加速度限制；用于约束速度变化率并保护底盘。
     track_accel_max_mps2: 15.0
+    # 参数说明：imu_gate_enable - 布尔开关；控制对应能力是否启用。
     imu_gate_enable: true
+    # 参数说明：imu_gate_ema_alpha - IMU gate EMA 平滑系数；用于平滑陀螺/加速度异常判断。
     imu_gate_ema_alpha: 0.98
+    # 参数说明：imu_gate_chi2_threshold - 阈值；用于判断状态切换、风险等级或过滤条件。
     imu_gate_chi2_threshold: 6.635
+    # 参数说明：accel_agree_threshold_mps2 - 阈值；用于判断状态切换、风险等级或过滤条件。
     accel_agree_threshold_mps2: 3.0
+    # 参数说明：spike_freeze_duration_ms - 时间参数，单位毫秒。
     spike_freeze_duration_ms: 100
     spike_decay_tau_s: 0.3
+    # 参数说明：governor_enable - 布尔开关；控制对应能力是否启用。
     governor_enable: true
     governor_lambda: 0.2
+    # 参数说明：dob_enable - 布尔开关；控制对应能力是否启用。
     dob_enable: false
+    # 参数说明：dob_lpf_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
     dob_lpf_hz: 5.0
+    # 参数说明：dob_kd - 控制增益；调大通常会增强响应但也可能放大振荡。
     dob_kd: 0.3
+    # 参数说明：latency_comp_enable - 布尔开关；控制对应能力是否启用。
     latency_comp_enable: true
     latency_comp_s: 0.03
+    # 参数说明：stats_log_enable - 布尔开关；控制对应能力是否启用。
     stats_log_enable: false
+    # 参数说明：imu_gate_log_enable - 布尔开关；控制对应能力是否启用。
     imu_gate_log_enable: false
 
 # 轮速软融合节点参数
 wheel_odom_fuser_node:
   ros__parameters:
+    # 参数说明：chassis_model - 底盘运动学模型标识；当前履带底盘通常使用 tracked_diff。
     chassis_model: "tracked_diff"
+    # 参数说明：can_odom_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     can_odom_topic: "Can_Odom"
+    # 参数说明：wheel_odom_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     wheel_odom_topic: "wheel_odom"
+    # 参数说明：imu_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     imu_topic: "DM_IMU"
+    # 参数说明：fused_odom_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     fused_odom_topic: "wheel_odom_fused"
+    # 参数说明：health_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     health_topic: "wheel_odom_fuser/health"
+    # 参数说明：publish_rate_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
     publish_rate_hz: 50
+    # 参数说明：data_timeout_ms - 超时时间；超过该值后会触发降级、停止或失败处理。
     data_timeout_ms: 100.0
     omega_sigma_rps: 0.5
+    # 参数说明：chi2_threshold_dof3 - 阈值；用于判断状态切换、风险等级或过滤条件。
     chi2_threshold_dof3: 11.34
     outlier_penalty: 0.1
     recovery_tau_s: 0.5
@@ -114,52 +177,87 @@ merge_odom_node:
     chassis_model: "tracked_diff"
     # CAN参数
     can_interface: "can0"
+    # 参数说明：wheel_radius - 几何距离参数，单位通常为米。
     wheel_radius: 0.07625
     wheel_base: 0.62326
+    # 参数说明：track_width - 几何距离参数，单位通常为米。
     track_width: 0.7
+    # 参数说明：gear_ratio - 缩放比例；用于按状态或场景调整对应数值。
     gear_ratio: 19.2032
     left_motor_can_id: 513   # 0x201, tracked_diff 模式左侧驱动电机
     right_motor_can_id: 514  # 0x202, tracked_diff 模式右侧驱动电机
+    # 参数说明：can_publish_rate_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
     can_publish_rate_hz: 50
+    # 参数说明：can_odom_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     can_odom_topic: "Can_Odom"
+    # 参数说明：wheel_odom_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     wheel_odom_topic: "wheel_odom"
+    # 参数说明：odom_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     odom_frame: "odom"
+    # 参数说明：base_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     base_frame: "base_link"
     wheel_feedback_format: "tracked_lr_8b"
     # 双串口参数 (MCU速度闭环)
     feedback_serial_port: "/dev/ttyUSB0"
+    # 参数说明：target_serial_port - 硬件端口或串口标识；实机部署时需要匹配设备映射。
     target_serial_port: "/dev/ttyUSB1"
+    # 参数说明：baudrate - 串口波特率；需要与下位机或传感器通信参数一致。
     baudrate: 1000000
     # 速度发送参数
     cmd_vel_topic: "cmd_vel"
+    # 参数说明：merge_odom_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     merge_odom_topic: "merge_odom"
+    # 参数说明：feedback_send_rate_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
     feedback_send_rate_hz: 50
+    # 参数说明：target_send_rate_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
     target_send_rate_hz: 50
+    # 参数说明：cmd_vel_timeout_ms - 超时时间；超过该值后会触发降级、停止或失败处理。
     cmd_vel_timeout_ms: 200
+    # 参数说明：imu_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     imu_topic: "DM_IMU"
+    # 参数说明：v_max_mps - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     v_max_mps: 2.0
+    # 参数说明：w_max_rps - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     w_max_rps: 4.0
     a_max_mps2: 15.0
+    # 参数说明：alpha_max_rps2 - 角加速度上限，单位 rad/s^2；用于限制旋转变化率。
     alpha_max_rps2: 40.0
+    # 参数说明：track_width_m - 几何距离参数，单位通常为米。
     track_width_m: 0.7
+    # 参数说明：track_speed_max_mps - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     track_speed_max_mps: 2.0
+    # 参数说明：track_accel_max_mps2 - 加速度限制；用于约束速度变化率并保护底盘。
     track_accel_max_mps2: 15.0
+    # 参数说明：imu_gate_enable - 布尔开关；控制对应能力是否启用。
     imu_gate_enable: true
+    # 参数说明：imu_gate_ema_alpha - IMU gate EMA 平滑系数；用于平滑陀螺/加速度异常判断。
     imu_gate_ema_alpha: 0.98
+    # 参数说明：imu_gate_chi2_threshold - 阈值；用于判断状态切换、风险等级或过滤条件。
     imu_gate_chi2_threshold: 6.635
+    # 参数说明：accel_agree_threshold_mps2 - 阈值；用于判断状态切换、风险等级或过滤条件。
     accel_agree_threshold_mps2: 3.0
+    # 参数说明：spike_freeze_duration_ms - 时间参数，单位毫秒。
     spike_freeze_duration_ms: 100
     spike_decay_tau_s: 0.3
+    # 参数说明：governor_enable - 布尔开关；控制对应能力是否启用。
     governor_enable: true
     governor_lambda: 0.2
+    # 参数说明：dob_enable - 布尔开关；控制对应能力是否启用。
     dob_enable: false
+    # 参数说明：dob_lpf_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
     dob_lpf_hz: 5.0
+    # 参数说明：dob_kd - 控制增益；调大通常会增强响应但也可能放大振荡。
     dob_kd: 0.3
+    # 参数说明：latency_comp_enable - 布尔开关；控制对应能力是否启用。
     latency_comp_enable: true
     latency_comp_s: 0.03
+    # 参数说明：stats_log_enable - 布尔开关；控制对应能力是否启用。
     stats_log_enable: false
+    # 参数说明：imu_gate_log_enable - 布尔开关；控制对应能力是否启用。
     imu_gate_log_enable: false
+    # 参数说明：slip_enable - 布尔开关；控制对应能力是否启用。
     slip_enable: true
+    # 参数说明：slip_threshold - 阈值；用于判断状态切换、风险等级或过滤条件。
     slip_threshold: 0.5
     slip_k_acc: 0.5
     cov_nominal_v: 0.01

@@ -7,28 +7,44 @@
 device_type: d455
 initial_reset: true
 
+# 参数说明：enable_color - 布尔开关；控制对应能力是否启用。
 enable_color: true
+# 参数说明：enable_depth - 布尔开关；控制对应能力是否启用。
 enable_depth: true
+# 参数说明：enable_infra1 - 布尔开关；控制对应能力是否启用。
 enable_infra1: false
+# 参数说明：enable_infra2 - 布尔开关；控制对应能力是否启用。
 enable_infra2: false
 
 # Profiles: WIDTHxHEIGHTxFPS
+# 参数说明：rgb_camera.color_profile - 运行 profile 或模式；用于在不同任务、风险等级或后端之间切换参数组。
 rgb_camera.color_profile: 640x480x30
+# 参数说明：depth_module.depth_profile - 运行 profile 或模式；用于在不同任务、风险等级或后端之间切换参数组。
 depth_module.depth_profile: 640x480x30
 
+# 参数说明：depth_module.infra_profile - 运行 profile 或模式；用于在不同任务、风险等级或后端之间切换参数组。
 depth_module.infra_profile: 848x480x30
 gyro_fps: 200
+# 参数说明：accel_fps - 加速度限制；用于约束速度变化率并保护底盘。
 accel_fps: 100
 
+# 参数说明：align_depth.enable - 布尔开关；控制对应能力是否启用。
 align_depth.enable: true
 # Only need aligned depth + color; keep pointcloud off to reduce topics/CPU.
+# 参数说明：pointcloud.enable - 布尔开关；控制对应能力是否启用。
 pointcloud.enable: false
+# 参数说明：enable_sync - 布尔开关；控制对应能力是否启用。
 enable_sync: true
 
 # Disable IMU streams to reduce topics.
+# 参数说明：enable_gyro - 布尔开关；控制对应能力是否启用。
 enable_gyro: false
+# 参数说明：enable_accel - 加速度限制；用于约束速度变化率并保护底盘。
 enable_accel: false
+# 参数说明：enable_motion - 布尔开关；控制对应能力是否启用。
 enable_motion: false
 
+# 参数说明：publish_tf - 布尔开关；控制对应能力是否启用。
 publish_tf: false
+# 参数说明：tf_publish_rate - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
 tf_publish_rate: 0.0

@@ -136,3 +136,7 @@
   - `no-imu`：EKF 不融合 IMU，但 `dm_imu_node` 与执行保护链仍保留
   - `wheel-only`：不启动也不读取 IMU；若反馈串口可用，则只用 `wheel_odom` 做最终 `merge_odom` 融合；若现场只有目标串口，则退化为“只保留目标串口下发 + 前置履带单发 transport”的单链路模式
 - `terrain_speed_limit` 运行时链路已从系统中删除；teleop 链不再需要额外关闭地形限速，也不存在重新接回该链路的脚本入口。
+
+## 配置注释口径
+
+- `config/joy_params.yaml` 与 `config/joy_params_dpad.yaml` 已保留常用/高影响参数的中文注释，说明手柄轴/按钮映射、履带底盘约束、deadman、watchdog、速度和加速度限制；本次只改变注释，不改变遥控默认行为。

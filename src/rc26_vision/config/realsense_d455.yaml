@@ -9,17 +9,22 @@ initial_reset: true
 
 # 开关：彩色/深度/红外
 enable_color: true
+# 参数说明：enable_depth - 布尔开关；控制对应能力是否启用。
 enable_depth: true
+# 参数说明：enable_infra1 - 布尔开关；控制对应能力是否启用。
 enable_infra1: false
+# 参数说明：enable_infra2 - 布尔开关；控制对应能力是否启用。
 enable_infra2: false
 
 # 流配置：WIDTHxHEIGHTxFPS
 rgb_camera.color_profile: 640x480x30
+# 参数说明：depth_module.depth_profile - 运行 profile 或模式；用于在不同任务、风险等级或后端之间切换参数组。
 depth_module.depth_profile: 640x480x30
 
 # D455 支持的红外/IMU（默认关闭以减少 topic 数量）
 depth_module.infra_profile: 848x480x30
 gyro_fps: 200
+# 参数说明：accel_fps - 加速度限制；用于约束速度变化率并保护底盘。
 accel_fps: 100
 
 # 对齐：将 depth 对齐到 color（用于 RGB-D 融合）
@@ -33,10 +38,13 @@ enable_sync: true
 
 # IMU：不需要则关闭（减少 topic）
 enable_gyro: false
+# 参数说明：enable_accel - 加速度限制；用于约束速度变化率并保护底盘。
 enable_accel: false
+# 参数说明：enable_motion - 布尔开关；控制对应能力是否启用。
 enable_motion: false
 
 # TF：由项目的 TF/标定链路统一发布；相机内部 TF 默认不发布
 publish_tf: false
+# 参数说明：tf_publish_rate - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
 tf_publish_rate: 0.0
 

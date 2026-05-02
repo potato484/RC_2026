@@ -35,3 +35,7 @@
 - 不再发布 `terrain_speed_limit` 或任何面向执行器的限速建议话题
 - 不再存在额外兼容桥接包
 - 不直接做决策编排
+
+## 配置注释口径
+
+- `config/terrain_semantic.yaml`、`terrain_filter_chain.yaml`、`terrain_risk_model.yaml`、`terrain_grid_map_bridge.yaml` 与 `rviz/terrain_semantic.rviz` 已保留常用/高影响字段的中文注释，重点说明地形栅格、风险模型、keepout 融合、GridMap 桥接和常用 RViz 观察入口；本次只改变注释，不改变地形输出语义。

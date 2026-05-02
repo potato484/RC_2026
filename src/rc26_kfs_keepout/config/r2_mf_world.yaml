@@ -1,34 +1,97 @@
+# 分组说明：meta - 元信息分组；记录配置版本、来源、坐标系或生成方式。
 meta:
+  # 参数说明：team - 当前阵营；通常使用 blue 或 red 选择对应图和任务口径。
   team: "shared"
   layout_version: "r2_mf_world_v1"
   mirror_rule: "explicit_team_layout"
   validated: true
+  # 参数说明：grid_spacing_m - 栅格或采样间距，单位米；影响生成图的节点密度。
   grid_spacing_m: 1.2
+  # 参数说明：block_half_extent_m - 几何距离参数，单位通常为米。
   block_half_extent_m: 0.6
+  # 参数说明：shared_edge_band_width_m - 几何距离参数，单位通常为米。
   shared_edge_band_width_m: 0.08
   safe_offset: 0.20
+  # 参数说明：jump_margin - 安全余量；用于在几何或制动判断中预留缓冲。
   jump_margin: 0.20
 
 blocks:
-  - {id: 1,  x: 0.0, y: 0.0, depth: 2, expected_height_m: 0.4}
-  - {id: 2,  x: 1.2, y: 0.0, depth: 1, expected_height_m: 0.2}
-  - {id: 3,  x: 2.4, y: 0.0, depth: 2, expected_height_m: 0.4}
-  - {id: 4,  x: 0.0, y: 1.2, depth: 1, expected_height_m: 0.2}
-  - {id: 5,  x: 1.2, y: 1.2, depth: 2, expected_height_m: 0.4}
-  - {id: 6,  x: 2.4, y: 1.2, depth: 3, expected_height_m: 0.6}
-  - {id: 7,  x: 0.0, y: 2.4, depth: 2, expected_height_m: 0.4}
-  - {id: 8,  x: 1.2, y: 2.4, depth: 3, expected_height_m: 0.6}
-  - {id: 9,  x: 2.4, y: 2.4, depth: 2, expected_height_m: 0.4}
-  - {id: 10, x: 0.0, y: 3.6, depth: 1, expected_height_m: 0.2}
-  - {id: 11, x: 1.2, y: 3.6, depth: 2, expected_height_m: 0.4}
-  - {id: 12, x: 2.4, y: 3.6, depth: 1, expected_height_m: 0.2}
+  - id: 1
+    x: 0.0
+    y: 0.0
+    depth: 2
+    expected_height_m: 0.4
+  - id: 2
+    x: 1.2
+    y: 0.0
+    depth: 1
+    expected_height_m: 0.2
+  - id: 3
+    x: 2.4
+    y: 0.0
+    depth: 2
+    expected_height_m: 0.4
+  - id: 4
+    x: 0.0
+    y: 1.2
+    depth: 1
+    expected_height_m: 0.2
+  - id: 5
+    x: 1.2
+    y: 1.2
+    depth: 2
+    expected_height_m: 0.4
+  - id: 6
+    x: 2.4
+    y: 1.2
+    depth: 3
+    expected_height_m: 0.6
+  - id: 7
+    x: 0.0
+    y: 2.4
+    depth: 2
+    expected_height_m: 0.4
+  - id: 8
+    x: 1.2
+    y: 2.4
+    depth: 3
+    expected_height_m: 0.6
+  - id: 9
+    x: 2.4
+    y: 2.4
+    depth: 2
+    expected_height_m: 0.4
+  - id: 10
+    x: 0.0
+    y: 3.6
+    depth: 1
+    expected_height_m: 0.2
+  - id: 11
+    x: 1.2
+    y: 3.6
+    depth: 2
+    expected_height_m: 0.4
+  - id: 12
+    x: 2.4
+    y: 3.6
+    depth: 1
+    expected_height_m: 0.2
 
 entry_blocks: [1, 2, 3]
 exit_blocks: [10, 11, 12]
 
 ramp_corridors:
-  - {x_min: -0.4, x_max: 2.8, y_min: -0.3, y_max: 0.3}
-  - {x_min: -0.4, x_max: 2.8, y_min: 3.3, y_max: 3.9}
+  - x_min: -0.4
+    x_max: 2.8
+    y_min: -0.3
+    y_max: 0.3
+  - x_min: -0.4
+    x_max: 2.8
+    y_min: 3.3
+    y_max: 3.9
 
 battle_approach_zones:
-  - {x_min: -0.5, x_max: 2.9, y_min: 3.8, y_max: 4.8}
+  - x_min: -0.5
+    x_max: 2.9
+    y_min: 3.8
+    y_max: 4.8

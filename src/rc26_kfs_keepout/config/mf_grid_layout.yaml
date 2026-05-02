@@ -1,4 +1,5 @@
 # Backward-compatible shim.
 # Legacy modules may still pass this path as "mf_grid_layout_file" / "grid_layout_file".
 # The canonical source of truth is r2_mf_world.yaml in the same folder.
+# 参数说明：world_layout_file - 生成 topo 图或兼容 shim 使用的场地几何配置文件。
 world_layout_file: "r2_mf_world.yaml"

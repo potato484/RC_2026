@@ -1,40 +1,70 @@
 /**:
   ros__parameters:
+    # 参数说明：terrain_features_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     terrain_features_topic: "terrain_features"
+    # 参数说明：kfs_mask_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     kfs_mask_topic: "/kfs_filter_mask"
+    # 参数说明：output_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     output_topic: "/terrain_grid_map"
+    # 参数说明：publish_local_map - 布尔开关；控制对应能力是否启用。
     publish_local_map: true
+    # 参数说明：output_topic_local - ROS2 话题名；必须与发布者或订阅者保持一致。
     output_topic_local: "/terrain_grid_map_local"
+    # 参数说明：publish_marker_array - 布尔开关；控制对应能力是否启用。
     publish_marker_array: true
+    # 参数说明：output_marker_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     output_marker_topic: "/terrain_grid_map_markers"
+    # 参数说明：output_marker_topic_local - ROS2 话题名；必须与发布者或订阅者保持一致。
     output_marker_topic_local: "/terrain_grid_map_local_markers"
+    # 参数说明：fusion_enable - 布尔开关；控制对应能力是否启用。
     fusion_enable: true
     fusion_publish_raw: true
+    # 参数说明：output_topic_raw - ROS2 话题名；必须与发布者或订阅者保持一致。
     output_topic_raw: "/terrain_grid_map_raw"
+    # 参数说明：output_topic_local_raw - ROS2 话题名；必须与发布者或订阅者保持一致。
     output_topic_local_raw: "/terrain_grid_map_local_raw"
+    # 参数说明：fusion_time_constant_sec - 时间参数，单位秒。
     fusion_time_constant_sec: 0.7
+    # 参数说明：fusion_unknown_decay_sec - 时间参数，单位秒。
     fusion_unknown_decay_sec: 1.2
+    # 参数说明：marker_height_min_m - 几何距离参数，单位通常为米。
     marker_height_min_m: 0.03
+    # 参数说明：marker_height_scale_m - 几何距离参数，单位通常为米。
     marker_height_scale_m: 0.20
     marker_alpha: 0.85
+    # 参数说明：map_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     map_frame: "map"
+    # 参数说明：local_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     local_frame: "odom"
+    # 参数说明：base_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     base_frame: "base_link"
+    # 参数说明：tf_timeout_sec - 超时时间；超过该值后会触发降级、停止或失败处理。
     tf_timeout_sec: 0.1
+    # 参数说明：keepout_stale_timeout_sec - 超时时间；超过该值后会触发降级、停止或失败处理。
     keepout_stale_timeout_sec: 2.0
+    # 参数说明：enable_mf_semantics - 布尔开关；控制对应能力是否启用。
     enable_mf_semantics: true
+    # 参数说明：mf_world_layout_file - 文件或目录路径；相对路径通常按包 share 目录或启动目录解析。
     mf_world_layout_file: ""
+    # 参数说明：mf_grid_layout_file - 文件或目录路径；相对路径通常按包 share 目录或启动目录解析。
     mf_grid_layout_file: ""
+    # 参数说明：mf_kfs_state_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     mf_kfs_state_topic: "/mf_kfs_state"
     mf_kfs_min_confidence: 0.6
     rule_legality_enforce_ramp_corridor: false
+    # 参数说明：enable_filter_chain - 布尔开关；控制对应能力是否启用。
     enable_filter_chain: false
     filter_chain_parameter_name: "terrain_filter_chain"
+    # 参数说明：step_edge_height_thresh_m - 几何距离参数，单位通常为米。
     step_edge_height_thresh_m: 0.10
+    # 参数说明：traversable_edge_height_delta_limit_m - 几何距离参数，单位通常为米。
     traversable_edge_height_delta_limit_m: 0.25
     slope_norm_limit: 0.35
     roughness_norm_limit: 0.08
+    # 参数说明：height_error_limit_m - 几何距离参数，单位通常为米。
     height_error_limit_m: 0.25
+    # 参数说明：traversability_height_error_weight - 几何距离参数，单位通常为米。
     traversability_height_error_weight: 0.20
     traversability_step_edge_weight: 0.20
+    # 参数说明：diagnostics_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     diagnostics_topic: "diagnostics"

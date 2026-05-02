@@ -50,3 +50,7 @@
 - `local_execution_backend` 与 `enable_local_3d_planner_observe` 已从主启动入口移除，不再保留 follower / observe-only planner 切换
 - 定位相关调参项 `competition_mode`、`enable_graph_backend`、`p4_candidate_enable`、`min_inliers` 已由 `bringup.launch.py` 透传到 `localization.launch.py`
 - 当前整车联调入口统一查看仓库根目录 `调试/` 目录，按“遥控 → 建图 → 定位 → 重定位 → 回环 → 导航”顺序执行
+
+## 配置注释口径
+
+- `config/*.yaml` 与 `rviz/*.rviz` 已保留常用/高影响字段的中文注释，重点覆盖装配层 overlay、定位参数、RealSense、sensor scan、导航 profile 和常用 RViz 观察入口的用途、单位与调参边界；本次只改变注释，不改变装配语义或参数值。
