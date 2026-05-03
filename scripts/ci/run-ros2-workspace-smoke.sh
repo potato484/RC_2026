@@ -30,8 +30,10 @@ TEST_RESULT_BASE_REL="${RC26_CI_TEST_RESULT_BASE:-${BUILD_BASE_REL}}"
 
 cd "${ROOT_DIR}"
 
+set +u
 # shellcheck disable=SC1090
 source "${ROS_SETUP}"
+set -u
 
 export MAKEFLAGS="${MAKEFLAGS:--j2 -l2}"
 
@@ -48,8 +50,10 @@ colcon build \
   --parallel-workers 1 \
   --packages-select "${PACKAGES[@]}"
 
+set +u
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/${INSTALL_BASE_REL}/setup.bash"
+set -u
 
 colcon test \
   --build-base "${BUILD_BASE_REL}" \
