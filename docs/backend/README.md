@@ -14,6 +14,12 @@
 - 当前导航实现统一查看 [`rc26_xhu_nav`](archive/rc26_xhu_nav/README.md)
 - 已经落地的架构变更直接归档在对应包 README 中，这里不再单独维护长期变更流水账入口
 
+## 当前 ROS2 自动验证入口
+
+- `.github/workflows/ros2-workspace-ci.yml`：当前 ROS2 工作区的 GitHub Actions smoke CI。固定覆盖 `rc26_interfaces`、`rc26_robot_geometry`、`rc26_serial`、`rc26_telecontrol`、`rc26_xhu_nav` 这条 headless 主链，执行 `colcon build + colcon test`。
+- `scripts/ci/run-ros2-workspace-smoke.sh`：本地与 CI 复用的 smoke 验证脚本，统一使用仓库规定的 `MAKEFLAGS='-j2 -l2'`、`--executor sequential` 与 `--parallel-workers 1` 口径。
+- `src/` 当前不提供通用 GitHub CD 部署流程。机器人运行时仍以 QCS8550 / AidLux 实机环境和 `rc26_bringup` 装配入口为准，不能把仓库 workflow 伪装成一条通用云部署链。
+
 ## 包目录索引
 
 ### 装配与决策

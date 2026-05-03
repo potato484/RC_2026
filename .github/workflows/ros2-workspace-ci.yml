@@ -1,0 +1,74 @@
+name: ros2-workspace-ci
+
+on:
+  push:
+    paths:
+      - ".github/workflows/ros2-workspace-ci.yml"
+      - "scripts/ci/run-ros2-workspace-smoke.sh"
+      - "docs/backend/**"
+      - "docs/fitness/**"
+      - "src/**"
+  pull_request:
+    paths:
+      - ".github/workflows/ros2-workspace-ci.yml"
+      - "scripts/ci/run-ros2-workspace-smoke.sh"
+      - "docs/backend/**"
+      - "docs/fitness/**"
+      - "src/**"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-build-and-test:
+    runs-on: ubuntu-22.04
+    container:
+      image: ros:humble-ros-base-jammy
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install CI prerequisites
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            python3-colcon-common-extensions \
+            python3-rosdep
+
+      - name: Initialize rosdep
+        run: |
+          if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
+            rosdep init
+          fi
+          rosdep update
+
+      - name: Verify backend archive coverage
+        run: |
+          missing=0
+          for pkg_xml in src/*/package.xml; do
+            pkg_dir="$(dirname "${pkg_xml}")"
+            pkg_name="$(basename "${pkg_dir}")"
+            readme="docs/backend/archive/${pkg_name}/README.md"
+            if [ ! -f "${readme}" ]; then
+              echo "::error file=${pkg_xml}::Missing backend archive README at ${readme}"
+              missing=1
+            fi
+          done
+          exit "${missing}"
+
+      - name: Install smoke package dependencies
+        run: |
+          rosdep install \
+            --from-paths \
+              src/rc26_interfaces \
+              src/rc26_robot_geometry \
+              src/rc26_serial \
+              src/rc26_telecontrol \
+              src/rc26_xhu_nav \
+            --ignore-src \
+            --rosdistro humble \
+            -y
+
+      - name: Run ROS2 workspace smoke build and test
+        run: bash scripts/ci/run-ros2-workspace-smoke.sh

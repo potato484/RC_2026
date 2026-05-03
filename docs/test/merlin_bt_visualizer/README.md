@@ -73,6 +73,7 @@ package.json
   - `dev` 段验证“保存到源文件”是否真的写回目标文件
 - 开发态写回 E2E 当前不会直接改 `src/rc26_decision/behavior_trees/*.xml` 真源，而是通过 `MERLIN_BT_SAVE_DIR` 把写回路径重定向到临时目录，避免测试污染工作区。
 - 当前 CD 只打包静态站点 artifact，不做远端部署，也不意味着浏览器版本拥有通用持久化后端。
+- 当前仓库只保留 `merlin-bt-visualizer` 这套前端 GitHub CI/CD。旧的 `rc26-visualization-viewer-*` workflow 已删除，因为对应 viewer 模块和文档入口已不再是当前仓库真源。
 
 ## 5. 当前正式定位
 
