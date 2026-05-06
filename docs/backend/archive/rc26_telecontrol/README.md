@@ -10,8 +10,8 @@
   - 静态库 `telecontrol_nodes`
   - 可执行文件 `rc26_telecontrol`
   - 可执行文件 `rc26_telecontrol_dpad`
-  - 可执行文件 `rc26_telecontrol_front_track_test`
-  - 可执行文件 `rc26_telecontrol_pushrod_dpad`
+  - 可执行文件 `rc26_telecontrol_front_pushrod_buttons`
+  - 可执行文件 `rc26_telecontrol_rear_pushrod_buttons`
 - 启动文件：`launch/wheeltec_joy.launch.py`
 - 配置文件：
   - `config/joy_params.yaml`
@@ -20,8 +20,8 @@
   - `src/telecontrol_nodes.cpp`
   - `src/wheeltec_joy.cpp`
   - `src/wheeltec_joy_dpad.cpp`
-  - `src/front_track_button_test_node.cpp`
-  - `src/pushrod_dpad_node.cpp`
+  - `src/front_pushrod_button_node.cpp`
+  - `src/rear_pushrod_button_node.cpp`
 
 当前已经实现两套控制模式：
 
@@ -37,7 +37,6 @@
   - `select`
   - `start`
   - `mode`
-  - 这 3 个键当前未被 `rc26_telecontrol` 消费
 - 右侧 ABXY：
   - `A`：`button[0]`
   - `B`：`button[1]`
@@ -62,21 +61,23 @@
 
 R2 当前已经统一为麦克纳姆全向底盘，因此 `linear.y` 在 stick / dpad 两种模式下都是有效输出；`rc26_telecontrol` 不再声明或消费 `chassis_model`，也不会在节点内部屏蔽横移。
 
-当前独立 sidecar 节点 `rc26_telecontrol_pushrod_dpad` 仍保留历史可执行名，但真实按键已经改成：
+当前独立后推杆 sidecar 节点已经收口为：
 
-- `Back(button[6]) -> PUSHROD_EXTEND (0x10)`
-- `Start(button[7]) -> PUSHROD_RETRACT (0x11)`
+- `rc26_telecontrol_rear_pushrod_buttons`
+- `Select/Back(button[6]) -> REAR_PUSHROD_EXTEND (0x10)`
+- `Start(button[7]) -> REAR_PUSHROD_RETRACT (0x11)`
 - 采用按下沿单次触发；按住不连发，松开后再次按下才会重发
 - 直接调用 `/mechanism/transport/send_command`，走 ACK 路径，不再经过 `/mechanism/execute`
 - `Dpad 左/右` 现在只负责 `linear.y`，不再触发推杆 sidecar
 
-除此之外，当前还新增了一个独立的机构按钮测试节点：
+除此之外，当前还新增了一个独立的前推杆按钮节点：
 
-- `Y(button[3]) -> FRONT_TRACK_UP (0x0E)`，真实语义是电动推杆上抬
-- `A(button[0]) -> FRONT_TRACK_DOWN (0x0F)`，真实语义是电动推杆后撑
+- `rc26_telecontrol_front_pushrod_buttons`
+- `Y(button[3]) -> FRONT_PUSHROD_EXTEND (0x0E)`
+- `A(button[0]) -> FRONT_PUSHROD_RETRACT (0x0F)`
 - 直接调用 `/mechanism/transport/send_command`，不再经过 `/mechanism/execute`
 - 采用按下沿单次触发；按住不会连发，松开后再次按下才会重发
-- 现在走 ACK 路径；如果 MCU 不回 ACK，会像其它可靠命令一样自动重传并打印超时日志
+- 现在走 ACK 路径；如果 MCU 不回通用 `ACK(0x00)`，会像其它可靠命令一样自动重传并打印超时日志
 - `Y` 与 `A` 同帧按下时直接忽略
 
 并且做了较多安全处理：
@@ -88,15 +89,15 @@ R2 当前已经统一为麦克纳姆全向底盘，因此 `linear.y` 在 stick /
 ## 源码入口与阅读顺序
 - 先看 `launch/wheeltec_joy.launch.py`，确认 stick / dpad 模式如何二选一。
 - 再看 `src/telecontrol_nodes.cpp`，公共参数、看门狗、deadman、限斜率都在这里。
-- 然后看 `src/front_track_button_test_node.cpp`，确认 Y/A 如何映射到共享 transport 单次发送。
-- 再看 `src/pushrod_dpad_node.cpp`，确认 `Back/Start` 如何映射到电动推杆 ACK 指令。
+- 然后看 `src/front_pushrod_button_node.cpp`，确认 Y/A 如何映射到前推杆共享 transport 单次发送。
+- 再看 `src/rear_pushrod_button_node.cpp`，确认 `Select/Back` / `Start` 如何映射到后推杆 ACK 指令。
 - 最后看 `src/wheeltec_joy.cpp`、`src/wheeltec_joy_dpad.cpp` 和两个 YAML。
 
 ## 目录解剖
 - `telecontrol_nodes.cpp`：基类、参数声明、摇杆输入处理、限幅、看门狗和两种控制模式实现。
 - `wheeltec_joy.cpp` / `wheeltec_joy_dpad.cpp`：两个独立可执行入口。
-- `front_track_button_test_node.cpp`：Y/A 到 `/mechanism/transport/send_command` 的单次发送桥接节点。
-- `pushrod_dpad_node.cpp`：`Back/Start` 到 `/mechanism/transport/send_command` 的单次 ACK 发送桥接节点。
+- `front_pushrod_button_node.cpp`：Y/A 到 `/mechanism/transport/send_command` 的前推杆单次发送桥接节点。
+- `rear_pushrod_button_node.cpp`：`Select/Back` / `Start` 到 `/mechanism/transport/send_command` 的后推杆单次 ACK 发送桥接节点。
 - `config/joy_params*.yaml`：手柄映射和安全参数。
 - `launch/wheeltec_joy.launch.py`：模式切换和 `joy_node` 装配。
 
@@ -123,12 +124,11 @@ R2 当前已经统一为麦克纳姆全向底盘，因此 `linear.y` 在 stick /
 - Stick 模式固定为 `左摇杆 -> vx/vy`、`右摇杆左右 -> wz`。
 - Dpad 模式固定为 `十字键上下/左右 -> vx/vy`、`X/B -> wz`。
 - `start_r2_teleop.sh` 现在默认用 `dpad` 模式启动，而不是 stick。
-- `start_r2_teleop.sh` 现在会在 `full` 和 `minimal-mcu` 两个栈里都额外挂起 `rc26_telecontrol_pushrod_dpad`，用于把 `Back/Start` 桥到 `0x10 / 0x11`。
-- `start_r2_teleop.sh` 会额外拉起 `rc26_telecontrol_front_track_test`，用于把 `Y/A` 直接映射成电动推杆上抬 / 后撑 `0x0E / 0x0F` 的单发命令。
-- 在 dpad 模式里，旋转仍由 `X/B` 控制；`Y/A` 不参与速度输出，只交给电动推杆上抬/后撑测试节点；`Dpad 左/右` 会直接体现在 `/cmd_vel.linear.y`。
-- `start_r2_teleop.sh` 不再默认拉起 `rc26_mechanism`；teleop 电动推杆上抬/后撑联调只依赖 `merge_odom` 持有目标串口并提供 transport service。
+- `start_r2_teleop.sh` 现在会在 `full` 和 `minimal-mcu` 两个栈里都额外挂起 `rc26_telecontrol_front_pushrod_buttons` 与 `rc26_telecontrol_rear_pushrod_buttons`，用于把 `Y/A` 与 `Select/Back` / `Start` 桥到 `0x0E~0x11`。
+- 在 dpad 模式里，旋转仍由 `X/B` 控制；`Y/A`、`Select/Back`、`Start` 不参与速度输出，只交给前/后推杆 sidecar；`Dpad 左/右` 会直接体现在 `/cmd_vel.linear.y`。
+- `start_r2_teleop.sh` 不再默认拉起 `rc26_mechanism`；teleop 前/后推杆联调只依赖 `merge_odom` 或 `pose_sender_node` 持有目标串口并提供 transport service。
 - 仓库根目录的 `start_r2_teleop.sh` 现在通过 `--stack full|minimal-mcu` 统一承载完整遥控链和最小串口链；最小 MCU 口径以 `./start_r2_teleop.sh --stack minimal-mcu` 为准。
-- `--stack minimal-mcu` 会启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_pushrod_dpad`；这个口径不会启动 `rc26_telecontrol_front_track_test`，但 `pose_sender_node` 现在也会继续提供 `/mechanism/transport/*`。
+- `--stack minimal-mcu` 会启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`；`pose_sender_node` 现在也会继续提供 `/mechanism/transport/*`。
 - `start_r2_teleop.sh` 现在在 `full` 和 `minimal-mcu` 两个栈下都会自动兼容“只接了一个目标 MCU 下发串口”的现场：若默认 `/dev/ttyUSB1` 不存在但 `/dev/ttyUSB0` 存在，脚本会自动把目标串口切到 `/dev/ttyUSB0`，并把反馈串口降级为 `__disabled__`。
 - `start_r2_teleop.sh` 现支持 `--pose-mode imu|no-imu|wheel-only`：
   - `imu`：EKF 融合 `DM_IMU`

@@ -52,26 +52,26 @@ ament_target_dependencies(rc26_telecontrol_dpad
   sensor_msgs
 )
 
-add_executable(rc26_telecontrol_front_track_test src/front_track_button_test_node.cpp)
-target_compile_features(rc26_telecontrol_front_track_test PUBLIC cxx_std_17)
-target_include_directories(rc26_telecontrol_front_track_test PUBLIC
+add_executable(rc26_telecontrol_front_pushrod_buttons src/front_pushrod_button_node.cpp)
+target_compile_features(rc26_telecontrol_front_pushrod_buttons PUBLIC cxx_std_17)
+target_include_directories(rc26_telecontrol_front_pushrod_buttons PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-ament_target_dependencies(rc26_telecontrol_front_track_test
+ament_target_dependencies(rc26_telecontrol_front_pushrod_buttons
   rclcpp
   rc26_interfaces
   rc26_serial
   sensor_msgs
 )
 
-add_executable(rc26_telecontrol_pushrod_dpad src/pushrod_dpad_node.cpp)
-target_compile_features(rc26_telecontrol_pushrod_dpad PUBLIC cxx_std_17)
-target_include_directories(rc26_telecontrol_pushrod_dpad PUBLIC
+add_executable(rc26_telecontrol_rear_pushrod_buttons src/rear_pushrod_button_node.cpp)
+target_compile_features(rc26_telecontrol_rear_pushrod_buttons PUBLIC cxx_std_17)
+target_include_directories(rc26_telecontrol_rear_pushrod_buttons PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-ament_target_dependencies(rc26_telecontrol_pushrod_dpad
+ament_target_dependencies(rc26_telecontrol_rear_pushrod_buttons
   rclcpp
   rc26_interfaces
   rc26_serial
@@ -82,8 +82,8 @@ install(TARGETS
   telecontrol_nodes
   rc26_telecontrol
   rc26_telecontrol_dpad
-  rc26_telecontrol_front_track_test
-  rc26_telecontrol_pushrod_dpad
+  rc26_telecontrol_front_pushrod_buttons
+  rc26_telecontrol_rear_pushrod_buttons
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -98,23 +98,23 @@ install(DIRECTORY launch config
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
 
-  ament_add_gtest(test_front_track_button_logic
-    test/test_front_track_button_logic.cpp
+  ament_add_gtest(test_front_pushrod_button_logic
+    test/test_front_pushrod_button_logic.cpp
   )
-  target_include_directories(test_front_track_button_logic PRIVATE
+  target_include_directories(test_front_pushrod_button_logic PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
   )
-  ament_target_dependencies(test_front_track_button_logic
+  ament_target_dependencies(test_front_pushrod_button_logic
     rc26_serial
   )
 
-  ament_add_gtest(test_pushrod_dpad_logic
-    test/test_pushrod_dpad_logic.cpp
+  ament_add_gtest(test_rear_pushrod_button_logic
+    test/test_rear_pushrod_button_logic.cpp
   )
-  target_include_directories(test_pushrod_dpad_logic PRIVATE
+  target_include_directories(test_rear_pushrod_button_logic PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
   )
-  ament_target_dependencies(test_pushrod_dpad_logic
+  ament_target_dependencies(test_rear_pushrod_button_logic
     rc26_serial
   )
 

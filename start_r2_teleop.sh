@@ -9,8 +9,8 @@ Usage:
 
 Options:
   --stack <full|minimal-mcu>  Startup stack, default: full
-                              full        = merge_odom + joy + telecontrol + pushrod-sidecar + pushrod-lift
-                              minimal-mcu = pose_sender + joy + telecontrol + pushrod-sidecar
+                              full        = merge_odom + joy + telecontrol + front-pushrod-sidecar + rear-pushrod-sidecar
+                              minimal-mcu = pose_sender + joy + telecontrol + front-pushrod-sidecar + rear-pushrod-sidecar
   --mode <stick|dpad>         Control mode, default: dpad
                               stick = 左摇杆控制 vx/vy，右摇杆左右控制 wz
                               dpad  = 十字键控制 vx/vy，X/B 控制 wz
@@ -321,8 +321,12 @@ if [[ "${mode}" == "stick" ]]; then
   )
 fi
 
-pushrod_cmd=(
-  ros2 run rc26_telecontrol rc26_telecontrol_pushrod_dpad
+front_pushrod_cmd=(
+  ros2 run rc26_telecontrol rc26_telecontrol_front_pushrod_buttons
+)
+
+rear_pushrod_cmd=(
+  ros2 run rc26_telecontrol rc26_telecontrol_rear_pushrod_buttons
 )
 
 feedback_port_notice=""
@@ -353,9 +357,6 @@ if [[ "${stack_mode}" == "full" ]]; then
     "stats_log_enable:=${stats_log_enable}"
   )
 
-  button_test_cmd=(
-    ros2 run rc26_telecontrol rc26_telecontrol_front_track_test
-  )
 else
   if [[ -z "${target_serial_port}" ]]; then
     echo "Target serial port must not be empty." >&2
@@ -406,8 +407,8 @@ if [[ "${dry_run}" == "true" ]]; then
     print_cmd "${merge_odom_cmd[@]}"
     print_cmd "${joy_cmd[@]}"
     print_cmd "${teleop_cmd[@]}"
-    print_cmd "${pushrod_cmd[@]}"
-    print_cmd "${button_test_cmd[@]}"
+    print_cmd "${front_pushrod_cmd[@]}"
+    print_cmd "${rear_pushrod_cmd[@]}"
   else
     echo "Feedback serial: ${feedback_serial_port}"
     echo "Target serial: ${target_serial_port}"
@@ -418,7 +419,8 @@ if [[ "${dry_run}" == "true" ]]; then
     print_cmd "${pose_sender_cmd[@]}"
     print_cmd "${joy_cmd[@]}"
     print_cmd "${teleop_cmd[@]}"
-    print_cmd "${pushrod_cmd[@]}"
+    print_cmd "${front_pushrod_cmd[@]}"
+    print_cmd "${rear_pushrod_cmd[@]}"
   fi
   exit 0
 fi
@@ -470,13 +472,14 @@ if [[ "${stack_mode}" == "full" ]]; then
   run_and_track "${merge_odom_cmd[@]}"
   run_and_track "${joy_cmd[@]}"
   run_and_track "${teleop_cmd[@]}"
-  run_and_track "${pushrod_cmd[@]}"
-  run_and_track "${button_test_cmd[@]}"
+  run_and_track "${front_pushrod_cmd[@]}"
+  run_and_track "${rear_pushrod_cmd[@]}"
 else
   run_and_track "${pose_sender_cmd[@]}"
   run_and_track "${joy_cmd[@]}"
   run_and_track "${teleop_cmd[@]}"
-  run_and_track "${pushrod_cmd[@]}"
+  run_and_track "${front_pushrod_cmd[@]}"
+  run_and_track "${rear_pushrod_cmd[@]}"
 fi
 
 wait -n "${pids[@]}"

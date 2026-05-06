@@ -20,7 +20,7 @@
 当前仓库实际按 `Xbox 360 Controller` 的输入编号解释手柄：
 
 *   十字键：`axes[7]` 为上下，`axes[6]` 为左右。
-*   中间功能键：`select`、`start`、`mode` 当前未被 `rc26_telecontrol` 消费。
+*   中间功能键：`select`、`start`、`mode`。
 *   右侧按键：`A=button[0]`、`B=button[1]`、`X=button[2]`、`Y=button[3]`。
 *   摇杆：左摇杆左右 `axes[0]`、前后 `axes[1]`；右摇杆左右 `axes[3]`、前后 `axes[4]`。
 
@@ -29,8 +29,8 @@
 *   **Stick 模式**：`linear.x <- axes[1]`，`linear.y <- axes[0]`，`angular.z <- axes[3]`。
 *   **Dpad 模式**：`linear.x <- axes[7]`，`linear.y <- axes[6]`，`angular.z <- X/B`。
 *   R2 当前已经统一为麦克纳姆全向底盘，因此 `linear.y` 在 stick / dpad 两种模式下都是有效输出；`rc26_telecontrol` 不再声明或消费 `chassis_model`。
-*   独立测试节点 `rc26_telecontrol_front_track_test`：`Y(button[3])` 按下沿单次下发 `FRONT_TRACK_UP (0x0E)`，真实语义是电动推杆上抬；`A(button[0])` 按下沿单次下发 `FRONT_TRACK_DOWN (0x0F)`，真实语义是电动推杆后撑。按住不会连发，松开后再次按下才会重发。该节点直接调用 `/mechanism/transport/send_command`，并走 ACK 路径，不再经过 `/mechanism/execute`。
-*   历史可执行名 `rc26_telecontrol_pushrod_dpad` 仍保留，但真实 sidecar 按键已经改成 `Back(button[6]) -> PUSHROD_EXTEND (0x10)`、`Start(button[7]) -> PUSHROD_RETRACT (0x11)`。该节点同样直接调用 `/mechanism/transport/send_command`，走 ACK 路径，不等待额外完成反馈；`Dpad 左/右` 现在只负责底盘横移。
+*   独立 sidecar 节点 `rc26_telecontrol_front_pushrod_buttons`：`Y(button[3])` 按下沿单次下发 `FRONT_PUSHROD_EXTEND (0x0E)`；`A(button[0])` 按下沿单次下发 `FRONT_PUSHROD_RETRACT (0x0F)`。按住不会连发，松开后再次按下才会重发。该节点直接调用 `/mechanism/transport/send_command`，走 transport ACK 路径，不再经过 `/mechanism/execute`。
+*   独立 sidecar 节点 `rc26_telecontrol_rear_pushrod_buttons`：`Select/Back(button[6]) -> REAR_PUSHROD_EXTEND (0x10)`、`Start(button[7]) -> REAR_PUSHROD_RETRACT (0x11)`。该节点同样直接调用 `/mechanism/transport/send_command`，走 transport ACK 路径；若 MCU 额外上送 `0x13~0x16` 业务 ACK，会继续发布到 `/mechanism/transport/feedback`。`Dpad 左/右` 现在只负责底盘横移。
 
 ### 2.2 多重安全保障机制
 
@@ -51,8 +51,8 @@
 
 当前仓库的正式遥控入口是根目录 `start_r2_teleop.sh`：
 
-*   `--stack full`：启动 `merge_odom + joy_node + telecontrol + rc26_telecontrol_pushrod_dpad + rc26_telecontrol_front_track_test`。这是当前默认口径，支持电动推杆上抬/后撑按钮单发联调、`Back/Start` 推杆联调与 `/mechanism/transport/*` 复用。
-*   `--stack minimal-mcu`：启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_pushrod_dpad`。这个口径的最小可用前提是 `target_serial_port` 可用，并允许 `feedback_serial_port` 禁用；若反馈串口也存在，`PoseSender` 仍会按端口是否存在分别尝试打开。虽然不启动 `merge_odom_node` 和电动推杆上抬/后撑按钮测试节点，但 `pose_sender_node` 现在也会继续挂出 `/mechanism/transport/*`，因此 ACK 型机构指令仍可联调。
+*   `--stack full`：启动 `merge_odom + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。这是当前默认口径，支持前/后推杆四按键联调与 `/mechanism/transport/*` 复用。
+*   `--stack minimal-mcu`：启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。这个口径的最小可用前提是 `target_serial_port` 可用，并允许 `feedback_serial_port` 禁用；若反馈串口也存在，`PoseSender` 仍会按端口是否存在分别尝试打开。虽然不启动 `merge_odom_node`，但 `pose_sender_node` 现在也会继续挂出 `/mechanism/transport/*`，因此前/后推杆 4 条 ACK 型机构指令仍可联调。
 *   `--pose-mode imu|no-imu|wheel-only` 只作用于 `--stack full`：
     *   `imu`：EKF 融合 IMU
     *   `no-imu`：EKF 不融合 IMU，但 `dm_imu_node` 和执行保护链仍保留 IMU
@@ -87,8 +87,8 @@
 2.  **处理节点**：
     *   `wheeltec_joy` (Stick 模式处理)
     *   `wheeltec_joy_dpad` (Dpad 模式处理)
-    *   `rc26_telecontrol_front_track_test` (Y/A 到共享 transport 的单次发送桥接)
-    *   `rc26_telecontrol_pushrod_dpad` (历史命名保留，当前负责 `Back/Start` 到共享 transport 的单次 ACK 发送桥接)
+    *   `rc26_telecontrol_front_pushrod_buttons` (Y/A 到共享 transport 的前推杆单次发送桥接)
+    *   `rc26_telecontrol_rear_pushrod_buttons` (`Select/Back` / `Start` 到共享 transport 的后推杆单次发送桥接)
     节点内部按顺序执行：看门狗检查 -> 安全开关检查 -> 死区过滤 -> 加速度限制计算 -> 重复发包逻辑。
 3.  **输出**：将计算后平滑且安全的速度结果，打包成标准的速度控制消息（如 `geometry_msgs::msg::Twist`），发布到指定话题。包内默认参数仍是 `/cmd_vel_teleop`，但仓库根目录的 `start_r2_teleop.sh` 会显式改为 `/cmd_vel` 以接入当前底盘执行链。
 
