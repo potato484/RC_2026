@@ -21,10 +21,10 @@
 - 滑动窗口健康度统计
 - 长度与负载保护
 
-当前真实协议口径里，`ODOM_DATA(0x20)` 已经不再固定只有四轮 `4 float`：
+当前真实协议口径里，`ODOM_DATA(0x20)` 已经重新收口为麦克纳姆四轮唯一格式：
 
-- 四轮模式：`<v_fl, v_rl, v_rr, v_fr>`
-- 履带模式：`<v_left, v_right>`
+- `ODOM_DATA = <v_fl, v_rl, v_rr, v_fr>`，共 `16B / 4 float`
+- 上位机默认由 `rc26_merge_odom::WheelOdom` 解析，并继续换算 `vx / vy / wz`
 
 上位机下发给 MCU 的 `POSE_FEEDBACK/POSE_TARGET` 仍保持 `(vx, vy, wz)` 三浮点协议不变，但当前编号与发送口径已经更新为：
 
@@ -49,6 +49,7 @@
 - `rc26_telecontrol_front_track_test` 会在 `Y/A` 按下沿单次调用 `/mechanism/transport/send_command`
 - `FRONT_TRACK_UP/DOWN` 通过 `merge_odom` 桥接走可靠 `sendCommand()` ACK 路径；若 MCU 不回 ACK，会像其它可靠命令一样自动重传并打印超时日志
 - `PUSHROD_EXTEND/RETRACT` 通过共享 transport 走可靠 `sendCommand()` ACK 路径；只要求 MCU 回 `ACK`，不要求再上送独立的完成反馈
+- `rc26_telecontrol_pushrod_dpad` 当前改为 `Back/Start -> PUSHROD_EXTEND/RETRACT`；`Dpad 左/右` 已回归底盘横移控制
 - `0x13 / 0x14` 仍作为“电动推杆上抬完成 / 后撑完成”的完成反馈发布到 `/mechanism/transport/feedback`
 - 真机部署时，目标 MCU 串口仍由 `rc26_merge_odom` 独占打开；其它上层只复用 transport，不再次直连同一设备
 

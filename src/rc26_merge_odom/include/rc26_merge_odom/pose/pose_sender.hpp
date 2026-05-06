@@ -16,7 +16,6 @@
 #include <sensor_msgs/msg/imu.hpp>
 #include <std_msgs/msg/bool.hpp>
 
-#include "rc26_merge_odom/chassis_model.hpp"
 #include "rc26_serial/serial_driver.hpp"
 
 namespace rc26_merge_odom {
@@ -24,7 +23,6 @@ namespace rc26_merge_odom {
 class PoseSender {
 public:
     struct Config {
-        std::string chassis_model = "tracked_diff";
         std::string cmd_vel_topic = "cmd_vel";
         std::string odom_topic = "merge_odom";
         std::string imu_topic = "DM_IMU";
@@ -35,9 +33,6 @@ public:
         float w_max_rps = 4.0f;
         float a_max_mps2 = 15.0f;
         float alpha_max_rps2 = 40.0f;
-        float track_width_m = 0.7f;
-        float track_speed_max_mps = 2.0f;
-        float track_accel_max_mps2 = 15.0f;
         bool imu_gate_enable = true;
         float imu_gate_ema_alpha = 0.98f;
         float imu_gate_chi2_threshold = 6.635f;
@@ -90,7 +85,6 @@ private:
     std::shared_ptr<rc26_decision::SerialDriver> feedback_serial_;
     std::shared_ptr<rc26_decision::SerialDriver> target_serial_;
     Config config_;
-    ChassisModel chassis_model_ = ChassisModel::kMecanum4Wheel;
 
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
@@ -153,7 +147,6 @@ private:
     bool getFreshImuCache(const std::chrono::steady_clock::time_point& now, ImuCache& imu_cache) const;
     float getEffectiveVMax(const std::chrono::steady_clock::time_point&) const;
     void applyImuSpikeScale(Velocity& velocity, const std::chrono::steady_clock::time_point& now);
-    void normalizeVelocityForChassis(Velocity& velocity) const;
     bool imuSpikeActive() const;
     Velocity applyFallbackProtect(Velocity raw, const Velocity& prev_vel, double dt, float effective_v_max) const;
     Velocity applyGovernorProtect(Velocity raw, const Velocity& prev_vel, double dt, float effective_v_max) const;

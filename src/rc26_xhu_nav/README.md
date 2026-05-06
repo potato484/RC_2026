@@ -35,6 +35,14 @@
 - 这是一次“多包实现收口到单包宿主”的架构变更；旧导航实现包已被新包取代
 - 外部 ROS topic / service / action 名保持不变，变化只发生在实现归属、源码路径和文档口径
 
+## 当前全向运行时口径
+
+- `xhu_motion_runtime_node` 仍是唯一 `cmd_vel` 权威，但现在会把上一拍真实 `linear.y` 回传给 local planner，作为 `PlannerInput.current_vy` 的一部分。
+- local planner 已从仅采样 `vx/wz` 改为输出 `vx/vy/wz`；平移方向会根据 corridor lookahead 的平面目标向量生成，再按 holonomic 模型积分候选轨迹。
+- `/xhu_nav/tracking_state` 与 `/xhu_nav/local_planner_state` 里的 `cmd_vy` 现在是有效运行值，不再只是长期为 0 的占位字段。
+- 恢复态 `rotate_in_place` 仍只输出 `wz`，这时 `cmd_vx=0`、`cmd_vy=0`。
+- `local_planner_trace_cli` 已支持读写 `current_velocity.vy` 和候选 `sampled_vy`，适合离线验证横向通过能力。
+
 ## 调试入口
 
 - 运行时与 mode manager 的当前调试说明统一收口到仓库根目录 `调试/rc26_xhu_nav调试.md`

@@ -19,7 +19,6 @@ constexpr size_t kCovVyIndex = 7;
 constexpr size_t kCovWzIndex = 35;
 constexpr double kMinVar = 1e-4;
 constexpr double kEpsilon = 1e-9;
-constexpr double kTrackedLateralVariance = 1e-4;
 
 std::string formatDouble(double value) {
     std::ostringstream oss;
@@ -41,13 +40,6 @@ void fuseDimension(double mean_can, double mean_wheel, double w_can, double w_wh
 }  // namespace
 
 WheelOdomFuser::WheelOdomFuser(rclcpp::Node& node, Config config) : node_(node), config_(std::move(config)) {
-    const std::string raw_chassis_model = config_.chassis_model;
-    config_.chassis_model = normalizeChassisModel(config_.chassis_model);
-    if (raw_chassis_model != config_.chassis_model) {
-        RCLCPP_WARN(node_.get_logger(), "wheel_odom_fuser chassis_model=%s invalid, fallback to %s",
-                    raw_chassis_model.c_str(), config_.chassis_model.c_str());
-    }
-    chassis_model_ = parseChassisModel(config_.chassis_model);
     if (config_.publish_rate_hz <= 0) {
         RCLCPP_WARN(node_.get_logger(), "wheel_odom_fuser publish_rate_hz=%d invalid, fallback to 1",
                     config_.publish_rate_hz);
@@ -90,11 +82,10 @@ WheelOdomFuser::WheelOdomFuser(rclcpp::Node& node, Config config) : node_(node),
     timer_ = node_.create_wall_timer(period, std::bind(&WheelOdomFuser::onPublishTimer, this));
 
     RCLCPP_INFO(node_.get_logger(),
-                "WheelOdomFuser 启动: can=%s, wheel=%s, imu=%s, fused=%s, health=%s, rate=%dHz, timeout=%.1fms, "
-                "chassis_model=%s",
+                "WheelOdomFuser 启动: can=%s, wheel=%s, imu=%s, fused=%s, health=%s, rate=%dHz, timeout=%.1fms",
                 config_.can_odom_topic.c_str(), config_.wheel_odom_topic.c_str(), config_.imu_topic.c_str(),
                 config_.fused_odom_topic.c_str(), config_.health_topic.c_str(), publish_rate_hz,
-                config_.data_timeout_ms, chassisModelName(chassis_model_));
+                config_.data_timeout_ms);
 }
 
 WheelOdomFuser::~WheelOdomFuser() {
@@ -304,11 +295,6 @@ void WheelOdomFuser::onPublishTimer() {
             fuseDimension(can_state.wz, wheel_state.wz, can_state.w_wz, wheel_state.w_wz, pose_source->wz,
                           pose_source->var_wz, fused_wz, fused_var_wz);
 
-            if (isTrackedDiffModel(chassis_model_)) {
-                fused_vy = 0.0;
-                fused_var_vy = kTrackedLateralVariance;
-            }
-
             fused_msg.twist.twist.linear.x = fused_vx;
             fused_msg.twist.twist.linear.y = fused_vy;
             fused_msg.twist.twist.linear.z = pose_source->odom.twist.twist.linear.z;
@@ -347,7 +333,6 @@ void WheelOdomFuser::publishHealth(const std::string& state_text, uint8_t level,
     };
 
     addKeyValue("state", state_text);
-    addKeyValue("chassis_model", chassisModelName(chassis_model_));
     addKeyValue("h_can", formatDouble(can_state.h_smooth));
     addKeyValue("h_wheel", formatDouble(wheel_state.h_smooth));
     addKeyValue("omega_diff_can", formatDouble(can_state.omega_diff));

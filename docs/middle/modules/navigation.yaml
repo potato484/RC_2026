@@ -570,6 +570,7 @@ components:
         cmd_vy:
           type: number
           format: float
+          description: 麦克纳姆底盘横向速度指令，当前全向主链会正常输出非零值
         cmd_wz:
           type: number
           format: float
@@ -664,6 +665,7 @@ components:
         cmd_vy:
           type: number
           format: float
+          description: 麦克纳姆底盘横向速度指令，local planner/runtime 会按全向轨迹输出真实值
         cmd_wz:
           type: number
           format: float

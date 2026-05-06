@@ -33,7 +33,6 @@ def generate_launch_description():
     feedback_serial_port_default = str(merge_params.get('feedback_serial_port', '/dev/ttyUSB0'))
     target_serial_port_default = str(merge_params.get('target_serial_port', '/dev/ttyUSB1'))
     fused_odom_topic_default = str(fuser_params.get('fused_odom_topic', 'wheel_odom_fused'))
-    chassis_model_default = str(merge_params.get('chassis_model', 'mecanum_4wheel'))
 
     can_interface_arg = DeclareLaunchArgument(
         'can_interface',
@@ -58,12 +57,6 @@ def generate_launch_description():
         default_value=target_serial_port_default,
         description='MCU target serial port (POSE_TARGET)',
     )
-    chassis_model_arg = DeclareLaunchArgument(
-        'chassis_model',
-        default_value=chassis_model_default,
-        description='Chassis model: mecanum_4wheel | tracked_diff',
-    )
-
     merge_odom_node = Node(
         package='rc26_merge_odom',
         executable='merge_odom_node',
@@ -74,7 +67,6 @@ def generate_launch_description():
             'can_interface': LaunchConfiguration('can_interface'),
             'feedback_serial_port': LaunchConfiguration('feedback_serial_port'),
             'target_serial_port': LaunchConfiguration('target_serial_port'),
-            'chassis_model': LaunchConfiguration('chassis_model'),
         }],
     )
 
@@ -85,7 +77,6 @@ def generate_launch_description():
         output='screen',
         parameters=[params_file, {
             'can_interface': LaunchConfiguration('can_interface'),
-            'chassis_model': LaunchConfiguration('chassis_model'),
         }],
     )
 
@@ -104,9 +95,7 @@ def generate_launch_description():
         executable='wheel_odom_fuser_node',
         name='wheel_odom_fuser_node',
         output='screen',
-        parameters=[params_file, {
-            'chassis_model': LaunchConfiguration('chassis_model'),
-        }],
+        parameters=[params_file],
     )
 
     ekf_node = Node(
@@ -128,7 +117,6 @@ def generate_launch_description():
         imu_port_arg,
         feedback_serial_port_arg,
         target_serial_port_arg,
-        chassis_model_arg,
         merge_odom_node,
         can_odom_node,
         dm_imu_node,

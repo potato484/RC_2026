@@ -54,10 +54,16 @@ ros2 launch rc26_xhu_nav topo_nav.launch.py
 ros2 topic echo /xhu_nav/corridor_cmd --once
 ros2 topic echo /xhu_nav/motion_mode_state --once
 ros2 topic echo /xhu_nav/tracking_state --once
+ros2 topic echo /xhu_nav/local_planner_state --once
 ros2 topic echo /xhu_nav/semantic_gate --once
 ros2 topic echo /cmd_vel --once
 ros2 service type /set_xhu_motion_mode
 ```
+
+全向输出验收：
+
+- corridor 存在横向偏移时，`/xhu_nav/local_planner_state` 与 `/xhu_nav/tracking_state` 的 `cmd_vy` 应允许出现非零值
+- 若进入 `rotate_in_place` 恢复态，预期 `cmd_vx=0`、`cmd_vy=0`、`cmd_wz!=0`
 
 ## 常用模式切换
 
@@ -72,6 +78,7 @@ ros2 service call /set_xhu_motion_mode rc26_interfaces/srv/SetXhuMotionMode \
 ## 优先排查
 
 - `/cmd_vel` 长期为零：先看 `/xhu_nav/motion_mode_state` 是否还在 `hold`，再看 `/xhu_nav/semantic_gate`。
+- `cmd_vy` 长期为 0：优先检查 corridor/lookahead 是否真的需要横移，再看 `xhu_motion_runtime_node` 是否拿到了最新 `odom.twist.twist.linear.y`。
 - `/xhu_nav/tracking_state` 频繁 `REPLAN`：优先检查 corridor、keepout 和地形输入。
 - 单独拉起 mode manager 正常、整车链异常：先检查 bringup 传入的 graph 和上游健康度。
 

@@ -49,6 +49,7 @@ struct PlannerInput {
     double robot_y{0.0};
     double robot_yaw{0.0};
     double current_vx{0.0};
+    double current_vy{0.0};
     double current_wz{0.0};
     bool has_mode_state{false};
     bool has_terrain_grid{false};
@@ -84,6 +85,7 @@ struct TracePose {
 
 struct CandidateTrajectoryTrace {
     double sampled_vx{0.0};
+    double sampled_vy{0.0};
     double sampled_wz{0.0};
     double score{0.0};
     double path_distance{0.0};

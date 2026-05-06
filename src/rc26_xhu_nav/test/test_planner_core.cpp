@@ -23,6 +23,7 @@ PlannerInput makeBaseInput() {
   input.robot_y = 0.0;
   input.robot_yaw = 0.0;
   input.current_vx = 0.0;
+  input.current_vy = 0.0;
   input.current_wz = 0.0;
   input.has_mode_state = true;
   input.mode_state.active_mode = "normal";
@@ -76,10 +77,23 @@ TEST(PlannerCoreTest, PassScenarioProducesTraceAndPreview) {
 
   EXPECT_EQ(result.status, "PASS");
   EXPECT_TRUE(result.has_solution);
+  EXPECT_NEAR(result.cmd_vy, 0.0, 1e-6);
   EXPECT_FALSE(result.preview_path.poses.empty());
   EXPECT_EQ(trace.final_status, "PASS");
   EXPECT_FALSE(trace.candidates.empty());
   EXPECT_EQ(trace.semantic_revision, 1U);
+}
+
+TEST(PlannerCoreTest, LateralOffsetProducesHolonomicVyCommand) {
+  PlannerCore planner;
+  PlannerInput input = makeBaseInput();
+  input.robot_y = 0.3;
+
+  const auto result = planner.plan(input);
+
+  EXPECT_EQ(result.status, "PASS");
+  EXPECT_TRUE(result.has_solution);
+  EXPECT_GT(std::abs(result.cmd_vy), 1e-3);
 }
 
 TEST(PlannerCoreTest, BlockedKeepoutBecomesWaitingOnBlock) {
@@ -108,6 +122,9 @@ TEST(PlannerCoreTest, RotateRecoverySuggestedWhenHeadingMismatchRemains) {
 
   EXPECT_EQ(result.status, "RECOVERY_RUNNING");
   EXPECT_TRUE(result.should_rotate_recovery);
+  EXPECT_DOUBLE_EQ(result.cmd_vx, 0.0);
+  EXPECT_DOUBLE_EQ(result.cmd_vy, 0.0);
+  EXPECT_NE(result.cmd_wz, 0.0);
   EXPECT_EQ(result.recovery_state.recovery_name, "rotate_in_place");
 }
 

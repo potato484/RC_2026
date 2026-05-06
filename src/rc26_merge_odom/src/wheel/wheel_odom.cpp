@@ -8,6 +8,8 @@
 
 #include <tf2/LinearMath/Quaternion.h>
 
+#include "rc26_merge_odom/mecanum_kinematics.hpp"
+#include "rc26_merge_odom/odom_payload.hpp"
 #include "rc26_serial/protocol.hpp"
 #include "rc26_serial/serial_driver.hpp"
 
@@ -16,32 +18,10 @@ namespace rc26_merge_odom {
 namespace {
 constexpr double kEpsilon = 1e-6;
 constexpr double kMinCovariance = 1e-6;
-constexpr double kTrackedLateralCovariance = 1e-4;
 }
 
 WheelOdom::WheelOdom(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> serial, Config config)
     : node_(node), config_(std::move(config)), serial_(std::move(serial)) {
-    const std::string raw_chassis_model = config_.chassis_model;
-    const std::string raw_wheel_feedback_format = config_.wheel_feedback_format;
-    config_.chassis_model = normalizeChassisModel(config_.chassis_model);
-    if (!raw_chassis_model.empty() && raw_chassis_model != config_.chassis_model) {
-        RCLCPP_WARN(node_.get_logger(), "wheel chassis_model=%s invalid, fallback to %s", raw_chassis_model.c_str(),
-                    config_.chassis_model.c_str());
-    }
-    config_.wheel_feedback_format = normalizeWheelFeedbackFormat(config_.wheel_feedback_format);
-    if (!raw_wheel_feedback_format.empty() && raw_wheel_feedback_format != config_.wheel_feedback_format) {
-        RCLCPP_WARN(node_.get_logger(), "wheel wheel_feedback_format=%s invalid, fallback to %s",
-                    raw_wheel_feedback_format.c_str(), config_.wheel_feedback_format.c_str());
-    }
-    chassis_model_ = parseChassisModel(config_.chassis_model);
-    wheel_feedback_format_ = parseWheelFeedbackFormat(config_.wheel_feedback_format);
-    if (wheel_feedback_format_ == WheelFeedbackFormat::kTrackedLeftRight8B && !isTrackedDiffModel(chassis_model_)) {
-        throw std::invalid_argument("wheel_feedback_format=tracked_lr_8b 仅支持 tracked_diff");
-    }
-    if (wheel_feedback_format_ == WheelFeedbackFormat::kLegacy4Wheel16B && isTrackedDiffModel(chassis_model_)) {
-        RCLCPP_WARN(node_.get_logger(),
-                    "tracked_diff 当前仍配置 legacy_4wheel_16b，将按左右平均兼容解析四通道 payload");
-    }
     if (!(std::fabs(config_.wheel_base) > kEpsilon)) {
         RCLCPP_WARN(node_.get_logger(), "wheel wheel_base=%.6f invalid, fallback to %.6f", config_.wheel_base,
                     Config{}.wheel_base);
@@ -96,12 +76,9 @@ WheelOdom::WheelOdom(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDr
     publish_timer_ = node_.create_wall_timer(period, std::bind(&WheelOdom::publishOdometry, this));
     ready_.store(true, std::memory_order_release);
 
-    RCLCPP_INFO(node_.get_logger(),
-                "WheelOdom 启动: topic=%s, imu=%s, rate=%d Hz, slip=%s, chassis_model=%s, feedback_format=%s",
+    RCLCPP_INFO(node_.get_logger(), "WheelOdom 启动: topic=%s, imu=%s, rate=%d Hz, slip=%s",
                 config_.odom_topic.c_str(), config_.imu_topic.empty() ? "disabled" : config_.imu_topic.c_str(),
-                config_.publish_rate_hz,
-                config_.slip_enable ? "on" : "off", chassisModelName(chassis_model_),
-                wheelFeedbackFormatName(wheel_feedback_format_));
+                config_.publish_rate_hz, config_.slip_enable ? "on" : "off");
 }
 
 WheelOdom::~WheelOdom() {
@@ -124,65 +101,23 @@ void WheelOdom::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
 }
 
 void WheelOdom::handleOdomData(const std::vector<uint8_t>& payload) {
-    const size_t expected_size =
-        wheel_feedback_format_ == WheelFeedbackFormat::kTrackedLeftRight8B ? 8U : 16U;
-    if (payload.size() != expected_size) {
+    WheelSpeedPayload parsed_payload;
+    if (!parseWheelSpeedPayload(payload, parsed_payload)) {
         RCLCPP_WARN_THROTTLE(node_.get_logger(), *node_.get_clock(), 1000,
-                             "ODOM_DATA payload 大小不匹配: got=%zu expected=%zu format=%s", payload.size(),
-                             expected_size, wheelFeedbackFormatName(wheel_feedback_format_));
+                             "ODOM_DATA payload 大小不匹配: got=%zu expected=%zu", payload.size(),
+                             sizeof(float) * 4U);
         return;
     }
 
     {
         std::lock_guard<std::mutex> lock(data_mutex_);
-        if (wheel_feedback_format_ == WheelFeedbackFormat::kTrackedLeftRight8B) {
-            float v_left = 0.0f;
-            float v_right = 0.0f;
-            std::memcpy(&v_left, &payload[0], sizeof(float));
-            std::memcpy(&v_right, &payload[4], sizeof(float));
-            v_left_ = static_cast<double>(v_left);
-            v_right_ = static_cast<double>(v_right);
-        } else {
-            float v_fl = 0.0f;
-            float v_rl = 0.0f;
-            float v_rr = 0.0f;
-            float v_fr = 0.0f;
-            std::memcpy(&v_fl, &payload[0], sizeof(float));
-            std::memcpy(&v_rl, &payload[4], sizeof(float));
-            std::memcpy(&v_rr, &payload[8], sizeof(float));
-            std::memcpy(&v_fr, &payload[12], sizeof(float));
-            v_fl_ = static_cast<double>(v_fl);
-            v_rl_ = static_cast<double>(v_rl);
-            v_rr_ = static_cast<double>(v_rr);
-            v_fr_ = static_cast<double>(v_fr);
-        }
+        v_fl_ = parsed_payload.v_fl;
+        v_rl_ = parsed_payload.v_rl;
+        v_rr_ = parsed_payload.v_rr;
+        v_fr_ = parsed_payload.v_fr;
         last_data_time_ = std::chrono::steady_clock::now();
         data_received_ = true;
     }
-}
-
-void WheelOdom::wheelSpeedsToBodyVelocity(double v_fl, double v_rl, double v_rr, double v_fr, double& vx, double& vy,
-                                          double& omega) const {
-    if (isTrackedDiffModel(chassis_model_)) {
-        const double v_left = (v_fl + v_rl) / 2.0;
-        const double v_right = (v_fr + v_rr) / 2.0;
-        vx = (v_left + v_right) / 2.0;
-        vy = 0.0;
-        omega = (v_right - v_left) / config_.track_width;
-        return;
-    }
-
-    double l_plus_w = (config_.wheel_base + config_.track_width) / 2.0;
-
-    vx = (v_fl + v_fr + v_rl + v_rr) / 4.0;
-    vy = (-v_fl + v_fr + v_rl - v_rr) / 4.0;
-    omega = (-v_fl + v_fr - v_rl + v_rr) / (4.0 * l_plus_w);
-}
-
-void WheelOdom::trackSpeedsToBodyVelocity(double v_left, double v_right, double& vx, double& vy, double& omega) const {
-    vx = (v_left + v_right) / 2.0;
-    vy = 0.0;
-    omega = (v_right - v_left) / config_.track_width;
 }
 
 void WheelOdom::publishOdometry() {
@@ -198,22 +133,15 @@ void WheelOdom::publishOdometry() {
     double v_rl = 0.0;
     double v_rr = 0.0;
     double v_fr = 0.0;
-    double v_left = 0.0;
-    double v_right = 0.0;
     bool data_valid = false;
     const auto timeout_duration = std::chrono::duration<double, std::milli>(config_.data_timeout_ms);
     {
         std::lock_guard<std::mutex> lock(data_mutex_);
         if (data_received_ && (now - last_data_time_ <= timeout_duration)) {
-            if (wheel_feedback_format_ == WheelFeedbackFormat::kTrackedLeftRight8B) {
-                v_left = v_left_;
-                v_right = v_right_;
-            } else {
-                v_fl = v_fl_;
-                v_rl = v_rl_;
-                v_rr = v_rr_;
-                v_fr = v_fr_;
-            }
+            v_fl = v_fl_;
+            v_rl = v_rl_;
+            v_rr = v_rr_;
+            v_fr = v_fr_;
             data_valid = true;
         }
     }
@@ -225,21 +153,17 @@ void WheelOdom::publishOdometry() {
     double vx = 0.0;
     double vy = 0.0;
     double omega = 0.0;
-    if (wheel_feedback_format_ == WheelFeedbackFormat::kTrackedLeftRight8B) {
-        trackSpeedsToBodyVelocity(v_left, v_right, vx, vy, omega);
-    } else {
-        wheelSpeedsToBodyVelocity(v_fl, v_rl, v_rr, v_fr, vx, vy, omega);
-    }
+    const BodyVelocity velocity =
+        bodyVelocityFromWheelSpeeds(config_.wheel_base, config_.track_width, v_fl, v_rl, v_rr, v_fr);
+    vx = velocity.vx;
+    vy = velocity.vy;
+    omega = velocity.omega;
 
     double wheel_acc_measure = 0.0;
     if (prev_vel_valid_) {
         const double ax_wheel = (vx - prev_vx_) / dt;
-        if (isTrackedDiffModel(chassis_model_)) {
-            wheel_acc_measure = std::fabs(ax_wheel);
-        } else {
-            const double ay_wheel = (vy - prev_vy_) / dt;
-            wheel_acc_measure = std::hypot(ax_wheel, ay_wheel);
-        }
+        const double ay_wheel = (vy - prev_vy_) / dt;
+        wheel_acc_measure = std::hypot(ax_wheel, ay_wheel);
     }
     prev_vx_ = vx;
     prev_vy_ = vy;
@@ -255,14 +179,8 @@ void WheelOdom::publishOdometry() {
     double slip_score = 0.0;
     if (config_.slip_enable && imu_fresh) {
         const double omega_diff = std::fabs(imu_snapshot.gz - omega);
-        double acc_mismatch = 0.0;
-        if (isTrackedDiffModel(chassis_model_)) {
-            const double imu_acc_x = std::fabs(imu_snapshot.ax);
-            acc_mismatch = std::fabs(imu_acc_x - wheel_acc_measure) / (std::fabs(imu_acc_x) + kEpsilon);
-        } else {
-            const double imu_acc_xy = std::hypot(imu_snapshot.ax, imu_snapshot.ay);
-            acc_mismatch = std::fabs(imu_acc_xy - wheel_acc_measure) / (std::fabs(imu_acc_xy) + kEpsilon);
-        }
+        const double imu_acc_xy = std::hypot(imu_snapshot.ax, imu_snapshot.ay);
+        const double acc_mismatch = std::fabs(imu_acc_xy - wheel_acc_measure) / (std::fabs(imu_acc_xy) + kEpsilon);
         slip_score = omega_diff + config_.slip_k_acc * acc_mismatch;
 
         if (slip_score > config_.slip_threshold) {
@@ -296,28 +214,7 @@ void WheelOdom::publishOdometry() {
         vx_ = vx;
         vy_ = vy;
         omega_ = omega;
-
-        double half_dt = dt / 2.0;
-        double mid_yaw = yaw_ + omega * half_dt;
-
-        double cos_yaw = std::cos(mid_yaw);
-        double sin_yaw = std::sin(mid_yaw);
-
-        if (isTrackedDiffModel(chassis_model_)) {
-            x_ += vx * cos_yaw * dt;
-            y_ += vx * sin_yaw * dt;
-        } else {
-            x_ += (vx * cos_yaw - vy * sin_yaw) * dt;
-            y_ += (vx * sin_yaw + vy * cos_yaw) * dt;
-        }
-        yaw_ += omega * dt;
-
-        while (yaw_ > M_PI) {
-            yaw_ -= 2.0 * M_PI;
-        }
-        while (yaw_ < -M_PI) {
-            yaw_ += 2.0 * M_PI;
-        }
+        integrateHolonomicBodyVelocity(x_, y_, yaw_, vx, vy, omega, dt);
 
         odom_msg.pose.pose.position.x = x_;
         odom_msg.pose.pose.position.y = y_;
@@ -339,13 +236,12 @@ void WheelOdom::publishOdometry() {
     odom_msg.twist.twist.angular.y = 0.0;
     odom_msg.twist.twist.angular.z = omega;
 
-    const double cov_vy = isTrackedDiffModel(chassis_model_) ? kTrackedLateralCovariance : cov_v;
     odom_msg.pose.covariance[0] = cov_v;
-    odom_msg.pose.covariance[7] = cov_vy;
+    odom_msg.pose.covariance[7] = cov_v;
     odom_msg.pose.covariance[35] = cov_wz;
 
     odom_msg.twist.covariance[0] = cov_v;
-    odom_msg.twist.covariance[7] = cov_vy;
+    odom_msg.twist.covariance[7] = cov_v;
     odom_msg.twist.covariance[35] = cov_wz;
 
     odom_pub_->publish(odom_msg);

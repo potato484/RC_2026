@@ -29,6 +29,10 @@
 
 ## 当前运行时补充
 
+- R2 主运行时已经固定为 `mecanum_4wheel`，不再保留履带/差速 fallback；`ODOM_DATA` 只接受四轮 `16B / 4 float`：`<v_fl, v_rl, v_rr, v_fr>`。
+- `WheelOdom`、`CanOdom`、`WheelOdomFuser` 与 `PoseSender` 都会保留真实 `vy`；`/pose_sender/target_protected` 与 `POSE_TARGET/POSE_FEEDBACK` 不再把 `linear.y` 清零。
+- `wheel_odom_node` 的独立几何参数已经与主链统一为 `wheel_base=0.62326`、`track_width=0.7`，避免 standalone 调试与总装链口径不一致。
+- `merge_odom.launch.py` 与 `merge_odom_fused.launch.py` 已移除 `chassis_model`、`wheel_feedback_format`、`left_motor_can_id/right_motor_can_id`、`track_speed_max_mps`、`track_accel_max_mps2` 等履带专用参数。
 - `merge_odom.launch.py` 当前支持 `start_imu` 与 `stats_log_enable`：
   - `start_imu=false` 时不会启动 `dm_imu_node`
   - `imu_topic` 会被置空，`WheelOdom`、`CanOdom`、`PoseSender` 都不会再创建 IMU 订阅

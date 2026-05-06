@@ -30,7 +30,7 @@ source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 基础底盘执行链：
 
 ```bash
-ros2 launch rc26_merge_odom merge_odom.launch.py chassis_model:=tracked_diff
+ros2 launch rc26_merge_odom merge_odom.launch.py
 ```
 
 切到 CAN 里程计：
@@ -68,6 +68,14 @@ ros2 topic echo /wheel_odom_fuser/health --once
 ros2 topic echo /can_odom/slip_score --once
 ```
 
+横向速度链路验收：
+
+```bash
+ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.0, y: 0.20, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}" -1
+ros2 topic echo /pose_sender/target_protected --once
+```
+
 保护链测试：
 
 ```bash
@@ -79,6 +87,7 @@ ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
 
 - `minimal-mcu` 栈没有 transport：先确认 `pose_sender_node` 已持有 `target_serial_port`。
 - `wheel-only` 仍像在读 IMU：先确认命令里真的包含 `start_imu:=false`。
+- `/pose_sender/target_protected.linear.y` 长期为 0：先确认上游 `/cmd_vel` 已带 `linear.y`，再检查 `feedback_serial_port` / `target_serial_port` 是否起在当前修改后的麦克纳姆参数集上。
 - TF 冲突：如果已经通过 `rc26_bringup` 跑建图/里程计链，不要再额外叠同类权威节点。
 
 ## 相关入口

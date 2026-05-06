@@ -9,11 +9,11 @@ Usage:
 
 Options:
   --stack <full|minimal-mcu>  Startup stack, default: full
-                              full        = merge_odom + joy + telecontrol + pushrod-dpad + front-track
-                              minimal-mcu = pose_sender + joy + telecontrol + pushrod-dpad
+                              full        = merge_odom + joy + telecontrol + pushrod-sidecar + pushrod-lift
+                              minimal-mcu = pose_sender + joy + telecontrol + pushrod-sidecar
   --mode <stick|dpad>         Control mode, default: dpad
-                              stick = 履带模式，左摇杆前后 + 右摇杆旋转
-                              dpad  = 履带模式，十字键前后 + X右旋/B左旋，左/右单次触发推杆
+                              stick = 左摇杆控制 vx/vy，右摇杆左右控制 wz
+                              dpad  = 十字键控制 vx/vy，X/B 控制 wz
   --pose-mode <imu|no-imu|wheel-only>
                               Only valid for --stack full
                               imu        = EKF uses IMU
@@ -90,7 +90,6 @@ setup_file="${workspace_dir}/install/setup.bash"
 stack_mode="full"
 mode="dpad"
 pose_mode=""
-chassis_model="tracked_diff"
 feedback_serial_port="/dev/ttyUSB0"
 target_serial_port="/dev/ttyUSB1"
 baudrate="1000000"
@@ -305,7 +304,6 @@ teleop_cmd=(
   ros2 run rc26_telecontrol "${teleop_executable}"
   --ros-args
   -p "cmd_vel_topic:=${cmd_vel_topic}"
-  -p "chassis_model:=${chassis_model}"
   -p "v_linear:=${v_linear}"
   -p "v_angular:=${v_angular}"
   -p "joy_timeout_s:=${joy_timeout_s}"
@@ -353,7 +351,6 @@ if [[ "${stack_mode}" == "full" ]]; then
     "target_serial_port:=${target_serial_port}"
     "baudrate:=${baudrate}"
     "stats_log_enable:=${stats_log_enable}"
-    "chassis_model:=${chassis_model}"
   )
 
   button_test_cmd=(
@@ -377,7 +374,6 @@ else
   pose_sender_cmd=(
     ros2 run rc26_merge_odom pose_sender_node
     --ros-args
-    -p "chassis_model:=${chassis_model}"
     -p "feedback_serial_port:=${feedback_serial_port}"
     -p "target_serial_port:=${target_serial_port}"
     -p "baudrate:=${baudrate}"
@@ -393,7 +389,6 @@ if [[ "${dry_run}" == "true" ]]; then
   echo "Workspace: ${workspace_dir}"
   echo "Stack: ${stack_mode}"
   echo "Mode: ${mode}"
-  echo "Chassis model: ${chassis_model}"
   echo "cmd_vel topic: ${cmd_vel_topic}"
   if [[ "${stack_mode}" == "full" ]]; then
     if [[ -n "${pose_mode}" ]]; then
@@ -438,7 +433,6 @@ source_with_relaxed_nounset "${setup_file}"
 echo "Workspace: ${workspace_dir}"
 echo "Stack: ${stack_mode}"
 echo "Mode: ${mode}"
-echo "Chassis model: ${chassis_model}"
 echo "cmd_vel topic: ${cmd_vel_topic}"
 echo "Linear speed limit: ${v_linear} m/s"
 echo "Angular speed limit: ${v_angular} rad/s"

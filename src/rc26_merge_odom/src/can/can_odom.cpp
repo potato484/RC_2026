@@ -14,30 +14,16 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include <unistd.h>
 
+#include "rc26_merge_odom/mecanum_kinematics.hpp"
+
 namespace rc26_merge_odom {
 
 namespace {
 constexpr double kEpsilon = 1e-6;
 constexpr double kMinCovariance = 1e-6;
-constexpr double kTrackedLateralCovariance = 1e-4;
 }
 
 CanOdom::CanOdom(rclcpp::Node& node, Config config) : node_(node), config_(std::move(config)) {
-    const std::string raw_chassis_model = config_.chassis_model;
-    config_.chassis_model = normalizeChassisModel(config_.chassis_model);
-    if (raw_chassis_model != config_.chassis_model) {
-        RCLCPP_WARN(node_.get_logger(), "can chassis_model=%s invalid, fallback to %s", raw_chassis_model.c_str(),
-                    config_.chassis_model.c_str());
-    }
-    chassis_model_ = parseChassisModel(config_.chassis_model);
-    if (isTrackedDiffModel(chassis_model_)) {
-        if (config_.left_motor_can_id == config_.right_motor_can_id) {
-            throw std::invalid_argument("tracked_diff 要求 left_motor_can_id 与 right_motor_can_id 不同");
-        }
-        if (config_.left_motor_can_id > CAN_SFF_MASK || config_.right_motor_can_id > CAN_SFF_MASK) {
-            throw std::invalid_argument("tracked_diff 的电机 CAN ID 必须是标准帧 ID");
-        }
-    }
     if (config_.publish_rate_hz <= 0) {
         RCLCPP_WARN(node_.get_logger(), "can publish_rate_hz=%d invalid, fallback to 1", config_.publish_rate_hz);
         config_.publish_rate_hz = 1;
@@ -98,21 +84,10 @@ CanOdom::CanOdom(rclcpp::Node& node, Config config) : node_(node), config_(std::
 
     ready_.store(true, std::memory_order_release);
 
-    if (isTrackedDiffModel(chassis_model_)) {
-        RCLCPP_INFO(node_.get_logger(),
-                    "CAN 里程计启动: interface=%s, odom_topic=%s, imu=%s, rate=%d Hz, slip=%s, chassis_model=%s, "
-                    "left_id=0x%03X, right_id=0x%03X",
-                    config_.can_interface.c_str(), config_.odom_topic.c_str(),
-                    config_.imu_topic.empty() ? "disabled" : config_.imu_topic.c_str(),
-                    config_.publish_rate_hz, config_.slip_enable ? "on" : "off", chassisModelName(chassis_model_),
-                    config_.left_motor_can_id, config_.right_motor_can_id);
-    } else {
-        RCLCPP_INFO(node_.get_logger(), "CAN 里程计启动: interface=%s, odom_topic=%s, imu=%s, rate=%d Hz, slip=%s, "
-                                        "chassis_model=%s",
-                    config_.can_interface.c_str(), config_.odom_topic.c_str(),
-                    config_.imu_topic.empty() ? "disabled" : config_.imu_topic.c_str(),
-                    config_.publish_rate_hz, config_.slip_enable ? "on" : "off", chassisModelName(chassis_model_));
-    }
+    RCLCPP_INFO(node_.get_logger(), "CAN 里程计启动: interface=%s, odom_topic=%s, imu=%s, rate=%d Hz, slip=%s",
+                config_.can_interface.c_str(), config_.odom_topic.c_str(),
+                config_.imu_topic.empty() ? "disabled" : config_.imu_topic.c_str(), config_.publish_rate_hz,
+                config_.slip_enable ? "on" : "off");
 }
 
 CanOdom::~CanOdom() {
@@ -158,21 +133,12 @@ bool CanOdom::initCan() {
     }
 
     std::array<can_filter, WHEEL_COUNT> filters{};
-    size_t filter_count = 0;
-    if (isTrackedDiffModel(chassis_model_)) {
-        filters[0].can_id = config_.left_motor_can_id;
-        filters[0].can_mask = CAN_SFF_MASK;
-        filters[1].can_id = config_.right_motor_can_id;
-        filters[1].can_mask = CAN_SFF_MASK;
-        filter_count = 2;
-    } else {
-        for (size_t i = 0; i < WHEEL_COUNT; ++i) {
-            filters[i].can_id = CAN_BASE_ID + static_cast<uint32_t>(i) + 1;
-            filters[i].can_mask = CAN_SFF_MASK;
-        }
-        filter_count = WHEEL_COUNT;
+    for (size_t i = 0; i < WHEEL_COUNT; ++i) {
+        filters[i].can_id = CAN_BASE_ID + static_cast<uint32_t>(i) + 1;
+        filters[i].can_mask = CAN_SFF_MASK;
     }
-    if (setsockopt(can_socket_, SOL_CAN_RAW, CAN_RAW_FILTER, filters.data(), filter_count * sizeof(can_filter)) < 0) {
+    if (setsockopt(can_socket_, SOL_CAN_RAW, CAN_RAW_FILTER, filters.data(), filters.size() * sizeof(can_filter)) <
+        0) {
         RCLCPP_WARN(node_.get_logger(), "设置 CAN 过滤器失败: %s", strerror(errno));
     }
 
@@ -238,43 +204,17 @@ void CanOdom::parseCanFrame(uint32_t can_id, const uint8_t* data, uint8_t len) {
 
     {
         std::lock_guard<std::mutex> lock(feedback_mutex_);
-        MotorFeedback* target = nullptr;
-        if (isTrackedDiffModel(chassis_model_)) {
-            if (can_id == config_.left_motor_can_id) {
-                target = &left_motor_feedback_;
-            } else if (can_id == config_.right_motor_can_id) {
-                target = &right_motor_feedback_;
-            } else {
-                return;
-            }
-        } else {
-            uint32_t motor_id = can_id - CAN_BASE_ID;
-            if (motor_id < 1 || motor_id > WHEEL_COUNT) {
-                return;
-            }
-            target = &motor_feedback_[static_cast<size_t>(motor_id - 1)];
+        uint32_t motor_id = can_id - CAN_BASE_ID;
+        if (motor_id < 1 || motor_id > WHEEL_COUNT) {
+            return;
         }
+        MotorFeedback* target = &motor_feedback_[static_cast<size_t>(motor_id - 1)];
         target->angle_raw = angle_raw;
         target->rpm = rpm;
         target->current = current;
         target->temperature = temperature;
         target->last_update = std::chrono::steady_clock::now();
     }
-}
-
-void CanOdom::wheelSpeedsToBodyVelocity(double v_fl, double v_rl, double v_rr, double v_fr, double& vx, double& vy,
-                                        double& omega) const {
-    double l_plus_w = (config_.wheel_base + config_.track_width) / 2.0;
-
-    vx = (v_fl + v_fr + v_rl + v_rr) / 4.0;
-    vy = (-v_fl + v_fr + v_rl - v_rr) / 4.0;
-    omega = (-v_fl + v_fr - v_rl + v_rr) / (4.0 * l_plus_w);
-}
-
-void CanOdom::trackSpeedsToBodyVelocity(double v_left, double v_right, double& vx, double& vy, double& omega) const {
-    vx = (v_left + v_right) / 2.0;
-    vy = 0.0;
-    omega = (v_right - v_left) / config_.track_width;
 }
 
 void CanOdom::publishOdometry() {
@@ -293,31 +233,24 @@ void CanOdom::publishOdometry() {
     double omega = 0.0;
     {
         std::lock_guard<std::mutex> lock(feedback_mutex_);
-        if (isTrackedDiffModel(chassis_model_)) {
-            if (now - left_motor_feedback_.last_update > timeout_duration ||
-                now - right_motor_feedback_.last_update > timeout_duration) {
+        std::array<int16_t, WHEEL_COUNT> rpm_values{};
+        for (int i = 0; i < WHEEL_COUNT; ++i) {
+            if (now - motor_feedback_[i].last_update > timeout_duration) {
                 data_valid = false;
-            } else {
-                const double v_left = static_cast<double>(left_motor_feedback_.rpm) * rpm_to_wheel_speed_factor_;
-                const double v_right = static_cast<double>(right_motor_feedback_.rpm) * rpm_to_wheel_speed_factor_;
-                trackSpeedsToBodyVelocity(v_left, v_right, vx, vy, omega);
+                break;
             }
-        } else {
-            std::array<int16_t, WHEEL_COUNT> rpm_values{};
-            for (int i = 0; i < WHEEL_COUNT; ++i) {
-                if (now - motor_feedback_[i].last_update > timeout_duration) {
-                    data_valid = false;
-                    break;
-                }
-                rpm_values[static_cast<size_t>(i)] = motor_feedback_[static_cast<size_t>(i)].rpm;
-            }
-            if (data_valid) {
-                const double v_fl = static_cast<double>(rpm_values[FRONT_LEFT]) * rpm_to_wheel_speed_factor_;
-                const double v_rl = static_cast<double>(rpm_values[REAR_LEFT]) * rpm_to_wheel_speed_factor_;
-                const double v_rr = static_cast<double>(rpm_values[REAR_RIGHT]) * rpm_to_wheel_speed_factor_;
-                const double v_fr = static_cast<double>(rpm_values[FRONT_RIGHT]) * rpm_to_wheel_speed_factor_;
-                wheelSpeedsToBodyVelocity(v_fl, v_rl, v_rr, v_fr, vx, vy, omega);
-            }
+            rpm_values[static_cast<size_t>(i)] = motor_feedback_[static_cast<size_t>(i)].rpm;
+        }
+        if (data_valid) {
+            const double v_fl = static_cast<double>(rpm_values[FRONT_LEFT]) * rpm_to_wheel_speed_factor_;
+            const double v_rl = static_cast<double>(rpm_values[REAR_LEFT]) * rpm_to_wheel_speed_factor_;
+            const double v_rr = static_cast<double>(rpm_values[REAR_RIGHT]) * rpm_to_wheel_speed_factor_;
+            const double v_fr = static_cast<double>(rpm_values[FRONT_RIGHT]) * rpm_to_wheel_speed_factor_;
+            const BodyVelocity velocity =
+                bodyVelocityFromWheelSpeeds(config_.wheel_base, config_.track_width, v_fl, v_rl, v_rr, v_fr);
+            vx = velocity.vx;
+            vy = velocity.vy;
+            omega = velocity.omega;
         }
     }
 
@@ -328,12 +261,8 @@ void CanOdom::publishOdometry() {
     double wheel_acc_measure = 0.0;
     if (prev_vel_valid_) {
         const double ax_wheel = (vx - prev_vx_) / dt;
-        if (isTrackedDiffModel(chassis_model_)) {
-            wheel_acc_measure = std::fabs(ax_wheel);
-        } else {
-            const double ay_wheel = (vy - prev_vy_) / dt;
-            wheel_acc_measure = std::hypot(ax_wheel, ay_wheel);
-        }
+        const double ay_wheel = (vy - prev_vy_) / dt;
+        wheel_acc_measure = std::hypot(ax_wheel, ay_wheel);
     }
     prev_vx_ = vx;
     prev_vy_ = vy;
@@ -349,14 +278,8 @@ void CanOdom::publishOdometry() {
     double slip_score = 0.0;
     if (config_.slip_enable && imu_fresh) {
         const double omega_diff = std::fabs(imu_snapshot.gz - omega);
-        double acc_mismatch = 0.0;
-        if (isTrackedDiffModel(chassis_model_)) {
-            const double imu_acc_x = std::fabs(imu_snapshot.ax);
-            acc_mismatch = std::fabs(imu_acc_x - wheel_acc_measure) / (std::fabs(imu_acc_x) + kEpsilon);
-        } else {
-            const double imu_acc_xy = std::hypot(imu_snapshot.ax, imu_snapshot.ay);
-            acc_mismatch = std::fabs(imu_acc_xy - wheel_acc_measure) / (std::fabs(imu_acc_xy) + kEpsilon);
-        }
+        const double imu_acc_xy = std::hypot(imu_snapshot.ax, imu_snapshot.ay);
+        const double acc_mismatch = std::fabs(imu_acc_xy - wheel_acc_measure) / (std::fabs(imu_acc_xy) + kEpsilon);
         slip_score = omega_diff + config_.slip_k_acc * acc_mismatch;
 
         if (slip_score > config_.slip_threshold) {
@@ -385,26 +308,7 @@ void CanOdom::publishOdometry() {
         vx_ = vx;
         vy_ = vy;
         omega_ = omega;
-
-        double half_dt = dt / 2.0;
-        double mid_yaw = yaw_ + omega * half_dt;
-
-        double cos_yaw = std::cos(mid_yaw);
-        double sin_yaw = std::sin(mid_yaw);
-
-        if (isTrackedDiffModel(chassis_model_)) {
-            x_ += vx * cos_yaw * dt;
-            y_ += vx * sin_yaw * dt;
-        } else {
-            x_ += (vx * cos_yaw - vy * sin_yaw) * dt;
-            y_ += (vx * sin_yaw + vy * cos_yaw) * dt;
-        }
-        yaw_ += omega * dt;
-
-        while (yaw_ > M_PI)
-            yaw_ -= 2.0 * M_PI;
-        while (yaw_ < -M_PI)
-            yaw_ += 2.0 * M_PI;
+        integrateHolonomicBodyVelocity(x_, y_, yaw_, vx, vy, omega, dt);
     }
 
     nav_msgs::msg::Odometry odom_msg;
@@ -434,13 +338,12 @@ void CanOdom::publishOdometry() {
     odom_msg.twist.twist.angular.y = 0.0;
     odom_msg.twist.twist.angular.z = omega;
 
-    const double cov_vy = isTrackedDiffModel(chassis_model_) ? kTrackedLateralCovariance : cov_v;
     odom_msg.pose.covariance[0] = cov_v;
-    odom_msg.pose.covariance[7] = cov_vy;
+    odom_msg.pose.covariance[7] = cov_v;
     odom_msg.pose.covariance[35] = cov_wz;
 
     odom_msg.twist.covariance[0] = cov_v;
-    odom_msg.twist.covariance[7] = cov_vy;
+    odom_msg.twist.covariance[7] = cov_v;
     odom_msg.twist.covariance[35] = cov_wz;
 
     odom_pub_->publish(odom_msg);

@@ -62,17 +62,13 @@
 - `stats_log_enable=true`：打开 PoseSender 的 1 秒统计日志
 - 因此 `use_imu_for_ekf=false` 只影响 EKF 的最终融合位姿；若需要“完全不读 IMU”，还必须把 `start_imu` 关掉
 
-当前实现新增了统一的 `chassis_model` 参数，支持两种底盘口径：
+当前运行时已经收口到单一 `mecanum_4wheel` 口径，不再保留履带/差速分支：
 
-- `mecanum_4wheel`：保留现有四轮全向解算与二维速度保护
-- `tracked_diff`：按真实两电机差速底盘运行；串口 `wheel_odom` 接收 `v_left / v_right` 两路浮点速度，`can_odom` 接收左右两个驱动电机反馈，输出 `vx / wz`，运行时固定 `vy=0`
-
-与履带模式直接相关的新配置口径有两项：
-
-- `wheel_feedback_format`：串口 `ODOM_DATA` 的 payload 形态，支持 `legacy_4wheel_16b | tracked_lr_8b`
-- `left_motor_can_id / right_motor_can_id`：履带模式下左右驱动电机的 CAN 反馈 ID
-
-当前仓库默认底盘模式已经切到 `tracked_diff`；若要回切四轮，需显式把 `chassis_model` 改回 `mecanum_4wheel`，并把 `wheel_feedback_format` 一并改回 `legacy_4wheel_16b`。
+- `wheel_odom` 只接收 `ODOM_DATA(0x20)` 的四轮 `16B / 4 float` payload：`<v_fl, v_rl, v_rr, v_fr>`
+- `can_odom`、`wheel_odom`、`wheel_odom_fuser`、`pose_sender` 都按麦克纳姆运动学保留真实 `vx / vy / wz`
+- `PoseSender` 的保护器继续对 `(vx, vy)` 做二维投影限幅，不再把 `linear.y` 强制清零
+- `merge_odom.launch.py` 与 `merge_odom_fused.launch.py` 已移除 `chassis_model`、`wheel_feedback_format`、`left_motor_can_id/right_motor_can_id`、`track_speed_max_mps`、`track_accel_max_mps2` 等履带专用参数
+- 独立 `wheel_odom_node` 的几何参数已与主运行时统一为 `wheel_base=0.62326`、`track_width=0.7`
 
 ## 源码入口与阅读顺序
 - 先看 `launch/merge_odom_fused.launch.py` 和 `launch/merge_odom.launch.py`，理解这个子系统是如何把多个节点拼起来的。
@@ -113,10 +109,10 @@
 
 ## 近期实现说明
 
-- `wheel_odom` 保留老四轮 `16B / 4 float` 串口解析，同时新增 `tracked_lr_8b` 接收格式；履带模式的真实输入现在是 `v_left / v_right` 两个 `float32`。
-- `can_odom` 保留老四电机 CAN 解算；履带模式切换为左右两个电机 ID，可在 YAML 里分别配置。
-- `wheel_odom_fuser` 在履带模式下继续保留双源融合，但把 `vy` 收敛为非完整约束量。
-- `PoseSender` 在履带模式下仍按 `(vx, vy, wz)` 协议下发，但会在保护器里强制 `vy=0`，并改为左右履带空间限速/限加速度。
+- `wheel_odom` 现在只保留麦克纳姆四轮 payload 解析，新增的 `odom_payload.hpp` / `mecanum_kinematics.hpp` 负责统一四轮解包与运动学换算。
+- `can_odom` 只保留四轮 CAN 解算路径，输出 `vx / vy / wz`。
+- `wheel_odom_fuser` 会继续融合 CAN 与 wheel 两路输入，但不再把 `vy` 收敛为 0。
+- `PoseSender` 继续按 `(vx, vy, wz)` 协议下发，并把 `vy` 视为麦克纳姆主链上的有效保护量。
 - `PoseSender` 现在把 `POSE_FEEDBACK(0x1E)` 与 `POSE_TARGET(0x1F)` 都固定为 `50Hz` 连续下发；自动导航链仍可保持 `30Hz /cmd_vel`，由 PoseSender 在串口侧重发最近一次目标速度。
 - `merge_odom_node` 现在额外挂出 `/mechanism/transport/send_command` 与 `/mechanism/transport/feedback`，把机构命令和电动推杆上抬/后撑遥控命令都复用到同一条目标串口上。
 - `pose_sender_node` 现在也会挂出同一组 `/mechanism/transport/*`，因此 `minimal-mcu` 栈除了速度下发外，也能承接基于 ACK 的共享机构 transport。
@@ -135,4 +131,4 @@
 
 ## 配置注释口径
 
-- `config/merge_odom_params.yaml`、`config/ekf_params.yaml` 与 `config/pose_sender_cmd_vel_teleop.yaml` 已保留常用/高影响字段的中文注释，说明串口、底盘模型、EKF 输入、执行保护、速度限幅和遥控链参数；本次只改变注释，不改变融合或下发行为。
+- `config/merge_odom_params.yaml`、`config/ekf_params.yaml` 与 `config/pose_sender_cmd_vel_teleop.yaml` 已保留常用/高影响字段的中文注释，说明串口、麦克纳姆几何、EKF 输入、执行保护、速度限幅和遥控链参数；本次同步清理了履带专用注释与启动参数。

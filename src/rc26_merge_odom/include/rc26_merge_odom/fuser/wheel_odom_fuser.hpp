@@ -13,14 +13,11 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 
-#include "rc26_merge_odom/chassis_model.hpp"
-
 namespace rc26_merge_odom {
 
 class WheelOdomFuser {
 public:
     struct Config {
-        std::string chassis_model = "tracked_diff";
         int publish_rate_hz = 50;
         double data_timeout_ms = 100.0;
         double omega_sigma_rps = 0.5;
@@ -87,7 +84,6 @@ private:
 
     rclcpp::Node& node_;
     Config config_;
-    ChassisModel chassis_model_ = ChassisModel::kMecanum4Wheel;
 
     mutable std::mutex mutex_;
     OdomSnapshot can_snapshot_;

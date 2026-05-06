@@ -60,7 +60,6 @@ def generate_launch_description():
     realsense_config_file = LaunchConfiguration('realsense_config_file')
     kfs_heartbeat_topic = LaunchConfiguration('kfs_heartbeat_topic')
     team = LaunchConfiguration('team')
-    chassis_model = LaunchConfiguration('chassis_model')
     robot_geometry_file = LaunchConfiguration('robot_geometry_file')
     robot_geometry_profile = LaunchConfiguration('robot_geometry_profile')
     local_3d_planner_config_file = LaunchConfiguration('local_3d_planner_config_file')
@@ -167,11 +166,6 @@ def generate_launch_description():
         'use_decision',
         default_value='true',
         description='启动决策系统')
-
-    declare_chassis_model = DeclareLaunchArgument(
-        'chassis_model',
-        default_value='tracked_diff',
-        description='底盘模型: mecanum_4wheel | tracked_diff')
 
     declare_use_realsense = DeclareLaunchArgument(
         'use_realsense',
@@ -481,7 +475,6 @@ def generate_launch_description():
         declare_terrain_grid_map_params_file,
         declare_terrain_filter_chain_params_file,
         declare_enable_terrain_grid_map,
-        declare_chassis_model,
         declare_recover_mid360_stream,
         declare_localization_params_file,
         declare_localization_overlay_file,

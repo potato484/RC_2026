@@ -21,7 +21,8 @@ namespace
 {
 constexpr auto k_pushrod_dispatch_period = std::chrono::milliseconds(20);
 constexpr char k_mechanism_transport_send_command_service[] = "/mechanism/transport/send_command";
-constexpr std::size_t k_dpad_x_axis = 6;
+constexpr std::size_t k_back_button = 6;
+constexpr std::size_t k_start_button = 7;
 }  // namespace
 
 class PushrodDpadNode : public rclcpp::Node
@@ -41,29 +42,21 @@ public:
 
     RCLCPP_INFO(
       get_logger(),
-      "pushrod dpad ready: axes[%zu] left=extend(0x%02X), right=retract(0x%02X), edge-triggered",
-      k_dpad_x_axis, commandIdForPushrodCommand(PushrodCommand::kExtend),
+      "pushrod sidecar ready: Back(button[%zu])=extend(0x%02X), Start(button[%zu])=retract(0x%02X), edge-triggered",
+      k_back_button, commandIdForPushrodCommand(PushrodCommand::kExtend), k_start_button,
       commandIdForPushrodCommand(PushrodCommand::kRetract));
   }
 
 private:
-  static double axisValue(const sensor_msgs::msg::Joy::ConstSharedPtr & msg, std::size_t index) noexcept
+  static bool buttonPressed(const sensor_msgs::msg::Joy::ConstSharedPtr & msg, std::size_t index) noexcept
   {
-    if (!msg || index >= msg->axes.size()) {
-      return 0.0;
-    }
-
-    const double value = msg->axes[index];
-    if (!std::isfinite(value)) {
-      return 0.0;
-    }
-
-    return std::clamp(value, -1.0, 1.0);
+    return msg && index < msg->buttons.size() && msg->buttons[index] != 0;
   }
 
   void joyCallback(const sensor_msgs::msg::Joy::ConstSharedPtr msg)
   {
-    const auto event = logic_.update(axisValue(msg, k_dpad_x_axis));
+    const auto event = logic_.update(
+      buttonPressed(msg, k_back_button), buttonPressed(msg, k_start_button));
     if (!event.has_value()) {
       return;
     }

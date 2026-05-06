@@ -117,6 +117,21 @@ if(BUILD_TESTING)
   ament_target_dependencies(test_pushrod_dpad_logic
     rc26_serial
   )
+
+  ament_add_gtest(test_telecontrol_mapping
+    test/test_telecontrol_mapping.cpp
+  )
+  target_include_directories(test_telecontrol_mapping PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+  target_link_libraries(test_telecontrol_mapping
+    telecontrol_nodes
+  )
+  ament_target_dependencies(test_telecontrol_mapping
+    rclcpp
+    geometry_msgs
+    sensor_msgs
+  )
 endif()
 
 ament_package()

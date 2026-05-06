@@ -17,49 +17,30 @@ enum class PushrodCommand : uint8_t {
 class PushrodDpadLogic
 {
 public:
-  std::optional<PushrodCommand> update(double axis_value) noexcept
+  std::optional<PushrodCommand> update(bool back_pressed, bool start_pressed) noexcept
   {
-    const AxisZone zone = zoneForAxis(axis_value);
-    if (zone == last_zone_) {
+    if (back_pressed && start_pressed) {
+      last_back_pressed_ = true;
+      last_start_pressed_ = true;
       return std::nullopt;
     }
 
-    last_zone_ = zone;
-    switch (zone) {
-      case AxisZone::kLeft:
-        return PushrodCommand::kExtend;
-      case AxisZone::kRight:
-        return PushrodCommand::kRetract;
-      case AxisZone::kCenter:
-      default:
-        return std::nullopt;
+    std::optional<PushrodCommand> event;
+    if (back_pressed && !last_back_pressed_) {
+      event = PushrodCommand::kExtend;
     }
+    if (start_pressed && !last_start_pressed_) {
+      event = PushrodCommand::kRetract;
+    }
+
+    last_back_pressed_ = back_pressed;
+    last_start_pressed_ = start_pressed;
+    return event;
   }
 
 private:
-  enum class AxisZone : uint8_t {
-    kCenter = 0,
-    kLeft,
-    kRight,
-  };
-
-  static AxisZone zoneForAxis(double axis_value) noexcept
-  {
-    if (!std::isfinite(axis_value)) {
-      return AxisZone::kCenter;
-    }
-
-    const double normalized = std::clamp(axis_value, -1.0, 1.0);
-    if (normalized <= -0.5) {
-      return AxisZone::kLeft;
-    }
-    if (normalized >= 0.5) {
-      return AxisZone::kRight;
-    }
-    return AxisZone::kCenter;
-  }
-
-  AxisZone last_zone_{AxisZone::kCenter};
+  bool last_back_pressed_{false};
+  bool last_start_pressed_{false};
 };
 
 inline uint8_t commandIdForPushrodCommand(PushrodCommand command) noexcept

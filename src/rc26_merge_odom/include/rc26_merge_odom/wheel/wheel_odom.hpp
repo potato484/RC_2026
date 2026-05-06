@@ -14,9 +14,6 @@
 #include <sensor_msgs/msg/imu.hpp>
 #include <std_msgs/msg/float32.hpp>
 
-#include "rc26_merge_odom/chassis_model.hpp"
-#include "rc26_merge_odom/wheel_feedback_format.hpp"
-
 namespace rc26_decision {
 class SerialDriver;
 }
@@ -26,8 +23,6 @@ namespace rc26_merge_odom {
 class WheelOdom {
 public:
     struct Config {
-        std::string chassis_model = "tracked_diff";
-        std::string wheel_feedback_format = "tracked_lr_8b";
         double wheel_base = 0.62326;
         double track_width = 0.7;
         int publish_rate_hz = 50;
@@ -69,15 +64,10 @@ private:
 
     void publishOdometry();
     void imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg);
-    void wheelSpeedsToBodyVelocity(double v_fl, double v_rl, double v_rr, double v_fr, double& vx, double& vy,
-                                   double& omega) const;
-    void trackSpeedsToBodyVelocity(double v_left, double v_right, double& vx, double& vy, double& omega) const;
     void handleOdomData(const std::vector<uint8_t>& payload);
 
     rclcpp::Node& node_;
     Config config_;
-    ChassisModel chassis_model_ = ChassisModel::kMecanum4Wheel;
-    WheelFeedbackFormat wheel_feedback_format_ = WheelFeedbackFormat::kLegacy4Wheel16B;
     std::shared_ptr<rc26_decision::SerialDriver> serial_;
 
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
@@ -92,8 +82,6 @@ private:
     double v_rl_ = 0.0;
     double v_rr_ = 0.0;
     double v_fr_ = 0.0;
-    double v_left_ = 0.0;
-    double v_right_ = 0.0;
     bool data_received_ = false;
     std::chrono::steady_clock::time_point last_data_time_;
 

@@ -38,7 +38,7 @@ public:
       k_front_track_dispatch_period, std::bind(&FrontTrackButtonTestNode::dispatchQueuedCommand, this));
     RCLCPP_INFO(
       get_logger(),
-      "front-track button test ready: Y(button[%d])=up(0x%02X), A(button[%d])=down(0x%02X), edge-triggered reliable",
+      "pushrod lift test ready: Y(button[%d])=lift(0x%02X), A(button[%d])=rear-brace(0x%02X), edge-triggered reliable",
       k_front_track_y_button, static_cast<uint8_t>(rc26_serial::CommandID::FRONT_TRACK_UP),
       k_front_track_a_button, static_cast<uint8_t>(rc26_serial::CommandID::FRONT_TRACK_DOWN));
   }
@@ -61,7 +61,7 @@ private:
     if (*event == FrontTrackButtonCommand::kConflict) {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 1000,
-        "ignore front-track command this cycle: Y and A pressed at the same time");
+        "ignore pushrod lift command this cycle: Y and A pressed at the same time");
       return;
     }
 
@@ -85,7 +85,7 @@ private:
     const auto command_id = commandIdForCommand(*command);
     if (!command_id.has_value()) {
       finishRemoteResponse();
-      RCLCPP_ERROR(get_logger(), "front-track dispatch skipped: unsupported event=%u",
+      RCLCPP_ERROR(get_logger(), "pushrod lift dispatch skipped: unsupported event=%u",
         static_cast<unsigned>(*command));
       return;
     }
@@ -94,7 +94,7 @@ private:
       finishLocalFailure(*command);
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 1000,
-        "front-track command queued: %s unavailable", k_mechanism_transport_send_command_service);
+        "pushrod lift command queued: %s unavailable", k_mechanism_transport_send_command_service);
       return;
     }
 
@@ -112,22 +112,22 @@ private:
             const auto response = future.get();
             if (!response || !response->accepted) {
               RCLCPP_WARN(
-                get_logger(), "front-track transport send rejected: event=%u cmd=0x%02X",
+                get_logger(), "pushrod lift transport send rejected: event=%u cmd=0x%02X",
                 static_cast<unsigned>(command), command_id);
               return;
             }
             RCLCPP_DEBUG(
-              get_logger(), "front-track transport send accepted after MCU ACK: event=%u cmd=0x%02X seq=%u",
+              get_logger(), "pushrod lift transport send accepted after MCU ACK: event=%u cmd=0x%02X seq=%u",
               static_cast<unsigned>(command), command_id, response->seq);
           } catch (const std::exception & ex) {
             RCLCPP_ERROR(
-              get_logger(), "front-track transport callback failed cmd=0x%02X: %s", command_id,
+              get_logger(), "pushrod lift transport callback failed cmd=0x%02X: %s", command_id,
               ex.what());
           }
         });
     } catch (const std::exception & ex) {
       finishLocalFailure(*command);
-      RCLCPP_ERROR(get_logger(), "failed to send front-track transport request cmd=0x%02X: %s",
+      RCLCPP_ERROR(get_logger(), "failed to send pushrod lift transport request cmd=0x%02X: %s",
         *command_id, ex.what());
     }
   }

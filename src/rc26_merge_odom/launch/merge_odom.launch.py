@@ -57,7 +57,6 @@ def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, 
     stats_log_enable = parse_launch_bool(LaunchConfiguration('stats_log_enable').perform(context))
     odom0_topic_override = can_odom_topic if use_can_odom else wheel_odom_topic
     pose_feedback_topic = 'merge_odom' if start_ekf else odom0_topic_override
-    chassis_model = LaunchConfiguration('chassis_model').perform(context).strip()
     effective_use_imu_for_ekf = start_imu and use_imu_for_ekf
     imu_topic = imu_topic_default if start_imu else ''
     slip_enable = slip_enable_default if start_imu else False
@@ -82,7 +81,6 @@ def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, 
             'imu_gate_enable': imu_gate_enable,
             'latency_comp_enable': latency_comp_enable,
             'stats_log_enable': stats_log_enable,
-            'chassis_model': chassis_model,
         }]
     )
 
@@ -147,7 +145,6 @@ def generate_launch_description():
     imu_gate_enable_default = bool(merge_params.get('imu_gate_enable', True))
     latency_comp_enable_default = bool(merge_params.get('latency_comp_enable', True))
     stats_log_enable_default = bool(merge_params.get('stats_log_enable', False))
-    chassis_model_default = str(merge_params.get('chassis_model', 'mecanum_4wheel'))
 
     use_can_odom_arg = DeclareLaunchArgument(
         'use_can_odom',
@@ -191,10 +188,6 @@ def generate_launch_description():
         'baudrate', default_value=baudrate_default,
         description='MCU serial baudrate')
 
-    chassis_model_arg = DeclareLaunchArgument(
-        'chassis_model', default_value=chassis_model_default,
-        description='Chassis model: mecanum_4wheel | tracked_diff')
-
     return LaunchDescription([
         use_can_odom_arg,
         start_ekf_arg,
@@ -206,7 +199,6 @@ def generate_launch_description():
         feedback_serial_port_arg,
         target_serial_port_arg,
         baudrate_arg,
-        chassis_model_arg,
         OpaqueFunction(
             function=create_runtime_nodes,
             args=[

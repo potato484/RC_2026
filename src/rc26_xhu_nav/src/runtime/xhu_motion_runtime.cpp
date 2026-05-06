@@ -417,6 +417,7 @@ private:
         input.semantic_summary = semantic_summary_;
         input.corridor = *active_corridor_;
         input.current_vx = last_cmd_.linear.x;
+        input.current_vy = last_cmd_.linear.y;
         input.current_wz = last_cmd_.angular.z;
 
         const auto result = planner_.plan(input);
@@ -434,9 +435,16 @@ private:
         if (result.status == "PASS") {
             const double max_dv = default_max_linear_accel_ * dt;
             const double max_dw = default_max_angular_accel_ * dt;
-            last_cmd_.linear.x = clamp(result.cmd_vx, last_cmd_.linear.x - max_dv,
-                                       last_cmd_.linear.x + max_dv);
-            last_cmd_.linear.y = 0.0;
+            double dvx = result.cmd_vx - last_cmd_.linear.x;
+            double dvy = result.cmd_vy - last_cmd_.linear.y;
+            const double dv_mag = std::hypot(dvx, dvy);
+            if (dv_mag > max_dv && dv_mag > 1e-6) {
+                const double scale = max_dv / dv_mag;
+                dvx *= scale;
+                dvy *= scale;
+            }
+            last_cmd_.linear.x += dvx;
+            last_cmd_.linear.y += dvy;
             last_cmd_.angular.z = clamp(result.cmd_wz, last_cmd_.angular.z - max_dw,
                                         last_cmd_.angular.z + max_dw);
             cmd_pub_->publish(last_cmd_);

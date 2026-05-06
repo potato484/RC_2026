@@ -12,39 +12,40 @@ namespace
 TEST(PushrodDpadLogicTest, LeftPressEmitsExtendOnce)
 {
   PushrodDpadLogic logic;
-  EXPECT_FALSE(logic.update(0.0).has_value());
-  EXPECT_EQ(logic.update(-1.0), PushrodCommand::kExtend);
-  EXPECT_FALSE(logic.update(-1.0).has_value());
+  EXPECT_FALSE(logic.update(false, false).has_value());
+  EXPECT_EQ(logic.update(true, false), PushrodCommand::kExtend);
+  EXPECT_FALSE(logic.update(true, false).has_value());
 }
 
 TEST(PushrodDpadLogicTest, RightPressEmitsRetractOnce)
 {
   PushrodDpadLogic logic;
-  EXPECT_EQ(logic.update(1.0), PushrodCommand::kRetract);
-  EXPECT_FALSE(logic.update(1.0).has_value());
+  EXPECT_EQ(logic.update(false, true), PushrodCommand::kRetract);
+  EXPECT_FALSE(logic.update(false, true).has_value());
 }
 
-TEST(PushrodDpadLogicTest, ReturningToCenterRearmsTheSameDirection)
+TEST(PushrodDpadLogicTest, ReleasingButtonsRearmsTheSameDirection)
 {
   PushrodDpadLogic logic;
-  EXPECT_EQ(logic.update(-1.0), PushrodCommand::kExtend);
-  EXPECT_FALSE(logic.update(0.0).has_value());
-  EXPECT_EQ(logic.update(-1.0), PushrodCommand::kExtend);
+  EXPECT_EQ(logic.update(true, false), PushrodCommand::kExtend);
+  EXPECT_FALSE(logic.update(false, false).has_value());
+  EXPECT_EQ(logic.update(true, false), PushrodCommand::kExtend);
 }
 
 TEST(PushrodDpadLogicTest, DirectDirectionSwitchEmitsOppositeCommand)
 {
   PushrodDpadLogic logic;
-  EXPECT_EQ(logic.update(-1.0), PushrodCommand::kExtend);
-  EXPECT_EQ(logic.update(1.0), PushrodCommand::kRetract);
+  EXPECT_EQ(logic.update(true, false), PushrodCommand::kExtend);
+  EXPECT_EQ(logic.update(false, true), PushrodCommand::kRetract);
 }
 
-TEST(PushrodDpadLogicTest, NonFiniteAxisFallsBackToCenter)
+TEST(PushrodDpadLogicTest, SimultaneousPressDoesNotEmitCommand)
 {
   PushrodDpadLogic logic;
-  EXPECT_EQ(logic.update(-1.0), PushrodCommand::kExtend);
-  EXPECT_FALSE(logic.update(std::numeric_limits<double>::quiet_NaN()).has_value());
-  EXPECT_EQ(logic.update(1.0), PushrodCommand::kRetract);
+  EXPECT_FALSE(logic.update(true, true).has_value());
+  EXPECT_FALSE(logic.update(true, true).has_value());
+  EXPECT_FALSE(logic.update(false, false).has_value());
+  EXPECT_EQ(logic.update(false, true), PushrodCommand::kRetract);
 }
 
 TEST(PushrodDpadLogicTest, CommandIdMatchesProtocol)

@@ -241,6 +241,7 @@ bool loadSnapshot(
     }
     input.has_pose = true;
     input.current_vx = yamlDouble(root["current_velocity"], "vx", 0.0);
+    input.current_vy = yamlDouble(root["current_velocity"], "vy", 0.0);
     input.current_wz = yamlDouble(root["current_velocity"], "wz", 0.0);
     if (!parseCorridor(root["corridor"], input.corridor, error)) {
         if (error.empty()) {
@@ -358,7 +359,7 @@ void printCandidateTrajectories(
         const auto& candidate = candidates[index];
         out << "{"
             << "\"velocity\":{\"vx\":" << candidate.sampled_vx
-            << ",\"vy\":0.0,\"wz\":" << candidate.sampled_wz << "},"
+            << ",\"vy\":" << candidate.sampled_vy << ",\"wz\":" << candidate.sampled_wz << "},"
             << "\"points\":";
         printTracePoseArray(out, candidate.points);
         out << ",\"score\":" << candidate.score
@@ -388,6 +389,7 @@ void printFrame(
         << "\"metrics\":{"
         << "\"traceMode\":\"local_planner\","
         << "\"sampledVx\":" << candidate.sampled_vx << ","
+        << "\"sampledVy\":" << candidate.sampled_vy << ","
         << "\"sampledWz\":" << candidate.sampled_wz << ","
         << "\"score\":" << candidate.score << ","
         << "\"collision\":" << (candidate.collision ? "true" : "false") << ","

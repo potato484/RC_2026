@@ -217,10 +217,23 @@ PlannerResult PlannerCore::plan(const PlannerInput& input, PlannerTrace* trace) 
         path, input.robot_x, input.robot_y, 0U, &nearest_index);
     const auto lookahead_index = findLookaheadIndex(path, nearest_index, config_.lookahead_distance_m);
     const auto& goal_pose = path.poses.back().pose;
+    const auto& lookahead_pose = path.poses[lookahead_index].pose;
     const double lookahead_heading =
-        yawFromQuaternion(path.poses[lookahead_index].pose.orientation);
+        yawFromQuaternion(lookahead_pose.orientation);
     const double goal_heading = yawFromQuaternion(goal_pose.orientation);
     const double goal_heading_error = normalizeAngle(goal_heading - input.robot_yaw);
+    double desired_world_x = lookahead_pose.position.x - input.robot_x;
+    double desired_world_y = lookahead_pose.position.y - input.robot_y;
+    double desired_world_norm = std::hypot(desired_world_x, desired_world_y);
+    if (desired_world_norm <= 1e-6) {
+        desired_world_x = std::cos(lookahead_heading);
+        desired_world_y = std::sin(lookahead_heading);
+        desired_world_norm = 1.0;
+    }
+    desired_world_x /= desired_world_norm;
+    desired_world_y /= desired_world_norm;
+    const double cos_yaw = std::cos(input.robot_yaw);
+    const double sin_yaw = std::sin(input.robot_yaw);
 
     double linear_limit = input.mode_state.max_linear_speed > 0.0F
                               ? input.mode_state.max_linear_speed
@@ -262,16 +275,19 @@ PlannerResult PlannerCore::plan(const PlannerInput& input, PlannerTrace* trace) 
     double best_clearance = 0.0;
     std::vector<SimState> best_states;
     double best_cmd_vx = 0.0;
+    double best_cmd_vy = 0.0;
     double best_cmd_wz = 0.0;
     std::size_t best_candidate_index = std::numeric_limits<std::size_t>::max();
 
-    for (const double sampled_vx : config_.sample_linear_speeds) {
-        if (sampled_vx < 0.0 && !input.corridor.allow_reverse) {
+    for (const double sampled_speed : config_.sample_linear_speeds) {
+        if (sampled_speed < 0.0 && !input.corridor.allow_reverse) {
             continue;
         }
-        if (std::abs(sampled_vx) > linear_limit + 1e-6) {
+        if (std::abs(sampled_speed) > linear_limit + 1e-6) {
             continue;
         }
+        const double sampled_vx = sampled_speed * (desired_world_x * cos_yaw + desired_world_y * sin_yaw);
+        const double sampled_vy = sampled_speed * (-desired_world_x * sin_yaw + desired_world_y * cos_yaw);
         for (const double sampled_wz : config_.sample_angular_speeds) {
             if (std::abs(sampled_wz) > angular_limit + 1e-6) {
                 continue;
@@ -279,6 +295,7 @@ PlannerResult PlannerCore::plan(const PlannerInput& input, PlannerTrace* trace) 
 
             CandidateTrajectoryTrace candidate;
             candidate.sampled_vx = sampled_vx;
+            candidate.sampled_vy = sampled_vy;
             candidate.sampled_wz = sampled_wz;
             SimState state{input.robot_x, input.robot_y, input.robot_yaw};
             std::vector<SimState> states;
@@ -289,8 +306,10 @@ PlannerResult PlannerCore::plan(const PlannerInput& input, PlannerTrace* trace) 
 
             for (double elapsed = 0.0; elapsed < config_.horizon_sec;
                  elapsed += config_.integration_step_sec) {
-                state.x += sampled_vx * std::cos(state.yaw) * config_.integration_step_sec;
-                state.y += sampled_vx * std::sin(state.yaw) * config_.integration_step_sec;
+                state.x += (sampled_vx * std::cos(state.yaw) - sampled_vy * std::sin(state.yaw)) *
+                           config_.integration_step_sec;
+                state.y += (sampled_vx * std::sin(state.yaw) + sampled_vy * std::cos(state.yaw)) *
+                           config_.integration_step_sec;
                 state.yaw = normalizeAngle(state.yaw + sampled_wz * config_.integration_step_sec);
                 states.push_back(state);
 
@@ -356,13 +375,13 @@ PlannerResult PlannerCore::plan(const PlannerInput& input, PlannerTrace* trace) 
             const double score =
                 config_.path_alignment_weight * path_distance +
                 config_.heading_alignment_weight * sampled_heading_error +
-                config_.speed_preference_weight * std::abs(preferred_linear_speed - sampled_vx) +
+                config_.speed_preference_weight * std::abs(preferred_linear_speed - std::abs(sampled_speed)) +
                 config_.angular_effort_weight * std::abs(sampled_wz) +
                 config_.clearance_weight * (1.0 - min_clearance);
             candidate.score = score;
             candidate.path_distance = path_distance;
             candidate.heading_error = sampled_heading_error;
-            candidate.speed_error = std::abs(preferred_linear_speed - sampled_vx);
+            candidate.speed_error = std::abs(preferred_linear_speed - std::abs(sampled_speed));
             candidate.angular_effort = std::abs(sampled_wz);
             candidate.clearance_margin_m =
                 min_clearance * config_.stop_envelope_half_width_m;
@@ -376,6 +395,7 @@ PlannerResult PlannerCore::plan(const PlannerInput& input, PlannerTrace* trace) 
                 best_clearance = min_clearance;
                 best_states = std::move(states);
                 best_cmd_vx = sampled_vx;
+                best_cmd_vy = sampled_vy;
                 best_cmd_wz = sampled_wz;
                 candidate.selected = true;
                 best_candidate_index =
@@ -400,7 +420,7 @@ PlannerResult PlannerCore::plan(const PlannerInput& input, PlannerTrace* trace) 
     if (!best_states.empty()) {
         result.has_solution = true;
         result.cmd_vx = best_cmd_vx;
-        result.cmd_vy = 0.0;
+        result.cmd_vy = best_cmd_vy;
         result.cmd_wz = best_cmd_wz;
         result.best_score = best_score;
         result.clearance_margin_m = best_clearance * config_.stop_envelope_half_width_m;
@@ -422,6 +442,7 @@ PlannerResult PlannerCore::plan(const PlannerInput& input, PlannerTrace* trace) 
         std::abs(goal_heading_error) >= config_.recovery_heading_threshold_rad) {
         result.should_rotate_recovery = true;
         result.cmd_vx = 0.0;
+        result.cmd_vy = 0.0;
         result.cmd_wz = clamp(goal_heading_error, -config_.recovery_angular_speed,
                               config_.recovery_angular_speed);
         result.status = "RECOVERY_RUNNING";

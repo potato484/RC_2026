@@ -56,6 +56,13 @@ ros2 service type /mechanism/transport/send_command
 ros2 topic echo /mechanism/transport/feedback --once
 ```
 
+当前默认手柄口径：
+
+- `stick`：左摇杆控制 `vx/vy`，右摇杆左右控制 `wz`
+- `dpad`：十字键控制 `vx/vy`，`X/B` 控制 `wz`
+- `Back/Start`：推杆 `extend/retract`
+- `Y/A`：电动推杆上抬/后撑
+
 ## 常用切换
 
 ```bash
@@ -68,7 +75,7 @@ ros2 topic echo /mechanism/transport/feedback --once
 
 - 包内 launch 有输出但车不动：先确认你监听的是 `/cmd_vel` 还是 `/cmd_vel_teleop`。
 - `minimal-mcu` 栈没有机构 transport：先确认 `pose_sender_node` 已起。
-- `Y/A` 或 `Dpad 左右` 没反应：先检查 `/mechanism/transport/send_command` 与反馈 topic 是否存在。
+- `Y/A` 或 `Back/Start` 没反应：先检查 `/mechanism/transport/send_command` 与反馈 topic 是否存在。
 
 ## 相关入口
 

@@ -7,8 +7,6 @@ joy_node:
 
 rc26_telecontrol:
   ros__parameters:
-    # 参数说明：chassis_model - 底盘运动学模型标识；当前履带底盘通常使用 tracked_diff。
-    chassis_model: "tracked_diff"
     # 参数说明：v_linear - 运动速度相关参数；需要结合底盘能力和安全约束调节。
     v_linear: 0.2
     # 参数说明：v_angular - 运动速度相关参数；需要结合底盘能力和安全约束调节。

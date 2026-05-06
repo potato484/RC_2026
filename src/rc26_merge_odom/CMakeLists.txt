@@ -223,6 +223,17 @@ install(DIRECTORY
   DESTINATION share/${PROJECT_NAME}
 )
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  ament_add_gtest(test_mecanum_helpers
+    test/test_mecanum_helpers.cpp
+  )
+  target_include_directories(test_mecanum_helpers PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+endif()
+
 ament_export_include_directories(include)
 ament_export_libraries(mechanism_transport_bridge can_odom wheel_odom pose_sender wheel_odom_fuser dm_imu_driver)
 ament_export_dependencies(rclcpp nav_msgs sensor_msgs std_msgs geometry_msgs diagnostic_msgs tf2 rc26_interfaces rc26_serial)

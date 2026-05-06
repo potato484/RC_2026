@@ -31,6 +31,14 @@
 - `src/rc26_topo_nav`、`src/rc26_surface_body_planner`、`src/rc26_local_3d_planner`、`src/rc26_nav_mode_manager`、`src/rc26_omni_controller` 已于 2026-04-10 从工作区实现层退出，并统一收口到本包。
 - 外部 ROS 名称保持不变：`navigate_topo_target`、`navigate_surface_route`、`set_xhu_motion_mode`、`/xhu_nav/*`、`cmd_vel` 继续沿用原契约。
 
+## 当前全向执行口径
+
+- `PlannerInput` 现在显式包含 `current_vy`，`xhu_motion_runtime_node` 会把上一拍真实 `cmd_vel.linear.y` 传回 local planner。
+- local planner 不再只采样 `vx/wz`；它会基于 corridor lookahead 点生成平面目标方向，再转换成机体系 `vx/vy`，并与 `wz` 一起做候选轨迹积分。
+- 候选轨迹和 trace 输出都已经带上 `sampled_vy`；`local_planner_trace_cli` 也支持从 `current_velocity.vy` 输入场景并输出候选 `vy`。
+- `xhu_motion_runtime_node` 对 `(vx, vy)` 按二维速度向量做限加速度，继续沿用已有 `max_linear_speed/max_linear_accel` 语义，不新增 lateral 专用接口字段。
+- `/xhu_nav/tracking_state` 与 `/xhu_nav/local_planner_state` 中的 `cmd_vy` 现在是麦克纳姆主链上的真实运行值；只有恢复态 `rotate_in_place` 仍会输出 `vx=0, vy=0, wz!=0`。
+
 ## 当前导航图与规划口径
 
 - `graph_file` 当前同时支持 `routes` 和 `edges.control_points`，分别服务 route 级执行与 corridor 细化

@@ -8,14 +8,11 @@
 class CanOdomNode : public rclcpp::Node {
 public:
     CanOdomNode() : Node("can_odom_node") {
-        this->declare_parameter("chassis_model", "tracked_diff");
         this->declare_parameter("can_interface", "can0");
         this->declare_parameter("wheel_radius", 0.07625);
         this->declare_parameter("wheel_base", 0.62326);
         this->declare_parameter("track_width", 0.7);
         this->declare_parameter("gear_ratio", 3591.0 / 187.0);
-        this->declare_parameter("left_motor_can_id", 0x201);
-        this->declare_parameter("right_motor_can_id", 0x202);
         this->declare_parameter("publish_rate_hz", 50);
         this->declare_parameter("odom_topic", "Can_Odom");
         this->declare_parameter("odom_frame", "odom");
@@ -32,14 +29,11 @@ public:
         this->declare_parameter("recovery_tau_s", 0.5);
 
         rc26_merge_odom::CanOdom::Config config;
-        config.chassis_model = this->get_parameter("chassis_model").as_string();
         config.can_interface = this->get_parameter("can_interface").as_string();
         config.wheel_radius = this->get_parameter("wheel_radius").as_double();
         config.wheel_base = this->get_parameter("wheel_base").as_double();
         config.track_width = this->get_parameter("track_width").as_double();
         config.gear_ratio = this->get_parameter("gear_ratio").as_double();
-        config.left_motor_can_id = static_cast<uint32_t>(this->get_parameter("left_motor_can_id").as_int());
-        config.right_motor_can_id = static_cast<uint32_t>(this->get_parameter("right_motor_can_id").as_int());
         config.publish_rate_hz = this->get_parameter("publish_rate_hz").as_int();
         config.odom_topic = this->get_parameter("odom_topic").as_string();
         config.odom_frame = this->get_parameter("odom_frame").as_string();

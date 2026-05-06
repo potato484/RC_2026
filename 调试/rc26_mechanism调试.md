@@ -30,7 +30,7 @@ source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 真实共享串口链：
 
 ```bash
-ros2 launch rc26_merge_odom merge_odom.launch.py chassis_model:=tracked_diff
+ros2 launch rc26_merge_odom merge_odom.launch.py
 ros2 launch rc26_mechanism mechanism.launch.py hal_type:=shared_serial
 ```
 
