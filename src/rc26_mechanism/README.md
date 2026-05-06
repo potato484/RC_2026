@@ -34,7 +34,7 @@
 - 本文档为纯描述性说明文档。关于具体的接口定义（消息类型、Action 文件）请参阅 `rc26_interfaces` 仓库。
 - 当前真实部署推荐 `hal_type:=shared_serial`，避免与 `rc26_merge_odom` 同时竞争打开 `/dev/ttyUSB1`。
 - `shared_serial` 复用的是 `rc26_merge_odom` 已打开的 `target_serial_port`；`feedback_serial_port` 只属于底盘反馈链路，不是 mechanism 的物理通道。
-- 电动推杆上抬/后撑动作已从 `ExecuteMechanism` 中移除；遥控链当前直接调用 `/mechanism/transport/send_command` 按下沿单次下发 `0x0E / 0x0F`，并要求 MCU 回 ACK。
-- `Back/Start` 当前会通过历史可执行名 `rc26_telecontrol_pushrod_dpad` 直接桥成 `0x10 / 0x11`，同样走 `/mechanism/transport/send_command`；`Dpad 左/右` 已回归底盘横移控制。
+- 前/后推杆 4 条 sidecar 命令已从 `ExecuteMechanism` 中移除；遥控链当前直接调用 `/mechanism/transport/send_command` 按下沿单次下发 `0x0E~0x11`，并要求 MCU 先回通用 `ACK(0x00)`。
+- `Y/A` 当前映射为前推杆伸展 / 收缩，`Select/Back` / `Start` 当前映射为后推杆伸展 / 收缩；`Dpad 左/右` 已回归底盘横移控制。若 MCU 再上送 `0x13~0x16` 业务 ACK，这些反馈会继续走 `/mechanism/transport/feedback`。
 - 仓库根目录的 `start_r2_teleop.sh --stack minimal-mcu` 虽然不会启动 `merge_odom_node`，但 `pose_sender_node` 现在也会继续提供 `/mechanism/transport/*`；若要验证 shared_serial HAL，可使用 `full` 栈、`minimal-mcu` 栈或单独启动 `merge_odom.launch.py`。
 - 关于如何在开发或实车环境下通过命令行调试本模块，请参阅仓库根目录 `调试/rc26_mechanism调试.md`。

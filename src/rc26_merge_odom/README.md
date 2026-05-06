@@ -41,6 +41,6 @@
   - 若反馈串口不可用，`merge_odom_node` 会跳过 `WheelOdom`
   - 只要 `target_serial_port` 仍可用，就会继续保留 `POSE_TARGET` 和 `/mechanism/transport/*`
 - `pose_sender_node` 现在也会在最小 MCU 链里挂出 `/mechanism/transport/*`，因此 `./start_r2_teleop.sh --stack minimal-mcu` 仍可承接 ACK 型机构命令
-- 当前协议新增 `PUSHROD_EXTEND(0x10)` / `PUSHROD_RETRACT(0x11)`，统一复用共享 transport 走 ACK 路径
+- 当前双推杆协议已经收口为 `FRONT_PUSHROD_EXTEND/RETRACT(0x0E/0x0F)` 与 `REAR_PUSHROD_EXTEND/RETRACT(0x10/0x11)`，统一复用共享 transport 走 ACK 路径；若 MCU 额外上送 `0x13~0x16` 业务 ACK，桥接层会继续发布到 `/mechanism/transport/feedback`
 - EKF 启动前会先对参数里的科学计数法字符串做归一化，避免 `robot_localization` 因数组里混入字符串而在 launch 阶段报错
 - 仓库根目录的 `start_r2_teleop.sh` 已是当前唯一正式遥控入口；完整链用 `--stack full`，最小 MCU 链用 `--stack minimal-mcu`，两种栈都会在单目标串口现场自动切到 `target_serial_port=/dev/ttyUSB0`

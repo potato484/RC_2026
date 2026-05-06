@@ -279,14 +279,17 @@ TEST_F(SharedSerialTransportTest, MechUpDuelSucceedsViaTransportBridge)
   EXPECT_EQ(requests.front().command_id, static_cast<uint8_t>(rc26_serial::CommandID::MECH_UP_DUEL));
 }
 
-TEST_F(SharedSerialTransportTest, FrontTrackCommandIsRejectedByMechanismAction)
+TEST_F(SharedSerialTransportTest, PushrodSidecarCommandsAreRejectedByMechanismAction)
 {
   transport_provider_->setMode(FakeMechanismTransportProvider::Mode::kSuccess);
 
-  const auto goal_handle =
-    sendGoalExpectReject(static_cast<uint8_t>(rc26_serial::CommandID::FRONT_TRACK_UP), 1.0F);
+  const auto front_goal_handle = sendGoalExpectReject(
+    static_cast<uint8_t>(rc26_serial::CommandID::FRONT_PUSHROD_EXTEND), 1.0F);
+  const auto rear_goal_handle = sendGoalExpectReject(
+    static_cast<uint8_t>(rc26_serial::CommandID::REAR_PUSHROD_EXTEND), 1.0F);
 
-  EXPECT_EQ(goal_handle, nullptr);
+  EXPECT_EQ(front_goal_handle, nullptr);
+  EXPECT_EQ(rear_goal_handle, nullptr);
   EXPECT_TRUE(transport_provider_->requests().empty());
 }
 
