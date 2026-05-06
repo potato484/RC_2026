@@ -26,19 +26,26 @@
 
 ### 2.4 当前协议补充
 
-当前与遥控共享 transport 直接相关的命令编号已经扩展到：
+当前与遥控共享 transport 直接相关的双推杆命令编号已经收口为：
 
-*   `FRONT_TRACK_UP = 0x0E`
-*   `FRONT_TRACK_DOWN = 0x0F`
-*   `PUSHROD_EXTEND = 0x10`
-*   `PUSHROD_RETRACT = 0x11`
+*   `FRONT_PUSHROD_EXTEND = 0x0E`
+*   `FRONT_PUSHROD_RETRACT = 0x0F`
+*   `REAR_PUSHROD_EXTEND = 0x10`
+*   `REAR_PUSHROD_RETRACT = 0x11`
+
+当前双推杆业务反馈编号已经收口为：
+
+*   `FRONT_PUSHROD_EXTEND_ACK = 0x13`
+*   `FRONT_PUSHROD_RETRACT_ACK = 0x14`
+*   `REAR_PUSHROD_EXTEND_ACK = 0x15`
+*   `REAR_PUSHROD_RETRACT_ACK = 0x16`
 
 当前真实运行时口径是：
 
-*   `FRONT_TRACK_UP/DOWN` 通过 `rc26_merge_odom` 的共享 transport 走可靠 `sendCommand()` ACK 路径；teleop 侧已经改成按下沿只发一次，按住不连发。命令名仍沿用旧的 `FRONT_TRACK_*`，但当前真实语义已经切到电动推杆上抬 / 后撑。若 MCU 不回 ACK，会像其它可靠命令一样重传并打印超时日志。
-*   `PUSHROD_EXTEND/RETRACT` 通过共享 transport 走可靠 `sendCommand()` ACK 路径；成功标准是 transport service 返回 `accepted=true`，不要求 MCU 再上送独立 `DONE` 反馈。
-*   `rc26_telecontrol_front_track_test` 会在 `Y/A` 按下沿单次调用 `/mechanism/transport/send_command`。
-*   `rc26_telecontrol_pushrod_dpad` 会把 `Back/Start` 直接桥成 `0x10 / 0x11` 的单次 ACK 命令；`Dpad 左/右` 已回归底盘横移控制。
+*   4 条双推杆命令都通过 `rc26_merge_odom` 的共享 transport 走可靠 `sendCommand()` ACK 路径；若 MCU 不回通用 `ACK(0x00)`，会像其它可靠命令一样重传并打印超时日志。
+*   `rc26_telecontrol_front_pushrod_buttons` 会在 `Y/A` 按下沿单次调用 `/mechanism/transport/send_command`，分别桥成前推杆伸展 / 收缩。
+*   `rc26_telecontrol_rear_pushrod_buttons` 会在 `Select/Back` / `Start` 按下沿单次调用 `/mechanism/transport/send_command`，分别桥成后推杆伸展 / 收缩；`Dpad 左/右` 已回归底盘横移控制。
+*   transport service 返回 `accepted=true` 的前提仍然是 MCU 先回通用 `ACK(0x00)`；`0x13~0x16` 业务 ACK 会继续发布到 `/mechanism/transport/feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定。
 *   真机部署时，目标 MCU 串口仍由 `rc26_merge_odom` 运行时独占打开；其它上层只复用 transport，不再次直连同一设备。
 
 当前底盘反馈协议也已经统一回麦克纳姆四轮口径：
@@ -48,7 +55,7 @@
 
 ## 3. 设计原则与平台限制
 
-1.  **协议不可变性**: 所有优化均在完全兼容现有 v3.0 通信协议（含帧头、CRC32 MPEG-2 校验、最大长度限制）的前提下进行，无需修改下位机 MCU 固件。
+1.  **帧结构稳定性**: 当前双推杆协议语义已经更新为前/后推杆四命令，并要求 MCU 同步支持 `0x13~0x16` 业务 ACK；除此之外，v3.0 的帧头、CRC32 MPEG-2 校验和最大长度限制保持不变。
 2.  **兼容性第一**: 考虑到 AidLux 混合环境的特殊性，优先采用成熟稳定的 POSIX 接口（如 `epoll`）而非激进的异步 I/O（如 `io_uring` on TTY）。
 3.  **单体非阻塞**: 核心驱动类不抛出未捕获异常，任何发送/接收回调均被妥善隔离，防止上层业务逻辑的故障波及底层通信主循环。
 

@@ -42,11 +42,11 @@ enum class CommandID : uint8_t {
     MECH_UP_DUEL = 0x0A,      // 对抗区机构抬升
     PLACE_KFS_GRID = 0x0B,    // 对抗区放置 KFS 到九宫格
     PLACE_KFS_GROUND = 0x0C,  // 对抗区放置 KFS 到地面
-    HEARTBEAT = 0x0D,         // 心跳查询请求
-    FRONT_TRACK_UP = 0x0E,    // 电动推杆上抬
-    FRONT_TRACK_DOWN = 0x0F,  // 电动推杆后撑
-    PUSHROD_EXTEND = 0x10,    // 伸展电动推杆
-    PUSHROD_RETRACT = 0x11,   // 收缩电动推杆
+    HEARTBEAT = 0x0D,             // 心跳查询请求
+    FRONT_PUSHROD_EXTEND = 0x0E,  // 前推杆伸展
+    FRONT_PUSHROD_RETRACT = 0x0F, // 前推杆收缩
+    REAR_PUSHROD_EXTEND = 0x10,   // 后推杆伸展
+    REAR_PUSHROD_RETRACT = 0x11,  // 后推杆收缩
     POSE_FEEDBACK = 0x1E,     // 反馈速度 (vx, vy, wz) - MCU速度闭环
     POSE_TARGET = 0x1F,       // 目标速度 (vx, vy, wz) - MCU速度闭环
 };
@@ -71,14 +71,16 @@ enum class FeedbackID : uint8_t {
     MECH_UP_DUEL_DONE = 0x0D,      // 对抗区机构抬升完成
     PLACE_KFS_GRID_DONE = 0x0E,    // 九宫格放置完成
     PLACE_KFS_GROUND_DONE = 0x0F,  // 地面放置完成
-    HEARTBEAT_ACK = 0x10,          // 心跳响应
-    STAIR_CLIMB_DONE = 0x11,       // 上阶梯完成
-    STAIR_DESCEND_DONE = 0x12,     // 下阶梯完成
-    FRONT_TRACK_UP_DONE = 0x13,    // 电动推杆上抬完成
-    FRONT_TRACK_DOWN_DONE = 0x14,  // 电动推杆后撑完成
-    ODOM_DATA = 0x20,              // 麦克纳姆轮速反馈：<v_fl,v_rl,v_rr,v_fr>，单位: m/s
-    ACTION_FAIL = 0xFE,            // 动作执行失败，payload: [failed_cmd_id, error_code]
-    ERROR = 0xFF,                  // 系统致命异常
+    HEARTBEAT_ACK = 0x10,             // 心跳响应
+    STAIR_CLIMB_DONE = 0x11,          // 上阶梯完成
+    STAIR_DESCEND_DONE = 0x12,        // 下阶梯完成
+    FRONT_PUSHROD_EXTEND_ACK = 0x13,  // 前推杆伸展业务 ACK，仍会发布到 transport feedback
+    FRONT_PUSHROD_RETRACT_ACK = 0x14, // 前推杆收缩业务 ACK，仍会发布到 transport feedback
+    REAR_PUSHROD_EXTEND_ACK = 0x15,   // 后推杆伸展业务 ACK，仍会发布到 transport feedback
+    REAR_PUSHROD_RETRACT_ACK = 0x16,  // 后推杆收缩业务 ACK，仍会发布到 transport feedback
+    ODOM_DATA = 0x20,                 // 麦克纳姆轮速反馈：<v_fl,v_rl,v_rr,v_fr>，单位: m/s
+    ACTION_FAIL = 0xFE,               // 动作执行失败，payload: [failed_cmd_id, error_code]
+    ERROR = 0xFF,                     // 系统致命异常
 };
 
 // ============================================================================
