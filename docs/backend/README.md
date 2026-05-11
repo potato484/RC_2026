@@ -55,4 +55,4 @@
 
 ### 感知与可视化
 
-- [`rc26_vision`](archive/rc26_vision/README.md): 视觉推理与弹头定位。`(file: archive/rc26_vision/README.md)`
+- [`rc26_vision`](archive/rc26_vision/README.md): 视觉推理与弹头定位；当前已同时收口 duantou USB/QNN231 实验入口。`(file: archive/rc26_vision/README.md)`

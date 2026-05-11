@@ -28,6 +28,40 @@ vision:
         framework_type: "onnx"
         accelerate_type: "cpu"
 
+    duantou_qnn231:
+      engine: aidlite_qnn231_yolo
+      model_path: "../models/duantou/best_qcs8550_fp16.qnn231.ctx.bin.amf"
+      conf_thresh: 0.25
+      iou_thresh: 0.45
+      input_w: 640
+      input_h: 640
+      labels_path: "../models/duantou/labels.txt"
+      aidlite:
+        framework_type: "qnn231"
+        accelerate_type: "dsp"
+        input_name: "images"
+        output_name: "output0"
+        resize_mode: "letterbox"
+        padding_color: "114"
+        num_classes: 1
+        output_scale: 1.0
+        output_offset: 0.0
+        split_output_quantization: false
+        use_dsp: true
+        enable_cpu_fallback: false
+
+    duantou_onnx_cpu:
+      engine: aidlite
+      model_path: "../models/duantou/best.onnx"
+      conf_thresh: 0.25
+      iou_thresh: 0.45
+      input_w: 640
+      input_h: 640
+      labels_path: "../models/duantou/labels.txt"
+      aidlite:
+        framework_type: "onnx"
+        accelerate_type: "cpu"
+
     # ========== 额外模型示例（按需启用） ==========
     # yolo_small:
     #   engine: aidlite

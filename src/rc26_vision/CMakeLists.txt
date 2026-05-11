@@ -25,11 +25,13 @@ find_package(yaml-cpp REQUIRED)
 # AidLux local ONNX inference chain.
 find_path(AIDLITE_INCLUDE aidlux/aidlite/aidlite.hpp HINTS /usr/local/include)
 find_library(AIDLITE_LIB aidlite HINTS /usr/local/lib)
+find_library(AIDLITE_QNN231_LIB aidlite_qnn231 HINTS /usr/local/lib)
 
 set(RC26_VISION_ENGINE_SOURCES
   src/yolo_engine.cpp
   src/vision_inference_manager.cpp
   src/profile_loader.cpp
+  src/engine_factory.cpp
 )
 
 if(AIDLITE_INCLUDE AND AIDLITE_LIB)
@@ -38,6 +40,14 @@ if(AIDLITE_INCLUDE AND AIDLITE_LIB)
 else()
   message(WARNING "rc26_vision: AidLite not found, building stub backend; inference will fail at runtime")
   list(APPEND RC26_VISION_ENGINE_SOURCES src/aidlite_engine_stub.cpp)
+endif()
+
+if(AIDLITE_INCLUDE AND AIDLITE_LIB AND AIDLITE_QNN231_LIB)
+  message(STATUS "rc26_vision: AidLite QNN231 detected, enabling duantou QNN backend")
+  list(APPEND RC26_VISION_ENGINE_SOURCES src/aidlite_qnn_yolo_engine.cpp)
+else()
+  message(WARNING "rc26_vision: AidLite QNN231 not found, building stub duantou backend")
+  list(APPEND RC26_VISION_ENGINE_SOURCES src/aidlite_qnn_yolo_engine_stub.cpp)
 endif()
 
 # ============================================================================
@@ -82,6 +92,10 @@ if(AIDLITE_LIB)
   target_link_libraries(${PROJECT_NAME} ${AIDLITE_LIB})
 endif()
 
+if(AIDLITE_QNN231_LIB)
+  target_link_libraries(${PROJECT_NAME} ${AIDLITE_QNN231_LIB})
+endif()
+
 # ============================================================================
 # 测试节点
 # ============================================================================
@@ -107,6 +121,14 @@ ament_target_dependencies(tip_localizer_node
   rc26_interfaces
 )
 
+# USB camera + duantou serial experiment node
+add_executable(duantou_vision_node src/duantou_vision_node.cpp)
+target_link_libraries(duantou_vision_node ${PROJECT_NAME} ${OpenCV_LIBS})
+ament_target_dependencies(duantou_vision_node
+  rclcpp
+  ament_index_cpp
+)
+
 # ============================================================================
 # 安装
 # ============================================================================
@@ -124,7 +146,7 @@ install(
 )
 
 install(
-  TARGETS vision_test_node yolo_inference_test tip_localizer_node
+  TARGETS vision_test_node yolo_inference_test tip_localizer_node duantou_vision_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 

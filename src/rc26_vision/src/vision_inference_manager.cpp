@@ -1,6 +1,6 @@
 #include "rc26_vision/vision_inference_manager.hpp"
+#include "rc26_vision/engine_factory.hpp"
 #include "rc26_vision/yolo_engine.hpp"
-#include "rc26_vision/aidlite_engine.hpp"
 
 #include <cv_bridge/cv_bridge.h>
 #include <opencv2/core.hpp>
@@ -148,23 +148,7 @@ void VisionInferenceManager::selectModel(const std::string& model_id) {
     configured_.store(false, std::memory_order_relaxed);
 
     try {
-        InferenceEnginePtr new_engine;
-        if (profile.engine == EngineType::LocalOnnx) {
-            new_engine = std::make_unique<YoloEngine>(
-                profile.model_path, profile.labels,
-                profile.conf_thresh, profile.iou_thresh,
-                profile.input_w, profile.input_h);
-        } else if (profile.engine == EngineType::AidLite) {
-            if (!profile.aidlite) {
-                throw std::runtime_error("AidLite profile missing config");
-            }
-            new_engine = std::make_unique<AidLiteEngine>(
-                profile.model_path, profile.labels, profile.aidlite.value(),
-                profile.conf_thresh, profile.iou_thresh,
-                profile.input_w, profile.input_h);
-        } else {
-            throw std::runtime_error("Unsupported engine type");
-        }
+        InferenceEnginePtr new_engine = createInferenceEngine(profile);
 
         {
             std::lock_guard<std::mutex> lock(mutex_);

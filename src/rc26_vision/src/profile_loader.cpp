@@ -11,6 +11,13 @@ namespace rc26_vision {
 
 namespace {
 
+std::string scalarToString(const YAML::Node& node, const std::string& fallback = "") {
+    if (!node || !node.IsScalar()) {
+        return fallback;
+    }
+    return node.as<std::string>();
+}
+
 std::string expandEnvironmentVariables(const std::string& input) {
     std::string output;
     output.reserve(input.size());
@@ -128,6 +135,9 @@ VisionConfig ProfileLoader::loadFromYaml(const std::string& yaml_path) {
         std::string engine_str = node["engine"].as<std::string>();
         if (engine_str == "aidlite") {
             profile.engine = EngineType::AidLite;
+        } else if (engine_str == "aidlite_qnn_yolo" || engine_str == "aidlite_qnn231_yolo" ||
+                   engine_str == "aidlite_qnn231") {
+            profile.engine = EngineType::AidLiteQnnYolo;
         } else if (engine_str == "opencv_onnx" || engine_str == "onnxruntime") {
             profile.engine = EngineType::LocalOnnx;
         } else {
@@ -152,7 +162,8 @@ VisionConfig ProfileLoader::loadFromYaml(const std::string& yaml_path) {
         }
 
         // aidlite config
-        if (profile.engine == EngineType::AidLite && node["aidlite"]) {
+        if ((profile.engine == EngineType::AidLite ||
+             profile.engine == EngineType::AidLiteQnnYolo) && node["aidlite"]) {
             AidLiteConfig aidcfg;
             auto aidnode = node["aidlite"];
             aidcfg.framework_type = aidnode["framework_type"].as<std::string>();
@@ -165,6 +176,28 @@ VisionConfig ProfileLoader::loadFromYaml(const std::string& yaml_path) {
                     aidcfg.output_shapes.push_back(shape.as<std::vector<int>>());
                 }
             }
+            aidcfg.input_name = scalarToString(aidnode["input_name"]);
+            aidcfg.output_name = scalarToString(aidnode["output_name"]);
+            aidcfg.resize_mode = scalarToString(aidnode["resize_mode"], "stretch");
+            aidcfg.padding_color = scalarToString(aidnode["padding_color"], "114");
+            aidcfg.input_scale = aidnode["input_scale"].as<double>(aidcfg.input_scale);
+            aidcfg.input_offset = aidnode["input_offset"].as<double>(aidcfg.input_offset);
+            aidcfg.output_scale = aidnode["output_scale"].as<double>(aidcfg.output_scale);
+            aidcfg.output_offset = aidnode["output_offset"].as<double>(aidcfg.output_offset);
+            aidcfg.split_output_quantization =
+                aidnode["split_output_quantization"].as<bool>(aidcfg.split_output_quantization);
+            aidcfg.bbox_output_scale =
+                aidnode["bbox_output_scale"].as<double>(aidcfg.bbox_output_scale);
+            aidcfg.bbox_output_offset =
+                aidnode["bbox_output_offset"].as<double>(aidcfg.bbox_output_offset);
+            aidcfg.score_output_scale =
+                aidnode["score_output_scale"].as<double>(aidcfg.score_output_scale);
+            aidcfg.score_output_offset =
+                aidnode["score_output_offset"].as<double>(aidcfg.score_output_offset);
+            aidcfg.num_classes = aidnode["num_classes"].as<int>(aidcfg.num_classes);
+            aidcfg.use_dsp = aidnode["use_dsp"].as<bool>(aidcfg.use_dsp);
+            aidcfg.enable_cpu_fallback =
+                aidnode["enable_cpu_fallback"].as<bool>(aidcfg.enable_cpu_fallback);
             profile.aidlite = aidcfg;
         }
 
@@ -195,7 +228,8 @@ void ProfileLoader::validate(const VisionConfig& config) {
         if (profile.input_w <= 0 || profile.input_h <= 0) {
             throw std::runtime_error("Profile '" + id + "' has invalid input size");
         }
-        if (profile.engine == EngineType::AidLite && !profile.aidlite) {
+        if ((profile.engine == EngineType::AidLite ||
+             profile.engine == EngineType::AidLiteQnnYolo) && !profile.aidlite) {
             throw std::runtime_error("Profile '" + id + "' missing aidlite config");
         }
     }
