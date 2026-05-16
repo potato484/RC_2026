@@ -2,7 +2,7 @@
 <root BTCPP_format="4">
   <BehaviorTree ID="MCAreaTree">
     <Sequence name="MC_Sequence">
-      <!-- 取矛头 -->
+      <!-- 取端头 -->
       <GrabTip name="grab_tip"/>
       <!-- 等待手动机器人就位后组装 -->
       <RetryUntilSuccessful num_attempts="10">

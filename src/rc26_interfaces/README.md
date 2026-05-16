@@ -39,6 +39,11 @@
   - `TipDetection.msg`
   - `TipDetectionArray.msg`
 
+## 视觉端头契约
+
+- `TipDetection.msg`、`TipDetectionArray.msg` 与 `/vision/tip_detections` 是当前视觉端头检测稳定契约。
+- 字段 `tip_index` 继续表示端头编号；本轮只统一 `rc26_vision` 内部实验链命名，不改变这些 ROS 消息、topic 或 action 名。
+
 ## 当前清理状态
 
 旧兼容导航契约已从接口清单中移除，当前只保留 topo/xhu 主链与决策运行时实际使用的消息、服务和动作。

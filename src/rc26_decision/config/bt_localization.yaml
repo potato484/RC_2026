@@ -28,7 +28,7 @@ registrations:
     display_name: "顺序执行"
     tooltip: "按顺序逐个执行，前一个成功才会继续下一个。"
     summary: "这类节点要求子节点按固定顺序完成。"
-    scenario: "例如先取矛头，再等待手动机器人，再组装武器。"
+    scenario: "例如先取端头，再等待手动机器人，再组装武器。"
     attention: "前面任一节点失败，后面的节点都不会启动。"
   ReactiveFallback:
     display_name: "抢占回退"
@@ -99,11 +99,11 @@ registrations:
 
 custom_types:
   GrabTip:
-    display_name: "抓取矛头"
-    tooltip: "控制机构去抓取武馆区的矛头。"
-    summary: "这是武馆阶段的第一步，用来把矛头取到机构上。"
+    display_name: "抓取端头"
+    tooltip: "控制机构去抓取武馆区的端头。"
+    summary: "这是武馆阶段的第一步，用来把端头取到机构上。"
     scenario: "开局进入武馆区后，通常会先执行这个动作。"
-    attention: "如果反复失败，先检查机构通信、矛头状态和 `mechanism_tip_state`。"
+    attention: "如果反复失败，先检查机构通信、端头状态和 `mechanism_tip_state`。"
     related_blackboard_keys: ["mechanism_tip_state", "mechanism_comm_health_level", "last_action_error_code"]
   AssembleWeapon:
     display_name: "组装武器"
@@ -277,7 +277,7 @@ subtrees:
     attention: "不要只看武馆动作本身，还要看定位守护是否抢占。"
   MCAreaTree:
     display_name: "武馆主任务"
-    summary: "负责取矛头、等待就位、组装武器。"
+    summary: "负责取端头、等待就位、组装武器。"
     scenario: "比赛开局通常先执行这一段。"
     attention: "这里动作不多，但机构和协同依赖强。"
   GuardedMFAreaTree:
@@ -385,10 +385,10 @@ instances:
   MC_Sequence:
     display_name: "武馆顺序流程"
     summary: "武馆任务的主流程骨架。"
-    scenario: "取矛头和组装都挂在它下面。"
+    scenario: "取端头和组装都挂在它下面。"
     attention: "只要它没成功，武馆阶段就不会结束。"
   grab_tip:
-    display_name: "取矛头"
+    display_name: "取端头"
     summary: "这是 `GrabTip` 在武馆树里的实例名。"
     scenario: "画布上点到这个名字时，运维更容易一眼看懂。"
     attention: "实例名用于界面显示，不影响后端执行逻辑。"
@@ -560,9 +560,9 @@ blackboard_keys:
     scenario: "识别错目标时，先看是不是模型切错了。"
     attention: "模型为空通常意味着切换失败或还没初始化。"
   mechanism_tip_state:
-    display_name: "矛头机构状态"
-    tooltip: "机构当前对矛头的持有或姿态状态。"
-    summary: "武馆取矛头和组装最关键的机构状态键。"
+    display_name: "端头机构状态"
+    tooltip: "机构当前对端头的持有或姿态状态。"
+    summary: "武馆取端头和组装最关键的机构状态键。"
     scenario: "抓取或组装失败时先看它是否符合预期。"
     attention: "具体编码意义仍要结合机构协议，但运维层可先看是否变化。"
     related_blackboard_keys: ["mechanism_comm_health_level", "last_action_error_code"]

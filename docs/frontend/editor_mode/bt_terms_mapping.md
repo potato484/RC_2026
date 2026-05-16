@@ -65,7 +65,7 @@
 
 | 英文标签 | 中文名称 | 类型 |
 | --- | --- | --- |
-| `GrabTip` | 抓取矛头 | 动作 |
+| `GrabTip` | 抓取端头 | 动作 |
 | `AssembleWeapon` | 组装武器 | 动作 |
 | `CheckManualRobot` | 检查手动机器人 | 条件 |
 
@@ -138,7 +138,7 @@
 | `Combat_Sequence` | 对抗顺序流程 |
 | `goto_combat` | 前往对抗区 |
 | `place_sequence` | 放置序列 |
-| `grab_tip` | 取矛头 |
+| `grab_tip` | 取端头 |
 | `assemble` | 执行组装 |
 | `Entry_Seq` | 进门顺序流程 |
 | `Loop_Body` | 循环主体 |
@@ -217,7 +217,7 @@
 | `timeout_sec` | 超时时间 |
 | `error_code` | 错误码 |
 | `selected_layer` | 实际层号 |
-| `mechanism_tip_state` | 矛头机构状态 |
+| `mechanism_tip_state` | 端头机构状态 |
 | `mechanism_comm_health_level` | 机构通信健康等级 |
 | `last_action_error_code` | 最近动作错误码 |
 | `vision_running` | 视觉运行状态 |

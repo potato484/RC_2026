@@ -10,7 +10,7 @@
 #include <filesystem>
 
 #include "rc26_serial/protocol.hpp"
-#include "rc26_vision/types.hpp"
+#include "rc26_vision/runtime/types.hpp"
 #include "yaml-cpp/yaml.h"
 
 namespace {

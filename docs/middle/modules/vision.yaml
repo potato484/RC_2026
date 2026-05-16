@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: RC26 R2 Vision ROS2 Contract
   version: 0.3.0
-  description: 视觉检测结果接口
+  description: 视觉端头检测结果接口；TipDetection 与 /vision/tip_detections 是稳定 ROS 契约。
 servers:
   - url: http://localhost:8080
 tags:

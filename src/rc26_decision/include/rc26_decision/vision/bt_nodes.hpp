@@ -7,7 +7,7 @@
 #include <optional>
 #include <string>
 
-#include "rc26_vision/types.hpp"
+#include "rc26_vision/runtime/types.hpp"
 
 namespace rc26_vision {
 class VisionInferenceManager;
@@ -68,4 +68,3 @@ private:
 void registerVisionNodes(BT::BehaviorTreeFactory& factory);
 
 }  // namespace rc26_decision
-

@@ -16,7 +16,7 @@
 
 namespace rc26_decision {
 
-// 取矛头节点
+// 取端头节点
 class GrabTipAction : public BtActionNode<rc26_interfaces::action::GrabTip> {
 public:
     GrabTipAction(const std::string& name, const BT::NodeConfig& config);
