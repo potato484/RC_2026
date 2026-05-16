@@ -47,6 +47,7 @@ enum class CommandID : uint8_t {
     FRONT_PUSHROD_RETRACT = 0x0F, // 前推杆收缩
     REAR_PUSHROD_EXTEND = 0x10,   // 后推杆伸展
     REAR_PUSHROD_RETRACT = 0x11,  // 后推杆收缩
+    TIP_VISION = 0x12,        // 端头视觉 test 状态下发，payload: [grab_ready, dir_code, amp_code, ts16_lo, ts16_hi]
     POSE_FEEDBACK = 0x1E,     // 反馈速度 (vx, vy, wz) - MCU速度闭环
     POSE_TARGET = 0x1F,       // 目标速度 (vx, vy, wz) - MCU速度闭环
 };
@@ -87,7 +88,7 @@ enum class FeedbackID : uint8_t {
 // 决策阶段定义
 // ============================================================================
 enum class Phase : uint8_t {
-    MC_TAKE,      // 武馆取矛头
+    MC_TAKE,      // 武馆取端头
     MC_ASSEMBLE,  // 武馆组装兵器
     MF_ENTRY,     // 梅林入口观察
     MF_CORE,      // 梅林内部决策

@@ -11,10 +11,10 @@
 
 ## 核心准则
 
-### 1. 检索项目上下文时，优先使用 `ace-tool`
+### 1. 检索项目上下文时，优先使用 `fast-context`
 
-- 检索项目代码、模块位置、实现方案或相关上下文时，优先使用 `ace-tool`，不要先靠人工猜路径或盲搜。
-- 如果 `ace-tool` 或 `grok-search` 在当前会话不可用，必须明确说明由此带来的不确定性，然后继续使用本地代码与当前可用工具推进任务，不得因此阻塞。
+- 检索项目代码、模块位置、实现方案或相关上下文时，优先使用 `fast-context`，不要先靠人工猜路径或盲搜。
+- 如果 `fast-context` 或 `grok-search` 在当前会话不可用，必须明确说明由此带来的不确定性，然后继续使用本地代码与当前可用工具推进任务，不得因此阻塞。
 
 ### 2. 对项目做任何修改前，先读 `docs/`
 
@@ -72,14 +72,14 @@
 
 - 当前项目仅为 R2 这个自动机器人设计，R1 只是手动机器人。
 - `src/` 是 R2 自动机器人的主运行时工作区；`merlin-bt-visualizer` 只是本地工程工具，不是机器人运行时权威后端。
-- R2 算力平台基于 Qualcomm QCS8550，运行环境支持 AidLux（Android 13 + Ubuntu 22.04）深度融合，硬件配置为 16GB LPDDR5x + 256GB UFS 4.0。
+- R2 当前算力板卡按犀牛派 X1 口径维护，运行环境支持 AidLux（Android 13 + Ubuntu 22.04）深度融合。
 - R2 当前已切换为履带式底盘；高精度陀螺仪位于底盘中心，用于位姿融合下发。相关实现可参考 `rc26_merge_odom`，`rc26_telecontrol` 用于人为遥控测试 R2 机器人。
 
 ## 执行顺序
 
 在这个根仓库内协作时，默认按以下顺序获取上下文和约束：
 
-1. 先用 `ace-tool` 检索与任务相关的代码和文档位置
+1. 先用 `fast-context` 检索与任务相关的代码和文档位置
 2. 先读 `docs/` 下与任务直接相关的入口文档，例如 `docs/backend/README.md`、`docs/frontend/README.md`、`docs/fitness/README.md`
 3. 再读更具体的模块入口，例如 `docs/backend/archive/<pkg>/README.md`、`docs/frontend/<topic>/README.md`、`docs/fitness/<topic>/README.md`
 4. 再进入具体代码目录实施修改与验证
@@ -87,4 +87,4 @@
 
 一句话要求：
 
-> 在 `/home/potato/RC_2026` 中做任何实际修改前，先用 `ace-tool` 与 `docs/` 的入口 `README.md` 建立上下文；改完代码后，再把简短总结和必要的模块更新写回对应 `docs/` 文档。
+> 在 `/home/potato/RC_2026` 中做任何实际修改前，先用 `fast-context` 与 `docs/` 的入口 `README.md` 建立上下文；改完代码后，再把简短总结和必要的模块更新写回对应 `docs/` 文档。

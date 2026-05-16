@@ -1,73 +1,50 @@
 # 视觉推理模型配置文件（rc26_vision）
 #
-# 用途：
-# - 给 rc26_vision/rc26_decision 运行时加载多个“模型 Profile”
-# - 由行为树/上层逻辑切换当前使用的模型（按 ID 选择）
-# - model_path / labels_path 支持相对路径，且相对当前 YAML 文件解析
+# model_path / labels_path 支持相对路径，且相对当前 YAML 文件解析。
+# 行为树/上层逻辑通过 profile id 切换模型。
 
 vision:
-  # 启动时默认加载的模型 ID（可留空，表示不自动切换）
-  default_model: "yolo_default"
+  default_model: "kfs_default"
 
-  # models: 以 “profile_id:” 为键的字典
   models:
-    # ========== 默认模型 ==========
-    yolo_default:
-      # 参数说明：engine - 模型或推理引擎配置；用于视觉或算法后端加载。
-      engine: aidlite                    # AidLux 本地推理链路：推荐 aidlite；兼容旧写法 opencv_onnx | onnxruntime
-      # 参数说明：model_path - 文件或目录路径；相对路径通常按包 share 目录或启动目录解析。
-      model_path: "../models/best.onnx"    # 相对当前配置文件: share/rc26_vision/models/best.onnx
-      conf_thresh: 0.5                    # 置信度阈值（必填）
-      iou_thresh: 0.45                    # NMS IoU 阈值（可选）
-      input_w: 640                        # 输入宽（可选，默认 640）
-      input_h: 640                        # 输入高（可选，默认 640）
-
-      # 类别名称：labels 与 labels_path 二选一
+    kfs_default:
+      engine: aidlite
+      model_path: "../models/kfs.onnx"
+      conf_thresh: 0.5
+      iou_thresh: 0.45
+      input_w: 640
+      input_h: 640
       labels_path: "../models/labels.txt"
       aidlite:
         framework_type: "onnx"
         accelerate_type: "cpu"
+        resize_mode: "stretch"
+        padding_color: "114"
 
-    duantou_qnn231:
-      engine: aidlite_qnn231_yolo
-      model_path: "../models/duantou/best_qcs8550_fp16.qnn231.ctx.bin.amf"
+    tip_test:
+      engine: aidlite
+      model_path: "../models/test/tip/tip.onnx"
       conf_thresh: 0.25
       iou_thresh: 0.45
       input_w: 640
       input_h: 640
-      labels_path: "../models/duantou/labels.txt"
+      labels_path: "../models/test/tip/labels.txt"
       aidlite:
-        framework_type: "qnn231"
-        accelerate_type: "dsp"
+        framework_type: "onnx"
+        accelerate_type: "cpu"
         input_name: "images"
         output_name: "output0"
         resize_mode: "letterbox"
         padding_color: "114"
         num_classes: 1
-        output_scale: 1.0
+        input_scale: 0.01865844801068306
+        input_offset: -114.0
+        output_scale: 0.009686462581157685
         output_offset: 0.0
-        split_output_quantization: false
-        use_dsp: true
-        enable_cpu_fallback: false
-
-    duantou_onnx_cpu:
-      engine: aidlite
-      model_path: "../models/duantou/best.onnx"
-      conf_thresh: 0.25
-      iou_thresh: 0.45
-      input_w: 640
-      input_h: 640
-      labels_path: "../models/duantou/labels.txt"
-      aidlite:
-        framework_type: "onnx"
-        accelerate_type: "cpu"
-
-    # ========== 额外模型示例（按需启用） ==========
-    # yolo_small:
-    #   engine: aidlite
-    #   model_path: "../models/yolo_small.onnx"
-    #   conf_thresh: 0.6
-    #   iou_thresh: 0.45
-    #   input_w: 320
-    #   input_h: 320
-    #   labels_path: "../models/labels.txt"
+        split_output_quantization: true
+        bbox_output_scale: 2.756984233856201
+        bbox_output_offset: 0.0
+        score_output_scale: 0.001727584283798933
+        score_output_offset: 0.0
+        use_dsp: false
+        enable_cpu_fallback: true

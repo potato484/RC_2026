@@ -55,6 +55,12 @@
 - `Dpad 左/右` 已回归底盘横移控制
 - 真机部署时，目标 MCU 串口仍由 `rc26_merge_odom` 独占打开；其它上层只复用 transport，不再次直连同一设备
 
+当前还保留一条仅供 `rc26_vision` tip 端头 test 节点复用的轻量 no-ACK 下行命令：
+
+- `TIP_VISION = 0x12`
+- payload 固定为 `5B`：`[grab_ready, dir_code, amp_code, ts16_lo, ts16_hi]`
+- 当前由 `tip_vision_test_node` 通过 `sendCommandNoAck()` 发送，复用统一 RC26 封帧、CRC 和重连逻辑，但它仍属于端头视觉独立 test 链，不是共享 transport 的正式运行时权威口径
+
 ## 源码入口与阅读顺序
 - 先看 `src/serial_driver.cpp`，这是整个仓库复用的串口底座。
 - 再看两个测试文件，理解 ACK/RTO 和环形解析器的验收点。
@@ -81,3 +87,4 @@
 - 这个包是基础通信库，不直接代表某个业务节点
 - 它不做上层动作语义，具体业务封装在 `rc26_mechanism`、`rc26_merge_odom` 等包里
 - 当业务异常时，要区分是协议层问题还是上层状态机问题，不能把所有故障都归到这个库
+- 即使 `tip` test 节点现在复用了这个库，真实整车部署下目标 MCU 串口的权威所有者仍然是 `rc26_merge_odom`

@@ -2,7 +2,7 @@
 
 ## 模块定位
 
-`rc26_vision` 是 R2 当前的视觉推理与弹头定位包，负责模型装载、图像推理、深度融合和目标三维定位。
+`rc26_vision` 是 R2 当前的视觉推理与端头定位包，负责模型装载、图像推理、深度融合和目标三维定位。
 
 ## 当前实现
 
@@ -11,72 +11,84 @@
   - `vision_test_node`
   - `yolo_inference_test`
   - `tip_localizer_node`
+  - `tip_vision_test_node`
 - 配置文件：
   - `config/realsense_d455.yaml`
   - `config/vision_models.yaml`
+  - `config/test/tip/tip_vision_params.yaml`
 - 启动文件：
   - `launch/realsense_d455.launch.py`
   - `launch/vision_test_with_camera.launch.py`
+  - `launch/test_tip_vision.launch.py`
 
-当前代码结构已经比较清晰：
+当前实现已经按职责重排为 5 个子层：
 
-- `profile_loader.cpp`
-  - 读取模型和后端配置
-- `vision_inference_manager.cpp`
-  - 管理彩色图、深度图、相机内参订阅
-  - 维护推理线程
-  - 支持按 `model_id` 切换模型
-  - 对外提供 `start/stop/isReady/getLatestResult`
-- `yolo_engine.cpp`
-  - 推理引擎封装
-- `aidlite_engine.cpp`
-  - AidLite 后端实现
-- `aidlite_engine_stub.cpp`
-  - 当系统没有 AidLite 依赖时抛出不可用异常
-- `tip_localizer.cpp`
-  - 结合深度图和 TF，把检测结果转换成 `map` 坐标系下的 `TipDetectionArray`
+- `include/rc26_vision/runtime`、`src/runtime`
+  - `types`、`model_profile`、`profile_loader`、`vision_inference_manager`
+- `include/rc26_vision/engines`、`src/engines`
+  - `InferenceEngine`、`YoloEngine`、`AidLiteEngine`、`AidLite stub`
+- `include/rc26_vision/pipelines`、`src/pipelines`
+  - `TipLocalizer` 的 RGB-D + TF 定位流水线
+- `src/nodes`
+  - `vision_test_node` 和 `tip_localizer_node` 的薄入口
+- `test`
+  - `tip_vision_test_node` 的单文件 test 节点实现，包含 main 入口、私有类声明、USB 相机、串口、目标选择和 overlay 逻辑
+- `src/tools`、`tools`
+  - 离线 C++ 工具、模型转换脚本和数据统计脚本
 
-从当前实现看，这个包已经同时服务两类调用方：
-
-- `rc26_decision`
-  - 通过 `VisionInferenceManager` 把识别结果写进 BT 黑板
-- 其他订阅者
-  - 通过 `tip_localizer_node` 直接消费三维定位后的目标检测消息
+旧的顶层兼容头文件已经删除；仓库内调用方统一使用 `include/rc26_vision/runtime`、`include/rc26_vision/engines` 和 `include/rc26_vision/pipelines` 下的运行时公开 include 路径。`tip_vision_test_node` 的私有声明已经合并进包根 `test/tip_vision_test_node.cpp`，不再单独保留头文件，也不随公开 include 安装。`src/` 下不再保留头文件。
 
 ## 源码入口与阅读顺序
 - 先看 `launch/realsense_d455.launch.py` 和 `launch/vision_test_with_camera.launch.py`，理解相机和测试链如何拉起。
-- 再看 `src/vision_inference_manager.cpp`，它是运行时调度中心。
-- 然后看 `profile_loader.cpp`、`yolo_engine.cpp`、`aidlite_engine.cpp`/`aidlite_engine_stub.cpp`、`tip_localizer.cpp`。
-- 最后看 `config/vision_models.yaml` 和 `config/realsense_d455.yaml`。
+- 再看 `src/runtime/vision_inference_manager.cpp`，它是运行时调度中心。
+- 然后看 `src/runtime/profile_loader.cpp`、`src/runtime/inference_engine_factory.cpp`、`src/engines/aidlite_engine.cpp`/`src/engines/aidlite_engine_stub.cpp`、`src/pipelines/tip_localizer.cpp`。
+- 最后看 `test/tip_vision_test_node.cpp`、`config/vision_models.yaml`、`config/test/tip/tip_vision_params.yaml`、`launch/test_tip_vision.launch.py` 和 `config/realsense_d455.yaml`。
 
 ## 目录解剖
-- `vision_inference_manager.cpp`：配置载入、模型切换、推理线程和图像/深度/相机信息缓存。
-- `profile_loader.cpp`：模型 profile 解析。
-- `yolo_engine.cpp`：推理引擎封装。
-- `aidlite_engine.cpp` / `aidlite_engine_stub.cpp`：真实后端与缺依赖时的 stub。
-- `tip_localizer.cpp`：深度 + TF 融合，把识别结果投到 `map`。
-- `src/scripts/vision_test_node.cpp`、`yolo_inference_test.cpp`：测试入口。
+- `src/runtime/vision_inference_manager.cpp`：配置载入、模型切换、推理线程和图像/深度/相机信息缓存。
+- `src/runtime/profile_loader.cpp`：模型 profile 解析。
+- `src/runtime/inference_engine_factory.cpp`：默认 build 支持的引擎选择逻辑。
+- `src/engines/aidlite_engine.cpp` / `src/engines/aidlite_engine_stub.cpp`：真实后端与缺依赖时的 stub；真实后端统一承载 stretch/letterbox 预处理、tensor layout 识别、量化输入、反量化输出和 YOLO 后处理。
+- `src/pipelines/tip_localizer.cpp`：深度 + TF 融合，把识别结果投到 `map`。
+- `src/nodes/vision_test_node.cpp`、`src/nodes/tip_localizer_node.cpp`：主链节点入口。
+- `test/tip_vision_test_node.cpp`：USB 相机 + 单目 tip test 节点的入口、私有声明、参数、串口、相机、目标选择和 overlay 单文件实现；推理直接复用主链 `InferenceEngine`。
+- `src/tools/yolo_inference_test.cpp`、`tools/*.py`：离线工具和实验脚本。
 
-## 关键文件体量
-- `src/vision_inference_manager.cpp`：438 行。
-- `src/aidlite_engine.cpp`：315 行。
-- `src/tip_localizer.cpp`：279 行。
-- `src/profile_loader.cpp`：204 行。
+## 默认链与 test 链
 
-## 关键源码行段速览
-- `src/rc26_vision/src/vision_inference_manager.cpp:28-182`：构造、配置读取、模型选择与切换。
-- `src/rc26_vision/src/vision_inference_manager.cpp:183-259`：运行状态查询和 result callback 接口。
-- `src/rc26_vision/src/vision_inference_manager.cpp:260-389`：推理线程和图像/深度/相机信息回调。
-- `src/rc26_vision/src/tip_localizer.cpp:18-94`：节点构造和数据缓存。
-- `src/rc26_vision/src/tip_localizer.cpp:95-189`：深度取中值、投影到 map、间距校验。
-- `src/rc26_vision/src/tip_localizer.cpp:190-273`：彩色图回调与 `main()`。
+- 默认 build 覆盖当前真实落地的 ONNX/AidLite 主链，`AidLiteEngine` 是默认链与 tip test 链共用的推理后端。
+- `config/vision_models.yaml` 是唯一模型 profile 配置入口，当前包含 `kfs_default` 与 `tip_test`。
+- `tip` test 链已经并入 `rc26_vision`，当前入口是 `tip_vision_test_node` 与 `launch/test_tip_vision.launch.py`。
+- 默认 KFS 模型资产命名为 `models/kfs.pt` / `models/kfs.onnx`；tip test 模型资产命名为 `models/test/tip/tip.pt` / `models/test/tip/tip.onnx`。
+- `config/test/tip/tip_vision_params.yaml` 只保留 USB 相机、串口、窗口和目标选择等节点业务参数；模型路径、输入输出名、量化和后处理参数统一写在 `config/vision_models.yaml` 的 `tip_test` profile。
+- `tip_vision_test_node` 现在通过 `vision_config_file + model_id` 选择主链模型 profile，不再自己维护 AidLite interpreter、输入 tensor buffer 或私有 YOLO 后处理。
+- `AidLiteEngine` 根据输入 tensor shape 自动区分 `NCHW / NHWC`，对 `float32 ONNX` 按真实布局喂输入，不再把 `NCHW` 模型误喂成 HWC 平铺。
+- `tip_vision_test_node` 已移除旧的距离估计和距离文字叠加；`show_center_distance` 与旧距离参数名只为兼容旧配置而保留，不再参与运行时判定。
+- 当前犀牛派 X1 板上实测 `models/test/tip/tip.onnx` 为固定 `640x640` 的 CPU ONNX 链，`infer_ms` 大约 `80~95ms`、`infer_fps` 大约 `10~12`；这套 AidLite ONNX 后端对该模型不支持 `GPU/DSP`，若要逼近 `30 infer_fps`，需要换更小输入的 ONNX，或改用可落到 QNN/AMF 的量化资产。
+- `tip_vision_test_node` 的串口发送已不再自己维护 `termios` 裸写；当前改为复用 `rc26_serial::SerialDriver`，并通过 `TIP_VISION(0x12)` 发送 5 字节业务 payload：`grab_ready | dir_code | amp_code | ts16_lo | ts16_hi`。
+- 当前 `tip` test 参数默认串口已对齐仓库目标串口口径为 `/dev/ttyUSB1`，串口格式固定沿用 `rc26_serial` 的 `8N1`。
+- 默认联调入口仍然是 RealSense + `vision_test_node`；tip test 节点不参与默认 launch，需要单独显式启动。
 
 ## 模块边界
 
 - 它只负责视觉推理和目标定位，不负责比赛级流程决策
 - 它不是前端显示层，也不提供 Web 可视化
 - AidLite 后端依赖系统环境，缺少相关库时当前代码会退到 stub 报错路径
+- `tip` test 链继续留在包内，但与默认 RealSense 主链隔离；它面向 USB 相机/单目 test，不是当前决策运行时权威入口
+- `tip` 当前虽然已经复用仓库 `rc26_serial` 协议栈，但仍是独立直连串口的 test 链；如果同一时刻 `rc26_merge_odom` 已持有同一个目标串口，不应再并发启动这个 test 节点
 
-## 配置注释口径
+## 本轮收口
 
-- `config/vision_models.yaml` 与 `config/realsense_d455.yaml` 已保留常用/高影响参数的中文注释，说明模型 profile、推理后端、相机流、深度对齐和 RealSense 设备参数；本次只改变注释，不改变视觉运行配置。
+- 目录按 `runtime / engines / pipelines / nodes / tools` 重排，便于继续拆子模块而不破坏对外接口。
+- 删除了默认 build 对不存在源码的依赖，`MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_vision` 已可通过。
+- 旧顶层兼容头文件已删除，`rc26_decision` 已改为直接 include `rc26_vision/runtime/*` 分层头文件。
+- 原根目录旧端头视觉 test 包已按 tip test 子链并入 `src/rc26_vision`；节点源码纳入包根 `test/` 单文件实现，参数和模型资产继续使用 `config/test/tip` 与 `models/test/tip`。
+- tip 默认模型已改为 `models/test/tip/tip.onnx`，不再指向旧的缺失 `.amf` 文件名。
+- 修正了 tip test 节点的模型框架识别逻辑：当模型路径显式是 `.onnx` 时，不再依赖文件名是否带 `fp32` 来决定 `ONNX / QNN231`。
+- tip test 节点已删除距离估计和距离 overlay；异步推理线程也去掉了一次多余的 pending frame `clone()`，仅保留提交队列时的必要复制，稍微降低了显示侧额外开销。
+- tip 启动时现在会以模型真实 input tensor shape 为准校正 `input_width / input_height`；如果参数误配成与 ONNX 不一致的尺寸，会给出告警并自动回到模型尺寸，避免固定 `640x640` 模型因误改参数直接跑崩。
+- tip 串口链已切到仓库 `rc26_serial`，不再直接发送 `AA FF ... FE` 短帧；当前对 MCU 暴露的是 `TIP_VISION(0x12)` + 5 字节 payload 的 RC26 封帧。
+- tip test 节点当前按测试链口径保留为 `test/tip_vision_test_node.cpp` 单文件实现，便于联调时直接查看参数、串口、相机、推理和 overlay 全链路而不改变外部行为。
+- 本次进一步把 tip 推理收口到主链 `InferenceEngine / AidLiteEngine`：`tip_vision_test_node` 只保留 USB 相机、目标选择、串口和 overlay 业务；私有后处理头文件已删除，tip test 节点私有声明合并进 `test/tip_vision_test_node.cpp`，不再放入公开 `include/`。
+- 本次按其他模块口径把 tip test 链路源码收口到包根 `test/`，不再放入 `src/` 或公开 `include/`；`config/test/tip` 与 `models/test/tip` 继续作为该链路的参数和模型资产目录。
+- 模型 profile 已统一到 `config/vision_models.yaml`，`config/test/vision_models_tip.yaml` 删除；模型文件按用途重命名为 `kfs.pt/onnx` 与 `tip.pt/onnx`。

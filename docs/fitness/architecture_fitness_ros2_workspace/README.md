@@ -72,7 +72,7 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 ```
 
 - **当前实现**：GitHub Actions 通过 `.github/workflows/ros2-workspace-ci.yml` 复用 `scripts/ci/run-ros2-workspace-smoke.sh`，对 `rc26_interfaces rc26_robot_geometry rc26_serial rc26_telecontrol rc26_xhu_nav` 跑 smoke build/test，守住工作区的 headless 主链。
-- **边界**：这条 CI 只负责无硬件 smoke 验证，不替代实机 launch、传感器链联调或 AidLux / QCS8550 平台上的验收。
+- **边界**：这条 CI 只负责无硬件 smoke 验证，不替代实机 launch、传感器链联调或犀牛派 X1 / AidLux 平台上的验收。
 
 ## 3. 为当前 ROS2 工作区树立的架构准则
 

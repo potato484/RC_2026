@@ -18,7 +18,7 @@
 
 - `.github/workflows/ros2-workspace-ci.yml`：当前 ROS2 工作区的 GitHub Actions smoke CI。固定覆盖 `rc26_interfaces`、`rc26_robot_geometry`、`rc26_serial`、`rc26_telecontrol`、`rc26_xhu_nav` 这条 headless 主链，执行 `colcon build + colcon test`。
 - `scripts/ci/run-ros2-workspace-smoke.sh`：本地与 CI 复用的 smoke 验证脚本，统一使用仓库规定的 `MAKEFLAGS='-j2 -l2'`、`--executor sequential` 与 `--parallel-workers 1` 口径。
-- `src/` 当前不提供通用 GitHub CD 部署流程。机器人运行时仍以 QCS8550 / AidLux 实机环境和 `rc26_bringup` 装配入口为准，不能把仓库 workflow 伪装成一条通用云部署链。
+- `src/` 当前不提供通用 GitHub CD 部署流程。机器人运行时仍以犀牛派 X1 / AidLux 实机环境和 `rc26_bringup` 装配入口为准，不能把仓库 workflow 伪装成一条通用云部署链。
 
 ## 包目录索引
 
@@ -55,4 +55,4 @@
 
 ### 感知与可视化
 
-- [`rc26_vision`](archive/rc26_vision/README.md): 视觉推理与弹头定位；当前已同时收口 duantou USB/QNN231 实验入口。`(file: archive/rc26_vision/README.md)`
+- [`rc26_vision`](archive/rc26_vision/README.md): 视觉推理与端头定位；默认 build 维持稳定 ONNX/AidLite 主链，同时已收口 tip test 节点与模型资产到包内 `test` 目录。`(file: archive/rc26_vision/README.md)`
