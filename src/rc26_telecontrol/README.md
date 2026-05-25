@@ -58,6 +58,7 @@
     *   `no-imu`：EKF 不融合 IMU，但 `dm_imu_node` 和执行保护链仍保留 IMU
     *   `wheel-only`：不启动也不读取 IMU
 *   统一脚本在 `full` 和 `minimal-mcu` 两个栈下，若默认 `/dev/ttyUSB1` 不存在但 `/dev/ttyUSB0` 存在，都会自动切换到单目标串口降级口径
+*   `start_r2_teleop.sh` 现在把帮助文本与脚本内说明注释统一成中文，参数名、默认值和启动命令保持不变。
 
 ## 3. 参数配置体系
 

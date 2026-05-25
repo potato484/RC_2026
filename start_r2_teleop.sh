@@ -8,41 +8,41 @@ Usage:
   ./start_r2_teleop.sh [options]
 
 Options:
-  --stack <full|minimal-mcu>  Startup stack, default: full
+  --stack <full|minimal-mcu>  启动栈，默认：full
                               full        = merge_odom + joy + telecontrol + front-pushrod-sidecar + rear-pushrod-sidecar
                               minimal-mcu = pose_sender + joy + telecontrol + front-pushrod-sidecar + rear-pushrod-sidecar
-  --mode <stick|dpad>         Control mode, default: dpad
+  --mode <stick|dpad>         控制模式，默认：dpad
                               stick = 左摇杆控制 vx/vy，右摇杆左右控制 wz
                               dpad  = 十字键控制 vx/vy，X/B 控制 wz
   --pose-mode <imu|no-imu|wheel-only>
-                              Only valid for --stack full
-                              imu        = EKF uses IMU
-                              no-imu     = EKF ignores IMU, but dm_imu_node and PoseSender IMU protection stay on
-                              wheel-only = Do not start/read IMU; EKF uses wheel odom only
+                              仅对 --stack full 有效
+                              imu        = EKF 使用 IMU
+                              no-imu     = EKF 不使用 IMU，但保留 dm_imu_node 和 PoseSender IMU 保护链
+                              wheel-only = 不启动也不读取 IMU；EKF 仅使用轮速里程计
   --feedback-serial-port <device>
-                              Serial port for ODOM_DATA / POSE_FEEDBACK, default: /dev/ttyUSB0
+                              ODOM_DATA / POSE_FEEDBACK 反馈串口，默认：/dev/ttyUSB0
   --target-serial-port <device>
-                              Serial port for POSE_TARGET / mechanism transport, default: /dev/ttyUSB1
-  --baudrate <int>            Serial baudrate, default: 1000000
-  --v-linear <m/s>            Max linear speed, default: 0.2
-  --v-angular <rad/s>         Max angular speed, default: 0.5
-  --cmd-vel-topic <topic>     Teleop output topic, default: cmd_vel
-  --device-name <name>        Joystick device name, default: Xbox 360 Controller
-  --joy-node-deadzone <val>   joy_node deadzone, default: 0.01
-  --autorepeat-rate <hz>      joy_node autorepeat rate, default: 50.0
-  --joy-deadzone <val>        Stick mode deadzone, default: 0.15
-  --deadzone-hyst <val>       Stick mode hysteresis width, default: 0.02
-  --joy-timeout-s <sec>       Teleop watchdog timeout, default: 0.3
-  --max-accel <m/s^2>         Max linear acceleration, default: 1.5
-  --max-alpha <rad/s^2>       Max angular acceleration, default: 3.0
-  --stop-repeat-n <count>     Repeated zero-twist frames, default: 10
-  --require-deadman           Require deadman button hold
-  --deadman-button <index>    Deadman button index, default: 4
-  --use-can-odom              Enable CAN odom in merge_odom (full stack only)
-  --start-ekf                 Enable EKF in merge_odom (full stack only)
-  --stats-log                 Enable PoseSender 1s stats logs
-  --dry-run                   Print commands only
-  -h, --help                  Show this help
+                              POSE_TARGET / mechanism transport 目标串口，默认：/dev/ttyUSB1
+  --baudrate <int>            串口波特率，默认：1000000
+  --v-linear <m/s>            最大线速度，默认：0.2
+  --v-angular <rad/s>         最大角速度，默认：0.5
+  --cmd-vel-topic <topic>     遥控输出话题，默认：cmd_vel
+  --device-name <name>        手柄设备名，默认：Xbox 360 Controller
+  --joy-node-deadzone <val>   joy_node 死区，默认：0.01
+  --autorepeat-rate <hz>      joy_node 自动重复发布频率，默认：50.0
+  --joy-deadzone <val>        Stick 模式死区，默认：0.15
+  --deadzone-hyst <val>       Stick 模式死区滞回宽度，默认：0.02
+  --joy-timeout-s <sec>       遥控看门狗超时，默认：0.3
+  --max-accel <m/s^2>         最大线加速度，默认：1.5
+  --max-alpha <rad/s^2>       最大角加速度，默认：3.0
+  --stop-repeat-n <count>     零速指令重复帧数，默认：10
+  --require-deadman           要求持续按住 deadman 安全键
+  --deadman-button <index>    deadman 安全键编号，默认：4
+  --use-can-odom              在 merge_odom 中启用 CAN 里程计（仅 full 栈）
+  --start-ekf                 在 merge_odom 中启用 EKF（仅 full 栈）
+  --stats-log                 启用 PoseSender 1 秒统计日志
+  --dry-run                   只打印命令，不实际启动
+  -h, --help                  显示本帮助
 
 Examples:
   ./start_r2_teleop.sh
@@ -69,7 +69,7 @@ source_with_relaxed_nounset() {
       ;;
   esac
 
-  # shellcheck disable=SC1090
+  # shellcheck：setup.bash 路径由运行时工作区决定，静态检查无法解析。
   source "$1"
 
   if [[ "${nounset_was_enabled}" == "true" ]]; then
@@ -87,13 +87,13 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 workspace_dir="${RC26_WS:-${script_dir}}"
 setup_file="${workspace_dir}/install/setup.bash"
 
-stack_mode="full"
+stack_mode="minimal-mcu"
 mode="dpad"
 pose_mode=""
 feedback_serial_port="/dev/ttyUSB0"
 target_serial_port="/dev/ttyUSB1"
 baudrate="1000000"
-v_linear="0.2"
+v_linear="0.1"
 v_angular="0.5"
 cmd_vel_topic="cmd_vel"
 device_name="Xbox 360 Controller"
