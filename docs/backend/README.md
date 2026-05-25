@@ -55,4 +55,4 @@
 
 ### 感知与可视化
 
-- [`rc26_vision`](archive/rc26_vision/README.md): 视觉推理与端头定位；默认 build 维持稳定 ONNX/AidLite 主链，同时已收口 tip test 节点与模型资产到包内 `test` 目录。`(file: archive/rc26_vision/README.md)`
+- [`rc26_vision`](archive/rc26_vision/README.md): 视觉推理与端头定位；当前启动时按 AidLite / 本地 ONNX Runtime 自动选链，tip test 节点源码收口在包内 `test/`，其参数与模型资产直接收口在包内 `config/` 与 `models/` 根目录。`(file: archive/rc26_vision/README.md)`

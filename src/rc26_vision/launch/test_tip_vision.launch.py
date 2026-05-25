@@ -8,7 +8,7 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
     pkg_share = FindPackageShare("rc26_vision")
     default_params = PathJoinSubstitution(
-        [pkg_share, "config", "test", "tip", "tip_vision_params.yaml"]
+        [pkg_share, "config", "tip_vision_params.yaml"]
     )
     default_vision_config = PathJoinSubstitution(
         [pkg_share, "config", "vision_models.yaml"]

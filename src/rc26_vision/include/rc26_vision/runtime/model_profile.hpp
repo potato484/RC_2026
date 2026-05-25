@@ -7,10 +7,25 @@
 namespace rc26_vision {
 
 enum class EngineType {
+    Auto,
     LocalOnnx,
     AidLite,
     AidLiteQnnYolo
 };
+
+inline const char* engineTypeToString(EngineType type) {
+    switch (type) {
+        case EngineType::Auto:
+            return "auto";
+        case EngineType::LocalOnnx:
+            return "onnxruntime";
+        case EngineType::AidLite:
+            return "aidlite";
+        case EngineType::AidLiteQnnYolo:
+            return "aidlite_qnn_yolo";
+    }
+    return "unknown";
+}
 
 struct AidLiteConfig {
     std::string framework_type;

@@ -95,7 +95,7 @@ bool VisionInferenceManager::configure(
 
     ModelProfile profile;
     profile.id = "__direct_config__";
-    profile.engine = EngineType::LocalOnnx;
+    profile.engine = EngineType::Auto;
     profile.model_path = model_path;
     profile.labels = class_names;
     profile.conf_thresh = conf_thresh;

@@ -25,7 +25,7 @@ ModelProfile makeTipLocalizerProfile(const std::string& model_path,
                                      float iou_thresh) {
     ModelProfile profile;
     profile.id = "tip_localizer_default";
-    profile.engine = EngineType::LocalOnnx;
+    profile.engine = EngineType::Auto;
     profile.model_path = model_path;
     profile.labels = class_names;
     profile.conf_thresh = conf_thresh;

@@ -1,6 +1,6 @@
 #include "rc26_vision/engines/yolo_engine.hpp"
 
-#include "rc26_vision/engines/aidlite_engine.hpp"
+#include "rc26_vision/runtime/inference_engine_factory.hpp"
 
 #include <memory>
 #include <stdexcept>
@@ -9,7 +9,7 @@
 namespace rc26_vision {
 
 struct YoloEngine::Impl {
-    std::unique_ptr<AidLiteEngine> engine;
+    InferenceEnginePtr engine;
 };
 
 YoloEngine::YoloEngine(const std::string& model_path,
@@ -19,12 +19,16 @@ YoloEngine::YoloEngine(const std::string& model_path,
                        int input_w,
                        int input_h)
     : impl_(std::make_unique<Impl>()) {
-    AidLiteConfig config;
-    config.framework_type = "onnx";
-    config.accelerate_type = "cpu";
-
-    impl_->engine = std::make_unique<AidLiteEngine>(
-        model_path, class_names, config, conf_thresh, iou_thresh, input_w, input_h);
+    ModelProfile profile;
+    profile.id = model_path;
+    profile.engine = EngineType::Auto;
+    profile.model_path = model_path;
+    profile.labels = class_names;
+    profile.conf_thresh = conf_thresh;
+    profile.iou_thresh = iou_thresh;
+    profile.input_w = input_w;
+    profile.input_h = input_h;
+    impl_->engine = createInferenceEngine(profile);
 }
 
 YoloEngine::~YoloEngine() = default;

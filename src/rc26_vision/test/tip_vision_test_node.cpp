@@ -967,6 +967,10 @@ bool TipVisionTestNode::open_camera_by_index(int index, std::string & opened_sou
   configure_camera_properties();
   cv::Mat test_frame;
   if (!camera_.read(test_frame) || test_frame.empty()) {
+    RCLCPP_WARN(
+      get_logger(),
+      "Camera index %d opened but failed to read the first frame; releasing this candidate.",
+      index);
     camera_.release();
     return false;
   }
@@ -991,6 +995,10 @@ bool TipVisionTestNode::open_camera_by_path(const std::string & path, std::strin
   configure_camera_properties();
   cv::Mat test_frame;
   if (!camera_.read(test_frame) || test_frame.empty()) {
+    RCLCPP_WARN(
+      get_logger(),
+      "Camera path '%s' opened but failed to read the first frame; releasing this candidate.",
+      path.c_str());
     camera_.release();
     return false;
   }
@@ -1058,18 +1066,24 @@ bool TipVisionTestNode::init_camera()
   bool opened = false;
 
   if (!camera_device_.empty()) {
+    RCLCPP_INFO(get_logger(), "Trying preferred camera path '%s'...", camera_device_.c_str());
     opened = open_camera_by_path(camera_device_, opened_source);
   } else {
+    RCLCPP_INFO(get_logger(), "Trying preferred camera index %d...", camera_index_);
     opened = open_camera_by_index(camera_index_, opened_source);
   }
 
   if (!opened && auto_scan_camera_) {
+    RCLCPP_WARN(
+      get_logger(),
+      "Preferred camera did not yield frames; auto_scan_camera=true, scanning other /dev/video* devices.");
     const std::vector<std::string> candidates = discover_video_devices();
     for (const auto & candidate : candidates) {
       if (!camera_device_.empty() && candidate == camera_device_) {
         continue;
       }
       const int candidate_index = parse_video_index_from_path(candidate);
+      RCLCPP_INFO(get_logger(), "Trying fallback camera candidate %s...", candidate.c_str());
       if (candidate_index >= 0 && open_camera_by_index(candidate_index, opened_source)) {
         opened = true;
         break;

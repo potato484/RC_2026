@@ -10,6 +10,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include "rc26_vision/engines/yolo_backend_utils.hpp"
+
 using namespace Aidlux::Aidlite;
 
 namespace rc26_vision {
@@ -41,21 +43,6 @@ AccelerateType parseAccelerateType(const std::string& type) {
     return AccelerateType::TYPE_CPU;
 }
 
-int parsePaddingValue(const std::string& value) {
-    std::string lower = value;
-    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-    });
-    if (lower.empty() || lower == "black") return 0;
-    if (lower == "white") return 255;
-    if (lower == "gray" || lower == "grey" || lower == "gray114" || lower == "grey114") return 114;
-    try {
-        return std::clamp(std::stoi(lower), 0, 255);
-    } catch (...) {
-        return 114;
-    }
-}
-
 std::size_t bytesPerElement(DataType dtype) {
     switch (dtype) {
         case DataType::TYPE_UINT8:
@@ -84,14 +71,7 @@ struct AidLiteEngine::Impl {
     std::size_t output_predictions{0};
     bool output_channel_major{true};
     int padding_value{114};
-
-    int last_src_w{0};
-    int last_src_h{0};
-    float last_scale_x{1.0F};
-    float last_scale_y{1.0F};
-    int last_pad_x{0};
-    int last_pad_y{0};
-    bool last_letterbox{false};
+    YoloImageTransform last_transform;
 
     std::vector<uint8_t> input_u8;
     std::vector<int8_t> input_i8;
@@ -252,47 +232,15 @@ float AidLiteEngine::getConfThresh() const { return conf_thresh_.load(); }
 float AidLiteEngine::getIouThresh() const { return iou_thresh_.load(); }
 
 bool AidLiteEngine::preprocess(const cv::Mat& image) {
-    if (image.empty()) return false;
-
-    cv::Mat rgb;
-    switch (image.channels()) {
-        case 3: cv::cvtColor(image, rgb, cv::COLOR_BGR2RGB); break;
-        case 4: cv::cvtColor(image, rgb, cv::COLOR_BGRA2RGB); break;
-        case 1: cv::cvtColor(image, rgb, cv::COLOR_GRAY2RGB); break;
-        default: return false;
-    }
-
-    impl_->last_src_w = image.cols;
-    impl_->last_src_h = image.rows;
-    impl_->last_pad_x = 0;
-    impl_->last_pad_y = 0;
-    impl_->last_letterbox = (impl_->config.resize_mode != "stretch");
-
     cv::Mat model_rgb;
-    if (impl_->last_letterbox) {
-        const float sx = static_cast<float>(input_w_) / static_cast<float>(image.cols);
-        const float sy = static_cast<float>(input_h_) / static_cast<float>(image.rows);
-        const float scale = std::min(sx, sy);
-        const int new_w = std::max(1, static_cast<int>(std::round(image.cols * scale)));
-        const int new_h = std::max(1, static_cast<int>(std::round(image.rows * scale)));
-        impl_->last_scale_x = scale;
-        impl_->last_scale_y = scale;
-        impl_->last_pad_x = (input_w_ - new_w) / 2;
-        impl_->last_pad_y = (input_h_ - new_h) / 2;
-        model_rgb = cv::Mat(
-            input_h_, input_w_, CV_8UC3,
-            cv::Scalar(impl_->padding_value, impl_->padding_value, impl_->padding_value));
-        cv::Mat resized;
-        cv::resize(rgb, resized, cv::Size(new_w, new_h), 0.0, 0.0, cv::INTER_LINEAR);
-        resized.copyTo(model_rgb(cv::Rect(impl_->last_pad_x, impl_->last_pad_y, new_w, new_h)));
-    } else {
-        impl_->last_scale_x = static_cast<float>(input_w_) / static_cast<float>(image.cols);
-        impl_->last_scale_y = static_cast<float>(input_h_) / static_cast<float>(image.rows);
-        cv::resize(rgb, model_rgb, cv::Size(input_w_, input_h_), 0.0, 0.0, cv::INTER_LINEAR);
-    }
-
-    if (!model_rgb.isContinuous()) {
-        model_rgb = model_rgb.clone();
+    if (!prepareYoloInputImage(image,
+                               input_w_,
+                               input_h_,
+                               impl_->config.resize_mode,
+                               impl_->padding_value,
+                               model_rgb,
+                               impl_->last_transform)) {
+        return false;
     }
 
     const std::size_t total = static_cast<std::size_t>(model_rgb.total() * model_rgb.channels());
@@ -459,129 +407,20 @@ std::vector<Detection> AidLiteEngine::infer(const cv::Mat& image) {
 std::vector<Detection> AidLiteEngine::postprocess(
     const std::vector<float>& output,
     int orig_w, int orig_h) {
-    std::vector<Detection> detections;
-    if (output.empty() || orig_w <= 0 || orig_h <= 0) return detections;
-
-    const float conf_thresh = conf_thresh_.load(std::memory_order_relaxed);
-    const int64_t channels = static_cast<int64_t>(impl_->output_channels);
-    const int64_t num_boxes = static_cast<int64_t>(impl_->output_predictions);
-    const int64_t num_classes = std::max<int64_t>(
-        1, (impl_->config.num_classes > 0) ? impl_->config.num_classes :
-        static_cast<int64_t>(class_names_.size()));
-    const int64_t expected_v8_c = num_classes + 4;
-    const int64_t expected_v5_c = num_classes + 5;
-    const bool has_objectness = (channels == expected_v5_c);
-    const int64_t cls_offset = has_objectness ? 5 : 4;
-    const int64_t out_num_classes = channels - cls_offset;
-    if (num_boxes <= 0 || channels <= cls_offset || out_num_classes <= 0) return detections;
-
-    auto get_val = [&](int64_t box_idx, int64_t attr_idx) -> float {
-        if (impl_->output_channel_major) {
-            return output[static_cast<std::size_t>(attr_idx * num_boxes + box_idx)];
-        }
-        return output[static_cast<std::size_t>(box_idx * channels + attr_idx)];
-    };
-
-    auto map_x = [&](float x) -> float {
-        if (impl_->last_letterbox) {
-            return (x - static_cast<float>(impl_->last_pad_x)) / impl_->last_scale_x;
-        }
-        return x / impl_->last_scale_x;
-    };
-    auto map_y = [&](float y) -> float {
-        if (impl_->last_letterbox) {
-            return (y - static_cast<float>(impl_->last_pad_y)) / impl_->last_scale_y;
-        }
-        return y / impl_->last_scale_y;
-    };
-
-    detections.reserve(static_cast<std::size_t>(num_boxes / 8));
-    for (int64_t i = 0; i < num_boxes; ++i) {
-        const float x = get_val(i, 0);
-        const float y = get_val(i, 1);
-        const float w = get_val(i, 2);
-        const float h = get_val(i, 3);
-        if (w <= 0.0F || h <= 0.0F) continue;
-
-        const float obj = has_objectness ? get_val(i, 4) : 1.0F;
-        int best_class = -1;
-        float best_score = 0.0F;
-        const int64_t class_limit = std::min<int64_t>(out_num_classes, num_classes);
-        for (int64_t c = 0; c < class_limit; ++c) {
-            const float s = get_val(i, cls_offset + c);
-            if (s > best_score) {
-                best_score = s;
-                best_class = static_cast<int>(c);
-            }
-        }
-
-        const float score = has_objectness ? (obj * best_score) : best_score;
-        if (score < conf_thresh) continue;
-
-        float x1 = map_x(x - w / 2.0F);
-        float y1 = map_y(y - h / 2.0F);
-        float x2 = map_x(x + w / 2.0F);
-        float y2 = map_y(y + h / 2.0F);
-
-        x1 = std::clamp(x1, 0.0F, static_cast<float>(orig_w - 1));
-        y1 = std::clamp(y1, 0.0F, static_cast<float>(orig_h - 1));
-        x2 = std::clamp(x2, 0.0F, static_cast<float>(orig_w - 1));
-        y2 = std::clamp(y2, 0.0F, static_cast<float>(orig_h - 1));
-        if (x2 <= x1 || y2 <= y1) continue;
-
-        Detection det;
-        det.x1 = x1;
-        det.y1 = y1;
-        det.x2 = x2;
-        det.y2 = y2;
-        det.score = score;
-        det.class_id = best_class;
-        if (best_class >= 0 && best_class < static_cast<int>(class_names_.size())) {
-            det.class_name = class_names_[static_cast<std::size_t>(best_class)];
-        }
-        detections.push_back(std::move(det));
-    }
-    (void)expected_v8_c;
-    return detections;
+    return decodeYoloOutput(output,
+                            impl_->output_channels,
+                            impl_->output_predictions,
+                            impl_->output_channel_major,
+                            class_names_,
+                            conf_thresh_.load(std::memory_order_relaxed),
+                            orig_w,
+                            orig_h,
+                            impl_->last_transform,
+                            impl_->config.num_classes);
 }
 
 void AidLiteEngine::nms(std::vector<Detection>& detections) {
-    if (detections.empty()) return;
-
-    const float iou_thresh = iou_thresh_.load(std::memory_order_relaxed);
-
-    std::sort(detections.begin(), detections.end(),
-              [](const Detection& a, const Detection& b) { return a.score > b.score; });
-
-    auto iou = [](const Detection& a, const Detection& b) -> float {
-        const float xx1 = std::max(a.x1, b.x1);
-        const float yy1 = std::max(a.y1, b.y1);
-        const float xx2 = std::min(a.x2, b.x2);
-        const float yy2 = std::min(a.y2, b.y2);
-        const float w = std::max(0.0f, xx2 - xx1);
-        const float h = std::max(0.0f, yy2 - yy1);
-        const float inter = w * h;
-        const float area_a = std::max(0.0f, a.x2 - a.x1) * std::max(0.0f, a.y2 - a.y1);
-        const float area_b = std::max(0.0f, b.x2 - b.x1) * std::max(0.0f, b.y2 - b.y1);
-        const float uni = area_a + area_b - inter;
-        return (uni <= 0.0f) ? 0.0f : (inter / uni);
-    };
-
-    std::vector<Detection> kept;
-    kept.reserve(detections.size());
-
-    for (const auto& det : detections) {
-        bool keep = true;
-        for (const auto& prev : kept) {
-            if (det.class_id != prev.class_id) continue;
-            if (iou(det, prev) > iou_thresh) {
-                keep = false;
-                break;
-            }
-        }
-        if (keep) kept.push_back(det);
-    }
-    detections.swap(kept);
+    applyClassWiseNms(detections, iou_thresh_.load(std::memory_order_relaxed));
 }
 
 }  // namespace rc26_vision

@@ -8,13 +8,13 @@ vision:
 
   models:
     kfs_default:
-      engine: aidlite
+      engine: auto
       model_path: "../models/kfs.onnx"
       conf_thresh: 0.5
       iou_thresh: 0.45
       input_w: 640
       input_h: 640
-      labels_path: "../models/labels.txt"
+      labels_path: "../models/kfs_labels.txt"
       aidlite:
         framework_type: "onnx"
         accelerate_type: "cpu"
@@ -22,13 +22,13 @@ vision:
         padding_color: "114"
 
     tip_test:
-      engine: aidlite
-      model_path: "../models/test/tip/tip.onnx"
+      engine: auto
+      model_path: "../models/tip.onnx"
       conf_thresh: 0.25
       iou_thresh: 0.45
       input_w: 640
       input_h: 640
-      labels_path: "../models/test/tip/labels.txt"
+      labels_path: "../models/tip_labels.txt"
       aidlite:
         framework_type: "onnx"
         accelerate_type: "cpu"

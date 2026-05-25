@@ -23,6 +23,11 @@ find_package(rc26_interfaces REQUIRED)
 find_package(rc26_serial REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_path(ONNXRUNTIME_INCLUDE onnxruntime/onnxruntime_cxx_api.h HINTS /usr/local/include)
+find_library(ONNXRUNTIME_LIB onnxruntime HINTS /usr/local/lib)
+if(NOT ONNXRUNTIME_INCLUDE OR NOT ONNXRUNTIME_LIB)
+  message(FATAL_ERROR "rc26_vision: ONNX Runtime not found under /usr/local; local ONNX fallback backend cannot be built")
+endif()
 
 # AidLux local ONNX inference chain.
 find_path(AIDLITE_INCLUDE aidlux/aidlite/aidlite.hpp HINTS /usr/local/include)
@@ -31,8 +36,11 @@ find_library(AIDLITE_QNN231_LIB aidlite_qnn231 HINTS /usr/local/lib)
 
 set(RC26_VISION_LIBRARY_SOURCES
   src/engines/yolo_engine.cpp
+  src/engines/yolo_backend_utils.cpp
+  src/engines/opencv_onnx_engine.cpp
   src/runtime/vision_inference_manager.cpp
   src/runtime/profile_loader.cpp
+  src/runtime/inference_backend_resolver.cpp
   src/runtime/inference_engine_factory.cpp
   src/pipelines/tip_localizer.cpp
 )
@@ -61,6 +69,12 @@ add_library(${PROJECT_NAME} SHARED
 )
 target_include_directories(${PROJECT_NAME} PUBLIC ${COMMON_INCLUDE_DIRS})
 target_include_directories(${PROJECT_NAME} PRIVATE ${OpenCV_INCLUDE_DIRS})
+target_include_directories(${PROJECT_NAME} PRIVATE ${ONNXRUNTIME_INCLUDE})
+if(AIDLITE_INCLUDE AND AIDLITE_LIB)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC RC26_VISION_HAS_AIDLITE=1)
+else()
+  target_compile_definitions(${PROJECT_NAME} PUBLIC RC26_VISION_HAS_AIDLITE=0)
+endif()
 if(AIDLITE_INCLUDE)
   target_include_directories(${PROJECT_NAME} PRIVATE ${AIDLITE_INCLUDE})
 endif()
@@ -82,6 +96,7 @@ ament_target_dependencies(${PROJECT_NAME}
 
 target_link_libraries(${PROJECT_NAME}
   ${OpenCV_LIBS}
+  ${ONNXRUNTIME_LIB}
   yaml-cpp
   pthread
 )
@@ -164,6 +179,16 @@ install(
   FILES tools/dataset_stats.md
   DESTINATION share/${PROJECT_NAME}/tools
 )
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  ament_add_gtest(test_inference_backend_resolver
+    test/test_inference_backend_resolver.cpp
+  )
+  target_include_directories(test_inference_backend_resolver PUBLIC ${COMMON_INCLUDE_DIRS})
+  target_link_libraries(test_inference_backend_resolver ${PROJECT_NAME})
+endif()
 
 # ============================================================================
 # ament 导出

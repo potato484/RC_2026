@@ -133,7 +133,9 @@ VisionConfig ProfileLoader::loadFromYaml(const std::string& yaml_path) {
             throw std::runtime_error("Profile '" + profile.id + "' missing required field: engine");
         }
         std::string engine_str = node["engine"].as<std::string>();
-        if (engine_str == "aidlite") {
+        if (engine_str == "auto") {
+            profile.engine = EngineType::Auto;
+        } else if (engine_str == "aidlite") {
             profile.engine = EngineType::AidLite;
         } else if (engine_str == "aidlite_qnn_yolo" || engine_str == "aidlite_qnn231_yolo" ||
                    engine_str == "aidlite_qnn231") {
@@ -162,7 +164,8 @@ VisionConfig ProfileLoader::loadFromYaml(const std::string& yaml_path) {
         }
 
         // aidlite config
-        if ((profile.engine == EngineType::AidLite ||
+        if ((profile.engine == EngineType::Auto ||
+             profile.engine == EngineType::AidLite ||
              profile.engine == EngineType::AidLiteQnnYolo) && node["aidlite"]) {
             AidLiteConfig aidcfg;
             auto aidnode = node["aidlite"];
