@@ -1,4 +1,4 @@
-#include "rc26_vision/engines/aidlite_engine.hpp"
+#include "rc26_vision/inference/aidlite_engine.hpp"
 
 #include <stdexcept>
 

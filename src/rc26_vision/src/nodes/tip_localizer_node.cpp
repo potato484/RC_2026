@@ -2,7 +2,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 
-#include "rc26_vision/pipelines/tip_localizer.hpp"
+#include "rc26_vision/postprocess/tip_localizer.hpp"
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);

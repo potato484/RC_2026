@@ -1,4 +1,4 @@
-#include "rc26_vision/runtime/profile_loader.hpp"
+#include "rc26_vision/inference/model_profile_loader.hpp"
 
 #include <cctype>
 #include <cstdlib>

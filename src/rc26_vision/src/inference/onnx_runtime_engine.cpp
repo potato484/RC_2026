@@ -1,4 +1,4 @@
-#include "rc26_vision/engines/opencv_onnx_engine.hpp"
+#include "rc26_vision/inference/onnx_runtime_engine.hpp"
 
 #include <algorithm>
 #include <array>
@@ -10,7 +10,8 @@
 
 #include <onnxruntime/onnxruntime_cxx_api.h>
 
-#include "rc26_vision/engines/yolo_backend_utils.hpp"
+#include "rc26_vision/postprocess/yolo_detection_postprocessor.hpp"
+#include "rc26_vision/preprocess/yolo_image_preprocessor.hpp"
 
 namespace rc26_vision {
 

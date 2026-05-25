@@ -6,7 +6,7 @@
 
 #include <opencv2/core.hpp>
 
-#include "rc26_vision/runtime/types.hpp"
+#include "rc26_vision/shared/vision_types.hpp"
 
 namespace rc26_vision {
 

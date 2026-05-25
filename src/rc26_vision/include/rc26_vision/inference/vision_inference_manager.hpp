@@ -12,9 +12,9 @@
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
 
-#include "rc26_vision/engines/inference_engine.hpp"
-#include "rc26_vision/runtime/profile_loader.hpp"
-#include "rc26_vision/runtime/types.hpp"
+#include "rc26_vision/inference/inference_engine.hpp"
+#include "rc26_vision/inference/model_profile_loader.hpp"
+#include "rc26_vision/shared/vision_types.hpp"
 
 namespace cv {
 class Mat;

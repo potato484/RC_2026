@@ -1,6 +1,6 @@
-#include "rc26_vision/engines/yolo_engine.hpp"
+#include "rc26_vision/inference/yolo_engine.hpp"
 
-#include "rc26_vision/runtime/inference_engine_factory.hpp"
+#include "rc26_vision/inference/engine_factory.hpp"
 
 #include <memory>
 #include <stdexcept>

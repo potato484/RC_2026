@@ -4,30 +4,11 @@
 #include <string>
 #include <vector>
 
-#include <opencv2/core.hpp>
-
-#include "rc26_vision/runtime/types.hpp"
+#include "rc26_vision/shared/vision_types.hpp"
+#include "rc26_vision/shared/yolo_transform.hpp"
 
 namespace rc26_vision {
 
-struct YoloImageTransform {
-    int src_w{0};
-    int src_h{0};
-    float scale_x{1.0F};
-    float scale_y{1.0F};
-    int pad_x{0};
-    int pad_y{0};
-    bool letterbox{false};
-};
-
-int parsePaddingValue(const std::string& value);
-bool prepareYoloInputImage(const cv::Mat& image,
-                           int input_w,
-                           int input_h,
-                           const std::string& resize_mode,
-                           int padding_value,
-                           cv::Mat& model_rgb,
-                           YoloImageTransform& transform);
 std::vector<Detection> decodeYoloOutput(const std::vector<float>& output,
                                         std::size_t output_channels,
                                         std::size_t output_predictions,

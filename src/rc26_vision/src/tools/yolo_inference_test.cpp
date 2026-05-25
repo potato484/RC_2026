@@ -10,7 +10,7 @@
 #include <algorithm>
 
 #include <opencv2/opencv.hpp>
-#include "rc26_vision/engines/yolo_engine.hpp"
+#include "rc26_vision/inference/yolo_engine.hpp"
 
 namespace {
 constexpr const char* kWindowName = "YOLO Detection";

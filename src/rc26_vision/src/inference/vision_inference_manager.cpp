@@ -1,11 +1,10 @@
-#include "rc26_vision/runtime/inference_engine_factory.hpp"
-#include "rc26_vision/runtime/vision_inference_manager.hpp"
+#include "rc26_vision/inference/engine_factory.hpp"
+#include "rc26_vision/inference/vision_inference_manager.hpp"
+#include "rc26_vision/shared/depth_roi_sampler.hpp"
 
 #include <cv_bridge/cv_bridge.h>
 #include <opencv2/core.hpp>
 
-#include <algorithm>
-#include <cmath>
 #include <stdexcept>
 
 namespace rc26_vision {
@@ -380,51 +379,13 @@ void VisionInferenceManager::onCameraInfo(
 
 double VisionInferenceManager::computeDepth(
     const cv::Mat& depth, int cx, int cy) {
-    if (depth.empty() || depth.rows <= 0 || depth.cols <= 0) return 0.0;
-    if (depth.channels() != 1) return 0.0;
-    if (depth_roi_size_ <= 0 || depth_min_valid_count_ <= 0) return 0.0;
-
-    const int half = depth_roi_size_ / 2;
-
-    cx = std::max(0, std::min(cx, depth.cols - 1));
-    cy = std::max(0, std::min(cy, depth.rows - 1));
-
-    const int x0 = std::max(0, cx - half);
-    const int x1 = std::min(depth.cols - 1, cx + half);
-    const int y0 = std::max(0, cy - half);
-    const int y1 = std::min(depth.rows - 1, cy + half);
-    if (x0 > x1 || y0 > y1) return 0.0;
-
-    std::vector<double> samples;
-    samples.reserve(static_cast<size_t>((x1 - x0 + 1) * (y1 - y0 + 1)));
-
-    for (int y = y0; y <= y1; ++y) {
-        for (int x = x0; x <= x1; ++x) {
-            double z_m = 0.0;
-            if (depth.type() == CV_16UC1) {
-                const uint16_t z_mm = depth.at<uint16_t>(y, x);
-                if (z_mm == 0) continue;
-                z_m = static_cast<double>(z_mm) * 1e-3;
-            } else if (depth.type() == CV_32FC1) {
-                const float z = depth.at<float>(y, x);
-                if (!std::isfinite(z) || z <= 0.0f) continue;
-                z_m = static_cast<double>(z);
-            } else {
-                return 0.0;
-            }
-
-            if (z_m < depth_min_m_ || z_m > depth_max_m_) continue;
-            samples.push_back(z_m);
-        }
-    }
-
-    if (static_cast<int>(samples.size()) < depth_min_valid_count_) {
-        return 0.0;
-    }
-
-    const size_t mid = samples.size() / 2;
-    std::nth_element(samples.begin(), samples.begin() + mid, samples.end());
-    return samples[mid];
+    DepthRoiSamplerConfig config;
+    config.roi_size = depth_roi_size_;
+    config.min_valid_count = depth_min_valid_count_;
+    config.min_depth_m = depth_min_m_;
+    config.max_depth_m = depth_max_m_;
+    const auto sampled = sampleMedianDepth(depth, cx, cy, config);
+    return sampled.value_or(0.0);
 }
 
 }  // namespace rc26_vision

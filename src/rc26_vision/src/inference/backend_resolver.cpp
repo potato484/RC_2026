@@ -1,4 +1,4 @@
-#include "rc26_vision/runtime/inference_backend_resolver.hpp"
+#include "rc26_vision/inference/backend_resolver.hpp"
 
 #include <filesystem>
 #include <sstream>

@@ -15,7 +15,7 @@
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 
-#include "rc26_vision/engines/inference_engine.hpp"
+#include "rc26_vision/inference/inference_engine.hpp"
 
 namespace rc26_vision {
 
@@ -37,7 +37,6 @@ private:
     void onDepth(const sensor_msgs::msg::Image::ConstSharedPtr& msg);
     void onCameraInfo(const sensor_msgs::msg::CameraInfo::ConstSharedPtr& msg);
 
-    std::optional<double> medianDepth5x5(const sensor_msgs::msg::Image& depth, int u, int v) const;
     std::optional<geometry_msgs::msg::PointStamped> toMapFrame(
         const geometry_msgs::msg::PointStamped& pt_camera);
     bool validateSpacing(std::vector<rc26_interfaces::msg::TipDetection>& detections) const;

@@ -7,8 +7,8 @@
 
 #include <rclcpp/rclcpp.hpp>
 
-#include "rc26_vision/runtime/profile_loader.hpp"
-#include "rc26_vision/runtime/vision_inference_manager.hpp"
+#include "rc26_vision/inference/model_profile_loader.hpp"
+#include "rc26_vision/inference/vision_inference_manager.hpp"
 
 namespace rc26_vision {
 

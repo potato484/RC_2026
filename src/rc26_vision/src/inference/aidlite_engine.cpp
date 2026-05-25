@@ -1,4 +1,4 @@
-#include "rc26_vision/engines/aidlite_engine.hpp"
+#include "rc26_vision/inference/aidlite_engine.hpp"
 
 #include <aidlux/aidlite/aidlite.hpp>
 #include <opencv2/imgproc.hpp>
@@ -10,7 +10,8 @@
 #include <stdexcept>
 #include <utility>
 
-#include "rc26_vision/engines/yolo_backend_utils.hpp"
+#include "rc26_vision/postprocess/yolo_detection_postprocessor.hpp"
+#include "rc26_vision/preprocess/yolo_image_preprocessor.hpp"
 
 using namespace Aidlux::Aidlite;
 

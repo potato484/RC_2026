@@ -1,9 +1,7 @@
-#include "rc26_vision/pipelines/tip_localizer.hpp"
+#include "rc26_vision/postprocess/tip_localizer.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
-#include <numeric>
 #include <utility>
 
 #include <cv_bridge/cv_bridge.h>
@@ -11,8 +9,9 @@
 #include <opencv2/core.hpp>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
-#include "rc26_vision/runtime/inference_engine_factory.hpp"
-#include "rc26_vision/runtime/model_profile.hpp"
+#include "rc26_vision/inference/engine_factory.hpp"
+#include "rc26_vision/inference/model_profile.hpp"
+#include "rc26_vision/shared/depth_roi_sampler.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
 namespace rc26_vision {
@@ -113,50 +112,6 @@ void TipLocalizer::onCameraInfo(const sensor_msgs::msg::CameraInfo::ConstSharedP
     intrinsics_.ready = intrinsics_.fx > 0.0 && intrinsics_.fy > 0.0;
 }
 
-std::optional<double> TipLocalizer::medianDepth5x5(const sensor_msgs::msg::Image& depth,
-                                                   int u, int v) const {
-    if (depth.width == 0 || depth.height == 0) {
-        return std::nullopt;
-    }
-
-    std::vector<double> samples;
-    samples.reserve(25);
-
-    const int w = static_cast<int>(depth.width);
-    const int h = static_cast<int>(depth.height);
-
-    for (int dv = -2; dv <= 2; ++dv) {
-        for (int du = -2; du <= 2; ++du) {
-            const int x = std::clamp(u + du, 0, w - 1);
-            const int y = std::clamp(v + dv, 0, h - 1);
-            const auto offset = static_cast<size_t>(y) * depth.step;
-
-            double depth_m = 0.0;
-            if (depth.encoding == "16UC1") {
-                const auto* row = reinterpret_cast<const uint16_t*>(depth.data.data() + offset);
-                depth_m = static_cast<double>(row[x]) * 0.001;
-            } else if (depth.encoding == "32FC1") {
-                const auto* row = reinterpret_cast<const float*>(depth.data.data() + offset);
-                depth_m = static_cast<double>(row[x]);
-            } else {
-                return std::nullopt;
-            }
-
-            if (std::isfinite(depth_m) && depth_m > 0.0 && depth_m <= max_depth_m_) {
-                samples.push_back(depth_m);
-            }
-        }
-    }
-
-    if (samples.empty()) {
-        return std::nullopt;
-    }
-
-    const auto mid = samples.begin() + static_cast<std::ptrdiff_t>(samples.size() / 2);
-    std::nth_element(samples.begin(), mid, samples.end());
-    return *mid;
-}
-
 std::optional<geometry_msgs::msg::PointStamped> TipLocalizer::toMapFrame(
     const geometry_msgs::msg::PointStamped& pt_camera) {
     try {
@@ -226,8 +181,10 @@ void TipLocalizer::onColor(const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
     }
 
     cv::Mat color;
+    cv::Mat depth;
     try {
         color = cv_bridge::toCvCopy(msg, "bgr8")->image;
+        depth = cv_bridge::toCvShare(depth_msg)->image;
     } catch (const cv_bridge::Exception&) {
         return;
     }
@@ -245,10 +202,15 @@ void TipLocalizer::onColor(const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
         0.0, 0.0, 1.0);
     cv::Mat dist_coeffs(intrinsics.dist);
 
+    DepthRoiSamplerConfig depth_sampler_config;
+    depth_sampler_config.roi_size = 5;
+    depth_sampler_config.min_valid_count = 1;
+    depth_sampler_config.max_depth_m = max_depth_m_;
+
     for (const auto& det : detections) {
         const int u = static_cast<int>((det.x1 + det.x2) * 0.5f);
         const int v = static_cast<int>((det.y1 + det.y2) * 0.5f);
-        const auto depth_m = medianDepth5x5(*depth_msg, u, v);
+        const auto depth_m = sampleMedianDepth(depth, u, v, depth_sampler_config);
         if (!depth_m) {
             continue;
         }

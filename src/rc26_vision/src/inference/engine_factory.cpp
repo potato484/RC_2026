@@ -1,11 +1,11 @@
-#include "rc26_vision/runtime/inference_engine_factory.hpp"
+#include "rc26_vision/inference/engine_factory.hpp"
 
 #include <iostream>
 #include <stdexcept>
 
-#include "rc26_vision/engines/aidlite_engine.hpp"
-#include "rc26_vision/engines/opencv_onnx_engine.hpp"
-#include "rc26_vision/runtime/inference_backend_resolver.hpp"
+#include "rc26_vision/inference/aidlite_engine.hpp"
+#include "rc26_vision/inference/backend_resolver.hpp"
+#include "rc26_vision/inference/onnx_runtime_engine.hpp"
 
 namespace rc26_vision {
 

@@ -19,8 +19,8 @@
 #include <vector>
 
 #include "rc26_serial/serial_driver.hpp"
-#include "rc26_vision/engines/inference_engine.hpp"
-#include "rc26_vision/runtime/model_profile.hpp"
+#include "rc26_vision/inference/inference_engine.hpp"
+#include "rc26_vision/inference/model_profile.hpp"
 
 namespace rc26_vision::test {
 
@@ -1118,8 +1118,8 @@ bool TipVisionTestNode::init_camera()
 
 // ---- tip_vision_test_node_inference.cpp ----
 
-#include "rc26_vision/runtime/inference_engine_factory.hpp"
-#include "rc26_vision/runtime/profile_loader.hpp"
+#include "rc26_vision/inference/engine_factory.hpp"
+#include "rc26_vision/inference/model_profile_loader.hpp"
 
 #include <algorithm>
 #include <chrono>
