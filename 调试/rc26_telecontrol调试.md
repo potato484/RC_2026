@@ -52,8 +52,8 @@ ros2 launch rc26_telecontrol wheeltec_joy.launch.py control_mode:=dpad
 ```bash
 ros2 node list | grep -E 'joy|telecontrol|merge_odom|pose_sender'
 ros2 topic echo /cmd_vel
-ros2 service type /mechanism/transport/send_command
-ros2 topic echo /mechanism/transport/feedback --once
+ros2 service type /mechanism/send_command
+ros2 topic echo /mechanism/command_feedback --once
 ```
 
 当前默认手柄口径：
@@ -75,7 +75,7 @@ ros2 topic echo /mechanism/transport/feedback --once
 
 - 包内 launch 有输出但车不动：先确认你监听的是 `/cmd_vel` 还是 `/cmd_vel_teleop`。
 - `minimal-mcu` 栈没有机构 transport：先确认 `pose_sender_node` 已起。
-- `Y/A` 或 `Back/Start` 没反应：先检查 `/mechanism/transport/send_command` 与反馈 topic 是否存在。
+- `Y/A` 或 `Back/Start` 没反应：先检查 `/mechanism/send_command` 与 `/mechanism/command_feedback` 是否存在。
 
 ## 相关入口
 

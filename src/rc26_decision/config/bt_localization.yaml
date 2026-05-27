@@ -103,15 +103,15 @@ custom_types:
     tooltip: "控制机构去抓取武馆区的端头。"
     summary: "这是武馆阶段的第一步，用来把端头取到机构上。"
     scenario: "开局进入武馆区后，通常会先执行这个动作。"
-    attention: "如果反复失败，先检查机构通信、端头状态和 `mechanism_tip_state`。"
-    related_blackboard_keys: ["mechanism_tip_state", "mechanism_comm_health_level", "last_action_error_code"]
+    attention: "如果反复失败，先检查机构链路是否在线、当前命令是否卡住和最近错误码。"
+    related_blackboard_keys: ["mechanism_hal_open", "mechanism_current_cmd_id", "last_action_error_code"]
   AssembleWeapon:
     display_name: "组装武器"
     tooltip: "在手动机器人到位后执行组装动作。"
     summary: "武馆阶段的核心动作，需要配合手动机器人完成组装。"
     scenario: "当 `CheckManualRobot` 判断对方已经稳定就位后触发。"
     attention: "该动作前如果等待过久，要看手动机器人是否真的静止。"
-    related_blackboard_keys: ["mechanism_tip_state", "last_action_error_code"]
+    related_blackboard_keys: ["mechanism_hal_open", "mechanism_current_cmd_id", "last_action_error_code"]
   CheckManualRobot:
     display_name: "检查手动机器人"
     tooltip: "判断手动机器人是否已经靠近并稳定停住。"
@@ -193,20 +193,13 @@ custom_types:
     summary: "用于对抗区的跟随动作。"
     scenario: "进入对抗区后，先跟随 R1 接近目标区域。"
     attention: "如果突然失败，要同时检查丢失超时和导航状态。"
-  MechUpDuel:
-    display_name: "机构抬起到对抗位"
-    tooltip: "把机构切换到对抗放置姿态。"
-    summary: "放置 KFS 前的准备动作。"
-    scenario: "进入放置序列后先执行。"
-    attention: "若失败要看机构通信和错误码。"
-    related_blackboard_keys: ["mechanism_comm_health_level", "last_action_error_code"]
   PlaceKFSGrid:
     display_name: "放置 KFS 到格点"
     tooltip: "把携带的 KFS 放到目标格点。"
     summary: "对抗区的关键收益动作。"
-    scenario: "机构抬起后执行放置。"
-    attention: "放置失败时优先检查格点参数、机构状态和误差。"
-    related_blackboard_keys: ["kfs_on_board", "last_action_error_code"]
+    scenario: "进入放置序列后，通过机构通用执行入口完成放置。"
+    attention: "放置失败时优先检查格点参数、最近错误码和机构命令是否卡住。"
+    related_blackboard_keys: ["kfs_on_board", "mechanism_current_cmd_id", "last_action_error_code"]
   NavToSmartPoint:
     display_name: "导航到语义点"
     tooltip: "按语义点名称找到预设点位并导航过去。"
@@ -559,32 +552,25 @@ blackboard_keys:
     summary: "帮助运维确认是否切到了正确模型。"
     scenario: "识别错目标时，先看是不是模型切错了。"
     attention: "模型为空通常意味着切换失败或还没初始化。"
-  mechanism_tip_state:
-    display_name: "端头机构状态"
-    tooltip: "机构当前对端头的持有或姿态状态。"
-    summary: "武馆取端头和组装最关键的机构状态键。"
-    scenario: "抓取或组装失败时先看它是否符合预期。"
-    attention: "具体编码意义仍要结合机构协议，但运维层可先看是否变化。"
-    related_blackboard_keys: ["mechanism_comm_health_level", "last_action_error_code"]
-  mechanism_comm_health_level:
-    display_name: "机构通信健康等级"
-    tooltip: "机构控制链路当前的通信健康状态。"
-    summary: "用来区分动作失败是逻辑原因还是通信问题。"
-    scenario: "动作节点失败且错误码不稳定时优先看它。"
-    attention: "通信差时，不要只盯 BT，要同时看机构节点日志。"
+  mechanism_hal_open:
+    display_name: "机构链路在线状态"
+    tooltip: "机构执行节点当前是否已经连上共享 transport。"
+    summary: "最直接的机制侧可用性指示。"
+    scenario: "动作一开始就失败时先看它。"
+    attention: "为 false 时优先排查共享 transport 服务和 bringup 装配。"
     values:
-      "0":
-        display_name: "正常"
-        explanation: "通信状态正常。"
-      "1":
-        display_name: "轻微异常"
-        explanation: "有轻微通信波动，建议持续观察。"
-      "2":
-        display_name: "明显异常"
-        explanation: "通信质量较差，动作成功率可能下降。"
-      "3":
-        display_name: "严重异常"
-        explanation: "通信问题明显，动作可能直接失败。"
+      "true":
+        display_name: "在线"
+        explanation: "机构执行节点已经连上共享 transport。"
+      "false":
+        display_name: "离线"
+        explanation: "机构执行节点当前不可用。"
+  mechanism_current_cmd_id:
+    display_name: "当前机构命令 ID"
+    tooltip: "机构执行节点此刻正在等待完成反馈的命令编号。"
+    summary: "用于区分当前是空闲，还是某条机构命令正在运行。"
+    scenario: "动作长时间没结束时，先看这里是否已经卡住。"
+    attention: "为 0 表示当前没有正在执行的机构命令。"
   last_action_error_code:
     display_name: "最近动作错误码"
     tooltip: "最近一次机构动作返回的错误码。"
@@ -676,9 +662,9 @@ services:
     summary: "提供路线观测质量和推荐导航档位。"
     scenario: "推荐档位变化时来源常常在这里。"
     attention: "这类输入变化快，建议配合时间线观察。"
-  "/mechanism/state":
+  "/mechanism/status":
     display_name: "机构状态输入"
-    summary: "提供机构持有状态、错误码和通信健康度。"
+    summary: "提供机构 HAL 打开状态、最近错误码和当前命令 ID。"
     scenario: "所有机构动作失败都应该先看它。"
     attention: "它属于底层状态，不是行为树内部自己算出来的。"
 

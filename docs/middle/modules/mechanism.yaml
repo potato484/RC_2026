@@ -6,9 +6,10 @@ info:
     机构状态与共享串口桥接接口。
 
     注意：
-    - 机构动作执行入口仍是 action `/mechanism/execute`
+    - 当前保留的机构动作入口是 action `/mechanism/grab_tip`、`/mechanism/assemble_weapon` 与 `/mechanism/run_command`
+    - `PlaceKFSGrid.action` 已移除；KFS 放置改为通过 `/mechanism/run_command` 下发 `PLACE_KFS_GRID + payload{grid_position, layer}`
     - 本文档额外覆盖 mechanism 与 merge_odom 之间的内部 transport topic/service 契约
-    - `/mechanism/transport/*` 复用的是 `rc26_merge_odom` 已打开的 `target_serial_port`
+    - `/mechanism/send_command` 与 `/mechanism/command_feedback` 复用的是 `rc26_merge_odom` 已打开的 `target_serial_port`
     - `feedback_serial_port` 主要承载 `ODOM_DATA` 与 `POSE_FEEDBACK`，不作为 mechanism transport 的物理链路
 servers:
   - url: http://localhost:8080
@@ -16,13 +17,13 @@ tags:
   - name: Topic
   - name: Service
 paths:
-  /ros2/topics/mechanism/state:
+  /ros2/topics/mechanism/status:
     get:
       tags: [Topic]
-      summary: 读取 topic /mechanism/state 的最新消息
+      summary: 读取 topic /mechanism/status 的最新消息
       x-ros:
         interface_kind: topic
-        name: /mechanism/state
+        name: /mechanism/status
         message_type: rc26_interfaces/msg/MechanismState
       responses:
         '200':
@@ -31,13 +32,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MechanismState'
-  /ros2/topics/mechanism/transport/feedback:
+  /ros2/topics/mechanism/command_feedback:
     get:
       tags: [Topic]
-      summary: 读取 topic /mechanism/transport/feedback 的最新消息
+      summary: 读取 topic /mechanism/command_feedback 的最新消息
       x-ros:
         interface_kind: topic
-        name: /mechanism/transport/feedback
+        name: /mechanism/command_feedback
         message_type: rc26_interfaces/msg/MechanismTransportFeedback
       responses:
         '200':
@@ -46,13 +47,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MechanismTransportFeedback'
-  /ros2/services/mechanism/transport/send_command:
+  /ros2/services/mechanism/send_command:
     post:
       tags: [Service]
-      summary: 调用 service /mechanism/transport/send_command 下发共享串口机构命令
+      summary: 调用 service /mechanism/send_command 下发共享串口机构命令
       x-ros:
         interface_kind: service
-        name: /mechanism/transport/send_command
+        name: /mechanism/send_command
         service_type: rc26_interfaces/srv/SendMechanismTransportCommand
       requestBody:
         required: true
@@ -88,46 +89,15 @@ components:
     MechanismState:
       type: object
       required:
-        - header
-        - tip_state
         - hal_open
-        - locked_tip_slot
-        - assembled_count
         - last_error_code
         - current_cmd_id
-        - cmd_elapsed_ms
-        - ack_timeout_count
-        - reconnect_count
-        - parse_error_count
-        - avg_rtt_ms
-        - comm_health_level
       properties:
-        header:
-          $ref: '#/components/schemas/Header'
-        tip_state:
-          type: integer
         hal_open:
           type: boolean
-        locked_tip_slot:
-          type: integer
-        assembled_count:
-          type: integer
         last_error_code:
           type: integer
         current_cmd_id:
-          type: integer
-        cmd_elapsed_ms:
-          type: integer
-        ack_timeout_count:
-          type: integer
-        reconnect_count:
-          type: integer
-        parse_error_count:
-          type: integer
-        avg_rtt_ms:
-          type: number
-          format: float
-        comm_health_level:
           type: integer
     MechanismTransportFeedback:
       type: object

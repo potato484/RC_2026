@@ -55,10 +55,10 @@ x-modules:
   - name: mechanism
     file: docs/middle/modules/mechanism.yaml
     topics:
-      - /mechanism/state
-      - /mechanism/transport/feedback
+      - /mechanism/status
+      - /mechanism/command_feedback
     services:
-      - /mechanism/transport/send_command
+      - /mechanism/send_command
   - name: stream
     file: docs/middle/modules/stream.yaml
     topics: []

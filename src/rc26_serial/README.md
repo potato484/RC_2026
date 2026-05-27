@@ -43,9 +43,10 @@
 当前真实运行时口径是：
 
 *   4 条双推杆命令都通过 `rc26_merge_odom` 的共享 transport 走可靠 `sendCommand()` ACK 路径；若 MCU 不回通用 `ACK(0x00)`，会像其它可靠命令一样重传并打印超时日志。
-*   `rc26_telecontrol_front_pushrod_buttons` 会在 `Y/A` 按下沿单次调用 `/mechanism/transport/send_command`，分别桥成前推杆伸展 / 收缩。
-*   `rc26_telecontrol_rear_pushrod_buttons` 会在 `Select/Back` / `Start` 按下沿单次调用 `/mechanism/transport/send_command`，分别桥成后推杆伸展 / 收缩；`Dpad 左/右` 已回归底盘横移控制。
-*   transport service 返回 `accepted=true` 的前提仍然是 MCU 先回通用 `ACK(0x00)`；`0x13~0x16` 业务 ACK 会继续发布到 `/mechanism/transport/feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定。
+*   `rc26_telecontrol_front_pushrod_buttons` 会在 `Y/A` 按下沿单次调用 `/mechanism/send_command`，分别桥成前推杆伸展 / 收缩。
+*   `rc26_telecontrol_rear_pushrod_buttons` 会在 `Select/Back` / `Start` 按下沿单次调用 `/mechanism/send_command`，分别桥成后推杆伸展 / 收缩；`Dpad 左/右` 已回归底盘横移控制。
+*   transport service 返回 `accepted=true` 的前提仍然是 MCU 先回通用 `ACK(0x00)`；`0x13~0x16` 业务 ACK 会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定。
+*   串口层当前只把 `ACK(0x00)`、`NACK(0x01)` 和心跳场景下的 `HEARTBEAT_ACK(0x10)` 视为 ACK 等待结果；MCU 已不再返回 `ACTION_FAIL/ERROR` 这类快捷失败反馈。
 *   真机部署时，目标 MCU 串口仍由 `rc26_merge_odom` 运行时独占打开；其它上层只复用 transport，不再次直连同一设备。
 
 当前底盘反馈协议也已经统一回麦克纳姆四轮口径：

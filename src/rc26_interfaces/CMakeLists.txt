@@ -16,7 +16,6 @@ find_package(std_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "action/GrabTip.action"
   "action/AssembleWeapon.action"
-  "action/PlaceKFSGrid.action"
   "action/ExecuteMechanism.action"
   "action/NavigateTopoTarget.action"
   "action/NavigateSurfaceRoute.action"

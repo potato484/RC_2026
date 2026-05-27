@@ -36,13 +36,8 @@ colcon test-result --verbose
 再通过真实消费者验证：
 
 ```bash
-ros2 launch rc26_mechanism mechanism.launch.py hal_type:=serial
-```
-
-或：
-
-```bash
 ros2 launch rc26_merge_odom merge_odom.launch.py
+ros2 launch rc26_mechanism mechanism.launch.py hal_type:=shared_serial
 ```
 
 ## 最小验收
@@ -58,7 +53,7 @@ ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist \
 
 - 重插串口后不恢复：先确认设备名有没有漂移，再看上层是否还指向旧端口。
 - ACK 长时间失败：先排查物理串口、波特率，再看上层是否在并发争抢同一设备。
-- 想“单独启动 rc26_serial”：当前没有单独 launch，实际应通过 `rc26_mechanism` 或 `rc26_merge_odom` 验证。
+- 想“单独启动 rc26_serial”：当前没有单独 launch，实际应通过 `rc26_mechanism(shared_serial)` 或 `rc26_merge_odom` 验证。
 
 ## 相关入口
 

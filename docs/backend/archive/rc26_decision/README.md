@@ -49,6 +49,8 @@
 
 - 当前 `BtActionNode` 已支持 action `feedback_callback`，导航节点可以在 action 运行期间持续刷新黑板状态。
 - `bt_topo_nav.cpp` 当前会在 goal 开始、反馈推进、成功结束、失败结束四个阶段统一维护导航观测键，避免现场只在失败时才看到零散信息。
+- 机构侧当前只再向决策黑板回写 `mechanism_hal_open`、`mechanism_current_cmd_id` 与 `last_action_error_code` 三个最小观测键；旧的 `mechanism_tip_state / mechanism_comm_health_level / mechanism_locked_tip_slot` 已随 `rc26_mechanism` 减法移除。
+- 对抗区 `PlaceKFSGrid` 节点当前不再依赖专用 `PlaceKFSGrid.action`，而是继续保留 BT 节点名，并在内部改为通过 `/mechanism/run_command` 下发 `PLACE_KFS_GRID + payload`。
 
 ## 配置注释口径
 

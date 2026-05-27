@@ -18,7 +18,7 @@ namespace rc26_telecontrol
 namespace
 {
 constexpr auto k_rear_pushrod_dispatch_period = std::chrono::milliseconds(20);
-constexpr char k_mechanism_transport_send_command_service[] = "/mechanism/transport/send_command";
+constexpr char k_mechanism_send_command_service[] = "/mechanism/send_command";
 constexpr std::size_t k_select_button = 6;
 constexpr std::size_t k_start_button = 7;
 }  // namespace
@@ -31,7 +31,7 @@ public:
   RearPushrodButtonNode()
   : Node("rc26_telecontrol_rear_pushrod_buttons")
   {
-    send_command_client_ = create_client<SendCommandSrv>(k_mechanism_transport_send_command_service);
+    send_command_client_ = create_client<SendCommandSrv>(k_mechanism_send_command_service);
     joy_sub_ = create_subscription<sensor_msgs::msg::Joy>(
       "/joy", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort(),
       std::bind(&RearPushrodButtonNode::joyCallback, this, std::placeholders::_1));
@@ -80,7 +80,7 @@ private:
       finishLocalFailure(*command);
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 1000,
-        "rear pushrod command queued: %s unavailable", k_mechanism_transport_send_command_service);
+        "rear pushrod command queued: %s unavailable", k_mechanism_send_command_service);
       return;
     }
 

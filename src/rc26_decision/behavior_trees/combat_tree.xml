@@ -9,7 +9,6 @@
       </Fallback>
       <!-- 放置 KFS -->
       <Sequence name="place_sequence">
-        <MechUpDuel/>
         <PlaceKFSGrid grid_position="5"/>
       </Sequence>
     </Sequence>

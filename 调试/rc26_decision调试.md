@@ -14,7 +14,7 @@
 
 - `map -> odom` TF 正常
 - `/xhu_nav/tracking_state`、`/xhu_nav/motion_mode_state` 已在线
-- `/mechanism/state` 正常发布
+- `/mechanism/status` 正常发布
 - `/kfs_filter_mask` 和 `/kfs_keepout_heartbeat` 已存在
 
 ## 标准编译
@@ -75,7 +75,7 @@ ros2 service call /set_xhu_motion_mode rc26_interfaces/srv/SetXhuMotionMode \
 ## 优先排查
 
 - 决策节点起来了但不发导航：先看 `/r2/bt/debug_state` 和行为树日志，再确认 `navigate_topo_target` action server 已在线。
-- 自动链卡在 gate：先检查 `/kfs_keepout_heartbeat`、`/kfs_filter_mask`、`/mechanism/state` 和定位健康话题。
+- 自动链卡在 gate：先检查 `/kfs_keepout_heartbeat`、`/kfs_filter_mask`、`/mechanism/status` 和定位健康话题。
 - 带视觉后卡住：先确认 `vision_models.yaml` 路径有效，再确认相机话题和视觉节点都在。
 
 ## 相关入口

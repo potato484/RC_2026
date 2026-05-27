@@ -413,7 +413,7 @@ void StairDescendAction::onHalted() { level_start_set_ = false; }
 GrabKFSAction::GrabKFSAction(const std::string &name,
                              const BT::NodeConfig &config)
     : BtActionNode<rc26_interfaces::action::ExecuteMechanism>(
-          name, config, "/mechanism/execute", std::chrono::seconds(8)) {}
+          name, config, "/mechanism/run_command", std::chrono::seconds(8)) {}
 
 BT::PortsList GrabKFSAction::providedPorts() {
   return BtActionNode<rc26_interfaces::action::ExecuteMechanism>::basePorts(
@@ -438,127 +438,6 @@ BT::NodeStatus GrabKFSAction::handleResult(const WrappedResult &result,
   }
   error_code = 0;
   return BT::NodeStatus::SUCCESS;
-}
-
-namespace {
-
-BT::NodeStatus handleExecuteMechanismResult(
-    const BtActionNode<rc26_interfaces::action::ExecuteMechanism>::WrappedResult
-        &result,
-    uint16_t &error_code) {
-  if (result.code != rclcpp_action::ResultCode::SUCCEEDED || !result.result ||
-      !result.result->success) {
-    error_code = (result.result ? result.result->error_code : 0);
-    return BT::NodeStatus::FAILURE;
-  }
-  error_code = 0;
-  return BT::NodeStatus::SUCCESS;
-}
-
-} // namespace
-
-// ============================================================================
-// MechUpMerlinAction - 梅林区机构抬升
-// ============================================================================
-MechUpMerlinAction::MechUpMerlinAction(const std::string &name,
-                                       const BT::NodeConfig &config)
-    : BtActionNode<rc26_interfaces::action::ExecuteMechanism>(
-          name, config, "/mechanism/execute", std::chrono::seconds(8)) {}
-
-BT::PortsList MechUpMerlinAction::providedPorts() {
-  return BtActionNode<rc26_interfaces::action::ExecuteMechanism>::basePorts(
-      8.0);
-}
-
-bool MechUpMerlinAction::buildGoal(Goal &goal) {
-  double timeout_sec = 8.0;
-  (void)getInput("timeout_sec", timeout_sec);
-  goal.command_id = static_cast<uint8_t>(CommandID::MECH_UP_MERLIN);
-  goal.payload.clear();
-  goal.timeout_sec = static_cast<float>(timeout_sec);
-  return true;
-}
-
-BT::NodeStatus MechUpMerlinAction::handleResult(const WrappedResult &result,
-                                                uint16_t &error_code) {
-  return handleExecuteMechanismResult(result, error_code);
-}
-
-// ============================================================================
-// MechDownMerlinAction - 梅林区机构下降
-// ============================================================================
-MechDownMerlinAction::MechDownMerlinAction(const std::string &name,
-                                           const BT::NodeConfig &config)
-    : BtActionNode<rc26_interfaces::action::ExecuteMechanism>(
-          name, config, "/mechanism/execute", std::chrono::seconds(8)) {}
-
-BT::PortsList MechDownMerlinAction::providedPorts() {
-  return BtActionNode<rc26_interfaces::action::ExecuteMechanism>::basePorts(
-      8.0);
-}
-
-bool MechDownMerlinAction::buildGoal(Goal &goal) {
-  double timeout_sec = 8.0;
-  (void)getInput("timeout_sec", timeout_sec);
-  goal.command_id = static_cast<uint8_t>(CommandID::MECH_DOWN_MERLIN);
-  goal.payload.clear();
-  goal.timeout_sec = static_cast<float>(timeout_sec);
-  return true;
-}
-
-BT::NodeStatus MechDownMerlinAction::handleResult(const WrappedResult &result,
-                                                  uint16_t &error_code) {
-  return handleExecuteMechanismResult(result, error_code);
-}
-
-// ============================================================================
-// RotateAction - 旋转
-// ============================================================================
-RotateAction::RotateAction(const std::string &name,
-                           const BT::NodeConfig &config)
-    : BtActionNode<rc26_interfaces::action::ExecuteMechanism>(
-          name, config, "/mechanism/execute", std::chrono::seconds(8)) {}
-
-BT::PortsList RotateAction::providedPorts() {
-  auto ports =
-      BtActionNode<rc26_interfaces::action::ExecuteMechanism>::basePorts(8.0);
-  ports.insert(BT::InputPort<int>("angle", "旋转角度 (90, -90, 180, -180)"));
-  return ports;
-}
-
-bool RotateAction::buildGoal(Goal &goal) {
-  int angle = 0;
-  if (!getInput("angle", angle)) {
-    return false;
-  }
-  CommandID cmd = CommandID::ROTATE_POS_90;
-  switch (angle) {
-  case 90:
-    cmd = CommandID::ROTATE_POS_90;
-    break;
-  case -90:
-    cmd = CommandID::ROTATE_NEG_90;
-    break;
-  case 180:
-    cmd = CommandID::ROTATE_POS_180;
-    break;
-  case -180:
-    cmd = CommandID::ROTATE_NEG_180;
-    break;
-  default:
-    return false;
-  }
-  double timeout_sec = 8.0;
-  (void)getInput("timeout_sec", timeout_sec);
-  goal.command_id = static_cast<uint8_t>(cmd);
-  goal.payload.clear();
-  goal.timeout_sec = static_cast<float>(timeout_sec);
-  return true;
-}
-
-BT::NodeStatus RotateAction::handleResult(const WrappedResult &result,
-                                          uint16_t &error_code) {
-  return handleExecuteMechanismResult(result, error_code);
 }
 
 // ============================================================================
@@ -944,9 +823,6 @@ void registerMFAreaNodes(BT::BehaviorTreeFactory &factory) {
   factory.registerNodeType<StairClimbAction>("StairClimb");
   factory.registerNodeType<StairDescendAction>("StairDescend");
   factory.registerNodeType<GrabKFSAction>("GrabKFS");
-  factory.registerNodeType<MechUpMerlinAction>("MechUpMerlin");
-  factory.registerNodeType<MechDownMerlinAction>("MechDownMerlin");
-  factory.registerNodeType<RotateAction>("Rotate");
   factory.registerNodeType<CheckKFSCondition>("CheckKFS");
   factory.registerNodeType<CheckLoadCondition>("CheckLoad");
   factory.registerNodeType<ScanSurroundingsAction>("ScanSurroundings");

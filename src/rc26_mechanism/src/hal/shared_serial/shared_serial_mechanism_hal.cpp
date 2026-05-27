@@ -1,4 +1,4 @@
-#include "rc26_mechanism/hal/shared_serial_mechanism_hal.hpp"
+#include "rc26_mechanism/hal/shared_serial/shared_serial_mechanism_hal.hpp"
 
 #include <future>
 #include <utility>
@@ -7,8 +7,8 @@ namespace rc26_mechanism {
 
 namespace {
 
-constexpr char kMechanismTransportSendCommandService[] = "/mechanism/transport/send_command";
-constexpr char kMechanismTransportFeedbackTopic[] = "/mechanism/transport/feedback";
+constexpr char kMechanismSendCommandService[] = "/mechanism/send_command";
+constexpr char kMechanismCommandFeedbackTopic[] = "/mechanism/command_feedback";
 
 }  // namespace
 
@@ -21,7 +21,7 @@ bool SharedSerialMechanismHAL::open() {
     }
     if (!send_command_client_->wait_for_service(kServiceWaitTimeout)) {
         RCLCPP_ERROR(node_.get_logger(), "shared_serial HAL cannot reach %s",
-                     kMechanismTransportSendCommandService);
+                     kMechanismSendCommandService);
         open_ = false;
         return false;
     }
@@ -84,11 +84,11 @@ CommHealthSnapshot SharedSerialMechanismHAL::commHealthSnapshot() const {
 
 void SharedSerialMechanismHAL::ensureInterfaces() {
     if (!send_command_client_) {
-        send_command_client_ = node_.create_client<SendCommandSrv>(kMechanismTransportSendCommandService);
+        send_command_client_ = node_.create_client<SendCommandSrv>(kMechanismSendCommandService);
     }
     if (!feedback_sub_) {
         feedback_sub_ = node_.create_subscription<FeedbackMsg>(
-            kMechanismTransportFeedbackTopic, rclcpp::QoS(32).reliable(),
+            kMechanismCommandFeedbackTopic, rclcpp::QoS(32).reliable(),
             [this](const FeedbackMsg::SharedPtr msg) {
                 if (msg) {
                     handleFeedback(*msg);

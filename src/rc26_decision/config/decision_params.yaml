@@ -12,7 +12,7 @@ rc26_decision:
     bt_control_service: "r2/bt/control"
 
     # 参数说明：mechanism_state_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    mechanism_state_topic: "/mechanism/state"
+    mechanism_state_topic: "/mechanism/status"
 
     # 里程计话题（用于停车判定等）
     odom_topic: "wheel_odom"
@@ -99,10 +99,8 @@ rc26_decision:
       - "vision_bbox_cx"
       - "vision_bbox_cy"
       - "vision_current_model"
-      - "mechanism_tip_state"
       - "mechanism_hal_open"
-      - "mechanism_locked_tip_slot"
-      - "mechanism_comm_health_level"
+      - "mechanism_current_cmd_id"
       - "last_action_error_code"
       - "system_error"
       - "loc_level"

@@ -16,16 +16,19 @@ find_package(rclcpp_components REQUIRED)
 find_package(rc26_interfaces REQUIRED)
 find_package(rc26_serial REQUIRED)
 
-include_directories(include)
-
-add_library(${PROJECT_NAME}_component SHARED
-  src/serial_mechanism_hal.cpp
-  src/shared_serial_mechanism_hal.cpp
-  src/sim_mechanism_hal.cpp
-  src/fault_injecting_hal.cpp
-  src/replay_mechanism_hal.cpp
-  src/mechanism_lifecycle_server.cpp
+set(RC26_MECHANISM_LIBRARY_SOURCES
+  src/catalog/mechanism_command_catalog.cpp
+  src/hal/shared_serial/shared_serial_mechanism_hal.cpp
+  src/nodes/mechanism_lifecycle_server.cpp
 )
+
+set(COMMON_INCLUDE_DIRS
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+add_library(${PROJECT_NAME}_component SHARED ${RC26_MECHANISM_LIBRARY_SOURCES})
+target_include_directories(${PROJECT_NAME}_component PUBLIC ${COMMON_INCLUDE_DIRS})
 ament_target_dependencies(${PROJECT_NAME}_component
   rclcpp
   rclcpp_action
@@ -44,6 +47,7 @@ install(
   TARGETS ${PROJECT_NAME}_component
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
+  INCLUDES DESTINATION include
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -61,13 +65,24 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
 
   ament_add_gtest(test_shared_serial_transport
-    test/test_shared_serial_transport.cpp
+    test/transport/test_shared_serial_transport.cpp
   )
   target_link_libraries(test_shared_serial_transport ${PROJECT_NAME}_component)
-  target_include_directories(test_shared_serial_transport PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-  )
+  target_include_directories(test_shared_serial_transport PUBLIC ${COMMON_INCLUDE_DIRS})
   ament_target_dependencies(test_shared_serial_transport
+    rclcpp
+    rclcpp_action
+    rclcpp_lifecycle
+    rc26_interfaces
+    rc26_serial
+  )
+
+  ament_add_gtest(test_mechanism_command_catalog
+    test/catalog/test_mechanism_command_catalog.cpp
+  )
+  target_link_libraries(test_mechanism_command_catalog ${PROJECT_NAME}_component)
+  target_include_directories(test_mechanism_command_catalog PUBLIC ${COMMON_INCLUDE_DIRS})
+  ament_target_dependencies(test_mechanism_command_catalog
     rclcpp
     rclcpp_action
     rclcpp_lifecycle

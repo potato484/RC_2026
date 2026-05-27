@@ -182,7 +182,7 @@ def generate_launch_description():
 
     target_serial_port_arg = DeclareLaunchArgument(
         'target_serial_port', default_value=target_serial_port_default,
-        description='MCU target serial port (POSE_TARGET + /mechanism/transport/*)')
+        description='MCU target serial port (POSE_TARGET + /mechanism/send_command + /mechanism/command_feedback)')
 
     baudrate_arg = DeclareLaunchArgument(
         'baudrate', default_value=baudrate_default,

@@ -30,8 +30,14 @@
   - `ExecuteMechanism.action`
   - `GrabTip.action`
   - `AssembleWeapon.action`
-  - `PlaceKFSGrid.action`
   - `SendMechanismTransportCommand.srv`
+
+当前机构契约已经收口为最小执行面：
+
+- 保留专用动作 `GrabTip.action` 与 `AssembleWeapon.action`
+- 保留通用动作 `ExecuteMechanism.action`
+- 删除 `PlaceKFSGrid.action`；KFS 放置改为通过 `ExecuteMechanism` 下发 `PLACE_KFS_GRID + payload`
+- `MechanismState.msg` 只保留 `hal_open`、`last_error_code`、`current_cmd_id` 三个最小观测字段
 - 感知与规则:
   - `MfKfsState.msg`
   - `MfKfsCell.msg`

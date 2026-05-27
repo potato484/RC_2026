@@ -23,6 +23,10 @@
 
 - `TipDetection.msg`、`TipDetectionArray.msg` 与 `/vision/tip_detections` 是视觉端头检测稳定契约。
 - `GrabTip.action` 与 `/mechanism/grab_tip` 继续作为机构抓取端头的动作契约。
+- `AssembleWeapon.action` 与 `/mechanism/assemble_weapon` 继续作为武馆组装动作契约。
+- `ExecuteMechanism.action` 继续作为机构通用命令入口；当前调用路径已经收口到 action `/mechanism/run_command`，KFS 抓取与九宫格放置都通过这条动作契约下发。
+- `PlaceKFSGrid.action` 已移除；若需要放置 KFS，调用侧应改为通过 `ExecuteMechanism` 下发 `PLACE_KFS_GRID + payload{grid_position, layer}`。
+- `MechanismState.msg` 当前只保留 `hal_open`、`last_error_code`、`current_cmd_id` 三个最小运行时观测字段。
 - 本轮 `rc26_vision` 内部实验链从旧拼音命名收口到 `tip`，不改变上述公共 ROS 接口外形。
 
 当前导航契约最近补充了两组语义：

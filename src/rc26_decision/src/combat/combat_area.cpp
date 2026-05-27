@@ -24,38 +24,14 @@ BT::NodeStatus handleExecuteMechanismResult(
 }  // namespace
 
 // ============================================================================
-// MechUpDuelAction - 对抗区机构抬升
-// ============================================================================
-MechUpDuelAction::MechUpDuelAction(const std::string& name, const BT::NodeConfig& config)
-    : BtActionNode<rc26_interfaces::action::ExecuteMechanism>(
-          name, config, "/mechanism/execute", std::chrono::seconds(8)) {}
-
-BT::PortsList MechUpDuelAction::providedPorts() {
-    return BtActionNode<rc26_interfaces::action::ExecuteMechanism>::basePorts(8.0);
-}
-
-bool MechUpDuelAction::buildGoal(Goal& goal) {
-    double timeout_sec = 8.0;
-    (void)getInput("timeout_sec", timeout_sec);
-    goal.command_id = static_cast<uint8_t>(CommandID::MECH_UP_DUEL);
-    goal.payload.clear();
-    goal.timeout_sec = static_cast<float>(timeout_sec);
-    return true;
-}
-
-BT::NodeStatus MechUpDuelAction::handleResult(const WrappedResult& result, uint16_t& error_code) {
-    return handleExecuteMechanismResult(result, error_code);
-}
-
-// ============================================================================
 // PlaceKFSGridAction - 放置 KFS 到九宫格
 // ============================================================================
 PlaceKFSGridAction::PlaceKFSGridAction(const std::string& name, const BT::NodeConfig& config)
-    : BtActionNode<rc26_interfaces::action::PlaceKFSGrid>(
-          name, config, "/mechanism/place_kfs_grid", std::chrono::seconds(8)) {}
+    : BtActionNode<rc26_interfaces::action::ExecuteMechanism>(
+          name, config, "/mechanism/run_command", std::chrono::seconds(8)) {}
 
 BT::PortsList PlaceKFSGridAction::providedPorts() {
-    auto ports = BtActionNode<rc26_interfaces::action::PlaceKFSGrid>::basePorts(8.0);
+    auto ports = BtActionNode<rc26_interfaces::action::ExecuteMechanism>::basePorts(8.0);
     ports.insert(BT::InputPort<int>("grid_position", "九宫格位置 (1-9)"));
     ports.insert(BT::InputPort<int>("layer", 0, "目标层 (1-3)，0 表示由 BattleGridState 自动决策"));
     ports.insert(BT::OutputPort<int>("selected_layer", "实际下发层号"));
@@ -67,6 +43,9 @@ bool PlaceKFSGridAction::buildGoal(Goal& goal) {
     if (!getInput("grid_position", grid_position) || grid_position < 1 || grid_position > 9) {
         return false;
     }
+
+    double timeout_sec = 8.0;
+    (void)getInput("timeout_sec", timeout_sec);
 
     int selected_layer = 0;
     int requested_layer = 0;
@@ -99,20 +78,21 @@ bool PlaceKFSGridAction::buildGoal(Goal& goal) {
         }
     }
 
-    goal.grid_position = static_cast<uint8_t>(grid_position);
-    goal.layer = static_cast<uint8_t>(selected_layer);
-    pending_grid_position_ = goal.grid_position;
-    pending_layer_ = goal.layer;
+    goal.command_id = static_cast<uint8_t>(CommandID::PLACE_KFS_GRID);
+    goal.payload = {static_cast<uint8_t>(grid_position), static_cast<uint8_t>(selected_layer)};
+    goal.timeout_sec = static_cast<float>(timeout_sec);
+    pending_grid_position_ = static_cast<uint8_t>(grid_position);
+    pending_layer_ = static_cast<uint8_t>(selected_layer);
     setOutput("selected_layer", selected_layer);
     return true;
 }
 
 BT::NodeStatus PlaceKFSGridAction::handleResult(const WrappedResult& result, uint16_t& error_code) {
-    if (result.code != rclcpp_action::ResultCode::SUCCEEDED || !result.result || !result.result->success) {
-        error_code = (result.result ? result.result->error_code : 0);
+    const auto status = handleExecuteMechanismResult(result, error_code);
+    if (status != BT::NodeStatus::SUCCESS) {
         pending_grid_position_ = 0;
         pending_layer_ = 0;
-        return BT::NodeStatus::FAILURE;
+        return status;
     }
 
     if (config().blackboard && pending_grid_position_ > 0U && pending_layer_ > 0U) {
@@ -124,32 +104,7 @@ BT::NodeStatus PlaceKFSGridAction::handleResult(const WrappedResult& result, uin
     }
     pending_grid_position_ = 0;
     pending_layer_ = 0;
-    error_code = 0;
-    return BT::NodeStatus::SUCCESS;
-}
-
-// ============================================================================
-// PlaceKFSGroundAction - 放置 KFS 到地面
-// ============================================================================
-PlaceKFSGroundAction::PlaceKFSGroundAction(const std::string& name, const BT::NodeConfig& config)
-    : BtActionNode<rc26_interfaces::action::ExecuteMechanism>(
-          name, config, "/mechanism/execute", std::chrono::seconds(8)) {}
-
-BT::PortsList PlaceKFSGroundAction::providedPorts() {
-    return BtActionNode<rc26_interfaces::action::ExecuteMechanism>::basePorts(8.0);
-}
-
-bool PlaceKFSGroundAction::buildGoal(Goal& goal) {
-    double timeout_sec = 8.0;
-    (void)getInput("timeout_sec", timeout_sec);
-    goal.command_id = static_cast<uint8_t>(CommandID::PLACE_KFS_GROUND);
-    goal.payload.clear();
-    goal.timeout_sec = static_cast<float>(timeout_sec);
-    return true;
-}
-
-BT::NodeStatus PlaceKFSGroundAction::handleResult(const WrappedResult& result, uint16_t& error_code) {
-    return handleExecuteMechanismResult(result, error_code);
+    return status;
 }
 
 // ============================================================================
@@ -202,9 +157,7 @@ void FollowManualRobotAction::onHalted() {}
 // 注册函数
 // ============================================================================
 void registerCombatAreaNodes(BT::BehaviorTreeFactory& factory) {
-    factory.registerNodeType<MechUpDuelAction>("MechUpDuel");
     factory.registerNodeType<PlaceKFSGridAction>("PlaceKFSGrid");
-    factory.registerNodeType<PlaceKFSGroundAction>("PlaceKFSGround");
     factory.registerNodeType<GimbalMoveAction>("GimbalMove");
     factory.registerNodeType<FollowManualRobotAction>("FollowManualRobot");
 }

@@ -41,7 +41,7 @@ public:
     this->declare_parameter<std::string>("bt_control_service",
                                          "r2/bt/control");
     this->declare_parameter<std::string>("mechanism_state_topic",
-                                         "/mechanism/state");
+                                         "/mechanism/status");
     this->declare_parameter<std::string>("team", "blue");
     this->declare_parameter<std::string>("base_ground_level_topic",
                                          "base_ground/level");
@@ -158,10 +158,8 @@ public:
     blackboard->set("nav_last_replan_count", static_cast<int>(0));
 
     // 机制状态可观测键（供 Groot2/诊断查看）
-    blackboard->set("mechanism_tip_state", 0);
     blackboard->set("mechanism_hal_open", false);
-    blackboard->set("mechanism_locked_tip_slot", 255);
-    blackboard->set("mechanism_comm_health_level", 0);
+    blackboard->set("mechanism_current_cmd_id", 0);
 
 
     // 订阅 base_ground 话题
@@ -215,15 +213,11 @@ public:
             mechanism_state_topic, rclcpp::QoS(rclcpp::KeepLast(10)).reliable(),
             [blackboard](
                 const rc26_interfaces::msg::MechanismState::SharedPtr msg) {
-              blackboard->set("mechanism_tip_state",
-                              static_cast<int>(msg->tip_state));
               blackboard->set("mechanism_hal_open", msg->hal_open);
-              blackboard->set("mechanism_locked_tip_slot",
-                              static_cast<int>(msg->locked_tip_slot));
+              blackboard->set("mechanism_current_cmd_id",
+                              static_cast<int>(msg->current_cmd_id));
               blackboard->set("last_action_error_code",
                               static_cast<int>(msg->last_error_code));
-              blackboard->set("mechanism_comm_health_level",
-                              static_cast<int>(msg->comm_health_level));
             });
 
 

@@ -29,8 +29,8 @@
 *   **Stick 模式**：`linear.x <- axes[1]`，`linear.y <- axes[0]`，`angular.z <- axes[3]`。
 *   **Dpad 模式**：`linear.x <- axes[7]`，`linear.y <- axes[6]`，`angular.z <- X/B`。
 *   R2 当前已经统一为麦克纳姆全向底盘，因此 `linear.y` 在 stick / dpad 两种模式下都是有效输出；`rc26_telecontrol` 不再声明或消费 `chassis_model`。
-*   独立 sidecar 节点 `rc26_telecontrol_front_pushrod_buttons`：`Y(button[3])` 按下沿单次下发 `FRONT_PUSHROD_EXTEND (0x0E)`；`A(button[0])` 按下沿单次下发 `FRONT_PUSHROD_RETRACT (0x0F)`。按住不会连发，松开后再次按下才会重发。该节点直接调用 `/mechanism/transport/send_command`，走 transport ACK 路径，不再经过 `/mechanism/execute`。
-*   独立 sidecar 节点 `rc26_telecontrol_rear_pushrod_buttons`：`Select/Back(button[6]) -> REAR_PUSHROD_EXTEND (0x10)`、`Start(button[7]) -> REAR_PUSHROD_RETRACT (0x11)`。该节点同样直接调用 `/mechanism/transport/send_command`，走 transport ACK 路径；若 MCU 额外上送 `0x13~0x16` 业务 ACK，会继续发布到 `/mechanism/transport/feedback`。`Dpad 左/右` 现在只负责底盘横移。
+*   独立 sidecar 节点 `rc26_telecontrol_front_pushrod_buttons`：`Y(button[3])` 按下沿单次下发 `FRONT_PUSHROD_EXTEND (0x0E)`；`A(button[0])` 按下沿单次下发 `FRONT_PUSHROD_RETRACT (0x0F)`。按住不会连发，松开后再次按下才会重发。该节点直接调用 `/mechanism/send_command`，走 transport ACK 路径，不再经过 `/mechanism/run_command`。
+*   独立 sidecar 节点 `rc26_telecontrol_rear_pushrod_buttons`：`Select/Back(button[6]) -> REAR_PUSHROD_EXTEND (0x10)`、`Start(button[7]) -> REAR_PUSHROD_RETRACT (0x11)`。该节点同样直接调用 `/mechanism/send_command`，走 transport ACK 路径；若 MCU 额外上送 `0x13~0x16` 业务 ACK，会继续发布到 `/mechanism/command_feedback`。`Dpad 左/右` 现在只负责底盘横移。
 
 ### 2.2 多重安全保障机制
 
@@ -51,8 +51,8 @@
 
 当前仓库的正式遥控入口是根目录 `start_r2_teleop.sh`：
 
-*   `--stack full`：启动 `merge_odom + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。这是当前默认口径，支持前/后推杆四按键联调与 `/mechanism/transport/*` 复用。
-*   `--stack minimal-mcu`：启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。这个口径的最小可用前提是 `target_serial_port` 可用，并允许 `feedback_serial_port` 禁用；若反馈串口也存在，`PoseSender` 仍会按端口是否存在分别尝试打开。虽然不启动 `merge_odom_node`，但 `pose_sender_node` 现在也会继续挂出 `/mechanism/transport/*`，因此前/后推杆 4 条 ACK 型机构指令仍可联调。
+*   `--stack full`：启动 `merge_odom + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。这是当前默认口径，支持前/后推杆四按键联调，并复用 `/mechanism/send_command` 与 `/mechanism/command_feedback`。
+*   `--stack minimal-mcu`：启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。这个口径的最小可用前提是 `target_serial_port` 可用，并允许 `feedback_serial_port` 禁用；若反馈串口也存在，`PoseSender` 仍会按端口是否存在分别尝试打开。虽然不启动 `merge_odom_node`，但 `pose_sender_node` 现在也会继续挂出 `/mechanism/send_command` 与 `/mechanism/command_feedback`，因此前/后推杆 4 条 ACK 型机构指令仍可联调。
 *   `--pose-mode imu|no-imu|wheel-only` 只作用于 `--stack full`：
     *   `imu`：EKF 融合 IMU
     *   `no-imu`：EKF 不融合 IMU，但 `dm_imu_node` 和执行保护链仍保留 IMU

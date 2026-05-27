@@ -19,7 +19,7 @@ namespace rc26_telecontrol
 namespace
 {
 constexpr auto k_front_pushrod_dispatch_period = std::chrono::milliseconds(20);
-constexpr char k_mechanism_transport_send_command_service[] = "/mechanism/transport/send_command";
+constexpr char k_mechanism_send_command_service[] = "/mechanism/send_command";
 }  // namespace
 
 class FrontPushrodButtonNode : public rclcpp::Node
@@ -30,7 +30,7 @@ public:
   FrontPushrodButtonNode()
   : Node("rc26_telecontrol_front_pushrod_buttons")
   {
-    send_command_client_ = create_client<SendCommandSrv>(k_mechanism_transport_send_command_service);
+    send_command_client_ = create_client<SendCommandSrv>(k_mechanism_send_command_service);
     joy_sub_ = create_subscription<sensor_msgs::msg::Joy>(
       "/joy", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort(),
       std::bind(&FrontPushrodButtonNode::joyCallback, this, std::placeholders::_1));
@@ -97,7 +97,7 @@ private:
       finishLocalFailure(*command);
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 1000,
-        "front pushrod command queued: %s unavailable", k_mechanism_transport_send_command_service);
+        "front pushrod command queued: %s unavailable", k_mechanism_send_command_service);
       return;
     }
 

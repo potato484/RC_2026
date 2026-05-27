@@ -76,9 +76,6 @@
 | `StairClimb` | 上楼梯 | 动作 |
 | `StairDescend` | 下楼梯 | 动作 |
 | `GrabKFS` | 抓取 KFS | 动作 |
-| `MechUpMerlin` | 梅林机构上升 | 动作 |
-| `MechDownMerlin` | 梅林机构下降 | 动作 |
-| `Rotate` | 旋转动作 | 动作 |
 | `CheckKFS` | 检查 KFS 状态 | 条件 |
 | `CheckLoad` | 检查装载数量 | 条件 |
 | `ScanSurroundings` | 扫描周围环境 | 动作 |
@@ -100,9 +97,7 @@
 
 | 英文标签 | 中文名称 | 类型 |
 | --- | --- | --- |
-| `MechUpDuel` | 对抗机构抬升 | 动作 |
 | `PlaceKFSGrid` | 放置 KFS 到九宫格 | 动作 |
-| `PlaceKFSGround` | 放置 KFS 到地面 | 动作 |
 | `GimbalMove` | 云台移动 | 动作 |
 | `FollowManualRobot` | 跟随手动机器人 | 动作 |
 
@@ -167,7 +162,6 @@
 | `expected_state` | 期望状态 |
 | `min_load` | 最小装载数 |
 | `max_load` | 最大装载数 |
-| `angle` | 旋转角度 |
 | `delay_msec` | 延迟时长 |
 | `msec` | 超时毫秒数 |
 | `num_cycles` | 循环次数 |
@@ -217,8 +211,8 @@
 | `timeout_sec` | 超时时间 |
 | `error_code` | 错误码 |
 | `selected_layer` | 实际层号 |
-| `mechanism_tip_state` | 端头机构状态 |
-| `mechanism_comm_health_level` | 机构通信健康等级 |
+| `mechanism_hal_open` | 机构链路在线状态 |
+| `mechanism_current_cmd_id` | 当前机构命令 ID |
 | `last_action_error_code` | 最近动作错误码 |
 | `vision_running` | 视觉运行状态 |
 | `vision_ok` | 视觉可用状态 |

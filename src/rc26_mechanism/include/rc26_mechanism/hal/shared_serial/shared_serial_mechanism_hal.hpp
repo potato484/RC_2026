@@ -8,7 +8,7 @@
 #include "rc26_interfaces/msg/mechanism_transport_feedback.hpp"
 #include "rc26_interfaces/srv/send_mechanism_transport_command.hpp"
 
-#include "rc26_mechanism/hal/i_mechanism_hal.hpp"
+#include "rc26_mechanism/hal/contracts/i_mechanism_hal.hpp"
 
 namespace rc26_mechanism {
 

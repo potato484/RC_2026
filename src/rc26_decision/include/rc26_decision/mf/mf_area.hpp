@@ -108,48 +108,6 @@ protected:
                               uint16_t &error_code) override;
 };
 
-// 机构抬升节点 (梅林区)
-class MechUpMerlinAction
-    : public BtActionNode<rc26_interfaces::action::ExecuteMechanism> {
-public:
-  MechUpMerlinAction(const std::string &name, const BT::NodeConfig &config);
-
-  static BT::PortsList providedPorts();
-
-protected:
-  bool buildGoal(Goal &goal) override;
-  BT::NodeStatus handleResult(const WrappedResult &result,
-                              uint16_t &error_code) override;
-};
-
-// 机构下降节点 (梅林区)
-class MechDownMerlinAction
-    : public BtActionNode<rc26_interfaces::action::ExecuteMechanism> {
-public:
-  MechDownMerlinAction(const std::string &name, const BT::NodeConfig &config);
-
-  static BT::PortsList providedPorts();
-
-protected:
-  bool buildGoal(Goal &goal) override;
-  BT::NodeStatus handleResult(const WrappedResult &result,
-                              uint16_t &error_code) override;
-};
-
-// 旋转节点
-class RotateAction
-    : public BtActionNode<rc26_interfaces::action::ExecuteMechanism> {
-public:
-  RotateAction(const std::string &name, const BT::NodeConfig &config);
-
-  static BT::PortsList providedPorts();
-
-protected:
-  bool buildGoal(Goal &goal) override;
-  BT::NodeStatus handleResult(const WrappedResult &result,
-                              uint16_t &error_code) override;
-};
-
 // 检查 KFS 存在条件节点
 class CheckKFSCondition : public BT::ConditionNode {
 public:

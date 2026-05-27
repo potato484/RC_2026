@@ -6,24 +6,11 @@
 #include "rc26_decision/combat/battle_grid_state.hpp"
 #include "rc26_decision/common/bt_action_node.hpp"
 #include "rc26_interfaces/action/execute_mechanism.hpp"
-#include "rc26_interfaces/action/place_kfs_grid.hpp"
 
 namespace rc26_decision {
 
-// 机构抬升节点 (对抗区)
-class MechUpDuelAction : public BtActionNode<rc26_interfaces::action::ExecuteMechanism> {
-public:
-    MechUpDuelAction(const std::string& name, const BT::NodeConfig& config);
-
-    static BT::PortsList providedPorts();
-
-protected:
-    bool buildGoal(Goal& goal) override;
-    BT::NodeStatus handleResult(const WrappedResult& result, uint16_t& error_code) override;
-};
-
 // 放置 KFS 到九宫格节点
-class PlaceKFSGridAction : public BtActionNode<rc26_interfaces::action::PlaceKFSGrid> {
+class PlaceKFSGridAction : public BtActionNode<rc26_interfaces::action::ExecuteMechanism> {
 public:
     PlaceKFSGridAction(const std::string& name, const BT::NodeConfig& config);
 
@@ -36,18 +23,6 @@ protected:
 private:
     uint8_t pending_grid_position_{0};
     uint8_t pending_layer_{0};
-};
-
-// 放置 KFS 到地面节点
-class PlaceKFSGroundAction : public BtActionNode<rc26_interfaces::action::ExecuteMechanism> {
-public:
-    PlaceKFSGroundAction(const std::string& name, const BT::NodeConfig& config);
-
-    static BT::PortsList providedPorts();
-
-protected:
-    bool buildGoal(Goal& goal) override;
-    BT::NodeStatus handleResult(const WrappedResult& result, uint16_t& error_code) override;
 };
 
 // 云台控制节点

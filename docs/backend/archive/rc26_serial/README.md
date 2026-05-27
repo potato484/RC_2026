@@ -48,10 +48,11 @@
 
 当前真实口径是：
 
-- `rc26_telecontrol_front_pushrod_buttons` 会在 `Y/A` 按下沿单次调用 `/mechanism/transport/send_command`
-- `rc26_telecontrol_rear_pushrod_buttons` 会在 `Select/Back` / `Start` 按下沿单次调用 `/mechanism/transport/send_command`
+- `rc26_telecontrol_front_pushrod_buttons` 会在 `Y/A` 按下沿单次调用 `/mechanism/send_command`
+- `rc26_telecontrol_rear_pushrod_buttons` 会在 `Select/Back` / `Start` 按下沿单次调用 `/mechanism/send_command`
 - 4 条双推杆命令都通过 `merge_odom` 桥接走可靠 `sendCommand()` ACK 路径；若 MCU 不回通用 `ACK(0x00)`，会像其它可靠命令一样自动重传并打印超时日志
-- `0x13~0x16` 业务 ACK 会继续发布到 `/mechanism/transport/feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定
+- `0x13~0x16` 业务 ACK 会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定
+- 串口层当前只把 `ACK(0x00)`、`NACK(0x01)` 和心跳场景下的 `HEARTBEAT_ACK(0x10)` 视为 ACK 等待结果；当前 MCU 已不再返回 `ACTION_FAIL/ERROR`
 - `Dpad 左/右` 已回归底盘横移控制
 - 真机部署时，目标 MCU 串口仍由 `rc26_merge_odom` 独占打开；其它上层只复用 transport，不再次直连同一设备
 
@@ -60,6 +61,12 @@
 - `TIP_VISION = 0x12`
 - payload 固定为 `5B`：`[grab_ready, dir_code, amp_code, ts16_lo, ts16_hi]`
 - 当前由 `tip_vision_test_node` 通过 `sendCommandNoAck()` 发送，复用统一 RC26 封帧、CRC 和重连逻辑，但它仍属于端头视觉独立 test 链，不是共享 transport 的正式运行时权威口径
+
+当前维护边界还要再记一条：
+
+- `rc26_serial` 只定义原始协议 ID、封帧、ACK/RTO 和串口 I/O
+- 机构业务上的“这个命令能不能走 `/mechanism/run_command`、什么反馈算完成、默认 timeout 是多少”不在这里维护
+- 这些业务语义当前统一收口在 `rc26_mechanism/catalog/mechanism_command_catalog.*`
 
 ## 源码入口与阅读顺序
 - 先看 `src/serial_driver.cpp`，这是整个仓库复用的串口底座。

@@ -10,8 +10,8 @@ namespace rc26_merge_odom {
 
 namespace {
 
-constexpr char kMechanismTransportSendCommandService[] = "/mechanism/transport/send_command";
-constexpr char kMechanismTransportFeedbackTopic[] = "/mechanism/transport/feedback";
+constexpr char kMechanismSendCommandService[] = "/mechanism/send_command";
+constexpr char kMechanismCommandFeedbackTopic[] = "/mechanism/command_feedback";
 constexpr auto kMechanismTransportFlushPeriod = std::chrono::milliseconds(10);
 
 bool shouldPublishTransportFeedback(uint8_t feedback_id) {
@@ -32,9 +32,9 @@ MechanismTransportBridge::MechanismTransportBridge(
     rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> target_serial)
     : node_(node), target_serial_(std::move(target_serial)) {
     feedback_pub_ =
-        node_.create_publisher<FeedbackMsg>(kMechanismTransportFeedbackTopic, rclcpp::QoS(32).reliable());
+        node_.create_publisher<FeedbackMsg>(kMechanismCommandFeedbackTopic, rclcpp::QoS(32).reliable());
     send_command_srv_ = node_.create_service<SendCommandSrv>(
-        kMechanismTransportSendCommandService,
+        kMechanismSendCommandService,
         std::bind(&MechanismTransportBridge::handleSendCommand, this, std::placeholders::_1,
                   std::placeholders::_2));
     flush_timer_ = node_.create_wall_timer(

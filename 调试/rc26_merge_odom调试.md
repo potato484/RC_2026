@@ -63,7 +63,7 @@ ros2 launch rc26_merge_odom merge_odom_fused.launch.py
 ```bash
 ros2 param get /merge_odom_node cmd_vel_timeout_ms
 ros2 topic echo /pose_sender/target_protected --once
-ros2 topic echo /mechanism/transport/feedback --once
+ros2 topic echo /mechanism/command_feedback --once
 ros2 topic echo /wheel_odom_fuser/health --once
 ros2 topic echo /can_odom/slip_score --once
 ```

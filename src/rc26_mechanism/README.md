@@ -2,39 +2,67 @@
 
 ## 模块简介
 
-`rc26_mechanism` 是 R2 自动机器人的核心机构控制节点，负责统一管理与下位机（MCU）的交互逻辑、动作调度以及生命周期管理。本模块作为上位机决策层与底层硬件通信层之间的桥梁，承担着动作指令下发、执行状态反馈、异常处理与硬件状态监控的关键任务。
+`rc26_mechanism` 是 R2 自动机器人的最小机构执行边界，负责把上层动作语义可靠地下发给下位机，并收敛执行结果。
 
-## 核心设计理念
+当前实现已经按“真机最小可用链路”收口：
 
-本模块的设计遵循高可靠性、高可观测性和安全第一的原则：
+- 只保留 `shared_serial` 真机 HAL
+- 只保留 3 个动作入口：
+  - `/mechanism/grab_tip`
+  - `/mechanism/assemble_weapon`
+  - `/mechanism/run_command`
+- `/mechanism/status` 只保留 3 个观测字段：
+  - `hal_open`
+  - `last_error_code`
+  - `current_cmd_id`
 
-1. **生命周期门禁化管理**：基于 ROS 2 Lifecycle 架构构建。节点的状态（未配置、未激活、激活、销毁）与机构动作受理严格绑定。只有在节点处于完全激活状态时，才会真正接受上层动作指令；在节点退活或关闭时，会清退所有正在执行的任务。若当前使用直连串口 HAL，则生命周期同时控制串口连接；若使用共享串口 HAL，则生命周期控制的是 transport 桥接可用性。
+## 核心设计
 
-2. **多态硬件抽象层 (HAL)**：为了满足不同阶段的开发与测试需求，本模块内部抽象了统一的硬件接口层（IMechanismHAL）。目前支持直连真实串口的实体硬件层、通过 `rc26_merge_odom` 复用目标 MCU 串口的 `shared_serial` 层、用于离线调试的日志回放层、用于无实车环境验证的模拟层，以及专门用于健壮性测试的故障注入层。这种设计极大降低了上位机算法对实车的依赖，使得逻辑层面的测试可以提前进行。
+1. **生命周期门禁化管理**：只有节点处于 `active` 且 HAL 已打开时才接收机构动作；退活、错误或取消时会清退执行上下文并发送 `STOP`。
+2. **集中命令目录真源**：`mechanism_command_catalog` 统一描述命令是否允许走 `/mechanism/run_command`、什么反馈算成功、默认 timeout 是多少。
+3. **共享串口优先**：真实部署只支持 `shared_serial`，通过 `/mechanism/send_command` 与 `/mechanism/command_feedback` 复用 `rc26_merge_odom` 或 `pose_sender_node` 已持有的目标 MCU 串口。
+4. **单动作串行执行**：同一时刻只允许一个机构动作执行，避免上层并发 goal 把机构链路打乱。
+5. **反馈收敛保留**：继续保留 `pending_contexts_`、`buffered_feedbacks_`、早到成功反馈与超时处理；当前 MCU 不再回 `ACTION_FAIL/ERROR`，所以 mechanism 侧只按命令专属完成反馈或超时来收敛结果。
 
-3. **敏捷的动作调度与响应**：所有的机构动作（如吸取、抛掷、复位、急停等）均通过 ROS 2 Action 机制异步执行。模块内部实现了基于命令序号（seq）的精确路由与上下文管理。当动作被取消或超时发生时，系统能够做到百毫秒级的敏捷响应，立即唤醒等待线程并中断当前操作，避免资源阻塞。
+## 目录结构
 
-4. **精细化异常处理与诊断**：模块提供了丰富的执行反馈（Feedback）与持续的状态广播（State Topic）。不仅能够精确归因导致动作失败的具体原因（如无载荷、通信超时、底层报错等），还在状态流中实时附带当前通信链路的健康评估指标，为上层的行为树（BT）提供了决策所需的关键诊断数据，支持更高级的降级或自愈策略。
+- `include/rc26_mechanism/nodes` + `src/nodes`：生命周期节点与 action 服务端
+- `include/rc26_mechanism/catalog` + `src/catalog`：机构命令目录真源
+- `include/rc26_mechanism/runtime`：`CommandContext` 等运行时辅助类型
+- `include/rc26_mechanism/hal/contracts`：HAL 抽象接口
+- `include/rc26_mechanism/hal/shared_serial` + `src/hal/shared_serial`：真实共享串口桥接实现
+- `test/catalog`、`test/transport`：命令目录与共享 transport 回归测试
 
-## 模块职责范围
+## 当前对外语义
 
-- **动作管理**：提供拾取/投掷、复位、急停等基础动作的 Action 服务端。
-- **协议适配**：将上层抽象的动作语义翻译为底层串口通信所需的具体帧格式及命令序列。
-- **共享桥接适配**：在真实部署下，通过 `/mechanism/transport/send_command` 与 `/mechanism/transport/feedback` 复用 `rc26_merge_odom` 已打开的目标串口。
-- **状态维护**：维护当前机构的运作状态、命令执行阶段以及串口健康状况。
-- **超时与重试**：管理每一条下发指令的确认超时（ACK Timeout）与执行超时，过滤无效或迟到的底层反馈。
-- **生命周期同步**：与系统的整体生命周期管理器同步，完成模块级的优雅启动与安全退出。
+- `GrabTip.action`：保留专用抓端头入口，作为标准专用动作例子。
+- `AssembleWeapon.action`：保留专用组装入口。
+- `ExecuteMechanism.action`：只继续承接通用机构命令。
+- 当前 catalog 中只保留 4 条机构业务命令：
+  - `GRAB_TIP`
+  - `ASSEMBLE_WEAPON`
+  - `GRAB_KFS`
+  - `PLACE_KFS_GRID`
+- 其中允许走 `/mechanism/run_command` 的只有：
+  - `GRAB_KFS`
+  - `PLACE_KFS_GRID`
 
-## 适用场景
+也就是说，KFS 抓取和九宫格放置当前统一通过 `/mechanism/run_command` 下发；`grab_tip` 与 `assemble_weapon` 继续保留专用 action。
 
-本模块适用于 R2 自动机器人需要对各个子机构（如取球机构、抛球机构等）进行精细化控制与状态感知的场景。上层决策模块（如 `rc26_decision`）应当通过 Action 客户端与本模块交互，并通过订阅本模块的状态话题来动态调整策略。
+## 维护规则
+
+新增机构命令时，固定按下面的顺序维护：
+
+1. 在 `rc26_serial/protocol.hpp` 增加新的 `CommandID` / `FeedbackID`
+2. 在 `rc26_mechanism/catalog/mechanism_command_catalog.*` 增加命令目录项
+3. 如果只需要通用执行，直接调用 `/mechanism/run_command`
+4. 只有确实需要更强业务语义时，才再新增专用 action 包装
 
 ## 注意事项
 
-- 本文档为纯描述性说明文档。关于具体的接口定义（消息类型、Action 文件）请参阅 `rc26_interfaces` 仓库。
-- 当前真实部署推荐 `hal_type:=shared_serial`，避免与 `rc26_merge_odom` 同时竞争打开 `/dev/ttyUSB1`。
-- `shared_serial` 复用的是 `rc26_merge_odom` 已打开的 `target_serial_port`；`feedback_serial_port` 只属于底盘反馈链路，不是 mechanism 的物理通道。
-- 前/后推杆 4 条 sidecar 命令已从 `ExecuteMechanism` 中移除；遥控链当前直接调用 `/mechanism/transport/send_command` 按下沿单次下发 `0x0E~0x11`，并要求 MCU 先回通用 `ACK(0x00)`。
-- `Y/A` 当前映射为前推杆伸展 / 收缩，`Select/Back` / `Start` 当前映射为后推杆伸展 / 收缩；`Dpad 左/右` 已回归底盘横移控制。若 MCU 再上送 `0x13~0x16` 业务 ACK，这些反馈会继续走 `/mechanism/transport/feedback`。
-- 仓库根目录的 `start_r2_teleop.sh --stack minimal-mcu` 虽然不会启动 `merge_odom_node`，但 `pose_sender_node` 现在也会继续提供 `/mechanism/transport/*`；若要验证 shared_serial HAL，可使用 `full` 栈、`minimal-mcu` 栈或单独启动 `merge_odom.launch.py`。
+- 当前真实部署只支持 `hal_type:=shared_serial`；其它 `hal_type` 会在 `configure` 阶段直接失败。
+- `shared_serial` 复用的是 `rc26_merge_odom` 已打开的 `target_serial_port`；`feedback_serial_port` 不属于 mechanism 物理链路。
+- 前/后推杆 sidecar 命令不再属于 `rc26_mechanism` 的业务命令目录；遥控链当前直接调用 `/mechanism/send_command`。
+- 当前机构节点不再维护端头状态机，也不再通过 `/mechanism/status` 发布端头姿态、装配计数或通信健康统计。
+- 包目录已经物理清理掉历史残留空目录 `include/rc26_mechanism/hal/{fault,replay,sim}`、`src/hal/{fault,replay,sim}` 与 `launch/__pycache__`，当前源码树只保留最小真机链路对应的目录。
 - 关于如何在开发或实车环境下通过命令行调试本模块，请参阅仓库根目录 `调试/rc26_mechanism调试.md`。

@@ -641,15 +641,6 @@ void SerialDriver::notifyAck(uint8_t seq, uint8_t cmd) {
         RCLCPP_DEBUG(serialLogger(), "收到 HEARTBEAT_ACK：seq=%u", seq);
         return;
     }
-
-    if (cmd == static_cast<uint8_t>(FeedbackID::ACTION_FAIL) ||
-        cmd == static_cast<uint8_t>(FeedbackID::ERROR)) {
-        ack_response_received_ = true;
-        ack_success_ = false;
-        ack_cv_.notify_all();
-        RCLCPP_DEBUG(serialLogger(), "ACTION_FAIL/ERROR: seq=%u cmd=0x%02X", seq, cmd);
-        return;
-    }
 }
 
 bool SerialDriver::sendCommandNoAck(uint8_t cmd, const std::vector<uint8_t>& payload) {
