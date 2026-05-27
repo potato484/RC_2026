@@ -151,6 +151,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SetXhuMotionModeResponse'
+  /ros2/services/kfs_keepout/set_runtime:
+    post:
+      tags: [Service]
+      summary: 调用 service /kfs_keepout/set_runtime
+      x-ros:
+        interface_kind: service
+        name: /kfs_keepout/set_runtime
+        service_type: rc26_interfaces/srv/SetKeepoutRuntime
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetKeepoutRuntimeRequest'
+      responses:
+        '200':
+          description: rc26_interfaces/srv/SetKeepoutRuntime response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetKeepoutRuntimeResponse'
   /ros2/actions/navigate_topo_target:
     post:
       tags: [Action]
@@ -314,6 +335,36 @@ components:
       properties:
         success:
           type: boolean
+        message:
+          type: string
+    SetKeepoutRuntimeRequest:
+      type: object
+      required: [activate, reason]
+      properties:
+        activate:
+          type: boolean
+          description: true=进入 MFAreaTree 前装载并激活 keepout；false=退出 MF 时先清空再卸载
+        reason:
+          type: string
+    SetKeepoutRuntimeResponse:
+      type: object
+      required: [ok, active, outputs_cleared, component_loaded, status, message]
+      properties:
+        ok:
+          type: boolean
+          description: 服务调用整体是否满足阶段语义；仅卸载失败但已清空时仍可为 true
+        active:
+          type: boolean
+          description: keepout 运行时当前是否处于激活态
+        outputs_cleared:
+          type: boolean
+          description: `/mf_block_overlay` 与 `/kfs_filter_mask` 是否已经被安全清空
+        component_loaded:
+          type: boolean
+          description: keepout 组件当前是否仍留在容器内；可用于表达“已清空但卸载失败”
+        status:
+          type: string
+          description: 运行时管理器的状态标签，如 `UNLOADED / LOADING / ACTIVE / CLEARING / ERROR`
         message:
           type: string
     NavigateTopoTargetGoal:

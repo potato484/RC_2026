@@ -39,6 +39,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/LocalizationBackendStatus.msg"
   "msg/RouteObservability.msg"
   "srv/SetXhuMotionMode.srv"
+  "srv/SetKeepoutRuntime.srv"
   "srv/SendMechanismTransportCommand.srv"
   "msg/BehaviorTreePort.msg"
   "msg/BehaviorTreeNodeModel.msg"

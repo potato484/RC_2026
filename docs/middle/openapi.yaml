@@ -47,6 +47,7 @@ x-modules:
       - /xhu_nav/recovery_state
     services:
       - set_xhu_motion_mode
+      - /kfs_keepout/set_runtime
   - name: vision
     file: docs/middle/modules/vision.yaml
     topics:

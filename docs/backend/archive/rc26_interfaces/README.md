@@ -9,6 +9,7 @@
 - `NavigateTopoTarget.action`
 - `NavigateSurfaceRoute.action`
 - `SetXhuMotionMode.srv`
+- `SetKeepoutRuntime.srv`
 - `MfBlockOverlay.msg`
 - `MfBlockOverlayCell.msg`
 - `SurfaceGraphOverlay.msg`
@@ -78,6 +79,13 @@
 - `SurfaceGraphOverlay.msg` 当前用于把离散 blocked `node_id / edge_id` 和 TTL 传给 `rc26_xhu_nav`，它只表达 runtime 动态阻塞输入，不改变 `NavigateSurfaceRoute` action 形态
 - 新增的 local planner / semantic summary 消息只补充执行链内部状态，不改变 `NavigateTopoTarget` 或 `NavigateSurfaceRoute` 的 action 外形
 - 接口是否存在以 [src/rc26_interfaces/CMakeLists.txt](/home/potato/RC_2026/src/rc26_interfaces/CMakeLists.txt) 为准
+
+## Keepout Runtime 契约
+
+- `/kfs_keepout/set_runtime` 当前是 `rc26_decision -> rc26_kfs_keepout` 的 MF keepout 运行时控制服务，接口类型为 `SetKeepoutRuntime.srv`
+- `activate=true` 表示进入 `MFAreaTree` 前请求装载并激活 keepout；`activate=false` 表示离开 MF 时先清空输出再卸载
+- 响应字段 `outputs_cleared` 表示下游是否已经收到安全清空后的 overlay/mask 结果
+- 响应字段 `component_loaded` 表示组件是否仍留在容器内；允许在 `outputs_cleared=true` 时仍为 `true`，用来表达“已安全退出但卸载失败”
 
 ## 本轮收口
 

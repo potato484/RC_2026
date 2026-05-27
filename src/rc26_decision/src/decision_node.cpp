@@ -18,6 +18,7 @@
 #include "rc26_decision/bt/bt_runtime_publisher.hpp"
 #include "rc26_decision/combat/combat_area.hpp"
 #include "rc26_decision/mc/mc_area.hpp"
+#include "rc26_decision/mf/keepout_runtime.hpp"
 #include "rc26_decision/mf/mf_area.hpp"
 #include "rc26_decision/navigation/bt_topo_nav.hpp"
 #include "rc26_decision/vision/bt_nodes.hpp"
@@ -54,6 +55,8 @@ public:
     this->declare_parameter<std::string>("base_ground_stable_operation_topic",
                                          "base_ground/stable_operation");
     this->declare_parameter<std::string>("kfs_state_topic", "mf_kfs_state");
+    this->declare_parameter<std::string>("keepout_runtime_service",
+                                         "/kfs_keepout/set_runtime");
     this->declare_parameter<double>("tip_rack_center_x", 0.0);
     this->declare_parameter<double>("tip_rack_center_y", 0.0);
 
@@ -226,6 +229,7 @@ public:
     // 注册所有行为树节点
     registerMCAreaNodes(factory_);
     registerMFAreaNodes(factory_);
+    registerKeepoutRuntimeNodes(factory_);
     registerCombatAreaNodes(factory_);
     registerTopoNavNodes(factory_);
     registerVisionNodes(factory_);

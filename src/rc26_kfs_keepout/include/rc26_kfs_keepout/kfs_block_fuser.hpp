@@ -12,6 +12,7 @@
 #include "rc26_interfaces/msg/mf_block_overlay.hpp"
 #include "rc26_interfaces/msg/mf_block_overlay_cell.hpp"
 #include "rc26_interfaces/msg/mf_kfs_state.hpp"
+#include "rc26_interfaces/srv/set_keepout_runtime.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/u_int8.hpp"
 
@@ -22,16 +23,25 @@ public:
     explicit KfsBlockFuser(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
 
 private:
+    using SetKeepoutRuntime = rc26_interfaces::srv::SetKeepoutRuntime;
+
     void onKfsState(const rc26_interfaces::msg::MfKfsState::ConstSharedPtr& msg);
     void onForceReleaseGrid(const std_msgs::msg::UInt8::ConstSharedPtr& msg);
+    void onRuntimeControl(
+        const SetKeepoutRuntime::Request::SharedPtr request,
+        SetKeepoutRuntime::Response::SharedPtr response);
     void decayTimer();
     void publishMask();
     void publishBlockOverlay();
+    bool publishClearedOutputs();
     void publishHeartbeat();
     void publishDiagnostics();
     bool loadGridLayout(const std::string& yaml_path);
     bool validateGridSpacing(double expected_spacing_m, double tolerance_m, std::string& detail) const;
     bool isSlowGrid(uint8_t grid_id) const;
+    void clearKeepoutState();
+    nav_msgs::msg::OccupancyGrid buildMaskGrid() const;
+    void publishMaskGrid(const nav_msgs::msg::OccupancyGrid& grid);
 
     // 参数
     double min_confidence_{0.60};
@@ -75,9 +85,11 @@ private:
     std::array<rclcpp::Time, kGridCount> last_hit_time_;
     bool layout_loaded_{false};
     bool keepout_enabled_{false};
+    bool runtime_active_{false};
     std::string keepout_disable_reason_;
     uint32_t force_release_count_{0};
     bool team_mismatch_detected_{false};
+    std::string runtime_control_service_{"set_runtime"};
 
     rclcpp::Subscription<rc26_interfaces::msg::MfKfsState>::SharedPtr sub_;
     rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr sub_force_release_;
@@ -85,6 +97,7 @@ private:
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr pub_diagnostics_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_heartbeat_;
     rclcpp::Publisher<rc26_interfaces::msg::MfBlockOverlay>::SharedPtr pub_block_overlay_;
+    rclcpp::Service<SetKeepoutRuntime>::SharedPtr runtime_control_srv_;
     rclcpp::TimerBase::SharedPtr decay_timer_;
 
     rclcpp::Time last_decay_time_;

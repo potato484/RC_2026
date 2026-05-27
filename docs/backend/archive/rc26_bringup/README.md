@@ -9,9 +9,16 @@
 `bringup.launch.py` 与 `odometry.launch.py` 现在都固定按 headless 口径装配，不再声明或透传任何 viewer / RViz / Foxglove 兼容参数。
 
 - `bringup.launch.py`
-  - 装配 Point-LIO、里程计接口、定位、terrain、keepout、`rc26_xhu_nav` 和决策
+  - 装配 Point-LIO、里程计接口、定位、terrain、keepout runtime、`rc26_xhu_nav` 和决策
 - `odometry.launch.py`
   - 装配 Point-LIO、`rc26_odom_interface`、`rc26_sensor_scan`，并可按 `enable_terrain_grid_map` 额外带起 terrain grid map
+
+当前 `slam=false` 的导航 bringup 中，keepout 相关装配已经改成：
+
+- 一个初始为空的 `ComposableNodeContainer`
+- 一个常驻 `kfs_keepout_runtime_manager_node`
+
+不再直接常驻拉起 `kfs_block_fuser_node`；真正的 keepout 组件由 `rc26_decision` 进入/离开 `MFAreaTree` 时按需装载和卸载。
 
 如需图形观察，应手工启动工作区外部可视化工具只读消费当前 ROS2 输出。仓库内仍保留两个可复用的 RViz 预设：
 
@@ -46,6 +53,7 @@
 - `test_odometry_chain.launch.py` 不再透传任何可视化兼容参数
 - 仓库内不再维护 `src/rc26_bringup/foxglove/*.json` 旧资产
 - 3D 导航装配已经收口到 `rc26_xhu_nav`，当前固定装配 `topo_nav_node + xhu_motion_mode_manager_node + xhu_motion_runtime_node`
+- MF keepout 当前只常驻空容器与 runtime manager；`kfs_block_fuser` 组件默认不预装，避免非 MF 阶段持续占用资源
 - `team`、topo graph、robot geometry、local planner/runtime 配置都由 bringup 统一装配给 `rc26_xhu_nav`
 - `local_execution_backend` 与 `enable_local_3d_planner_observe` 已从主启动入口移除，不再保留 follower / observe-only planner 切换
 - 定位相关调参项 `competition_mode`、`enable_graph_backend`、`p4_candidate_enable`、`min_inliers` 已由 `bringup.launch.py` 透传到 `localization.launch.py`

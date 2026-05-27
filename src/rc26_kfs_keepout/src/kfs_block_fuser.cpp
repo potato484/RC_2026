@@ -38,6 +38,7 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     this->declare_parameter<std::string>("grid_layout_file",  "");
     this->declare_parameter<std::string>("diagnostics_topic", "diagnostics");
     this->declare_parameter<std::string>("force_release_topic", "/kfs_force_release_grid");
+    this->declare_parameter<std::string>("runtime_control_service", runtime_control_service_);
     this->declare_parameter<double>("min_confidence",    min_confidence_);
     this->declare_parameter<double>("inflate_radius_m",  inflate_radius_m_);
     this->declare_parameter<double>("map_resolution",    map_resolution_);
@@ -63,6 +64,7 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     this->get_parameter("grid_layout_file", grid_layout_file_);
     this->get_parameter("diagnostics_topic", diagnostics_topic_);
     this->get_parameter("force_release_topic", force_release_topic_);
+    this->get_parameter("runtime_control_service", runtime_control_service_);
     this->get_parameter("min_confidence",   min_confidence_);
     this->get_parameter("inflate_radius_m", inflate_radius_m_);
     this->get_parameter("map_resolution",   map_resolution_);
@@ -179,6 +181,9 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     pub_block_overlay_ = this->create_publisher<rc26_interfaces::msg::MfBlockOverlay>(
         "/mf_block_overlay",
         rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability(rclcpp::DurabilityPolicy::TransientLocal));
+    runtime_control_srv_ = this->create_service<SetKeepoutRuntime>(
+        runtime_control_service_,
+        std::bind(&KfsBlockFuser::onRuntimeControl, this, std::placeholders::_1, std::placeholders::_2));
 
     sub_ = this->create_subscription<rc26_interfaces::msg::MfKfsState>(
         kfs_topic, rclcpp::QoS(10).reliable(),
@@ -192,13 +197,11 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
         std::chrono::milliseconds(200),
         std::bind(&KfsBlockFuser::decayTimer, this));
 
-    RCLCPP_INFO(this->get_logger(), "KfsBlockFuser started, keepout_enabled=%s",
-                keepout_enabled_ ? "true" : "false");
-    if (keepout_enabled_) {
-        publishMask();
-    }
+    RCLCPP_INFO(this->get_logger(), "KfsBlockFuser started, layout_loaded=%s runtime_active=%s",
+                layout_loaded_ ? "true" : "false",
+                runtime_active_ ? "true" : "false");
+    (void)publishClearedOutputs();
     publishDiagnostics();
-    publishHeartbeat();
 }
 
 bool KfsBlockFuser::loadGridLayout(const std::string& path) {
@@ -321,12 +324,105 @@ bool KfsBlockFuser::validateGridSpacing(double expected_spacing_m, double tolera
 }
 
 bool KfsBlockFuser::isSlowGrid(const uint8_t grid_id) const {
-    return keepout_enabled_ && slow_grid_ids_.find(grid_id) != slow_grid_ids_.end();
+    return runtime_active_ && keepout_enabled_ &&
+           slow_grid_ids_.find(grid_id) != slow_grid_ids_.end();
+}
+
+void KfsBlockFuser::clearKeepoutState() {
+    log_odds_.fill(probToLogOdds(0.5));
+    blocked_state_.fill(0);
+    pending_state_.fill(0);
+    dwell_count_.fill(0);
+    mask_dirty_ = false;
+    for (auto& t : last_hit_time_) {
+        t = rclcpp::Time(0, 0, this->get_clock()->get_clock_type());
+    }
+}
+
+void KfsBlockFuser::onRuntimeControl(
+    const SetKeepoutRuntime::Request::SharedPtr request,
+    SetKeepoutRuntime::Response::SharedPtr response) {
+    if (!response) {
+        return;
+    }
+
+    response->component_loaded = true;
+    if (!request) {
+        response->ok = false;
+        response->active = false;
+        response->outputs_cleared = false;
+        response->status = "ERROR";
+        response->message = "empty runtime control request";
+        return;
+    }
+
+    if (request->activate) {
+        if (runtime_active_ && keepout_enabled_) {
+            response->ok = true;
+            response->active = true;
+            response->outputs_cleared = false;
+            response->status = "ACTIVE";
+            response->message = "keepout already active";
+            return;
+        }
+        if (!layout_loaded_) {
+            response->ok = false;
+            response->active = false;
+            response->outputs_cleared = false;
+            response->status = "ERROR";
+            response->message = keepout_disable_reason_.empty()
+                                    ? "keepout layout not ready"
+                                    : keepout_disable_reason_;
+            publishDiagnostics();
+            publishHeartbeat();
+            return;
+        }
+
+        runtime_active_ = true;
+        keepout_enabled_ = layout_loaded_;
+        team_mismatch_detected_ = false;
+        keepout_disable_reason_.clear();
+        clearKeepoutState();
+        publishMask();
+        publishHeartbeat();
+        publishDiagnostics();
+
+        response->ok = true;
+        response->active = true;
+        response->outputs_cleared = false;
+        response->status = "ACTIVE";
+        response->message = request->reason.empty()
+                                ? "keepout activated"
+                                : ("keepout activated: " + request->reason);
+        return;
+    }
+
+    runtime_active_ = false;
+    keepout_enabled_ = layout_loaded_;
+    team_mismatch_detected_ = false;
+    clearKeepoutState();
+    response->outputs_cleared = publishClearedOutputs();
+    publishDiagnostics();
+
+    response->ok = response->outputs_cleared;
+    response->active = false;
+    response->status = response->outputs_cleared ? "INACTIVE" : "ERROR";
+    response->message = response->outputs_cleared
+                            ? (request->reason.empty()
+                                   ? "keepout cleared and deactivated"
+                                   : ("keepout cleared and deactivated: " + request->reason))
+                            : "keepout deactivated but outputs could not be fully cleared";
 }
 
 void KfsBlockFuser::onKfsState(
     const rc26_interfaces::msg::MfKfsState::ConstSharedPtr& msg) {
     if (!msg) {
+        return;
+    }
+    if (!msg->team.empty()) {
+        active_team_ = msg->team;
+    }
+    if (!runtime_active_) {
         return;
     }
     if (!layout_team_.empty() && toLowerCopy(layout_team_) != "shared") {
@@ -341,17 +437,12 @@ void KfsBlockFuser::onKfsState(
             RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
                                   "%s", keepout_disable_reason_.c_str());
             if (first_mismatch) {
-                log_odds_.fill(probToLogOdds(0.5));
-                blocked_state_.fill(0);
-                pending_state_.fill(0);
-                dwell_count_.fill(0);
-                mask_dirty_ = false;
-                publishMask();
+                clearKeepoutState();
+                (void)publishClearedOutputs();
                 RCLCPP_WARN(this->get_logger(),
                             "keepout disabled due to layout/team mismatch; downstream gate must handle degraded navigation safety");
             }
             publishDiagnostics();
-            publishHeartbeat();
             return;
         }
         if (team_mismatch_detected_) {
@@ -369,11 +460,7 @@ void KfsBlockFuser::onKfsState(
                 publishMask();
             }
             publishDiagnostics();
-            publishHeartbeat();
         }
-    }
-    if (!msg->team.empty()) {
-        active_team_ = msg->team;
     }
     if (!keepout_enabled_) {
         return;
@@ -438,7 +525,7 @@ void KfsBlockFuser::onForceReleaseGrid(const std_msgs::msg::UInt8::ConstSharedPt
     mask_dirty_ = true;
     last_hit_time_[idx] = rclcpp::Time(0, 0, this->get_clock()->get_clock_type());
     force_release_count_++;
-    if (mask_dirty_ && keepout_enabled_) {
+    if (mask_dirty_ && runtime_active_ && keepout_enabled_) {
         publishMask();
         mask_dirty_ = false;
     }
@@ -449,6 +536,12 @@ void KfsBlockFuser::decayTimer() {
     const auto now = this->get_clock()->now();
     const double dt = std::max(0.0, (now - last_decay_time_).seconds());
     last_decay_time_ = now;
+
+    if (!runtime_active_) {
+        publishHeartbeat();
+        publishDiagnostics();
+        return;
+    }
 
     const double lo_decay = decay_rate_ * dt;
     const double lo_target = probToLogOdds(decay_target_prob_);
@@ -527,11 +620,7 @@ void KfsBlockFuser::decayTimer() {
     publishDiagnostics();
 }
 
-void KfsBlockFuser::publishMask() {
-    if (!layout_loaded_) {
-        return;
-    }
-
+nav_msgs::msg::OccupancyGrid KfsBlockFuser::buildMaskGrid() const {
     // 计算地图边界
     double xmin = 1e9, xmax = -1e9, ymin = 1e9, ymax = -1e9;
     const double half_size = block_half_size_m_ + keepout_margin_m_;
@@ -548,7 +637,7 @@ void KfsBlockFuser::publishMask() {
     const int H = static_cast<int>((ymax - ymin) / map_resolution_) + 1;
 
     nav_msgs::msg::OccupancyGrid grid;
-    grid.header.stamp = this->get_clock()->now();
+    grid.header.stamp = this->now();
     grid.header.frame_id = "map";
     grid.info.resolution = static_cast<float>(map_resolution_);
     grid.info.width  = static_cast<uint32_t>(W);
@@ -593,7 +682,19 @@ void KfsBlockFuser::publishMask() {
         }
     }
 
+    return grid;
+}
+
+void KfsBlockFuser::publishMaskGrid(const nav_msgs::msg::OccupancyGrid& grid) {
     pub_mask_->publish(grid);
+}
+
+void KfsBlockFuser::publishMask() {
+    if (!layout_loaded_ || !runtime_active_) {
+        return;
+    }
+
+    publishMaskGrid(buildMaskGrid());
     publishBlockOverlay();
 }
 
@@ -621,12 +722,28 @@ void KfsBlockFuser::publishBlockOverlay() {
             cell.state = rc26_interfaces::msg::MfBlockOverlayCell::UNKNOWN;
         }
 
-        cell.keepout_active = (keepout_enabled_ &&
+        cell.keepout_active = (runtime_active_ && keepout_enabled_ &&
                                (blocked_state_[idx] == 1 || isSlowGrid(static_cast<uint8_t>(i))));
         overlay.cells.push_back(cell);
     }
 
     pub_block_overlay_->publish(overlay);
+}
+
+bool KfsBlockFuser::publishClearedOutputs() {
+    const bool mask_cleared = layout_loaded_;
+    if (layout_loaded_) {
+        publishMaskGrid(buildMaskGrid());
+    }
+
+    rc26_interfaces::msg::MfBlockOverlay overlay;
+    overlay.header.stamp = this->get_clock()->now();
+    overlay.header.frame_id = "map";
+    overlay.team = active_team_.empty() ? layout_team_ : active_team_;
+    pub_block_overlay_->publish(overlay);
+
+    publishHeartbeat();
+    return mask_cleared;
 }
 
 void KfsBlockFuser::publishHeartbeat() {
@@ -635,7 +752,7 @@ void KfsBlockFuser::publishHeartbeat() {
     }
 
     std_msgs::msg::Bool heartbeat_msg;
-    heartbeat_msg.data = keepout_enabled_;
+    heartbeat_msg.data = runtime_active_ && keepout_enabled_;
     pub_heartbeat_->publish(heartbeat_msg);
 }
 
@@ -643,11 +760,23 @@ void KfsBlockFuser::publishDiagnostics() {
     if (!pub_diagnostics_) return;
 
     diagnostic_msgs::msg::DiagnosticStatus status;
-    status.level = keepout_enabled_ ? diagnostic_msgs::msg::DiagnosticStatus::OK
-                                    : diagnostic_msgs::msg::DiagnosticStatus::ERROR;
+    if (!layout_loaded_) {
+        status.level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
+    } else if (!runtime_active_) {
+        status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
+    } else {
+        status.level = keepout_enabled_ ? diagnostic_msgs::msg::DiagnosticStatus::OK
+                                        : diagnostic_msgs::msg::DiagnosticStatus::ERROR;
+    }
     status.name = this->get_fully_qualified_name();
     status.hardware_id = "R2";
-    status.message = keepout_enabled_ ? "正常" : ("keepout disabled: " + keepout_disable_reason_);
+    if (!layout_loaded_) {
+        status.message = "keepout disabled: " + keepout_disable_reason_;
+    } else if (!runtime_active_) {
+        status.message = "keepout inactive";
+    } else {
+        status.message = keepout_enabled_ ? "正常" : ("keepout disabled: " + keepout_disable_reason_);
+    }
 
     auto addKV = [&](const std::string& key, const std::string& value) {
         diagnostic_msgs::msg::KeyValue kv;
@@ -655,8 +784,10 @@ void KfsBlockFuser::publishDiagnostics() {
         kv.value = value;
         status.values.push_back(kv);
     };
+    addKV("runtime_active", runtime_active_ ? "true" : "false");
     addKV("keepout_enabled", keepout_enabled_ ? "true" : "false");
     addKV("keepout_disable_reason", keepout_disable_reason_);
+    addKV("runtime_control_service", runtime_control_service_);
     addKV("mask_topic", mask_topic_);
     addKV("heartbeat_topic", heartbeat_topic_);
     addKV("grid_layout_file", grid_layout_file_);

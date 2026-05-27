@@ -19,6 +19,7 @@
   - `NavigateTopoTarget.action`
   - `NavigateSurfaceRoute.action`
   - `SetXhuMotionMode.srv`
+  - `SetKeepoutRuntime.srv`
   - `MfBlockOverlay.msg`
   - `MfBlockOverlayCell.msg`
   - `XhuSemanticCorridor.msg`
@@ -65,3 +66,10 @@
 - 任何跨包字段语义变更，都必须同步更新 [docs/middle/modules/navigation.yaml](/home/potato/RC_2026/docs/middle/modules/navigation.yaml) 或对应模块契约文档。
 - 新接口优先围绕 `rc26_xhu_nav` 这条自研链设计，不再为历史兼容链增加冗余字段。
 - 判断“接口是否真实存在”时，以 [CMakeLists.txt](/home/potato/RC_2026/src/rc26_interfaces/CMakeLists.txt) 中 `rosidl_generate_interfaces()` 的清单为准。
+
+## Keepout Runtime 契约
+
+- `SetKeepoutRuntime.srv` 是 MF 阶段 keepout 运行时控制契约，当前固定服务名为 `/kfs_keepout/set_runtime`，由 `rc26_decision` 调用 `rc26_kfs_keepout` 运行时管理器。
+- `activate=true` 表示进入 `MFAreaTree` 前请求装载并激活 keepout；`activate=false` 表示退出 MF 前请求先清空输出再卸载。
+- 响应字段 `outputs_cleared` 表示 `/mf_block_overlay` 与 `/kfs_filter_mask` 是否已经被安全清空；后续流程只依赖这个字段判断是否会残留陈旧 keepout。
+- 响应字段 `component_loaded` 表示 keepout 组件当前是否仍留在容器内；它允许在 `outputs_cleared=true` 时仍为 `true`，用于表达“已安全退出但卸载失败”的资源告警状态。

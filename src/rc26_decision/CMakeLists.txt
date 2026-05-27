@@ -41,6 +41,7 @@ include_directories(include)
 add_library(${PROJECT_NAME}_nodes SHARED
   src/mc/mc_area.cpp
   src/mf/mf_area.cpp
+  src/mf/keepout_runtime.cpp
   src/mf/merlin_rule_world_model.cpp
   src/combat/battle_grid_state.cpp
   src/combat/combat_area.cpp

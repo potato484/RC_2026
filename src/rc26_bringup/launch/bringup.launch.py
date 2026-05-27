@@ -22,7 +22,7 @@ from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDesc
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
-from launch_ros.actions import Node, PushRosNamespace
+from launch_ros.actions import ComposableNodeContainer, Node, PushRosNamespace
 
 
 def generate_launch_description():
@@ -379,16 +379,29 @@ def generate_launch_description():
         condition=UnlessCondition(slam)
     )
 
-    # KFS keepout 融合节点
+    # KFS keepout 运行时：空组件容器 + 常驻 runtime manager
     kfs_grid_layout = PathJoinSubstitution([kfs_keepout_dir, 'config', 'r2_mf_world.yaml'])
-    kfs_block_fuser_node = Node(
+    kfs_keepout_container = ComposableNodeContainer(
+        name='kfs_keepout_container',
+        namespace=namespace,
+        package='rclcpp_components',
+        executable='component_container',
+        composable_node_descriptions=[],
+        output='screen',
+        condition=UnlessCondition(slam)
+    )
+    kfs_keepout_runtime_manager_node = Node(
         package='rc26_kfs_keepout',
-        executable='kfs_block_fuser_node',
-        name='kfs_block_fuser',
+        executable='kfs_keepout_runtime_manager_node',
+        name='kfs_keepout_runtime_manager',
         namespace=namespace,
         output='screen',
         parameters=[{
             'use_sim_time': use_sim_time,
+            'runtime_service_name': '/kfs_keepout/set_runtime',
+            'component_container_name': 'kfs_keepout_container',
+            'component_node_name': 'kfs_block_fuser',
+            'component_runtime_control_service': 'set_runtime',
             'kfs_state_topic': 'mf_kfs_state',
             'mask_topic': '/kfs_filter_mask',
             'heartbeat_topic': kfs_heartbeat_topic,
@@ -501,7 +514,8 @@ def generate_launch_description():
         base_ground_node,
         terrain_launch,
 
-        kfs_block_fuser_node,
+        kfs_keepout_container,
+        kfs_keepout_runtime_manager_node,
         terrain_grid_map_bridge_node,
         xhu_motion_mode_manager_node,
         xhu_motion_runtime_node,

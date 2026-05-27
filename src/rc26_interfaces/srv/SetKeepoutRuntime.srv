@@ -1,0 +1,9 @@
+bool activate
+string reason
+---
+bool ok
+bool active
+bool outputs_cleared
+bool component_loaded
+string status
+string message

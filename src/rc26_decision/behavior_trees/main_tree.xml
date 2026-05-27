@@ -12,7 +12,9 @@
       <!-- 武馆阶段 -->
       <SubTree ID="MCAreaTree" _autoremap="true"/>
       <!-- 梅林阶段（统一走 topo/xhu） -->
-      <SubTree ID="MFAreaTree" _autoremap="true"/>
+      <WithKeepoutRuntime>
+        <SubTree ID="MFAreaTree" _autoremap="true"/>
+      </WithKeepoutRuntime>
       <!-- 对抗阶段 -->
       <SubTree ID="CombatAreaTree" _autoremap="true"/>
     </Sequence>

@@ -6,14 +6,30 @@
 
 ## 当前实现
 
-- 导出节点: `kfs_block_fuser_node`
+- 导出运行时:
+  - `kfs_keepout_runtime_manager_node`
+  - `rc26_kfs_keepout::KfsBlockFuser` 组件（调试时仍可经 `kfs_block_fuser_node` 直接起单节点）
 - 关键输出:
   - `/kfs_filter_mask`
   - `/mf_block_overlay`
   - `/kfs_keepout_heartbeat`
+- 关键服务:
+  - `/kfs_keepout/set_runtime`
 - 关键配置:
   - `config/r2_mf_world.yaml`
   - `config/mf_grid_layout.yaml`
+
+当前导航 bringup 不再直接常驻拉起 `kfs_block_fuser_node`。`slam=false` 时只常驻一个空组件容器和 `kfs_keepout_runtime_manager`，真正的 keepout 组件只在 `rc26_decision` 进入 `MFAreaTree` 前被 load，并在离开 MF 子树时先清空输出再 unload。
+
+## 当前运行时语义
+
+- `kfs_keepout_runtime_manager` 负责 `UNLOADED / LOADING / ACTIVE / CLEARING / ERROR` 这组幂等状态。
+- `KfsBlockFuser` 组件被 load 后默认是非激活态；非激活态不会继续融合新的 `MfKfsState`，`/kfs_keepout_heartbeat` 固定为 `false`。
+- 离开 MF 时，组件会先发布：
+  - 空 `cells=[]` 的 `/mf_block_overlay`
+  - 与当前布局一致、但全零的 `/kfs_filter_mask`
+  - `false` 的 `/kfs_keepout_heartbeat`
+- 只有 `outputs_cleared=true` 之后管理器才会尝试 `UnloadNode`；若清空成功但卸载失败，会保留 `component_loaded=true` 作为资源告警，但允许后续流程继续。
 
 ## 当前 overlay 语义
 
@@ -33,6 +49,7 @@
 - 不做路径规划
 - 只面向 topo/xhu 约束输入
 - 当前主要服务 `rc26_xhu_nav`、`rc26_decision` 和下游可视化消费者
+- “什么时候启用 keepout” 现在由 `rc26_decision` 的 `MFAreaTree` 子树边界决定，不由本包自行根据位姿或 corridor 判断
 - `SLOW` 语义当前只表达保守通行区域，不在本模块内直接把机器人切到 recovery 或 stop
 - team mismatch 只会关闭 keepout 输出并通过 diagnostics 暴露降级状态，不在本模块内直接接管机器人控制
 

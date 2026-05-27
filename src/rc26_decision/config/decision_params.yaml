@@ -62,6 +62,8 @@ rc26_decision:
     keepout_gate.timeout_sec: 3.0
     # 参数说明：keepout_gate.heartbeat_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     keepout_gate.heartbeat_topic: "/kfs_keepout_heartbeat"
+    # 参数说明：keepout_runtime_service - MF keepout 运行时装载/卸载服务；进入/离开 MFAreaTree 时调用。
+    keepout_runtime_service: "/kfs_keepout/set_runtime"
 
     # MC 端头架中心（map）
     tip_rack_center_x: 0.0

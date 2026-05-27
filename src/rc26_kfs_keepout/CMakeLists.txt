@@ -11,6 +11,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
+find_package(composition_interfaces REQUIRED)
+find_package(rcl_interfaces REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -21,6 +23,8 @@ find_package(yaml-cpp REQUIRED)
 set(DEPENDENCIES
   rclcpp
   rclcpp_components
+  composition_interfaces
+  rcl_interfaces
   ament_index_cpp
   nav_msgs
   std_msgs
@@ -36,6 +40,11 @@ add_library(${PROJECT_NAME} SHARED
 ament_target_dependencies(${PROJECT_NAME} ${DEPENDENCIES})
 target_link_libraries(${PROJECT_NAME} yaml-cpp)
 
+add_executable(kfs_keepout_runtime_manager_node
+  src/kfs_keepout_runtime_manager.cpp
+)
+ament_target_dependencies(kfs_keepout_runtime_manager_node ${DEPENDENCIES})
+
 rclcpp_components_register_node(${PROJECT_NAME}
   PLUGIN "rc26_kfs_keepout::KfsBlockFuser"
   EXECUTABLE kfs_block_fuser_node
@@ -46,6 +55,10 @@ install(TARGETS ${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
+)
+
+install(TARGETS kfs_keepout_runtime_manager_node
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
 install(DIRECTORY include/
