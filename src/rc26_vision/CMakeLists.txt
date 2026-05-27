@@ -23,11 +23,15 @@ find_package(rc26_interfaces REQUIRED)
 find_package(rc26_serial REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(yaml-cpp REQUIRED)
-find_path(ONNXRUNTIME_INCLUDE onnxruntime/onnxruntime_cxx_api.h HINTS /usr/local/include)
-find_library(ONNXRUNTIME_LIB onnxruntime HINTS /usr/local/lib)
-if(NOT ONNXRUNTIME_INCLUDE OR NOT ONNXRUNTIME_LIB)
-  message(FATAL_ERROR "rc26_vision: ONNX Runtime not found under /usr/local; local ONNX fallback backend cannot be built")
-endif()
+find_path(ONNXRUNTIME_INCLUDE
+  NAMES onnxruntime_cxx_api.h
+  HINTS /usr/local/include /usr/include /opt/onnxruntime/include
+  PATH_SUFFIXES onnxruntime
+)
+find_library(ONNXRUNTIME_LIB
+  NAMES onnxruntime
+  HINTS /usr/local/lib /usr/lib /usr/lib/aarch64-linux-gnu /opt/onnxruntime/lib
+)
 
 # AidLux local ONNX inference chain.
 find_path(AIDLITE_INCLUDE aidlux/aidlite/aidlite.hpp HINTS /usr/local/include)
@@ -38,7 +42,6 @@ set(RC26_VISION_LIBRARY_SOURCES
   src/shared/sensors/depth_roi_sampler.cpp
   src/preprocess/yolo/yolo_image_preprocessor.cpp
   src/inference/yolo/yolo_engine.cpp
-  src/inference/onnx/onnx_runtime_engine.cpp
   src/inference/runtime/vision_inference_manager.cpp
   src/inference/config/model_profile_loader.cpp
   src/inference/runtime/backend_resolver.cpp
@@ -46,6 +49,14 @@ set(RC26_VISION_LIBRARY_SOURCES
   src/postprocess/yolo/yolo_detection_postprocessor.cpp
   src/postprocess/localization/tip_localizer.cpp
 )
+
+if(ONNXRUNTIME_INCLUDE AND ONNXRUNTIME_LIB)
+  message(STATUS "rc26_vision: ONNX Runtime detected, enabling local ONNX backend")
+  list(APPEND RC26_VISION_LIBRARY_SOURCES src/inference/onnx/onnx_runtime_engine.cpp)
+else()
+  message(WARNING "rc26_vision: ONNX Runtime C++ headers/library not found, building local ONNX stub backend")
+  list(APPEND RC26_VISION_LIBRARY_SOURCES src/inference/onnx/onnx_runtime_engine_stub.cpp)
+endif()
 
 if(AIDLITE_INCLUDE AND AIDLITE_LIB)
   message(STATUS "rc26_vision: AidLite detected, enabling real inference backend")
@@ -71,7 +82,15 @@ add_library(${PROJECT_NAME} SHARED
 )
 target_include_directories(${PROJECT_NAME} PUBLIC ${COMMON_INCLUDE_DIRS})
 target_include_directories(${PROJECT_NAME} PRIVATE ${OpenCV_INCLUDE_DIRS})
-target_include_directories(${PROJECT_NAME} PRIVATE ${ONNXRUNTIME_INCLUDE})
+if(ONNXRUNTIME_INCLUDE AND ONNXRUNTIME_LIB)
+  target_include_directories(${PROJECT_NAME} PRIVATE
+    ${ONNXRUNTIME_INCLUDE}
+    ${ONNXRUNTIME_INCLUDE}/onnxruntime
+  )
+  target_compile_definitions(${PROJECT_NAME} PUBLIC RC26_VISION_HAS_ONNXRUNTIME=1)
+else()
+  target_compile_definitions(${PROJECT_NAME} PUBLIC RC26_VISION_HAS_ONNXRUNTIME=0)
+endif()
 if(AIDLITE_INCLUDE AND AIDLITE_LIB)
   target_compile_definitions(${PROJECT_NAME} PUBLIC RC26_VISION_HAS_AIDLITE=1)
 else()
@@ -98,10 +117,13 @@ ament_target_dependencies(${PROJECT_NAME}
 
 target_link_libraries(${PROJECT_NAME}
   ${OpenCV_LIBS}
-  ${ONNXRUNTIME_LIB}
   yaml-cpp
   pthread
 )
+
+if(ONNXRUNTIME_INCLUDE AND ONNXRUNTIME_LIB)
+  target_link_libraries(${PROJECT_NAME} ${ONNXRUNTIME_LIB})
+endif()
 
 if(AIDLITE_LIB)
   target_link_libraries(${PROJECT_NAME} ${AIDLITE_LIB})

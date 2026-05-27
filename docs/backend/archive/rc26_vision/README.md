@@ -35,7 +35,7 @@
   - `runtime/backend_resolver`、`runtime/engine_factory`、`runtime/vision_inference_manager`
   - `yolo/yolo_engine`
   - `aidlite/aidlite_engine`、`aidlite/aidlite_engine_stub`
-  - `onnx/onnx_runtime_engine`
+  - `onnx/onnx_runtime_engine`、`onnx/onnx_runtime_engine_stub`
 - `include/rc26_vision/postprocess`、`src/postprocess`
   - `yolo/yolo_detection_postprocessor`
   - `localization/tip_localizer`
@@ -51,7 +51,7 @@
 ## 源码入口与阅读顺序
 - 先看 `launch/realsense_d455.launch.py` 和 `launch/vision_test_with_camera.launch.py`，理解相机和测试链如何拉起。
 - 再看 `src/inference/runtime/vision_inference_manager.cpp`，它是运行时调度中心。
-- 然后看 `src/inference/config/model_profile_loader.cpp`、`src/inference/runtime/backend_resolver.cpp`、`src/inference/runtime/engine_factory.cpp`、`src/inference/aidlite/aidlite_engine.cpp`/`src/inference/onnx/onnx_runtime_engine.cpp`/`src/inference/aidlite/aidlite_engine_stub.cpp`、`src/preprocess/yolo/yolo_image_preprocessor.cpp`、`src/postprocess/yolo/yolo_detection_postprocessor.cpp`、`src/shared/sensors/depth_roi_sampler.cpp`、`src/postprocess/localization/tip_localizer.cpp`。
+- 然后看 `src/inference/config/model_profile_loader.cpp`、`src/inference/runtime/backend_resolver.cpp`、`src/inference/runtime/engine_factory.cpp`、`src/inference/aidlite/aidlite_engine.cpp`/`src/inference/aidlite/aidlite_engine_stub.cpp`、`src/inference/onnx/onnx_runtime_engine.cpp`/`src/inference/onnx/onnx_runtime_engine_stub.cpp`、`src/preprocess/yolo/yolo_image_preprocessor.cpp`、`src/postprocess/yolo/yolo_detection_postprocessor.cpp`、`src/shared/sensors/depth_roi_sampler.cpp`、`src/postprocess/localization/tip_localizer.cpp`。
 - 最后看 `test/tip_vision_test_node.cpp`、`config/vision_models.yaml`、`config/tip_vision_params.yaml`、`launch/test_tip_vision.launch.py` 和 `config/realsense_d455.yaml`。
 
 ## 目录解剖
@@ -60,7 +60,7 @@
 - `src/inference/runtime/vision_inference_manager.cpp`：配置载入、模型切换、推理线程和图像/深度/相机信息缓存。
 - `src/inference/config/model_profile_loader.cpp`：模型 profile 解析。
 - `src/inference/runtime/backend_resolver.cpp` / `src/inference/runtime/engine_factory.cpp`：启动时的后端探测、自动选链、中文日志与引擎创建逻辑。
-- `src/inference/aidlite/aidlite_engine.cpp` / `src/inference/onnx/onnx_runtime_engine.cpp` / `src/inference/aidlite/aidlite_engine_stub.cpp`：AidLite 实机链、本地 ONNX Runtime 链与缺依赖时的 stub。
+- `src/inference/aidlite/aidlite_engine.cpp` / `src/inference/aidlite/aidlite_engine_stub.cpp` / `src/inference/onnx/onnx_runtime_engine.cpp` / `src/inference/onnx/onnx_runtime_engine_stub.cpp`：AidLite 实机链、本地 ONNX Runtime 链与缺依赖时的 stub。
 - `src/postprocess/yolo/yolo_detection_postprocessor.cpp`：YOLO 输出解码、坐标回映和 NMS。
 - `src/postprocess/localization/tip_localizer.cpp`：深度 + TF 融合，把识别结果投到 `map`。
 - `src/nodes/vision_test_node.cpp`、`src/nodes/tip_localizer_node.cpp`：主链节点入口。
@@ -69,9 +69,10 @@
 
 ## 默认链与 test 链
 
-- 当前模型 profile 支持 `engine: auto`；启动时如果检测到 `/usr/local` 下 AidLux/AidLite 头文件与库，并且当前 `rc26_vision` 构建已启用 AidLite，就优先走 `AidLiteEngine`。
-- 如果当前系统不是 AidLux 环境，或者路径存在但这份二进制没有编进 AidLite，运行时会自动回退到本地 `ONNX Runtime` 推理链，不再走旧的 AidLite stub 报错退出。
-- 自动选链和回退决策统一收口在共享工厂层；`tip_vision_test_node`、`vision_test_node`、`tip_localizer_node` 和 `yolo_inference_test` 会在启动时打印中文日志，说明 profile、AidLux 路径探测结果、AidLite 编译状态与最终选中的后端。
+- 当前模型 profile 支持 `engine: auto`；启动时如果检测到 `/usr/local` 下 AidLux/AidLite 头文件与库，并且当前 `rc26_vision` 构建已启用 AidLite，就优先走 `AidLiteEngine`；否则如果当前二进制已编进 ONNX Runtime C++ 后端，就回退到本地 `ONNX Runtime` 推理链。
+- AidLite 和本地 ONNX Runtime 都是可选编译后端。缺 ONNX Runtime C++ 头文件或库时，构建不会失败，而是编译 `onnx_runtime_engine_stub`；缺 AidLite 时同样编译 `aidlite_engine_stub`。stub 只提供链接符号，实际启动到对应推理后端时会快速报错，不产生假推理结果。
+- 自动选链和回退决策统一收口在共享工厂层；`tip_vision_test_node`、`vision_test_node`、`tip_localizer_node` 和 `yolo_inference_test` 会在启动时打印中文日志，说明 profile、AidLux 路径探测结果、AidLite 编译状态、ONNX Runtime 编译状态与最终选中的后端。
+- 当前兼容矩阵：AidLite 有且 ONNX Runtime C++ 缺失时可构建并由 `engine: auto` 选择 AidLite；AidLite 缺失且 ONNX Runtime C++ 存在时可构建并回退 ONNX Runtime；两者都有时优先 AidLite；两者都没有时仍允许构建，但启动推理会报“无可用推理后端”。
 - `config/vision_models.yaml` 是唯一模型 profile 配置入口，当前包含 `kfs_default` 与 `tip_test`。
 - `config/vision_models.yaml` 当前默认 profile 已切到 `engine: auto`；显式写 `onnxruntime` / `opencv_onnx` 仍会落到本地 ONNX Runtime 链，显式写 `aidlite` 则保持强制 AidLite、不参与自动回退。
 - `tip` test 链已经并入 `rc26_vision`，当前入口是 `tip_vision_test_node` 与 `launch/test_tip_vision.launch.py`。
@@ -79,7 +80,7 @@
 - `config/tip_vision_params.yaml` 只保留 USB 相机、串口、窗口和目标选择等节点业务参数；模型路径、输入输出名、量化和后处理参数统一写在 `config/vision_models.yaml` 的 `tip_test` profile。
 - `tip_vision_test_node` 现在通过 `vision_config_file + model_id` 选择主链模型 profile，不再自己维护 AidLite interpreter、输入 tensor buffer 或私有 YOLO 后处理。
 - `AidLiteEngine` 根据输入 tensor shape 自动区分 `NCHW / NHWC`，对 `float32 ONNX` 按真实布局喂输入，不再把 `NCHW` 模型误喂成 HWC 平铺。
-- 本地 ONNX Runtime 链同样会读取模型真实 input/output tensor shape，并复用与 AidLite 相同的 YOLO 预处理、坐标回映和 NMS 逻辑，避免两条链的框语义继续漂移。
+- 本地 ONNX Runtime 链在编译启用时同样会读取模型真实 input/output tensor shape，并复用与 AidLite 相同的 YOLO 预处理、坐标回映和 NMS 逻辑，避免两条链的框语义继续漂移。
 - `tip_vision_test_node` 已移除旧的距离估计和距离文字叠加；`show_center_distance` 与旧距离参数名只为兼容旧配置而保留，不再参与运行时判定。
 - 当前犀牛派 X1 板上实测 `models/tip.onnx` 为固定 `640x640` 的 CPU ONNX 链，`infer_ms` 大约 `80~95ms`、`infer_fps` 大约 `10~12`；这套 AidLite ONNX 后端对该模型不支持 `GPU/DSP`，若要逼近 `30 infer_fps`，需要换更小输入的 ONNX，或改用可落到 QNN/AMF 的量化资产。
 - `tip_vision_test_node` 的串口发送已不再自己维护 `termios` 裸写；当前改为复用 `rc26_serial::SerialDriver`，并通过 `TIP_VISION(0x12)` 发送 5 字节业务 payload：`grab_ready | dir_code | amp_code | ts16_lo | ts16_hi`。
@@ -91,12 +92,14 @@
 
 - 它只负责视觉推理和目标定位，不负责比赛级流程决策
 - 它不是前端显示层，也不提供 Web 可视化
-- AidLite 后端依赖系统环境；当前只有显式要求 `aidlite` 且构建未启用 AidLite 时才会直接报错，`engine: auto` 会优先回退到本地 ONNX Runtime
+- AidLite 和 ONNX Runtime 后端都依赖部署环境；显式指定未编译进当前二进制的后端会直接报错，`engine: auto` 只在对应后端已编译启用时自动选择或回退
 - `tip` test 链继续留在包内，但与默认 RealSense 主链隔离；它面向 USB 相机/单目 test，不是当前决策运行时权威入口
 - `tip` 当前虽然已经复用仓库 `rc26_serial` 协议栈，但仍是独立直连串口的 test 链；如果同一时刻 `rc26_merge_odom` 已持有同一个目标串口，不应再并发启动这个 test 节点
 
 ## 本轮收口
 
+- 本次把 ONNX Runtime C++ 改为可选编译后端：缺 `onnxruntime_cxx_api.h` 或 `libonnxruntime.so` 时不再阻塞 `rc26_vision` 构建，而是编译本地 ONNX stub；当前 AidLux 板卡可在 AidLite 已安装、ONNX Runtime C++ 开发头缺失的状态下构建并通过 `engine: auto` 选择 AidLite。
+- 本次补充了后端能力日志和 resolver 测试，`engine: auto` 的顺序固定为 AidLite 优先、ONNX Runtime 次之、两者都不可用时明确报错。
 - 目录已进一步按 `shared / preprocess / inference / postprocess / nodes / tools` 重排，并继续在四个库层下细分二级功能目录；公开 include 也同步硬切到二级子目录，不再保留旧的一层路径。
 - 删除了默认 build 对不存在源码的依赖，`MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_vision` 已可通过。
 - `rc26_decision` 已同步切到新的 `rc26_vision/shared/contracts/*` 与 `rc26_vision/inference/runtime/*`、`rc26_vision/inference/config/*` 公开 include 路径。

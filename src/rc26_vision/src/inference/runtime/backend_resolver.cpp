@@ -39,6 +39,14 @@ bool isAidLiteBackendCompiled() {
 #endif
 }
 
+bool isLocalOnnxBackendCompiled() {
+#if defined(RC26_VISION_HAS_ONNXRUNTIME) && RC26_VISION_HAS_ONNXRUNTIME
+    return true;
+#else
+    return false;
+#endif
+}
+
 InferenceBackendRuntimeInfo detectInferenceBackendRuntimeInfo() {
     namespace fs = std::filesystem;
 
@@ -48,6 +56,7 @@ InferenceBackendRuntimeInfo detectInferenceBackendRuntimeInfo() {
     InferenceBackendRuntimeInfo info;
     info.aidlite_paths_detected = has_header && has_library;
     info.aidlite_compiled = isAidLiteBackendCompiled();
+    info.onnxruntime_compiled = isLocalOnnxBackendCompiled();
     return info;
 }
 
@@ -61,6 +70,7 @@ InferenceBackendSelection resolveInferenceBackend(const ModelProfile& profile,
     selection.requested_engine = profile.engine;
     selection.aidlite_paths_detected = runtime_info.aidlite_paths_detected;
     selection.aidlite_compiled = runtime_info.aidlite_compiled;
+    selection.onnxruntime_compiled = runtime_info.onnxruntime_compiled;
 
     switch (profile.engine) {
         case EngineType::Auto:
@@ -68,6 +78,11 @@ InferenceBackendSelection resolveInferenceBackend(const ModelProfile& profile,
                 selection.resolved_engine = EngineType::AidLite;
                 selection.reason = "检测到 AidLux/AidLite 路径，优先使用 AidLite 推理链。";
                 return selection;
+            }
+            if (!runtime_info.onnxruntime_compiled) {
+                throw std::runtime_error(
+                    "配置为 auto，但当前 rc26_vision 构建没有可用推理后端：AidLite 未启用，ONNX "
+                    "Runtime 未启用，无法启动。");
             }
             selection.resolved_engine = EngineType::LocalOnnx;
             if (!runtime_info.aidlite_paths_detected) {
@@ -80,6 +95,11 @@ InferenceBackendSelection resolveInferenceBackend(const ModelProfile& profile,
             return selection;
 
         case EngineType::LocalOnnx:
+            if (!runtime_info.onnxruntime_compiled) {
+                throw std::runtime_error(
+                    "配置显式指定 ONNX Runtime 推理链，但当前 rc26_vision 构建未启用 ONNX Runtime "
+                    "C++ 支持，无法启动。");
+            }
             selection.resolved_engine = EngineType::LocalOnnx;
             selection.reason = "配置显式指定 ONNX Runtime 推理链。";
             return selection;
@@ -113,6 +133,7 @@ std::string formatInferenceBackendSelectionLog(const ModelProfile& profile,
         << engineTypeToString(selection.requested_engine)
         << "，AidLux路径=" << (selection.aidlite_paths_detected ? "已检测到" : "未检测到")
         << "，AidLite编译支持=" << (selection.aidlite_compiled ? "已启用" : "未启用")
+        << "，ONNX Runtime编译支持=" << (selection.onnxruntime_compiled ? "已启用" : "未启用")
         << "，最终后端=" << engineTypeToString(selection.resolved_engine)
         << "。 " << selection.reason;
     return oss.str();

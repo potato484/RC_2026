@@ -8,7 +8,7 @@
 #include <utility>
 #include <vector>
 
-#include <onnxruntime/onnxruntime_cxx_api.h>
+#include <onnxruntime_cxx_api.h>
 
 #include "rc26_vision/postprocess/yolo/yolo_detection_postprocessor.hpp"
 #include "rc26_vision/preprocess/yolo/yolo_image_preprocessor.hpp"

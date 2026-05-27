@@ -9,6 +9,7 @@ namespace rc26_vision {
 struct InferenceBackendRuntimeInfo {
     bool aidlite_paths_detected{false};
     bool aidlite_compiled{false};
+    bool onnxruntime_compiled{false};
 };
 
 struct InferenceBackendSelection {
@@ -16,10 +17,12 @@ struct InferenceBackendSelection {
     EngineType resolved_engine{EngineType::LocalOnnx};
     bool aidlite_paths_detected{false};
     bool aidlite_compiled{false};
+    bool onnxruntime_compiled{false};
     std::string reason;
 };
 
 bool isAidLiteBackendCompiled();
+bool isLocalOnnxBackendCompiled();
 InferenceBackendRuntimeInfo detectInferenceBackendRuntimeInfo();
 InferenceBackendSelection resolveInferenceBackend(const ModelProfile& profile);
 InferenceBackendSelection resolveInferenceBackend(const ModelProfile& profile,
