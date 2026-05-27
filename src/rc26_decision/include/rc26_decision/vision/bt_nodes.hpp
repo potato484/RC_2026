@@ -7,7 +7,7 @@
 #include <optional>
 #include <string>
 
-#include "rc26_vision/shared/vision_types.hpp"
+#include "rc26_vision/shared/contracts/vision_types.hpp"
 
 namespace rc26_vision {
 class VisionInferenceManager;

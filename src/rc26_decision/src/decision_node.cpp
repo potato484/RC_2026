@@ -25,8 +25,8 @@
 #include "rc26_interfaces/msg/mf_kfs_cell.hpp"
 #include "rc26_interfaces/msg/mf_kfs_state.hpp"
 #include "rc26_interfaces/srv/control_behavior_tree.hpp"
-#include "rc26_vision/inference/model_profile_loader.hpp"
-#include "rc26_vision/inference/vision_inference_manager.hpp"
+#include "rc26_vision/inference/config/model_profile_loader.hpp"
+#include "rc26_vision/inference/runtime/vision_inference_manager.hpp"
 
 namespace rc26_decision {
 

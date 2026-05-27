@@ -35,24 +35,24 @@ find_library(AIDLITE_LIB aidlite HINTS /usr/local/lib)
 find_library(AIDLITE_QNN231_LIB aidlite_qnn231 HINTS /usr/local/lib)
 
 set(RC26_VISION_LIBRARY_SOURCES
-  src/shared/depth_roi_sampler.cpp
-  src/preprocess/yolo_image_preprocessor.cpp
-  src/inference/yolo_engine.cpp
-  src/inference/onnx_runtime_engine.cpp
-  src/inference/vision_inference_manager.cpp
-  src/inference/model_profile_loader.cpp
-  src/inference/backend_resolver.cpp
-  src/inference/engine_factory.cpp
-  src/postprocess/yolo_detection_postprocessor.cpp
-  src/postprocess/tip_localizer.cpp
+  src/shared/sensors/depth_roi_sampler.cpp
+  src/preprocess/yolo/yolo_image_preprocessor.cpp
+  src/inference/yolo/yolo_engine.cpp
+  src/inference/onnx/onnx_runtime_engine.cpp
+  src/inference/runtime/vision_inference_manager.cpp
+  src/inference/config/model_profile_loader.cpp
+  src/inference/runtime/backend_resolver.cpp
+  src/inference/runtime/engine_factory.cpp
+  src/postprocess/yolo/yolo_detection_postprocessor.cpp
+  src/postprocess/localization/tip_localizer.cpp
 )
 
 if(AIDLITE_INCLUDE AND AIDLITE_LIB)
   message(STATUS "rc26_vision: AidLite detected, enabling real inference backend")
-  list(APPEND RC26_VISION_LIBRARY_SOURCES src/inference/aidlite_engine.cpp)
+  list(APPEND RC26_VISION_LIBRARY_SOURCES src/inference/aidlite/aidlite_engine.cpp)
 else()
   message(WARNING "rc26_vision: AidLite not found, building stub backend; inference will fail at runtime")
-  list(APPEND RC26_VISION_LIBRARY_SOURCES src/inference/aidlite_engine_stub.cpp)
+  list(APPEND RC26_VISION_LIBRARY_SOURCES src/inference/aidlite/aidlite_engine_stub.cpp)
 endif()
 
 # ============================================================================

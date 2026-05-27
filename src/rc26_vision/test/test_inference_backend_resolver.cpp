@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "rc26_vision/inference/backend_resolver.hpp"
+#include "rc26_vision/inference/runtime/backend_resolver.hpp"
 
 namespace rc26_vision {
 namespace {

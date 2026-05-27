@@ -5,7 +5,7 @@
 #include <cstdlib>
 #include <string>
 
-#include "rc26_vision/inference/vision_inference_manager.hpp"
+#include "rc26_vision/inference/runtime/vision_inference_manager.hpp"
 
 namespace {
 
