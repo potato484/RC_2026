@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.11)
 project(rc26_bringup)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 find_package(ament_cmake REQUIRED)
 
 install(DIRECTORY

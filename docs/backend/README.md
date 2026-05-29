@@ -20,6 +20,15 @@
 - `scripts/ci/run-ros2-workspace-smoke.sh`：本地与 CI 复用的 smoke 验证脚本，统一使用仓库规定的 `MAKEFLAGS='-j2 -l2'`、`--executor sequential` 与 `--parallel-workers 1` 口径。
 - `src/` 当前不提供通用 GitHub CD 部署流程。机器人运行时仍以犀牛派 X1 / AidLux 实机环境和 `rc26_bringup` 装配入口为准，不能把仓库 workflow 伪装成一条通用云部署链。
 
+## 当前 IDE 索引入口
+
+- `scripts/dev/refresh-compile-commands.sh`：当前工作区统一的 C/C++ 编译数据库刷新入口。脚本会按仓库约定执行 `colcon build --executor sequential --parallel-workers 1 --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`，再把各包 `build/<pkg>/compile_commands.json` 合并为仓库根目录 `compile_commands.json`。
+- 合并阶段当前只保留仓库 `src/` 下的真实源码条目，主动跳过 `build/` 里的 `rclcpp_components/node_main_*.cpp` 等生成翻译单元，避免 VS Code/clangd 给头文件关联到错误的生成源文件。
+- 如果个别包因为当前工作区改动或本地依赖问题构建失败，脚本仍会继续处理其它包并刷新根目录 `compile_commands.json`，避免整个工作区的 IDE 跳转被单包故障完全阻断。
+- 仓库内可追踪的 VS Code C/C++ 配置当前以 `.vscode/c_cpp_properties.json` 为入口，统一指向仓库根目录 `compile_commands.json`。
+- 如果本地仍使用 VS Code C/C++ 扩展但 `Ctrl+Click` 不能跳到实现，需额外检查用户级 `C_Cpp.intelliSenseEngine` 是否被禁用；即使 `compile_commands.json` 正确，用户级禁用也会让跳转失效。
+- 如果清理过 `build/ install/`，或新增 / 重命名了 C++ 源文件与包，需重新执行一次该脚本，避免 `Ctrl+Click` 仍落在过期声明或直接跳转失败。
+
 ## 包目录索引
 
 ### 装配与决策

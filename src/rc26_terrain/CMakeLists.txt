@@ -9,6 +9,7 @@ endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -120,9 +121,15 @@ install(DIRECTORY include/
   DESTINATION include
 )
 
-install(DIRECTORY config launch rviz
+install(DIRECTORY config launch
   DESTINATION share/${PROJECT_NAME}
 )
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/rviz")
+  install(DIRECTORY rviz
+    DESTINATION share/${PROJECT_NAME}
+  )
+endif()
 
 install(PROGRAMS
   scripts/export_terrain_training_dataset.py

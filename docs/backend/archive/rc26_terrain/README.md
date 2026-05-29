@@ -17,6 +17,8 @@
   - `config/terrain_filter_chain.yaml`
   - `config/terrain_risk_model.yaml`
   - `config/terrain_grid_map_bridge.yaml`
+- 可选本地观察资产:
+  - `rviz/terrain_semantic.rviz`（仅当仓库内存在该目录时随包安装，不再作为构建必需输入）
 
 ## 当前语义摘要口径
 
@@ -38,4 +40,4 @@
 
 ## 配置注释口径
 
-- `config/terrain_semantic.yaml`、`terrain_filter_chain.yaml`、`terrain_risk_model.yaml`、`terrain_grid_map_bridge.yaml` 与 `rviz/terrain_semantic.rviz` 已保留常用/高影响字段的中文注释，重点说明地形栅格、风险模型、keepout 融合、GridMap 桥接和常用 RViz 观察入口；本次只改变注释，不改变地形输出语义。
+- `config/terrain_semantic.yaml`、`terrain_filter_chain.yaml`、`terrain_risk_model.yaml` 与 `terrain_grid_map_bridge.yaml` 已保留常用/高影响字段的中文注释，重点说明地形栅格、风险模型、keepout 融合和 GridMap 桥接；`rviz/terrain_semantic.rviz` 当前改为可选本地观察资产，不再作为包安装和构建的硬依赖。
