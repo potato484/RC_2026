@@ -88,8 +88,8 @@ private:
     // Parameters
     int depth_roi_size_ = 7;
     int depth_min_valid_count_ = 10;
-    double depth_min_m_ = 0.2;
-    double depth_max_m_ = 5.0;
+    double depth_min_m_ = 0.6;
+    double depth_max_m_ = 1.2;
 };
 
 }  // namespace rc26_vision
