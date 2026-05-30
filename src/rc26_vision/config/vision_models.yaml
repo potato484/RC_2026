@@ -32,19 +32,8 @@ vision:
       aidlite:
         framework_type: "onnx"
         accelerate_type: "cpu"
-        input_name: "images"
-        output_name: "output0"
         resize_mode: "letterbox"
         padding_color: "114"
         num_classes: 1
-        input_scale: 0.01865844801068306
-        input_offset: -114.0
-        output_scale: 0.009686462581157685
-        output_offset: 0.0
-        split_output_quantization: true
-        bbox_output_scale: 2.756984233856201
-        bbox_output_offset: 0.0
-        score_output_scale: 0.001727584283798933
-        score_output_offset: 0.0
         use_dsp: false
         enable_cpu_fallback: true

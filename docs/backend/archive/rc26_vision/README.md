@@ -78,10 +78,12 @@
 - 默认视觉主链当前通过 `VisionInferenceManager` 使用 `0.6m ~ 1.2m` 的深度 ROI 有效距离窗口；落在窗口外或有效深度样本不足的检测不会被上游决策当作 `has_target=true`。
 - `tip` test 链已经并入 `rc26_vision`，当前入口是 `tip_vision_test_node` 与 `launch/test_tip_vision.launch.py`。
 - 默认 KFS 模型资产命名为 `models/kfs.pt` / `models/kfs.onnx`，标签文件命名为 `models/kfs_labels.txt`；tip test 模型资产命名为 `models/tip.pt` / `models/tip.onnx`，标签文件命名为 `models/tip_labels.txt`。
-- `config/tip_vision_params.yaml` 只保留 USB 相机、串口、窗口和目标选择等节点业务参数；模型路径、输入输出名、量化和后处理参数统一写在 `config/vision_models.yaml` 的 `tip_test` profile。
+- `config/tip_vision_params.yaml` 只保留 USB 相机、串口、窗口和目标选择等节点业务参数；模型路径和后处理参数统一写在 `config/vision_models.yaml` 的 `tip_test` profile。
 - `tip_vision_test_node` 现在通过 `vision_config_file + model_id` 选择主链模型 profile，不再自己维护 AidLite interpreter、输入 tensor buffer 或私有 YOLO 后处理。
 - `AidLiteEngine` 根据输入 tensor shape 自动区分 `NCHW / NHWC`，对 `float32 ONNX` 按真实布局喂输入，不再把 `NCHW` 模型误喂成 HWC 平铺。
 - 本地 ONNX Runtime 链在编译启用时同样会读取模型真实 input/output tensor shape，并复用与 AidLite 相同的 YOLO 预处理、坐标回映和 NMS 逻辑，避免两条链的框语义继续漂移。
+- 当前 `models/kfs.onnx` 与 `models/tip.onnx` 都按 float ONNX 默认口径运行；`tip_test` profile 已移除旧的显式 input/output 名和量化参数，输入输出 tensor 名改由运行时自动探测。
+- `tip_test` 当前仍刻意保留 `resize_mode: letterbox` 与 `num_classes: 1`；前者直接影响 tip test 的预处理和框坐标回映，不属于可与 `kfs_default` 一起删除的冗余配置。
 - `tip_vision_test_node` 已移除旧的距离估计和距离文字叠加；`show_center_distance` 与旧距离参数名只为兼容旧配置而保留，不再参与运行时判定。
 - 当前犀牛派 X1 板上实测 `models/tip.onnx` 为固定 `640x640` 的 CPU ONNX 链，`infer_ms` 大约 `80~95ms`、`infer_fps` 大约 `10~12`；这套 AidLite ONNX 后端对该模型不支持 `GPU/DSP`，若要逼近 `30 infer_fps`，需要换更小输入的 ONNX，或改用可落到 QNN/AMF 的量化资产。
 - `tip_vision_test_node` 的串口发送已不再自己维护 `termios` 裸写；当前改为复用 `rc26_serial::SerialDriver`，并通过 `TIP_VISION(0x12)` 发送 5 字节业务 payload：`grab_ready | dir_code | amp_code | ts16_lo | ts16_hi`。
@@ -120,3 +122,4 @@
 - 本次进一步把 `inference` 拆成 `contracts / config / runtime / yolo / aidlite / onnx` 六组，减少“一层目录内同时混放接口、配置、运行时和后端实现”的平铺耦合。
 - 本次补强了 tip 相机初始化日志，并把默认 tip 参数改成“优先外接摄像头、失败时自动扫描回退”；像 `/dev/video2` 这种能枚举但首帧超时的 UVC 设备，不会再让节点静默卡死在无窗口状态。
 - 本次进一步把 tip test 资源目录扁平化：旧的嵌套 test 参数/模型目录已提升并收口到包内 `config/` 与 `models/` 根目录，同时把标签文件显式命名为 `kfs_labels.txt` 与 `tip_labels.txt`，减少同名资源和相对路径歧义。
+- 本次进一步把 `tip_test` 的 AidLite profile 收口到 float ONNX 默认口径，删除了旧的显式 tensor 名和量化/反量化参数；当前 tip 仍保留 `letterbox` 作为与默认 `kfs_default` 不同的预处理行为。
