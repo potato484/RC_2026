@@ -49,7 +49,6 @@ public:
         this->declare_parameter<std::string>("heartbeat_topic", "/kfs_keepout_heartbeat");
         this->declare_parameter<std::string>("grid_layout_file", "");
         this->declare_parameter<std::string>("diagnostics_topic", "diagnostics");
-        this->declare_parameter<std::string>("force_release_topic", "/kfs_force_release_grid");
         this->declare_parameter<double>("min_confidence", 0.60);
         this->declare_parameter<double>("inflate_radius_m", 0.60);
         this->declare_parameter<double>("map_resolution", 0.10);
@@ -330,7 +329,6 @@ private:
         push(this->get_parameter("heartbeat_topic"));
         push(this->get_parameter("grid_layout_file"));
         push(this->get_parameter("diagnostics_topic"));
-        push(this->get_parameter("force_release_topic"));
         push(this->get_parameter("min_confidence"));
         push(this->get_parameter("inflate_radius_m"));
         push(this->get_parameter("map_resolution"));

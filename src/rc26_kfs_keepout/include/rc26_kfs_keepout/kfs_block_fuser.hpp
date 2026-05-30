@@ -14,7 +14,6 @@
 #include "rc26_interfaces/msg/mf_kfs_state.hpp"
 #include "rc26_interfaces/srv/set_keepout_runtime.hpp"
 #include "std_msgs/msg/bool.hpp"
-#include "std_msgs/msg/u_int8.hpp"
 
 namespace rc26_kfs_keepout {
 
@@ -26,7 +25,6 @@ private:
     using SetKeepoutRuntime = rc26_interfaces::srv::SetKeepoutRuntime;
 
     void onKfsState(const rc26_interfaces::msg::MfKfsState::ConstSharedPtr& msg);
-    void onForceReleaseGrid(const std_msgs::msg::UInt8::ConstSharedPtr& msg);
     void onRuntimeControl(
         const SetKeepoutRuntime::Request::SharedPtr request,
         SetKeepoutRuntime::Response::SharedPtr response);
@@ -63,7 +61,6 @@ private:
     std::string heartbeat_topic_{"/kfs_keepout_heartbeat"};
     std::string grid_layout_file_;
     std::string diagnostics_topic_;
-    std::string force_release_topic_;
     std::string layout_team_;
     std::string active_team_;
     std::string layout_version_;
@@ -87,12 +84,10 @@ private:
     bool keepout_enabled_{false};
     bool runtime_active_{false};
     std::string keepout_disable_reason_;
-    uint32_t force_release_count_{0};
     bool team_mismatch_detected_{false};
     std::string runtime_control_service_{"set_runtime"};
 
     rclcpp::Subscription<rc26_interfaces::msg::MfKfsState>::SharedPtr sub_;
-    rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr sub_force_release_;
     rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr pub_mask_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr pub_diagnostics_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_heartbeat_;

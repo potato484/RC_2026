@@ -37,7 +37,6 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     this->declare_parameter<std::string>("heartbeat_topic",   heartbeat_topic_);
     this->declare_parameter<std::string>("grid_layout_file",  "");
     this->declare_parameter<std::string>("diagnostics_topic", "diagnostics");
-    this->declare_parameter<std::string>("force_release_topic", "/kfs_force_release_grid");
     this->declare_parameter<std::string>("runtime_control_service", runtime_control_service_);
     this->declare_parameter<double>("min_confidence",    min_confidence_);
     this->declare_parameter<double>("inflate_radius_m",  inflate_radius_m_);
@@ -63,7 +62,6 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     this->get_parameter("heartbeat_topic",  heartbeat_topic_);
     this->get_parameter("grid_layout_file", grid_layout_file_);
     this->get_parameter("diagnostics_topic", diagnostics_topic_);
-    this->get_parameter("force_release_topic", force_release_topic_);
     this->get_parameter("runtime_control_service", runtime_control_service_);
     this->get_parameter("min_confidence",   min_confidence_);
     this->get_parameter("inflate_radius_m", inflate_radius_m_);
@@ -188,9 +186,6 @@ KfsBlockFuser::KfsBlockFuser(const rclcpp::NodeOptions& options)
     sub_ = this->create_subscription<rc26_interfaces::msg::MfKfsState>(
         kfs_topic, rclcpp::QoS(10).reliable(),
         std::bind(&KfsBlockFuser::onKfsState, this, std::placeholders::_1));
-    sub_force_release_ = this->create_subscription<std_msgs::msg::UInt8>(
-        force_release_topic_, rclcpp::QoS(10).reliable(),
-        std::bind(&KfsBlockFuser::onForceReleaseGrid, this, std::placeholders::_1));
 
     last_decay_time_ = this->get_clock()->now();
     decay_timer_ = this->create_wall_timer(
@@ -508,30 +503,6 @@ void KfsBlockFuser::onKfsState(
     }
 }
 
-void KfsBlockFuser::onForceReleaseGrid(const std_msgs::msg::UInt8::ConstSharedPtr& msg) {
-    if (!msg) {
-        return;
-    }
-    const int grid_id = static_cast<int>(msg->data);
-    if (grid_id < 1 || grid_id > 12) {
-        RCLCPP_WARN(this->get_logger(), "force release ignored: invalid grid_id=%d", grid_id);
-        return;
-    }
-    const size_t idx = static_cast<size_t>(grid_id);
-    log_odds_[idx] = probToLogOdds(decay_target_prob_);
-    blocked_state_[idx] = 0;
-    pending_state_[idx] = 0;
-    dwell_count_[idx] = dwell_cycles_;
-    mask_dirty_ = true;
-    last_hit_time_[idx] = rclcpp::Time(0, 0, this->get_clock()->get_clock_type());
-    force_release_count_++;
-    if (mask_dirty_ && runtime_active_ && keepout_enabled_) {
-        publishMask();
-        mask_dirty_ = false;
-    }
-    publishDiagnostics();
-}
-
 void KfsBlockFuser::decayTimer() {
     const auto now = this->get_clock()->now();
     const double dt = std::max(0.0, (now - last_decay_time_).seconds());
@@ -791,7 +762,6 @@ void KfsBlockFuser::publishDiagnostics() {
     addKV("mask_topic", mask_topic_);
     addKV("heartbeat_topic", heartbeat_topic_);
     addKV("grid_layout_file", grid_layout_file_);
-    addKV("force_release_topic", force_release_topic_);
     addKV("keepout_shape", keepout_shape_);
     addKV("block_thresh", std::to_string(block_thresh_));
     addKV("free_thresh", std::to_string(free_thresh_));
@@ -814,7 +784,6 @@ void KfsBlockFuser::publishDiagnostics() {
     addKV("layout_validated", layout_validated_ ? "true" : "false");
     addKV("layout_grid_spacing_m", std::to_string(layout_grid_spacing_m_));
     addKV("slow_grid_count", std::to_string(slow_grid_ids_.size()));
-    addKV("force_release_count", std::to_string(force_release_count_));
     addKV("team_mismatch_detected", team_mismatch_detected_ ? "true" : "false");
 
     diagnostic_msgs::msg::DiagnosticArray arr;

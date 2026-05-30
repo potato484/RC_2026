@@ -25,6 +25,7 @@
 
 - `kfs_keepout_runtime_manager` 负责 `UNLOADED / LOADING / ACTIVE / CLEARING / ERROR` 这组幂等状态。
 - `KfsBlockFuser` 组件被 load 后默认是非激活态；非激活态不会继续融合新的 `MfKfsState`，`/kfs_keepout_heartbeat` 固定为 `false`。
+- 当前已经移除人工强制释放某格的运行时入口；keepout 状态只再由 `MfKfsState` 输入、时间衰减和 `MFAreaTree` 的显式启停共同驱动。
 - 离开 MF 时，组件会先发布：
   - 空 `cells=[]` 的 `/mf_block_overlay`
   - 与当前布局一致、但全零的 `/kfs_filter_mask`
