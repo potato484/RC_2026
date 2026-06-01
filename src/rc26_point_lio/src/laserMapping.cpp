@@ -580,25 +580,6 @@ int main(int argc, char** argv) {
                                 name.c_str(), old_v, filter_size_map_min);
                     continue;
                 }
-                if (name == "point_filter_num") {
-                    if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
-                        reject("point_filter_num expects integer");
-                        break;
-                    }
-                    const int old_configured = configured_point_filter_num;
-                    const int old_effective = p_pre->point_filter_num;
-                    configured_point_filter_num = std::max(1, static_cast<int>(p.as_int()));
-                    applyEffectivePointFilterNum();
-                    RCLCPP_INFO(LOGGER,
-                                "PARAM_UPDATE,node=laserMapping,param=%s,old=%d,new=%d,effective_point_filter_num=%d",
-                                name.c_str(), old_configured, configured_point_filter_num, p_pre->point_filter_num);
-                    if (old_effective != p_pre->point_filter_num) {
-                        RCLCPP_INFO(LOGGER,
-                                    "PARAM_EFFECT,node=laserMapping,param=point_filter_num,old_effective=%d,new_effective=%d",
-                                    old_effective, p_pre->point_filter_num);
-                    }
-                    continue;
-                }
                 if (name == "point_keep_ratio") {
                     if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
                         reject("point_keep_ratio expects double");
@@ -607,7 +588,11 @@ int main(int argc, char** argv) {
                     const double old_ratio = point_keep_ratio;
                     const int old_effective = p_pre->point_filter_num;
                     const double requested_ratio = p.as_double();
-                    point_keep_ratio = requested_ratio > 0.0 ? std::clamp(requested_ratio, 1.0, 100.0) : -1.0;
+                    if (!std::isfinite(requested_ratio)) {
+                        reject("point_keep_ratio must be finite");
+                        break;
+                    }
+                    point_keep_ratio = std::clamp(requested_ratio, 1.0, 100.0);
                     applyEffectivePointFilterNum();
                     RCLCPP_INFO(LOGGER,
                                 "PARAM_UPDATE,node=laserMapping,param=%s,old=%.6f,new=%.6f,effective_point_filter_num=%d",

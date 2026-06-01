@@ -10,7 +10,6 @@
 - 启动文件：`launch/point_lio.launch.py`（纯 headless Point-LIO 入口，不再声明 `rviz` 兼容参数）
 - 关键配置：
   - `config/mid360.yaml`
-  - `config/mid360_mapping_save.yaml`
 - 自定义消息：`msg/LocalSensorExternalTrigger.msg`
 - 运维脚本：`scripts/time_sync_analyzer.py`
 
@@ -68,4 +67,5 @@
 
 ## 配置注释口径
 
-- `config/mid360.yaml` 与 `config/mid360_mapping_save.yaml` 已保留常用/高影响参数的中文注释，重点说明 Point-LIO 常用预处理、IMU/点云时间、先验点云、滤波、发布和建图保存相关字段；本次只改变注释，不改变 Point-LIO 参数值。
+- `config/mid360.yaml` 保留常用/高影响参数的中文注释，重点说明 Point-LIO 常用预处理、IMU/点云时间、先验点云、滤波、发布和建图保存相关字段。
+- 外部输入点云密度控制已收口到 `point_keep_ratio`；旧的整数抽样入口不再作为公开配置或动态参数入口。

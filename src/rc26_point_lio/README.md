@@ -103,9 +103,9 @@ ros2 param set /point_lio filter_size_surf 0.1
 ```
 
 说明：
-- `point_keep_ratio` 取值区间建议为 `1.0 ~ 100.0`，其中 `100.0` 表示尽可能保留全部输入点。
+- `point_keep_ratio` 是当前唯一公开的输入点云密度入口，取值会被夹紧到 `1.0 ~ 100.0`，其中 `100.0` 表示尽可能保留全部输入点。
 - `point_keep_ratio` 是“百分比语义”，最终显示密度还会受 `filter_size_surf` / `filter_size_map` 影响，因此不是严格数学百分比。
-- 若希望回退到旧的“每 N 个点取 1 个”语义，可将 `point_keep_ratio` 设为负值，然后直接使用 `point_filter_num`。
+- 旧的整数抽样入口不再作为公开 ROS 参数或动态调参入口。
 - `output_filter.world_z_filter_*` 仅作用于 `/cloud_registered`、`/laser_map_full` 和保存出来的 PCD，不会修改 Point-LIO 内部用于里程计的 ivox 地图。
 - `output_filter.world_z_min` / `world_z_max` 使用 `odom/world` 系高度。若机器人起始时 IMU 不在地面原点，地面通常会落在一个负值附近，建议在 RViz 观察后逐步上调下限，而不是一次裁得很狠。
 

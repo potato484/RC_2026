@@ -57,8 +57,7 @@ struct LioRuntimeState {
     bool extrinsic_est_en = true;
     bool publish_odometry_without_downsample = false;
     int init_map_size = 10;
-    int configured_point_filter_num = 1;
-    double point_keep_ratio = -1.0;
+    double point_keep_ratio = 50.0;
     int con_frame_num = 1;
     double match_s = 81.0;
     double satu_acc = 0.0;
@@ -152,7 +151,6 @@ DECLARE_LIO_STATE_REF(space_down_sample);
 DECLARE_LIO_STATE_REF(extrinsic_est_en);
 DECLARE_LIO_STATE_REF(publish_odometry_without_downsample);
 DECLARE_LIO_STATE_REF(init_map_size);
-DECLARE_LIO_STATE_REF(configured_point_filter_num);
 DECLARE_LIO_STATE_REF(point_keep_ratio);
 DECLARE_LIO_STATE_REF(con_frame_num);
 DECLARE_LIO_STATE_REF(match_s);

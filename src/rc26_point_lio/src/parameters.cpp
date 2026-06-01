@@ -18,10 +18,6 @@ std::string ensureLogDirectory() {
     return log_dir.string();
 }
 
-int clampPointFilterNum(const int raw_value) {
-    return std::max(1, raw_value);
-}
-
 double clampPointKeepRatio(const double raw_value) {
     return std::clamp(raw_value, 1.0, 100.0);
 }
@@ -59,14 +55,13 @@ void ensureSizedFiniteVector(std::vector<double>& values,
 }
 
 void applyEffectivePointFilterNumImpl() {
-    configured_point_filter_num = clampPointFilterNum(configured_point_filter_num);
-
-    int effective_filter_num = configured_point_filter_num;
-    if (std::isfinite(point_keep_ratio) && point_keep_ratio > 0.0) {
+    if (std::isfinite(point_keep_ratio)) {
         point_keep_ratio = clampPointKeepRatio(point_keep_ratio);
-        effective_filter_num = std::max(1, static_cast<int>(std::lround(100.0 / point_keep_ratio)));
+    } else {
+        point_keep_ratio = 50.0;
     }
 
+    const int effective_filter_num = std::max(1, static_cast<int>(std::lround(100.0 / point_keep_ratio)));
     p_pre->point_filter_num = effective_filter_num;
 }
 
@@ -112,10 +107,7 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
         nh->declare_parameter<float>("mapping.plane_thr", 0.05f);
         nh->get_parameter("mapping.plane_thr", plane_thr);
 
-        nh->declare_parameter<int>("point_filter_num", 2);
-        nh->get_parameter("point_filter_num", configured_point_filter_num);
-
-        nh->declare_parameter<double>("point_keep_ratio", -1.0);
+        nh->declare_parameter<double>("point_keep_ratio", 50.0);
         nh->get_parameter("point_keep_ratio", point_keep_ratio);
 
         nh->declare_parameter<std::string>("common.lid_topic", ".livox.lidar");

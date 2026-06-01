@@ -8,9 +8,7 @@
         check_satu: True
         # 参数说明：init_map_size - 初始地图容量参数；影响 Point-LIO 地图结构预分配规模。
         init_map_size: 10
-        # 参数说明：point_filter_num - 点云抽样间隔；每 N 个点保留 1 个，若 point_keep_ratio 生效则以比例为准。
-        point_filter_num: 1                                 # 兼容旧参数：每 N 个点取 1；若设置 point_keep_ratio，则以百分比参数为准
-        # 参数说明：point_keep_ratio - 缩放比例；用于按状态或场景调整对应数值。
+        # 参数说明：point_keep_ratio - 输入点保留比例；当前唯一公开点云密度入口，建议值域 1~100。
         point_keep_ratio: 50.0                            # 动态可调，单位 %；100=全保留，50≈保留一半，25≈保留约四分之一
         # 参数说明：space_down_sample - 空间降采样开关；用于降低点云密度和计算负载。
         space_down_sample: True
