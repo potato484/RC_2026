@@ -147,7 +147,6 @@ components:
         - localization_state
         - sigma_xy
         - sigma_yaw
-        - degenerate_score
         - h_min_eig
         - h_cond
       properties:
@@ -166,9 +165,6 @@ components:
           type: number
           format: double
         sigma_yaw:
-          type: number
-          format: double
-        degenerate_score:
           type: number
           format: double
         h_min_eig:

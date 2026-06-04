@@ -9,6 +9,5 @@ bool control_degraded
 string localization_state
 float64 sigma_xy
 float64 sigma_yaw
-float64 degenerate_score
 float64 h_min_eig
 float64 h_cond

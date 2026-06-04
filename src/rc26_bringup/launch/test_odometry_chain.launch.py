@@ -24,7 +24,6 @@ def generate_launch_description():
     bringup_dir = get_package_share_directory('rc26_bringup')
 
     use_sim_time = LaunchConfiguration('use_sim_time')
-    prior_pcd_file = LaunchConfiguration('prior_pcd_file')
     start_mid360_driver = LaunchConfiguration('start_mid360_driver')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
 
@@ -32,11 +31,6 @@ def generate_launch_description():
         'use_sim_time',
         default_value='false',
         description='使用仿真时间')
-
-    declare_prior_pcd_file = DeclareLaunchArgument(
-        'prior_pcd_file',
-        default_value='',
-        description='先验点云文件路径 (可选)')
 
     declare_start_mid360_driver = DeclareLaunchArgument(
         'start_mid360_driver',
@@ -55,7 +49,6 @@ def generate_launch_description():
         ),
         launch_arguments={
             'use_sim_time': use_sim_time,
-            'prior_pcd_file': prior_pcd_file,
             'start_mid360_driver': start_mid360_driver,
             'recover_mid360_stream': recover_mid360_stream,
         }.items()
@@ -63,7 +56,6 @@ def generate_launch_description():
 
     return LaunchDescription([
         declare_use_sim_time,
-        declare_prior_pcd_file,
         declare_start_mid360_driver,
         declare_recover_mid360_stream,
         odometry_launch,

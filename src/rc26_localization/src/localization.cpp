@@ -1093,15 +1093,12 @@ void LocalizationNode::publishLocalizationHealth(const std::string& fallback_rea
     Eigen::Matrix<double, 6, 6> pose_cov = Eigen::Matrix<double, 6, 6>::Zero();
     double h_min_eig = 0.0;
     double h_cond = 1e12;
-    double degenerate_score = 0.0;
     {
         std::lock_guard<std::mutex> lk(result_mutex_);
         pose_cov = last_pose_cov_;
         h_min_eig = last_h_min_eig_;
         h_cond = last_h_cond_;
-        degenerate_score = std::max({last_degen_.degen_risk.x(), last_degen_.degen_risk.y(), last_degen_.degen_risk.z()});
     }
-    degenerate_score = std::clamp(degenerate_score, 0.0, 1.0);
 
     const double sigma_xy = std::sqrt(std::max(0.0, pose_cov(3, 3) + pose_cov(4, 4)));
     const double sigma_yaw = std::sqrt(std::max(0.0, pose_cov(2, 2)));
@@ -1148,7 +1145,6 @@ void LocalizationNode::publishLocalizationHealth(const std::string& fallback_rea
     msg.localization_state = toString(getLocalizationState());
     msg.sigma_xy = sigma_xy;
     msg.sigma_yaw = sigma_yaw;
-    msg.degenerate_score = degenerate_score;
     msg.h_min_eig = h_min_eig;
     msg.h_cond = h_cond;
     health_pub_->publish(msg);

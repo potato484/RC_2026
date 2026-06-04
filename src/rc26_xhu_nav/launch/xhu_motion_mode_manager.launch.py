@@ -20,7 +20,7 @@ def generate_launch_description():
         DeclareLaunchArgument('namespace', default_value=''),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('profiles_file', default_value=default_profiles),
-        DeclareLaunchArgument('odom_topic', default_value='control_state'),
+        DeclareLaunchArgument('odom_topic', default_value='odom'),
         DeclareLaunchArgument('default_mode', default_value='hold'),
         Node(
             package='rc26_xhu_nav',

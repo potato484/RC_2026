@@ -6,7 +6,7 @@
 使用方法:
     1. 启动 DM_IMU 和 Mid-360 驱动
     2. 运行: python3 time_sync_analyzer.py
-    3. 等待采集完成，查看建议的 time_diff_lidar_to_imu 值
+    3. 等待采集完成，查看建议的 LiDAR/IMU 外部时间偏移值
 """
 
 import rclpy
@@ -132,12 +132,10 @@ class TimeSyncAnalyzer(Node):
 
         self.get_logger().info(f'同步质量: {quality}')
         self.get_logger().info('-' * 60)
-        self.get_logger().info('推荐配置:')
-        self.get_logger().info(f'  time_diff_lidar_to_imu: {recommended:.6f}')
+        self.get_logger().info('推荐外部时间偏移:')
+        self.get_logger().info(f'  LiDAR/IMU offset (IMU - LiDAR): {recommended:.6f} s')
         self.get_logger().info('')
-        self.get_logger().info('请将以下内容添加到 mid360.yaml:')
-        self.get_logger().info(f'  common:')
-        self.get_logger().info(f'      time_diff_lidar_to_imu: {recommended:.6f}')
+        self.get_logger().info('Point-LIO 当前不消费该脚本输出；如需补偿时间偏移，请在驱动或独立同步链路中处理。')
         self.get_logger().info('=' * 60)
 
         # 如果偏移较大，给出警告

@@ -9,7 +9,7 @@ R2 建图联调入口
 验证:
   - ros2 topic hz /state_estimation
   - ros2 topic hz /registered_scan
-  - ros2 topic echo /laser_map_full --once --field header.frame_id
+  - ros2 topic echo /Laser_map --once --field header.frame_id
 """
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -25,9 +25,9 @@ def generate_launch_description():
     sensor_extrinsics_dir = get_package_share_directory('rc26_sensor_extrinsics')
 
     use_sim_time = LaunchConfiguration('use_sim_time')
-    point_lio_profile = LaunchConfiguration('point_lio_profile')
     sensor_extrinsics_file = LaunchConfiguration('sensor_extrinsics_file')
     sensor_extrinsics_profile = LaunchConfiguration('sensor_extrinsics_profile')
+    point_lio_config_file = LaunchConfiguration('point_lio_config_file')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     enable_terrain_grid_map = LaunchConfiguration('enable_terrain_grid_map')
     use_rviz = LaunchConfiguration('use_rviz')
@@ -38,11 +38,6 @@ def generate_launch_description():
         default_value='false',
         description='使用仿真时间')
 
-    declare_point_lio_profile = DeclareLaunchArgument(
-        'point_lio_profile',
-        default_value='mapping_dense',
-        description='建图阶段 Point-LIO 预设，默认 mapping_dense')
-
     declare_sensor_extrinsics_file = DeclareLaunchArgument(
         'sensor_extrinsics_file',
         default_value=PathJoinSubstitution([sensor_extrinsics_dir, 'config', 'r2_sensor_extrinsics.yaml']),
@@ -52,6 +47,11 @@ def generate_launch_description():
         'sensor_extrinsics_profile',
         default_value='',
         description='传感器安装外参 profile；空字符串表示使用 YAML defaults.active_profile')
+
+    declare_point_lio_config_file = DeclareLaunchArgument(
+        'point_lio_config_file',
+        default_value='',
+        description='Point-LIO 参数文件路径；为空时使用 rc26_point_lio/config/mid360.yaml')
 
     declare_recover_mid360_stream = DeclareLaunchArgument(
         'recover_mid360_stream',
@@ -81,9 +81,9 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'slam': 'true',
             'pure_mapping_mode': 'true',
-            'point_lio_profile': point_lio_profile,
             'sensor_extrinsics_file': sensor_extrinsics_file,
             'sensor_extrinsics_profile': sensor_extrinsics_profile,
+            'point_lio_config_file': point_lio_config_file,
             'use_decision': 'false',
             'recover_mid360_stream': recover_mid360_stream,
             'enable_terrain_grid_map': enable_terrain_grid_map,
@@ -101,9 +101,9 @@ def generate_launch_description():
 
     return LaunchDescription([
         declare_use_sim_time,
-        declare_point_lio_profile,
         declare_sensor_extrinsics_file,
         declare_sensor_extrinsics_profile,
+        declare_point_lio_config_file,
         declare_recover_mid360_stream,
         declare_enable_terrain_grid_map,
         declare_use_rviz,

@@ -89,7 +89,7 @@ localization:
     backend_status_topic: "/localization/backend_status"
     # 参数说明：route_observability_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     route_observability_topic: "/localization/route_observability"
-    # 参数说明：control_degraded_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
+    # 参数说明：control_degraded_topic - 可选外部降级输入；当前默认主链不再发布该话题。
     control_degraded_topic: "/control_degraded"
     # 参数说明：plan_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     plan_topic: "local_plan"

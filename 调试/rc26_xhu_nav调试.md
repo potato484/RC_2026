@@ -12,7 +12,7 @@
 
 ## 前置条件
 
-- `map -> odom` 与 `/control_state` 正常
+- `map -> odom` 与 `/odom` 正常
 - 上游定位、地形、keepout 链路在线
 - 已 `source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"`
 

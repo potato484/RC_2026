@@ -12,9 +12,10 @@
   - 装配 Point-LIO、里程计接口、定位、terrain、keepout runtime、`rc26_xhu_nav` 和决策
 - `odometry.launch.py`
   - 装配 Point-LIO、`rc26_odom_interface`、`rc26_sensor_scan`，并可按 `enable_terrain_grid_map` 额外带起 terrain grid map
+  - 不再装配 LIO 前向预测节点；导航和模式管理默认直接消费 `rc26_odom_interface` 发布的 `/odom`
   - 读取 `rc26_sensor_extrinsics` 的 YAML profile 发布 `base_link -> livox_frame`、`base_link -> point_lio_body` 与 `base_link_control -> livox_frame_control` 静态 TF；`base_link -> point_lio_body` 由传感器安装外参和 Point-LIO 内部 LiDAR/IMU 外参推导，不再在 launch 中硬编码
 - `test_mapping.launch.py`
-  - 默认等价于 `slam:=true pure_mapping_mode:=true point_lio_profile:=mapping_dense use_rviz:=true`
+  - 默认等价于 `slam:=true pure_mapping_mode:=true use_rviz:=true`
   - 沿用 `odometry.launch.py` 的 `start_mid360_driver:=true` 默认行为，启动时会拉起 Mid-360 驱动
 
 当前 `slam=false` 的导航 bringup 中，keepout 相关装配已经改成：
@@ -63,6 +64,7 @@
 - `team`、topo graph、robot geometry、local planner/runtime 配置都由 bringup 统一装配给 `rc26_xhu_nav`
 - `local_execution_backend` 与 `enable_local_3d_planner_observe` 已从主启动入口移除，不再保留 follower / observe-only planner 切换
 - 定位相关调参项 `competition_mode`、`enable_graph_backend`、`p4_candidate_enable`、`min_inliers` 已由 `bringup.launch.py` 透传到 `localization.launch.py`
+- 旧的 LIO 前向预测包已从默认装配和包索引中删除；`bringup.launch.py` 通过 `start_mid360_driver` 继续控制 odometry 链是否拉起 Mid-360 驱动
 - 传感器安装外参已经从 `odometry.launch.py` 的硬编码静态 TF 收口到 `rc26_sensor_extrinsics` YAML；`bringup.launch.py` 和 `test_mapping.launch.py` 均可通过 `sensor_extrinsics_file` / `sensor_extrinsics_profile` 选择外参配置
 - 当前整车联调入口统一查看仓库根目录 `调试/` 目录，按“遥控 → 建图 → 定位 → 重定位 → 回环 → 导航”顺序执行
 

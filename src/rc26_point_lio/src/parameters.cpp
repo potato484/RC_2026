@@ -20,14 +20,6 @@ std::string ensureLogDirectory() {
     return log_dir.string();
 }
 
-double clampPointKeepRatio(const double raw_value) {
-    return std::clamp(raw_value, 1.0, 100.0);
-}
-
-int clampPriorPcdSkipFrames(const int raw_value) {
-    return std::max(0, raw_value);
-}
-
 bool hasFiniteEntries(const std::vector<double>& values, const size_t count) {
     if (values.size() < count) {
         return false;
@@ -101,26 +93,11 @@ void applyBodyFilterConfigToPreprocess() {
     p_pre->setBodyFilterConfig(filter_car_body, body_x_min, body_x_max, body_y_min, body_y_max, body_z_min, body_z_max);
 }
 
-void applyEffectivePointFilterNumImpl() {
-    if (std::isfinite(point_keep_ratio)) {
-        point_keep_ratio = clampPointKeepRatio(point_keep_ratio);
-    } else {
-        point_keep_ratio = 50.0;
-    }
-
-    const int effective_filter_num = std::max(1, static_cast<int>(std::lround(100.0 / point_keep_ratio)));
-    p_pre->point_filter_num = effective_filter_num;
-}
-
 }  // namespace
 
 LioRuntimeState& runtime() {
     static LioRuntimeState state;
     return state;
-}
-
-void applyEffectivePointFilterNum() {
-    applyEffectivePointFilterNumImpl();
 }
 
 void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
@@ -154,8 +131,8 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
         nh->declare_parameter<float>("mapping.plane_thr", 0.05f);
         nh->get_parameter("mapping.plane_thr", plane_thr);
 
-        nh->declare_parameter<double>("point_keep_ratio", 50.0);
-        nh->get_parameter("point_keep_ratio", point_keep_ratio);
+        nh->declare_parameter<int>("point_filter_num", 2);
+        nh->get_parameter("point_filter_num", point_filter_num);
 
         nh->declare_parameter<std::string>("common.lid_topic", ".livox.lidar");
         nh->get_parameter("common.lid_topic", lid_topic);
@@ -174,18 +151,6 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
 
         nh->declare_parameter<double>("common.cut_frame_time_interval", 0.1);
         nh->get_parameter("common.cut_frame_time_interval", cut_frame_time_interval);
-
-        nh->declare_parameter<bool>("prior_pcd.enable", false);
-        nh->get_parameter("prior_pcd.enable", enable_prior_pcd);
-
-        nh->declare_parameter<string>("prior_pcd.prior_pcd_map_path", "");
-        nh->get_parameter("prior_pcd.prior_pcd_map_path", prior_pcd_map_path);
-
-        nh->declare_parameter<std::vector<double>>("prior_pcd.init_pose", std::vector<double>());
-        nh->get_parameter("prior_pcd.init_pose", init_pose);
-
-        nh->declare_parameter<int>("prior_pcd.skip_frames", 200);
-        nh->get_parameter("prior_pcd.skip_frames", prior_pcd_skip_frames);
 
         nh->declare_parameter<double>("filter_size_surf", 0.5);
         nh->get_parameter("filter_size_surf", filter_size_surf_min);
@@ -238,18 +203,6 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
         nh->declare_parameter<double>("mapping.imu_meas_omg_cov", 0.1);
         nh->get_parameter("mapping.imu_meas_omg_cov", imu_meas_omg_cov);
 
-        nh->declare_parameter<bool>("mapping.adaptive_second_iter_enable", false);
-        nh->get_parameter("mapping.adaptive_second_iter_enable", adaptive_second_iter_enable);
-
-        nh->declare_parameter<double>("mapping.adaptive_residual_thr", 0.08);
-        nh->get_parameter("mapping.adaptive_residual_thr", adaptive_residual_thr);
-
-        nh->declare_parameter<double>("mapping.adaptive_omega_thr", 2.0);
-        nh->get_parameter("mapping.adaptive_omega_thr", adaptive_omega_thr);
-
-        nh->declare_parameter<int>("mapping.adaptive_second_iter_max", 1);
-        nh->get_parameter("mapping.adaptive_second_iter_max", adaptive_second_iter_max);
-
         nh->declare_parameter<double>("preprocess.blind", 1.0);
         nh->get_parameter("preprocess.blind", p_pre->blind);
 
@@ -297,21 +250,6 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
 
         nh->declare_parameter<bool>("publish.tf_send_en", true);
         nh->get_parameter("publish.tf_send_en", tf_send_en);
-
-        nh->declare_parameter<bool>("publish.map_full_publish_en", false);
-        nh->get_parameter("publish.map_full_publish_en", map_full_pub_en);
-
-        nh->declare_parameter<double>("publish.map_full_publish_interval_sec", 1.0);
-        nh->get_parameter("publish.map_full_publish_interval_sec", map_full_publish_interval_sec);
-
-        nh->declare_parameter<bool>("output_filter.world_z_filter_en", false);
-        nh->get_parameter("output_filter.world_z_filter_en", output_world_z_filter_en);
-
-        nh->declare_parameter<double>("output_filter.world_z_min", -10.0);
-        nh->get_parameter("output_filter.world_z_min", output_world_z_min);
-
-        nh->declare_parameter<double>("output_filter.world_z_max", 10.0);
-        nh->get_parameter("output_filter.world_z_max", output_world_z_max);
 
         nh->declare_parameter<bool>("runtime_pos_log_enable", false);
         nh->get_parameter("runtime_pos_log_enable", runtime_pos_log);
@@ -367,11 +305,11 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
     validateBodyFilterParametersOrThrow(nh->get_logger());
     applyBodyFilterConfigToPreprocess();
 
-    applyEffectivePointFilterNum();
-    map_full_publish_interval_sec = std::max(0.0, map_full_publish_interval_sec);
-    if (output_world_z_min > output_world_z_max) {
-        std::swap(output_world_z_min, output_world_z_max);
+    if (point_filter_num < 1) {
+        RCLCPP_WARN(nh->get_logger(), "point_filter_num=%d < 1, clamp to 1", point_filter_num);
+        point_filter_num = 1;
     }
+    p_pre->point_filter_num = point_filter_num;
 
     if (ivox_nearby_type == 0) {
         ivox_options_.nearby_type_ = IVoxType::NearbyType::CENTER;
@@ -401,38 +339,9 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
     ensureSizedFiniteVector(extrinT, 3, default_extrin_t, "mapping.extrinsic_T", nh->get_logger());
     ensureSizedFiniteVector(extrinR, 9, default_extrin_r, "mapping.extrinsic_R", nh->get_logger());
 
-    if (init_pose.size() < 3) {
-        if (enable_prior_pcd) {
-            RCLCPP_WARN(nh->get_logger(), "prior_pcd.init_pose size %zu < 3, using zeros", init_pose.size());
-        }
-        init_pose.assign(3, 0.0);
-    } else {
-        if (init_pose.size() > 3) {
-            RCLCPP_WARN(nh->get_logger(), "prior_pcd.init_pose size %zu > 3, extra entries will be ignored",
-                        init_pose.size());
-        }
-        init_pose.resize(3);
-        if (!hasFiniteEntries(init_pose, 3)) {
-            RCLCPP_WARN(nh->get_logger(), "prior_pcd.init_pose contains non-finite values, using zeros");
-            init_pose.assign(3, 0.0);
-        }
-    }
-    if (adaptive_residual_thr < 0.0) {
-        adaptive_residual_thr = 0.0;
-    }
-    if (adaptive_omega_thr < 0.0) {
-        adaptive_omega_thr = 0.0;
-    }
-    if (adaptive_second_iter_max < 0) {
-        adaptive_second_iter_max = 0;
-    }
     if (!std::isfinite(acc_norm) || std::abs(acc_norm) < 1e-6) {
         RCLCPP_WARN(nh->get_logger(), "mapping.acc_norm=%.6f invalid, fallback to 1.0", acc_norm);
         acc_norm = 1.0;
-    }
-    if (prior_pcd_skip_frames < 0) {
-        RCLCPP_WARN(nh->get_logger(), "prior_pcd.skip_frames=%d < 0, clamp to 0", prior_pcd_skip_frames);
-        prior_pcd_skip_frames = clampPriorPcdSkipFrames(prior_pcd_skip_frames);
     }
 
     p_imu->gravity_ << VEC_FROM_ARRAY(gravity);

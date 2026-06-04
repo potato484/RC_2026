@@ -161,7 +161,7 @@ ros2 topic echo /localization/route_observability --once
 
 ---
 
-### 4. 完整里程计链测试 (rc26_point_lio + odom_interface + sensor_scan + lio_state_predictor)
+### 4. 完整里程计链测试 (rc26_point_lio + odom_interface + sensor_scan)
 
 **功能**: 验证完整的里程计数据流
 
@@ -173,13 +173,11 @@ ros2 launch rc26_bringup test_odometry_chain.launch.py
 ros2 launch rc26_bringup test_odometry_chain.launch.py start_mid360_driver:=true recover_mid360_stream:=true
 
 # 验证数据流
-ros2 topic list | grep -E "(state_estimation|odom|odometry|control_state|degenerate_score|control_degraded)"
+ros2 topic list | grep -E "(state_estimation|odom|odometry|registered_scan)"
 ros2 topic echo /state_estimation --once
 ros2 topic echo /odom --once
 ros2 topic echo /odometry --once
-ros2 topic echo /degenerate_score
-ros2 topic echo /control_degraded
-ros2 topic hz /control_state
+ros2 topic hz /odom
 ros2 topic hz /odometry
 
 # 检查完整 TF 树
@@ -230,8 +228,7 @@ ros2 service call /set_xhu_motion_mode rc26_interfaces/srv/SetXhuMotionMode \
 |------|---------|----------|
 | odom_interface | `/odom` | odom→base_link 变换 |
 | sensor_scan | `/sensor_scan` | laser_link 坐标系点云，`/odometry` 协方差透传 |
-| lio_state_predictor | `/control_state` | 约 200Hz 预测里程计 |
-| rc26_point_lio | `/degenerate_score` | 退化分数持续输出 |
+| rc26_point_lio | `/state_estimation` + `/cloud_registered` | LIO 里程计与原生配准点云持续输出 |
 | localization | `/localization/pose_with_cov` + `/localization/diagnostics` + `/localization/health` + `/localization/backend_status` + `/localization/route_observability` | 持续发布且包含扩展字段 |
 | rc26_xhu_nav | `/xhu_nav/motion_mode_state` + `/xhu_nav/tracking_state` + `/xhu_nav/local_planner_state` | 模式、执行反馈和局部规划状态持续更新 |
 | rc26_xhu_nav runtime | `/cmd_vel` | 速度指令由 `xhu_motion_runtime_node` 输出 |

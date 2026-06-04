@@ -1,81 +1,78 @@
-# Point-LIO (RC2026 定制版)
+# Point-LIO (RC2026 ROS2/Mid-360)
 
 ## 简介
-Point-LIO 是一个鲁棒、高带宽的 LiDAR 惯性里程计，基于逐点更新的扩展卡尔曼滤波（IEKF）框架。本项目是 Point-LIO 的定制版本，专为 RoboMaster 2026 赛季机器人（R2，当前为履带式底盘）进行了深度优化。
 
-## 核心特性
-本项目在原版 Point-LIO 基础上进行了以下关键改进：
+`rc26_point_lio` 是 R2 当前的 LiDAR-Inertial Odometry 主链路。当前实现以 `Point-LIO-point-lio-with-grid-map` 的主算法链为行为基准，保留 ROS 2 包形态、Mid-360 `PointCloud2` 输入、车身 ROI 过滤、frame/TF 装配能力和基础 PCD 保存能力。
 
-1. **IVox 加速与精度优化**
-   调整了网格分辨率和近邻搜索策略，适配 Mid360 在 12x12m 比赛场地的高精度定位需求。通过优化参数，在保证实时性的同时显著提升了点云匹配的精度。
+本包不再承担先验地图注入、全量累计地图持续发布、输出侧高度裁剪、退化评分或控制降级判断。全局先验地图和重定位职责属于 localization 链路；控制/导航默认直接消费 `rc26_odom_interface` 发布的 `/odom`。
 
-2. **低延迟控制输出**
-   通过消除帧末等待的机制，实现了低延迟的状态估计输出。这使得里程计能够支持高频控制回路，减少了控制系统的相位滞后。
+## 当前保留能力
 
-3. **鲁棒性增强**
-   - **Huber 核函数**：启用并自适应调整测量权重，有效抑制了动态障碍物和噪点对定位的影响。
-   - **自适应二次迭代**：针对剧烈运动（如快速自旋）场景，引入了自适应二次迭代机制。当检测到残差过大时，算法会自动触发额外迭代，以保证位姿估计的稳定性。
+- ROS 2 `rclcpp` 节点：`pointlio_mapping`
+- Mid-360 `sensor_msgs/msg/PointCloud2` 输入预处理
+- Point-LIO IEKF/配准主流程与协方差输出
+- `point_filter_num` 整数抽样入口，语义与旧 Point-LIO 一致
+- `filter_car_body` 与 `body_*` 车身 ROI 输入侧过滤
+- 车身 ROI 运行时热更新，依赖 `base_link <- livox_frame` TF
+- `/state_estimation`、`/cloud_registered`、`/cloud_registered_body`、`/Laser_map`、`/path`
+- 基础 PCD 保存：开启 `pcd_save.pcd_save_en` 后写入包内 `PCD/`
 
-4. **状态监测与全链路贯通**
-   - **退化检测**：实时计算 Hessian 矩阵特征值比率，输出退化分数，便于下游策略识别风险。
-   - **协方差传递**：完整计算并填充里程计消息协方差，供下游融合节点使用。
+## 已删除链路
 
-5. **动态点云密度与累计地图发布**
-   - **`point_keep_ratio`**：使用百分比语义控制输入点保留比例，支持运行时 `ros2 param set` 动态调整。
-   - **`laser_map_full`**：持续发布累计地图，方便在 RViz / Foxglove 中观察“已建好的内容是否持续留存显示”。
-   - **PCD 保存**：建图时可将累计点云保存为 `PCD/scans.pcd` 或分段 `PCD/scans_*.pcd`，供后续定位复用。
+- Point-LIO 内部先验 PCD 加载、初始位姿注入和增量建图延迟
+- IVox 全量遍历后的累计地图持续发布
+- 发布/保存输出侧世界系高度裁剪
+- 输入点百分比密度参数与相关动态换算
+- 退化评分发布、残差统计、Huber 权重和自适应额外迭代
+- 除车身 ROI 外的运行时动态调参入口
+- launch profile 覆盖；Point-LIO 启动只选择一份完整 YAML
 
-6. **Mid-360 输入侧车身 ROI 裁剪**
-   - **`filter_car_body` 与 `body_*`**：在 Mid-360 预处理阶段把点投影到 `base_link`，直接丢弃车身盒内点。
-   - 该过滤依赖 `rc26_sensor_extrinsics` 经 bringup 发布的 `base_link -> livox_frame` 静态 TF；开启时若 TF 缺失，节点启动失败。
-   - 这是输入侧过滤，会影响 Point-LIO 内部建图和定位结果，不同于只影响输出显示/保存的 `output_filter.world_z_filter_*`。
-
-## 依赖项说明
-本项目依赖于 ROS 2 (Humble/Iron 版本)、PCL 点云库、Eigen3 线性代数库以及 Livox SDK2。请确保系统环境中已正确安装这些依赖库。
-
-## 编译与安装
-请使用标准的 ROS 2 编译工具（如 colcon）进行编译。建议与下游链路一起编译验证：
+## 编译
 
 ```bash
+cd "${RC26_WS:-$HOME/RC_2026}"
 MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 \
   --packages-select rc26_point_lio rc26_bringup
+source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
-## 配置文件说明
-当前仓库内和 Point-LIO 相关的配置已经收敛为“1 份主 YAML + 若干 launch profile”：
+## 配置
 
-- `src/rc26_point_lio/config/mid360.yaml`：唯一主配置，保存 Mid-360 的公共参数与默认值。
-- `point_lio_profile:=base`：直接使用主配置，不额外覆盖。
-- `point_lio_profile:=cruise_light`：在主配置基础上关闭累计地图持续发布，适合巡航轻载。
-- `point_lio_profile:=mapping_dense`：在主配置基础上保留全部输入点、减小体素滤波尺寸并开启 PCD 保存，适合建图。
-- `point_lio_profile:=race_profile`：比赛最小链预设，关闭路径/机体系点云/累计地图持续发布与运行时位置日志，保留 `registered_scan` 供定位链路使用。
+默认配置文件：
 
-## 推荐启动方式
-推荐通过 `rc26_bringup` 统一启动，让 `slam` 与 `point_lio_profile` 一起决定 Point-LIO 配置。
+- `src/rc26_point_lio/config/mid360.yaml`
 
-### 1. 自动选择 profile
+关键参数：
+
+- `point_filter_num`：输入点抽样间隔，`1` 表示尽量保留全部输入点，`2` 表示约二分之一。
+- `filter_car_body`、`body_x_min/max`、`body_y_min/max`、`body_z_min/max`：Mid-360 输入侧车身 ROI，单位米，坐标系为 `base_link`。
+- `odometry.publish_odometry_without_downsample`：默认 `False`，保持 `/state_estimation` 与 `/cloud_registered` 的时间戳同源。
+- `publish.scan_bodyframe_pub_en`：控制 `/cloud_registered_body` 是否发布。
+- `pcd_save.pcd_save_en`、`pcd_save.interval`：控制 PCD 保存。默认不强制保存，建图需要导出地图时在完整 YAML 中显式开启。
+
+`mapping.extrinsic_T/R` 是 Point-LIO 内部 LiDAR/IMU 外参，不表示雷达相对 `base_link` 的整机安装位姿。雷达安装外参由 `rc26_sensor_extrinsics` 管理，并经 `rc26_bringup` 发布静态 TF。
+
+## 启动
+
+推荐通过 bringup 装配：
 
 ```bash
-# slam:=true 时自动选择 mapping_dense
-# slam:=false 时自动选择 cruise_light
-# race_profile 需显式指定，不会覆盖 auto 语义
 ros2 launch rc26_bringup bringup.launch.py slam:=true use_decision:=false
 ```
 
-### 2. 显式指定 profile
+纯建图调试入口：
 
 ```bash
-# 强制高密建图
-ros2 launch rc26_bringup bringup.launch.py slam:=true point_lio_profile:=mapping_dense use_decision:=false
-
-# 强制轻量巡航
-ros2 launch rc26_bringup bringup.launch.py slam:=false point_lio_profile:=cruise_light use_decision:=false
-
-# 强制比赛最小链
-ros2 launch rc26_bringup bringup.launch.py slam:=false point_lio_profile:=race_profile use_decision:=false
+ros2 launch rc26_bringup test_mapping.launch.py
 ```
 
-### 3. 显式指定自定义 YAML
+只启动 Point-LIO 节点：
+
+```bash
+ros2 launch rc26_point_lio point_lio.launch.py
+```
+
+需要替换完整配置时，通过上层 bringup 传入完整 YAML：
 
 ```bash
 ros2 launch rc26_bringup bringup.launch.py \
@@ -84,94 +81,68 @@ ros2 launch rc26_bringup bringup.launch.py \
   use_decision:=false
 ```
 
-当 `point_lio_config_file` 非空时，其优先级高于 `point_lio_profile`，会直接加载你提供的 YAML。
+`point_lio_config_file` 只选择完整配置文件，不叠加预设覆盖。
 
 ## 运行时动态调参
-以下参数支持运行时动态调整：
+
+当前只支持车身 ROI 热更新：
 
 ```bash
-# 将输入点保留比例调成约 30%
-ros2 param set /point_lio point_keep_ratio 30.0
-
-# 打开累计地图持续发布
-ros2 param set /point_lio publish.map_full_publish_en true
-
-# 将累计地图发布周期调成 0.5 秒
-ros2 param set /point_lio publish.map_full_publish_interval_sec 0.5
-
-# 仅清理输出点云里的低位点，不影响内部里程计地图
-ros2 param set /point_lio output_filter.world_z_filter_en true
-ros2 param set /point_lio output_filter.world_z_min -0.08
-
-# 关闭或恢复 Mid-360 输入侧车身 ROI 过滤
 ros2 param set /point_lio filter_car_body false
 ros2 param set /point_lio filter_car_body true
-
-# 调整车身 ROI，单位米，坐标系为 base_link
 ros2 param set /point_lio body_x_min -0.45
 ros2 param set /point_lio body_z_max 0.75
-
-# 调小单帧点云体素滤波尺寸，让 registered_scan 更稠密
-ros2 param set /point_lio filter_size_surf 0.1
 ```
 
 说明：
-- `point_keep_ratio` 是当前唯一公开的输入点云密度入口，取值会被夹紧到 `1.0 ~ 100.0`，其中 `100.0` 表示尽可能保留全部输入点。
-- `point_keep_ratio` 是“百分比语义”，最终显示密度还会受 `filter_size_surf` / `filter_size_map` 影响，因此不是严格数学百分比。
-- 旧的整数抽样入口不再作为公开 ROS 参数或动态调参入口。
-- `filter_car_body` 和 `body_*` 只接入当前 R2 使用的 Mid-360 预处理路径。`body_x/y/z_min/max` 必须是有限数，且每个轴满足 `min <= max`；非法运行时更新会被参数回调拒绝并保持旧值。
-- `filter_car_body` 从 `false` 动态切回 `true` 时，节点必须已经能查到 `base_link <- livox_frame` TF，否则本次参数更新会被拒绝。
-- `output_filter.world_z_filter_*` 仅作用于 `/cloud_registered`、`/laser_map_full` 和保存出来的 PCD，不会修改 Point-LIO 内部用于里程计的 ivox 地图。
-- `output_filter.world_z_min` / `world_z_max` 使用 `odom/world` 系高度。若机器人起始时 IMU 不在地面原点，地面通常会落在一个负值附近，建议在 RViz 观察后逐步上调下限，而不是一次裁得很狠。
 
-## 地面点云说明
-- 建图时在地面上看到点云，通常是正常现象，不应默认视为异常。
-- Livox MID-360 官方规格给出的垂直视场角为 `-7 deg ~ +52 deg`，因此雷达本身就会看到地面。
-- 当前仓库这版 Point-LIO 默认不会主动删除地面点，预处理主要是盲区、量程、抽样和体素滤波。
-- 对 LIO 而言，地面往往能提供 `z / roll / pitch` 的平面约束，因此不建议直接从内部里程计地图中粗暴删地面。
-- Mid-360 车身 ROI 过滤只用于删除车体内部安装导致的自遮挡/自反射盒内点，不应拿来做大范围地面清理。
-- 如果目标只是让 RViz 累计地图或导出的 PCD 更干净，优先使用 `output_filter.world_z_filter_*` 做输出侧高度裁剪。
-- 如果地面看起来不是“薄的一层”，而是明显发厚、倾斜、上下漂移或分层，优先检查 `extrinsic_T/R`、`gravity`、静态 TF、安装角与时间同步，而不是只调过滤阈值。
+- `body_x/y/z_min/max` 必须是有限数，且每个轴满足 `min <= max`。
+- 从 `filter_car_body=false` 切回 `true` 时，节点必须能查到 `base_link <- livox_frame` TF，否则参数更新会被拒绝。
+- 点密度、体素尺寸、量程、平面阈值、测量协方差、iVox 分辨率、发布选项和 PCD 保存开关都不是运行时热更新入口；需要改完整 YAML 后重启。
 
-相关外部资料：
-- Livox MID-360 Specs: <https://www.livoxtech.com/mid-360/specs>
-- PCL PassThrough: <https://pointclouds.org/documentation/classpcl_1_1_pass_through>
+## 话题
 
-## 地图保存与复用
-若启用建图保存，Point-LIO 会将累计地图写入：
+Point-LIO 原生发布：
+
+- `/state_estimation`：LIO 里程计输出。
+- `/cloud_registered`：odom/world 系当前帧配准点云。
+- `/cloud_registered_body`：body/IMU 系当前帧点云，受 `publish.scan_bodyframe_pub_en` 控制。
+- `/Laser_map`：初始地图点云，只在初始化建图完成后发布。
+- `/path`：Point-LIO 原生路径，受 `publish.path_en` 控制。
+
+经过 `rc26_odom_interface` 后，下游通常消费 `/odom` 与 `/registered_scan`；`/registered_scan` 由 `/cloud_registered` 转换到统一 odom 坐标系后发布。
+
+## PCD 保存与定位复用
+
+开启 `pcd_save.pcd_save_en` 后，节点正常退出时会将累计点云写入：
 
 - `${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans.pcd`
-- 或 `${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans_<N>.pcd`（当 `pcd_save.interval > 0` 时）
+- 或 `${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans_<N>.pcd`，当 `pcd_save.interval > 0` 时分段保存。
 
-推荐流程：
-1. 使用 `mapping_dense` 建图；
-2. 完成后正常 `Ctrl+C` 退出，让节点将剩余累计点写盘；
-3. 将生成的 `PCD` 作为 `prior_pcd_file` 提供给定位链路；
-4. 也可以复制到 `src/rc26_bringup/pcd/` 目录集中管理。
+生成的 PCD 可作为 localization 链路的 `prior_pcd_file` 使用。Point-LIO 自身不会再读取这份先验地图。
 
-## 可视化说明
-- `/registered_scan`：当前帧配准点云，适合观察实时局部效果。
-- `/laser_map_full`：累计地图点云，适合观察历史建图内容是否持续保留。
-- `rc26_point_lio` 相关 launch 现在全部保持 headless，不再声明 `rviz` 或其他 viewer 兼容参数。
-- 如需图形观察，可手工运行外部工具只读消费当前 topic，例如：
+## 地面点云说明
+
+- 建图时看到地面点通常是正常现象，Mid-360 本身具备向下观测能力。
+- 对 LIO 而言，地面通常能提供 `z / roll / pitch` 平面约束，不建议从内部里程计地图中粗暴删除。
+- 车身 ROI 只用于删除车体自遮挡/自反射盒内点，不应用作大范围地面过滤。
+- 如果地面明显发厚、倾斜、上下漂移或分层，优先检查 `extrinsic_T/R`、`gravity`、静态 TF、安装角和驱动侧时间同步。
+
+## 可视化
+
+Point-LIO 和 bringup 主入口保持 headless。需要观察时手工运行：
 
 ```bash
-rviz2 -d /home/potato/RC_2026/src/rc26_bringup/rviz/slam.rviz
+rviz2 -d "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/rviz/slam.rviz"
 ```
 
-## 调试与测试
-为了帮助开发者快速上手和排查问题，仓库根目录提供了 `调试/rc26_point_lio调试.md`。该文档包含：
-- 如何使用 bag 回放进行基础功能测试
-- 如何验证控制延迟、退化检测等进阶性能
-- 如何检查动态点密度与累计地图发布
-- 如何保存 PCD 并复用到定位链路
+该 RViz 预设观察 `/registered_scan` 实时点云和 `/Laser_map` 初始地图。
 
-请查阅仓库根目录 `调试/rc26_point_lio调试.md` 获取详细信息。
+## 调试
 
-若需要标定 `LiDAR -> IMU` 外参，请查阅：
+调试入口查看仓库根目录：
 
-- 当前仓库未保留独立外参标定文档；如需补齐，请回查历史资料后单独整理
+- `调试/rc26_point_lio调试.md`
+- `调试/建图启动.md`
 
-## 维护者
-- 原始作者: Dongjiao He (HKU-MARS)
-- RC2026 适配: Potato
+若需要分析 LiDAR/IMU 时间偏移，可运行 `scripts/time_sync_analyzer.py`。该脚本只输出外部时间偏移建议，Point-LIO 当前不直接消费该结果。

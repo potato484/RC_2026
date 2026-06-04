@@ -37,7 +37,6 @@
 - [rc26_base_ground调试](./rc26_base_ground调试.md)
 - [rc26_decision调试](./rc26_decision调试.md)
 - [rc26_kfs_keepout调试](./rc26_kfs_keepout调试.md)
-- [rc26_lio_state_predictor调试](./rc26_lio_state_predictor调试.md)
 - [rc26_localization调试](./rc26_localization调试.md)
 - [rc26_mechanism调试](./rc26_mechanism调试.md)
 - [rc26_merge_odom调试](./rc26_merge_odom调试.md)

@@ -24,7 +24,6 @@ def generate_launch_description():
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
     start_mid360_driver = LaunchConfiguration('start_mid360_driver')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
-    point_lio_profile = LaunchConfiguration('point_lio_profile')
     localization_params_file = LaunchConfiguration('localization_params_file')
     localization_overlay_file = LaunchConfiguration('localization_overlay_file')
     competition_mode = LaunchConfiguration('competition_mode')
@@ -50,11 +49,6 @@ def generate_launch_description():
         'recover_mid360_stream',
         default_value='false',
         description='启动前先运行 Mid-360 恢复脚本')
-
-    declare_point_lio_profile = DeclareLaunchArgument(
-        'point_lio_profile',
-        default_value='auto',
-        description='重定位阶段 Point-LIO 预设')
 
     declare_localization_params_file = DeclareLaunchArgument(
         'localization_params_file',
@@ -87,10 +81,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'use_sim_time': use_sim_time,
-            'prior_pcd_file': prior_pcd_file,
-            'slam': 'false',
             'start_mid360_driver': start_mid360_driver,
-            'point_lio_profile': point_lio_profile,
             'recover_mid360_stream': recover_mid360_stream,
         }.items()
     )
@@ -117,7 +108,6 @@ def generate_launch_description():
         declare_prior_pcd_file,
         declare_start_mid360_driver,
         declare_recover_mid360_stream,
-        declare_point_lio_profile,
         declare_localization_params_file,
         declare_localization_overlay_file,
         declare_competition_mode,

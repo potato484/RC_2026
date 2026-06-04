@@ -70,7 +70,7 @@ public:
         : rclcpp::Node("xhu_motion_runtime"),
           tf_buffer_(std::make_shared<tf2_ros::Buffer>(get_clock())),
           tf_listener_(*tf_buffer_) {
-        declare_parameter<std::string>("odom_topic", "control_state");
+        declare_parameter<std::string>("odom_topic", "odom");
         declare_parameter<std::string>("map_frame", "map");
         declare_parameter<std::string>("base_frame", "base_link");
         declare_parameter<double>("control_frequency_hz", 20.0);

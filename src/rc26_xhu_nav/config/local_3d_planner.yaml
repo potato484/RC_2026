@@ -1,7 +1,7 @@
 xhu_motion_runtime:
   ros__parameters:
     # 参数说明：odom_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    odom_topic: "control_state"
+    odom_topic: "odom"
     # 参数说明：map_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     map_frame: "map"
     # 参数说明：base_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。

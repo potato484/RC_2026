@@ -5,7 +5,7 @@
 ## 使用说明
 
 1. 将建图阶段生成的点云地图放置于此目录；
-2. 启动时指定参数：`prior_pcd_file:=<path_to_your.pcd>`。
+2. 启动定位或导航链路时指定 `prior_pcd_file:=<path_to_your.pcd>`。
 
 ## 默认行为
 
@@ -14,51 +14,47 @@
 - 该文件仅用于 launch 冒烟和接口自检，不代表比赛地图质量；
 - 真机联调和比赛必须替换为现场标定后的真实地图。
 
-## 推荐建图与保存流程
+## 建图与保存流程
 
-推荐使用 `mapping_dense` profile 建图，它会：
+Point-LIO 当前只有单配置启动口径。若需要导出 PCD，请在完整 Point-LIO YAML 中显式开启：
 
-- 保留较高点云密度；
-- 持续发布累计地图 `/laser_map_full`，方便可视化确认“之前建好的内容仍在”；
-- 默认开启 PCD 保存。
-
-```bash
-# 完整建图链路（保留 terrain 等附加模块）
-ros2 launch rc26_bringup bringup.launch.py \
-  slam:=true \
-  point_lio_profile:=mapping_dense \
-  use_decision:=false
+```yaml
+pcd_save:
+  pcd_save_en: true
+  interval: -1
 ```
 
-如果当前目标只是纯建图、录制 PCD、查看累计地图，不需要地形语义与决策，可启用更轻量的纯建图模式：
+然后启动建图链路：
 
 ```bash
-# 纯建图最小链路（跳过 rc26_terrain / rc26_decision）
-ros2 launch rc26_bringup bringup.launch.py \
-  slam:=true \
-  pure_mapping_mode:=true \
-  point_lio_profile:=mapping_dense
+ros2 launch rc26_bringup test_mapping.launch.py \
+  point_lio_config_file:=/abs/path/to/point_lio_mapping.yaml
+```
+
+如果只需要使用默认配置跑通链路，可直接：
+
+```bash
+ros2 launch rc26_bringup test_mapping.launch.py
 ```
 
 说明：
 
-- `pure_mapping_mode` 仅在 `slam:=true` 时生效；
-- 该模式仍会保留建图必需的 Point-LIO、`odom_interface` 与 `map -> odom` 静态变换；
-- 该模式会额外跳过 `lio_state_predictor`，避免在高密建图时因上游延迟产生持续 stale 告警；
-- `odometry.launch.py` 默认还会强制 `odometry.publish_odometry_without_downsample:=false`，避免 `state_estimation` 比 `cloud_registered` 超前过多而触发丢云；
-- 当前 bringup / odometry 链路默认就是 headless；如需检查累计地图，可手工运行 `rviz2 -d /home/potato/RC_2026/src/rc26_bringup/rviz/slam.rviz` 只读观察现有 topic。
+- `test_mapping.launch.py` 固定启用 `slam:=true` 和 `pure_mapping_mode:=true`，默认打开 RViz2；
+- Point-LIO 不再通过 profile 覆盖配置，也不会自动读取定位先验地图；
+- `odometry.launch.py` 默认强制 `odometry.publish_odometry_without_downsample:=false`，保持 `/state_estimation` 与 `/cloud_registered` 时间戳同源；
+- 当前 RViz 预设观察 `/registered_scan` 实时点云与 `/Laser_map` 初始地图。
 
 建图完成后：
 
 1. 使用 `Ctrl+C` 正常退出；
-2. Point-LIO 会将累计地图写入 `src/rc26_point_lio/PCD/scans.pcd`；
+2. 若 `pcd_save.pcd_save_en=true`，Point-LIO 会将累计点云写入 `src/rc26_point_lio/PCD/scans.pcd`；
 3. 若 `pcd_save.interval > 0`，则会分段保存为 `scans_1.pcd`、`scans_2.pcd` 等。
 
 补充说明：
 
 - 建图得到的 PCD 默认可能包含地面点，这通常是正常现象，不表示建图失败；
 - MID-360 本身具备向下观测能力，而 Point-LIO 默认不会主动删除地面；
-- 如果只是希望导出的 PCD 更干净，可在建图时启用 `output_filter.world_z_filter_en`，并调节 `output_filter.world_z_min` 只裁剪输出地图，不影响内部里程计地图。
+- 若需要清理地图，请在 PCD 后处理或定位地图制作环节处理，不要把车身 ROI 当作大范围地面过滤器。
 
 ## 作为定位先验地图使用
 
@@ -91,6 +87,6 @@ ros2 launch rc26_bringup bringup.launch.py \
 
 1. Point-LIO 建图后保存；
 2. FAST-LIO 等其他 SLAM 建图后导出；
-3. 第三方工具转换（如 CloudCompare）。
+3. 第三方工具转换，如 CloudCompare。
 
 推荐格式：Binary 或 ASCII PCD，至少包含 `XYZ` 字段。

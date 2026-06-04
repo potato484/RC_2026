@@ -13,7 +13,7 @@
 ## 前置条件
 
 - 已 `source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"`
-- 上游 `/control_state` 或等价底盘状态已正常输出
+- 上游 `/odom` 或等价底盘状态已正常输出
 - `odom -> base_link` TF 已存在
 
 ## 标准编译

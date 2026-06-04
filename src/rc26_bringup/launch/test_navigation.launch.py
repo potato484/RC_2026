@@ -22,7 +22,6 @@ def generate_launch_description():
 
     use_sim_time = LaunchConfiguration('use_sim_time')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
-    point_lio_profile = LaunchConfiguration('point_lio_profile')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     team = LaunchConfiguration('team')
     localization_params_file = LaunchConfiguration('localization_params_file')
@@ -40,11 +39,6 @@ def generate_launch_description():
         'prior_pcd_file',
         default_value=PathJoinSubstitution([bringup_dir, 'pcd', 'default.pcd']),
         description='导航所用先验点云文件路径')
-
-    declare_point_lio_profile = DeclareLaunchArgument(
-        'point_lio_profile',
-        default_value='auto',
-        description='导航阶段 Point-LIO 预设')
 
     declare_recover_mid360_stream = DeclareLaunchArgument(
         'recover_mid360_stream',
@@ -90,7 +84,6 @@ def generate_launch_description():
             'slam': 'false',
             'use_decision': 'false',
             'prior_pcd_file': prior_pcd_file,
-            'point_lio_profile': point_lio_profile,
             'recover_mid360_stream': recover_mid360_stream,
             'team': team,
             'localization_params_file': localization_params_file,
@@ -105,7 +98,6 @@ def generate_launch_description():
     return LaunchDescription([
         declare_use_sim_time,
         declare_prior_pcd_file,
-        declare_point_lio_profile,
         declare_recover_mid360_stream,
         declare_team,
         declare_localization_params_file,

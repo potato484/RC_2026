@@ -5,7 +5,6 @@
   - rc26_point_lio (LiDAR-IMU 里程计)
   - rc26_odom_interface (坐标变换: lidar_odom -> odom)
   - rc26_sensor_scan (发布 odom -> chassis 变换 + sensor_scan)
-  - rc26_lio_state_predictor (可选，提供控制态预测)
   - rc26_terrain + terrain_grid_map_bridge (可选，发布 2.5D terrain grid map)
 """
 import os
@@ -270,53 +269,11 @@ def _create_sensor_extrinsics_actions(context, *, sensor_extrinsics_file, sensor
     ]
 
 
-def _resolve_point_lio_profile(requested_profile: str, *, slam_value: bool) -> tuple[str, dict]:
-    profile_aliases = {
-        'default': 'base',
-    }
-    profile_overrides = {
-        'base': {},
-        'cruise_light': {
-            'publish.map_full_publish_en': False,
-            'publish.map_full_publish_interval_sec': 1.5,
-        },
-        'mapping_dense': {
-            'point_keep_ratio': 100.0,
-            'filter_size_surf': 0.1,
-            'filter_size_map': 0.1,
-            'pcd_save.pcd_save_en': True,
-        },
-        'race_profile': {
-            'publish.path_en': False,
-            'publish.scan_bodyframe_pub_en': False,
-            'publish.map_full_publish_en': False,
-            'publish.map_full_publish_interval_sec': 1.5,
-            'runtime_pos_log_enable': False,
-        },
-    }
-
-    resolved_profile = requested_profile or 'auto'
-    if resolved_profile == 'auto':
-        resolved_profile = 'mapping_dense' if slam_value else 'cruise_light'
-
-    resolved_profile = profile_aliases.get(resolved_profile, resolved_profile)
-    if resolved_profile not in profile_overrides:
-        supported_profiles = 'auto | base | cruise_light | mapping_dense | race_profile'
-        raise RuntimeError(
-            f'不支持的 point_lio_profile={requested_profile}，可选: {supported_profiles}')
-
-    return resolved_profile, profile_overrides[resolved_profile]
-
-
-def _create_point_lio_actions(context, *, namespace, use_sim_time, prior_pcd_file, point_lio_config_file,
-                              point_lio_profile, slam, point_lio_dir,
+def _create_point_lio_actions(context, *, namespace, use_sim_time, point_lio_config_file, point_lio_dir,
                               point_lio_publish_odometry_without_downsample):
     namespace_value = namespace.perform(context)
     use_sim_time_value = _as_bool(use_sim_time.perform(context))
-    prior_pcd_file_value = prior_pcd_file.perform(context)
     explicit_config_file = point_lio_config_file.perform(context).strip()
-    requested_profile = point_lio_profile.perform(context).strip().lower() or 'auto'
-    slam_value = _as_bool(slam.perform(context))
     publish_odometry_without_downsample_value = _as_bool(
         point_lio_publish_odometry_without_downsample.perform(context)
     )
@@ -325,28 +282,20 @@ def _create_point_lio_actions(context, *, namespace, use_sim_time, prior_pcd_fil
     if explicit_config_file:
         resolved_config_file = explicit_config_file
         selected_mode = f'custom:{explicit_config_file}'
-        profile_overrides = {}
     else:
-        resolved_profile, profile_overrides = _resolve_point_lio_profile(
-            requested_profile,
-            slam_value=slam_value,
-        )
         resolved_config_file = base_config_file
-        selected_mode = f'profile:{resolved_profile}'
+        selected_mode = 'default'
 
     if not os.path.exists(resolved_config_file):
         raise RuntimeError(f'Point-LIO 配置文件不存在: {resolved_config_file}')
 
-    parameters = [resolved_config_file]
-    if profile_overrides:
-        parameters.append(profile_overrides)
-    parameters.extend([
+    parameters = [
+        resolved_config_file,
         {'use_sim_time': use_sim_time_value},
-        {'prior_pcd.prior_pcd_map_path': prior_pcd_file_value},
         {'frame.body_frame': 'point_lio_body'},
         {'odometry.publish_odometry_without_downsample': publish_odometry_without_downsample_value},
         {'publish.tf_send_en': False},
-    ])
+    ]
 
     point_lio_node = Node(
         package='rc26_point_lio',
@@ -358,7 +307,7 @@ def _create_point_lio_actions(context, *, namespace, use_sim_time, prior_pcd_fil
     )
 
     return [
-        LogInfo(msg=f'[odometry] Point-LIO 使用 {selected_mode}，基础配置 {resolved_config_file}'),
+        LogInfo(msg=f'[odometry] Point-LIO 使用 {selected_mode} 配置 {resolved_config_file}'),
         LogInfo(
             msg='[odometry] 强制 odometry.publish_odometry_without_downsample='
                 f'{str(publish_odometry_without_downsample_value).lower()}，'
@@ -378,16 +327,12 @@ def generate_launch_description():
     # 启动参数
     namespace = LaunchConfiguration('namespace')
     use_sim_time = LaunchConfiguration('use_sim_time')
-    prior_pcd_file = LaunchConfiguration('prior_pcd_file')
-    slam = LaunchConfiguration('slam')
     start_mid360_driver = LaunchConfiguration('start_mid360_driver')
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
-    point_lio_profile = LaunchConfiguration('point_lio_profile')
     point_lio_publish_odometry_without_downsample = LaunchConfiguration(
         'point_lio_publish_odometry_without_downsample')
     sensor_extrinsics_file = LaunchConfiguration('sensor_extrinsics_file')
     sensor_extrinsics_profile = LaunchConfiguration('sensor_extrinsics_profile')
-    enable_lio_state_predictor = LaunchConfiguration('enable_lio_state_predictor')
     enable_terrain_grid_map = LaunchConfiguration('enable_terrain_grid_map')
     terrain_params_file = LaunchConfiguration('terrain_params_file')
     terrain_grid_map_params_file = LaunchConfiguration('terrain_grid_map_params_file')
@@ -409,16 +354,6 @@ def generate_launch_description():
         default_value='false',
         description='使用仿真时间')
 
-    declare_prior_pcd_file = DeclareLaunchArgument(
-        'prior_pcd_file',
-        default_value='',
-        description='先验点云文件路径 (建图模式下可为空)')
-
-    declare_slam = DeclareLaunchArgument(
-        'slam',
-        default_value='false',
-        description='是否处于建图模式（用于 auto 选择 Point-LIO profile）')
-
     declare_start_mid360_driver = DeclareLaunchArgument(
         'start_mid360_driver',
         default_value='true',
@@ -427,12 +362,7 @@ def generate_launch_description():
     declare_point_lio_config_file = DeclareLaunchArgument(
         'point_lio_config_file',
         default_value='',
-        description='Point-LIO 参数文件路径；非空时优先级高于 point_lio_profile')
-
-    declare_point_lio_profile = DeclareLaunchArgument(
-        'point_lio_profile',
-        default_value='auto',
-        description='Point-LIO 预设: auto | base | cruise_light | mapping_dense | race_profile')
+        description='Point-LIO 参数文件路径；为空时使用 rc26_point_lio/config/mid360.yaml')
 
     declare_point_lio_publish_odometry_without_downsample = DeclareLaunchArgument(
         'point_lio_publish_odometry_without_downsample',
@@ -448,11 +378,6 @@ def generate_launch_description():
         'sensor_extrinsics_profile',
         default_value='',
         description='传感器安装外参 profile；空字符串表示使用 YAML defaults.active_profile')
-
-    declare_enable_lio_state_predictor = DeclareLaunchArgument(
-        'enable_lio_state_predictor',
-        default_value='true',
-        description='是否启动 lio_state_predictor；纯建图最小模式建议关闭以减少 stale 告警和额外负载')
 
     declare_enable_terrain_grid_map = DeclareLaunchArgument(
         'enable_terrain_grid_map',
@@ -503,7 +428,6 @@ def generate_launch_description():
     mid360_driver_config = PathJoinSubstitution([mid360_driver_dir, 'config', 'param.yaml'])
     odom_interface_config = PathJoinSubstitution([bringup_dir, 'config', 'odom_interface.yaml'])
     sensor_scan_config = PathJoinSubstitution([bringup_dir, 'config', 'sensor_scan_generation.yaml'])
-    lio_state_predictor_yaml = PathJoinSubstitution([bringup_dir, 'config', 'lio_state_predictor.yaml'])
 
     start_mid360_driver_direct_condition = IfCondition(
         PythonExpression(["'", start_mid360_driver, "' == 'true' and '", recover_mid360_stream, "' != 'true'"])
@@ -558,10 +482,7 @@ def generate_launch_description():
             context,
             namespace=namespace,
             use_sim_time=use_sim_time,
-            prior_pcd_file=prior_pcd_file,
             point_lio_config_file=point_lio_config_file,
-            point_lio_profile=point_lio_profile,
-            slam=slam,
             point_lio_dir=point_lio_dir,
             point_lio_publish_odometry_without_downsample=point_lio_publish_odometry_without_downsample,
         )
@@ -591,19 +512,6 @@ def generate_launch_description():
             sensor_scan_config,
             {'use_sim_time': use_sim_time},
         ],
-    )
-
-    lio_state_predictor_node = Node(
-        package='rc26_lio_state_predictor',
-        executable='rc26_lio_state_predictor_node',
-        name='lio_state_predictor',
-        namespace=namespace,
-        output='screen',
-        parameters=[
-            lio_state_predictor_yaml,
-            {'use_sim_time': use_sim_time},
-        ],
-        condition=IfCondition(enable_lio_state_predictor)
     )
 
     terrain_semantic_node = Node(
@@ -652,15 +560,11 @@ def generate_launch_description():
         # 参数声明
         declare_namespace,
         declare_use_sim_time,
-        declare_prior_pcd_file,
-        declare_slam,
         declare_start_mid360_driver,
         declare_point_lio_config_file,
-        declare_point_lio_profile,
         declare_point_lio_publish_odometry_without_downsample,
         declare_sensor_extrinsics_file,
         declare_sensor_extrinsics_profile,
-        declare_enable_lio_state_predictor,
         declare_enable_terrain_grid_map,
         declare_terrain_params_file,
         declare_terrain_grid_map_params_file,
@@ -680,7 +584,6 @@ def generate_launch_description():
         point_lio_actions,
         odom_interface_node,
         sensor_scan_node,
-        lio_state_predictor_node,
         terrain_semantic_node,
         terrain_grid_map_bridge_node,
     ])

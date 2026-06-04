@@ -7,55 +7,20 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 
 
-def _resolve_point_lio_profile(requested_profile):
-    profile_aliases = {
-        "default": "base",
-    }
-    profile_overrides = {
-        "base": {},
-        "cruise_light": {
-            "publish.map_full_publish_en": False,
-            "publish.map_full_publish_interval_sec": 1.5,
-        },
-        "mapping_dense": {
-            "point_keep_ratio": 100.0,
-            "filter_size_surf": 0.1,
-            "filter_size_map": 0.1,
-            "pcd_save.pcd_save_en": True,
-        },
-    }
-
-    normalized_profile = requested_profile.strip().lower() or "base"
-    resolved_profile = profile_aliases.get(normalized_profile, normalized_profile)
-    if resolved_profile not in profile_overrides:
-        supported_profiles = "base | cruise_light | mapping_dense"
-        raise RuntimeError(
-            f"不支持的 point_lio_profile={requested_profile}，可选: {supported_profiles}"
-        )
-    return resolved_profile, profile_overrides[resolved_profile]
-
-
-def _create_point_lio_actions(context, *, namespace, point_lio_cfg_dir, point_lio_profile, remappings):
+def _create_point_lio_actions(context, *, namespace, point_lio_cfg_dir, remappings):
     namespace_value = namespace.perform(context)
     config_file = point_lio_cfg_dir.perform(context)
-    resolved_profile, profile_overrides = _resolve_point_lio_profile(
-        point_lio_profile.perform(context)
-    )
 
     if not os.path.exists(config_file):
         raise RuntimeError(f"Point-LIO 配置文件不存在: {config_file}")
 
-    parameters = [config_file]
-    if profile_overrides:
-        parameters.append(profile_overrides)
-
     return [
-        LogInfo(msg=f"[point_lio.launch] 使用 profile:{resolved_profile}，基础配置 {config_file}"),
+        LogInfo(msg=f"[point_lio.launch] 使用配置 {config_file}"),
         Node(
             package="rc26_point_lio",
             executable="pointlio_mapping",
             namespace=namespace_value,
-            parameters=parameters,
+            parameters=[config_file],
             remappings=remappings,
             output="screen",
         ),
@@ -73,7 +38,6 @@ def generate_launch_description():
 
     namespace = LaunchConfiguration("namespace")
     point_lio_cfg_dir = LaunchConfiguration("point_lio_cfg_dir")
-    point_lio_profile = LaunchConfiguration("point_lio_profile")
 
     point_lio_dir = get_package_share_directory("rc26_point_lio")
 
@@ -89,18 +53,11 @@ def generate_launch_description():
         description="Path to the base Point-LIO config file",
     )
 
-    declare_point_lio_profile = DeclareLaunchArgument(
-        "point_lio_profile",
-        default_value="base",
-        description="Point-LIO 预设: base | cruise_light | mapping_dense",
-    )
-
     start_point_lio_node = OpaqueFunction(
         function=lambda context: _create_point_lio_actions(
             context,
             namespace=namespace,
             point_lio_cfg_dir=point_lio_cfg_dir,
-            point_lio_profile=point_lio_profile,
             remappings=remappings,
         )
     )
@@ -109,7 +66,6 @@ def generate_launch_description():
 
     ld.add_action(declare_namespace)
     ld.add_action(declare_point_lio_cfg_dir)
-    ld.add_action(declare_point_lio_profile)
     ld.add_action(start_point_lio_node)
 
     return ld

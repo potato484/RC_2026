@@ -43,9 +43,9 @@ def generate_launch_description():
     pure_mapping_mode = LaunchConfiguration('pure_mapping_mode')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
-    point_lio_profile = LaunchConfiguration('point_lio_profile')
     sensor_extrinsics_file = LaunchConfiguration('sensor_extrinsics_file')
     sensor_extrinsics_profile = LaunchConfiguration('sensor_extrinsics_profile')
+    start_mid360_driver = LaunchConfiguration('start_mid360_driver')
     terrain_params_file = LaunchConfiguration('terrain_params_file')
     terrain_grid_map_params_file = LaunchConfiguration('terrain_grid_map_params_file')
     terrain_filter_chain_params_file = LaunchConfiguration('terrain_filter_chain_params_file')
@@ -97,12 +97,7 @@ def generate_launch_description():
     declare_point_lio_config_file = DeclareLaunchArgument(
         'point_lio_config_file',
         default_value='',
-        description='Point-LIO 参数文件路径；非空时优先级高于 point_lio_profile')
-
-    declare_point_lio_profile = DeclareLaunchArgument(
-        'point_lio_profile',
-        default_value='auto',
-        description='Point-LIO 预设: auto | base | cruise_light | mapping_dense | race_profile；auto 会按 slam 自动选择')
+        description='Point-LIO 参数文件路径；为空时使用 rc26_point_lio/config/mid360.yaml')
 
     declare_sensor_extrinsics_file = DeclareLaunchArgument(
         'sensor_extrinsics_file',
@@ -113,6 +108,11 @@ def generate_launch_description():
         'sensor_extrinsics_profile',
         default_value='',
         description='传感器安装外参 profile；空字符串表示使用 YAML defaults.active_profile')
+
+    declare_start_mid360_driver = DeclareLaunchArgument(
+        'start_mid360_driver',
+        default_value='true',
+        description='是否由 odometry 链启动 MID-360 驱动')
 
     declare_terrain_params_file = DeclareLaunchArgument(
         'terrain_params_file',
@@ -264,17 +264,11 @@ def generate_launch_description():
         launch_arguments={
             'namespace': namespace,
             'use_sim_time': use_sim_time,
-            'slam': slam,
-            'prior_pcd_file': prior_pcd_file,
             'point_lio_config_file': point_lio_config_file,
-            'point_lio_profile': point_lio_profile,
             'sensor_extrinsics_file': sensor_extrinsics_file,
             'sensor_extrinsics_profile': sensor_extrinsics_profile,
             'point_lio_publish_odometry_without_downsample': 'false',
-            'enable_lio_state_predictor': PythonExpression([
-                "not (('", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true')",
-                " or ('", point_lio_profile, "'.lower() == 'race_profile'))"
-            ]),
+            'start_mid360_driver': start_mid360_driver,
             'enable_terrain_grid_map': 'false',
             'recover_mid360_stream': recover_mid360_stream,
         }.items()
@@ -349,7 +343,7 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'use_sim_time': use_sim_time,
-            'odom_topic': 'control_state',
+            'odom_topic': 'odom',
             'profiles_file': xhu_profiles_file,
             'default_mode': 'hold',
         }],
@@ -475,7 +469,7 @@ def generate_launch_description():
     )
 
     pure_mapping_notice = LogInfo(
-        msg='[bringup] pure_mapping_mode 已启用：建图时仅保留 Point-LIO/odom_interface/localization 等最小运动链路，跳过 lio_state_predictor、rc26_terrain 和 rc26_decision。',
+        msg='[bringup] pure_mapping_mode 已启用：建图时仅保留 Point-LIO/odom_interface/localization 等最小运动链路，跳过 rc26_terrain 和 rc26_decision。',
         condition=IfCondition(PythonExpression([
             "'", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true' and '",
             enable_terrain_grid_map, "'.lower() != 'true'"
@@ -498,9 +492,9 @@ def generate_launch_description():
         declare_pure_mapping_mode,
         declare_prior_pcd_file,
         declare_point_lio_config_file,
-        declare_point_lio_profile,
         declare_sensor_extrinsics_file,
         declare_sensor_extrinsics_profile,
+        declare_start_mid360_driver,
         declare_terrain_params_file,
         declare_terrain_grid_map_params_file,
         declare_terrain_filter_chain_params_file,
