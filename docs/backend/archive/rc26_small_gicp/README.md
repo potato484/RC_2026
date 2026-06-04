@@ -19,6 +19,8 @@
 - 协方差和退化评估
 - 作为 `rc26_localization` 的底层配准实现
 
+当前 Plane ICP 因子保持上游 `small_gicp` 的实现口径：使用目标法向量对 4D residual 做分量加权，并据此构造 4x6 Jacobian，而不是把残差收敛为单个 normal dot residual 标量。后续对齐上游或排查 Plane ICP 行为时，应以这一点作为当前真实实现边界。
+
 ## 源码入口与阅读顺序
 - 先看 `README.md`，确认它只是算法底座而不是 ROS 2 业务包。
 - 再看 `include/small_gicp/registration/`、`factors/`、`ann/`、`util/`，理解模板和算法拼装点。

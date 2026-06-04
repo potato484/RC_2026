@@ -37,23 +37,21 @@ struct PointToPlaneICPFactor {
             return false;
         }
 
-        const Eigen::Vector3d target_normal = traits::normal(target, k_index).template head<3>();
-        if (target_normal.squaredNorm() < 1e-12) {
-            return false;
-        }
-
         target_index = k_index;
-        const Eigen::Vector3d residual = (traits::point(target, target_index) - transed_source_pt).template head<3>();
-        const double err = target_normal.dot(residual);
+        const auto& target_normal = traits::normal(target, target_index);
 
-        Eigen::Matrix<double, 1, 6> J;
-        J.block<1, 3>(0, 0) =
-            target_normal.transpose() * T.linear() * skew(traits::point(source, source_index).template head<3>());
-        J.block<1, 3>(0, 3) = -target_normal.transpose() * T.linear();
+        const Eigen::Vector4d residual = traits::point(target, target_index) - transed_source_pt;
+        const Eigen::Vector4d err = target_normal.array() * residual.array();
+
+        Eigen::Matrix<double, 4, 6> J = Eigen::Matrix<double, 4, 6>::Zero();
+        J.block<3, 3>(0, 0) =
+            target_normal.template head<3>().asDiagonal() * T.linear() *
+            skew(traits::point(source, source_index).template head<3>());
+        J.block<3, 3>(0, 3) = target_normal.template head<3>().asDiagonal() * (-T.linear());
 
         *H = J.transpose() * J;
         *b = J.transpose() * err;
-        *e = 0.5 * err * err;
+        *e = 0.5 * err.squaredNorm();
 
         return true;
     }
@@ -65,13 +63,9 @@ struct PointToPlaneICPFactor {
         }
 
         const Eigen::Vector4d transed_source_pt = T * traits::point(source, source_index);
-        const Eigen::Vector3d normal = traits::normal(target, target_index).template head<3>();
-        if (normal.squaredNorm() < 1e-12) {
-            return 0.0;
-        }
-        const Eigen::Vector3d residual = (traits::point(target, target_index) - transed_source_pt).template head<3>();
-        const double err = normal.dot(residual);
-        return 0.5 * err * err;
+        const Eigen::Vector4d residual = traits::point(target, target_index) - transed_source_pt;
+        const Eigen::Vector4d error = traits::normal(target, target_index).array() * residual.array();
+        return 0.5 * error.squaredNorm();
     }
 
     bool inlier() const { return target_index != std::numeric_limits<size_t>::max(); }
