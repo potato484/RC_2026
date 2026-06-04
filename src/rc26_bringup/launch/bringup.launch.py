@@ -33,6 +33,7 @@ def generate_launch_description():
     kfs_keepout_dir = get_package_share_directory('rc26_kfs_keepout')
     point_lio_dir = get_package_share_directory('rc26_point_lio')
     robot_geometry_dir = get_package_share_directory('rc26_robot_geometry')
+    sensor_extrinsics_dir = get_package_share_directory('rc26_sensor_extrinsics')
     xhu_nav_dir = get_package_share_directory('rc26_xhu_nav')
 
     # 启动参数
@@ -43,6 +44,8 @@ def generate_launch_description():
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
     point_lio_profile = LaunchConfiguration('point_lio_profile')
+    sensor_extrinsics_file = LaunchConfiguration('sensor_extrinsics_file')
+    sensor_extrinsics_profile = LaunchConfiguration('sensor_extrinsics_profile')
     terrain_params_file = LaunchConfiguration('terrain_params_file')
     terrain_grid_map_params_file = LaunchConfiguration('terrain_grid_map_params_file')
     terrain_filter_chain_params_file = LaunchConfiguration('terrain_filter_chain_params_file')
@@ -100,6 +103,16 @@ def generate_launch_description():
         'point_lio_profile',
         default_value='auto',
         description='Point-LIO 预设: auto | base | cruise_light | mapping_dense | race_profile；auto 会按 slam 自动选择')
+
+    declare_sensor_extrinsics_file = DeclareLaunchArgument(
+        'sensor_extrinsics_file',
+        default_value=PathJoinSubstitution([sensor_extrinsics_dir, 'config', 'r2_sensor_extrinsics.yaml']),
+        description='传感器安装外参 YAML 文件路径')
+
+    declare_sensor_extrinsics_profile = DeclareLaunchArgument(
+        'sensor_extrinsics_profile',
+        default_value='',
+        description='传感器安装外参 profile；空字符串表示使用 YAML defaults.active_profile')
 
     declare_terrain_params_file = DeclareLaunchArgument(
         'terrain_params_file',
@@ -255,6 +268,8 @@ def generate_launch_description():
             'prior_pcd_file': prior_pcd_file,
             'point_lio_config_file': point_lio_config_file,
             'point_lio_profile': point_lio_profile,
+            'sensor_extrinsics_file': sensor_extrinsics_file,
+            'sensor_extrinsics_profile': sensor_extrinsics_profile,
             'point_lio_publish_odometry_without_downsample': 'false',
             'enable_lio_state_predictor': PythonExpression([
                 "not (('", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true')",
@@ -484,6 +499,8 @@ def generate_launch_description():
         declare_prior_pcd_file,
         declare_point_lio_config_file,
         declare_point_lio_profile,
+        declare_sensor_extrinsics_file,
+        declare_sensor_extrinsics_profile,
         declare_terrain_params_file,
         declare_terrain_grid_map_params_file,
         declare_terrain_filter_chain_params_file,

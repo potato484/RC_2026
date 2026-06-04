@@ -13,6 +13,7 @@
 
   <exec_depend>rclcpp</exec_depend>
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
   <exec_depend>rosbag2_py</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
@@ -23,6 +24,7 @@
   <exec_depend>rc26_point_lio</exec_depend>
   <exec_depend>rc26_odom_interface</exec_depend>
   <exec_depend>rc26_sensor_scan</exec_depend>
+  <exec_depend>rc26_sensor_extrinsics</exec_depend>
   <exec_depend>rc26_lio_state_predictor</exec_depend>
   
   <!-- 自定义包 -->

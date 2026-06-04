@@ -9,6 +9,7 @@
   - rc26_terrain + terrain_grid_map_bridge (可选，发布 2.5D terrain grid map)
 """
 import os
+import math
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -18,10 +19,255 @@ from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
+import yaml
 
 
 def _as_bool(value: str) -> bool:
     return value.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def _load_yaml_file(path: str) -> dict:
+    if not os.path.exists(path):
+        raise RuntimeError(f'YAML 配置文件不存在: {path}')
+    with open(path, 'r', encoding='utf-8') as stream:
+        data = yaml.safe_load(stream)
+    if not isinstance(data, dict):
+        raise RuntimeError(f'YAML 配置文件格式非法，顶层必须是 mapping: {path}')
+    return data
+
+
+def _as_float_vector(values, *, name: str, length: int = 3) -> list[float]:
+    if not isinstance(values, (list, tuple)) or len(values) != length:
+        raise RuntimeError(f'{name} 必须是长度为 {length} 的数组')
+    try:
+        return [float(value) for value in values]
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f'{name} 必须全部是数字') from exc
+
+
+def _as_frame_name(value, *, name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise RuntimeError(f'{name} 必须是非空字符串')
+    return value.strip()
+
+
+def _mat_mul(a: list[list[float]], b: list[list[float]]) -> list[list[float]]:
+    return [
+        [sum(a[row][k] * b[k][col] for k in range(3)) for col in range(3)]
+        for row in range(3)
+    ]
+
+
+def _mat_vec_mul(a: list[list[float]], v: list[float]) -> list[float]:
+    return [sum(a[row][col] * v[col] for col in range(3)) for row in range(3)]
+
+
+def _mat_transpose(a: list[list[float]]) -> list[list[float]]:
+    return [[a[col][row] for col in range(3)] for row in range(3)]
+
+
+def _rot_from_rpy(roll: float, pitch: float, yaw: float) -> list[list[float]]:
+    cr = math.cos(roll)
+    sr = math.sin(roll)
+    cp = math.cos(pitch)
+    sp = math.sin(pitch)
+    cy = math.cos(yaw)
+    sy = math.sin(yaw)
+
+    rot_x = [
+        [1.0, 0.0, 0.0],
+        [0.0, cr, -sr],
+        [0.0, sr, cr],
+    ]
+    rot_y = [
+        [cp, 0.0, sp],
+        [0.0, 1.0, 0.0],
+        [-sp, 0.0, cp],
+    ]
+    rot_z = [
+        [cy, -sy, 0.0],
+        [sy, cy, 0.0],
+        [0.0, 0.0, 1.0],
+    ]
+    return _mat_mul(_mat_mul(rot_z, rot_y), rot_x)
+
+
+def _rpy_from_rot(rot: list[list[float]]) -> list[float]:
+    if abs(rot[2][0]) < 1.0 - 1e-9:
+        pitch = math.asin(-rot[2][0])
+        roll = math.atan2(rot[2][1], rot[2][2])
+        yaw = math.atan2(rot[1][0], rot[0][0])
+        return [roll, pitch, yaw]
+
+    pitch = math.pi / 2.0 if rot[2][0] <= -1.0 else -math.pi / 2.0
+    roll = math.atan2(-rot[0][1], rot[1][1])
+    return [roll, pitch, 0.0]
+
+
+def _transform_compose(lhs: tuple[list[list[float]], list[float]],
+                       rhs: tuple[list[list[float]], list[float]]) -> tuple[list[list[float]], list[float]]:
+    lhs_rot, lhs_xyz = lhs
+    rhs_rot, rhs_xyz = rhs
+    rot = _mat_mul(lhs_rot, rhs_rot)
+    rotated_rhs_xyz = _mat_vec_mul(lhs_rot, rhs_xyz)
+    xyz = [lhs_xyz[i] + rotated_rhs_xyz[i] for i in range(3)]
+    return rot, xyz
+
+
+def _transform_inverse(transform: tuple[list[list[float]], list[float]]) -> tuple[list[list[float]], list[float]]:
+    rot, xyz = transform
+    inv_rot = _mat_transpose(rot)
+    inv_xyz = _mat_vec_mul(inv_rot, [-xyz[0], -xyz[1], -xyz[2]])
+    return inv_rot, inv_xyz
+
+
+def _format_tf_value(value: float) -> str:
+    if abs(value) < 1e-12:
+        value = 0.0
+    return f'{value:.12g}'
+
+
+def _static_tf_node(*, name: str, parent_frame: str, child_frame: str,
+                    xyz: list[float], rpy: list[float]) -> Node:
+    return Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name=name,
+        arguments=[
+            '--x', _format_tf_value(xyz[0]),
+            '--y', _format_tf_value(xyz[1]),
+            '--z', _format_tf_value(xyz[2]),
+            '--roll', _format_tf_value(rpy[0]),
+            '--pitch', _format_tf_value(rpy[1]),
+            '--yaw', _format_tf_value(rpy[2]),
+            '--frame-id', parent_frame,
+            '--child-frame-id', child_frame,
+        ],
+    )
+
+
+def _ros_parameters_from_yaml(data: dict, *, source: str) -> dict:
+    if '/**' in data:
+        wildcard_params = data.get('/**', {}).get('ros__parameters', {})
+        if isinstance(wildcard_params, dict):
+            return wildcard_params
+    if 'ros__parameters' in data and isinstance(data['ros__parameters'], dict):
+        return data['ros__parameters']
+    raise RuntimeError(f'{source} 中未找到 ros__parameters')
+
+
+def _mapping_extrinsics_from_point_lio_config(path: str) -> tuple[list[list[float]], list[float]]:
+    data = _load_yaml_file(path)
+    params = _ros_parameters_from_yaml(data, source=path)
+    mapping = params.get('mapping')
+    if not isinstance(mapping, dict):
+        raise RuntimeError(f'{path} 中缺少 mapping 配置')
+
+    extrinsic_t = _as_float_vector(mapping.get('extrinsic_T'), name='mapping.extrinsic_T')
+    extrinsic_r_values = _as_float_vector(mapping.get('extrinsic_R'), name='mapping.extrinsic_R', length=9)
+    extrinsic_r = [
+        extrinsic_r_values[0:3],
+        extrinsic_r_values[3:6],
+        extrinsic_r_values[6:9],
+    ]
+    return extrinsic_r, extrinsic_t
+
+
+def _select_sensor_extrinsics_profile(data: dict, requested_profile: str) -> tuple[str, dict]:
+    root = data.get('sensor_extrinsics')
+    if not isinstance(root, dict):
+        raise RuntimeError('sensor_extrinsics_file 顶层缺少 sensor_extrinsics')
+
+    profiles = root.get('profiles')
+    if not isinstance(profiles, dict) or not profiles:
+        raise RuntimeError('sensor_extrinsics.profiles 必须是非空 mapping')
+
+    profile_name = requested_profile.strip()
+    if not profile_name:
+        defaults = root.get('defaults', {})
+        if not isinstance(defaults, dict):
+            raise RuntimeError('未指定 sensor_extrinsics_profile，且 sensor_extrinsics.defaults 非法')
+        profile_name = _as_frame_name(defaults.get('active_profile'), name='sensor_extrinsics.defaults.active_profile')
+
+    profile = profiles.get(profile_name)
+    if not isinstance(profile, dict):
+        available = ' | '.join(sorted(profiles.keys()))
+        raise RuntimeError(f'不支持的 sensor_extrinsics_profile={profile_name}，可选: {available}')
+    return profile_name, profile
+
+
+def _create_sensor_extrinsics_actions(context, *, sensor_extrinsics_file, sensor_extrinsics_profile,
+                                      point_lio_config_file, point_lio_dir):
+    sensor_extrinsics_path = sensor_extrinsics_file.perform(context)
+    requested_profile = sensor_extrinsics_profile.perform(context)
+    sensor_data = _load_yaml_file(sensor_extrinsics_path)
+    selected_profile, profile = _select_sensor_extrinsics_profile(sensor_data, requested_profile)
+
+    lidar_mount = profile.get('lidar_mount')
+    if not isinstance(lidar_mount, dict):
+        raise RuntimeError(f'sensor_extrinsics profile {selected_profile} 缺少 lidar_mount')
+    lidar_parent = _as_frame_name(lidar_mount.get('parent_frame'), name='lidar_mount.parent_frame')
+    lidar_child = _as_frame_name(lidar_mount.get('child_frame'), name='lidar_mount.child_frame')
+    lidar_xyz = _as_float_vector(lidar_mount.get('xyz_m'), name='lidar_mount.xyz_m')
+    lidar_rpy = _as_float_vector(lidar_mount.get('rpy_rad'), name='lidar_mount.rpy_rad')
+
+    control_mount = profile.get('control_mount', {})
+    if not isinstance(control_mount, dict):
+        raise RuntimeError(f'sensor_extrinsics profile {selected_profile} 的 control_mount 必须是 mapping')
+    control_parent = _as_frame_name(control_mount.get('parent_frame'), name='control_mount.parent_frame')
+    control_child = _as_frame_name(control_mount.get('child_frame'), name='control_mount.child_frame')
+    if _as_bool(str(control_mount.get('mirror_lidar_mount', False))):
+        control_xyz = lidar_xyz
+        control_rpy = lidar_rpy
+    else:
+        control_xyz = _as_float_vector(control_mount.get('xyz_m'), name='control_mount.xyz_m')
+        control_rpy = _as_float_vector(control_mount.get('rpy_rad'), name='control_mount.rpy_rad')
+
+    point_lio = profile.get('point_lio')
+    if not isinstance(point_lio, dict):
+        raise RuntimeError(f'sensor_extrinsics profile {selected_profile} 缺少 point_lio')
+    point_lio_body_frame = _as_frame_name(point_lio.get('body_frame'), name='point_lio.body_frame')
+    if point_lio_body_frame != 'point_lio_body':
+        raise RuntimeError(
+            '当前 odom_interface.yaml 固定消费 point_lio_body，'
+            f'sensor_extrinsics profile {selected_profile} 中 point_lio.body_frame={point_lio_body_frame} 不受支持'
+        )
+
+    explicit_point_lio_config = point_lio_config_file.perform(context).strip()
+    resolved_point_lio_config = explicit_point_lio_config or os.path.join(point_lio_dir, 'config', 'mid360.yaml')
+    point_lio_body_to_livox = _mapping_extrinsics_from_point_lio_config(resolved_point_lio_config)
+    base_to_livox = (_rot_from_rpy(*lidar_rpy), lidar_xyz)
+    base_to_point_lio_body = _transform_compose(base_to_livox, _transform_inverse(point_lio_body_to_livox))
+    point_lio_body_rpy = _rpy_from_rot(base_to_point_lio_body[0])
+    point_lio_body_xyz = base_to_point_lio_body[1]
+
+    return [
+        LogInfo(msg=(
+            f'[odometry] 传感器安装外参使用 profile:{selected_profile}，'
+            f'配置 {sensor_extrinsics_path}'
+        )),
+        _static_tf_node(
+            name='static_tf_base_to_livox',
+            parent_frame=lidar_parent,
+            child_frame=lidar_child,
+            xyz=lidar_xyz,
+            rpy=lidar_rpy,
+        ),
+        _static_tf_node(
+            name='static_tf_base_to_point_lio_body',
+            parent_frame=lidar_parent,
+            child_frame=point_lio_body_frame,
+            xyz=point_lio_body_xyz,
+            rpy=point_lio_body_rpy,
+        ),
+        _static_tf_node(
+            name='static_tf_base_control_to_livox_control',
+            parent_frame=control_parent,
+            child_frame=control_child,
+            xyz=control_xyz,
+            rpy=control_rpy,
+        ),
+    ]
 
 
 def _resolve_point_lio_profile(requested_profile: str, *, slam_value: bool) -> tuple[str, dict]:
@@ -126,6 +372,7 @@ def generate_launch_description():
     bringup_dir = get_package_share_directory('rc26_bringup')
     point_lio_dir = get_package_share_directory('rc26_point_lio')
     mid360_driver_dir = get_package_share_directory('rc26_mid360_driver')
+    sensor_extrinsics_dir = get_package_share_directory('rc26_sensor_extrinsics')
     terrain_dir = get_package_share_directory('rc26_terrain')
 
     # 启动参数
@@ -138,6 +385,8 @@ def generate_launch_description():
     point_lio_profile = LaunchConfiguration('point_lio_profile')
     point_lio_publish_odometry_without_downsample = LaunchConfiguration(
         'point_lio_publish_odometry_without_downsample')
+    sensor_extrinsics_file = LaunchConfiguration('sensor_extrinsics_file')
+    sensor_extrinsics_profile = LaunchConfiguration('sensor_extrinsics_profile')
     enable_lio_state_predictor = LaunchConfiguration('enable_lio_state_predictor')
     enable_terrain_grid_map = LaunchConfiguration('enable_terrain_grid_map')
     terrain_params_file = LaunchConfiguration('terrain_params_file')
@@ -189,6 +438,16 @@ def generate_launch_description():
         'point_lio_publish_odometry_without_downsample',
         default_value='false',
         description='是否允许 Point-LIO 在扫描内部提前发布 state_estimation；默认 false，保持与 cloud_registered 同戳')
+
+    declare_sensor_extrinsics_file = DeclareLaunchArgument(
+        'sensor_extrinsics_file',
+        default_value=PathJoinSubstitution([sensor_extrinsics_dir, 'config', 'r2_sensor_extrinsics.yaml']),
+        description='传感器安装外参 YAML 文件路径')
+
+    declare_sensor_extrinsics_profile = DeclareLaunchArgument(
+        'sensor_extrinsics_profile',
+        default_value='',
+        description='传感器安装外参 profile；空字符串表示使用 YAML defaults.active_profile')
 
     declare_enable_lio_state_predictor = DeclareLaunchArgument(
         'enable_lio_state_predictor',
@@ -374,31 +633,14 @@ def generate_launch_description():
         condition=IfCondition(enable_terrain_grid_map)
     )
 
-    # 静态TF: base_link -> livox_frame (与 Point-LIO 外参对齐)
-    static_tf_livox = Node(
-        package='tf2_ros',
-        executable='static_transform_publisher',
-        name='static_tf_base_to_livox',
-        arguments=['--x', '0', '--y', '0', '--z', '0.13', '--roll', '0', '--pitch', '0', '--yaw', '0', '--frame-id', 'base_link', '--child-frame-id', 'livox_frame'],
-    )
-
-    # Point-LIO `body_frame` = IMU/body frame。
-    # 依据当前 mid360.yaml: extrinsic_R=I, extrinsic_T=[-0.011, -0.02329, 0.04412]
-    # 该参数表示 LiDAR 原点在 IMU 坐标系中的位置，因此 IMU 原点在 LiDAR 坐标系中为其相反数：
-    #   p_imu_in_lidar = [0.011, 0.02329, -0.04412]
-    # 进而 base_link -> point_lio_body = base_link -> livox_frame + livox_frame -> point_lio_body
-    static_tf_point_lio_body = Node(
-        package='tf2_ros',
-        executable='static_transform_publisher',
-        name='static_tf_base_to_point_lio_body',
-        arguments=['--x', '0.011', '--y', '0.02329', '--z', '0.08588', '--roll', '0', '--pitch', '0', '--yaw', '0', '--frame-id', 'base_link', '--child-frame-id', 'point_lio_body'],
-    )
-
-    static_tf_control_livox = Node(
-        package='tf2_ros',
-        executable='static_transform_publisher',
-        name='static_tf_base_control_to_livox_control',
-        arguments=['--x', '0', '--y', '0', '--z', '0.13', '--roll', '0', '--pitch', '0', '--yaw', '0', '--frame-id', 'base_link_control', '--child-frame-id', 'livox_frame_control'],
+    sensor_extrinsics_actions = OpaqueFunction(
+        function=lambda context: _create_sensor_extrinsics_actions(
+            context,
+            sensor_extrinsics_file=sensor_extrinsics_file,
+            sensor_extrinsics_profile=sensor_extrinsics_profile,
+            point_lio_config_file=point_lio_config_file,
+            point_lio_dir=point_lio_dir,
+        )
     )
 
     terrain_grid_map_notice = LogInfo(
@@ -416,6 +658,8 @@ def generate_launch_description():
         declare_point_lio_config_file,
         declare_point_lio_profile,
         declare_point_lio_publish_odometry_without_downsample,
+        declare_sensor_extrinsics_file,
+        declare_sensor_extrinsics_profile,
         declare_enable_lio_state_predictor,
         declare_enable_terrain_grid_map,
         declare_terrain_params_file,
@@ -429,9 +673,7 @@ def generate_launch_description():
 
         # 节点
         terrain_grid_map_notice,
-        static_tf_livox,
-        static_tf_point_lio_body,
-        static_tf_control_livox,
+        sensor_extrinsics_actions,
         recover_mid360_process,
         start_mid360_after_recover,
         mid360_driver_node,

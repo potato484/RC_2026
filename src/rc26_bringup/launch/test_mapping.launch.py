@@ -22,9 +22,12 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     bringup_dir = get_package_share_directory('rc26_bringup')
+    sensor_extrinsics_dir = get_package_share_directory('rc26_sensor_extrinsics')
 
     use_sim_time = LaunchConfiguration('use_sim_time')
     point_lio_profile = LaunchConfiguration('point_lio_profile')
+    sensor_extrinsics_file = LaunchConfiguration('sensor_extrinsics_file')
+    sensor_extrinsics_profile = LaunchConfiguration('sensor_extrinsics_profile')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     enable_terrain_grid_map = LaunchConfiguration('enable_terrain_grid_map')
     use_rviz = LaunchConfiguration('use_rviz')
@@ -39,6 +42,16 @@ def generate_launch_description():
         'point_lio_profile',
         default_value='mapping_dense',
         description='建图阶段 Point-LIO 预设，默认 mapping_dense')
+
+    declare_sensor_extrinsics_file = DeclareLaunchArgument(
+        'sensor_extrinsics_file',
+        default_value=PathJoinSubstitution([sensor_extrinsics_dir, 'config', 'r2_sensor_extrinsics.yaml']),
+        description='传感器安装外参 YAML 文件路径')
+
+    declare_sensor_extrinsics_profile = DeclareLaunchArgument(
+        'sensor_extrinsics_profile',
+        default_value='',
+        description='传感器安装外参 profile；空字符串表示使用 YAML defaults.active_profile')
 
     declare_recover_mid360_stream = DeclareLaunchArgument(
         'recover_mid360_stream',
@@ -69,6 +82,8 @@ def generate_launch_description():
             'slam': 'true',
             'pure_mapping_mode': 'true',
             'point_lio_profile': point_lio_profile,
+            'sensor_extrinsics_file': sensor_extrinsics_file,
+            'sensor_extrinsics_profile': sensor_extrinsics_profile,
             'use_decision': 'false',
             'recover_mid360_stream': recover_mid360_stream,
             'enable_terrain_grid_map': enable_terrain_grid_map,
@@ -87,6 +102,8 @@ def generate_launch_description():
     return LaunchDescription([
         declare_use_sim_time,
         declare_point_lio_profile,
+        declare_sensor_extrinsics_file,
+        declare_sensor_extrinsics_profile,
         declare_recover_mid360_stream,
         declare_enable_terrain_grid_map,
         declare_use_rviz,

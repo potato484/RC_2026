@@ -64,10 +64,12 @@
 
 - 它是里程计/建图包，不做全局先验地图重定位
 - 它不负责把传感器结果转换成下游统一里程计接口，那个职责在 `rc26_odom_interface`
+- 它不负责车身到雷达的整机安装外参；`config/mid360.yaml` 中的 `mapping.extrinsic_T/R` 只表示 Point-LIO 内部 LiDAR/IMU 外参，车身安装位置和 yaw 归 `rc26_sensor_extrinsics` 管理
 - 它也不负责控制和决策
 - 它的 `launch/point_lio.launch.py` 不再直接拉起任何 GUI；如需观察，请手工运行外部工具只读订阅当前 topic，常用预设可复用 `src/rc26_bringup/rviz/slam.rviz`
 
 ## 配置注释口径
 
 - `config/mid360.yaml` 保留常用/高影响参数的中文注释，重点说明 Point-LIO 常用预处理、IMU/点云时间、先验点云、滤波、发布和建图保存相关字段。
+- `config/mid360.yaml` 的外参字段不跟随雷达整机安装朝向变化；若现场雷达相对 `base_link` 旋转或平移，应修改 / 切换 `rc26_sensor_extrinsics` 的 profile。
 - 外部输入点云密度控制已收口到 `point_keep_ratio`；旧的整数抽样入口不再作为公开配置或动态参数入口。

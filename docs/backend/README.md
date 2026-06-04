@@ -40,6 +40,7 @@
 ### 里程计、定位与点云主链
 
 - [`rc26_mid360_driver`](archive/rc26_mid360_driver/README.md): Livox Mid-360 驱动。`(file: archive/rc26_mid360_driver/README.md)`
+- [`rc26_sensor_extrinsics`](archive/rc26_sensor_extrinsics/README.md): R2 静态传感器安装外参 YAML 真源；当前管理 `base_link -> livox_frame` 的安装位置与朝向。`(file: archive/rc26_sensor_extrinsics/README.md)`
 - [`rc26_point_lio`](archive/rc26_point_lio/README.md): LiDAR-Inertial Odometry 主链。`(file: archive/rc26_point_lio/README.md)`
 - [`rc26_lio_state_predictor`](archive/rc26_lio_state_predictor/README.md): LIO 前向预测链。`(file: archive/rc26_lio_state_predictor/README.md)`
 - [`rc26_localization`](archive/rc26_localization/README.md): 激光重定位主模块。`(file: archive/rc26_localization/README.md)`

@@ -160,6 +160,12 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - **规则**：observe-only 节点可以发布 preview、planner state、recovery state，但不得在旁路上直接输出 `cmd_vel`。
 - **规则**：`rc26_xhu_nav` 必须在包内继续保持“corridor 表达”和“速度命令权威”分离，不能因为收口到单包就把二者写成不可分辨的同层逻辑。
 
+### 3.14 静态传感器安装外参必须单一真源
+
+- **规则**：车身到雷达这类静态安装外参必须由文档化 YAML 真源维护，不能在多个 launch、参数文件或算法包里各写一份。
+- **当前口径**：`rc26_sensor_extrinsics/config/r2_sensor_extrinsics.yaml` 是当前 `base_link -> livox_frame` 安装位置与朝向的真源。
+- **边界**：`rc26_bringup` 只读取该 YAML 并发布静态 TF；`rc26_point_lio/config/mid360.yaml` 只维护 Point-LIO 内部 LiDAR/IMU 外参。
+
 ## 4. ROS2 工作区 Fitness Function
 
 ### 4.1 `bringup` 纯度检查
@@ -254,5 +260,6 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - `rc26_interfaces`：`docs/backend/archive/rc26_interfaces/README.md`
 - `rc26_kfs_keepout`：`docs/backend/archive/rc26_kfs_keepout/README.md`
 - `rc26_robot_geometry`：`docs/backend/archive/rc26_robot_geometry/README.md`
+- `rc26_sensor_extrinsics`：`docs/backend/archive/rc26_sensor_extrinsics/README.md`
 - `rc26_xhu_nav`：`docs/backend/archive/rc26_xhu_nav/README.md`
 - 前端当前边界：`docs/frontend/README.md`、`docs/frontend/overview/README.md`、`docs/frontend/boundaries/README.md`
