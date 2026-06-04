@@ -1,6 +1,8 @@
 // Maintained by DongXuan Chen <2220362462@qq.com>
 #include <deque>
+#include <mutex>
 
+#include <Eigen/Geometry>
 #include <pcl_conversions/pcl_conversions.h>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
@@ -106,6 +108,17 @@ class Preprocess
 {
   public:
 //   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  struct BodyFilterConfig {
+    bool enabled = true;
+    bool transform_ready = false;
+    double x_min = -0.4;
+    double x_max = 0.32;
+    double y_min = -0.3;
+    double y_max = 0.3;
+    double z_min = 0.0;
+    double z_max = 0.8;
+    Eigen::Isometry3d lidar_to_base = Eigen::Isometry3d::Identity();
+  };
 
   Preprocess();
   ~Preprocess();
@@ -113,6 +126,15 @@ class Preprocess
   void process_cut_frame_pcl2(const sensor_msgs::msg::PointCloud2::SharedPtr &msg, deque<PointCloudXYZI::Ptr> &pcl_out, deque<double> &time_lidar, const int required_frame_num, int scan_count);
   void process(const sensor_msgs::msg::PointCloud2::SharedPtr &msg, PointCloudXYZI::Ptr &pcl_out);
   void set(bool feat_en, int lid_type, double bld, int pfilt_num);
+  void setBodyFilterConfig(bool enabled,
+                           double x_min,
+                           double x_max,
+                           double y_min,
+                           double y_max,
+                           double z_min,
+                           double z_max);
+  void setBodyFilterTransform(const Eigen::Isometry3d &lidar_to_base);
+  BodyFilterConfig getBodyFilterConfigSnapshot() const;
 
   // sensor_msgs::msg::PointCloud2::SharedPtr pointcloud;
   PointCloudXYZI pl_full, pl_corn, pl_surf;
@@ -142,4 +164,6 @@ class Preprocess
   double edgea, edgeb;
   double smallp_intersect, smallp_ratio;
   double vx, vy, vz;
+  mutable std::mutex body_filter_mutex_;
+  BodyFilterConfig body_filter_config_;
 };

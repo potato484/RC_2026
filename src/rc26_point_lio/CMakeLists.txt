@@ -50,6 +50,7 @@ find_package(std_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(pcl_ros REQUIRED)
 find_package(pcl_conversions REQUIRED)
+find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(glog REQUIRED)
@@ -91,6 +92,7 @@ ament_target_dependencies(pointlio_mapping
   visualization_msgs
   pcl_ros
   pcl_conversions
+  tf2
   tf2_ros
 )
 
@@ -117,6 +119,7 @@ ament_export_dependencies(
   std_msgs
   pcl_ros
   pcl_conversions
+  tf2
   tf2_ros
   Eigen3
   PCL

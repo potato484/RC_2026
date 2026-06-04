@@ -10,7 +10,7 @@
 - 配置入口：`src/rc26_sensor_extrinsics/config/r2_sensor_extrinsics.yaml`
 - 默认 profile：`r2_mid360_left_90`
   - `base_link -> livox_frame`
-  - 平移：`[0.0, 0.0, 0.13] m`
+  - 平移：`[-0.3, 0.0, 0.15] m`
   - 姿态：`[0.0, 0.0, 1.57079632679] rad`
 - `rc26_bringup/launch/odometry.launch.py` 在启动时读取该 YAML，并继续通过 `tf2_ros/static_transform_publisher` 发布静态 TF
 - `base_link -> point_lio_body` 不在 YAML 中手写，而是由 `base_link -> livox_frame` 和 `rc26_point_lio/config/mid360.yaml` 中的 Point-LIO 内部 LiDAR/IMU 外参推导

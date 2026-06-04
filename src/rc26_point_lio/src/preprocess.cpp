@@ -1,8 +1,26 @@
 // Maintained by DongXuan Chen <2220362462@qq.com>
 #include "preprocess.hpp"
 
+#include <cmath>
+
 #define RETURN0 0x00
 #define RETURN0AND1 0x10
+
+namespace {
+
+bool isPointInsideBodyFilter(const PointType& point, const Preprocess::BodyFilterConfig& config) {
+    if (!config.enabled || !config.transform_ready) {
+        return false;
+    }
+
+    const Eigen::Vector3d point_lidar(point.x, point.y, point.z);
+    const Eigen::Vector3d point_base = config.lidar_to_base * point_lidar;
+    return point_base.x() >= config.x_min && point_base.x() <= config.x_max &&
+           point_base.y() >= config.y_min && point_base.y() <= config.y_max &&
+           point_base.z() >= config.z_min && point_base.z() <= config.z_max;
+}
+
+}  // namespace
 
 const bool time_list_cut_frame(PointType& x, PointType& y) {
     return (x.curvature < y.curvature);
@@ -40,6 +58,34 @@ void Preprocess::set(bool feat_en, int lid_type, double bld, int pfilt_num) {
     lidar_type = lid_type;
     blind = bld;
     point_filter_num = pfilt_num;
+}
+
+void Preprocess::setBodyFilterConfig(bool enabled,
+                                     double x_min,
+                                     double x_max,
+                                     double y_min,
+                                     double y_max,
+                                     double z_min,
+                                     double z_max) {
+    std::lock_guard<std::mutex> lock(body_filter_mutex_);
+    body_filter_config_.enabled = enabled;
+    body_filter_config_.x_min = x_min;
+    body_filter_config_.x_max = x_max;
+    body_filter_config_.y_min = y_min;
+    body_filter_config_.y_max = y_max;
+    body_filter_config_.z_min = z_min;
+    body_filter_config_.z_max = z_max;
+}
+
+void Preprocess::setBodyFilterTransform(const Eigen::Isometry3d& lidar_to_base) {
+    std::lock_guard<std::mutex> lock(body_filter_mutex_);
+    body_filter_config_.lidar_to_base = lidar_to_base;
+    body_filter_config_.transform_ready = true;
+}
+
+Preprocess::BodyFilterConfig Preprocess::getBodyFilterConfigSnapshot() const {
+    std::lock_guard<std::mutex> lock(body_filter_mutex_);
+    return body_filter_config_;
 }
 
 void Preprocess::process(const sensor_msgs::msg::PointCloud2::SharedPtr& msg, PointCloudXYZI::Ptr& pcl_out) {
@@ -262,6 +308,7 @@ void Preprocess::mid360_handler(const sensor_msgs::msg::PointCloud2::SharedPtr& 
     pl_surf.reserve(plsize);
 
     double time_head = pl_orig.points[0].timestamp;
+    const auto body_filter = getBodyFilterConfigSnapshot();
 
     for (int i = 0; i < plsize; i++) {
         PointType added_pt;
@@ -274,6 +321,11 @@ void Preprocess::mid360_handler(const sensor_msgs::msg::PointCloud2::SharedPtr& 
         added_pt.intensity = pl_orig.points[i].intensity;
         // 计算相对于帧头的时间偏移，单位 ms
         added_pt.curvature = (pl_orig.points[i].timestamp - time_head) * time_unit_scale;
+
+        if (std::isfinite(added_pt.x) && std::isfinite(added_pt.y) && std::isfinite(added_pt.z) &&
+            isPointInsideBodyFilter(added_pt, body_filter)) {
+            continue;
+        }
 
         if (i % point_filter_num != 0 || std::isnan(added_pt.x) || std::isnan(added_pt.y) || std::isnan(added_pt.z))
             continue;

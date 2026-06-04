@@ -10,6 +10,13 @@
         init_map_size: 10
         # 参数说明：point_keep_ratio - 输入点保留比例；当前唯一公开点云密度入口，建议值域 1~100。
         point_keep_ratio: 50.0                            # 动态可调，单位 %；100=全保留，50≈保留一半，25≈保留约四分之一
+        filter_car_body: true                             # Mid-360 输入侧车身 ROI 过滤开关；使用 base_link <- livox_frame TF
+        body_x_min: -0.400                                # base_link X 轴负方向裁剪边界，单位米
+        body_x_max: 0.320                                 # base_link X 轴正方向裁剪边界，单位米
+        body_y_min: -0.300                                # base_link Y 轴负方向裁剪边界，单位米
+        body_y_max: 0.300                                 # base_link Y 轴正方向裁剪边界，单位米
+        body_z_min: 0.000                                 # base_link Z 轴负方向裁剪边界，单位米
+        body_z_max: 0.800                                 # base_link Z 轴正方向裁剪边界，单位米
         # 参数说明：space_down_sample - 空间降采样开关；用于降低点云密度和计算负载。
         space_down_sample: True
         # 参数说明：filter_size_surf - 表面特征体素滤波尺寸，单位米；数值越大点云越稀疏。

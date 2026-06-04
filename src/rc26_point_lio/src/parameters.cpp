@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <cmath>
 #include <filesystem>
+#include <sstream>
+#include <stdexcept>
 
 namespace {
 
@@ -52,6 +54,51 @@ void ensureSizedFiniteVector(std::vector<double>& values,
         values = fallback;
         values.resize(expected_size);
     }
+}
+
+std::string bodyFilterRangeError(bool enabled,
+                                 double x_min,
+                                 double x_max,
+                                 double y_min,
+                                 double y_max,
+                                 double z_min,
+                                 double z_max) {
+    const double values[] = {x_min, x_max, y_min, y_max, z_min, z_max};
+    for (const double value : values) {
+        if (!std::isfinite(value)) {
+            return "body ROI bounds must be finite";
+        }
+    }
+
+    if (x_min > x_max) {
+        return "body_x_min must be <= body_x_max";
+    }
+    if (y_min > y_max) {
+        return "body_y_min must be <= body_y_max";
+    }
+    if (z_min > z_max) {
+        return "body_z_min must be <= body_z_max";
+    }
+
+    (void)enabled;
+    return {};
+}
+
+void validateBodyFilterParametersOrThrow(const rclcpp::Logger& logger) {
+    const std::string error =
+        bodyFilterRangeError(filter_car_body, body_x_min, body_x_max, body_y_min, body_y_max, body_z_min, body_z_max);
+    if (!error.empty()) {
+        std::ostringstream message;
+        message << "Invalid body ROI filter parameters: " << error << " (x=[" << body_x_min << ", " << body_x_max
+                << "], y=[" << body_y_min << ", " << body_y_max << "], z=[" << body_z_min << ", " << body_z_max
+                << "])";
+        RCLCPP_FATAL(logger, "%s", message.str().c_str());
+        throw std::runtime_error(message.str());
+    }
+}
+
+void applyBodyFilterConfigToPreprocess() {
+    p_pre->setBodyFilterConfig(filter_car_body, body_x_min, body_x_max, body_y_min, body_y_max, body_z_min, body_z_max);
 }
 
 void applyEffectivePointFilterNumImpl() {
@@ -295,6 +342,30 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
     } catch (const std::exception& e) {
         RCLCPP_ERROR(nh->get_logger(), "Exception: %s", e.what());
     }
+
+    nh->declare_parameter<bool>("filter_car_body", true);
+    nh->get_parameter("filter_car_body", filter_car_body);
+
+    nh->declare_parameter<double>("body_x_min", -0.4);
+    nh->get_parameter("body_x_min", body_x_min);
+
+    nh->declare_parameter<double>("body_x_max", 0.32);
+    nh->get_parameter("body_x_max", body_x_max);
+
+    nh->declare_parameter<double>("body_y_min", -0.3);
+    nh->get_parameter("body_y_min", body_y_min);
+
+    nh->declare_parameter<double>("body_y_max", 0.3);
+    nh->get_parameter("body_y_max", body_y_max);
+
+    nh->declare_parameter<double>("body_z_min", 0.0);
+    nh->get_parameter("body_z_min", body_z_min);
+
+    nh->declare_parameter<double>("body_z_max", 0.8);
+    nh->get_parameter("body_z_max", body_z_max);
+
+    validateBodyFilterParametersOrThrow(nh->get_logger());
+    applyBodyFilterConfigToPreprocess();
 
     applyEffectivePointFilterNum();
     map_full_publish_interval_sec = std::max(0.0, map_full_publish_interval_sec);

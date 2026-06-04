@@ -1,11 +1,15 @@
 // Maintained by DongXuan Chen <2220362462@qq.com>
 // #include <so3_math.hpp>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <malloc.h>
 #include <memory>
+#include <sstream>
+#include <thread>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <pcl/filters/voxel_grid.h>
@@ -15,6 +19,9 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <std_msgs/msg/float64.hpp>
+#include <tf2/exceptions.h>
+#include <tf2/time.h>
+#include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
 
@@ -57,6 +64,92 @@ bool prior_pcd_incremental_delay_active = false;
 auto LOGGER = rclcpp::get_logger("laserMapping");
 std::mutex runtime_param_mutex;
 bool ivox_rebuild_pending = false;
+
+constexpr char kBodyFilterBaseFrame[] = "base_link";
+constexpr char kBodyFilterLidarFrame[] = "livox_frame";
+
+bool isBodyFilterParameter(const std::string& name) {
+    return name == "filter_car_body" || name == "body_x_min" || name == "body_x_max" || name == "body_y_min" ||
+           name == "body_y_max" || name == "body_z_min" || name == "body_z_max";
+}
+
+std::string validateBodyFilterConfig(const Preprocess::BodyFilterConfig& config) {
+    const double values[] = {config.x_min, config.x_max, config.y_min, config.y_max, config.z_min, config.z_max};
+    for (const double value : values) {
+        if (!std::isfinite(value)) {
+            return "body ROI bounds must be finite";
+        }
+    }
+
+    if (config.x_min > config.x_max) {
+        return "body_x_min must be <= body_x_max";
+    }
+    if (config.y_min > config.y_max) {
+        return "body_y_min must be <= body_y_max";
+    }
+    if (config.z_min > config.z_max) {
+        return "body_z_min must be <= body_z_max";
+    }
+    return {};
+}
+
+Eigen::Isometry3d transformStampedToIsometry(const geometry_msgs::msg::TransformStamped& transform) {
+    const auto& rotation = transform.transform.rotation;
+    const auto& translation = transform.transform.translation;
+
+    Eigen::Quaterniond quaternion(rotation.w, rotation.x, rotation.y, rotation.z);
+    quaternion.normalize();
+
+    Eigen::Isometry3d isometry = Eigen::Isometry3d::Identity();
+    isometry.linear() = quaternion.toRotationMatrix();
+    isometry.translation() = Eigen::Vector3d(translation.x, translation.y, translation.z);
+    return isometry;
+}
+
+bool lookupBodyFilterTransform(tf2_ros::Buffer& tf_buffer, Eigen::Isometry3d& lidar_to_base, std::string& error) {
+    try {
+        const auto transform =
+            tf_buffer.lookupTransform(kBodyFilterBaseFrame, kBodyFilterLidarFrame, tf2::TimePointZero);
+        lidar_to_base = transformStampedToIsometry(transform);
+        error.clear();
+        return true;
+    } catch (const tf2::TransformException& ex) {
+        error = ex.what();
+        return false;
+    }
+}
+
+bool waitForBodyFilterTransform(const std::shared_ptr<tf2_ros::Buffer>& tf_buffer,
+                                rclcpp::executors::MultiThreadedExecutor& executor,
+                                Eigen::Isometry3d& lidar_to_base,
+                                std::string& error) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (rclcpp::ok() && std::chrono::steady_clock::now() < deadline) {
+        executor.spin_some();
+        if (lookupBodyFilterTransform(*tf_buffer, lidar_to_base, error)) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    executor.spin_some();
+    return lookupBodyFilterTransform(*tf_buffer, lidar_to_base, error);
+}
+
+void applyBodyFilterRuntimeConfig(const Preprocess::BodyFilterConfig& config) {
+    filter_car_body = config.enabled;
+    body_x_min = config.x_min;
+    body_x_max = config.x_max;
+    body_y_min = config.y_min;
+    body_y_max = config.y_max;
+    body_z_min = config.z_min;
+    body_z_max = config.z_max;
+    p_pre->setBodyFilterConfig(
+        filter_car_body, body_x_min, body_x_max, body_y_min, body_y_max, body_z_min, body_z_max);
+    if (config.transform_ready) {
+        p_pre->setBodyFilterTransform(config.lidar_to_base);
+    }
+}
 
 PointCloudXYZI::Ptr loadPointcloudFromPcd(const std::string& file_path) {
     auto pcd_ptr = std::make_shared<PointCloudXYZI>();
@@ -520,9 +613,38 @@ int main(int argc, char** argv) {
     rclcpp::executors::MultiThreadedExecutor executor;
     executor.add_node(nh);
 
-    readParameters(nh);
+    try {
+        readParameters(nh);
+    } catch (const std::exception& ex) {
+        RCLCPP_FATAL(LOGGER, "Failed to load Point-LIO parameters: %s", ex.what());
+        rclcpp::shutdown();
+        return 1;
+    }
     std::cout << "lidar_type: " << lidar_type << '\n';
     ivox_ = std::make_shared<IVoxType>(ivox_options_);
+
+    auto tf_buffer = std::make_shared<tf2_ros::Buffer>(nh->get_clock());
+    auto tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer, nh, false);
+    (void)tf_listener;
+
+    if (filter_car_body) {
+        Eigen::Isometry3d lidar_to_base = Eigen::Isometry3d::Identity();
+        std::string tf_error;
+        if (!waitForBodyFilterTransform(tf_buffer, executor, lidar_to_base, tf_error)) {
+            RCLCPP_FATAL(LOGGER,
+                         "filter_car_body is enabled but TF %s <- %s is unavailable within 5 seconds: %s",
+                         kBodyFilterBaseFrame, kBodyFilterLidarFrame, tf_error.c_str());
+            rclcpp::shutdown();
+            return 1;
+        }
+        p_pre->setBodyFilterTransform(lidar_to_base);
+        RCLCPP_INFO(LOGGER,
+                    "Body ROI filter enabled using TF %s <- %s, x=[%.3f, %.3f], y=[%.3f, %.3f], z=[%.3f, %.3f]",
+                    kBodyFilterBaseFrame, kBodyFilterLidarFrame, body_x_min, body_x_max, body_y_min, body_y_max,
+                    body_z_min, body_z_max);
+    } else {
+        RCLCPP_INFO(LOGGER, "Body ROI filter disabled by initial parameter filter_car_body=false");
+    }
 
     path.header.stamp = get_ros_time(lidar_end_time);
     path.header.frame_id = odom_frame;
@@ -537,7 +659,7 @@ int main(int argc, char** argv) {
     downSizeFilterMap.setLeafSize(filter_size_map_min, filter_size_map_min, filter_size_map_min);
 
     auto dyn_params_handler = nh->add_on_set_parameters_callback(
-        [](const std::vector<rclcpp::Parameter>& params) {
+        [tf_buffer](const std::vector<rclcpp::Parameter>& params) {
             rcl_interfaces::msg::SetParametersResult result;
             result.successful = true;
             result.reason = "ok";
@@ -547,10 +669,79 @@ int main(int argc, char** argv) {
                 result.reason = reason;
             };
 
+            Preprocess::BodyFilterConfig body_candidate = p_pre->getBodyFilterConfigSnapshot();
+            bool body_filter_touched = false;
+            bool looked_up_body_transform = false;
+
+            for (const auto& p : params) {
+                const std::string& name = p.get_name();
+                if (!isBodyFilterParameter(name)) {
+                    continue;
+                }
+
+                body_filter_touched = true;
+                if (name == "filter_car_body") {
+                    if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+                        reject("filter_car_body expects bool");
+                        return result;
+                    }
+                    body_candidate.enabled = p.as_bool();
+                    continue;
+                }
+
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                    reject(name + " expects double");
+                    return result;
+                }
+                const double value = p.as_double();
+                if (!std::isfinite(value)) {
+                    reject(name + " must be finite");
+                    return result;
+                }
+
+                if (name == "body_x_min") {
+                    body_candidate.x_min = value;
+                } else if (name == "body_x_max") {
+                    body_candidate.x_max = value;
+                } else if (name == "body_y_min") {
+                    body_candidate.y_min = value;
+                } else if (name == "body_y_max") {
+                    body_candidate.y_max = value;
+                } else if (name == "body_z_min") {
+                    body_candidate.z_min = value;
+                } else if (name == "body_z_max") {
+                    body_candidate.z_max = value;
+                }
+            }
+
+            if (body_filter_touched) {
+                const std::string range_error = validateBodyFilterConfig(body_candidate);
+                if (!range_error.empty()) {
+                    reject(range_error);
+                    return result;
+                }
+
+                if (body_candidate.enabled && !body_candidate.transform_ready) {
+                    Eigen::Isometry3d lidar_to_base = Eigen::Isometry3d::Identity();
+                    std::string tf_error;
+                    if (!lookupBodyFilterTransform(*tf_buffer, lidar_to_base, tf_error)) {
+                        reject(std::string("filter_car_body requires TF ") + kBodyFilterBaseFrame + " <- " +
+                               kBodyFilterLidarFrame + ": " + tf_error);
+                        return result;
+                    }
+                    body_candidate.lidar_to_base = lidar_to_base;
+                    body_candidate.transform_ready = true;
+                    looked_up_body_transform = true;
+                }
+            }
+
             for (const auto& p : params) {
                 const std::string& name = p.get_name();
 
                 if (name.rfind("qos_overrides.", 0) == 0) {
+                    continue;
+                }
+                if (isBodyFilterParameter(name)) {
                     continue;
                 }
 
@@ -728,6 +919,24 @@ int main(int argc, char** argv) {
 
                 reject("parameter not in hot-update whitelist: " + name);
                 break;
+            }
+
+            if (result.successful && body_filter_touched) {
+                const auto old_body_config = p_pre->getBodyFilterConfigSnapshot();
+                {
+                    std::lock_guard<std::mutex> lk(runtime_param_mutex);
+                    applyBodyFilterRuntimeConfig(body_candidate);
+                }
+                RCLCPP_INFO(LOGGER,
+                            "PARAM_UPDATE,node=laserMapping,param=body_roi,enabled=%s->%s,x=[%.6f,%.6f]->[%.6f,%.6f],y=[%.6f,%.6f]->[%.6f,%.6f],z=[%.6f,%.6f]->[%.6f,%.6f]",
+                            old_body_config.enabled ? "true" : "false", body_candidate.enabled ? "true" : "false",
+                            old_body_config.x_min, old_body_config.x_max, body_candidate.x_min, body_candidate.x_max,
+                            old_body_config.y_min, old_body_config.y_max, body_candidate.y_min, body_candidate.y_max,
+                            old_body_config.z_min, old_body_config.z_max, body_candidate.z_min, body_candidate.z_max);
+                if (looked_up_body_transform) {
+                    RCLCPP_INFO(LOGGER, "PARAM_EFFECT,node=laserMapping,param=filter_car_body,tf=%s<-%s cached",
+                                kBodyFilterBaseFrame, kBodyFilterLidarFrame);
+                }
             }
 
             return result;

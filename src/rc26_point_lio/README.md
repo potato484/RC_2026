@@ -25,6 +25,11 @@ Point-LIO 是一个鲁棒、高带宽的 LiDAR 惯性里程计，基于逐点更
    - **`laser_map_full`**：持续发布累计地图，方便在 RViz / Foxglove 中观察“已建好的内容是否持续留存显示”。
    - **PCD 保存**：建图时可将累计点云保存为 `PCD/scans.pcd` 或分段 `PCD/scans_*.pcd`，供后续定位复用。
 
+6. **Mid-360 输入侧车身 ROI 裁剪**
+   - **`filter_car_body` 与 `body_*`**：在 Mid-360 预处理阶段把点投影到 `base_link`，直接丢弃车身盒内点。
+   - 该过滤依赖 `rc26_sensor_extrinsics` 经 bringup 发布的 `base_link -> livox_frame` 静态 TF；开启时若 TF 缺失，节点启动失败。
+   - 这是输入侧过滤，会影响 Point-LIO 内部建图和定位结果，不同于只影响输出显示/保存的 `output_filter.world_z_filter_*`。
+
 ## 依赖项说明
 本项目依赖于 ROS 2 (Humble/Iron 版本)、PCL 点云库、Eigen3 线性代数库以及 Livox SDK2。请确保系统环境中已正确安装这些依赖库。
 
@@ -98,6 +103,14 @@ ros2 param set /point_lio publish.map_full_publish_interval_sec 0.5
 ros2 param set /point_lio output_filter.world_z_filter_en true
 ros2 param set /point_lio output_filter.world_z_min -0.08
 
+# 关闭或恢复 Mid-360 输入侧车身 ROI 过滤
+ros2 param set /point_lio filter_car_body false
+ros2 param set /point_lio filter_car_body true
+
+# 调整车身 ROI，单位米，坐标系为 base_link
+ros2 param set /point_lio body_x_min -0.45
+ros2 param set /point_lio body_z_max 0.75
+
 # 调小单帧点云体素滤波尺寸，让 registered_scan 更稠密
 ros2 param set /point_lio filter_size_surf 0.1
 ```
@@ -106,6 +119,8 @@ ros2 param set /point_lio filter_size_surf 0.1
 - `point_keep_ratio` 是当前唯一公开的输入点云密度入口，取值会被夹紧到 `1.0 ~ 100.0`，其中 `100.0` 表示尽可能保留全部输入点。
 - `point_keep_ratio` 是“百分比语义”，最终显示密度还会受 `filter_size_surf` / `filter_size_map` 影响，因此不是严格数学百分比。
 - 旧的整数抽样入口不再作为公开 ROS 参数或动态调参入口。
+- `filter_car_body` 和 `body_*` 只接入当前 R2 使用的 Mid-360 预处理路径。`body_x/y/z_min/max` 必须是有限数，且每个轴满足 `min <= max`；非法运行时更新会被参数回调拒绝并保持旧值。
+- `filter_car_body` 从 `false` 动态切回 `true` 时，节点必须已经能查到 `base_link <- livox_frame` TF，否则本次参数更新会被拒绝。
 - `output_filter.world_z_filter_*` 仅作用于 `/cloud_registered`、`/laser_map_full` 和保存出来的 PCD，不会修改 Point-LIO 内部用于里程计的 ivox 地图。
 - `output_filter.world_z_min` / `world_z_max` 使用 `odom/world` 系高度。若机器人起始时 IMU 不在地面原点，地面通常会落在一个负值附近，建议在 RViz 观察后逐步上调下限，而不是一次裁得很狠。
 
@@ -114,6 +129,7 @@ ros2 param set /point_lio filter_size_surf 0.1
 - Livox MID-360 官方规格给出的垂直视场角为 `-7 deg ~ +52 deg`，因此雷达本身就会看到地面。
 - 当前仓库这版 Point-LIO 默认不会主动删除地面点，预处理主要是盲区、量程、抽样和体素滤波。
 - 对 LIO 而言，地面往往能提供 `z / roll / pitch` 的平面约束，因此不建议直接从内部里程计地图中粗暴删地面。
+- Mid-360 车身 ROI 过滤只用于删除车体内部安装导致的自遮挡/自反射盒内点，不应拿来做大范围地面清理。
 - 如果目标只是让 RViz 累计地图或导出的 PCD 更干净，优先使用 `output_filter.world_z_filter_*` 做输出侧高度裁剪。
 - 如果地面看起来不是“薄的一层”，而是明显发厚、倾斜、上下漂移或分层，优先检查 `extrinsic_T/R`、`gravity`、静态 TF、安装角与时间同步，而不是只调过滤阈值。
 
