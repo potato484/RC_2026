@@ -73,7 +73,36 @@ TEST_F(TelecontrolMappingTest, DpadModeMapsAxesToVxVyAndButtonsToYaw)
 
   EXPECT_DOUBLE_EQ(twist.linear.x, 0.2);
   EXPECT_DOUBLE_EQ(twist.linear.y, -0.2);
+  EXPECT_DOUBLE_EQ(twist.angular.z, 0.5);
+}
+
+TEST_F(TelecontrolMappingTest, DpadModeMapsBToNegativeYaw)
+{
+  auto joy = std::make_shared<sensor_msgs::msg::Joy>();
+  joy->axes.resize(8U, 0.0F);
+  joy->buttons.resize(3U, 0);
+  joy->buttons[1] = 1;
+
+  TestableDpadTelecontrolNode node;
+  const auto twist = node.compute(joy);
+
+  EXPECT_DOUBLE_EQ(twist.linear.x, 0.0);
+  EXPECT_DOUBLE_EQ(twist.linear.y, 0.0);
   EXPECT_DOUBLE_EQ(twist.angular.z, -0.5);
+}
+
+TEST_F(TelecontrolMappingTest, DpadModeKeepsYawNeutralWhenXAndBArePressedTogether)
+{
+  auto joy = std::make_shared<sensor_msgs::msg::Joy>();
+  joy->axes.resize(8U, 0.0F);
+  joy->buttons.resize(3U, 0);
+  joy->buttons[1] = 1;
+  joy->buttons[2] = 1;
+
+  TestableDpadTelecontrolNode node;
+  const auto twist = node.compute(joy);
+
+  EXPECT_DOUBLE_EQ(twist.angular.z, 0.0);
 }
 
 }  // namespace

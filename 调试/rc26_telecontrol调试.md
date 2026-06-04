@@ -59,7 +59,7 @@ ros2 topic echo /mechanism/command_feedback --once
 当前默认手柄口径：
 
 - `stick`：左摇杆控制 `vx/vy`，右摇杆左右控制 `wz`
-- `dpad`：十字键控制 `vx/vy`，`X/B` 控制 `wz`
+- `dpad`：十字键控制 `vx/vy`，`X -> +wz`、`B -> -wz`
 - `Back/Start`：推杆 `extend/retract`
 - `Y/A`：电动推杆上抬/后撑
 

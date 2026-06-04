@@ -437,9 +437,9 @@ geometry_msgs::msg::Twist DpadTelecontrolNode::compute_target_twist(
   const bool x_pressed = button_pressed(joy_msg, k_x_button);
   const bool b_pressed = button_pressed(joy_msg, k_b_button);
   if (x_pressed && !b_pressed) {
-    target_twist.angular.z = -angular_speed_limit();
-  } else if (b_pressed && !x_pressed) {
     target_twist.angular.z = angular_speed_limit();
+  } else if (b_pressed && !x_pressed) {
+    target_twist.angular.z = -angular_speed_limit();
   }
 
   return target_twist;

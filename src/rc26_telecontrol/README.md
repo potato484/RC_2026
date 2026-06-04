@@ -27,7 +27,7 @@
 结合当前代码的真实控制口径：
 
 *   **Stick 模式**：`linear.x <- axes[1]`，`linear.y <- axes[0]`，`angular.z <- axes[3]`。
-*   **Dpad 模式**：`linear.x <- axes[7]`，`linear.y <- axes[6]`，`angular.z <- X/B`。
+*   **Dpad 模式**：`linear.x <- axes[7]`，`linear.y <- axes[6]`，`angular.z <- X(+wz) / B(-wz)`。
 *   R2 当前已经统一为麦克纳姆全向底盘，因此 `linear.y` 在 stick / dpad 两种模式下都是有效输出；`rc26_telecontrol` 不再声明或消费 `chassis_model`。
 *   独立 sidecar 节点 `rc26_telecontrol_front_pushrod_buttons`：`Y(button[3])` 按下沿单次下发 `FRONT_PUSHROD_EXTEND (0x0E)`；`A(button[0])` 按下沿单次下发 `FRONT_PUSHROD_RETRACT (0x0F)`。按住不会连发，松开后再次按下才会重发。该节点直接调用 `/mechanism/send_command`，走 transport ACK 路径，不再经过 `/mechanism/run_command`。
 *   独立 sidecar 节点 `rc26_telecontrol_rear_pushrod_buttons`：`Select/Back(button[6]) -> REAR_PUSHROD_EXTEND (0x10)`、`Start(button[7]) -> REAR_PUSHROD_RETRACT (0x11)`。该节点同样直接调用 `/mechanism/send_command`，走 transport ACK 路径；若 MCU 额外上送 `0x13~0x16` 业务 ACK，会继续发布到 `/mechanism/command_feedback`。`Dpad 左/右` 现在只负责底盘横移。

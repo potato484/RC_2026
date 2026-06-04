@@ -57,7 +57,7 @@
 - Dpad 模式：
   - `linear.x <- axes[7]`
   - `linear.y <- axes[6]`
-  - `angular.z <- X(button[2]) / B(button[1])`
+  - `angular.z <- X(button[2], +wz) / B(button[1], -wz)`
 
 R2 当前已经统一为麦克纳姆全向底盘，因此 `linear.y` 在 stick / dpad 两种模式下都是有效输出；`rc26_telecontrol` 不再声明或消费 `chassis_model`，也不会在节点内部屏蔽横移。
 
@@ -122,11 +122,11 @@ R2 当前已经统一为麦克纳姆全向底盘，因此 `linear.y` 在 stick /
 
 - 当前遥控链已经移除 `chassis_model` 参数，统一输出 `linear.x / linear.y / angular.z` 的麦克纳姆口径。
 - Stick 模式固定为 `左摇杆 -> vx/vy`、`右摇杆左右 -> wz`。
-- Dpad 模式固定为 `十字键上下/左右 -> vx/vy`、`X/B -> wz`。
+- Dpad 模式固定为 `十字键上下/左右 -> vx/vy`、`X -> +wz, B -> -wz`。
 - `start_r2_teleop.sh` 现在默认用 `dpad` 模式启动，而不是 stick。
 - `start_r2_teleop.sh` 当前默认最大线速度为 `0.3 m/s`，仍可通过 `--v-linear` 覆盖。
 - `start_r2_teleop.sh` 现在会在 `full` 和 `minimal-mcu` 两个栈里都额外挂起 `rc26_telecontrol_front_pushrod_buttons` 与 `rc26_telecontrol_rear_pushrod_buttons`，用于把 `Y/A` 与 `Select/Back` / `Start` 桥到 `0x0E~0x11`。
-- 在 dpad 模式里，旋转仍由 `X/B` 控制；`Y/A`、`Select/Back`、`Start` 不参与速度输出，只交给前/后推杆 sidecar；`Dpad 左/右` 会直接体现在 `/cmd_vel.linear.y`。
+- 在 dpad 模式里，旋转仍由 `X/B` 控制，其中 `X -> +wz`、`B -> -wz`；`Y/A`、`Select/Back`、`Start` 不参与速度输出，只交给前/后推杆 sidecar；`Dpad 左/右` 会直接体现在 `/cmd_vel.linear.y`。
 - `start_r2_teleop.sh` 不再默认拉起 `rc26_mechanism`；teleop 前/后推杆联调只依赖 `merge_odom` 或 `pose_sender_node` 持有目标串口并提供 transport service。
 - 仓库根目录的 `start_r2_teleop.sh` 现在通过 `--stack full|minimal-mcu` 统一承载完整遥控链和最小串口链；最小 MCU 口径以 `./start_r2_teleop.sh --stack minimal-mcu` 为准。
 - `--stack minimal-mcu` 会启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`；`pose_sender_node` 现在也会继续提供 `/mechanism/send_command` 与 `/mechanism/command_feedback`。
