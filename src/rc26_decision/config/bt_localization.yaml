@@ -207,7 +207,7 @@ custom_types:
     scenario: "进门、退避和离场时都会用这个动作。"
     attention: "如果失败，先检查点位名是否存在、导航器是否就绪。"
     related_blackboard_keys: ["loc_recommended_profile", "loc_level"]
-  CheckLocalizationHealth:
+  CheckLocalizationGuard:
     display_name: "检查定位健康"
     tooltip: "根据定位等级和风险决定是否进入守护恢复。"
     summary: "定位守护的入口判断节点。"
@@ -647,21 +647,6 @@ blackboard_keys:
     attention: "如果楼层状态不更新，楼梯逻辑可能一直不收敛。"
 
 services:
-  "/localization/health":
-    display_name: "定位健康输入"
-    summary: "向行为树提供定位等级、原因和控制退化状态。"
-    scenario: "定位守护判断是否需要恢复时会依赖它。"
-    attention: "这个条目当前主要用于目录说明，运行时暂不直接展示。"
-  "/localization/backend_status":
-    display_name: "定位后端状态输入"
-    summary: "提供图优化健康度和优化器是否就绪。"
-    scenario: "定位等级突然恶化时要一起看。"
-    attention: "后端状态差时，定位守护通常会更积极地介入。"
-  "/localization/route_observability":
-    display_name: "路径可观测性输入"
-    summary: "提供路线观测质量和推荐导航档位。"
-    scenario: "推荐档位变化时来源常常在这里。"
-    attention: "这类输入变化快，建议配合时间线观察。"
   "/mechanism/status":
     display_name: "机构状态输入"
     summary: "提供机构 HAL 打开状态、最近错误码和当前命令 ID。"

@@ -1,259 +1,32 @@
 openapi: 3.1.0
 info:
   title: RC26 R2 Localization ROS2 Contract
-  version: 0.3.0
-  description: 定位模块接口
+  version: 0.4.0
+  description: 定位模块最小比赛链路接口；模块内部包含开局一次 SAC-IA+GICP 重定位、连续 GICP 跟踪和 initialpose 接管，但对外只暴露 pose 与 diagnostics。
 servers:
   - url: http://localhost:8080
 tags:
   - name: Topic
 paths:
-  /ros2/topics/localization/health:
+  /ros2/topics/localization/pose_with_cov:
     get:
       tags: [Topic]
-      summary: 读取 topic /localization/health 的最新消息
+      summary: 读取 topic /localization/pose_with_cov 的最新消息
       x-ros:
         interface_kind: topic
-        name: /localization/health
-        message_type: rc26_interfaces/msg/LocalizationHealth
+        name: /localization/pose_with_cov
+        message_type: geometry_msgs/msg/PoseWithCovarianceStamped
       responses:
         '200':
-          description: rc26_interfaces/msg/LocalizationHealth
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/LocalizationHealth'
-  /ros2/topics/localization/backend_status:
+          description: geometry_msgs/msg/PoseWithCovarianceStamped
+  /ros2/topics/localization/diagnostics:
     get:
       tags: [Topic]
-      summary: 读取 topic /localization/backend_status 的最新消息
+      summary: 读取 topic /localization/diagnostics 的最新消息，包含配准质量和开局重定位状态
       x-ros:
         interface_kind: topic
-        name: /localization/backend_status
-        message_type: rc26_interfaces/msg/LocalizationBackendStatus
+        name: /localization/diagnostics
+        message_type: diagnostic_msgs/msg/DiagnosticArray
       responses:
         '200':
-          description: rc26_interfaces/msg/LocalizationBackendStatus
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/LocalizationBackendStatus'
-  /ros2/topics/localization/route_observability:
-    get:
-      tags: [Topic]
-      summary: 读取 topic /localization/route_observability 的最新消息
-      x-ros:
-        interface_kind: topic
-        name: /localization/route_observability
-        message_type: rc26_interfaces/msg/RouteObservability
-      responses:
-        '200':
-          description: rc26_interfaces/msg/RouteObservability
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RouteObservability'
-  /ros2/topics/localization/trajectory:
-    get:
-      tags: [Topic]
-      summary: 读取 topic /localization/trajectory（最近 N 帧位姿轨迹）
-      x-ros:
-        interface_kind: topic
-        name: /localization/trajectory
-        message_type: nav_msgs/msg/Path
-      responses:
-        '200':
-          description: nav_msgs/msg/Path
-  /ros2/topics/localization/keyframes:
-    get:
-      tags: [Topic]
-      summary: 读取 topic /localization/keyframes（活跃关键帧位姿）
-      x-ros:
-        interface_kind: topic
-        name: /localization/keyframes
-        message_type: rc26_interfaces/msg/LocalizationKeyframe[]
-      responses:
-        '200':
-          description: LocalizationKeyframe 数组（序列化为独立消息数组类型待定）
-  /ros2/topics/localization/loop_closures:
-    get:
-      tags: [Topic]
-      summary: 读取 topic /localization/loop_closures（闭环边）
-      x-ros:
-        interface_kind: topic
-        name: /localization/loop_closures
-        message_type: rc26_interfaces/msg/LocalizationLoopClosure[]
-      responses:
-        '200':
-          description: LocalizationLoopClosure 数组
-  /ros2/topics/localization/reloc_state:
-    get:
-      tags: [Topic]
-      summary: 读取 topic /localization/reloc_state（重定位进度）
-      x-ros:
-        interface_kind: topic
-        name: /localization/reloc_state
-        message_type: rc26_interfaces/msg/LocalizationRelocState
-      responses:
-        '200':
-          description: rc26_interfaces/msg/LocalizationRelocState
-  /ros2/topics/localization/registration_debug:
-    get:
-      tags: [Topic]
-      summary: 读取 topic /localization/registration_debug（配准收敛/残差/内点数）
-      x-ros:
-        interface_kind: topic
-        name: /localization/registration_debug
-        message_type: rc26_interfaces/msg/RegistrationDebug
-      responses:
-        '200':
-          description: rc26_interfaces/msg/RegistrationDebug
-  /ros2/topics/localization/downsampled_cloud:
-    get:
-      tags: [Topic]
-      summary: 读取 topic /localization/downsampled_cloud（下采样点云 1-2Hz）
-      x-ros:
-        interface_kind: topic
-        name: /localization/downsampled_cloud
-        message_type: sensor_msgs/msg/PointCloud2
-      responses:
-        '200':
-          description: sensor_msgs/msg/PointCloud2
-components:
-  schemas:
-    Time:
-      type: object
-      required: [sec, nanosec]
-      properties:
-        sec:
-          type: integer
-        nanosec:
-          type: integer
-    Header:
-      type: object
-      required: [stamp, frame_id]
-      properties:
-        stamp:
-          $ref: '#/components/schemas/Time'
-        frame_id:
-          type: string
-    LocalizationHealth:
-      type: object
-      required:
-        - header
-        - level
-        - reason
-        - control_degraded
-        - localization_state
-        - sigma_xy
-        - sigma_yaw
-        - h_min_eig
-        - h_cond
-      properties:
-        header:
-          $ref: '#/components/schemas/Header'
-        level:
-          type: integer
-          enum: [0, 1, 2, 3]
-        reason:
-          type: string
-        control_degraded:
-          type: boolean
-        localization_state:
-          type: string
-        sigma_xy:
-          type: number
-          format: double
-        sigma_yaw:
-          type: number
-          format: double
-        h_min_eig:
-          type: number
-          format: double
-        h_cond:
-          type: number
-          format: double
-    LocalizationBackendStatus:
-      type: object
-      required:
-        - header
-        - optimizer_ready
-        - optimizer_state
-        - active_keyframe_id
-        - graph_health
-        - loop_candidate_count
-        - accepted_loop_count
-        - accepted_anchor_count
-        - last_local_reg_age_sec
-        - last_loop_age_sec
-        - last_anchor_age_sec
-        - candidate_conflict_count
-        - map_to_odom_jump_suppressed
-        - imu_spike
-      properties:
-        header:
-          $ref: '#/components/schemas/Header'
-        optimizer_ready:
-          type: boolean
-        optimizer_state:
-          type: string
-        active_keyframe_id:
-          type: integer
-        graph_health:
-          type: number
-          format: double
-        loop_candidate_count:
-          type: integer
-        accepted_loop_count:
-          type: integer
-        accepted_anchor_count:
-          type: integer
-        last_local_reg_age_sec:
-          type: number
-          format: double
-        last_loop_age_sec:
-          type: number
-          format: double
-        last_anchor_age_sec:
-          type: number
-          format: double
-        candidate_conflict_count:
-          type: integer
-        map_to_odom_jump_suppressed:
-          type: boolean
-        imu_spike:
-          type: boolean
-    RouteObservability:
-      type: object
-      required:
-        - header
-        - score
-        - risk_level
-        - repeat_structure_risk
-        - dynamic_risk
-        - loop_opportunity_score
-        - anchor_opportunity_score
-        - recommended_nav_profile
-      properties:
-        header:
-          $ref: '#/components/schemas/Header'
-        score:
-          type: number
-          format: double
-        risk_level:
-          type: integer
-          enum: [0, 1, 2]
-        repeat_structure_risk:
-          type: number
-          format: double
-        dynamic_risk:
-          type: number
-          format: double
-        loop_opportunity_score:
-          type: number
-          format: double
-        anchor_opportunity_score:
-          type: number
-          format: double
-        recommended_nav_profile:
-          type: string
+          description: diagnostic_msgs/msg/DiagnosticArray

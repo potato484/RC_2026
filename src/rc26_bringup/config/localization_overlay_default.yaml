@@ -1,3 +1,0 @@
-# 默认 overlay：不覆盖基础参数
-localization:
-  ros__parameters: {}

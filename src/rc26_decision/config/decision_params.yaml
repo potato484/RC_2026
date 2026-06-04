@@ -17,14 +17,7 @@ rc26_decision:
     # 里程计话题（用于停车判定等）
     odom_topic: "wheel_odom"
 
-    # P2: 定位健康/后端/路径可观测性输入
-    localization_health_topic: "/localization/health"
-    # 参数说明：localization_backend_status_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    localization_backend_status_topic: "/localization/backend_status"
-    # 参数说明：localization_route_observability_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    localization_route_observability_topic: "/localization/route_observability"
-
-    # P2: 定位守护 profile 映射
+    # 定位守护 profile 映射（行为树内部调试键，当前不直接订阅定位自定义消息）
     loc_profile_normal: "normal"
     # 参数说明：loc_profile_yellow - 运行 profile 或模式；用于在不同任务、风险等级或后端之间切换参数组。
     loc_profile_yellow: "loc_yellow"
@@ -33,15 +26,14 @@ rc26_decision:
     # 参数说明：loc_profile_red - 运行 profile 或模式；用于在不同任务、风险等级或后端之间切换参数组。
     loc_profile_red: "loc_red_hold"
 
-    # P2: ObserveSpin 动作参数
+    # ObserveSpin 动作参数
     loc_spin_action_name: "spin"
     # 参数说明：loc_spin_angle_deg - 角度参数；单位由字段名或上级配置约定。
     loc_spin_angle_deg: 15.0
     # 参数说明：loc_spin_time_allowance_sec - 时间参数，单位秒。
     loc_spin_time_allowance_sec: 3.0
 
-    # P2: AnchorRecover waypoint 顺序（先 retry zone，再 anchor）
-    loc_retry_waypoints: ["loc_retry_zone_1"]
+    # AnchorRecover waypoint 顺序
     loc_anchor_waypoints: ["loc_anchor_1", "loc_anchor_2"]
 
     # speed_profile 全局缩放系数（保留给局部决策节奏与动作选择使用）
@@ -93,11 +85,6 @@ rc26_decision:
       - "system_error"
       - "loc_level"
       - "loc_reason"
-      - "loc_control_degraded"
-      - "loc_graph_health"
-      - "loc_optimizer_ready"
-      - "loc_route_score"
-      - "loc_route_risk_level"
       - "loc_recommended_profile"
       - "loc_last_profile"
       - "loc_guard_required"

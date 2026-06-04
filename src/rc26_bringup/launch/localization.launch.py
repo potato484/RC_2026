@@ -1,7 +1,7 @@
 """
 定位模块启动文件
 
-导航模式: 启动 rc26_localization (基于 rc26_small_gicp)
+导航模式: 启动 rc26_localization，作为 map -> odom 唯一权威
 建图模式: 发布静态 map -> odom 变换
 """
 from ament_index_python.packages import get_package_share_directory
@@ -20,49 +20,19 @@ def generate_launch_description():
     slam = LaunchConfiguration('slam')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
     localization_params_file = LaunchConfiguration('localization_params_file')
-    localization_overlay_file = LaunchConfiguration('localization_overlay_file')
-    competition_mode = LaunchConfiguration('competition_mode')
-    enable_graph_backend = LaunchConfiguration('enable_graph_backend')
-    p4_candidate_enable = LaunchConfiguration('p4_candidate_enable')
-    min_inliers = LaunchConfiguration('min_inliers')
 
-    declare_namespace = DeclareLaunchArgument(
-        'namespace', default_value='')
-
-    declare_use_sim_time = DeclareLaunchArgument(
-        'use_sim_time', default_value='false')
-
-    declare_slam = DeclareLaunchArgument(
-        'slam', default_value='false')
-
+    declare_namespace = DeclareLaunchArgument('namespace', default_value='')
+    declare_use_sim_time = DeclareLaunchArgument('use_sim_time', default_value='false')
+    declare_slam = DeclareLaunchArgument('slam', default_value='false')
     declare_prior_pcd_file = DeclareLaunchArgument(
         'prior_pcd_file',
         default_value=PathJoinSubstitution([bringup_dir, 'pcd', 'default.pcd']),
         description='先验点云文件路径')
-
     declare_localization_params_file = DeclareLaunchArgument(
         'localization_params_file',
         default_value=PathJoinSubstitution([bringup_dir, 'config', 'localization.yaml']),
-        description='基础定位参数文件路径')
+        description='定位参数文件路径')
 
-    declare_localization_overlay_file = DeclareLaunchArgument(
-        'localization_overlay_file',
-        default_value=PathJoinSubstitution([bringup_dir, 'config', 'localization_overlay_default.yaml']),
-        description='定位参数 overlay 文件路径（可切换 eval 配置）')
-
-    declare_competition_mode = DeclareLaunchArgument(
-        'competition_mode', default_value='true', description='比赛模式防呆开关')
-
-    declare_enable_graph_backend = DeclareLaunchArgument(
-        'enable_graph_backend', default_value='false', description='是否启用图后端')
-
-    declare_p4_candidate_enable = DeclareLaunchArgument(
-        'p4_candidate_enable', default_value='false', description='是否启用 P4 外部候选输入')
-
-    declare_min_inliers = DeclareLaunchArgument(
-        'min_inliers', default_value='200', description='局部配准质量门控最小内点数')
-
-    # 导航模式: 启动重定位
     localization_node = Node(
         package='rc26_localization',
         executable='rc26_localization_node',
@@ -71,18 +41,12 @@ def generate_launch_description():
         output='screen',
         parameters=[
             localization_params_file,
-            localization_overlay_file,
             {'use_sim_time': use_sim_time},
             {'prior_pcd_file': prior_pcd_file},
-            {'competition_mode': competition_mode},
-            {'enable_graph_backend': enable_graph_backend},
-            {'p4_candidate_enable': p4_candidate_enable},
-            {'min_inliers': min_inliers},
         ],
         condition=UnlessCondition(slam)
     )
 
-    # 建图模式: 静态变换 map -> odom
     static_tf_node = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
@@ -103,11 +67,6 @@ def generate_launch_description():
         declare_slam,
         declare_prior_pcd_file,
         declare_localization_params_file,
-        declare_localization_overlay_file,
-        declare_competition_mode,
-        declare_enable_graph_backend,
-        declare_p4_candidate_enable,
-        declare_min_inliers,
         localization_node,
         static_tf_node,
     ])

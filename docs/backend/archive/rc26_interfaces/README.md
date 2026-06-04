@@ -11,6 +11,16 @@
 - `/navigate_to_pose`
 - `nav2_msgs/action/NavigateToPose`
 
+## 当前定位相关契约
+
+定位主链已经收口为标准 ROS 消息与 TF：
+
+- `map -> odom` 动态 TF
+- `/localization/pose_with_cov` (`geometry_msgs/msg/PoseWithCovarianceStamped`)
+- `/localization/diagnostics` (`diagnostic_msgs/msg/DiagnosticArray`)
+
+本包不再生成定位健康度、后端状态、路线可观测性、关键帧、闭环、重定位状态或配准调试自定义消息。
+
 本包仍生成下列归档兼容接口，但它们不属于当前主链运行时契约：
 
 - `SetKeepoutRuntime.srv`
@@ -43,4 +53,5 @@
 ## 本轮收口
 
 - 删除旧导航 action、运动模式 service 和相关状态消息生成
+- 删除定位自定义消息生成，定位接口改为标准 ROS 消息与 TF
 - 保留 `MfBlockOverlay`、`MfBlockOverlayCell`、`MfKfs*`、`TerrainFeatureGrid` 与 `SetKeepoutRuntime` 的生成文件，但明确标记为归档兼容接口；默认运行时不再消费这些契约

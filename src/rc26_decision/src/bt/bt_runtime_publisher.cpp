@@ -860,7 +860,7 @@ std::string BtRuntimePublisher::knownNodeDetail(const BT::TreeNode &node,
   const auto &reg = node.registrationName();
   std::ostringstream oss;
 
-  if (reg == "CheckLocalizationHealth") {
+  if (reg == "CheckLocalizationGuard") {
     const auto level = getBlackboardValue<int>(node, "loc_level").value_or(0);
     const auto reason =
         getBlackboardValue<std::string>(node, "loc_reason").value_or("unknown");

@@ -30,10 +30,10 @@ x-modules:
       - r2/bt/control
   - name: localization
     file: docs/middle/modules/localization.yaml
+    description: 开局一次 SAC-IA+GICP 重定位、连续 GICP 跟踪和 initialpose 接管；对外只暴露 pose 与 diagnostics。
     topics:
-      - /localization/health
-      - /localization/backend_status
-      - /localization/route_observability
+      - /localization/pose_with_cov
+      - /localization/diagnostics
     services: []
   - name: navigation
     file: docs/middle/modules/navigation.yaml

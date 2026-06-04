@@ -26,57 +26,28 @@ def generate_launch_description():
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     team = LaunchConfiguration('team')
     localization_params_file = LaunchConfiguration('localization_params_file')
-    localization_overlay_file = LaunchConfiguration('localization_overlay_file')
-    competition_mode = LaunchConfiguration('competition_mode')
-    p4_candidate_enable = LaunchConfiguration('p4_candidate_enable')
-    min_inliers = LaunchConfiguration('min_inliers')
     nav2_map_file = LaunchConfiguration('nav2_map_file')
 
     declare_use_sim_time = DeclareLaunchArgument(
         'use_sim_time',
         default_value='false',
         description='使用仿真时间')
-
     declare_prior_pcd_file = DeclareLaunchArgument(
         'prior_pcd_file',
         default_value=PathJoinSubstitution([bringup_dir, 'pcd', 'default.pcd']),
         description='导航所用先验点云文件路径')
-
     declare_recover_mid360_stream = DeclareLaunchArgument(
         'recover_mid360_stream',
         default_value='false',
         description='启动前先运行 Mid-360 恢复脚本')
-
     declare_team = DeclareLaunchArgument(
         'team',
         default_value='blue',
         description='当前比赛侧别: blue | red')
-
     declare_localization_params_file = DeclareLaunchArgument(
         'localization_params_file',
         default_value=PathJoinSubstitution([bringup_dir, 'config', 'localization.yaml']),
-        description='基础定位参数文件路径')
-
-    declare_localization_overlay_file = DeclareLaunchArgument(
-        'localization_overlay_file',
-        default_value=PathJoinSubstitution([bringup_dir, 'config', 'localization_overlay_default.yaml']),
-        description='定位 overlay 参数文件路径')
-
-    declare_competition_mode = DeclareLaunchArgument(
-        'competition_mode',
-        default_value='false',
-        description='导航联调默认关闭比赛防呆')
-
-    declare_p4_candidate_enable = DeclareLaunchArgument(
-        'p4_candidate_enable',
-        default_value='false',
-        description='是否启用 P4 外部候选输入')
-
-    declare_min_inliers = DeclareLaunchArgument(
-        'min_inliers',
-        default_value='200',
-        description='局部配准质量门控最小内点数')
-
+        description='定位参数文件路径')
     declare_nav2_map_file = DeclareLaunchArgument(
         'nav2_map_file',
         default_value=PathJoinSubstitution([bringup_dir, 'map', 'default.yaml']),
@@ -94,11 +65,6 @@ def generate_launch_description():
             'recover_mid360_stream': recover_mid360_stream,
             'team': team,
             'localization_params_file': localization_params_file,
-            'localization_overlay_file': localization_overlay_file,
-            'competition_mode': competition_mode,
-            'enable_graph_backend': 'true',
-            'p4_candidate_enable': p4_candidate_enable,
-            'min_inliers': min_inliers,
             'nav2_map_file': nav2_map_file,
         }.items()
     )
@@ -109,10 +75,6 @@ def generate_launch_description():
         declare_recover_mid360_stream,
         declare_team,
         declare_localization_params_file,
-        declare_localization_overlay_file,
-        declare_competition_mode,
-        declare_p4_candidate_enable,
-        declare_min_inliers,
         declare_nav2_map_file,
         bringup_launch,
     ])

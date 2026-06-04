@@ -12,14 +12,6 @@
   - `BehaviorTreeBlackboard*.msg`
   - `BehaviorTreeLocalization*.msg`
   - `ControlBehaviorTree.srv`
-- 定位:
-  - `LocalizationHealth.msg`
-  - `LocalizationBackendStatus.msg`
-  - `RouteObservability.msg`
-  - `LocalizationKeyframe.msg`
-  - `LocalizationLoopClosure.msg`
-  - `LocalizationRelocState.msg`
-  - `RegistrationDebug.msg`
 - 归档兼容接口:
   - `SetKeepoutRuntime.srv`
   - `MfBlockOverlay.msg`
@@ -44,7 +36,7 @@ Nav2 的 `/navigate_to_pose` action 使用外部包 `nav2_msgs/action/NavigateTo
 
 ## 当前清理状态
 
-旧导航 action、运动模式服务和导航状态消息已经从接口生成清单中移除。当前导航运行权威由 Nav2 提供，本包只保留决策、定位、机构、视觉和行为树运行时仍真实使用的自定义契约。
+旧导航 action、运动模式服务和导航状态消息已经从接口生成清单中移除。当前导航运行权威由 Nav2 提供；定位主链只使用标准 ROS 消息和 TF，不再由本包生成定位自定义消息。
 
 `SetKeepoutRuntime`、`MfBlockOverlay*`、`MfKfs*`、`TerrainFeatureGrid` 仍可生成，用作历史兼容和后续恢复参考；它们不再代表当前主链运行时契约。
 

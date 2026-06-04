@@ -44,14 +44,7 @@ ros2 launch rc26_bringup test_relocalization.launch.py \
   prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans.pcd
 ```
 
-### 4. 回环
-
-```bash
-ros2 launch rc26_bringup test_loop_closure.launch.py \
-  prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans.pcd
-```
-
-### 5. 导航
+### 4. 导航
 
 ```bash
 ros2 launch rc26_bringup test_navigation.launch.py \
@@ -106,7 +99,7 @@ ros2 run tf2_ros tf2_echo base_link laser_link
 
 ### 3. 定位模块测试 (rc26_localization)
 
-**功能**: 验证基于 small_gicp 的点云配准定位
+**功能**: 验证开局一次重定位与基于 small_gicp 的连续点云配准定位
 
 ```bash
 # 启动测试 (指定先验点云)
@@ -119,45 +112,20 @@ ros2 run tf2_ros tf2_echo map odom
 # 检查协方差与诊断
 ros2 topic echo /localization/pose_with_cov --once
 ros2 topic echo /localization/diagnostics --once
-ros2 topic echo /localization/health --once
-ros2 topic echo /localization/backend_status --once
-ros2 topic echo /localization/route_observability --once
 # diagnostics 中应包含:
-# h_min_eig, h_max_eig, h_cond, sigma_xy, sigma_yaw, obs_cov_source, hard_degen_consec
-# health 中应包含:
-# level, reason, control_degraded, localization_state, sigma_xy, sigma_yaw, h_min_eig, h_cond
-# backend_status 中应包含:
-# optimizer_ready, optimizer_state, graph_health, last_local_reg_age_sec, imu_spike
-# route_observability 中应包含:
-# score, risk_level, repeat_structure_risk, dynamic_risk, recommended_nav_profile
+# accepted, converged, inliers, normalized_error, map_loaded, target_ready, startup_relocalization
 
 # 一键验收（可选 synthetic 输入，无需 bag）
 ./src/rc26_localization/scripts/run_localization_acceptance.sh \
   --workspace "${RC26_WS:-$HOME/RC_2026}" \
   --synthetic-input \
-  --duration 60 \
-  --config-profile eval \
-  --overlay-file "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/config/localization_eval_overlay_synthetic.yaml" \
-  --competition-mode false \
-  --enable-graph-backend true
-
-# P4 候选链路验收（在 synthetic 输入中自动发布 learned candidates）
-./src/rc26_localization/scripts/run_localization_acceptance.sh \
-  --workspace "${RC26_WS:-$HOME/RC_2026}" \
-  --synthetic-input \
-  --duration 30 \
-  --config-profile eval \
-  --overlay-file "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/config/localization_eval_overlay_synthetic.yaml" \
-  --competition-mode false \
-  --enable-graph-backend true \
-  --p4-candidate-enable true \
-  --min-inliers 20
+  --duration 60
 ```
 
 说明：
 
 - 若使用实测 bag，`--bag` 参数可传 bag 目录（含 `metadata.yaml`）或 `.mcap/.db3` 文件路径。
-- synthetic overlay 仅用于最小地图链路验收，不建议直接作为比赛默认参数。
+- 当前定位链只在启动阶段尝试一次自动重定位；运行中丢定位仍通过 `initialpose` 接管，不再提供回环测试入口。
 
 ---
 
@@ -233,7 +201,7 @@ ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \
 | odom_interface | `/odom` | odom→base_link 变换 |
 | sensor_scan | `/sensor_scan` | laser_link 坐标系点云，`/odometry` 协方差透传 |
 | rc26_point_lio | `/state_estimation` + `/cloud_registered` | LIO 里程计与原生配准点云持续输出 |
-| localization | `/localization/pose_with_cov` + `/localization/diagnostics` + `/localization/health` + `/localization/backend_status` + `/localization/route_observability` | 持续发布且包含扩展字段 |
+| localization | `map->odom` + `/localization/pose_with_cov` + `/localization/diagnostics` | TF 和标准定位观测持续发布 |
 | Nav2 | `/navigate_to_pose` + `/plan` + costmap topics | action server、路径和 costmap 可观察 |
 | Nav2 velocity_smoother | `/cmd_vel` | 速度指令由 Nav2 controller/velocity_smoother 输出 |
 

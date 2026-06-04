@@ -12,6 +12,7 @@
   - 装配 Point-LIO、里程计接口、定位、Nav2 基础导航栈和决策
   - `slam=false` 时启动 `map_server` 与 Nav2 `navigation_launch.py`
   - `rc26_localization` 继续作为 `map -> odom` 权威，不启动 AMCL
+  - 定位装配只透传先验 PCD 和定位参数文件，不再透传图后端、P4、重试区或 overlay 参数
   - `/cmd_vel` 由 Nav2 controller/velocity_smoother 输出
 - `odometry.launch.py`
   - 装配 Point-LIO、`rc26_odom_interface`、`rc26_sensor_scan`
@@ -38,6 +39,7 @@
 
 - 负责装配、参数选择和生命周期拉起，不承载 planner、控制器或可视化平台的实现本体
 - Nav2 参数文件归 bringup 托管，是本轮基础导航栈的部署配置
+- `config/localization.yaml` 当前只维护开局一次重定位与连续 GICP 跟踪的核心参数，定位健康度、图后端和路径可观测性参数已移除
 - 除 `test_mapping.launch.py` 建图调试入口外，如需可视化，应由工作区外部工具只读消费当前主链 ROS2 输出
 
 ## 本轮收口
