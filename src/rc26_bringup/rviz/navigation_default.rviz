@@ -38,35 +38,15 @@ Visualization Manager:
       Topic:
         Value: local_costmap/costmap
       Value: true
+    - Class: rviz_default_plugins/Map
+      Name: GlobalCostmap
+      Topic:
+        Value: global_costmap/costmap
+      Value: true
     - Class: rviz_default_plugins/Path
       Name: GlobalPath
       Topic:
         Value: plan
-      Value: true
-    - Class: rviz_default_plugins/Path
-      Name: LocalPath
-      Topic:
-        Value: local_plan
-      Value: true
-    - Class: rviz_default_plugins/Path
-      Name: XhuRoute
-      Topic:
-        Value: /xhu_nav/route
-      Value: true
-    - Class: rviz_default_plugins/Path
-      Name: XhuCorridor
-      Topic:
-        Value: /xhu_nav/corridor
-      Value: true
-    - Class: rviz_default_plugins/Path
-      Name: XhuLookahead
-      Topic:
-        Value: /xhu_nav/lookahead_path
-      Value: true
-    - Class: rviz_default_plugins/MarkerArray
-      Name: XhuRiskMarkers
-      Topic:
-        Value: /xhu_nav/risk_markers
       Value: true
     - Class: rviz_default_plugins/PointCloud2
       Name: LidarPointCloud

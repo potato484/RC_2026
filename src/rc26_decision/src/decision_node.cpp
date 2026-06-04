@@ -20,7 +20,7 @@
 #include "rc26_decision/mc/mc_area.hpp"
 #include "rc26_decision/mf/keepout_runtime.hpp"
 #include "rc26_decision/mf/mf_area.hpp"
-#include "rc26_decision/navigation/bt_topo_nav.hpp"
+#include "rc26_decision/navigation/bt_nav2_pose.hpp"
 #include "rc26_decision/vision/bt_nodes.hpp"
 #include "rc26_interfaces/msg/mechanism_state.hpp"
 #include "rc26_interfaces/msg/mf_kfs_cell.hpp"
@@ -156,9 +156,8 @@ public:
     blackboard->set("nav_last_exec_state", std::string("IDLE"));
     blackboard->set("nav_last_failure_code", std::string(""));
     blackboard->set("nav_last_failure_reason", std::string(""));
-    blackboard->set("nav_last_active_node_id", std::string(""));
-    blackboard->set("nav_last_active_edge_id", std::string(""));
-    blackboard->set("nav_last_replan_count", static_cast<int>(0));
+    blackboard->set("nav_last_distance_remaining", 0.0);
+    blackboard->set("nav_last_recovery_count", static_cast<int>(0));
 
     // 机制状态可观测键（供 Groot2/诊断查看）
     blackboard->set("mechanism_hal_open", false);
@@ -231,7 +230,7 @@ public:
     registerMFAreaNodes(factory_);
     registerKeepoutRuntimeNodes(factory_);
     registerCombatAreaNodes(factory_);
-    registerTopoNavNodes(factory_);
+    registerNav2PoseNodes(factory_);
     registerVisionNodes(factory_);
 
     tick_rate_ms_ = this->get_parameter("tick_rate_ms").as_int();
@@ -317,6 +316,7 @@ private:
     blackboard_->set("stair_climb_done", false);
     blackboard_->set("stair_descend_done", false);
     blackboard_->set("system_error", false);
+    blackboard_->set("last_action_error_code", 0);
     blackboard_->set("level_start", static_cast<int32_t>(0));
     blackboard_->set("loc_guard_required", false);
     blackboard_->set("loc_guard_reason", std::string(""));
@@ -329,6 +329,11 @@ private:
     blackboard_->set("target_grid", 0);
     blackboard_->set("exit_grid", 0);
     blackboard_->set("merlin_last_transition_reason", std::string(""));
+    blackboard_->set("nav_last_exec_state", std::string("IDLE"));
+    blackboard_->set("nav_last_failure_code", std::string(""));
+    blackboard_->set("nav_last_failure_reason", std::string(""));
+    blackboard_->set("nav_last_distance_remaining", 0.0);
+    blackboard_->set("nav_last_recovery_count", static_cast<int>(0));
 
     const std::string team = this->get_parameter("team").as_string();
     blackboard_->set("team", team);

@@ -8,7 +8,7 @@
 
 - 排查 `/terrain_obstacles`、`/terrain_drop` 和 `/terrain_grid_map_local`
 - 单独验证地形语义节点
-- 给 `rc26_xhu_nav`、`rc26_base_ground`、`rc26_decision` 排查门控输入
+- 给 Nav2、`rc26_base_ground`、`rc26_decision` 排查感知输入
 
 ## 前置条件
 

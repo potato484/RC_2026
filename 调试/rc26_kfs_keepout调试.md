@@ -70,4 +70,4 @@ ros2 topic pub --once /kfs_force_release_grid std_msgs/msg/UInt8 "{data: 5}"
 
 - [决策启动](./决策启动.md)
 - [rc26_decision调试](./rc26_decision调试.md)
-- [rc26_xhu_nav调试](./rc26_xhu_nav调试.md)
+- [Nav2导航调试](./Nav2导航调试.md)

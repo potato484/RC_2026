@@ -1,7 +1,0 @@
-# Set xhu_direct motion mode profile
-string mode
-float32 timeout
-string reason
----
-bool success
-string message

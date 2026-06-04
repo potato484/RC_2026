@@ -89,9 +89,7 @@
 
 | 英文标签 | 中文名称 | 类型 |
 | --- | --- | --- |
-| `NavToTopoNode` | 导航到拓扑节点 | 动作 |
-| `NavToTaskPose` | 导航到任务位姿 | 动作 |
-| `ExecuteTopoRoute` | 执行拓扑路径 | 动作 |
+| `NavToPose` | 导航到地图位姿 | 动作 |
 
 ### 3.4 对抗区
 

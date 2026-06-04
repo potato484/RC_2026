@@ -36,8 +36,8 @@ public:
     BT::NodeStatus onStart() override {
         rclcpp::Node* node = nullptr;
         if (!config().blackboard->get("node", node) || !node) {
-            setErrorCode(kErrorNoNode);
-            return BT::NodeStatus::FAILURE;
+            return failWithError(kErrorNoNode, "ACTION_NODE_MISSING",
+                                 "missing rclcpp node on BT blackboard");
         }
 
         if (!client_) {
@@ -45,14 +45,14 @@ public:
         }
 
         if (!client_->wait_for_action_server(std::chrono::milliseconds(100))) {
-            setErrorCode(kErrorNoServer);
-            return BT::NodeStatus::FAILURE;
+            return failWithError(kErrorNoServer, "ACTION_SERVER_MISSING",
+                                 "action server is not available");
         }
 
         Goal goal{};
         if (!buildGoal(goal)) {
-            setErrorCode(kErrorInvalidGoal);
-            return BT::NodeStatus::FAILURE;
+            return failWithError(kErrorInvalidGoal, "INVALID_GOAL",
+                                 "failed to build action goal");
         }
 
         double timeout_sec = toSeconds(default_timeout_);
@@ -89,8 +89,8 @@ public:
     BT::NodeStatus onRunning() override {
         if (std::chrono::steady_clock::now() - start_time_ > timeout_) {
             cancelGoal();
-            setErrorCode(kErrorTimeout);
-            return BT::NodeStatus::FAILURE;
+            return failWithError(kErrorTimeout, "ACTION_TIMEOUT",
+                                 "action timed out");
         }
 
         if (waiting_goal_handle_) {
@@ -101,9 +101,10 @@ public:
             goal_handle_ = goal_handle_future_.get();
             waiting_goal_handle_ = false;
             if (!goal_handle_) {
-                setErrorCode(kErrorRejected);
-                return BT::NodeStatus::FAILURE;
+                return failWithError(kErrorRejected, "ACTION_REJECTED",
+                                     "action goal was rejected");
             }
+            onGoalAccepted();
         }
 
         WrappedResult result{};
@@ -131,6 +132,10 @@ protected:
     virtual bool buildGoal(Goal& goal) = 0;
     virtual void onFeedback(const std::shared_ptr<const Feedback>& /*feedback*/) {}
     virtual BT::NodeStatus handleResult(const WrappedResult& result, uint16_t& error_code) = 0;
+    virtual void onGoalAccepted() {}
+    virtual void onActionFailure(uint16_t /*error_code*/,
+                                 const std::string& /*failure_code*/,
+                                 const std::string& /*failure_reason*/) {}
     virtual void onHaltHook() {}
 
     static std::chrono::milliseconds toTimeout(double timeout_sec,
@@ -151,6 +156,14 @@ protected:
     }
 
 private:
+    BT::NodeStatus failWithError(uint16_t error_code,
+                                 const std::string& failure_code,
+                                 const std::string& failure_reason) {
+        setErrorCode(error_code);
+        onActionFailure(error_code, failure_code, failure_reason);
+        return BT::NodeStatus::FAILURE;
+    }
+
     void cancelGoal() {
         if (client_ && goal_handle_) {
             (void)client_->async_cancel_goal(goal_handle_);

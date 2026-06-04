@@ -1,4 +1,4 @@
-<!-- 梅林区行为树 (MF Area) - xhu topo 正式版本 -->
+<!-- 梅林区行为树 (MF Area) - Nav2 pose 版本 -->
 <root BTCPP_format="4">
   <BehaviorTree ID="MFAreaTree">
     <Sequence name="MF_Main">
@@ -13,7 +13,7 @@
   <!-- MF_Entry: 进门阶段 -->
   <BehaviorTree ID="MF_Entry">
     <Sequence name="Entry_Seq">
-      <NavToTopoNode node_id="mf_entry_staging"/>
+      <NavToPose x="1.2" y="-0.6" yaw="1.5708"/>
 
       <RetryUntilSuccessful num_attempts="10">
         <Sequence>
@@ -23,7 +23,7 @@
               <CheckR1Blocking/>
             </Inverter>
             <Sequence>
-              <NavToTopoNode node_id="mf_entry_staging"/>
+              <NavToPose x="1.2" y="-0.6" yaw="1.5708"/>
               <Delay delay_msec="5000">
                 <AlwaysSuccess/>
               </Delay>
@@ -32,7 +32,7 @@
         </Sequence>
       </RetryUntilSuccessful>
 
-      <NavToTopoNode node_id="mf_b2"/>
+      <NavToPose x="1.2" y="0.0" yaw="1.5708"/>
       <Script code="current_grid:=2"/>
     </Sequence>
   </BehaviorTree>
@@ -73,7 +73,7 @@
   <!-- GrabKFSSeq: 抓取子树 -->
   <BehaviorTree ID="GrabKFSSeq">
     <Sequence>
-      <NavToTaskPose task_tag="mf_grab" grid_id="{target_grid}"/>
+      <SubTree ID="NavToSelectedGrid" _autoremap="true"/>
       <Script code="current_grid:=target_grid"/>
       <GrabKFS/>
       <IncrementKFSCount/>
@@ -84,15 +84,69 @@
   <!-- MoveToGridSeq: 移动子树 -->
   <BehaviorTree ID="MoveToGridSeq">
     <Sequence>
-      <NavToTaskPose task_tag="mf_grab" grid_id="{target_grid}"/>
+      <SubTree ID="NavToSelectedGrid" _autoremap="true"/>
       <Script code="current_grid:=target_grid"/>
     </Sequence>
+  </BehaviorTree>
+
+  <!-- NavToSelectedGrid: target_grid -> Nav2 pose -->
+  <BehaviorTree ID="NavToSelectedGrid">
+    <Fallback>
+      <Sequence>
+        <ScriptCondition code="target_grid==1"/>
+        <NavToPose x="0.0" y="0.0" yaw="1.5708"/>
+      </Sequence>
+      <Sequence>
+        <ScriptCondition code="target_grid==2"/>
+        <NavToPose x="1.2" y="0.0" yaw="1.5708"/>
+      </Sequence>
+      <Sequence>
+        <ScriptCondition code="target_grid==3"/>
+        <NavToPose x="2.4" y="0.0" yaw="1.5708"/>
+      </Sequence>
+      <Sequence>
+        <ScriptCondition code="target_grid==4"/>
+        <NavToPose x="0.0" y="1.2" yaw="1.5708"/>
+      </Sequence>
+      <Sequence>
+        <ScriptCondition code="target_grid==5"/>
+        <NavToPose x="1.2" y="1.2" yaw="1.5708"/>
+      </Sequence>
+      <Sequence>
+        <ScriptCondition code="target_grid==6"/>
+        <NavToPose x="2.4" y="1.2" yaw="1.5708"/>
+      </Sequence>
+      <Sequence>
+        <ScriptCondition code="target_grid==7"/>
+        <NavToPose x="0.0" y="2.4" yaw="1.5708"/>
+      </Sequence>
+      <Sequence>
+        <ScriptCondition code="target_grid==8"/>
+        <NavToPose x="1.2" y="2.4" yaw="1.5708"/>
+      </Sequence>
+      <Sequence>
+        <ScriptCondition code="target_grid==9"/>
+        <NavToPose x="2.4" y="2.4" yaw="1.5708"/>
+      </Sequence>
+      <Sequence>
+        <ScriptCondition code="target_grid==10"/>
+        <NavToPose x="0.0" y="3.6" yaw="1.5708"/>
+      </Sequence>
+      <Sequence>
+        <ScriptCondition code="target_grid==11"/>
+        <NavToPose x="1.2" y="3.6" yaw="1.5708"/>
+      </Sequence>
+      <Sequence>
+        <ScriptCondition code="target_grid==12"/>
+        <NavToPose x="2.4" y="3.6" yaw="1.5708"/>
+      </Sequence>
+    </Fallback>
   </BehaviorTree>
 
   <!-- MF_Exit: 出门阶段 -->
   <BehaviorTree ID="MF_Exit">
     <Sequence name="Exit_Seq">
-      <NavToTopoNode node_id="mf_exit_staging"/>
+      <NavToPose x="1.2" y="4.2" yaw="1.5708"/>
       <StairDescend/>
     </Sequence>
   </BehaviorTree>

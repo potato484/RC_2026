@@ -484,7 +484,7 @@ class AcceptanceProbe:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="R2 全链路验收探针（TF/时戳/频率/xhu keepout）")
+    parser = argparse.ArgumentParser(description="R2 全链路验收探针（TF/时戳/频率/keepout）")
     parser.add_argument("--duration_sec", type=float, default=60.0, help="采样总时长")
     parser.add_argument("--warmup_sec", type=float, default=3.0, help="启动后预热时长")
 

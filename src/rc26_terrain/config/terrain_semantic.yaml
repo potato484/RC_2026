@@ -5,7 +5,7 @@
     input_cloud_topic: "registered_scan"
     # 里程计输入：odom_interface 输出的 /odom（用于健康监测 + 失效保护备用位姿）
     odom_topic: "odom"
-    # 输出：提供给自研导航链的“真障碍/跌落风险”点云
+    # 输出：提供给 Nav2/诊断侧观察的“真障碍/跌落风险”点云
     output_obstacles_topic: "terrain_obstacles"
     # 参数说明：output_drop_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     output_drop_topic: "terrain_drop"
@@ -78,7 +78,7 @@
 
     # ===== Unknown 策略 =====
     # aggressive: 忽略 unknown（默认，行为更激进）
-    # conservative: 将 unknown 视为风险点输出给自研导航链（更保守）
+    # conservative: 将 unknown 视为风险点输出给导航观察链路（更保守）
     unknown_policy: "aggressive"
     # conservative 模式下 unknown 输出到哪个话题：drop 或 obstacles
     unknown_output: "drop"
@@ -176,10 +176,6 @@
     enable_terrain_features_pub: true
     # 参数说明：terrain_features_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     terrain_features_topic: "terrain_features"
-    # 参数说明：enable_semantic_layer_summary_pub - 布尔开关；控制对应能力是否启用。
-    enable_semantic_layer_summary_pub: true
-    # 参数说明：semantic_layer_summary_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    semantic_layer_summary_topic: "/xhu_nav/semantic_layer_summary"
     # 参数说明：terrain_features_publish_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
     terrain_features_publish_hz: 3.5
     # 参数说明：enable_risk_model - 布尔开关；控制对应能力是否启用。

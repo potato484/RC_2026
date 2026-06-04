@@ -185,9 +185,7 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->declare_parameter<double>     ("stair_pitch_gate_deg",   stair_pitch_gate_deg_);
     this->declare_parameter<double>     ("top_z_max_delta_m",      top_z_max_delta_m_);
     this->declare_parameter<std::string>("terrain_features_topic", terrain_features_topic_);
-    this->declare_parameter<std::string>("semantic_layer_summary_topic", semantic_layer_summary_topic_);
     this->declare_parameter<bool>       ("enable_terrain_features_pub", enable_terrain_features_pub_);
-    this->declare_parameter<bool>       ("enable_semantic_layer_summary_pub", enable_semantic_layer_summary_pub_);
     this->declare_parameter<double>     ("terrain_features_publish_hz", terrain_features_publish_hz_);
     this->declare_parameter<bool>       ("enable_risk_model", enable_risk_model_);
     this->declare_parameter<std::string>("risk_model_file", risk_model_file_);
@@ -290,9 +288,7 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     this->get_parameter("stair_pitch_gate_deg",   stair_pitch_gate_deg_);
     this->get_parameter("top_z_max_delta_m",      top_z_max_delta_m_);
     this->get_parameter("terrain_features_topic", terrain_features_topic_);
-    this->get_parameter("semantic_layer_summary_topic", semantic_layer_summary_topic_);
     this->get_parameter("enable_terrain_features_pub", enable_terrain_features_pub_);
-    this->get_parameter("enable_semantic_layer_summary_pub", enable_semantic_layer_summary_pub_);
     this->get_parameter("terrain_features_publish_hz", terrain_features_publish_hz_);
     this->get_parameter("enable_risk_model", enable_risk_model_);
     this->get_parameter("risk_model_file", risk_model_file_);
@@ -369,11 +365,6 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
         RCLCPP_WARN(this->get_logger(),
                     "enable_terrain_features_pub=true 但 terrain_features_topic 为空，已自动禁用特征总线发布");
         enable_terrain_features_pub_ = false;
-    }
-    if (enable_semantic_layer_summary_pub_ && semantic_layer_summary_topic_.empty()) {
-        RCLCPP_WARN(this->get_logger(),
-                    "enable_semantic_layer_summary_pub=true 但 semantic_layer_summary_topic 为空，已自动禁用摘要发布");
-        enable_semantic_layer_summary_pub_ = false;
     }
     if (enable_risk_model_) {
         if (risk_model_file_.empty()) {
@@ -493,11 +484,6 @@ TerrainSemanticNode::TerrainSemanticNode(const rclcpp::NodeOptions& options)
     if (enable_terrain_features_pub_) {
         pub_features_ =
             this->create_publisher<rc26_interfaces::msg::TerrainFeatureGrid>(terrain_features_topic_, output_qos);
-    }
-    if (enable_semantic_layer_summary_pub_) {
-        pub_semantic_layer_summary_ = this->create_publisher<rc26_interfaces::msg::XhuSemanticLayerSummary>(
-            semantic_layer_summary_topic_,
-            rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability(rclcpp::DurabilityPolicy::TransientLocal));
     }
 
     sub_odom_ = this->create_subscription<nav_msgs::msg::Odometry>(
@@ -786,9 +772,6 @@ void TerrainSemanticNode::publishDiagnostics(const rclcpp::Time& stamp, int leve
     addKV("climbable_cells", std::to_string(stats.climbable_cells));
     addKV("overlay_blocked_cells", std::to_string(overlay_blocked_cells_count_));
     addKV("overlay_slow_cells", std::to_string(overlay_slow_cells_count_));
-    addKV("semantic_summary_revision", std::to_string(semantic_summary_revision_));
-    addKV("semantic_layer_summary_topic",
-          pub_semantic_layer_summary_ ? semantic_layer_summary_topic_ : "disabled");
     addKV("fail_safe_strategy", fail_safe_strategy_);
 
     diagnostic_msgs::msg::DiagnosticArray arr;
@@ -981,68 +964,6 @@ void TerrainSemanticNode::updateBlockOverlay(const rc26_interfaces::msg::MfBlock
             ++overlay_slow_cells_count_;
         }
     }
-}
-
-void TerrainSemanticNode::publishSemanticLayerSummary(
-    const rclcpp::Time& stamp, const int obstacle_cells, const int drop_cells,
-    const float max_obstacle_probability, const float max_drop_probability) {
-    if (!pub_semantic_layer_summary_) {
-        return;
-    }
-
-    rc26_interfaces::msg::XhuSemanticLayerSummary summary;
-    summary.header.stamp = stamp;
-    summary.header.frame_id = target_frame_;
-    summary.terrain_available = received_cloud_;
-    summary.keepout_available = overlay_summary_available_;
-    summary.obstacle_cells = static_cast<uint32_t>(std::max(obstacle_cells, 0));
-    summary.drop_cells = static_cast<uint32_t>(std::max(drop_cells, 0));
-    summary.blocked_cells = static_cast<uint32_t>(std::max(overlay_blocked_cells_count_, 0));
-    summary.slow_cells = static_cast<uint32_t>(std::max(overlay_slow_cells_count_, 0));
-    summary.max_obstacle_probability = std::clamp(max_obstacle_probability, 0.0F, 1.0F);
-    summary.max_drop_probability = std::clamp(max_drop_probability, 0.0F, 1.0F);
-
-    if (summary.obstacle_cells > 0) {
-        summary.active_sources.push_back("terrain");
-        summary.active_reasons.push_back("terrain_obstacle");
-    }
-    if (summary.drop_cells > 0) {
-        if (summary.active_sources.empty() ||
-            summary.active_sources.back() != "terrain") {
-            summary.active_sources.push_back("terrain");
-        }
-        summary.active_reasons.push_back("terrain_drop");
-    }
-    if (summary.blocked_cells > 0) {
-        summary.active_sources.push_back("kfs_keepout");
-        summary.active_reasons.push_back("kfs_blocked");
-    }
-    if (summary.slow_cells > 0) {
-        if (summary.active_sources.empty() ||
-            summary.active_sources.back() != "kfs_keepout") {
-            summary.active_sources.push_back("kfs_keepout");
-        }
-        summary.active_reasons.push_back("kfs_slow");
-    }
-
-    const std::string signature =
-        std::to_string(summary.terrain_available) + "|" +
-        std::to_string(summary.keepout_available) + "|" +
-        std::to_string(summary.obstacle_cells) + "|" +
-        std::to_string(summary.drop_cells) + "|" +
-        std::to_string(summary.blocked_cells) + "|" +
-        std::to_string(summary.slow_cells) + "|" +
-        std::to_string(static_cast<int>(summary.max_obstacle_probability * 1000.0F)) + "|" +
-        std::to_string(static_cast<int>(summary.max_drop_probability * 1000.0F)) + "|" +
-        std::to_string(summary.active_sources.size()) + "|" +
-        std::to_string(summary.active_reasons.size());
-    if (signature != semantic_summary_signature_) {
-        semantic_summary_signature_ = signature;
-        ++semantic_summary_revision_;
-    }
-    summary.revision = semantic_summary_revision_;
-    pub_semantic_layer_summary_->publish(summary);
-    last_semantic_summary_pub_time_ = stamp;
 }
 
 void TerrainSemanticNode::estimateCellHeights(double stamp_sec) {
@@ -1421,9 +1342,6 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
     const bool publish_kfs_debug = static_cast<bool>(pub_kfs_obstacles_debug_);
     const bool should_publish_features =
         static_cast<bool>(pub_features_) && isThrottleReady(stamp, last_features_pub_time_, terrain_features_publish_hz_);
-    const bool should_publish_summary =
-        static_cast<bool>(pub_semantic_layer_summary_) &&
-        isThrottleReady(stamp, last_semantic_summary_pub_time_, terrain_features_publish_hz_);
 
     rc26_interfaces::msg::TerrainFeatureGrid feature_msg;
     if (should_publish_features) {
@@ -1697,11 +1615,6 @@ void TerrainSemanticNode::publishOutputs(const rclcpp::Time& stamp, double base_
     if (should_publish_features) {
         pub_features_->publish(feature_msg);
         last_features_pub_time_ = stamp;
-    }
-    if (should_publish_summary) {
-        publishSemanticLayerSummary(
-            stamp, obstacle_cells_count_, drop_cells_count_,
-            max_obstacle_probability, max_drop_probability);
     }
 }
 

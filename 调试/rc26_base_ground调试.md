@@ -8,7 +8,7 @@
 
 - 单独验证台阶层级、稳定性和 `base_ground` TF
 - 排查导航或机构动作为什么因为“地形不稳”被门控
-- 联调 `rc26_xhu_nav`、`rc26_terrain`、`rc26_mechanism` 之前先确认地形语义真源
+- 联调 Nav2、`rc26_terrain`、`rc26_mechanism` 之前先确认地形语义真源
 
 ## 前置条件
 

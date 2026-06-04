@@ -6,7 +6,7 @@ src R2导航系统 - 主启动文件
   - 定位 (rc26_localization)
   - 地面高度估计 (rc26_base_ground)
   - 地形分析 (rc26_terrain)
-  - xhu 自研导航链 (rc26_xhu_nav: topo_nav_node + xhu_motion_mode_manager_node + xhu_motion_runtime_node)
+  - Nav2 基础导航栈 (map_server + planner/controller/BT navigator/velocity smoother)
   - 决策系统 (rc26_decision)
 
 额外模式:
@@ -31,10 +31,8 @@ def generate_launch_description():
     decision_dir = get_package_share_directory('rc26_decision')
     base_ground_dir = get_package_share_directory('rc26_base_ground')
     kfs_keepout_dir = get_package_share_directory('rc26_kfs_keepout')
-    point_lio_dir = get_package_share_directory('rc26_point_lio')
-    robot_geometry_dir = get_package_share_directory('rc26_robot_geometry')
     sensor_extrinsics_dir = get_package_share_directory('rc26_sensor_extrinsics')
-    xhu_nav_dir = get_package_share_directory('rc26_xhu_nav')
+    nav2_bringup_dir = get_package_share_directory('nav2_bringup')
 
     # 启动参数
     namespace = LaunchConfiguration('namespace')
@@ -63,10 +61,8 @@ def generate_launch_description():
     realsense_config_file = LaunchConfiguration('realsense_config_file')
     kfs_heartbeat_topic = LaunchConfiguration('kfs_heartbeat_topic')
     team = LaunchConfiguration('team')
-    robot_geometry_file = LaunchConfiguration('robot_geometry_file')
-    robot_geometry_profile = LaunchConfiguration('robot_geometry_profile')
-    local_3d_planner_config_file = LaunchConfiguration('local_3d_planner_config_file')
-    xhu_motion_runtime_config_file = LaunchConfiguration('xhu_motion_runtime_config_file')
+    nav2_params_file = LaunchConfiguration('nav2_params_file')
+    nav2_map_file = LaunchConfiguration('nav2_map_file')
 
     # 参数声明
     declare_namespace = DeclareLaunchArgument(
@@ -205,31 +201,15 @@ def generate_launch_description():
         default_value='blue',
         description='Active competition side: blue | red')
 
-    declare_robot_geometry_file = DeclareLaunchArgument(
-        'robot_geometry_file',
-        default_value=PathJoinSubstitution([robot_geometry_dir, 'config', 'r2_body_geometry.yaml']),
-        description='统一机器人几何配置文件路径')
+    declare_nav2_params_file = DeclareLaunchArgument(
+        'nav2_params_file',
+        default_value=PathJoinSubstitution([bringup_dir, 'config', 'nav2_params.yaml']),
+        description='Nav2 参数文件；rc26_localization 仍负责 map->odom，Nav2 只负责规划/控制')
 
-    declare_robot_geometry_profile = DeclareLaunchArgument(
-        'robot_geometry_profile',
-        default_value='compact',
-        description='机器人几何 profile 名称')
-
-    declare_local_3d_planner_config_file = DeclareLaunchArgument(
-        'local_3d_planner_config_file',
-        default_value=PathJoinSubstitution([xhu_nav_dir, 'config', 'local_3d_planner.yaml']),
-        description='local_3d_planner 参数文件')
-
-    declare_xhu_motion_runtime_config_file = DeclareLaunchArgument(
-        'xhu_motion_runtime_config_file',
-        default_value=PathJoinSubstitution([xhu_nav_dir, 'config', 'xhu_motion_runtime.yaml']),
-        description='xhu_motion_runtime 参数文件')
-
-    topo_graph_blue_file = PathJoinSubstitution([xhu_nav_dir, 'config', 'r2_field_graph_blue.yaml'])
-    topo_graph_red_file = PathJoinSubstitution([xhu_nav_dir, 'config', 'r2_field_graph_red.yaml'])
-    topo_graph_file = PythonExpression([
-        "'", topo_graph_red_file, "' if '", team, "'.lower() == 'red' else '", topo_graph_blue_file, "'"
-    ])
+    declare_nav2_map_file = DeclareLaunchArgument(
+        'nav2_map_file',
+        default_value=PathJoinSubstitution([bringup_dir, 'map', 'default.yaml']),
+        description='Nav2 map_server 使用的 2D occupancy map YAML；实机导航应传入有效地图')
 
     pure_mapping_runtime = PythonExpression([
         "'", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true'"
@@ -333,58 +313,50 @@ def generate_launch_description():
         condition=UnlessCondition(slam)
     )
 
-    # xhu 自研运动模式管理器
-    xhu_profiles_file = PathJoinSubstitution([xhu_nav_dir, 'config', 'nav_profiles.yaml'])
-    xhu_motion_mode_manager_node = Node(
-        package='rc26_xhu_nav',
-        executable='xhu_motion_mode_manager_node',
-        name='xhu_motion_mode_manager',
+    # Nav2 基础导航栈。
+    # rc26_localization 继续作为 map->odom 权威；这里只启动 map_server 和 Nav2 navigation 节点。
+    nav2_map_server_node = Node(
+        package='nav2_map_server',
+        executable='map_server',
+        name='map_server',
+        namespace=namespace,
+        output='screen',
+        parameters=[
+            nav2_params_file,
+            {
+                'use_sim_time': use_sim_time,
+                'yaml_filename': nav2_map_file,
+            },
+        ],
+        condition=UnlessCondition(slam)
+    )
+
+    nav2_map_lifecycle_node = Node(
+        package='nav2_lifecycle_manager',
+        executable='lifecycle_manager',
+        name='lifecycle_manager_map',
         namespace=namespace,
         output='screen',
         parameters=[{
             'use_sim_time': use_sim_time,
-            'odom_topic': 'odom',
-            'profiles_file': xhu_profiles_file,
-            'default_mode': 'hold',
+            'autostart': True,
+            'node_names': ['map_server'],
         }],
         condition=UnlessCondition(slam)
     )
 
-    xhu_motion_runtime_node = Node(
-        package='rc26_xhu_nav',
-        executable='xhu_motion_runtime_node',
-        name='xhu_motion_runtime',
-        namespace=namespace,
-        output='screen',
-        parameters=[
-            xhu_motion_runtime_config_file,
-            local_3d_planner_config_file,
-            {
-                'use_sim_time': use_sim_time,
-                'robot_geometry_file': robot_geometry_file,
-                'robot_geometry_profile': robot_geometry_profile,
-            },
-        ],
-        condition=UnlessCondition(slam)
-    )
-
-    # rc26_xhu_nav topo runtime
-    topo_nav_node = Node(
-        package='rc26_xhu_nav',
-        executable='topo_nav_node',
-        name='topo_nav_node',
-        namespace=namespace,
-        output='screen',
-        parameters=[
-            PathJoinSubstitution([xhu_nav_dir, 'config', 'topo_nav.yaml']),
-            {
-                'use_sim_time': use_sim_time,
-                'team': team,
-                'graph_file': topo_graph_file,
-                'robot_geometry_file': robot_geometry_file,
-                'robot_geometry_profile': robot_geometry_profile,
-            },
-        ],
+    nav2_navigation_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([nav2_bringup_dir, 'launch', 'navigation_launch.py'])
+        ),
+        launch_arguments={
+            'namespace': namespace,
+            'use_sim_time': use_sim_time,
+            'params_file': nav2_params_file,
+            'autostart': 'true',
+            'use_composition': 'false',
+            'use_respawn': 'false',
+        }.items(),
         condition=UnlessCondition(slam)
     )
 
@@ -512,10 +484,8 @@ def generate_launch_description():
         declare_realsense_config_file,
         declare_kfs_heartbeat_topic,
         declare_team,
-        declare_robot_geometry_file,
-        declare_robot_geometry_profile,
-        declare_local_3d_planner_config_file,
-        declare_xhu_motion_runtime_config_file,
+        declare_nav2_params_file,
+        declare_nav2_map_file,
 
         # 启动模块
         pure_mapping_notice,
@@ -525,12 +495,12 @@ def generate_launch_description():
         base_ground_node,
         terrain_launch,
 
+        nav2_map_server_node,
+        nav2_map_lifecycle_node,
+        nav2_navigation_launch,
         kfs_keepout_container,
         kfs_keepout_runtime_manager_node,
         terrain_grid_map_bridge_node,
-        xhu_motion_mode_manager_node,
-        xhu_motion_runtime_node,
-        topo_nav_node,
         decision_node,
         realsense_group,
     ])

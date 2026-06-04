@@ -192,19 +192,23 @@ ros2 run tf2_tools view_frames
 
 ---
 
-### 6. 自研导航链测试 (rc26_xhu_nav)
+### 6. Nav2 基础导航链测试
 
-**功能**: 验证 topo/xhu 走廊下发、模式切换和执行反馈链路
+**功能**: 验证定位、Nav2 lifecycle、`/navigate_to_pose` action 和 `/cmd_vel` 输出链路
 
 ```bash
 ros2 launch rc26_bringup bringup.launch.py \
   slam:=false \
   use_decision:=false \
+  nav2_map_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/map/default.yaml \
   prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/pcd/default.pcd
 
-ros2 topic echo /xhu_nav/motion_mode_state
-ros2 topic echo /xhu_nav/tracking_state
-ros2 topic echo /xhu_nav/semantic_gate
+ros2 lifecycle get /controller_server
+ros2 lifecycle get /planner_server
+ros2 lifecycle get /bt_navigator
+ros2 action info /navigate_to_pose
+ros2 topic echo /plan --once
+ros2 topic echo /local_costmap/costmap --once
 ros2 topic echo /cmd_vel
 ```
 
@@ -213,11 +217,11 @@ ros2 topic echo /cmd_vel
 - `rc26_bringup` 当前保持 headless，不再通过 launch 参数拉起仓库内 GUI
 - 如需可视化，请改用工作区外部工具只读消费现有 topic，例如手工运行 `rviz2 -d /home/potato/RC_2026/src/rc26_bringup/rviz/navigation_default.rviz`
 
-如需手动切模式：
+如需手动发送目标：
 
 ```bash
-ros2 service call /set_xhu_motion_mode rc26_interfaces/srv/SetXhuMotionMode \
-  "{mode: 'plane_move', timeout: 0.0, reason: 'manual_check'}"
+ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \
+  "{pose: {header: {frame_id: 'map'}, pose: {position: {x: 1.2, y: 0.0, z: 0.0}, orientation: {z: 0.7071, w: 0.7071}}}}"
 ```
 
 ---
@@ -230,8 +234,8 @@ ros2 service call /set_xhu_motion_mode rc26_interfaces/srv/SetXhuMotionMode \
 | sensor_scan | `/sensor_scan` | laser_link 坐标系点云，`/odometry` 协方差透传 |
 | rc26_point_lio | `/state_estimation` + `/cloud_registered` | LIO 里程计与原生配准点云持续输出 |
 | localization | `/localization/pose_with_cov` + `/localization/diagnostics` + `/localization/health` + `/localization/backend_status` + `/localization/route_observability` | 持续发布且包含扩展字段 |
-| rc26_xhu_nav | `/xhu_nav/motion_mode_state` + `/xhu_nav/tracking_state` + `/xhu_nav/local_planner_state` | 模式、执行反馈和局部规划状态持续更新 |
-| rc26_xhu_nav runtime | `/cmd_vel` | 速度指令由 `xhu_motion_runtime_node` 输出 |
+| Nav2 | `/navigate_to_pose` + `/plan` + costmap topics | action server、路径和 costmap 可观察 |
+| Nav2 velocity_smoother | `/cmd_vel` | 速度指令由 Nav2 controller/velocity_smoother 输出 |
 
 ---
 

@@ -49,4 +49,4 @@
 - [rc26_telecontrol调试](./rc26_telecontrol调试.md)
 - [rc26_terrain调试](./rc26_terrain调试.md)
 - [rc26_vision调试](./rc26_vision调试.md)
-- [rc26_xhu_nav调试](./rc26_xhu_nav调试.md)
+- [Nav2导航调试](./Nav2导航调试.md)

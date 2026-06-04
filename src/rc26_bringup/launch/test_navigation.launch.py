@@ -3,11 +3,12 @@ R2 导航联调入口
 
 功能:
   - 复用 bringup.launch.py
-  - 固定默认关闭 decision，保留定位 + 回环 + xhu_nav 主链
+  - 固定默认关闭 decision，保留定位 + Nav2 基础导航链
 
 验证:
-  - ros2 topic echo /xhu_nav/motion_mode_state
-  - ros2 topic echo /xhu_nav/tracking_state
+  - ros2 action info /navigate_to_pose
+  - ros2 lifecycle get /controller_server
+  - ros2 lifecycle get /bt_navigator
   - ros2 topic echo /cmd_vel
 """
 from ament_index_python.packages import get_package_share_directory
@@ -29,6 +30,7 @@ def generate_launch_description():
     competition_mode = LaunchConfiguration('competition_mode')
     p4_candidate_enable = LaunchConfiguration('p4_candidate_enable')
     min_inliers = LaunchConfiguration('min_inliers')
+    nav2_map_file = LaunchConfiguration('nav2_map_file')
 
     declare_use_sim_time = DeclareLaunchArgument(
         'use_sim_time',
@@ -75,6 +77,11 @@ def generate_launch_description():
         default_value='200',
         description='局部配准质量门控最小内点数')
 
+    declare_nav2_map_file = DeclareLaunchArgument(
+        'nav2_map_file',
+        default_value=PathJoinSubstitution([bringup_dir, 'map', 'default.yaml']),
+        description='Nav2 map_server 使用的 2D occupancy map YAML；实机导航应传入有效地图')
+
     bringup_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([bringup_dir, 'launch', 'bringup.launch.py'])
@@ -92,6 +99,7 @@ def generate_launch_description():
             'enable_graph_backend': 'true',
             'p4_candidate_enable': p4_candidate_enable,
             'min_inliers': min_inliers,
+            'nav2_map_file': nav2_map_file,
         }.items()
     )
 
@@ -105,5 +113,6 @@ def generate_launch_description():
         declare_competition_mode,
         declare_p4_candidate_enable,
         declare_min_inliers,
+        declare_nav2_map_file,
         bringup_launch,
     ])

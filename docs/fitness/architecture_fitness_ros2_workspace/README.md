@@ -71,7 +71,7 @@
 MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select <pkg...>
 ```
 
-- **当前实现**：GitHub Actions 通过 `.github/workflows/ros2-workspace-ci.yml` 复用 `scripts/ci/run-ros2-workspace-smoke.sh`，对 `rc26_interfaces rc26_robot_geometry rc26_serial rc26_telecontrol rc26_xhu_nav` 跑 smoke build/test，守住工作区的 headless 主链。
+- **当前实现**：GitHub Actions 通过 `.github/workflows/ros2-workspace-ci.yml` 复用 `scripts/ci/run-ros2-workspace-smoke.sh`，默认先构建 `rc26_bringup` 的本地运行依赖闭包、`rc26_decision` 和基础遥控/视觉包，再只测试 smoke 目标包，守住工作区的 headless 主链而不把历史依赖包 lint 混入导航装配验收。
 - **边界**：这条 CI 只负责无硬件 smoke 验证，不替代实机 launch、传感器链联调或犀牛派 X1 / AidLux 平台上的验收。
 
 ## 3. 为当前 ROS2 工作区树立的架构准则
@@ -99,7 +99,7 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - **规则**：控制器包可以依赖导航状态、定位健康、地形输入、控制参数。
 - **规则**：控制器包不得吸纳比赛阶段语义、前端需求或临时策略分支。
 - **规则**：任何带有“梅林阶段时这样做”“武馆阶段时那样做”的逻辑，如果不是纯控制保护，大概率应放在决策层而不是控制器层。
-- **补充口径**：允许在导航实现宿主包内部保留可复用的 local planner core，例如 `rc26_xhu_nav` 的 local planner 模块，再由 runtime executor 复用；但 `cmd_vel` 权威仍必须由单个运行时执行器节点持有。
+- **补充口径**：当前导航运行权威是 Nav2。底盘速度命令必须通过 Nav2 controller 和 velocity_smoother 输出到 `/cmd_vel`，决策层只通过 action 下发目标，不在旁路发布速度命令。
 
 ### 3.5 状态估计与感知包负责产出状态，不负责操作员策略
 
@@ -109,7 +109,7 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 
 ### 3.6 `src/` 默认保持 headless，不内置第一方可视化子树
 
-- **规则**：当前工作区不再维护 `rc26_xhu_viewer_status`、定制 `rviz2` 或本地 Web viewer。
+- **规则**：当前工作区不再维护第一方 viewer 状态桥、定制 `rviz2` 或本地 Web viewer。
 - **规则**：如果需要可视化，只能由工作区外部工具只读消费现有 ROS2 输出、CLI 输出或静态资产，不能反向成为运行时权威。
 - **规则**：Foxglove JSON 只是历史布局资产，不是诊断逻辑载体。
 
@@ -123,7 +123,7 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - **规则**：新增 launch 参数必须显式声明、命名清晰、传递路径清楚。
 - **规则**：参数文件归包所有，不归 `bringup` 统一托管其内部细节。
 - **规则**：`bringup` 只负责选择加载哪个参数文件，不应长期成为所有内部调参逻辑的宿主。
-- **补充口径**：像 `graph_file`、`team` 这类装配期选择参数可以归 `bringup`；而局部规划/执行内部阈值仍应归 `rc26_xhu_nav` 自己的配置文件所有。
+- **补充口径**：像 `nav2_map_file`、`nav2_params_file` 这类装配期选择参数可以归 `bringup`；Nav2 planner/controller 的运行阈值应集中在 `rc26_bringup/config/nav2_params.yaml`，不要散落到决策或感知包。
 
 ### 3.9 BT blackboard 必须契约化
 
@@ -149,16 +149,16 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 
 ### 3.12 共享场地几何必须单一真源
 
-- **规则**：像 MF 主区 block 几何、入口/出口 block 集合这类会同时被 keepout、topo graph 等多个包消费的场地事实，必须只有一个文档化配置真源。
+- **规则**：像 MF 主区 block 几何、入口/出口 block 集合这类会同时被 keepout、决策和可视化消费的场地事实，必须只有一个文档化配置真源。
 - **当前口径**：`src/rc26_kfs_keepout/config/r2_mf_world.yaml` 是当前 MF 主区共享几何真源。
-- **规则**：`rc26_xhu_nav` 可以基于这个真源离线生成 `graph_file`，但运行时仍应加载静态 topo YAML，不应在节点启动流程里临时发明另一套动态建图逻辑。
-- **规则**：无法从共享几何稳定推导出的 topo 语义，例如 staging 点、坡道边、任务路由、手工调过的 node/edge cost，必须明确留在 `rc26_xhu_nav` 自己的 overlay 或文档里，而不是偷偷塞回底层几何文件。
+- **规则**：基础 Nav2 迁移后，梅林区导航目标位姿显式写在 BT XML 中；如果未来重新引入由共享几何推导的目标生成器，必须先定义清晰的生成入口和文档化输出。
+- **规则**：无法从共享几何稳定推导出的比赛语义，例如 staging 点、坡道边或任务路线，必须明确留在决策/导航配置文档里，而不是偷偷塞回底层几何文件。
 
 ### 3.13 同一时刻只能有一个局部执行命令权威
 
-- **规则**：如果系统同时存在 observe-only planner、legacy follower 和新 runtime executor，必须在 launch 装配层保证任一时刻只有一个节点发布运动命令。
-- **规则**：observe-only 节点可以发布 preview、planner state、recovery state，但不得在旁路上直接输出 `cmd_vel`。
-- **规则**：`rc26_xhu_nav` 必须在包内继续保持“corridor 表达”和“速度命令权威”分离，不能因为收口到单包就把二者写成不可分辨的同层逻辑。
+- **规则**：如果系统同时存在遥控、Nav2 和其它运动测试节点，必须在 launch 装配层保证任一时刻只有一个节点发布运动命令。
+- **规则**：观察节点可以发布 preview、planner state 或诊断状态，但不得在旁路上直接输出 `cmd_vel`。
+- **当前口径**：导航模式下 `/cmd_vel` 由 Nav2 velocity_smoother 输出；人工遥控测试应与导航 bringup 分开启动或显式停用导航命令链。
 
 ### 3.14 静态传感器安装外参必须单一真源
 
@@ -261,5 +261,4 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - `rc26_kfs_keepout`：`docs/backend/archive/rc26_kfs_keepout/README.md`
 - `rc26_robot_geometry`：`docs/backend/archive/rc26_robot_geometry/README.md`
 - `rc26_sensor_extrinsics`：`docs/backend/archive/rc26_sensor_extrinsics/README.md`
-- `rc26_xhu_nav`：`docs/backend/archive/rc26_xhu_nav/README.md`
 - 前端当前边界：`docs/frontend/README.md`、`docs/frontend/overview/README.md`、`docs/frontend/boundaries/README.md`
