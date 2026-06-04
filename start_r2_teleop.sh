@@ -24,7 +24,7 @@ Options:
   --target-serial-port <device>
                               POSE_TARGET / mechanism transport 目标串口，默认：/dev/ttyUSB1
   --baudrate <int>            串口波特率，默认：1000000
-  --v-linear <m/s>            最大线速度，默认：0.2
+  --v-linear <m/s>            最大线速度，默认：0.3
   --v-angular <rad/s>         最大角速度，默认：0.5
   --cmd-vel-topic <topic>     遥控输出话题，默认：cmd_vel
   --device-name <name>        手柄设备名，默认：Xbox 360 Controller
@@ -93,7 +93,7 @@ pose_mode=""
 feedback_serial_port="/dev/ttyUSB0"
 target_serial_port="/dev/ttyUSB1"
 baudrate="1000000"
-v_linear="0.1"
+v_linear="0.3"
 v_angular="0.5"
 cmd_vel_topic="cmd_vel"
 device_name="Xbox 360 Controller"

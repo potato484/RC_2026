@@ -22,6 +22,8 @@
 - `parameters.cpp/.hpp`
 - `preprocess.cpp/.hpp`
 
+运行建图时可能在包内生成 `PCD/` 点云输出目录；该目录属于本地运行产物，不作为版本库资产维护。
+
 从当前代码和 README 看，这个包已经实现：
 
 - Mid-360 适配后的 Point-LIO 主流程

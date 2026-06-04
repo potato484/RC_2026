@@ -6,12 +6,15 @@
 
 ## 当前装配口径
 
-`bringup.launch.py` 与 `odometry.launch.py` 现在都固定按 headless 口径装配，不再声明或透传任何 viewer / RViz / Foxglove 兼容参数。
+`bringup.launch.py` 与 `odometry.launch.py` 现在都固定按 headless 口径装配，不再声明或透传任何 viewer / RViz / Foxglove 兼容参数。面向现场建图的 `test_mapping.launch.py` 是调试入口，默认复用纯建图链路并额外打开 RViz2，可用 `use_rviz:=false` 关闭图形界面。
 
 - `bringup.launch.py`
   - 装配 Point-LIO、里程计接口、定位、terrain、keepout runtime、`rc26_xhu_nav` 和决策
 - `odometry.launch.py`
   - 装配 Point-LIO、`rc26_odom_interface`、`rc26_sensor_scan`，并可按 `enable_terrain_grid_map` 额外带起 terrain grid map
+- `test_mapping.launch.py`
+  - 默认等价于 `slam:=true pure_mapping_mode:=true point_lio_profile:=mapping_dense use_rviz:=true`
+  - 沿用 `odometry.launch.py` 的 `start_mid360_driver:=true` 默认行为，启动时会拉起 Mid-360 驱动
 
 当前 `slam=false` 的导航 bringup 中，keepout 相关装配已经改成：
 
@@ -20,7 +23,7 @@
 
 不再直接常驻拉起 `kfs_block_fuser_node`；真正的 keepout 组件由 `rc26_decision` 进入/离开 `MFAreaTree` 时按需装载和卸载。
 
-如需图形观察，应手工启动工作区外部可视化工具只读消费当前 ROS2 输出。仓库内仍保留两个可复用的 RViz 预设：
+除 `test_mapping.launch.py` 这个调试入口外，如需图形观察，应手工启动工作区外部可视化工具只读消费当前 ROS2 输出。仓库内仍保留两个可复用的 RViz 预设：
 
 - `src/rc26_bringup/rviz/slam.rviz`
 - `src/rc26_bringup/rviz/navigation_default.rviz`
@@ -44,12 +47,13 @@
 
 - 负责装配，不承载 planner、控制器或可视化平台的实现本体
 - 当前工作区默认不再装配第一方 GUI 或操作员聚合包
-- 如需可视化，应由工作区外部工具只读消费现有 ROS2 输出
+- 除 `test_mapping.launch.py` 建图调试入口外，如需可视化，应由工作区外部工具只读消费现有 ROS2 输出
 
 ## 本轮收口
 
 - `bringup.launch.py` 删除了 `visualization_profile`、`visualization_backend`、`visualization_layout`、`visualization_status_enable` 和 `use_rviz`
 - `odometry.launch.py` 删除了 `odometry_use_rviz` 与 `odometry_visualization_layout`
+- `test_mapping.launch.py` 作为建图调试入口默认启动 RViz2，但可通过 `use_rviz:=false` 保持 headless 运行
 - `test_odometry_chain.launch.py` 不再透传任何可视化兼容参数
 - 仓库内不再维护 `src/rc26_bringup/foxglove/*.json` 旧资产
 - 3D 导航装配已经收口到 `rc26_xhu_nav`，当前固定装配 `topo_nav_node + xhu_motion_mode_manager_node + xhu_motion_runtime_node`
