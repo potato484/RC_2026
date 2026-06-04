@@ -21,13 +21,13 @@
 ## 源码入口与阅读顺序
 - 先看 `launch/base_ground_estimator.launch.py`，确认节点名、参数文件和发布链路。
 - 再看 `src/base_ground_estimator_node.cpp`，这个包的核心状态机、TF 发布和层级估计都集中在这里。
-- 最后看 `config/base_ground_estimator.yaml` 和仓库根目录 `调试/rc26_base_ground调试.md`，确认阈值、稳定窗口和验收话题。
+- 最后看 `config/base_ground_estimator.yaml`，确认历史阈值、稳定窗口和话题语义。
 
 ## 目录解剖
 - `src/base_ground_estimator_node.cpp`：单文件主实现，负责样本窗口、抬起保护、层级状态和 TF。
 - `config/base_ground_estimator.yaml`：台阶高度、姿态门槛、稳定窗口等部署参数。
 - `launch/base_ground_estimator.launch.py`：单节点装配入口。
-- 仓库根目录 `调试/rc26_base_ground调试.md`：运行期排查和 topic 验证手册。
+- 根目录集中式调试手册已删除；如需恢复历史节点，应在本包 README、launch 和参数文件内补齐新的验证说明。
 
 ## 关键文件体量
 - `src/base_ground_estimator_node.cpp`：537 行，几乎所有运行逻辑都在这里。
@@ -43,11 +43,11 @@
 
 ## 模块边界
 
-- 不参与 `rc26_bringup`、`rc26_decision`、Nav2、smoke CI 的默认运行时链路
+- 不参与 `rc26_bringup`、`rc26_decision`、Nav2 的默认运行时链路
 - 默认不发布 `base_ground/*` 话题，也不广播 `base_ground` TF
 - 当前主链没有任何模块订阅 `base_ground/*` 数据；`rc26_decision` 只保留楼梯相关黑板默认值，不再从本包更新这些键
 - 如未来恢复，必须先重新定义接口契约、启动入口、验证范围和文档边界
 
 ## 配置注释口径
 
-- 本轮在 CMake 中加入默认关闭的归档构建开关，并从 bringup、decision 和 CI 默认闭包中移除 base-ground 链路。`config/base_ground_estimator.yaml` 仅作为历史调试资料保留。
+- 本轮在 CMake 中加入默认关闭的归档构建开关，并从 bringup、decision 和默认运行闭包中移除 base-ground 链路。`config/base_ground_estimator.yaml` 仅作为历史资料保留。

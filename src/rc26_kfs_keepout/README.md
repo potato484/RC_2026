@@ -18,7 +18,7 @@
 
 ## 当前边界
 
-- 不参与 `rc26_bringup`、`rc26_decision`、Nav2、smoke CI 的默认运行时链路。
+- 不参与 `rc26_bringup`、`rc26_decision`、Nav2 的默认运行时链路。
 - 当前主链不发布、订阅或消费 `/mf_block_overlay`、`/kfs_filter_mask`、`/kfs_keepout_heartbeat`。
 - 当前主链不提供或调用 `/kfs_keepout/set_runtime`。
 - `config/r2_mf_world.yaml` 不再是当前 MF 主区共享几何真源；MF 格位逻辑已退回 `rc26_decision` 包内静态表。

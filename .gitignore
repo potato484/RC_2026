@@ -15,21 +15,9 @@ Log/
 !/rosbags/README.md
 # Point-LIO local PCD map captures
 /src/rc26_point_lio/PCD/
-.playwright-mcp
 # Logs
 logs
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-node_modules
-dist
-dist-e2e
-dist-ssr
-*.local
 
 # Editor directories and files
 .vscode/*
@@ -42,5 +30,3 @@ dist-ssr
 *.sln
 *.sw?
 .ace-tool/
-/artifacts/
-/release/

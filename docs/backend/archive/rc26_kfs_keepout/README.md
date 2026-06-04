@@ -33,7 +33,7 @@
 
 ## 当前边界
 
-- 不参与 `rc26_bringup`、`rc26_decision`、Nav2、smoke CI 的默认运行时链路
+- 不参与 `rc26_bringup`、`rc26_decision`、Nav2 的默认运行时链路
 - 当前主链没有任何模块订阅 `/mf_block_overlay`、`/kfs_filter_mask` 或 `/kfs_keepout_heartbeat`
 - 当前主链没有任何模块调用 `/kfs_keepout/set_runtime`
 - 如未来恢复，必须先重新定义接口契约、启动入口、验证范围和文档边界

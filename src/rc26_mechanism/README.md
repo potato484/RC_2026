@@ -65,4 +65,4 @@
 - 前/后推杆 sidecar 命令不再属于 `rc26_mechanism` 的业务命令目录；遥控链当前直接调用 `/mechanism/send_command`。
 - 当前机构节点不再维护端头状态机，也不再通过 `/mechanism/status` 发布端头姿态、装配计数或通信健康统计。
 - 包目录已经物理清理掉历史残留空目录 `include/rc26_mechanism/hal/{fault,replay,sim}`、`src/hal/{fault,replay,sim}` 与 `launch/__pycache__`，当前源码树只保留最小真机链路对应的目录。
-- 关于如何在开发或实车环境下通过命令行调试本模块，请参阅仓库根目录 `调试/rc26_mechanism调试.md`。
+- 根目录集中式调试文档已删除；如需补充开发或实车命令行验证，应直接维护在本 README 或包内脚本中。

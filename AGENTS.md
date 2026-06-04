@@ -6,7 +6,6 @@
 
 - `docs/`：项目上下文、边界、约束、接口与维护准则
 - `src/`：R2 自动机器人主运行时 ROS2 工作区
-- `merlin-bt-visualizer/`：本地行为树可视化与编辑前端
 - `build/`、`install/`、`log/`：构建与运行产物，不是设计约束真源
 
 ## 核心准则
@@ -27,8 +26,7 @@
 - 整体边界、职责拆分、依赖方向、文档同步规则：先读 `docs/fitness/README.md`
 - 修改 ROS2 工作区、运行时职责、bringup、控制、决策、感知、可视化边界：先读 `docs/backend/README.md` 与 `docs/fitness/architecture_fitness_ros2_workspace/README.md`
 - 需要快速建立某个 `rc26_*` 包的上下文：优先进入 `docs/backend/archive/<pkg>/README.md`
-- 修改前端或 `merlin-bt-visualizer`：先读 `docs/frontend/README.md` 与 `docs/fitness/architecture_fitness_frontend/README.md`
-- 修改 ROS2 topic、service、前后端字段、中间层契约或桥接接口语义：先读 `docs/fitness/README.md`，再读 `docs/middle/openapi.yaml` 与 `docs/middle/modules/*.yaml`
+- 修改 ROS2 topic、service、外部消费字段、中间层契约或桥接接口语义：先读 `docs/fitness/README.md`，再读 `docs/middle/openapi.yaml` 与 `docs/middle/modules/*.yaml`
 
 ### 4. 改具体代码时，先遵循 `docs/` 中已明确的实现和约束
 
@@ -71,7 +69,7 @@
 ## RC_2026 特定事实
 
 - 当前项目仅为 R2 这个自动机器人设计，R1 只是手动机器人。
-- `src/` 是 R2 自动机器人的主运行时工作区；`merlin-bt-visualizer` 只是本地工程工具，不是机器人运行时权威后端。
+- `src/` 是 R2 自动机器人的主运行时工作区；仓库内不再维护第一方前端实现。
 - R2 当前算力板卡按犀牛派 X1 口径维护，运行环境支持 AidLux（Android 13 + Ubuntu 22.04）深度融合。
 - R2 当前运行时已经统一为麦克纳姆全向底盘；高精度陀螺仪位于底盘中心，用于位姿融合下发。当前底盘运动学与位姿下发实现可参考 `rc26_merge_odom`，`rc26_telecontrol` 用于人为遥控测试 R2 机器人。
 
@@ -80,8 +78,8 @@
 在这个根仓库内协作时，默认按以下顺序获取上下文和约束：
 
 1. 先用 `fast-context` 检索与任务相关的代码和文档位置
-2. 先读 `docs/` 下与任务直接相关的入口文档，例如 `docs/backend/README.md`、`docs/frontend/README.md`、`docs/fitness/README.md`
-3. 再读更具体的模块入口，例如 `docs/backend/archive/<pkg>/README.md`、`docs/frontend/<topic>/README.md`、`docs/fitness/<topic>/README.md`
+2. 先读 `docs/` 下与任务直接相关的入口文档，例如 `docs/backend/README.md`、`docs/fitness/README.md`
+3. 再读更具体的模块入口，例如 `docs/backend/archive/<pkg>/README.md`、`docs/fitness/<topic>/README.md`
 4. 再进入具体代码目录实施修改与验证
 5. 修改完成后，把简短总结与必要的新增模块说明回写到对应 `docs/` 文档，再交付结果
 

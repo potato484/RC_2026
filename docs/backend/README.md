@@ -2,10 +2,7 @@
 
 `docs/backend/archive/` 采用“按当前 ROS2 包保留入口文档，必要时补充少量历史资料”的结构。
 
-当前调试文档口径统一收口到仓库根目录 `调试/`：
-
-- `调试/建图启动.md`、`调试/定位启动.md`、`调试/重定位启动.md`、`调试/回环启动.md`、`调试/导航启动.md`、`调试/决策启动.md`、`调试/感知启动.md`、`调试/遥控启动.md` 与 `调试/联调顺序.md` 作为按场景入口
-- `调试/rc26_*调试.md` 作为按包调试入口
+仓库根目录的集中式调试文档已经删除。后续排查和验证入口以各包 README、launch 文件、包内脚本和实机操作记录为准，不再维护第二套根目录调试手册。
 
 ## 当前导航口径
 
@@ -13,13 +10,18 @@ R2 运行时导航权威已经迁移到 Nav2。`rc26_bringup` 在 `slam=false` �
 
 `rc26_decision` 不再发送自定义导航 action，而是在 BT XML 中显式写 Nav2 pose 目标，通过 `NavToPose` 节点调用 `/navigate_to_pose`。
 
-`rc26_terrain`、`rc26_base_ground` 与 `rc26_kfs_keepout` 已从当前 R2 主运行时链路中归档退出：默认 CMake 不生成运行时目标，`rc26_bringup` 不启动它们，`rc26_decision` 不订阅或发布它们的数据，smoke CI 也不再把它们纳入默认构建/测试闭包。
+`rc26_terrain`、`rc26_base_ground` 与 `rc26_kfs_keepout` 已从当前 R2 主运行时链路中归档退出：默认 CMake 不生成运行时目标，`rc26_bringup` 不启动它们，`rc26_decision` 不订阅或发布它们的数据，默认运行和手动验证闭包也不再纳入这些归档链路。
 
-## 当前 ROS2 自动验证入口
+## 当前验证口径
 
-- `.github/workflows/ros2-workspace-ci.yml`：当前 ROS2 工作区的 GitHub Actions smoke CI。默认先构建 `rc26_bringup` 的本地运行依赖闭包、`rc26_decision` 和基础遥控/视觉包，再只测试 smoke 目标包，避免历史依赖包 lint 阻塞导航装配验证。
-- `scripts/ci/run-ros2-workspace-smoke.sh`：本地与 CI 复用的 smoke 验证脚本，统一使用仓库规定的 `MAKEFLAGS='-j2 -l2'`、`--executor sequential` 与 `--parallel-workers 1` 口径；无参数时按默认构建闭包/测试目标执行，显式传包时对传入包同时 build/test。
-- `src/` 当前不提供通用 GitHub CD 部署流程。机器人运行时仍以犀牛派 X1 / AidLux 实机环境和 `rc26_bringup` 装配入口为准。
+- 仓库级 CI/CD 已删除，当前不再维护 GitHub Actions workflow 或本地 CI smoke 脚本。
+- ROS2 包级验证继续按仓库统一命令手动执行：
+
+```bash
+MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select <pkg...>
+```
+
+- 机器人运行时仍以犀牛派 X1 / AidLux 实机环境和 `rc26_bringup` 装配入口为准。
 
 ## 当前 IDE 索引入口
 

@@ -10,7 +10,7 @@
 4. **不确定性感知控制接口**：将定位置信度（协方差大小）实时反馈给运动控制层（Controller），在不确定性升高时触发降速或保守策略，保障系统安全。
 5. **智能优化器调度**：根据上一帧位姿变化幅度和环境复杂度，动态在 GN（Gauss-Newton）和 LM（Levenberg-Marquardt）优化器间切换，优化 CPU/GPU 算力分配。
 
-## P0 新增输出（前端定位 + 后端闭环执行方案）
+## P0 新增输出（定位观测 + 后端闭环执行方案）
 - `/localization/health`：语义化定位健康度（LHI），给控制器和决策层做限速/停车判据。
 - `/localization/backend_status`：定位后端状态与诊断（P0 为占位版，P1 启用图后端后切换为真实值）。
 
@@ -51,7 +51,7 @@
 
 - 重定位接管新增请求时刻 `odom->base` 快照，并在成功接管时做运动补偿，避免“请求时刻到成功时刻”位姿滞后。
 - 图后端锚点接入从二态改为三态：`validated_anchor` / `trusted_reloc_anchor` / `rejected_anchor`。
-  仅在“点云不足但前端解可信”时允许受限信任接入，`validation_conflict` 仍硬拒绝。
+  仅在“点云不足但外部候选可信”时允许受限信任接入，`validation_conflict` 仍硬拒绝。
 - Scan Context 静态库与在线库统一为 `descriptor + ring_key + sector_key + center_xy`，查询流程升级为：
   1. `ring_key` 索引 TopK
   2. `sector_key` 粗 yaw 对齐

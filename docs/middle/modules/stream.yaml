@@ -5,7 +5,7 @@ info:
   description: |
     统一实时订阅流。
 
-    用于前端一次性订阅多个 ROS2 topic。
+    用于外部只读消费者一次性订阅多个 ROS2 topic。
     payload 必须保持与原始 ROS2 .msg 同构。
 servers:
   - url: http://localhost:8080

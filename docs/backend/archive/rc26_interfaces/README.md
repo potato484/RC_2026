@@ -43,4 +43,4 @@
 ## 本轮收口
 
 - 删除旧导航 action、运动模式 service 和相关状态消息生成
-- 保留 `MfBlockOverlay`、`MfBlockOverlayCell`、`MfKfs*`、`TerrainFeatureGrid` 与 `SetKeepoutRuntime` 的生成文件，但明确标记为归档兼容接口；默认运行时和 smoke CI 不再消费这些契约
+- 保留 `MfBlockOverlay`、`MfBlockOverlayCell`、`MfKfs*`、`TerrainFeatureGrid` 与 `SetKeepoutRuntime` 的生成文件，但明确标记为归档兼容接口；默认运行时不再消费这些契约

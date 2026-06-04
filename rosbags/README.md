@@ -43,6 +43,4 @@ ros2 bag record -o rosbags/teleop_left_stick_$(date +%F_%H-%M-%S) \
 ros2 bag info rosbags/teleop_left_stick_时间戳
 ```
 
-如需针对“左摇杆无法控制平移、右摇杆可以旋转”的问题做专项排查，请参考：
-
-- 仓库根目录 `调试/rc26_telecontrol调试.md`
+如需针对“左摇杆无法控制平移、右摇杆可以旋转”的问题做专项排查，请结合本目录录包结果、`src/rc26_telecontrol/README.md` 和 `start_r2_teleop.sh` 当前帮助文本一起确认。

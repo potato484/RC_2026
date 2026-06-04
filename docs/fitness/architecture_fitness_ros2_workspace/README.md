@@ -2,7 +2,7 @@
 
 ## 1. 目的
 
-本文档只讨论 `src/` 下的 ROS2 工作区架构，不讨论 `merlin-bt-visualizer` 的前端内部实现。
+本文档只讨论 `src/` 下的 ROS2 工作区架构。仓库内已删除第一方前端实现，外部可视化或操作工具只能作为 ROS2 输出的下游消费者。
 
 目标是给当前 R2 自动机器人主运行时建立一套长期稳定的架构与维护基线。
 
@@ -71,8 +71,8 @@
 MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select <pkg...>
 ```
 
-- **当前实现**：GitHub Actions 通过 `.github/workflows/ros2-workspace-ci.yml` 复用 `scripts/ci/run-ros2-workspace-smoke.sh`，默认先构建 `rc26_bringup` 的本地运行依赖闭包、`rc26_decision` 和基础遥控/视觉包，再只测试 smoke 目标包。`rc26_terrain`、`rc26_base_ground`、`rc26_kfs_keepout` 已归档为 source-only 包，不进入默认 smoke CI。
-- **边界**：这条 CI 只负责无硬件 smoke 验证，不替代实机 launch、传感器链联调或犀牛派 X1 / AidLux 平台上的验收。
+- **当前实现**：仓库级 CI/CD 已删除；包级验证由维护者按上面的标准命令手动执行。`rc26_terrain`、`rc26_base_ground`、`rc26_kfs_keepout` 已归档为 source-only 包，不进入默认运行和手动验证闭包。
+- **边界**：手动包级构建只证明源码和依赖闭包可编译，不替代实机 launch、传感器链联调或犀牛派 X1 / AidLux 平台上的验收。
 
 ## 3. 为当前 ROS2 工作区树立的架构准则
 
@@ -97,7 +97,7 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 ### 3.4 控制器必须保持 plugin 形态
 
 - **规则**：控制器包可以依赖导航状态、定位健康和控制参数；已归档的地形链路不得作为当前默认控制输入。
-- **规则**：控制器包不得吸纳比赛阶段语义、前端需求或临时策略分支。
+- **规则**：控制器包不得吸纳比赛阶段语义、操作界面需求或临时策略分支。
 - **规则**：任何带有“梅林阶段时这样做”“武馆阶段时那样做”的逻辑，如果不是纯控制保护，大概率应放在决策层而不是控制器层。
 - **补充口径**：当前导航运行权威是 Nav2。底盘速度命令必须通过 Nav2 controller 和 velocity_smoother 输出到 `/cmd_vel`，决策层只通过 action 下发目标，不在旁路发布速度命令。
 
@@ -110,6 +110,7 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 ### 3.6 `src/` 默认保持 headless，不内置第一方可视化子树
 
 - **规则**：当前工作区不再维护第一方 viewer 状态桥、定制 `rviz2` 或本地 Web viewer。
+- **规则**：仓库根目录也不再维护第一方前端应用、前端测试脚本或前端发布产物。
 - **规则**：如果需要可视化，只能由工作区外部工具只读消费现有 ROS2 输出、CLI 输出或静态资产，不能反向成为运行时权威。
 - **规则**：Foxglove JSON 只是历史布局资产，不是诊断逻辑载体。
 
@@ -263,4 +264,3 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - `rc26_kfs_keepout`（归档源码）：`docs/backend/archive/rc26_kfs_keepout/README.md`
 - `rc26_robot_geometry`：`docs/backend/archive/rc26_robot_geometry/README.md`
 - `rc26_sensor_extrinsics`：`docs/backend/archive/rc26_sensor_extrinsics/README.md`
-- 前端当前边界：`docs/frontend/README.md`、`docs/frontend/overview/README.md`、`docs/frontend/boundaries/README.md`

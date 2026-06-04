@@ -651,7 +651,7 @@ services:
     display_name: "定位健康输入"
     summary: "向行为树提供定位等级、原因和控制退化状态。"
     scenario: "定位守护判断是否需要恢复时会依赖它。"
-    attention: "这个条目当前主要用于目录说明，前端暂不直接展示。"
+    attention: "这个条目当前主要用于目录说明，运行时暂不直接展示。"
   "/localization/backend_status":
     display_name: "定位后端状态输入"
     summary: "提供图优化健康度和优化器是否就绪。"

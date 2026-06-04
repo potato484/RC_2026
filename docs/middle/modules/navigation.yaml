@@ -281,4 +281,4 @@ x-archived-runtime-contracts:
     - MfBlockOverlayCell
     - SetKeepoutRuntimeRequest
     - SetKeepoutRuntimeResponse
-  note: 这些接口文件可继续生成用于历史兼容，但 rc26_bringup、rc26_decision 和默认 CI 不再启动、发布、订阅或调用对应运行时链路。
+  note: 这些接口文件可继续生成用于历史兼容，但 rc26_bringup、rc26_decision 和默认运行时不再启动、发布、订阅或调用对应链路。

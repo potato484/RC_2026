@@ -60,7 +60,7 @@ source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ros2 launch rc26_bringup bringup.launch.py slam:=true use_decision:=false
 ```
 
-纯建图调试入口：
+纯建图启动入口：
 
 ```bash
 ros2 launch rc26_bringup test_mapping.launch.py
@@ -138,11 +138,6 @@ rviz2 -d "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/rviz/slam.rviz"
 
 该 RViz 预设观察 `/registered_scan` 实时点云和 `/Laser_map` 初始地图。
 
-## 调试
+## 运行排查
 
-调试入口查看仓库根目录：
-
-- `调试/rc26_point_lio调试.md`
-- `调试/建图启动.md`
-
-若需要分析 LiDAR/IMU 时间偏移，可运行 `scripts/time_sync_analyzer.py`。该脚本只输出外部时间偏移建议，Point-LIO 当前不直接消费该结果。
+根目录集中式调试文档已删除。若需要分析 LiDAR/IMU 时间偏移，可运行 `scripts/time_sync_analyzer.py`。该脚本只输出外部时间偏移建议，Point-LIO 当前不直接消费该结果。
