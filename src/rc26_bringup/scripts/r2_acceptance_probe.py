@@ -5,10 +5,9 @@ import math
 import sys
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import rclpy
-from diagnostic_msgs.msg import DiagnosticArray
 from nav_msgs.msg import Odometry
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
@@ -28,10 +27,6 @@ def parse_bool(value: str) -> bool:
 
 def stamp_to_sec(stamp) -> float:
     return float(stamp.sec) + float(stamp.nanosec) * 1e-9
-
-
-def cloud_points(msg: PointCloud2) -> int:
-    return int(msg.width) * int(msg.height)
 
 
 def calc_rate_hz(stamps: List[float]) -> float:
@@ -102,10 +97,6 @@ class AcceptanceProbe:
         sensor_qos.reliability = ReliabilityPolicy.BEST_EFFORT
         sensor_qos.durability = DurabilityPolicy.VOLATILE
 
-        reliable_qos = QoSProfile(depth=50)
-        reliable_qos.reliability = ReliabilityPolicy.RELIABLE
-        reliable_qos.durability = DurabilityPolicy.VOLATILE
-
         self.odom_stamps: List[float] = []
         self.scan_stamps: List[float] = []
         self.odom_positions: List[Tuple[float, float, float]] = []
@@ -116,20 +107,8 @@ class AcceptanceProbe:
         self.odom_child_mismatch = 0
         self.scan_frame_mismatch = 0
 
-        self.terrain_obstacles_total = 0
-        self.terrain_obstacles_non_empty = 0
-        self.terrain_obstacles_max_points = 0
-        self.terrain_drop_total = 0
-        self.terrain_drop_non_empty = 0
-
         self.tf_msg_count = 0
         self.tf_msg_stamps: List[float] = []
-
-        self.diag_terrain_total = 0
-        self.diag_terrain_error = 0
-        self.diag_last_values: Dict[str, str] = {}
-        self.diag_last_message = ""
-        self.diag_last_level = 0
 
         self.tf_seen_map_odom = False
         self.tf_seen_odom_base = False
@@ -142,24 +121,12 @@ class AcceptanceProbe:
         self.sub_registered_scan = self.node.create_subscription(
             PointCloud2, "/registered_scan", self._on_registered_scan, sensor_qos
         )
-        self.sub_terrain_obstacles = self.node.create_subscription(
-            PointCloud2, "/terrain_obstacles", self._on_terrain_obstacles, sensor_qos
-        )
-        self.sub_terrain_drop = self.node.create_subscription(
-            PointCloud2, "/terrain_drop", self._on_terrain_drop, sensor_qos
-        )
         self.sub_tf = self.node.create_subscription(TFMessage, "/tf", self._on_tf, sensor_qos)
-        self.sub_diag = self.node.create_subscription(
-            DiagnosticArray, "/diagnostics", self._on_diagnostics, reliable_qos
-        )
 
     def destroy(self):
         self.node.destroy_subscription(self.sub_odom)
         self.node.destroy_subscription(self.sub_registered_scan)
-        self.node.destroy_subscription(self.sub_terrain_obstacles)
-        self.node.destroy_subscription(self.sub_terrain_drop)
         self.node.destroy_subscription(self.sub_tf)
-        self.node.destroy_subscription(self.sub_diag)
         self.executor.remove_node(self.node)
         self.node.destroy_node()
 
@@ -191,38 +158,10 @@ class AcceptanceProbe:
         if msg.header.frame_id != self.args.expected_scan_frame:
             self.scan_frame_mismatch += 1
 
-    def _on_terrain_obstacles(self, msg: PointCloud2):
-        self.terrain_obstacles_total += 1
-        points = cloud_points(msg)
-        if points > 0:
-            self.terrain_obstacles_non_empty += 1
-        self.terrain_obstacles_max_points = max(self.terrain_obstacles_max_points, points)
-
-    def _on_terrain_drop(self, msg: PointCloud2):
-        self.terrain_drop_total += 1
-        points = cloud_points(msg)
-        if points > 0:
-            self.terrain_drop_non_empty += 1
-
     def _on_tf(self, msg: TFMessage):
         now = self.node.get_clock().now().nanoseconds * 1e-9
         self.tf_msg_stamps.append(now)
         self.tf_msg_count += len(msg.transforms)
-
-    def _on_diagnostics(self, msg: DiagnosticArray):
-        for status in msg.status:
-            if self.args.diag_name_keyword not in status.name:
-                continue
-            self.diag_terrain_total += 1
-            level_raw = status.level
-            if isinstance(level_raw, (bytes, bytearray)):
-                self.diag_last_level = int.from_bytes(level_raw, byteorder="little")
-            else:
-                self.diag_last_level = int(level_raw)
-            self.diag_last_message = status.message
-            self.diag_last_values = {item.key: item.value for item in status.values}
-            if self.diag_last_level >= 2:
-                self.diag_terrain_error += 1
 
     def _probe_tf(self):
         try:
@@ -420,71 +359,11 @@ class AcceptanceProbe:
                 )
             )
 
-        if self.args.expect_obstacle:
-            checks.append(
-                Check(
-                    name="Terrain/obstacles_non_empty",
-                    ok=self.terrain_obstacles_non_empty >= self.args.min_non_empty_obstacle_msgs,
-                    detail=(
-                        f"non_empty={self.terrain_obstacles_non_empty} "
-                        f"threshold>={self.args.min_non_empty_obstacle_msgs} "
-                        f"total={self.terrain_obstacles_total} max_points={self.terrain_obstacles_max_points}"
-                    ),
-                )
-            )
-        else:
-            checks.append(
-                Check(
-                    name="Terrain/topic_alive",
-                    ok=self.terrain_obstacles_total > 0,
-                    detail=f"obstacles_total={self.terrain_obstacles_total}",
-                )
-            )
-
-        if self.args.require_diagnostics:
-            checks.append(
-                Check(
-                    name="Diagnostics/terrain_present",
-                    ok=self.diag_terrain_total > 0,
-                    detail=f"diag_count={self.diag_terrain_total} keyword={self.args.diag_name_keyword}",
-                )
-            )
-            checks.append(
-                Check(
-                    name="Diagnostics/terrain_no_error",
-                    ok=self.diag_terrain_error == 0,
-                    detail=f"error_count={self.diag_terrain_error} last_level={self.diag_last_level}",
-                )
-            )
-            checks.extend(self._build_diagnostic_age_checks())
-
-        return checks
-
-    def _build_diagnostic_age_checks(self) -> List[Check]:
-        checks: List[Check] = []
-        for key in ("cloud_age_sec", "odom_age_sec", "tf_age_sec"):
-            raw = self.diag_last_values.get(key)
-            if raw is None:
-                checks.append(Check(name=f"Diagnostics/{key}", ok=False, detail="missing"))
-                continue
-            try:
-                val = float(raw)
-            except ValueError:
-                checks.append(Check(name=f"Diagnostics/{key}", ok=False, detail=f"invalid={raw}"))
-                continue
-            ok = math.isfinite(val) and val <= self.args.max_diag_age_sec
-            checks.append(
-                Check(
-                    name=f"Diagnostics/{key}",
-                    ok=ok,
-                    detail=f"value={val:.4f} threshold<={self.args.max_diag_age_sec:.4f}",
-                )
-            )
         return checks
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="R2 全链路验收探针（TF/时戳/频率/keepout）")
+    parser = argparse.ArgumentParser(description="R2 主链验收探针（TF/时戳/频率）")
     parser.add_argument("--duration_sec", type=float, default=60.0, help="采样总时长")
     parser.add_argument("--warmup_sec", type=float, default=3.0, help="启动后预热时长")
 
@@ -509,17 +388,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected_lidar_xyz_tol", type=float, default=0.02)
     parser.add_argument("--expected_lidar_rpy_tol_rad", type=float, default=0.05)
 
-    parser.add_argument("--expect_obstacle", type=parse_bool, default=False, help="是否要求出现障碍非零代价")
-    parser.add_argument(
-        "--min_non_empty_obstacle_msgs",
-        type=int,
-        default=3,
-        help="expect_obstacle=true 时障碍点云最小非空消息数",
-    )
-
-    parser.add_argument("--require_diagnostics", type=parse_bool, default=True, help="是否检查 terrain diagnostics")
-    parser.add_argument("--diag_name_keyword", default="terrain_semantic")
-    parser.add_argument("--max_diag_age_sec", type=float, default=1.2)
     return parser
 
 
@@ -528,8 +396,7 @@ def print_report(checks: List[Check], args):
     print(
         "config: "
         f"duration={args.duration_sec:.1f}s "
-        f"require_map_chain={args.require_map_chain} "
-        f"expect_obstacle={args.expect_obstacle}"
+        f"require_map_chain={args.require_map_chain}"
     )
     for check in checks:
         status = "PASS" if check.ok else "FAIL"

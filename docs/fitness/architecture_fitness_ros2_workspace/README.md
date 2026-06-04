@@ -71,7 +71,7 @@
 MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select <pkg...>
 ```
 
-- **当前实现**：GitHub Actions 通过 `.github/workflows/ros2-workspace-ci.yml` 复用 `scripts/ci/run-ros2-workspace-smoke.sh`，默认先构建 `rc26_bringup` 的本地运行依赖闭包、`rc26_decision` 和基础遥控/视觉包，再只测试 smoke 目标包，守住工作区的 headless 主链而不把历史依赖包 lint 混入导航装配验收。
+- **当前实现**：GitHub Actions 通过 `.github/workflows/ros2-workspace-ci.yml` 复用 `scripts/ci/run-ros2-workspace-smoke.sh`，默认先构建 `rc26_bringup` 的本地运行依赖闭包、`rc26_decision` 和基础遥控/视觉包，再只测试 smoke 目标包。`rc26_terrain`、`rc26_base_ground`、`rc26_kfs_keepout` 已归档为 source-only 包，不进入默认 smoke CI。
 - **边界**：这条 CI 只负责无硬件 smoke 验证，不替代实机 launch、传感器链联调或犀牛派 X1 / AidLux 平台上的验收。
 
 ## 3. 为当前 ROS2 工作区树立的架构准则
@@ -96,14 +96,14 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 
 ### 3.4 控制器必须保持 plugin 形态
 
-- **规则**：控制器包可以依赖导航状态、定位健康、地形输入、控制参数。
+- **规则**：控制器包可以依赖导航状态、定位健康和控制参数；已归档的地形链路不得作为当前默认控制输入。
 - **规则**：控制器包不得吸纳比赛阶段语义、前端需求或临时策略分支。
 - **规则**：任何带有“梅林阶段时这样做”“武馆阶段时那样做”的逻辑，如果不是纯控制保护，大概率应放在决策层而不是控制器层。
 - **补充口径**：当前导航运行权威是 Nav2。底盘速度命令必须通过 Nav2 controller 和 velocity_smoother 输出到 `/cmd_vel`，决策层只通过 action 下发目标，不在旁路发布速度命令。
 
 ### 3.5 状态估计与感知包负责产出状态，不负责操作员策略
 
-- **规则**：localization、terrain、vision、odom normalization、keepout 负责产出技术状态与语义健康度。
+- **规则**：localization、vision、odom normalization 负责产出当前主链技术状态与语义健康度；已归档的 terrain、base-ground、keepout 包不再作为默认状态生产者。
 - **规则**：它们不得直接编码操作员界面逻辑或布局假设。
 - **规则**：它们应输出结构化结果，让更高层按需消费。
 
@@ -149,9 +149,9 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 
 ### 3.12 共享场地几何必须单一真源
 
-- **规则**：像 MF 主区 block 几何、入口/出口 block 集合这类会同时被 keepout、决策和可视化消费的场地事实，必须只有一个文档化配置真源。
-- **当前口径**：`src/rc26_kfs_keepout/config/r2_mf_world.yaml` 是当前 MF 主区共享几何真源。
-- **规则**：基础 Nav2 迁移后，梅林区导航目标位姿显式写在 BT XML 中；如果未来重新引入由共享几何推导的目标生成器，必须先定义清晰的生成入口和文档化输出。
+- **规则**：像 MF 主区 block 几何、入口/出口 block 集合这类会同时被多个运行时包消费的场地事实，必须只有一个文档化配置真源。
+- **当前口径**：`rc26_kfs_keepout` 已归档，`src/rc26_kfs_keepout/config/r2_mf_world.yaml` 不再是当前 MF 主区共享几何真源。当前 MF 决策只使用 `rc26_decision` 包内静态表和 BT XML 中显式目标位姿。
+- **规则**：如果未来重新引入由共享几何推导的 keepout、目标生成器或可视化状态，必须先定义新的运行时真源、生成入口和文档化输出，不得把新主链依赖接回已归档的 `rc26_kfs_keepout`。
 - **规则**：无法从共享几何稳定推导出的比赛语义，例如 staging 点、坡道边或任务路线，必须明确留在决策/导航配置文档里，而不是偷偷塞回底层几何文件。
 
 ### 3.13 同一时刻只能有一个局部执行命令权威
@@ -241,7 +241,7 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - `rc26_bringup` 是整车 composition root。
 - `rc26_decision` 是比赛流程大脑，不是设备细节宿主。
 - `rc26_mechanism` 和各控制器插件负责安全执行意图。
-- localization、terrain、vision、odom 相关包负责产出规范化机器状态。
+- localization、vision、odom 相关包负责产出当前主链规范化机器状态；terrain、base-ground、keepout 仅作为归档源码保留。
 - `src/` 当前默认保持 headless，不再内置第一方 GUI 或操作员语义聚合包。
 - 如需可视化，应由工作区外部工具只读消费这些状态。
 
@@ -258,7 +258,9 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - `rc26_bringup`：`docs/backend/archive/rc26_bringup/README.md`
 - `rc26_decision`：`docs/backend/archive/rc26_decision/README.md`
 - `rc26_interfaces`：`docs/backend/archive/rc26_interfaces/README.md`
-- `rc26_kfs_keepout`：`docs/backend/archive/rc26_kfs_keepout/README.md`
+- `rc26_terrain`（归档源码）：`docs/backend/archive/rc26_terrain/README.md`
+- `rc26_base_ground`（归档源码）：`docs/backend/archive/rc26_base_ground/README.md`
+- `rc26_kfs_keepout`（归档源码）：`docs/backend/archive/rc26_kfs_keepout/README.md`
 - `rc26_robot_geometry`：`docs/backend/archive/rc26_robot_geometry/README.md`
 - `rc26_sensor_extrinsics`：`docs/backend/archive/rc26_sensor_extrinsics/README.md`
 - 前端当前边界：`docs/frontend/README.md`、`docs/frontend/overview/README.md`、`docs/frontend/boundaries/README.md`

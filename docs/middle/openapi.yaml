@@ -38,13 +38,11 @@ x-modules:
   - name: navigation
     file: docs/middle/modules/navigation.yaml
     topics:
-      - /mf_block_overlay
       - /cmd_vel
       - /plan
       - /local_costmap/costmap
       - /global_costmap/costmap
-    services:
-      - /kfs_keepout/set_runtime
+    services: []
     actions:
       - /navigate_to_pose
   - name: vision

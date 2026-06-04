@@ -41,11 +41,8 @@
   <exec_depend>rc26_sensor_extrinsics</exec_depend>
   
   <!-- 自定义包 -->
-  <exec_depend>rc26_base_ground</exec_depend>
   <exec_depend>rc26_localization</exec_depend>
-  <exec_depend>rc26_terrain</exec_depend>
   <exec_depend>rc26_decision</exec_depend>
-  <exec_depend>rc26_kfs_keepout</exec_depend>
   <exec_depend>realsense2_camera</exec_depend>
 
   <export>

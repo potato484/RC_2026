@@ -11,7 +11,7 @@
 - `/navigate_to_pose`
 - `nav2_msgs/action/NavigateToPose`
 
-本包当前只保留 MF keepout / decision 支撑契约：
+本包仍生成下列归档兼容接口，但它们不属于当前主链运行时契约：
 
 - `SetKeepoutRuntime.srv`
 - `MfBlockOverlay.msg`
@@ -29,12 +29,11 @@
 - `PlaceKFSGrid.action` 已移除；若需要放置 KFS，调用侧应改为通过 `ExecuteMechanism` 下发 `PLACE_KFS_GRID + payload{grid_position, layer}`。
 - `MechanismState.msg` 当前只保留 `hal_open`、`last_error_code`、`current_cmd_id` 三个最小运行时观测字段。
 
-## Keepout Runtime 契约
+## 归档 Keepout / Terrain 接口
 
-- `/kfs_keepout/set_runtime` 当前是 `rc26_decision -> rc26_kfs_keepout` 的 MF keepout 运行时控制服务，接口类型为 `SetKeepoutRuntime.srv`
-- `activate=true` 表示进入 `MFAreaTree` 前请求装载并激活 keepout；`activate=false` 表示离开 MF 时先清空输出再卸载
-- 响应字段 `outputs_cleared` 表示下游是否已经收到安全清空后的 overlay/mask 结果
-- 响应字段 `component_loaded` 表示组件是否仍留在容器内；允许在 `outputs_cleared=true` 时仍为 `true`，用来表达“已安全退出但卸载失败”
+- `SetKeepoutRuntime.srv`、`MfBlockOverlay.msg`、`MfBlockOverlayCell.msg`、`MfKfsState.msg`、`MfKfsCell.msg`、`TerrainFeatureGrid.msg` 仅作为历史兼容和后续恢复参考保留。
+- 当前 `rc26_bringup` 不启动 `rc26_kfs_keepout`、`rc26_terrain` 或 `rc26_base_ground`，`rc26_decision` 也不调用 `/kfs_keepout/set_runtime`、不发布 `/mf_kfs_state`，不订阅 terrain/base-ground/keepout 输出。
+- 当前主链没有活跃的 `/mf_block_overlay`、`/kfs_filter_mask`、`/kfs_keepout_heartbeat` 或 `/kfs_keepout/set_runtime` 契约。
 
 ## 当前边界
 
@@ -44,4 +43,4 @@
 ## 本轮收口
 
 - 删除旧导航 action、运动模式 service 和相关状态消息生成
-- 保留 `MfBlockOverlay`、`MfBlockOverlayCell` 与 `SetKeepoutRuntime`，因为它们仍属于 MF keepout / decision runtime 支撑接口
+- 保留 `MfBlockOverlay`、`MfBlockOverlayCell`、`MfKfs*`、`TerrainFeatureGrid` 与 `SetKeepoutRuntime` 的生成文件，但明确标记为归档兼容接口；默认运行时和 smoke CI 不再消费这些契约

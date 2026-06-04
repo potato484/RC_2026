@@ -4,8 +4,6 @@ src R2导航系统 - 主启动文件
 启动:
   - 里程计 (rc26_point_lio + rc26_odom_interface + rc26_sensor_scan)
   - 定位 (rc26_localization)
-  - 地面高度估计 (rc26_base_ground)
-  - 地形分析 (rc26_terrain)
   - Nav2 基础导航栈 (map_server + planner/controller/BT navigator/velocity smoother)
   - 决策系统 (rc26_decision)
 
@@ -18,19 +16,17 @@ src R2导航系统 - 主启动文件
 """
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, LogInfo
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
-from launch_ros.actions import ComposableNodeContainer, Node, PushRosNamespace
+from launch_ros.actions import Node, PushRosNamespace
 
 
 def generate_launch_description():
     # 获取包路径
     bringup_dir = get_package_share_directory('rc26_bringup')
     decision_dir = get_package_share_directory('rc26_decision')
-    base_ground_dir = get_package_share_directory('rc26_base_ground')
-    kfs_keepout_dir = get_package_share_directory('rc26_kfs_keepout')
     sensor_extrinsics_dir = get_package_share_directory('rc26_sensor_extrinsics')
     nav2_bringup_dir = get_package_share_directory('nav2_bringup')
 
@@ -44,10 +40,6 @@ def generate_launch_description():
     sensor_extrinsics_file = LaunchConfiguration('sensor_extrinsics_file')
     sensor_extrinsics_profile = LaunchConfiguration('sensor_extrinsics_profile')
     start_mid360_driver = LaunchConfiguration('start_mid360_driver')
-    terrain_params_file = LaunchConfiguration('terrain_params_file')
-    terrain_grid_map_params_file = LaunchConfiguration('terrain_grid_map_params_file')
-    terrain_filter_chain_params_file = LaunchConfiguration('terrain_filter_chain_params_file')
-    enable_terrain_grid_map = LaunchConfiguration('enable_terrain_grid_map')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     localization_params_file = LaunchConfiguration('localization_params_file')
     localization_overlay_file = LaunchConfiguration('localization_overlay_file')
@@ -59,7 +51,6 @@ def generate_launch_description():
     use_realsense = LaunchConfiguration('use_realsense')
     realsense_serial_no = LaunchConfiguration('realsense_serial_no')
     realsense_config_file = LaunchConfiguration('realsense_config_file')
-    kfs_heartbeat_topic = LaunchConfiguration('kfs_heartbeat_topic')
     team = LaunchConfiguration('team')
     nav2_params_file = LaunchConfiguration('nav2_params_file')
     nav2_map_file = LaunchConfiguration('nav2_map_file')
@@ -83,7 +74,7 @@ def generate_launch_description():
     declare_pure_mapping_mode = DeclareLaunchArgument(
         'pure_mapping_mode',
         default_value='false',
-        description='纯建图最小模式；仅在 slam:=true 时生效，跳过 terrain/decision 等非必要模块')
+        description='纯建图最小模式；仅在 slam:=true 时生效，跳过 decision 等非必要模块')
 
     declare_prior_pcd_file = DeclareLaunchArgument(
         'prior_pcd_file',
@@ -109,32 +100,6 @@ def generate_launch_description():
         'start_mid360_driver',
         default_value='true',
         description='是否由 odometry 链启动 MID-360 驱动')
-
-    declare_terrain_params_file = DeclareLaunchArgument(
-        'terrain_params_file',
-        default_value=PathJoinSubstitution([
-            get_package_share_directory('rc26_terrain'), 'config', 'terrain_semantic.yaml'
-        ]),
-        description='rc26_terrain 参数文件')
-
-    declare_terrain_grid_map_params_file = DeclareLaunchArgument(
-        'terrain_grid_map_params_file',
-        default_value=PathJoinSubstitution([
-            get_package_share_directory('rc26_terrain'), 'config', 'terrain_grid_map_bridge.yaml'
-        ]),
-        description='terrain_grid_map_bridge 参数文件')
-
-    declare_terrain_filter_chain_params_file = DeclareLaunchArgument(
-        'terrain_filter_chain_params_file',
-        default_value=PathJoinSubstitution([
-            get_package_share_directory('rc26_terrain'), 'config', 'terrain_filter_chain.yaml'
-        ]),
-        description='terrain_grid_map_bridge filter chain 参数文件')
-
-    declare_enable_terrain_grid_map = DeclareLaunchArgument(
-        'enable_terrain_grid_map',
-        default_value='false',
-        description='是否额外启用 terrain_semantic + terrain_grid_map_bridge；可在 pure_mapping_mode 或独立建图时打开 2.5D 栅格地图显示')
 
     declare_recover_mid360_stream = DeclareLaunchArgument(
         'recover_mid360_stream',
@@ -191,11 +156,6 @@ def generate_launch_description():
         default_value=PathJoinSubstitution([bringup_dir, 'config', 'realsense_d455.yaml']),
         description='RealSense YAML config file (realsense2_camera params)')
 
-    declare_kfs_heartbeat_topic = DeclareLaunchArgument(
-        'kfs_heartbeat_topic',
-        default_value='/kfs_keepout_heartbeat',
-        description='KFS keepout heartbeat topic shared by keepout producer and decision gate')
-
     declare_team = DeclareLaunchArgument(
         'team',
         default_value='blue',
@@ -211,13 +171,6 @@ def generate_launch_description():
         default_value=PathJoinSubstitution([bringup_dir, 'map', 'default.yaml']),
         description='Nav2 map_server 使用的 2D occupancy map YAML；实机导航应传入有效地图')
 
-    pure_mapping_runtime = PythonExpression([
-        "'", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true'"
-    ])
-    terrain_grid_map_runtime = PythonExpression([
-        "not ('", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true') "
-        "or '", enable_terrain_grid_map, "'.lower() == 'true'"
-    ])
     # RealSense D455（可选）
     realsense_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -249,13 +202,9 @@ def generate_launch_description():
             'sensor_extrinsics_profile': sensor_extrinsics_profile,
             'point_lio_publish_odometry_without_downsample': 'false',
             'start_mid360_driver': start_mid360_driver,
-            'enable_terrain_grid_map': 'false',
             'recover_mid360_stream': recover_mid360_stream,
         }.items()
     )
-    # Scope child launch arguments so odometry's internal overrides
-    # (for example enable_terrain_grid_map:=false) do not leak back
-    # into the parent bringup context and suppress top-level terrain nodes.
     odometry_group = GroupAction(
         actions=[odometry_launch],
         scoped=True,
@@ -280,37 +229,6 @@ def generate_launch_description():
             'p4_candidate_enable': p4_candidate_enable,
             'min_inliers': min_inliers,
         }.items()
-    )
-
-    # 地形分析模块 (rc26_terrain)
-    terrain_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution([
-                get_package_share_directory('rc26_terrain'),
-                'launch', 'terrain_semantic.launch.py'
-            ])
-        ),
-        launch_arguments={
-            'namespace': namespace,
-            'use_sim_time': use_sim_time,
-            'terrain_params_file': terrain_params_file,
-        }.items(),
-        condition=IfCondition(terrain_grid_map_runtime)
-    )
-
-    # 地面高度估计 (rc26_base_ground)
-    base_ground_config = PathJoinSubstitution([base_ground_dir, 'config', 'base_ground_estimator.yaml'])
-    base_ground_node = Node(
-        package='rc26_base_ground',
-        executable='base_ground_estimator_node',
-        name='base_ground_estimator',
-        namespace=namespace,
-        output='screen',
-        parameters=[
-            base_ground_config,
-            {'use_sim_time': use_sim_time},
-        ],
-        condition=UnlessCondition(slam)
     )
 
     # Nav2 基础导航栈。
@@ -360,63 +278,6 @@ def generate_launch_description():
         condition=UnlessCondition(slam)
     )
 
-    # KFS keepout 运行时：空组件容器 + 常驻 runtime manager
-    kfs_grid_layout = PathJoinSubstitution([kfs_keepout_dir, 'config', 'r2_mf_world.yaml'])
-    kfs_keepout_container = ComposableNodeContainer(
-        name='kfs_keepout_container',
-        namespace=namespace,
-        package='rclcpp_components',
-        executable='component_container',
-        composable_node_descriptions=[],
-        output='screen',
-        condition=UnlessCondition(slam)
-    )
-    kfs_keepout_runtime_manager_node = Node(
-        package='rc26_kfs_keepout',
-        executable='kfs_keepout_runtime_manager_node',
-        name='kfs_keepout_runtime_manager',
-        namespace=namespace,
-        output='screen',
-        parameters=[{
-            'use_sim_time': use_sim_time,
-            'runtime_service_name': '/kfs_keepout/set_runtime',
-            'component_container_name': 'kfs_keepout_container',
-            'component_node_name': 'kfs_block_fuser',
-            'component_runtime_control_service': 'set_runtime',
-            'kfs_state_topic': 'mf_kfs_state',
-            'mask_topic': '/kfs_filter_mask',
-            'heartbeat_topic': kfs_heartbeat_topic,
-            'grid_layout_file': kfs_grid_layout,
-            'map_resolution': 0.10,
-            'keepout_shape': 'square',
-            'block_half_size_m': 0.60,
-            'keepout_margin_m': 0.03,
-            'lo_hit_block': 1.099,
-            'lo_hit_fake': 0.693,
-            'lo_miss': -0.693,
-            'decay_target_prob': 0.05,
-            'decay_rate': 2.0,
-            'ttl_sec': 10.0,
-            'ttl_mode': 'hard',
-            'dwell_cycles': 3,
-        }],
-        condition=UnlessCondition(slam)
-    )
-
-    terrain_grid_map_bridge_node = Node(
-        package='rc26_terrain',
-        executable='terrain_grid_map_bridge_node',
-        name='terrain_grid_map_bridge',
-        namespace=namespace,
-        output='screen',
-        parameters=[
-            terrain_grid_map_params_file,
-            terrain_filter_chain_params_file,
-            {'use_sim_time': use_sim_time},
-        ],
-        condition=IfCondition(terrain_grid_map_runtime)
-    )
-
     # 决策系统：行为树节点（rc26_decision/decision_node），默认启用，可通过 use_decision 控制
     decision_params = PathJoinSubstitution([decision_dir, 'config', 'decision_params.yaml'])
     decision_node = Node(
@@ -431,28 +292,11 @@ def generate_launch_description():
                 'use_sim_time': use_sim_time,
                 'team': team,
                 'tree_file': 'main_tree.xml',
-                'keepout_gate.heartbeat_topic': kfs_heartbeat_topic,
             },
         ],
         condition=IfCondition(PythonExpression([
             "'", use_decision, "'.lower() == 'true' and not ('", slam, "'.lower() == 'true' and '",
             pure_mapping_mode, "'.lower() == 'true')"
-        ]))
-    )
-
-    pure_mapping_notice = LogInfo(
-        msg='[bringup] pure_mapping_mode 已启用：建图时仅保留 Point-LIO/odom_interface/localization 等最小运动链路，跳过 rc26_terrain 和 rc26_decision。',
-        condition=IfCondition(PythonExpression([
-            "'", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true' and '",
-            enable_terrain_grid_map, "'.lower() != 'true'"
-        ]))
-    )
-
-    pure_mapping_terrain_grid_notice = LogInfo(
-        msg='[bringup] pure_mapping_mode 已启用，同时 enable_terrain_grid_map=true：额外启动 rc26_terrain 与 terrain_grid_map_bridge，用于发布 /terrain_grid_map 2.5D 栅格地图。',
-        condition=IfCondition(PythonExpression([
-            "'", slam, "'.lower() == 'true' and '", pure_mapping_mode, "'.lower() == 'true' and '",
-            enable_terrain_grid_map, "'.lower() == 'true'"
         ]))
     )
 
@@ -467,10 +311,6 @@ def generate_launch_description():
         declare_sensor_extrinsics_file,
         declare_sensor_extrinsics_profile,
         declare_start_mid360_driver,
-        declare_terrain_params_file,
-        declare_terrain_grid_map_params_file,
-        declare_terrain_filter_chain_params_file,
-        declare_enable_terrain_grid_map,
         declare_recover_mid360_stream,
         declare_localization_params_file,
         declare_localization_overlay_file,
@@ -482,25 +322,17 @@ def generate_launch_description():
         declare_use_realsense,
         declare_realsense_serial_no,
         declare_realsense_config_file,
-        declare_kfs_heartbeat_topic,
         declare_team,
         declare_nav2_params_file,
         declare_nav2_map_file,
 
         # 启动模块
-        pure_mapping_notice,
-        pure_mapping_terrain_grid_notice,
         odometry_group,
         localization_launch,
-        base_ground_node,
-        terrain_launch,
 
         nav2_map_server_node,
         nav2_map_lifecycle_node,
         nav2_navigation_launch,
-        kfs_keepout_container,
-        kfs_keepout_runtime_manager_node,
-        terrain_grid_map_bridge_node,
         decision_node,
         realsense_group,
     ])

@@ -5,17 +5,15 @@
   - rc26_point_lio (LiDAR-IMU 里程计)
   - rc26_odom_interface (坐标变换: lidar_odom -> odom)
   - rc26_sensor_scan (发布 odom -> chassis 变换 + sensor_scan)
-  - rc26_terrain + terrain_grid_map_bridge (可选，发布 2.5D terrain grid map)
 """
 import os
 import math
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, LogInfo, OpaqueFunction, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, LogInfo, OpaqueFunction, RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
-from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 import yaml
@@ -322,7 +320,6 @@ def generate_launch_description():
     point_lio_dir = get_package_share_directory('rc26_point_lio')
     mid360_driver_dir = get_package_share_directory('rc26_mid360_driver')
     sensor_extrinsics_dir = get_package_share_directory('rc26_sensor_extrinsics')
-    terrain_dir = get_package_share_directory('rc26_terrain')
 
     # 启动参数
     namespace = LaunchConfiguration('namespace')
@@ -333,10 +330,6 @@ def generate_launch_description():
         'point_lio_publish_odometry_without_downsample')
     sensor_extrinsics_file = LaunchConfiguration('sensor_extrinsics_file')
     sensor_extrinsics_profile = LaunchConfiguration('sensor_extrinsics_profile')
-    enable_terrain_grid_map = LaunchConfiguration('enable_terrain_grid_map')
-    terrain_params_file = LaunchConfiguration('terrain_params_file')
-    terrain_grid_map_params_file = LaunchConfiguration('terrain_grid_map_params_file')
-    terrain_filter_chain_params_file = LaunchConfiguration('terrain_filter_chain_params_file')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     recover_mid360_lidar_ip = LaunchConfiguration('recover_mid360_lidar_ip')
     recover_mid360_host_ip = LaunchConfiguration('recover_mid360_host_ip')
@@ -378,26 +371,6 @@ def generate_launch_description():
         'sensor_extrinsics_profile',
         default_value='',
         description='传感器安装外参 profile；空字符串表示使用 YAML defaults.active_profile')
-
-    declare_enable_terrain_grid_map = DeclareLaunchArgument(
-        'enable_terrain_grid_map',
-        default_value='false',
-        description='是否额外启动 terrain_semantic + terrain_grid_map_bridge，以发布 /terrain_grid_map 2.5D 栅格地图')
-
-    declare_terrain_params_file = DeclareLaunchArgument(
-        'terrain_params_file',
-        default_value=PathJoinSubstitution([terrain_dir, 'config', 'terrain_semantic.yaml']),
-        description='rc26_terrain 参数文件')
-
-    declare_terrain_grid_map_params_file = DeclareLaunchArgument(
-        'terrain_grid_map_params_file',
-        default_value=PathJoinSubstitution([terrain_dir, 'config', 'terrain_grid_map_bridge.yaml']),
-        description='terrain_grid_map_bridge 参数文件')
-
-    declare_terrain_filter_chain_params_file = DeclareLaunchArgument(
-        'terrain_filter_chain_params_file',
-        default_value=PathJoinSubstitution([terrain_dir, 'config', 'terrain_filter_chain.yaml']),
-        description='terrain_grid_map_bridge filter chain 参数文件')
 
     declare_recover_mid360_stream = DeclareLaunchArgument(
         'recover_mid360_stream',
@@ -514,33 +487,6 @@ def generate_launch_description():
         ],
     )
 
-    terrain_semantic_node = Node(
-        package='rc26_terrain',
-        executable='rc26_terrain_node',
-        name='terrain_semantic',
-        namespace=namespace,
-        output='screen',
-        parameters=[
-            terrain_params_file,
-            {'use_sim_time': use_sim_time},
-        ],
-        condition=IfCondition(enable_terrain_grid_map)
-    )
-
-    terrain_grid_map_bridge_node = Node(
-        package='rc26_terrain',
-        executable='terrain_grid_map_bridge_node',
-        name='terrain_grid_map_bridge',
-        namespace=namespace,
-        output='screen',
-        parameters=[
-            terrain_grid_map_params_file,
-            terrain_filter_chain_params_file,
-            {'use_sim_time': use_sim_time},
-        ],
-        condition=IfCondition(enable_terrain_grid_map)
-    )
-
     sensor_extrinsics_actions = OpaqueFunction(
         function=lambda context: _create_sensor_extrinsics_actions(
             context,
@@ -549,11 +495,6 @@ def generate_launch_description():
             point_lio_config_file=point_lio_config_file,
             point_lio_dir=point_lio_dir,
         )
-    )
-
-    terrain_grid_map_notice = LogInfo(
-        msg='[odometry] enable_terrain_grid_map=true：额外启动 rc26_terrain 与 terrain_grid_map_bridge，用于发布 /terrain_grid_map 2.5D 栅格地图。',
-        condition=IfCondition(enable_terrain_grid_map)
     )
 
     return LaunchDescription([
@@ -565,10 +506,6 @@ def generate_launch_description():
         declare_point_lio_publish_odometry_without_downsample,
         declare_sensor_extrinsics_file,
         declare_sensor_extrinsics_profile,
-        declare_enable_terrain_grid_map,
-        declare_terrain_params_file,
-        declare_terrain_grid_map_params_file,
-        declare_terrain_filter_chain_params_file,
         declare_recover_mid360_stream,
         declare_recover_mid360_lidar_ip,
         declare_recover_mid360_host_ip,
@@ -576,7 +513,6 @@ def generate_launch_description():
         declare_recover_mid360_warmup_before_reboot,
 
         # 节点
-        terrain_grid_map_notice,
         sensor_extrinsics_actions,
         recover_mid360_process,
         start_mid360_after_recover,
@@ -584,6 +520,4 @@ def generate_launch_description():
         point_lio_actions,
         odom_interface_node,
         sensor_scan_node,
-        terrain_semantic_node,
-        terrain_grid_map_bridge_node,
     ])

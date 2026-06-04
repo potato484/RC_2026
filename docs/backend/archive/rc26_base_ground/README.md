@@ -2,21 +2,21 @@
 
 ## 模块定位
 
-`rc26_base_ground` 是 R2 的基础标高与离散层级估计模块，用于把连续高度变化压成导航和机构更容易消费的地形层级语义。
+`rc26_base_ground` 是已归档的 R2 基础标高与离散层级估计源码包。当前主运行时不再编译、启动或消费它；默认 CMake 只完成包配置，不生成节点、库、测试或安装目标。
 
 ## 当前实现
 
-- 构建产物：`base_ground_estimator_node`
+- 归档历史构建产物：`base_ground_estimator_node`
 - 核心源码：`src/rc26_base_ground/src/base_ground_estimator_node.cpp`
 - 配置文件：`src/rc26_base_ground/config/base_ground_estimator.yaml`
 - 启动文件：`src/rc26_base_ground/launch/base_ground_estimator.launch.py`
 
-当前实现重点在于：
+历史实现重点在于：
 
 - 根据高频位姿/速度输入估计机器人当前的地面参考高度
 - 将 Z 轴变化离散化为台阶层级，而不是只保留连续高度
 - 维护地形稳定、操作稳定、被举起等安全语义
-- 为下游决策、地形门控和机构动作提供更稳的“当前层级/是否稳定”信号
+- 曾为下游决策、地形门控和机构动作提供“当前层级/是否稳定”信号；这些输出现在不再进入当前主链
 
 ## 源码入口与阅读顺序
 - 先看 `launch/base_ground_estimator.launch.py`，确认节点名、参数文件和发布链路。
@@ -43,10 +43,11 @@
 
 ## 模块边界
 
-- 这个包不做全局定位，不代替 `rc26_localization`
-- 它不做三维地形语义分割，不代替 `rc26_terrain`
-- 它输出的是“基础地面高度与层级语义”，不是完整路径规划结果
+- 不参与 `rc26_bringup`、`rc26_decision`、Nav2、smoke CI 的默认运行时链路
+- 默认不发布 `base_ground/*` 话题，也不广播 `base_ground` TF
+- 当前主链没有任何模块订阅 `base_ground/*` 数据；`rc26_decision` 只保留楼梯相关黑板默认值，不再从本包更新这些键
+- 如未来恢复，必须先重新定义接口契约、启动入口、验证范围和文档边界
 
 ## 配置注释口径
 
-- `config/base_ground_estimator.yaml` 已保留常用/高影响参数的中文注释，说明 frame、层级高度、姿态门槛、稳定窗口和保护阈值的运行时用途；本次只改变注释，不改变实际参数值。
+- 本轮在 CMake 中加入默认关闭的归档构建开关，并从 bringup、decision 和 CI 默认闭包中移除 base-ground 链路。`config/base_ground_estimator.yaml` 仅作为历史调试资料保留。

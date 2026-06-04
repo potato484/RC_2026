@@ -11,10 +11,8 @@
     <Sequence>
       <!-- 武馆阶段 -->
       <SubTree ID="MCAreaTree" _autoremap="true"/>
-      <!-- 梅林阶段（Nav2 pose 导航 + 决策侧 keepout 启停） -->
-      <WithKeepoutRuntime>
-        <SubTree ID="MFAreaTree" _autoremap="true"/>
-      </WithKeepoutRuntime>
+      <!-- 梅林阶段（Nav2 pose 导航） -->
+      <SubTree ID="MFAreaTree" _autoremap="true"/>
       <!-- 对抗阶段 -->
       <SubTree ID="CombatAreaTree" _autoremap="true"/>
     </Sequence>

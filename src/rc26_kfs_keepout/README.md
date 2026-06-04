@@ -1,15 +1,15 @@
 # rc26_kfs_keepout
 
-`rc26_kfs_keepout` 负责把梅林区 KFS 状态融合成稳定的禁入/慢行约束输入，供决策侧和外部观察链路消费。
+`rc26_kfs_keepout` 是已归档的梅林区动态 keepout 融合源码包。当前主运行时不再编译、启动或消费它；默认 CMake 只完成包配置，不生成节点、组件、库、测试或安装目标。
 
-## 当前输出
+## 归档历史输出
 
 - `/kfs_filter_mask`：占据栅格掩码
 - `/mf_block_overlay`：离散格状态覆盖层
 - `/kfs_keepout_heartbeat`：链路心跳
 - diagnostics
 
-## 当前职责
+## 归档历史职责
 
 - 基于 Log-Odds 维护格位阻挡概率
 - 对状态变化做驻留去抖
@@ -18,8 +18,9 @@
 
 ## 当前边界
 
-- 不识别原始 KFS 感知
-- 不直接控制机器人
-- 输出同时服务 `rc26_decision`、外部可视化消费者和 keepout gate
-- 本轮基础 Nav2 迁移不把 `/mf_block_overlay` 或 `/kfs_filter_mask` 接入 Nav2 costmap
-- 当 layout team 与运行时 `MfKfsState.team` 不一致时，只会禁用 keepout 输出并发布诊断，不会在本模块内直接触发底盘安全模式
+- 不参与 `rc26_bringup`、`rc26_decision`、Nav2、smoke CI 的默认运行时链路。
+- 当前主链不发布、订阅或消费 `/mf_block_overlay`、`/kfs_filter_mask`、`/kfs_keepout_heartbeat`。
+- 当前主链不提供或调用 `/kfs_keepout/set_runtime`。
+- `config/r2_mf_world.yaml` 不再是当前 MF 主区共享几何真源；MF 格位逻辑已退回 `rc26_decision` 包内静态表。
+- 只有显式以 `RC26_ENABLE_ARCHIVED_RUNTIME_TARGETS=ON` 恢复本地调试构建后，历史运行时才可能被手工启动。
+- 如未来恢复，必须先重新定义接口契约、启动入口、验证范围和文档边界。

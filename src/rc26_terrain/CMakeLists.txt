@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.8)
 project(rc26_terrain)
 
+find_package(ament_cmake REQUIRED)
+
+option(RC26_ENABLE_ARCHIVED_RUNTIME_TARGETS "Build archived runtime targets for local recovery/debug only" OFF)
+if(NOT RC26_ENABLE_ARCHIVED_RUNTIME_TARGETS)
+  message(STATUS "${PROJECT_NAME}: archived runtime targets disabled; no runtime targets will be built")
+  ament_package()
+  return()
+endif()
+
 cmake_policy(SET CMP0074 NEW)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -11,7 +20,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(ament_index_cpp REQUIRED)

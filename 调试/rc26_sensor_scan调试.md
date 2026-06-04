@@ -2,13 +2,13 @@
 
 ## 模块定位
 
-`rc26_sensor_scan` 负责把点云和里程计做时空对齐，输出给地形和下游消费者使用的 `/sensor_scan` 与 `/odometry`。
+`rc26_sensor_scan` 负责把点云和里程计做时空对齐，输出当前主链使用的 `/sensor_scan` 与 `/odometry`。
 
 ## 适用场景
 
 - 排查 `/sensor_scan` 是否存在、频率是否正常
 - 验证点云 frame_id 和 `/odometry` 时间戳对齐
-- 给 `rc26_terrain` 和感知链排查输入问题
+- 给当前定位、导航和感知链排查输入问题
 
 ## 前置条件
 
@@ -51,4 +51,3 @@ ros2 run tf2_ros tf2_echo odom livox_frame
 
 - [感知启动](./感知启动.md)
 - [建图启动](./建图启动.md)
-- [rc26_terrain调试](./rc26_terrain调试.md)

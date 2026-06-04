@@ -2,13 +2,15 @@
 
 ## 模块定位
 
-`rc26_base_ground` 负责把连续高度变化压成离散地形层级，并发布地形稳定、操作稳定、被举起等安全语义，供导航与机构动作消费。
+`rc26_base_ground` 已归档为 source-only 历史源码包。当前主链不编译它的运行时目标，不通过 bringup 启动它，也没有模块订阅 `base_ground/*` 输出。
+
+本页仅用于显式恢复历史 base-ground 节点时的本地调试资料，不属于当前 R2 默认联调顺序。
 
 ## 适用场景
 
-- 单独验证台阶层级、稳定性和 `base_ground` TF
-- 排查导航或机构动作为什么因为“地形不稳”被门控
-- 联调 Nav2、`rc26_terrain`、`rc26_mechanism` 之前先确认地形语义真源
+- 显式恢复归档目标后，单独验证台阶层级、稳定性和历史 `base_ground` TF
+- 复现历史地形稳定性门控逻辑
+- 确认历史参数与阈值，不得把 `base_ground/*` 输出接回当前主链
 
 ## 前置条件
 
@@ -21,7 +23,8 @@
 ```bash
 cd "${RC26_WS:-$HOME/RC_2026}"
 MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 \
-  --packages-select rc26_base_ground rc26_bringup
+  --packages-select rc26_base_ground \
+  --cmake-args -DRC26_ENABLE_ARCHIVED_RUNTIME_TARGETS=ON
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
@@ -31,7 +34,7 @@ source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ros2 launch rc26_base_ground base_ground_estimator.launch.py
 ```
 
-如果只是整车联调，通常直接通过整车链路带起，不需要单独启动。
+当前整车联调不会通过 bringup 带起本包。
 
 ## 最小验收
 
@@ -63,6 +66,4 @@ ros2 param set /base_ground_estimator tol_stable_ang_vel_rps 0.08
 
 ## 相关入口
 
-- [导航启动](./导航启动.md)
 - [感知启动](./感知启动.md)
-- [联调顺序](./联调顺序.md)

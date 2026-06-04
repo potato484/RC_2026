@@ -18,7 +18,6 @@
   - `src/decision_node.cpp`
   - `src/navigation/bt_nav2_pose.cpp`
   - `src/mf/mf_area.cpp`
-  - `src/mf/keepout_runtime.cpp`
   - `src/bt/bt_runtime_publisher.cpp`
 
 ## 当前导航调用口径
@@ -28,7 +27,8 @@
 - BT XML 中显式写入 `frame_id / x / y / yaw / behavior_tree / timeout_sec`，不再通过动态字符串拼接目标
 - `SelectNextGrid` 仍负责写入 `target_grid`；动态格位导航通过显式分支选择对应 `NavToPose`
 - `current_grid:=target_grid` 等脚本在对应 pose 成功后继续保持原有语义
-- `WithKeepoutRuntime` 仍包裹 `MFAreaTree`，进入 MF 前调用 `/kfs_keepout/set_runtime activate=true`，离开或 halt 时调用 `activate=false`
+- `MFAreaTree` 不再被 `WithKeepoutRuntime` 包裹；决策不再调用 `/kfs_keepout/set_runtime`，也不再发布 `/mf_kfs_state`
+- MF 格位选择只使用 `MerlinMapManager` 的包内静态深度表、BT 黑板状态和视觉结果，不再订阅 `/terrain_grid_map`
 
 `NavToPose` 会维护以下黑板观测键：
 
@@ -47,10 +47,10 @@ Nav2 action result 映射规则：
 
 ## 当前边界
 
-- 负责流程编排、目标选择、keepout 启停和策略切换
+- 负责流程编排、目标选择和策略切换
 - 不直接做底层控制求解
 - 不拥有 Nav2 planner/controller 的内部配置
-- MF keepout 的装载时机由决策显式控制，但 keepout 本体仍属于 `rc26_kfs_keepout`
+- 不订阅 `base_ground/*`、terrain GridMap、keepout heartbeat，也不调用 KFS keepout runtime service
 
 ## 本轮收口
 
@@ -59,3 +59,4 @@ Nav2 action result 映射规则：
 - `main_tree.xml` 改为 include `mf_tree.xml`
 - `mf_tree.xml` 中梅林区目标点固化为 Nav2 pose，并为 `target_grid` 建立显式分支
 - 行为树运行时发布白名单加入新的 `nav_last_*` 观测键
+- 本轮移除 `keepout_runtime` 与 `merlin_rule_world_model` 源码/构建目标，删除 base-ground 订阅和 `/mf_kfs_state` 发布，使决策包不再消费或生产已归档三包的数据

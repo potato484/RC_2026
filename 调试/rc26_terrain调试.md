@@ -2,13 +2,15 @@
 
 ## 模块定位
 
-`rc26_terrain` 负责把点云转换成障碍、跌落和 2.5D 栅格语义，是导航链的重要前置感知输入。
+`rc26_terrain` 已归档为 source-only 历史源码包。当前主链不编译它的运行时目标，不通过 bringup/odometry 启动它，也没有模块订阅它的输出。
+
+本页仅用于显式恢复历史地形节点时的本地调试资料，不属于当前 R2 默认联调顺序。
 
 ## 适用场景
 
-- 排查 `/terrain_obstacles`、`/terrain_drop` 和 `/terrain_grid_map_local`
-- 单独验证地形语义节点
-- 给 Nav2、`rc26_base_ground`、`rc26_decision` 排查感知输入
+- 显式恢复归档目标后，排查历史 `/terrain_obstacles`、`/terrain_drop` 和 `/terrain_grid_map_local`
+- 单独验证历史地形语义节点
+- 复现历史 terrain 调参结论；不得把这些输出接回当前主链
 
 ## 前置条件
 
@@ -21,7 +23,8 @@
 ```bash
 cd "${RC26_WS:-$HOME/RC_2026}"
 MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 \
-  --packages-select rc26_interfaces rc26_terrain rc26_merge_odom rc26_bringup
+  --packages-select rc26_interfaces rc26_terrain \
+  --cmake-args -DRC26_ENABLE_ARCHIVED_RUNTIME_TARGETS=ON
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
@@ -33,11 +36,7 @@ source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ros2 launch rc26_terrain terrain_semantic.launch.py
 ```
 
-整车链路带 2.5D grid map：
-
-```bash
-ros2 launch rc26_bringup odometry.launch.py enable_terrain_grid_map:=true
-```
+当前整车链路不再提供 terrain 启动入口，也没有 `enable_terrain_grid_map` 参数。
 
 ## 最小验收
 
@@ -82,7 +81,7 @@ ros2 param set /terrain_semantic h_drop_m 0.18
 - 因为它本来就是做地形语义理解的
 - 它关心的是“这个点对走路、跨台阶、导航有没有意义”
 - 在这一层改，影响最小
-- 改了只会影响地形理解和导航约束，不会直接去动 Point-LIO 内部匹配
+- 在归档恢复调试中，改动只影响历史地形理解节点，不会直接去动 Point-LIO 内部匹配
 
 ### 先去哪里改
 
@@ -356,10 +355,9 @@ output_filter:
 
 - 平地上障碍物误报太多：先调 `h_obstacle_m`。
 - 一直没有跌落输出：先确认输入点云覆盖到了落差区域，再看 `h_drop_m`。
-- 只想看 grid map：记得在总装链里显式传 `enable_terrain_grid_map:=true`。
+- 只想看历史 grid map：必须显式恢复归档构建目标后单独启动 `rc26_terrain`；当前总装链不再提供 grid map 开关。
 
 ## 相关入口
 
 - [感知启动](./感知启动.md)
-- [导航启动](./导航启动.md)
 - [rc26_sensor_scan调试](./rc26_sensor_scan调试.md)

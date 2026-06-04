@@ -54,52 +54,6 @@ Visualization Manager:
       Topic:
         Value: curvature_points_marker_array
       Value: true
-    - Alpha: 1
-      Autocompute Intensity Bounds: true
-      Class: grid_map_rviz_plugin/GridMap
-      Color: 200; 200; 200
-      Color Layer: traversability
-      Color Transformer: GridMapLayer
-      # 参数说明：Height Layer - 几何距离参数，单位通常为米。
-      Height Layer: elevation_abs
-      # 参数说明：Height Transformer - 几何距离参数，单位通常为米。
-      Height Transformer: GridMapLayer
-      Name: TerrainGridMapLocal
-      Topic:
-        Value: terrain_grid_map_local
-      Value: true
-    - Class: rviz_default_plugins/MarkerArray
-      Name: TerrainGridMapLocalMarkers
-      Topic:
-        Value: terrain_grid_map_local_markers
-      Value: true
-    - Class: rviz_default_plugins/PointCloud2
-      Name: TerrainObstacles
-      Topic:
-        Value: terrain_obstacles
-        Queue Size: 5
-      Value: true
-      Size (m): 0.05
-      Style: Points
-      Color: 255; 120; 80
-      Color Transformer: FlatColor
-      Reliability Policy: Best Effort
-    - Class: rviz_default_plugins/PointCloud2
-      Name: TerrainDrop
-      Topic:
-        Value: terrain_drop
-        Queue Size: 5
-      Value: true
-      Size (m): 0.05
-      Style: Points
-      Color: 80; 160; 255
-      Color Transformer: FlatColor
-      Reliability Policy: Best Effort
-    - Class: rviz_default_plugins/Map
-      Name: KeepoutMask
-      Topic:
-        Value: /kfs_filter_mask
-      Value: true
   Global Options:
     # 参数说明：Fixed Frame - RViz 固定坐标系；所有显示项会转换到该 frame。
     Fixed Frame: odom

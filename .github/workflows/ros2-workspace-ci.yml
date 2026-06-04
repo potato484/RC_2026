@@ -62,7 +62,6 @@ jobs:
           rosdep install \
             --from-paths \
               src/rc26_interfaces \
-              src/rc26_base_ground \
               src/rc26_mid360_driver \
               src/rc26_odom_interface \
               src/rc26_point_lio \
@@ -72,8 +71,6 @@ jobs:
               src/rc26_serial \
               src/rc26_telecontrol \
               src/rc26_localization \
-              src/rc26_terrain \
-              src/rc26_kfs_keepout \
               src/rc26_vision \
               src/rc26_decision \
               src/rc26_bringup \

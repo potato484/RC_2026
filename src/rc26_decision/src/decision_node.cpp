@@ -3,28 +3,18 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include <algorithm>
-#include <array>
 #include <chrono>
-#include <cmath>
-#include <functional>
 #include <geometry_msgs/msg/point.hpp>
 #include <memory>
-#include <std_msgs/msg/bool.hpp>
-#include <std_msgs/msg/int32.hpp>
-#include <std_msgs/msg/int8.hpp>
 #include <string>
-#include <vector>
 
 #include "rc26_decision/bt/bt_runtime_publisher.hpp"
 #include "rc26_decision/combat/combat_area.hpp"
 #include "rc26_decision/mc/mc_area.hpp"
-#include "rc26_decision/mf/keepout_runtime.hpp"
 #include "rc26_decision/mf/mf_area.hpp"
 #include "rc26_decision/navigation/bt_nav2_pose.hpp"
 #include "rc26_decision/vision/bt_nodes.hpp"
 #include "rc26_interfaces/msg/mechanism_state.hpp"
-#include "rc26_interfaces/msg/mf_kfs_cell.hpp"
-#include "rc26_interfaces/msg/mf_kfs_state.hpp"
 #include "rc26_interfaces/srv/control_behavior_tree.hpp"
 #include "rc26_vision/inference/config/model_profile_loader.hpp"
 #include "rc26_vision/inference/runtime/vision_inference_manager.hpp"
@@ -44,19 +34,6 @@ public:
     this->declare_parameter<std::string>("mechanism_state_topic",
                                          "/mechanism/status");
     this->declare_parameter<std::string>("team", "blue");
-    this->declare_parameter<std::string>("base_ground_level_topic",
-                                         "base_ground/level");
-    this->declare_parameter<std::string>("base_ground_stair_delta_topic",
-                                         "base_ground/stair_delta");
-    this->declare_parameter<std::string>("base_ground_stable_topic",
-                                         "base_ground/stable_terrain");
-    this->declare_parameter<std::string>("base_ground_is_lifted_topic",
-                                         "base_ground/is_lifted");
-    this->declare_parameter<std::string>("base_ground_stable_operation_topic",
-                                         "base_ground/stable_operation");
-    this->declare_parameter<std::string>("kfs_state_topic", "mf_kfs_state");
-    this->declare_parameter<std::string>("keepout_runtime_service",
-                                         "/kfs_keepout/set_runtime");
     this->declare_parameter<double>("tip_rack_center_x", 0.0);
     this->declare_parameter<double>("tip_rack_center_y", 0.0);
 
@@ -125,9 +102,6 @@ public:
                                                   : merlin_map->initRedMap();
       blackboard->set("merlin_map", merlin_map);
 
-      auto merlin_rule_world_model =
-          std::make_shared<MerlinRuleWorldModel>(*this);
-      blackboard->set("merlin_rule_world_model", merlin_rule_world_model);
       auto battle_grid_state = std::make_shared<BattleGridState>();
       blackboard->set("battle_grid_state", battle_grid_state);
       if (layout_loaded) {
@@ -149,7 +123,6 @@ public:
     blackboard->set("system_error", false);
     blackboard->set("current_level", static_cast<int32_t>(0));
     blackboard->set("stair_delta", static_cast<int8_t>(0));
-    blackboard->set("base_ground_stable", false);
     blackboard->set("is_lifted", false);
     blackboard->set("stable_operation", false);
     blackboard->set("level_start", static_cast<int32_t>(0));
@@ -162,50 +135,6 @@ public:
     // 机制状态可观测键（供 Groot2/诊断查看）
     blackboard->set("mechanism_hal_open", false);
     blackboard->set("mechanism_current_cmd_id", 0);
-
-
-    // 订阅 base_ground 话题
-    const auto level_topic =
-        this->get_parameter("base_ground_level_topic").as_string();
-    base_ground_level_sub_ = this->create_subscription<std_msgs::msg::Int32>(
-        level_topic, 10,
-        [blackboard](const std_msgs::msg::Int32::SharedPtr msg) {
-          blackboard->set("current_level", msg->data);
-        });
-
-    const auto stair_delta_topic =
-        this->get_parameter("base_ground_stair_delta_topic").as_string();
-    base_ground_stair_delta_sub_ =
-        this->create_subscription<std_msgs::msg::Int8>(
-            stair_delta_topic, 10,
-            [blackboard](const std_msgs::msg::Int8::SharedPtr msg) {
-              blackboard->set("stair_delta", static_cast<int8_t>(msg->data));
-            });
-
-    const auto stable_topic =
-        this->get_parameter("base_ground_stable_topic").as_string();
-    base_ground_stable_sub_ = this->create_subscription<std_msgs::msg::Bool>(
-        stable_topic, 10,
-        [blackboard](const std_msgs::msg::Bool::SharedPtr msg) {
-          blackboard->set("base_ground_stable", msg->data);
-        });
-
-    const auto is_lifted_topic =
-        this->get_parameter("base_ground_is_lifted_topic").as_string();
-    base_ground_is_lifted_sub_ = this->create_subscription<std_msgs::msg::Bool>(
-        is_lifted_topic, 10,
-        [blackboard](const std_msgs::msg::Bool::SharedPtr msg) {
-          blackboard->set("is_lifted", msg->data);
-        });
-
-    const auto stable_op_topic =
-        this->get_parameter("base_ground_stable_operation_topic").as_string();
-    base_ground_stable_operation_sub_ =
-        this->create_subscription<std_msgs::msg::Bool>(
-            stable_op_topic, 10,
-            [blackboard](const std_msgs::msg::Bool::SharedPtr msg) {
-              blackboard->set("stable_operation", msg->data);
-            });
 
     // 订阅机制状态（决策侧不再直接处理串口反馈）
     const auto mechanism_state_topic =
@@ -228,7 +157,6 @@ public:
     // 注册所有行为树节点
     registerMCAreaNodes(factory_);
     registerMFAreaNodes(factory_);
-    registerKeepoutRuntimeNodes(factory_);
     registerCombatAreaNodes(factory_);
     registerNav2PoseNodes(factory_);
     registerVisionNodes(factory_);
@@ -266,15 +194,6 @@ public:
                     rc26_interfaces::srv::ControlBehaviorTree::Response> response) {
               handleControlRequest(*request, *response);
             });
-
-    // /mf_kfs_state 发布器（5Hz）
-    const auto kfs_topic = this->get_parameter("kfs_state_topic").as_string();
-    pub_kfs_state_ = this->create_publisher<rc26_interfaces::msg::MfKfsState>(
-        kfs_topic, rclcpp::QoS(rclcpp::KeepLast(3)).reliable());
-    (void)publishKfsState(true);
-    kfs_timer_ =
-        this->create_wall_timer(std::chrono::milliseconds(200),
-                                [this]() { (void)publishKfsState(true); });
 
     RCLCPP_INFO(this->get_logger(),
                 "决策节点已启动, tick_mode=%s, tick_rate_ms=%d, manual_play_interval_ms=%u",
@@ -322,6 +241,10 @@ private:
     blackboard_->set("loc_guard_reason", std::string(""));
     blackboard_->set("loc_last_profile",
                      this->get_parameter("loc_profile_normal").as_string());
+    blackboard_->set("current_level", static_cast<int32_t>(0));
+    blackboard_->set("stair_delta", static_cast<int8_t>(0));
+    blackboard_->set("is_lifted", false);
+    blackboard_->set("stable_operation", false);
     blackboard_->set("target_kfs_count", 0);
     blackboard_->set("kfs_on_board", 0);
     blackboard_->set("current_grid", 0);
@@ -342,8 +265,6 @@ private:
     const bool layout_loaded = (team == "blue") ? merlin_map->initBlueMap()
                                                 : merlin_map->initRedMap();
     blackboard_->set("merlin_map", merlin_map);
-    blackboard_->set("merlin_rule_world_model",
-                     std::make_shared<MerlinRuleWorldModel>(*this));
     blackboard_->set("battle_grid_state",
                      std::make_shared<BattleGridState>());
 
@@ -371,12 +292,10 @@ private:
         this, tree_, blackboard_, tree_file_);
     terminal_ = false;
     playing_ = false;
-    have_last_kfs_snapshot_ = false;
 
     if (bt_runtime_publisher_) {
       bt_runtime_publisher_->publishSnapshotOnly(BT::NodeStatus::IDLE, 0.0f);
     }
-    (void)publishKfsState(true);
     publishDebugState();
   }
 
@@ -419,9 +338,6 @@ private:
     if (bt_runtime_publisher_) {
       bt_runtime_publisher_->completeTick(status, dur_ms);
     }
-
-    // KFS 状态变化立即发布（周期定时器仍保留 5Hz 保底）
-    (void)publishKfsState(false);
 
     terminal_ =
         (status == BT::NodeStatus::SUCCESS || status == BT::NodeStatus::FAILURE);
@@ -515,60 +431,6 @@ private:
     }
   }
 
-  bool publishKfsState(bool force_publish) {
-    if (!pub_kfs_state_) {
-      return false;
-    }
-
-    std::shared_ptr<MerlinMapManager> merlin_map;
-    if (!blackboard_->get("merlin_map", merlin_map) || !merlin_map) {
-      return false;
-    }
-
-    std::string team;
-    if (!blackboard_->get("team", team)) {
-      team.clear();
-    }
-
-    std::array<uint8_t, 13> kfs_type{};
-    std::array<float, 13> kfs_confidence{};
-    rc26_interfaces::msg::MfKfsState msg;
-    msg.header.stamp = this->get_clock()->now();
-    msg.header.frame_id = "map";
-    msg.team = team;
-
-    for (int grid = 1; grid <= 12; grid++) {
-      const auto kfs = merlin_map->getKFS(grid);
-      rc26_interfaces::msg::MfKfsCell cell;
-      cell.grid_id = static_cast<uint8_t>(grid);
-      cell.kfs_type = static_cast<uint8_t>(kfs);
-      cell.confidence = (kfs == KFSType::UNKNOWN) ? 0.0f : 1.0f;
-      kfs_type[static_cast<size_t>(grid)] = cell.kfs_type;
-      kfs_confidence[static_cast<size_t>(grid)] = cell.confidence;
-      msg.cells.push_back(cell);
-    }
-
-    bool changed = !have_last_kfs_snapshot_ || (team != last_kfs_team_);
-    for (int grid = 1; grid <= 12 && !changed; grid++) {
-      const size_t idx = static_cast<size_t>(grid);
-      if (kfs_type[idx] != last_kfs_type_[idx] ||
-          std::fabs(kfs_confidence[idx] - last_kfs_confidence_[idx]) > 1e-5F) {
-        changed = true;
-      }
-    }
-
-    if (!force_publish && !changed) {
-      return false;
-    }
-
-    pub_kfs_state_->publish(msg);
-    last_kfs_type_ = kfs_type;
-    last_kfs_confidence_ = kfs_confidence;
-    last_kfs_team_ = team;
-    have_last_kfs_snapshot_ = true;
-    return true;
-  }
-
   BT::BehaviorTreeFactory factory_;
   BT::Tree tree_;
   BT::Blackboard::Ptr blackboard_;
@@ -576,12 +438,6 @@ private:
   rclcpp::TimerBase::SharedPtr manual_play_timer_;
   rclcpp::Service<rc26_interfaces::srv::ControlBehaviorTree>::SharedPtr
       control_service_;
-  rclcpp::Publisher<rc26_interfaces::msg::MfKfsState>::SharedPtr pub_kfs_state_;
-  rclcpp::TimerBase::SharedPtr kfs_timer_;
-  std::array<uint8_t, 13> last_kfs_type_{};
-  std::array<float, 13> last_kfs_confidence_{};
-  std::string last_kfs_team_;
-  bool have_last_kfs_snapshot_{false};
   std::string tree_file_;
   std::string tree_path_;
   std::string tick_mode_{"auto"};
@@ -590,14 +446,6 @@ private:
   bool manual_mode_{false};
   bool playing_{false};
   bool terminal_{false};
-  rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr base_ground_level_sub_;
-  rclcpp::Subscription<std_msgs::msg::Int8>::SharedPtr
-      base_ground_stair_delta_sub_;
-  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr base_ground_stable_sub_;
-  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr
-      base_ground_is_lifted_sub_;
-  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr
-      base_ground_stable_operation_sub_;
   rclcpp::Subscription<rc26_interfaces::msg::MechanismState>::SharedPtr
       mechanism_state_sub_;
   std::shared_ptr<rc26_vision::VisionInferenceManager> vision_manager_;

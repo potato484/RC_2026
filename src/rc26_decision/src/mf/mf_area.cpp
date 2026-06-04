@@ -1,17 +1,13 @@
 // 梅林区 (MF Area) 行为树节点实现
 #include "rc26_decision/mf/mf_area.hpp"
 
-#include <ament_index_cpp/get_package_share_directory.hpp>
-
 #include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <cmath>
-#include <filesystem>
 
 #include "rc26_serial/protocol.hpp"
 #include "rc26_vision/shared/contracts/vision_types.hpp"
-#include "yaml-cpp/yaml.h"
 
 namespace {
 
@@ -20,164 +16,6 @@ std::string toLowerCopy(std::string value) {
       value.begin(), value.end(), value.begin(),
       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return value;
-}
-
-int mirrorGridIdAcrossColumns(int grid_id) {
-  if (grid_id < 1 || grid_id > 12) {
-    return grid_id;
-  }
-  const int row = (grid_id - 1) / 3;
-  const int col = (grid_id - 1) % 3;
-  return row * 3 + (2 - col) + 1;
-}
-
-bool resolveWorldLayoutRedirect(const std::string &raw_path,
-                                std::string &resolved_path, std::string &err) {
-  if (raw_path.empty()) {
-    err = "world layout path is empty";
-    return false;
-  }
-
-  std::filesystem::path current(raw_path);
-  if (current.is_relative()) {
-    current = std::filesystem::current_path() / current;
-  }
-  current = current.lexically_normal();
-
-  for (int hop = 0; hop < 4; ++hop) {
-    YAML::Node root = YAML::LoadFile(current.string());
-    if (root["world_layout_file"]) {
-      std::filesystem::path next = root["world_layout_file"].as<std::string>();
-      if (next.empty()) {
-        err = "world_layout_file is empty";
-        return false;
-      }
-      if (next.is_relative()) {
-        next = current.parent_path() / next;
-      }
-      current = next.lexically_normal();
-      continue;
-    }
-    resolved_path = current.string();
-    return true;
-  }
-
-  err = "too many world_layout_file redirects";
-  return false;
-}
-
-bool loadMerlinCellsFromWorldLayout(
-    const std::string &requested_team,
-    std::array<rc26_decision::MerlinGridCell, 13> &out_cells,
-    std::vector<int> &out_exit_blocks, std::string &out_status) {
-  std::string layout_path;
-  try {
-    layout_path =
-        ament_index_cpp::get_package_share_directory("rc26_kfs_keepout") +
-        "/config/r2_mf_world.yaml";
-  } catch (const std::exception &ex) {
-    out_status = std::string("world layout path resolve failed: ") + ex.what();
-    return false;
-  }
-
-  try {
-    std::string resolved_path;
-    std::string err;
-    if (!resolveWorldLayoutRedirect(layout_path, resolved_path, err)) {
-      out_status = err;
-      return false;
-    }
-
-    const YAML::Node root = YAML::LoadFile(resolved_path);
-    const YAML::Node meta = root["meta"];
-    if (!meta) {
-      out_status = "world layout missing meta";
-      return false;
-    }
-
-    const std::string layout_team =
-        meta["team"] ? toLowerCopy(meta["team"].as<std::string>()) : "";
-    const std::string normalized_team = toLowerCopy(requested_team);
-    const bool mirror_columns = !layout_team.empty() &&
-                                !normalized_team.empty() &&
-                                normalized_team != layout_team;
-
-    const YAML::Node blocks = root["blocks"] ? root["blocks"] : root["grids"];
-    if (!blocks || !blocks.IsSequence()) {
-      out_status = "world layout missing blocks/grids sequence";
-      return false;
-    }
-
-    for (auto &cell : out_cells) {
-      cell.depth = 0;
-      cell.kfs = rc26_decision::KFSType::UNKNOWN;
-    }
-
-    std::array<bool, 13> seen{};
-    for (const auto &block : blocks) {
-      const int id = block["id"].as<int>();
-      if (id < 1 || id > 12) {
-        out_status = "world layout grid id out of range";
-        return false;
-      }
-
-      int depth = 0;
-      if (block["depth"]) {
-        depth = block["depth"].as<int>();
-      } else if (block["expected_height_m"]) {
-        depth = static_cast<int>(
-            std::lround(block["expected_height_m"].as<double>() / 0.2));
-      }
-      if (depth < 0) {
-        out_status = "world layout depth must be non-negative";
-        return false;
-      }
-
-      const int effective_id =
-          mirror_columns ? mirrorGridIdAcrossColumns(id) : id;
-      out_cells[static_cast<size_t>(effective_id)].depth = depth;
-      out_cells[static_cast<size_t>(effective_id)].kfs =
-          rc26_decision::KFSType::UNKNOWN;
-      seen[static_cast<size_t>(effective_id)] = true;
-    }
-
-    for (int id = 1; id <= 12; ++id) {
-      if (!seen[static_cast<size_t>(id)]) {
-        out_status = "world layout must define ids 1..12";
-        return false;
-      }
-    }
-
-    out_exit_blocks.clear();
-    const YAML::Node exit_blocks = root["exit_blocks"];
-    if (exit_blocks && exit_blocks.IsSequence()) {
-      out_exit_blocks.reserve(exit_blocks.size());
-      for (const auto &value : exit_blocks) {
-        const int id = value.as<int>();
-        if (id < 1 || id > 12) {
-          out_status = "exit_blocks contains invalid id";
-          return false;
-        }
-        out_exit_blocks.push_back(mirror_columns ? mirrorGridIdAcrossColumns(id)
-                                                 : id);
-      }
-      std::sort(out_exit_blocks.begin(), out_exit_blocks.end());
-      out_exit_blocks.erase(
-          std::unique(out_exit_blocks.begin(), out_exit_blocks.end()),
-          out_exit_blocks.end());
-    } else {
-      out_exit_blocks = {10, 11, 12};
-    }
-
-    out_status = "world_layout:" + resolved_path;
-    if (mirror_columns) {
-      out_status += " (applied runtime team mirror)";
-    }
-    return true;
-  } catch (const std::exception &ex) {
-    out_status = std::string("world layout parse failed: ") + ex.what();
-    return false;
-  }
 }
 
 } // namespace
@@ -229,25 +67,14 @@ void MerlinMapManager::initLegacyBlueMapLocked() {
 bool MerlinMapManager::initFromWorldLayout(const std::string &team) {
   std::lock_guard<std::mutex> lock(mutex_);
 
-  std::array<MerlinGridCell, 13> next_cells{};
-  std::vector<int> next_exit_blocks;
-  std::string next_status;
-  if (loadMerlinCellsFromWorldLayout(team, next_cells, next_exit_blocks,
-                                     next_status)) {
-    cells_ = std::move(next_cells);
-    exit_blocks_ = std::move(next_exit_blocks);
-    layout_status_ = std::move(next_status);
-    return true;
-  }
-
   if (toLowerCopy(team) == "red") {
     initLegacyRedMapLocked();
   } else {
     initLegacyBlueMapLocked();
   }
   exit_blocks_ = {10, 11, 12};
-  layout_status_ = std::move(next_status) + " | fallback=legacy_depth_table";
-  return false;
+  layout_status_ = "legacy_depth_table";
+  return true;
 }
 
 bool MerlinMapManager::initRedMap() { return initFromWorldLayout("red"); }
@@ -534,17 +361,6 @@ BT::NodeStatus ScanSurroundingsAction::onStart() {
 
   int current_grid = 2;
   (void)config().blackboard->get("current_grid", current_grid);
-  std::shared_ptr<MerlinRuleWorldModel> world_model;
-  (void)config().blackboard->get("merlin_rule_world_model", world_model);
-  if (world_model) {
-    int resolved_grid = -1;
-    if (world_model->resolveCurrentBlock(resolved_grid) && resolved_grid >= 1 &&
-        resolved_grid <= 12) {
-      current_grid = resolved_grid;
-      config().blackboard->set("current_grid", current_grid);
-    }
-  }
-
   const int front = map_->getAdjacentGrid(current_grid, MFDirection::FRONT);
 
   bool vision_has_target = false;
@@ -604,23 +420,13 @@ BT::NodeStatus SelectNextGridAction::tick() {
   if (!map)
     return BT::NodeStatus::FAILURE;
 
-  std::shared_ptr<MerlinRuleWorldModel> world_model;
-  (void)config().blackboard->get("merlin_rule_world_model", world_model);
-  if (world_model) {
-    int resolved_grid = -1;
-    if (world_model->resolveCurrentBlock(resolved_grid) && resolved_grid >= 1 &&
-        resolved_grid <= 12) {
-      current = resolved_grid;
-      config().blackboard->set("current_grid", current);
-    }
-  }
   if (map->isExitBlock(current)) {
     exit_grid = current;
   }
 
   // P1: 贪婪抓取
   if (kfs_count < target_kfs) {
-    int grab = findAdjacentR2KFS(current, map, world_model);
+    int grab = findAdjacentR2KFS(current, map);
     if (grab > 0) {
       config().blackboard->set("merlin_last_transition_reason",
                                std::string("select_grab_target"));
@@ -630,7 +436,7 @@ BT::NodeStatus SelectNextGridAction::tick() {
     }
   }
   // P2: 赶路
-  int next = findBestPathToExit(current, exit_grid, map, world_model);
+  int next = findBestPathToExit(current, exit_grid, map);
   if (next > 0) {
     config().blackboard->set("merlin_last_transition_reason",
                              std::string("select_move_target"));
@@ -647,18 +453,11 @@ BT::NodeStatus SelectNextGridAction::tick() {
 }
 
 int SelectNextGridAction::findAdjacentR2KFS(
-    int current, std::shared_ptr<MerlinMapManager> map,
-    const std::shared_ptr<MerlinRuleWorldModel> &world_model) {
-  const auto can_move = [&](int from, int to) -> bool {
-    if (world_model && world_model->isReady()) {
-      return world_model->canMove(from, to).allowed;
-    }
-    return map->canTraverse(from, to);
-  };
-
+    int current, std::shared_ptr<MerlinMapManager> map) {
   for (auto dir : {MFDirection::FRONT, MFDirection::LEFT, MFDirection::RIGHT}) {
     int adj = map->getAdjacentGrid(current, dir);
-    if (adj > 0 && map->getKFS(adj) == KFSType::R2 && can_move(current, adj)) {
+    if (adj > 0 && map->getKFS(adj) == KFSType::R2 &&
+        map->canTraverse(current, adj)) {
       return adj;
     }
   }
@@ -666,8 +465,7 @@ int SelectNextGridAction::findAdjacentR2KFS(
 }
 
 int SelectNextGridAction::findBestPathToExit(
-    int current, int exit_grid, std::shared_ptr<MerlinMapManager> map,
-    const std::shared_ptr<MerlinRuleWorldModel> &world_model) {
+    int current, int exit_grid, std::shared_ptr<MerlinMapManager> map) {
   int best = -1, min_dist = 100;
   for (auto dir : {MFDirection::FRONT, MFDirection::LEFT, MFDirection::RIGHT}) {
     int adj = map->getAdjacentGrid(current, dir);
@@ -681,15 +479,7 @@ int SelectNextGridAction::findBestPathToExit(
       continue;
     }
 
-    bool allow_transition = false;
-    if (world_model && world_model->isReady()) {
-      const auto verdict = world_model->canMove(current, adj);
-      allow_transition = verdict.allowed;
-    } else {
-      allow_transition =
-          (tracked_state == KFSType::NONE) && map->canTraverse(current, adj);
-    }
-    if (!allow_transition) {
+    if (tracked_state != KFSType::NONE || !map->canTraverse(current, adj)) {
       continue;
     }
 
@@ -717,16 +507,6 @@ BT::NodeStatus CheckExitCondition::tick() {
   (void)config().blackboard->get("current_grid", current);
   (void)config().blackboard->get("kfs_on_board", kfs_count);
   (void)config().blackboard->get("target_kfs_count", target_kfs);
-  std::shared_ptr<MerlinRuleWorldModel> world_model;
-  (void)config().blackboard->get("merlin_rule_world_model", world_model);
-  if (world_model) {
-    int resolved_grid = -1;
-    if (world_model->resolveCurrentBlock(resolved_grid) && resolved_grid >= 1 &&
-        resolved_grid <= 12) {
-      current = resolved_grid;
-      config().blackboard->set("current_grid", current);
-    }
-  }
   std::shared_ptr<MerlinMapManager> map;
   if (!config().blackboard->get("merlin_map", map) || !map) {
     return BT::NodeStatus::FAILURE;
@@ -752,16 +532,6 @@ BT::NodeStatus CheckR1BlockingCondition::tick() {
     return BT::NodeStatus::FAILURE;
   int current = 2;
   (void)config().blackboard->get("current_grid", current);
-  std::shared_ptr<MerlinRuleWorldModel> world_model;
-  (void)config().blackboard->get("merlin_rule_world_model", world_model);
-  if (world_model) {
-    int resolved_grid = -1;
-    if (world_model->resolveCurrentBlock(resolved_grid) && resolved_grid >= 1 &&
-        resolved_grid <= 12) {
-      current = resolved_grid;
-      config().blackboard->set("current_grid", current);
-    }
-  }
   int front = map->getAdjacentGrid(current, MFDirection::FRONT);
   if (front > 0 && map->getKFS(front) == KFSType::R1) {
     return BT::NodeStatus::SUCCESS;

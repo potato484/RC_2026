@@ -203,7 +203,6 @@
 | `merlin_last_transition_reason` | 梅林转移原因 |
 | `current_level` | 当前楼层 |
 | `stair_delta` | 台阶高度差 |
-| `base_ground_stable` | 地面稳定状态 |
 | `stair_climb_done` | 上楼梯完成 |
 | `stair_descend_done` | 下楼梯完成 |
 | `timeout_sec` | 超时时间 |

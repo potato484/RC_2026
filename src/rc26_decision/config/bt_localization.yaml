@@ -123,15 +123,15 @@ custom_types:
     tooltip: "执行上台阶动作。"
     summary: "用于机器人从平地进入更高的平台。"
     scenario: "梅林区域入口或转场时可能会用到。"
-    attention: "要同时观察 `current_level`、`stair_delta` 和底盘稳定状态。"
-    related_blackboard_keys: ["current_level", "stair_delta", "base_ground_stable", "stair_climb_done"]
+    attention: "要同时观察 `current_level`、`stair_delta` 和动作完成状态。"
+    related_blackboard_keys: ["current_level", "stair_delta", "stair_climb_done"]
   StairDescend:
     display_name: "下楼梯"
     tooltip: "执行下台阶动作。"
     summary: "用于机器人从高平台回到地面。"
     scenario: "梅林区域离场时会执行这个动作。"
     attention: "下楼梯后要确认 `stair_descend_done` 和地面稳定状态。"
-    related_blackboard_keys: ["current_level", "stair_delta", "base_ground_stable", "stair_descend_done"]
+    related_blackboard_keys: ["current_level", "stair_delta", "stair_descend_done"]
   GrabKFS:
     display_name: "抓取 KFS"
     tooltip: "控制机构抓取当前目标格中的 KFS。"

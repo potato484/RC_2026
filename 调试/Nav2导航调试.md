@@ -16,7 +16,7 @@ R2 当前导航运行权威是 Nav2。`rc26_bringup` 在 `slam=false` 时启动 
 ```bash
 cd "${RC26_WS:-$HOME/RC_2026}"
 MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 \
-  --packages-select rc26_interfaces rc26_terrain rc26_decision rc26_bringup
+  --packages-select rc26_interfaces rc26_localization rc26_decision rc26_bringup
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 

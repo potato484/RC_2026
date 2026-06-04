@@ -2,38 +2,35 @@
 
 ## 模块定位
 
-`rc26_kfs_keepout` 负责把梅林区 KFS 状态融合成稳定的禁入约束输入，向导航和决策输出 `/kfs_filter_mask`、`/mf_block_overlay` 与 `/kfs_keepout_heartbeat`。
+`rc26_kfs_keepout` 已归档为 source-only 历史源码包。当前主链不编译它的运行时目标，不通过 bringup 启动它，`rc26_decision` 不调用 `/kfs_keepout/set_runtime`，也不订阅 keepout 输出。
+
+本页仅用于显式恢复历史 keepout 节点时的本地调试资料，不属于当前 R2 默认联调顺序。
 
 ## 适用场景
 
-- 单独验证 KFS 占据掩码、心跳和强制释放服务
-- 排查导航为什么被 keepout 阻塞
-- 排查决策 `keepout_gate` 为什么一直等待或降级
+- 显式恢复归档目标后，单独验证历史 KFS 占据掩码、overlay 和心跳
+- 复现历史 keepout runtime 行为
+- 确认历史参数与接口，不得把 `/mf_block_overlay` 或 `/kfs_filter_mask` 接回当前主链
 
 ## 前置条件
 
 - 已 `source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"`
 - 若单包调试，需要手工提供 `/mf_kfs_state`
-- 若整车联调，建议直接通过 `rc26_bringup` 带起
+- 当前整车联调不会通过 `rc26_bringup` 带起本包
 
 ## 标准编译
 
 ```bash
 cd "${RC26_WS:-$HOME/RC_2026}"
 MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 \
-  --packages-select rc26_kfs_keepout rc26_decision rc26_bringup
+  --packages-select rc26_kfs_keepout \
+  --cmake-args -DRC26_ENABLE_ARCHIVED_RUNTIME_TARGETS=ON
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
 ## 推荐启动
 
-整车链路推荐直接通过 bringup：
-
-```bash
-ros2 launch rc26_bringup bringup.launch.py slam:=false use_decision:=false
-```
-
-单包调试可直接运行节点：
+当前整车链路不再启动 keepout。归档恢复调试时可直接运行历史节点：
 
 ```bash
 ros2 run rc26_kfs_keepout kfs_block_fuser_node --ros-args \
@@ -63,11 +60,9 @@ ros2 topic pub --once /kfs_force_release_grid std_msgs/msg/UInt8 "{data: 5}"
 ## 优先排查
 
 - 心跳有、掩码没变化：先确认 `/mf_kfs_state` 是否真的在变，再看 `min_confidence` 和 `dwell_cycles`。
-- 决策侧一直等 keepout：先确认 `heartbeat_topic` 名称和决策使用的 topic 一致。
+- 当前决策侧不再等待 keepout；如果恢复历史链路，需要另行恢复对应 BT/决策调用。
 - 单包调试时起不来：当前包没有独立 launch 文件，直接用 `ros2 run ... kfs_block_fuser_node` 才是当前真实入口。
 
 ## 相关入口
 
-- [决策启动](./决策启动.md)
 - [rc26_decision调试](./rc26_decision调试.md)
-- [Nav2导航调试](./Nav2导航调试.md)

@@ -51,20 +51,6 @@ rc26_decision:
     # 参数说明：speed_profile_scales.creep - 运行 profile 或模式；用于在不同任务、风险等级或后端之间切换参数组。
     speed_profile_scales.creep: 0.2
 
-    # Keepout ready gate
-    # 参数说明：keepout_gate.enable - 布尔开关；控制对应能力是否启用。
-    keepout_gate.enable: true
-    # 参数说明：keepout_gate.mode - 运行 profile 或模式；用于在不同任务、风险等级或后端之间切换参数组。
-    keepout_gate.mode: "legacy"  # "legacy" | "heartbeat"
-    # 参数说明：keepout_gate.max_age_ms - 时间参数，单位毫秒。
-    keepout_gate.max_age_ms: 300.0
-    # 参数说明：keepout_gate.timeout_sec - 超时时间；超过该值后会触发降级、停止或失败处理。
-    keepout_gate.timeout_sec: 3.0
-    # 参数说明：keepout_gate.heartbeat_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    keepout_gate.heartbeat_topic: "/kfs_keepout_heartbeat"
-    # 参数说明：keepout_runtime_service - MF keepout 运行时装载/卸载服务；进入/离开 MFAreaTree 时调用。
-    keepout_runtime_service: "/kfs_keepout/set_runtime"
-
     # MC 端头架中心（map）
     tip_rack_center_x: 0.0
     tip_rack_center_y: 0.0
@@ -118,7 +104,6 @@ rc26_decision:
       - "loc_guard_reason"
       - "current_level"
       - "stair_delta"
-      - "base_ground_stable"
       - "is_lifted"
       - "stable_operation"
       - "stair_climb_done"

@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: RC26 R2 Navigation ROS2 Contract
   version: 0.8.0
-  description: Nav2 基础导航与 MF keepout/decision 支撑接口契约
+  description: Nav2 基础导航与当前决策侧导航接口契约；MF keepout 相关接口仅作为归档兼容定义保留，不属于当前运行时路径。
 servers:
   - url: http://localhost:8080
 tags:
@@ -91,42 +91,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OccupancyGrid'
-  /ros2/topics/mf_block_overlay:
-    get:
-      tags: [Topic]
-      summary: 读取 MF keepout/decision 支撑 overlay
-      x-ros:
-        interface_kind: topic
-        name: /mf_block_overlay
-        message_type: rc26_interfaces/msg/MfBlockOverlay
-      responses:
-        '200':
-          description: rc26_interfaces/msg/MfBlockOverlay
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MfBlockOverlay'
-  /ros2/services/kfs_keepout/set_runtime:
-    post:
-      tags: [Service]
-      summary: 调用 MF keepout 运行时启停服务
-      x-ros:
-        interface_kind: service
-        name: /kfs_keepout/set_runtime
-        service_type: rc26_interfaces/srv/SetKeepoutRuntime
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SetKeepoutRuntimeRequest'
-      responses:
-        '200':
-          description: rc26_interfaces/srv/SetKeepoutRuntime response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SetKeepoutRuntimeResponse'
 components:
   schemas:
     Time:
@@ -257,7 +221,7 @@ components:
           type: number
     MfBlockOverlayCell:
       type: object
-      description: MF keepout/decision 支撑 overlay 单元；本轮不接入 Nav2 costmap。
+      description: 归档兼容的 MF keepout overlay 单元；当前主链不发布、不订阅，也不接入 Nav2 costmap。
       properties:
         grid_id:
           type: integer
@@ -271,6 +235,7 @@ components:
           type: boolean
     MfBlockOverlay:
       type: object
+      description: 归档兼容消息；当前主链不发布 `/mf_block_overlay`。
       properties:
         header:
           $ref: '#/components/schemas/Header'
@@ -282,6 +247,7 @@ components:
             $ref: '#/components/schemas/MfBlockOverlayCell'
     SetKeepoutRuntimeRequest:
       type: object
+      description: 归档兼容请求；当前主链不提供 `/kfs_keepout/set_runtime` 服务。
       properties:
         activate:
           type: boolean
@@ -289,6 +255,7 @@ components:
           type: string
     SetKeepoutRuntimeResponse:
       type: object
+      description: 归档兼容响应；当前主链不调用 `/kfs_keepout/set_runtime` 服务。
       properties:
         ok:
           type: boolean
@@ -302,3 +269,16 @@ components:
           type: string
         message:
           type: string
+x-archived-runtime-contracts:
+  topics:
+    - /mf_block_overlay
+    - /kfs_filter_mask
+    - /kfs_keepout_heartbeat
+  services:
+    - /kfs_keepout/set_runtime
+  schemas:
+    - MfBlockOverlay
+    - MfBlockOverlayCell
+    - SetKeepoutRuntimeRequest
+    - SetKeepoutRuntimeResponse
+  note: 这些接口文件可继续生成用于历史兼容，但 rc26_bringup、rc26_decision 和默认 CI 不再启动、发布、订阅或调用对应运行时链路。

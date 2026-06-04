@@ -20,7 +20,7 @@
   - `LocalizationLoopClosure.msg`
   - `LocalizationRelocState.msg`
   - `RegistrationDebug.msg`
-- Nav2 / MF keepout 支撑:
+- 归档兼容接口:
   - `SetKeepoutRuntime.srv`
   - `MfBlockOverlay.msg`
   - `MfBlockOverlayCell.msg`
@@ -44,7 +44,9 @@ Nav2 的 `/navigate_to_pose` action 使用外部包 `nav2_msgs/action/NavigateTo
 
 ## 当前清理状态
 
-旧导航 action、运动模式服务和导航状态消息已经从接口生成清单中移除。当前导航运行权威由 Nav2 提供，本包只保留决策、keepout、地形、定位、机构和行为树运行时仍真实使用的自定义契约。
+旧导航 action、运动模式服务和导航状态消息已经从接口生成清单中移除。当前导航运行权威由 Nav2 提供，本包只保留决策、定位、机构、视觉和行为树运行时仍真实使用的自定义契约。
+
+`SetKeepoutRuntime`、`MfBlockOverlay*`、`MfKfs*`、`TerrainFeatureGrid` 仍可生成，用作历史兼容和后续恢复参考；它们不再代表当前主链运行时契约。
 
 随旧版第一方诊断 viewer 一起退役的诊断可视化消息也已从接口生成清单中移除：
 
@@ -64,12 +66,11 @@ Nav2 的 `/navigate_to_pose` action 使用外部包 `nav2_msgs/action/NavigateTo
 - 删除 `PlaceKFSGrid.action`；KFS 放置改为通过 `ExecuteMechanism` 下发 `PLACE_KFS_GRID + payload`。
 - `MechanismState.msg` 只保留 `hal_open`、`last_error_code`、`current_cmd_id` 三个最小观测字段。
 
-## Keepout Runtime 契约
+## 归档 Keepout / Terrain 接口
 
-- `SetKeepoutRuntime.srv` 是 MF 阶段 keepout 运行时控制契约，当前固定服务名为 `/kfs_keepout/set_runtime`，由 `rc26_decision` 调用 `rc26_kfs_keepout` 运行时管理器。
-- `activate=true` 表示进入 `MFAreaTree` 前请求装载并激活 keepout；`activate=false` 表示退出 MF 前请求先清空输出再卸载。
-- 响应字段 `outputs_cleared` 表示 `/mf_block_overlay` 与 `/kfs_filter_mask` 是否已经被安全清空；后续流程只依赖这个字段判断是否会残留陈旧 keepout。
-- 响应字段 `component_loaded` 表示 keepout 组件当前是否仍留在容器内；它允许在 `outputs_cleared=true` 时仍为 `true`，用于表达“已安全退出但卸载失败”的资源告警状态。
+- `SetKeepoutRuntime.srv`、`MfBlockOverlay.msg`、`MfBlockOverlayCell.msg`、`MfKfsState.msg`、`MfKfsCell.msg`、`TerrainFeatureGrid.msg` 仅作为归档兼容接口保留。
+- 当前主链不提供 `/kfs_keepout/set_runtime`，不发布或订阅 `/mf_block_overlay`、`/kfs_filter_mask`、`/kfs_keepout_heartbeat`、`/mf_kfs_state` 或 terrain grid/feature 话题。
+- 如未来恢复这些接口，必须先恢复对应包的归档构建开关、重新接入 bringup/decision，并同步更新 [docs/middle/modules/navigation.yaml](/home/potato/RC_2026/docs/middle/modules/navigation.yaml)。
 
 ## 维护原则
 

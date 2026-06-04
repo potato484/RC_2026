@@ -6,7 +6,6 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 DEFAULT_BUILD_PACKAGES=(
   rc26_interfaces
-  rc26_base_ground
   rc26_mid360_driver
   rc26_odom_interface
   rc26_point_lio
@@ -16,8 +15,6 @@ DEFAULT_BUILD_PACKAGES=(
   rc26_serial
   rc26_telecontrol
   rc26_localization
-  rc26_terrain
-  rc26_kfs_keepout
   rc26_vision
   rc26_decision
   rc26_bringup
@@ -28,7 +25,6 @@ DEFAULT_TEST_PACKAGES=(
   rc26_robot_geometry
   rc26_serial
   rc26_telecontrol
-  rc26_terrain
   rc26_vision
   rc26_decision
   rc26_bringup

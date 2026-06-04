@@ -15,6 +15,7 @@
 
 - 当前遥控器已经可以发送指令并驱动车体移动
 - 建图、定位、重定位、回环、导航仍需要按阶段逐步验证
+- `rc26_terrain`、`rc26_base_ground`、`rc26_kfs_keepout` 已归档为 source-only 包，不参与当前默认联调顺序
 
 ## 主入口
 
@@ -34,9 +35,9 @@
 
 ## 模块入口
 
-- [rc26_base_ground调试](./rc26_base_ground调试.md)
+- [rc26_base_ground调试](./rc26_base_ground调试.md)（归档恢复资料）
 - [rc26_decision调试](./rc26_decision调试.md)
-- [rc26_kfs_keepout调试](./rc26_kfs_keepout调试.md)
+- [rc26_kfs_keepout调试](./rc26_kfs_keepout调试.md)（归档恢复资料）
 - [rc26_localization调试](./rc26_localization调试.md)
 - [rc26_mechanism调试](./rc26_mechanism调试.md)
 - [rc26_merge_odom调试](./rc26_merge_odom调试.md)
@@ -47,6 +48,6 @@
 - [rc26_serial调试](./rc26_serial调试.md)
 - [rc26_small_gicp调试](./rc26_small_gicp调试.md)
 - [rc26_telecontrol调试](./rc26_telecontrol调试.md)
-- [rc26_terrain调试](./rc26_terrain调试.md)
+- [rc26_terrain调试](./rc26_terrain调试.md)（归档恢复资料）
 - [rc26_vision调试](./rc26_vision调试.md)
 - [Nav2导航调试](./Nav2导航调试.md)

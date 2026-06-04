@@ -29,7 +29,6 @@ def generate_launch_description():
     sensor_extrinsics_profile = LaunchConfiguration('sensor_extrinsics_profile')
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
-    enable_terrain_grid_map = LaunchConfiguration('enable_terrain_grid_map')
     use_rviz = LaunchConfiguration('use_rviz')
     rviz_config_file = LaunchConfiguration('rviz_config_file')
 
@@ -58,11 +57,6 @@ def generate_launch_description():
         default_value='false',
         description='启动前先运行 Mid-360 恢复脚本')
 
-    declare_enable_terrain_grid_map = DeclareLaunchArgument(
-        'enable_terrain_grid_map',
-        default_value='false',
-        description='纯建图链路是否额外发布 /terrain_grid_map')
-
     declare_use_rviz = DeclareLaunchArgument(
         'use_rviz',
         default_value='true',
@@ -86,7 +80,6 @@ def generate_launch_description():
             'point_lio_config_file': point_lio_config_file,
             'use_decision': 'false',
             'recover_mid360_stream': recover_mid360_stream,
-            'enable_terrain_grid_map': enable_terrain_grid_map,
         }.items()
     )
 
@@ -105,7 +98,6 @@ def generate_launch_description():
         declare_sensor_extrinsics_profile,
         declare_point_lio_config_file,
         declare_recover_mid360_stream,
-        declare_enable_terrain_grid_map,
         declare_use_rviz,
         declare_rviz_config_file,
         bringup_launch,
