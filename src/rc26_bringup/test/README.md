@@ -7,7 +7,7 @@
 ```bash
 # 确保已编译并 source 环境
 cd "${RC26_WS:-$HOME/RC_2026}"
-MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_bringup
+MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_bringup rc26_merge_odom rc26_sensor_scan
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
@@ -48,7 +48,8 @@ ros2 launch rc26_bringup test_relocalization.launch.py \
 
 ```bash
 ros2 launch rc26_bringup test_navigation.launch.py \
-  prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans.pcd
+  prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans.pcd \
+  start_pose_sender:=false
 ```
 
 ---
@@ -78,7 +79,7 @@ ros2 run tf2_ros tf2_echo odom base_link
 
 ### 2. 传感器扫描测试 (rc26_sensor_scan)
 
-**功能**: 验证点云坐标转换、里程计速度发布和 pose 协方差透传
+**功能**: 验证点云坐标转换、里程计速度发布、pose 协方差透传，以及供 Nav2 使用的 `sensor_scan` 点云输出
 
 ```bash
 # 启动测试 (需要 odom_interface 数据源)
@@ -92,7 +93,7 @@ ros2 topic echo /odometry --once
 ros2 topic echo /odometry --once | grep covariance
 
 # 检查 TF 树
-ros2 run tf2_ros tf2_echo base_link laser_link
+ros2 run tf2_ros tf2_echo base_link livox_frame
 ```
 
 ---
@@ -141,12 +142,14 @@ ros2 launch rc26_bringup test_odometry_chain.launch.py
 ros2 launch rc26_bringup test_odometry_chain.launch.py start_mid360_driver:=true recover_mid360_stream:=true
 
 # 验证数据流
-ros2 topic list | grep -E "(state_estimation|odom|odometry|registered_scan)"
+ros2 topic list | grep -E "(state_estimation|odom|odometry|registered_scan|sensor_scan)"
 ros2 topic echo /state_estimation --once
 ros2 topic echo /odom --once
 ros2 topic echo /odometry --once
+ros2 topic echo /sensor_scan --once
 ros2 topic hz /odom
 ros2 topic hz /odometry
+ros2 topic hz /sensor_scan
 
 # 检查完整 TF 树
 ros2 run tf2_tools view_frames
@@ -162,28 +165,51 @@ ros2 run tf2_tools view_frames
 
 ### 6. Nav2 基础导航链测试
 
-**功能**: 验证定位、Nav2 lifecycle、`/navigate_to_pose` action 和 `/cmd_vel` 输出链路
+**功能**: 验证定位、Nav2 lifecycle、`/navigate_to_pose` action、`sensor_scan` 障碍输入和 `/cmd_vel` / `pose_sender_node` 执行桥链路
 
 ```bash
-ros2 launch rc26_bringup bringup.launch.py \
-  slam:=false \
-  use_decision:=false \
-  nav2_map_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/map/default.yaml \
-  prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/pcd/default.pcd
+# 开发机 / 图结构验收：关闭执行桥，避免无串口环境直接报错
+ros2 launch rc26_bringup test_navigation.launch.py \
+  prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans.pcd \
+  start_pose_sender:=false
 
 ros2 lifecycle get /controller_server
 ros2 lifecycle get /planner_server
 ros2 lifecycle get /bt_navigator
 ros2 action info /navigate_to_pose
+ros2 topic echo /sensor_scan --once
 ros2 topic echo /plan --once
 ros2 topic echo /local_costmap/costmap --once
+ros2 topic echo /global_costmap/costmap --once
 ros2 topic echo /cmd_vel
 ```
 
 说明：
 
 - `rc26_bringup` 当前保持 headless，不再通过 launch 参数拉起仓库内 GUI
+- Nav2 当前直接消费 `/sensor_scan` (`PointCloud2`) 作为 obstacle layer 输入，不再依赖 `/scan`
+- `test_navigation.launch.py` 默认会同时拉起 `pose_sender_node`；若只做图结构/感知链验证，请显式传 `start_pose_sender:=false`
+- `src/rc26_bringup/map/default.yaml` 只是占位地图，只用于把 Nav2 lifecycle、costmap 和执行桥链路拉起，不代表可直接通过真实规划验收
 - 如需可视化，请改用工作区外部工具只读消费现有 topic，例如手工运行 `rviz2 -d /home/potato/RC_2026/src/rc26_bringup/rviz/navigation_default.rviz`
+
+如需验证执行桥：
+
+```bash
+ros2 launch rc26_bringup test_navigation.launch.py \
+  prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans.pcd \
+  start_pose_sender:=true
+
+# 单串口现场：只有目标 MCU 串口时，禁用反馈链
+ros2 launch rc26_bringup test_navigation.launch.py \
+  prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans.pcd \
+  start_pose_sender:=true \
+  pose_sender_feedback_serial_port:=__disabled__
+
+# 手动发布低速命令，观察执行桥保护输出
+ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.05, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}" -r 5
+ros2 topic echo /pose_sender/target_protected
+```
 
 如需手动发送目标：
 
@@ -199,11 +225,11 @@ ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \
 | 模块 | 话题/TF | 预期结果 |
 |------|---------|----------|
 | odom_interface | `/odom` | odom→base_link 变换 |
-| sensor_scan | `/sensor_scan` | laser_link 坐标系点云，`/odometry` 协方差透传 |
+| sensor_scan | `/sensor_scan` | `livox_frame` 坐标系点云，供 Nav2 obstacle layer 直接消费；`/odometry` 协方差透传 |
 | rc26_point_lio | `/state_estimation` + `/cloud_registered` | LIO 里程计与原生配准点云持续输出 |
 | localization | `map->odom` + `/localization/pose_with_cov` + `/localization/diagnostics` | TF 和标准定位观测持续发布 |
-| Nav2 | `/navigate_to_pose` + `/plan` + costmap topics | action server、路径和 costmap 可观察 |
-| Nav2 velocity_smoother | `/cmd_vel` | 速度指令由 Nav2 controller/velocity_smoother 输出 |
+| Nav2 | `/navigate_to_pose` + `/plan` + costmap topics + `/sensor_scan` | action server、路径和 costmap 可观察，障碍输入链路已接通 |
+| pose_sender_node | `/cmd_vel` + `/pose_sender/target_protected` | 速度指令由 Nav2 输出后继续进入 MCU 执行桥 |
 
 ---
 

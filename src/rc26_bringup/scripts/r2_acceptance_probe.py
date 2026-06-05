@@ -98,14 +98,16 @@ class AcceptanceProbe:
         sensor_qos.durability = DurabilityPolicy.VOLATILE
 
         self.odom_stamps: List[float] = []
-        self.scan_stamps: List[float] = []
+        self.registered_scan_stamps: List[float] = []
+        self.sensor_scan_stamps: List[float] = []
         self.odom_positions: List[Tuple[float, float, float]] = []
         self.odom_non_monotonic = 0
         self.max_jump_speed = 0.0
 
         self.odom_frame_mismatch = 0
         self.odom_child_mismatch = 0
-        self.scan_frame_mismatch = 0
+        self.registered_scan_frame_mismatch = 0
+        self.sensor_scan_frame_mismatch = 0
 
         self.tf_msg_count = 0
         self.tf_msg_stamps: List[float] = []
@@ -121,11 +123,15 @@ class AcceptanceProbe:
         self.sub_registered_scan = self.node.create_subscription(
             PointCloud2, "/registered_scan", self._on_registered_scan, sensor_qos
         )
+        self.sub_sensor_scan = self.node.create_subscription(
+            PointCloud2, "/sensor_scan", self._on_sensor_scan, sensor_qos
+        )
         self.sub_tf = self.node.create_subscription(TFMessage, "/tf", self._on_tf, sensor_qos)
 
     def destroy(self):
         self.node.destroy_subscription(self.sub_odom)
         self.node.destroy_subscription(self.sub_registered_scan)
+        self.node.destroy_subscription(self.sub_sensor_scan)
         self.node.destroy_subscription(self.sub_tf)
         self.executor.remove_node(self.node)
         self.node.destroy_node()
@@ -154,9 +160,14 @@ class AcceptanceProbe:
             self.odom_child_mismatch += 1
 
     def _on_registered_scan(self, msg: PointCloud2):
-        self.scan_stamps.append(stamp_to_sec(msg.header.stamp))
+        self.registered_scan_stamps.append(stamp_to_sec(msg.header.stamp))
         if msg.header.frame_id != self.args.expected_scan_frame:
-            self.scan_frame_mismatch += 1
+            self.registered_scan_frame_mismatch += 1
+
+    def _on_sensor_scan(self, msg: PointCloud2):
+        self.sensor_scan_stamps.append(stamp_to_sec(msg.header.stamp))
+        if msg.header.frame_id != self.args.expected_sensor_scan_frame:
+            self.sensor_scan_frame_mismatch += 1
 
     def _on_tf(self, msg: TFMessage):
         now = self.node.get_clock().now().nanoseconds * 1e-9
@@ -222,9 +233,10 @@ class AcceptanceProbe:
         checks: List[Check] = []
 
         odom_rate = calc_rate_hz(self.odom_stamps)
-        scan_rate = calc_rate_hz(self.scan_stamps)
+        registered_scan_rate = calc_rate_hz(self.registered_scan_stamps)
+        sensor_scan_rate = calc_rate_hz(self.sensor_scan_stamps)
         tf_rate = calc_rate_hz(self.tf_msg_stamps)
-        skew = max_nearest_skew_sec(self.odom_stamps, self.scan_stamps)
+        skew = max_nearest_skew_sec(self.odom_stamps, self.registered_scan_stamps)
 
         checks.append(
             Check(
@@ -236,8 +248,15 @@ class AcceptanceProbe:
         checks.append(
             Check(
                 name="TopicRate/registered_scan",
-                ok=scan_rate >= self.args.min_topic_hz,
-                detail=f"rate={scan_rate:.3f}Hz threshold>={self.args.min_topic_hz:.3f}",
+                ok=registered_scan_rate >= self.args.min_topic_hz,
+                detail=f"rate={registered_scan_rate:.3f}Hz threshold>={self.args.min_topic_hz:.3f}",
+            )
+        )
+        checks.append(
+            Check(
+                name="TopicRate/sensor_scan",
+                ok=sensor_scan_rate >= self.args.min_topic_hz,
+                detail=f"rate={sensor_scan_rate:.3f}Hz threshold>={self.args.min_topic_hz:.3f}",
             )
         )
         checks.append(
@@ -288,8 +307,21 @@ class AcceptanceProbe:
         checks.append(
             Check(
                 name="FrameID/registered_scan",
-                ok=self.scan_frame_mismatch == 0,
-                detail=f"mismatch_count={self.scan_frame_mismatch} expected={self.args.expected_scan_frame}",
+                ok=self.registered_scan_frame_mismatch == 0,
+                detail=(
+                    f"mismatch_count={self.registered_scan_frame_mismatch} "
+                    f"expected={self.args.expected_scan_frame}"
+                ),
+            )
+        )
+        checks.append(
+            Check(
+                name="FrameID/sensor_scan",
+                ok=self.sensor_scan_frame_mismatch == 0,
+                detail=(
+                    f"mismatch_count={self.sensor_scan_frame_mismatch} "
+                    f"expected={self.args.expected_sensor_scan_frame}"
+                ),
             )
         )
 
@@ -363,11 +395,16 @@ class AcceptanceProbe:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="R2 主链验收探针（TF/时戳/频率）")
+    parser = argparse.ArgumentParser(description="R2 主链验收探针（TF/时戳/频率/导航点云输入）")
     parser.add_argument("--duration_sec", type=float, default=60.0, help="采样总时长")
     parser.add_argument("--warmup_sec", type=float, default=3.0, help="启动后预热时长")
 
-    parser.add_argument("--min_topic_hz", type=float, default=9.0, help="/odom /registered_scan 最低频率")
+    parser.add_argument(
+        "--min_topic_hz",
+        type=float,
+        default=9.0,
+        help="/odom /registered_scan /sensor_scan 最低频率",
+    )
     parser.add_argument("--min_tf_hz", type=float, default=8.0, help="/tf 最低频率")
     parser.add_argument("--max_stamp_skew_sec", type=float, default=0.1, help="odom 与 scan 最大时戳偏差")
     parser.add_argument("--max_odom_jump_speed_mps", type=float, default=2.0, help="odom 最大位姿跳变速度")
@@ -381,6 +418,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected_odom_frame", default="odom")
     parser.add_argument("--expected_base_frame", default="base_link")
     parser.add_argument("--expected_scan_frame", default="odom")
+    parser.add_argument("--expected_sensor_scan_frame", default="livox_frame")
 
     parser.add_argument("--expected_lidar_x", type=float, default=0.0)
     parser.add_argument("--expected_lidar_y", type=float, default=0.0)

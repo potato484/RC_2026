@@ -1,12 +1,25 @@
+# R2 当前 Nav2 最小导航闭环配置
+# 口径说明：
+# - map -> odom 继续由 rc26_localization 负责，Nav2 不接管定位权威
+# - 障碍输入直接消费 rc26_sensor_scan 输出的 sensor_scan(PointCloud2)
+# - /cmd_vel 由 Nav2 controller + velocity_smoother 输出，再交给 pose_sender_node 下发
+
+# BT 导航器：负责调 planner / controller / recovery 等动作节点
 bt_navigator:
   ros__parameters:
+    # Nav2 全局工作坐标系；应与 rc26_localization 的 map TF 一致
     use_sim_time: false
     global_frame: map
     robot_base_frame: base_link
+    # BT 导航器内部用于监听当前机体速度与位姿的 odom 话题
     odom_topic: /odom
+    # 行为树 tick 周期（毫秒）
     bt_loop_duration: 10
+    # 单次 action/service 默认等待时间（秒）
     default_server_timeout: 20
+    # 等待下游服务就绪的超时时间（毫秒）
     wait_for_service_timeout: 1000
+    # 当前启用的 BT 插件全集；保持 Nav2 Humble 默认主链即可
     plugin_lib_names:
       - nav2_compute_path_to_pose_action_bt_node
       - nav2_compute_path_through_poses_action_bt_node
@@ -64,34 +77,46 @@ bt_navigator_navigate_through_poses_rclcpp_node:
   ros__parameters:
     use_sim_time: false
 
+# 局部控制器：当前只启用 DWB，直接输出麦克纳姆底盘可用的 vx / vy / wz
 controller_server:
   ros__parameters:
     use_sim_time: false
+    # 控制循环频率（Hz）
     controller_frequency: 20.0
+    # 低于阈值的速度分量会被当作 0，避免控制器抖动
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
+    # 允许短时间控制失败的容忍窗口（秒）
     failure_tolerance: 0.3
+    # 进度检查器：防止机器人长时间原地不动
     progress_checker_plugin: progress_checker
+    # 到点判定器：控制“算到达”的位置与朝向阈值
     goal_checker_plugins: [general_goal_checker]
+    # 当前唯一局部控制器插件
     controller_plugins: [FollowPath]
     progress_checker:
       plugin: nav2_controller::SimpleProgressChecker
+      # 指定时间内至少移动这么远，否则判定为无进展
       required_movement_radius: 0.5
       movement_time_allowance: 10.0
     general_goal_checker:
       plugin: nav2_controller::SimpleGoalChecker
       stateful: true
+      # 到点位置 / 朝向容差
       xy_goal_tolerance: 0.18
       yaw_goal_tolerance: 0.20
     FollowPath:
+      # DWB：当前主运行时的局部速度控制器
       plugin: dwb_core::DWBLocalPlanner
       debug_trajectory_details: false
+      # 麦克纳姆底盘速度边界：x 前后，y 横移，theta 自转
       min_vel_x: -0.25
       max_vel_x: 0.45
       min_vel_y: -0.35
       max_vel_y: 0.35
       max_vel_theta: 1.0
+      # 速度与加速度上限；velocity_smoother 也会继续做一层平滑
       min_speed_xy: 0.0
       max_speed_xy: 0.50
       min_speed_theta: 0.0
@@ -101,17 +126,21 @@ controller_server:
       decel_lim_x: -0.8
       decel_lim_y: -0.8
       decel_lim_theta: -1.8
+      # 轨迹采样密度：分别在 vx / vy / wz 上离散取样
       vx_samples: 20
       vy_samples: 15
       vtheta_samples: 20
+      # 前向仿真时间越大，绕障更积极，但也更容易保守
       sim_time: 1.7
       linear_granularity: 0.05
       angular_granularity: 0.025
+      # TF 允许滞后窗口；过小会更容易报 transform timeout
       transform_tolerance: 0.2
       xy_goal_tolerance: 0.18
       trans_stopped_velocity: 0.05
       short_circuit_trajectory_evaluation: true
       stateful: true
+      # DWB 评分器：当前以避障、贴路与到点权重为主
       critics: [RotateToGoal, Oscillation, BaseObstacle, GoalAlign, PathAlign, PathDist, GoalDist]
       BaseObstacle.scale: 0.02
       PathAlign.scale: 20.0
@@ -124,65 +153,80 @@ controller_server:
       RotateToGoal.slowing_factor: 5.0
       RotateToGoal.lookahead_time: -1.0
 
+# 局部代价地图：在 odom 坐标系下滚动更新，主要供局部控制器避障
 local_costmap:
   local_costmap:
     ros__parameters:
       use_sim_time: false
+      # 局部代价地图固定在 odom；不依赖全局 map 精度
       global_frame: odom
       robot_base_frame: base_link
+      # 更新频率要高于全局图，保证近场避障及时
       update_frequency: 5.0
       publish_frequency: 2.0
       rolling_window: true
+      # 当前局部窗口大小（米）
       width: 4
       height: 4
       resolution: 0.05
+      # 当前按圆形机器人近似；若未来切 footprint，再统一调整
       robot_radius: 0.42
       plugins: [obstacle_layer, inflation_layer]
       obstacle_layer:
         plugin: nav2_costmap_2d::ObstacleLayer
         enabled: true
-        observation_sources: scan
-        scan:
-          topic: /scan
+        # 当前默认只接一条障碍输入：sensor_scan(PointCloud2)
+        observation_sources: sensor_scan
+        sensor_scan:
+          # 相对话题名；会跟随 namespace 进入对应机器人命名空间
+          topic: sensor_scan
+          # 高于这个高度的点不参与 2D 障碍投影
           max_obstacle_height: 2.0
+          # marking=标记障碍，clearing=按射线清空自由空间
           clearing: true
           marking: true
-          data_type: LaserScan
+          data_type: PointCloud2
+          # 射线清空范围与障碍标记范围
           raytrace_max_range: 3.0
           raytrace_min_range: 0.0
           obstacle_max_range: 2.5
           obstacle_min_range: 0.0
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
+        # 膨胀层：给障碍周围加安全缓冲
         cost_scaling_factor: 3.0
         inflation_radius: 0.55
       always_send_full_costmap: true
 
+# 全局代价地图：在 map 坐标系下维护静态地图 + 当前障碍
 global_costmap:
   global_costmap:
     ros__parameters:
       use_sim_time: false
       global_frame: map
       robot_base_frame: base_link
+      # 全局图更新较慢，重点服务 planner
       update_frequency: 1.0
       publish_frequency: 1.0
       resolution: 0.05
       robot_radius: 0.42
+      # 当前允许未知区，避免占位图把规划直接锁死
       track_unknown_space: true
       plugins: [static_layer, obstacle_layer, inflation_layer]
       static_layer:
         plugin: nav2_costmap_2d::StaticLayer
+        # 使用 map_server 的静态地图；需订阅保留最后一帧
         map_subscribe_transient_local: true
       obstacle_layer:
         plugin: nav2_costmap_2d::ObstacleLayer
         enabled: true
-        observation_sources: scan
-        scan:
-          topic: /scan
+        observation_sources: sensor_scan
+        sensor_scan:
+          topic: sensor_scan
           max_obstacle_height: 2.0
           clearing: true
           marking: true
-          data_type: LaserScan
+          data_type: PointCloud2
           raytrace_max_range: 3.0
           raytrace_min_range: 0.0
           obstacle_max_range: 2.5
@@ -193,22 +237,29 @@ global_costmap:
         inflation_radius: 0.55
       always_send_full_costmap: true
 
+# 地图服务：当前可接受占位地图，只用于拉起 Nav2 生命周期与 costmap 链路
 map_server:
   ros__parameters:
     use_sim_time: false
     yaml_filename: ""
 
+# 全局规划器：当前使用 NavFn，输出从当前位置到目标位姿的全局路径
 planner_server:
   ros__parameters:
     use_sim_time: false
+    # 期望规划频率（Hz）
     expected_planner_frequency: 10.0
     planner_plugins: [GridBased]
     GridBased:
       plugin: nav2_navfn_planner/NavfnPlanner
+      # 距目标附近允许的终点松弛半径
       tolerance: 0.5
+      # 当前继续用 Dijkstra；若要更激进可改 A*
       use_astar: false
+      # 允许穿过 unknown 区做规划，便于占位图和局部障碍链联调
       allow_unknown: true
 
+# 路径平滑器：对 planner 原始路径做轻量后处理
 smoother_server:
   ros__parameters:
     use_sim_time: false
@@ -219,6 +270,7 @@ smoother_server:
       max_its: 1000
       do_refinement: true
 
+# 恢复行为服务器：局部控制失败时的原地转、后退、等待等动作
 behavior_server:
   ros__parameters:
     use_sim_time: false
@@ -242,6 +294,7 @@ behavior_server:
     min_rotational_vel: 0.25
     rotational_acc_lim: 1.8
 
+# 路点跟随：当前保留默认 wait_at_waypoint，用于多点任务扩展
 waypoint_follower:
   ros__parameters:
     use_sim_time: false
@@ -253,12 +306,16 @@ waypoint_follower:
       enabled: true
       waypoint_pause_duration: 200
 
+# 速度平滑器：在 controller_server 输出之后再做一层限速 / 限加速度
 velocity_smoother:
   ros__parameters:
     use_sim_time: false
+    # 平滑频率要与 controller 频率接近，避免输出台阶感过重
     smoothing_frequency: 20.0
     scale_velocities: false
+    # 当前按开环模式工作，依赖 odom 仅做时间窗口观测
     feedback: OPEN_LOOP
+    # 与 DWB 速度边界保持一致，避免前后两级限幅打架
     max_velocity: [0.45, 0.35, 1.0]
     min_velocity: [-0.25, -0.35, -1.0]
     max_accel: [0.8, 0.8, 1.8]
@@ -266,4 +323,5 @@ velocity_smoother:
     odom_topic: odom
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
+    # 超时后输出归零，避免 controller 掉线后继续沿用旧命令
     velocity_timeout: 1.0

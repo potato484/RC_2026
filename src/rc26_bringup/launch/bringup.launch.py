@@ -5,6 +5,7 @@ src R2导航系统 - 主启动文件
   - 里程计 (rc26_point_lio + rc26_odom_interface + rc26_sensor_scan)
   - 定位 (rc26_localization)
   - Nav2 基础导航栈 (map_server + planner/controller/BT navigator/velocity smoother)
+  - 底盘执行桥 (rc26_merge_odom/pose_sender_node)
   - 决策系统 (rc26_decision)
 
 额外模式:
@@ -27,6 +28,7 @@ def generate_launch_description():
     # 获取包路径
     bringup_dir = get_package_share_directory('rc26_bringup')
     decision_dir = get_package_share_directory('rc26_decision')
+    merge_odom_dir = get_package_share_directory('rc26_merge_odom')
     sensor_extrinsics_dir = get_package_share_directory('rc26_sensor_extrinsics')
     nav2_bringup_dir = get_package_share_directory('nav2_bringup')
 
@@ -42,6 +44,10 @@ def generate_launch_description():
     start_mid360_driver = LaunchConfiguration('start_mid360_driver')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
     localization_params_file = LaunchConfiguration('localization_params_file')
+    start_pose_sender = LaunchConfiguration('start_pose_sender')
+    pose_sender_feedback_serial_port = LaunchConfiguration('pose_sender_feedback_serial_port')
+    pose_sender_target_serial_port = LaunchConfiguration('pose_sender_target_serial_port')
+    pose_sender_baudrate = LaunchConfiguration('pose_sender_baudrate')
     use_decision = LaunchConfiguration('use_decision')
     use_realsense = LaunchConfiguration('use_realsense')
     realsense_serial_no = LaunchConfiguration('realsense_serial_no')
@@ -105,6 +111,26 @@ def generate_launch_description():
         'localization_params_file',
         default_value=PathJoinSubstitution([bringup_dir, 'config', 'localization.yaml']),
         description='基础定位参数文件路径')
+
+    declare_start_pose_sender = DeclareLaunchArgument(
+        'start_pose_sender',
+        default_value='true',
+        description='是否启动 pose_sender_node，把导航 /cmd_vel 接到底盘目标 MCU')
+
+    declare_pose_sender_feedback_serial_port = DeclareLaunchArgument(
+        'pose_sender_feedback_serial_port',
+        default_value='/dev/ttyUSB0',
+        description='pose_sender_node 反馈串口；可传 __disabled__ 跳过反馈链路')
+
+    declare_pose_sender_target_serial_port = DeclareLaunchArgument(
+        'pose_sender_target_serial_port',
+        default_value='/dev/ttyUSB1',
+        description='pose_sender_node 目标串口；用于 POSE_TARGET 与 mechanism transport')
+
+    declare_pose_sender_baudrate = DeclareLaunchArgument(
+        'pose_sender_baudrate',
+        default_value='1000000',
+        description='pose_sender_node 串口波特率')
 
     declare_use_decision = DeclareLaunchArgument(
         'use_decision',
@@ -243,6 +269,34 @@ def generate_launch_description():
         condition=UnlessCondition(slam)
     )
 
+    pose_sender_config_file = PathJoinSubstitution([merge_odom_dir, 'config', 'merge_odom_params.yaml'])
+    pose_sender_node = Node(
+        package='rc26_merge_odom',
+        executable='pose_sender_node',
+        name='pose_sender_node',
+        namespace=namespace,
+        output='screen',
+        parameters=[
+            pose_sender_config_file,
+            {
+                'use_sim_time': use_sim_time,
+                'feedback_serial_port': pose_sender_feedback_serial_port,
+                'target_serial_port': pose_sender_target_serial_port,
+                'baudrate': pose_sender_baudrate,
+                'cmd_vel_topic': 'cmd_vel',
+                'odom_topic': 'odom',
+                'imu_topic': '',
+                'imu_gate_enable': False,
+                'latency_comp_enable': False,
+            },
+        ],
+        condition=IfCondition(
+            PythonExpression([
+                "'", start_pose_sender, "'.lower() == 'true' and '", slam, "'.lower() != 'true'"
+            ])
+        ),
+    )
+
     # 决策系统：行为树节点（rc26_decision/decision_node），默认启用，可通过 use_decision 控制
     decision_params = PathJoinSubstitution([decision_dir, 'config', 'decision_params.yaml'])
     decision_node = Node(
@@ -278,6 +332,10 @@ def generate_launch_description():
         declare_start_mid360_driver,
         declare_recover_mid360_stream,
         declare_localization_params_file,
+        declare_start_pose_sender,
+        declare_pose_sender_feedback_serial_port,
+        declare_pose_sender_target_serial_port,
+        declare_pose_sender_baudrate,
         declare_use_decision,
         declare_use_realsense,
         declare_realsense_serial_no,
@@ -293,6 +351,7 @@ def generate_launch_description():
         nav2_map_server_node,
         nav2_map_lifecycle_node,
         nav2_navigation_launch,
+        pose_sender_node,
         decision_node,
         realsense_group,
     ])
