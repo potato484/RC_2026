@@ -16,15 +16,16 @@ odom_interface:
     odom_frame: "odom"
     # 参数说明：base_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     base_frame: "base_link"
-    # 参数说明：lidar_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
-    lidar_frame: "point_lio_body"  # Point-LIO state_estimation 的 child_frame；其语义是 body/IMU，不是 livox_frame
+    # 参数说明：input_body_frame - Point-LIO 内部 body frame 名；需与 state_estimation.child_frame_id 保持一致。
+    input_body_frame: "point_lio_body"  # 由 odometry.launch.py 按 sensor_extrinsics profile 覆盖，不作为 TF 真源
+    # 参数说明：base_to_input_body_xyz_m / rpy_rad - base_link 到 Point-LIO 内部 body frame 的静态外参；
+    # 仅作为占位，真实值由 odometry.launch.py 从 sensor_extrinsics + Point-LIO 内部外参推导后覆盖。
+    base_to_input_body_xyz_m: [0.0, 0.0, 0.0]
+    base_to_input_body_rpy_rad: [0.0, 0.0, 0.0]
     
     # ===== 时间同步 =====
-    tf_lookup_timeout_sec: 0.5  # TF 查询超时时间
     # 参数说明：max_time_diff_sec - 时间参数，单位秒。
     max_time_diff_sec: 0.2    # 点云与里程计允许的最大严重失配时间差 (秒)；代码内部会吸收毫秒级抖动
-    # 参数说明：tf_refresh_interval_sec - 周期或间隔；用于控制轮询、播放或发布节奏。
-    tf_refresh_interval_sec: 1.0  # TF 刷新周期
     clamp_cloud_stamp_to_latest_odom: true  # 若点云 stamp 略超前于最新 odom，则向后钳制，避免下游 TF future extrapolation
     defer_cloud_until_matching_odom: true  # 点云先到时先缓存，等对应 odom 到达后再发布 registered_scan（支持少量时间抖动）
     # 参数说明：publish_debug_path - 调试路径发布开关；开启后输出 odom_path 便于观察。

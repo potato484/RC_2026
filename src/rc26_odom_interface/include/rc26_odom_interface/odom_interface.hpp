@@ -26,9 +26,7 @@
 #include "visualization_msgs/msg/marker_array.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "tf2/LinearMath/Transform.h"
-#include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_broadcaster.h"
-#include "tf2_ros/transform_listener.h"
 
 namespace rc26_odom_interface {
 
@@ -79,21 +77,17 @@ private:
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr odom_path_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr odom_pose_markers_pub_;
 
-    std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
-    std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 
     std::string state_estimation_topic_;
     std::string registered_scan_topic_;
     std::string odom_frame_;
-    std::string lidar_frame_;
+    std::string input_body_frame_;
     std::string base_frame_;
 
-    bool base_frame_to_lidar_initialized_;
-    tf2::Transform tf_base_to_lidar_;  // T_{lidar<-base}: 将 base_link 点变换到 lidar 坐标系
+    tf2::Transform tf_base_to_input_body_;  // T_{input_body<-base}: 将 base_link 点变换到 Point-LIO 内部 body 坐标系
     std::mutex transform_mutex_;
     rclcpp::Time latest_odometry_stamp_;
-    rclcpp::Time last_tf_lookup_;
     bool odom_pose_ready_{false};
     bool use_input_twist_{true};
     bool zero_origin_to_first_frame_{true};
@@ -104,9 +98,7 @@ private:
     double zero_origin_max_angular_speed_radps_{0.10};
     bool debug_pose_log_{false};
     double debug_pose_log_interval_sec_{1.0};
-    double tf_timeout_sec_{0.5};           // TF 查询超时时间 (秒)
     double max_time_diff_sec_{0.2};        // 点云与里程计之间允许的最大时间差 (秒)
-    double tf_refresh_interval_sec_{1.0};  // TF 断连时的重新拉取周期 (秒)
     bool clamp_cloud_stamp_to_latest_odom_{true};  // 防止输出点云时间戳超前于已发布 odom
     bool defer_cloud_until_matching_odom_{true};  // 点云超前时先缓存，等待对应 odom 到达后再发布
     bool publish_debug_path_{true};

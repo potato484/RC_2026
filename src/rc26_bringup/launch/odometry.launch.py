@@ -3,7 +3,7 @@
 
 启动:
   - rc26_point_lio (LiDAR-IMU 里程计)
-  - rc26_odom_interface (坐标变换: lidar_odom -> odom)
+  - rc26_odom_interface (坐标变换: Point-LIO 内部 body frame -> odom/base_link)
   - rc26_sensor_scan (发布 odom -> chassis 变换 + sensor_scan)
 """
 import os
@@ -193,8 +193,8 @@ def _select_sensor_extrinsics_profile(data: dict, requested_profile: str) -> tup
     return profile_name, profile
 
 
-def _create_sensor_extrinsics_actions(context, *, sensor_extrinsics_file, sensor_extrinsics_profile,
-                                      point_lio_config_file, point_lio_dir):
+def _resolve_odometry_context(context, *, sensor_extrinsics_file, sensor_extrinsics_profile,
+                              point_lio_config_file, point_lio_dir):
     sensor_extrinsics_path = sensor_extrinsics_file.perform(context)
     requested_profile = sensor_extrinsics_profile.perform(context)
     sensor_data = _load_yaml_file(sensor_extrinsics_path)
@@ -224,11 +224,6 @@ def _create_sensor_extrinsics_actions(context, *, sensor_extrinsics_file, sensor
     if not isinstance(point_lio, dict):
         raise RuntimeError(f'sensor_extrinsics profile {selected_profile} 缺少 point_lio')
     point_lio_body_frame = _as_frame_name(point_lio.get('body_frame'), name='point_lio.body_frame')
-    if point_lio_body_frame != 'point_lio_body':
-        raise RuntimeError(
-            '当前 odom_interface.yaml 固定消费 point_lio_body，'
-            f'sensor_extrinsics profile {selected_profile} 中 point_lio.body_frame={point_lio_body_frame} 不受支持'
-        )
 
     explicit_point_lio_config = point_lio_config_file.perform(context).strip()
     resolved_point_lio_config = explicit_point_lio_config or os.path.join(point_lio_dir, 'config', 'mid360.yaml')
@@ -238,59 +233,89 @@ def _create_sensor_extrinsics_actions(context, *, sensor_extrinsics_file, sensor
     point_lio_body_rpy = _rpy_from_rot(base_to_point_lio_body[0])
     point_lio_body_xyz = base_to_point_lio_body[1]
 
+    return {
+        'selected_profile': selected_profile,
+        'sensor_extrinsics_path': sensor_extrinsics_path,
+        'lidar_parent': lidar_parent,
+        'lidar_child': lidar_child,
+        'lidar_xyz': lidar_xyz,
+        'lidar_rpy': lidar_rpy,
+        'control_parent': control_parent,
+        'control_child': control_child,
+        'control_xyz': control_xyz,
+        'control_rpy': control_rpy,
+        'point_lio_body_frame': point_lio_body_frame,
+        'point_lio_body_xyz': point_lio_body_xyz,
+        'point_lio_body_rpy': point_lio_body_rpy,
+        'resolved_point_lio_config': resolved_point_lio_config,
+        'selected_mode': f'custom:{explicit_point_lio_config}' if explicit_point_lio_config else 'default',
+    }
+
+
+def _create_sensor_extrinsics_actions(context, *, sensor_extrinsics_file, sensor_extrinsics_profile,
+                                      point_lio_config_file, point_lio_dir):
+    context_data = _resolve_odometry_context(
+        context,
+        sensor_extrinsics_file=sensor_extrinsics_file,
+        sensor_extrinsics_profile=sensor_extrinsics_profile,
+        point_lio_config_file=point_lio_config_file,
+        point_lio_dir=point_lio_dir,
+    )
+
     return [
         LogInfo(msg=(
-            f'[odometry] 传感器安装外参使用 profile:{selected_profile}，'
-            f'配置 {sensor_extrinsics_path}'
+            f'[odometry] 传感器安装外参使用 profile:{context_data["selected_profile"]}，'
+            f'配置 {context_data["sensor_extrinsics_path"]}'
         )),
         _static_tf_node(
             name='static_tf_base_to_livox',
-            parent_frame=lidar_parent,
-            child_frame=lidar_child,
-            xyz=lidar_xyz,
-            rpy=lidar_rpy,
-        ),
-        _static_tf_node(
-            name='static_tf_base_to_point_lio_body',
-            parent_frame=lidar_parent,
-            child_frame=point_lio_body_frame,
-            xyz=point_lio_body_xyz,
-            rpy=point_lio_body_rpy,
+            parent_frame=context_data['lidar_parent'],
+            child_frame=context_data['lidar_child'],
+            xyz=context_data['lidar_xyz'],
+            rpy=context_data['lidar_rpy'],
         ),
         _static_tf_node(
             name='static_tf_base_control_to_livox_control',
-            parent_frame=control_parent,
-            child_frame=control_child,
-            xyz=control_xyz,
-            rpy=control_rpy,
+            parent_frame=context_data['control_parent'],
+            child_frame=context_data['control_child'],
+            xyz=context_data['control_xyz'],
+            rpy=context_data['control_rpy'],
         ),
+        LogInfo(msg=(
+            '[odometry] Point-LIO 内部 body frame='
+            f'{context_data["point_lio_body_frame"]} 已内收进 odom_interface 参数，'
+            '不再发布 base_link -> body_frame 静态 TF'
+        )),
     ]
 
 
 def _create_point_lio_actions(context, *, namespace, use_sim_time, point_lio_config_file, point_lio_dir,
-                              point_lio_publish_odometry_without_downsample):
+                              point_lio_publish_odometry_without_downsample, sensor_extrinsics_file,
+                              sensor_extrinsics_profile, start_point_lio):
+    if not _as_bool(start_point_lio.perform(context)):
+        return [LogInfo(msg='[odometry] 跳过 Point-LIO 启动: start_point_lio=false')]
+
     namespace_value = namespace.perform(context)
     use_sim_time_value = _as_bool(use_sim_time.perform(context))
     explicit_config_file = point_lio_config_file.perform(context).strip()
     publish_odometry_without_downsample_value = _as_bool(
         point_lio_publish_odometry_without_downsample.perform(context)
     )
-    base_config_file = os.path.join(point_lio_dir, 'config', 'mid360.yaml')
+    context_data = _resolve_odometry_context(
+        context,
+        sensor_extrinsics_file=sensor_extrinsics_file,
+        sensor_extrinsics_profile=sensor_extrinsics_profile,
+        point_lio_config_file=point_lio_config_file,
+        point_lio_dir=point_lio_dir,
+    )
 
-    if explicit_config_file:
-        resolved_config_file = explicit_config_file
-        selected_mode = f'custom:{explicit_config_file}'
-    else:
-        resolved_config_file = base_config_file
-        selected_mode = 'default'
-
-    if not os.path.exists(resolved_config_file):
-        raise RuntimeError(f'Point-LIO 配置文件不存在: {resolved_config_file}')
+    if explicit_config_file and not os.path.exists(context_data['resolved_point_lio_config']):
+        raise RuntimeError(f'Point-LIO 配置文件不存在: {context_data["resolved_point_lio_config"]}')
 
     parameters = [
-        resolved_config_file,
+        context_data['resolved_point_lio_config'],
         {'use_sim_time': use_sim_time_value},
-        {'frame.body_frame': 'point_lio_body'},
+        {'frame.body_frame': context_data['point_lio_body_frame']},
         {'odometry.publish_odometry_without_downsample': publish_odometry_without_downsample_value},
         {'publish.tf_send_en': False},
     ]
@@ -305,13 +330,56 @@ def _create_point_lio_actions(context, *, namespace, use_sim_time, point_lio_con
     )
 
     return [
-        LogInfo(msg=f'[odometry] Point-LIO 使用 {selected_mode} 配置 {resolved_config_file}'),
+        LogInfo(msg=(
+            f'[odometry] Point-LIO 使用 {context_data["selected_mode"]} 配置 '
+            f'{context_data["resolved_point_lio_config"]}，'
+            f'内部 body frame={context_data["point_lio_body_frame"]}'
+        )),
         LogInfo(
             msg='[odometry] 强制 odometry.publish_odometry_without_downsample='
                 f'{str(publish_odometry_without_downsample_value).lower()}，'
                 '确保 state_estimation 与 cloud_registered 时间戳保持同源'
         ),
         point_lio_node,
+    ]
+
+
+def _create_odom_interface_actions(context, *, namespace, use_sim_time, odom_interface_config,
+                                   sensor_extrinsics_file, sensor_extrinsics_profile,
+                                   point_lio_config_file, point_lio_dir):
+    namespace_value = namespace.perform(context)
+    use_sim_time_value = _as_bool(use_sim_time.perform(context))
+    context_data = _resolve_odometry_context(
+        context,
+        sensor_extrinsics_file=sensor_extrinsics_file,
+        sensor_extrinsics_profile=sensor_extrinsics_profile,
+        point_lio_config_file=point_lio_config_file,
+        point_lio_dir=point_lio_dir,
+    )
+
+    odom_interface_node = Node(
+        package='rc26_odom_interface',
+        executable='rc26_odom_interface_node',
+        name='odom_interface',
+        namespace=namespace_value,
+        output='screen',
+        parameters=[
+            odom_interface_config,
+            {'use_sim_time': use_sim_time_value},
+            {'input_body_frame': context_data['point_lio_body_frame']},
+            {'base_to_input_body_xyz_m': context_data['point_lio_body_xyz']},
+            {'base_to_input_body_rpy_rad': context_data['point_lio_body_rpy']},
+        ],
+    )
+
+    return [
+        LogInfo(msg=(
+            '[odometry] 向 odom_interface 注入内部 body 外参: '
+            f'frame={context_data["point_lio_body_frame"]}, '
+            f'xyz={context_data["point_lio_body_xyz"]}, '
+            f'rpy={context_data["point_lio_body_rpy"]}'
+        )),
+        odom_interface_node,
     ]
 
 
@@ -325,6 +393,8 @@ def generate_launch_description():
     namespace = LaunchConfiguration('namespace')
     use_sim_time = LaunchConfiguration('use_sim_time')
     start_mid360_driver = LaunchConfiguration('start_mid360_driver')
+    start_point_lio = LaunchConfiguration('start_point_lio')
+    start_sensor_scan = LaunchConfiguration('start_sensor_scan')
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
     point_lio_publish_odometry_without_downsample = LaunchConfiguration(
         'point_lio_publish_odometry_without_downsample')
@@ -351,6 +421,16 @@ def generate_launch_description():
         'start_mid360_driver',
         default_value='true',
         description='启动 MID-360 驱动')
+
+    declare_start_point_lio = DeclareLaunchArgument(
+        'start_point_lio',
+        default_value='true',
+        description='启动 Point-LIO 节点')
+
+    declare_start_sensor_scan = DeclareLaunchArgument(
+        'start_sensor_scan',
+        default_value='true',
+        description='启动 rc26_sensor_scan 节点')
 
     declare_point_lio_config_file = DeclareLaunchArgument(
         'point_lio_config_file',
@@ -458,20 +538,24 @@ def generate_launch_description():
             point_lio_config_file=point_lio_config_file,
             point_lio_dir=point_lio_dir,
             point_lio_publish_odometry_without_downsample=point_lio_publish_odometry_without_downsample,
+            sensor_extrinsics_file=sensor_extrinsics_file,
+            sensor_extrinsics_profile=sensor_extrinsics_profile,
+            start_point_lio=start_point_lio,
         )
     )
 
-    # rc26_odom_interface: 将 rc26_point_lio 输出从 lidar_odom 转换到 odom 系
-    odom_interface_node = Node(
-        package='rc26_odom_interface',
-        executable='rc26_odom_interface_node',
-        name='odom_interface',
-        namespace=namespace,
-        output='screen',
-        parameters=[
-            odom_interface_config,
-            {'use_sim_time': use_sim_time},
-        ],
+    # rc26_odom_interface: 将 Point-LIO 内部 body frame 结果转换为权威 odom -> base_link
+    odom_interface_actions = OpaqueFunction(
+        function=lambda context: _create_odom_interface_actions(
+            context,
+            namespace=namespace,
+            use_sim_time=use_sim_time,
+            odom_interface_config=odom_interface_config,
+            sensor_extrinsics_file=sensor_extrinsics_file,
+            sensor_extrinsics_profile=sensor_extrinsics_profile,
+            point_lio_config_file=point_lio_config_file,
+            point_lio_dir=point_lio_dir,
+        )
     )
 
     # rc26_sensor_scan: 发布 odom -> chassis 变换和 sensor_scan
@@ -485,6 +569,7 @@ def generate_launch_description():
             sensor_scan_config,
             {'use_sim_time': use_sim_time},
         ],
+        condition=IfCondition(start_sensor_scan),
     )
 
     sensor_extrinsics_actions = OpaqueFunction(
@@ -502,6 +587,8 @@ def generate_launch_description():
         declare_namespace,
         declare_use_sim_time,
         declare_start_mid360_driver,
+        declare_start_point_lio,
+        declare_start_sensor_scan,
         declare_point_lio_config_file,
         declare_point_lio_publish_odometry_without_downsample,
         declare_sensor_extrinsics_file,
@@ -518,6 +605,6 @@ def generate_launch_description():
         start_mid360_after_recover,
         mid360_driver_node,
         point_lio_actions,
-        odom_interface_node,
+        odom_interface_actions,
         sensor_scan_node,
     ])

@@ -22,12 +22,21 @@ def parse_bool(value: str) -> bool:
 
 
 class MockPointLioNode(Node):
-    def __init__(self, rate_hz: float, obstacle_enable: bool, ground_enable: bool) -> None:
+    def __init__(
+        self,
+        rate_hz: float,
+        obstacle_enable: bool,
+        ground_enable: bool,
+        body_frame: str,
+        stationary_warmup_sec: float,
+    ) -> None:
         super().__init__("mock_point_lio")
 
         self._rate_hz = rate_hz if rate_hz > 0.0 else 10.0
         self._obstacle_enable = obstacle_enable
         self._ground_enable = ground_enable
+        self._body_frame = body_frame.strip() if body_frame.strip() else "point_lio_body"
+        self._stationary_warmup_sec = max(0.0, stationary_warmup_sec)
 
         self._odom_pub = self.create_publisher(Odometry, "state_estimation", 10)
         self._cloud_pub = self.create_publisher(PointCloud2, "cloud_registered", 10)
@@ -40,7 +49,9 @@ class MockPointLioNode(Node):
         self.get_logger().info(
             f"mock_point_lio started: rate_hz={self._rate_hz:.2f} "
             f"obstacle_enable={self._obstacle_enable} "
-            f"ground_enable={self._ground_enable}"
+            f"ground_enable={self._ground_enable} "
+            f"body_frame={self._body_frame} "
+            f"stationary_warmup_sec={self._stationary_warmup_sec:.2f}"
         )
 
     @staticmethod
@@ -76,20 +87,22 @@ class MockPointLioNode(Node):
     def _on_timer(self) -> None:
         now = self.get_clock().now()
         stamp = now.to_msg()
-        t = now.nanoseconds * 1e-9 - self._start_sec
+        elapsed_sec = now.nanoseconds * 1e-9 - self._start_sec
+        in_stationary_warmup = elapsed_sec < self._stationary_warmup_sec
+        t = max(0.0, elapsed_sec - self._stationary_warmup_sec)
 
         odom = Odometry()
         odom.header.stamp = stamp
-        odom.header.frame_id = "lidar_odom"
-        odom.child_frame_id = "livox_frame"
-        odom.pose.pose.position.x = 0.5 * math.sin(t)
+        odom.header.frame_id = "odom"
+        odom.child_frame_id = self._body_frame
+        odom.pose.pose.position.x = 0.0 if in_stationary_warmup else 0.5 * math.sin(t)
         odom.pose.pose.position.y = 0.0
         odom.pose.pose.position.z = 0.0
         odom.pose.pose.orientation.w = 1.0
-        odom.twist.twist.linear.x = 0.5 * math.cos(t)
-        odom.twist.twist.linear.y = 0.1 * math.sin(0.5 * t)
+        odom.twist.twist.linear.x = 0.0 if in_stationary_warmup else 0.5 * math.cos(t)
+        odom.twist.twist.linear.y = 0.0 if in_stationary_warmup else 0.1 * math.sin(0.5 * t)
         odom.twist.twist.linear.z = 0.0
-        odom.twist.twist.angular.z = 0.2 * math.cos(0.3 * t)
+        odom.twist.twist.angular.z = 0.0 if in_stationary_warmup else 0.2 * math.cos(0.3 * t)
         self._odom_pub.publish(odom)
 
         points: List[Tuple[float, float, float]] = []
@@ -122,10 +135,27 @@ def main() -> None:
         default=True,
         help="whether to publish ground points (true/false)",
     )
+    parser.add_argument(
+        "--body_frame",
+        default="point_lio_body",
+        help="internal Point-LIO body frame name used by state_estimation.child_frame_id",
+    )
+    parser.add_argument(
+        "--stationary_warmup_sec",
+        type=float,
+        default=1.5,
+        help="initial stationary duration to satisfy odom_interface zero-origin warmup",
+    )
     args, ros_args = parser.parse_known_args()
 
     rclpy.init(args=ros_args)
-    node = MockPointLioNode(args.rate_hz, args.obstacle_enable, args.ground_enable)
+    node = MockPointLioNode(
+        args.rate_hz,
+        args.obstacle_enable,
+        args.ground_enable,
+        args.body_frame,
+        args.stationary_warmup_sec,
+    )
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

@@ -136,6 +136,10 @@ bool hasUsableQuaternion(const geometry_msgs::msg::Quaternion& quaternion) {
     return norm_sq > 1e-12;
 }
 
+bool isFiniteVector3(const std::vector<double>& values) {
+    return std::all_of(values.begin(), values.end(), [](double value) { return std::isfinite(value); });
+}
+
 bool isUsableOdometry(const nav_msgs::msg::Odometry& msg) {
     return isFinite(msg.pose.pose.position) && hasUsableQuaternion(msg.pose.pose.orientation) &&
            isFinite(msg.twist.twist.linear) && isFinite(msg.twist.twist.angular) && allFinite(msg.pose.covariance) &&
@@ -150,10 +154,10 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     this->declare_parameter<std::string>("registered_scan_topic", "");
     this->declare_parameter<std::string>("odom_frame", "odom");
     this->declare_parameter<std::string>("base_frame", "");
-    this->declare_parameter<std::string>("lidar_frame", "");
-    this->declare_parameter<double>("tf_lookup_timeout_sec", 0.5);
+    this->declare_parameter<std::string>("input_body_frame", "");
+    this->declare_parameter<std::vector<double>>("base_to_input_body_xyz_m", std::vector<double>{});
+    this->declare_parameter<std::vector<double>>("base_to_input_body_rpy_rad", std::vector<double>{});
     this->declare_parameter<double>("max_time_diff_sec", 0.2);
-    this->declare_parameter<double>("tf_refresh_interval_sec", 1.0);
     this->declare_parameter<bool>("clamp_cloud_stamp_to_latest_odom", true);
     this->declare_parameter<bool>("defer_cloud_until_matching_odom", true);
     this->declare_parameter<bool>("publish_debug_path", true);
@@ -170,10 +174,12 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     this->get_parameter("registered_scan_topic", registered_scan_topic_);
     this->get_parameter("odom_frame", odom_frame_);
     this->get_parameter("base_frame", base_frame_);
-    this->get_parameter("lidar_frame", lidar_frame_);
-    this->get_parameter("tf_lookup_timeout_sec", tf_timeout_sec_);
+    this->get_parameter("input_body_frame", input_body_frame_);
+    std::vector<double> base_to_input_body_xyz_m;
+    std::vector<double> base_to_input_body_rpy_rad;
+    this->get_parameter("base_to_input_body_xyz_m", base_to_input_body_xyz_m);
+    this->get_parameter("base_to_input_body_rpy_rad", base_to_input_body_rpy_rad);
     this->get_parameter("max_time_diff_sec", max_time_diff_sec_);
-    this->get_parameter("tf_refresh_interval_sec", tf_refresh_interval_sec_);
     this->get_parameter("clamp_cloud_stamp_to_latest_odom", clamp_cloud_stamp_to_latest_odom_);
     this->get_parameter("defer_cloud_until_matching_odom", defer_cloud_until_matching_odom_);
     this->get_parameter("publish_debug_path", publish_debug_path_);
@@ -194,19 +200,11 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     require_non_empty("state_estimation_topic", state_estimation_topic_);
     require_non_empty("registered_scan_topic", registered_scan_topic_);
     require_non_empty("base_frame", base_frame_);
-    require_non_empty("lidar_frame", lidar_frame_);
+    require_non_empty("input_body_frame", input_body_frame_);
 
-    if (tf_timeout_sec_ < 0.0) {
-        RCLCPP_WARN(this->get_logger(), "tf_lookup_timeout_sec=%.3f 非法，已钳制为 0.0", tf_timeout_sec_);
-        tf_timeout_sec_ = 0.0;
-    }
     if (max_time_diff_sec_ < 0.0) {
         RCLCPP_WARN(this->get_logger(), "max_time_diff_sec=%.3f 非法，已禁用点云时间差守卫", max_time_diff_sec_);
         max_time_diff_sec_ = 0.0;
-    }
-    if (tf_refresh_interval_sec_ < 0.0) {
-        RCLCPP_WARN(this->get_logger(), "tf_refresh_interval_sec=%.3f 非法，已禁用 TF 周期刷新", tf_refresh_interval_sec_);
-        tf_refresh_interval_sec_ = 0.0;
     }
     if (zero_origin_warmup_frames_ < 1) {
         RCLCPP_WARN(this->get_logger(), "zero_origin_warmup_frames=%d 非法，已钳制为 1", zero_origin_warmup_frames_);
@@ -228,13 +226,30 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
         debug_pose_log_interval_sec_ = 1.0;
     }
 
-    base_frame_to_lidar_initialized_ = false;
     tf_input_odom_to_output_odom_.setIdentity();
     zero_origin_translation_sum_.setZero();
 
-    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
-    tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
+
+    if (!isFiniteVector3(base_to_input_body_xyz_m)) {
+        throw std::runtime_error("base_to_input_body_xyz_m 必须全部是有限数值");
+    }
+    if (!isFiniteVector3(base_to_input_body_rpy_rad)) {
+        throw std::runtime_error("base_to_input_body_rpy_rad 必须全部是有限数值");
+    }
+    if (base_to_input_body_xyz_m.size() != 3U) {
+        throw std::runtime_error("base_to_input_body_xyz_m 必须是长度为 3 的数组");
+    }
+    if (base_to_input_body_rpy_rad.size() != 3U) {
+        throw std::runtime_error("base_to_input_body_rpy_rad 必须是长度为 3 的数组");
+    }
+
+    tf_base_to_input_body_.setOrigin(
+        tf2::Vector3(base_to_input_body_xyz_m[0], base_to_input_body_xyz_m[1], base_to_input_body_xyz_m[2]));
+    tf2::Quaternion rotation;
+    rotation.setRPY(base_to_input_body_rpy_rad[0], base_to_input_body_rpy_rad[1], base_to_input_body_rpy_rad[2]);
+    rotation.normalize();
+    tf_base_to_input_body_.setRotation(rotation);
 
     pcd_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("registered_scan", 5);
     odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("odom", 5);
@@ -254,6 +269,11 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     RCLCPP_INFO(this->get_logger(), "debug publishers: odom_path=%s, odom_pose_markers=%s",
                 publish_debug_path_ ? "enabled" : "disabled",
                 publish_pose_markers_ ? "enabled" : "disabled");
+    RCLCPP_INFO(this->get_logger(),
+                "已注入内部 body 外参: base_frame=%s, input_body_frame=%s, xyz=(%.3f, %.3f, %.3f), rpy=(%.3f, %.3f, %.3f)",
+                base_frame_.c_str(), input_body_frame_.c_str(), base_to_input_body_xyz_m[0],
+                base_to_input_body_xyz_m[1], base_to_input_body_xyz_m[2], base_to_input_body_rpy_rad[0],
+                base_to_input_body_rpy_rad[1], base_to_input_body_rpy_rad[2]);
 }
 
 void OdomInterfaceNode::storeOdometryStampLocked(const rclcpp::Time& odom_stamp) {
@@ -440,10 +460,10 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
                              msg->header.frame_id.c_str(), odom_frame_.c_str());
         return;
     }
-    if (msg->child_frame_id != lidar_frame_) {
+    if (msg->child_frame_id != input_body_frame_) {
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                             "输入里程计 child_frame_id (%s) != lidar_frame (%s)，丢弃该帧",
-                             msg->child_frame_id.c_str(), lidar_frame_.c_str());
+                             "输入里程计 child_frame_id (%s) != input_body_frame (%s)，丢弃该帧",
+                             msg->child_frame_id.c_str(), input_body_frame_.c_str());
         return;
     }
     if (!isUsableOdometry(*msg)) {
@@ -452,65 +472,23 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
         return;
     }
 
-    // NOTE: Input odometry message is based on the `lidar_odom` (Point-LIO output)
-    // The lidar_odom frame origin is at the lidar's initial position
+    // NOTE: Input odometry message is based on the Point-LIO internal body frame.
+    // The input body frame origin is at the sensor/body initial position.
     // We need to transform it to align with our odom frame (base_link initial position)
-    // Transform chain: odom -> base_link -> lidar_link (static), then apply lidar_odom pose
+    // Transform chain: odom -> base_link -> input_body (static), then apply Point-LIO pose
     const rclcpp::Time odom_stamp(msg->header.stamp);
-    tf2::Transform tf_base_to_lidar;
-    bool base_to_lidar_ready = false;
-    bool need_tf_refresh = false;
-    {
-        std::lock_guard<std::mutex> lock(transform_mutex_);
-        base_to_lidar_ready = base_frame_to_lidar_initialized_;
-        if (base_to_lidar_ready) {
-            tf_base_to_lidar = tf_base_to_lidar_;
-        }
-        need_tf_refresh = !base_to_lidar_ready ||
-                          (tf_refresh_interval_sec_ > 0.0 &&
-                           (last_tf_lookup_.nanoseconds() == 0 ||
-                            (odom_stamp - last_tf_lookup_).seconds() > tf_refresh_interval_sec_));
-    }
+    const tf2::Transform tf_base_to_input_body = tf_base_to_input_body_;
 
-    if (need_tf_refresh) {
-        // ===== 基座与雷达的静态 TF 可能在运行时断开，这里按配置周期重新拉取 =====
-        try {
-            auto tf_stamped = tf_buffer_->lookupTransform(base_frame_, lidar_frame_, odom_stamp,
-                                                          rclcpp::Duration::from_seconds(tf_timeout_sec_));
-            tf2::Transform tf_lidar_to_base;
-            tf2::fromMsg(tf_stamped.transform, tf_lidar_to_base);
-            tf_base_to_lidar = tf_lidar_to_base.inverse();
-            {
-                std::lock_guard<std::mutex> lock(transform_mutex_);
-                tf_base_to_lidar_ = tf_base_to_lidar;
-                base_frame_to_lidar_initialized_ = true;
-                last_tf_lookup_ = odom_stamp;
-            }
-            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "TF %s -> %s 刷新成功",
-                                 base_frame_.c_str(), lidar_frame_.c_str());
-        } catch (tf2::TransformException& ex) {
-            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                                 "TF %s -> %s 查询失败: %s，使用上次有效TF继续发布", base_frame_.c_str(),
-                                 lidar_frame_.c_str(), ex.what());
-            // [修复] TF查询失败时不直接return，使用上次有效的TF继续发布
-            // 只有在从未成功初始化过时才return
-            if (!base_to_lidar_ready) {
-                RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "TF从未成功初始化，无法发布odom");
-                return;
-            }
-        }
-    }
-
-    // Input: lidar_odom -> lidar (from Point-LIO)
+    // Input: input_body_odom -> input_body (from Point-LIO)
     // We want: odom -> base_link
     // Transform chain:
-    //   T_odom_base = T_lidar_odom_lidar * T_lidar_base
-    //   where T_lidar_base = tf_base_to_lidar_ (computed once at init)
-    tf2::Transform tf_lidar_odom_to_lidar;
-    tf2::fromMsg(msg->pose.pose, tf_lidar_odom_to_lidar);
+    //   T_odom_base = T_input_body_odom_input_body * T_input_body_base
+    //   where T_input_body_base = tf_base_to_input_body_ (computed once at init)
+    tf2::Transform tf_input_body_odom_to_input_body;
+    tf2::fromMsg(msg->pose.pose, tf_input_body_odom_to_input_body);
 
     // Compute raw Point-LIO odom -> base_link transform
-    tf2::Transform tf_input_odom_to_base = tf_lidar_odom_to_lidar * tf_base_to_lidar;
+    tf2::Transform tf_input_odom_to_base = tf_input_body_odom_to_input_body * tf_base_to_input_body;
     tf2::Transform tf_odom_to_base = tf_input_odom_to_base;
 
     if (zero_origin_to_first_frame_) {
@@ -592,14 +570,16 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
         storeOdometryStampLocked(odom_stamp);
 
         if (use_input_twist_) {
-            const tf2::Vector3 r_base_in_lidar = tf_base_to_lidar.getOrigin();
-            const tf2::Quaternion rotation_lidar_to_base = tf_base_to_lidar.getRotation().inverse();
-            const tf2::Vector3 v_lidar(msg->twist.twist.linear.x, msg->twist.twist.linear.y, msg->twist.twist.linear.z);
-            const tf2::Vector3 w_lidar(msg->twist.twist.angular.x, msg->twist.twist.angular.y, msg->twist.twist.angular.z);
+            const tf2::Vector3 r_base_in_input_body = tf_base_to_input_body.getOrigin();
+            const tf2::Quaternion rotation_input_body_to_base = tf_base_to_input_body.getRotation().inverse();
+            const tf2::Vector3 v_input_body(msg->twist.twist.linear.x, msg->twist.twist.linear.y,
+                                            msg->twist.twist.linear.z);
+            const tf2::Vector3 w_input_body(msg->twist.twist.angular.x, msg->twist.twist.angular.y,
+                                            msg->twist.twist.angular.z);
 
             const tf2::Vector3 v_base =
-                tf2::quatRotate(rotation_lidar_to_base, v_lidar + w_lidar.cross(r_base_in_lidar));
-            const tf2::Vector3 w_base = tf2::quatRotate(rotation_lidar_to_base, w_lidar);
+                tf2::quatRotate(rotation_input_body_to_base, v_input_body + w_input_body.cross(r_base_in_input_body));
+            const tf2::Vector3 w_base = tf2::quatRotate(rotation_input_body_to_base, w_input_body);
 
             out.twist.twist.linear.x = v_base.x();
             out.twist.twist.linear.y = v_base.y();
@@ -608,10 +588,12 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
             out.twist.twist.angular.y = w_base.y();
             out.twist.twist.angular.z = w_base.z();
 
-            const Eigen::Quaterniond rotation_lidar_to_base_eigen(rotation_lidar_to_base.w(), rotation_lidar_to_base.x(),
-                                                                  rotation_lidar_to_base.y(), rotation_lidar_to_base.z());
-            const Eigen::Matrix3d R = rotation_lidar_to_base_eigen.toRotationMatrix();
-            const Eigen::Vector3d r(r_base_in_lidar.x(), r_base_in_lidar.y(), r_base_in_lidar.z());
+            const Eigen::Quaterniond rotation_input_body_to_base_eigen(rotation_input_body_to_base.w(),
+                                                                       rotation_input_body_to_base.x(),
+                                                                       rotation_input_body_to_base.y(),
+                                                                       rotation_input_body_to_base.z());
+            const Eigen::Matrix3d R = rotation_input_body_to_base_eigen.toRotationMatrix();
+            const Eigen::Vector3d r(r_base_in_input_body.x(), r_base_in_input_body.y(), r_base_in_input_body.z());
             Eigen::Matrix3d skew_r;
             skew_r << 0.0, -r(2), r(1), r(2), 0.0, -r(0), -r(1), r(0), 0.0;
             Eigen::Matrix<double, 6, 6> J = Eigen::Matrix<double, 6, 6>::Zero();

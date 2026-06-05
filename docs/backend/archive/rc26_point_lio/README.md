@@ -80,6 +80,7 @@
 - 它不负责把传感器结果转换成下游统一里程计接口，那个职责在 `rc26_odom_interface`。
 - 控制/导航默认直接消费 `rc26_odom_interface` 发布的 `/odom`；Point-LIO 不再通过独立预测包提供控制态。
 - 它不负责车身到雷达的整机安装外参；`config/mid360.yaml` 中的 `mapping.extrinsic_T/R` 只表示 Point-LIO 内部 LiDAR/IMU 外参，车身安装位置和 yaw 归 `rc26_sensor_extrinsics` 管理。
+- `point_lio.body_frame` 继续只是 Point-LIO 内部输出 frame 名；它会出现在 `/state_estimation.child_frame_id` 与可选 `/cloud_registered_body` 中，但当前不再作为对外 TF 边发布。
 - 它会消费 `rc26_bringup` 发布的 `base_link -> livox_frame` 静态 TF，用于 Mid-360 输入侧车身 ROI 裁剪；该 TF 仍以 `rc26_sensor_extrinsics` 为配置真源。
 - 它不负责控制和决策。
 - 它的 launch 只启动 headless Point-LIO；如需观察，请手工运行外部 RViz/Foxglove 等工具只读订阅当前 topic。
