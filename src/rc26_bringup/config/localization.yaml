@@ -17,7 +17,7 @@ localization:
 
     map_frame: map
     odom_frame: odom
-    robot_base_frame: base_link
+    robot_base_frame: base_footprint
 
     prior_pcd_file: ""
     input_cloud_topic: "registered_scan"

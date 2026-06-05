@@ -108,10 +108,9 @@ SensorScanNode::SensorScanNode(const rclcpp::NodeOptions& options) : Node("senso
         RCLCPP_WARN(this->get_logger(), "max_time_diff_sec=%.3f 非法，已禁用同步时间差守卫", max_time_diff_sec_);
         max_time_diff_sec_ = 0.0;
     }
-
     if (robot_base_frame_ != base_frame_) {
         throw std::runtime_error("robot_base_frame (" + robot_base_frame_ + ") must equal base_frame (" + base_frame_ +
-                                 ") to ensure TF tree consistency");
+                                 ") in the current automatic navigation chain");
     }
 
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
@@ -171,26 +170,21 @@ void SensorScanNode::laserCloudAndOdometryHandler(const nav_msgs::msg::Odometry:
         return;
     }
 
-    // NOTE: odometry_msg 来自 rc26_odom_interface，其 pose 表示 odom → base_link
-    // child_frame_id = base_link，所以这里直接使用，不需要额外的坐标变换
-    tf2::Transform tf_odom_to_base;
-    tf2::fromMsg(odometry_msg->pose.pose, tf_odom_to_base);
+    tf2::Transform tf_odom_to_robot_base;
+    tf2::fromMsg(odometry_msg->pose.pose, tf_odom_to_robot_base);
 
-    // 查询 base_link → laser_link 的静态变换（缓存）
-    if (!base_to_lidar_) {
-        base_to_lidar_ = getStaticTransform(base_frame_, lidar_frame_);
-        if (!base_to_lidar_) {
-            return;
-        }
+    const auto tf_robot_base_to_lidar = lookupTransform(robot_base_frame_, lidar_frame_, cloud_stamp);
+    if (!tf_robot_base_to_lidar) {
+        return;
     }
-    const auto& tf_base_to_lidar = *base_to_lidar_;
 
-    publishOdometry(tf_odom_to_base, odometry_msg->twist, odometry_msg->pose.covariance, odometry_msg->header.frame_id,
-                    robot_base_frame_, cloud_stamp);
+    publishOdometry(tf_odom_to_robot_base, odometry_msg->twist, odometry_msg->pose.covariance,
+                    odometry_msg->header.frame_id, robot_base_frame_, cloud_stamp);
 
-    // 将 odom 坐标系的点云转换到 laser_link 坐标系
-    // T_laser_odom = T_laser_base * T_base_odom = tf_base_to_lidar^(-1) * tf_odom_to_base^(-1)
-    tf2::Transform tf_odom_to_lidar = tf_odom_to_base * tf_base_to_lidar;
+    // 将 odom 坐标系的点云转换到 lidar_frame。
+    // 当 robot_base_frame=base_footprint、base_link 保留 roll/pitch 时，
+    // 这里必须按时间戳实时查询组合 TF，不能把 robot_base_frame -> lidar_frame 当静态量缓存。
+    tf2::Transform tf_odom_to_lidar = tf_odom_to_robot_base * (*tf_robot_base_to_lidar);
     sensor_msgs::msg::PointCloud2 out;
     try {
         pcl_ros::transformPointCloud(lidar_frame_, tf_odom_to_lidar.inverse(), *pcd_msg, out);
@@ -203,17 +197,19 @@ void SensorScanNode::laserCloudAndOdometryHandler(const nav_msgs::msg::Odometry:
     pub_laser_cloud_->publish(out);
 }
 
-std::optional<tf2::Transform> SensorScanNode::getStaticTransform(const std::string& target_frame,
-                                                                 const std::string& source_frame) {
+std::optional<tf2::Transform> SensorScanNode::lookupTransform(const std::string& target_frame,
+                                                              const std::string& source_frame,
+                                                              const rclcpp::Time& stamp) {
     try {
-        auto transform_stamped =
-            tf_buffer_->lookupTransform(target_frame, source_frame, tf2::TimePointZero, tf2::durationFromSec(tf_timeout_sec_));
+        auto transform_stamped = tf_buffer_->lookupTransform(target_frame, source_frame, stamp,
+                                                             rclcpp::Duration::from_seconds(tf_timeout_sec_));
         tf2::Transform transform;
         tf2::fromMsg(transform_stamped.transform, transform);
         return transform;
     } catch (tf2::TransformException& ex) {
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Static TF lookup failed (%s -> %s): %s",
-                             target_frame.c_str(), source_frame.c_str(), ex.what());
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                             "TF lookup failed at stamp %.3f (%s -> %s): %s", stamp.seconds(), target_frame.c_str(),
+                             source_frame.c_str(), ex.what());
         return std::nullopt;
     }
 }

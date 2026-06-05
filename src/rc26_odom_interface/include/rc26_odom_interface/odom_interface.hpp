@@ -32,15 +32,16 @@ namespace rc26_odom_interface {
 
 // OdomInterfaceNode 节点
 // 作用：将 Point-LIO 输出的里程计 / 点云，转换成导航栈统一使用的坐标系与话题
-// Layer A 职责：生产链中权威发布 odom -> base_link，向 Layer B 持续供给 odom 与 registered_scan。
+// Layer A 职责：生产链中权威发布自动链的 odom -> base_footprint 与 base_footprint -> base_link，
+// 向 Layer B 持续供给 odom 与 registered_scan。
 //  - 输入:
 //      * state_estimation_topic_ : lidar_odom 坐标系下的里程计 (Point-LIO 输出)
 //      * registered_scan_topic_  : lidar_odom 坐标系下的点云
 //  - 输出:
-//      * 话题 odom               : odom -> base_link 的里程计
+//      * 话题 odom               : odom -> base_frame 的里程计；默认 child_frame_id=base_footprint
 //      * 话题 registered_scan    : odom 坐标系下的点云
 //  - 坐标链路约定:
-//      * 全局约定为 map -> odom -> base_link -> laser_link
+//      * 自动导航链约定为 map -> odom -> base_footprint -> base_link -> laser_link
 //  - 时间同步约束:
 //      * 使用 max_time_diff_sec_ 限制点云与里程计的严重失配
 //      * 对毫秒级回调抖动做小容差吸收，避免边界值误丢云
@@ -84,8 +85,10 @@ private:
     std::string odom_frame_;
     std::string input_body_frame_;
     std::string base_frame_;
+    std::string base_link_frame_;
+    double base_link_height_above_base_footprint_m_{0.2};
 
-    tf2::Transform tf_base_to_input_body_;  // T_{input_body<-base}: 将 base_link 点变换到 Point-LIO 内部 body 坐标系
+    tf2::Transform tf_base_to_input_body_;  // T_{input_body<-base_link}: 将 base_link 点变换到 Point-LIO 内部 body 坐标系
     std::mutex transform_mutex_;
     rclcpp::Time latest_odometry_stamp_;
     bool odom_pose_ready_{false};
@@ -103,7 +106,7 @@ private:
     bool defer_cloud_until_matching_odom_{true};  // 点云超前时先缓存，等待对应 odom 到达后再发布
     bool publish_debug_path_{true};
     bool publish_pose_markers_{true};
-    tf2::Transform tf_input_odom_to_output_odom_;  // 首帧平移归零: 将 Point-LIO odom 平移到 base_link 首帧原点
+    tf2::Transform tf_input_odom_to_output_odom_;  // 首帧平移归零: 将 Point-LIO odom 平移到输出基座首帧原点
     tf2::Vector3 zero_origin_translation_sum_{0.0, 0.0, 0.0};
     nav_msgs::msg::Path odom_path_msg_;
     std::deque<rclcpp::Time> odometry_stamp_history_;

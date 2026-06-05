@@ -10,12 +10,14 @@
 - 关键职责:
   - 消费 Point-LIO 内部 body frame 语义的 `/state_estimation`
   - 使用 `odometry.launch.py` 注入的 `base_link -> input_body_frame` 外参做底盘系映射
-  - 权威 `odom -> base_link` TF 输出
-  - 标准化 odometry 输出
+  - 权威输出自动导航链动态 TF：`odom -> base_footprint` 与 `base_footprint -> base_link`
+  - 发布标准化 `/odom`，其中 `child_frame_id=base_footprint`
+  - `base_link` 相对 `base_footprint` 的高度由 `rc26_bringup/config/odom_interface.yaml` 提供，当前为 `0.2m`
 
 ## 当前边界
 
 - 不负责里程计估计本体
 - 不再查询 `base_link -> point_lio.body_frame` TF；内部 body 外参只接受 launch 注入，不再作为对外 TF 边存在
 - 不直接做控制求解
+- 只负责自动导航链，不改遥控 / `rc26_merge_odom` 链路
 - 供定位、Nav2 和可视化统一消费

@@ -50,7 +50,6 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 
 ### 控制与执行
 
-- [`rc26_robot_geometry`](archive/rc26_robot_geometry/README.md): R2 机器人车体轮廓与安全包络共享配置真源。`(file: archive/rc26_robot_geometry/README.md)`
 - [`rc26_mechanism`](archive/rc26_mechanism/README.md): 机构执行与生命周期管理。`(file: archive/rc26_mechanism/README.md)`
 - [`rc26_telecontrol`](archive/rc26_telecontrol/README.md): 人工遥控测试包。`(file: archive/rc26_telecontrol/README.md)`
 - [`rc26_serial`](archive/rc26_serial/README.md): 串口通信基础库。`(file: archive/rc26_serial/README.md)`

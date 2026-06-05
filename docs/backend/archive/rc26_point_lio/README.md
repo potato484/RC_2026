@@ -97,5 +97,5 @@
 ## 调试信息口径
 
 - 建图主链的参数异常、IMU 初始化、LiDAR/IMU 时间回退、点云为空、车身 ROI 裁剪、完整地图可视化、PCD 保存、外参估计和耗时统计等用户可见提示已经改为中文。
-- 中文提示不改变运行逻辑；`/state_estimation`、`/cloud_registered`、`/point_lio/map_cloud` 等 topic 名，`map/odom/base_link/livox_frame` 等 frame 名，以及 `filter_car_body`、`pcd_save.interval` 等参数名继续作为机器契约保留。
+- 中文提示不改变运行逻辑；`/state_estimation`、`/cloud_registered`、`/point_lio/map_cloud` 等 topic 名，自动导航链里的 `map/odom/base_footprint/base_link/livox_frame` 等 frame 名，以及 `filter_car_body`、`pcd_save.interval` 等参数名继续作为机器契约保留。
 - `scripts/time_sync_analyzer.py` 的现场输出也按中文说明展示，推荐时间偏移仍保留 LiDAR/IMU 名称和数值单位，便于直接用于调试记录。

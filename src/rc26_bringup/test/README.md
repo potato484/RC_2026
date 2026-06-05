@@ -72,7 +72,8 @@ ros2 topic echo /registered_scan --once
 ros2 topic echo /odom --once | grep covariance
 
 # 检查 TF 树
-ros2 run tf2_ros tf2_echo odom base_link
+ros2 run tf2_ros tf2_echo odom base_footprint
+ros2 run tf2_ros tf2_echo base_footprint base_link
 ```
 
 ---
@@ -93,6 +94,7 @@ ros2 topic echo /odometry --once
 ros2 topic echo /odometry --once | grep covariance
 
 # 检查 TF 树
+ros2 run tf2_ros tf2_echo base_footprint base_link
 ros2 run tf2_ros tf2_echo base_link livox_frame
 ```
 
@@ -224,7 +226,7 @@ ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \
 
 | 模块 | 话题/TF | 预期结果 |
 |------|---------|----------|
-| odom_interface | `/odom` | odom→base_link 变换 |
+| odom_interface | `/odom` | odom→base_footprint 里程计，TF 同时提供 base_footprint→base_link |
 | sensor_scan | `/sensor_scan` | `livox_frame` 坐标系点云，供 Nav2 obstacle layer 直接消费；`/odometry` 协方差透传 |
 | rc26_point_lio | `/state_estimation` + `/cloud_registered` | LIO 里程计与原生配准点云持续输出 |
 | localization | `map->odom` + `/localization/pose_with_cov` + `/localization/diagnostics` | TF 和标准定位观测持续发布 |

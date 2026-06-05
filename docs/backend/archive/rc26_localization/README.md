@@ -15,12 +15,13 @@
 运行时链路已经按比赛最小可用口径收口：
 
 - 输入 `registered_scan`，默认由 `rc26_odom_interface` 提供，假设已经在 `odom` 坐标系表达
+- 默认 `robot_base_frame=base_footprint`，连续定位和 `initialpose` 接管都以 2D 导航基座为准
 - 加载 `prior_pcd_file`，假设先验 PCD 已经在 `map` 坐标系表达
 - 启动后继续发布配置初值 TF，并用开局累计点云做一次 FPFH/SAC-IA 粗配准 + small_gicp 精配准
 - 2Hz 执行 small_gicp 局部配准，质量通过 `min_inliers` 和 `max_normalized_error` 门控
 - 20Hz 发布 `map -> odom`，同时发布 `/localization/pose_with_cov`
 - 发布 `/localization/diagnostics`，记录本帧是否接受、收敛、内点数、归一化误差和开局重定位状态；`status.message` 继续保留英文 reason code，同时新增 `human_message` 中文说明字段供现场排查
-- 订阅 `initialpose`，用 `map_to_odom = map_to_base * inverse(odom_to_base)` 接管定位
+- 订阅 `initialpose`，用 `map_to_odom = map_to_base * inverse(odom_to_base)` 接管定位；当前查询的是 `odom -> base_footprint`
 - 面向现场操作者的控制台日志和验收脚本提示按通俗中文输出；topic、frame、参数名和 diagnostics 既有英文 key 继续作为机器契约保留
 
 ## 当前边界
@@ -36,7 +37,7 @@
 - [scripts/run_localization_acceptance.sh](/home/potato/RC_2026/src/rc26_localization/scripts/run_localization_acceptance.sh)：最小链路验收脚本
 - [scripts/publish_synthetic_loc_inputs.py](/home/potato/RC_2026/src/rc26_localization/scripts/publish_synthetic_loc_inputs.py)：合成 `registered_scan` 输入
 
-验收脚本现在会强制检查 `/localization/pose_with_cov` 与 `/localization/diagnostics` 均存在 publisher 且能采到频率；默认小 PCD 只用于 smoke 验证，比赛配准质量仍以真实地图或 rosbag 为准。
+验收脚本现在会强制检查 `/localization/pose_with_cov` 与 `/localization/diagnostics` 均存在 publisher 且能采到频率；若走 synthetic 输入，会补一条静态 `odom -> base_footprint` 供最小链路 smoke 使用。默认小 PCD 只用于验证节点、TF/pose/diagnostics 链路可启动；比赛配准质量仍以真实地图或 rosbag 为准。
 
 ## 调试信息口径
 

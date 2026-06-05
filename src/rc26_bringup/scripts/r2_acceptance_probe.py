@@ -114,10 +114,14 @@ class AcceptanceProbe:
 
         self.tf_seen_map_odom = False
         self.tf_seen_odom_base = False
+        self.tf_seen_odom_base_link = False
         self.tf_seen_map_base = False
+        self.tf_seen_map_base_link = False
         self.tf_seen_base_livox = False
+        self.tf_seen_base_to_base_link = False
         self.tf_seen_map_livox = False
         self.tf_base_livox: Optional[Tuple[float, float, float, float, float, float, float]] = None
+        self.tf_base_to_base_link: Optional[Tuple[float, float, float, float, float, float, float]] = None
 
         self.sub_odom = self.node.create_subscription(Odometry, "/odom", self._on_odom, 50)
         self.sub_registered_scan = self.node.create_subscription(
@@ -193,6 +197,14 @@ class AcceptanceProbe:
 
         try:
             self.tf_buffer.lookup_transform(
+                self.args.odom_frame, self.args.base_link_frame, rclpy.time.Time()
+            )
+            self.tf_seen_odom_base_link = True
+        except TransformException:
+            pass
+
+        try:
+            self.tf_buffer.lookup_transform(
                 self.args.map_frame, self.args.base_frame, rclpy.time.Time()
             )
             self.tf_seen_map_base = True
@@ -200,13 +212,32 @@ class AcceptanceProbe:
             pass
 
         try:
+            self.tf_buffer.lookup_transform(
+                self.args.map_frame, self.args.base_link_frame, rclpy.time.Time()
+            )
+            self.tf_seen_map_base_link = True
+        except TransformException:
+            pass
+
+        try:
             tf_base_livox = self.tf_buffer.lookup_transform(
-                self.args.base_frame, self.args.lidar_frame, rclpy.time.Time()
+                self.args.base_link_frame, self.args.lidar_frame, rclpy.time.Time()
             )
             self.tf_seen_base_livox = True
             t = tf_base_livox.transform.translation
             q = tf_base_livox.transform.rotation
             self.tf_base_livox = (t.x, t.y, t.z, q.x, q.y, q.z, q.w)
+        except TransformException:
+            pass
+
+        try:
+            tf_base_to_base_link = self.tf_buffer.lookup_transform(
+                self.args.base_frame, self.args.base_link_frame, rclpy.time.Time()
+            )
+            self.tf_seen_base_to_base_link = True
+            t = tf_base_to_base_link.transform.translation
+            q = tf_base_to_base_link.transform.rotation
+            self.tf_base_to_base_link = (t.x, t.y, t.z, q.x, q.y, q.z, q.w)
         except TransformException:
             pass
 
@@ -334,9 +365,23 @@ class AcceptanceProbe:
         )
         checks.append(
             Check(
-                name="TF/odom->base_link",
+                name="TF/odom->base_frame",
                 ok=self.tf_seen_odom_base,
                 detail=f"seen={self.tf_seen_odom_base}",
+            )
+        )
+        checks.append(
+            Check(
+                name="TF/odom=>base_link(path)",
+                ok=self.tf_seen_odom_base_link,
+                detail=f"seen={self.tf_seen_odom_base_link}",
+            )
+        )
+        checks.append(
+            Check(
+                name="TF/base_frame->base_link",
+                ok=self.tf_seen_base_to_base_link,
+                detail=f"seen={self.tf_seen_base_to_base_link}",
             )
         )
         checks.append(
@@ -348,9 +393,16 @@ class AcceptanceProbe:
         )
         checks.append(
             Check(
-                name="TF/map->base_link",
+                name="TF/map->base_frame",
                 ok=(self.tf_seen_map_base if self.args.require_map_chain else True),
                 detail=f"seen={self.tf_seen_map_base} require_map_chain={self.args.require_map_chain}",
+            )
+        )
+        checks.append(
+            Check(
+                name="TF/map->base_link",
+                ok=(self.tf_seen_map_base_link if self.args.require_map_chain else True),
+                detail=f"seen={self.tf_seen_map_base_link} require_map_chain={self.args.require_map_chain}",
             )
         )
         checks.append(
@@ -361,12 +413,40 @@ class AcceptanceProbe:
             )
         )
 
+        if self.tf_base_to_base_link is None:
+            checks.append(
+                Check(
+                    name="TFExtrinsic/base_frame_base_link_numeric",
+                    ok=False,
+                    detail=f"{self.args.base_frame}->{self.args.base_link_frame} transform not available",
+                )
+            )
+        else:
+            tx, ty, tz, qx, qy, qz, qw = self.tf_base_to_base_link
+            roll, pitch, yaw = quaternion_to_euler_rpy(qx, qy, qz, qw)
+            ok = (
+                abs(tx - self.args.expected_base_link_x) <= self.args.expected_base_link_xyz_tol
+                and abs(ty - self.args.expected_base_link_y) <= self.args.expected_base_link_xyz_tol
+                and abs(tz - self.args.expected_base_link_z) <= self.args.expected_base_link_xyz_tol
+                and abs(yaw) <= self.args.expected_base_link_rpy_tol_rad
+            )
+            checks.append(
+                Check(
+                    name="TFExtrinsic/base_frame_base_link_numeric",
+                    ok=ok,
+                    detail=(
+                        f"xyz=({tx:.4f},{ty:.4f},{tz:.4f}) rpy=({roll:.4f},{pitch:.4f},{yaw:.4f}) "
+                        f"expected_z={self.args.expected_base_link_z:.4f}"
+                    ),
+                )
+            )
+
         if self.tf_base_livox is None:
             checks.append(
                 Check(
                     name="TFExtrinsic/base_livox_numeric",
                     ok=False,
-                    detail="base_link->livox_frame transform not available",
+                    detail=f"{self.args.base_link_frame}->livox_frame transform not available",
                 )
             )
         else:
@@ -376,9 +456,9 @@ class AcceptanceProbe:
                 abs(tx - self.args.expected_lidar_x) <= self.args.expected_lidar_xyz_tol
                 and abs(ty - self.args.expected_lidar_y) <= self.args.expected_lidar_xyz_tol
                 and abs(tz - self.args.expected_lidar_z) <= self.args.expected_lidar_xyz_tol
-                and abs(roll) <= self.args.expected_lidar_rpy_tol_rad
-                and abs(pitch) <= self.args.expected_lidar_rpy_tol_rad
-                and abs(yaw) <= self.args.expected_lidar_rpy_tol_rad
+                and abs(roll - self.args.expected_lidar_roll) <= self.args.expected_lidar_rpy_tol_rad
+                and abs(pitch - self.args.expected_lidar_pitch) <= self.args.expected_lidar_rpy_tol_rad
+                and abs(yaw - self.args.expected_lidar_yaw) <= self.args.expected_lidar_rpy_tol_rad
             )
             checks.append(
                 Check(
@@ -386,7 +466,8 @@ class AcceptanceProbe:
                     ok=ok,
                     detail=(
                         f"xyz=({tx:.4f},{ty:.4f},{tz:.4f}) rpy=({roll:.4f},{pitch:.4f},{yaw:.4f}) "
-                        f"expected_z={self.args.expected_lidar_z:.4f}"
+                        f"expected_rpy=({self.args.expected_lidar_roll:.4f},"
+                        f"{self.args.expected_lidar_pitch:.4f},{self.args.expected_lidar_yaw:.4f})"
                     ),
                 )
             )
@@ -412,17 +493,27 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--require_map_chain", type=parse_bool, default=True, help="是否强制要求 map 链路")
     parser.add_argument("--map_frame", default="map")
     parser.add_argument("--odom_frame", default="odom")
-    parser.add_argument("--base_frame", default="base_link")
+    parser.add_argument("--base_frame", default="base_footprint")
+    parser.add_argument("--base_link_frame", default="base_link")
     parser.add_argument("--lidar_frame", default="livox_frame")
 
     parser.add_argument("--expected_odom_frame", default="odom")
-    parser.add_argument("--expected_base_frame", default="base_link")
+    parser.add_argument("--expected_base_frame", default="base_footprint")
     parser.add_argument("--expected_scan_frame", default="odom")
     parser.add_argument("--expected_sensor_scan_frame", default="livox_frame")
 
-    parser.add_argument("--expected_lidar_x", type=float, default=0.0)
+    parser.add_argument("--expected_base_link_x", type=float, default=0.0)
+    parser.add_argument("--expected_base_link_y", type=float, default=0.0)
+    parser.add_argument("--expected_base_link_z", type=float, default=0.2)
+    parser.add_argument("--expected_base_link_xyz_tol", type=float, default=0.02)
+    parser.add_argument("--expected_base_link_rpy_tol_rad", type=float, default=0.08)
+
+    parser.add_argument("--expected_lidar_x", type=float, default=-0.3)
     parser.add_argument("--expected_lidar_y", type=float, default=0.0)
-    parser.add_argument("--expected_lidar_z", type=float, default=0.13)
+    parser.add_argument("--expected_lidar_z", type=float, default=0.15)
+    parser.add_argument("--expected_lidar_roll", type=float, default=0.0)
+    parser.add_argument("--expected_lidar_pitch", type=float, default=0.0)
+    parser.add_argument("--expected_lidar_yaw", type=float, default=1.57079632679)
     parser.add_argument("--expected_lidar_xyz_tol", type=float, default=0.02)
     parser.add_argument("--expected_lidar_rpy_tol_rad", type=float, default=0.05)
 

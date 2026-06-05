@@ -267,7 +267,7 @@ if [[ "${SYNTHETIC_INPUT}" -eq 1 ]]; then
     echo "[INFO] 启动合成 registered_scan 输入"
     ros2 run tf2_ros static_transform_publisher \
         --x 0 --y 0 --z 0 --roll 0 --pitch 0 --yaw 0 \
-        --frame-id odom --child-frame-id base_link \
+        --frame-id odom --child-frame-id base_footprint \
         > "${OUTPUT_DIR}/raw/static_tf.log" 2>&1 &
     STATIC_TF_PID=$!
 

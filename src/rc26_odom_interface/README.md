@@ -1,25 +1,29 @@
 # rc26_odom_interface
 
-## 模块简介
+`rc26_odom_interface` 是 R2 自动导航链里的底盘系规范化接口层。它消费 Point-LIO 的内部 body frame 里程计，并把自动链统一成：
 
-`rc26_odom_interface` 是 RC_2026 机器人系统中处理里程计和位姿转换的核心接口模块。它的主要作用是作为上游 3D 激光雷达里程计算法（如 Point-LIO）与下游机器人导航、控制系统之间的桥梁，负责解决传感器本体坐标系与机器人底盘坐标系之间的空间映射和运动学转换问题。
+`map -> odom -> base_footprint -> base_link -> livox_frame`
 
-## 核心功能描述
+## 当前职责
 
-### 1. 坐标系对齐与位姿映射
-上游的激光雷达算法输出的位姿通常是基于 Point-LIO 内部 body/IMU 语义的坐标系建立的。本模块接收该位姿数据，并结合 `rc26_bringup/launch/odometry.launch.py` 注入的静态外参（即 `base_link -> input_body_frame` 的内部装配结果），将其严格映射到底盘坐标系下，从而得到机器人整体在全局或局部里程计坐标系中的精确位置和姿态。
+- 订阅 Point-LIO 的 `/state_estimation`，要求 `child_frame_id` 为内部 `point_lio.body_frame`
+- 接收 `rc26_bringup/launch/odometry.launch.py` 注入的 `base_link -> input_body_frame` 外参
+- 继续作为自动链动态 TF 的唯一权威，发布：
+  - `odom -> base_footprint`
+  - `base_footprint -> base_link`
+- 发布标准化 `/odom`，其中 `child_frame_id=base_footprint`
+- 继续输出 `registered_scan`，保持在 `odom` 坐标系表达
 
-### 2. 全局权威 TF 发布
-在 ROS 2 分布式框架中，各个坐标系之间的关系必须明确且唯一。本模块作为唯一的权威发布者，负责在系统中持续发布从全局里程计坐标系到机器人底盘坐标系的动态坐标变换。这确保了系统中所有需要获取机器人实时位置的组件（如建图、路径规划模块）都能获取到一致且无冲突的定位数据。
+## 当前坐标语义
 
-### 3. 速度解算与透传
-除了位置和姿态外，机器人还需要准确的速度信息用于闭环控制。本模块能够直接透传上游算法提供的高精度速度数据。同时，在极端情况下，模块内部也具备基于位置变化进行有限差分的速度估算机制，以作为系统的后备回退方案，保障速度链路的鲁棒性。
+- `base_footprint`：导航使用的 2D 地面投影基座
+- `base_link`：底盘最下层金属刚性主板中心
+- `base_link` 相对 `base_footprint` 的高度由 `rc26_bringup/config/odom_interface.yaml` 提供，当前为 `0.2m`
+- `base_link` 保留 Point-LIO 解算出来的 roll/pitch；`odom -> base_footprint` 只保留 `x/y/yaw`
 
-### 4. 数据流规范化
-本模块对传入的原始里程计数据进行重新包装和规范化，确保输出的数据帧标识和数据结构完全符合 ROS 2 导航框架的标准要求，使整个系统的上下游模块能够无缝对接。
+## 当前边界
 
-## 在系统中的地位
-
-作为连接感知层和控制层的关键中枢节点，`rc26_odom_interface` 屏蔽了底层传感器安装细节和不同定位算法间的差异。通过本模块的标准化处理，下游的导航算法无需关心使用的是何种雷达或何种雷达里程计算法，只需订阅该模块输出的标准化底盘里程计即可正常工作，极大提升了系统的模块化和可维护性。
-
-当前实现不再依赖 `base_link -> point_lio.body_frame` 的对外 TF 边；这段内部外参只在 bringup 装配期被推导并注入本节点。
+- 只负责自动导航链，不改遥控 / `rc26_merge_odom` / minimal-mcu 链路
+- 不负责里程计估计本体
+- 不再查询或发布 `base_link -> point_lio.body_frame` 对外 TF；这段内部外参只在 bringup 装配期推导并注入
+- 不直接做控制求解

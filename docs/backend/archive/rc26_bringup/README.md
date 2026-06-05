@@ -18,7 +18,9 @@
 - `odometry.launch.py`
   - 装配 Point-LIO、`rc26_odom_interface`、`rc26_sensor_scan`
   - 读取 `rc26_sensor_extrinsics` 的 YAML profile 发布 `base_link -> livox_frame` 等对外静态 TF
+  - 直接从 `config/odom_interface.yaml` 读取 `base_link_height_above_base_footprint_m`
   - 推导 `base_link -> point_lio.body_frame` 内部外参并注入 `rc26_odom_interface`，不再把这条内部边发布到 TF 树
+  - 自动导航链当前发布 `odom -> base_footprint -> base_link -> livox_frame`
 - `test_navigation.launch.py`
   - 复用整车 bringup，默认 `use_decision=false`
   - 用于定位 + Nav2 基础导航联调；默认也会拉起 `pose_sender_node`
@@ -43,15 +45,18 @@
 - 负责装配、参数选择和生命周期拉起，不承载 planner、控制器或可视化平台的实现本体
 - Nav2 参数文件归 bringup 托管，是本轮基础导航栈的部署配置
 - `config/localization.yaml` 当前只维护开局一次重定位与连续 GICP 跟踪的核心参数，定位健康度、图后端和路径可观测性参数已移除
-- `config/odom_interface.yaml` 只保留 `rc26_odom_interface` 的参数契约；`base_link -> point_lio.body_frame` 推导值只允许在 `odometry.launch.py` 中按真源配置注入
+- `config/odom_interface.yaml` 只保留 `rc26_odom_interface` 的参数契约；其中 `base_link_height_above_base_footprint_m` 当前直接在该 YAML 维护，`base_link -> point_lio.body_frame` 推导值仍只允许在 `odometry.launch.py` 中注入
 - `config/nav2_params.yaml` 当前按 `sensor_scan` (`PointCloud2`) 作为 Nav2 默认障碍输入维护，不再维护 `/scan` LaserScan 兼容链
 - 除 `test_mapping.launch.py` 建图调试入口外，如需可视化，应由工作区外部工具只读消费当前主链 ROS2 输出；`/point_lio/map_cloud` 是现场建图观察输出，不作为定位或导航权威
 
 ## 本轮收口
 
 - 删除旧导航包和旧配置文件引用，导航模式改为 include Nav2 `navigation_launch.py`
-- 新增 `config/nav2_params.yaml`，帧固定为 `map / odom / base_link`，控制器使用 Humble 兼容的 DWB 配置并允许麦克纳姆横移速度
+- 新增 `config/nav2_params.yaml`，当前自动导航链帧固定为 `map / odom / base_footprint`，控制器使用 Humble 兼容的 DWB 配置并允许麦克纳姆横移速度
 - Nav2 obstacle layer 当前默认直接消费 `/sensor_scan` (`PointCloud2`)；`registered_scan` 继续只供定位链使用
+- 本轮自动导航链将 `base_footprint` 固定为地面投影 2D 基座，`base_link` 固定为底盘最下层刚性主板中心，二者高度差当前由 `config/odom_interface.yaml` 维护，当前为 `0.2m`
+- `rc26_sensor_scan` 不再把导航基座到雷达的关系当成静态缓存，而是按时间戳查询 `base_footprint -> livox_frame` 组合 TF，保证 `base_link` 保留 roll/pitch 时点云投影仍正确
+- 本轮只改自动导航链；`rc26_merge_odom`、遥控和 minimal-mcu 链路不跟随迁移
 - `bringup.launch.py` 与 `test_navigation.launch.py` 新增 `start_pose_sender`、`pose_sender_feedback_serial_port`、`pose_sender_target_serial_port` 与 `pose_sender_baudrate`，默认把 `/cmd_vel` 接到 `pose_sender_node`
 - `test_navigation.launch.py` 的验收目标改为 `/navigate_to_pose`、`sensor_scan`、Nav2 lifecycle nodes、costmap/plan topics、`/cmd_vel` 与 `pose_sender_node`
 - `config/nav2_params.yaml` 现已补齐主要字段的中文注释，现场调试应优先以该文件中的分区说明和速度/代价图参数注释为准

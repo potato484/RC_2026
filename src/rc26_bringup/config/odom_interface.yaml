@@ -1,6 +1,7 @@
 odom_interface:
   ros__parameters:
-    # Layer A 生产桥：权威发布 odom -> base_link，并向 Layer B 提供 odom 与 registered_scan
+    # Layer A 生产桥：权威发布自动链 odom -> base_footprint 和 base_footprint -> base_link，
+    # 并向 Layer B 提供 odom 与 registered_scan
     use_sim_time: false
     
     # ===== 输入话题 (来自 Point-LIO) =====
@@ -9,15 +10,19 @@ odom_interface:
     registered_scan_topic: "cloud_registered"     # Point-LIO 配准点云输出
     
     # ===== 输出话题 (本节点发布，命名固定) =====
-    # - odom             : odom -> base_link 里程计
+    # - odom             : odom -> base_footprint 里程计
     # - registered_scan  : odom 坐标系下的配准点云
     
-    # ===== 坐标系配置 (map -> odom -> base_link -> laser_link) =====
+    # ===== 坐标系配置 (map -> odom -> base_footprint -> base_link -> livox_frame) =====
     odom_frame: "odom"
     # 参数说明：base_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
-    base_frame: "base_link"
+    base_frame: "base_footprint"
+    # 参数说明：base_link_frame - 刚性底盘主板中心 frame；由 odom_interface 继续发布 base_footprint -> base_link。
+    base_link_frame: "base_link"
     # 参数说明：input_body_frame - Point-LIO 内部 body frame 名；需与 state_estimation.child_frame_id 保持一致。
     input_body_frame: "point_lio_body"  # 由 odometry.launch.py 按 sensor_extrinsics profile 覆盖，不作为 TF 真源
+    # 参数说明：base_link_height_above_base_footprint_m - 自动导航链中 base_footprint -> base_link 的唯一配置真源。
+    base_link_height_above_base_footprint_m: 0.2
     # 参数说明：base_to_input_body_xyz_m / rpy_rad - base_link 到 Point-LIO 内部 body frame 的静态外参；
     # 仅作为占位，真实值由 odometry.launch.py 从 sensor_extrinsics + Point-LIO 内部外参推导后覆盖。
     base_to_input_body_xyz_m: [0.0, 0.0, 0.0]

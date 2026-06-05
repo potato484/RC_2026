@@ -41,7 +41,8 @@ private:
     void laserCloudAndOdometryHandler(const nav_msgs::msg::Odometry::ConstSharedPtr& odometry,
                                       const sensor_msgs::msg::PointCloud2::ConstSharedPtr& laserCloud2);
 
-    std::optional<tf2::Transform> getStaticTransform(const std::string& target_frame, const std::string& source_frame);
+    std::optional<tf2::Transform> lookupTransform(const std::string& target_frame, const std::string& source_frame,
+                                                  const rclcpp::Time& stamp);
 
     void publishOdometry(const tf2::Transform& transform, const geometry_msgs::msg::TwistWithCovariance& twist,
                          const std::array<double, 36>& pose_covariance, const std::string& parent_frame,
@@ -61,7 +62,6 @@ private:
 
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
-    std::optional<tf2::Transform> base_to_lidar_;
     double tf_timeout_sec_{0.5};  // TF 查询超时时间 (秒)
 
     message_filters::Subscriber<nav_msgs::msg::Odometry> odometry_sub_;

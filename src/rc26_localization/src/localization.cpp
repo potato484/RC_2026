@@ -105,7 +105,7 @@ std::string diagnosticHumanMessage(const std::string& reason, const std::string&
         return "initialpose 已接受，map->odom 已重置。";
     }
     if (reason == "initialpose_tf_lookup_failed") {
-        return "initialpose 无法查询 odom->base_link，定位未接管。";
+        return "initialpose 无法查询 odom->机器人基座帧 TF，定位未接管。";
     }
     return "定位状态已更新，请查看 reason、accepted、inliers 和 normalized_error。";
 }
@@ -174,7 +174,7 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     startup_relocalization_state_ = startup_relocalization_enable_ ? "pending" : "disabled";
     startup_begin_wall_ = std::chrono::steady_clock::now();
     if (robot_base_frame_.empty()) {
-        robot_base_frame_ = "base_link";
+        robot_base_frame_ = "base_footprint";
     }
 
     if (init_pose_.size() >= 6) {

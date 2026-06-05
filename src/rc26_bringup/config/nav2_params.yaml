@@ -10,7 +10,7 @@ bt_navigator:
     # Nav2 全局工作坐标系；应与 rc26_localization 的 map TF 一致
     use_sim_time: false
     global_frame: map
-    robot_base_frame: base_link
+    robot_base_frame: base_footprint
     # BT 导航器内部用于监听当前机体速度与位姿的 odom 话题
     odom_topic: /odom
     # 行为树 tick 周期（毫秒）
@@ -160,7 +160,7 @@ local_costmap:
       use_sim_time: false
       # 局部代价地图固定在 odom；不依赖全局 map 精度
       global_frame: odom
-      robot_base_frame: base_link
+      robot_base_frame: base_footprint
       # 更新频率要高于全局图，保证近场避障及时
       update_frequency: 5.0
       publish_frequency: 2.0
@@ -204,7 +204,7 @@ global_costmap:
     ros__parameters:
       use_sim_time: false
       global_frame: map
-      robot_base_frame: base_link
+      robot_base_frame: base_footprint
       # 全局图更新较慢，重点服务 planner
       update_frequency: 1.0
       publish_frequency: 1.0
@@ -287,7 +287,7 @@ behavior_server:
     wait:
       plugin: nav2_behaviors/Wait
     global_frame: odom
-    robot_base_frame: base_link
+    robot_base_frame: base_footprint
     transform_tolerance: 0.1
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.0

@@ -146,15 +146,63 @@ bool isUsableOdometry(const nav_msgs::msg::Odometry& msg) {
            allFinite(msg.twist.covariance);
 }
 
+Eigen::Matrix3d skewSymmetric(const Eigen::Vector3d& vector) {
+    Eigen::Matrix3d skew = Eigen::Matrix3d::Zero();
+    skew << 0.0, -vector.z(), vector.y(), vector.z(), 0.0, -vector.x(), -vector.y(), vector.x(), 0.0;
+    return skew;
+}
+
+struct BaseFrameSplitResult {
+    tf2::Transform odom_to_base_frame;
+    tf2::Transform base_frame_to_base_link;
+    bool split_enabled{false};
+};
+
+BaseFrameSplitResult splitBaseLinkTransform(const tf2::Transform& odom_to_base_link,
+                                            double base_link_height_above_base_footprint_m,
+                                            bool split_enabled) {
+    BaseFrameSplitResult result;
+    result.odom_to_base_frame = odom_to_base_link;
+    result.base_frame_to_base_link.setIdentity();
+    result.split_enabled = split_enabled;
+
+    if (!split_enabled) {
+        return result;
+    }
+
+    double roll = 0.0;
+    double pitch = 0.0;
+    double yaw = 0.0;
+    tf2::Matrix3x3(odom_to_base_link.getRotation()).getRPY(roll, pitch, yaw);
+
+    result.odom_to_base_frame.setOrigin(tf2::Vector3(odom_to_base_link.getOrigin().x(), odom_to_base_link.getOrigin().y(),
+                                                     odom_to_base_link.getOrigin().z() -
+                                                         base_link_height_above_base_footprint_m));
+    tf2::Quaternion yaw_only_rotation;
+    yaw_only_rotation.setRPY(0.0, 0.0, yaw);
+    yaw_only_rotation.normalize();
+    result.odom_to_base_frame.setRotation(yaw_only_rotation);
+
+    result.base_frame_to_base_link.setOrigin(tf2::Vector3(0.0, 0.0, base_link_height_above_base_footprint_m));
+    tf2::Quaternion roll_pitch_rotation;
+    roll_pitch_rotation.setRPY(roll, pitch, 0.0);
+    roll_pitch_rotation.normalize();
+    result.base_frame_to_base_link.setRotation(roll_pitch_rotation);
+
+    return result;
+}
+
 }  // namespace
 
 OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node("odom_interface", options) {
-    // Layer A 生产桥：本节点是自动链中 odom -> base_link 的唯一权威发布者。
+    // Layer A 生产桥：本节点是自动链中 odom -> base_footprint 与 base_footprint -> base_link 的唯一权威发布者。
     this->declare_parameter<std::string>("state_estimation_topic", "");
     this->declare_parameter<std::string>("registered_scan_topic", "");
     this->declare_parameter<std::string>("odom_frame", "odom");
     this->declare_parameter<std::string>("base_frame", "");
+    this->declare_parameter<std::string>("base_link_frame", "base_link");
     this->declare_parameter<std::string>("input_body_frame", "");
+    this->declare_parameter<double>("base_link_height_above_base_footprint_m", 0.2);
     this->declare_parameter<std::vector<double>>("base_to_input_body_xyz_m", std::vector<double>{});
     this->declare_parameter<std::vector<double>>("base_to_input_body_rpy_rad", std::vector<double>{});
     this->declare_parameter<double>("max_time_diff_sec", 0.2);
@@ -174,7 +222,9 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     this->get_parameter("registered_scan_topic", registered_scan_topic_);
     this->get_parameter("odom_frame", odom_frame_);
     this->get_parameter("base_frame", base_frame_);
+    this->get_parameter("base_link_frame", base_link_frame_);
     this->get_parameter("input_body_frame", input_body_frame_);
+    this->get_parameter("base_link_height_above_base_footprint_m", base_link_height_above_base_footprint_m_);
     std::vector<double> base_to_input_body_xyz_m;
     std::vector<double> base_to_input_body_rpy_rad;
     this->get_parameter("base_to_input_body_xyz_m", base_to_input_body_xyz_m);
@@ -200,6 +250,7 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     require_non_empty("state_estimation_topic", state_estimation_topic_);
     require_non_empty("registered_scan_topic", registered_scan_topic_);
     require_non_empty("base_frame", base_frame_);
+    require_non_empty("base_link_frame", base_link_frame_);
     require_non_empty("input_body_frame", input_body_frame_);
 
     if (max_time_diff_sec_ < 0.0) {
@@ -224,6 +275,12 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
         RCLCPP_WARN(this->get_logger(), "debug_pose_log_interval_sec=%.3f 非法，已回退为 1.0",
                     debug_pose_log_interval_sec_);
         debug_pose_log_interval_sec_ = 1.0;
+    }
+    if (!std::isfinite(base_link_height_above_base_footprint_m_)) {
+        throw std::runtime_error("base_link_height_above_base_footprint_m 必须是有限数值");
+    }
+    if (base_link_height_above_base_footprint_m_ < 0.0) {
+        throw std::runtime_error("base_link_height_above_base_footprint_m 不能为负数");
     }
 
     tf_input_odom_to_output_odom_.setIdentity();
@@ -269,11 +326,18 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     RCLCPP_INFO(this->get_logger(), "debug publishers: odom_path=%s, odom_pose_markers=%s",
                 publish_debug_path_ ? "enabled" : "disabled",
                 publish_pose_markers_ ? "enabled" : "disabled");
+    if (base_frame_ == base_link_frame_) {
+        RCLCPP_WARN(this->get_logger(),
+                    "base_frame 与 base_link_frame 同名 (%s)，将回退为单边 odom -> %s 兼容模式",
+                    base_frame_.c_str(), base_frame_.c_str());
+    }
     RCLCPP_INFO(this->get_logger(),
-                "已注入内部 body 外参: base_frame=%s, input_body_frame=%s, xyz=(%.3f, %.3f, %.3f), rpy=(%.3f, %.3f, %.3f)",
-                base_frame_.c_str(), input_body_frame_.c_str(), base_to_input_body_xyz_m[0],
-                base_to_input_body_xyz_m[1], base_to_input_body_xyz_m[2], base_to_input_body_rpy_rad[0],
-                base_to_input_body_rpy_rad[1], base_to_input_body_rpy_rad[2]);
+                "已注入内部 body 外参: base_frame=%s, base_link_frame=%s, input_body_frame=%s, base_link_height=%.3f m, "
+                "xyz=(%.3f, %.3f, %.3f), rpy=(%.3f, %.3f, %.3f)",
+                base_frame_.c_str(), base_link_frame_.c_str(), input_body_frame_.c_str(),
+                base_link_height_above_base_footprint_m_, base_to_input_body_xyz_m[0], base_to_input_body_xyz_m[1],
+                base_to_input_body_xyz_m[2], base_to_input_body_rpy_rad[0], base_to_input_body_rpy_rad[1],
+                base_to_input_body_rpy_rad[2]);
 }
 
 void OdomInterfaceNode::storeOdometryStampLocked(const rclcpp::Time& odom_stamp) {
@@ -474,22 +538,23 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
 
     // NOTE: Input odometry message is based on the Point-LIO internal body frame.
     // The input body frame origin is at the sensor/body initial position.
-    // We need to transform it to align with our odom frame (base_link initial position)
-    // Transform chain: odom -> base_link -> input_body (static), then apply Point-LIO pose
+    // We need to transform it to align with our odom frame and split the automatic chain into:
+    // odom -> base_footprint -> base_link -> input_body.
     const rclcpp::Time odom_stamp(msg->header.stamp);
+    const bool split_base_frame = base_frame_ != base_link_frame_;
     const tf2::Transform tf_base_to_input_body = tf_base_to_input_body_;
 
     // Input: input_body_odom -> input_body (from Point-LIO)
-    // We want: odom -> base_link
+    // We first recover odom -> base_link, then split it into:
+    // odom -> base_footprint -> base_link for the automatic navigation chain.
     // Transform chain:
     //   T_odom_base = T_input_body_odom_input_body * T_input_body_base
     //   where T_input_body_base = tf_base_to_input_body_ (computed once at init)
     tf2::Transform tf_input_body_odom_to_input_body;
     tf2::fromMsg(msg->pose.pose, tf_input_body_odom_to_input_body);
 
-    // Compute raw Point-LIO odom -> base_link transform
-    tf2::Transform tf_input_odom_to_base = tf_input_body_odom_to_input_body * tf_base_to_input_body;
-    tf2::Transform tf_odom_to_base = tf_input_odom_to_base;
+    // Compute the raw Point-LIO odom -> base_link transform before splitting.
+    tf2::Transform tf_input_odom_to_base_link = tf_input_body_odom_to_input_body * tf_base_to_input_body;
 
     if (zero_origin_to_first_frame_) {
         std::lock_guard<std::mutex> lock(transform_mutex_);
@@ -511,12 +576,16 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
                 return;
             }
 
-            zero_origin_translation_sum_ += tf_input_odom_to_base.getOrigin();
+            const auto zero_origin_reference =
+                splitBaseLinkTransform(tf_input_odom_to_base_link, base_link_height_above_base_footprint_m_,
+                                       split_base_frame)
+                    .odom_to_base_frame;
+            zero_origin_translation_sum_ += zero_origin_reference.getOrigin();
             ++zero_origin_accumulated_frames_;
 
             if (zero_origin_accumulated_frames_ < zero_origin_warmup_frames_) {
                 RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                                     "静止归零累计中: %d/%d 帧", zero_origin_accumulated_frames_,
+                                    "静止归零累计中: %d/%d 帧", zero_origin_accumulated_frames_,
                                      zero_origin_warmup_frames_);
                 return;
             }
@@ -527,32 +596,48 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
             tf_input_odom_to_output_odom_.setOrigin(-averaged_origin);
             odom_origin_initialized_ = true;
             RCLCPP_INFO(this->get_logger(),
-                        "已建立 odom 静止均值归零: frames=%d, avg_origin=(%.3f, %.3f, %.3f)",
+                        "已建立 odom 静止均值归零: frames=%d, output_origin=(%.3f, %.3f, %.3f)",
                         zero_origin_accumulated_frames_, averaged_origin.x(), averaged_origin.y(), averaged_origin.z());
         }
-        tf_odom_to_base = tf_input_odom_to_output_odom_ * tf_input_odom_to_base;
+        tf_input_odom_to_base_link = tf_input_odom_to_output_odom_ * tf_input_odom_to_base_link;
     }
+
+    const auto base_frame_split =
+        splitBaseLinkTransform(tf_input_odom_to_base_link, base_link_height_above_base_footprint_m_, split_base_frame);
+    const tf2::Transform& tf_odom_to_output_base = base_frame_split.odom_to_base_frame;
 
     nav_msgs::msg::Odometry out;
     out.header.stamp = msg->header.stamp;
     out.header.frame_id = odom_frame_;
     out.child_frame_id = base_frame_;
 
-    const auto& origin = tf_odom_to_base.getOrigin();
+    const auto& origin = tf_odom_to_output_base.getOrigin();
     out.pose.pose.position.x = origin.x();
     out.pose.pose.position.y = origin.y();
     out.pose.pose.position.z = origin.z();
-    out.pose.pose.orientation = tf2::toMsg(tf_odom_to_base.getRotation());
+    out.pose.pose.orientation = tf2::toMsg(tf_odom_to_output_base.getRotation());
     out.pose.covariance = msg->pose.covariance;
     std::fill(out.twist.covariance.begin(), out.twist.covariance.end(), 0.0);
 
-    // Publish TF: odom -> base_link so downstream visualization/control can resolve the TF tree even if sync drops frames.
-    geometry_msgs::msg::TransformStamped tf_msg;
-    tf_msg.header.stamp = msg->header.stamp;
-    tf_msg.header.frame_id = odom_frame_;
-    tf_msg.child_frame_id = base_frame_;
-    tf_msg.transform = tf2::toMsg(tf_odom_to_base);
-    tf_broadcaster_->sendTransform(tf_msg);
+    // Publish TFs so downstream visualization / localization / Nav2 can resolve:
+    // odom -> base_footprint and, when split is enabled, base_footprint -> base_link.
+    std::vector<geometry_msgs::msg::TransformStamped> tf_msgs;
+    geometry_msgs::msg::TransformStamped tf_base_frame_msg;
+    tf_base_frame_msg.header.stamp = msg->header.stamp;
+    tf_base_frame_msg.header.frame_id = odom_frame_;
+    tf_base_frame_msg.child_frame_id = base_frame_;
+    tf_base_frame_msg.transform = tf2::toMsg(tf_odom_to_output_base);
+    tf_msgs.emplace_back(std::move(tf_base_frame_msg));
+
+    if (base_frame_split.split_enabled) {
+        geometry_msgs::msg::TransformStamped tf_base_link_msg;
+        tf_base_link_msg.header.stamp = msg->header.stamp;
+        tf_base_link_msg.header.frame_id = base_frame_;
+        tf_base_link_msg.child_frame_id = base_link_frame_;
+        tf_base_link_msg.transform = tf2::toMsg(base_frame_split.base_frame_to_base_link);
+        tf_msgs.emplace_back(std::move(tf_base_link_msg));
+    }
+    tf_broadcaster_->sendTransform(tf_msgs);
 
     // [P3] 速度来源可切换：优先使用 Point-LIO 输入 twist，必要时回退到差分估计
     bool update_state = true;
@@ -581,33 +666,79 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
                 tf2::quatRotate(rotation_input_body_to_base, v_input_body + w_input_body.cross(r_base_in_input_body));
             const tf2::Vector3 w_base = tf2::quatRotate(rotation_input_body_to_base, w_input_body);
 
-            out.twist.twist.linear.x = v_base.x();
-            out.twist.twist.linear.y = v_base.y();
-            out.twist.twist.linear.z = v_base.z();
-            out.twist.twist.angular.x = w_base.x();
-            out.twist.twist.angular.y = w_base.y();
-            out.twist.twist.angular.z = w_base.z();
-
             const Eigen::Quaterniond rotation_input_body_to_base_eigen(rotation_input_body_to_base.w(),
                                                                        rotation_input_body_to_base.x(),
                                                                        rotation_input_body_to_base.y(),
                                                                        rotation_input_body_to_base.z());
             const Eigen::Matrix3d R = rotation_input_body_to_base_eigen.toRotationMatrix();
             const Eigen::Vector3d r(r_base_in_input_body.x(), r_base_in_input_body.y(), r_base_in_input_body.z());
-            Eigen::Matrix3d skew_r;
-            skew_r << 0.0, -r(2), r(1), r(2), 0.0, -r(0), -r(1), r(0), 0.0;
             Eigen::Matrix<double, 6, 6> J = Eigen::Matrix<double, 6, 6>::Zero();
             J.topLeftCorner<3, 3>() = R;
-            J.topRightCorner<3, 3>() = -R * skew_r;
+            J.topRightCorner<3, 3>() = -R * skewSymmetric(r);
             J.bottomRightCorner<3, 3>() = R;
             Eigen::Map<const Eigen::Matrix<double, 6, 6, Eigen::RowMajor>> sigma_in(msg->twist.covariance.data());
-            Eigen::Map<Eigen::Matrix<double, 6, 6, Eigen::RowMajor>> sigma_out(out.twist.covariance.data());
+            Eigen::Matrix<double, 6, 6> sigma_output = Eigen::Matrix<double, 6, 6>::Zero();
             if (sigma_in.allFinite()) {
-                sigma_out = J * sigma_in * J.transpose();
+                const Eigen::Matrix<double, 6, 6> sigma_base = J * sigma_in * J.transpose();
+                if (base_frame_split.split_enabled) {
+                    const tf2::Vector3 r_base_frame_to_base_link = base_frame_split.base_frame_to_base_link.getOrigin();
+                    const tf2::Quaternion rotation_base_link_to_base_frame =
+                        base_frame_split.base_frame_to_base_link.getRotation();
+                    const Eigen::Quaterniond rotation_base_link_to_base_frame_eigen(
+                        rotation_base_link_to_base_frame.w(), rotation_base_link_to_base_frame.x(),
+                        rotation_base_link_to_base_frame.y(), rotation_base_link_to_base_frame.z());
+                    const Eigen::Matrix3d R_base_link_to_base_frame =
+                        rotation_base_link_to_base_frame_eigen.toRotationMatrix();
+                    const Eigen::Vector3d r_base_frame(r_base_frame_to_base_link.x(), r_base_frame_to_base_link.y(),
+                                                       r_base_frame_to_base_link.z());
+                    Eigen::Matrix<double, 6, 6> J_base_to_base_frame = Eigen::Matrix<double, 6, 6>::Zero();
+                    J_base_to_base_frame.topLeftCorner<3, 3>() = R_base_link_to_base_frame;
+                    J_base_to_base_frame.topRightCorner<3, 3>() =
+                        -skewSymmetric(r_base_frame) * R_base_link_to_base_frame;
+                    J_base_to_base_frame.bottomRightCorner<3, 3>() = R_base_link_to_base_frame;
+                    sigma_output = J_base_to_base_frame * sigma_base * J_base_to_base_frame.transpose();
+                    sigma_output.row(3).setZero();
+                    sigma_output.col(3).setZero();
+                    sigma_output.row(4).setZero();
+                    sigma_output.col(4).setZero();
+                } else {
+                    sigma_output = sigma_base;
+                }
             } else {
-                sigma_out.setZero();
                 RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
                                      "Input twist covariance contains non-finite values, publish zero covariance instead");
+            }
+            Eigen::Map<Eigen::Matrix<double, 6, 6, Eigen::RowMajor>> sigma_out(out.twist.covariance.data());
+            sigma_out = sigma_output;
+
+            if (base_frame_split.split_enabled) {
+                const tf2::Vector3 linear_base_odom =
+                    tf2::quatRotate(tf_input_odom_to_base_link.getRotation(), v_base);
+                const tf2::Vector3 angular_base_odom =
+                    tf2::quatRotate(tf_input_odom_to_base_link.getRotation(), w_base);
+                const tf2::Vector3 r_base_frame_to_base_link_odom = tf2::quatRotate(
+                    tf_odom_to_output_base.getRotation(), base_frame_split.base_frame_to_base_link.getOrigin());
+                const tf2::Vector3 linear_base_frame_odom =
+                    linear_base_odom - angular_base_odom.cross(r_base_frame_to_base_link_odom);
+                const tf2::Quaternion rotation_odom_to_base_frame = tf_odom_to_output_base.getRotation().inverse();
+                const tf2::Vector3 linear_base_frame =
+                    tf2::quatRotate(rotation_odom_to_base_frame, linear_base_frame_odom);
+                const tf2::Vector3 angular_base_frame =
+                    tf2::quatRotate(rotation_odom_to_base_frame, angular_base_odom);
+
+                out.twist.twist.linear.x = linear_base_frame.x();
+                out.twist.twist.linear.y = linear_base_frame.y();
+                out.twist.twist.linear.z = linear_base_frame.z();
+                out.twist.twist.angular.x = 0.0;
+                out.twist.twist.angular.y = 0.0;
+                out.twist.twist.angular.z = angular_base_frame.z();
+            } else {
+                out.twist.twist.linear.x = v_base.x();
+                out.twist.twist.linear.y = v_base.y();
+                out.twist.twist.linear.z = v_base.z();
+                out.twist.twist.angular.x = w_base.x();
+                out.twist.twist.angular.y = w_base.y();
+                out.twist.twist.angular.z = w_base.z();
             }
         } else if (odom_state_.initialized) {
             const double dt = (odom_stamp - odom_state_.previous_stamp).seconds();
@@ -619,15 +750,15 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
             } else if (dt > 1e-6 && dt < 1.0) {
                 // 线速度 = 位移差 / 时间差（odom frame 下）
                 const tf2::Vector3 linear_velocity_odom =
-                    (tf_odom_to_base.getOrigin() - odom_state_.previous_transform.getOrigin()) / dt;
+                    (tf_odom_to_output_base.getOrigin() - odom_state_.previous_transform.getOrigin()) / dt;
 
-                // 将线速度从 odom frame 变换到 base_link frame
+                // 将线速度从 odom frame 变换到输出基座 frame
                 const tf2::Vector3 linear_velocity_base =
-                    tf2::quatRotate(tf_odom_to_base.getRotation().inverse(), linear_velocity_odom);
+                    tf2::quatRotate(tf_odom_to_output_base.getRotation().inverse(), linear_velocity_odom);
 
-                // 角速度：使用 body frame 下的旋转差 q_prev^{-1} * q_current
+                // 角速度：使用输出基座 frame 下的旋转差 q_prev^{-1} * q_current
                 tf2::Quaternion q_diff =
-                    odom_state_.previous_transform.getRotation().inverse() * tf_odom_to_base.getRotation();
+                    odom_state_.previous_transform.getRotation().inverse() * tf_odom_to_output_base.getRotation();
                 q_diff.normalize();
 
                 // 确保取最短路径
@@ -652,6 +783,10 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
                     out.twist.twist.angular.y = 0.0;
                     out.twist.twist.angular.z = 0.0;
                 }
+                if (base_frame_split.split_enabled) {
+                    out.twist.twist.angular.x = 0.0;
+                    out.twist.twist.angular.y = 0.0;
+                }
             } else {
                 RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
                                      "跳过速度估计: dt=%.3f s 超出范围 (1e-6, 1.0)，请检查里程计帧率", dt);
@@ -663,7 +798,7 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
 
         // 更新状态
         if (update_state) {
-            odom_state_.previous_transform = tf_odom_to_base;
+            odom_state_.previous_transform = tf_odom_to_output_base;
             odom_state_.previous_stamp = odom_stamp;
             odom_state_.initialized = true;
         }

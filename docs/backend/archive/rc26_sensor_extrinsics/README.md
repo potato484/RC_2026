@@ -12,6 +12,7 @@
   - `base_link -> livox_frame`
   - 平移：`[-0.3, 0.0, 0.15] m`
   - 姿态：`[0.0, 0.0, 1.57079632679] rad`
+- 自动导航链虽然新增了 `base_footprint -> base_link` 动态边，但本包维护的数值真源仍然只覆盖 `base_link -> livox_frame`
 - `rc26_bringup/launch/odometry.launch.py` 在启动时读取该 YAML，并继续通过 `tf2_ros/static_transform_publisher` 发布静态 TF
 - `base_link -> point_lio.body_frame` 不在 YAML 中手写，而是由 `base_link -> livox_frame` 和 `rc26_point_lio/config/mid360.yaml` 中的 Point-LIO 内部 LiDAR/IMU 外参推导；该结果只注入 `rc26_odom_interface`，不再对外发布 TF
 

@@ -75,7 +75,7 @@ private:
 
     std::string map_frame_{"map"};
     std::string odom_frame_{"odom"};
-    std::string robot_base_frame_{"base_link"};
+    std::string robot_base_frame_{"base_footprint"};
     std::string prior_pcd_file_;
     std::string input_cloud_topic_{"registered_scan"};
     std::string pose_cov_topic_{"/localization/pose_with_cov"};

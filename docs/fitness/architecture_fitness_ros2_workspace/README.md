@@ -166,6 +166,7 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - **规则**：车身到雷达这类静态安装外参必须由文档化 YAML 真源维护，不能在多个 launch、参数文件或算法包里各写一份。
 - **当前口径**：`rc26_sensor_extrinsics/config/r2_sensor_extrinsics.yaml` 是当前 `base_link -> livox_frame` 安装位置与朝向的真源。
 - **边界**：`rc26_bringup` 只读取该 YAML 并发布静态 TF；`rc26_point_lio/config/mid360.yaml` 只维护 Point-LIO 内部 LiDAR/IMU 外参。
+- **补充口径**：自动导航链当前动态基座关系为 `odom -> base_footprint -> base_link`，其中 `base_link_height_above_base_footprint_m` 由 `rc26_bringup/config/odom_interface.yaml` 提供；本轮没有把这套 TF 语义扩散到遥控 / `rc26_merge_odom` 链。
 
 ## 4. ROS2 工作区 Fitness Function
 
@@ -262,5 +263,4 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 - `rc26_terrain`（归档源码）：`docs/backend/archive/rc26_terrain/README.md`
 - `rc26_base_ground`（归档源码）：`docs/backend/archive/rc26_base_ground/README.md`
 - `rc26_kfs_keepout`（归档源码）：`docs/backend/archive/rc26_kfs_keepout/README.md`
-- `rc26_robot_geometry`：`docs/backend/archive/rc26_robot_geometry/README.md`
 - `rc26_sensor_extrinsics`：`docs/backend/archive/rc26_sensor_extrinsics/README.md`

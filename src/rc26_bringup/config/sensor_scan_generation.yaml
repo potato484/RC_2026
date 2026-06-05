@@ -1,21 +1,21 @@
 sensor_scan:
   ros__parameters:
-    # ===== 坐标系配置 (map -> odom -> base_link -> livox_frame) =====
+    # ===== 坐标系配置 (map -> odom -> base_footprint -> base_link -> livox_frame) =====
     lidar_frame: "livox_frame"
-    # 参数说明：base_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
-    base_frame: "base_link"
-    # 参数说明：robot_base_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
-    robot_base_frame: "base_link"
+    # 参数说明：base_frame - 输入 odom 话题的 child_frame_id；当前自动链为 base_footprint。
+    base_frame: "base_footprint"
+    # 参数说明：robot_base_frame - 提供给 Nav2 / 下游 2D 导航的机器人基座 frame。
+    robot_base_frame: "base_footprint"
 
     # ===== 输入话题 (来自 odom_interface) =====
-    lidar_odometry_topic: "odom"             # odom_interface 输出的里程计 (odom -> base_link)
+    lidar_odometry_topic: "odom"             # odom_interface 输出的里程计 (odom -> base_footprint)
     # 参数说明：registered_scan_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     registered_scan_topic: "registered_scan" # odom_interface 输出的配准点云 (odom 坐标系)
     
     # ===== 输出话题 (本节点发布) =====
     scan_topic: "sensor_scan"                # 本节点输出的点云 (laser_link 坐标系)
     # 参数说明：odometry_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    odometry_topic: "odometry"               # 发布给下游的基座里程计 (带速度信息)
+    odometry_topic: "odometry"               # 发布给下游的 2D 基座里程计 (带速度信息)
 
     # ===== 同步 / 超时时间 =====
     tf_timeout_sec: 0.5              # TF 查询超时

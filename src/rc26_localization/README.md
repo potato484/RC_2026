@@ -23,7 +23,7 @@
 - 以 `previous_result_t` 为初值执行 small_gicp。
 - 只有 `converged && inliers >= min_inliers && normalized_error <= max_normalized_error` 时更新 `map -> odom`。
 - 配准质量不达标时冻结上一帧 TF，并按内部常量放大 pose covariance。
-- 收到 `initialpose` 后查询 `odom -> base_link`，按 `map_to_odom = map_to_base * inverse(odom_to_base)` 接管。
+- 收到 `initialpose` 后查询 `odom -> base_footprint`，按 `map_to_odom = map_to_base * inverse(odom_to_base)` 接管。
 
 ## 已移除能力
 
@@ -33,7 +33,7 @@
 
 ## 最小验收
 
-`scripts/run_localization_acceptance.sh` 用于 smoke 验证当前链路：它会启动 `rc26_bringup` 的定位 launch，可选发布合成 `registered_scan` 和静态 `odom -> base_link`，并强制检查 `/localization/pose_with_cov`、`/localization/diagnostics` 均存在 publisher 且能采到频率。默认小 PCD 只适合验证节点、TF/pose/diagnostics 链路可启动；真实配准质量仍需用比赛地图或 rosbag 验证。
+`scripts/run_localization_acceptance.sh` 用于 smoke 验证当前链路：它会启动 `rc26_bringup` 的定位 launch，可选发布合成 `registered_scan` 和静态 `odom -> base_footprint`，并强制检查 `/localization/pose_with_cov`、`/localization/diagnostics` 均存在 publisher 且能采到频率。默认小 PCD 只适合验证节点、TF/pose/diagnostics 链路可启动；真实配准质量仍需用比赛地图或 rosbag 验证。
 
 ## 调试信息
 

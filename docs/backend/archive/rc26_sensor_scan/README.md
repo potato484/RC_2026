@@ -17,6 +17,8 @@
 - 同步分发局部视角点云和对应姿态
 - 减少重复计算，尽量透传上游已存在的状态量
 - 当前 `sensor_scan` 话题默认使用 `livox_frame` 作为 `frame_id`，并作为 `rc26_bringup/config/nav2_params.yaml` 中 Nav2 的默认障碍点云输入
+- 当前自动导航链要求输入 `/odom.child_frame_id=base_footprint`
+- 由于 `base_link` 现在保留 roll/pitch，`base_footprint -> livox_frame` 对导航链不再是纯静态量；模块已改为按每帧时间戳实时查询组合 TF
 
 ## 源码入口与阅读顺序
 - 先看 `src/sensor_scan.cpp`，该包核心就是一个组件节点。
@@ -34,7 +36,7 @@
 ## 关键源码行段速览
 - `src/rc26_sensor_scan/src/sensor_scan.cpp:66-141`：构造函数，创建 message_filters、发布器和 TF 监听。
 - `src/rc26_sensor_scan/src/sensor_scan.cpp:142-205`：同步后的点云/里程计处理主路径。
-- `src/rc26_sensor_scan/src/sensor_scan.cpp:206-220`：静态 TF 查询。
+- `src/rc26_sensor_scan/src/sensor_scan.cpp:206-220`：按时间戳查询组合 TF。
 - `src/rc26_sensor_scan/src/sensor_scan.cpp:221-242`：整理后的 odom 发布。
 
 ## 模块边界

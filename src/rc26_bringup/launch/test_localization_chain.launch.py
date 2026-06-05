@@ -7,6 +7,7 @@ R2 定位基础链联调入口
 
 验证:
   - ros2 run tf2_ros tf2_echo map odom
+  - ros2 run tf2_ros tf2_echo odom base_footprint
   - ros2 topic echo /localization/pose_with_cov --once
   - ros2 topic echo /localization/diagnostics --once
 """

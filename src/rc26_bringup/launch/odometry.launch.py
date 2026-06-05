@@ -3,8 +3,8 @@
 
 启动:
   - rc26_point_lio (LiDAR-IMU 里程计)
-  - rc26_odom_interface (坐标变换: Point-LIO 内部 body frame -> odom/base_link)
-  - rc26_sensor_scan (发布 odom -> chassis 变换 + sensor_scan)
+  - rc26_odom_interface (坐标变换: Point-LIO 内部 body frame -> odom/base_footprint/base_link)
+  - rc26_sensor_scan (发布导航 2D 基座 odometry + sensor_scan)
 """
 import os
 import math
@@ -544,7 +544,8 @@ def generate_launch_description():
         )
     )
 
-    # rc26_odom_interface: 将 Point-LIO 内部 body frame 结果转换为权威 odom -> base_link
+    # rc26_odom_interface: 将 Point-LIO 内部 body frame 结果转换为权威
+    # odom -> base_footprint -> base_link 自动导航链
     odom_interface_actions = OpaqueFunction(
         function=lambda context: _create_odom_interface_actions(
             context,

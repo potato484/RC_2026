@@ -10,7 +10,8 @@ rc26_sensor_scan 模块测试
 验证:
     ros2 topic echo /sensor_scan --once
     ros2 topic echo /odometry --once
-    ros2 run tf2_ros tf2_echo base_link laser_link
+    ros2 run tf2_ros tf2_echo base_footprint base_link
+    ros2 run tf2_ros tf2_echo base_link livox_frame
 """
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
