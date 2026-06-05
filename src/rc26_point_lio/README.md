@@ -4,7 +4,7 @@
 
 `rc26_point_lio` 是 R2 当前的 LiDAR-Inertial Odometry 主链路。当前实现以 `Point-LIO-point-lio-with-grid-map` 的主算法链为行为基准，保留 ROS 2 包形态、Mid-360 `PointCloud2` 输入、车身 ROI 过滤、frame/TF 装配能力和基础 PCD 保存能力。
 
-本包不再承担先验地图注入、全量累计地图持续发布、输出侧高度裁剪、退化评分或控制降级判断。全局先验地图和重定位职责属于 localization 链路；控制/导航默认直接消费 `rc26_odom_interface` 发布的 `/odom`。
+本包不再承担先验地图注入、输出侧高度裁剪、退化评分或控制降级判断；完整累计地图只通过低频可视化 topic 对外发布。全局先验地图和重定位职责属于 localization 链路；控制/导航默认直接消费 `rc26_odom_interface` 发布的 `/odom`。
 
 ## 当前保留能力
 
@@ -14,13 +14,14 @@
 - `point_filter_num` 整数抽样入口，语义与旧 Point-LIO 一致
 - `filter_car_body` 与 `body_*` 车身 ROI 输入侧过滤
 - 车身 ROI 运行时热更新，依赖 `base_link <- livox_frame` TF
-- `/state_estimation`、`/cloud_registered`、`/cloud_registered_body`、`/Laser_map`、`/path`
-- 基础 PCD 保存：开启 `pcd_save.pcd_save_en` 后写入包内 `PCD/`
+- `/state_estimation`、`/cloud_registered`、`/cloud_registered_body`、`/Laser_map`、`/point_lio/map_cloud`、`/path`
+- 低频完整累计点云发布：默认向 `/point_lio/map_cloud` 发布可视化用完整地图
+- 基础 PCD 保存：默认开启，正常退出后写入包内 `PCD/`
 
 ## 已删除链路
 
 - Point-LIO 内部先验 PCD 加载、初始位姿注入和增量建图延迟
-- IVox 全量遍历后的累计地图持续发布
+- IVox 全量遍历后的高频/无界累计地图持续发布
 - 发布/保存输出侧世界系高度裁剪
 - 输入点百分比密度参数与相关动态换算
 - 退化评分发布、残差统计、Huber 权重和自适应额外迭代
@@ -48,7 +49,8 @@ source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 - `filter_car_body`、`body_x_min/max`、`body_y_min/max`、`body_z_min/max`：Mid-360 输入侧车身 ROI，单位米，坐标系为 `base_link`。
 - `odometry.publish_odometry_without_downsample`：默认 `False`，保持 `/state_estimation` 与 `/cloud_registered` 的时间戳同源。
 - `publish.scan_bodyframe_pub_en`：控制 `/cloud_registered_body` 是否发布。
-- `pcd_save.pcd_save_en`、`pcd_save.interval`：控制 PCD 保存。默认不强制保存，建图需要导出地图时在完整 YAML 中显式开启。
+- `publish.full_map_publish_en`、`publish.full_map_topic`、`publish.full_map_interval_sec`、`publish.full_map_voxel_size`、`publish.full_map_max_points`：控制完整累计地图可视化发布。默认开启，低频、降采样并限制单次发布点数；该 topic 只用于观察，不作为定位或导航权威。
+- `pcd_save.pcd_save_en`、`pcd_save.interval`：控制 PCD 保存。默认开启且 `interval=-1`，建图正常退出后保存单个 `scans.pcd`。
 
 `mapping.extrinsic_T/R` 是 Point-LIO 内部 LiDAR/IMU 外参，不表示雷达相对 `base_link` 的整机安装位姿。雷达安装外参由 `rc26_sensor_extrinsics` 管理，并经 `rc26_bringup` 发布静态 TF。
 
@@ -108,16 +110,19 @@ Point-LIO 原生发布：
 - `/cloud_registered`：odom/world 系当前帧配准点云。
 - `/cloud_registered_body`：body/IMU 系当前帧点云，受 `publish.scan_bodyframe_pub_en` 控制。
 - `/Laser_map`：初始地图点云，只在初始化建图完成后发布。
+- `/point_lio/map_cloud`：低频发布的完整累计点云地图，默认 2 秒一次，按 `publish.full_map_voxel_size` 降采样后供 RViz/Foxglove 等下游只读观察。
 - `/path`：Point-LIO 原生路径，受 `publish.path_en` 控制。
 
 经过 `rc26_odom_interface` 后，下游通常消费 `/odom` 与 `/registered_scan`；`/registered_scan` 由 `/cloud_registered` 转换到统一 odom 坐标系后发布。
 
 ## PCD 保存与定位复用
 
-开启 `pcd_save.pcd_save_en` 后，节点正常退出时会将累计点云写入：
+默认 `pcd_save.pcd_save_en=true` 且 `pcd_save.interval=-1`。节点正常退出时会将累计点云写入：
 
 - `${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans.pcd`
 - 或 `${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans_<N>.pcd`，当 `pcd_save.interval > 0` 时分段保存。
+
+`interval=-1` 会把待保存点云累计到正常退出时再写单个文件；长时间建图时需注意单文件大小和内存压力。
 
 生成的 PCD 可作为 localization 链路的 `prior_pcd_file` 使用。Point-LIO 自身不会再读取这份先验地图。
 
@@ -136,7 +141,7 @@ Point-LIO 和 bringup 主入口保持 headless。需要观察时手工运行：
 rviz2 -d "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/rviz/slam.rviz"
 ```
 
-该 RViz 预设观察 `/registered_scan` 实时点云和 `/Laser_map` 初始地图。
+该 RViz 预设观察 `/point_lio/map_cloud` 完整累计地图、`/registered_scan` 实时点云和 `/Laser_map` 初始地图。完整累计地图是现场可视化输出，不替代 PCD 文件，也不作为 localization 或 Nav2 输入。
 
 ## 运行排查
 

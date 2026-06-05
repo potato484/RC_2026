@@ -48,6 +48,7 @@ PointCloudXYZI::Ptr feats_undistort(new PointCloudXYZI());
 PointCloudXYZI::Ptr feats_down_body_space(new PointCloudXYZI());
 PointCloudXYZI::Ptr init_feats_world(new PointCloudXYZI());
 std::deque<PointCloudXYZI::Ptr> depth_feats_world;
+PointCloudXYZI::Ptr full_map_cloud_for_viz(new PointCloudXYZI());
 pcl::VoxelGrid<PointType> downSizeFilterSurf;
 
 V3D euler_cur;
@@ -55,6 +56,7 @@ V3D euler_cur;
 nav_msgs::msg::Path path;
 nav_msgs::msg::Odometry odomAftMapped;
 geometry_msgs::msg::PoseStamped msg_body_pose;
+double last_full_map_publish_time = -1.0;
 
 auto LOGGER = rclcpp::get_logger("laserMapping");
 std::mutex runtime_param_mutex;
@@ -151,6 +153,98 @@ void finalizeCloudMetadata(PointCloudXYZI& cloud) {
     cloud.is_dense = false;
 }
 
+void resetFullMapForViz() {
+    if (full_map_cloud_for_viz) {
+        full_map_cloud_for_viz->clear();
+        finalizeCloudMetadata(*full_map_cloud_for_viz);
+    }
+    last_full_map_publish_time = -1.0;
+}
+
+void appendFullMapForViz(const PointVector& points_to_add) {
+    if (!full_map_publish_en || points_to_add.empty()) {
+        return;
+    }
+
+    if (!full_map_cloud_for_viz) {
+        full_map_cloud_for_viz.reset(new PointCloudXYZI());
+    }
+    full_map_cloud_for_viz->points.insert(
+        full_map_cloud_for_viz->points.end(), points_to_add.begin(), points_to_add.end());
+    finalizeCloudMetadata(*full_map_cloud_for_viz);
+}
+
+void appendFullMapForViz(const PointCloudXYZI& cloud) {
+    if (!full_map_publish_en || cloud.empty()) {
+        return;
+    }
+
+    if (!full_map_cloud_for_viz) {
+        full_map_cloud_for_viz.reset(new PointCloudXYZI());
+    }
+    full_map_cloud_for_viz->points.insert(
+        full_map_cloud_for_viz->points.end(), cloud.points.begin(), cloud.points.end());
+    finalizeCloudMetadata(*full_map_cloud_for_viz);
+}
+
+PointCloudXYZI::Ptr buildFullMapCloudForPublish(const std::shared_ptr<rclcpp::Node>& nh) {
+    if (!full_map_cloud_for_viz || full_map_cloud_for_viz->empty()) {
+        return {};
+    }
+
+    PointCloudXYZI::Ptr filtered_cloud(new PointCloudXYZI());
+    pcl::VoxelGrid<PointType> voxel_filter;
+    const float leaf_size = static_cast<float>(full_map_voxel_size);
+    voxel_filter.setLeafSize(leaf_size, leaf_size, leaf_size);
+    voxel_filter.setInputCloud(full_map_cloud_for_viz);
+    voxel_filter.filter(*filtered_cloud);
+    finalizeCloudMetadata(*filtered_cloud);
+
+    const size_t max_points = static_cast<size_t>(full_map_max_points);
+    if (filtered_cloud->points.size() <= max_points) {
+        return filtered_cloud;
+    }
+
+    PointCloudXYZI::Ptr capped_cloud(new PointCloudXYZI());
+    capped_cloud->points.reserve(max_points);
+    const size_t stride = std::max<size_t>(
+        1, static_cast<size_t>(std::ceil(static_cast<double>(filtered_cloud->points.size()) /
+                                         static_cast<double>(max_points))));
+    for (size_t i = 0; i < filtered_cloud->points.size() && capped_cloud->points.size() < max_points; i += stride) {
+        capped_cloud->points.emplace_back(filtered_cloud->points[i]);
+    }
+    finalizeCloudMetadata(*capped_cloud);
+
+    RCLCPP_WARN_THROTTLE(LOGGER, *nh->get_clock(), 5000,
+                         "Full map visualization cloud capped from %zu to %zu points with stride %zu",
+                         filtered_cloud->points.size(), capped_cloud->points.size(), stride);
+    return capped_cloud;
+}
+
+void publish_full_map_if_due(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr& pubFullMap,
+                             const std::shared_ptr<rclcpp::Node>& nh) {
+    if (!full_map_publish_en || !pubFullMap || !full_map_cloud_for_viz || full_map_cloud_for_viz->empty()) {
+        return;
+    }
+
+    if (last_full_map_publish_time >= 0.0 &&
+        (lidar_end_time - last_full_map_publish_time) < full_map_interval_sec) {
+        return;
+    }
+
+    PointCloudXYZI::Ptr cloud_to_publish = buildFullMapCloudForPublish(nh);
+    if (!cloud_to_publish || cloud_to_publish->empty()) {
+        return;
+    }
+
+    sensor_msgs::msg::PointCloud2 cloud_msg;
+    pcl::toROSMsg(*cloud_to_publish, cloud_msg);
+    cloud_msg.header.stamp = get_ros_time(lidar_end_time);
+    cloud_msg.header.frame_id = odom_frame;
+    pubFullMap->publish(cloud_msg);
+    last_full_map_publish_time = lidar_end_time;
+}
+
 inline void dump_lio_state_to_log(FILE* fp) {
     // Check for null file pointer to prevent crash
     if (fp == nullptr) {
@@ -238,6 +332,7 @@ void MapIncremental() {
         }
     }
     ivox_->AddPoints(points_to_add);
+    appendFullMapForViz(points_to_add);
 }
 
 void publish_init_map(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr& pubLaserCloudFullRes) {
@@ -674,6 +769,13 @@ int main(int argc, char** argv) {
     auto pub_laser_cloud_full_res_body =
         nh->create_publisher<sensor_msgs::msg::PointCloud2>("cloud_registered_body", 20);
     auto pub_laser_cloud_map = nh->create_publisher<sensor_msgs::msg::PointCloud2>("Laser_map", 20);
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_full_map_cloud;
+    if (full_map_publish_en) {
+        pub_full_map_cloud = nh->create_publisher<sensor_msgs::msg::PointCloud2>(full_map_topic, 1);
+        RCLCPP_INFO(LOGGER,
+                    "Full map visualization enabled: topic=%s interval=%.3fs voxel=%.3fm max_points=%d",
+                    full_map_topic.c_str(), full_map_interval_sec, full_map_voxel_size, full_map_max_points);
+    }
     auto pub_odom_aft_mapped = nh->create_publisher<nav_msgs::msg::Odometry>("state_estimation", 20);
     auto pub_path = nh->create_publisher<nav_msgs::msg::Path>("path", 20);
     auto tf_broadcaster = std::make_shared<tf2_ros::TransformBroadcaster>(nh);
@@ -703,6 +805,7 @@ int main(int argc, char** argv) {
                 init_map = false;
 
                 { ivox_.reset(new IVoxType(ivox_options_)); }
+                resetFullMapForViz();
             }
 
             if (flg_first_scan) {
@@ -801,7 +904,9 @@ int main(int argc, char** argv) {
 
                 if (init_feats_world->size() >= init_map_size) {
                     ivox_->AddPoints(init_feats_world->points);
+                    appendFullMapForViz(*init_feats_world);
                     publish_init_map(pub_laser_cloud_map);
+                    publish_full_map_if_due(pub_full_map_cloud, nh);
                     init_feats_world.reset(new PointCloudXYZI());
                     init_map = true;
                 } else {
@@ -1261,6 +1366,7 @@ int main(int argc, char** argv) {
             if (feats_down_size > 4) {
                 MapIncremental();
             }
+            publish_full_map_if_due(pub_full_map_cloud, nh);
             t5 = omp_get_wtime();
             /******* Publish points *******/
             if (path_en)

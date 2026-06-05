@@ -87,21 +87,31 @@
                            0.0, 0.0, 1.0 ]
 
         odometry:
-            # 参数说明：publish_odometry_without_downsample - 布尔开关；控制对应能力是否启用。
+            # 参数说明：publish_odometry_without_downsample - 是否允许扫描内部提前发布 /state_estimation；false 时与 /cloud_registered 保持同源时间戳。
             publish_odometry_without_downsample: False
 
         publish:
             # 参数说明：path_en - 轨迹输出开关；false 时关闭路径发布或保存。
-            path_en: True                                   # False：关闭轨迹输出
+            path_en: True
             # 参数说明：scan_publish_en - 点云发布总开关；false 时关闭所有点云输出。
-            scan_publish_en: True                           # False：关闭所有点云输出
+            scan_publish_en: True
             # 参数说明：scan_bodyframe_pub_en - 机体系点云发布开关；true 时输出 IMU/body frame 下的点云。
-            scan_bodyframe_pub_en: False                    # True：输出 IMU 机体系下的点云
-            # 参数说明：tf_send_en - TF 发布开关；控制 Point-LIO 是否发布定位 TF。
-            tf_send_en: True                                # True：发布从 'camera_init' 到 'aft_mapped' 的 TF
+            scan_bodyframe_pub_en: False
+            # 参数说明：tf_send_en - 是否由 Point-LIO 直接发布 frame.odom_frame -> frame.body_frame 动态 TF；整车 bringup 会强制覆盖为 false，由 rc26_odom_interface 作为 odom -> base_link TF 权威。
+            tf_send_en: False
+            # 参数说明：full_map_publish_en - 是否低频发布完整累计点云；仅用于现场建图可视化观察，不作为定位或 Nav2 权威输入。
+            full_map_publish_en: True
+            # 参数说明：full_map_topic - 完整累计点云可视化话题名；默认 point_lio/map_cloud。
+            full_map_topic: "point_lio/map_cloud"
+            # 参数说明：full_map_interval_sec - 完整累计点云发布周期，单位秒；默认 2 秒一次。
+            full_map_interval_sec: 2.0
+            # 参数说明：full_map_voxel_size - 完整累计点云发布前的体素降采样尺寸，单位米；用于降低 RViz、网络和 CPU 压力。
+            full_map_voxel_size: 0.1
+            # 参数说明：full_map_max_points - 完整累计点云单次发布点数上限；超过上限时按固定步长抽样。
+            full_map_max_points: 1500000
 
         pcd_save:
-            pcd_save_en: False
-            # 参数说明：interval - 周期或间隔；用于控制轮询、播放或发布节奏。
-            interval: -1                                    # 每个 pcd 文件保存的 LiDAR 帧数；
-                                                            # -1：所有帧保存到同一个 pcd 文件，帧数过多可能导致内存崩溃。
+            # 参数说明：pcd_save_en - 是否保存建图累计 PCD；默认开启，节点正常退出时落盘。
+            pcd_save_en: True
+            # 参数说明：interval - 每个 PCD 文件累计的 LiDAR 帧数；-1 表示所有帧保存到单个 scans.pcd，长时间建图会增加内存和单文件压力。
+            interval: -1

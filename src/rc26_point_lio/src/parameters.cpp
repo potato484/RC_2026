@@ -251,6 +251,21 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
         nh->declare_parameter<bool>("publish.tf_send_en", true);
         nh->get_parameter("publish.tf_send_en", tf_send_en);
 
+        nh->declare_parameter<bool>("publish.full_map_publish_en", false);
+        nh->get_parameter("publish.full_map_publish_en", full_map_publish_en);
+
+        nh->declare_parameter<std::string>("publish.full_map_topic", "point_lio/map_cloud");
+        nh->get_parameter("publish.full_map_topic", full_map_topic);
+
+        nh->declare_parameter<double>("publish.full_map_interval_sec", 2.0);
+        nh->get_parameter("publish.full_map_interval_sec", full_map_interval_sec);
+
+        nh->declare_parameter<double>("publish.full_map_voxel_size", 0.1);
+        nh->get_parameter("publish.full_map_voxel_size", full_map_voxel_size);
+
+        nh->declare_parameter<int>("publish.full_map_max_points", 1500000);
+        nh->get_parameter("publish.full_map_max_points", full_map_max_points);
+
         nh->declare_parameter<bool>("runtime_pos_log_enable", false);
         nh->get_parameter("runtime_pos_log_enable", runtime_pos_log);
 
@@ -304,6 +319,26 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
 
     validateBodyFilterParametersOrThrow(nh->get_logger());
     applyBodyFilterConfigToPreprocess();
+
+    if (full_map_topic.empty()) {
+        RCLCPP_WARN(nh->get_logger(), "publish.full_map_topic is empty, fallback to point_lio/map_cloud");
+        full_map_topic = "point_lio/map_cloud";
+    }
+    if (!std::isfinite(full_map_interval_sec) || full_map_interval_sec <= 0.0) {
+        RCLCPP_WARN(nh->get_logger(), "publish.full_map_interval_sec=%.3f is invalid, fallback to 2.0",
+                    full_map_interval_sec);
+        full_map_interval_sec = 2.0;
+    }
+    if (!std::isfinite(full_map_voxel_size) || full_map_voxel_size <= 0.0) {
+        RCLCPP_WARN(nh->get_logger(), "publish.full_map_voxel_size=%.3f is invalid, fallback to 0.1",
+                    full_map_voxel_size);
+        full_map_voxel_size = 0.1;
+    }
+    if (full_map_max_points < 10000) {
+        RCLCPP_WARN(nh->get_logger(), "publish.full_map_max_points=%d is too small, fallback to 1500000",
+                    full_map_max_points);
+        full_map_max_points = 1500000;
+    }
 
     if (point_filter_num < 1) {
         RCLCPP_WARN(nh->get_logger(), "point_filter_num=%d < 1, clamp to 1", point_filter_num);

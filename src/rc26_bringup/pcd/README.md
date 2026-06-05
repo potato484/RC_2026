@@ -16,7 +16,7 @@
 
 ## 建图与保存流程
 
-Point-LIO 当前只有单配置启动口径。若需要导出 PCD，请在完整 Point-LIO YAML 中显式开启：
+Point-LIO 当前只有单配置启动口径。默认 `src/rc26_point_lio/config/mid360.yaml` 已开启 PCD 保存：
 
 ```yaml
 pcd_save:
@@ -24,17 +24,17 @@ pcd_save:
   interval: -1
 ```
 
-然后启动建图链路：
+直接启动建图链路即可在正常退出后导出单个 PCD：
+
+```bash
+ros2 launch rc26_bringup test_mapping.launch.py
+```
+
+如需使用自定义完整 Point-LIO YAML，则通过上层参数传入：
 
 ```bash
 ros2 launch rc26_bringup test_mapping.launch.py \
   point_lio_config_file:=/abs/path/to/point_lio_mapping.yaml
-```
-
-如果只需要使用默认配置跑通链路，可直接：
-
-```bash
-ros2 launch rc26_bringup test_mapping.launch.py
 ```
 
 说明：
@@ -42,12 +42,12 @@ ros2 launch rc26_bringup test_mapping.launch.py
 - `test_mapping.launch.py` 固定启用 `slam:=true` 和 `pure_mapping_mode:=true`，默认打开 RViz2；
 - Point-LIO 不再通过 profile 覆盖配置，也不会自动读取定位先验地图；
 - `odometry.launch.py` 默认强制 `odometry.publish_odometry_without_downsample:=false`，保持 `/state_estimation` 与 `/cloud_registered` 时间戳同源；
-- 当前 RViz 预设观察 `/registered_scan` 实时点云与 `/Laser_map` 初始地图。
+- 当前 RViz 预设观察 `/point_lio/map_cloud` 完整累计地图、`/registered_scan` 实时点云与 `/Laser_map` 初始地图。
 
 建图完成后：
 
 1. 使用 `Ctrl+C` 正常退出；
-2. 若 `pcd_save.pcd_save_en=true`，Point-LIO 会将累计点云写入 `src/rc26_point_lio/PCD/scans.pcd`；
+2. 默认 `pcd_save.pcd_save_en=true` 且 `pcd_save.interval=-1`，Point-LIO 会将累计点云写入 `src/rc26_point_lio/PCD/scans.pcd`；
 3. 若 `pcd_save.interval > 0`，则会分段保存为 `scans_1.pcd`、`scans_2.pcd` 等。
 
 补充说明：

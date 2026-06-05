@@ -23,6 +23,17 @@ Visualization Manager:
       Color Transformer: FlatColor
       Reliability Policy: Best Effort
     - Class: rviz_default_plugins/PointCloud2
+      Name: FullMapCloud
+      Topic:
+        Value: point_lio/map_cloud
+        Queue Size: 1
+      Value: true
+      Size (m): 0.025
+      Style: Points
+      Color: 80; 180; 255
+      Color Transformer: FlatColor
+      Reliability Policy: Best Effort
+    - Class: rviz_default_plugins/PointCloud2
       Name: RegisteredCloud
       Topic:
         Value: registered_scan

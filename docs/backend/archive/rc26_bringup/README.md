@@ -22,6 +22,7 @@
   - 用于定位 + Nav2 基础导航联调
 - `test_mapping.launch.py`
   - 默认等价于 `slam:=true pure_mapping_mode:=true use_rviz:=true`
+  - `slam.rviz` 默认观察 `/point_lio/map_cloud` 完整累计地图、`/registered_scan` 实时点云与 `/Laser_map` 初始地图
 
 `rc26_terrain`、`rc26_base_ground` 与 `rc26_kfs_keepout` 已归档退出当前装配。`bringup.launch.py`、`odometry.launch.py` 和 `test_mapping.launch.py` 不再声明 terrain/base-ground/keepout 参数，不再启动这些节点，也不再向 `rc26_decision` 透传 keepout heartbeat 或 runtime service 配置。
 
@@ -40,7 +41,7 @@
 - 负责装配、参数选择和生命周期拉起，不承载 planner、控制器或可视化平台的实现本体
 - Nav2 参数文件归 bringup 托管，是本轮基础导航栈的部署配置
 - `config/localization.yaml` 当前只维护开局一次重定位与连续 GICP 跟踪的核心参数，定位健康度、图后端和路径可观测性参数已移除
-- 除 `test_mapping.launch.py` 建图调试入口外，如需可视化，应由工作区外部工具只读消费当前主链 ROS2 输出
+- 除 `test_mapping.launch.py` 建图调试入口外，如需可视化，应由工作区外部工具只读消费当前主链 ROS2 输出；`/point_lio/map_cloud` 是现场建图观察输出，不作为定位或导航权威
 
 ## 本轮收口
 
