@@ -1,17 +1,21 @@
-# 默认地图配置文件 (占位)
-# 请将此文件替换为实际地图，或在启动时指定 map:=<your_map.yaml>
+# 默认 2D occupancy map 占位文件。
+# 这个文件只用于让 Nav2 的 map_server 在没有传入真实地图时完成启动，
+# 不代表可直接通过真实导航验收。
 #
-# 地图文件格式要求:
-#   image: <path_to_pgm>
-#   resolution: 0.05
-#   origin: [0.0, 0.0, 0.0]
-#   negate: 0
-#   occupied_thresh: 0.65
-#   free_thresh: 0.196
+# 真机导航时，请在启动 bringup / test_navigation 时显式传入
+# `nav2_map_file:=<真实 occupancy map YAML>`。
+#
+# Nav2 map_server 常用字段含义:
+# - image: 绑定的栅格图像文件（PGM / PNG）
+# - resolution: 每个像素对应的实际米数
+# - origin: 地图原点在 map 坐标系中的 [x, y, yaw]
+# - negate: 0 表示按常规黑白语义解析，1 表示反色
+# - occupied_thresh: 像素值达到或高于该阈值时视为占用
+# - free_thresh: 像素值低于或等于该阈值时视为空闲
 
-image: default.pgm
-resolution: 0.1
-origin: [-0.14, -0.3, 0.0]
-negate: 0
-occupied_thresh: 0.65
-free_thresh: 0.196
+image: default.pgm  # 占位图像，真实导航应替换为现场导出的地图图像
+resolution: 0.1  # 该占位图只是冒烟用途，实际地图分辨率请按现场导出结果填写
+origin: [-0.14, -0.3, 0.0]  # 地图左下角在 map 坐标系中的起点
+negate: 0  # 不反色
+occupied_thresh: 0.65  # >= 0.65 视为障碍
+free_thresh: 0.196  # <= 0.196 视为空闲

@@ -62,6 +62,8 @@
 - `config/nav2_params.yaml` 现已补齐主要字段的中文注释，现场调试应优先以该文件中的分区说明和速度/代价图参数注释为准
 - RViz 预设只观察 Nav2 plan、local/global costmap、TF、RobotModel 与点云/里程计主链，不再订阅 terrain 或 keepout 输出
 - `src/rc26_bringup/map/default.yaml` 仍只是默认占位入口；它只用于把 Nav2 lifecycle、costmap 和执行桥链路拉起，实机规划验收仍应通过 `nav2_map_file` 传入有效 2D occupancy map
+- 当前 `src/rc26_bringup/map/default.yaml` 已补充字段级中文注释，明确了 `image / resolution / origin / negate / occupied_thresh / free_thresh` 的含义；排查 map_server 加载问题时应先以该文件注释和 Nav2 map YAML 口径为准
+- 当前仓库的 `test_mapping.launch.py` / Point-LIO 建图链默认导出的是 PCD 点云，不会直接产出 Nav2 可消费的 2D occupancy map；如需真实规划地图，应先使用能发布 `/map` (`nav_msgs/OccupancyGrid`) 的建图链生成栅格，再用 `ros2 run nav2_map_server map_saver_cli -f <输出前缀>` 保存为 `pgm/png + yaml`，最后通过 `nav2_map_file` 传给导航入口
 - `odometry.launch.py` 新增 `start_point_lio`、`start_sensor_scan` 开关，供 `test_odom_interface.launch.py`、`odometry_mock.launch.py` 等入口复用同一套静态 TF / 内部外参装配
 - `odometry_mock.launch.py` 复用同一套 `odometry.launch.py` 装配；`mock_point_lio.py` 默认先输出一小段静止里程计，再进入运动阶段，以满足 `rc26_odom_interface` 现有的启动静止归零约束
 - 若现场只有目标 MCU 下发串口，应显式传 `pose_sender_feedback_serial_port:=__disabled__`，避免 bringup 因缺少反馈串口而报双串口初始化异常
