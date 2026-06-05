@@ -42,7 +42,7 @@
             # 参数说明：cut_frame_time_interval - 点云子帧切分时间间隔，单位秒。
             cut_frame_time_interval: 0.1                    # 应为 1/激光频率 的整数分频
         preprocess:
-            # NOTE: In this Point-LIO fork, MID360 is enumerated as 5 (see `rc26_point_lio/src/preprocess.hpp`).
+            # 说明：当前 Point-LIO fork 中 MID360 的枚举值为 5，定义见 `rc26_point_lio/src/preprocess.hpp`。
             # 参数说明：lidar_type - LiDAR 类型枚举；当前 MID360 在本 fork 中使用 5。
             lidar_type: 5                                   # 5: MID360
             # 参数说明：scan_line - LiDAR 扫描线数或等效通道数；需要匹配传感器预处理模型。

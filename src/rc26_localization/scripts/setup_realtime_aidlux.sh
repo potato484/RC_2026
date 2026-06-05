@@ -2,7 +2,7 @@
 set -euo pipefail
 NODE=${1:-rc26_localization_node}
 PID=$(pgrep -f "$NODE" | head -1)
-[[ -z "$PID" ]] && { echo "Node $NODE not found"; exit 1; }
+[[ -z "$PID" ]] && { echo "未找到节点进程: $NODE"; exit 1; }
 
 taskset -cp 0-4 "$PID"
 
@@ -16,4 +16,4 @@ for TID in /proc/"$PID"/task/*/; do
         taskset -cp 5-7 "$tid" 2>/dev/null || true
     fi
 done
-echo "Done: $NODE (pid=$PID)"
+echo "实时优先级设置完成: $NODE (pid=$PID)"

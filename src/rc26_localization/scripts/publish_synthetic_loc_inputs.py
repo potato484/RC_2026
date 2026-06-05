@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish minimal localization input: registered_scan only."""
+"""发布最小定位输入，只提供 registered_scan。"""
 
 import argparse
 import math
@@ -43,7 +43,7 @@ class SyntheticLocalizationInputNode(Node):
         period = max(0.02, 1.0 / max(1.0, float(args.rate)))
         self.timer = self.create_timer(period, self.on_timer)
         self.get_logger().info(
-            f"synthetic localization input started: scan={self.scan_topic}, points={len(self.base_points)}"
+            f"合成定位输入已启动: scan={self.scan_topic}, 点数={len(self.base_points)}"
         )
 
     def _header(self, frame_id: str) -> Header:
@@ -67,7 +67,7 @@ class SyntheticLocalizationInputNode(Node):
 
 
 def parse_args(argv: List[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Publish synthetic registered_scan inputs")
+    parser = argparse.ArgumentParser(description="发布合成 registered_scan 输入")
     parser.add_argument("--scan-topic", default="registered_scan")
     parser.add_argument("--odom-frame", default="odom")
     parser.add_argument("--rate", type=float, default=8.0)
@@ -85,7 +85,7 @@ def main(argv: List[str]) -> int:
     try:
         while rclpy.ok() and time.monotonic() < end_time:
             executor.spin_once(timeout_sec=0.1)
-        node.get_logger().info("synthetic localization input finished")
+        node.get_logger().info("合成定位输入已结束")
     finally:
         executor.remove_node(node)
         node.destroy_node()

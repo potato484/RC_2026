@@ -12,7 +12,7 @@
 
 - 动态 TF `map -> odom`：20Hz 发布，本节点是唯一权威。
 - `/localization/pose_with_cov` (`geometry_msgs/msg/PoseWithCovarianceStamped`)：当前 `map -> odom` 位姿和简化协方差。
-- `/localization/diagnostics` (`diagnostic_msgs/msg/DiagnosticArray`)：配准是否接受、是否收敛、内点数、归一化误差等状态。
+- `/localization/diagnostics` (`diagnostic_msgs/msg/DiagnosticArray`)：配准是否接受、是否收敛、内点数、归一化误差等状态。`status.message` 和既有 KeyValue key 继续保留英文机器字段，同时新增 `human_message` 中文说明，便于现场直接判断定位卡在地图、点云、TF 还是配准质量。
 
 ## 保留的运行逻辑
 
@@ -34,3 +34,7 @@
 ## 最小验收
 
 `scripts/run_localization_acceptance.sh` 用于 smoke 验证当前链路：它会启动 `rc26_bringup` 的定位 launch，可选发布合成 `registered_scan` 和静态 `odom -> base_link`，并强制检查 `/localization/pose_with_cov`、`/localization/diagnostics` 均存在 publisher 且能采到频率。默认小 PCD 只适合验证节点、TF/pose/diagnostics 链路可启动；真实配准质量仍需用比赛地图或 rosbag 验证。
+
+## 调试信息
+
+定位节点、合成输入脚本、验收脚本和 AidLux/性能运维脚本的用户可见提示按中文输出。topic、frame、参数名、reason code、raw 日志文件名和 diagnostics 既有英文 key 不变，外部脚本或看板仍应按原字段消费；现场人工排查优先看控制台中文日志和 `/localization/diagnostics` 的 `human_message` 字段。

@@ -25,7 +25,7 @@ void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2::SharedPtr& msg) {
     scan_count++;
     double preprocess_start_time = omp_get_wtime();
     if (rclcpp::Time(msg->header.stamp).seconds() < last_timestamp_lidar) {
-        RCLCPP_ERROR(rclcpp::get_logger("li_initialization"), "lidar loop back, clear buffer");
+        RCLCPP_ERROR(rclcpp::get_logger("li_initialization"), "LiDAR 时间戳回退，清空点云和 IMU 缓存");
         lidar_buffer.clear();
         time_buffer.clear();
         imu_deque.clear();
@@ -100,7 +100,7 @@ void imu_cbk(const sensor_msgs::msg::Imu::ConstSharedPtr& msg_in) {
     // printf("time_diff%f, %f, %f\n", last_timestamp_imu - timestamp, last_timestamp_imu, timestamp);
 
     if (timestamp < last_timestamp_imu) {
-        RCLCPP_ERROR(rclcpp::get_logger("li_initialization"), "imu loop back, clear deque");
+        RCLCPP_ERROR(rclcpp::get_logger("li_initialization"), "IMU 时间戳回退，清空点云和 IMU 缓存");
         imu_deque.clear();
         lidar_buffer.clear();
         time_buffer.clear();
@@ -126,7 +126,7 @@ bool sync_packages(MeasureGroup& meas) {
                     meas.lidar_beg_time = time_buffer.front();
                     lose_lid = false;
                     if (meas.lidar->points.empty()) {
-                        std::cout << "lose lidar" << '\n';
+                        RCLCPP_WARN(rclcpp::get_logger("li_initialization"), "当前 LiDAR 点云为空，本帧跳过");
                         // return false;
                         lose_lid = true;
                     } else {
@@ -163,7 +163,7 @@ bool sync_packages(MeasureGroup& meas) {
             meas.lidar = lidar_buffer.front();
             meas.lidar_beg_time = time_buffer.front();
             if (meas.lidar->points.size() < 1) {
-                std::cout << "lose lidar" << '\n';
+                RCLCPP_WARN(rclcpp::get_logger("li_initialization"), "当前 LiDAR 点云为空，本帧跳过");
                 lose_lid = true;
                 // lidar_buffer.pop_front();
                 // time_buffer.pop_front();

@@ -145,4 +145,6 @@ rviz2 -d "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/rviz/slam.rviz"
 
 ## 运行排查
 
-根目录集中式调试文档已删除。若需要分析 LiDAR/IMU 时间偏移，可运行 `scripts/time_sync_analyzer.py`。该脚本只输出外部时间偏移建议，Point-LIO 当前不直接消费该结果。
+根目录集中式调试文档已删除。Point-LIO 主链、预处理、IMU 初始化、PCD 保存、车身 ROI 热更新和运行耗时统计等用户可见提示按中文输出；topic、frame、参数名、路径和返回码仍保留原值，方便继续排查。
+
+若需要分析 LiDAR/IMU 时间偏移，可运行 `scripts/time_sync_analyzer.py`。该脚本输出中文说明和外部时间偏移建议，Point-LIO 当前不直接消费该结果。

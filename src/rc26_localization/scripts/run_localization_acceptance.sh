@@ -210,9 +210,9 @@ assert_hz_sampled() {
 
 echo "[INFO] 工作空间: ${WORKSPACE}"
 echo "[INFO] 输出目录: ${OUTPUT_DIR}"
-echo "[INFO] use_sim_time=${USE_SIM_TIME}, duration=${DURATION}s"
-echo "[INFO] params_file=${PARAMS_FILE}"
-echo "[INFO] map=${MAP_FILE}, synthetic_input=${SYNTHETIC_INPUT}"
+echo "[INFO] use_sim_time=${USE_SIM_TIME}, 验收时长=${DURATION}s"
+echo "[INFO] 参数文件: ${PARAMS_FILE}"
+echo "[INFO] 地图文件: ${MAP_FILE}, 合成输入=${SYNTHETIC_INPUT}"
 
 if [[ "${SKIP_BUILD}" -eq 0 ]]; then
     echo "[INFO] 编译最小定位链 ..."
@@ -223,7 +223,7 @@ if [[ "${SKIP_BUILD}" -eq 0 ]]; then
     ) | tee "${OUTPUT_DIR}/raw/build.log"
 else
     echo "[INFO] 跳过编译 (--skip-build)"
-    echo "build skipped by --skip-build" > "${OUTPUT_DIR}/raw/build.log"
+    echo "已按 --skip-build 跳过编译" > "${OUTPUT_DIR}/raw/build.log"
 fi
 
 set +u
@@ -264,7 +264,7 @@ POSE_HZ_PID=$!
 DIAG_HZ_PID=$!
 
 if [[ "${SYNTHETIC_INPUT}" -eq 1 ]]; then
-    echo "[INFO] 启动 synthetic registered_scan 输入"
+    echo "[INFO] 启动合成 registered_scan 输入"
     ros2 run tf2_ros static_transform_publisher \
         --x 0 --y 0 --z 0 --roll 0 --pitch 0 --yaw 0 \
         --frame-id odom --child-frame-id base_link \
@@ -286,7 +286,7 @@ if [[ -n "${BAG_FILE}" ]]; then
     wait "${BAG_PID}" || true
 elif [[ "${SYNTHETIC_INPUT}" -eq 1 ]]; then
     wait "${SYNTH_PID}" || {
-        echo "[ERROR] synthetic 输入进程异常退出，请检查 ${OUTPUT_DIR}/raw/synthetic_input.log" >&2
+        echo "[ERROR] 合成输入进程异常退出，请检查 ${OUTPUT_DIR}/raw/synthetic_input.log" >&2
         exit 1
     }
 else
@@ -312,9 +312,9 @@ out = [
     "# rc26_localization 最小链路验收摘要",
     "",
     "## 输入",
-    f"- map: `{map_file}`",
-    f"- bag: `{bag_file if bag_file else '(未提供)'}`",
-    f"- params_file: `{params_file}`",
+    f"- 地图: `{map_file}`",
+    f"- rosbag: `{bag_file if bag_file else '(未提供)'}`",
+    f"- 参数文件: `{params_file}`",
     "",
     "## 验收判读",
     "- `raw/pose_cov_info.log` 应显示 `/localization/pose_with_cov` 存在。",

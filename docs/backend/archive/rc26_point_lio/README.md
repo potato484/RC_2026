@@ -32,6 +32,7 @@
 - `/state_estimation`、`/cloud_registered`、`/cloud_registered_body`、`/Laser_map`、`/point_lio/map_cloud`、`/path`
 - 默认低频完整累计地图可视化发布，供 RViz/Foxglove 等下游只读观察
 - 默认基础 PCD 保存能力，`interval=-1` 时正常退出后写入单个 `scans.pcd`
+- 面向现场操作者的建图/里程计控制台提示按通俗中文输出；参数名、topic、frame、路径、返回码等机器信息仍保留原值，方便继续定位问题
 
 当前已按旧 Point-LIO 主链收口，不再保留先验地图注入、输出侧高度裁剪、退化评分、自适应额外迭代或 profile 覆盖。累计全图只通过低频、降采样、限点数的可视化 topic 发布，不作为定位或导航权威。
 
@@ -53,7 +54,7 @@
 
 ## 关键文件体量
 
-- `src/laserMapping.cpp`：1429 行。
+- `src/laserMapping.cpp`：1445 行。
 - `src/preprocess.cpp`：901 行。
 - `src/parameters.cpp`：425 行。
 - `src/Estimator.cpp`：359 行。
@@ -61,12 +62,12 @@
 
 ## 关键源码行段速览
 
-- `src/rc26_point_lio/src/laserMapping.cpp:60-147`：车身 ROI 参数校验、TF 查询和运行时应用。
-- `src/rc26_point_lio/src/laserMapping.cpp:150-246`：完整累计地图可视化缓存、降采样、限点数和低频发布。
-- `src/rc26_point_lio/src/laserMapping.cpp:304-424`：地图增量、初始地图发布和 PCD 保存。
-- `src/rc26_point_lio/src/laserMapping.cpp:614-715`：运行时参数回调，只允许车身 ROI 热更新。
-- `src/rc26_point_lio/src/laserMapping.cpp:768-780`：当前发布 topic 创建。
-- `src/rc26_point_lio/src/laserMapping.cpp:1350-1377`：下采样后发布 odom、path、点云和增量地图。
+- `src/rc26_point_lio/src/laserMapping.cpp:60-162`：车身 ROI 参数校验、PCD 保存原因中文说明、TF 查询和运行时应用。
+- `src/rc26_point_lio/src/laserMapping.cpp:170-260`：完整累计地图可视化缓存、降采样、限点数和低频发布。
+- `src/rc26_point_lio/src/laserMapping.cpp:318-439`：地图增量、初始地图发布和 PCD 保存。
+- `src/rc26_point_lio/src/laserMapping.cpp:629-739`：运行时参数回调，只允许车身 ROI 热更新，拒绝原因使用中文人类说明并保留参数名。
+- `src/rc26_point_lio/src/laserMapping.cpp:780-795`：当前发布 topic 创建与完整累计地图可视化启动提示。
+- `src/rc26_point_lio/src/laserMapping.cpp:1365-1413`：下采样后发布 odom、path、点云、外参估计提示、增量地图和运行耗时统计。
 - `src/rc26_point_lio/src/parameters.cpp:134-159`：`point_filter_num`、点云和地图滤波参数读取。
 - `src/rc26_point_lio/src/parameters.cpp:242-267`：普通点云、TF 和完整地图可视化发布参数读取。
 - `src/rc26_point_lio/src/Estimator.cpp:108-322`：观测模型与特征平面约束。
@@ -91,3 +92,9 @@
 - `publish.full_map_*` 控制完整累计地图可视化发布，默认开启、2 秒一次、0.1m 体素降采样、最多 150 万点。
 - `pcd_save.pcd_save_en` 当前默认开启，`pcd_save.interval=-1` 表示正常退出后写入单个 `scans.pcd`；长时间建图需注意单文件和内存压力。
 - 点密度、滤波尺寸、量程、建图参数、发布开关和保存开关均需通过完整 YAML 修改后重启，不再作为热更新入口。
+
+## 调试信息口径
+
+- 建图主链的参数异常、IMU 初始化、LiDAR/IMU 时间回退、点云为空、车身 ROI 裁剪、完整地图可视化、PCD 保存、外参估计和耗时统计等用户可见提示已经改为中文。
+- 中文提示不改变运行逻辑；`/state_estimation`、`/cloud_registered`、`/point_lio/map_cloud` 等 topic 名，`map/odom/base_link/livox_frame` 等 frame 名，以及 `filter_car_body`、`pcd_save.interval` 等参数名继续作为机器契约保留。
+- `scripts/time_sync_analyzer.py` 的现场输出也按中文说明展示，推荐时间偏移仍保留 LiDAR/IMU 名称和数值单位，便于直接用于调试记录。

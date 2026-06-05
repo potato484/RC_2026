@@ -125,7 +125,7 @@ void Preprocess::process(const sensor_msgs::msg::PointCloud2::SharedPtr& msg, Po
         break;
 
     default:
-        printf("Error LiDAR Type");
+        RCLCPP_ERROR(rclcpp::get_logger("Preprocess"), "LiDAR 类型配置无效: lidar_type=%d", lidar_type);
         break;
     }
     *pcl_out = pl_surf;
@@ -143,7 +143,7 @@ void Preprocess::process_cut_frame_pcl2(const sensor_msgs::msg::PointCloud2::Sha
         pcl::fromROSMsg(*msg, pl_orig);
         int plsize = pl_orig.points.size();
         if (plsize == 0) {
-            std::cout << "Velodyne scan is empty, skip frame." << '\n';
+            RCLCPP_WARN(rclcpp::get_logger("Preprocess"), "Velodyne 点云为空，本帧跳过");
             return;
         }
         pl_surf.reserve(plsize);
@@ -157,7 +157,7 @@ void Preprocess::process_cut_frame_pcl2(const sensor_msgs::msg::PointCloud2::Sha
         if (pl_orig.points[plsize - 1].time > 0) {
             given_offset_time = true;
         } else {
-            std::cout << "Compute offset time using constant rotation model." << '\n';
+            RCLCPP_INFO(rclcpp::get_logger("Preprocess"), "点云未提供逐点时间，使用固定转速模型估算时间偏移");
             given_offset_time = false;
             memset(is_first, true, sizeof(is_first));
         }
@@ -259,7 +259,7 @@ void Preprocess::process_cut_frame_pcl2(const sensor_msgs::msg::PointCloud2::Sha
             }
         }
     } else {
-        std::cout << "Wrong LiDAR Type!!!" << '\n';
+        RCLCPP_ERROR(rclcpp::get_logger("Preprocess"), "切帧预处理不支持当前 LiDAR 类型: lidar_type=%d", lidar_type);
         return;
     }
 
@@ -567,7 +567,7 @@ void Preprocess::give_feature(pcl::PointCloud<PointType>& pl, vector<orgtype>& t
     int plsize = pl.size();
     int plsize2;
     if (plsize == 0) {
-        printf("something wrong\n");
+        RCLCPP_WARN(rclcpp::get_logger("Preprocess"), "特征提取输入点云为空，本帧跳过");
         return;
     }
     uint head = 0;

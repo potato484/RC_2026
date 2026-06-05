@@ -15,7 +15,7 @@ std::string ensureLogDirectory() {
     std::error_code error_code;
     std::filesystem::create_directories(log_dir, error_code);
     if (error_code) {
-        std::cout << "~~~~failed to create log dir: " << log_dir << " (" << error_code.message() << ')' << '\n';
+        std::cout << "无法创建运行日志目录: " << log_dir << " (" << error_code.message() << ')' << '\n';
     }
     return log_dir.string();
 }
@@ -34,15 +34,16 @@ void ensureSizedFiniteVector(std::vector<double>& values,
                              const char* name,
                              const rclcpp::Logger& logger) {
     if (values.size() < expected_size) {
-        RCLCPP_WARN(logger, "%s size %zu < %zu, fallback to defaults", name, values.size(), expected_size);
+        RCLCPP_WARN(logger, "参数 %s 数量不足: 当前 %zu < 需要 %zu，使用默认值", name, values.size(), expected_size);
         values = fallback;
     } else if (values.size() > expected_size) {
-        RCLCPP_WARN(logger, "%s size %zu > %zu, extra entries will be ignored", name, values.size(), expected_size);
+        RCLCPP_WARN(logger, "参数 %s 数量过多: 当前 %zu > 需要 %zu，多余项会被忽略", name, values.size(),
+                    expected_size);
     }
     values.resize(expected_size);
 
     if (!hasFiniteEntries(values, expected_size)) {
-        RCLCPP_WARN(logger, "%s contains non-finite entries, fallback to defaults", name);
+        RCLCPP_WARN(logger, "参数 %s 含有非有限数值，使用默认值", name);
         values = fallback;
         values.resize(expected_size);
     }
@@ -58,18 +59,18 @@ std::string bodyFilterRangeError(bool enabled,
     const double values[] = {x_min, x_max, y_min, y_max, z_min, z_max};
     for (const double value : values) {
         if (!std::isfinite(value)) {
-            return "body ROI bounds must be finite";
+            return "车身 ROI 边界必须是有限数值";
         }
     }
 
     if (x_min > x_max) {
-        return "body_x_min must be <= body_x_max";
+        return "body_x_min 必须小于或等于 body_x_max";
     }
     if (y_min > y_max) {
-        return "body_y_min must be <= body_y_max";
+        return "body_y_min 必须小于或等于 body_y_max";
     }
     if (z_min > z_max) {
-        return "body_z_min must be <= body_z_max";
+        return "body_z_min 必须小于或等于 body_z_max";
     }
 
     (void)enabled;
@@ -81,9 +82,8 @@ void validateBodyFilterParametersOrThrow(const rclcpp::Logger& logger) {
         bodyFilterRangeError(filter_car_body, body_x_min, body_x_max, body_y_min, body_y_max, body_z_min, body_z_max);
     if (!error.empty()) {
         std::ostringstream message;
-        message << "Invalid body ROI filter parameters: " << error << " (x=[" << body_x_min << ", " << body_x_max
-                << "], y=[" << body_y_min << ", " << body_y_max << "], z=[" << body_z_min << ", " << body_z_max
-                << "])";
+        message << "车身 ROI 裁剪参数无效: " << error << " (x=[" << body_x_min << ", " << body_x_max << "], y=["
+                << body_y_min << ", " << body_y_max << "], z=[" << body_z_min << ", " << body_z_max << "])";
         RCLCPP_FATAL(logger, "%s", message.str().c_str());
         throw std::runtime_error(message.str());
     }
@@ -291,9 +291,9 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
         nh->declare_parameter<int>("ivox_nearby_type", 18);
         nh->get_parameter("ivox_nearby_type", ivox_nearby_type);
     } catch (const rclcpp::ParameterTypeException& e) {
-        RCLCPP_ERROR(nh->get_logger(), "Parameter type exception: %s", e.what());
+        RCLCPP_ERROR(nh->get_logger(), "参数类型错误: %s", e.what());
     } catch (const std::exception& e) {
-        RCLCPP_ERROR(nh->get_logger(), "Exception: %s", e.what());
+        RCLCPP_ERROR(nh->get_logger(), "读取参数时发生异常: %s", e.what());
     }
 
     nh->declare_parameter<bool>("filter_car_body", true);
@@ -321,27 +321,27 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
     applyBodyFilterConfigToPreprocess();
 
     if (full_map_topic.empty()) {
-        RCLCPP_WARN(nh->get_logger(), "publish.full_map_topic is empty, fallback to point_lio/map_cloud");
+        RCLCPP_WARN(nh->get_logger(), "publish.full_map_topic 为空，改用默认话题 point_lio/map_cloud");
         full_map_topic = "point_lio/map_cloud";
     }
     if (!std::isfinite(full_map_interval_sec) || full_map_interval_sec <= 0.0) {
-        RCLCPP_WARN(nh->get_logger(), "publish.full_map_interval_sec=%.3f is invalid, fallback to 2.0",
+        RCLCPP_WARN(nh->get_logger(), "publish.full_map_interval_sec=%.3f 无效，改用 2.0 秒",
                     full_map_interval_sec);
         full_map_interval_sec = 2.0;
     }
     if (!std::isfinite(full_map_voxel_size) || full_map_voxel_size <= 0.0) {
-        RCLCPP_WARN(nh->get_logger(), "publish.full_map_voxel_size=%.3f is invalid, fallback to 0.1",
+        RCLCPP_WARN(nh->get_logger(), "publish.full_map_voxel_size=%.3f 无效，改用 0.1 米",
                     full_map_voxel_size);
         full_map_voxel_size = 0.1;
     }
     if (full_map_max_points < 10000) {
-        RCLCPP_WARN(nh->get_logger(), "publish.full_map_max_points=%d is too small, fallback to 1500000",
+        RCLCPP_WARN(nh->get_logger(), "publish.full_map_max_points=%d 太小，改用 1500000",
                     full_map_max_points);
         full_map_max_points = 1500000;
     }
 
     if (point_filter_num < 1) {
-        RCLCPP_WARN(nh->get_logger(), "point_filter_num=%d < 1, clamp to 1", point_filter_num);
+        RCLCPP_WARN(nh->get_logger(), "point_filter_num=%d < 1，已限制为 1", point_filter_num);
         point_filter_num = 1;
     }
     p_pre->point_filter_num = point_filter_num;
@@ -367,7 +367,7 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
     ensureSizedFiniteVector(gravity, 3, default_gravity, "mapping.gravity", nh->get_logger());
     const double gravity_norm = std::sqrt(gravity[0] * gravity[0] + gravity[1] * gravity[1] + gravity[2] * gravity[2]);
     if (!std::isfinite(gravity_norm) || gravity_norm < 1e-3) {
-        RCLCPP_WARN(nh->get_logger(), "mapping.gravity norm invalid (%.6f), fallback to [0,0,-9.81]", gravity_norm);
+        RCLCPP_WARN(nh->get_logger(), "mapping.gravity 模长无效 (%.6f)，改用 [0,0,-9.81]", gravity_norm);
         gravity = default_gravity;
     }
     ensureSizedFiniteVector(gravity_init, 3, gravity, "mapping.gravity_init", nh->get_logger());
@@ -375,13 +375,13 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
     ensureSizedFiniteVector(extrinR, 9, default_extrin_r, "mapping.extrinsic_R", nh->get_logger());
 
     if (!std::isfinite(acc_norm) || std::abs(acc_norm) < 1e-6) {
-        RCLCPP_WARN(nh->get_logger(), "mapping.acc_norm=%.6f invalid, fallback to 1.0", acc_norm);
+        RCLCPP_WARN(nh->get_logger(), "mapping.acc_norm=%.6f 无效，改用 1.0", acc_norm);
         acc_norm = 1.0;
     }
 
     p_imu->gravity_ << VEC_FROM_ARRAY(gravity);
 
-    RCLCPP_INFO(nh->get_logger(), "IMU config: topic=%s, acc_norm=%.2f", imu_topic.c_str(), acc_norm);
+    RCLCPP_INFO(nh->get_logger(), "IMU 配置已加载: topic=%s, acc_norm=%.2f", imu_topic.c_str(), acc_norm);
 }
 
 Eigen::Matrix<double, 3, 1> SO3ToEuler(const SO3& rot) {
@@ -406,9 +406,9 @@ void open_file() {
     fout_out.open(DEBUG_FILE_DIR("mat_out.txt"), ios::out);
     fout_imu_pbp.open(DEBUG_FILE_DIR("imu_pbp.txt"), ios::out);
     if (fout_out && fout_imu_pbp)
-        std::cout << "~~~~" << log_dir << " file opened" << '\n';
+        std::cout << "运行日志文件已打开: " << log_dir << '\n';
     else
-        std::cout << "~~~~failed to open log files under " << log_dir << '\n';
+        std::cout << "无法打开运行日志文件，目录: " << log_dir << '\n';
 }
 
 void reset_cov(Eigen::Matrix<double, 24, 24>& P_init) {

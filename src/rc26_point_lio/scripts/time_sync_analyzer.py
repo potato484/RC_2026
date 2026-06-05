@@ -133,7 +133,7 @@ class TimeSyncAnalyzer(Node):
         self.get_logger().info(f'同步质量: {quality}')
         self.get_logger().info('-' * 60)
         self.get_logger().info('推荐外部时间偏移:')
-        self.get_logger().info(f'  LiDAR/IMU offset (IMU - LiDAR): {recommended:.6f} s')
+        self.get_logger().info(f'  LiDAR/IMU 时间偏移（IMU - LiDAR）: {recommended:.6f} s')
         self.get_logger().info('')
         self.get_logger().info('Point-LIO 当前不消费该脚本输出；如需补偿时间偏移，请在驱动或独立同步链路中处理。')
         self.get_logger().info('=' * 60)

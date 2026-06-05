@@ -45,6 +45,70 @@ Eigen::Isometry3d toIsometry3d(const Eigen::Matrix4f& matrix) {
     transform.matrix() = matrix.cast<double>();
     return transform;
 }
+
+std::string diagnosticHumanMessage(const std::string& reason, const std::string& startup_state) {
+    if (reason == "map_path_empty") {
+        return "没有配置 prior_pcd_file，定位无法加载先验地图。";
+    }
+    if (reason == "map_load_failed") {
+        return "先验 PCD 读取失败，请检查 prior_pcd_file 路径和文件内容。";
+    }
+    if (reason == "map_not_ready") {
+        return "先验地图还没准备好，定位暂时不能配准。";
+    }
+    if (reason == "startup_relocalizing") {
+        return "开局重定位正在收集 registered_scan 点云。";
+    }
+    if (reason == "startup_relocalization_ok") {
+        return "开局重定位成功，map->odom 已接管。";
+    }
+    if (reason == "startup_relocalization_failed") {
+        if (startup_state == "failed_empty_source") {
+            return "开局重定位失败：没有可用实时点云。";
+        }
+        if (startup_state == "failed_target_not_ready") {
+            return "开局重定位失败：先验地图目标还没准备好。";
+        }
+        if (startup_state == "failed_insufficient_source") {
+            return "开局重定位失败：实时点云点数太少。";
+        }
+        if (startup_state == "failed_source_fpfh") {
+            return "开局重定位失败：实时点云特征计算失败。";
+        }
+        if (startup_state == "failed_sac_ia") {
+            return "开局重定位失败：SAC-IA 粗配准没有收敛。";
+        }
+        if (startup_state == "failed_insufficient_gicp_source") {
+            return "开局重定位失败：GICP 输入点数太少。";
+        }
+        if (startup_state == "failed_gicp_quality") {
+            return "开局重定位失败：GICP 质量门控未通过。";
+        }
+        return "开局重定位失败，请结合 inliers 和 normalized_error 查看原因。";
+    }
+    if (reason == "no_accumulated_cloud") {
+        return "暂时没有收到 registered_scan，map->odom 保持上一次结果。";
+    }
+    if (reason == "insufficient_source_points") {
+        return "实时点云下采样后点数太少，本次定位不更新。";
+    }
+    if (reason == "local_registration_ok") {
+        return "局部配准通过，map->odom 已更新。";
+    }
+    if (reason == "local_registration_frozen") {
+        return "局部配准质量不够，map->odom 暂时冻结在上一次结果。";
+    }
+    if (reason == "initialpose_invalid_quaternion") {
+        return "initialpose 姿态四元数无效，定位未接管。";
+    }
+    if (reason == "initialpose_accepted") {
+        return "initialpose 已接受，map->odom 已重置。";
+    }
+    if (reason == "initialpose_tf_lookup_failed") {
+        return "initialpose 无法查询 odom->base_link，定位未接管。";
+    }
+    return "定位状态已更新，请查看 reason、accepted、inliers 和 normalized_error。";
+}
 }  // namespace
 
 LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
@@ -141,9 +205,9 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
         std::chrono::milliseconds(kTransformPeriodMs), std::bind(&LocalizationNode::publishTransform, this));
 
     RCLCPP_INFO(this->get_logger(),
-                "rc26_localization minimal chain started: input=%s, map_frame=%s, odom_frame=%s, base=%s, startup_relocalization=%s",
+                "定位链路已启动: 输入点云=%s, map_frame=%s, odom_frame=%s, base=%s, 开局重定位=%s",
                 input_cloud_topic_.c_str(), map_frame_.c_str(), odom_frame_.c_str(), robot_base_frame_.c_str(),
-                boolText(startup_relocalization_enable_).c_str());
+                startup_relocalization_enable_ ? "开启" : "关闭");
 }
 
 void LocalizationNode::loadGlobalMap(const std::string& file_name) {
@@ -158,14 +222,14 @@ void LocalizationNode::loadGlobalMap(const std::string& file_name) {
     global_map_->clear();
 
     if (file_name.empty()) {
-        RCLCPP_ERROR(this->get_logger(), "prior_pcd_file is empty; localization is unavailable");
+        RCLCPP_ERROR(this->get_logger(), "prior_pcd_file 为空，定位无法加载先验地图");
         publishDiagnostics("map_path_empty", diagnostic_msgs::msg::DiagnosticStatus::ERROR, false, false, 0,
                            std::numeric_limits<double>::infinity(), 0);
         return;
     }
 
     if (pcl::io::loadPCDFile<pcl::PointXYZ>(file_name, *global_map_) == -1) {
-        RCLCPP_ERROR(this->get_logger(), "failed to read prior PCD: %s", file_name.c_str());
+        RCLCPP_ERROR(this->get_logger(), "先验 PCD 读取失败: %s", file_name.c_str());
         publishDiagnostics("map_load_failed", diagnostic_msgs::msg::DiagnosticStatus::ERROR, false, false, 0,
                            std::numeric_limits<double>::infinity(), 0);
         return;
@@ -174,7 +238,7 @@ void LocalizationNode::loadGlobalMap(const std::string& file_name) {
     pcl::Indices indices;
     pcl::removeNaNFromPointCloud(*global_map_, *global_map_, indices);
     map_loaded_ = !global_map_->empty();
-    RCLCPP_INFO(this->get_logger(), "loaded prior map: %zu points from %s", global_map_->size(), file_name.c_str());
+    RCLCPP_INFO(this->get_logger(), "先验地图已加载: 点数=%zu, 文件=%s", global_map_->size(), file_name.c_str());
     (void)prepareTargetMap();
     if (startup_relocalization_enable_) {
         (void)prepareStartupTarget();
@@ -193,7 +257,7 @@ bool LocalizationNode::prepareTargetMap() {
                                                  pcl::PointCloud<pcl::PointCovariance>>(*global_map_,
                                                                                         global_leaf_size_);
     if (!target_ || target_->size() < static_cast<size_t>(kMinPointsForRegistration)) {
-        RCLCPP_ERROR(this->get_logger(), "prior map has too few target points after downsampling: %zu < %d",
+        RCLCPP_ERROR(this->get_logger(), "先验地图下采样后点数太少: %zu < %d",
                      target_ ? target_->size() : 0U, kMinPointsForRegistration);
         target_ready_ = false;
         target_tree_.reset();
@@ -204,7 +268,7 @@ bool LocalizationNode::prepareTargetMap() {
     target_tree_ = std::make_shared<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>>(
         target_, small_gicp::KdTreeBuilderOMP(num_threads_));
     target_ready_ = true;
-    RCLCPP_INFO(this->get_logger(), "prepared prior map target: %zu points", target_->size());
+    RCLCPP_INFO(this->get_logger(), "先验地图配准目标已准备好: 点数=%zu", target_->size());
     return true;
 }
 
@@ -225,7 +289,7 @@ bool LocalizationNode::prepareStartupTarget() {
     voxel.filter(*startup_target_);
 
     if (startup_target_->size() < static_cast<size_t>(kMinPointsForRegistration)) {
-        RCLCPP_WARN(this->get_logger(), "startup target has too few points after downsampling: %zu < %d",
+        RCLCPP_WARN(this->get_logger(), "开局重定位地图目标点数太少: %zu < %d",
                     startup_target_->size(), kMinPointsForRegistration);
         startup_target_ready_ = false;
         startup_target_fpfh_->clear();
@@ -235,11 +299,11 @@ bool LocalizationNode::prepareStartupTarget() {
     startup_target_fpfh_ = computeFpfh(startup_target_);
     startup_target_ready_ = startup_target_fpfh_ && !startup_target_fpfh_->empty();
     if (!startup_target_ready_) {
-        RCLCPP_WARN(this->get_logger(), "failed to compute startup target FPFH");
+        RCLCPP_WARN(this->get_logger(), "开局重定位地图目标 FPFH 特征计算失败");
         return false;
     }
 
-    RCLCPP_INFO(this->get_logger(), "prepared startup relocalization target: %zu points",
+    RCLCPP_INFO(this->get_logger(), "开局重定位地图目标已准备好: 点数=%zu",
                 startup_target_->size());
     return true;
 }
@@ -259,7 +323,7 @@ void LocalizationNode::registeredPcdCallback(const sensor_msgs::msg::PointCloud2
     const size_t current_size = accumulated_cloud_->size();
     if (current_size >= kMaxAccumulatedPoints) {
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                             "accumulated localization cloud reached cap: %zu", kMaxAccumulatedPoints);
+                             "定位累计点云达到上限: %zu，暂时丢弃新点", kMaxAccumulatedPoints);
         return;
     }
 
@@ -282,7 +346,7 @@ void LocalizationNode::initialPoseCallback(const geometry_msgs::msg::PoseWithCov
     const Eigen::Quaterniond q_raw(msg->pose.pose.orientation.w, msg->pose.pose.orientation.x,
                                    msg->pose.pose.orientation.y, msg->pose.pose.orientation.z);
     if (!q_raw.coeffs().allFinite() || q_raw.norm() < kNearZero) {
-        RCLCPP_WARN(this->get_logger(), "initialpose rejected: invalid quaternion");
+        RCLCPP_WARN(this->get_logger(), "initialpose 被拒绝: 姿态四元数无效");
         publishDiagnostics("initialpose_invalid_quaternion", diagnostic_msgs::msg::DiagnosticStatus::WARN, false,
                            false, 0, std::numeric_limits<double>::infinity(), 0);
         return;
@@ -310,10 +374,10 @@ void LocalizationNode::initialPoseCallback(const geometry_msgs::msg::PoseWithCov
             startup_relocalization_state_ = "initialpose_override";
         }
 
-        RCLCPP_INFO(this->get_logger(), "initialpose accepted: map->odom reset");
+        RCLCPP_INFO(this->get_logger(), "initialpose 已接受，map->odom 已重置");
         publishDiagnostics("initialpose_accepted", diagnostic_msgs::msg::DiagnosticStatus::OK, true, true, 0, 0.0, 0);
     } catch (const tf2::TransformException& ex) {
-        RCLCPP_WARN(this->get_logger(), "initialpose rejected: cannot lookup %s -> %s: %s", odom_frame_.c_str(),
+        RCLCPP_WARN(this->get_logger(), "initialpose 被拒绝: 无法查询 TF %s -> %s: %s", odom_frame_.c_str(),
                     robot_base_frame_.c_str(), ex.what());
         publishDiagnostics("initialpose_tf_lookup_failed", diagnostic_msgs::msg::DiagnosticStatus::WARN, false, false,
                            0, std::numeric_limits<double>::infinity(), 0);
@@ -362,7 +426,7 @@ void LocalizationNode::performRegistration() {
         std::lock_guard<std::mutex> lock(cloud_mutex_);
         if (accumulated_cloud_->empty()) {
             RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
-                                 "no accumulated registered_scan points");
+                                 "暂时没有累计到 registered_scan 点云，定位本轮不更新");
             publishDiagnostics("no_accumulated_cloud", diagnostic_msgs::msg::DiagnosticStatus::WARN, false, false, 0,
                                std::numeric_limits<double>::infinity(), 0);
             return;
@@ -382,7 +446,7 @@ void LocalizationNode::performRegistration() {
             last_pose_cov_diag_ = scaledCovariance(kBadCovScale);
         }
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                             "too few source points after downsampling: %zu < %d", source_points,
+                             "实时点云下采样后点数太少: %zu < %d", source_points,
                              kMinPointsForRegistration);
         publishDiagnostics("insufficient_source_points", diagnostic_msgs::msg::DiagnosticStatus::WARN, false, false,
                            0, std::numeric_limits<double>::infinity(), source_points);
@@ -416,8 +480,7 @@ void LocalizationNode::performRegistration() {
             last_pose_cov_diag_ = kPoseCovDiag;
         }
         RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                             "local registration accepted: inliers=%zu, normalized_error=%.4f", result.num_inliers,
-                             normalized_error);
+                             "局部配准通过: 内点=%zu, 归一化误差=%.4f", result.num_inliers, normalized_error);
         publishDiagnostics("local_registration_ok", diagnostic_msgs::msg::DiagnosticStatus::OK, result.converged,
                            true, result.num_inliers, normalized_error, source_points);
     } else {
@@ -426,8 +489,8 @@ void LocalizationNode::performRegistration() {
             last_pose_cov_diag_ = scaledCovariance(kBadCovScale);
         }
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                             "local registration frozen: converged=%s, inliers=%zu/%d, normalized_error=%.4f/%.4f",
-                             boolText(result.converged).c_str(), result.num_inliers, min_inliers_, normalized_error,
+                             "局部配准未通过，map->odom 暂不更新: 收敛=%s, 内点=%zu/%d, 归一化误差=%.4f/%.4f",
+                             result.converged ? "是" : "否", result.num_inliers, min_inliers_, normalized_error,
                              max_normalized_error_);
         publishDiagnostics("local_registration_frozen", diagnostic_msgs::msg::DiagnosticStatus::WARN,
                            result.converged, false, result.num_inliers, normalized_error, source_points);
@@ -550,8 +613,8 @@ bool LocalizationNode::performStartupRelocalization(const pcl::PointCloud<pcl::P
             last_pose_cov_diag_ = scaledCovariance(kBadCovScale);
         }
         RCLCPP_WARN(this->get_logger(),
-                    "startup relocalization rejected: sac_score=%.4f, converged=%s, inliers=%zu/%d, normalized_error=%.4f/%.4f",
-                    sac_ia.getFitnessScore(), boolText(result.converged).c_str(), result.num_inliers, min_inliers_,
+                    "开局重定位未通过: SAC-IA 分数=%.4f, 收敛=%s, 内点=%zu/%d, 归一化误差=%.4f/%.4f",
+                    sac_ia.getFitnessScore(), result.converged ? "是" : "否", result.num_inliers, min_inliers_,
                     normalized_error, max_normalized_error_);
         publishDiagnostics("startup_relocalization_failed", diagnostic_msgs::msg::DiagnosticStatus::WARN,
                            result.converged, false, result.num_inliers, normalized_error, source_points);
@@ -567,7 +630,7 @@ bool LocalizationNode::performStartupRelocalization(const pcl::PointCloud<pcl::P
     }
 
     RCLCPP_INFO(this->get_logger(),
-                "startup relocalization accepted: sac_score=%.4f, inliers=%zu, normalized_error=%.4f",
+                "开局重定位成功: SAC-IA 分数=%.4f, 内点=%zu, 归一化误差=%.4f",
                 sac_ia.getFitnessScore(), result.num_inliers, normalized_error);
     publishDiagnostics("startup_relocalization_ok", diagnostic_msgs::msg::DiagnosticStatus::OK, result.converged,
                        true, result.num_inliers, normalized_error, source_points);
@@ -655,6 +718,7 @@ void LocalizationNode::publishDiagnostics(const std::string& reason, uint8_t lev
 
     add("accepted", boolText(accepted));
     add("converged", boolText(converged));
+    add("human_message", diagnosticHumanMessage(reason, startup_relocalization_state_));
     add("inliers", std::to_string(inliers));
     add("min_inliers", std::to_string(min_inliers_));
     add("source_points", std::to_string(source_points));

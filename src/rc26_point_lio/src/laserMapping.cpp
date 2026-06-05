@@ -73,20 +73,34 @@ std::string validateBodyFilterConfig(const Preprocess::BodyFilterConfig& config)
     const double values[] = {config.x_min, config.x_max, config.y_min, config.y_max, config.z_min, config.z_max};
     for (const double value : values) {
         if (!std::isfinite(value)) {
-            return "body ROI bounds must be finite";
+            return "车身 ROI 边界必须是有限数值";
         }
     }
 
     if (config.x_min > config.x_max) {
-        return "body_x_min must be <= body_x_max";
+        return "body_x_min 必须小于或等于 body_x_max";
     }
     if (config.y_min > config.y_max) {
-        return "body_y_min must be <= body_y_max";
+        return "body_y_min 必须小于或等于 body_y_max";
     }
     if (config.z_min > config.z_max) {
-        return "body_z_min must be <= body_z_max";
+        return "body_z_min 必须小于或等于 body_z_max";
     }
     return {};
+}
+
+std::string pcdFlushReasonText(const char* reason) {
+    if (reason == nullptr) {
+        return "未说明原因";
+    }
+    const std::string reason_text(reason);
+    if (reason_text == "interval flush") {
+        return "达到 pcd_save.interval 分段保存条件";
+    }
+    if (reason_text == "shutdown") {
+        return "节点正常退出";
+    }
+    return reason_text;
 }
 
 Eigen::Isometry3d transformStampedToIsometry(const geometry_msgs::msg::TransformStamped& transform) {
@@ -216,7 +230,7 @@ PointCloudXYZI::Ptr buildFullMapCloudForPublish(const std::shared_ptr<rclcpp::No
     finalizeCloudMetadata(*capped_cloud);
 
     RCLCPP_WARN_THROTTLE(LOGGER, *nh->get_clock(), 5000,
-                         "Full map visualization cloud capped from %zu to %zu points with stride %zu",
+                         "完整累计地图可视化点数过多，已从 %zu 点抽稀到 %zu 点，抽样步长=%zu",
                          filtered_cloud->points.size(), capped_cloud->points.size(), stride);
     return capped_cloud;
 }
@@ -358,12 +372,12 @@ std::filesystem::path ensurePcdDirectory() {
 
     const bool exists = std::filesystem::exists(pcd_dir, ec);
     if (ec) {
-        RCLCPP_ERROR(LOGGER, "Failed to stat PCD directory %s: %s", pcd_dir.string().c_str(), ec.message().c_str());
+        RCLCPP_ERROR(LOGGER, "无法检查 PCD 目录 %s: %s", pcd_dir.string().c_str(), ec.message().c_str());
         return {};
     }
 
     if (!exists && !std::filesystem::create_directories(pcd_dir, ec) && ec) {
-        RCLCPP_ERROR(LOGGER, "Failed to create PCD directory %s: %s", pcd_dir.string().c_str(), ec.message().c_str());
+        RCLCPP_ERROR(LOGGER, "无法创建 PCD 目录 %s: %s", pcd_dir.string().c_str(), ec.message().c_str());
         return {};
     }
 
@@ -396,13 +410,14 @@ bool flushPendingPcd(const char* reason) {
 
     pcl::PCDWriter pcd_writer;
     const int rc = pcd_writer.writeBinary(output_path, *pcl_wait_save);
+    const std::string reason_text = pcdFlushReasonText(reason);
     if (rc != 0) {
-        RCLCPP_ERROR(LOGGER, "Failed to save accumulated cloud to %s on %s (points=%zu, rc=%d)",
-                     output_path.c_str(), reason, pcl_wait_save->size(), rc);
+        RCLCPP_ERROR(LOGGER, "累计点云保存失败: path=%s, 原因=%s, 点数=%zu, 返回码=%d",
+                     output_path.c_str(), reason_text.c_str(), pcl_wait_save->size(), rc);
         return false;
     }
 
-    RCLCPP_INFO(LOGGER, "Saved accumulated cloud to %s on %s (points=%zu)", output_path.c_str(), reason,
+    RCLCPP_INFO(LOGGER, "累计点云已保存: path=%s, 原因=%s, 点数=%zu", output_path.c_str(), reason_text.c_str(),
                 pcl_wait_save->size());
     pcl_wait_save->clear();
     pending_pcd_scan_count = 0;
@@ -570,11 +585,11 @@ int main(int argc, char** argv) {
     try {
         readParameters(nh);
     } catch (const std::exception& ex) {
-        RCLCPP_FATAL(LOGGER, "Failed to load Point-LIO parameters: %s", ex.what());
+        RCLCPP_FATAL(LOGGER, "Point-LIO 参数加载失败: %s", ex.what());
         rclcpp::shutdown();
         return 1;
     }
-    std::cout << "lidar_type: " << lidar_type << '\n';
+    RCLCPP_INFO(LOGGER, "LiDAR 类型配置已加载: lidar_type=%d", lidar_type);
     ivox_ = std::make_shared<IVoxType>(ivox_options_);
 
     auto tf_buffer = std::make_shared<tf2_ros::Buffer>(nh->get_clock());
@@ -586,18 +601,18 @@ int main(int argc, char** argv) {
         std::string tf_error;
         if (!waitForBodyFilterTransform(tf_buffer, executor, lidar_to_base, tf_error)) {
             RCLCPP_FATAL(LOGGER,
-                         "filter_car_body is enabled but TF %s <- %s is unavailable within 5 seconds: %s",
+                         "filter_car_body 已开启，但 5 秒内没有等到 TF %s <- %s: %s",
                          kBodyFilterBaseFrame, kBodyFilterLidarFrame, tf_error.c_str());
             rclcpp::shutdown();
             return 1;
         }
         p_pre->setBodyFilterTransform(lidar_to_base);
         RCLCPP_INFO(LOGGER,
-                    "Body ROI filter enabled using TF %s <- %s, x=[%.3f, %.3f], y=[%.3f, %.3f], z=[%.3f, %.3f]",
+                    "车身 ROI 裁剪已开启，使用 TF %s <- %s，范围 x=[%.3f, %.3f], y=[%.3f, %.3f], z=[%.3f, %.3f]",
                     kBodyFilterBaseFrame, kBodyFilterLidarFrame, body_x_min, body_x_max, body_y_min, body_y_max,
                     body_z_min, body_z_max);
     } else {
-        RCLCPP_INFO(LOGGER, "Body ROI filter disabled by initial parameter filter_car_body=false");
+        RCLCPP_INFO(LOGGER, "车身 ROI 裁剪未开启: filter_car_body=false");
     }
 
     path.header.stamp = get_ros_time(lidar_end_time);
@@ -615,7 +630,7 @@ int main(int argc, char** argv) {
         [tf_buffer](const std::vector<rclcpp::Parameter>& params) {
             rcl_interfaces::msg::SetParametersResult result;
             result.successful = true;
-            result.reason = "ok";
+            result.reason = "参数已接受";
 
             auto reject = [&](const std::string& reason) {
                 result.successful = false;
@@ -635,7 +650,7 @@ int main(int argc, char** argv) {
                 body_filter_touched = true;
                 if (name == "filter_car_body") {
                     if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
-                        reject("filter_car_body expects bool");
+                        reject("filter_car_body 需要 bool 类型");
                         return result;
                     }
                     body_candidate.enabled = p.as_bool();
@@ -643,12 +658,12 @@ int main(int argc, char** argv) {
                 }
 
                 if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
-                    reject(name + " expects double");
+                    reject(name + " 需要 double 类型");
                     return result;
                 }
                 const double value = p.as_double();
                 if (!std::isfinite(value)) {
-                    reject(name + " must be finite");
+                    reject(name + " 必须是有限数值");
                     return result;
                 }
 
@@ -678,7 +693,7 @@ int main(int argc, char** argv) {
                     Eigen::Isometry3d lidar_to_base = Eigen::Isometry3d::Identity();
                     std::string tf_error;
                     if (!lookupBodyFilterTransform(*tf_buffer, lidar_to_base, tf_error)) {
-                        reject(std::string("filter_car_body requires TF ") + kBodyFilterBaseFrame + " <- " +
+                        reject(std::string("filter_car_body 需要先拿到 TF ") + kBodyFilterBaseFrame + " <- " +
                                kBodyFilterLidarFrame + ": " + tf_error);
                         return result;
                     }
@@ -698,7 +713,7 @@ int main(int argc, char** argv) {
                     continue;
                 }
 
-                reject("parameter not in hot-update whitelist: " + name);
+                reject("参数不支持运行时热更新: " + name);
                 return result;
             }
 
@@ -709,13 +724,13 @@ int main(int argc, char** argv) {
                     applyBodyFilterRuntimeConfig(body_candidate);
                 }
                 RCLCPP_INFO(LOGGER,
-                            "PARAM_UPDATE,node=laserMapping,param=body_roi,enabled=%s->%s,x=[%.6f,%.6f]->[%.6f,%.6f],y=[%.6f,%.6f]->[%.6f,%.6f],z=[%.6f,%.6f]->[%.6f,%.6f]",
+                            "车身 ROI 参数已更新: node=laserMapping,param=body_roi,enabled=%s->%s,x=[%.6f,%.6f]->[%.6f,%.6f],y=[%.6f,%.6f]->[%.6f,%.6f],z=[%.6f,%.6f]->[%.6f,%.6f]",
                             old_body_config.enabled ? "true" : "false", body_candidate.enabled ? "true" : "false",
                             old_body_config.x_min, old_body_config.x_max, body_candidate.x_min, body_candidate.x_max,
                             old_body_config.y_min, old_body_config.y_max, body_candidate.y_min, body_candidate.y_max,
                             old_body_config.z_min, old_body_config.z_max, body_candidate.z_min, body_candidate.z_max);
                 if (looked_up_body_transform) {
-                    RCLCPP_INFO(LOGGER, "PARAM_EFFECT,node=laserMapping,param=filter_car_body,tf=%s<-%s cached",
+                    RCLCPP_INFO(LOGGER, "车身 ROI 裁剪所需 TF 已缓存: node=laserMapping,param=filter_car_body,tf=%s<-%s",
                                 kBodyFilterBaseFrame, kBodyFilterLidarFrame);
                 }
             }
@@ -757,7 +772,7 @@ int main(int argc, char** argv) {
     string pos_log_dir = root_dir + "/Log/pos_log.txt";
     fp.reset(fopen(pos_log_dir.c_str(), "w"));
     if (!fp) {
-        RCLCPP_WARN(LOGGER, "Failed to open log file: %s", pos_log_dir.c_str());
+        RCLCPP_WARN(LOGGER, "无法打开位姿日志文件: %s", pos_log_dir.c_str());
     }
 
     /*** ROS subscribe initialization ***/
@@ -773,7 +788,7 @@ int main(int argc, char** argv) {
     if (full_map_publish_en) {
         pub_full_map_cloud = nh->create_publisher<sensor_msgs::msg::PointCloud2>(full_map_topic, 1);
         RCLCPP_INFO(LOGGER,
-                    "Full map visualization enabled: topic=%s interval=%.3fs voxel=%.3fm max_points=%d",
+                    "完整累计地图可视化已开启: topic=%s, 发布间隔=%.3fs, 体素=%.3fm, 最大点数=%d",
                     full_map_topic.c_str(), full_map_interval_sec, full_map_voxel_size, full_map_max_points);
     }
     auto pub_odom_aft_mapped = nh->create_publisher<nav_msgs::msg::Odometry>("state_estimation", 20);
@@ -787,7 +802,7 @@ int main(int argc, char** argv) {
         executor.spin_some();
         if (sync_packages(Measures)) {
             if (flg_reset) {
-                RCLCPP_WARN(LOGGER, "reset when rosbag play back");
+                RCLCPP_WARN(LOGGER, "检测到 rosbag 时间回退，重置 Point-LIO 状态");
                 p_imu->Reset();
                 feats_undistort.reset(new PointCloudXYZI());
                 if (use_imu_as_input) {
@@ -813,7 +828,7 @@ int main(int argc, char** argv) {
                 flg_first_scan = false;
                 if (first_imu_time < 1) {
                     first_imu_time = get_time_sec(imu_next.header.stamp);
-                    printf("first imu time: %f\n", first_imu_time);
+                    RCLCPP_INFO(LOGGER, "收到首帧 IMU 时间戳: %.6f", first_imu_time);
                 }
                 time_current = 0.0;
                 if (imu_en) {
@@ -1054,7 +1069,7 @@ int main(int argc, char** argv) {
                         double t_update_start = omp_get_wtime();
 
                         if (feats_down_size < 1) {
-                            RCLCPP_WARN(LOGGER, "No point, skip this scan!\n");
+                            RCLCPP_WARN(LOGGER, "当前帧没有可用点云，本帧跳过");
                             idx += time_seq[k];
                             continue;
                         }
@@ -1240,7 +1255,7 @@ int main(int argc, char** argv) {
                         double t_update_start = omp_get_wtime();
 
                         if (feats_down_size < 1) {
-                            RCLCPP_WARN(LOGGER, "No point, skip this scan!\n");
+                            RCLCPP_WARN(LOGGER, "当前帧没有可用点云，本帧跳过");
 
                             idx += time_seq[k];
                             continue;
@@ -1356,7 +1371,7 @@ int main(int argc, char** argv) {
                 const auto& T = use_imu_as_input ? kf_input.x_.offset_T_L_I : kf_output.x_.offset_T_L_I;
                 RCLCPP_INFO_THROTTLE(
                     LOGGER, *nh->get_clock(), 5000,
-                    "Extrinsic LiDAR->IMU: R=[%.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f] T=[%.6f %.6f %.6f]",
+                    "LiDAR->IMU 外参估计: R=[%.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f] T=[%.6f %.6f %.6f]",
                     R(0, 0), R(0, 1), R(0, 2), R(1, 0), R(1, 1), R(1, 2), R(2, 0), R(2, 1), R(2, 2), T(0), T(1),
                     T(2));
             }
@@ -1391,10 +1406,11 @@ int main(int argc, char** argv) {
                     s_plot3[time_log_counter] = aver_time_consu;
                     time_log_counter++;
                 }
-                printf("[ mapping ]: time: IMU + Map + Input Downsample: %0.6f ave match: %0.6f ave solve: "
-                       "%0.6f  ave ICP: %0.6f  map incre: %0.6f ave total: %0.6f icp: %0.6f propogate: %0.6f \n",
-                       t1 - t0, aver_time_match, aver_time_solve, t3 - t1, t5 - t3, aver_time_consu, aver_time_icp,
-                       aver_time_propag);
+                RCLCPP_INFO(LOGGER,
+                            "建图耗时统计: IMU+建图+输入降采样=%.6fs, 平均匹配=%.6fs, 平均求解=%.6fs, "
+                            "本帧 ICP=%.6fs, 地图增量=%.6fs, 平均总耗时=%.6fs, 平均 ICP=%.6fs, 平均传播=%.6fs",
+                            t1 - t0, aver_time_match, aver_time_solve, t3 - t1, t5 - t3, aver_time_consu,
+                            aver_time_icp, aver_time_propag);
                 if (!publish_odometry_without_downsample) {
                     if (!use_imu_as_input) {
                         euler_cur = SO3ToEuler(kf_output.x_.rot);
