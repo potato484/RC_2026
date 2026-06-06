@@ -119,12 +119,12 @@ def generate_launch_description():
 
     declare_pose_sender_feedback_serial_port = DeclareLaunchArgument(
         'pose_sender_feedback_serial_port',
-        default_value='/dev/ttyUSB0',
-        description='pose_sender_node 反馈串口；可传 __disabled__ 跳过反馈链路')
+        default_value='__disabled__',
+        description='pose_sender_node 反馈串口；当前默认停用反馈链路')
 
     declare_pose_sender_target_serial_port = DeclareLaunchArgument(
         'pose_sender_target_serial_port',
-        default_value='/dev/ttyUSB1',
+        default_value='/dev/ttyUSB0',
         description='pose_sender_node 目标串口；用于 POSE_TARGET 与 mechanism transport')
 
     declare_pose_sender_baudrate = DeclareLaunchArgument(

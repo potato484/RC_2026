@@ -57,7 +57,7 @@
 - 本轮自动导航链将 `base_footprint` 固定为地面投影 2D 基座，`base_link` 固定为底盘最下层刚性主板中心，二者高度差当前由 `config/odom_interface.yaml` 维护，当前为 `0.2m`
 - `rc26_sensor_scan` 不再把导航基座到雷达的关系当成静态缓存，而是按时间戳查询 `base_footprint -> livox_frame` 组合 TF，保证 `base_link` 保留 roll/pitch 时点云投影仍正确
 - 本轮只改自动导航链；`rc26_merge_odom`、遥控和 minimal-mcu 链路不跟随迁移
-- `bringup.launch.py` 与 `test_navigation.launch.py` 新增 `start_pose_sender`、`pose_sender_feedback_serial_port`、`pose_sender_target_serial_port` 与 `pose_sender_baudrate`，默认把 `/cmd_vel` 接到 `pose_sender_node`
+- `bringup.launch.py` 与 `test_navigation.launch.py` 新增 `start_pose_sender`、`pose_sender_feedback_serial_port`、`pose_sender_target_serial_port` 与 `pose_sender_baudrate`，当前默认把 `/cmd_vel` 接到 `pose_sender_node`，并按 `target=/dev/ttyUSB0`、`feedback=__disabled__` 启动单口 MCU 链
 - `test_navigation.launch.py` 的验收目标改为 `/navigate_to_pose`、`sensor_scan` 链路存在、Nav2 lifecycle nodes、costmap/plan topics、`/cmd_vel` 与 `pose_sender_node`；当前默认不再把 `sensor_scan` 作为 obstacle layer 成功条件
 - `config/nav2_params.yaml` 现已补齐主要字段的中文注释，现场调试应优先以该文件中的分区说明和速度/代价图参数注释为准
 - RViz 预设只观察 Nav2 plan、local/global costmap、TF、RobotModel 与点云/里程计主链，不再订阅 terrain 或 keepout 输出
@@ -66,5 +66,5 @@
 - 当前仓库的 `test_mapping.launch.py` / Point-LIO 建图链默认导出的是 PCD 点云，不会直接产出 Nav2 可消费的 2D occupancy map；如需真实规划地图，应先使用能发布 `/map` (`nav_msgs/OccupancyGrid`) 的建图链生成栅格，再用 `ros2 run nav2_map_server map_saver_cli -f <输出前缀>` 保存为 `pgm/png + yaml`，最后通过 `nav2_map_file` 传给导航入口
 - `odometry.launch.py` 新增 `start_point_lio`、`start_sensor_scan` 开关，供 `test_odom_interface.launch.py`、`odometry_mock.launch.py` 等入口复用同一套静态 TF / 内部外参装配
 - `odometry_mock.launch.py` 复用同一套 `odometry.launch.py` 装配；`mock_point_lio.py` 默认先输出一小段静止里程计，再进入运动阶段，以满足 `rc26_odom_interface` 现有的启动静止归零约束
-- 若现场只有目标 MCU 下发串口，应显式传 `pose_sender_feedback_serial_port:=__disabled__`，避免 bringup 因缺少反馈串口而报双串口初始化异常
+- 当前 bringup / test_navigation 已默认停用 `pose_sender_feedback_serial_port`；若后续要临时恢复旧反馈链，应显式传入真实反馈串口设备
 - 本轮归档 `rc26_terrain`、`rc26_base_ground` 与 `rc26_kfs_keepout`：主启动、建图调试、验收探针、RViz 预设和 `package.xml` 均不再接入这些包

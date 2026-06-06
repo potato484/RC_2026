@@ -51,14 +51,11 @@
 
 当前仓库的正式遥控入口是根目录 `start_r2_teleop.sh`：
 
-*   `--stack full`：启动 `merge_odom + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。这是当前默认口径，支持前/后推杆四按键联调，并复用 `/mechanism/send_command` 与 `/mechanism/command_feedback`。
-*   `--stack minimal-mcu`：启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。这个口径的最小可用前提是 `target_serial_port` 可用，并允许 `feedback_serial_port` 禁用；若反馈串口也存在，`PoseSender` 仍会按端口是否存在分别尝试打开。虽然不启动 `merge_odom_node`，但 `pose_sender_node` 现在也会继续挂出 `/mechanism/send_command` 与 `/mechanism/command_feedback`，因此前/后推杆 4 条 ACK 型机构指令仍可联调。
-*   `--pose-mode imu|no-imu|wheel-only` 只作用于 `--stack full`：
-    *   `imu`：EKF 融合 IMU
-    *   `no-imu`：EKF 不融合 IMU，但 `dm_imu_node` 和执行保护链仍保留 IMU
-    *   `wheel-only`：不启动也不读取 IMU
-*   统一脚本在 `full` 和 `minimal-mcu` 两个栈下，若默认 `/dev/ttyUSB1` 不存在但 `/dev/ttyUSB0` 存在，都会自动切换到单目标串口降级口径
-*   `start_r2_teleop.sh` 现在把帮助文本与脚本内说明注释统一成中文，参数名、默认值和启动命令保持不变。
+*   `--stack minimal-mcu`：启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。这是当前脚本默认口径，固定按 `target_serial_port=/dev/ttyUSB0`、`feedback_serial_port=__disabled__` 进入单口 MCU 链；`pose_sender_node` 会继续提供 `/mechanism/send_command` 与 `/mechanism/command_feedback`。
+*   `--stack full`：启动 `merge_odom + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。这个入口当前主要保留给本地 `merge_odom` / CAN 调试；机构共享 transport 与 `POSE_TARGET` 仍默认走 `ttyUSB0`。
+*   在当前单口默认口径下，`--pose-mode` 与 `--start-ekf` 都会被脚本直接拒绝，避免把已停用的 feedback / 融合速度链误当成默认路径。
+*   若后续确实要临时恢复旧反馈链，需要显式传入真实 `feedback_serial_port`；脚本不再自动改写 `target_serial_port`。
+*   `start_r2_teleop.sh` 的帮助文本、默认值和 README 现已统一到上述单口口径。
 
 ## 3. 参数配置体系
 

@@ -61,7 +61,7 @@
 ## 注意事项
 
 - 当前真实部署只支持 `hal_type:=shared_serial`；其它 `hal_type` 会在 `configure` 阶段直接失败。
-- `shared_serial` 复用的是 `rc26_merge_odom` 已打开的 `target_serial_port`；`feedback_serial_port` 不属于 mechanism 物理链路。
+- `shared_serial` 复用的是 `rc26_merge_odom` 已打开的 `target_serial_port`；当前默认主口是 `/dev/ttyUSB0`，`feedback_serial_port` 默认停用且不属于 mechanism 物理链路。
 - 前/后推杆 sidecar 命令不再属于 `rc26_mechanism` 的业务命令目录；遥控链当前直接调用 `/mechanism/send_command`。
 - 当前机构节点不再维护端头状态机，也不再通过 `/mechanism/status` 发布端头姿态、装配计数或通信健康统计。
 - 包目录已经物理清理掉历史残留空目录 `include/rc26_mechanism/hal/{fault,replay,sim}`、`src/hal/{fault,replay,sim}` 与 `launch/__pycache__`，当前源码树只保留最小真机链路对应的目录。

@@ -65,7 +65,7 @@
 
 ## 真实部署口径
 
-当前真实部署已经不是“`rc26_mechanism` 自己独占 `/dev/ttyUSB1`”，而是：
+当前真实部署已经不是“`rc26_mechanism` 自己独占默认目标口 `/dev/ttyUSB0`”，而是：
 
 - 真机上由 `rc26_merge_odom` 作为目标 MCU 串口的唯一 owner
 - `rc26_mechanism` 通过 `hal_type:=shared_serial` 复用这条链路
@@ -75,8 +75,8 @@
 
 串口职责速记：
 
-- `feedback_serial_port` 是底盘反馈链路，主要对应 `ODOM_DATA` 接收和 `POSE_FEEDBACK` 发送，`rc26_mechanism` 不直接使用它
-- `target_serial_port` 才是 mechanism 共享 transport 复用的真实物理链路，同时承载 `POSE_TARGET` 与机构/遥控 sidecar 命令
+- `feedback_serial_port` 是保留中的底盘反馈链入口，主要对应 `ODOM_DATA` 接收和 `POSE_FEEDBACK` 发送；当前默认值是 `__disabled__`，`rc26_mechanism` 不直接使用它
+- `target_serial_port` 才是 mechanism 共享 transport 复用的真实物理链路，同时承载 `POSE_TARGET` 与机构/遥控 sidecar 命令；当前默认主口是 `/dev/ttyUSB0`
 - 因此只要 `/mechanism/send_command` 或 `/mechanism/command_feedback` 异常，优先排查 `rc26_merge_odom` 当前是否由 `merge_odom_node` 或 `pose_sender_node` 成功持有 `target_serial_port`
 
 ## 当前运行时语义

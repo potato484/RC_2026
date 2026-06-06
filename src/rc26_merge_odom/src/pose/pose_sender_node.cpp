@@ -1,5 +1,5 @@
 // RC2026 速度发送独立节点
-// 双串口架构：反馈速度 + 目标速度
+// 当前默认口径：target 串口启用，feedback 串口默认停用
 #include <memory>
 #include <stdexcept>
 
@@ -20,8 +20,8 @@ bool serialPortDisabled(const std::string& port) {
 class PoseSenderNode : public rclcpp::Node {
 public:
     PoseSenderNode() : Node("pose_sender_node") {
-        this->declare_parameter("feedback_serial_port", "/dev/ttyUSB0");
-        this->declare_parameter("target_serial_port", "/dev/ttyUSB1");
+        this->declare_parameter("feedback_serial_port", "__disabled__");
+        this->declare_parameter("target_serial_port", "/dev/ttyUSB0");
         this->declare_parameter("baudrate", 1000000);
         this->declare_parameter("cmd_vel_topic", "cmd_vel");
         this->declare_parameter("odom_topic", "merge_odom");

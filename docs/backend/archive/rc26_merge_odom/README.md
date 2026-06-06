@@ -36,20 +36,19 @@
 - `launch/wheel_odom_only.launch.py`
 - `launch/dm_imu_only.launch.py`
 
-除了底盘相关职责外，`merge_odom_node` 当前还维护一套固定的双串口职责口径；现场排查时不要只按 `ttyUSB0/1` 编号硬记，优先按“这条线负责什么”来记：
+除了底盘相关职责外，`merge_odom_node` 当前还维护一套“保留双口参数、默认单口运行”的串口职责口径；现场排查时不要只按 `ttyUSB0/1` 编号硬记，优先按“这条线负责什么”来记：
 
-- `feedback_serial_port`，当前默认 `/dev/ttyUSB0`
-  - `WheelOdom` 从这条链路接收 `ODOM_DATA`
-  - `PoseSender` 同时在这条链路上按 `50Hz` 下发 `POSE_FEEDBACK(0x1E)`
-  - 这条链路不承载 `rc26_mechanism` 或 teleop 的 transport 命令
-  - 当现场只有目标 MCU 下发串口时，这个参数允许显式置为 `__disabled__`，节点会跳过 WheelOdom / POSE_FEEDBACK 并进入目标串口单链路降级模式
-- `target_serial_port`，当前默认 `/dev/ttyUSB1`
-  - `PoseSender` 复用这条链路下发 `POSE_TARGET(0x1F)`
+- `target_serial_port`，当前默认 `/dev/ttyUSB0`
+  - `PoseSender` 默认从这条链路下发 `POSE_TARGET(0x1F)`
   - `MechanismTransportBridge` 继续作为共享桥接接口，供 `rc26_mechanism` 与 teleop 前/后推杆 sidecar 复用同一串口
   - service：`/mechanism/send_command`
   - topic：`/mechanism/command_feedback`
-  - `pose_sender_node` 现在也会在最小 MCU 栈里挂出这组共享 mechanism 命令接口，因此 `minimal-mcu` 不再只有速度下发
+  - `pose_sender_node` 在最小 MCU 栈里也会挂出这组共享 mechanism 命令接口，因此 `minimal-mcu` 仍不只有速度下发
   - 真机上只有 `merge_odom_node` 会真正打开这条物理串口；其它上层只能通过 transport 复用，不能再次直连同一设备
+- `feedback_serial_port`，当前默认 `__disabled__`
+  - 这是一条保留中的旧反馈链入口；只有显式传入真实设备时，`WheelOdom` 才会重新从这条链路接收 `ODOM_DATA`
+  - 同样只有显式启用反馈串口时，`PoseSender` 才会在这条链路上按 `50Hz` 下发 `POSE_FEEDBACK(0x1E)`
+  - 当前默认运行时不会再依赖这条链路承载 teleop / mechanism transport
 
 其中桥接层会过滤 `ACK / HEARTBEAT_ACK / ODOM_DATA` 这类高频非业务反馈，只把业务侧真正关心的反馈继续发布出去；当前双推杆 4 条命令都已经切到可靠 ACK 路径，因此若 MCU 不回通用 `ACK(0x00)`，会像其它可靠命令一样自动重传并打印超时日志；MCU 额外上送的 `0x13~0x16` 业务 ACK 会继续透传到 `/mechanism/command_feedback`。
 
@@ -115,20 +114,16 @@
 - `can_odom` 只保留四轮 CAN 解算路径，输出 `vx / vy / wz`。
 - `wheel_odom_fuser` 会继续融合 CAN 与 wheel 两路输入，但不再把 `vy` 收敛为 0。
 - `PoseSender` 继续按 `(vx, vy, wz)` 协议下发，并把 `vy` 视为麦克纳姆主链上的有效保护量。
-- `PoseSender` 现在把 `POSE_FEEDBACK(0x1E)` 与 `POSE_TARGET(0x1F)` 都固定为 `50Hz` 连续下发；自动导航链仍可保持 `30Hz /cmd_vel`，由 PoseSender 在串口侧重发最近一次目标速度。
+- `PoseSender` 代码仍保留 `POSE_FEEDBACK(0x1E)` 与 `POSE_TARGET(0x1F)` 的 `50Hz` 连续下发能力；但当前默认运行时只启用 `target_serial_port=/dev/ttyUSB0` 这条单口 MCU 链，因此默认只会连续发送 `POSE_TARGET`。
 - `merge_odom_node` 现在额外挂出 `/mechanism/send_command` 与 `/mechanism/command_feedback`，把机构命令和前/后推杆遥控命令都复用到同一条目标串口上。
 - `pose_sender_node` 现在也会挂出同一组共享 mechanism 命令接口，因此 `minimal-mcu` 栈除了速度下发外，也能承接基于 ACK 的共享机构 transport。
 - 双推杆协议已经收口为 `FRONT_PUSHROD_EXTEND/RETRACT(0x0E/0x0F)` 与 `REAR_PUSHROD_EXTEND/RETRACT(0x10/0x11)`；它们和其它普通机构命令一样走可靠 send + 通用 `ACK(0x00)`，MCU 额外发布的 `0x13~0x16` 业务 ACK 会继续透传给 transport feedback。
-- 真实部署下，`rc26_mechanism` 不应再单独打开 `/dev/ttyUSB1`；若 teleop 或 bringup 已经启动 `merge_odom`，则机制侧应使用 `hal_type:=shared_serial`。
+- 真实部署下，`rc26_mechanism` 不应再单独打开默认目标口 `/dev/ttyUSB0`；若 teleop 或 bringup 已经启动 `merge_odom`，则机制侧应使用 `hal_type:=shared_serial`。
 - `terrain_speed_limit` 运行时链路已经从 `rc26_merge_odom` 中删除；`PoseSender` 不再消费来自 `rc26_terrain` 的外部限速话题。
-- 遥控链现在可以通过仓库根目录的 `start_r2_teleop.sh --pose-mode imu|no-imu|wheel-only` 切换融合口径：
-  - `imu`：EKF 融合 IMU
-  - `no-imu`：EKF 不融合 IMU，但仍继续读取 IMU 供执行保护链使用
-  - `wheel-only`：不启动也不读取 IMU，EKF 只基于 `wheel_odom` 输出最终 `merge_odom`
-- `launch/merge_odom.launch.py` 现在会在运行时先规范化 EKF 参数里的科学计数法数值，避免 `wheel-only` / `no-imu` 这类会启用 EKF 的 teleop 路径因 `initial_estimate_covariance` 数组里混入字符串而在 launch 阶段直接报错。
-- `merge_odom_node` 现在接受 `feedback_serial_port:=__disabled__` 的降级输入；如果没有独立反馈串口，会跳过 WheelOdom，但继续保留 `POSE_TARGET`、`/mechanism/send_command` 与 `/mechanism/command_feedback` 这条目标串口链路。
-- 仓库根目录的 `start_r2_teleop.sh` 现在还支持 `--stack full|minimal-mcu`：默认 `full` 走完整遥控链，`minimal-mcu` 会拉起 `pose_sender_node + joy_node + rc26_telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons` 的最小串口链。
-- `start_r2_teleop.sh` 在 `full` 和 `minimal-mcu` 两个栈下都会自动兼容“只有一个目标串口”的场景：当默认 `target_serial_port=/dev/ttyUSB1` 不存在且 `/dev/ttyUSB0` 存在时，会自动把目标串口切到 `/dev/ttyUSB0`，并把反馈串口降级为 `__disabled__`。
+- `launch/merge_odom.launch.py` 仍会在运行时先规范化 EKF 参数里的科学计数法数值；这部分能力保留给手工 launch / 本地调试，不影响当前单口默认口径。
+- `merge_odom_node` 现在默认就以 `feedback_serial_port:=__disabled__` 启动；如果没有显式重新接回反馈串口，会跳过 WheelOdom，但继续保留 `POSE_TARGET`、`/mechanism/send_command` 与 `/mechanism/command_feedback` 这条 `ttyUSB0` 目标串口链路。
+- 仓库根目录的 `start_r2_teleop.sh` 现在还支持 `--stack full|minimal-mcu`：脚本默认 `minimal-mcu` 走最小串口链，`full` 仍可保留 `merge_odom` 装配做本地调试。
+- 在这套单口默认口径下，`start_r2_teleop.sh` 会直接拒绝 `--pose-mode` 与 `--start-ekf`，避免误把已停用的 feedback / 融合速度链当作默认运行时能力。
 - 遥控链通过 `start_r2_teleop.sh` 启动时，不再需要额外传地形限速相关参数；teleop 模式天然不会受 terrain 限速影响，同时会自动把前/后推杆单发 transport 的按钮节点一起拉起，不再默认拉起 `rc26_mechanism`。
 
 ## 配置注释口径

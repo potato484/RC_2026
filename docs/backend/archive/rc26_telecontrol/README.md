@@ -128,13 +128,10 @@ R2 当前已经统一为麦克纳姆全向底盘，因此 `linear.y` 在 stick /
 - `start_r2_teleop.sh` 现在会在 `full` 和 `minimal-mcu` 两个栈里都额外挂起 `rc26_telecontrol_front_pushrod_buttons` 与 `rc26_telecontrol_rear_pushrod_buttons`，用于把 `Y/A` 与 `Select/Back` / `Start` 桥到 `0x0E~0x11`。
 - 在 dpad 模式里，旋转仍由 `X/B` 控制，其中 `X -> +wz`、`B -> -wz`；`Y/A`、`Select/Back`、`Start` 不参与速度输出，只交给前/后推杆 sidecar；`Dpad 左/右` 会直接体现在 `/cmd_vel.linear.y`。
 - `start_r2_teleop.sh` 不再默认拉起 `rc26_mechanism`；teleop 前/后推杆联调只依赖 `merge_odom` 或 `pose_sender_node` 持有目标串口并提供 transport service。
-- 仓库根目录的 `start_r2_teleop.sh` 现在通过 `--stack full|minimal-mcu` 统一承载完整遥控链和最小串口链；最小 MCU 口径以 `./start_r2_teleop.sh --stack minimal-mcu` 为准。
-- `--stack minimal-mcu` 会启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`；`pose_sender_node` 现在也会继续提供 `/mechanism/send_command` 与 `/mechanism/command_feedback`。
-- `start_r2_teleop.sh` 现在在 `full` 和 `minimal-mcu` 两个栈下都会自动兼容“只接了一个目标 MCU 下发串口”的现场：若默认 `/dev/ttyUSB1` 不存在但 `/dev/ttyUSB0` 存在，脚本会自动把目标串口切到 `/dev/ttyUSB0`，并把反馈串口降级为 `__disabled__`。
-- `start_r2_teleop.sh` 现支持 `--pose-mode imu|no-imu|wheel-only`：
-  - `imu`：EKF 融合 `DM_IMU`
-  - `no-imu`：EKF 不融合 IMU，但 `dm_imu_node` 与执行保护链仍保留
-  - `wheel-only`：不启动也不读取 IMU；若反馈串口可用，则只用 `wheel_odom` 做最终 `merge_odom` 融合；若现场只有目标串口，则退化为“只保留目标串口下发 + transport sidecar”的单链路模式
+- 仓库根目录的 `start_r2_teleop.sh` 现在通过 `--stack full|minimal-mcu` 统一承载完整遥控链和最小串口链；脚本默认 `./start_r2_teleop.sh` 就是 `--stack minimal-mcu`。
+- `--stack minimal-mcu` 会启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`；并固定按 `target_serial_port=/dev/ttyUSB0`、`feedback_serial_port=__disabled__` 进入当前默认单口 MCU 链。
+- `--stack full` 仍可保留 `merge_odom` 装配做本地调试，但当前单口默认口径下，脚本会直接拒绝 `--pose-mode` 与 `--start-ekf`。
+- 若后续要临时恢复旧 feedback / 融合速度链，需要显式传入真实 `feedback_serial_port`；脚本不再自动改写 `target_serial_port`。
 - `terrain_speed_limit` 运行时链路已从系统中删除；teleop 链不再需要额外关闭地形限速，也不存在重新接回该链路的脚本入口。
 
 ## 配置注释口径

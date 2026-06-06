@@ -1,5 +1,5 @@
 // RC2026 融合里程计主节点
-// 整合CAN/Wheel里程计和速度发送功能（双串口架构）
+// 整合CAN/Wheel里程计和速度发送功能（当前默认单口 MCU）
 #include <memory>
 #include <stdexcept>
 
@@ -37,9 +37,9 @@ public:
         this->declare_parameter("base_frame", "base_link");
         this->declare_parameter("data_timeout_ms", 100.0);
 
-        // 双串口参数
-        this->declare_parameter("feedback_serial_port", "/dev/ttyUSB0");
-        this->declare_parameter("target_serial_port", "/dev/ttyUSB1");
+        // 双串口参数（当前默认 target 串口启用，feedback 串口停用）
+        this->declare_parameter("feedback_serial_port", "__disabled__");
+        this->declare_parameter("target_serial_port", "/dev/ttyUSB0");
         this->declare_parameter("baudrate", 1000000);
 
         // 速度发送参数

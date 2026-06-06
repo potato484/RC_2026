@@ -32,6 +32,7 @@
 - `POSE_TARGET = 0x1F`
 - 两者都按 `50Hz` 连续发送
 - 两者都走公开的 `sendCommandNoAck()` 路径，不等待 ACK
+- 但当前默认部署只启用 `target_serial_port=/dev/ttyUSB0` 这条单口 MCU 链；`feedback_serial_port` 默认 `__disabled__`，因此 `POSE_FEEDBACK` / `ODOM_DATA` 代码保留、默认运行时停用
 
 当前双推杆协议已经直接收口为前/后推杆四命令；遥控链也不再通过 `rc26_mechanism` 的 Action 兼容路径消费，而是直接走共享 transport：
 

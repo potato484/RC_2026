@@ -201,11 +201,10 @@ ros2 launch rc26_bringup test_navigation.launch.py \
   prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans.pcd \
   start_pose_sender:=true
 
-# 单串口现场：只有目标 MCU 串口时，禁用反馈链
+# 当前默认单串口现场：无需额外传 feedback disable
 ros2 launch rc26_bringup test_navigation.launch.py \
   prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans.pcd \
-  start_pose_sender:=true \
-  pose_sender_feedback_serial_port:=__disabled__
+  start_pose_sender:=true
 
 # 手动发布低速命令，观察执行桥保护输出
 ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \

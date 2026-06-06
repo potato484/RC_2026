@@ -30,8 +30,8 @@ def generate_launch_description():
         merge_params.get('can_interface', can_params.get('can_interface', 'can0'))
     )
     imu_port_default = str(imu_params.get('port', '/dev/ttyACM0'))
-    feedback_serial_port_default = str(merge_params.get('feedback_serial_port', '/dev/ttyUSB0'))
-    target_serial_port_default = str(merge_params.get('target_serial_port', '/dev/ttyUSB1'))
+    feedback_serial_port_default = str(merge_params.get('feedback_serial_port', '__disabled__'))
+    target_serial_port_default = str(merge_params.get('target_serial_port', '/dev/ttyUSB0'))
     fused_odom_topic_default = str(fuser_params.get('fused_odom_topic', 'wheel_odom_fused'))
 
     can_interface_arg = DeclareLaunchArgument(
@@ -49,7 +49,7 @@ def generate_launch_description():
     feedback_serial_port_arg = DeclareLaunchArgument(
         'feedback_serial_port',
         default_value=feedback_serial_port_default,
-        description='MCU feedback serial port (ODOM_DATA + POSE_FEEDBACK)',
+        description='MCU feedback serial port (ODOM_DATA + POSE_FEEDBACK); disabled by default',
     )
 
     target_serial_port_arg = DeclareLaunchArgument(

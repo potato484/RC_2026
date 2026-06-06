@@ -63,11 +63,11 @@ def generate_launch_description():
         description='是否启动 pose_sender_node，把 /cmd_vel 接到底盘执行桥')
     declare_pose_sender_feedback_serial_port = DeclareLaunchArgument(
         'pose_sender_feedback_serial_port',
-        default_value='/dev/ttyUSB0',
-        description='pose_sender_node 反馈串口；单串口现场可传 __disabled__')
+        default_value='__disabled__',
+        description='pose_sender_node 反馈串口；当前默认停用反馈链路')
     declare_pose_sender_target_serial_port = DeclareLaunchArgument(
         'pose_sender_target_serial_port',
-        default_value='/dev/ttyUSB1',
+        default_value='/dev/ttyUSB0',
         description='pose_sender_node 目标串口')
     declare_pose_sender_baudrate = DeclareLaunchArgument(
         'pose_sender_baudrate',

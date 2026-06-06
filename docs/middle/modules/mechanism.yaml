@@ -9,8 +9,8 @@ info:
     - 当前保留的机构动作入口是 action `/mechanism/grab_tip`、`/mechanism/assemble_weapon` 与 `/mechanism/run_command`
     - `PlaceKFSGrid.action` 已移除；KFS 放置改为通过 `/mechanism/run_command` 下发 `PLACE_KFS_GRID + payload{grid_position, layer}`
     - 本文档额外覆盖 mechanism 与 merge_odom 之间的内部 transport topic/service 契约
-    - `/mechanism/send_command` 与 `/mechanism/command_feedback` 复用的是 `rc26_merge_odom` 已打开的 `target_serial_port`
-    - `feedback_serial_port` 主要承载 `ODOM_DATA` 与 `POSE_FEEDBACK`，不作为 mechanism transport 的物理链路
+    - `/mechanism/send_command` 与 `/mechanism/command_feedback` 复用的是 `rc26_merge_odom` 已打开的 `target_serial_port`，当前默认主口为 `/dev/ttyUSB0`
+    - `feedback_serial_port` 主要承载 `ODOM_DATA` 与 `POSE_FEEDBACK`；该链路当前默认 `__disabled__`，不作为默认 mechanism transport 的物理链路
 servers:
   - url: http://localhost:8080
 tags:

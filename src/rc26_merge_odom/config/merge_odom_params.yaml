@@ -76,9 +76,9 @@ wheel_odom_node:
 pose_sender_node:
   ros__parameters:
     # 参数说明：feedback_serial_port - 硬件端口或串口标识；实机部署时需要匹配设备映射。
-    feedback_serial_port: "/dev/ttyUSB0"
+    feedback_serial_port: "__disabled__"
     # 参数说明：target_serial_port - 硬件端口或串口标识；实机部署时需要匹配设备映射。
-    target_serial_port: "/dev/ttyUSB1"
+    target_serial_port: "/dev/ttyUSB0"
     # 参数说明：baudrate - 串口波特率；需要与下位机或传感器通信参数一致。
     baudrate: 1000000
     # 参数说明：cmd_vel_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
@@ -175,10 +175,10 @@ merge_odom_node:
     odom_frame: "odom"
     # 参数说明：base_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     base_frame: "base_link"
-    # 双串口参数 (MCU速度闭环)
-    feedback_serial_port: "/dev/ttyUSB0"
+    # 双串口参数 (MCU速度闭环；当前默认只启用 target 串口)
+    feedback_serial_port: "__disabled__"
     # 参数说明：target_serial_port - 硬件端口或串口标识；实机部署时需要匹配设备映射。
-    target_serial_port: "/dev/ttyUSB1"
+    target_serial_port: "/dev/ttyUSB0"
     # 参数说明：baudrate - 串口波特率；需要与下位机或传感器通信参数一致。
     baudrate: 1000000
     # 速度发送参数

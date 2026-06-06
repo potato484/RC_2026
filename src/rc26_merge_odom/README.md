@@ -37,10 +37,15 @@
   - `start_imu=false` 时不会启动 `dm_imu_node`
   - `imu_topic` 会被置空，`WheelOdom`、`CanOdom`、`PoseSender` 都不会再创建 IMU 订阅
   - `slip_enable`、`imu_gate_enable`、`latency_comp_enable` 会一起关闭
-- `feedback_serial_port` 现在允许显式传 `__disabled__`：
-  - 若反馈串口不可用，`merge_odom_node` 会跳过 `WheelOdom`
-  - 只要 `target_serial_port` 仍可用，就会继续保留 `POSE_TARGET` 和共享 mechanism 命令接口
+- 当前默认 MCU 口径已经临时收口为单口：
+  - `target_serial_port` 默认是 `/dev/ttyUSB0`
+  - `feedback_serial_port` 默认是 `__disabled__`
+  - `/mechanism/send_command`、`/mechanism/command_feedback` 与 `POSE_TARGET` 都默认走这条 `ttyUSB0` 链
+- `feedback_serial_port` 仍允许显式传真实设备，作为保留中的旧反馈链入口：
+  - 若反馈串口不可用或保持默认禁用，`merge_odom_node` 会跳过 `WheelOdom`
+  - 只有显式重新接回反馈串口时，`ODOM_DATA` / `POSE_FEEDBACK` 才会回到默认运行时闭环
 - `pose_sender_node` 现在也会在最小 MCU 链里挂出共享 mechanism 命令接口，因此 `./start_r2_teleop.sh --stack minimal-mcu` 仍可承接 ACK 型机构命令
 - 当前双推杆协议已经收口为 `FRONT_PUSHROD_EXTEND/RETRACT(0x0E/0x0F)` 与 `REAR_PUSHROD_EXTEND/RETRACT(0x10/0x11)`，统一复用共享 transport 走 ACK 路径；若 MCU 额外上送 `0x13~0x16` 业务 ACK，桥接层会继续发布到 `/mechanism/command_feedback`
 - EKF 启动前会先对参数里的科学计数法字符串做归一化，避免 `robot_localization` 因数组里混入字符串而在 launch 阶段报错
-- 仓库根目录的 `start_r2_teleop.sh` 已是当前唯一正式遥控入口；完整链用 `--stack full`，最小 MCU 链用 `--stack minimal-mcu`，两种栈都会在单目标串口现场自动切到 `target_serial_port=/dev/ttyUSB0`
+- 仓库根目录的 `start_r2_teleop.sh` 已是当前唯一正式遥控入口；脚本当前默认 `--stack minimal-mcu`，并固定按 `target_serial_port=/dev/ttyUSB0`、`feedback_serial_port=__disabled__` 启动单口 MCU 链
+- 在这套单口默认口径下，`start_r2_teleop.sh --stack full` 仍可保留 `merge_odom` 装配，但会直接拒绝 `--pose-mode` 与 `--start-ekf`

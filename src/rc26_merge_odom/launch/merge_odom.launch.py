@@ -135,8 +135,8 @@ def generate_launch_description():
     use_can_odom_default = bool(merge_params.get('use_can_odom', True))
     can_interface_default = str(merge_params.get('can_interface', 'can0'))
     imu_port_default = str(((params_yaml.get('dm_imu_node') or {}).get('ros__parameters') or {}).get('port', '/dev/ttyACM0'))
-    feedback_serial_port_default = str(merge_params.get('feedback_serial_port', '/dev/ttyUSB0'))
-    target_serial_port_default = str(merge_params.get('target_serial_port', '/dev/ttyUSB1'))
+    feedback_serial_port_default = str(merge_params.get('feedback_serial_port', '__disabled__'))
+    target_serial_port_default = str(merge_params.get('target_serial_port', '/dev/ttyUSB0'))
     baudrate_default = str(merge_params.get('baudrate', 1000000))
     can_odom_topic_default = str(merge_params.get('can_odom_topic', 'Can_Odom'))
     wheel_odom_topic_default = str(merge_params.get('wheel_odom_topic', 'wheel_odom'))
@@ -178,7 +178,7 @@ def generate_launch_description():
 
     feedback_serial_port_arg = DeclareLaunchArgument(
         'feedback_serial_port', default_value=feedback_serial_port_default,
-        description='MCU feedback serial port (ODOM_DATA receive + POSE_FEEDBACK send)')
+        description='MCU feedback serial port (ODOM_DATA receive + POSE_FEEDBACK send); disabled by default')
 
     target_serial_port_arg = DeclareLaunchArgument(
         'target_serial_port', default_value=target_serial_port_default,
