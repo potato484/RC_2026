@@ -21,6 +21,8 @@
 
 本包不再生成定位健康度、后端状态、路线可观测性、关键帧、闭环、重定位状态或配准调试自定义消息。
 
+`rc26_decision` 的行为树仍作为包内实现存在，但本包当前不再生成任何第一方 BT 运行时消息或控制接口；行为树调试面不再属于公开 ROS 契约。
+
 本包仍生成下列归档兼容接口，但它们不属于当前主链运行时契约：
 
 - `SetKeepoutRuntime.srv`
@@ -54,4 +56,5 @@
 
 - 删除旧导航 action、运动模式 service 和相关状态消息生成
 - 删除定位自定义消息生成，定位接口改为标准 ROS 消息与 TF
+- 删除全部 BT 运行时消息与控制接口，明确行为树仅保留为 `rc26_decision` 包内实现细节
 - 保留 `MfBlockOverlay`、`MfBlockOverlayCell`、`MfKfs*`、`TerrainFeatureGrid` 与 `SetKeepoutRuntime` 的生成文件，但明确标记为归档兼容接口；默认运行时不再消费这些契约

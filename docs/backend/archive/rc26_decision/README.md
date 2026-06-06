@@ -18,7 +18,6 @@
   - `src/decision_node.cpp`
   - `src/navigation/bt_nav2_pose.cpp`
   - `src/mf/mf_area.cpp`
-  - `src/bt/bt_runtime_publisher.cpp`
 
 ## 当前导航调用口径
 
@@ -45,6 +44,13 @@ Nav2 action result 映射规则：
 - `CANCELED` -> BT `FAILURE`，`error_code=121`
 - action server missing、invalid goal、timeout 继续沿用 `BtActionNode` 的通用错误码
 
+## 当前 BT 边界
+
+- 行为树继续作为 `rc26_decision` 包内编排实现存在
+- 对外不再提供第一方 BT 运行时 topic、service 或配套调试消息
+- `decision_node` 当前只保留 `tick_rate_ms` 自动执行模式，不再保留手动单步、播放/暂停、外部重置或运行时发布面
+- `nav_last_*` 等字段当前只作为黑板内部状态存在，不再代表公开观测契约
+
 ## 当前边界
 
 - 负责流程编排、目标选择和策略切换
@@ -58,5 +64,5 @@ Nav2 action result 映射规则：
 - `rc26_decision` 增加 `nav2_msgs` 依赖
 - `main_tree.xml` 改为 include `mf_tree.xml`
 - `mf_tree.xml` 中梅林区目标点固化为 Nav2 pose，并为 `target_grid` 建立显式分支
-- 行为树运行时发布白名单加入新的 `nav_last_*` 观测键
+- 删除全部第一方 BT 运行时 topic/service、手动调试控制面和中文本地化链，仅保留内部行为树执行
 - 本轮移除 `keepout_runtime` 与 `merlin_rule_world_model` 源码/构建目标，删除 base-ground 订阅和 `/mf_kfs_state` 发布，使决策包不再消费或生产已归档三包的数据

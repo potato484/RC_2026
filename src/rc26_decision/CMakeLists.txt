@@ -23,7 +23,6 @@ find_package(nav2_msgs REQUIRED)
 find_package(rc26_serial REQUIRED)
 find_package(rc26_interfaces REQUIRED)
 find_package(rc26_vision REQUIRED)
-find_package(yaml-cpp REQUIRED)
 
 # ============================================================================
 # 头文件目录
@@ -55,22 +54,14 @@ ament_target_dependencies(${PROJECT_NAME}_nodes
   rc26_vision
 )
 
-target_link_libraries(${PROJECT_NAME}_nodes
-  yaml-cpp
-)
-
 # ============================================================================
 # 可执行文件：决策主节点
 # ============================================================================
 add_executable(decision_node
   src/decision_node.cpp
-  src/bt/bt_runtime_publisher.cpp
-  src/bt/chinese_localization_module.cpp
 )
-
 target_link_libraries(decision_node
   ${PROJECT_NAME}_nodes
-  yaml-cpp
 )
 
 ament_target_dependencies(decision_node

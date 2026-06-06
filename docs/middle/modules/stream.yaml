@@ -34,7 +34,7 @@ paths:
                 default:
                   value: |
                     event: ros2.topic
-                    data: {"topic":"r2/bt/snapshot","message_type":"rc26_interfaces/msg/BehaviorTreeSnapshot","payload":{"header":{"stamp":{"sec":1743262200,"nanosec":123456789},"frame_id":""},"tick_seq":42,"tree_status":1,"tick_duration_ms":3.41,"active_subtree_id":"MFAreaTree","running_path_uids":[1,4,9],"nodes":[{"uid":1,"status":1}]}}
+                    data: {"topic":"/mechanism/status","message_type":"rc26_interfaces/msg/MechanismState","payload":{"hal_open":true,"last_error_code":0,"current_cmd_id":17}}
 components:
   schemas:
     Ros2SseEnvelope:

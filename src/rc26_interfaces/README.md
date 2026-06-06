@@ -4,14 +4,6 @@
 
 ## 当前接口范围
 
-- 行为树运行时:
-  - `BehaviorTreeModel.msg`
-  - `BehaviorTreeSnapshot.msg`
-  - `BehaviorTreeTrace.msg`
-  - `BehaviorTreeEvent*.msg`
-  - `BehaviorTreeBlackboard*.msg`
-  - `BehaviorTreeLocalization*.msg`
-  - `ControlBehaviorTree.srv`
 - 归档兼容接口:
   - `SetKeepoutRuntime.srv`
   - `MfBlockOverlay.msg`
@@ -34,9 +26,13 @@
 
 Nav2 的 `/navigate_to_pose` action 使用外部包 `nav2_msgs/action/NavigateToPose`，不在本包重复定义导航 action。
 
+`rc26_decision` 当前仍以内置 BehaviorTree.CPP 组织流程，但不再通过本包发布任何第一方 BT 运行时调试或控制契约。
+
 ## 当前清理状态
 
 旧导航 action、运动模式服务和导航状态消息已经从接口生成清单中移除。当前导航运行权威由 Nav2 提供；定位主链只使用标准 ROS 消息和 TF，不再由本包生成定位自定义消息。
+
+BT 运行时调试与控制接口也已从接口生成清单中移除；行为树调试和控制面当前不属于公开 ROS 契约。
 
 `SetKeepoutRuntime`、`MfBlockOverlay*`、`MfKfs*`、`TerrainFeatureGrid` 仍可生成，用作历史兼容和后续恢复参考；它们不再代表当前主链运行时契约。
 

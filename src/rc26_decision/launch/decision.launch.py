@@ -32,16 +32,6 @@ def generate_launch_description():
             description='是否启用 rc26_vision 视觉推理（AidLite + ONNX/CPU，本地链路）'
         ),
         DeclareLaunchArgument(
-            'tick_mode',
-            default_value='auto',
-            description='行为树 tick 模式: auto | manual'
-        ),
-        DeclareLaunchArgument(
-            'manual_play_interval_ms',
-            default_value='300',
-            description='手动调试模式下的连续执行间隔（毫秒）'
-        ),
-        DeclareLaunchArgument(
             'vision_config_file',
             default_value=default_vision_config_file,
             description='rc26_vision 模型配置 YAML 路径（默认使用安装后的 vision_models.yaml）'
@@ -55,8 +45,6 @@ def generate_launch_description():
                 LaunchConfiguration('params_file'),
                 {
                     'tree_file': LaunchConfiguration('tree_file'),
-                    'tick_mode': LaunchConfiguration('tick_mode'),
-                    'manual_play_interval_ms': LaunchConfiguration('manual_play_interval_ms'),
                     'enable_vision': LaunchConfiguration('enable_vision'),
                     'vision_config_file': LaunchConfiguration('vision_config_file'),
                 }

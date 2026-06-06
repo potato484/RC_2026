@@ -34,8 +34,8 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --pa
 ### 装配与决策
 
 - [`rc26_bringup`](archive/rc26_bringup/README.md): R2 整车链路统一装配入口；导航模式下装配定位、Nav2 基础导航栈和决策。`(file: archive/rc26_bringup/README.md)`
-- [`rc26_decision`](archive/rc26_decision/README.md): R2 主决策包；梅林区行为树通过 `NavToPose` 调用 Nav2 `/navigate_to_pose`。`(file: archive/rc26_decision/README.md)`
-- [`rc26_interfaces`](archive/rc26_interfaces/README.md): R2 自定义 ROS 2 接口契约包；当前保留行为树、机构、视觉和少量归档接口定义，定位主链改用标准 ROS 消息与 TF。`(file: archive/rc26_interfaces/README.md)`
+- [`rc26_decision`](archive/rc26_decision/README.md): R2 主决策包；内部行为树通过 `NavToPose` 调用 Nav2 `/navigate_to_pose`，不再对外暴露 BT 调试 topic/service。`(file: archive/rc26_decision/README.md)`
+- [`rc26_interfaces`](archive/rc26_interfaces/README.md): R2 自定义 ROS 2 接口契约包；当前保留机构、视觉和少量归档接口定义，定位主链改用标准 ROS 消息与 TF。`(file: archive/rc26_interfaces/README.md)`
 
 ### 里程计、定位与点云主链
 

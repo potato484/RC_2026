@@ -16,18 +16,6 @@ x-contract-rules:
   keep_ros_time_shape: true
   project_scope: R2 only
 x-modules:
-  - name: behavior_tree
-    file: docs/middle/modules/behavior_tree.yaml
-    topics:
-      - r2/bt/model
-      - r2/bt/localization
-      - r2/bt/snapshot
-      - r2/bt/blackboard
-      - r2/bt/events
-      - r2/bt/trace
-      - r2/bt/debug_state
-    services:
-      - r2/bt/control
   - name: localization
     file: docs/middle/modules/localization.yaml
     description: 开局一次 SAC-IA+GICP 重定位、连续 GICP 跟踪和 initialpose 接管；对外只暴露 pose 与 diagnostics。

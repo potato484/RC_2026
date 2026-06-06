@@ -4,103 +4,13 @@ rc26_decision:
     tree_file: "main_tree.xml"
     # 参数说明：tick_rate_ms - 行为树 tick 周期，单位毫秒；数值越小调度越频繁。
     tick_rate_ms: 100
-    # 参数说明：tick_mode - 行为树 tick 模式；auto 自动推进，manual 由控制接口单步推进。
-    tick_mode: "auto"  # "auto" | "manual"
-    # 参数说明：manual_play_interval_ms - 手动播放模式的步进间隔，单位毫秒。
-    manual_play_interval_ms: 300
-    # 参数说明：bt_control_service - 行为树控制服务名；供外部工具暂停、继续或单步执行。
-    bt_control_service: "r2/bt/control"
 
     # 参数说明：mechanism_state_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
     mechanism_state_topic: "/mechanism/status"
-
-    # 里程计话题（用于停车判定等）
-    odom_topic: "wheel_odom"
-
-    # 定位守护 profile 映射（行为树内部调试键，当前不直接订阅定位自定义消息）
-    loc_profile_normal: "normal"
-    # 参数说明：loc_profile_yellow - 运行 profile 或模式；用于在不同任务、风险等级或后端之间切换参数组。
-    loc_profile_yellow: "loc_yellow"
-    # 参数说明：loc_profile_orange - 运行 profile 或模式；用于在不同任务、风险等级或后端之间切换参数组。
-    loc_profile_orange: "loc_orange"
-    # 参数说明：loc_profile_red - 运行 profile 或模式；用于在不同任务、风险等级或后端之间切换参数组。
-    loc_profile_red: "loc_red_hold"
-
-    # ObserveSpin 动作参数
-    loc_spin_action_name: "spin"
-    # 参数说明：loc_spin_angle_deg - 角度参数；单位由字段名或上级配置约定。
-    loc_spin_angle_deg: 15.0
-    # 参数说明：loc_spin_time_allowance_sec - 时间参数，单位秒。
-    loc_spin_time_allowance_sec: 3.0
-
-    # AnchorRecover waypoint 顺序
-    loc_anchor_waypoints: ["loc_anchor_1", "loc_anchor_2"]
-
-    # speed_profile 全局缩放系数（保留给局部决策节奏与动作选择使用）
-    speed_profile_scales.fast: 1.0
-    # 参数说明：speed_profile_scales.slow - 运行 profile 或模式；用于在不同任务、风险等级或后端之间切换参数组。
-    speed_profile_scales.slow: 0.4
-    # 参数说明：speed_profile_scales.creep - 运行 profile 或模式；用于在不同任务、风险等级或后端之间切换参数组。
-    speed_profile_scales.creep: 0.2
+    team: "blue"
+    enable_vision: false
+    vision_config_file: ""
 
     # MC 端头架中心（map）
     tip_rack_center_x: 0.0
     tip_rack_center_y: 0.0
-
-    # 参数说明：bt_runtime.enable - 布尔开关；控制对应能力是否启用。
-    bt_runtime.enable: true
-    # 参数说明：bt_runtime.model_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    bt_runtime.model_topic: "r2/bt/model"
-    # 参数说明：bt_runtime.snapshot_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    bt_runtime.snapshot_topic: "r2/bt/snapshot"
-    # 参数说明：bt_runtime.blackboard_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    bt_runtime.blackboard_topic: "r2/bt/blackboard"
-    # 参数说明：bt_runtime.events_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    bt_runtime.events_topic: "r2/bt/events"
-    # 参数说明：bt_runtime.trace_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    bt_runtime.trace_topic: "r2/bt/trace"
-    # 参数说明：bt_runtime.debug_state_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    bt_runtime.debug_state_topic: "r2/bt/debug_state"
-    # 参数说明：bt_runtime.localization_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    bt_runtime.localization_topic: "r2/bt/localization"
-    bt_runtime.snapshot_decimation: 1
-    # 参数说明：bt_runtime.blackboard_publish_ms - 时间参数，单位毫秒。
-    bt_runtime.blackboard_publish_ms: 200
-    # 参数说明：bt_runtime.localization_reload_ms - 时间参数，单位毫秒。
-    bt_runtime.localization_reload_ms: 1000
-    bt_runtime.localization_config: ""
-    bt_runtime.blackboard_whitelist:
-      - "vision_running"
-      - "vision_ok"
-      - "vision_has_target"
-      - "vision_attr_kind"
-      - "vision_distance_m"
-      - "vision_score"
-      - "vision_bbox_cx"
-      - "vision_bbox_cy"
-      - "vision_current_model"
-      - "mechanism_hal_open"
-      - "mechanism_current_cmd_id"
-      - "last_action_error_code"
-      - "system_error"
-      - "loc_level"
-      - "loc_reason"
-      - "loc_recommended_profile"
-      - "loc_last_profile"
-      - "loc_guard_required"
-      - "loc_guard_reason"
-      - "current_level"
-      - "stair_delta"
-      - "is_lifted"
-      - "stable_operation"
-      - "stair_climb_done"
-      - "stair_descend_done"
-      - "level_start"
-      - "team"
-      - "target_kfs_count"
-      - "kfs_on_board"
-      - "current_grid"
-      - "next_action"
-      - "target_grid"
-      - "exit_grid"
-      - "merlin_last_transition_reason"
