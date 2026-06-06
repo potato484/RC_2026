@@ -112,6 +112,6 @@
 
         pcd_save:
             # 参数说明：pcd_save_en - 是否保存建图累计 PCD；默认开启，节点正常退出时落盘。
-            pcd_save_en: True
+            pcd_save_en: False
             # 参数说明：interval - 每个 PCD 文件累计的 LiDAR 帧数；-1 表示所有帧保存到单个 scans.pcd，长时间建图会增加内存和单文件压力。
             interval: -1

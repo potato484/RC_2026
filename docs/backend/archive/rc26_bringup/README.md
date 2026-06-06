@@ -52,6 +52,7 @@
 ## 本轮收口
 
 - 删除旧导航包和旧配置文件引用，导航模式改为 include Nav2 `navigation_launch.py`
+- `bringup.launch.py` 向 Humble Nav2 `navigation_launch.py` 透传 `use_composition=False` 与 `use_respawn=False` 时使用 Python 布尔字面量大写，避免 Nav2 内部 `PythonExpression(['not ', use_composition])` 将小写 `false` 当作未定义名称求值
 - 新增 `config/nav2_params.yaml`，当前自动导航链帧固定为 `map / odom / base_footprint`，控制器使用 Humble 兼容的 DWB 配置并允许麦克纳姆横移速度
 - Nav2 obstacle layer 参数块当前保留在 `config/nav2_params.yaml` 中，但默认关闭；`/sensor_scan` (`PointCloud2`) 链路仍保留，`registered_scan` 继续只供定位链使用
 - 本轮自动导航链将 `base_footprint` 固定为地面投影 2D 基座，`base_link` 固定为底盘最下层刚性主板中心，二者高度差当前由 `config/odom_interface.yaml` 维护，当前为 `0.2m`

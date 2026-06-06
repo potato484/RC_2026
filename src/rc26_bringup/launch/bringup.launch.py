@@ -263,8 +263,8 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'params_file': nav2_params_file,
             'autostart': 'true',
-            'use_composition': 'false',
-            'use_respawn': 'false',
+            'use_composition': 'False',
+            'use_respawn': 'False',
         }.items(),
         condition=UnlessCondition(slam)
     )
