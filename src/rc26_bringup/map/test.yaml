@@ -13,9 +13,9 @@
 # - occupied_thresh: 像素值达到或高于该阈值时视为占用
 # - free_thresh: 像素值低于或等于该阈值时视为空闲
 
-image: default.pgm  # 占位图像，真实导航应替换为现场导出的地图图像
-resolution: 0.1  # 该占位图只是冒烟用途，实际地图分辨率请按现场导出结果填写
-origin: [-0.14, -0.3, 0.0]  # 地图左下角在 map 坐标系中的起点
+image: test.png  # 占位图像，真实导航应替换为现场导出的地图图像
+resolution: 0.05 
+origin: [0.0, 0.0, 0.0]  # 地图左下角在 map 坐标系中的起点
 negate: 0  # 不反色
 occupied_thresh: 0.65  # >= 0.65 视为障碍
 free_thresh: 0.196  # <= 0.196 视为空闲
