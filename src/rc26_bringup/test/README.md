@@ -80,7 +80,7 @@ ros2 run tf2_ros tf2_echo base_footprint base_link
 
 ### 2. 传感器扫描测试 (rc26_sensor_scan)
 
-**功能**: 验证点云坐标转换、里程计速度发布、pose 协方差透传，以及供 Nav2 使用的 `sensor_scan` 点云输出
+**功能**: 验证点云坐标转换、里程计速度发布、pose 协方差透传，以及供导航链调试或后续恢复 obstacle layer 使用的 `sensor_scan` 点云输出
 
 ```bash
 # 启动测试 (需要 odom_interface 数据源)
@@ -167,7 +167,7 @@ ros2 run tf2_tools view_frames
 
 ### 6. Nav2 基础导航链测试
 
-**功能**: 验证定位、Nav2 lifecycle、`/navigate_to_pose` action、`sensor_scan` 障碍输入和 `/cmd_vel` / `pose_sender_node` 执行桥链路
+**功能**: 验证定位、Nav2 lifecycle、`/navigate_to_pose` action、静态地图规划链、costmap 话题，以及 `/cmd_vel` / `pose_sender_node` 执行桥链路；`/sensor_scan` 仅检查链路存在
 
 ```bash
 # 开发机 / 图结构验收：关闭执行桥，避免无串口环境直接报错
@@ -189,7 +189,7 @@ ros2 topic echo /cmd_vel
 说明：
 
 - `rc26_bringup` 当前保持 headless，不再通过 launch 参数拉起仓库内 GUI
-- Nav2 当前直接消费 `/sensor_scan` (`PointCloud2`) 作为 obstacle layer 输入，不再依赖 `/scan`
+- Nav2 当前默认关闭 local/global obstacle layer；`/sensor_scan` (`PointCloud2`) 仍会输出，但不再默认参与 costmap 障碍投影
 - `test_navigation.launch.py` 默认会同时拉起 `pose_sender_node`；若只做图结构/感知链验证，请显式传 `start_pose_sender:=false`
 - `src/rc26_bringup/map/default.yaml` 只是占位地图，只用于把 Nav2 lifecycle、costmap 和执行桥链路拉起，不代表可直接通过真实规划验收
 - 如需可视化，请改用工作区外部工具只读消费现有 topic，例如手工运行 `rviz2 -d /home/potato/RC_2026/src/rc26_bringup/rviz/navigation_default.rviz`
@@ -227,10 +227,10 @@ ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \
 | 模块 | 话题/TF | 预期结果 |
 |------|---------|----------|
 | odom_interface | `/odom` | odom→base_footprint 里程计，TF 同时提供 base_footprint→base_link |
-| sensor_scan | `/sensor_scan` | `livox_frame` 坐标系点云，供 Nav2 obstacle layer 直接消费；`/odometry` 协方差透传 |
+| sensor_scan | `/sensor_scan` | `livox_frame` 坐标系点云；当前保留供导航链调试或后续恢复 obstacle layer 使用，`/odometry` 协方差继续透传 |
 | rc26_point_lio | `/state_estimation` + `/cloud_registered` | LIO 里程计与原生配准点云持续输出 |
 | localization | `map->odom` + `/localization/pose_with_cov` + `/localization/diagnostics` | TF 和标准定位观测持续发布 |
-| Nav2 | `/navigate_to_pose` + `/plan` + costmap topics + `/sensor_scan` | action server、路径和 costmap 可观察，障碍输入链路已接通 |
+| Nav2 | `/navigate_to_pose` + `/plan` + costmap topics + `/sensor_scan` | action server、路径和 costmap 可观察；当前默认不接入动态障碍层，`/sensor_scan` 只校验链路存在 |
 | pose_sender_node | `/cmd_vel` + `/pose_sender/target_protected` | 速度指令由 Nav2 输出后继续进入 MCU 执行桥 |
 
 ---

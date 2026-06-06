@@ -1,7 +1,7 @@
 # R2 当前 Nav2 最小导航闭环配置
 # 口径说明：
 # - map -> odom 继续由 rc26_localization 负责，Nav2 不接管定位权威
-# - 障碍输入直接消费 rc26_sensor_scan 输出的 sensor_scan(PointCloud2)
+# - 当前默认关闭 local/global costmap 的 obstacle_layer；保留 sensor_scan 配置块供后续恢复
 # - /cmd_vel 由 Nav2 controller + velocity_smoother 输出，再交给 pose_sender_node 下发
 
 # BT 导航器：负责调 planner / controller / recovery 等动作节点
@@ -153,7 +153,7 @@ controller_server:
       RotateToGoal.slowing_factor: 5.0
       RotateToGoal.lookahead_time: -1.0
 
-# 局部代价地图：在 odom 坐标系下滚动更新，主要供局部控制器避障
+# 局部代价地图：在 odom 坐标系下滚动更新；当前默认关闭动态障碍层
 local_costmap:
   local_costmap:
     ros__parameters:
@@ -174,8 +174,9 @@ local_costmap:
       plugins: [obstacle_layer, inflation_layer]
       obstacle_layer:
         plugin: nav2_costmap_2d::ObstacleLayer
-        enabled: true
-        # 当前默认只接一条障碍输入：sensor_scan(PointCloud2)
+        # 默认关闭；保留配置块，便于后续快速恢复或对照调参
+        enabled: false
+        # 若后续重新启用，当前默认只接一条障碍输入：sensor_scan(PointCloud2)
         observation_sources: sensor_scan
         sensor_scan:
           # 相对话题名；会跟随 namespace 进入对应机器人命名空间
@@ -198,7 +199,7 @@ local_costmap:
         inflation_radius: 0.55
       always_send_full_costmap: true
 
-# 全局代价地图：在 map 坐标系下维护静态地图 + 当前障碍
+# 全局代价地图：在 map 坐标系下维护静态地图；当前默认关闭动态障碍层
 global_costmap:
   global_costmap:
     ros__parameters:
@@ -219,7 +220,8 @@ global_costmap:
         map_subscribe_transient_local: true
       obstacle_layer:
         plugin: nav2_costmap_2d::ObstacleLayer
-        enabled: true
+        # 默认关闭；保留配置块，便于后续快速恢复或对照调参
+        enabled: false
         observation_sources: sensor_scan
         sensor_scan:
           topic: sensor_scan
