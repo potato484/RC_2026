@@ -109,6 +109,16 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+  scripts/pcd_map_inspector.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_pcd_map_inspector test/test_pcd_map_inspector.py)
+endif()
+
 # Export dependencies
 ament_export_dependencies(
   rclcpp

@@ -66,6 +66,7 @@
 - `navigation_default.rviz` 默认观察 Nav2 map、local/global costmap、plan、footprint、TF、RobotModel、`/odom`、定位位姿与 `registered_scan`/`sensor_scan` 点云主链；静态 map 与 costmap 采用半透明显示，点云采用固定高对比色，并保留 Nav2 RViz 面板和 GoalTool；不再订阅 terrain 或 keepout 输出
 - `src/rc26_bringup/map/test.yaml` 是当前默认占位地图入口；它的 `origin` 按当前 `src/rc26_point_lio/PCD/scan.pcd` 的 x/y 最小边界对齐，只用于把 Nav2 lifecycle、costmap 和执行桥链路拉起，实机规划验收仍应通过 `nav2_map_file` 传入有效 2D occupancy map
 - 当前 `src/rc26_bringup/map/test.yaml` 已补充字段级中文注释，字段按 Nav2 map YAML 的 `image / resolution / origin / negate / occupied_thresh / free_thresh` 口径维护；排查 map_server 加载问题时应先确认 `/map_server` 处于 active 且 `/map` 有 publisher
+- 排查 PCD 与 Nav2 map YAML 的尺寸、origin 和覆盖关系时，使用 `rc26_point_lio/scripts/pcd_map_inspector.py --map-yaml <yaml>` 做只读校验；该工具只报告 PCD bounds、推荐 map 参数和覆盖 margin，不生成或修改栅格地图
 - 当前仓库的 `test_mapping.launch.py` / Point-LIO 建图链默认导出的是 PCD 点云，不会直接产出 Nav2 可消费的 2D occupancy map；如需真实规划地图，应先使用能发布 `/map` (`nav_msgs/OccupancyGrid`) 的建图链生成栅格，再用 `ros2 run nav2_map_server map_saver_cli -f <输出前缀>` 保存为 `pgm/png + yaml`，最后通过 `nav2_map_file` 传给导航入口
 - `odometry.launch.py` 新增 `start_point_lio`、`start_sensor_scan` 开关，供 `test_odom_interface.launch.py`、`odometry_mock.launch.py` 等入口复用同一套静态 TF / 内部外参装配
 - `odometry_mock.launch.py` 复用同一套 `odometry.launch.py` 装配；`mock_point_lio.py` 默认先输出一小段静止里程计，再进入运动阶段，以满足 `rc26_odom_interface` 现有的启动静止归零约束

@@ -10,7 +10,7 @@
 - 启动文件：`launch/point_lio.launch.py`
 - 关键配置：`config/mid360.yaml`
 - 自定义消息：`msg/LocalSensorExternalTrigger.msg`
-- 运维脚本：`scripts/time_sync_analyzer.py`
+- 运维脚本：`scripts/time_sync_analyzer.py`、`scripts/pcd_map_inspector.py`
 
 核心源码包含：
 
@@ -32,6 +32,7 @@
 - `/state_estimation`、`/cloud_registered`、`/cloud_registered_body`、`/Laser_map`、`/point_lio/map_cloud`、`/path`
 - 默认低频完整累计地图可视化发布，供 RViz/Foxglove 等下游只读观察
 - 默认基础 PCD 保存能力，`interval=-1` 时正常退出后写入单个 `scans.pcd`
+- `scripts/pcd_map_inspector.py` 提供只读 PCD 边界分析和 Nav2 map YAML 覆盖校验；支持 ASCII、binary 和 PCL binary_compressed PCD，只输出报告，不生成或修改栅格地图
 - 面向现场操作者的建图/里程计控制台提示按通俗中文输出；参数名、topic、frame、路径、返回码等机器信息仍保留原值，方便继续定位问题
 
 当前已按旧 Point-LIO 主链收口，不再保留先验地图注入、输出侧高度裁剪、退化评分、自适应额外迭代或 profile 覆盖。累计全图只通过低频、降采样、限点数的可视化 topic 发布，不作为定位或导航权威。
@@ -99,3 +100,4 @@
 - 建图主链的参数异常、IMU 初始化、LiDAR/IMU 时间回退、点云为空、车身 ROI 裁剪、完整地图可视化、PCD 保存、外参估计和耗时统计等用户可见提示已经改为中文。
 - 中文提示不改变运行逻辑；`/state_estimation`、`/cloud_registered`、`/point_lio/map_cloud` 等 topic 名，自动导航链里的 `map/odom/base_footprint/base_link/livox_frame` 等 frame 名，以及 `filter_car_body`、`pcd_save.interval` 等参数名继续作为机器契约保留。
 - `scripts/time_sync_analyzer.py` 的现场输出也按中文说明展示，推荐时间偏移仍保留 LiDAR/IMU 名称和数值单位，便于直接用于调试记录。
+- `scripts/pcd_map_inspector.py` 用于现场核对 PCD bounds、推荐 Nav2 map `origin`/尺寸，以及已有 map YAML/image 是否覆盖点云范围；默认只读，不替代正式 2D occupancy map 生成链。

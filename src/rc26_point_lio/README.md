@@ -17,6 +17,7 @@
 - `/state_estimation`、`/cloud_registered`、`/cloud_registered_body`、`/Laser_map`、`/point_lio/map_cloud`、`/path`
 - 低频完整累计点云发布：默认向 `/point_lio/map_cloud` 发布可视化用完整地图
 - 基础 PCD 保存：默认开启，正常退出后写入包内 `PCD/`
+- PCD 地图检查脚本：`scripts/pcd_map_inspector.py` 可解析 PCD 边界，并只读校验 Nav2 map YAML/image 覆盖范围
 
 ## 已删除链路
 
@@ -126,6 +127,33 @@ Point-LIO 原生发布：
 
 生成的 PCD 可作为 localization 链路的 `prior_pcd_file` 使用。Point-LIO 自身不会再读取这份先验地图。
 
+### PCD 边界与 Nav2 map 校验
+
+`scripts/pcd_map_inspector.py` 是只读诊断工具，用于把 PCD 的 x/y/z 边界、推荐 Nav2 `origin`/图片尺寸和已有 map YAML 覆盖情况打印出来。它支持 `DATA ascii`、`DATA binary` 和 PCL `DATA binary_compressed`，不会生成栅格图，也不会修改 `test.yaml`。
+
+源码树直接运行：
+
+```bash
+python3 src/rc26_point_lio/scripts/pcd_map_inspector.py \
+  src/rc26_point_lio/PCD/scan.pcd \
+  --map-yaml src/rc26_bringup/map/test.yaml
+```
+
+安装后运行：
+
+```bash
+ros2 run rc26_point_lio pcd_map_inspector.py \
+  src/rc26_point_lio/PCD/scan.pcd \
+  --map-yaml src/rc26_bringup/map/test.yaml
+```
+
+常用参数：
+
+- `--resolution 0.05`：按指定分辨率计算推荐图片宽高和 `origin`。
+- `--padding-m 0.2`：推荐地图边界时额外留白。
+- `--z-min / --z-max`：只用指定高度范围内的点计算 2D 边界。
+- `--json`：输出结构化 JSON，供后续脚本消费。
+
 ## 地面点云说明
 
 - 建图时看到地面点通常是正常现象，Mid-360 本身具备向下观测能力。
@@ -147,4 +175,4 @@ rviz2 -d "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/rviz/slam.rviz"
 
 根目录集中式调试文档已删除。Point-LIO 主链、预处理、IMU 初始化、PCD 保存、车身 ROI 热更新和运行耗时统计等用户可见提示按中文输出；topic、frame、参数名、路径和返回码仍保留原值，方便继续排查。
 
-若需要分析 LiDAR/IMU 时间偏移，可运行 `scripts/time_sync_analyzer.py`。该脚本输出中文说明和外部时间偏移建议，Point-LIO 当前不直接消费该结果。
+若需要分析 LiDAR/IMU 时间偏移，可运行 `scripts/time_sync_analyzer.py`。该脚本输出中文说明和外部时间偏移建议，Point-LIO 当前不直接消费该结果。若需要排查 PCD 与 Nav2 map YAML 的尺寸、origin 和覆盖关系，使用 `scripts/pcd_map_inspector.py`。
