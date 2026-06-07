@@ -18,7 +18,7 @@ R2 运行时导航权威已经迁移到 Nav2。`rc26_bringup` 在 `slam=false` �
 - ROS2 包级验证继续按仓库统一命令手动执行：
 
 ```bash
-MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select <pkg...>
+MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --parallel-workers 1 --packages-select <pkg...>
 ```
 
 - 机器人运行时仍以犀牛派 X1 / AidLux 实机环境和 `rc26_bringup` 装配入口为准。

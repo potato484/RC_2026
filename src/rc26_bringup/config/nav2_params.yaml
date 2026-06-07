@@ -112,10 +112,10 @@ controller_server:
       debug_trajectory_details: false
       # 麦克纳姆底盘速度边界：x 前后，y 横移，theta 自转
       min_vel_x: -0.25
-      max_vel_x: 0.45
-      min_vel_y: -0.35
-      max_vel_y: 0.35
-      max_vel_theta: 1.0
+      max_vel_x: 0.25
+      min_vel_y: -0.25
+      max_vel_y: 0.25
+      max_vel_theta: 0.5
       # 速度与加速度上限；velocity_smoother 也会继续做一层平滑
       min_speed_xy: 0.0
       max_speed_xy: 0.50
@@ -173,9 +173,8 @@ local_costmap:
       robot_radius: 0.42
       plugins: [obstacle_layer, inflation_layer]
       obstacle_layer:
-        plugin: nav2_costmap_2d::ObstacleLayer
-        # 默认关闭；保留配置块，便于后续快速恢复或对照调参
-        enabled: false
+        plugin: nav2_costmap_2d::ObstacleLayer       
+        enabled: true
         # 若后续重新启用，当前默认只接一条障碍输入：sensor_scan(PointCloud2)
         observation_sources: sensor_scan
         sensor_scan:
@@ -220,8 +219,7 @@ global_costmap:
         map_subscribe_transient_local: true
       obstacle_layer:
         plugin: nav2_costmap_2d::ObstacleLayer
-        # 默认关闭；保留配置块，便于后续快速恢复或对照调参
-        enabled: false
+        enabled: true
         observation_sources: sensor_scan
         sensor_scan:
           topic: sensor_scan

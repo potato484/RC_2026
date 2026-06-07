@@ -6,7 +6,7 @@
 
 ## 当前装配口径
 
-`bringup.launch.py` 与 `odometry.launch.py` 固定按 headless 口径装配，不再声明或透传任何 viewer / RViz / Foxglove 兼容参数。面向现场建图的 `test_mapping.launch.py` 是调试入口，默认复用纯建图链路并额外打开 RViz2，可用 `use_rviz:=false` 关闭图形界面。
+`bringup.launch.py` 与 `odometry.launch.py` 固定按 headless 口径装配，不再声明或透传任何 viewer / RViz / Foxglove 兼容参数。面向现场联调的 `test_mapping.launch.py` 与 `test_navigation.launch.py` 是调试入口，默认复用对应链路并额外打开 RViz2，可用 `use_rviz:=false` 关闭图形界面，也可用 `rviz_config_file:=...` 替换 RViz 配置。
 
 - `bringup.launch.py`
   - 装配 Point-LIO、里程计接口、定位、Nav2 基础导航栈、`pose_sender_node` 执行桥和决策
@@ -24,6 +24,7 @@
 - `test_navigation.launch.py`
   - 复用整车 bringup，默认 `use_decision=false`
   - 用于定位 + Nav2 基础导航联调；默认也会拉起 `pose_sender_node`
+  - 默认 `use_rviz=true`，加载 `rviz/navigation_default.rviz` 观察地图、costmap、路径、定位、里程计与点云主链
 - `test_mapping.launch.py`
   - 默认等价于 `slam:=true pure_mapping_mode:=true use_rviz:=true`
   - `slam.rviz` 默认观察 `/point_lio/map_cloud` 完整累计地图、`/registered_scan` 实时点云与 `/Laser_map` 初始地图
@@ -47,7 +48,7 @@
 - `config/localization.yaml` 当前只维护开局一次重定位与连续 GICP 跟踪的核心参数，定位健康度、图后端和路径可观测性参数已移除
 - `config/odom_interface.yaml` 只保留 `rc26_odom_interface` 的参数契约；其中 `base_link_height_above_base_footprint_m` 当前直接在该 YAML 维护，`base_link -> point_lio.body_frame` 推导值仍只允许在 `odometry.launch.py` 中注入
 - `config/nav2_params.yaml` 当前保留 `sensor_scan` (`PointCloud2`) 到 obstacle layer 的参数块，但默认关闭 local/global obstacle layer，不再维护 `/scan` LaserScan 兼容链
-- 除 `test_mapping.launch.py` 建图调试入口外，如需可视化，应由工作区外部工具只读消费当前主链 ROS2 输出；`/point_lio/map_cloud` 是现场建图观察输出，不作为定位或导航权威
+- 除 `test_mapping.launch.py` 与 `test_navigation.launch.py` 联调入口外，如需可视化，应由工作区外部工具只读消费当前主链 ROS2 输出；`/point_lio/map_cloud` 是现场建图观察输出，不作为定位或导航权威
 
 ## 本轮收口
 
@@ -61,9 +62,10 @@
 - `bringup.launch.py` 与 `test_navigation.launch.py` 新增 `start_pose_sender`、`pose_sender_feedback_serial_port`、`pose_sender_target_serial_port` 与 `pose_sender_baudrate`，当前默认把 `/cmd_vel` 接到 `pose_sender_node`，并按 `target=/dev/ttyUSB0`、`feedback=__disabled__` 启动单口 MCU 链
 - `test_navigation.launch.py` 的验收目标改为 `/navigate_to_pose`、`sensor_scan` 链路存在、Nav2 lifecycle nodes、costmap/plan topics、`/cmd_vel` 与 `pose_sender_node`；当前默认不再把 `sensor_scan` 作为 obstacle layer 成功条件
 - `config/nav2_params.yaml` 现已补齐主要字段的中文注释，现场调试应优先以该文件中的分区说明和速度/代价图参数注释为准
-- RViz 预设只观察 Nav2 plan、local/global costmap、TF、RobotModel 与点云/里程计主链，不再订阅 terrain 或 keepout 输出
-- `src/rc26_bringup/map/default.yaml` 仍只是默认占位入口；它只用于把 Nav2 lifecycle、costmap 和执行桥链路拉起，实机规划验收仍应通过 `nav2_map_file` 传入有效 2D occupancy map
-- 当前 `src/rc26_bringup/map/default.yaml` 已补充字段级中文注释，明确了 `image / resolution / origin / negate / occupied_thresh / free_thresh` 的含义；排查 map_server 加载问题时应先以该文件注释和 Nav2 map YAML 口径为准
+- `test_navigation.launch.py` 新增 `use_rviz` 与 `rviz_config_file`，默认随导航联调入口启动 RViz2；主 `bringup.launch.py` 继续保持 headless
+- `navigation_default.rviz` 默认观察 Nav2 map、local/global costmap、plan、footprint、TF、RobotModel、`/odom`、定位位姿与 `registered_scan`/`sensor_scan` 点云主链；静态 map 与 costmap 采用半透明显示，点云采用固定高对比色，并保留 Nav2 RViz 面板和 GoalTool；不再订阅 terrain 或 keepout 输出
+- `src/rc26_bringup/map/test.yaml` 是当前默认占位地图入口；它的 `origin` 按当前 `src/rc26_point_lio/PCD/scan.pcd` 的 x/y 最小边界对齐，只用于把 Nav2 lifecycle、costmap 和执行桥链路拉起，实机规划验收仍应通过 `nav2_map_file` 传入有效 2D occupancy map
+- 当前 `src/rc26_bringup/map/test.yaml` 已补充字段级中文注释，字段按 Nav2 map YAML 的 `image / resolution / origin / negate / occupied_thresh / free_thresh` 口径维护；排查 map_server 加载问题时应先确认 `/map_server` 处于 active 且 `/map` 有 publisher
 - 当前仓库的 `test_mapping.launch.py` / Point-LIO 建图链默认导出的是 PCD 点云，不会直接产出 Nav2 可消费的 2D occupancy map；如需真实规划地图，应先使用能发布 `/map` (`nav_msgs/OccupancyGrid`) 的建图链生成栅格，再用 `ros2 run nav2_map_server map_saver_cli -f <输出前缀>` 保存为 `pgm/png + yaml`，最后通过 `nav2_map_file` 传给导航入口
 - `odometry.launch.py` 新增 `start_point_lio`、`start_sensor_scan` 开关，供 `test_odom_interface.launch.py`、`odometry_mock.launch.py` 等入口复用同一套静态 TF / 内部外参装配
 - `odometry_mock.launch.py` 复用同一套 `odometry.launch.py` 装配；`mock_point_lio.py` 默认先输出一小段静止里程计，再进入运动阶段，以满足 `rc26_odom_interface` 现有的启动静止归零约束

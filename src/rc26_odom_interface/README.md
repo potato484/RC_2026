@@ -20,6 +20,7 @@
 - `base_link`：底盘最下层金属刚性主板中心
 - `base_link` 相对 `base_footprint` 的高度由 `rc26_bringup/config/odom_interface.yaml` 提供，当前为 `0.2m`
 - `base_link` 保留 Point-LIO 解算出来的 roll/pitch；`odom -> base_footprint` 只保留 `x/y/yaw`
+- `base_link -> input_body_frame` 外参按 TF 语义注入；节点在位姿链中使用其 inverse 恢复 `odom -> base_link`，并把 Point-LIO twist 从 `input_body_frame` 转换到底盘 `base_link` 后再输出给导航链。
 
 ## 当前边界
 

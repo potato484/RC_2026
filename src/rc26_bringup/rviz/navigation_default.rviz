@@ -1,68 +1,389 @@
 Panels:
   - Class: rviz_common/Displays
     Name: Displays
+  - Class: rviz_common/Tool Properties
+    Name: Tool Properties
   - Class: rviz_common/Views
     Name: Views
+  - Class: nav2_rviz_plugins/Navigation 2
+    Name: Navigation 2
 Visualization Manager:
+  Class: ""
   Displays:
-    - Class: rviz_default_plugins/Grid
+    - Alpha: 0.65
+      Cell Size: 1
+      Class: rviz_default_plugins/Grid
+      Color: 95; 95; 95
+      Enabled: true
+      Line Style:
+        Line Width: 0.03
+        Value: Lines
       Name: Grid
+      Plane: XY
+      Plane Cell Count: 20
+      Reference Frame: <Fixed Frame>
       Value: true
-    - Class: rviz_default_plugins/TF
-      Name: TF
-      Value: true
-    - Class: rviz_default_plugins/RobotModel
-      Name: RobotModel
-      Value: true
-    - Class: rviz_default_plugins/Map
-      Name: Map
-      Topic:
-        Value: map
-      Value: true
-    - Class: rviz_default_plugins/Map
-      Name: LocalCostmap
-      Topic:
-        Value: local_costmap/costmap
-      Value: true
-    - Class: rviz_default_plugins/Map
-      Name: GlobalCostmap
-      Topic:
-        Value: global_costmap/costmap
-      Value: true
-    - Class: rviz_default_plugins/Path
-      Name: GlobalPath
-      Topic:
-        Value: plan
-      Value: true
-    - Class: rviz_default_plugins/PointCloud2
-      Name: LidarPointCloud
-      Topic:
-        Value: livox/lidar
-        Queue Size: 5
-      Value: false
-      Size (m): 0.02
-      Style: Points
-      Color Transformer: Intensity
-      Reliability Policy: Best Effort
+    - Class: rviz_common/Group
+      Displays:
+        - Alpha: 0.38
+          Class: rviz_default_plugins/Map
+          Color Scheme: map
+          Draw Behind: true
+          Enabled: true
+          Name: Map
+          Topic:
+            Depth: 1
+            Durability Policy: Transient Local
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /map
+          Use Timestamp: false
+          Value: true
+        - Alpha: 0.28
+          Class: rviz_default_plugins/Map
+          Color Scheme: costmap
+          Draw Behind: false
+          Enabled: true
+          Name: GlobalCostmap
+          Topic:
+            Depth: 1
+            Durability Policy: Transient Local
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /global_costmap/costmap
+          Use Timestamp: false
+          Value: true
+        - Alpha: 0.45
+          Class: rviz_default_plugins/Map
+          Color Scheme: costmap
+          Draw Behind: false
+          Enabled: true
+          Name: LocalCostmap
+          Topic:
+            Depth: 1
+            Durability Policy: Transient Local
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /local_costmap/costmap
+          Use Timestamp: false
+          Value: true
+        - Alpha: 1
+          Buffer Length: 1
+          Class: rviz_default_plugins/Path
+          Color: 255; 80; 40
+          Enabled: true
+          Line Style: Lines
+          Line Width: 0.04
+          Name: GlobalPath
+          Pose Style: None
+          Topic:
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /plan
+          Value: true
+        - Alpha: 1
+          Buffer Length: 1
+          Class: rviz_default_plugins/Path
+          Color: 40; 220; 255
+          Enabled: true
+          Line Style: Lines
+          Line Width: 0.03
+          Name: LocalPlan
+          Pose Style: None
+          Topic:
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /local_plan
+          Value: true
+        - Alpha: 1
+          Class: rviz_default_plugins/Polygon
+          Color: 60; 255; 120
+          Enabled: true
+          Name: GlobalFootprint
+          Topic:
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /global_costmap/published_footprint
+          Value: true
+        - Alpha: 1
+          Class: rviz_default_plugins/Polygon
+          Color: 255; 220; 40
+          Enabled: true
+          Name: LocalFootprint
+          Topic:
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /local_costmap/published_footprint
+          Value: true
+      Enabled: true
+      Name: Navigation
+    - Class: rviz_common/Group
+      Displays:
+        - Class: rviz_default_plugins/TF
+          Enabled: true
+          Frame Timeout: 15
+          Frames:
+            All Enabled: false
+            base_footprint:
+              Value: true
+            base_link:
+              Value: true
+            livox_frame:
+              Value: true
+            map:
+              Value: true
+            odom:
+              Value: true
+          Marker Scale: 0.6
+          Name: TF
+          Show Arrows: true
+          Show Axes: true
+          Show Names: false
+          Update Interval: 0
+          Value: true
+        - Alpha: 1
+          Class: rviz_default_plugins/RobotModel
+          Description Source: Topic
+          Description Topic:
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /robot_description
+          Enabled: true
+          Name: RobotModel
+          TF Prefix: ""
+          Update Interval: 0
+          Value: true
+          Visual Enabled: true
+        - Angle Tolerance: 0.1
+          Class: rviz_default_plugins/Odometry
+          Enabled: true
+          Keep: 100
+          Name: Odom
+          Position Tolerance: 0.1
+          Shape:
+            Alpha: 1
+            Axes Length: 0.35
+            Axes Radius: 0.03
+            Color: 255; 25; 0
+            Head Length: 0.2
+            Head Radius: 0.06
+            Shaft Length: 0.25
+            Shaft Radius: 0.03
+            Value: Arrow
+          Topic:
+            Depth: 10
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /odom
+          Value: true
+        - Alpha: 1
+          Buffer Length: 1
+          Class: rviz_default_plugins/Path
+          Color: 220; 80; 40
+          Enabled: true
+          Line Style: Lines
+          Line Width: 0.025
+          Name: OdomPath
+          Pose Style: None
+          Topic:
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /odom_path
+          Value: true
+        - Class: rviz_default_plugins/MarkerArray
+          Enabled: true
+          Name: OdomPoseMarkers
+          Topic:
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /odom_pose_markers
+          Value: true
+        - Class: rviz_default_plugins/PoseWithCovariance
+          Enabled: true
+          Name: LocalizationPose
+          Shape:
+            Alpha: 1
+            Axes Length: 0.6
+            Axes Radius: 0.04
+            Color: 80; 255; 120
+            Head Length: 0.25
+            Head Radius: 0.08
+            Shaft Length: 0.35
+            Shaft Radius: 0.04
+            Value: Arrow
+          Topic:
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /localization/pose_with_cov
+          Value: true
+      Enabled: true
+      Name: LocalizationAndOdometry
+    - Class: rviz_common/Group
+      Displays:
+        - Alpha: 1
+          Autocompute Intensity Bounds: true
+          Autocompute Value Bounds:
+            Max Value: 10
+            Min Value: -10
+            Value: true
+          Axis: Z
+          Channel Name: intensity
+          Class: rviz_default_plugins/PointCloud2
+          Color: 0; 255; 220
+          Color Transformer: FlatColor
+          Decay Time: 0
+          Enabled: true
+          Name: RegisteredScan
+          Position Transformer: XYZ
+          Selectable: true
+          Size (Pixels): 3
+          Size (m): 0.045
+          Style: Points
+          Topic:
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /registered_scan
+          Use Fixed Frame: true
+          Value: true
+        - Alpha: 1
+          Autocompute Intensity Bounds: true
+          Autocompute Value Bounds:
+            Max Value: 10
+            Min Value: -10
+            Value: true
+          Axis: Z
+          Channel Name: intensity
+          Class: rviz_default_plugins/PointCloud2
+          Color: 255; 170; 30
+          Color Transformer: FlatColor
+          Decay Time: 0
+          Enabled: true
+          Name: SensorScan
+          Position Transformer: XYZ
+          Selectable: true
+          Size (Pixels): 3
+          Size (m): 0.055
+          Style: Points
+          Topic:
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /sensor_scan
+          Use Fixed Frame: true
+          Value: true
+        - Alpha: 1
+          Class: rviz_default_plugins/PointCloud2
+          Color: 80; 180; 255
+          Color Transformer: FlatColor
+          Decay Time: 0
+          Enabled: false
+          Name: FullMapCloud
+          Size (m): 0.025
+          Style: Points
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /point_lio/map_cloud
+          Use Fixed Frame: true
+          Value: false
+        - Alpha: 1
+          Class: rviz_default_plugins/PointCloud2
+          Color Transformer: Intensity
+          Decay Time: 0
+          Enabled: false
+          Name: RawLidar
+          Size (m): 0.02
+          Style: Points
+          Topic:
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /livox/lidar
+          Use Fixed Frame: true
+          Value: false
+      Enabled: true
+      Name: PointClouds
+  Enabled: true
   Global Options:
-    # 参数说明：Fixed Frame - RViz 固定坐标系；所有显示项会转换到该 frame。
+    Background Color: 48; 48; 48
     Fixed Frame: map
-    # 参数说明：Frame Rate - RViz 刷新帧率；影响界面更新频率。
     Frame Rate: 30
+  Name: root
   Tools:
     - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+      Line color: 128; 128; 0
     - Class: rviz_default_plugins/SetInitialPose
-      # 参数说明：Topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-      Topic: initialpose
-    - Class: rviz_default_plugins/SetGoal
-      # 参数说明：Topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-      Topic: goal_pose
+      Covariance x: 0.25
+      Covariance y: 0.25
+      Covariance yaw: 0.06853891909122467
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /initialpose
+    - Class: rviz_default_plugins/PublishPoint
+      Single click: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /clicked_point
+    - Class: nav2_rviz_plugins/GoalTool
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
+  Value: true
   Views:
     Current:
-      Class: rviz_default_plugins/Orbit
-      # 参数说明：Distance - 几何距离参数，单位通常为米。
-      Distance: 18
-      # 参数说明：Pitch - 俯仰角；单位按该配置约定。
-      Pitch: 1.45
-      # 参数说明：Yaw - 偏航角；单位按该配置约定，导航图中通常为弧度。
-      Yaw: 0
+      Angle: -1.5708
+      Class: rviz_default_plugins/TopDownOrtho
+      Invert Z Axis: false
+      Name: Current View
+      Near Clip Distance: 0.01
+      Scale: 80
+      Target Frame: <Fixed Frame>
+      Value: TopDownOrtho (rviz_default_plugins)
+      X: 0
+      Y: 0
+    Saved: ~
+Window Geometry:
+  Displays:
+    collapsed: false
+  Height: 900
+  Hide Left Dock: false
+  Hide Right Dock: false
+  Navigation 2:
+    collapsed: false
+  Tool Properties:
+    collapsed: true
+  Views:
+    collapsed: true
+  Width: 1400

@@ -68,7 +68,7 @@
 - **规则**：本仓库统一使用下列命令做包级编译验证：
 
 ```bash
-MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select <pkg...>
+MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --parallel-workers 1 --packages-select <pkg...>
 ```
 
 - **当前实现**：仓库级 CI/CD 已删除；包级验证由维护者按上面的标准命令手动执行。`rc26_terrain`、`rc26_base_ground`、`rc26_kfs_keepout` 已归档为 source-only 包，不进入默认运行和手动验证闭包。

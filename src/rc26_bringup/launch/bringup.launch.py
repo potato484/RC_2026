@@ -164,7 +164,7 @@ def generate_launch_description():
 
     declare_nav2_map_file = DeclareLaunchArgument(
         'nav2_map_file',
-        default_value=PathJoinSubstitution([bringup_dir, 'map', 'default.yaml']),
+        default_value=PathJoinSubstitution([bringup_dir, 'map', 'test.yaml']),
         description='Nav2 map_server 使用的 2D occupancy map YAML；实机导航应传入有效地图')
 
     # RealSense D455（可选）

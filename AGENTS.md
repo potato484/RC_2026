@@ -64,7 +64,7 @@
 - 最终判断以项目代码、实际接口和可验证结果为准；`docs/` 的作用是帮助快速建立正确上下文，并为实现提供约束。
 - 在调用编程语言的非内置库时，优先查阅官方文档或权威资料，例如 `grok`、`context7`；若无法联网检索，先标注风险再编码。
 - 工作环境为 Linux Ubuntu 22.04；涉及 Python 命令统一使用 `python3`。
-- 编译验证统一使用 `MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select <pkg...>`；需要提速时优先小幅调高 `MAKEFLAGS`，不要直接提高 `--parallel-workers`。
+- 编译验证统一使用 `MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --parallel-workers 1 --packages-select <pkg...>`；需要提速时优先小幅调高 `MAKEFLAGS`，不要直接提高 `--parallel-workers`。
 
 ## RC_2026 特定事实
 

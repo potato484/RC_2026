@@ -88,7 +88,8 @@ private:
     std::string base_link_frame_;
     double base_link_height_above_base_footprint_m_{0.2};
 
-    tf2::Transform tf_base_to_input_body_;  // T_{input_body<-base_link}: 将 base_link 点变换到 Point-LIO 内部 body 坐标系
+    // TF-style pose of input_body_frame in base_link coordinates.
+    tf2::Transform tf_base_to_input_body_;
     std::mutex transform_mutex_;
     rclcpp::Time latest_odometry_stamp_;
     bool odom_pose_ready_{false};

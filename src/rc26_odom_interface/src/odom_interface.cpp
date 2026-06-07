@@ -543,18 +543,18 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
     const rclcpp::Time odom_stamp(msg->header.stamp);
     const bool split_base_frame = base_frame_ != base_link_frame_;
     const tf2::Transform tf_base_to_input_body = tf_base_to_input_body_;
+    const tf2::Transform tf_input_body_to_base_link = tf_base_to_input_body.inverse();
 
     // Input: input_body_odom -> input_body (from Point-LIO)
     // We first recover odom -> base_link, then split it into:
     // odom -> base_footprint -> base_link for the automatic navigation chain.
     // Transform chain:
-    //   T_odom_base = T_input_body_odom_input_body * T_input_body_base
-    //   where T_input_body_base = tf_base_to_input_body_ (computed once at init)
+    //   T_odom_base = T_odom_input_body * inverse(T_base_input_body)
     tf2::Transform tf_input_body_odom_to_input_body;
     tf2::fromMsg(msg->pose.pose, tf_input_body_odom_to_input_body);
 
     // Compute the raw Point-LIO odom -> base_link transform before splitting.
-    tf2::Transform tf_input_odom_to_base_link = tf_input_body_odom_to_input_body * tf_base_to_input_body;
+    tf2::Transform tf_input_odom_to_base_link = tf_input_body_odom_to_input_body * tf_input_body_to_base_link;
 
     if (zero_origin_to_first_frame_) {
         std::lock_guard<std::mutex> lock(transform_mutex_);
@@ -655,26 +655,26 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
         storeOdometryStampLocked(odom_stamp);
 
         if (use_input_twist_) {
-            const tf2::Vector3 r_base_in_input_body = tf_base_to_input_body.getOrigin();
-            const tf2::Quaternion rotation_input_body_to_base = tf_base_to_input_body.getRotation().inverse();
+            const tf2::Vector3 r_input_body_in_base = tf_base_to_input_body.getOrigin();
+            const tf2::Quaternion rotation_input_body_to_base = tf_base_to_input_body.getRotation();
             const tf2::Vector3 v_input_body(msg->twist.twist.linear.x, msg->twist.twist.linear.y,
                                             msg->twist.twist.linear.z);
             const tf2::Vector3 w_input_body(msg->twist.twist.angular.x, msg->twist.twist.angular.y,
                                             msg->twist.twist.angular.z);
 
-            const tf2::Vector3 v_base =
-                tf2::quatRotate(rotation_input_body_to_base, v_input_body + w_input_body.cross(r_base_in_input_body));
             const tf2::Vector3 w_base = tf2::quatRotate(rotation_input_body_to_base, w_input_body);
+            const tf2::Vector3 v_base =
+                tf2::quatRotate(rotation_input_body_to_base, v_input_body) - w_base.cross(r_input_body_in_base);
 
             const Eigen::Quaterniond rotation_input_body_to_base_eigen(rotation_input_body_to_base.w(),
                                                                        rotation_input_body_to_base.x(),
                                                                        rotation_input_body_to_base.y(),
                                                                        rotation_input_body_to_base.z());
             const Eigen::Matrix3d R = rotation_input_body_to_base_eigen.toRotationMatrix();
-            const Eigen::Vector3d r(r_base_in_input_body.x(), r_base_in_input_body.y(), r_base_in_input_body.z());
+            const Eigen::Vector3d r(r_input_body_in_base.x(), r_input_body_in_base.y(), r_input_body_in_base.z());
             Eigen::Matrix<double, 6, 6> J = Eigen::Matrix<double, 6, 6>::Zero();
             J.topLeftCorner<3, 3>() = R;
-            J.topRightCorner<3, 3>() = -R * skewSymmetric(r);
+            J.topRightCorner<3, 3>() = -skewSymmetric(r) * R;
             J.bottomRightCorner<3, 3>() = R;
             Eigen::Map<const Eigen::Matrix<double, 6, 6, Eigen::RowMajor>> sigma_in(msg->twist.covariance.data());
             Eigen::Matrix<double, 6, 6> sigma_output = Eigen::Matrix<double, 6, 6>::Zero();

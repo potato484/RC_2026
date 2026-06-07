@@ -4,8 +4,10 @@ R2 导航联调入口
 功能:
   - 复用 bringup.launch.py
   - 固定默认关闭 decision，保留定位 + Nav2 基础导航链
+  - 默认加载 navigation_default.rviz 打开 RViz2，便于现场观察定位、代价地图和路径
 
 验证:
+  - ros2 node list | grep rviz2
   - ros2 topic echo /sensor_scan --once
   - ros2 action info /navigate_to_pose
   - ros2 lifecycle get /controller_server
@@ -15,8 +17,10 @@ R2 导航联调入口
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
 
 
 def generate_launch_description():
@@ -32,6 +36,8 @@ def generate_launch_description():
     pose_sender_feedback_serial_port = LaunchConfiguration('pose_sender_feedback_serial_port')
     pose_sender_target_serial_port = LaunchConfiguration('pose_sender_target_serial_port')
     pose_sender_baudrate = LaunchConfiguration('pose_sender_baudrate')
+    use_rviz = LaunchConfiguration('use_rviz')
+    rviz_config_file = LaunchConfiguration('rviz_config_file')
 
     declare_use_sim_time = DeclareLaunchArgument(
         'use_sim_time',
@@ -55,7 +61,7 @@ def generate_launch_description():
         description='定位参数文件路径')
     declare_nav2_map_file = DeclareLaunchArgument(
         'nav2_map_file',
-        default_value=PathJoinSubstitution([bringup_dir, 'map', 'default.yaml']),
+        default_value=PathJoinSubstitution([bringup_dir, 'map', 'test.yaml']),
         description='Nav2 map_server 使用的 2D occupancy map YAML；实机导航应传入有效地图')
     declare_start_pose_sender = DeclareLaunchArgument(
         'start_pose_sender',
@@ -73,6 +79,14 @@ def generate_launch_description():
         'pose_sender_baudrate',
         default_value='1000000',
         description='pose_sender_node 串口波特率')
+    declare_use_rviz = DeclareLaunchArgument(
+        'use_rviz',
+        default_value='true',
+        description='是否随导航联调入口启动 RViz2')
+    declare_rviz_config_file = DeclareLaunchArgument(
+        'rviz_config_file',
+        default_value=PathJoinSubstitution([bringup_dir, 'rviz', 'navigation_default.rviz']),
+        description='RViz2 配置文件路径')
 
     bringup_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -94,6 +108,15 @@ def generate_launch_description():
         }.items()
     )
 
+    rviz_node = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        output='screen',
+        arguments=['-d', rviz_config_file],
+        condition=IfCondition(use_rviz),
+    )
+
     return LaunchDescription([
         declare_use_sim_time,
         declare_prior_pcd_file,
@@ -105,5 +128,8 @@ def generate_launch_description():
         declare_pose_sender_feedback_serial_port,
         declare_pose_sender_target_serial_port,
         declare_pose_sender_baudrate,
+        declare_use_rviz,
+        declare_rviz_config_file,
         bringup_launch,
+        rviz_node,
     ])
