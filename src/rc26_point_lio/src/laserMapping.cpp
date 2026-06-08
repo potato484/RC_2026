@@ -24,6 +24,7 @@
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
 
+#include "experimental_loop_closure.hpp"
 #include "li_initialization.hpp"
 
 using namespace std;
@@ -60,6 +61,7 @@ double last_full_map_publish_time = -1.0;
 
 auto LOGGER = rclcpp::get_logger("laserMapping");
 std::mutex runtime_param_mutex;
+std::shared_ptr<rc26_point_lio::ExperimentalLoopClosureBackend> experimental_loop_backend;
 
 constexpr char kBodyFilterBaseFrame[] = "base_link";
 constexpr char kBodyFilterLidarFrame[] = "livox_frame";
@@ -173,6 +175,33 @@ void resetFullMapForViz() {
         finalizeCloudMetadata(*full_map_cloud_for_viz);
     }
     last_full_map_publish_time = -1.0;
+}
+
+rc26_point_lio::ExperimentalLoopClosureConfig buildExperimentalLoopClosureConfig() {
+    rc26_point_lio::ExperimentalLoopClosureConfig config;
+    config.enable = experimental_loop_closure_enable;
+    config.frequency_hz = experimental_loop_closure_frequency_hz;
+    config.keyframe_dist_threshold_m = experimental_loop_closure_keyframe_dist_threshold_m;
+    config.keyframe_angle_threshold_rad = experimental_loop_closure_keyframe_angle_threshold_rad;
+    config.search_radius_m = experimental_loop_closure_search_radius_m;
+    config.time_diff_threshold_sec = experimental_loop_closure_time_diff_threshold_sec;
+    config.exclude_recent_keyframes = experimental_loop_closure_exclude_recent_keyframes;
+    config.sc_dist_threshold = experimental_loop_closure_sc_dist_threshold;
+    config.icp_fitness_threshold = experimental_loop_closure_icp_fitness_threshold;
+    config.icp_max_correspondence_dist_m = experimental_loop_closure_icp_max_correspondence_dist_m;
+    config.icp_max_iterations = experimental_loop_closure_icp_max_iterations;
+    config.submap_size = experimental_loop_closure_submap_size;
+    config.keyframe_cloud_voxel_size_m = experimental_loop_closure_keyframe_cloud_voxel_size_m;
+    config.max_keyframes_with_cloud = experimental_loop_closure_max_keyframes_with_cloud;
+    return config;
+}
+
+M3D currentLioRotation() {
+    return use_imu_as_input ? M3D(kf_input.x_.rot) : M3D(kf_output.x_.rot);
+}
+
+V3D currentLioPosition() {
+    return use_imu_as_input ? kf_input.x_.pos : kf_output.x_.pos;
 }
 
 void appendFullMapForViz(const PointVector& points_to_add) {
@@ -313,6 +342,105 @@ void pointBodyLidarToIMU(PointType const* const pi, PointType* const po) {
     po->y = p_body_imu(1);
     po->z = p_body_imu(2);
     po->intensity = pi->intensity;
+}
+
+PointCloudXYZI::Ptr makeExperimentalLoopBodyCloud() {
+    if (!feats_down_body || feats_down_body->empty()) {
+        return {};
+    }
+
+    PointCloudXYZI::Ptr body_cloud(new PointCloudXYZI());
+    body_cloud->points.resize(feats_down_body->points.size());
+    for (size_t i = 0; i < feats_down_body->points.size(); ++i) {
+        pointBodyLidarToIMU(&feats_down_body->points[i], &body_cloud->points[i]);
+    }
+    finalizeCloudMetadata(*body_cloud);
+    return body_cloud;
+}
+
+void rebuildPathFromExperimentalLoop(const std::vector<rc26_point_lio::ExperimentalOptimizedPose>& poses) {
+    path.poses.clear();
+    path.header.frame_id = odom_frame;
+    path.header.stamp = get_ros_time(lidar_end_time);
+    for (const auto& optimized_pose : poses) {
+        geometry_msgs::msg::PoseStamped pose;
+        pose.header.frame_id = odom_frame;
+        pose.header.stamp = get_ros_time(optimized_pose.timestamp);
+        pose.pose.position.x = optimized_pose.position.x();
+        pose.pose.position.y = optimized_pose.position.y();
+        pose.pose.position.z = optimized_pose.position.z();
+        Eigen::Quaterniond q(optimized_pose.rotation);
+        pose.pose.orientation.x = q.x();
+        pose.pose.orientation.y = q.y();
+        pose.pose.orientation.z = q.z();
+        pose.pose.orientation.w = q.w();
+        path.poses.emplace_back(std::move(pose));
+    }
+}
+
+void refreshDownsampledWorldCloudFromCurrentState() {
+    if (!feats_down_body || feats_down_body->empty()) {
+        return;
+    }
+
+    if (!feats_down_world) {
+        feats_down_world.reset(new PointCloudXYZI());
+    }
+    feats_down_world->resize(feats_down_body->points.size());
+    for (size_t i = 0; i < feats_down_body->points.size(); ++i) {
+        pointBodyToWorld(&feats_down_body->points[i], &feats_down_world->points[i]);
+    }
+    finalizeCloudMetadata(*feats_down_world);
+}
+
+void applyExperimentalLoopCorrectionIfReady() {
+    if (!experimental_loop_backend || !experimental_loop_backend->enabled()) {
+        return;
+    }
+
+    rc26_point_lio::ExperimentalLoopCorrection correction;
+    if (!experimental_loop_backend->consumePendingCorrection(correction)) {
+        return;
+    }
+
+    const M3D previous_rotation = currentLioRotation();
+    const V3D previous_position = currentLioPosition();
+    const M3D delta_rotation = correction.rotation * correction.original_rotation.transpose();
+    const V3D delta_position = correction.position - delta_rotation * correction.original_position;
+    const M3D corrected_rotation = delta_rotation * previous_rotation;
+    const V3D corrected_position = delta_rotation * previous_position + delta_position;
+
+    if (use_imu_as_input) {
+        state_input updated = kf_input.get_x();
+        updated.pos = corrected_position;
+        updated.rot = SO3(corrected_rotation);
+        state_in = updated;
+        kf_input.change_x(updated);
+    } else {
+        state_output updated = kf_output.get_x();
+        updated.pos = corrected_position;
+        updated.rot = SO3(corrected_rotation);
+        state_out = updated;
+        kf_output.change_x(updated);
+    }
+    refreshDownsampledWorldCloudFromCurrentState();
+
+    PointCloudXYZI::Ptr optimized_map = experimental_loop_backend->buildOptimizedMap();
+    if (optimized_map && !optimized_map->empty()) {
+        ivox_.reset(new IVoxType(ivox_options_));
+        ivox_->AddPoints(optimized_map->points);
+        if (full_map_publish_en) {
+            full_map_cloud_for_viz = optimized_map;
+            finalizeCloudMetadata(*full_map_cloud_for_viz);
+            last_full_map_publish_time = -1.0;
+        }
+    }
+    rebuildPathFromExperimentalLoop(experimental_loop_backend->optimizedPoses());
+
+    RCLCPP_WARN(LOGGER,
+                "实验性全局闭环已回写 Point-LIO 状态: keyframe=%zu, pos=[%.3f, %.3f, %.3f], "
+                "iVox 已按优化关键帧重建",
+                correction.keyframe_id, corrected_position.x(), corrected_position.y(), corrected_position.z());
 }
 
 void MapIncremental() {
@@ -591,6 +719,16 @@ int main(int argc, char** argv) {
     }
     RCLCPP_INFO(LOGGER, "LiDAR 类型配置已加载: lidar_type=%d", lidar_type);
     ivox_ = std::make_shared<IVoxType>(ivox_options_);
+    if (experimental_loop_closure_enable) {
+        experimental_loop_backend =
+            std::make_shared<rc26_point_lio::ExperimentalLoopClosureBackend>(buildExperimentalLoopClosureConfig());
+        experimental_loop_backend->start();
+        RCLCPP_WARN(LOGGER,
+                    "实验性全局闭环已开启: 这是非默认实验功能，会在闭环成功后回写 Point-LIO 状态并重建 iVox");
+    } else {
+        experimental_loop_backend.reset();
+        RCLCPP_INFO(LOGGER, "实验性全局闭环未开启: experimental_loop_closure.enable=false");
+    }
 
     auto tf_buffer = std::make_shared<tf2_ros::Buffer>(nh->get_clock());
     auto tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer, nh, false);
@@ -820,6 +958,9 @@ int main(int argc, char** argv) {
                 init_map = false;
 
                 { ivox_.reset(new IVoxType(ivox_options_)); }
+                if (experimental_loop_backend) {
+                    experimental_loop_backend->reset();
+                }
                 resetFullMapForViz();
             }
 
@@ -1362,6 +1503,7 @@ int main(int argc, char** argv) {
             // euler_cur = RotMtoEuler(rot_cur_lidar);
             // geoQuat = tf::createQuaternionMsgFromRollPitchYaw
             //                     (euler_cur(0), euler_cur(1), euler_cur(2));
+            applyExperimentalLoopCorrectionIfReady();
             /******* Publish odometry downsample *******/
             if (!publish_odometry_without_downsample) {
                 publish_odometry(pub_odom_aft_mapped, tf_broadcaster);
@@ -1380,6 +1522,11 @@ int main(int argc, char** argv) {
             t3 = omp_get_wtime();
             if (feats_down_size > 4) {
                 MapIncremental();
+                if (experimental_loop_backend && experimental_loop_backend->enabled()) {
+                    experimental_loop_backend->maybeAddKeyFrame(lidar_end_time, currentLioRotation(),
+                                                                currentLioPosition(),
+                                                                makeExperimentalLoopBodyCloud());
+                }
             }
             publish_full_map_if_due(pub_full_map_cloud, nh);
             t5 = omp_get_wtime();
@@ -1437,6 +1584,9 @@ int main(int argc, char** argv) {
     //--------------------------save map-----------------------------------
     // 1. make sure you have enough memories
     // 2. noted that pcd save will influence the real-time performances
+    if (experimental_loop_backend) {
+        experimental_loop_backend->stop();
+    }
     flushPendingPcd("shutdown");
     fout_out.close();
     fout_imu_pbp.close();

@@ -110,6 +110,21 @@
             # 参数说明：full_map_max_points - 完整累计点云单次发布点数上限；超过上限时按固定步长抽样。
             full_map_max_points: 1500000
 
+        experimental_loop_closure:
+            # 实验性功能：全局闭环默认关闭；关闭时不创建闭环线程、不保存关键帧、不运行 GTSAM。
+            enable: false
+            frequency_hz: 0.5
+            keyframe_dist_threshold_m: 1.0
+            keyframe_angle_threshold_rad: 0.2
+            search_radius_m: 15.0
+            time_diff_threshold_sec: 30.0
+            exclude_recent_keyframes: 30
+            sc_dist_threshold: 0.20
+            icp_fitness_threshold: 0.5
+            submap_size: 25
+            keyframe_cloud_voxel_size_m: 0.15
+            max_keyframes_with_cloud: 500
+
         pcd_save:
             # 参数说明：pcd_save_en - 是否保存建图累计 PCD；默认开启，节点正常退出时落盘。
             pcd_save_en: False

@@ -53,6 +53,7 @@ find_package(pcl_conversions REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(GTSAM REQUIRED CONFIG)
 find_package(glog REQUIRED)
 find_package(OpenMP QUIET)
 
@@ -75,6 +76,7 @@ link_directories(
 # Declare a ROS2 executable
 add_executable(pointlio_mapping
   src/laserMapping.cpp
+  src/experimental_loop_closure.cpp
   src/li_initialization.cpp
   src/parameters.cpp
   src/preprocess.cpp
@@ -96,7 +98,7 @@ ament_target_dependencies(pointlio_mapping
   tf2_ros
 )
 
-target_link_libraries(pointlio_mapping ${PCL_LIBRARIES})
+target_link_libraries(pointlio_mapping ${PCL_LIBRARIES} gtsam)
 
 # Install the executable
 install(TARGETS
@@ -132,6 +134,7 @@ ament_export_dependencies(
   tf2
   tf2_ros
   Eigen3
+  GTSAM
   PCL
 )
 

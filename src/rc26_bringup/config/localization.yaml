@@ -10,6 +10,7 @@
 #   - registered_scan 已经在 odom_frame 中表达
 #   - prior_pcd_file 已经在 map_frame 中表达
 #   - 开局重定位只在启动阶段尝试一次，中途丢定位仍通过 initialpose 接管
+#   - 实验性在线重定位默认关闭；开启后会在局部跟踪连续失败时后台尝试全局 PCD 配准
 
 localization:
   ros__parameters:
@@ -39,3 +40,10 @@ localization:
     startup_relocalization_enable: true
     startup_collect_ms: 1500
     startup_leaf_size: 0.3
+
+    online_relocalization_enable: false
+    online_relocalization_trigger_after_failures: 3
+    online_relocalization_cooldown_ms: 5000
+    online_relocalization_max_attempts: 3
+    online_relocalization_collect_ms: 1500
+    online_relocalization_leaf_size: 0.3

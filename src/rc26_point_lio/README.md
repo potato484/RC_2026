@@ -4,7 +4,7 @@
 
 `rc26_point_lio` 是 R2 当前的 LiDAR-Inertial Odometry 主链路。当前实现以 `Point-LIO-point-lio-with-grid-map` 的主算法链为行为基准，保留 ROS 2 包形态、Mid-360 `PointCloud2` 输入、车身 ROI 过滤、frame/TF 装配能力和基础 PCD 保存能力。
 
-本包不再承担先验地图注入、输出侧高度裁剪、退化评分或控制降级判断；完整累计地图只通过低频可视化 topic 对外发布。全局先验地图和重定位职责属于 localization 链路；控制/导航默认直接消费 `rc26_odom_interface` 发布的 `/odom`。
+本包不再承担先验地图注入、输出侧高度裁剪、退化评分或控制降级判断；完整累计地图只通过低频可视化 topic 对外发布。全局先验地图和重定位职责属于 localization 链路；控制/导航默认直接消费 `rc26_odom_interface` 发布的 `/odom`。当前新增的全局闭环是实验性 Point-LIO 内部优化能力，默认关闭，不读取 `prior_pcd_file`，也不改变 localization 的 `map -> odom` 权威。
 
 ## 当前保留能力
 
@@ -18,6 +18,7 @@
 - 低频完整累计点云发布：默认向 `/point_lio/map_cloud` 发布可视化用完整地图
 - 基础 PCD 保存：默认开启，正常退出后写入包内 `PCD/`
 - PCD 地图检查脚本：`scripts/pcd_map_inspector.py` 可解析 PCD 边界，并只读校验 Nav2 map YAML/image 覆盖范围
+- 实验性全局闭环：通过 `experimental_loop_closure.enable` 显式开启；关闭时不创建闭环线程、不保存关键帧、不运行 GTSAM，现有 topic、TF 和 PCD 保存行为保持原样
 
 ## 已删除链路
 
@@ -38,6 +39,8 @@ MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 \
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
+实验性全局闭环构建期依赖 GTSAM，当前按 GTSAM 4.2.0 源码安装到 `/usr/local` 的口径维护；默认关闭并不绕过构建依赖。
+
 ## 配置
 
 默认配置文件：
@@ -52,8 +55,17 @@ source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 - `publish.scan_bodyframe_pub_en`：控制 `/cloud_registered_body` 是否发布。
 - `publish.full_map_publish_en`、`publish.full_map_topic`、`publish.full_map_interval_sec`、`publish.full_map_voxel_size`、`publish.full_map_max_points`：控制完整累计地图可视化发布。默认开启，低频、降采样并限制单次发布点数；该 topic 只用于观察，不作为定位或导航权威。
 - `pcd_save.pcd_save_en`、`pcd_save.interval`：控制 PCD 保存。默认开启且 `interval=-1`，建图正常退出后保存单个 `scans.pcd`。
+- `experimental_loop_closure.*`：实验性全局闭环参数组，默认 `enable=false`。开启后会维护关键帧、执行 Scan Context/ICP 闭环检测和 GTSAM/iSAM2 位姿图优化；闭环成功后按优化结果修正当前 Point-LIO 状态、重建 iVox 局部地图，并复用 `/state_estimation`、`/cloud_registered`、`/path` 输出修正后的 LIO 结果。
 
 `mapping.extrinsic_T/R` 是 Point-LIO 内部 LiDAR/IMU 外参，不表示雷达相对 `base_link` 的整机安装位姿。雷达安装外参由 `rc26_sensor_extrinsics` 管理，并经 `rc26_bringup` 发布静态 TF。
+
+## 实验性全局闭环
+
+`experimental_loop_closure.enable=false` 是默认和比赛主链口径。此状态下 Point-LIO 不创建后台闭环线程，不缓存闭环关键帧，不调用 GTSAM，已有 `/state_estimation`、`/path`、`/cloud_registered`、PCD 保存和 `tf_send_en` 行为不变。
+
+开启后，Point-LIO 会按关键帧位移/角度阈值保存降采样 body 点云，用 Scan Context 近似描述子查找历史候选，再用 ICP 校验并向 GTSAM/iSAM2 添加闭环约束。闭环成功时，节点会用优化关键帧相对原关键帧的位姿差回写当前 `kf_output` 或 `kf_input` 的 `pos/rot`，随后重建 iVox，避免修正后的滤波状态继续匹配旧坐标地图。
+
+该能力只修正 Point-LIO 自身 odom 系结果，不发布新的动态 TF 权威；`tf_send_en` 语义保持不变，整车自动导航链仍由 `rc26_odom_interface` 发布 `odom -> base_footprint -> base_link`。
 
 ## 启动
 
@@ -115,6 +127,8 @@ Point-LIO 原生发布：
 - `/path`：Point-LIO 原生路径，受 `publish.path_en` 控制。
 
 经过 `rc26_odom_interface` 后，下游通常消费 `/odom` 与 `/registered_scan`；`/registered_scan` 由 `/cloud_registered` 转换到统一 odom 坐标系后发布。
+
+开启实验性全局闭环后，上述 Point-LIO 原生 `/state_estimation`、`/cloud_registered` 和 `/path` 会反映闭环修正后的 LIO 状态；关闭时输出语义不变。
 
 ## PCD 保存与定位复用
 

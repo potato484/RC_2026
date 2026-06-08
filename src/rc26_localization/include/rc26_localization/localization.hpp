@@ -2,10 +2,12 @@
 #define RC26_LOCALIZATION__LOCALIZATION_HPP_
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <Eigen/Geometry>
@@ -31,6 +33,7 @@ namespace rc26_localization {
 class LocalizationNode : public rclcpp::Node {
 public:
     explicit LocalizationNode(const rclcpp::NodeOptions& options);
+    ~LocalizationNode() override;
 
 private:
     void loadGlobalMap(const std::string& file_name);
@@ -40,6 +43,14 @@ private:
     void initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
     void performRegistration();
     bool performStartupRelocalization(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud_to_register);
+    void noteLocalRegistrationFailure(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud_to_register,
+                                      const std::string& reason);
+    void maybeStartOnlineRelocalization(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud_to_register,
+                                        const std::string& reason);
+    void runOnlineRelocalization(pcl::PointCloud<pcl::PointXYZ>::Ptr trigger_cloud, std::string trigger_reason);
+    bool performOnlineRelocalization(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud_to_register,
+                                     const std::string& trigger_reason);
+    void consumePendingOnlineRelocalizationResult();
     void publishTransform();
     void publishPoseWithCov(const Eigen::Isometry3d& pose, const std::array<double, 6>& covariance_diag);
     void publishDiagnostics(const std::string& reason, uint8_t level, bool converged, bool accepted,
@@ -71,6 +82,12 @@ private:
     bool startup_relocalization_enable_{true};
     int startup_collect_ms_{1500};
     double startup_leaf_size_{0.3};
+    bool online_relocalization_enable_{false};
+    int online_relocalization_trigger_after_failures_{3};
+    int online_relocalization_cooldown_ms_{5000};
+    int online_relocalization_max_attempts_{3};
+    int online_relocalization_collect_ms_{1500};
+    double online_relocalization_leaf_size_{0.3};
     std::vector<double> init_pose_;
 
     std::string map_frame_{"map"};
@@ -90,6 +107,17 @@ private:
     bool startup_relocalization_attempted_{false};
     std::string startup_relocalization_state_{"pending"};
     std::chrono::steady_clock::time_point startup_begin_wall_;
+    std::atomic<bool> online_relocalization_running_{false};
+    std::atomic<bool> online_relocalization_stop_{false};
+    std::atomic<bool> online_relocalization_cancel_requested_{false};
+    std::thread online_relocalization_worker_;
+    std::mutex online_relocalization_mutex_;
+    int consecutive_registration_failures_{0};
+    int online_relocalization_attempts_{0};
+    std::string online_relocalization_state_{"disabled"};
+    std::string online_relocalization_reason_{"disabled"};
+    std::string last_relocalization_source_{"none"};
+    std::chrono::steady_clock::time_point last_online_relocalization_attempt_wall_;
 
     std::mutex cloud_mutex_;
     pcl::PointCloud<pcl::PointXYZ>::Ptr accumulated_cloud_;
@@ -108,6 +136,9 @@ private:
     Eigen::Isometry3d result_t_{Eigen::Isometry3d::Identity()};
     Eigen::Isometry3d previous_result_t_{Eigen::Isometry3d::Identity()};
     std::array<double, 6> last_pose_cov_diag_{{0.05, 0.05, 0.10, 0.05, 0.05, 0.05}};
+    bool pending_online_relocalization_result_{false};
+    Eigen::Isometry3d pending_online_relocalization_t_{Eigen::Isometry3d::Identity()};
+    std::array<double, 6> pending_online_relocalization_cov_diag_{{0.05, 0.05, 0.10, 0.05, 0.05, 0.05}};
 };
 
 }  // namespace rc26_localization

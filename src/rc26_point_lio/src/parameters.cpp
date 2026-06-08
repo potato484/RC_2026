@@ -266,6 +266,57 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
         nh->declare_parameter<int>("publish.full_map_max_points", 1500000);
         nh->get_parameter("publish.full_map_max_points", full_map_max_points);
 
+        nh->declare_parameter<bool>("experimental_loop_closure.enable", false);
+        nh->get_parameter("experimental_loop_closure.enable", experimental_loop_closure_enable);
+
+        nh->declare_parameter<double>("experimental_loop_closure.frequency_hz", 0.5);
+        nh->get_parameter("experimental_loop_closure.frequency_hz", experimental_loop_closure_frequency_hz);
+
+        nh->declare_parameter<double>("experimental_loop_closure.keyframe_dist_threshold_m", 1.0);
+        nh->get_parameter("experimental_loop_closure.keyframe_dist_threshold_m",
+                          experimental_loop_closure_keyframe_dist_threshold_m);
+
+        nh->declare_parameter<double>("experimental_loop_closure.keyframe_angle_threshold_rad", 0.2);
+        nh->get_parameter("experimental_loop_closure.keyframe_angle_threshold_rad",
+                          experimental_loop_closure_keyframe_angle_threshold_rad);
+
+        nh->declare_parameter<double>("experimental_loop_closure.search_radius_m", 15.0);
+        nh->get_parameter("experimental_loop_closure.search_radius_m", experimental_loop_closure_search_radius_m);
+
+        nh->declare_parameter<double>("experimental_loop_closure.time_diff_threshold_sec", 30.0);
+        nh->get_parameter("experimental_loop_closure.time_diff_threshold_sec",
+                          experimental_loop_closure_time_diff_threshold_sec);
+
+        nh->declare_parameter<int>("experimental_loop_closure.exclude_recent_keyframes", 30);
+        nh->get_parameter("experimental_loop_closure.exclude_recent_keyframes",
+                          experimental_loop_closure_exclude_recent_keyframes);
+
+        nh->declare_parameter<double>("experimental_loop_closure.sc_dist_threshold", 0.20);
+        nh->get_parameter("experimental_loop_closure.sc_dist_threshold", experimental_loop_closure_sc_dist_threshold);
+
+        nh->declare_parameter<double>("experimental_loop_closure.icp_fitness_threshold", 0.5);
+        nh->get_parameter("experimental_loop_closure.icp_fitness_threshold",
+                          experimental_loop_closure_icp_fitness_threshold);
+
+        nh->declare_parameter<double>("experimental_loop_closure.icp_max_correspondence_dist_m", 100.0);
+        nh->get_parameter("experimental_loop_closure.icp_max_correspondence_dist_m",
+                          experimental_loop_closure_icp_max_correspondence_dist_m);
+
+        nh->declare_parameter<int>("experimental_loop_closure.icp_max_iterations", 100);
+        nh->get_parameter("experimental_loop_closure.icp_max_iterations",
+                          experimental_loop_closure_icp_max_iterations);
+
+        nh->declare_parameter<int>("experimental_loop_closure.submap_size", 25);
+        nh->get_parameter("experimental_loop_closure.submap_size", experimental_loop_closure_submap_size);
+
+        nh->declare_parameter<double>("experimental_loop_closure.keyframe_cloud_voxel_size_m", 0.15);
+        nh->get_parameter("experimental_loop_closure.keyframe_cloud_voxel_size_m",
+                          experimental_loop_closure_keyframe_cloud_voxel_size_m);
+
+        nh->declare_parameter<int>("experimental_loop_closure.max_keyframes_with_cloud", 500);
+        nh->get_parameter("experimental_loop_closure.max_keyframes_with_cloud",
+                          experimental_loop_closure_max_keyframes_with_cloud);
+
         nh->declare_parameter<bool>("runtime_pos_log_enable", false);
         nh->get_parameter("runtime_pos_log_enable", runtime_pos_log);
 
@@ -339,6 +390,71 @@ void readParameters(std::shared_ptr<rclcpp::Node>& nh) {
                     full_map_max_points);
         full_map_max_points = 1500000;
     }
+    if (!std::isfinite(experimental_loop_closure_frequency_hz) ||
+        experimental_loop_closure_frequency_hz <= 0.0) {
+        RCLCPP_WARN(nh->get_logger(), "experimental_loop_closure.frequency_hz=%.3f 无效，改用 0.5 Hz",
+                    experimental_loop_closure_frequency_hz);
+        experimental_loop_closure_frequency_hz = 0.5;
+    }
+    if (!std::isfinite(experimental_loop_closure_keyframe_dist_threshold_m) ||
+        experimental_loop_closure_keyframe_dist_threshold_m <= 0.0) {
+        RCLCPP_WARN(nh->get_logger(),
+                    "experimental_loop_closure.keyframe_dist_threshold_m=%.3f 无效，改用 1.0 m",
+                    experimental_loop_closure_keyframe_dist_threshold_m);
+        experimental_loop_closure_keyframe_dist_threshold_m = 1.0;
+    }
+    if (!std::isfinite(experimental_loop_closure_keyframe_angle_threshold_rad) ||
+        experimental_loop_closure_keyframe_angle_threshold_rad <= 0.0) {
+        RCLCPP_WARN(nh->get_logger(),
+                    "experimental_loop_closure.keyframe_angle_threshold_rad=%.3f 无效，改用 0.2 rad",
+                    experimental_loop_closure_keyframe_angle_threshold_rad);
+        experimental_loop_closure_keyframe_angle_threshold_rad = 0.2;
+    }
+    if (!std::isfinite(experimental_loop_closure_search_radius_m) ||
+        experimental_loop_closure_search_radius_m <= 0.0) {
+        RCLCPP_WARN(nh->get_logger(), "experimental_loop_closure.search_radius_m=%.3f 无效，改用 15.0 m",
+                    experimental_loop_closure_search_radius_m);
+        experimental_loop_closure_search_radius_m = 15.0;
+    }
+    if (!std::isfinite(experimental_loop_closure_time_diff_threshold_sec) ||
+        experimental_loop_closure_time_diff_threshold_sec < 0.0) {
+        RCLCPP_WARN(nh->get_logger(), "experimental_loop_closure.time_diff_threshold_sec=%.3f 无效，改用 30.0 s",
+                    experimental_loop_closure_time_diff_threshold_sec);
+        experimental_loop_closure_time_diff_threshold_sec = 30.0;
+    }
+    experimental_loop_closure_exclude_recent_keyframes =
+        std::max(1, experimental_loop_closure_exclude_recent_keyframes);
+    if (!std::isfinite(experimental_loop_closure_sc_dist_threshold) ||
+        experimental_loop_closure_sc_dist_threshold <= 0.0) {
+        RCLCPP_WARN(nh->get_logger(), "experimental_loop_closure.sc_dist_threshold=%.3f 无效，改用 0.20",
+                    experimental_loop_closure_sc_dist_threshold);
+        experimental_loop_closure_sc_dist_threshold = 0.20;
+    }
+    if (!std::isfinite(experimental_loop_closure_icp_fitness_threshold) ||
+        experimental_loop_closure_icp_fitness_threshold <= 0.0) {
+        RCLCPP_WARN(nh->get_logger(), "experimental_loop_closure.icp_fitness_threshold=%.3f 无效，改用 0.5",
+                    experimental_loop_closure_icp_fitness_threshold);
+        experimental_loop_closure_icp_fitness_threshold = 0.5;
+    }
+    if (!std::isfinite(experimental_loop_closure_icp_max_correspondence_dist_m) ||
+        experimental_loop_closure_icp_max_correspondence_dist_m <= 0.0) {
+        RCLCPP_WARN(nh->get_logger(),
+                    "experimental_loop_closure.icp_max_correspondence_dist_m=%.3f 无效，改用 100.0 m",
+                    experimental_loop_closure_icp_max_correspondence_dist_m);
+        experimental_loop_closure_icp_max_correspondence_dist_m = 100.0;
+    }
+    experimental_loop_closure_icp_max_iterations =
+        std::max(1, experimental_loop_closure_icp_max_iterations);
+    experimental_loop_closure_submap_size = std::max(0, experimental_loop_closure_submap_size);
+    if (!std::isfinite(experimental_loop_closure_keyframe_cloud_voxel_size_m) ||
+        experimental_loop_closure_keyframe_cloud_voxel_size_m < 0.0) {
+        RCLCPP_WARN(nh->get_logger(),
+                    "experimental_loop_closure.keyframe_cloud_voxel_size_m=%.3f 无效，改用 0.15 m",
+                    experimental_loop_closure_keyframe_cloud_voxel_size_m);
+        experimental_loop_closure_keyframe_cloud_voxel_size_m = 0.15;
+    }
+    experimental_loop_closure_max_keyframes_with_cloud =
+        std::max(3, experimental_loop_closure_max_keyframes_with_cloud);
 
     if (point_filter_num < 1) {
         RCLCPP_WARN(nh->get_logger(), "point_filter_num=%d < 1，已限制为 1", point_filter_num);
