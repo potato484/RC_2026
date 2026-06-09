@@ -14,8 +14,8 @@
 # - free_thresh: 像素值低于或等于该阈值时视为空闲
 
 image: test.png  # 占位图像，真实导航应替换为现场导出的地图图像
-resolution: 0.05 
-origin: [-7.875, -15.985, 0.0]  # 按当前 scan.pcd 的 x/y 最小边界对齐 2D 栅格左下角
+resolution: 0.05
+origin: [-2.758284568786621, -3.8199663162231445, 0.0]  # 按当前 scan.pcd 的 x/y 最小边界对齐 2D 栅格左下角
 negate: 0  # 不反色
 occupied_thresh: 0.65  # >= 0.65 视为障碍
 free_thresh: 0.196  # <= 0.196 视为空闲
