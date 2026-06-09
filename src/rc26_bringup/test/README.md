@@ -191,7 +191,7 @@ ros2 topic echo /cmd_vel
 - `rc26_bringup` 当前保持 headless，不再通过 launch 参数拉起仓库内 GUI
 - Nav2 当前默认关闭 local/global obstacle layer；`/sensor_scan` (`PointCloud2`) 仍会输出，但不再默认参与 costmap 障碍投影
 - `test_navigation.launch.py` 默认会同时拉起 `pose_sender_node`；若只做图结构/感知链验证，请显式传 `start_pose_sender:=false`
-- `src/rc26_bringup/map/test.yaml` 是当前默认占位地图，只用于把 Nav2 lifecycle、costmap 和执行桥链路拉起，不代表可直接通过真实规划验收
+- `src/rc26_bringup/map/test.yaml` 是当前默认样本地图，由 `scan.pcd` 过滤投影为黑白 `test.png`；可用于基础导航链联调，不代表可直接通过现场真实规划验收
 - 如需可视化，请改用工作区外部工具只读消费现有 topic，例如手工运行 `rviz2 -d /home/potato/RC_2026/src/rc26_bringup/rviz/navigation_default.rviz`
 
 如需验证执行桥：

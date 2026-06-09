@@ -18,6 +18,7 @@
 - 低频完整累计点云发布：默认向 `/point_lio/map_cloud` 发布可视化用完整地图
 - 基础 PCD 保存：默认开启，正常退出后写入包内 `PCD/`
 - PCD 地图检查脚本：`scripts/pcd_map_inspector.py` 可解析 PCD 边界，并只读校验 Nav2 map YAML/image 覆盖范围
+- PCD 到 Nav2 map 转换脚本：`scripts/pcd_to_nav2_map.py` 可把过滤后的 PCD 投影成黑白 `PNG + YAML`，并可显式选择 PGM
 - 实验性全局闭环：通过 `experimental_loop_closure.enable` 显式开启；关闭时不创建闭环线程、不保存关键帧、不运行 GTSAM，现有 topic、TF 和 PCD 保存行为保持原样
 
 ## 已删除链路
@@ -168,6 +169,42 @@ ros2 run rc26_point_lio pcd_map_inspector.py \
 - `--z-min / --z-max`：只用指定高度范围内的点计算 2D 边界。
 - `--json`：输出结构化 JSON，供后续脚本消费。
 
+### PCD 到 Nav2 黑白地图生成
+
+`scripts/pcd_to_nav2_map.py` 是 PCD 后处理工具，用于把 Point-LIO 保存的三维点云投影成 Nav2 `map_server` 可读取的黑白静态地图。默认只保留 `0.05 <= z <= 2.0` 的点，用来剔除地板和天花板；每个栅格至少 3 个过滤后点才标记为占用。默认输出 `PNG + YAML`，PNG 中黑色为占用、白色为空闲，不生成 unknown 灰格；如需 PGM，可显式传 `--image-format pgm`。
+
+源码树直接运行：
+
+```bash
+python3 src/rc26_point_lio/scripts/pcd_to_nav2_map.py \
+  src/rc26_point_lio/PCD/scan.pcd \
+  --output-prefix src/rc26_bringup/map/test \
+  --resolution 0.05 \
+  --z-min 0.05 \
+  --z-max 2.0 \
+  --min-points-per-cell 3 \
+  --overwrite
+```
+
+安装后运行：
+
+```bash
+ros2 run rc26_point_lio pcd_to_nav2_map.py \
+  src/rc26_point_lio/PCD/scan.pcd \
+  --output-prefix /tmp/site_nav2_map
+```
+
+常用参数：
+
+- `--resolution 0.05`：输出栅格分辨率。
+- `--z-min 0.05 --z-max 2.0`：高度过滤窗口，默认按导航障碍投影口径去掉地板和天花板。
+- `--image-format png`：输出图片格式，默认 `png`，可显式改为 `pgm`。
+- `--min-points-per-cell 3`：每格占用点数阈值，可按点云密度调大或调小。
+- `--padding-m 0.2`：输出地图边界额外留白。
+- `--json`：输出结构化生成统计。
+
+这份 2D occupancy map 只供 Nav2 静态地图使用；localization 的 `prior_pcd_file` 仍然使用原始或后处理后的 PCD，二者不是同一个接口。
+
 ## 地面点云说明
 
 - 建图时看到地面点通常是正常现象，Mid-360 本身具备向下观测能力。
@@ -189,4 +226,4 @@ rviz2 -d "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/rviz/slam.rviz"
 
 根目录集中式调试文档已删除。Point-LIO 主链、预处理、IMU 初始化、PCD 保存、车身 ROI 热更新和运行耗时统计等用户可见提示按中文输出；topic、frame、参数名、路径和返回码仍保留原值，方便继续排查。
 
-若需要分析 LiDAR/IMU 时间偏移，可运行 `scripts/time_sync_analyzer.py`。该脚本输出中文说明和外部时间偏移建议，Point-LIO 当前不直接消费该结果。若需要排查 PCD 与 Nav2 map YAML 的尺寸、origin 和覆盖关系，使用 `scripts/pcd_map_inspector.py`。
+若需要分析 LiDAR/IMU 时间偏移，可运行 `scripts/time_sync_analyzer.py`。该脚本输出中文说明和外部时间偏移建议，Point-LIO 当前不直接消费该结果。若需要排查 PCD 与 Nav2 map YAML 的尺寸、origin 和覆盖关系，使用 `scripts/pcd_map_inspector.py`；若需要把 PCD 后处理为 Nav2 黑白静态地图，使用 `scripts/pcd_to_nav2_map.py`。

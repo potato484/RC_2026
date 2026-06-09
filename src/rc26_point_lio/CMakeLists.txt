@@ -113,12 +113,14 @@ install(
 
 install(PROGRAMS
   scripts/pcd_map_inspector.py
+  scripts/pcd_to_nav2_map.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_pcd_map_inspector test/test_pcd_map_inspector.py)
+  ament_add_pytest_test(test_pcd_to_nav2_map test/test_pcd_to_nav2_map.py)
 endif()
 
 # Export dependencies

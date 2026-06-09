@@ -16,7 +16,7 @@ import struct
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 
 class InspectorError(RuntimeError):
@@ -102,6 +102,14 @@ class PcdAnalysis:
             "z_filter": {"min": self.z_filter[0], "max": self.z_filter[1]},
             "bounds": self.bounds.to_dict(),
         }
+
+
+@dataclass(frozen=True)
+class PcdXyzRecord:
+    x: float | None
+    y: float | None
+    z: float | None
+    status: str
 
 
 @dataclass(frozen=True)
@@ -425,6 +433,94 @@ def _passes_filter(x: float, y: float, z: float, z_min: float | None, z_max: flo
     return True
 
 
+def iter_pcd_xyz_records(path: Path, header: PcdHeader | None = None) -> Iterator[PcdXyzRecord]:
+    """Yield XYZ records from supported PCD files.
+
+    Records with ``status == "ok"`` contain finite XYZ values. Parse failures and
+    non-finite values are yielded as status records so callers can keep counters
+    aligned with ``analyze_pcd`` without duplicating PCD parsing logic.
+    """
+    header = parse_pcd_header(path) if header is None else header
+
+    if header.data == "ascii":
+        x_index = header.ascii_indices["x"]
+        y_index = header.ascii_indices["y"]
+        z_index = header.ascii_indices["z"]
+        min_values = max(x_index, y_index, z_index) + 1
+        with path.open("rb") as stream:
+            stream.seek(header.data_offset)
+            for raw in stream:
+                stripped = raw.strip()
+                if not stripped or stripped.startswith(b"#"):
+                    continue
+                parts = stripped.split()
+                if len(parts) < min_values:
+                    yield PcdXyzRecord(None, None, None, "parse")
+                    continue
+                try:
+                    x = float(parts[x_index])
+                    y = float(parts[y_index])
+                    z = float(parts[z_index])
+                except ValueError:
+                    yield PcdXyzRecord(None, None, None, "parse")
+                    continue
+                if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
+                    yield PcdXyzRecord(x, y, z, "nonfinite")
+                    continue
+                yield PcdXyzRecord(x, y, z, "ok")
+        return
+
+    if header.data == "binary":
+        readers = {
+            axis: _axis_binary_reader(header, axis)
+            for axis in ("x", "y", "z")
+        }
+        expected_bytes = header.points * header.point_step
+        with path.open("rb") as stream:
+            stream.seek(header.data_offset)
+            payload = stream.read(expected_bytes)
+        if len(payload) < expected_bytes:
+            raise InspectorError(
+                f"PCD binary 数据长度不足: 需要 {expected_bytes} bytes，实际 {len(payload)} bytes"
+            )
+
+        for point_index in range(header.points):
+            base = point_index * header.point_step
+            try:
+                values = {
+                    axis: float(struct.unpack_from(fmt, payload, base + offset)[0])
+                    for axis, (offset, fmt) in readers.items()
+                }
+            except struct.error:
+                yield PcdXyzRecord(None, None, None, "parse")
+                continue
+            x = values["x"]
+            y = values["y"]
+            z = values["z"]
+            if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
+                yield PcdXyzRecord(x, y, z, "nonfinite")
+                continue
+            yield PcdXyzRecord(x, y, z, "ok")
+        return
+
+    payload = _read_binary_compressed_field_planes(path, header)
+    x_payload, x_fmt = _extract_axis_from_compressed_field_planes(payload, header, "x")
+    y_payload, y_fmt = _extract_axis_from_compressed_field_planes(payload, header, "y")
+    z_payload, z_fmt = _extract_axis_from_compressed_field_planes(payload, header, "z")
+    x_iter = struct.iter_unpack(x_fmt, x_payload)
+    y_iter = struct.iter_unpack(y_fmt, y_payload)
+    z_iter = struct.iter_unpack(z_fmt, z_payload)
+
+    for (x_raw,), (y_raw,), (z_raw,) in zip(x_iter, y_iter, z_iter):
+        x = float(x_raw)
+        y = float(y_raw)
+        z = float(z_raw)
+        if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
+            yield PcdXyzRecord(x, y, z, "nonfinite")
+            continue
+        yield PcdXyzRecord(x, y, z, "ok")
+
+
 def analyze_pcd(path: Path, *, z_min: float | None = None, z_max: float | None = None) -> PcdAnalysis:
     if not path.exists():
         raise InspectorError(f"PCD 文件不存在: {path}")
@@ -440,99 +536,23 @@ def analyze_pcd(path: Path, *, z_min: float | None = None, z_max: float | None =
     skipped_nonfinite = 0
     skipped_z_filter = 0
 
-    if header.data == "ascii":
-        x_index = header.ascii_indices["x"]
-        y_index = header.ascii_indices["y"]
-        z_index = header.ascii_indices["z"]
-        min_values = max(x_index, y_index, z_index) + 1
-        with path.open("rb") as stream:
-            stream.seek(header.data_offset)
-            for raw in stream:
-                stripped = raw.strip()
-                if not stripped or stripped.startswith(b"#"):
-                    continue
-                total_records += 1
-                parts = stripped.split()
-                if len(parts) < min_values:
-                    skipped_parse += 1
-                    continue
-                try:
-                    x = float(parts[x_index])
-                    y = float(parts[y_index])
-                    z = float(parts[z_index])
-                except ValueError:
-                    skipped_parse += 1
-                    continue
-
-                if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
-                    skipped_nonfinite += 1
-                    continue
-                valid_xyz_points += 1
-                if not _passes_filter(x, y, z, z_min, z_max):
-                    skipped_z_filter += 1
-                    continue
-                bounds.update(x, y, z)
-                selected_points += 1
-    elif header.data == "binary":
-        readers = {
-            axis: _axis_binary_reader(header, axis)
-            for axis in ("x", "y", "z")
-        }
-        expected_bytes = header.points * header.point_step
-        with path.open("rb") as stream:
-            stream.seek(header.data_offset)
-            payload = stream.read(expected_bytes)
-        if len(payload) < expected_bytes:
-            raise InspectorError(
-                f"PCD binary 数据长度不足: 需要 {expected_bytes} bytes，实际 {len(payload)} bytes"
-            )
-
-        for point_index in range(header.points):
-            total_records += 1
-            base = point_index * header.point_step
-            try:
-                values = {
-                    axis: float(struct.unpack_from(fmt, payload, base + offset)[0])
-                    for axis, (offset, fmt) in readers.items()
-                }
-            except struct.error:
-                skipped_parse += 1
-                continue
-            x = values["x"]
-            y = values["y"]
-            z = values["z"]
-            if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
-                skipped_nonfinite += 1
-                continue
-            valid_xyz_points += 1
-            if not _passes_filter(x, y, z, z_min, z_max):
-                skipped_z_filter += 1
-                continue
-            bounds.update(x, y, z)
-            selected_points += 1
-    else:
-        payload = _read_binary_compressed_field_planes(path, header)
-        x_payload, x_fmt = _extract_axis_from_compressed_field_planes(payload, header, "x")
-        y_payload, y_fmt = _extract_axis_from_compressed_field_planes(payload, header, "y")
-        z_payload, z_fmt = _extract_axis_from_compressed_field_planes(payload, header, "z")
-        x_iter = struct.iter_unpack(x_fmt, x_payload)
-        y_iter = struct.iter_unpack(y_fmt, y_payload)
-        z_iter = struct.iter_unpack(z_fmt, z_payload)
-
-        for (x_raw,), (y_raw,), (z_raw,) in zip(x_iter, y_iter, z_iter):
-            total_records += 1
-            x = float(x_raw)
-            y = float(y_raw)
-            z = float(z_raw)
-            if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
-                skipped_nonfinite += 1
-                continue
-            valid_xyz_points += 1
-            if not _passes_filter(x, y, z, z_min, z_max):
-                skipped_z_filter += 1
-                continue
-            bounds.update(x, y, z)
-            selected_points += 1
+    for record in iter_pcd_xyz_records(path, header):
+        total_records += 1
+        if record.status == "parse":
+            skipped_parse += 1
+            continue
+        if record.status == "nonfinite":
+            skipped_nonfinite += 1
+            continue
+        if record.status != "ok" or record.x is None or record.y is None or record.z is None:
+            skipped_parse += 1
+            continue
+        valid_xyz_points += 1
+        if not _passes_filter(record.x, record.y, record.z, z_min, z_max):
+            skipped_z_filter += 1
+            continue
+        bounds.update(record.x, record.y, record.z)
+        selected_points += 1
 
     if selected_points == 0:
         raise InspectorError("PCD 没有可用于统计的有效点；请检查字段、数据和 z 过滤条件")
