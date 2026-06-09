@@ -22,7 +22,7 @@ odom_interface:
     # 参数说明：input_body_frame - Point-LIO 内部 body frame 名；需与 state_estimation.child_frame_id 保持一致。
     input_body_frame: "point_lio_body"  # 由 odometry.launch.py 按 sensor_extrinsics profile 覆盖，不作为 TF 真源
     # 参数说明：base_link_height_above_base_footprint_m - 自动导航链中 base_footprint -> base_link 的唯一配置真源。
-    base_link_height_above_base_footprint_m: 0.2
+    base_link_height_above_base_footprint_m: 0.065
     # 参数说明：base_to_input_body_xyz_m / rpy_rad - base_link 到 Point-LIO 内部 body frame 的静态外参；
     # 仅作为占位，真实值由 odometry.launch.py 从 sensor_extrinsics + Point-LIO 内部外参推导后覆盖。
     base_to_input_body_xyz_m: [0.0, 0.0, 0.0]

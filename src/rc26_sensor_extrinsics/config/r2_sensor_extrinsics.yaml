@@ -11,8 +11,8 @@ sensor_extrinsics:
       lidar_mount:
         parent_frame: "base_link"
         child_frame: "livox_frame"
-        xyz_m: [-0.3, 0.0, 0.15]
-        rpy_rad: [0.0, 0.0, 1.57079632679]
+        xyz_m: [0.305, 0.0, 0.365]
+        rpy_rad: [0.0, 0.0, 0.0]
       control_mount:
         parent_frame: "base_link_control"
         child_frame: "livox_frame_control"
