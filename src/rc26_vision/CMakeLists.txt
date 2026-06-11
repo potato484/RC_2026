@@ -159,8 +159,14 @@ target_include_directories(tip_vision_test_node PRIVATE
   ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(tip_vision_test_node ${PROJECT_NAME} ${OpenCV_LIBS})
-target_link_libraries(tip_vision_test_node rc26_serial::serial_driver)
-ament_target_dependencies(tip_vision_test_node ament_index_cpp rclcpp rc26_serial)
+ament_target_dependencies(
+  tip_vision_test_node
+  ament_index_cpp
+  rclcpp
+  geometry_msgs
+  rc26_interfaces
+  rc26_serial
+)
 
 # ============================================================================
 # 安装

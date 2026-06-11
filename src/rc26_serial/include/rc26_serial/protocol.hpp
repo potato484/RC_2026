@@ -47,7 +47,6 @@ enum class CommandID : uint8_t {
     FRONT_PUSHROD_RETRACT = 0x0F, // 前推杆收缩
     REAR_PUSHROD_EXTEND = 0x10,   // 后推杆伸展
     REAR_PUSHROD_RETRACT = 0x11,  // 后推杆收缩
-    TIP_VISION = 0x12,        // 端头视觉 test 状态下发，payload: [grab_ready, dir_code, amp_code, ts16_lo, ts16_hi]
     POSE_FEEDBACK = 0x1E,     // 反馈速度 (vx, vy, wz) - MCU速度闭环
     POSE_TARGET = 0x1F,       // 目标速度 (vx, vy, wz) - MCU速度闭环
 };

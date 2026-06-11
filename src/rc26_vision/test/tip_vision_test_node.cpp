@@ -2,15 +2,18 @@
 // kept under package-root test/ so the test-only node does not publish
 // private headers through include/.
 
+#include <rclcpp/executors/single_threaded_executor.hpp>
 #include <rclcpp/rclcpp.hpp>
 
+#include <geometry_msgs/msg/twist.hpp>
 #include <opencv2/opencv.hpp>
+#include <rc26_interfaces/srv/send_mechanism_transport_command.hpp>
 
-#include <array>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <filesystem>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -18,15 +21,14 @@
 #include <thread>
 #include <vector>
 
-#include "rc26_serial/serial_driver.hpp"
+#include "rc26_serial/protocol.hpp"
 #include "rc26_vision/inference/config/model_profile.hpp"
 #include "rc26_vision/inference/contracts/inference_engine.hpp"
 
 namespace rc26_vision::test {
 
-constexpr double kMainPyRefWidthRatio = 0.80;
-constexpr rc26_serial::CommandID kTipVisionCommand =
-  rc26_serial::CommandID::TIP_VISION;
+constexpr uint8_t kDefaultGrabTipCommand =
+  static_cast<uint8_t>(rc26_serial::CommandID::GRAB_TIP);
 
 class TipVisionTestNode : public rclcpp::Node
 {
@@ -37,29 +39,26 @@ public:
   int run();
 
 private:
-  struct OffsetDecision
-  {
-    uint8_t dir_code{0x00};
-    uint8_t amp_code{0x00};
-  };
+  using TwistMsg = geometry_msgs::msg::Twist;
+  using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
 
-  struct SerialOverlayInfo
+  struct AlignmentOverlayInfo
   {
-    bool serial_enabled{false};
-    bool serial_open{false};
-    bool tx_sent{false};
+    bool control_enabled{false};
+    bool grab_enabled{false};
     bool has_target{false};
-    uint16_t ts16{0x0000};
-    uint8_t packet_size{0x00};
-    uint8_t command_id{static_cast<uint8_t>(kTipVisionCommand)};
-    uint8_t seq{0x00};
+    bool aligned{false};
+    bool command_published{false};
     std::string label{"LOST"};
     int offset_px{0};
-    uint8_t dir_code{0x00};
-    uint8_t amp_code{0x00};
-    bool grab_ready{false};
-    int stable_ok_count{0};
-    std::string packet_hex{"-"};
+    int tolerance_px{20};
+    int stable_count{0};
+    int stable_required{3};
+    int lost_count{0};
+    double cmd_vy{0.0};
+    std::string grab_state{"DISABLED"};
+    uint8_t grab_command_id{kDefaultGrabTipCommand};
+    uint8_t grab_seq{0x00};
   };
 
   struct TargetCandidate
@@ -81,9 +80,6 @@ private:
     int box_cx{-1};
     int offset_px{0};
     int class_id{-1};
-    uint8_t dir_code{0x00};
-    uint8_t amp_code{0x03};
-    bool grab_ready_now{false};
     std::size_t detection_count{0U};
     double infer_ms{0.0};
     std::chrono::steady_clock::time_point updated_tp{};
@@ -99,13 +95,23 @@ private:
   std::string class_id_to_label(int class_id) const;
   std::optional<TargetCandidate> select_primary_target(
     const std::vector<rc26_vision::Detection> & detections) const;
-  OffsetDecision classify_offset(int offset_px, int ref_w) const;
 
-  bool is_serial_open() const;
-  void close_serial_driver();
-  bool open_serial_port();
-  void serial_reconnect_if_needed();
-  bool write_serial_packet(const std::array<uint8_t, 5> & packet, uint8_t & out_seq);
+  void create_alignment_interfaces();
+  bool should_publish_alignment_command(
+    const std::chrono::steady_clock::time_point & now,
+    bool force) const;
+  bool publish_alignment_command(double vy, bool force = false);
+  void publish_alignment_stop(bool force = false);
+  double compute_alignment_vy(int offset_px) const;
+  std::string update_alignment_control(
+    bool has_target,
+    int offset_px,
+    bool new_inference_result,
+    double & out_cmd_vy,
+    bool & out_aligned,
+    bool & out_command_published,
+    uint8_t & out_grab_seq);
+  bool send_grab_tip_command(uint8_t & out_seq);
 
   bool run_inference_on_frame(
     const cv::Mat & frame_bgr, uint64_t source_frame_seq,
@@ -124,7 +130,12 @@ private:
   int parse_video_index_from_path(const std::string & path) const;
   bool init_camera();
   bool init_inference();
-  void draw_serial_overlay(cv::Mat & frame_bgr, const SerialOverlayInfo & info) const;
+  void draw_alignment_guides(
+    cv::Mat & frame_bgr,
+    bool has_target,
+    int box_cx,
+    bool aligned) const;
+  void draw_alignment_overlay(cv::Mat & frame_bgr, const AlignmentOverlayInfo & info) const;
   void draw_detections(
     cv::Mat & frame_bgr, const std::vector<rc26_vision::Detection> & detections) const;
 
@@ -157,22 +168,32 @@ private:
   std::string window_name_{"Rhino X1 Vision - R_R1"};
   double log_interval_sec_{2.0};
   bool async_inference_{false};
-  bool serial_enable_{true};
-  std::string serial_device_{"/dev/ttyUSB1"};
-  int serial_baud_{115200};
-  int serial_data_bits_{8};
-  int serial_stop_bits_{1};
-  std::string serial_parity_{"none"};
   std::vector<std::string> target_labels_{"D_0", "D_1"};
   std::vector<int> target_class_ids_;
-  double grab_min_width_ratio_{0.06};
-  int ok_stable_frames_{3};
-  double center_ratio_{0.08};
-  double small_ratio_{0.20};
-  double medium_ratio_{0.35};
+  bool alignment_control_enable_{false};
+  std::string alignment_cmd_vel_topic_{"cmd_vel"};
+  int alignment_tolerance_px_{20};
+  int alignment_stable_frames_{3};
+  double alignment_kp_{0.0015};
+  double alignment_min_speed_mps_{0.04};
+  double alignment_max_speed_mps_{0.15};
+  double alignment_command_rate_hz_{20.0};
+  int alignment_lost_stop_frames_{3};
+  bool alignment_publish_zero_on_disable_{true};
+  bool alignment_invert_direction_{false};
+  bool alignment_draw_guides_{true};
+  bool alignment_grab_enable_{true};
+  int alignment_grab_command_id_{kDefaultGrabTipCommand};
+  std::vector<uint8_t> alignment_grab_payload_;
+  bool alignment_grab_once_per_target_{true};
+  double alignment_grab_cooldown_s_{2.0};
+  std::string alignment_grab_service_name_{"/mechanism/send_command"};
+  int alignment_grab_service_timeout_ms_{200};
 
   rc26_vision::InferenceEnginePtr engine_;
   cv::VideoCapture camera_;
+  rclcpp::Publisher<TwistMsg>::SharedPtr alignment_cmd_pub_;
+  rclcpp::Client<SendCommandSrv>::SharedPtr grab_command_client_;
 
   std::vector<std::string> class_names_;
   std::mutex async_mutex_;
@@ -186,10 +207,14 @@ private:
   InferenceResult latest_inference_result_;
   bool has_inference_result_{false};
   uint64_t inference_result_seq_{0U};
-  int stable_ok_count_{0};
-  std::shared_ptr<rc26_decision::SerialDriver> serial_driver_;
-  std::chrono::steady_clock::time_point last_serial_open_attempt_tp_{};
-  std::chrono::milliseconds serial_reconnect_interval_{1000};
+  int alignment_stable_count_{0};
+  int alignment_lost_count_{0};
+  bool grab_sent_for_current_target_{false};
+  std::string last_grab_state_{"DISABLED"};
+  uint8_t last_grab_seq_{0x00};
+  std::chrono::steady_clock::time_point last_alignment_command_tp_{};
+  std::chrono::steady_clock::time_point last_grab_attempt_tp_{};
+  bool alignment_zero_published_{false};
 
   uint64_t frames_since_log_{0};
   std::chrono::steady_clock::time_point last_log_tp_{};
@@ -200,7 +225,6 @@ private:
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cctype>
 #include <cstdint>
@@ -210,8 +234,6 @@ private:
 #include <string>
 
 namespace rc26_vision::test::tip_detail {
-
-constexpr double kPi = 3.14159265358979323846;
 
 inline std::string trim_copy(const std::string & value)
 {
@@ -224,22 +246,6 @@ inline std::string trim_copy(const std::string & value)
   return value.substr(begin, end - begin + 1U);
 }
 
-inline std::string to_lower_copy(std::string value)
-{
-  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
-    return static_cast<char>(std::tolower(c));
-  });
-  return value;
-}
-
-inline bool ends_with_ignore_case(const std::string & value, const std::string & suffix)
-{
-  if (value.size() < suffix.size()) {
-    return false;
-  }
-  return value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
-}
-
 inline std::filesystem::path get_rc26_vision_share_dir()
 {
   try {
@@ -247,25 +253,6 @@ inline std::filesystem::path get_rc26_vision_share_dir()
   } catch (...) {
     return {};
   }
-}
-
-inline uint16_t monotonic_tick_ms16()
-{
-  const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-    std::chrono::steady_clock::now().time_since_epoch()).count();
-  return static_cast<uint16_t>(now_ms & 0xFFFF);
-}
-
-inline std::array<uint8_t, 5> build_tip_payload(
-  bool grab_ready, uint8_t dir_code, uint8_t amp_code, uint16_t ts16)
-{
-  return {
-    static_cast<uint8_t>(grab_ready ? 0x01U : 0x00U),
-    dir_code,
-    amp_code,
-    static_cast<uint8_t>(ts16 & 0xFFU),
-    static_cast<uint8_t>((ts16 >> 8U) & 0xFFU)
-  };
 }
 
 template<typename ByteContainer>
@@ -314,7 +301,6 @@ TipVisionTestNode::TipVisionTestNode()
 TipVisionTestNode::~TipVisionTestNode()
 {
   stop_async_inference_worker();
-  close_serial_driver();
 
   engine_.reset();
 
@@ -361,16 +347,16 @@ int TipVisionTestNode::run()
   double current_infer_ms = 0.0;
   double display_camera_fps = 0.0;
   double display_infer_fps = 0.0;
-  uint8_t current_dir_code = 0x00;
-  uint8_t current_amp_code = 0x03;
-  uint8_t last_dir_code = 0x00;
+  double current_cmd_vy = 0.0;
+  bool current_aligned = false;
+  bool alignment_command_published = false;
 
   while (rclcpp::ok()) {
     cv::Mat frame_bgr;
     if (!camera_.read(frame_bgr) || frame_bgr.empty()) {
       const auto now = std::chrono::steady_clock::now();
       if (now - last_capture_warn_tp > 2s) {
-        RCLCPP_WARN(get_logger(), "Camera frame grab failed, retrying...");
+        RCLCPP_WARN(get_logger(), "相机帧抓取失败，正在重试...");
         last_capture_warn_tp = now;
       }
       std::this_thread::sleep_for(50ms);
@@ -384,73 +370,42 @@ int TipVisionTestNode::run()
       InferenceResult sync_result;
       if (!run_inference_on_frame(frame_bgr, source_frame_seq, sync_result)) {
         RCLCPP_WARN_THROTTLE(
-          get_logger(), *get_clock(), 2000, "Inference failed through shared engine.");
+          get_logger(), *get_clock(), 2000, "共享引擎推理失败。");
         continue;
       }
       latest_inference_result_ = sync_result;
       has_inference_result_ = true;
     }
 
+    bool new_inference_result = false;
     if (copy_latest_inference_result(latest_result)) {
       has_latest_result = true;
       current_detection_count = latest_result.detection_count;
       current_infer_ms = latest_result.infer_ms;
 
       if (latest_result.inference_seq != last_applied_inference_seq) {
+        new_inference_result = true;
         last_applied_inference_seq = latest_result.inference_seq;
         current_has_target = latest_result.has_target;
         if (latest_result.has_target) {
           current_box_cx = latest_result.box_cx;
           current_offset_px = latest_result.offset_px;
           current_class_id = latest_result.class_id;
-          current_dir_code = latest_result.dir_code;
-          current_amp_code = latest_result.amp_code;
-          last_dir_code = current_dir_code;
-          if (latest_result.grab_ready_now) {
-            ++stable_ok_count_;
-          } else {
-            stable_ok_count_ = 0;
-          }
         } else {
           current_box_cx = -1;
           current_offset_px = 0;
           current_class_id = -1;
-          current_dir_code = last_dir_code;
-          current_amp_code = 0x03;
-          stable_ok_count_ = 0;
         }
       }
     }
 
+    uint8_t grab_seq = last_grab_seq_;
+    const std::string grab_state = update_alignment_control(
+      current_has_target, current_offset_px, new_inference_result, current_cmd_vy,
+      current_aligned, alignment_command_published, grab_seq);
+
     if (show_window_ && has_latest_result) {
       draw_detections(frame_bgr, latest_result.detections);
-    }
-
-    const bool grab_ready = (stable_ok_count_ >= ok_stable_frames_);
-    const uint16_t tx_ts16 = tip_detail::monotonic_tick_ms16();
-    const std::array<uint8_t, 5> serial_packet =
-      tip_detail::build_tip_payload(grab_ready, current_dir_code, current_amp_code, tx_ts16);
-
-    bool serial_tx_sent = false;
-    uint8_t serial_tx_seq = 0U;
-
-    if (serial_enable_) {
-      serial_tx_sent = write_serial_packet(serial_packet, serial_tx_seq);
-      if (serial_tx_sent) {
-        const std::string label = class_id_to_label(current_class_id);
-        RCLCPP_INFO_THROTTLE(
-          get_logger(), *get_clock(), 500,
-          "TX cmd=0x%02X seq=%u payload=%s | label=%s id=%d cx=%d offset=%d dir=0x%02X amp=0x%02X ts=0x%04X "
-          "grab=%s stable=%d/%d target=%s",
-          static_cast<unsigned int>(kTipVisionCommand),
-          static_cast<unsigned int>(serial_tx_seq),
-          tip_detail::bytes_to_hex(serial_packet).c_str(),
-          label.c_str(), current_class_id, current_box_cx, current_offset_px,
-          static_cast<unsigned int>(current_dir_code), static_cast<unsigned int>(current_amp_code),
-          static_cast<unsigned int>(tx_ts16),
-          grab_ready ? "OK" : "WAIT", stable_ok_count_, ok_stable_frames_,
-          current_has_target ? "yes" : "no");
-      }
     }
 
     const auto frame_end = std::chrono::steady_clock::now();
@@ -471,23 +426,25 @@ int TipVisionTestNode::run()
     }
 
     if (show_window_) {
-      SerialOverlayInfo serial_info;
-      serial_info.serial_enabled = serial_enable_;
-      serial_info.serial_open = is_serial_open();
-      serial_info.tx_sent = serial_tx_sent;
-      serial_info.has_target = current_has_target;
-      serial_info.ts16 = tx_ts16;
-      serial_info.packet_size = static_cast<uint8_t>(serial_packet.size());
-      serial_info.command_id = static_cast<uint8_t>(kTipVisionCommand);
-      serial_info.seq = serial_tx_seq;
-      serial_info.label = class_id_to_label(current_class_id);
-      serial_info.offset_px = current_offset_px;
-      serial_info.dir_code = current_dir_code;
-      serial_info.amp_code = current_amp_code;
-      serial_info.grab_ready = grab_ready;
-      serial_info.stable_ok_count = stable_ok_count_;
-      serial_info.packet_hex = tip_detail::bytes_to_hex(serial_packet);
-      draw_serial_overlay(frame_bgr, serial_info);
+      draw_alignment_guides(frame_bgr, current_has_target, current_box_cx, current_aligned);
+
+      AlignmentOverlayInfo alignment_info;
+      alignment_info.control_enabled = alignment_control_enable_;
+      alignment_info.grab_enabled = alignment_control_enable_ && alignment_grab_enable_;
+      alignment_info.has_target = current_has_target;
+      alignment_info.aligned = current_aligned;
+      alignment_info.command_published = alignment_command_published;
+      alignment_info.label = class_id_to_label(current_class_id);
+      alignment_info.offset_px = current_offset_px;
+      alignment_info.tolerance_px = alignment_tolerance_px_;
+      alignment_info.stable_count = alignment_stable_count_;
+      alignment_info.stable_required = alignment_stable_frames_;
+      alignment_info.lost_count = alignment_lost_count_;
+      alignment_info.cmd_vy = current_cmd_vy;
+      alignment_info.grab_state = grab_state;
+      alignment_info.grab_command_id = static_cast<uint8_t>(alignment_grab_command_id_);
+      alignment_info.grab_seq = grab_seq;
+      draw_alignment_overlay(frame_bgr, alignment_info);
 
       std::ostringstream perf_ss;
       perf_ss << "FPS:" << std::fixed << std::setprecision(1) << display_infer_fps
@@ -500,7 +457,7 @@ int TipVisionTestNode::run()
       cv::imshow(window_name_, frame_bgr);
       const int key = cv::waitKey(1) & 0xFF;
       if (key == 'q' || key == 27) {
-        RCLCPP_INFO(get_logger(), "Exit requested by keyboard.");
+        RCLCPP_INFO(get_logger(), "键盘请求退出。");
         break;
       }
     }
@@ -515,7 +472,7 @@ int TipVisionTestNode::run()
         static_cast<double>(current_inference_seq - last_logged_inference_seq) /
         std::max(1e-6, elapsed);
       RCLCPP_INFO(
-        get_logger(), "loop_fps=%.2f infer_fps=%.2f infer_ms=%.2f detections=%zu",
+        get_logger(), "循环帧率=%.2f 推理帧率=%.2f 推理耗时=%.2fms 检测数=%zu",
         loop_fps, infer_fps, current_infer_ms, current_detection_count);
       frames_since_log_ = 0;
       last_log_tp_ = now;
@@ -524,6 +481,7 @@ int TipVisionTestNode::run()
   }
 
   stop_async_inference_worker();
+  publish_alignment_stop(true);
   return 0;
 }
 
@@ -572,19 +530,28 @@ void TipVisionTestNode::declare_parameters()
   this->declare_parameter<std::string>("window_name", "Rhino X1 Vision - V2 Class Check");
   this->declare_parameter<double>("log_interval_sec", 2.0);
   this->declare_parameter<bool>("async_inference", false);
-  this->declare_parameter<bool>("serial_enable", true);
-  this->declare_parameter<std::string>("serial_device", "/dev/ttyUSB1");
-  this->declare_parameter<int>("serial_baud", 115200);
-  this->declare_parameter<int>("serial_data_bits", 8);
-  this->declare_parameter<int>("serial_stop_bits", 1);
-  this->declare_parameter<std::string>("serial_parity", "none");
   this->declare_parameter<std::vector<std::string>>(
     "target_labels", std::vector<std::string>{"JK"});
-  this->declare_parameter<double>("grab_min_width_ratio", 0.06);
-  this->declare_parameter<int>("ok_stable_frames", 3);
-  this->declare_parameter<double>("center_ratio", 0.08);
-  this->declare_parameter<double>("small_ratio", 0.20);
-  this->declare_parameter<double>("medium_ratio", 0.35);
+  this->declare_parameter<bool>("alignment_control_enable", false);
+  this->declare_parameter<std::string>("alignment_cmd_vel_topic", "cmd_vel");
+  this->declare_parameter<int>("alignment_tolerance_px", 20);
+  this->declare_parameter<int>("alignment_stable_frames", 3);
+  this->declare_parameter<double>("alignment_kp", 0.0015);
+  this->declare_parameter<double>("alignment_min_speed_mps", 0.04);
+  this->declare_parameter<double>("alignment_max_speed_mps", 0.15);
+  this->declare_parameter<double>("alignment_command_rate_hz", 20.0);
+  this->declare_parameter<int>("alignment_lost_stop_frames", 3);
+  this->declare_parameter<bool>("alignment_publish_zero_on_disable", true);
+  this->declare_parameter<bool>("alignment_invert_direction", false);
+  this->declare_parameter<bool>("alignment_draw_guides", true);
+  this->declare_parameter<bool>("alignment_grab_enable", true);
+  this->declare_parameter<int>("alignment_grab_command_id", kDefaultGrabTipCommand);
+  this->declare_parameter<std::vector<int64_t>>(
+    "alignment_grab_payload", std::vector<int64_t>{});
+  this->declare_parameter<bool>("alignment_grab_once_per_target", true);
+  this->declare_parameter<double>("alignment_grab_cooldown_s", 2.0);
+  this->declare_parameter<std::string>("alignment_grab_service_name", "/mechanism/send_command");
+  this->declare_parameter<int>("alignment_grab_service_timeout_ms", 200);
 }
 
 void TipVisionTestNode::load_parameters()
@@ -615,18 +582,39 @@ void TipVisionTestNode::load_parameters()
   window_name_ = this->get_parameter("window_name").as_string();
   log_interval_sec_ = this->get_parameter("log_interval_sec").as_double();
   async_inference_ = this->get_parameter("async_inference").as_bool();
-  serial_enable_ = this->get_parameter("serial_enable").as_bool();
-  serial_device_ = this->get_parameter("serial_device").as_string();
-  serial_baud_ = this->get_parameter("serial_baud").as_int();
-  serial_data_bits_ = this->get_parameter("serial_data_bits").as_int();
-  serial_stop_bits_ = this->get_parameter("serial_stop_bits").as_int();
-  serial_parity_ = tip_detail::to_lower_copy(this->get_parameter("serial_parity").as_string());
   target_labels_ = this->get_parameter("target_labels").as_string_array();
-  grab_min_width_ratio_ = this->get_parameter("grab_min_width_ratio").as_double();
-  ok_stable_frames_ = this->get_parameter("ok_stable_frames").as_int();
-  center_ratio_ = this->get_parameter("center_ratio").as_double();
-  small_ratio_ = this->get_parameter("small_ratio").as_double();
-  medium_ratio_ = this->get_parameter("medium_ratio").as_double();
+  alignment_control_enable_ = this->get_parameter("alignment_control_enable").as_bool();
+  alignment_cmd_vel_topic_ = this->get_parameter("alignment_cmd_vel_topic").as_string();
+  alignment_tolerance_px_ = this->get_parameter("alignment_tolerance_px").as_int();
+  alignment_stable_frames_ = this->get_parameter("alignment_stable_frames").as_int();
+  alignment_kp_ = this->get_parameter("alignment_kp").as_double();
+  alignment_min_speed_mps_ = this->get_parameter("alignment_min_speed_mps").as_double();
+  alignment_max_speed_mps_ = this->get_parameter("alignment_max_speed_mps").as_double();
+  alignment_command_rate_hz_ = this->get_parameter("alignment_command_rate_hz").as_double();
+  alignment_lost_stop_frames_ = this->get_parameter("alignment_lost_stop_frames").as_int();
+  alignment_publish_zero_on_disable_ =
+    this->get_parameter("alignment_publish_zero_on_disable").as_bool();
+  alignment_invert_direction_ = this->get_parameter("alignment_invert_direction").as_bool();
+  alignment_draw_guides_ = this->get_parameter("alignment_draw_guides").as_bool();
+  alignment_grab_enable_ = this->get_parameter("alignment_grab_enable").as_bool();
+  alignment_grab_command_id_ = this->get_parameter("alignment_grab_command_id").as_int();
+  alignment_grab_once_per_target_ =
+    this->get_parameter("alignment_grab_once_per_target").as_bool();
+  alignment_grab_cooldown_s_ = this->get_parameter("alignment_grab_cooldown_s").as_double();
+  alignment_grab_service_name_ =
+    this->get_parameter("alignment_grab_service_name").as_string();
+  alignment_grab_service_timeout_ms_ =
+    this->get_parameter("alignment_grab_service_timeout_ms").as_int();
+  const auto grab_payload_values =
+    this->get_parameter("alignment_grab_payload").as_integer_array();
+  alignment_grab_payload_.clear();
+  alignment_grab_payload_.reserve(grab_payload_values.size());
+  for (const auto value : grab_payload_values) {
+    if (value < 0 || value > 255) {
+      throw std::runtime_error("alignment_grab_payload values must be in [0,255]");
+    }
+    alignment_grab_payload_.push_back(static_cast<uint8_t>(value));
+  }
 
   vision_config_file_ = resolve_resource_path(
     vision_config_file_, std::filesystem::path("config") / "vision_models.yaml");
@@ -648,32 +636,46 @@ void TipVisionTestNode::load_parameters()
       throw std::runtime_error("target_labels cannot contain empty values");
     }
   }
-  if (serial_baud_ <= 0) {
-    throw std::runtime_error("serial_baud must be > 0");
+  if (alignment_control_enable_ && tip_detail::trim_copy(alignment_cmd_vel_topic_).empty()) {
+    throw std::runtime_error("alignment_cmd_vel_topic cannot be empty when alignment control is enabled");
   }
-  if (serial_data_bits_ != 8) {
-    throw std::runtime_error("rc26_serial only supports serial_data_bits=8");
+  if (alignment_tolerance_px_ < 0) {
+    throw std::runtime_error("alignment_tolerance_px must be >= 0");
   }
-  if (serial_stop_bits_ != 1) {
-    throw std::runtime_error("rc26_serial only supports serial_stop_bits=1");
+  if (alignment_stable_frames_ <= 0) {
+    throw std::runtime_error("alignment_stable_frames must be > 0");
   }
-  if (serial_parity_ != "none") {
-    throw std::runtime_error("rc26_serial only supports serial_parity=none");
+  if (!std::isfinite(alignment_kp_) || alignment_kp_ < 0.0) {
+    throw std::runtime_error("alignment_kp must be finite and >= 0");
   }
-  if (grab_min_width_ratio_ <= 0.0 || grab_min_width_ratio_ > 1.0) {
-    throw std::runtime_error("grab_min_width_ratio must be in (0,1]");
+  if (!std::isfinite(alignment_min_speed_mps_) || alignment_min_speed_mps_ < 0.0) {
+    throw std::runtime_error("alignment_min_speed_mps must be finite and >= 0");
   }
-  if (ok_stable_frames_ <= 0) {
-    throw std::runtime_error("ok_stable_frames must be > 0");
+  if (!std::isfinite(alignment_max_speed_mps_) || alignment_max_speed_mps_ < 0.0) {
+    throw std::runtime_error("alignment_max_speed_mps must be finite and >= 0");
   }
-  if (center_ratio_ <= 0.0 || center_ratio_ >= 1.0) {
-    throw std::runtime_error("center_ratio must be in (0,1)");
+  if (alignment_min_speed_mps_ > alignment_max_speed_mps_) {
+    throw std::runtime_error("alignment_min_speed_mps must be <= alignment_max_speed_mps");
   }
-  if (small_ratio_ <= center_ratio_ || small_ratio_ >= 1.0) {
-    throw std::runtime_error("small_ratio must be in (center_ratio,1)");
+  if (!std::isfinite(alignment_command_rate_hz_) || alignment_command_rate_hz_ <= 0.0) {
+    throw std::runtime_error("alignment_command_rate_hz must be finite and > 0");
   }
-  if (medium_ratio_ <= small_ratio_ || medium_ratio_ >= 1.0) {
-    throw std::runtime_error("medium_ratio must be in (small_ratio,1)");
+  if (alignment_lost_stop_frames_ <= 0) {
+    throw std::runtime_error("alignment_lost_stop_frames must be > 0");
+  }
+  if (alignment_grab_command_id_ < 0 || alignment_grab_command_id_ > 255) {
+    throw std::runtime_error("alignment_grab_command_id must be in [0,255]");
+  }
+  if (!std::isfinite(alignment_grab_cooldown_s_) || alignment_grab_cooldown_s_ < 0.0) {
+    throw std::runtime_error("alignment_grab_cooldown_s must be finite and >= 0");
+  }
+  if (alignment_grab_service_timeout_ms_ <= 0) {
+    throw std::runtime_error("alignment_grab_service_timeout_ms must be > 0");
+  }
+  if (alignment_control_enable_ && alignment_grab_enable_ &&
+    tip_detail::trim_copy(alignment_grab_service_name_).empty())
+  {
+    throw std::runtime_error("alignment_grab_service_name cannot be empty when grab is enabled");
   }
 }
 
@@ -714,7 +716,7 @@ std::string TipVisionTestNode::resolve_resource_path(
 bool TipVisionTestNode::resolve_target_class_ids()
 {
   if (class_names_.empty()) {
-    RCLCPP_ERROR(get_logger(), "Model profile '%s' has no labels.", model_id_.c_str());
+    RCLCPP_ERROR(get_logger(), "模型配置 '%s' 没有标签。", model_id_.c_str());
     return false;
   }
 
@@ -727,14 +729,14 @@ bool TipVisionTestNode::resolve_target_class_ids()
     auto it = std::find(class_names_.begin(), class_names_.end(), label);
     if (it == class_names_.end()) {
       RCLCPP_ERROR(
-        get_logger(), "Configured target label '%s' not found in model profile labels.",
+        get_logger(), "配置的目标标签 '%s' 在模型配置标签中未找到。",
         label.c_str());
       return false;
     }
     const int class_id = static_cast<int>(std::distance(class_names_.begin(), it));
     if (seen_ids.find(class_id) != seen_ids.end()) {
       RCLCPP_ERROR(
-        get_logger(), "Configured target label '%s' maps to duplicated class_id=%d.",
+        get_logger(), "配置的目标标签 '%s' 映射到重复的 class_id=%d。",
         label.c_str(), class_id);
       return false;
     }
@@ -749,7 +751,7 @@ bool TipVisionTestNode::resolve_target_class_ids()
     }
     oss << target_labels_[i] << "->" << target_class_ids_[i];
   }
-  RCLCPP_INFO(get_logger(), "Target label mapping: %s", oss.str().c_str());
+  RCLCPP_INFO(get_logger(), "目标标签映射: %s", oss.str().c_str());
   return true;
 }
 
@@ -800,126 +802,215 @@ std::optional<TipVisionTestNode::TargetCandidate> TipVisionTestNode::select_prim
   return best;
 }
 
-TipVisionTestNode::OffsetDecision TipVisionTestNode::classify_offset(int offset_px, int ref_w) const
+void TipVisionTestNode::create_alignment_interfaces()
 {
-  const int abs_offset = std::abs(offset_px);
-  const int th_center = std::max(1, static_cast<int>(std::round(ref_w * center_ratio_)));
-  const int th_small = std::max(th_center + 1, static_cast<int>(std::round(ref_w * small_ratio_)));
-  const int th_medium = std::max(th_small + 1, static_cast<int>(std::round(ref_w * medium_ratio_)));
-
-  if (abs_offset <= th_center) {
-    return {0x00, 0x00};
+  if (!alignment_control_enable_) {
+    RCLCPP_INFO(get_logger(), "端头对准控制已禁用；未创建 cmd_vel 发布者或抓取客户端。");
+    return;
   }
 
-  if (offset_px < 0) {
-    if (abs_offset <= th_small) {
-      return {0x01, 0x01};
-    }
-    if (abs_offset <= th_medium) {
-      return {0x01, 0x02};
-    }
-    return {0x01, 0x03};
+  alignment_cmd_pub_ = create_publisher<TwistMsg>(alignment_cmd_vel_topic_, rclcpp::QoS(10));
+  if (alignment_grab_enable_) {
+    grab_command_client_ = create_client<SendCommandSrv>(alignment_grab_service_name_);
   }
 
-  if (abs_offset <= th_small) {
-    return {0x02, 0x01};
-  }
-  if (abs_offset <= th_medium) {
-    return {0x02, 0x02};
-  }
-  return {0x02, 0x03};
+  RCLCPP_WARN(
+    get_logger(),
+    "端头对准控制已启用: cmd_vel_topic=%s 容差=%dpx 稳定帧=%d 抓取=%s service=%s",
+    alignment_cmd_vel_topic_.c_str(), alignment_tolerance_px_, alignment_stable_frames_,
+    alignment_grab_enable_ ? "开" : "关", alignment_grab_service_name_.c_str());
 }
 
-}  // namespace rc26_vision::test
-
-// ---- tip_vision_test_node_serial.cpp ----
-
-#include <vector>
-
-namespace rc26_vision::test {
-
-bool TipVisionTestNode::is_serial_open() const
+bool TipVisionTestNode::should_publish_alignment_command(
+  const std::chrono::steady_clock::time_point & now,
+  bool force) const
 {
-  return serial_driver_ && serial_driver_->isOpen();
-}
-
-void TipVisionTestNode::close_serial_driver()
-{
-  if (serial_driver_) {
-    serial_driver_->close();
-  }
-}
-
-bool TipVisionTestNode::open_serial_port()
-{
-  if (!serial_enable_) {
+  if (!alignment_cmd_pub_) {
     return false;
   }
-
-  if (!serial_driver_) {
-    serial_driver_ = std::make_shared<rc26_decision::SerialDriver>();
-    serial_driver_->setReconnectCallback([this]() {
-      RCLCPP_INFO(
-        this->get_logger(), "rc26_serial reconnected: dev=%s baud=%d",
-        serial_device_.c_str(), serial_baud_);
-    });
-    serial_driver_->setReconnectFailedCallback([this]() {
-      RCLCPP_ERROR(
-        this->get_logger(), "rc26_serial reconnect exhausted: dev=%s baud=%d",
-        serial_device_.c_str(), serial_baud_);
-    });
-  }
-
-  if (serial_driver_->isOpen()) {
+  if (force || last_alignment_command_tp_ == std::chrono::steady_clock::time_point{}) {
     return true;
   }
-
-  if (!serial_driver_->open(serial_device_, serial_baud_)) {
-    RCLCPP_WARN(
-      get_logger(), "rc26_serial open failed on '%s': %s",
-      serial_device_.c_str(), serial_driver_->lastError().c_str());
-    return false;
-  }
-
-  RCLCPP_INFO(
-    get_logger(), "rc26_serial opened: dev=%s baud=%d cmd=0x%02X payload_len=5",
-    serial_device_.c_str(), serial_baud_, static_cast<unsigned int>(kTipVisionCommand));
-  return true;
+  const double min_period_s = 1.0 / std::max(1e-6, alignment_command_rate_hz_);
+  return std::chrono::duration<double>(now - last_alignment_command_tp_).count() >= min_period_s;
 }
 
-void TipVisionTestNode::serial_reconnect_if_needed()
+bool TipVisionTestNode::publish_alignment_command(double vy, bool force)
 {
-  if (!serial_enable_ || is_serial_open()) {
-    return;
+  if (!alignment_control_enable_ || !alignment_cmd_pub_) {
+    return false;
   }
 
   const auto now = std::chrono::steady_clock::now();
-  if (now - last_serial_open_attempt_tp_ < serial_reconnect_interval_) {
-    return;
+  if (!should_publish_alignment_command(now, force)) {
+    return false;
   }
 
-  last_serial_open_attempt_tp_ = now;
-  (void)open_serial_port();
+  TwistMsg msg;
+  msg.linear.y = vy;
+  alignment_cmd_pub_->publish(msg);
+  last_alignment_command_tp_ = now;
+  alignment_zero_published_ = std::abs(vy) < 1e-9;
+  return true;
 }
 
-bool TipVisionTestNode::write_serial_packet(const std::array<uint8_t, 5> & packet, uint8_t & out_seq)
+void TipVisionTestNode::publish_alignment_stop(bool force)
 {
-  if (!serial_enable_) {
+  if (!alignment_publish_zero_on_disable_ && !alignment_control_enable_) {
+    return;
+  }
+  publish_alignment_command(0.0, force);
+}
+
+double TipVisionTestNode::compute_alignment_vy(int offset_px) const
+{
+  const int abs_offset = std::abs(offset_px);
+  if (abs_offset <= alignment_tolerance_px_ || alignment_max_speed_mps_ <= 0.0) {
+    return 0.0;
+  }
+
+  double speed = static_cast<double>(abs_offset) * alignment_kp_;
+  speed = std::clamp(speed, alignment_min_speed_mps_, alignment_max_speed_mps_);
+
+  // ROS base_link y is left. If the target is right in image space, move right by default.
+  double direction = offset_px > 0 ? -1.0 : 1.0;
+  if (alignment_invert_direction_) {
+    direction = -direction;
+  }
+  return direction * speed;
+}
+
+std::string TipVisionTestNode::update_alignment_control(
+  bool has_target,
+  int offset_px,
+  bool new_inference_result,
+  double & out_cmd_vy,
+  bool & out_aligned,
+  bool & out_command_published,
+  uint8_t & out_grab_seq)
+{
+  out_cmd_vy = 0.0;
+  out_aligned = false;
+  out_command_published = false;
+  out_grab_seq = last_grab_seq_;
+
+  if (!alignment_control_enable_) {
+    last_grab_state_ = "DISABLED";
+    return last_grab_state_;
+  }
+
+  if (!has_target) {
+    if (new_inference_result) {
+      ++alignment_lost_count_;
+      alignment_stable_count_ = 0;
+      if (alignment_lost_count_ >= alignment_lost_stop_frames_) {
+        grab_sent_for_current_target_ = false;
+      }
+    }
+    out_command_published = publish_alignment_command(0.0, false);
+    last_grab_state_ = alignment_grab_enable_ ? "LOST" : "DISABLED";
+    return last_grab_state_;
+  }
+
+  if (new_inference_result) {
+    alignment_lost_count_ = 0;
+    out_aligned = std::abs(offset_px) <= alignment_tolerance_px_;
+    if (out_aligned) {
+      ++alignment_stable_count_;
+    } else {
+      alignment_stable_count_ = 0;
+    }
+  } else {
+    out_aligned = std::abs(offset_px) <= alignment_tolerance_px_;
+  }
+
+  out_cmd_vy = compute_alignment_vy(offset_px);
+  out_command_published = publish_alignment_command(out_cmd_vy, false);
+
+  if (!alignment_grab_enable_) {
+    last_grab_state_ = "DISABLED";
+    return last_grab_state_;
+  }
+  if (!out_aligned || alignment_stable_count_ < alignment_stable_frames_) {
+    last_grab_state_ = "WAIT";
+    return last_grab_state_;
+  }
+  if (alignment_grab_once_per_target_ && grab_sent_for_current_target_) {
+    last_grab_state_ = "SENT";
+    return last_grab_state_;
+  }
+
+  const auto now = std::chrono::steady_clock::now();
+  if (last_grab_attempt_tp_ != std::chrono::steady_clock::time_point{} &&
+    std::chrono::duration<double>(now - last_grab_attempt_tp_).count() < alignment_grab_cooldown_s_)
+  {
+    last_grab_state_ = "COOLDOWN";
+    return last_grab_state_;
+  }
+
+  last_grab_attempt_tp_ = now;
+  uint8_t seq = 0U;
+  if (send_grab_tip_command(seq)) {
+    grab_sent_for_current_target_ = true;
+    last_grab_seq_ = seq;
+    out_grab_seq = seq;
+    last_grab_state_ = "SENT";
+  } else {
+    last_grab_state_ = "FAILED";
+  }
+  return last_grab_state_;
+}
+
+bool TipVisionTestNode::send_grab_tip_command(uint8_t & out_seq)
+{
+  out_seq = 0U;
+  if (!grab_command_client_) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 1000,
+      "GRAB_TIP 发送跳过: 服务客户端未创建。");
+    return false;
+  }
+  if (!grab_command_client_->service_is_ready()) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 1000,
+      "GRAB_TIP 发送跳过: 服务 %s 未就绪。",
+      alignment_grab_service_name_.c_str());
     return false;
   }
 
-  serial_reconnect_if_needed();
-  if (!is_serial_open()) {
-    return false;
-  }
+  auto request = std::make_shared<SendCommandSrv::Request>();
+  request->command_id = static_cast<uint8_t>(alignment_grab_command_id_);
+  request->payload = alignment_grab_payload_;
 
-  const std::vector<uint8_t> payload(packet.begin(), packet.end());
-  if (!serial_driver_->sendCommandNoAck(kTipVisionCommand, payload, out_seq)) {
+  auto future = grab_command_client_->async_send_request(request);
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(get_node_base_interface());
+  const auto result = executor.spin_until_future_complete(
+    future, std::chrono::milliseconds(alignment_grab_service_timeout_ms_));
+  executor.remove_node(get_node_base_interface());
+
+  if (result != rclcpp::FutureReturnCode::SUCCESS) {
     RCLCPP_WARN(
-      get_logger(), "rc26_serial send failed on '%s': %s",
-      serial_device_.c_str(), serial_driver_->lastError().c_str());
+      get_logger(), "GRAB_TIP 发送超时: service=%s timeout_ms=%d",
+      alignment_grab_service_name_.c_str(), alignment_grab_service_timeout_ms_);
     return false;
   }
+
+  const auto response = future.get();
+  if (!response || !response->accepted) {
+    RCLCPP_WARN(
+      get_logger(), "GRAB_TIP 发送被拒绝: cmd=%s payload=%s",
+      tip_detail::byte_to_hex(request->command_id).c_str(),
+      tip_detail::bytes_to_hex(request->payload).c_str());
+    return false;
+  }
+
+  out_seq = response->seq;
+  RCLCPP_INFO(
+    get_logger(), "GRAB_TIP 已发送: cmd=%s payload=%s seq=%u",
+    tip_detail::byte_to_hex(request->command_id).c_str(),
+    tip_detail::bytes_to_hex(request->payload).c_str(),
+    static_cast<unsigned int>(out_seq));
   return true;
 }
 
@@ -969,7 +1060,7 @@ bool TipVisionTestNode::open_camera_by_index(int index, std::string & opened_sou
   if (!camera_.read(test_frame) || test_frame.empty()) {
     RCLCPP_WARN(
       get_logger(),
-      "Camera index %d opened but failed to read the first frame; releasing this candidate.",
+      "相机索引 %d 已打开但读取首帧失败；释放此候选。",
       index);
     camera_.release();
     return false;
@@ -997,7 +1088,7 @@ bool TipVisionTestNode::open_camera_by_path(const std::string & path, std::strin
   if (!camera_.read(test_frame) || test_frame.empty()) {
     RCLCPP_WARN(
       get_logger(),
-      "Camera path '%s' opened but failed to read the first frame; releasing this candidate.",
+      "相机路径 '%s' 已打开但读取首帧失败；释放此候选。",
       path.c_str());
     camera_.release();
     return false;
@@ -1066,24 +1157,24 @@ bool TipVisionTestNode::init_camera()
   bool opened = false;
 
   if (!camera_device_.empty()) {
-    RCLCPP_INFO(get_logger(), "Trying preferred camera path '%s'...", camera_device_.c_str());
+    RCLCPP_INFO(get_logger(), "正在尝试首选相机路径 '%s'...", camera_device_.c_str());
     opened = open_camera_by_path(camera_device_, opened_source);
   } else {
-    RCLCPP_INFO(get_logger(), "Trying preferred camera index %d...", camera_index_);
+    RCLCPP_INFO(get_logger(), "正在尝试首选相机索引 %d...", camera_index_);
     opened = open_camera_by_index(camera_index_, opened_source);
   }
 
   if (!opened && auto_scan_camera_) {
     RCLCPP_WARN(
       get_logger(),
-      "Preferred camera did not yield frames; auto_scan_camera=true, scanning other /dev/video* devices.");
+      "首选相机未能产生帧；auto_scan_camera=true，正在扫描其他 /dev/video* 设备。");
     const std::vector<std::string> candidates = discover_video_devices();
     for (const auto & candidate : candidates) {
       if (!camera_device_.empty() && candidate == camera_device_) {
         continue;
       }
       const int candidate_index = parse_video_index_from_path(candidate);
-      RCLCPP_INFO(get_logger(), "Trying fallback camera candidate %s...", candidate.c_str());
+      RCLCPP_INFO(get_logger(), "正在尝试备选相机 %s...", candidate.c_str());
       if (candidate_index >= 0 && open_camera_by_index(candidate_index, opened_source)) {
         opened = true;
         break;
@@ -1097,7 +1188,7 @@ bool TipVisionTestNode::init_camera()
 
   if (!opened) {
     RCLCPP_ERROR(
-      get_logger(), "Failed to open a working camera (camera_index=%d camera_device='%s').",
+      get_logger(), "无法打开可用的相机 (camera_index=%d camera_device='%s')。",
       camera_index_, camera_device_.c_str());
     return false;
   }
@@ -1108,7 +1199,7 @@ bool TipVisionTestNode::init_camera()
   selected_camera_source_ = opened_source;
 
   RCLCPP_INFO(
-    get_logger(), "Camera opened on %s (backend=%s): actual=%dx%d@%dfps requested=%dx%d@%d",
+    get_logger(), "相机已打开 %s (后端=%s): 实际=%dx%d@%dfps 请求=%dx%d@%d",
     selected_camera_source_.c_str(), camera_.getBackendName().c_str(), actual_w, actual_h, actual_fps,
     camera_width_, camera_height_, camera_fps_);
   return true;
@@ -1189,17 +1280,6 @@ bool TipVisionTestNode::run_inference_on_frame(
       local_result.primary_target->box.x + local_result.primary_target->box.width / 2;
     local_result.offset_px = local_result.box_cx - frame_bgr.cols / 2;
     local_result.class_id = local_result.primary_target->class_id;
-    const int tracking_ref_w = std::max(
-      1, static_cast<int>(std::round(static_cast<double>(frame_bgr.cols) * kMainPyRefWidthRatio)));
-    const OffsetDecision offset_decision = classify_offset(local_result.offset_px, tracking_ref_w);
-    local_result.dir_code = offset_decision.dir_code;
-    local_result.amp_code = offset_decision.amp_code;
-    const int grab_w_th = std::max(
-      2, static_cast<int>(std::round(static_cast<double>(tracking_ref_w) * grab_min_width_ratio_)));
-    local_result.grab_ready_now =
-      local_result.dir_code == 0x00 &&
-      local_result.amp_code == 0x00 &&
-      local_result.box_w >= grab_w_th;
   }
 
   result = std::move(local_result);
@@ -1251,7 +1331,7 @@ void TipVisionTestNode::async_inference_worker_loop()
     InferenceResult result;
     if (!run_inference_on_frame(frame_bgr, source_frame_seq, result)) {
       RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 2000, "Inference failed through shared engine.");
+        get_logger(), *get_clock(), 2000, "共享引擎推理失败。");
       continue;
     }
 
@@ -1271,7 +1351,7 @@ bool TipVisionTestNode::start_async_inference_worker()
   try {
     async_worker_thread_ = std::thread(&TipVisionTestNode::async_inference_worker_loop, this);
   } catch (const std::exception & ex) {
-    RCLCPP_ERROR(get_logger(), "Failed to start async inference worker: %s", ex.what());
+    RCLCPP_ERROR(get_logger(), "启动异步推理工作线程失败: %s", ex.what());
     return false;
   }
   return true;
@@ -1300,7 +1380,7 @@ bool TipVisionTestNode::initialize()
 
   RCLCPP_INFO(
     get_logger(),
-    "Detection policy: model_id=%s single_target_mode=%s max_categories=%d use_predicted_label=%s",
+    "检测策略: model_id=%s 单目标模式=%s 最大类别数=%d 使用预测标签=%s",
     model_id_.c_str(), single_target_mode_ ? "true" : "false", max_categories_,
     use_predicted_label_ ? "true" : "false");
 
@@ -1308,16 +1388,16 @@ bool TipVisionTestNode::initialize()
     return false;
   }
 
-  stable_ok_count_ = 0;
-  last_serial_open_attempt_tp_ = std::chrono::steady_clock::time_point::min();
-  RCLCPP_INFO(
-    get_logger(),
-    "Serial control uses rc26_serial cmd=0x%02X payload: grab_ready | dir_code | amp_code | "
-    "ts16_lo | ts16_hi",
-    static_cast<unsigned int>(kTipVisionCommand));
-  if (serial_enable_) {
-    (void)open_serial_port();
-  }
+  alignment_stable_count_ = 0;
+  alignment_lost_count_ = 0;
+  grab_sent_for_current_target_ = false;
+  last_grab_state_ = alignment_grab_enable_ ? "WAIT" : "DISABLED";
+  last_grab_seq_ = 0U;
+  last_alignment_command_tp_ = std::chrono::steady_clock::time_point{};
+  last_grab_attempt_tp_ = std::chrono::steady_clock::time_point{};
+  alignment_zero_published_ = false;
+
+  create_alignment_interfaces();
 
   return true;
 }
@@ -1330,7 +1410,7 @@ bool TipVisionTestNode::init_inference()
     const auto profile_it = config.profiles.find(model_id_);
     if (profile_it == config.profiles.end()) {
       RCLCPP_ERROR(
-        get_logger(), "Vision model_id '%s' not found in %s",
+        get_logger(), "视觉 model_id '%s' 在 %s 中未找到",
         model_id_.c_str(), vision_config_file_.c_str());
       return false;
     }
@@ -1339,11 +1419,11 @@ bool TipVisionTestNode::init_inference()
     class_names_ = model_profile_.labels;
     engine_ = rc26_vision::createInferenceEngine(model_profile_);
     RCLCPP_INFO(
-      get_logger(), "Tip inference uses shared engine profile '%s': model=%s labels=%zu",
+      get_logger(), "端头推理使用共享引擎配置 '%s': 模型=%s 标签数=%zu",
       model_profile_.id.c_str(), model_profile_.model_path.c_str(), class_names_.size());
     return true;
   } catch (const std::exception & ex) {
-    RCLCPP_ERROR(get_logger(), "Failed to initialize shared inference engine: %s", ex.what());
+    RCLCPP_ERROR(get_logger(), "初始化共享推理引擎失败: %s", ex.what());
     return false;
   }
 }
@@ -1359,45 +1439,82 @@ bool TipVisionTestNode::init_inference()
 
 namespace rc26_vision::test {
 
-void TipVisionTestNode::draw_serial_overlay(cv::Mat & frame_bgr, const SerialOverlayInfo & info) const
+void TipVisionTestNode::draw_alignment_guides(
+  cv::Mat & frame_bgr,
+  bool has_target,
+  int box_cx,
+  bool aligned) const
+{
+  if (!alignment_draw_guides_ || frame_bgr.empty()) {
+    return;
+  }
+
+  const int center_x = frame_bgr.cols / 2;
+  const cv::Scalar target_line_color = aligned ? cv::Scalar(70, 220, 70) : cv::Scalar(0, 210, 255);
+  const cv::Scalar box_line_color = aligned ? cv::Scalar(70, 220, 70) : cv::Scalar(80, 120, 255);
+
+  cv::line(
+    frame_bgr, cv::Point(center_x, 0), cv::Point(center_x, frame_bgr.rows - 1),
+    target_line_color, 2, cv::LINE_AA);
+  if (alignment_tolerance_px_ > 0) {
+    const int left_tol = std::clamp(center_x - alignment_tolerance_px_, 0, frame_bgr.cols - 1);
+    const int right_tol = std::clamp(center_x + alignment_tolerance_px_, 0, frame_bgr.cols - 1);
+    cv::line(
+      frame_bgr, cv::Point(left_tol, 0), cv::Point(left_tol, frame_bgr.rows - 1),
+      cv::Scalar(90, 90, 90), 1, cv::LINE_AA);
+    cv::line(
+      frame_bgr, cv::Point(right_tol, 0), cv::Point(right_tol, frame_bgr.rows - 1),
+      cv::Scalar(90, 90, 90), 1, cv::LINE_AA);
+  }
+
+  if (has_target && box_cx >= 0 && box_cx < frame_bgr.cols) {
+    cv::line(
+      frame_bgr, cv::Point(box_cx, 0), cv::Point(box_cx, frame_bgr.rows - 1),
+      box_line_color, 2, cv::LINE_AA);
+  }
+}
+
+void TipVisionTestNode::draw_alignment_overlay(
+  cv::Mat & frame_bgr,
+  const AlignmentOverlayInfo & info) const
 {
   std::vector<std::string> lines;
   lines.reserve(4U);
 
-  const char * serial_state = !info.serial_enabled ? "OFF" : (info.serial_open ? "OPEN" : "DOWN");
-  const char * tx_state = info.serial_enabled ? (info.tx_sent ? "SENT" : "DROP") : "PREVIEW";
+  const std::string align_state =
+    !info.control_enabled ? "OFF" :
+    (!info.has_target ? "LOST" : (info.aligned ? "OK" : "MOVE"));
 
   {
     std::ostringstream ss;
-    ss << "SER " << serial_state << " dev=" << serial_device_ << " tx=" << tx_state;
+    ss << "ALIGN " << (info.control_enabled ? "ON" : "OFF")
+       << " target=" << (info.has_target ? "YES" : "NO")
+       << " state=" << align_state
+       << " label=" << info.label;
     lines.push_back(ss.str());
   }
 
   {
     std::ostringstream ss;
-    ss << "PACK cmd=" << tip_detail::byte_to_hex(info.command_id)
-       << " len=" << static_cast<unsigned int>(info.packet_size)
-       << " seq=" << static_cast<unsigned int>(info.seq)
-       << " ts=0x" << std::uppercase << std::hex << std::setfill('0') << std::setw(4)
-       << static_cast<unsigned int>(info.ts16)
-       << std::dec << " target=" << (info.has_target ? "YES" : "NO");
+    ss << "CTRL off=" << info.offset_px
+       << " tol=" << info.tolerance_px
+       << " vy=" << std::fixed << std::setprecision(3) << info.cmd_vy
+       << " pub=" << (info.command_published ? "YES" : "NO");
     lines.push_back(ss.str());
   }
 
   {
     std::ostringstream ss;
-    ss << "CTRL " << info.label
-       << " off=" << info.offset_px
-       << " dir=" << tip_detail::byte_to_hex(info.dir_code)
-       << " amp=" << tip_detail::byte_to_hex(info.amp_code)
-       << " grab=" << (info.grab_ready ? "OK" : "WAIT")
-       << " " << info.stable_ok_count << "/" << ok_stable_frames_;
+    ss << "STABLE " << info.stable_count << "/" << info.stable_required
+       << " lost=" << info.lost_count;
     lines.push_back(ss.str());
   }
 
   {
     std::ostringstream ss;
-    ss << "PAY " << info.packet_hex;
+    ss << "GRAB " << (info.grab_enabled ? info.grab_state : "DISABLED")
+       << " cmd=" << tip_detail::byte_to_hex(info.grab_command_id)
+       << " seq=" << static_cast<unsigned int>(info.grab_seq);
     lines.push_back(ss.str());
   }
 
@@ -1433,9 +1550,8 @@ void TipVisionTestNode::draw_serial_overlay(cv::Mat & frame_bgr, const SerialOve
 
   const cv::Rect panel_rect(kPanelX, kPanelY, panel_width, panel_height);
   const cv::Scalar panel_color =
-    info.serial_enabled ?
-    (info.serial_open ? cv::Scalar(35, 45, 35) : cv::Scalar(20, 40, 90)) :
-    cv::Scalar(55, 55, 55);
+    !info.control_enabled ? cv::Scalar(55, 55, 55) :
+    (info.aligned ? cv::Scalar(35, 70, 35) : cv::Scalar(40, 45, 75));
   cv::rectangle(frame_bgr, panel_rect, panel_color, cv::FILLED);
   cv::rectangle(frame_bgr, panel_rect, cv::Scalar(180, 180, 180), 1, cv::LINE_AA);
 
@@ -1517,10 +1633,10 @@ int main(int argc, char ** argv)
     auto * node = new rc26_vision::test::TipVisionTestNode();
     rc = node->run();
   } catch (const std::exception & ex) {
-    std::fprintf(stderr, "Fatal: %s\n", ex.what());
+    std::fprintf(stderr, "致命错误: %s\n", ex.what());
     rc = 2;
   } catch (...) {
-    std::fprintf(stderr, "Unknown fatal error\n");
+    std::fprintf(stderr, "未知致命错误\n");
     rc = 3;
   }
 

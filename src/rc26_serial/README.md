@@ -48,6 +48,8 @@
 *   transport service 返回 `accepted=true` 的前提仍然是 MCU 先回通用 `ACK(0x00)`；`0x13~0x16` 业务 ACK 会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定。
 *   串口层当前只把 `ACK(0x00)`、`NACK(0x01)` 和心跳场景下的 `HEARTBEAT_ACK(0x10)` 视为 ACK 等待结果；MCU 已不再返回 `ACTION_FAIL/ERROR` 这类快捷失败反馈。
 *   真机部署时，目标 MCU 串口仍由 `rc26_merge_odom` 运行时独占打开；当前默认主口是 `target_serial_port=/dev/ttyUSB0`，其它上层只复用 transport，不再次直连同一设备。
+*   端头视觉对齐后的抓取改为经 `/mechanism/send_command` 下发 `GRAB_TIP(0x01)` 空 payload。
+*   旧 tip test 视觉状态下发命令已从下行协议中删除，原下行编号 `0x12` 当前不重新分配；上行 `FeedbackID::STAIR_DESCEND_DONE = 0x12` 仍保留。
 
 当前底盘反馈协议也已经统一回麦克纳姆四轮口径：
 

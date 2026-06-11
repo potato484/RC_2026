@@ -116,6 +116,7 @@
 - `PoseSender` 继续按 `(vx, vy, wz)` 协议下发，并把 `vy` 视为麦克纳姆主链上的有效保护量。
 - `PoseSender` 代码仍保留 `POSE_FEEDBACK(0x1E)` 与 `POSE_TARGET(0x1F)` 的 `50Hz` 连续下发能力；但当前默认运行时只启用 `target_serial_port=/dev/ttyUSB0` 这条单口 MCU 链，因此默认只会连续发送 `POSE_TARGET`。
 - `merge_odom_node` 现在额外挂出 `/mechanism/send_command` 与 `/mechanism/command_feedback`，把机构命令和前/后推杆遥控命令都复用到同一条目标串口上。
+- `rc26_vision` 的 tip test 自动对线能力也按这个共享边界接入：横移只发布标准 `/cmd_vel`，对齐后抓取只调用 `/mechanism/send_command` 下发 `GRAB_TIP(0x01)` 空 payload，不绕过目标 MCU 串口权威。
 - `pose_sender_node` 现在也会挂出同一组共享 mechanism 命令接口，因此 `minimal-mcu` 栈除了速度下发外，也能承接基于 ACK 的共享机构 transport。
 - 双推杆协议已经收口为 `FRONT_PUSHROD_EXTEND/RETRACT(0x0E/0x0F)` 与 `REAR_PUSHROD_EXTEND/RETRACT(0x10/0x11)`；它们和其它普通机构命令一样走可靠 send + 通用 `ACK(0x00)`，MCU 额外发布的 `0x13~0x16` 业务 ACK 会继续透传给 transport feedback。
 - 真实部署下，`rc26_mechanism` 不应再单独打开默认目标口 `/dev/ttyUSB0`；若 teleop 或 bringup 已经启动 `merge_odom`，则机制侧应使用 `hal_type:=shared_serial`。
