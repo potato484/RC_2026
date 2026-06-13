@@ -5,194 +5,220 @@ src R2导航系统 - 主启动文件
   - 里程计 (rc26_point_lio + rc26_odom_interface + rc26_sensor_scan)
   - 定位 (rc26_localization)
   - Nav2 基础导航栈 (map_server + planner/controller/BT navigator/velocity smoother)
-  - 底盘执行桥 (rc26_merge_odom/pose_sender_node)
+  - 底盘执行与局部反馈链 (rc26_merge_odom/merge_odom.launch.py)
   - 决策系统 (rc26_decision)
 
 额外模式:
-  - slam:=true 且 pure_mapping_mode:=true 时，保留纯建图最小运动链路
+  - run_mode:=mapping 且 pure_mapping_mode:=true 时，保留纯建图最小运动链路
 
 默认装配口径:
   - 车端 bringup 维持 headless
+  - r2_runtime.yaml 是点云、地图、行为树入口、底盘默认值与决策参数的运行配置真源
   - 如需图形观察，请手工启动工作区外部可视化工具只读消费 ROS2 输出
 """
+import os
+
+import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
-from launch.conditions import IfCondition, UnlessCondition
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node, PushRosNamespace
 
 
-def generate_launch_description():
-    # 获取包路径
-    bringup_dir = get_package_share_directory('rc26_bringup')
-    decision_dir = get_package_share_directory('rc26_decision')
-    merge_odom_dir = get_package_share_directory('rc26_merge_odom')
-    sensor_extrinsics_dir = get_package_share_directory('rc26_sensor_extrinsics')
-    nav2_bringup_dir = get_package_share_directory('nav2_bringup')
+def _launch_bool(value):
+    return str(bool(value)).lower()
 
-    # 启动参数
-    namespace = LaunchConfiguration('namespace')
-    use_sim_time = LaunchConfiguration('use_sim_time')
-    slam = LaunchConfiguration('slam')
-    pure_mapping_mode = LaunchConfiguration('pure_mapping_mode')
-    prior_pcd_file = LaunchConfiguration('prior_pcd_file')
-    point_lio_config_file = LaunchConfiguration('point_lio_config_file')
-    sensor_extrinsics_file = LaunchConfiguration('sensor_extrinsics_file')
-    sensor_extrinsics_profile = LaunchConfiguration('sensor_extrinsics_profile')
-    start_mid360_driver = LaunchConfiguration('start_mid360_driver')
-    recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
-    localization_params_file = LaunchConfiguration('localization_params_file')
-    start_pose_sender = LaunchConfiguration('start_pose_sender')
-    pose_sender_feedback_serial_port = LaunchConfiguration('pose_sender_feedback_serial_port')
-    pose_sender_target_serial_port = LaunchConfiguration('pose_sender_target_serial_port')
-    pose_sender_baudrate = LaunchConfiguration('pose_sender_baudrate')
-    use_decision = LaunchConfiguration('use_decision')
-    use_realsense = LaunchConfiguration('use_realsense')
-    realsense_serial_no = LaunchConfiguration('realsense_serial_no')
-    realsense_config_file = LaunchConfiguration('realsense_config_file')
-    team = LaunchConfiguration('team')
-    nav2_params_file = LaunchConfiguration('nav2_params_file')
-    nav2_map_file = LaunchConfiguration('nav2_map_file')
 
-    # 参数声明
-    declare_namespace = DeclareLaunchArgument(
-        'namespace',
-        default_value='',
-        description='顶级命名空间')
+def _parse_bool(value):
+    return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
 
-    declare_use_sim_time = DeclareLaunchArgument(
-        'use_sim_time',
-        default_value='false',
-        description='使用仿真时间')
 
-    declare_slam = DeclareLaunchArgument(
-        'slam',
-        default_value='false',
-        description='建图模式 (True) 或导航模式 (False)')
+def _launch_value(context, name):
+    return LaunchConfiguration(name).perform(context).strip()
 
-    declare_pure_mapping_mode = DeclareLaunchArgument(
-        'pure_mapping_mode',
-        default_value='false',
-        description='纯建图最小模式；仅在 slam:=true 时生效，跳过 decision 等非必要模块')
 
-    declare_prior_pcd_file = DeclareLaunchArgument(
-        'prior_pcd_file',
-        default_value=PathJoinSubstitution([bringup_dir, 'pcd', 'default.pcd']),
-        description='先验点云文件路径')
+def _read_bool(mapping, key, default_value):
+    value = mapping.get(key, default_value)
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default_value
+    return _parse_bool(value)
 
-    declare_point_lio_config_file = DeclareLaunchArgument(
-        'point_lio_config_file',
-        default_value='',
-        description='Point-LIO 参数文件路径；为空时使用 rc26_point_lio/config/mid360.yaml')
 
-    declare_sensor_extrinsics_file = DeclareLaunchArgument(
+def _read_str(mapping, key, default_value):
+    value = mapping.get(key, default_value)
+    if value is None:
+        return default_value
+    return str(value)
+
+
+def _read_required_abs_path(mapping, key):
+    if key not in mapping:
+        raise RuntimeError(f"r2_runtime.paths.{key} is required in r2_runtime.yaml")
+    value = str(mapping.get(key, '')).strip()
+    if value == '':
+        raise RuntimeError(f"r2_runtime.paths.{key} must not be empty")
+    if not os.path.isabs(value):
+        raise RuntimeError(f"r2_runtime.paths.{key} must be an absolute path: {value}")
+    return value
+
+
+def _select_bool(context, name, default_value):
+    value = _launch_value(context, name)
+    if value == '':
+        return default_value
+    return _parse_bool(value)
+
+
+def _select_str(context, name, default_value):
+    value = _launch_value(context, name)
+    return default_value if value == '' else value
+
+
+def _select_abs_path(context, name, default_value):
+    value = _select_str(context, name, default_value).strip()
+    if not os.path.isabs(value):
+        raise RuntimeError(f"{name} must be an absolute path: {value}")
+    return value
+
+
+def _read_run_mode(context):
+    if 'slam' in context.launch_configurations:
+        raise RuntimeError(
+            "slam launch argument was removed; use run_mode:=navigation or run_mode:=mapping"
+        )
+    run_mode = _launch_value(context, 'run_mode').lower()
+    if run_mode not in ('navigation', 'mapping'):
+        raise RuntimeError(
+            f"run_mode must be one of: navigation | mapping; got: {run_mode}"
+        )
+    return run_mode
+
+
+def _load_r2_runtime_defaults(config_file):
+    if not os.path.isabs(config_file):
+        raise RuntimeError(f"runtime_config_file must be an absolute path: {config_file}")
+    if not os.path.exists(config_file):
+        raise RuntimeError(f"runtime_config_file does not exist: {config_file}")
+
+    defaults = {
+        'paths': {},
+        'merge_odom': {
+            'use_can_odom': False,
+            'start_ekf': False,
+            'start_imu': False,
+            'use_imu_for_ekf': False,
+            'require_merge_odom_output': True,
+            'output_topic': 'merge_odom',
+        },
+        'decision_params': {},
+    }
+
+    with open(config_file, 'r', encoding='utf-8') as f:
+        yaml_data = yaml.safe_load(f) or {}
+
+    runtime = yaml_data.get('r2_runtime') or {}
+    paths = runtime.get('paths') or {}
+    chassis_runtime = runtime.get('chassis_runtime') or {}
+    merge_odom = chassis_runtime.get('merge_odom') or {}
+    decision = runtime.get('decision') or {}
+
+    defaults['paths']['prior_pcd_file'] = _read_required_abs_path(paths, 'prior_pcd_file')
+    defaults['paths']['nav2_map_file'] = _read_required_abs_path(paths, 'nav2_map_file')
+    defaults['paths']['behavior_tree_file'] = _read_required_abs_path(paths, 'behavior_tree_file')
+
+    defaults['merge_odom']['use_can_odom'] = _read_bool(
+        merge_odom, 'use_can_odom', defaults['merge_odom']['use_can_odom'])
+    defaults['merge_odom']['start_ekf'] = _read_bool(
+        merge_odom, 'start_ekf', defaults['merge_odom']['start_ekf'])
+    defaults['merge_odom']['start_imu'] = _read_bool(
+        merge_odom, 'start_imu', defaults['merge_odom']['start_imu'])
+    defaults['merge_odom']['use_imu_for_ekf'] = _read_bool(
+        merge_odom, 'use_imu_for_ekf', defaults['merge_odom']['use_imu_for_ekf'])
+    defaults['merge_odom']['require_merge_odom_output'] = _read_bool(
+        merge_odom, 'require_merge_odom_output', defaults['merge_odom']['require_merge_odom_output'])
+    defaults['merge_odom']['output_topic'] = _read_str(
+        merge_odom, 'output_topic', defaults['merge_odom']['output_topic'])
+
+    defaults['decision_params'] = dict((decision.get('ros__parameters') or {}))
+    defaults['decision_params'].pop('tree_file', None)
+    return defaults
+
+
+def _create_runtime_actions(context, *, bringup_dir, merge_odom_dir, sensor_extrinsics_dir,
+                            nav2_bringup_dir):
+    runtime_config_file = _launch_value(context, 'runtime_config_file')
+    runtime_defaults = _load_r2_runtime_defaults(runtime_config_file)
+    merge_defaults = runtime_defaults['merge_odom']
+
+    namespace = _launch_value(context, 'namespace')
+    use_sim_time = _parse_bool(_launch_value(context, 'use_sim_time'))
+    use_sim_time_text = _launch_bool(use_sim_time)
+    run_mode = _read_run_mode(context)
+    navigation_mode = run_mode == 'navigation'
+    mapping_mode = run_mode == 'mapping'
+    pure_mapping_mode = _parse_bool(_launch_value(context, 'pure_mapping_mode'))
+    prior_pcd_file = _select_abs_path(context, 'prior_pcd_file', runtime_defaults['paths']['prior_pcd_file'])
+    point_lio_config_file = _launch_value(context, 'point_lio_config_file')
+    sensor_extrinsics_file = _select_str(
+        context,
         'sensor_extrinsics_file',
-        default_value=PathJoinSubstitution([sensor_extrinsics_dir, 'config', 'r2_sensor_extrinsics.yaml']),
-        description='传感器安装外参 YAML 文件路径')
-
-    declare_sensor_extrinsics_profile = DeclareLaunchArgument(
-        'sensor_extrinsics_profile',
-        default_value='',
-        description='传感器安装外参 profile；空字符串表示使用 YAML defaults.active_profile')
-
-    declare_start_mid360_driver = DeclareLaunchArgument(
-        'start_mid360_driver',
-        default_value='true',
-        description='是否由 odometry 链启动 MID-360 驱动')
-
-    declare_recover_mid360_stream = DeclareLaunchArgument(
-        'recover_mid360_stream',
-        default_value='false',
-        description='启动前先运行 Mid-360 恢复脚本（必要时重写 host_ipcfg 并软件重启雷达）')
-
-    declare_localization_params_file = DeclareLaunchArgument(
+        os.path.join(sensor_extrinsics_dir, 'config', 'r2_sensor_extrinsics.yaml'))
+    sensor_extrinsics_profile = _launch_value(context, 'sensor_extrinsics_profile')
+    start_mid360_driver = _launch_value(context, 'start_mid360_driver') or 'true'
+    recover_mid360_stream = _launch_value(context, 'recover_mid360_stream') or 'false'
+    localization_params_file = _select_str(
+        context,
         'localization_params_file',
-        default_value=PathJoinSubstitution([bringup_dir, 'config', 'localization.yaml']),
-        description='基础定位参数文件路径')
+        os.path.join(bringup_dir, 'config', 'localization.yaml'))
 
-    declare_start_pose_sender = DeclareLaunchArgument(
-        'start_pose_sender',
-        default_value='true',
-        description='是否启动 pose_sender_node，把导航 /cmd_vel 接到底盘目标 MCU')
+    merge_odom_use_can_odom = _select_bool(
+        context, 'merge_odom_use_can_odom', merge_defaults['use_can_odom'])
+    merge_odom_start_ekf = _select_bool(
+        context, 'merge_odom_start_ekf', merge_defaults['start_ekf'])
+    merge_odom_start_imu = _select_bool(
+        context, 'merge_odom_start_imu', merge_defaults['start_imu'])
+    merge_odom_use_imu_for_ekf = _select_bool(
+        context, 'merge_odom_use_imu_for_ekf', merge_defaults['use_imu_for_ekf'])
+    merge_odom_require_output = _select_bool(
+        context, 'merge_odom_require_output', merge_defaults['require_merge_odom_output'])
+    merge_odom_output_topic = _select_str(
+        context, 'merge_odom_output_topic', merge_defaults['output_topic'])
+    start_pose_sender = _parse_bool(_launch_value(context, 'start_pose_sender') or 'true')
+    pose_sender_feedback_serial_port = _launch_value(context, 'pose_sender_feedback_serial_port') or '__disabled__'
+    pose_sender_target_serial_port = _launch_value(context, 'pose_sender_target_serial_port') or '/dev/ttyUSB0'
+    pose_sender_baudrate = _launch_value(context, 'pose_sender_baudrate') or '1000000'
 
-    declare_pose_sender_feedback_serial_port = DeclareLaunchArgument(
-        'pose_sender_feedback_serial_port',
-        default_value='__disabled__',
-        description='pose_sender_node 反馈串口；当前默认停用反馈链路')
-
-    declare_pose_sender_target_serial_port = DeclareLaunchArgument(
-        'pose_sender_target_serial_port',
-        default_value='/dev/ttyUSB0',
-        description='pose_sender_node 目标串口；用于 POSE_TARGET 与 mechanism transport')
-
-    declare_pose_sender_baudrate = DeclareLaunchArgument(
-        'pose_sender_baudrate',
-        default_value='1000000',
-        description='pose_sender_node 串口波特率')
-
-    declare_use_decision = DeclareLaunchArgument(
-        'use_decision',
-        default_value='true',
-        description='启动决策系统')
-
-    declare_use_realsense = DeclareLaunchArgument(
-        'use_realsense',
-        default_value='false',
-        description='启动 RealSense D455 (realsense2_camera)')
-
-    declare_realsense_serial_no = DeclareLaunchArgument(
-        'realsense_serial_no',
-        default_value="''",
-        description='RealSense serial number (empty to auto-select)')
-
-    declare_realsense_config_file = DeclareLaunchArgument(
+    use_decision = _parse_bool(_launch_value(context, 'use_decision') or 'true')
+    use_realsense = _parse_bool(_launch_value(context, 'use_realsense'))
+    realsense_serial_no = _launch_value(context, 'realsense_serial_no') or "''"
+    realsense_config_file = _select_str(
+        context,
         'realsense_config_file',
-        default_value=PathJoinSubstitution([bringup_dir, 'config', 'realsense_d455.yaml']),
-        description='RealSense YAML config file (realsense2_camera params)')
-
-    declare_team = DeclareLaunchArgument(
+        os.path.join(bringup_dir, 'config', 'realsense_d455.yaml'))
+    team = _select_str(
+        context,
         'team',
-        default_value='blue',
-        description='Active competition side: blue | red')
-
-    declare_nav2_params_file = DeclareLaunchArgument(
+        str(runtime_defaults['decision_params'].get('team', 'blue')))
+    nav2_params_file = _select_str(
+        context,
         'nav2_params_file',
-        default_value=PathJoinSubstitution([bringup_dir, 'config', 'nav2_params.yaml']),
-        description='Nav2 参数文件；rc26_localization 仍负责 map->odom，Nav2 只负责规划/控制')
+        os.path.join(bringup_dir, 'config', 'nav2_params.yaml'))
+    nav2_map_file = _select_abs_path(context, 'nav2_map_file', runtime_defaults['paths']['nav2_map_file'])
+    behavior_tree_file = runtime_defaults['paths']['behavior_tree_file']
 
-    declare_nav2_map_file = DeclareLaunchArgument(
-        'nav2_map_file',
-        default_value=PathJoinSubstitution([bringup_dir, 'map', 'test.yaml']),
-        description='Nav2 map_server 使用的 2D occupancy map YAML；实机导航应传入有效地图')
+    actions = []
 
-    # RealSense D455（可选）
-    realsense_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution([bringup_dir, 'launch', 'realsense_d455.launch.py'])
-        ),
-        launch_arguments={
-            'serial_no': realsense_serial_no,
-            'config_file': realsense_config_file,
-        }.items()
-    )
-    realsense_group = GroupAction(
-        actions=[
-            PushRosNamespace(namespace),
-            realsense_launch,
-        ],
-        condition=IfCondition(use_realsense),
-    )
-
-    # 里程计模块 (rc26_point_lio + rc26_odom_interface + rc26_sensor_scan)
     odometry_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([bringup_dir, 'launch', 'odometry.launch.py'])
         ),
         launch_arguments={
             'namespace': namespace,
-            'use_sim_time': use_sim_time,
+            'use_sim_time': use_sim_time_text,
             'point_lio_config_file': point_lio_config_file,
             'sensor_extrinsics_file': sensor_extrinsics_file,
             'sensor_extrinsics_profile': sensor_extrinsics_profile,
@@ -201,157 +227,253 @@ def generate_launch_description():
             'recover_mid360_stream': recover_mid360_stream,
         }.items()
     )
-    odometry_group = GroupAction(
-        actions=[odometry_launch],
-        scoped=True,
-    )
+    actions.append(GroupAction(actions=[odometry_launch], scoped=True))
 
-    # 定位模块
-    # - 导航模式: 启动 rc26_localization
-    # - 建图模式: 发布静态 map -> odom 变换
     localization_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([bringup_dir, 'launch', 'localization.launch.py'])
         ),
         launch_arguments={
             'namespace': namespace,
-            'use_sim_time': use_sim_time,
-            'slam': slam,
+            'use_sim_time': use_sim_time_text,
+            'run_mode': run_mode,
             'prior_pcd_file': prior_pcd_file,
             'localization_params_file': localization_params_file,
         }.items()
     )
+    actions.append(localization_launch)
 
-    # Nav2 基础导航栈。
-    # rc26_localization 继续作为 map->odom 权威；这里只启动 map_server 和 Nav2 navigation 节点。
-    nav2_map_server_node = Node(
-        package='nav2_map_server',
-        executable='map_server',
-        name='map_server',
-        namespace=namespace,
-        output='screen',
-        parameters=[
-            nav2_params_file,
-            {
+    if navigation_mode:
+        actions.append(Node(
+            package='nav2_map_server',
+            executable='map_server',
+            name='map_server',
+            namespace=namespace,
+            output='screen',
+            parameters=[
+                nav2_params_file,
+                {
+                    'use_sim_time': use_sim_time,
+                    'yaml_filename': nav2_map_file,
+                },
+            ],
+        ))
+
+        actions.append(Node(
+            package='nav2_lifecycle_manager',
+            executable='lifecycle_manager',
+            name='lifecycle_manager_map',
+            namespace=namespace,
+            output='screen',
+            parameters=[{
                 'use_sim_time': use_sim_time,
-                'yaml_filename': nav2_map_file,
-            },
-        ],
-        condition=UnlessCondition(slam)
-    )
+                'autostart': True,
+                'node_names': ['map_server'],
+            }],
+        ))
 
-    nav2_map_lifecycle_node = Node(
-        package='nav2_lifecycle_manager',
-        executable='lifecycle_manager',
-        name='lifecycle_manager_map',
-        namespace=namespace,
-        output='screen',
-        parameters=[{
-            'use_sim_time': use_sim_time,
-            'autostart': True,
-            'node_names': ['map_server'],
-        }],
-        condition=UnlessCondition(slam)
-    )
+        actions.append(IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                PathJoinSubstitution([nav2_bringup_dir, 'launch', 'navigation_launch.py'])
+            ),
+            launch_arguments={
+                'namespace': namespace,
+                'use_sim_time': use_sim_time_text,
+                'params_file': nav2_params_file,
+                'autostart': 'true',
+                'use_composition': 'False',
+                'use_respawn': 'False',
+            }.items(),
+        ))
 
-    nav2_navigation_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution([nav2_bringup_dir, 'launch', 'navigation_launch.py'])
-        ),
-        launch_arguments={
-            'namespace': namespace,
-            'use_sim_time': use_sim_time,
-            'params_file': nav2_params_file,
-            'autostart': 'true',
-            'use_composition': 'False',
-            'use_respawn': 'False',
-        }.items(),
-        condition=UnlessCondition(slam)
-    )
+        if start_pose_sender:
+            actions.append(IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    PathJoinSubstitution([merge_odom_dir, 'launch', 'merge_odom.launch.py'])
+                ),
+                launch_arguments={
+                    'use_can_odom': _launch_bool(merge_odom_use_can_odom),
+                    'start_ekf': _launch_bool(merge_odom_start_ekf),
+                    'use_imu_for_ekf': _launch_bool(merge_odom_use_imu_for_ekf),
+                    'start_imu': _launch_bool(merge_odom_start_imu),
+                    'feedback_serial_port': pose_sender_feedback_serial_port,
+                    'target_serial_port': pose_sender_target_serial_port,
+                    'baudrate': pose_sender_baudrate,
+                    'merge_odom_output_topic': merge_odom_output_topic,
+                    'require_merge_odom_output': _launch_bool(merge_odom_require_output),
+                }.items(),
+            ))
 
-    pose_sender_config_file = PathJoinSubstitution([merge_odom_dir, 'config', 'merge_odom_params.yaml'])
-    pose_sender_node = Node(
-        package='rc26_merge_odom',
-        executable='pose_sender_node',
-        name='pose_sender_node',
-        namespace=namespace,
-        output='screen',
-        parameters=[
-            pose_sender_config_file,
-            {
-                'use_sim_time': use_sim_time,
-                'feedback_serial_port': pose_sender_feedback_serial_port,
-                'target_serial_port': pose_sender_target_serial_port,
-                'baudrate': pose_sender_baudrate,
-                'cmd_vel_topic': 'cmd_vel',
-                'odom_topic': 'odom',
-                'imu_topic': '',
-                'imu_gate_enable': False,
-                'latency_comp_enable': False,
-            },
-        ],
-        condition=IfCondition(
-            PythonExpression([
-                "'", start_pose_sender, "'.lower() == 'true' and '", slam, "'.lower() != 'true'"
-            ])
-        ),
-    )
+    if use_decision and not (mapping_mode and pure_mapping_mode):
+        decision_params = dict(runtime_defaults['decision_params'])
+        decision_params.pop('team', None)
+        decision_params.pop('tree_file', None)
+        actions.append(Node(
+            package='rc26_decision',
+            executable='decision_node',
+            name='rc26_decision',
+            namespace=namespace,
+            output='screen',
+            parameters=[
+                decision_params,
+                {
+                    'use_sim_time': use_sim_time,
+                    'team': team,
+                    'tree_file': behavior_tree_file,
+                },
+            ],
+        ))
 
-    # 决策系统：行为树节点（rc26_decision/decision_node），默认启用，可通过 use_decision 控制
-    decision_params = PathJoinSubstitution([decision_dir, 'config', 'decision_params.yaml'])
-    decision_node = Node(
-        package='rc26_decision',
-        executable='decision_node',
-        name='rc26_decision',
-        namespace=namespace,
-        output='screen',
-        parameters=[
-            decision_params,
-            {
-                'use_sim_time': use_sim_time,
-                'team': team,
-                'tree_file': 'main_tree.xml',
-            },
-        ],
-        condition=IfCondition(PythonExpression([
-            "'", use_decision, "'.lower() == 'true' and not ('", slam, "'.lower() == 'true' and '",
-            pure_mapping_mode, "'.lower() == 'true')"
-        ]))
-    )
+    if use_realsense:
+        realsense_launch = IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                PathJoinSubstitution([bringup_dir, 'launch', 'realsense_d455.launch.py'])
+            ),
+            launch_arguments={
+                'serial_no': realsense_serial_no,
+                'config_file': realsense_config_file,
+            }.items()
+        )
+        actions.append(GroupAction(
+            actions=[
+                PushRosNamespace(namespace),
+                realsense_launch,
+            ],
+        ))
+
+    return actions
+
+
+def generate_launch_description():
+    bringup_dir = get_package_share_directory('rc26_bringup')
+    merge_odom_dir = get_package_share_directory('rc26_merge_odom')
+    sensor_extrinsics_dir = get_package_share_directory('rc26_sensor_extrinsics')
+    nav2_bringup_dir = get_package_share_directory('nav2_bringup')
 
     return LaunchDescription([
-        # 参数声明
-        declare_namespace,
-        declare_use_sim_time,
-        declare_slam,
-        declare_pure_mapping_mode,
-        declare_prior_pcd_file,
-        declare_point_lio_config_file,
-        declare_sensor_extrinsics_file,
-        declare_sensor_extrinsics_profile,
-        declare_start_mid360_driver,
-        declare_recover_mid360_stream,
-        declare_localization_params_file,
-        declare_start_pose_sender,
-        declare_pose_sender_feedback_serial_port,
-        declare_pose_sender_target_serial_port,
-        declare_pose_sender_baudrate,
-        declare_use_decision,
-        declare_use_realsense,
-        declare_realsense_serial_no,
-        declare_realsense_config_file,
-        declare_team,
-        declare_nav2_params_file,
-        declare_nav2_map_file,
-
-        # 启动模块
-        odometry_group,
-        localization_launch,
-
-        nav2_map_server_node,
-        nav2_map_lifecycle_node,
-        nav2_navigation_launch,
-        pose_sender_node,
-        decision_node,
-        realsense_group,
+        DeclareLaunchArgument(
+            'runtime_config_file',
+            default_value=PathJoinSubstitution([bringup_dir, 'config', 'r2_runtime.yaml']),
+            description='R2 统一运行配置 YAML；点云、地图、行为树路径必须为绝对路径'),
+        DeclareLaunchArgument(
+            'namespace',
+            default_value='',
+            description='顶级命名空间'),
+        DeclareLaunchArgument(
+            'use_sim_time',
+            default_value='false',
+            description='使用仿真时间'),
+        DeclareLaunchArgument(
+            'run_mode',
+            default_value='navigation',
+            description='运行模式: navigation | mapping；navigation=完整导航/决策链路, mapping=建图链路'),
+        DeclareLaunchArgument(
+            'pure_mapping_mode',
+            default_value='false',
+            description='纯建图最小模式；仅在 run_mode:=mapping 时生效，跳过 decision 等非必要模块'),
+        DeclareLaunchArgument(
+            'prior_pcd_file',
+            default_value='',
+            description='先验点云文件绝对路径；空字符串表示使用 r2_runtime.yaml'),
+        DeclareLaunchArgument(
+            'point_lio_config_file',
+            default_value='',
+            description='Point-LIO 参数文件路径；为空时使用 rc26_point_lio/config/mid360.yaml'),
+        DeclareLaunchArgument(
+            'sensor_extrinsics_file',
+            default_value='',
+            description='传感器安装外参 YAML 文件路径；为空时使用 rc26_sensor_extrinsics 默认配置'),
+        DeclareLaunchArgument(
+            'sensor_extrinsics_profile',
+            default_value='',
+            description='传感器安装外参 profile；空字符串表示使用 YAML defaults.active_profile'),
+        DeclareLaunchArgument(
+            'start_mid360_driver',
+            default_value='true',
+            description='是否由 odometry 链启动 MID-360 驱动'),
+        DeclareLaunchArgument(
+            'recover_mid360_stream',
+            default_value='false',
+            description='启动前先运行 Mid-360 恢复脚本（必要时重写 host_ipcfg 并软件重启雷达）'),
+        DeclareLaunchArgument(
+            'localization_params_file',
+            default_value='',
+            description='基础定位参数文件路径；为空时使用 rc26_bringup/config/localization.yaml'),
+        DeclareLaunchArgument(
+            'merge_odom_use_can_odom',
+            default_value='',
+            description='覆盖 r2_runtime.yaml: 是否选择 CAN 里程计作为 /merge_odom 源'),
+        DeclareLaunchArgument(
+            'merge_odom_start_ekf',
+            default_value='',
+            description='覆盖 r2_runtime.yaml: 是否启动 EKF'),
+        DeclareLaunchArgument(
+            'merge_odom_start_imu',
+            default_value='',
+            description='覆盖 r2_runtime.yaml: 是否启动 DM IMU'),
+        DeclareLaunchArgument(
+            'merge_odom_use_imu_for_ekf',
+            default_value='',
+            description='覆盖 r2_runtime.yaml: 是否让 EKF 融合 IMU'),
+        DeclareLaunchArgument(
+            'merge_odom_require_output',
+            default_value='',
+            description='覆盖 r2_runtime.yaml: 是否要求真实 odom 源发布稳定 /merge_odom'),
+        DeclareLaunchArgument(
+            'merge_odom_output_topic',
+            default_value='',
+            description='覆盖 r2_runtime.yaml: 稳定底盘局部反馈 Odometry 输出话题'),
+        DeclareLaunchArgument(
+            'start_pose_sender',
+            default_value='true',
+            description='是否启动底盘执行桥，把导航 /cmd_vel 接到底盘目标 MCU'),
+        DeclareLaunchArgument(
+            'pose_sender_feedback_serial_port',
+            default_value='__disabled__',
+            description='保留的独立反馈串口参数；当前默认停用，WheelOdom 走 target 单口'),
+        DeclareLaunchArgument(
+            'pose_sender_target_serial_port',
+            default_value='/dev/ttyUSB0',
+            description='目标串口；用于 POSE_TARGET 与 mechanism transport'),
+        DeclareLaunchArgument(
+            'pose_sender_baudrate',
+            default_value='1000000',
+            description='底盘目标串口波特率'),
+        DeclareLaunchArgument(
+            'use_decision',
+            default_value='true',
+            description='启动决策系统'),
+        DeclareLaunchArgument(
+            'use_realsense',
+            default_value='false',
+            description='启动 RealSense D455 (realsense2_camera)'),
+        DeclareLaunchArgument(
+            'realsense_serial_no',
+            default_value="''",
+            description='RealSense serial number (empty to auto-select)'),
+        DeclareLaunchArgument(
+            'realsense_config_file',
+            default_value='',
+            description='RealSense YAML config file (realsense2_camera params)；为空时使用 bringup 默认配置'),
+        DeclareLaunchArgument(
+            'team',
+            default_value='',
+            description='Active competition side: blue | red；空字符串表示使用 r2_runtime.yaml'),
+        DeclareLaunchArgument(
+            'nav2_params_file',
+            default_value='',
+            description='Nav2 参数文件；为空时使用 rc26_bringup/config/nav2_params.yaml'),
+        DeclareLaunchArgument(
+            'nav2_map_file',
+            default_value='',
+            description='Nav2 map_server 使用的 2D occupancy map YAML 绝对路径；空字符串表示使用 r2_runtime.yaml'),
+        OpaqueFunction(
+            function=_create_runtime_actions,
+            kwargs={
+                'bringup_dir': bringup_dir,
+                'merge_odom_dir': merge_odom_dir,
+                'sensor_extrinsics_dir': sensor_extrinsics_dir,
+                'nav2_bringup_dir': nav2_bringup_dir,
+            },
+        ),
     ])

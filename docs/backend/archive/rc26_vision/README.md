@@ -73,17 +73,17 @@
 - AidLite 和本地 ONNX Runtime 都是可选编译后端。缺 ONNX Runtime C++ 头文件或库时，构建不会失败，而是编译 `onnx_runtime_engine_stub`；缺 AidLite 时同样编译 `aidlite_engine_stub`。stub 只提供链接符号，实际启动到对应推理后端时会快速报错，不产生假推理结果。
 - 自动选链和回退决策统一收口在共享工厂层；`tip_vision_test_node`、`vision_test_node`、`tip_localizer_node` 和 `yolo_inference_test` 会在启动时打印中文日志，说明 profile、AidLux 路径探测结果、AidLite 编译状态、ONNX Runtime 编译状态与最终选中的后端。
 - 当前兼容矩阵：AidLite 有且 ONNX Runtime C++ 缺失时可构建并由 `engine: auto` 选择 AidLite；AidLite 缺失且 ONNX Runtime C++ 存在时可构建并回退 ONNX Runtime；两者都有时优先 AidLite；两者都没有时仍允许构建，但启动推理会报“无可用推理后端”。
-- `config/vision_models.yaml` 是唯一模型 profile 配置入口，当前包含 `kfs_default` 与 `tip_test`。
+- `config/vision_models.yaml` 是唯一模型 profile 配置入口，当前包含 `kfs_default` 与 `tip_default`。
 - `config/vision_models.yaml` 当前默认 profile 已切到 `engine: auto`；显式写 `onnxruntime` / `opencv_onnx` 仍会落到本地 ONNX Runtime 链，显式写 `aidlite` 则保持强制 AidLite、不参与自动回退。
 - 默认视觉主链当前通过 `VisionInferenceManager` 使用 `0.6m ~ 1.2m` 的深度 ROI 有效距离窗口；落在窗口外或有效深度样本不足的检测不会被上游决策当作 `has_target=true`。
 - `tip` test 链已经并入 `rc26_vision`，当前入口是 `tip_vision_test_node` 与 `launch/test_tip_vision.launch.py`。
 - 默认 KFS 模型资产命名为 `models/kfs.pt` / `models/kfs.onnx`，标签文件命名为 `models/kfs_labels.txt`；tip test 模型资产命名为 `models/tip.pt` / `models/tip.onnx`，标签文件命名为 `models/tip_labels.txt`。
-- `config/tip_vision_params.yaml` 只保留 USB 相机、窗口、目标选择、可选对线控制和对齐后抓取下发等节点业务参数；模型路径和后处理参数统一写在 `config/vision_models.yaml` 的 `tip_test` profile。
+- `config/tip_vision_params.yaml` 只保留 USB 相机、窗口、目标选择、可选对线控制和对齐后抓取下发等节点业务参数；模型路径和后处理参数统一写在 `config/vision_models.yaml` 的 `tip_default` profile。
 - `tip_vision_test_node` 现在通过 `vision_config_file + model_id` 选择主链模型 profile，不再自己维护 AidLite interpreter、输入 tensor buffer 或私有 YOLO 后处理。
 - `AidLiteEngine` 根据输入 tensor shape 自动区分 `NCHW / NHWC`，对 `float32 ONNX` 按真实布局喂输入，不再把 `NCHW` 模型误喂成 HWC 平铺。
 - 本地 ONNX Runtime 链在编译启用时同样会读取模型真实 input/output tensor shape，并复用与 AidLite 相同的 YOLO 预处理、坐标回映和 NMS 逻辑，避免两条链的框语义继续漂移。
-- 当前 `models/kfs.onnx` 与 `models/tip.onnx` 都按 float ONNX 默认口径运行；`tip_test` profile 已移除旧的显式 input/output 名和量化参数，输入输出 tensor 名改由运行时自动探测。
-- `tip_test` 当前仍刻意保留 `resize_mode: letterbox` 与 `num_classes: 1`；前者直接影响 tip test 的预处理和框坐标回映，不属于可与 `kfs_default` 一起删除的冗余配置。
+- 当前 `models/kfs.onnx` 与 `models/tip.onnx` 都按 float ONNX 默认口径运行；`tip_default` profile 已移除旧的显式 input/output 名和量化参数，输入输出 tensor 名改由运行时自动探测。
+- `tip_default` 当前仍刻意保留 `resize_mode: letterbox` 与 `num_classes: 1`；前者直接影响 tip test 的预处理和框坐标回映，不属于可与 `kfs_default` 一起删除的冗余配置。
 - `tip_vision_test_node` 已移除旧的距离估计和距离文字叠加；`show_center_distance` 与旧距离参数名只为兼容旧配置而保留，不再参与运行时判定。
 - 当前犀牛派 X1 板上实测 `models/tip.onnx` 为固定 `640x640` 的 CPU ONNX 链，`infer_ms` 大约 `80~95ms`、`infer_fps` 大约 `10~12`；这套 AidLite ONNX 后端对该模型不支持 `GPU/DSP`，若要逼近 `30 infer_fps`，需要换更小输入的 ONNX，或改用可落到 QNN/AMF 的量化资产。
 - `tip_vision_test_node` 已删除旧的视觉直连串口状态下发链路，不再发送原下行 `0x12` 状态命令，也不再维护 `serial_*` 参数。
@@ -124,7 +124,8 @@
 - 本次进一步把 `inference` 拆成 `contracts / config / runtime / yolo / aidlite / onnx` 六组，减少“一层目录内同时混放接口、配置、运行时和后端实现”的平铺耦合。
 - 本次补强了 tip 相机初始化日志，并把默认 tip 参数改成“优先外接摄像头、失败时自动扫描回退”；像 `/dev/video2` 这种能枚举但首帧超时的 UVC 设备，不会再让节点静默卡死在无窗口状态。
 - 本次进一步把 tip test 资源目录扁平化：旧的嵌套 test 参数/模型目录已提升并收口到包内 `config/` 与 `models/` 根目录，同时把标签文件显式命名为 `kfs_labels.txt` 与 `tip_labels.txt`，减少同名资源和相对路径歧义。
-- 本次进一步把 `tip_test` 的 AidLite profile 收口到 float ONNX 默认口径，删除了旧的显式 tensor 名和量化/反量化参数；当前 tip 仍保留 `letterbox` 作为与默认 `kfs_default` 不同的预处理行为。
+- 本次进一步把 `tip_default` 的 AidLite profile 收口到 float ONNX 默认口径，删除了旧的显式 tensor 名和量化/反量化参数；当前 tip 仍保留 `letterbox` 作为与默认 `kfs_default` 不同的预处理行为。
+- 端头模型 profile ID 已从历史测试命名 `tip_test` 改为更通用的 `tip_default`；模型文件仍是 `models/tip.onnx`，标签文件仍是 `models/tip_labels.txt`。
 
 ## 最近修改
 

@@ -38,7 +38,7 @@ can_odom_node:
 dm_imu_node:
   ros__parameters:
     # 参数说明：port - 硬件端口或串口标识；实机部署时需要匹配设备映射。
-    port: "/dev/serial/by-id/usb-DM-IMU_DM-IMU_USB_CDC_2025021200-if00"
+    port: "/dev/ttyACM0"
     # 参数说明：baudrate - 串口波特率；需要与下位机或传感器通信参数一致。
     baudrate: 921600
     # 参数说明：frame_id - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
@@ -128,33 +128,10 @@ pose_sender_node:
     # 参数说明：imu_gate_log_enable - 布尔开关；控制对应能力是否启用。
     imu_gate_log_enable: false
 
-# 轮速软融合节点参数
-wheel_odom_fuser_node:
-  ros__parameters:
-    # 参数说明：can_odom_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    can_odom_topic: "Can_Odom"
-    # 参数说明：wheel_odom_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    wheel_odom_topic: "wheel_odom"
-    # 参数说明：imu_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    imu_topic: "DM_IMU"
-    # 参数说明：fused_odom_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    fused_odom_topic: "wheel_odom_fused"
-    # 参数说明：health_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
-    health_topic: "wheel_odom_fuser/health"
-    # 参数说明：publish_rate_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
-    publish_rate_hz: 50
-    # 参数说明：data_timeout_ms - 超时时间；超过该值后会触发降级、停止或失败处理。
-    data_timeout_ms: 100.0
-    omega_sigma_rps: 0.5
-    # 参数说明：chi2_threshold_dof3 - 阈值；用于判断状态切换、风险等级或过滤条件。
-    chi2_threshold_dof3: 11.34
-    outlier_penalty: 0.1
-    recovery_tau_s: 0.5
-
 # 融合里程计主节点参数(整合模式)
 merge_odom_node:
   ros__parameters:
-    # 里程计源选择: true=can_odom, false=wheel_odom
+    # 里程计源选择：当前实机口径为 false=wheel_odom；true=can_odom 仅保留为非默认调试能力。
     use_can_odom: false
     # CAN参数
     can_interface: "can0"
@@ -175,7 +152,8 @@ merge_odom_node:
     odom_frame: "odom"
     # 参数说明：base_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     base_frame: "base_link"
-    # 双串口参数 (MCU速度闭环；当前默认只启用 target 串口)
+    # 单口 MCU 链路：默认 target 串口同时承载 POSE_TARGET、mechanism transport 与 ODOM_DATA WheelOdom。
+    # feedback_serial_port 是保留的独立反馈口参数，当前默认不进入链路。
     feedback_serial_port: "__disabled__"
     # 参数说明：target_serial_port - 硬件端口或串口标识；实机部署时需要匹配设备映射。
     target_serial_port: "/dev/ttyUSB0"

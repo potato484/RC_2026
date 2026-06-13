@@ -73,7 +73,7 @@ source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 推荐通过 bringup 装配：
 
 ```bash
-ros2 launch rc26_bringup bringup.launch.py slam:=true use_decision:=false
+ros2 launch rc26_bringup bringup.launch.py run_mode:=mapping use_decision:=false
 ```
 
 纯建图启动入口：
@@ -92,7 +92,7 @@ ros2 launch rc26_point_lio point_lio.launch.py
 
 ```bash
 ros2 launch rc26_bringup bringup.launch.py \
-  slam:=true \
+  run_mode:=mapping \
   point_lio_config_file:=/abs/path/to/custom_point_lio.yaml \
   use_decision:=false
 ```

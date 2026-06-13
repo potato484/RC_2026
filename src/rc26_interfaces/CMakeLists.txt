@@ -21,7 +21,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/ExecuteMechanism.action"
   "msg/TipDetection.msg"
   "msg/TipDetectionArray.msg"
-  "msg/MechanismState.msg"
   "msg/MechanismTransportFeedback.msg"
   "msg/MfKfsCell.msg"
   "msg/MfKfsState.msg"

@@ -55,8 +55,14 @@ def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, 
     use_imu_for_ekf = parse_launch_bool(LaunchConfiguration('use_imu_for_ekf').perform(context))
     start_imu = parse_launch_bool(LaunchConfiguration('start_imu').perform(context))
     stats_log_enable = parse_launch_bool(LaunchConfiguration('stats_log_enable').perform(context))
-    odom0_topic_override = can_odom_topic if use_can_odom else wheel_odom_topic
-    pose_feedback_topic = 'merge_odom' if start_ekf else odom0_topic_override
+    merge_odom_output_topic = LaunchConfiguration('merge_odom_output_topic').perform(context).strip() or 'merge_odom'
+    require_merge_odom_output = parse_launch_bool(
+        LaunchConfiguration('require_merge_odom_output').perform(context)
+    )
+    raw_odom_topic = can_odom_topic if use_can_odom else wheel_odom_topic
+    selected_odom_publish_topic = raw_odom_topic if start_ekf else merge_odom_output_topic
+    can_publish_topic = selected_odom_publish_topic if use_can_odom else can_odom_topic
+    wheel_publish_topic = selected_odom_publish_topic if not use_can_odom else wheel_odom_topic
     effective_use_imu_for_ekf = start_imu and use_imu_for_ekf
     imu_topic = imu_topic_default if start_imu else ''
     slip_enable = slip_enable_default if start_imu else False
@@ -75,7 +81,10 @@ def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, 
             'feedback_serial_port': LaunchConfiguration('feedback_serial_port').perform(context),
             'target_serial_port': LaunchConfiguration('target_serial_port').perform(context),
             'baudrate': baudrate,
-            'merge_odom_topic': pose_feedback_topic,
+            'can_odom_topic': can_publish_topic,
+            'wheel_odom_topic': wheel_publish_topic,
+            'merge_odom_topic': merge_odom_output_topic,
+            'require_odom_source': require_merge_odom_output,
             'imu_topic': imu_topic,
             'slip_enable': slip_enable,
             'imu_gate_enable': imu_gate_enable,
@@ -103,7 +112,7 @@ def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, 
         ekf_parameters = normalize_launch_parameter_scalars(
             dict(((ekf_yaml.get('ekf_filter_node') or {}).get('ros__parameters') or {}))
         )
-        ekf_parameters['odom0'] = odom0_topic_override
+        ekf_parameters['odom0'] = raw_odom_topic
         if not effective_use_imu_for_ekf:
             ekf_parameters = drop_sensor_parameters(ekf_parameters, 'imu0')
 
@@ -114,7 +123,7 @@ def create_runtime_nodes(context, params_file, ekf_params_file, can_odom_topic, 
             output='screen',
             parameters=[ekf_parameters],
             remappings=[
-                ('odometry/filtered', 'merge_odom'),
+                ('odometry/filtered', merge_odom_output_topic),
             ]
         )
         nodes.append(ekf_node)
@@ -149,7 +158,7 @@ def generate_launch_description():
     use_can_odom_arg = DeclareLaunchArgument(
         'use_can_odom',
         default_value=str(use_can_odom_default).lower(),
-        description='Odometry source switch: true=can_odom, false=wheel_odom')
+        description='Odometry source switch: false=wheel_odom current runtime, true=can_odom diagnostic only')
 
     start_ekf_arg = DeclareLaunchArgument(
         'start_ekf',
@@ -168,6 +177,16 @@ def generate_launch_description():
         default_value=str(stats_log_enable_default).lower(),
         description='Enable PoseSender 1s stats logs')
 
+    merge_odom_output_topic_arg = DeclareLaunchArgument(
+        'merge_odom_output_topic',
+        default_value='merge_odom',
+        description='Stable Odometry output topic for chassis local feedback')
+
+    require_merge_odom_output_arg = DeclareLaunchArgument(
+        'require_merge_odom_output',
+        default_value='true',
+        description='Fail startup if the selected real odom source cannot publish merge_odom_output_topic')
+
     can_interface_arg = DeclareLaunchArgument(
         'can_interface', default_value=can_interface_default,
         description='CAN interface name')
@@ -178,7 +197,7 @@ def generate_launch_description():
 
     feedback_serial_port_arg = DeclareLaunchArgument(
         'feedback_serial_port', default_value=feedback_serial_port_default,
-        description='MCU feedback serial port (ODOM_DATA receive + POSE_FEEDBACK send); disabled by default')
+        description='Reserved separate feedback serial; disabled by default, WheelOdom uses target serial in single-port runtime')
 
     target_serial_port_arg = DeclareLaunchArgument(
         'target_serial_port', default_value=target_serial_port_default,
@@ -194,6 +213,8 @@ def generate_launch_description():
         use_imu_for_ekf_arg,
         start_imu_arg,
         stats_log_enable_arg,
+        merge_odom_output_topic_arg,
+        require_merge_odom_output_arg,
         can_interface_arg,
         imu_port_arg,
         feedback_serial_port_arg,

@@ -15,7 +15,7 @@ def generate_launch_description():
     )
 
     params_arg = DeclareLaunchArgument("params_file", default_value=default_params)
-    model_id_arg = DeclareLaunchArgument("model_id", default_value="tip_test")
+    model_id_arg = DeclareLaunchArgument("model_id", default_value="tip_default")
 
     node = Node(
         package="rc26_vision",

@@ -65,7 +65,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'use_sim_time': use_sim_time,
-            'slam': 'false',
+            'run_mode': 'navigation',
             'prior_pcd_file': prior_pcd_file,
             'localization_params_file': localization_params_file,
         }.items()

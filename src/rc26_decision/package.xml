@@ -17,10 +17,12 @@
   <depend>ament_index_cpp</depend>
   <depend>geometry_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>nav_msgs</depend>
   <depend>nav2_msgs</depend>
   <depend>rc26_serial</depend>
   <depend>rc26_interfaces</depend>
   <depend>rc26_vision</depend>
+  <depend>libopencv-dev</depend>
 
   <export>
     <build_type>ament_cmake</build_type>

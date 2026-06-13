@@ -19,10 +19,12 @@ find_package(behaviortree_cpp REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(rc26_serial REQUIRED)
 find_package(rc26_interfaces REQUIRED)
 find_package(rc26_vision REQUIRED)
+find_package(OpenCV REQUIRED)
 
 # ============================================================================
 # 头文件目录
@@ -34,11 +36,18 @@ include_directories(include)
 # ============================================================================
 add_library(${PROJECT_NAME}_nodes SHARED
   src/mc/mc_area.cpp
+  src/mc/visual_servo_grab.cpp
+  src/mc/rotate_in_place.cpp
+  src/mc/wait_forever.cpp
   src/mf/mf_area.cpp
-  src/combat/battle_grid_state.cpp
-  src/combat/combat_area.cpp
   src/navigation/bt_nav2_pose.cpp
-  src/vision/bt_nodes.cpp
+)
+
+target_include_directories(${PROJECT_NAME}_nodes PRIVATE
+  ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(${PROJECT_NAME}_nodes
+  ${OpenCV_LIBS}
 )
 
 ament_target_dependencies(${PROJECT_NAME}_nodes
@@ -48,6 +57,7 @@ ament_target_dependencies(${PROJECT_NAME}_nodes
   behaviortree_cpp
   geometry_msgs
   std_msgs
+  nav_msgs
   nav2_msgs
   rc26_serial
   rc26_interfaces
@@ -71,6 +81,7 @@ ament_target_dependencies(decision_node
   ament_index_cpp
   geometry_msgs
   std_msgs
+  nav_msgs
   nav2_msgs
   rc26_serial
   rc26_interfaces
@@ -101,22 +112,12 @@ install(
   DESTINATION share/${PROJECT_NAME}/behavior_trees
 )
 
-install(
-  DIRECTORY launch/
-  DESTINATION share/${PROJECT_NAME}/launch
-)
-
-install(
-  DIRECTORY config/
-  DESTINATION share/${PROJECT_NAME}/config
-)
-
 # ============================================================================
 # ament 导出
 # ============================================================================
 ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME}_nodes)
-ament_export_dependencies(ament_index_cpp rclcpp rclcpp_action behaviortree_cpp geometry_msgs std_msgs nav2_msgs rc26_serial rc26_interfaces rc26_vision)
+ament_export_dependencies(ament_index_cpp rclcpp rclcpp_action behaviortree_cpp geometry_msgs std_msgs nav_msgs nav2_msgs rc26_serial rc26_interfaces rc26_vision OpenCV)
 
 ament_package()

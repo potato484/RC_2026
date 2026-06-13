@@ -14,6 +14,8 @@ ekf_filter_node:
     transform_timeout: 0.0
     print_diagnostics: true
     debug: false
+    # 只输出 /merge_odom Odometry，不发布 odom -> base_link TF，避免抢自动导航主链动态 TF 权威。
+    publish_tf: false
 
     # 参数说明：map_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
     map_frame: map

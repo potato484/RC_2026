@@ -118,6 +118,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 
 - **规则**：每条动态 TF 边只能有一个文档化权威者。
 - **规则**：除非做过明确架构变更并更新文档，否则不得新增第二个发布同一动态边的节点。
+- **当前口径**：自动导航主链的 `/odom` 与动态基座 TF 仍由 `rc26_odom_interface` / 定位链维护；`rc26_merge_odom` 的 `/merge_odom` 是底盘局部反馈 Odometry 契约，服务直控动作、PoseSender 保护和底盘调试，不替代 Nav2 的 `/odom` 权威。
 
 ### 3.8 launch 参数必须声明明确、归属明确
 

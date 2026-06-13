@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -41,7 +42,8 @@ public:
         double recovery_tau_s = 0.5;
     };
 
-    WheelOdom(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> serial, Config config);
+    WheelOdom(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> serial, Config config,
+              bool install_receive_callback = true);
     ~WheelOdom();
 
     WheelOdom(const WheelOdom&) = delete;
@@ -49,6 +51,7 @@ public:
 
     bool isReady() const noexcept { return ready_.load(std::memory_order_acquire); }
 
+    void handleSerialFrame(uint8_t cmd, const std::vector<uint8_t>& payload);
     void getPose(double& x, double& y, double& yaw) const;
     void getVelocity(double& vx, double& vy, double& omega) const;
     void reset();
@@ -69,6 +72,7 @@ private:
     rclcpp::Node& node_;
     Config config_;
     std::shared_ptr<rc26_decision::SerialDriver> serial_;
+    bool owns_receive_callback_{false};
 
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
     rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr slip_score_pub_;

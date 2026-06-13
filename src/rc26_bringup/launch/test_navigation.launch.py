@@ -13,6 +13,7 @@ R2 导航联调入口
   - ros2 lifecycle get /controller_server
   - ros2 lifecycle get /bt_navigator
   - ros2 topic echo /cmd_vel
+  - ros2 topic echo /merge_odom
 """
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -26,6 +27,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     bringup_dir = get_package_share_directory('rc26_bringup')
 
+    runtime_config_file = LaunchConfiguration('runtime_config_file')
     use_sim_time = LaunchConfiguration('use_sim_time')
     prior_pcd_file = LaunchConfiguration('prior_pcd_file')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
@@ -36,17 +38,23 @@ def generate_launch_description():
     pose_sender_feedback_serial_port = LaunchConfiguration('pose_sender_feedback_serial_port')
     pose_sender_target_serial_port = LaunchConfiguration('pose_sender_target_serial_port')
     pose_sender_baudrate = LaunchConfiguration('pose_sender_baudrate')
+    merge_odom_use_can_odom = LaunchConfiguration('merge_odom_use_can_odom')
+    merge_odom_require_output = LaunchConfiguration('merge_odom_require_output')
     use_rviz = LaunchConfiguration('use_rviz')
     rviz_config_file = LaunchConfiguration('rviz_config_file')
 
+    declare_runtime_config_file = DeclareLaunchArgument(
+        'runtime_config_file',
+        default_value=PathJoinSubstitution([bringup_dir, 'config', 'r2_runtime.yaml']),
+        description='R2 统一运行配置 YAML；点云、地图、行为树路径必须为绝对路径')
     declare_use_sim_time = DeclareLaunchArgument(
         'use_sim_time',
         default_value='false',
         description='使用仿真时间')
     declare_prior_pcd_file = DeclareLaunchArgument(
         'prior_pcd_file',
-        default_value=PathJoinSubstitution([bringup_dir, 'pcd', 'default.pcd']),
-        description='导航所用先验点云文件路径')
+        default_value='',
+        description='导航所用先验点云绝对路径；空字符串表示使用 r2_runtime.yaml')
     declare_recover_mid360_stream = DeclareLaunchArgument(
         'recover_mid360_stream',
         default_value='false',
@@ -61,24 +69,32 @@ def generate_launch_description():
         description='定位参数文件路径')
     declare_nav2_map_file = DeclareLaunchArgument(
         'nav2_map_file',
-        default_value=PathJoinSubstitution([bringup_dir, 'map', 'test.yaml']),
-        description='Nav2 map_server 使用的 2D occupancy map YAML；实机导航应传入有效地图')
+        default_value='',
+        description='Nav2 map_server 使用的 2D occupancy map YAML 绝对路径；空字符串表示使用 r2_runtime.yaml')
     declare_start_pose_sender = DeclareLaunchArgument(
         'start_pose_sender',
         default_value='true',
-        description='是否启动 pose_sender_node，把 /cmd_vel 接到底盘执行桥')
+        description='是否启动 merge_odom 底盘执行链，把 /cmd_vel 接到底盘执行桥')
     declare_pose_sender_feedback_serial_port = DeclareLaunchArgument(
         'pose_sender_feedback_serial_port',
         default_value='__disabled__',
-        description='pose_sender_node 反馈串口；当前默认停用反馈链路')
+        description='保留的独立反馈串口参数；当前默认停用，WheelOdom 走 target 单口')
     declare_pose_sender_target_serial_port = DeclareLaunchArgument(
         'pose_sender_target_serial_port',
         default_value='/dev/ttyUSB0',
-        description='pose_sender_node 目标串口')
+        description='merge_odom 目标串口')
     declare_pose_sender_baudrate = DeclareLaunchArgument(
         'pose_sender_baudrate',
         default_value='1000000',
-        description='pose_sender_node 串口波特率')
+        description='merge_odom 目标串口波特率')
+    declare_merge_odom_use_can_odom = DeclareLaunchArgument(
+        'merge_odom_use_can_odom',
+        default_value='',
+        description='覆盖 r2_runtime.yaml: 是否选择 CAN 里程计作为 /merge_odom 源')
+    declare_merge_odom_require_output = DeclareLaunchArgument(
+        'merge_odom_require_output',
+        default_value='',
+        description='覆盖 r2_runtime.yaml: 是否要求真实 odom 源发布稳定 /merge_odom')
     declare_use_rviz = DeclareLaunchArgument(
         'use_rviz',
         default_value='true',
@@ -93,8 +109,9 @@ def generate_launch_description():
             PathJoinSubstitution([bringup_dir, 'launch', 'bringup.launch.py'])
         ),
         launch_arguments={
+            'runtime_config_file': runtime_config_file,
             'use_sim_time': use_sim_time,
-            'slam': 'false',
+            'run_mode': 'navigation',
             'use_decision': 'false',
             'prior_pcd_file': prior_pcd_file,
             'recover_mid360_stream': recover_mid360_stream,
@@ -105,6 +122,8 @@ def generate_launch_description():
             'pose_sender_feedback_serial_port': pose_sender_feedback_serial_port,
             'pose_sender_target_serial_port': pose_sender_target_serial_port,
             'pose_sender_baudrate': pose_sender_baudrate,
+            'merge_odom_use_can_odom': merge_odom_use_can_odom,
+            'merge_odom_require_output': merge_odom_require_output,
         }.items()
     )
 
@@ -118,6 +137,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        declare_runtime_config_file,
         declare_use_sim_time,
         declare_prior_pcd_file,
         declare_recover_mid360_stream,
@@ -128,6 +148,8 @@ def generate_launch_description():
         declare_pose_sender_feedback_serial_port,
         declare_pose_sender_target_serial_port,
         declare_pose_sender_baudrate,
+        declare_merge_odom_use_can_odom,
+        declare_merge_odom_require_output,
         declare_use_rviz,
         declare_rviz_config_file,
         bringup_launch,

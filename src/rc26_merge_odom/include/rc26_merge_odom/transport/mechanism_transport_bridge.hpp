@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -18,11 +19,14 @@ public:
     using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
     using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
 
-    MechanismTransportBridge(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> target_serial);
+    MechanismTransportBridge(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> target_serial,
+                             bool install_receive_callback = true);
     ~MechanismTransportBridge();
 
     MechanismTransportBridge(const MechanismTransportBridge&) = delete;
     MechanismTransportBridge& operator=(const MechanismTransportBridge&) = delete;
+
+    void handleSerialFrame(uint8_t seq, uint8_t feedback_id, const std::vector<uint8_t>& payload);
 
 private:
     void handleSendCommand(const std::shared_ptr<SendCommandSrv::Request> request,
@@ -32,6 +36,7 @@ private:
 
     rclcpp::Node& node_;
     std::shared_ptr<rc26_decision::SerialDriver> target_serial_;
+    bool owns_receive_callback_{false};
     rclcpp::Publisher<FeedbackMsg>::SharedPtr feedback_pub_;
     rclcpp::Service<SendCommandSrv>::SharedPtr send_command_srv_;
     rclcpp::TimerBase::SharedPtr flush_timer_;

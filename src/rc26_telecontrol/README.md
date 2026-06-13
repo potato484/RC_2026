@@ -53,7 +53,8 @@
 
 *   `--stack minimal-mcu`：启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。这是当前脚本默认口径，固定按 `target_serial_port=/dev/ttyUSB0`、`feedback_serial_port=__disabled__` 进入单口 MCU 链；`pose_sender_node` 会继续提供 `/mechanism/send_command` 与 `/mechanism/command_feedback`。
 *   `--stack full`：启动 `merge_odom + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。这个入口当前主要保留给本地 `merge_odom` / CAN 调试；机构共享 transport 与 `POSE_TARGET` 仍默认走 `ttyUSB0`。
-*   在当前单口默认口径下，`--pose-mode` 与 `--start-ekf` 都会被脚本直接拒绝，避免把已停用的 feedback / 融合速度链误当成默认路径。
+*   `--stack full` 可通过 `--start-ekf` 或 `--pose-mode imu|no-imu|wheel-only` 临时打开/关闭 EKF 与 IMU 链路；该入口会显式传 `require_merge_odom_output:=false`，仍是遥控调试降级入口，不代表完整决策链路已满足稳定 `/merge_odom` 契约。
+*   `--pose-mode imu` 映射为 `start_ekf=true`、`start_imu=true`、`use_imu_for_ekf=true`；`no-imu` 映射为 `start_ekf=true`、`start_imu=false`、`use_imu_for_ekf=false`；`wheel-only` 映射为 `start_ekf=false`、`start_imu=false`、`use_imu_for_ekf=false`。
 *   若后续确实要临时恢复旧反馈链，需要显式传入真实 `feedback_serial_port`；脚本不再自动改写 `target_serial_port`。
 *   `start_r2_teleop.sh` 的帮助文本、默认值和 README 现已统一到上述单口口径。
 

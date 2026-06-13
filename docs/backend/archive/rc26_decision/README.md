@@ -9,6 +9,8 @@
 - 构建产物:
   - `rc26_decision_nodes`
   - `decision_node`
+- 运行入口:
+  - `rc26_decision` 不再提供独立 launch 入口；决策运行和测试统一由 `rc26_bringup/launch/bringup.launch.py` 装配，以保证定位、Nav2、`merge_odom` 与决策节点处在同一完整链路中验证
 - 关键行为树:
   - `behavior_trees/main_tree.xml`
   - `behavior_trees/mf_tree.xml`
@@ -18,6 +20,8 @@
   - `src/decision_node.cpp`
   - `src/navigation/bt_nav2_pose.cpp`
   - `src/mf/mf_area.cpp`
+  - `src/mc/mc_area.cpp`（注册 + `loadMCParams`）
+  - `src/mc/visual_servo_grab.cpp`、`src/mc/rotate_in_place.cpp`、`src/mc/wait_forever.cpp`
 
 ## 当前导航调用口径
 
@@ -44,6 +48,33 @@ Nav2 action result 映射规则：
 - `CANCELED` -> BT `FAILURE`，`error_code=121`
 - action server missing、invalid goal、timeout 继续沿用 `BtActionNode` 的通用错误码
 
+## 武馆区 (MC) 行为树
+
+武馆区已重构为一条专属行为树 `behavior_trees/mc_tree.xml`（`MCAreaTree`），运行时通过完整 bringup 装配后执行，流程：
+
+1. `NavToPose` —— 发布导航目标点并确认到达（复用 Nav2 节点，目标点经黑板键 `mc_nav_x/y/yaw/frame_id/timeout_sec` 由 XML 端口重映射注入）
+2. `VisualServoGrab` —— 视觉伺服夹取
+3. `RotateInPlace` —— 原地旋转 180°
+4. `WaitForever` —— 无限期等待（恒 `RUNNING`，树停留持续 tick）
+
+`decision_node` 通过 `tree_file` 参数加载行为树；该参数现在支持绝对路径。完整 bringup 默认从 `rc26_bringup/config/r2_runtime.yaml` 的 `r2_runtime.paths.behavior_tree_file` 读取行为树 XML 绝对路径。决策包自身不再安装独立 launch 文件，避免只拉起单节点时误判完整链路状态。
+
+### 节点职责
+
+- `VisualServoGrabAction`（`src/mc/visual_servo_grab.cpp`）：内嵌直连相机 + `rc26_vision::InferenceEngine`，在独立工作线程中复刻 `rc26_vision/test/tip_vision_test_node.cpp` 的"取帧→推理→选最大面积端头→横移 P 控制对齐(`cmd_vel.linear.y`)→对齐稳定后经 `/mechanism/send_command` 下发 `GRAB_TIP(0x01)`"。每次动作生命周期最多发送一次实际进入 `async_send_request` 的 `GRAB_TIP`；service 未就绪时不消耗这次发送机会。**完成判定**：夹取已下发后端头持续消失达 `mc_grab_done_lost_time_s` → `SUCCESS`；超 `mc_servo_timeout_s` → `FAILURE`。
+- `RotateInPlaceAction`（`src/mc/rotate_in_place.cpp`）：发布 `cmd_vel.angular.z`，订阅 `mc_odom_topic`（默认 `merge_odom`），默认依赖 `rc26_merge_odom` 提供的稳定 `/merge_odom` 底盘局部反馈契约；角速度由 `mc_rotate_speed_radps` 配置，单位 `rad/s`；由相邻 yaw 增量积分实现闭环转角，`|累计| ≥ 角度-容差` → 停车 `SUCCESS`；超 `mc_rotate_timeout_s` → `FAILURE`（yaw 直接由四元数解算，不依赖 tf2）。如果完整武馆/混合决策入口没有启动 `merge_odom` 底盘执行链或没有真实 `/merge_odom` publisher，旋转按超时失败，这是启动配置错误而不是正常降级。
+- `WaitForeverAction`（`src/mc/wait_forever.cpp`）：恒 `RUNNING`。
+
+### 参数
+
+全部武馆区运行参数以 `mc_*` 前缀集中于 `rc26_bringup/config/r2_runtime.yaml` 的 `r2_runtime.decision.ros__parameters`，由 `loadMCParams()` 在 `decision_node` 构造时声明/读取为 `McParams`（`src/mc/mc_params.hpp`）并写入黑板 `mc_params`。这些参数支持启动时通过 YAML/launch 覆盖；当前没有运行期参数变更回调，`ros2 param set` 不会自动回写已经进入黑板和动作节点的运行参数。参数涵盖：相机/推理（`mc_camera_*`、`mc_model_id`、`mc_target_labels`）、对齐（`mc_align_*`）、夹取（`mc_grab_command_id`、`mc_grab_service_name`、`mc_grab_done_lost_time_s`、`mc_servo_timeout_s`）、旋转（`mc_rotate_angle_deg`、`mc_rotate_speed_radps`、`mc_rotate_direction`、`mc_rotate_yaw_tolerance_deg`、`mc_rotate_cmd_vel_topic`、`mc_odom_topic`、`mc_rotate_timeout_s`）、导航目标（`mc_nav_*`）。
+注意：ROS2 不支持 YAML 空数组参数，`mc_grab_payload` 留空时须省略该项（用 C++ 默认空向量），不可写 `[]`。
+
+### 与测试节点的差异
+
+- 夹取服务调用改为 `async_send_request`（非阻塞 + 响应回调记录 accepted/seq），不再用测试节点的嵌套 `spin_until_future_complete`——因 `decision_node` 已运行于 `rclcpp::spin`，嵌套 executor 会冲突；完成判定本就以端头消失为准。
+- 剔除测试节点的 OpenCV 窗口/叠加绘制/距离估计等与决策无关代码。
+
 ## 当前 BT 边界
 
 - 行为树继续作为 `rc26_decision` 包内编排实现存在
@@ -66,3 +97,11 @@ Nav2 action result 映射规则：
 - `mf_tree.xml` 中梅林区目标点固化为 Nav2 pose，并为 `target_grid` 建立显式分支
 - 删除全部第一方 BT 运行时 topic/service、手动调试控制面和中文本地化链，仅保留内部行为树执行
 - 本轮移除 `keepout_runtime` 与 `merlin_rule_world_model` 源码/构建目标，删除 base-ground 订阅和 `/mf_kfs_state` 发布，使决策包不再消费或生产已归档三包的数据
+
+## 2026-06-12 更新
+
+- `mc_target_labels` 修正为 `["JK"]`：`tip_default` 模型 profile（`tip.onnx`）的标签表中目前只有 `JK` 这一个类别，原先的 `["D_0", "D_1"]` 无法匹配任何检测结果，导致视觉伺服永远找不到目标。修改后 `resolveTargetClassIds()` 能正确映射到模型输出的类别 ID。
+- `src/mc/visual_servo_grab.cpp`、`src/mc/rotate_in_place.cpp`、`src/mc/wait_forever.cpp` 全部补加了 `onStart`/`onRunning`/`onHalted` 的中文注释，说明每个阶段的具体职责：资源初始化、每 tick 轮询逻辑、以及外部中断时的安全停机清理。
+- MC 参数清理为当前真实语义：视觉目标选择只保留 `mc_target_labels`，夹取只保留命令、服务和完成/超时判定参数；旋转速度参数统一为 `mc_rotate_speed_radps`，按 `rad/s` 直接发布到 `cmd_vel.angular.z`。
+- 端头模型 profile ID 已从历史测试命名 `tip_test` 改为 `tip_default`；MC 决策默认 `mc_model_id` 同步使用 `tip_default`，模型文件仍由 `rc26_vision/config/vision_models.yaml` 指向 `models/tip.onnx`。
+- 2026-06-13 同步：删除包内 `config/decision_params.yaml` 与独立 `decision.launch.py` 入口；决策参数与行为树入口统一由完整 bringup 从 `rc26_bringup/config/r2_runtime.yaml` 读取，测试口径改为验证所有相关节点拉起后的链路效果。

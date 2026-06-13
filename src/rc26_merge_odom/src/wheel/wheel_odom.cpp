@@ -20,8 +20,10 @@ constexpr double kEpsilon = 1e-6;
 constexpr double kMinCovariance = 1e-6;
 }
 
-WheelOdom::WheelOdom(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> serial, Config config)
-    : node_(node), config_(std::move(config)), serial_(std::move(serial)) {
+WheelOdom::WheelOdom(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> serial, Config config,
+                     bool install_receive_callback)
+    : node_(node), config_(std::move(config)), serial_(std::move(serial)),
+      owns_receive_callback_(install_receive_callback) {
     if (!(std::fabs(config_.wheel_base) > kEpsilon)) {
         RCLCPP_WARN(node_.get_logger(), "wheel wheel_base=%.6f invalid, fallback to %.6f", config_.wheel_base,
                     Config{}.wheel_base);
@@ -63,13 +65,12 @@ WheelOdom::WheelOdom(rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDr
         return;
     }
 
-    serial_->setReceiveCallback([this](uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload) {
-        (void)seq;
-        if (cmd != static_cast<uint8_t>(rc26_decision::FeedbackID::ODOM_DATA)) {
-            return;
-        }
-        handleOdomData(payload);
-    });
+    if (owns_receive_callback_) {
+        serial_->setReceiveCallback([this](uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload) {
+            (void)seq;
+            handleSerialFrame(cmd, payload);
+        });
+    }
 
     auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::duration<double>(1.0 / static_cast<double>(config_.publish_rate_hz)));
@@ -86,9 +87,16 @@ WheelOdom::~WheelOdom() {
     if (publish_timer_) {
         publish_timer_->cancel();
     }
-    if (serial_) {
+    if (owns_receive_callback_ && serial_) {
         serial_->setReceiveCallback({});
     }
+}
+
+void WheelOdom::handleSerialFrame(uint8_t cmd, const std::vector<uint8_t>& payload) {
+    if (cmd != static_cast<uint8_t>(rc26_decision::FeedbackID::ODOM_DATA)) {
+        return;
+    }
+    handleOdomData(payload);
 }
 
 void WheelOdom::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {

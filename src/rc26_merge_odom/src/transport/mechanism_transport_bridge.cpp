@@ -29,8 +29,9 @@ bool shouldPublishTransportFeedback(uint8_t feedback_id) {
 }  // namespace
 
 MechanismTransportBridge::MechanismTransportBridge(
-    rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> target_serial)
-    : node_(node), target_serial_(std::move(target_serial)) {
+    rclcpp::Node& node, std::shared_ptr<rc26_decision::SerialDriver> target_serial,
+    bool install_receive_callback)
+    : node_(node), target_serial_(std::move(target_serial)), owns_receive_callback_(install_receive_callback) {
     feedback_pub_ =
         node_.create_publisher<FeedbackMsg>(kMechanismCommandFeedbackTopic, rclcpp::QoS(32).reliable());
     send_command_srv_ = node_.create_service<SendCommandSrv>(
@@ -40,18 +41,23 @@ MechanismTransportBridge::MechanismTransportBridge(
     flush_timer_ = node_.create_wall_timer(
         kMechanismTransportFlushPeriod, std::bind(&MechanismTransportBridge::flushFeedbackQueue, this));
 
-    if (target_serial_) {
+    if (owns_receive_callback_ && target_serial_) {
         target_serial_->setReceiveCallback([this](uint8_t seq, uint8_t feedback_id,
                                                   const std::vector<uint8_t>& payload) {
-            enqueueFeedback(seq, feedback_id, payload);
+            handleSerialFrame(seq, feedback_id, payload);
         });
     }
 }
 
 MechanismTransportBridge::~MechanismTransportBridge() {
-    if (target_serial_) {
+    if (owns_receive_callback_ && target_serial_) {
         target_serial_->setReceiveCallback({});
     }
+}
+
+void MechanismTransportBridge::handleSerialFrame(uint8_t seq, uint8_t feedback_id,
+                                                 const std::vector<uint8_t>& payload) {
+    enqueueFeedback(seq, feedback_id, payload);
 }
 
 void MechanismTransportBridge::handleSendCommand(const std::shared_ptr<SendCommandSrv::Request> request,

@@ -140,7 +140,7 @@ private:
     cv::Mat & frame_bgr, const std::vector<rc26_vision::Detection> & detections) const;
 
   std::string vision_config_file_;
-  std::string model_id_{"tip_test"};
+  std::string model_id_{"tip_default"};
   rc26_vision::ModelProfile model_profile_;
   std::filesystem::path package_share_dir_;
   int camera_index_{0};
@@ -505,7 +505,7 @@ void TipVisionTestNode::declare_parameters()
     (package_share_dir_ / "config" / "vision_models.yaml").string();
 
   this->declare_parameter<std::string>("vision_config_file", default_config_file);
-  this->declare_parameter<std::string>("model_id", "tip_test");
+  this->declare_parameter<std::string>("model_id", "tip_default");
   this->declare_parameter<int>("camera_index", 0);
   this->declare_parameter<std::string>("camera_device", "");
   this->declare_parameter<bool>("auto_scan_camera", true);

@@ -21,7 +21,7 @@ vision:
         resize_mode: "stretch"
         padding_color: "114"
 
-    tip_test:
+    tip_default:
       engine: auto
       model_path: "../models/tip.onnx"
       conf_thresh: 0.25

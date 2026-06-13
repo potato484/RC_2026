@@ -39,7 +39,7 @@ ros2 launch rc26_bringup test_mapping.launch.py \
 
 说明：
 
-- `test_mapping.launch.py` 固定启用 `slam:=true` 和 `pure_mapping_mode:=true`，默认打开 RViz2；
+- `test_mapping.launch.py` 固定启用 `run_mode:=mapping` 和 `pure_mapping_mode:=true`，默认打开 RViz2；
 - Point-LIO 不再通过 profile 覆盖配置，也不会自动读取定位先验地图；
 - `odometry.launch.py` 默认强制 `odometry.publish_odometry_without_downsample:=false`，保持 `/state_estimation` 与 `/cloud_registered` 时间戳同源；
 - 当前 RViz 预设观察 `/point_lio/map_cloud` 完整累计地图、`/registered_scan` 实时点云与 `/Laser_map` 初始地图。
@@ -60,7 +60,7 @@ ros2 launch rc26_bringup test_mapping.launch.py \
 
 ```bash
 ros2 launch rc26_bringup bringup.launch.py \
-  slam:=false \
+  run_mode:=navigation \
   prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans.pcd \
   use_decision:=false
 ```
@@ -76,7 +76,7 @@ cp ${RC26_WS:-$HOME/RC_2026}/src/rc26_point_lio/PCD/scans.pcd \
 
 ```bash
 ros2 launch rc26_bringup bringup.launch.py \
-  slam:=false \
+  run_mode:=navigation \
   prior_pcd_file:=${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/pcd/site_a_2026_03_09.pcd \
   use_decision:=false
 ```

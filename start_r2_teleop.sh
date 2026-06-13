@@ -15,11 +15,14 @@ Options:
                               stick = 左摇杆控制 vx/vy，右摇杆左右控制 wz
                               dpad  = 十字键控制 vx/vy，X/B 控制 wz
   --pose-mode <imu|no-imu|wheel-only>
-                              仅对 --stack full 保留；当前单口口径下会直接拒绝
+                              仅对 --stack full 生效：
+                                imu        = EKF + 启动 IMU + EKF 融合 IMU
+                                no-imu     = EKF + 不启动 IMU
+                                wheel-only = 不启动 EKF / IMU，raw odom 直出
   --feedback-serial-port <device>
-                              ODOM_DATA / POSE_FEEDBACK 反馈串口，默认：__disabled__
+                              保留的独立反馈串口，默认：__disabled__
   --target-serial-port <device>
-                              POSE_TARGET / mechanism transport 目标串口，默认：/dev/ttyUSB0
+                              POSE_TARGET / mechanism transport / ODOM_DATA 单口串口，默认：/dev/ttyUSB0
   --baudrate <int>            串口波特率，默认：1000000
   --v-linear <m/s>            最大线速度，默认：0.3
   --v-angular <rad/s>         最大角速度，默认：0.5
@@ -35,8 +38,8 @@ Options:
   --stop-repeat-n <count>     零速指令重复帧数，默认：10
   --require-deadman           要求持续按住 deadman 安全键
   --deadman-button <index>    deadman 安全键编号，默认：4
-  --use-can-odom              在 merge_odom 中启用 CAN 里程计（仅 full 栈）
-  --start-ekf                 仅对 --stack full 保留；当前单口口径下会直接拒绝
+  --use-can-odom              在 merge_odom 中启用 CAN 里程计调试（仅 full 栈，非当前默认口径）
+  --start-ekf                 在 full 栈中启用 EKF；minimal-mcu 下会提示并忽略
   --stats-log                 启用 PoseSender 1 秒统计日志
   --dry-run                   只打印命令，不实际启动
   -h, --help                  显示本帮助
@@ -82,7 +85,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 workspace_dir="${RC26_WS:-${script_dir}}"
 setup_file="${workspace_dir}/install/setup.bash"
 
-stack_mode="minimal-mcu"
+stack_mode="full"
 mode="dpad"
 pose_mode=""
 feedback_serial_port="__disabled__"
@@ -246,21 +249,40 @@ case "${mode}" in
 esac
 
 if [[ "${stack_mode}" == "full" ]]; then
-  if [[ -n "${pose_mode}" ]]; then
-    echo "当前单口 MCU 口径暂不支持 --pose-mode；feedback 链默认停用，请不要在 --stack full 下启用 EKF 融合路径。" >&2
-    exit 1
-  fi
-  if [[ "${start_ekf}" == "true" ]]; then
-    echo "当前单口 MCU 口径暂不支持 --start-ekf；feedback 链默认停用，请保持 EKF 关闭。" >&2
-    exit 1
-  fi
+  case "${pose_mode}" in
+    "")
+      ;;
+    imu)
+      start_ekf="true"
+      start_imu="true"
+      use_imu_for_ekf="true"
+      ;;
+    no-imu)
+      start_ekf="true"
+      start_imu="false"
+      use_imu_for_ekf="false"
+      ;;
+    wheel-only)
+      start_ekf="false"
+      start_imu="false"
+      use_imu_for_ekf="false"
+      ;;
+    *)
+      echo "Invalid --pose-mode: ${pose_mode}. Expected imu, no-imu, or wheel-only." >&2
+      usage
+      exit 1
+      ;;
+  esac
 else
   if [[ -n "${pose_mode}" ]]; then
-    echo "--pose-mode only applies to --stack full." >&2
-    exit 1
+    echo "Warning: --pose-mode only applies to --stack full; ignoring '${pose_mode}'." >&2
   fi
-  if [[ "${use_can_odom}" == "true" || "${start_ekf}" == "true" ]]; then
-    echo "--use-can-odom and --start-ekf only apply to --stack full." >&2
+  if [[ "${start_ekf}" == "true" ]]; then
+    echo "Warning: --start-ekf only applies to --stack full; ignoring it for minimal-mcu." >&2
+    start_ekf="false"
+  fi
+  if [[ "${use_can_odom}" == "true" ]]; then
+    echo "--use-can-odom only applies to --stack full." >&2
     exit 1
   fi
 fi
@@ -325,6 +347,8 @@ if [[ "${stack_mode}" == "full" ]]; then
     "start_ekf:=${start_ekf}"
     "use_imu_for_ekf:=${use_imu_for_ekf}"
     "start_imu:=${start_imu}"
+    "merge_odom_output_topic:=merge_odom"
+    "require_merge_odom_output:=false"
     "feedback_serial_port:=${feedback_serial_port}"
     "target_serial_port:=${target_serial_port}"
     "baudrate:=${baudrate}"
@@ -373,6 +397,8 @@ if [[ "${dry_run}" == "true" ]]; then
       echo "Notice: ${feedback_port_notice}"
     fi
     echo "IMU input: $([[ "${start_imu}" == "true" ]] && echo enabled || echo disabled)"
+    echo "EKF: $([[ "${start_ekf}" == "true" ]] && echo enabled || echo disabled)"
+    echo "EKF IMU fusion: $([[ "${use_imu_for_ekf}" == "true" ]] && echo enabled || echo disabled)"
     print_cmd source "${setup_file}"
     print_cmd "${merge_odom_cmd[@]}"
     print_cmd "${joy_cmd[@]}"
@@ -415,6 +441,8 @@ if [[ -n "${feedback_port_notice}" ]]; then
 fi
 if [[ "${stack_mode}" == "full" ]]; then
   echo "IMU input: $([[ "${start_imu}" == "true" ]] && echo enabled || echo disabled)"
+  echo "EKF: $([[ "${start_ekf}" == "true" ]] && echo enabled || echo disabled)"
+  echo "EKF IMU fusion: $([[ "${use_imu_for_ekf}" == "true" ]] && echo enabled || echo disabled)"
 fi
 echo "Press Ctrl+C to stop all nodes."
 

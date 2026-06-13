@@ -2,6 +2,8 @@
 // 整合CAN/Wheel里程计和速度发送功能（当前默认单口 MCU）
 #include <memory>
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -22,7 +24,8 @@ class MergeOdomNode : public rclcpp::Node {
 public:
     MergeOdomNode() : Node("merge_odom_node") {
         // 里程计源选择
-        this->declare_parameter("use_can_odom", true);
+        this->declare_parameter("use_can_odom", false);
+        this->declare_parameter("require_odom_source", false);
 
         // CAN里程计参数
         this->declare_parameter("can_interface", "can0");
@@ -37,7 +40,7 @@ public:
         this->declare_parameter("base_frame", "base_link");
         this->declare_parameter("data_timeout_ms", 100.0);
 
-        // 双串口参数（当前默认 target 串口启用，feedback 串口停用）
+        // 串口参数（当前默认 target 单口同时承载目标下发、机构 transport 与 WheelOdom）
         this->declare_parameter("feedback_serial_port", "__disabled__");
         this->declare_parameter("target_serial_port", "/dev/ttyUSB0");
         this->declare_parameter("baudrate", 1000000);
@@ -83,8 +86,9 @@ public:
 
         // 获取里程计源配置
         bool use_can_odom = this->get_parameter("use_can_odom").as_bool();
+        bool require_odom_source = this->get_parameter("require_odom_source").as_bool();
 
-        // 初始化双串口
+        // 初始化串口
         std::string feedback_port = this->get_parameter("feedback_serial_port").as_string();
         std::string target_port = this->get_parameter("target_serial_port").as_string();
         int baudrate = this->get_parameter("baudrate").as_int();
@@ -99,7 +103,12 @@ public:
 
         bool feedback_ok = false;
         if (feedback_disabled) {
-            RCLCPP_WARN(this->get_logger(), "反馈串口已禁用；WheelOdom / POSE_FEEDBACK 将不可用");
+            if (use_can_odom) {
+                RCLCPP_WARN(this->get_logger(), "独立反馈串口已禁用；POSE_FEEDBACK 将不可用");
+            } else {
+                RCLCPP_INFO(this->get_logger(),
+                            "独立反馈串口已禁用；WheelOdom 将使用目标串口单链路，POSE_FEEDBACK 将不可用");
+            }
         } else {
             feedback_serial_ = std::make_shared<rc26_decision::SerialDriver>();
             feedback_ok = feedback_serial_->open(feedback_port, baudrate);
@@ -119,6 +128,15 @@ public:
             }
         }
 
+        const bool wheel_can_use_target_serial = !use_can_odom && !feedback_ok && target_ok;
+        if (!use_can_odom && require_odom_source && !feedback_ok && !wheel_can_use_target_serial) {
+            RCLCPP_FATAL(this->get_logger(),
+                         "require_odom_source=true，但选中的 WheelOdom 源不可用；"
+                         "target_serial_port=%s，feedback_serial_port=%s",
+                         target_port.c_str(), feedback_port.c_str());
+            throw std::runtime_error("require_odom_source=true but selected WheelOdom serial is unavailable");
+        }
+
         if (!feedback_ok && !target_ok) {
             throw std::runtime_error("feedback_serial_port 与 target_serial_port 均不可用");
         }
@@ -130,9 +148,15 @@ public:
         const std::string can_odom_topic = this->get_parameter("can_odom_topic").as_string();
         const std::string wheel_odom_topic = this->get_parameter("wheel_odom_topic").as_string();
         const std::string odom_topic = use_can_odom ? can_odom_topic : wheel_odom_topic;
+        const std::string merge_odom_topic = this->get_parameter("merge_odom_topic").as_string();
         const std::string odom_frame = this->get_parameter("odom_frame").as_string();
         const std::string base_frame = this->get_parameter("base_frame").as_string();
         const double data_timeout_ms = this->get_parameter("data_timeout_ms").as_double();
+
+        RCLCPP_INFO(this->get_logger(),
+                    "里程计源=%s raw_output=%s pose_feedback=%s require_odom_source=%s",
+                    use_can_odom ? "can_odom" : "wheel_odom", odom_topic.c_str(), merge_odom_topic.c_str(),
+                    require_odom_source ? "true" : "false");
 
         // 根据配置初始化里程计
         if (use_can_odom) {
@@ -163,9 +187,10 @@ public:
             }
             RCLCPP_INFO(this->get_logger(), "使用 CAN 里程计");
         } else {
-            if (!feedback_ok) {
-                RCLCPP_WARN(this->get_logger(),
-                            "feedback_serial_port 不可用，跳过 WheelOdom；当前只保留目标串口下发与 mechanism transport");
+            auto wheel_serial = feedback_ok ? feedback_serial_ : target_serial_;
+            const bool wheel_uses_target_serial = wheel_serial && wheel_serial == target_serial_;
+            if (!wheel_serial || !wheel_serial->isOpen()) {
+                RCLCPP_WARN(this->get_logger(), "WheelOdom 串口不可用，跳过 WheelOdom");
             } else {
                 rc26_merge_odom::WheelOdom::Config wheel_config;
                 wheel_config.wheel_base = wheel_base;
@@ -185,11 +210,14 @@ public:
                 wheel_config.cov_slip_wz = this->get_parameter("cov_slip_wz").as_double();
                 wheel_config.recovery_tau_s = this->get_parameter("recovery_tau_s").as_double();
 
-                wheel_odom_ = std::make_unique<rc26_merge_odom::WheelOdom>(*this, feedback_serial_, wheel_config);
+                wheel_odom_ = std::make_unique<rc26_merge_odom::WheelOdom>(
+                    *this, wheel_serial, wheel_config, !wheel_uses_target_serial);
                 if (!wheel_odom_->isReady()) {
                     throw std::runtime_error("WheelOdom 初始化失败");
                 }
-                RCLCPP_INFO(this->get_logger(), "使用 Wheel 里程计 (反馈串口: %s)", feedback_port.c_str());
+                RCLCPP_INFO(this->get_logger(), "使用 Wheel 里程计 (%s: %s)",
+                            wheel_uses_target_serial ? "目标串口单链路" : "反馈串口",
+                            wheel_uses_target_serial ? target_port.c_str() : feedback_port.c_str());
             }
         }
 
@@ -197,7 +225,7 @@ public:
         if (feedback_ok || target_ok) {
             rc26_merge_odom::PoseSender::Config pose_config;
             pose_config.cmd_vel_topic = this->get_parameter("cmd_vel_topic").as_string();
-            pose_config.odom_topic = this->get_parameter("merge_odom_topic").as_string();
+            pose_config.odom_topic = merge_odom_topic;
             pose_config.imu_topic = this->get_parameter("imu_topic").as_string();
             pose_config.feedback_send_rate_hz = this->get_parameter("feedback_send_rate_hz").as_int();
             pose_config.target_send_rate_hz = this->get_parameter("target_send_rate_hz").as_int();
@@ -228,15 +256,39 @@ public:
                 std::make_unique<rc26_merge_odom::PoseSender>(*this, feedback_serial_, target_serial_, pose_config);
         }
 
-        mechanism_transport_bridge_ =
-            std::make_unique<rc26_merge_odom::MechanismTransportBridge>(*this, target_serial_);
+        const bool shared_target_serial_dispatch =
+            !use_can_odom && wheel_odom_ && target_serial_ && target_serial_->isOpen() && !feedback_ok;
+        mechanism_transport_bridge_ = std::make_unique<rc26_merge_odom::MechanismTransportBridge>(
+            *this, target_serial_, !shared_target_serial_dispatch);
+
+        if (shared_target_serial_dispatch) {
+            target_serial_->setReceiveCallback([this](uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload) {
+                if (wheel_odom_) {
+                    wheel_odom_->handleSerialFrame(cmd, payload);
+                }
+                if (mechanism_transport_bridge_) {
+                    mechanism_transport_bridge_->handleSerialFrame(seq, cmd, payload);
+                }
+            });
+            RCLCPP_INFO(this->get_logger(),
+                        "目标串口单链路分发已启用：ODOM_DATA -> WheelOdom，其它业务反馈 -> mechanism transport");
+        }
 
         if (feedback_ok && target_ok) {
             RCLCPP_INFO(this->get_logger(), "融合里程计节点启动 (双串口模式)");
         } else if (target_ok) {
-            RCLCPP_INFO(this->get_logger(), "融合里程计节点启动 (目标串口单链路降级模式)");
+            RCLCPP_INFO(this->get_logger(), "融合里程计节点启动 (目标串口单链路模式)");
         } else {
             RCLCPP_INFO(this->get_logger(), "融合里程计节点启动 (仅反馈链路模式)");
+        }
+    }
+
+    ~MergeOdomNode() {
+        if (target_serial_) {
+            target_serial_->setReceiveCallback({});
+        }
+        if (feedback_serial_ && feedback_serial_ != target_serial_) {
+            feedback_serial_->setReceiveCallback({});
         }
     }
 

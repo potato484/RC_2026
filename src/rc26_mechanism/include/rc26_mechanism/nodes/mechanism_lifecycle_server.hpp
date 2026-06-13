@@ -15,7 +15,6 @@
 #include "rc26_interfaces/action/assemble_weapon.hpp"
 #include "rc26_interfaces/action/execute_mechanism.hpp"
 #include "rc26_interfaces/action/grab_tip.hpp"
-#include "rc26_interfaces/msg/mechanism_state.hpp"
 
 #include "rc26_mechanism/hal/contracts/i_mechanism_hal.hpp"
 #include "rc26_mechanism/runtime/command_context.hpp"
@@ -80,7 +79,6 @@ private:
     std::optional<CommandResult> takeBufferedCommandResultLocked(uint8_t seq, uint8_t cmd_id);
 
     void onSerialFeedback(uint8_t seq, uint8_t fb_id, const std::vector<uint8_t>& payload);
-    void publishMechanismState();
     void drainPendingContexts();
 
     std::unique_ptr<IMechanismHAL> hal_;
@@ -88,8 +86,6 @@ private:
     rclcpp_action::Server<GrabTip>::SharedPtr grab_tip_srv_;
     rclcpp_action::Server<AssembleWeapon>::SharedPtr assemble_srv_;
     rclcpp_action::Server<ExecuteMechanism>::SharedPtr execute_srv_;
-    rclcpp_lifecycle::LifecyclePublisher<rc26_interfaces::msg::MechanismState>::SharedPtr state_pub_;
-    rclcpp::TimerBase::SharedPtr state_timer_;
     std::mutex execution_mutex_;
     std::mutex execution_thread_mutex_;
     std::thread execution_thread_;

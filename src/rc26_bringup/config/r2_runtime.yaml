@@ -1,0 +1,79 @@
+# R2 统一运行配置。
+# 本文件是完整 bringup 的运行配置真源：点云、地图、行为树入口、底盘装配默认值与决策参数集中维护。
+# paths 下的三个路径必须使用绝对路径；如需现场切换地图/点云/行为树，优先修改这里。
+r2_runtime:
+  paths:
+    prior_pcd_file: "/home/potato/RC_2026/src/rc26_point_lio/PCD/scan.pcd"
+    nav2_map_file: "/home/potato/RC_2026/src/rc26_bringup/map/test.yaml"
+    behavior_tree_file: "/home/potato/RC_2026/src/rc26_decision/behavior_trees/main_tree.xml"
+
+  chassis_runtime:
+    # 整车 bringup 只保留 rc26_merge_odom/merge_odom.launch.py 作为底盘执行与局部反馈链。
+    # 其它遥控/最小硬件调试入口不由本段控制。
+    merge_odom:
+      # 当前实机口径为 false：WheelOdom 作为底盘局部反馈源。
+      # feedback_serial_port 默认禁用时，WheelOdom 与 POSE_TARGET / mechanism transport 共用 target 单口。
+      # CAN odom 只保留为非默认调试能力，不作为当前合理启动口径。
+      use_can_odom: false
+
+      # 默认不在整车 bringup 里启动 EKF，避免与 Nav2 主链 /odom 和动态 TF 权威冲突。
+      start_ekf: false
+      start_imu: false
+      use_imu_for_ekf: false
+
+      # 完整决策链要求真实 odom 源；遥控调试入口可显式覆盖为 false。
+      require_merge_odom_output: true
+      output_topic: "merge_odom"
+
+  decision:
+    ros__parameters:
+      tick_rate_ms: 100             # 行为树 tick 周期，单位毫秒；数值越小调度越频繁
+      team: "blue"                  # 当前队伍颜色，用于梅林区静态地图初始化
+
+      # ======================================================================
+      # 武馆区 (MC) 运行参数 —— 启动时由 r2_runtime.yaml/launch 参数写入决策节点
+      # ======================================================================
+      # --- 导航目标点 ---
+      mc_nav_x: 0.0                 # 武馆区取端头导航目标 x，当前为待现场标定占位
+      mc_nav_y: 0.0                 # 武馆区取端头导航目标 y，当前为待现场标定占位
+      mc_nav_yaw: 0.0               # 武馆区取端头导航目标 yaw，单位 rad，当前为待现场标定占位
+      mc_nav_frame_id: "map"        # 导航目标所在坐标系
+      mc_nav_timeout_sec: 60.0      # Nav2 到达武馆区目标点的超时时间，单位秒
+
+      # --- 相机 / 推理（内嵌直连相机，对齐 tip_vision_test_node）---
+      mc_vision_config_file: ""     # 视觉模型配置文件；空则回退 rc26_vision/config/vision_models.yaml
+      mc_model_id: "tip_default"    # 视觉模型 profile ID，用于加载端头检测模型
+      mc_camera_index: 2            # 首选 USB 相机索引
+      mc_camera_device: ""          # 指定相机设备路径；为空时使用 camera_index
+      mc_auto_scan_camera: true     # 首选相机不可用时是否自动扫描其它 /dev/video*
+      mc_width: 640                 # 相机采集宽度，单位像素
+      mc_height: 480                # 相机采集高度，单位像素
+      mc_fps: 30                    # 相机期望采集帧率
+      mc_target_labels: ["JK"]      # 端头目标标签，必须能在 tip_default 标签表中找到
+
+      # --- 视觉对齐（横移 P 控制，发布 cmd_vel.linear.y）---
+      mc_align_cmd_vel_topic: "cmd_vel"      # 视觉横移对齐发布的速度话题
+      mc_align_tolerance_px: 20              # 目标中心允许偏离画面中心的像素容差
+      mc_align_stable_frames: 3              # 连续满足容差后触发夹取的稳定帧数
+      mc_align_kp: 0.0015                    # 横移 P 控制比例增益，像素误差到 m/s
+      mc_align_min_speed_mps: 0.04           # 横移控制最小速度，单位 m/s
+      mc_align_max_speed_mps: 0.15           # 横移控制最大速度，单位 m/s
+      mc_align_command_rate_hz: 20.0         # 横移速度指令最大发布频率，单位 Hz
+      mc_align_invert_direction: false       # 是否反转横移方向，用于现场相机安装方向修正
+
+      # --- 夹取（/mechanism/send_command 下发 GRAB_TIP=0x01）---
+      mc_grab_command_id: 1                  # 夹取端头命令 ID；1 对应 GRAB_TIP(0x01)
+      # mc_grab_payload 默认空（GRAB_TIP 无 payload）；如需下发字节，填如 [1, 2]。
+      # 注意：ROS2 不支持 YAML 空数组参数，留空请勿写 []，直接省略该项即可。
+      mc_grab_service_name: "/mechanism/send_command"  # 共享串口机构命令服务名
+      mc_grab_done_lost_time_s: 10     # 夹取后端头持续消失多久判定完成，单位秒
+      mc_servo_timeout_s: 60.0         # 视觉伺服整体安全超时，单位秒
+
+      # --- 原地旋转（发布 cmd_vel.angular.z，odom yaw 闭环）---
+      mc_rotate_angle_deg: 180.0       # 原地旋转目标角度，单位度
+      mc_rotate_speed_radps: 0.6       # 原地旋转角速度，单位 rad/s
+      mc_rotate_direction: 1           # 原地旋转方向；+1 逆时针，-1 顺时针
+      mc_rotate_yaw_tolerance_deg: 3.0 # 旋转完成角度容差，单位度
+      mc_rotate_cmd_vel_topic: "cmd_vel"  # 原地旋转发布的速度话题
+      mc_odom_topic: "merge_odom"      # 原地旋转闭环使用的里程计话题
+      mc_rotate_timeout_s: 15.0        # 原地旋转安全超时，单位秒

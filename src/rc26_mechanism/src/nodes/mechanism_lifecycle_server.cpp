@@ -95,9 +95,6 @@ MechanismLifecycleServer::on_configure(const rclcpp_lifecycle::State&) {
         return CallbackReturn::FAILURE;
     }
 
-    state_pub_ = this->create_publisher<rc26_interfaces::msg::MechanismState>(
-        "/mechanism/status", rclcpp::QoS(1).reliable());
-
     grab_tip_srv_ = rclcpp_action::create_server<GrabTip>(
         this->get_node_base_interface(),
         this->get_node_clock_interface(),
@@ -149,14 +146,6 @@ MechanismLifecycleServer::on_activate(const rclcpp_lifecycle::State&) {
         buffered_feedbacks_.clear();
     }
 
-    if (state_pub_) {
-        state_pub_->on_activate();
-    }
-
-    state_timer_ = this->create_wall_timer(
-        std::chrono::milliseconds(200),
-        std::bind(&MechanismLifecycleServer::publishMechanismState, this));
-    publishMechanismState();
     return CallbackReturn::SUCCESS;
 }
 
@@ -174,13 +163,6 @@ MechanismLifecycleServer::on_deactivate(const rclcpp_lifecycle::State&) {
         (void)hal_->sendCommand(static_cast<uint8_t>(rc26_serial::CommandID::STOP));
     }
 
-    if (state_timer_) {
-        state_timer_->cancel();
-        state_timer_.reset();
-    }
-    if (state_pub_) {
-        state_pub_->on_deactivate();
-    }
     if (hal_) {
         hal_->close();
     }
@@ -205,13 +187,6 @@ MechanismLifecycleServer::on_cleanup(const rclcpp_lifecycle::State&) {
     }
     joinExecutionThread();
     execution_in_progress_.store(false, std::memory_order_release);
-    if (state_timer_) {
-        state_timer_->cancel();
-        state_timer_.reset();
-    }
-    if (state_pub_) {
-        state_pub_.reset();
-    }
     grab_tip_srv_.reset();
     assemble_srv_.reset();
     execute_srv_.reset();
@@ -399,7 +374,6 @@ void MechanismLifecycleServer::executeGrab(const std::shared_ptr<GoalHandleGrabT
     if (goal_handle->is_canceling() || command_result.canceled ||
         cancel_requested_.load(std::memory_order_relaxed)) {
         goal_handle->canceled(result);
-        publishMechanismState();
         return;
     }
     if (!command_result.success) {
@@ -409,13 +383,11 @@ void MechanismLifecycleServer::executeGrab(const std::shared_ptr<GoalHandleGrabT
         }
         last_error_code_.store(result->error_code, std::memory_order_relaxed);
         goal_handle->abort(result);
-        publishMechanismState();
         return;
     }
 
     result->success = true;
     goal_handle->succeed(result);
-    publishMechanismState();
 }
 
 rclcpp_action::GoalResponse MechanismLifecycleServer::handleAssembleGoal(
@@ -506,7 +478,6 @@ void MechanismLifecycleServer::executeAssemble(const std::shared_ptr<GoalHandleA
     if (goal_handle->is_canceling() || command_result.canceled ||
         cancel_requested_.load(std::memory_order_relaxed)) {
         goal_handle->canceled(result);
-        publishMechanismState();
         return;
     }
     if (!command_result.success) {
@@ -516,13 +487,11 @@ void MechanismLifecycleServer::executeAssemble(const std::shared_ptr<GoalHandleA
         }
         last_error_code_.store(result->error_code, std::memory_order_relaxed);
         goal_handle->abort(result);
-        publishMechanismState();
         return;
     }
 
     result->success = true;
     goal_handle->succeed(result);
-    publishMechanismState();
 }
 
 rclcpp_action::GoalResponse MechanismLifecycleServer::handleExecuteGoal(
@@ -616,7 +585,6 @@ void MechanismLifecycleServer::executeCommand(const std::shared_ptr<GoalHandleEx
     if (goal_handle->is_canceling() || command_result.canceled ||
         cancel_requested_.load(std::memory_order_relaxed)) {
         goal_handle->canceled(result);
-        publishMechanismState();
         return;
     }
     if (!command_result.success) {
@@ -626,13 +594,11 @@ void MechanismLifecycleServer::executeCommand(const std::shared_ptr<GoalHandleEx
         }
         last_error_code_.store(result->error_code, std::memory_order_relaxed);
         goal_handle->abort(result);
-        publishMechanismState();
         return;
     }
 
     result->success = true;
     goal_handle->succeed(result);
-    publishMechanismState();
 }
 
 CommandResult MechanismLifecycleServer::executeWithContext(uint8_t cmd_id, const std::vector<uint8_t>& payload,
@@ -792,18 +758,6 @@ void MechanismLifecycleServer::drainPendingContexts() {
     }
     pending_contexts_.clear();
     buffered_feedbacks_.clear();
-}
-
-void MechanismLifecycleServer::publishMechanismState() {
-    if (!state_pub_ || !state_pub_->is_activated()) {
-        return;
-    }
-
-    rc26_interfaces::msg::MechanismState msg;
-    msg.hal_open = hal_ && hal_->isOpen();
-    msg.last_error_code = last_error_code_.load(std::memory_order_relaxed);
-    msg.current_cmd_id = current_cmd_id_.load(std::memory_order_relaxed);
-    state_pub_->publish(msg);
 }
 
 }  // namespace rc26_mechanism

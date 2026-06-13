@@ -130,7 +130,8 @@ R2 当前已经统一为麦克纳姆全向底盘，因此 `linear.y` 在 stick /
 - `start_r2_teleop.sh` 不再默认拉起 `rc26_mechanism`；teleop 前/后推杆联调只依赖 `merge_odom` 或 `pose_sender_node` 持有目标串口并提供 transport service。
 - 仓库根目录的 `start_r2_teleop.sh` 现在通过 `--stack full|minimal-mcu` 统一承载完整遥控链和最小串口链；脚本默认 `./start_r2_teleop.sh` 就是 `--stack minimal-mcu`。
 - `--stack minimal-mcu` 会启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`；并固定按 `target_serial_port=/dev/ttyUSB0`、`feedback_serial_port=__disabled__` 进入当前默认单口 MCU 链。
-- `--stack full` 仍可保留 `merge_odom` 装配做本地调试，但当前单口默认口径下，脚本会直接拒绝 `--pose-mode` 与 `--start-ekf`。
+- `--stack full` 仍可保留 `merge_odom` 装配做本地调试，并可通过 `--start-ekf` 或 `--pose-mode imu|no-imu|wheel-only` 临时打开/关闭 EKF 与 IMU 链路；该入口会显式传 `require_merge_odom_output:=false`，因此仍是遥控调试降级入口，不代表完整决策链路已满足稳定 `/merge_odom` 契约。
+- `--pose-mode imu` 映射为 `start_ekf=true`、`start_imu=true`、`use_imu_for_ekf=true`；`no-imu` 映射为 `start_ekf=true`、`start_imu=false`、`use_imu_for_ekf=false`；`wheel-only` 映射为 `start_ekf=false`、`start_imu=false`、`use_imu_for_ekf=false`。
 - 若后续要临时恢复旧 feedback / 融合速度链，需要显式传入真实 `feedback_serial_port`；脚本不再自动改写 `target_serial_port`。
 - `terrain_speed_limit` 运行时链路已从系统中删除；teleop 链不再需要额外关闭地形限速，也不存在重新接回该链路的脚本入口。
 
