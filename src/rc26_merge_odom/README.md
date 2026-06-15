@@ -52,6 +52,7 @@
 - `feedback_serial_port` 仍允许显式传真实设备，作为保留的独立反馈口参数，但不属于当前默认链路；当前启动说明不应把独立反馈口写成实机必选步骤
 - `pose_sender_node` 现在也会在最小 MCU 链里挂出共享 mechanism 命令接口，因此 `./start_r2_teleop.sh --stack minimal-mcu` 仍可承接 ACK 型机构命令
 - 当前双推杆协议已经收口为 `FRONT_PUSHROD_EXTEND/RETRACT(0x0E/0x0F)` 与 `REAR_PUSHROD_EXTEND/RETRACT(0x10/0x11)`，统一复用共享 transport 走 ACK 路径；若 MCU 额外上送 `0x13~0x16` 业务 ACK，桥接层会继续发布到 `/mechanism/command_feedback`
+- 台阶激光测距事件 `FRONT_LASER_HEIGHT_JUMP(0x17)` 与 `REAR_LASER_HEIGHT_JUMP(0x18)` 也属于普通业务 feedback，桥接层不会过滤，会原样发布到 `/mechanism/command_feedback` 供独立台阶 BT 动作消费
 - EKF 启动前会先对参数里的科学计数法字符串做归一化，避免 `robot_localization` 因数组里混入字符串而在 launch 阶段报错
 - 仓库根目录的 `start_r2_teleop.sh` 已是当前唯一正式遥控入口；脚本当前默认 `--stack minimal-mcu`，并固定按 `target_serial_port=/dev/ttyUSB0`、`feedback_serial_port=__disabled__` 启动单口 MCU 链
 - 在这套单口默认口径下，`start_r2_teleop.sh --stack full` 仍可保留 `merge_odom` 装配，并显式传 `require_merge_odom_output:=false` 表示遥控调试降级入口；可通过 `--start-ekf` 或 `--pose-mode imu|no-imu|wheel-only` 临时打开/关闭 EKF 与 IMU 链路

@@ -17,9 +17,9 @@ r2_runtime:
       use_can_odom: false
 
       # 默认不在整车 bringup 里启动 EKF，避免与 Nav2 主链 /odom 和动态 TF 权威冲突。
-      start_ekf: false
-      start_imu: false
-      use_imu_for_ekf: false
+      start_ekf: true
+      start_imu: true
+      use_imu_for_ekf: true
 
       # 完整决策链要求真实 odom 源；遥控调试入口可显式覆盖为 false。
       require_merge_odom_output: true
@@ -77,3 +77,17 @@ r2_runtime:
       mc_rotate_cmd_vel_topic: "cmd_vel"  # 原地旋转发布的速度话题
       mc_odom_topic: "merge_odom"      # 原地旋转闭环使用的里程计话题
       mc_rotate_timeout_s: 15.0        # 原地旋转安全超时，单位秒
+
+      # ======================================================================
+      # 独立台阶动作参数 —— 仅在单独加载 stair_climb_tree.xml / stair_descend_tree.xml
+      # 或串联台阶动作的 mf_red_middle_column_tree.xml 时使用；默认主流程不引用台阶动作
+      # ======================================================================
+      stair_cmd_vel_topic: "cmd_vel"                 # 台阶动作直接发布的速度话题
+      stair_send_command_service: "/mechanism/send_command"  # 推杆命令共享串口服务
+      stair_feedback_topic: "/mechanism/command_feedback"    # MCU 上行激光突变事件透传话题
+      stair_drive_speed_mps: 0.10                    # 上/下台阶直行动作速度绝对值，单位 m/s
+      stair_command_rate_hz: 20.0                    # 台阶动作速度发布频率，单位 Hz
+      stair_command_timeout_s: 3.0                   # 每条推杆命令 accepted 等待超时，单位秒
+      stair_front_event_timeout_s: 10.0              # 前轮激光高度突变等待超时，单位秒
+      stair_rear_event_timeout_s: 10.0               # 后轮激光高度突变等待超时，单位秒
+      stair_descend_finish_drive_time_s: 1.0         # 下台阶前轮事件后继续 x 负方向行驶时间，单位秒

@@ -1,0 +1,21 @@
+<!--
+  独立下台阶行为树：
+  - 这个 XML 只在 tree_file 指向它时执行，默认主比赛流程不会执行下台阶动作。
+  - 下台阶动作会直接发布 cmd_vel.linear.x 负方向速度，运行前必须停用其它运动命令权威。
+-->
+<root BTCPP_format="4" main_tree_to_execute="StairDescendTree">
+  <!--
+    BTCPP_format="4" 表示使用 BehaviorTree.CPP v4 XML 格式。
+    main_tree_to_execute="StairDescendTree" 表示加载本 XML 后默认执行下面这个 BehaviorTree。
+  -->
+  <BehaviorTree ID="StairDescendTree">
+    <!--
+      StairDescend 是 C++ 注册的 StatefulActionNode。
+      执行顺序在 stair_descend.cpp 中：
+      x 负向行驶等后轮 0x18 -> REAR_PUSHROD_EXTEND ->
+      x 负向行驶等前轮 0x17 -> REAR_PUSHROD_RETRACT ->
+      FRONT_PUSHROD_EXTEND -> 末段定时 x 负向行驶 -> SUCCESS。
+    -->
+    <StairDescend name="stair_descend"/>
+  </BehaviorTree>
+</root>

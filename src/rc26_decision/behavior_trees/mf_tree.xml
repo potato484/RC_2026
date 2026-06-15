@@ -147,7 +147,6 @@
   <BehaviorTree ID="MF_Exit">
     <Sequence name="Exit_Seq">
       <NavToPose x="1.2" y="4.2" yaw="1.5708"/>
-      <StairDescend/>
     </Sequence>
   </BehaviorTree>
 </root>

@@ -161,6 +161,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 - **规则**：如果系统同时存在遥控、Nav2 和其它运动测试节点，必须在 launch 装配层保证任一时刻只有一个节点发布运动命令。
 - **规则**：观察节点可以发布 preview、planner state 或诊断状态，但不得在旁路上直接输出 `cmd_vel`。
 - **当前口径**：导航模式下 `/cmd_vel` 由 Nav2 velocity_smoother 输出；人工遥控测试应与导航 bringup 分开启动或显式停用导航命令链。
+- **补充口径**：`rc26_decision` 的 `stair_climb_tree.xml` / `stair_descend_tree.xml` 是受限的独立台阶测试入口，会由 BT 动作直接发布 `cmd_vel` 并调用推杆共享 transport；`mf_red_middle_column_tree.xml` 也是独立加载入口，它把红方 MF 中间列 Nav2 位姿与台阶动作串联，但仍不被默认主流程引用。运行这些树前必须停用 Nav2/遥控等其它运动命令权威，失败或 halt 时台阶动作只发布零速，不做额外推杆补偿。
 
 ### 3.14 静态传感器安装外参必须单一真源
 

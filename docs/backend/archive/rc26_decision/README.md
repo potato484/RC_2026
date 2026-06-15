@@ -16,12 +16,16 @@
   - `behavior_trees/mf_tree.xml`
   - `behavior_trees/mc_tree.xml`
   - `behavior_trees/combat_tree.xml`
+  - `behavior_trees/stair_climb_tree.xml`（独立上台阶测试入口，默认主流程不引用）
+  - `behavior_trees/stair_descend_tree.xml`（独立下台阶测试入口，默认主流程不引用）
+  - `behavior_trees/mf_red_middle_column_tree.xml`（红方中间列连续台阶独立入口，默认主流程不引用）
 - 关键源码:
   - `src/decision_node.cpp`
   - `src/navigation/bt_nav2_pose.cpp`
   - `src/mf/mf_area.cpp`
   - `src/mc/mc_area.cpp`（注册 + `loadMCParams`）
   - `src/mc/visual_servo_grab.cpp`、`src/mc/rotate_in_place.cpp`、`src/mc/wait_forever.cpp`
+  - `src/stair/stair_climb.cpp`、`src/stair/stair_descend.cpp`、`src/stair/stair_action_base.cpp`
 
 ## 当前导航调用口径
 
@@ -82,6 +86,24 @@ Nav2 action result 映射规则：
 - `decision_node` 当前只保留 `tick_rate_ms` 自动执行模式，不再保留手动单步、播放/暂停、外部重置或运行时发布面
 - `nav_last_*` 等字段当前只作为黑板内部状态存在，不再代表公开观测契约
 
+## 独立台阶行为树
+
+台阶动作当前只作为独立 BT XML 能力注册到 `decision_node`，默认 `main_tree.xml`、`mf_tree.xml` 与 `mc_tree.xml` 都不引用它们；`MF_Exit` 当前只保留 Nav2 pose 退出点，不再隐式执行下台阶。
+
+- `StairClimb`：通过 `/mechanism/send_command` 依次下发 `FRONT_PUSHROD_EXTEND -> FRONT_PUSHROD_RETRACT -> REAR_PUSHROD_EXTEND -> REAR_PUSHROD_RETRACT`，并在两个直行阶段分别等待 `/mechanism/command_feedback` 中的 `FRONT_LASER_HEIGHT_JUMP(0x17)` 与 `REAR_LASER_HEIGHT_JUMP(0x18)`。
+- `StairDescend`：先以 `x` 负方向直行等待 `REAR_LASER_HEIGHT_JUMP(0x18)`，再伸后推杆；随后继续负向直行等待 `FRONT_LASER_HEIGHT_JUMP(0x17)`，依次收后推杆、伸前推杆，并按 `stair_descend_finish_drive_time_s` 做最后短距离负向直行。
+- 两个动作都直接发布 `stair_cmd_vel_topic`（默认 `cmd_vel`），只应在单独加载 `stair_climb_tree.xml` / `stair_descend_tree.xml` 且停用其它运动命令权威时运行；任何命令拒绝、服务等待超时或激光事件等待超时都会发布零速并返回 `FAILURE`，`onHalted()` 只发布零速，不额外补偿推杆状态。
+
+台阶参数以 `stair_*` 前缀集中在 `rc26_bringup/config/r2_runtime.yaml`，启动时由 `loadStairParams()` 写入黑板 `stair_params`；当前没有运行期参数变更回调。
+
+## 红方中间列连续台阶树
+
+`behavior_trees/mf_red_middle_column_tree.xml` 是一棵独立可加载的红方 MF 中间列连续运动树，默认 `main_tree.xml`、`mf_tree.xml` 与 `mc_tree.xml` 都不引用它。运行它需要通过 `decision_node` 的 `tree_file` 显式指向该 XML，或者临时把完整 bringup 的 `r2_runtime.paths.behavior_tree_file` 改成该 XML 的绝对路径并设置 `team=red`。
+
+- 路线固定为红方中间列 `grid2 -> grid5 -> grid8 -> grid11`：入口前定位点到第一排第二列 200mm 台阶，随后两段上台阶到 400mm、600mm，再以后轮在前的姿态下到第四排第二列 400mm，最后导航到现有 MF 中列出口点。
+- 本树只复用 `NavToPose`、`StairClimb` 与 `StairDescend`，用 XML `Script` 记录 `current_grid` 等黑板状态；不调用 `ScanSurroundings`、`SelectNextGrid`、`GrabKFS`，也不执行视觉夹取。
+- 运行时同时依赖 Nav2 `/navigate_to_pose`、共享机构 `/mechanism/send_command`、`/mechanism/command_feedback` 与台阶动作参数 `stair_*`。由于 `StairClimb` / `StairDescend` 会直接发布 `cmd_vel`，执行该树时必须确保 Nav2 controller、遥控或其它测试节点不会同时发布运动命令。
+
 ## 当前边界
 
 - 负责流程编排、目标选择和策略切换
@@ -102,6 +124,7 @@ Nav2 action result 映射规则：
 
 - `mc_target_labels` 修正为 `["JK"]`：`tip_default` 模型 profile（`tip.onnx`）的标签表中目前只有 `JK` 这一个类别，原先的 `["D_0", "D_1"]` 无法匹配任何检测结果，导致视觉伺服永远找不到目标。修改后 `resolveTargetClassIds()` 能正确映射到模型输出的类别 ID。
 - `src/mc/visual_servo_grab.cpp`、`src/mc/rotate_in_place.cpp`、`src/mc/wait_forever.cpp` 全部补加了 `onStart`/`onRunning`/`onHalted` 的中文注释，说明每个阶段的具体职责：资源初始化、每 tick 轮询逻辑、以及外部中断时的安全停机清理。
+- `src/stair/*.cpp` 与独立 `stair_climb_tree.xml` / `stair_descend_tree.xml` 已补加中文逐段注释，说明推杆命令、激光突变事件、速度发布、超时失败和 halt 零速的每一步决策逻辑；本次只增加注释，不改变台阶动作运行语义。
 - MC 参数清理为当前真实语义：视觉目标选择只保留 `mc_target_labels`，夹取只保留命令、服务和完成/超时判定参数；旋转速度参数统一为 `mc_rotate_speed_radps`，按 `rad/s` 直接发布到 `cmd_vel.angular.z`。
 - 端头模型 profile ID 已从历史测试命名 `tip_test` 改为 `tip_default`；MC 决策默认 `mc_model_id` 同步使用 `tip_default`，模型文件仍由 `rc26_vision/config/vision_models.yaml` 指向 `models/tip.onnx`。
 - 2026-06-13 同步：删除包内 `config/decision_params.yaml` 与独立 `decision.launch.py` 入口；决策参数与行为树入口统一由完整 bringup 从 `rc26_bringup/config/r2_runtime.yaml` 读取，测试口径改为验证所有相关节点拉起后的链路效果。

@@ -1,0 +1,108 @@
+<!--
+  红方中间列连续台阶行为树：
+  - 这是一棵独立可加载树，只在 decision_node 的 tree_file 指向本文件时执行。
+  - main_tree.xml / mf_tree.xml / mc_tree.xml 默认都不引用它，因此不会改变现有比赛主流程。
+  - 本树只负责红方中间列 2 -> 5 -> 8 -> 11 的连续运动链，不做扫描、选点或夹取。
+  - 运行时同时依赖 Nav2 的 /navigate_to_pose、机构 /mechanism/send_command、
+    /mechanism/command_feedback，以及台阶动作对 cmd_vel 的独占控制权。
+-->
+<root BTCPP_format="4" main_tree_to_execute="MFRedMiddleColumnTree">
+  <!--
+    BTCPP_format="4" 表示使用 BehaviorTree.CPP v4 XML 格式。
+    main_tree_to_execute="MFRedMiddleColumnTree" 表示加载本 XML 后默认执行下面这棵树。
+  -->
+  <BehaviorTree ID="MFRedMiddleColumnTree">
+    <!--
+      Sequence 保证每一步严格按顺序执行：
+      任意 NavToPose、StairClimb 或 StairDescend 返回 FAILURE 时，整棵树立即失败并停止后续动作。
+    -->
+    <Sequence name="MF_Red_Middle_Column_Sequence">
+      <!--
+        初始化本树使用的黑板状态：
+        team='red' 让调试日志和后续 MF 语义明确落在红方；
+        current_grid=2 表示入口台阶目标是第一排第二列；
+        target_kfs_count=0 / kfs_on_board=0 表示本树不执行夹取任务；
+        exit_grid=11 表示红方中间列最后的离场格是第四排第二列。
+      -->
+      <Script code="team:='red'; current_grid:=2; target_kfs_count:=0; kfs_on_board:=0; exit_grid:=11"/>
+
+      <!--
+        入口前定位点：
+        坐标沿用现有 MF 1.2m 格距，中间列 x=1.2；
+        y=-0.6 位于 grid2 中心 y=0.0 的前方半格，作为上第一阶前的导航准备点；
+        yaw=1.5708 让车体 x 正方向朝向地图 +y，即朝向第一排第二列 200mm 台阶。
+      -->
+      <NavToPose x="1.2" y="-0.6" yaw="1.5708"/>
+
+      <!--
+        第一次上台阶：入口 -> grid2。
+        StairClimb 会先伸前推杆，然后 x 正向低速直行等待前轮 0x17；
+        再收前推杆、伸后推杆，继续 x 正向等待后轮 0x18，最后收后推杆。
+      -->
+      <StairClimb name="entry_to_grid2_climb"/>
+
+      <!--
+        归正到 grid2 中心：
+        台阶动作只按激光突变和短距离直控推进，完成后再用 Nav2 把车体收敛到格子中心。
+      -->
+      <NavToPose x="1.2" y="0.0" yaw="1.5708"/>
+      <!-- 记录当前已经稳定处于 grid2，供日志和后续调试读取。 -->
+      <Script code="current_grid:=2"/>
+
+      <!--
+        grid2 -> grid5 的台阶前定位点：
+        y=0.6 是 grid2(y=0.0) 与 grid5(y=1.2) 之间的中点；
+        红方中间列高度从 200mm 到 400mm，本段仍然使用上台阶动作。
+      -->
+      <NavToPose x="1.2" y="0.6" yaw="1.5708"/>
+      <!-- 第二次上台阶：grid2(200mm) -> grid5(400mm)。 -->
+      <StairClimb name="grid2_to_grid5_climb"/>
+      <!-- 上阶后归正到 grid5 中心。 -->
+      <NavToPose x="1.2" y="1.2" yaw="1.5708"/>
+      <!-- 记录当前已经稳定处于 grid5。 -->
+      <Script code="current_grid:=5"/>
+
+      <!--
+        grid5 -> grid8 的台阶前定位点：
+        y=1.8 是 grid5(y=1.2) 与 grid8(y=2.4) 之间的中点；
+        红方中间列高度从 400mm 到 600mm，本段继续使用上台阶动作。
+      -->
+      <NavToPose x="1.2" y="1.8" yaw="1.5708"/>
+      <!-- 第三次上台阶：grid5(400mm) -> grid8(600mm)。 -->
+      <StairClimb name="grid5_to_grid8_climb"/>
+      <!-- 上阶后归正到 grid8 中心。 -->
+      <NavToPose x="1.2" y="2.4" yaw="1.5708"/>
+      <!-- 记录当前已经稳定处于 grid8。 -->
+      <Script code="current_grid:=8"/>
+
+      <!--
+        grid8 -> grid11 的下台阶前定位点：
+        y=3.0 是 grid8(y=2.4) 与 grid11(y=3.6) 之间的中点；
+        yaw=-1.5708 让车体 x 负方向朝向地图 +y，也就是让后轮在前下台阶。
+        这样 StairDescend 发布 linear.x < 0 时，车会沿地图 +y 从 grid8 下到 grid11。
+      -->
+      <NavToPose x="1.2" y="3.0" yaw="-1.5708"/>
+
+      <!--
+        下台阶：grid8(600mm) -> grid11(400mm)。
+        StairDescend 先 x 负向等待后轮 0x18，再伸后推杆；
+        随后继续 x 负向等待前轮 0x17，收后推杆、伸前推杆，并按配置做末段短距离直行。
+      -->
+      <StairDescend name="grid8_to_grid11_descend"/>
+
+      <!--
+        归正到 grid11 中心：
+        下台阶动作完成后，重新交给 Nav2 收敛到底图中的中列出口格中心，并恢复朝向 +y。
+      -->
+      <NavToPose x="1.2" y="3.6" yaw="1.5708"/>
+      <!-- 记录当前已经稳定处于 grid11，也就是红方中间列出口格。 -->
+      <Script code="current_grid:=11"/>
+
+      <!--
+        离开 MF 中列：
+        复用现有 MF_Exit 的中列出口目标点 y=4.2，继续朝地图 +y 方向离开梅林区。
+      -->
+      <NavToPose x="1.2" y="4.2" yaw="1.5708"/>
+    </Sequence>
+  </BehaviorTree>
+</root>

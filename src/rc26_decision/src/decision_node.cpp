@@ -11,6 +11,7 @@
 #include "rc26_decision/mc/mc_area.hpp"
 #include "rc26_decision/mf/mf_area.hpp"
 #include "rc26_decision/navigation/bt_nav2_pose.hpp"
+#include "rc26_decision/stair/stair_area.hpp"
 
 namespace rc26_decision {
 
@@ -23,10 +24,12 @@ public:
     initializeRuntimeState();
 
     loadMCParams(*this, blackboard_);
+    loadStairParams(*this, blackboard_);
 
     registerMCAreaNodes(factory_);
     registerMFAreaNodes(factory_);
     registerNav2PoseNodes(factory_);
+    registerStairNodes(factory_);
 
     tick_rate_ms_ = this->get_parameter("tick_rate_ms").as_int();
     tree_file_ = this->get_parameter("tree_file").as_string();
@@ -86,11 +89,7 @@ private:
     blackboard_->set("stair_descend_done", false);
     blackboard_->set("last_action_error_code", 0);
     blackboard_->set("system_error", false);
-    blackboard_->set("current_level", static_cast<int32_t>(0));
-    blackboard_->set("stair_delta", static_cast<int8_t>(0));
-    blackboard_->set("is_lifted", false);
     blackboard_->set("stable_operation", false);
-    blackboard_->set("level_start", static_cast<int32_t>(0));
     blackboard_->set("nav_last_exec_state", std::string("IDLE"));
     blackboard_->set("nav_last_failure_code", std::string(""));
     blackboard_->set("nav_last_failure_reason", std::string(""));

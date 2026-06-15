@@ -40,12 +40,19 @@
 *   `REAR_PUSHROD_EXTEND_ACK = 0x15`
 *   `REAR_PUSHROD_RETRACT_ACK = 0x16`
 
+当前台阶激光测距高度突变事件只由 MCU 上行：
+
+*   `FRONT_LASER_HEIGHT_JUMP = 0x17`
+*   `REAR_LASER_HEIGHT_JUMP = 0x18`
+
+这两个事件的 v1 payload 为空或忽略，只表示前轮 / 后轮附近激光测距模块检测到车体高度突变；上位机通过 `/mechanism/command_feedback` 消费它们，不新增对应下行命令。
+
 当前真实运行时口径是：
 
 *   4 条双推杆命令都通过 `rc26_merge_odom` 的共享 transport 走可靠 `sendCommand()` ACK 路径；若 MCU 不回通用 `ACK(0x00)`，会像其它可靠命令一样重传并打印超时日志。
 *   `rc26_telecontrol_front_pushrod_buttons` 会在 `Y/A` 按下沿单次调用 `/mechanism/send_command`，分别桥成前推杆伸展 / 收缩。
 *   `rc26_telecontrol_rear_pushrod_buttons` 会在 `Select/Back` / `Start` 按下沿单次调用 `/mechanism/send_command`，分别桥成后推杆伸展 / 收缩；`Dpad 左/右` 已回归底盘横移控制。
-*   transport service 返回 `accepted=true` 的前提仍然是 MCU 先回通用 `ACK(0x00)`；`0x13~0x16` 业务 ACK 会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定。
+*   transport service 返回 `accepted=true` 的前提仍然是 MCU 先回通用 `ACK(0x00)`；`0x13~0x18` 业务反馈会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定。
 *   串口层当前只把 `ACK(0x00)`、`NACK(0x01)` 和心跳场景下的 `HEARTBEAT_ACK(0x10)` 视为 ACK 等待结果；MCU 已不再返回 `ACTION_FAIL/ERROR` 这类快捷失败反馈。
 *   真机部署时，目标 MCU 串口仍由 `rc26_merge_odom` 运行时独占打开；当前默认主口是 `target_serial_port=/dev/ttyUSB0`，其它上层只复用 transport，不再次直连同一设备。
 *   端头视觉对齐后的抓取改为经 `/mechanism/send_command` 下发 `GRAB_TIP(0x01)` 空 payload。
@@ -59,7 +66,7 @@
 
 ## 3. 设计原则与平台限制
 
-1.  **帧结构稳定性**: 当前双推杆协议语义已经更新为前/后推杆四命令，并要求 MCU 同步支持 `0x13~0x16` 业务 ACK；除此之外，v3.0 的帧头、CRC32 MPEG-2 校验和最大长度限制保持不变。
+1.  **帧结构稳定性**: 当前双推杆协议语义已经更新为前/后推杆四命令，并要求 MCU 同步支持 `0x13~0x16` 业务 ACK；台阶激光测距高度突变事件使用独立上行 `0x17/0x18`。除此之外，v3.0 的帧头、CRC32 MPEG-2 校验和最大长度限制保持不变。
 2.  **兼容性第一**: 考虑到 AidLux 混合环境的特殊性，优先采用成熟稳定的 POSIX 接口（如 `epoll`）而非激进的异步 I/O（如 `io_uring` on TTY）。
 3.  **单体非阻塞**: 核心驱动类不抛出未捕获异常，任何发送/接收回调均被妥善隔离，防止上层业务逻辑的故障波及底层通信主循环。
 

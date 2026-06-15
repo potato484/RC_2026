@@ -39,6 +39,10 @@ add_library(${PROJECT_NAME}_nodes SHARED
   src/mc/visual_servo_grab.cpp
   src/mc/rotate_in_place.cpp
   src/mc/wait_forever.cpp
+  src/stair/stair_action_base.cpp
+  src/stair/stair_area.cpp
+  src/stair/stair_climb.cpp
+  src/stair/stair_descend.cpp
   src/mf/mf_area.cpp
   src/navigation/bt_nav2_pose.cpp
 )

@@ -147,94 +147,6 @@ std::string MerlinMapManager::layoutStatus() const {
 }
 
 // ============================================================================
-// StairClimbAction - 上阶梯
-// ============================================================================
-StairClimbAction::StairClimbAction(const std::string &name,
-                                   const BT::NodeConfig &config)
-    : BT::StatefulActionNode(name, config) {}
-
-BT::PortsList StairClimbAction::providedPorts() { return {}; }
-
-BT::NodeStatus StairClimbAction::onStart() {
-  level_start_set_ = false;
-  int32_t current_level = 0;
-  if (config().blackboard->get("current_level", current_level)) {
-    level_start_ = current_level;
-    level_start_set_ = true;
-    config().blackboard->set("level_start", level_start_);
-  }
-  config().blackboard->set("stair_climb_done", false);
-  return BT::NodeStatus::RUNNING;
-}
-
-BT::NodeStatus StairClimbAction::onRunning() {
-  int32_t current_level = 0;
-  if (!level_start_set_) {
-    if (config().blackboard->get("current_level", current_level)) {
-      level_start_ = current_level;
-      level_start_set_ = true;
-      config().blackboard->set("level_start", level_start_);
-    } else {
-      return BT::NodeStatus::RUNNING;
-    }
-  } else if (!config().blackboard->get("current_level", current_level)) {
-    return BT::NodeStatus::RUNNING;
-  }
-
-  if (current_level >= level_start_ + kStairLevelDelta) {
-    config().blackboard->set("stair_climb_done", true);
-    return BT::NodeStatus::SUCCESS;
-  }
-  return BT::NodeStatus::RUNNING;
-}
-
-void StairClimbAction::onHalted() { level_start_set_ = false; }
-
-// ============================================================================
-// StairDescendAction - 下阶梯
-// ============================================================================
-StairDescendAction::StairDescendAction(const std::string &name,
-                                       const BT::NodeConfig &config)
-    : BT::StatefulActionNode(name, config) {}
-
-BT::PortsList StairDescendAction::providedPorts() { return {}; }
-
-BT::NodeStatus StairDescendAction::onStart() {
-  level_start_set_ = false;
-  int32_t current_level = 0;
-  if (config().blackboard->get("current_level", current_level)) {
-    level_start_ = current_level;
-    level_start_set_ = true;
-    config().blackboard->set("level_start", level_start_);
-  }
-  config().blackboard->set("stair_descend_done", false);
-  return BT::NodeStatus::RUNNING;
-}
-
-BT::NodeStatus StairDescendAction::onRunning() {
-  int32_t current_level = 0;
-  if (!level_start_set_) {
-    if (config().blackboard->get("current_level", current_level)) {
-      level_start_ = current_level;
-      level_start_set_ = true;
-      config().blackboard->set("level_start", level_start_);
-    } else {
-      return BT::NodeStatus::RUNNING;
-    }
-  } else if (!config().blackboard->get("current_level", current_level)) {
-    return BT::NodeStatus::RUNNING;
-  }
-
-  if (current_level <= level_start_ - kStairLevelDelta) {
-    config().blackboard->set("stair_descend_done", true);
-    return BT::NodeStatus::SUCCESS;
-  }
-  return BT::NodeStatus::RUNNING;
-}
-
-void StairDescendAction::onHalted() { level_start_set_ = false; }
-
-// ============================================================================
 // GrabKFSAction - 夹取 KFS
 // ============================================================================
 GrabKFSAction::GrabKFSAction(const std::string &name,
@@ -590,8 +502,6 @@ BT::NodeStatus UpdateMapKFSAction::tick() {
 // 注册函数
 // ============================================================================
 void registerMFAreaNodes(BT::BehaviorTreeFactory &factory) {
-  factory.registerNodeType<StairClimbAction>("StairClimb");
-  factory.registerNodeType<StairDescendAction>("StairDescend");
   factory.registerNodeType<GrabKFSAction>("GrabKFS");
   factory.registerNodeType<CheckKFSCondition>("CheckKFS");
   factory.registerNodeType<CheckLoadCondition>("CheckLoad");

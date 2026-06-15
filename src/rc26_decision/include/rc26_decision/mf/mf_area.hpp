@@ -59,40 +59,6 @@ private:
   std::string layout_status_;
 };
 
-// 上阶梯节点
-class StairClimbAction : public BT::StatefulActionNode {
-public:
-  StairClimbAction(const std::string &name, const BT::NodeConfig &config);
-
-  static BT::PortsList providedPorts();
-
-  BT::NodeStatus onStart() override;
-  BT::NodeStatus onRunning() override;
-  void onHalted() override;
-
-private:
-  bool level_start_set_{false};
-  int32_t level_start_{0};
-  static constexpr int32_t kStairLevelDelta = 3;
-};
-
-// 下阶梯节点
-class StairDescendAction : public BT::StatefulActionNode {
-public:
-  StairDescendAction(const std::string &name, const BT::NodeConfig &config);
-
-  static BT::PortsList providedPorts();
-
-  BT::NodeStatus onStart() override;
-  BT::NodeStatus onRunning() override;
-  void onHalted() override;
-
-private:
-  bool level_start_set_{false};
-  int32_t level_start_{0};
-  static constexpr int32_t kStairLevelDelta = 3;
-};
-
 // 夹取 KFS 节点
 class GrabKFSAction
     : public BtActionNode<rc26_interfaces::action::ExecuteMechanism> {

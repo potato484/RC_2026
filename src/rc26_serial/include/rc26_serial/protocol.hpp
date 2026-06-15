@@ -78,6 +78,8 @@ enum class FeedbackID : uint8_t {
     FRONT_PUSHROD_RETRACT_ACK = 0x14, // 前推杆收缩业务 ACK，仍会发布到 transport feedback
     REAR_PUSHROD_EXTEND_ACK = 0x15,   // 后推杆伸展业务 ACK，仍会发布到 transport feedback
     REAR_PUSHROD_RETRACT_ACK = 0x16,  // 后推杆收缩业务 ACK，仍会发布到 transport feedback
+    FRONT_LASER_HEIGHT_JUMP = 0x17,   // 前轮附近激光测距模块检测到车体高度突变
+    REAR_LASER_HEIGHT_JUMP = 0x18,    // 后轮附近激光测距模块检测到车体高度突变
     ODOM_DATA = 0x20,                 // 麦克纳姆轮速反馈：<v_fl,v_rl,v_rr,v_fr>，单位: m/s
 };
 

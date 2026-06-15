@@ -11,6 +11,7 @@ info:
     - 本文档额外覆盖 mechanism 与 merge_odom 之间的内部 transport topic/service 契约
     - `/mechanism/send_command` 与 `/mechanism/command_feedback` 复用的是 `rc26_merge_odom` 已打开的 `target_serial_port`，当前默认主口为 `/dev/ttyUSB0`
     - `feedback_serial_port` 主要承载 `ODOM_DATA` 与 `POSE_FEEDBACK`；该链路当前默认 `__disabled__`，不作为默认 mechanism transport 的物理链路
+    - `/mechanism/command_feedback` 会透传双推杆业务 ACK `0x13~0x16`，以及台阶激光测距高度突变事件 `FRONT_LASER_HEIGHT_JUMP(0x17)`、`REAR_LASER_HEIGHT_JUMP(0x18)`；后两者 v1 payload 为空或忽略
 servers:
   - url: http://localhost:8080
 tags:
@@ -111,6 +112,7 @@ components:
           type: integer
           minimum: 0
           maximum: 255
+          description: MCU 上行业务反馈 ID；台阶激光测距事件使用 0x17/0x18，payload v1 为空或忽略。
         payload:
           type: array
           items:
