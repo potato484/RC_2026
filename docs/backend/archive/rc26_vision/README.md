@@ -87,7 +87,8 @@
 - `tip_vision_test_node` 已移除旧的距离估计和距离文字叠加；`show_center_distance` 与旧距离参数名只为兼容旧配置而保留，不再参与运行时判定。
 - 当前犀牛派 X1 板上实测 `models/tip.onnx` 为固定 `640x640` 的 CPU ONNX 链，`infer_ms` 大约 `80~95ms`、`infer_fps` 大约 `10~12`；这套 AidLite ONNX 后端对该模型不支持 `GPU/DSP`，若要逼近 `30 infer_fps`，需要换更小输入的 ONNX，或改用可落到 QNN/AMF 的量化资产。
 - `tip_vision_test_node` 已删除旧的视觉直连串口状态下发链路，不再发送原下行 `0x12` 状态命令，也不再维护 `serial_*` 参数。
-- `tip` test 链新增默认关闭的自动横移对线：画面中心竖线作为目标线，primary target 识别框中心竖线作为检测线；启用 `alignment_control_enable=true` 后，节点只发布 `cmd_vel.linear.y`，让现有 `/cmd_vel -> PoseSender -> POSE_TARGET` 底盘链路执行左右横移。
+- `tip` test 链新增默认关闭的自动横移对线：画面中心竖线作为目标线，primary target 识别框中心竖线作为检测线；多框同时出现时，primary target 在 `target_labels` 对应目标中按“识别框中心距离画面中心竖线最近”选择，自动横移只跟随这个目标，不再按最大面积框移动。启用 `alignment_control_enable=true` 后，节点只发布 `cmd_vel.linear.y`，让现有 `/cmd_vel -> PoseSender -> POSE_TARGET` 底盘链路执行左右横移。
+- `tip` test 链的 `single_target_mode` 默认保持关闭；如果手动开启，推理结果会先按置信度截断到单个框，这会绕过多框中心优先选择，主要用于旧式单目标调试。
 - 对齐误差进入 `alignment_tolerance_px` 并稳定达到 `alignment_stable_frames` 后，tip test 节点会通过 `/mechanism/send_command` 共享 transport 下发一次 `GRAB_TIP(0x01)` 空 payload；它不直接打开目标 MCU 串口，也不绕过 `pose_sender_node` / `merge_odom_node` 的串口权威。
 - 启用自动对线时，同一时刻不要启动 Nav2、teleop 或其它 `/cmd_vel` 发布权威；必须由 `pose_sender_node` 或 `merge_odom_node` 持有目标串口并提供 `/mechanism/send_command`。
 - 当前 `tip` test 参数仍默认优先 `camera_index=2` 这路外接 USB 摄像头，但 `auto_scan_camera` 已默认打开；如果首选设备能枚举却读不出第一帧，节点会打印中文告警并自动扫描其他 `/dev/video*` 作为兜底。
@@ -129,4 +130,5 @@
 
 ## 最近修改
 
+- **tip 多框对线目标选择修正**：`test/tip_vision_test_node.cpp` 的 primary target 选择从“最大面积优先”改为“框中心距离画面中心竖线最近优先”；自动横移对线继续只使用 primary target 的 `offset_px`，多框场景下不再跟随边侧大框反复切换。
 - **tip_vision_test_node 日志中文化**：将 test/tip_vision_test_node.cpp 中所有 RCLCPP 日志和 std::fprintf 错误信息从英文转换为中文，与仓库其他模块日志口径保持一致。覆盖范围包括相机初始化、推理引擎状态、端头对准控制、GRAB_TIP 指令发送和运行时帧率统计等全部日志出口。

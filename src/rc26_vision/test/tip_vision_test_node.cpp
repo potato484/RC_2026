@@ -94,7 +94,8 @@ private:
   bool is_target_class(int class_id) const;
   std::string class_id_to_label(int class_id) const;
   std::optional<TargetCandidate> select_primary_target(
-    const std::vector<rc26_vision::Detection> & detections) const;
+    const std::vector<rc26_vision::Detection> & detections,
+    int frame_width_px) const;
 
   void create_alignment_interfaces();
   bool should_publish_alignment_command(
@@ -773,10 +774,13 @@ std::string TipVisionTestNode::class_id_to_label(int class_id) const
 }
 
 std::optional<TipVisionTestNode::TargetCandidate> TipVisionTestNode::select_primary_target(
-  const std::vector<rc26_vision::Detection> & detections) const
+  const std::vector<rc26_vision::Detection> & detections,
+  int frame_width_px) const
 {
   std::optional<TargetCandidate> best;
+  int best_center_distance = -1;
   int best_area = -1;
+  const int frame_center_x = std::max(0, frame_width_px / 2);
 
   for (const auto & det : detections) {
     if (!is_target_class(det.class_id)) {
@@ -791,10 +795,14 @@ std::optional<TipVisionTestNode::TargetCandidate> TipVisionTestNode::select_prim
       continue;
     }
     const int area = box.area();
-    if (!best.has_value() || area > best_area ||
-      (area == best_area && det.score > best->score))
+    const int box_center_x = box.x + box.width / 2;
+    const int center_distance = std::abs(box_center_x - frame_center_x);
+    if (!best.has_value() || center_distance < best_center_distance ||
+      (center_distance == best_center_distance && det.score > best->score) ||
+      (center_distance == best_center_distance && det.score == best->score && area > best_area))
     {
       best = TargetCandidate{box, det.class_id, det.score};
+      best_center_distance = center_distance;
       best_area = area;
     }
   }
@@ -1272,7 +1280,7 @@ bool TipVisionTestNode::run_inference_on_frame(
     local_result.detections = detections;
   }
 
-  local_result.primary_target = select_primary_target(detections);
+  local_result.primary_target = select_primary_target(detections, frame_bgr.cols);
   local_result.has_target = local_result.primary_target.has_value();
   if (local_result.has_target) {
     local_result.box_w = local_result.primary_target->box.width;
