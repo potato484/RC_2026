@@ -48,6 +48,7 @@ BT::NodeStatus VisualServoGrabAction::onStart() {
     lost_active_ = false;
     last_pub_tp_ = {};
     last_grab_tp_ = {};
+    target_lock_state_.reset();
 
     // 启动独立工作线程（避免阻塞行为树的 tick 循环）
     worker_ = std::thread(&VisualServoGrabAction::workerLoop, this);
@@ -126,29 +127,11 @@ void VisualServoGrabAction::workerLoop() {
         // 推理：获取本帧所有检测结果
         const std::vector<rc26_vision::Detection> detections = engine_->infer(frame);
 
-        // 从检测结果中筛选目标类别的最大面积框，计算其中心相对图像中心的水平偏移
-        bool has_target = false;
-        int offset_px = 0;
-        int best_area = -1;
-        for (const auto& det : detections) {
-            // 只关注 mc_target_labels 指定的目标类别
-            if (!isTargetClass(det.class_id)) {
-                continue;
-            }
-            const int w = static_cast<int>(std::ceil(det.x2)) - static_cast<int>(std::floor(det.x1));
-            const int h = static_cast<int>(std::ceil(det.y2)) - static_cast<int>(std::floor(det.y1));
-            if (w <= 0 || h <= 0) {
-                continue;
-            }
-            const int area = w * h;
-            if (area > best_area) {
-                best_area = area;
-                const int cx = static_cast<int>(std::floor(det.x1)) + w / 2;
-                // offset_px > 0 表示目标在图像右侧，< 0 在左侧
-                offset_px = cx - frame.cols / 2;
-                has_target = true;
-            }
-        }
+        // 按 tip test 同一口径选择并锁定目标，避免双端头同屏时反复切换。
+        const auto selection = rc26_vision::updateTipAlignmentTarget(
+            detections, frame.cols, target_class_ids_, target_lock_state_, makeAlignmentConfig());
+        const bool has_target = selection.has_target;
+        const int offset_px = selection.offset_px;
 
         if (!has_target) {
             // 没有检测到目标：停止横移，重置稳定计数
@@ -197,17 +180,7 @@ void VisualServoGrabAction::workerLoop() {
 
 // 根据水平像素偏移计算横移速度（P 控制器）
 double VisualServoGrabAction::computeAlignmentVy(int offset_px) const {
-    // 基础速度 = 偏移量 × Kp（比例增益）
-    double speed = std::abs(static_cast<double>(offset_px)) * params_.align_kp;
-    // 钳位在 [min_speed, max_speed] 范围
-    speed = std::max(params_.align_min_speed_mps, std::min(speed, params_.align_max_speed_mps));
-    // 方向：目标在图像右侧(offset>0)则向右横移(vy<0)，左侧反之
-    //       mc_align_invert_direction 为 true 时方向反转
-    double direction = offset_px > 0 ? -1.0 : 1.0;
-    if (params_.align_invert_direction) {
-        direction = -direction;
-    }
-    return direction * speed;
+    return rc26_vision::computeTipAlignmentVy(offset_px, makeAlignmentConfig());
 }
 
 // 发布 cmd_vel.linear.y 横移速度（受 mc_align_command_rate_hz 限频）
@@ -334,10 +307,17 @@ void VisualServoGrabAction::resolveTargetClassIds() {
     }
 }
 
-// 判断检测框的类别 ID 是否属于目标类别
-bool VisualServoGrabAction::isTargetClass(int class_id) const {
-    return std::find(target_class_ids_.begin(), target_class_ids_.end(), class_id) !=
-           target_class_ids_.end();
+rc26_vision::TipAlignmentConfig VisualServoGrabAction::makeAlignmentConfig() const {
+    rc26_vision::TipAlignmentConfig config;
+    config.target_lock_enable = params_.align_target_lock_enable;
+    config.target_lock_max_jump_px = params_.align_target_lock_max_jump_px;
+    config.lost_stop_frames = params_.align_lost_stop_frames;
+    config.tolerance_px = params_.align_tolerance_px;
+    config.kp = params_.align_kp;
+    config.min_speed_mps = params_.align_min_speed_mps;
+    config.max_speed_mps = params_.align_max_speed_mps;
+    config.invert_direction = params_.align_invert_direction;
+    return config;
 }
 
 }  // namespace rc26_decision

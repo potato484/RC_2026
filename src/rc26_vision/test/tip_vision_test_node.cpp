@@ -24,6 +24,7 @@
 #include "rc26_serial/protocol.hpp"
 #include "rc26_vision/inference/config/model_profile.hpp"
 #include "rc26_vision/inference/contracts/inference_engine.hpp"
+#include "rc26_vision/postprocess/alignment/tip_alignment.hpp"
 
 namespace rc26_vision::test {
 
@@ -55,18 +56,15 @@ private:
     int stable_count{0};
     int stable_required{3};
     int lost_count{0};
+    bool target_locked{false};
+    int target_lock_lost_count{0};
     double cmd_vy{0.0};
     std::string grab_state{"DISABLED"};
     uint8_t grab_command_id{kDefaultGrabTipCommand};
     uint8_t grab_seq{0x00};
   };
 
-  struct TargetCandidate
-  {
-    cv::Rect box{};
-    int class_id{-1};
-    float score{0.0F};
-  };
+  using TargetCandidate = rc26_vision::TipTargetCandidate;
 
   struct InferenceResult
   {
@@ -81,6 +79,8 @@ private:
     int offset_px{0};
     int class_id{-1};
     std::size_t detection_count{0U};
+    bool target_locked{false};
+    int target_lock_lost_count{0};
     double infer_ms{0.0};
     std::chrono::steady_clock::time_point updated_tp{};
   };
@@ -91,11 +91,8 @@ private:
     const std::string & configured_path,
     const std::filesystem::path & package_relative_default) const;
   bool resolve_target_class_ids();
-  bool is_target_class(int class_id) const;
   std::string class_id_to_label(int class_id) const;
-  std::optional<TargetCandidate> select_primary_target(
-    const std::vector<rc26_vision::Detection> & detections,
-    int frame_width_px) const;
+  rc26_vision::TipAlignmentConfig make_alignment_config() const;
 
   void create_alignment_interfaces();
   bool should_publish_alignment_command(
@@ -180,8 +177,10 @@ private:
   double alignment_max_speed_mps_{0.15};
   double alignment_command_rate_hz_{20.0};
   int alignment_lost_stop_frames_{3};
+  bool alignment_target_lock_enable_{true};
+  int alignment_target_lock_max_jump_px_{160};
   bool alignment_publish_zero_on_disable_{true};
-  bool alignment_invert_direction_{false};
+  bool alignment_invert_direction_{true};
   bool alignment_draw_guides_{true};
   bool alignment_grab_enable_{true};
   int alignment_grab_command_id_{kDefaultGrabTipCommand};
@@ -216,6 +215,7 @@ private:
   std::chrono::steady_clock::time_point last_alignment_command_tp_{};
   std::chrono::steady_clock::time_point last_grab_attempt_tp_{};
   bool alignment_zero_published_{false};
+  rc26_vision::TipTargetLockState alignment_target_lock_state_;
 
   uint64_t frames_since_log_{0};
   std::chrono::steady_clock::time_point last_log_tp_{};
@@ -345,6 +345,8 @@ int TipVisionTestNode::run()
   int current_offset_px = 0;
   int current_class_id = -1;
   std::size_t current_detection_count = 0U;
+  bool current_target_locked = false;
+  int current_target_lock_lost_count = 0;
   double current_infer_ms = 0.0;
   double display_camera_fps = 0.0;
   double display_infer_fps = 0.0;
@@ -388,6 +390,8 @@ int TipVisionTestNode::run()
         new_inference_result = true;
         last_applied_inference_seq = latest_result.inference_seq;
         current_has_target = latest_result.has_target;
+        current_target_locked = latest_result.target_locked;
+        current_target_lock_lost_count = latest_result.target_lock_lost_count;
         if (latest_result.has_target) {
           current_box_cx = latest_result.box_cx;
           current_offset_px = latest_result.offset_px;
@@ -441,6 +445,8 @@ int TipVisionTestNode::run()
       alignment_info.stable_count = alignment_stable_count_;
       alignment_info.stable_required = alignment_stable_frames_;
       alignment_info.lost_count = alignment_lost_count_;
+      alignment_info.target_locked = current_target_locked;
+      alignment_info.target_lock_lost_count = current_target_lock_lost_count;
       alignment_info.cmd_vy = current_cmd_vy;
       alignment_info.grab_state = grab_state;
       alignment_info.grab_command_id = static_cast<uint8_t>(alignment_grab_command_id_);
@@ -542,8 +548,10 @@ void TipVisionTestNode::declare_parameters()
   this->declare_parameter<double>("alignment_max_speed_mps", 0.15);
   this->declare_parameter<double>("alignment_command_rate_hz", 20.0);
   this->declare_parameter<int>("alignment_lost_stop_frames", 3);
+  this->declare_parameter<bool>("alignment_target_lock_enable", true);
+  this->declare_parameter<int>("alignment_target_lock_max_jump_px", 160);
   this->declare_parameter<bool>("alignment_publish_zero_on_disable", true);
-  this->declare_parameter<bool>("alignment_invert_direction", false);
+  this->declare_parameter<bool>("alignment_invert_direction", true);
   this->declare_parameter<bool>("alignment_draw_guides", true);
   this->declare_parameter<bool>("alignment_grab_enable", true);
   this->declare_parameter<int>("alignment_grab_command_id", kDefaultGrabTipCommand);
@@ -593,6 +601,10 @@ void TipVisionTestNode::load_parameters()
   alignment_max_speed_mps_ = this->get_parameter("alignment_max_speed_mps").as_double();
   alignment_command_rate_hz_ = this->get_parameter("alignment_command_rate_hz").as_double();
   alignment_lost_stop_frames_ = this->get_parameter("alignment_lost_stop_frames").as_int();
+  alignment_target_lock_enable_ =
+    this->get_parameter("alignment_target_lock_enable").as_bool();
+  alignment_target_lock_max_jump_px_ =
+    this->get_parameter("alignment_target_lock_max_jump_px").as_int();
   alignment_publish_zero_on_disable_ =
     this->get_parameter("alignment_publish_zero_on_disable").as_bool();
   alignment_invert_direction_ = this->get_parameter("alignment_invert_direction").as_bool();
@@ -663,6 +675,9 @@ void TipVisionTestNode::load_parameters()
   }
   if (alignment_lost_stop_frames_ <= 0) {
     throw std::runtime_error("alignment_lost_stop_frames must be > 0");
+  }
+  if (alignment_target_lock_max_jump_px_ < 0) {
+    throw std::runtime_error("alignment_target_lock_max_jump_px must be >= 0");
   }
   if (alignment_grab_command_id_ < 0 || alignment_grab_command_id_ > 255) {
     throw std::runtime_error("alignment_grab_command_id must be in [0,255]");
@@ -756,12 +771,6 @@ bool TipVisionTestNode::resolve_target_class_ids()
   return true;
 }
 
-bool TipVisionTestNode::is_target_class(int class_id) const
-{
-  return std::find(target_class_ids_.begin(), target_class_ids_.end(), class_id) !=
-         target_class_ids_.end();
-}
-
 std::string TipVisionTestNode::class_id_to_label(int class_id) const
 {
   if (class_id >= 0 && class_id < static_cast<int>(class_names_.size())) {
@@ -773,41 +782,18 @@ std::string TipVisionTestNode::class_id_to_label(int class_id) const
   return "LOST";
 }
 
-std::optional<TipVisionTestNode::TargetCandidate> TipVisionTestNode::select_primary_target(
-  const std::vector<rc26_vision::Detection> & detections,
-  int frame_width_px) const
+rc26_vision::TipAlignmentConfig TipVisionTestNode::make_alignment_config() const
 {
-  std::optional<TargetCandidate> best;
-  int best_center_distance = -1;
-  int best_area = -1;
-  const int frame_center_x = std::max(0, frame_width_px / 2);
-
-  for (const auto & det : detections) {
-    if (!is_target_class(det.class_id)) {
-      continue;
-    }
-    const int x1 = static_cast<int>(std::floor(det.x1));
-    const int y1 = static_cast<int>(std::floor(det.y1));
-    const int x2 = static_cast<int>(std::ceil(det.x2));
-    const int y2 = static_cast<int>(std::ceil(det.y2));
-    const cv::Rect box(x1, y1, std::max(0, x2 - x1), std::max(0, y2 - y1));
-    if (box.width <= 0 || box.height <= 0) {
-      continue;
-    }
-    const int area = box.area();
-    const int box_center_x = box.x + box.width / 2;
-    const int center_distance = std::abs(box_center_x - frame_center_x);
-    if (!best.has_value() || center_distance < best_center_distance ||
-      (center_distance == best_center_distance && det.score > best->score) ||
-      (center_distance == best_center_distance && det.score == best->score && area > best_area))
-    {
-      best = TargetCandidate{box, det.class_id, det.score};
-      best_center_distance = center_distance;
-      best_area = area;
-    }
-  }
-
-  return best;
+  rc26_vision::TipAlignmentConfig config;
+  config.target_lock_enable = alignment_target_lock_enable_;
+  config.target_lock_max_jump_px = alignment_target_lock_max_jump_px_;
+  config.lost_stop_frames = alignment_lost_stop_frames_;
+  config.tolerance_px = alignment_tolerance_px_;
+  config.kp = alignment_kp_;
+  config.min_speed_mps = alignment_min_speed_mps_;
+  config.max_speed_mps = alignment_max_speed_mps_;
+  config.invert_direction = alignment_invert_direction_;
+  return config;
 }
 
 void TipVisionTestNode::create_alignment_interfaces()
@@ -872,20 +858,7 @@ void TipVisionTestNode::publish_alignment_stop(bool force)
 
 double TipVisionTestNode::compute_alignment_vy(int offset_px) const
 {
-  const int abs_offset = std::abs(offset_px);
-  if (abs_offset <= alignment_tolerance_px_ || alignment_max_speed_mps_ <= 0.0) {
-    return 0.0;
-  }
-
-  double speed = static_cast<double>(abs_offset) * alignment_kp_;
-  speed = std::clamp(speed, alignment_min_speed_mps_, alignment_max_speed_mps_);
-
-  // ROS base_link y is left. If the target is right in image space, move right by default.
-  double direction = offset_px > 0 ? -1.0 : 1.0;
-  if (alignment_invert_direction_) {
-    direction = -direction;
-  }
-  return direction * speed;
+  return rc26_vision::computeTipAlignmentVy(offset_px, make_alignment_config());
 }
 
 std::string TipVisionTestNode::update_alignment_control(
@@ -1280,7 +1253,14 @@ bool TipVisionTestNode::run_inference_on_frame(
     local_result.detections = detections;
   }
 
-  local_result.primary_target = select_primary_target(detections, frame_bgr.cols);
+  const auto selection = rc26_vision::updateTipAlignmentTarget(
+    detections, frame_bgr.cols, target_class_ids_, alignment_target_lock_state_,
+    make_alignment_config());
+  local_result.target_locked = selection.locked;
+  local_result.target_lock_lost_count = selection.lock_lost_count;
+  if (selection.has_target) {
+    local_result.primary_target = selection.target;
+  }
   local_result.has_target = local_result.primary_target.has_value();
   if (local_result.has_target) {
     local_result.box_w = local_result.primary_target->box.width;
@@ -1404,6 +1384,7 @@ bool TipVisionTestNode::initialize()
   last_alignment_command_tp_ = std::chrono::steady_clock::time_point{};
   last_grab_attempt_tp_ = std::chrono::steady_clock::time_point{};
   alignment_zero_published_ = false;
+  alignment_target_lock_state_.reset();
 
   create_alignment_interfaces();
 
@@ -1487,7 +1468,7 @@ void TipVisionTestNode::draw_alignment_overlay(
   const AlignmentOverlayInfo & info) const
 {
   std::vector<std::string> lines;
-  lines.reserve(4U);
+  lines.reserve(5U);
 
   const std::string align_state =
     !info.control_enabled ? "OFF" :
@@ -1507,7 +1488,14 @@ void TipVisionTestNode::draw_alignment_overlay(
     ss << "CTRL off=" << info.offset_px
        << " tol=" << info.tolerance_px
        << " vy=" << std::fixed << std::setprecision(3) << info.cmd_vy
-       << " pub=" << (info.command_published ? "YES" : "NO");
+       << " sent=" << (info.command_published ? "YES" : "RATE");
+    lines.push_back(ss.str());
+  }
+
+  {
+    std::ostringstream ss;
+    ss << "LOCK " << (info.target_locked ? "ON" : "OFF")
+       << " miss=" << info.target_lock_lost_count;
     lines.push_back(ss.str());
   }
 

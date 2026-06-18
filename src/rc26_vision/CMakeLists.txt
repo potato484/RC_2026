@@ -48,6 +48,7 @@ set(RC26_VISION_LIBRARY_SOURCES
   src/inference/runtime/backend_resolver.cpp
   src/inference/runtime/engine_factory.cpp
   src/postprocess/yolo/yolo_detection_postprocessor.cpp
+  src/postprocess/alignment/tip_alignment.cpp
   src/postprocess/localization/tip_localizer.cpp
 )
 
@@ -216,9 +217,16 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_inference_backend_resolver
     test/test_inference_backend_resolver.cpp
+    src/inference/runtime/backend_resolver.cpp
   )
   target_include_directories(test_inference_backend_resolver PUBLIC ${COMMON_INCLUDE_DIRS})
-  target_link_libraries(test_inference_backend_resolver ${PROJECT_NAME})
+
+  ament_add_gtest(test_tip_alignment
+    test/test_tip_alignment.cpp
+    src/postprocess/alignment/tip_alignment.cpp
+  )
+  target_include_directories(test_tip_alignment PUBLIC ${COMMON_INCLUDE_DIRS})
+  target_include_directories(test_tip_alignment PRIVATE ${OpenCV_INCLUDE_DIRS})
 endif()
 
 # ============================================================================

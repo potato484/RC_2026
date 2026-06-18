@@ -27,7 +27,10 @@ struct McParams {
     double align_min_speed_mps{0.04};
     double align_max_speed_mps{0.15};
     double align_command_rate_hz{20.0};
-    bool align_invert_direction{false};
+    int align_lost_stop_frames{3};
+    bool align_target_lock_enable{true};
+    int align_target_lock_max_jump_px{160};
+    bool align_invert_direction{true};
 
     // 夹取（/mechanism/send_command 下发 GRAB_TIP）
     int grab_command_id{1};

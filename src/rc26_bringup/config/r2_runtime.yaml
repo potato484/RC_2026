@@ -54,12 +54,15 @@ r2_runtime:
       # --- 视觉对齐（横移 P 控制，发布 cmd_vel.linear.y）---
       mc_align_cmd_vel_topic: "cmd_vel"      # 视觉横移对齐发布的速度话题
       mc_align_tolerance_px: 20              # 目标中心允许偏离画面中心的像素容差
-      mc_align_stable_frames: 3              # 连续满足容差后触发夹取的稳定帧数
-      mc_align_kp: 0.0015                    # 横移 P 控制比例增益，像素误差到 m/s
-      mc_align_min_speed_mps: 0.04           # 横移控制最小速度，单位 m/s
-      mc_align_max_speed_mps: 0.15           # 横移控制最大速度，单位 m/s
+      mc_align_stable_frames: 5              # 连续满足容差后触发夹取的稳定帧数
+      mc_align_kp: 0.0010                    # 横移 P 控制比例增益，像素误差到 m/s
+      mc_align_min_speed_mps: 0.015          # 横移控制最小速度，单位 m/s
+      mc_align_max_speed_mps: 0.06           # 横移控制最大速度，单位 m/s
       mc_align_command_rate_hz: 20.0         # 横移速度指令最大发布频率，单位 Hz
-      mc_align_invert_direction: false       # 是否反转横移方向，用于现场相机安装方向修正
+      mc_align_lost_stop_frames: 3           # 锁定目标短暂丢失多少帧后才重新获锁
+      mc_align_target_lock_enable: true      # 是否锁定同一个端头，避免双框同屏时反复切换
+      mc_align_target_lock_max_jump_px: 160  # 锁定目标允许的单次水平跳变像素
+      mc_align_invert_direction: true        # 相机朝机器人后方；默认反转横移方向
 
       # --- 夹取（/mechanism/send_command 下发 GRAB_TIP=0x01）---
       mc_grab_command_id: 1                  # 夹取端头命令 ID；1 对应 GRAB_TIP(0x01)

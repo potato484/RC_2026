@@ -66,6 +66,12 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     p.align_min_speed_mps = node.declare_parameter<double>("mc_align_min_speed_mps", p.align_min_speed_mps);
     p.align_max_speed_mps = node.declare_parameter<double>("mc_align_max_speed_mps", p.align_max_speed_mps);
     p.align_command_rate_hz = node.declare_parameter<double>("mc_align_command_rate_hz", p.align_command_rate_hz);
+    p.align_lost_stop_frames =
+        node.declare_parameter<int>("mc_align_lost_stop_frames", p.align_lost_stop_frames);
+    p.align_target_lock_enable =
+        node.declare_parameter<bool>("mc_align_target_lock_enable", p.align_target_lock_enable);
+    p.align_target_lock_max_jump_px =
+        node.declare_parameter<int>("mc_align_target_lock_max_jump_px", p.align_target_lock_max_jump_px);
     p.align_invert_direction = node.declare_parameter<bool>("mc_align_invert_direction", p.align_invert_direction);
 
     // 夹取

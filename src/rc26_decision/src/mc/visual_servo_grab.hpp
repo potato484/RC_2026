@@ -17,6 +17,7 @@
 #include "rc26_interfaces/srv/send_mechanism_transport_command.hpp"
 #include "rc26_vision/inference/config/model_profile.hpp"
 #include "rc26_vision/inference/contracts/inference_engine.hpp"
+#include "rc26_vision/postprocess/alignment/tip_alignment.hpp"
 
 #include "mc_params.hpp"
 
@@ -42,7 +43,7 @@ private:
     bool initCamera();
     bool openCamera(int index, const std::string& path);
     void resolveTargetClassIds();
-    bool isTargetClass(int class_id) const;
+    rc26_vision::TipAlignmentConfig makeAlignmentConfig() const;
     double computeAlignmentVy(int offset_px) const;
     void publishCmdVy(double vy, bool force);
     void sendGrabCommand();
@@ -56,6 +57,7 @@ private:
     rc26_vision::InferenceEnginePtr engine_;
     std::vector<std::string> class_names_;
     std::vector<int> target_class_ids_;
+    rc26_vision::TipTargetLockState target_lock_state_;
     cv::VideoCapture camera_;
 
     std::thread worker_;
