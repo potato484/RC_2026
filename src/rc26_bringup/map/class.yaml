@@ -2,9 +2,9 @@
 # 默认黑白语义：黑色为占用，白色为空闲；未生成 unknown 灰格。
 # 默认图片格式为 PNG；可用 --image-format pgm 显式生成 PGM。
 # 当前地图默认剔除了低处地板点和高处天花板点，只作为 Nav2 2D 静态地图输入。
-image: test.png
+image: class.png
 resolution: 0.05
-origin: [-2.567935467, -3.759390831, 0]
+origin: [-0.397398442, -6.364824295, 0]
 negate: 0
 occupied_thresh: 0.65
 free_thresh: 0.196
