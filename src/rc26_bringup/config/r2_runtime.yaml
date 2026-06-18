@@ -3,9 +3,9 @@
 # paths 下的三个路径必须使用绝对路径；如需现场切换地图/点云/行为树，优先修改这里。
 r2_runtime:
   paths:
-    prior_pcd_file: "/home/potato/RC_2026/src/rc26_point_lio/PCD/scan.pcd"
-    nav2_map_file: "/home/potato/RC_2026/src/rc26_bringup/map/test.yaml"
-    behavior_tree_file: "/home/potato/RC_2026/src/rc26_decision/behavior_trees/main_tree.xml"
+    prior_pcd_file: "/home/aidlux/RC_2026/src/rc26_point_lio/PCD/class.pcd"
+    nav2_map_file: "/home/aidlux/RC_2026/src/rc26_bringup/map/class.yaml"
+    behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/main_tree.xml"
 
   chassis_runtime:
     # 整车 bringup 只保留 rc26_merge_odom/merge_odom.launch.py 作为底盘执行与局部反馈链。

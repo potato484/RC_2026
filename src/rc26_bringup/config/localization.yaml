@@ -32,10 +32,10 @@ localization:
     global_leaf_size: 0.25
     registered_leaf_size: 0.25
     max_dist_sq: 1.0
-    gicp_max_iterations: 20
+    gicp_max_iterations: 40
 
     min_inliers: 200
-    max_normalized_error: 0.3
+    max_normalized_error: 0.30
 
     startup_relocalization_enable: true
     startup_collect_ms: 1500
