@@ -1,8 +1,10 @@
 // 武馆区 (MC Area) 节点注册与参数加载。
 #include "rc26_decision/mc/mc_area.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -82,8 +84,21 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
         p.grab_payload.push_back(static_cast<uint8_t>(v & 0xFF));
     }
     p.grab_service_name = node.declare_parameter<std::string>("mc_grab_service_name", p.grab_service_name);
+    p.grab_limit_switch_feedback_topic =
+        node.declare_parameter<std::string>("mc_grab_limit_switch_feedback_topic",
+                                            p.grab_limit_switch_feedback_topic);
+    p.grab_limit_switch_feedback_id =
+        node.declare_parameter<int>("mc_grab_limit_switch_feedback_id", p.grab_limit_switch_feedback_id);
+    p.grab_approach_speed_mps =
+        node.declare_parameter<double>("mc_grab_approach_speed_mps", p.grab_approach_speed_mps);
+    p.grab_approach_timeout_s =
+        node.declare_parameter<double>("mc_grab_approach_timeout_s", p.grab_approach_timeout_s);
     p.grab_done_lost_time_s = node.declare_parameter<double>("mc_grab_done_lost_time_s", p.grab_done_lost_time_s);
     p.servo_timeout_s = node.declare_parameter<double>("mc_servo_timeout_s", p.servo_timeout_s);
+
+    p.grab_limit_switch_feedback_id = std::clamp(p.grab_limit_switch_feedback_id, 0, 255);
+    p.grab_approach_speed_mps = std::max(0.0, std::abs(p.grab_approach_speed_mps));
+    p.grab_approach_timeout_s = std::max(0.001, p.grab_approach_timeout_s);
 
     // 原地旋转
     p.rotate_angle_deg = node.declare_parameter<double>("mc_rotate_angle_deg", p.rotate_angle_deg);

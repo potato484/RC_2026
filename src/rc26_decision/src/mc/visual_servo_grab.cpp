@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <exception>
 
 #include "rc26_vision/inference/config/model_profile_loader.hpp"
 #include "rc26_vision/inference/runtime/engine_factory.hpp"
@@ -22,7 +23,7 @@ VisualServoGrabAction::VisualServoGrabAction(const std::string& name, const BT::
 VisualServoGrabAction::~VisualServoGrabAction() { stopWorker(); }
 
 // onStart: 行为树首次进入本动作时调用一次。
-// 负责：从黑板读取 node 和 mc_params → 创建 cmd_vel 发布器(横移)和 GRAB_TIP 服务客户端 →
+// 负责：从黑板读取 node 和 mc_params → 创建 cmd_vel 发布器、0x19 feedback 订阅和 GRAB_TIP 服务客户端 →
 //       启动独立工作线程 workerLoop，由工作线程接管视觉伺服全流程。
 // 返回 RUNNING，后续由 onRunning 轮询工作线程的完成状态。
 BT::NodeStatus VisualServoGrabAction::onStart() {
@@ -34,18 +35,26 @@ BT::NodeStatus VisualServoGrabAction::onStart() {
         return BT::NodeStatus::FAILURE;
     }
 
-    // 创建 cmd_vel 发布器：视觉伺服通过 linear.y 控制底盘横向移动对齐端头
+    // 创建 cmd_vel 发布器：对齐阶段发 linear.y，前探阶段发 linear.x。
     cmd_pub_ = node_->create_publisher<TwistMsg>(params_.align_cmd_vel_topic, rclcpp::QoS(10));
-    // 创建夹取服务客户端：对齐完成后向 /mechanism/send_command 下发 GRAB_TIP
+    // 创建夹取服务客户端：限位触发后向 /mechanism/send_command 下发 GRAB_TIP。
     grab_client_ = node_->create_client<SendCommandSrv>(params_.grab_service_name);
+    setupFeedbackSubscription();
 
     // 重置状态标志
     stop_requested_ = false;
     done_ = false;
     failed_ = false;
+    phase_ = ServoPhase::Aligning;
     stable_count_ = 0;
     grab_attempted_ = false;
+    grab_response_seen_ = false;
+    grab_accepted_ = false;
+    grab_generation_.fetch_add(1, std::memory_order_relaxed);
+    waiting_for_limit_switch_ = false;
+    limit_switch_triggered_ = false;
     lost_active_ = false;
+    approach_start_tp_ = {};
     last_pub_tp_ = {};
     last_grab_tp_ = {};
     target_lock_state_.reset();
@@ -53,9 +62,11 @@ BT::NodeStatus VisualServoGrabAction::onStart() {
     // 启动独立工作线程（避免阻塞行为树的 tick 循环）
     worker_ = std::thread(&VisualServoGrabAction::workerLoop, this);
     RCLCPP_INFO(node_->get_logger(),
-                "武馆区视觉伺服启动: cmd_vel=%s model=%s grab_service=%s",
+                "武馆区视觉伺服启动: cmd_vel=%s model=%s grab_service=%s limit_feedback=%s id=0x%02X",
                 params_.align_cmd_vel_topic.c_str(), params_.model_id.c_str(),
-                params_.grab_service_name.c_str());
+                params_.grab_service_name.c_str(),
+                params_.grab_limit_switch_feedback_topic.c_str(),
+                static_cast<unsigned int>(params_.grab_limit_switch_feedback_id & 0xFF));
     return BT::NodeStatus::RUNNING;
 }
 
@@ -64,11 +75,9 @@ BT::NodeStatus VisualServoGrabAction::onStart() {
 //       failed_=true 返回 FAILURE，否则继续返回 RUNNING。
 BT::NodeStatus VisualServoGrabAction::onRunning() {
     if (done_ || failed_) {
-        // 等待工作线程完全退出后再返回最终状态
-        if (worker_.joinable()) {
-            worker_.join();
-        }
-        return done_ ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
+        const bool succeeded = done_.load();
+        stopWorker();
+        return succeeded ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
     }
     return BT::NodeStatus::RUNNING;
 }
@@ -80,20 +89,27 @@ void VisualServoGrabAction::onHalted() { stopWorker(); }
 // 停止工作线程并释放相机
 void VisualServoGrabAction::stopWorker() {
     stop_requested_ = true;
+    waiting_for_limit_switch_ = false;
+    grab_generation_.fetch_add(1, std::memory_order_relaxed);
+    publishStop(true);
     if (worker_.joinable()) {
         worker_.join();
     }
+    feedback_sub_.reset();
+    grab_client_.reset();
+    cmd_pub_.reset();
     if (camera_.isOpened()) {
         camera_.release();
     }
 }
 
 // ================================================================
-// 工作线程主循环：初始化引擎/相机 → 目标检测 → 横移对齐 → 夹取 → 消失判定
+// 工作线程主循环：初始化引擎/相机 → 横移对齐 → x 负向前探等 0x19 → 夹取 → 消失判定
 // ================================================================
 void VisualServoGrabAction::workerLoop() {
     // 初始化推理引擎和相机
     if (!initEngine() || !initCamera()) {
+        publishStop(true);
         failed_ = true;
         return;
     }
@@ -101,6 +117,7 @@ void VisualServoGrabAction::workerLoop() {
     resolveTargetClassIds();
     if (target_class_ids_.empty()) {
         RCLCPP_ERROR(node_->get_logger(), "武馆区视觉伺服: 目标标签未匹配到任何类别");
+        publishStop(true);
         failed_ = true;
         return;
     }
@@ -112,7 +129,8 @@ void VisualServoGrabAction::workerLoop() {
         // 超时保护
         if (params_.servo_timeout_s > 0.0 && elapsedSec(start_tp_) > params_.servo_timeout_s) {
             RCLCPP_WARN(node_->get_logger(), "武馆区视觉伺服超时 %.1fs", params_.servo_timeout_s);
-            publishCmdVy(0.0, true);
+            waiting_for_limit_switch_ = false;
+            publishStop(true);
             failed_ = true;
             return;
         }
@@ -133,23 +151,66 @@ void VisualServoGrabAction::workerLoop() {
         const bool has_target = selection.has_target;
         const int offset_px = selection.offset_px;
 
-        if (!has_target) {
-            // 没有检测到目标：停止横移，重置稳定计数
-            publishCmdVy(0.0, false);
-            stable_count_ = 0;
-            if (grab_attempted_) {
-                // 已夹取过：端头消失计时，持续消失超过 grab_done_lost_time_s 判定完成
+        if (phase_ == ServoPhase::ApproachingLimit) {
+            if (limit_switch_triggered_.load(std::memory_order_relaxed)) {
+                waiting_for_limit_switch_ = false;
+                publishStop(true);
+                phase_ = ServoPhase::SendingGrab;
+                RCLCPP_INFO(node_->get_logger(), "武馆区前方限位已触发，准备下发 GRAB_TIP");
+                continue;
+            }
+            if (elapsedSec(approach_start_tp_) >= params_.grab_approach_timeout_s) {
+                waiting_for_limit_switch_ = false;
+                publishStop(true);
+                RCLCPP_WARN(node_->get_logger(), "武馆区前探等待限位超时 %.2fs",
+                            params_.grab_approach_timeout_s);
+                failed_ = true;
+                return;
+            }
+            publishCmd(computeApproachVx(), 0.0, false);
+            continue;
+        }
+
+        if (phase_ == ServoPhase::SendingGrab) {
+            publishStop(false);
+            switch (tickGrabCommand()) {
+            case GrabStepStatus::Success:
+                phase_ = ServoPhase::WaitingDone;
+                lost_active_ = false;
+                break;
+            case GrabStepStatus::Failure:
+                publishStop(true);
+                failed_ = true;
+                return;
+            case GrabStepStatus::Running:
+                break;
+            }
+            continue;
+        }
+
+        if (phase_ == ServoPhase::WaitingDone) {
+            publishStop(false);
+            if (!has_target) {
                 if (!lost_active_) {
                     lost_active_ = true;
                     lost_since_tp_ = std::chrono::steady_clock::now();
                 } else if (elapsedSec(lost_since_tp_) >= params_.grab_done_lost_time_s) {
                     RCLCPP_INFO(node_->get_logger(), "武馆区夹取完成: 端头消失 %.1fs",
                                 params_.grab_done_lost_time_s);
-                    publishCmdVy(0.0, true);
+                    publishStop(true);
                     done_ = true;
                     return;
                 }
+            } else {
+                lost_active_ = false;
             }
+            continue;
+        }
+
+        if (!has_target) {
+            // 没有检测到目标：停止横移，重置稳定计数
+            publishStop(false);
+            stable_count_ = 0;
             continue;
         }
 
@@ -162,20 +223,20 @@ void VisualServoGrabAction::workerLoop() {
         stable_count_ = aligned ? (stable_count_ + 1) : 0;
 
         if (!grab_attempted_ && stable_count_ >= params_.align_stable_frames) {
-            // 首次对准稳定：下发 GRAB_TIP 夹取指令
-            sendGrabCommand();
-            publishCmdVy(0.0, true);
+            publishStop(true);
             stable_count_ = 0;
+            beginApproach();
             continue;
         }
 
         if (!grab_attempted_) {
             // 未夹取、未对准：计算横移速度，发布 cmd_vel.linear.y 驱动机器人横向对准
             double vy = computeAlignmentVy(offset_px);
-            publishCmdVy(vy, false);
+            publishCmd(0.0, vy, false);
         }
-        // 已夹取后不做横移，等待端头消失判定
     }
+
+    publishStop(true);
 }
 
 // 根据水平像素偏移计算横移速度（P 控制器）
@@ -183,8 +244,12 @@ double VisualServoGrabAction::computeAlignmentVy(int offset_px) const {
     return rc26_vision::computeTipAlignmentVy(offset_px, makeAlignmentConfig());
 }
 
-// 发布 cmd_vel.linear.y 横移速度（受 mc_align_command_rate_hz 限频）
-void VisualServoGrabAction::publishCmdVy(double vy, bool force) {
+double VisualServoGrabAction::computeApproachVx() const {
+    return rc26_vision::computeTipApproachVx(params_.grab_approach_speed_mps);
+}
+
+// 发布 cmd_vel 速度（受 mc_align_command_rate_hz 限频）
+void VisualServoGrabAction::publishCmd(double vx, double vy, bool force) {
     if (!cmd_pub_) {
         return;
     }
@@ -197,17 +262,75 @@ void VisualServoGrabAction::publishCmdVy(double vy, bool force) {
         }
     }
     TwistMsg msg;
+    msg.linear.x = vx;
     msg.linear.y = vy;
     cmd_pub_->publish(msg);
     last_pub_tp_ = now;
 }
 
+void VisualServoGrabAction::publishStop(bool force) {
+    publishCmd(0.0, 0.0, force);
+}
+
+void VisualServoGrabAction::setupFeedbackSubscription() {
+    if (!node_) {
+        return;
+    }
+    feedback_sub_ = node_->create_subscription<FeedbackMsg>(
+        params_.grab_limit_switch_feedback_topic, rclcpp::QoS(32).reliable(),
+        [this](const FeedbackMsg::SharedPtr msg) { handleFeedback(msg); });
+}
+
+void VisualServoGrabAction::handleFeedback(const FeedbackMsg::SharedPtr msg) {
+    if (!msg || !waiting_for_limit_switch_.load(std::memory_order_relaxed)) {
+        return;
+    }
+    if (msg->feedback_id != static_cast<uint8_t>(params_.grab_limit_switch_feedback_id & 0xFF)) {
+        return;
+    }
+
+    limit_switch_triggered_.store(true, std::memory_order_relaxed);
+    if (cmd_pub_) {
+        cmd_pub_->publish(TwistMsg{});
+    }
+}
+
+void VisualServoGrabAction::beginApproach() {
+    limit_switch_triggered_ = false;
+    waiting_for_limit_switch_ = true;
+    approach_start_tp_ = std::chrono::steady_clock::now();
+    phase_ = ServoPhase::ApproachingLimit;
+    RCLCPP_INFO(node_->get_logger(),
+                "武馆区端头已对齐，开始 x 负向前探等待限位: vx=%.3f timeout=%.2fs feedback=0x%02X",
+                computeApproachVx(), params_.grab_approach_timeout_s,
+                static_cast<unsigned int>(params_.grab_limit_switch_feedback_id & 0xFF));
+    publishCmd(computeApproachVx(), 0.0, true);
+}
+
+VisualServoGrabAction::GrabStepStatus VisualServoGrabAction::tickGrabCommand() {
+    if (grab_attempted_) {
+        if (!grab_response_seen_.load(std::memory_order_relaxed)) {
+            return GrabStepStatus::Running;
+        }
+        if (grab_accepted_.load(std::memory_order_relaxed)) {
+            return GrabStepStatus::Success;
+        }
+        RCLCPP_WARN(node_->get_logger(), "GRAB_TIP 被拒绝");
+        return GrabStepStatus::Failure;
+    }
+
+    if (!tryStartGrabCommand()) {
+        return GrabStepStatus::Running;
+    }
+    return GrabStepStatus::Running;
+}
+
 // 下发 GRAB_TIP 夹取指令到 /mechanism/send_command 服务
-void VisualServoGrabAction::sendGrabCommand() {
+bool VisualServoGrabAction::tryStartGrabCommand() {
     if (!grab_client_ || !grab_client_->service_is_ready()) {
         RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
                              "GRAB_TIP 跳过: 服务 %s 未就绪", params_.grab_service_name.c_str());
-        return;
+        return false;
     }
 
     auto request = std::make_shared<SendCommandSrv::Request>();
@@ -215,19 +338,36 @@ void VisualServoGrabAction::sendGrabCommand() {
     request->payload = params_.grab_payload;
 
     rclcpp::Node* node = node_;
+    const uint64_t token = grab_generation_.load(std::memory_order_relaxed);
+    grab_response_seen_ = false;
+    grab_accepted_ = false;
     grab_client_->async_send_request(
-        request, [node](rclcpp::Client<SendCommandSrv>::SharedFuture future) {
-            const auto response = future.get();
-            if (response && response->accepted) {
+        request, [this, node, token](rclcpp::Client<SendCommandSrv>::SharedFuture future) {
+            if (token != grab_generation_.load(std::memory_order_relaxed)) {
+                return;
+            }
+            bool accepted = false;
+            uint8_t seq = 0;
+            try {
+                const auto response = future.get();
+                accepted = response && response->accepted;
+                if (response) {
+                    seq = response->seq;
+                }
+            } catch (const std::exception& e) {
+                RCLCPP_WARN(node->get_logger(), "GRAB_TIP 响应异常: %s", e.what());
+            }
+            grab_accepted_.store(accepted, std::memory_order_relaxed);
+            grab_response_seen_.store(true, std::memory_order_relaxed);
+            if (accepted) {
                 RCLCPP_INFO(node->get_logger(), "GRAB_TIP 已接受: seq=%u",
-                            static_cast<unsigned int>(response->seq));
-            } else {
-                RCLCPP_WARN(node->get_logger(), "GRAB_TIP 被拒绝");
+                            static_cast<unsigned int>(seq));
             }
         });
     grab_attempted_ = true;
     RCLCPP_INFO(node_->get_logger(), "GRAB_TIP 已下发: cmd=0x%02X",
                 static_cast<unsigned int>(params_.grab_command_id));
+    return true;
 }
 
 // 加载视觉推理引擎（从 vision_models.yaml 读取 tip_default 模型配置文件）

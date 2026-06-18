@@ -107,3 +107,10 @@ TEST(TipAlignment, RearCameraDirectionUsesPositiveVyForPositiveOffset)
   EXPECT_LT(rc26_vision::computeTipAlignmentVy(-120, config), 0.0);
   EXPECT_DOUBLE_EQ(rc26_vision::computeTipAlignmentVy(10, config), 0.0);
 }
+
+TEST(TipAlignment, ApproachVelocityAlwaysUsesNegativeX)
+{
+  EXPECT_DOUBLE_EQ(rc26_vision::computeTipApproachVx(0.04), -0.04);
+  EXPECT_DOUBLE_EQ(rc26_vision::computeTipApproachVx(-0.04), -0.04);
+  EXPECT_DOUBLE_EQ(rc26_vision::computeTipApproachVx(0.0), 0.0);
+}

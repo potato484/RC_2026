@@ -200,4 +200,9 @@ double computeTipAlignmentVy(int offset_px, const TipAlignmentConfig & config)
   return direction * speed;
 }
 
+double computeTipApproachVx(double speed_mps)
+{
+  return speed_mps == 0.0 ? 0.0 : -std::abs(speed_mps);
+}
+
 }  // namespace rc26_vision

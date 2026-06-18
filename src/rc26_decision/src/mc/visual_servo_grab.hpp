@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <thread>
@@ -14,6 +15,7 @@
 #include <opencv2/opencv.hpp>
 #include <rclcpp/rclcpp.hpp>
 
+#include "rc26_interfaces/msg/mechanism_transport_feedback.hpp"
 #include "rc26_interfaces/srv/send_mechanism_transport_command.hpp"
 #include "rc26_vision/inference/config/model_profile.hpp"
 #include "rc26_vision/inference/contracts/inference_engine.hpp"
@@ -36,7 +38,11 @@ public:
 
 private:
     using TwistMsg = geometry_msgs::msg::Twist;
+    using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
     using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
+
+    enum class ServoPhase { Aligning, ApproachingLimit, SendingGrab, WaitingDone };
+    enum class GrabStepStatus { Running, Success, Failure };
 
     void workerLoop();
     bool initEngine();
@@ -45,13 +51,20 @@ private:
     void resolveTargetClassIds();
     rc26_vision::TipAlignmentConfig makeAlignmentConfig() const;
     double computeAlignmentVy(int offset_px) const;
-    void publishCmdVy(double vy, bool force);
-    void sendGrabCommand();
+    double computeApproachVx() const;
+    void publishCmd(double vx, double vy, bool force);
+    void publishStop(bool force);
+    void setupFeedbackSubscription();
+    void handleFeedback(const FeedbackMsg::SharedPtr msg);
+    void beginApproach();
+    GrabStepStatus tickGrabCommand();
+    bool tryStartGrabCommand();
     void stopWorker();
 
     McParams params_;
     rclcpp::Node* node_{nullptr};
     rclcpp::Publisher<TwistMsg>::SharedPtr cmd_pub_;
+    rclcpp::Subscription<FeedbackMsg>::SharedPtr feedback_sub_;
     rclcpp::Client<SendCommandSrv>::SharedPtr grab_client_;
 
     rc26_vision::InferenceEnginePtr engine_;
@@ -65,9 +78,16 @@ private:
     std::atomic<bool> done_{false};
     std::atomic<bool> failed_{false};
 
+    ServoPhase phase_{ServoPhase::Aligning};
     int stable_count_{0};
     bool grab_attempted_{false};
+    std::atomic<bool> grab_response_seen_{false};
+    std::atomic<bool> grab_accepted_{false};
+    std::atomic<uint64_t> grab_generation_{0};
+    std::atomic<bool> waiting_for_limit_switch_{false};
+    std::atomic<bool> limit_switch_triggered_{false};
     std::chrono::steady_clock::time_point start_tp_{};
+    std::chrono::steady_clock::time_point approach_start_tp_{};
     std::chrono::steady_clock::time_point last_pub_tp_{};
     std::chrono::steady_clock::time_point last_grab_tp_{};
     std::chrono::steady_clock::time_point lost_since_tp_{};

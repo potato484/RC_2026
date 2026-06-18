@@ -64,7 +64,7 @@
 - `src/postprocess/yolo/yolo_detection_postprocessor.cpp`：YOLO 输出解码、坐标回映和 NMS。
 - `src/postprocess/localization/tip_localizer.cpp`：深度 + TF 融合，把识别结果投到 `map`。
 - `src/nodes/vision_test_node.cpp`、`src/nodes/tip_localizer_node.cpp`：主链节点入口。
-- `test/tip_vision_test_node.cpp`：USB 相机 + 单目 tip test 节点的入口、私有声明、参数、相机、目标选择、可选视觉横移对线、对齐后抓取下发和 overlay 单文件实现；推理直接复用主链 `InferenceEngine`。
+- `test/tip_vision_test_node.cpp`：USB 相机 + 单目 tip test 节点的入口、私有声明、参数、相机、目标选择、可选视觉横移对线、对齐后 x 负向前探等待 0x19 限位、抓取 service 触发和 overlay 单文件实现；推理直接复用主链 `InferenceEngine`。
 - `src/tools/yolo_inference_test.cpp`、`tools/*.py`：离线工具和实验脚本。
 
 ## 默认链与 test 链
@@ -78,7 +78,7 @@
 - 默认视觉主链当前通过 `VisionInferenceManager` 使用 `0.6m ~ 1.2m` 的深度 ROI 有效距离窗口；落在窗口外或有效深度样本不足的检测不会被上游决策当作 `has_target=true`。
 - `tip` test 链已经并入 `rc26_vision`，当前入口是 `tip_vision_test_node` 与 `launch/test_tip_vision.launch.py`。
 - 默认 KFS 模型资产命名为 `models/kfs.pt` / `models/kfs.onnx`，标签文件命名为 `models/kfs_labels.txt`；tip test 模型资产命名为 `models/tip.pt` / `models/tip.onnx`，标签文件命名为 `models/tip_labels.txt`。
-- `config/tip_vision_params.yaml` 只保留 USB 相机、窗口、目标选择、可选对线控制和对齐后抓取下发等节点业务参数；模型路径和后处理参数统一写在 `config/vision_models.yaml` 的 `tip_default` profile。
+- `config/tip_vision_params.yaml` 只保留 USB 相机、窗口、目标选择、可选对线控制、对齐后限位前探和抓取下发等节点业务参数；模型路径和后处理参数统一写在 `config/vision_models.yaml` 的 `tip_default` profile。
 - `tip_vision_test_node` 现在通过 `vision_config_file + model_id` 选择主链模型 profile，不再自己维护 AidLite interpreter、输入 tensor buffer 或私有 YOLO 后处理。
 - `AidLiteEngine` 根据输入 tensor shape 自动区分 `NCHW / NHWC`，对 `float32 ONNX` 按真实布局喂输入，不再把 `NCHW` 模型误喂成 HWC 平铺。
 - 本地 ONNX Runtime 链在编译启用时同样会读取模型真实 input/output tensor shape，并复用与 AidLite 相同的 YOLO 预处理、坐标回映和 NMS 逻辑，避免两条链的框语义继续漂移。
@@ -87,9 +87,9 @@
 - `tip_vision_test_node` 已移除旧的距离估计和距离文字叠加；`show_center_distance` 与旧距离参数名只为兼容旧配置而保留，不再参与运行时判定。
 - 当前犀牛派 X1 板上实测 `models/tip.onnx` 为固定 `640x640` 的 CPU ONNX 链，`infer_ms` 大约 `80~95ms`、`infer_fps` 大约 `10~12`；这套 AidLite ONNX 后端对该模型不支持 `GPU/DSP`，若要逼近 `30 infer_fps`，需要换更小输入的 ONNX，或改用可落到 QNN/AMF 的量化资产。
 - `tip_vision_test_node` 已删除旧的视觉直连串口状态下发链路，不再发送原下行 `0x12` 状态命令，也不再维护 `serial_*` 参数。
-- `tip` test 链的自动横移对线以画面中心竖线作为目标线，primary target 识别框中心竖线作为检测线；多框同时出现时，节点会先按“识别框中心距离画面中心竖线最近”获取锁定目标，随后在锁定窗口内持续跟踪同一个物理端头，不再因为另一侧框短暂更近就来回切换。启用 `alignment_control_enable=true` 后，节点只发布 `cmd_vel.linear.y`，让现有 `/cmd_vel -> PoseSender -> POSE_TARGET` 底盘链路执行左右横移。当前 tip test 默认按相机朝机器人后方的安装口径反转横移方向，可通过 `alignment_invert_direction` 现场一键改回。
+- `tip` test 链的自动横移对线以画面中心竖线作为目标线，primary target 识别框中心竖线作为检测线；多框同时出现时，节点会先按“识别框中心距离画面中心竖线最近”获取锁定目标，随后在锁定窗口内持续跟踪同一个物理端头，不再因为另一侧框短暂更近就来回切换。启用 `alignment_control_enable=true` 后，对齐阶段发布 `cmd_vel.linear.y` 执行左右横移；对齐稳定后发布 `cmd_vel.linear.x<0` 前探，等待 `/mechanism/command_feedback` 中的 `FRONT_LIMIT_SWITCH_TRIGGERED(0x19)` 后立即停车并进入抓取。当前 tip test 默认按相机朝机器人后方的安装口径反转横移方向，可通过 `alignment_invert_direction` 现场一键改回。
 - `tip` test 链的 `single_target_mode` 默认保持关闭；如果手动开启，推理结果会先按置信度截断到单个框，这会绕过多框中心优先选择，主要用于旧式单目标调试。
-- 对齐误差进入 `alignment_tolerance_px` 并稳定达到 `alignment_stable_frames` 后，tip test 节点会通过 `/mechanism/send_command` 共享 transport 下发一次 `GRAB_TIP(0x01)` 空 payload；它不直接打开目标 MCU 串口，也不绕过 `pose_sender_node` / `merge_odom_node` 的串口权威。
+- 对齐误差进入 `alignment_tolerance_px` 并稳定达到 `alignment_stable_frames` 后，tip test 节点必须先 x 负向前探并等待 0x19 前方限位反馈；收到限位后才会通过 `/mechanism/send_command` 共享 transport 下发一次 `GRAB_TIP(0x01)` 空 payload。它不直接打开目标 MCU 串口，也不绕过 `pose_sender_node` / `merge_odom_node` 的串口权威。
 - 启用自动对线时，同一时刻不要启动 Nav2、teleop 或其它 `/cmd_vel` 发布权威；必须由 `pose_sender_node` 或 `merge_odom_node` 持有目标串口并提供 `/mechanism/send_command`。
 - 当前 `tip` test 参数仍默认优先 `camera_index=2` 这路外接 USB 摄像头，但 `auto_scan_camera` 已默认打开；如果首选设备能枚举却读不出第一帧，节点会打印中文告警并自动扫描其他 `/dev/video*` 作为兜底。
 - 默认联调入口仍然是 RealSense + `vision_test_node`；tip test 节点不参与默认 launch，需要单独显式启动。
@@ -100,7 +100,7 @@
 - 它不是显示层，也不提供 Web 可视化
 - AidLite 和 ONNX Runtime 后端都依赖部署环境；显式指定未编译进当前二进制的后端会直接报错，`engine: auto` 只在对应后端已编译启用时自动选择或回退
 - `tip` test 链继续留在包内，但与默认 RealSense 主链隔离；它面向 USB 相机/单目 test，不是当前决策运行时权威入口
-- `tip` test 链的自动横移只通过标准 `/cmd_vel` 接入底盘，抓取只通过 `/mechanism/send_command` 共享 transport 接入机构；它不拥有目标 MCU 串口，也不是默认导航/决策运行时权威入口
+- `tip` test 链的自动横移和限位前探只通过标准 `/cmd_vel` 接入底盘，限位反馈只订阅 `/mechanism/command_feedback`，抓取只通过 `/mechanism/send_command` 共享 transport 接入机构；它不拥有目标 MCU 串口，也不是默认导航/决策运行时权威入口
 
 ## 本轮收口
 
@@ -114,7 +114,7 @@
 - 修正了 tip test 节点的模型框架识别逻辑：当模型路径显式是 `.onnx` 时，不再依赖文件名是否带 `fp32` 来决定 `ONNX / QNN231`。
 - tip test 节点已删除距离估计和距离 overlay；异步推理线程也去掉了一次多余的 pending frame `clone()`，仅保留提交队列时的必要复制，稍微降低了显示侧额外开销。
 - tip 启动时现在会以模型真实 input tensor shape 为准校正 `input_width / input_height`；如果参数误配成与 ONNX 不一致的尺寸，会给出告警并自动回到模型尺寸，避免固定 `640x640` 模型因误改参数直接跑崩。
-- tip test 链已删除旧视觉状态下发；当前只在自动对线启用且稳定对齐后，通过 `/mechanism/send_command` 共享 transport 发送 `GRAB_TIP(0x01)` 空 payload。
+- tip test 链已删除旧视觉状态下发；当前只在自动对线启用、稳定对齐并收到 0x19 前方限位反馈后，通过 `/mechanism/send_command` 共享 transport 发送 `GRAB_TIP(0x01)` 空 payload。
 - tip test 节点当前按测试链口径保留为 `test/tip_vision_test_node.cpp` 单文件实现，便于联调时直接查看参数、串口、相机、推理和 overlay 全链路而不改变外部行为；对线目标选择与速度计算已收口到共享 alignment helper，避免 test 与决策链分叉。
 - 本次进一步把 tip 推理收口到主链 `InferenceEngine / AidLiteEngine`：`tip_vision_test_node` 只保留 USB 相机、目标选择、可选对线控制、抓取 service 触发和 overlay 业务；私有后处理头文件已删除，tip test 节点私有声明合并进 `test/tip_vision_test_node.cpp`，不再放入公开 `include/`。
 - 本次按其他模块口径把 tip test 链路源码收口到包根 `test/`，不再放入 `src/` 或公开 `include/`；tip test 参数和模型资产直接放在包内 `config/` 与 `models/` 根目录，避免测试链继续维护额外嵌套目录。

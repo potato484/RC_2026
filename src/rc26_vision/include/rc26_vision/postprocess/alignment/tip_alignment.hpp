@@ -63,4 +63,6 @@ TipTargetSelection updateTipAlignmentTarget(
 
 double computeTipAlignmentVy(int offset_px, const TipAlignmentConfig & config);
 
+double computeTipApproachVx(double speed_mps);
+
 }  // namespace rc26_vision

@@ -48,14 +48,16 @@
   - `REAR_PUSHROD_RETRACT_ACK = 0x16`
   - `FRONT_LASER_HEIGHT_JUMP = 0x17`
   - `REAR_LASER_HEIGHT_JUMP = 0x18`
+  - `FRONT_LIMIT_SWITCH_TRIGGERED = 0x19`
 
 当前真实口径是：
 
 - `rc26_telecontrol_front_pushrod_buttons` 会在 `Y/A` 按下沿单次调用 `/mechanism/send_command`
 - `rc26_telecontrol_rear_pushrod_buttons` 会在 `Select/Back` / `Start` 按下沿单次调用 `/mechanism/send_command`
 - 4 条双推杆命令都通过 `merge_odom` 桥接走可靠 `sendCommand()` ACK 路径；若 MCU 不回通用 `ACK(0x00)`，会像其它可靠命令一样自动重传并打印超时日志
-- `0x13~0x18` 业务反馈会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定
+- `0x13~0x19` 业务反馈会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定
 - `0x17/0x18` 只由 MCU 上行，v1 payload 为空或忽略，分别表示前轮 / 后轮附近激光测距模块检测到车体高度突变；上位机台阶 BT 动作按这两个事件推进阶段
+- `0x19` 只由 MCU 上行，v1 payload 为空或忽略，表示武馆前方限位开关触发；武馆视觉夹取链在对齐后 x 负向前探并等待该事件，收到后立即停车再下发 `GRAB_TIP(0x01)`
 - 串口层当前只把 `ACK(0x00)`、`NACK(0x01)` 和心跳场景下的 `HEARTBEAT_ACK(0x10)` 视为 ACK 等待结果；当前 MCU 已不再返回 `ACTION_FAIL/ERROR`
 - `Dpad 左/右` 已回归底盘横移控制
 - 真机部署时，目标 MCU 串口仍由 `rc26_merge_odom` 独占打开；其它上层只复用 transport，不再次直连同一设备
@@ -63,7 +65,7 @@
 旧的 tip test 视觉状态下发命令已经从下行协议中删除：
 
 - 原下行编号 `0x12` 当前不重新分配给新的下行命令，避免旧 MCU 或日志误判。
-- `rc26_vision` 的 tip test 链不再直连串口发送视觉状态；自动对线后需要抓取时，改为通过 `/mechanism/send_command` 共享 transport 下发 `GRAB_TIP(0x01)` 空 payload。
+- `rc26_vision` 的 tip test 链不再直连串口发送视觉状态；自动对线后先通过 `/cmd_vel` x 负向前探等待 0x19 限位反馈，随后通过 `/mechanism/send_command` 共享 transport 下发 `GRAB_TIP(0x01)` 空 payload。
 - 上行 `FeedbackID::STAIR_DESCEND_DONE = 0x12` 保留不变，它和已删除的下行命令属于不同枚举空间。
 
 当前维护边界还要再记一条：

@@ -7,8 +7,10 @@
 
 #include <geometry_msgs/msg/twist.hpp>
 #include <opencv2/opencv.hpp>
+#include <rc26_interfaces/msg/mechanism_transport_feedback.hpp>
 #include <rc26_interfaces/srv/send_mechanism_transport_command.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -41,7 +43,17 @@ public:
 
 private:
   using TwistMsg = geometry_msgs::msg::Twist;
+  using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
   using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
+
+  enum class AlignmentGrabPhase
+  {
+    WaitingForAlignment,
+    ApproachingLimit,
+    SendingGrab,
+    Sent,
+    Failed,
+  };
 
   struct AlignmentOverlayInfo
   {
@@ -58,8 +70,11 @@ private:
     int lost_count{0};
     bool target_locked{false};
     int target_lock_lost_count{0};
+    double cmd_vx{0.0};
     double cmd_vy{0.0};
     std::string grab_state{"DISABLED"};
+    bool limit_switch_triggered{false};
+    std::string grab_phase{"WAIT"};
     uint8_t grab_command_id{kDefaultGrabTipCommand};
     uint8_t grab_seq{0x00};
   };
@@ -95,16 +110,23 @@ private:
   rc26_vision::TipAlignmentConfig make_alignment_config() const;
 
   void create_alignment_interfaces();
+  bool start_callback_executor();
+  void stop_callback_executor();
+  void handle_limit_switch_feedback(const FeedbackMsg::SharedPtr msg);
   bool should_publish_alignment_command(
     const std::chrono::steady_clock::time_point & now,
     bool force) const;
-  bool publish_alignment_command(double vy, bool force = false);
+  bool publish_alignment_command(double vx, double vy, bool force = false);
   void publish_alignment_stop(bool force = false);
   double compute_alignment_vy(int offset_px) const;
+  double compute_approach_vx() const;
+  std::string grab_phase_label() const;
+  void begin_limit_switch_approach();
   std::string update_alignment_control(
     bool has_target,
     int offset_px,
     bool new_inference_result,
+    double & out_cmd_vx,
     double & out_cmd_vy,
     bool & out_aligned,
     bool & out_command_published,
@@ -189,11 +211,20 @@ private:
   double alignment_grab_cooldown_s_{2.0};
   std::string alignment_grab_service_name_{"/mechanism/send_command"};
   int alignment_grab_service_timeout_ms_{200};
+  std::string alignment_limit_switch_feedback_topic_{"/mechanism/command_feedback"};
+  int alignment_limit_switch_feedback_id_{
+    static_cast<int>(rc26_serial::FeedbackID::FRONT_LIMIT_SWITCH_TRIGGERED)};
+  double alignment_approach_speed_mps_{0.04};
+  double alignment_approach_timeout_s_{5.0};
 
   rc26_vision::InferenceEnginePtr engine_;
   cv::VideoCapture camera_;
   rclcpp::Publisher<TwistMsg>::SharedPtr alignment_cmd_pub_;
   rclcpp::Client<SendCommandSrv>::SharedPtr grab_command_client_;
+  rclcpp::Subscription<FeedbackMsg>::SharedPtr limit_switch_sub_;
+  std::unique_ptr<rclcpp::executors::SingleThreadedExecutor> callback_executor_;
+  std::thread callback_executor_thread_;
+  std::atomic<bool> callback_executor_running_{false};
 
   std::vector<std::string> class_names_;
   std::mutex async_mutex_;
@@ -209,12 +240,22 @@ private:
   uint64_t inference_result_seq_{0U};
   int alignment_stable_count_{0};
   int alignment_lost_count_{0};
+  AlignmentGrabPhase alignment_grab_phase_{AlignmentGrabPhase::WaitingForAlignment};
   bool grab_sent_for_current_target_{false};
   std::string last_grab_state_{"DISABLED"};
   uint8_t last_grab_seq_{0x00};
   std::chrono::steady_clock::time_point last_alignment_command_tp_{};
   std::chrono::steady_clock::time_point last_grab_attempt_tp_{};
+  std::chrono::steady_clock::time_point limit_switch_wait_start_tp_{};
   bool alignment_zero_published_{false};
+  std::atomic<bool> waiting_for_limit_switch_{false};
+  std::atomic<bool> limit_switch_triggered_{false};
+  std::mutex grab_response_mutex_;
+  std::condition_variable grab_response_cv_;
+  std::atomic<uint64_t> grab_request_generation_{0};
+  bool grab_response_seen_{false};
+  bool grab_response_accepted_{false};
+  uint8_t grab_response_seq_{0U};
   rc26_vision::TipTargetLockState alignment_target_lock_state_;
 
   uint64_t frames_since_log_{0};
@@ -301,6 +342,7 @@ TipVisionTestNode::TipVisionTestNode()
 
 TipVisionTestNode::~TipVisionTestNode()
 {
+  stop_callback_executor();
   stop_async_inference_worker();
 
   engine_.reset();
@@ -350,6 +392,7 @@ int TipVisionTestNode::run()
   double current_infer_ms = 0.0;
   double display_camera_fps = 0.0;
   double display_infer_fps = 0.0;
+  double current_cmd_vx = 0.0;
   double current_cmd_vy = 0.0;
   bool current_aligned = false;
   bool alignment_command_published = false;
@@ -406,7 +449,7 @@ int TipVisionTestNode::run()
 
     uint8_t grab_seq = last_grab_seq_;
     const std::string grab_state = update_alignment_control(
-      current_has_target, current_offset_px, new_inference_result, current_cmd_vy,
+      current_has_target, current_offset_px, new_inference_result, current_cmd_vx, current_cmd_vy,
       current_aligned, alignment_command_published, grab_seq);
 
     if (show_window_ && has_latest_result) {
@@ -447,8 +490,12 @@ int TipVisionTestNode::run()
       alignment_info.lost_count = alignment_lost_count_;
       alignment_info.target_locked = current_target_locked;
       alignment_info.target_lock_lost_count = current_target_lock_lost_count;
+      alignment_info.cmd_vx = current_cmd_vx;
       alignment_info.cmd_vy = current_cmd_vy;
       alignment_info.grab_state = grab_state;
+      alignment_info.limit_switch_triggered =
+        limit_switch_triggered_.load(std::memory_order_relaxed);
+      alignment_info.grab_phase = grab_phase_label();
       alignment_info.grab_command_id = static_cast<uint8_t>(alignment_grab_command_id_);
       alignment_info.grab_seq = grab_seq;
       draw_alignment_overlay(frame_bgr, alignment_info);
@@ -488,6 +535,7 @@ int TipVisionTestNode::run()
   }
 
   stop_async_inference_worker();
+  stop_callback_executor();
   publish_alignment_stop(true);
   return 0;
 }
@@ -561,6 +609,13 @@ void TipVisionTestNode::declare_parameters()
   this->declare_parameter<double>("alignment_grab_cooldown_s", 2.0);
   this->declare_parameter<std::string>("alignment_grab_service_name", "/mechanism/send_command");
   this->declare_parameter<int>("alignment_grab_service_timeout_ms", 200);
+  this->declare_parameter<std::string>(
+    "alignment_limit_switch_feedback_topic", "/mechanism/command_feedback");
+  this->declare_parameter<int>(
+    "alignment_limit_switch_feedback_id",
+    static_cast<int>(rc26_serial::FeedbackID::FRONT_LIMIT_SWITCH_TRIGGERED));
+  this->declare_parameter<double>("alignment_approach_speed_mps", 0.04);
+  this->declare_parameter<double>("alignment_approach_timeout_s", 5.0);
 }
 
 void TipVisionTestNode::load_parameters()
@@ -618,6 +673,14 @@ void TipVisionTestNode::load_parameters()
     this->get_parameter("alignment_grab_service_name").as_string();
   alignment_grab_service_timeout_ms_ =
     this->get_parameter("alignment_grab_service_timeout_ms").as_int();
+  alignment_limit_switch_feedback_topic_ =
+    this->get_parameter("alignment_limit_switch_feedback_topic").as_string();
+  alignment_limit_switch_feedback_id_ =
+    this->get_parameter("alignment_limit_switch_feedback_id").as_int();
+  alignment_approach_speed_mps_ =
+    this->get_parameter("alignment_approach_speed_mps").as_double();
+  alignment_approach_timeout_s_ =
+    this->get_parameter("alignment_approach_timeout_s").as_double();
   const auto grab_payload_values =
     this->get_parameter("alignment_grab_payload").as_integer_array();
   alignment_grab_payload_.clear();
@@ -692,6 +755,21 @@ void TipVisionTestNode::load_parameters()
     tip_detail::trim_copy(alignment_grab_service_name_).empty())
   {
     throw std::runtime_error("alignment_grab_service_name cannot be empty when grab is enabled");
+  }
+  if (alignment_control_enable_ && alignment_grab_enable_ &&
+    tip_detail::trim_copy(alignment_limit_switch_feedback_topic_).empty())
+  {
+    throw std::runtime_error(
+      "alignment_limit_switch_feedback_topic cannot be empty when limit switch is enabled");
+  }
+  if (alignment_limit_switch_feedback_id_ < 0 || alignment_limit_switch_feedback_id_ > 255) {
+    throw std::runtime_error("alignment_limit_switch_feedback_id must be in [0,255]");
+  }
+  if (!std::isfinite(alignment_approach_speed_mps_) || alignment_approach_speed_mps_ < 0.0) {
+    throw std::runtime_error("alignment_approach_speed_mps must be finite and >= 0");
+  }
+  if (!std::isfinite(alignment_approach_timeout_s_) || alignment_approach_timeout_s_ <= 0.0) {
+    throw std::runtime_error("alignment_approach_timeout_s must be finite and > 0");
   }
 }
 
@@ -807,12 +885,76 @@ void TipVisionTestNode::create_alignment_interfaces()
   if (alignment_grab_enable_) {
     grab_command_client_ = create_client<SendCommandSrv>(alignment_grab_service_name_);
   }
+  if (alignment_grab_enable_) {
+    limit_switch_sub_ = create_subscription<FeedbackMsg>(
+      alignment_limit_switch_feedback_topic_, rclcpp::QoS(32).reliable(),
+      [this](const FeedbackMsg::SharedPtr msg) { handle_limit_switch_feedback(msg); });
+  }
+  if (!start_callback_executor()) {
+    throw std::runtime_error("启动回调 executor 失败");
+  }
 
   RCLCPP_WARN(
     get_logger(),
-    "端头对准控制已启用: cmd_vel_topic=%s 容差=%dpx 稳定帧=%d 抓取=%s service=%s",
+    "端头对准控制已启用: cmd_vel_topic=%s 容差=%dpx 稳定帧=%d 抓取=%s service=%s limit_feedback=%s id=0x%02X",
     alignment_cmd_vel_topic_.c_str(), alignment_tolerance_px_, alignment_stable_frames_,
-    alignment_grab_enable_ ? "开" : "关", alignment_grab_service_name_.c_str());
+    alignment_grab_enable_ ? "开" : "关", alignment_grab_service_name_.c_str(),
+    alignment_limit_switch_feedback_topic_.c_str(),
+    static_cast<unsigned int>(alignment_limit_switch_feedback_id_ & 0xFF));
+}
+
+bool TipVisionTestNode::start_callback_executor()
+{
+  if (callback_executor_running_.load(std::memory_order_relaxed)) {
+    return true;
+  }
+
+  try {
+    callback_executor_ = std::make_unique<rclcpp::executors::SingleThreadedExecutor>();
+    callback_executor_->add_node(get_node_base_interface());
+    callback_executor_running_ = true;
+    callback_executor_thread_ = std::thread([this]() {
+      while (rclcpp::ok() && callback_executor_running_.load(std::memory_order_relaxed)) {
+        callback_executor_->spin_some();
+        std::this_thread::sleep_for(5ms);
+      }
+    });
+    return true;
+  } catch (const std::exception & ex) {
+    RCLCPP_ERROR(get_logger(), "启动回调 executor 失败: %s", ex.what());
+    callback_executor_running_ = false;
+    if (callback_executor_) {
+      callback_executor_->cancel();
+      try {
+        callback_executor_->remove_node(get_node_base_interface());
+      } catch (...) {
+      }
+      callback_executor_.reset();
+    }
+    return false;
+  }
+}
+
+void TipVisionTestNode::stop_callback_executor()
+{
+  waiting_for_limit_switch_ = false;
+  grab_request_generation_.fetch_add(1, std::memory_order_relaxed);
+  grab_response_cv_.notify_all();
+  callback_executor_running_ = false;
+  if (callback_executor_) {
+    callback_executor_->cancel();
+  }
+  if (callback_executor_thread_.joinable()) {
+    callback_executor_thread_.join();
+  }
+  if (callback_executor_) {
+    try {
+      callback_executor_->remove_node(get_node_base_interface());
+    } catch (...) {
+    }
+    callback_executor_.reset();
+  }
+  limit_switch_sub_.reset();
 }
 
 bool TipVisionTestNode::should_publish_alignment_command(
@@ -829,7 +971,7 @@ bool TipVisionTestNode::should_publish_alignment_command(
   return std::chrono::duration<double>(now - last_alignment_command_tp_).count() >= min_period_s;
 }
 
-bool TipVisionTestNode::publish_alignment_command(double vy, bool force)
+bool TipVisionTestNode::publish_alignment_command(double vx, double vy, bool force)
 {
   if (!alignment_control_enable_ || !alignment_cmd_pub_) {
     return false;
@@ -841,10 +983,11 @@ bool TipVisionTestNode::publish_alignment_command(double vy, bool force)
   }
 
   TwistMsg msg;
+  msg.linear.x = vx;
   msg.linear.y = vy;
   alignment_cmd_pub_->publish(msg);
   last_alignment_command_tp_ = now;
-  alignment_zero_published_ = std::abs(vy) < 1e-9;
+  alignment_zero_published_ = std::abs(vx) < 1e-9 && std::abs(vy) < 1e-9;
   return true;
 }
 
@@ -853,7 +996,7 @@ void TipVisionTestNode::publish_alignment_stop(bool force)
   if (!alignment_publish_zero_on_disable_ && !alignment_control_enable_) {
     return;
   }
-  publish_alignment_command(0.0, force);
+  publish_alignment_command(0.0, 0.0, force);
 }
 
 double TipVisionTestNode::compute_alignment_vy(int offset_px) const
@@ -861,15 +1004,70 @@ double TipVisionTestNode::compute_alignment_vy(int offset_px) const
   return rc26_vision::computeTipAlignmentVy(offset_px, make_alignment_config());
 }
 
+double TipVisionTestNode::compute_approach_vx() const
+{
+  return rc26_vision::computeTipApproachVx(alignment_approach_speed_mps_);
+}
+
+std::string TipVisionTestNode::grab_phase_label() const
+{
+  switch (alignment_grab_phase_) {
+    case AlignmentGrabPhase::WaitingForAlignment:
+      return "WAIT";
+    case AlignmentGrabPhase::ApproachingLimit:
+      return "APPROACH";
+    case AlignmentGrabPhase::SendingGrab:
+      return "GRAB";
+    case AlignmentGrabPhase::Sent:
+      return "SENT";
+    case AlignmentGrabPhase::Failed:
+      return "FAILED";
+  }
+  return "WAIT";
+}
+
+void TipVisionTestNode::begin_limit_switch_approach()
+{
+  alignment_grab_phase_ = AlignmentGrabPhase::ApproachingLimit;
+  limit_switch_triggered_ = false;
+  waiting_for_limit_switch_ = true;
+  limit_switch_wait_start_tp_ = std::chrono::steady_clock::now();
+  RCLCPP_INFO(
+    get_logger(),
+    "端头对齐稳定，开始 x 负向前探等待限位: vx=%.3f timeout=%.2fs feedback=%s id=0x%02X",
+    compute_approach_vx(), alignment_approach_timeout_s_,
+    alignment_limit_switch_feedback_topic_.c_str(),
+    static_cast<unsigned int>(alignment_limit_switch_feedback_id_ & 0xFF));
+  publish_alignment_command(compute_approach_vx(), 0.0, true);
+}
+
+void TipVisionTestNode::handle_limit_switch_feedback(const FeedbackMsg::SharedPtr msg)
+{
+  if (!msg || !waiting_for_limit_switch_.load(std::memory_order_relaxed)) {
+    return;
+  }
+  if (msg->feedback_id != static_cast<uint8_t>(alignment_limit_switch_feedback_id_ & 0xFF)) {
+    return;
+  }
+
+  limit_switch_triggered_.store(true, std::memory_order_relaxed);
+  publish_alignment_stop(true);
+  RCLCPP_INFO(
+    get_logger(), "收到前方限位触发反馈: seq=%u feedback=0x%02X",
+    static_cast<unsigned int>(msg->seq), static_cast<unsigned int>(msg->feedback_id));
+}
+
 std::string TipVisionTestNode::update_alignment_control(
   bool has_target,
   int offset_px,
   bool new_inference_result,
+  double & out_cmd_vx,
   double & out_cmd_vy,
   bool & out_aligned,
   bool & out_command_published,
   uint8_t & out_grab_seq)
 {
+  out_cmd_vx = 0.0;
   out_cmd_vy = 0.0;
   out_aligned = false;
   out_command_published = false;
@@ -877,6 +1075,62 @@ std::string TipVisionTestNode::update_alignment_control(
 
   if (!alignment_control_enable_) {
     last_grab_state_ = "DISABLED";
+    alignment_grab_phase_ = AlignmentGrabPhase::WaitingForAlignment;
+    return last_grab_state_;
+  }
+
+  if (alignment_grab_phase_ == AlignmentGrabPhase::Failed) {
+    publish_alignment_stop(false);
+    last_grab_state_ = "FAILED";
+    return last_grab_state_;
+  }
+
+  if (alignment_grab_phase_ == AlignmentGrabPhase::ApproachingLimit) {
+    if (limit_switch_triggered_.load(std::memory_order_relaxed)) {
+      waiting_for_limit_switch_ = false;
+      publish_alignment_stop(true);
+      alignment_grab_phase_ = AlignmentGrabPhase::SendingGrab;
+    } else if (std::chrono::duration<double>(
+                 std::chrono::steady_clock::now() - limit_switch_wait_start_tp_).count() >=
+               alignment_approach_timeout_s_) {
+      waiting_for_limit_switch_ = false;
+      publish_alignment_stop(true);
+      alignment_grab_phase_ = AlignmentGrabPhase::Failed;
+      last_grab_state_ = "APPROACH_TIMEOUT";
+      return last_grab_state_;
+    } else {
+      out_cmd_vx = compute_approach_vx();
+      out_command_published = publish_alignment_command(out_cmd_vx, 0.0, false);
+      last_grab_state_ = "APPROACH";
+      return last_grab_state_;
+    }
+  }
+
+  if (alignment_grab_phase_ == AlignmentGrabPhase::SendingGrab) {
+    publish_alignment_stop(false);
+    if (send_grab_tip_command(out_grab_seq)) {
+      grab_sent_for_current_target_ = true;
+      last_grab_seq_ = out_grab_seq;
+      alignment_grab_phase_ = AlignmentGrabPhase::Sent;
+      last_grab_state_ = "SENT";
+    } else {
+      alignment_grab_phase_ = AlignmentGrabPhase::Failed;
+      last_grab_state_ = "FAILED";
+    }
+    return last_grab_state_;
+  }
+
+  if (alignment_grab_phase_ == AlignmentGrabPhase::Sent) {
+    publish_alignment_stop(false);
+    if (!has_target && new_inference_result) {
+      ++alignment_lost_count_;
+      alignment_stable_count_ = 0;
+      if (alignment_lost_count_ >= alignment_lost_stop_frames_) {
+        grab_sent_for_current_target_ = false;
+        alignment_grab_phase_ = AlignmentGrabPhase::WaitingForAlignment;
+      }
+    }
+    last_grab_state_ = "SENT";
     return last_grab_state_;
   }
 
@@ -886,9 +1140,10 @@ std::string TipVisionTestNode::update_alignment_control(
       alignment_stable_count_ = 0;
       if (alignment_lost_count_ >= alignment_lost_stop_frames_) {
         grab_sent_for_current_target_ = false;
+        alignment_grab_phase_ = AlignmentGrabPhase::WaitingForAlignment;
       }
     }
-    out_command_published = publish_alignment_command(0.0, false);
+    out_command_published = publish_alignment_command(0.0, 0.0, false);
     last_grab_state_ = alignment_grab_enable_ ? "LOST" : "DISABLED";
     return last_grab_state_;
   }
@@ -906,7 +1161,7 @@ std::string TipVisionTestNode::update_alignment_control(
   }
 
   out_cmd_vy = compute_alignment_vy(offset_px);
-  out_command_published = publish_alignment_command(out_cmd_vy, false);
+  out_command_published = publish_alignment_command(0.0, out_cmd_vy, false);
 
   if (!alignment_grab_enable_) {
     last_grab_state_ = "DISABLED";
@@ -930,15 +1185,8 @@ std::string TipVisionTestNode::update_alignment_control(
   }
 
   last_grab_attempt_tp_ = now;
-  uint8_t seq = 0U;
-  if (send_grab_tip_command(seq)) {
-    grab_sent_for_current_target_ = true;
-    last_grab_seq_ = seq;
-    out_grab_seq = seq;
-    last_grab_state_ = "SENT";
-  } else {
-    last_grab_state_ = "FAILED";
-  }
+  begin_limit_switch_approach();
+  last_grab_state_ = "APPROACH";
   return last_grab_state_;
 }
 
@@ -963,22 +1211,60 @@ bool TipVisionTestNode::send_grab_tip_command(uint8_t & out_seq)
   request->command_id = static_cast<uint8_t>(alignment_grab_command_id_);
   request->payload = alignment_grab_payload_;
 
-  auto future = grab_command_client_->async_send_request(request);
-  rclcpp::executors::SingleThreadedExecutor executor;
-  executor.add_node(get_node_base_interface());
-  const auto result = executor.spin_until_future_complete(
-    future, std::chrono::milliseconds(alignment_grab_service_timeout_ms_));
-  executor.remove_node(get_node_base_interface());
+  const uint64_t token = grab_request_generation_.fetch_add(1, std::memory_order_relaxed) + 1U;
+  {
+    std::lock_guard<std::mutex> lock(grab_response_mutex_);
+    grab_response_seen_ = false;
+    grab_response_accepted_ = false;
+    grab_response_seq_ = 0U;
+  }
 
-  if (result != rclcpp::FutureReturnCode::SUCCESS) {
+  try {
+    grab_command_client_->async_send_request(
+      request,
+      [this, token](rclcpp::Client<SendCommandSrv>::SharedFuture future) {
+        if (token != grab_request_generation_.load(std::memory_order_relaxed)) {
+          return;
+        }
+        bool accepted = false;
+        uint8_t seq = 0U;
+        try {
+          const auto response = future.get();
+          accepted = response && response->accepted;
+          if (response) {
+            seq = response->seq;
+          }
+        } catch (const std::exception & ex) {
+          RCLCPP_WARN(get_logger(), "GRAB_TIP 响应异常: %s", ex.what());
+        }
+
+        {
+          std::lock_guard<std::mutex> lock(grab_response_mutex_);
+          grab_response_accepted_ = accepted;
+          grab_response_seq_ = seq;
+          grab_response_seen_ = true;
+        }
+        grab_response_cv_.notify_one();
+      });
+  } catch (const std::exception & ex) {
+    RCLCPP_WARN(get_logger(), "GRAB_TIP 发送异常: %s", ex.what());
+    return false;
+  }
+
+  std::unique_lock<std::mutex> lock(grab_response_mutex_);
+  const bool response_seen = grab_response_cv_.wait_for(
+    lock, std::chrono::milliseconds(alignment_grab_service_timeout_ms_),
+    [this]() { return grab_response_seen_; });
+
+  if (!response_seen) {
+    grab_request_generation_.fetch_add(1, std::memory_order_relaxed);
     RCLCPP_WARN(
       get_logger(), "GRAB_TIP 发送超时: service=%s timeout_ms=%d",
       alignment_grab_service_name_.c_str(), alignment_grab_service_timeout_ms_);
     return false;
   }
 
-  const auto response = future.get();
-  if (!response || !response->accepted) {
+  if (!grab_response_accepted_) {
     RCLCPP_WARN(
       get_logger(), "GRAB_TIP 发送被拒绝: cmd=%s payload=%s",
       tip_detail::byte_to_hex(request->command_id).c_str(),
@@ -986,7 +1272,7 @@ bool TipVisionTestNode::send_grab_tip_command(uint8_t & out_seq)
     return false;
   }
 
-  out_seq = response->seq;
+  out_seq = grab_response_seq_;
   RCLCPP_INFO(
     get_logger(), "GRAB_TIP 已发送: cmd=%s payload=%s seq=%u",
     tip_detail::byte_to_hex(request->command_id).c_str(),
@@ -1378,12 +1664,23 @@ bool TipVisionTestNode::initialize()
 
   alignment_stable_count_ = 0;
   alignment_lost_count_ = 0;
+  alignment_grab_phase_ = AlignmentGrabPhase::WaitingForAlignment;
   grab_sent_for_current_target_ = false;
   last_grab_state_ = alignment_grab_enable_ ? "WAIT" : "DISABLED";
   last_grab_seq_ = 0U;
   last_alignment_command_tp_ = std::chrono::steady_clock::time_point{};
   last_grab_attempt_tp_ = std::chrono::steady_clock::time_point{};
+  limit_switch_wait_start_tp_ = std::chrono::steady_clock::time_point{};
   alignment_zero_published_ = false;
+  waiting_for_limit_switch_ = false;
+  limit_switch_triggered_ = false;
+  grab_request_generation_.fetch_add(1, std::memory_order_relaxed);
+  {
+    std::lock_guard<std::mutex> lock(grab_response_mutex_);
+    grab_response_seen_ = false;
+    grab_response_accepted_ = false;
+    grab_response_seq_ = 0U;
+  }
   alignment_target_lock_state_.reset();
 
   create_alignment_interfaces();
@@ -1468,7 +1765,7 @@ void TipVisionTestNode::draw_alignment_overlay(
   const AlignmentOverlayInfo & info) const
 {
   std::vector<std::string> lines;
-  lines.reserve(5U);
+  lines.reserve(6U);
 
   const std::string align_state =
     !info.control_enabled ? "OFF" :
@@ -1487,7 +1784,8 @@ void TipVisionTestNode::draw_alignment_overlay(
     std::ostringstream ss;
     ss << "CTRL off=" << info.offset_px
        << " tol=" << info.tolerance_px
-       << " vy=" << std::fixed << std::setprecision(3) << info.cmd_vy
+       << " vx=" << std::fixed << std::setprecision(3) << info.cmd_vx
+       << " vy=" << std::setprecision(3) << info.cmd_vy
        << " sent=" << (info.command_published ? "YES" : "RATE");
     lines.push_back(ss.str());
   }
@@ -1503,6 +1801,14 @@ void TipVisionTestNode::draw_alignment_overlay(
     std::ostringstream ss;
     ss << "STABLE " << info.stable_count << "/" << info.stable_required
        << " lost=" << info.lost_count;
+    lines.push_back(ss.str());
+  }
+
+  {
+    std::ostringstream ss;
+    ss << "LIMIT " << (info.grab_enabled ? "ON" : "OFF")
+       << " trig=" << (info.limit_switch_triggered ? "YES" : "NO")
+       << " phase=" << info.grab_phase;
     lines.push_back(ss.str());
   }
 
