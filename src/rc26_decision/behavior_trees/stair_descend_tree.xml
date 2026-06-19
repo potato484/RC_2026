@@ -13,8 +13,9 @@
       StairDescend 是 C++ 注册的 StatefulActionNode。
       执行顺序在 stair_descend.cpp 中：
       x 负向行驶等后轮 0x18 -> REAR_PUSHROD_EXTEND ->
-      x 负向行驶等前轮 0x17 -> REAR_PUSHROD_RETRACT ->
-      FRONT_PUSHROD_EXTEND -> 末段定时 x 负向行驶 -> SUCCESS。
+      零速等待 -> x 负向行驶等前轮第二个 0x1A ->
+      REAR_PUSHROD_RETRACT + FRONT_PUSHROD_EXTEND -> 零速等待 ->
+      x 负向行驶等新的后轮 0x18 -> FRONT_PUSHROD_RETRACT -> SUCCESS。
     -->
     <StairDescend name="stair_descend"/>
   </BehaviorTree>

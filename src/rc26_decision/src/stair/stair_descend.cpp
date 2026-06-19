@@ -27,7 +27,7 @@ BT::NodeStatus StairDescendAction::onStart() {
 
 // onRunning() 每个 BT tick 推进一步下台阶状态机；所有等待都非阻塞。
 BT::NodeStatus StairDescendAction::onRunning() {
-  // phase_ 表示当前处于“等事件”“等命令 accepted”或“定时行驶”的哪一步。
+  // phase_ 表示当前处于“行驶等事件”“等命令 accepted”或“零速等待”的哪一步。
   switch (phase_) {
   case Phase::DriveUntilRearEvent:
     // 第一阶段：后轮在前，持续发布 x 负方向速度靠近下阶梯边缘。
@@ -39,7 +39,7 @@ BT::NodeStatus StairDescendAction::onRunning() {
       publishStop();
       // 下一阶段伸出后推杆，支撑已经先进入下台阶过程的后轮侧。
       phase_ = Phase::SendRearExtend;
-      // 下发 REAR_PUSHROD_EXTEND；等待 accepted 后继续负向行驶。
+      // 下发 REAR_PUSHROD_EXTEND；等待 accepted 后先零速延时。
       beginCommand(CommandID::REAR_PUSHROD_EXTEND, "REAR_PUSHROD_EXTEND");
       break;
     case StepStatus::Failure:
@@ -52,14 +52,14 @@ BT::NodeStatus StairDescendAction::onRunning() {
     break;
 
   case Phase::SendRearExtend:
-    // 第二阶段：等待后推杆伸出命令被共享串口 transport 接受。
+    // 第二阶段：等待后推杆伸出命令被共享串口 transport 接受，等待期间必须保持零速。
+    publishStop();
     switch (tickCommand()) {
     case StepStatus::Success:
-      // 后推杆已伸出，继续负向行驶，直到前轮第二个激光检测到高度突变。
-      phase_ = Phase::DriveUntilFrontSecondEvent;
-      // 设置前轮第二个事件等待基线和超时；只接受此后新来的 0x1A。
-      beginEventWait(WheelEvent::FrontSecond, params_.front_event_timeout_s,
-                     "front_second");
+      // 后推杆已伸出，先按配置零速等待机构稳定；等待期间机器人不能移动。
+      phase_ = Phase::HoldAfterRearExtend;
+      beginZeroHold(params_.descend_rear_extend_delay_s,
+                    "rear_extend_settle");
       break;
     case StepStatus::Failure:
       // 后推杆伸出失败时不再继续运动，防止车体失去支撑。
@@ -70,17 +70,48 @@ BT::NodeStatus StairDescendAction::onRunning() {
     }
     break;
 
+  case Phase::HoldAfterRearExtend:
+    // 第三阶段：后推杆伸出后零速等待，持续覆盖上一阶段可能残留的速度。
+    switch (tickZeroHold()) {
+    case StepStatus::Success:
+      // 延时结束后继续 x 负方向行驶，直到前轮第二个激光检测到高度突变。
+      phase_ = Phase::DriveUntilFrontSecondEvent;
+      // 设置前轮第二个事件等待基线和超时；只接受此后新来的 0x1A。
+      beginEventWait(WheelEvent::FrontSecond, params_.front_event_timeout_s,
+                     "front_second");
+      break;
+    case StepStatus::Failure:
+      return failWithStop("rear extend zero hold failed");
+    case StepStatus::Running:
+      break;
+    }
+    break;
+
   case Phase::DriveUntilFrontSecondEvent:
-    // 第三阶段：继续发布 x 负方向速度，等待前轮第二个激光越过下台阶边缘。
+    // 第四阶段：继续发布 x 负方向速度，等待前轮第二个激光越过下台阶边缘。
     publishDrive(-driveSpeedMagnitude());
     // 检查 MCU 是否已经上报前轮第二个激光测距高度突变。
     switch (tickEventWait()) {
     case StepStatus::Success:
-      // 前轮第二个事件到达后，开始收回后推杆；后续仍继续负向行驶。
-      phase_ = Phase::SendRearRetract;
-      // 下发 REAR_PUSHROD_RETRACT；accepted 后再伸前推杆。
-      beginCommand(CommandID::REAR_PUSHROD_RETRACT,
-                   "REAR_PUSHROD_RETRACT");
+      // 前轮第二个事件到达后立即停车，同一 tick 连续发送后收和前伸两条命令。
+      publishStop();
+      phase_ = Phase::SendRearRetractAndFrontExtend;
+      beginCommandPair(CommandID::REAR_PUSHROD_RETRACT,
+                       "REAR_PUSHROD_RETRACT",
+                       CommandID::FRONT_PUSHROD_EXTEND,
+                       "FRONT_PUSHROD_EXTEND");
+      switch (tickCommandPair()) {
+      case StepStatus::Success:
+        phase_ = Phase::HoldAfterRearRetractAndFrontExtend;
+        beginZeroHold(params_.descend_retract_front_extend_delay_s,
+                      "rear_retract_front_extend_settle");
+        break;
+      case StepStatus::Failure:
+        return failWithStop(
+            "REAR_PUSHROD_RETRACT + FRONT_PUSHROD_EXTEND failed");
+      case StepStatus::Running:
+        break;
+      }
       break;
     case StepStatus::Failure:
       // 前轮第二个事件超时，说明下台阶未按预期推进，停车失败。
@@ -91,64 +122,61 @@ BT::NodeStatus StairDescendAction::onRunning() {
     }
     break;
 
-  case Phase::SendRearRetract:
-    // 第四阶段：等待后推杆收回 accepted，同时继续 x 负方向行驶。
-    publishDrive(-driveSpeedMagnitude());
-    switch (tickCommand()) {
+  case Phase::SendRearRetractAndFrontExtend:
+    // 第五阶段：等待后推杆收回和前推杆伸出都 accepted；等待期间必须保持零速。
+    publishStop();
+    switch (tickCommandPair()) {
     case StepStatus::Success:
-      // 后推杆已收回，下一步伸出前推杆。
-      phase_ = Phase::SendFrontExtend;
-      // 下发 FRONT_PUSHROD_EXTEND；accepted 后继续等待前轮第一个激光事件。
-      beginCommand(CommandID::FRONT_PUSHROD_EXTEND,
-                   "FRONT_PUSHROD_EXTEND");
+      // 两条命令都 accepted 后，再零速等待前推杆到位。
+      phase_ = Phase::HoldAfterRearRetractAndFrontExtend;
+      beginZeroHold(params_.descend_retract_front_extend_delay_s,
+                    "rear_retract_front_extend_settle");
       break;
     case StepStatus::Failure:
-      // 后推杆收回失败，机构状态不确定，停车失败。
-      return failWithStop("REAR_PUSHROD_RETRACT failed");
+      // 任一组合命令失败时不再继续运动，防止机构姿态不确定。
+      return failWithStop("REAR_PUSHROD_RETRACT + FRONT_PUSHROD_EXTEND failed");
     case StepStatus::Running:
-      // 继续等待后推杆收回 accepted。
       break;
     }
     break;
 
-  case Phase::SendFrontExtend:
-    // 第五阶段：等待前推杆伸出命令 accepted，同时继续 x 负方向行驶。
-    publishDrive(-driveSpeedMagnitude());
-    switch (tickCommand()) {
+  case Phase::HoldAfterRearRetractAndFrontExtend:
+    // 第六阶段：组合推杆命令后零速等待；这段期间忽略任何旧激光突变。
+    switch (tickZeroHold()) {
     case StepStatus::Success:
-      // 前推杆伸出 accepted 后，继续负向行驶并等待前轮第一个激光突变。
-      phase_ = Phase::DriveUntilFrontFirstEvent;
-      beginEventWait(WheelEvent::FrontFirst, params_.front_event_timeout_s,
-                     "front_first");
+      // 延时结束后恢复 x 负方向行驶，重新等待后轮 0x18 突变作为最终边缘事件。
+      phase_ = Phase::DriveUntilFinalRearEvent;
+      beginEventWait(WheelEvent::Rear, params_.rear_event_timeout_s,
+                     "rear_final");
       break;
     case StepStatus::Failure:
-      // 前推杆伸出失败，停车失败。
-      return failWithStop("FRONT_PUSHROD_EXTEND failed");
+      return failWithStop("rear retract front extend zero hold failed");
     case StepStatus::Running:
-      // 等待前推杆伸出 accepted。
       break;
     }
     break;
 
-  case Phase::DriveUntilFrontFirstEvent:
-    // 第六阶段：继续发布 x 负方向速度，等待前轮第一个激光高度突变。
+  case Phase::DriveUntilFinalRearEvent:
+    // 第七阶段：继续发布 x 负方向速度，等待后轮新的激光高度突变。
     publishDrive(-driveSpeedMagnitude());
     switch (tickEventWait()) {
     case StepStatus::Success:
-      // 前轮第一个事件到达后，收回前推杆作为下台阶最后动作。
+      // 最终后轮事件到达后，收回前推杆作为下台阶最后动作。
+      publishStop();
       phase_ = Phase::SendFrontRetract;
       beginCommand(CommandID::FRONT_PUSHROD_RETRACT,
                    "FRONT_PUSHROD_RETRACT");
       break;
     case StepStatus::Failure:
-      return failWithStop("front first laser event timeout");
+      return failWithStop("final rear laser event timeout");
     case StepStatus::Running:
       break;
     }
     break;
 
   case Phase::SendFrontRetract:
-    // 第七阶段：等待前推杆收回 accepted，作为下台阶最后的收尾确认。
+    // 第八阶段：等待前推杆收回 accepted，作为下台阶最后的收尾确认。
+    publishStop();
     switch (tickCommand()) {
     case StepStatus::Success:
       // 收到 accepted 后再补一帧零速，确保动作结束时底盘停止。

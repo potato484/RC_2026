@@ -50,7 +50,7 @@
   - 只有后续明确恢复独立反馈硬件时，`PoseSender` 才会在这条链路上按 `50Hz` 下发 `POSE_FEEDBACK(0x1E)`
   - 当前默认运行时不会再依赖这条链路承载 teleop / mechanism transport
 
-其中桥接层会过滤 `ACK / HEARTBEAT_ACK / ODOM_DATA` 这类高频非业务反馈，只把业务侧真正关心的反馈继续发布出去；当前双推杆 4 条命令都已经切到可靠 ACK 路径，因此若 MCU 不回通用 `ACK(0x00)`，会像其它可靠命令一样自动重传并打印超时日志；MCU 额外上送的 `0x13~0x16` 业务 ACK、台阶激光测距高度突变事件 `0x17/0x18`，以及武馆前方限位开关事件 `0x19`，都会继续透传到 `/mechanism/command_feedback`。
+其中桥接层会过滤 `ACK / HEARTBEAT_ACK / ODOM_DATA` 这类高频非业务反馈，只把业务侧真正关心的反馈继续发布出去；当前双推杆 4 条命令都已经切到可靠 ACK 路径，因此若 MCU 不回通用 `ACK(0x00)`，会像其它可靠命令一样自动重传并打印超时日志；MCU 额外上送的 `0x13~0x16` 业务 ACK、台阶激光测距高度突变事件 `0x17/0x18/0x1A`，以及武馆前方限位开关事件 `0x19`，都会继续透传到 `/mechanism/command_feedback`。
 
 新增机制业务命令时，`MechanismTransportBridge` 默认不需要按命令改代码：只要新反馈 ID 不复用 `ACK / HEARTBEAT_ACK / ODOM_DATA` 这些被过滤的系统反馈，桥接层就会继续按通用 transport 透传。
 
@@ -122,7 +122,7 @@
 - `rc26_vision` 的 tip test 自动对线能力也按这个共享边界接入：横移和限位前探只发布标准 `/cmd_vel`，对齐后等待 `/mechanism/command_feedback` 透传的 0x19 限位事件，再调用 `/mechanism/send_command` 下发 `GRAB_TIP(0x01)` 空 payload，不绕过目标 MCU 串口权威。
 - `pose_sender_node` 现在也会挂出同一组共享 mechanism 命令接口，因此 `minimal-mcu` 栈除了速度下发外，也能承接基于 ACK 的共享机构 transport。
 - 双推杆协议已经收口为 `FRONT_PUSHROD_EXTEND/RETRACT(0x0E/0x0F)` 与 `REAR_PUSHROD_EXTEND/RETRACT(0x10/0x11)`；它们和其它普通机构命令一样走可靠 send + 通用 `ACK(0x00)`，MCU 额外发布的 `0x13~0x16` 业务 ACK 会继续透传给 transport feedback。
-- 台阶激光测距事件 `FRONT_LASER_HEIGHT_JUMP(0x17)`、`REAR_LASER_HEIGHT_JUMP(0x18)` 与武馆前方限位事件 `FRONT_LIMIT_SWITCH_TRIGGERED(0x19)` 同样经 mechanism transport 透传，不需要 `MechanismTransportBridge` 增加专用分支。
+- 台阶激光测距事件 `FRONT_LASER_HEIGHT_JUMP(0x17)`、`REAR_LASER_HEIGHT_JUMP(0x18)`、`FRONT_SECOND_LASER_HEIGHT_JUMP(0x1A)` 与武馆前方限位事件 `FRONT_LIMIT_SWITCH_TRIGGERED(0x19)` 同样经 mechanism transport 透传，不需要 `MechanismTransportBridge` 增加专用分支。
 - 真实部署下，`rc26_mechanism` 不应再单独打开默认目标口 `/dev/ttyUSB0`；若 teleop 或 bringup 已经启动 `merge_odom`，则机制侧应使用 `hal_type:=shared_serial`。
 - `terrain_speed_limit` 运行时链路已经从 `rc26_merge_odom` 中删除；`PoseSender` 不再消费来自 `rc26_terrain` 的外部限速话题。
 - `launch/merge_odom.launch.py` 仍会在运行时先规范化 EKF 参数里的科学计数法数值；这部分能力保留给手工 launch / 本地调试，不影响当前单口默认口径。

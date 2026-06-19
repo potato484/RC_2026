@@ -76,9 +76,12 @@ bool StairActionBase::setupRuntime(const char *action_label) {
   // 上台阶组合推杆命令后的零速等待允许为 0。
   params_.climb_retract_rear_extend_delay_s =
       std::max(0.0, params_.climb_retract_rear_extend_delay_s);
-  // 下台阶末段定时行驶允许为 0；小于 0 时夹到 0。
-  params_.descend_finish_drive_time_s =
-      std::max(0.0, params_.descend_finish_drive_time_s);
+  // 下台阶后推杆伸出后的零速等待允许为 0；小于 0 时夹到 0。
+  params_.descend_rear_extend_delay_s =
+      std::max(0.0, params_.descend_rear_extend_delay_s);
+  // 下台阶组合推杆命令后的零速等待允许为 0。
+  params_.descend_retract_front_extend_delay_s =
+      std::max(0.0, params_.descend_retract_front_extend_delay_s);
 
   // 创建台阶动作自己的速度 publisher；动作结束或 halt 时会释放它。
   cmd_pub_ =

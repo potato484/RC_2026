@@ -18,7 +18,8 @@ struct StairParams {
   double rear_event_timeout_s{10.0};
   double climb_front_extend_delay_s{2.0};
   double climb_retract_rear_extend_delay_s{2.5};
-  double descend_finish_drive_time_s{1.0};
+  double descend_rear_extend_delay_s{2.5};
+  double descend_retract_front_extend_delay_s{2.5};
 };
 
 void loadStairParams(rclcpp::Node &node, const BT::Blackboard::Ptr &blackboard);

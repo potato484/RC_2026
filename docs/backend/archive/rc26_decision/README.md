@@ -91,10 +91,10 @@ Nav2 action result 映射规则：
 台阶动作当前只作为独立 BT XML 能力注册到 `decision_node`，默认 `main_tree.xml`、`mf_tree.xml` 与 `mc_tree.xml` 都不引用它们；`MF_Exit` 当前只保留 Nav2 pose 退出点，不再隐式执行下台阶。
 
 - `StairClimb`：先通过 `/mechanism/send_command` 下发 `FRONT_PUSHROD_EXTEND`，accepted 后按 `stair_climb_front_extend_delay_s` 零速等待；随后以 `x` 正方向直行等待 `/mechanism/command_feedback` 中的 `FRONT_LASER_HEIGHT_JUMP(0x17)`。收到前轮突变后立即停车，并在同一 BT tick 内连续发出 `FRONT_PUSHROD_RETRACT` 与 `REAR_PUSHROD_EXTEND` 两条异步 service 请求；两条都 accepted 后按 `stair_climb_retract_rear_extend_delay_s` 零速等待，再恢复 `x` 正方向直行等待 `REAR_LASER_HEIGHT_JUMP(0x18)`，最后停车并下发 `REAR_PUSHROD_RETRACT`，accepted 后返回成功。当前上台阶不再等待或消费前轮第二个激光突变 `FRONT_SECOND_LASER_HEIGHT_JUMP(0x1A)` 作为阶段推进条件。
-- `StairDescend`：先以 `x` 负方向直行等待 `REAR_LASER_HEIGHT_JUMP(0x18)`，再伸后推杆；随后继续负向直行等待 `FRONT_LASER_HEIGHT_JUMP(0x17)`，依次收后推杆、伸前推杆，并按 `stair_descend_finish_drive_time_s` 做最后短距离负向直行。
+- `StairDescend`：先以 `x` 负方向直行等待 `REAR_LASER_HEIGHT_JUMP(0x18)`，停车并下发 `REAR_PUSHROD_EXTEND`；accepted 后按 `stair_descend_rear_extend_delay_s` 零速等待。随后继续负向直行等待 `FRONT_SECOND_LASER_HEIGHT_JUMP(0x1A)`，停车并在同一 BT tick 内连续发出 `REAR_PUSHROD_RETRACT` 与 `FRONT_PUSHROD_EXTEND` 两条异步 service 请求；两条都 accepted 后按 `stair_descend_retract_front_extend_delay_s` 零速等待，再恢复 `x` 负方向直行等待新的 `REAR_LASER_HEIGHT_JUMP(0x18)`。收到最终后轮突变后停车，下发 `FRONT_PUSHROD_RETRACT`，accepted 后返回成功。
 - 两个动作都直接发布 `stair_cmd_vel_topic`（默认 `cmd_vel`），只应在单独加载 `stair_climb_tree.xml` / `stair_descend_tree.xml` 且停用其它运动命令权威时运行；任何命令拒绝、服务等待超时或激光事件等待超时都会发布零速并返回 `FAILURE`，`onHalted()` 只发布零速，不额外补偿推杆状态。
 
-台阶参数以 `stair_*` 前缀集中在 `rc26_bringup/config/r2_runtime.yaml`，启动时由 `loadStairParams()` 写入黑板 `stair_params`；当前没有运行期参数变更回调。上台阶新增两个零速等待参数：`stair_climb_front_extend_delay_s` 默认 `2.0s`，`stair_climb_retract_rear_extend_delay_s` 默认 `2.5s`；小于 0 的配置会按 0 处理。
+台阶参数以 `stair_*` 前缀集中在 `rc26_bringup/config/r2_runtime.yaml`，启动时由 `loadStairParams()` 写入黑板 `stair_params`；当前没有运行期参数变更回调。上台阶零速等待参数为 `stair_climb_front_extend_delay_s`（默认 `2.0s`）与 `stair_climb_retract_rear_extend_delay_s`（默认 `2.5s`）；下台阶零速等待参数为 `stair_descend_rear_extend_delay_s`（默认 `2.5s`）与 `stair_descend_retract_front_extend_delay_s`（默认 `2.5s`）。这些延时小于 0 时都会按 0 处理，等待期间持续发布零速。
 
 ## 红方中间列连续台阶树
 
