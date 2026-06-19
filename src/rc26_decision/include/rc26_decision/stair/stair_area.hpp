@@ -16,6 +16,8 @@ struct StairParams {
   double command_timeout_s{3.0};
   double front_event_timeout_s{10.0};
   double rear_event_timeout_s{10.0};
+  double climb_front_extend_delay_s{2.0};
+  double climb_retract_rear_extend_delay_s{2.5};
   double descend_finish_drive_time_s{1.0};
 };
 

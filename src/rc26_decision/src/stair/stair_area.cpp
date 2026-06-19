@@ -45,6 +45,14 @@ void loadStairParams(rclcpp::Node &node,
   p.rear_event_timeout_s =
       node.declare_parameter<double>("stair_rear_event_timeout_s",
                                      p.rear_event_timeout_s);
+  // 读取上台阶前推杆伸出 accepted 后的零速等待时间。
+  p.climb_front_extend_delay_s =
+      node.declare_parameter<double>("stair_climb_front_extend_delay_s",
+                                     p.climb_front_extend_delay_s);
+  // 读取上台阶前推杆收回 + 后推杆伸出 accepted 后的零速等待时间。
+  p.climb_retract_rear_extend_delay_s = node.declare_parameter<double>(
+      "stair_climb_retract_rear_extend_delay_s",
+      p.climb_retract_rear_extend_delay_s);
   // 读取下台阶末段固定时间直行的持续时间。
   p.descend_finish_drive_time_s =
       node.declare_parameter<double>("stair_descend_finish_drive_time_s",
@@ -60,6 +68,10 @@ void loadStairParams(rclcpp::Node &node,
   p.front_event_timeout_s = std::max(0.001, p.front_event_timeout_s);
   // 后轮事件超时至少 1ms，保持超时逻辑始终有效。
   p.rear_event_timeout_s = std::max(0.001, p.rear_event_timeout_s);
+  // 上台阶零速等待允许为 0；0 表示推杆命令 accepted 后立即进入下一阶段。
+  p.climb_front_extend_delay_s = std::max(0.0, p.climb_front_extend_delay_s);
+  p.climb_retract_rear_extend_delay_s =
+      std::max(0.0, p.climb_retract_rear_extend_delay_s);
   // 下台阶末段行驶时间允许为 0；0 表示收到命令后直接结束并停车。
   p.descend_finish_drive_time_s =
       std::max(0.0, p.descend_finish_drive_time_s);
@@ -68,9 +80,10 @@ void loadStairParams(rclcpp::Node &node,
   blackboard->set("stair_params", p);
   // 启动日志只打印关键入口，便于确认独立台阶树使用的是哪个 topic/service。
   RCLCPP_INFO(node.get_logger(),
-              "台阶动作参数已加载: cmd_vel=%s feedback=%s speed=%.3fm/s",
+              "台阶动作参数已加载: cmd_vel=%s feedback=%s speed=%.3fm/s climb_delays=%.2f/%.2fs",
               p.cmd_vel_topic.c_str(), p.feedback_topic.c_str(),
-              p.drive_speed_mps);
+              p.drive_speed_mps, p.climb_front_extend_delay_s,
+              p.climb_retract_rear_extend_delay_s);
 }
 
 // registerStairNodes() 只把节点类型注册进 BehaviorTreeFactory，不会让默认主流程自动执行它们。

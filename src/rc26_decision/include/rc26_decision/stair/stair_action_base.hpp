@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cstddef>
 #include <string>
 
 #include <behaviortree_cpp/bt_factory.h>
@@ -34,6 +35,9 @@ protected:
 
   void beginCommand(CommandID command_id, const char *label);
   StepStatus tickCommand();
+  void beginCommandPair(CommandID first_command_id, const char *first_label,
+                        CommandID second_command_id, const char *second_label);
+  StepStatus tickCommandPair();
 
   void beginEventWait(WheelEvent event, double timeout_s, const char *label);
   StepStatus tickEventWait();
@@ -41,6 +45,8 @@ protected:
   void beginTimedDrive(double signed_speed_mps, double duration_s,
                        const char *label);
   StepStatus tickTimedDrive();
+  void beginZeroHold(double duration_s, const char *label);
+  StepStatus tickZeroHold();
 
   BT::NodeStatus failWithStop(const char *reason);
 
@@ -55,6 +61,8 @@ private:
   double elapsedSinceStageStart() const;
   void markStageStart();
   void resetCommandState();
+  void resetCommandPairState();
+  bool sendPairCommand(std::size_t index);
   bool eventReceived() const;
 
   std::string action_label_;
@@ -75,6 +83,17 @@ private:
   std::atomic<bool> command_rejected_{false};
   std::atomic<uint64_t> command_generation_{0};
 
+  struct CommandSlot {
+    CommandID command_id{CommandID::STOP};
+    std::string label;
+    bool sent{false};
+    std::atomic<bool> response_seen{false};
+    std::atomic<bool> accepted{false};
+    std::atomic<bool> rejected{false};
+  };
+  CommandSlot command_pair_[2];
+  bool command_pair_active_{false};
+
   WheelEvent active_event_{WheelEvent::FrontFirst};
   std::string active_event_label_;
   double active_event_timeout_s_{0.0};
@@ -88,6 +107,9 @@ private:
   double timed_drive_speed_mps_{0.0};
   double timed_drive_duration_s_{0.0};
   std::string timed_drive_label_;
+
+  double zero_hold_duration_s_{0.0};
+  std::string zero_hold_label_;
 };
 
 } // namespace rc26_decision

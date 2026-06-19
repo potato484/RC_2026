@@ -12,9 +12,10 @@
     <!--
       StairClimb 是 C++ 注册的 StatefulActionNode。
       执行顺序在 stair_climb.cpp 中：
-      FRONT_PUSHROD_EXTEND -> x 正向行驶等前轮 0x17 ->
-      FRONT_PUSHROD_RETRACT -> REAR_PUSHROD_EXTEND ->
+      FRONT_PUSHROD_EXTEND -> 零速等待 2.0s -> x 正向行驶等前轮 0x17 ->
+      同 tick 下发 FRONT_PUSHROD_RETRACT + REAR_PUSHROD_EXTEND -> 零速等待 2.5s ->
       x 正向行驶等后轮 0x18 -> REAR_PUSHROD_RETRACT -> SUCCESS。
+      上台阶过程不再等待前轮第二个激光突变 0x1A。
     -->
     <StairClimb name="stair_climb"/>
   </BehaviorTree>

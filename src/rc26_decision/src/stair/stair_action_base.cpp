@@ -70,6 +70,12 @@ bool StairActionBase::setupRuntime(const char *action_label) {
   // 后轮激光事件等待超时做下限保护。
   params_.rear_event_timeout_s =
       std::max(kMinTimeoutS, params_.rear_event_timeout_s);
+  // 上台阶前推杆伸出后的零速等待允许为 0；小于 0 时夹到 0。
+  params_.climb_front_extend_delay_s =
+      std::max(0.0, params_.climb_front_extend_delay_s);
+  // 上台阶组合推杆命令后的零速等待允许为 0。
+  params_.climb_retract_rear_extend_delay_s =
+      std::max(0.0, params_.climb_retract_rear_extend_delay_s);
   // 下台阶末段定时行驶允许为 0；小于 0 时夹到 0。
   params_.descend_finish_drive_time_s =
       std::max(0.0, params_.descend_finish_drive_time_s);
@@ -129,6 +135,7 @@ void StairActionBase::releaseRuntime() {
   node_ = nullptr;
   // 清理命令等待状态，避免下一次动作读到旧的 accepted/rejected 标志。
   resetCommandState();
+  resetCommandPairState();
 }
 
 // publishDrive() 发布一帧 x 方向速度，并按 stair_command_rate_hz 做限频。
@@ -180,12 +187,15 @@ double StairActionBase::driveSpeedMagnitude() const {
 
 // beginCommand() 开始一个“下发推杆命令并等待 accepted”的阶段。
 void StairActionBase::beginCommand(CommandID command_id, const char *label) {
+  // 每个命令阶段单独切 generation，避免旧 service 回调跨阶段写入新状态。
+  command_generation_.fetch_add(1, std::memory_order_relaxed);
   // 记录本阶段要发送的协议命令 ID。
   active_command_ = command_id;
   // 记录日志标签；没有传标签时使用 command 兜底。
   active_command_label_ = label ? label : "command";
   // 清理上一条命令的 sent/accepted/rejected 状态。
   resetCommandState();
+  resetCommandPairState();
   // 从当前 tick 重新计时，用于 command_timeout_s。
   markStageStart();
   // 有 node 时打印命令 ID，便于现场和串口日志对照。
@@ -291,6 +301,91 @@ StairActionBase::StepStatus StairActionBase::tickCommand() {
   return StepStatus::Running;
 }
 
+// beginCommandPair() 开始一个“同一 tick 连续下发两条推杆命令并等待都 accepted”的阶段。
+void StairActionBase::beginCommandPair(CommandID first_command_id,
+                                       const char *first_label,
+                                       CommandID second_command_id,
+                                       const char *second_label) {
+  // 单命令和双命令共用 generation；进入新阶段后，旧异步回调都不能再写当前状态。
+  command_generation_.fetch_add(1, std::memory_order_relaxed);
+  resetCommandState();
+  resetCommandPairState();
+
+  command_pair_[0].command_id = first_command_id;
+  command_pair_[0].label = first_label ? first_label : "first_command";
+  command_pair_[1].command_id = second_command_id;
+  command_pair_[1].label = second_label ? second_label : "second_command";
+  command_pair_active_ = true;
+  markStageStart();
+
+  if (node_) {
+    RCLCPP_INFO(node_->get_logger(),
+                "%s: 同步下发 %s(0x%02X) + %s(0x%02X)",
+                action_label_.c_str(), command_pair_[0].label.c_str(),
+                static_cast<unsigned int>(
+                    static_cast<uint8_t>(first_command_id)),
+                command_pair_[1].label.c_str(),
+                static_cast<unsigned int>(
+                    static_cast<uint8_t>(second_command_id)));
+  }
+}
+
+// tickCommandPair() 推进双命令阶段：同一 tick 发送两条异步请求，等待两条都 accepted。
+StairActionBase::StepStatus StairActionBase::tickCommandPair() {
+  if (!node_ || !send_client_ || !command_pair_active_) {
+    return StepStatus::Failure;
+  }
+
+  for (const auto &slot : command_pair_) {
+    if (slot.response_seen.load(std::memory_order_relaxed) &&
+        !slot.accepted.load(std::memory_order_relaxed)) {
+      RCLCPP_WARN(node_->get_logger(), "%s: %s rejected",
+                  action_label_.c_str(), slot.label.c_str());
+      return StepStatus::Failure;
+    }
+  }
+
+  const bool first_done =
+      command_pair_[0].response_seen.load(std::memory_order_relaxed) &&
+      command_pair_[0].accepted.load(std::memory_order_relaxed);
+  const bool second_done =
+      command_pair_[1].response_seen.load(std::memory_order_relaxed) &&
+      command_pair_[1].accepted.load(std::memory_order_relaxed);
+  if (first_done && second_done) {
+    RCLCPP_INFO(node_->get_logger(), "%s: %s + %s accepted",
+                action_label_.c_str(), command_pair_[0].label.c_str(),
+                command_pair_[1].label.c_str());
+    command_pair_active_ = false;
+    return StepStatus::Success;
+  }
+
+  if (elapsedSinceStageStart() > params_.command_timeout_s) {
+    RCLCPP_WARN(node_->get_logger(), "%s: %s + %s 超时 %.2fs",
+                action_label_.c_str(), command_pair_[0].label.c_str(),
+                command_pair_[1].label.c_str(), params_.command_timeout_s);
+    return StepStatus::Failure;
+  }
+
+  if (!send_client_->service_is_ready()) {
+    RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
+                         "%s: 等待服务 %s", action_label_.c_str(),
+                         params_.send_command_service.c_str());
+    return StepStatus::Running;
+  }
+
+  bool send_failed = false;
+  for (std::size_t index = 0; index < 2; ++index) {
+    if (!command_pair_[index].sent) {
+      send_failed = !sendPairCommand(index) || send_failed;
+    }
+  }
+  if (send_failed) {
+    return StepStatus::Failure;
+  }
+
+  return StepStatus::Running;
+}
+
 // beginEventWait() 开始一个“等待指定激光高度突变”的阶段。
 void StairActionBase::beginEventWait(WheelEvent event, double timeout_s,
                                      const char *label) {
@@ -383,6 +478,31 @@ StairActionBase::StepStatus StairActionBase::tickTimedDrive() {
   return StepStatus::Running;
 }
 
+// beginZeroHold() 开始一个“持续发布零速并等待固定时长”的阶段。
+void StairActionBase::beginZeroHold(double duration_s, const char *label) {
+  zero_hold_duration_s_ = std::max(0.0, duration_s);
+  zero_hold_label_ = label ? label : "zero_hold";
+  markStageStart();
+  has_last_drive_publish_ = false;
+
+  if (node_) {
+    RCLCPP_INFO(node_->get_logger(), "%s: 开始零速等待 %s %.2fs",
+                action_label_.c_str(), zero_hold_label_.c_str(),
+                zero_hold_duration_s_);
+  }
+
+  publishStop();
+}
+
+// tickZeroHold() 延时期间每 tick 都补零速，确保底盘不会沿用上一阶段速度。
+StairActionBase::StepStatus StairActionBase::tickZeroHold() {
+  publishStop();
+  if (elapsedSinceStageStart() >= zero_hold_duration_s_) {
+    return StepStatus::Success;
+  }
+  return StepStatus::Running;
+}
+
 BT::NodeStatus StairActionBase::failWithStop(const char *reason) {
   // 失败入口统一打印原因，让上台阶/下台阶不用在每个分支重复写停车收尾。
   if (node_) {
@@ -423,6 +543,65 @@ void StairActionBase::resetCommandState() {
   command_accepted_.store(false, std::memory_order_relaxed);
   // 当前阶段尚未确认 rejected。
   command_rejected_.store(false, std::memory_order_relaxed);
+}
+
+void StairActionBase::resetCommandPairState() {
+  command_pair_active_ = false;
+  for (auto &slot : command_pair_) {
+    slot.command_id = CommandID::STOP;
+    slot.label.clear();
+    slot.sent = false;
+    slot.response_seen.store(false, std::memory_order_relaxed);
+    slot.accepted.store(false, std::memory_order_relaxed);
+    slot.rejected.store(false, std::memory_order_relaxed);
+  }
+}
+
+bool StairActionBase::sendPairCommand(std::size_t index) {
+  if (index >= 2 || !node_ || !send_client_) {
+    return false;
+  }
+
+  auto &slot = command_pair_[index];
+  auto request = std::make_shared<SendCommandSrv::Request>();
+  request->command_id = static_cast<uint8_t>(slot.command_id);
+  request->payload.clear();
+  const uint64_t token = command_generation_.load(std::memory_order_relaxed);
+
+  try {
+    send_client_->async_send_request(
+        request,
+        [this, token, index](
+            rclcpp::Client<SendCommandSrv>::SharedFuture future) {
+          if (token != command_generation_.load(std::memory_order_relaxed) ||
+              index >= 2) {
+            return;
+          }
+
+          try {
+            const auto response = future.get();
+            const bool accepted = response && response->accepted;
+            command_pair_[index].accepted.store(accepted,
+                                                std::memory_order_relaxed);
+            command_pair_[index].rejected.store(!accepted,
+                                                std::memory_order_relaxed);
+          } catch (const std::exception &) {
+            command_pair_[index].accepted.store(false,
+                                                std::memory_order_relaxed);
+            command_pair_[index].rejected.store(true,
+                                                std::memory_order_relaxed);
+          }
+          command_pair_[index].response_seen.store(true,
+                                                   std::memory_order_relaxed);
+        });
+  } catch (const std::exception &e) {
+    RCLCPP_WARN(node_->get_logger(), "%s: %s async_send_request 失败: %s",
+                action_label_.c_str(), slot.label.c_str(), e.what());
+    return false;
+  }
+
+  slot.sent = true;
+  return true;
 }
 
 bool StairActionBase::eventReceived() const {
