@@ -34,10 +34,10 @@ BT::NodeStatus StairClimbAction::onRunning() {
     switch (tickCommand()) {
     case StepStatus::Success:
       // 前推杆命令 accepted 后，进入前轮越过阶梯边缘的行驶阶段。
-      phase_ = Phase::DriveUntilFrontEvent;
-      // 记录当前前轮事件计数作为基线，只接受此后新来的 FRONT_LASER_HEIGHT_JUMP。
-      beginEventWait(WheelEvent::Front, params_.front_event_timeout_s,
-                     "front");
+      phase_ = Phase::DriveUntilFrontFirstEvent;
+      // 记录当前前轮第一个激光事件计数作为基线，只接受此后新来的事件。
+      beginEventWait(WheelEvent::FrontFirst, params_.front_event_timeout_s,
+                     "front_first");
       break;
     case StepStatus::Failure:
       // 命令被拒绝或等待超时，发布零速并返回 FAILURE。
@@ -48,37 +48,36 @@ BT::NodeStatus StairClimbAction::onRunning() {
     }
     break;
 
-  case Phase::DriveUntilFrontEvent:
+  case Phase::DriveUntilFrontFirstEvent:
     // 第二阶段：前推杆已伸出，持续发布 x 正方向速度推动前轮上台阶。
     publishDrive(driveSpeedMagnitude());
-    // 同时检查 MCU 是否已经上报前轮激光测距高度突变。
+    // 同时检查 MCU 是否已经上报前轮第一个激光测距高度突变。
     switch (tickEventWait()) {
     case StepStatus::Success:
-      // 前轮事件到达，先停车，避免切换推杆状态时底盘继续顶着台阶边缘。
-      publishStop();
-      // 前轮已经越过突变点，准备收回前推杆。
+      // 前轮第一个事件到达后，开始收回前推杆；后续阶段继续保持 x 正向行驶。
       phase_ = Phase::SendFrontRetract;
       // 下发 FRONT_PUSHROD_RETRACT；后续 tick 等待 accepted。
       beginCommand(CommandID::FRONT_PUSHROD_RETRACT,
                    "FRONT_PUSHROD_RETRACT");
       break;
     case StepStatus::Failure:
-      // 等不到前轮突变，说明流程卡住或传感器异常，安全停车并失败。
-      return failWithStop("front laser event timeout");
+      // 等不到前轮第一个突变，说明流程卡住或传感器异常，安全停车并失败。
+      return failWithStop("front first laser event timeout");
     case StepStatus::Running:
-      // 还没等到前轮突变，本 tick 保持 RUNNING，下个 tick 继续发速度。
+      // 还没等到前轮第一个突变，本 tick 保持 RUNNING，下个 tick 继续发速度。
       break;
     }
     break;
 
   case Phase::SendFrontRetract:
-    // 第三阶段：等待前推杆收回命令 accepted。
+    // 第三阶段：等待前推杆收回命令 accepted，同时继续 x 正方向行驶。
+    publishDrive(driveSpeedMagnitude());
     switch (tickCommand()) {
     case StepStatus::Success:
-      // 前推杆已确认收回，下一步伸后推杆，准备让后轮上台阶。
-      phase_ = Phase::SendRearExtend;
-      // 下发 REAR_PUSHROD_EXTEND；命令 accepted 后再继续行驶。
-      beginCommand(CommandID::REAR_PUSHROD_EXTEND, "REAR_PUSHROD_EXTEND");
+      // 前推杆已确认收回，继续行驶并等待前轮第二个激光突变。
+      phase_ = Phase::DriveUntilFrontSecondEvent;
+      beginEventWait(WheelEvent::FrontSecond, params_.front_event_timeout_s,
+                     "front_second");
       break;
     case StepStatus::Failure:
       // 前推杆收回失败时不再继续运动，防止机构姿态不确定。
@@ -89,8 +88,25 @@ BT::NodeStatus StairClimbAction::onRunning() {
     }
     break;
 
+  case Phase::DriveUntilFrontSecondEvent:
+    // 第四阶段：持续发布 x 正方向速度，等待前轮第二个激光高度突变。
+    publishDrive(driveSpeedMagnitude());
+    switch (tickEventWait()) {
+    case StepStatus::Success:
+      // 前轮第二个事件到达后，伸出后推杆，准备让后轮上台阶。
+      phase_ = Phase::SendRearExtend;
+      beginCommand(CommandID::REAR_PUSHROD_EXTEND, "REAR_PUSHROD_EXTEND");
+      break;
+    case StepStatus::Failure:
+      return failWithStop("front second laser event timeout");
+    case StepStatus::Running:
+      break;
+    }
+    break;
+
   case Phase::SendRearExtend:
-    // 第四阶段：等待后推杆伸出命令 accepted。
+    // 第五阶段：等待后推杆伸出命令 accepted，同时继续 x 正方向行驶。
+    publishDrive(driveSpeedMagnitude());
     switch (tickCommand()) {
     case StepStatus::Success:
       // 后推杆已伸出，进入后轮越过阶梯边缘的行驶阶段。
@@ -108,7 +124,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
     break;
 
   case Phase::DriveUntilRearEvent:
-    // 第五阶段：后推杆已伸出，继续发布 x 正方向速度推动后轮上台阶。
+    // 第六阶段：后推杆已伸出，继续发布 x 正方向速度推动后轮上台阶。
     publishDrive(driveSpeedMagnitude());
     // 检查 MCU 是否已经上报后轮激光测距高度突变。
     switch (tickEventWait()) {
@@ -131,7 +147,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
     break;
 
   case Phase::SendRearRetract:
-    // 第六阶段：等待后推杆收回 accepted，作为上台阶最后的收尾确认。
+    // 第七阶段：等待后推杆收回 accepted，作为上台阶最后的收尾确认。
     switch (tickCommand()) {
     case StepStatus::Success:
       // 收到 accepted 后再补一帧零速，确保底盘命令权离开前处于停止状态。

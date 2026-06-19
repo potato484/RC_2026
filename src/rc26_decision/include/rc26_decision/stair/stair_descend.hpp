@@ -16,10 +16,11 @@ private:
   enum class Phase {
     DriveUntilRearEvent,
     SendRearExtend,
-    DriveUntilFrontEvent,
+    DriveUntilFrontSecondEvent,
     SendRearRetract,
     SendFrontExtend,
-    FinishDrive,
+    DriveUntilFrontFirstEvent,
+    SendFrontRetract,
     Done
   };
 
