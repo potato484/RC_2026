@@ -29,7 +29,7 @@ tip_vision_test_node:  # tip USB 相机测试节点参数命名空间
     target_labels: ["JK"]  # 参与端头选择和对齐的目标标签列表，必须能在模型 labels 中找到
 
     # 自动横移对线：发布 cmd_vel.linear.y，经 PoseSender 下发到底盘。
-    alignment_control_enable: false  # 是否启用自动视觉对线并发布 cmd_vel
+    alignment_control_enable: true  # 是否启用自动视觉对线并发布 cmd_vel
     alignment_cmd_vel_topic: "cmd_vel"  # 自动对线和前探速度发布话题
     alignment_tolerance_px: 20  # 端头框中心与画面中心的允许水平误差，单位 px
     alignment_stable_frames: 5  # 误差连续落入容差多少个新推理帧后进入前探阶段
@@ -49,7 +49,7 @@ tip_vision_test_node:  # tip USB 相机测试节点参数命名空间
     # 收到限位后停车并通过 /mechanism/send_command 下发 GRAB_TIP(0x01)。
     # ROS 2 YAML 解析器无法给 [] 推断数组类型；空 payload 使用节点默认值即可。
     # 如需下发字节，取消下一行注释并填入非空数组，例如 [1, 2]。
-    alignment_grab_enable: false  # 是否启用抓取链；开启后必须先前探等 0x19，再下发 GRAB_TIP
+    alignment_grab_enable: true  # 是否启用抓取链；开启后必须先前探等 0x19，再下发 GRAB_TIP
     alignment_grab_command_id: 1  # 抓取端头命令 ID；1 对应 GRAB_TIP(0x01)
     # alignment_grab_payload: [1, 2]  # 可选抓取 payload 示例；GRAB_TIP 默认空 payload 时保持注释即可
     alignment_grab_once_per_target: true  # 同一锁定目标是否只允许发送一次抓取命令
