@@ -55,8 +55,9 @@
 - `rc26_telecontrol_front_pushrod_buttons` 会在 `Y/A` 按下沿单次调用 `/mechanism/send_command`
 - `rc26_telecontrol_rear_pushrod_buttons` 会在 `Select/Back` / `Start` 按下沿单次调用 `/mechanism/send_command`
 - 4 条双推杆命令都通过 `merge_odom` 桥接走可靠 `sendCommand()` ACK 路径；若 MCU 不回通用 `ACK(0x00)`，会像其它可靠命令一样自动重传并打印超时日志
-- `0x13~0x1A` 业务反馈会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定
-- `0x17/0x18/0x1A` 只由 MCU 上行，v1 payload 为空或忽略，分别表示前轮 / 后轮 / 前轮第二个激光测距模块检测到车体高度突变；上位机台阶 BT 动作按这些事件推进阶段
+- `0x13~0x19` 业务反馈以及历史保留的 `0x1A` 会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定
+- `0x17/0x18` 只由 MCU 上行，v1 payload 为空或忽略，分别表示前轮 / 后轮激光测距模块检测到车体高度突变；当前两激光台阶 BT 动作只按这两个事件推进阶段
+- `0x1A` 的 `FRONT_SECOND_LASER_HEIGHT_JUMP` 协议枚举保留为历史反馈 ID，桥接层仍可透传，但当前上/下台阶 BT 不再等待或消费它作为阶段推进条件
 - `0x19` 只由 MCU 上行，v1 payload 为空或忽略，表示武馆前方限位开关触发；武馆视觉夹取链在对齐后 x 负向前探并等待该事件，收到后立即停车再下发 `GRAB_TIP(0x01)`
 - 串口层当前只把 `ACK(0x00)`、`NACK(0x01)` 和心跳场景下的 `HEARTBEAT_ACK(0x10)` 视为 ACK 等待结果；当前 MCU 已不再返回 `ACTION_FAIL/ERROR`
 - `Dpad 左/右` 已回归底盘横移控制

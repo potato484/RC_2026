@@ -105,7 +105,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
     publishStop();
     switch (tickCommandPair()) {
     case StepStatus::Success:
-      // 两条命令都 accepted 后，再零速等待后推杆到位；不再理会前轮第二个激光突变。
+      // 两条命令都 accepted 后，再零速等待后推杆到位；当前两激光链路只由后轮 0x18 推进下一阶段。
       phase_ = Phase::HoldAfterFrontRetractAndRearExtend;
       beginZeroHold(params_.climb_retract_rear_extend_delay_s,
                     "front_retract_rear_extend_settle");
@@ -119,7 +119,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
     break;
 
   case Phase::HoldAfterFrontRetractAndRearExtend:
-    // 第五阶段：组合推杆命令后零速等待；这段期间忽略任何前轮第二个突变数据。
+    // 第五阶段：组合推杆命令后零速等待；这段期间不消费额外前轮突变数据。
     switch (tickZeroHold()) {
     case StepStatus::Success:
       // 延时结束后恢复 x 正方向行驶，等待后轮 0x18 突变。

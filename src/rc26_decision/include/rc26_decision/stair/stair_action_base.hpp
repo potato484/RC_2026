@@ -23,7 +23,7 @@ public:
   static BT::PortsList providedPorts();
 
   enum class StepStatus { Running, Success, Failure };
-  enum class WheelEvent { FrontFirst, FrontSecond, Rear };
+  enum class WheelEvent { FrontFirst, Rear };
 
 protected:
   bool setupRuntime(const char *action_label);
@@ -98,10 +98,8 @@ private:
   std::string active_event_label_;
   double active_event_timeout_s_{0.0};
   uint64_t front_first_event_baseline_{0};
-  uint64_t front_second_event_baseline_{0};
   uint64_t rear_event_baseline_{0};
   std::atomic<uint64_t> front_first_event_count_{0};
-  std::atomic<uint64_t> front_second_event_count_{0};
   std::atomic<uint64_t> rear_event_count_{0};
 
   double timed_drive_speed_mps_{0.0};

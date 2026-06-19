@@ -101,3 +101,5 @@ r2_runtime:
       stair_climb_retract_rear_extend_delay_s: 2.5   # 上台阶前收+后伸 accepted 后零速等待时间，单位秒
       stair_descend_rear_extend_delay_s: 2.5         # 下台阶后推杆伸出 accepted 后零速等待时间，单位秒
       stair_descend_retract_front_extend_delay_s: 2.5 # 下台阶后收+前伸 accepted 后零速等待时间，单位秒
+      stair_descend_front_retract_drive_speed_mps: 0.025 # 下台阶前推杆收回前 x 负向定时行驶速度绝对值，单位 m/s
+      stair_descend_front_retract_drive_duration_s: 4.0  # 下台阶前推杆收回前 x 负向定时行驶时间，单位秒

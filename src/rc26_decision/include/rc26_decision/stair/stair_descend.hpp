@@ -17,10 +17,10 @@ private:
     DriveUntilRearEvent,
     SendRearExtend,
     HoldAfterRearExtend,
-    DriveUntilFrontSecondEvent,
+    DriveUntilFrontFirstEvent,
     SendRearRetractAndFrontExtend,
     HoldAfterRearRetractAndFrontExtend,
-    DriveUntilFinalRearEvent,
+    TimedDriveBeforeFrontRetract,
     SendFrontRetract,
     Done
   };

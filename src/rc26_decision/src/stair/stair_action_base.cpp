@@ -20,8 +20,6 @@ const char *eventName(StairActionBase::WheelEvent event) {
   switch (event) {
   case StairActionBase::WheelEvent::FrontFirst:
     return "front_first";
-  case StairActionBase::WheelEvent::FrontSecond:
-    return "front_second";
   case StairActionBase::WheelEvent::Rear:
     return "rear";
   }
@@ -82,6 +80,12 @@ bool StairActionBase::setupRuntime(const char *action_label) {
   // 下台阶组合推杆命令后的零速等待允许为 0。
   params_.descend_retract_front_extend_delay_s =
       std::max(0.0, params_.descend_retract_front_extend_delay_s);
+  // 下台阶前推杆收回前的定时负向行驶速度只保留绝对值。
+  params_.descend_front_retract_drive_speed_mps =
+      std::abs(params_.descend_front_retract_drive_speed_mps);
+  // 下台阶前推杆收回前的定时负向行驶时长允许为 0。
+  params_.descend_front_retract_drive_duration_s =
+      std::max(0.0, params_.descend_front_retract_drive_duration_s);
 
   // 创建台阶动作自己的速度 publisher；动作结束或 halt 时会释放它。
   cmd_pub_ =
@@ -89,18 +93,15 @@ bool StairActionBase::setupRuntime(const char *action_label) {
   // 创建共享串口推杆命令 service client；每条命令都通过 tickCommand() 异步发送。
   send_client_ =
       node_->create_client<SendCommandSrv>(params_.send_command_service);
-  // 订阅 mechanism transport feedback；只关心 MCU 上报的三个激光高度突变事件。
+  // 订阅 mechanism transport feedback；当前两激光台阶链路只关心 MCU 上报的前轮 0x17 与后轮 0x18。
   feedback_sub_ = node_->create_subscription<FeedbackMsg>(
       params_.feedback_topic, rclcpp::QoS(32).reliable(),
       [this](const FeedbackMsg::SharedPtr msg) {
         // feedback_id 是 uint8，先转成协议枚举，便于只匹配明确的台阶事件。
         const auto id = static_cast<FeedbackID>(msg->feedback_id);
-        // 前轮第一个激光高度突变事件到达时，前轮第一事件计数加一。
+        // 前轮激光高度突变事件到达时，前轮事件计数加一。
         if (id == FeedbackID::FRONT_LASER_HEIGHT_JUMP) {
           front_first_event_count_.fetch_add(1, std::memory_order_relaxed);
-        // 前轮第二个激光高度突变事件到达时，前轮第二事件计数加一。
-        } else if (id == FeedbackID::FRONT_SECOND_LASER_HEIGHT_JUMP) {
-          front_second_event_count_.fetch_add(1, std::memory_order_relaxed);
         // 后轮激光高度突变事件到达时，后轮事件计数加一。
         } else if (id == FeedbackID::REAR_LASER_HEIGHT_JUMP) {
           rear_event_count_.fetch_add(1, std::memory_order_relaxed);
@@ -392,17 +393,15 @@ StairActionBase::StepStatus StairActionBase::tickCommandPair() {
 // beginEventWait() 开始一个“等待指定激光高度突变”的阶段。
 void StairActionBase::beginEventWait(WheelEvent event, double timeout_s,
                                      const char *label) {
-  // 记录当前等待的是前轮第一、前轮第二还是后轮事件。
+  // 记录当前等待的是前轮还是后轮事件。
   active_event_ = event;
   // 记录日志标签；没有显式标签时根据事件类型生成默认名称。
   active_event_label_ = label ? label : eventName(event);
   // 记录本阶段的事件超时，并做最小值保护。
   active_event_timeout_s_ = std::max(kMinTimeoutS, timeout_s);
-  // 记录三个事件基线；防止上一阶段或启动前的旧事件误触发本阶段。
+  // 记录两个事件基线；防止上一阶段或启动前的旧事件误触发本阶段。
   front_first_event_baseline_ =
       front_first_event_count_.load(std::memory_order_relaxed);
-  front_second_event_baseline_ =
-      front_second_event_count_.load(std::memory_order_relaxed);
   rear_event_baseline_ = rear_event_count_.load(std::memory_order_relaxed);
   // 从当前 tick 开始计算事件等待超时。
   markStageStart();
@@ -612,9 +611,6 @@ bool StairActionBase::eventReceived() const {
   case WheelEvent::FrontFirst:
     return front_first_event_count_.load(std::memory_order_relaxed) >
            front_first_event_baseline_;
-  case WheelEvent::FrontSecond:
-    return front_second_event_count_.load(std::memory_order_relaxed) >
-           front_second_event_baseline_;
   case WheelEvent::Rear:
     return rear_event_count_.load(std::memory_order_relaxed) >
            rear_event_baseline_;
