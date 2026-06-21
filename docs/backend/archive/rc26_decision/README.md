@@ -16,6 +16,7 @@
   - `behavior_trees/mf_tree.xml`
   - `behavior_trees/mc_tree.xml`
   - `behavior_trees/combat_tree.xml`
+  - `behavior_trees/two_pose_nav_tree.xml`（独立双点 Nav2 导航入口，默认主流程不引用）
   - `behavior_trees/stair_climb_tree.xml`（独立上台阶测试入口，默认主流程不引用）
   - `behavior_trees/stair_descend_tree.xml`（独立下台阶测试入口，默认主流程不引用）
   - `behavior_trees/mf_red_middle_column_tree.xml`（红方中间列连续台阶独立入口，默认主流程不引用）
@@ -45,12 +46,21 @@
 - `nav_last_distance_remaining`
 - `nav_last_recovery_count`
 
+`NavToPose` 与其它复用 `BtActionNode` 的 action 节点在启动时会在 `timeout_sec` 内持续等待下游 action server 可用；超过 `timeout_sec` 仍未发现 action server 时才返回 `FAILURE`。`NavToPose` 额外通过 `/bt_navigator/get_state` 等待 Nav2 lifecycle 进入 `active`，并要求目标坐标系到 `base_footprint` 的最新 TF 足够新鲜后才发送目标，避免完整 bringup 中 `decision_node` 早于 Nav2 active 或定位 TF 稳定前开始 tick 时，把目标过早发给尚未可用的导航链。Nav2 返回 `SUCCEEDED` 后，`NavToPose` 还会用最新 TF 校验 `base_footprint` 是否真的接近 XML 中的目标位姿；默认校验容差为 `success_xy_tolerance=0.20m`、`success_yaw_tolerance=0.25rad`，可在单个 BT 节点端口上覆盖。
+
 Nav2 action result 映射规则：
 
-- `SUCCEEDED` -> BT `SUCCESS`
+- `SUCCEEDED` 且决策层位姿后验通过 -> BT `SUCCESS`
+- `SUCCEEDED` 但实际位姿未进入后验容差 -> BT `FAILURE`，`error_code=130`
 - `ABORTED` -> BT `FAILURE`，`error_code=120`
 - `CANCELED` -> BT `FAILURE`，`error_code=121`
 - action server missing、invalid goal、timeout 继续沿用 `BtActionNode` 的通用错误码
+
+## 独立双点导航树
+
+`behavior_trees/two_pose_nav_tree.xml` 是一棵独立可加载的 Nav2 双点导航树，默认 `main_tree.xml`、`mf_tree.xml` 与 `mc_tree.xml` 都不引用它。运行它需要通过 `decision_node` 的 `tree_file` 显式指向该 XML，或者临时把完整 bringup 的 `r2_runtime.paths.behavior_tree_file` 改成该 XML 的绝对路径。
+
+本树只用一个 `Sequence` 依次执行两个 `NavToPose`：先到 `map` 下 `(x=0.9675, y=0.0082, yaw=-0.0035)`，成功后再到 `(x=0.9778, y=0.7744, yaw=-1.4857)`；两段导航当前各自显式设置 `timeout_sec=180.0`，避免低速实车在 60 秒默认超时内被决策层提前取消。任一导航目标返回 `FAILURE` 时，整棵树立即失败并停止后续动作。它不做视觉夹取、台阶动作、黑板状态写入或默认入口切换。
 
 ## 武馆区 (MC) 行为树
 

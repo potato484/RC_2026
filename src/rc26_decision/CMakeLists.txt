@@ -17,9 +17,11 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(behaviortree_cpp REQUIRED)
 find_package(ament_index_cpp REQUIRED)
+find_package(tf2_ros REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(lifecycle_msgs REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(rc26_serial REQUIRED)
 find_package(rc26_interfaces REQUIRED)
@@ -59,9 +61,11 @@ ament_target_dependencies(${PROJECT_NAME}_nodes
   rclcpp
   rclcpp_action
   behaviortree_cpp
+  tf2_ros
   geometry_msgs
   std_msgs
   nav_msgs
+  lifecycle_msgs
   nav2_msgs
   rc26_serial
   rc26_interfaces
@@ -83,9 +87,11 @@ ament_target_dependencies(decision_node
   rclcpp_action
   behaviortree_cpp
   ament_index_cpp
+  tf2_ros
   geometry_msgs
   std_msgs
   nav_msgs
+  lifecycle_msgs
   nav2_msgs
   rc26_serial
   rc26_interfaces
@@ -122,6 +128,6 @@ install(
 ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME}_nodes)
-ament_export_dependencies(ament_index_cpp rclcpp rclcpp_action behaviortree_cpp geometry_msgs std_msgs nav_msgs nav2_msgs rc26_serial rc26_interfaces rc26_vision OpenCV)
+ament_export_dependencies(ament_index_cpp rclcpp rclcpp_action behaviortree_cpp tf2_ros geometry_msgs std_msgs nav_msgs lifecycle_msgs nav2_msgs rc26_serial rc26_interfaces rc26_vision OpenCV)
 
 ament_package()

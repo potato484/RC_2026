@@ -5,7 +5,7 @@ r2_runtime:
   paths:
     prior_pcd_file: "/home/aidlux/RC_2026/src/rc26_point_lio/PCD/class.pcd"
     nav2_map_file: "/home/aidlux/RC_2026/src/rc26_bringup/map/class.yaml"
-    behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/main_tree.xml"
+    behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/two_pose_nav_tree.xml"
 
   chassis_runtime:
     # 整车 bringup 只保留 rc26_merge_odom/merge_odom.launch.py 作为底盘执行与局部反馈链。
@@ -73,7 +73,7 @@ r2_runtime:
       mc_grab_limit_switch_feedback_id: 25   # 前方限位开关触发反馈 ID；25 对应 0x19
       mc_grab_approach_speed_mps: 0.04       # 对齐后 x 负方向前探速度幅值，单位 m/s
       mc_grab_approach_timeout_s: 5.0        # 前探等待 0x19 的安全超时，单位秒
-      mc_grab_done_lost_time_s: 10     # 夹取后端头持续消失多久判定完成，单位秒
+      mc_grab_done_lost_time_s: 10.0   # 夹取后端头持续消失多久判定完成，单位秒
       mc_servo_timeout_s: 60.0         # 视觉伺服整体安全超时，单位秒
 
       # --- 原地旋转（发布 cmd_vel.angular.z，odom yaw 闭环）---

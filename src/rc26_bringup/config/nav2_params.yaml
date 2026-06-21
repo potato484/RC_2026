@@ -98,8 +98,8 @@ controller_server:
     progress_checker:
       plugin: nav2_controller::SimpleProgressChecker
       # 指定时间内至少移动这么远，否则判定为无进展
-      required_movement_radius: 0.5
-      movement_time_allowance: 10.0
+      required_movement_radius: 0.05
+      movement_time_allowance: 20.0
     general_goal_checker:
       plugin: nav2_controller::SimpleGoalChecker
       stateful: true
@@ -253,7 +253,7 @@ planner_server:
     GridBased:
       plugin: nav2_navfn_planner/NavfnPlanner
       # 距目标附近允许的终点松弛半径
-      tolerance: 0.5
+      tolerance: 0.05
       # 当前继续用 Dijkstra；若要更激进可改 A*
       use_astar: false
       # 允许穿过 unknown 区做规划，便于占位图和局部障碍链联调

@@ -20,6 +20,8 @@
   - `merge_odom_node` 同时提供 `/cmd_vel` 下发、共享 mechanism transport 和稳定 `/merge_odom` 局部反馈；同一时刻不会再由 bringup 额外启动独立执行节点，避免重复打开 target 串口
   - `config/r2_runtime.yaml` 是整车运行配置真源：集中维护点云文件、Nav2 地图文件、行为树 XML 绝对路径、底盘执行链默认值与决策参数
   - `r2_runtime.decision.ros__parameters` 中的 `mc_align_*` 参数维护武馆区视觉伺服横移对线口径；当前默认按后置相机安装反转横移方向，并启用端头目标锁定以避免双框同屏切换
+  - `r2_runtime.decision.ros__parameters` 中声明为 double 的参数必须在 YAML 中写成小数形式，例如 `10.0`，不要写成裸整数 `10`；ROS2 会区分 integer 和 double，类型不一致会导致 `decision_node` 启动时报 `InvalidParameterTypeException`
+  - `config/nav2_params.yaml` 中 `planner_server.GridBased.tolerance` 当前收紧为 `0.05m`，避免 NavFn 在目标点附近半米内选替代终点后仍被上层当作真实到点；`controller_server.progress_checker` 当前按低速实车调为 `20s` 内至少前进 `0.05m`，减少慢速起步或局部恢复期间的误判卡死
   - `r2_runtime.decision.ros__parameters` 同时维护 `stair_*` 台阶动作参数；这些参数只在单独加载 `rc26_decision` 的 `stair_climb_tree.xml` / `stair_descend_tree.xml`，或加载串联台阶动作的 `mf_red_middle_column_tree.xml` 时生效，默认主流程不引用台阶动作。上台阶的前推杆伸出后零速等待、前收+后伸后零速等待，以及下台阶的后推杆伸出后零速等待、后收+前伸后零速等待、前推杆收回后零速等待也在这里配置；当前两激光下台阶链路还在这里配置前推杆收回前的 `x` 负向定时行驶速度与时长，默认 `0.025m/s` 持续 `4.0s`
   - 决策测试不再通过 `rc26_decision` 单节点 launch 入口进行；需要测试决策时使用本完整 bringup 入口，把定位、Nav2、`merge_odom` 与决策节点一起拉起后验收链路效果
   - 底盘执行链默认值现在位于 `r2_runtime.chassis_runtime.merge_odom`；当前实机口径固定为 `merge_odom_use_can_odom=false`，由 WheelOdom 提供 `/merge_odom`，并在默认 `feedback_serial_port=__disabled__` 时与 `POSE_TARGET` / mechanism transport 共用目标串口单链路

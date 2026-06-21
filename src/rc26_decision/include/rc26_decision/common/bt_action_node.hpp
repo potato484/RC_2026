@@ -39,25 +39,16 @@ public:
             return failWithError(kErrorNoNode, "ACTION_NODE_MISSING",
                                  "missing rclcpp node on BT blackboard");
         }
+        node_ = node;
 
         if (!client_) {
             client_ = rclcpp_action::create_client<ActionT>(node, action_name_);
         }
 
-        if (!client_->wait_for_action_server(std::chrono::milliseconds(100))) {
-            return failWithError(kErrorNoServer, "ACTION_SERVER_MISSING",
-                                 "action server is not available");
-        }
-
-        Goal goal{};
-        if (!buildGoal(goal)) {
-            return failWithError(kErrorInvalidGoal, "INVALID_GOAL",
-                                 "failed to build action goal");
-        }
-
         double timeout_sec = toSeconds(default_timeout_);
         (void)getInput("timeout_sec", timeout_sec);
         timeout_ = toTimeout(timeout_sec, default_timeout_);
+        start_time_ = std::chrono::steady_clock::now();
 
         {
             std::lock_guard<std::mutex> lock(result_mutex_);
@@ -66,31 +57,27 @@ public:
         }
 
         goal_handle_.reset();
-        waiting_goal_handle_ = true;
-        start_time_ = std::chrono::steady_clock::now();
+        goal_handle_future_ = {};
+        goal_sent_ = false;
+        waiting_goal_handle_ = false;
         setErrorCode(0);
 
-        typename rclcpp_action::Client<ActionT>::SendGoalOptions options;
-        options.feedback_callback =
-            [this](typename GoalHandle::SharedPtr /*goal_handle*/,
-                   const std::shared_ptr<const Feedback> feedback) {
-                onFeedback(feedback);
-            };
-        options.result_callback = [this](const WrappedResult& result) {
-            std::lock_guard<std::mutex> lock(result_mutex_);
-            wrapped_result_ = result;
-            have_result_ = true;
-        };
-
-        goal_handle_future_ = client_->async_send_goal(goal, options);
-        return BT::NodeStatus::RUNNING;
+        return sendGoalIfServerReady();
     }
 
     BT::NodeStatus onRunning() override {
         if (std::chrono::steady_clock::now() - start_time_ > timeout_) {
             cancelGoal();
+            if (!goal_sent_) {
+                return failWithError(kErrorNoServer, "ACTION_SERVER_MISSING",
+                                     "action server did not become available before timeout");
+            }
             return failWithError(kErrorTimeout, "ACTION_TIMEOUT",
                                  "action timed out");
+        }
+
+        if (!goal_sent_) {
+            return sendGoalIfServerReady();
         }
 
         if (waiting_goal_handle_) {
@@ -129,6 +116,7 @@ public:
     }
 
 protected:
+    virtual bool isActionReady(rclcpp::Node& /*node*/) { return true; }
     virtual bool buildGoal(Goal& goal) = 0;
     virtual void onFeedback(const std::shared_ptr<const Feedback>& /*feedback*/) {}
     virtual BT::NodeStatus handleResult(const WrappedResult& result, uint16_t& error_code) = 0;
@@ -156,6 +144,49 @@ protected:
     }
 
 private:
+    BT::NodeStatus sendGoalIfServerReady() {
+        if (!node_ || !client_ ||
+            !client_->wait_for_action_server(std::chrono::milliseconds(0))) {
+            return BT::NodeStatus::RUNNING;
+        }
+        if (!isActionReady(*node_)) {
+            return BT::NodeStatus::RUNNING;
+        }
+
+        Goal goal{};
+        if (!buildGoal(goal)) {
+            return failWithError(kErrorInvalidGoal, "INVALID_GOAL",
+                                 "failed to build action goal");
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(result_mutex_);
+            have_result_ = false;
+            wrapped_result_ = WrappedResult{};
+        }
+
+        goal_handle_.reset();
+        goal_handle_future_ = {};
+        waiting_goal_handle_ = true;
+        goal_sent_ = true;
+        setErrorCode(0);
+
+        typename rclcpp_action::Client<ActionT>::SendGoalOptions options;
+        options.feedback_callback =
+            [this](typename GoalHandle::SharedPtr /*goal_handle*/,
+                   const std::shared_ptr<const Feedback> feedback) {
+                onFeedback(feedback);
+            };
+        options.result_callback = [this](const WrappedResult& result) {
+            std::lock_guard<std::mutex> lock(result_mutex_);
+            wrapped_result_ = result;
+            have_result_ = true;
+        };
+
+        goal_handle_future_ = client_->async_send_goal(goal, options);
+        return BT::NodeStatus::RUNNING;
+    }
+
     BT::NodeStatus failWithError(uint16_t error_code,
                                  const std::string& failure_code,
                                  const std::string& failure_reason) {
@@ -169,6 +200,7 @@ private:
             (void)client_->async_cancel_goal(goal_handle_);
         }
         goal_handle_.reset();
+        goal_sent_ = false;
         waiting_goal_handle_ = false;
     }
 
@@ -182,10 +214,12 @@ private:
     std::chrono::milliseconds default_timeout_;
     std::chrono::milliseconds timeout_{std::chrono::seconds(8)};
     std::chrono::steady_clock::time_point start_time_{};
+    rclcpp::Node* node_{nullptr};
 
     typename rclcpp_action::Client<ActionT>::SharedPtr client_;
     std::shared_future<typename GoalHandle::SharedPtr> goal_handle_future_;
     typename GoalHandle::SharedPtr goal_handle_;
+    bool goal_sent_{false};
     bool waiting_goal_handle_{false};
 
     std::mutex result_mutex_;

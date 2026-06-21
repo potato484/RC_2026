@@ -1,0 +1,16 @@
+# RC26 Nav2 导航点采集结果
+# 坐标系: map
+# 机器人基座: base_footprint
+# 生成时间: 2026-06-21T16:40:00
+# 用法: 将下面的 NavToPose XML 行复制到 rc26_decision 的行为树中。
+
+# 点位表
+# 名称 x y yaw_rad yaw_deg z stamp_sec
+wp001 0.9778 0.7744 -1.4857 -85.12 0.0241 1782031172.1896
+wp002 0.9675 0.0082 -0.0035 -0.20 0.0282 1782031199.9764
+
+# BehaviorTree.CPP NavToPose XML
+<!-- wp001，朝向=-85.12deg，采集时间=1782031172.1896 -->
+<NavToPose x="0.9778" y="0.7744" yaw="-1.4857" frame_id="map"/>
+<!-- wp002，朝向=-0.20deg，采集时间=1782031199.9764 -->
+<NavToPose x="0.9675" y="0.0082" yaw="-0.0035" frame_id="map"/>
