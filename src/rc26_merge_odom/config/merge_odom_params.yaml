@@ -5,10 +5,10 @@ can_odom_node:
   ros__parameters:
     can_interface: "can0"
     # 参数说明：wheel_radius - 几何距离参数，单位通常为米。
-    wheel_radius: 0.07625
-    wheel_base: 0.62326
+    wheel_radius: 0.045
+    wheel_base: 0.56
     # 参数说明：track_width - 几何距离参数，单位通常为米。
-    track_width: 0.7
+    track_width: 0.56
     # 参数说明：gear_ratio - 缩放比例；用于按状态或场景调整对应数值。
     gear_ratio: 19.2032  # 3591/187
     # 参数说明：publish_rate_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
@@ -58,9 +58,9 @@ wheel_odom_node:
     serial_port: "/dev/ttyUSB0"
     # 参数说明：baudrate - 串口波特率；需要与下位机或传感器通信参数一致。
     baudrate: 1000000
-    wheel_base: 0.62326
+    wheel_base: 0.56
     # 参数说明：track_width - 几何距离参数，单位通常为米。
-    track_width: 0.7
+    track_width: 0.56
     # 参数说明：publish_rate_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
     publish_rate_hz: 50
     # 参数说明：odom_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
@@ -136,10 +136,10 @@ merge_odom_node:
     # CAN参数
     can_interface: "can0"
     # 参数说明：wheel_radius - 几何距离参数，单位通常为米。
-    wheel_radius: 0.07625
-    wheel_base: 0.62326
+    wheel_radius: 0.045
+    wheel_base: 0.56
     # 参数说明：track_width - 几何距离参数，单位通常为米。
-    track_width: 0.7
+    track_width: 0.56
     # 参数说明：gear_ratio - 缩放比例；用于按状态或场景调整对应数值。
     gear_ratio: 19.2032
     # 参数说明：can_publish_rate_hz - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
