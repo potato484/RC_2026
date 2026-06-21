@@ -175,12 +175,26 @@ BT::NodeStatus StairDescendAction::onRunning() {
     break;
 
   case Phase::SendFrontRetract:
-    // 第八阶段：等待前推杆收回 accepted，作为下台阶最后的收尾确认。
+    // 第八阶段：等待前推杆收回 accepted，accepted 后进入最后零速等待。
     publishStop();
     switch (tickCommand()) {
     case StepStatus::Success:
-      // 收到 accepted 后再补一帧零速，确保动作结束时底盘停止。
-      publishStop();
+      // 收到 accepted 后按配置继续零速等待，让前推杆收回动作有稳定时间。
+      phase_ = Phase::HoldAfterFrontRetract;
+      beginZeroHold(params_.descend_front_retract_delay_s,
+                    "front_retract_settle");
+      break;
+    case StepStatus::Failure:
+      return failWithStop("FRONT_PUSHROD_RETRACT failed");
+    case StepStatus::Running:
+      break;
+    }
+    break;
+
+  case Phase::HoldAfterFrontRetract:
+    // 第九阶段：前推杆收回 accepted 后零速等待；等待结束才向 BT 报告成功。
+    switch (tickZeroHold()) {
+    case StepStatus::Success:
       // 写黑板完成标记，表示本次下台阶状态机完整走完。
       config().blackboard->set("stair_descend_done", true);
       // 进入 Done，避免重复收尾。
@@ -190,7 +204,7 @@ BT::NodeStatus StairDescendAction::onRunning() {
       // 下台阶动作成功。
       return BT::NodeStatus::SUCCESS;
     case StepStatus::Failure:
-      return failWithStop("FRONT_PUSHROD_RETRACT failed");
+      return failWithStop("front retract zero hold failed");
     case StepStatus::Running:
       break;
     }

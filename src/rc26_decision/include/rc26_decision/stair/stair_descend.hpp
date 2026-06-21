@@ -22,6 +22,7 @@ private:
     HoldAfterRearRetractAndFrontExtend,
     TimedDriveBeforeFrontRetract,
     SendFrontRetract,
+    HoldAfterFrontRetract,
     Done
   };
 

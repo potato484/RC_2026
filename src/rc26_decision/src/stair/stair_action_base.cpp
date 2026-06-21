@@ -88,6 +88,9 @@ bool StairActionBase::setupRuntime(const char *action_label) {
   // 下台阶前推杆收回前的定时负向行驶时长允许为 0。
   params_.descend_front_retract_drive_duration_s =
       std::max(0.0, params_.descend_front_retract_drive_duration_s);
+  // 下台阶前推杆收回后的零速等待允许为 0。
+  params_.descend_front_retract_delay_s =
+      std::max(0.0, params_.descend_front_retract_delay_s);
 
   // 创建台阶动作自己的速度 publisher；动作结束或 halt 时会释放它。
   cmd_pub_ =
