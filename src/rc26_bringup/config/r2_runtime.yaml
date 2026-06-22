@@ -57,7 +57,7 @@ r2_runtime:
       mc_align_stable_frames: 5              # 连续满足容差后触发夹取的稳定帧数
       mc_align_kp: 0.0010                    # 横移 P 控制比例增益，像素误差到 m/s
       mc_align_min_speed_mps: 0.015          # 横移控制最小速度，单位 m/s
-      mc_align_max_speed_mps: 0.06           # 横移控制最大速度，单位 m/s
+      mc_align_max_speed_mps: 0.025           # 横移控制最大速度，单位 m/s
       mc_align_command_rate_hz: 20.0         # 横移速度指令最大发布频率，单位 Hz
       mc_align_lost_stop_frames: 3           # 锁定目标短暂丢失多少帧后才重新获锁
       mc_align_target_lock_enable: true      # 是否锁定同一个端头，避免双框同屏时反复切换
@@ -78,7 +78,7 @@ r2_runtime:
       mc_grab_service_name: "/mechanism/send_command"  # 共享串口机构命令服务名
       mc_grab_limit_switch_feedback_topic: "/mechanism/command_feedback"  # MCU 上行业务反馈透传话题
       mc_grab_limit_switch_feedback_id: 25   # 前方限位开关触发反馈 ID；25 对应 0x19
-      mc_grab_approach_speed_mps: 0.04       # 对齐后 x 负方向前探速度幅值，单位 m/s
+      mc_grab_approach_speed_mps: 0.04      # 对齐后 x 负方向前探速度幅值，单位 m/s
       mc_grab_approach_timeout_s: 5.0        # 前探等待 0x19 的安全超时，单位秒
       mc_grab_done_lost_time_s: 10.0   # 夹取后端头持续消失多久判定完成，单位秒
       mc_servo_timeout_s: 60.0         # 视觉伺服整体安全超时，单位秒
