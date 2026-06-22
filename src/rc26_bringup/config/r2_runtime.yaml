@@ -5,7 +5,7 @@ r2_runtime:
   paths:
     prior_pcd_file: "/home/aidlux/RC_2026/src/rc26_point_lio/PCD/class.pcd"
     nav2_map_file: "/home/aidlux/RC_2026/src/rc26_bringup/map/class.yaml"
-    behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/two_pose_nav_tree.xml"
+    behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/mc_tree.xml"
 
   chassis_runtime:
     # 整车 bringup 只保留 rc26_merge_odom/merge_odom.launch.py 作为底盘执行与局部反馈链。
