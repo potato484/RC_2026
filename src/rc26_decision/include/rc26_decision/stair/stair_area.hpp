@@ -23,6 +23,15 @@ struct StairParams {
   double descend_front_retract_drive_speed_mps{0.025};
   double descend_front_retract_drive_duration_s{4.0};
   double descend_front_retract_delay_s{2.5};
+  std::string odom_topic{"odom"};
+  bool heading_hold_enable{true};
+  double heading_kp{1.2};
+  double heading_max_speed_radps{0.30};
+  double heading_tolerance_deg{3.0};
+  double heading_gate_deg{8.0};
+  int heading_stable_ticks{3};
+  double heading_odom_timeout_s{0.5};
+  double heading_align_timeout_s{8.0};
 };
 
 void loadStairParams(rclcpp::Node &node, const BT::Blackboard::Ptr &blackboard);

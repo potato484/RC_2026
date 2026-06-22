@@ -90,8 +90,7 @@ r2_runtime:
       mc_rotate_timeout_s: 15.0        # 原地旋转安全超时，单位秒
 
       # ======================================================================
-      # 独立台阶动作参数 —— 仅在单独加载 stair_climb_tree.xml / stair_descend_tree.xml
-      # 或串联台阶动作的 mf_red_middle_column_tree.xml 时使用；默认主流程不引用台阶动作
+      # 台阶动作参数 —— 供独立 stair_* 测试树和 MF GridTransition 离散格间动作复用
       # ======================================================================
       stair_cmd_vel_topic: "cmd_vel"                 # 台阶动作直接发布的速度话题；硬件执行由外部 /cmd_vel consumer 负责
       stair_send_command_service: "/mechanism/send_command"  # rc26_mcu_transport 提供的推杆命令服务
@@ -108,3 +107,12 @@ r2_runtime:
       stair_descend_front_retract_drive_speed_mps: 0.025 # 下台阶前推杆收回前 x 负向定时行驶速度绝对值，单位 m/s
       stair_descend_front_retract_drive_duration_s: 4.0  # 下台阶前推杆收回前 x 负向定时行驶时间，单位秒
       stair_descend_front_retract_delay_s: 2.5       # 下台阶前推杆收回 accepted 后零速等待时间，单位秒
+      stair_odom_topic: "odom"                       # 台阶姿态微调用 odom 话题，yaw 由四元数解算
+      stair_heading_hold_enable: true                # 上/下台阶前对齐 yaw，直行期间叠加 angular.z 保持方向
+      stair_heading_kp: 1.2                          # yaw 误差到 angular.z 的比例系数
+      stair_heading_max_speed_radps: 0.30            # heading hold 最大角速度，单位 rad/s
+      stair_heading_tolerance_deg: 3.0               # yaw 误差进入该容差并稳定后才开始跨阶梯
+      stair_heading_gate_deg: 8.0                    # 调参 gate，必须不小于 tolerance
+      stair_heading_stable_ticks: 3                  # 连续多少个 tick 满足 yaw 容差后确认姿态就绪
+      stair_heading_odom_timeout_s: 0.5              # odom yaw 超过该时间未更新时停车等待/失败
+      stair_heading_align_timeout_s: 8.0             # 进入台阶动作前原地对齐 yaw 的安全超时

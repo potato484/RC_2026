@@ -73,6 +73,31 @@ void loadStairParams(rclcpp::Node &node,
   p.descend_front_retract_delay_s = node.declare_parameter<double>(
       "stair_descend_front_retract_delay_s",
       p.descend_front_retract_delay_s);
+  // 读取台阶姿态保持用 odom 话题；yaw 由四元数直接解算。
+  p.odom_topic =
+      node.declare_parameter<std::string>("stair_odom_topic", p.odom_topic);
+  // 是否启用台阶直行阶段的 heading hold。
+  p.heading_hold_enable = node.declare_parameter<bool>(
+      "stair_heading_hold_enable", p.heading_hold_enable);
+  // yaw 误差到 angular.z 的比例系数。
+  p.heading_kp =
+      node.declare_parameter<double>("stair_heading_kp", p.heading_kp);
+  // heading hold 最大角速度。
+  p.heading_max_speed_radps = node.declare_parameter<double>(
+      "stair_heading_max_speed_radps", p.heading_max_speed_radps);
+  // 进入该 yaw 容差并稳定若干 tick 后才开始跨阶梯。
+  p.heading_tolerance_deg = node.declare_parameter<double>(
+      "stair_heading_tolerance_deg", p.heading_tolerance_deg);
+  // yaw gate 当前用于文档和调参口径，实际对齐阶段会转到 tolerance 内。
+  p.heading_gate_deg =
+      node.declare_parameter<double>("stair_heading_gate_deg",
+                                     p.heading_gate_deg);
+  p.heading_stable_ticks = node.declare_parameter<int>(
+      "stair_heading_stable_ticks", p.heading_stable_ticks);
+  p.heading_odom_timeout_s = node.declare_parameter<double>(
+      "stair_heading_odom_timeout_s", p.heading_odom_timeout_s);
+  p.heading_align_timeout_s = node.declare_parameter<double>(
+      "stair_heading_align_timeout_s", p.heading_align_timeout_s);
 
   // 速度只保留绝对值；方向在具体动作里显式加正负号，避免参数符号造成流程反向。
   p.drive_speed_mps = std::abs(p.drive_speed_mps);
@@ -99,20 +124,30 @@ void loadStairParams(rclcpp::Node &node,
       std::max(0.0, p.descend_front_retract_drive_duration_s);
   p.descend_front_retract_delay_s =
       std::max(0.0, p.descend_front_retract_delay_s);
+  p.heading_kp = std::max(0.0, p.heading_kp);
+  p.heading_max_speed_radps = std::max(0.0, p.heading_max_speed_radps);
+  p.heading_tolerance_deg = std::max(0.0, p.heading_tolerance_deg);
+  p.heading_gate_deg = std::max(p.heading_tolerance_deg, p.heading_gate_deg);
+  p.heading_stable_ticks = std::max(1, p.heading_stable_ticks);
+  p.heading_odom_timeout_s = std::max(0.001, p.heading_odom_timeout_s);
+  p.heading_align_timeout_s = std::max(0.001, p.heading_align_timeout_s);
 
   // 把完整参数对象写入黑板；实际 BT 节点从黑板读取，避免每个节点重复声明 ROS 参数。
   blackboard->set("stair_params", p);
   // 启动日志只打印关键入口，便于确认独立台阶树使用的是哪个 topic/service。
   RCLCPP_INFO(node.get_logger(),
-              "台阶动作参数已加载: cmd_vel=%s feedback=%s speed=%.3fm/s climb_delays=%.2f/%.2fs descend_delays=%.2f/%.2f/%.2fs descend_front_retract_drive=%.3fm/s %.2fs",
+              "台阶动作参数已加载: cmd_vel=%s feedback=%s odom=%s speed=%.3fm/s climb_delays=%.2f/%.2fs descend_delays=%.2f/%.2f/%.2fs descend_front_retract_drive=%.3fm/s %.2fs heading=%s kp=%.2f max=%.2frad/s tol=%.1fdeg",
               p.cmd_vel_topic.c_str(), p.feedback_topic.c_str(),
-              p.drive_speed_mps, p.climb_front_extend_delay_s,
+              p.odom_topic.c_str(), p.drive_speed_mps,
+              p.climb_front_extend_delay_s,
               p.climb_retract_rear_extend_delay_s,
               p.descend_rear_extend_delay_s,
               p.descend_retract_front_extend_delay_s,
               p.descend_front_retract_delay_s,
               p.descend_front_retract_drive_speed_mps,
-              p.descend_front_retract_drive_duration_s);
+              p.descend_front_retract_drive_duration_s,
+              p.heading_hold_enable ? "on" : "off", p.heading_kp,
+              p.heading_max_speed_radps, p.heading_tolerance_deg);
 }
 
 // registerStairNodes() 只把节点类型注册进 BehaviorTreeFactory，不会让默认主流程自动执行它们。

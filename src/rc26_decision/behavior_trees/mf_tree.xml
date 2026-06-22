@@ -1,8 +1,8 @@
-<!-- 梅林区行为树 (MF Area) - Nav2 pose 版本 -->
-<root BTCPP_format="4">
+<!-- 梅林区行为树 (MF Area) - 离散格间动作版本 -->
+<root BTCPP_format="4" main_tree_to_execute="MFAreaTree">
   <BehaviorTree ID="MFAreaTree">
     <Sequence name="MF_Main">
-      <Script code="target_kfs_count:=2; exit_grid:=10; kfs_on_board:=0; current_grid:=2"/>
+      <Script code="exit_grid:=10; current_grid:=2; mf_transition_error:=''"/>
 
       <SubTree ID="MF_Entry" _autoremap="true"/>
       <SubTree ID="MF_Loop" _autoremap="true"/>
@@ -10,30 +10,10 @@
     </Sequence>
   </BehaviorTree>
 
-  <!-- MF_Entry: 进门阶段 -->
+  <!-- MF_Entry: MF 外层流程需保证机器人已处于 grid2 的可执行姿态 -->
   <BehaviorTree ID="MF_Entry">
     <Sequence name="Entry_Seq">
-      <NavToPose x="1.2" y="-0.6" yaw="1.5708"/>
-
-      <RetryUntilSuccessful num_attempts="10">
-        <Sequence>
-          <ScanSurroundings/>
-          <Fallback>
-            <Inverter>
-              <CheckR1Blocking/>
-            </Inverter>
-            <Sequence>
-              <NavToPose x="1.2" y="-0.6" yaw="1.5708"/>
-              <Delay delay_msec="5000">
-                <AlwaysSuccess/>
-              </Delay>
-            </Sequence>
-          </Fallback>
-        </Sequence>
-      </RetryUntilSuccessful>
-
-      <NavToPose x="1.2" y="0.0" yaw="1.5708"/>
-      <Script code="current_grid:=2"/>
+      <Script code="current_grid:=2; mf_transition_error:=''"/>
     </Sequence>
   </BehaviorTree>
 
@@ -50,14 +30,9 @@
           </ForceFailure>
         </Fallback>
 
-        <ScanSurroundings/>
         <SelectNextGrid next_action="{next_action}" target_grid="{target_grid}"/>
 
         <Fallback>
-          <Sequence>
-            <ScriptCondition code="next_action=='GRAB'"/>
-            <SubTree ID="GrabKFSSeq" _autoremap="true"/>
-          </Sequence>
           <Sequence>
             <ScriptCondition code="next_action=='MOVE'"/>
             <SubTree ID="MoveToGridSeq" _autoremap="true"/>
@@ -70,83 +45,17 @@
     </KeepRunningUntilFailure>
   </BehaviorTree>
 
-  <!-- GrabKFSSeq: 抓取子树 -->
-  <BehaviorTree ID="GrabKFSSeq">
-    <Sequence>
-      <SubTree ID="NavToSelectedGrid" _autoremap="true"/>
-      <Script code="current_grid:=target_grid"/>
-      <GrabKFS/>
-      <IncrementKFSCount/>
-      <UpdateMapKFS grid_id="{target_grid}" kfs_type="0"/>
-    </Sequence>
-  </BehaviorTree>
-
-  <!-- MoveToGridSeq: 移动子树 -->
+  <!-- MoveToGridSeq: 仅执行离散格间上/下阶梯 -->
   <BehaviorTree ID="MoveToGridSeq">
     <Sequence>
-      <SubTree ID="NavToSelectedGrid" _autoremap="true"/>
-      <Script code="current_grid:=target_grid"/>
+      <GridTransition target_grid="{target_grid}"/>
     </Sequence>
   </BehaviorTree>
 
-  <!-- NavToSelectedGrid: target_grid -> Nav2 pose -->
-  <BehaviorTree ID="NavToSelectedGrid">
-    <Fallback>
-      <Sequence>
-        <ScriptCondition code="target_grid==1"/>
-        <NavToPose x="0.0" y="0.0" yaw="1.5708"/>
-      </Sequence>
-      <Sequence>
-        <ScriptCondition code="target_grid==2"/>
-        <NavToPose x="1.2" y="0.0" yaw="1.5708"/>
-      </Sequence>
-      <Sequence>
-        <ScriptCondition code="target_grid==3"/>
-        <NavToPose x="2.4" y="0.0" yaw="1.5708"/>
-      </Sequence>
-      <Sequence>
-        <ScriptCondition code="target_grid==4"/>
-        <NavToPose x="0.0" y="1.2" yaw="1.5708"/>
-      </Sequence>
-      <Sequence>
-        <ScriptCondition code="target_grid==5"/>
-        <NavToPose x="1.2" y="1.2" yaw="1.5708"/>
-      </Sequence>
-      <Sequence>
-        <ScriptCondition code="target_grid==6"/>
-        <NavToPose x="2.4" y="1.2" yaw="1.5708"/>
-      </Sequence>
-      <Sequence>
-        <ScriptCondition code="target_grid==7"/>
-        <NavToPose x="0.0" y="2.4" yaw="1.5708"/>
-      </Sequence>
-      <Sequence>
-        <ScriptCondition code="target_grid==8"/>
-        <NavToPose x="1.2" y="2.4" yaw="1.5708"/>
-      </Sequence>
-      <Sequence>
-        <ScriptCondition code="target_grid==9"/>
-        <NavToPose x="2.4" y="2.4" yaw="1.5708"/>
-      </Sequence>
-      <Sequence>
-        <ScriptCondition code="target_grid==10"/>
-        <NavToPose x="0.0" y="3.6" yaw="1.5708"/>
-      </Sequence>
-      <Sequence>
-        <ScriptCondition code="target_grid==11"/>
-        <NavToPose x="1.2" y="3.6" yaw="1.5708"/>
-      </Sequence>
-      <Sequence>
-        <ScriptCondition code="target_grid==12"/>
-        <NavToPose x="2.4" y="3.6" yaw="1.5708"/>
-      </Sequence>
-    </Fallback>
-  </BehaviorTree>
-
-  <!-- MF_Exit: 出门阶段 -->
+  <!-- MF_Exit: 到达出口格后，MF 离散流程完成 -->
   <BehaviorTree ID="MF_Exit">
     <Sequence name="Exit_Seq">
-      <NavToPose x="1.2" y="4.2" yaw="1.5708"/>
+      <AlwaysSuccess/>
     </Sequence>
   </BehaviorTree>
 </root>

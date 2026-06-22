@@ -45,7 +45,11 @@ add_library(${PROJECT_NAME}_nodes SHARED
   src/stair/stair_area.cpp
   src/stair/stair_climb.cpp
   src/stair/stair_descend.cpp
+  src/mf/conditions.cpp
+  src/mf/grid_transition.cpp
   src/mf/mf_area.cpp
+  src/mf/merlin_map.cpp
+  src/mf/select_next_grid.cpp
   src/navigation/bt_nav2_pose.cpp
 )
 

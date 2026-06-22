@@ -1,12 +1,14 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstddef>
 #include <string>
 
 #include <behaviortree_cpp/bt_factory.h>
 #include <geometry_msgs/msg/twist.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 
 #include "rc26_decision/stair/stair_area.hpp"
@@ -32,6 +34,11 @@ protected:
   void publishDrive(double signed_speed_mps);
   void publishStop();
   double driveSpeedMagnitude() const;
+  void setHeadingTarget(double target_yaw_rad);
+  void clearHeadingTarget();
+  void beginHeadingAlignment();
+  StepStatus tickHeadingAlignment();
+  bool headingReadyForMotion() const;
 
   void beginCommand(CommandID command_id, const char *label);
   StepStatus tickCommand();
@@ -55,6 +62,7 @@ protected:
 
 private:
   using TwistMsg = geometry_msgs::msg::Twist;
+  using OdomMsg = nav_msgs::msg::Odometry;
   using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
   using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
 
@@ -64,16 +72,29 @@ private:
   void resetCommandPairState();
   bool sendPairCommand(std::size_t index);
   bool eventReceived() const;
+  static double normalizeAngle(double angle_rad);
+  double headingError() const;
+  double headingAngularZ() const;
+  bool headingOdomStale() const;
 
   std::string action_label_;
 
   rclcpp::Publisher<TwistMsg>::SharedPtr cmd_pub_;
+  rclcpp::Subscription<OdomMsg>::SharedPtr odom_sub_;
   rclcpp::Client<SendCommandSrv>::SharedPtr send_client_;
   rclcpp::Subscription<FeedbackMsg>::SharedPtr feedback_sub_;
 
   rclcpp::Time stage_start_;
   rclcpp::Time last_drive_publish_;
+  rclcpp::Time heading_align_start_;
   bool has_last_drive_publish_{false};
+  double current_yaw_rad_{0.0};
+  double heading_target_yaw_rad_{0.0};
+  bool has_heading_yaw_{false};
+  bool heading_target_set_{false};
+  bool capture_current_heading_{false};
+  int heading_stable_count_{0};
+  std::chrono::steady_clock::time_point last_heading_odom_tp_{};
 
   CommandID active_command_{CommandID::STOP};
   std::string active_command_label_;

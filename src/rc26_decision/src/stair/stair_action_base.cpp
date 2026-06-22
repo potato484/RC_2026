@@ -10,6 +10,7 @@ namespace rc26_decision {
 
 namespace {
 
+constexpr double kDeg2Rad = M_PI / 180.0;
 // 台阶动作最小速度命令发布频率；避免参数为 0 时后续计算 1/rate 出现除零。
 constexpr double kMinCommandRateHz = 1.0;
 // 所有等待超时的最小值；避免配置为 0 或负数导致阶段立即异常结束。
@@ -28,13 +29,19 @@ const char *eventName(StairActionBase::WheelEvent event) {
   return "unknown";
 }
 
+double yawFromQuaternion(const geometry_msgs::msg::Quaternion &q) {
+  return std::atan2(2.0 * (q.w * q.z + q.x * q.y),
+                    1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+}
+
 } // namespace
 
 // 构造函数只初始化 BehaviorTree.CPP 基类和两个时间戳占位；ROS 资源在每次动作开始时创建。
 StairActionBase::StairActionBase(const std::string &name,
                                  const BT::NodeConfig &config)
     : BT::StatefulActionNode(name, config), stage_start_(0, 0, RCL_ROS_TIME),
-      last_drive_publish_(0, 0, RCL_ROS_TIME) {}
+      last_drive_publish_(0, 0, RCL_ROS_TIME),
+      heading_align_start_(0, 0, RCL_ROS_TIME) {}
 
 // 当前台阶节点没有 XML 端口；所有运行参数都来自黑板中的 stair_params。
 BT::PortsList StairActionBase::providedPorts() { return {}; }
@@ -91,10 +98,38 @@ bool StairActionBase::setupRuntime(const char *action_label) {
   // 下台阶前推杆收回后的零速等待允许为 0。
   params_.descend_front_retract_delay_s =
       std::max(0.0, params_.descend_front_retract_delay_s);
+  params_.heading_kp = std::max(0.0, params_.heading_kp);
+  params_.heading_max_speed_radps =
+      std::max(0.0, params_.heading_max_speed_radps);
+  params_.heading_tolerance_deg = std::max(0.0, params_.heading_tolerance_deg);
+  params_.heading_gate_deg =
+      std::max(params_.heading_tolerance_deg, params_.heading_gate_deg);
+  params_.heading_stable_ticks = std::max(1, params_.heading_stable_ticks);
+  params_.heading_odom_timeout_s =
+      std::max(kMinTimeoutS, params_.heading_odom_timeout_s);
+  params_.heading_align_timeout_s =
+      std::max(kMinTimeoutS, params_.heading_align_timeout_s);
 
   // 创建台阶动作自己的速度 publisher；动作结束或 halt 时会释放它。
   cmd_pub_ =
       node_->create_publisher<TwistMsg>(params_.cmd_vel_topic, rclcpp::QoS(10));
+  has_heading_yaw_ = false;
+  heading_target_set_ = false;
+  capture_current_heading_ = params_.heading_hold_enable;
+  heading_stable_count_ = 0;
+  if (params_.heading_hold_enable && !params_.odom_topic.empty()) {
+    odom_sub_ = node_->create_subscription<OdomMsg>(
+        params_.odom_topic, rclcpp::QoS(rclcpp::KeepLast(10)),
+        [this](const OdomMsg::SharedPtr msg) {
+          current_yaw_rad_ = yawFromQuaternion(msg->pose.pose.orientation);
+          has_heading_yaw_ = true;
+          last_heading_odom_tp_ = std::chrono::steady_clock::now();
+          if (capture_current_heading_ && !heading_target_set_) {
+            heading_target_yaw_rad_ = current_yaw_rad_;
+            heading_target_set_ = true;
+          }
+        });
+  }
   // 创建共享串口推杆命令 service client；每条命令都通过 tickCommand() 异步发送。
   send_client_ =
       node_->create_client<SendCommandSrv>(params_.send_command_service);
@@ -125,10 +160,12 @@ bool StairActionBase::setupRuntime(const char *action_label) {
 
   // 打印本次动作的关键运行入口，便于现场确认 topic/service/速度参数。
   RCLCPP_INFO(node_->get_logger(),
-              "%s 启动: cmd_vel=%s service=%s feedback=%s speed=%.3fm/s",
+              "%s 启动: cmd_vel=%s service=%s feedback=%s odom=%s speed=%.3fm/s heading=%s",
               action_label_.c_str(), params_.cmd_vel_topic.c_str(),
               params_.send_command_service.c_str(),
-              params_.feedback_topic.c_str(), params_.drive_speed_mps);
+              params_.feedback_topic.c_str(), params_.odom_topic.c_str(),
+              params_.drive_speed_mps,
+              params_.heading_hold_enable ? "on" : "off");
   // 初始化成功，具体状态机可以开始推进。
   return true;
 }
@@ -139,12 +176,18 @@ void StairActionBase::releaseRuntime() {
   command_generation_.fetch_add(1, std::memory_order_relaxed);
   // 取消 feedback 订阅；动作结束后不再累计激光事件。
   feedback_sub_.reset();
+  // 取消 odom 订阅；动作结束后不再维护 heading hold。
+  odom_sub_.reset();
   // 释放 service client；下一次动作重新创建。
   send_client_.reset();
   // 释放 cmd_vel publisher；释放前调用方应先 publishStop()。
   cmd_pub_.reset();
   // 清空 node_，让后续误调用工具函数时不会继续发布或计时。
   node_ = nullptr;
+  has_heading_yaw_ = false;
+  heading_target_set_ = false;
+  capture_current_heading_ = false;
+  heading_stable_count_ = 0;
   // 清理命令等待状态，避免下一次动作读到旧的 accepted/rejected 标志。
   resetCommandState();
   resetCommandPairState();
@@ -167,10 +210,11 @@ void StairActionBase::publishDrive(double signed_speed_mps) {
     return;
   }
 
-  // 构造 Twist，台阶动作只使用 linear.x，linear.y/angular.z 保持 0。
+  // 构造 Twist，台阶动作使用 linear.x；启用 heading hold 时叠加 angular.z 微调。
   TwistMsg msg;
   // signed_speed_mps 已经由调用方带正负号：上台阶为正，下台阶为负。
   msg.linear.x = signed_speed_mps;
+  msg.angular.z = headingAngularZ();
   // 发布速度命令给底盘执行链。
   cmd_pub_->publish(msg);
   // 记录本次发布时间，供下一 tick 限频。
@@ -195,6 +239,67 @@ void StairActionBase::publishStop() {
 double StairActionBase::driveSpeedMagnitude() const {
   // 再取一次 abs 是防御式处理，避免未来绕过 setupRuntime() 时引入负幅值。
   return std::abs(params_.drive_speed_mps);
+}
+
+void StairActionBase::setHeadingTarget(double target_yaw_rad) {
+  heading_target_yaw_rad_ = normalizeAngle(target_yaw_rad);
+  heading_target_set_ = true;
+  capture_current_heading_ = false;
+  heading_stable_count_ = 0;
+}
+
+void StairActionBase::clearHeadingTarget() {
+  heading_target_set_ = false;
+  capture_current_heading_ = false;
+  heading_stable_count_ = 0;
+}
+
+void StairActionBase::beginHeadingAlignment() {
+  heading_stable_count_ = 0;
+  if (node_) {
+    heading_align_start_ = node_->now();
+  }
+}
+
+StairActionBase::StepStatus StairActionBase::tickHeadingAlignment() {
+  if (!params_.heading_hold_enable) {
+    return StepStatus::Success;
+  }
+  if (!node_ || !cmd_pub_ || !heading_target_set_) {
+    return StepStatus::Failure;
+  }
+  if ((node_->now() - heading_align_start_).seconds() >
+      params_.heading_align_timeout_s) {
+    publishStop();
+    return StepStatus::Failure;
+  }
+  if (!has_heading_yaw_ || headingOdomStale()) {
+    publishStop();
+    return StepStatus::Running;
+  }
+
+  const double tolerance_rad = params_.heading_tolerance_deg * kDeg2Rad;
+  const double error_rad = headingError();
+  if (std::abs(error_rad) <= tolerance_rad) {
+    ++heading_stable_count_;
+    publishStop();
+    return heading_stable_count_ >= params_.heading_stable_ticks
+               ? StepStatus::Success
+               : StepStatus::Running;
+  }
+
+  heading_stable_count_ = 0;
+  TwistMsg msg;
+  msg.angular.z = headingAngularZ();
+  cmd_pub_->publish(msg);
+  return StepStatus::Running;
+}
+
+bool StairActionBase::headingReadyForMotion() const {
+  if (!params_.heading_hold_enable) {
+    return true;
+  }
+  return heading_target_set_ && has_heading_yaw_ && !headingOdomStale();
 }
 
 // beginCommand() 开始一个“下发推杆命令并等待 accepted”的阶段。
@@ -629,6 +734,43 @@ bool StairActionBase::eventReceived() const {
            rear_event_baseline_;
   }
   return false;
+}
+
+double StairActionBase::normalizeAngle(double angle_rad) {
+  while (angle_rad > M_PI) {
+    angle_rad -= 2.0 * M_PI;
+  }
+  while (angle_rad < -M_PI) {
+    angle_rad += 2.0 * M_PI;
+  }
+  return angle_rad;
+}
+
+double StairActionBase::headingError() const {
+  if (!heading_target_set_ || !has_heading_yaw_) {
+    return 0.0;
+  }
+  return normalizeAngle(heading_target_yaw_rad_ - current_yaw_rad_);
+}
+
+double StairActionBase::headingAngularZ() const {
+  if (!params_.heading_hold_enable || !heading_target_set_ ||
+      !has_heading_yaw_ || headingOdomStale()) {
+    return 0.0;
+  }
+  const double raw = params_.heading_kp * headingError();
+  const double limit = std::abs(params_.heading_max_speed_radps);
+  return std::clamp(raw, -limit, limit);
+}
+
+bool StairActionBase::headingOdomStale() const {
+  if (!has_heading_yaw_) {
+    return true;
+  }
+  const auto age = std::chrono::duration<double>(
+                       std::chrono::steady_clock::now() - last_heading_odom_tp_)
+                       .count();
+  return age > params_.heading_odom_timeout_s;
 }
 
 } // namespace rc26_decision
