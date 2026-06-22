@@ -1,6 +1,7 @@
 // 武馆区原地旋转动作：发布 cmd_vel.angular.z，订阅里程计 yaw 增量积分实现闭环转角。
 #pragma once
 
+#include <chrono>
 #include <string>
 
 #include <behaviortree_cpp/bt_factory.h>
@@ -34,10 +35,14 @@ private:
     rclcpp::Subscription<OdomMsg>::SharedPtr odom_sub_;
 
     double target_rad_{0.0};
+    double signed_target_rad_{0.0};
     double tolerance_rad_{0.0};
+    double min_speed_radps_{0.0};
+    double slowdown_rad_{0.0};
     double accumulated_rad_{0.0};
     double last_yaw_{0.0};
     bool has_yaw_{false};
+    std::chrono::steady_clock::time_point last_odom_tp_{};
     rclcpp::Time start_time_;
 };
 

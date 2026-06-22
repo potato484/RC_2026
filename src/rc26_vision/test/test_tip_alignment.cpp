@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <vector>
 
 #include "rc26_vision/postprocess/alignment/tip_alignment.hpp"
@@ -113,4 +114,96 @@ TEST(TipAlignment, ApproachVelocityAlwaysUsesNegativeX)
   EXPECT_DOUBLE_EQ(rc26_vision::computeTipApproachVx(0.04), -0.04);
   EXPECT_DOUBLE_EQ(rc26_vision::computeTipApproachVx(-0.04), -0.04);
   EXPECT_DOUBLE_EQ(rc26_vision::computeTipApproachVx(0.0), 0.0);
+}
+
+TEST(TipAlignment, HeadingControlReturnsZeroWhenDisabled)
+{
+  auto config = defaultConfig();
+  config.heading_hold_enable = false;
+  config.target_yaw_rad = 1.0;
+
+  const auto control = rc26_vision::computeTipHeadingControl(-1.0, config);
+
+  EXPECT_DOUBLE_EQ(control.yaw_error_rad, 0.0);
+  EXPECT_DOUBLE_EQ(control.angular_z_radps, 0.0);
+  EXPECT_TRUE(control.aligned);
+  EXPECT_TRUE(control.within_gate);
+  EXPECT_TRUE(control.allow_lateral);
+}
+
+TEST(TipAlignment, HeadingControlUsesSignedShortestYawError)
+{
+  auto config = defaultConfig();
+  config.heading_hold_enable = true;
+  config.target_yaw_rad = 0.5;
+  config.heading_tolerance_rad = 0.01;
+  config.heading_gate_rad = 1.0;
+  config.heading_kp = 1.0;
+  config.heading_max_speed_radps = 2.0;
+
+  auto control = rc26_vision::computeTipHeadingControl(0.2, config);
+  EXPECT_NEAR(control.yaw_error_rad, 0.3, 1e-9);
+  EXPECT_NEAR(control.angular_z_radps, 0.3, 1e-9);
+  EXPECT_FALSE(control.aligned);
+  EXPECT_TRUE(control.allow_lateral);
+
+  control = rc26_vision::computeTipHeadingControl(0.8, config);
+  EXPECT_NEAR(control.yaw_error_rad, -0.3, 1e-9);
+  EXPECT_NEAR(control.angular_z_radps, -0.3, 1e-9);
+}
+
+TEST(TipAlignment, HeadingControlStopsInsideTolerance)
+{
+  auto config = defaultConfig();
+  config.heading_hold_enable = true;
+  config.target_yaw_rad = 1.0;
+  config.heading_tolerance_rad = 0.05;
+  config.heading_gate_rad = 0.2;
+  config.heading_kp = 2.0;
+  config.heading_max_speed_radps = 0.5;
+
+  const auto control = rc26_vision::computeTipHeadingControl(0.98, config);
+
+  EXPECT_NEAR(control.yaw_error_rad, 0.02, 1e-9);
+  EXPECT_DOUBLE_EQ(control.angular_z_radps, 0.0);
+  EXPECT_TRUE(control.aligned);
+  EXPECT_TRUE(control.within_gate);
+  EXPECT_TRUE(control.allow_lateral);
+}
+
+TEST(TipAlignment, HeadingControlClampsAngularSpeed)
+{
+  auto config = defaultConfig();
+  config.heading_hold_enable = true;
+  config.target_yaw_rad = 1.0;
+  config.heading_tolerance_rad = 0.01;
+  config.heading_gate_rad = 2.0;
+  config.heading_kp = 10.0;
+  config.heading_max_speed_radps = 0.3;
+
+  const auto control = rc26_vision::computeTipHeadingControl(0.0, config);
+
+  EXPECT_NEAR(control.yaw_error_rad, 1.0, 1e-9);
+  EXPECT_NEAR(control.angular_z_radps, 0.3, 1e-9);
+  EXPECT_FALSE(control.aligned);
+  EXPECT_TRUE(control.allow_lateral);
+}
+
+TEST(TipAlignment, HeadingControlBlocksLateralOutsideGate)
+{
+  auto config = defaultConfig();
+  config.heading_hold_enable = true;
+  config.target_yaw_rad = 0.0;
+  config.heading_tolerance_rad = 0.05;
+  config.heading_gate_rad = 0.2;
+  config.heading_kp = 1.0;
+  config.heading_max_speed_radps = 0.5;
+
+  const auto control = rc26_vision::computeTipHeadingControl(-0.5, config);
+
+  EXPECT_NEAR(control.yaw_error_rad, 0.5, 1e-9);
+  EXPECT_NEAR(control.angular_z_radps, 0.5, 1e-9);
+  EXPECT_FALSE(control.aligned);
+  EXPECT_FALSE(control.within_gate);
+  EXPECT_FALSE(control.allow_lateral);
 }

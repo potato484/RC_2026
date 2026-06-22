@@ -12,8 +12,15 @@ namespace rc26_decision {
 using namespace std::chrono_literals;
 
 namespace {
+constexpr double kDeg2Rad = 3.14159265358979323846 / 180.0;
+
 double elapsedSec(const std::chrono::steady_clock::time_point& since) {
     return std::chrono::duration<double>(std::chrono::steady_clock::now() - since).count();
+}
+
+double yawFromQuaternion(const geometry_msgs::msg::Quaternion& q) {
+    return std::atan2(2.0 * (q.w * q.z + q.x * q.y),
+                      1.0 - 2.0 * (q.y * q.y + q.z * q.z));
 }
 }  // namespace
 
@@ -40,6 +47,7 @@ BT::NodeStatus VisualServoGrabAction::onStart() {
     // 创建夹取服务客户端：限位触发后向 /mechanism/send_command 下发 GRAB_TIP。
     grab_client_ = node_->create_client<SendCommandSrv>(params_.grab_service_name);
     setupFeedbackSubscription();
+    setupOdomSubscription();
 
     // 重置状态标志
     stop_requested_ = false;
@@ -53,6 +61,12 @@ BT::NodeStatus VisualServoGrabAction::onStart() {
     grab_generation_.fetch_add(1, std::memory_order_relaxed);
     waiting_for_limit_switch_ = false;
     limit_switch_triggered_ = false;
+    {
+        std::lock_guard<std::mutex> lock(odom_mutex_);
+        has_odom_yaw_ = false;
+        current_yaw_rad_ = 0.0;
+        odom_receive_tp_ = {};
+    }
     lost_active_ = false;
     approach_start_tp_ = {};
     last_pub_tp_ = {};
@@ -62,8 +76,10 @@ BT::NodeStatus VisualServoGrabAction::onStart() {
     // 启动独立工作线程（避免阻塞行为树的 tick 循环）
     worker_ = std::thread(&VisualServoGrabAction::workerLoop, this);
     RCLCPP_INFO(node_->get_logger(),
-                "武馆区视觉伺服启动: cmd_vel=%s model=%s grab_service=%s limit_feedback=%s id=0x%02X",
+                "武馆区视觉伺服启动: cmd_vel=%s model=%s odom=%s heading=%s target_yaw=%.3f grab_service=%s limit_feedback=%s id=0x%02X",
                 params_.align_cmd_vel_topic.c_str(), params_.model_id.c_str(),
+                params_.odom_topic.c_str(), params_.align_heading_hold_enable ? "开" : "关",
+                params_.align_target_yaw_rad,
                 params_.grab_service_name.c_str(),
                 params_.grab_limit_switch_feedback_topic.c_str(),
                 static_cast<unsigned int>(params_.grab_limit_switch_feedback_id & 0xFF));
@@ -96,6 +112,7 @@ void VisualServoGrabAction::stopWorker() {
         worker_.join();
     }
     feedback_sub_.reset();
+    odom_sub_.reset();
     grab_client_.reset();
     cmd_pub_.reset();
     if (camera_.isOpened()) {
@@ -159,6 +176,14 @@ void VisualServoGrabAction::workerLoop() {
                 RCLCPP_INFO(node_->get_logger(), "武馆区前方限位已触发，准备下发 GRAB_TIP");
                 continue;
             }
+            bool heading_stale = false;
+            double yaw_age_s = 0.0;
+            const auto heading_control = computeHeadingControl(heading_stale, yaw_age_s);
+            if (heading_stale) {
+                publishStop(true);
+                stable_count_ = 0;
+                continue;
+            }
             if (elapsedSec(approach_start_tp_) >= params_.grab_approach_timeout_s) {
                 waiting_for_limit_switch_ = false;
                 publishStop(true);
@@ -167,7 +192,8 @@ void VisualServoGrabAction::workerLoop() {
                 failed_ = true;
                 return;
             }
-            publishCmd(computeApproachVx(), 0.0, false);
+            const double vx = heading_control.allow_lateral ? computeApproachVx() : 0.0;
+            publishCmd(vx, 0.0, heading_control.angular_z_radps, false);
             continue;
         }
 
@@ -217,8 +243,18 @@ void VisualServoGrabAction::workerLoop() {
         // 有目标：重置消失标志
         lost_active_ = false;
 
-        // 判断是否已对准：offset 在容差范围内
-        const bool aligned = std::abs(offset_px) <= params_.align_tolerance_px;
+        bool heading_stale = false;
+        double yaw_age_s = 0.0;
+        const auto heading_control = computeHeadingControl(heading_stale, yaw_age_s);
+        if (heading_stale) {
+            publishStop(true);
+            stable_count_ = 0;
+            continue;
+        }
+
+        // 判断是否已对准：像素 offset 和车身 yaw 都进入容差。
+        const bool pixel_aligned = std::abs(offset_px) <= params_.align_tolerance_px;
+        const bool aligned = pixel_aligned && heading_control.aligned;
         // 稳定计数：连续对准帧数达到阈值后才触发夹取（防止抖动误触发）
         stable_count_ = aligned ? (stable_count_ + 1) : 0;
 
@@ -230,9 +266,9 @@ void VisualServoGrabAction::workerLoop() {
         }
 
         if (!grab_attempted_) {
-            // 未夹取、未对准：计算横移速度，发布 cmd_vel.linear.y 驱动机器人横向对准
-            double vy = computeAlignmentVy(offset_px);
-            publishCmd(0.0, vy, false);
+            // 未夹取、未对准：yaw 偏差过大时先只转向，进入 gate 后再允许横移对准。
+            const double vy = heading_control.allow_lateral ? computeAlignmentVy(offset_px) : 0.0;
+            publishCmd(0.0, vy, heading_control.angular_z_radps, false);
         }
     }
 
@@ -244,12 +280,46 @@ double VisualServoGrabAction::computeAlignmentVy(int offset_px) const {
     return rc26_vision::computeTipAlignmentVy(offset_px, makeAlignmentConfig());
 }
 
+bool VisualServoGrabAction::readAlignmentYaw(double& yaw_rad, double& age_s) {
+    std::lock_guard<std::mutex> lock(odom_mutex_);
+    if (!has_odom_yaw_) {
+        yaw_rad = 0.0;
+        age_s = 0.0;
+        return false;
+    }
+    yaw_rad = current_yaw_rad_;
+    age_s = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - odom_receive_tp_).count();
+    return age_s <= params_.align_odom_timeout_s;
+}
+
+rc26_vision::TipHeadingControl VisualServoGrabAction::computeHeadingControl(
+    bool& stale, double& yaw_age_s) {
+    stale = false;
+    yaw_age_s = 0.0;
+    auto config = makeAlignmentConfig();
+    if (!config.heading_hold_enable) {
+        return rc26_vision::computeTipHeadingControl(0.0, config);
+    }
+
+    double yaw_rad = 0.0;
+    if (!readAlignmentYaw(yaw_rad, yaw_age_s)) {
+        stale = true;
+        rc26_vision::TipHeadingControl control;
+        control.aligned = false;
+        control.within_gate = false;
+        control.allow_lateral = false;
+        return control;
+    }
+    return rc26_vision::computeTipHeadingControl(yaw_rad, config);
+}
+
 double VisualServoGrabAction::computeApproachVx() const {
     return rc26_vision::computeTipApproachVx(params_.grab_approach_speed_mps);
 }
 
 // 发布 cmd_vel 速度（受 mc_align_command_rate_hz 限频）
-void VisualServoGrabAction::publishCmd(double vx, double vy, bool force) {
+void VisualServoGrabAction::publishCmd(double vx, double vy, double wz, bool force) {
     if (!cmd_pub_) {
         return;
     }
@@ -264,12 +334,13 @@ void VisualServoGrabAction::publishCmd(double vx, double vy, bool force) {
     TwistMsg msg;
     msg.linear.x = vx;
     msg.linear.y = vy;
+    msg.angular.z = wz;
     cmd_pub_->publish(msg);
     last_pub_tp_ = now;
 }
 
 void VisualServoGrabAction::publishStop(bool force) {
-    publishCmd(0.0, 0.0, force);
+    publishCmd(0.0, 0.0, 0.0, force);
 }
 
 void VisualServoGrabAction::setupFeedbackSubscription() {
@@ -279,6 +350,15 @@ void VisualServoGrabAction::setupFeedbackSubscription() {
     feedback_sub_ = node_->create_subscription<FeedbackMsg>(
         params_.grab_limit_switch_feedback_topic, rclcpp::QoS(32).reliable(),
         [this](const FeedbackMsg::SharedPtr msg) { handleFeedback(msg); });
+}
+
+void VisualServoGrabAction::setupOdomSubscription() {
+    if (!node_ || !params_.align_heading_hold_enable) {
+        return;
+    }
+    odom_sub_ = node_->create_subscription<OdomMsg>(
+        params_.odom_topic, rclcpp::QoS(rclcpp::KeepLast(10)),
+        [this](const OdomMsg::SharedPtr msg) { handleOdom(msg); });
 }
 
 void VisualServoGrabAction::handleFeedback(const FeedbackMsg::SharedPtr msg) {
@@ -295,6 +375,16 @@ void VisualServoGrabAction::handleFeedback(const FeedbackMsg::SharedPtr msg) {
     }
 }
 
+void VisualServoGrabAction::handleOdom(const OdomMsg::SharedPtr msg) {
+    if (!msg) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(odom_mutex_);
+    current_yaw_rad_ = yawFromQuaternion(msg->pose.pose.orientation);
+    odom_receive_tp_ = std::chrono::steady_clock::now();
+    has_odom_yaw_ = true;
+}
+
 void VisualServoGrabAction::beginApproach() {
     limit_switch_triggered_ = false;
     waiting_for_limit_switch_ = true;
@@ -304,7 +394,7 @@ void VisualServoGrabAction::beginApproach() {
                 "武馆区端头已对齐，开始 x 负向前探等待限位: vx=%.3f timeout=%.2fs feedback=0x%02X",
                 computeApproachVx(), params_.grab_approach_timeout_s,
                 static_cast<unsigned int>(params_.grab_limit_switch_feedback_id & 0xFF));
-    publishCmd(computeApproachVx(), 0.0, true);
+    publishCmd(computeApproachVx(), 0.0, 0.0, true);
 }
 
 VisualServoGrabAction::GrabStepStatus VisualServoGrabAction::tickGrabCommand() {
@@ -457,6 +547,12 @@ rc26_vision::TipAlignmentConfig VisualServoGrabAction::makeAlignmentConfig() con
     config.min_speed_mps = params_.align_min_speed_mps;
     config.max_speed_mps = params_.align_max_speed_mps;
     config.invert_direction = params_.align_invert_direction;
+    config.heading_hold_enable = params_.align_heading_hold_enable;
+    config.target_yaw_rad = params_.align_target_yaw_rad;
+    config.heading_kp = params_.align_heading_kp;
+    config.heading_max_speed_radps = params_.align_heading_max_speed_radps;
+    config.heading_tolerance_rad = params_.align_heading_tolerance_deg * kDeg2Rad;
+    config.heading_gate_rad = params_.align_heading_gate_deg * kDeg2Rad;
     return config;
 }
 

@@ -43,6 +43,14 @@ tip_vision_test_node:  # tip USB 相机测试节点参数命名空间
     alignment_publish_zero_on_disable: true  # 控制关闭或退出时是否补发零速停车
     # 当前相机朝机器人后方；默认反转图像水平误差到 base_link y 的映射。
     alignment_invert_direction: true  # 是否反转横移方向映射；后置相机安装口径通常需要开启
+    alignment_heading_hold_enable: true  # 是否订阅 odom 并发布 angular.z 保持车身朝向；无 odom 桌面调试可改 false
+    alignment_odom_topic: "odom"  # heading hold 使用的雷达标准里程计话题，完整链路来自 rc26_odom_interface
+    alignment_target_yaw_rad: -1.4857  # 对线阶段期望车身 yaw，默认与 MC 取端头 Nav2 目标一致
+    alignment_heading_kp: 1.2  # yaw 误差到 angular.z 的比例系数
+    alignment_heading_max_speed_radps: 0.30  # heading hold 最大角速度，单位 rad/s
+    alignment_heading_tolerance_deg: 3.0  # yaw 误差进入该容差后才允许稳定计数
+    alignment_heading_gate_deg: 8.0  # yaw 误差超过该 gate 时暂停横移/前探，只先修正朝向
+    alignment_odom_timeout_s: 0.5  # odom 超过该时间未更新时停车等待，单位秒
     alignment_draw_guides: true  # 是否在调试窗口绘制中心线、目标线和对齐辅助信息
 
     # 对齐稳定后发布 x 负方向前探，等待 /mechanism/command_feedback 中的 0x19 前方限位事件，

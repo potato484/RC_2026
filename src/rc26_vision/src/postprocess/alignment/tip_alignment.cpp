@@ -8,6 +8,8 @@
 namespace rc26_vision {
 namespace {
 
+constexpr double kPi = 3.14159265358979323846;
+
 int boxCenterX(const TipTargetCandidate & target)
 {
   return target.box.x + target.box.width / 2;
@@ -198,6 +200,57 @@ double computeTipAlignmentVy(int offset_px, const TipAlignmentConfig & config)
     direction = -direction;
   }
   return direction * speed;
+}
+
+double normalizeTipYawError(double yaw_error_rad)
+{
+  if (!std::isfinite(yaw_error_rad)) {
+    return 0.0;
+  }
+  while (yaw_error_rad > kPi) {
+    yaw_error_rad -= 2.0 * kPi;
+  }
+  while (yaw_error_rad < -kPi) {
+    yaw_error_rad += 2.0 * kPi;
+  }
+  return yaw_error_rad;
+}
+
+TipHeadingControl computeTipHeadingControl(
+  double current_yaw_rad,
+  const TipAlignmentConfig & config)
+{
+  TipHeadingControl control;
+  if (!config.heading_hold_enable) {
+    return control;
+  }
+
+  if (!std::isfinite(current_yaw_rad) || !std::isfinite(config.target_yaw_rad)) {
+    control.aligned = false;
+    control.within_gate = false;
+    control.allow_lateral = false;
+    return control;
+  }
+
+  const double tolerance = std::max(0.0, config.heading_tolerance_rad);
+  const double gate = std::max(tolerance, config.heading_gate_rad);
+  const double max_speed = std::max(0.0, config.heading_max_speed_radps);
+  const double kp = std::max(0.0, config.heading_kp);
+
+  control.yaw_error_rad = normalizeTipYawError(config.target_yaw_rad - current_yaw_rad);
+  const double abs_error = std::abs(control.yaw_error_rad);
+  control.aligned = abs_error <= tolerance;
+  control.within_gate = abs_error <= gate;
+  control.allow_lateral = control.within_gate;
+
+  if (control.aligned || max_speed <= 0.0 || kp <= 0.0) {
+    control.angular_z_radps = 0.0;
+    return control;
+  }
+
+  const double speed = std::clamp(abs_error * kp, 0.0, max_speed);
+  control.angular_z_radps = (control.yaw_error_rad >= 0.0 ? 1.0 : -1.0) * speed;
+  return control;
 }
 
 double computeTipApproachVx(double speed_mps)

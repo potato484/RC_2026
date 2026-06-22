@@ -1,5 +1,7 @@
 #include "rotate_in_place.hpp"
 
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 
 namespace rc26_decision {
@@ -26,8 +28,8 @@ RotateInPlaceAction::RotateInPlaceAction(const std::string& name, const BT::Node
 
 // onStart: 行为树首次进入本动作时调用一次。
 // 负责：从黑板读取 mc_params → 计算目标角度和容差 → 创建 cmd_vel 发布器 →
-//       订阅 mc_odom_topic，默认依赖 /merge_odom 稳定反馈契约 → 通过 yaw 增量积分跟踪累计转角。
-// 注意：/merge_odom 是启动链路保证的契约话题，不等价于“启动了名为 merge_odom_node 的节点”。
+//       订阅 mc_odom_topic，默认使用雷达标准 /odom → 通过 yaw 增量积分跟踪累计转角。
+// 注意：/odom 是自动导航链的雷达里程计契约，merge_odom 仍只负责底盘执行和局部反馈链。
 // 返回 RUNNING 后由 onRunning 接管持续控制。
 BT::NodeStatus RotateInPlaceAction::onStart() {
     // 获取 ROS 节点指针
@@ -42,9 +44,14 @@ BT::NodeStatus RotateInPlaceAction::onStart() {
 
     // 将配置中的度转换为弧度
     target_rad_ = std::abs(params_.rotate_angle_deg) * kDeg2Rad;
+    signed_target_rad_ = (params_.rotate_direction >= 0 ? 1.0 : -1.0) * target_rad_;
     tolerance_rad_ = std::abs(params_.rotate_yaw_tolerance_deg) * kDeg2Rad;
+    min_speed_radps_ =
+        std::min(std::abs(params_.rotate_min_speed_radps), std::abs(params_.rotate_speed_radps));
+    slowdown_rad_ = std::abs(params_.rotate_slowdown_angle_deg) * kDeg2Rad;
     accumulated_rad_ = 0.0;
     has_yaw_ = false;
+    last_odom_tp_ = {};
 
     // 创建 cmd_vel 发布器，用于向底盘下发旋转角速度
     cmd_pub_ = node_->create_publisher<TwistMsg>(params_.rotate_cmd_vel_topic, rclcpp::QoS(10));
@@ -59,11 +66,14 @@ BT::NodeStatus RotateInPlaceAction::onStart() {
             }
             last_yaw_ = yaw;
             has_yaw_ = true;
+            last_odom_tp_ = std::chrono::steady_clock::now();
         });
 
     start_time_ = node_->now();
-    RCLCPP_INFO(node_->get_logger(), "武馆区原地旋转启动: 目标=%.1f° 速度=%.2frad/s odom=%s",
-                params_.rotate_angle_deg, params_.rotate_speed_radps, params_.odom_topic.c_str());
+    RCLCPP_INFO(node_->get_logger(),
+                "武馆区原地旋转启动: 目标=%.1f° 速度=%.2frad/s min=%.2frad/s slowdown=%.1f° odom=%s",
+                params_.rotate_angle_deg, params_.rotate_speed_radps, min_speed_radps_,
+                params_.rotate_slowdown_angle_deg, params_.odom_topic.c_str());
     return BT::NodeStatus::RUNNING;
 }
 
@@ -76,6 +86,7 @@ BT::NodeStatus RotateInPlaceAction::onRunning() {
         (node_->now() - start_time_).seconds() > params_.rotate_timeout_s) {
         RCLCPP_WARN(node_->get_logger(), "武馆区原地旋转超时 %.1fs", params_.rotate_timeout_s);
         publishStop();
+        odom_sub_.reset();
         return BT::NodeStatus::FAILURE;
     }
 
@@ -84,17 +95,34 @@ BT::NodeStatus RotateInPlaceAction::onRunning() {
         return BT::NodeStatus::RUNNING;
     }
 
-    // 累计转角达到目标角度（减去容差），旋转完成
-    if (std::abs(accumulated_rad_) >= target_rad_ - tolerance_rad_) {
+    const double odom_age_s =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - last_odom_tp_).count();
+    if (odom_age_s > params_.rotate_odom_timeout_s) {
         publishStop();
-        RCLCPP_INFO(node_->get_logger(), "武馆区原地旋转完成: 累计=%.1f°",
-                    accumulated_rad_ / kDeg2Rad);
+        return BT::NodeStatus::RUNNING;
+    }
+
+    const double direction = signed_target_rad_ >= 0.0 ? 1.0 : -1.0;
+    const double remaining_rad = direction * (signed_target_rad_ - accumulated_rad_);
+
+    // 累计转角达到目标角度（按旋转方向判断剩余角度），旋转完成
+    if (remaining_rad <= tolerance_rad_) {
+        publishStop();
+        odom_sub_.reset();
+        RCLCPP_INFO(node_->get_logger(), "武馆区原地旋转完成: 累计=%.1f° 剩余=%.1f°",
+                    accumulated_rad_ / kDeg2Rad, remaining_rad / kDeg2Rad);
         return BT::NodeStatus::SUCCESS;
+    }
+
+    double speed = std::abs(params_.rotate_speed_radps);
+    if (slowdown_rad_ > tolerance_rad_ && remaining_rad < slowdown_rad_) {
+        const double ratio = std::clamp(remaining_rad / slowdown_rad_, 0.0, 1.0);
+        speed = min_speed_radps_ + (speed - min_speed_radps_) * ratio;
     }
 
     // 未完成：持续发布旋转角速度（方向由 mc_rotate_direction 控制）
     TwistMsg msg;
-    msg.angular.z = (params_.rotate_direction >= 0 ? 1.0 : -1.0) * std::abs(params_.rotate_speed_radps);
+    msg.angular.z = direction * speed;
     cmd_pub_->publish(msg);
     return BT::NodeStatus::RUNNING;
 }

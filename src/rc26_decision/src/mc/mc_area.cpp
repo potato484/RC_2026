@@ -75,6 +75,18 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     p.align_target_lock_max_jump_px =
         node.declare_parameter<int>("mc_align_target_lock_max_jump_px", p.align_target_lock_max_jump_px);
     p.align_invert_direction = node.declare_parameter<bool>("mc_align_invert_direction", p.align_invert_direction);
+    p.align_heading_hold_enable =
+        node.declare_parameter<bool>("mc_align_heading_hold_enable", p.align_heading_hold_enable);
+    p.align_target_yaw_rad = node.declare_parameter<double>("mc_align_target_yaw_rad", nav_yaw);
+    p.align_heading_kp = node.declare_parameter<double>("mc_align_heading_kp", p.align_heading_kp);
+    p.align_heading_max_speed_radps =
+        node.declare_parameter<double>("mc_align_heading_max_speed_radps", p.align_heading_max_speed_radps);
+    p.align_heading_tolerance_deg =
+        node.declare_parameter<double>("mc_align_heading_tolerance_deg", p.align_heading_tolerance_deg);
+    p.align_heading_gate_deg =
+        node.declare_parameter<double>("mc_align_heading_gate_deg", p.align_heading_gate_deg);
+    p.align_odom_timeout_s =
+        node.declare_parameter<double>("mc_align_odom_timeout_s", p.align_odom_timeout_s);
 
     // 夹取
     p.grab_command_id = node.declare_parameter<int>("mc_grab_command_id", p.grab_command_id);
@@ -103,11 +115,27 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     // 原地旋转
     p.rotate_angle_deg = node.declare_parameter<double>("mc_rotate_angle_deg", p.rotate_angle_deg);
     p.rotate_speed_radps = node.declare_parameter<double>("mc_rotate_speed_radps", p.rotate_speed_radps);
+    p.rotate_min_speed_radps =
+        node.declare_parameter<double>("mc_rotate_min_speed_radps", p.rotate_min_speed_radps);
+    p.rotate_slowdown_angle_deg =
+        node.declare_parameter<double>("mc_rotate_slowdown_angle_deg", p.rotate_slowdown_angle_deg);
     p.rotate_direction = node.declare_parameter<int>("mc_rotate_direction", p.rotate_direction);
     p.rotate_yaw_tolerance_deg = node.declare_parameter<double>("mc_rotate_yaw_tolerance_deg", p.rotate_yaw_tolerance_deg);
     p.rotate_cmd_vel_topic = node.declare_parameter<std::string>("mc_rotate_cmd_vel_topic", p.rotate_cmd_vel_topic);
     p.odom_topic = node.declare_parameter<std::string>("mc_odom_topic", p.odom_topic);
+    p.rotate_odom_timeout_s =
+        node.declare_parameter<double>("mc_rotate_odom_timeout_s", p.rotate_odom_timeout_s);
     p.rotate_timeout_s = node.declare_parameter<double>("mc_rotate_timeout_s", p.rotate_timeout_s);
+
+    p.align_heading_kp = std::max(0.0, p.align_heading_kp);
+    p.align_heading_max_speed_radps = std::max(0.0, p.align_heading_max_speed_radps);
+    p.align_heading_tolerance_deg = std::max(0.0, p.align_heading_tolerance_deg);
+    p.align_heading_gate_deg = std::max(p.align_heading_tolerance_deg, p.align_heading_gate_deg);
+    p.align_odom_timeout_s = std::max(0.001, p.align_odom_timeout_s);
+    p.rotate_speed_radps = std::max(0.0, std::abs(p.rotate_speed_radps));
+    p.rotate_min_speed_radps = std::max(0.0, std::abs(p.rotate_min_speed_radps));
+    p.rotate_slowdown_angle_deg = std::max(0.0, p.rotate_slowdown_angle_deg);
+    p.rotate_odom_timeout_s = std::max(0.001, p.rotate_odom_timeout_s);
 
     p.vision_config_file = resolveVisionConfig(p.vision_config_file);
 

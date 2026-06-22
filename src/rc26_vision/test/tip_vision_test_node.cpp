@@ -6,12 +6,14 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include <geometry_msgs/msg/twist.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 #include <opencv2/opencv.hpp>
 #include <rc26_interfaces/msg/mechanism_transport_feedback.hpp>
 #include <rc26_interfaces/srv/send_mechanism_transport_command.hpp>
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstdint>
 #include <filesystem>
@@ -43,6 +45,7 @@ public:
 
 private:
   using TwistMsg = geometry_msgs::msg::Twist;
+  using OdomMsg = nav_msgs::msg::Odometry;
   using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
   using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
 
@@ -72,6 +75,12 @@ private:
     int target_lock_lost_count{0};
     double cmd_vx{0.0};
     double cmd_vy{0.0};
+    double cmd_wz{0.0};
+    bool heading_enabled{false};
+    bool heading_stale{false};
+    bool heading_aligned{true};
+    bool heading_within_gate{true};
+    double heading_error_rad{0.0};
     std::string grab_state{"DISABLED"};
     bool limit_switch_triggered{false};
     std::string grab_phase{"WAIT"};
@@ -113,12 +122,17 @@ private:
   bool start_callback_executor();
   void stop_callback_executor();
   void handle_limit_switch_feedback(const FeedbackMsg::SharedPtr msg);
+  void handle_alignment_odom(const OdomMsg::SharedPtr msg);
   bool should_publish_alignment_command(
     const std::chrono::steady_clock::time_point & now,
     bool force) const;
-  bool publish_alignment_command(double vx, double vy, bool force = false);
+  bool publish_alignment_command(double vx, double vy, double wz, bool force = false);
   void publish_alignment_stop(bool force = false);
   double compute_alignment_vy(int offset_px) const;
+  bool read_alignment_yaw(double & yaw_rad, double & age_s);
+  rc26_vision::TipHeadingControl compute_alignment_heading_control(
+    bool & stale,
+    double & yaw_age_s);
   double compute_approach_vx() const;
   std::string grab_phase_label() const;
   void begin_limit_switch_approach();
@@ -130,6 +144,11 @@ private:
     double & out_cmd_vy,
     bool & out_aligned,
     bool & out_command_published,
+    double & out_cmd_wz,
+    bool & out_heading_stale,
+    bool & out_heading_aligned,
+    bool & out_heading_within_gate,
+    double & out_heading_error_rad,
     uint8_t & out_grab_seq);
   bool send_grab_tip_command(uint8_t & out_seq);
 
@@ -216,12 +235,21 @@ private:
     static_cast<int>(rc26_serial::FeedbackID::FRONT_LIMIT_SWITCH_TRIGGERED)};
   double alignment_approach_speed_mps_{0.04};
   double alignment_approach_timeout_s_{5.0};
+  bool alignment_heading_hold_enable_{true};
+  std::string alignment_odom_topic_{"odom"};
+  double alignment_target_yaw_rad_{-1.4857};
+  double alignment_heading_kp_{1.2};
+  double alignment_heading_max_speed_radps_{0.30};
+  double alignment_heading_tolerance_rad_{0.05235987755982989};
+  double alignment_heading_gate_rad_{0.13962634015954636};
+  double alignment_odom_timeout_s_{0.5};
 
   rc26_vision::InferenceEnginePtr engine_;
   cv::VideoCapture camera_;
   rclcpp::Publisher<TwistMsg>::SharedPtr alignment_cmd_pub_;
   rclcpp::Client<SendCommandSrv>::SharedPtr grab_command_client_;
   rclcpp::Subscription<FeedbackMsg>::SharedPtr limit_switch_sub_;
+  rclcpp::Subscription<OdomMsg>::SharedPtr alignment_odom_sub_;
   std::unique_ptr<rclcpp::executors::SingleThreadedExecutor> callback_executor_;
   std::thread callback_executor_thread_;
   std::atomic<bool> callback_executor_running_{false};
@@ -250,6 +278,10 @@ private:
   bool alignment_zero_published_{false};
   std::atomic<bool> waiting_for_limit_switch_{false};
   std::atomic<bool> limit_switch_triggered_{false};
+  std::mutex alignment_odom_mutex_;
+  bool alignment_has_yaw_{false};
+  double alignment_current_yaw_rad_{0.0};
+  std::chrono::steady_clock::time_point alignment_odom_receive_tp_{};
   std::mutex grab_response_mutex_;
   std::condition_variable grab_response_cv_;
   std::atomic<uint64_t> grab_request_generation_{0};
@@ -317,6 +349,13 @@ inline std::string byte_to_hex(uint8_t value)
   oss << "0x" << std::uppercase << std::hex << std::setfill('0') << std::setw(2)
       << static_cast<unsigned int>(value);
   return oss.str();
+}
+
+inline double yaw_from_quaternion(const geometry_msgs::msg::Quaternion & q)
+{
+  return std::atan2(
+    2.0 * (q.w * q.z + q.x * q.y),
+    1.0 - 2.0 * (q.y * q.y + q.z * q.z));
 }
 
 }  // namespace rc26_vision::test::tip_detail
@@ -394,7 +433,12 @@ int TipVisionTestNode::run()
   double display_infer_fps = 0.0;
   double current_cmd_vx = 0.0;
   double current_cmd_vy = 0.0;
+  double current_cmd_wz = 0.0;
   bool current_aligned = false;
+  bool current_heading_stale = false;
+  bool current_heading_aligned = true;
+  bool current_heading_within_gate = true;
+  double current_heading_error_rad = 0.0;
   bool alignment_command_published = false;
 
   while (rclcpp::ok()) {
@@ -450,7 +494,8 @@ int TipVisionTestNode::run()
     uint8_t grab_seq = last_grab_seq_;
     const std::string grab_state = update_alignment_control(
       current_has_target, current_offset_px, new_inference_result, current_cmd_vx, current_cmd_vy,
-      current_aligned, alignment_command_published, grab_seq);
+      current_aligned, alignment_command_published, current_cmd_wz, current_heading_stale,
+      current_heading_aligned, current_heading_within_gate, current_heading_error_rad, grab_seq);
 
     if (show_window_ && has_latest_result) {
       draw_detections(frame_bgr, latest_result.detections);
@@ -492,6 +537,12 @@ int TipVisionTestNode::run()
       alignment_info.target_lock_lost_count = current_target_lock_lost_count;
       alignment_info.cmd_vx = current_cmd_vx;
       alignment_info.cmd_vy = current_cmd_vy;
+      alignment_info.cmd_wz = current_cmd_wz;
+      alignment_info.heading_enabled = alignment_heading_hold_enable_;
+      alignment_info.heading_stale = current_heading_stale;
+      alignment_info.heading_aligned = current_heading_aligned;
+      alignment_info.heading_within_gate = current_heading_within_gate;
+      alignment_info.heading_error_rad = current_heading_error_rad;
       alignment_info.grab_state = grab_state;
       alignment_info.limit_switch_triggered =
         limit_switch_triggered_.load(std::memory_order_relaxed);
@@ -616,10 +667,20 @@ void TipVisionTestNode::declare_parameters()
     static_cast<int>(rc26_serial::FeedbackID::FRONT_LIMIT_SWITCH_TRIGGERED));
   this->declare_parameter<double>("alignment_approach_speed_mps", 0.04);
   this->declare_parameter<double>("alignment_approach_timeout_s", 5.0);
+  this->declare_parameter<bool>("alignment_heading_hold_enable", true);
+  this->declare_parameter<std::string>("alignment_odom_topic", "odom");
+  this->declare_parameter<double>("alignment_target_yaw_rad", -1.4857);
+  this->declare_parameter<double>("alignment_heading_kp", 1.2);
+  this->declare_parameter<double>("alignment_heading_max_speed_radps", 0.30);
+  this->declare_parameter<double>("alignment_heading_tolerance_deg", 3.0);
+  this->declare_parameter<double>("alignment_heading_gate_deg", 8.0);
+  this->declare_parameter<double>("alignment_odom_timeout_s", 0.5);
 }
 
 void TipVisionTestNode::load_parameters()
 {
+  constexpr double kDeg2Rad = 3.14159265358979323846 / 180.0;
+
   vision_config_file_ = this->get_parameter("vision_config_file").as_string();
   model_id_ = this->get_parameter("model_id").as_string();
   camera_index_ = this->get_parameter("camera_index").as_int();
@@ -681,6 +742,18 @@ void TipVisionTestNode::load_parameters()
     this->get_parameter("alignment_approach_speed_mps").as_double();
   alignment_approach_timeout_s_ =
     this->get_parameter("alignment_approach_timeout_s").as_double();
+  alignment_heading_hold_enable_ =
+    this->get_parameter("alignment_heading_hold_enable").as_bool();
+  alignment_odom_topic_ = this->get_parameter("alignment_odom_topic").as_string();
+  alignment_target_yaw_rad_ = this->get_parameter("alignment_target_yaw_rad").as_double();
+  alignment_heading_kp_ = this->get_parameter("alignment_heading_kp").as_double();
+  alignment_heading_max_speed_radps_ =
+    this->get_parameter("alignment_heading_max_speed_radps").as_double();
+  alignment_heading_tolerance_rad_ =
+    this->get_parameter("alignment_heading_tolerance_deg").as_double() * kDeg2Rad;
+  alignment_heading_gate_rad_ =
+    this->get_parameter("alignment_heading_gate_deg").as_double() * kDeg2Rad;
+  alignment_odom_timeout_s_ = this->get_parameter("alignment_odom_timeout_s").as_double();
   const auto grab_payload_values =
     this->get_parameter("alignment_grab_payload").as_integer_array();
   alignment_grab_payload_.clear();
@@ -770,6 +843,32 @@ void TipVisionTestNode::load_parameters()
   }
   if (!std::isfinite(alignment_approach_timeout_s_) || alignment_approach_timeout_s_ <= 0.0) {
     throw std::runtime_error("alignment_approach_timeout_s must be finite and > 0");
+  }
+  if (tip_detail::trim_copy(alignment_odom_topic_).empty()) {
+    throw std::runtime_error("alignment_odom_topic cannot be empty");
+  }
+  if (!std::isfinite(alignment_target_yaw_rad_)) {
+    throw std::runtime_error("alignment_target_yaw_rad must be finite");
+  }
+  if (!std::isfinite(alignment_heading_kp_) || alignment_heading_kp_ < 0.0) {
+    throw std::runtime_error("alignment_heading_kp must be finite and >= 0");
+  }
+  if (!std::isfinite(alignment_heading_max_speed_radps_) ||
+    alignment_heading_max_speed_radps_ < 0.0)
+  {
+    throw std::runtime_error("alignment_heading_max_speed_radps must be finite and >= 0");
+  }
+  if (!std::isfinite(alignment_heading_tolerance_rad_) || alignment_heading_tolerance_rad_ < 0.0) {
+    throw std::runtime_error("alignment_heading_tolerance_deg must be finite and >= 0");
+  }
+  if (!std::isfinite(alignment_heading_gate_rad_) || alignment_heading_gate_rad_ < 0.0) {
+    throw std::runtime_error("alignment_heading_gate_deg must be finite and >= 0");
+  }
+  if (alignment_heading_gate_rad_ < alignment_heading_tolerance_rad_) {
+    throw std::runtime_error("alignment_heading_gate_deg must be >= heading tolerance");
+  }
+  if (!std::isfinite(alignment_odom_timeout_s_) || alignment_odom_timeout_s_ <= 0.0) {
+    throw std::runtime_error("alignment_odom_timeout_s must be finite and > 0");
   }
 }
 
@@ -871,6 +970,12 @@ rc26_vision::TipAlignmentConfig TipVisionTestNode::make_alignment_config() const
   config.min_speed_mps = alignment_min_speed_mps_;
   config.max_speed_mps = alignment_max_speed_mps_;
   config.invert_direction = alignment_invert_direction_;
+  config.heading_hold_enable = alignment_heading_hold_enable_;
+  config.target_yaw_rad = alignment_target_yaw_rad_;
+  config.heading_kp = alignment_heading_kp_;
+  config.heading_max_speed_radps = alignment_heading_max_speed_radps_;
+  config.heading_tolerance_rad = alignment_heading_tolerance_rad_;
+  config.heading_gate_rad = alignment_heading_gate_rad_;
   return config;
 }
 
@@ -890,14 +995,21 @@ void TipVisionTestNode::create_alignment_interfaces()
       alignment_limit_switch_feedback_topic_, rclcpp::QoS(32).reliable(),
       [this](const FeedbackMsg::SharedPtr msg) { handle_limit_switch_feedback(msg); });
   }
+  if (alignment_heading_hold_enable_) {
+    alignment_odom_sub_ = create_subscription<OdomMsg>(
+      alignment_odom_topic_, rclcpp::QoS(rclcpp::KeepLast(10)),
+      [this](const OdomMsg::SharedPtr msg) { handle_alignment_odom(msg); });
+  }
   if (!start_callback_executor()) {
     throw std::runtime_error("启动回调 executor 失败");
   }
 
   RCLCPP_WARN(
     get_logger(),
-    "端头对准控制已启用: cmd_vel_topic=%s 容差=%dpx 稳定帧=%d 抓取=%s service=%s limit_feedback=%s id=0x%02X",
+    "端头对准控制已启用: cmd_vel_topic=%s 容差=%dpx 稳定帧=%d heading=%s odom=%s target_yaw=%.3f 抓取=%s service=%s limit_feedback=%s id=0x%02X",
     alignment_cmd_vel_topic_.c_str(), alignment_tolerance_px_, alignment_stable_frames_,
+    alignment_heading_hold_enable_ ? "开" : "关", alignment_odom_topic_.c_str(),
+    alignment_target_yaw_rad_,
     alignment_grab_enable_ ? "开" : "关", alignment_grab_service_name_.c_str(),
     alignment_limit_switch_feedback_topic_.c_str(),
     static_cast<unsigned int>(alignment_limit_switch_feedback_id_ & 0xFF));
@@ -955,6 +1067,7 @@ void TipVisionTestNode::stop_callback_executor()
     callback_executor_.reset();
   }
   limit_switch_sub_.reset();
+  alignment_odom_sub_.reset();
 }
 
 bool TipVisionTestNode::should_publish_alignment_command(
@@ -971,7 +1084,7 @@ bool TipVisionTestNode::should_publish_alignment_command(
   return std::chrono::duration<double>(now - last_alignment_command_tp_).count() >= min_period_s;
 }
 
-bool TipVisionTestNode::publish_alignment_command(double vx, double vy, bool force)
+bool TipVisionTestNode::publish_alignment_command(double vx, double vy, double wz, bool force)
 {
   if (!alignment_control_enable_ || !alignment_cmd_pub_) {
     return false;
@@ -985,9 +1098,11 @@ bool TipVisionTestNode::publish_alignment_command(double vx, double vy, bool for
   TwistMsg msg;
   msg.linear.x = vx;
   msg.linear.y = vy;
+  msg.angular.z = wz;
   alignment_cmd_pub_->publish(msg);
   last_alignment_command_tp_ = now;
-  alignment_zero_published_ = std::abs(vx) < 1e-9 && std::abs(vy) < 1e-9;
+  alignment_zero_published_ =
+    std::abs(vx) < 1e-9 && std::abs(vy) < 1e-9 && std::abs(wz) < 1e-9;
   return true;
 }
 
@@ -996,7 +1111,7 @@ void TipVisionTestNode::publish_alignment_stop(bool force)
   if (!alignment_publish_zero_on_disable_ && !alignment_control_enable_) {
     return;
   }
-  publish_alignment_command(0.0, 0.0, force);
+  publish_alignment_command(0.0, 0.0, 0.0, force);
 }
 
 double TipVisionTestNode::compute_alignment_vy(int offset_px) const
@@ -1038,7 +1153,7 @@ void TipVisionTestNode::begin_limit_switch_approach()
     compute_approach_vx(), alignment_approach_timeout_s_,
     alignment_limit_switch_feedback_topic_.c_str(),
     static_cast<unsigned int>(alignment_limit_switch_feedback_id_ & 0xFF));
-  publish_alignment_command(compute_approach_vx(), 0.0, true);
+  publish_alignment_command(compute_approach_vx(), 0.0, 0.0, true);
 }
 
 void TipVisionTestNode::handle_limit_switch_feedback(const FeedbackMsg::SharedPtr msg)
@@ -1057,6 +1172,54 @@ void TipVisionTestNode::handle_limit_switch_feedback(const FeedbackMsg::SharedPt
     static_cast<unsigned int>(msg->seq), static_cast<unsigned int>(msg->feedback_id));
 }
 
+void TipVisionTestNode::handle_alignment_odom(const OdomMsg::SharedPtr msg)
+{
+  if (!msg) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(alignment_odom_mutex_);
+  alignment_current_yaw_rad_ = tip_detail::yaw_from_quaternion(msg->pose.pose.orientation);
+  alignment_odom_receive_tp_ = std::chrono::steady_clock::now();
+  alignment_has_yaw_ = true;
+}
+
+bool TipVisionTestNode::read_alignment_yaw(double & yaw_rad, double & age_s)
+{
+  std::lock_guard<std::mutex> lock(alignment_odom_mutex_);
+  if (!alignment_has_yaw_) {
+    yaw_rad = 0.0;
+    age_s = 0.0;
+    return false;
+  }
+  yaw_rad = alignment_current_yaw_rad_;
+  age_s = std::chrono::duration<double>(
+    std::chrono::steady_clock::now() - alignment_odom_receive_tp_).count();
+  return age_s <= alignment_odom_timeout_s_;
+}
+
+rc26_vision::TipHeadingControl TipVisionTestNode::compute_alignment_heading_control(
+  bool & stale,
+  double & yaw_age_s)
+{
+  stale = false;
+  yaw_age_s = 0.0;
+  auto config = make_alignment_config();
+  if (!config.heading_hold_enable) {
+    return rc26_vision::computeTipHeadingControl(0.0, config);
+  }
+
+  double yaw_rad = 0.0;
+  if (!read_alignment_yaw(yaw_rad, yaw_age_s)) {
+    stale = true;
+    rc26_vision::TipHeadingControl control;
+    control.aligned = false;
+    control.within_gate = false;
+    control.allow_lateral = false;
+    return control;
+  }
+  return rc26_vision::computeTipHeadingControl(yaw_rad, config);
+}
+
 std::string TipVisionTestNode::update_alignment_control(
   bool has_target,
   int offset_px,
@@ -1065,12 +1228,22 @@ std::string TipVisionTestNode::update_alignment_control(
   double & out_cmd_vy,
   bool & out_aligned,
   bool & out_command_published,
+  double & out_cmd_wz,
+  bool & out_heading_stale,
+  bool & out_heading_aligned,
+  bool & out_heading_within_gate,
+  double & out_heading_error_rad,
   uint8_t & out_grab_seq)
 {
   out_cmd_vx = 0.0;
   out_cmd_vy = 0.0;
+  out_cmd_wz = 0.0;
   out_aligned = false;
   out_command_published = false;
+  out_heading_stale = false;
+  out_heading_aligned = true;
+  out_heading_within_gate = true;
+  out_heading_error_rad = 0.0;
   out_grab_seq = last_grab_seq_;
 
   if (!alignment_control_enable_) {
@@ -1086,10 +1259,23 @@ std::string TipVisionTestNode::update_alignment_control(
   }
 
   if (alignment_grab_phase_ == AlignmentGrabPhase::ApproachingLimit) {
+    double yaw_age_s = 0.0;
+    const auto heading_control =
+      compute_alignment_heading_control(out_heading_stale, yaw_age_s);
+    (void)yaw_age_s;
+    out_cmd_wz = heading_control.angular_z_radps;
+    out_heading_aligned = heading_control.aligned;
+    out_heading_within_gate = heading_control.within_gate;
+    out_heading_error_rad = heading_control.yaw_error_rad;
+
     if (limit_switch_triggered_.load(std::memory_order_relaxed)) {
       waiting_for_limit_switch_ = false;
       publish_alignment_stop(true);
       alignment_grab_phase_ = AlignmentGrabPhase::SendingGrab;
+    } else if (out_heading_stale) {
+      out_command_published = publish_alignment_command(0.0, 0.0, 0.0, true);
+      last_grab_state_ = "ODOM_WAIT";
+      return last_grab_state_;
     } else if (std::chrono::duration<double>(
                  std::chrono::steady_clock::now() - limit_switch_wait_start_tp_).count() >=
                alignment_approach_timeout_s_) {
@@ -1099,9 +1285,10 @@ std::string TipVisionTestNode::update_alignment_control(
       last_grab_state_ = "APPROACH_TIMEOUT";
       return last_grab_state_;
     } else {
-      out_cmd_vx = compute_approach_vx();
-      out_command_published = publish_alignment_command(out_cmd_vx, 0.0, false);
-      last_grab_state_ = "APPROACH";
+      out_cmd_vx = heading_control.allow_lateral ? compute_approach_vx() : 0.0;
+      out_command_published =
+        publish_alignment_command(out_cmd_vx, 0.0, out_cmd_wz, false);
+      last_grab_state_ = heading_control.allow_lateral ? "APPROACH" : "HEADING";
       return last_grab_state_;
     }
   }
@@ -1143,28 +1330,48 @@ std::string TipVisionTestNode::update_alignment_control(
         alignment_grab_phase_ = AlignmentGrabPhase::WaitingForAlignment;
       }
     }
-    out_command_published = publish_alignment_command(0.0, 0.0, false);
+    out_command_published = publish_alignment_command(0.0, 0.0, 0.0, false);
     last_grab_state_ = alignment_grab_enable_ ? "LOST" : "DISABLED";
     return last_grab_state_;
   }
 
+  double yaw_age_s = 0.0;
+  const auto heading_control =
+    compute_alignment_heading_control(out_heading_stale, yaw_age_s);
+  (void)yaw_age_s;
+  out_cmd_wz = heading_control.angular_z_radps;
+  out_heading_aligned = heading_control.aligned;
+  out_heading_within_gate = heading_control.within_gate;
+  out_heading_error_rad = heading_control.yaw_error_rad;
+  if (out_heading_stale) {
+    alignment_stable_count_ = 0;
+    out_command_published = publish_alignment_command(0.0, 0.0, 0.0, true);
+    last_grab_state_ = "ODOM_WAIT";
+    return last_grab_state_;
+  }
+
+  const bool pixel_aligned = std::abs(offset_px) <= alignment_tolerance_px_;
   if (new_inference_result) {
     alignment_lost_count_ = 0;
-    out_aligned = std::abs(offset_px) <= alignment_tolerance_px_;
+    out_aligned = pixel_aligned && heading_control.aligned;
     if (out_aligned) {
       ++alignment_stable_count_;
     } else {
       alignment_stable_count_ = 0;
     }
   } else {
-    out_aligned = std::abs(offset_px) <= alignment_tolerance_px_;
+    out_aligned = pixel_aligned && heading_control.aligned;
   }
 
-  out_cmd_vy = compute_alignment_vy(offset_px);
-  out_command_published = publish_alignment_command(0.0, out_cmd_vy, false);
+  out_cmd_vy = heading_control.allow_lateral ? compute_alignment_vy(offset_px) : 0.0;
+  out_command_published = publish_alignment_command(0.0, out_cmd_vy, out_cmd_wz, false);
 
   if (!alignment_grab_enable_) {
     last_grab_state_ = "DISABLED";
+    return last_grab_state_;
+  }
+  if (!heading_control.allow_lateral) {
+    last_grab_state_ = "HEADING";
     return last_grab_state_;
   }
   if (!out_aligned || alignment_stable_count_ < alignment_stable_frames_) {
@@ -1674,6 +1881,12 @@ bool TipVisionTestNode::initialize()
   alignment_zero_published_ = false;
   waiting_for_limit_switch_ = false;
   limit_switch_triggered_ = false;
+  {
+    std::lock_guard<std::mutex> lock(alignment_odom_mutex_);
+    alignment_has_yaw_ = false;
+    alignment_current_yaw_rad_ = 0.0;
+    alignment_odom_receive_tp_ = std::chrono::steady_clock::time_point{};
+  }
   grab_request_generation_.fetch_add(1, std::memory_order_relaxed);
   {
     std::lock_guard<std::mutex> lock(grab_response_mutex_);
@@ -1765,7 +1978,7 @@ void TipVisionTestNode::draw_alignment_overlay(
   const AlignmentOverlayInfo & info) const
 {
   std::vector<std::string> lines;
-  lines.reserve(6U);
+  lines.reserve(7U);
 
   const std::string align_state =
     !info.control_enabled ? "OFF" :
@@ -1786,7 +1999,18 @@ void TipVisionTestNode::draw_alignment_overlay(
        << " tol=" << info.tolerance_px
        << " vx=" << std::fixed << std::setprecision(3) << info.cmd_vx
        << " vy=" << std::setprecision(3) << info.cmd_vy
+       << " wz=" << std::setprecision(3) << info.cmd_wz
        << " sent=" << (info.command_published ? "YES" : "RATE");
+    lines.push_back(ss.str());
+  }
+
+  {
+    std::ostringstream ss;
+    ss << "HEAD " << (info.heading_enabled ? "ON" : "OFF")
+       << " stale=" << (info.heading_stale ? "YES" : "NO")
+       << " err=" << std::fixed << std::setprecision(3) << info.heading_error_rad
+       << " ok=" << (info.heading_aligned ? "YES" : "NO")
+       << " gate=" << (info.heading_within_gate ? "YES" : "NO");
     lines.push_back(ss.str());
   }
 

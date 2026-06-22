@@ -29,16 +29,16 @@ r2_runtime:
     ros__parameters:
       tick_rate_ms: 100             # 行为树 tick 周期，单位毫秒；数值越小调度越频繁
       team: "blue"                  # 当前队伍颜色，用于梅林区静态地图初始化
-      mc_nav_yaw: 0.0               # 武馆区取端头导航目标 yaw，单位 rad，当前为待现场标定占位
+      mc_nav_yaw: -1.4857           # 武馆区取端头导航目标 yaw，单位 rad；视觉 heading hold 默认同用此朝向
 
       # ======================================================================
       # 武馆区 (MC) 运行参数 —— 启动时由 r2_runtime.yaml/launch 参数写入决策节点
       # ======================================================================
       # --- 导航目标点 ---
-      mc_nav_x: 0.0                 # 武馆区取端头导航目标 x，当前为待现场标定占位
-      mc_nav_y: 0.0                 # 武馆区取端头导航目标 y，当前为待现场标定占位
+      mc_nav_x: 0.9778              # 武馆区取端头导航目标 x；mc_tree.xml 从黑板读取该值
+      mc_nav_y: 0.7744              # 武馆区取端头导航目标 y；mc_tree.xml 从黑板读取该值
       mc_nav_frame_id: "map"        # 导航目标所在坐标系
-      mc_nav_timeout_sec: 60.0      # Nav2 到达武馆区目标点的超时时间，单位秒
+      mc_nav_timeout_sec: 180.0     # Nav2 到达武馆区目标点的超时时间，单位秒
 
       # --- 相机 / 推理（内嵌直连相机，对齐 tip_vision_test_node）---
       mc_vision_config_file: ""     # 视觉模型配置文件；空则回退 rc26_vision/config/vision_models.yaml
@@ -63,6 +63,13 @@ r2_runtime:
       mc_align_target_lock_enable: true      # 是否锁定同一个端头，避免双框同屏时反复切换
       mc_align_target_lock_max_jump_px: 160  # 锁定目标允许的单次水平跳变像素
       mc_align_invert_direction: true        # 相机朝机器人后方；默认反转横移方向
+      mc_align_heading_hold_enable: true     # 是否订阅 mc_odom_topic 并发布 angular.z 保持车身朝向
+      # mc_align_target_yaw_rad 默认使用 mc_nav_yaw；如需视觉阶段与导航目标朝向不同，可显式覆盖本项
+      mc_align_heading_kp: 1.2               # yaw 误差到 angular.z 的比例系数
+      mc_align_heading_max_speed_radps: 0.30 # 视觉伺服 heading hold 最大角速度，单位 rad/s
+      mc_align_heading_tolerance_deg: 3.0    # yaw 误差进入该容差后才允许稳定计数
+      mc_align_heading_gate_deg: 8.0         # yaw 误差超过该 gate 时暂停横移/前探，只先修正朝向
+      mc_align_odom_timeout_s: 0.5           # odom 超过该时间未更新时停车等待，单位秒
 
       # --- 夹取（对齐后 x 负向前探等待前方限位 0x19，再下发 GRAB_TIP=0x01）---
       mc_grab_command_id: 1                  # 夹取端头命令 ID；1 对应 GRAB_TIP(0x01)
@@ -78,11 +85,14 @@ r2_runtime:
 
       # --- 原地旋转（发布 cmd_vel.angular.z，odom yaw 闭环）---
       mc_rotate_angle_deg: 180.0       # 原地旋转目标角度，单位度
-      mc_rotate_speed_radps: 0.6       # 原地旋转角速度，单位 rad/s
+      mc_rotate_speed_radps: 0.6       # 原地旋转最大角速度，单位 rad/s
+      mc_rotate_min_speed_radps: 0.12  # 原地旋转末段最小角速度，单位 rad/s
+      mc_rotate_slowdown_angle_deg: 30.0 # 剩余角度小于该值时线性减速，单位度
       mc_rotate_direction: 1           # 原地旋转方向；+1 逆时针，-1 顺时针
       mc_rotate_yaw_tolerance_deg: 3.0 # 旋转完成角度容差，单位度
       mc_rotate_cmd_vel_topic: "cmd_vel"  # 原地旋转发布的速度话题
-      mc_odom_topic: "merge_odom"      # 原地旋转闭环使用的里程计话题
+      mc_odom_topic: "odom"            # 视觉 heading hold 和原地旋转闭环使用的雷达标准里程计话题
+      mc_rotate_odom_timeout_s: 0.5    # 旋转阶段 odom 超过该时间未更新时停车等待，单位秒
       mc_rotate_timeout_s: 15.0        # 原地旋转安全超时，单位秒
 
       # ======================================================================

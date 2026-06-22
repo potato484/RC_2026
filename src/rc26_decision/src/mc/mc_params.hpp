@@ -31,6 +31,13 @@ struct McParams {
     bool align_target_lock_enable{true};
     int align_target_lock_max_jump_px{160};
     bool align_invert_direction{true};
+    bool align_heading_hold_enable{true};
+    double align_target_yaw_rad{0.0};
+    double align_heading_kp{1.2};
+    double align_heading_max_speed_radps{0.30};
+    double align_heading_tolerance_deg{3.0};
+    double align_heading_gate_deg{8.0};
+    double align_odom_timeout_s{0.5};
 
     // 夹取（/mechanism/send_command 下发 GRAB_TIP）
     int grab_command_id{1};
@@ -46,10 +53,13 @@ struct McParams {
     // 原地旋转
     double rotate_angle_deg{180.0};
     double rotate_speed_radps{0.6};
+    double rotate_min_speed_radps{0.12};
+    double rotate_slowdown_angle_deg{30.0};
     int rotate_direction{1};  // +1 逆时针 / -1 顺时针
     double rotate_yaw_tolerance_deg{3.0};
     std::string rotate_cmd_vel_topic{"cmd_vel"};
-    std::string odom_topic{"merge_odom"};
+    std::string odom_topic{"odom"};
+    double rotate_odom_timeout_s{0.5};
     double rotate_timeout_s{15.0};
 };
 

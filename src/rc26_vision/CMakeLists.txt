@@ -12,6 +12,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
@@ -165,6 +166,7 @@ ament_target_dependencies(
   ament_index_cpp
   rclcpp
   geometry_msgs
+  nav_msgs
   rc26_interfaces
   rc26_serial
 )
@@ -237,7 +239,7 @@ ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME})
 ament_export_dependencies(
   ament_index_cpp geometry_msgs rclcpp sensor_msgs cv_bridge image_transport
-  message_filters behaviortree_cpp tf2 tf2_ros tf2_geometry_msgs rc26_interfaces
+  message_filters behaviortree_cpp tf2 tf2_ros tf2_geometry_msgs nav_msgs rc26_interfaces
 )
 
 ament_package()

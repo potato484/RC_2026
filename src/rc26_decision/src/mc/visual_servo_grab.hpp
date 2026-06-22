@@ -6,12 +6,14 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include <behaviortree_cpp/bt_factory.h>
 #include <geometry_msgs/msg/twist.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 #include <opencv2/opencv.hpp>
 #include <rclcpp/rclcpp.hpp>
 
@@ -38,6 +40,7 @@ public:
 
 private:
     using TwistMsg = geometry_msgs::msg::Twist;
+    using OdomMsg = nav_msgs::msg::Odometry;
     using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
     using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
 
@@ -51,11 +54,15 @@ private:
     void resolveTargetClassIds();
     rc26_vision::TipAlignmentConfig makeAlignmentConfig() const;
     double computeAlignmentVy(int offset_px) const;
+    bool readAlignmentYaw(double& yaw_rad, double& age_s);
+    rc26_vision::TipHeadingControl computeHeadingControl(bool& stale, double& yaw_age_s);
     double computeApproachVx() const;
-    void publishCmd(double vx, double vy, bool force);
+    void publishCmd(double vx, double vy, double wz, bool force);
     void publishStop(bool force);
     void setupFeedbackSubscription();
+    void setupOdomSubscription();
     void handleFeedback(const FeedbackMsg::SharedPtr msg);
+    void handleOdom(const OdomMsg::SharedPtr msg);
     void beginApproach();
     GrabStepStatus tickGrabCommand();
     bool tryStartGrabCommand();
@@ -64,6 +71,7 @@ private:
     McParams params_;
     rclcpp::Node* node_{nullptr};
     rclcpp::Publisher<TwistMsg>::SharedPtr cmd_pub_;
+    rclcpp::Subscription<OdomMsg>::SharedPtr odom_sub_;
     rclcpp::Subscription<FeedbackMsg>::SharedPtr feedback_sub_;
     rclcpp::Client<SendCommandSrv>::SharedPtr grab_client_;
 
@@ -86,6 +94,10 @@ private:
     std::atomic<uint64_t> grab_generation_{0};
     std::atomic<bool> waiting_for_limit_switch_{false};
     std::atomic<bool> limit_switch_triggered_{false};
+    std::mutex odom_mutex_;
+    bool has_odom_yaw_{false};
+    double current_yaw_rad_{0.0};
+    std::chrono::steady_clock::time_point odom_receive_tp_{};
     std::chrono::steady_clock::time_point start_tp_{};
     std::chrono::steady_clock::time_point approach_start_tp_{};
     std::chrono::steady_clock::time_point last_pub_tp_{};
