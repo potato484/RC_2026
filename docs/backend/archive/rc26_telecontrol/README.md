@@ -124,15 +124,13 @@ R2 当前已经统一为麦克纳姆全向底盘，因此 `linear.y` 在 stick /
 - Stick 模式固定为 `左摇杆 -> vx/vy`、`右摇杆左右 -> wz`。
 - Dpad 模式固定为 `十字键上下/左右 -> vx/vy`、`X -> +wz, B -> -wz`。
 - `start_r2_teleop.sh` 现在默认用 `dpad` 模式启动，而不是 stick。
-- `start_r2_teleop.sh` 当前默认最大线速度为 `0.3 m/s`，仍可通过 `--v-linear` 覆盖。
-- `start_r2_teleop.sh` 现在会在 `full` 和 `minimal-mcu` 两个栈里都额外挂起 `rc26_telecontrol_front_pushrod_buttons` 与 `rc26_telecontrol_rear_pushrod_buttons`，用于把 `Y/A` 与 `Select/Back` / `Start` 桥到 `0x0E~0x11`。
+- `start_r2_teleop.sh` 当前默认最大线速度为 `0.5 m/s`，仍可通过 `--v-linear` 覆盖。
+- `start_r2_teleop.sh` 现在是单一遥控入口，会随 `rc26_mcu_transport`、`joy_node` 与 telecontrol 节点一起挂起 `rc26_telecontrol_front_pushrod_buttons` 与 `rc26_telecontrol_rear_pushrod_buttons`，用于把 `Y/A` 与 `Select/Back` / `Start` 桥到 `0x0E~0x11`。
 - 在 dpad 模式里，旋转仍由 `X/B` 控制，其中 `X -> +wz`、`B -> -wz`；`Y/A`、`Select/Back`、`Start` 不参与速度输出，只交给前/后推杆 sidecar；`Dpad 左/右` 会直接体现在 `/cmd_vel.linear.y`。
-- `start_r2_teleop.sh` 不再默认拉起 `rc26_mechanism`；teleop 前/后推杆联调只依赖 `merge_odom` 或 `pose_sender_node` 持有目标串口并提供 transport service。
-- 仓库根目录的 `start_r2_teleop.sh` 现在通过 `--stack full|minimal-mcu` 统一承载完整遥控链和最小串口链；脚本默认 `./start_r2_teleop.sh` 就是 `--stack minimal-mcu`。
-- `--stack minimal-mcu` 会启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`；并固定按 `target_serial_port=/dev/ttyUSB0`、`feedback_serial_port=__disabled__` 进入当前默认单口 MCU 链。
-- `--stack full` 仍可保留 `merge_odom` 装配做本地调试，并可通过 `--start-ekf` 或 `--pose-mode imu|no-imu|wheel-only` 临时打开/关闭 EKF 与 IMU 链路；该入口会显式传 `require_merge_odom_output:=false`，因此仍是遥控调试降级入口，不代表完整决策链路已满足稳定 `/merge_odom` 契约。
-- `--pose-mode imu` 映射为 `start_ekf=true`、`start_imu=true`、`use_imu_for_ekf=true`；`no-imu` 映射为 `start_ekf=true`、`start_imu=false`、`use_imu_for_ekf=false`；`wheel-only` 映射为 `start_ekf=false`、`start_imu=false`、`use_imu_for_ekf=false`。
-- 若后续要临时恢复旧 feedback / 融合速度链，需要显式传入真实 `feedback_serial_port`；脚本不再自动改写 `target_serial_port`。
+- `start_r2_teleop.sh` 不再默认拉起 `rc26_mechanism`、`rc26_merge_odom` 或 `pose_sender_node`；teleop 前/后推杆联调由脚本启动的 `rc26_mcu_transport` 提供 `/mechanism/send_command` 与 `/mechanism/command_feedback`。
+- 仓库根目录的 `start_r2_teleop.sh` 现在启动 `rc26_mcu_transport + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。
+- `start_r2_teleop.sh` 已移除 `--stack`、`--pose-mode`、`--use-can-odom`、`--start-ekf` 和 PoseSender 相关参数；目标 MCU 串口通过 `--mcu-port` / `--mcu-baudrate` 配置。
+- `/cmd_vel` 的硬件消费方由外部运行时提供；脚本只负责把手柄输入变成速度 topic。
 - `terrain_speed_limit` 运行时链路已从系统中删除；teleop 链不再需要额外关闭地形限速，也不存在重新接回该链路的脚本入口。
 
 ## 配置注释口径

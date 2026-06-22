@@ -7,7 +7,7 @@
 ```bash
 # 确保已编译并 source 环境
 cd "${RC26_WS:-$HOME/RC_2026}"
-MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_bringup rc26_merge_odom rc26_sensor_scan
+MAKEFLAGS='-j2 -l2' colcon build --executor sequential --parallel-workers 1 --packages-select rc26_bringup rc26_sensor_scan rc26_mcu_transport
 source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 ```
 
@@ -15,7 +15,7 @@ source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 
 ## 联调阶段入口
 
-当前建议先按整车联调顺序跑，再回到下面的模块级测试逐项排障。涉及决策、导航和底盘执行闭环的问题，优先用完整 bringup 一次性拉起相关节点观察效果。
+当前建议先按整车联调顺序跑，再回到下面的模块级测试逐项排障。涉及真实运动时需要启动工作区外部 `/cmd_vel` 执行 consumer；涉及机构动作时需要启动 `rc26_mcu_transport`。
 
 完整导航/决策链默认从 `src/rc26_bringup/config/r2_runtime.yaml` 读取点云、Nav2 地图和行为树入口绝对路径；现场切换 PCD / map / BT 时优先修改该文件。
 
@@ -48,7 +48,7 @@ ros2 launch rc26_bringup test_relocalization.launch.py
 
 ```bash
 ros2 launch rc26_bringup test_navigation.launch.py \
-  start_pose_sender:=false
+  use_rviz:=true
 ```
 
 ```bash
@@ -166,7 +166,7 @@ ros2 run tf2_tools view_frames
 
 ### 5. 决策系统测试 (rc26_decision)
 
-`rc26_decision` 不再提供独立 launch 测试入口。需要测试决策时，使用完整 bringup，让定位、Nav2、`merge_odom` 和 `decision_node` 同时拉起：
+`rc26_decision` 不再提供独立 launch 测试入口。需要测试决策时，使用完整 bringup 拉起定位、Nav2、`decision_node` 与 `rc26_mcu_transport`；真实运动另由外部 `/cmd_vel` consumer 承接：
 
 ```bash
 ros2 launch rc26_bringup bringup.launch.py \
@@ -180,12 +180,11 @@ ros2 launch rc26_bringup bringup.launch.py \
 
 ### 6. Nav2 基础导航链测试
 
-**功能**: 验证定位、Nav2 lifecycle、`/navigate_to_pose` action、静态地图规划链、costmap 话题，以及 `/cmd_vel` / `merge_odom` 底盘执行与局部反馈链路；`/sensor_scan` 仅检查链路存在
+**功能**: 验证定位、Nav2 lifecycle、`/navigate_to_pose` action、静态地图规划链、costmap 话题，以及 `/cmd_vel` 输出；`/sensor_scan` 仅检查链路存在
 
 ```bash
-# 开发机 / 图结构验收：关闭执行桥，避免无串口环境直接报错
-ros2 launch rc26_bringup test_navigation.launch.py \
-  start_pose_sender:=false
+# 开发机 / 图结构验收：不启动仓库内底盘执行桥，只观察导航输出
+ros2 launch rc26_bringup test_navigation.launch.py
 
 ros2 lifecycle get /controller_server
 ros2 lifecycle get /planner_server
@@ -202,30 +201,10 @@ ros2 topic echo /cmd_vel
 
 - `rc26_bringup` 当前保持 headless，不再通过 launch 参数拉起仓库内 GUI
 - Nav2 当前默认关闭 local/global obstacle layer；`/sensor_scan` (`PointCloud2`) 仍会输出，但不再默认参与 costmap 障碍投影
-- `test_navigation.launch.py` 默认会同时拉起 `merge_odom` 底盘执行链；若只做图结构/感知链验证，请显式传 `start_pose_sender:=false`
+- `test_navigation.launch.py` 不再拉起仓库内底盘执行桥；需要真实运动时请先启动外部 `/cmd_vel` consumer
 - 点云、地图和行为树入口默认来自 `src/rc26_bringup/config/r2_runtime.yaml`，其中 `paths.*` 必须使用绝对路径；`prior_pcd_file:=...` 和 `nav2_map_file:=...` 仍可临时覆盖
 - `src/rc26_bringup/map/test.yaml` 是当前默认样本地图，由 `scan.pcd` 过滤投影为黑白 `test.png`；可用于基础导航链联调，不代表可直接通过现场真实规划验收
 - 如需可视化，请改用工作区外部工具只读消费现有 topic，例如手工运行 `rviz2 -d /home/potato/RC_2026/src/rc26_bringup/rviz/navigation_default.rviz`
-
-如需验证执行桥：
-
-```bash
-# 完整底盘执行与反馈链：当前默认单口 WheelOdom
-ros2 launch rc26_bringup test_navigation.launch.py \
-  start_pose_sender:=true
-
-ros2 topic echo /merge_odom --once
-
-# 如果只验证 target 串口和执行保护，不要求真实 ODOM_DATA，可临时降低 /merge_odom 输出要求
-ros2 launch rc26_bringup test_navigation.launch.py \
-  start_pose_sender:=true \
-  merge_odom_require_output:=false
-
-# 手动发布低速命令，观察执行桥保护输出
-ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
-  "{linear: {x: 0.05, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}" -r 5
-ros2 topic echo /pose_sender/target_protected
-```
 
 如需手动发送目标：
 
@@ -245,7 +224,7 @@ ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \
 | rc26_point_lio | `/state_estimation` + `/cloud_registered` | LIO 里程计与原生配准点云持续输出 |
 | localization | `map->odom` + `/localization/pose_with_cov` + `/localization/diagnostics` | TF 和标准定位观测持续发布 |
 | Nav2 | `/navigate_to_pose` + `/plan` + costmap topics + `/sensor_scan` | action server、路径和 costmap 可观察；当前默认不接入动态障碍层，`/sensor_scan` 只校验链路存在 |
-| merge_odom | `/cmd_vel` + `/pose_sender/target_protected` + `/merge_odom` | 速度指令由 Nav2 输出后继续进入 MCU 执行桥；完整链路要求真实 `/merge_odom` 源 |
+| 外部执行 provider | `/cmd_vel` | 仓库只发布速度命令；真实硬件执行由外部 consumer 验证 |
 
 ---
 

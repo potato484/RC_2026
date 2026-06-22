@@ -9,6 +9,7 @@
 - 构建方式：组件库 + 独立可执行
 - 导出节点：`mechanism_server_node`
 - 启动文件：`launch/mechanism.launch.py`
+- `mechanism.launch.py` 默认同时启动 `rc26_mcu_transport`；当 provider 已由 bringup 或其它入口启动时，应传 `start_mcu_transport:=false`
 
 当前实现已经收口为“一个生命周期服务端 + 一份集中命令目录 + 一个真实共享串口 HAL”：
 
@@ -24,7 +25,7 @@
   - `command_context.hpp`
 - `include/rc26_mechanism/hal/shared_serial` + `src/hal/shared_serial`
   - `shared_serial_mechanism_hal.hpp/.cpp`
-  - 通过 ROS 2 service/topic 复用 `rc26_merge_odom` 或 `pose_sender_node` 已打开的目标 MCU 串口
+  - 通过 ROS 2 service/topic 复用 `rc26_mcu_transport` 已打开的目标 MCU 串口
 - `include/rc26_mechanism/hal/contracts`
   - `i_mechanism_hal.hpp`
 - `test/catalog` 与 `test/transport`
@@ -67,17 +68,17 @@
 
 当前真实部署已经不是“`rc26_mechanism` 自己独占默认目标口 `/dev/ttyUSB0`”，而是：
 
-- 真机上由 `rc26_merge_odom` 作为目标 MCU 串口的唯一 owner
-- `rc26_mechanism` 通过 `hal_type:=shared_serial` 复用这条链路
+- 真机上由 `rc26_mcu_transport` 作为目标 MCU 串口 owner
+- `rc26_mechanism` 通过 `hal_type:=shared_serial` 复用 `rc26_mcu_transport` 提供的 ROS service/topic
 - 下行发送经由 `/mechanism/send_command`
 - 上行反馈经由 `/mechanism/command_feedback`
 - 当前只支持 `hal_type:=shared_serial`；其它 `hal_type` 会在 `configure` 阶段直接失败
 
-串口职责速记：
+职责速记：
 
-- `feedback_serial_port` 是保留中的底盘反馈链入口，主要对应 `ODOM_DATA` 接收和 `POSE_FEEDBACK` 发送；当前默认值是 `__disabled__`，`rc26_mechanism` 不直接使用它
-- `target_serial_port` 才是 mechanism 共享 transport 复用的真实物理链路，同时承载 `POSE_TARGET` 与机构/遥控 sidecar 命令；当前默认主口是 `/dev/ttyUSB0`
-- 因此只要 `/mechanism/send_command` 或 `/mechanism/command_feedback` 异常，优先排查 `rc26_merge_odom` 当前是否由 `merge_odom_node` 或 `pose_sender_node` 成功持有 `target_serial_port`
+- `rc26_mechanism` 不拥有 `feedback_serial_port`、`target_serial_port` 或任何目标 MCU 物理口
+- 只要 `/mechanism/send_command` 或 `/mechanism/command_feedback` 异常，优先排查 `rc26_mcu_transport` 是否已启动并打开目标 MCU 串口
+- 单独测试机构 action 时可直接使用 `ros2 launch rc26_mechanism mechanism.launch.py`；如果同一系统里已经存在 `rc26_mcu_transport`，必须用 `start_mcu_transport:=false` 避免重复串口 owner
 
 ## 当前运行时语义
 
@@ -110,7 +111,7 @@
 - 先看 `launch/mechanism.launch.py`，确认当前只保留 `shared_serial` 装配。
 - 再看 `include/rc26_mechanism/catalog` 与 `src/catalog/mechanism_command_catalog.cpp`，确认当前业务命令目录。
 - 然后看 `include/rc26_mechanism/nodes` 与 `src/nodes/mechanism_lifecycle_server.cpp`，生命周期节点、action server 和反馈收敛都在这里。
-- 最后看 `src/hal/shared_serial/shared_serial_mechanism_hal.cpp`，确认真实部署如何桥接 `rc26_merge_odom` 的共享串口。
+- 最后看 `src/hal/shared_serial/shared_serial_mechanism_hal.cpp`，确认真实部署如何桥接 `rc26_mcu_transport` 的共享串口接口。
 
 
 ## 模块边界

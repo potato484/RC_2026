@@ -8,9 +8,9 @@ info:
     注意：
     - 当前保留的机构动作入口是 action `/mechanism/grab_tip`、`/mechanism/assemble_weapon` 与 `/mechanism/run_command`
     - `PlaceKFSGrid.action` 已移除；KFS 放置改为通过 `/mechanism/run_command` 下发 `PLACE_KFS_GRID + payload{grid_position, layer}`
-    - 本文档额外覆盖 mechanism 与 merge_odom 之间的内部 transport topic/service 契约
-    - `/mechanism/send_command` 与 `/mechanism/command_feedback` 复用的是 `rc26_merge_odom` 已打开的 `target_serial_port`，当前默认主口为 `/dev/ttyUSB0`
-    - `feedback_serial_port` 主要承载 `ODOM_DATA` 与 `POSE_FEEDBACK`；该链路当前默认 `__disabled__`，不作为默认 mechanism transport 的物理链路
+    - 本文档额外覆盖 mechanism 与 `rc26_mcu_transport` 之间的 topic/service 契约
+    - `/mechanism/send_command` 与 `/mechanism/command_feedback` 当前由 `rc26_mcu_transport` 提供；涉及机构动作的运行链必须启动该目标 MCU 串口 owner
+    - `rc26_mechanism`、决策、遥控 sidecar 与视觉 tip test 都只是这些接口的消费者
     - `/mechanism/command_feedback` 会透传双推杆业务 ACK `0x13~0x16`、当前台阶 BT 消费的激光测距高度突变事件 `FRONT_LASER_HEIGHT_JUMP(0x17)` / `REAR_LASER_HEIGHT_JUMP(0x18)`、历史保留的 `FRONT_SECOND_LASER_HEIGHT_JUMP(0x1A)`，以及武馆前方限位开关触发事件 `FRONT_LIMIT_SWITCH_TRIGGERED(0x19)`；这些事件 v1 payload 为空或忽略
 servers:
   - url: http://localhost:8080

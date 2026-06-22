@@ -9,26 +9,25 @@
 `bringup.launch.py` 与 `odometry.launch.py` 固定按 headless 口径装配，不再声明或透传任何 viewer / RViz / Foxglove 兼容参数。面向现场联调的 `test_mapping.launch.py` 与 `test_navigation.launch.py` 是调试入口，默认复用对应链路并额外打开 RViz2，可用 `use_rviz:=false` 关闭图形界面，也可用 `rviz_config_file:=...` 替换 RViz 配置。
 
 - `bringup.launch.py`
-  - 装配 Point-LIO、里程计接口、定位、Nav2 基础导航栈、底盘执行桥和决策
+  - 装配 Point-LIO、里程计接口、定位、Nav2 基础导航栈和决策
   - `run_mode:=navigation` 时启动 `rc26_localization`、`map_server` 与 Nav2 `navigation_launch.py`
   - `run_mode:=mapping` 时进入建图链路，跳过 Nav2 导航分支，定位侧发布静态 `map -> odom`
   - `rc26_localization` 继续作为 `map -> odom` 权威，不启动 AMCL
   - 定位装配只透传先验 PCD 和定位参数文件，不再透传图后端、P4、重试区或 overlay 参数
   - 当前默认运行时关闭 local/global costmap 的 obstacle layer；`/sensor_scan` (`PointCloud2`) 链路仍保留，且不再依赖 `/scan`
-  - `/cmd_vel` 由 Nav2 controller/velocity_smoother 输出，并默认交给 `rc26_merge_odom/launch/merge_odom.launch.py` 下发到底盘目标 MCU
-  - 整车 bringup 只保留 `merge_odom` 底盘执行与局部反馈链；不再提供第二套 executor 分支，避免完整决策链绕开稳定 `/merge_odom` 契约
-  - `merge_odom_node` 同时提供 `/cmd_vel` 下发、共享 mechanism transport 和稳定 `/merge_odom` 局部反馈；同一时刻不会再由 bringup 额外启动独立执行节点，避免重复打开 target 串口
-  - `config/r2_runtime.yaml` 是整车运行配置真源：集中维护点云文件、Nav2 地图文件、行为树 XML 绝对路径、底盘执行链默认值与决策参数
+  - `/cmd_vel` 由 Nav2 controller/velocity_smoother 输出；硬件执行消费方由工作区外部运行时提供
+  - `rc26_bringup` 不再启动 `rc26_merge_odom` 或 `pose_sender_node`，也不再提供 `/merge_odom`
+  - `/mechanism/send_command` 与 `/mechanism/command_feedback` 由 `rc26_mcu_transport` 提供；涉及机构动作的运行链必须启动该目标 MCU 串口 owner
+  - `config/r2_runtime.yaml` 是整车运行配置真源：集中维护点云文件、Nav2 地图文件、行为树 XML 绝对路径与决策参数
   - `r2_runtime.decision.ros__parameters` 中的 `mc_nav_*` 参数是武馆区行为树 `NavToPose` 目标真源；`mc_tree.xml` 从黑板读取这些值，不再在 XML 中写死取端头导航点
   - `r2_runtime.decision.ros__parameters` 中的 `mc_align_*` 参数维护武馆区视觉伺服横移对线口径；当前默认按后置相机安装反转横移方向，并启用端头目标锁定以避免双框同屏切换。`mc_align_heading_*` 当前默认开启，通过 `mc_odom_topic=odom` 消费 `rc26_odom_interface` 的雷达标准 odom yaw，并在视觉伺服阶段补发 `cmd_vel.angular.z` 保持车身朝向
-  - 完整 MC 决策链同时依赖 `/odom` 与 `merge_odom` 两类状态：`/odom` 是雷达标准里程计，服务视觉 heading hold 和 180° 旋转 yaw 闭环；`merge_odom` 仍是底盘执行、局部反馈和 mechanism transport 的运行链路，不被 `/odom` 替代
+  - 完整 MC 决策链依赖 `/odom` 作为雷达标准里程计，服务视觉 heading hold 和 180° 旋转 yaw 闭环；底盘执行由外部 provider 承担，机构 transport 由 `rc26_mcu_transport` 承担
   - `r2_runtime.decision.ros__parameters` 中声明为 double 的参数必须在 YAML 中写成小数形式，例如 `10.0`，不要写成裸整数 `10`；ROS2 会区分 integer 和 double，类型不一致会导致 `decision_node` 启动时报 `InvalidParameterTypeException`
   - `config/nav2_params.yaml` 中 `planner_server.GridBased.tolerance` 当前收紧为 `0.05m`，避免 NavFn 在目标点附近半米内选替代终点后仍被上层当作真实到点；`controller_server.progress_checker` 当前按低速实车调为 `20s` 内至少前进 `0.05m`，减少慢速起步或局部恢复期间的误判卡死
   - `r2_runtime.decision.ros__parameters` 同时维护 `stair_*` 台阶动作参数；这些参数只在单独加载 `rc26_decision` 的 `stair_climb_tree.xml` / `stair_descend_tree.xml`，或加载串联台阶动作的 `mf_red_middle_column_tree.xml` 时生效，默认主流程不引用台阶动作。上台阶的前推杆伸出后零速等待、前收+后伸后零速等待，以及下台阶的后推杆伸出后零速等待、后收+前伸后零速等待、前推杆收回后零速等待也在这里配置；当前两激光下台阶链路还在这里配置前推杆收回前的 `x` 负向定时行驶速度与时长，默认 `0.025m/s` 持续 `4.0s`
-  - 决策测试不再通过 `rc26_decision` 单节点 launch 入口进行；需要测试决策时使用本完整 bringup 入口，把定位、Nav2、`merge_odom` 与决策节点一起拉起后验收链路效果
-  - 底盘执行链默认值现在位于 `r2_runtime.chassis_runtime.merge_odom`；当前实机口径固定为 `merge_odom_use_can_odom=false`，由 WheelOdom 提供 `/merge_odom`，并在默认 `feedback_serial_port=__disabled__` 时与 `POSE_TARGET` / mechanism transport 共用目标串口单链路
-  - `merge_odom_use_can_odom` 参数仍保留为非默认调试能力，但 CAN odom 不再作为当前合理启动口径
-  - 自动导航主链的 `/odom` 仍由 `rc26_odom_interface` 提供给 Nav2；`/merge_odom` 只作为底盘局部反馈话题，不替代 `/odom` 或 `map -> odom` 权威
+  - 决策测试不再通过 `rc26_decision` 单节点 launch 入口进行；需要测试决策时使用本完整 bringup 入口，并按需同时准备外部 `/cmd_vel` 执行 consumer，机构动作链由 `rc26_mcu_transport` 提供 transport
+  - `r2_runtime.chassis_runtime.merge_odom` 已删除；默认 bringup 不再读取或透传 `merge_odom_*`、`start_pose_sender`、`pose_sender_*` 参数
+  - 自动导航主链的 `/odom` 仍由 `rc26_odom_interface` 提供给 Nav2；`/merge_odom` 不再是当前默认运行时话题
 - `odometry.launch.py`
   - 装配 Point-LIO、`rc26_odom_interface`、`rc26_sensor_scan`
   - 读取 `rc26_sensor_extrinsics` 的 YAML profile 发布 `base_link -> livox_frame` 等对外静态 TF
@@ -37,7 +36,7 @@
   - 自动导航链当前发布 `odom -> base_footprint -> base_link -> livox_frame`
 - `test_navigation.launch.py`
   - 复用整车 bringup，默认 `use_decision=false`
-  - 用于定位 + Nav2 基础导航联调；默认也会拉起 `merge_odom` 底盘执行链，若只做图结构/感知链验证应显式传 `start_pose_sender:=false`
+  - 用于定位 + Nav2 基础导航联调；不再启动底盘执行桥，只验证 Nav2 输出 `/cmd_vel` 与定位/地图/点云观察链
   - 默认 `use_rviz=true`，加载 `rviz/navigation_default.rviz` 观察地图、costmap、路径、定位、里程计与点云主链
 - `scripts/capture_nav_points.py`
   - 现场 Nav2 导航点采集工具；定位链和 `odom_interface` 已发布 `map -> odom -> base_footprint` 后，人工遥控到目标位置并在终端按 `Enter` 即记录当前 `map -> base_footprint` 的 `x/y/yaw`
@@ -78,10 +77,10 @@
 - Nav2 obstacle layer 参数块当前保留在 `config/nav2_params.yaml` 中，但默认关闭；`/sensor_scan` (`PointCloud2`) 链路仍保留，`registered_scan` 继续只供定位链使用
 - 本轮自动导航链将 `base_footprint` 固定为地面投影 2D 基座，`base_link` 固定为底盘最下层刚性主板中心，二者高度差当前由 `config/odom_interface.yaml` 维护，当前为 `0.2m`
 - `rc26_sensor_scan` 不再把导航基座到雷达的关系当成静态缓存，而是按时间戳查询 `base_footprint -> livox_frame` 组合 TF，保证 `base_link` 保留 roll/pitch 时点云投影仍正确
-- 本轮只改自动导航链；`rc26_merge_odom`、遥控和 minimal-mcu 链路不跟随迁移
-- `bringup.launch.py` 与 `test_navigation.launch.py` 保留 `start_pose_sender`、`pose_sender_feedback_serial_port`、`pose_sender_target_serial_port` 与 `pose_sender_baudrate` 这些历史命名参数，但主链默认把 `/cmd_vel` 接到 `rc26_merge_odom/merge_odom.launch.py`，并按 `target=/dev/ttyUSB0`、`feedback=__disabled__` 启动底盘执行链
+- 本轮停用默认运行链中的 `rc26_merge_odom` 装配；源码保留在 `src/rc26_merge_odom`，但 `bringup.launch.py` 与 `test_navigation.launch.py` 不再声明或透传 `merge_odom_*`、`start_pose_sender`、`pose_sender_*` 参数
+- 本轮新增 `rc26_mcu_transport` 作为机构指令共享串口 provider；`bringup.launch.py` 默认按 `r2_runtime.mcu_transport` 启动它，`test_navigation.launch.py` 显式关闭它
 - 点云、地图、行为树入口现在由 `r2_runtime.paths.prior_pcd_file`、`r2_runtime.paths.nav2_map_file` 与 `r2_runtime.paths.behavior_tree_file` 配置，三者必须写绝对路径；`prior_pcd_file:=...` 与 `nav2_map_file:=...` 仍可在 launch 命令中临时覆盖
-- `test_navigation.launch.py` 的验收目标改为 `/navigate_to_pose`、`sensor_scan` 链路存在、Nav2 lifecycle nodes、costmap/plan topics、`/cmd_vel` 与 `merge_odom` 执行链；当前默认不再把 `sensor_scan` 作为 obstacle layer 成功条件
+- `test_navigation.launch.py` 的验收目标改为 `/navigate_to_pose`、`sensor_scan` 链路存在、Nav2 lifecycle nodes、costmap/plan topics 与 `/cmd_vel` 输出；当前默认不再把 `sensor_scan` 作为 obstacle layer 成功条件
 - `config/nav2_params.yaml` 现已补齐主要字段的中文注释，现场调试应优先以该文件中的分区说明和速度/代价图参数注释为准
 - `test_navigation.launch.py` 新增 `use_rviz` 与 `rviz_config_file`，默认随导航联调入口启动 RViz2；主 `bringup.launch.py` 继续保持 headless
 - `navigation_default.rviz` 默认观察 Nav2 map、local/global costmap、plan、footprint、TF、RobotModel、`/odom`、定位位姿与 `registered_scan`/`sensor_scan` 点云主链；静态 map 与 costmap 采用半透明显示，点云采用固定高对比色，并保留 Nav2 RViz 面板和 GoalTool；不再订阅 terrain 或 keepout 输出
@@ -91,10 +90,10 @@
 - 当前仓库的 `test_mapping.launch.py` / Point-LIO 建图链默认导出的是 PCD 点云；PCD 作为 localization 先验输入，Nav2 `map_server` 则消费 `pcd_to_nav2_map.py` 生成的 `PNG + YAML` 或其它建图链保存出的 occupancy map，最后通过 `nav2_map_file` 传给导航入口
 - `odometry.launch.py` 新增 `start_point_lio`、`start_sensor_scan` 开关，供 `test_odom_interface.launch.py`、`odometry_mock.launch.py` 等入口复用同一套静态 TF / 内部外参装配
 - `odometry_mock.launch.py` 复用同一套 `odometry.launch.py` 装配；`mock_point_lio.py` 默认先输出一小段静止里程计，再进入运动阶段，以满足 `rc26_odom_interface` 现有的启动静止归零约束
-- 当前 bringup / test_navigation 已默认停用 `pose_sender_feedback_serial_port`；该参数只作为保留的独立反馈口入口，不属于当前默认链路
-- `bringup.launch.py` 不再提供独立 executor 分支；整车主入口只保留 `rc26_merge_odom/merge_odom.launch.py` 作为底盘执行与局部反馈链，并从 `config/r2_runtime.yaml` 读取 `merge_odom_*` 默认值。若要求 `/merge_odom` 但目标串口单链路 WheelOdom 没有真实 `ODOM_DATA`，`rc26_merge_odom` 不会伪造里程计；这是完整决策链配置错误而不是正常降级。
+- 当前 bringup / test_navigation 已移除 `pose_sender_feedback_serial_port` 等历史独立反馈口参数；目标 MCU 机构串口 owner 统一由 `rc26_mcu_transport` 提供
+- `bringup.launch.py` 不再提供默认底盘执行桥；`/cmd_vel` 是工作区输出契约，硬件消费方需由外部运行时提供。
 - 新增 `scripts/capture_nav_points.py` 作为现场 Nav2 目标点采集工具；它通过 TF 读取当前 `map -> base_footprint`，生成中文 `.txt` 和可复制的 `<NavToPose .../>`，仅服务人工标定行为树目标点。
 - 2026-06-13 同步：`bringup.launch.py` 与内部联调入口删除旧 `slam` 参数，统一改用 `run_mode:=navigation|mapping`；完整导航/决策链路使用 `run_mode:=navigation use_decision:=true`，建图链路使用 `run_mode:=mapping pure_mapping_mode:=true`。
 - 2026-06-13 同步：删除分散的 `rc26_decision/config/decision_params.yaml` 与 `rc26_bringup/config/chassis_runtime.yaml`，并移除 `rc26_decision` 独立 launch 测试入口；完整 bringup 统一从 `rc26_bringup/config/r2_runtime.yaml` 读取运行配置，决策验收必须在所有相关节点拉起后进行。
-- 2026-06-12 同步：`merge_odom_node` 在默认单口模式下会把目标串口收到的 `ODOM_DATA` 分发给 WheelOdom，同时继续把业务机构反馈交给 mechanism transport；因此当前合理启动口径是 `/dev/ttyUSB0` 单口 WheelOdom，而不是额外反馈串口或 CAN odom。
+- 2026-06-22 同步：`rc26_merge_odom` 源码保留但退出默认运行装配；机构 transport provider 改由独立 `rc26_mcu_transport` 承担，底盘 `/cmd_vel` 硬件消费方仍在工作区外。
 - 本轮归档 `rc26_terrain`、`rc26_base_ground` 与 `rc26_kfs_keepout`：主启动、建图调试、验收探针、RViz 预设和 `package.xml` 均不再接入这些包

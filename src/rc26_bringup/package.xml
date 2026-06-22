@@ -40,9 +40,9 @@
   <exec_depend>rc26_odom_interface</exec_depend>
   <exec_depend>rc26_sensor_scan</exec_depend>
   <exec_depend>rc26_sensor_extrinsics</exec_depend>
-  <exec_depend>rc26_merge_odom</exec_depend>
   
   <!-- 自定义包 -->
+  <exec_depend>rc26_mcu_transport</exec_depend>
   <exec_depend>rc26_localization</exec_depend>
   <exec_depend>rc26_decision</exec_depend>
   <exec_depend>realsense2_camera</exec_depend>

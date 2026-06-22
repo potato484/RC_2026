@@ -89,8 +89,8 @@
 - `tip_vision_test_node` 已删除旧的视觉直连串口状态下发链路，不再发送原下行 `0x12` 状态命令，也不再维护 `serial_*` 参数。
 - `tip` test 链的自动横移对线以画面中心竖线作为目标线，primary target 识别框中心竖线作为检测线；多框同时出现时，节点会先按“识别框中心距离画面中心竖线最近”获取锁定目标，随后在锁定窗口内持续跟踪同一个物理端头，不再因为另一侧框短暂更近就来回切换。启用 `alignment_control_enable=true` 后，对齐阶段发布 `cmd_vel.linear.y` 执行左右横移；当前默认同时启用 `alignment_heading_hold_enable=true`，订阅 `alignment_odom_topic=odom` 并按 `alignment_target_yaw_rad` 发布 `cmd_vel.angular.z` 保持车身朝向。yaw 偏差超过 `alignment_heading_gate_deg` 时暂停横移/前探，只先转向；像素误差和 yaw 误差都进入容差后才允许稳定计数。对齐稳定后发布 `cmd_vel.linear.x<0` 前探，等待 `/mechanism/command_feedback` 中的 `FRONT_LIMIT_SWITCH_TRIGGERED(0x19)` 后立即停车并进入抓取。当前 tip test 默认按相机朝机器人后方的安装口径反转横移方向，可通过 `alignment_invert_direction` 现场一键改回；纯相机桌面调试或未启动 odom 链路时，应显式设置 `alignment_heading_hold_enable=false`。
 - `tip` test 链的 `single_target_mode` 默认保持关闭；如果手动开启，推理结果会先按置信度截断到单个框，这会绕过多框中心优先选择，主要用于旧式单目标调试。
-- 对齐误差进入 `alignment_tolerance_px` 并稳定达到 `alignment_stable_frames` 后，tip test 节点必须先 x 负向前探并等待 0x19 前方限位反馈；收到限位后才会通过 `/mechanism/send_command` 共享 transport 下发一次 `GRAB_TIP(0x01)` 空 payload。它不直接打开目标 MCU 串口，也不绕过 `pose_sender_node` / `merge_odom_node` 的串口权威。
-- 启用自动对线时，同一时刻不要启动 Nav2、teleop 或其它 `/cmd_vel` 发布权威；必须由 `pose_sender_node` 或 `merge_odom_node` 持有目标串口并提供 `/mechanism/send_command`。
+- 对齐误差进入 `alignment_tolerance_px` 并稳定达到 `alignment_stable_frames` 后，tip test 节点必须先 x 负向前探并等待 0x19 前方限位反馈；收到限位后才会通过 `/mechanism/send_command` 共享 transport 下发一次 `GRAB_TIP(0x01)` 空 payload。它不直接打开目标 MCU 串口，`/cmd_vel` 消费由工作区外部运行时提供，mechanism transport 由 `rc26_mcu_transport` 提供。
+- 启用自动对线时，同一时刻不要启动 Nav2、teleop 或其它 `/cmd_vel` 发布权威；必须已有外部 provider 消费 `/cmd_vel`，并启动 `rc26_mcu_transport` 提供 `/mechanism/send_command` 与 `/mechanism/command_feedback`。
 - 当前 `tip` test 参数仍默认优先 `camera_index=2` 这路外接 USB 摄像头，但 `auto_scan_camera` 已默认打开；如果首选设备能枚举却读不出第一帧，节点会打印中文告警并自动扫描其他 `/dev/video*` 作为兜底。
 - 默认联调入口仍然是 RealSense + `vision_test_node`；tip test 节点不参与默认 launch，需要单独显式启动。
 

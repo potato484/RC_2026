@@ -28,7 +28,7 @@ tip_vision_test_node:  # tip USB 相机测试节点参数命名空间
     # 至少1个标签名，且必须能在 labels.txt 中找到
     target_labels: ["JK"]  # 参与端头选择和对齐的目标标签列表，必须能在模型 labels 中找到
 
-    # 自动横移对线：发布 cmd_vel.linear.y，经 PoseSender 下发到底盘。
+    # 自动横移对线：发布 cmd_vel.linear.y；硬件执行由外部 /cmd_vel consumer 负责。
     alignment_control_enable: true  # 是否启用自动视觉对线并发布 cmd_vel
     alignment_cmd_vel_topic: "cmd_vel"  # 自动对线和前探速度发布话题
     alignment_tolerance_px: 20  # 端头框中心与画面中心的允许水平误差，单位 px
@@ -62,9 +62,9 @@ tip_vision_test_node:  # tip USB 相机测试节点参数命名空间
     # alignment_grab_payload: [1, 2]  # 可选抓取 payload 示例；GRAB_TIP 默认空 payload 时保持注释即可
     alignment_grab_once_per_target: true  # 同一锁定目标是否只允许发送一次抓取命令
     alignment_grab_cooldown_s: 2.0  # 两次抓取尝试之间的最小间隔，单位秒
-    alignment_grab_service_name: "/mechanism/send_command"  # 机构 transport 命令服务名
+    alignment_grab_service_name: "/mechanism/send_command"  # rc26_mcu_transport 提供的命令服务名
     alignment_grab_service_timeout_ms: 200  # 等待 GRAB_TIP service 响应的超时时间，单位 ms
-    alignment_limit_switch_feedback_topic: "/mechanism/command_feedback"  # MCU 上行业务反馈透传话题
+    alignment_limit_switch_feedback_topic: "/mechanism/command_feedback"  # rc26_mcu_transport 发布的 MCU 上行业务反馈话题
     alignment_limit_switch_feedback_id: 25  # 前方限位开关触发反馈 ID；25 对应 0x19
     alignment_approach_speed_mps: 0.04  # 对齐稳定后 x 负方向前探速度幅值，单位 m/s
     alignment_approach_timeout_s: 5.0  # 前探等待 0x19 的安全超时，单位秒

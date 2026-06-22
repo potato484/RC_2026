@@ -24,7 +24,7 @@
 当前真实协议口径里，`ODOM_DATA(0x20)` 已经重新收口为麦克纳姆四轮唯一格式：
 
 - `ODOM_DATA = <v_fl, v_rl, v_rr, v_fr>`，共 `16B / 4 float`
-- 上位机默认由 `rc26_merge_odom::WheelOdom` 解析，并继续换算 `vx / vy / wz`
+- 如果外部运行时复用本协议，上位机可由相应 WheelOdom 实现解析，并继续换算 `vx / vy / wz`
 
 上位机下发给 MCU 的 `POSE_FEEDBACK/POSE_TARGET` 仍保持 `(vx, vy, wz)` 三浮点协议不变，但当前编号与发送口径已经更新为：
 
@@ -32,7 +32,7 @@
 - `POSE_TARGET = 0x1F`
 - 两者都按 `50Hz` 连续发送
 - 两者都走公开的 `sendCommandNoAck()` 路径，不等待 ACK
-- 但当前默认部署只启用 `target_serial_port=/dev/ttyUSB0` 这条单口 MCU 链；`feedback_serial_port` 默认 `__disabled__`，因此 `POSE_FEEDBACK` / `ODOM_DATA` 代码保留、默认运行时停用
+- 但当前仓库默认运行时不再提供目标 MCU 串口 owner；`POSE_FEEDBACK` / `ODOM_DATA` 代码保留，是否启用由外部运行时决定
 
 当前双推杆协议已经直接收口为前/后推杆四命令；遥控链也不再通过 `rc26_mechanism` 的 Action 兼容路径消费，而是直接走共享 transport：
 
@@ -54,14 +54,14 @@
 
 - `rc26_telecontrol_front_pushrod_buttons` 会在 `Y/A` 按下沿单次调用 `/mechanism/send_command`
 - `rc26_telecontrol_rear_pushrod_buttons` 会在 `Select/Back` / `Start` 按下沿单次调用 `/mechanism/send_command`
-- 4 条双推杆命令都通过 `merge_odom` 桥接走可靠 `sendCommand()` ACK 路径；若 MCU 不回通用 `ACK(0x00)`，会像其它可靠命令一样自动重传并打印超时日志
+- 4 条双推杆命令都通过 `rc26_mcu_transport` 走可靠 `sendCommand()` ACK 路径；若 MCU 不回通用 `ACK(0x00)`，会像其它可靠命令一样自动重传并打印超时日志
 - `0x13~0x19` 业务反馈以及历史保留的 `0x1A` 会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定
 - `0x17/0x18` 只由 MCU 上行，v1 payload 为空或忽略，分别表示前轮 / 后轮激光测距模块检测到车体高度突变；当前两激光台阶 BT 动作只按这两个事件推进阶段
 - `0x1A` 的 `FRONT_SECOND_LASER_HEIGHT_JUMP` 协议枚举保留为历史反馈 ID，桥接层仍可透传，但当前上/下台阶 BT 不再等待或消费它作为阶段推进条件
 - `0x19` 只由 MCU 上行，v1 payload 为空或忽略，表示武馆前方限位开关触发；武馆视觉夹取链在对齐后 x 负向前探并等待该事件，收到后立即停车再下发 `GRAB_TIP(0x01)`
 - 串口层当前只把 `ACK(0x00)`、`NACK(0x01)` 和心跳场景下的 `HEARTBEAT_ACK(0x10)` 视为 ACK 等待结果；当前 MCU 已不再返回 `ACTION_FAIL/ERROR`
 - `Dpad 左/右` 已回归底盘横移控制
-- 真机部署时，目标 MCU 串口仍由 `rc26_merge_odom` 独占打开；其它上层只复用 transport，不再次直连同一设备
+- 真机部署时，目标 MCU 串口由 `rc26_mcu_transport` 独占打开；其它上层只复用 transport，不再次直连同一设备
 
 旧的 tip test 视觉状态下发命令已经从下行协议中删除：
 
@@ -78,7 +78,7 @@
 ## 源码入口与阅读顺序
 - 先看 `src/serial_driver.cpp`，这是整个仓库复用的串口底座。
 - 再看两个测试文件，理解 ACK/RTO 和环形解析器的验收点。
-- 最后回到上层调用者，比如 `rc26_mechanism` 或 `rc26_merge_odom`，确认是哪一层在赋予业务语义，以及哪一层拥有真实串口所有权。
+- 最后回到上层调用者，比如 `rc26_mechanism` 或 `rc26_mcu_transport`，确认是哪一层在赋予业务语义，以及哪一层拥有真实串口所有权。
 
 ## 目录解剖
 - `serial_driver.cpp`：同时暴露可靠 `sendCommand()` 和公开的 no-ACK `sendCommandNoAck()`。
@@ -99,6 +99,6 @@
 ## 模块边界
 
 - 这个包是基础通信库，不直接代表某个业务节点
-- 它不做上层动作语义，具体业务封装在 `rc26_mechanism`、`rc26_merge_odom` 等包里
+- 它不做上层动作语义，具体业务封装在 `rc26_mechanism` 等包里；目标 MCU 串口 owner 由 `rc26_mcu_transport` 承担
 - 当业务异常时，要区分是协议层问题还是上层状态机问题，不能把所有故障都归到这个库
-- 真实整车部署下目标 MCU 串口的权威所有者仍然是 `rc26_merge_odom` 或最小 MCU 栈中的 `pose_sender_node`；视觉 tip test 只能复用 `/cmd_vel` 与 `/mechanism/send_command`，不能再次直连同一设备
+- 真实整车部署下目标 MCU 串口的权威所有者由 `rc26_mcu_transport` 承担；视觉 tip test 只能复用 `/cmd_vel` 与 `/mechanism/send_command`，不能再次直连同一设备

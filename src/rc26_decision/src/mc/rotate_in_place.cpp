@@ -29,7 +29,7 @@ RotateInPlaceAction::RotateInPlaceAction(const std::string& name, const BT::Node
 // onStart: 行为树首次进入本动作时调用一次。
 // 负责：从黑板读取 mc_params → 计算目标角度和容差 → 创建 cmd_vel 发布器 →
 //       订阅 mc_odom_topic，默认使用雷达标准 /odom → 通过 yaw 增量积分跟踪累计转角。
-// 注意：/odom 是自动导航链的雷达里程计契约，merge_odom 仍只负责底盘执行和局部反馈链。
+// 注意：/odom 是自动导航链的雷达里程计契约；底盘执行由外部 /cmd_vel consumer 负责。
 // 返回 RUNNING 后由 onRunning 接管持续控制。
 BT::NodeStatus RotateInPlaceAction::onStart() {
     // 获取 ROS 节点指针

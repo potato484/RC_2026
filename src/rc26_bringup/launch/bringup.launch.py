@@ -5,7 +5,6 @@ src R2导航系统 - 主启动文件
   - 里程计 (rc26_point_lio + rc26_odom_interface + rc26_sensor_scan)
   - 定位 (rc26_localization)
   - Nav2 基础导航栈 (map_server + planner/controller/BT navigator/velocity smoother)
-  - 底盘执行与局部反馈链 (rc26_merge_odom/merge_odom.launch.py)
   - 决策系统 (rc26_decision)
 
 额外模式:
@@ -13,7 +12,8 @@ src R2导航系统 - 主启动文件
 
 默认装配口径:
   - 车端 bringup 维持 headless
-  - r2_runtime.yaml 是点云、地图、行为树入口、底盘默认值与决策参数的运行配置真源
+  - r2_runtime.yaml 是点云、地图、行为树入口与决策参数的运行配置真源
+  - /cmd_vel 的硬件执行由外部运行时提供；机构指令共享串口由 rc26_mcu_transport 提供
   - 如需图形观察，请手工启动工作区外部可视化工具只读消费 ROS2 输出
 """
 import os
@@ -39,22 +39,6 @@ def _launch_value(context, name):
     return LaunchConfiguration(name).perform(context).strip()
 
 
-def _read_bool(mapping, key, default_value):
-    value = mapping.get(key, default_value)
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return default_value
-    return _parse_bool(value)
-
-
-def _read_str(mapping, key, default_value):
-    value = mapping.get(key, default_value)
-    if value is None:
-        return default_value
-    return str(value)
-
-
 def _read_required_abs_path(mapping, key):
     if key not in mapping:
         raise RuntimeError(f"r2_runtime.paths.{key} is required in r2_runtime.yaml")
@@ -66,16 +50,14 @@ def _read_required_abs_path(mapping, key):
     return value
 
 
-def _select_bool(context, name, default_value):
-    value = _launch_value(context, name)
-    if value == '':
-        return default_value
-    return _parse_bool(value)
-
-
 def _select_str(context, name, default_value):
     value = _launch_value(context, name)
     return default_value if value == '' else value
+
+
+def _select_bool(context, name, default_value):
+    value = _launch_value(context, name)
+    return bool(default_value) if value == '' else _parse_bool(value)
 
 
 def _select_abs_path(context, name, default_value):
@@ -106,15 +88,14 @@ def _load_r2_runtime_defaults(config_file):
 
     defaults = {
         'paths': {},
-        'merge_odom': {
-            'use_can_odom': False,
-            'start_ekf': False,
-            'start_imu': False,
-            'use_imu_for_ekf': False,
-            'require_merge_odom_output': True,
-            'output_topic': 'merge_odom',
-        },
         'decision_params': {},
+        'mcu_transport': {
+            'enabled': True,
+            'target_serial_port': '/dev/ttyUSB0',
+            'target_baudrate': 1000000,
+            'open_retry_period_ms': 1000,
+            'diagnostics_period_ms': 1000,
+        },
     }
 
     with open(config_file, 'r', encoding='utf-8') as f:
@@ -122,37 +103,29 @@ def _load_r2_runtime_defaults(config_file):
 
     runtime = yaml_data.get('r2_runtime') or {}
     paths = runtime.get('paths') or {}
-    chassis_runtime = runtime.get('chassis_runtime') or {}
-    merge_odom = chassis_runtime.get('merge_odom') or {}
     decision = runtime.get('decision') or {}
+    mcu_transport = runtime.get('mcu_transport') or {}
+    mcu_transport_params = mcu_transport.get('ros__parameters') or {}
 
     defaults['paths']['prior_pcd_file'] = _read_required_abs_path(paths, 'prior_pcd_file')
     defaults['paths']['nav2_map_file'] = _read_required_abs_path(paths, 'nav2_map_file')
     defaults['paths']['behavior_tree_file'] = _read_required_abs_path(paths, 'behavior_tree_file')
 
-    defaults['merge_odom']['use_can_odom'] = _read_bool(
-        merge_odom, 'use_can_odom', defaults['merge_odom']['use_can_odom'])
-    defaults['merge_odom']['start_ekf'] = _read_bool(
-        merge_odom, 'start_ekf', defaults['merge_odom']['start_ekf'])
-    defaults['merge_odom']['start_imu'] = _read_bool(
-        merge_odom, 'start_imu', defaults['merge_odom']['start_imu'])
-    defaults['merge_odom']['use_imu_for_ekf'] = _read_bool(
-        merge_odom, 'use_imu_for_ekf', defaults['merge_odom']['use_imu_for_ekf'])
-    defaults['merge_odom']['require_merge_odom_output'] = _read_bool(
-        merge_odom, 'require_merge_odom_output', defaults['merge_odom']['require_merge_odom_output'])
-    defaults['merge_odom']['output_topic'] = _read_str(
-        merge_odom, 'output_topic', defaults['merge_odom']['output_topic'])
-
     defaults['decision_params'] = dict((decision.get('ros__parameters') or {}))
     defaults['decision_params'].pop('tree_file', None)
+    enabled_value = mcu_transport.get('enabled', True)
+    defaults['mcu_transport']['enabled'] = (
+        _parse_bool(enabled_value) if isinstance(enabled_value, str) else bool(enabled_value)
+    )
+    for key in ('target_serial_port', 'target_baudrate', 'open_retry_period_ms', 'diagnostics_period_ms'):
+        if key in mcu_transport_params:
+            defaults['mcu_transport'][key] = mcu_transport_params[key]
     return defaults
 
 
-def _create_runtime_actions(context, *, bringup_dir, merge_odom_dir, sensor_extrinsics_dir,
-                            nav2_bringup_dir):
+def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2_bringup_dir, mcu_transport_dir):
     runtime_config_file = _launch_value(context, 'runtime_config_file')
     runtime_defaults = _load_r2_runtime_defaults(runtime_config_file)
-    merge_defaults = runtime_defaults['merge_odom']
 
     namespace = _launch_value(context, 'namespace')
     use_sim_time = _parse_bool(_launch_value(context, 'use_sim_time'))
@@ -175,23 +148,6 @@ def _create_runtime_actions(context, *, bringup_dir, merge_odom_dir, sensor_extr
         'localization_params_file',
         os.path.join(bringup_dir, 'config', 'localization.yaml'))
 
-    merge_odom_use_can_odom = _select_bool(
-        context, 'merge_odom_use_can_odom', merge_defaults['use_can_odom'])
-    merge_odom_start_ekf = _select_bool(
-        context, 'merge_odom_start_ekf', merge_defaults['start_ekf'])
-    merge_odom_start_imu = _select_bool(
-        context, 'merge_odom_start_imu', merge_defaults['start_imu'])
-    merge_odom_use_imu_for_ekf = _select_bool(
-        context, 'merge_odom_use_imu_for_ekf', merge_defaults['use_imu_for_ekf'])
-    merge_odom_require_output = _select_bool(
-        context, 'merge_odom_require_output', merge_defaults['require_merge_odom_output'])
-    merge_odom_output_topic = _select_str(
-        context, 'merge_odom_output_topic', merge_defaults['output_topic'])
-    start_pose_sender = _parse_bool(_launch_value(context, 'start_pose_sender') or 'true')
-    pose_sender_feedback_serial_port = _launch_value(context, 'pose_sender_feedback_serial_port') or '__disabled__'
-    pose_sender_target_serial_port = _launch_value(context, 'pose_sender_target_serial_port') or '/dev/ttyUSB0'
-    pose_sender_baudrate = _launch_value(context, 'pose_sender_baudrate') or '1000000'
-
     use_decision = _parse_bool(_launch_value(context, 'use_decision') or 'true')
     use_realsense = _parse_bool(_launch_value(context, 'use_realsense'))
     realsense_serial_no = _launch_value(context, 'realsense_serial_no') or "''"
@@ -209,8 +165,39 @@ def _create_runtime_actions(context, *, bringup_dir, merge_odom_dir, sensor_extr
         os.path.join(bringup_dir, 'config', 'nav2_params.yaml'))
     nav2_map_file = _select_abs_path(context, 'nav2_map_file', runtime_defaults['paths']['nav2_map_file'])
     behavior_tree_file = runtime_defaults['paths']['behavior_tree_file']
+    mcu_transport_defaults = runtime_defaults['mcu_transport']
+    start_mcu_transport = _select_bool(context, 'start_mcu_transport', mcu_transport_defaults['enabled'])
+    mcu_transport_target_serial_port = _select_str(
+        context,
+        'mcu_transport_target_serial_port',
+        str(mcu_transport_defaults['target_serial_port']))
+    mcu_transport_target_baudrate = _select_str(
+        context,
+        'mcu_transport_target_baudrate',
+        str(mcu_transport_defaults['target_baudrate']))
+    mcu_transport_open_retry_period_ms = _select_str(
+        context,
+        'mcu_transport_open_retry_period_ms',
+        str(mcu_transport_defaults['open_retry_period_ms']))
+    mcu_transport_diagnostics_period_ms = _select_str(
+        context,
+        'mcu_transport_diagnostics_period_ms',
+        str(mcu_transport_defaults['diagnostics_period_ms']))
 
     actions = []
+
+    if start_mcu_transport:
+        actions.append(IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                PathJoinSubstitution([mcu_transport_dir, 'launch', 'mcu_transport.launch.py'])
+            ),
+            launch_arguments={
+                'target_serial_port': mcu_transport_target_serial_port,
+                'target_baudrate': mcu_transport_target_baudrate,
+                'open_retry_period_ms': mcu_transport_open_retry_period_ms,
+                'diagnostics_period_ms': mcu_transport_diagnostics_period_ms,
+            }.items(),
+        ))
 
     odometry_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -286,24 +273,6 @@ def _create_runtime_actions(context, *, bringup_dir, merge_odom_dir, sensor_extr
             }.items(),
         ))
 
-        if start_pose_sender:
-            actions.append(IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(
-                    PathJoinSubstitution([merge_odom_dir, 'launch', 'merge_odom.launch.py'])
-                ),
-                launch_arguments={
-                    'use_can_odom': _launch_bool(merge_odom_use_can_odom),
-                    'start_ekf': _launch_bool(merge_odom_start_ekf),
-                    'use_imu_for_ekf': _launch_bool(merge_odom_use_imu_for_ekf),
-                    'start_imu': _launch_bool(merge_odom_start_imu),
-                    'feedback_serial_port': pose_sender_feedback_serial_port,
-                    'target_serial_port': pose_sender_target_serial_port,
-                    'baudrate': pose_sender_baudrate,
-                    'merge_odom_output_topic': merge_odom_output_topic,
-                    'require_merge_odom_output': _launch_bool(merge_odom_require_output),
-                }.items(),
-            ))
-
     if use_decision and not (mapping_mode and pure_mapping_mode):
         decision_params = dict(runtime_defaults['decision_params'])
         decision_params.pop('team', None)
@@ -346,9 +315,9 @@ def _create_runtime_actions(context, *, bringup_dir, merge_odom_dir, sensor_extr
 
 def generate_launch_description():
     bringup_dir = get_package_share_directory('rc26_bringup')
-    merge_odom_dir = get_package_share_directory('rc26_merge_odom')
     sensor_extrinsics_dir = get_package_share_directory('rc26_sensor_extrinsics')
     nav2_bringup_dir = get_package_share_directory('nav2_bringup')
+    mcu_transport_dir = get_package_share_directory('rc26_mcu_transport')
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -400,45 +369,25 @@ def generate_launch_description():
             default_value='',
             description='基础定位参数文件路径；为空时使用 rc26_bringup/config/localization.yaml'),
         DeclareLaunchArgument(
-            'merge_odom_use_can_odom',
+            'start_mcu_transport',
             default_value='',
-            description='覆盖 r2_runtime.yaml: 是否选择 CAN 里程计作为 /merge_odom 源'),
+            description='是否启动 rc26_mcu_transport；空字符串表示使用 r2_runtime.yaml'),
         DeclareLaunchArgument(
-            'merge_odom_start_ekf',
+            'mcu_transport_target_serial_port',
             default_value='',
-            description='覆盖 r2_runtime.yaml: 是否启动 EKF'),
+            description='目标 MCU 串口设备；为空时使用 r2_runtime.yaml'),
         DeclareLaunchArgument(
-            'merge_odom_start_imu',
+            'mcu_transport_target_baudrate',
             default_value='',
-            description='覆盖 r2_runtime.yaml: 是否启动 DM IMU'),
+            description='目标 MCU 串口波特率；为空时使用 r2_runtime.yaml'),
         DeclareLaunchArgument(
-            'merge_odom_use_imu_for_ekf',
+            'mcu_transport_open_retry_period_ms',
             default_value='',
-            description='覆盖 r2_runtime.yaml: 是否让 EKF 融合 IMU'),
+            description='目标 MCU 串口初始打开重试周期；为空时使用 r2_runtime.yaml'),
         DeclareLaunchArgument(
-            'merge_odom_require_output',
+            'mcu_transport_diagnostics_period_ms',
             default_value='',
-            description='覆盖 r2_runtime.yaml: 是否要求真实 odom 源发布稳定 /merge_odom'),
-        DeclareLaunchArgument(
-            'merge_odom_output_topic',
-            default_value='',
-            description='覆盖 r2_runtime.yaml: 稳定底盘局部反馈 Odometry 输出话题'),
-        DeclareLaunchArgument(
-            'start_pose_sender',
-            default_value='true',
-            description='是否启动底盘执行桥，把导航 /cmd_vel 接到底盘目标 MCU'),
-        DeclareLaunchArgument(
-            'pose_sender_feedback_serial_port',
-            default_value='__disabled__',
-            description='保留的独立反馈串口参数；当前默认停用，WheelOdom 走 target 单口'),
-        DeclareLaunchArgument(
-            'pose_sender_target_serial_port',
-            default_value='/dev/ttyUSB0',
-            description='目标串口；用于 POSE_TARGET 与 mechanism transport'),
-        DeclareLaunchArgument(
-            'pose_sender_baudrate',
-            default_value='1000000',
-            description='底盘目标串口波特率'),
+            description='rc26_mcu_transport diagnostics 发布周期；为空时使用 r2_runtime.yaml'),
         DeclareLaunchArgument(
             'use_decision',
             default_value='true',
@@ -471,9 +420,9 @@ def generate_launch_description():
             function=_create_runtime_actions,
             kwargs={
                 'bringup_dir': bringup_dir,
-                'merge_odom_dir': merge_odom_dir,
                 'sensor_extrinsics_dir': sensor_extrinsics_dir,
                 'nav2_bringup_dir': nav2_bringup_dir,
+                'mcu_transport_dir': mcu_transport_dir,
             },
         ),
     ])

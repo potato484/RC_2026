@@ -1,5 +1,5 @@
 # R2 统一运行配置。
-# 本文件是完整 bringup 的运行配置真源：点云、地图、行为树入口、底盘装配默认值与决策参数集中维护。
+# 本文件是完整 bringup 的运行配置真源：点云、地图、行为树入口与决策参数集中维护。
 # paths 下的三个路径必须使用绝对路径；如需现场切换地图/点云/行为树，优先修改这里。
 r2_runtime:
   paths:
@@ -7,23 +7,17 @@ r2_runtime:
     nav2_map_file: "/home/aidlux/RC_2026/src/rc26_bringup/map/class.yaml"
     behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/mc_tree.xml"
 
-  chassis_runtime:
-    # 整车 bringup 只保留 rc26_merge_odom/merge_odom.launch.py 作为底盘执行与局部反馈链。
-    # 其它遥控/最小硬件调试入口不由本段控制。
-    merge_odom:
-      # 当前实机口径为 false：WheelOdom 作为底盘局部反馈源。
-      # feedback_serial_port 默认禁用时，WheelOdom 与 POSE_TARGET / mechanism transport 共用 target 单口。
-      # CAN odom 只保留为非默认调试能力，不作为当前合理启动口径。
-      use_can_odom: false
-
-      # 默认不在整车 bringup 里启动 EKF，避免与 Nav2 主链 /odom 和动态 TF 权威冲突。
-      start_ekf: true
-      start_imu: true
-      use_imu_for_ekf: true
-
-      # 完整决策链要求真实 odom 源；遥控调试入口可显式覆盖为 false。
-      require_merge_odom_output: true
-      output_topic: "merge_odom"
+  # 目标 MCU 共享串口 transport。
+  # 只要运行链会下发机构动作指令，就必须启动 rc26_mcu_transport。
+  # 本服务只提供 /mechanism/send_command 与 /mechanism/command_feedback；
+  # /cmd_vel 的底盘硬件消费方仍由外部运行时提供。
+  mcu_transport:
+    enabled: true
+    ros__parameters:
+      target_serial_port: "/dev/ttyUSB0"
+      target_baudrate: 1000000
+      open_retry_period_ms: 1000
+      diagnostics_period_ms: 1000
 
   decision:
     ros__parameters:
@@ -52,7 +46,7 @@ r2_runtime:
       mc_target_labels: ["JK"]      # 端头目标标签，必须能在 tip_default 标签表中找到
 
       # --- 视觉对齐（横移 P 控制，发布 cmd_vel.linear.y）---
-      mc_align_cmd_vel_topic: "cmd_vel"      # 视觉横移对齐发布的速度话题
+      mc_align_cmd_vel_topic: "cmd_vel"      # 视觉横移对齐发布的速度话题；硬件执行由外部 /cmd_vel consumer 负责
       mc_align_tolerance_px: 20              # 目标中心允许偏离画面中心的像素容差
       mc_align_stable_frames: 5              # 连续满足容差后触发夹取的稳定帧数
       mc_align_kp: 0.0010                    # 横移 P 控制比例增益，像素误差到 m/s
@@ -75,8 +69,8 @@ r2_runtime:
       mc_grab_command_id: 1                  # 夹取端头命令 ID；1 对应 GRAB_TIP(0x01)
       # mc_grab_payload 默认空（GRAB_TIP 无 payload）；如需下发字节，填如 [1, 2]。
       # 注意：ROS2 不支持 YAML 空数组参数，留空请勿写 []，直接省略该项即可。
-      mc_grab_service_name: "/mechanism/send_command"  # 共享串口机构命令服务名
-      mc_grab_limit_switch_feedback_topic: "/mechanism/command_feedback"  # MCU 上行业务反馈透传话题
+      mc_grab_service_name: "/mechanism/send_command"  # rc26_mcu_transport 提供的机构命令服务名
+      mc_grab_limit_switch_feedback_topic: "/mechanism/command_feedback"  # rc26_mcu_transport 发布的 MCU 上行业务反馈话题
       mc_grab_limit_switch_feedback_id: 25   # 前方限位开关触发反馈 ID；25 对应 0x19
       mc_grab_approach_speed_mps: 0.04      # 对齐后 x 负方向前探速度幅值，单位 m/s
       mc_grab_approach_timeout_s: 5.0        # 前探等待 0x19 的安全超时，单位秒
@@ -90,7 +84,7 @@ r2_runtime:
       mc_rotate_slowdown_angle_deg: 30.0 # 剩余角度小于该值时线性减速，单位度
       mc_rotate_direction: 1           # 原地旋转方向；+1 逆时针，-1 顺时针
       mc_rotate_yaw_tolerance_deg: 3.0 # 旋转完成角度容差，单位度
-      mc_rotate_cmd_vel_topic: "cmd_vel"  # 原地旋转发布的速度话题
+      mc_rotate_cmd_vel_topic: "cmd_vel"  # 原地旋转发布的速度话题；硬件执行由外部 /cmd_vel consumer 负责
       mc_odom_topic: "odom"            # 视觉 heading hold 和原地旋转闭环使用的雷达标准里程计话题
       mc_rotate_odom_timeout_s: 0.5    # 旋转阶段 odom 超过该时间未更新时停车等待，单位秒
       mc_rotate_timeout_s: 15.0        # 原地旋转安全超时，单位秒
@@ -99,9 +93,9 @@ r2_runtime:
       # 独立台阶动作参数 —— 仅在单独加载 stair_climb_tree.xml / stair_descend_tree.xml
       # 或串联台阶动作的 mf_red_middle_column_tree.xml 时使用；默认主流程不引用台阶动作
       # ======================================================================
-      stair_cmd_vel_topic: "cmd_vel"                 # 台阶动作直接发布的速度话题
-      stair_send_command_service: "/mechanism/send_command"  # 推杆命令共享串口服务
-      stair_feedback_topic: "/mechanism/command_feedback"    # MCU 上行激光突变事件透传话题
+      stair_cmd_vel_topic: "cmd_vel"                 # 台阶动作直接发布的速度话题；硬件执行由外部 /cmd_vel consumer 负责
+      stair_send_command_service: "/mechanism/send_command"  # rc26_mcu_transport 提供的推杆命令服务
+      stair_feedback_topic: "/mechanism/command_feedback"    # rc26_mcu_transport 发布的 MCU 上行激光突变事件话题
       stair_drive_speed_mps: 0.10                    # 上/下台阶直行动作速度绝对值，单位 m/s
       stair_command_rate_hz: 20.0                    # 台阶动作速度发布频率，单位 Hz
       stair_command_timeout_s: 3.0                   # 每条推杆命令 accepted 等待超时，单位秒

@@ -7,6 +7,7 @@
 当前实现已经按“真机最小可用链路”收口：
 
 - 只保留 `shared_serial` 真机 HAL
+- `launch/mechanism.launch.py` 默认同时启动 `rc26_mcu_transport`；如果目标 MCU transport 已经由 bringup 或其它入口启动，可显式传 `start_mcu_transport:=false`
 - 只保留 3 个动作入口：
   - `/mechanism/grab_tip`
   - `/mechanism/assemble_weapon`
@@ -20,7 +21,7 @@
 
 1. **生命周期门禁化管理**：只有节点处于 `active` 且 HAL 已打开时才接收机构动作；退活、错误或取消时会清退执行上下文并发送 `STOP`。
 2. **集中命令目录真源**：`mechanism_command_catalog` 统一描述命令是否允许走 `/mechanism/run_command`、什么反馈算成功、默认 timeout 是多少。
-3. **共享串口优先**：真实部署只支持 `shared_serial`，通过 `/mechanism/send_command` 与 `/mechanism/command_feedback` 复用 `rc26_merge_odom` 或 `pose_sender_node` 已持有的目标 MCU 串口。
+3. **共享串口优先**：真实部署只支持 `shared_serial`，通过 `/mechanism/send_command` 与 `/mechanism/command_feedback` 复用 `rc26_mcu_transport` 已经持有的目标 MCU 串口。
 4. **单动作串行执行**：同一时刻只允许一个机构动作执行，避免上层并发 goal 把机构链路打乱。
 5. **反馈收敛保留**：继续保留 `pending_contexts_`、`buffered_feedbacks_`、早到成功反馈与超时处理；当前 MCU 不再回 `ACTION_FAIL/ERROR`，所以 mechanism 侧只按命令专属完成反馈或超时来收敛结果。
 
@@ -61,7 +62,8 @@
 ## 注意事项
 
 - 当前真实部署只支持 `hal_type:=shared_serial`；其它 `hal_type` 会在 `configure` 阶段直接失败。
-- `shared_serial` 复用的是 `rc26_merge_odom` 已打开的 `target_serial_port`；当前默认主口是 `/dev/ttyUSB0`，`feedback_serial_port` 默认停用且不属于 mechanism 物理链路。
+- `shared_serial` 复用的是 `rc26_mcu_transport` 提供的 `/mechanism/send_command` 与 `/mechanism/command_feedback`；涉及机构动作的运行链必须先启动或同时启动该目标 MCU 串口 owner。
+- 单独启动 `ros2 launch rc26_mechanism mechanism.launch.py` 时会默认同步启动 `rc26_mcu_transport`；若该 provider 已存在，请传 `start_mcu_transport:=false`，避免重复打开同一物理串口。
 - 前/后推杆 sidecar 命令不再属于 `rc26_mechanism` 的业务命令目录；遥控链当前直接调用 `/mechanism/send_command`。
 - 当前机构节点不再维护端头状态机，也不再通过 `/mechanism/status` 发布端头姿态、装配计数或通信健康统计。
 - 包目录已经物理清理掉历史残留空目录 `include/rc26_mechanism/hal/{fault,replay,sim}`、`src/hal/{fault,replay,sim}` 与 `launch/__pycache__`，当前源码树只保留最小真机链路对应的目录。

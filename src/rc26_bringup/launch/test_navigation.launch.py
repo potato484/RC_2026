@@ -13,7 +13,6 @@ R2 导航联调入口
   - ros2 lifecycle get /controller_server
   - ros2 lifecycle get /bt_navigator
   - ros2 topic echo /cmd_vel
-  - ros2 topic echo /merge_odom
 """
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -34,12 +33,6 @@ def generate_launch_description():
     team = LaunchConfiguration('team')
     localization_params_file = LaunchConfiguration('localization_params_file')
     nav2_map_file = LaunchConfiguration('nav2_map_file')
-    start_pose_sender = LaunchConfiguration('start_pose_sender')
-    pose_sender_feedback_serial_port = LaunchConfiguration('pose_sender_feedback_serial_port')
-    pose_sender_target_serial_port = LaunchConfiguration('pose_sender_target_serial_port')
-    pose_sender_baudrate = LaunchConfiguration('pose_sender_baudrate')
-    merge_odom_use_can_odom = LaunchConfiguration('merge_odom_use_can_odom')
-    merge_odom_require_output = LaunchConfiguration('merge_odom_require_output')
     use_rviz = LaunchConfiguration('use_rviz')
     rviz_config_file = LaunchConfiguration('rviz_config_file')
 
@@ -71,30 +64,6 @@ def generate_launch_description():
         'nav2_map_file',
         default_value='',
         description='Nav2 map_server 使用的 2D occupancy map YAML 绝对路径；空字符串表示使用 r2_runtime.yaml')
-    declare_start_pose_sender = DeclareLaunchArgument(
-        'start_pose_sender',
-        default_value='true',
-        description='是否启动 merge_odom 底盘执行链，把 /cmd_vel 接到底盘执行桥')
-    declare_pose_sender_feedback_serial_port = DeclareLaunchArgument(
-        'pose_sender_feedback_serial_port',
-        default_value='__disabled__',
-        description='保留的独立反馈串口参数；当前默认停用，WheelOdom 走 target 单口')
-    declare_pose_sender_target_serial_port = DeclareLaunchArgument(
-        'pose_sender_target_serial_port',
-        default_value='/dev/ttyUSB0',
-        description='merge_odom 目标串口')
-    declare_pose_sender_baudrate = DeclareLaunchArgument(
-        'pose_sender_baudrate',
-        default_value='1000000',
-        description='merge_odom 目标串口波特率')
-    declare_merge_odom_use_can_odom = DeclareLaunchArgument(
-        'merge_odom_use_can_odom',
-        default_value='',
-        description='覆盖 r2_runtime.yaml: 是否选择 CAN 里程计作为 /merge_odom 源')
-    declare_merge_odom_require_output = DeclareLaunchArgument(
-        'merge_odom_require_output',
-        default_value='',
-        description='覆盖 r2_runtime.yaml: 是否要求真实 odom 源发布稳定 /merge_odom')
     declare_use_rviz = DeclareLaunchArgument(
         'use_rviz',
         default_value='true',
@@ -113,17 +82,12 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'run_mode': 'navigation',
             'use_decision': 'false',
+            'start_mcu_transport': 'false',
             'prior_pcd_file': prior_pcd_file,
             'recover_mid360_stream': recover_mid360_stream,
             'team': team,
             'localization_params_file': localization_params_file,
             'nav2_map_file': nav2_map_file,
-            'start_pose_sender': start_pose_sender,
-            'pose_sender_feedback_serial_port': pose_sender_feedback_serial_port,
-            'pose_sender_target_serial_port': pose_sender_target_serial_port,
-            'pose_sender_baudrate': pose_sender_baudrate,
-            'merge_odom_use_can_odom': merge_odom_use_can_odom,
-            'merge_odom_require_output': merge_odom_require_output,
         }.items()
     )
 
@@ -144,12 +108,6 @@ def generate_launch_description():
         declare_team,
         declare_localization_params_file,
         declare_nav2_map_file,
-        declare_start_pose_sender,
-        declare_pose_sender_feedback_serial_port,
-        declare_pose_sender_target_serial_port,
-        declare_pose_sender_baudrate,
-        declare_merge_odom_use_can_odom,
-        declare_merge_odom_require_output,
         declare_use_rviz,
         declare_rviz_config_file,
         bringup_launch,

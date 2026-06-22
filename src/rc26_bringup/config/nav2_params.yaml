@@ -2,7 +2,7 @@
 # 口径说明：
 # - map -> odom 继续由 rc26_localization 负责，Nav2 不接管定位权威
 # - 当前默认关闭 local/global costmap 的 obstacle_layer；保留 sensor_scan 配置块供后续恢复
-# - /cmd_vel 由 Nav2 controller + velocity_smoother 输出，再交给 pose_sender_node 下发
+# - /cmd_vel 由 Nav2 controller + velocity_smoother 输出；硬件执行方由工作区外部运行时提供
 
 # BT 导航器：负责调 planner / controller / recovery 等动作节点
 bt_navigator:

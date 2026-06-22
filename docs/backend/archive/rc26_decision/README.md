@@ -10,7 +10,7 @@
   - `rc26_decision_nodes`
   - `decision_node`
 - 运行入口:
-  - `rc26_decision` 不再提供独立 launch 入口；决策运行和测试统一由 `rc26_bringup/launch/bringup.launch.py` 装配，以保证定位、Nav2、`merge_odom` 与决策节点处在同一完整链路中验证
+  - `rc26_decision` 不再提供独立 launch 入口；决策运行和测试统一由 `rc26_bringup/launch/bringup.launch.py` 装配。涉及真实运动时仍需要外部 `/cmd_vel` 执行 consumer；涉及机构动作时必须启动 `rc26_mcu_transport`
 - 关键行为树:
   - `behavior_trees/main_tree.xml`
   - `behavior_trees/mf_tree.xml`
@@ -78,7 +78,7 @@ Nav2 action result 映射规则：
 ### 节点职责
 
 - `VisualServoGrabAction`（`src/mc/visual_servo_grab.cpp`）：内嵌直连相机 + `rc26_vision::InferenceEngine`，在独立工作线程中执行"取帧→推理→锁定同一物理端头→雷达 odom yaw 姿态保持 + 横移 P 控制对齐→对齐稳定后以 `cmd_vel.linear.x` 负方向前探→等待 `/mechanism/command_feedback` 上行 `FRONT_LIMIT_SWITCH_TRIGGERED(0x19)`→立即停车→经 `/mechanism/send_command` 下发 `GRAB_TIP(0x01)`"。多框同时出现时，目标选择复用 `rc26_vision` 的 tip alignment helper：初次按离画面中心最近获锁，短暂丢失不立即切到另一侧框。单端头场景下，若 `mc_odom_topic` yaw 偏离目标 yaw 超过 `mc_align_heading_gate_deg`，动作只发布 `cmd_vel.angular.z` 修正车身朝向，暂停 `linear.y` 横移和前探；只有像素偏差进入 `mc_align_tolerance_px` 且 yaw 偏差进入 `mc_align_heading_tolerance_deg` 后才累计稳定帧并进入前探。每次动作生命周期最多发送一次实际进入 `async_send_request` 的 `GRAB_TIP`；service 未就绪时不消耗这次发送机会并在停车状态下继续等待，前探等待 0x19 超过 `mc_grab_approach_timeout_s` 则停车失败。**完成判定**：夹取已下发后端头持续消失达 `mc_grab_done_lost_time_s` → `SUCCESS`；超 `mc_servo_timeout_s` → `FAILURE`。
-- `RotateInPlaceAction`（`src/mc/rotate_in_place.cpp`）：发布 `cmd_vel.angular.z`，订阅 `mc_odom_topic`（默认 `odom`），默认使用 `rc26_odom_interface` 发布的雷达标准 `/odom` yaw 作为 180° 闭环反馈，不再默认依赖 `/merge_odom` 的轮速局部反馈；角速度由 `mc_rotate_speed_radps` 配置为最大值，末段按 `mc_rotate_slowdown_angle_deg` 线性降到 `mc_rotate_min_speed_radps` 以降低过冲。动作按 `mc_rotate_direction` 的符号判断累计角度和剩余角度，`剩余角度 ≤ mc_rotate_yaw_tolerance_deg` → 停车 `SUCCESS`；`mc_rotate_odom_timeout_s` 内无新 odom 时停车等待，超 `mc_rotate_timeout_s` → `FAILURE`（yaw 直接由四元数解算，不依赖 tf2）。
+- `RotateInPlaceAction`（`src/mc/rotate_in_place.cpp`）：发布 `cmd_vel.angular.z`，订阅 `mc_odom_topic`（默认 `odom`），默认使用 `rc26_odom_interface` 发布的雷达标准 `/odom` yaw 作为 180° 闭环反馈；角速度由 `mc_rotate_speed_radps` 配置为最大值，末段按 `mc_rotate_slowdown_angle_deg` 线性降到 `mc_rotate_min_speed_radps` 以降低过冲。动作按 `mc_rotate_direction` 的符号判断累计角度和剩余角度，`剩余角度 ≤ mc_rotate_yaw_tolerance_deg` → 停车 `SUCCESS`；`mc_rotate_odom_timeout_s` 内无新 odom 时停车等待，超 `mc_rotate_timeout_s` → `FAILURE`（yaw 直接由四元数解算，不依赖 tf2）。
 - `WaitForeverAction`（`src/mc/wait_forever.cpp`）：恒 `RUNNING`。
 
 ### 参数
@@ -114,7 +114,7 @@ Nav2 action result 映射规则：
 
 - 路线固定为红方中间列 `grid2 -> grid5 -> grid8 -> grid11`：入口前定位点到第一排第二列 200mm 台阶，随后两段上台阶到 400mm、600mm，再以后轮在前的姿态下到第四排第二列 400mm，最后导航到现有 MF 中列出口点。
 - 本树只复用 `NavToPose`、`StairClimb` 与 `StairDescend`，用 XML `Script` 记录 `current_grid` 等黑板状态；不调用 `ScanSurroundings`、`SelectNextGrid`、`GrabKFS`，也不执行视觉夹取。
-- 运行时同时依赖 Nav2 `/navigate_to_pose`、共享机构 `/mechanism/send_command`、`/mechanism/command_feedback` 与台阶动作参数 `stair_*`。由于 `StairClimb` / `StairDescend` 会直接发布 `cmd_vel`，执行该树时必须确保 Nav2 controller、遥控或其它测试节点不会同时发布运动命令。
+- 运行时同时依赖 Nav2 `/navigate_to_pose`、由 `rc26_mcu_transport` 提供的 `/mechanism/send_command`、`/mechanism/command_feedback` 与台阶动作参数 `stair_*`。由于 `StairClimb` / `StairDescend` 会直接发布 `cmd_vel`，执行该树时必须确保 Nav2 controller、遥控或其它测试节点不会同时发布运动命令。
 
 ## 当前边界
 

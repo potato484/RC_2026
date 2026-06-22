@@ -25,6 +25,7 @@ x-modules:
     services: []
   - name: navigation
     file: docs/middle/modules/navigation.yaml
+    description: Nav2 导航接口；/cmd_vel 只作为工作区输出契约，硬件执行消费方由外部运行时提供。
     topics:
       - /cmd_vel
       - /plan
@@ -40,6 +41,7 @@ x-modules:
     services: []
   - name: mechanism
     file: docs/middle/modules/mechanism.yaml
+    description: 机构 action 与 transport 契约；/mechanism/send_command 和 /mechanism/command_feedback 的 provider 由 rc26_mcu_transport 提供。
     topics:
       - /mechanism/status
       - /mechanism/command_feedback

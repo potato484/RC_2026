@@ -10,6 +10,8 @@ R2 运行时导航权威已经迁移到 Nav2。`rc26_bringup` 在 `slam=false` �
 
 `rc26_decision` 不再发送自定义导航 action，而是在 BT XML 中显式写 Nav2 pose 目标，通过 `NavToPose` 节点调用 `/navigate_to_pose`。
 
+`rc26_merge_odom` 已从当前 R2 默认运行装配中停用但保留源码：`rc26_bringup`、导航联调入口和遥控脚本不再启动它，也不再把 `/merge_odom` 作为当前运行时契约。`/cmd_vel` 的硬件消费方由工作区外部运行时提供；机构指令共享串口 provider 由 `rc26_mcu_transport` 提供，涉及机构动作的运行链必须启动它。
+
 `rc26_terrain`、`rc26_base_ground` 与 `rc26_kfs_keepout` 已从当前 R2 主运行时链路中归档退出：默认 CMake 不生成运行时目标，`rc26_bringup` 不启动它们，`rc26_decision` 不订阅或发布它们的数据，默认运行和手动验证闭包也不再纳入这些归档链路。
 
 ## 当前验证口径
@@ -43,7 +45,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 - [`rc26_sensor_extrinsics`](archive/rc26_sensor_extrinsics/README.md): R2 静态传感器安装外参 YAML 真源。`(file: archive/rc26_sensor_extrinsics/README.md)`
 - [`rc26_point_lio`](archive/rc26_point_lio/README.md): LiDAR-Inertial Odometry 主链。`(file: archive/rc26_point_lio/README.md)`
 - [`rc26_localization`](archive/rc26_localization/README.md): 激光重定位主模块，继续作为 `map -> odom` 权威。`(file: archive/rc26_localization/README.md)`
-- [`rc26_merge_odom`](archive/rc26_merge_odom/README.md): 多源里程计融合与位姿下发。`(file: archive/rc26_merge_odom/README.md)`
+- [`rc26_merge_odom`](archive/rc26_merge_odom/README.md): 已停用的底盘局部反馈、位姿下发和目标 MCU 串口桥接源码，保留给历史参考和手工调试，不再属于默认运行链。`(file: archive/rc26_merge_odom/README.md)`
 - [`rc26_odom_interface`](archive/rc26_odom_interface/README.md): 上游里程计到下游统一底盘坐标系的接口层。`(file: archive/rc26_odom_interface/README.md)`
 - [`rc26_sensor_scan`](archive/rc26_sensor_scan/README.md): 点云与里程计时空对齐模块。`(file: archive/rc26_sensor_scan/README.md)`
 - [`rc26_small_gicp`](archive/rc26_small_gicp/README.md): 点云配准基础库。`(file: archive/rc26_small_gicp/README.md)`
@@ -51,6 +53,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 ### 控制与执行
 
 - [`rc26_mechanism`](archive/rc26_mechanism/README.md): 机构执行与生命周期管理。`(file: archive/rc26_mechanism/README.md)`
+- [`rc26_mcu_transport`](archive/rc26_mcu_transport/README.md): 目标 MCU 共享串口 provider，提供 `/mechanism/send_command` 与 `/mechanism/command_feedback`。`(file: archive/rc26_mcu_transport/README.md)`
 - [`rc26_telecontrol`](archive/rc26_telecontrol/README.md): 人工遥控测试包。`(file: archive/rc26_telecontrol/README.md)`
 - [`rc26_serial`](archive/rc26_serial/README.md): 串口通信基础库。`(file: archive/rc26_serial/README.md)`
 

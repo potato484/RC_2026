@@ -51,12 +51,12 @@
 
 当前真实运行时口径是：
 
-*   4 条双推杆命令都通过 `rc26_merge_odom` 的共享 transport 走可靠 `sendCommand()` ACK 路径；若 MCU 不回通用 `ACK(0x00)`，会像其它可靠命令一样重传并打印超时日志。
+*   4 条双推杆命令都通过 `rc26_mcu_transport` 走可靠 `sendCommand()` ACK 路径；若 MCU 不回通用 `ACK(0x00)`，会像其它可靠命令一样重传并打印超时日志。
 *   `rc26_telecontrol_front_pushrod_buttons` 会在 `Y/A` 按下沿单次调用 `/mechanism/send_command`，分别桥成前推杆伸展 / 收缩。
 *   `rc26_telecontrol_rear_pushrod_buttons` 会在 `Select/Back` / `Start` 按下沿单次调用 `/mechanism/send_command`，分别桥成后推杆伸展 / 收缩；`Dpad 左/右` 已回归底盘横移控制。
 *   transport service 返回 `accepted=true` 的前提仍然是 MCU 先回通用 `ACK(0x00)`；`0x13~0x1A` 业务反馈会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定。
 *   串口层当前只把 `ACK(0x00)`、`NACK(0x01)` 和心跳场景下的 `HEARTBEAT_ACK(0x10)` 视为 ACK 等待结果；MCU 已不再返回 `ACTION_FAIL/ERROR` 这类快捷失败反馈。
-*   真机部署时，目标 MCU 串口仍由 `rc26_merge_odom` 运行时独占打开；当前默认主口是 `target_serial_port=/dev/ttyUSB0`，其它上层只复用 transport，不再次直连同一设备。
+*   真机部署时，目标 MCU 串口由 `rc26_mcu_transport` 独占打开；其它上层只复用 transport，不再次直连同一设备。
 *   端头视觉对齐后的抓取改为先经 `/cmd_vel` x 负向前探等待 0x19 限位反馈，再经 `/mechanism/send_command` 下发 `GRAB_TIP(0x01)` 空 payload。
 *   旧 tip test 视觉状态下发命令已从下行协议中删除，原下行编号 `0x12` 当前不重新分配；上行 `FeedbackID::STAIR_DESCEND_DONE = 0x12` 仍保留。
 
@@ -64,7 +64,7 @@
 
 *   `ODOM_DATA(0x20)` 固定为 `<v_fl, v_rl, v_rr, v_fr>` 的 `16B / 4 float`
 *   `POSE_FEEDBACK(0x1E)` / `POSE_TARGET(0x1F)` 继续保持 `(vx, vy, wz)` 三浮点协议和 `50Hz` 连续发送
-*   但当前默认运行时只启用 `target_serial_port=/dev/ttyUSB0` 这条单口 MCU 链；`feedback_serial_port` 默认 `__disabled__`，因此 `ODOM_DATA` / `POSE_FEEDBACK` 代码仍保留，但不属于默认部署路径
+*   机构指令的目标 MCU 串口 owner 由 `rc26_mcu_transport` 提供；`ODOM_DATA` / `POSE_FEEDBACK` 代码仍保留，底盘执行是否复用同一物理链路由外部运行时决定
 
 ## 3. 设计原则与平台限制
 

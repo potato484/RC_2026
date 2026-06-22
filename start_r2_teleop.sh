@@ -8,29 +8,16 @@ Usage:
   ./start_r2_teleop.sh [options]
 
 Options:
-  --stack <full|minimal-mcu>  启动栈，默认：minimal-mcu
-                              full        = merge_odom + joy + telecontrol + front-pushrod-sidecar + rear-pushrod-sidecar
-                              minimal-mcu = pose_sender + joy + telecontrol + front-pushrod-sidecar + rear-pushrod-sidecar
   --mode <stick|dpad>         控制模式，默认：dpad
                               stick = 左摇杆控制 vx/vy，右摇杆左右控制 wz
                               dpad  = 十字键控制 vx/vy，X/B 控制 wz
-  --pose-mode <imu|no-imu|wheel-only>
-                              仅对 --stack full 生效：
-                                imu        = EKF + 启动 IMU + EKF 融合 IMU
-                                no-imu     = EKF + 不启动 IMU
-                                wheel-only = 不启动 EKF / IMU，raw odom 直出
-  --feedback-serial-port <device>
-                              保留的独立反馈串口，默认：__disabled__
-  --target-serial-port <device>
-                              POSE_TARGET / mechanism transport / ODOM_DATA 单口串口，默认：/dev/ttyUSB0
-  --baudrate <int>            串口波特率，默认：1000000
-  --v-linear <m/s>            最大线速度，默认：0.3
+  --v-linear <m/s>            最大线速度，默认：0.5
   --v-angular <rad/s>         最大角速度，默认：0.5
   --cmd-vel-topic <topic>     遥控输出话题，默认：cmd_vel
   --device-name <name>        手柄设备名，默认：Xbox 360 Controller
-  --joy-node-deadzone <val>   joy_node 死区，默认：0.01
+  --joy-node-deadzone <val>   joy_node 死区，默认：0.02
   --autorepeat-rate <hz>      joy_node 自动重复发布频率，默认：50.0
-  --joy-deadzone <val>        Stick 模式死区，默认：0.15
+  --joy-deadzone <val>        Stick 模式死区，默认：0.35
   --deadzone-hyst <val>       Stick 模式死区滞回宽度，默认：0.02
   --joy-timeout-s <sec>       遥控看门狗超时，默认：0.3
   --max-accel <m/s^2>         最大线加速度，默认：1.5
@@ -38,17 +25,22 @@ Options:
   --stop-repeat-n <count>     零速指令重复帧数，默认：10
   --require-deadman           要求持续按住 deadman 安全键
   --deadman-button <index>    deadman 安全键编号，默认：4
-  --use-can-odom              在 merge_odom 中启用 CAN 里程计调试（仅 full 栈，非当前默认口径）
-  --start-ekf                 在 full 栈中启用 EKF；minimal-mcu 下会提示并忽略
-  --stats-log                 启用 PoseSender 1 秒统计日志
+  --mcu-port <dev>            目标 MCU 串口，默认：/dev/ttyUSB0
+  --mcu-baudrate <baud>       目标 MCU 串口波特率，默认：1000000
+  --mcu-open-retry-ms <ms>    目标 MCU 串口初始打开重试周期，默认：1000
+  --mcu-diagnostics-ms <ms>   MCU transport diagnostics 周期，默认：1000
   --dry-run                   只打印命令，不实际启动
   -h, --help                  显示本帮助
 
+Notes:
+  本脚本启动 rc26_mcu_transport、joy_node、telecontrol 和前/后推杆 sidecar。
+  /mechanism/send_command 与 /mechanism/command_feedback 由 rc26_mcu_transport 提供。
+  /cmd_vel 的硬件消费方仍必须由工作区外部运行时服务提供。
+
 Examples:
   ./start_r2_teleop.sh
-  ./start_r2_teleop.sh --stack full
-  ./start_r2_teleop.sh --stack minimal-mcu
-  ./start_r2_teleop.sh --stack minimal-mcu --target-serial-port /dev/ttyUSB3
+  ./start_r2_teleop.sh --mode stick
+  ./start_r2_teleop.sh --cmd-vel-topic cmd_vel_external
 EOF
 }
 
@@ -67,7 +59,7 @@ source_with_relaxed_nounset() {
       ;;
   esac
 
-  # shellcheck：setup.bash 路径由运行时工作区决定，静态检查无法解析。
+  # setup.bash 路径由运行时工作区决定，静态检查无法解析。
   source "$1"
 
   if [[ "${nounset_was_enabled}" == "true" ]]; then
@@ -85,12 +77,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 workspace_dir="${RC26_WS:-${script_dir}}"
 setup_file="${workspace_dir}/install/setup.bash"
 
-stack_mode="full"
 mode="dpad"
-pose_mode="imu"
-feedback_serial_port="__disabled__"
-target_serial_port="/dev/ttyUSB0"
-baudrate="1000000"
 v_linear="0.5"
 v_angular="0.5"
 cmd_vel_topic="cmd_vel"
@@ -105,37 +92,16 @@ max_alpha="3.0"
 stop_repeat_n="10"
 require_deadman="false"
 deadman_button="4"
-use_can_odom="false"
-start_ekf="true"
-use_imu_for_ekf="true"
-start_imu="true"
-stats_log_enable="false"
+mcu_port="/dev/ttyUSB0"
+mcu_baudrate="1000000"
+mcu_open_retry_ms="1000"
+mcu_diagnostics_ms="1000"
 dry_run="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --stack)
-      stack_mode="${2:-}"
-      shift 2
-      ;;
     --mode)
       mode="${2:-}"
-      shift 2
-      ;;
-    --pose-mode)
-      pose_mode="${2:-}"
-      shift 2
-      ;;
-    --feedback-serial-port)
-      feedback_serial_port="${2:-}"
-      shift 2
-      ;;
-    --target-serial-port)
-      target_serial_port="${2:-}"
-      shift 2
-      ;;
-    --baudrate)
-      baudrate="${2:-}"
       shift 2
       ;;
     --v-linear)
@@ -194,17 +160,21 @@ while [[ $# -gt 0 ]]; do
       deadman_button="${2:-}"
       shift 2
       ;;
-    --use-can-odom)
-      use_can_odom="true"
-      shift
+    --mcu-port)
+      mcu_port="${2:-}"
+      shift 2
       ;;
-    --start-ekf)
-      start_ekf="true"
-      shift
+    --mcu-baudrate)
+      mcu_baudrate="${2:-}"
+      shift 2
       ;;
-    --stats-log)
-      stats_log_enable="true"
-      shift
+    --mcu-open-retry-ms)
+      mcu_open_retry_ms="${2:-}"
+      shift 2
+      ;;
+    --mcu-diagnostics-ms)
+      mcu_diagnostics_ms="${2:-}"
+      shift 2
       ;;
     --dry-run)
       dry_run="true"
@@ -222,16 +192,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-case "${stack_mode}" in
-  full|minimal-mcu)
-    ;;
-  *)
-    echo "Invalid --stack: ${stack_mode}. Expected full or minimal-mcu." >&2
-    usage
-    exit 1
-    ;;
-esac
-
 case "${mode}" in
   stick|joystick)
     mode="stick"
@@ -248,49 +208,14 @@ case "${mode}" in
     ;;
 esac
 
-if [[ "${stack_mode}" == "full" ]]; then
-  case "${pose_mode}" in
-    "")
-      ;;
-    imu)
-      start_ekf="true"
-      start_imu="true"
-      use_imu_for_ekf="true"
-      ;;
-    no-imu)
-      start_ekf="true"
-      start_imu="false"
-      use_imu_for_ekf="false"
-      ;;
-    wheel-only)
-      start_ekf="false"
-      start_imu="false"
-      use_imu_for_ekf="false"
-      ;;
-    *)
-      echo "Invalid --pose-mode: ${pose_mode}. Expected imu, no-imu, or wheel-only." >&2
-      usage
-      exit 1
-      ;;
-  esac
-else
-  if [[ -n "${pose_mode}" ]]; then
-    echo "Warning: --pose-mode only applies to --stack full; ignoring '${pose_mode}'." >&2
-  fi
-  if [[ "${start_ekf}" == "true" ]]; then
-    echo "Warning: --start-ekf only applies to --stack full; ignoring it for minimal-mcu." >&2
-    start_ekf="false"
-  fi
-  if [[ "${use_can_odom}" == "true" ]]; then
-    echo "--use-can-odom only applies to --stack full." >&2
-    exit 1
-  fi
-fi
-
-if [[ ! -f "${setup_file}" ]]; then
-  echo "setup.bash not found: ${setup_file}" >&2
-  exit 1
-fi
+mcu_transport_cmd=(
+  ros2 run rc26_mcu_transport mcu_transport_node
+  --ros-args
+  -p "target_serial_port:=${mcu_port}"
+  -p "target_baudrate:=${mcu_baudrate}"
+  -p "open_retry_period_ms:=${mcu_open_retry_ms}"
+  -p "diagnostics_period_ms:=${mcu_diagnostics_ms}"
+)
 
 joy_cmd=(
   ros2 run joy joy_node
@@ -329,121 +254,35 @@ rear_pushrod_cmd=(
   ros2 run rc26_telecontrol rc26_telecontrol_rear_pushrod_buttons
 )
 
-feedback_port_notice=""
-if [[ "${stack_mode}" == "full" ]]; then
-  if [[ -z "${target_serial_port}" ]]; then
-    echo "Target serial port must not be empty." >&2
-    exit 1
-  fi
-
-  if [[ -z "${feedback_serial_port}" || "${feedback_serial_port}" == "${target_serial_port}" || ! -e "${feedback_serial_port}" ]]; then
-    feedback_serial_port="__disabled__"
-    feedback_port_notice="feedback serial disabled for this run"
-  fi
-
-  merge_odom_cmd=(
-    ros2 launch rc26_merge_odom merge_odom.launch.py
-    "use_can_odom:=${use_can_odom}"
-    "start_ekf:=${start_ekf}"
-    "use_imu_for_ekf:=${use_imu_for_ekf}"
-    "start_imu:=${start_imu}"
-    "merge_odom_output_topic:=merge_odom"
-    "require_merge_odom_output:=false"
-    "feedback_serial_port:=${feedback_serial_port}"
-    "target_serial_port:=${target_serial_port}"
-    "baudrate:=${baudrate}"
-    "stats_log_enable:=${stats_log_enable}"
-  )
-
-else
-  if [[ -z "${target_serial_port}" ]]; then
-    echo "Target serial port must not be empty." >&2
-    exit 1
-  fi
-
-  if [[ -z "${feedback_serial_port}" || "${feedback_serial_port}" == "${target_serial_port}" || ! -e "${feedback_serial_port}" ]]; then
-    feedback_serial_port="__disabled__"
-    feedback_port_notice="feedback serial disabled for this run"
-  fi
-
-  pose_sender_cmd=(
-    ros2 run rc26_merge_odom pose_sender_node
-    --ros-args
-    -p "feedback_serial_port:=${feedback_serial_port}"
-    -p "target_serial_port:=${target_serial_port}"
-    -p "baudrate:=${baudrate}"
-    -p "cmd_vel_topic:=${cmd_vel_topic}"
-    -p "odom_topic:=wheel_odom"
-    -p "imu_gate_enable:=false"
-    -p "latency_comp_enable:=false"
-    -p "stats_log_enable:=${stats_log_enable}"
-  )
-fi
-
-if [[ "${dry_run}" == "true" ]]; then
+print_summary() {
   echo "Workspace: ${workspace_dir}"
-  echo "Stack: ${stack_mode}"
   echo "Mode: ${mode}"
   echo "cmd_vel topic: ${cmd_vel_topic}"
-  if [[ "${stack_mode}" == "full" ]]; then
-    if [[ -n "${pose_mode}" ]]; then
-      echo "Pose mode: ${pose_mode}"
-    else
-      echo "Pose mode: disabled"
-    fi
-    echo "Feedback serial: ${feedback_serial_port}"
-    echo "Target serial: ${target_serial_port}"
-    if [[ -n "${feedback_port_notice}" ]]; then
-      echo "Notice: ${feedback_port_notice}"
-    fi
-    echo "IMU input: $([[ "${start_imu}" == "true" ]] && echo enabled || echo disabled)"
-    echo "EKF: $([[ "${start_ekf}" == "true" ]] && echo enabled || echo disabled)"
-    echo "EKF IMU fusion: $([[ "${use_imu_for_ekf}" == "true" ]] && echo enabled || echo disabled)"
-    print_cmd source "${setup_file}"
-    print_cmd "${merge_odom_cmd[@]}"
-    print_cmd "${joy_cmd[@]}"
-    print_cmd "${teleop_cmd[@]}"
-    print_cmd "${front_pushrod_cmd[@]}"
-    print_cmd "${rear_pushrod_cmd[@]}"
-  else
-    echo "Feedback serial: ${feedback_serial_port}"
-    echo "Target serial: ${target_serial_port}"
-    if [[ -n "${feedback_port_notice}" ]]; then
-      echo "Notice: ${feedback_port_notice}"
-    fi
-    print_cmd source "${setup_file}"
-    print_cmd "${pose_sender_cmd[@]}"
-    print_cmd "${joy_cmd[@]}"
-    print_cmd "${teleop_cmd[@]}"
-    print_cmd "${front_pushrod_cmd[@]}"
-    print_cmd "${rear_pushrod_cmd[@]}"
-  fi
+  echo "Linear speed limit: ${v_linear} m/s"
+  echo "Angular speed limit: ${v_angular} rad/s"
+  echo "MCU transport: ${mcu_port} @ ${mcu_baudrate}"
+  echo "External runtime required: /cmd_vel consumer"
+}
+
+if [[ "${dry_run}" == "true" ]]; then
+  print_summary
+  print_cmd source "${setup_file}"
+  print_cmd "${mcu_transport_cmd[@]}"
+  print_cmd "${joy_cmd[@]}"
+  print_cmd "${teleop_cmd[@]}"
+  print_cmd "${front_pushrod_cmd[@]}"
+  print_cmd "${rear_pushrod_cmd[@]}"
   exit 0
 fi
 
-if [[ "${stack_mode}" == "minimal-mcu" && ! -e "${target_serial_port}" ]]; then
-  echo "Target serial device not found: ${target_serial_port}" >&2
+if [[ ! -f "${setup_file}" ]]; then
+  echo "setup.bash not found: ${setup_file}" >&2
   exit 1
 fi
 
 source_with_relaxed_nounset "${setup_file}"
 
-echo "Workspace: ${workspace_dir}"
-echo "Stack: ${stack_mode}"
-echo "Mode: ${mode}"
-echo "cmd_vel topic: ${cmd_vel_topic}"
-echo "Linear speed limit: ${v_linear} m/s"
-echo "Angular speed limit: ${v_angular} rad/s"
-echo "Feedback serial: ${feedback_serial_port}"
-echo "Target serial: ${target_serial_port}"
-if [[ -n "${feedback_port_notice}" ]]; then
-  echo "Notice: ${feedback_port_notice}"
-fi
-if [[ "${stack_mode}" == "full" ]]; then
-  echo "IMU input: $([[ "${start_imu}" == "true" ]] && echo enabled || echo disabled)"
-  echo "EKF: $([[ "${start_ekf}" == "true" ]] && echo enabled || echo disabled)"
-  echo "EKF IMU fusion: $([[ "${use_imu_for_ekf}" == "true" ]] && echo enabled || echo disabled)"
-fi
+print_summary
 echo "Press Ctrl+C to stop all nodes."
 
 pids=()
@@ -453,11 +292,7 @@ cleanup() {
   trap - EXIT INT TERM
   if (( ${#pids[@]} > 0 )); then
     echo
-    if [[ "${stack_mode}" == "full" ]]; then
-      echo "Stopping R2 teleop stack..."
-    else
-      echo "Stopping R2 minimal MCU teleop stack..."
-    fi
+    echo "Stopping R2 teleop stack..."
     kill "${pids[@]}" 2>/dev/null || true
     wait "${pids[@]}" 2>/dev/null || true
   fi
@@ -466,18 +301,10 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-if [[ "${stack_mode}" == "full" ]]; then
-  run_and_track "${merge_odom_cmd[@]}"
-  run_and_track "${joy_cmd[@]}"
-  run_and_track "${teleop_cmd[@]}"
-  run_and_track "${front_pushrod_cmd[@]}"
-  run_and_track "${rear_pushrod_cmd[@]}"
-else
-  run_and_track "${pose_sender_cmd[@]}"
-  run_and_track "${joy_cmd[@]}"
-  run_and_track "${teleop_cmd[@]}"
-  run_and_track "${front_pushrod_cmd[@]}"
-  run_and_track "${rear_pushrod_cmd[@]}"
-fi
+run_and_track "${mcu_transport_cmd[@]}"
+run_and_track "${joy_cmd[@]}"
+run_and_track "${teleop_cmd[@]}"
+run_and_track "${front_pushrod_cmd[@]}"
+run_and_track "${rear_pushrod_cmd[@]}"
 
 wait -n "${pids[@]}"

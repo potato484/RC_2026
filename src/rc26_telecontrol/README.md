@@ -47,16 +47,15 @@
 *   **死区滞回 (Deadzone Hysteresis)**：为了避免摇杆在中心位置的物理抖动导致频繁发送微小速度指令，系统引入了滞回控制算法。它在死区内外设置了不同的阈值，使得摇杆在刚离开死区和快回到死区时的判定更加稳定，彻底消除了零点附近的震荡。
 *   **加速度硬约束 (Rate Limiting)**：废弃了原有的指数移动平均(EMA)算法，改为使用明确的物理加速度（m/s²）和角加速度（rad/s²）进行限制。这能有效防止摇杆被突然推满时引起的瞬时大电流和机械冲击，使起步和刹车都呈现线性且可预期的变化。
 
-### 2.4 统一入口与最小 MCU 链
+### 2.4 统一入口与外部执行链
 
 当前仓库的正式遥控入口是根目录 `start_r2_teleop.sh`：
 
-*   `--stack minimal-mcu`：启动 `pose_sender_node + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。这是当前脚本默认口径，固定按 `target_serial_port=/dev/ttyUSB0`、`feedback_serial_port=__disabled__` 进入单口 MCU 链；`pose_sender_node` 会继续提供 `/mechanism/send_command` 与 `/mechanism/command_feedback`。
-*   `--stack full`：启动 `merge_odom + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。这个入口当前主要保留给本地 `merge_odom` / CAN 调试；机构共享 transport 与 `POSE_TARGET` 仍默认走 `ttyUSB0`。
-*   `--stack full` 可通过 `--start-ekf` 或 `--pose-mode imu|no-imu|wheel-only` 临时打开/关闭 EKF 与 IMU 链路；该入口会显式传 `require_merge_odom_output:=false`，仍是遥控调试降级入口，不代表完整决策链路已满足稳定 `/merge_odom` 契约。
-*   `--pose-mode imu` 映射为 `start_ekf=true`、`start_imu=true`、`use_imu_for_ekf=true`；`no-imu` 映射为 `start_ekf=true`、`start_imu=false`、`use_imu_for_ekf=false`；`wheel-only` 映射为 `start_ekf=false`、`start_imu=false`、`use_imu_for_ekf=false`。
-*   若后续确实要临时恢复旧反馈链，需要显式传入真实 `feedback_serial_port`；脚本不再自动改写 `target_serial_port`。
-*   `start_r2_teleop.sh` 的帮助文本、默认值和 README 现已统一到上述单口口径。
+*   启动 `rc26_mcu_transport + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。
+*   不再启动 `rc26_merge_odom` 或 `pose_sender_node`；目标 MCU 机构串口 owner 由 `rc26_mcu_transport` 承担。
+*   `/cmd_vel` 的硬件消费方由工作区外部运行时提供。
+*   `/mechanism/send_command` 与 `/mechanism/command_feedback` 的 provider 由脚本启动的 `rc26_mcu_transport` 提供。
+*   脚本已移除 `--stack`、`--pose-mode`、`--use-can-odom`、`--start-ekf` 和 PoseSender 相关参数；目标 MCU 串口通过 `--mcu-port` / `--mcu-baudrate` 配置。
 
 ## 3. 参数配置体系
 
@@ -89,7 +88,7 @@
     *   `rc26_telecontrol_front_pushrod_buttons` (Y/A 到共享 transport 的前推杆单次发送桥接)
     *   `rc26_telecontrol_rear_pushrod_buttons` (`Select/Back` / `Start` 到共享 transport 的后推杆单次发送桥接)
     节点内部按顺序执行：看门狗检查 -> 安全开关检查 -> 死区过滤 -> 加速度限制计算 -> 重复发包逻辑。
-3.  **输出**：将计算后平滑且安全的速度结果，打包成标准的速度控制消息（如 `geometry_msgs::msg::Twist`），发布到指定话题。包内默认参数仍是 `/cmd_vel_teleop`，但仓库根目录的 `start_r2_teleop.sh` 会显式改为 `/cmd_vel` 以接入当前底盘执行链。
+3.  **输出**：将计算后平滑且安全的速度结果，打包成标准的速度控制消息（如 `geometry_msgs::msg::Twist`），发布到指定话题。包内默认参数仍是 `/cmd_vel_teleop`，但仓库根目录的 `start_r2_teleop.sh` 会显式改为 `/cmd_vel`，由外部执行运行时消费。
 
 ## 5. 运行排查
 
