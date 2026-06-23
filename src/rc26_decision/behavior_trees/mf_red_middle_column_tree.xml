@@ -1,18 +1,20 @@
 <!--
   红方中间列连续台阶行为树：
   - 这是一棵独立可加载树，只在 decision_node 的 tree_file 指向本文件时执行。
-  - 本树只验证红方中间列 2 -> 5 -> 8 -> 11 的离散格间动作。
+  - 本树验证红方从入口 2 直行到 11，转向经 10 后继续下阶梯离开梅林。
   - 运行时必须用 team=red 初始化 merlin_map；XML 中的 team 赋值只用于调试语义。
-  - GridTransition 会按高度差选择上/下阶梯，并在动作前/动作中用 odom yaw 做姿态微调。
+  - GridTransition 负责格间上下阶梯，最后的 StairDescend 负责从 grid10 下到梅林外。
 -->
 <root BTCPP_format="4" main_tree_to_execute="MFRedMiddleColumnTree">
   <BehaviorTree ID="MFRedMiddleColumnTree">
     <Sequence name="MF_Red_Middle_Column_Sequence">
-      <Script code="team:='red'; current_grid:=2; exit_grid:=11; mf_transition_error:=''"/>
+      <Script code="team:='red'; current_grid:=2; exit_grid:=10; mf_transition_error:=''"/>
 
       <GridTransition name="grid2_to_grid5" target_grid="5"/>
       <GridTransition name="grid5_to_grid8" target_grid="8"/>
       <GridTransition name="grid8_to_grid11" target_grid="11"/>
+      <GridTransition name="grid11_to_grid10" target_grid="10"/>
+      <StairDescend name="grid10_to_merlin_outside"/>
     </Sequence>
   </BehaviorTree>
 </root>

@@ -89,7 +89,7 @@ Nav2 action result 映射规则：
 
 `decision_node` 通过 `tree_file` 参数加载行为树；该参数现在支持绝对路径。完整 bringup 默认从 `rc26_bringup/config/r2_runtime.yaml` 的 `r2_runtime.paths.behavior_tree_file` 读取行为树 XML 绝对路径。决策包自身不再安装独立 launch 文件，避免只拉起单节点时误判完整链路状态。
 
-`mc_tree.xml` 的武馆区 Nav2 目标不再写死在 XML 中，而是读取黑板中的 `mc_nav_x`、`mc_nav_y`、`mc_nav_yaw`、`mc_nav_frame_id` 与 `mc_nav_timeout_sec`；这些值由 `rc26_bringup/config/r2_runtime.yaml` 的 `mc_nav_*` 参数提供。视觉伺服 heading hold 默认同用 `mc_nav_yaw` 作为期望车身朝向，避免导航目标 yaw 和取端头对线 yaw 分裂。
+`mc_tree.xml` 的武馆区 Nav2 目标不再写死在 XML 中，而是读取黑板中的 `mc_nav_x`、`mc_nav_y`、`mc_nav_yaw`、`mc_nav_frame_id` 与 `mc_nav_timeout_sec`；这些值由 `rc26_bringup/config/r2_runtime.yaml` 的 `mc_nav_*` 参数提供。当前默认运行口径切到红方武馆区配置，并通过 `mc_nav_behavior_tree_file` 给这一段 `NavToPose` 指定 `rc26_bringup/config/nav2_bt_mc_red_positive_xy.xml`。决策层仍只向 `/navigate_to_pose` 发送目标和可选 Nav2 BT 路径，不直接发布导航阶段速度；红方 MC 导航段的 `cmd_vel.linear.x/y` 正向约束由 Nav2 的 `MCPositiveXYRed` controller 与专用 Nav2 BT 承担。视觉伺服 heading hold 默认同用 `mc_nav_yaw` 作为期望车身朝向，避免导航目标 yaw 和取端头对线 yaw 分裂。
 
 ### 节点职责
 
@@ -99,7 +99,7 @@ Nav2 action result 映射规则：
 
 ### 参数
 
-全部武馆区运行参数以 `mc_*` 前缀集中于 `rc26_bringup/config/r2_runtime.yaml` 的 `r2_runtime.decision.ros__parameters`，由 `loadMCParams()` 在 `decision_node` 构造时声明/读取为 `McParams`（`src/mc/mc_params.hpp`）并写入黑板 `mc_params`。这些参数支持启动时通过 YAML/launch 覆盖；当前没有运行期参数变更回调，`ros2 param set` 不会自动回写已经进入黑板和动作节点的运行参数。参数涵盖：相机/推理（`mc_camera_*`、`mc_model_id`、`mc_target_labels`）、对齐（`mc_align_*`，其中 `mc_align_target_lock_*` 控制端头锁定，`mc_align_invert_direction` 当前默认按后置相机反转横移方向，`mc_align_heading_*` 控制 odom yaw 姿态保持）、夹取与限位前探（`mc_grab_command_id`、`mc_grab_service_name`、`mc_grab_limit_switch_feedback_*`、`mc_grab_approach_*`、`mc_grab_done_lost_time_s`、`mc_servo_timeout_s`）、旋转（`mc_rotate_angle_deg`、`mc_rotate_speed_radps`、`mc_rotate_min_speed_radps`、`mc_rotate_slowdown_angle_deg`、`mc_rotate_direction`、`mc_rotate_yaw_tolerance_deg`、`mc_rotate_cmd_vel_topic`、`mc_odom_topic`、`mc_rotate_odom_timeout_s`、`mc_rotate_timeout_s`）、导航目标（`mc_nav_*`）。
+全部武馆区运行参数以 `mc_*` 前缀集中于 `rc26_bringup/config/r2_runtime.yaml` 的 `r2_runtime.decision.ros__parameters`，由 `loadMCParams()` 在 `decision_node` 构造时声明/读取为 `McParams`（`src/mc/mc_params.hpp`）并写入黑板 `mc_params`，同时把导航目标和 Nav2 BT 路径写入 `mc_nav_*` / `mc_nav_behavior_tree_file` 黑板键。参数支持启动时通过 YAML/launch 覆盖；当前没有运行期参数变更回调，`ros2 param set` 不会自动回写已经进入黑板和动作节点的运行参数。参数涵盖：相机/推理（`mc_camera_*`、`mc_model_id`、`mc_target_labels`）、对齐（`mc_align_*`，其中 `mc_align_target_lock_*` 控制端头锁定，`mc_align_invert_direction` 当前默认按后置相机反转横移方向，`mc_align_heading_*` 控制 odom yaw 姿态保持）、夹取与限位前探（`mc_grab_command_id`、`mc_grab_service_name`、`mc_grab_limit_switch_feedback_*`、`mc_grab_approach_*`、`mc_grab_done_lost_time_s`、`mc_servo_timeout_s`）、旋转（`mc_rotate_angle_deg`、`mc_rotate_speed_radps`、`mc_rotate_min_speed_radps`、`mc_rotate_slowdown_angle_deg`、`mc_rotate_direction`、`mc_rotate_yaw_tolerance_deg`、`mc_rotate_cmd_vel_topic`、`mc_odom_topic`、`mc_rotate_odom_timeout_s`、`mc_rotate_timeout_s`）、导航目标与本次 Nav2 goal 执行树（`mc_nav_*`、`mc_nav_behavior_tree_file`）。
 注意：ROS2 不支持 YAML 空数组参数，`mc_grab_payload` 留空时须省略该项（用 C++ 默认空向量），不可写 `[]`。
 
 ### 与测试节点的差异
@@ -128,8 +128,8 @@ Nav2 action result 映射规则：
 
 `behavior_trees/mf_red_middle_column_tree.xml` 是一棵独立可加载的红方 MF 中间列离散格间测试树，默认 `main_tree.xml`、`mf_tree.xml` 与 `mc_tree.xml` 都不引用它。运行它需要通过 `decision_node` 的 `tree_file` 显式指向该 XML，或者临时把完整 bringup 的 `r2_runtime.paths.behavior_tree_file` 改成该 XML 的绝对路径并设置 `team=red`，保证 `merlin_map` 用红方高度表初始化。
 
-- 路线固定为红方中间列 `grid2 -> grid5 -> grid8 -> grid11`，分别由三个 `GridTransition` 节点执行；前两段为 `CLIMB`，最后一段为 `DESCEND`。
-- 本树不调用 `NavToPose`，不做连续位姿归正；它只验证同一套 MF 离散格间动作、yaw 对齐、台阶执行与状态提交。
+- 路线固定为红方 `grid2 -> grid5 -> grid8 -> grid11 -> grid10 -> 梅林外`；前四段由 `GridTransition` 执行，分别为 `CLIMB`、`CLIMB`、`DESCEND`、`DESCEND`，最后再由独立 `StairDescend` 从 `grid10` 继续下阶梯离开梅林。
+- 本树不调用 `NavToPose`，不做连续位姿归正；它验证同一套 MF 离散格间动作、yaw 对齐、台阶执行与状态提交，并在到达 `grid10` 后复用独立下台阶状态机完成梅林外离场。最后一段离场不再提交新的 `current_grid`，黑板中的离散格仍停在 `10`。
 - 运行时依赖由 `rc26_mcu_transport` 提供的 `/mechanism/send_command`、`/mechanism/command_feedback`、`stair_odom_topic` 与台阶动作参数 `stair_*`。执行该树时必须确保 Nav2 controller、遥控或其它测试节点不会同时发布运动命令。
 
 ## 当前边界
@@ -145,7 +145,7 @@ Nav2 action result 映射规则：
 - 新增 `GridTransition` BT 节点：按 `current_grid -> target_grid` 的相邻边和静态高度差选择 `CLIMB` / `DESCEND`，动作前对齐 yaw，动作中保持 heading，成功后提交 `current_grid`
 - `StairActionBase` 增加 `stair_heading_*` 参数和 odom yaw heading hold；独立 `StairClimb` / `StairDescend` 默认保持启动时 yaw，MF `GridTransition` 显式设置格间目标 yaw
 - `SelectNextGrid` 不再把平地同高格当作可执行移动目标；同高格间移动留待后续定义
-- `mf_red_middle_column_tree.xml` 改为固定 `GridTransition(5) -> GridTransition(8) -> GridTransition(11)` 测试树，不再依赖 Nav2 pose
+- `mf_red_middle_column_tree.xml` 改为固定 `GridTransition(5) -> GridTransition(8) -> GridTransition(11) -> GridTransition(10) -> StairDescend` 测试树，不再依赖 Nav2 pose；最后一个独立下台阶动作从 `grid10` 继续离开梅林，离场后不再更新离散格号
 - `CheckExitCondition` 现在只判断 `current_grid` 是否属于出口格
 - MF 区域实现已按职责拆分：`mf_area.cpp` 只保留注册，地图、选边、格间台阶动作和退出条件分别维护；KFS/扫描链路已删除，BT 节点名、黑板键和现有台阶行为语义保持不变。
 

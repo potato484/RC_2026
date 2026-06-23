@@ -1,0 +1,31 @@
+<!--
+  红方武馆区 NavToPose 专用 Nav2 行为树。
+  本树只调用 MCPositiveXYRed controller，避免 BackUp / DriveOnHeading 等会产生负向线速度的运动恢复。
+-->
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="6" name="MCPositiveXYRedNavigateRecovery">
+      <PipelineSequence name="MCPositiveXYRedNavigateWithReplanning">
+        <RateController hz="1.0">
+          <RecoveryNode number_of_retries="1" name="MCPositiveXYRedComputePathToPose">
+            <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+            <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
+          </RecoveryNode>
+        </RateController>
+        <RecoveryNode number_of_retries="1" name="MCPositiveXYRedFollowPath">
+          <FollowPath path="{path}" controller_id="MCPositiveXYRed"/>
+          <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
+        </RecoveryNode>
+      </PipelineSequence>
+      <ReactiveFallback name="MCPositiveXYRedRecoveryFallback">
+        <GoalUpdated/>
+        <RoundRobin name="MCPositiveXYRedRecoveryActions">
+          <Sequence name="MCPositiveXYRedClearingActions">
+            <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
+            <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
+          </Sequence>
+        </RoundRobin>
+      </ReactiveFallback>
+    </RecoveryNode>
+  </BehaviorTree>
+</root>
