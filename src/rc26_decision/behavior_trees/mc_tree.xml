@@ -1,15 +1,24 @@
-<!-- 武馆区专属行为树 (MC Area)：导航 → 视觉伺服夹取 → 原地旋转180° → 无限期等待 -->
+<!-- 武馆区专属行为树 (MC Area)：记录启动位姿 → 导航 → 视觉伺服夹取 → 原地旋转180° → 返回启动位姿 → 无限期等待 -->
 <root BTCPP_format="4" main_tree_to_execute="MCAreaTree">
   <BehaviorTree ID="MCAreaTree">
     <Sequence name="MC_Sequence">
-      <!-- 1. 发布导航目标点并确认到达（复用 Nav2 NavToPose） -->
+      <!-- 1. 记录 MC 树启动时的实时位姿，作为旋转后的返回目标位置 -->
+      <CaptureCurrentPose frame_id="{mc_nav_frame_id}" timeout_sec="{mc_start_pose_capture_timeout_sec}"
+                          x="{mc_return_nav_x}" y="{mc_return_nav_y}" yaw="{mc_start_nav_yaw}"/>
+      <!-- 2. 发布红方武馆区导航目标点并确认到达（复用 Nav2 NavToPose） -->
       <NavToPose x="{mc_nav_x}" y="{mc_nav_y}" yaw="{mc_nav_yaw}" frame_id="{mc_nav_frame_id}"
                  timeout_sec="{mc_nav_timeout_sec}" behavior_tree="{mc_nav_behavior_tree_file}"/>
-      <!-- 2. 视觉伺服：横移对齐端头 → 下发 GRAB_TIP → 端头消失判定夹取完成 -->
+      <!-- 3. 视觉伺服：横移对齐端头 → 下发 GRAB_TIP → 端头消失判定夹取完成 -->
       <VisualServoGrab name="visual_servo_grab"/>
-      <!-- 3. 原地旋转 180° -->
+      <!-- 4. 原地旋转 180° -->
       <RotateInPlace name="rotate_180"/>
-      <!-- 4. 无限期等待 -->
+      <!-- 5. 捕获旋转后的实际 map yaw，并以该朝向返回 MC 启动位姿 -->
+      <CaptureCurrentPose frame_id="{mc_nav_frame_id}" timeout_sec="{mc_rotated_pose_capture_timeout_sec}"
+                          x="{mc_rotated_nav_x}" y="{mc_rotated_nav_y}" yaw="{mc_return_nav_yaw}"/>
+      <NavToPose x="{mc_return_nav_x}" y="{mc_return_nav_y}" yaw="{mc_return_nav_yaw}"
+                 frame_id="{mc_nav_frame_id}" timeout_sec="{mc_return_nav_timeout_sec}"
+                 behavior_tree="{mc_return_nav_behavior_tree_file}"/>
+      <!-- 6. 无限期等待 -->
       <WaitForever name="wait_forever"/>
     </Sequence>
   </BehaviorTree>

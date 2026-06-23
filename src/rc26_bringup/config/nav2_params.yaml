@@ -93,8 +93,8 @@ controller_server:
     progress_checker_plugin: progress_checker
     # 到点判定器：控制“算到达”的位置与朝向阈值
     goal_checker_plugins: [general_goal_checker]
-    # 默认导航使用 FollowPath；红方 MC 专用 Nav2 BT 显式选择 MCPositiveXYRed
-    controller_plugins: [FollowPath, MCPositiveXYRed]
+    # 默认导航使用 FollowPath；红方 MC 去程/返程专用 Nav2 BT 显式选择正/负向 controller
+    controller_plugins: [FollowPath, MCPositiveXYRed, MCNegativeXYRed]
     progress_checker:
       plugin: nav2_controller::SimpleProgressChecker
       # 指定时间内至少移动这么远，否则判定为无进展
@@ -160,6 +160,46 @@ controller_server:
       max_vel_x: 0.25
       min_vel_y: 0.0
       max_vel_y: 0.25
+      max_vel_theta: 0.5
+      min_speed_xy: 0.0
+      max_speed_xy: 0.50
+      min_speed_theta: 0.0
+      acc_lim_x: 0.8
+      acc_lim_y: 0.8
+      acc_lim_theta: 1.8
+      decel_lim_x: -0.8
+      decel_lim_y: -0.8
+      decel_lim_theta: -1.8
+      vx_samples: 20
+      vy_samples: 15
+      vtheta_samples: 20
+      sim_time: 1.7
+      linear_granularity: 0.05
+      angular_granularity: 0.025
+      transform_tolerance: 0.2
+      xy_goal_tolerance: 0.18
+      trans_stopped_velocity: 0.05
+      short_circuit_trajectory_evaluation: true
+      stateful: true
+      critics: [RotateToGoal, Oscillation, BaseObstacle, GoalAlign, PathAlign, PathDist, GoalDist]
+      BaseObstacle.scale: 0.02
+      PathAlign.scale: 20.0
+      PathAlign.forward_point_distance: 0.1
+      GoalAlign.scale: 16.0
+      GoalAlign.forward_point_distance: 0.1
+      PathDist.scale: 20.0
+      GoalDist.scale: 16.0
+      RotateToGoal.scale: 24.0
+      RotateToGoal.slowing_factor: 5.0
+      RotateToGoal.lookahead_time: -1.0
+    MCNegativeXYRed:
+      # 红方武馆区返回启动位姿专用 DWB：只采样车体系 x/y 负向与角速度，普通导航不使用它。
+      plugin: dwb_core::DWBLocalPlanner
+      debug_trajectory_details: false
+      min_vel_x: -0.25
+      max_vel_x: 0.0
+      min_vel_y: -0.25
+      max_vel_y: 0.0
       max_vel_theta: 0.5
       min_speed_xy: 0.0
       max_speed_xy: 0.50

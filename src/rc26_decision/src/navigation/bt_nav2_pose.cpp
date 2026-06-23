@@ -18,6 +18,7 @@ constexpr uint16_t kErrorGoalPoseMismatch = 130;
 constexpr double kMaxGoalFrameTfAgeSec = 0.5;
 constexpr double kDefaultSuccessXyTolerance = 0.20;
 constexpr double kDefaultSuccessYawTolerance = 0.25;
+constexpr double kDefaultPoseCaptureTimeoutSec = 5.0;
 constexpr double kPi = 3.14159265358979323846;
 
 BT::Blackboard::Ptr blackboardOf(const BT::TreeNode &node) {
@@ -70,7 +71,99 @@ void writeFailure(const BT::Blackboard::Ptr &blackboard,
   blackboard->set("nav_last_failure_reason", failure_reason);
 }
 
+std::chrono::milliseconds toTimeout(double timeout_sec,
+                                    double fallback_sec) {
+  if (!std::isfinite(timeout_sec) || timeout_sec <= 0.0) {
+    timeout_sec = fallback_sec;
+  }
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::duration<double>(timeout_sec));
+}
+
 } // namespace
+
+CaptureCurrentPoseAction::CaptureCurrentPoseAction(
+    const std::string &name, const BT::NodeConfig &config)
+    : BT::StatefulActionNode(name, config) {}
+
+BT::PortsList CaptureCurrentPoseAction::providedPorts() {
+  return {
+      BT::InputPort<std::string>("frame_id", "map", "Pose frame"),
+      BT::InputPort<std::string>("base_frame", "base_footprint",
+                                 "Robot base frame"),
+      BT::InputPort<double>("timeout_sec", kDefaultPoseCaptureTimeoutSec,
+                            "Fresh TF wait timeout"),
+      BT::OutputPort<double>("x", "Current x in frame_id"),
+      BT::OutputPort<double>("y", "Current y in frame_id"),
+      BT::OutputPort<double>("yaw", "Current yaw in frame_id"),
+  };
+}
+
+BT::NodeStatus CaptureCurrentPoseAction::onStart() {
+  if (!config().blackboard || !config().blackboard->get("node", node_) ||
+      !node_) {
+    return BT::NodeStatus::FAILURE;
+  }
+
+  (void)getInput("frame_id", frame_id_);
+  (void)getInput("base_frame", base_frame_);
+  double timeout_sec = kDefaultPoseCaptureTimeoutSec;
+  (void)getInput("timeout_sec", timeout_sec);
+  if (frame_id_.empty()) {
+    frame_id_ = "map";
+  }
+  if (base_frame_.empty()) {
+    base_frame_ = "base_footprint";
+  }
+  timeout_ = toTimeout(timeout_sec, kDefaultPoseCaptureTimeoutSec);
+  start_time_ = std::chrono::steady_clock::now();
+
+  if (!tf_buffer_) {
+    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(node_->get_clock());
+    tf_listener_ =
+        std::make_unique<tf2_ros::TransformListener>(*tf_buffer_, node_, true);
+  }
+
+  return tryCapture();
+}
+
+BT::NodeStatus CaptureCurrentPoseAction::onRunning() { return tryCapture(); }
+
+void CaptureCurrentPoseAction::onHalted() {}
+
+BT::NodeStatus CaptureCurrentPoseAction::tryCapture() {
+  if (!node_ || !tf_buffer_) {
+    return BT::NodeStatus::FAILURE;
+  }
+
+  try {
+    const auto transform = tf_buffer_->lookupTransform(
+        frame_id_, base_frame_, tf2::TimePointZero);
+    const rclcpp::Time stamp(transform.header.stamp);
+    const auto age = node_->now() - stamp;
+    if (age >= rclcpp::Duration::from_seconds(0.0) &&
+        age <= rclcpp::Duration::from_seconds(kMaxGoalFrameTfAgeSec)) {
+      const double x = transform.transform.translation.x;
+      const double y = transform.transform.translation.y;
+      const double yaw = yawFromQuaternion(transform.transform.rotation);
+      (void)setOutput("x", x);
+      (void)setOutput("y", y);
+      (void)setOutput("yaw", yaw);
+      RCLCPP_INFO(node_->get_logger(),
+                  "捕获当前位姿: %s->%s x=%.3f y=%.3f yaw=%.3f",
+                  frame_id_.c_str(), base_frame_.c_str(), x, y, yaw);
+      return BT::NodeStatus::SUCCESS;
+    }
+  } catch (const tf2::TransformException &) {
+  }
+
+  if (std::chrono::steady_clock::now() - start_time_ > timeout_) {
+    RCLCPP_WARN(node_->get_logger(), "捕获当前位姿超时: %s->%s",
+                frame_id_.c_str(), base_frame_.c_str());
+    return BT::NodeStatus::FAILURE;
+  }
+  return BT::NodeStatus::RUNNING;
+}
 
 NavToPoseAction::NavToPoseAction(const std::string &name,
                                  const BT::NodeConfig &config)
@@ -349,6 +442,7 @@ BT::NodeStatus NavToPoseAction::handleResult(const WrappedResult &result,
 }
 
 void registerNav2PoseNodes(BT::BehaviorTreeFactory &factory) {
+  factory.registerNodeType<CaptureCurrentPoseAction>("CaptureCurrentPose");
   factory.registerNodeType<NavToPoseAction>("NavToPose");
 }
 

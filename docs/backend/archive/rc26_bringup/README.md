@@ -19,11 +19,11 @@
   - `rc26_bringup` 不再启动 `rc26_merge_odom` 或 `pose_sender_node`，也不再提供 `/merge_odom`
   - `/mechanism/send_command` 与 `/mechanism/command_feedback` 由 `rc26_mcu_transport` 提供；涉及机构动作的运行链必须启动该目标 MCU 串口 owner
   - `config/r2_runtime.yaml` 是整车运行配置真源：集中维护点云文件、Nav2 地图文件、行为树 XML 绝对路径与决策参数
-  - `r2_runtime.decision.ros__parameters` 中的 `mc_nav_*` 参数是当前红方武馆区行为树 `NavToPose` 目标真源；`mc_tree.xml` 从黑板读取这些值，不再在 XML 中写死取端头导航点。`mc_nav_behavior_tree_file` 当前指向 `config/nav2_bt_mc_red_positive_xy.xml`，让这一段 Nav2 goal 显式使用红方 MC 专用 controller
+  - `r2_runtime.decision.ros__parameters` 中的 `mc_nav_*` 参数是当前红方武馆区行为树去程 `NavToPose` 目标真源；`mc_tree.xml` 从黑板读取这些值，不再在 XML 中写死取端头导航点。`mc_nav_behavior_tree_file` 当前指向 `config/nav2_bt_mc_red_positive_xy.xml`，让去程 Nav2 goal 显式使用红方 MC 正向 controller。旋转后的返回导航目标由 `CaptureCurrentPose` 在 MC 树启动时捕获，`mc_return_nav_behavior_tree_file` 当前指向 `config/nav2_bt_mc_red_negative_xy.xml`
   - `r2_runtime.decision.ros__parameters` 中的 `mc_align_*` 参数维护武馆区视觉伺服横移对线口径；当前默认按后置相机安装反转横移方向，并启用端头目标锁定以避免双框同屏切换。`mc_align_heading_*` 当前默认开启，通过 `mc_odom_topic=odom` 消费 `rc26_odom_interface` 的雷达标准 odom yaw，并在视觉伺服阶段补发 `cmd_vel.angular.z` 保持车身朝向
   - 完整 MC 决策链依赖 `/odom` 作为雷达标准里程计，服务视觉 heading hold 和 180° 旋转 yaw 闭环；底盘执行由外部 provider 承担，机构 transport 由 `rc26_mcu_transport` 承担
   - `r2_runtime.decision.ros__parameters` 中声明为 double 的参数必须在 YAML 中写成小数形式，例如 `10.0`，不要写成裸整数 `10`；ROS2 会区分 integer 和 double，类型不一致会导致 `decision_node` 启动时报 `InvalidParameterTypeException`
-  - `config/nav2_params.yaml` 中 `planner_server.GridBased.tolerance` 当前收紧为 `0.05m`，避免 NavFn 在目标点附近半米内选替代终点后仍被上层当作真实到点；`controller_server.progress_checker` 当前按低速实车调为 `20s` 内至少前进 `0.05m`，减少慢速起步或局部恢复期间的误判卡死。普通导航继续使用 `FollowPath`，红方 MC 专用 Nav2 BT 使用 `MCPositiveXYRed`，该 controller 只采样车体系 `linear.x/y` 正向和角速度
+  - `config/nav2_params.yaml` 中 `planner_server.GridBased.tolerance` 当前收紧为 `0.05m`，避免 NavFn 在目标点附近半米内选替代终点后仍被上层当作真实到点；`controller_server.progress_checker` 当前按低速实车调为 `20s` 内至少前进 `0.05m`，减少慢速起步或局部恢复期间的误判卡死。普通导航继续使用 `FollowPath`，红方 MC 去程专用 Nav2 BT 使用 `MCPositiveXYRed`，只采样车体系 `linear.x/y` 正向和角速度；红方 MC 返程专用 Nav2 BT 使用 `MCNegativeXYRed`，只采样车体系 `linear.x/y` 负向和角速度
   - `r2_runtime.decision.ros__parameters` 同时维护 `stair_*` 台阶动作参数；这些参数供独立 `stair_climb_tree.xml` / `stair_descend_tree.xml`、红方中列测试树和 MF `GridTransition` 离散格间动作复用。上台阶的前推杆伸出后零速等待、前收+后伸后零速等待，以及下台阶的后推杆伸出后零速等待、后收+前伸后零速等待、前推杆收回后零速等待也在这里配置；当前两激光下台阶链路还在这里配置前推杆收回前的 `x` 负向定时行驶速度与时长，默认 `0.025m/s` 持续 `4.0s`。`stair_odom_topic` 与 `stair_heading_*` 参数用于上/下阶梯前的 yaw 对齐和直行期间 heading hold
   - 决策测试不再通过 `rc26_decision` 单节点 launch 入口进行；需要测试决策时使用本完整 bringup 入口，并按需同时准备外部 `/cmd_vel` 执行 consumer，机构动作链由 `rc26_mcu_transport` 提供 transport
   - `r2_runtime.chassis_runtime.merge_odom` 已删除；默认 bringup 不再读取或透传 `merge_odom_*`、`start_pose_sender`、`pose_sender_*` 参数
@@ -55,6 +55,7 @@
 - [config/r2_runtime.yaml](/home/potato/RC_2026/src/rc26_bringup/config/r2_runtime.yaml)
 - [config/nav2_params.yaml](/home/potato/RC_2026/src/rc26_bringup/config/nav2_params.yaml)
 - [config/nav2_bt_mc_red_positive_xy.xml](/home/potato/RC_2026/src/rc26_bringup/config/nav2_bt_mc_red_positive_xy.xml)
+- [config/nav2_bt_mc_red_negative_xy.xml](/home/potato/RC_2026/src/rc26_bringup/config/nav2_bt_mc_red_negative_xy.xml)
 - [rviz/navigation_default.rviz](/home/potato/RC_2026/src/rc26_bringup/rviz/navigation_default.rviz)
 - [launch/localization.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/localization.launch.py)
 - [config/localization.yaml](/home/potato/RC_2026/src/rc26_bringup/config/localization.yaml)

@@ -7,7 +7,9 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
+#include <chrono>
 #include <memory>
+#include <string>
 
 namespace rc26_decision {
 
@@ -36,6 +38,28 @@ private:
 
   rclcpp::Client<GetLifecycleState>::SharedPtr bt_navigator_state_client_;
   rclcpp::Client<GetLifecycleState>::SharedFuture bt_navigator_state_future_;
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
+};
+
+class CaptureCurrentPoseAction : public BT::StatefulActionNode {
+public:
+  CaptureCurrentPoseAction(const std::string &name,
+                           const BT::NodeConfig &config);
+  static BT::PortsList providedPorts();
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
+
+private:
+  BT::NodeStatus tryCapture();
+
+  rclcpp::Node *node_{nullptr};
+  std::chrono::steady_clock::time_point start_time_;
+  std::chrono::milliseconds timeout_{std::chrono::milliseconds(5000)};
+  std::string frame_id_{"map"};
+  std::string base_frame_{"base_footprint"};
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
 };
