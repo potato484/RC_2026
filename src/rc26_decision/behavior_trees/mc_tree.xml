@@ -2,7 +2,7 @@
 <root BTCPP_format="4" main_tree_to_execute="MCAreaTree">
   <BehaviorTree ID="MCAreaTree">
     <Sequence name="MC_Sequence">
-      <!-- 1. 记录 MC 树启动时的实时位姿，作为旋转后的返回目标位置 -->
+      <!-- 1. 记录 MC 树启动时的实时位姿，作为返回目标位置和反向朝向基准 -->
       <CaptureCurrentPose frame_id="{mc_nav_frame_id}" timeout_sec="{mc_start_pose_capture_timeout_sec}"
                           x="{mc_return_nav_x}" y="{mc_return_nav_y}" yaw="{mc_start_nav_yaw}"/>
       <!-- 2. 发布红方武馆区导航目标点并确认到达（复用 Nav2 NavToPose） -->
@@ -12,9 +12,10 @@
       <VisualServoGrab name="visual_servo_grab"/>
       <!-- 4. 原地旋转 180° -->
       <RotateInPlace name="rotate_180"/>
-      <!-- 5. 捕获旋转后的实际 map yaw，并以该朝向返回 MC 启动位姿 -->
+      <!-- 5. 等待并记录旋转后的实时位姿；返程目标朝向固定为启动 yaw 的 180° 反向 -->
       <CaptureCurrentPose frame_id="{mc_nav_frame_id}" timeout_sec="{mc_rotated_pose_capture_timeout_sec}"
-                          x="{mc_rotated_nav_x}" y="{mc_rotated_nav_y}" yaw="{mc_return_nav_yaw}"/>
+                          x="{mc_rotated_nav_x}" y="{mc_rotated_nav_y}" yaw="{mc_rotated_nav_yaw}"/>
+      <Script code="mc_return_nav_yaw:=mc_start_nav_yaw+3.141592653589793"/>
       <NavToPose x="{mc_return_nav_x}" y="{mc_return_nav_y}" yaw="{mc_return_nav_yaw}"
                  frame_id="{mc_nav_frame_id}" timeout_sec="{mc_return_nav_timeout_sec}"
                  behavior_tree="{mc_return_nav_behavior_tree_file}"/>

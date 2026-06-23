@@ -19,7 +19,7 @@
   - `rc26_bringup` 不再启动 `rc26_merge_odom` 或 `pose_sender_node`，也不再提供 `/merge_odom`
   - `/mechanism/send_command` 与 `/mechanism/command_feedback` 由 `rc26_mcu_transport` 提供；涉及机构动作的运行链必须启动该目标 MCU 串口 owner
   - `config/r2_runtime.yaml` 是整车运行配置真源：集中维护点云文件、Nav2 地图文件、行为树 XML 绝对路径与决策参数
-  - `r2_runtime.decision.ros__parameters` 中的 `mc_nav_*` 参数是当前红方武馆区行为树去程 `NavToPose` 目标真源；`mc_tree.xml` 从黑板读取这些值，不再在 XML 中写死取端头导航点。`mc_nav_behavior_tree_file` 当前指向 `config/nav2_bt_mc_red_positive_xy.xml`，让去程 Nav2 goal 显式使用红方 MC 正向 controller。旋转后的返回导航目标由 `CaptureCurrentPose` 在 MC 树启动时捕获，`mc_return_nav_behavior_tree_file` 当前指向 `config/nav2_bt_mc_red_negative_xy.xml`
+  - `r2_runtime.decision.ros__parameters` 中的 `mc_nav_*` 参数是当前红方武馆区行为树去程 `NavToPose` 目标真源；`mc_tree.xml` 从黑板读取这些值，不再在 XML 中写死取端头导航点。`mc_nav_behavior_tree_file` 当前指向 `config/nav2_bt_mc_red_positive_xy.xml`，让去程 Nav2 goal 显式使用红方 MC 正向 controller。返回导航目标位置由 `CaptureCurrentPose` 在 MC 树启动时捕获，返回目标 yaw 由行为树 `Script` 写为启动 yaw + π，使回到起点后的朝向与启动时相反；`mc_return_nav_behavior_tree_file` 当前指向 `config/nav2_bt_mc_red_negative_xy.xml`
   - `r2_runtime.decision.ros__parameters` 中的 `mc_align_*` 参数维护武馆区视觉伺服横移对线口径；当前默认按后置相机安装反转横移方向，并启用端头目标锁定以避免双框同屏切换。`mc_align_heading_*` 当前默认开启，通过 `mc_odom_topic=odom` 消费 `rc26_odom_interface` 的雷达标准 odom yaw，并在视觉伺服阶段补发 `cmd_vel.angular.z` 保持车身朝向
   - 完整 MC 决策链依赖 `/odom` 作为雷达标准里程计，服务视觉 heading hold 和 180° 旋转 yaw 闭环；底盘执行与机构 transport 均由 `rc26_mcu_transport` 承担
   - `r2_runtime.decision.ros__parameters` 中声明为 double 的参数必须在 YAML 中写成小数形式，例如 `10.0`，不要写成裸整数 `10`；ROS2 会区分 integer 和 double，类型不一致会导致 `decision_node` 启动时报 `InvalidParameterTypeException`

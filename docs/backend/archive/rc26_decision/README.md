@@ -86,18 +86,18 @@ Nav2 action result 映射规则：
 2. `NavToPose` —— 发布红方武馆区导航目标点并确认到达（复用 Nav2 节点，目标点经黑板键 `mc_nav_x/y/yaw/frame_id/timeout_sec` 由 XML 端口重映射注入）
 3. `VisualServoGrab` —— 视觉伺服夹取
 4. `RotateInPlace` —— 原地旋转 180°
-5. `CaptureCurrentPose` + `NavToPose` —— 捕获旋转完成后的实际 yaw，并使用返回专用 Nav2 BT 回到树启动位姿
+5. `CaptureCurrentPose` + `Script` + `NavToPose` —— 等待并记录旋转后的实时位姿，将返回 yaw 设为树启动 yaw + π，并使用返回专用 Nav2 BT 回到树启动位姿
 6. `WaitForever` —— 无限期等待（恒 `RUNNING`，树停留持续 tick）
 
 `decision_node` 通过 `tree_file` 参数加载行为树；该参数现在支持绝对路径。完整 bringup 默认从 `rc26_bringup/config/r2_runtime.yaml` 的 `r2_runtime.paths.behavior_tree_file` 读取行为树 XML 绝对路径。决策包自身不再安装独立 launch 文件，避免只拉起单节点时误判完整链路状态。
 
-`mc_tree.xml` 的武馆区 Nav2 目标不再写死在 XML 中，而是读取黑板中的 `mc_nav_x`、`mc_nav_y`、`mc_nav_yaw`、`mc_nav_frame_id` 与 `mc_nav_timeout_sec`；这些值由 `rc26_bringup/config/r2_runtime.yaml` 的 `mc_nav_*` 参数提供。当前默认运行口径切到红方武馆区配置，并通过 `mc_nav_behavior_tree_file` 给去程 `NavToPose` 指定 `rc26_bringup/config/nav2_bt_mc_red_positive_xy.xml`。旋转完成后，树会用 `CaptureCurrentPose` 捕获当前实际 yaw，并通过 `mc_return_nav_behavior_tree_file` 指定 `rc26_bringup/config/nav2_bt_mc_red_negative_xy.xml` 返回 MC 树启动时捕获的位姿；这里的“原点”不是固定 map `(0,0)`，而是本次树启动时的实时 `base_footprint` 位姿。决策层仍只向 `/navigate_to_pose` 发送目标和可选 Nav2 BT 路径，不直接发布导航阶段速度；红方 MC 去程的 `cmd_vel.linear.x/y` 正向约束由 `MCPositiveXYRed` 承担，返程的 `cmd_vel.linear.x/y` 负向约束由 `MCNegativeXYRed` 承担。视觉伺服 heading hold 默认同用 `mc_nav_yaw` 作为期望车身朝向，避免导航目标 yaw 和取端头对线 yaw 分裂。
+`mc_tree.xml` 的武馆区 Nav2 目标不再写死在 XML 中，而是读取黑板中的 `mc_nav_x`、`mc_nav_y`、`mc_nav_yaw`、`mc_nav_frame_id` 与 `mc_nav_timeout_sec`；这些值由 `rc26_bringup/config/r2_runtime.yaml` 的 `mc_nav_*` 参数提供。当前默认运行口径切到红方武馆区配置，并通过 `mc_nav_behavior_tree_file` 给去程 `NavToPose` 指定 `rc26_bringup/config/nav2_bt_mc_red_positive_xy.xml`。返回导航目标位置由 MC 树启动时的 `CaptureCurrentPose` 捕获，返回目标 yaw 由 `Script` 写为 `mc_start_nav_yaw + 3.141592653589793`，因此到达起点后的朝向固定为启动朝向的 180° 反向，不依赖旋转后的实测 yaw 或 `mc_rotate_angle_deg` 是否严格为 180°；这里的“原点”不是固定 map `(0,0)`，而是本次树启动时的实时 `base_footprint` 位姿。返程通过 `mc_return_nav_behavior_tree_file` 指定 `rc26_bringup/config/nav2_bt_mc_red_negative_xy.xml`。决策层仍只向 `/navigate_to_pose` 发送目标和可选 Nav2 BT 路径，不直接发布导航阶段速度；红方 MC 去程的 `cmd_vel.linear.x/y` 正向约束由 `MCPositiveXYRed` 承担，返程的 `cmd_vel.linear.x/y` 负向约束由 `MCNegativeXYRed` 承担。视觉伺服 heading hold 默认同用 `mc_nav_yaw` 作为期望车身朝向，避免导航目标 yaw 和取端头对线 yaw 分裂。
 
 ### 节点职责
 
 - `VisualServoGrabAction`（`src/mc/visual_servo_grab.cpp`）：内嵌直连相机 + `rc26_vision::InferenceEngine`，在独立工作线程中执行"取帧→推理→锁定同一物理端头→雷达 odom yaw 姿态保持 + 横移 P 控制对齐→对齐稳定后以 `cmd_vel.linear.x` 负方向前探→等待 `/mechanism/command_feedback` 上行 `FRONT_LIMIT_SWITCH_TRIGGERED(0x19)`→立即停车→经 `/mechanism/send_command` 下发 `GRAB_TIP(0x01)`"。多框同时出现时，目标选择复用 `rc26_vision` 的 tip alignment helper：初次按离画面中心最近获锁，短暂丢失不立即切到另一侧框。单端头场景下，若 `mc_odom_topic` yaw 偏离目标 yaw 超过 `mc_align_heading_gate_deg`，动作只发布 `cmd_vel.angular.z` 修正车身朝向，暂停 `linear.y` 横移和前探；只有像素偏差进入 `mc_align_tolerance_px` 且 yaw 偏差进入 `mc_align_heading_tolerance_deg` 后才累计稳定帧并进入前探。每次动作生命周期最多发送一次实际进入 `async_send_request` 的 `GRAB_TIP`；service 未就绪时不消耗这次发送机会并在停车状态下继续等待，前探等待 0x19 超过 `mc_grab_approach_timeout_s` 则停车失败。**完成判定**：夹取已下发后端头持续消失达 `mc_grab_done_lost_time_s` → `SUCCESS`；超 `mc_servo_timeout_s` → `FAILURE`。
 - `RotateInPlaceAction`（`src/mc/rotate_in_place.cpp`）：发布 `cmd_vel.angular.z`，订阅 `mc_odom_topic`（默认 `odom`），默认使用 `rc26_odom_interface` 发布的雷达标准 `/odom` yaw 作为 180° 闭环反馈；角速度由 `mc_rotate_speed_radps` 配置为最大值，末段按 `mc_rotate_slowdown_angle_deg` 线性降到 `mc_rotate_min_speed_radps` 以降低过冲。动作按 `mc_rotate_direction` 的符号判断累计角度和剩余角度，`剩余角度 ≤ mc_rotate_yaw_tolerance_deg` → 停车 `SUCCESS`；`mc_rotate_odom_timeout_s` 内无新 odom 时停车等待，超 `mc_rotate_timeout_s` → `FAILURE`（yaw 直接由四元数解算，不依赖 tf2）。
-- `CaptureCurrentPoseAction`（`src/navigation/bt_nav2_pose.cpp`）：订阅 TF 并等待 `mc_nav_frame_id -> base_footprint` 新鲜，在超时内捕获当前 `x/y/yaw` 写入对应黑板输出键。MC 树第一次用它记录启动位姿，第二次只使用旋转后的实际 yaw 作为返回导航目标朝向。
+- `CaptureCurrentPoseAction`（`src/navigation/bt_nav2_pose.cpp`）：订阅 TF 并等待 `mc_nav_frame_id -> base_footprint` 新鲜，在超时内捕获当前 `x/y/yaw` 写入对应黑板输出键。MC 树第一次用它记录启动位姿和 `mc_start_nav_yaw`；第二次只用于等待并记录旋转后的实时位姿，返程目标 yaw 随后由 `Script` 设为 `mc_start_nav_yaw + π`。
 - `WaitForeverAction`（`src/mc/wait_forever.cpp`）：恒 `RUNNING`。
 
 ### 参数
