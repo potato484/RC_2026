@@ -25,7 +25,7 @@ x-modules:
     services: []
   - name: navigation
     file: docs/middle/modules/navigation.yaml
-    description: Nav2 导航接口；/cmd_vel 只作为工作区输出契约，硬件执行消费方由外部运行时提供。
+    description: Nav2 导航接口；/cmd_vel 是工作区速度输出契约，默认由 rc26_mcu_transport 消费并下发 POSE_TARGET。
     topics:
       - /cmd_vel
       - /plan

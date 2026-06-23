@@ -8,9 +8,9 @@ joy_node:
 rc26_telecontrol:
   ros__parameters:
     # 参数说明：v_linear - 运动速度相关参数；需要结合底盘能力和安全约束调节。
-    v_linear: 0.2
+    v_linear: 2.0
     # 参数说明：v_angular - 运动速度相关参数；需要结合底盘能力和安全约束调节。
-    v_angular: 0.5
+    v_angular: 2.0
     joy_deadzone: 0.15
     # 参数说明：joy_timeout_s - 超时时间；超过该值后会触发降级、停止或失败处理。
     joy_timeout_s: 0.3

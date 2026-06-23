@@ -15,17 +15,17 @@
   - `rc26_localization` 继续作为 `map -> odom` 权威，不启动 AMCL
   - 定位装配只透传先验 PCD 和定位参数文件，不再透传图后端、P4、重试区或 overlay 参数
   - 当前默认运行时关闭 local/global costmap 的 obstacle layer；`/sensor_scan` (`PointCloud2`) 链路仍保留，且不再依赖 `/scan`
-  - `/cmd_vel` 由 Nav2 controller/velocity_smoother 输出；硬件执行消费方由工作区外部运行时提供
+  - `/cmd_vel` 由 Nav2 controller/velocity_smoother 输出；默认由 `rc26_mcu_transport` 消费并下发 `POSE_TARGET(0x1F)`
   - `rc26_bringup` 不再启动 `rc26_merge_odom` 或 `pose_sender_node`，也不再提供 `/merge_odom`
   - `/mechanism/send_command` 与 `/mechanism/command_feedback` 由 `rc26_mcu_transport` 提供；涉及机构动作的运行链必须启动该目标 MCU 串口 owner
   - `config/r2_runtime.yaml` 是整车运行配置真源：集中维护点云文件、Nav2 地图文件、行为树 XML 绝对路径与决策参数
   - `r2_runtime.decision.ros__parameters` 中的 `mc_nav_*` 参数是当前红方武馆区行为树去程 `NavToPose` 目标真源；`mc_tree.xml` 从黑板读取这些值，不再在 XML 中写死取端头导航点。`mc_nav_behavior_tree_file` 当前指向 `config/nav2_bt_mc_red_positive_xy.xml`，让去程 Nav2 goal 显式使用红方 MC 正向 controller。旋转后的返回导航目标由 `CaptureCurrentPose` 在 MC 树启动时捕获，`mc_return_nav_behavior_tree_file` 当前指向 `config/nav2_bt_mc_red_negative_xy.xml`
   - `r2_runtime.decision.ros__parameters` 中的 `mc_align_*` 参数维护武馆区视觉伺服横移对线口径；当前默认按后置相机安装反转横移方向，并启用端头目标锁定以避免双框同屏切换。`mc_align_heading_*` 当前默认开启，通过 `mc_odom_topic=odom` 消费 `rc26_odom_interface` 的雷达标准 odom yaw，并在视觉伺服阶段补发 `cmd_vel.angular.z` 保持车身朝向
-  - 完整 MC 决策链依赖 `/odom` 作为雷达标准里程计，服务视觉 heading hold 和 180° 旋转 yaw 闭环；底盘执行由外部 provider 承担，机构 transport 由 `rc26_mcu_transport` 承担
+  - 完整 MC 决策链依赖 `/odom` 作为雷达标准里程计，服务视觉 heading hold 和 180° 旋转 yaw 闭环；底盘执行与机构 transport 均由 `rc26_mcu_transport` 承担
   - `r2_runtime.decision.ros__parameters` 中声明为 double 的参数必须在 YAML 中写成小数形式，例如 `10.0`，不要写成裸整数 `10`；ROS2 会区分 integer 和 double，类型不一致会导致 `decision_node` 启动时报 `InvalidParameterTypeException`
   - `config/nav2_params.yaml` 中 `planner_server.GridBased.tolerance` 当前收紧为 `0.05m`，避免 NavFn 在目标点附近半米内选替代终点后仍被上层当作真实到点；`controller_server.progress_checker` 当前按低速实车调为 `20s` 内至少前进 `0.05m`，减少慢速起步或局部恢复期间的误判卡死。普通导航继续使用 `FollowPath`，红方 MC 去程专用 Nav2 BT 使用 `MCPositiveXYRed`，只采样车体系 `linear.x/y` 正向和角速度；红方 MC 返程专用 Nav2 BT 使用 `MCNegativeXYRed`，只采样车体系 `linear.x/y` 负向和角速度
   - `r2_runtime.decision.ros__parameters` 同时维护 `stair_*` 台阶动作参数；这些参数供独立 `stair_climb_tree.xml` / `stair_descend_tree.xml`、红方中列测试树和 MF `GridTransition` 离散格间动作复用。上台阶的前推杆伸出后零速等待、前收+后伸后零速等待，以及下台阶的后推杆伸出后零速等待、后收+前伸后零速等待、前推杆收回后零速等待也在这里配置；当前两激光下台阶链路还在这里配置前推杆收回前的 `x` 负向定时行驶速度与时长，默认 `0.025m/s` 持续 `4.0s`。`stair_odom_topic` 与 `stair_heading_*` 参数用于上/下阶梯前的 yaw 对齐和直行期间 heading hold
-  - 决策测试不再通过 `rc26_decision` 单节点 launch 入口进行；需要测试决策时使用本完整 bringup 入口，并按需同时准备外部 `/cmd_vel` 执行 consumer，机构动作链由 `rc26_mcu_transport` 提供 transport
+  - 决策测试不再通过 `rc26_decision` 单节点 launch 入口进行；需要测试决策时使用本完整 bringup 入口，并确认 `rc26_mcu_transport` 已按 `r2_runtime.mcu_transport` 启动
   - `r2_runtime.chassis_runtime.merge_odom` 已删除；默认 bringup 不再读取或透传 `merge_odom_*`、`start_pose_sender`、`pose_sender_*` 参数
   - 自动导航主链的 `/odom` 仍由 `rc26_odom_interface` 提供给 Nav2；`/merge_odom` 不再是当前默认运行时话题
 - `odometry.launch.py`
@@ -36,7 +36,7 @@
   - 自动导航链当前发布 `odom -> base_footprint -> base_link -> livox_frame`
 - `test_navigation.launch.py`
   - 复用整车 bringup，默认 `use_decision=false`
-  - 用于定位 + Nav2 基础导航联调；不再启动底盘执行桥，只验证 Nav2 输出 `/cmd_vel` 与定位/地图/点云观察链
+  - 用于定位 + Nav2 基础导航联调；默认不启动 `rc26_mcu_transport`，只验证 Nav2 输出 `/cmd_vel` 与定位/地图/点云观察链
   - 默认 `use_rviz=true`，加载 `rviz/navigation_default.rviz` 观察地图、costmap、路径、定位、里程计与点云主链
 - `scripts/capture_nav_points.py`
   - 现场 Nav2 导航点采集工具；定位链和 `odom_interface` 已发布 `map -> odom -> base_footprint` 后，人工遥控到目标位置并在终端按 `Enter` 即记录当前 `map -> base_footprint` 的 `x/y/yaw`
@@ -93,9 +93,10 @@
 - `odometry.launch.py` 新增 `start_point_lio`、`start_sensor_scan` 开关，供 `test_odom_interface.launch.py`、`odometry_mock.launch.py` 等入口复用同一套静态 TF / 内部外参装配
 - `odometry_mock.launch.py` 复用同一套 `odometry.launch.py` 装配；`mock_point_lio.py` 默认先输出一小段静止里程计，再进入运动阶段，以满足 `rc26_odom_interface` 现有的启动静止归零约束
 - 当前 bringup / test_navigation 已移除 `pose_sender_feedback_serial_port` 等历史独立反馈口参数；目标 MCU 机构串口 owner 统一由 `rc26_mcu_transport` 提供
-- `bringup.launch.py` 不再提供默认底盘执行桥；`/cmd_vel` 是工作区输出契约，硬件消费方需由外部运行时提供。
+- `bringup.launch.py` 默认通过 `rc26_mcu_transport` 提供底盘 `/cmd_vel` consumer；`test_navigation.launch.py` 仍关闭该节点，只观察 `/cmd_vel` 输出。
 - 新增 `scripts/capture_nav_points.py` 作为现场 Nav2 目标点采集工具；它通过 TF 读取当前 `map -> base_footprint`，生成中文 `.txt` 和可复制的 `<NavToPose .../>`，仅服务人工标定行为树目标点。
 - 2026-06-13 同步：`bringup.launch.py` 与内部联调入口删除旧 `slam` 参数，统一改用 `run_mode:=navigation|mapping`；完整导航/决策链路使用 `run_mode:=navigation use_decision:=true`，建图链路使用 `run_mode:=mapping pure_mapping_mode:=true`。
 - 2026-06-13 同步：删除分散的 `rc26_decision/config/decision_params.yaml` 与 `rc26_bringup/config/chassis_runtime.yaml`，并移除 `rc26_decision` 独立 launch 测试入口；完整 bringup 统一从 `rc26_bringup/config/r2_runtime.yaml` 读取运行配置，决策验收必须在所有相关节点拉起后进行。
-- 2026-06-22 同步：`rc26_merge_odom` 源码保留但退出默认运行装配；机构 transport provider 改由独立 `rc26_mcu_transport` 承担，底盘 `/cmd_vel` 硬件消费方仍在工作区外。
+- 2026-06-22 同步：`rc26_merge_odom` 源码保留但退出默认运行装配；机构 transport provider 改由独立 `rc26_mcu_transport` 承担。
+- 2026-06-23 同步：`rc26_mcu_transport` 默认提供底盘 `/cmd_vel` consumer，以 `POSE_TARGET(0x1F)` 下发速度，线速度和角速度默认上限均为 `2.0`。
 - 本轮归档 `rc26_terrain`、`rc26_base_ground` 与 `rc26_kfs_keepout`：主启动、建图调试、验收探针、RViz 预设和 `package.xml` 均不再接入这些包

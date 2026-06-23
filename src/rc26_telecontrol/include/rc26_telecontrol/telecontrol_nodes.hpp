@@ -83,8 +83,8 @@ private:
   const bool use_deadzone_hysteresis_;
   std::string control_mode_description_;
   std::string cmd_vel_topic_{"cmd_vel_teleop"};
-  double v_linear_{0.2};
-  double v_angular_{0.5};
+  double v_linear_{2.0};
+  double v_angular_{2.0};
   double joy_deadzone_{0.15};
   double joy_timeout_s_{0.3};
   double max_accel_{1.5};

@@ -32,7 +32,7 @@
 - `POSE_TARGET = 0x1F`
 - 两者都按 `50Hz` 连续发送
 - 两者都走公开的 `sendCommandNoAck()` 路径，不等待 ACK
-- 但当前仓库默认运行时不再提供目标 MCU 串口 owner；`POSE_FEEDBACK` / `ODOM_DATA` 代码保留，是否启用由外部运行时决定
+- 当前目标 MCU 串口 owner 由 `rc26_mcu_transport` 提供；`POSE_TARGET(0x1F)` 默认由它按 `/cmd_vel` 下发，`POSE_FEEDBACK` / `ODOM_DATA` 代码保留但不回到当前默认反馈主链
 
 当前双推杆协议已经直接收口为前/后推杆四命令；遥控链也不再通过 `rc26_mechanism` 的 Action 兼容路径消费，而是直接走共享 transport：
 

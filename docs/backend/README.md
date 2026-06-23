@@ -10,7 +10,7 @@ R2 运行时导航权威已经迁移到 Nav2。`rc26_bringup` 在 `slam=false` �
 
 `rc26_decision` 不再发送自定义导航 action，而是在 BT XML 中显式写 Nav2 pose 目标，通过 `NavToPose` 节点调用 `/navigate_to_pose`。
 
-`rc26_merge_odom` 已从当前 R2 默认运行装配中停用但保留源码：`rc26_bringup`、导航联调入口和遥控脚本不再启动它，也不再把 `/merge_odom` 作为当前运行时契约。`/cmd_vel` 的硬件消费方由工作区外部运行时提供；机构指令共享串口 provider 由 `rc26_mcu_transport` 提供，涉及机构动作的运行链必须启动它。
+`rc26_merge_odom` 已从当前 R2 默认运行装配中停用但保留源码：`rc26_bringup`、导航联调入口和遥控脚本不再启动它，也不再把 `/merge_odom` 作为当前运行时契约。`/cmd_vel` 的默认硬件消费方由 `rc26_mcu_transport` 提供，它复用目标 MCU 串口下发 `POSE_TARGET(0x1F)`；机构指令共享串口 provider 同样由 `rc26_mcu_transport` 提供。
 
 `rc26_terrain`、`rc26_base_ground` 与 `rc26_kfs_keepout` 已从当前 R2 主运行时链路中归档退出：默认 CMake 不生成运行时目标，`rc26_bringup` 不启动它们，`rc26_decision` 不订阅或发布它们的数据，默认运行和手动验证闭包也不再纳入这些归档链路。
 
@@ -53,7 +53,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 ### 控制与执行
 
 - [`rc26_mechanism`](archive/rc26_mechanism/README.md): 机构执行与生命周期管理。`(file: archive/rc26_mechanism/README.md)`
-- [`rc26_mcu_transport`](archive/rc26_mcu_transport/README.md): 目标 MCU 共享串口 provider，提供 `/mechanism/send_command` 与 `/mechanism/command_feedback`。`(file: archive/rc26_mcu_transport/README.md)`
+- [`rc26_mcu_transport`](archive/rc26_mcu_transport/README.md): 目标 MCU 共享串口 owner，提供 `/mechanism/send_command`、`/mechanism/command_feedback` 与默认 `/cmd_vel` 到 `POSE_TARGET` 的底盘执行。`(file: archive/rc26_mcu_transport/README.md)`
 - [`rc26_telecontrol`](archive/rc26_telecontrol/README.md): 人工遥控测试包。`(file: archive/rc26_telecontrol/README.md)`
 - [`rc26_serial`](archive/rc26_serial/README.md): 串口通信基础库。`(file: archive/rc26_serial/README.md)`
 

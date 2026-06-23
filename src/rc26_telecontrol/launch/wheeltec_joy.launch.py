@@ -30,12 +30,12 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'v_linear',
-            default_value='0.2',
+            default_value='2.0',
             description='Maximum linear velocity (m/s)'
         ),
         DeclareLaunchArgument(
             'v_angular',
-            default_value='0.5',
+            default_value='2.0',
             description='Maximum angular velocity (rad/s)'
         ),
         DeclareLaunchArgument(

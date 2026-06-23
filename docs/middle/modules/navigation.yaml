@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: RC26 R2 Navigation ROS2 Contract
   version: 0.8.0
-  description: Nav2 基础导航与当前决策侧导航接口契约；/cmd_vel 是工作区输出契约，硬件执行消费方由外部运行时提供。MF keepout 相关接口仅作为归档兼容定义保留，不属于当前运行时路径。
+  description: Nav2 基础导航与当前决策侧导航接口契约；/cmd_vel 是工作区输出契约，默认由 rc26_mcu_transport 消费并下发 POSE_TARGET。MF keepout 相关接口仅作为归档兼容定义保留，不属于当前运行时路径。
 servers:
   - url: http://localhost:8080
 tags:
@@ -34,7 +34,7 @@ paths:
   /ros2/topics/cmd_vel:
     get:
       tags: [Topic]
-      summary: 读取 Nav2 velocity_smoother 输出的底盘速度命令；硬件执行由外部 consumer 负责
+      summary: 读取 Nav2 velocity_smoother 输出的底盘速度命令；默认硬件执行由 rc26_mcu_transport 负责
       x-ros:
         interface_kind: topic
         name: /cmd_vel

@@ -54,9 +54,9 @@ TEST_F(TelecontrolMappingTest, StickModeMapsLeftStickToVxVyAndRightStickToYaw)
   TestableStickTelecontrolNode node;
   const auto twist = node.compute(joy);
 
-  EXPECT_DOUBLE_EQ(twist.linear.x, 0.2);
-  EXPECT_DOUBLE_EQ(twist.linear.y, -0.2);
-  EXPECT_DOUBLE_EQ(twist.angular.z, -0.5);
+  EXPECT_DOUBLE_EQ(twist.linear.x, 2.0);
+  EXPECT_DOUBLE_EQ(twist.linear.y, -2.0);
+  EXPECT_DOUBLE_EQ(twist.angular.z, -2.0);
 }
 
 TEST_F(TelecontrolMappingTest, DpadModeMapsAxesToVxVyAndButtonsToYaw)
@@ -71,9 +71,9 @@ TEST_F(TelecontrolMappingTest, DpadModeMapsAxesToVxVyAndButtonsToYaw)
   TestableDpadTelecontrolNode node;
   const auto twist = node.compute(joy);
 
-  EXPECT_DOUBLE_EQ(twist.linear.x, 0.2);
-  EXPECT_DOUBLE_EQ(twist.linear.y, -0.2);
-  EXPECT_DOUBLE_EQ(twist.angular.z, 0.5);
+  EXPECT_DOUBLE_EQ(twist.linear.x, 2.0);
+  EXPECT_DOUBLE_EQ(twist.linear.y, -2.0);
+  EXPECT_DOUBLE_EQ(twist.angular.z, 2.0);
 }
 
 TEST_F(TelecontrolMappingTest, DpadModeMapsBToNegativeYaw)
@@ -88,7 +88,7 @@ TEST_F(TelecontrolMappingTest, DpadModeMapsBToNegativeYaw)
 
   EXPECT_DOUBLE_EQ(twist.linear.x, 0.0);
   EXPECT_DOUBLE_EQ(twist.linear.y, 0.0);
-  EXPECT_DOUBLE_EQ(twist.angular.z, -0.5);
+  EXPECT_DOUBLE_EQ(twist.angular.z, -2.0);
 }
 
 TEST_F(TelecontrolMappingTest, DpadModeKeepsYawNeutralWhenXAndBArePressedTogether)

@@ -10,7 +10,7 @@
   - `rc26_decision_nodes`
   - `decision_node`
 - 运行入口:
-  - `rc26_decision` 不再提供独立 launch 入口；决策运行和测试统一由 `rc26_bringup/launch/bringup.launch.py` 装配。涉及真实运动时仍需要外部 `/cmd_vel` 执行 consumer；涉及机构动作时必须启动 `rc26_mcu_transport`
+  - `rc26_decision` 不再提供独立 launch 入口；决策运行和测试统一由 `rc26_bringup/launch/bringup.launch.py` 装配。涉及真实运动或机构动作时必须启动 `rc26_mcu_transport`，完整 bringup 默认会按 `r2_runtime.mcu_transport` 启动
 - 关键行为树:
   - `behavior_trees/main_tree.xml`
   - `behavior_trees/mf_tree.xml`

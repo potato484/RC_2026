@@ -118,7 +118,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 
 - **规则**：每条动态 TF 边只能有一个文档化权威者。
 - **规则**：除非做过明确架构变更并更新文档，否则不得新增第二个发布同一动态边的节点。
-- **当前口径**：自动导航主链的 `/odom` 与动态基座 TF 仍由 `rc26_odom_interface` / 定位链维护；`rc26_merge_odom` 已退出默认运行装配，`/merge_odom` 不再是当前运行时契约。`/cmd_vel` 的硬件消费方由工作区外部运行时提供；机构指令的目标 MCU 串口权威由 `rc26_mcu_transport` 提供，涉及机构动作的运行链必须启动该服务。
+- **当前口径**：自动导航主链的 `/odom` 与动态基座 TF 仍由 `rc26_odom_interface` / 定位链维护；`rc26_merge_odom` 已退出默认运行装配，`/merge_odom` 不再是当前运行时契约。`/cmd_vel` 的默认硬件消费方由 `rc26_mcu_transport` 提供，并复用目标 MCU 串口下发 `POSE_TARGET(0x1F)`；机构指令的目标 MCU 串口权威同样由 `rc26_mcu_transport` 提供。
 
 ### 3.8 launch 参数必须声明明确、归属明确
 

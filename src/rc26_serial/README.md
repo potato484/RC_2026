@@ -63,8 +63,8 @@
 当前底盘反馈协议也已经统一回麦克纳姆四轮口径：
 
 *   `ODOM_DATA(0x20)` 固定为 `<v_fl, v_rl, v_rr, v_fr>` 的 `16B / 4 float`
-*   `POSE_FEEDBACK(0x1E)` / `POSE_TARGET(0x1F)` 继续保持 `(vx, vy, wz)` 三浮点协议和 `50Hz` 连续发送
-*   机构指令的目标 MCU 串口 owner 由 `rc26_mcu_transport` 提供；`ODOM_DATA` / `POSE_FEEDBACK` 代码仍保留，底盘执行是否复用同一物理链路由外部运行时决定
+*   `POSE_FEEDBACK(0x1E)` / `POSE_TARGET(0x1F)` 继续保持 `(vx, vy, wz)` 三浮点协议；`POSE_TARGET` 当前由 `rc26_mcu_transport` 默认按 `50Hz` no-ack 路径下发
+*   机构指令与底盘 `POSE_TARGET` 的目标 MCU 串口 owner 均由 `rc26_mcu_transport` 提供；`ODOM_DATA` / `POSE_FEEDBACK` 代码仍保留，但不回到当前默认反馈主链
 
 ## 3. 设计原则与平台限制
 

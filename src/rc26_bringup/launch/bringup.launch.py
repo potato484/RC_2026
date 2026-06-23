@@ -13,7 +13,7 @@ src R2导航系统 - 主启动文件
 默认装配口径:
   - 车端 bringup 维持 headless
   - r2_runtime.yaml 是点云、地图、行为树入口与决策参数的运行配置真源
-  - /cmd_vel 的硬件执行由外部运行时提供；机构指令共享串口由 rc26_mcu_transport 提供
+  - /cmd_vel 的默认底盘执行与机构指令共享串口由 rc26_mcu_transport 提供
   - 如需图形观察，请手工启动工作区外部可视化工具只读消费 ROS2 输出
 """
 import os
@@ -57,7 +57,9 @@ def _select_str(context, name, default_value):
 
 def _select_bool(context, name, default_value):
     value = _launch_value(context, name)
-    return bool(default_value) if value == '' else _parse_bool(value)
+    if value != '':
+        return _parse_bool(value)
+    return _parse_bool(default_value) if isinstance(default_value, str) else bool(default_value)
 
 
 def _select_abs_path(context, name, default_value):
@@ -95,6 +97,13 @@ def _load_r2_runtime_defaults(config_file):
             'target_baudrate': 1000000,
             'open_retry_period_ms': 1000,
             'diagnostics_period_ms': 1000,
+            'enable_chassis_cmd_vel_consumer': True,
+            'chassis_cmd_vel_topic': 'cmd_vel',
+            'chassis_target_send_rate_hz': 50,
+            'chassis_cmd_vel_timeout_ms': 200,
+            'chassis_v_max_mps': 2.0,
+            'chassis_w_max_radps': 2.0,
+            'chassis_stop_repeat_n': 10,
         },
     }
 
@@ -118,6 +127,17 @@ def _load_r2_runtime_defaults(config_file):
         _parse_bool(enabled_value) if isinstance(enabled_value, str) else bool(enabled_value)
     )
     for key in ('target_serial_port', 'target_baudrate', 'open_retry_period_ms', 'diagnostics_period_ms'):
+        if key in mcu_transport_params:
+            defaults['mcu_transport'][key] = mcu_transport_params[key]
+    for key in (
+        'enable_chassis_cmd_vel_consumer',
+        'chassis_cmd_vel_topic',
+        'chassis_target_send_rate_hz',
+        'chassis_cmd_vel_timeout_ms',
+        'chassis_v_max_mps',
+        'chassis_w_max_radps',
+        'chassis_stop_repeat_n',
+    ):
         if key in mcu_transport_params:
             defaults['mcu_transport'][key] = mcu_transport_params[key]
     return defaults
@@ -183,6 +203,34 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2
         context,
         'mcu_transport_diagnostics_period_ms',
         str(mcu_transport_defaults['diagnostics_period_ms']))
+    mcu_transport_enable_chassis_cmd_vel_consumer = _select_bool(
+        context,
+        'mcu_transport_enable_chassis_cmd_vel_consumer',
+        mcu_transport_defaults['enable_chassis_cmd_vel_consumer'])
+    mcu_transport_chassis_cmd_vel_topic = _select_str(
+        context,
+        'mcu_transport_chassis_cmd_vel_topic',
+        str(mcu_transport_defaults['chassis_cmd_vel_topic']))
+    mcu_transport_chassis_target_send_rate_hz = _select_str(
+        context,
+        'mcu_transport_chassis_target_send_rate_hz',
+        str(mcu_transport_defaults['chassis_target_send_rate_hz']))
+    mcu_transport_chassis_cmd_vel_timeout_ms = _select_str(
+        context,
+        'mcu_transport_chassis_cmd_vel_timeout_ms',
+        str(mcu_transport_defaults['chassis_cmd_vel_timeout_ms']))
+    mcu_transport_chassis_v_max_mps = _select_str(
+        context,
+        'mcu_transport_chassis_v_max_mps',
+        str(mcu_transport_defaults['chassis_v_max_mps']))
+    mcu_transport_chassis_w_max_radps = _select_str(
+        context,
+        'mcu_transport_chassis_w_max_radps',
+        str(mcu_transport_defaults['chassis_w_max_radps']))
+    mcu_transport_chassis_stop_repeat_n = _select_str(
+        context,
+        'mcu_transport_chassis_stop_repeat_n',
+        str(mcu_transport_defaults['chassis_stop_repeat_n']))
 
     actions = []
 
@@ -196,6 +244,14 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2
                 'target_baudrate': mcu_transport_target_baudrate,
                 'open_retry_period_ms': mcu_transport_open_retry_period_ms,
                 'diagnostics_period_ms': mcu_transport_diagnostics_period_ms,
+                'enable_chassis_cmd_vel_consumer': _launch_bool(
+                    mcu_transport_enable_chassis_cmd_vel_consumer),
+                'chassis_cmd_vel_topic': mcu_transport_chassis_cmd_vel_topic,
+                'chassis_target_send_rate_hz': mcu_transport_chassis_target_send_rate_hz,
+                'chassis_cmd_vel_timeout_ms': mcu_transport_chassis_cmd_vel_timeout_ms,
+                'chassis_v_max_mps': mcu_transport_chassis_v_max_mps,
+                'chassis_w_max_radps': mcu_transport_chassis_w_max_radps,
+                'chassis_stop_repeat_n': mcu_transport_chassis_stop_repeat_n,
             }.items(),
         ))
 
@@ -388,6 +444,34 @@ def generate_launch_description():
             'mcu_transport_diagnostics_period_ms',
             default_value='',
             description='rc26_mcu_transport diagnostics 发布周期；为空时使用 r2_runtime.yaml'),
+        DeclareLaunchArgument(
+            'mcu_transport_enable_chassis_cmd_vel_consumer',
+            default_value='',
+            description='是否让 rc26_mcu_transport 订阅 /cmd_vel；为空时使用 r2_runtime.yaml'),
+        DeclareLaunchArgument(
+            'mcu_transport_chassis_cmd_vel_topic',
+            default_value='',
+            description='rc26_mcu_transport 消费的底盘速度话题；为空时使用 r2_runtime.yaml'),
+        DeclareLaunchArgument(
+            'mcu_transport_chassis_target_send_rate_hz',
+            default_value='',
+            description='rc26_mcu_transport 底盘目标速度发送频率；为空时使用 r2_runtime.yaml'),
+        DeclareLaunchArgument(
+            'mcu_transport_chassis_cmd_vel_timeout_ms',
+            default_value='',
+            description='rc26_mcu_transport 底盘速度超时；为空时使用 r2_runtime.yaml'),
+        DeclareLaunchArgument(
+            'mcu_transport_chassis_v_max_mps',
+            default_value='',
+            description='rc26_mcu_transport 底盘线速度上限；为空时使用 r2_runtime.yaml'),
+        DeclareLaunchArgument(
+            'mcu_transport_chassis_w_max_radps',
+            default_value='',
+            description='rc26_mcu_transport 底盘角速度上限；为空时使用 r2_runtime.yaml'),
+        DeclareLaunchArgument(
+            'mcu_transport_chassis_stop_repeat_n',
+            default_value='',
+            description='rc26_mcu_transport 底盘超时零速重复帧数；为空时使用 r2_runtime.yaml'),
         DeclareLaunchArgument(
             'use_decision',
             default_value='true',

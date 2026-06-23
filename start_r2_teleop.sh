@@ -11,8 +11,8 @@ Options:
   --mode <stick|dpad>         控制模式，默认：dpad
                               stick = 左摇杆控制 vx/vy，右摇杆左右控制 wz
                               dpad  = 十字键控制 vx/vy，X/B 控制 wz
-  --v-linear <m/s>            最大线速度，默认：0.5
-  --v-angular <rad/s>         最大角速度，默认：0.5
+  --v-linear <m/s>            最大线速度，默认：2.0
+  --v-angular <rad/s>         最大角速度，默认：2.0
   --cmd-vel-topic <topic>     遥控输出话题，默认：cmd_vel
   --device-name <name>        手柄设备名，默认：Xbox 360 Controller
   --joy-node-deadzone <val>   joy_node 死区，默认：0.02
@@ -35,7 +35,7 @@ Options:
 Notes:
   本脚本启动 rc26_mcu_transport、joy_node、telecontrol 和前/后推杆 sidecar。
   /mechanism/send_command 与 /mechanism/command_feedback 由 rc26_mcu_transport 提供。
-  /cmd_vel 的硬件消费方仍必须由工作区外部运行时服务提供。
+  /cmd_vel 的底盘硬件消费方由 rc26_mcu_transport 默认提供。
 
 Examples:
   ./start_r2_teleop.sh
@@ -78,7 +78,7 @@ workspace_dir="${RC26_WS:-${script_dir}}"
 setup_file="${workspace_dir}/install/setup.bash"
 
 mode="dpad"
-v_linear="0.5"
+v_linear="0.2"
 v_angular="0.5"
 cmd_vel_topic="cmd_vel"
 device_name="Xbox 360 Controller"
@@ -215,6 +215,13 @@ mcu_transport_cmd=(
   -p "target_baudrate:=${mcu_baudrate}"
   -p "open_retry_period_ms:=${mcu_open_retry_ms}"
   -p "diagnostics_period_ms:=${mcu_diagnostics_ms}"
+  -p "enable_chassis_cmd_vel_consumer:=true"
+  -p "chassis_cmd_vel_topic:=${cmd_vel_topic}"
+  -p "chassis_target_send_rate_hz:=50"
+  -p "chassis_cmd_vel_timeout_ms:=200"
+  -p "chassis_v_max_mps:=2.0"
+  -p "chassis_w_max_radps:=2.0"
+  -p "chassis_stop_repeat_n:=10"
 )
 
 joy_cmd=(
@@ -261,7 +268,7 @@ print_summary() {
   echo "Linear speed limit: ${v_linear} m/s"
   echo "Angular speed limit: ${v_angular} rad/s"
   echo "MCU transport: ${mcu_port} @ ${mcu_baudrate}"
-  echo "External runtime required: /cmd_vel consumer"
+  echo "cmd_vel consumer: rc26_mcu_transport (${cmd_vel_topic}, 2.0 m/s, 2.0 rad/s)"
 }
 
 if [[ "${dry_run}" == "true" ]]; then

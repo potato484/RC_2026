@@ -175,8 +175,8 @@ void TelecontrolNodeBase::normalize_parameters()
     log_normalized_parameter("cmd_vel_topic", before, cmd_vel_topic_);
   }
 
-  normalize_abs_double("v_linear", v_linear_, 0.2);
-  normalize_abs_double("v_angular", v_angular_, 0.5);
+  normalize_abs_double("v_linear", v_linear_, 2.0);
+  normalize_abs_double("v_angular", v_angular_, 2.0);
   normalize_positive_double("max_accel", max_accel_, 1.5);
   normalize_positive_double("max_alpha", max_alpha_, 3.0);
 

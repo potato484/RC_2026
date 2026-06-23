@@ -9,8 +9,7 @@ r2_runtime:
 
   # 目标 MCU 共享串口 transport。
   # 只要运行链会下发机构动作指令，就必须启动 rc26_mcu_transport。
-  # 本服务只提供 /mechanism/send_command 与 /mechanism/command_feedback；
-  # /cmd_vel 的底盘硬件消费方仍由外部运行时提供。
+  # 本服务提供 /mechanism/send_command、/mechanism/command_feedback，并默认消费 /cmd_vel 下发 POSE_TARGET。
   mcu_transport:
     enabled: true
     ros__parameters:
@@ -18,12 +17,19 @@ r2_runtime:
       target_baudrate: 1000000
       open_retry_period_ms: 1000
       diagnostics_period_ms: 1000
+      enable_chassis_cmd_vel_consumer: true
+      chassis_cmd_vel_topic: "cmd_vel"
+      chassis_target_send_rate_hz: 50
+      chassis_cmd_vel_timeout_ms: 200
+      chassis_v_max_mps: 2.0
+      chassis_w_max_radps: 2.0
+      chassis_stop_repeat_n: 10
 
   decision:
     ros__parameters:
       tick_rate_ms: 100             # 行为树 tick 周期，单位毫秒；数值越小调度越频繁
       team: "red"                   # 当前默认按红方配置运行；用于梅林区静态地图初始化
-      mc_nav_yaw: -1.4857           # 红方武馆区取端头导航目标 yaw，单位 rad；视觉 heading hold 默认同用此朝向
+      mc_nav_yaw: -1.5708           # 红方武馆区取端头导航目标 yaw，单位 rad；视觉 heading hold 默认同用此朝向
 
       # ======================================================================
       # 红方武馆区 (MC) 运行参数 —— 启动时由 r2_runtime.yaml/launch 参数写入决策节点
@@ -54,12 +60,12 @@ r2_runtime:
       mc_target_labels: ["JK"]      # 端头目标标签，必须能在 tip_default 标签表中找到
 
       # --- 视觉对齐（横移 P 控制，发布 cmd_vel.linear.y）---
-      mc_align_cmd_vel_topic: "cmd_vel"      # 视觉横移对齐发布的速度话题；硬件执行由外部 /cmd_vel consumer 负责
+      mc_align_cmd_vel_topic: "cmd_vel"      # 视觉横移对齐发布的速度话题；默认由 rc26_mcu_transport 消费
       mc_align_tolerance_px: 20              # 目标中心允许偏离画面中心的像素容差
       mc_align_stable_frames: 5              # 连续满足容差后触发夹取的稳定帧数
       mc_align_kp: 0.0010                    # 横移 P 控制比例增益，像素误差到 m/s
-      mc_align_min_speed_mps: 0.015          # 横移控制最小速度，单位 m/s
-      mc_align_max_speed_mps: 0.025           # 横移控制最大速度，单位 m/s
+      mc_align_min_speed_mps: 0.010         # 横移控制最小速度，单位 m/s
+      mc_align_max_speed_mps: 0.015           # 横移控制最大速度，单位 m/s
       mc_align_command_rate_hz: 20.0         # 横移速度指令最大发布频率，单位 Hz
       mc_align_lost_stop_frames: 3           # 锁定目标短暂丢失多少帧后才重新获锁
       mc_align_target_lock_enable: true      # 是否锁定同一个端头，避免双框同屏时反复切换
@@ -81,18 +87,18 @@ r2_runtime:
       mc_grab_limit_switch_feedback_topic: "/mechanism/command_feedback"  # rc26_mcu_transport 发布的 MCU 上行业务反馈话题
       mc_grab_limit_switch_feedback_id: 25   # 前方限位开关触发反馈 ID；25 对应 0x19
       mc_grab_approach_speed_mps: 0.04      # 对齐后 x 负方向前探速度幅值，单位 m/s
-      mc_grab_approach_timeout_s: 5.0        # 前探等待 0x19 的安全超时，单位秒
-      mc_grab_done_lost_time_s: 10.0   # 夹取后端头持续消失多久判定完成，单位秒
+      mc_grab_approach_timeout_s: 10.0        # 前探等待 0x19 的安全超时，单位秒
+      mc_grab_done_lost_time_s: 3.0   # 夹取后端头持续消失多久判定完成，单位秒
       mc_servo_timeout_s: 60.0         # 视觉伺服整体安全超时，单位秒
 
       # --- 原地旋转（发布 cmd_vel.angular.z，odom yaw 闭环）---
-      mc_rotate_angle_deg: 180.0       # 原地旋转目标角度，单位度
+      mc_rotate_angle_deg: 170.0       # 原地旋转目标角度，单位度
       mc_rotate_speed_radps: 0.6       # 原地旋转最大角速度，单位 rad/s
       mc_rotate_min_speed_radps: 0.12  # 原地旋转末段最小角速度，单位 rad/s
       mc_rotate_slowdown_angle_deg: 30.0 # 剩余角度小于该值时线性减速，单位度
       mc_rotate_direction: 1           # 原地旋转方向；+1 逆时针，-1 顺时针
       mc_rotate_yaw_tolerance_deg: 3.0 # 旋转完成角度容差，单位度
-      mc_rotate_cmd_vel_topic: "cmd_vel"  # 原地旋转发布的速度话题；硬件执行由外部 /cmd_vel consumer 负责
+      mc_rotate_cmd_vel_topic: "cmd_vel"  # 原地旋转发布的速度话题；默认由 rc26_mcu_transport 消费
       mc_odom_topic: "odom"            # 视觉 heading hold 和原地旋转闭环使用的雷达标准里程计话题
       mc_rotate_odom_timeout_s: 0.5    # 旋转阶段 odom 超过该时间未更新时停车等待，单位秒
       mc_rotate_timeout_s: 15.0        # 原地旋转安全超时，单位秒
@@ -100,7 +106,7 @@ r2_runtime:
       # ======================================================================
       # 台阶动作参数 —— 供独立 stair_* 测试树和 MF GridTransition 离散格间动作复用
       # ======================================================================
-      stair_cmd_vel_topic: "cmd_vel"                 # 台阶动作直接发布的速度话题；硬件执行由外部 /cmd_vel consumer 负责
+      stair_cmd_vel_topic: "cmd_vel"                 # 台阶动作直接发布的速度话题；默认由 rc26_mcu_transport 消费
       stair_send_command_service: "/mechanism/send_command"  # rc26_mcu_transport 提供的推杆命令服务
       stair_feedback_topic: "/mechanism/command_feedback"    # rc26_mcu_transport 发布的 MCU 上行激光突变事件话题
       stair_drive_speed_mps: 0.10                    # 上/下台阶直行动作速度绝对值，单位 m/s
