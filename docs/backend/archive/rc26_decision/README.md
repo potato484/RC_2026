@@ -82,32 +82,30 @@ Nav2 action result 映射规则：
 
 武馆区已重构为一条专属行为树 `behavior_trees/mc_tree.xml`（`MCAreaTree`），运行时通过完整 bringup 装配后执行，流程：
 
-1. `CaptureCurrentPose` —— 捕获 MC 树启动时 `mc_nav_frame_id -> base_footprint` 位姿，写入返回导航目标位置
-2. `NavToPose` —— 发布红方武馆区导航目标点并确认到达（复用 Nav2 节点，目标点经黑板键 `mc_nav_x/y/yaw/frame_id/timeout_sec` 由 XML 端口重映射注入）
-3. `VisualServoGrab` —— 视觉伺服夹取
-4. `RotateInPlace` —— 原地旋转 180°
-5. `CaptureCurrentPose` + `Script` + `NavToPose` —— 等待并记录旋转后的实时位姿，将返回 yaw 设为树启动 yaw + π，并使用返回专用 Nav2 BT 回到树启动位姿
-6. `WaitForever` —— 无限期等待（恒 `RUNNING`，树停留持续 tick）
+1. `NavToPose` —— 发布红方武馆区导航目标点并确认到达（复用 Nav2 节点，目标点经黑板键 `mc_nav_x/y/yaw/frame_id/timeout_sec` 由 XML 端口重映射注入）
+2. `VisualServoGrab` —— 视觉伺服夹取
+3. `RotateInPlace` —— 原地旋转 180°
+4. `WaitForever` —— 无限期等待（恒 `RUNNING`，树停留持续 tick）
 
 `decision_node` 通过 `tree_file` 参数加载行为树；该参数现在支持绝对路径。完整 bringup 默认从 `rc26_bringup/config/r2_runtime.yaml` 的 `r2_runtime.paths.behavior_tree_file` 读取行为树 XML 绝对路径。决策包自身不再安装独立 launch 文件，避免只拉起单节点时误判完整链路状态。
 
-`mc_tree.xml` 的武馆区 Nav2 目标不再写死在 XML 中，而是读取黑板中的 `mc_nav_x`、`mc_nav_y`、`mc_nav_yaw`、`mc_nav_frame_id` 与 `mc_nav_timeout_sec`；这些值由 `rc26_bringup/config/r2_runtime.yaml` 的 `mc_nav_*` 参数提供。当前默认运行口径切到红方武馆区配置，并通过 `mc_nav_behavior_tree_file` 给去程 `NavToPose` 指定 `rc26_bringup/config/nav2_bt_mc_red_positive_xy.xml`。返回导航目标位置由 MC 树启动时的 `CaptureCurrentPose` 捕获，返回目标 yaw 由 `Script` 写为 `mc_start_nav_yaw + 3.141592653589793`，因此到达起点后的朝向固定为启动朝向的 180° 反向，不依赖旋转后的实测 yaw 或 `mc_rotate_angle_deg` 是否严格为 180°；这里的“原点”不是固定 map `(0,0)`，而是本次树启动时的实时 `base_footprint` 位姿。返程通过 `mc_return_nav_behavior_tree_file` 指定 `rc26_bringup/config/nav2_bt_mc_red_negative_xy.xml`。决策层仍只向 `/navigate_to_pose` 发送目标和可选 Nav2 BT 路径，不直接发布导航阶段速度；红方 MC 去程的 `cmd_vel.linear.x/y` 正向约束由 `MCPositiveXYRed` 承担，返程的 `cmd_vel.linear.x/y` 负向约束由 `MCNegativeXYRed` 承担。视觉伺服 heading hold 默认同用 `mc_nav_yaw` 作为期望车身朝向，避免导航目标 yaw 和取端头对线 yaw 分裂。
+`mc_tree.xml` 的武馆区去程 Nav2 目标不再写死在 XML 中，而是读取黑板中的 `mc_nav_x`、`mc_nav_y`、`mc_nav_yaw`、`mc_nav_frame_id` 与 `mc_nav_timeout_sec`；这些值由 `rc26_bringup/config/r2_runtime.yaml` 的 `mc_nav_*` 参数提供。当前默认运行口径切到红方武馆区配置，并通过 `mc_nav_behavior_tree_file` 给去程 `NavToPose` 指定 `rc26_bringup/config/nav2_bt_mc_red_positive_xy.xml`。完成视觉夹取和原地旋转后，MC 树直接进入 `WaitForever`，不再执行固定返程 `NavToPose`，也不再声明或写入 `mc_return_nav_*` 黑板键。决策层仍只向 `/navigate_to_pose` 发送去程目标和可选 Nav2 BT 路径，不直接发布导航阶段速度；红方 MC 去程的 `cmd_vel.linear.x/y` 正向约束由 `MCPositiveXYRed` 承担。视觉伺服 heading hold 默认同用 `mc_nav_yaw` 作为期望车身朝向，避免导航目标 yaw 和取端头对线 yaw 分裂。
 
 ### 节点职责
 
-- `VisualServoGrabAction`（`src/mc/visual_servo_grab.cpp`）：内嵌直连相机 + `rc26_vision::InferenceEngine`，在独立工作线程中执行"取帧→推理→锁定同一物理端头→雷达 odom yaw 姿态保持 + 横移 P 控制对齐→对齐稳定后以 `cmd_vel.linear.x` 负方向前探→等待 `/mechanism/command_feedback` 上行 `FRONT_LIMIT_SWITCH_TRIGGERED(0x19)`→立即停车→经 `/mechanism/send_command` 下发 `GRAB_TIP(0x01)`"。多框同时出现时，目标选择复用 `rc26_vision` 的 tip alignment helper：初次按离画面中心最近获锁，短暂丢失不立即切到另一侧框。单端头场景下，若 `mc_odom_topic` yaw 偏离目标 yaw 超过 `mc_align_heading_gate_deg`，动作只发布 `cmd_vel.angular.z` 修正车身朝向，暂停 `linear.y` 横移和前探；只有像素偏差进入 `mc_align_tolerance_px` 且 yaw 偏差进入 `mc_align_heading_tolerance_deg` 后才累计稳定帧并进入前探。每次动作生命周期最多发送一次实际进入 `async_send_request` 的 `GRAB_TIP`；service 未就绪时不消耗这次发送机会并在停车状态下继续等待，前探等待 0x19 超过 `mc_grab_approach_timeout_s` 则停车失败。**完成判定**：夹取已下发后端头持续消失达 `mc_grab_done_lost_time_s` → `SUCCESS`；超 `mc_servo_timeout_s` → `FAILURE`。
+- `VisualServoGrabAction`（`src/mc/visual_servo_grab.cpp`）：内嵌直连相机 + `rc26_vision::InferenceEngine`，在独立工作线程中执行"取帧→推理→锁定同一物理端头→雷达 odom yaw 姿态保持 + 横移 P 控制对齐→对齐稳定后以 `cmd_vel.linear.x` 负方向前探→等待 `/mechanism/command_feedback` 上行 `FRONT_LIMIT_SWITCH_TRIGGERED(0x19)`→立即停车→经 `/mechanism/send_command` 下发 `GRAB_TIP(0x01)`"。多框同时出现时，目标选择复用 `rc26_vision` 的 tip alignment helper：初次按离画面中心最近获锁，短暂丢失不立即切到另一侧框。单端头场景下，若 `mc_odom_topic` yaw 偏离目标 yaw 超过 `mc_align_heading_gate_deg`，动作只发布 `cmd_vel.angular.z` 修正车身朝向，暂停 `linear.y` 横移和前探；只有像素偏差进入 `mc_align_tolerance_px` 且 yaw 偏差进入 `mc_align_heading_tolerance_deg` 后才累计稳定帧并进入前探。每次动作生命周期最多发送一次实际进入 `async_send_request` 的 `GRAB_TIP`；service 未就绪时不消耗这次发送机会并在停车状态下继续等待，前探等待 0x19 超过 `mc_grab_approach_timeout_s` 则停车失败。`/mechanism/send_command` 返回 `accepted=false` 只表示通用 ACK 未被可靠确认或 transport 拒绝，MC 夹取动作不会因此立即让行为树失败。**完成判定**：夹取已下发后端头持续消失达 `mc_grab_done_lost_time_s` → `SUCCESS`；端头未消失则超 `mc_servo_timeout_s` → `FAILURE`。该宽容 ACK 语义只适用于 MC 视觉夹取，不改变台阶动作对 accepted 的严格判定。
 - `RotateInPlaceAction`（`src/mc/rotate_in_place.cpp`）：发布 `cmd_vel.angular.z`，订阅 `mc_odom_topic`（默认 `odom`），默认使用 `rc26_odom_interface` 发布的雷达标准 `/odom` yaw 作为 180° 闭环反馈；角速度由 `mc_rotate_speed_radps` 配置为最大值，末段按 `mc_rotate_slowdown_angle_deg` 线性降到 `mc_rotate_min_speed_radps` 以降低过冲。动作按 `mc_rotate_direction` 的符号判断累计角度和剩余角度，`剩余角度 ≤ mc_rotate_yaw_tolerance_deg` → 停车 `SUCCESS`；`mc_rotate_odom_timeout_s` 内无新 odom 时停车等待，超 `mc_rotate_timeout_s` → `FAILURE`（yaw 直接由四元数解算，不依赖 tf2）。
-- `CaptureCurrentPoseAction`（`src/navigation/bt_nav2_pose.cpp`）：订阅 TF 并等待 `mc_nav_frame_id -> base_footprint` 新鲜，在超时内捕获当前 `x/y/yaw` 写入对应黑板输出键。MC 树第一次用它记录启动位姿和 `mc_start_nav_yaw`；第二次只用于等待并记录旋转后的实时位姿，返程目标 yaw 随后由 `Script` 设为 `mc_start_nav_yaw + π`。
+- `CaptureCurrentPoseAction`（`src/navigation/bt_nav2_pose.cpp`）：订阅 TF 并等待 `mc_nav_frame_id -> base_footprint` 新鲜，在超时内捕获当前 `x/y/yaw` 写入对应黑板输出键。它作为通用 BT 节点保留，当前 MC 树不再使用它来生成返程目标位姿。
 - `WaitForeverAction`（`src/mc/wait_forever.cpp`）：恒 `RUNNING`。
 
 ### 参数
 
-全部武馆区运行参数以 `mc_*` 前缀集中于 `rc26_bringup/config/r2_runtime.yaml` 的 `r2_runtime.decision.ros__parameters`，由 `loadMCParams()` 在 `decision_node` 构造时声明/读取为 `McParams`（`src/mc/mc_params.hpp`）并写入黑板 `mc_params`，同时把导航目标、返回导航目标默认值和 Nav2 BT 路径写入 `mc_nav_*` / `mc_return_nav_*` 黑板键。参数支持启动时通过 YAML/launch 覆盖；当前没有运行期参数变更回调，`ros2 param set` 不会自动回写已经进入黑板和动作节点的运行参数。参数涵盖：相机/推理（`mc_camera_*`、`mc_model_id`、`mc_target_labels`）、对齐（`mc_align_*`，其中 `mc_align_target_lock_*` 控制端头锁定，`mc_align_invert_direction` 当前默认按后置相机反转横移方向，`mc_align_heading_*` 控制 odom yaw 姿态保持）、夹取与限位前探（`mc_grab_command_id`、`mc_grab_service_name`、`mc_grab_limit_switch_feedback_*`、`mc_grab_approach_*`、`mc_grab_done_lost_time_s`、`mc_servo_timeout_s`）、旋转（`mc_rotate_angle_deg`、`mc_rotate_speed_radps`、`mc_rotate_min_speed_radps`、`mc_rotate_slowdown_angle_deg`、`mc_rotate_direction`、`mc_rotate_yaw_tolerance_deg`、`mc_rotate_cmd_vel_topic`、`mc_odom_topic`、`mc_rotate_odom_timeout_s`、`mc_rotate_timeout_s`）、去程/返程导航目标与 Nav2 goal 执行树（`mc_nav_*`、`mc_nav_behavior_tree_file`、`mc_start_pose_capture_timeout_sec`、`mc_rotated_pose_capture_timeout_sec`、`mc_return_nav_timeout_sec`、`mc_return_nav_behavior_tree_file`）。
+全部武馆区运行参数以 `mc_*` 前缀集中于 `rc26_bringup/config/r2_runtime.yaml` 的 `r2_runtime.decision.ros__parameters`，由 `loadMCParams()` 在 `decision_node` 构造时声明/读取为 `McParams`（`src/mc/mc_params.hpp`）并写入黑板 `mc_params`，同时把去程导航目标和去程 Nav2 BT 路径写入 `mc_nav_*` 黑板键。参数支持启动时通过 YAML/launch 覆盖；当前没有运行期参数变更回调，`ros2 param set` 不会自动回写已经进入黑板和动作节点的运行参数。参数涵盖：相机/推理（`mc_camera_*`、`mc_model_id`、`mc_target_labels`）、对齐（`mc_align_*`，其中 `mc_align_target_lock_*` 控制端头锁定，`mc_align_invert_direction` 当前默认按后置相机反转横移方向，`mc_align_heading_*` 控制 odom yaw 姿态保持）、夹取与限位前探（`mc_grab_command_id`、`mc_grab_service_name`、`mc_grab_limit_switch_feedback_*`、`mc_grab_approach_*`、`mc_grab_done_lost_time_s`、`mc_servo_timeout_s`）、旋转（`mc_rotate_angle_deg`、`mc_rotate_speed_radps`、`mc_rotate_min_speed_radps`、`mc_rotate_slowdown_angle_deg`、`mc_rotate_direction`、`mc_rotate_yaw_tolerance_deg`、`mc_rotate_cmd_vel_topic`、`mc_odom_topic`、`mc_rotate_odom_timeout_s`、`mc_rotate_timeout_s`）、去程导航目标与 Nav2 goal 执行树（`mc_nav_*`、`mc_nav_behavior_tree_file`）。固定返程点及 `mc_return_nav_*` 参数已从当前 MC 树契约中移除。
 注意：ROS2 不支持 YAML 空数组参数，`mc_grab_payload` 留空时须省略该项（用 C++ 默认空向量），不可写 `[]`。
 
 ### 与测试节点的差异
 
-- 夹取服务调用改为 `async_send_request`（非阻塞 + 响应回调记录 accepted/seq），不再用测试节点的嵌套 `spin_until_future_complete`——因 `decision_node` 已运行于 `rclcpp::spin`，嵌套 executor 会冲突；完成判定本就以端头消失为准。
+- 夹取服务调用改为 `async_send_request`（非阻塞 + 响应回调记录 accepted/seq），不再用测试节点的嵌套 `spin_until_future_complete`——因 `decision_node` 已运行于 `rclcpp::spin`，嵌套 executor 会冲突；一次 accepted=false 不会直接让 MC 行为树失败，完成判定本就以端头消失为准。
 - 剔除测试节点的 OpenCV 窗口/叠加绘制/距离估计等与决策无关代码。
 
 ## 当前 BT 边界

@@ -405,8 +405,9 @@ VisualServoGrabAction::GrabStepStatus VisualServoGrabAction::tickGrabCommand() {
         if (grab_accepted_.load(std::memory_order_relaxed)) {
             return GrabStepStatus::Success;
         }
-        RCLCPP_WARN(node_->get_logger(), "GRAB_TIP 被拒绝");
-        return GrabStepStatus::Failure;
+        RCLCPP_WARN(node_->get_logger(),
+                    "GRAB_TIP 未收到可靠 ACK/被拒绝，继续按端头消失判定夹取结果");
+        return GrabStepStatus::Success;
     }
 
     if (!tryStartGrabCommand()) {

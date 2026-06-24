@@ -77,7 +77,7 @@ bt_navigator_navigate_through_poses_rclcpp_node:
   ros__parameters:
     use_sim_time: false
 
-# 局部控制器：默认 FollowPath 仍支持麦克纳姆全向速度；红方 MC 导航段可显式选用 MCPositiveXYRed
+# 局部控制器：默认 FollowPath 仍支持麦克纳姆全向速度；红方 MC 去程可显式选用正向 controller
 controller_server:
   ros__parameters:
     use_sim_time: false
@@ -93,7 +93,7 @@ controller_server:
     progress_checker_plugin: progress_checker
     # 到点判定器：控制“算到达”的位置与朝向阈值
     goal_checker_plugins: [general_goal_checker]
-    # 默认导航使用 FollowPath；红方 MC 去程/返程专用 Nav2 BT 显式选择正/负向 controller
+    # 默认导航使用 FollowPath；当前 MC 树的去程 Nav2 BT 显式选择 MCPositiveXYRed
     controller_plugins: [FollowPath, MCPositiveXYRed, MCNegativeXYRed]
     progress_checker:
       plugin: nav2_controller::SimpleProgressChecker
@@ -193,26 +193,26 @@ controller_server:
       RotateToGoal.slowing_factor: 5.0
       RotateToGoal.lookahead_time: -1.0
     MCNegativeXYRed:
-      # 红方武馆区返回启动位姿专用 DWB：只采样车体系 x/y 负向与角速度，普通导航不使用它。
+      # 保留的负向约束 DWB，当前默认 MC 树不再引用它。
       plugin: dwb_core::DWBLocalPlanner
       debug_trajectory_details: false
       min_vel_x: -0.25
       max_vel_x: 0.0
-      min_vel_y: -0.25
+      min_vel_y: -0.18
       max_vel_y: 0.0
-      max_vel_theta: 0.5
+      max_vel_theta: 0.25
       min_speed_xy: 0.0
-      max_speed_xy: 0.50
+      max_speed_xy: 0.35
       min_speed_theta: 0.0
       acc_lim_x: 0.8
-      acc_lim_y: 0.8
-      acc_lim_theta: 1.8
+      acc_lim_y: 0.20
+      acc_lim_theta: 0.45
       decel_lim_x: -0.8
-      decel_lim_y: -0.8
-      decel_lim_theta: -1.8
+      decel_lim_y: -0.20
+      decel_lim_theta: -0.45
       vx_samples: 20
-      vy_samples: 15
-      vtheta_samples: 20
+      vy_samples: 9
+      vtheta_samples: 12
       sim_time: 1.7
       linear_granularity: 0.05
       angular_granularity: 0.025
@@ -395,11 +395,11 @@ velocity_smoother:
     scale_velocities: false
     # 当前按开环模式工作，依赖 odom 仅做时间窗口观测
     feedback: OPEN_LOOP
-    # 与 DWB 速度边界保持一致，避免前后两级限幅打架
-    max_velocity: [0.45, 0.35, 1.0]
-    min_velocity: [-0.25, -0.35, -1.0]
-    max_accel: [0.8, 0.8, 1.8]
-    max_decel: [-0.8, -0.8, -1.8]
+    # 与 DWB 速度边界保持兼容，避免前后两级限幅打架
+    max_velocity: [0.45, 0.25, 0.5]
+    min_velocity: [-0.25, -0.25, -0.5]
+    max_accel: [0.8, 0.35, 0.8]
+    max_decel: [-0.8, -0.35, -0.8]
     odom_topic: odom
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]

@@ -1,6 +1,7 @@
 <!--
-  红方武馆区返回启动位姿专用 Nav2 行为树。
-  本树只调用 MCNegativeXYRed controller，避免 BackUp / DriveOnHeading 等会产生正向线速度的运动恢复。
+  红方武馆区负向约束 Nav2 行为树，保留给手工加载或专项调试。
+  当前默认 mc_tree.xml 不再引用本树；本树只调用 MCNegativeXYRed controller，
+  避免 BackUp / DriveOnHeading 等会产生正向线速度的运动恢复。
 -->
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
