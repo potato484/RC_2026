@@ -25,6 +25,7 @@ public:
 
     loadMCParams(*this, blackboard_);
     loadGridHeadingParams(*this, blackboard_);
+    loadGridCenterParams(*this, blackboard_);
     loadStairParams(*this, blackboard_);
 
     registerMCAreaNodes(factory_);

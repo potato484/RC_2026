@@ -10,10 +10,11 @@
     </Sequence>
   </BehaviorTree>
 
-  <!-- MF_Entry: MF 外层流程需保证机器人已处于 grid2 的可执行姿态 -->
+  <!-- MF_Entry: MF 外层流程需保证机器人已处于 grid2 的可执行中心姿态 -->
   <BehaviorTree ID="MF_Entry">
     <Sequence name="Entry_Seq">
       <Script code="current_grid:=2; mf_transition_error:=''"/>
+      <CaptureGridCenterReference reference_grid="2"/>
     </Sequence>
   </BehaviorTree>
 
@@ -52,6 +53,7 @@
       <GridTurn target_yaw_rad="{grid_transition_target_yaw}"/>
       <GridHeadingAlign target_yaw_rad="{grid_transition_target_yaw}"/>
       <GridTransition target_grid="{target_grid}"/>
+      <GridCenterAlign target_grid="{target_grid}" target_yaw_rad="{grid_transition_target_yaw}"/>
     </Sequence>
   </BehaviorTree>
 

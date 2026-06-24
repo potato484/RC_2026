@@ -46,6 +46,7 @@ add_library(${PROJECT_NAME}_nodes SHARED
   src/stair/stair_climb.cpp
   src/stair/stair_descend.cpp
   src/mf/conditions.cpp
+  src/mf/grid_center.cpp
   src/mf/grid_heading.cpp
   src/mf/grid_transition.cpp
   src/mf/grid_transition_plan.cpp

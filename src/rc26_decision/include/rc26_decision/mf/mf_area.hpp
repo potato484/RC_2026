@@ -4,6 +4,7 @@
 #include <behaviortree_cpp/bt_factory.h>
 
 #include "rc26_decision/mf/conditions.hpp"
+#include "rc26_decision/mf/grid_center.hpp"
 #include "rc26_decision/mf/grid_heading.hpp"
 #include "rc26_decision/mf/grid_transition.hpp"
 #include "rc26_decision/mf/grid_transition_plan.hpp"
