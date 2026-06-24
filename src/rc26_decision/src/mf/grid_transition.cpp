@@ -42,37 +42,22 @@ BT::NodeStatus GridTransitionAction::onStart() {
 
   if (transition_kind_ == TransitionKind::CLIMB) {
     config().blackboard->set("stair_climb_done", false);
+    setHeadingTarget(target_yaw_rad_);
+    publishStop();
+    phase_ = Phase::ClimbSendFrontExtend;
+    beginCommand(CommandID::FRONT_PUSHROD_EXTEND, "FRONT_PUSHROD_EXTEND");
   } else {
     config().blackboard->set("stair_descend_done", false);
+    setHeadingTarget(target_yaw_rad_);
+    publishStop();
+    phase_ = Phase::DescendDriveUntilRearEvent;
+    beginEventWait(WheelEvent::Rear, params_.rear_event_timeout_s, "rear");
   }
-  setHeadingTarget(target_yaw_rad_);
-  beginHeadingAlignment();
-  publishStop();
-  phase_ = Phase::AlignHeading;
   return BT::NodeStatus::RUNNING;
 }
 
 BT::NodeStatus GridTransitionAction::onRunning() {
   switch (phase_) {
-  case Phase::AlignHeading:
-    switch (tickHeadingAlignment()) {
-    case StepStatus::Success:
-      if (transition_kind_ == TransitionKind::CLIMB) {
-        phase_ = Phase::ClimbSendFrontExtend;
-        beginCommand(CommandID::FRONT_PUSHROD_EXTEND,
-                     "FRONT_PUSHROD_EXTEND");
-      } else {
-        phase_ = Phase::DescendDriveUntilRearEvent;
-        beginEventWait(WheelEvent::Rear, params_.rear_event_timeout_s, "rear");
-      }
-      break;
-    case StepStatus::Failure:
-      return failTransition("heading align failed");
-    case StepStatus::Running:
-      break;
-    }
-    break;
-
   case Phase::ClimbSendFrontExtend:
     switch (tickCommand()) {
     case StepStatus::Success:
@@ -103,9 +88,17 @@ BT::NodeStatus GridTransitionAction::onRunning() {
 
   case Phase::ClimbDriveUntilFrontFirstEvent:
     if (!headingReadyForMotion()) {
-      return failTransition("heading odom stale before front first event");
+      publishStop();
+      switch (tickEventWait()) {
+      case StepStatus::Failure:
+        return failTransition("heading odom stale before front first event");
+      case StepStatus::Success:
+      case StepStatus::Running:
+        break;
+      }
+      break;
     }
-    publishDrive(driveSpeedMagnitude());
+    publishDrive(climbDriveSpeedMagnitude());
     switch (tickEventWait()) {
     case StepStatus::Success:
       publishStop();
@@ -165,9 +158,17 @@ BT::NodeStatus GridTransitionAction::onRunning() {
 
   case Phase::ClimbDriveUntilRearEvent:
     if (!headingReadyForMotion()) {
-      return failTransition("heading odom stale before rear event");
+      publishStop();
+      switch (tickEventWait()) {
+      case StepStatus::Failure:
+        return failTransition("heading odom stale before rear event");
+      case StepStatus::Success:
+      case StepStatus::Running:
+        break;
+      }
+      break;
     }
-    publishDrive(driveSpeedMagnitude());
+    publishDrive(climbDriveSpeedMagnitude());
     switch (tickEventWait()) {
     case StepStatus::Success:
       publishStop();
@@ -200,9 +201,17 @@ BT::NodeStatus GridTransitionAction::onRunning() {
 
   case Phase::DescendDriveUntilRearEvent:
     if (!headingReadyForMotion()) {
-      return failTransition("heading odom stale before rear event");
+      publishStop();
+      switch (tickEventWait()) {
+      case StepStatus::Failure:
+        return failTransition("heading odom stale before rear event");
+      case StepStatus::Success:
+      case StepStatus::Running:
+        break;
+      }
+      break;
     }
-    publishDrive(-driveSpeedMagnitude());
+    publishDrive(-descendDriveSpeedMagnitude());
     switch (tickEventWait()) {
     case StepStatus::Success:
       publishStop();
@@ -247,9 +256,17 @@ BT::NodeStatus GridTransitionAction::onRunning() {
 
   case Phase::DescendDriveUntilFrontSecondEvent:
     if (!headingReadyForMotion()) {
-      return failTransition("heading odom stale before front second event");
+      publishStop();
+      switch (tickEventWait()) {
+      case StepStatus::Failure:
+        return failTransition("heading odom stale before front second event");
+      case StepStatus::Success:
+      case StepStatus::Running:
+        break;
+      }
+      break;
     }
-    publishDrive(-driveSpeedMagnitude());
+    publishDrive(-descendDriveSpeedMagnitude());
     switch (tickEventWait()) {
     case StepStatus::Success:
       publishStop();

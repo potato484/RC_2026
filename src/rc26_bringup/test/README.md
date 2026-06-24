@@ -57,6 +57,26 @@ ros2 launch rc26_bringup bringup.launch.py \
   use_decision:=true
 ```
 
+### 5. Grid heading 正式入口
+
+```bash
+ros2 launch rc26_bringup grid_heading.launch.py
+```
+
+方向由 `src/rc26_bringup/config/r2_runtime.yaml` 维护：
+
+```yaml
+grid_heading_direction: "left"  # forward | left | right | backward
+```
+
+本入口只执行 `GridTurn -> GridHeadingAlign`，直接发布 `cmd_vel.angular.z`，不触发推杆或激光事件。实车运行前必须停用 Nav2、遥控和其它 `/cmd_vel` 发布者；若 `/odom` 和 `rc26_mcu_transport` 已由其它入口提供，可关闭重复链路：
+
+```bash
+ros2 launch rc26_bringup grid_heading.launch.py \
+  start_odometry:=false \
+  start_mcu_transport:=false
+```
+
 ---
 
 ## 测试指令汇总
@@ -166,7 +186,7 @@ ros2 run tf2_tools view_frames
 
 ### 5. 决策系统测试 (rc26_decision)
 
-`rc26_decision` 不再提供独立 launch 测试入口。需要测试决策时，使用完整 bringup 拉起定位、Nav2、`decision_node` 与 `rc26_mcu_transport`；`/cmd_vel` 默认由 `rc26_mcu_transport` 承接：
+完整决策流程使用完整 bringup 拉起定位、Nav2、`decision_node` 与 `rc26_mcu_transport`；`/cmd_vel` 默认由 `rc26_mcu_transport` 承接：
 
 ```bash
 ros2 launch rc26_bringup bringup.launch.py \
@@ -174,7 +194,7 @@ ros2 launch rc26_bringup bringup.launch.py \
   use_decision:=true
 ```
 
-武馆区、主树或其它行为树入口通过 `src/rc26_bringup/config/r2_runtime.yaml` 的 `r2_runtime.paths.behavior_tree_file` 切换。
+武馆区、主树或其它完整行为树入口通过 `src/rc26_bringup/config/r2_runtime.yaml` 的 `r2_runtime.paths.behavior_tree_file` 切换。Grid heading 使用正式独立入口 `grid_heading.launch.py`，不需要改默认行为树入口。
 
 ---
 

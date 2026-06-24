@@ -11,7 +11,8 @@ struct StairParams {
   std::string cmd_vel_topic{"cmd_vel"};
   std::string send_command_service{"/mechanism/send_command"};
   std::string feedback_topic{"/mechanism/command_feedback"};
-  double drive_speed_mps{0.10};
+  double climb_drive_speed_mps{0.10};
+  double descend_drive_speed_mps{0.10};
   double command_rate_hz{20.0};
   double command_timeout_s{3.0};
   double front_event_timeout_s{10.0};

@@ -64,7 +64,9 @@ bool StairActionBase::setupRuntime(const char *action_label) {
   }
 
   // 速度参数只保留绝对值；具体正负方向由上下台阶状态机显式决定。
-  params_.drive_speed_mps = std::abs(params_.drive_speed_mps);
+  params_.climb_drive_speed_mps = std::abs(params_.climb_drive_speed_mps);
+  params_.descend_drive_speed_mps =
+      std::abs(params_.descend_drive_speed_mps);
   // 发布频率做下限保护，保证 publishDrive() 的周期计算稳定。
   params_.command_rate_hz =
       std::max(kMinCommandRateHz, params_.command_rate_hz);
@@ -160,11 +162,12 @@ bool StairActionBase::setupRuntime(const char *action_label) {
 
   // 打印本次动作的关键运行入口，便于现场确认 topic/service/速度参数。
   RCLCPP_INFO(node_->get_logger(),
-              "%s 启动: cmd_vel=%s service=%s feedback=%s odom=%s speed=%.3fm/s heading=%s",
+              "%s 启动: cmd_vel=%s service=%s feedback=%s odom=%s climb_speed=%.3fm/s descend_speed=%.3fm/s heading=%s",
               action_label_.c_str(), params_.cmd_vel_topic.c_str(),
               params_.send_command_service.c_str(),
               params_.feedback_topic.c_str(), params_.odom_topic.c_str(),
-              params_.drive_speed_mps,
+              params_.climb_drive_speed_mps,
+              params_.descend_drive_speed_mps,
               params_.heading_hold_enable ? "on" : "off");
   // 初始化成功，具体状态机可以开始推进。
   return true;
@@ -235,10 +238,16 @@ void StairActionBase::publishStop() {
   has_last_drive_publish_ = false;
 }
 
-// driveSpeedMagnitude() 返回参数中的正速度幅值；方向由调用方决定。
-double StairActionBase::driveSpeedMagnitude() const {
+// climbDriveSpeedMagnitude() 返回上台阶普通直行速度幅值；方向由调用方决定。
+double StairActionBase::climbDriveSpeedMagnitude() const {
   // 再取一次 abs 是防御式处理，避免未来绕过 setupRuntime() 时引入负幅值。
-  return std::abs(params_.drive_speed_mps);
+  return std::abs(params_.climb_drive_speed_mps);
+}
+
+// descendDriveSpeedMagnitude() 返回下台阶普通直行速度幅值；方向由调用方决定。
+double StairActionBase::descendDriveSpeedMagnitude() const {
+  // 再取一次 abs 是防御式处理，避免未来绕过 setupRuntime() 时引入负幅值。
+  return std::abs(params_.descend_drive_speed_mps);
 }
 
 void StairActionBase::setHeadingTarget(double target_yaw_rad) {

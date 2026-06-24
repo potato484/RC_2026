@@ -33,7 +33,8 @@ protected:
 
   void publishDrive(double signed_speed_mps);
   void publishStop();
-  double driveSpeedMagnitude() const;
+  double climbDriveSpeedMagnitude() const;
+  double descendDriveSpeedMagnitude() const;
   void setHeadingTarget(double target_yaw_rad);
   void clearHeadingTarget();
   void beginHeadingAlignment();

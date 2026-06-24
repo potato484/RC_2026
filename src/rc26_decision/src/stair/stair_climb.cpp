@@ -67,7 +67,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
 
   case Phase::DriveUntilFrontFirstEvent:
     // 第三阶段：前推杆已伸出，持续发布 x 正方向速度推动前轮上台阶。
-    publishDrive(driveSpeedMagnitude());
+    publishDrive(climbDriveSpeedMagnitude());
     // 同时检查 MCU 是否已经上报前轮第一个激光测距高度突变。
     switch (tickEventWait()) {
     case StepStatus::Success:
@@ -135,7 +135,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
 
   case Phase::DriveUntilRearEvent:
     // 第六阶段：后推杆已伸出，继续发布 x 正方向速度推动后轮上台阶。
-    publishDrive(driveSpeedMagnitude());
+    publishDrive(climbDriveSpeedMagnitude());
     // 检查 MCU 是否已经上报后轮激光测距高度突变。
     switch (tickEventWait()) {
     case StepStatus::Success:

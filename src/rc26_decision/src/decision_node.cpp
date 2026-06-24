@@ -24,6 +24,7 @@ public:
     initializeRuntimeState();
 
     loadMCParams(*this, blackboard_);
+    loadGridHeadingParams(*this, blackboard_);
     loadStairParams(*this, blackboard_);
 
     registerMCAreaNodes(factory_);

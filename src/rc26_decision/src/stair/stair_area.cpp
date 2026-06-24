@@ -25,10 +25,12 @@ void loadStairParams(rclcpp::Node &node,
   p.feedback_topic =
       node.declare_parameter<std::string>("stair_feedback_topic",
                                           p.feedback_topic);
-  // 读取台阶直行速度绝对值；具体方向由 StairClimb/StairDescend 状态机决定。
-  p.drive_speed_mps =
-      node.declare_parameter<double>("stair_drive_speed_mps",
-                                     p.drive_speed_mps);
+  // 读取上台阶普通直行速度绝对值；具体正方向由 StairClimb 状态机决定。
+  p.climb_drive_speed_mps = node.declare_parameter<double>(
+      "stair_climb_drive_speed_mps", p.climb_drive_speed_mps);
+  // 读取下台阶普通直行速度绝对值；具体负方向由 StairDescend 状态机决定。
+  p.descend_drive_speed_mps = node.declare_parameter<double>(
+      "stair_descend_drive_speed_mps", p.descend_drive_speed_mps);
   // 读取速度命令发布频率；公共基类会按这个频率限流 cmd_vel。
   p.command_rate_hz =
       node.declare_parameter<double>("stair_command_rate_hz",
@@ -100,7 +102,8 @@ void loadStairParams(rclcpp::Node &node,
       "stair_heading_align_timeout_s", p.heading_align_timeout_s);
 
   // 速度只保留绝对值；方向在具体动作里显式加正负号，避免参数符号造成流程反向。
-  p.drive_speed_mps = std::abs(p.drive_speed_mps);
+  p.climb_drive_speed_mps = std::abs(p.climb_drive_speed_mps);
+  p.descend_drive_speed_mps = std::abs(p.descend_drive_speed_mps);
   // 发布频率至少 1Hz，避免除零和过低频率导致动作看起来卡死。
   p.command_rate_hz = std::max(1.0, p.command_rate_hz);
   // 命令超时至少 1ms，避免配置成 0 或负数后立即出现不可解释行为。
@@ -136,9 +139,10 @@ void loadStairParams(rclcpp::Node &node,
   blackboard->set("stair_params", p);
   // 启动日志只打印关键入口，便于确认独立台阶树使用的是哪个 topic/service。
   RCLCPP_INFO(node.get_logger(),
-              "台阶动作参数已加载: cmd_vel=%s feedback=%s odom=%s speed=%.3fm/s climb_delays=%.2f/%.2fs descend_delays=%.2f/%.2f/%.2fs descend_front_retract_drive=%.3fm/s %.2fs heading=%s kp=%.2f max=%.2frad/s tol=%.1fdeg",
+              "台阶动作参数已加载: cmd_vel=%s feedback=%s odom=%s climb_speed=%.3fm/s descend_speed=%.3fm/s climb_delays=%.2f/%.2fs descend_delays=%.2f/%.2f/%.2fs descend_front_retract_drive=%.3fm/s %.2fs heading=%s kp=%.2f max=%.2frad/s tol=%.1fdeg",
               p.cmd_vel_topic.c_str(), p.feedback_topic.c_str(),
-              p.odom_topic.c_str(), p.drive_speed_mps,
+              p.odom_topic.c_str(), p.climb_drive_speed_mps,
+              p.descend_drive_speed_mps,
               p.climb_front_extend_delay_s,
               p.climb_retract_rear_extend_delay_s,
               p.descend_rear_extend_delay_s,

@@ -3,16 +3,32 @@
   - 这是一棵独立可加载树，只在 decision_node 的 tree_file 指向本文件时执行。
   - 本树验证红方从入口 2 直行到 11，转向经 10 后继续下阶梯离开梅林。
   - 运行时必须用 team=red 初始化 merlin_map；XML 中的 team 赋值只用于调试语义。
-  - GridTransition 负责格间上下阶梯，最后的 StairDescend 负责从 grid10 下到梅林外。
+  - 每段格间边都显式执行 PlanGridTransition -> GridTurn -> GridHeadingAlign -> GridTransition。
+  - 最后的 StairDescend 负责从 grid10 下到梅林外。
 -->
 <root BTCPP_format="4" main_tree_to_execute="MFRedMiddleColumnTree">
   <BehaviorTree ID="MFRedMiddleColumnTree">
     <Sequence name="MF_Red_Middle_Column_Sequence">
       <Script code="team:='red'; current_grid:=2; exit_grid:=10; mf_transition_error:=''"/>
 
+      <PlanGridTransition name="plan_grid2_to_grid5" target_grid="5" target_yaw_rad="{grid_transition_target_yaw}"/>
+      <GridTurn name="turn_grid2_to_grid5" target_yaw_rad="{grid_transition_target_yaw}"/>
+      <GridHeadingAlign name="align_grid2_to_grid5" target_yaw_rad="{grid_transition_target_yaw}"/>
       <GridTransition name="grid2_to_grid5" target_grid="5"/>
+
+      <PlanGridTransition name="plan_grid5_to_grid8" target_grid="8" target_yaw_rad="{grid_transition_target_yaw}"/>
+      <GridTurn name="turn_grid5_to_grid8" target_yaw_rad="{grid_transition_target_yaw}"/>
+      <GridHeadingAlign name="align_grid5_to_grid8" target_yaw_rad="{grid_transition_target_yaw}"/>
       <GridTransition name="grid5_to_grid8" target_grid="8"/>
+
+      <PlanGridTransition name="plan_grid8_to_grid11" target_grid="11" target_yaw_rad="{grid_transition_target_yaw}"/>
+      <GridTurn name="turn_grid8_to_grid11" target_yaw_rad="{grid_transition_target_yaw}"/>
+      <GridHeadingAlign name="align_grid8_to_grid11" target_yaw_rad="{grid_transition_target_yaw}"/>
       <GridTransition name="grid8_to_grid11" target_grid="11"/>
+
+      <PlanGridTransition name="plan_grid11_to_grid10" target_grid="10" target_yaw_rad="{grid_transition_target_yaw}"/>
+      <GridTurn name="turn_grid11_to_grid10" target_yaw_rad="{grid_transition_target_yaw}"/>
+      <GridHeadingAlign name="align_grid11_to_grid10" target_yaw_rad="{grid_transition_target_yaw}"/>
       <GridTransition name="grid11_to_grid10" target_grid="10"/>
       <StairDescend name="grid10_to_merlin_outside"/>
     </Sequence>

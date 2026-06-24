@@ -31,7 +31,7 @@ BT::NodeStatus StairDescendAction::onRunning() {
   switch (phase_) {
   case Phase::DriveUntilRearEvent:
     // 第一阶段：后轮在前，持续发布 x 负方向速度靠近下阶梯边缘。
-    publishDrive(-driveSpeedMagnitude());
+    publishDrive(-descendDriveSpeedMagnitude());
     // 检查 MCU 是否已经上报后轮激光测距高度突变。
     switch (tickEventWait()) {
     case StepStatus::Success:
@@ -89,7 +89,7 @@ BT::NodeStatus StairDescendAction::onRunning() {
 
   case Phase::DriveUntilFrontSecondEvent:
     // 第四阶段：继续发布 x 负方向速度，等待前轮第二个激光测距模块越过下台阶边缘。
-    publishDrive(-driveSpeedMagnitude());
+    publishDrive(-descendDriveSpeedMagnitude());
     // 检查 MCU 是否已经上报前轮第二个激光测距模块高度突变 0x1A。
     switch (tickEventWait()) {
     case StepStatus::Success:

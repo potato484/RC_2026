@@ -45,9 +45,12 @@
     </KeepRunningUntilFailure>
   </BehaviorTree>
 
-  <!-- MoveToGridSeq: 仅执行离散格间上/下阶梯 -->
+  <!-- MoveToGridSeq: 规划格间 yaw，先转向/对齐，再执行离散上/下阶梯 -->
   <BehaviorTree ID="MoveToGridSeq">
     <Sequence>
+      <PlanGridTransition target_grid="{target_grid}" target_yaw_rad="{grid_transition_target_yaw}"/>
+      <GridTurn target_yaw_rad="{grid_transition_target_yaw}"/>
+      <GridHeadingAlign target_yaw_rad="{grid_transition_target_yaw}"/>
       <GridTransition target_grid="{target_grid}"/>
     </Sequence>
   </BehaviorTree>

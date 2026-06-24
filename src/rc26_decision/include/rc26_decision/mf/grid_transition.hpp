@@ -20,7 +20,6 @@ public:
 private:
   enum class TransitionKind { CLIMB, DESCEND };
   enum class Phase {
-    AlignHeading,
     ClimbSendFrontExtend,
     ClimbHoldAfterFrontExtend,
     ClimbDriveUntilFrontFirstEvent,
