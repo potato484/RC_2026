@@ -85,6 +85,9 @@ bool StairActionBase::setupRuntime(const char *action_label) {
   // 上台阶组合推杆命令后的零速等待允许为 0。
   params_.climb_retract_rear_extend_delay_s =
       std::max(0.0, params_.climb_retract_rear_extend_delay_s);
+  // 上台阶最后后推杆收回后的零速等待允许为 0。
+  params_.climb_rear_retract_delay_s =
+      std::max(0.0, params_.climb_rear_retract_delay_s);
   // 下台阶后推杆伸出后的零速等待允许为 0；小于 0 时夹到 0。
   params_.descend_rear_extend_delay_s =
       std::max(0.0, params_.descend_rear_extend_delay_s);

@@ -27,6 +27,7 @@ private:
     ClimbHoldAfterFrontRetractAndRearExtend,
     ClimbDriveUntilRearEvent,
     ClimbSendRearRetract,
+    ClimbHoldAfterRearRetract,
     DescendDriveUntilRearEvent,
     DescendSendRearExtend,
     DescendHoldAfterRearExtend,

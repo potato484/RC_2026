@@ -21,6 +21,7 @@ private:
     HoldAfterFrontRetractAndRearExtend,
     DriveUntilRearEvent,
     SendRearRetract,
+    HoldAfterRearRetract,
     Done
   };
 

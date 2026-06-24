@@ -5,7 +5,7 @@ r2_runtime:
   paths:
     prior_pcd_file: "/home/aidlux/RC_2026/src/rc26_point_lio/PCD/class.pcd"
     nav2_map_file: "/home/aidlux/RC_2026/src/rc26_bringup/map/class.yaml"
-    behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/mf_red_middle_column_tree.xml"
+    behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/stair_climb_tree.xml"
 
   # 目标 MCU 共享串口 transport。
   # 只要运行链会下发机构动作指令，就必须启动 rc26_mcu_transport。
@@ -130,6 +130,7 @@ r2_runtime:
       stair_rear_event_timeout_s: 20.0               # 后轮激光高度突变等待超时，单位秒
       stair_climb_front_extend_delay_s: 4.5          # 上台阶前推杆伸出 accepted 后零速等待时间，单位秒
       stair_climb_retract_rear_extend_delay_s: 4.0   # 上台阶前收+后伸 accepted 后零速等待时间，单位秒
+      stair_climb_rear_retract_delay_s: 4.0          # 上台阶后推杆收回 accepted 后零速等待时间，单位秒
       stair_descend_rear_extend_delay_s: 4.0         # 下台阶后推杆伸出 accepted 后零速等待时间，单位秒
       stair_descend_retract_front_extend_delay_s: 4.0 # 下台阶后收+前伸 accepted 后零速等待时间，单位秒
       stair_descend_front_retract_drive_speed_mps: 0.025 # 下台阶前推杆收回前 x 负向定时行驶速度绝对值，单位 m/s

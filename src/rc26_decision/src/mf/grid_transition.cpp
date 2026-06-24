@@ -186,14 +186,27 @@ BT::NodeStatus GridTransitionAction::onRunning() {
     publishStop();
     switch (tickCommand()) {
     case StepStatus::Success:
-      publishStop();
+      phase_ = Phase::ClimbHoldAfterRearRetract;
+      beginZeroHold(params_.climb_rear_retract_delay_s,
+                    "rear_retract_settle");
+      break;
+    case StepStatus::Failure:
+      return failTransition("REAR_PUSHROD_RETRACT failed");
+    case StepStatus::Running:
+      break;
+    }
+    break;
+
+  case Phase::ClimbHoldAfterRearRetract:
+    switch (tickZeroHold()) {
+    case StepStatus::Success:
       config().blackboard->set("stair_climb_done", true);
       commitTransition();
       phase_ = Phase::Done;
       releaseRuntime();
       return BT::NodeStatus::SUCCESS;
     case StepStatus::Failure:
-      return failTransition("REAR_PUSHROD_RETRACT failed");
+      return failTransition("rear retract zero hold failed");
     case StepStatus::Running:
       break;
     }
@@ -433,8 +446,9 @@ bool GridTransitionAction::planTransition() {
   }
 
   constexpr double kGridStepM = 1.2;
-  const double dx = static_cast<double>(col_delta) * kGridStepM;
-  const double dy = static_cast<double>(row_delta) * kGridStepM;
+  // MF grid axis: row +1 maps to odom/map +X, col -1 maps to +Y.
+  const double dx = static_cast<double>(row_delta) * kGridStepM;
+  const double dy = static_cast<double>(-col_delta) * kGridStepM;
   const double edge_yaw = std::atan2(dy, dx);
   const bool climb = height_delta_ > 0;
   transition_kind_ = climb ? TransitionKind::CLIMB : TransitionKind::DESCEND;

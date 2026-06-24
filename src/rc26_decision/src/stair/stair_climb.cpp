@@ -157,25 +157,34 @@ BT::NodeStatus StairClimbAction::onRunning() {
     break;
 
   case Phase::SendRearRetract:
-    // 第七阶段：等待后推杆收回 accepted，作为上台阶最后的收尾确认。
+    // 第七阶段：等待后推杆收回 accepted；accepted 后还要零速等待机械收稳。
     publishStop();
     switch (tickCommand()) {
     case StepStatus::Success:
-      // 收到 accepted 后再补一帧零速，确保底盘命令权离开前处于停止状态。
-      publishStop();
-      // 写黑板完成标记，供独立树或后续调试读取本次动作结果。
-      config().blackboard->set("stair_climb_done", true);
-      // 进入 Done，避免同一个节点实例被重复 tick 时又执行收尾逻辑。
-      phase_ = Phase::Done;
-      // 释放订阅、client、publisher；本次动作生命周期结束。
-      releaseRuntime();
-      // 上台阶动作完整成功。
-      return BT::NodeStatus::SUCCESS;
+      phase_ = Phase::HoldAfterRearRetract;
+      beginZeroHold(params_.climb_rear_retract_delay_s,
+                    "rear_retract_settle");
+      break;
     case StepStatus::Failure:
       // 后推杆收回失败时仍然停车，并把动作结果报告为 FAILURE。
       return failWithStop("REAR_PUSHROD_RETRACT failed");
     case StepStatus::Running:
       // 继续等待后推杆收回命令 accepted。
+      break;
+    }
+    break;
+
+  case Phase::HoldAfterRearRetract:
+    // 第八阶段：后推杆收回 accepted 后零速等待；等待结束才向 BT 报告成功。
+    switch (tickZeroHold()) {
+    case StepStatus::Success:
+      config().blackboard->set("stair_climb_done", true);
+      phase_ = Phase::Done;
+      releaseRuntime();
+      return BT::NodeStatus::SUCCESS;
+    case StepStatus::Failure:
+      return failWithStop("rear retract zero hold failed");
+    case StepStatus::Running:
       break;
     }
     break;

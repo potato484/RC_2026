@@ -65,8 +65,9 @@ BT::NodeStatus PlanGridTransitionAction::tick() {
   }
 
   constexpr double kGridStepM = 1.2;
-  const double dx = static_cast<double>(col_delta) * kGridStepM;
-  const double dy = static_cast<double>(row_delta) * kGridStepM;
+  // MF grid axis: row +1 maps to odom/map +X, col -1 maps to +Y.
+  const double dx = static_cast<double>(row_delta) * kGridStepM;
+  const double dy = static_cast<double>(-col_delta) * kGridStepM;
   const double edge_yaw = std::atan2(dy, dx);
   const bool climb = height_delta > 0;
   const double target_yaw = normalizeAngle(climb ? edge_yaw : edge_yaw + M_PI);

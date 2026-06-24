@@ -1,15 +1,19 @@
 <!--
   红方中间列连续台阶行为树：
   - 这是一棵独立可加载树，只在 decision_node 的 tree_file 指向本文件时执行。
-  - 本树验证红方从入口 2 直行到 11，转向经 10 后继续下阶梯离开梅林。
+  - 本树验证红方先从梅林外上台阶进入 grid2，再直行到 11，转向经 10 后继续下阶梯离开梅林。
   - 运行时必须用 team=red 初始化 merlin_map；XML 中的 team 赋值只用于调试语义。
   - 每段格间边都显式执行 PlanGridTransition -> GridTurn -> GridHeadingAlign -> GridTransition。
+  - 最前面的 StairClimb 负责从梅林外上到 grid2，成功后才把 current_grid 写为 2。
   - 最后的 StairDescend 负责从 grid10 下到梅林外。
 -->
 <root BTCPP_format="4" main_tree_to_execute="MFRedMiddleColumnTree">
   <BehaviorTree ID="MFRedMiddleColumnTree">
     <Sequence name="MF_Red_Middle_Column_Sequence">
-      <Script code="team:='red'; current_grid:=2; exit_grid:=10; mf_transition_error:=''"/>
+      <Script code="team:='red'; current_grid:=0; exit_grid:=10; mf_transition_error:=''"/>
+
+      <StairClimb name="merlin_outside_to_grid2"/>
+      <Script code="current_grid:=2; mf_transition_error:=''"/>
 
       <PlanGridTransition name="plan_grid2_to_grid5" target_grid="5" target_yaw_rad="{grid_transition_target_yaw}"/>
       <GridTurn name="turn_grid2_to_grid5" target_yaw_rad="{grid_transition_target_yaw}"/>

@@ -19,6 +19,7 @@ struct StairParams {
   double rear_event_timeout_s{10.0};
   double climb_front_extend_delay_s{2.0};
   double climb_retract_rear_extend_delay_s{2.5};
+  double climb_rear_retract_delay_s{4.0};
   double descend_rear_extend_delay_s{2.5};
   double descend_retract_front_extend_delay_s{2.5};
   double descend_front_retract_drive_speed_mps{0.025};

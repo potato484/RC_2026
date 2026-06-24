@@ -39,6 +39,7 @@
 
 - 梅林区格间运动不再用 `NavToPose` 表达；`mf_tree.xml` 中不再维护 12 个格中心 pose 分支
 - `SelectNextGrid` 仍负责写入 `target_grid`；`PlanGridTransition` 校验 `current_grid -> target_grid` 是否为相邻且高度差一档的可执行边，并计算本次格间目标 yaw
+- MF 离散格坐标到地图/odom yaw 的约定为：行号增加对应 `+X`（例如 `grid2 -> grid5` 为 `0°`），列号减少对应 `+Y`（例如 `grid2 -> grid1` 为 `+90°`）
 - `PlanGridTransition` 按高度差选择 `CLIMB` 或 `DESCEND` 的朝向语义：上台阶使用边方向作为目标 yaw，下台阶使用边方向反向 yaw，让后轮在前下台阶
 - `GridTurn` 与 `GridHeadingAlign` 负责格间动作前的正式原地转向和 yaw 精对齐；它们只订阅 `grid_heading_odom_topic` 并发布 `grid_heading_cmd_vel_topic`，不触发推杆或机构反馈
 - `GridTransition` 只负责台阶机构、直行、激光事件等待和状态提交；直行阶段继续用同一个目标 yaw 在 `cmd_vel.angular.z` 叠加 heading hold，动作成功后才提交 `current_grid=target_grid`
@@ -138,18 +139,18 @@ Nav2 action result 映射规则：
 
 台阶动作既可通过 `stair_climb_tree.xml` / `stair_descend_tree.xml` 独立加载测试，也可由 MF 的 `GridTransition` 串行复用。独立树仍只执行单个台阶动作；MF 主树则通过 `target_grid` 和静态深度表决定本次格间边应当上台阶还是下台阶。
 
-- `StairClimb`：先通过 `/mechanism/send_command` 下发 `FRONT_PUSHROD_EXTEND`，accepted 后按 `stair_climb_front_extend_delay_s` 零速等待；随后以 `stair_climb_drive_speed_mps` 对应的 `x` 正方向速度直行等待 `/mechanism/command_feedback` 中的 `FRONT_LASER_HEIGHT_JUMP(0x17)`。收到前轮突变后立即停车，并在同一 BT tick 内连续发出 `FRONT_PUSHROD_RETRACT` 与 `REAR_PUSHROD_EXTEND` 两条异步 service 请求；两条都 accepted 后按 `stair_climb_retract_rear_extend_delay_s` 零速等待，再恢复同一上台阶正向速度等待 `REAR_LASER_HEIGHT_JUMP(0x18)`，最后停车并下发 `REAR_PUSHROD_RETRACT`，accepted 后返回成功。当前上台阶只消费前轮 `0x17` 与后轮 `0x18` 两个激光事件。
+- `StairClimb`：先通过 `/mechanism/send_command` 下发 `FRONT_PUSHROD_EXTEND`，accepted 后按 `stair_climb_front_extend_delay_s` 零速等待；随后以 `stair_climb_drive_speed_mps` 对应的 `x` 正方向速度直行等待 `/mechanism/command_feedback` 中的 `FRONT_LASER_HEIGHT_JUMP(0x17)`。收到前轮突变后立即停车，并在同一 BT tick 内连续发出 `FRONT_PUSHROD_RETRACT` 与 `REAR_PUSHROD_EXTEND` 两条异步 service 请求；两条都 accepted 后按 `stair_climb_retract_rear_extend_delay_s` 零速等待，再恢复同一上台阶正向速度等待 `REAR_LASER_HEIGHT_JUMP(0x18)`，最后停车并下发 `REAR_PUSHROD_RETRACT`，accepted 后按 `stair_climb_rear_retract_delay_s` 零速等待，再返回成功。当前上台阶只消费前轮 `0x17` 与后轮 `0x18` 两个激光事件。
 - `StairDescend`：先以 `stair_descend_drive_speed_mps` 对应的 `x` 负方向速度直行等待 `REAR_LASER_HEIGHT_JUMP(0x18)`，停车并下发 `REAR_PUSHROD_EXTEND`；accepted 后按 `stair_descend_rear_extend_delay_s` 零速等待。随后继续同一下台阶负向速度等待前轮第二个激光测距模块 `FRONT_SECOND_LASER_HEIGHT_JUMP(0x1A)`，停车并在同一 BT tick 内连续发出 `REAR_PUSHROD_RETRACT` 与 `FRONT_PUSHROD_EXTEND` 两条异步 service 请求；两条都 accepted 后按 `stair_descend_retract_front_extend_delay_s` 零速等待，再以 `x` 负方向按 `stair_descend_front_retract_drive_speed_mps` 默认 `0.025m/s` 连续发送 `stair_descend_front_retract_drive_duration_s` 默认 `4.0s`。定时行驶结束后停车，下发 `FRONT_PUSHROD_RETRACT`，accepted 后按 `stair_descend_front_retract_delay_s` 零速等待，再返回成功。当前下台阶只消费后轮 `0x18` 与前轮第二激光 `0x1A` 两个激光事件；全下阶梯链路不需要 `FRONT_LASER_HEIGHT_JUMP(0x17)` 作为阶段推进条件。
 - `GridTurn` / `GridHeadingAlign` 直接发布 `grid_heading_cmd_vel_topic`（默认 `cmd_vel`）；台阶动作和 `GridTransition` 直接发布 `stair_cmd_vel_topic`（默认 `cmd_vel`）。运行时必须停用 Nav2 controller、遥控或其它运动命令权威；任何命令拒绝、服务等待超时、激光事件等待超时或 heading odom 超时都会发布零速并返回 `FAILURE`，`onHalted()` 只发布零速，不额外补偿推杆状态。
 
-台阶参数以 `stair_*` 前缀集中在 `rc26_bringup/config/r2_runtime.yaml`，启动时由 `loadStairParams()` 写入黑板 `stair_params`；当前没有运行期参数变更回调。为便于上/下阶梯实车独立调速，普通直行速度已拆为 `stair_climb_drive_speed_mps`（上台阶，默认 `0.10m/s`）与 `stair_descend_drive_speed_mps`（下台阶，默认 `0.10m/s`），两者按绝对值读取，旧 `stair_drive_speed_mps` 不再声明或读取。上台阶零速等待参数为 `stair_climb_front_extend_delay_s`（默认 `2.0s`）与 `stair_climb_retract_rear_extend_delay_s`（默认 `2.5s`）；下台阶零速等待参数为 `stair_descend_rear_extend_delay_s`（默认 `2.5s`）、`stair_descend_retract_front_extend_delay_s`（默认 `2.5s`）与 `stair_descend_front_retract_delay_s`（默认 `2.5s`）。下台阶前推杆收回前的定时负向行驶由 `stair_descend_front_retract_drive_speed_mps`（默认 `0.025m/s`，按绝对值读取）和 `stair_descend_front_retract_drive_duration_s`（默认 `4.0s`）控制。这些延时和定时行驶时长小于 0 时都会按 0 处理，等待期间持续发布零速，定时行驶期间持续发布带符号 `x` 方向速度。姿态微调参数包括 `stair_odom_topic`、`stair_heading_hold_enable`、`stair_heading_kp`、`stair_heading_max_speed_radps`、`stair_heading_tolerance_deg`、`stair_heading_gate_deg`、`stair_heading_stable_ticks`、`stair_heading_odom_timeout_s` 与 `stair_heading_align_timeout_s`；独立台阶动作默认捕获启动后的当前 yaw 作为保持方向，MF `GridTransition` 会按格间边显式写目标 yaw。
+台阶参数以 `stair_*` 前缀集中在 `rc26_bringup/config/r2_runtime.yaml`，启动时由 `loadStairParams()` 写入黑板 `stair_params`；当前没有运行期参数变更回调。为便于上/下阶梯实车独立调速，普通直行速度已拆为 `stair_climb_drive_speed_mps`（上台阶，默认 `0.10m/s`）与 `stair_descend_drive_speed_mps`（下台阶，默认 `0.10m/s`），两者按绝对值读取，旧 `stair_drive_speed_mps` 不再声明或读取。上台阶零速等待参数为 `stair_climb_front_extend_delay_s`（默认 `2.0s`）、`stair_climb_retract_rear_extend_delay_s`（默认 `2.5s`）与 `stair_climb_rear_retract_delay_s`（默认 `4.0s`）；下台阶零速等待参数为 `stair_descend_rear_extend_delay_s`（默认 `2.5s`）、`stair_descend_retract_front_extend_delay_s`（默认 `2.5s`）与 `stair_descend_front_retract_delay_s`（默认 `2.5s`）。下台阶前推杆收回前的定时负向行驶由 `stair_descend_front_retract_drive_speed_mps`（默认 `0.025m/s`，按绝对值读取）和 `stair_descend_front_retract_drive_duration_s`（默认 `4.0s`）控制。这些延时和定时行驶时长小于 0 时都会按 0 处理，等待期间持续发布零速，定时行驶期间持续发布带符号 `x` 方向速度。姿态微调参数包括 `stair_odom_topic`、`stair_heading_hold_enable`、`stair_heading_kp`、`stair_heading_max_speed_radps`、`stair_heading_tolerance_deg`、`stair_heading_gate_deg`、`stair_heading_stable_ticks`、`stair_heading_odom_timeout_s` 与 `stair_heading_align_timeout_s`；独立台阶动作默认捕获启动后的当前 yaw 作为保持方向，MF `GridTransition` 会按格间边显式写目标 yaw。
 
 ## 红方中间列连续台阶树
 
 `behavior_trees/mf_red_middle_column_tree.xml` 是一棵独立可加载的红方 MF 中间列离散格间测试树，默认 `main_tree.xml`、`mf_tree.xml` 与 `mc_tree.xml` 都不引用它。运行它需要通过 `decision_node` 的 `tree_file` 显式指向该 XML，或者临时把完整 bringup 的 `r2_runtime.paths.behavior_tree_file` 改成该 XML 的绝对路径并设置 `team=red`，保证 `merlin_map` 用红方高度表初始化。
 
-- 路线固定为红方 `grid2 -> grid5 -> grid8 -> grid11 -> grid10 -> 梅林外`；前四段由 `GridTransition` 执行，分别为 `CLIMB`、`CLIMB`、`DESCEND`、`DESCEND`，最后再由独立 `StairDescend` 从 `grid10` 继续下阶梯离开梅林。
-- 本树不调用 `NavToPose`，不做连续位姿归正；它验证 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> GridTransition` 的同一套 MF 离散格间动作、yaw 对齐、台阶执行与状态提交，并在到达 `grid10` 后复用独立下台阶状态机完成梅林外离场。最后一段离场不再提交新的 `current_grid`，黑板中的离散格仍停在 `10`。
+- 路线固定为红方 `梅林外 -> grid2 -> grid5 -> grid8 -> grid11 -> grid10 -> 梅林外`；首段由独立 `StairClimb` 上台阶进入 `grid2`，成功后才把黑板 `current_grid` 写为 `2`。中间四段由 `GridTransition` 执行，分别为 `CLIMB`、`CLIMB`、`DESCEND`、`DESCEND`，最后再由独立 `StairDescend` 从 `grid10` 继续下阶梯离开梅林。
+- 本树不调用 `NavToPose`，不做连续位姿归正；入口段复用独立上台阶状态机，随后验证 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> GridTransition` 的同一套 MF 离散格间动作、yaw 对齐、台阶执行与状态提交，并在到达 `grid10` 后复用独立下台阶状态机完成梅林外离场。最后一段离场不再提交新的 `current_grid`，黑板中的离散格仍停在 `10`。
 - 运行时依赖由 `/odom`、`grid_heading_*` 参数、`rc26_mcu_transport` 提供的 `/mechanism/send_command`、`/mechanism/command_feedback`、`stair_odom_topic` 与台阶动作参数 `stair_*` 共同提供。执行该树时必须确保 Nav2 controller、遥控或其它测试节点不会同时发布运动命令。
 
 ## 当前边界
@@ -166,7 +167,7 @@ Nav2 action result 映射规则：
 - MF 格间动作改为 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> GridTransition`：前者按 `current_grid -> target_grid` 的相邻边和静态高度差选择 `CLIMB` / `DESCEND` 并计算目标 yaw，后者只负责台阶执行和成功后提交 `current_grid`
 - `StairActionBase` 增加 `stair_heading_*` 参数和 odom yaw heading hold；独立 `StairClimb` / `StairDescend` 默认保持启动时 yaw，MF `GridTransition` 显式设置格间目标 yaw
 - `SelectNextGrid` 不再把平地同高格当作可执行移动目标；同高格间移动留待后续定义
-- `mf_red_middle_column_tree.xml` 改为固定 `GridTransition(5) -> GridTransition(8) -> GridTransition(11) -> GridTransition(10) -> StairDescend` 测试树，不再依赖 Nav2 pose；最后一个独立下台阶动作从 `grid10` 继续离开梅林，离场后不再更新离散格号
+- `mf_red_middle_column_tree.xml` 改为固定 `StairClimb -> GridTransition(5) -> GridTransition(8) -> GridTransition(11) -> GridTransition(10) -> StairDescend` 测试树，不再依赖 Nav2 pose；首个独立上台阶动作从梅林外进入 `grid2` 后才提交 `current_grid=2`，最后一个独立下台阶动作从 `grid10` 继续离开梅林，离场后不再更新离散格号
 - `CheckExitCondition` 现在只判断 `current_grid` 是否属于出口格
 - MF 区域实现已按职责拆分：`mf_area.cpp` 只保留注册，地图、选边、格间台阶动作和退出条件分别维护；KFS/扫描链路已删除，BT 节点名、黑板键和现有台阶行为语义保持不变。
 

@@ -55,6 +55,9 @@ void loadStairParams(rclcpp::Node &node,
   p.climb_retract_rear_extend_delay_s = node.declare_parameter<double>(
       "stair_climb_retract_rear_extend_delay_s",
       p.climb_retract_rear_extend_delay_s);
+  // 读取上台阶最后后推杆收回 accepted 后的零速等待时间。
+  p.climb_rear_retract_delay_s = node.declare_parameter<double>(
+      "stair_climb_rear_retract_delay_s", p.climb_rear_retract_delay_s);
   // 读取下台阶后推杆伸出 accepted 后的零速等待时间。
   p.descend_rear_extend_delay_s =
       node.declare_parameter<double>("stair_descend_rear_extend_delay_s",
@@ -116,6 +119,8 @@ void loadStairParams(rclcpp::Node &node,
   p.climb_front_extend_delay_s = std::max(0.0, p.climb_front_extend_delay_s);
   p.climb_retract_rear_extend_delay_s =
       std::max(0.0, p.climb_retract_rear_extend_delay_s);
+  p.climb_rear_retract_delay_s =
+      std::max(0.0, p.climb_rear_retract_delay_s);
   // 下台阶零速等待允许为 0；0 表示推杆命令 accepted 后立即进入下一阶段。
   p.descend_rear_extend_delay_s =
       std::max(0.0, p.descend_rear_extend_delay_s);
@@ -139,12 +144,13 @@ void loadStairParams(rclcpp::Node &node,
   blackboard->set("stair_params", p);
   // 启动日志只打印关键入口，便于确认独立台阶树使用的是哪个 topic/service。
   RCLCPP_INFO(node.get_logger(),
-              "台阶动作参数已加载: cmd_vel=%s feedback=%s odom=%s climb_speed=%.3fm/s descend_speed=%.3fm/s climb_delays=%.2f/%.2fs descend_delays=%.2f/%.2f/%.2fs descend_front_retract_drive=%.3fm/s %.2fs heading=%s kp=%.2f max=%.2frad/s tol=%.1fdeg",
+              "台阶动作参数已加载: cmd_vel=%s feedback=%s odom=%s climb_speed=%.3fm/s descend_speed=%.3fm/s climb_delays=%.2f/%.2f/%.2fs descend_delays=%.2f/%.2f/%.2fs descend_front_retract_drive=%.3fm/s %.2fs heading=%s kp=%.2f max=%.2frad/s tol=%.1fdeg",
               p.cmd_vel_topic.c_str(), p.feedback_topic.c_str(),
               p.odom_topic.c_str(), p.climb_drive_speed_mps,
               p.descend_drive_speed_mps,
               p.climb_front_extend_delay_s,
               p.climb_retract_rear_extend_delay_s,
+              p.climb_rear_retract_delay_s,
               p.descend_rear_extend_delay_s,
               p.descend_retract_front_extend_delay_s,
               p.descend_front_retract_delay_s,
