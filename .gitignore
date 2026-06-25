@@ -30,3 +30,6 @@ logs
 *.sln
 *.sw?
 .ace-tool/
+.codex/
+.claude/
+bags/*
