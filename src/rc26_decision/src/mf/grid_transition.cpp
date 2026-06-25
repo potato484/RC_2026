@@ -147,6 +147,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
     switch (tickZeroHold()) {
     case StepStatus::Success:
       phase_ = Phase::ClimbDriveUntilRearEvent;
+      resetClimbRearDriveProfile();
       beginEventWait(WheelEvent::Rear, params_.rear_event_timeout_s, "rear");
       break;
     case StepStatus::Failure:
@@ -168,7 +169,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
       }
       break;
     }
-    publishDrive(climbDriveSpeedMagnitude());
+    publishDrive(climbRearDriveProfileSpeed());
     switch (tickEventWait()) {
     case StepStatus::Success:
       publishStop();

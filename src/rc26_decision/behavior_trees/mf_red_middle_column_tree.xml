@@ -1,17 +1,17 @@
 <!--
   红方中间列连续台阶行为树：
   - 这是一棵独立可加载树，只在 decision_node 的 tree_file 指向本文件时执行。
-  - 本树验证红方先从梅林外上台阶进入 grid2，再直行到 11，转向经 10 后继续下阶梯离开梅林。
+  - 本树验证红方先从梅林外上台阶进入 grid2，再直行到 11，转向经 12 后继续下阶梯离开梅林。
   - 运行时必须用 team=red 初始化 merlin_map；XML 中的 team 赋值只用于调试语义。
   - 首段 StairClimb 后通过 MFEntryCenterAdvance 向前可调距离建立 grid2 二维中心参考。
   - 每段格间边都显式执行 PlanGridTransition -> GridTurn -> GridHeadingAlign -> GridTransition -> GridCenterAlign。
   - 最前面的 StairClimb 负责从梅林外上到 grid2，归位到 grid2 中心后才把 current_grid 写为 2。
-  - 最后的 StairDescend 负责从 grid10 下到梅林外。
+  - 最后的 StairDescend 负责从 grid12 下到梅林外。
 -->
 <root BTCPP_format="4" main_tree_to_execute="MFRedMiddleColumnTree">
   <BehaviorTree ID="MFRedMiddleColumnTree">
     <Sequence name="MF_Red_Middle_Column_Sequence">
-      <Script code="team:='red'; current_grid:=0; exit_grid:=10; mf_transition_error:=''"/>
+      <Script code="team:='red'; current_grid:=0; exit_grid:=12; mf_transition_error:=''"/>
 
       <StairClimb name="merlin_outside_to_grid2"/>
       <MFEntryCenterAdvance name="center_grid2_after_entry_climb" reference_grid="2" target_yaw_rad="0.0"/>
@@ -35,12 +35,12 @@
       <GridTransition name="grid8_to_grid11" target_grid="11"/>
       <GridCenterAlign name="center_grid11" target_grid="11" target_yaw_rad="{grid_transition_target_yaw}"/>
 
-      <PlanGridTransition name="plan_grid11_to_grid10" target_grid="10" target_yaw_rad="{grid_transition_target_yaw}"/>
-      <GridTurn name="turn_grid11_to_grid10" target_yaw_rad="{grid_transition_target_yaw}"/>
-      <GridHeadingAlign name="align_grid11_to_grid10" target_yaw_rad="{grid_transition_target_yaw}"/>
-      <GridTransition name="grid11_to_grid10" target_grid="10"/>
-      <GridCenterAlign name="center_grid10" target_grid="10" target_yaw_rad="{grid_transition_target_yaw}"/>
-      <StairDescend name="grid10_to_merlin_outside"/>
+      <PlanGridTransition name="plan_grid11_to_grid12" target_grid="12" target_yaw_rad="{grid_transition_target_yaw}"/>
+      <GridTurn name="turn_grid11_to_grid12" target_yaw_rad="{grid_transition_target_yaw}"/>
+      <GridHeadingAlign name="align_grid11_to_grid12" target_yaw_rad="{grid_transition_target_yaw}"/>
+      <GridTransition name="grid11_to_grid12" target_grid="12"/>
+      <GridCenterAlign name="center_grid12" target_grid="12" target_yaw_rad="{grid_transition_target_yaw}"/>
+      <StairDescend name="grid12_to_merlin_outside"/>
     </Sequence>
   </BehaviorTree>
 </root>

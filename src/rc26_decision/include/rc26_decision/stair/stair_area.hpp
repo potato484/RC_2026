@@ -12,6 +12,9 @@ struct StairParams {
   std::string send_command_service{"/mechanism/send_command"};
   std::string feedback_topic{"/mechanism/command_feedback"};
   double climb_drive_speed_mps{0.10};
+  double climb_rear_drive_fast_speed_mps{0.40};
+  double climb_rear_drive_slow_speed_mps{0.10};
+  double climb_rear_drive_slowdown_duration_s{3.0};
   double descend_drive_speed_mps{0.10};
   double command_rate_hz{20.0};
   double command_timeout_s{3.0};

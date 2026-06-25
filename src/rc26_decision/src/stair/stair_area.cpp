@@ -28,6 +28,16 @@ void loadStairParams(rclcpp::Node &node,
   // 读取上台阶普通直行速度绝对值；具体正方向由 StairClimb 状态机决定。
   p.climb_drive_speed_mps = node.declare_parameter<double>(
       "stair_climb_drive_speed_mps", p.climb_drive_speed_mps);
+  // 读取上台阶第六阶段后轮上台阶速度规划；该阶段从 fast 线性降到 slow 后保持。
+  p.climb_rear_drive_fast_speed_mps = node.declare_parameter<double>(
+      "stair_climb_rear_drive_fast_speed_mps",
+      p.climb_rear_drive_fast_speed_mps);
+  p.climb_rear_drive_slow_speed_mps = node.declare_parameter<double>(
+      "stair_climb_rear_drive_slow_speed_mps",
+      p.climb_rear_drive_slow_speed_mps);
+  p.climb_rear_drive_slowdown_duration_s = node.declare_parameter<double>(
+      "stair_climb_rear_drive_slowdown_duration_s",
+      p.climb_rear_drive_slowdown_duration_s);
   // 读取下台阶普通直行速度绝对值；具体负方向由 StairDescend 状态机决定。
   p.descend_drive_speed_mps = node.declare_parameter<double>(
       "stair_descend_drive_speed_mps", p.descend_drive_speed_mps);
@@ -106,6 +116,18 @@ void loadStairParams(rclcpp::Node &node,
 
   // 速度只保留绝对值；方向在具体动作里显式加正负号，避免参数符号造成流程反向。
   p.climb_drive_speed_mps = std::abs(p.climb_drive_speed_mps);
+  p.climb_rear_drive_fast_speed_mps =
+      std::abs(p.climb_rear_drive_fast_speed_mps);
+  if (p.climb_rear_drive_fast_speed_mps <= 0.0) {
+    p.climb_rear_drive_fast_speed_mps = p.climb_drive_speed_mps;
+  }
+  p.climb_rear_drive_slow_speed_mps =
+      std::abs(p.climb_rear_drive_slow_speed_mps);
+  p.climb_rear_drive_slow_speed_mps =
+      std::min(p.climb_rear_drive_slow_speed_mps,
+               p.climb_rear_drive_fast_speed_mps);
+  p.climb_rear_drive_slowdown_duration_s =
+      std::max(0.0, p.climb_rear_drive_slowdown_duration_s);
   p.descend_drive_speed_mps = std::abs(p.descend_drive_speed_mps);
   // 发布频率至少 1Hz，避免除零和过低频率导致动作看起来卡死。
   p.command_rate_hz = std::max(1.0, p.command_rate_hz);
@@ -144,9 +166,12 @@ void loadStairParams(rclcpp::Node &node,
   blackboard->set("stair_params", p);
   // 启动日志只打印关键入口，便于确认独立台阶树使用的是哪个 topic/service。
   RCLCPP_INFO(node.get_logger(),
-              "台阶动作参数已加载: cmd_vel=%s feedback=%s odom=%s climb_speed=%.3fm/s descend_speed=%.3fm/s climb_delays=%.2f/%.2f/%.2fs descend_delays=%.2f/%.2f/%.2fs descend_front_retract_drive=%.3fm/s %.2fs heading=%s kp=%.2f max=%.2frad/s tol=%.1fdeg",
+              "台阶动作参数已加载: cmd_vel=%s feedback=%s odom=%s climb_speed=%.3fm/s climb_rear_profile=%.3f->%.3fm/s %.2fs descend_speed=%.3fm/s climb_delays=%.2f/%.2f/%.2fs descend_delays=%.2f/%.2f/%.2fs descend_front_retract_drive=%.3fm/s %.2fs heading=%s kp=%.2f max=%.2frad/s tol=%.1fdeg",
               p.cmd_vel_topic.c_str(), p.feedback_topic.c_str(),
               p.odom_topic.c_str(), p.climb_drive_speed_mps,
+              p.climb_rear_drive_fast_speed_mps,
+              p.climb_rear_drive_slow_speed_mps,
+              p.climb_rear_drive_slowdown_duration_s,
               p.descend_drive_speed_mps,
               p.climb_front_extend_delay_s,
               p.climb_retract_rear_extend_delay_s,
