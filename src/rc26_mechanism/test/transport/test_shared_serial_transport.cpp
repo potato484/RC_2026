@@ -297,17 +297,6 @@ TEST_F(SharedSerialTransportTest, PlaceKfsGridSucceedsViaTransportBridge)
   EXPECT_EQ(requests.front().payload, payload);
 }
 
-TEST_F(SharedSerialTransportTest, RemovedRotateCommandsAreRejectedByMechanismAction)
-{
-  transport_provider_->setMode(FakeMechanismTransportProvider::Mode::kSuccess);
-
-  const auto goal_handle = sendGoalExpectReject(
-    static_cast<uint8_t>(rc26_serial::CommandID::ROTATE_POS_90), 1.0F);
-
-  EXPECT_EQ(goal_handle, nullptr);
-  EXPECT_TRUE(transport_provider_->requests().empty());
-}
-
 TEST_F(SharedSerialTransportTest, RejectedTransportSendAbortsGoal)
 {
   transport_provider_->setMode(FakeMechanismTransportProvider::Mode::kRejectSend);

@@ -54,7 +54,7 @@ TEST_F(MechanismCommandCatalogTest, CatalogDrivesExecuteSupportTerminalFeedbackA
   EXPECT_TRUE(isTerminalSuccessFeedbackForMechanismCommand(
     grab_kfs, static_cast<uint8_t>(FID::GRAB_KFS_DONE)));
   EXPECT_FALSE(isTerminalSuccessFeedbackForMechanismCommand(
-    grab_kfs, static_cast<uint8_t>(FID::MECH_UP_DUEL_DONE)));
+    grab_kfs, static_cast<uint8_t>(FID::ASSEMBLE_DONE)));
   EXPECT_TRUE(isTerminalMechanismFeedback(static_cast<uint8_t>(FID::GRAB_KFS_DONE)));
   EXPECT_EQ(defaultTimeoutForMechanismCommand(grab_kfs), std::chrono::seconds(8));
   ASSERT_TRUE(defaultSimulatedSuccessFeedbackForMechanismCommand(grab_kfs).has_value());
@@ -77,7 +77,7 @@ TEST_F(MechanismCommandCatalogTest, CatalogDrivesExecuteSupportTerminalFeedbackA
   EXPECT_FALSE(grab_tip_entry->execute_supported);
 
   EXPECT_EQ(
-    findMechanismCommandCatalogEntry(static_cast<uint8_t>(CID::ROTATE_POS_90)),
+    findMechanismCommandCatalogEntry(static_cast<uint8_t>(CID::HEARTBEAT)),
     nullptr);
 }
 

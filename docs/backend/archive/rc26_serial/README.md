@@ -26,13 +26,11 @@
 - `ODOM_DATA = <v_fl, v_rl, v_rr, v_fr>`，共 `16B / 4 float`
 - 如果外部运行时复用本协议，上位机可由相应 WheelOdom 实现解析，并继续换算 `vx / vy / wz`
 
-上位机下发给 MCU 的 `POSE_FEEDBACK/POSE_TARGET` 仍保持 `(vx, vy, wz)` 三浮点协议不变，但当前编号与发送口径已经更新为：
+上位机下发给 MCU 的下行命令已收口为仅保留实机链路中实际使用的条目：
 
-- `POSE_FEEDBACK = 0x1E`
 - `POSE_TARGET = 0x1F`
-- 两者都按 `50Hz` 连续发送
-- 两者都走公开的 `sendCommandNoAck()` 路径，不等待 ACK
-- 当前目标 MCU 串口 owner 由 `rc26_mcu_transport` 提供；`POSE_TARGET(0x1F)` 默认由它按 `/cmd_vel` 下发，`POSE_FEEDBACK` / `ODOM_DATA` 代码保留但不回到当前默认反馈主链
+- 按 `50Hz` 连续发送，走公开的 `sendCommandNoAck()` 路径，不等待 ACK
+- 当前目标 MCU 串口 owner 由 `rc26_mcu_transport` 提供；`POSE_TARGET(0x1F)` 默认由它按 `/cmd_vel` 下发
 
 当前双推杆协议已经直接收口为前/后推杆四命令；遥控链也不再通过 `rc26_mechanism` 的 Action 兼容路径消费，而是直接走共享 transport：
 
@@ -42,24 +40,21 @@
   - `REAR_PUSHROD_EXTEND = 0x10`
   - `REAR_PUSHROD_RETRACT = 0x11`
 - 上行业务反馈：
-  - `FRONT_PUSHROD_EXTEND_ACK = 0x13`
-  - `FRONT_PUSHROD_RETRACT_ACK = 0x14`
-  - `REAR_PUSHROD_EXTEND_ACK = 0x15`
-  - `REAR_PUSHROD_RETRACT_ACK = 0x16`
   - `FRONT_LASER_HEIGHT_JUMP = 0x17`
   - `REAR_LASER_HEIGHT_JUMP = 0x18`
   - `FRONT_LIMIT_SWITCH_TRIGGERED = 0x19`
+  - `FRONT_SECOND_LASER_HEIGHT_JUMP = 0x1A`
 
 当前真实口径是：
 
 - `rc26_telecontrol_front_pushrod_buttons` 会在 `Y/A` 按下沿单次调用 `/mechanism/send_command`
 - `rc26_telecontrol_rear_pushrod_buttons` 会在 `Select/Back` / `Start` 按下沿单次调用 `/mechanism/send_command`
 - 4 条双推杆命令都通过 `rc26_mcu_transport` 走可靠 `sendCommand()` ACK 路径；若 MCU 不回通用 `ACK(0x00)`，会像其它可靠命令一样自动重传并打印超时日志
-- `0x13~0x19` 业务反馈以及历史保留的 `0x1A` 会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定
+- `0x17~0x1A` 业务反馈会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定
 - `0x17/0x18` 只由 MCU 上行，v1 payload 为空或忽略，分别表示前轮 / 后轮激光测距模块检测到车体高度突变；当前两激光台阶 BT 动作只按这两个事件推进阶段
-- `0x1A` 的 `FRONT_SECOND_LASER_HEIGHT_JUMP` 协议枚举保留为历史反馈 ID，桥接层仍可透传，但当前上/下台阶 BT 不再等待或消费它作为阶段推进条件
+- `0x1A` 的 `FRONT_SECOND_LASER_HEIGHT_JUMP` 协议枚举保留，桥接层仍可透传，但当前上/下台阶 BT 不再等待或消费它作为阶段推进条件
 - `0x19` 只由 MCU 上行，v1 payload 为空或忽略，表示武馆前方限位开关触发；武馆视觉夹取链在对齐后 x 负向前探并等待该事件，收到后立即停车再下发 `GRAB_TIP(0x01)`
-- 串口层当前只把 `ACK(0x00)`、`NACK(0x01)` 和心跳场景下的 `HEARTBEAT_ACK(0x10)` 视为 ACK 等待结果；当前 MCU 已不再返回 `ACTION_FAIL/ERROR`
+- 串口层当前只把 `ACK(0x00)`、`NACK(0x01)` 和心跳场景下的 `HEARTBEAT_ACK(0x10)` 视为 ACK 等待结果
 - `Dpad 左/右` 已回归底盘横移控制
 - 真机部署时，目标 MCU 串口由 `rc26_mcu_transport` 独占打开；其它上层只复用 transport，不再次直连同一设备
 
@@ -67,7 +62,6 @@
 
 - 原下行编号 `0x12` 当前不重新分配给新的下行命令，避免旧 MCU 或日志误判。
 - `rc26_vision` 的 tip test 链不再直连串口发送视觉状态；自动对线后先通过 `/cmd_vel` x 负向前探等待 0x19 限位反馈，随后通过 `/mechanism/send_command` 共享 transport 下发 `GRAB_TIP(0x01)` 空 payload。
-- 上行 `FeedbackID::STAIR_DESCEND_DONE = 0x12` 保留不变，它和已删除的下行命令属于不同枚举空间。
 
 当前维护边界还要再记一条：
 
@@ -102,3 +96,7 @@
 - 它不做上层动作语义，具体业务封装在 `rc26_mechanism` 等包里；目标 MCU 串口 owner 由 `rc26_mcu_transport` 承担
 - 当业务异常时，要区分是协议层问题还是上层状态机问题，不能把所有故障都归到这个库
 - 真实整车部署下目标 MCU 串口的权威所有者由 `rc26_mcu_transport` 承担；视觉 tip test 只能复用 `/cmd_vel` 与 `/mechanism/send_command`，不能再次直连同一设备
+
+## 本轮同步
+
+2026-06-25 同步：清理 `protocol.hpp` 中未接入实机链路的枚举值——移除 9 个未使用 CommandID（旋转四命令、MECH_UP/DOWN_MERLIN、MECH_UP_DUEL、PLACE_KFS_GROUND、POSE_FEEDBACK）和 16 个未使用 FeedbackID（CLIMBING_SLOPE、SLOPE_DONE、旋转 Done、MERLIN/DUE Done、PLACE_KFS_GROUND_DONE、STAIR_CLIMB/DESCEND_DONE、推杆四条 ACK）。协议定义现在只保留实机链路中实际收发的条目。

@@ -104,10 +104,10 @@ public:
         bool feedback_ok = false;
         if (feedback_disabled) {
             if (use_can_odom) {
-                RCLCPP_WARN(this->get_logger(), "独立反馈串口已禁用；POSE_FEEDBACK 将不可用");
+                RCLCPP_WARN(this->get_logger(), "独立反馈串口已禁用；速度反馈将不可用");
             } else {
                 RCLCPP_INFO(this->get_logger(),
-                            "独立反馈串口已禁用；WheelOdom 将使用目标串口单链路，POSE_FEEDBACK 将不可用");
+                            "独立反馈串口已禁用；WheelOdom 将使用目标串口单链路，速度反馈将不可用");
             }
         } else {
             feedback_serial_ = std::make_shared<rc26_decision::SerialDriver>();

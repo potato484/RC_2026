@@ -136,26 +136,6 @@ ament_target_dependencies(merge_odom_node
   rc26_serial
 )
 
-# 达妙IMU驱动库
-add_library(dm_imu_driver SHARED
-  src/imu/dm_imu_driver.cpp
-)
-target_include_directories(dm_imu_driver PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-ament_target_dependencies(dm_imu_driver
-  rclcpp
-)
-
-# 达妙IMU节点
-add_executable(dm_imu_node src/imu/dm_imu_node.cpp)
-target_link_libraries(dm_imu_node dm_imu_driver)
-ament_target_dependencies(dm_imu_node
-  rclcpp
-  sensor_msgs
-)
-
 # 单轮CAN测试节点
 add_executable(single_wheel_test_node src/scripts/single_wheel_test_node.cpp)
 ament_target_dependencies(single_wheel_test_node
@@ -168,7 +148,6 @@ install(TARGETS
   can_odom
   wheel_odom
   pose_sender
-  dm_imu_driver
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
@@ -179,7 +158,6 @@ install(TARGETS
   wheel_odom_node
   pose_sender_node
   merge_odom_node
-  dm_imu_node
   single_wheel_test_node
   DESTINATION lib/${PROJECT_NAME}
 )
@@ -208,7 +186,7 @@ if(BUILD_TESTING)
 endif()
 
 ament_export_include_directories(include)
-ament_export_libraries(mechanism_transport_bridge can_odom wheel_odom pose_sender dm_imu_driver)
+ament_export_libraries(mechanism_transport_bridge can_odom wheel_odom pose_sender)
 ament_export_dependencies(rclcpp nav_msgs sensor_msgs std_msgs geometry_msgs tf2 rc26_interfaces rc26_serial)
 
 ament_package()

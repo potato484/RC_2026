@@ -580,7 +580,7 @@ void PoseSender::feedbackTimerCallback() {
     bool sent_ok = false;
     if (feedback_serial_ && feedback_serial_->isOpen()) {
         attempted = true;
-        sent_ok = feedback_serial_->sendPose(rc26_decision::CommandID::POSE_FEEDBACK, protected_vel.vx, protected_vel.vy,
+        sent_ok = feedback_serial_->sendPose(rc26_decision::CommandID::POSE_TARGET, protected_vel.vx, protected_vel.vy,
                                              protected_vel.wz, seq);
     }
 
