@@ -8,6 +8,7 @@
 #include <thread>
 #include <vector>
 
+#include <opencv2/core.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
@@ -15,10 +16,6 @@
 #include "rc26_vision/inference/config/model_profile_loader.hpp"
 #include "rc26_vision/inference/contracts/inference_engine.hpp"
 #include "rc26_vision/shared/contracts/vision_types.hpp"
-
-namespace cv {
-class Mat;
-}
 
 namespace rc26_vision {
 
@@ -46,6 +43,12 @@ public:
 
     TargetResult getLatestResult() const;
     void setResultCallback(ResultCallback cb);
+
+    // 快照最近可显示帧 + 完整检测 + 最新目标;首帧前返回 false。
+    // frame_out 为深拷贝,调用方可安全绘制,无需持锁。
+    bool getLatestDisplay(cv::Mat& frame_out,
+                          std::vector<Detection>& dets_out,
+                          TargetResult& result_out) const;
 
 private:
     void inferenceLoop();
@@ -84,6 +87,13 @@ private:
     TargetResult latest_result_;
     mutable std::mutex result_mutex_;
     ResultCallback result_callback_;
+
+    // Display cache (node 主线程读取用于 overlay)
+    cv::Mat display_frame_;
+    std::vector<Detection> display_detections_;
+    TargetResult display_result_;
+    bool display_valid_ = false;
+    mutable std::mutex display_mutex_;
 
     // Parameters
     int depth_roi_size_ = 7;

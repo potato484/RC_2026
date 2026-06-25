@@ -135,10 +135,11 @@ endif()
 # ============================================================================
 # 测试节点
 # ============================================================================
-add_executable(vision_test_node src/nodes/vision_test_node.cpp)
-target_include_directories(vision_test_node PUBLIC ${COMMON_INCLUDE_DIRS})
-target_link_libraries(vision_test_node ${PROJECT_NAME})
-ament_target_dependencies(vision_test_node rclcpp)
+add_executable(kfs_vision_test_node src/nodes/kfs_vision_test_node.cpp)
+target_include_directories(kfs_vision_test_node PUBLIC ${COMMON_INCLUDE_DIRS})
+target_include_directories(kfs_vision_test_node PRIVATE ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(kfs_vision_test_node ${PROJECT_NAME} ${OpenCV_LIBS})
+ament_target_dependencies(kfs_vision_test_node rclcpp)
 
 # 独立推理测试 (不依赖 ROS)
 add_executable(yolo_inference_test src/tools/yolo_inference_test.cpp)
@@ -188,7 +189,7 @@ install(
 )
 
 install(
-  TARGETS vision_test_node yolo_inference_test tip_localizer_node tip_vision_test_node
+  TARGETS kfs_vision_test_node yolo_inference_test tip_localizer_node tip_vision_test_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 

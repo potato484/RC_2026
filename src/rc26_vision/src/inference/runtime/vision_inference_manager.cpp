@@ -243,6 +243,19 @@ TargetResult VisionInferenceManager::getLatestResult() const {
     return latest_result_;
 }
 
+bool VisionInferenceManager::getLatestDisplay(cv::Mat& frame_out,
+                                              std::vector<Detection>& dets_out,
+                                              TargetResult& result_out) const {
+    std::lock_guard<std::mutex> lock(display_mutex_);
+    if (!display_valid_) {
+        return false;
+    }
+    frame_out = display_frame_.clone();   // 深拷贝:node 可无锁绘制
+    dets_out = display_detections_;
+    result_out = display_result_;
+    return true;
+}
+
 void VisionInferenceManager::setResultCallback(ResultCallback cb) {
     std::lock_guard<std::mutex> lock(result_mutex_);
     result_callback_ = std::move(cb);
@@ -277,6 +290,9 @@ void VisionInferenceManager::inferenceLoop() {
             TargetResult result;
             result.timestamp_ns = rclcpp::Time(color_msg->header.stamp).nanoseconds();
 
+            cv::Mat display_frame_local;            // decode 成功即有原图(infer 抛异常仍可显示)
+            std::vector<Detection> display_dets_local;
+
             const int64_t now_ns = node_.get_clock()->now().nanoseconds();
             if ((now_ns - result.timestamp_ns) > kFrameExpiryNs) {
                 vision_ok_.store(false, std::memory_order_relaxed);
@@ -286,7 +302,9 @@ void VisionInferenceManager::inferenceLoop() {
                         vision_ok_.store(false, std::memory_order_relaxed);
                     } else {
                         const cv::Mat color = cv_bridge::toCvCopy(color_msg, "bgr8")->image;
+                        display_frame_local = color;
                         std::vector<Detection> detections = engine_->infer(color);
+                        display_dets_local = detections;
 
                         const Detection* best_det = nullptr;
                         for (const auto& det : detections) {
@@ -336,6 +354,15 @@ void VisionInferenceManager::inferenceLoop() {
                 latest_result_ = result;
                 cb = result_callback_;
             }
+
+            if (!display_frame_local.empty()) {
+                std::lock_guard<std::mutex> lock(display_mutex_);
+                display_frame_ = display_frame_local;
+                display_detections_ = std::move(display_dets_local);
+                display_result_ = result;
+                display_valid_ = true;
+            }
+
             if (cb) {
                 try {
                     cb(result);

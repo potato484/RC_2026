@@ -8,7 +8,7 @@
 
 - 构建产物：
   - 共享库 `rc26_vision`
-  - `vision_test_node`
+  - `kfs_vision_test_node`
   - `yolo_inference_test`
   - `tip_localizer_node`
   - `tip_vision_test_node`
@@ -18,7 +18,7 @@
   - `config/tip_vision_params.yaml`
 - 启动文件：
   - `launch/realsense_d455.launch.py`
-  - `launch/vision_test_with_camera.launch.py`
+  - `launch/test_kfs_vision.launch.py`
   - `launch/test_tip_vision.launch.py`
 
 当前实现已经按“共享 / 预处理 / 推理 / 后处理 / 入口”重排为 7 个子层，并在这四个库层下继续细分二级功能目录：
@@ -40,7 +40,7 @@
   - `yolo/yolo_detection_postprocessor`
   - `localization/tip_localizer`
 - `src/nodes`
-  - `vision_test_node` 和 `tip_localizer_node` 的薄入口
+  - `kfs_vision_test_node` 和 `tip_localizer_node` 的薄入口
 - `test`
   - `tip_vision_test_node` 的单文件 test 节点实现，包含 main 入口、私有类声明、USB 相机、目标选择、可选视觉横移对线、抓取 service 触发和 overlay 逻辑
 - `src/tools`、`tools`
@@ -49,7 +49,7 @@
 旧的 `runtime / engines / pipelines` 公开 include 路径已经删除；仓库内调用方统一切到二级语义更明确的公开路径，例如 `include/rc26_vision/shared/contracts`、`include/rc26_vision/inference/runtime`、`include/rc26_vision/inference/aidlite`、`include/rc26_vision/postprocess/localization`。`tip_vision_test_node` 的私有声明已经合并进包根 `test/tip_vision_test_node.cpp`，不再单独保留头文件，也不随公开 include 安装。`src/` 下不再保留头文件。
 
 ## 源码入口与阅读顺序
-- 先看 `launch/realsense_d455.launch.py` 和 `launch/vision_test_with_camera.launch.py`，理解相机和测试链如何拉起。
+- 先看 `launch/realsense_d455.launch.py` 和 `launch/test_kfs_vision.launch.py`，理解相机和测试链如何拉起。
 - 再看 `src/inference/runtime/vision_inference_manager.cpp`，它是运行时调度中心。
 - 然后看 `src/inference/config/model_profile_loader.cpp`、`src/inference/runtime/backend_resolver.cpp`、`src/inference/runtime/engine_factory.cpp`、`src/inference/aidlite/aidlite_engine.cpp`/`src/inference/aidlite/aidlite_engine_stub.cpp`、`src/inference/onnx/onnx_runtime_engine.cpp`/`src/inference/onnx/onnx_runtime_engine_stub.cpp`、`src/preprocess/yolo/yolo_image_preprocessor.cpp`、`src/postprocess/yolo/yolo_detection_postprocessor.cpp`、`src/shared/sensors/depth_roi_sampler.cpp`、`src/postprocess/localization/tip_localizer.cpp`。
 - 最后看 `test/tip_vision_test_node.cpp`、`config/vision_models.yaml`、`config/tip_vision_params.yaml`、`launch/test_tip_vision.launch.py` 和 `config/realsense_d455.yaml`。
@@ -63,7 +63,7 @@
 - `src/inference/aidlite/aidlite_engine.cpp` / `src/inference/aidlite/aidlite_engine_stub.cpp` / `src/inference/onnx/onnx_runtime_engine.cpp` / `src/inference/onnx/onnx_runtime_engine_stub.cpp`：AidLite 实机链、本地 ONNX Runtime 链与缺依赖时的 stub。
 - `src/postprocess/yolo/yolo_detection_postprocessor.cpp`：YOLO 输出解码、坐标回映和 NMS。
 - `src/postprocess/localization/tip_localizer.cpp`：深度 + TF 融合，把识别结果投到 `map`。
-- `src/nodes/vision_test_node.cpp`、`src/nodes/tip_localizer_node.cpp`：主链节点入口。
+- `src/nodes/kfs_vision_test_node.cpp`：kfs 主链(D455 + kfs.onnx)测试节点入口，在主线程通过 OpenCV overlay 窗口画出全部检测框、类别、置信度、角落帧率与 best target 的 D455 深度距离；`show_window=false` 时降级无头。`src/nodes/tip_localizer_node.cpp`：tip 定位节点入口。
 - `test/tip_vision_test_node.cpp`：USB 相机 + 单目 tip test 节点的入口、私有声明、参数、相机、目标选择、可选视觉横移对线、对齐后 x 负向前探等待 0x19 限位、抓取 service 触发和 overlay 单文件实现；推理直接复用主链 `InferenceEngine`。
 - `src/tools/yolo_inference_test.cpp`、`tools/*.py`：离线工具和实验脚本。
 
@@ -71,7 +71,7 @@
 
 - 当前模型 profile 支持 `engine: auto`；启动时如果检测到 `/usr/local` 下 AidLux/AidLite 头文件与库，并且当前 `rc26_vision` 构建已启用 AidLite，就优先走 `AidLiteEngine`；否则如果当前二进制已编进 ONNX Runtime C++ 后端，就回退到本地 `ONNX Runtime` 推理链。
 - AidLite 和本地 ONNX Runtime 都是可选编译后端。缺 ONNX Runtime C++ 头文件或库时，构建不会失败，而是编译 `onnx_runtime_engine_stub`；缺 AidLite 时同样编译 `aidlite_engine_stub`。stub 只提供链接符号，实际启动到对应推理后端时会快速报错，不产生假推理结果。
-- 自动选链和回退决策统一收口在共享工厂层；`tip_vision_test_node`、`vision_test_node`、`tip_localizer_node` 和 `yolo_inference_test` 会在启动时打印中文日志，说明 profile、AidLux 路径探测结果、AidLite 编译状态、ONNX Runtime 编译状态与最终选中的后端。
+- 自动选链和回退决策统一收口在共享工厂层；`tip_vision_test_node`、`kfs_vision_test_node`、`tip_localizer_node` 和 `yolo_inference_test` 会在启动时打印中文日志，说明 profile、AidLux 路径探测结果、AidLite 编译状态、ONNX Runtime 编译状态与最终选中的后端。
 - 当前兼容矩阵：AidLite 有且 ONNX Runtime C++ 缺失时可构建并由 `engine: auto` 选择 AidLite；AidLite 缺失且 ONNX Runtime C++ 存在时可构建并回退 ONNX Runtime；两者都有时优先 AidLite；两者都没有时仍允许构建，但启动推理会报“无可用推理后端”。
 - `config/vision_models.yaml` 是唯一模型 profile 配置入口，当前包含 `kfs_default` 与 `tip_default`。
 - `config/vision_models.yaml` 当前默认 profile 已切到 `engine: auto`；显式写 `onnxruntime` / `opencv_onnx` 仍会落到本地 ONNX Runtime 链，显式写 `aidlite` 则保持强制 AidLite、不参与自动回退。
@@ -92,7 +92,7 @@
 - 对齐误差进入 `alignment_tolerance_px` 并稳定达到 `alignment_stable_frames` 后，tip test 节点必须先 x 负向前探并等待 0x19 前方限位反馈；收到限位后才会通过 `/mechanism/send_command` 共享 transport 下发一次 `GRAB_TIP(0x01)` 空 payload。它不直接打开目标 MCU 串口，`/cmd_vel` 消费和 mechanism transport 都由 `rc26_mcu_transport` 提供。
 - 启用自动对线时，同一时刻不要启动 Nav2、teleop 或其它 `/cmd_vel` 发布权威；必须启动 `rc26_mcu_transport` 消费 `/cmd_vel` 并提供 `/mechanism/send_command` 与 `/mechanism/command_feedback`。
 - 当前 `tip` test 参数仍默认优先 `camera_index=2` 这路外接 USB 摄像头，但 `auto_scan_camera` 已默认打开；如果首选设备能枚举却读不出第一帧，节点会打印中文告警并自动扫描其他 `/dev/video*` 作为兜底。
-- 默认联调入口仍然是 RealSense + `vision_test_node`；tip test 节点不参与默认 launch，需要单独显式启动。
+- 默认联调入口仍然是 RealSense + `kfs_vision_test_node`（`test_kfs_vision.launch.py`）；tip test 节点不参与默认 launch，需要单独显式启动。
 
 ## 模块边界
 
@@ -120,7 +120,7 @@
 - 本次按其他模块口径把 tip test 链路源码收口到包根 `test/`，不再放入 `src/` 或公开 `include/`；tip test 参数和模型资产直接放在包内 `config/` 与 `models/` 根目录，避免测试链继续维护额外嵌套目录。
 - 模型 profile 已统一到 `config/vision_models.yaml`，`config/test/vision_models_tip.yaml` 删除；模型文件按用途重命名为 `kfs.pt/onnx` 与 `tip.pt/onnx`。
 - 本次把 `engine: auto`、启动中文日志和共享后端解析收口到 `backend_resolver + engine_factory`；非 AidLux 系统启动时会自动切到本地 ONNX Runtime，而不是继续撞 AidLite stub。
-- 本次把 AidLite / 本地 ONNX 共用的 YOLO 交集继续拆到明确阶段：`preprocess/yolo/yolo_image_preprocessor` 负责输入预处理，`postprocess/yolo/yolo_detection_postprocessor` 负责解码与 NMS，`shared/transforms/yolo_transform` 负责跨阶段变换元数据；`tip_vision_test_node`、`vision_test_node`、`tip_localizer_node` 与 `yolo_inference_test` 统一走这套共享入口。
+- 本次把 AidLite / 本地 ONNX 共用的 YOLO 交集继续拆到明确阶段：`preprocess/yolo/yolo_image_preprocessor` 负责输入预处理，`postprocess/yolo/yolo_detection_postprocessor` 负责解码与 NMS，`shared/transforms/yolo_transform` 负责跨阶段变换元数据；`tip_vision_test_node`、`kfs_vision_test_node`、`tip_localizer_node` 与 `yolo_inference_test` 统一走这套共享入口。
 - 本次新增 `shared/sensors/depth_roi_sampler`，把 `vision_inference_manager` 和 `tip_localizer` 里原本各自维护的深度 ROI 中值采样逻辑收口到共享层，避免两条链继续各改各的。
 - 本次进一步把 `inference` 拆成 `contracts / config / runtime / yolo / aidlite / onnx` 六组，减少“一层目录内同时混放接口、配置、运行时和后端实现”的平铺耦合。
 - 本次补强了 tip 相机初始化日志，并把默认 tip 参数改成“优先外接摄像头、失败时自动扫描回退”；像 `/dev/video2` 这种能枚举但首帧超时的 UVC 设备，不会再让节点静默卡死在无窗口状态。
@@ -129,6 +129,8 @@
 - 端头模型 profile ID 已从历史测试命名 `tip_test` 改为更通用的 `tip_default`；模型文件仍是 `models/tip.onnx`，标签文件仍是 `models/tip_labels.txt`。
 
 ## 最近修改
+
+- **kfs 主链测试链整体 kfs 化 + 新增实时 overlay 窗口**：`vision_test_node` 改名为 `kfs_vision_test_node`，`launch/vision_test_with_camera.launch.py` 改名为 `launch/test_kfs_vision.launch.py`，源文件 `git mv` 为 `src/nodes/kfs_vision_test_node.cpp`（保留历史）。节点新增主线程 OpenCV overlay：画全部检测框 + `类别[id] 置信度` + 角落帧率/检测数，并叠加 best target 的 D455 深度距离与中心十字；`show_window`（默认 true）/`window_name` 可经 `test_kfs_vision.launch.py` 参数透传，`show_window=false` 走无头（无 DISPLAY 时也自动降级）。配套 `VisionInferenceManager` 新增 `getLatestDisplay()`，在独立 `display_mutex_` 下暴露“最近彩色帧 + 完整 detections + 最新 TargetResult”，getter 端 `clone()` 深拷贝，不阻塞推理线程；CMake 给 `kfs_vision_test_node` 显式补了 OpenCV include/库（共享库的 OpenCV 是 PRIVATE 不传递）。tip test 链零改动。
 
 - **tip 多框对线目标选择修正**：`test/tip_vision_test_node.cpp` 的 primary target 选择从“最大面积优先”改为“初次按框中心距离画面中心竖线最近获锁，随后持续跟踪同一物理端头”；自动横移对线继续只使用 primary target 的 `offset_px`，多框场景下不再跟随边侧大框反复切换。当前默认按后置相机口径反转横移方向，可由 `alignment_invert_direction` 配置修正。
 - **tip_vision_test_node 日志中文化**：将 test/tip_vision_test_node.cpp 中所有 RCLCPP 日志和 std::fprintf 错误信息从英文转换为中文，与仓库其他模块日志口径保持一致。覆盖范围包括相机初始化、推理引擎状态、端头对准控制、GRAB_TIP 指令发送和运行时帧率统计等全部日志出口。
