@@ -140,7 +140,7 @@ Nav2 action result 映射规则：
 
 ## 梅林区预选赛专属链路
 
-`behavior_trees/mf_preselection_tree.xml` 是梅林区预选赛专属正式入口，完整 bringup 可通过 `r2_runtime.paths.behavior_tree_file` 指向它。该树先按 `mf_preselect_entry2_nav_enable` 决定是否执行 2 号入口 `NavToPose`；默认关闭入口导航，现场标定前假设机器人已经位于 2 号入口预备姿态。随后执行单个 `MfPreselectionFlow` 状态机，流程成功驶出梅林后进入 `WaitForever`，保持永久静止。
+`behavior_trees/mf_preselection_tree.xml` 是梅林区预选赛专属正式入口，完整 bringup 可通过 `r2_runtime.paths.behavior_tree_file` 指向它。该树先按 `mf_preselect_entry2_nav_enable` 决定是否执行 2 号入口 `NavToPose`；默认关闭入口导航，现场标定前假设机器人已经位于 2 号入口预备姿态。入口 `NavToPose` 默认通过 `mf_preselect_entry2_nav_behavior_tree_file` 指向 `rc26_bringup/config/nav2_bt_mf_preselect_entry_x_positive_y_negative.xml`，让 Nav2 只使用 `MFPreselectEntryXPositiveYNegative` controller，速度采样限制为车体系 `linear.x >= 0`、`linear.y <= 0`、`|angular.z| <= 0.10rad/s`；该约束只覆盖入口导航，不影响后续 `MfPreselectionFlow` 内部直接发布 `/cmd_vel` 的相对移动、台阶、转向和离场状态机。随后执行单个 `MfPreselectionFlow` 状态机，流程成功驶出梅林后进入 `WaitForever`，保持永久静止。
 
 `MfPreselectionFlow` 只消费 `rc26_vision` 的 KFS 模型快照、`/odom`、`/cmd_vel` 和 `rc26_mcu_transport` 提供的 `/mechanism/send_command` / `/mechanism/command_feedback`。视觉标签按当前模型语义处理：`T_*` 是 R2 可夹取 KFS，`R_R1/B_R1` 是 R1 阻挡目标，`F_*` 是假 KFS；这些标签列表和前缀都由 `mf_preselect_*` 参数配置。R2 KFS 单局最多夹取 `mf_preselect_max_pickup_count` 个，默认 2 个，达到上限后不再触发 KFS 夹取。
 

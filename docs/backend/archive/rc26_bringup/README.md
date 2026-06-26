@@ -23,10 +23,10 @@
   - `r2_runtime.decision.ros__parameters` 中的 `mc_align_*` 参数维护武馆区视觉伺服横移对线口径；当前默认按后置相机安装反转横移方向，并启用端头目标锁定以避免双框同屏切换。`mc_align_heading_*` 当前默认开启，通过 `mc_odom_topic=odom` 消费 `rc26_odom_interface` 的雷达标准 odom yaw，并在视觉伺服阶段补发 `cmd_vel.angular.z` 保持车身朝向
   - 完整 MC 决策链依赖 `/odom` 作为雷达标准里程计，服务视觉 heading hold 和 180° 旋转 yaw 闭环；底盘执行与机构 transport 均由 `rc26_mcu_transport` 承担
   - `r2_runtime.decision.ros__parameters` 中声明为 double 的参数必须在 YAML 中写成小数形式，例如 `10.0`，不要写成裸整数 `10`；ROS2 会区分 integer 和 double，类型不一致会导致 `decision_node` 启动时报 `InvalidParameterTypeException`
-  - `config/nav2_params.yaml` 中 `planner_server.GridBased.tolerance` 当前收紧为 `0.05m`，避免 NavFn 在目标点附近半米内选替代终点后仍被上层当作真实到点；`controller_server.progress_checker` 当前按低速实车调为 `20s` 内至少前进 `0.05m`，减少慢速起步或局部恢复期间的误判卡死。普通导航继续使用 `FollowPath`，红方 MC 去程专用 Nav2 BT 使用 `MCPositiveXYRed`，只采样车体系 `linear.x/y` 正向和角速度。`MCNegativeXYRed` 仍作为可手工选择的负向约束 controller 配置保留，但当前默认 MC 树不再引用它
+  - `config/nav2_params.yaml` 中 `planner_server.GridBased.tolerance` 当前收紧为 `0.05m`，避免 NavFn 在目标点附近半米内选替代终点后仍被上层当作真实到点；`controller_server.progress_checker` 当前按低速实车调为 `20s` 内至少前进 `0.05m`，减少慢速起步或局部恢复期间的误判卡死。普通导航继续使用 `FollowPath`，红方 MC 去程专用 Nav2 BT 使用 `MCPositiveXYRed`，只采样车体系 `linear.x/y` 正向和角速度。`MCNegativeXYRed` 仍作为可手工选择的负向约束 controller 配置保留，但当前默认 MC 树不再引用它。梅林预选 2 号入口导航专用 Nav2 BT 使用 `MFPreselectEntryXPositiveYNegative`，只采样车体系 `linear.x >= 0`、`linear.y <= 0`、`|angular.z| <= 0.10rad/s`，并且 recovery 只做 costmap clear，避免恢复动作绕过方向约束
   - `r2_runtime.decision.ros__parameters` 同时维护 `stair_*` 台阶动作参数；这些参数供独立 `stair_climb_tree.xml` / `stair_descend_tree.xml`、红方中列测试树和 MF `GridTransition` 离散格间动作复用。普通直行速度为便于上/下阶梯独立调速，已拆为 `stair_climb_drive_speed_mps` 与 `stair_descend_drive_speed_mps`，旧 `stair_drive_speed_mps` 不再是当前配置契约；上台阶的前推杆伸出后零速等待、前收+后伸后零速等待、后推杆收回后零速等待，以及下台阶的后推杆伸出后零速等待、后收+前伸后零速等待、前推杆收回后零速等待也在这里配置；当前两激光下台阶链路还在这里配置前推杆收回前的 `x` 负向定时行驶速度与时长，默认 `0.025m/s` 持续 `4.0s`。`stair_odom_topic` 与 `stair_heading_*` 参数用于上/下阶梯前的 yaw 对齐和直行期间 heading hold
   - `r2_runtime.decision.ros__parameters` 中的 `kfs_*` 参数维护 KFS 阶梯等待测试链：上/下阶梯机械臂预调命令与完成反馈、`R_R1/B_R1` 阻塞标签、深度有效范围、出现/消失稳定帧、等待超时和 topic/service 名。当前 KFS v1 只等待其它机器人目标消失，不会下发预留的 `GRAB_KFS_UP/DOWN`
-  - `r2_runtime.decision.ros__parameters` 中的 `mf_preselect_*` 参数维护梅林区预选赛专属正式链路：2 号入口可选 Nav2 目标、R2/R1/假 KFS 标签、深度阈值、入口 1/3 阶梯横移探测距离和速度、R2 KFS 夹取上限、`ARM_HIGH_RAISE(0x0D)` / `ARM_HIGH_RAISE_DONE(0x09)`、普通机械臂升降、相对移动、转向和最终离场停车参数。当前默认 `behavior_tree_file` 指向 `mf_preselection_tree.xml`，入口导航默认关闭，现场标定后只需启用并填写 `mf_preselect_entry2_nav_*`
+  - `r2_runtime.decision.ros__parameters` 中的 `mf_preselect_*` 参数维护梅林区预选赛专属正式链路：2 号入口可选 Nav2 目标、R2/R1/假 KFS 标签、深度阈值、入口 1/3 阶梯横移探测距离和速度、R2 KFS 夹取上限、`ARM_HIGH_RAISE(0x0D)` / `ARM_HIGH_RAISE_DONE(0x09)`、普通机械臂升降、相对移动、转向和最终离场停车参数。当前默认 `behavior_tree_file` 指向 `mf_preselection_tree.xml`，入口导航默认关闭，现场标定后只需启用并填写 `mf_preselect_entry2_nav_*`；入口导航的 `mf_preselect_entry2_nav_behavior_tree_file` 默认指向 `config/nav2_bt_mf_preselect_entry_x_positive_y_negative.xml`
   - 决策测试不再通过 `rc26_decision` 单节点 launch 入口进行；需要测试决策时使用本完整 bringup 入口，并确认 `rc26_mcu_transport` 已按 `r2_runtime.mcu_transport` 启动
   - `r2_runtime.chassis_runtime.merge_odom` 已删除；默认 bringup 不再读取或透传 `merge_odom_*`、`start_pose_sender`、`pose_sender_*` 参数
   - 自动导航主链的 `/odom` 仍由 `rc26_odom_interface` 提供给 Nav2；`/merge_odom` 不再是当前默认运行时话题
@@ -64,6 +64,7 @@
 - [config/r2_runtime.yaml](/home/potato/RC_2026/src/rc26_bringup/config/r2_runtime.yaml)
 - [config/nav2_params.yaml](/home/potato/RC_2026/src/rc26_bringup/config/nav2_params.yaml)
 - [config/nav2_bt_mc_red_positive_xy.xml](/home/potato/RC_2026/src/rc26_bringup/config/nav2_bt_mc_red_positive_xy.xml)
+- [config/nav2_bt_mf_preselect_entry_x_positive_y_negative.xml](/home/potato/RC_2026/src/rc26_bringup/config/nav2_bt_mf_preselect_entry_x_positive_y_negative.xml)
 - [rviz/navigation_default.rviz](/home/potato/RC_2026/src/rc26_bringup/rviz/navigation_default.rviz)
 - [launch/localization.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/localization.launch.py)
 - [config/localization.yaml](/home/potato/RC_2026/src/rc26_bringup/config/localization.yaml)
@@ -75,7 +76,7 @@
 - Nav2 参数文件归 bringup 托管，是本轮基础导航栈的部署配置
 - `config/localization.yaml` 当前只维护开局一次重定位与连续 GICP 跟踪的核心参数，定位健康度、图后端和路径可观测性参数已移除
 - `config/odom_interface.yaml` 只保留 `rc26_odom_interface` 的参数契约；其中 `base_link_height_above_base_footprint_m` 当前直接在该 YAML 维护，`base_link -> point_lio.body_frame` 推导值仍只允许在 `odometry.launch.py` 中注入
-- `config/nav2_params.yaml` 当前保留 `sensor_scan` (`PointCloud2`) 到 obstacle layer 的参数块，但默认关闭 local/global obstacle layer，不再维护 `/scan` LaserScan 兼容链
+- `config/nav2_params.yaml` 当前保留 `sensor_scan` (`PointCloud2`) 到 obstacle layer 的参数块，但默认关闭 local/global obstacle layer，不再维护 `/scan` LaserScan 兼容链；该文件的实际 YAML 配置项已经逐行补充中文行尾说明，便于现场直接查参数语义
 - `scripts/capture_nav_points.py` 是现场只读采点辅助入口，依赖当前主链 TF 结果生成 Nav2 目标点文本，不接管 `map -> odom`、`/navigate_to_pose` 或 `/cmd_vel` 权威
 - 除 `test_mapping.launch.py` 与 `test_navigation.launch.py` 联调入口外，如需可视化，应由工作区外部工具只读消费当前主链 ROS2 输出；`/point_lio/map_cloud` 是现场建图观察输出，不作为定位或导航权威
 
@@ -91,7 +92,7 @@
 - 本轮新增 `rc26_mcu_transport` 作为机构指令共享串口 provider；`bringup.launch.py` 默认按 `r2_runtime.mcu_transport` 启动它，`test_navigation.launch.py` 显式关闭它
 - 点云、地图、行为树入口现在由 `r2_runtime.paths.prior_pcd_file`、`r2_runtime.paths.nav2_map_file` 与 `r2_runtime.paths.behavior_tree_file` 配置，三者必须写绝对路径；`prior_pcd_file:=...` 与 `nav2_map_file:=...` 仍可在 launch 命令中临时覆盖
 - `test_navigation.launch.py` 的验收目标改为 `/navigate_to_pose`、`sensor_scan` 链路存在、Nav2 lifecycle nodes、costmap/plan topics 与 `/cmd_vel` 输出；当前默认不再把 `sensor_scan` 作为 obstacle layer 成功条件
-- `config/nav2_params.yaml` 现已补齐主要字段的中文注释，现场调试应优先以该文件中的分区说明和速度/代价图参数注释为准
+- `config/nav2_params.yaml` 现已为每一行实际 YAML 配置项补齐中文行尾注释，现场调试应优先以该文件中的分区说明和参数行说明为准
 - `test_navigation.launch.py` 新增 `use_rviz` 与 `rviz_config_file`，默认随导航联调入口启动 RViz2；主 `bringup.launch.py` 继续保持 headless
 - `navigation_default.rviz` 默认观察 Nav2 map、local/global costmap、plan、footprint、TF、RobotModel、`/odom`、定位位姿与 `registered_scan`/`sensor_scan` 点云主链；静态 map 与 costmap 采用半透明显示，点云采用固定高对比色，并保留 Nav2 RViz 面板和 GoalTool；不再订阅 terrain 或 keepout 输出
 - `src/rc26_bringup/map/test.yaml` 是当前默认 Nav2 map 入口；当前绑定 `test.png`，`resolution=0.05`，`origin=[-2.567935467, -3.759390831, 0.0]`，由 `src/rc26_point_lio/PCD/scan.pcd` 按 `0.05 <= z <= 2.0` 与 `min_points_per_cell=3` 过滤投影生成。它可用于基础导航链联调，但现场实机规划验收仍应通过 `nav2_map_file` 传入现场有效 2D occupancy map

@@ -136,7 +136,7 @@ r2_runtime:
       mf_preselect_entry2_nav_yaw: 0.0           # 2号入口预备朝向 yaw，占位待现场标定
       mf_preselect_entry2_nav_frame_id: "map"    # 2号入口目标坐标系
       mf_preselect_entry2_nav_timeout_sec: 180.0 # 入口 Nav2 超时，单位秒
-      mf_preselect_entry2_nav_behavior_tree_file: "" # 入口 Nav2 可选 BT；空则使用 Nav2 默认
+      mf_preselect_entry2_nav_behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_bringup/config/nav2_bt_mf_preselect_entry_x_positive_y_negative.xml" # 入口 Nav2 专用 BT：x正向/y负向/小角速度
 
       mf_preselect_vision_config_file: ""        # KFS 视觉模型配置；空则回退 rc26_vision/config/vision_models.yaml
       mf_preselect_model_id: "kfs_default"       # KFS 模型 profile ID
