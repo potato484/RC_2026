@@ -50,8 +50,8 @@
 - `GridCenterAlign` 在 `GridTransition` 成功后按 MF 离散格中心做二维归位：以已记录的参考格中心和 `mf_center_grid_step_m` 推算目标格中心，订阅 `mf_center_odom_topic` 并向 `mf_center_cmd_vel_topic` 发布 `linear.x/y + angular.z`，同时收敛 x/y 和 yaw 后才让树继续执行
 - `MFEntryCenterAdvance` 只用于红方中间列独立树首段入口：`StairClimb` 上到 `grid2` 后，沿目标 yaw 前进 `mf_center_entry_forward_offset_m`（默认 `0.25m`）到 `grid2` 中心，并把该点记录为后续二维格中心参考
 - 平地同高格间移动当前不支持，`GridTransition` 会返回 `FAILURE` 并写入 `mf_transition_error=flat_transition_unsupported`
-- `MFAreaTree` 不再被 `WithKeepoutRuntime` 包裹；决策不再调用 `/kfs_keepout/set_runtime`，也不再发布 `/mf_kfs_state`
-- MF 格位选择只使用 `MerlinMapManager` 的包内静态深度表、BT 黑板状态和离散格号，不再订阅 `/terrain_grid_map`
+- `MFAreaTree` 不再被旧 keepout runtime 包裹；相关 keepout runtime service、MF KFS 状态和 terrain grid 公开接口已经删除
+- MF 格位选择只使用 `MerlinMapManager` 的包内静态深度表、BT 黑板状态和离散格号
 
 `PlanGridTransition` / `GridTransition` 会维护以下黑板键：
 
@@ -123,6 +123,8 @@ Nav2 action result 映射规则：
 `behavior_trees/kfs_stair_climb_test_tree.xml` 与 `behavior_trees/kfs_stair_descend_test_tree.xml` 是独立测试树，默认 `main_tree.xml`、`mf_tree.xml`、`mc_tree.xml` 与 `mf_red_middle_column_tree.xml` 都不引用它们。上台阶测试树执行 `KfsStairPickup(direction=climb) -> StairClimb`，下台阶测试树执行 `KfsStairPickup(direction=descend) -> StairDescend`；建议通过 `rc26_bringup/launch/kfs_stair_test.launch.py direction:=climb|descend` 启动，避免与 Nav2 controller、遥控或其它 `/cmd_vel` 权威冲突。
 
 当前 KFS 模型标签 `R_R1` / `B_R1` 表示另一台机器人需要拾取的 KFS，不是本车可夹取目标。`KfsStairPickup` 在视觉检测前会按方向通过 `/mechanism/send_command` 发送机械臂预调命令：`climb -> ARM_RAISE(0x04)` 并等待同 `seq` 的 `ARM_RAISE_DONE(0x02)`，`descend -> ARM_LOWER(0x05)` 并等待同 `seq` 的 `ARM_LOWER_DONE(0x03)`。预调完成后节点使用 `rc26_vision::VisionInferenceManager` 加载 `kfs_default`，通过只读帧快照读取最新彩色/深度/检测结果；若检测到 `R_R1` 或 `B_R1` 且中心 ROI 深度落入 `kfs_depth_min_m..kfs_depth_max_m`，就持续发布零速等待，直到连续 `kfs_blocking_lost_stable_frames` 个新的推理帧都未再看到占用目标。
+
+本测试链中的 `KFS` 指阶梯等待视觉目标，不依赖已删除的旧 MF keepout 包，也不使用旧 keepout / terrain / MF KFS 兼容接口。
 
 本轮 v1 不会因为 `R_R1/B_R1` 下发 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`；这两个命令只是协议预留，等待后续模型增加本车可夹取标签后再接入对齐、趋近、夹取和颜色留存判定链路。占用目标消失后节点写入 `kfs_last_outcome=blocked_target_gone` 并返回 `SUCCESS`，一开始没有占用目标则写入 `kfs_last_outcome=no_target` 并返回 `SUCCESS`，让测试树继续普通 `StairClimb` 或 `StairDescend`。若预调 service 不可用、命令 rejected、完成反馈超时、视觉启动失败或等待超过 `kfs_blocking_wait_timeout_s`，节点发布零速、写入 `kfs_last_outcome=failed` 与 `kfs_last_error`，并返回 `FAILURE`。
 
@@ -196,7 +198,7 @@ MF 格中心归位参数以 `mf_center_*` 前缀集中在同一个 `r2_runtime.y
 - 负责流程编排、目标选择和策略切换
 - MF `GridTransition` 负责选择格间边的台阶动作类型和 yaw 对齐策略，`GridCenterAlign` 负责台阶完成后的二维格中心归位；两者都不处理串口协议帧或机构底层状态机
 - 不拥有 Nav2 planner/controller 的内部配置
-- 不订阅 `base_ground/*`、terrain GridMap、keepout heartbeat，也不调用 KFS keepout runtime service
+- 不依赖旧 base-ground、terrain 或 keepout 包；不订阅旧 terrain/base-ground/keepout 输出，也不调用旧 keepout runtime service
 
 ## 本轮收口
 

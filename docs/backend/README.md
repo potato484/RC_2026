@@ -12,7 +12,7 @@ R2 运行时导航权威已经迁移到 Nav2。`rc26_bringup` 在 `slam=false` �
 
 `rc26_merge_odom` 已从当前 R2 默认运行装配中停用但保留源码：`rc26_bringup`、导航联调入口和遥控脚本不再启动它，也不再把 `/merge_odom` 作为当前运行时契约。`/cmd_vel` 的默认硬件消费方由 `rc26_mcu_transport` 提供，它复用目标 MCU 串口下发 `POSE_TARGET(0x0C)`；机构指令共享串口 provider 同样由 `rc26_mcu_transport` 提供。
 
-`rc26_terrain`、`rc26_base_ground` 与 `rc26_kfs_keepout` 已从当前 R2 主运行时链路中归档退出：默认 CMake 不生成运行时目标，`rc26_bringup` 不启动它们，`rc26_decision` 不订阅或发布它们的数据，默认运行和手动验证闭包也不再纳入这些归档链路。
+旧地形、base-ground 与 MF keepout 包已经从工作区删除，相关 keepout / terrain / MF KFS 兼容接口也不再由 `rc26_interfaces` 生成。当前 `rc26_bringup` 不启动这些链路，`rc26_decision` 不订阅、发布或调用它们，默认运行和手动验证闭包也不再包含这些历史包。
 
 ## 当前验证口径
 
@@ -37,7 +37,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 
 - [`rc26_bringup`](archive/rc26_bringup/README.md): R2 整车链路统一装配入口；导航模式下装配定位、Nav2 基础导航栈和决策。`(file: archive/rc26_bringup/README.md)`
 - [`rc26_decision`](archive/rc26_decision/README.md): R2 主决策包；内部行为树通过 `NavToPose` 调用 Nav2 `/navigate_to_pose`，不再对外暴露 BT 调试 topic/service。`(file: archive/rc26_decision/README.md)`
-- [`rc26_interfaces`](archive/rc26_interfaces/README.md): R2 自定义 ROS 2 接口契约包；当前保留机构、视觉和少量归档接口定义，定位主链改用标准 ROS 消息与 TF。`(file: archive/rc26_interfaces/README.md)`
+- [`rc26_interfaces`](archive/rc26_interfaces/README.md): R2 自定义 ROS 2 接口契约包；当前保留机构、视觉和动态预测接口，定位主链改用标准 ROS 消息与 TF。`(file: archive/rc26_interfaces/README.md)`
 
 ### 里程计、定位与点云主链
 
@@ -56,12 +56,6 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 - [`rc26_mcu_transport`](archive/rc26_mcu_transport/README.md): 目标 MCU 共享串口 owner，提供 `/mechanism/send_command`、`/mechanism/command_feedback` 与默认 `/cmd_vel` 到 `POSE_TARGET` 的底盘执行。`(file: archive/rc26_mcu_transport/README.md)`
 - [`rc26_telecontrol`](archive/rc26_telecontrol/README.md): 人工遥控测试包。`(file: archive/rc26_telecontrol/README.md)`
 - [`rc26_serial`](archive/rc26_serial/README.md): 串口通信基础库。`(file: archive/rc26_serial/README.md)`
-
-### 归档地形与规则安全
-
-- [`rc26_base_ground`](archive/rc26_base_ground/README.md): 已归档的基础标高与离散层级估计源码；默认不编译运行时目标。`(file: archive/rc26_base_ground/README.md)`
-- [`rc26_kfs_keepout`](archive/rc26_kfs_keepout/README.md): 已归档的 KFS keepout 融合源码；默认不编译运行时目标，主链不再调用其服务或订阅其输出。`(file: archive/rc26_kfs_keepout/README.md)`
-- [`rc26_terrain`](archive/rc26_terrain/README.md): 已归档的地形感知与语义栅格源码；默认不编译运行时目标，主链不再消费其话题。`(file: archive/rc26_terrain/README.md)`
 
 ### 感知与可视化
 

@@ -47,18 +47,7 @@
 
 `MechanismActionHistory*.msg` 暂作归档兼容消息保留，当前主链不发布 `/mechanism/action_history`，也不把它列入中间层活跃契约。
 
-## 归档 Keepout / Terrain 接口
-
-下列接口仍可生成，用作历史兼容和后续恢复参考，但它们不属于当前主链运行时契约：
-
-- `SetKeepoutRuntime.srv`
-- `MfBlockOverlay.msg`
-- `MfBlockOverlayCell.msg`
-- `MfKfsState.msg`
-- `MfKfsCell.msg`
-- `TerrainFeatureGrid.msg`
-
-当前 `rc26_bringup` 不启动 `rc26_kfs_keepout`、`rc26_terrain` 或 `rc26_base_ground`，`rc26_decision` 也不调用 `/kfs_keepout/set_runtime`、不发布 `/mf_kfs_state`，不订阅 terrain/base-ground/keepout 输出。
+历史 keepout / terrain / MF KFS 兼容接口已经删除，不再由本包生成。当前 `rc26_bringup` 不启动旧 keepout、terrain 或 base-ground 链路，`rc26_decision` 也不调用旧 keepout runtime service、不发布旧 MF KFS 状态、不订阅旧 terrain/base-ground/keepout 输出。
 
 ## 当前边界
 
@@ -69,3 +58,4 @@
 ## 本轮同步
 
 2026-06-26 同步：移除旧机构 action 生成项和 `action_msgs` 依赖。机构侧当前只生成 raw transport message/service；旧高层动作能力已经从公开契约中删除。
+2026-06-26 同步：移除历史 keepout / terrain / MF KFS 兼容 msg/srv 生成项，并同步删除不再需要的 `nav_msgs` 依赖。

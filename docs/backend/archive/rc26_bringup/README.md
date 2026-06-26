@@ -51,7 +51,7 @@
   - 默认等价于 `run_mode:=mapping pure_mapping_mode:=true use_rviz:=true`
   - `slam.rviz` 默认观察 `/point_lio/map_cloud` 完整累计地图、`/registered_scan` 实时点云与 `/Laser_map` 初始地图
 
-`rc26_terrain`、`rc26_base_ground` 与 `rc26_kfs_keepout` 已归档退出当前装配。`bringup.launch.py`、`odometry.launch.py` 和 `test_mapping.launch.py` 不再声明 terrain/base-ground/keepout 参数，不再启动这些节点，也不再向 `rc26_decision` 透传 keepout heartbeat 或 runtime service 配置。
+旧地形、base-ground 与 MF keepout 包及相关兼容接口已从工作区删除。`bringup.launch.py`、`odometry.launch.py` 和 `test_mapping.launch.py` 不声明 terrain/base-ground/keepout 参数，不启动这些节点，也不向 `rc26_decision` 透传旧 keepout heartbeat 或 runtime service 配置。
 
 ## 当前关键文件
 
@@ -105,4 +105,4 @@
 - 2026-06-13 同步：删除分散的 `rc26_decision/config/decision_params.yaml` 与 `rc26_bringup/config/chassis_runtime.yaml`，并移除 `rc26_decision` 独立 launch 测试入口；完整 bringup 统一从 `rc26_bringup/config/r2_runtime.yaml` 读取运行配置，决策验收必须在所有相关节点拉起后进行。
 - 2026-06-22 同步：`rc26_merge_odom` 源码保留但退出默认运行装配；机构 transport provider 改由独立 `rc26_mcu_transport` 承担。
 - 2026-06-23 同步：`rc26_mcu_transport` 默认提供底盘 `/cmd_vel` consumer，以 `POSE_TARGET(0x0C)` 下发速度，线速度和角速度默认上限均为 `2.0`。
-- 本轮归档 `rc26_terrain`、`rc26_base_ground` 与 `rc26_kfs_keepout`：主启动、建图调试、验收探针、RViz 预设和 `package.xml` 均不再接入这些包
+- 2026-06-26 同步：删除旧地形、base-ground 与 MF keepout 包及相关兼容接口；主启动、建图调试、验收探针、RViz 预设和 `package.xml` 均不接入这些历史链路
