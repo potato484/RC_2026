@@ -140,7 +140,7 @@ Nav2 action result 映射规则：
 
 ## 梅林区预选赛专属链路
 
-`behavior_trees/mf_preselection_tree.xml` 是梅林区预选赛专属正式入口，完整 bringup 可通过 `r2_runtime.paths.behavior_tree_file` 指向它。该树先按 `mf_preselect_entry2_nav_enable` 决定是否执行 2 号入口 `NavToPose`；默认关闭入口导航，现场标定前假设机器人已经位于 2 号入口预备姿态。入口 `NavToPose` 默认通过 `mf_preselect_entry2_nav_behavior_tree_file` 指向 `rc26_bringup/config/nav2_bt_mf_preselect_entry_x_positive_y_negative.xml`，让 Nav2 只使用 `MFPreselectEntryXPositiveYNegative` controller，速度采样限制为车体系 `linear.x >= 0`、`linear.y <= 0`、`|angular.z| <= 0.10rad/s`；该约束只覆盖入口导航，不影响后续 `MfPreselectionFlow` 内部直接发布 `/cmd_vel` 的相对移动、台阶、转向和离场状态机。随后执行单个 `MfPreselectionFlow` 状态机，流程成功驶出梅林后进入 `WaitForever`，保持永久静止。
+`behavior_trees/mf_preselection_tree.xml` 是梅林区预选赛专属正式入口，完整 bringup 可通过 `r2_runtime.paths.behavior_tree_file` 指向它。该树先按 `mf_preselect_entry2_nav_enable` 决定是否执行 2 号入口 `NavToPose`；默认关闭入口导航，现场标定前假设机器人已经位于 2 号入口预备姿态。入口 `NavToPose` 默认通过 `mf_preselect_entry2_nav_behavior_tree_file` 指向 `rc26_bringup/config/nav2_bt_mf_preselect_entry_x_positive_y_negative.xml`，让 Nav2 只使用 `MFPreselectEntryXPositiveYNegative` controller，速度采样限制为车体系 `linear.x >= 0`、`linear.y <= 0`、`|angular.z| <= 0.10rad/s`；该约束只覆盖入口导航，不影响后续 `MfPreselectionFlow` 内部直接发布 `/cmd_vel` 的相对移动、台阶、转向和离场状态机。当前 `rc26_bringup/config/nav2_params.yaml` 的共享 Nav2 costmap 加载 obstacle layer 但不加载 inflation layer，因此该入口导航会消费动态障碍，但不会对静态或动态障碍额外生成膨胀缓冲。随后执行单个 `MfPreselectionFlow` 状态机，流程成功驶出梅林后进入 `WaitForever`，保持永久静止。
 
 `MfPreselectionFlow` 只消费 `rc26_vision` 的 KFS 模型快照、`/odom`、`/cmd_vel` 和 `rc26_mcu_transport` 提供的 `/mechanism/send_command` / `/mechanism/command_feedback`。视觉标签按当前模型语义处理：`T_*` 是 R2 可夹取 KFS，`R_R1/B_R1` 是 R1 阻挡目标，`F_*` 是假 KFS；这些标签列表和前缀都由 `mf_preselect_*` 参数配置。R2 KFS 单局最多夹取 `mf_preselect_max_pickup_count` 个，默认 2 个，达到上限后不再触发 KFS 夹取。
 
@@ -170,7 +170,7 @@ Nav2 action result 映射规则：
 
 `decision_node` 通过 `tree_file` 参数加载行为树；该参数现在支持绝对路径。完整 bringup 默认从 `rc26_bringup/config/r2_runtime.yaml` 的 `r2_runtime.paths.behavior_tree_file` 读取行为树 XML 绝对路径。决策包自身不再安装独立 launch 文件，避免只拉起单节点时误判完整链路状态。
 
-`mc_tree.xml` 的武馆区去程 Nav2 目标不再写死在 XML 中，而是读取黑板中的 `mc_nav_x`、`mc_nav_y`、`mc_nav_yaw`、`mc_nav_frame_id` 与 `mc_nav_timeout_sec`；这些值由 `rc26_bringup/config/r2_runtime.yaml` 的 `mc_nav_*` 参数提供。当前默认运行口径切到红方武馆区配置，并通过 `mc_nav_behavior_tree_file` 给去程 `NavToPose` 指定 `rc26_bringup/config/nav2_bt_mc_red_positive_xy.xml`。完成视觉夹取和原地旋转后，MC 树直接进入 `WaitForever`，不再执行固定返程 `NavToPose`，也不再声明或写入 `mc_return_nav_*` 黑板键。决策层仍只向 `/navigate_to_pose` 发送去程目标和可选 Nav2 BT 路径，不直接发布导航阶段速度；红方 MC 去程的 `cmd_vel.linear.x/y` 正向约束由 `MCPositiveXYRed` 承担。视觉伺服 heading hold 默认同用 `mc_nav_yaw` 作为期望车身朝向，避免导航目标 yaw 和取端头对线 yaw 分裂。
+`mc_tree.xml` 的武馆区去程 Nav2 目标不再写死在 XML 中，而是读取黑板中的 `mc_nav_x`、`mc_nav_y`、`mc_nav_yaw`、`mc_nav_frame_id` 与 `mc_nav_timeout_sec`；这些值由 `rc26_bringup/config/r2_runtime.yaml` 的 `mc_nav_*` 参数提供。当前默认运行口径切到红方武馆区配置，并通过 `mc_nav_behavior_tree_file` 给去程 `NavToPose` 指定 `rc26_bringup/config/nav2_bt_mc_red_positive_xy.xml`。完成视觉夹取和原地旋转后，MC 树直接进入 `WaitForever`，不再执行固定返程 `NavToPose`，也不再声明或写入 `mc_return_nav_*` 黑板键。决策层仍只向 `/navigate_to_pose` 发送去程目标和可选 Nav2 BT 路径，不直接发布导航阶段速度；红方 MC 去程的 `cmd_vel.linear.x/y` 正向约束由 `MCPositiveXYRed` 承担。当前共享 Nav2 costmap 加载 obstacle layer 但不加载 inflation layer，因此 MC 去程导航会消费动态障碍，但不会对静态或动态障碍额外生成膨胀缓冲。视觉伺服 heading hold 默认同用 `mc_nav_yaw` 作为期望车身朝向，避免导航目标 yaw 和取端头对线 yaw 分裂。
 
 ### 节点职责
 

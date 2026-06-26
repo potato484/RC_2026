@@ -1,7 +1,7 @@
 # R2 当前 Nav2 最小导航闭环配置
 # 口径说明：
 # - map -> odom 继续由 rc26_localization 负责，Nav2 不接管定位权威
-# - 当前默认关闭 local/global costmap 的 obstacle_layer；保留 sensor_scan 配置块供后续恢复
+# - 当前 local/global costmap 加载 obstacle_layer 但不加载 inflation_layer；sensor_scan 进入 Nav2 costmap
 # - /cmd_vel 由 Nav2 controller + velocity_smoother 输出；默认由 rc26_mcu_transport 消费并下发 POSE_TARGET
 
 # BT 导航器：负责调 planner / controller / recovery 等动作节点
@@ -233,7 +233,7 @@ controller_server: # Nav2 局部控制器服务器参数组
       RotateToGoal.slowing_factor: 5.0 # 到点旋转减速系数
       RotateToGoal.lookahead_time: -1.0 # 到点旋转前视时间；负值表示使用默认/禁用前视
 
-# 局部代价地图：在 odom 坐标系下滚动更新；当前默认关闭动态障碍层
+# 局部代价地图：在 odom 坐标系下滚动更新；当前启用动态障碍层但不做膨胀层
 local_costmap: # 局部代价地图顶层参数组
   local_costmap: # local_costmap 生命周期节点参数组
     ros__parameters: # 局部代价地图 ROS 参数集合
@@ -251,11 +251,11 @@ local_costmap: # 局部代价地图顶层参数组
       resolution: 0.05 # 代价地图分辨率，单位米/栅格
       # 当前按圆形机器人近似；若未来切 footprint，再统一调整
       robot_radius: 0.42 # 圆形机器人半径近似，单位米
-      plugins: [obstacle_layer, inflation_layer] # 局部代价地图启用的图层插件列表
+      plugins: [obstacle_layer] # 局部代价地图启用的图层插件列表；当前不加载 inflation_layer
       obstacle_layer: # 局部障碍层参数组
         plugin: nav2_costmap_2d::ObstacleLayer # 使用 Nav2 2D 障碍层插件
         enabled: true # 是否启用局部障碍层
-        # 若后续重新启用，当前默认只接一条障碍输入：sensor_scan(PointCloud2)
+        # 当前只接一条障碍输入：sensor_scan(PointCloud2)
         observation_sources: sensor_scan # 障碍层观测源名称列表
         sensor_scan: # sensor_scan 点云观测源参数组
           # 相对话题名；会跟随 namespace 进入对应机器人命名空间
@@ -271,14 +271,9 @@ local_costmap: # 局部代价地图顶层参数组
           raytrace_min_range: 0.0 # 射线清空最小距离，单位米
           obstacle_max_range: 2.5 # 障碍标记最大距离，单位米
           obstacle_min_range: 0.0 # 障碍标记最小距离，单位米
-      inflation_layer: # 局部膨胀层参数组
-        plugin: nav2_costmap_2d::InflationLayer # 使用 Nav2 2D 膨胀层插件
-        # 膨胀层：给障碍周围加安全缓冲
-        cost_scaling_factor: 3.0 # 膨胀代价随距离衰减的比例系数
-        inflation_radius: 0.55 # 障碍物膨胀半径，单位米
       always_send_full_costmap: true # 是否每次发布完整代价地图
 
-# 全局代价地图：在 map 坐标系下维护静态地图；当前默认关闭动态障碍层
+# 全局代价地图：在 map 坐标系下维护静态地图；当前启用动态障碍层但不做膨胀层
 global_costmap: # 全局代价地图顶层参数组
   global_costmap: # global_costmap 生命周期节点参数组
     ros__parameters: # 全局代价地图 ROS 参数集合
@@ -292,7 +287,7 @@ global_costmap: # 全局代价地图顶层参数组
       robot_radius: 0.42 # 圆形机器人半径近似，单位米
       # 当前允许未知区，避免占位图把规划直接锁死
       track_unknown_space: true # 是否保留并追踪 unknown 区域
-      plugins: [static_layer, obstacle_layer, inflation_layer] # 全局代价地图启用的图层插件列表
+      plugins: [static_layer, obstacle_layer] # 全局代价地图启用的图层插件列表；当前不加载 inflation_layer
       static_layer: # 静态地图层参数组
         plugin: nav2_costmap_2d::StaticLayer # 使用 Nav2 2D 静态地图层插件
         # 使用 map_server 的静态地图；需订阅保留最后一帧
@@ -311,10 +306,6 @@ global_costmap: # 全局代价地图顶层参数组
           raytrace_min_range: 0.0 # 射线清空最小距离，单位米
           obstacle_max_range: 2.5 # 障碍标记最大距离，单位米
           obstacle_min_range: 0.0 # 障碍标记最小距离，单位米
-      inflation_layer: # 全局膨胀层参数组
-        plugin: nav2_costmap_2d::InflationLayer # 使用 Nav2 2D 膨胀层插件
-        cost_scaling_factor: 3.0 # 膨胀代价随距离衰减的比例系数
-        inflation_radius: 0.55 # 障碍物膨胀半径，单位米
       always_send_full_costmap: true # 是否每次发布完整代价地图
 
 # 地图服务：当前可接受占位地图，只用于拉起 Nav2 生命周期与 costmap 链路
