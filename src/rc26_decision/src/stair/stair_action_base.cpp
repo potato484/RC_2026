@@ -152,17 +152,17 @@ bool StairActionBase::setupRuntime(const char *action_label) {
   // 创建共享串口推杆命令 service client；每条命令都通过 tickCommand() 异步发送。
   send_client_ =
       node_->create_client<SendCommandSrv>(params_.send_command_service);
-  // 订阅 mechanism transport feedback；台阶链路只关心 MCU 上报的 0x17/0x18/0x1A 激光突变。
+  // 订阅 mechanism transport feedback；台阶链路只关心 MCU 上报的 0x04/0x05/0x07 激光突变。
   feedback_sub_ = node_->create_subscription<FeedbackMsg>(
       params_.feedback_topic, rclcpp::QoS(32).reliable(),
       [this](const FeedbackMsg::SharedPtr msg) {
         // feedback_id 是 uint8，先转成协议枚举，便于只匹配明确的台阶事件。
         const auto id = static_cast<FeedbackID>(msg->feedback_id);
         if (id == FeedbackID::FRONT_LASER_HEIGHT_JUMP) {
-          // 前轮第一个激光测距模块 0x17 到达时，前轮第一事件计数加一，供上台阶使用。
+          // 前轮第一个激光测距模块 0x04 到达时，前轮第一事件计数加一，供上台阶使用。
           front_first_event_count_.fetch_add(1, std::memory_order_relaxed);
         } else if (id == FeedbackID::FRONT_SECOND_LASER_HEIGHT_JUMP) {
-          // 前轮第二个激光测距模块 0x1A 到达时，前轮第二事件计数加一，供下台阶使用。
+          // 前轮第二个激光测距模块 0x07 到达时，前轮第二事件计数加一，供下台阶使用。
           front_second_event_count_.fetch_add(1, std::memory_order_relaxed);
         } else if (id == FeedbackID::REAR_LASER_HEIGHT_JUMP) {
           // 后轮激光高度突变事件到达时，后轮事件计数加一。
@@ -583,7 +583,7 @@ void StairActionBase::beginEventWait(WheelEvent event, double timeout_s,
   // 清除速度限频状态，保证进入行驶阶段后第一帧速度可以立即发布。
   has_last_drive_publish_ = false;
 
-  // 打印等待事件，便于现场对照 MCU 上报 0x17/0x18/0x1A。
+  // 打印等待事件，便于现场对照 MCU 上报 0x04/0x05/0x07。
   if (node_) {
     RCLCPP_INFO(node_->get_logger(), "%s: 等待 %s 激光高度突变",
                 action_label_.c_str(), active_event_label_.c_str());

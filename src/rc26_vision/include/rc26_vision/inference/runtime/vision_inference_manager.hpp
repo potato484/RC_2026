@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -43,6 +44,24 @@ public:
 
     TargetResult getLatestResult() const;
     void setResultCallback(ResultCallback cb);
+
+    struct FrameSnapshot {
+        cv::Mat color_bgr;
+        cv::Mat depth;
+        std::vector<Detection> detections;
+        TargetResult result;
+        int64_t color_stamp_ns{0};
+        int64_t depth_stamp_ns{0};
+        int64_t display_stamp_ns{0};
+        int64_t display_sequence{0};
+        bool has_color{false};
+        bool has_depth{false};
+        bool has_display{false};
+    };
+
+    // 深拷贝最近彩色帧、深度帧、完整检测结果和目标结果，供决策层只读消费。
+    // 首帧前返回 false；返回 true 时调用方可无锁访问输出数据。
+    bool getLatestFrameSnapshot(FrameSnapshot& snapshot_out) const;
 
     // 快照最近可显示帧 + 完整检测 + 最新目标;首帧前返回 false。
     // frame_out 为深拷贝,调用方可安全绘制,无需持锁。
@@ -92,6 +111,7 @@ private:
     cv::Mat display_frame_;
     std::vector<Detection> display_detections_;
     TargetResult display_result_;
+    int64_t display_sequence_ = 0;
     bool display_valid_ = false;
     mutable std::mutex display_mutex_;
 

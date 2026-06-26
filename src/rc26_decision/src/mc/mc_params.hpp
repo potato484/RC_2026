@@ -44,7 +44,7 @@ struct McParams {
     std::vector<uint8_t> grab_payload;
     std::string grab_service_name{"/mechanism/send_command"};
     std::string grab_limit_switch_feedback_topic{"/mechanism/command_feedback"};
-    int grab_limit_switch_feedback_id{25};
+    int grab_limit_switch_feedback_id{6};
     double grab_approach_speed_mps{0.04};
     double grab_approach_timeout_s{5.0};
     double grab_done_lost_time_s{1.5};  // 夹取后端头持续消失多久判定完成

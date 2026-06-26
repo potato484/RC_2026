@@ -244,7 +244,7 @@ ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \
 | rc26_point_lio | `/state_estimation` + `/cloud_registered` | LIO 里程计与原生配准点云持续输出 |
 | localization | `map->odom` + `/localization/pose_with_cov` + `/localization/diagnostics` | TF 和标准定位观测持续发布 |
 | Nav2 | `/navigate_to_pose` + `/plan` + costmap topics + `/sensor_scan` | action server、路径和 costmap 可观察；当前默认不接入动态障碍层，`/sensor_scan` 只校验链路存在 |
-| rc26_mcu_transport | `/cmd_vel` | 完整 bringup/遥控入口默认消费速度命令并下发 `POSE_TARGET(0x1F)`；`test_navigation.launch.py` 默认关闭该节点 |
+| rc26_mcu_transport | `/cmd_vel` | 完整 bringup/遥控入口默认消费速度命令并下发 `POSE_TARGET(0x0C)`；`test_navigation.launch.py` 默认关闭该节点 |
 
 ---
 

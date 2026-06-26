@@ -1,21 +1,21 @@
 # rc26_mcu_transport
 
-`rc26_mcu_transport` 是当前 R2 目标 MCU 的共享串口 owner，提供机构 transport 与默认底盘 `/cmd_vel` consumer。
+`rc26_mcu_transport` 是当前 R2 目标 MCU 的共享串口 owner，提供机构 raw transport 与默认底盘 `/cmd_vel` consumer。
 
 ## 模块定位
 
 - 独占打开目标 MCU 串口，默认 `/dev/ttyUSB0 @ 1000000`
 - 提供 service `/mechanism/send_command`
 - 发布 topic `/mechanism/command_feedback`
-- 默认订阅 `/cmd_vel`，以 `50Hz` no-ack 路径下发 `POSE_TARGET(0x1F)`，payload 为 `(vx, vy, wz)` 三个 float
+- 默认订阅 `/cmd_vel`，以 `50Hz` no-ack 路径下发 `POSE_TARGET(0x0C)`，payload 为 `(vx, vy, wz)` 三个 float
 - 发布 `/mcu_transport/diagnostics`
-- 不维护机构动作语义；机构动作语义仍归 `rc26_mechanism`
+- 不维护旧高层机构 action 或动作完成语义
 
 ## 运行边界
 
-- 只要运行链涉及机构动作指令，就必须启动本服务。
+- 只要运行链涉及真实机构指令，就必须启动本服务。
 - 只要运行链需要真实执行 `/cmd_vel`，也必须启动本服务并保持 `enable_chassis_cmd_vel_consumer=true`。
-- `rc26_mechanism` 仍是机构动作语义边界；本包只是串口 transport provider 与底盘速度帧发送方。
+- `rc26_mechanism` 当前只是轻量 lifecycle 占位；本包才是目标 MCU 串口 provider。
 - `rc26_telecontrol` 前/后推杆 sidecar、`rc26_decision` 台阶/武馆动作和 `rc26_vision` tip test 都消费 `/mechanism/send_command`、`/mechanism/command_feedback` 或发布 `/cmd_vel`，不直接打开目标 MCU 串口。
 - 同一物理目标 MCU 串口只能由本包打开；其它上层包不得再次直连同一设备。
 - `rc26_merge_odom` 中保留的历史 bridge 代码不再作为默认 provider。
@@ -36,10 +36,11 @@ ros2 launch rc26_mcu_transport mcu_transport.launch.py \
 
 - `/mechanism/send_command`
   - type: `rc26_interfaces/srv/SendMechanismTransportCommand`
-  - `accepted=true` 表示目标 MCU 已返回通用 ACK，`seq` 为串口帧序号
+  - `accepted=true` 表示目标 MCU 已返回通用 `ACK(0x00)`，`seq` 为串口帧序号
 - `/mechanism/command_feedback`
   - type: `rc26_interfaces/msg/MechanismTransportFeedback`
-  - 透传机构业务反馈，过滤底层 `ACK(0x00)`、`HEARTBEAT_ACK(0x10)` 与 `ODOM_DATA(0x20)`
+  - 透传机构业务反馈，过滤底层 `ACK(0x00)`、`HEARTBEAT_ACK(0x01)` 与 `ODOM_DATA(0x08)`
+  - 当前会透传 KFS 机械臂升降完成 `0x02/0x03`、台阶激光事件 `0x04/0x05/0x07` 与前方限位事件 `0x06`；service 的 `accepted=true` 仍只表示可靠命令已收到通用 `ACK(0x00)`
 - `/mcu_transport/diagnostics`
   - type: `diagnostic_msgs/msg/DiagnosticArray`
   - 暴露串口打开状态、ACK 超时、解析错误、重连次数、机构发送统计、底盘 `POSE_TARGET` 发送统计和最近错误
@@ -47,14 +48,26 @@ ros2 launch rc26_mcu_transport mcu_transport.launch.py \
   - type: `geometry_msgs/msg/Twist`
   - 默认启用，按 `chassis_v_max_mps=2.0` 与 `chassis_w_max_radps=2.0` 限幅，超时 `200ms` 后补发 `10` 帧零速
 
-## 维护说明
+## 协议口径
 
-`rc26_mcu_transport` 不新增业务命令目录。新增机构命令仍按既有顺序维护：
+当前 raw transport 直接发送 `rc26_serial::CommandID`。常用下行 ID：
 
-1. 在 `rc26_serial/protocol.hpp` 增加原始 `CommandID` / `FeedbackID`
-2. 在 `rc26_mechanism` 命令目录中增加动作语义
-3. 上层通过 `/mechanism/run_command`、专用 action 或直接 transport service 消费
+- `GRAB_TIP = 0x01`
+- `GRAB_KFS_DOWN = 0x02`
+- `GRAB_KFS_UP = 0x03`
+- `ARM_RAISE = 0x04`
+- `ARM_LOWER = 0x05`
+- `PLACE_KFS_GRID = 0x06`
+- `FRONT_PUSHROD_EXTEND = 0x08`
+- `FRONT_PUSHROD_RETRACT = 0x09`
+- `REAR_PUSHROD_EXTEND = 0x0A`
+- `REAR_PUSHROD_RETRACT = 0x0B`
+- `POSE_TARGET = 0x0C`
+
+本包不新增业务命令目录。新增机构命令时，先在 `rc26_serial/protocol.hpp` 定义原始 ID，再由需要该能力的上层直接调用 `/mechanism/send_command`。只有重新设计高层动作语义时，才需要恢复 action、完成反馈和中间层契约。
+
+KFS 阶梯等待测试链属于直接 transport service 消费场景：决策层发送 `ARM_RAISE(0x04)` / `ARM_LOWER(0x05)`，并等待同 `seq` 的 `0x02/0x03` 完成反馈。`GRAB_KFS_UP(0x03)` / `GRAB_KFS_DOWN(0x02)` 当前不通过本包赋予业务语义。
 
 ## 本轮同步
 
-2026-06-23 同步：`rc26_mcu_transport` 从单纯机构 transport 扩展为目标 MCU 串口 owner 和默认底盘 `/cmd_vel` consumer。底盘速度通过已有 `POSE_TARGET(0x1F)` no-ack 帧下发，线速度/角速度默认上限均为 `2.0`；`rc26_merge_odom` 仍保持归档状态，不重新进入默认执行链。
+2026-06-26 同步：串口协议 ID 连续化后，本包文档同步到 `POSE_TARGET(0x0C)`、`ODOM_DATA(0x08)`、`HEARTBEAT_ACK(0x01)` 和新的机构业务反馈 ID。旧高层 action 下线后，本包只描述 raw transport provider 职责。

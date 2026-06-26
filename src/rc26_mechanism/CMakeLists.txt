@@ -11,7 +11,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(rclcpp_action REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(rc26_interfaces REQUIRED)
@@ -32,7 +31,6 @@ add_library(${PROJECT_NAME}_component SHARED ${RC26_MECHANISM_LIBRARY_SOURCES})
 target_include_directories(${PROJECT_NAME}_component PUBLIC ${COMMON_INCLUDE_DIRS})
 ament_target_dependencies(${PROJECT_NAME}_component
   rclcpp
-  rclcpp_action
   rclcpp_lifecycle
   rclcpp_components
   rc26_interfaces
@@ -65,19 +63,6 @@ install(
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
 
-  ament_add_gtest(test_shared_serial_transport
-    test/transport/test_shared_serial_transport.cpp
-  )
-  target_link_libraries(test_shared_serial_transport ${PROJECT_NAME}_component)
-  target_include_directories(test_shared_serial_transport PUBLIC ${COMMON_INCLUDE_DIRS})
-  ament_target_dependencies(test_shared_serial_transport
-    rclcpp
-    rclcpp_action
-    rclcpp_lifecycle
-    rc26_interfaces
-    rc26_serial
-  )
-
   ament_add_gtest(test_mechanism_command_catalog
     test/catalog/test_mechanism_command_catalog.cpp
   )
@@ -85,7 +70,6 @@ if(BUILD_TESTING)
   target_include_directories(test_mechanism_command_catalog PUBLIC ${COMMON_INCLUDE_DIRS})
   ament_target_dependencies(test_mechanism_command_catalog
     rclcpp
-    rclcpp_action
     rclcpp_lifecycle
     rc26_interfaces
     rc26_serial
@@ -96,7 +80,6 @@ ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME}_component)
 ament_export_dependencies(
   rclcpp
-  rclcpp_action
   rclcpp_lifecycle
   rclcpp_components
   rc26_interfaces

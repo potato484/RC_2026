@@ -41,9 +41,8 @@ x-modules:
     services: []
   - name: mechanism
     file: docs/middle/modules/mechanism.yaml
-    description: 机构 action 与 transport 契约；/mechanism/send_command 和 /mechanism/command_feedback 的 provider 由 rc26_mcu_transport 提供。
+    description: 机构 raw transport 契约；/mechanism/send_command 和 /mechanism/command_feedback 的 provider 由 rc26_mcu_transport 提供。
     topics:
-      - /mechanism/status
       - /mechanism/command_feedback
     services:
       - /mechanism/send_command

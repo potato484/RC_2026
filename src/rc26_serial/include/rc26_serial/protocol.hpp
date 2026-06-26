@@ -29,35 +29,34 @@ constexpr uint8_t MAX_RECONNECT_ATTEMPTS = 10;    // 最大重连尝试次数
 // 下行指令 ID (上位机 -> MCU)
 // ============================================================================
 enum class CommandID : uint8_t {
-    STOP = 0x00,              // 急停指令
-    GRAB_TIP = 0x01,          // 抓取端头
-    ASSEMBLE_WEAPON = 0x02,   // 组装兵器
-    GRAB_KFS = 0x07,          // 梅林区夹取 KFS
-    PLACE_KFS_GRID = 0x0B,    // 对抗区放置 KFS 到九宫格
-    HEARTBEAT = 0x0D,             // 心跳查询请求
-    FRONT_PUSHROD_EXTEND = 0x0E,  // 前推杆伸展
-    FRONT_PUSHROD_RETRACT = 0x0F, // 前推杆收缩
-    REAR_PUSHROD_EXTEND = 0x10,   // 后推杆伸展
-    REAR_PUSHROD_RETRACT = 0x11,  // 后推杆收缩
-    POSE_TARGET = 0x1F,       // 目标速度 (vx, vy, wz) - MCU速度闭环
+    STOP = 0x00,                  // 急停指令
+    GRAB_TIP = 0x01,              // 抓取端头
+    GRAB_KFS_DOWN = 0x02,         // 下台阶方向 KFS 夹取（预留，本车目标标签明确后启用）
+    GRAB_KFS_UP = 0x03,           // 上台阶方向 KFS 夹取（预留，本车目标标签明确后启用）
+    ARM_RAISE = 0x04,             // 机械臂底座抬起
+    ARM_LOWER = 0x05,             // 机械臂底座下降
+    PLACE_KFS_GRID = 0x06,        // 对抗区放置 KFS 到九宫格
+    HEARTBEAT = 0x07,             // 心跳查询请求
+    FRONT_PUSHROD_EXTEND = 0x08,  // 前推杆伸展
+    FRONT_PUSHROD_RETRACT = 0x09, // 前推杆收缩
+    REAR_PUSHROD_EXTEND = 0x0A,   // 后推杆伸展
+    REAR_PUSHROD_RETRACT = 0x0B,  // 后推杆收缩
+    POSE_TARGET = 0x0C,           // 目标速度 (vx, vy, wz) - MCU速度闭环
 };
 
 // ============================================================================
 // 上行反馈 ID (MCU -> 上位机)
 // ============================================================================
 enum class FeedbackID : uint8_t {
-    ACK = 0x00,                    // 确认收到指令
-    NACK = 0x01,                   // 执行动作失败，需要继续发送动作指令
-    GRAB_TIP_DONE = 0x02,          // 夹取端头完成
-    ASSEMBLE_DONE = 0x03,          // 组装兵器完成
-    GRAB_KFS_DONE = 0x0C,          // 夹取 KFS 完成
-    PLACE_KFS_GRID_DONE = 0x0E,    // 九宫格放置完成
-    HEARTBEAT_ACK = 0x10,          // 心跳响应
-    FRONT_LASER_HEIGHT_JUMP = 0x17,   // 前轮附近第一个激光测距模块检测到车体高度突变
-    REAR_LASER_HEIGHT_JUMP = 0x18,    // 后轮附近激光测距模块检测到车体高度突变
-    FRONT_LIMIT_SWITCH_TRIGGERED = 0x19, // 武馆前方限位开关触发，payload v1 为空或忽略
-    FRONT_SECOND_LASER_HEIGHT_JUMP = 0x1A, // 前轮附近第二个激光测距模块检测到车体高度突变
-    ODOM_DATA = 0x20,                 // 麦克纳姆轮速反馈：<v_fl,v_rl,v_rr,v_fr>，单位: m/s
+    ACK = 0x00,                         // 确认收到指令
+    HEARTBEAT_ACK = 0x01,               // 心跳响应
+    ARM_RAISE_DONE = 0x02,              // 机械臂抬起完成
+    ARM_LOWER_DONE = 0x03,              // 机械臂下降完成
+    FRONT_LASER_HEIGHT_JUMP = 0x04,     // 前轮附近第一个激光测距模块检测到车体高度突变
+    REAR_LASER_HEIGHT_JUMP = 0x05,      // 后轮附近激光测距模块检测到车体高度突变
+    FRONT_LIMIT_SWITCH_TRIGGERED = 0x06, // 武馆前方限位开关触发，payload v1 为空或忽略
+    FRONT_SECOND_LASER_HEIGHT_JUMP = 0x07, // 前轮附近第二个激光测距模块检测到车体高度突变
+    ODOM_DATA = 0x08,                   // 麦克纳姆轮速反馈：<v_fl,v_rl,v_rr,v_fr>，单位: m/s
 };
 
 // ============================================================================

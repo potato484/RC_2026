@@ -34,7 +34,7 @@ paths:
                 default:
                   value: |
                     event: ros2.topic
-                    data: {"topic":"/mechanism/status","message_type":"rc26_interfaces/msg/MechanismState","payload":{"hal_open":true,"last_error_code":0,"current_cmd_id":17}}
+                    data: {"topic":"/mechanism/command_feedback","message_type":"rc26_interfaces/msg/MechanismTransportFeedback","payload":{"seq":42,"feedback_id":6,"payload":[]}}
 components:
   schemas:
     Ros2SseEnvelope:

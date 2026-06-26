@@ -2,28 +2,12 @@
 
 #include <algorithm>
 
-#include "rc26_serial/protocol.hpp"
-
 namespace rc26_mechanism {
 
 namespace {
 
-using namespace std::chrono_literals;
-
 const std::vector<MechanismCommandCatalogEntry>& buildCatalog() {
-    using CID = rc26_serial::CommandID;
-    using FID = rc26_serial::FeedbackID;
-
-    static const std::vector<MechanismCommandCatalogEntry> catalog{
-        {static_cast<uint8_t>(CID::GRAB_TIP), false,
-         {static_cast<uint8_t>(FID::GRAB_TIP_DONE)}, 8s},
-        {static_cast<uint8_t>(CID::ASSEMBLE_WEAPON), false,
-         {static_cast<uint8_t>(FID::ASSEMBLE_DONE)}, 30s},
-        {static_cast<uint8_t>(CID::GRAB_KFS), true,
-         {static_cast<uint8_t>(FID::GRAB_KFS_DONE)}, 8s},
-        {static_cast<uint8_t>(CID::PLACE_KFS_GRID), true,
-         {static_cast<uint8_t>(FID::PLACE_KFS_GRID_DONE)}, 8s},
-    };
+    static const std::vector<MechanismCommandCatalogEntry> catalog{};
     return catalog;
 }
 

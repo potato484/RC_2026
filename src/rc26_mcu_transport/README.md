@@ -2,7 +2,7 @@
 
 `rc26_mcu_transport` 是 R2 目标 MCU 的共享串口 transport provider。
 
-它负责持有目标 MCU 串口，并同时提供机构 transport 契约与默认底盘 `/cmd_vel` consumer。机构动作语义仍归 `rc26_mechanism`，Nav2 / teleop / decision 仍只发布 `/cmd_vel`，由本节点把速度转成 `POSE_TARGET(0x1F)` 下发给 MCU。
+它负责持有目标 MCU 串口，并同时提供机构 transport 契约与默认底盘 `/cmd_vel` consumer。旧 `rc26_mechanism` 高层 action 已下线，Nav2 / teleop / decision 仍只发布 `/cmd_vel`，由本节点把速度转成 `POSE_TARGET(0x0C)` 下发给 MCU。
 
 ## 职责
 
@@ -10,14 +10,15 @@
 - 提供 service `/mechanism/send_command`
 - 发布 topic `/mechanism/command_feedback`
 - 把 `rc26_serial::SerialDriver::sendCommand()` 的通用 ACK 结果映射为 service response
-- 默认订阅 `/cmd_vel`，以 `50Hz` no-ack 路径下发 `POSE_TARGET(0x1F)`，payload 为 `(vx, vy, wz)` 三个 float
-- 透传 MCU 上行业务反馈，过滤底层 `ACK(0x00)`、`HEARTBEAT_ACK(0x10)` 与 `ODOM_DATA(0x20)`
+- 默认订阅 `/cmd_vel`，以 `50Hz` no-ack 路径下发 `POSE_TARGET(0x0C)`，payload 为 `(vx, vy, wz)` 三个 float
+- 透传 MCU 上行业务反馈，过滤底层 `ACK(0x00)`、`HEARTBEAT_ACK(0x01)` 与 `ODOM_DATA(0x08)`
+- 当前透传的业务反馈包括 KFS 机械臂升降完成 `0x02/0x03`、台阶激光事件 `0x04/0x05/0x07` 和前方限位事件 `0x06`；`/mechanism/send_command.accepted=true` 仍只表示通用 `ACK(0x00)` 已可靠返回
 - 发布 `/mcu_transport/diagnostics`
 
 ## 边界
 
 - `rc26_mcu_transport` 是目标 MCU 串口 owner；同一物理口不要再被其它节点直接打开。
-- `rc26_mechanism` 仍然是机构动作语义边界；它通过 `shared_serial` HAL 调用 `/mechanism/send_command`。
+- `rc26_mechanism` 当前只是轻量生命周期占位；机构命令语义由直接调用 `/mechanism/send_command` 的上层负责。
 - `rc26_telecontrol` 前/后推杆 sidecar、`rc26_vision` tip test、`rc26_decision` 台阶/武馆动作都只消费 transport 契约或发布 `/cmd_vel`，不直接打开串口。
 - 默认底盘速度上限为 `chassis_v_max_mps=2.0` 与 `chassis_w_max_radps=2.0`；如需只验证 `/cmd_vel` 输出，可传 `enable_chassis_cmd_vel_consumer:=false`。
 
@@ -42,7 +43,7 @@ ros2 launch rc26_mcu_transport mcu_transport.launch.py \
 涉及机构指令或底盘真实运动的运行链必须先启动或同时启动本服务：
 
 - 遥控前/后推杆 sidecar
-- `rc26_mechanism` 的 `/mechanism/grab_tip`、`/mechanism/assemble_weapon`、`/mechanism/run_command`
+- 直接调用 `/mechanism/send_command` 的机构动作链
 - `rc26_decision` 中等待限位后下发 `GRAB_TIP` 或台阶推杆命令的动作
 - `rc26_vision` tip test 中对齐后下发 `GRAB_TIP` 的链路
 - Nav2、遥控、台阶动作、视觉对齐等发布 `/cmd_vel` 的链路

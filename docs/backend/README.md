@@ -10,7 +10,7 @@ R2 运行时导航权威已经迁移到 Nav2。`rc26_bringup` 在 `slam=false` �
 
 `rc26_decision` 不再发送自定义导航 action，而是在 BT XML 中显式写 Nav2 pose 目标，通过 `NavToPose` 节点调用 `/navigate_to_pose`。
 
-`rc26_merge_odom` 已从当前 R2 默认运行装配中停用但保留源码：`rc26_bringup`、导航联调入口和遥控脚本不再启动它，也不再把 `/merge_odom` 作为当前运行时契约。`/cmd_vel` 的默认硬件消费方由 `rc26_mcu_transport` 提供，它复用目标 MCU 串口下发 `POSE_TARGET(0x1F)`；机构指令共享串口 provider 同样由 `rc26_mcu_transport` 提供。
+`rc26_merge_odom` 已从当前 R2 默认运行装配中停用但保留源码：`rc26_bringup`、导航联调入口和遥控脚本不再启动它，也不再把 `/merge_odom` 作为当前运行时契约。`/cmd_vel` 的默认硬件消费方由 `rc26_mcu_transport` 提供，它复用目标 MCU 串口下发 `POSE_TARGET(0x0C)`；机构指令共享串口 provider 同样由 `rc26_mcu_transport` 提供。
 
 `rc26_terrain`、`rc26_base_ground` 与 `rc26_kfs_keepout` 已从当前 R2 主运行时链路中归档退出：默认 CMake 不生成运行时目标，`rc26_bringup` 不启动它们，`rc26_decision` 不订阅或发布它们的数据，默认运行和手动验证闭包也不再纳入这些归档链路。
 

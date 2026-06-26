@@ -20,6 +20,8 @@
   - `behavior_trees/two_pose_nav_tree.xml`（独立双点 Nav2 导航入口，默认主流程不引用）
   - `behavior_trees/stair_climb_tree.xml`（独立上台阶测试入口，默认主流程不引用）
   - `behavior_trees/stair_descend_tree.xml`（独立下台阶测试入口，默认主流程不引用）
+  - `behavior_trees/kfs_stair_climb_test_tree.xml`（KFS 上台阶等待测试入口，默认主流程不引用）
+  - `behavior_trees/kfs_stair_descend_test_tree.xml`（KFS 下台阶等待测试入口，默认主流程不引用）
   - `behavior_trees/mf_red_middle_column_tree.xml`（红方中间列连续台阶独立入口，默认主流程不引用）
 - 关键源码:
   - `src/decision_node.cpp`
@@ -34,6 +36,7 @@
   - `src/mf/conditions.cpp`（MF 退出条件）
   - `src/mc/mc_area.cpp`（注册 + `loadMCParams`）
   - `src/mc/visual_servo_grab.cpp`、`src/mc/rotate_in_place.cpp`、`src/mc/wait_forever.cpp`
+  - `src/kfs/kfs_stair_pickup.cpp`（KFS 阶梯等待测试 BT 节点）
   - `src/stair/stair_climb.cpp`、`src/stair/stair_descend.cpp`、`src/stair/stair_action_base.cpp`
 
 ## 当前 MF 格间与导航调用口径
@@ -85,7 +88,7 @@ MF 格中心归位会维护以下黑板键：
 ros2 launch rc26_bringup grid_heading.launch.py
 ```
 
-本入口只串行执行 `GridTurn -> GridHeadingAlign`，不读取 `current_grid` / `target_grid`，不调用 `/mechanism/send_command`，也不等待 0x17/0x18/0x1A 激光事件。它会直接发布 `grid_heading_cmd_vel_topic`（默认 `cmd_vel`），运行前必须停用 Nav2 controller、遥控或其它运动命令权威。
+本入口只串行执行 `GridTurn -> GridHeadingAlign`，不读取 `current_grid` / `target_grid`，不调用 `/mechanism/send_command`，也不等待 0x04/0x05/0x07 激光事件。它会直接发布 `grid_heading_cmd_vel_topic`（默认 `cmd_vel`），运行前必须停用 Nav2 controller、遥控或其它运动命令权威。
 
 方向和目标 yaw 由 `rc26_bringup/config/r2_runtime.yaml` 的 `grid_heading_*` 参数维护：`grid_heading_direction` 可取 `forward | left | right | backward`，分别映射到 `grid_heading_forward_yaw_rad`、`grid_heading_left_yaw_rad`、`grid_heading_right_yaw_rad`、`grid_heading_backward_yaw_rad`。`decision_node` 启动时会把选中的目标 yaw 写入黑板 `grid_heading_target_yaw_rad`；方向非法时节点启动失败，避免未知方向误动作。
 
@@ -115,6 +118,22 @@ Nav2 action result 映射规则：
 
 本树只用一个 `Sequence` 依次执行两个 `NavToPose`：先到 `map` 下 `(x=0.9675, y=0.0082, yaw=-0.0035)`，成功后再到 `(x=0.9778, y=0.7744, yaw=-1.4857)`；两段导航当前各自显式设置 `timeout_sec=180.0`，避免低速实车在 60 秒默认超时内被决策层提前取消。任一导航目标返回 `FAILURE` 时，整棵树立即失败并停止后续动作。它不做视觉夹取、台阶动作、黑板状态写入或默认入口切换。
 
+## KFS 阶梯等待测试链
+
+`behavior_trees/kfs_stair_climb_test_tree.xml` 与 `behavior_trees/kfs_stair_descend_test_tree.xml` 是独立测试树，默认 `main_tree.xml`、`mf_tree.xml`、`mc_tree.xml` 与 `mf_red_middle_column_tree.xml` 都不引用它们。上台阶测试树执行 `KfsStairPickup(direction=climb) -> StairClimb`，下台阶测试树执行 `KfsStairPickup(direction=descend) -> StairDescend`；建议通过 `rc26_bringup/launch/kfs_stair_test.launch.py direction:=climb|descend` 启动，避免与 Nav2 controller、遥控或其它 `/cmd_vel` 权威冲突。
+
+当前 KFS 模型标签 `R_R1` / `B_R1` 表示另一台机器人需要拾取的 KFS，不是本车可夹取目标。`KfsStairPickup` 在视觉检测前会按方向通过 `/mechanism/send_command` 发送机械臂预调命令：`climb -> ARM_RAISE(0x04)` 并等待同 `seq` 的 `ARM_RAISE_DONE(0x02)`，`descend -> ARM_LOWER(0x05)` 并等待同 `seq` 的 `ARM_LOWER_DONE(0x03)`。预调完成后节点使用 `rc26_vision::VisionInferenceManager` 加载 `kfs_default`，通过只读帧快照读取最新彩色/深度/检测结果；若检测到 `R_R1` 或 `B_R1` 且中心 ROI 深度落入 `kfs_depth_min_m..kfs_depth_max_m`，就持续发布零速等待，直到连续 `kfs_blocking_lost_stable_frames` 个新的推理帧都未再看到占用目标。
+
+本轮 v1 不会因为 `R_R1/B_R1` 下发 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`；这两个命令只是协议预留，等待后续模型增加本车可夹取标签后再接入对齐、趋近、夹取和颜色留存判定链路。占用目标消失后节点写入 `kfs_last_outcome=blocked_target_gone` 并返回 `SUCCESS`，一开始没有占用目标则写入 `kfs_last_outcome=no_target` 并返回 `SUCCESS`，让测试树继续普通 `StairClimb` 或 `StairDescend`。若预调 service 不可用、命令 rejected、完成反馈超时、视觉启动失败或等待超过 `kfs_blocking_wait_timeout_s`，节点发布零速、写入 `kfs_last_outcome=failed` 与 `kfs_last_error`，并返回 `FAILURE`。
+
+`KfsStairPickup` 会维护以下黑板键：
+
+- `kfs_last_outcome`: `running | no_target | blocked_target_gone | failed`
+- `kfs_last_direction`: `climb | descend`
+- `kfs_last_error`
+- `kfs_last_label`
+- `kfs_last_distance_m`
+
 ## 武馆区 (MC) 行为树
 
 武馆区已重构为一条专属行为树 `behavior_trees/mc_tree.xml`（`MCAreaTree`），运行时通过完整 bringup 装配后执行，流程：
@@ -130,7 +149,7 @@ Nav2 action result 映射规则：
 
 ### 节点职责
 
-- `VisualServoGrabAction`（`src/mc/visual_servo_grab.cpp`）：内嵌直连相机 + `rc26_vision::InferenceEngine`，在独立工作线程中执行"取帧→推理→锁定同一物理端头→雷达 odom yaw 姿态保持 + 横移 P 控制对齐→对齐稳定后以 `cmd_vel.linear.x` 负方向前探→等待 `/mechanism/command_feedback` 上行 `FRONT_LIMIT_SWITCH_TRIGGERED(0x19)`→立即停车→经 `/mechanism/send_command` 下发 `GRAB_TIP(0x01)`"。多框同时出现时，目标选择复用 `rc26_vision` 的 tip alignment helper：初次按离画面中心最近获锁，短暂丢失不立即切到另一侧框。单端头场景下，若 `mc_odom_topic` yaw 偏离目标 yaw 超过 `mc_align_heading_gate_deg`，动作只发布 `cmd_vel.angular.z` 修正车身朝向，暂停 `linear.y` 横移和前探；只有像素偏差进入 `mc_align_tolerance_px` 且 yaw 偏差进入 `mc_align_heading_tolerance_deg` 后才累计稳定帧并进入前探。每次动作生命周期最多发送一次实际进入 `async_send_request` 的 `GRAB_TIP`；service 未就绪时不消耗这次发送机会并在停车状态下继续等待，前探等待 0x19 超过 `mc_grab_approach_timeout_s` 则停车失败。`/mechanism/send_command` 返回 `accepted=false` 只表示通用 ACK 未被可靠确认或 transport 拒绝，MC 夹取动作不会因此立即让行为树失败。**完成判定**：夹取已下发后端头持续消失达 `mc_grab_done_lost_time_s` → `SUCCESS`；端头未消失则超 `mc_servo_timeout_s` → `FAILURE`。该宽容 ACK 语义只适用于 MC 视觉夹取，不改变台阶动作对 accepted 的严格判定。
+- `VisualServoGrabAction`（`src/mc/visual_servo_grab.cpp`）：内嵌直连相机 + `rc26_vision::InferenceEngine`，在独立工作线程中执行"取帧→推理→锁定同一物理端头→雷达 odom yaw 姿态保持 + 横移 P 控制对齐→对齐稳定后以 `cmd_vel.linear.x` 负方向前探→等待 `/mechanism/command_feedback` 上行 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)`→立即停车→经 `/mechanism/send_command` 下发 `GRAB_TIP(0x01)`"。多框同时出现时，目标选择复用 `rc26_vision` 的 tip alignment helper：初次按离画面中心最近获锁，短暂丢失不立即切到另一侧框。单端头场景下，若 `mc_odom_topic` yaw 偏离目标 yaw 超过 `mc_align_heading_gate_deg`，动作只发布 `cmd_vel.angular.z` 修正车身朝向，暂停 `linear.y` 横移和前探；只有像素偏差进入 `mc_align_tolerance_px` 且 yaw 偏差进入 `mc_align_heading_tolerance_deg` 后才累计稳定帧并进入前探。每次动作生命周期最多发送一次实际进入 `async_send_request` 的 `GRAB_TIP`；service 未就绪时不消耗这次发送机会并在停车状态下继续等待，前探等待 0x06 超过 `mc_grab_approach_timeout_s` 则停车失败。`/mechanism/send_command` 返回 `accepted=false` 只表示通用 ACK 未被可靠确认或 transport 拒绝，MC 夹取动作不会因此立即让行为树失败。**完成判定**：夹取已下发后端头持续消失达 `mc_grab_done_lost_time_s` → `SUCCESS`；端头未消失则超 `mc_servo_timeout_s` → `FAILURE`。该宽容 ACK 语义只适用于 MC 视觉夹取，不改变台阶动作对 accepted 的严格判定。
 - `RotateInPlaceAction`（`src/mc/rotate_in_place.cpp`）：发布 `cmd_vel.angular.z`，订阅 `mc_odom_topic`（默认 `odom`），默认使用 `rc26_odom_interface` 发布的雷达标准 `/odom` yaw 作为 180° 闭环反馈；角速度由 `mc_rotate_speed_radps` 配置为最大值，末段按 `mc_rotate_slowdown_angle_deg` 线性降到 `mc_rotate_min_speed_radps` 以降低过冲。动作按 `mc_rotate_direction` 的符号判断累计角度和剩余角度，`剩余角度 ≤ mc_rotate_yaw_tolerance_deg` → 停车 `SUCCESS`；`mc_rotate_odom_timeout_s` 内无新 odom 时停车等待，超 `mc_rotate_timeout_s` → `FAILURE`（yaw 直接由四元数解算，不依赖 tf2）。
 - `CaptureCurrentPoseAction`（`src/navigation/bt_nav2_pose.cpp`）：订阅 TF 并等待 `mc_nav_frame_id -> base_footprint` 新鲜，在超时内捕获当前 `x/y/yaw` 写入对应黑板输出键。它作为通用 BT 节点保留，当前 MC 树不再使用它来生成返程目标位姿。
 - `WaitForeverAction`（`src/mc/wait_forever.cpp`）：恒 `RUNNING`。
@@ -156,11 +175,11 @@ Nav2 action result 映射规则：
 
 台阶动作既可通过 `stair_climb_tree.xml` / `stair_descend_tree.xml` 独立加载测试，也可由 MF 的 `GridTransition` 串行复用。独立树仍只执行单个台阶动作；MF 主树则通过 `target_grid` 和静态深度表决定本次格间边应当上台阶还是下台阶。
 
-- `StairClimb`：先通过 `/mechanism/send_command` 下发 `FRONT_PUSHROD_EXTEND`，accepted 后按 `stair_climb_front_extend_delay_s` 零速等待；随后以 `stair_climb_drive_speed_mps` 对应的 `x` 正方向速度直行等待 `/mechanism/command_feedback` 中的 `FRONT_LASER_HEIGHT_JUMP(0x17)`。收到前轮突变后立即停车，并在同一 BT tick 内连续发出 `FRONT_PUSHROD_RETRACT` 与 `REAR_PUSHROD_EXTEND` 两条异步 service 请求；两条都 accepted 后按 `stair_climb_retract_rear_extend_delay_s` 零速等待，再进入后轮上台阶速度 profile：以 `stair_climb_rear_drive_fast_speed_mps` 对应的 `x` 正方向速度起步，在 `stair_climb_rear_drive_slowdown_duration_s` 内线性降到 `stair_climb_rear_drive_slow_speed_mps` 并保持，直到等待到 `REAR_LASER_HEIGHT_JUMP(0x18)`；最后停车并下发 `REAR_PUSHROD_RETRACT`，accepted 后按 `stair_climb_rear_retract_delay_s` 零速等待，再返回成功。当前上台阶只消费前轮 `0x17` 与后轮 `0x18` 两个激光事件，后轮速度 profile 同步作用于独立 `StairClimb` 和 MF `GridTransition` 的上台阶第六阶段。
-- `StairDescend`：先以 `stair_descend_drive_speed_mps` 对应的 `x` 负方向速度直行等待 `REAR_LASER_HEIGHT_JUMP(0x18)`，停车并下发 `REAR_PUSHROD_EXTEND`；accepted 后按 `stair_descend_rear_extend_delay_s` 零速等待。随后继续同一下台阶负向速度等待前轮第二个激光测距模块 `FRONT_SECOND_LASER_HEIGHT_JUMP(0x1A)`，停车并在同一 BT tick 内连续发出 `REAR_PUSHROD_RETRACT` 与 `FRONT_PUSHROD_EXTEND` 两条异步 service 请求；两条都 accepted 后按 `stair_descend_retract_front_extend_delay_s` 零速等待，再以 `x` 负方向按 `stair_descend_front_retract_drive_speed_mps` 默认 `0.025m/s` 连续发送 `stair_descend_front_retract_drive_duration_s` 默认 `4.0s`。定时行驶结束后停车，下发 `FRONT_PUSHROD_RETRACT`，accepted 后按 `stair_descend_front_retract_delay_s` 零速等待，再返回成功。当前下台阶只消费后轮 `0x18` 与前轮第二激光 `0x1A` 两个激光事件；全下阶梯链路不需要 `FRONT_LASER_HEIGHT_JUMP(0x17)` 作为阶段推进条件。
+- `StairClimb`：先通过 `/mechanism/send_command` 下发 `FRONT_PUSHROD_EXTEND`，accepted 后按 `stair_climb_front_extend_delay_s` 零速等待；随后以 `stair_climb_drive_speed_mps` 对应的 `x` 正方向速度直行等待 `/mechanism/command_feedback` 中的 `FRONT_LASER_HEIGHT_JUMP(0x04)`。收到前轮突变后立即停车，并在同一 BT tick 内连续发出 `FRONT_PUSHROD_RETRACT` 与 `REAR_PUSHROD_EXTEND` 两条异步 service 请求；两条都 accepted 后按 `stair_climb_retract_rear_extend_delay_s` 零速等待，再进入后轮上台阶速度 profile：以 `stair_climb_rear_drive_fast_speed_mps` 对应的 `x` 正方向速度起步，在 `stair_climb_rear_drive_slowdown_duration_s` 内线性降到 `stair_climb_rear_drive_slow_speed_mps` 并保持，直到等待到 `REAR_LASER_HEIGHT_JUMP(0x05)`；最后停车并下发 `REAR_PUSHROD_RETRACT`，accepted 后按 `stair_climb_rear_retract_delay_s` 零速等待，再返回成功。当前上台阶只消费前轮 `0x04` 与后轮 `0x05` 两个激光事件，后轮速度 profile 同步作用于独立 `StairClimb` 和 MF `GridTransition` 的上台阶第六阶段。
+- `StairDescend`：先以 `stair_descend_drive_speed_mps` 对应的 `x` 负方向速度直行等待 `REAR_LASER_HEIGHT_JUMP(0x05)`，停车并下发 `REAR_PUSHROD_EXTEND`；accepted 后按 `stair_descend_rear_extend_delay_s` 零速等待。随后继续同一下台阶负向速度等待前轮第二个激光测距模块 `FRONT_SECOND_LASER_HEIGHT_JUMP(0x07)`，停车并在同一 BT tick 内连续发出 `REAR_PUSHROD_RETRACT` 与 `FRONT_PUSHROD_EXTEND` 两条异步 service 请求；两条都 accepted 后按 `stair_descend_retract_front_extend_delay_s` 零速等待，再以 `x` 负方向按 `stair_descend_front_retract_drive_speed_mps` 默认 `0.025m/s` 连续发送 `stair_descend_front_retract_drive_duration_s` 默认 `4.0s`。定时行驶结束后停车，下发 `FRONT_PUSHROD_RETRACT`，accepted 后按 `stair_descend_front_retract_delay_s` 零速等待，再返回成功。当前下台阶只消费后轮 `0x05` 与前轮第二激光 `0x07` 两个激光事件；全下阶梯链路不需要 `FRONT_LASER_HEIGHT_JUMP(0x04)` 作为阶段推进条件。
 - `GridTurn` / `GridHeadingAlign` 直接发布 `grid_heading_cmd_vel_topic`（默认 `cmd_vel`）；台阶动作和 `GridTransition` 直接发布 `stair_cmd_vel_topic`（默认 `cmd_vel`）；`MFEntryCenterAdvance` / `GridCenterAlign` 直接发布 `mf_center_cmd_vel_topic`（默认 `cmd_vel`）做格中心前进和二维归位。运行时必须停用 Nav2 controller、遥控或其它运动命令权威；任何命令拒绝、服务等待超时、激光事件等待超时、heading odom 超时或格中心归位超时都会发布零速并返回 `FAILURE`，`onHalted()` 只发布零速，不额外补偿推杆状态。
 
-台阶参数以 `stair_*` 前缀集中在 `rc26_bringup/config/r2_runtime.yaml`，启动时由 `loadStairParams()` 写入黑板 `stair_params`；当前没有运行期参数变更回调。为便于上/下阶梯实车独立调速，普通直行速度已拆为 `stair_climb_drive_speed_mps`（上台阶，默认 `0.10m/s`）与 `stair_descend_drive_speed_mps`（下台阶，默认 `0.10m/s`），两者按绝对值读取，旧 `stair_drive_speed_mps` 不再声明或读取。上台阶第六阶段后轮上台阶速度 profile 由 `stair_climb_rear_drive_fast_speed_mps`（默认 `0.40m/s`）、`stair_climb_rear_drive_slow_speed_mps`（默认 `0.10m/s`）和 `stair_climb_rear_drive_slowdown_duration_s`（默认 `3.0s`）控制，只作用于后推杆已伸出后等待后轮 `0x18` 的阶段，不改变前轮 `0x17` 阶段速度；其中 `fast <= 0` 时回退到 `stair_climb_drive_speed_mps`，`slow` 会被夹到不超过 `fast`，降速时长小于 0 时按 0 处理。上台阶零速等待参数为 `stair_climb_front_extend_delay_s`（默认 `2.0s`）、`stair_climb_retract_rear_extend_delay_s`（默认 `2.5s`）与 `stair_climb_rear_retract_delay_s`（默认 `4.0s`）；下台阶零速等待参数为 `stair_descend_rear_extend_delay_s`（默认 `2.5s`）、`stair_descend_retract_front_extend_delay_s`（默认 `2.5s`）与 `stair_descend_front_retract_delay_s`（默认 `2.5s`）。下台阶前推杆收回前的定时负向行驶由 `stair_descend_front_retract_drive_speed_mps`（默认 `0.025m/s`，按绝对值读取）和 `stair_descend_front_retract_drive_duration_s`（默认 `4.0s`）控制。这些延时和定时行驶时长小于 0 时都会按 0 处理，等待期间持续发布零速，定时行驶期间持续发布带符号 `x` 方向速度。姿态微调参数包括 `stair_odom_topic`、`stair_heading_hold_enable`、`stair_heading_kp`、`stair_heading_max_speed_radps`、`stair_heading_tolerance_deg`、`stair_heading_gate_deg`、`stair_heading_stable_ticks`、`stair_heading_odom_timeout_s` 与 `stair_heading_align_timeout_s`；独立台阶动作默认捕获启动后的当前 yaw 作为保持方向，MF `GridTransition` 会按格间边显式写目标 yaw。
+台阶参数以 `stair_*` 前缀集中在 `rc26_bringup/config/r2_runtime.yaml`，启动时由 `loadStairParams()` 写入黑板 `stair_params`；当前没有运行期参数变更回调。为便于上/下阶梯实车独立调速，普通直行速度已拆为 `stair_climb_drive_speed_mps`（上台阶，默认 `0.10m/s`）与 `stair_descend_drive_speed_mps`（下台阶，默认 `0.10m/s`），两者按绝对值读取，旧 `stair_drive_speed_mps` 不再声明或读取。上台阶第六阶段后轮上台阶速度 profile 由 `stair_climb_rear_drive_fast_speed_mps`（默认 `0.40m/s`）、`stair_climb_rear_drive_slow_speed_mps`（默认 `0.10m/s`）和 `stair_climb_rear_drive_slowdown_duration_s`（默认 `3.0s`）控制，只作用于后推杆已伸出后等待后轮 `0x05` 的阶段，不改变前轮 `0x04` 阶段速度；其中 `fast <= 0` 时回退到 `stair_climb_drive_speed_mps`，`slow` 会被夹到不超过 `fast`，降速时长小于 0 时按 0 处理。上台阶零速等待参数为 `stair_climb_front_extend_delay_s`（默认 `2.0s`）、`stair_climb_retract_rear_extend_delay_s`（默认 `2.5s`）与 `stair_climb_rear_retract_delay_s`（默认 `4.0s`）；下台阶零速等待参数为 `stair_descend_rear_extend_delay_s`（默认 `2.5s`）、`stair_descend_retract_front_extend_delay_s`（默认 `2.5s`）与 `stair_descend_front_retract_delay_s`（默认 `2.5s`）。下台阶前推杆收回前的定时负向行驶由 `stair_descend_front_retract_drive_speed_mps`（默认 `0.025m/s`，按绝对值读取）和 `stair_descend_front_retract_drive_duration_s`（默认 `4.0s`）控制。这些延时和定时行驶时长小于 0 时都会按 0 处理，等待期间持续发布零速，定时行驶期间持续发布带符号 `x` 方向速度。姿态微调参数包括 `stair_odom_topic`、`stair_heading_hold_enable`、`stair_heading_kp`、`stair_heading_max_speed_radps`、`stair_heading_tolerance_deg`、`stair_heading_gate_deg`、`stair_heading_stable_ticks`、`stair_heading_odom_timeout_s` 与 `stair_heading_align_timeout_s`；独立台阶动作默认捕获启动后的当前 yaw 作为保持方向，MF `GridTransition` 会按格间边显式写目标 yaw。
 
 MF 格中心归位参数以 `mf_center_*` 前缀集中在同一个 `r2_runtime.yaml` 决策参数区，启动时由 `loadGridCenterParams()` 写入黑板 `mf_center_params`。其中 `mf_center_entry_forward_offset_m` 是红方中间列独立树首段上到 `grid2` 后继续前进到格中心的可调距离，默认 `0.25m`；`mf_center_grid_step_m` 是后续格中心推算使用的离散格距，默认 `1.2m`。`mf_center_xy_tolerance_m`、`mf_center_yaw_tolerance_deg`、`mf_center_stable_ticks` 和 `mf_center_align_timeout_s` 决定二维归位成功/失败语义。
 
@@ -185,7 +204,7 @@ MF 格中心归位参数以 `mf_center_*` 前缀集中在同一个 `r2_runtime.y
 - 新增正式 `GridTurn` / `GridHeadingAlign` BT 节点和 `grid_heading_tree.xml` 入口：方向由 `grid_heading_direction` 与四个方向 yaw 参数选择，只负责原地转向和 yaw 精对齐，不触发推杆。
 - MF 格间动作改为 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> GridTransition -> GridCenterAlign`：前者按 `current_grid -> target_grid` 的相邻边和静态高度差选择 `CLIMB` / `DESCEND` 并计算目标 yaw，`GridTransition` 负责台阶执行和成功后提交 `current_grid`，`GridCenterAlign` 负责后验二维格中心归位
 - `StairActionBase` 增加 `stair_heading_*` 参数和 odom yaw heading hold；独立 `StairClimb` / `StairDescend` 默认保持启动时 yaw，MF `GridTransition` 显式设置格间目标 yaw
-- `StairClimb` 与 MF `GridTransition` 的上台阶第六阶段新增后轮速度 profile：后推杆伸出后等待后轮 `0x18` 期间，`x` 正向速度从快到慢线性规划，便于降低尾段冲击；前轮 `0x17` 阶段、下台阶动作、推杆命令顺序和运动命令权威边界不变。
+- `StairClimb` 与 MF `GridTransition` 的上台阶第六阶段新增后轮速度 profile：后推杆伸出后等待后轮 `0x05` 期间，`x` 正向速度从快到慢线性规划，便于降低尾段冲击；前轮 `0x04` 阶段、下台阶动作、推杆命令顺序和运动命令权威边界不变。
 - `SelectNextGrid` 不再把平地同高格当作可执行移动目标；同高格间移动留待后续定义
 - `mf_red_middle_column_tree.xml` 改为固定 `StairClimb -> MFEntryCenterAdvance -> GridTransition(5) + GridCenterAlign(5) -> GridTransition(8) + GridCenterAlign(8) -> GridTransition(11) + GridCenterAlign(11) -> GridTransition(12) + GridCenterAlign(12) -> StairDescend` 测试树，不再依赖 Nav2 pose；首个独立上台阶动作从梅林外进入 `grid2` 后先前进可调距离建立中心参考，再提交 `current_grid=2`，最后一个独立下台阶动作从已归位的 `grid12` 继续离开梅林，离场后不再更新离散格号
 - `CheckExitCondition` 现在只判断 `current_grid` 是否属于出口格

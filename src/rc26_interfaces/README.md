@@ -1,6 +1,6 @@
 # rc26_interfaces
 
-`rc26_interfaces` 是 R2 当前运行时的接口真源。这个包只定义跨包消息、服务和动作，不包含任何业务逻辑。
+`rc26_interfaces` 是 R2 当前运行时的接口真源。这个包只定义跨包消息和服务，不包含任何业务逻辑；旧机构 action 已经下线。
 
 ## 当前接口范围
 
@@ -12,12 +12,8 @@
   - `MfKfsCell.msg`
   - `TerrainFeatureGrid.msg`
 - 机构与任务:
-  - `MechanismState.msg`
   - `MechanismTransportFeedback.msg`
   - `MechanismActionHistory*.msg`
-  - `ExecuteMechanism.action`
-  - `GrabTip.action`
-  - `AssembleWeapon.action`
   - `SendMechanismTransportCommand.srv`
 - 感知:
   - `TipDetection.msg`
@@ -49,10 +45,9 @@ BT 运行时调试与控制接口也已从接口生成清单中移除；行为�
 
 ## 机构契约
 
-- 保留专用动作 `GrabTip.action` 与 `AssembleWeapon.action`。
-- 保留通用动作 `ExecuteMechanism.action`。
-- 删除 `PlaceKFSGrid.action`；KFS 放置改为通过 `ExecuteMechanism` 下发 `PLACE_KFS_GRID + payload`。
-- `MechanismState.msg` 只保留 `hal_open`、`last_error_code`、`current_cmd_id` 三个最小观测字段。
+- 旧抓端头、旧组装、旧通用机构执行与旧九宫格放置 action 均不再生成。
+- 当前机构执行只保留 raw transport：`SendMechanismTransportCommand.srv` 与 `MechanismTransportFeedback.msg`。
+- `MechanismActionHistory*.msg` 暂作归档兼容消息保留，当前主链不发布 `/mechanism/action_history`。
 
 ## 归档 Keepout / Terrain 接口
 

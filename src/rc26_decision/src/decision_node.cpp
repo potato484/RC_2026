@@ -9,6 +9,7 @@
 #include <string>
 
 #include "rc26_decision/mc/mc_area.hpp"
+#include "rc26_decision/kfs/kfs_stair_pickup.hpp"
 #include "rc26_decision/mf/mf_area.hpp"
 #include "rc26_decision/navigation/bt_nav2_pose.hpp"
 #include "rc26_decision/stair/stair_area.hpp"
@@ -24,11 +25,13 @@ public:
     initializeRuntimeState();
 
     loadMCParams(*this, blackboard_);
+    loadKfsParams(*this, blackboard_);
     loadGridHeadingParams(*this, blackboard_);
     loadGridCenterParams(*this, blackboard_);
     loadStairParams(*this, blackboard_);
 
     registerMCAreaNodes(factory_);
+    registerKfsNodes(factory_);
     registerMFAreaNodes(factory_);
     registerNav2PoseNodes(factory_);
     registerStairNodes(factory_);

@@ -118,7 +118,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 
 - **规则**：每条动态 TF 边只能有一个文档化权威者。
 - **规则**：除非做过明确架构变更并更新文档，否则不得新增第二个发布同一动态边的节点。
-- **当前口径**：自动导航主链的 `/odom` 与动态基座 TF 仍由 `rc26_odom_interface` / 定位链维护；`rc26_merge_odom` 已退出默认运行装配，`/merge_odom` 不再是当前运行时契约。`/cmd_vel` 的默认硬件消费方由 `rc26_mcu_transport` 提供，并复用目标 MCU 串口下发 `POSE_TARGET(0x1F)`；机构指令的目标 MCU 串口权威同样由 `rc26_mcu_transport` 提供。
+- **当前口径**：自动导航主链的 `/odom` 与动态基座 TF 仍由 `rc26_odom_interface` / 定位链维护；`rc26_merge_odom` 已退出默认运行装配，`/merge_odom` 不再是当前运行时契约。`/cmd_vel` 的默认硬件消费方由 `rc26_mcu_transport` 提供，并复用目标 MCU 串口下发 `POSE_TARGET(0x0C)`；机构指令的目标 MCU 串口权威同样由 `rc26_mcu_transport` 提供。
 
 ### 3.8 launch 参数必须声明明确、归属明确
 
@@ -161,7 +161,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 - **规则**：如果系统同时存在遥控、Nav2 和其它运动测试节点，必须在 launch 装配层保证任一时刻只有一个节点发布运动命令。
 - **规则**：观察节点可以发布 preview、planner state 或诊断状态，但不得在旁路上直接输出 `cmd_vel`。
 - **当前口径**：导航模式下 `/cmd_vel` 由 Nav2 velocity_smoother 输出；人工遥控测试应与导航 bringup 分开启动或显式停用导航命令链。
-- **补充口径**：`rc26_decision` 的 `grid_heading_tree.xml` 是正式 Grid heading 转向/对齐入口，会由 `GridTurn` / `GridHeadingAlign` 直接发布 `cmd_vel` 但不触发推杆；`stair_climb_tree.xml` / `stair_descend_tree.xml` 是受限的独立台阶入口，会由 BT 动作直接发布 `cmd_vel` 并调用推杆共享 transport；MF 格间动作按 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> GridTransition -> GridCenterAlign` 串行复用同一套转向、对齐、台阶执行、heading hold 与二维格中心归位，红方中间列独立树首段还会通过 `MFEntryCenterAdvance` 建立 `grid2` 中心参考。运行这些树前必须停用 Nav2/遥控等其它运动命令权威，失败或 halt 时相关动作只发布零速，不做额外推杆补偿。
+- **补充口径**：`rc26_decision` 的 `grid_heading_tree.xml` 是正式 Grid heading 转向/对齐入口，会由 `GridTurn` / `GridHeadingAlign` 直接发布 `cmd_vel` 但不触发推杆；`stair_climb_tree.xml` / `stair_descend_tree.xml` 是受限的独立台阶入口，会由 BT 动作直接发布 `cmd_vel` 并调用推杆共享 transport；`kfs_stair_climb_test_tree.xml` / `kfs_stair_descend_test_tree.xml` 是 KFS 阶梯等待独立入口，先做机械臂升降预调和 `R_R1/B_R1` 阻塞目标等待，再串行进入普通台阶动作，`kfs_stair_test.launch.py` 不启动 Nav2 controller；MF 格间动作按 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> GridTransition -> GridCenterAlign` 串行复用同一套转向、对齐、台阶执行、heading hold 与二维格中心归位，红方中间列独立树首段还会通过 `MFEntryCenterAdvance` 建立 `grid2` 中心参考。运行这些树前必须停用 Nav2/遥控等其它运动命令权威，失败或 halt 时相关动作只发布零速，不做额外推杆补偿。
 
 ### 3.14 静态传感器安装外参必须单一真源
 

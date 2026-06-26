@@ -72,6 +72,13 @@ if(BUILD_TESTING)
   target_include_directories(test_adaptive_timeout PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
   )
+
+  ament_add_gtest(test_protocol_ids
+    test/test_protocol_ids.cpp
+  )
+  target_include_directories(test_protocol_ids PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
 endif()
 
 ament_package()

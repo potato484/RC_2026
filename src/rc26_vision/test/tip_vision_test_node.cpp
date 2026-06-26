@@ -32,7 +32,7 @@
 
 namespace rc26_vision::test {
 
-constexpr uint8_t kDefaultGrabTipCommand =
+constexpr uint8_t kDefaultTipGrabCommand =
   static_cast<uint8_t>(rc26_serial::CommandID::GRAB_TIP);
 
 class TipVisionTestNode : public rclcpp::Node
@@ -84,7 +84,7 @@ private:
     std::string grab_state{"DISABLED"};
     bool limit_switch_triggered{false};
     std::string grab_phase{"WAIT"};
-    uint8_t grab_command_id{kDefaultGrabTipCommand};
+    uint8_t grab_command_id{kDefaultTipGrabCommand};
     uint8_t grab_seq{0x00};
   };
 
@@ -224,7 +224,7 @@ private:
   bool alignment_invert_direction_{true};
   bool alignment_draw_guides_{true};
   bool alignment_grab_enable_{true};
-  int alignment_grab_command_id_{kDefaultGrabTipCommand};
+  int alignment_grab_command_id_{kDefaultTipGrabCommand};
   std::vector<uint8_t> alignment_grab_payload_;
   bool alignment_grab_once_per_target_{true};
   double alignment_grab_cooldown_s_{2.0};
@@ -653,7 +653,7 @@ void TipVisionTestNode::declare_parameters()
   this->declare_parameter<bool>("alignment_invert_direction", true);
   this->declare_parameter<bool>("alignment_draw_guides", true);
   this->declare_parameter<bool>("alignment_grab_enable", true);
-  this->declare_parameter<int>("alignment_grab_command_id", kDefaultGrabTipCommand);
+  this->declare_parameter<int>("alignment_grab_command_id", kDefaultTipGrabCommand);
   this->declare_parameter<std::vector<int64_t>>(
     "alignment_grab_payload", std::vector<int64_t>{});
   this->declare_parameter<bool>("alignment_grab_once_per_target", true);

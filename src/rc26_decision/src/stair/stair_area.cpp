@@ -21,7 +21,7 @@ void loadStairParams(rclcpp::Node &node,
   p.send_command_service =
       node.declare_parameter<std::string>("stair_send_command_service",
                                           p.send_command_service);
-  // 读取 MCU 业务反馈 topic；0x17/0x18/0x1A 激光高度突变事件从这里透传过来。
+  // 读取 MCU 业务反馈 topic；0x04/0x05/0x07 激光高度突变事件从这里透传过来。
   p.feedback_topic =
       node.declare_parameter<std::string>("stair_feedback_topic",
                                           p.feedback_topic);

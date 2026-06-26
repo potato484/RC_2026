@@ -53,7 +53,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
     // 第二阶段：前推杆伸出后按参数零速等待，持续覆盖上一阶段可能残留的速度。
     switch (tickZeroHold()) {
     case StepStatus::Success:
-      // 延时结束后，开始 x 正方向低速行驶，并只等待前轮第一个 0x17 突变。
+      // 延时结束后，开始 x 正方向低速行驶，并只等待前轮第一个 0x04 突变。
       phase_ = Phase::DriveUntilFrontFirstEvent;
       beginEventWait(WheelEvent::FrontFirst, params_.front_event_timeout_s,
                      "front_first");
@@ -105,7 +105,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
     publishStop();
     switch (tickCommandPair()) {
     case StepStatus::Success:
-      // 两条命令都 accepted 后，再零速等待后推杆到位；当前两激光链路只由后轮 0x18 推进下一阶段。
+      // 两条命令都 accepted 后，再零速等待后推杆到位；当前两激光链路只由后轮 0x05 推进下一阶段。
       phase_ = Phase::HoldAfterFrontRetractAndRearExtend;
       beginZeroHold(params_.climb_retract_rear_extend_delay_s,
                     "front_retract_rear_extend_settle");
@@ -122,7 +122,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
     // 第五阶段：组合推杆命令后零速等待；这段期间不消费额外前轮突变数据。
     switch (tickZeroHold()) {
     case StepStatus::Success:
-      // 延时结束后恢复 x 正方向行驶，并按后轮上台阶 profile 从快到慢等待后轮 0x18 突变。
+      // 延时结束后恢复 x 正方向行驶，并按后轮上台阶 profile 从快到慢等待后轮 0x05 突变。
       phase_ = Phase::DriveUntilRearEvent;
       resetClimbRearDriveProfile();
       beginEventWait(WheelEvent::Rear, params_.rear_event_timeout_s, "rear");

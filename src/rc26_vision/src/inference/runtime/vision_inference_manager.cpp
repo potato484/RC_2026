@@ -243,6 +243,56 @@ TargetResult VisionInferenceManager::getLatestResult() const {
     return latest_result_;
 }
 
+bool VisionInferenceManager::getLatestFrameSnapshot(FrameSnapshot& snapshot_out) const {
+    FrameSnapshot snapshot;
+    sensor_msgs::msg::Image::ConstSharedPtr color_msg;
+    sensor_msgs::msg::Image::ConstSharedPtr depth_msg;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        color_msg = latest_color_;
+        depth_msg = latest_depth_;
+    }
+
+    if (color_msg) {
+        try {
+            snapshot.color_bgr = cv_bridge::toCvCopy(color_msg, "bgr8")->image.clone();
+            snapshot.color_stamp_ns = rclcpp::Time(color_msg->header.stamp).nanoseconds();
+            snapshot.has_color = true;
+        } catch (...) {
+            snapshot.has_color = false;
+        }
+    }
+
+    if (depth_msg) {
+        try {
+            snapshot.depth = cv_bridge::toCvShare(depth_msg)->image.clone();
+            snapshot.depth_stamp_ns = rclcpp::Time(depth_msg->header.stamp).nanoseconds();
+            snapshot.has_depth = true;
+        } catch (...) {
+            snapshot.has_depth = false;
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(display_mutex_);
+        snapshot.detections = display_detections_;
+        snapshot.result = display_result_;
+        snapshot.display_stamp_ns = display_result_.timestamp_ns;
+        snapshot.display_sequence = display_sequence_;
+        snapshot.has_display = display_valid_;
+    }
+    if (!snapshot.has_display) {
+        std::lock_guard<std::mutex> lock(result_mutex_);
+        snapshot.result = latest_result_;
+    }
+
+    if (!snapshot.has_color && !snapshot.has_depth && !snapshot.has_display) {
+        return false;
+    }
+    snapshot_out = std::move(snapshot);
+    return true;
+}
+
 bool VisionInferenceManager::getLatestDisplay(cv::Mat& frame_out,
                                               std::vector<Detection>& dets_out,
                                               TargetResult& result_out) const {
@@ -360,6 +410,7 @@ void VisionInferenceManager::inferenceLoop() {
                 display_frame_ = display_frame_local;
                 display_detections_ = std::move(display_dets_local);
                 display_result_ = result;
+                ++display_sequence_;
                 display_valid_ = true;
             }
 

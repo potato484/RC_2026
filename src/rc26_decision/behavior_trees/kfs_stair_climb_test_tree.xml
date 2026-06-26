@@ -1,0 +1,15 @@
+<!--
+  KFS 上台阶独立测试树：
+  - KfsStairPickup(direction=climb) 先发送 ARM_RAISE，等待 ARM_RAISE_DONE；
+  - 若 KFS 模型检测到 R_R1/B_R1 且深度有效，则持续停车等待，直到目标消失；
+  - 目标消失或一开始无目标后，继续执行原有 StairClimb。
+  本树默认主流程不引用，只供 kfs_stair_test.launch.py 或显式 tree_file 使用。
+-->
+<root BTCPP_format="4" main_tree_to_execute="KfsStairClimbTestTree">
+  <BehaviorTree ID="KfsStairClimbTestTree">
+    <Sequence name="KFS_Stair_Climb_Test_Sequence">
+      <KfsStairPickup name="kfs_wait_before_climb" direction="climb"/>
+      <StairClimb name="stair_climb_after_kfs_wait"/>
+    </Sequence>
+  </BehaviorTree>
+</root>

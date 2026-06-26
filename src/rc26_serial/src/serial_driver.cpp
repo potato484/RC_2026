@@ -625,14 +625,6 @@ void SerialDriver::notifyAck(uint8_t seq, uint8_t cmd) {
         RCLCPP_DEBUG(serialLogger(), "收到 ACK：seq=%u", seq);
         return;
     }
-    if (cmd == static_cast<uint8_t>(FeedbackID::NACK)) {
-        ack_response_received_ = true;
-        ack_success_ = false;
-        ack_cv_.notify_all();
-        RCLCPP_DEBUG(serialLogger(), "收到 NACK：seq=%u", seq);
-        return;
-    }
-
     if (waiting_cmd_ == static_cast<uint8_t>(CommandID::HEARTBEAT) &&
         cmd == static_cast<uint8_t>(FeedbackID::HEARTBEAT_ACK)) {
         ack_response_received_ = true;
@@ -777,14 +769,9 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload,
         }
 
         uint8_t round = retry / RETRIES_PER_ROUND + 1;
-        if (wait_result == AckWaitResult::kReceived) {
-            RCLCPP_WARN(serialLogger(), "指令收到 NACK (retry=0x%02X, 第%u轮)：cmd=0x%02X, seq=%u", retry, round, cmd,
-                        out_seq);
-        } else {
-            RCLCPP_WARN(serialLogger(),
-                        "指令等待超时 (timeout=%lldms, retry=0x%02X, 第%u轮)：cmd=0x%02X, seq=%u",
-                        static_cast<long long>(ack_timeout.count()), retry, round, cmd, out_seq);
-        }
+        RCLCPP_WARN(serialLogger(),
+                    "指令等待超时 (timeout=%lldms, retry=0x%02X, 第%u轮)：cmd=0x%02X, seq=%u",
+                    static_cast<long long>(ack_timeout.count()), retry, round, cmd, out_seq);
     }
 
     // 所有重试失败（0x00-0x09共10次），触发串口重连

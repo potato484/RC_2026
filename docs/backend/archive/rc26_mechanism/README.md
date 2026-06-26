@@ -2,120 +2,81 @@
 
 ## 模块定位
 
-`rc26_mechanism` 是 R2 的最小机构执行边界，负责把上层动作语义可靠地下发给下位机，并回传最小执行状态。
+`rc26_mechanism` 当前是 R2 机构共享串口链路的轻量生命周期占位包。旧的高层机构 action 语义已经下线，真实机构命令统一通过 `rc26_mcu_transport` 提供的 raw transport service 下发。
 
 ## 当前实现
 
 - 构建方式：组件库 + 独立可执行
 - 导出节点：`mechanism_server_node`
 - 启动文件：`launch/mechanism.launch.py`
-- `mechanism.launch.py` 默认同时启动 `rc26_mcu_transport`；当 provider 已由 bringup 或其它入口启动时，应传 `start_mcu_transport:=false`
+- 默认 HAL：`shared_serial`
 
-当前实现已经收口为“一个生命周期服务端 + 一份集中命令目录 + 一个真实共享串口 HAL”：
+当前实现只保留最小真机链路：
 
-- `include/rc26_mechanism/nodes` + `src/nodes`
-  - `mechanism_lifecycle_server.hpp/.cpp`
-  - 生命周期管理、action 服务、取消/超时/结果收敛
-- `include/rc26_mechanism/catalog` + `src/catalog`
-  - `mechanism_command_catalog.hpp/.cpp`
-  - `rc26_mechanism` 唯一的业务命令目录真源
-  - 统一描述命令是否允许走 `/mechanism/run_command`
-  - 统一描述 terminal success feedback 与默认 timeout
-- `include/rc26_mechanism/runtime`
-  - `command_context.hpp`
-- `include/rc26_mechanism/hal/shared_serial` + `src/hal/shared_serial`
-  - `shared_serial_mechanism_hal.hpp/.cpp`
-  - 通过 ROS 2 service/topic 复用 `rc26_mcu_transport` 已打开的目标 MCU 串口
-- `include/rc26_mechanism/hal/contracts`
-  - `i_mechanism_hal.hpp`
-- `test/catalog` 与 `test/transport`
-  - 命令目录回归与共享 transport 回归测试
+- `mechanism_lifecycle_server.hpp/.cpp`：轻量 lifecycle 组件，只校验 `hal_type:=shared_serial` 并持有共享串口 HAL。
+- `shared_serial_mechanism_hal.hpp/.cpp`：通过 `/mechanism/send_command` 和 `/mechanism/command_feedback` 复用 `rc26_mcu_transport` 已打开的目标 MCU 串口。
+- `mechanism_command_catalog.hpp/.cpp`：保留空 catalog，给旧调用点提供编译兼容；当前不再注册任何高层命令完成语义。
+- `test/catalog`：断言 catalog 为空、旧高层命令不可执行。
+
+`mechanism.launch.py` 默认同时启动 `rc26_mcu_transport`；当 provider 已由 bringup、遥控脚本或其它入口启动时，应传 `start_mcu_transport:=false`，避免重复打开同一物理串口。
 
 ## 当前对外接口
 
-当前只保留 3 个动作入口：
+`rc26_mechanism` 当前不再暴露高层 action，也不再发布机构状态 topic：
 
-- `/mechanism/grab_tip`
-- `/mechanism/assemble_weapon`
-- `/mechanism/run_command`
+- 不创建旧抓端头 action endpoint
+- 不创建旧组装 action endpoint
+- 不创建旧通用执行 action endpoint
+- 不发布 `/mechanism/status`
 
-当前只保留 1 个状态 topic：
+当前机构/底盘共享串口入口由 `rc26_mcu_transport` 提供：
 
-- `/mechanism/status`
-  - `hal_open`
-  - `last_error_code`
-  - `current_cmd_id`
+- service `/mechanism/send_command`
+- topic `/mechanism/command_feedback`
 
-也就是说，机构节点不再发布端头状态机、锁定槽位、装配计数或通信健康统计。
+上层若要发送 `GRAB_TIP(0x01)`、`GRAB_KFS_DOWN(0x02)`、`GRAB_KFS_UP(0x03)`、`PLACE_KFS_GRID(0x06)`、推杆命令或其它原始机构命令，都直接调用 `/mechanism/send_command`。service `accepted=true` 只表示目标 MCU 已返回通用 `ACK(0x00)`，不表示动作已经完成。
 
-## 当前业务命令口径
+## 协议口径
 
-当前 mechanism 业务目录只保留 4 条命令：
+旧组装动作、通用 KFS 夹取动作、旧动作完成反馈和即时负确认语义已经从 `rc26_serial/protocol.hpp` 删除。当前机制层不再维护“命令对应哪些完成反馈”的目录。
 
-- `GRAB_TIP`
-- `ASSEMBLE_WEAPON`
-- `GRAB_KFS`
-- `PLACE_KFS_GRID`
+当前与机构相关的原始 ID 口径：
 
-其中：
+- `GRAB_TIP = 0x01`
+- `GRAB_KFS_DOWN = 0x02`
+- `GRAB_KFS_UP = 0x03`
+- `ARM_RAISE = 0x04`
+- `ARM_LOWER = 0x05`
+- `PLACE_KFS_GRID = 0x06`
+- `FRONT_PUSHROD_EXTEND = 0x08`
+- `FRONT_PUSHROD_RETRACT = 0x09`
+- `REAR_PUSHROD_EXTEND = 0x0A`
+- `REAR_PUSHROD_RETRACT = 0x0B`
 
-- `GRAB_TIP` 与 `ASSEMBLE_WEAPON` 继续保留专用 action 入口
-- `GRAB_KFS` 与 `PLACE_KFS_GRID` 继续走 `/mechanism/run_command`
+当前业务反馈口径：
 
-`PlaceKFSGrid.action` 已经移除；如果上层要放置 KFS，当前应通过 `/mechanism/run_command` 下发 `PLACE_KFS_GRID + payload{grid_position, layer}`。
+- `ARM_RAISE_DONE = 0x02`
+- `ARM_LOWER_DONE = 0x03`
+- `FRONT_LASER_HEIGHT_JUMP = 0x04`
+- `REAR_LASER_HEIGHT_JUMP = 0x05`
+- `FRONT_LIMIT_SWITCH_TRIGGERED = 0x06`
+- `FRONT_SECOND_LASER_HEIGHT_JUMP = 0x07`
+
+KFS 阶梯等待测试链不把上下阶梯夹取预留命令加入 catalog。`ARM_RAISE(0x04)` / `ARM_LOWER(0x05)` 由决策层直接通过 `/mechanism/send_command` 发送，并等待同 `seq` 的 `ARM_RAISE_DONE(0x02)` / `ARM_LOWER_DONE(0x03)`。`GRAB_KFS_UP(0x03)` 与 `GRAB_KFS_DOWN(0x02)` 只作为后续本车目标标签明确后的 raw transport 预留能力。
+
+`PLACE_KFS_GRID(0x06)` 若仍需发送，只能走 raw `/mechanism/send_command`，不再有高层“完成反馈即成功”的封装。
 
 ## 真实部署口径
 
-当前真实部署已经不是“`rc26_mechanism` 自己独占默认目标口 `/dev/ttyUSB0`”，而是：
+- 真机上由 `rc26_mcu_transport` 作为目标 MCU 串口 owner。
+- `rc26_mechanism` 通过 `shared_serial` 复用 `rc26_mcu_transport` 的 ROS service/topic。
+- 只要 `/mechanism/send_command` 或 `/mechanism/command_feedback` 异常，优先排查 `rc26_mcu_transport` 是否已启动并打开目标 MCU 串口。
+- 当前只支持 `hal_type:=shared_serial`；其它 `hal_type` 会在 `configure` 阶段失败。
 
-- 真机上由 `rc26_mcu_transport` 作为目标 MCU 串口 owner
-- `rc26_mechanism` 通过 `hal_type:=shared_serial` 复用 `rc26_mcu_transport` 提供的 ROS service/topic
-- 下行发送经由 `/mechanism/send_command`
-- 上行反馈经由 `/mechanism/command_feedback`
-- 当前只支持 `hal_type:=shared_serial`；其它 `hal_type` 会在 `configure` 阶段直接失败
+## 维护规则
 
-职责速记：
+新增机构原始命令时，先在 `rc26_serial/protocol.hpp` 定义 ID，再由需要该命令的上层直接调用 `/mechanism/send_command`。只有确实需要恢复高层动作语义时，才重新设计 action、完成反馈、超时规则和中间层文档契约。
 
-- `rc26_mechanism` 不拥有 `feedback_serial_port`、`target_serial_port` 或任何目标 MCU 物理口
-- 只要 `/mechanism/send_command` 或 `/mechanism/command_feedback` 异常，优先排查 `rc26_mcu_transport` 是否已启动并打开目标 MCU 串口
-- 单独测试机构 action 时可直接使用 `ros2 launch rc26_mechanism mechanism.launch.py`；如果同一系统里已经存在 `rc26_mcu_transport`，必须用 `start_mcu_transport:=false` 避免重复串口 owner
+## 本轮同步
 
-## 当前运行时语义
-
-- 只有节点处于 `active` 且 HAL 已打开时才接收 goal
-- 同一时刻只允许一个机构动作执行
-- 取消、退活或错误时会发送 `STOP` 并清退 pending context
-- 继续保留 `pending_contexts_ + buffered_feedbacks_` 这套反馈收敛逻辑，处理：
-  - 正常完成反馈
-  - 早到成功反馈
-  - 超时
-- 当前 MCU 口径是不再返回 `ACTION_FAIL/ERROR`；因此 mechanism 侧不再把它们当作运行时判定分支，未收到命令专属完成反馈时统一按超时失败收敛
-
-## 新增命令维护规则
-
-如果想让“在 `rc26_serial` 增加协议定义后，`rc26_mechanism` 这边补一处就能把整条链路打通”，当前固定按下面的顺序维护：
-
-1. 在 `rc26_serial/protocol.hpp` 增加新的 `CommandID` / `FeedbackID`
-2. 在 `rc26_mechanism/catalog/mechanism_command_catalog.*` 增加命令目录项
-3. 如果只需要通用执行，直接调用 action `/mechanism/run_command`
-4. 只有在确实需要更强业务语义时，才新增专用 action 包装
-
-命令目录项当前至少维护三件事：
-
-- `execute_supported`
-- `terminal_success_feedback_ids`
-- `default_timeout`
-
-## 源码入口与阅读顺序
-
-- 先看 `launch/mechanism.launch.py`，确认当前只保留 `shared_serial` 装配。
-- 再看 `include/rc26_mechanism/catalog` 与 `src/catalog/mechanism_command_catalog.cpp`，确认当前业务命令目录。
-- 然后看 `include/rc26_mechanism/nodes` 与 `src/nodes/mechanism_lifecycle_server.cpp`，生命周期节点、action server 和反馈收敛都在这里。
-- 最后看 `src/hal/shared_serial/shared_serial_mechanism_hal.cpp`，确认真实部署如何桥接 `rc26_mcu_transport` 的共享串口接口。
-
-
-## 模块边界
-
-- 它不做比赛级决策，只执行机构动作
-- 它不负责底盘导航控制
-- 它不直接做视觉识别或地图处理，只消费上层语义并驱动硬件
+2026-06-26 同步：删除旧高层 action server 注册、旧执行上下文使用路径、旧 catalog 条目和依赖旧完成反馈的测试；catalog 当前为空。`rc26_mechanism` 保留为最小 shared-serial lifecycle 占位包，真实命令入口收口到 `rc26_mcu_transport` 的 raw transport。

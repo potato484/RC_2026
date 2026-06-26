@@ -30,7 +30,7 @@ VisualServoGrabAction::VisualServoGrabAction(const std::string& name, const BT::
 VisualServoGrabAction::~VisualServoGrabAction() { stopWorker(); }
 
 // onStart: 行为树首次进入本动作时调用一次。
-// 负责：从黑板读取 node 和 mc_params → 创建 cmd_vel 发布器、0x19 feedback 订阅和 GRAB_TIP 服务客户端 →
+// 负责：从黑板读取 node 和 mc_params → 创建 cmd_vel 发布器、0x06 feedback 订阅和 GRAB_TIP 服务客户端 →
 //       启动独立工作线程 workerLoop，由工作线程接管视觉伺服全流程。
 // 返回 RUNNING，后续由 onRunning 轮询工作线程的完成状态。
 BT::NodeStatus VisualServoGrabAction::onStart() {
@@ -121,7 +121,7 @@ void VisualServoGrabAction::stopWorker() {
 }
 
 // ================================================================
-// 工作线程主循环：初始化引擎/相机 → 横移对齐 → x 负向前探等 0x19 → 夹取 → 消失判定
+// 工作线程主循环：初始化引擎/相机 → 横移对齐 → x 负向前探等 0x06 → 夹取 → 消失判定
 // ================================================================
 void VisualServoGrabAction::workerLoop() {
     // 初始化推理引擎和相机

@@ -73,15 +73,15 @@ r2_runtime:
       mc_align_heading_gate_deg: 8.0         # yaw 误差超过该 gate 时暂停横移/前探，只先修正朝向
       mc_align_odom_timeout_s: 0.5           # odom 超过该时间未更新时停车等待，单位秒
 
-      # --- 夹取（对齐后 x 负向前探等待前方限位 0x19，再下发 GRAB_TIP=0x01）---
+      # --- 夹取（对齐后 x 负向前探等待前方限位 0x06，再下发 GRAB_TIP=0x01）---
       mc_grab_command_id: 1                  # 夹取端头命令 ID；1 对应 GRAB_TIP(0x01)
       # mc_grab_payload 默认空（GRAB_TIP 无 payload）；如需下发字节，填如 [1, 2]。
       # 注意：ROS2 不支持 YAML 空数组参数，留空请勿写 []，直接省略该项即可。
       mc_grab_service_name: "/mechanism/send_command"  # rc26_mcu_transport 提供的机构命令服务名
       mc_grab_limit_switch_feedback_topic: "/mechanism/command_feedback"  # rc26_mcu_transport 发布的 MCU 上行业务反馈话题
-      mc_grab_limit_switch_feedback_id: 25   # 前方限位开关触发反馈 ID；25 对应 0x19
+      mc_grab_limit_switch_feedback_id: 6    # 前方限位开关触发反馈 ID；6 对应 0x06
       mc_grab_approach_speed_mps: 0.05      # 对齐后 x 负方向前探速度幅值，单位 m/s
-      mc_grab_approach_timeout_s: 10.0        # 前探等待 0x19 的安全超时，单位秒
+      mc_grab_approach_timeout_s: 10.0        # 前探等待 0x06 的安全超时，单位秒
       mc_grab_done_lost_time_s: 1.0   # 夹取后端头持续消失多久判定完成，单位秒
       mc_servo_timeout_s: 60.0         # 视觉伺服整体安全超时，单位秒
 
@@ -96,6 +96,36 @@ r2_runtime:
       mc_odom_topic: "odom"            # 视觉 heading hold 和原地旋转闭环使用的雷达标准里程计话题
       mc_rotate_odom_timeout_s: 0.5    # 旋转阶段 odom 超过该时间未更新时停车等待，单位秒
       mc_rotate_timeout_s: 15.0        # 原地旋转安全超时，单位秒
+
+      # ======================================================================
+      # KFS 阶梯等待测试参数 —— R_R1/B_R1 是其它机器人目标，本车等待其消失后继续台阶动作
+      # ======================================================================
+      kfs_vision_config_file: ""        # 视觉模型配置；空则回退 rc26_vision/config/vision_models.yaml
+      kfs_model_id: "kfs_default"       # KFS YOLO 模型 profile ID
+      kfs_blocking_labels: ["R_R1", "B_R1"]  # 检测到这些标签且深度有效时停车等待
+      kfs_depth_min_m: 0.6              # KFS 占用目标有效深度下限，单位 m
+      kfs_depth_max_m: 1.2              # KFS 占用目标有效深度上限，单位 m
+      kfs_blocking_seen_stable_frames: 1       # 连续多少帧检测到占用目标后进入等待
+      kfs_blocking_lost_stable_frames: 5       # 连续多少帧未检测到占用目标后判定消失
+      kfs_blocking_initial_detection_timeout_s: 2.0  # 初始无目标确认最大等待，单位秒
+      kfs_blocking_wait_timeout_s: 60.0         # 等待其它机器人目标消失的安全超时，单位秒
+      kfs_cmd_vel_topic: "cmd_vel"              # KFS 等待节点发布零速的话题
+      kfs_send_command_service: "/mechanism/send_command"  # 机械臂预调命令 service
+      kfs_feedback_topic: "/mechanism/command_feedback"    # 机械臂预调完成反馈 topic
+      kfs_command_timeout_s: 3.0                # 预调命令 ACK/完成反馈等待超时，单位秒
+      kfs_arm_raise_command_id: 4               # 0x04 ARM_RAISE，上台阶前机械臂抬起
+      kfs_arm_lower_command_id: 5               # 0x05 ARM_LOWER，下台阶前机械臂下降
+      kfs_arm_raise_done_feedback_id: 2         # 0x02 ARM_RAISE_DONE
+      kfs_arm_lower_done_feedback_id: 3         # 0x03 ARM_LOWER_DONE
+      kfs_grab_kfs_up_command_id: 3             # 0x03 GRAB_KFS_UP，当前 v1 预留不触发
+      kfs_grab_kfs_down_command_id: 2           # 0x02 GRAB_KFS_DOWN，当前 v1 预留不触发
+      kfs_odom_topic: "odom"                    # KFS 等待阶段 heading hold 使用的 odom 话题
+      kfs_heading_hold_enable: true             # 等待期间是否维护 yaw；v1 只停车，不输出旋转速度
+      kfs_heading_kp: 1.2                       # 预留 yaw 误差比例系数
+      kfs_heading_max_speed_radps: 0.30         # 预留 yaw 修正角速度上限
+      kfs_heading_tolerance_deg: 3.0            # 预留 yaw 容差
+      kfs_heading_gate_deg: 8.0                 # 预留 yaw gate
+      kfs_heading_odom_timeout_s: 0.5           # odom yaw 超时，单位秒
 
       # ======================================================================
       # Grid heading 正式转向/对齐参数 —— 供独立 grid_heading 入口和 MF 格间动作复用

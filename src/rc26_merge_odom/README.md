@@ -55,4 +55,4 @@
 
 2026-06-22 同步：`rc26_merge_odom` 从默认运行链停用但保留源码。`rc26_bringup`、`test_navigation.launch.py` 和 `start_r2_teleop.sh` 已不再启动本包；机构 transport 改由 `rc26_mcu_transport` 承担。
 
-2026-06-23 同步：默认底盘 `/cmd_vel` consumer 改由 `rc26_mcu_transport` 提供，并通过目标 MCU 串口下发 `POSE_TARGET(0x1F)`；本包的 `pose_sender_node` 仍仅作为历史调试入口保留，不回到默认链路。
+2026-06-23 同步：默认底盘 `/cmd_vel` consumer 改由 `rc26_mcu_transport` 提供，并通过目标 MCU 串口下发 `POSE_TARGET(0x0C)`；本包的 `pose_sender_node` 仍仅作为历史调试入口保留，不回到默认链路。

@@ -28,47 +28,53 @@
 
 当前与遥控共享 transport 直接相关的双推杆命令编号已经收口为：
 
-*   `FRONT_PUSHROD_EXTEND = 0x0E`
-*   `FRONT_PUSHROD_RETRACT = 0x0F`
-*   `REAR_PUSHROD_EXTEND = 0x10`
-*   `REAR_PUSHROD_RETRACT = 0x11`
+*   `FRONT_PUSHROD_EXTEND = 0x08`
+*   `FRONT_PUSHROD_RETRACT = 0x09`
+*   `REAR_PUSHROD_EXTEND = 0x0A`
+*   `REAR_PUSHROD_RETRACT = 0x0B`
 
-当前双推杆业务反馈编号已经收口为：
+当前 KFS 阶梯预调与预留夹取命令编号为：
 
-*   `FRONT_PUSHROD_EXTEND_ACK = 0x13`
-*   `FRONT_PUSHROD_RETRACT_ACK = 0x14`
-*   `REAR_PUSHROD_EXTEND_ACK = 0x15`
-*   `REAR_PUSHROD_RETRACT_ACK = 0x16`
+*   `ARM_RAISE = 0x04`
+*   `ARM_LOWER = 0x05`
+*   `GRAB_KFS_UP = 0x03`
+*   `GRAB_KFS_DOWN = 0x02`
+*   `PLACE_KFS_GRID = 0x06`
+
+当前 KFS 阶梯机械臂预调业务反馈编号为：
+
+*   `ARM_RAISE_DONE = 0x02`
+*   `ARM_LOWER_DONE = 0x03`
 
 当前这几类业务事件只由 MCU 上行：
 
-*   `FRONT_LASER_HEIGHT_JUMP = 0x17`
-*   `REAR_LASER_HEIGHT_JUMP = 0x18`
-*   `FRONT_LIMIT_SWITCH_TRIGGERED = 0x19`
-*   `FRONT_SECOND_LASER_HEIGHT_JUMP = 0x1A`
+*   `FRONT_LASER_HEIGHT_JUMP = 0x04`
+*   `REAR_LASER_HEIGHT_JUMP = 0x05`
+*   `FRONT_LIMIT_SWITCH_TRIGGERED = 0x06`
+*   `FRONT_SECOND_LASER_HEIGHT_JUMP = 0x07`
 
-这些事件的 v1 payload 为空或忽略：`0x17/0x18/0x1A` 表示前轮 / 后轮 / 前轮第二个激光测距模块检测到车体高度突变，`0x19` 表示武馆前方限位开关触发；上位机通过 `/mechanism/command_feedback` 消费它们，不新增对应下行命令。
+这些事件的 v1 payload 为空或忽略：`0x04/0x05/0x07` 表示前轮 / 后轮 / 前轮第二个激光测距模块检测到车体高度突变，`0x06` 表示武馆前方限位开关触发；上位机通过 `/mechanism/command_feedback` 消费它们，不新增对应下行命令。
 
 当前真实运行时口径是：
 
 *   4 条双推杆命令都通过 `rc26_mcu_transport` 走可靠 `sendCommand()` ACK 路径；若 MCU 不回通用 `ACK(0x00)`，会像其它可靠命令一样重传并打印超时日志。
 *   `rc26_telecontrol_front_pushrod_buttons` 会在 `Y/A` 按下沿单次调用 `/mechanism/send_command`，分别桥成前推杆伸展 / 收缩。
 *   `rc26_telecontrol_rear_pushrod_buttons` 会在 `Select/Back` / `Start` 按下沿单次调用 `/mechanism/send_command`，分别桥成后推杆伸展 / 收缩；`Dpad 左/右` 已回归底盘横移控制。
-*   transport service 返回 `accepted=true` 的前提仍然是 MCU 先回通用 `ACK(0x00)`；`0x13~0x1A` 业务反馈会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定。
-*   串口层当前只把 `ACK(0x00)`、`NACK(0x01)` 和心跳场景下的 `HEARTBEAT_ACK(0x10)` 视为 ACK 等待结果；MCU 已不再返回 `ACTION_FAIL/ERROR` 这类快捷失败反馈。
+*   transport service 返回 `accepted=true` 的前提仍然是 MCU 先回通用 `ACK(0x00)`；`0x02~0x07` 业务反馈会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定。
+*   串口层当前只把 `ACK(0x00)` 和心跳场景下的 `HEARTBEAT_ACK(0x01)` 视为 ACK 等待结果；旧即时负确认和旧动作完成反馈已经从协议中移除。
 *   真机部署时，目标 MCU 串口由 `rc26_mcu_transport` 独占打开；其它上层只复用 transport，不再次直连同一设备。
-*   端头视觉对齐后的抓取改为先经 `/cmd_vel` x 负向前探等待 0x19 限位反馈，再经 `/mechanism/send_command` 下发 `GRAB_TIP(0x01)` 空 payload。
-*   旧 tip test 视觉状态下发命令已从下行协议中删除，原下行编号 `0x12` 当前不重新分配；上行 `FeedbackID::STAIR_DESCEND_DONE = 0x12` 仍保留。
+*   端头视觉对齐后的抓取改为先经 `/cmd_vel` x 负向前探等待 0x06 限位反馈，再经 `/mechanism/send_command` 下发 `GRAB_TIP(0x01)` 空 payload。
+*   旧 tip test 视觉状态下发命令已从下行协议中删除，原下行编号 `0x12` 当前不重新分配，避免旧 MCU 或日志误判。
 
 当前底盘反馈协议也已经统一回麦克纳姆四轮口径：
 
-*   `ODOM_DATA(0x20)` 固定为 `<v_fl, v_rl, v_rr, v_fr>` 的 `16B / 4 float`
-*   `POSE_FEEDBACK(0x1E)` / `POSE_TARGET(0x1F)` 继续保持 `(vx, vy, wz)` 三浮点协议；`POSE_TARGET` 当前由 `rc26_mcu_transport` 默认按 `50Hz` no-ack 路径下发
-*   机构指令与底盘 `POSE_TARGET` 的目标 MCU 串口 owner 均由 `rc26_mcu_transport` 提供；`ODOM_DATA` / `POSE_FEEDBACK` 代码仍保留，但不回到当前默认反馈主链
+*   `ODOM_DATA(0x08)` 固定为 `<v_fl, v_rl, v_rr, v_fr>` 的 `16B / 4 float`
+*   `POSE_TARGET(0x0C)` 继续保持 `(vx, vy, wz)` 三浮点协议；`POSE_TARGET` 当前由 `rc26_mcu_transport` 默认按 `50Hz` no-ack 路径下发
+*   机构指令与底盘 `POSE_TARGET` 的目标 MCU 串口 owner 均由 `rc26_mcu_transport` 提供；`ODOM_DATA` 代码仍保留但不回到当前默认反馈主链
 
 ## 3. 设计原则与平台限制
 
-1.  **帧结构稳定性**: 当前双推杆协议语义已经更新为前/后推杆四命令，并要求 MCU 同步支持 `0x13~0x16` 业务 ACK；台阶激光测距高度突变事件使用独立上行 `0x17/0x18/0x1A`，武馆前方限位开关触发使用独立上行 `0x19`。除此之外，v3.0 的帧头、CRC32 MPEG-2 校验和最大长度限制保持不变。
+1.  **帧结构稳定性**: 当前双推杆协议语义保持前/后推杆四命令；KFS 阶梯测试链使用机械臂升降预调命令 `0x04/0x05` 与完成反馈 `0x02/0x03`，`0x03/0x02` 作为上下阶梯 KFS 夹取预留命令。台阶激光测距高度突变事件使用独立上行 `0x04/0x05/0x07`，武馆前方限位开关触发使用独立上行 `0x06`。除此之外，v3.0 的帧头、CRC32 MPEG-2 校验和最大长度限制保持不变。
 2.  **兼容性第一**: 考虑到 AidLux 混合环境的特殊性，优先采用成熟稳定的 POSIX 接口（如 `epoll`）而非激进的异步 I/O（如 `io_uring` on TTY）。
 3.  **单体非阻塞**: 核心驱动类不抛出未捕获异常，任何发送/接收回调均被妥善隔离，防止上层业务逻辑的故障波及底层通信主循环。
 

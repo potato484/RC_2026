@@ -37,6 +37,7 @@ include_directories(include)
 # 库：行为树节点
 # ============================================================================
 add_library(${PROJECT_NAME}_nodes SHARED
+  src/kfs/kfs_stair_pickup.cpp
   src/mc/mc_area.cpp
   src/mc/visual_servo_grab.cpp
   src/mc/rotate_in_place.cpp

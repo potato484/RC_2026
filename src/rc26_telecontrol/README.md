@@ -29,8 +29,8 @@
 *   **Stick 模式**：`linear.x <- axes[1]`，`linear.y <- axes[0]`，`angular.z <- axes[3]`。
 *   **Dpad 模式**：`linear.x <- axes[7]`，`linear.y <- axes[6]`，`angular.z <- X(+wz) / B(-wz)`。
 *   R2 当前已经统一为麦克纳姆全向底盘，因此 `linear.y` 在 stick / dpad 两种模式下都是有效输出；`rc26_telecontrol` 不再声明或消费 `chassis_model`。
-*   独立 sidecar 节点 `rc26_telecontrol_front_pushrod_buttons`：`Y(button[3])` 按下沿单次下发 `FRONT_PUSHROD_EXTEND (0x0E)`；`A(button[0])` 按下沿单次下发 `FRONT_PUSHROD_RETRACT (0x0F)`。按住不会连发，松开后再次按下才会重发。该节点直接调用 `/mechanism/send_command`，走 transport ACK 路径，不再经过 `/mechanism/run_command`。
-*   独立 sidecar 节点 `rc26_telecontrol_rear_pushrod_buttons`：`Select/Back(button[6]) -> REAR_PUSHROD_EXTEND (0x10)`、`Start(button[7]) -> REAR_PUSHROD_RETRACT (0x11)`。该节点同样直接调用 `/mechanism/send_command`，走 transport ACK 路径；若 MCU 额外上送 `0x13~0x16` 业务 ACK，会继续发布到 `/mechanism/command_feedback`。`Dpad 左/右` 现在只负责底盘横移。
+*   独立 sidecar 节点 `rc26_telecontrol_front_pushrod_buttons`：`Y(button[3])` 按下沿单次下发 `FRONT_PUSHROD_EXTEND (0x08)`；`A(button[0])` 按下沿单次下发 `FRONT_PUSHROD_RETRACT (0x09)`。按住不会连发，松开后再次按下才会重发。该节点直接调用 `/mechanism/send_command`，走 transport ACK 路径。
+*   独立 sidecar 节点 `rc26_telecontrol_rear_pushrod_buttons`：`Select/Back(button[6]) -> REAR_PUSHROD_EXTEND (0x0A)`、`Start(button[7]) -> REAR_PUSHROD_RETRACT (0x0B)`。该节点同样直接调用 `/mechanism/send_command`，走 transport 通用 `ACK(0x00)` 路径；当前不再维护推杆专属业务 ACK。`Dpad 左/右` 现在只负责底盘横移。
 
 ### 2.2 多重安全保障机制
 
@@ -53,7 +53,7 @@
 
 *   启动 `rc26_mcu_transport + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。
 *   不再启动 `rc26_merge_odom` 或 `pose_sender_node`；目标 MCU 串口 owner 由 `rc26_mcu_transport` 承担。
-*   `/cmd_vel` 的硬件消费方由 `rc26_mcu_transport` 默认提供，节点会把速度转成 `POSE_TARGET(0x1F)`。
+*   `/cmd_vel` 的硬件消费方由 `rc26_mcu_transport` 默认提供，节点会把速度转成 `POSE_TARGET(0x0C)`。
 *   `/mechanism/send_command` 与 `/mechanism/command_feedback` 的 provider 由脚本启动的 `rc26_mcu_transport` 提供。
 *   脚本已移除 `--stack`、`--pose-mode`、`--use-can-odom`、`--start-ekf` 和 PoseSender 相关参数；目标 MCU 串口通过 `--mcu-port` / `--mcu-baudrate` 配置。
 

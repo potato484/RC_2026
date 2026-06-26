@@ -10,7 +10,7 @@ FRAME_TAIL = bytes([0x55, 0xAA])
 ALT_HEAD = bytes([0x55, 0xAA])
 ALT_TAIL = bytes([0xAA, 0x55])
 MAX_PAYLOAD_SIZE = 32
-ODOM_CMD = 0x20
+ODOM_CMD = 0x08
 ODOM_PAYLOAD_LENS = {8, 16}
 
 
