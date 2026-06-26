@@ -23,6 +23,7 @@
   - `behavior_trees/kfs_stair_climb_test_tree.xml`（KFS 上台阶等待测试入口，默认主流程不引用）
   - `behavior_trees/kfs_stair_descend_test_tree.xml`（KFS 下台阶等待测试入口，默认主流程不引用）
   - `behavior_trees/mf_red_middle_column_tree.xml`（红方中间列连续台阶独立入口，默认主流程不引用）
+  - `behavior_trees/mf_preselection_tree.xml`（梅林区预选赛专属正式入口，默认完整 bringup 可指向本树）
 - 关键源码:
   - `src/decision_node.cpp`
   - `src/navigation/bt_nav2_pose.cpp`
@@ -34,6 +35,7 @@
   - `src/mf/grid_center.cpp`（MF 入口 grid2 中心参考建立与格间二维中心归位）
   - `src/mf/grid_transition.cpp`（离散格间上/下台阶动作）
   - `src/mf/conditions.cpp`（MF 退出条件）
+  - `src/mf_preselection/mf_preselection_flow.cpp`（梅林预选赛专属入口探测、KFS 夹取、R1/假 KFS 干扰、四行推进和离场收尾）
   - `src/mc/mc_area.cpp`（注册 + `loadMCParams`）
   - `src/mc/visual_servo_grab.cpp`、`src/mc/rotate_in_place.cpp`、`src/mc/wait_forever.cpp`
   - `src/kfs/kfs_stair_pickup.cpp`（KFS 阶梯等待测试 BT 节点）
@@ -135,6 +137,27 @@ Nav2 action result 映射规则：
 - `kfs_last_error`
 - `kfs_last_label`
 - `kfs_last_distance_m`
+
+## 梅林区预选赛专属链路
+
+`behavior_trees/mf_preselection_tree.xml` 是梅林区预选赛专属正式入口，完整 bringup 可通过 `r2_runtime.paths.behavior_tree_file` 指向它。该树先按 `mf_preselect_entry2_nav_enable` 决定是否执行 2 号入口 `NavToPose`；默认关闭入口导航，现场标定前假设机器人已经位于 2 号入口预备姿态。随后执行单个 `MfPreselectionFlow` 状态机，流程成功驶出梅林后进入 `WaitForever`，保持永久静止。
+
+`MfPreselectionFlow` 只消费 `rc26_vision` 的 KFS 模型快照、`/odom`、`/cmd_vel` 和 `rc26_mcu_transport` 提供的 `/mechanism/send_command` / `/mechanism/command_feedback`。视觉标签按当前模型语义处理：`T_*` 是 R2 可夹取 KFS，`R_R1/B_R1` 是 R1 阻挡目标，`F_*` 是假 KFS；这些标签列表和前缀都由 `mf_preselect_*` 参数配置。R2 KFS 单局最多夹取 `mf_preselect_max_pickup_count` 个，默认 2 个，达到上限后不再触发 KFS 夹取。
+
+为便于实车观察行为树卡点，`MfPreselectionFlow` 会输出中文阶段日志，覆盖检测阶段、R2/假 KFS/R1 分支、机构命令发送与 ACK/完成反馈、相对移动、转向、零速等待、台阶激光事件、夹取计数和最终停车；日志只在阶段切换或关键事件发生时输出，避免按 tick 高频刷屏。
+
+入口阶段先检测 2 号入口；若无 R2 KFS，则发送 `ARM_HIGH_RAISE(0x0D)` 并等待同 `seq` 的 `ARM_HIGH_RAISE_DONE(0x09)`，再按配置横移探测 1 号、3 号阶梯，探测到 R2 KFS 时保持高抬升高度直接发送 `GRAB_KFS_UP(0x03)`。返回 2 号入口后，上阶梯前若已经处于高抬升保持态，不重复发送普通 `ARM_RAISE(0x04)`；否则先发送普通抬升并等待 `ARM_RAISE_DONE(0x02)`。
+
+内部路线按中间列格位推进：`grid2 -> grid5 -> grid8 -> grid11`，常规出口再经 `grid12` 下阶梯离开梅林。入场前已夹取 R2 KFS 时切入直出模式；这里的直出模式仍沿中间列台阶路线推进，只跳过第 2/3 行周身搜索，路径前方的 R1、R2 和假 KFS 守卫仍生效。入场前未夹取时，第 1 行只做前方检测，第 2/3 行先做前方守卫检测，未发现目标或假 KFS 后再执行左转和背向扫描，第 4 行强制收尾。路径前方遇 R1 目标时零速等待，默认无总超时，直到连续丢失稳定帧满足 `mf_preselect_detect_lost_stable_frames` 后才放行；周身扫描阶段看到 R1 只忽略。第 1/2/3 行前方遇假 KFS 时，按入场拾取来源选择 1 号或 3 号方向避障后重新朝出口直行；第 4 行到达 `grid11` 后先执行强制出口转向，转向后若正前方仍是假 KFS，则 180° 转向并下阶梯离场。
+
+本链路维护以下黑板键：
+
+- `mf_preselect_state`
+- `mf_preselect_pickup_count`
+- `mf_preselect_pickup_source`
+- `mf_preselect_current_grid`
+- `mf_preselect_done`
+- `mf_preselect_error`
 
 ## 武馆区 (MC) 行为树
 

@@ -63,11 +63,12 @@ ros2 launch rc26_mcu_transport mcu_transport.launch.py \
 - `REAR_PUSHROD_EXTEND = 0x0A`
 - `REAR_PUSHROD_RETRACT = 0x0B`
 - `POSE_TARGET = 0x0C`
+- `ARM_HIGH_RAISE = 0x0D`
 
 本包不新增业务命令目录。新增机构命令时，先在 `rc26_serial/protocol.hpp` 定义原始 ID，再由需要该能力的上层直接调用 `/mechanism/send_command`。只有重新设计高层动作语义时，才需要恢复 action、完成反馈和中间层契约。
 
-KFS 阶梯等待测试链属于直接 transport service 消费场景：决策层发送 `ARM_RAISE(0x04)` / `ARM_LOWER(0x05)`，并等待同 `seq` 的 `0x02/0x03` 完成反馈。`rc26_vision` 独立 KFS action test 也只把本包当 raw transport provider，开启后按方向发送空 payload 的 `GRAB_KFS_UP(0x03)` / `GRAB_KFS_DOWN(0x02)` 并只要求 service ACK；本包不额外赋予 KFS 抓取完成语义。
+KFS 阶梯等待测试链属于直接 transport service 消费场景：决策层发送 `ARM_RAISE(0x04)` / `ARM_LOWER(0x05)`，并等待同 `seq` 的 `0x02/0x03` 完成反馈。梅林预选赛入口 1/3 阶梯探测会发送 `ARM_HIGH_RAISE(0x0D)`，并等待同 `seq` 的 `ARM_HIGH_RAISE_DONE(0x09)`；本包只透传 raw command 与业务反馈，不赋予高抬升额外动作语义。`rc26_vision` 独立 KFS action test 也只把本包当 raw transport provider，开启后按方向发送空 payload 的 `GRAB_KFS_UP(0x03)` / `GRAB_KFS_DOWN(0x02)` 并只要求 service ACK；本包不额外赋予 KFS 抓取完成语义。
 
 ## 本轮同步
 
-2026-06-26 同步：串口协议 ID 连续化后，本包文档同步到 `POSE_TARGET(0x0C)`、`ODOM_DATA(0x08)`、`HEARTBEAT_ACK(0x01)` 和新的机构业务反馈 ID。旧高层 action 下线后，本包只描述 raw transport provider 职责。
+2026-06-26 同步：串口协议 ID 连续化后，本包文档同步到 `POSE_TARGET(0x0C)`、`ODOM_DATA(0x08)`、`HEARTBEAT_ACK(0x01)` 和新的机构业务反馈 ID。梅林预选赛新增 `ARM_HIGH_RAISE(0x0D)` / `ARM_HIGH_RAISE_DONE(0x09)` 后，本包仍保持 raw transport provider 职责，service wire shape 不变。

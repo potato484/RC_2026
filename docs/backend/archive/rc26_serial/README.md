@@ -46,6 +46,7 @@
 | `REAR_PUSHROD_EXTEND` | `0x0A` |
 | `REAR_PUSHROD_RETRACT` | `0x0B` |
 | `POSE_TARGET` | `0x0C` |
+| `ARM_HIGH_RAISE` | `0x0D` |
 
 上行 `FeedbackID`：
 
@@ -60,6 +61,7 @@
 | `FRONT_LIMIT_SWITCH_TRIGGERED` | `0x06` |
 | `FRONT_SECOND_LASER_HEIGHT_JUMP` | `0x07` |
 | `ODOM_DATA` | `0x08` |
+| `ARM_HIGH_RAISE_DONE` | `0x09` |
 
 已经移除的旧协议项包括旧组装动作、通用 KFS 夹取动作、旧动作完成反馈和即时负确认语义。可靠命令只通过通用 `ACK(0x00)` 成功；未收到确认时通过超时或断链失败收敛。心跳只等待 `HEARTBEAT_ACK(0x01)`。
 
@@ -69,6 +71,7 @@
 - `ODOM_DATA(0x08)` payload 固定为 `<v_fl, v_rl, v_rr, v_fr>`，共 `16B / 4 float`，保留为麦克纳姆四轮反馈格式。
 - 4 条推杆命令通过 `/mechanism/send_command` 走可靠 `sendCommand()`，service `accepted=true` 只表示 MCU 已返回通用 `ACK(0x00)`。
 - `ARM_RAISE_DONE(0x02)` / `ARM_LOWER_DONE(0x03)` 是 KFS 机械臂预调完成反馈，决策层按同 `seq + feedback_id` 匹配。
+- `ARM_HIGH_RAISE(0x0D)` / `ARM_HIGH_RAISE_DONE(0x09)` 只服务梅林区预选赛入口 1/3 阶梯全域探测前的机械臂底座高抬升；它不替代普通 `ARM_RAISE(0x04)`，决策层仍按同 `seq + feedback_id` 匹配完成。
 - `FRONT_LASER_HEIGHT_JUMP(0x04)`、`REAR_LASER_HEIGHT_JUMP(0x05)`、`FRONT_SECOND_LASER_HEIGHT_JUMP(0x07)` 是台阶激光高度突变事件，v1 payload 为空或忽略。
 - `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 是武馆前方限位开关触发事件，视觉夹取链在对齐后 x 负向前探等待该事件，再下发 `GRAB_TIP(0x01)`。
 - `PLACE_KFS_GRID(0x06)` 若仍需发送，只能作为 raw transport 命令走 `/mechanism/send_command`，不再绑定高层“完成反馈即成功”的封装。
@@ -89,4 +92,4 @@
 
 ## 本轮同步
 
-2026-06-26 同步：串口协议 ID 连续化并移除旧机构完成语义。`STOP(0x00)` 与 `ACK(0x00)` 保留；`GRAB_KFS_DOWN/UP` 调整为 `0x02/0x03`，`POSE_TARGET` 调整为 `0x0C`，`ODOM_DATA` 调整为 `0x08`。旧高层 mechanism action 与旧动作完成反馈不再作为当前协议或业务契约。
+2026-06-26 同步：串口协议 ID 连续化并移除旧机构完成语义。`STOP(0x00)` 与 `ACK(0x00)` 保留；`GRAB_KFS_DOWN/UP` 调整为 `0x02/0x03`，`POSE_TARGET` 调整为 `0x0C`，`ODOM_DATA` 调整为 `0x08`。梅林预选赛新增 `ARM_HIGH_RAISE(0x0D)` 与 `ARM_HIGH_RAISE_DONE(0x09)`，固件和上位机必须使用同一张表。旧高层 mechanism action 与旧动作完成反馈不再作为当前协议或业务契约。

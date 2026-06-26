@@ -42,6 +42,7 @@ enum class CommandID : uint8_t {
     REAR_PUSHROD_EXTEND = 0x0A,   // 后推杆伸展
     REAR_PUSHROD_RETRACT = 0x0B,  // 后推杆收缩
     POSE_TARGET = 0x0C,           // 目标速度 (vx, vy, wz) - MCU速度闭环
+    ARM_HIGH_RAISE = 0x0D,        // 梅林预选赛入口专属机械臂底座高抬升
 };
 
 // ============================================================================
@@ -57,6 +58,7 @@ enum class FeedbackID : uint8_t {
     FRONT_LIMIT_SWITCH_TRIGGERED = 0x06, // 武馆前方限位开关触发，payload v1 为空或忽略
     FRONT_SECOND_LASER_HEIGHT_JUMP = 0x07, // 前轮附近第二个激光测距模块检测到车体高度突变
     ODOM_DATA = 0x08,                   // 麦克纳姆轮速反馈：<v_fl,v_rl,v_rr,v_fr>，单位: m/s
+    ARM_HIGH_RAISE_DONE = 0x09,         // 梅林预选赛入口专属高抬升完成
 };
 
 // ============================================================================

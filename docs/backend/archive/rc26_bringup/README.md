@@ -26,6 +26,7 @@
   - `config/nav2_params.yaml` 中 `planner_server.GridBased.tolerance` 当前收紧为 `0.05m`，避免 NavFn 在目标点附近半米内选替代终点后仍被上层当作真实到点；`controller_server.progress_checker` 当前按低速实车调为 `20s` 内至少前进 `0.05m`，减少慢速起步或局部恢复期间的误判卡死。普通导航继续使用 `FollowPath`，红方 MC 去程专用 Nav2 BT 使用 `MCPositiveXYRed`，只采样车体系 `linear.x/y` 正向和角速度。`MCNegativeXYRed` 仍作为可手工选择的负向约束 controller 配置保留，但当前默认 MC 树不再引用它
   - `r2_runtime.decision.ros__parameters` 同时维护 `stair_*` 台阶动作参数；这些参数供独立 `stair_climb_tree.xml` / `stair_descend_tree.xml`、红方中列测试树和 MF `GridTransition` 离散格间动作复用。普通直行速度为便于上/下阶梯独立调速，已拆为 `stair_climb_drive_speed_mps` 与 `stair_descend_drive_speed_mps`，旧 `stair_drive_speed_mps` 不再是当前配置契约；上台阶的前推杆伸出后零速等待、前收+后伸后零速等待、后推杆收回后零速等待，以及下台阶的后推杆伸出后零速等待、后收+前伸后零速等待、前推杆收回后零速等待也在这里配置；当前两激光下台阶链路还在这里配置前推杆收回前的 `x` 负向定时行驶速度与时长，默认 `0.025m/s` 持续 `4.0s`。`stair_odom_topic` 与 `stair_heading_*` 参数用于上/下阶梯前的 yaw 对齐和直行期间 heading hold
   - `r2_runtime.decision.ros__parameters` 中的 `kfs_*` 参数维护 KFS 阶梯等待测试链：上/下阶梯机械臂预调命令与完成反馈、`R_R1/B_R1` 阻塞标签、深度有效范围、出现/消失稳定帧、等待超时和 topic/service 名。当前 KFS v1 只等待其它机器人目标消失，不会下发预留的 `GRAB_KFS_UP/DOWN`
+  - `r2_runtime.decision.ros__parameters` 中的 `mf_preselect_*` 参数维护梅林区预选赛专属正式链路：2 号入口可选 Nav2 目标、R2/R1/假 KFS 标签、深度阈值、入口 1/3 阶梯横移探测距离和速度、R2 KFS 夹取上限、`ARM_HIGH_RAISE(0x0D)` / `ARM_HIGH_RAISE_DONE(0x09)`、普通机械臂升降、相对移动、转向和最终离场停车参数。当前默认 `behavior_tree_file` 指向 `mf_preselection_tree.xml`，入口导航默认关闭，现场标定后只需启用并填写 `mf_preselect_entry2_nav_*`
   - 决策测试不再通过 `rc26_decision` 单节点 launch 入口进行；需要测试决策时使用本完整 bringup 入口，并确认 `rc26_mcu_transport` 已按 `r2_runtime.mcu_transport` 启动
   - `r2_runtime.chassis_runtime.merge_odom` 已删除；默认 bringup 不再读取或透传 `merge_odom_*`、`start_pose_sender`、`pose_sender_*` 参数
   - 自动导航主链的 `/odom` 仍由 `rc26_odom_interface` 提供给 Nav2；`/merge_odom` 不再是当前默认运行时话题
@@ -107,3 +108,4 @@
 - 2026-06-22 同步：`rc26_merge_odom` 源码保留但退出默认运行装配；机构 transport provider 改由独立 `rc26_mcu_transport` 承担。
 - 2026-06-23 同步：`rc26_mcu_transport` 默认提供底盘 `/cmd_vel` consumer，以 `POSE_TARGET(0x0C)` 下发速度，线速度和角速度默认上限均为 `2.0`。
 - 2026-06-26 同步：删除旧地形、base-ground 与 MF keepout 包及相关兼容接口；主启动、建图调试、验收探针、RViz 预设和 `package.xml` 均不接入这些历史链路
+- 2026-06-26 同步：新增梅林区预选赛专属 `mf_preselection_tree.xml` 运行入口和 `mf_preselect_*` 参数组，默认行为树切到预选赛链路；入口 2 号导航点保留配置占位，未标定前由状态机假设机器人已处于入口预备姿态。

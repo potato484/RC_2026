@@ -54,6 +54,7 @@ add_library(${PROJECT_NAME}_nodes SHARED
   src/mf/mf_area.cpp
   src/mf/merlin_map.cpp
   src/mf/select_next_grid.cpp
+  src/mf_preselection/mf_preselection_flow.cpp
   src/navigation/bt_nav2_pose.cpp
 )
 
@@ -137,5 +138,25 @@ ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME}_nodes)
 ament_export_dependencies(ament_index_cpp rclcpp rclcpp_action behaviortree_cpp tf2_ros geometry_msgs std_msgs nav_msgs lifecycle_msgs nav2_msgs rc26_serial rc26_interfaces rc26_vision OpenCV)
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  ament_add_gtest(test_mf_preselection_logic
+    test/test_mf_preselection_logic.cpp
+  )
+  target_link_libraries(test_mf_preselection_logic
+    ${PROJECT_NAME}_nodes
+  )
+  ament_target_dependencies(test_mf_preselection_logic
+    behaviortree_cpp
+    geometry_msgs
+    nav_msgs
+    rclcpp
+    rc26_interfaces
+    rc26_serial
+    rc26_vision
+  )
+endif()
 
 ament_package()

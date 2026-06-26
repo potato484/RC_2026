@@ -1,0 +1,382 @@
+#pragma once
+
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include <behaviortree_cpp/bt_factory.h>
+#include <geometry_msgs/msg/twist.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <rclcpp/rclcpp.hpp>
+
+#include "rc26_decision/stair/stair_area.hpp"
+#include "rc26_interfaces/msg/mechanism_transport_feedback.hpp"
+#include "rc26_interfaces/srv/send_mechanism_transport_command.hpp"
+#include "rc26_vision/inference/runtime/vision_inference_manager.hpp"
+
+namespace rc26_decision {
+
+enum class MfPreselectionPickupSource { None, Stair1, Stair2, Stair3 };
+
+struct MfPreselectionParams {
+  std::string vision_config_file;
+  std::string model_id{"kfs_default"};
+  std::vector<std::string> r2_target_label_prefixes{"T_"};
+  std::vector<std::string> r2_target_labels;
+  std::vector<std::string> r1_blocking_labels{"R_R1", "B_R1"};
+  std::vector<std::string> r1_blocking_label_prefixes;
+  std::vector<std::string> fake_label_prefixes{"F_"};
+  std::vector<std::string> fake_labels;
+  double depth_min_m{0.6};
+  double depth_max_m{1.2};
+  int detect_seen_stable_frames{1};
+  int detect_lost_stable_frames{5};
+  double entry_detect_timeout_s{2.0};
+  double scan_detect_timeout_s{2.0};
+
+  int max_pickup_count{2};
+  double grab_settle_s{0.5};
+  int grab_kfs_up_command_id{0x03};
+  int grab_kfs_down_command_id{0x02};
+
+  std::string cmd_vel_topic{"cmd_vel"};
+  std::string odom_topic{"odom"};
+  std::string send_command_service{"/mechanism/send_command"};
+  std::string feedback_topic{"/mechanism/command_feedback"};
+  double command_timeout_s{3.0};
+  int arm_high_raise_command_id{0x0D};
+  int arm_high_raise_done_feedback_id{0x09};
+  int arm_raise_command_id{0x04};
+  int arm_lower_command_id{0x05};
+  int arm_raise_done_feedback_id{0x02};
+  int arm_lower_done_feedback_id{0x03};
+
+  double entry_probe_left_distance_m{1.2};
+  double entry_probe_right_sweep_distance_m{2.4};
+  double entry_probe_return_distance_m{1.2};
+  double lateral_probe_speed_mps{0.35};
+  double move_tolerance_m{0.03};
+  double move_timeout_s{12.0};
+  double direct_exit_drive_distance_m{4.8};
+  double direct_exit_drive_speed_mps{0.25};
+
+  double exit_yaw_rad{0.0};
+  double stair1_direction_yaw_rad{1.5708};
+  double stair3_direction_yaw_rad{-1.5708};
+  double row_scan_left_yaw_delta_rad{1.5708};
+  double row_scan_back_yaw_delta_rad{3.1416};
+  double row4_exit_turn_yaw_rad{-1.5708};
+  double turn_kp{1.2};
+  double turn_max_speed_radps{0.50};
+  double turn_tolerance_deg{3.0};
+  int turn_stable_ticks{3};
+  double turn_timeout_s{16.0};
+  double odom_timeout_s{0.5};
+  double heading_kp{1.2};
+  double heading_max_speed_radps{0.30};
+
+  double path_r1_lost_wait_timeout_s{0.0};
+};
+
+struct MfPreselectionLogicResult {
+  static bool labelMatches(const std::string &label,
+                           const std::vector<std::string> &exact_labels,
+                           const std::vector<std::string> &prefixes);
+  static bool canPickup(int pickup_count, int max_pickup_count);
+  static double fakeAvoidanceYaw(MfPreselectionPickupSource source,
+                                 const MfPreselectionParams &params);
+  static uint8_t grabCommandForHighSide(bool high_side,
+                                        const MfPreselectionParams &params);
+};
+
+void loadMfPreselectionParams(rclcpp::Node &node,
+                              const BT::Blackboard::Ptr &blackboard);
+void registerMfPreselectionNodes(BT::BehaviorTreeFactory &factory);
+
+class MfPreselectionFlowAction : public BT::StatefulActionNode {
+public:
+  MfPreselectionFlowAction(const std::string &name,
+                           const BT::NodeConfig &config);
+  ~MfPreselectionFlowAction() override;
+
+  static BT::PortsList providedPorts();
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
+
+private:
+  using TwistMsg = geometry_msgs::msg::Twist;
+  using OdomMsg = nav_msgs::msg::Odometry;
+  using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
+  using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
+
+  enum class Phase {
+    EntryDetectStair2,
+    EntryHighRaise,
+    EntryMoveLeft,
+    EntryDetectStair1,
+    EntryReturnFromStair1,
+    EntryMoveRightToStair3,
+    EntryDetectStair3,
+    EntryReturnFromStair3,
+    EntryPrepareClimb,
+    EntryClimb,
+    AfterEntry,
+    RowFrontDetect,
+    RowScanTurnLeft,
+    RowScanDetectLeft,
+    RowScanTurnBack,
+    RowScanDetectBack,
+    RowAlignExit,
+    FakeAvoidTurn,
+    FakeAvoidArmRaise,
+    FakeAvoidClimb,
+    FakeAvoidAlignExit,
+    TransitionTurn,
+    TransitionArmAdjust,
+    TransitionObserve,
+    TransitionStair,
+    Row4ForcedTurn,
+    Row4DetectFake,
+    Row4FakeTurnBack,
+    Row4DirectDescendPrep,
+    Row4DirectDescend,
+    DirectExitDrive,
+    FinalStop,
+    MechanismCommand,
+    MoveRelative,
+    TurnYaw,
+    ZeroHold,
+    StairPrimitive,
+    Done
+  };
+
+  enum class DetectMode { Entry2, Stair1, Stair3, RowFront, Scan, Row4Fake, TransitionObserve };
+  enum class StairMode { Climb, Descend };
+  enum class StairPhase {
+    ClimbSendFrontExtend,
+    ClimbHoldAfterFrontExtend,
+    ClimbDriveUntilFrontFirstEvent,
+    ClimbSendFrontRetractAndRearExtend,
+    ClimbHoldAfterFrontRetractAndRearExtend,
+    ClimbDriveUntilRearEvent,
+    ClimbSendRearRetract,
+    ClimbHoldAfterRearRetract,
+    DescendDriveUntilRearEvent,
+    DescendSendRearExtend,
+    DescendHoldAfterRearExtend,
+    DescendDriveUntilFrontSecondEvent,
+    DescendSendRearRetractAndFrontExtend,
+    DescendHoldAfterRearRetractAndFrontExtend,
+    DescendTimedDriveBeforeFrontRetract,
+    DescendSendFrontRetract,
+    DescendHoldAfterFrontRetract,
+    Complete
+  };
+  enum class WheelEvent { FrontFirst, FrontSecond, Rear };
+
+  struct Observation {
+    std::string label;
+    double distance_m{0.0};
+    double score{0.0};
+    int64_t sequence{0};
+  };
+
+  bool setupRuntime();
+  bool setupVision();
+  void releaseRuntime();
+  void normalizeParams();
+  BT::NodeStatus fail(const std::string &reason);
+  void publishStop();
+  void publishTwist(double vx, double vy, double wz);
+  bool odomReady() const;
+  void handleOdom(const OdomMsg::SharedPtr msg);
+  static double yawFromQuaternion(const geometry_msgs::msg::Quaternion &q);
+  static double normalizeAngle(double angle_rad);
+  double headingAngularZ(double target_yaw_rad) const;
+
+  std::optional<Observation> findR2Target();
+  std::optional<Observation> findR1BlockingTarget();
+  std::optional<Observation> findFakeTarget();
+  std::optional<Observation> findTarget(const std::vector<std::string> &exact,
+                                        const std::vector<std::string> &prefixes);
+  std::optional<int64_t> latestVisionSequence() const;
+  bool canPickup() const;
+  void rememberPickupSource(MfPreselectionPickupSource source);
+  void writeBlackboardState(const std::string &state);
+  static const char *detectModeText(DetectMode mode);
+  static const char *stairModeText(StairMode mode);
+  static const char *wheelEventText(WheelEvent event);
+
+  void beginDetection(DetectMode mode, double timeout_s);
+  BT::NodeStatus tickDetection();
+  void resetDetectionCounters();
+
+  void beginMechanismCommand(uint8_t command_id, std::string label,
+                             int done_feedback_id, Phase next_phase,
+                             std::string failure_reason);
+  BT::NodeStatus tickMechanismCommand();
+  void beginCommandPair(uint8_t first_id, std::string first_label,
+                        uint8_t second_id, std::string second_label,
+                        Phase next_phase, std::string failure_reason);
+  BT::NodeStatus tickCommandPair();
+
+  void beginMoveRelative(double vx, double vy, double distance_m,
+                         Phase next_phase, std::string label);
+  BT::NodeStatus tickMoveRelative();
+  void beginDirectExitDrive();
+  BT::NodeStatus tickDirectExitDrive();
+  bool guardPathObstacles();
+  void clearPathR1Wait();
+
+  void beginTurnYaw(double target_yaw_rad, Phase next_phase, std::string label);
+  BT::NodeStatus tickTurnYaw();
+  void beginZeroHold(double duration_s, Phase next_phase, std::string label);
+  BT::NodeStatus tickZeroHold();
+
+  bool prepareTransitionTo(int target_grid);
+  BT::NodeStatus startTransitionTo(int target_grid);
+  void continueAfterTransition();
+  double transitionYaw(int from_grid, int target_grid, int height_delta) const;
+
+  void beginStair(StairMode mode, Phase next_phase, std::string label);
+  BT::NodeStatus tickStair();
+  void beginWheelEvent(WheelEvent event, double timeout_s, std::string label);
+  bool wheelEventReceived() const;
+  BT::NodeStatus tickWheelEvent();
+  double climbRearProfileSpeed();
+
+  void beginGrab(bool high_side, MfPreselectionPickupSource source,
+                 Phase next_phase);
+  void continueAfterGrab();
+
+  uint8_t clampByte(int value) const;
+  rclcpp::Duration seconds(double value) const;
+
+  rclcpp::Node *node_{nullptr};
+  MfPreselectionParams params_;
+  StairParams stair_params_;
+
+  rclcpp::Publisher<TwistMsg>::SharedPtr cmd_pub_;
+  rclcpp::Subscription<OdomMsg>::SharedPtr odom_sub_;
+  rclcpp::Client<SendCommandSrv>::SharedPtr send_client_;
+  rclcpp::Subscription<FeedbackMsg>::SharedPtr feedback_sub_;
+  std::shared_ptr<rc26_vision::VisionInferenceManager> vision_;
+
+  Phase phase_{Phase::Done};
+  Phase command_next_phase_{Phase::Done};
+  Phase move_next_phase_{Phase::Done};
+  Phase turn_next_phase_{Phase::Done};
+  Phase zero_hold_next_phase_{Phase::Done};
+  Phase stair_next_phase_{Phase::Done};
+  Phase grab_next_phase_{Phase::Done};
+
+  DetectMode detect_mode_{DetectMode::Entry2};
+  rclcpp::Time phase_start_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time last_cmd_publish_{0, 0, RCL_ROS_TIME};
+  bool has_last_cmd_publish_{false};
+
+  double odom_x_{0.0};
+  double odom_y_{0.0};
+  double odom_yaw_{0.0};
+  bool has_odom_{false};
+  std::chrono::steady_clock::time_point last_odom_tp_{};
+
+  double move_start_x_{0.0};
+  double move_start_y_{0.0};
+  double move_start_yaw_{0.0};
+  double move_vx_{0.0};
+  double move_vy_{0.0};
+  double move_distance_m_{0.0};
+  std::string move_label_;
+  bool move_start_captured_{false};
+  bool move_waiting_odom_logged_{false};
+
+  double turn_target_yaw_{0.0};
+  int turn_stable_ticks_{0};
+  std::string turn_label_;
+  bool turn_waiting_odom_logged_{false};
+
+  double zero_hold_duration_s_{0.0};
+  std::string zero_hold_label_;
+
+  std::atomic<uint64_t> command_generation_{0};
+  std::atomic<bool> command_response_seen_{false};
+  std::atomic<bool> command_accepted_{false};
+  std::atomic<int> command_seq_{-1};
+  std::atomic<bool> command_done_seen_{false};
+  int command_done_feedback_id_{-1};
+  uint8_t command_id_{0};
+  std::string command_label_;
+  std::string command_failure_reason_;
+  bool command_sent_{false};
+  bool command_waiting_service_logged_{false};
+  bool command_ack_logged_{false};
+  bool command_waiting_done_logged_{false};
+
+  struct CommandSlot {
+    uint8_t command_id{0};
+    std::string label;
+    bool sent{false};
+    std::atomic<bool> response_seen{false};
+    std::atomic<bool> accepted{false};
+  };
+  CommandSlot command_pair_[2];
+  bool command_pair_active_{false};
+  std::string command_pair_failure_reason_;
+  bool command_pair_waiting_service_logged_{false};
+  bool command_pair_ack_logged_[2]{false, false};
+
+  std::atomic<uint64_t> front_first_event_count_{0};
+  std::atomic<uint64_t> front_second_event_count_{0};
+  std::atomic<uint64_t> rear_event_count_{0};
+  uint64_t front_first_event_baseline_{0};
+  uint64_t front_second_event_baseline_{0};
+  uint64_t rear_event_baseline_{0};
+  WheelEvent active_wheel_event_{WheelEvent::FrontFirst};
+  double active_wheel_event_timeout_s_{0.0};
+  std::string active_wheel_event_label_;
+  bool active_wheel_event_started_{false};
+
+  StairMode stair_mode_{StairMode::Climb};
+  StairPhase stair_phase_{StairPhase::Complete};
+  std::string stair_label_;
+  rclcpp::Time climb_rear_profile_start_{0, 0, RCL_ROS_TIME};
+  bool climb_rear_profile_started_{false};
+  double timed_drive_speed_mps_{0.0};
+  double timed_drive_duration_s_{0.0};
+
+  int pickup_count_{0};
+  bool entry_pickup_done_{false};
+  bool direct_exit_mode_{false};
+  bool arm_high_raised_{false};
+  bool arm_high_side_{false};
+  MfPreselectionPickupSource pickup_source_{MfPreselectionPickupSource::None};
+  int current_grid_{2};
+  int transition_from_grid_{2};
+  int transition_target_grid_{2};
+  int transition_height_delta_{0};
+  bool transition_high_side_{true};
+  bool row4_fake_detected_{false};
+  bool direct_exit_move_active_{false};
+  bool path_r1_waiting_{false};
+  int path_r1_lost_count_{0};
+  int64_t path_r1_last_sequence_{0};
+  rclcpp::Time path_r1_wait_start_{0, 0, RCL_ROS_TIME};
+
+  int detect_seen_count_{0};
+  int detect_lost_count_{0};
+  int64_t last_detection_sequence_{0};
+  Phase active_detection_phase_{Phase::Done};
+  bool detection_active_{false};
+  bool timed_drive_started_{false};
+  bool pending_grab_commit_{false};
+  MfPreselectionPickupSource pending_grab_source_{MfPreselectionPickupSource::None};
+};
+
+} // namespace rc26_decision

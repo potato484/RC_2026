@@ -22,6 +22,7 @@ TEST(ProtocolIDs, CommandIDsAreContinuousAfterLegacyMechanismCleanup) {
     EXPECT_EQ(static_cast<uint8_t>(CID::REAR_PUSHROD_EXTEND), 0x0AU);
     EXPECT_EQ(static_cast<uint8_t>(CID::REAR_PUSHROD_RETRACT), 0x0BU);
     EXPECT_EQ(static_cast<uint8_t>(CID::POSE_TARGET), 0x0CU);
+    EXPECT_EQ(static_cast<uint8_t>(CID::ARM_HIGH_RAISE), 0x0DU);
 }
 
 TEST(ProtocolIDs, FeedbackIDsAreContinuousAfterLegacyMechanismCleanup) {
@@ -36,6 +37,7 @@ TEST(ProtocolIDs, FeedbackIDsAreContinuousAfterLegacyMechanismCleanup) {
     EXPECT_EQ(static_cast<uint8_t>(FID::FRONT_LIMIT_SWITCH_TRIGGERED), 0x06U);
     EXPECT_EQ(static_cast<uint8_t>(FID::FRONT_SECOND_LASER_HEIGHT_JUMP), 0x07U);
     EXPECT_EQ(static_cast<uint8_t>(FID::ODOM_DATA), 0x08U);
+    EXPECT_EQ(static_cast<uint8_t>(FID::ARM_HIGH_RAISE_DONE), 0x09U);
 }
 
 }  // namespace
