@@ -18,11 +18,36 @@ namespace rc26_decision {
 
 namespace {
 
+// 本文件实现的是“梅林区预选赛”专属的 BT 动作节点。
+//
+// 外层 BehaviorTree 只看到一个 StatefulActionNode：启动后持续返回 RUNNING，
+// 完成整条梅林预选赛流程后返回 SUCCESS，任何关键资源缺失、机构拒绝、
+// 台阶事件超时或运动超时都会返回 FAILURE。真实的比赛流程由 phase_ 和
+// stair_phase_ 两套内部状态机推进，避免把几十个细粒度阶段全部暴露到 XML。
+//
+// 运行边界：
+// - 决策层只编排策略和调用下层契约，不解析串口帧；
+// - 视觉目标来自 rc26_vision 的帧快照；
+// - 机构动作通过 /mechanism/send_command service 和反馈 topic 完成；
+// - 运动直接发布 cmd_vel，因此运行本树前必须停用 Nav2 controller/遥控等其它
+//   cmd_vel 权威。
+//
+// 主路线简表：
+// 1. 在 2 号入口检测 R2 KFS；未发现则高抬升机械臂并横移探测 1/3 号入口；
+// 2. 回到中间入口后上台阶进入 grid2；
+// 3. 沿中间列 grid2 -> grid5 -> grid8 -> grid11 推进，按行执行前方守卫检测、
+//    左侧/背向扫描、R1 等待、假 KFS 避障和 R2 KFS 夹取；
+// 4. 第四行强制转向收尾，必要时遇假 KFS 180 度转向，否则经 grid12 下台阶离场；
+// 5. 离场后返回 SUCCESS，外层树通常接 WaitForever 保持静止。
+
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kDeg2Rad = kPi / 180.0;
 constexpr double kMinTimeoutS = 0.001;
 constexpr double kMinSpeed = 0.001;
 
+// 视觉配置参数既允许传绝对路径，也允许传 rc26_vision share 目录下的相对路径。
+// 这里把“空值”解析为 rc26_vision/config/vision_models.yaml，便于 bringup YAML 只
+// 维护模型 ID，而不需要每台机器重复写包安装路径。
 std::string resolveVisionConfig(const std::string &configured) {
   namespace fs = std::filesystem;
   if (!configured.empty() && fs::exists(configured)) {
@@ -42,6 +67,8 @@ std::string resolveVisionConfig(const std::string &configured) {
   return configured;
 }
 
+// ROS2 YAML 参数里的字符串列表常被人工编辑；这里统一裁剪空白并丢弃空项，
+// 避免因为 " T_ " 或空字符串把标签匹配变成隐式放行。
 std::vector<std::string> sanitized(std::vector<std::string> values) {
   std::vector<std::string> out;
   out.reserve(values.size());
@@ -59,9 +86,13 @@ std::vector<std::string> sanitized(std::vector<std::string> values) {
   return out;
 }
 
+// MF 离散格按三列展开：grid1..3 为第一行，grid4..6 为第二行。
+// transitionYaw() 会用行列差把离散边转换为底盘目标 yaw。
 int gridRow(int grid_id) { return (grid_id - 1) / 3; }
 int gridCol(int grid_id) { return (grid_id - 1) % 3; }
 
+// pickup_source_ 记录“第一次在入口侧夹到 KFS 时来自哪条阶梯”，后续假 KFS
+// 避障会用它决定从 1 号侧还是 3 号侧绕行。
 const char *sourceName(MfPreselectionPickupSource source) {
   switch (source) {
   case MfPreselectionPickupSource::Stair1:
@@ -81,6 +112,8 @@ const char *sourceName(MfPreselectionPickupSource source) {
 bool MfPreselectionLogicResult::labelMatches(
     const std::string &label, const std::vector<std::string> &exact_labels,
     const std::vector<std::string> &prefixes) {
+  // 标签匹配采用“精确标签优先 + 前缀兜底”的双配置。这样既能兼容
+  // R_R1/B_R1 这类固定标签，也能支持 T_*、F_* 这类按模型扩展的系列标签。
   for (const auto &exact : exact_labels) {
     if (!exact.empty() && label == exact) {
       return true;
@@ -96,11 +129,14 @@ bool MfPreselectionLogicResult::labelMatches(
 
 bool MfPreselectionLogicResult::canPickup(int pickup_count,
                                           int max_pickup_count) {
+  // max_pickup_count 允许配置为 0，用于现场只跑避障/路线、不触发夹取的测试。
   return pickup_count < std::max(0, max_pickup_count);
 }
 
 double MfPreselectionLogicResult::fakeAvoidanceYaw(
     MfPreselectionPickupSource source, const MfPreselectionParams &params) {
+  // 假 KFS 避障方向取决于入口夹取来源：从 3 号侧拿到目标时向 3 号侧绕，
+  // 其它情况默认走 1 号侧方向。None 也归到 1 号侧作为保守兜底。
   if (source == MfPreselectionPickupSource::Stair3) {
     return params.stair3_direction_yaw_rad;
   }
@@ -109,6 +145,8 @@ double MfPreselectionLogicResult::fakeAvoidanceYaw(
 
 uint8_t MfPreselectionLogicResult::grabCommandForHighSide(
     bool high_side, const MfPreselectionParams &params) {
+  // high_side 表示当前 KFS 位于本次台阶动作的高侧：上台阶或高抬升入口用
+  // GRAB_KFS_UP，下台阶观察到的目标用 GRAB_KFS_DOWN。
   const int value =
       high_side ? params.grab_kfs_up_command_id : params.grab_kfs_down_command_id;
   return static_cast<uint8_t>(std::clamp(value, 0, 255));
@@ -123,6 +161,8 @@ MfPreselectionFlowAction::~MfPreselectionFlowAction() { releaseRuntime(); }
 BT::PortsList MfPreselectionFlowAction::providedPorts() { return {}; }
 
 BT::NodeStatus MfPreselectionFlowAction::onStart() {
+  // onStart 只做一次性运行资源装配和流程复位。所有耗时动作都在 onRunning()
+  // 通过内部状态机分 tick 推进，保持 BehaviorTree.CPP 的执行线程可取消。
   if (!setupRuntime()) {
     return BT::NodeStatus::FAILURE;
   }
@@ -142,6 +182,8 @@ BT::NodeStatus MfPreselectionFlowAction::onStart() {
   clearPathR1Wait();
   pending_grab_commit_ = false;
   pending_grab_source_ = MfPreselectionPickupSource::None;
+  // 预选赛 XML 可以在本节点前放一个可选 NavToPose。进入本节点时按“已在 2 号
+  // 入口预备姿态”处理，先看正前方是否已经有 R2 可夹取 KFS。
   writeBlackboardState("entry_detect_stair2");
   RCLCPP_INFO(node_->get_logger(),
               "梅林预选赛流程启动：当前位置按 grid2 / 2号入口处理，入口导航已由行为树前置控制，最大夹取数=%d",
@@ -152,6 +194,8 @@ BT::NodeStatus MfPreselectionFlowAction::onStart() {
 
 BT::NodeStatus MfPreselectionFlowAction::onRunning() {
   switch (phase_) {
+  // 所有视觉检测阶段共用 tickDetection()：它按 detect_mode_ 区分入口探测、
+  // 行前方检测、周身扫描、第四行假 KFS 检测和台阶切换前观察。
   case Phase::EntryDetectStair2:
   case Phase::EntryDetectStair1:
   case Phase::EntryDetectStair3:
@@ -163,6 +207,8 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return tickDetection();
 
   case Phase::EntryHighRaise:
+    // 2 号入口未看到 R2 KFS 后，先把机械臂抬到更高保持态，再横移探测
+    // 1/3 号阶梯；如果后续入口侧发现目标，可以直接以高侧姿态夹取。
     beginMechanismCommand(clampByte(params_.arm_high_raise_command_id),
                           "ARM_HIGH_RAISE",
                           clampByte(params_.arm_high_raise_done_feedback_id),
@@ -172,30 +218,37 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return BT::NodeStatus::RUNNING;
 
   case Phase::EntryMoveLeft:
+    // 从 2 号入口横移到 1 号入口探测。横移距离和速度只来自参数，
+    // 不在这里假设场地绝对坐标。
     beginMoveRelative(0.0, std::abs(params_.lateral_probe_speed_mps),
                       params_.entry_probe_left_distance_m,
                       Phase::EntryDetectStair1, "entry_probe_left");
     return BT::NodeStatus::RUNNING;
 
   case Phase::EntryReturnFromStair1:
+    // 1 号入口夹取后或探测完成后回到中间入口，为上中间列首个台阶做准备。
     beginMoveRelative(0.0, -std::abs(params_.lateral_probe_speed_mps),
                       params_.entry_probe_return_distance_m,
                       Phase::EntryPrepareClimb, "entry_return_from_stair1");
     return BT::NodeStatus::RUNNING;
 
   case Phase::EntryMoveRightToStair3:
+    // 如果 1 号也没发现目标，从当前 1 号位置一次横移扫到 3 号入口。
     beginMoveRelative(0.0, -std::abs(params_.lateral_probe_speed_mps),
                       params_.entry_probe_right_sweep_distance_m,
                       Phase::EntryDetectStair3, "entry_probe_stair3");
     return BT::NodeStatus::RUNNING;
 
   case Phase::EntryReturnFromStair3:
+    // 3 号入口探测结束后回到中间入口，统一从 grid2 方向入场。
     beginMoveRelative(0.0, std::abs(params_.lateral_probe_speed_mps),
                       params_.entry_probe_return_distance_m,
                       Phase::EntryPrepareClimb, "entry_return_from_stair3");
     return BT::NodeStatus::RUNNING;
 
   case Phase::EntryPrepareClimb:
+    // 若入口探测阶段已经执行过 ARM_HIGH_RAISE，则保持高抬升姿态上首阶，
+    // 避免重复发送普通 ARM_RAISE 造成机构姿态回退或多余等待。
     if (arm_high_raised_) {
       phase_ = Phase::EntryClimb;
       return BT::NodeStatus::RUNNING;
@@ -207,10 +260,14 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return BT::NodeStatus::RUNNING;
 
   case Phase::EntryClimb:
+    // 首段从梅林外进入 grid2，复用本文内部台阶原语；完成后 AfterEntry
+    // 会把 current_grid 写入黑板并进入中间列推进策略。
     beginStair(StairMode::Climb, Phase::AfterEntry, "entry_climb");
     return BT::NodeStatus::RUNNING;
 
   case Phase::AfterEntry:
+    // AfterEntry 是中间列推进的总调度点：每次上/下台阶完成都会回到这里，
+    // 再根据当前格号、是否已经夹取、是否进入直出模式决定下一步检测或转场。
     config().blackboard->set("current_grid", current_grid_);
     RCLCPP_INFO(node_->get_logger(),
                 "梅林预选赛进入梅林内部决策：current_grid=%d，入场夹取=%s，直出模式=%s，计数=%d/%d",
@@ -218,6 +275,9 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
                 direct_exit_mode_ ? "是" : "否", pickup_count_,
                 params_.max_pickup_count);
     if (entry_pickup_done_ || direct_exit_mode_) {
+      // 直出模式不是“跳过所有安全检查”。它只跳过第 2/3 行的周身搜索，
+      // 但前方 R1、R2 KFS 和假 KFS 仍由 RowFront/TransitionObserve/DirectExit
+      // 这些守卫阶段处理。
       direct_exit_mode_ = true;
       if (current_grid_ == 2 || current_grid_ == 5 || current_grid_ == 8) {
         RCLCPP_INFO(node_->get_logger(),
@@ -240,6 +300,8 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
                   "梅林预选赛未入场夹取：第一行执行前方检测");
       beginDetection(DetectMode::RowFront, params_.scan_detect_timeout_s);
     } else if (current_grid_ == 5 || current_grid_ == 8) {
+      // 第 2/3 行先看前方是否被 R1/假 KFS/R2 KFS 占用；如果没有可处理目标，
+      // 再左转和背向扫描，降低在狭窄台阶上无意义旋转的概率。
       RCLCPP_INFO(node_->get_logger(),
                   "梅林预选赛未入场夹取：第2/3行先做前方守卫检测");
       beginDetection(DetectMode::RowFront, params_.scan_detect_timeout_s);
@@ -253,6 +315,8 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return BT::NodeStatus::RUNNING;
 
   case Phase::RowScanTurnLeft:
+    // 周身扫描分两段：先相对当前朝向左转，再转到背向。这里用 odom_yaw_
+    // 叠加参数，而不是写死绝对角，方便现场整体 yaw 标定调整。
     beginTurnYaw(normalizeAngle(odom_yaw_ + params_.row_scan_left_yaw_delta_rad),
                  Phase::RowScanDetectLeft, "row_scan_turn_left");
     return BT::NodeStatus::RUNNING;
@@ -263,11 +327,15 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return BT::NodeStatus::RUNNING;
 
   case Phase::RowAlignExit:
+    // 扫描结束后必须重新对齐出口方向，再进入 grid 间转换；否则台阶原语的
+    // heading hold 会沿错误 yaw 直行。
     beginTurnYaw(params_.exit_yaw_rad, Phase::TransitionTurn,
                  "row_align_exit");
     return BT::NodeStatus::RUNNING;
 
   case Phase::FakeAvoidTurn:
+    // 假 KFS 是不可夹取目标。第 1/2/3 行前方遇到时，按入口夹取来源选择
+    // 向 1 号或 3 号侧绕行，上台阶后再回到出口方向进入直出兜底。
     RCLCPP_WARN(node_->get_logger(),
                 "梅林预选赛开始假KFS避障转向：pickup_source=%s，目标yaw=%.3f",
                 sourceName(pickup_source_),
@@ -305,6 +373,8 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return BT::NodeStatus::RUNNING;
 
   case Phase::TransitionTurn:
+    // 预选赛正式路线固定走中间列。这里显式枚举合法下一格，避免因为
+    // current_grid 被意外改写而走到未定义的梅林边。
     if (current_grid_ == 2) {
       return startTransitionTo(5);
     } else if (current_grid_ == 5) {
@@ -318,6 +388,9 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     }
 
   case Phase::TransitionArmAdjust:
+    // 格间转换前先根据高度差调整机械臂：低到高需要高侧夹取姿态，高到低
+    // 需要先下降。调整完成后仍要做 TransitionObserve，给正前方 R2/R1 目标
+    // 一个最后处理窗口。
     if (transition_height_delta_ > 0) {
       if (arm_high_raised_) {
         transition_high_side_ = true;
@@ -351,6 +424,9 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return BT::NodeStatus::RUNNING;
 
   case Phase::TransitionStair:
+    // prepareTransitionTo() 已经确认高度差只能是 +/-1；这里把它映射到
+    // 上/下台阶原语。成功后 tickStair() 会通过 continueAfterTransition()
+    // 提交 current_grid。
     RCLCPP_INFO(node_->get_logger(),
                 "梅林预选赛开始执行格间台阶动作：grid%d -> grid%d，类型=%s",
                 transition_from_grid_, transition_target_grid_,
@@ -363,6 +439,8 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return BT::NodeStatus::RUNNING;
 
   case Phase::Row4ForcedTurn:
+    // 第四行不再做周身搜索，直接按收尾 yaw 转向；转向后只检查正前方假 KFS，
+    // 决定是继续 grid11 -> grid12，还是 180 度转向后直接下阶梯。
     RCLCPP_INFO(node_->get_logger(),
                 "梅林预选赛第四行强制转向：target_yaw=%.3f，随后检测正前方假KFS",
                 params_.row4_exit_turn_yaw_rad);
@@ -378,6 +456,8 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return BT::NodeStatus::RUNNING;
 
   case Phase::Row4DirectDescendPrep:
+    // 离场下阶梯前统一把机械臂降下；这既是机构姿态复位，也是给下阶梯
+    // GRAB_KFS_DOWN/推杆动作留下明确边界。
     RCLCPP_INFO(node_->get_logger(),
                 "梅林预选赛离场前机械臂下降：准备下阶梯离开梅林");
     beginMechanismCommand(clampByte(params_.arm_lower_command_id),
@@ -405,6 +485,8 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return BT::NodeStatus::RUNNING;
 
   case Phase::MechanismCommand:
+    // 单条机构命令和“双命令并发 ACK”都复用 MechanismCommand phase，
+    // 由 command_pair_active_ 区分具体 tick 函数。
     if (command_pair_active_) {
       return tickCommandPair();
     }
@@ -437,10 +519,14 @@ void MfPreselectionFlowAction::onHalted() {
     RCLCPP_WARN(node_->get_logger(),
                 "梅林预选赛流程被行为树中断：立即发布零速并释放运行接口");
   }
+  // halt 可能来自外层 BT 停止、树切换或节点析构。这里不尝试补偿推杆动作，
+  // 只保证运动输出归零并让异步回调通过 generation token 自然失效。
   releaseRuntime();
 }
 
 bool MfPreselectionFlowAction::setupRuntime() {
+  // decision_node 在黑板里注入 ROS node、MF 预选赛参数和通用台阶参数。
+  // 缺任一项都说明当前 BT 装配不完整，不能以默认值猜测实车行为。
   if (!config().blackboard || !config().blackboard->get("node", node_) ||
       !node_) {
     return false;
@@ -458,6 +544,9 @@ bool MfPreselectionFlowAction::setupRuntime() {
   cmd_pub_ =
       node_->create_publisher<TwistMsg>(params_.cmd_vel_topic, rclcpp::QoS(10));
   send_client_ = node_->create_client<SendCommandSrv>(params_.send_command_service);
+  // command_feedback 同时承担两类信息：
+  // 1. 台阶激光事件计数，tickStair() 只看相对 baseline 是否增长；
+  // 2. 带 seq 的机构完成反馈，用于 ARM_RAISE/LOWER 等需要等待 done 的命令。
   feedback_sub_ = node_->create_subscription<FeedbackMsg>(
       params_.feedback_topic, rclcpp::QoS(32).reliable(),
       [this](const FeedbackMsg::SharedPtr msg) {
@@ -479,6 +568,8 @@ bool MfPreselectionFlowAction::setupRuntime() {
         if (expected_feedback >= 0 && expected_seq >= 0 &&
             msg->feedback_id == static_cast<uint8_t>(expected_feedback) &&
             msg->seq == static_cast<uint8_t>(expected_seq)) {
+          // 只接受当前命令 seq 对应的完成反馈，避免上一条命令的延迟反馈误推进
+          // 当前状态机。
           const bool already_done =
               command_done_seen_.exchange(true, std::memory_order_relaxed);
           if (!already_done && node_) {
@@ -496,6 +587,8 @@ bool MfPreselectionFlowAction::setupRuntime() {
   }
 
   has_odom_ = false;
+  // generation 每次启动或释放都会递增；异步 service 回调先检查 token，
+  // 防止流程 halt 后旧 future 回调写回新一轮状态。
   command_generation_.fetch_add(1, std::memory_order_relaxed);
   config().blackboard->set("mf_preselect_pickup_count", 0);
   config().blackboard->set("mf_preselect_pickup_source", std::string("none"));
@@ -508,6 +601,8 @@ bool MfPreselectionFlowAction::setupRuntime() {
 }
 
 bool MfPreselectionFlowAction::setupVision() {
+  // 本节点直接创建 VisionInferenceManager，而不是订阅其它公开检测 topic。
+  // 这样可在一个 BT 节点内按最新帧快照同时使用彩色、深度和 detection 序号。
   try {
     params_.vision_config_file = resolveVisionConfig(params_.vision_config_file);
     auto config = rc26_vision::ProfileLoader::loadFromYaml(params_.vision_config_file);
@@ -542,6 +637,8 @@ bool MfPreselectionFlowAction::setupVision() {
 }
 
 void MfPreselectionFlowAction::releaseRuntime() {
+  // releaseRuntime() 必须可重入：onHalted()、fail()、析构和 Done 分支都可能调用。
+  // 先停车再释放 publisher/client/subscription，保证最后一个可发布动作是零速。
   publishStop();
   if (vision_) {
     vision_->stop();
@@ -560,6 +657,8 @@ void MfPreselectionFlowAction::releaseRuntime() {
 }
 
 void MfPreselectionFlowAction::normalizeParams() {
+  // 参数规范化集中在运行前做一次。这里不把异常配置直接判失败，而是把符号、
+  // 空列表、最小超时等修正到可执行范围，便于现场 YAML 小幅调参。
   params_.vision_config_file = resolveVisionConfig(params_.vision_config_file);
   params_.r2_target_label_prefixes =
       sanitized(std::move(params_.r2_target_label_prefixes));
@@ -617,6 +716,7 @@ void MfPreselectionFlowAction::normalizeParams() {
   stair_params_.climb_rear_drive_fast_speed_mps =
       std::abs(stair_params_.climb_rear_drive_fast_speed_mps);
   if (stair_params_.climb_rear_drive_fast_speed_mps <= 0.0) {
+    // fast <= 0 代表未显式配置后轮快段速度，回退到普通上台阶速度。
     stair_params_.climb_rear_drive_fast_speed_mps =
         stair_params_.climb_drive_speed_mps;
   }
@@ -628,6 +728,8 @@ void MfPreselectionFlowAction::normalizeParams() {
 }
 
 BT::NodeStatus MfPreselectionFlowAction::fail(const std::string &reason) {
+  // 失败路径统一写黑板 mf_preselect_error，方便外层日志或后续诊断知道卡在哪个
+  // 语义阶段，而不是只能从最后一条 ROS 日志倒推。
   if (node_) {
     RCLCPP_ERROR(node_->get_logger(), "梅林预选赛失败: %s", reason.c_str());
   }
@@ -641,6 +743,8 @@ BT::NodeStatus MfPreselectionFlowAction::fail(const std::string &reason) {
 void MfPreselectionFlowAction::publishStop() { publishTwist(0.0, 0.0, 0.0); }
 
 void MfPreselectionFlowAction::publishTwist(double vx, double vy, double wz) {
+  // 本树内所有相对移动、转向和台阶动作都走同一个 cmd_vel publisher。
+  // 这也意味着外部 launch 必须保证同一时刻没有其它运动命令权威。
   if (!cmd_pub_) {
     return;
   }
@@ -656,6 +760,8 @@ void MfPreselectionFlowAction::publishTwist(double vx, double vy, double wz) {
 }
 
 bool MfPreselectionFlowAction::odomReady() const {
+  // 使用 steady_clock 计算 odom 新鲜度，避免 ROS time 在仿真/回放场景跳变时
+  // 影响“是否还能闭环发布速度”的安全判断。
   if (!has_odom_) {
     return false;
   }
@@ -666,6 +772,7 @@ bool MfPreselectionFlowAction::odomReady() const {
 }
 
 void MfPreselectionFlowAction::handleOdom(const OdomMsg::SharedPtr msg) {
+  // 预选赛只需要 odom 平面位姿：相对移动用 x/y 差，转向和直行 heading hold 用 yaw。
   if (!msg) {
     return;
   }
@@ -693,6 +800,8 @@ double MfPreselectionFlowAction::normalizeAngle(double angle_rad) {
 }
 
 double MfPreselectionFlowAction::headingAngularZ(double target_yaw_rad) const {
+  // 直线段的 heading hold 是轻量 P 控制：没有新鲜 odom 时宁可不给角速度，
+  // 让上层 tick 继续用 guard/timeout 控制，而不是基于旧姿态纠偏。
   if (!odomReady()) {
     return 0.0;
   }
@@ -704,6 +813,8 @@ double MfPreselectionFlowAction::headingAngularZ(double target_yaw_rad) const {
 
 std::optional<MfPreselectionFlowAction::Observation>
 MfPreselectionFlowAction::findR2Target() {
+  // R2 可夹取目标受 max_pickup_count 限制；达到上限后视觉仍可运行，
+  // 但不会再把 T_* 目标转成夹取动作。
   if (!canPickup()) {
     return std::nullopt;
   }
@@ -724,6 +835,8 @@ MfPreselectionFlowAction::findFakeTarget() {
 std::optional<MfPreselectionFlowAction::Observation>
 MfPreselectionFlowAction::findTarget(const std::vector<std::string> &exact,
                                      const std::vector<std::string> &prefixes) {
+  // 目标读取是“快照式”的：同一帧里的 detection 和 depth 一起使用，
+  // 避免检测框来自新帧、深度来自旧帧导致距离门限失真。
   if (!vision_ || !vision_->isRunning()) {
     return std::nullopt;
   }
@@ -740,6 +853,8 @@ MfPreselectionFlowAction::findTarget(const std::vector<std::string> &exact,
     if (!MfPreselectionLogicResult::labelMatches(name, exact, prefixes)) {
       continue;
     }
+    // 同类候选里选 score 最高的框。这里不做目标锁定，预选赛检测阶段只需要
+    // 判断“当前方向是否存在可处理目标”，不是视觉伺服对准。
     if (!best || det.score > best->score) {
       best = &det;
     }
@@ -755,6 +870,8 @@ MfPreselectionFlowAction::findTarget(const std::vector<std::string> &exact,
   depth_config.min_valid_count = 10;
   depth_config.min_depth_m = params_.depth_min_m;
   depth_config.max_depth_m = params_.depth_max_m;
+  // 深度门限是检测有效性的第二道过滤：模型看到标签但 ROI 深度不可信时，
+  // 当前 tick 按“未看到目标”处理，等待后续稳定帧。
   const auto sampled =
       rc26_vision::sampleMedianDepth(snapshot.depth, cx, cy, depth_config);
   if (!sampled.has_value()) {
@@ -771,6 +888,8 @@ MfPreselectionFlowAction::findTarget(const std::vector<std::string> &exact,
 }
 
 std::optional<int64_t> MfPreselectionFlowAction::latestVisionSequence() const {
+  // 检测阶段用 display_sequence 判断“是否来了新视觉帧”。如果没有新帧，
+  // 不增加 lost 计数，避免相机/推理帧率低时过早认为目标已经消失。
   if (!vision_ || !vision_->isRunning()) {
     return std::nullopt;
   }
@@ -789,6 +908,8 @@ bool MfPreselectionFlowAction::canPickup() const {
 
 void MfPreselectionFlowAction::rememberPickupSource(
     MfPreselectionPickupSource source) {
+  // 只有非 None 来源会覆盖 pickup_source_。路线中途发现并夹取的 KFS 不改变
+  // 入口侧来源，否则假 KFS 避障会丢掉入口探测时建立的左右侧判断。
   if (source != MfPreselectionPickupSource::None) {
     pickup_source_ = source;
   }
@@ -799,6 +920,8 @@ void MfPreselectionFlowAction::rememberPickupSource(
 }
 
 void MfPreselectionFlowAction::writeBlackboardState(const std::string &state) {
+  // 黑板状态不是公开 ROS 接口，只给同一棵树和日志诊断使用；但每次阶段切换
+  // 都维护它，便于实车观察当前卡在“检测/等待/移动/台阶”的哪类语义上。
   if (!config().blackboard) {
     return;
   }
@@ -845,10 +968,14 @@ const char *MfPreselectionFlowAction::wheelEventText(WheelEvent event) {
 
 void MfPreselectionFlowAction::beginDetection(DetectMode mode,
                                               double timeout_s) {
+  // beginDetection() 只初始化检测窗口；真正的视觉判断在 tickDetection()
+  // 每个 BT tick 里完成。这样 R1 等待、目标稳定帧和超时都不会阻塞树线程。
   detect_mode_ = mode;
   if (mode == DetectMode::Scan &&
       (phase_ == Phase::RowScanDetectLeft ||
        phase_ == Phase::RowScanDetectBack)) {
+    // Scan 模式跨两个方向复用同一个 detect_mode_，active_detection_phase_
+    // 记录当前是在“左侧检测”还是“背向检测”，决定超时后的下一步。
     active_detection_phase_ = phase_;
   } else {
     active_detection_phase_ = Phase::Done;
@@ -902,6 +1029,8 @@ void MfPreselectionFlowAction::beginDetection(DetectMode mode,
 }
 
 BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
+  // 某些 phase 是从 onRunning() 直接切过来的，可能尚未调用 beginDetection()。
+  // 这里做一次自恢复初始化，保证检测阶段不会因状态切换顺序漏掉定时器和计数器。
   if (!detection_active_) {
     if (phase_ == Phase::RowScanDetectLeft) {
       beginDetection(DetectMode::Scan, params_.scan_detect_timeout_s);
@@ -923,6 +1052,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
                                            : params_.scan_detect_timeout_s;
 
   if (detect_mode_ == DetectMode::Row4Fake) {
+    // 第四行收尾只关心“转向后正前方是否是假 KFS”。这里不再处理 R2/R1，
+    // 因为路线已经进入离场决策：有假 KFS 则回头下阶梯，否则继续 grid12。
     const auto fake = findFakeTarget();
     if (fake.has_value()) {
       RCLCPP_WARN(node_->get_logger(),
@@ -948,6 +1079,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
     if ((detect_mode_ == DetectMode::RowFront ||
          detect_mode_ == DetectMode::TransitionObserve) &&
         guardPathObstacles()) {
+      // 前方检测/台阶观察阶段看到 R1 时，守卫函数会持续停车等待；
+      // 周身扫描阶段故意不等 R1，因为扫描看到的 R1 不一定挡住当前行进路径。
       return BT::NodeStatus::RUNNING;
     }
   }
@@ -955,6 +1088,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
   const auto r2 = findR2Target();
   if (r2.has_value()) {
     if (r2->sequence != last_detection_sequence_) {
+      // 只有新帧才累计 stable 计数，避免同一帧在高 tick 率下被重复计算。
       last_detection_sequence_ = r2->sequence;
       ++detect_seen_count_;
       detect_lost_count_ = 0;
@@ -967,10 +1101,12 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
                   params_.detect_seen_stable_frames);
       switch (detect_mode_) {
       case DetectMode::Entry2:
+        // 2 号入口正前方夹取后直接准备上首阶，来源记录为 Stair2。
         beginGrab(true, MfPreselectionPickupSource::Stair2,
                   Phase::EntryPrepareClimb);
         break;
       case DetectMode::Stair1:
+        // 1/3 号入口夹取完成后先横移回 2 号入口，再统一入场。
         beginGrab(true, MfPreselectionPickupSource::Stair1,
                   Phase::EntryReturnFromStair1);
         break;
@@ -980,11 +1116,15 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
         break;
       case DetectMode::RowFront:
       case DetectMode::Scan:
+        // 入场后再次发现 R2 KFS，夹取后进入直出模式：不再做第 2/3 行周身
+        // 搜索，但仍保留前方守卫和假 KFS 处理。
         direct_exit_mode_ = true;
         beginGrab(true, MfPreselectionPickupSource::None,
                   Phase::AfterEntry);
         break;
       case DetectMode::TransitionObserve:
+        // 台阶切换前方观察到 R2 KFS 时，按本次台阶高低侧决定夹取命令，
+        // 夹取完成后继续原计划台阶动作。
         beginGrab(transition_high_side_, MfPreselectionPickupSource::None,
                   Phase::TransitionStair);
         break;
@@ -998,6 +1138,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
   }
 
   if (detect_mode_ == DetectMode::RowFront && current_grid_ != 11) {
+    // 第 1/2/3 行前方假 KFS 触发避障；第 4 行假 KFS 有专门的 Row4Fake
+    // 收尾逻辑，不能混用这里的上阶梯绕行动作。
     const auto fake = findFakeTarget();
     if (fake.has_value()) {
       RCLCPP_WARN(node_->get_logger(),
@@ -1012,6 +1154,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
   if ((!latest_sequence.has_value() ||
        *latest_sequence == last_detection_sequence_) &&
       elapsed < timeout) {
+    // 没有新帧且检测窗口还没超时：保持 RUNNING，既不累计 lost，也不切阶段。
     return BT::NodeStatus::RUNNING;
   }
   if (latest_sequence.has_value()) {
@@ -1021,11 +1164,13 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
   detect_seen_count_ = 0;
   if (elapsed < timeout &&
       detect_lost_count_ < params_.detect_lost_stable_frames) {
+    // 目标消失也需要稳定帧，避免单帧漏检直接让 R1 等待或 R2 夹取窗口提前结束。
     return BT::NodeStatus::RUNNING;
   }
 
   switch (detect_mode_) {
   case DetectMode::Entry2:
+    // 中间入口未发现目标后才高抬升并探侧边，减少不必要的横移。
     RCLCPP_INFO(node_->get_logger(),
                 "梅林预选赛入口2号未发现R2 KFS，准备发送高抬升命令并横移探测1/3号阶梯");
     phase_ = Phase::EntryHighRaise;
@@ -1044,6 +1189,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
     RCLCPP_INFO(node_->get_logger(),
                 "梅林预选赛当前行前方未发现可处理目标：grid=%d，直出模式=%s",
                 current_grid_, direct_exit_mode_ ? "是" : "否");
+    // 第一行不做周身扫描，直接向下一格推进；第 2/3 行未夹取时才进入扫描。
     if (direct_exit_mode_) {
       phase_ = (current_grid_ == 11) ? Phase::Row4ForcedTurn
                                     : Phase::TransitionTurn;
@@ -1079,6 +1225,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
 }
 
 void MfPreselectionFlowAction::resetDetectionCounters() {
+  // seen/lost 计数只在一个检测窗口内有效；跨阶段复用会让目标稳定性判断串味。
   detect_seen_count_ = 0;
   detect_lost_count_ = 0;
   last_detection_sequence_ = 0;
@@ -1087,6 +1234,10 @@ void MfPreselectionFlowAction::resetDetectionCounters() {
 void MfPreselectionFlowAction::beginMechanismCommand(
     uint8_t command_id, std::string label, int done_feedback_id,
     Phase next_phase, std::string failure_reason) {
+  // 单条机构命令分两层完成条件：
+  // - service response accepted=true 表示 transport 已接收/ACK；
+  // - done_feedback_id >= 0 时，还必须等同 seq 的完成反馈。
+  // 推杆命令通常只等 ACK；机械臂升降这类姿态动作需要 done 反馈。
   command_generation_.fetch_add(1, std::memory_order_relaxed);
   command_id_ = command_id;
   command_label_ = std::move(label);
@@ -1138,6 +1289,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickMechanismCommand() {
     }
     if (command_done_seen_.load(std::memory_order_relaxed)) {
       if (pending_grab_commit_) {
+        // 夹取计数只在命令 ACK/完成后提交，避免 service rejected 或超时时
+        // 黑板提前显示已经夹取。
         ++pickup_count_;
         entry_pickup_done_ =
             entry_pickup_done_ ||
@@ -1154,6 +1307,9 @@ BT::NodeStatus MfPreselectionFlowAction::tickMechanismCommand() {
         pending_grab_source_ = MfPreselectionPickupSource::None;
       }
       if (command_next_phase_ == Phase::StairPrimitive) {
+        // 台阶原语通过“发送机构命令 -> MechanismCommand phase -> 回到
+        // StairPrimitive”来复用通用 service 等待逻辑。这里把对应子阶段推进到
+        // 命令完成后的 hold/drive 阶段。
         if (stair_phase_ == StairPhase::ClimbSendFrontExtend) {
           stair_phase_ = StairPhase::ClimbHoldAfterFrontExtend;
         } else if (stair_phase_ == StairPhase::ClimbSendRearRetract) {
@@ -1168,6 +1324,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickMechanismCommand() {
                   "梅林预选赛机构命令完成：%s，进入下一阶段",
                   command_label_.c_str());
       if (command_next_phase_ == Phase::ZeroHold) {
+        // beginGrab() 会把夹取命令的 next_phase 设为 ZeroHold，并预先填好
+        // zero_hold_*，让机械爪闭合后留出一个 settle 时间再继续路线。
         if (node_) {
           phase_start_ = node_->now();
           RCLCPP_INFO(node_->get_logger(),
@@ -1211,6 +1369,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickMechanismCommand() {
     request->payload.clear();
     const uint64_t token =
         command_generation_.load(std::memory_order_relaxed);
+    // async_send_request 的回调可能晚于 halt/restart；token 检查保证旧请求不会
+    // 污染新一轮 command_* 状态。
     send_client_->async_send_request(
         request, [this, token](rclcpp::Client<SendCommandSrv>::SharedFuture future) {
           if (token != command_generation_.load(std::memory_order_relaxed)) {
@@ -1237,6 +1397,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickMechanismCommand() {
 void MfPreselectionFlowAction::beginCommandPair(
     uint8_t first_id, std::string first_label, uint8_t second_id,
     std::string second_label, Phase next_phase, std::string failure_reason) {
+  // 台阶中有两处需要近似同时切换前后推杆。这里并发发送两条 service 请求，
+  // 只等待各自 accepted，不等待 done feedback；机械动作间隔由后续 ZeroHold 控制。
   command_generation_.fetch_add(1, std::memory_order_relaxed);
   command_pair_[0].command_id = first_id;
   command_pair_[0].label = std::move(first_label);
@@ -1297,6 +1459,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickCommandPair() {
   if (first_done && second_done) {
     command_pair_active_ = false;
     if (command_next_phase_ == Phase::StairPrimitive) {
+      // 与单命令一样，双命令完成后需要把台阶子状态推进到对应的等待阶段。
       if (stair_phase_ == StairPhase::ClimbSendFrontRetractAndRearExtend) {
         stair_phase_ = StairPhase::ClimbHoldAfterFrontRetractAndRearExtend;
       } else if (stair_phase_ ==
@@ -1335,6 +1498,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickCommandPair() {
     RCLCPP_INFO(node_->get_logger(),
                 "梅林预选赛已发送并发机构命令请求：%s(0x%02X)",
                 slot.label.c_str(), static_cast<unsigned int>(slot.command_id));
+    // 并发命令的两个回调各写自己的 slot；token 仍用于屏蔽旧流程回调。
     send_client_->async_send_request(
         request, [this, token, index](rclcpp::Client<SendCommandSrv>::SharedFuture future) {
           if (token != command_generation_.load(std::memory_order_relaxed)) {
@@ -1358,6 +1522,8 @@ void MfPreselectionFlowAction::beginMoveRelative(double vx, double vy,
                                                  double distance_m,
                                                  Phase next_phase,
                                                  std::string label) {
+  // 相对移动只按 odom 起点和欧氏位移闭环，不规划全局路径。入口横移、
+  // 直出兜底和短距离离场都使用这个原语。
   move_vx_ = vx;
   move_vy_ = vy;
   move_distance_m_ = std::max(0.0, distance_m);
@@ -1379,6 +1545,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickMoveRelative() {
     return fail("move_runtime_missing");
   }
   if (guardPathObstacles()) {
+    // R1 阻挡期间保持停车，并重置相对移动超时窗口；等待人工机器人让开
+    // 不应被算入本段移动超时。
     phase_start_ = node_->now();
     return BT::NodeStatus::RUNNING;
   }
@@ -1393,6 +1561,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickMoveRelative() {
     return BT::NodeStatus::RUNNING;
   }
   if (!move_start_captured_) {
+    // 首次拿到新鲜 odom 后再捕获起点，避免用启动前的默认 0 位姿计算距离。
     move_start_x_ = odom_x_;
     move_start_y_ = odom_y_;
     move_start_yaw_ = odom_yaw_;
@@ -1409,6 +1578,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickMoveRelative() {
   const double dy = odom_y_ - move_start_y_;
   const double traveled = std::hypot(dx, dy);
   if (traveled + params_.move_tolerance_m >= move_distance_m_) {
+    // 完成后清掉 R1 等待状态，避免下一段移动继承上一段的 lost 计数。
     publishStop();
     clearPathR1Wait();
     RCLCPP_INFO(node_->get_logger(),
@@ -1416,6 +1586,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickMoveRelative() {
                 move_label_.c_str(), traveled, move_distance_m_);
     phase_ = move_next_phase_;
     if (phase_ == Phase::EntryDetectStair1) {
+      // 入口探测横移完成后立即进入对应检测窗口，不等下一次 onRunning()
+      // 再做模式映射。
       beginDetection(DetectMode::Stair1, params_.scan_detect_timeout_s);
     } else if (phase_ == Phase::EntryDetectStair3) {
       beginDetection(DetectMode::Stair3, params_.scan_detect_timeout_s);
@@ -1427,11 +1599,14 @@ BT::NodeStatus MfPreselectionFlowAction::tickMoveRelative() {
   if ((node_->now() - phase_start_).seconds() > params_.move_timeout_s) {
     return fail("move_timeout_" + move_label_);
   }
+  // 发布线速度的同时叠加启动 yaw 的 heading hold，抵消横移/直行时的车身漂角。
   publishTwist(move_vx_, move_vy_, headingAngularZ(move_start_yaw_));
   return BT::NodeStatus::RUNNING;
 }
 
 void MfPreselectionFlowAction::beginDirectExitDrive() {
+  // direct_exit 是路线兜底：当已经夹取或假 KFS 避障完成后，不再做完整行扫描，
+  // 只按参数距离朝出口方向直行，同时保留前方 R1/R2/假 KFS 守卫。
   if (node_) {
     RCLCPP_INFO(node_->get_logger(),
                 "梅林预选赛进入专用直行离场兜底：distance=%.3fm speed=%.3fm/s",
@@ -1450,16 +1625,19 @@ BT::NodeStatus MfPreselectionFlowAction::tickDirectExitDrive() {
     beginDirectExitDrive();
   }
   if (guardPathObstacles()) {
+    // 与普通相对移动一样，R1 等待不计入直出移动超时。
     phase_start_ = node_->now();
     return BT::NodeStatus::RUNNING;
   }
   if (canPickup() && findR2Target().has_value()) {
+    // 直出途中仍然允许补夹 R2 KFS，但不记录新的入口来源。
     RCLCPP_INFO(node_->get_logger(),
                 "梅林预选赛直行离场途中检测到R2 KFS，先夹取后继续离场");
     beginGrab(true, MfPreselectionPickupSource::None, Phase::DirectExitDrive);
     return BT::NodeStatus::RUNNING;
   }
   if (current_grid_ != 11 && findFakeTarget().has_value()) {
+    // grid11 的假 KFS 已由第四行专属逻辑处理；其它位置看到假 KFS 走通用避障。
     RCLCPP_WARN(node_->get_logger(),
                 "梅林预选赛直行离场途中检测到假KFS，切入假KFS避障");
     direct_exit_move_active_ = false;
@@ -1470,6 +1648,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickDirectExitDrive() {
 }
 
 bool MfPreselectionFlowAction::guardPathObstacles() {
+  // R1 是人工机器人需要处理的阻挡目标。只要路径前方稳定看到 R1，本车就
+  // 零速等待；默认没有总超时，除非现场显式配置 path_r1_lost_wait_timeout_s。
   const auto r1 = findR1BlockingTarget();
   if (r1.has_value()) {
     publishStop();
@@ -1485,6 +1665,7 @@ bool MfPreselectionFlowAction::guardPathObstacles() {
                   "梅林预选赛路径前方遇到R1阻挡，原地等待人工机器人处理：label=%s distance=%.3fm",
                   r1->label.c_str(), r1->distance_m);
     } else if (r1->sequence != path_r1_last_sequence_) {
+      // 新帧仍看到 R1，刷新序号并清空“已丢失帧”计数。
       path_r1_last_sequence_ = r1->sequence;
       path_r1_lost_count_ = 0;
     }
@@ -1505,6 +1686,7 @@ bool MfPreselectionFlowAction::guardPathObstacles() {
   const auto latest_sequence = latestVisionSequence();
   if (!latest_sequence.has_value() ||
       *latest_sequence == path_r1_last_sequence_) {
+    // 没有新视觉帧时继续等，不把同一帧重复当成 R1 丢失。
     publishStop();
     writeBlackboardState("waiting_r1_blocker");
     return true;
@@ -1512,6 +1694,7 @@ bool MfPreselectionFlowAction::guardPathObstacles() {
   path_r1_last_sequence_ = *latest_sequence;
   ++path_r1_lost_count_;
   if (path_r1_lost_count_ >= params_.detect_lost_stable_frames) {
+    // R1 连续丢失若干新帧后才解除等待，过滤单帧漏检。
     RCLCPP_INFO(node_->get_logger(),
                 "梅林预选赛R1阻挡已连续丢失%d帧，解除等待继续流程",
                 path_r1_lost_count_);
@@ -1524,6 +1707,7 @@ bool MfPreselectionFlowAction::guardPathObstacles() {
 }
 
 void MfPreselectionFlowAction::clearPathR1Wait() {
+  // 路径守卫状态跨 tick 保持，但跨动作段必须清理。
   path_r1_waiting_ = false;
   path_r1_lost_count_ = 0;
   path_r1_last_sequence_ = 0;
@@ -1532,6 +1716,7 @@ void MfPreselectionFlowAction::clearPathR1Wait() {
 void MfPreselectionFlowAction::beginTurnYaw(double target_yaw_rad,
                                             Phase next_phase,
                                             std::string label) {
+  // 转向原语只闭环 yaw，不做平移；所有目标 yaw 都在调用方根据路线语义算好。
   turn_target_yaw_ = normalizeAngle(target_yaw_rad);
   turn_next_phase_ = next_phase;
   turn_label_ = std::move(label);
@@ -1565,6 +1750,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickTurnYaw() {
   }
   const double error = normalizeAngle(turn_target_yaw_ - odom_yaw_);
   if (std::abs(error) <= params_.turn_tolerance_deg * kDeg2Rad) {
+    // 连续稳定若干 tick 才算完成，避免速度刚降到零附近时因 odom 抖动提前放行。
     ++turn_stable_ticks_;
     publishStop();
     if (turn_stable_ticks_ >= params_.turn_stable_ticks) {
@@ -1576,6 +1762,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickTurnYaw() {
     return BT::NodeStatus::RUNNING;
   }
   turn_stable_ticks_ = 0;
+  // yaw P 控制限幅后直接发布角速度；转向阶段不叠加线速度。
   const double wz =
       std::clamp(params_.turn_kp * error, -params_.turn_max_speed_radps,
                  params_.turn_max_speed_radps);
@@ -1586,6 +1773,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickTurnYaw() {
 void MfPreselectionFlowAction::beginZeroHold(double duration_s,
                                              Phase next_phase,
                                              std::string label) {
+  // ZeroHold 是机械动作后的显式稳定时间，也是最终停车保持的短暂确认窗口。
   zero_hold_duration_s_ = std::max(0.0, duration_s);
   zero_hold_next_phase_ = next_phase;
   zero_hold_label_ = std::move(label);
@@ -1613,6 +1801,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickZeroHold() {
 }
 
 bool MfPreselectionFlowAction::prepareTransitionTo(int target_grid) {
+  // 格间转换仍以 MerlinMapManager 的静态深度表为准，只允许相邻中间列上/下
+  // 一档高度。平地同高移动和跨多档高度都不是本预选赛链路的合法动作。
   std::shared_ptr<MerlinMapManager> map;
   if (!config().blackboard->get("merlin_map", map) || !map) {
     return false;
@@ -1628,11 +1818,14 @@ bool MfPreselectionFlowAction::prepareTransitionTo(int target_grid) {
   if (std::abs(transition_height_delta_) != 1) {
     return false;
   }
+  // transition_high_side_ 后续用于决定 TransitionObserve 阶段发现 R2 KFS 时
+  // 该用上侧夹取命令还是下侧夹取命令。
   transition_high_side_ = transition_height_delta_ > 0;
   return true;
 }
 
 BT::NodeStatus MfPreselectionFlowAction::startTransitionTo(int target_grid) {
+  // 启动格间转换时先转到台阶动作所需 yaw，再进入机械臂高低侧调整。
   if (!prepareTransitionTo(target_grid)) {
     return fail("invalid_transition");
   }
@@ -1647,6 +1840,8 @@ BT::NodeStatus MfPreselectionFlowAction::startTransitionTo(int target_grid) {
 }
 
 void MfPreselectionFlowAction::continueAfterTransition() {
+  // current_grid 只在台阶原语完整成功后提交，避免中途失败时黑板误认为
+  // 机器人已经到达目标格。
   current_grid_ = transition_target_grid_;
   config().blackboard->set("current_grid", current_grid_);
   writeBlackboardState("transition_done");
@@ -1654,6 +1849,7 @@ void MfPreselectionFlowAction::continueAfterTransition() {
               "梅林预选赛格间转换完成：当前grid=%d，直出模式=%s",
               current_grid_, direct_exit_mode_ ? "是" : "否");
   if (direct_exit_mode_) {
+    // 直出模式回到 AfterEntry 统一调度，让它仍能在下一格做前方守卫检测。
     phase_ = Phase::AfterEntry;
   } else if (current_grid_ == 5 || current_grid_ == 8) {
     phase_ = Phase::RowScanTurnLeft;
@@ -1668,6 +1864,8 @@ void MfPreselectionFlowAction::continueAfterTransition() {
 
 double MfPreselectionFlowAction::transitionYaw(int from_grid, int target_grid,
                                                int height_delta) const {
+  // 离散格方向约定与 MF 主链一致：行号增加是 +X，列号减少是 +Y。
+  // 上台阶面向目标边，下台阶反向，让后轮先下。
   const int row_delta = gridRow(target_grid) - gridRow(from_grid);
   const int col_delta = gridCol(target_grid) - gridCol(from_grid);
   const double dx = static_cast<double>(row_delta);
@@ -1678,6 +1876,8 @@ double MfPreselectionFlowAction::transitionYaw(int from_grid, int target_grid,
 
 void MfPreselectionFlowAction::beginStair(StairMode mode, Phase next_phase,
                                           std::string label) {
+  // 台阶动作在本节点内部复刻独立 StairClimb/StairDescend 的关键时序：
+  // 推杆命令通过 service，轮组到位通过激光事件，直行阶段叠加 heading hold。
   stair_mode_ = mode;
   stair_next_phase_ = next_phase;
   stair_label_ = std::move(label);
@@ -1698,11 +1898,13 @@ void MfPreselectionFlowAction::beginStair(StairMode mode, Phase next_phase,
 BT::NodeStatus MfPreselectionFlowAction::tickStair() {
   switch (stair_phase_) {
   case StairPhase::ClimbSendFrontExtend:
+    // 上台阶第 1 步：伸出前推杆，只要求 transport ACK。
     beginMechanismCommand(static_cast<uint8_t>(rc26_serial::CommandID::FRONT_PUSHROD_EXTEND),
                           "FRONT_PUSHROD_EXTEND", -1, Phase::StairPrimitive,
                           "front_pushrod_extend_failed");
     break;
   case StairPhase::ClimbHoldAfterFrontExtend:
+    // 给前推杆伸出留机械稳定时间，等待期间持续零速。
     RCLCPP_INFO(node_->get_logger(),
                 "梅林预选赛上阶梯：前推杆伸出ACK完成，零速等待 %.2fs",
                 stair_params_.climb_front_extend_delay_s);
@@ -1711,6 +1913,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
                   Phase::StairPrimitive, "climb_front_extend_hold");
     break;
   case StairPhase::ClimbDriveUntilFrontFirstEvent:
+    // 上台阶前轮阶段：x 正方向前进，直到前轮第一激光高度突变 0x04。
     if (guardPathObstacles()) {
       phase_start_ = node_->now();
       break;
@@ -1734,6 +1937,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
     }
     break;
   case StairPhase::ClimbSendFrontRetractAndRearExtend:
+    // 前轮已上台阶后，同时收回前推杆并伸出后推杆，为后轮上台阶做支撑。
     beginCommandPair(static_cast<uint8_t>(rc26_serial::CommandID::FRONT_PUSHROD_RETRACT),
                      "FRONT_PUSHROD_RETRACT",
                      static_cast<uint8_t>(rc26_serial::CommandID::REAR_PUSHROD_EXTEND),
@@ -1749,6 +1953,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
                   Phase::StairPrimitive, "climb_pair_hold");
     break;
   case StairPhase::ClimbDriveUntilRearEvent:
+    // 上台阶后轮阶段：速度使用 fast->slow profile，尾段减速以降低冲击；
+    // 直到后轮激光高度突变 0x05。
     if (guardPathObstacles()) {
       phase_start_ = node_->now();
       break;
@@ -1771,6 +1977,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
     }
     break;
   case StairPhase::ClimbSendRearRetract:
+    // 后轮到位后收回后推杆，完成上台阶机构复位。
     beginMechanismCommand(static_cast<uint8_t>(rc26_serial::CommandID::REAR_PUSHROD_RETRACT),
                           "REAR_PUSHROD_RETRACT", -1, Phase::StairPrimitive,
                           "rear_pushrod_retract_failed");
@@ -1784,6 +1991,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
                   Phase::StairPrimitive, "climb_rear_retract_hold");
     break;
   case StairPhase::DescendDriveUntilRearEvent:
+    // 下台阶第 1 步：x 负方向后退，先等后轮激光高度突变 0x05。
     if (guardPathObstacles()) {
       phase_start_ = node_->now();
       break;
@@ -1807,6 +2015,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
     }
     break;
   case StairPhase::DescendSendRearExtend:
+    // 后轮下台阶触发后伸出后推杆，准备控制车身继续下阶。
     beginMechanismCommand(static_cast<uint8_t>(rc26_serial::CommandID::REAR_PUSHROD_EXTEND),
                           "REAR_PUSHROD_EXTEND", -1, Phase::StairPrimitive,
                           "rear_pushrod_extend_failed");
@@ -1820,6 +2029,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
                   Phase::StairPrimitive, "descend_rear_extend_hold");
     break;
   case StairPhase::DescendDriveUntilFrontSecondEvent:
+    // 下台阶前轮阶段只等待前轮第二激光 0x07，不使用 0x04 作为推进条件。
     if (guardPathObstacles()) {
       phase_start_ = node_->now();
       break;
@@ -1843,6 +2053,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
     }
     break;
   case StairPhase::DescendSendRearRetractAndFrontExtend:
+    // 前轮第二激光触发后，同时收回后推杆并伸出前推杆，进入前推杆收回前
+    // 的定时后退段。
     beginCommandPair(static_cast<uint8_t>(rc26_serial::CommandID::REAR_PUSHROD_RETRACT),
                      "REAR_PUSHROD_RETRACT",
                      static_cast<uint8_t>(rc26_serial::CommandID::FRONT_PUSHROD_EXTEND),
@@ -1858,6 +2070,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
                   Phase::StairPrimitive, "descend_pair_hold");
     break;
   case StairPhase::DescendTimedDriveBeforeFrontRetract:
+    // 定时后退用于给前推杆收回创造空间；这段没有额外激光事件判定，
+    // 只由参数时长控制。
     if (!timed_drive_started_) {
       phase_start_ = node_->now();
       timed_drive_started_ = true;
@@ -1878,6 +2092,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
     }
     break;
   case StairPhase::DescendSendFrontRetract:
+    // 定时后退完成后收回前推杆，准备结束下台阶。
     beginMechanismCommand(static_cast<uint8_t>(rc26_serial::CommandID::FRONT_PUSHROD_RETRACT),
                           "FRONT_PUSHROD_RETRACT", -1, Phase::StairPrimitive,
                           "front_pushrod_retract_failed");
@@ -1891,6 +2106,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
                   Phase::StairPrimitive, "descend_front_retract_hold");
     break;
   case StairPhase::Complete:
+    // 对格间转换，台阶完成后才提交 current_grid；对入口/离场独立台阶，
+    // 直接进入 beginStair() 指定的下一 phase。
     RCLCPP_INFO(node_->get_logger(), "梅林预选赛台阶动作完成：%s",
                 stair_label_.c_str());
     if (stair_next_phase_ == Phase::AfterEntry &&
@@ -1907,6 +2124,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
 void MfPreselectionFlowAction::beginWheelEvent(WheelEvent event,
                                                double timeout_s,
                                                std::string label) {
+  // 进入激光等待时记录三类事件计数 baseline；后续只看计数是否增长，
+  // 不要求反馈消息恰好在同一个 tick 到达。
   active_wheel_event_ = event;
   active_wheel_event_timeout_s_ = std::max(kMinTimeoutS, timeout_s);
   active_wheel_event_label_ = std::move(label);
@@ -1926,6 +2145,8 @@ void MfPreselectionFlowAction::beginWheelEvent(WheelEvent event,
 }
 
 bool MfPreselectionFlowAction::wheelEventReceived() const {
+  // feedback_sub_ 按反馈 ID 分别累加计数。这里用 baseline 差值判断“本阶段之后”
+  // 是否收到过目标事件，避免启动前残留事件误触发。
   switch (active_wheel_event_) {
   case WheelEvent::FrontFirst:
     return front_first_event_count_.load(std::memory_order_relaxed) >
@@ -1941,6 +2162,7 @@ bool MfPreselectionFlowAction::wheelEventReceived() const {
 }
 
 BT::NodeStatus MfPreselectionFlowAction::tickWheelEvent() {
+  // 激光事件是台阶动作的安全推进条件；超时统一走 fail()，先停车再返回 FAILURE。
   if (wheelEventReceived()) {
     RCLCPP_INFO(node_->get_logger(),
                 "梅林预选赛收到激光事件：%s，阶段=%s",
@@ -1964,6 +2186,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickWheelEvent() {
 }
 
 double MfPreselectionFlowAction::climbRearProfileSpeed() {
+  // 上台阶后轮段采用快到慢线性 profile：前段保证通过能力，后段降低冲击。
+  // slow/fast 已在 normalizeParams() 里做过非负和上限修正。
   const double fast = stair_params_.climb_rear_drive_fast_speed_mps;
   const double slow = stair_params_.climb_rear_drive_slow_speed_mps;
   const double duration =
@@ -1987,6 +2211,8 @@ double MfPreselectionFlowAction::climbRearProfileSpeed() {
 void MfPreselectionFlowAction::beginGrab(bool high_side,
                                          MfPreselectionPickupSource source,
                                          Phase next_phase) {
+  // 夹取动作本身不做视觉伺服，只在检测确认后下发一次 GRAB_KFS_UP/DOWN。
+  // 夹取成功后的路线继续由 next_phase 决定。
   if (!canPickup()) {
     if (node_) {
       RCLCPP_INFO(node_->get_logger(),
@@ -1997,6 +2223,8 @@ void MfPreselectionFlowAction::beginGrab(bool high_side,
     return;
   }
   grab_next_phase_ = next_phase;
+  // pending_grab_commit_ 让计数更新延迟到机构命令被 accepted 之后，避免
+  // 夹取命令失败时仍消耗本局最多夹取次数。
   pending_grab_commit_ = true;
   pending_grab_source_ = source;
   const uint8_t command_id =
@@ -2012,6 +2240,8 @@ void MfPreselectionFlowAction::beginGrab(bool high_side,
   beginMechanismCommand(command_id,
                         high_side ? "GRAB_KFS_UP" : "GRAB_KFS_DOWN", -1,
                         Phase::ZeroHold, "grab_kfs_failed");
+  // beginMechanismCommand() 会先进入 MechanismCommand；当 ACK 完成后再转入
+  // ZeroHold，这里提前把 ZeroHold 的目标阶段和 settle 时间写好。
   zero_hold_next_phase_ = next_phase;
   zero_hold_duration_s_ = params_.grab_settle_s;
   zero_hold_label_ = "grab_settle";
@@ -2029,7 +2259,10 @@ rclcpp::Duration MfPreselectionFlowAction::seconds(double value) const {
 
 void loadMfPreselectionParams(rclcpp::Node &node,
                               const BT::Blackboard::Ptr &blackboard) {
+  // 参数集中由 decision_node 启动时声明并写入黑板；MfPreselectionFlowAction
+  // 运行中不监听参数变化。这里按语义分组声明，便于和 r2_runtime.yaml 对照。
   MfPreselectionParams p;
+  // 视觉模型、标签和深度有效区间。R2/R1/假 KFS 的语义完全由这些标签配置决定。
   p.vision_config_file =
       node.declare_parameter<std::string>("mf_preselect_vision_config_file",
                                           p.vision_config_file);
@@ -2063,6 +2296,7 @@ void loadMfPreselectionParams(rclcpp::Node &node,
   p.scan_detect_timeout_s = node.declare_parameter<double>(
       "mf_preselect_scan_detect_timeout_s", p.scan_detect_timeout_s);
 
+  // 夹取次数和夹爪命令。max_pickup_count=0 可用于路线/避障干跑。
   p.max_pickup_count = node.declare_parameter<int>(
       "mf_preselect_max_pickup_count", p.max_pickup_count);
   p.grab_settle_s = node.declare_parameter<double>(
@@ -2072,6 +2306,7 @@ void loadMfPreselectionParams(rclcpp::Node &node,
   p.grab_kfs_down_command_id = node.declare_parameter<int>(
       "mf_preselect_grab_kfs_down_command_id", p.grab_kfs_down_command_id);
 
+  // 运动、机构 service 和反馈 topic。cmd_vel 是本状态机直接发布的运动权威。
   p.cmd_vel_topic = node.declare_parameter<std::string>(
       "mf_preselect_cmd_vel_topic", p.cmd_vel_topic);
   p.odom_topic = node.declare_parameter<std::string>(
@@ -2096,6 +2331,7 @@ void loadMfPreselectionParams(rclcpp::Node &node,
   p.arm_lower_done_feedback_id = node.declare_parameter<int>(
       "mf_preselect_arm_lower_done_feedback_id", p.arm_lower_done_feedback_id);
 
+  // 入口横移、相对移动和直出兜底参数。距离按绝对值规范化，方向由调用方速度符号表达。
   p.entry_probe_left_distance_m = node.declare_parameter<double>(
       "mf_preselect_entry_probe_left_distance_m",
       p.entry_probe_left_distance_m);
@@ -2117,6 +2353,7 @@ void loadMfPreselectionParams(rclcpp::Node &node,
   p.direct_exit_drive_speed_mps = node.declare_parameter<double>(
       "mf_preselect_direct_exit_drive_speed_mps", p.direct_exit_drive_speed_mps);
 
+  // 转向和 heading hold 参数。*_yaw_rad 是比赛路线语义，P 控参数是执行层闭环。
   p.exit_yaw_rad =
       node.declare_parameter<double>("mf_preselect_exit_yaw_rad", p.exit_yaw_rad);
   p.stair1_direction_yaw_rad = node.declare_parameter<double>(
@@ -2154,6 +2391,8 @@ void loadMfPreselectionParams(rclcpp::Node &node,
   p.vision_config_file = resolveVisionConfig(p.vision_config_file);
   blackboard->set("mf_preselection_params", p);
 
+  // 入口 2 号 NavToPose 是 XML 前置的可选阶段：这些黑板键供
+  // mf_preselection_tree.xml 决定是否先让 Nav2 到达入口预备姿态。
   const bool entry_nav_enable = node.declare_parameter<bool>(
       "mf_preselect_entry2_nav_enable", false);
   blackboard->set("mf_preselect_entry2_nav_enable", entry_nav_enable);
