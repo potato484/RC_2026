@@ -16,7 +16,7 @@
 - 只要运行链涉及真实机构指令，就必须启动本服务。
 - 只要运行链需要真实执行 `/cmd_vel`，也必须启动本服务并保持 `enable_chassis_cmd_vel_consumer=true`。
 - `rc26_mechanism` 当前只是轻量 lifecycle 占位；本包才是目标 MCU 串口 provider。
-- `rc26_telecontrol` 前/后推杆 sidecar、`rc26_decision` 台阶/武馆动作和 `rc26_vision` tip test 都消费 `/mechanism/send_command`、`/mechanism/command_feedback` 或发布 `/cmd_vel`，不直接打开目标 MCU 串口。
+- `rc26_telecontrol` 前/后推杆 sidecar、`rc26_decision` 台阶/武馆动作、`rc26_vision` tip test 和默认关闭的 KFS action test 都消费 `/mechanism/send_command`、`/mechanism/command_feedback` 或发布 `/cmd_vel`，不直接打开目标 MCU 串口。
 - 同一物理目标 MCU 串口只能由本包打开；其它上层包不得再次直连同一设备。
 - `rc26_merge_odom` 中保留的历史 bridge 代码不再作为默认 provider。
 
@@ -66,7 +66,7 @@ ros2 launch rc26_mcu_transport mcu_transport.launch.py \
 
 本包不新增业务命令目录。新增机构命令时，先在 `rc26_serial/protocol.hpp` 定义原始 ID，再由需要该能力的上层直接调用 `/mechanism/send_command`。只有重新设计高层动作语义时，才需要恢复 action、完成反馈和中间层契约。
 
-KFS 阶梯等待测试链属于直接 transport service 消费场景：决策层发送 `ARM_RAISE(0x04)` / `ARM_LOWER(0x05)`，并等待同 `seq` 的 `0x02/0x03` 完成反馈。`GRAB_KFS_UP(0x03)` / `GRAB_KFS_DOWN(0x02)` 当前不通过本包赋予业务语义。
+KFS 阶梯等待测试链属于直接 transport service 消费场景：决策层发送 `ARM_RAISE(0x04)` / `ARM_LOWER(0x05)`，并等待同 `seq` 的 `0x02/0x03` 完成反馈。`rc26_vision` 独立 KFS action test 也只把本包当 raw transport provider，开启后按方向发送空 payload 的 `GRAB_KFS_UP(0x03)` / `GRAB_KFS_DOWN(0x02)` 并只要求 service ACK；本包不额外赋予 KFS 抓取完成语义。
 
 ## 本轮同步
 

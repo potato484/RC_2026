@@ -43,6 +43,7 @@
   - 独立 KFS 阶梯等待测试入口，按 `direction:=climb|descend` 选择 `kfs_stair_climb_test_tree.xml` 或 `kfs_stair_descend_test_tree.xml`
   - 默认拉起 odometry、RealSense D455、`rc26_mcu_transport` 与 `decision_node`；可通过 `start_odometry`、`use_realsense`、`start_mcu_transport` 开关裁剪硬件链路
   - `camera_namespace` 默认空字符串，保持 RealSense 发布 `/camera/color/image_raw`、`/camera/aligned_depth_to_color/image_raw` 与 `/camera/color/camera_info`，匹配 KFS 视觉默认订阅；顶级 ROS `namespace` 不会自动改相机 topic
+  - `use_kfs_vision_ui:=false` 默认关闭摄像头 UI；开启后额外启动 `rc26_vision/kfs_vision_test_node` 作为只读 OpenCV overlay，复用同一组 RealSense topic，不重复启动相机。该 UI 会按 `kfs_model_id` 与 `kfs_depth_min_m/max_m` 显示检测框、标签特征色、置信度和中心 ROI 深度有效性；开启时会额外跑一份 KFS 推理，只用于现场观察，不发布 `/cmd_vel`，也不调用机构 service
   - 不启动 Nav2 controller、定位导航栈或遥控节点，确保 `/cmd_vel` 只由 KFS 等待/台阶 BT 与 `rc26_mcu_transport` 这一条测试链消费/执行
 - `scripts/capture_nav_points.py`
   - 现场 Nav2 导航点采集工具；定位链和 `odom_interface` 已发布 `map -> odom -> base_footprint` 后，人工遥控到目标位置并在终端按 `Enter` 即记录当前 `map -> base_footprint` 的 `x/y/yaw`

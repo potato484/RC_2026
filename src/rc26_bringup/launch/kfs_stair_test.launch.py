@@ -5,6 +5,7 @@ KFS 阶梯等待独立测试入口。
   - 可选 odometry 链，提供 /odom yaw
   - 可选 RealSense D455，提供 KFS 彩色/深度图像
   - 可选 rc26_mcu_transport，消费 /cmd_vel 并提供 /mechanism/send_command
+  - 可选 KFS OpenCV overlay UI，只观察相机图像与推理结果
   - rc26_decision decision_node，按 direction 加载 KFS 上/下台阶测试树
 
 本入口不启动 Nav2、定位或遥控，确保 /cmd_vel 只有一个运动命令权威。
@@ -18,6 +19,7 @@ from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDesc
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def _parse_bool(value):
@@ -108,7 +110,20 @@ def _tree_for_direction(decision_dir, direction):
     raise RuntimeError(f"direction must be climb or descend; got: {direction}")
 
 
-def _create_actions(context, *, bringup_dir, decision_dir, sensor_extrinsics_dir, mcu_transport_dir):
+def _resolve_vision_config_file(vision_dir, configured):
+    configured = str(configured or '').strip()
+    if configured and os.path.exists(configured):
+        return os.path.normpath(configured)
+    candidate = (
+        os.path.join(vision_dir, 'config', 'vision_models.yaml')
+        if not configured else os.path.join(vision_dir, configured)
+    )
+    if os.path.exists(candidate):
+        return os.path.normpath(candidate)
+    return configured
+
+
+def _create_actions(context, *, bringup_dir, decision_dir, sensor_extrinsics_dir, mcu_transport_dir, vision_dir):
     runtime_config_file = _launch_value(context, 'runtime_config_file')
     runtime_defaults = _load_runtime_defaults(runtime_config_file)
     decision_params = dict(runtime_defaults['decision_params'])
@@ -138,6 +153,15 @@ def _create_actions(context, *, bringup_dir, decision_dir, sensor_extrinsics_dir
         context,
         'realsense_config_file',
         os.path.join(bringup_dir, 'config', 'realsense_d455.yaml'))
+    use_kfs_vision_ui = _parse_bool(_launch_value(context, 'use_kfs_vision_ui') or 'false')
+    kfs_vision_ui_window_name = _select_str(
+        context,
+        'kfs_vision_ui_window_name',
+        'KFS Stair Test Vision')
+    kfs_vision_ui_display_rate_ms = _select_str(
+        context,
+        'kfs_vision_ui_display_rate_ms',
+        '33')
 
     mcu_defaults = runtime_defaults['mcu_transport']
     start_mcu_transport = _select_bool(context, 'start_mcu_transport', mcu_defaults['enabled'])
@@ -193,6 +217,30 @@ def _create_actions(context, *, bringup_dir, decision_dir, sensor_extrinsics_dir
             }.items(),
         ))
 
+    if use_kfs_vision_ui:
+        kfs_vision_config_file = _resolve_vision_config_file(
+            vision_dir,
+            decision_params.get('kfs_vision_config_file'))
+        kfs_model_id = str(decision_params.get('kfs_model_id') or 'kfs_default')
+        kfs_depth_min_m = float(decision_params.get('kfs_depth_min_m', 0.6))
+        kfs_depth_max_m = float(decision_params.get('kfs_depth_max_m', 1.2))
+        actions.append(Node(
+            package='rc26_vision',
+            executable='kfs_vision_test_node',
+            name='kfs_vision_ui',
+            output='screen',
+            parameters=[{
+                'use_sim_time': use_sim_time,
+                'vision_config_file': kfs_vision_config_file,
+                'model_id': kfs_model_id,
+                'show_window': True,
+                'window_name': kfs_vision_ui_window_name,
+                'display_rate_ms': ParameterValue(kfs_vision_ui_display_rate_ms, value_type=int),
+                'vision_depth_min_m': kfs_depth_min_m,
+                'vision_depth_max_m': kfs_depth_max_m,
+            }],
+        ))
+
     actions.append(Node(
         package='rc26_decision',
         executable='decision_node',
@@ -216,6 +264,7 @@ def generate_launch_description():
     decision_dir = get_package_share_directory('rc26_decision')
     sensor_extrinsics_dir = get_package_share_directory('rc26_sensor_extrinsics')
     mcu_transport_dir = get_package_share_directory('rc26_mcu_transport')
+    vision_dir = get_package_share_directory('rc26_vision')
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -259,6 +308,18 @@ def generate_launch_description():
             default_value='',
             description='RealSense YAML config file；为空时使用 bringup 默认配置'),
         DeclareLaunchArgument(
+            'use_kfs_vision_ui',
+            default_value='false',
+            description='是否启动 KFS OpenCV overlay 摄像头 UI；默认关闭'),
+        DeclareLaunchArgument(
+            'kfs_vision_ui_window_name',
+            default_value='KFS Stair Test Vision',
+            description='KFS 摄像头 UI 的 OpenCV 窗口标题'),
+        DeclareLaunchArgument(
+            'kfs_vision_ui_display_rate_ms',
+            default_value='33',
+            description='KFS 摄像头 UI 刷新周期，单位毫秒'),
+        DeclareLaunchArgument(
             'start_mcu_transport',
             default_value='',
             description='是否启动 rc26_mcu_transport；空字符串表示使用 r2_runtime.yaml'),
@@ -289,6 +350,7 @@ def generate_launch_description():
                 'decision_dir': decision_dir,
                 'sensor_extrinsics_dir': sensor_extrinsics_dir,
                 'mcu_transport_dir': mcu_transport_dir,
+                'vision_dir': vision_dir,
             },
         ),
     ])

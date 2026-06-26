@@ -1,0 +1,39 @@
+kfs_vision_test_node:
+  ros__parameters:
+    # KFS 独立视觉测试默认只做 RealSense + overlay，不产生底盘/机构动作。
+    kfs_action_enable: false
+    kfs_action_direction: "up"
+
+    # 本车独立夹取测试默认只认 T_* 真目标；R_R1/B_R1 是其它机器人目标，不参与夹取。
+    kfs_action_target_label_prefixes: ["T_"]
+    # ROS 2 YAML 对空数组类型推断不稳定；无需精确标签过滤时保持注释即可。
+    # kfs_action_target_labels: ["T_03"]
+
+    kfs_action_cmd_vel_topic: "cmd_vel"
+    kfs_action_send_command_service: "/mechanism/send_command"
+
+    # 视觉横移对齐：目标框中心对准画面中心竖线。
+    kfs_action_align_tolerance_px: 20
+    kfs_action_align_stable_frames: 5
+    kfs_action_align_kp: 0.0010
+    kfs_action_align_min_speed_mps: 0.015
+    kfs_action_align_max_speed_mps: 0.06
+    kfs_action_command_rate_hz: 20.0
+    kfs_action_lost_stop_frames: 3
+    kfs_action_target_lock_enable: true
+    kfs_action_target_lock_max_jump_px: 160
+    kfs_action_invert_lateral_direction: false
+
+    # D455 按前向相机安装口径处理；趋近时默认发布 cmd_vel.linear.x > 0。
+    kfs_action_approach_speed_mps: 0.04
+    kfs_action_approach_x_sign: 1
+    kfs_action_approach_timeout_s: 8.0
+    kfs_action_grab_distance_m: 0.70
+    kfs_action_grab_stable_frames: 2
+    kfs_action_total_timeout_s: 25.0
+
+    # 到达夹取距离后只要求 /mechanism/send_command 返回 ACK，不等待抓取完成反馈。
+    kfs_action_grab_service_timeout_ms: 200
+    kfs_action_grab_once: true
+    kfs_action_grab_kfs_up_command_id: 3
+    kfs_action_grab_kfs_down_command_id: 2

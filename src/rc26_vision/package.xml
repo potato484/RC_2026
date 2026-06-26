@@ -30,6 +30,7 @@
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>realsense2_camera</exec_depend>
+  <exec_depend>rc26_mcu_transport</exec_depend>
   <depend>opencv4</depend>
   <test_depend>ament_cmake_gtest</test_depend>
 
