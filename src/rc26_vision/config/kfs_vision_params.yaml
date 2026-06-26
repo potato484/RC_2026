@@ -1,5 +1,8 @@
 kfs_vision_test_node:  # KFS 独立视觉测试节点的 ROS 2 参数命名空间
   ros__parameters:  # kfs_vision_test_node 实际读取的参数集合
+    log_detections: false  # 是否打印每帧 [检测] 日志；默认关闭，避免 action test 时高频刷屏
+    log_status: false  # 是否按 print_rate_ms 周期打印 [状态] 日志；默认关闭，避免 action test 时刷屏
+
     # KFS 独立视觉测试默认只做 RealSense + overlay，不产生底盘/机构动作。
     kfs_action_enable: false  # 是否启用底盘/机构实机动作链；false 时只运行视觉 overlay
     kfs_action_direction: "up"  # KFS 动作方向；up 使用抬升预调和 GRAB_KFS_UP，down 使用下降预调和 GRAB_KFS_DOWN
@@ -18,8 +21,9 @@ kfs_vision_test_node:  # KFS 独立视觉测试节点的 ROS 2 参数命名空�
     kfs_action_arm_lower_command_id: 5  # ARM_LOWER 命令 ID，direction=down 时先发送
     kfs_action_arm_raise_done_feedback_id: 2  # ARM_RAISE_DONE 反馈 ID，必须与 service ACK seq 匹配
     kfs_action_arm_lower_done_feedback_id: 3  # ARM_LOWER_DONE 反馈 ID，必须与 service ACK seq 匹配
-    kfs_action_arm_prep_service_timeout_ms: 200  # 机械臂预调 service ACK 等待超时，单位毫秒
-    kfs_action_arm_prep_done_timeout_s: 3.0  # 机械臂预调完成反馈等待超时，单位秒
+    kfs_action_service_wait_timeout_s: 10.0  # 启动后等待 /mechanism/send_command 被本节点发现的最长时间，避免 launch 并发启动竞态
+    kfs_action_arm_prep_service_timeout_ms: 6000  # 机械臂预调 service ACK 等待超时，需覆盖底层 0x00-0x09 可靠重发闭包
+    kfs_action_arm_prep_done_timeout_s: 10.0  # 机械臂预调完成反馈等待超时；从 ACK seq 已知后开始计时，单位秒
 
     # 视觉横移对齐：目标框中心对准画面中心竖线。
     kfs_action_align_tolerance_px: 20  # 横移对齐像素容差；目标中心距画面中心小于该值算对齐
@@ -39,10 +43,10 @@ kfs_vision_test_node:  # KFS 独立视觉测试节点的 ROS 2 参数命名空�
     kfs_action_approach_timeout_s: 8.0  # 趋近阶段安全超时，单位秒
     kfs_action_grab_distance_m: 0.70  # 目标深度小于等于该值且稳定后触发 KFS 夹取，单位 m
     kfs_action_grab_stable_frames: 2  # 连续多少帧满足夹取距离后才发送 GRAB_KFS 命令
-    kfs_action_total_timeout_s: 25.0  # 整条 KFS action test 最大运行时间，单位秒
+    kfs_action_total_timeout_s: 40.0  # 整条 KFS action test 最大运行时间，单位秒
 
     # 到达夹取距离后先等待 GRAB_KFS_UP/DOWN service ACK，再用视觉确认夹取前原目标消失。
-    kfs_action_grab_service_timeout_ms: 200  # GRAB_KFS service ACK 等待超时，单位毫秒
+    kfs_action_grab_service_timeout_ms: 6000  # GRAB_KFS service ACK 等待超时，需覆盖底层可靠重发闭包
     kfs_action_grab_verify_timeout_s: 3.0  # ACK 后等待原目标视觉消失的最长验证时间，单位秒
     kfs_action_grab_verify_lost_stable_frames: 3  # 连续多少个新推理帧未匹配原目标才确认物理夹取成功
     kfs_action_grab_verify_iou_threshold: 0.30  # 同 label 且 bbox IoU 达到该阈值才认为原目标仍可见

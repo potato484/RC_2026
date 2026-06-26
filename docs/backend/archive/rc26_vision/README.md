@@ -65,7 +65,7 @@
 - `src/inference/aidlite/aidlite_engine.cpp` / `src/inference/aidlite/aidlite_engine_stub.cpp` / `src/inference/onnx/onnx_runtime_engine.cpp` / `src/inference/onnx/onnx_runtime_engine_stub.cpp`：AidLite 实机链、本地 ONNX Runtime 链与缺依赖时的 stub。
 - `src/postprocess/yolo/yolo_detection_postprocessor.cpp`：YOLO 输出解码、坐标回映和 NMS。
 - `src/postprocess/localization/tip_localizer.cpp`：深度 + TF 融合，把识别结果投到 `map`。
-- `src/nodes/kfs_vision_test_node.cpp`：kfs 主链(D455 + kfs.onnx)测试节点入口，在主线程通过 OpenCV overlay 窗口画出全部检测框、标签特征色、类别、置信度、中心 ROI 深度有效性、角落帧率与 best target 的 D455 深度距离；`model_id` 为空时使用 `vision_models.yaml` 的 `default_model`，非空时显式选择对应 profile；`show_window=false` 时降级无头。节点还保留默认关闭的 `kfs_action_enable` 实机动作测试链，开启后只把 `T_*` 当作本车 KFS 夹取目标，先按 `direction` 发送 `ARM_RAISE(0x04)` 或 `ARM_LOWER(0x05)` 并等待同 seq 完成反馈，再发布 `/cmd_vel` 做横移对齐与 x 正向趋近，到达夹取深度后通过 `/mechanism/send_command` 发送 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`，ACK 后用原目标视觉消失确认物理夹取成功。`src/nodes/tip_localizer_node.cpp`：tip 定位节点入口。
+- `src/nodes/kfs_vision_test_node.cpp`：kfs 主链(D455 + kfs.onnx)测试节点入口，在主线程通过 OpenCV overlay 窗口画出全部检测框、标签特征色、类别、置信度、中心 ROI 深度有效性、角落帧率与 best target 的 D455 深度距离；`model_id` 为空时使用 `vision_models.yaml` 的 `default_model`，非空时显式选择对应 profile；`show_window=false` 时降级无头。高频 `[检测]` 日志默认由 `log_detections=false` 关闭，周期 `[状态]` 日志默认由 `log_status=false` 关闭，需要排查识别或动作状态细节时可临时打开。节点还保留默认关闭的 `kfs_action_enable` 实机动作测试链，开启后只把 `T_*` 当作本车 KFS 夹取目标，先按 `direction` 发送 `ARM_RAISE(0x04)` 或 `ARM_LOWER(0x05)` 并等待同 seq 完成反馈，再发布 `/cmd_vel` 做横移对齐与 x 正向趋近，到达夹取深度后通过 `/mechanism/send_command` 发送 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`，ACK 后用原目标视觉消失确认物理夹取成功。KFS action test 的 service ACK 等待默认按 `6000ms` 覆盖 `rc26_serial` 底层可靠发送重试闭包；机械臂预调完成反馈等待默认 `10s`，且从 ACK 返回并拿到 `seq` 后才开始计时。`src/nodes/tip_localizer_node.cpp`：tip 定位节点入口。
 - `test/tip_vision_test_node.cpp`：USB 相机 + 单目 tip test 节点的入口、私有声明、参数、相机、目标选择、可选视觉横移对线、对齐后 x 负向前探等待 0x06 限位、抓取 service 触发和 overlay 单文件实现；推理直接复用主链 `InferenceEngine`。
 - `src/tools/yolo_inference_test.cpp`、`tools/*.py`：离线工具和实验脚本。
 
@@ -94,7 +94,7 @@
 - `tip` test 链的 `single_target_mode` 默认保持关闭；如果手动开启，推理结果会先按置信度截断到单个框，这会绕过多框中心优先选择，主要用于旧式单目标调试。
 - 对齐误差进入 `alignment_tolerance_px` 并稳定达到 `alignment_stable_frames` 后，tip test 节点必须先 x 负向前探并等待 0x06 前方限位反馈；收到限位后才会通过 `/mechanism/send_command` 共享 transport 下发一次 `GRAB_TIP(0x01)` 空 payload。它不直接打开目标 MCU 串口，`/cmd_vel` 消费和 mechanism transport 都由 `rc26_mcu_transport` 提供。
 - 启用自动对线时，同一时刻不要启动 Nav2、teleop 或其它 `/cmd_vel` 发布权威；必须启动 `rc26_mcu_transport` 消费 `/cmd_vel` 并提供 `/mechanism/send_command` 与 `/mechanism/command_feedback`。
-- `test_kfs_vision.launch.py` 默认仍是 RealSense + `kfs_vision_test_node` 的纯视觉 overlay；传 `action_enable:=true direction:=up|down` 后会按 `start_mcu_transport:=auto` 自动带起 `rc26_mcu_transport`，并启动 KFS 底盘/机构测试链。KFS action test 会先发送方向对应的机械臂预调命令并等待同 seq 完成反馈：`up -> ARM_RAISE(0x04)/ARM_RAISE_DONE(0x02)`，`down -> ARM_LOWER(0x05)/ARM_LOWER_DONE(0x03)`；预调完成后用 `T_*` 目标做画面中心横移对齐，再按 D455 前向安装口径发布 `cmd_vel.linear.x>0` 低速趋近，到达 `kfs_action_grab_distance_m` 后停车并发送空 payload 的 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`。夹取 service ACK 后会保存触发夹取的 `label + bbox + sequence`，只有同 label 且 bbox IoU 达到 `kfs_action_grab_verify_iou_threshold` 的原目标连续 `kfs_action_grab_verify_lost_stable_frames` 个新推理帧不可见，才显示 `SUCCESS`；验证超时、原目标仍可见或无新帧都会停车进入 `FAILED`。
+- `test_kfs_vision.launch.py` 默认仍是 RealSense + `kfs_vision_test_node` 的纯视觉 overlay；传 `action_enable:=true direction:=up|down` 后会按 `start_mcu_transport:=auto` 自动带起 `rc26_mcu_transport`，并启动 KFS 底盘/机构测试链。KFS action test 会先等待 `/mechanism/send_command` 被本节点发现，等待上限由 `kfs_action_service_wait_timeout_s` 控制，避免 launch 并发启动时 ROS graph 尚未发现 service 就直接失败；随后发送方向对应的机械臂预调命令并等待同 seq 完成反馈：`up -> ARM_RAISE(0x04)/ARM_RAISE_DONE(0x02)`，`down -> ARM_LOWER(0x05)/ARM_LOWER_DONE(0x03)`。预调 service ACK 等待由 `kfs_action_arm_prep_service_timeout_ms` 控制，默认 `6000ms`，用于覆盖底层 `0x00` 到 `0x09` 的可靠发送重试；预调 done 等待由 `kfs_action_arm_prep_done_timeout_s` 控制，默认 `10s`，从 service ACK 返回并拿到 `seq` 后开始计时。预调完成后用 `T_*` 目标做画面中心横移对齐，再按 D455 前向安装口径发布 `cmd_vel.linear.x>0` 低速趋近，到达 `kfs_action_grab_distance_m` 后停车并发送空 payload 的 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`。夹取 service ACK 后会保存触发夹取的 `label + bbox + sequence`，只有同 label 且 bbox IoU 达到 `kfs_action_grab_verify_iou_threshold` 的原目标连续 `kfs_action_grab_verify_lost_stable_frames` 个新推理帧不可见，才显示 `SUCCESS`；验证超时、原目标仍可见或无新帧都会停车进入 `FAILED`。
 - 当前 `tip` test 参数仍默认优先 `camera_index=2` 这路外接 USB 摄像头，但 `auto_scan_camera` 已默认打开；如果首选设备能枚举却读不出第一帧，节点会打印中文告警并自动扫描其他 `/dev/video*` 作为兜底。
 - 默认联调入口仍然是 RealSense + `kfs_vision_test_node`（`test_kfs_vision.launch.py`）；KFS action test 需要显式 `action_enable:=true` 才会发布速度和机构指令，tip test 节点不参与默认 launch，需要单独显式启动。
 
@@ -136,6 +136,12 @@
 - 端头模型 profile ID 已从历史测试命名 `tip_test` 改为更通用的 `tip_default`；模型文件仍是 `models/tip.onnx`，标签文件仍是 `models/tip_labels.txt`。
 
 ## 最近修改
+
+- **KFS action test 放宽预调 ACK/完成反馈等待**：`kfs_vision_test_node` 的机械臂预调 service ACK 等待默认从 `200ms` 调整到 `6000ms`，夹取 service ACK 等待同步调整到 `6000ms`，避免上层在 `rc26_serial` 仍按 `0x00` 到 `0x09` 做可靠发送重试时提前判定失败。机械臂预调完成反馈等待默认从 `3s` 调整到 `10s`，且从 service ACK 返回、拿到用于匹配反馈的 `seq` 后才开始计时。`test_kfs_vision.launch.py` 透传这些超时参数，实机联调可按机械臂实际动作时间临时覆盖。
+
+- **KFS 测试节点刷屏日志默认降噪**：`kfs_vision_test_node` 的 `log_detections` 与 `log_status` 默认均为 `false`，不再每个有效检测帧打印 `[检测]`，也不再按 `print_rate_ms` 周期打印 `[状态]`。启动、动作阶段、service 请求、失败原因和 overlay 显示保持不变。`test_kfs_vision.launch.py` 已透传同名参数，需要看逐帧检测或周期状态时可临时设置 `log_detections:=true` / `log_status:=true`，或在参数文件中打开。
+
+- **KFS action test 修正启动时 service 发现竞态**：`kfs_vision_test_node` 开启动作链后不再在首次 `service_is_ready()` 为 false 时立刻进入 `FAILED`，而是按 `kfs_action_service_wait_timeout_s` 等待 `/mechanism/send_command` 被本节点发现。该改动只处理 `test_kfs_vision.launch.py` 同时启动 `rc26_mcu_transport` 和视觉节点时的 ROS graph 发现时序，不改变 `/cmd_vel` 或 raw mechanism transport 的权威边界。
 
 - **KFS 独立视觉测试链同步机械臂预调与物理夹取验证**：`kfs_vision_test_node` 的 `action_enable:=true` 链路现在先按 `direction` 发送 `ARM_RAISE(0x04)` / `ARM_LOWER(0x05)` 并等待同 seq 完成反馈，随后对 `T_*` 目标横移对齐、x 正向趋近、发送 `GRAB_KFS_UP(0x03)` / `GRAB_KFS_DOWN(0x02)`，最后用同 label + bbox IoU 的原目标连续新帧消失确认物理夹取成功。独立测试中视觉验证失败会停车进入 `FAILED`，便于单次实机验收；同目标匹配 helper 已抽到 `shared/target/visual_target_match`，供 vision test 与 decision MF 预选赛共用。
 

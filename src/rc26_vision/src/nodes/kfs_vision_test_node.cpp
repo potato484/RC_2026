@@ -246,14 +246,21 @@ public:
         this->declare_parameter<int>("print_rate_ms", 500);
         this->declare_parameter<std::string>("vision_config_file", "");
         this->declare_parameter<std::string>("model_id", "");
+        this->declare_parameter<bool>("log_detections", false);
+        this->declare_parameter<bool>("log_status", false);
         this->declare_parameter<bool>("show_window", true);
         this->declare_parameter<std::string>("window_name", std::string("KFS Vision - kfs.onnx"));
         this->declare_parameter<int>("display_rate_ms", 33);
         declareActionParameters();
 
-        const int print_rate_ms = this->get_parameter("print_rate_ms").as_int();
+        int print_rate_ms = this->get_parameter("print_rate_ms").as_int();
+        if (print_rate_ms <= 0) {
+            print_rate_ms = 500;
+        }
         const std::string config_file = this->get_parameter("vision_config_file").as_string();
         const std::string requested_model_id = this->get_parameter("model_id").as_string();
+        log_detections_ = this->get_parameter("log_detections").as_bool();
+        log_status_ = this->get_parameter("log_status").as_bool();
         show_window_ = this->get_parameter("show_window").as_bool();
         window_name_ = this->get_parameter("window_name").as_string();
         int display_rate_ms = this->get_parameter("display_rate_ms").as_int();
@@ -296,7 +303,7 @@ public:
         loadActionParameters();
 
         manager_->setResultCallback([this](const TargetResult& result) {
-            if (result.has_target) {
+            if (log_detections_ && result.has_target) {
                 RCLCPP_INFO(this->get_logger(), "[检测] attr=%d dist=%.2fm score=%.2f bbox=(%d,%d)",
                     static_cast<int>(result.attr_kind), result.distance_m, result.score,
                     result.bbox_cx, result.bbox_cy);
@@ -321,9 +328,11 @@ public:
             }
         }
 
-        timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(print_rate_ms),
-            [this]() { printStatus(); });
+        if (log_status_) {
+            timer_ = this->create_wall_timer(
+                std::chrono::milliseconds(print_rate_ms),
+                [this]() { printStatus(); });
+        }
 
         // 显示定时器在主线程(单线程 spin)执行,满足 OpenCV HighGUI 必须主线程的约束。
         if (show_window_) {
@@ -389,8 +398,9 @@ private:
             static_cast<int>(rc26_serial::FeedbackID::ARM_RAISE_DONE));
         this->declare_parameter<int>("kfs_action_arm_lower_done_feedback_id",
             static_cast<int>(rc26_serial::FeedbackID::ARM_LOWER_DONE));
-        this->declare_parameter<int>("kfs_action_arm_prep_service_timeout_ms", 200);
-        this->declare_parameter<double>("kfs_action_arm_prep_done_timeout_s", 3.0);
+        this->declare_parameter<double>("kfs_action_service_wait_timeout_s", 5.0);
+        this->declare_parameter<int>("kfs_action_arm_prep_service_timeout_ms", 6000);
+        this->declare_parameter<double>("kfs_action_arm_prep_done_timeout_s", 10.0);
         this->declare_parameter<int>("kfs_action_align_tolerance_px", 20);
         this->declare_parameter<int>("kfs_action_align_stable_frames", 5);
         this->declare_parameter<double>("kfs_action_align_kp", 0.0010);
@@ -406,8 +416,8 @@ private:
         this->declare_parameter<double>("kfs_action_approach_timeout_s", 8.0);
         this->declare_parameter<double>("kfs_action_grab_distance_m", 0.70);
         this->declare_parameter<int>("kfs_action_grab_stable_frames", 2);
-        this->declare_parameter<double>("kfs_action_total_timeout_s", 25.0);
-        this->declare_parameter<int>("kfs_action_grab_service_timeout_ms", 200);
+        this->declare_parameter<double>("kfs_action_total_timeout_s", 40.0);
+        this->declare_parameter<int>("kfs_action_grab_service_timeout_ms", 6000);
         this->declare_parameter<double>("kfs_action_grab_verify_timeout_s", 3.0);
         this->declare_parameter<int>("kfs_action_grab_verify_lost_stable_frames", 3);
         this->declare_parameter<double>("kfs_action_grab_verify_iou_threshold", 0.30);
@@ -462,6 +472,8 @@ private:
         action_arm_lower_done_feedback_id_ = validateCommandId(
             this->get_parameter("kfs_action_arm_lower_done_feedback_id").as_int(),
             "kfs_action_arm_lower_done_feedback_id");
+        action_service_wait_timeout_s_ = std::max(
+            0.0, this->get_parameter("kfs_action_service_wait_timeout_s").as_double());
         action_arm_prep_service_timeout_ms_ = std::max(1, static_cast<int>(
             this->get_parameter("kfs_action_arm_prep_service_timeout_ms").as_int()));
         action_arm_prep_done_timeout_s_ = std::max(
@@ -557,6 +569,7 @@ private:
             });
         action_phase_ = ActionPhase::SendingPrep;
         action_started_tp_ = std::chrono::steady_clock::now();
+        action_service_wait_started_tp_ = action_started_tp_;
         last_action_command_tp_ = std::chrono::steady_clock::time_point{};
         action_timer_ = create_wall_timer(
             std::chrono::milliseconds(20),
@@ -565,13 +578,15 @@ private:
         RCLCPP_WARN(
             get_logger(),
             "KFS 动作测试已启用: direction=%s target_prefixes=%zu cmd_vel=%s service=%s "
-            "feedback=%s prep=%s(%s) done=0x%02X approach_vx_sign=%d grab_dist=%.2fm grab=%s。"
+            "feedback=%s prep=%s(%s) done=0x%02X service_wait=%.1fs "
+            "approach_vx_sign=%d grab_dist=%.2fm grab=%s。"
             "运行前必须停用 Nav2/遥控等其它速度权威。",
             action_direction_.c_str(), action_target_prefixes_.size(),
             action_cmd_vel_topic_.c_str(), action_send_command_service_.c_str(),
             action_feedback_topic_.c_str(), action_prep_label_.c_str(),
             byteToHex(action_prep_command_id_).c_str(),
             static_cast<unsigned int>(action_prep_done_feedback_id_),
+            action_service_wait_timeout_s_,
             action_approach_x_sign_, action_grab_distance_m_,
             byteToHex(action_grab_command_id_).c_str());
     }
@@ -805,6 +820,7 @@ private:
     void beginPrepRequest() {
         action_latest_prep_done_seq_ = -1;
         action_prep_done_seen_ = false;
+        action_prep_done_wait_started_tp_ = std::chrono::steady_clock::time_point{};
         action_phase_ = ActionPhase::WaitingPrepDone;
         if (!sendActionCommandRequest(
                 action_prep_command_id_,
@@ -823,6 +839,37 @@ private:
             static_cast<unsigned int>(action_prep_done_feedback_id_));
     }
 
+    bool waitForActionService(const std::chrono::steady_clock::time_point& now) {
+        if (!action_send_client_) {
+            failAction("KFS 机械臂预调 service client 未初始化");
+            return false;
+        }
+        if (action_send_client_->service_is_ready()) {
+            return true;
+        }
+
+        publishActionStop(false);
+        if (action_service_wait_started_tp_ == std::chrono::steady_clock::time_point{}) {
+            action_service_wait_started_tp_ = now;
+        }
+        const double elapsed =
+            std::chrono::duration<double>(now - action_service_wait_started_tp_).count();
+        if (elapsed >= action_service_wait_timeout_s_) {
+            std::ostringstream ss;
+            ss << "KFS 机械臂预调 service 等待超时: service="
+               << action_send_command_service_ << " timeout="
+               << std::fixed << std::setprecision(1) << action_service_wait_timeout_s_ << "s";
+            failAction(ss.str());
+            return false;
+        }
+
+        RCLCPP_WARN_THROTTLE(
+            get_logger(), *get_clock(), 1000,
+            "KFS 机械臂预调 service 尚未被本节点发现，继续等待: service=%s elapsed=%.1fs timeout=%.1fs",
+            action_send_command_service_.c_str(), elapsed, action_service_wait_timeout_s_);
+        return false;
+    }
+
     void pollPrepResponse(const std::chrono::steady_clock::time_point& now) {
         publishActionStop(false);
         if (!action_prep_request_pending_) {
@@ -834,7 +881,11 @@ private:
                 static_cast<double>(action_arm_prep_service_timeout_ms_)) {
                 action_prep_request_pending_ = false;
                 ++action_prep_request_generation_;
-                failAction("KFS 机械臂预调 service 响应超时");
+                std::ostringstream ss;
+                ss << "KFS 机械臂预调 service 响应超时: timeout="
+                   << action_arm_prep_service_timeout_ms_
+                   << "ms，底层可靠发送可能仍在重试但未返回最终 ACK";
+                failAction(ss.str());
             }
             return;
         }
@@ -842,6 +893,16 @@ private:
             action_prep_request_pending_ = false;
             failAction("KFS 机械臂预调命令被 transport 拒绝");
             return;
+        }
+        if (action_prep_done_wait_started_tp_ == std::chrono::steady_clock::time_point{}) {
+            action_prep_done_wait_started_tp_ = now;
+            RCLCPP_INFO(
+                get_logger(),
+                "KFS 机械臂预调命令已 ACK: %s seq=%u，开始等待完成反馈=0x%02X timeout=%.1fs",
+                action_prep_label_.c_str(),
+                static_cast<unsigned int>(action_prep_response_seq_),
+                static_cast<unsigned int>(action_prep_done_feedback_id_),
+                action_arm_prep_done_timeout_s_);
         }
         if (action_latest_prep_done_seq_ == static_cast<int>(action_prep_response_seq_)) {
             action_prep_done_seen_ = true;
@@ -859,10 +920,18 @@ private:
                 static_cast<unsigned int>(action_prep_response_seq_));
             return;
         }
-        if (std::chrono::duration<double>(now - action_prep_request_tp_).count() >
+        if (std::chrono::duration<double>(now - action_prep_done_wait_started_tp_).count() >
             action_arm_prep_done_timeout_s_) {
             action_prep_request_pending_ = false;
-            failAction("KFS 机械臂预调完成反馈超时");
+            std::ostringstream ss;
+            ss << "KFS 机械臂预调完成反馈超时: " << action_prep_label_
+               << " seq=" << static_cast<unsigned int>(action_prep_response_seq_)
+               << " feedback=0x" << std::uppercase << std::hex << std::setw(2)
+               << std::setfill('0') << static_cast<unsigned int>(action_prep_done_feedback_id_)
+               << std::nouppercase << std::dec << std::setfill(' ')
+               << " timeout=" << std::fixed << std::setprecision(1)
+               << action_arm_prep_done_timeout_s_ << "s";
+            failAction(ss.str());
         }
     }
 
@@ -883,6 +952,9 @@ private:
         }
 
         if (action_phase_ == ActionPhase::SendingPrep) {
+            if (!waitForActionService(now)) {
+                return;
+            }
             beginPrepRequest();
             return;
         }
@@ -1023,14 +1095,17 @@ private:
             failAction("KFS 夹取请求状态异常");
             return;
         }
-        if (std::chrono::duration<double, std::milli>(now - action_grab_request_tp_).count() >
-            static_cast<double>(action_grab_service_timeout_ms_)) {
-            action_grab_request_pending_ = false;
-            ++action_grab_request_generation_;
-            failAction("KFS 夹取 service 响应超时");
-            return;
-        }
         if (!action_grab_response_seen_) {
+            if (std::chrono::duration<double, std::milli>(now - action_grab_request_tp_).count() >
+                static_cast<double>(action_grab_service_timeout_ms_)) {
+                action_grab_request_pending_ = false;
+                ++action_grab_request_generation_;
+                std::ostringstream ss;
+                ss << "KFS 夹取 service 响应超时: timeout="
+                   << action_grab_service_timeout_ms_
+                   << "ms，底层可靠发送可能仍在重试但未返回最终 ACK";
+                failAction(ss.str());
+            }
             return;
         }
         action_grab_request_pending_ = false;
@@ -1330,6 +1405,8 @@ private:
     std::chrono::steady_clock::time_point fps_last_tp_ = std::chrono::steady_clock::now();
     int fps_frame_count_ = 0;
     double display_fps_ = 0.0;
+    bool log_detections_{false};
+    bool log_status_{false};
 
     bool action_enable_{false};
     std::string action_direction_{"up"};
@@ -1348,8 +1425,9 @@ private:
     uint8_t action_prep_done_feedback_id_{
         static_cast<uint8_t>(rc26_serial::FeedbackID::ARM_RAISE_DONE)};
     std::string action_prep_label_{"ARM_RAISE"};
-    int action_arm_prep_service_timeout_ms_{200};
-    double action_arm_prep_done_timeout_s_{3.0};
+    double action_service_wait_timeout_s_{5.0};
+    int action_arm_prep_service_timeout_ms_{6000};
+    double action_arm_prep_done_timeout_s_{10.0};
     int action_align_tolerance_px_{20};
     int action_align_stable_frames_{5};
     double action_align_kp_{0.0010};
@@ -1365,8 +1443,8 @@ private:
     double action_approach_timeout_s_{8.0};
     double action_grab_distance_m_{0.70};
     int action_grab_stable_frames_{2};
-    double action_total_timeout_s_{25.0};
-    int action_grab_service_timeout_ms_{200};
+    double action_total_timeout_s_{40.0};
+    int action_grab_service_timeout_ms_{6000};
     double action_grab_verify_timeout_s_{3.0};
     int action_grab_verify_lost_stable_frames_{3};
     double action_grab_verify_iou_threshold_{0.30};
@@ -1377,6 +1455,7 @@ private:
 
     ActionPhase action_phase_{ActionPhase::Disabled};
     std::chrono::steady_clock::time_point action_started_tp_{};
+    std::chrono::steady_clock::time_point action_service_wait_started_tp_{};
     std::chrono::steady_clock::time_point action_approach_started_tp_{};
     std::chrono::steady_clock::time_point last_action_command_tp_{};
     bool action_zero_published_{true};
@@ -1407,6 +1486,7 @@ private:
     uint8_t action_prep_response_seq_{0U};
     int action_latest_prep_done_seq_{-1};
     bool action_prep_done_seen_{false};
+    std::chrono::steady_clock::time_point action_prep_done_wait_started_tp_{};
     std::optional<VisualTargetSnapshot> action_pending_grab_target_;
     std::chrono::steady_clock::time_point action_grab_verify_started_tp_{};
     int action_grab_verify_lost_count_{0};

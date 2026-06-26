@@ -49,6 +49,13 @@
 
 历史 keepout / terrain / MF KFS 兼容接口已经删除，不再由本包生成。当前 `rc26_bringup` 不启动旧 keepout、terrain 或 base-ground 链路，`rc26_decision` 也不调用旧 keepout runtime service、不发布旧 MF KFS 状态、不订阅旧 terrain/base-ground/keepout 输出。
 
+删除 `.action`、`.msg` 或 `.srv` 后，如果 `build/rc26_interfaces` 或 `install/rc26_interfaces` 里仍残留旧 rosidl 生成文件，增量构建可能继续编译已删除接口，例如旧 `GrabTip` action。遇到这类 stale generated artifact 时，不应重新加入旧 action 依赖，应清理本包生成产物后重新构建：
+
+```bash
+rm -rf build/rc26_interfaces install/rc26_interfaces
+MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --parallel-workers 1 --packages-select rc26_interfaces
+```
+
 ## 当前边界
 
 - 接口是否存在以 `src/rc26_interfaces/CMakeLists.txt` 的 `rosidl_generate_interfaces()` 清单为准。
@@ -59,3 +66,4 @@
 
 2026-06-26 同步：移除旧机构 action 生成项和 `action_msgs` 依赖。机构侧当前只生成 raw transport message/service；旧高层动作能力已经从公开契约中删除。
 2026-06-26 同步：移除历史 keepout / terrain / MF KFS 兼容 msg/srv 生成项，并同步删除不再需要的 `nav_msgs` 依赖。
+2026-06-26 同步：确认 `GrabTip` build failure 来自旧 rosidl 生成产物残留；当前真实接口清单不恢复旧 action，清理 `build/rc26_interfaces` 与 `install/rc26_interfaces` 后可正常构建。

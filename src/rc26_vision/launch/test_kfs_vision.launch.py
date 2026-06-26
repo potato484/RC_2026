@@ -4,9 +4,12 @@ rc26_vision 独立联调入口：启动 RealSense D455 + kfs_vision_test_node（
 用法示例：
 - ros2 launch rc26_vision test_kfs_vision.launch.py
 - ros2 launch rc26_vision test_kfs_vision.launch.py show_window:=false   # 无显示环境
+- ros2 launch rc26_vision test_kfs_vision.launch.py log_detections:=true  # 临时打印逐帧检测日志
+- ros2 launch rc26_vision test_kfs_vision.launch.py log_status:=true      # 临时打印周期状态日志
 - ros2 launch rc26_vision test_kfs_vision.launch.py window_name:="my kfs"
 - ros2 launch rc26_vision test_kfs_vision.launch.py action_enable:=true direction:=up
 - ros2 launch rc26_vision test_kfs_vision.launch.py action_enable:=true direction:=down
+- ros2 launch rc26_vision test_kfs_vision.launch.py action_enable:=true kfs_action_arm_prep_done_timeout_s:=15.0
 """
 
 from ament_index_python.packages import get_package_share_directory
@@ -75,6 +78,10 @@ def _create_runtime_actions(context):
             {
                 "vision_config_file": LaunchConfiguration("vision_config_file"),
                 "model_id": LaunchConfiguration("model_id"),
+                "log_detections": ParameterValue(
+                    LaunchConfiguration("log_detections"), value_type=bool),
+                "log_status": ParameterValue(
+                    LaunchConfiguration("log_status"), value_type=bool),
                 # show_window 节点端声明为 bool，LaunchConfiguration 解析为字符串，
                 # 必须用 ParameterValue 显式转 bool，否则参数类型不匹配。
                 "show_window": ParameterValue(LaunchConfiguration("show_window"), value_type=bool),
@@ -82,6 +89,18 @@ def _create_runtime_actions(context):
                 "kfs_action_enable": action_enable,
                 "kfs_action_direction": direction,
                 "kfs_action_cmd_vel_topic": cmd_vel_topic,
+                "kfs_action_arm_prep_service_timeout_ms": ParameterValue(
+                    LaunchConfiguration("kfs_action_arm_prep_service_timeout_ms"),
+                    value_type=int),
+                "kfs_action_arm_prep_done_timeout_s": ParameterValue(
+                    LaunchConfiguration("kfs_action_arm_prep_done_timeout_s"),
+                    value_type=float),
+                "kfs_action_grab_service_timeout_ms": ParameterValue(
+                    LaunchConfiguration("kfs_action_grab_service_timeout_ms"),
+                    value_type=int),
+                "kfs_action_total_timeout_s": ParameterValue(
+                    LaunchConfiguration("kfs_action_total_timeout_s"),
+                    value_type=float),
             },
         ],
     ))
@@ -106,6 +125,16 @@ def generate_launch_description():
         "params_file",
         default_value=PathJoinSubstitution([vision_dir, "config", "kfs_vision_params.yaml"]),
         description="KFS 独立视觉/动作测试参数 YAML",
+    )
+    declare_log_detections = DeclareLaunchArgument(
+        "log_detections",
+        default_value="false",
+        description="是否打印每帧 [检测] 日志，默认关闭以避免刷屏",
+    )
+    declare_log_status = DeclareLaunchArgument(
+        "log_status",
+        default_value="false",
+        description="是否按 print_rate_ms 周期打印 [状态] 日志，默认关闭以避免刷屏",
     )
     declare_show_window = DeclareLaunchArgument(
         "show_window",
@@ -136,6 +165,26 @@ def generate_launch_description():
         "cmd_vel_topic",
         default_value="cmd_vel",
         description="KFS 测试节点发布速度、mcu_transport 消费速度使用的话题",
+    )
+    declare_arm_prep_service_timeout = DeclareLaunchArgument(
+        "kfs_action_arm_prep_service_timeout_ms",
+        default_value="6000",
+        description="KFS 机械臂预调 service ACK 等待超时，单位 ms；需覆盖底层可靠重发闭包",
+    )
+    declare_arm_prep_done_timeout = DeclareLaunchArgument(
+        "kfs_action_arm_prep_done_timeout_s",
+        default_value="10.0",
+        description="KFS 机械臂预调完成反馈等待超时，单位 s；从 ACK seq 已知后开始计时",
+    )
+    declare_grab_service_timeout = DeclareLaunchArgument(
+        "kfs_action_grab_service_timeout_ms",
+        default_value="6000",
+        description="KFS 夹取 service ACK 等待超时，单位 ms；需覆盖底层可靠重发闭包",
+    )
+    declare_total_timeout = DeclareLaunchArgument(
+        "kfs_action_total_timeout_s",
+        default_value="40.0",
+        description="KFS action test 整体安全超时，单位 s",
     )
     declare_target_serial_port = DeclareLaunchArgument(
         "target_serial_port",
@@ -168,12 +217,18 @@ def generate_launch_description():
             declare_vision_config_file,
             declare_model_id,
             declare_params_file,
+            declare_log_detections,
+            declare_log_status,
             declare_show_window,
             declare_window_name,
             declare_action_enable,
             declare_direction,
             declare_start_mcu_transport,
             declare_cmd_vel_topic,
+            declare_arm_prep_service_timeout,
+            declare_arm_prep_done_timeout,
+            declare_grab_service_timeout,
+            declare_total_timeout,
             declare_target_serial_port,
             declare_target_baudrate,
             realsense_launch,
