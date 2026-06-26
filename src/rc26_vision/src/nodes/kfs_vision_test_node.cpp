@@ -24,17 +24,20 @@
 #include <opencv2/imgproc.hpp>
 #include <rclcpp/rclcpp.hpp>
 
+#include "rc26_interfaces/msg/mechanism_transport_feedback.hpp"
 #include "rc26_interfaces/srv/send_mechanism_transport_command.hpp"
 #include "rc26_serial/protocol.hpp"
 #include "rc26_vision/inference/config/model_profile_loader.hpp"
 #include "rc26_vision/inference/runtime/vision_inference_manager.hpp"
 #include "rc26_vision/shared/sensors/depth_roi_sampler.hpp"
+#include "rc26_vision/shared/target/visual_target_match.hpp"
 
 namespace rc26_vision {
 
 namespace {
 
 using TwistMsg = geometry_msgs::msg::Twist;
+using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
 using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
 
 constexpr uint8_t kDefaultGrabKfsUpCommand =
@@ -43,10 +46,7 @@ constexpr uint8_t kDefaultGrabKfsDownCommand =
     static_cast<uint8_t>(rc26_serial::CommandID::GRAB_KFS_DOWN);
 
 std::string detectionName(const Detection& det) {
-    if (!det.class_name.empty()) {
-        return det.class_name;
-    }
-    return "class_" + std::to_string(det.class_id);
+    return visualTargetLabel(det);
 }
 
 cv::Scalar featureColorForLabel(const std::string& label) {
@@ -358,11 +358,14 @@ public:
 private:
     enum class ActionPhase {
         Disabled,
+        SendingPrep,
+        WaitingPrepDone,
         Search,
         Align,
         Approach,
         SendingGrab,
-        Sent,
+        GrabVerify,
+        Succeeded,
         Failed
     };
 
@@ -376,6 +379,18 @@ private:
         this->declare_parameter<std::string>("kfs_action_cmd_vel_topic", "cmd_vel");
         this->declare_parameter<std::string>(
             "kfs_action_send_command_service", "/mechanism/send_command");
+        this->declare_parameter<std::string>(
+            "kfs_action_feedback_topic", "/mechanism/command_feedback");
+        this->declare_parameter<int>("kfs_action_arm_raise_command_id",
+            static_cast<int>(rc26_serial::CommandID::ARM_RAISE));
+        this->declare_parameter<int>("kfs_action_arm_lower_command_id",
+            static_cast<int>(rc26_serial::CommandID::ARM_LOWER));
+        this->declare_parameter<int>("kfs_action_arm_raise_done_feedback_id",
+            static_cast<int>(rc26_serial::FeedbackID::ARM_RAISE_DONE));
+        this->declare_parameter<int>("kfs_action_arm_lower_done_feedback_id",
+            static_cast<int>(rc26_serial::FeedbackID::ARM_LOWER_DONE));
+        this->declare_parameter<int>("kfs_action_arm_prep_service_timeout_ms", 200);
+        this->declare_parameter<double>("kfs_action_arm_prep_done_timeout_s", 3.0);
         this->declare_parameter<int>("kfs_action_align_tolerance_px", 20);
         this->declare_parameter<int>("kfs_action_align_stable_frames", 5);
         this->declare_parameter<double>("kfs_action_align_kp", 0.0010);
@@ -393,6 +408,9 @@ private:
         this->declare_parameter<int>("kfs_action_grab_stable_frames", 2);
         this->declare_parameter<double>("kfs_action_total_timeout_s", 25.0);
         this->declare_parameter<int>("kfs_action_grab_service_timeout_ms", 200);
+        this->declare_parameter<double>("kfs_action_grab_verify_timeout_s", 3.0);
+        this->declare_parameter<int>("kfs_action_grab_verify_lost_stable_frames", 3);
+        this->declare_parameter<double>("kfs_action_grab_verify_iou_threshold", 0.30);
         this->declare_parameter<bool>("kfs_action_grab_once", true);
         this->declare_parameter<int>("kfs_action_grab_kfs_up_command_id", kDefaultGrabKfsUpCommand);
         this->declare_parameter<int>("kfs_action_grab_kfs_down_command_id", kDefaultGrabKfsDownCommand);
@@ -419,6 +437,8 @@ private:
             this->get_parameter("kfs_action_cmd_vel_topic").as_string());
         action_send_command_service_ = trimCopy(
             this->get_parameter("kfs_action_send_command_service").as_string());
+        action_feedback_topic_ = trimCopy(
+            this->get_parameter("kfs_action_feedback_topic").as_string());
         if (action_enable_ && action_cmd_vel_topic_.empty()) {
             throw std::runtime_error("kfs_action_cmd_vel_topic cannot be empty when action is enabled");
         }
@@ -426,6 +446,26 @@ private:
             throw std::runtime_error(
                 "kfs_action_send_command_service cannot be empty when action is enabled");
         }
+        if (action_enable_ && action_feedback_topic_.empty()) {
+            throw std::runtime_error("kfs_action_feedback_topic cannot be empty when action is enabled");
+        }
+
+        action_arm_raise_command_id_ = validateCommandId(
+            this->get_parameter("kfs_action_arm_raise_command_id").as_int(),
+            "kfs_action_arm_raise_command_id");
+        action_arm_lower_command_id_ = validateCommandId(
+            this->get_parameter("kfs_action_arm_lower_command_id").as_int(),
+            "kfs_action_arm_lower_command_id");
+        action_arm_raise_done_feedback_id_ = validateCommandId(
+            this->get_parameter("kfs_action_arm_raise_done_feedback_id").as_int(),
+            "kfs_action_arm_raise_done_feedback_id");
+        action_arm_lower_done_feedback_id_ = validateCommandId(
+            this->get_parameter("kfs_action_arm_lower_done_feedback_id").as_int(),
+            "kfs_action_arm_lower_done_feedback_id");
+        action_arm_prep_service_timeout_ms_ = std::max(1, static_cast<int>(
+            this->get_parameter("kfs_action_arm_prep_service_timeout_ms").as_int()));
+        action_arm_prep_done_timeout_s_ = std::max(
+            0.1, this->get_parameter("kfs_action_arm_prep_done_timeout_s").as_double());
 
         action_align_tolerance_px_ =
             std::max(0, static_cast<int>(this->get_parameter("kfs_action_align_tolerance_px").as_int()));
@@ -465,6 +505,12 @@ private:
         action_grab_service_timeout_ms_ =
             std::max(1, static_cast<int>(
                 this->get_parameter("kfs_action_grab_service_timeout_ms").as_int()));
+        action_grab_verify_timeout_s_ =
+            std::max(0.1, this->get_parameter("kfs_action_grab_verify_timeout_s").as_double());
+        action_grab_verify_lost_stable_frames_ = std::max(1, static_cast<int>(
+            this->get_parameter("kfs_action_grab_verify_lost_stable_frames").as_int()));
+        action_grab_verify_iou_threshold_ = std::clamp(
+            this->get_parameter("kfs_action_grab_verify_iou_threshold").as_double(), 0.0, 1.0);
         action_grab_once_ = this->get_parameter("kfs_action_grab_once").as_bool();
         action_grab_kfs_up_command_id_ = validateCommandId(
             this->get_parameter("kfs_action_grab_kfs_up_command_id").as_int(),
@@ -474,6 +520,12 @@ private:
             "kfs_action_grab_kfs_down_command_id");
         action_grab_command_id_ =
             action_direction_ == "down" ? action_grab_kfs_down_command_id_ : action_grab_kfs_up_command_id_;
+        action_prep_command_id_ =
+            action_direction_ == "down" ? action_arm_lower_command_id_ : action_arm_raise_command_id_;
+        action_prep_done_feedback_id_ = action_direction_ == "down"
+            ? action_arm_lower_done_feedback_id_
+            : action_arm_raise_done_feedback_id_;
+        action_prep_label_ = action_direction_ == "down" ? "ARM_LOWER" : "ARM_RAISE";
     }
 
     uint8_t validateCommandId(int value, const char* param_name) const {
@@ -488,7 +540,22 @@ private:
     void initializeActionRuntime() {
         action_cmd_pub_ = create_publisher<TwistMsg>(action_cmd_vel_topic_, rclcpp::QoS(10));
         action_send_client_ = create_client<SendCommandSrv>(action_send_command_service_);
-        action_phase_ = ActionPhase::Search;
+        action_feedback_sub_ = create_subscription<FeedbackMsg>(
+            action_feedback_topic_, rclcpp::QoS(32).reliable(),
+            [this](const FeedbackMsg::SharedPtr msg) {
+                if (!msg) {
+                    return;
+                }
+                if (msg->feedback_id != action_prep_done_feedback_id_) {
+                    return;
+                }
+                action_latest_prep_done_seq_ = msg->seq;
+                if (action_prep_response_seen_ &&
+                    msg->seq == action_prep_response_seq_) {
+                    action_prep_done_seen_ = true;
+                }
+            });
+        action_phase_ = ActionPhase::SendingPrep;
         action_started_tp_ = std::chrono::steady_clock::now();
         last_action_command_tp_ = std::chrono::steady_clock::time_point{};
         action_timer_ = create_wall_timer(
@@ -498,9 +565,13 @@ private:
         RCLCPP_WARN(
             get_logger(),
             "KFS 动作测试已启用: direction=%s target_prefixes=%zu cmd_vel=%s service=%s "
-            "approach_vx_sign=%d grab_dist=%.2fm cmd=%s。运行前必须停用 Nav2/遥控等其它速度权威。",
+            "feedback=%s prep=%s(%s) done=0x%02X approach_vx_sign=%d grab_dist=%.2fm grab=%s。"
+            "运行前必须停用 Nav2/遥控等其它速度权威。",
             action_direction_.c_str(), action_target_prefixes_.size(),
             action_cmd_vel_topic_.c_str(), action_send_command_service_.c_str(),
+            action_feedback_topic_.c_str(), action_prep_label_.c_str(),
+            byteToHex(action_prep_command_id_).c_str(),
+            static_cast<unsigned int>(action_prep_done_feedback_id_),
             action_approach_x_sign_, action_grab_distance_m_,
             byteToHex(action_grab_command_id_).c_str());
     }
@@ -523,6 +594,10 @@ private:
         switch (action_phase_) {
             case ActionPhase::Disabled:
                 return "DISABLED";
+            case ActionPhase::SendingPrep:
+                return "SEND_PREP";
+            case ActionPhase::WaitingPrepDone:
+                return "WAIT_PREP";
             case ActionPhase::Search:
                 return "SEARCH";
             case ActionPhase::Align:
@@ -531,8 +606,10 @@ private:
                 return "APPROACH";
             case ActionPhase::SendingGrab:
                 return "SEND_GRAB";
-            case ActionPhase::Sent:
-                return "SENT";
+            case ActionPhase::GrabVerify:
+                return "GRAB_VERIFY";
+            case ActionPhase::Succeeded:
+                return "SUCCESS";
             case ActionPhase::Failed:
                 return "FAILED";
         }
@@ -540,7 +617,7 @@ private:
     }
 
     void failAction(const std::string& reason) {
-        if (action_phase_ == ActionPhase::Failed || action_phase_ == ActionPhase::Sent) {
+        if (action_phase_ == ActionPhase::Failed || action_phase_ == ActionPhase::Succeeded) {
             return;
         }
         action_failure_reason_ = reason;
@@ -610,6 +687,71 @@ private:
         return static_cast<double>(action_approach_x_sign_) * action_approach_speed_mps_;
     }
 
+    bool sendActionCommandRequest(
+        uint8_t command_id,
+        const std::string& label,
+        std::chrono::steady_clock::time_point* request_tp,
+        bool* request_pending,
+        bool* response_seen,
+        bool* response_accepted,
+        uint8_t* response_seq,
+        uint64_t* generation,
+        const std::string& error_prefix) {
+        if (!action_send_client_) {
+            failAction(error_prefix + " service client 未初始化");
+            return false;
+        }
+        if (!action_send_client_->service_is_ready()) {
+            failAction(error_prefix + " service 暂不可用");
+            return false;
+        }
+
+        auto request = std::make_shared<SendCommandSrv::Request>();
+        request->command_id = command_id;
+        request->payload.clear();
+
+        *request_tp = std::chrono::steady_clock::now();
+        *request_pending = true;
+        *response_seen = false;
+        *response_accepted = false;
+        *response_seq = 0U;
+        const uint64_t token = ++(*generation);
+
+        try {
+            action_send_client_->async_send_request(
+                request,
+                [this, token, generation, response_seen, response_accepted, response_seq,
+                 error_prefix](rclcpp::Client<SendCommandSrv>::SharedFuture future) {
+                    if (token != *generation) {
+                        return;
+                    }
+                    bool accepted = false;
+                    uint8_t seq = 0U;
+                    try {
+                        const auto response = future.get();
+                        accepted = response && response->accepted;
+                        if (response) {
+                            seq = response->seq;
+                        }
+                    } catch (const std::exception& e) {
+                        RCLCPP_WARN(get_logger(), "%s service 响应异常: %s",
+                            error_prefix.c_str(), e.what());
+                    }
+                    *response_accepted = accepted;
+                    *response_seq = seq;
+                    *response_seen = true;
+                });
+        } catch (const std::exception& e) {
+            *request_pending = false;
+            failAction(error_prefix + " service 请求异常: " + e.what());
+            return false;
+        }
+
+        RCLCPP_INFO(get_logger(), "%s service 请求已发送: cmd=%s",
+            label.c_str(), byteToHex(command_id).c_str());
+        return true;
+    }
+
     std::optional<ActionTarget> selectActionTarget(
         const VisionInferenceManager::FrameSnapshot& snapshot) {
         const auto targets = collectActionTargets(
@@ -660,13 +802,77 @@ private:
         last_action_score_ = target.detection.score;
     }
 
+    void beginPrepRequest() {
+        action_latest_prep_done_seq_ = -1;
+        action_prep_done_seen_ = false;
+        action_phase_ = ActionPhase::WaitingPrepDone;
+        if (!sendActionCommandRequest(
+                action_prep_command_id_,
+                action_prep_label_,
+                &action_prep_request_tp_,
+                &action_prep_request_pending_,
+                &action_prep_response_seen_,
+                &action_prep_response_accepted_,
+                &action_prep_response_seq_,
+                &action_prep_request_generation_,
+                "KFS 机械臂预调")) {
+            return;
+        }
+        RCLCPP_INFO(get_logger(), "KFS 机械臂预调已发送: %s cmd=%s 等待反馈=0x%02X",
+            action_prep_label_.c_str(), byteToHex(action_prep_command_id_).c_str(),
+            static_cast<unsigned int>(action_prep_done_feedback_id_));
+    }
+
+    void pollPrepResponse(const std::chrono::steady_clock::time_point& now) {
+        publishActionStop(false);
+        if (!action_prep_request_pending_) {
+            failAction("KFS 机械臂预调请求状态异常");
+            return;
+        }
+        if (!action_prep_response_seen_) {
+            if (std::chrono::duration<double, std::milli>(now - action_prep_request_tp_).count() >
+                static_cast<double>(action_arm_prep_service_timeout_ms_)) {
+                action_prep_request_pending_ = false;
+                ++action_prep_request_generation_;
+                failAction("KFS 机械臂预调 service 响应超时");
+            }
+            return;
+        }
+        if (!action_prep_response_accepted_) {
+            action_prep_request_pending_ = false;
+            failAction("KFS 机械臂预调命令被 transport 拒绝");
+            return;
+        }
+        if (action_latest_prep_done_seq_ == static_cast<int>(action_prep_response_seq_)) {
+            action_prep_done_seen_ = true;
+        }
+        if (action_prep_done_seen_) {
+            action_prep_request_pending_ = false;
+            action_phase_ = ActionPhase::Search;
+            action_align_stable_count_ = 0;
+            action_grab_stable_count_ = 0;
+            action_target_locked_ = false;
+            action_locked_target_.reset();
+            action_target_lost_count_ = 0;
+            RCLCPP_INFO(get_logger(), "KFS 机械臂预调完成: %s seq=%u，开始视觉对齐",
+                action_prep_label_.c_str(),
+                static_cast<unsigned int>(action_prep_response_seq_));
+            return;
+        }
+        if (std::chrono::duration<double>(now - action_prep_request_tp_).count() >
+            action_arm_prep_done_timeout_s_) {
+            action_prep_request_pending_ = false;
+            failAction("KFS 机械臂预调完成反馈超时");
+        }
+    }
+
     void tickAction() {
         if (!action_enable_) {
             return;
         }
 
         const auto now = std::chrono::steady_clock::now();
-        if (action_phase_ == ActionPhase::Sent || action_phase_ == ActionPhase::Failed) {
+        if (action_phase_ == ActionPhase::Succeeded || action_phase_ == ActionPhase::Failed) {
             publishActionStop(false);
             return;
         }
@@ -676,8 +882,23 @@ private:
             return;
         }
 
+        if (action_phase_ == ActionPhase::SendingPrep) {
+            beginPrepRequest();
+            return;
+        }
+
+        if (action_phase_ == ActionPhase::WaitingPrepDone) {
+            pollPrepResponse(now);
+            return;
+        }
+
         if (action_phase_ == ActionPhase::SendingGrab) {
             pollGrabResponse(now);
+            return;
+        }
+
+        if (action_phase_ == ActionPhase::GrabVerify) {
+            tickGrabVerify(now);
             return;
         }
 
@@ -753,72 +974,47 @@ private:
 
         if (action_grab_stable_count_ >= action_grab_stable_frames_) {
             publishActionStop(true);
-            beginGrabRequest();
+            beginGrabRequest(*selected, snapshot.display_sequence);
             return;
         }
 
         publishActionCommand(computeActionApproachVx(), vy, 0.0);
     }
 
-    void beginGrabRequest() {
+    void beginGrabRequest(const ActionTarget& target, int64_t sequence) {
         if (action_grab_once_ && action_grab_sent_) {
-            action_phase_ = ActionPhase::Sent;
+            action_phase_ = ActionPhase::Succeeded;
             publishActionStop(true);
             return;
         }
-        if (!action_send_client_) {
-            failAction("机构 service client 未初始化");
-            return;
-        }
-        if (!action_send_client_->service_is_ready()) {
-            failAction("机构 service 暂不可用");
-            return;
-        }
-
-        auto request = std::make_shared<SendCommandSrv::Request>();
-        request->command_id = action_grab_command_id_;
-        request->payload.clear();
-
         action_phase_ = ActionPhase::SendingGrab;
-        action_grab_request_tp_ = std::chrono::steady_clock::now();
-        action_grab_request_pending_ = true;
-        action_grab_response_seen_ = false;
-        action_grab_response_accepted_ = false;
-        action_grab_response_seq_ = 0U;
-        const uint64_t token = ++action_grab_request_generation_;
-
-        try {
-            action_send_client_->async_send_request(
-                request,
-                [this, token](rclcpp::Client<SendCommandSrv>::SharedFuture future) {
-                    if (token != action_grab_request_generation_) {
-                        return;
-                    }
-                    bool accepted = false;
-                    uint8_t seq = 0U;
-                    try {
-                        const auto response = future.get();
-                        accepted = response && response->accepted;
-                        if (response) {
-                            seq = response->seq;
-                        }
-                    } catch (const std::exception& e) {
-                        RCLCPP_WARN(get_logger(), "KFS 夹取 service 响应异常: %s", e.what());
-                    }
-                    action_grab_response_accepted_ = accepted;
-                    action_grab_response_seq_ = seq;
-                    action_grab_response_seen_ = true;
-                });
-        } catch (const std::exception& e) {
-            action_grab_request_pending_ = false;
-            failAction(std::string("KFS 夹取 service 请求异常: ") + e.what());
+        action_pending_grab_target_ = makeVisualTargetSnapshot(target.detection, sequence);
+        action_grab_verify_last_sequence_ = sequence;
+        action_grab_verify_lost_count_ = 0;
+        action_grab_verify_seen_new_frame_ = false;
+        action_grab_verify_visible_logged_ = false;
+        action_grab_verify_last_logged_lost_count_ = 0;
+        if (!sendActionCommandRequest(
+                action_grab_command_id_,
+                "KFS 夹取",
+                &action_grab_request_tp_,
+                &action_grab_request_pending_,
+                &action_grab_response_seen_,
+                &action_grab_response_accepted_,
+                &action_grab_response_seq_,
+                &action_grab_request_generation_,
+                "KFS 夹取")) {
             return;
         }
 
         RCLCPP_INFO(
-            get_logger(), "KFS 夹取条件满足，已发送 service 请求: direction=%s cmd=%s label=%s z=%.2fm",
+            get_logger(),
+            "KFS 夹取条件满足，已发送 service 请求: direction=%s cmd=%s label=%s z=%.2fm seq=%ld bbox=[%.1f %.1f %.1f %.1f]",
             action_direction_.c_str(), byteToHex(action_grab_command_id_).c_str(),
-            last_action_label_.c_str(), last_action_depth_m_);
+            last_action_label_.c_str(), last_action_depth_m_,
+            static_cast<long>(sequence),
+            action_pending_grab_target_->x1, action_pending_grab_target_->y1,
+            action_pending_grab_target_->x2, action_pending_grab_target_->y2);
     }
 
     void pollGrabResponse(const std::chrono::steady_clock::time_point& now) {
@@ -844,12 +1040,102 @@ private:
         }
         action_last_grab_seq_ = action_grab_response_seq_;
         action_grab_sent_ = true;
-        action_phase_ = ActionPhase::Sent;
+        action_grab_verify_started_tp_ = now;
+        VisionInferenceManager::FrameSnapshot start_snapshot;
+        if (manager_->getLatestFrameSnapshot(start_snapshot) &&
+            start_snapshot.has_display &&
+            start_snapshot.display_sequence > 0) {
+            action_grab_verify_last_sequence_ = start_snapshot.display_sequence;
+        }
+        action_phase_ = ActionPhase::GrabVerify;
         publishActionStop(true);
         RCLCPP_INFO(
-            get_logger(), "KFS 夹取命令已 ACK: direction=%s cmd=%s seq=%u",
+            get_logger(),
+            "KFS 夹取命令已 ACK，开始视觉消失确认: direction=%s cmd=%s seq=%u target=%s timeout=%.2fs lost=%d iou>=%.2f",
             action_direction_.c_str(), byteToHex(action_grab_command_id_).c_str(),
-            static_cast<unsigned int>(action_last_grab_seq_));
+            static_cast<unsigned int>(action_last_grab_seq_),
+            action_pending_grab_target_.has_value() ? action_pending_grab_target_->label.c_str() : "-",
+            action_grab_verify_timeout_s_, action_grab_verify_lost_stable_frames_,
+            action_grab_verify_iou_threshold_);
+    }
+
+    void tickGrabVerify(const std::chrono::steady_clock::time_point& now) {
+        publishActionStop(false);
+        if (!action_pending_grab_target_.has_value()) {
+            failAction("KFS 夹取视觉验证目标缺失");
+            return;
+        }
+
+        const double elapsed =
+            std::chrono::duration<double>(now - action_grab_verify_started_tp_).count();
+        VisionInferenceManager::FrameSnapshot snapshot;
+        const bool has_snapshot =
+            manager_->getLatestFrameSnapshot(snapshot) &&
+            snapshot.has_display &&
+            snapshot.display_sequence > 0;
+        if (!has_snapshot || snapshot.display_sequence <= action_grab_verify_last_sequence_) {
+            if (elapsed >= action_grab_verify_timeout_s_) {
+                failAction("KFS 夹取视觉验证失败: 没有新推理帧");
+            }
+            return;
+        }
+
+        action_grab_verify_seen_new_frame_ = true;
+        action_grab_verify_last_sequence_ = snapshot.display_sequence;
+        bool still_visible = false;
+        double best_iou = 0.0;
+        for (const auto& det : snapshot.detections) {
+            const auto candidate = makeVisualTargetSnapshot(det, snapshot.display_sequence);
+            if (candidate.label != action_pending_grab_target_->label) {
+                continue;
+            }
+            const double iou = bboxIou(*action_pending_grab_target_, candidate);
+            best_iou = std::max(best_iou, iou);
+            if (iou >= action_grab_verify_iou_threshold_) {
+                still_visible = true;
+                break;
+            }
+        }
+
+        if (still_visible) {
+            action_grab_verify_lost_count_ = 0;
+            action_grab_verify_last_logged_lost_count_ = 0;
+            if (!action_grab_verify_visible_logged_) {
+                RCLCPP_INFO(
+                    get_logger(),
+                    "KFS 夹取视觉验证: 原目标仍可见 target=%s seq=%ld iou=%.3f",
+                    action_pending_grab_target_->label.c_str(),
+                    static_cast<long>(snapshot.display_sequence), best_iou);
+                action_grab_verify_visible_logged_ = true;
+            }
+        } else {
+            ++action_grab_verify_lost_count_;
+            action_grab_verify_visible_logged_ = false;
+            if (action_grab_verify_lost_count_ != action_grab_verify_last_logged_lost_count_) {
+                RCLCPP_INFO(
+                    get_logger(),
+                    "KFS 夹取视觉验证: 原目标未匹配 stable=%d/%d seq=%ld best_iou=%.3f",
+                    action_grab_verify_lost_count_,
+                    action_grab_verify_lost_stable_frames_,
+                    static_cast<long>(snapshot.display_sequence), best_iou);
+                action_grab_verify_last_logged_lost_count_ = action_grab_verify_lost_count_;
+            }
+            if (action_grab_verify_lost_count_ >= action_grab_verify_lost_stable_frames_) {
+                action_phase_ = ActionPhase::Succeeded;
+                action_grab_success_ = true;
+                publishActionStop(true);
+                RCLCPP_INFO(
+                    get_logger(), "KFS 物理夹取确认成功: 连续%d个新推理帧未识别到原目标",
+                    action_grab_verify_lost_stable_frames_);
+                return;
+            }
+        }
+
+        if (elapsed >= action_grab_verify_timeout_s_) {
+            failAction(action_grab_verify_seen_new_frame_
+                           ? "KFS 夹取视觉验证失败: 原目标仍可见"
+                           : "KFS 夹取视觉验证失败: 没有新推理帧");
+        }
     }
 
     void renderDisplay() {
@@ -986,12 +1272,13 @@ private:
         int y = resultOverlayBaseY();
         const cv::Scalar color =
             action_phase_ == ActionPhase::Failed ? cv::Scalar(40, 40, 230) :
-            action_phase_ == ActionPhase::Sent ? cv::Scalar(70, 220, 70) :
+            action_phase_ == ActionPhase::Succeeded ? cv::Scalar(70, 220, 70) :
             cv::Scalar(0, 215, 255);
 
         std::ostringstream line1;
         line1 << "KFS ACTION " << actionPhaseLabel()
               << " dir=" << action_direction_
+              << " prep=" << byteToHex(action_prep_command_id_)
               << " cmd=" << byteToHex(action_grab_command_id_);
         if (action_grab_sent_) {
             line1 << " seq=" << static_cast<unsigned int>(action_last_grab_seq_);
@@ -1010,6 +1297,10 @@ private:
             line2 << "--";
         }
         line2 << " score=" << std::fixed << std::setprecision(2) << last_action_score_;
+        if (action_phase_ == ActionPhase::GrabVerify) {
+            line2 << " lost=" << action_grab_verify_lost_count_
+                  << "/" << action_grab_verify_lost_stable_frames_;
+        }
         cv::putText(frame, line2.str(), cv::Point(x, y),
             cv::FONT_HERSHEY_SIMPLEX, 0.65, color, 2, cv::LINE_AA);
         y += 26;
@@ -1030,6 +1321,7 @@ private:
     rclcpp::TimerBase::SharedPtr action_timer_;
     rclcpp::Publisher<TwistMsg>::SharedPtr action_cmd_pub_;
     rclcpp::Client<SendCommandSrv>::SharedPtr action_send_client_;
+    rclcpp::Subscription<FeedbackMsg>::SharedPtr action_feedback_sub_;
 
     bool show_window_ = true;
     std::string window_name_;
@@ -1045,6 +1337,19 @@ private:
     std::vector<std::string> action_target_labels_;
     std::string action_cmd_vel_topic_{"cmd_vel"};
     std::string action_send_command_service_{"/mechanism/send_command"};
+    std::string action_feedback_topic_{"/mechanism/command_feedback"};
+    uint8_t action_arm_raise_command_id_{static_cast<uint8_t>(rc26_serial::CommandID::ARM_RAISE)};
+    uint8_t action_arm_lower_command_id_{static_cast<uint8_t>(rc26_serial::CommandID::ARM_LOWER)};
+    uint8_t action_arm_raise_done_feedback_id_{
+        static_cast<uint8_t>(rc26_serial::FeedbackID::ARM_RAISE_DONE)};
+    uint8_t action_arm_lower_done_feedback_id_{
+        static_cast<uint8_t>(rc26_serial::FeedbackID::ARM_LOWER_DONE)};
+    uint8_t action_prep_command_id_{static_cast<uint8_t>(rc26_serial::CommandID::ARM_RAISE)};
+    uint8_t action_prep_done_feedback_id_{
+        static_cast<uint8_t>(rc26_serial::FeedbackID::ARM_RAISE_DONE)};
+    std::string action_prep_label_{"ARM_RAISE"};
+    int action_arm_prep_service_timeout_ms_{200};
+    double action_arm_prep_done_timeout_s_{3.0};
     int action_align_tolerance_px_{20};
     int action_align_stable_frames_{5};
     double action_align_kp_{0.0010};
@@ -1062,6 +1367,9 @@ private:
     int action_grab_stable_frames_{2};
     double action_total_timeout_s_{25.0};
     int action_grab_service_timeout_ms_{200};
+    double action_grab_verify_timeout_s_{3.0};
+    int action_grab_verify_lost_stable_frames_{3};
+    double action_grab_verify_iou_threshold_{0.30};
     bool action_grab_once_{true};
     uint8_t action_grab_kfs_up_command_id_{kDefaultGrabKfsUpCommand};
     uint8_t action_grab_kfs_down_command_id_{kDefaultGrabKfsDownCommand};
@@ -1091,6 +1399,22 @@ private:
     bool action_grab_response_seen_{false};
     bool action_grab_response_accepted_{false};
     uint8_t action_grab_response_seq_{0U};
+    bool action_prep_request_pending_{false};
+    std::chrono::steady_clock::time_point action_prep_request_tp_{};
+    uint64_t action_prep_request_generation_{0U};
+    bool action_prep_response_seen_{false};
+    bool action_prep_response_accepted_{false};
+    uint8_t action_prep_response_seq_{0U};
+    int action_latest_prep_done_seq_{-1};
+    bool action_prep_done_seen_{false};
+    std::optional<VisualTargetSnapshot> action_pending_grab_target_;
+    std::chrono::steady_clock::time_point action_grab_verify_started_tp_{};
+    int action_grab_verify_lost_count_{0};
+    int64_t action_grab_verify_last_sequence_{0};
+    bool action_grab_verify_seen_new_frame_{false};
+    bool action_grab_verify_visible_logged_{false};
+    int action_grab_verify_last_logged_lost_count_{0};
+    bool action_grab_success_{false};
 };
 
 }  // namespace rc26_vision

@@ -31,8 +31,8 @@ constexpr uint8_t MAX_RECONNECT_ATTEMPTS = 10;    // 最大重连尝试次数
 enum class CommandID : uint8_t {
     STOP = 0x00,                  // 急停指令
     GRAB_TIP = 0x01,              // 抓取端头
-    GRAB_KFS_DOWN = 0x02,         // 下台阶方向 KFS 夹取（预留，本车目标标签明确后启用）
-    GRAB_KFS_UP = 0x03,           // 上台阶方向 KFS 夹取（预留，本车目标标签明确后启用）
+    GRAB_KFS_DOWN = 0x02,         // 下台阶/下降方向 KFS 夹取
+    GRAB_KFS_UP = 0x03,           // 上台阶/抬升方向 KFS 夹取
     ARM_RAISE = 0x04,             // 机械臂底座抬起
     ARM_LOWER = 0x05,             // 机械臂底座下降
     PLACE_KFS_GRID = 0x06,        // 对抗区放置 KFS 到九宫格

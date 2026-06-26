@@ -65,7 +65,7 @@
 - `src/inference/aidlite/aidlite_engine.cpp` / `src/inference/aidlite/aidlite_engine_stub.cpp` / `src/inference/onnx/onnx_runtime_engine.cpp` / `src/inference/onnx/onnx_runtime_engine_stub.cpp`：AidLite 实机链、本地 ONNX Runtime 链与缺依赖时的 stub。
 - `src/postprocess/yolo/yolo_detection_postprocessor.cpp`：YOLO 输出解码、坐标回映和 NMS。
 - `src/postprocess/localization/tip_localizer.cpp`：深度 + TF 融合，把识别结果投到 `map`。
-- `src/nodes/kfs_vision_test_node.cpp`：kfs 主链(D455 + kfs.onnx)测试节点入口，在主线程通过 OpenCV overlay 窗口画出全部检测框、标签特征色、类别、置信度、中心 ROI 深度有效性、角落帧率与 best target 的 D455 深度距离；`model_id` 为空时使用 `vision_models.yaml` 的 `default_model`，非空时显式选择对应 profile；`show_window=false` 时降级无头。节点还保留默认关闭的 `kfs_action_enable` 实机动作测试链，开启后只把 `T_*` 当作本车 KFS 夹取目标，发布 `/cmd_vel` 做横移对齐与 x 正向趋近，到达夹取深度后通过 `/mechanism/send_command` 发送 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`。`src/nodes/tip_localizer_node.cpp`：tip 定位节点入口。
+- `src/nodes/kfs_vision_test_node.cpp`：kfs 主链(D455 + kfs.onnx)测试节点入口，在主线程通过 OpenCV overlay 窗口画出全部检测框、标签特征色、类别、置信度、中心 ROI 深度有效性、角落帧率与 best target 的 D455 深度距离；`model_id` 为空时使用 `vision_models.yaml` 的 `default_model`，非空时显式选择对应 profile；`show_window=false` 时降级无头。节点还保留默认关闭的 `kfs_action_enable` 实机动作测试链，开启后只把 `T_*` 当作本车 KFS 夹取目标，先按 `direction` 发送 `ARM_RAISE(0x04)` 或 `ARM_LOWER(0x05)` 并等待同 seq 完成反馈，再发布 `/cmd_vel` 做横移对齐与 x 正向趋近，到达夹取深度后通过 `/mechanism/send_command` 发送 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`，ACK 后用原目标视觉消失确认物理夹取成功。`src/nodes/tip_localizer_node.cpp`：tip 定位节点入口。
 - `test/tip_vision_test_node.cpp`：USB 相机 + 单目 tip test 节点的入口、私有声明、参数、相机、目标选择、可选视觉横移对线、对齐后 x 负向前探等待 0x06 限位、抓取 service 触发和 overlay 单文件实现；推理直接复用主链 `InferenceEngine`。
 - `src/tools/yolo_inference_test.cpp`、`tools/*.py`：离线工具和实验脚本。
 
@@ -94,7 +94,7 @@
 - `tip` test 链的 `single_target_mode` 默认保持关闭；如果手动开启，推理结果会先按置信度截断到单个框，这会绕过多框中心优先选择，主要用于旧式单目标调试。
 - 对齐误差进入 `alignment_tolerance_px` 并稳定达到 `alignment_stable_frames` 后，tip test 节点必须先 x 负向前探并等待 0x06 前方限位反馈；收到限位后才会通过 `/mechanism/send_command` 共享 transport 下发一次 `GRAB_TIP(0x01)` 空 payload。它不直接打开目标 MCU 串口，`/cmd_vel` 消费和 mechanism transport 都由 `rc26_mcu_transport` 提供。
 - 启用自动对线时，同一时刻不要启动 Nav2、teleop 或其它 `/cmd_vel` 发布权威；必须启动 `rc26_mcu_transport` 消费 `/cmd_vel` 并提供 `/mechanism/send_command` 与 `/mechanism/command_feedback`。
-- `test_kfs_vision.launch.py` 默认仍是 RealSense + `kfs_vision_test_node` 的纯视觉 overlay；传 `action_enable:=true direction:=up|down` 后会按 `start_mcu_transport:=auto` 自动带起 `rc26_mcu_transport`，并启动 KFS 底盘/机构测试链。KFS action test 先用 `T_*` 目标做画面中心横移对齐，再按 D455 前向安装口径发布 `cmd_vel.linear.x>0` 低速趋近，到达 `kfs_action_grab_distance_m` 后停车并发送空 payload 的 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`；本轮只要求 service ACK，不等待抓取完成反馈。
+- `test_kfs_vision.launch.py` 默认仍是 RealSense + `kfs_vision_test_node` 的纯视觉 overlay；传 `action_enable:=true direction:=up|down` 后会按 `start_mcu_transport:=auto` 自动带起 `rc26_mcu_transport`，并启动 KFS 底盘/机构测试链。KFS action test 会先发送方向对应的机械臂预调命令并等待同 seq 完成反馈：`up -> ARM_RAISE(0x04)/ARM_RAISE_DONE(0x02)`，`down -> ARM_LOWER(0x05)/ARM_LOWER_DONE(0x03)`；预调完成后用 `T_*` 目标做画面中心横移对齐，再按 D455 前向安装口径发布 `cmd_vel.linear.x>0` 低速趋近，到达 `kfs_action_grab_distance_m` 后停车并发送空 payload 的 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`。夹取 service ACK 后会保存触发夹取的 `label + bbox + sequence`，只有同 label 且 bbox IoU 达到 `kfs_action_grab_verify_iou_threshold` 的原目标连续 `kfs_action_grab_verify_lost_stable_frames` 个新推理帧不可见，才显示 `SUCCESS`；验证超时、原目标仍可见或无新帧都会停车进入 `FAILED`。
 - 当前 `tip` test 参数仍默认优先 `camera_index=2` 这路外接 USB 摄像头，但 `auto_scan_camera` 已默认打开；如果首选设备能枚举却读不出第一帧，节点会打印中文告警并自动扫描其他 `/dev/video*` 作为兜底。
 - 默认联调入口仍然是 RealSense + `kfs_vision_test_node`（`test_kfs_vision.launch.py`）；KFS action test 需要显式 `action_enable:=true` 才会发布速度和机构指令，tip test 节点不参与默认 launch，需要单独显式启动。
 
@@ -106,7 +106,7 @@
 - KFS action test 继续是包内受限实机测试入口，不是比赛级流程决策权威；开启前必须停用 Nav2、teleop、台阶树或其它 `/cmd_vel` 发布节点。
 - `tip` test 链继续留在包内，但与默认 RealSense 主链隔离；它面向 USB 相机/单目 test，不是当前决策运行时权威入口
 - `tip` test 链的自动横移和限位前探只通过标准 `/cmd_vel` 接入底盘，限位反馈只订阅 `/mechanism/command_feedback`，抓取只通过 `/mechanism/send_command` 共享 transport 接入机构；它不拥有目标 MCU 串口，也不是默认导航/决策运行时权威入口
-- KFS action test 同样只通过标准 `/cmd_vel` 接入底盘，并只通过 `/mechanism/send_command` 共享 transport 发送 KFS 夹取 raw command；它不直接打开目标 MCU 串口，也不改变 `rc26_bringup + rc26_decision` 的正式 KFS 阶梯等待链。
+- KFS action test 同样只通过标准 `/cmd_vel` 接入底盘，通过 `/mechanism/send_command` 共享 transport 发送机械臂预调和 KFS 夹取 raw command，并订阅 `/mechanism/command_feedback` 等待预调完成；它不直接打开目标 MCU 串口，也不改变 `rc26_bringup + rc26_decision` 的正式 KFS 阶梯等待链。
 - `VisionInferenceManager` 当前除 `getLatestDisplay()` 外，还提供 `getLatestFrameSnapshot()` 供 headless 决策节点消费；getter 端深拷贝图像与检测结果，不新增视觉 ROS topic，也不改变 `/vision/tip_detections` 等既有外部契约。
 
 ## 本轮收口
@@ -137,7 +137,9 @@
 
 ## 最近修改
 
-- **KFS 独立视觉测试新增默认关闭的底盘/机构动作链**：`launch/test_kfs_vision.launch.py` 新增 `action_enable`、`direction`、`start_mcu_transport`、`cmd_vel_topic`、`target_serial_port`、`target_baudrate` 和 `params_file` 参数；默认仍只启动 RealSense + overlay。开启 `action_enable:=true` 时，launch 按 `start_mcu_transport:=auto` 自动带起 `rc26_mcu_transport`，`kfs_vision_test_node` 只选 `T_*` 目标，横移对齐后 x 正向低速趋近，并按 `direction` 发送 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`；overlay 会叠加 phase、目标、偏差、深度、cmd 和 seq。该能力仅用于独立联调，运行时必须确保没有其它 `/cmd_vel` 权威。
+- **KFS 独立视觉测试链同步机械臂预调与物理夹取验证**：`kfs_vision_test_node` 的 `action_enable:=true` 链路现在先按 `direction` 发送 `ARM_RAISE(0x04)` / `ARM_LOWER(0x05)` 并等待同 seq 完成反馈，随后对 `T_*` 目标横移对齐、x 正向趋近、发送 `GRAB_KFS_UP(0x03)` / `GRAB_KFS_DOWN(0x02)`，最后用同 label + bbox IoU 的原目标连续新帧消失确认物理夹取成功。独立测试中视觉验证失败会停车进入 `FAILED`，便于单次实机验收；同目标匹配 helper 已抽到 `shared/target/visual_target_match`，供 vision test 与 decision MF 预选赛共用。
+
+- **KFS 独立视觉测试新增默认关闭的底盘/机构动作链**：`launch/test_kfs_vision.launch.py` 新增 `action_enable`、`direction`、`start_mcu_transport`、`cmd_vel_topic`、`target_serial_port`、`target_baudrate` 和 `params_file` 参数；默认仍只启动 RealSense + overlay。开启 `action_enable:=true` 时，launch 按 `start_mcu_transport:=auto` 自动带起 `rc26_mcu_transport`，`kfs_vision_test_node` 只选 `T_*` 目标，先做方向对应机械臂预调，再横移对齐、x 正向低速趋近并发送 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`；overlay 会叠加 phase、目标、偏差、深度、cmd、seq 和视觉验证状态。该能力仅用于独立联调，运行时必须确保没有其它 `/cmd_vel` 权威。
 
 - **kfs 主链测试链整体 kfs 化 + 新增实时 overlay 窗口**：`vision_test_node` 改名为 `kfs_vision_test_node`，`launch/vision_test_with_camera.launch.py` 改名为 `launch/test_kfs_vision.launch.py`，源文件 `git mv` 为 `src/nodes/kfs_vision_test_node.cpp`（保留历史）。节点新增主线程 OpenCV overlay：画全部检测框 + `类别[id] 置信度` + 角落帧率/检测数，并叠加 best target 的 D455 深度距离与中心十字；`show_window`（默认 true）/`window_name` 可经 `test_kfs_vision.launch.py` 参数透传，`show_window=false` 走无头（无 DISPLAY 时也自动降级）。配套 `VisionInferenceManager` 新增 `getLatestDisplay()`，在独立 `display_mutex_` 下暴露“最近彩色帧 + 完整 detections + 最新 TargetResult”，getter 端 `clone()` 深拷贝，不阻塞推理线程；CMake 给 `kfs_vision_test_node` 显式补了 OpenCV include/库（共享库的 OpenCV 是 PRIVATE 不传递）。tip test 链零改动。
 

@@ -13,6 +13,7 @@
 #include "rc26_serial/protocol.hpp"
 #include "rc26_vision/inference/config/model_profile_loader.hpp"
 #include "rc26_vision/shared/sensors/depth_roi_sampler.hpp"
+#include "rc26_vision/shared/target/visual_target_match.hpp"
 
 namespace rc26_decision {
 
@@ -152,6 +153,26 @@ uint8_t MfPreselectionLogicResult::grabCommandForHighSide(
   return static_cast<uint8_t>(std::clamp(value, 0, 255));
 }
 
+double MfPreselectionLogicResult::bboxIou(
+    const MfPreselectionTargetSnapshot &a,
+    const MfPreselectionTargetSnapshot &b) {
+  return rc26_vision::bboxIou(a, b);
+}
+
+bool MfPreselectionLogicResult::isSameVisualTarget(
+    const MfPreselectionTargetSnapshot &reference,
+    const MfPreselectionTargetSnapshot &candidate, double iou_threshold) {
+  return rc26_vision::isSameVisualTarget(reference, candidate, iou_threshold);
+}
+
+bool MfPreselectionLogicResult::isIgnoredTarget(
+    const MfPreselectionTargetSnapshot &candidate,
+    const std::vector<MfPreselectionTargetSnapshot> &ignored_targets,
+    double iou_threshold) {
+  return rc26_vision::isIgnoredVisualTarget(candidate, ignored_targets,
+                                           iou_threshold);
+}
+
 MfPreselectionFlowAction::MfPreselectionFlowAction(
     const std::string &name, const BT::NodeConfig &config)
     : BT::StatefulActionNode(name, config) {}
@@ -182,6 +203,14 @@ BT::NodeStatus MfPreselectionFlowAction::onStart() {
   clearPathR1Wait();
   pending_grab_commit_ = false;
   pending_grab_source_ = MfPreselectionPickupSource::None;
+  pending_grab_target_.reset();
+  ignored_r2_targets_.clear();
+  grab_success_direct_exit_ = false;
+  grab_verify_lost_count_ = 0;
+  grab_verify_last_sequence_ = 0;
+  grab_verify_seen_new_frame_ = false;
+  grab_verify_visible_logged_ = false;
+  grab_verify_last_logged_lost_count_ = 0;
   // 预选赛 XML 可以在本节点前放一个可选 NavToPose。进入本节点时按“已在 2 号
   // 入口预备姿态”处理，先看正前方是否已经有 R2 可夹取 KFS。
   writeBlackboardState("entry_detect_stair2");
@@ -491,6 +520,8 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
       return tickCommandPair();
     }
     return tickMechanismCommand();
+  case Phase::GrabVerify:
+    return tickGrabVerify();
   case Phase::MoveRelative:
     return tickMoveRelative();
   case Phase::TurnYaw:
@@ -654,6 +685,10 @@ void MfPreselectionFlowAction::releaseRuntime() {
   detection_active_ = false;
   direct_exit_move_active_ = false;
   pending_grab_commit_ = false;
+  pending_grab_source_ = MfPreselectionPickupSource::None;
+  pending_grab_target_.reset();
+  ignored_r2_targets_.clear();
+  grab_success_direct_exit_ = false;
 }
 
 void MfPreselectionFlowAction::normalizeParams() {
@@ -680,6 +715,12 @@ void MfPreselectionFlowAction::normalizeParams() {
       std::max(kMinTimeoutS, params_.scan_detect_timeout_s);
   params_.max_pickup_count = std::max(0, params_.max_pickup_count);
   params_.grab_settle_s = std::max(0.0, params_.grab_settle_s);
+  params_.grab_verify_timeout_s =
+      std::max(kMinTimeoutS, params_.grab_verify_timeout_s);
+  params_.grab_verify_lost_stable_frames =
+      std::max(1, params_.grab_verify_lost_stable_frames);
+  params_.grab_verify_iou_threshold =
+      std::clamp(params_.grab_verify_iou_threshold, 0.0, 1.0);
   params_.command_timeout_s = std::max(kMinTimeoutS, params_.command_timeout_s);
   params_.entry_probe_left_distance_m =
       std::max(0.0, std::abs(params_.entry_probe_left_distance_m));
@@ -811,30 +852,32 @@ double MfPreselectionFlowAction::headingAngularZ(double target_yaw_rad) const {
                     params_.heading_max_speed_radps);
 }
 
-std::optional<MfPreselectionFlowAction::Observation>
+std::optional<MfPreselectionTargetSnapshot>
 MfPreselectionFlowAction::findR2Target() {
   // R2 可夹取目标受 max_pickup_count 限制；达到上限后视觉仍可运行，
   // 但不会再把 T_* 目标转成夹取动作。
   if (!canPickup()) {
     return std::nullopt;
   }
-  return findTarget(params_.r2_target_labels, params_.r2_target_label_prefixes);
+  return findTarget(params_.r2_target_labels, params_.r2_target_label_prefixes,
+                    true);
 }
 
-std::optional<MfPreselectionFlowAction::Observation>
+std::optional<MfPreselectionTargetSnapshot>
 MfPreselectionFlowAction::findR1BlockingTarget() {
   return findTarget(params_.r1_blocking_labels,
-                    params_.r1_blocking_label_prefixes);
+                    params_.r1_blocking_label_prefixes, false);
 }
 
-std::optional<MfPreselectionFlowAction::Observation>
+std::optional<MfPreselectionTargetSnapshot>
 MfPreselectionFlowAction::findFakeTarget() {
-  return findTarget(params_.fake_labels, params_.fake_label_prefixes);
+  return findTarget(params_.fake_labels, params_.fake_label_prefixes, false);
 }
 
-std::optional<MfPreselectionFlowAction::Observation>
+std::optional<MfPreselectionTargetSnapshot>
 MfPreselectionFlowAction::findTarget(const std::vector<std::string> &exact,
-                                     const std::vector<std::string> &prefixes) {
+                                     const std::vector<std::string> &prefixes,
+                                     bool skip_ignored_r2) {
   // 目标读取是“快照式”的：同一帧里的 detection 和 depth 一起使用，
   // 避免检测框来自新帧、深度来自旧帧导致距离门限失真。
   if (!vision_ || !vision_->isRunning()) {
@@ -848,9 +891,15 @@ MfPreselectionFlowAction::findTarget(const std::vector<std::string> &exact,
 
   const rc26_vision::Detection *best = nullptr;
   for (const auto &det : snapshot.detections) {
-    const std::string name =
-        det.class_name.empty() ? std::to_string(det.class_id) : det.class_name;
+    const std::string name = rc26_vision::visualTargetLabel(det);
     if (!MfPreselectionLogicResult::labelMatches(name, exact, prefixes)) {
+      continue;
+    }
+    const MfPreselectionTargetSnapshot candidate =
+        rc26_vision::makeVisualTargetSnapshot(det, snapshot.display_sequence);
+    if (skip_ignored_r2 &&
+        MfPreselectionLogicResult::isIgnoredTarget(
+            candidate, ignored_r2_targets_, params_.grab_verify_iou_threshold)) {
       continue;
     }
     // 同类候选里选 score 最高的框。这里不做目标锁定，预选赛检测阶段只需要
@@ -878,12 +927,9 @@ MfPreselectionFlowAction::findTarget(const std::vector<std::string> &exact,
     return std::nullopt;
   }
 
-  Observation obs;
-  obs.label =
-      best->class_name.empty() ? std::to_string(best->class_id) : best->class_name;
+  MfPreselectionTargetSnapshot obs =
+      rc26_vision::makeVisualTargetSnapshot(*best, snapshot.display_sequence);
   obs.distance_m = *sampled;
-  obs.score = best->score;
-  obs.sequence = snapshot.display_sequence;
   return obs;
 }
 
@@ -904,6 +950,38 @@ std::optional<int64_t> MfPreselectionFlowAction::latestVisionSequence() const {
 bool MfPreselectionFlowAction::canPickup() const {
   return MfPreselectionLogicResult::canPickup(pickup_count_,
                                               params_.max_pickup_count);
+}
+
+MfPreselectionFlowAction::Phase
+MfPreselectionFlowAction::detectionMissNextPhase() const {
+  switch (detect_mode_) {
+  case DetectMode::Entry2:
+    return Phase::EntryHighRaise;
+  case DetectMode::Stair1:
+    return Phase::EntryMoveRightToStair3;
+  case DetectMode::Stair3:
+    return Phase::EntryReturnFromStair3;
+  case DetectMode::RowFront:
+    if (direct_exit_mode_) {
+      return (current_grid_ == 11) ? Phase::Row4ForcedTurn : Phase::TransitionTurn;
+    }
+    if (current_grid_ == 2) {
+      return Phase::TransitionTurn;
+    }
+    if (current_grid_ == 11) {
+      return Phase::Row4ForcedTurn;
+    }
+    return Phase::RowScanTurnLeft;
+  case DetectMode::Scan:
+    return active_detection_phase_ == Phase::RowScanDetectLeft
+               ? Phase::RowScanTurnBack
+               : Phase::RowAlignExit;
+  case DetectMode::TransitionObserve:
+    return Phase::TransitionStair;
+  case DetectMode::Row4Fake:
+    return Phase::Row4FakeTurnBack;
+  }
+  return Phase::AfterEntry;
 }
 
 void MfPreselectionFlowAction::rememberPickupSource(
@@ -1103,30 +1181,32 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
       case DetectMode::Entry2:
         // 2 号入口正前方夹取后直接准备上首阶，来源记录为 Stair2。
         beginGrab(true, MfPreselectionPickupSource::Stair2,
-                  Phase::EntryPrepareClimb);
+                  *r2, Phase::EntryPrepareClimb, detectionMissNextPhase(),
+                  false);
         break;
       case DetectMode::Stair1:
         // 1/3 号入口夹取完成后先横移回 2 号入口，再统一入场。
         beginGrab(true, MfPreselectionPickupSource::Stair1,
-                  Phase::EntryReturnFromStair1);
+                  *r2, Phase::EntryReturnFromStair1, detectionMissNextPhase(),
+                  false);
         break;
       case DetectMode::Stair3:
         beginGrab(true, MfPreselectionPickupSource::Stair3,
-                  Phase::EntryReturnFromStair3);
+                  *r2, Phase::EntryReturnFromStair3, detectionMissNextPhase(),
+                  false);
         break;
       case DetectMode::RowFront:
       case DetectMode::Scan:
         // 入场后再次发现 R2 KFS，夹取后进入直出模式：不再做第 2/3 行周身
         // 搜索，但仍保留前方守卫和假 KFS 处理。
-        direct_exit_mode_ = true;
         beginGrab(true, MfPreselectionPickupSource::None,
-                  Phase::AfterEntry);
+                  *r2, Phase::AfterEntry, detectionMissNextPhase(), true);
         break;
       case DetectMode::TransitionObserve:
         // 台阶切换前方观察到 R2 KFS 时，按本次台阶高低侧决定夹取命令，
         // 夹取完成后继续原计划台阶动作。
         beginGrab(transition_high_side_, MfPreselectionPickupSource::None,
-                  Phase::TransitionStair);
+                  *r2, Phase::TransitionStair, detectionMissNextPhase(), false);
         break;
       case DetectMode::Row4Fake:
         break;
@@ -1288,23 +1368,14 @@ BT::NodeStatus MfPreselectionFlowAction::tickMechanismCommand() {
       command_ack_logged_ = true;
     }
     if (command_done_seen_.load(std::memory_order_relaxed)) {
+      if (command_next_phase_ == Phase::GrabVerify && pending_grab_commit_) {
+        beginGrabVerify();
+        return BT::NodeStatus::RUNNING;
+      }
       if (pending_grab_commit_) {
         // 夹取计数只在命令 ACK/完成后提交，避免 service rejected 或超时时
         // 黑板提前显示已经夹取。
-        ++pickup_count_;
-        entry_pickup_done_ =
-            entry_pickup_done_ ||
-            pending_grab_source_ != MfPreselectionPickupSource::None;
-        rememberPickupSource(pending_grab_source_);
-        if (config().blackboard) {
-          config().blackboard->set("mf_preselect_pickup_count", pickup_count_);
-        }
-        RCLCPP_INFO(node_->get_logger(),
-                    "梅林预选赛R2 KFS夹取计数已更新：%d/%d，来源=%s",
-                    pickup_count_, params_.max_pickup_count,
-                    sourceName(pickup_source_));
-        pending_grab_commit_ = false;
-        pending_grab_source_ = MfPreselectionPickupSource::None;
+        commitPendingGrab();
       }
       if (command_next_phase_ == Phase::StairPrimitive) {
         // 台阶原语通过“发送机构命令 -> MechanismCommand phase -> 回到
@@ -1629,12 +1700,16 @@ BT::NodeStatus MfPreselectionFlowAction::tickDirectExitDrive() {
     phase_start_ = node_->now();
     return BT::NodeStatus::RUNNING;
   }
-  if (canPickup() && findR2Target().has_value()) {
+  if (canPickup()) {
+    const auto r2 = findR2Target();
+    if (r2.has_value()) {
     // 直出途中仍然允许补夹 R2 KFS，但不记录新的入口来源。
-    RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛直行离场途中检测到R2 KFS，先夹取后继续离场");
-    beginGrab(true, MfPreselectionPickupSource::None, Phase::DirectExitDrive);
-    return BT::NodeStatus::RUNNING;
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛直行离场途中检测到R2 KFS，先夹取后继续离场");
+      beginGrab(true, MfPreselectionPickupSource::None, *r2,
+                Phase::DirectExitDrive, Phase::DirectExitDrive, false);
+      return BT::NodeStatus::RUNNING;
+    }
   }
   if (current_grid_ != 11 && findFakeTarget().has_value()) {
     // grid11 的假 KFS 已由第四行专属逻辑处理；其它位置看到假 KFS 走通用避障。
@@ -2208,46 +2283,196 @@ double MfPreselectionFlowAction::climbRearProfileSpeed() {
   return fast + (slow - fast) * ratio;
 }
 
-void MfPreselectionFlowAction::beginGrab(bool high_side,
-                                         MfPreselectionPickupSource source,
-                                         Phase next_phase) {
-  // 夹取动作本身不做视觉伺服，只在检测确认后下发一次 GRAB_KFS_UP/DOWN。
-  // 夹取成功后的路线继续由 next_phase 决定。
+void MfPreselectionFlowAction::beginGrab(
+    bool high_side, MfPreselectionPickupSource source,
+    const MfPreselectionTargetSnapshot &target, Phase success_phase,
+    Phase failure_phase, bool direct_exit_on_success) {
+  // 夹取命令 ACK 只表示 transport 收到通用确认；真正计数要等后续
+  // GrabVerify 阶段确认夹取前的同一视觉目标已经连续新帧消失。
   if (!canPickup()) {
     if (node_) {
       RCLCPP_INFO(node_->get_logger(),
                   "梅林预选赛已达到R2 KFS夹取上限：%d/%d，跳过夹取继续流程",
                   pickup_count_, params_.max_pickup_count);
     }
-    phase_ = next_phase;
+    phase_ = success_phase;
     return;
   }
-  grab_next_phase_ = next_phase;
-  // pending_grab_commit_ 让计数更新延迟到机构命令被 accepted 之后，避免
-  // 夹取命令失败时仍消耗本局最多夹取次数。
+  grab_success_phase_ = success_phase;
+  grab_failure_phase_ = failure_phase;
+  grab_success_direct_exit_ = direct_exit_on_success;
+  // pending_grab_commit_ 让计数更新延迟到物理夹取视觉验证成功之后，避免
+  // ACK 成功但空夹时仍消耗本局最多夹取次数。
   pending_grab_commit_ = true;
   pending_grab_source_ = source;
+  pending_grab_target_ = target;
   const uint8_t command_id =
       MfPreselectionLogicResult::grabCommandForHighSide(high_side, params_);
   if (node_) {
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛开始夹取R2 KFS：command=%s(0x%02X)，高侧=%s，来源=%s，当前计数=%d/%d",
+                "梅林预选赛开始夹取R2 KFS：command=%s(0x%02X)，高侧=%s，来源=%s，目标=%s seq=%ld bbox=[%.1f %.1f %.1f %.1f]，当前计数=%d/%d",
                 high_side ? "GRAB_KFS_UP" : "GRAB_KFS_DOWN",
                 static_cast<unsigned int>(command_id),
-                high_side ? "是" : "否", sourceName(source), pickup_count_,
+                high_side ? "是" : "否", sourceName(source),
+                target.label.c_str(), static_cast<long>(target.sequence),
+                target.x1, target.y1, target.x2, target.y2, pickup_count_,
                 params_.max_pickup_count);
   }
   beginMechanismCommand(command_id,
                         high_side ? "GRAB_KFS_UP" : "GRAB_KFS_DOWN", -1,
-                        Phase::ZeroHold, "grab_kfs_failed");
-  // beginMechanismCommand() 会先进入 MechanismCommand；当 ACK 完成后再转入
-  // ZeroHold，这里提前把 ZeroHold 的目标阶段和 settle 时间写好。
-  zero_hold_next_phase_ = next_phase;
-  zero_hold_duration_s_ = params_.grab_settle_s;
-  zero_hold_label_ = "grab_settle";
+                        Phase::GrabVerify, "grab_kfs_failed");
 }
 
-void MfPreselectionFlowAction::continueAfterGrab() { phase_ = grab_next_phase_; }
+void MfPreselectionFlowAction::beginGrabVerify() {
+  if (!node_ || !pending_grab_target_.has_value()) {
+    finishGrabVerificationFailure("grab_verify_target_missing");
+    return;
+  }
+  phase_start_ = node_->now();
+  grab_verify_lost_count_ = 0;
+  grab_verify_last_sequence_ = pending_grab_target_->sequence;
+  grab_verify_seen_new_frame_ = false;
+  grab_verify_visible_logged_ = false;
+  grab_verify_last_logged_lost_count_ = 0;
+  writeBlackboardState("grab_verify");
+  RCLCPP_INFO(node_->get_logger(),
+              "梅林预选赛开始物理夹取视觉验证：target=%s seq=%ld timeout=%.2fs lost=%d iou>=%.2f",
+              pending_grab_target_->label.c_str(),
+              static_cast<long>(pending_grab_target_->sequence),
+              params_.grab_verify_timeout_s,
+              params_.grab_verify_lost_stable_frames,
+              params_.grab_verify_iou_threshold);
+  phase_ = Phase::GrabVerify;
+}
+
+BT::NodeStatus MfPreselectionFlowAction::tickGrabVerify() {
+  publishStop();
+  if (!node_ || !pending_grab_target_.has_value()) {
+    finishGrabVerificationFailure("grab_verify_target_missing");
+    return BT::NodeStatus::RUNNING;
+  }
+
+  const double elapsed = (node_->now() - phase_start_).seconds();
+  rc26_vision::VisionInferenceManager::FrameSnapshot snapshot;
+  const bool has_snapshot = vision_ && vision_->isRunning() &&
+                            vision_->getLatestFrameSnapshot(snapshot) &&
+                            snapshot.has_display &&
+                            snapshot.display_sequence > 0;
+  if (!has_snapshot || snapshot.display_sequence <= grab_verify_last_sequence_) {
+    if (elapsed >= params_.grab_verify_timeout_s) {
+      finishGrabVerificationFailure("grab_verify_no_new_frame");
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+
+  grab_verify_seen_new_frame_ = true;
+  grab_verify_last_sequence_ = snapshot.display_sequence;
+  bool still_visible = false;
+  double best_iou = 0.0;
+  for (const auto &det : snapshot.detections) {
+    const MfPreselectionTargetSnapshot candidate =
+        rc26_vision::makeVisualTargetSnapshot(det, snapshot.display_sequence);
+    if (candidate.label != pending_grab_target_->label) {
+      continue;
+    }
+    const double iou =
+        MfPreselectionLogicResult::bboxIou(*pending_grab_target_, candidate);
+    best_iou = std::max(best_iou, iou);
+    if (iou >= params_.grab_verify_iou_threshold) {
+      still_visible = true;
+      break;
+    }
+  }
+
+  if (still_visible) {
+    grab_verify_lost_count_ = 0;
+    grab_verify_last_logged_lost_count_ = 0;
+    if (!grab_verify_visible_logged_) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛物理夹取验证：原目标仍可见 target=%s seq=%ld iou=%.3f",
+                  pending_grab_target_->label.c_str(),
+                  static_cast<long>(snapshot.display_sequence), best_iou);
+      grab_verify_visible_logged_ = true;
+    }
+  } else {
+    ++grab_verify_lost_count_;
+    grab_verify_visible_logged_ = false;
+    if (grab_verify_lost_count_ != grab_verify_last_logged_lost_count_) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛物理夹取验证：原目标未匹配 stable=%d/%d seq=%ld best_iou=%.3f",
+                  grab_verify_lost_count_,
+                  params_.grab_verify_lost_stable_frames,
+                  static_cast<long>(snapshot.display_sequence), best_iou);
+      grab_verify_last_logged_lost_count_ = grab_verify_lost_count_;
+    }
+    if (grab_verify_lost_count_ >= params_.grab_verify_lost_stable_frames) {
+      if (grab_success_direct_exit_) {
+        direct_exit_mode_ = true;
+      }
+      commitPendingGrab();
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛物理夹取确认成功：连续%d帧未识别到原目标，进入夹取稳定等待",
+                  params_.grab_verify_lost_stable_frames);
+      beginZeroHold(params_.grab_settle_s, grab_success_phase_, "grab_settle");
+      return BT::NodeStatus::RUNNING;
+    }
+  }
+
+  if (elapsed >= params_.grab_verify_timeout_s) {
+    finishGrabVerificationFailure(grab_verify_seen_new_frame_
+                                      ? "grab_verify_target_still_visible"
+                                      : "grab_verify_no_new_frame");
+  }
+  return BT::NodeStatus::RUNNING;
+}
+
+void MfPreselectionFlowAction::commitPendingGrab() {
+  if (!pending_grab_commit_) {
+    return;
+  }
+  ++pickup_count_;
+  entry_pickup_done_ =
+      entry_pickup_done_ ||
+      pending_grab_source_ != MfPreselectionPickupSource::None;
+  rememberPickupSource(pending_grab_source_);
+  if (config().blackboard) {
+    config().blackboard->set("mf_preselect_pickup_count", pickup_count_);
+  }
+  if (node_) {
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛R2 KFS夹取计数已更新：%d/%d，来源=%s",
+                pickup_count_, params_.max_pickup_count,
+                sourceName(pickup_source_));
+  }
+  pending_grab_commit_ = false;
+  pending_grab_source_ = MfPreselectionPickupSource::None;
+  pending_grab_target_.reset();
+  grab_success_direct_exit_ = false;
+}
+
+void MfPreselectionFlowAction::finishGrabVerificationFailure(
+    const std::string &reason) {
+  if (pending_grab_target_.has_value()) {
+    ignored_r2_targets_.push_back(*pending_grab_target_);
+  }
+  if (node_) {
+    const char *label =
+        pending_grab_target_.has_value() ? pending_grab_target_->label.c_str() : "";
+    RCLCPP_WARN(node_->get_logger(),
+                "梅林预选赛物理夹取验证失败但继续流程：reason=%s target=%s，忽略该目标且不更新计数",
+                reason.c_str(), label);
+  }
+  pending_grab_commit_ = false;
+  pending_grab_source_ = MfPreselectionPickupSource::None;
+  pending_grab_target_.reset();
+  grab_success_direct_exit_ = false;
+  grab_verify_lost_count_ = 0;
+  grab_verify_last_sequence_ = 0;
+  grab_verify_seen_new_frame_ = false;
+  grab_verify_visible_logged_ = false;
+  grab_verify_last_logged_lost_count_ = 0;
+  phase_ = grab_failure_phase_;
+}
 
 uint8_t MfPreselectionFlowAction::clampByte(int value) const {
   return static_cast<uint8_t>(std::clamp(value, 0, 255));
@@ -2301,6 +2526,14 @@ void loadMfPreselectionParams(rclcpp::Node &node,
       "mf_preselect_max_pickup_count", p.max_pickup_count);
   p.grab_settle_s = node.declare_parameter<double>(
       "mf_preselect_grab_settle_s", p.grab_settle_s);
+  p.grab_verify_timeout_s = node.declare_parameter<double>(
+      "mf_preselect_grab_verify_timeout_s", p.grab_verify_timeout_s);
+  p.grab_verify_lost_stable_frames = node.declare_parameter<int>(
+      "mf_preselect_grab_verify_lost_stable_frames",
+      p.grab_verify_lost_stable_frames);
+  p.grab_verify_iou_threshold = node.declare_parameter<double>(
+      "mf_preselect_grab_verify_iou_threshold",
+      p.grab_verify_iou_threshold);
   p.grab_kfs_up_command_id = node.declare_parameter<int>(
       "mf_preselect_grab_kfs_up_command_id", p.grab_kfs_up_command_id);
   p.grab_kfs_down_command_id = node.declare_parameter<int>(

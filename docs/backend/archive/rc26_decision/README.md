@@ -20,8 +20,6 @@
   - `behavior_trees/two_pose_nav_tree.xml`（独立双点 Nav2 导航入口，默认主流程不引用）
   - `behavior_trees/stair_climb_tree.xml`（独立上台阶测试入口，默认主流程不引用）
   - `behavior_trees/stair_descend_tree.xml`（独立下台阶测试入口，默认主流程不引用）
-  - `behavior_trees/kfs_stair_climb_test_tree.xml`（KFS 上台阶等待测试入口，默认主流程不引用）
-  - `behavior_trees/kfs_stair_descend_test_tree.xml`（KFS 下台阶等待测试入口，默认主流程不引用）
   - `behavior_trees/mf_red_middle_column_tree.xml`（红方中间列连续台阶独立入口，默认主流程不引用）
   - `behavior_trees/mf_preselection_tree.xml`（梅林区预选赛专属正式入口，默认完整 bringup 可指向本树）
 - 关键源码:
@@ -38,7 +36,6 @@
   - `src/mf_preselection/mf_preselection_flow.cpp`（梅林预选赛专属入口探测、KFS 夹取、R1/假 KFS 干扰、四行推进和离场收尾）
   - `src/mc/mc_area.cpp`（注册 + `loadMCParams`）
   - `src/mc/visual_servo_grab.cpp`、`src/mc/rotate_in_place.cpp`、`src/mc/wait_forever.cpp`
-  - `src/kfs/kfs_stair_pickup.cpp`（KFS 阶梯等待测试 BT 节点）
   - `src/stair/stair_climb.cpp`、`src/stair/stair_descend.cpp`、`src/stair/stair_action_base.cpp`
 
 ## 当前 MF 格间与导航调用口径
@@ -120,31 +117,13 @@ Nav2 action result 映射规则：
 
 本树只用一个 `Sequence` 依次执行两个 `NavToPose`：先到 `map` 下 `(x=0.9675, y=0.0082, yaw=-0.0035)`，成功后再到 `(x=0.9778, y=0.7744, yaw=-1.4857)`；两段导航当前各自显式设置 `timeout_sec=180.0`，避免低速实车在 60 秒默认超时内被决策层提前取消。任一导航目标返回 `FAILURE` 时，整棵树立即失败并停止后续动作。它不做视觉夹取、台阶动作、黑板状态写入或默认入口切换。
 
-## KFS 阶梯等待测试链
-
-`behavior_trees/kfs_stair_climb_test_tree.xml` 与 `behavior_trees/kfs_stair_descend_test_tree.xml` 是独立测试树，默认 `main_tree.xml`、`mf_tree.xml`、`mc_tree.xml` 与 `mf_red_middle_column_tree.xml` 都不引用它们。上台阶测试树执行 `KfsStairPickup(direction=climb) -> StairClimb`，下台阶测试树执行 `KfsStairPickup(direction=descend) -> StairDescend`；建议通过 `rc26_bringup/launch/kfs_stair_test.launch.py direction:=climb|descend` 启动，避免与 Nav2 controller、遥控或其它 `/cmd_vel` 权威冲突。
-
-当前 KFS 模型标签 `R_R1` / `B_R1` 表示另一台机器人需要拾取的 KFS，不是本车可夹取目标。`KfsStairPickup` 在视觉检测前会按方向通过 `/mechanism/send_command` 发送机械臂预调命令：`climb -> ARM_RAISE(0x04)` 并等待同 `seq` 的 `ARM_RAISE_DONE(0x02)`，`descend -> ARM_LOWER(0x05)` 并等待同 `seq` 的 `ARM_LOWER_DONE(0x03)`。预调完成后节点使用 `rc26_vision::VisionInferenceManager` 加载 `kfs_default`，通过只读帧快照读取最新彩色/深度/检测结果；若检测到 `R_R1` 或 `B_R1` 且中心 ROI 深度落入 `kfs_depth_min_m..kfs_depth_max_m`，就持续发布零速等待，直到连续 `kfs_blocking_lost_stable_frames` 个新的推理帧都未再看到占用目标。
-
-本测试链中的 `KFS` 指阶梯等待视觉目标，不依赖已删除的旧 MF keepout 包，也不使用旧 keepout / terrain / MF KFS 兼容接口。
-
-本轮 v1 不会因为 `R_R1/B_R1` 下发 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`；这两个命令只是协议预留，等待后续模型增加本车可夹取标签后再接入对齐、趋近、夹取和颜色留存判定链路。占用目标消失后节点写入 `kfs_last_outcome=blocked_target_gone` 并返回 `SUCCESS`，一开始没有占用目标则写入 `kfs_last_outcome=no_target` 并返回 `SUCCESS`，让测试树继续普通 `StairClimb` 或 `StairDescend`。若预调 service 不可用、命令 rejected、完成反馈超时、视觉启动失败或等待超过 `kfs_blocking_wait_timeout_s`，节点发布零速、写入 `kfs_last_outcome=failed` 与 `kfs_last_error`，并返回 `FAILURE`。
-
-`KfsStairPickup` 会维护以下黑板键：
-
-- `kfs_last_outcome`: `running | no_target | blocked_target_gone | failed`
-- `kfs_last_direction`: `climb | descend`
-- `kfs_last_error`
-- `kfs_last_label`
-- `kfs_last_distance_m`
-
 ## 梅林区预选赛专属链路
 
 `behavior_trees/mf_preselection_tree.xml` 是梅林区预选赛专属正式入口，完整 bringup 可通过 `r2_runtime.paths.behavior_tree_file` 指向它。该树先按 `mf_preselect_entry2_nav_enable` 决定是否执行 2 号入口 `NavToPose`；默认关闭入口导航，现场标定前假设机器人已经位于 2 号入口预备姿态。入口 `NavToPose` 默认通过 `mf_preselect_entry2_nav_behavior_tree_file` 指向 `rc26_bringup/config/nav2_bt_mf_preselect_entry_x_positive_y_negative.xml`，让 Nav2 只使用 `MFPreselectEntryXPositiveYNegative` controller，速度采样限制为车体系 `linear.x >= 0`、`linear.y <= 0`、`|angular.z| <= 0.10rad/s`；该约束只覆盖入口导航，不影响后续 `MfPreselectionFlow` 内部直接发布 `/cmd_vel` 的相对移动、台阶、转向和离场状态机。当前 `rc26_bringup/config/nav2_params.yaml` 的共享 Nav2 costmap 加载 obstacle layer 但不加载 inflation layer，因此该入口导航会消费动态障碍，但不会对静态或动态障碍额外生成膨胀缓冲。随后执行单个 `MfPreselectionFlow` 状态机，流程成功驶出梅林后进入 `WaitForever`，保持永久静止。
 
-`MfPreselectionFlow` 只消费 `rc26_vision` 的 KFS 模型快照、`/odom`、`/cmd_vel` 和 `rc26_mcu_transport` 提供的 `/mechanism/send_command` / `/mechanism/command_feedback`。视觉标签按当前模型语义处理：`T_*` 是 R2 可夹取 KFS，`R_R1/B_R1` 是 R1 阻挡目标，`F_*` 是假 KFS；这些标签列表和前缀都由 `mf_preselect_*` 参数配置。R2 KFS 单局最多夹取 `mf_preselect_max_pickup_count` 个，默认 2 个，达到上限后不再触发 KFS 夹取。
+`MfPreselectionFlow` 只消费 `rc26_vision` 的 KFS 模型快照、`/odom`、`/cmd_vel` 和 `rc26_mcu_transport` 提供的 `/mechanism/send_command` / `/mechanism/command_feedback`。视觉标签按当前模型语义处理：`T_*` 是 R2 可夹取 KFS，`R_R1/B_R1` 是 R1 阻挡目标，`F_*` 是假 KFS；这些标签列表和前缀都由 `mf_preselect_*` 参数配置。R2 KFS 单局最多夹取 `mf_preselect_max_pickup_count` 个，默认 2 个，达到上限后不再触发 KFS 夹取。夹取计数不再在 `GRAB_KFS_UP/DOWN` ACK 后立即提交：状态机会保存触发夹取前的 `label + bbox + sequence`，ACK 成功后进入最多 `mf_preselect_grab_verify_timeout_s` 的视觉验证窗口；只有同标签且 bbox IoU 达到 `mf_preselect_grab_verify_iou_threshold` 的原目标连续 `mf_preselect_grab_verify_lost_stable_frames` 个新推理帧不可见，才判定物理夹取成功并更新计数。同目标匹配 helper 与 `rc26_vision` 的独立 KFS action test 共用 `shared/target/visual_target_match`，避免两条链路的 bbox/label 语义分叉。若验证超时、原目标仍可见或没有新视觉帧，当前目标会被本轮忽略、不计数，并按“该检测点未夹到目标”的路线继续；service rejected、ACK 超时和视觉启动失败仍是流程失败。
 
-为便于实车观察行为树卡点，`MfPreselectionFlow` 会输出中文阶段日志，覆盖检测阶段、R2/假 KFS/R1 分支、机构命令发送与 ACK/完成反馈、相对移动、转向、零速等待、台阶激光事件、夹取计数和最终停车；日志只在阶段切换或关键事件发生时输出，避免按 tick 高频刷屏。
+为便于实车观察行为树卡点，`MfPreselectionFlow` 会输出中文阶段日志，覆盖检测阶段、R2/假 KFS/R1 分支、机构命令发送与 ACK/完成反馈、夹取视觉验证、相对移动、转向、零速等待、台阶激光事件、夹取计数和最终停车；日志只在阶段切换或关键事件发生时输出，避免按 tick 高频刷屏。
 
 `src/mf_preselection/mf_preselection_flow.cpp` 已补充面向维护者的中文结构注释，覆盖文件级流程边界、入口探测、中间列推进、视觉稳定帧、R1 等待、机构异步命令、相对移动、转向、台阶激光事件、夹取计数提交和参数加载分组；这些注释只解释当前真实状态机，不新增运行时接口、黑板键或运动命令权威。
 
@@ -160,6 +139,8 @@ Nav2 action result 映射规则：
 - `mf_preselect_current_grid`
 - `mf_preselect_done`
 - `mf_preselect_error`
+
+本次同步后，旧 `KfsStairPickup` 阶梯等待 BT 节点和 `kfs_stair_*_test_tree.xml` 独立测试树已删除；MF 预选赛的 R2 KFS 夹取仍由 `MfPreselectionFlow` 内部状态机直接发送 `GRAB_KFS_UP/DOWN`，并在 ACK 后通过原目标视觉消失确认再计数。独立 `T_*` 对齐、趋近、夹取实机验收由 `rc26_vision/test_kfs_vision.launch.py action_enable:=true` 承担。
 
 ## 武馆区 (MC) 行为树
 

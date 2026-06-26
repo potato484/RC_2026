@@ -17,10 +17,13 @@
 #include "rc26_interfaces/msg/mechanism_transport_feedback.hpp"
 #include "rc26_interfaces/srv/send_mechanism_transport_command.hpp"
 #include "rc26_vision/inference/runtime/vision_inference_manager.hpp"
+#include "rc26_vision/shared/target/visual_target_match.hpp"
 
 namespace rc26_decision {
 
 enum class MfPreselectionPickupSource { None, Stair1, Stair2, Stair3 };
+
+using MfPreselectionTargetSnapshot = rc26_vision::VisualTargetSnapshot;
 
 struct MfPreselectionParams {
   std::string vision_config_file;
@@ -40,6 +43,9 @@ struct MfPreselectionParams {
 
   int max_pickup_count{2};
   double grab_settle_s{0.5};
+  double grab_verify_timeout_s{3.0};
+  int grab_verify_lost_stable_frames{3};
+  double grab_verify_iou_threshold{0.30};
   int grab_kfs_up_command_id{0x03};
   int grab_kfs_down_command_id{0x02};
 
@@ -91,6 +97,15 @@ struct MfPreselectionLogicResult {
                                  const MfPreselectionParams &params);
   static uint8_t grabCommandForHighSide(bool high_side,
                                         const MfPreselectionParams &params);
+  static double bboxIou(const MfPreselectionTargetSnapshot &a,
+                        const MfPreselectionTargetSnapshot &b);
+  static bool isSameVisualTarget(const MfPreselectionTargetSnapshot &reference,
+                                 const MfPreselectionTargetSnapshot &candidate,
+                                 double iou_threshold);
+  static bool isIgnoredTarget(
+      const MfPreselectionTargetSnapshot &candidate,
+      const std::vector<MfPreselectionTargetSnapshot> &ignored_targets,
+      double iou_threshold);
 };
 
 void loadMfPreselectionParams(rclcpp::Node &node,
@@ -149,6 +164,7 @@ private:
     DirectExitDrive,
     FinalStop,
     MechanismCommand,
+    GrabVerify,
     MoveRelative,
     TurnYaw,
     ZeroHold,
@@ -180,13 +196,6 @@ private:
   };
   enum class WheelEvent { FrontFirst, FrontSecond, Rear };
 
-  struct Observation {
-    std::string label;
-    double distance_m{0.0};
-    double score{0.0};
-    int64_t sequence{0};
-  };
-
   bool setupRuntime();
   bool setupVision();
   void releaseRuntime();
@@ -200,13 +209,15 @@ private:
   static double normalizeAngle(double angle_rad);
   double headingAngularZ(double target_yaw_rad) const;
 
-  std::optional<Observation> findR2Target();
-  std::optional<Observation> findR1BlockingTarget();
-  std::optional<Observation> findFakeTarget();
-  std::optional<Observation> findTarget(const std::vector<std::string> &exact,
-                                        const std::vector<std::string> &prefixes);
+  std::optional<MfPreselectionTargetSnapshot> findR2Target();
+  std::optional<MfPreselectionTargetSnapshot> findR1BlockingTarget();
+  std::optional<MfPreselectionTargetSnapshot> findFakeTarget();
+  std::optional<MfPreselectionTargetSnapshot>
+  findTarget(const std::vector<std::string> &exact,
+             const std::vector<std::string> &prefixes, bool skip_ignored_r2);
   std::optional<int64_t> latestVisionSequence() const;
   bool canPickup() const;
+  Phase detectionMissNextPhase() const;
   void rememberPickupSource(MfPreselectionPickupSource source);
   void writeBlackboardState(const std::string &state);
   static const char *detectModeText(DetectMode mode);
@@ -252,8 +263,13 @@ private:
   double climbRearProfileSpeed();
 
   void beginGrab(bool high_side, MfPreselectionPickupSource source,
-                 Phase next_phase);
-  void continueAfterGrab();
+                 const MfPreselectionTargetSnapshot &target,
+                 Phase success_phase, Phase failure_phase,
+                 bool direct_exit_on_success);
+  void beginGrabVerify();
+  BT::NodeStatus tickGrabVerify();
+  void commitPendingGrab();
+  void finishGrabVerificationFailure(const std::string &reason);
 
   uint8_t clampByte(int value) const;
   rclcpp::Duration seconds(double value) const;
@@ -274,7 +290,8 @@ private:
   Phase turn_next_phase_{Phase::Done};
   Phase zero_hold_next_phase_{Phase::Done};
   Phase stair_next_phase_{Phase::Done};
-  Phase grab_next_phase_{Phase::Done};
+  Phase grab_success_phase_{Phase::Done};
+  Phase grab_failure_phase_{Phase::Done};
 
   DetectMode detect_mode_{DetectMode::Entry2};
   rclcpp::Time phase_start_{0, 0, RCL_ROS_TIME};
@@ -377,6 +394,14 @@ private:
   bool timed_drive_started_{false};
   bool pending_grab_commit_{false};
   MfPreselectionPickupSource pending_grab_source_{MfPreselectionPickupSource::None};
+  std::optional<MfPreselectionTargetSnapshot> pending_grab_target_;
+  std::vector<MfPreselectionTargetSnapshot> ignored_r2_targets_;
+  bool grab_success_direct_exit_{false};
+  int grab_verify_lost_count_{0};
+  int64_t grab_verify_last_sequence_{0};
+  bool grab_verify_seen_new_frame_{false};
+  bool grab_verify_visible_logged_{false};
+  int grab_verify_last_logged_lost_count_{0};
 };
 
 } // namespace rc26_decision

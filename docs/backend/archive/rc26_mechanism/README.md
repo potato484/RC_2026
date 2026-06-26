@@ -62,7 +62,7 @@
 - `FRONT_LIMIT_SWITCH_TRIGGERED = 0x06`
 - `FRONT_SECOND_LASER_HEIGHT_JUMP = 0x07`
 
-KFS 阶梯等待测试链不把上下阶梯夹取预留命令加入 catalog。`ARM_RAISE(0x04)` / `ARM_LOWER(0x05)` 由决策层直接通过 `/mechanism/send_command` 发送，并等待同 `seq` 的 `ARM_RAISE_DONE(0x02)` / `ARM_LOWER_DONE(0x03)`。`GRAB_KFS_UP(0x03)` 与 `GRAB_KFS_DOWN(0x02)` 只作为后续本车目标标签明确后的 raw transport 预留能力。
+KFS 阶梯等待测试链不因 `R_R1/B_R1` 阻塞标签发送夹取命令。`ARM_RAISE(0x04)` / `ARM_LOWER(0x05)` 由决策层直接通过 `/mechanism/send_command` 发送，并等待同 `seq` 的 `ARM_RAISE_DONE(0x02)` / `ARM_LOWER_DONE(0x03)`。`GRAB_KFS_UP(0x03)` 与 `GRAB_KFS_DOWN(0x02)` 已由梅林预选赛和 `rc26_vision` 独立 KFS action test 作为 raw transport 命令使用；本包不把 service ACK 解释为物理夹取成功，成功判定由上层视觉消失验证完成。
 
 `PLACE_KFS_GRID(0x06)` 若仍需发送，只能走 raw `/mechanism/send_command`，不再有高层“完成反馈即成功”的封装。
 

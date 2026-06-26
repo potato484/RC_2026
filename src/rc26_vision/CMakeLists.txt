@@ -42,6 +42,7 @@ find_library(AIDLITE_QNN231_LIB aidlite_qnn231 HINTS /usr/local/lib)
 
 set(RC26_VISION_LIBRARY_SOURCES
   src/shared/sensors/depth_roi_sampler.cpp
+  src/shared/target/visual_target_match.cpp
   src/preprocess/yolo/yolo_image_preprocessor.cpp
   src/inference/yolo/yolo_engine.cpp
   src/inference/runtime/vision_inference_manager.cpp
@@ -236,6 +237,12 @@ if(BUILD_TESTING)
   )
   target_include_directories(test_tip_alignment PUBLIC ${COMMON_INCLUDE_DIRS})
   target_include_directories(test_tip_alignment PRIVATE ${OpenCV_INCLUDE_DIRS})
+
+  ament_add_gtest(test_visual_target_match
+    test/test_visual_target_match.cpp
+    src/shared/target/visual_target_match.cpp
+  )
+  target_include_directories(test_visual_target_match PUBLIC ${COMMON_INCLUDE_DIRS})
 endif()
 
 # ============================================================================
