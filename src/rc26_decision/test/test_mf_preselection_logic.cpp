@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -27,6 +28,54 @@ TEST(MfPreselectionLogic, PickupLimitUsesStrictMaximum) {
   EXPECT_TRUE(rc26_decision::MfPreselectionLogicResult::canPickup(1, 2));
   EXPECT_FALSE(rc26_decision::MfPreselectionLogicResult::canPickup(2, 2));
   EXPECT_FALSE(rc26_decision::MfPreselectionLogicResult::canPickup(0, 0));
+}
+
+TEST(MfPreselectionLogic, KfsAlignVelocityUsesToleranceLimitAndDirection) {
+  rc26_decision::MfPreselectionParams params;
+  params.kfs_align_tolerance_px = 20;
+  params.kfs_align_kp = 0.001;
+  params.kfs_align_min_speed_mps = 0.015;
+  params.kfs_align_max_speed_mps = 0.06;
+  params.kfs_invert_lateral_direction = false;
+
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::kfsAlignVy(10, params), 0.0);
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::kfsAlignVy(30, params), -0.03);
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::kfsAlignVy(-30, params), 0.03);
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::kfsAlignVy(200, params), -0.06);
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::kfsAlignVy(21, params), -0.021);
+
+  params.kfs_align_kp = 0.0001;
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::kfsAlignVy(30, params), -0.015);
+
+  params.kfs_invert_lateral_direction = true;
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::kfsAlignVy(30, params), 0.015);
+}
+
+TEST(MfPreselectionLogic, KfsOpenLoopDistanceAndDurationUseArmReach) {
+  EXPECT_DOUBLE_EQ(rc26_decision::MfPreselectionLogicResult::kfsOpenLoopDistance(
+                       0.55, 0.40),
+                   0.15);
+  EXPECT_DOUBLE_EQ(rc26_decision::MfPreselectionLogicResult::kfsOpenLoopDuration(
+                       0.15, 0.05),
+                   3.0);
+  EXPECT_DOUBLE_EQ(rc26_decision::MfPreselectionLogicResult::kfsOpenLoopDistance(
+                       0.35, 0.40),
+                   0.0);
+  EXPECT_DOUBLE_EQ(rc26_decision::MfPreselectionLogicResult::kfsOpenLoopDuration(
+                       0.0, 0.0),
+                   0.0);
+  EXPECT_TRUE(std::isinf(
+      rc26_decision::MfPreselectionLogicResult::kfsOpenLoopDuration(0.10, 0.0)));
+  EXPECT_GT(rc26_decision::MfPreselectionLogicResult::kfsOpenLoopDuration(
+                0.90, 0.10),
+            8.0);
 }
 
 TEST(MfPreselectionLogic, FakeAvoidanceDirectionUsesPickupSource) {

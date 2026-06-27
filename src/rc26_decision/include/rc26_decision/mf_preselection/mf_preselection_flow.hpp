@@ -41,6 +41,18 @@ struct MfPreselectionParams {
   double entry_detect_timeout_s{2.0};
   double scan_detect_timeout_s{2.0};
 
+  int kfs_align_tolerance_px{20};
+  int kfs_align_stable_frames{5};
+  double kfs_align_kp{0.0010};
+  double kfs_align_min_speed_mps{0.015};
+  double kfs_align_max_speed_mps{0.06};
+  int kfs_lost_stop_frames{3};
+  bool kfs_invert_lateral_direction{false};
+  double kfs_approach_speed_mps{0.10};
+  int kfs_approach_x_sign{1};
+  double kfs_approach_timeout_s{8.0};
+  double kfs_grab_distance_m{0.50};
+
   int max_pickup_count{2};
   double grab_settle_s{0.5};
   double grab_verify_timeout_s{3.0};
@@ -93,6 +105,10 @@ struct MfPreselectionLogicResult {
                            const std::vector<std::string> &exact_labels,
                            const std::vector<std::string> &prefixes);
   static bool canPickup(int pickup_count, int max_pickup_count);
+  static double kfsAlignVy(int offset_px, const MfPreselectionParams &params);
+  static double kfsOpenLoopDistance(double locked_depth_m,
+                                    double grab_distance_m);
+  static double kfsOpenLoopDuration(double distance_m, double speed_mps);
   static double fakeAvoidanceYaw(MfPreselectionPickupSource source,
                                  const MfPreselectionParams &params);
   static uint8_t grabCommandForHighSide(bool high_side,
@@ -163,6 +179,8 @@ private:
     Row4DirectDescend,
     DirectExitDrive,
     FinalStop,
+    KfsVisualAlign,
+    KfsOpenLoopApproach,
     MechanismCommand,
     GrabVerify,
     MoveRelative,
@@ -196,6 +214,12 @@ private:
   };
   enum class WheelEvent { FrontFirst, FrontSecond, Rear };
 
+  struct KfsVisualObservation {
+    MfPreselectionTargetSnapshot target;
+    int offset_px{0};
+    bool has_depth{false};
+  };
+
   bool setupRuntime();
   bool setupVision();
   void releaseRuntime();
@@ -223,6 +247,7 @@ private:
   static const char *detectModeText(DetectMode mode);
   static const char *stairModeText(StairMode mode);
   static const char *wheelEventText(WheelEvent event);
+  static const char *phaseText(Phase phase);
 
   void beginDetection(DetectMode mode, double timeout_s);
   BT::NodeStatus tickDetection();
@@ -261,6 +286,18 @@ private:
   bool wheelEventReceived() const;
   BT::NodeStatus tickWheelEvent();
   double climbRearProfileSpeed();
+
+  std::optional<KfsVisualObservation> findKfsVisualTarget();
+  void beginKfsVisualPickup(bool high_side, MfPreselectionPickupSource source,
+                            const MfPreselectionTargetSnapshot &target,
+                            Phase success_phase, Phase failure_phase,
+                            bool direct_exit_on_success);
+  BT::NodeStatus tickKfsVisualAlign();
+  BT::NodeStatus beginKfsOpenLoopApproach(
+      const KfsVisualObservation &observation);
+  BT::NodeStatus tickKfsOpenLoopApproach();
+  double kfsApproachVx() const;
+  void clearKfsVisualPickup();
 
   void beginGrab(bool high_side, MfPreselectionPickupSource source,
                  const MfPreselectionTargetSnapshot &target,
@@ -392,6 +429,22 @@ private:
   Phase active_detection_phase_{Phase::Done};
   bool detection_active_{false};
   bool timed_drive_started_{false};
+  bool kfs_pickup_active_{false};
+  bool kfs_pickup_high_side_{true};
+  MfPreselectionPickupSource kfs_pickup_source_{MfPreselectionPickupSource::None};
+  Phase kfs_pickup_success_phase_{Phase::Done};
+  Phase kfs_pickup_failure_phase_{Phase::Done};
+  bool kfs_pickup_direct_exit_on_success_{false};
+  std::optional<MfPreselectionTargetSnapshot> kfs_pickup_initial_target_;
+  std::optional<MfPreselectionTargetSnapshot> kfs_open_loop_target_;
+  int kfs_align_stable_count_{0};
+  int kfs_align_lost_count_{0};
+  int64_t kfs_align_last_sequence_{0};
+  int kfs_open_loop_offset_px_{0};
+  double kfs_open_loop_locked_depth_m_{0.0};
+  double kfs_open_loop_distance_m_{0.0};
+  double kfs_open_loop_duration_s_{0.0};
+  bool kfs_open_loop_started_{false};
   bool pending_grab_commit_{false};
   MfPreselectionPickupSource pending_grab_source_{MfPreselectionPickupSource::None};
   std::optional<MfPreselectionTargetSnapshot> pending_grab_target_;

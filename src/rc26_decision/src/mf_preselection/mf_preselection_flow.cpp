@@ -134,6 +134,40 @@ bool MfPreselectionLogicResult::canPickup(int pickup_count,
   return pickup_count < std::max(0, max_pickup_count);
 }
 
+double MfPreselectionLogicResult::kfsAlignVy(
+    int offset_px, const MfPreselectionParams &params) {
+  const int abs_offset = std::abs(offset_px);
+  if (abs_offset <= params.kfs_align_tolerance_px ||
+      params.kfs_align_max_speed_mps <= 0.0) {
+    return 0.0;
+  }
+  double speed = static_cast<double>(abs_offset) * params.kfs_align_kp;
+  speed = std::clamp(speed, params.kfs_align_min_speed_mps,
+                     params.kfs_align_max_speed_mps);
+
+  double direction = offset_px > 0 ? -1.0 : 1.0;
+  if (params.kfs_invert_lateral_direction) {
+    direction = -direction;
+  }
+  return direction * speed;
+}
+
+double MfPreselectionLogicResult::kfsOpenLoopDistance(
+    double locked_depth_m, double grab_distance_m) {
+  return std::max(0.0, locked_depth_m - grab_distance_m);
+}
+
+double MfPreselectionLogicResult::kfsOpenLoopDuration(double distance_m,
+                                                      double speed_mps) {
+  if (distance_m <= 0.0) {
+    return 0.0;
+  }
+  if (speed_mps <= 0.0) {
+    return std::numeric_limits<double>::infinity();
+  }
+  return distance_m / speed_mps;
+}
+
 double MfPreselectionLogicResult::fakeAvoidanceYaw(
     MfPreselectionPickupSource source, const MfPreselectionParams &params) {
   // 假 KFS 避障方向取决于入口夹取来源：从 3 号侧拿到目标时向 3 号侧绕，
@@ -206,6 +240,7 @@ BT::NodeStatus MfPreselectionFlowAction::onStart() {
   pending_grab_target_.reset();
   ignored_r2_targets_.clear();
   grab_success_direct_exit_ = false;
+  clearKfsVisualPickup();
   grab_verify_lost_count_ = 0;
   grab_verify_last_sequence_ = 0;
   grab_verify_seen_new_frame_ = false;
@@ -520,6 +555,10 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
       return tickCommandPair();
     }
     return tickMechanismCommand();
+  case Phase::KfsVisualAlign:
+    return tickKfsVisualAlign();
+  case Phase::KfsOpenLoopApproach:
+    return tickKfsOpenLoopApproach();
   case Phase::GrabVerify:
     return tickGrabVerify();
   case Phase::MoveRelative:
@@ -625,9 +664,11 @@ bool MfPreselectionFlowAction::setupRuntime() {
   config().blackboard->set("mf_preselect_pickup_source", std::string("none"));
   config().blackboard->set("mf_preselect_done", false);
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛运行接口就绪：cmd_vel=%s odom=%s command_service=%s feedback=%s",
+              "梅林预选赛运行接口就绪：cmd_vel=%s odom=%s command_service=%s feedback=%s kfs_approach_speed=%.3fm/s kfs_arm_reach=%.3fm kfs_approach_timeout=%.2fs",
               params_.cmd_vel_topic.c_str(), params_.odom_topic.c_str(),
-              params_.send_command_service.c_str(), params_.feedback_topic.c_str());
+              params_.send_command_service.c_str(), params_.feedback_topic.c_str(),
+              params_.kfs_approach_speed_mps, params_.kfs_grab_distance_m,
+              params_.kfs_approach_timeout_s);
   return true;
 }
 
@@ -652,12 +693,13 @@ bool MfPreselectionFlowAction::setupVision() {
       return false;
     }
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛 KFS 视觉已启动：config=%s model=%s R2前缀数=%zu R1标签数=%zu 假KFS前缀数=%zu 深度=[%.2f, %.2f]m",
+                "梅林预选赛 KFS 视觉已启动：config=%s model=%s R2前缀数=%zu R1标签数=%zu 假KFS前缀数=%zu 深度=[%.2f, %.2f]m 开环速度=%.3fm/s 臂长=%.3fm 超时=%.2fs",
                 params_.vision_config_file.c_str(), params_.model_id.c_str(),
                 params_.r2_target_label_prefixes.size(),
                 params_.r1_blocking_labels.size(),
                 params_.fake_label_prefixes.size(), params_.depth_min_m,
-                params_.depth_max_m);
+                params_.depth_max_m, params_.kfs_approach_speed_mps,
+                params_.kfs_grab_distance_m, params_.kfs_approach_timeout_s);
     return true;
   } catch (const std::exception &e) {
     RCLCPP_ERROR(node_->get_logger(), "梅林预选赛 KFS 视觉初始化异常: %s",
@@ -689,6 +731,7 @@ void MfPreselectionFlowAction::releaseRuntime() {
   pending_grab_target_.reset();
   ignored_r2_targets_.clear();
   grab_success_direct_exit_ = false;
+  clearKfsVisualPickup();
 }
 
 void MfPreselectionFlowAction::normalizeParams() {
@@ -713,6 +756,32 @@ void MfPreselectionFlowAction::normalizeParams() {
       std::max(kMinTimeoutS, params_.entry_detect_timeout_s);
   params_.scan_detect_timeout_s =
       std::max(kMinTimeoutS, params_.scan_detect_timeout_s);
+  params_.kfs_align_tolerance_px =
+      std::max(0, params_.kfs_align_tolerance_px);
+  params_.kfs_align_stable_frames =
+      std::max(1, params_.kfs_align_stable_frames);
+  params_.kfs_align_kp = std::max(0.0, params_.kfs_align_kp);
+  params_.kfs_align_min_speed_mps =
+      std::max(0.0, std::abs(params_.kfs_align_min_speed_mps));
+  params_.kfs_align_max_speed_mps =
+      std::max(params_.kfs_align_min_speed_mps,
+               std::abs(params_.kfs_align_max_speed_mps));
+  params_.kfs_lost_stop_frames =
+      std::max(1, params_.kfs_lost_stop_frames);
+  if (!std::isfinite(params_.kfs_approach_speed_mps) ||
+      params_.kfs_approach_speed_mps < 0.0) {
+    params_.kfs_approach_speed_mps = 0.0;
+  }
+  params_.kfs_approach_x_sign =
+      params_.kfs_approach_x_sign < 0 ? -1 : 1;
+  if (!std::isfinite(params_.kfs_approach_timeout_s) ||
+      params_.kfs_approach_timeout_s <= 0.0) {
+    params_.kfs_approach_timeout_s = kMinTimeoutS;
+  }
+  if (!std::isfinite(params_.kfs_grab_distance_m) ||
+      params_.kfs_grab_distance_m < 0.0) {
+    params_.kfs_grab_distance_m = 0.0;
+  }
   params_.max_pickup_count = std::max(0, params_.max_pickup_count);
   params_.grab_settle_s = std::max(0.0, params_.grab_settle_s);
   params_.grab_verify_timeout_s =
@@ -1044,6 +1113,49 @@ const char *MfPreselectionFlowAction::wheelEventText(WheelEvent event) {
   return "未知激光事件";
 }
 
+const char *MfPreselectionFlowAction::phaseText(Phase phase) {
+  switch (phase) {
+  case Phase::EntryDetectStair2:
+    return "entry_detect_stair2";
+  case Phase::EntryDetectStair1:
+    return "entry_detect_stair1";
+  case Phase::EntryDetectStair3:
+    return "entry_detect_stair3";
+  case Phase::EntryPrepareClimb:
+    return "entry_prepare_climb";
+  case Phase::EntryReturnFromStair1:
+    return "entry_return_from_stair1";
+  case Phase::EntryReturnFromStair3:
+    return "entry_return_from_stair3";
+  case Phase::AfterEntry:
+    return "after_entry";
+  case Phase::RowFrontDetect:
+    return "row_front_detect";
+  case Phase::RowScanDetectLeft:
+    return "row_scan_detect_left";
+  case Phase::RowScanDetectBack:
+    return "row_scan_detect_back";
+  case Phase::RowAlignExit:
+    return "row_align_exit";
+  case Phase::TransitionStair:
+    return "transition_stair";
+  case Phase::TransitionTurn:
+    return "transition_turn";
+  case Phase::DirectExitDrive:
+    return "direct_exit_drive";
+  case Phase::KfsVisualAlign:
+    return "kfs_visual_align";
+  case Phase::KfsOpenLoopApproach:
+    return "kfs_open_loop_approach";
+  case Phase::GrabVerify:
+    return "grab_verify";
+  case Phase::Done:
+    return "done";
+  default:
+    return "phase";
+  }
+}
+
 void MfPreselectionFlowAction::beginDetection(DetectMode mode,
                                               double timeout_s) {
   // beginDetection() 只初始化检测窗口；真正的视觉判断在 tickDetection()
@@ -1180,33 +1292,36 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
       switch (detect_mode_) {
       case DetectMode::Entry2:
         // 2 号入口正前方夹取后直接准备上首阶，来源记录为 Stair2。
-        beginGrab(true, MfPreselectionPickupSource::Stair2,
-                  *r2, Phase::EntryPrepareClimb, detectionMissNextPhase(),
-                  false);
+        beginKfsVisualPickup(true, MfPreselectionPickupSource::Stair2,
+                             *r2, Phase::EntryPrepareClimb,
+                             detectionMissNextPhase(), false);
         break;
       case DetectMode::Stair1:
         // 1/3 号入口夹取完成后先横移回 2 号入口，再统一入场。
-        beginGrab(true, MfPreselectionPickupSource::Stair1,
-                  *r2, Phase::EntryReturnFromStair1, detectionMissNextPhase(),
-                  false);
+        beginKfsVisualPickup(true, MfPreselectionPickupSource::Stair1,
+                             *r2, Phase::EntryReturnFromStair1,
+                             detectionMissNextPhase(), false);
         break;
       case DetectMode::Stair3:
-        beginGrab(true, MfPreselectionPickupSource::Stair3,
-                  *r2, Phase::EntryReturnFromStair3, detectionMissNextPhase(),
-                  false);
+        beginKfsVisualPickup(true, MfPreselectionPickupSource::Stair3,
+                             *r2, Phase::EntryReturnFromStair3,
+                             detectionMissNextPhase(), false);
         break;
       case DetectMode::RowFront:
       case DetectMode::Scan:
         // 入场后再次发现 R2 KFS，夹取后进入直出模式：不再做第 2/3 行周身
         // 搜索，但仍保留前方守卫和假 KFS 处理。
-        beginGrab(true, MfPreselectionPickupSource::None,
-                  *r2, Phase::AfterEntry, detectionMissNextPhase(), true);
+        beginKfsVisualPickup(true, MfPreselectionPickupSource::None,
+                             *r2, Phase::AfterEntry,
+                             detectionMissNextPhase(), true);
         break;
       case DetectMode::TransitionObserve:
         // 台阶切换前方观察到 R2 KFS 时，按本次台阶高低侧决定夹取命令，
         // 夹取完成后继续原计划台阶动作。
-        beginGrab(transition_high_side_, MfPreselectionPickupSource::None,
-                  *r2, Phase::TransitionStair, detectionMissNextPhase(), false);
+        beginKfsVisualPickup(transition_high_side_,
+                             MfPreselectionPickupSource::None, *r2,
+                             Phase::TransitionStair, detectionMissNextPhase(),
+                             false);
         break;
       case DetectMode::Row4Fake:
         break;
@@ -1706,8 +1821,9 @@ BT::NodeStatus MfPreselectionFlowAction::tickDirectExitDrive() {
     // 直出途中仍然允许补夹 R2 KFS，但不记录新的入口来源。
       RCLCPP_INFO(node_->get_logger(),
                   "梅林预选赛直行离场途中检测到R2 KFS，先夹取后继续离场");
-      beginGrab(true, MfPreselectionPickupSource::None, *r2,
-                Phase::DirectExitDrive, Phase::DirectExitDrive, false);
+      beginKfsVisualPickup(true, MfPreselectionPickupSource::None, *r2,
+                           Phase::DirectExitDrive, Phase::DirectExitDrive,
+                           false);
       return BT::NodeStatus::RUNNING;
     }
   }
@@ -2283,6 +2399,277 @@ double MfPreselectionFlowAction::climbRearProfileSpeed() {
   return fast + (slow - fast) * ratio;
 }
 
+std::optional<MfPreselectionFlowAction::KfsVisualObservation>
+MfPreselectionFlowAction::findKfsVisualTarget() {
+  if (!canPickup() || !vision_ || !vision_->isRunning()) {
+    return std::nullopt;
+  }
+
+  rc26_vision::VisionInferenceManager::FrameSnapshot snapshot;
+  if (!vision_->getLatestFrameSnapshot(snapshot) || !snapshot.has_display ||
+      !snapshot.has_color || snapshot.color_bgr.empty()) {
+    return std::nullopt;
+  }
+
+  const rc26_vision::Detection *best = nullptr;
+  for (const auto &det : snapshot.detections) {
+    const std::string name = rc26_vision::visualTargetLabel(det);
+    if (!MfPreselectionLogicResult::labelMatches(
+            name, params_.r2_target_labels, params_.r2_target_label_prefixes)) {
+      continue;
+    }
+    const MfPreselectionTargetSnapshot candidate =
+        rc26_vision::makeVisualTargetSnapshot(det, snapshot.display_sequence);
+    if (MfPreselectionLogicResult::isIgnoredTarget(
+            candidate, ignored_r2_targets_, params_.grab_verify_iou_threshold)) {
+      continue;
+    }
+    if (!best || det.score > best->score) {
+      best = &det;
+    }
+  }
+  if (!best) {
+    return std::nullopt;
+  }
+
+  KfsVisualObservation observation;
+  observation.target =
+      rc26_vision::makeVisualTargetSnapshot(*best, snapshot.display_sequence);
+  const double center_x = (static_cast<double>(best->x1) +
+                           static_cast<double>(best->x2)) *
+                          0.5;
+  const double image_center_x = static_cast<double>(snapshot.color_bgr.cols) * 0.5;
+  observation.offset_px =
+      static_cast<int>(std::lround(center_x - image_center_x));
+
+  if (snapshot.has_depth && !snapshot.depth.empty()) {
+    const int cx = static_cast<int>(std::lround(center_x));
+    const int cy = static_cast<int>(
+        std::lround((static_cast<double>(best->y1) +
+                     static_cast<double>(best->y2)) *
+                    0.5));
+    rc26_vision::DepthRoiSamplerConfig depth_config;
+    depth_config.roi_size = 7;
+    depth_config.min_valid_count = 10;
+    depth_config.min_depth_m = params_.depth_min_m;
+    depth_config.max_depth_m = params_.depth_max_m;
+    const auto sampled =
+        rc26_vision::sampleMedianDepth(snapshot.depth, cx, cy, depth_config);
+    if (sampled.has_value()) {
+      observation.target.distance_m = *sampled;
+      observation.has_depth = true;
+    }
+  }
+  return observation;
+}
+
+void MfPreselectionFlowAction::beginKfsVisualPickup(
+    bool high_side, MfPreselectionPickupSource source,
+    const MfPreselectionTargetSnapshot &target, Phase success_phase,
+    Phase failure_phase, bool direct_exit_on_success) {
+  if (!canPickup()) {
+    if (node_) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛已达到R2 KFS夹取上限：%d/%d，跳过视觉对齐并继续流程",
+                  pickup_count_, params_.max_pickup_count);
+    }
+    phase_ = success_phase;
+    return;
+  }
+  publishStop();
+  kfs_pickup_active_ = true;
+  kfs_pickup_high_side_ = high_side;
+  kfs_pickup_source_ = source;
+  kfs_pickup_success_phase_ = success_phase;
+  kfs_pickup_failure_phase_ = failure_phase;
+  kfs_pickup_direct_exit_on_success_ = direct_exit_on_success;
+  kfs_pickup_initial_target_ = target;
+  kfs_open_loop_target_.reset();
+  kfs_align_stable_count_ = 0;
+  kfs_align_lost_count_ = 0;
+  kfs_align_last_sequence_ = target.sequence;
+  kfs_open_loop_offset_px_ = 0;
+  kfs_open_loop_locked_depth_m_ = 0.0;
+  kfs_open_loop_distance_m_ = 0.0;
+  kfs_open_loop_duration_s_ = 0.0;
+  kfs_open_loop_started_ = false;
+  if (node_) {
+    phase_start_ = node_->now();
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛进入KFS视觉对齐：source=%s high_side=%s target=%s seq=%ld depth=%.3fm bbox=[%.1f %.1f %.1f %.1f] success=%s failure=%s direct_exit=%s",
+                sourceName(source), high_side ? "是" : "否",
+                target.label.c_str(), static_cast<long>(target.sequence),
+                target.distance_m, target.x1, target.y1, target.x2, target.y2,
+                phaseText(success_phase), phaseText(failure_phase),
+                direct_exit_on_success ? "是" : "否");
+  }
+  writeBlackboardState("kfs_visual_align");
+  phase_ = Phase::KfsVisualAlign;
+}
+
+BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
+  if (!node_ || !kfs_pickup_active_) {
+    return fail("kfs_visual_align_state_missing");
+  }
+
+  const auto observation = findKfsVisualTarget();
+  if (!observation.has_value()) {
+    publishStop();
+    const auto latest_sequence = latestVisionSequence();
+    if (latest_sequence.has_value() &&
+        *latest_sequence != kfs_align_last_sequence_) {
+      kfs_align_last_sequence_ = *latest_sequence;
+      ++kfs_align_lost_count_;
+      kfs_align_stable_count_ = 0;
+    }
+    if (kfs_align_lost_count_ >= params_.kfs_lost_stop_frames) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "梅林预选赛KFS视觉对齐阶段目标连续丢失：lost=%d/%d，回到原失败路线",
+                  kfs_align_lost_count_, params_.kfs_lost_stop_frames);
+      const Phase failure_phase = kfs_pickup_failure_phase_;
+      clearKfsVisualPickup();
+      phase_ = failure_phase;
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+
+  kfs_align_lost_count_ = 0;
+  if (observation->target.sequence != kfs_align_last_sequence_) {
+    kfs_align_last_sequence_ = observation->target.sequence;
+    if (std::abs(observation->offset_px) <= params_.kfs_align_tolerance_px) {
+      kfs_align_stable_count_ =
+          std::min(kfs_align_stable_count_ + 1,
+                   params_.kfs_align_stable_frames);
+    } else {
+      kfs_align_stable_count_ = 0;
+    }
+  }
+
+  if (kfs_align_stable_count_ >= params_.kfs_align_stable_frames) {
+    publishStop();
+    if (!observation->has_depth) {
+      RCLCPP_WARN_THROTTLE(
+          node_->get_logger(), *node_->get_clock(), 1000,
+          "梅林预选赛KFS已横移对齐但深度无效，继续等待有效锁定深度");
+      return BT::NodeStatus::RUNNING;
+    }
+    return beginKfsOpenLoopApproach(*observation);
+  }
+
+  const double vy =
+      MfPreselectionLogicResult::kfsAlignVy(observation->offset_px, params_);
+  publishTwist(0.0, vy, 0.0);
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus MfPreselectionFlowAction::beginKfsOpenLoopApproach(
+    const KfsVisualObservation &observation) {
+  if (!node_ || !kfs_pickup_active_) {
+    return fail("kfs_open_loop_state_missing");
+  }
+
+  const double planned_distance_m =
+      MfPreselectionLogicResult::kfsOpenLoopDistance(
+          observation.target.distance_m, params_.kfs_grab_distance_m);
+  const double planned_duration_s =
+      MfPreselectionLogicResult::kfsOpenLoopDuration(
+          planned_distance_m, params_.kfs_approach_speed_mps);
+  if (planned_distance_m > 0.0 && params_.kfs_approach_speed_mps <= 0.0) {
+    return fail("kfs_open_loop_speed_non_positive");
+  }
+  if (planned_duration_s > params_.kfs_approach_timeout_s) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "梅林预选赛KFS开环趋近计划超过安全超时：distance=%.3fm speed=%.3fm/s duration=%.3fs timeout=%.3fs",
+                 planned_distance_m, params_.kfs_approach_speed_mps,
+                 planned_duration_s, params_.kfs_approach_timeout_s);
+    return fail("kfs_open_loop_plan_timeout");
+  }
+
+  kfs_open_loop_target_ = observation.target;
+  kfs_open_loop_offset_px_ = observation.offset_px;
+  kfs_open_loop_locked_depth_m_ = observation.target.distance_m;
+  kfs_open_loop_distance_m_ = planned_distance_m;
+  kfs_open_loop_duration_s_ = planned_duration_s;
+  kfs_open_loop_started_ = true;
+  phase_start_ = node_->now();
+  writeBlackboardState("kfs_open_loop_approach");
+  phase_ = Phase::KfsOpenLoopApproach;
+
+  RCLCPP_INFO(node_->get_logger(),
+              "梅林预选赛KFS目标对齐稳定，锁定开环趋近：label=%s offset=%d locked_depth=%.3fm arm_reach=%.3fm distance=%.3fm speed=%.3fm/s duration=%.3fs vx=%.3f",
+              observation.target.label.c_str(), observation.offset_px,
+              kfs_open_loop_locked_depth_m_, params_.kfs_grab_distance_m,
+              kfs_open_loop_distance_m_, params_.kfs_approach_speed_mps,
+              kfs_open_loop_duration_s_, kfsApproachVx());
+  if (kfs_open_loop_duration_s_ <= 0.0) {
+    publishStop();
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛KFS锁定深度已在机械臂可触达范围内，直接发送夹取命令");
+    beginGrab(kfs_pickup_high_side_, kfs_pickup_source_, *kfs_open_loop_target_,
+              kfs_pickup_success_phase_, kfs_pickup_failure_phase_,
+              kfs_pickup_direct_exit_on_success_);
+    clearKfsVisualPickup();
+  } else {
+    publishTwist(kfsApproachVx(), 0.0, 0.0);
+  }
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus MfPreselectionFlowAction::tickKfsOpenLoopApproach() {
+  if (!node_ || !kfs_pickup_active_ || !kfs_open_loop_target_.has_value()) {
+    return fail("kfs_open_loop_target_missing");
+  }
+  if (!kfs_open_loop_started_) {
+    phase_start_ = node_->now();
+    kfs_open_loop_started_ = true;
+  }
+
+  const double elapsed = (node_->now() - phase_start_).seconds();
+  if (elapsed >= kfs_open_loop_duration_s_) {
+    publishStop();
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛KFS开环趋近完成：elapsed=%.3fs duration=%.3fs locked_depth=%.3fm planned_distance=%.3fm，发送夹取",
+                elapsed, kfs_open_loop_duration_s_,
+                kfs_open_loop_locked_depth_m_, kfs_open_loop_distance_m_);
+    beginGrab(kfs_pickup_high_side_, kfs_pickup_source_, *kfs_open_loop_target_,
+              kfs_pickup_success_phase_, kfs_pickup_failure_phase_,
+              kfs_pickup_direct_exit_on_success_);
+    clearKfsVisualPickup();
+    return BT::NodeStatus::RUNNING;
+  }
+  if (elapsed > params_.kfs_approach_timeout_s) {
+    publishStop();
+    return fail("kfs_open_loop_runtime_timeout");
+  }
+
+  publishTwist(kfsApproachVx(), 0.0, 0.0);
+  return BT::NodeStatus::RUNNING;
+}
+
+double MfPreselectionFlowAction::kfsApproachVx() const {
+  return static_cast<double>(params_.kfs_approach_x_sign) *
+         params_.kfs_approach_speed_mps;
+}
+
+void MfPreselectionFlowAction::clearKfsVisualPickup() {
+  kfs_pickup_active_ = false;
+  kfs_pickup_high_side_ = true;
+  kfs_pickup_source_ = MfPreselectionPickupSource::None;
+  kfs_pickup_success_phase_ = Phase::Done;
+  kfs_pickup_failure_phase_ = Phase::Done;
+  kfs_pickup_direct_exit_on_success_ = false;
+  kfs_pickup_initial_target_.reset();
+  kfs_open_loop_target_.reset();
+  kfs_align_stable_count_ = 0;
+  kfs_align_lost_count_ = 0;
+  kfs_align_last_sequence_ = 0;
+  kfs_open_loop_offset_px_ = 0;
+  kfs_open_loop_locked_depth_m_ = 0.0;
+  kfs_open_loop_distance_m_ = 0.0;
+  kfs_open_loop_duration_s_ = 0.0;
+  kfs_open_loop_started_ = false;
+}
+
 void MfPreselectionFlowAction::beginGrab(
     bool high_side, MfPreselectionPickupSource source,
     const MfPreselectionTargetSnapshot &target, Phase success_phase,
@@ -2520,6 +2907,32 @@ void loadMfPreselectionParams(rclcpp::Node &node,
       "mf_preselect_entry_detect_timeout_s", p.entry_detect_timeout_s);
   p.scan_detect_timeout_s = node.declare_parameter<double>(
       "mf_preselect_scan_detect_timeout_s", p.scan_detect_timeout_s);
+
+  // R2 KFS 夹取前视觉横移对齐和开环趋近参数。depth_min/max 只约束进入
+  // 开环前的锁定深度；开环阶段不再读取实时框或深度闭环停车。
+  p.kfs_align_tolerance_px = node.declare_parameter<int>(
+      "mf_preselect_kfs_align_tolerance_px", p.kfs_align_tolerance_px);
+  p.kfs_align_stable_frames = node.declare_parameter<int>(
+      "mf_preselect_kfs_align_stable_frames", p.kfs_align_stable_frames);
+  p.kfs_align_kp = node.declare_parameter<double>(
+      "mf_preselect_kfs_align_kp", p.kfs_align_kp);
+  p.kfs_align_min_speed_mps = node.declare_parameter<double>(
+      "mf_preselect_kfs_align_min_speed_mps", p.kfs_align_min_speed_mps);
+  p.kfs_align_max_speed_mps = node.declare_parameter<double>(
+      "mf_preselect_kfs_align_max_speed_mps", p.kfs_align_max_speed_mps);
+  p.kfs_lost_stop_frames = node.declare_parameter<int>(
+      "mf_preselect_kfs_lost_stop_frames", p.kfs_lost_stop_frames);
+  p.kfs_invert_lateral_direction = node.declare_parameter<bool>(
+      "mf_preselect_kfs_invert_lateral_direction",
+      p.kfs_invert_lateral_direction);
+  p.kfs_approach_speed_mps = node.declare_parameter<double>(
+      "mf_preselect_kfs_approach_speed_mps", p.kfs_approach_speed_mps);
+  p.kfs_approach_x_sign = node.declare_parameter<int>(
+      "mf_preselect_kfs_approach_x_sign", p.kfs_approach_x_sign);
+  p.kfs_approach_timeout_s = node.declare_parameter<double>(
+      "mf_preselect_kfs_approach_timeout_s", p.kfs_approach_timeout_s);
+  p.kfs_grab_distance_m = node.declare_parameter<double>(
+      "mf_preselect_kfs_grab_distance_m", p.kfs_grab_distance_m);
 
   // 夹取次数和夹爪命令。max_pickup_count=0 可用于路线/避障干跑。
   p.max_pickup_count = node.declare_parameter<int>(
