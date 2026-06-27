@@ -4,9 +4,9 @@ kfs_vision_test_node:  # KFS 独立视觉测试节点的 ROS 2 参数命名空�
     log_status: false  # 是否按 print_rate_ms 周期打印 [状态] 日志；默认关闭，避免 action test 时刷屏
 
 
-    # KFS 深度有效窗口；参数名来自 VisionInferenceManager，当前与 r2_runtime.yaml 的 mf_preselect_depth_* 口径对齐。
-    vision_depth_min_m: 0.50  # KFS 有效深度下限，单位 m
-    vision_depth_max_m: 0.55  # KFS 有效深度上限，单位 m
+    # KFS 深度有效窗口；仅约束横移对齐稳定后进入开环前进时锁定的那一次深度采样。
+    vision_depth_min_m: 0.50  # KFS 开环锁定深度下限，单位 m
+    vision_depth_max_m: 0.90  # KFS 开环锁定深度上限，单位 m
 
 
     # KFS 独立视觉测试默认只做 RealSense + overlay，不产生底盘/机构动作。
@@ -38,19 +38,19 @@ kfs_vision_test_node:  # KFS 独立视觉测试节点的 ROS 2 参数命名空�
     kfs_action_align_min_speed_mps: 0.015  # 横移最小速度幅值，避免小误差时底盘不动
     kfs_action_align_max_speed_mps: 0.06  # 横移最大速度幅值，限制视觉对齐速度
     kfs_action_command_rate_hz: 20.0  # 动作链速度命令发布频率，单位 Hz
-    kfs_action_lost_stop_frames: 3  # 连续多少帧丢失目标后停车并回到搜索/等待
+    kfs_action_lost_stop_frames: 3  # Search/Align 阶段连续多少帧丢失锁定目标后回到搜索；Approach 开环前进阶段不使用
     kfs_action_target_lock_enable: true  # 是否启用目标锁定，避免多目标同屏时频繁切换
     kfs_action_target_lock_max_jump_px: 160  # 锁定目标允许的最大中心跳变像素距离
     kfs_action_invert_lateral_direction: false  # 是否反转横移方向，用于相机安装方向与底盘坐标不一致时现场修正
 
-    # D455 按前向相机安装口径处理；趋近时默认发布 cmd_vel.linear.x > 0。
-    kfs_action_approach_speed_mps: 0.04  # 视觉对齐后趋近目标的 x 方向速度幅值，单位 m/s
+    # D455 按前向相机安装口径处理；横移对齐稳定后锁定一次深度，随后按 (锁定深度 - 臂长) / 速度做纯开环前进。
+    kfs_action_approach_speed_mps: 0.1  # 开环趋近目标的 x 方向速度幅值，单位 m/s
     kfs_action_approach_x_sign: 1  # 趋近方向符号；1 表示 cmd_vel.linear.x 为正，-1 表示为负
-    kfs_action_approach_timeout_s: 8.0  # 趋近阶段安全超时，单位秒
+    kfs_action_approach_timeout_s: 8.0  # 开环趋近阶段安全超时，单位秒；计算出的计划时长超过该值会失败停车
 
-    kfs_action_grab_distance_m: 0.70  # 夹取距离上限，单位 m；实际触发还会受 vision_depth_max_m 限制
+    kfs_action_grab_distance_m: 0.50  # 机械臂可触达距离/开环停止距离，单位 m；前进距离=max(0, 锁定深度-该值)
 
-    kfs_action_grab_stable_frames: 2  # 连续多少帧满足夹取距离后才发送 GRAB_KFS 命令
+    kfs_action_grab_stable_frames: 2  # 旧闭环深度触发遗留兼容参数；当前开环趋近链不使用
     kfs_action_total_timeout_s: 40.0  # 整条 KFS action test 最大运行时间，单位秒
 
     # 到达夹取距离后先等待 GRAB_KFS_UP/DOWN service ACK，再用视觉确认夹取前原目标消失。

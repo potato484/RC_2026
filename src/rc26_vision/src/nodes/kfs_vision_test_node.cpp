@@ -503,13 +503,22 @@ private:
         action_invert_lateral_direction_ =
             this->get_parameter("kfs_action_invert_lateral_direction").as_bool();
         action_approach_speed_mps_ =
-            std::max(0.0, this->get_parameter("kfs_action_approach_speed_mps").as_double());
+            this->get_parameter("kfs_action_approach_speed_mps").as_double();
+        if (!std::isfinite(action_approach_speed_mps_) || action_approach_speed_mps_ < 0.0) {
+            throw std::runtime_error("kfs_action_approach_speed_mps must be finite and >= 0");
+        }
         action_approach_x_sign_ =
             this->get_parameter("kfs_action_approach_x_sign").as_int() < 0 ? -1 : 1;
         action_approach_timeout_s_ =
-            std::max(0.1, this->get_parameter("kfs_action_approach_timeout_s").as_double());
+            this->get_parameter("kfs_action_approach_timeout_s").as_double();
+        if (!std::isfinite(action_approach_timeout_s_) || action_approach_timeout_s_ <= 0.0) {
+            throw std::runtime_error("kfs_action_approach_timeout_s must be finite and > 0");
+        }
         action_grab_distance_m_ =
-            std::max(0.0, this->get_parameter("kfs_action_grab_distance_m").as_double());
+            this->get_parameter("kfs_action_grab_distance_m").as_double();
+        if (!std::isfinite(action_grab_distance_m_) || action_grab_distance_m_ < 0.0) {
+            throw std::runtime_error("kfs_action_grab_distance_m must be finite and >= 0");
+        }
         action_grab_stable_frames_ =
             std::max(1, static_cast<int>(this->get_parameter("kfs_action_grab_stable_frames").as_int()));
         action_total_timeout_s_ =
@@ -538,20 +547,13 @@ private:
             ? action_arm_lower_done_feedback_id_
             : action_arm_raise_done_feedback_id_;
         action_prep_label_ = action_direction_ == "down" ? "ARM_LOWER" : "ARM_RAISE";
-<<<<<<< HEAD
 
         if (action_enable_) {
             if (depth_config_.max_depth_m < depth_config_.min_depth_m) {
                 throw std::runtime_error(
                     "vision_depth_max_m must be greater than or equal to vision_depth_min_m");
             }
-            if (actionEffectiveGrabDistanceM() < depth_config_.min_depth_m) {
-                throw std::runtime_error(
-                    "kfs_action_grab_distance_m and vision_depth_* leave no valid grab depth window");
-            }
         }
-=======
->>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
     }
 
     uint8_t validateCommandId(int value, const char* param_name) const {
@@ -593,12 +595,8 @@ private:
             get_logger(),
             "KFS 动作测试已启用: direction=%s target_prefixes=%zu cmd_vel=%s service=%s "
             "feedback=%s prep=%s(%s) done=0x%02X service_wait=%.1fs "
-<<<<<<< HEAD
-            "approach_vx_sign=%d grab_dist=%.2fm effective_grab<=%.2fm "
-            "depth_range=[%.2f, %.2f]m grab=%s。"
-=======
-            "approach_vx_sign=%d grab_dist=%.2fm grab=%s。"
->>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
+            "approach_vx_sign=%d approach_speed=%.3fm/s arm_reach=%.2fm "
+            "approach_timeout=%.1fs depth_lock_range=[%.2f, %.2f]m grab=%s。"
             "运行前必须停用 Nav2/遥控等其它速度权威。",
             action_direction_.c_str(), action_target_prefixes_.size(),
             action_cmd_vel_topic_.c_str(), action_send_command_service_.c_str(),
@@ -606,12 +604,9 @@ private:
             byteToHex(action_prep_command_id_).c_str(),
             static_cast<unsigned int>(action_prep_done_feedback_id_),
             action_service_wait_timeout_s_,
-            action_approach_x_sign_, action_grab_distance_m_,
-<<<<<<< HEAD
-            actionEffectiveGrabDistanceM(),
+            action_approach_x_sign_, action_approach_speed_mps_, action_grab_distance_m_,
+            action_approach_timeout_s_,
             depth_config_.min_depth_m, depth_config_.max_depth_m,
-=======
->>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
             byteToHex(action_grab_command_id_).c_str());
     }
 
@@ -726,13 +721,96 @@ private:
         return static_cast<double>(action_approach_x_sign_) * action_approach_speed_mps_;
     }
 
-<<<<<<< HEAD
-    double actionEffectiveGrabDistanceM() const {
-        return std::min(action_grab_distance_m_, depth_config_.max_depth_m);
+    bool beginOpenLoopApproach(
+        const ActionTarget& target,
+        int64_t sequence,
+        const std::chrono::steady_clock::time_point& now) {
+        if (!target.has_depth) {
+            publishActionStop(true);
+            RCLCPP_WARN_THROTTLE(
+                get_logger(), *get_clock(), 1000,
+                "KFS 目标已对齐但深度无效，继续等待有效深度后再进入开环趋近");
+            return false;
+        }
+        if (target.depth_m < depth_config_.min_depth_m || target.depth_m > depth_config_.max_depth_m) {
+            publishActionStop(true);
+            RCLCPP_WARN_THROTTLE(
+                get_logger(), *get_clock(), 1000,
+                "KFS 目标已对齐但锁定深度 %.2fm 不在有效窗口 [%.2f, %.2f]m，继续等待",
+                target.depth_m, depth_config_.min_depth_m, depth_config_.max_depth_m);
+            return false;
+        }
+
+        const double planned_distance_m = std::max(0.0, target.depth_m - action_grab_distance_m_);
+        if (planned_distance_m > 0.0 && action_approach_speed_mps_ <= 0.0) {
+            failAction("KFS 开环趋近需要前进距离但 kfs_action_approach_speed_mps <= 0");
+            return false;
+        }
+
+        const double planned_duration_s =
+            action_approach_speed_mps_ > 0.0 ? planned_distance_m / action_approach_speed_mps_ : 0.0;
+        if (planned_duration_s > action_approach_timeout_s_) {
+            std::ostringstream ss;
+            ss << "KFS 开环趋近计划超出安全超时: distance="
+               << std::fixed << std::setprecision(3) << planned_distance_m
+               << "m speed=" << action_approach_speed_mps_
+               << "m/s duration=" << planned_duration_s
+               << "s timeout=" << action_approach_timeout_s_ << "s";
+            failAction(ss.str());
+            return false;
+        }
+
+        action_phase_ = ActionPhase::Approach;
+        action_approach_started_tp_ = now;
+        action_open_loop_start_depth_m_ = target.depth_m;
+        action_open_loop_distance_m_ = planned_distance_m;
+        action_open_loop_duration_s_ = planned_duration_s;
+        action_open_loop_sequence_ = sequence;
+        action_pending_grab_target_ = makeVisualTargetSnapshot(target.detection, sequence);
+        action_grab_verify_last_sequence_ = sequence;
+        action_grab_verify_lost_count_ = 0;
+        action_grab_verify_seen_new_frame_ = false;
+        action_grab_verify_visible_logged_ = false;
+        action_grab_verify_last_logged_lost_count_ = 0;
+
+        RCLCPP_INFO(
+            get_logger(),
+            "KFS 目标对齐稳定，锁定开环趋近: label=%s offset=%d depth=%.3fm arm_reach=%.3fm "
+            "distance=%.3fm speed=%.3fm/s duration=%.3fs vx=%.3f",
+            last_action_label_.c_str(), last_action_offset_px_,
+            action_open_loop_start_depth_m_, action_grab_distance_m_,
+            action_open_loop_distance_m_, action_approach_speed_mps_,
+            action_open_loop_duration_s_, computeActionApproachVx());
+        if (action_open_loop_duration_s_ <= 0.0) {
+            publishActionStop(true);
+            beginGrabRequest();
+        } else {
+            publishActionCommand(computeActionApproachVx(), 0.0, 0.0, true);
+        }
+        return true;
     }
 
-=======
->>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
+    void tickOpenLoopApproach(const std::chrono::steady_clock::time_point& now) {
+        if (action_approach_started_tp_ == std::chrono::steady_clock::time_point{}) {
+            action_approach_started_tp_ = now;
+        }
+
+        const double elapsed_s =
+            std::chrono::duration<double>(now - action_approach_started_tp_).count();
+        if (elapsed_s > action_approach_timeout_s_) {
+            failAction("KFS 开环趋近阶段超时");
+            return;
+        }
+
+        if (elapsed_s >= action_open_loop_duration_s_) {
+            publishActionStop(true);
+            beginGrabRequest();
+            return;
+        }
+
+        publishActionCommand(computeActionApproachVx(), 0.0, 0.0);
+    }
+
     bool sendActionCommandRequest(
         uint8_t command_id,
         const std::string& label,
@@ -1005,6 +1083,11 @@ private:
             return;
         }
 
+        if (action_phase_ == ActionPhase::Approach) {
+            tickOpenLoopApproach(now);
+            return;
+        }
+
         VisionInferenceManager::FrameSnapshot snapshot;
         if (!manager_->getLatestFrameSnapshot(snapshot) || !snapshot.has_color || snapshot.color_bgr.empty()) {
             publishActionStop(false);
@@ -1013,29 +1096,6 @@ private:
 
         auto selected = selectActionTarget(snapshot);
         if (!selected.has_value()) {
-            if (action_phase_ == ActionPhase::Approach) {
-                publishActionStop(false);
-<<<<<<< HEAD
-                if (action_target_locked_ && action_target_lost_count_ < action_lost_stop_frames_) {
-                    return;
-                }
-                action_phase_ = ActionPhase::Search;
-                action_align_stable_count_ = 0;
-                action_grab_stable_count_ = 0;
-                action_approach_started_tp_ = std::chrono::steady_clock::time_point{};
-                action_target_locked_ = false;
-                action_locked_target_.reset();
-                action_target_lost_count_ = 0;
-                RCLCPP_WARN_THROTTLE(
-                    get_logger(), *get_clock(), 1000,
-                    "KFS 趋近阶段目标短暂丢失，已停车并回到视觉搜索/对齐");
-=======
-                if (!action_target_locked_ || action_target_lost_count_ >= action_lost_stop_frames_) {
-                    failAction("趋近阶段目标丢失");
-                }
->>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
-                return;
-            }
             action_phase_ = ActionPhase::Search;
             action_align_stable_count_ = 0;
             action_grab_stable_count_ = 0;
@@ -1058,66 +1118,23 @@ private:
             action_grab_stable_count_ = 0;
             publishActionCommand(0.0, vy, 0.0);
             if (action_align_stable_count_ >= action_align_stable_frames_) {
-                action_phase_ = ActionPhase::Approach;
-                action_approach_started_tp_ = now;
-                RCLCPP_INFO(
-                    get_logger(), "KFS 目标对齐稳定，开始趋近: label=%s offset=%d vx=%.3f",
-                    last_action_label_.c_str(), last_action_offset_px_, computeActionApproachVx());
+                beginOpenLoopApproach(*selected, snapshot.display_sequence, now);
             }
             return;
         }
-
-        if (action_phase_ != ActionPhase::Approach) {
-            return;
-        }
-
-        if (action_approach_started_tp_ == std::chrono::steady_clock::time_point{}) {
-            action_approach_started_tp_ = now;
-        }
-        if (std::chrono::duration<double>(now - action_approach_started_tp_).count() >
-            action_approach_timeout_s_) {
-            failAction("趋近阶段超时");
-            return;
-        }
-        if (!selected->has_depth) {
-            failAction("趋近阶段深度无效");
-            return;
-        }
-<<<<<<< HEAD
-        if (selected->depth_m < depth_config_.min_depth_m) {
-            failAction("趋近阶段深度低于有效窗口");
-            return;
-        }
-
-        if (selected->depth_m <= actionEffectiveGrabDistanceM()) {
-=======
-
-        if (selected->depth_m <= action_grab_distance_m_) {
->>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
-            action_grab_stable_count_ =
-                std::min(action_grab_stable_count_ + 1, action_grab_stable_frames_);
-        } else {
-            action_grab_stable_count_ = 0;
-        }
-
-        if (action_grab_stable_count_ >= action_grab_stable_frames_) {
-            publishActionStop(true);
-            beginGrabRequest(*selected, snapshot.display_sequence);
-            return;
-        }
-
-        publishActionCommand(computeActionApproachVx(), vy, 0.0);
     }
 
-    void beginGrabRequest(const ActionTarget& target, int64_t sequence) {
+    void beginGrabRequest() {
         if (action_grab_once_ && action_grab_sent_) {
             action_phase_ = ActionPhase::Succeeded;
             publishActionStop(true);
             return;
         }
+        if (!action_pending_grab_target_.has_value()) {
+            failAction("KFS 夹取请求缺少开环锁定目标");
+            return;
+        }
         action_phase_ = ActionPhase::SendingGrab;
-        action_pending_grab_target_ = makeVisualTargetSnapshot(target.detection, sequence);
-        action_grab_verify_last_sequence_ = sequence;
         action_grab_verify_lost_count_ = 0;
         action_grab_verify_seen_new_frame_ = false;
         action_grab_verify_visible_logged_ = false;
@@ -1137,10 +1154,12 @@ private:
 
         RCLCPP_INFO(
             get_logger(),
-            "KFS 夹取条件满足，已发送 service 请求: direction=%s cmd=%s label=%s z=%.2fm seq=%ld bbox=[%.1f %.1f %.1f %.1f]",
+            "KFS 开环趋近完成，已发送夹取 service 请求: direction=%s cmd=%s label=%s locked_z=%.2fm "
+            "planned=%.3fm/%.3fs seq=%ld bbox=[%.1f %.1f %.1f %.1f]",
             action_direction_.c_str(), byteToHex(action_grab_command_id_).c_str(),
-            last_action_label_.c_str(), last_action_depth_m_,
-            static_cast<long>(sequence),
+            action_pending_grab_target_->label.c_str(), action_open_loop_start_depth_m_,
+            action_open_loop_distance_m_, action_open_loop_duration_s_,
+            static_cast<long>(action_open_loop_sequence_),
             action_pending_grab_target_->x1, action_pending_grab_target_->y1,
             action_pending_grab_target_->x2, action_pending_grab_target_->y2);
     }
@@ -1436,6 +1455,22 @@ private:
             cv::FONT_HERSHEY_SIMPLEX, 0.65, color, 2, cv::LINE_AA);
         y += 26;
 
+        if (action_open_loop_sequence_ > 0) {
+            double elapsed_s = 0.0;
+            if (action_approach_started_tp_ != std::chrono::steady_clock::time_point{}) {
+                elapsed_s = std::max(0.0, std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - action_approach_started_tp_).count());
+            }
+            std::ostringstream line3;
+            line3 << "open locked_z=" << std::fixed << std::setprecision(2)
+                  << action_open_loop_start_depth_m_
+                  << "m plan=" << action_open_loop_distance_m_
+                  << "m t=" << elapsed_s << "/" << action_open_loop_duration_s_ << "s";
+            cv::putText(frame, line3.str(), cv::Point(x, y),
+                cv::FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv::LINE_AA);
+            y += 24;
+        }
+
         if (action_phase_ == ActionPhase::Failed && !action_failure_reason_.empty()) {
             cv::putText(frame, "reason=" + action_failure_reason_, cv::Point(x, y),
                 cv::FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv::LINE_AA);
@@ -1513,6 +1548,10 @@ private:
     std::chrono::steady_clock::time_point action_started_tp_{};
     std::chrono::steady_clock::time_point action_service_wait_started_tp_{};
     std::chrono::steady_clock::time_point action_approach_started_tp_{};
+    double action_open_loop_start_depth_m_{0.0};
+    double action_open_loop_distance_m_{0.0};
+    double action_open_loop_duration_s_{0.0};
+    int64_t action_open_loop_sequence_{0};
     std::chrono::steady_clock::time_point last_action_command_tp_{};
     bool action_zero_published_{true};
     bool action_target_locked_{false};
