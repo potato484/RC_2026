@@ -1,0 +1,51 @@
+odom_interface:
+  ros__parameters:
+    # Layer A 生产桥：权威发布自动链 odom -> base_footprint 和 base_footprint -> base_link，
+    # 并向 Layer B 提供 odom 与 registered_scan
+    use_sim_time: false
+    
+    # ===== 输入话题 (来自 Point-LIO) =====
+    state_estimation_topic: "state_estimation"    # Point-LIO 里程计输出
+    # 参数说明：registered_scan_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
+    registered_scan_topic: "cloud_registered"     # Point-LIO 配准点云输出
+    
+    # ===== 输出话题 (本节点发布，命名固定) =====
+    # - odom             : odom -> base_footprint 里程计
+    # - registered_scan  : odom 坐标系下的配准点云
+    
+    # ===== 坐标系配置 (map -> odom -> base_footprint -> base_link -> livox_frame) =====
+    odom_frame: "odom"
+    # 参数说明：base_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
+    base_frame: "base_footprint"
+    # 参数说明：base_link_frame - 刚性底盘主板中心 frame；由 odom_interface 继续发布 base_footprint -> base_link。
+    base_link_frame: "base_link"
+    # 参数说明：input_body_frame - Point-LIO 内部 body frame 名；需与 state_estimation.child_frame_id 保持一致。
+    input_body_frame: "point_lio_body"  # 由 odometry.launch.py 按 sensor_extrinsics profile 覆盖，不作为 TF 真源
+    # 参数说明：base_link_height_above_base_footprint_m - 自动导航链中 base_footprint -> base_link 的唯一配置真源。
+    base_link_height_above_base_footprint_m: 0.065
+    # 参数说明：base_to_input_body_xyz_m / rpy_rad - base_link 到 Point-LIO 内部 body frame 的静态外参；
+    # 仅作为占位，真实值由 odometry.launch.py 从 sensor_extrinsics + Point-LIO 内部外参推导后覆盖。
+    base_to_input_body_xyz_m: [0.0, 0.0, 0.0]
+    base_to_input_body_rpy_rad: [0.0, 0.0, 0.0]
+    
+    # ===== 时间同步 =====
+    # 参数说明：max_time_diff_sec - 时间参数，单位秒。
+    max_time_diff_sec: 0.2    # 点云与里程计允许的最大严重失配时间差 (秒)；代码内部会吸收毫秒级抖动
+    clamp_cloud_stamp_to_latest_odom: true  # 若点云 stamp 略超前于最新 odom，则向后钳制，避免下游 TF future extrapolation
+    defer_cloud_until_matching_odom: true  # 点云先到时先缓存，等对应 odom 到达后再发布 registered_scan（支持少量时间抖动）
+    # 参数说明：publish_debug_path - 调试路径发布开关；开启后输出 odom_path 便于观察。
+    publish_debug_path: true  # 调试路径话题 odom_path；比赛最小链可关闭
+    # 参数说明：publish_pose_markers - 布尔开关；控制对应能力是否启用。
+    publish_pose_markers: true  # 调试位姿 marker 话题 odom_pose_markers；比赛最小链可关闭
+    # 参数说明：use_input_twist - 布尔开关；控制对应能力是否启用。
+    use_input_twist: true
+    # 参数说明：zero_origin_to_first_frame - 启动归零开关；开启后以首段静止均值作为坐标原点。
+    zero_origin_to_first_frame: true  # 启动阶段做静止均值归零，并对 registered_scan 同步平移
+    zero_origin_warmup_frames: 10  # 需要累计的静止帧数（10Hz 雷达约 1 秒）
+    # 参数说明：zero_origin_max_linear_speed_mps - 运动速度相关参数；需要结合底盘能力和安全约束调节。
+    zero_origin_max_linear_speed_mps: 0.05  # 归零阶段判定静止的线速度阈值
+    # 参数说明：zero_origin_max_angular_speed_radps - 运动速度相关参数；需要结合底盘能力和安全约束调节。
+    zero_origin_max_angular_speed_radps: 0.10  # 归零阶段判定静止的角速度阈值
+    debug_pose_log: false  # 默认关闭高频位姿调试日志，避免持续刷屏
+    # 参数说明：debug_pose_log_interval_sec - 周期或间隔；用于控制轮询、播放或发布节奏。
+    debug_pose_log_interval_sec: 0.5

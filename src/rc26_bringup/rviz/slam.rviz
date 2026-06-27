@@ -1,0 +1,83 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Value: true
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Value: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: LaserMapInit
+      Topic:
+        Value: Laser_map
+        Queue Size: 1
+      Value: true
+      Size (m): 0.04
+      Style: Points
+      Color: 80; 255; 120
+      Color Transformer: FlatColor
+      Reliability Policy: Best Effort
+    - Class: rviz_default_plugins/PointCloud2
+      Name: FullMapCloud
+      Topic:
+        Value: point_lio/map_cloud
+        Queue Size: 1
+      Value: true
+      Size (m): 0.025
+      Style: Points
+      Color: 80; 180; 255
+      Color Transformer: FlatColor
+      Reliability Policy: Best Effort
+    - Class: rviz_default_plugins/PointCloud2
+      Name: RegisteredCloud
+      Topic:
+        Value: registered_scan
+        Queue Size: 5
+      Value: true
+      Size (m): 0.03
+      Style: Points
+      Color Transformer: Intensity
+      Reliability Policy: Best Effort
+    - Alpha: 1
+      Class: rviz_default_plugins/Path
+      Color: 220; 60; 60
+      Name: OdomPath
+      Topic:
+        Value: odom_path
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Name: OdomPoseMarkers
+      Topic:
+        Value: odom_pose_markers
+      Value: true
+    - Class: rviz_default_plugins/PointStamped
+      Name: LookaheadPoint
+      Topic:
+        Value: lookahead_point
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Name: CurvatureMarkers
+      Topic:
+        Value: curvature_points_marker_array
+      Value: true
+  Global Options:
+    # 参数说明：Fixed Frame - RViz 固定坐标系；所有显示项会转换到该 frame。
+    Fixed Frame: odom
+    # 参数说明：Frame Rate - RViz 刷新帧率；影响界面更新频率。
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      # 参数说明：Distance - 几何距离参数，单位通常为米。
+      Distance: 15
+      # 参数说明：Pitch - 俯仰角；单位按该配置约定。
+      Pitch: 0.785
+      # 参数说明：Yaw - 偏航角；单位按该配置约定，导航图中通常为弧度。
+      Yaw: 0

@@ -1,0 +1,21 @@
+<!--
+  独立上台阶行为树：
+  - 这个 XML 只在 tree_file 指向它时执行，main_tree.xml / mf_tree.xml / mc_tree.xml 默认都不引用它。
+  - 运行前必须确保 Nav2、遥控等其它 cmd_vel 发布权威已经停用，避免多个节点同时控制底盘。
+-->
+<root BTCPP_format="4" main_tree_to_execute="StairClimbTree">
+  <!--
+    BTCPP_format="4" 表示使用 BehaviorTree.CPP v4 XML 格式。
+    main_tree_to_execute="StairClimbTree" 表示加载本 XML 后默认执行下面这个 BehaviorTree。
+  -->
+  <BehaviorTree ID="StairClimbTree">
+    <!--
+      StairClimb 是 C++ 注册的 StatefulActionNode。
+      执行顺序在 stair_climb.cpp 中：
+      FRONT_PUSHROD_EXTEND -> 按 stair_climb_front_extend_delay_s 零速等待 -> x 正向行驶等前轮 0x04 ->
+      同 tick 下发 FRONT_PUSHROD_RETRACT + REAR_PUSHROD_EXTEND -> 按 stair_climb_retract_rear_extend_delay_s 零速等待 ->
+      x 正向按后轮上台阶速度 profile 行驶等后轮 0x05 -> REAR_PUSHROD_RETRACT -> 零速等待 -> SUCCESS。
+    -->
+    <StairClimb name="stair_climb"/>
+  </BehaviorTree>
+</root>

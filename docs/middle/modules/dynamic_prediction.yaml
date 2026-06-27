@@ -1,0 +1,24 @@
+openapi: 3.1.0
+info:
+  title: RC26 R2 Dynamic Prediction ROS2 Contract
+  version: 0.1.0
+  description: |
+    动态障碍物预测接口契约。
+    M3 阶段仅定义消息结构和 topic 名称，当前无源模块发布。
+    Display/Panel 骨架已创建，用 placeholder 订阅。
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: Topic
+paths:
+  /ros2/topics/dynamic_predictions:
+    get:
+      tags: [Topic]
+      summary: 动态障碍物预测数组
+      x-ros:
+        interface_kind: topic
+        name: /dynamic_predictions
+        message_type: rc26_interfaces/msg/DynamicPredictionArray
+      responses:
+        '200':
+          description: rc26_interfaces/msg/DynamicPredictionArray

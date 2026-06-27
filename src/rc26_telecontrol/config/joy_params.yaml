@@ -1,0 +1,25 @@
+joy_node:
+  ros__parameters:
+    device_name: "Xbox 360 Controller"
+    deadzone: 0.05
+    # 参数说明：autorepeat_rate - 运行频率，单位 Hz；影响发布、控制或检测循环速度。
+    autorepeat_rate: 50.0
+
+rc26_telecontrol:
+  ros__parameters:
+    # 参数说明：v_linear - 运动速度相关参数；需要结合底盘能力和安全约束调节。
+    v_linear: 2.0
+    # 参数说明：v_angular - 运动速度相关参数；需要结合底盘能力和安全约束调节。
+    v_angular: 2.0
+    joy_deadzone: 0.15
+    # 参数说明：joy_timeout_s - 超时时间；超过该值后会触发降级、停止或失败处理。
+    joy_timeout_s: 0.3
+    # 参数说明：max_accel - 加速度限制；用于约束速度变化率并保护底盘。
+    max_accel: 1.5
+    # 参数说明：max_alpha - 上限参数；用于限制输出、搜索范围或安全边界。
+    max_alpha: 3.0
+    stop_repeat_n: 10
+    # 参数说明：require_deadman - 布尔开关；控制对应能力是否启用。
+    require_deadman: false
+    deadman_button: 4
+    deadzone_hyst: 0.02

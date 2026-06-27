@@ -1,0 +1,15 @@
+mid360_driver:
+    ros__parameters:
+        # 参数说明：lidar_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
+        lidar_topic: /livox/lidar
+        # 参数说明：lidar_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
+        lidar_frame: livox_frame
+        # 参数说明：imu_topic - ROS2 话题名；必须与发布者或订阅者保持一致。
+        imu_topic: /livox/imu
+        # 参数说明：imu_frame - 坐标系 frame 名；需要与 TF 树和消息 header 保持一致。
+        imu_frame: livox_frame
+        # 参数说明：lidar_publish_time_interval - 周期或间隔；用于控制轮询、播放或发布节奏。
+        lidar_publish_time_interval: 0.1 # 当设备固件不更新 frame_cnt 时，按该时间窗口兜底分帧（默认 10Hz）
+        host_ip: 192.168.1.50
+        # 参数说明：is_topic_name_with_lidar_ip - ROS2 话题名；必须与发布者或订阅者保持一致。
+        is_topic_name_with_lidar_ip: false # 是否在话题名后面加雷达ip，可以用于区分多个雷达

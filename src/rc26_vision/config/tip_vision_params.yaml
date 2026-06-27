@@ -1,0 +1,70 @@
+tip_vision_test_node:  # tip USB 相机测试节点参数命名空间
+  ros__parameters:  # ROS 2 节点私有参数表
+    vision_config_file: "config/vision_models.yaml"  # 模型 profile 配置文件，支持包内相对路径或绝对路径
+    model_id: "tip_default"  # 从 vision_config_file 中选择的模型 profile ID
+
+    camera_index: 2  # 优先打开的 USB 摄像头索引，对应 /dev/video2
+    camera_device: ""  # 显式摄像头设备路径；为空时使用 camera_index 并允许自动扫描
+    auto_scan_camera: true  # 首选摄像头打不开或读不到帧时，是否扫描其它 /dev/video*
+    width: 640  # 摄像头采集宽度，单位 px
+    height: 480  # 摄像头采集高度，单位 px
+    fps: 30  # 摄像头目标采集帧率，单位 Hz
+
+    single_target_mode: false  # 是否只保留置信度最高的单个检测框，开启会绕过多框中心优先选择
+    max_categories: 5  # 多类别模型下最多保留多少个不同类别的检测结果；单类别模型会忽略
+    target_name: "JK"  # 不使用预测标签时 overlay 显示的固定目标名称
+    target_class_id: -1  # 保留的目标类别 ID 配置；当前目标过滤以 target_labels 为准
+    use_predicted_label: true  # overlay 是否使用模型预测出的类别名和 class_id
+
+    # 距离估计/距离叠加已停用；保留旧参数名仅为了兼容旧配置
+    show_center_distance: false  # 已停用的中心距离叠加开关，当前不参与运行时判定
+
+    show_window: true  # 是否打开 OpenCV 调试窗口显示画面和 overlay
+    window_name: "Rhino X1 Vision - V2 Class Check"  # OpenCV 调试窗口标题
+    log_interval_sec: 2.0  # 周期运行日志输出间隔，单位秒
+
+    async_inference: true  # 是否启用异步推理线程，开启后显示循环不会被单帧推理阻塞
+
+    # 至少1个标签名，且必须能在 labels.txt 中找到
+    target_labels: ["JK"]  # 参与端头选择和对齐的目标标签列表，必须能在模型 labels 中找到
+
+    # 自动横移对线：发布 cmd_vel.linear.y；默认由 rc26_mcu_transport 消费。
+    alignment_control_enable: true  # 是否启用自动视觉对线并发布 cmd_vel
+    alignment_cmd_vel_topic: "cmd_vel"  # 自动对线和前探速度发布话题
+    alignment_tolerance_px: 20  # 端头框中心与画面中心的允许水平误差，单位 px
+    alignment_stable_frames: 5  # 误差连续落入容差多少个新推理帧后进入前探阶段
+    alignment_kp: 0.0010  # 横移 P 控制比例系数，将像素误差换算为 linear.y
+    alignment_min_speed_mps: 0.015  # 横移对线最小速度幅值，单位 m/s
+    alignment_max_speed_mps: 0.06  # 横移对线最大速度幅值，单位 m/s
+    alignment_command_rate_hz: 20.0  # cmd_vel 发布限频，单位 Hz
+    alignment_lost_stop_frames: 3  # 目标连续丢失多少个新推理帧后停车并重置抓取状态
+    alignment_target_lock_enable: true  # 是否锁定同一物理端头，避免多框场景来回切换目标
+    alignment_target_lock_max_jump_px: 160  # 锁定目标允许的单帧中心跳变阈值，单位 px
+    alignment_publish_zero_on_disable: true  # 控制关闭或退出时是否补发零速停车
+    # 当前相机朝机器人后方；默认反转图像水平误差到 base_link y 的映射。
+    alignment_invert_direction: true  # 是否反转横移方向映射；后置相机安装口径通常需要开启
+    alignment_heading_hold_enable: true  # 是否订阅 odom 并发布 angular.z 保持车身朝向；无 odom 桌面调试可改 false
+    alignment_odom_topic: "odom"  # heading hold 使用的雷达标准里程计话题，完整链路来自 rc26_odom_interface
+    alignment_target_yaw_rad: -1.4857  # 对线阶段期望车身 yaw，默认与 MC 取端头 Nav2 目标一致
+    alignment_heading_kp: 1.2  # yaw 误差到 angular.z 的比例系数
+    alignment_heading_max_speed_radps: 0.30  # heading hold 最大角速度，单位 rad/s
+    alignment_heading_tolerance_deg: 3.0  # yaw 误差进入该容差后才允许稳定计数
+    alignment_heading_gate_deg: 8.0  # yaw 误差超过该 gate 时暂停横移/前探，只先修正朝向
+    alignment_odom_timeout_s: 0.5  # odom 超过该时间未更新时停车等待，单位秒
+    alignment_draw_guides: true  # 是否在调试窗口绘制中心线、目标线和对齐辅助信息
+
+    # 对齐稳定后发布 x 负方向前探，等待 /mechanism/command_feedback 中的 0x06 前方限位事件，
+    # 收到限位后停车并通过 /mechanism/send_command 下发 GRAB_TIP(0x01)。
+    # ROS 2 YAML 解析器无法给 [] 推断数组类型；空 payload 使用节点默认值即可。
+    # 如需下发字节，取消下一行注释并填入非空数组，例如 [1, 2]。
+    alignment_grab_enable: true  # 是否启用抓取链；开启后必须先前探等 0x06，再下发 GRAB_TIP
+    alignment_grab_command_id: 1  # 抓取端头命令 ID；1 对应 GRAB_TIP(0x01)
+    # alignment_grab_payload: [1, 2]  # 可选抓取 payload 示例；GRAB_TIP 默认空 payload 时保持注释即可
+    alignment_grab_once_per_target: true  # 同一锁定目标是否只允许发送一次抓取命令
+    alignment_grab_cooldown_s: 2.0  # 两次抓取尝试之间的最小间隔，单位秒
+    alignment_grab_service_name: "/mechanism/send_command"  # rc26_mcu_transport 提供的命令服务名
+    alignment_grab_service_timeout_ms: 200  # 等待 GRAB_TIP service 响应的超时时间，单位 ms
+    alignment_limit_switch_feedback_topic: "/mechanism/command_feedback"  # rc26_mcu_transport 发布的 MCU 上行业务反馈话题
+    alignment_limit_switch_feedback_id: 6  # 前方限位开关触发反馈 ID；6 对应 0x06
+    alignment_approach_speed_mps: 0.04  # 对齐稳定后 x 负方向前探速度幅值，单位 m/s
+    alignment_approach_timeout_s: 5.0  # 前探等待 0x06 的安全超时，单位秒

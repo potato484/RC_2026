@@ -1,0 +1,21 @@
+<!-- RC2026 主行为树 -->
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+
+  <!-- 引入子树定义 -->
+  <include path="mc_tree.xml"/>
+  <include path="mf_tree.xml"/>
+  <include path="combat_tree.xml"/>
+
+  <!-- 主树：顺序执行三个区域子树 -->
+  <BehaviorTree ID="MainTree">
+    <Sequence>
+      <!-- 武馆阶段 -->
+      <SubTree ID="MCAreaTree" _autoremap="true"/>
+      <!-- 梅林阶段（Nav2 pose 导航） -->
+      <SubTree ID="MFAreaTree" _autoremap="true"/>
+      <!-- 对抗阶段 -->
+      <SubTree ID="CombatAreaTree" _autoremap="true"/>
+    </Sequence>
+  </BehaviorTree>
+
+</root>

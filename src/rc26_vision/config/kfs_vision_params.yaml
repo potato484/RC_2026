@@ -1,0 +1,59 @@
+kfs_vision_test_node:  # KFS 独立视觉测试节点的 ROS 2 参数命名空间
+  ros__parameters:  # kfs_vision_test_node 实际读取的参数集合
+    log_detections: false  # 是否打印每帧 [检测] 日志；默认关闭，避免 action test 时高频刷屏
+    log_status: false  # 是否按 print_rate_ms 周期打印 [状态] 日志；默认关闭，避免 action test 时刷屏
+
+    # KFS 深度有效窗口；参数名来自 VisionInferenceManager，当前与 r2_runtime.yaml 的 mf_preselect_depth_* 口径对齐。
+    vision_depth_min_m: 0.50  # KFS 有效深度下限，单位 m
+    vision_depth_max_m: 0.55  # KFS 有效深度上限，单位 m
+
+    # KFS 独立视觉测试默认只做 RealSense + overlay，不产生底盘/机构动作。
+    kfs_action_enable: false  # 是否启用底盘/机构实机动作链；false 时只运行视觉 overlay
+    kfs_action_direction: "up"  # KFS 动作方向；up 使用抬升预调和 GRAB_KFS_UP，down 使用下降预调和 GRAB_KFS_DOWN
+
+    # 本车独立夹取测试默认只认 T_* 真目标；R_R1/B_R1 是其它机器人目标，不参与夹取。
+    kfs_action_target_label_prefixes: ["T_"]  # 允许作为本车 KFS 夹取目标的标签前缀列表
+    # ROS 2 YAML 对空数组类型推断不稳定；无需精确标签过滤时保持注释即可。
+    # kfs_action_target_labels: ["T_03"]  # 可选精确目标标签白名单；启用后只匹配列出的标签
+
+    kfs_action_cmd_vel_topic: "cmd_vel"  # 动作链发布底盘速度的 topic；运行时必须保证唯一速度权威
+    kfs_action_send_command_service: "/mechanism/send_command"  # 机构命令发送 service，由 rc26_mcu_transport 提供
+    kfs_action_feedback_topic: "/mechanism/command_feedback"  # 机构完成反馈 topic，用于等待机械臂预调 done
+
+    # 动作链起始预调：up 先 ARM_RAISE，down 先 ARM_LOWER；必须等同 seq 完成反馈后才进入视觉运动。
+    kfs_action_arm_raise_command_id: 4  # ARM_RAISE 命令 ID，direction=up 时先发送
+    kfs_action_arm_lower_command_id: 5  # ARM_LOWER 命令 ID，direction=down 时先发送
+    kfs_action_arm_raise_done_feedback_id: 2  # ARM_RAISE_DONE 反馈 ID，必须与 service ACK seq 匹配
+    kfs_action_arm_lower_done_feedback_id: 3  # ARM_LOWER_DONE 反馈 ID，必须与 service ACK seq 匹配
+    kfs_action_service_wait_timeout_s: 10.0  # 启动后等待 /mechanism/send_command 被本节点发现的最长时间，避免 launch 并发启动竞态
+    kfs_action_arm_prep_service_timeout_ms: 6000  # 机械臂预调 service ACK 等待超时，需覆盖底层 0x00-0x09 可靠重发闭包
+    kfs_action_arm_prep_done_timeout_s: 10.0  # 机械臂预调完成反馈等待超时；从 ACK seq 已知后开始计时，单位秒
+
+    # 视觉横移对齐：目标框中心对准画面中心竖线。
+    kfs_action_align_tolerance_px: 20  # 横移对齐像素容差；目标中心距画面中心小于该值算对齐
+    kfs_action_align_stable_frames: 5  # 连续多少帧满足像素容差后进入趋近阶段
+    kfs_action_align_kp: 0.0010  # 横移比例控制系数；像素偏差乘该值生成 lateral speed
+    kfs_action_align_min_speed_mps: 0.015  # 横移最小速度幅值，避免小误差时底盘不动
+    kfs_action_align_max_speed_mps: 0.06  # 横移最大速度幅值，限制视觉对齐速度
+    kfs_action_command_rate_hz: 20.0  # 动作链速度命令发布频率，单位 Hz
+    kfs_action_lost_stop_frames: 3  # 连续多少帧丢失目标后停车并回到搜索/等待
+    kfs_action_target_lock_enable: true  # 是否启用目标锁定，避免多目标同屏时频繁切换
+    kfs_action_target_lock_max_jump_px: 160  # 锁定目标允许的最大中心跳变像素距离
+    kfs_action_invert_lateral_direction: false  # 是否反转横移方向，用于相机安装方向与底盘坐标不一致时现场修正
+
+    # D455 按前向相机安装口径处理；趋近时默认发布 cmd_vel.linear.x > 0。
+    kfs_action_approach_speed_mps: 0.04  # 视觉对齐后趋近目标的 x 方向速度幅值，单位 m/s
+    kfs_action_approach_x_sign: 1  # 趋近方向符号；1 表示 cmd_vel.linear.x 为正，-1 表示为负
+    kfs_action_approach_timeout_s: 8.0  # 趋近阶段安全超时，单位秒
+    kfs_action_grab_distance_m: 0.70  # 夹取距离上限，单位 m；实际触发还会受 vision_depth_max_m 限制
+    kfs_action_grab_stable_frames: 2  # 连续多少帧满足夹取距离后才发送 GRAB_KFS 命令
+    kfs_action_total_timeout_s: 40.0  # 整条 KFS action test 最大运行时间，单位秒
+
+    # 到达夹取距离后先等待 GRAB_KFS_UP/DOWN service ACK，再用视觉确认夹取前原目标消失。
+    kfs_action_grab_service_timeout_ms: 6000  # GRAB_KFS service ACK 等待超时，需覆盖底层可靠重发闭包
+    kfs_action_grab_verify_timeout_s: 3.0  # ACK 后等待原目标视觉消失的最长验证时间，单位秒
+    kfs_action_grab_verify_lost_stable_frames: 3  # 连续多少个新推理帧未匹配原目标才确认物理夹取成功
+    kfs_action_grab_verify_iou_threshold: 0.30  # 同 label 且 bbox IoU 达到该阈值才认为原目标仍可见
+    kfs_action_grab_once: true  # 是否每次节点生命周期只发送一次 GRAB_KFS 命令
+    kfs_action_grab_kfs_up_command_id: 3  # GRAB_KFS_UP 命令 ID，direction=up 时使用
+    kfs_action_grab_kfs_down_command_id: 2  # GRAB_KFS_DOWN 命令 ID，direction=down 时使用

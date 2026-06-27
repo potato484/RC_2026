@@ -1,0 +1,32 @@
+<!--
+  梅林预选 2 号入口 NavToPose 专用 Nav2 行为树。
+  本树只调用 MFPreselectEntryXPositiveYNegative controller，约束底盘速度为 x 正向、y 负向和很小角速度。
+  Recovery 只做 costmap clear，不启用会绕过该方向约束的运动恢复动作。
+-->
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="6" name="MFPreselectEntryNavigateRecovery">
+      <PipelineSequence name="MFPreselectEntryNavigateWithReplanning">
+        <RateController hz="1.0">
+          <RecoveryNode number_of_retries="1" name="MFPreselectEntryComputePathToPose">
+            <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+            <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
+          </RecoveryNode>
+        </RateController>
+        <RecoveryNode number_of_retries="1" name="MFPreselectEntryFollowPath">
+          <FollowPath path="{path}" controller_id="MFPreselectEntryXPositiveYNegative"/>
+          <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
+        </RecoveryNode>
+      </PipelineSequence>
+      <ReactiveFallback name="MFPreselectEntryRecoveryFallback">
+        <GoalUpdated/>
+        <RoundRobin name="MFPreselectEntryRecoveryActions">
+          <Sequence name="MFPreselectEntryClearingActions">
+            <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
+            <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
+          </Sequence>
+        </RoundRobin>
+      </ReactiveFallback>
+    </RecoveryNode>
+  </BehaviorTree>
+</root>

@@ -1,0 +1,49 @@
+# rc26_localization 最小比赛链路配置
+#
+# 职责:
+#   - 订阅 registered_scan
+#   - 开局一次 SAC-IA + small_gicp 重定位
+#   - 使用先验 PCD 做 small_gicp 连续局部跟踪
+#   - 发布 map -> odom、/localization/pose_with_cov、/localization/diagnostics
+#
+# 坐标假设:
+#   - registered_scan 已经在 odom_frame 中表达
+#   - prior_pcd_file 已经在 map_frame 中表达
+#   - 开局重定位只在启动阶段尝试一次，中途丢定位仍通过 initialpose 接管
+#   - 实验性在线重定位默认关闭；开启后会在局部跟踪连续失败时后台尝试全局 PCD 配准
+
+localization:
+  ros__parameters:
+    use_sim_time: false
+
+    map_frame: map
+    odom_frame: odom
+    robot_base_frame: base_footprint
+
+    prior_pcd_file: ""
+    input_cloud_topic: "registered_scan"
+    pose_cov_topic: "/localization/pose_with_cov"
+    diagnostics_topic: "/localization/diagnostics"
+
+    init_pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    num_threads: 4
+    num_neighbors: 20
+    global_leaf_size: 0.25
+    registered_leaf_size: 0.25
+    max_dist_sq: 1.0
+    gicp_max_iterations: 40
+
+    min_inliers: 200
+    max_normalized_error: 0.30
+
+    startup_relocalization_enable: true
+    startup_collect_ms: 1500
+    startup_leaf_size: 0.3
+
+    online_relocalization_enable: false
+    online_relocalization_trigger_after_failures: 3
+    online_relocalization_cooldown_ms: 5000
+    online_relocalization_max_attempts: 3
+    online_relocalization_collect_ms: 1500
+    online_relocalization_leaf_size: 0.3

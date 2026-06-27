@@ -1,0 +1,21 @@
+# R2 sensor mounting extrinsics source of truth.
+# This file describes robot-level mounting from base_link to external sensor frames.
+# Point-LIO internal LiDAR/IMU extrinsics remain in rc26_point_lio/config/mid360.yaml.
+# point_lio.body_frame only names the internal Point-LIO output frame; bringup injects the
+# derived base_link -> body transform into rc26_odom_interface without publishing that TF edge.
+sensor_extrinsics:
+  defaults:
+    active_profile: "r2_mid360_left_90"
+  profiles:
+    r2_mid360_left_90:
+      lidar_mount:
+        parent_frame: "base_link"
+        child_frame: "livox_frame"
+        xyz_m: [0.305, 0.0, 0.365]
+        rpy_rad: [0.0, 0.261799, 0.0]
+      control_mount:
+        parent_frame: "base_link_control"
+        child_frame: "livox_frame_control"
+        mirror_lidar_mount: true
+      point_lio:
+        body_frame: "point_lio_body"

@@ -1,0 +1,39 @@
+# 视觉推理模型配置文件（rc26_vision）
+#
+# model_path / labels_path 支持相对路径，且相对当前 YAML 文件解析。
+# 行为树/上层逻辑通过 profile id 切换模型。
+
+vision:
+  default_model: "kfs_default"
+
+  models:
+    kfs_default:
+      engine: auto
+      model_path: "../models/kfs.onnx"
+      conf_thresh: 0.5
+      iou_thresh: 0.45
+      input_w: 640
+      input_h: 640
+      labels_path: "../models/kfs_labels.txt"
+      aidlite:
+        framework_type: "onnx"
+        accelerate_type: "cpu"
+        resize_mode: "stretch"
+        padding_color: "114"
+
+    tip_default:
+      engine: auto
+      model_path: "../models/tip.onnx"
+      conf_thresh: 0.25
+      iou_thresh: 0.45
+      input_w: 640
+      input_h: 640
+      labels_path: "../models/tip_labels.txt"
+      aidlite:
+        framework_type: "onnx"
+        accelerate_type: "cpu"
+        resize_mode: "letterbox"
+        padding_color: "114"
+        num_classes: 1
+        use_dsp: false
+        enable_cpu_fallback: true

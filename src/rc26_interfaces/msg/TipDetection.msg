@@ -1,0 +1,5 @@
+uint8 tip_index
+geometry_msgs/PointStamped position_map
+float32 confidence
+float32 depth_m
+bool spacing_valid

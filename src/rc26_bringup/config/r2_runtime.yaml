@@ -1,0 +1,238 @@
+# R2 统一运行配置。
+# 本文件是完整 bringup 的运行配置真源：点云、地图、行为树入口与决策参数集中维护。
+# paths 下的三个路径必须使用绝对路径；如需现场切换地图/点云/行为树，优先修改这里。
+r2_runtime:
+  paths:
+    prior_pcd_file: "/home/aidlux/RC_2026/src/rc26_point_lio/PCD/class.pcd"
+    nav2_map_file: "/home/aidlux/RC_2026/src/rc26_bringup/map/class.yaml"
+    behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/mf_preselection_tree.xml"
+
+  # 目标 MCU 共享串口 transport。
+  # 只要运行链会下发机构动作指令，就必须启动 rc26_mcu_transport。
+  # 本服务提供 /mechanism/send_command、/mechanism/command_feedback，并默认消费 /cmd_vel 下发 POSE_TARGET。
+  mcu_transport:
+    enabled: true
+    ros__parameters:
+      target_serial_port: "/dev/ttyUSB0"
+      target_baudrate: 1000000
+      open_retry_period_ms: 1000
+      diagnostics_period_ms: 1000
+      enable_chassis_cmd_vel_consumer: true
+      chassis_cmd_vel_topic: "cmd_vel"
+      chassis_target_send_rate_hz: 50
+      chassis_cmd_vel_timeout_ms: 200
+      chassis_v_max_mps: 2.0
+      chassis_w_max_radps: 2.0
+      chassis_stop_repeat_n: 10
+
+  decision:
+    ros__parameters:
+      tick_rate_ms: 100             # 行为树 tick 周期，单位毫秒；数值越小调度越频繁
+      team: "red"                   # 当前默认按红方配置运行；用于梅林区静态地图初始化
+      mc_nav_yaw: -1.5708           # 红方武馆区取端头导航目标 yaw，单位 rad；视觉 heading hold 默认同用此朝向
+
+      # ======================================================================
+      # 红方武馆区 (MC) 运行参数 —— 启动时由 r2_runtime.yaml/launch 参数写入决策节点
+      # ======================================================================
+      # --- 红方导航目标点 ---
+      mc_nav_x: 0.9778              # 红方武馆区取端头导航目标 x；mc_tree.xml 从黑板读取该值
+      mc_nav_y: 0.7744              # 红方武馆区取端头导航目标 y；mc_tree.xml 从黑板读取该值
+      mc_nav_frame_id: "map"        # 导航目标所在坐标系
+      mc_nav_timeout_sec: 180.0     # Nav2 到达武馆区目标点的超时时间，单位秒
+      # 红方 MC NavToPose 专用 Nav2 BT，使用 MCPositiveXYRed controller
+      mc_nav_behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_bringup/config/nav2_bt_mc_red_positive_xy.xml"
+
+      # --- 相机 / 推理（内嵌直连相机，对齐 tip_vision_test_node）---
+      mc_vision_config_file: ""     # 视觉模型配置文件；空则回退 rc26_vision/config/vision_models.yaml
+      mc_model_id: "tip_default"    # 视觉模型 profile ID，用于加载端头检测模型
+      mc_camera_index: 2            # 首选 USB 相机索引
+      mc_camera_device: ""          # 指定相机设备路径；为空时使用 camera_index
+      mc_auto_scan_camera: true     # 首选相机不可用时是否自动扫描其它 /dev/video*
+      mc_width: 640                 # 相机采集宽度，单位像素
+      mc_height: 480                # 相机采集高度，单位像素
+      mc_fps: 30                    # 相机期望采集帧率
+      mc_target_labels: ["JK"]      # 端头目标标签，必须能在 tip_default 标签表中找到
+
+      # --- 视觉对齐（横移 P 控制，发布 cmd_vel.linear.y）---
+      mc_align_cmd_vel_topic: "cmd_vel"      # 视觉横移对齐发布的速度话题；默认由 rc26_mcu_transport 消费
+      mc_align_tolerance_px: 20              # 目标中心允许偏离画面中心的像素容差
+      mc_align_stable_frames: 5              # 连续满足容差后触发夹取的稳定帧数
+      mc_align_kp: 0.0010                    # 横移 P 控制比例增益，像素误差到 m/s
+      mc_align_min_speed_mps: 0.010         # 横移控制最小速度，单位 m/s
+      mc_align_max_speed_mps: 0.015           # 横移控制最大速度，单位 m/s
+      mc_align_command_rate_hz: 20.0         # 横移速度指令最大发布频率，单位 Hz
+      mc_align_lost_stop_frames: 3           # 锁定目标短暂丢失多少帧后才重新获锁
+      mc_align_target_lock_enable: true      # 是否锁定同一个端头，避免双框同屏时反复切换
+      mc_align_target_lock_max_jump_px: 160  # 锁定目标允许的单次水平跳变像素
+      mc_align_invert_direction: true        # 相机朝机器人后方；默认反转横移方向
+      mc_align_heading_hold_enable: true     # 是否订阅 mc_odom_topic 并发布 angular.z 保持车身朝向
+      # mc_align_target_yaw_rad 默认使用 mc_nav_yaw；如需视觉阶段与导航目标朝向不同，可显式覆盖本项
+      mc_align_heading_kp: 1.2               # yaw 误差到 angular.z 的比例系数
+      mc_align_heading_max_speed_radps: 0.30 # 视觉伺服 heading hold 最大角速度，单位 rad/s
+      mc_align_heading_tolerance_deg: 3.0    # yaw 误差进入该容差后才允许稳定计数
+      mc_align_heading_gate_deg: 8.0         # yaw 误差超过该 gate 时暂停横移/前探，只先修正朝向
+      mc_align_odom_timeout_s: 0.5           # odom 超过该时间未更新时停车等待，单位秒
+
+      # --- 夹取（对齐后 x 负向前探等待前方限位 0x06，再下发 GRAB_TIP=0x01）---
+      mc_grab_command_id: 1                  # 夹取端头命令 ID；1 对应 GRAB_TIP(0x01)
+      # mc_grab_payload 默认空（GRAB_TIP 无 payload）；如需下发字节，填如 [1, 2]。
+      # 注意：ROS2 不支持 YAML 空数组参数，留空请勿写 []，直接省略该项即可。
+      mc_grab_service_name: "/mechanism/send_command"  # rc26_mcu_transport 提供的机构命令服务名
+      mc_grab_limit_switch_feedback_topic: "/mechanism/command_feedback"  # rc26_mcu_transport 发布的 MCU 上行业务反馈话题
+      mc_grab_limit_switch_feedback_id: 6    # 前方限位开关触发反馈 ID；6 对应 0x06
+      mc_grab_approach_speed_mps: 0.05      # 对齐后 x 负方向前探速度幅值，单位 m/s
+      mc_grab_approach_timeout_s: 10.0        # 前探等待 0x06 的安全超时，单位秒
+      mc_grab_done_lost_time_s: 1.0   # 夹取后端头持续消失多久判定完成，单位秒
+      mc_servo_timeout_s: 60.0         # 视觉伺服整体安全超时，单位秒
+
+      # --- 原地旋转（发布 cmd_vel.angular.z，odom yaw 闭环）---
+      mc_rotate_angle_deg: 175.0       # 原地旋转目标角度，单位度
+      mc_rotate_speed_radps: 0.6       # 原地旋转最大角速度，单位 rad/s
+      mc_rotate_min_speed_radps: 0.12  # 原地旋转末段最小角速度，单位 rad/s
+      mc_rotate_slowdown_angle_deg: 30.0 # 剩余角度小于该值时线性减速，单位度
+      mc_rotate_direction: 1           # 原地旋转方向；+1 逆时针，-1 顺时针
+      mc_rotate_yaw_tolerance_deg: 3.0 # 旋转完成角度容差，单位度
+      mc_rotate_cmd_vel_topic: "cmd_vel"  # 原地旋转发布的速度话题；默认由 rc26_mcu_transport 消费
+      mc_odom_topic: "odom"            # 视觉 heading hold 和原地旋转闭环使用的雷达标准里程计话题
+      mc_rotate_odom_timeout_s: 0.5    # 旋转阶段 odom 超过该时间未更新时停车等待，单位秒
+      mc_rotate_timeout_s: 15.0        # 原地旋转安全超时，单位秒
+
+      # ======================================================================
+      # 梅林区预选赛专属链路参数 —— 独立 mf_preselection_tree.xml 使用
+      # ======================================================================
+      mf_preselect_entry2_nav_enable: false      # 2号入口导航点未标定前关闭；关闭时默认机器人已在2号入口
+      mf_preselect_entry2_nav_x: 0.0             # 2号入口 Nav2 目标 x，占位待现场标定
+      mf_preselect_entry2_nav_y: 0.0             # 2号入口 Nav2 目标 y，占位待现场标定
+      mf_preselect_entry2_nav_yaw: 0.0           # 2号入口预备朝向 yaw，占位待现场标定
+      mf_preselect_entry2_nav_frame_id: "map"    # 2号入口目标坐标系
+      mf_preselect_entry2_nav_timeout_sec: 180.0 # 入口 Nav2 超时，单位秒
+      mf_preselect_entry2_nav_behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_bringup/config/nav2_bt_mf_preselect_entry_x_positive_y_negative.xml" # 入口 Nav2 专用 BT：x正向/y负向/小角速度
+
+      mf_preselect_vision_config_file: ""        # KFS 视觉模型配置；空则回退 rc26_vision/config/vision_models.yaml
+      mf_preselect_model_id: "kfs_default"       # KFS 模型 profile ID
+      mf_preselect_r2_target_label_prefixes: ["T_"] # R2 可夹取 KFS 标签前缀
+      mf_preselect_r2_target_labels: ["__none__"]    # 精确 R2 标签占位；无精确过滤时保留不可匹配占位
+      mf_preselect_r1_blocking_labels: ["R_R1", "B_R1"] # R1 干扰/阻挡目标标签
+      mf_preselect_r1_blocking_label_prefixes: ["__none__"] # R1 标签前缀占位
+      mf_preselect_fake_label_prefixes: ["F_"]   # 假 KFS 标签前缀
+      mf_preselect_fake_labels: ["__none__"]     # 精确假 KFS 标签占位
+      mf_preselect_depth_min_m: 0.65              # KFS 有效深度下限，单位 m
+      mf_preselect_depth_max_m: 0.8             # KFS 有效深度上限，单位 m
+      mf_preselect_detect_seen_stable_frames: 1  # 连续看到目标多少帧后确认
+      mf_preselect_detect_lost_stable_frames: 5  # 连续未看到目标多少帧后确认无目标
+      mf_preselect_entry_detect_timeout_s: 2.0   # 入口单点检测最长等待，单位秒
+      mf_preselect_scan_detect_timeout_s: 2.0    # 行内/阶梯扫描检测最长等待，单位秒
+      mf_preselect_max_pickup_count: 2           # 单局预选赛最多夹取 R2 KFS 数量
+      mf_preselect_grab_settle_s: 0.5            # KFS 视觉确认夹取成功后零速稳定等待，单位秒
+      mf_preselect_grab_verify_timeout_s: 3.0    # KFS 夹取 ACK 后等待原目标消失的最长视觉验证时间
+      mf_preselect_grab_verify_lost_stable_frames: 3 # 连续多少个新推理帧未匹配原目标才确认夹取成功
+      mf_preselect_grab_verify_iou_threshold: 0.30 # 同 label 且 bbox IoU 达到该值才认为仍是夹取前目标
+      mf_preselect_grab_kfs_up_command_id: 3     # 0x03 GRAB_KFS_UP，用于高侧/抬升场景
+      mf_preselect_grab_kfs_down_command_id: 2   # 0x02 GRAB_KFS_DOWN，用于低侧/下降场景
+
+      mf_preselect_cmd_vel_topic: "cmd_vel"      # 预选赛链路发布底盘速度话题
+      mf_preselect_odom_topic: "odom"            # 相对移动/转向闭环 odom 话题
+      mf_preselect_send_command_service: "/mechanism/send_command" # 机构 raw transport service
+      mf_preselect_feedback_topic: "/mechanism/command_feedback"   # 机构/台阶反馈 topic
+      mf_preselect_command_timeout_s: 3.0        # 机构命令 ACK/完成反馈超时，单位秒
+      mf_preselect_arm_high_raise_command_id: 13 # 0x0D ARM_HIGH_RAISE，入口1/3阶梯高抬升
+      mf_preselect_arm_high_raise_done_feedback_id: 9 # 0x09 ARM_HIGH_RAISE_DONE
+      mf_preselect_arm_raise_command_id: 4       # 0x04 ARM_RAISE，低到高阶梯预调
+      mf_preselect_arm_lower_command_id: 5       # 0x05 ARM_LOWER，高到低阶梯预调
+      mf_preselect_arm_raise_done_feedback_id: 2 # 0x02 ARM_RAISE_DONE
+      mf_preselect_arm_lower_done_feedback_id: 3 # 0x03 ARM_LOWER_DONE
+
+      mf_preselect_entry_probe_left_distance_m: 1.2     # 2号入口向1号阶梯横移探测距离
+      mf_preselect_entry_probe_right_sweep_distance_m: 2.4 # 从1号阶梯扫到3号阶梯横移距离
+      mf_preselect_entry_probe_return_distance_m: 1.2   # 从1/3号阶梯返回2号入口横移距离
+      mf_preselect_lateral_probe_speed_mps: 0.35        # 入口 Y 向平移探测速度绝对值
+      mf_preselect_move_tolerance_m: 0.03               # 相对移动完成距离容差
+      mf_preselect_move_timeout_s: 12.0                 # 单段相对移动超时，单位秒
+      mf_preselect_direct_exit_drive_distance_m: 4.8    # 直出梅林相对前进距离，占位可现场调
+      mf_preselect_direct_exit_drive_speed_mps: 0.25    # 直出梅林速度绝对值
+      mf_preselect_exit_yaw_rad: 0.0                    # 梅林出口方向 yaw
+      mf_preselect_stair1_direction_yaw_rad: 1.5708     # 假KFS避障朝1号阶梯方向 yaw
+      mf_preselect_stair3_direction_yaw_rad: -1.5708    # 假KFS避障朝3号阶梯方向 yaw
+      mf_preselect_row_scan_left_yaw_delta_rad: 1.5708  # 第2/3行周身探测左转角度
+      mf_preselect_row_scan_back_yaw_delta_rad: 3.1416  # 第2/3行周身探测背向转角
+      mf_preselect_row4_exit_turn_yaw_rad: -1.5708      # 第二列第四行强制出口转向 yaw
+      mf_preselect_turn_kp: 1.2                         # 转向 yaw P 增益
+      mf_preselect_turn_max_speed_radps: 0.50           # 转向最大角速度
+      mf_preselect_turn_tolerance_deg: 3.0              # 转向完成角度容差
+      mf_preselect_turn_stable_ticks: 3                 # 转向稳定 tick 数
+      mf_preselect_turn_timeout_s: 16.0                 # 单次转向超时，单位秒
+      mf_preselect_odom_timeout_s: 0.5                  # odom 新鲜度超时，单位秒
+      mf_preselect_heading_kp: 1.2                      # 相对移动 heading hold P 增益
+      mf_preselect_heading_max_speed_radps: 0.30        # 相对移动 heading hold 最大角速度
+      mf_preselect_path_r1_lost_wait_timeout_s: 0.0     # R1路径等待超时；0表示无限等待
+
+      # ======================================================================
+      # Grid heading 正式转向/对齐参数 —— 供独立 grid_heading 入口和 MF 格间动作复用
+      # ======================================================================
+      grid_heading_direction: "left"                # 独立 grid_heading_tree 入口选择的方向: forward | left | right | backward
+      grid_heading_forward_yaw_rad: 0.0             # 正前方向目标 yaw，单位 rad
+      grid_heading_left_yaw_rad: 1.5708             # 左 90° 目标 yaw，单位 rad
+      grid_heading_right_yaw_rad: -1.5708           # 右 90° 目标 yaw，单位 rad
+      grid_heading_backward_yaw_rad: 3.1416         # 向后目标 yaw，单位 rad
+      grid_heading_cmd_vel_topic: "cmd_vel"         # GridTurn/GridHeadingAlign 发布的速度话题
+      grid_heading_odom_topic: "odom"               # GridTurn/GridHeadingAlign 使用的 odom yaw 话题
+      grid_heading_kp: 1.2                          # yaw 误差到 angular.z 的比例系数
+      grid_heading_max_speed_radps: 0.50            # 转向/对齐最大角速度，单位 rad/s
+      grid_heading_turn_gate_deg: 8.0               # GridTurn 进入粗对准的角度 gate，单位度
+      grid_heading_align_tolerance_deg: 3.0         # GridHeadingAlign 成功容差，单位度
+      grid_heading_align_stable_ticks: 3            # 连续多少个 tick 满足容差后确认对齐
+      grid_heading_odom_timeout_s: 0.5              # odom yaw 超过该时间未更新时停车等待/失败
+      grid_heading_turn_timeout_s: 16.0              # GridTurn 最大运行时间，单位秒
+      grid_heading_align_timeout_s: 5.0             # GridHeadingAlign 最大运行时间，单位秒
+
+      # ======================================================================
+      # MF 格中心归位参数 —— 台阶动作完成后用麦克纳姆横移/前后平移回二维格中心
+      # ======================================================================
+      mf_center_cmd_vel_topic: "cmd_vel"             # MFEntryCenterAdvance/GridCenterAlign 发布的速度话题
+      mf_center_odom_topic: "odom"                   # 二维格中心归位使用的 odom 位姿话题
+      mf_center_grid_step_m: 1.2                     # MF 离散格中心间距，单位米
+      mf_center_entry_forward_offset_m: 0.25         # 首次上到 grid2 后继续前进到格中心的距离，单位米
+      mf_center_entry_forward_speed_mps: 0.06        # 首次前进到 grid2 中心的线速度上限，单位 m/s
+      mf_center_xy_kp: 0.8                           # odom x/y 误差到车体平移速度的比例系数
+      mf_center_min_speed_mps: 0.010                 # 未进入位置容差时的最小平移速度，单位 m/s
+      mf_center_max_speed_mps: 0.050                 # 二维格中心归位平移速度上限，单位 m/s
+      mf_center_xy_tolerance_m: 0.01                # x/y 到格中心距离进入该容差后才累计稳定，单位米
+      mf_center_yaw_kp: 1.2                          # yaw 误差到 angular.z 的比例系数
+      mf_center_yaw_max_speed_radps: 0.30            # 格中心归位 yaw 修正最大角速度，单位 rad/s
+      mf_center_yaw_tolerance_deg: 3.0               # yaw 误差进入该容差后才累计稳定，单位度
+      mf_center_stable_ticks: 5                      # 连续多少个 tick 同时满足 xy/yaw 容差后确认归位成功
+      mf_center_odom_timeout_s: 0.5                  # odom 位姿超过该时间未更新时停车等待/失败
+      mf_center_align_timeout_s: 8.0                 # 单次格中心归位最大运行时间，单位秒
+
+      # ======================================================================
+      # 台阶动作参数 —— 供独立 stair_* 测试树和 MF GridTransition 离散格间动作复用
+      # ======================================================================
+      stair_cmd_vel_topic: "cmd_vel"                 # 台阶动作直接发布的速度话题；默认由 rc26_mcu_transport 消费
+      stair_send_command_service: "/mechanism/send_command"  # rc26_mcu_transport 提供的推杆命令服务
+      stair_feedback_topic: "/mechanism/command_feedback"    # rc26_mcu_transport 发布的 MCU 上行激光突变事件话题
+      stair_climb_drive_speed_mps: 0.40              # 上台阶普通直行动作速度绝对值，单位 m/s
+      stair_climb_rear_drive_fast_speed_mps: 0.40    # 上台阶第六阶段后轮上台阶线性降速起始速度绝对值，单位 m/s
+      stair_climb_rear_drive_slow_speed_mps: 0.10    # 上台阶第六阶段后轮上台阶线性降速目标速度绝对值，单位 m/s
+      stair_climb_rear_drive_slowdown_duration_s: 2.5 # 上台阶第六阶段从 fast 降到 slow 的时长，单位秒
+      stair_descend_drive_speed_mps: 0.05            # 下台阶普通直行动作速度绝对值，单位 m/s
+      stair_command_rate_hz: 20.0                    # 台阶动作速度发布频率，单位 Hz
+      stair_command_timeout_s: 3.0                   # 每条推杆命令 accepted 等待超时，单位秒
+      stair_front_event_timeout_s: 20.0              # 前轮激光高度突变等待超时，单位秒
+      stair_rear_event_timeout_s: 20.0               # 后轮激光高度突变等待超时，单位秒
+      stair_climb_front_extend_delay_s: 4.5          # 上台阶前推杆伸出 accepted 后零速等待时间，单位秒
+      stair_climb_retract_rear_extend_delay_s: 4.0   # 上台阶前收+后伸 accepted 后零速等待时间，单位秒
+      stair_climb_rear_retract_delay_s: 4.0          # 上台阶后推杆收回 accepted 后零速等待时间，单位秒
+      stair_descend_rear_extend_delay_s: 4.0         # 下台阶后推杆伸出 accepted 后零速等待时间，单位秒
+      stair_descend_retract_front_extend_delay_s: 4.0 # 下台阶后收+前伸 accepted 后零速等待时间，单位秒
+      stair_descend_front_retract_drive_speed_mps: 0.1 # 下台阶前推杆收回前 x 负向定时行驶速度绝对值，单位 m/s
+      stair_descend_front_retract_drive_duration_s: 3.0  # 下台阶前推杆收回前 x 负向定时行驶时间，单位秒
+      stair_descend_front_retract_delay_s: 2.5       # 下台阶前推杆收回 accepted 后零速等待时间，单位秒
+      stair_odom_topic: "odom"                       # 台阶姿态微调用 odom 话题，yaw 由四元数解算
+      stair_heading_hold_enable: true                # 上/下台阶前对齐 yaw，直行期间叠加 angular.z 保持方向
+      stair_heading_kp: 1.2                          # yaw 误差到 angular.z 的比例系数
+      stair_heading_max_speed_radps: 0.30            # heading hold 最大角速度，单位 rad/s
+      stair_heading_tolerance_deg: 3.0               # yaw 误差进入该容差并稳定后才开始跨阶梯
+      stair_heading_gate_deg: 8.0                    # 调参 gate，必须不小于 tolerance
+      stair_heading_stable_ticks: 3                  # 连续多少个 tick 满足 yaw 容差后确认姿态就绪
+      stair_heading_odom_timeout_s: 0.5              # odom yaw 超过该时间未更新时停车等待/失败
+      stair_heading_align_timeout_s: 8.0             # 进入台阶动作前原地对齐 yaw 的安全超时

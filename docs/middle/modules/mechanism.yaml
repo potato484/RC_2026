@@ -1,0 +1,115 @@
+openapi: 3.1.0
+info:
+  title: RC26 R2 Mechanism ROS2 Contract
+  version: 0.5.0
+  description: |
+    机构 raw transport 契约。
+
+    当前公开接口只保留：
+    - `/mechanism/send_command`
+    - `/mechanism/command_feedback`
+
+    这两个接口由 `rc26_mcu_transport` 提供；`rc26_mechanism` 当前只是轻量 lifecycle 占位，不再创建旧高层 action，也不再发布 `/mechanism/status`。
+
+    `/mechanism/send_command.accepted=true` 只表示目标 MCU 已返回通用 `ACK(0x00)`，不表示动作已经完成。动作完成、限位、激光突变等业务事件经 `/mechanism/command_feedback` 透传，由消费方按自身状态机解释。
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: Topic
+  - name: Service
+paths:
+  /ros2/topics/mechanism/command_feedback:
+    get:
+      tags: [Topic]
+      summary: 读取 topic /mechanism/command_feedback 的最新消息
+      x-ros:
+        interface_kind: topic
+        name: /mechanism/command_feedback
+        message_type: rc26_interfaces/msg/MechanismTransportFeedback
+      responses:
+        '200':
+          description: rc26_interfaces/msg/MechanismTransportFeedback
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MechanismTransportFeedback'
+  /ros2/services/mechanism/send_command:
+    post:
+      tags: [Service]
+      summary: 调用 service /mechanism/send_command 下发原始目标 MCU 命令
+      x-ros:
+        interface_kind: service
+        name: /mechanism/send_command
+        service_type: rc26_interfaces/srv/SendMechanismTransportCommand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMechanismTransportCommandRequest'
+      responses:
+        '200':
+          description: rc26_interfaces/srv/SendMechanismTransportCommand.Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendMechanismTransportCommandResponse'
+components:
+  schemas:
+    MechanismTransportFeedback:
+      type: object
+      required: [seq, feedback_id, payload]
+      properties:
+        seq:
+          type: integer
+          minimum: 0
+          maximum: 255
+          description: MCU 上行帧序号。需要匹配命令完成反馈的消费方应按自身状态机使用 seq。
+        feedback_id:
+          type: integer
+          minimum: 0
+          maximum: 255
+          description: >
+            MCU 上行业务反馈 ID。当前透传的主要反馈包括 0x02/0x03
+            机械臂升降预调完成、0x04/0x05/0x07 台阶激光高度突变、
+            0x06 武馆前方限位触发、0x09 梅林预选赛高抬升完成；
+            payload v1 为空或由消费方忽略。
+        payload:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+            maximum: 255
+    SendMechanismTransportCommandRequest:
+      type: object
+      required: [command_id, payload]
+      properties:
+        command_id:
+          type: integer
+          minimum: 0
+          maximum: 255
+          description: >
+            原始下行 CommandID。当前常用值包括 GRAB_TIP=0x01、
+            GRAB_KFS_DOWN=0x02、GRAB_KFS_UP=0x03、ARM_RAISE=0x04、
+            ARM_LOWER=0x05、PLACE_KFS_GRID=0x06、FRONT_PUSHROD_EXTEND=0x08、
+            FRONT_PUSHROD_RETRACT=0x09、REAR_PUSHROD_EXTEND=0x0A、
+            REAR_PUSHROD_RETRACT=0x0B、POSE_TARGET=0x0C、
+            ARM_HIGH_RAISE=0x0D。
+        payload:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+            maximum: 255
+    SendMechanismTransportCommandResponse:
+      type: object
+      required: [accepted, seq]
+      properties:
+        accepted:
+          type: boolean
+          description: true 表示目标 MCU 已返回通用 ACK(0x00)；false 表示 transport 拒绝、超时或断链。
+        seq:
+          type: integer
+          minimum: 0
+          maximum: 255
+          description: 已发送串口帧序号；调用方可用它与后续业务反馈做状态机级匹配。

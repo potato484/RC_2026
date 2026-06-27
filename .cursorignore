@@ -1,0 +1,32 @@
+# Colcon build artifacts
+/build/
+/install/
+/log/
+/compile_commands.json
+.pytest_cache
+# Python cache artifacts
+__pycache__/
+*.pyc
+Log/
+方案/
+.windsurf
+# Project-local ROS bag captures
+/rosbags/*
+!/rosbags/README.md
+# Point-LIO local PCD map captures
+/src/rc26_point_lio/PCD/
+# Logs
+logs
+*.log
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.ace-tool/
