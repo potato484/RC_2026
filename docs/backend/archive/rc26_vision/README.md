@@ -50,7 +50,11 @@
 旧的 `runtime / engines / pipelines` 公开 include 路径已经删除；仓库内调用方统一切到二级语义更明确的公开路径，例如 `include/rc26_vision/shared/contracts`、`include/rc26_vision/inference/runtime`、`include/rc26_vision/inference/aidlite`、`include/rc26_vision/postprocess/localization`。`tip_vision_test_node` 的私有声明已经合并进包根 `test/tip_vision_test_node.cpp`，不再单独保留头文件，也不随公开 include 安装。`src/` 下不再保留头文件。
 
 ## 源码入口与阅读顺序
+<<<<<<< HEAD
 - 先看 `launch/realsense_d455.launch.py` 和 `launch/test_kfs_vision.launch.py`，理解相机和测试链如何拉起；当前 R2 D455 默认固定选择 RealSense 序列号 `239222303644`。
+=======
+- 先看 `launch/realsense_d455.launch.py` 和 `launch/test_kfs_vision.launch.py`，理解相机和测试链如何拉起。
+>>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
 - 再看 `src/inference/runtime/vision_inference_manager.cpp`，它是运行时调度中心。
 - 然后看 `src/inference/config/model_profile_loader.cpp`、`src/inference/runtime/backend_resolver.cpp`、`src/inference/runtime/engine_factory.cpp`、`src/inference/aidlite/aidlite_engine.cpp`/`src/inference/aidlite/aidlite_engine_stub.cpp`、`src/inference/onnx/onnx_runtime_engine.cpp`/`src/inference/onnx/onnx_runtime_engine_stub.cpp`、`src/preprocess/yolo/yolo_image_preprocessor.cpp`、`src/postprocess/yolo/yolo_detection_postprocessor.cpp`、`src/shared/sensors/depth_roi_sampler.cpp`、`src/postprocess/localization/tip_localizer.cpp`。
 - 最后看 `test/tip_vision_test_node.cpp`、`config/vision_models.yaml`、`config/kfs_vision_params.yaml`、`config/tip_vision_params.yaml`、`launch/test_tip_vision.launch.py` 和 `config/realsense_d455.yaml`。
@@ -65,7 +69,11 @@
 - `src/inference/aidlite/aidlite_engine.cpp` / `src/inference/aidlite/aidlite_engine_stub.cpp` / `src/inference/onnx/onnx_runtime_engine.cpp` / `src/inference/onnx/onnx_runtime_engine_stub.cpp`：AidLite 实机链、本地 ONNX Runtime 链与缺依赖时的 stub。
 - `src/postprocess/yolo/yolo_detection_postprocessor.cpp`：YOLO 输出解码、坐标回映和 NMS。
 - `src/postprocess/localization/tip_localizer.cpp`：深度 + TF 融合，把识别结果投到 `map`。
+<<<<<<< HEAD
 - `src/nodes/kfs_vision_test_node.cpp`：kfs 主链(D455 + kfs.onnx)测试节点入口，在主线程通过 OpenCV overlay 窗口画出全部检测框、标签特征色、类别、置信度、中心 ROI 深度有效性、角落帧率与 best target 的 D455 深度距离；`model_id` 为空时使用 `vision_models.yaml` 的 `default_model`，非空时显式选择对应 profile；`show_window=false` 时降级无头。高频 `[检测]` 日志默认由 `log_detections=false` 关闭，周期 `[状态]` 日志默认由 `log_status=false` 关闭，需要排查识别或动作状态细节时可临时打开。节点还保留默认关闭的 `kfs_action_enable` 实机动作测试链，开启后只把 `T_*` 当作本车 KFS 夹取目标，先按 `direction` 发送 `ARM_RAISE(0x04)` 或 `ARM_LOWER(0x05)` 并等待同 seq 完成反馈，再发布 `/cmd_vel` 做横移对齐与 x 正向趋近，目标深度进入 `vision_depth_min_m ~ min(kfs_action_grab_distance_m, vision_depth_max_m)` 并稳定后，才通过 `/mechanism/send_command` 发送 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`，ACK 后用原目标视觉消失确认物理夹取成功。趋近阶段若连续 `kfs_action_lost_stop_frames` 帧无法跟踪锁定目标，节点只发布零速、清除锁定并回到视觉搜索/对齐，不把短暂空帧或框跳变直接判定为失败。KFS action test 的 service ACK 等待默认按 `6000ms` 覆盖 `rc26_serial` 底层可靠发送重试闭包；机械臂预调完成反馈等待默认 `10s`，且从 ACK 返回并拿到 `seq` 后才开始计时。`src/nodes/tip_localizer_node.cpp`：tip 定位节点入口。
+=======
+- `src/nodes/kfs_vision_test_node.cpp`：kfs 主链(D455 + kfs.onnx)测试节点入口，在主线程通过 OpenCV overlay 窗口画出全部检测框、标签特征色、类别、置信度、中心 ROI 深度有效性、角落帧率与 best target 的 D455 深度距离；`model_id` 为空时使用 `vision_models.yaml` 的 `default_model`，非空时显式选择对应 profile；`show_window=false` 时降级无头。高频 `[检测]` 日志默认由 `log_detections=false` 关闭，周期 `[状态]` 日志默认由 `log_status=false` 关闭，需要排查识别或动作状态细节时可临时打开。节点还保留默认关闭的 `kfs_action_enable` 实机动作测试链，开启后只把 `T_*` 当作本车 KFS 夹取目标，先按 `direction` 发送 `ARM_RAISE(0x04)` 或 `ARM_LOWER(0x05)` 并等待同 seq 完成反馈，再发布 `/cmd_vel` 做横移对齐与 x 正向趋近，到达夹取深度后通过 `/mechanism/send_command` 发送 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`，ACK 后用原目标视觉消失确认物理夹取成功。KFS action test 的 service ACK 等待默认按 `6000ms` 覆盖 `rc26_serial` 底层可靠发送重试闭包；机械臂预调完成反馈等待默认 `10s`，且从 ACK 返回并拿到 `seq` 后才开始计时。`src/nodes/tip_localizer_node.cpp`：tip 定位节点入口。
+>>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
 - `test/tip_vision_test_node.cpp`：USB 相机 + 单目 tip test 节点的入口、私有声明、参数、相机、目标选择、可选视觉横移对线、对齐后 x 负向前探等待 0x06 限位、抓取 service 触发和 overlay 单文件实现；推理直接复用主链 `InferenceEngine`。
 - `src/tools/yolo_inference_test.cpp`、`tools/*.py`：离线工具和实验脚本。
 
@@ -77,7 +85,11 @@
 - 当前兼容矩阵：AidLite 有且 ONNX Runtime C++ 缺失时可构建并由 `engine: auto` 选择 AidLite；AidLite 缺失且 ONNX Runtime C++ 存在时可构建并回退 ONNX Runtime；两者都有时优先 AidLite；两者都没有时仍允许构建，但启动推理会报“无可用推理后端”。
 - `config/vision_models.yaml` 是唯一模型 profile 配置入口，当前包含 `kfs_default` 与 `tip_default`。
 - `config/vision_models.yaml` 当前默认 profile 已切到 `engine: auto`；显式写 `onnxruntime` / `opencv_onnx` 仍会落到本地 ONNX Runtime 链，显式写 `aidlite` 则保持强制 AidLite、不参与自动回退。
+<<<<<<< HEAD
 - 默认视觉主链当前通过 `VisionInferenceManager` 使用 `vision_depth_min_m / vision_depth_max_m` 作为深度 ROI 有效距离窗口；未覆盖时库默认值为 `0.6m ~ 1.2m`。`config/kfs_vision_params.yaml` 已为独立 KFS action test 显式覆盖该窗口，当前实机调试值为 `0.50m ~ 0.55m`；正式 MF 预选赛仍读取 `r2_runtime.yaml` 中的 `mf_preselect_depth_min_m / mf_preselect_depth_max_m`。落在窗口外或有效深度样本不足的检测不会被上游决策当作 `has_target=true`。
+=======
+- 默认视觉主链当前通过 `VisionInferenceManager` 使用 `0.6m ~ 1.2m` 的深度 ROI 有效距离窗口；落在窗口外或有效深度样本不足的检测不会被上游决策当作 `has_target=true`。
+>>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
 - `tip` test 链已经并入 `rc26_vision`，当前入口是 `tip_vision_test_node` 与 `launch/test_tip_vision.launch.py`。
 - 默认 KFS 模型资产命名为 `models/kfs.pt` / `models/kfs.onnx`，标签文件命名为 `models/kfs_labels.txt`；tip test 模型资产命名为 `models/tip.pt` / `models/tip.onnx`，标签文件命名为 `models/tip_labels.txt`。
 - 当前 `models/kfs_labels.txt` 中的 `R_R1` / `B_R1` 表示其它机器人需要拾取的 KFS，占用本车当前阶梯格时用于决策层停车等待；它们不是本车可夹取标签。`rc26_vision` 独立 KFS action test 默认只把 `T_*` 当作本车可夹取真目标，`F_*` 和其它未知标签默认忽略。
@@ -94,8 +106,12 @@
 - `tip` test 链的 `single_target_mode` 默认保持关闭；如果手动开启，推理结果会先按置信度截断到单个框，这会绕过多框中心优先选择，主要用于旧式单目标调试。
 - 对齐误差进入 `alignment_tolerance_px` 并稳定达到 `alignment_stable_frames` 后，tip test 节点必须先 x 负向前探并等待 0x06 前方限位反馈；收到限位后才会通过 `/mechanism/send_command` 共享 transport 下发一次 `GRAB_TIP(0x01)` 空 payload。它不直接打开目标 MCU 串口，`/cmd_vel` 消费和 mechanism transport 都由 `rc26_mcu_transport` 提供。
 - 启用自动对线时，同一时刻不要启动 Nav2、teleop 或其它 `/cmd_vel` 发布权威；必须启动 `rc26_mcu_transport` 消费 `/cmd_vel` 并提供 `/mechanism/send_command` 与 `/mechanism/command_feedback`。
+<<<<<<< HEAD
 - `realsense_d455.launch.py` 默认固定选择 R2 当前 D455 序列号 `239222303644`，避免多 RealSense 或 USB 枚举顺序变化时选错设备；如现场更换相机，可临时用 `serial_no:=<new_serial>` 覆盖。该 wrapper 会兼容并清理手工传入的外层引号或 `_` 前缀，但传给 `realsense2_camera_node` 的实际值必须是纯序列号字符串。
 - `test_kfs_vision.launch.py` 默认仍是 RealSense + `kfs_vision_test_node` 的纯视觉 overlay；传 `action_enable:=true direction:=up|down` 后会按 `start_mcu_transport:=auto` 自动带起 `rc26_mcu_transport`，并启动 KFS 底盘/机构测试链。KFS action test 会先等待 `/mechanism/send_command` 被本节点发现，等待上限由 `kfs_action_service_wait_timeout_s` 控制，避免 launch 并发启动时 ROS graph 尚未发现 service 就直接失败；随后发送方向对应的机械臂预调命令并等待同 seq 完成反馈：`up -> ARM_RAISE(0x04)/ARM_RAISE_DONE(0x02)`，`down -> ARM_LOWER(0x05)/ARM_LOWER_DONE(0x03)`。预调 service ACK 等待由 `kfs_action_arm_prep_service_timeout_ms` 控制，默认 `6000ms`，用于覆盖底层 `0x00` 到 `0x09` 的可靠发送重试；预调 done 等待由 `kfs_action_arm_prep_done_timeout_s` 控制，默认 `10s`，从 service ACK 返回并拿到 `seq` 后开始计时。预调完成后用 `T_*` 目标做画面中心横移对齐，再按 D455 前向安装口径发布 `cmd_vel.linear.x>0` 低速趋近；趋近途中连续 `kfs_action_lost_stop_frames` 帧跟踪不到锁定目标时会停车退回搜索/对齐，重新锁定后再继续。目标深度必须不小于 `vision_depth_min_m`，并且小于等于 `min(kfs_action_grab_distance_m, vision_depth_max_m)` 后才停车并发送空 payload 的 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`。夹取 service ACK 后会保存触发夹取的 `label + bbox + sequence`，只有同 label 且 bbox IoU 达到 `kfs_action_grab_verify_iou_threshold` 的原目标连续 `kfs_action_grab_verify_lost_stable_frames` 个新推理帧不可见，才显示 `SUCCESS`；验证超时、原目标仍可见或无新帧都会停车进入 `FAILED`。
+=======
+- `test_kfs_vision.launch.py` 默认仍是 RealSense + `kfs_vision_test_node` 的纯视觉 overlay；传 `action_enable:=true direction:=up|down` 后会按 `start_mcu_transport:=auto` 自动带起 `rc26_mcu_transport`，并启动 KFS 底盘/机构测试链。KFS action test 会先等待 `/mechanism/send_command` 被本节点发现，等待上限由 `kfs_action_service_wait_timeout_s` 控制，避免 launch 并发启动时 ROS graph 尚未发现 service 就直接失败；随后发送方向对应的机械臂预调命令并等待同 seq 完成反馈：`up -> ARM_RAISE(0x04)/ARM_RAISE_DONE(0x02)`，`down -> ARM_LOWER(0x05)/ARM_LOWER_DONE(0x03)`。预调 service ACK 等待由 `kfs_action_arm_prep_service_timeout_ms` 控制，默认 `6000ms`，用于覆盖底层 `0x00` 到 `0x09` 的可靠发送重试；预调 done 等待由 `kfs_action_arm_prep_done_timeout_s` 控制，默认 `10s`，从 service ACK 返回并拿到 `seq` 后开始计时。预调完成后用 `T_*` 目标做画面中心横移对齐，再按 D455 前向安装口径发布 `cmd_vel.linear.x>0` 低速趋近，到达 `kfs_action_grab_distance_m` 后停车并发送空 payload 的 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`。夹取 service ACK 后会保存触发夹取的 `label + bbox + sequence`，只有同 label 且 bbox IoU 达到 `kfs_action_grab_verify_iou_threshold` 的原目标连续 `kfs_action_grab_verify_lost_stable_frames` 个新推理帧不可见，才显示 `SUCCESS`；验证超时、原目标仍可见或无新帧都会停车进入 `FAILED`。
+>>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
 - 当前 `tip` test 参数仍默认优先 `camera_index=2` 这路外接 USB 摄像头，但 `auto_scan_camera` 已默认打开；如果首选设备能枚举却读不出第一帧，节点会打印中文告警并自动扫描其他 `/dev/video*` 作为兜底。
 - 默认联调入口仍然是 RealSense + `kfs_vision_test_node`（`test_kfs_vision.launch.py`）；KFS action test 需要显式 `action_enable:=true` 才会发布速度和机构指令，tip test 节点不参与默认 launch，需要单独显式启动。
 
@@ -138,6 +154,7 @@
 
 ## 最近修改
 
+<<<<<<< HEAD
 - **R2 D455 启动入口固定相机序列号**：`launch/realsense_d455.launch.py` 的 `serial_no` 默认值已固定为纯序列号 `239222303644`，与当前 R2 D455 实机枚举结果一致；直接启动相机或经 `test_kfs_vision.launch.py` 间接启动相机时都会默认选择这台设备，避免多相机或 USB 枚举顺序变化导致误选。该 wrapper 会在传给 `realsense2_camera_node` 前清理手工覆盖值的外层引号和 `_` 前缀，避免把字面量引号作为序列号的一部分。该改动只属于相机装配选择，不改变视觉 topic、模型推理或 KFS action test 的运动/机构接口。
 
 - **KFS 独立测试显式补齐深度窗口**：`config/kfs_vision_params.yaml` 现在显式设置 `vision_depth_min_m / vision_depth_max_m`，当前实机调试值为 `0.50m ~ 0.55m`。注意两个链路参数名前缀不同：独立视觉节点读取 `vision_depth_*`，决策 MF 预选赛读取 `mf_preselect_depth_*`，两者可以按现场任务分别调参。
@@ -146,6 +163,8 @@
 
 - **KFS action test 趋近丢目标改为停车重搜**：`kfs_vision_test_node` 在 `APPROACH` 阶段连续 `kfs_action_lost_stop_frames` 帧跟踪不到锁定目标时，不再直接进入 `FAILED`；现在会发布零速、清除锁定目标并回到视觉搜索/对齐，由 `kfs_action_total_timeout_s`、趋近超时和后续夹取验证继续收敛。该改动用于吸收 D455/AidLite 推理短暂空帧或检测框跳变，不改变 `/cmd_vel`、`/mechanism/send_command` 或 `/mechanism/command_feedback` 的权威边界。
 
+=======
+>>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
 - **KFS action test 放宽预调 ACK/完成反馈等待**：`kfs_vision_test_node` 的机械臂预调 service ACK 等待默认从 `200ms` 调整到 `6000ms`，夹取 service ACK 等待同步调整到 `6000ms`，避免上层在 `rc26_serial` 仍按 `0x00` 到 `0x09` 做可靠发送重试时提前判定失败。机械臂预调完成反馈等待默认从 `3s` 调整到 `10s`，且从 service ACK 返回、拿到用于匹配反馈的 `seq` 后才开始计时。`test_kfs_vision.launch.py` 透传这些超时参数，实机联调可按机械臂实际动作时间临时覆盖。
 
 - **KFS 测试节点刷屏日志默认降噪**：`kfs_vision_test_node` 的 `log_detections` 与 `log_status` 默认均为 `false`，不再每个有效检测帧打印 `[检测]`，也不再按 `print_rate_ms` 周期打印 `[状态]`。启动、动作阶段、service 请求、失败原因和 overlay 显示保持不变。`test_kfs_vision.launch.py` 已透传同名参数，需要看逐帧检测或周期状态时可临时设置 `log_detections:=true` / `log_status:=true`，或在参数文件中打开。

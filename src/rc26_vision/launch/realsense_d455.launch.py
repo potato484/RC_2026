@@ -19,6 +19,7 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import LifecycleNode, Node
 
 
+<<<<<<< HEAD
 R2_D455_SERIAL_NO = "239222303644"
 
 
@@ -33,6 +34,8 @@ def _normalize_serial_no(value: str) -> str:
     return serial
 
 
+=======
+>>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
 def generate_launch_description():
     vision_dir = get_package_share_directory("rc26_vision")
     realsense_dir = get_package_share_directory("realsense2_camera")
@@ -53,8 +56,13 @@ def generate_launch_description():
     )
     declare_serial_no = DeclareLaunchArgument(
         "serial_no",
+<<<<<<< HEAD
         default_value=R2_D455_SERIAL_NO,
         description=f"RealSense 序列号（默认固定 R2 D455: {R2_D455_SERIAL_NO}）",
+=======
+        default_value="''",
+        description="RealSense 序列号（空表示自动选择）",
+>>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
     )
     declare_camera_name = DeclareLaunchArgument(
         "camera_name",
@@ -103,14 +111,23 @@ def generate_launch_description():
             lifecycle_params = {}
         use_lifecycle_node = bool(lifecycle_params.get("use_lifecycle_node", False))
 
+<<<<<<< HEAD
         requested_serial_no = _normalize_serial_no(serial_no.perform(context))
         overrides = {
             "serial_no": requested_serial_no,
+=======
+        overrides = {
+            "serial_no": serial_no.perform(context),
+>>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
             "device_type": device_type.perform(context),
             "camera_name": camera_name.perform(context),
             "camera_namespace": camera_namespace.perform(context),
         }
+<<<<<<< HEAD
         if not overrides["serial_no"]:
+=======
+        if overrides["serial_no"] == "''":
+>>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
             overrides.pop("serial_no", None)
         if overrides["device_type"] == "''":
             overrides.pop("device_type", None)
@@ -146,3 +163,7 @@ def generate_launch_description():
             OpaqueFunction(function=_launch_setup),
         ]
     )
+<<<<<<< HEAD
+=======
+
+>>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22

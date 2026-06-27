@@ -538,6 +538,7 @@ private:
             ? action_arm_lower_done_feedback_id_
             : action_arm_raise_done_feedback_id_;
         action_prep_label_ = action_direction_ == "down" ? "ARM_LOWER" : "ARM_RAISE";
+<<<<<<< HEAD
 
         if (action_enable_) {
             if (depth_config_.max_depth_m < depth_config_.min_depth_m) {
@@ -549,6 +550,8 @@ private:
                     "kfs_action_grab_distance_m and vision_depth_* leave no valid grab depth window");
             }
         }
+=======
+>>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
     }
 
     uint8_t validateCommandId(int value, const char* param_name) const {
@@ -590,8 +593,12 @@ private:
             get_logger(),
             "KFS 动作测试已启用: direction=%s target_prefixes=%zu cmd_vel=%s service=%s "
             "feedback=%s prep=%s(%s) done=0x%02X service_wait=%.1fs "
+<<<<<<< HEAD
             "approach_vx_sign=%d grab_dist=%.2fm effective_grab<=%.2fm "
             "depth_range=[%.2f, %.2f]m grab=%s。"
+=======
+            "approach_vx_sign=%d grab_dist=%.2fm grab=%s。"
+>>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
             "运行前必须停用 Nav2/遥控等其它速度权威。",
             action_direction_.c_str(), action_target_prefixes_.size(),
             action_cmd_vel_topic_.c_str(), action_send_command_service_.c_str(),
@@ -600,8 +607,11 @@ private:
             static_cast<unsigned int>(action_prep_done_feedback_id_),
             action_service_wait_timeout_s_,
             action_approach_x_sign_, action_grab_distance_m_,
+<<<<<<< HEAD
             actionEffectiveGrabDistanceM(),
             depth_config_.min_depth_m, depth_config_.max_depth_m,
+=======
+>>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
             byteToHex(action_grab_command_id_).c_str());
     }
 
@@ -716,10 +726,13 @@ private:
         return static_cast<double>(action_approach_x_sign_) * action_approach_speed_mps_;
     }
 
+<<<<<<< HEAD
     double actionEffectiveGrabDistanceM() const {
         return std::min(action_grab_distance_m_, depth_config_.max_depth_m);
     }
 
+=======
+>>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
     bool sendActionCommandRequest(
         uint8_t command_id,
         const std::string& label,
@@ -1002,6 +1015,7 @@ private:
         if (!selected.has_value()) {
             if (action_phase_ == ActionPhase::Approach) {
                 publishActionStop(false);
+<<<<<<< HEAD
                 if (action_target_locked_ && action_target_lost_count_ < action_lost_stop_frames_) {
                     return;
                 }
@@ -1015,6 +1029,11 @@ private:
                 RCLCPP_WARN_THROTTLE(
                     get_logger(), *get_clock(), 1000,
                     "KFS 趋近阶段目标短暂丢失，已停车并回到视觉搜索/对齐");
+=======
+                if (!action_target_locked_ || action_target_lost_count_ >= action_lost_stop_frames_) {
+                    failAction("趋近阶段目标丢失");
+                }
+>>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
                 return;
             }
             action_phase_ = ActionPhase::Search;
@@ -1064,12 +1083,17 @@ private:
             failAction("趋近阶段深度无效");
             return;
         }
+<<<<<<< HEAD
         if (selected->depth_m < depth_config_.min_depth_m) {
             failAction("趋近阶段深度低于有效窗口");
             return;
         }
 
         if (selected->depth_m <= actionEffectiveGrabDistanceM()) {
+=======
+
+        if (selected->depth_m <= action_grab_distance_m_) {
+>>>>>>> e6cc0c8da891eafb82dd36f73c88c3e86e9b6c22
             action_grab_stable_count_ =
                 std::min(action_grab_stable_count_ + 1, action_grab_stable_frames_);
         } else {
