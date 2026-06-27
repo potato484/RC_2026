@@ -27,9 +27,11 @@ kfs_vision_test_node:  # KFS 独立视觉测试节点的 ROS 2 参数命名空�
     kfs_action_arm_lower_command_id: 5  # ARM_LOWER 命令 ID，direction=down 时先发送
     kfs_action_arm_raise_done_feedback_id: 2  # ARM_RAISE_DONE 反馈 ID，必须与 service ACK seq 匹配
     kfs_action_arm_lower_done_feedback_id: 3  # ARM_LOWER_DONE 反馈 ID，必须与 service ACK seq 匹配
+    kfs_action_second_arm_lower_command_id: 14  # ARM_SECOND_LOWER(0x0E)，direction=down 时开环前发送
+    kfs_action_second_arm_lower_done_feedback_id: 10  # ARM_SECOND_LOWER_DONE(0x0A)，必须与 0x0E 的 ACK seq 匹配
     kfs_action_service_wait_timeout_s: 10.0  # 启动后等待 /mechanism/send_command 被本节点发现的最长时间，避免 launch 并发启动竞态
     kfs_action_arm_prep_service_timeout_ms: 6000  # 机械臂预调 service ACK 等待超时，需覆盖底层 0x00-0x09 可靠重发闭包
-    kfs_action_arm_prep_done_timeout_s: 10.0  # 机械臂预调完成反馈等待超时；从 ACK seq 已知后开始计时，单位秒
+    kfs_action_arm_prep_done_timeout_s: 10.0  # 机械臂预调/第二节放下完成反馈等待超时；从 ACK seq 已知后开始计时，单位秒
 
     # 视觉横移对齐：目标框中心对准画面中心竖线。
     kfs_action_align_tolerance_px: 20  # 横移对齐像素容差；目标中心距画面中心小于该值算对齐

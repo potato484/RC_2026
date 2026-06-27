@@ -152,6 +152,8 @@ r2_runtime:
       mf_preselect_arm_lower_command_id: 5       # 0x05 ARM_LOWER，高到低阶梯预调
       mf_preselect_arm_raise_done_feedback_id: 2 # 0x02 ARM_RAISE_DONE
       mf_preselect_arm_lower_done_feedback_id: 3 # 0x03 ARM_LOWER_DONE
+      mf_preselect_second_arm_lower_command_id: 14 # 0x0E ARM_SECOND_LOWER，向下夹取开环前放下第二节机械臂
+      mf_preselect_second_arm_lower_done_feedback_id: 10 # 0x0A ARM_SECOND_LOWER_DONE，必须与 0x0E 的 ACK seq 匹配
 
       mf_preselect_entry_probe_left_distance_m: 1.2     # 2号入口向1号阶梯横移探测距离
       mf_preselect_entry_probe_right_sweep_distance_m: 2.4 # 从1号阶梯扫到3号阶梯横移距离

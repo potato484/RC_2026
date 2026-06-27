@@ -557,6 +557,9 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return tickMechanismCommand();
   case Phase::KfsVisualAlign:
     return tickKfsVisualAlign();
+  case Phase::KfsSecondArmLower:
+    startKfsOpenLoopApproach();
+    return BT::NodeStatus::RUNNING;
   case Phase::KfsOpenLoopApproach:
     return tickKfsOpenLoopApproach();
   case Phase::GrabVerify:
@@ -1145,6 +1148,8 @@ const char *MfPreselectionFlowAction::phaseText(Phase phase) {
     return "direct_exit_drive";
   case Phase::KfsVisualAlign:
     return "kfs_visual_align";
+  case Phase::KfsSecondArmLower:
+    return "kfs_second_arm_lower";
   case Phase::KfsOpenLoopApproach:
     return "kfs_open_loop_approach";
   case Phase::GrabVerify:
@@ -2590,10 +2595,7 @@ BT::NodeStatus MfPreselectionFlowAction::beginKfsOpenLoopApproach(
   kfs_open_loop_locked_depth_m_ = observation.target.distance_m;
   kfs_open_loop_distance_m_ = planned_distance_m;
   kfs_open_loop_duration_s_ = planned_duration_s;
-  kfs_open_loop_started_ = true;
-  phase_start_ = node_->now();
-  writeBlackboardState("kfs_open_loop_approach");
-  phase_ = Phase::KfsOpenLoopApproach;
+  kfs_open_loop_started_ = false;
 
   RCLCPP_INFO(node_->get_logger(),
               "梅林预选赛KFS目标对齐稳定，锁定开环趋近：label=%s offset=%d locked_depth=%.3fm arm_reach=%.3fm distance=%.3fm speed=%.3fm/s duration=%.3fs vx=%.3f",
@@ -2601,6 +2603,32 @@ BT::NodeStatus MfPreselectionFlowAction::beginKfsOpenLoopApproach(
               kfs_open_loop_locked_depth_m_, params_.kfs_grab_distance_m,
               kfs_open_loop_distance_m_, params_.kfs_approach_speed_mps,
               kfs_open_loop_duration_s_, kfsApproachVx());
+  if (!kfs_pickup_high_side_) {
+    publishStop();
+    writeBlackboardState("kfs_second_arm_lower");
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛KFS向下夹取开环前先放下第二节机械臂：cmd=0x%02X feedback=0x%02X",
+                static_cast<unsigned int>(clampByte(params_.second_arm_lower_command_id)),
+                static_cast<unsigned int>(clampByte(params_.second_arm_lower_done_feedback_id)));
+    beginMechanismCommand(clampByte(params_.second_arm_lower_command_id),
+                          "ARM_SECOND_LOWER",
+                          clampByte(params_.second_arm_lower_done_feedback_id),
+                          Phase::KfsSecondArmLower,
+                          "kfs_second_arm_lower_failed");
+    return BT::NodeStatus::RUNNING;
+  }
+  startKfsOpenLoopApproach();
+  return BT::NodeStatus::RUNNING;
+}
+
+void MfPreselectionFlowAction::startKfsOpenLoopApproach() {
+  if (!node_ || !kfs_pickup_active_ || !kfs_open_loop_target_.has_value()) {
+    return;
+  }
+  kfs_open_loop_started_ = true;
+  phase_start_ = node_->now();
+  writeBlackboardState("kfs_open_loop_approach");
+  phase_ = Phase::KfsOpenLoopApproach;
   if (kfs_open_loop_duration_s_ <= 0.0) {
     publishStop();
     RCLCPP_INFO(node_->get_logger(),
@@ -2612,7 +2640,6 @@ BT::NodeStatus MfPreselectionFlowAction::beginKfsOpenLoopApproach(
   } else {
     publishTwist(kfsApproachVx(), 0.0, 0.0);
   }
-  return BT::NodeStatus::RUNNING;
 }
 
 BT::NodeStatus MfPreselectionFlowAction::tickKfsOpenLoopApproach() {
@@ -2976,6 +3003,12 @@ void loadMfPreselectionParams(rclcpp::Node &node,
       "mf_preselect_arm_raise_done_feedback_id", p.arm_raise_done_feedback_id);
   p.arm_lower_done_feedback_id = node.declare_parameter<int>(
       "mf_preselect_arm_lower_done_feedback_id", p.arm_lower_done_feedback_id);
+  p.second_arm_lower_command_id = node.declare_parameter<int>(
+      "mf_preselect_second_arm_lower_command_id",
+      p.second_arm_lower_command_id);
+  p.second_arm_lower_done_feedback_id = node.declare_parameter<int>(
+      "mf_preselect_second_arm_lower_done_feedback_id",
+      p.second_arm_lower_done_feedback_id);
 
   // 入口横移、相对移动和直出兜底参数。距离按绝对值规范化，方向由调用方速度符号表达。
   p.entry_probe_left_distance_m = node.declare_parameter<double>(
@@ -3065,12 +3098,14 @@ void loadMfPreselectionParams(rclcpp::Node &node,
           "mf_preselect_entry2_nav_behavior_tree_file", ""));
 
   RCLCPP_INFO(node.get_logger(),
-              "梅林预选赛参数已加载: model=%s R2_prefixes=%zu fake_prefixes=%zu max_pickup=%d cmd_vel=%s odom=%s high_raise=0x%02X done=0x%02X",
+              "梅林预选赛参数已加载: model=%s R2_prefixes=%zu fake_prefixes=%zu max_pickup=%d cmd_vel=%s odom=%s high_raise=0x%02X done=0x%02X second_lower=0x%02X done=0x%02X",
               p.model_id.c_str(), p.r2_target_label_prefixes.size(),
               p.fake_label_prefixes.size(), p.max_pickup_count,
               p.cmd_vel_topic.c_str(), p.odom_topic.c_str(),
               static_cast<unsigned int>(std::clamp(p.arm_high_raise_command_id, 0, 255)),
-              static_cast<unsigned int>(std::clamp(p.arm_high_raise_done_feedback_id, 0, 255)));
+              static_cast<unsigned int>(std::clamp(p.arm_high_raise_done_feedback_id, 0, 255)),
+              static_cast<unsigned int>(std::clamp(p.second_arm_lower_command_id, 0, 255)),
+              static_cast<unsigned int>(std::clamp(p.second_arm_lower_done_feedback_id, 0, 255)));
 }
 
 void registerMfPreselectionNodes(BT::BehaviorTreeFactory &factory) {

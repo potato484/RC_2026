@@ -371,6 +371,7 @@ private:
         WaitingPrepDone,
         Search,
         Align,
+        WaitingSecondArmLower,
         Approach,
         SendingGrab,
         GrabVerify,
@@ -398,6 +399,10 @@ private:
             static_cast<int>(rc26_serial::FeedbackID::ARM_RAISE_DONE));
         this->declare_parameter<int>("kfs_action_arm_lower_done_feedback_id",
             static_cast<int>(rc26_serial::FeedbackID::ARM_LOWER_DONE));
+        this->declare_parameter<int>("kfs_action_second_arm_lower_command_id",
+            static_cast<int>(rc26_serial::CommandID::ARM_SECOND_LOWER));
+        this->declare_parameter<int>("kfs_action_second_arm_lower_done_feedback_id",
+            static_cast<int>(rc26_serial::FeedbackID::ARM_SECOND_LOWER_DONE));
         this->declare_parameter<double>("kfs_action_service_wait_timeout_s", 5.0);
         this->declare_parameter<int>("kfs_action_arm_prep_service_timeout_ms", 6000);
         this->declare_parameter<double>("kfs_action_arm_prep_done_timeout_s", 10.0);
@@ -472,6 +477,12 @@ private:
         action_arm_lower_done_feedback_id_ = validateCommandId(
             this->get_parameter("kfs_action_arm_lower_done_feedback_id").as_int(),
             "kfs_action_arm_lower_done_feedback_id");
+        action_second_arm_lower_command_id_ = validateCommandId(
+            this->get_parameter("kfs_action_second_arm_lower_command_id").as_int(),
+            "kfs_action_second_arm_lower_command_id");
+        action_second_arm_lower_done_feedback_id_ = validateCommandId(
+            this->get_parameter("kfs_action_second_arm_lower_done_feedback_id").as_int(),
+            "kfs_action_second_arm_lower_done_feedback_id");
         action_service_wait_timeout_s_ = std::max(
             0.0, this->get_parameter("kfs_action_service_wait_timeout_s").as_double());
         action_arm_prep_service_timeout_ms_ = std::max(1, static_cast<int>(
@@ -574,13 +585,19 @@ private:
                 if (!msg) {
                     return;
                 }
-                if (msg->feedback_id != action_prep_done_feedback_id_) {
-                    return;
+                if (msg->feedback_id == action_prep_done_feedback_id_) {
+                    action_latest_prep_done_seq_ = msg->seq;
+                    if (action_prep_response_seen_ &&
+                        msg->seq == action_prep_response_seq_) {
+                        action_prep_done_seen_ = true;
+                    }
                 }
-                action_latest_prep_done_seq_ = msg->seq;
-                if (action_prep_response_seen_ &&
-                    msg->seq == action_prep_response_seq_) {
-                    action_prep_done_seen_ = true;
+                if (msg->feedback_id == action_second_arm_lower_done_feedback_id_) {
+                    action_latest_second_arm_lower_done_seq_ = msg->seq;
+                    if (action_second_arm_lower_response_seen_ &&
+                        msg->seq == action_second_arm_lower_response_seq_) {
+                        action_second_arm_lower_done_seen_ = true;
+                    }
                 }
             });
         action_phase_ = ActionPhase::SendingPrep;
@@ -595,7 +612,7 @@ private:
             get_logger(),
             "KFS 动作测试已启用: direction=%s target_prefixes=%zu cmd_vel=%s service=%s "
             "feedback=%s prep=%s(%s) done=0x%02X service_wait=%.1fs "
-            "approach_vx_sign=%d approach_speed=%.3fm/s arm_reach=%.2fm "
+            "second_lower=%s/0x%02X approach_vx_sign=%d approach_speed=%.3fm/s arm_reach=%.2fm "
             "approach_timeout=%.1fs depth_lock_range=[%.2f, %.2f]m grab=%s。"
             "运行前必须停用 Nav2/遥控等其它速度权威。",
             action_direction_.c_str(), action_target_prefixes_.size(),
@@ -604,6 +621,8 @@ private:
             byteToHex(action_prep_command_id_).c_str(),
             static_cast<unsigned int>(action_prep_done_feedback_id_),
             action_service_wait_timeout_s_,
+            byteToHex(action_second_arm_lower_command_id_).c_str(),
+            static_cast<unsigned int>(action_second_arm_lower_done_feedback_id_),
             action_approach_x_sign_, action_approach_speed_mps_, action_grab_distance_m_,
             action_approach_timeout_s_,
             depth_config_.min_depth_m, depth_config_.max_depth_m,
@@ -636,6 +655,8 @@ private:
                 return "SEARCH";
             case ActionPhase::Align:
                 return "ALIGN";
+            case ActionPhase::WaitingSecondArmLower:
+                return "WAIT_SECOND_ARM_LOWER";
             case ActionPhase::Approach:
                 return "APPROACH";
             case ActionPhase::SendingGrab:
@@ -760,8 +781,7 @@ private:
             return false;
         }
 
-        action_phase_ = ActionPhase::Approach;
-        action_approach_started_tp_ = now;
+        action_approach_started_tp_ = std::chrono::steady_clock::time_point{};
         action_open_loop_start_depth_m_ = target.depth_m;
         action_open_loop_distance_m_ = planned_distance_m;
         action_open_loop_duration_s_ = planned_duration_s;
@@ -781,13 +801,23 @@ private:
             action_open_loop_start_depth_m_, action_grab_distance_m_,
             action_open_loop_distance_m_, action_approach_speed_mps_,
             action_open_loop_duration_s_, computeActionApproachVx());
+        if (action_direction_ == "down") {
+            beginSecondArmLowerRequest();
+            return true;
+        }
+        startOpenLoopApproach(now);
+        return true;
+    }
+
+    void startOpenLoopApproach(const std::chrono::steady_clock::time_point& now) {
+        action_phase_ = ActionPhase::Approach;
+        action_approach_started_tp_ = now;
         if (action_open_loop_duration_s_ <= 0.0) {
             publishActionStop(true);
             beginGrabRequest();
         } else {
             publishActionCommand(computeActionApproachVx(), 0.0, 0.0, true);
         }
-        return true;
     }
 
     void tickOpenLoopApproach(const std::chrono::steady_clock::time_point& now) {
@@ -948,6 +978,30 @@ private:
             static_cast<unsigned int>(action_prep_done_feedback_id_));
     }
 
+    void beginSecondArmLowerRequest() {
+        action_latest_second_arm_lower_done_seq_ = -1;
+        action_second_arm_lower_done_seen_ = false;
+        action_second_arm_lower_done_wait_started_tp_ = std::chrono::steady_clock::time_point{};
+        action_phase_ = ActionPhase::WaitingSecondArmLower;
+        publishActionStop(true);
+        if (!sendActionCommandRequest(
+                action_second_arm_lower_command_id_,
+                "KFS 第二节机械臂放下",
+                &action_second_arm_lower_request_tp_,
+                &action_second_arm_lower_request_pending_,
+                &action_second_arm_lower_response_seen_,
+                &action_second_arm_lower_response_accepted_,
+                &action_second_arm_lower_response_seq_,
+                &action_second_arm_lower_request_generation_,
+                "KFS 第二节机械臂放下")) {
+            return;
+        }
+        RCLCPP_INFO(get_logger(),
+            "KFS 向下夹取开环前已发送第二节机械臂放下: cmd=%s 等待反馈=0x%02X",
+            byteToHex(action_second_arm_lower_command_id_).c_str(),
+            static_cast<unsigned int>(action_second_arm_lower_done_feedback_id_));
+    }
+
     bool waitForActionService(const std::chrono::steady_clock::time_point& now) {
         if (!action_send_client_) {
             failAction("KFS 机械臂预调 service client 未初始化");
@@ -1044,6 +1098,70 @@ private:
         }
     }
 
+    void pollSecondArmLowerResponse(const std::chrono::steady_clock::time_point& now) {
+        publishActionStop(false);
+        if (!action_second_arm_lower_request_pending_) {
+            failAction("KFS 第二节机械臂放下请求状态异常");
+            return;
+        }
+        if (!action_second_arm_lower_response_seen_) {
+            if (std::chrono::duration<double, std::milli>(
+                    now - action_second_arm_lower_request_tp_).count() >
+                static_cast<double>(action_arm_prep_service_timeout_ms_)) {
+                action_second_arm_lower_request_pending_ = false;
+                ++action_second_arm_lower_request_generation_;
+                std::ostringstream ss;
+                ss << "KFS 第二节机械臂放下 service 响应超时: timeout="
+                   << action_arm_prep_service_timeout_ms_
+                   << "ms，底层可靠发送可能仍在重试但未返回最终 ACK";
+                failAction(ss.str());
+            }
+            return;
+        }
+        if (!action_second_arm_lower_response_accepted_) {
+            action_second_arm_lower_request_pending_ = false;
+            failAction("KFS 第二节机械臂放下命令被 transport 拒绝");
+            return;
+        }
+        if (action_second_arm_lower_done_wait_started_tp_ ==
+            std::chrono::steady_clock::time_point{}) {
+            action_second_arm_lower_done_wait_started_tp_ = now;
+            RCLCPP_INFO(
+                get_logger(),
+                "KFS 第二节机械臂放下命令已 ACK: seq=%u，开始等待完成反馈=0x%02X timeout=%.1fs",
+                static_cast<unsigned int>(action_second_arm_lower_response_seq_),
+                static_cast<unsigned int>(action_second_arm_lower_done_feedback_id_),
+                action_arm_prep_done_timeout_s_);
+        }
+        if (action_latest_second_arm_lower_done_seq_ ==
+            static_cast<int>(action_second_arm_lower_response_seq_)) {
+            action_second_arm_lower_done_seen_ = true;
+        }
+        if (action_second_arm_lower_done_seen_) {
+            action_second_arm_lower_request_pending_ = false;
+            RCLCPP_INFO(get_logger(),
+                "KFS 第二节机械臂放下完成: seq=%u，开始开环趋近",
+                static_cast<unsigned int>(action_second_arm_lower_response_seq_));
+            startOpenLoopApproach(now);
+            return;
+        }
+        if (std::chrono::duration<double>(
+                now - action_second_arm_lower_done_wait_started_tp_).count() >
+            action_arm_prep_done_timeout_s_) {
+            action_second_arm_lower_request_pending_ = false;
+            std::ostringstream ss;
+            ss << "KFS 第二节机械臂放下完成反馈超时: seq="
+               << static_cast<unsigned int>(action_second_arm_lower_response_seq_)
+               << " feedback=0x" << std::uppercase << std::hex << std::setw(2)
+               << std::setfill('0') << static_cast<unsigned int>(
+                      action_second_arm_lower_done_feedback_id_)
+               << std::nouppercase << std::dec << std::setfill(' ')
+               << " timeout=" << std::fixed << std::setprecision(1)
+               << action_arm_prep_done_timeout_s_ << "s";
+            failAction(ss.str());
+        }
+    }
+
     void tickAction() {
         if (!action_enable_) {
             return;
@@ -1070,6 +1188,11 @@ private:
 
         if (action_phase_ == ActionPhase::WaitingPrepDone) {
             pollPrepResponse(now);
+            return;
+        }
+
+        if (action_phase_ == ActionPhase::WaitingSecondArmLower) {
+            pollSecondArmLowerResponse(now);
             return;
         }
 
@@ -1512,6 +1635,10 @@ private:
         static_cast<uint8_t>(rc26_serial::FeedbackID::ARM_RAISE_DONE)};
     uint8_t action_arm_lower_done_feedback_id_{
         static_cast<uint8_t>(rc26_serial::FeedbackID::ARM_LOWER_DONE)};
+    uint8_t action_second_arm_lower_command_id_{
+        static_cast<uint8_t>(rc26_serial::CommandID::ARM_SECOND_LOWER)};
+    uint8_t action_second_arm_lower_done_feedback_id_{
+        static_cast<uint8_t>(rc26_serial::FeedbackID::ARM_SECOND_LOWER_DONE)};
     uint8_t action_prep_command_id_{static_cast<uint8_t>(rc26_serial::CommandID::ARM_RAISE)};
     uint8_t action_prep_done_feedback_id_{
         static_cast<uint8_t>(rc26_serial::FeedbackID::ARM_RAISE_DONE)};
@@ -1582,6 +1709,15 @@ private:
     int action_latest_prep_done_seq_{-1};
     bool action_prep_done_seen_{false};
     std::chrono::steady_clock::time_point action_prep_done_wait_started_tp_{};
+    bool action_second_arm_lower_request_pending_{false};
+    std::chrono::steady_clock::time_point action_second_arm_lower_request_tp_{};
+    uint64_t action_second_arm_lower_request_generation_{0U};
+    bool action_second_arm_lower_response_seen_{false};
+    bool action_second_arm_lower_response_accepted_{false};
+    uint8_t action_second_arm_lower_response_seq_{0U};
+    int action_latest_second_arm_lower_done_seq_{-1};
+    bool action_second_arm_lower_done_seen_{false};
+    std::chrono::steady_clock::time_point action_second_arm_lower_done_wait_started_tp_{};
     std::optional<VisualTargetSnapshot> action_pending_grab_target_;
     std::chrono::steady_clock::time_point action_grab_verify_started_tp_{};
     int action_grab_verify_lost_count_{0};

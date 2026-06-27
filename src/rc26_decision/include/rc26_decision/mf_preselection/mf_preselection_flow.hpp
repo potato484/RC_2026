@@ -72,6 +72,8 @@ struct MfPreselectionParams {
   int arm_lower_command_id{0x05};
   int arm_raise_done_feedback_id{0x02};
   int arm_lower_done_feedback_id{0x03};
+  int second_arm_lower_command_id{0x0E};
+  int second_arm_lower_done_feedback_id{0x0A};
 
   double entry_probe_left_distance_m{1.2};
   double entry_probe_right_sweep_distance_m{2.4};
@@ -180,6 +182,7 @@ private:
     DirectExitDrive,
     FinalStop,
     KfsVisualAlign,
+    KfsSecondArmLower,
     KfsOpenLoopApproach,
     MechanismCommand,
     GrabVerify,
@@ -295,6 +298,7 @@ private:
   BT::NodeStatus tickKfsVisualAlign();
   BT::NodeStatus beginKfsOpenLoopApproach(
       const KfsVisualObservation &observation);
+  void startKfsOpenLoopApproach();
   BT::NodeStatus tickKfsOpenLoopApproach();
   double kfsApproachVx() const;
   void clearKfsVisualPickup();
