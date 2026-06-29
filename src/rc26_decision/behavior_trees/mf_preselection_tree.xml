@@ -1,6 +1,7 @@
 <!--
   梅林区预选赛专属行为树：
-  - 默认入口导航关闭，现场标定后可在 r2_runtime.yaml 启用 mf_preselect_entry2_nav_enable。
+  - 入口导航由 r2_runtime.yaml 的 mf_preselect_entry2_nav_enable 控制。
+  - 入口导航成功后会执行 GridTurn -> GridHeadingAlign，对齐 grid_heading_* 选出的 yaw。
   - MfPreselectionFlow 内部独占发布 cmd_vel，并通过 /mechanism/send_command 消费机构 raw transport。
   - 流程成功驶出梅林后进入 WaitForever，保持永久静止。
 -->
@@ -16,6 +17,8 @@
                      frame_id="{mf_preselect_entry2_nav_frame_id}"
                      timeout_sec="{mf_preselect_entry2_nav_timeout_sec}"
                      behavior_tree="{mf_preselect_entry2_nav_behavior_tree_file}"/>
+          <GridTurn name="entry2_grid_turn" target_yaw_rad="{grid_heading_target_yaw_rad}"/>
+          <GridHeadingAlign name="entry2_grid_heading_align" target_yaw_rad="{grid_heading_target_yaw_rad}"/>
         </Sequence>
         <Inverter>
           <ScriptCondition code="mf_preselect_entry2_nav_enable"/>

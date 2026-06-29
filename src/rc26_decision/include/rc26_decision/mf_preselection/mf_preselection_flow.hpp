@@ -13,6 +13,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 
+#include "rc26_decision/mf/grid_center.hpp"
 #include "rc26_decision/stair/stair_area.hpp"
 #include "rc26_interfaces/msg/mechanism_transport_feedback.hpp"
 #include "rc26_interfaces/srv/send_mechanism_transport_command.hpp"
@@ -100,6 +101,7 @@ struct MfPreselectionParams {
   double heading_max_speed_radps{0.30};
 
   double path_r1_lost_wait_timeout_s{0.0};
+  double final_exit_center_offset_m{1.2};
 };
 
 struct MfPreselectionLogicResult {
@@ -124,6 +126,14 @@ struct MfPreselectionLogicResult {
       const MfPreselectionTargetSnapshot &candidate,
       const std::vector<MfPreselectionTargetSnapshot> &ignored_targets,
       double iou_threshold);
+  static std::optional<int>
+  fakeAvoidanceTargetGrid(int current_grid,
+                          MfPreselectionPickupSource source);
+  static bool finalExitCenterTarget(double current_center_x,
+                                    double current_center_y,
+                                    double descend_target_yaw_rad,
+                                    double offset_m, double &target_x,
+                                    double &target_y);
 };
 
 void loadMfPreselectionParams(rclcpp::Node &node,
@@ -190,11 +200,19 @@ private:
     TurnYaw,
     ZeroHold,
     StairPrimitive,
+    CenterAlign,
     Done
   };
 
   enum class DetectMode { Entry2, Stair1, Stair3, RowFront, Scan, Row4Fake, TransitionObserve };
   enum class StairMode { Climb, Descend };
+  enum class StairCenterPolicy {
+    None,
+    EntryGrid2Reference,
+    TransitionTargetGrid,
+    FakeAvoidTargetGrid,
+    FinalExitVirtual
+  };
   enum class StairPhase {
     ClimbSendFrontExtend,
     ClimbHoldAfterFrontExtend,
@@ -230,8 +248,11 @@ private:
   BT::NodeStatus fail(const std::string &reason);
   void publishStop();
   void publishTwist(double vx, double vy, double wz);
+  void publishCenterStop();
+  void publishCenterTwist(double vx, double vy, double wz);
   bool odomReady() const;
   void handleOdom(const OdomMsg::SharedPtr msg);
+  void handleCenterOdom(const OdomMsg::SharedPtr msg);
   static double yawFromQuaternion(const geometry_msgs::msg::Quaternion &q);
   static double normalizeAngle(double angle_rad);
   double headingAngularZ(double target_yaw_rad) const;
@@ -280,15 +301,32 @@ private:
 
   bool prepareTransitionTo(int target_grid);
   BT::NodeStatus startTransitionTo(int target_grid);
-  void continueAfterTransition();
+  bool continueAfterTransition();
+  Phase phaseAfterTransition() const;
   double transitionYaw(int from_grid, int target_grid, int height_delta) const;
 
-  void beginStair(StairMode mode, Phase next_phase, std::string label);
+  void beginStair(StairMode mode, Phase next_phase, std::string label,
+                  StairCenterPolicy center_policy = StairCenterPolicy::None);
   BT::NodeStatus tickStair();
   void beginWheelEvent(WheelEvent event, double timeout_s, std::string label);
   bool wheelEventReceived() const;
   BT::NodeStatus tickWheelEvent();
   double climbRearProfileSpeed();
+
+  bool beginEntryCenterAdvance(Phase next_phase, std::string label);
+  bool beginGridCenterAlign(int target_grid, double target_yaw_rad,
+                            Phase next_phase, std::string label);
+  bool beginFinalExitCenterAlign(Phase next_phase, std::string label);
+  BT::NodeStatus tickCenterAlign();
+  bool centerOdomReady() const;
+  bool prepareEntryCenterTarget();
+  bool readCenterReference(int &grid_id, double &x, double &y,
+                           double &yaw) const;
+  void writeCenterReference(int grid_id, double x, double y, double yaw);
+  bool computeGridCenterFromReference(int target_grid, double &target_x,
+                                      double &target_y) const;
+  void writeCenterTargetBlackboard() const;
+  void setCenterError(const std::string &reason) const;
 
   std::optional<KfsVisualObservation> findKfsVisualTarget();
   void beginKfsVisualPickup(bool high_side, MfPreselectionPickupSource source,
@@ -318,9 +356,12 @@ private:
   rclcpp::Node *node_{nullptr};
   MfPreselectionParams params_;
   StairParams stair_params_;
+  GridCenterParams center_params_;
 
   rclcpp::Publisher<TwistMsg>::SharedPtr cmd_pub_;
+  rclcpp::Publisher<TwistMsg>::SharedPtr center_cmd_pub_;
   rclcpp::Subscription<OdomMsg>::SharedPtr odom_sub_;
+  rclcpp::Subscription<OdomMsg>::SharedPtr center_odom_sub_;
   rclcpp::Client<SendCommandSrv>::SharedPtr send_client_;
   rclcpp::Subscription<FeedbackMsg>::SharedPtr feedback_sub_;
   std::shared_ptr<rc26_vision::VisionInferenceManager> vision_;
@@ -331,6 +372,7 @@ private:
   Phase turn_next_phase_{Phase::Done};
   Phase zero_hold_next_phase_{Phase::Done};
   Phase stair_next_phase_{Phase::Done};
+  Phase center_next_phase_{Phase::Done};
   Phase grab_success_phase_{Phase::Done};
   Phase grab_failure_phase_{Phase::Done};
 
@@ -344,6 +386,11 @@ private:
   double odom_yaw_{0.0};
   bool has_odom_{false};
   std::chrono::steady_clock::time_point last_odom_tp_{};
+  double center_odom_x_{0.0};
+  double center_odom_y_{0.0};
+  double center_odom_yaw_{0.0};
+  bool has_center_odom_{false};
+  std::chrono::steady_clock::time_point last_center_odom_tp_{};
 
   double move_start_x_{0.0};
   double move_start_y_{0.0};
@@ -402,12 +449,23 @@ private:
   bool active_wheel_event_started_{false};
 
   StairMode stair_mode_{StairMode::Climb};
+  StairCenterPolicy stair_center_policy_{StairCenterPolicy::None};
+  StairCenterPolicy center_policy_{StairCenterPolicy::None};
   StairPhase stair_phase_{StairPhase::Complete};
   std::string stair_label_;
   rclcpp::Time climb_rear_profile_start_{0, 0, RCL_ROS_TIME};
   bool climb_rear_profile_started_{false};
   double timed_drive_speed_mps_{0.0};
   double timed_drive_duration_s_{0.0};
+  int center_target_grid_{0};
+  double center_target_x_{0.0};
+  double center_target_y_{0.0};
+  double center_target_yaw_{0.0};
+  int center_stable_ticks_{0};
+  bool center_target_ready_{false};
+  bool center_waiting_odom_logged_{false};
+  std::string center_label_;
+  double entry_heading_yaw_{0.0};
 
   int pickup_count_{0};
   bool entry_pickup_done_{false};
@@ -420,6 +478,7 @@ private:
   int transition_target_grid_{2};
   int transition_height_delta_{0};
   bool transition_high_side_{true};
+  int fake_avoid_target_grid_{0};
   bool row4_fake_detected_{false};
   bool direct_exit_move_active_{false};
   bool path_r1_waiting_{false};

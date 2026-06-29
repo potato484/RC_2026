@@ -178,11 +178,12 @@ r2_runtime:
       mf_preselect_heading_kp: 1.2                      # 相对移动 heading hold P 增益
       mf_preselect_heading_max_speed_radps: 0.30        # 相对移动 heading hold 最大角速度
       mf_preselect_path_r1_lost_wait_timeout_s: 0.0     # R1路径等待超时；0表示无限等待
+      mf_preselect_final_exit_center_offset_m: 1.2      # 最终下阶离开梅林后，虚拟外侧归位目标相对最后格中心的外推距离
 
       # ======================================================================
       # Grid heading 正式转向/对齐参数 —— 供独立 grid_heading 入口和 MF 格间动作复用
       # ======================================================================
-      grid_heading_direction: "left"                # 独立 grid_heading_tree 入口选择的方向: forward | left | right | backward
+      grid_heading_direction: "left"                # 独立 grid_heading_tree 和 MF预选赛入口导航后选择的方向: forward | left | right | backward
       grid_heading_forward_yaw_rad: 0.0             # 正前方向目标 yaw，单位 rad
       grid_heading_left_yaw_rad: 1.5708             # 左 90° 目标 yaw，单位 rad
       grid_heading_right_yaw_rad: -1.5708           # 右 90° 目标 yaw，单位 rad

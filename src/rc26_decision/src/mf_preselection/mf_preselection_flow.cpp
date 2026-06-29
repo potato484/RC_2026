@@ -45,6 +45,7 @@ constexpr double kPi = 3.14159265358979323846;
 constexpr double kDeg2Rad = kPi / 180.0;
 constexpr double kMinTimeoutS = 0.001;
 constexpr double kMinSpeed = 0.001;
+constexpr int kFinalExitVirtualGrid = 0;
 
 // 视觉配置参数既允许传绝对路径，也允许传 rc26_vision share 目录下的相对路径。
 // 这里把“空值”解析为 rc26_vision/config/vision_models.yaml，便于 bringup YAML 只
@@ -89,8 +90,23 @@ std::vector<std::string> sanitized(std::vector<std::string> values) {
 
 // MF 离散格按三列展开：grid1..3 为第一行，grid4..6 为第二行。
 // transitionYaw() 会用行列差把离散边转换为底盘目标 yaw。
+bool validGrid(int grid_id) { return grid_id >= 1 && grid_id <= 12; }
 int gridRow(int grid_id) { return (grid_id - 1) / 3; }
 int gridCol(int grid_id) { return (grid_id - 1) % 3; }
+
+double finiteAbsOr(double value, double fallback) {
+  return std::isfinite(value) ? std::abs(value) : fallback;
+}
+
+double normalizedAngle(double angle_rad) {
+  while (angle_rad > kPi) {
+    angle_rad -= 2.0 * kPi;
+  }
+  while (angle_rad < -kPi) {
+    angle_rad += 2.0 * kPi;
+  }
+  return angle_rad;
+}
 
 // pickup_source_ 记录“第一次在入口侧夹到 KFS 时来自哪条阶梯”，后续假 KFS
 // 避障会用它决定从 1 号侧还是 3 号侧绕行。
@@ -207,6 +223,37 @@ bool MfPreselectionLogicResult::isIgnoredTarget(
                                            iou_threshold);
 }
 
+std::optional<int> MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
+    int current_grid, MfPreselectionPickupSource source) {
+  if (!validGrid(current_grid)) {
+    return std::nullopt;
+  }
+  const int col = gridCol(current_grid);
+  int target_col = col - 1;
+  if (source == MfPreselectionPickupSource::Stair3) {
+    target_col = col + 1;
+  }
+  if (target_col < 0 || target_col > 2) {
+    return std::nullopt;
+  }
+  return gridRow(current_grid) * 3 + target_col + 1;
+}
+
+bool MfPreselectionLogicResult::finalExitCenterTarget(
+    double current_center_x, double current_center_y,
+    double descend_target_yaw_rad, double offset_m, double &target_x,
+    double &target_y) {
+  if (!std::isfinite(current_center_x) || !std::isfinite(current_center_y) ||
+      !std::isfinite(descend_target_yaw_rad)) {
+    return false;
+  }
+  const double offset = std::max(0.0, finiteAbsOr(offset_m, 1.2));
+  const double drive_yaw = normalizedAngle(descend_target_yaw_rad + kPi);
+  target_x = current_center_x + offset * std::cos(drive_yaw);
+  target_y = current_center_y + offset * std::sin(drive_yaw);
+  return std::isfinite(target_x) && std::isfinite(target_y);
+}
+
 MfPreselectionFlowAction::MfPreselectionFlowAction(
     const std::string &name, const BT::NodeConfig &config)
     : BT::StatefulActionNode(name, config) {}
@@ -246,12 +293,25 @@ BT::NodeStatus MfPreselectionFlowAction::onStart() {
   grab_verify_seen_new_frame_ = false;
   grab_verify_visible_logged_ = false;
   grab_verify_last_logged_lost_count_ = 0;
+  entry_heading_yaw_ = params_.exit_yaw_rad;
+  bool entry_nav_enable = false;
+  (void)config().blackboard->get("mf_preselect_entry2_nav_enable",
+                                 entry_nav_enable);
+  if (entry_nav_enable) {
+    double grid_heading_yaw = entry_heading_yaw_;
+    if (config().blackboard->get("grid_heading_target_yaw_rad",
+                                 grid_heading_yaw) &&
+        std::isfinite(grid_heading_yaw)) {
+      entry_heading_yaw_ = normalizeAngle(grid_heading_yaw);
+    }
+  }
+  turn_target_yaw_ = entry_heading_yaw_;
   // 预选赛 XML 可以在本节点前放一个可选 NavToPose。进入本节点时按“已在 2 号
   // 入口预备姿态”处理，先看正前方是否已经有 R2 可夹取 KFS。
   writeBlackboardState("entry_detect_stair2");
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛流程启动：当前位置按 grid2 / 2号入口处理，入口导航已由行为树前置控制，最大夹取数=%d",
-              params_.max_pickup_count);
+              "梅林预选赛流程启动：当前位置按 grid2 / 2号入口处理，入口导航已由行为树前置控制，入口heading=%.3frad，最大夹取数=%d",
+              entry_heading_yaw_, params_.max_pickup_count);
   beginDetection(DetectMode::Entry2, params_.entry_detect_timeout_s);
   return BT::NodeStatus::RUNNING;
 }
@@ -326,7 +386,8 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
   case Phase::EntryClimb:
     // 首段从梅林外进入 grid2，复用本文内部台阶原语；完成后 AfterEntry
     // 会把 current_grid 写入黑板并进入中间列推进策略。
-    beginStair(StairMode::Climb, Phase::AfterEntry, "entry_climb");
+    beginStair(StairMode::Climb, Phase::AfterEntry, "entry_climb",
+               StairCenterPolicy::EntryGrid2Reference);
     return BT::NodeStatus::RUNNING;
 
   case Phase::AfterEntry:
@@ -424,8 +485,15 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return BT::NodeStatus::RUNNING;
 
   case Phase::FakeAvoidClimb:
+    if (const auto target_grid =
+            MfPreselectionLogicResult::fakeAvoidanceTargetGrid(current_grid_,
+                                                               pickup_source_)) {
+      fake_avoid_target_grid_ = *target_grid;
+    } else {
+      return fail("invalid_fake_avoid_target_grid");
+    }
     beginStair(StairMode::Climb, Phase::FakeAvoidAlignExit,
-               "fake_avoid_climb");
+               "fake_avoid_climb", StairCenterPolicy::FakeAvoidTargetGrid);
     return BT::NodeStatus::RUNNING;
 
   case Phase::FakeAvoidAlignExit:
@@ -497,7 +565,8 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
                 transition_height_delta_ > 0 ? "上阶梯" : "下阶梯");
     beginStair(transition_height_delta_ > 0 ? StairMode::Climb
                                             : StairMode::Descend,
-               Phase::AfterEntry, "grid_transition");
+               Phase::AfterEntry, "grid_transition",
+               StairCenterPolicy::TransitionTargetGrid);
     stair_next_phase_ = Phase::AfterEntry;
     phase_ = Phase::StairPrimitive;
     return BT::NodeStatus::RUNNING;
@@ -534,7 +603,8 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return BT::NodeStatus::RUNNING;
 
   case Phase::Row4DirectDescend:
-    beginStair(StairMode::Descend, Phase::FinalStop, "row4_direct_descend");
+    beginStair(StairMode::Descend, Phase::FinalStop, "row4_direct_descend",
+               StairCenterPolicy::FinalExitVirtual);
     return BT::NodeStatus::RUNNING;
 
   case Phase::DirectExitDrive:
@@ -572,6 +642,8 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return tickZeroHold();
   case Phase::StairPrimitive:
     return tickStair();
+  case Phase::CenterAlign:
+    return tickCenterAlign();
 
   case Phase::Done:
     publishStop();
@@ -612,10 +684,16 @@ bool MfPreselectionFlowAction::setupRuntime() {
     RCLCPP_ERROR(node_->get_logger(), "梅林预选赛: 黑板缺少 stair_params");
     return false;
   }
+  if (!config().blackboard->get("mf_center_params", center_params_)) {
+    RCLCPP_ERROR(node_->get_logger(), "梅林预选赛: 黑板缺少 mf_center_params");
+    return false;
+  }
   normalizeParams();
 
   cmd_pub_ =
       node_->create_publisher<TwistMsg>(params_.cmd_vel_topic, rclcpp::QoS(10));
+  center_cmd_pub_ = node_->create_publisher<TwistMsg>(
+      center_params_.cmd_vel_topic, rclcpp::QoS(10));
   send_client_ = node_->create_client<SendCommandSrv>(params_.send_command_service);
   // command_feedback 同时承担两类信息：
   // 1. 台阶激光事件计数，tickStair() 只看相对 baseline 是否增长；
@@ -658,8 +736,14 @@ bool MfPreselectionFlowAction::setupRuntime() {
         params_.odom_topic, rclcpp::QoS(rclcpp::KeepLast(10)),
         [this](const OdomMsg::SharedPtr msg) { handleOdom(msg); });
   }
+  if (!center_params_.odom_topic.empty()) {
+    center_odom_sub_ = node_->create_subscription<OdomMsg>(
+        center_params_.odom_topic, rclcpp::QoS(rclcpp::KeepLast(10)),
+        [this](const OdomMsg::SharedPtr msg) { handleCenterOdom(msg); });
+  }
 
   has_odom_ = false;
+  has_center_odom_ = false;
   // generation 每次启动或释放都会递增；异步 service 回调先检查 token，
   // 防止流程 halt 后旧 future 回调写回新一轮状态。
   command_generation_.fetch_add(1, std::memory_order_relaxed);
@@ -667,8 +751,10 @@ bool MfPreselectionFlowAction::setupRuntime() {
   config().blackboard->set("mf_preselect_pickup_source", std::string("none"));
   config().blackboard->set("mf_preselect_done", false);
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛运行接口就绪：cmd_vel=%s odom=%s command_service=%s feedback=%s kfs_approach_speed=%.3fm/s kfs_arm_reach=%.3fm kfs_approach_timeout=%.2fs",
+              "梅林预选赛运行接口就绪：cmd_vel=%s odom=%s center_cmd_vel=%s center_odom=%s command_service=%s feedback=%s kfs_approach_speed=%.3fm/s kfs_arm_reach=%.3fm kfs_approach_timeout=%.2fs",
               params_.cmd_vel_topic.c_str(), params_.odom_topic.c_str(),
+              center_params_.cmd_vel_topic.c_str(),
+              center_params_.odom_topic.c_str(),
               params_.send_command_service.c_str(), params_.feedback_topic.c_str(),
               params_.kfs_approach_speed_mps, params_.kfs_grab_distance_m,
               params_.kfs_approach_timeout_s);
@@ -716,19 +802,23 @@ void MfPreselectionFlowAction::releaseRuntime() {
   // releaseRuntime() 必须可重入：onHalted()、fail()、析构和 Done 分支都可能调用。
   // 先停车再释放 publisher/client/subscription，保证最后一个可发布动作是零速。
   publishStop();
+  publishCenterStop();
   if (vision_) {
     vision_->stop();
     vision_.reset();
   }
   command_generation_.fetch_add(1, std::memory_order_relaxed);
   feedback_sub_.reset();
+  center_odom_sub_.reset();
   odom_sub_.reset();
   send_client_.reset();
+  center_cmd_pub_.reset();
   cmd_pub_.reset();
   node_ = nullptr;
   phase_ = Phase::Done;
   detection_active_ = false;
   direct_exit_move_active_ = false;
+  center_target_ready_ = false;
   pending_grab_commit_ = false;
   pending_grab_source_ = MfPreselectionPickupSource::None;
   pending_grab_target_.reset();
@@ -820,6 +910,8 @@ void MfPreselectionFlowAction::normalizeParams() {
       std::max(0.0, std::abs(params_.heading_max_speed_radps));
   params_.path_r1_lost_wait_timeout_s =
       std::max(0.0, params_.path_r1_lost_wait_timeout_s);
+  params_.final_exit_center_offset_m =
+      std::max(0.0, finiteAbsOr(params_.final_exit_center_offset_m, 1.2));
 
   stair_params_.command_timeout_s =
       std::max(kMinTimeoutS, stair_params_.command_timeout_s);
@@ -838,6 +930,39 @@ void MfPreselectionFlowAction::normalizeParams() {
                stair_params_.climb_rear_drive_fast_speed_mps);
   stair_params_.descend_drive_speed_mps =
       std::abs(stair_params_.descend_drive_speed_mps);
+
+  center_params_.grid_step_m =
+      std::max(kMinSpeed, finiteAbsOr(center_params_.grid_step_m, 1.2));
+  center_params_.entry_forward_offset_m = std::max(
+      0.0, std::isfinite(center_params_.entry_forward_offset_m)
+               ? center_params_.entry_forward_offset_m
+               : 0.25);
+  center_params_.entry_forward_speed_mps = std::max(
+      kMinSpeed, finiteAbsOr(center_params_.entry_forward_speed_mps, 0.04));
+  center_params_.xy_kp =
+      std::max(0.0, std::isfinite(center_params_.xy_kp)
+                        ? center_params_.xy_kp
+                        : 0.8);
+  center_params_.min_speed_mps =
+      std::max(0.0, finiteAbsOr(center_params_.min_speed_mps, 0.010));
+  center_params_.max_speed_mps =
+      std::max(center_params_.min_speed_mps,
+               finiteAbsOr(center_params_.max_speed_mps, 0.050));
+  center_params_.xy_tolerance_m =
+      std::max(kMinSpeed, finiteAbsOr(center_params_.xy_tolerance_m, 0.035));
+  center_params_.yaw_kp =
+      std::max(0.0, std::isfinite(center_params_.yaw_kp)
+                        ? center_params_.yaw_kp
+                        : 1.2);
+  center_params_.yaw_max_speed_radps =
+      std::max(0.0, finiteAbsOr(center_params_.yaw_max_speed_radps, 0.30));
+  center_params_.yaw_tolerance_deg =
+      std::max(0.0, finiteAbsOr(center_params_.yaw_tolerance_deg, 3.0));
+  center_params_.stable_ticks = std::max(1, center_params_.stable_ticks);
+  center_params_.odom_timeout_s =
+      std::max(kMinTimeoutS, finiteAbsOr(center_params_.odom_timeout_s, 0.5));
+  center_params_.align_timeout_s =
+      std::max(kMinTimeoutS, finiteAbsOr(center_params_.align_timeout_s, 8.0));
 }
 
 BT::NodeStatus MfPreselectionFlowAction::fail(const std::string &reason) {
@@ -854,6 +979,27 @@ BT::NodeStatus MfPreselectionFlowAction::fail(const std::string &reason) {
 }
 
 void MfPreselectionFlowAction::publishStop() { publishTwist(0.0, 0.0, 0.0); }
+
+void MfPreselectionFlowAction::publishCenterStop() {
+  publishCenterTwist(0.0, 0.0, 0.0);
+}
+
+void MfPreselectionFlowAction::publishCenterTwist(double vx, double vy,
+                                                  double wz) {
+  if (!center_cmd_pub_) {
+    publishTwist(vx, vy, wz);
+    return;
+  }
+  TwistMsg msg;
+  msg.linear.x = vx;
+  msg.linear.y = vy;
+  msg.angular.z = wz;
+  center_cmd_pub_->publish(msg);
+  if (node_) {
+    last_cmd_publish_ = node_->now();
+    has_last_cmd_publish_ = true;
+  }
+}
 
 void MfPreselectionFlowAction::publishTwist(double vx, double vy, double wz) {
   // 本树内所有相对移动、转向和台阶动作都走同一个 cmd_vel publisher。
@@ -884,6 +1030,17 @@ bool MfPreselectionFlowAction::odomReady() const {
   return age_s <= params_.odom_timeout_s;
 }
 
+bool MfPreselectionFlowAction::centerOdomReady() const {
+  if (!has_center_odom_) {
+    return false;
+  }
+  const auto age_s =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                    last_center_odom_tp_)
+          .count();
+  return age_s <= center_params_.odom_timeout_s;
+}
+
 void MfPreselectionFlowAction::handleOdom(const OdomMsg::SharedPtr msg) {
   // 预选赛只需要 odom 平面位姿：相对移动用 x/y 差，转向和直行 heading hold 用 yaw。
   if (!msg) {
@@ -894,6 +1051,17 @@ void MfPreselectionFlowAction::handleOdom(const OdomMsg::SharedPtr msg) {
   odom_yaw_ = yawFromQuaternion(msg->pose.pose.orientation);
   has_odom_ = true;
   last_odom_tp_ = std::chrono::steady_clock::now();
+}
+
+void MfPreselectionFlowAction::handleCenterOdom(const OdomMsg::SharedPtr msg) {
+  if (!msg) {
+    return;
+  }
+  center_odom_x_ = msg->pose.pose.position.x;
+  center_odom_y_ = msg->pose.pose.position.y;
+  center_odom_yaw_ = yawFromQuaternion(msg->pose.pose.orientation);
+  has_center_odom_ = true;
+  last_center_odom_tp_ = std::chrono::steady_clock::now();
 }
 
 double MfPreselectionFlowAction::yawFromQuaternion(
@@ -1154,6 +1322,8 @@ const char *MfPreselectionFlowAction::phaseText(Phase phase) {
     return "kfs_open_loop_approach";
   case Phase::GrabVerify:
     return "grab_verify";
+  case Phase::CenterAlign:
+    return "center_align";
   case Phase::Done:
     return "done";
   default:
@@ -1996,6 +2166,289 @@ BT::NodeStatus MfPreselectionFlowAction::tickZeroHold() {
   return BT::NodeStatus::RUNNING;
 }
 
+bool MfPreselectionFlowAction::beginEntryCenterAdvance(Phase next_phase,
+                                                       std::string label) {
+  center_policy_ = StairCenterPolicy::EntryGrid2Reference;
+  center_next_phase_ = next_phase;
+  center_label_ = std::move(label);
+  center_target_grid_ = 2;
+  center_target_yaw_ = normalizeAngle(entry_heading_yaw_);
+  center_stable_ticks_ = 0;
+  center_target_ready_ = false;
+  center_waiting_odom_logged_ = false;
+  setCenterError("");
+  writeBlackboardState("entry_center_align");
+  if (config().blackboard) {
+    config().blackboard->set("mf_center_target_grid", center_target_grid_);
+  }
+  if (node_) {
+    phase_start_ = node_->now();
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛开始入口格中心前进：%s，reference_grid=2 yaw=%.3f offset=%.3fm",
+                center_label_.c_str(), center_target_yaw_,
+                center_params_.entry_forward_offset_m);
+  }
+  phase_ = Phase::CenterAlign;
+  return true;
+}
+
+bool MfPreselectionFlowAction::beginGridCenterAlign(int target_grid,
+                                                    double target_yaw_rad,
+                                                    Phase next_phase,
+                                                    std::string label) {
+  if (!validGrid(target_grid)) {
+    return false;
+  }
+  center_policy_ = StairCenterPolicy::TransitionTargetGrid;
+  center_next_phase_ = next_phase;
+  center_label_ = std::move(label);
+  center_target_grid_ = target_grid;
+  center_target_yaw_ = normalizeAngle(target_yaw_rad);
+  center_stable_ticks_ = 0;
+  center_target_ready_ = false;
+  center_waiting_odom_logged_ = false;
+  setCenterError("");
+  if (!computeGridCenterFromReference(target_grid, center_target_x_,
+                                      center_target_y_)) {
+    setCenterError("missing_center_reference");
+    return false;
+  }
+  center_target_ready_ = true;
+  writeCenterTargetBlackboard();
+  writeBlackboardState("grid_center_align");
+  if (node_) {
+    phase_start_ = node_->now();
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛开始格中心归位：%s，grid%d x=%.3f y=%.3f yaw=%.3f",
+                center_label_.c_str(), center_target_grid_, center_target_x_,
+                center_target_y_, center_target_yaw_);
+  }
+  phase_ = Phase::CenterAlign;
+  return true;
+}
+
+bool MfPreselectionFlowAction::beginFinalExitCenterAlign(Phase next_phase,
+                                                        std::string label) {
+  int reference_grid = 0;
+  double reference_x = 0.0;
+  double reference_y = 0.0;
+  double reference_yaw = 0.0;
+  if (!readCenterReference(reference_grid, reference_x, reference_y,
+                           reference_yaw) ||
+      !computeGridCenterFromReference(current_grid_, reference_x,
+                                      reference_y)) {
+    setCenterError("missing_final_exit_center_reference");
+    return false;
+  }
+  if (!MfPreselectionLogicResult::finalExitCenterTarget(
+          reference_x, reference_y, turn_target_yaw_,
+          params_.final_exit_center_offset_m, center_target_x_,
+          center_target_y_)) {
+    setCenterError("invalid_final_exit_center_target");
+    return false;
+  }
+
+  center_policy_ = StairCenterPolicy::FinalExitVirtual;
+  center_next_phase_ = next_phase;
+  center_label_ = std::move(label);
+  center_target_grid_ = kFinalExitVirtualGrid;
+  center_target_yaw_ = normalizeAngle(turn_target_yaw_);
+  center_stable_ticks_ = 0;
+  center_target_ready_ = true;
+  center_waiting_odom_logged_ = false;
+  setCenterError("");
+  writeCenterTargetBlackboard();
+  writeBlackboardState("final_exit_center_align");
+  if (node_) {
+    phase_start_ = node_->now();
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛开始最终离场虚拟归位：%s，从grid%d中心外推 %.3fm 到 x=%.3f y=%.3f yaw=%.3f",
+                center_label_.c_str(), current_grid_,
+                params_.final_exit_center_offset_m, center_target_x_,
+                center_target_y_, center_target_yaw_);
+  }
+  phase_ = Phase::CenterAlign;
+  return true;
+}
+
+BT::NodeStatus MfPreselectionFlowAction::tickCenterAlign() {
+  if (!node_) {
+    return fail("center_runtime_missing");
+  }
+  if ((node_->now() - phase_start_).seconds() >
+      center_params_.align_timeout_s) {
+    return fail("center_align_timeout_" + center_label_);
+  }
+  if (!centerOdomReady()) {
+    center_stable_ticks_ = 0;
+    publishCenterStop();
+    if (!center_waiting_odom_logged_) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "梅林预选赛格中心归位等待odom新鲜：%s，odom_topic=%s",
+                  center_label_.c_str(), center_params_.odom_topic.c_str());
+      center_waiting_odom_logged_ = true;
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+  if (center_policy_ == StairCenterPolicy::EntryGrid2Reference &&
+      !center_target_ready_) {
+    if (!prepareEntryCenterTarget()) {
+      return fail("entry_center_target_prepare_failed");
+    }
+  }
+
+  const double error_x = center_target_x_ - center_odom_x_;
+  const double error_y = center_target_y_ - center_odom_y_;
+  const double distance = std::hypot(error_x, error_y);
+  const double yaw_error = normalizeAngle(center_target_yaw_ - center_odom_yaw_);
+  if (config().blackboard) {
+    config().blackboard->set("mf_center_error_x", error_x);
+    config().blackboard->set("mf_center_error_y", error_y);
+    config().blackboard->set("mf_center_error_distance", distance);
+  }
+
+  const double yaw_tolerance_rad = center_params_.yaw_tolerance_deg * kDeg2Rad;
+  if (distance <= center_params_.xy_tolerance_m &&
+      std::abs(yaw_error) <= yaw_tolerance_rad) {
+    ++center_stable_ticks_;
+    publishCenterStop();
+    if (center_stable_ticks_ >= center_params_.stable_ticks) {
+      if (center_policy_ == StairCenterPolicy::EntryGrid2Reference) {
+        writeCenterReference(2, center_target_x_, center_target_y_,
+                             center_target_yaw_);
+        current_grid_ = 2;
+        config().blackboard->set("current_grid", current_grid_);
+      }
+      setCenterError("");
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛格中心归位完成：%s，target_grid=%d error=%.3fm yaw_error=%.3frad",
+                  center_label_.c_str(), center_target_grid_, distance,
+                  yaw_error);
+      phase_ = center_next_phase_;
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+
+  center_stable_ticks_ = 0;
+  double body_vx = 0.0;
+  double body_vy = 0.0;
+  if (distance > center_params_.xy_tolerance_m) {
+    const double world_vx = center_params_.xy_kp * error_x;
+    const double world_vy = center_params_.xy_kp * error_y;
+    const double c = std::cos(center_odom_yaw_);
+    const double s = std::sin(center_odom_yaw_);
+    body_vx = c * world_vx + s * world_vy;
+    body_vy = -s * world_vx + c * world_vy;
+    double body_speed = std::hypot(body_vx, body_vy);
+    if (body_speed > center_params_.max_speed_mps && body_speed > 0.0) {
+      const double scale = center_params_.max_speed_mps / body_speed;
+      body_vx *= scale;
+      body_vy *= scale;
+      body_speed = center_params_.max_speed_mps;
+    }
+    if (body_speed < center_params_.min_speed_mps && body_speed > 1e-9) {
+      const double scale = center_params_.min_speed_mps / body_speed;
+      body_vx *= scale;
+      body_vy *= scale;
+    }
+  }
+  const double raw_wz = center_params_.yaw_kp * yaw_error;
+  const double wz = std::clamp(raw_wz, -center_params_.yaw_max_speed_radps,
+                               center_params_.yaw_max_speed_radps);
+  publishCenterTwist(body_vx, body_vy, wz);
+  return BT::NodeStatus::RUNNING;
+}
+
+bool MfPreselectionFlowAction::prepareEntryCenterTarget() {
+  if (!centerOdomReady()) {
+    return false;
+  }
+  center_target_x_ =
+      center_odom_x_ +
+      center_params_.entry_forward_offset_m * std::cos(center_target_yaw_);
+  center_target_y_ =
+      center_odom_y_ +
+      center_params_.entry_forward_offset_m * std::sin(center_target_yaw_);
+  center_target_ready_ = true;
+  writeCenterTargetBlackboard();
+  if (node_) {
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛入口格中心目标已生成：x=%.3f y=%.3f yaw=%.3f",
+                center_target_x_, center_target_y_, center_target_yaw_);
+  }
+  return true;
+}
+
+bool MfPreselectionFlowAction::readCenterReference(int &grid_id, double &x,
+                                                   double &y,
+                                                   double &yaw) const {
+  if (!config().blackboard) {
+    return false;
+  }
+  if (!config().blackboard->get("mf_center_reference_grid", grid_id) ||
+      !config().blackboard->get("mf_center_reference_x", x) ||
+      !config().blackboard->get("mf_center_reference_y", y) ||
+      !config().blackboard->get("mf_center_reference_yaw", yaw)) {
+    return false;
+  }
+  return validGrid(grid_id) && std::isfinite(x) && std::isfinite(y) &&
+         std::isfinite(yaw);
+}
+
+void MfPreselectionFlowAction::writeCenterReference(int grid_id, double x,
+                                                    double y, double yaw) {
+  if (!config().blackboard) {
+    return;
+  }
+  config().blackboard->set("mf_center_reference_grid", grid_id);
+  config().blackboard->set("mf_center_reference_x", x);
+  config().blackboard->set("mf_center_reference_y", y);
+  config().blackboard->set("mf_center_reference_yaw", normalizeAngle(yaw));
+  if (node_) {
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛记录grid%d中心参考：x=%.3f y=%.3f yaw=%.3f",
+                grid_id, x, y, normalizeAngle(yaw));
+  }
+}
+
+bool MfPreselectionFlowAction::computeGridCenterFromReference(
+    int target_grid, double &target_x, double &target_y) const {
+  int reference_grid = 0;
+  double reference_x = 0.0;
+  double reference_y = 0.0;
+  double reference_yaw = 0.0;
+  if (!validGrid(target_grid) ||
+      !readCenterReference(reference_grid, reference_x, reference_y,
+                           reference_yaw)) {
+    return false;
+  }
+  const int row_delta = gridRow(target_grid) - gridRow(reference_grid);
+  const int col_delta = gridCol(target_grid) - gridCol(reference_grid);
+  target_x = reference_x +
+             static_cast<double>(row_delta) * center_params_.grid_step_m;
+  target_y = reference_y -
+             static_cast<double>(col_delta) * center_params_.grid_step_m;
+  return std::isfinite(target_x) && std::isfinite(target_y);
+}
+
+void MfPreselectionFlowAction::writeCenterTargetBlackboard() const {
+  if (!config().blackboard) {
+    return;
+  }
+  config().blackboard->set("mf_center_target_grid", center_target_grid_);
+  config().blackboard->set("mf_center_target_x", center_target_x_);
+  config().blackboard->set("mf_center_target_y", center_target_y_);
+}
+
+void MfPreselectionFlowAction::setCenterError(
+    const std::string &reason) const {
+  if (!config().blackboard) {
+    return;
+  }
+  config().blackboard->set("mf_center_error", reason);
+  config().blackboard->set("mf_transition_error", reason);
+}
+
 bool MfPreselectionFlowAction::prepareTransitionTo(int target_grid) {
   // 格间转换仍以 MerlinMapManager 的静态深度表为准，只允许相邻中间列上/下
   // 一档高度。平地同高移动和跨多档高度都不是本预选赛链路的合法动作。
@@ -2035,7 +2488,7 @@ BT::NodeStatus MfPreselectionFlowAction::startTransitionTo(int target_grid) {
   return BT::NodeStatus::RUNNING;
 }
 
-void MfPreselectionFlowAction::continueAfterTransition() {
+bool MfPreselectionFlowAction::continueAfterTransition() {
   // current_grid 只在台阶原语完整成功后提交，避免中途失败时黑板误认为
   // 机器人已经到达目标格。
   current_grid_ = transition_target_grid_;
@@ -2044,18 +2497,30 @@ void MfPreselectionFlowAction::continueAfterTransition() {
   RCLCPP_INFO(node_->get_logger(),
               "梅林预选赛格间转换完成：当前grid=%d，直出模式=%s",
               current_grid_, direct_exit_mode_ ? "是" : "否");
+  const Phase next_phase = phaseAfterTransition();
+  if (!beginGridCenterAlign(current_grid_, turn_target_yaw_, next_phase,
+                            "grid_transition_center")) {
+    return false;
+  }
+  return true;
+}
+
+MfPreselectionFlowAction::Phase
+MfPreselectionFlowAction::phaseAfterTransition() const {
   if (direct_exit_mode_) {
     // 直出模式回到 AfterEntry 统一调度，让它仍能在下一格做前方守卫检测。
-    phase_ = Phase::AfterEntry;
-  } else if (current_grid_ == 5 || current_grid_ == 8) {
-    phase_ = Phase::RowScanTurnLeft;
-  } else if (current_grid_ == 11) {
-    phase_ = Phase::Row4ForcedTurn;
-  } else if (current_grid_ == 12) {
-    phase_ = Phase::Row4DirectDescendPrep;
-  } else {
-    phase_ = Phase::RowFrontDetect;
+    return Phase::AfterEntry;
   }
+  if (current_grid_ == 5 || current_grid_ == 8) {
+    return Phase::RowScanTurnLeft;
+  }
+  if (current_grid_ == 11) {
+    return Phase::Row4ForcedTurn;
+  }
+  if (current_grid_ == 12) {
+    return Phase::Row4DirectDescendPrep;
+  }
+  return Phase::RowFrontDetect;
 }
 
 double MfPreselectionFlowAction::transitionYaw(int from_grid, int target_grid,
@@ -2071,11 +2536,13 @@ double MfPreselectionFlowAction::transitionYaw(int from_grid, int target_grid,
 }
 
 void MfPreselectionFlowAction::beginStair(StairMode mode, Phase next_phase,
-                                          std::string label) {
+                                          std::string label,
+                                          StairCenterPolicy center_policy) {
   // 台阶动作在本节点内部复刻独立 StairClimb/StairDescend 的关键时序：
   // 推杆命令通过 service，轮组到位通过激光事件，直行阶段叠加 heading hold。
   stair_mode_ = mode;
   stair_next_phase_ = next_phase;
+  stair_center_policy_ = center_policy;
   stair_label_ = std::move(label);
   stair_phase_ = (mode == StairMode::Climb) ? StairPhase::ClimbSendFrontExtend
                                             : StairPhase::DescendDriveUntilRearEvent;
@@ -2306,12 +2773,34 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
     // 直接进入 beginStair() 指定的下一 phase。
     RCLCPP_INFO(node_->get_logger(), "梅林预选赛台阶动作完成：%s",
                 stair_label_.c_str());
-    if (stair_next_phase_ == Phase::AfterEntry &&
-        transition_target_grid_ != current_grid_) {
-      continueAfterTransition();
+    if (stair_center_policy_ == StairCenterPolicy::EntryGrid2Reference) {
+      if (!beginEntryCenterAdvance(stair_next_phase_, "entry_grid2_center")) {
+        return fail("entry_center_start_failed");
+      }
+    } else if (stair_center_policy_ ==
+               StairCenterPolicy::TransitionTargetGrid) {
+      if (!continueAfterTransition()) {
+        return fail("transition_center_start_failed");
+      }
+    } else if (stair_center_policy_ ==
+               StairCenterPolicy::FakeAvoidTargetGrid) {
+      current_grid_ = fake_avoid_target_grid_;
+      config().blackboard->set("current_grid", current_grid_);
+      writeBlackboardState("fake_avoid_transition_done");
+      if (!beginGridCenterAlign(current_grid_, turn_target_yaw_,
+                                stair_next_phase_, "fake_avoid_center")) {
+        return fail("fake_avoid_center_start_failed");
+      }
+    } else if (stair_center_policy_ ==
+               StairCenterPolicy::FinalExitVirtual) {
+      if (!beginFinalExitCenterAlign(stair_next_phase_,
+                                     "final_exit_virtual_center")) {
+        return fail("final_exit_center_start_failed");
+      }
     } else {
       phase_ = stair_next_phase_;
     }
+    stair_center_policy_ = StairCenterPolicy::None;
     break;
   }
   return BT::NodeStatus::RUNNING;
@@ -3066,6 +3555,9 @@ void loadMfPreselectionParams(rclcpp::Node &node,
   p.path_r1_lost_wait_timeout_s = node.declare_parameter<double>(
       "mf_preselect_path_r1_lost_wait_timeout_s",
       p.path_r1_lost_wait_timeout_s);
+  p.final_exit_center_offset_m = node.declare_parameter<double>(
+      "mf_preselect_final_exit_center_offset_m",
+      p.final_exit_center_offset_m);
 
   p.vision_config_file = resolveVisionConfig(p.vision_config_file);
   blackboard->set("mf_preselection_params", p);

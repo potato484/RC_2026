@@ -1,5 +1,6 @@
 #include <cstdint>
 #include <cmath>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -95,9 +96,63 @@ TEST(MfPreselectionLogic, FakeAvoidanceDirectionUsesPickupSource) {
                        rc26_decision::MfPreselectionPickupSource::None, params),
                    1.0);
   EXPECT_DOUBLE_EQ(rc26_decision::MfPreselectionLogicResult::fakeAvoidanceYaw(
-                       rc26_decision::MfPreselectionPickupSource::Stair3,
-                       params),
+      rc26_decision::MfPreselectionPickupSource::Stair3,
+      params),
                    -1.0);
+}
+
+TEST(MfPreselectionLogic, FakeAvoidanceTargetGridUsesSideColumns) {
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
+                2, rc26_decision::MfPreselectionPickupSource::Stair1),
+            1);
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
+                5, rc26_decision::MfPreselectionPickupSource::Stair1),
+            4);
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
+                8, rc26_decision::MfPreselectionPickupSource::Stair1),
+            7);
+
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
+                2, rc26_decision::MfPreselectionPickupSource::Stair3),
+            3);
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
+                5, rc26_decision::MfPreselectionPickupSource::Stair3),
+            6);
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
+                8, rc26_decision::MfPreselectionPickupSource::Stair3),
+            9);
+
+  EXPECT_FALSE(
+      rc26_decision::MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
+          0, rc26_decision::MfPreselectionPickupSource::Stair1)
+          .has_value());
+  EXPECT_FALSE(
+      rc26_decision::MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
+          1, rc26_decision::MfPreselectionPickupSource::Stair1)
+          .has_value());
+  EXPECT_FALSE(
+      rc26_decision::MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
+          3, rc26_decision::MfPreselectionPickupSource::Stair3)
+          .has_value());
+}
+
+TEST(MfPreselectionLogic, FinalExitCenterTargetUsesDescendDriveDirection) {
+  constexpr double kHalfPi = 1.57079632679489661923;
+  double target_x = 0.0;
+  double target_y = 0.0;
+  ASSERT_TRUE(rc26_decision::MfPreselectionLogicResult::finalExitCenterTarget(
+      10.0, 20.0, 0.0, 1.2, target_x, target_y));
+  EXPECT_NEAR(target_x, 8.8, 1e-9);
+  EXPECT_NEAR(target_y, 20.0, 1e-9);
+
+  ASSERT_TRUE(rc26_decision::MfPreselectionLogicResult::finalExitCenterTarget(
+      10.0, 20.0, -kHalfPi, -2.0, target_x, target_y));
+  EXPECT_NEAR(target_x, 10.0, 1e-9);
+  EXPECT_NEAR(target_y, 22.0, 1e-9);
+
+  EXPECT_FALSE(rc26_decision::MfPreselectionLogicResult::finalExitCenterTarget(
+      std::numeric_limits<double>::quiet_NaN(), 20.0, 0.0, 1.2, target_x,
+      target_y));
 }
 
 TEST(MfPreselectionLogic, GrabCommandFollowsHighSide) {
