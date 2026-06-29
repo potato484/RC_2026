@@ -102,7 +102,7 @@ r2_runtime:
       # ======================================================================
       mf_preselect_entry2_nav_enable: true      # 2号入口导航点未标定前关闭；关闭时默认机器人已在2号入口
       mf_preselect_entry2_nav_x: 2.4405             # 2号入口 Nav2 目标 x，占位待现场标定
-      mf_preselect_entry2_nav_y: -1.715           # 2号入口 Nav2 目标 y，占位待现场标定
+      mf_preselect_entry2_nav_y: -1.8           # 2号入口 Nav2 目标 y，占位待现场标定
       mf_preselect_entry2_nav_yaw: 0.0           # 2号入口预备朝向 yaw，占位待现场标定
       mf_preselect_entry2_nav_frame_id: "map"    # 2号入口目标坐标系
       mf_preselect_entry2_nav_timeout_sec: 180.0 # 入口 Nav2 超时，单位秒
@@ -145,7 +145,7 @@ r2_runtime:
       mf_preselect_odom_topic: "odom"            # 相对移动/转向闭环 odom 话题
       mf_preselect_send_command_service: "/mechanism/send_command" # 机构 raw transport service
       mf_preselect_feedback_topic: "/mechanism/command_feedback"   # 机构/台阶反馈 topic
-      mf_preselect_command_timeout_s: 3.0        # 机构命令 ACK/完成反馈超时，单位秒
+      mf_preselect_command_timeout_s: 5.0        # 机构命令 ACK/完成反馈超时，单位秒
       mf_preselect_arm_high_raise_command_id: 13 # 0x0D ARM_HIGH_RAISE，入口1/3阶梯高抬升
       mf_preselect_arm_high_raise_done_feedback_id: 9 # 0x09 ARM_HIGH_RAISE_DONE
       mf_preselect_arm_raise_command_id: 4       # 0x04 ARM_RAISE，低到高阶梯预调
@@ -157,8 +157,8 @@ r2_runtime:
 
       mf_preselect_entry_probe_left_distance_m: 1.2     # 2号入口向1号阶梯横移探测距离
       mf_preselect_entry_probe_right_sweep_distance_m: 2.4 # 从1号阶梯扫到3号阶梯横移距离
-      mf_preselect_entry_probe_return_distance_m: 1.2   # 从1/3号阶梯返回2号入口横移距离
-      mf_preselect_lateral_probe_speed_mps: 0.35        # 入口 Y 向平移探测速度绝对值
+      mf_preselect_entry_probe_return_distance_m: 1.0   # 从1/3号阶梯返回2号入口横移距离
+      mf_preselect_lateral_probe_speed_mps: 0.40        # 入口 Y 向平移探测速度绝对值
       mf_preselect_move_tolerance_m: 0.03               # 相对移动完成距离容差
       mf_preselect_move_timeout_s: 12.0                 # 单段相对移动超时，单位秒
       mf_preselect_direct_exit_drive_distance_m: 4.8    # 直出梅林相对前进距离，占位可现场调
@@ -183,7 +183,7 @@ r2_runtime:
       # ======================================================================
       # Grid heading 正式转向/对齐参数 —— 供独立 grid_heading 入口和 MF 格间动作复用
       # ======================================================================
-      grid_heading_direction: "left"                # 独立 grid_heading_tree 和 MF预选赛入口导航后选择的方向: forward | left | right | backward
+      grid_heading_direction: "forward"                # 独立 grid_heading_tree 和 MF预选赛入口导航后选择的方向: forward | left | right | backward
       grid_heading_forward_yaw_rad: 0.0             # 正前方向目标 yaw，单位 rad
       grid_heading_left_yaw_rad: 1.5708             # 左 90° 目标 yaw，单位 rad
       grid_heading_right_yaw_rad: -1.5708           # 右 90° 目标 yaw，单位 rad
