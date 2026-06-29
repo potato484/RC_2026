@@ -14,6 +14,20 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import LifecycleNode, Node
 
 
+R2_D455_SERIAL_NO = '239222303644'
+
+
+def _normalize_serial_no(value: str) -> str:
+    serial = str(value).strip()
+    if serial in ('', "''", '""'):
+        return R2_D455_SERIAL_NO
+    if len(serial) >= 2 and serial[0] == serial[-1] and serial[0] in ("'", '"'):
+        serial = serial[1:-1].strip()
+    if serial.startswith('_'):
+        serial = serial[1:].strip()
+    return serial or R2_D455_SERIAL_NO
+
+
 def generate_launch_description():
     bringup_dir = get_package_share_directory('rc26_bringup')
     realsense_dir = get_package_share_directory('realsense2_camera')
@@ -34,8 +48,8 @@ def generate_launch_description():
     )
     declare_serial_no = DeclareLaunchArgument(
         'serial_no',
-        default_value="''",
-        description="RealSense serial number (empty to auto-select)",
+        default_value=R2_D455_SERIAL_NO,
+        description=f"RealSense serial number (default fixed R2 D455: {R2_D455_SERIAL_NO})",
     )
     declare_camera_name = DeclareLaunchArgument(
         'camera_name',
@@ -89,15 +103,13 @@ def generate_launch_description():
             lifecycle_params = {}
         use_lifecycle_node = bool(lifecycle_params.get('use_lifecycle_node', False))
 
-        # Minimal overrides (match previous wrapper behavior).
+        requested_serial_no = _normalize_serial_no(serial_no.perform(context))
         overrides = {
-            'serial_no': serial_no.perform(context),
+            'serial_no': requested_serial_no,
             'device_type': device_type.perform(context),
             'camera_name': camera_name.perform(context),
             'camera_namespace': camera_namespace.perform(context),
         }
-        if overrides['serial_no'] == "''":
-            overrides.pop('serial_no', None)
         if overrides['device_type'] == "''":
             overrides.pop('device_type', None)
 

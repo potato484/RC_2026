@@ -1,7 +1,8 @@
 <!--
   梅林预选 2 号入口 NavToPose 专用 Nav2 行为树。
-  本树只调用 MFPreselectEntryXPositiveYNegative controller，约束底盘速度为 x 正向、y 负向和很小角速度。
-  Recovery 只做 costmap clear，不启用会绕过该方向约束的运动恢复动作。
+  本树只调用 MFPreselectEntryXPositiveYNegative controller；该 controller 保留入口低速上限，
+  但不再硬限制车体系 x/y 方向，避免局部避障或微调时 DWB 没有可行轨迹。
+  Recovery 只做 costmap clear，不启用额外恢复运动动作。
 -->
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">

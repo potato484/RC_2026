@@ -85,6 +85,53 @@ TEST(MfPreselectionLogic, KfsAlignVelocityUsesToleranceLimitAndDirection) {
       rc26_decision::MfPreselectionLogicResult::kfsAlignVy(30, params), 0.015);
 }
 
+TEST(MfPreselectionLogic, KfsAlignOffsetUsesConfigurableTargetLine) {
+  rc26_decision::MfPreselectionParams params;
+
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::kfsAlignOffsetPx(
+                330.0, 640.0, params),
+            10);
+
+  params.kfs_align_target_offset_px = -40.0;
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::kfsAlignOffsetPx(
+                330.0, 640.0, params),
+            50);
+
+  params.kfs_align_target_offset_px = 40.0;
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::kfsAlignOffsetPx(
+                330.0, 640.0, params),
+            -30);
+}
+
+TEST(MfPreselectionLogic, KfsAlignOpenLoopDistanceUsesLockedPixelOffset) {
+  rc26_decision::MfPreselectionParams params;
+  params.kfs_align_tolerance_px = 20;
+  params.kfs_align_px_to_m = 0.0005;
+
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::kfsAlignOpenLoopDistance(0,
+                                                                         params),
+      0.0);
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::kfsAlignOpenLoopDistance(20,
+                                                                         params),
+      0.0);
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::kfsAlignOpenLoopDistance(200,
+                                                                         params),
+      0.10);
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::kfsAlignOpenLoopDistance(-200,
+                                                                         params),
+      0.10);
+
+  params.kfs_align_px_to_m = -0.001;
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::kfsAlignOpenLoopDistance(200,
+                                                                         params),
+      0.0);
+}
+
 TEST(MfPreselectionLogic, KfsOpenLoopDistanceAndDurationUseArmReach) {
   EXPECT_DOUBLE_EQ(rc26_decision::MfPreselectionLogicResult::kfsOpenLoopDistance(
                        0.55, 0.40),

@@ -28,6 +28,9 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node, PushRosNamespace
 
 
+R2_D455_SERIAL_NO = '239222303644'
+
+
 def _launch_bool(value):
     return str(bool(value)).lower()
 
@@ -199,7 +202,7 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2
 
     use_decision = _parse_bool(_launch_value(context, 'use_decision') or 'true')
     use_realsense = _parse_bool(_launch_value(context, 'use_realsense'))
-    realsense_serial_no = _launch_value(context, 'realsense_serial_no') or "''"
+    realsense_serial_no = _launch_value(context, 'realsense_serial_no') or R2_D455_SERIAL_NO
     realsense_config_file = _select_str(
         context,
         'realsense_config_file',
@@ -394,6 +397,9 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2
             launch_arguments={
                 'serial_no': realsense_serial_no,
                 'config_file': realsense_config_file,
+                # 保持与 rc26_vision/test_kfs_vision.launch.py 一致：RealSense 发布
+                # /camera/color/image_raw 等单层 topic，匹配 VisionInferenceManager 默认订阅。
+                'camera_namespace': '',
             }.items()
         )
         realsense_group = GroupAction(
@@ -544,8 +550,8 @@ def generate_launch_description():
             description='启动 RealSense D455 (realsense2_camera)'),
         DeclareLaunchArgument(
             'realsense_serial_no',
-            default_value="''",
-            description='RealSense serial number (empty to auto-select)'),
+            default_value=R2_D455_SERIAL_NO,
+            description=f'RealSense serial number (default fixed R2 D455: {R2_D455_SERIAL_NO})'),
         DeclareLaunchArgument(
             'realsense_config_file',
             default_value='',

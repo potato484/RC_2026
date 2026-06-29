@@ -190,14 +190,14 @@ controller_server: # Nav2 局部控制器服务器参数组
       BaseObstacle.scale: 0.02 # 障碍代价评分权重
       PathDist.scale: 20.0 # 偏离全局路径距离评分权重
       GoalDist.scale: 16.0 # 距离目标评分权重
-    MFPreselectEntryXPositiveYNegative: # 梅林预选入口 x 正 y 负受限 DWB 控制器参数组
-      # 梅林预选 2 号入口 NavToPose 专用 DWB：只采样车体系 x 正向、y 负向和很小角速度。
+    MFPreselectEntryXPositiveYNegative: # 梅林预选入口 NavToPose DWB 控制器参数组
+      # 梅林预选 2 号入口 NavToPose 专用 DWB：保留低速上限，但不再硬限制车体系 x/y 方向。
       plugin: dwb_core::DWBLocalPlanner # 使用 DWB 局部规划器插件
       debug_trajectory_details: false # 是否输出 DWB 轨迹评分调试细节
-      min_vel_x: 0.0 # x 方向最小采样速度，单位 m/s
+      min_vel_x: -0.20 # x 方向最小采样速度，单位 m/s
       max_vel_x: 0.25 # x 方向最大采样速度，单位 m/s
       min_vel_y: -0.25 # y 方向最小采样速度，单位 m/s
-      max_vel_y: 0.0 # y 方向最大采样速度，单位 m/s
+      max_vel_y: 0.25 # y 方向最大采样速度，单位 m/s
       max_vel_theta: 0.45 # 最大角速度采样值，单位 rad/s
       min_speed_xy: 0.0 # 平面合速度最小值，单位 m/s
       max_speed_xy: 0.35 # 平面合速度最大值，单位 m/s

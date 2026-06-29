@@ -5,7 +5,10 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <numeric>
 #include <sstream>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
@@ -32,6 +35,7 @@ constexpr int kRegistrationPeriodMs = 500;
 constexpr int kTransformPeriodMs = 50;
 constexpr double kTfTimeoutSec = 1.0;
 constexpr double kBadCovScale = 25.0;
+constexpr double kRadToDeg = 180.0 / M_PI;
 constexpr double kSacIaMinSampleDistance = 0.1;
 constexpr int kSacIaCorrespondenceRandomness = 50;
 constexpr int kSacIaNumSamples = 5;
@@ -41,7 +45,8 @@ std::string boolText(bool value) {
     return value ? "true" : "false";
 }
 
-void finalizeCloud(pcl::PointCloud<pcl::PointXYZ>& cloud) {
+template <typename PointT>
+void finalizeCloud(pcl::PointCloud<PointT>& cloud) {
     cloud.width = static_cast<uint32_t>(cloud.points.size());
     cloud.height = 1;
     cloud.is_dense = false;
@@ -97,6 +102,12 @@ std::string diagnosticHumanMessage(const std::string& reason,
     }
     if (reason == "no_accumulated_cloud") {
         return "暂时没有收到 registered_scan，map->odom 保持上一次结果。";
+    }
+    if (reason == "local_tracking_waiting_for_initial_pose") {
+        return "局部跟踪等待可信初值，需等待开局重定位成功或由 initialpose 接管。";
+    }
+    if (reason == "local_target_insufficient") {
+        return "初值附近局部地图点数不足，拒绝退回整图盲配准，map->odom 保持上一次结果。";
     }
     if (reason == "insufficient_source_points") {
         return "实时点云下采样后点数太少，本次定位不更新。";
@@ -169,9 +180,26 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("gicp_max_iterations", gicp_max_iterations_);
     this->declare_parameter("min_inliers", min_inliers_);
     this->declare_parameter("max_normalized_error", max_normalized_error_);
+    this->declare_parameter("require_initial_pose_for_local_tracking", require_initial_pose_for_local_tracking_);
+    this->declare_parameter("local_target_enable", local_target_enable_);
+    this->declare_parameter("local_target_radius_m", local_target_radius_m_);
+    this->declare_parameter("local_target_min_points", local_target_min_points_);
+    this->declare_parameter("registration_jump_gate_enable", registration_jump_gate_enable_);
+    this->declare_parameter("max_registration_translation_delta_m", max_registration_translation_delta_m_);
+    this->declare_parameter("max_registration_z_delta_m", max_registration_z_delta_m_);
+    this->declare_parameter("max_registration_yaw_delta_rad", max_registration_yaw_delta_rad_);
+    this->declare_parameter("registration_smoothing_enable", registration_smoothing_enable_);
+    this->declare_parameter("registration_smoothing_alpha", registration_smoothing_alpha_);
     this->declare_parameter("startup_relocalization_enable", startup_relocalization_enable_);
     this->declare_parameter("startup_collect_ms", startup_collect_ms_);
     this->declare_parameter("startup_leaf_size", startup_leaf_size_);
+    this->declare_parameter("startup_global_grid_enable", startup_global_grid_enable_);
+    this->declare_parameter("startup_global_grid_resolution", startup_global_grid_resolution_);
+    this->declare_parameter("startup_global_grid_yaw_step_deg", startup_global_grid_yaw_step_deg_);
+    this->declare_parameter("startup_global_grid_max_candidates", startup_global_grid_max_candidates_);
+    this->declare_parameter("startup_global_grid_min_overlap_ratio", startup_global_grid_min_overlap_ratio_);
+    this->declare_parameter("startup_global_grid_max_normalized_error", startup_global_grid_max_normalized_error_);
+    this->declare_parameter("startup_global_grid_sac_fallback", startup_global_grid_sac_fallback_);
     this->declare_parameter("online_relocalization_enable", online_relocalization_enable_);
     this->declare_parameter("online_relocalization_trigger_after_failures",
                             online_relocalization_trigger_after_failures_);
@@ -197,9 +225,26 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->get_parameter("gicp_max_iterations", gicp_max_iterations_);
     this->get_parameter("min_inliers", min_inliers_);
     this->get_parameter("max_normalized_error", max_normalized_error_);
+    this->get_parameter("require_initial_pose_for_local_tracking", require_initial_pose_for_local_tracking_);
+    this->get_parameter("local_target_enable", local_target_enable_);
+    this->get_parameter("local_target_radius_m", local_target_radius_m_);
+    this->get_parameter("local_target_min_points", local_target_min_points_);
+    this->get_parameter("registration_jump_gate_enable", registration_jump_gate_enable_);
+    this->get_parameter("max_registration_translation_delta_m", max_registration_translation_delta_m_);
+    this->get_parameter("max_registration_z_delta_m", max_registration_z_delta_m_);
+    this->get_parameter("max_registration_yaw_delta_rad", max_registration_yaw_delta_rad_);
+    this->get_parameter("registration_smoothing_enable", registration_smoothing_enable_);
+    this->get_parameter("registration_smoothing_alpha", registration_smoothing_alpha_);
     this->get_parameter("startup_relocalization_enable", startup_relocalization_enable_);
     this->get_parameter("startup_collect_ms", startup_collect_ms_);
     this->get_parameter("startup_leaf_size", startup_leaf_size_);
+    this->get_parameter("startup_global_grid_enable", startup_global_grid_enable_);
+    this->get_parameter("startup_global_grid_resolution", startup_global_grid_resolution_);
+    this->get_parameter("startup_global_grid_yaw_step_deg", startup_global_grid_yaw_step_deg_);
+    this->get_parameter("startup_global_grid_max_candidates", startup_global_grid_max_candidates_);
+    this->get_parameter("startup_global_grid_min_overlap_ratio", startup_global_grid_min_overlap_ratio_);
+    this->get_parameter("startup_global_grid_max_normalized_error", startup_global_grid_max_normalized_error_);
+    this->get_parameter("startup_global_grid_sac_fallback", startup_global_grid_sac_fallback_);
     this->get_parameter("online_relocalization_enable", online_relocalization_enable_);
     this->get_parameter("online_relocalization_trigger_after_failures",
                         online_relocalization_trigger_after_failures_);
@@ -225,8 +270,19 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     gicp_max_iterations_ = std::max(1, gicp_max_iterations_);
     min_inliers_ = std::max(0, min_inliers_);
     max_normalized_error_ = std::max(kNearZero, max_normalized_error_);
+    local_target_radius_m_ = std::max(0.1, local_target_radius_m_);
+    local_target_min_points_ = std::max(kMinPointsForRegistration, local_target_min_points_);
+    max_registration_translation_delta_m_ = std::max(kNearZero, max_registration_translation_delta_m_);
+    max_registration_z_delta_m_ = std::max(kNearZero, max_registration_z_delta_m_);
+    max_registration_yaw_delta_rad_ = std::max(kNearZero, max_registration_yaw_delta_rad_);
+    registration_smoothing_alpha_ = std::clamp(registration_smoothing_alpha_, kNearZero, 1.0);
     startup_collect_ms_ = std::max(0, startup_collect_ms_);
     startup_leaf_size_ = std::max(0.05, startup_leaf_size_);
+    startup_global_grid_resolution_ = std::max(0.05, startup_global_grid_resolution_);
+    startup_global_grid_yaw_step_deg_ = std::clamp(startup_global_grid_yaw_step_deg_, 1.0, 90.0);
+    startup_global_grid_max_candidates_ = std::max(1, startup_global_grid_max_candidates_);
+    startup_global_grid_min_overlap_ratio_ = std::clamp(startup_global_grid_min_overlap_ratio_, 0.0, 1.0);
+    startup_global_grid_max_normalized_error_ = std::max(kNearZero, startup_global_grid_max_normalized_error_);
     online_relocalization_trigger_after_failures_ =
         std::max(1, online_relocalization_trigger_after_failures_);
     online_relocalization_cooldown_ms_ = std::max(0, online_relocalization_cooldown_ms_);
@@ -253,6 +309,8 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
                               Eigen::AngleAxisd(init_pose_[3], Eigen::Vector3d::UnitX()))
                                  .toRotationMatrix();
         previous_result_t_ = result_t_;
+        tracking_initialized_ = std::any_of(init_pose_.begin(), init_pose_.begin() + 6,
+                                            [](double value) { return std::abs(value) > kNearZero; });
     }
 
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
@@ -387,6 +445,83 @@ bool LocalizationNode::prepareStartupTarget() {
     return true;
 }
 
+LocalizationNode::RegistrationTargetView LocalizationNode::makeLocalRegistrationTarget(
+    const Eigen::Isometry3d& initial_guess) const {
+    RegistrationTargetView view;
+    if (!target_ready_ || !target_ || target_->empty() || !target_tree_) {
+        view.failure_reason = "target_not_ready";
+        return view;
+    }
+
+    if (!local_target_enable_) {
+        view.cloud = target_;
+        view.tree = target_tree_;
+        view.point_count = target_->size();
+        view.local_target_used = false;
+        return view;
+    }
+
+    const Eigen::Vector3d center = initial_guess.translation();
+    const double radius_sq = local_target_radius_m_ * local_target_radius_m_;
+    auto local_cloud = std::make_shared<pcl::PointCloud<pcl::PointCovariance>>();
+    local_cloud->reserve(target_->size());
+    for (const auto& point : target_->points) {
+        const double dx = static_cast<double>(point.x) - center.x();
+        const double dy = static_cast<double>(point.y) - center.y();
+        if (dx * dx + dy * dy <= radius_sq) {
+            local_cloud->push_back(point);
+        }
+    }
+    finalizeCloud(*local_cloud);
+
+    if (local_cloud->size() < static_cast<size_t>(local_target_min_points_)) {
+        view.failure_reason = "local_target_insufficient";
+        view.point_count = local_cloud->size();
+        return view;
+    }
+
+    auto local_tree = std::make_shared<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>>(
+        local_cloud, small_gicp::KdTreeBuilderOMP(num_threads_));
+    view.cloud = std::move(local_cloud);
+    view.tree = std::move(local_tree);
+    view.point_count = view.cloud->size();
+    view.local_target_used = true;
+    return view;
+}
+
+double LocalizationNode::yawDeltaRad(const Eigen::Isometry3d& from, const Eigen::Isometry3d& to) {
+    const Eigen::Matrix3d delta = from.rotation().transpose() * to.rotation();
+    return std::abs(std::atan2(delta(1, 0), delta(0, 0)));
+}
+
+Eigen::Isometry3d LocalizationNode::interpolateTransform(const Eigen::Isometry3d& from,
+                                                         const Eigen::Isometry3d& to,
+                                                         double alpha) {
+    alpha = std::clamp(alpha, 0.0, 1.0);
+    Eigen::Isometry3d out = Eigen::Isometry3d::Identity();
+    out.translation() = from.translation() + alpha * (to.translation() - from.translation());
+    Eigen::Quaterniond q_from(from.rotation());
+    Eigen::Quaterniond q_to(to.rotation());
+    if (q_from.dot(q_to) < 0.0) {
+        q_to.coeffs() *= -1.0;
+    }
+    out.linear() = q_from.slerp(alpha, q_to).normalized().toRotationMatrix();
+    return out;
+}
+
+void LocalizationNode::updateRegistrationDebug(double delta_translation_m, double delta_z_m,
+                                               double delta_yaw_rad, size_t active_target_points,
+                                               bool local_target_used,
+                                               const std::string& rejection_reason) {
+    std::lock_guard<std::mutex> lock(diagnostics_mutex_);
+    last_registration_delta_translation_m_ = delta_translation_m;
+    last_registration_delta_z_m_ = delta_z_m;
+    last_registration_delta_yaw_rad_ = delta_yaw_rad;
+    last_active_target_points_ = active_target_points;
+    last_local_target_used_ = local_target_used;
+    last_registration_rejection_reason_ = rejection_reason;
+}
+
 void LocalizationNode::registeredPcdCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
     if (!msg) {
         return;
@@ -398,6 +533,10 @@ void LocalizationNode::registeredPcdCallback(const sensor_msgs::msg::PointCloud2
     std::lock_guard<std::mutex> lock(cloud_mutex_);
     last_scan_time_ = rclcpp::Time(msg->header.stamp);
     current_scan_frame_id_ = msg->header.frame_id;
+    if (startup_relocalization_pending_ && !startup_first_cloud_seen_) {
+        startup_first_cloud_wall_ = std::chrono::steady_clock::now();
+        startup_first_cloud_seen_ = true;
+    }
 
     const size_t current_size = accumulated_cloud_->size();
     if (current_size >= kMaxAccumulatedPoints) {
@@ -447,6 +586,7 @@ void LocalizationNode::initialPoseCallback(const geometry_msgs::msg::PoseWithCov
             std::lock_guard<std::mutex> lock(result_mutex_);
             result_t_ = map_to_odom;
             previous_result_t_ = map_to_odom;
+            tracking_initialized_ = true;
             last_pose_cov_diag_ = kPoseCovDiag;
             pending_online_relocalization_result_ = false;
             startup_relocalization_pending_ = false;
@@ -487,16 +627,23 @@ void LocalizationNode::performRegistration() {
     consumePendingOnlineRelocalizationResult();
 
     if (startup_relocalization_pending_) {
-        const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                    std::chrono::steady_clock::now() - startup_begin_wall_)
-                                    .count();
         size_t accumulated_points = 0;
+        bool first_cloud_seen = false;
+        std::chrono::steady_clock::time_point first_cloud_wall;
         {
             std::lock_guard<std::mutex> lock(cloud_mutex_);
             accumulated_points = accumulated_cloud_->size();
+            first_cloud_seen = startup_first_cloud_seen_;
+            first_cloud_wall = startup_first_cloud_wall_;
         }
 
-        if (elapsed_ms < startup_collect_ms_ ||
+        const auto elapsed_ms =
+            first_cloud_seen
+                ? std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now() - first_cloud_wall)
+                      .count()
+                : 0;
+        if (!first_cloud_seen || elapsed_ms < startup_collect_ms_ ||
             accumulated_points < static_cast<size_t>(kMinPointsForRegistration)) {
             startup_relocalization_state_ = "collecting";
             publishDiagnostics("startup_relocalizing", diagnostic_msgs::msg::DiagnosticStatus::OK, false, false, 0,
@@ -552,31 +699,93 @@ void LocalizationNode::performRegistration() {
     small_gicp::estimate_covariances_omp(*source_, num_neighbors_, num_threads_);
 
     Eigen::Isometry3d initial_guess = Eigen::Isometry3d::Identity();
+    bool tracking_initialized = false;
     {
         std::lock_guard<std::mutex> lock(result_mutex_);
         initial_guess = previous_result_t_;
+        tracking_initialized = tracking_initialized_;
+    }
+
+    if (require_initial_pose_for_local_tracking_ && !tracking_initialized) {
+        {
+            std::lock_guard<std::mutex> lock(result_mutex_);
+            last_pose_cov_diag_ = scaledCovariance(kBadCovScale);
+        }
+        updateRegistrationDebug(std::numeric_limits<double>::infinity(),
+                                std::numeric_limits<double>::infinity(),
+                                std::numeric_limits<double>::infinity(), 0, false,
+                                "waiting_for_initial_pose");
+        noteLocalRegistrationFailure(cloud_to_register, "local_tracking_waiting_for_initial_pose");
+        publishDiagnostics("local_tracking_waiting_for_initial_pose", diagnostic_msgs::msg::DiagnosticStatus::WARN,
+                           false, false, 0, std::numeric_limits<double>::infinity(), source_points);
+        return;
+    }
+
+    const auto target_view = makeLocalRegistrationTarget(initial_guess);
+    if (!target_view.cloud || !target_view.tree) {
+        {
+            std::lock_guard<std::mutex> lock(result_mutex_);
+            last_pose_cov_diag_ = scaledCovariance(kBadCovScale);
+        }
+        updateRegistrationDebug(std::numeric_limits<double>::infinity(),
+                                std::numeric_limits<double>::infinity(),
+                                std::numeric_limits<double>::infinity(), target_view.point_count,
+                                target_view.local_target_used, target_view.failure_reason);
+        noteLocalRegistrationFailure(cloud_to_register, "local_target_insufficient");
+        publishDiagnostics("local_target_insufficient", diagnostic_msgs::msg::DiagnosticStatus::WARN, false, false,
+                           0, std::numeric_limits<double>::infinity(), source_points);
+        return;
     }
 
     registration_->reduction.num_threads = num_threads_;
     registration_->rejector.max_dist_sq = max_dist_sq_;
     registration_->optimizer.max_iterations = gicp_max_iterations_;
 
-    const auto result = registration_->align(*target_, *source_, *target_tree_, initial_guess);
+    const auto result = registration_->align(*target_view.cloud, *source_, *target_view.tree, initial_guess);
     const double normalized_error =
         (result.num_inliers > 0) ? (result.error / static_cast<double>(result.num_inliers))
                                  : std::numeric_limits<double>::infinity();
+    const Eigen::Vector3d delta_translation = result.T_target_source.translation() - initial_guess.translation();
+    const double delta_translation_m = delta_translation.head<2>().norm();
+    const double delta_z_m = std::abs(delta_translation.z());
+    const double delta_yaw_rad = yawDeltaRad(initial_guess, result.T_target_source);
+    const bool jump_gate_ok =
+        !registration_jump_gate_enable_ ||
+        (delta_translation_m <= max_registration_translation_delta_m_ &&
+         delta_z_m <= max_registration_z_delta_m_ &&
+         delta_yaw_rad <= max_registration_yaw_delta_rad_);
+    std::string rejection_reason = "none";
+    if (!result.converged) {
+        rejection_reason = "not_converged";
+    } else if (result.num_inliers < static_cast<size_t>(min_inliers_)) {
+        rejection_reason = "insufficient_inliers";
+    } else if (normalized_error > max_normalized_error_) {
+        rejection_reason = "high_normalized_error";
+    } else if (!jump_gate_ok) {
+        rejection_reason = "jump_gate";
+    }
+    updateRegistrationDebug(delta_translation_m, delta_z_m, delta_yaw_rad, target_view.point_count,
+                            target_view.local_target_used, rejection_reason);
     const bool accepted = result.converged && result.num_inliers >= static_cast<size_t>(min_inliers_) &&
-                          normalized_error <= max_normalized_error_;
+                          normalized_error <= max_normalized_error_ && jump_gate_ok;
 
     if (accepted) {
+        const Eigen::Isometry3d accepted_transform =
+            registration_smoothing_enable_
+                ? interpolateTransform(initial_guess, result.T_target_source, registration_smoothing_alpha_)
+                : result.T_target_source;
         {
             std::lock_guard<std::mutex> lock(result_mutex_);
-            result_t_ = result.T_target_source;
-            previous_result_t_ = result.T_target_source;
+            result_t_ = accepted_transform;
+            previous_result_t_ = accepted_transform;
+            tracking_initialized_ = true;
             last_pose_cov_diag_ = kPoseCovDiag;
         }
         RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                             "局部配准通过: 内点=%zu, 归一化误差=%.4f", result.num_inliers, normalized_error);
+                             "局部配准通过: 内点=%zu, 归一化误差=%.4f, 建议跳变=(xy=%.3f,z=%.3f,yaw=%.2fdeg), 平滑alpha=%.2f",
+                             result.num_inliers, normalized_error, delta_translation_m, delta_z_m,
+                             delta_yaw_rad * kRadToDeg,
+                             registration_smoothing_enable_ ? registration_smoothing_alpha_ : 1.0);
         {
             std::lock_guard<std::mutex> lock(online_relocalization_mutex_);
             consecutive_registration_failures_ = 0;
@@ -593,9 +802,13 @@ void LocalizationNode::performRegistration() {
             last_pose_cov_diag_ = scaledCovariance(kBadCovScale);
         }
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                             "局部配准未通过，map->odom 暂不更新: 收敛=%s, 内点=%zu/%d, 归一化误差=%.4f/%.4f",
+                             "局部配准未通过，map->odom 暂不更新: reason=%s, 收敛=%s, 内点=%zu/%d, 归一化误差=%.4f/%.4f, "
+                             "跳变=(xy=%.3f/%.3f,z=%.3f/%.3f,yaw=%.2f/%.2fdeg), target=%zu",
+                             rejection_reason.c_str(),
                              result.converged ? "是" : "否", result.num_inliers, min_inliers_, normalized_error,
-                             max_normalized_error_);
+                             max_normalized_error_, delta_translation_m, max_registration_translation_delta_m_,
+                             delta_z_m, max_registration_z_delta_m_, delta_yaw_rad * kRadToDeg,
+                             max_registration_yaw_delta_rad_ * kRadToDeg, target_view.point_count);
         noteLocalRegistrationFailure(cloud_to_register, "local_registration_frozen");
         publishDiagnostics("local_registration_frozen", diagnostic_msgs::msg::DiagnosticStatus::WARN,
                            result.converged, false, result.num_inliers, normalized_error, source_points);
@@ -894,6 +1107,7 @@ bool LocalizationNode::performStartupRelocalization(const pcl::PointCloud<pcl::P
     pcl::PointCloud<pcl::PointXYZ>::Ptr clean_source(new pcl::PointCloud<pcl::PointXYZ>());
     pcl::Indices indices;
     pcl::removeNaNFromPointCloud(*cloud_to_register, *clean_source, indices);
+    finalizeCloud(*clean_source);
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr startup_source(new pcl::PointCloud<pcl::PointXYZ>());
     pcl::VoxelGrid<pcl::PointXYZ> voxel;
@@ -901,6 +1115,7 @@ bool LocalizationNode::performStartupRelocalization(const pcl::PointCloud<pcl::P
                       static_cast<float>(startup_leaf_size_));
     voxel.setInputCloud(clean_source);
     voxel.filter(*startup_source);
+    finalizeCloud(*startup_source);
 
     const size_t startup_source_points = startup_source->size();
     if (startup_source_points < static_cast<size_t>(kMinPointsForRegistration)) {
@@ -911,6 +1126,21 @@ bool LocalizationNode::performStartupRelocalization(const pcl::PointCloud<pcl::P
         }
         publishDiagnostics("startup_relocalization_failed", diagnostic_msgs::msg::DiagnosticStatus::WARN, false, false,
                            0, std::numeric_limits<double>::infinity(), startup_source_points);
+        return false;
+    }
+
+    if (startup_global_grid_enable_ && performStartupGridRelocalization(clean_source, startup_source)) {
+        return true;
+    }
+
+    if (startup_global_grid_enable_ && !startup_global_grid_sac_fallback_) {
+        startup_relocalization_state_ = "failed_grid_quality";
+        {
+            std::lock_guard<std::mutex> lock(result_mutex_);
+            last_pose_cov_diag_ = scaledCovariance(kBadCovScale);
+        }
+        publishDiagnostics("startup_relocalization_failed", diagnostic_msgs::msg::DiagnosticStatus::WARN,
+                           false, false, 0, std::numeric_limits<double>::infinity(), startup_source_points);
         return false;
     }
 
@@ -996,6 +1226,7 @@ bool LocalizationNode::performStartupRelocalization(const pcl::PointCloud<pcl::P
         std::lock_guard<std::mutex> lock(result_mutex_);
         result_t_ = result.T_target_source;
         previous_result_t_ = result.T_target_source;
+        tracking_initialized_ = true;
         last_pose_cov_diag_ = kPoseCovDiag;
         startup_relocalization_state_ = "ok";
     }
@@ -1008,6 +1239,267 @@ bool LocalizationNode::performStartupRelocalization(const pcl::PointCloud<pcl::P
     return true;
 }
 
+bool LocalizationNode::performStartupGridRelocalization(
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr& clean_source,
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr& startup_source) {
+    if (!clean_source || clean_source->empty() || !startup_source || startup_source->empty() ||
+        !global_map_ || global_map_->empty() || !prepareTargetMap()) {
+        return false;
+    }
+
+    struct Cell {
+        int x{0};
+        int y{0};
+    };
+    struct Candidate {
+        Eigen::Isometry3d guess{Eigen::Isometry3d::Identity()};
+        int votes{0};
+        double overlap_ratio{0.0};
+        double yaw{0.0};
+    };
+    auto cellKey = [](int x, int y) {
+        return (static_cast<int64_t>(x) << 32) ^ (static_cast<int64_t>(y) & 0xffffffffLL);
+    };
+
+    double min_x = std::numeric_limits<double>::infinity();
+    double min_y = std::numeric_limits<double>::infinity();
+    double max_x = -std::numeric_limits<double>::infinity();
+    double max_y = -std::numeric_limits<double>::infinity();
+    for (const auto& p : global_map_->points) {
+        min_x = std::min(min_x, static_cast<double>(p.x));
+        min_y = std::min(min_y, static_cast<double>(p.y));
+        max_x = std::max(max_x, static_cast<double>(p.x));
+        max_y = std::max(max_y, static_cast<double>(p.y));
+    }
+    if (!std::isfinite(min_x) || !std::isfinite(min_y) || max_x <= min_x || max_y <= min_y) {
+        return false;
+    }
+
+    const double resolution = startup_global_grid_resolution_;
+    const int width = static_cast<int>(std::ceil((max_x - min_x) / resolution)) + 1;
+    const int height = static_cast<int>(std::ceil((max_y - min_y) / resolution)) + 1;
+    if (width <= 0 || height <= 0) {
+        return false;
+    }
+
+    std::unordered_set<int64_t> target_set;
+    target_set.reserve(global_map_->size());
+    std::vector<Cell> target_cells;
+    target_cells.reserve(global_map_->size());
+    for (const auto& p : global_map_->points) {
+        const int cx = static_cast<int>(std::floor((static_cast<double>(p.x) - min_x) / resolution));
+        const int cy = static_cast<int>(std::floor((static_cast<double>(p.y) - min_y) / resolution));
+        if (cx < 0 || cy < 0 || cx >= width || cy >= height) {
+            continue;
+        }
+        const int64_t key = cellKey(cx, cy);
+        if (target_set.insert(key).second) {
+            target_cells.push_back(Cell{cx, cy});
+        }
+    }
+    if (target_cells.empty()) {
+        return false;
+    }
+
+    std::vector<Eigen::Vector2d> source_xy;
+    source_xy.reserve(startup_source->size());
+    for (const auto& p : startup_source->points) {
+        if (std::isfinite(p.x) && std::isfinite(p.y)) {
+            source_xy.emplace_back(static_cast<double>(p.x), static_cast<double>(p.y));
+        }
+    }
+    if (source_xy.size() < static_cast<size_t>(kMinPointsForRegistration)) {
+        return false;
+    }
+
+    std::vector<Candidate> candidates;
+    const double yaw_step_rad = startup_global_grid_yaw_step_deg_ * M_PI / 180.0;
+    const int yaw_steps = std::max(1, static_cast<int>(std::round((2.0 * M_PI) / yaw_step_rad)));
+    const int max_votes_to_keep = std::max(startup_global_grid_max_candidates_ * 3, startup_global_grid_max_candidates_);
+
+    for (int yaw_index = 0; yaw_index < yaw_steps; ++yaw_index) {
+        const double yaw = -M_PI + yaw_index * (2.0 * M_PI / static_cast<double>(yaw_steps));
+        const double c = std::cos(yaw);
+        const double s = std::sin(yaw);
+
+        std::unordered_set<int64_t> source_rotated_set;
+        source_rotated_set.reserve(source_xy.size());
+        std::vector<Cell> source_cells;
+        source_cells.reserve(source_xy.size());
+        for (const auto& p : source_xy) {
+            const double rx = c * p.x() - s * p.y();
+            const double ry = s * p.x() + c * p.y();
+            const int cx = static_cast<int>(std::floor(rx / resolution));
+            const int cy = static_cast<int>(std::floor(ry / resolution));
+            const int64_t key = cellKey(cx, cy);
+            if (source_rotated_set.insert(key).second) {
+                source_cells.push_back(Cell{cx, cy});
+            }
+        }
+        if (source_cells.empty()) {
+            continue;
+        }
+
+        std::unordered_map<int64_t, int> votes;
+        votes.reserve(target_cells.size() * 2);
+        for (const auto& target_cell : target_cells) {
+            for (const auto& source_cell : source_cells) {
+                const int dx = target_cell.x - source_cell.x;
+                const int dy = target_cell.y - source_cell.y;
+                ++votes[cellKey(dx, dy)];
+            }
+        }
+
+        std::vector<std::pair<int64_t, int>> ranked_votes;
+        ranked_votes.reserve(votes.size());
+        for (const auto& item : votes) {
+            ranked_votes.push_back(item);
+        }
+        const int keep = std::min<int>(max_votes_to_keep, ranked_votes.size());
+        std::partial_sort(ranked_votes.begin(), ranked_votes.begin() + keep, ranked_votes.end(),
+                          [](const auto& a, const auto& b) { return a.second > b.second; });
+
+        for (int i = 0; i < keep; ++i) {
+            const int64_t key = ranked_votes[i].first;
+            const int dx = static_cast<int>(key >> 32);
+            const int dy = static_cast<int>(key & 0xffffffffLL);
+            const int votes_count = ranked_votes[i].second;
+            const double overlap_ratio =
+                static_cast<double>(votes_count) / static_cast<double>(std::max<size_t>(1, source_cells.size()));
+            if (overlap_ratio < startup_global_grid_min_overlap_ratio_) {
+                continue;
+            }
+
+            Eigen::Isometry3d guess = Eigen::Isometry3d::Identity();
+            guess.linear() = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+            guess.translation().x() = min_x + (static_cast<double>(dx) + 0.5) * resolution;
+            guess.translation().y() = min_y + (static_cast<double>(dy) + 0.5) * resolution;
+            guess.translation().z() = 0.0;
+            candidates.push_back(Candidate{guess, votes_count, overlap_ratio, yaw});
+        }
+    }
+
+    if (candidates.empty()) {
+        {
+            std::lock_guard<std::mutex> lock(diagnostics_mutex_);
+            last_startup_grid_candidates_ = 0;
+            last_startup_grid_best_votes_ = 0;
+            last_startup_grid_best_overlap_ = 0.0;
+            last_startup_grid_best_x_ = std::numeric_limits<double>::infinity();
+            last_startup_grid_best_y_ = std::numeric_limits<double>::infinity();
+            last_startup_grid_best_z_ = std::numeric_limits<double>::infinity();
+            last_startup_grid_best_yaw_rad_ = std::numeric_limits<double>::infinity();
+            last_startup_grid_best_converged_ = false;
+            last_startup_grid_best_inliers_ = 0;
+            last_startup_grid_best_normalized_error_ = std::numeric_limits<double>::infinity();
+            last_startup_grid_rejection_reason_ = "no_candidates";
+        }
+        RCLCPP_WARN(this->get_logger(), "开局全局栅格重定位未找到候选");
+        return false;
+    }
+
+    std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
+        return a.votes > b.votes;
+    });
+    if (candidates.size() > static_cast<size_t>(startup_global_grid_max_candidates_)) {
+        candidates.resize(static_cast<size_t>(startup_global_grid_max_candidates_));
+    }
+
+    auto source_gicp = small_gicp::voxelgrid_sampling_omp<pcl::PointCloud<pcl::PointXYZ>,
+                                                          pcl::PointCloud<pcl::PointCovariance>>(
+        *clean_source, registered_leaf_size_);
+    const size_t source_points = source_gicp ? source_gicp->size() : 0U;
+    if (!source_gicp || source_points < static_cast<size_t>(kMinPointsForRegistration)) {
+        return false;
+    }
+    small_gicp::estimate_covariances_omp(*source_gicp, num_neighbors_, num_threads_);
+
+    struct ResultView {
+        Candidate candidate;
+        Eigen::Isometry3d transform{Eigen::Isometry3d::Identity()};
+        bool converged{false};
+        size_t inliers{0};
+        double normalized_error{std::numeric_limits<double>::infinity()};
+    };
+    ResultView best;
+
+    small_gicp::Registration<small_gicp::GICPFactor, small_gicp::ParallelReductionOMP> registration;
+    registration.reduction.num_threads = num_threads_;
+    registration.rejector.max_dist_sq = max_dist_sq_;
+    registration.optimizer.max_iterations = gicp_max_iterations_;
+
+    for (const auto& candidate : candidates) {
+        const auto result = registration.align(*target_, *source_gicp, *target_tree_, candidate.guess);
+        const double normalized_error =
+            (result.num_inliers > 0) ? (result.error / static_cast<double>(result.num_inliers))
+                                     : std::numeric_limits<double>::infinity();
+        if (normalized_error < best.normalized_error) {
+            best.candidate = candidate;
+            best.transform = result.T_target_source;
+            best.converged = result.converged;
+            best.inliers = result.num_inliers;
+            best.normalized_error = normalized_error;
+        }
+    }
+
+    std::string grid_rejection_reason = "none";
+    if (!best.converged) {
+        grid_rejection_reason = "not_converged";
+    } else if (best.inliers < static_cast<size_t>(min_inliers_)) {
+        grid_rejection_reason = "insufficient_inliers";
+    } else if (best.normalized_error > startup_global_grid_max_normalized_error_) {
+        grid_rejection_reason = "high_normalized_error";
+    }
+    const double best_yaw_rad = std::atan2(best.transform.rotation()(1, 0), best.transform.rotation()(0, 0));
+    {
+        std::lock_guard<std::mutex> lock(diagnostics_mutex_);
+        last_startup_grid_candidates_ = candidates.size();
+        last_startup_grid_best_votes_ = best.candidate.votes;
+        last_startup_grid_best_overlap_ = best.candidate.overlap_ratio;
+        last_startup_grid_best_x_ = best.transform.translation().x();
+        last_startup_grid_best_y_ = best.transform.translation().y();
+        last_startup_grid_best_z_ = best.transform.translation().z();
+        last_startup_grid_best_yaw_rad_ = best_yaw_rad;
+        last_startup_grid_best_converged_ = best.converged;
+        last_startup_grid_best_inliers_ = best.inliers;
+        last_startup_grid_best_normalized_error_ = best.normalized_error;
+        last_startup_grid_rejection_reason_ = grid_rejection_reason;
+    }
+
+    if (best.converged && best.inliers >= static_cast<size_t>(min_inliers_) &&
+        best.normalized_error <= startup_global_grid_max_normalized_error_) {
+        {
+            std::lock_guard<std::mutex> lock(result_mutex_);
+            result_t_ = best.transform;
+            previous_result_t_ = best.transform;
+            tracking_initialized_ = true;
+            last_pose_cov_diag_ = kPoseCovDiag;
+            startup_relocalization_state_ = "ok_grid";
+        }
+        RCLCPP_INFO(this->get_logger(),
+                    "开局全局栅格重定位成功: candidates=%zu, votes=%d, overlap=%.3f, "
+                    "candidate_yaw=%.1fdeg, pose=(%.3f, %.3f, %.3f, %.1fdeg), 内点=%zu, 归一化误差=%.4f",
+                    candidates.size(), best.candidate.votes, best.candidate.overlap_ratio,
+                    best.candidate.yaw * kRadToDeg, best.transform.translation().x(),
+                    best.transform.translation().y(), best.transform.translation().z(),
+                    best_yaw_rad * kRadToDeg, best.inliers, best.normalized_error);
+        publishDiagnostics("startup_relocalization_ok", diagnostic_msgs::msg::DiagnosticStatus::OK,
+                           best.converged, true, best.inliers, best.normalized_error, source_points);
+        return true;
+    }
+
+    RCLCPP_WARN(this->get_logger(),
+                "开局全局栅格重定位未通过: candidates=%zu, best_votes=%d, best_overlap=%.3f, best_yaw=%.1fdeg, "
+                "best_pose=(%.3f, %.3f, %.3f, %.1fdeg), reason=%s, 收敛=%s, 内点=%zu/%d, 归一化误差=%.4f/%.4f",
+                candidates.size(), best.candidate.votes, best.candidate.overlap_ratio,
+                best.candidate.yaw * kRadToDeg, best.transform.translation().x(),
+                best.transform.translation().y(), best.transform.translation().z(),
+                best_yaw_rad * kRadToDeg, grid_rejection_reason.c_str(),
+                best.converged ? "是" : "否", best.inliers, min_inliers_, best.normalized_error,
+                startup_global_grid_max_normalized_error_);
+    return false;
+}
+
 void LocalizationNode::consumePendingOnlineRelocalizationResult() {
     bool consumed = false;
     Eigen::Vector3d translation = Eigen::Vector3d::Zero();
@@ -1018,6 +1510,7 @@ void LocalizationNode::consumePendingOnlineRelocalizationResult() {
         }
         result_t_ = pending_online_relocalization_t_;
         previous_result_t_ = pending_online_relocalization_t_;
+        tracking_initialized_ = true;
         last_pose_cov_diag_ = pending_online_relocalization_cov_diag_;
         pending_online_relocalization_result_ = false;
         translation = result_t_.translation();
@@ -1110,6 +1603,48 @@ void LocalizationNode::publishDiagnostics(const std::string& reason, uint8_t lev
         last_relocalization_source = last_relocalization_source_;
         online_attempts = online_relocalization_attempts_;
     }
+    bool tracking_initialized = false;
+    {
+        std::lock_guard<std::mutex> lock(result_mutex_);
+        tracking_initialized = tracking_initialized_;
+    }
+    double delta_translation_m = std::numeric_limits<double>::infinity();
+    double delta_z_m = std::numeric_limits<double>::infinity();
+    double delta_yaw_rad = std::numeric_limits<double>::infinity();
+    size_t active_target_points = 0;
+    bool local_target_used = false;
+    std::string registration_rejection_reason;
+    size_t startup_grid_candidates = 0;
+    int startup_grid_best_votes = 0;
+    double startup_grid_best_overlap = 0.0;
+    double startup_grid_best_x = std::numeric_limits<double>::infinity();
+    double startup_grid_best_y = std::numeric_limits<double>::infinity();
+    double startup_grid_best_z = std::numeric_limits<double>::infinity();
+    double startup_grid_best_yaw_rad = std::numeric_limits<double>::infinity();
+    bool startup_grid_best_converged = false;
+    size_t startup_grid_best_inliers = 0;
+    double startup_grid_best_normalized_error = std::numeric_limits<double>::infinity();
+    std::string startup_grid_rejection_reason;
+    {
+        std::lock_guard<std::mutex> lock(diagnostics_mutex_);
+        delta_translation_m = last_registration_delta_translation_m_;
+        delta_z_m = last_registration_delta_z_m_;
+        delta_yaw_rad = last_registration_delta_yaw_rad_;
+        active_target_points = last_active_target_points_;
+        local_target_used = last_local_target_used_;
+        registration_rejection_reason = last_registration_rejection_reason_;
+        startup_grid_candidates = last_startup_grid_candidates_;
+        startup_grid_best_votes = last_startup_grid_best_votes_;
+        startup_grid_best_overlap = last_startup_grid_best_overlap_;
+        startup_grid_best_x = last_startup_grid_best_x_;
+        startup_grid_best_y = last_startup_grid_best_y_;
+        startup_grid_best_z = last_startup_grid_best_z_;
+        startup_grid_best_yaw_rad = last_startup_grid_best_yaw_rad_;
+        startup_grid_best_converged = last_startup_grid_best_converged_;
+        startup_grid_best_inliers = last_startup_grid_best_inliers_;
+        startup_grid_best_normalized_error = last_startup_grid_best_normalized_error_;
+        startup_grid_rejection_reason = last_startup_grid_rejection_reason_;
+    }
 
     diagnostic_msgs::msg::DiagnosticStatus status;
     status.name = "rc26_localization";
@@ -1130,11 +1665,41 @@ void LocalizationNode::publishDiagnostics(const std::string& reason, uint8_t lev
     add("inliers", std::to_string(inliers));
     add("min_inliers", std::to_string(min_inliers_));
     add("source_points", std::to_string(source_points));
+    add("tracking_initialized", boolText(tracking_initialized));
     add("max_normalized_error", std::to_string(max_normalized_error_));
     add("normalized_error", std::isfinite(normalized_error) ? std::to_string(normalized_error) : "inf");
+    add("active_target_points", std::to_string(active_target_points));
+    add("local_target_used", boolText(local_target_used));
+    add("registration_rejection_reason", registration_rejection_reason);
+    add("registration_delta_translation_m",
+        std::isfinite(delta_translation_m) ? std::to_string(delta_translation_m) : "inf");
+    add("registration_delta_z_m", std::isfinite(delta_z_m) ? std::to_string(delta_z_m) : "inf");
+    add("registration_delta_yaw_rad", std::isfinite(delta_yaw_rad) ? std::to_string(delta_yaw_rad) : "inf");
+    add("max_registration_translation_delta_m", std::to_string(max_registration_translation_delta_m_));
+    add("max_registration_z_delta_m", std::to_string(max_registration_z_delta_m_));
+    add("max_registration_yaw_delta_rad", std::to_string(max_registration_yaw_delta_rad_));
+    add("registration_smoothing_enable", boolText(registration_smoothing_enable_));
+    add("registration_smoothing_alpha", std::to_string(registration_smoothing_alpha_));
     add("map_loaded", boolText(map_loaded_));
     add("target_ready", boolText(target_ready_));
     add("startup_relocalization", startup_relocalization_state_);
+    add("startup_grid_candidates", std::to_string(startup_grid_candidates));
+    add("startup_grid_best_votes", std::to_string(startup_grid_best_votes));
+    add("startup_grid_best_overlap", std::to_string(startup_grid_best_overlap));
+    add("startup_grid_best_x",
+        std::isfinite(startup_grid_best_x) ? std::to_string(startup_grid_best_x) : "inf");
+    add("startup_grid_best_y",
+        std::isfinite(startup_grid_best_y) ? std::to_string(startup_grid_best_y) : "inf");
+    add("startup_grid_best_z",
+        std::isfinite(startup_grid_best_z) ? std::to_string(startup_grid_best_z) : "inf");
+    add("startup_grid_best_yaw_rad",
+        std::isfinite(startup_grid_best_yaw_rad) ? std::to_string(startup_grid_best_yaw_rad) : "inf");
+    add("startup_grid_best_converged", boolText(startup_grid_best_converged));
+    add("startup_grid_best_inliers", std::to_string(startup_grid_best_inliers));
+    add("startup_grid_best_normalized_error",
+        std::isfinite(startup_grid_best_normalized_error) ? std::to_string(startup_grid_best_normalized_error)
+                                                          : "inf");
+    add("startup_grid_rejection_reason", startup_grid_rejection_reason);
     add("online_relocalization_state", online_state);
     add("online_relocalization_attempts", std::to_string(online_attempts));
     add("online_relocalization_reason", online_reason);

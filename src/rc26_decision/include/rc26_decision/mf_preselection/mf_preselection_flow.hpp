@@ -47,6 +47,9 @@ struct MfPreselectionParams {
   double kfs_align_kp{0.0010};
   double kfs_align_min_speed_mps{0.015};
   double kfs_align_max_speed_mps{0.06};
+  double kfs_align_target_offset_px{0.0};
+  double kfs_align_px_to_m{0.0005};
+  double kfs_align_timeout_s{3.0};
   int kfs_lost_stop_frames{3};
   bool kfs_invert_lateral_direction{false};
   double kfs_approach_speed_mps{0.10};
@@ -112,6 +115,10 @@ struct MfPreselectionLogicResult {
                            const std::vector<std::string> &prefixes);
   static bool canPickup(int pickup_count, int max_pickup_count);
   static double kfsAlignVy(int offset_px, const MfPreselectionParams &params);
+  static int kfsAlignOffsetPx(double bbox_center_x, double image_width_px,
+                              const MfPreselectionParams &params);
+  static double kfsAlignOpenLoopDistance(int offset_px,
+                                         const MfPreselectionParams &params);
   static double kfsOpenLoopDistance(double locked_depth_m,
                                     double grab_distance_m);
   static double kfsOpenLoopDuration(double distance_m, double speed_mps);
@@ -366,9 +373,12 @@ private:
   void writeCenterTargetBlackboard() const;
   void setCenterError(const std::string &reason) const;
 
-  std::optional<KfsVisualObservation> findKfsVisualTarget();
+  std::optional<KfsVisualObservation> findR2LockObservation();
+  bool configureKfsAlignPlan(const KfsVisualObservation &observation,
+                             const char *context);
+  void finishKfsAlignFailure(const std::string &reason);
   void beginKfsVisualPickup(bool high_side, MfPreselectionPickupSource source,
-                            const MfPreselectionTargetSnapshot &target,
+                            const KfsVisualObservation &observation,
                             Phase success_phase, Phase failure_phase,
                             bool direct_exit_on_success,
                             bool entry_high_protocol);
@@ -550,6 +560,13 @@ private:
   int kfs_align_stable_count_{0};
   int kfs_align_lost_count_{0};
   int64_t kfs_align_last_sequence_{0};
+  int64_t kfs_align_verify_min_sequence_{0};
+  rclcpp::Time kfs_align_total_start_{0, 0, RCL_ROS_TIME};
+  double kfs_align_distance_m_{0.0};
+  double kfs_align_duration_s_{0.0};
+  double kfs_align_vy_{0.0};
+  bool kfs_align_started_{false};
+  bool kfs_align_waiting_verify_frame_{false};
   int kfs_open_loop_offset_px_{0};
   double kfs_open_loop_locked_depth_m_{0.0};
   double kfs_open_loop_distance_m_{0.0};

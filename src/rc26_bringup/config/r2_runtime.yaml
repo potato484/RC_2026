@@ -101,12 +101,12 @@ r2_runtime:
       # 梅林区预选赛专属链路参数 —— 独立 mf_preselection_tree.xml 使用
       # ======================================================================
       mf_preselect_entry2_nav_enable: true      # 2号入口导航点未标定前关闭；关闭时默认机器人已在2号入口
-      mf_preselect_entry2_nav_x: 2.4405             # 2号入口 Nav2 目标 x，占位待现场标定
+      mf_preselect_entry2_nav_x: 2.2            # 2号入口 Nav2 目标 x，占位待现场标定
       mf_preselect_entry2_nav_y: -1.8           # 2号入口 Nav2 目标 y，占位待现场标定
       mf_preselect_entry2_nav_yaw: 0.0           # 2号入口预备朝向 yaw，占位待现场标定
       mf_preselect_entry2_nav_frame_id: "map"    # 2号入口目标坐标系
       mf_preselect_entry2_nav_timeout_sec: 180.0 # 入口 Nav2 超时，单位秒
-      mf_preselect_entry2_nav_behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_bringup/config/nav2_bt_mf_preselect_entry_x_positive_y_negative.xml" # 入口 Nav2 专用 BT：x正向/y负向/小角速度
+      mf_preselect_entry2_nav_behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_bringup/config/nav2_bt_mf_preselect_entry_x_positive_y_negative.xml" # 入口 Nav2 专用 BT：低速全向 DWB，保留 costmap clear recovery
 
       mf_preselect_vision_config_file: ""        # KFS 视觉模型配置；空则回退 rc26_vision/config/vision_models.yaml
       mf_preselect_model_id: "kfs_default"       # KFS 模型 profile ID
@@ -122,12 +122,15 @@ r2_runtime:
       mf_preselect_detect_lost_stable_frames: 5  # 连续未看到目标多少帧后确认无目标
       mf_preselect_entry_detect_timeout_s: 2.0   # 入口单点检测最长等待，单位秒
       mf_preselect_scan_detect_timeout_s: 2.0    # 行内/阶梯扫描检测最长等待，单位秒
-      mf_preselect_kfs_align_tolerance_px: 20    # KFS 夹取前横移对齐像素容差
-      mf_preselect_kfs_align_stable_frames: 5    # 连续多少个新推理帧进入像素容差后锁定深度
-      mf_preselect_kfs_align_kp: 0.0010          # KFS 横移对齐比例控制系数
+      mf_preselect_kfs_align_tolerance_px: 20    # KFS 锁定帧像素偏差容差；容差内跳过横移开环对齐
+      mf_preselect_kfs_align_stable_frames: 5    # 兼容旧参数；当前正式流程单帧锁定后不再用连续帧确认对齐
+      mf_preselect_kfs_align_kp: 0.0010          # KFS 锁定帧横移开环速度比例控制系数
       mf_preselect_kfs_align_min_speed_mps: 0.015 # KFS 横移最小速度幅值
       mf_preselect_kfs_align_max_speed_mps: 0.06 # KFS 横移最大速度幅值
-      mf_preselect_kfs_lost_stop_frames: 3       # KFS 横移对齐阶段连续丢失目标后放弃该点；开环前进阶段不使用
+      mf_preselect_kfs_align_target_offset_px: 0.0 # 夹取目标线相对图像中心的像素偏置；机械臂不在相机中心线时现场标定
+      mf_preselect_kfs_align_px_to_m: 0.0005     # 锁定帧像素偏差到横移距离的标定，横移距离=abs(offset_px)*该值
+      mf_preselect_kfs_align_timeout_s: 3.0      # KFS 横移对齐总安全超时，每段横移完成后必须等更晚的新视觉帧确认进入像素容差
+      mf_preselect_kfs_lost_stop_frames: 3       # 兼容旧参数；当前正式流程横移对齐不再按后续帧丢失计数放弃
       mf_preselect_kfs_invert_lateral_direction: false # 是否反转 KFS 横移方向
       mf_preselect_kfs_approach_speed_mps: 0.10  # KFS 开环趋近 x 方向速度幅值，单位 m/s
       mf_preselect_kfs_approach_x_sign: 1        # KFS 趋近方向符号；1 为 linear.x 正向，-1 为负向
@@ -157,9 +160,9 @@ r2_runtime:
       mf_preselect_second_arm_lower_command_id: 14 # 0x0E ARM_SECOND_LOWER，向下夹取开环前放下第二节机械臂
       mf_preselect_second_arm_lower_done_feedback_id: 10 # 0x0A ARM_SECOND_LOWER_DONE，必须与 0x0E 的 ACK seq 匹配
 
-      mf_preselect_entry_probe_left_distance_m: 0.9     # 2号入口向1号阶梯横移探测距离
-      mf_preselect_entry_probe_right_sweep_distance_m: 2.0 # 从1号阶梯扫到3号阶梯横移距离
-      mf_preselect_entry_probe_return_distance_m: 0.8   # 从1/3号阶梯返回2号入口横移距离
+      mf_preselect_entry_probe_left_distance_m: 1.0     # 2号入口向1号阶梯横移探测距离
+      mf_preselect_entry_probe_right_sweep_distance_m: 2.4 # 从1号阶梯扫到3号阶梯横移距离
+      mf_preselect_entry_probe_return_distance_m: 1.2   # 从1/3号阶梯返回2号入口横移距离
       mf_preselect_lateral_probe_speed_mps: 0.40        # 入口 Y 向平移探测速度绝对值
       mf_preselect_move_tolerance_m: 0.03               # 相对移动完成距离容差
       mf_preselect_move_timeout_s: 12.0                 # 单段相对移动超时，单位秒

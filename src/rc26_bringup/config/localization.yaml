@@ -2,14 +2,14 @@
 #
 # 职责:
 #   - 订阅 registered_scan
-#   - 开局一次 SAC-IA + small_gicp 重定位
+#   - 使用可信比赛起点 init_pose 作为 map->odom 初值
 #   - 使用先验 PCD 做 small_gicp 连续局部跟踪
 #   - 发布 map -> odom、/localization/pose_with_cov、/localization/diagnostics
 #
 # 坐标假设:
 #   - registered_scan 已经在 odom_frame 中表达
 #   - prior_pcd_file 已经在 map_frame 中表达
-#   - 开局重定位只在启动阶段尝试一次，中途丢定位仍通过 initialpose 接管
+#   - 默认关闭无先验全局开局重定位，避免在 class_plus 重复结构上误接受远端假位姿
 #   - 实验性在线重定位默认关闭；开启后会在局部跟踪连续失败时后台尝试全局 PCD 配准
 
 localization:
@@ -26,7 +26,9 @@ localization:
     pose_cov_topic: "/localization/pose_with_cov"
     diagnostics_topic: "/localization/diagnostics"
 
-    init_pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    # 固定比赛起点的 map->odom 初值；当前默认主链直接用它进入局部 GICP 跟踪。
+    # 这不是地图 origin，也不修改 prior_pcd_file 或 Nav2 2D map。
+    init_pose: [0.07, -0.01, 0.0, 0.0, 0.0, 0.0]
 
     num_threads: 2
     num_neighbors: 20
@@ -37,10 +39,31 @@ localization:
 
     min_inliers: 200
     max_normalized_error: 0.30
+    require_initial_pose_for_local_tracking: true
+    local_target_enable: true
+    local_target_radius_m: 3.0
+    local_target_min_points: 300
+    registration_jump_gate_enable: true
+    # 可信起点初值允许局部 GICP 先修正实车摆放误差；仍限制米级/大角度跳变。
+    max_registration_translation_delta_m: 0.35
+    max_registration_z_delta_m: 0.10
+    max_registration_yaw_delta_rad: 0.15
+    registration_smoothing_enable: true
+    registration_smoothing_alpha: 0.35
 
-    startup_relocalization_enable: true
-    startup_collect_ms: 1500
+    # 当前 class_plus 场地存在重复结构，无先验全局重定位会稳定偏向远端假候选；
+    # 比赛默认关闭开局全局重定位，依赖可信 init_pose 或 /initialpose 接管后做局部跟踪。
+    startup_relocalization_enable: false
+    startup_collect_ms: 3000
     startup_leaf_size: 0.3
+    startup_global_grid_enable: false
+    startup_global_grid_resolution: 0.25
+    startup_global_grid_yaw_step_deg: 10.0
+    startup_global_grid_max_candidates: 12
+    startup_global_grid_min_overlap_ratio: 0.05
+    # 全局栅格候选只作为强匹配使用；放宽到 0.32 会在 class_plus 重复结构上误接受远端假位姿。
+    startup_global_grid_max_normalized_error: 0.22
+    startup_global_grid_sac_fallback: true
 
     online_relocalization_enable: false
     online_relocalization_trigger_after_failures: 3
