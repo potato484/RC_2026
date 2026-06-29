@@ -241,16 +241,16 @@ std::optional<int> MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
 
 bool MfPreselectionLogicResult::finalExitCenterTarget(
     double current_center_x, double current_center_y,
-    double descend_target_yaw_rad, double offset_m, double &target_x,
+    double exit_heading_yaw_rad, double offset_m, double &target_x,
     double &target_y) {
   if (!std::isfinite(current_center_x) || !std::isfinite(current_center_y) ||
-      !std::isfinite(descend_target_yaw_rad)) {
+      !std::isfinite(exit_heading_yaw_rad)) {
     return false;
   }
   const double offset = std::max(0.0, finiteAbsOr(offset_m, 1.2));
-  const double drive_yaw = normalizedAngle(descend_target_yaw_rad + kPi);
-  target_x = current_center_x + offset * std::cos(drive_yaw);
-  target_y = current_center_y + offset * std::sin(drive_yaw);
+  const double exit_yaw = normalizedAngle(exit_heading_yaw_rad);
+  target_x = current_center_x + offset * std::cos(exit_yaw);
+  target_y = current_center_y + offset * std::sin(exit_yaw);
   return std::isfinite(target_x) && std::isfinite(target_y);
 }
 
@@ -452,9 +452,9 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return BT::NodeStatus::RUNNING;
 
   case Phase::RowAlignExit:
-    // 扫描结束后必须重新对齐出口方向，再进入 grid 间转换；否则台阶原语的
-    // heading hold 会沿错误 yaw 直行。
-    beginTurnYaw(params_.exit_yaw_rad, Phase::TransitionTurn,
+    // 扫描结束后必须重新对齐入口 heading 所代表的出口方向，再进入 grid
+    // 间转换；否则台阶原语的 heading hold 会沿错误 yaw 直行。
+    beginTurnYaw(entry_heading_yaw_, Phase::TransitionTurn,
                  "row_align_exit");
     return BT::NodeStatus::RUNNING;
 
@@ -500,7 +500,7 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     direct_exit_mode_ = true;
     RCLCPP_INFO(node_->get_logger(),
                 "梅林预选赛假KFS避障上阶梯完成，重新朝出口方向对齐并进入直行离场兜底");
-    beginTurnYaw(params_.exit_yaw_rad, Phase::DirectExitDrive,
+    beginTurnYaw(entry_heading_yaw_, Phase::DirectExitDrive,
                  "fake_avoid_align_exit");
     return BT::NodeStatus::RUNNING;
 
@@ -520,27 +520,20 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     }
 
   case Phase::TransitionArmAdjust:
-    // 格间转换前先根据高度差调整机械臂：低到高需要高侧夹取姿态，高到低
-    // 需要先下降。调整完成后仍要做 TransitionObserve，给正前方 R2/R1 目标
-    // 一个最后处理窗口。
+    // 格间转换前先根据高度差调整机械臂：入口 1/3 侧探测保留
+    // ARM_HIGH_RAISE，梅林内部高低台阶观察前统一使用普通 ARM_RAISE/LOWER。
+    // 调整完成后仍要做 TransitionObserve，给正前方 R2/R1 目标一个最后处理窗口。
     if (transition_height_delta_ > 0) {
-      if (arm_high_raised_) {
-        transition_high_side_ = true;
-        RCLCPP_INFO(node_->get_logger(),
-                    "梅林预选赛格间转换为低到高，入口高抬升仍保持，跳过普通ARM_RAISE并观察前方");
-        beginDetection(DetectMode::TransitionObserve,
-                       params_.scan_detect_timeout_s);
-      } else {
-        RCLCPP_INFO(node_->get_logger(),
-                    "梅林预选赛格间转换为低到高，先执行普通ARM_RAISE后观察前方");
-        beginMechanismCommand(clampByte(params_.arm_raise_command_id),
-                              "ARM_RAISE",
-                              clampByte(params_.arm_raise_done_feedback_id),
-                              Phase::TransitionObserve,
-                              "transition_arm_raise_failed");
-        transition_high_side_ = true;
-        arm_high_side_ = true;
-      }
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛格间转换为低到高，先执行ARM_RAISE后观察前方");
+      beginMechanismCommand(clampByte(params_.arm_raise_command_id),
+                            "ARM_RAISE",
+                            clampByte(params_.arm_raise_done_feedback_id),
+                            Phase::TransitionObserve,
+                            "transition_arm_raise_failed");
+      transition_high_side_ = true;
+      arm_high_raised_ = false;
+      arm_high_side_ = true;
     } else {
       RCLCPP_INFO(node_->get_logger(),
                   "梅林预选赛格间转换为高到低，先执行ARM_LOWER后观察前方");
@@ -2225,7 +2218,7 @@ bool MfPreselectionFlowAction::beginFinalExitCenterAlign(Phase next_phase,
     return false;
   }
   if (!MfPreselectionLogicResult::finalExitCenterTarget(
-          reference_x, reference_y, turn_target_yaw_,
+          reference_x, reference_y, entry_heading_yaw_,
           params_.final_exit_center_offset_m, center_target_x_,
           center_target_y_)) {
     setCenterError("invalid_final_exit_center_target");
@@ -2236,7 +2229,7 @@ bool MfPreselectionFlowAction::beginFinalExitCenterAlign(Phase next_phase,
   center_next_phase_ = next_phase;
   center_label_ = std::move(label);
   center_target_grid_ = kFinalExitVirtualGrid;
-  center_target_yaw_ = normalizeAngle(turn_target_yaw_);
+  center_target_yaw_ = normalizeAngle(entry_heading_yaw_);
   center_stable_ticks_ = 0;
   center_target_ready_ = true;
   center_waiting_odom_logged_ = false;

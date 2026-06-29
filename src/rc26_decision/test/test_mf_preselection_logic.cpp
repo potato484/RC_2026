@@ -162,19 +162,19 @@ TEST(MfPreselectionLogic, FakeAvoidanceTargetGridUsesSideColumns) {
           .has_value());
 }
 
-TEST(MfPreselectionLogic, FinalExitCenterTargetUsesDescendDriveDirection) {
+TEST(MfPreselectionLogic, FinalExitCenterTargetUsesForwardEntryHeading) {
   constexpr double kHalfPi = 1.57079632679489661923;
   double target_x = 0.0;
   double target_y = 0.0;
   ASSERT_TRUE(rc26_decision::MfPreselectionLogicResult::finalExitCenterTarget(
       10.0, 20.0, 0.0, 1.2, target_x, target_y));
-  EXPECT_NEAR(target_x, 8.8, 1e-9);
+  EXPECT_NEAR(target_x, 11.2, 1e-9);
   EXPECT_NEAR(target_y, 20.0, 1e-9);
 
   ASSERT_TRUE(rc26_decision::MfPreselectionLogicResult::finalExitCenterTarget(
       10.0, 20.0, -kHalfPi, -2.0, target_x, target_y));
   EXPECT_NEAR(target_x, 10.0, 1e-9);
-  EXPECT_NEAR(target_y, 22.0, 1e-9);
+  EXPECT_NEAR(target_y, 18.0, 1e-9);
 
   EXPECT_FALSE(rc26_decision::MfPreselectionLogicResult::finalExitCenterTarget(
       std::numeric_limits<double>::quiet_NaN(), 20.0, 0.0, 1.2, target_x,

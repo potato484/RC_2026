@@ -131,7 +131,7 @@ struct MfPreselectionLogicResult {
                           MfPreselectionPickupSource source);
   static bool finalExitCenterTarget(double current_center_x,
                                     double current_center_y,
-                                    double descend_target_yaw_rad,
+                                    double exit_heading_yaw_rad,
                                     double offset_m, double &target_x,
                                     double &target_y);
 };
