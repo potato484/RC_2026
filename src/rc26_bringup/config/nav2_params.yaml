@@ -231,7 +231,7 @@ controller_server: # Nav2 局部控制器服务器参数组
       RotateToGoal.slowing_factor: 5.0 # 到点旋转减速系数
       RotateToGoal.lookahead_time: -1.0 # 到点旋转前视时间；负值表示使用默认/禁用前视
 
-# 局部代价地图：在 odom 坐标系下滚动更新；当前启用动态障碍层和膨胀层
+# 局部代价地图：在 odom 坐标系下滚动更新；当前启用动态障碍层并做膨胀层
 local_costmap: # 局部代价地图顶层参数组
   local_costmap: # local_costmap 生命周期节点参数组
     ros__parameters: # 局部代价地图 ROS 参数集合
@@ -272,11 +272,11 @@ local_costmap: # 局部代价地图顶层参数组
       inflation_layer: # 局部膨胀层参数组
         plugin: nav2_costmap_2d::InflationLayer # 使用 Nav2 2D 膨胀层插件
         enabled: true # 是否启用局部膨胀层
-        inflation_radius: 0.55 # 障碍物膨胀半径，单位米
-        cost_scaling_factor: 3.0 # 膨胀代价随距离衰减的系数
+        inflation_radius: 0.55 # 障碍膨胀半径，单位米
+        cost_scaling_factor: 3.0 # 膨胀代价随距离衰减系数
       always_send_full_costmap: true # 是否每次发布完整代价地图
 
-# 全局代价地图：在 map 坐标系下维护静态地图；当前启用动态障碍层和膨胀层
+# 全局代价地图：在 map 坐标系下维护静态地图；当前启用动态障碍层并做膨胀层
 global_costmap: # 全局代价地图顶层参数组
   global_costmap: # global_costmap 生命周期节点参数组
     ros__parameters: # 全局代价地图 ROS 参数集合
@@ -290,7 +290,7 @@ global_costmap: # 全局代价地图顶层参数组
       robot_radius: 0.42 # 圆形机器人半径近似，单位米
       # 当前允许未知区，避免占位图把规划直接锁死
       track_unknown_space: true # 是否保留并追踪 unknown 区域
-      plugins: [static_layer, obstacle_layer, inflation_layer] # 全局代价地图启用的图层插件列表；静态/障碍层后接膨胀层
+      plugins: [static_layer, obstacle_layer, inflation_layer] # 全局代价地图启用的图层插件列表；静态层和障碍层后接膨胀层
       static_layer: # 静态地图层参数组
         plugin: nav2_costmap_2d::StaticLayer # 使用 Nav2 2D 静态地图层插件
         # 使用 map_server 的静态地图；需订阅保留最后一帧
@@ -312,8 +312,8 @@ global_costmap: # 全局代价地图顶层参数组
       inflation_layer: # 全局膨胀层参数组
         plugin: nav2_costmap_2d::InflationLayer # 使用 Nav2 2D 膨胀层插件
         enabled: true # 是否启用全局膨胀层
-        inflation_radius: 0.55 # 障碍物膨胀半径，单位米
-        cost_scaling_factor: 3.0 # 膨胀代价随距离衰减的系数
+        inflation_radius: 0.55 # 障碍膨胀半径，单位米
+        cost_scaling_factor: 3.0 # 膨胀代价随距离衰减系数
       always_send_full_costmap: true # 是否每次发布完整代价地图
 
 # 地图服务：当前可接受占位地图，只用于拉起 Nav2 生命周期与 costmap 链路

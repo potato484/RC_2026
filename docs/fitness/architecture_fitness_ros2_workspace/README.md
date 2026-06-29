@@ -111,7 +111,8 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 
 - **规则**：当前工作区不再维护第一方 viewer 状态桥、定制 `rviz2` 或本地 Web viewer。
 - **规则**：仓库根目录也不再维护第一方前端应用、前端测试脚本或前端发布产物。
-- **规则**：如果需要可视化，只能由工作区外部工具只读消费现有 ROS2 输出、CLI 输出或静态资产，不能反向成为运行时权威。
+- **规则**：如果需要可视化，只能由 RViz2、Foxglove 等工具消费现有 ROS2 输出、CLI 输出或静态资产，不能反向成为运行时权威。
+- **当前口径**：`rc26_bringup` 可以声明默认关闭的 RViz2 启动开关和轻量 `.rviz` 预设，供现场临时观察与 Nav2 goal 发布；默认运行仍保持 headless，RViz 不得发布 `/cmd_vel` 或成为状态真源。
 - **规则**：Foxglove JSON 只是历史布局资产，不是诊断逻辑载体。
 
 ### 3.7 `rc26_odom_interface` 继续保持 TF 权威
@@ -215,7 +216,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 ### 4.9 可视化外置单向依赖检查
 
 - 问题：这次改动是否又把工作区内置 GUI / viewer 变成运行时强依赖，或者让外部可视化反向成为状态和策略生产者？
-- 通过标准：`src/` 仍保持 headless；任何可视化都只处于下游消费侧。
+- 通过标准：`src/` 默认仍保持 headless；任何可视化都只处于下游消费侧，不成为状态或运动命令权威。
 
 ### 4.10 包级验证检查
 
@@ -247,7 +248,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 - `rc26_mechanism` 和各控制器插件负责安全执行意图。
 - localization、vision、odom 相关包负责产出当前主链规范化机器状态；旧 terrain、base-ground、keepout 源码包和兼容接口已删除。
 - `src/` 当前默认保持 headless，不再内置第一方 GUI 或操作员语义聚合包。
-- 如需可视化，应由工作区外部工具只读消费这些状态。
+- 如需可视化，应由 RViz2、Foxglove 等工具在下游消费这些状态。
 
 任何后续需求如果要打破这些边界，都应视为一次明确的架构变更，而不是普通功能补丁。
 

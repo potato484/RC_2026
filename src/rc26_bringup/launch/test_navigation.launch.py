@@ -16,7 +16,7 @@ R2 导航联调入口
 """
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -83,6 +83,7 @@ def generate_launch_description():
             'run_mode': 'navigation',
             'use_decision': 'false',
             'start_mcu_transport': 'false',
+            'use_rviz': 'false',
             'prior_pcd_file': prior_pcd_file,
             'recover_mid360_stream': recover_mid360_stream,
             'team': team,
@@ -110,6 +111,6 @@ def generate_launch_description():
         declare_nav2_map_file,
         declare_use_rviz,
         declare_rviz_config_file,
-        bringup_launch,
+        GroupAction(actions=[bringup_launch], scoped=True),
         rviz_node,
     ])

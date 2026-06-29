@@ -11,10 +11,10 @@ src R2导航系统 - 主启动文件
   - run_mode:=mapping 且 pure_mapping_mode:=true 时，保留纯建图最小运动链路
 
 默认装配口径:
-  - 车端 bringup 维持 headless
+  - 车端 bringup 默认维持 headless，可通过 use_rviz:=true 临时打开 RViz2
   - r2_runtime.yaml 是点云、地图、行为树入口与决策参数的运行配置真源
   - /cmd_vel 的默认底盘执行与机构指令共享串口由 rc26_mcu_transport 提供
-  - 如需图形观察，请手工启动工作区外部可视化工具只读消费 ROS2 输出
+  - RViz2 只作为现场观察与 Nav2 目标点发布工具，不接管运行时权威
 """
 import os
 
@@ -22,6 +22,7 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node, PushRosNamespace
@@ -500,6 +501,14 @@ def generate_launch_description():
             'nav2_map_file',
             default_value='',
             description='Nav2 map_server 使用的 2D occupancy map YAML 绝对路径；空字符串表示使用 r2_runtime.yaml'),
+        DeclareLaunchArgument(
+            'use_rviz',
+            default_value='false',
+            description='是否随正式 bringup 启动 RViz2；默认关闭'),
+        DeclareLaunchArgument(
+            'rviz_config_file',
+            default_value=PathJoinSubstitution([bringup_dir, 'rviz', 'navigation_default.rviz']),
+            description='RViz2 配置文件路径'),
         OpaqueFunction(
             function=_create_runtime_actions,
             kwargs={
@@ -508,5 +517,13 @@ def generate_launch_description():
                 'nav2_bringup_dir': nav2_bringup_dir,
                 'mcu_transport_dir': mcu_transport_dir,
             },
+        ),
+        Node(
+            package='rviz2',
+            executable='rviz2',
+            name='rviz2',
+            output='screen',
+            arguments=['-d', LaunchConfiguration('rviz_config_file')],
+            condition=IfCondition(LaunchConfiguration('use_rviz')),
         ),
     ])

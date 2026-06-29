@@ -13,7 +13,7 @@ R2 建图联调入口
 """
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -98,6 +98,7 @@ def generate_launch_description():
             'point_lio_config_file': point_lio_config_file,
             'use_decision': use_decision,
             'recover_mid360_stream': recover_mid360_stream,
+            'use_rviz': 'false',
         }.items()
     )
 
@@ -121,6 +122,6 @@ def generate_launch_description():
         declare_use_decision,
         declare_use_rviz,
         declare_rviz_config_file,
-        bringup_launch,
+        GroupAction(actions=[bringup_launch], scoped=True),
         rviz_node,
     ])
