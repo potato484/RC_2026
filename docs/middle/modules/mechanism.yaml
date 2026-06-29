@@ -11,7 +11,7 @@ info:
 
     这两个接口由 `rc26_mcu_transport` 提供；`rc26_mechanism` 当前只是轻量 lifecycle 占位，不再创建旧高层 action，也不再发布 `/mechanism/status`。
 
-    `/mechanism/send_command.accepted=true` 只表示目标 MCU 已返回通用 `ACK(0x00)`，不表示动作已经完成。动作完成、限位、激光突变等业务事件经 `/mechanism/command_feedback` 透传，由消费方按自身状态机解释。
+    `/mechanism/send_command.accepted=true` 只表示目标 MCU 已返回通用 `ACK(0x00)`，不表示动作已经完成。若目标 MCU 返回 `MCU_ERROR(0xFE)`，transport 会按底层 retry 重发，持续失败时 `accepted=false`，原因通过 `rc26_mcu_transport` 日志和 diagnostics `last_error` 说明为下位机原因。动作完成、限位、激光突变等业务事件经 `/mechanism/command_feedback` 透传，由消费方按自身状态机解释。
 servers:
   - url: http://localhost:8080
 tags:
@@ -74,7 +74,8 @@ components:
             机械臂升降预调完成、0x04/0x05/0x07 台阶激光高度突变、
             0x06 武馆前方限位触发、0x09 梅林预选赛高抬升完成、
             0x0A KFS 向下夹取前第二节机械臂放下完成；
-            payload v1 为空或由消费方忽略。
+            payload v1 为空或由消费方忽略。transport 级 0xFE 表示
+            MCU 下位机原因，不作为业务反馈透传。
         payload:
           type: array
           items:
@@ -108,7 +109,7 @@ components:
       properties:
         accepted:
           type: boolean
-          description: true 表示目标 MCU 已返回通用 ACK(0x00)；false 表示 transport 拒绝、超时或断链。
+          description: true 表示目标 MCU 已返回通用 ACK(0x00)；false 表示 transport 拒绝、超时、断链或 MCU 持续返回 0xFE 下位机原因。
         seq:
           type: integer
           minimum: 0

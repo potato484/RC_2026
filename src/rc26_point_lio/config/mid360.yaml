@@ -12,11 +12,11 @@
         point_filter_num: 2
         filter_car_body: true                             # Mid-360 输入侧车身 ROI 过滤开关；使用 base_link <- livox_frame TF
         body_x_min: -0.400                                # base_link X 轴负方向裁剪边界，单位米
-        body_x_max: 0.320                                 # base_link X 轴正方向裁剪边界，单位米
+        body_x_max: 0.620                                 # base_link X 轴正方向裁剪边界，单位米
         body_y_min: -0.300                                # base_link Y 轴负方向裁剪边界，单位米
         body_y_max: 0.300                                 # base_link Y 轴正方向裁剪边界，单位米
         body_z_min: -0.200                                 # base_link Z 轴负方向裁剪边界，单位米
-        body_z_max: 0.600                                 # base_link Z 轴正方向裁剪边界，单位米
+        body_z_max: 0.80                                 # base_link Z 轴正方向裁剪边界，单位米
         # 参数说明：space_down_sample - 空间降采样开关；用于降低点云密度和计算负载。
         space_down_sample: True
         # 参数说明：filter_size_surf - 表面特征体素滤波尺寸，单位米；数值越大点云越稀疏。
@@ -127,6 +127,6 @@
 
         pcd_save:
             # 参数说明：pcd_save_en - 是否保存建图累计 PCD；默认开启，节点正常退出时落盘。
-            pcd_save_en: False
+            pcd_save_en: false
             # 参数说明：interval - 每个 PCD 文件累计的 LiDAR 帧数；-1 表示所有帧保存到单个 scans.pcd，长时间建图会增加内存和单文件压力。
             interval: -1

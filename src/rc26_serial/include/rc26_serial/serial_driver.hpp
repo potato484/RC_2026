@@ -28,6 +28,7 @@ public:
         std::atomic<uint32_t> total_frames{0};
         std::atomic<uint32_t> parse_errors{0};
         std::atomic<uint32_t> ack_timeouts{0};
+        std::atomic<uint32_t> mcu_error_responses{0};
         std::atomic<uint32_t> reconnect_count{0};
         std::atomic<uint32_t> heartbeat_failures{0};
 
@@ -159,9 +160,10 @@ private:
     uint8_t waiting_cmd_{0};
     std::atomic<uint32_t> link_epoch_{0};
     uint32_t waiting_epoch_{0};  // 受 ack_mutex_ 保护
-    enum class AckWaitResult : uint8_t { kReceived, kTimeout, kLinkDown };
+    enum class AckWaitResult : uint8_t { kReceived, kMcuError, kTimeout, kLinkDown };
     bool ack_response_received_{false};
     bool ack_success_{false};
+    bool ack_mcu_error_received_{false};
     rc26_serial::RingParser ring_parser_;
 
     uint8_t nextSeq();

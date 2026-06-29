@@ -61,6 +61,7 @@ enum class FeedbackID : uint8_t {
     ODOM_DATA = 0x08,                   // 麦克纳姆轮速反馈：<v_fl,v_rl,v_rr,v_fr>，单位: m/s
     ARM_HIGH_RAISE_DONE = 0x09,         // 梅林预选赛入口专属高抬升完成
     ARM_SECOND_LOWER_DONE = 0x0A,       // KFS 向下夹取前第二节机械臂放下完成
+    MCU_ERROR = 0xFE,                   // MCU 端错误码：下位机原因
 };
 
 // ============================================================================

@@ -64,8 +64,9 @@
 | `ODOM_DATA` | `0x08` |
 | `ARM_HIGH_RAISE_DONE` | `0x09` |
 | `ARM_SECOND_LOWER_DONE` | `0x0A` |
+| `MCU_ERROR` | `0xFE` |
 
-已经移除的旧协议项包括旧组装动作、通用 KFS 夹取动作、旧动作完成反馈和即时负确认语义。可靠命令只通过通用 `ACK(0x00)` 成功；未收到确认时通过超时或断链失败收敛。心跳只等待 `HEARTBEAT_ACK(0x01)`。
+已经移除的旧协议项包括旧组装动作、通用 KFS 夹取动作、旧动作完成反馈和旧即时负确认语义。可靠命令只通过通用 `ACK(0x00)` 成功；同 `seq` 收到 `MCU_ERROR(0xFE)` 表示下位机原因，串口层会按现有 retry `0x00~0x09` 继续重发，若后续收到 `ACK(0x00)` 则成功，若持续收到 `0xFE` 则失败并在 `lastError()` / diagnostics 中明确写出下位机原因。未收到确认时仍通过超时或断链失败收敛。心跳只通过 `HEARTBEAT_ACK(0x01)` 成功，心跳收到 `0xFE` 会记录为下位机原因但不按串口断链触发重连。
 
 ## 运行时口径
 
@@ -76,6 +77,7 @@
 - `GRAB_KFS_DOWN(0x02)` / `GRAB_KFS_UP(0x03)` 是当前 KFS 下台阶/下降方向与上台阶/抬升方向夹取命令；transport 仍只提供通用 ACK，物理夹取是否成功由上层视觉消失验证等业务逻辑判断。
 - `ARM_HIGH_RAISE(0x0D)` / `ARM_HIGH_RAISE_DONE(0x09)` 只服务梅林区预选赛入口 1/3 阶梯全域探测前的机械臂底座高抬升；它不替代普通 `ARM_RAISE(0x04)`，决策层仍按同 `seq + feedback_id` 匹配完成。
 - `ARM_SECOND_LOWER(0x0E)` / `ARM_SECOND_LOWER_DONE(0x0A)` 只服务 KFS 向下夹取：上层在 `ARM_LOWER_DONE(0x03)` 后完成视觉横移对齐与一次锁深度，进入开环前进前先发送 `0x0E`，并等待同 `seq` 的 `0x0A` 后才允许前进或直接夹取。
+- `MCU_ERROR(0xFE)` 是 MCU 端错误码，不是机构业务完成反馈；它只用于说明本轮失败来自下位机原因。可靠发送会继续重试，最终失败不会触发串口重连，调用方通过 service `accepted=false`、节点日志和 diagnostics `last_error` 判断。
 - `FRONT_LASER_HEIGHT_JUMP(0x04)`、`REAR_LASER_HEIGHT_JUMP(0x05)`、`FRONT_SECOND_LASER_HEIGHT_JUMP(0x07)` 是台阶激光高度突变事件，v1 payload 为空或忽略。
 - `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 是武馆前方限位开关触发事件，视觉夹取链在对齐后 x 负向前探等待该事件，再下发 `GRAB_TIP(0x01)`。
 - `PLACE_KFS_GRID(0x06)` 若仍需发送，只能作为 raw transport 命令走 `/mechanism/send_command`，不再绑定高层“完成反馈即成功”的封装。
@@ -91,10 +93,12 @@
 
 1. 先看 `include/rc26_serial/protocol.hpp`，确认当前上下行 ID。
 2. 再看 `src/serial_driver.cpp`，理解可靠发送、心跳、no-ack 和回调分发。
-3. 再看 `test/test_protocol_ids.cpp`、`test/test_ring_parser.cpp`、`test/test_adaptive_timeout.cpp`，确认协议常量和基础通信回归点。
+3. 再看 `test/test_protocol_ids.cpp`、`test/test_ring_parser.cpp`、`test/test_adaptive_timeout.cpp`、`test/test_serial_driver_mcu_error.cpp`，确认协议常量和基础通信回归点。
 4. 最后回到 `rc26_mcu_transport`、`rc26_decision`、`rc26_telecontrol`、`rc26_vision` 等消费者，确认哪一层在使用 raw transport。
 
 ## 本轮同步
+
+2026-06-29 同步：新增 MCU 上行 `MCU_ERROR(0xFE)`，表示可靠发送失败原因来自下位机。串口层同 `seq` 收到 `0xFE` 会唤醒 ACK 等待并沿用 retry `0x00~0x09` 重发；如果后续收到 `ACK(0x00)` 则成功，如果持续 `0xFE` 则失败并把“下位机原因”写入 `lastError()` 与 diagnostics，不触发串口重连。该反馈不属于机构业务完成事件。
 
 2026-06-27 同步：新增 `ARM_SECOND_LOWER(0x0E)` 与 `ARM_SECOND_LOWER_DONE(0x0A)`，用于 KFS 向下夹取在锁定开环前进距离后、真正前进前确认第二节机械臂已经彻底放下；该命令仍走 raw transport 空 payload，完成反馈必须按同 `seq` 匹配。
 

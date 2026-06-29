@@ -79,6 +79,19 @@ if(BUILD_TESTING)
   target_include_directories(test_protocol_ids PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
   )
+
+  ament_add_gtest(test_serial_driver_mcu_error
+    test/test_serial_driver_mcu_error.cpp
+  )
+  target_include_directories(test_serial_driver_mcu_error PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+  ament_target_dependencies(test_serial_driver_mcu_error
+    rclcpp
+  )
+  target_link_libraries(test_serial_driver_mcu_error
+    serial_driver
+  )
 endif()
 
 ament_package()

@@ -24,6 +24,7 @@ bool shouldPublishTransportFeedback(uint8_t feedback_id) {
     case FeedbackID::ACK:
     case FeedbackID::HEARTBEAT_ACK:
     case FeedbackID::ODOM_DATA:
+    case FeedbackID::MCU_ERROR:
         return false;
     default:
         return true;
@@ -327,6 +328,8 @@ void McuTransportNode::publishDiagnostics() {
         status.values.push_back(makeKeyValue("total_frames", std::to_string(health.total_frames.load())));
         status.values.push_back(makeKeyValue("parse_errors", std::to_string(health.parse_errors.load())));
         status.values.push_back(makeKeyValue("ack_timeouts", std::to_string(health.ack_timeouts.load())));
+        status.values.push_back(
+            makeKeyValue("mcu_error_responses", std::to_string(health.mcu_error_responses.load())));
         status.values.push_back(makeKeyValue("reconnect_count", std::to_string(health.reconnect_count.load())));
         status.values.push_back(
             makeKeyValue("heartbeat_failures", std::to_string(health.heartbeat_failures.load())));

@@ -11,9 +11,9 @@
 - 发布 topic `/mechanism/command_feedback`
 - 把 `rc26_serial::SerialDriver::sendCommand()` 的通用 ACK 结果映射为 service response
 - 默认订阅 `/cmd_vel`，以 `50Hz` no-ack 路径下发 `POSE_TARGET(0x0C)`，payload 为 `(vx, vy, wz)` 三个 float
-- 透传 MCU 上行业务反馈，过滤底层 `ACK(0x00)`、`HEARTBEAT_ACK(0x01)` 与 `ODOM_DATA(0x08)`
+- 透传 MCU 上行业务反馈，过滤底层 `ACK(0x00)`、`HEARTBEAT_ACK(0x01)`、`ODOM_DATA(0x08)` 与 transport 级 `MCU_ERROR(0xFE)`
 - 当前透传的业务反馈包括 KFS 机械臂升降完成 `0x02/0x03`、台阶激光事件 `0x04/0x05/0x07` 和前方限位事件 `0x06`；`/mechanism/send_command.accepted=true` 仍只表示通用 `ACK(0x00)` 已可靠返回
-- 发布 `/mcu_transport/diagnostics`
+- 发布 `/mcu_transport/diagnostics`，其中 `last_error` 和 `mcu_error_responses` 会暴露 MCU `0xFE` 下位机原因
 
 ## 边界
 
@@ -49,5 +49,7 @@ ros2 launch rc26_mcu_transport mcu_transport.launch.py \
 - Nav2、遥控、台阶动作、视觉对齐等发布 `/cmd_vel` 的链路
 
 如果串口暂时不存在，节点不会退出；`/mechanism/send_command` 会拒绝发送，`/cmd_vel` consumer 会节流报告发送失败，并持续重试初始打开，直到目标串口可用。
+
+如果 MCU 对可靠命令返回 `MCU_ERROR(0xFE)`，底层会按现有 retry `0x00~0x09` 重发；若后续收到 `ACK(0x00)` 则 service 正常成功，若持续 `0xFE` 则 service 返回 `accepted=false`。该错误表示下位机原因，只通过日志和 `/mcu_transport/diagnostics.last_error` 说明，不改变 service 字段，也不作为 `/mechanism/command_feedback` 业务事件发布。
 
 `rc26_bringup`、`start_r2_teleop.sh` 和 `rc26_mechanism/launch/mechanism.launch.py` 都能启动本服务；如果同一系统里已经存在一个 `rc26_mcu_transport`，后续入口必须关闭对应的 `start_mcu_transport`，避免重复打开同一物理串口。

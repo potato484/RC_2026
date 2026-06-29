@@ -8,7 +8,7 @@
   <BehaviorTree ID="MFPreselectionTree">
     <Sequence name="MF_Preselection_Sequence">
       <Fallback name="Optional_Entry2_Navigation">
-        <Sequence>
+        <Sequence name="Entry2_Navigation_When_Enabled">
           <ScriptCondition code="mf_preselect_entry2_nav_enable"/>
           <NavToPose x="{mf_preselect_entry2_nav_x}"
                      y="{mf_preselect_entry2_nav_y}"
@@ -17,7 +17,9 @@
                      timeout_sec="{mf_preselect_entry2_nav_timeout_sec}"
                      behavior_tree="{mf_preselect_entry2_nav_behavior_tree_file}"/>
         </Sequence>
-        <AlwaysSuccess/>
+        <Inverter>
+          <ScriptCondition code="mf_preselect_entry2_nav_enable"/>
+        </Inverter>
       </Fallback>
       <MfPreselectionFlow name="mf_preselection_flow"/>
       <WaitForever name="mf_preselection_wait_forever"/>

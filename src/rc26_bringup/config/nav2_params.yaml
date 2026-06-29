@@ -198,7 +198,7 @@ controller_server: # Nav2 局部控制器服务器参数组
       max_vel_x: 0.25 # x 方向最大采样速度，单位 m/s
       min_vel_y: -0.25 # y 方向最小采样速度，单位 m/s
       max_vel_y: 0.0 # y 方向最大采样速度，单位 m/s
-      max_vel_theta: 0.10 # 最大角速度采样值，单位 rad/s
+      max_vel_theta: 0.50 # 最大角速度采样值，单位 rad/s
       min_speed_xy: 0.0 # 平面合速度最小值，单位 m/s
       max_speed_xy: 0.35 # 平面合速度最大值，单位 m/s
       min_speed_theta: 0.0 # 角速度绝对值最小值，单位 rad/s
@@ -272,7 +272,7 @@ local_costmap: # 局部代价地图顶层参数组
       inflation_layer: # 局部膨胀层参数组
         plugin: nav2_costmap_2d::InflationLayer # 使用 Nav2 2D 膨胀层插件
         enabled: true # 是否启用局部膨胀层
-        inflation_radius: 0.55 # 障碍膨胀半径，单位米
+        inflation_radius: 0.45 # 障碍膨胀半径，单位米
         cost_scaling_factor: 3.0 # 膨胀代价随距离衰减系数
       always_send_full_costmap: true # 是否每次发布完整代价地图
 
@@ -312,7 +312,7 @@ global_costmap: # 全局代价地图顶层参数组
       inflation_layer: # 全局膨胀层参数组
         plugin: nav2_costmap_2d::InflationLayer # 使用 Nav2 2D 膨胀层插件
         enabled: true # 是否启用全局膨胀层
-        inflation_radius: 0.55 # 障碍膨胀半径，单位米
+        inflation_radius: 0.50 # 障碍膨胀半径，单位米
         cost_scaling_factor: 3.0 # 膨胀代价随距离衰减系数
       always_send_full_costmap: true # 是否每次发布完整代价地图
 

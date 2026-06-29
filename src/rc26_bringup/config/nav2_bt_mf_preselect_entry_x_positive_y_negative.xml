@@ -14,7 +14,7 @@
           </RecoveryNode>
         </RateController>
         <RecoveryNode number_of_retries="1" name="MFPreselectEntryFollowPath">
-          <FollowPath path="{path}" controller_id="MFPreselectEntryXPositiveYNegative"/>
+          <FollowPath path="{path}" controller_id="MFPreselectEntryXPositiveYNegative" goal_checker_id="general_goal_checker"/>
           <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
         </RecoveryNode>
       </PipelineSequence>

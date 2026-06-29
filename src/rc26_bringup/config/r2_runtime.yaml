@@ -3,9 +3,9 @@
 # paths 下的三个路径必须使用绝对路径；如需现场切换地图/点云/行为树，优先修改这里。
 r2_runtime:
   paths:
-    prior_pcd_file: "/home/aidlux/RC_2026/src/rc26_point_lio/PCD/class.pcd"
-    nav2_map_file: "/home/aidlux/RC_2026/src/rc26_bringup/map/class.yaml"
-    behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/mc_tree.xml"
+    prior_pcd_file: "/home/aidlux/RC_2026/src/rc26_point_lio/PCD/class_plus.pcd"
+    nav2_map_file: "/home/aidlux/RC_2026/src/rc26_bringup/map/class_plus.yaml"
+    behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/mf_preselection_tree.xml"
 
   # 目标 MCU 共享串口 transport。
   # 只要运行链会下发机构动作指令，就必须启动 rc26_mcu_transport。
@@ -35,8 +35,8 @@ r2_runtime:
       # 红方武馆区 (MC) 运行参数 —— 启动时由 r2_runtime.yaml/launch 参数写入决策节点
       # ======================================================================
       # --- 红方导航目标点 ---
-      mc_nav_x: 0.9778               # 红方武馆区取端头导航目标 x；mc_tree.xml 从黑板读取该值
-      mc_nav_y: 0.7744              # 红方武馆区取端头导航目标 y；mc_tree.xml 从黑板读取该值
+      mc_nav_x: 0.75               # 红方武馆区取端头导航目标 x；mc_tree.xml 从黑板读取该值
+      mc_nav_y: 0.85              # 红方武馆区取端头导航目标 y；mc_tree.xml 从黑板读取该值
       mc_nav_frame_id: "map"        # 导航目标所在坐标系
       mc_nav_timeout_sec: 180.0     # Nav2 到达武馆区目标点的超时时间，单位秒
       # 红方 MC NavToPose 专用 Nav2 BT，使用 MCPositiveXYRed controller 做 xy-only 到点
@@ -100,9 +100,9 @@ r2_runtime:
       # ======================================================================
       # 梅林区预选赛专属链路参数 —— 独立 mf_preselection_tree.xml 使用
       # ======================================================================
-      mf_preselect_entry2_nav_enable: false      # 2号入口导航点未标定前关闭；关闭时默认机器人已在2号入口
-      mf_preselect_entry2_nav_x: 0.0             # 2号入口 Nav2 目标 x，占位待现场标定
-      mf_preselect_entry2_nav_y: 0.0             # 2号入口 Nav2 目标 y，占位待现场标定
+      mf_preselect_entry2_nav_enable: true      # 2号入口导航点未标定前关闭；关闭时默认机器人已在2号入口
+      mf_preselect_entry2_nav_x: 2.4405             # 2号入口 Nav2 目标 x，占位待现场标定
+      mf_preselect_entry2_nav_y: -1.715           # 2号入口 Nav2 目标 y，占位待现场标定
       mf_preselect_entry2_nav_yaw: 0.0           # 2号入口预备朝向 yaw，占位待现场标定
       mf_preselect_entry2_nav_frame_id: "map"    # 2号入口目标坐标系
       mf_preselect_entry2_nav_timeout_sec: 180.0 # 入口 Nav2 超时，单位秒

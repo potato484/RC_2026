@@ -259,6 +259,7 @@ bool SerialDriver::open(const std::string& port, int baudrate) {
         comm_health_.total_frames.store(0, std::memory_order_relaxed);
         comm_health_.parse_errors.store(0, std::memory_order_relaxed);
         comm_health_.ack_timeouts.store(0, std::memory_order_relaxed);
+        comm_health_.mcu_error_responses.store(0, std::memory_order_relaxed);
         comm_health_.reconnect_count.store(0, std::memory_order_relaxed);
         comm_health_.heartbeat_failures.store(0, std::memory_order_relaxed);
         comm_health_.resetWindows();
@@ -582,6 +583,7 @@ void SerialDriver::beginWaitAck(uint8_t seq, uint8_t cmd) {
     waiting_cmd_ = cmd;
     ack_response_received_ = false;
     ack_success_ = false;
+    ack_mcu_error_received_ = false;
     waiting_epoch_ = link_epoch_.load(std::memory_order_relaxed);
 }
 
@@ -590,6 +592,7 @@ void SerialDriver::endWaitAck() {
     waiting_for_ack_ = false;
     ack_response_received_ = false;
     ack_success_ = false;
+    ack_mcu_error_received_ = false;
 }
 
 SerialDriver::AckWaitResult SerialDriver::waitForAck(std::chrono::milliseconds timeout, bool& success) {
@@ -608,13 +611,28 @@ SerialDriver::AckWaitResult SerialDriver::waitForAck(std::chrono::milliseconds t
         return AckWaitResult::kLinkDown;
     }
 
+    if (ack_mcu_error_received_) {
+        success = false;
+        return AckWaitResult::kMcuError;
+    }
+
     success = ack_success_;
     return AckWaitResult::kReceived;
 }
 
 void SerialDriver::notifyAck(uint8_t seq, uint8_t cmd) {
     std::lock_guard<std::mutex> lock(ack_mutex_);
+    const bool is_mcu_error = cmd == static_cast<uint8_t>(FeedbackID::MCU_ERROR);
+    if (is_mcu_error) {
+        comm_health_.mcu_error_responses.fetch_add(1, std::memory_order_relaxed);
+    }
+
     if (!waiting_for_ack_ || seq != waiting_seq_) {
+        if (is_mcu_error) {
+            setLastError("MCU 返回错误码 0xFE（下位机原因）：seq=" + std::to_string(static_cast<int>(seq)) +
+                         "，未匹配当前 ACK 等待");
+            RCLCPP_WARN(serialLogger(), "收到未匹配的 MCU 错误码 0xFE（下位机原因）：seq=%u", seq);
+        }
         return;
     }
 
@@ -631,6 +649,14 @@ void SerialDriver::notifyAck(uint8_t seq, uint8_t cmd) {
         ack_success_ = true;
         ack_cv_.notify_all();
         RCLCPP_DEBUG(serialLogger(), "收到 HEARTBEAT_ACK：seq=%u", seq);
+        return;
+    }
+    if (is_mcu_error) {
+        ack_response_received_ = true;
+        ack_mcu_error_received_ = true;
+        ack_cv_.notify_all();
+        RCLCPP_WARN(serialLogger(), "收到 MCU 错误码 0xFE（下位机原因）：seq=%u, waiting_cmd=0x%02X", seq,
+                    waiting_cmd_);
         return;
     }
 }
@@ -697,9 +723,9 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload,
 
     std::lock_guard<std::mutex> cmd_lock(ack_command_mutex_);
 
-    // 重发机制：retry从0x00开始，步长1，每100ms重发一次
-    // 每3次为1轮，达到0x09后触发重连
+    // 重发机制：retry从0x00开始，步长1；纯 ACK 超时耗尽后触发重连，MCU 0xFE 耗尽后归因下位机。
     out_seq = nextSeq();
+    bool saw_mcu_error = false;
     for (uint8_t retry = 0x00; retry <= MAX_RETRY_VALUE; ++retry) {
         if (!isLinkActive()) {
             setLastError(fd_ < 0 ? "串口未打开" : "串口连接未激活");
@@ -759,6 +785,14 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload,
         if (wait_result == AckWaitResult::kLinkDown) {
             return false;
         }
+        if (wait_result == AckWaitResult::kMcuError) {
+            saw_mcu_error = true;
+            uint8_t round = retry / RETRIES_PER_ROUND + 1;
+            RCLCPP_WARN(serialLogger(),
+                        "MCU 返回错误码 0xFE（下位机原因，继续重试，retry=0x%02X, 第%u轮）：cmd=0x%02X, seq=%u",
+                        retry, round, cmd, out_seq);
+            continue;
+        }
         if (wait_result == AckWaitResult::kTimeout) {
             comm_health_.ack_window.record(false);
             comm_health_.ack_timeouts.fetch_add(1, std::memory_order_relaxed);
@@ -772,6 +806,14 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload,
         RCLCPP_WARN(serialLogger(),
                     "指令等待超时 (timeout=%lldms, retry=0x%02X, 第%u轮)：cmd=0x%02X, seq=%u",
                     static_cast<long long>(ack_timeout.count()), retry, round, cmd, out_seq);
+    }
+
+    if (saw_mcu_error) {
+        RCLCPP_ERROR(serialLogger(), "指令重发失败 cmd=0x%02X, seq=%u, MCU 持续返回 0xFE（下位机原因）", cmd,
+                     out_seq);
+        setLastError("MCU 返回错误码 0xFE（下位机原因）：cmd=" + std::to_string(static_cast<int>(cmd)) +
+                     ", seq=" + std::to_string(static_cast<int>(out_seq)) + ", 已重试至0x09");
+        return false;
     }
 
     // 所有重试失败（0x00-0x09共10次），触发串口重连
@@ -881,6 +923,11 @@ bool SerialDriver::sendHeartbeat() {
     if (wait_result == AckWaitResult::kLinkDown) {
         return false;
     }
+    if (wait_result == AckWaitResult::kMcuError) {
+        setLastError("MCU 返回心跳错误码 0xFE（下位机原因）：seq=" +
+                     std::to_string(static_cast<int>(seq)));
+        RCLCPP_WARN(serialLogger(), "心跳收到 MCU 错误码 0xFE（下位机原因）：seq=%u", seq);
+    }
     if (wait_result == AckWaitResult::kTimeout) {
         comm_health_.ack_window.record(false);
         comm_health_.ack_timeouts.fetch_add(1, std::memory_order_relaxed);
@@ -894,9 +941,13 @@ bool SerialDriver::sendHeartbeat() {
     RCLCPP_WARN(serialLogger(), "心跳失败（连续%u次）：seq=%u", failures, seq);
 
     if (failures >= MAX_HEARTBEAT_FAILURES) {
-        RCLCPP_ERROR(serialLogger(), "心跳连续失败%u次，触发串口重连", failures);
-        notifyHeartbeatFailure();
-        requestReconnect("heartbeat_failure");
+        if (wait_result == AckWaitResult::kMcuError) {
+            RCLCPP_ERROR(serialLogger(), "心跳连续失败%u次，本次为 MCU 0xFE（下位机原因），不触发串口重连", failures);
+        } else {
+            RCLCPP_ERROR(serialLogger(), "心跳连续失败%u次，触发串口重连", failures);
+            notifyHeartbeatFailure();
+            requestReconnect("heartbeat_failure");
+        }
     }
 
     return false;

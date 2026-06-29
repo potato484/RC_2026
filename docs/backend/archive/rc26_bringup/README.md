@@ -14,7 +14,7 @@
   - `run_mode:=mapping` 时进入建图链路，跳过 Nav2 导航分支，定位侧发布静态 `map -> odom`
   - `rc26_localization` 继续作为 `map -> odom` 权威，不启动 AMCL
   - 定位装配只透传先验 PCD 和定位参数文件，不再透传图后端、P4、重试区或 overlay 参数
-  - 当前默认运行时在 local/global costmap 加载 obstacle layer，但不加载 inflation layer；`/sensor_scan` (`PointCloud2`) 进入 Nav2 costmap，且不再依赖 `/scan`
+  - 当前默认运行时在 local/global costmap 加载 obstacle layer 与 inflation layer；`/sensor_scan` (`PointCloud2`) 进入 Nav2 costmap，且不再依赖 `/scan`
   - `/cmd_vel` 由 Nav2 controller/velocity_smoother 输出；默认由 `rc26_mcu_transport` 消费并下发 `POSE_TARGET(0x0C)`
   - `rc26_bringup` 不再启动 `rc26_merge_odom` 或 `pose_sender_node`，也不再提供 `/merge_odom`
   - `/mechanism/send_command` 与 `/mechanism/command_feedback` 由 `rc26_mcu_transport` 提供；涉及机构动作的运行链必须启动该目标 MCU 串口 owner
@@ -23,7 +23,7 @@
   - `r2_runtime.decision.ros__parameters` 中的 `mc_align_*` 参数维护武馆区视觉伺服横移对线口径；当前默认按后置相机安装反转横移方向，并启用端头目标锁定以避免双框同屏切换。`mc_align_heading_*` 当前默认开启，通过 `mc_odom_topic=odom` 消费 `rc26_odom_interface` 的雷达标准 odom yaw，并在视觉伺服阶段补发 `cmd_vel.angular.z` 保持车身朝向
   - 完整 MC 决策链依赖 `/odom` 作为雷达标准里程计，服务视觉 heading hold 和 180° 旋转 yaw 闭环；底盘执行与机构 transport 均由 `rc26_mcu_transport` 承担
   - `r2_runtime.decision.ros__parameters` 中声明为 double 的参数必须在 YAML 中写成小数形式，例如 `10.0`，不要写成裸整数 `10`；ROS2 会区分 integer 和 double，类型不一致会导致 `decision_node` 启动时报 `InvalidParameterTypeException`
-  - `config/nav2_params.yaml` 中 `planner_server.GridBased.tolerance` 当前收紧为 `0.05m`，避免 NavFn 在目标点附近半米内选替代终点后仍被上层当作真实到点；`controller_server.progress_checker` 当前按低速实车调为 `20s` 内至少前进 `0.05m`，减少慢速起步或局部恢复期间的误判卡死。普通导航继续使用 `FollowPath`，红方 MC 去程专用 Nav2 BT 使用 `MCPositiveXYRed`，只采样车体系 `linear.x/y` 正向和角速度。`MCNegativeXYRed` 仍作为可手工选择的负向约束 controller 配置保留，但当前默认 MC 树不再引用它。梅林预选 2 号入口导航专用 Nav2 BT 使用 `MFPreselectEntryXPositiveYNegative`，只采样车体系 `linear.x >= 0`、`linear.y <= 0`、`|angular.z| <= 0.10rad/s`，并且 recovery 只做 costmap clear，避免恢复动作绕过方向约束。Nav2 obstacle layer / inflation layer 都是 local/global costmap 的共享插件，不是 controller 级开关；当前共享 costmap 加载 obstacle layer 但不加载 inflation layer，因此 `MCPositiveXYRed` 与 `MFPreselectEntryXPositiveYNegative` 导航会消费动态障碍，但不会对静态或动态障碍额外生成膨胀缓冲
+  - `config/nav2_params.yaml` 中 `planner_server.GridBased.tolerance` 当前收紧为 `0.05m`，避免 NavFn 在目标点附近半米内选替代终点后仍被上层当作真实到点；`controller_server.progress_checker` 当前按低速实车调为 `20s` 内至少前进 `0.05m`，减少慢速起步或局部恢复期间的误判卡死。普通导航继续使用 `FollowPath`，红方 MC 去程专用 Nav2 BT 使用 `MCPositiveXYRed`，只采样车体系 `linear.x/y` 正向和角速度。`MCNegativeXYRed` 仍作为可手工选择的负向约束 controller 配置保留，但当前默认 MC 树不再引用它。梅林预选 2 号入口导航专用 Nav2 BT 使用 `MFPreselectEntryXPositiveYNegative`，只采样车体系 `linear.x >= 0`、`linear.y <= 0`、`|angular.z| <= 0.10rad/s`，并且在 `FollowPath` 上显式使用 `general_goal_checker`，避免 Humble controller_server 收到空 goal checker 名称后拒绝 action；recovery 只做 costmap clear，避免恢复动作绕过方向约束。Nav2 obstacle layer / inflation layer 都是 local/global costmap 的共享插件，不是 controller 级开关；当前共享 costmap 加载 obstacle layer 与 inflation layer，因此 `MCPositiveXYRed` 与 `MFPreselectEntryXPositiveYNegative` 导航会消费动态障碍，并在静态与动态障碍周围生成膨胀代价
   - `r2_runtime.decision.ros__parameters` 同时维护 `stair_*` 台阶动作参数；这些参数供独立 `stair_climb_tree.xml` / `stair_descend_tree.xml`、红方中列测试树和 MF `GridTransition` 离散格间动作复用。普通直行速度为便于上/下阶梯独立调速，已拆为 `stair_climb_drive_speed_mps` 与 `stair_descend_drive_speed_mps`，旧 `stair_drive_speed_mps` 不再是当前配置契约；上台阶的前推杆伸出后零速等待、前收+后伸后零速等待、后推杆收回后零速等待，以及下台阶的后推杆伸出后零速等待、后收+前伸后零速等待、前推杆收回后零速等待也在这里配置；当前两激光下台阶链路还在这里配置前推杆收回前的 `x` 负向定时行驶速度与时长，默认 `0.025m/s` 持续 `4.0s`。`stair_odom_topic` 与 `stair_heading_*` 参数用于上/下阶梯前的 yaw 对齐和直行期间 heading hold
   - 本车 `T_*` 的独立 KFS 夹取联调由 `rc26_vision/test_kfs_vision.launch.py action_enable:=true` 提供；旧 `kfs_stair_test.launch.py` 与 decision 侧 `KfsStairPickup` 阶梯等待链已删除，`r2_runtime.yaml` 不再维护对应 `kfs_*` 等待参数
   - `r2_runtime.decision.ros__parameters` 中的 `mf_preselect_*` 参数维护梅林区预选赛专属正式链路：2 号入口可选 Nav2 目标、R2/R1/假 KFS 标签、深度阈值、入口 1/3 阶梯横移探测距离和速度、R2 KFS 夹取上限、夹取 ACK 后原目标视觉消失验证窗口、`ARM_HIGH_RAISE(0x0D)` / `ARM_HIGH_RAISE_DONE(0x09)`、普通机械臂升降、向下夹取开环前 `ARM_SECOND_LOWER(0x0E)` / `ARM_SECOND_LOWER_DONE(0x0A)`、相对移动、转向和最终离场停车参数。当前默认 `behavior_tree_file` 指向 `mf_preselection_tree.xml`，入口导航默认关闭，现场标定后只需启用并填写 `mf_preselect_entry2_nav_*`；入口导航的 `mf_preselect_entry2_nav_behavior_tree_file` 默认指向 `config/nav2_bt_mf_preselect_entry_x_positive_y_negative.xml`
@@ -69,7 +69,7 @@
 - Nav2 参数文件归 bringup 托管，是本轮基础导航栈的部署配置
 - `config/localization.yaml` 当前只维护开局一次重定位与连续 GICP 跟踪的核心参数，定位健康度、图后端和路径可观测性参数已移除
 - `config/odom_interface.yaml` 只保留 `rc26_odom_interface` 的参数契约；其中 `base_link_height_above_base_footprint_m` 当前直接在该 YAML 维护，`base_link -> point_lio.body_frame` 推导值仍只允许在 `odometry.launch.py` 中注入
-- `config/nav2_params.yaml` 当前加载 local/global obstacle layer，但不加载 inflation layer；`/sensor_scan` (`PointCloud2`) 作为障碍输入进入 costmap，不再维护 `/scan` LaserScan 兼容链；该文件的实际 YAML 配置项已经逐行补充中文行尾说明，便于现场直接查参数语义
+- `config/nav2_params.yaml` 当前加载 local/global obstacle layer 与 inflation layer；`/sensor_scan` (`PointCloud2`) 作为障碍输入进入 costmap，不再维护 `/scan` LaserScan 兼容链；该文件的实际 YAML 配置项已经逐行补充中文行尾说明，便于现场直接查参数语义
 - `scripts/capture_nav_points.py` 是现场只读采点辅助入口，依赖当前主链 TF 结果生成 Nav2 目标点文本，不接管 `map -> odom`、`/navigate_to_pose` 或 `/cmd_vel` 权威
 - `bringup.launch.py` 的 `use_rviz:=true`、`test_mapping.launch.py` 与 `test_navigation.launch.py` 的 RViz2 都只作为下游观察和 Nav2 目标点发布工具；`/point_lio/map_cloud` 是现场建图观察输出，不作为定位或导航权威
 
@@ -78,7 +78,7 @@
 - 删除旧导航包和旧配置文件引用，导航模式改为 include Nav2 `navigation_launch.py`
 - `bringup.launch.py` 向 Humble Nav2 `navigation_launch.py` 透传 `use_composition=False` 与 `use_respawn=False` 时使用 Python 布尔字面量大写，避免 Nav2 内部 `PythonExpression(['not ', use_composition])` 将小写 `false` 当作未定义名称求值
 - 新增 `config/nav2_params.yaml`，当前自动导航链帧固定为 `map / odom / base_footprint`，控制器使用 Humble 兼容的 DWB 配置并允许麦克纳姆横移速度
-- Nav2 obstacle layer 当前在 `config/nav2_params.yaml` 的 local/global costmap `plugins` 中加载；inflation layer 当前不加载，避免对静态或动态障碍额外生成膨胀缓冲。`/sensor_scan` (`PointCloud2`) 作为障碍输入进入 costmap，`registered_scan` 继续只供定位链使用
+- Nav2 obstacle layer 当前在 `config/nav2_params.yaml` 的 local/global costmap `plugins` 中加载，并在其后接入 inflation layer，为静态地图与 `/sensor_scan` 动态障碍生成膨胀缓冲。`/sensor_scan` (`PointCloud2`) 作为障碍输入进入 costmap，`registered_scan` 继续只供定位链使用
 - 本轮自动导航链将 `base_footprint` 固定为地面投影 2D 基座，`base_link` 固定为底盘最下层刚性主板中心，二者高度差当前由 `config/odom_interface.yaml` 维护，当前为 `0.2m`
 - `rc26_sensor_scan` 不再把导航基座到雷达的关系当成静态缓存，而是按时间戳查询 `base_footprint -> livox_frame` 组合 TF，保证 `base_link` 保留 roll/pitch 时点云投影仍正确
 - 本轮停用默认运行链中的 `rc26_merge_odom` 装配；源码保留在 `src/rc26_merge_odom`，但 `bringup.launch.py` 与 `test_navigation.launch.py` 不再声明或透传 `merge_odom_*`、`start_pose_sender`、`pose_sender_*` 参数
@@ -106,3 +106,4 @@
 - 2026-06-27 同步：删除旧 `kfs_stair_test.launch.py`、decision 侧 `KfsStairPickup` 节点和 `kfs_stair_*_test_tree.xml` 独立等待树；本车 `T_*` KFS 独立实机夹取测试统一走 `rc26_vision/test_kfs_vision.launch.py action_enable:=true`，MF 预选赛仍在 `MfPreselectionFlow` 内部完成 `GRAB_KFS_UP/DOWN` 后的视觉消失确认。
 - 2026-06-27 同步：`r2_runtime.yaml` 的 MF 预选赛参数新增 `mf_preselect_second_arm_lower_command_id=14` 与 `mf_preselect_second_arm_lower_done_feedback_id=10`，用于向下夹取在锁定开环距离后、前进前确认第二节机械臂已经放下。
 - 2026-06-28 同步：`nav2_params.yaml` 在 local/global costmap 均启用 `inflation_layer`，接在 obstacle/static 层之后；当前膨胀半径为 `0.60m`、代价衰减系数为 `3.0`，用于给静态地图和 `/sensor_scan` 动态障碍留出规划缓冲。
+- 2026-06-29 同步：`nav2_bt_mf_preselect_entry_x_positive_y_negative.xml` 的 `FollowPath` 补齐 `goal_checker_id="general_goal_checker"`；梅林预选入口专用 Nav2 BT 仍使用 `MFPreselectEntryXPositiveYNegative` controller 和仅清 costmap 的 recovery，但不会再向 controller server 发送空 goal checker 名称。
