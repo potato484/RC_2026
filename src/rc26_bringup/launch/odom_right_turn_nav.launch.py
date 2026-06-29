@@ -6,7 +6,7 @@
   - 可选 rc26_mcu_transport，消费 /cmd_vel 并下发底盘运动
   - rc26_decision decision_node，加载 odom_right_turn_nav_tree.xml
 
-本入口不启动 Nav2、定位或遥控，确保 /cmd_vel 只有一个运动命令权威。
+本入口不启动定位或遥控，确保 /cmd_vel 只有一个运动命令权威。
 动作顺序由 odom_right_turn_nav_* 参数决定，默认 odom 闭环 x+ 0.4m -> 右转90°闭环对齐 -> odom 闭环 x- 0.4m。
 """
 import os
@@ -138,6 +138,7 @@ def _create_actions(context, *, bringup_dir, decision_dir, sensor_extrinsics_dir
                 'sensor_extrinsics_profile': sensor_extrinsics_profile,
                 'point_lio_publish_odometry_without_downsample': 'false',
                 'odom_interface_publish_bootstrap_pose': 'false',
+                'start_sensor_scan': 'false',
                 'start_mid360_driver': start_mid360_driver,
                 'recover_mid360_stream': recover_mid360_stream,
             }.items()

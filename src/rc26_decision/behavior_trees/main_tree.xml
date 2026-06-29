@@ -11,7 +11,7 @@
     <Sequence>
       <!-- 武馆阶段 -->
       <SubTree ID="MCAreaTree" _autoremap="true"/>
-      <!-- 梅林阶段（Nav2 pose 导航） -->
+      <!-- 梅林阶段（离散格间动作） -->
       <SubTree ID="MFAreaTree" _autoremap="true"/>
       <!-- 对抗阶段 -->
       <SubTree ID="CombatAreaTree" _autoremap="true"/>

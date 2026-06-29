@@ -4,7 +4,7 @@ sensor_scan:
     lidar_frame: "livox_frame"
     # 参数说明：base_frame - 输入 odom 话题的 child_frame_id；当前自动链为 base_footprint。
     base_frame: "base_footprint"
-    # 参数说明：robot_base_frame - 提供给 Nav2 / 下游 2D 导航的机器人基座 frame。
+    # 参数说明：robot_base_frame - 提供给下游 2D 感知/调试链路的机器人基座 frame。
     robot_base_frame: "base_footprint"
 
     # ===== 输入话题 (来自 odom_interface) =====

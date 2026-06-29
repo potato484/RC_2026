@@ -1,0 +1,45 @@
+<!-- 独立 odom 单轴分段导航行为树：只在 tree_file 指向本文件时执行。 -->
+<root BTCPP_format="4" main_tree_to_execute="RelativeSegmentNavTree">
+  <BehaviorTree ID="RelativeSegmentNavTree">
+    <Sequence name="Odom_Axis_Segment_Nav_Sequence">
+      <OdomDriveX name="relative_segment_x"
+                  distance_m="0.40"
+                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                  odom_topic="{odom_relative_nav_odom_topic}"
+                  max_speed_mps="{odom_relative_nav_max_speed_mps}"
+                  min_speed_mps="{odom_relative_nav_min_speed_mps}"
+                  xy_kp="{odom_relative_nav_xy_kp}"
+                  heading_kp="{odom_relative_nav_heading_kp}"
+                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                  stable_ticks="{odom_relative_nav_stable_ticks}"
+                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                  timeout_s="{odom_relative_nav_timeout_s}"/>
+      <OdomDriveY name="relative_segment_y"
+                  distance_m="0.20"
+                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                  odom_topic="{odom_relative_nav_odom_topic}"
+                  max_speed_mps="{odom_relative_nav_max_speed_mps}"
+                  min_speed_mps="{odom_relative_nav_min_speed_mps}"
+                  xy_kp="{odom_relative_nav_xy_kp}"
+                  heading_kp="{odom_relative_nav_heading_kp}"
+                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                  stable_ticks="{odom_relative_nav_stable_ticks}"
+                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                  timeout_s="{odom_relative_nav_timeout_s}"/>
+      <OdomTurnToYaw name="relative_segment_turn"
+                     target_yaw_rad="0.0"
+                     cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                     odom_topic="{odom_relative_nav_odom_topic}"
+                     kp="{odom_relative_nav_heading_kp}"
+                     max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                     yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                     stable_ticks="{odom_relative_nav_stable_ticks}"
+                     odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                     timeout_s="{odom_relative_nav_timeout_s}"/>
+    </Sequence>
+  </BehaviorTree>
+</root>

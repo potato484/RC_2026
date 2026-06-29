@@ -22,7 +22,7 @@
 - 默认 `startup_relocalization_enable=false` 且 `startup_global_grid_enable=false`：现场 rosbag 验证表明无先验开局全局候选会被 `class_plus` 重复结构稳定带到远端假位姿，因此不进入比赛默认主链
 - 默认 `require_initial_pose_for_local_tracking=true`：没有非零 `init_pose`、开局重定位成功、`initialpose` 接管或在线重定位接管形成的可信初值时，连续局部跟踪不会从全零身份变换开始盲配
 - 2Hz 执行 small_gicp 局部配准，默认按 `previous_result_t` 在先验 PCD 下采样目标中裁剪局部目标点云；局部目标点数不足时冻结上一帧 TF，不回退到整图盲配准
-- 连续局部配准质量通过 `min_inliers`、`max_normalized_error` 和单次建议跳变门控共同决定；默认 `num_threads=2`，按 X1 低算力整车链路限制 GICP 并行度，避免与 Point-LIO、Nav2 costmap/DWB 和相机驱动抢满 CPU
+- 连续局部配准质量通过 `min_inliers`、`max_normalized_error` 和单次建议跳变门控共同决定；默认 `num_threads=2`，按 X1 低算力整车链路限制 GICP 并行度，避免与 Point-LIO、决策侧运动闭环和相机驱动抢满 CPU
 - 接受的连续局部配准结果默认用 `registration_smoothing_alpha` 在上一帧和 GICP 建议结果之间插值后发布，降低静止场景中 `map -> odom` 的厘米级随机游走；门控仍以未平滑的 GICP 建议结果为准
 - 20Hz 发布 `map -> odom`，同时发布 `/localization/pose_with_cov`
 - 发布 `/localization/diagnostics`，记录本帧是否接受、收敛、内点数、归一化误差、可信初值状态、局部目标点数、建议跳变量、拒绝原因和平滑配置；`status.message` 继续保留英文 reason code，同时新增 `human_message` 中文说明字段供现场排查

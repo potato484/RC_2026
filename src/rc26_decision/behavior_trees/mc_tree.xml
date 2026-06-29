@@ -1,23 +1,63 @@
-<!-- 武馆区专属行为树 (MC Area)：xy 导航 → 到点转向 → 视觉伺服夹取 → 原地旋转180° → 无限期等待 -->
+<!-- 武馆区专属行为树 (MC Area)：前进 X 段 → 相对右转 90° → 后退 X 段 → 视觉伺服夹取 → 原地旋转180° → 无限期等待 -->
 <root BTCPP_format="4" main_tree_to_execute="MCAreaTree">
   <BehaviorTree ID="MCAreaTree">
     <Sequence name="MC_Sequence">
-      <!-- 1. 发布红方武馆区 xy 导航目标；MC 专用 Nav2 BT 在本阶段不允许角速度输出 -->
-      <NavToPose x="{mc_nav_x}" y="{mc_nav_y}" yaw="{mc_nav_yaw}" frame_id="{mc_nav_frame_id}"
-                 timeout_sec="{mc_nav_timeout_sec}" behavior_tree="{mc_nav_behavior_tree_file}"
-                 success_yaw_tolerance="6.283185"/>
-      <!-- 2. 到达指定 x/y 后，才允许原地发布角速度对齐目标 yaw -->
-      <RotateInPlace name="mc_nav_heading_align" target_yaw_rad="{mc_nav_yaw}"/>
-      <!-- 3. 视觉伺服：横移对齐端头 → 下发 GRAB_TIP → 端头消失判定夹取完成 -->
-      <VisualServoGrab name="visual_servo_grab"/>
+      <!-- 1. 使用 odom 单轴闭环复刻原始去程：+X 0.2m，右转 90°，-X 0.6m -->
+      <OdomDriveX name="mc_nav_forward_x"
+                  distance_m="{mc_nav_forward_x_m}"
+                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                  odom_topic="{odom_relative_nav_odom_topic}"
+                  max_speed_mps="{odom_relative_nav_max_speed_mps}"
+                  min_speed_mps="{odom_relative_nav_min_speed_mps}"
+                  xy_kp="{odom_relative_nav_xy_kp}"
+                  heading_kp="{odom_relative_nav_heading_kp}"
+                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                  stable_ticks="{odom_relative_nav_stable_ticks}"
+                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                  timeout_s="{mc_nav_timeout_sec}"/>
+      <RelativeYawTarget name="mc_nav_right_turn_target"
+                         odom_topic="{odom_relative_nav_odom_topic}"
+                         yaw_delta_rad="{mc_nav_right_turn_delta_rad}"
+                         timeout_s="{odom_relative_nav_timeout_s}"
+                         odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                         target_yaw_rad="{mc_nav_right_turn_target_yaw}"/>
+      <OdomTurnToYaw name="mc_nav_right_turn"
+                     target_yaw_rad="{mc_nav_right_turn_target_yaw}"
+                     cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                     odom_topic="{odom_relative_nav_odom_topic}"
+                     kp="{odom_relative_nav_heading_kp}"
+                     max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                     yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                     stable_ticks="{odom_relative_nav_stable_ticks}"
+                     odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                     timeout_s="{mc_nav_timeout_sec}"/>
+      <OdomDriveX name="mc_nav_reverse_x"
+                  distance_m="{mc_nav_reverse_x_m}"
+                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                  odom_topic="{odom_relative_nav_odom_topic}"
+                  max_speed_mps="{odom_relative_nav_max_speed_mps}"
+                  min_speed_mps="{odom_relative_nav_min_speed_mps}"
+                  xy_kp="{odom_relative_nav_xy_kp}"
+                  heading_kp="{odom_relative_nav_heading_kp}"
+                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                  stable_ticks="{odom_relative_nav_stable_ticks}"
+                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                  timeout_s="{mc_nav_timeout_sec}"/>
+      <!-- 2. 视觉伺服：横移对齐端头 → 下发 GRAB_TIP → 端头消失判定夹取完成 -->
+      <VisualServoGrab name="visual_servo_grab"
+                       target_yaw_rad="{mc_nav_right_turn_target_yaw}"/>
 
-      <!-- 4. 等待 0.5s -->
+      <!-- 3. 等待 0.5s -->
         <Delay delay_msec="500">
           <AlwaysSuccess/>
         </Delay>
-      <!-- 5. 原地旋转 180° -->
+      <!-- 4. 原地旋转 180° -->
       <RotateInPlace name="rotate_180"/>
-      <!-- 6. 无限期等待 -->
+      <!-- 5. 无限期等待 -->
       <WaitForever name="wait_forever"/>
     </Sequence>
   </BehaviorTree>

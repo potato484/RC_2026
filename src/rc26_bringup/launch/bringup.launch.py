@@ -1,20 +1,19 @@
 """
-src R2导航系统 - 主启动文件
+src R2 odom 闭环导航系统 - 主启动文件
 
 启动:
-  - 里程计 (rc26_point_lio + rc26_odom_interface + rc26_sensor_scan)
-  - 定位 (rc26_localization)
-  - Nav2 基础导航栈 (map_server + planner/controller/BT navigator/velocity smoother)
+  - 里程计 (rc26_point_lio + rc26_odom_interface)
   - 决策系统 (rc26_decision)
+  - 目标 MCU 共享串口 transport (rc26_mcu_transport)
 
 额外模式:
   - run_mode:=mapping 且 pure_mapping_mode:=true 时，保留纯建图最小运动链路
 
 默认装配口径:
   - 车端 bringup 默认维持 headless，可通过 use_rviz:=true 临时打开 RViz2
-  - r2_runtime.yaml 是点云、地图、行为树入口与决策参数的运行配置真源
+  - r2_runtime.yaml 是点云、行为树入口与决策参数的运行配置真源
   - /cmd_vel 的默认底盘执行与机构指令共享串口由 rc26_mcu_transport 提供
-  - RViz2 只作为现场观察与 Nav2 目标点发布工具，不接管运行时权威
+  - RViz2 只作为现场观察工具，不接管运行时权威
 """
 import os
 
@@ -133,7 +132,6 @@ def _load_r2_runtime_defaults(config_file):
     mcu_transport_params = mcu_transport.get('ros__parameters') or {}
 
     defaults['paths']['prior_pcd_file'] = _read_required_abs_path(paths, 'prior_pcd_file')
-    defaults['paths']['nav2_map_file'] = _read_required_abs_path(paths, 'nav2_map_file')
     defaults['paths']['behavior_tree_file'] = _read_required_abs_path(paths, 'behavior_tree_file')
 
     defaults['decision_params'] = dict((decision.get('ros__parameters') or {}))
@@ -165,7 +163,7 @@ def _after_delay(delay_sec, actions):
     return [TimerAction(period=delay_sec, actions=list(actions))]
 
 
-def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2_bringup_dir, mcu_transport_dir):
+def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, mcu_transport_dir):
     runtime_config_file = _launch_value(context, 'runtime_config_file')
     runtime_defaults = _load_r2_runtime_defaults(runtime_config_file)
 
@@ -191,14 +189,10 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2
         os.path.join(bringup_dir, 'config', 'localization.yaml'))
     startup_delay_localization_sec = _select_nonnegative_float(
         context, 'startup_delay_localization_sec', 4.0)
-    startup_delay_map_sec = _select_nonnegative_float(
-        context, 'startup_delay_map_sec', 6.0)
-    startup_delay_nav2_sec = _select_nonnegative_float(
-        context, 'startup_delay_nav2_sec', 8.0)
     startup_delay_decision_sec = _select_nonnegative_float(
-        context, 'startup_delay_decision_sec', 14.0)
+        context, 'startup_delay_decision_sec', 8.0)
     startup_delay_realsense_sec = _select_nonnegative_float(
-        context, 'startup_delay_realsense_sec', 18.0)
+        context, 'startup_delay_realsense_sec', 12.0)
 
     use_decision = _parse_bool(_launch_value(context, 'use_decision') or 'true')
     use_realsense = _parse_bool(_launch_value(context, 'use_realsense'))
@@ -211,11 +205,6 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2
         context,
         'team',
         str(runtime_defaults['decision_params'].get('team', 'blue')))
-    nav2_params_file = _select_str(
-        context,
-        'nav2_params_file',
-        os.path.join(bringup_dir, 'config', 'nav2_params.yaml'))
-    nav2_map_file = _select_abs_path(context, 'nav2_map_file', runtime_defaults['paths']['nav2_map_file'])
     point_lio_full_map_publish_en = _select_str(
         context,
         'point_lio_full_map_publish_en',
@@ -303,75 +292,55 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2
             'sensor_extrinsics_profile': sensor_extrinsics_profile,
             'point_lio_publish_odometry_without_downsample': 'false',
             'point_lio_full_map_publish_en': point_lio_full_map_publish_en,
+            'start_sensor_scan': 'false' if navigation_mode else 'true',
             'start_mid360_driver': start_mid360_driver,
             'recover_mid360_stream': recover_mid360_stream,
         }.items()
     )
     actions.append(GroupAction(actions=[odometry_launch], scoped=True))
 
-    localization_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution([bringup_dir, 'launch', 'localization.launch.py'])
-        ),
-        launch_arguments={
-            'namespace': namespace,
-            'use_sim_time': use_sim_time_text,
-            'run_mode': run_mode,
-            'prior_pcd_file': prior_pcd_file,
-            'localization_params_file': localization_params_file,
-        }.items()
-    )
-    actions.extend(_after_delay(startup_delay_localization_sec, [localization_launch]))
-
-    if navigation_mode:
-        map_server_node = Node(
-            package='nav2_map_server',
-            executable='map_server',
-            name='map_server',
-            namespace=namespace,
-            output='screen',
-            parameters=[
-                nav2_params_file,
-                {
-                    'use_sim_time': use_sim_time,
-                    'yaml_filename': nav2_map_file,
-                },
-            ],
-        )
-
-        map_lifecycle_node = Node(
-            package='nav2_lifecycle_manager',
-            executable='lifecycle_manager',
-            name='lifecycle_manager_map',
-            namespace=namespace,
-            output='screen',
-            parameters=[{
-                'use_sim_time': use_sim_time,
-                'autostart': True,
-                'node_names': ['map_server'],
-            }],
-        )
-        actions.extend(_after_delay(startup_delay_map_sec, [map_server_node, map_lifecycle_node]))
-
-        nav2_launch = IncludeLaunchDescription(
+    if mapping_mode:
+        localization_launch = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
-                PathJoinSubstitution([nav2_bringup_dir, 'launch', 'navigation_launch.py'])
+                PathJoinSubstitution([bringup_dir, 'launch', 'localization.launch.py'])
             ),
             launch_arguments={
                 'namespace': namespace,
                 'use_sim_time': use_sim_time_text,
-                'params_file': nav2_params_file,
-                'autostart': 'true',
-                'use_composition': 'False',
-                'use_respawn': 'False',
-            }.items(),
+                'run_mode': run_mode,
+                'prior_pcd_file': prior_pcd_file,
+                'localization_params_file': localization_params_file,
+            }.items()
         )
-        actions.extend(_after_delay(startup_delay_nav2_sec, [nav2_launch]))
+        actions.extend(_after_delay(startup_delay_localization_sec, [localization_launch]))
 
     if use_decision and not (mapping_mode and pure_mapping_mode):
         decision_params = dict(runtime_defaults['decision_params'])
         decision_params.pop('team', None)
         decision_params.pop('tree_file', None)
+        decision_params.pop('startup_wait_for_odom', None)
+        decision_params.pop('startup_odom_topic', None)
+        decision_params.pop('startup_odom_timeout_s', None)
+        decision_params.pop('startup_odom_wait_timeout_s', None)
+        decision_params.pop('startup_odom_min_wait_s', None)
+        decision_params.pop('startup_odom_stable_samples', None)
+        decision_params.pop('startup_odom_max_linear_speed_mps', None)
+        decision_params.pop('startup_odom_max_angular_speed_radps', None)
+        startup_wait_for_odom = bool(navigation_mode)
+        startup_odom_topic = str(runtime_defaults['decision_params'].get(
+            'startup_odom_topic', 'odom'))
+        startup_odom_timeout_s = runtime_defaults['decision_params'].get(
+            'startup_odom_timeout_s', 0.5)
+        startup_odom_wait_timeout_s = runtime_defaults['decision_params'].get(
+            'startup_odom_wait_timeout_s', 20.0)
+        startup_odom_min_wait_s = runtime_defaults['decision_params'].get(
+            'startup_odom_min_wait_s', 1.0)
+        startup_odom_stable_samples = runtime_defaults['decision_params'].get(
+            'startup_odom_stable_samples', 10)
+        startup_odom_max_linear_speed_mps = runtime_defaults['decision_params'].get(
+            'startup_odom_max_linear_speed_mps', 0.03)
+        startup_odom_max_angular_speed_radps = runtime_defaults['decision_params'].get(
+            'startup_odom_max_angular_speed_radps', 0.05)
         decision_node = Node(
             package='rc26_decision',
             executable='decision_node',
@@ -384,6 +353,14 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2
                     'use_sim_time': use_sim_time,
                     'team': team,
                     'tree_file': behavior_tree_file,
+                    'startup_wait_for_odom': startup_wait_for_odom,
+                    'startup_odom_topic': startup_odom_topic,
+                    'startup_odom_timeout_s': startup_odom_timeout_s,
+                    'startup_odom_wait_timeout_s': startup_odom_wait_timeout_s,
+                    'startup_odom_min_wait_s': startup_odom_min_wait_s,
+                    'startup_odom_stable_samples': startup_odom_stable_samples,
+                    'startup_odom_max_linear_speed_mps': startup_odom_max_linear_speed_mps,
+                    'startup_odom_max_angular_speed_radps': startup_odom_max_angular_speed_radps,
                 },
             ],
         )
@@ -416,14 +393,13 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2
 def generate_launch_description():
     bringup_dir = get_package_share_directory('rc26_bringup')
     sensor_extrinsics_dir = get_package_share_directory('rc26_sensor_extrinsics')
-    nav2_bringup_dir = get_package_share_directory('nav2_bringup')
     mcu_transport_dir = get_package_share_directory('rc26_mcu_transport')
 
     return LaunchDescription([
         DeclareLaunchArgument(
             'runtime_config_file',
             default_value=PathJoinSubstitution([bringup_dir, 'config', 'r2_runtime.yaml']),
-            description='R2 统一运行配置 YAML；点云、地图、行为树路径必须为绝对路径'),
+            description='R2 统一运行配置 YAML；点云、行为树路径必须为绝对路径'),
         DeclareLaunchArgument(
             'namespace',
             default_value='',
@@ -435,7 +411,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'run_mode',
             default_value='navigation',
-            description='运行模式: navigation | mapping；navigation=完整导航/决策链路, mapping=建图链路'),
+            description='运行模式: navigation | mapping；navigation=odom 闭环导航/决策链路, mapping=建图链路'),
         DeclareLaunchArgument(
             'pure_mapping_mode',
             default_value='false',
@@ -467,26 +443,18 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'localization_params_file',
             default_value='',
-            description='基础定位参数文件路径；为空时使用 rc26_bringup/config/localization.yaml'),
+            description='建图模式定位参数文件路径；为空时使用 rc26_bringup/config/localization.yaml'),
         DeclareLaunchArgument(
             'startup_delay_localization_sec',
             default_value='4.0',
-            description='错峰启动延时：定位链路启动前等待秒数；0 表示不延时'),
-        DeclareLaunchArgument(
-            'startup_delay_map_sec',
-            default_value='6.0',
-            description='错峰启动延时：map_server 与 map lifecycle 启动前等待秒数；0 表示不延时'),
-        DeclareLaunchArgument(
-            'startup_delay_nav2_sec',
-            default_value='8.0',
-            description='错峰启动延时：Nav2 navigation_launch 启动前等待秒数；0 表示不延时'),
+            description='错峰启动延时：建图模式定位链路启动前等待秒数；0 表示不延时'),
         DeclareLaunchArgument(
             'startup_delay_decision_sec',
-            default_value='14.0',
+            default_value='8.0',
             description='错峰启动延时：decision_node 启动前等待秒数；0 表示不延时'),
         DeclareLaunchArgument(
             'startup_delay_realsense_sec',
-            default_value='18.0',
+            default_value='12.0',
             description='错峰启动延时：RealSense 启动前等待秒数；0 表示不延时'),
         DeclareLaunchArgument(
             'point_lio_full_map_publish_en',
@@ -561,14 +529,6 @@ def generate_launch_description():
             default_value='',
             description='Active competition side: blue | red；空字符串表示使用 r2_runtime.yaml'),
         DeclareLaunchArgument(
-            'nav2_params_file',
-            default_value='',
-            description='Nav2 参数文件；为空时使用 rc26_bringup/config/nav2_params.yaml'),
-        DeclareLaunchArgument(
-            'nav2_map_file',
-            default_value='',
-            description='Nav2 map_server 使用的 2D occupancy map YAML 绝对路径；空字符串表示使用 r2_runtime.yaml'),
-        DeclareLaunchArgument(
             'use_rviz',
             default_value='false',
             description='是否随正式 bringup 启动 RViz2；默认关闭'),
@@ -581,7 +541,6 @@ def generate_launch_description():
             kwargs={
                 'bringup_dir': bringup_dir,
                 'sensor_extrinsics_dir': sensor_extrinsics_dir,
-                'nav2_bringup_dir': nav2_bringup_dir,
                 'mcu_transport_dir': mcu_transport_dir,
             },
         ),

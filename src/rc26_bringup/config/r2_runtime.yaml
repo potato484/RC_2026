@@ -1,10 +1,9 @@
 # R2 统一运行配置。
-# 本文件是完整 bringup 的运行配置真源：点云、地图、行为树入口与决策参数集中维护。
-# paths 下的三个路径必须使用绝对路径；如需现场切换地图/点云/行为树，优先修改这里。
+# 本文件是完整 bringup 的运行配置真源：点云、行为树入口与决策参数集中维护。
+# paths 下的两个路径必须使用绝对路径；如需现场切换点云/行为树，优先修改这里。
 r2_runtime:
   paths:
     prior_pcd_file: "/home/aidlux/RC_2026/src/rc26_point_lio/PCD/class_plus.pcd"
-    nav2_map_file: "/home/aidlux/RC_2026/src/rc26_bringup/map/class_plus.yaml"
     behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/mf_preselection_tree.xml"
 
   # 目标 MCU 共享串口 transport。
@@ -29,18 +28,41 @@ r2_runtime:
     ros__parameters:
       tick_rate_ms: 100             # 行为树 tick 周期，单位毫秒；数值越小调度越频繁
       team: "red"                   # 当前默认按红方配置运行；用于梅林区静态地图初始化
-      mc_nav_yaw: -1.5708           # 红方武馆区取端头最终 yaw，单位 rad；Nav2 xy 到点后由 RotateInPlace 转向，视觉 heading hold 默认同用此朝向
+      # ======================================================================
+      # 完整导航链启动 odom gate —— 决策树 tick 前等待 /odom 新鲜且低速稳定
+      # ======================================================================
+      startup_odom_topic: "odom"     # 完整导航链启动前等待的 odom 话题
+      startup_odom_timeout_s: 0.5    # 启动 gate 接受的 odom 最大年龄，单位秒
+      startup_odom_wait_timeout_s: 20.0 # 等待 /odom 稳定的最长时间，单位秒
+      startup_odom_min_wait_s: 1.0   # 收到 /odom 后至少等待多久才允许启动行为树，单位秒
+      startup_odom_stable_samples: 10 # 连续多少帧低速 /odom 才认为稳定
+      startup_odom_max_linear_speed_mps: 0.03 # 启动稳定判定允许的最大线速度
+      startup_odom_max_angular_speed_radps: 0.05 # 启动稳定判定允许的最大角速度
+
+      # ======================================================================
+      # 通用 odom 单轴分段导航参数 —— OdomDriveX/OdomDriveY/OdomTurnToYaw 直接发布 /cmd_vel
+      # ======================================================================
+      odom_relative_nav_cmd_vel_topic: "cmd_vel"      # OdomDriveX/OdomDriveY/OdomTurnToYaw 发布的速度话题
+      odom_relative_nav_odom_topic: "odom"            # OdomDriveX/OdomDriveY/OdomTurnToYaw 使用的 odom 话题
+      odom_relative_nav_max_speed_mps: 0.20           # 平移速度上限，单位 m/s
+      odom_relative_nav_min_speed_mps: 0.03           # 未进入位置容差时的最小平移速度，单位 m/s
+      odom_relative_nav_xy_kp: 0.8                    # odom x/y 误差到车体系平移速度的比例系数
+      odom_relative_nav_heading_kp: 1.2               # 平移段保持启动 yaw 的 P 增益
+      odom_relative_nav_heading_max_speed_radps: 0.30 # 平移段 heading hold 最大角速度，单位 rad/s
+      odom_relative_nav_xy_tolerance_m: 0.03          # 平移目标距离容差，单位米
+      odom_relative_nav_yaw_tolerance_deg: 3.0        # 平移段 yaw 保持成功容差，单位度
+      odom_relative_nav_stable_ticks: 3               # 平移和 yaw 同时进入容差后连续多少 tick 判定完成
+      odom_relative_nav_odom_timeout_s: 0.5           # odom 超过该时间未更新时停车等待
+      odom_relative_nav_timeout_s: 10.0               # 独立相对分段默认超时，单位秒
 
       # ======================================================================
       # 红方武馆区 (MC) 运行参数 —— 启动时由 r2_runtime.yaml/launch 参数写入决策节点
       # ======================================================================
-      # --- 红方导航目标点 ---
-      mc_nav_x: 0.75               # 红方武馆区取端头导航目标 x；mc_tree.xml 从黑板读取该值
-      mc_nav_y: 0.85              # 红方武馆区取端头导航目标 y；mc_tree.xml 从黑板读取该值
-      mc_nav_frame_id: "map"        # 导航目标所在坐标系
-      mc_nav_timeout_sec: 180.0     # Nav2 到达武馆区目标点的超时时间，单位秒
-      # 红方 MC NavToPose 专用 Nav2 BT，使用 MCPositiveXYRed controller 做 xy-only 到点
-      mc_nav_behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_bringup/config/nav2_bt_mc_red_positive_xy.xml"
+      # --- 红方 odom 单轴分段导航：+X 0.2m -> 右转 90° -> -X 0.6m ---
+      mc_nav_forward_x_m: 0.20      # 红方武馆区去程第一段 OdomDriveX 车体系 x 正向位移
+      mc_nav_right_turn_delta_rad: -1.5708 # 第一段后相对右转角度；运行时由 RelativeYawTarget 转成绝对 odom yaw
+      mc_nav_reverse_x_m: -0.60     # 右转后第二段 OdomDriveX 车体系 x 负向位移
+      mc_nav_timeout_sec: 180.0     # 单个 OdomDriveX/OdomDriveY/OdomTurnToYaw 段的超时时间，单位秒
 
       # --- 相机 / 推理（内嵌直连相机，对齐 tip_vision_test_node）---
       mc_vision_config_file: ""     # 视觉模型配置文件；空则回退 rc26_vision/config/vision_models.yaml
@@ -66,7 +88,7 @@ r2_runtime:
       mc_align_target_lock_max_jump_px: 160  # 锁定目标允许的单次水平跳变像素
       mc_align_invert_direction: true        # 相机朝机器人后方；默认反转横移方向
       mc_align_heading_hold_enable: true     # 是否订阅 mc_odom_topic 并发布 angular.z 保持车身朝向
-      # mc_align_target_yaw_rad 默认使用 mc_nav_yaw；如需视觉阶段与导航目标朝向不同，可显式覆盖本项
+      # mc_align_target_yaw_rad 可作为视觉阶段静态兜底；mc_tree.xml 默认传入右转后的动态 odom yaw
       mc_align_heading_kp: 1.2               # yaw 误差到 angular.z 的比例系数
       mc_align_heading_max_speed_radps: 0.30 # 视觉伺服 heading hold 最大角速度，单位 rad/s
       mc_align_heading_tolerance_deg: 3.0    # yaw 误差进入该容差后才允许稳定计数
@@ -101,12 +123,9 @@ r2_runtime:
       # 梅林区预选赛专属链路参数 —— 独立 mf_preselection_tree.xml 使用
       # ======================================================================
       mf_preselect_entry2_nav_enable: true      # 2号入口导航点未标定前关闭；关闭时默认机器人已在2号入口
-      mf_preselect_entry2_nav_x: 2.2            # 2号入口 Nav2 目标 x，占位待现场标定
-      mf_preselect_entry2_nav_y: -1.8           # 2号入口 Nav2 目标 y，占位待现场标定
-      mf_preselect_entry2_nav_yaw: 0.0           # 2号入口预备朝向 yaw，占位待现场标定
-      mf_preselect_entry2_nav_frame_id: "map"    # 2号入口目标坐标系
-      mf_preselect_entry2_nav_timeout_sec: 180.0 # 入口 Nav2 超时，单位秒
-      mf_preselect_entry2_nav_behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_bringup/config/nav2_bt_mf_preselect_entry_x_positive_y_negative.xml" # 入口 Nav2 专用 BT：低速全向 DWB，保留 costmap clear recovery
+      mf_preselect_entry2_nav_segment1_x_m: 2.0  # 2号入口 OdomDriveX 车体系 x 正向位移
+      mf_preselect_entry2_nav_segment1_y_m: -1.8 # 2号入口 OdomDriveY 车体系 y 负向位移
+      mf_preselect_entry2_nav_timeout_sec: 180.0 # 入口单个 x/y 动作超时，单位秒
 
       mf_preselect_vision_config_file: ""        # KFS 视觉模型配置；空则回退 rc26_vision/config/vision_models.yaml
       mf_preselect_model_id: "kfs_default"       # KFS 模型 profile ID
@@ -208,11 +227,11 @@ r2_runtime:
       # ======================================================================
       # 右转导航独立入口 —— odom闭环x+前进 -> odom闭环右转90° -> odom闭环x-后退
       # ======================================================================
-      odom_right_turn_nav_cmd_vel_topic: "cmd_vel"   # OdomRelativeDrive 发布的速度话题；转向段复用 grid_heading_cmd_vel_topic
-      odom_right_turn_nav_odom_topic: "odom"         # OdomRelativeDrive/RelativeYawTarget 使用的 odom 话题
-      odom_right_turn_nav_forward_distance_m: 0.40   # 第一段沿启动时车头 x+ 方向闭环行驶距离，单位米
-      odom_right_turn_nav_reverse_distance_m: -0.70  # 第三段沿转向后车头 x- 方向闭环行驶距离，单位米
-      odom_right_turn_nav_drive_max_speed_mps: 0.20  # OdomRelativeDrive 平移速度上限，单位 m/s
+      odom_right_turn_nav_cmd_vel_topic: "cmd_vel"   # OdomDriveX/OdomTurnToYaw 发布的速度话题
+      odom_right_turn_nav_odom_topic: "odom"         # OdomDriveX/OdomTurnToYaw/RelativeYawTarget 使用的 odom 话题
+      odom_right_turn_nav_forward_x_m: 0.40     # 第一段沿启动时车头 x+ 方向闭环行驶距离，单位米
+      odom_right_turn_nav_reverse_x_m: -0.70    # 第三段沿转向后车头 x- 方向闭环行驶距离，单位米
+      odom_right_turn_nav_drive_max_speed_mps: 0.20  # OdomDriveX 平移速度上限，单位 m/s
       odom_right_turn_nav_drive_min_speed_mps: 0.03  # 未进入位置容差时的最小平移速度，单位 m/s
       odom_right_turn_nav_drive_xy_kp: 0.8           # odom x/y 误差到车体系平移速度的比例系数
       odom_right_turn_nav_drive_heading_kp: 1.2      # 平移段 yaw 保持的 P 增益

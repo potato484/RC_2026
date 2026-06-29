@@ -2,7 +2,7 @@
   正式 Grid heading 入口：
   - 只执行原地转向和 yaw 精对齐，不触发推杆或激光事件。
   - 目标方向由 r2_runtime.yaml 的 grid_heading_direction 与 grid_heading_*_yaw_rad 决定。
-  - 运行前必须确保 Nav2、遥控等其它 cmd_vel 发布权威已经停用。
+  - 运行前必须确保遥控等其它 cmd_vel 发布权威已经停用。
 -->
 <root BTCPP_format="4" main_tree_to_execute="GridHeadingTree">
   <BehaviorTree ID="GridHeadingTree">

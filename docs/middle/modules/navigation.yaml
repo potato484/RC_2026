@@ -1,40 +1,17 @@
 openapi: 3.1.0
 info:
   title: RC26 R2 Navigation ROS2 Contract
-  version: 0.8.0
-  description: Nav2 基础导航与当前决策侧导航接口契约；/cmd_vel 是工作区输出契约，默认由 rc26_mcu_transport 消费并下发 POSE_TARGET。旧 MF keepout / terrain 兼容接口已删除，不属于当前公开契约。
+  version: 0.9.0
+  description: 当前导航契约只暴露底盘速度输出。速度命令来自 rc26_decision 内部 odom 单轴分段闭环导航或同包内串行动作，默认由 rc26_mcu_transport 消费并下发 POSE_TARGET。旧 MF keepout / terrain 兼容接口已删除，不属于当前公开契约。
 servers:
   - url: http://localhost:8080
 tags:
   - name: Topic
-  - name: Service
-  - name: Action
 paths:
-  /ros2/actions/navigate_to_pose:
-    post:
-      tags: [Action]
-      summary: Nav2 单目标位姿导航 action
-      x-ros:
-        interface_kind: action
-        name: /navigate_to_pose
-        action_type: nav2_msgs/action/NavigateToPose
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/NavigateToPoseGoal'
-      responses:
-        '200':
-          description: nav2_msgs/action/NavigateToPose result
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/NavigateToPoseResult'
   /ros2/topics/cmd_vel:
     get:
       tags: [Topic]
-      summary: 读取 Nav2 velocity_smoother 输出的底盘速度命令；默认硬件执行由 rc26_mcu_transport 负责
+      summary: 读取底盘速度命令；默认硬件执行由 rc26_mcu_transport 负责
       x-ros:
         interface_kind: topic
         name: /cmd_vel
@@ -46,101 +23,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Twist'
-  /ros2/topics/plan:
-    get:
-      tags: [Topic]
-      summary: 读取 Nav2 planner 输出的全局路径
-      x-ros:
-        interface_kind: topic
-        name: /plan
-        message_type: nav_msgs/msg/Path
-      responses:
-        '200':
-          description: nav_msgs/msg/Path
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Path'
-  /ros2/topics/local_costmap_costmap:
-    get:
-      tags: [Topic]
-      summary: 读取 Nav2 local costmap
-      x-ros:
-        interface_kind: topic
-        name: /local_costmap/costmap
-        message_type: nav_msgs/msg/OccupancyGrid
-      responses:
-        '200':
-          description: nav_msgs/msg/OccupancyGrid
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OccupancyGrid'
-  /ros2/topics/global_costmap_costmap:
-    get:
-      tags: [Topic]
-      summary: 读取 Nav2 global costmap
-      x-ros:
-        interface_kind: topic
-        name: /global_costmap/costmap
-        message_type: nav_msgs/msg/OccupancyGrid
-      responses:
-        '200':
-          description: nav_msgs/msg/OccupancyGrid
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OccupancyGrid'
 components:
   schemas:
-    Time:
-      type: object
-      properties:
-        sec:
-          type: integer
-        nanosec:
-          type: integer
-    Header:
-      type: object
-      properties:
-        stamp:
-          $ref: '#/components/schemas/Time'
-        frame_id:
-          type: string
-    Point:
-      type: object
-      properties:
-        x:
-          type: number
-        y:
-          type: number
-        z:
-          type: number
-    Quaternion:
-      type: object
-      properties:
-        x:
-          type: number
-        y:
-          type: number
-        z:
-          type: number
-        w:
-          type: number
-    Pose:
-      type: object
-      properties:
-        position:
-          $ref: '#/components/schemas/Point'
-        orientation:
-          $ref: '#/components/schemas/Quaternion'
-    PoseStamped:
-      type: object
-      properties:
-        header:
-          $ref: '#/components/schemas/Header'
-        pose:
-          $ref: '#/components/schemas/Pose'
     Vector3:
       type: object
       properties:
@@ -157,65 +41,3 @@ components:
           $ref: '#/components/schemas/Vector3'
         angular:
           $ref: '#/components/schemas/Vector3'
-    Path:
-      type: object
-      properties:
-        header:
-          $ref: '#/components/schemas/Header'
-        poses:
-          type: array
-          items:
-            $ref: '#/components/schemas/PoseStamped'
-    MapMetaData:
-      type: object
-      properties:
-        map_load_time:
-          $ref: '#/components/schemas/Time'
-        resolution:
-          type: number
-        width:
-          type: integer
-        height:
-          type: integer
-        origin:
-          $ref: '#/components/schemas/Pose'
-    OccupancyGrid:
-      type: object
-      properties:
-        header:
-          $ref: '#/components/schemas/Header'
-        info:
-          $ref: '#/components/schemas/MapMetaData'
-        data:
-          type: array
-          items:
-            type: integer
-    NavigateToPoseGoal:
-      type: object
-      required: [pose]
-      properties:
-        pose:
-          $ref: '#/components/schemas/PoseStamped'
-        behavior_tree:
-          type: string
-          description: 可选 Nav2 BT XML 路径；空字符串表示使用 Nav2 默认树。
-    NavigateToPoseResult:
-      type: object
-      description: Humble 中 nav2_msgs/action/NavigateToPose result 为空消息。
-      properties:
-        result:
-          type: object
-          additionalProperties: false
-    NavigateToPoseFeedback:
-      type: object
-      properties:
-        current_pose:
-          $ref: '#/components/schemas/PoseStamped'
-        navigation_time:
-          $ref: '#/components/schemas/Time'
-        estimated_time_remaining:
-          $ref: '#/components/schemas/Time'
-        number_of_recoveries:
-          type: integer
-        distance_remaining:
-          type: number

@@ -1,8 +1,0 @@
-<!-- 独立双点 Nav2 导航行为树：只在 tree_file 指向本文件时执行。 -->
-<root BTCPP_format="4" main_tree_to_execute="TwoPoseNavTree">
-  <BehaviorTree ID="TwoPoseNavTree">
-    <Sequence name="Two_Pose_Nav_Sequence">
-      <NavToPose x="0.9778" y="0.7744" yaw="-1.4857" frame_id="map" timeout_sec="180.0"/>
-    </Sequence>
-  </BehaviorTree>
-</root>

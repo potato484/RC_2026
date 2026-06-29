@@ -41,6 +41,10 @@ BT::NodeStatus VisualServoGrabAction::onStart() {
         RCLCPP_ERROR(node_->get_logger(), "武馆区视觉伺服: 黑板缺少 mc_params");
         return BT::NodeStatus::FAILURE;
     }
+    double requested_target_yaw = params_.align_target_yaw_rad;
+    if (getInput("target_yaw_rad", requested_target_yaw) && std::isfinite(requested_target_yaw)) {
+        params_.align_target_yaw_rad = requested_target_yaw;
+    }
 
     // 创建 cmd_vel 发布器：对齐阶段发 linear.y，前探阶段发 linear.x。
     cmd_pub_ = node_->create_publisher<TwistMsg>(params_.align_cmd_vel_topic, rclcpp::QoS(10));

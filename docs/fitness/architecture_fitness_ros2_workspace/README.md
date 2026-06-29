@@ -99,7 +99,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 - **规则**：控制器包可以依赖导航状态、定位健康和控制参数；已删除的旧地形链路不得作为当前默认控制输入。
 - **规则**：控制器包不得吸纳比赛阶段语义、操作界面需求或临时策略分支。
 - **规则**：任何带有“梅林阶段时这样做”“武馆阶段时那样做”的逻辑，如果不是纯控制保护，大概率应放在决策层而不是控制器层。
-- **补充口径**：当前常规位姿导航运行权威是 Nav2。普通导航目标的底盘速度命令必须通过 Nav2 controller 和 velocity_smoother 输出到 `/cmd_vel`，决策层只通过 action 下发目标；受限独立转向、台阶、MC/MF 视觉对齐等直接 `cmd_vel` 动作必须按 3.13 的命令权威规则串行执行。
+- **补充口径**：当前常规位姿导航运行权威是 `rc26_decision` 的 odom 单轴分段闭环导航。普通导航段由 `OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw` 按具体行为树路线串行发布 `/cmd_vel`；受限独立 heading、台阶、MC/MF 视觉对齐等直接 `cmd_vel` 动作必须按 3.13 的命令权威规则串行执行。
 
 ### 3.5 状态估计与感知包负责产出状态，不负责操作员策略
 
@@ -112,7 +112,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 - **规则**：当前工作区不再维护第一方 viewer 状态桥、定制 `rviz2` 或本地 Web viewer。
 - **规则**：仓库根目录也不再维护第一方前端应用、前端测试脚本或前端发布产物。
 - **规则**：如果需要可视化，只能由 RViz2、Foxglove 等工具消费现有 ROS2 输出、CLI 输出或静态资产，不能反向成为运行时权威。
-- **当前口径**：`rc26_bringup` 可以声明默认关闭的 RViz2 启动开关和轻量 `.rviz` 预设，供现场临时观察与 Nav2 goal 发布；默认运行仍保持 headless，RViz 不得发布 `/cmd_vel` 或成为状态真源。
+- **当前口径**：`rc26_bringup` 可以声明默认关闭的 RViz2 启动开关和轻量 `.rviz` 预设，供现场临时观察 odom、TF、点云或日志辅助话题；默认运行仍保持 headless，RViz 不得发布 `/cmd_vel` 或成为状态真源。
 - **规则**：Foxglove JSON 只是历史布局资产，不是诊断逻辑载体。
 
 ### 3.7 `rc26_odom_interface` 继续保持 TF 权威
@@ -126,7 +126,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 - **规则**：新增 launch 参数必须显式声明、命名清晰、传递路径清楚。
 - **规则**：参数文件归包所有，不归 `bringup` 统一托管其内部细节。
 - **规则**：`bringup` 只负责选择加载哪个参数文件，不应长期成为所有内部调参逻辑的宿主。
-- **补充口径**：像 `nav2_map_file`、`nav2_params_file` 这类装配期选择参数可以归 `bringup`；Nav2 planner/controller 的运行阈值应集中在 `rc26_bringup/config/nav2_params.yaml`，不要散落到决策或感知包。
+- **补充口径**：当前导航装配期只保留点云路径、行为树路径、MCU transport 和 odom 单轴分段参数。导航距离、目标 yaw、速度上限、容差、startup odom gate 等部署输入集中在 `rc26_bringup/config/r2_runtime.yaml`，不要散落到临时 launch 参数或测试脚本。
 
 ### 3.9 BT blackboard 必须契约化
 
@@ -153,16 +153,16 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 ### 3.12 共享场地几何必须单一真源
 
 - **规则**：像 MF 主区 block 几何、入口/出口 block 集合这类会同时被多个运行时包消费的场地事实，必须只有一个文档化配置真源。
-- **当前口径**：旧 MF keepout 包已删除，原 MF world 几何文件不再是当前 MF 主区共享几何真源。当前 MF 决策只使用 `rc26_decision` 包内静态深度表、离散格号和 BT 黑板状态；格间运动由 `GridTransition` 按相邻边和高度差选择上/下台阶动作，并由 `GridCenterAlign` 依据入口建立的格中心参考和 `mf_center_grid_step_m` 做二维中心归位，MF XML 不再用 Nav2 pose 表达格间移动。正式 `MfPreselectionFlow` 内部也复用同一格中心参数：入口上阶后建立 `grid2` 中心参考，格间台阶和假 KFS 避障上阶后归位到对应离散格，最终下阶后用 `mf_preselect_final_exit_center_offset_m` 外推梅林外虚拟目标。
+- **当前口径**：旧 MF keepout 包已删除，原 MF world 几何文件不再是当前 MF 主区共享几何真源。当前 MF 决策只使用 `rc26_decision` 包内静态深度表、离散格号和 BT 黑板状态；格间运动由 `GridTransition` 按相邻边和高度差选择上/下台阶动作，并由 `GridCenterAlign` 依据入口建立的格中心参考和 `mf_center_grid_step_m` 做二维中心归位，MF XML 不再用外部位姿目标表达格间移动。正式 `MfPreselectionFlow` 内部也复用同一格中心参数：入口上阶后建立 `grid2` 中心参考，格间台阶和假 KFS 避障上阶后归位到对应离散格，最终下阶后用 `mf_preselect_final_exit_center_offset_m` 外推梅林外虚拟目标。
 - **规则**：如果未来重新引入由共享几何推导的 keepout、目标生成器或可视化状态，必须先定义新的运行时真源、生成入口和文档化输出，不得把新主链依赖接回已删除的旧 keepout 链路。
 - **规则**：无法从共享几何稳定推导出的比赛语义，例如 staging 点、坡道边或任务路线，必须明确留在决策/导航配置文档里，而不是偷偷塞回底层几何文件。
 
 ### 3.13 同一时刻只能有一个局部执行命令权威
 
-- **规则**：如果系统同时存在遥控、Nav2 和其它运动测试节点，必须在 launch 装配层保证任一时刻只有一个节点发布运动命令。
-- **规则**：观察节点可以发布 preview、planner state 或诊断状态，但不得在旁路上直接输出 `cmd_vel`。
-- **当前口径**：导航模式下 `/cmd_vel` 由 Nav2 velocity_smoother 输出；人工遥控测试应与导航 bringup 分开启动或显式停用导航命令链。
-- **补充口径**：`rc26_decision` 的 `grid_heading_tree.xml` 是正式 Grid heading 转向/对齐入口，会由 `GridTurn` / `GridHeadingAlign` 直接发布 `cmd_vel` 但不触发推杆；`odom_right_turn_nav_tree.xml` 是独立 odom 闭环右转导航入口，会按 `OdomRelativeDrive -> RelativeYawTarget -> GridTurn -> GridHeadingAlign -> OdomRelativeDrive` 串行发布 `cmd_vel`，默认执行 x+ 0.40m odom 相对位移闭环、相对右转 90° yaw 闭环、x- 0.40m odom 相对位移闭环；`mf_preselection_tree.xml` 的入口 Nav2 成功后也会串行执行 `GridTurn -> GridHeadingAlign`，目标 yaw 来自 `grid_heading_*` 参数；`mc_tree.xml` 的武馆区去程先由 Nav2 的 `MCPositiveXYRed` xy-only 阶段发布线速度，到达 `mc_nav_x/y` 后 Nav2 action 结束，再由 `RotateInPlace target_yaw_rad={mc_nav_yaw}` 直接发布角速度完成转向，两个阶段不得并发；`stair_climb_tree.xml` / `stair_descend_tree.xml` 是受限的独立台阶入口，会由 BT 动作直接发布 `cmd_vel` 并调用推杆共享 transport；正式 `MfPreselectionFlow` 在 R2 KFS 夹取前会从同一视觉快照单帧锁定 `label + bbox + depth + 像素偏差`，随后直接发布 `cmd_vel.linear.y` 按 `abs(offset_px) * mf_preselect_kfs_align_px_to_m` 做一段横向开环对齐，并在每段横移后停车，把横移完成时刻的最新视觉序号作为复核门槛，只接受更晚的新有效视觉帧确认；只有复核帧 offset 进入 `mf_preselect_kfs_align_tolerance_px` 后，才按确认帧深度用 `max(0, locked_depth - mf_preselect_kfs_grab_distance_m) / mf_preselect_kfs_approach_speed_mps` 做 x 方向纯开环趋近，锁定帧一开始就在容差内时也必须等待后一帧确认，不会直接前进夹取。向下夹取会在前向开环前先通过 `/mechanism/send_command` 发送 `ARM_SECOND_LOWER(0x0E)` 并等待同 `seq` 的 `ARM_SECOND_LOWER_DONE(0x0A)`；前向开环期间不再依据实时 YOLO 框或深度闭环停车；入口高侧夹取随后通过 `/mechanism/send_command` 发送 `ENTRY_GRAB_KFS_UP(0x0F)` 并等待同 `seq` 的 `ENTRY_GRAB_KFS_UP_DONE(0x0B)`，普通高低侧夹取仍发送 `GRAB_KFS_UP(0x03)` / `GRAB_KFS_DOWN(0x02)` 并在 ACK 后用原目标视觉消失确认物理夹取成功。入口 1/3 探测仍使用预选赛专用 `ARM_HIGH_RAISE(0x0D)`；入口左右横移和返回 2 号入口横移期间，正式 `MfPreselectionFlow` 只有在 R2 KFS 单帧锁定同时具备有效深度时才抢占进入同一套横移开环段、横移后新帧复核、前向开环趋近和视觉消失验证流程，成功后按入口 odom 横向参考回中间入口再上首阶，失败则忽略该目标并补完原横移。梅林内部格间高低台阶观察、第 2/3 行前方守卫检测和第 2/3 行左侧/背向扫描前，必须按静态格高差发送普通 `ARM_RAISE(0x04)` 或 `ARM_LOWER(0x05)` 并等待对应完成反馈后再进入检测窗口，检测到 R2 KFS 时按该高低侧语义选择普通 `GRAB_KFS_UP/DOWN`。旧 `KfsStairPickup` 阶梯等待 BT 节点和 `kfs_stair_*_test_tree.xml` 独立入口已删除；`rc26_vision/test_kfs_vision.launch.py action_enable:=true` 是与 tip test 类似的受限实机测试例外，保留同类横移对齐、一次锁深度、向下夹取前第二节放下确认和开环趋近验收能力，但默认关闭且不属于正式比赛决策权威；MF 格间动作按 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> GridTransition -> GridCenterAlign` 串行复用同一套转向、对齐、台阶执行、heading hold 与二维格中心归位，红方中间列独立树首段还会通过 `MFEntryCenterAdvance` 建立 `grid2` 中心参考；正式 MF 预选赛内部入口上阶、格间台阶、假 KFS 避障上阶和最终离场下阶后也会直接发布 `mf_center_cmd_vel_topic` 做二维中心/虚拟目标归位，其中常规离场会先在已归位的 `grid12` 上对齐 `entry_heading_yaw + pi`，让车头与离开梅林正方向相反，再执行 `ARM_LOWER` 和下阶梯，最终离场虚拟目标仍沿入口 heading 正向外推并保持反向 yaw 归位；下阶台阶原语保持既有安全时序。运行这些树、正式 MF 预选赛或视觉动作测试前必须停用 Nav2/遥控等其它运动命令权威，失败或 halt 时相关动作只发布零速，不做额外推杆补偿。
+- **规则**：如果系统同时存在遥控、决策导航和其它运动测试节点，必须在 launch 装配层保证任一时刻只有一个节点发布运动命令。
+- **规则**：观察节点可以发布 preview、路径状态或诊断状态，但不得在旁路上直接输出 `cmd_vel`。
+- **当前口径**：导航模式下 `/cmd_vel` 由 `rc26_decision` 的导航/动作节点发布，`rc26_mcu_transport` 是默认消费方；人工遥控测试应与导航 bringup 分开启动或显式停用决策命令链。
+- **补充口径**：`mc_tree.xml` 的去程导航按 `OdomDriveX(+0.2m) -> RelativeYawTarget(-pi/2) -> OdomTurnToYaw -> OdomDriveX(-0.6m)` 串行执行，视觉伺服继承右转后的 odom yaw 做 heading hold；`mf_preselection_tree.xml` 的可选入口导航按 `OdomDriveX(+2.0m) -> OdomDriveY(-1.8m)` 执行，随后进入 `MfPreselectionFlow`；`odom_right_turn_nav_tree.xml` 按 `OdomDriveX -> RelativeYawTarget -> OdomTurnToYaw -> OdomDriveX` 串行执行；`grid_heading_tree.xml` 仍是正式 Grid heading 转向/对齐入口，会由 `GridTurn` / `GridHeadingAlign` 直接发布 `cmd_vel` 但不触发推杆。`stair_climb_tree.xml` / `stair_descend_tree.xml` 是受限的独立台阶入口，会由 BT 动作直接发布 `cmd_vel` 并调用推杆共享 transport。正式 `MfPreselectionFlow`、MC 视觉伺服和视觉动作测试也会直接发布 `/cmd_vel`；运行这些树或测试前必须停用遥控和其它运动命令权威，失败或 halt 时相关动作只发布零速，不做额外推杆补偿。
 
 ### 3.14 静态传感器安装外参必须单一真源
 

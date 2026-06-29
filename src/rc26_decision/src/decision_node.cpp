@@ -14,7 +14,7 @@
 #include "rc26_decision/mc/mc_area.hpp"
 #include "rc26_decision/mf/mf_area.hpp"
 #include "rc26_decision/mf_preselection/mf_preselection_flow.hpp"
-#include "rc26_decision/navigation/bt_nav2_pose.hpp"
+#include "rc26_decision/navigation/bt_odom_relative_nav.hpp"
 #include "rc26_decision/stair/stair_area.hpp"
 
 namespace rc26_decision {
@@ -28,6 +28,7 @@ public:
     initializeRuntimeState();
 
     loadMCParams(*this, blackboard_);
+    loadOdomRelativeNavParams(*this, blackboard_);
     loadGridHeadingParams(*this, blackboard_);
     loadOdomRightTurnNavParams(*this, blackboard_);
     loadGridCenterParams(*this, blackboard_);
@@ -37,7 +38,7 @@ public:
     registerMCAreaNodes(factory_);
     registerMFAreaNodes(factory_);
     registerMfPreselectionNodes(factory_);
-    registerNav2PoseNodes(factory_);
+    registerOdomNavigationNodes(factory_);
     registerStairNodes(factory_);
 
     tick_rate_ms_ = this->get_parameter("tick_rate_ms").as_int();
@@ -107,11 +108,9 @@ private:
     blackboard_->set("last_action_error_code", 0);
     blackboard_->set("system_error", false);
     blackboard_->set("stable_operation", false);
-    blackboard_->set("nav_last_exec_state", std::string("IDLE"));
-    blackboard_->set("nav_last_failure_code", std::string(""));
-    blackboard_->set("nav_last_failure_reason", std::string(""));
-    blackboard_->set("nav_last_distance_remaining", 0.0);
-    blackboard_->set("nav_last_recovery_count", static_cast<int>(0));
+    blackboard_->set("relative_nav_last_exec_state", std::string("IDLE"));
+    blackboard_->set("relative_nav_last_failure_reason", std::string(""));
+    blackboard_->set("relative_nav_last_distance_remaining", 0.0);
   }
 
   void loadBehaviorTree() {

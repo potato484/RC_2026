@@ -6,10 +6,7 @@
 
 ## 当前导航相关契约
 
-本包不再定义自定义导航 action。运行时导航 action 使用外部 Nav2 契约：
-
-- `/navigate_to_pose`
-- `nav2_msgs/action/NavigateToPose`
+本包不再定义自定义导航 action，当前运行时也不提供自定义导航 action。导航权威在 `rc26_decision` 内部 odom 单轴分段 BT 动作中，跨包公开契约只保留 `/cmd_vel` 速度输出，由 `rc26_mcu_transport` 默认消费。
 
 ## 当前定位相关契约
 

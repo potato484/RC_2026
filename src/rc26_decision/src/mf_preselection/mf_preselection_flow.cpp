@@ -30,7 +30,7 @@ namespace {
 // - 决策层只编排策略和调用下层契约，不解析串口帧；
 // - 视觉目标来自 rc26_vision 的帧快照；
 // - 机构动作通过 /mechanism/send_command service 和反馈 topic 完成；
-// - 运动直接发布 cmd_vel，因此运行本树前必须停用 Nav2 controller/遥控等其它
+  // - 运动直接发布 cmd_vel，因此运行本树前必须停用遥控等其它
 //   cmd_vel 权威。
 //
 // 主路线简表：
@@ -374,20 +374,9 @@ BT::NodeStatus MfPreselectionFlowAction::onStart() {
   grab_verify_visible_logged_ = false;
   grab_verify_last_logged_lost_count_ = 0;
   entry_heading_yaw_ = params_.exit_yaw_rad;
-  bool entry_nav_enable = false;
-  (void)config().blackboard->get("mf_preselect_entry2_nav_enable",
-                                 entry_nav_enable);
-  if (entry_nav_enable) {
-    double grid_heading_yaw = entry_heading_yaw_;
-    if (config().blackboard->get("grid_heading_target_yaw_rad",
-                                 grid_heading_yaw) &&
-        std::isfinite(grid_heading_yaw)) {
-      entry_heading_yaw_ = normalizeAngle(grid_heading_yaw);
-    }
-  }
   turn_target_yaw_ = entry_heading_yaw_;
-  // 预选赛 XML 可以在本节点前放一个可选 NavToPose。进入本节点时按“已在 2 号
-  // 入口预备姿态”处理，先看正前方是否已经有 R2 可夹取 KFS。
+  // 预选赛 XML 可以在本节点前放可选 OdomDriveX/OdomDriveY 分段入口。
+  // 进入本节点时按“已在 2 号入口预备姿态”处理，先看正前方是否已经有 R2 可夹取 KFS。
   writeBlackboardState("entry_detect_stair2");
   RCLCPP_INFO(node_->get_logger(),
               "梅林预选赛流程启动：当前位置按 grid2 / 2号入口处理，入口导航已由行为树前置控制，入口heading=%.3frad，最大夹取数=%d",
@@ -4204,32 +4193,23 @@ void loadMfPreselectionParams(rclcpp::Node &node,
   p.vision_config_file = resolveVisionConfig(p.vision_config_file);
   blackboard->set("mf_preselection_params", p);
 
-  // 入口 2 号 NavToPose 是 XML 前置的可选阶段：这些黑板键供
-  // mf_preselection_tree.xml 决定是否先让 Nav2 到达入口预备姿态。
+  // 入口 2 号相对分段导航是 XML 前置的可选阶段：这些黑板键供
+  // mf_preselection_tree.xml 决定是否先用 odom 闭环到达入口预备姿态。
   const bool entry_nav_enable = node.declare_parameter<bool>(
       "mf_preselect_entry2_nav_enable", false);
   blackboard->set("mf_preselect_entry2_nav_enable", entry_nav_enable);
-  blackboard->set("mf_preselect_entry2_nav_x",
-                  node.declare_parameter<double>("mf_preselect_entry2_nav_x",
-                                                 0.0));
-  blackboard->set("mf_preselect_entry2_nav_y",
-                  node.declare_parameter<double>("mf_preselect_entry2_nav_y",
-                                                 0.0));
-  blackboard->set("mf_preselect_entry2_nav_yaw",
-                  node.declare_parameter<double>("mf_preselect_entry2_nav_yaw",
-                                                 0.0));
   blackboard->set(
-      "mf_preselect_entry2_nav_frame_id",
-      node.declare_parameter<std::string>("mf_preselect_entry2_nav_frame_id",
-                                          "map"));
+      "mf_preselect_entry2_nav_segment1_x_m",
+      node.declare_parameter<double>("mf_preselect_entry2_nav_segment1_x_m",
+                                     0.0));
+  blackboard->set(
+      "mf_preselect_entry2_nav_segment1_y_m",
+      node.declare_parameter<double>("mf_preselect_entry2_nav_segment1_y_m",
+                                     0.0));
   blackboard->set(
       "mf_preselect_entry2_nav_timeout_sec",
       node.declare_parameter<double>("mf_preselect_entry2_nav_timeout_sec",
                                      180.0));
-  blackboard->set(
-      "mf_preselect_entry2_nav_behavior_tree_file",
-      node.declare_parameter<std::string>(
-          "mf_preselect_entry2_nav_behavior_tree_file", ""));
 
   RCLCPP_INFO(node.get_logger(),
               "梅林预选赛参数已加载: model=%s R2_prefixes=%zu fake_prefixes=%zu max_pickup=%d cmd_vel=%s odom=%s entry_grab_up=0x%02X done=0x%02X high_raise=0x%02X done=0x%02X second_lower=0x%02X done=0x%02X",

@@ -28,7 +28,7 @@ ros2 launch rc26_mcu_transport mcu_transport.launch.py \
   target_baudrate:=1000000
 ```
 
-`rc26_bringup` 会按 `r2_runtime.mcu_transport` 配置启动本服务；`test_navigation.launch.py` 显式关闭它，因为导航联调入口只验证 `/cmd_vel` 输出而不真实动底盘。根目录 `start_r2_teleop.sh` 会启动本服务，并默认打开底盘 consumer。`rc26_mechanism/launch/mechanism.launch.py` 也会默认启动本服务；如果同一系统里已经有 provider，需要传 `start_mcu_transport:=false`。
+`rc26_bringup` 会按 `r2_runtime.mcu_transport` 配置启动本服务；完整导航模式默认启用它，作为 `/cmd_vel` 的硬件消费方和机构 service provider。根目录 `start_r2_teleop.sh` 会启动本服务，并默认打开底盘 consumer。`rc26_mechanism/launch/mechanism.launch.py` 也会默认启动本服务；如果同一系统里已经有 provider，需要传 `start_mcu_transport:=false`。
 
 如果串口暂时不存在，节点不会退出；`/mechanism/send_command` 会拒绝发送，`/cmd_vel` consumer 会节流报告发送失败，并在 diagnostics 中暴露串口不可用状态，同时持续重试初始打开。
 

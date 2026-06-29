@@ -6,7 +6,7 @@ Grid heading 正式入口。
   - 可选 rc26_mcu_transport，消费 /cmd_vel 并下发底盘运动
   - rc26_decision decision_node，加载 grid_heading_tree.xml
 
-本入口不启动 Nav2、定位或遥控，确保 /cmd_vel 只有一个运动命令权威。
+本入口不启动定位或遥控，确保 /cmd_vel 只有一个运动命令权威。
 方向由 r2_runtime.yaml 的 grid_heading_direction 与 grid_heading_*_yaw_rad 决定。
 """
 import os
@@ -137,6 +137,7 @@ def _create_actions(context, *, bringup_dir, decision_dir, sensor_extrinsics_dir
                 'sensor_extrinsics_file': sensor_extrinsics_file,
                 'sensor_extrinsics_profile': sensor_extrinsics_profile,
                 'point_lio_publish_odometry_without_downsample': 'false',
+                'start_sensor_scan': 'false',
                 'start_mid360_driver': start_mid360_driver,
                 'recover_mid360_stream': recover_mid360_stream,
             }.items()

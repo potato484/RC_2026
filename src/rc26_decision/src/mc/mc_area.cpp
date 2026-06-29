@@ -42,14 +42,12 @@ std::string resolveVisionConfig(const std::string& configured) {
 void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     McParams p;
 
-    // 去程导航目标（写入黑板键供 mc_tree.xml 端口重映射）
-    const double nav_x = node.declare_parameter<double>("mc_nav_x", 0.0);
-    const double nav_y = node.declare_parameter<double>("mc_nav_y", 0.0);
-    const double nav_yaw = node.declare_parameter<double>("mc_nav_yaw", 0.0);
-    const std::string nav_frame = node.declare_parameter<std::string>("mc_nav_frame_id", "map");
+    // 去程 odom 相对分段导航参数（写入黑板键供 mc_tree.xml 端口重映射）
+    const double nav_forward_x_m = node.declare_parameter<double>("mc_nav_forward_x_m", 0.2);
+    const double nav_right_turn_delta_rad =
+        node.declare_parameter<double>("mc_nav_right_turn_delta_rad", -1.5707963267948966);
+    const double nav_reverse_x_m = node.declare_parameter<double>("mc_nav_reverse_x_m", -0.6);
     const double nav_timeout = node.declare_parameter<double>("mc_nav_timeout_sec", 60.0);
-    const std::string nav_behavior_tree_file =
-        node.declare_parameter<std::string>("mc_nav_behavior_tree_file", "");
 
     // 相机 / 推理
     p.vision_config_file = node.declare_parameter<std::string>("mc_vision_config_file", "");
@@ -79,7 +77,7 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     p.align_invert_direction = node.declare_parameter<bool>("mc_align_invert_direction", p.align_invert_direction);
     p.align_heading_hold_enable =
         node.declare_parameter<bool>("mc_align_heading_hold_enable", p.align_heading_hold_enable);
-    p.align_target_yaw_rad = node.declare_parameter<double>("mc_align_target_yaw_rad", nav_yaw);
+    p.align_target_yaw_rad = node.declare_parameter<double>("mc_align_target_yaw_rad", 0.0);
     p.align_heading_kp = node.declare_parameter<double>("mc_align_heading_kp", p.align_heading_kp);
     p.align_heading_max_speed_radps =
         node.declare_parameter<double>("mc_align_heading_max_speed_radps", p.align_heading_max_speed_radps);
@@ -142,16 +140,15 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     p.vision_config_file = resolveVisionConfig(p.vision_config_file);
 
     blackboard->set("mc_params", p);
-    blackboard->set("mc_nav_x", nav_x);
-    blackboard->set("mc_nav_y", nav_y);
-    blackboard->set("mc_nav_yaw", nav_yaw);
-    blackboard->set("mc_nav_frame_id", nav_frame);
+    blackboard->set("mc_nav_forward_x_m", nav_forward_x_m);
+    blackboard->set("mc_nav_right_turn_delta_rad", nav_right_turn_delta_rad);
+    blackboard->set("mc_nav_reverse_x_m", nav_reverse_x_m);
+    blackboard->set("mc_nav_right_turn_target_yaw", 0.0);
     blackboard->set("mc_nav_timeout_sec", nav_timeout);
-    blackboard->set("mc_nav_behavior_tree_file", nav_behavior_tree_file);
     RCLCPP_INFO(node.get_logger(),
-                "武馆区参数已加载: vision_config=%s target=(%.2f,%.2f) nav_bt=%s",
-                p.vision_config_file.c_str(), nav_x, nav_y,
-                nav_behavior_tree_file.empty() ? "<default>" : nav_behavior_tree_file.c_str());
+                "武馆区参数已加载: vision_config=%s relative_nav=+x %.2fm, yaw_delta %.2frad, x %.2fm",
+                p.vision_config_file.c_str(), nav_forward_x_m,
+                nav_right_turn_delta_rad, nav_reverse_x_m);
 }
 
 void registerMCAreaNodes(BT::BehaviorTreeFactory& factory) {

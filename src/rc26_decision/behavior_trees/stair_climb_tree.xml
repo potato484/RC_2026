@@ -1,7 +1,7 @@
 <!--
   独立上台阶行为树：
   - 这个 XML 只在 tree_file 指向它时执行，main_tree.xml / mf_tree.xml / mc_tree.xml 默认都不引用它。
-  - 运行前必须确保 Nav2、遥控等其它 cmd_vel 发布权威已经停用，避免多个节点同时控制底盘。
+  - 运行前必须确保遥控等其它 cmd_vel 发布权威已经停用，避免多个节点同时控制底盘。
 -->
 <root BTCPP_format="4" main_tree_to_execute="StairClimbTree">
   <!--

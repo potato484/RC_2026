@@ -27,7 +27,7 @@ localization:
     diagnostics_topic: "/localization/diagnostics"
 
     # 固定比赛起点的 map->odom 初值；当前默认主链直接用它进入局部 GICP 跟踪。
-    # 这不是地图 origin，也不修改 prior_pcd_file 或 Nav2 2D map。
+    # 这不是地图 origin，也不修改 prior_pcd_file。
     init_pose: [0.07, -0.01, 0.0, 0.0, 0.0, 0.0]
 
     num_threads: 2

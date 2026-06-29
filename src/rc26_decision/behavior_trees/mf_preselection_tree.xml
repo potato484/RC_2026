@@ -1,7 +1,7 @@
 <!--
   梅林区预选赛专属行为树：
   - 入口导航由 r2_runtime.yaml 的 mf_preselect_entry2_nav_enable 控制。
-  - 入口导航成功后会执行 GridTurn -> GridHeadingAlign，对齐 grid_heading_* 选出的 yaw。
+  - 入口导航按原始路线执行 +X 2.0m -> -Y 1.8m，不在树前额外转向。
   - MfPreselectionFlow 内部独占发布 cmd_vel，并通过 /mechanism/send_command 消费机构 raw transport。
   - 流程成功驶出梅林后进入 WaitForever，保持永久静止。
 -->
@@ -11,14 +11,32 @@
       <Fallback name="Optional_Entry2_Navigation">
         <Sequence name="Entry2_Navigation_When_Enabled">
           <ScriptCondition code="mf_preselect_entry2_nav_enable"/>
-          <NavToPose x="{mf_preselect_entry2_nav_x}"
-                     y="{mf_preselect_entry2_nav_y}"
-                     yaw="{mf_preselect_entry2_nav_yaw}"
-                     frame_id="{mf_preselect_entry2_nav_frame_id}"
-                     timeout_sec="{mf_preselect_entry2_nav_timeout_sec}"
-                     behavior_tree="{mf_preselect_entry2_nav_behavior_tree_file}"/>
-          <GridTurn name="entry2_grid_turn" target_yaw_rad="{grid_heading_target_yaw_rad}"/>
-          <GridHeadingAlign name="entry2_grid_heading_align" target_yaw_rad="{grid_heading_target_yaw_rad}"/>
+          <OdomDriveX distance_m="{mf_preselect_entry2_nav_segment1_x_m}"
+                      cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                      odom_topic="{odom_relative_nav_odom_topic}"
+                      max_speed_mps="{odom_relative_nav_max_speed_mps}"
+                      min_speed_mps="{odom_relative_nav_min_speed_mps}"
+                      xy_kp="{odom_relative_nav_xy_kp}"
+                      heading_kp="{odom_relative_nav_heading_kp}"
+                      heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                      xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                      yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                      stable_ticks="{odom_relative_nav_stable_ticks}"
+                      odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                      timeout_s="{mf_preselect_entry2_nav_timeout_sec}"/>
+          <OdomDriveY distance_m="{mf_preselect_entry2_nav_segment1_y_m}"
+                      cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                      odom_topic="{odom_relative_nav_odom_topic}"
+                      max_speed_mps="{odom_relative_nav_max_speed_mps}"
+                      min_speed_mps="{odom_relative_nav_min_speed_mps}"
+                      xy_kp="{odom_relative_nav_xy_kp}"
+                      heading_kp="{odom_relative_nav_heading_kp}"
+                      heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                      xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                      yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                      stable_ticks="{odom_relative_nav_stable_ticks}"
+                      odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                      timeout_s="{mf_preselect_entry2_nav_timeout_sec}"/>
         </Sequence>
         <Inverter>
           <ScriptCondition code="mf_preselect_entry2_nav_enable"/>

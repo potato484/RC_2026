@@ -32,7 +32,10 @@ public:
     VisualServoGrabAction(const std::string& name, const BT::NodeConfig& config);
     ~VisualServoGrabAction() override;
 
-    static BT::PortsList providedPorts() { return {}; }
+    static BT::PortsList providedPorts() {
+        return {BT::InputPort<double>("target_yaw_rad",
+                                      "Optional odom yaw target for heading hold")};
+    }
 
     BT::NodeStatus onStart() override;
     BT::NodeStatus onRunning() override;

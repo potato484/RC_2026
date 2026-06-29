@@ -1,51 +1,57 @@
 <!--
   独立右转导航入口：
-  - 先基于 /odom 沿启动时车头方向行驶 0.4m。
-  - 捕获当前 yaw 后相对右转 90°，复用 GridTurn/GridHeadingAlign 闭环对齐。
-  - 再基于 /odom 沿转向后的车头反方向行驶 0.4m。
-  - 运行前必须确保 Nav2、遥控等其它 cmd_vel 发布权威已经停用。
+  - 先基于 /odom 沿启动时车头 x 方向行驶 0.4m。
+  - 捕获当前 yaw 后相对右转 90°，由 OdomTurnToYaw 闭环对齐。
+  - 再基于 /odom 沿转向后的车头反方向行驶 0.7m。
+  - 运行前必须确保遥控等其它 cmd_vel 发布权威已经停用。
 -->
 <root BTCPP_format="4" main_tree_to_execute="OdomRightTurnNavTree">
   <BehaviorTree ID="OdomRightTurnNavTree">
-    <Sequence name="Odom_Closed_Loop_Right_Turn_Nav_Sequence">
-      <OdomRelativeDrive name="forward_x_plus_odom"
-                         cmd_vel_topic="{odom_right_turn_nav_cmd_vel_topic}"
-                         odom_topic="{odom_right_turn_nav_odom_topic}"
-                         distance_m="{odom_right_turn_nav_forward_distance_m}"
-                         max_speed_mps="{odom_right_turn_nav_drive_max_speed_mps}"
-                         min_speed_mps="{odom_right_turn_nav_drive_min_speed_mps}"
-                         xy_kp="{odom_right_turn_nav_drive_xy_kp}"
-                         heading_kp="{odom_right_turn_nav_drive_heading_kp}"
-                         heading_max_speed_radps="{odom_right_turn_nav_drive_heading_max_speed_radps}"
-                         xy_tolerance_m="{odom_right_turn_nav_drive_xy_tolerance_m}"
-                         yaw_tolerance_deg="{odom_right_turn_nav_drive_yaw_tolerance_deg}"
-                         stable_ticks="{odom_right_turn_nav_drive_stable_ticks}"
-                         odom_timeout_s="{odom_right_turn_nav_odom_timeout_s}"
-                         timeout_s="{odom_right_turn_nav_drive_timeout_s}"/>
+    <Sequence name="Odom_Axis_Right_Turn_Nav_Sequence">
+      <OdomDriveX name="forward_x_plus_odom"
+                  cmd_vel_topic="{odom_right_turn_nav_cmd_vel_topic}"
+                  odom_topic="{odom_right_turn_nav_odom_topic}"
+                  distance_m="{odom_right_turn_nav_forward_x_m}"
+                  max_speed_mps="{odom_right_turn_nav_drive_max_speed_mps}"
+                  min_speed_mps="{odom_right_turn_nav_drive_min_speed_mps}"
+                  xy_kp="{odom_right_turn_nav_drive_xy_kp}"
+                  heading_kp="{odom_right_turn_nav_drive_heading_kp}"
+                  heading_max_speed_radps="{odom_right_turn_nav_drive_heading_max_speed_radps}"
+                  xy_tolerance_m="{odom_right_turn_nav_drive_xy_tolerance_m}"
+                  yaw_tolerance_deg="{odom_right_turn_nav_drive_yaw_tolerance_deg}"
+                  stable_ticks="{odom_right_turn_nav_drive_stable_ticks}"
+                  odom_timeout_s="{odom_right_turn_nav_odom_timeout_s}"
+                  timeout_s="{odom_right_turn_nav_drive_timeout_s}"/>
       <RelativeYawTarget name="right_turn_target"
                          odom_topic="{odom_right_turn_nav_odom_topic}"
                          yaw_delta_rad="{odom_right_turn_nav_right_turn_delta_rad}"
                          timeout_s="{odom_right_turn_nav_odom_capture_timeout_s}"
                          odom_timeout_s="{odom_right_turn_nav_odom_timeout_s}"
                          target_yaw_rad="{odom_right_turn_nav_right_turn_target_yaw}"/>
-      <GridTurn name="right_turn_90deg"
-                target_yaw_rad="{odom_right_turn_nav_right_turn_target_yaw}"/>
-      <GridHeadingAlign name="right_turn_90deg_align"
-                        target_yaw_rad="{odom_right_turn_nav_right_turn_target_yaw}"/>
-      <OdomRelativeDrive name="reverse_x_minus_odom"
-                         cmd_vel_topic="{odom_right_turn_nav_cmd_vel_topic}"
-                         odom_topic="{odom_right_turn_nav_odom_topic}"
-                         distance_m="{odom_right_turn_nav_reverse_distance_m}"
-                         max_speed_mps="{odom_right_turn_nav_drive_max_speed_mps}"
-                         min_speed_mps="{odom_right_turn_nav_drive_min_speed_mps}"
-                         xy_kp="{odom_right_turn_nav_drive_xy_kp}"
-                         heading_kp="{odom_right_turn_nav_drive_heading_kp}"
-                         heading_max_speed_radps="{odom_right_turn_nav_drive_heading_max_speed_radps}"
-                         xy_tolerance_m="{odom_right_turn_nav_drive_xy_tolerance_m}"
-                         yaw_tolerance_deg="{odom_right_turn_nav_drive_yaw_tolerance_deg}"
-                         stable_ticks="{odom_right_turn_nav_drive_stable_ticks}"
-                         odom_timeout_s="{odom_right_turn_nav_odom_timeout_s}"
-                         timeout_s="{odom_right_turn_nav_drive_timeout_s}"/>
+      <OdomTurnToYaw name="right_turn_90deg"
+                     target_yaw_rad="{odom_right_turn_nav_right_turn_target_yaw}"
+                     cmd_vel_topic="{odom_right_turn_nav_cmd_vel_topic}"
+                     odom_topic="{odom_right_turn_nav_odom_topic}"
+                     kp="{odom_right_turn_nav_drive_heading_kp}"
+                     max_speed_radps="{odom_right_turn_nav_drive_heading_max_speed_radps}"
+                     yaw_tolerance_deg="{odom_right_turn_nav_drive_yaw_tolerance_deg}"
+                     stable_ticks="{odom_right_turn_nav_drive_stable_ticks}"
+                     odom_timeout_s="{odom_right_turn_nav_odom_timeout_s}"
+                     timeout_s="{odom_right_turn_nav_drive_timeout_s}"/>
+      <OdomDriveX name="reverse_x_minus_odom"
+                  cmd_vel_topic="{odom_right_turn_nav_cmd_vel_topic}"
+                  odom_topic="{odom_right_turn_nav_odom_topic}"
+                  distance_m="{odom_right_turn_nav_reverse_x_m}"
+                  max_speed_mps="{odom_right_turn_nav_drive_max_speed_mps}"
+                  min_speed_mps="{odom_right_turn_nav_drive_min_speed_mps}"
+                  xy_kp="{odom_right_turn_nav_drive_xy_kp}"
+                  heading_kp="{odom_right_turn_nav_drive_heading_kp}"
+                  heading_max_speed_radps="{odom_right_turn_nav_drive_heading_max_speed_radps}"
+                  xy_tolerance_m="{odom_right_turn_nav_drive_xy_tolerance_m}"
+                  yaw_tolerance_deg="{odom_right_turn_nav_drive_yaw_tolerance_deg}"
+                  stable_ticks="{odom_right_turn_nav_drive_stable_ticks}"
+                  odom_timeout_s="{odom_right_turn_nav_odom_timeout_s}"
+                  timeout_s="{odom_right_turn_nav_drive_timeout_s}"/>
     </Sequence>
   </BehaviorTree>
 </root>

@@ -1,8 +1,6 @@
 Panels:
   - Class: rviz_common/Displays
     Name: Displays
-  - Class: rviz_common/Tool Properties
-    Name: Tool Properties
   - Class: rviz_common/Views
     Name: Views
 Visualization Manager:
@@ -21,99 +19,6 @@ Visualization Manager:
       Plane Cell Count: 20
       Reference Frame: <Fixed Frame>
       Value: true
-    - Class: rviz_common/Group
-      Displays:
-        - Alpha: 0.45
-          Class: rviz_default_plugins/Map
-          Color Scheme: map
-          Draw Behind: true
-          Enabled: true
-          Name: StaticMap
-          Topic:
-            Depth: 1
-            Durability Policy: Transient Local
-            History Policy: Keep Last
-            Reliability Policy: Reliable
-            Value: /map
-          Use Timestamp: false
-          Value: true
-        - Alpha: 0.42
-          Class: rviz_default_plugins/Map
-          Color Scheme: costmap
-          Draw Behind: false
-          Enabled: true
-          Name: GlobalCostmap
-          Topic:
-            Depth: 1
-            Durability Policy: Transient Local
-            History Policy: Keep Last
-            Reliability Policy: Reliable
-            Value: /global_costmap/costmap
-          Use Timestamp: false
-          Value: true
-        - Alpha: 0.62
-          Class: rviz_default_plugins/Map
-          Color Scheme: costmap
-          Draw Behind: false
-          Enabled: true
-          Name: LocalCostmap
-          Topic:
-            Depth: 1
-            Durability Policy: Transient Local
-            History Policy: Keep Last
-            Reliability Policy: Reliable
-            Value: /local_costmap/costmap
-          Use Timestamp: false
-          Value: true
-      Enabled: true
-      Name: MapsAndCostmaps
-    - Class: rviz_common/Group
-      Displays:
-        - Alpha: 1
-          Buffer Length: 1
-          Class: rviz_default_plugins/Path
-          Color: 255; 80; 40
-          Enabled: true
-          Line Style: Lines
-          Line Width: 0.04
-          Name: GlobalPlan
-          Pose Style: None
-          Topic:
-            Depth: 5
-            Durability Policy: Volatile
-            History Policy: Keep Last
-            Reliability Policy: Reliable
-            Value: /plan
-          Value: true
-        - Alpha: 1
-          Buffer Length: 1
-          Class: rviz_default_plugins/Path
-          Color: 40; 220; 255
-          Enabled: true
-          Head Diameter: 0.05
-          Head Length: 0.08
-          Length: 0.35
-          Line Style: Lines
-          Line Width: 0.03
-          Name: LocalPlanRobotPoses
-          Offset:
-            X: 0
-            Y: 0
-            Z: 0
-          Pose Color: 255; 255; 40
-          Pose Style: Arrows
-          Radius: 0.04
-          Shaft Diameter: 0.015
-          Shaft Length: 0.08
-          Topic:
-            Depth: 5
-            Durability Policy: Volatile
-            History Policy: Keep Last
-            Reliability Policy: Reliable
-            Value: /local_plan
-          Value: true
-      Enabled: true
-      Name: Plans
     - Class: rviz_default_plugins/TF
       Enabled: true
       Frame Timeout: 15
@@ -124,8 +29,6 @@ Visualization Manager:
         base_link:
           Value: true
         livox_frame:
-          Value: true
-        map:
           Value: true
         odom:
           Value: true
@@ -139,14 +42,13 @@ Visualization Manager:
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
-    Fixed Frame: map
+    Fixed Frame: odom
     Frame Rate: 30
   Name: root
   Tools:
     - Class: rviz_default_plugins/MoveCamera
     - Class: rviz_default_plugins/Select
     - Class: rviz_default_plugins/FocusCamera
-    - Class: nav2_rviz_plugins/GoalTool
   Transformation:
     Current:
       Class: rviz_default_plugins/TF
@@ -170,8 +72,6 @@ Window Geometry:
   Height: 900
   Hide Left Dock: false
   Hide Right Dock: false
-  Tool Properties:
-    collapsed: true
   Views:
     collapsed: true
   Width: 1400

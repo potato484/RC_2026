@@ -24,5 +24,5 @@
 - 不再查询 `base_link -> point_lio.body_frame` TF；内部 body 外参只接受 launch 注入，不再作为对外 TF 边存在
 - 不直接做控制求解
 - 只负责自动导航链，不改遥控发布侧或外部底盘执行链
-- 供定位、Nav2 和可视化统一消费
+- 供决策侧 odom 闭环导航、定位联调和可视化统一消费
 - 不发布静态 `base_footprint -> base_link`；该边仍由本节点作为唯一权威动态发布
