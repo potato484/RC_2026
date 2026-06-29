@@ -47,8 +47,10 @@ void loadGridHeadingParams(rclcpp::Node &node,
   p.odom_topic = node.declare_parameter<std::string>("grid_heading_odom_topic",
                                                      p.odom_topic);
   p.kp = node.declare_parameter<double>("grid_heading_kp", p.kp);
-  p.max_speed_radps = node.declare_parameter<double>(
-      "grid_heading_max_speed_radps", p.max_speed_radps);
+  p.turn_max_speed_radps = node.declare_parameter<double>(
+      "grid_heading_turn_max_speed_radps", p.turn_max_speed_radps);
+  p.align_max_speed_radps = node.declare_parameter<double>(
+      "grid_heading_align_max_speed_radps", p.align_max_speed_radps);
   p.turn_gate_deg = node.declare_parameter<double>("grid_heading_turn_gate_deg",
                                                    p.turn_gate_deg);
   p.align_tolerance_deg = node.declare_parameter<double>(
@@ -63,7 +65,8 @@ void loadGridHeadingParams(rclcpp::Node &node,
       "grid_heading_align_timeout_s", p.align_timeout_s);
 
   p.kp = std::max(0.0, p.kp);
-  p.max_speed_radps = std::max(0.0, std::abs(p.max_speed_radps));
+  p.turn_max_speed_radps = std::max(0.0, std::abs(p.turn_max_speed_radps));
+  p.align_max_speed_radps = std::max(0.0, std::abs(p.align_max_speed_radps));
   p.align_tolerance_deg = std::max(0.0, p.align_tolerance_deg);
   p.turn_gate_deg = std::max(p.align_tolerance_deg, p.turn_gate_deg);
   p.align_stable_ticks = std::max(1, p.align_stable_ticks);
@@ -77,10 +80,11 @@ void loadGridHeadingParams(rclcpp::Node &node,
   blackboard->set("grid_heading_target_yaw_rad", selected_yaw_rad);
 
   RCLCPP_INFO(node.get_logger(),
-              "Grid heading 参数已加载: direction=%s target_yaw=%.4frad cmd_vel=%s odom=%s kp=%.2f max=%.2frad/s gate=%.1fdeg tol=%.1fdeg",
+              "Grid heading 参数已加载: direction=%s target_yaw=%.4frad cmd_vel=%s odom=%s kp=%.2f turn_max=%.2frad/s align_max=%.2frad/s gate=%.1fdeg tol=%.1fdeg",
               p.direction.c_str(), selected_yaw_rad, p.cmd_vel_topic.c_str(),
-              p.odom_topic.c_str(), p.kp, p.max_speed_radps,
-              p.turn_gate_deg, p.align_tolerance_deg);
+              p.odom_topic.c_str(), p.kp, p.turn_max_speed_radps,
+              p.align_max_speed_radps, p.turn_gate_deg,
+              p.align_tolerance_deg);
 }
 
 GridHeadingActionBase::GridHeadingActionBase(const std::string &name,
@@ -175,9 +179,9 @@ double GridHeadingActionBase::headingError() const {
   return normalizeAngle(target_yaw_rad_ - current_yaw_rad_);
 }
 
-double GridHeadingActionBase::headingAngularZ() const {
+double GridHeadingActionBase::headingAngularZ(double max_speed_radps) const {
   const double raw = params_.kp * headingError();
-  const double limit = std::abs(params_.max_speed_radps);
+  const double limit = std::abs(max_speed_radps);
   return std::clamp(raw, -limit, limit);
 }
 
@@ -242,7 +246,7 @@ BT::NodeStatus GridTurnAction::onRunning() {
     return BT::NodeStatus::SUCCESS;
   }
 
-  publishAngular(headingAngularZ());
+  publishAngular(headingAngularZ(params_.turn_max_speed_radps));
   return BT::NodeStatus::RUNNING;
 }
 
@@ -286,7 +290,7 @@ BT::NodeStatus GridHeadingAlignAction::onRunning() {
   }
 
   stable_ticks_ = 0;
-  publishAngular(headingAngularZ());
+  publishAngular(headingAngularZ(params_.align_max_speed_radps));
   return BT::NodeStatus::RUNNING;
 }
 

@@ -44,7 +44,7 @@
 - `SelectNextGrid` 仍负责写入 `target_grid`；`PlanGridTransition` 校验 `current_grid -> target_grid` 是否为相邻且高度差一档的可执行边，并计算本次格间目标 yaw
 - MF 离散格坐标到地图/odom yaw 的约定为：行号增加对应 `+X`（例如 `grid2 -> grid5` 为 `0°`），列号减少对应 `+Y`（例如 `grid2 -> grid1` 为 `+90°`）
 - `PlanGridTransition` 按高度差选择 `CLIMB` 或 `DESCEND` 的朝向语义：上台阶使用边方向作为目标 yaw，下台阶使用边方向反向 yaw，让后轮在前下台阶
-- `GridTurn` 与 `GridHeadingAlign` 负责格间动作前的正式原地转向和 yaw 精对齐；它们只订阅 `grid_heading_odom_topic` 并发布 `grid_heading_cmd_vel_topic`，不触发推杆或机构反馈
+- `GridTurn` 与 `GridHeadingAlign` 负责格间动作前的正式原地转向和 yaw 精对齐；它们只订阅 `grid_heading_odom_topic` 并发布 `grid_heading_cmd_vel_topic`，不触发推杆或机构反馈。两段角速度上限分别由 `grid_heading_turn_max_speed_radps` 与 `grid_heading_align_max_speed_radps` 控制
 - `GridTransition` 只负责台阶机构、直行、激光事件等待和状态提交；直行阶段继续用同一个目标 yaw 在 `cmd_vel.angular.z` 叠加 heading hold，动作成功后才提交 `current_grid=target_grid`
 - `GridCenterAlign` 在 `GridTransition` 成功后按 MF 离散格中心做二维归位：以已记录的参考格中心和 `mf_center_grid_step_m` 推算目标格中心，订阅 `mf_center_odom_topic` 并向 `mf_center_cmd_vel_topic` 发布 `linear.x/y + angular.z`，同时收敛 x/y 和 yaw 后才让树继续执行
 - `MFEntryCenterAdvance` 只用于红方中间列独立树首段入口：`StairClimb` 上到 `grid2` 后，沿目标 yaw 前进 `mf_center_entry_forward_offset_m`（默认 `0.25m`）到 `grid2` 中心，并把该点记录为后续二维格中心参考
@@ -89,7 +89,7 @@ ros2 launch rc26_bringup grid_heading.launch.py
 
 本入口只串行执行 `GridTurn -> GridHeadingAlign`，不读取 `current_grid` / `target_grid`，不调用 `/mechanism/send_command`，也不等待 0x04/0x05/0x07 激光事件。它会直接发布 `grid_heading_cmd_vel_topic`（默认 `cmd_vel`），运行前必须停用 Nav2 controller、遥控或其它运动命令权威。
 
-方向和目标 yaw 由 `rc26_bringup/config/r2_runtime.yaml` 的 `grid_heading_*` 参数维护：`grid_heading_direction` 可取 `forward | left | right | backward`，分别映射到 `grid_heading_forward_yaw_rad`、`grid_heading_left_yaw_rad`、`grid_heading_right_yaw_rad`、`grid_heading_backward_yaw_rad`。`decision_node` 启动时会把选中的目标 yaw 写入黑板 `grid_heading_target_yaw_rad`；方向非法时节点启动失败，避免未知方向误动作。
+方向和目标 yaw 由 `rc26_bringup/config/r2_runtime.yaml` 的 `grid_heading_*` 参数维护：`grid_heading_direction` 可取 `forward | left | right | backward`，分别映射到 `grid_heading_forward_yaw_rad`、`grid_heading_left_yaw_rad`、`grid_heading_right_yaw_rad`、`grid_heading_backward_yaw_rad`。`GridTurn` 的粗转向角速度上限使用 `grid_heading_turn_max_speed_radps`，`GridHeadingAlign` 的精对齐角速度上限使用 `grid_heading_align_max_speed_radps`；不再声明或兼容合并角速度参数。`decision_node` 启动时会把选中的目标 yaw 写入黑板 `grid_heading_target_yaw_rad`；方向非法时节点启动失败，避免未知方向误动作。
 
 `NavToPose` 仍作为非 MF 格间移动的 BT 节点保留，调用 Nav2 `/navigate_to_pose`，action 类型为 `nav2_msgs/action/NavigateToPose`。当前 `mc_tree.xml`、`two_pose_nav_tree.xml` 等连续位姿导航入口仍可使用它。
 
@@ -127,9 +127,9 @@ Nav2 action result 映射规则：
 
 `src/mf_preselection/mf_preselection_flow.cpp` 已补充面向维护者的中文结构注释，覆盖文件级流程边界、入口探测、中间列推进、视觉稳定帧、R1 等待、机构异步命令、相对移动、转向、台阶激光事件、夹取计数提交和参数加载分组；这些注释只解释当前真实状态机，不新增运行时接口、黑板键或运动命令权威。
 
-入口阶段先检测 2 号入口；若无 R2 KFS，则发送 `ARM_HIGH_RAISE(0x0D)` 并等待同 `seq` 的 `ARM_HIGH_RAISE_DONE(0x09)`，再按配置横移探测 1 号、3 号阶梯；这个高抬升只服务预选赛入口侧探测，不替代梅林内部普通机械臂升降。任一检测点探测到 R2 KFS 后都会先执行夹取前视觉横移对齐和一次锁深度；如果当前高低侧语义为向下夹取，则先发送 `ARM_SECOND_LOWER(0x0E)` 并等待 `ARM_SECOND_LOWER_DONE(0x0A)`，再执行开环趋近或直接夹取，最后保持当前机械臂高低侧语义发送 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`。返回 2 号入口后，上阶梯前若已经处于入口高抬升保持态，不重复发送普通 `ARM_RAISE(0x04)`；否则先发送普通抬升并等待 `ARM_RAISE_DONE(0x02)`。进入梅林内部后，每次格间高低台阶切换观察前都会按高度差先发送普通机械臂预调：低到高发送 `ARM_RAISE(0x04)` 并等待 `ARM_RAISE_DONE(0x02)`，高到低发送 `ARM_LOWER(0x05)` 并等待 `ARM_LOWER_DONE(0x03)`，之后复用原有 `TransitionObserve` 检测窗口。
+入口阶段先检测 2 号入口；若无 R2 KFS，则发送 `ARM_HIGH_RAISE(0x0D)` 并等待同 `seq` 的 `ARM_HIGH_RAISE_DONE(0x09)`，再按配置横移探测 1 号、3 号阶梯；这个高抬升只服务预选赛入口侧探测，不替代梅林内部普通机械臂升降。任一检测点探测到 R2 KFS 后都会先执行夹取前视觉横移对齐和一次锁深度；如果当前高低侧语义为向下夹取，则先发送 `ARM_SECOND_LOWER(0x0E)` 并等待 `ARM_SECOND_LOWER_DONE(0x0A)`，再执行开环趋近或直接夹取，最后保持当前机械臂高低侧语义发送 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`。返回 2 号入口后，上阶梯前若已经处于入口高抬升保持态，不重复发送普通 `ARM_RAISE(0x04)`；否则先发送普通抬升并等待 `ARM_RAISE_DONE(0x02)`。进入梅林内部后，格间高低台阶切换观察前、第 2/3 行前方守卫检测前以及第 2/3 行左侧/背向周身扫描前，都会按静态格高差先执行普通机械臂预调：低到高发送 `ARM_RAISE(0x04)` 并等待 `ARM_RAISE_DONE(0x02)`，高到低发送 `ARM_LOWER(0x05)` 并等待 `ARM_LOWER_DONE(0x03)`；随后才进入对应检测窗口，检测到 R2 KFS 时也按该高低侧语义选择 `GRAB_KFS_UP(0x03)` 或 `GRAB_KFS_DOWN(0x02)`。
 
-内部路线按中间列格位推进：`grid2 -> grid5 -> grid8 -> grid11`，常规出口再经 `grid12` 下阶梯离开梅林。入口上到 `grid2` 后，`MfPreselectionFlow` 内部会按 `mf_center_entry_forward_offset_m` 前进并建立 `grid2` 中心参考；之后每次中间列格间台阶完成都会用 `mf_center_grid_step_m` 推算目标格中心并执行二维归位，成功后才进入下一段检测、扫描、转向或离场准备。入场前已夹取 R2 KFS 时切入直出模式；这里的直出模式仍沿中间列台阶路线推进，只跳过第 2/3 行周身搜索，路径前方的 R1、R2 和假 KFS 守卫仍生效。入场前未夹取时，第 1 行只做前方检测，第 2/3 行先做前方守卫检测，未发现目标或假 KFS 后再执行左转和背向扫描，第 4 行强制收尾。路径前方遇 R1 目标时零速等待，默认无总超时，直到连续丢失稳定帧满足 `mf_preselect_detect_lost_stable_frames` 后才放行；周身扫描阶段看到 R1 只忽略。第 1/2/3 行前方遇假 KFS 时，按入场拾取来源选择 1 号或 3 号方向避障后上到侧向格，记录新的 `current_grid` 并执行格中心归位，再重新朝入口 heading 所定义的出口方向直行；第 4 行到达 `grid11` 后先执行强制出口转向，转向后若正前方仍是假 KFS，则 180° 转向并下阶梯离场。最终下阶离开梅林后，状态机会从最后一个格中心沿入口 heading 正向外推 `mf_preselect_final_exit_center_offset_m` 生成虚拟外侧目标并归位；下阶台阶原语本身仍保持既有安全时序不变。该虚拟目标在黑板中以 `mf_center_target_grid=0` 表示，不属于 `grid1..grid12`。
+内部路线按中间列格位推进：`grid2 -> grid5 -> grid8 -> grid11`，常规出口再经 `grid12` 下阶梯离开梅林。入口上到 `grid2` 后，`MfPreselectionFlow` 内部会保持 `entry_heading_yaw` 并按 `mf_center_entry_forward_offset_m` 前进，建立 `grid2` 中心参考；之后每次中间列格间台阶完成都会用 `mf_center_grid_step_m` 推算目标格中心并执行二维归位，成功后才进入下一段检测、扫描、转向或离场准备。入场前已夹取 R2 KFS 时切入直出模式；这里的直出模式仍沿中间列台阶路线推进，只跳过第 2/3 行周身搜索，路径前方的 R1、R2 和假 KFS 守卫仍生效。入场前未夹取时，第 1 行只做前方检测，第 2/3 行先做前方守卫检测，未发现目标或假 KFS 后再执行左转和背向扫描，第 4 行强制收尾。路径前方遇 R1 目标时零速等待，默认无总超时，直到连续丢失稳定帧满足 `mf_preselect_detect_lost_stable_frames` 后才放行；周身扫描阶段看到 R1 只忽略。第 1/2/3 行前方遇假 KFS 时，按入场拾取来源选择 1 号或 3 号方向避障后上到侧向格，记录新的 `current_grid` 并执行格中心归位，再重新朝入口 heading 所定义的出口方向直行；第 4 行到达 `grid11` 后先执行强制出口转向，转向后若正前方仍是假 KFS，则 180° 转向并下阶梯离场。常规离场到达并归位 `grid12` 后，会先在台阶上对齐 `entry_heading_yaw + pi`，让车头与离开梅林正方向相反，再发送 `ARM_LOWER(0x05)` 并执行下阶梯；最终下阶离开梅林后，状态机会从最后一个格中心沿入口 heading 正向外推 `mf_preselect_final_exit_center_offset_m` 生成虚拟外侧目标，并保持同一个反向 yaw 归位。该虚拟目标在黑板中以 `mf_center_target_grid=0` 表示，不属于 `grid1..grid12`。
 
 本链路维护以下黑板键：
 
@@ -212,7 +212,7 @@ MF 格中心归位参数以 `mf_center_*` 前缀集中在同一个 `r2_runtime.y
 ## 本轮收口
 
 - `mf_tree.xml` 改为离散格间动作版本，删除 MF 内全部 `NavToPose` 格中心分支
-- 新增正式 `GridTurn` / `GridHeadingAlign` BT 节点和 `grid_heading_tree.xml` 入口：方向由 `grid_heading_direction` 与四个方向 yaw 参数选择，只负责原地转向和 yaw 精对齐，不触发推杆。
+- 新增正式 `GridTurn` / `GridHeadingAlign` BT 节点和 `grid_heading_tree.xml` 入口：方向由 `grid_heading_direction` 与四个方向 yaw 参数选择，只负责原地转向和 yaw 精对齐，不触发推杆；粗转向和精对齐最大角速度分别由 `grid_heading_turn_max_speed_radps`、`grid_heading_align_max_speed_radps` 配置，不再兼容合并角速度参数。
 - MF 格间动作改为 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> GridTransition -> GridCenterAlign`：前者按 `current_grid -> target_grid` 的相邻边和静态高度差选择 `CLIMB` / `DESCEND` 并计算目标 yaw，`GridTransition` 负责台阶执行和成功后提交 `current_grid`，`GridCenterAlign` 负责后验二维格中心归位
 - `StairActionBase` 增加 `stair_heading_*` 参数和 odom yaw heading hold；独立 `StairClimb` / `StairDescend` 默认保持启动时 yaw，MF `GridTransition` 显式设置格间目标 yaw
 - 台阶速度参数改为阶段专属：上台阶前轮 `0x04` 与后轮 `0x05` 段均使用 fast->slow 线性 profile；下台阶后轮 `0x05` 与前推杆收回前定时后退保持固定速度，下台阶前轮第二激光 `0x07` 段使用 `0.10m/s -> 0.05m/s`、`1.0s` profile。旧 `stair_climb_drive_speed_mps`、`stair_descend_drive_speed_mps` 与 `stair_descend_front_retract_drive_speed_mps` 不再兼容。

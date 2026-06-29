@@ -68,6 +68,8 @@ ros2 launch rc26_bringup grid_heading.launch.py
 
 ```yaml
 grid_heading_direction: "left"  # forward | left | right | backward
+grid_heading_turn_max_speed_radps: 1.0
+grid_heading_align_max_speed_radps: 0.30
 ```
 
 本入口只执行 `GridTurn -> GridHeadingAlign`，直接发布 `cmd_vel.angular.z`，不触发推杆或激光事件。实车运行前必须停用 Nav2、遥控和其它 `/cmd_vel` 发布者；若 `/odom` 和 `rc26_mcu_transport` 已由其它入口提供，可关闭重复链路：

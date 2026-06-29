@@ -38,7 +38,7 @@ namespace {
 // 2. 回到中间入口后上台阶进入 grid2；
 // 3. 沿中间列 grid2 -> grid5 -> grid8 -> grid11 推进，按行执行前方守卫检测、
 //    左侧/背向扫描、R1 等待、假 KFS 避障和 R2 KFS 夹取；
-// 4. 第四行强制转向收尾，必要时遇假 KFS 180 度转向，否则经 grid12 下台阶离场；
+// 4. 第四行强制转向收尾，必要时遇假 KFS 180 度转向，否则经 grid12 对齐后下台阶离场；
 // 5. 离场后返回 SUCCESS，外层树通常接 WaitForever 保持静止。
 
 constexpr double kPi = 3.14159265358979323846;
@@ -408,28 +408,34 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
         RCLCPP_INFO(node_->get_logger(),
                     "梅林预选赛直出模式：grid%d 前方守卫检测后继续中间列推进",
                     current_grid_);
-        beginDetection(DetectMode::RowFront, params_.scan_detect_timeout_s);
+        beginPreparedDetection(DetectMode::RowFront,
+                               params_.scan_detect_timeout_s,
+                               Phase::RowFrontDetect);
       } else if (current_grid_ == 11) {
         RCLCPP_INFO(node_->get_logger(),
                     "梅林预选赛直出模式到达grid11，进入第四行强制转向收尾");
         phase_ = Phase::Row4ForcedTurn;
       } else if (current_grid_ == 12) {
         RCLCPP_INFO(node_->get_logger(),
-                    "梅林预选赛到达grid12，准备下阶梯离场");
-        phase_ = Phase::Row4DirectDescendPrep;
+                    "梅林预选赛到达grid12，准备先对齐离场yaw再下阶梯");
+        phase_ = Phase::FinalExitYawAlign;
       } else {
         beginDirectExitDrive();
       }
     } else if (current_grid_ == 2) {
       RCLCPP_INFO(node_->get_logger(),
                   "梅林预选赛未入场夹取：第一行执行前方检测");
-      beginDetection(DetectMode::RowFront, params_.scan_detect_timeout_s);
+      beginPreparedDetection(DetectMode::RowFront,
+                             params_.scan_detect_timeout_s,
+                             Phase::RowFrontDetect);
     } else if (current_grid_ == 5 || current_grid_ == 8) {
       // 第 2/3 行先看前方是否被 R1/假 KFS/R2 KFS 占用；如果没有可处理目标，
       // 再左转和背向扫描，降低在狭窄台阶上无意义旋转的概率。
       RCLCPP_INFO(node_->get_logger(),
                   "梅林预选赛未入场夹取：第2/3行先做前方守卫检测");
-      beginDetection(DetectMode::RowFront, params_.scan_detect_timeout_s);
+      beginPreparedDetection(DetectMode::RowFront,
+                             params_.scan_detect_timeout_s,
+                             Phase::RowFrontDetect);
     } else if (current_grid_ == 11) {
       RCLCPP_INFO(node_->get_logger(),
                   "梅林预选赛到达第四行grid11，进入强制收尾转向");
@@ -548,6 +554,34 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     }
     return BT::NodeStatus::RUNNING;
 
+  case Phase::DetectionArmAdjust:
+    // 第 2/3 行周身探测和行前方守卫探测也按静态高度表预调机械臂。
+    // 低侧探测必须先普通下降 ARM_LOWER，再进入视觉检测窗口。
+    if (pending_detection_high_side_) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛探测前机械臂预调为高侧：阶段=%s",
+                  detectModeText(pending_detection_mode_));
+      beginMechanismCommand(clampByte(params_.arm_raise_command_id),
+                            "ARM_RAISE",
+                            clampByte(params_.arm_raise_done_feedback_id),
+                            pending_detection_phase_,
+                            "detection_arm_raise_failed");
+      arm_high_raised_ = false;
+      arm_high_side_ = true;
+    } else {
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛探测前机械臂预调为低侧：阶段=%s，发送ARM_LOWER后再检测",
+                  detectModeText(pending_detection_mode_));
+      beginMechanismCommand(clampByte(params_.arm_lower_command_id),
+                            "ARM_LOWER",
+                            clampByte(params_.arm_lower_done_feedback_id),
+                            pending_detection_phase_,
+                            "detection_arm_lower_failed");
+      arm_high_raised_ = false;
+      arm_high_side_ = false;
+    }
+    return BT::NodeStatus::RUNNING;
+
   case Phase::TransitionStair:
     // prepareTransitionTo() 已经确认高度差只能是 +/-1；这里把它映射到
     // 上/下台阶原语。成功后 tickStair() 会通过 continueAfterTransition()
@@ -580,6 +614,17 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     beginTurnYaw(normalizeAngle(odom_yaw_ + kPi),
                  Phase::Row4DirectDescendPrep, "row4_fake_turn_back");
     return BT::NodeStatus::RUNNING;
+
+  case Phase::FinalExitYawAlign:
+  {
+    const double descend_yaw = normalizeAngle(entry_heading_yaw_ + kPi);
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛常规离场：已到grid12台阶上，下阶梯需车头反向，先对齐yaw=%.3f再下阶梯",
+                descend_yaw);
+    beginTurnYaw(descend_yaw, Phase::Row4DirectDescendPrep,
+                 "final_exit_yaw_align");
+    return BT::NodeStatus::RUNNING;
+  }
 
   case Phase::Row4DirectDescendPrep:
     // 离场下阶梯前统一把机械臂降下；这既是机构姿态复位，也是给下阶梯
@@ -1289,6 +1334,10 @@ const char *MfPreselectionFlowAction::phaseText(Phase phase) {
     return "transition_stair";
   case Phase::TransitionTurn:
     return "transition_turn";
+  case Phase::DetectionArmAdjust:
+    return "detection_arm_adjust";
+  case Phase::FinalExitYawAlign:
+    return "final_exit_yaw_align";
   case Phase::DirectExitDrive:
     return "direct_exit_drive";
   case Phase::KfsVisualAlign:
@@ -1306,6 +1355,101 @@ const char *MfPreselectionFlowAction::phaseText(Phase phase) {
   default:
     return "phase";
   }
+}
+
+void MfPreselectionFlowAction::beginPreparedDetection(DetectMode mode,
+                                                      double timeout_s,
+                                                      Phase detection_phase) {
+  pending_detection_mode_ = mode;
+  pending_detection_phase_ = detection_phase;
+
+  bool high_side = true;
+  int target_grid = 0;
+  int height_delta = 0;
+  const bool resolved =
+      resolveDetectionHighSide(mode, detection_phase, high_side, target_grid,
+                               height_delta);
+  pending_detection_high_side_ = high_side;
+
+  if (mode == DetectMode::Scan) {
+    active_detection_phase_ = detection_phase;
+  }
+
+  if (node_) {
+    if (resolved) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛准备检测前机械臂姿态：%s current_grid=%d target_grid=%d height_delta=%d high_side=%s",
+                  detectModeText(mode), current_grid_, target_grid, height_delta,
+                  high_side ? "是" : "否");
+    } else {
+      RCLCPP_WARN(node_->get_logger(),
+                  "梅林预选赛无法解析检测目标高度：%s current_grid=%d，保守按高侧检测",
+                  detectModeText(mode), current_grid_);
+    }
+  }
+
+  if (arm_high_side_ == high_side) {
+    beginDetection(mode, timeout_s);
+    return;
+  }
+
+  phase_ = Phase::DetectionArmAdjust;
+}
+
+bool MfPreselectionFlowAction::resolveDetectionHighSide(
+    DetectMode mode, Phase detection_phase, bool &high_side, int &target_grid,
+    int &height_delta) const {
+  target_grid = current_grid_;
+  height_delta = 0;
+
+  switch (mode) {
+  case DetectMode::RowFront:
+    if (current_grid_ == 2 || current_grid_ == 5 || current_grid_ == 8 ||
+        current_grid_ == 11) {
+      target_grid = current_grid_ + 3;
+    } else {
+      high_side = true;
+      return false;
+    }
+    break;
+  case DetectMode::Scan:
+    if (detection_phase == Phase::RowScanDetectLeft) {
+      target_grid = current_grid_ - 1;
+    } else if (detection_phase == Phase::RowScanDetectBack) {
+      target_grid = current_grid_ + 1;
+    } else {
+      high_side = true;
+      return false;
+    }
+    break;
+  case DetectMode::TransitionObserve:
+    target_grid = transition_target_grid_;
+    break;
+  case DetectMode::Entry2:
+  case DetectMode::Stair1:
+  case DetectMode::Stair3:
+  case DetectMode::Row4Fake:
+    high_side = true;
+    return true;
+  }
+
+  std::shared_ptr<MerlinMapManager> map;
+  if (!config().blackboard || !config().blackboard->get("merlin_map", map) ||
+      !map) {
+    high_side = true;
+    return false;
+  }
+
+  const int from_depth = map->getDepth(current_grid_);
+  const int target_depth = map->getDepth(target_grid);
+  if (from_depth < 0 || target_depth < 0) {
+    high_side = true;
+    return false;
+  }
+
+  height_delta = target_depth - from_depth;
+  high_side = height_delta >= 0;
+  return true;
 }
 
 void MfPreselectionFlowAction::beginDetection(DetectMode mode,
@@ -1361,10 +1505,23 @@ void MfPreselectionFlowAction::beginDetection(DetectMode mode,
     writeBlackboardState("transition_observe");
     break;
   }
+
+  if (mode == DetectMode::TransitionObserve) {
+    active_detection_high_side_ = transition_high_side_;
+  } else {
+    bool high_side = true;
+    int target_grid = 0;
+    int height_delta = 0;
+    (void)resolveDetectionHighSide(mode, phase_, high_side, target_grid,
+                                   height_delta);
+    active_detection_high_side_ = high_side;
+  }
+
   if (node_) {
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛进入检测阶段：%s，grid=%d，直出模式=%s，已夹取=%d/%d，超时=%.2fs",
+                "梅林预选赛进入检测阶段：%s，grid=%d，高侧=%s，直出模式=%s，已夹取=%d/%d，超时=%.2fs",
                 detectModeText(mode), current_grid_,
+                active_detection_high_side_ ? "是" : "否",
                 direct_exit_mode_ ? "是" : "否", pickup_count_,
                 params_.max_pickup_count, timeout_s);
   }
@@ -1375,16 +1532,21 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
   // 这里做一次自恢复初始化，保证检测阶段不会因状态切换顺序漏掉定时器和计数器。
   if (!detection_active_) {
     if (phase_ == Phase::RowScanDetectLeft) {
-      beginDetection(DetectMode::Scan, params_.scan_detect_timeout_s);
+      beginPreparedDetection(DetectMode::Scan, params_.scan_detect_timeout_s,
+                             Phase::RowScanDetectLeft);
     } else if (phase_ == Phase::RowScanDetectBack) {
-      beginDetection(DetectMode::Scan, params_.scan_detect_timeout_s);
+      beginPreparedDetection(DetectMode::Scan, params_.scan_detect_timeout_s,
+                             Phase::RowScanDetectBack);
     } else if (phase_ == Phase::RowFrontDetect) {
-      beginDetection(DetectMode::RowFront, params_.scan_detect_timeout_s);
+      beginPreparedDetection(DetectMode::RowFront,
+                             params_.scan_detect_timeout_s,
+                             Phase::RowFrontDetect);
     } else if (phase_ == Phase::TransitionObserve) {
       beginDetection(DetectMode::TransitionObserve, params_.scan_detect_timeout_s);
     } else if (phase_ == Phase::Row4DetectFake) {
       beginDetection(DetectMode::Row4Fake, params_.scan_detect_timeout_s);
     }
+    return BT::NodeStatus::RUNNING;
   }
   publishStop();
   const double elapsed =
@@ -1463,8 +1625,9 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
       case DetectMode::Scan:
         // 入场后再次发现 R2 KFS，夹取后进入直出模式：不再做第 2/3 行周身
         // 搜索，但仍保留前方守卫和假 KFS 处理。
-        beginKfsVisualPickup(true, MfPreselectionPickupSource::None,
-                             *r2, Phase::AfterEntry,
+        beginKfsVisualPickup(active_detection_high_side_,
+                             MfPreselectionPickupSource::None, *r2,
+                             Phase::AfterEntry,
                              detectionMissNextPhase(), true);
         break;
       case DetectMode::TransitionObserve:
@@ -2495,7 +2658,7 @@ MfPreselectionFlowAction::phaseAfterTransition() const {
     return Phase::Row4ForcedTurn;
   }
   if (current_grid_ == 12) {
-    return Phase::Row4DirectDescendPrep;
+    return Phase::FinalExitYawAlign;
   }
   return Phase::RowFrontDetect;
 }

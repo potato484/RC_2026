@@ -182,11 +182,13 @@ private:
     FakeAvoidAlignExit,
     TransitionTurn,
     TransitionArmAdjust,
+    DetectionArmAdjust,
     TransitionObserve,
     TransitionStair,
     Row4ForcedTurn,
     Row4DetectFake,
     Row4FakeTurnBack,
+    FinalExitYawAlign,
     Row4DirectDescendPrep,
     Row4DirectDescend,
     DirectExitDrive,
@@ -274,6 +276,11 @@ private:
   static const char *phaseText(Phase phase);
 
   void beginDetection(DetectMode mode, double timeout_s);
+  void beginPreparedDetection(DetectMode mode, double timeout_s,
+                              Phase detection_phase);
+  bool resolveDetectionHighSide(DetectMode mode, Phase detection_phase,
+                                bool &high_side, int &target_grid,
+                                int &height_delta) const;
   BT::NodeStatus tickDetection();
   void resetDetectionCounters();
 
@@ -378,8 +385,10 @@ private:
   Phase center_next_phase_{Phase::Done};
   Phase grab_success_phase_{Phase::Done};
   Phase grab_failure_phase_{Phase::Done};
+  Phase pending_detection_phase_{Phase::Done};
 
   DetectMode detect_mode_{DetectMode::Entry2};
+  DetectMode pending_detection_mode_{DetectMode::Entry2};
   rclcpp::Time phase_start_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_cmd_publish_{0, 0, RCL_ROS_TIME};
   bool has_last_cmd_publish_{false};
@@ -496,6 +505,8 @@ private:
   int64_t last_detection_sequence_{0};
   Phase active_detection_phase_{Phase::Done};
   bool detection_active_{false};
+  bool active_detection_high_side_{true};
+  bool pending_detection_high_side_{true};
   bool timed_drive_started_{false};
   bool kfs_pickup_active_{false};
   bool kfs_pickup_high_side_{true};

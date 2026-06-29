@@ -155,9 +155,9 @@ r2_runtime:
       mf_preselect_second_arm_lower_command_id: 14 # 0x0E ARM_SECOND_LOWER，向下夹取开环前放下第二节机械臂
       mf_preselect_second_arm_lower_done_feedback_id: 10 # 0x0A ARM_SECOND_LOWER_DONE，必须与 0x0E 的 ACK seq 匹配
 
-      mf_preselect_entry_probe_left_distance_m: 1.2     # 2号入口向1号阶梯横移探测距离
-      mf_preselect_entry_probe_right_sweep_distance_m: 2.4 # 从1号阶梯扫到3号阶梯横移距离
-      mf_preselect_entry_probe_return_distance_m: 1.0   # 从1/3号阶梯返回2号入口横移距离
+      mf_preselect_entry_probe_left_distance_m: 0.9     # 2号入口向1号阶梯横移探测距离
+      mf_preselect_entry_probe_right_sweep_distance_m: 2.0 # 从1号阶梯扫到3号阶梯横移距离
+      mf_preselect_entry_probe_return_distance_m: 0.5   # 从1/3号阶梯返回2号入口横移距离
       mf_preselect_lateral_probe_speed_mps: 0.40        # 入口 Y 向平移探测速度绝对值
       mf_preselect_move_tolerance_m: 0.03               # 相对移动完成距离容差
       mf_preselect_move_timeout_s: 12.0                 # 单段相对移动超时，单位秒
@@ -191,7 +191,8 @@ r2_runtime:
       grid_heading_cmd_vel_topic: "cmd_vel"         # GridTurn/GridHeadingAlign 发布的速度话题
       grid_heading_odom_topic: "odom"               # GridTurn/GridHeadingAlign 使用的 odom yaw 话题
       grid_heading_kp: 1.2                          # yaw 误差到 angular.z 的比例系数
-      grid_heading_max_speed_radps: 0.50            # 转向/对齐最大角速度，单位 rad/s
+      grid_heading_turn_max_speed_radps: 1.0        # GridTurn 粗转向最大角速度，单位 rad/s
+      grid_heading_align_max_speed_radps: 0.30      # GridHeadingAlign 精对齐最大角速度，单位 rad/s
       grid_heading_turn_gate_deg: 8.0               # GridTurn 进入粗对准的角度 gate，单位度
       grid_heading_align_tolerance_deg: 3.0         # GridHeadingAlign 成功容差，单位度
       grid_heading_align_stable_ticks: 3            # 连续多少个 tick 满足容差后确认对齐
@@ -208,15 +209,15 @@ r2_runtime:
       mf_center_entry_forward_offset_m: 0.25         # 首次上到 grid2 后继续前进到格中心的距离，单位米
       mf_center_entry_forward_speed_mps: 0.06        # 首次前进到 grid2 中心的线速度上限，单位 m/s
       mf_center_xy_kp: 0.8                           # odom x/y 误差到车体平移速度的比例系数
-      mf_center_min_speed_mps: 0.010                 # 未进入位置容差时的最小平移速度，单位 m/s
-      mf_center_max_speed_mps: 0.050                 # 二维格中心归位平移速度上限，单位 m/s
-      mf_center_xy_tolerance_m: 0.01                # x/y 到格中心距离进入该容差后才累计稳定，单位米
+      mf_center_min_speed_mps: 0.05                 # 未进入位置容差时的最小平移速度，单位 m/s
+      mf_center_max_speed_mps: 0.10                 # 二维格中心归位平移速度上限，单位 m/s
+      mf_center_xy_tolerance_m: 0.1                # x/y 到格中心距离进入该容差后才累计稳定，单位米
       mf_center_yaw_kp: 1.2                          # yaw 误差到 angular.z 的比例系数
       mf_center_yaw_max_speed_radps: 0.30            # 格中心归位 yaw 修正最大角速度，单位 rad/s
       mf_center_yaw_tolerance_deg: 3.0               # yaw 误差进入该容差后才累计稳定，单位度
       mf_center_stable_ticks: 5                      # 连续多少个 tick 同时满足 xy/yaw 容差后确认归位成功
       mf_center_odom_timeout_s: 0.5                  # odom 位姿超过该时间未更新时停车等待/失败
-      mf_center_align_timeout_s: 8.0                 # 单次格中心归位最大运行时间，单位秒
+      mf_center_align_timeout_s: 12.0                 # 单次格中心归位最大运行时间，单位秒
 
       # ======================================================================
       # 台阶动作参数 —— 供独立 stair_* 测试树和 MF GridTransition 离散格间动作复用
@@ -231,9 +232,9 @@ r2_runtime:
       stair_climb_rear_drive_slow_speed_mps: 0.10    # 上台阶后轮 0x05 段线性降速目标速度绝对值，单位 m/s
       stair_climb_rear_drive_slowdown_duration_s: 2.5 # 上台阶后轮 0x05 段从 fast 降到 slow 的时长，单位秒
       stair_descend_rear_drive_speed_mps: 0.05       # 下台阶后轮 0x05 段固定速度绝对值，单位 m/s
-      stair_descend_front_second_drive_fast_speed_mps: 0.10 # 下台阶前轮第二激光 0x07 段线性降速起始速度绝对值，单位 m/s
+      stair_descend_front_second_drive_fast_speed_mps: 0.40 # 下台阶前轮第二激光 0x07 段线性降速起始速度绝对值，单位 m/s
       stair_descend_front_second_drive_slow_speed_mps: 0.05 # 下台阶前轮第二激光 0x07 段线性降速目标速度绝对值，单位 m/s
-      stair_descend_front_second_drive_slowdown_duration_s: 1.0 # 下台阶前轮第二激光 0x07 段从 fast 降到 slow 的时长，单位秒
+      stair_descend_front_second_drive_slowdown_duration_s: 2.0 # 下台阶前轮第二激光 0x07 段从 fast 降到 slow 的时长，单位秒
       stair_command_rate_hz: 20.0                    # 台阶动作速度发布频率，单位 Hz
       stair_command_timeout_s: 3.0                   # 每条推杆命令 accepted 等待超时，单位秒
       stair_front_event_timeout_s: 20.0              # 前轮激光高度突变等待超时，单位秒

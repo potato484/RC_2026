@@ -19,7 +19,8 @@ struct GridHeadingParams {
   std::string cmd_vel_topic{"cmd_vel"};
   std::string odom_topic{"odom"};
   double kp{1.2};
-  double max_speed_radps{0.30};
+  double turn_max_speed_radps{0.30};
+  double align_max_speed_radps{0.30};
   double turn_gate_deg{8.0};
   double align_tolerance_deg{3.0};
   int align_stable_ticks{3};
@@ -47,7 +48,7 @@ protected:
   void publishAngular(double angular_z_radps);
   bool odomReady() const;
   double headingError() const;
-  double headingAngularZ() const;
+  double headingAngularZ(double max_speed_radps) const;
   double elapsedSinceStart() const;
   BT::NodeStatus failWithStop(const char *reason);
   static double normalizeAngle(double angle_rad);

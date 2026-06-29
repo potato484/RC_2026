@@ -198,7 +198,7 @@ controller_server: # Nav2 局部控制器服务器参数组
       max_vel_x: 0.25 # x 方向最大采样速度，单位 m/s
       min_vel_y: -0.25 # y 方向最小采样速度，单位 m/s
       max_vel_y: 0.0 # y 方向最大采样速度，单位 m/s
-      max_vel_theta: 0.50 # 最大角速度采样值，单位 rad/s
+      max_vel_theta: 0.45 # 最大角速度采样值，单位 rad/s
       min_speed_xy: 0.0 # 平面合速度最小值，单位 m/s
       max_speed_xy: 0.35 # 平面合速度最大值，单位 m/s
       min_speed_theta: 0.0 # 角速度绝对值最小值，单位 rad/s
