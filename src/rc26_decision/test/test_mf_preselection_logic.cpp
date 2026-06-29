@@ -7,8 +7,34 @@
 #include <gtest/gtest.h>
 
 #include "rc26_decision/mf_preselection/mf_preselection_flow.hpp"
+#include "rc26_decision/stair/stair_area.hpp"
 
 namespace {
+
+TEST(StairSpeedProfile, SamplesLinearFastToSlow) {
+  const rc26_decision::StairSpeedProfile profile{0.10, 0.05, 1.0};
+
+  EXPECT_DOUBLE_EQ(rc26_decision::sampleStairSpeedProfile(profile, 0.0), 0.10);
+  EXPECT_DOUBLE_EQ(rc26_decision::sampleStairSpeedProfile(profile, 0.5), 0.075);
+  EXPECT_DOUBLE_EQ(rc26_decision::sampleStairSpeedProfile(profile, 1.0), 0.05);
+  EXPECT_DOUBLE_EQ(rc26_decision::sampleStairSpeedProfile(profile, 2.0), 0.05);
+}
+
+TEST(StairSpeedProfile, DurationZeroReturnsSlowSpeed) {
+  const rc26_decision::StairSpeedProfile profile{0.40, 0.20, 0.0};
+
+  EXPECT_DOUBLE_EQ(rc26_decision::sampleStairSpeedProfile(profile, 0.0), 0.20);
+  EXPECT_DOUBLE_EQ(rc26_decision::sampleStairSpeedProfile(profile, 3.0), 0.20);
+}
+
+TEST(StairSpeedProfile, NormalizesSpeedsAndSlowUpperBound) {
+  const auto profile = rc26_decision::normalizeStairSpeedProfile(
+      rc26_decision::StairSpeedProfile{-0.05, -0.10, -1.0});
+
+  EXPECT_DOUBLE_EQ(profile.fast_speed_mps, 0.05);
+  EXPECT_DOUBLE_EQ(profile.slow_speed_mps, 0.05);
+  EXPECT_DOUBLE_EQ(profile.slowdown_duration_s, 0.0);
+}
 
 TEST(MfPreselectionLogic, LabelMatchesExactAndPrefix) {
   const std::vector<std::string> exact{"R_R1", "B_R1"};

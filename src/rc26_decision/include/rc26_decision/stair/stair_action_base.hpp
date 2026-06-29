@@ -33,10 +33,9 @@ protected:
 
   void publishDrive(double signed_speed_mps);
   void publishStop();
-  double climbDriveSpeedMagnitude() const;
-  void resetClimbRearDriveProfile();
-  double climbRearDriveProfileSpeed();
-  double descendDriveSpeedMagnitude() const;
+  void beginDriveProfile(const StairSpeedProfile &profile, const char *label);
+  double driveProfileSpeed();
+  void publishProfiledDrive(double direction_sign);
   void setHeadingTarget(double target_yaw_rad);
   void clearHeadingTarget();
   void beginHeadingAlignment();
@@ -90,9 +89,11 @@ private:
   rclcpp::Time stage_start_;
   rclcpp::Time last_drive_publish_;
   rclcpp::Time heading_align_start_;
-  rclcpp::Time climb_rear_drive_profile_start_;
+  rclcpp::Time active_drive_profile_start_;
   bool has_last_drive_publish_{false};
-  bool climb_rear_drive_profile_started_{false};
+  bool active_drive_profile_started_{false};
+  StairSpeedProfile active_drive_profile_;
+  std::string active_drive_profile_label_;
   double current_yaw_rad_{0.0};
   double heading_target_yaw_rad_{0.0};
   bool has_heading_yaw_{false};

@@ -57,6 +57,8 @@ BT::NodeStatus StairClimbAction::onRunning() {
       phase_ = Phase::DriveUntilFrontFirstEvent;
       beginEventWait(WheelEvent::FrontFirst, params_.front_event_timeout_s,
                      "front_first");
+      beginDriveProfile(params_.climb_front_drive_profile,
+                        "climb_front_first");
       break;
     case StepStatus::Failure:
       return failWithStop("front extend zero hold failed");
@@ -66,8 +68,8 @@ BT::NodeStatus StairClimbAction::onRunning() {
     break;
 
   case Phase::DriveUntilFrontFirstEvent:
-    // 第三阶段：前推杆已伸出，持续发布 x 正方向速度推动前轮上台阶。
-    publishDrive(climbDriveSpeedMagnitude());
+    // 第三阶段：前推杆已伸出，按前轮段速度规划发布 x 正方向速度推动前轮上台阶。
+    publishProfiledDrive(1.0);
     // 同时检查 MCU 是否已经上报前轮第一个激光测距高度突变。
     switch (tickEventWait()) {
     case StepStatus::Success:
@@ -124,8 +126,8 @@ BT::NodeStatus StairClimbAction::onRunning() {
     case StepStatus::Success:
       // 延时结束后恢复 x 正方向行驶，并按后轮上台阶 profile 从快到慢等待后轮 0x05 突变。
       phase_ = Phase::DriveUntilRearEvent;
-      resetClimbRearDriveProfile();
       beginEventWait(WheelEvent::Rear, params_.rear_event_timeout_s, "rear");
+      beginDriveProfile(params_.climb_rear_drive_profile, "climb_rear");
       break;
     case StepStatus::Failure:
       return failWithStop("front retract rear extend zero hold failed");
@@ -136,7 +138,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
 
   case Phase::DriveUntilRearEvent:
     // 第六阶段：后推杆已伸出，继续发布 x 正方向速度推动后轮上台阶，速度从快到慢规划。
-    publishDrive(climbRearDriveProfileSpeed());
+    publishProfiledDrive(1.0);
     // 检查 MCU 是否已经上报后轮激光测距高度突变。
     switch (tickEventWait()) {
     case StepStatus::Success:

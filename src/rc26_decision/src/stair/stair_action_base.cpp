@@ -42,7 +42,7 @@ StairActionBase::StairActionBase(const std::string &name,
     : BT::StatefulActionNode(name, config), stage_start_(0, 0, RCL_ROS_TIME),
       last_drive_publish_(0, 0, RCL_ROS_TIME),
       heading_align_start_(0, 0, RCL_ROS_TIME),
-      climb_rear_drive_profile_start_(0, 0, RCL_ROS_TIME) {}
+      active_drive_profile_start_(0, 0, RCL_ROS_TIME) {}
 
 // 当前台阶节点没有 XML 端口；所有运行参数都来自黑板中的 stair_params。
 BT::PortsList StairActionBase::providedPorts() { return {}; }
@@ -64,70 +64,7 @@ bool StairActionBase::setupRuntime(const char *action_label) {
     return false;
   }
 
-  // 速度参数只保留绝对值；具体正负方向由上下台阶状态机显式决定。
-  params_.climb_drive_speed_mps = std::abs(params_.climb_drive_speed_mps);
-  params_.climb_rear_drive_fast_speed_mps =
-      std::abs(params_.climb_rear_drive_fast_speed_mps);
-  if (params_.climb_rear_drive_fast_speed_mps <= 0.0) {
-    params_.climb_rear_drive_fast_speed_mps =
-        params_.climb_drive_speed_mps;
-  }
-  params_.climb_rear_drive_slow_speed_mps =
-      std::abs(params_.climb_rear_drive_slow_speed_mps);
-  params_.climb_rear_drive_slow_speed_mps =
-      std::min(params_.climb_rear_drive_slow_speed_mps,
-               params_.climb_rear_drive_fast_speed_mps);
-  params_.climb_rear_drive_slowdown_duration_s =
-      std::max(0.0, params_.climb_rear_drive_slowdown_duration_s);
-  params_.descend_drive_speed_mps =
-      std::abs(params_.descend_drive_speed_mps);
-  // 发布频率做下限保护，保证 publishDrive() 的周期计算稳定。
-  params_.command_rate_hz =
-      std::max(kMinCommandRateHz, params_.command_rate_hz);
-  // 推杆命令等待超时做下限保护，保证 tickCommand() 永远有明确超时语义。
-  params_.command_timeout_s =
-      std::max(kMinTimeoutS, params_.command_timeout_s);
-  // 前轮激光事件等待超时做下限保护。
-  params_.front_event_timeout_s =
-      std::max(kMinTimeoutS, params_.front_event_timeout_s);
-  // 后轮激光事件等待超时做下限保护。
-  params_.rear_event_timeout_s =
-      std::max(kMinTimeoutS, params_.rear_event_timeout_s);
-  // 上台阶前推杆伸出后的零速等待允许为 0；小于 0 时夹到 0。
-  params_.climb_front_extend_delay_s =
-      std::max(0.0, params_.climb_front_extend_delay_s);
-  // 上台阶组合推杆命令后的零速等待允许为 0。
-  params_.climb_retract_rear_extend_delay_s =
-      std::max(0.0, params_.climb_retract_rear_extend_delay_s);
-  // 上台阶最后后推杆收回后的零速等待允许为 0。
-  params_.climb_rear_retract_delay_s =
-      std::max(0.0, params_.climb_rear_retract_delay_s);
-  // 下台阶后推杆伸出后的零速等待允许为 0；小于 0 时夹到 0。
-  params_.descend_rear_extend_delay_s =
-      std::max(0.0, params_.descend_rear_extend_delay_s);
-  // 下台阶组合推杆命令后的零速等待允许为 0。
-  params_.descend_retract_front_extend_delay_s =
-      std::max(0.0, params_.descend_retract_front_extend_delay_s);
-  // 下台阶前推杆收回前的定时负向行驶速度只保留绝对值。
-  params_.descend_front_retract_drive_speed_mps =
-      std::abs(params_.descend_front_retract_drive_speed_mps);
-  // 下台阶前推杆收回前的定时负向行驶时长允许为 0。
-  params_.descend_front_retract_drive_duration_s =
-      std::max(0.0, params_.descend_front_retract_drive_duration_s);
-  // 下台阶前推杆收回后的零速等待允许为 0。
-  params_.descend_front_retract_delay_s =
-      std::max(0.0, params_.descend_front_retract_delay_s);
-  params_.heading_kp = std::max(0.0, params_.heading_kp);
-  params_.heading_max_speed_radps =
-      std::max(0.0, params_.heading_max_speed_radps);
-  params_.heading_tolerance_deg = std::max(0.0, params_.heading_tolerance_deg);
-  params_.heading_gate_deg =
-      std::max(params_.heading_tolerance_deg, params_.heading_gate_deg);
-  params_.heading_stable_ticks = std::max(1, params_.heading_stable_ticks);
-  params_.heading_odom_timeout_s =
-      std::max(kMinTimeoutS, params_.heading_odom_timeout_s);
-  params_.heading_align_timeout_s =
-      std::max(kMinTimeoutS, params_.heading_align_timeout_s);
+  normalizeStairParams(params_);
 
   // 创建台阶动作自己的速度 publisher；动作结束或 halt 时会释放它。
   cmd_pub_ =
@@ -174,21 +111,27 @@ bool StairActionBase::setupRuntime(const char *action_label) {
   command_generation_.fetch_add(1, std::memory_order_relaxed);
   // 重置速度发布限频状态，确保进入动作后第一帧速度可以立即发出。
   has_last_drive_publish_ = false;
-  resetClimbRearDriveProfile();
+  active_drive_profile_started_ = false;
   // 记录当前阶段起点时间；后续每次 begin*() 会重新刷新。
   markStageStart();
 
   // 打印本次动作的关键运行入口，便于现场确认 topic/service/速度参数。
   RCLCPP_INFO(node_->get_logger(),
-              "%s 启动: cmd_vel=%s service=%s feedback=%s odom=%s climb_speed=%.3fm/s climb_rear_profile=%.3f->%.3fm/s %.2fs descend_speed=%.3fm/s heading=%s",
+              "%s 启动: cmd_vel=%s service=%s feedback=%s odom=%s climb_front_profile=%.3f->%.3fm/s %.2fs climb_rear_profile=%.3f->%.3fm/s %.2fs descend_rear_speed=%.3fm/s descend_front_second_profile=%.3f->%.3fm/s %.2fs descend_front_retract_timed=%.3fm/s heading=%s",
               action_label_.c_str(), params_.cmd_vel_topic.c_str(),
               params_.send_command_service.c_str(),
               params_.feedback_topic.c_str(), params_.odom_topic.c_str(),
-              params_.climb_drive_speed_mps,
-              params_.climb_rear_drive_fast_speed_mps,
-              params_.climb_rear_drive_slow_speed_mps,
-              params_.climb_rear_drive_slowdown_duration_s,
-              params_.descend_drive_speed_mps,
+              params_.climb_front_drive_profile.fast_speed_mps,
+              params_.climb_front_drive_profile.slow_speed_mps,
+              params_.climb_front_drive_profile.slowdown_duration_s,
+              params_.climb_rear_drive_profile.fast_speed_mps,
+              params_.climb_rear_drive_profile.slow_speed_mps,
+              params_.climb_rear_drive_profile.slowdown_duration_s,
+              params_.descend_rear_drive_speed_mps,
+              params_.descend_front_second_drive_profile.fast_speed_mps,
+              params_.descend_front_second_drive_profile.slow_speed_mps,
+              params_.descend_front_second_drive_profile.slowdown_duration_s,
+              params_.descend_front_retract_timed_drive_speed_mps,
               params_.heading_hold_enable ? "on" : "off");
   // 初始化成功，具体状态机可以开始推进。
   return true;
@@ -208,7 +151,7 @@ void StairActionBase::releaseRuntime() {
   cmd_pub_.reset();
   // 清空 node_，让后续误调用工具函数时不会继续发布或计时。
   node_ = nullptr;
-  climb_rear_drive_profile_started_ = false;
+  active_drive_profile_started_ = false;
   has_heading_yaw_ = false;
   heading_target_set_ = false;
   capture_current_heading_ = false;
@@ -260,45 +203,37 @@ void StairActionBase::publishStop() {
   has_last_drive_publish_ = false;
 }
 
-// climbDriveSpeedMagnitude() 返回上台阶普通直行速度幅值；方向由调用方决定。
-double StairActionBase::climbDriveSpeedMagnitude() const {
-  // 再取一次 abs 是防御式处理，避免未来绕过 setupRuntime() 时引入负幅值。
-  return std::abs(params_.climb_drive_speed_mps);
+void StairActionBase::beginDriveProfile(const StairSpeedProfile &profile,
+                                        const char *label) {
+  active_drive_profile_ = normalizeStairSpeedProfile(profile);
+  active_drive_profile_label_ = label ? label : "drive_profile";
+  active_drive_profile_started_ = false;
+  has_last_drive_publish_ = false;
+  if (node_) {
+    RCLCPP_INFO(node_->get_logger(),
+                "%s: 开始速度规划 %s %.3f->%.3fm/s %.2fs",
+                action_label_.c_str(), active_drive_profile_label_.c_str(),
+                active_drive_profile_.fast_speed_mps,
+                active_drive_profile_.slow_speed_mps,
+                active_drive_profile_.slowdown_duration_s);
+  }
 }
 
-void StairActionBase::resetClimbRearDriveProfile() {
-  // 第六阶段每次重新进入时都从快速端重新开始规划。
-  climb_rear_drive_profile_started_ = false;
-}
-
-double StairActionBase::climbRearDriveProfileSpeed() {
-  const double fast = std::abs(params_.climb_rear_drive_fast_speed_mps);
-  const double slow =
-      std::min(std::abs(params_.climb_rear_drive_slow_speed_mps), fast);
-  const double duration =
-      std::max(0.0, params_.climb_rear_drive_slowdown_duration_s);
-
+double StairActionBase::driveProfileSpeed() {
   if (!node_) {
-    return fast;
+    return active_drive_profile_.fast_speed_mps;
   }
-  if (!climb_rear_drive_profile_started_) {
-    climb_rear_drive_profile_start_ = node_->now();
-    climb_rear_drive_profile_started_ = true;
+  if (!active_drive_profile_started_) {
+    active_drive_profile_start_ = node_->now();
+    active_drive_profile_started_ = true;
   }
-  if (duration <= 0.0) {
-    return slow;
-  }
-
-  const double elapsed =
-      (node_->now() - climb_rear_drive_profile_start_).seconds();
-  const double ratio = std::clamp(elapsed / duration, 0.0, 1.0);
-  return fast + (slow - fast) * ratio;
+  return sampleStairSpeedProfile(
+      active_drive_profile_,
+      (node_->now() - active_drive_profile_start_).seconds());
 }
 
-// descendDriveSpeedMagnitude() 返回下台阶普通直行速度幅值；方向由调用方决定。
-double StairActionBase::descendDriveSpeedMagnitude() const {
-  // 再取一次 abs 是防御式处理，避免未来绕过 setupRuntime() 时引入负幅值。
-  return std::abs(params_.descend_drive_speed_mps);
+void StairActionBase::publishProfiledDrive(double direction_sign) {
+  publishDrive((direction_sign < 0.0 ? -1.0 : 1.0) * driveProfileSpeed());
 }
 
 void StairActionBase::setHeadingTarget(double target_yaw_rad) {

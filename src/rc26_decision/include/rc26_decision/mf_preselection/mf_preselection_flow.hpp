@@ -311,7 +311,10 @@ private:
   void beginWheelEvent(WheelEvent event, double timeout_s, std::string label);
   bool wheelEventReceived() const;
   BT::NodeStatus tickWheelEvent();
-  double climbRearProfileSpeed();
+  void beginStairDriveProfile(const StairSpeedProfile &profile,
+                              std::string label);
+  double stairDriveProfileSpeed();
+  void publishProfiledStairTwist(double direction_sign);
 
   bool beginEntryCenterAdvance(Phase next_phase, std::string label);
   bool beginGridCenterAlign(int target_grid, double target_yaw_rad,
@@ -453,8 +456,10 @@ private:
   StairCenterPolicy center_policy_{StairCenterPolicy::None};
   StairPhase stair_phase_{StairPhase::Complete};
   std::string stair_label_;
-  rclcpp::Time climb_rear_profile_start_{0, 0, RCL_ROS_TIME};
-  bool climb_rear_profile_started_{false};
+  rclcpp::Time stair_drive_profile_start_{0, 0, RCL_ROS_TIME};
+  bool stair_drive_profile_started_{false};
+  StairSpeedProfile stair_drive_profile_;
+  std::string stair_drive_profile_label_;
   double timed_drive_speed_mps_{0.0};
   double timed_drive_duration_s_{0.0};
   int center_target_grid_{0};

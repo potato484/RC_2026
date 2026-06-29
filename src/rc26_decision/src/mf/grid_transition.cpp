@@ -78,6 +78,8 @@ BT::NodeStatus GridTransitionAction::onRunning() {
       phase_ = Phase::ClimbDriveUntilFrontFirstEvent;
       beginEventWait(WheelEvent::FrontFirst, params_.front_event_timeout_s,
                      "front_first");
+      beginDriveProfile(params_.climb_front_drive_profile,
+                        "climb_front_first");
       break;
     case StepStatus::Failure:
       return failTransition("front extend zero hold failed");
@@ -98,7 +100,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
       }
       break;
     }
-    publishDrive(climbDriveSpeedMagnitude());
+    publishProfiledDrive(1.0);
     switch (tickEventWait()) {
     case StepStatus::Success:
       publishStop();
@@ -147,8 +149,8 @@ BT::NodeStatus GridTransitionAction::onRunning() {
     switch (tickZeroHold()) {
     case StepStatus::Success:
       phase_ = Phase::ClimbDriveUntilRearEvent;
-      resetClimbRearDriveProfile();
       beginEventWait(WheelEvent::Rear, params_.rear_event_timeout_s, "rear");
+      beginDriveProfile(params_.climb_rear_drive_profile, "climb_rear");
       break;
     case StepStatus::Failure:
       return failTransition("front retract rear extend zero hold failed");
@@ -169,7 +171,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
       }
       break;
     }
-    publishDrive(climbRearDriveProfileSpeed());
+    publishProfiledDrive(1.0);
     switch (tickEventWait()) {
     case StepStatus::Success:
       publishStop();
@@ -225,7 +227,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
       }
       break;
     }
-    publishDrive(-descendDriveSpeedMagnitude());
+    publishDrive(-params_.descend_rear_drive_speed_mps);
     switch (tickEventWait()) {
     case StepStatus::Success:
       publishStop();
@@ -260,6 +262,8 @@ BT::NodeStatus GridTransitionAction::onRunning() {
       phase_ = Phase::DescendDriveUntilFrontSecondEvent;
       beginEventWait(WheelEvent::FrontSecond, params_.front_event_timeout_s,
                      "front_second");
+      beginDriveProfile(params_.descend_front_second_drive_profile,
+                        "descend_front_second");
       break;
     case StepStatus::Failure:
       return failTransition("rear extend zero hold failed");
@@ -280,7 +284,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
       }
       break;
     }
-    publishDrive(-descendDriveSpeedMagnitude());
+    publishProfiledDrive(-1.0);
     switch (tickEventWait()) {
     case StepStatus::Success:
       publishStop();
@@ -329,7 +333,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
     switch (tickZeroHold()) {
     case StepStatus::Success:
       phase_ = Phase::DescendTimedDriveBeforeFrontRetract;
-      beginTimedDrive(-params_.descend_front_retract_drive_speed_mps,
+      beginTimedDrive(-params_.descend_front_retract_timed_drive_speed_mps,
                       params_.descend_front_retract_drive_duration_s,
                       "front_retract_trigger_drive");
       break;

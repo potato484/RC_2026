@@ -31,7 +31,7 @@ BT::NodeStatus StairDescendAction::onRunning() {
   switch (phase_) {
   case Phase::DriveUntilRearEvent:
     // 第一阶段：后轮在前，持续发布 x 负方向速度靠近下阶梯边缘。
-    publishDrive(-descendDriveSpeedMagnitude());
+    publishDrive(-params_.descend_rear_drive_speed_mps);
     // 检查 MCU 是否已经上报后轮激光测距高度突变。
     switch (tickEventWait()) {
     case StepStatus::Success:
@@ -79,6 +79,8 @@ BT::NodeStatus StairDescendAction::onRunning() {
       // 下台阶全链路不需要 0x04；这里只接受此后新来的前轮第二激光 0x07。
       beginEventWait(WheelEvent::FrontSecond, params_.front_event_timeout_s,
                      "front_second");
+      beginDriveProfile(params_.descend_front_second_drive_profile,
+                        "descend_front_second");
       break;
     case StepStatus::Failure:
       return failWithStop("rear extend zero hold failed");
@@ -88,8 +90,8 @@ BT::NodeStatus StairDescendAction::onRunning() {
     break;
 
   case Phase::DriveUntilFrontSecondEvent:
-    // 第四阶段：继续发布 x 负方向速度，等待前轮第二个激光测距模块越过下台阶边缘。
-    publishDrive(-descendDriveSpeedMagnitude());
+    // 第四阶段：按前轮第二激光段速度规划发布 x 负方向速度，等待 0x07。
+    publishProfiledDrive(-1.0);
     // 检查 MCU 是否已经上报前轮第二个激光测距模块高度突变 0x07。
     switch (tickEventWait()) {
     case StepStatus::Success:
@@ -146,7 +148,7 @@ BT::NodeStatus StairDescendAction::onRunning() {
     case StepStatus::Success:
       // 延时结束后以更低 x 负向速度继续行驶固定时间，时间到后触发前推杆收回。
       phase_ = Phase::TimedDriveBeforeFrontRetract;
-      beginTimedDrive(-params_.descend_front_retract_drive_speed_mps,
+      beginTimedDrive(-params_.descend_front_retract_timed_drive_speed_mps,
                       params_.descend_front_retract_drive_duration_s,
                       "front_retract_trigger_drive");
       break;

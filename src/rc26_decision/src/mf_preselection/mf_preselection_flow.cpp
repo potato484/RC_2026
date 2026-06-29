@@ -913,23 +913,7 @@ void MfPreselectionFlowAction::normalizeParams() {
   params_.final_exit_center_offset_m =
       std::max(0.0, finiteAbsOr(params_.final_exit_center_offset_m, 1.2));
 
-  stair_params_.command_timeout_s =
-      std::max(kMinTimeoutS, stair_params_.command_timeout_s);
-  stair_params_.command_rate_hz = std::max(1.0, stair_params_.command_rate_hz);
-  stair_params_.climb_drive_speed_mps =
-      std::abs(stair_params_.climb_drive_speed_mps);
-  stair_params_.climb_rear_drive_fast_speed_mps =
-      std::abs(stair_params_.climb_rear_drive_fast_speed_mps);
-  if (stair_params_.climb_rear_drive_fast_speed_mps <= 0.0) {
-    // fast <= 0 代表未显式配置后轮快段速度，回退到普通上台阶速度。
-    stair_params_.climb_rear_drive_fast_speed_mps =
-        stair_params_.climb_drive_speed_mps;
-  }
-  stair_params_.climb_rear_drive_slow_speed_mps =
-      std::min(std::abs(stair_params_.climb_rear_drive_slow_speed_mps),
-               stair_params_.climb_rear_drive_fast_speed_mps);
-  stair_params_.descend_drive_speed_mps =
-      std::abs(stair_params_.descend_drive_speed_mps);
+  normalizeStairParams(stair_params_);
 
   center_params_.grid_step_m =
       std::max(kMinSpeed, finiteAbsOr(center_params_.grid_step_m, 1.2));
@@ -2549,6 +2533,7 @@ void MfPreselectionFlowAction::beginStair(StairMode mode, Phase next_phase,
   active_wheel_event_label_.clear();
   active_wheel_event_started_ = false;
   timed_drive_started_ = false;
+  stair_drive_profile_started_ = false;
   if (node_) {
     phase_start_ = node_->now();
     RCLCPP_INFO(node_->get_logger(),
@@ -2581,12 +2566,13 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
       phase_start_ = node_->now();
       break;
     }
-    publishTwist(stair_params_.climb_drive_speed_mps, 0.0,
-                 headingAngularZ(turn_target_yaw_));
     if (!active_wheel_event_started_) {
       beginWheelEvent(WheelEvent::FrontFirst, stair_params_.front_event_timeout_s,
                       "front_first");
+      beginStairDriveProfile(stair_params_.climb_front_drive_profile,
+                             "climb_front_first");
     }
+    publishProfiledStairTwist(1.0);
     if (const auto wheel_status = tickWheelEvent();
         wheel_status == BT::NodeStatus::SUCCESS) {
       publishStop();
@@ -2622,11 +2608,13 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
       phase_start_ = node_->now();
       break;
     }
-    publishTwist(climbRearProfileSpeed(), 0.0, headingAngularZ(turn_target_yaw_));
     if (!active_wheel_event_started_) {
       beginWheelEvent(WheelEvent::Rear, stair_params_.rear_event_timeout_s,
                       "rear");
+      beginStairDriveProfile(stair_params_.climb_rear_drive_profile,
+                             "climb_rear");
     }
+    publishProfiledStairTwist(1.0);
     if (const auto wheel_status = tickWheelEvent();
         wheel_status == BT::NodeStatus::SUCCESS) {
       publishStop();
@@ -2659,7 +2647,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
       phase_start_ = node_->now();
       break;
     }
-    publishTwist(-stair_params_.descend_drive_speed_mps, 0.0,
+    publishTwist(-stair_params_.descend_rear_drive_speed_mps, 0.0,
                  headingAngularZ(turn_target_yaw_));
     if (!active_wheel_event_started_) {
       beginWheelEvent(WheelEvent::Rear, stair_params_.rear_event_timeout_s,
@@ -2697,12 +2685,13 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
       phase_start_ = node_->now();
       break;
     }
-    publishTwist(-stair_params_.descend_drive_speed_mps, 0.0,
-                 headingAngularZ(turn_target_yaw_));
     if (!active_wheel_event_started_) {
       beginWheelEvent(WheelEvent::FrontSecond,
                       stair_params_.front_event_timeout_s, "front_second");
+      beginStairDriveProfile(stair_params_.descend_front_second_drive_profile,
+                             "descend_front_second");
     }
+    publishProfiledStairTwist(-1.0);
     if (const auto wheel_status = tickWheelEvent();
         wheel_status == BT::NodeStatus::SUCCESS) {
       publishStop();
@@ -2740,7 +2729,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
       timed_drive_started_ = true;
       RCLCPP_INFO(node_->get_logger(),
                   "梅林预选赛下阶梯：前推杆收回前定时后退，speed=%.3fm/s duration=%.2fs",
-                  stair_params_.descend_front_retract_drive_speed_mps,
+                  stair_params_.descend_front_retract_timed_drive_speed_mps,
                   stair_params_.descend_front_retract_drive_duration_s);
     }
     if ((node_->now() - phase_start_).seconds() >=
@@ -2750,8 +2739,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
                   "梅林预选赛下阶梯：前推杆收回前定时后退完成，准备收回前推杆");
       stair_phase_ = StairPhase::DescendSendFrontRetract;
     } else {
-      publishTwist(-stair_params_.descend_front_retract_drive_speed_mps, 0.0,
-                   headingAngularZ(turn_target_yaw_));
+      publishTwist(-stair_params_.descend_front_retract_timed_drive_speed_mps,
+                   0.0, headingAngularZ(turn_target_yaw_));
     }
     break;
   case StairPhase::DescendSendFrontRetract:
@@ -2870,27 +2859,40 @@ BT::NodeStatus MfPreselectionFlowAction::tickWheelEvent() {
   return BT::NodeStatus::RUNNING;
 }
 
-double MfPreselectionFlowAction::climbRearProfileSpeed() {
-  // 上台阶后轮段采用快到慢线性 profile：前段保证通过能力，后段降低冲击。
-  // slow/fast 已在 normalizeParams() 里做过非负和上限修正。
-  const double fast = stair_params_.climb_rear_drive_fast_speed_mps;
-  const double slow = stair_params_.climb_rear_drive_slow_speed_mps;
-  const double duration =
-      std::max(0.0, stair_params_.climb_rear_drive_slowdown_duration_s);
+void MfPreselectionFlowAction::beginStairDriveProfile(
+    const StairSpeedProfile &profile, std::string label) {
+  stair_drive_profile_ = normalizeStairSpeedProfile(profile);
+  stair_drive_profile_label_ = std::move(label);
+  stair_drive_profile_started_ = false;
+  has_last_cmd_publish_ = false;
+  if (node_) {
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛台阶速度规划启动：%s %.3f->%.3fm/s %.2fs",
+                stair_drive_profile_label_.c_str(),
+                stair_drive_profile_.fast_speed_mps,
+                stair_drive_profile_.slow_speed_mps,
+                stair_drive_profile_.slowdown_duration_s);
+  }
+}
+
+double MfPreselectionFlowAction::stairDriveProfileSpeed() {
   if (!node_) {
-    return fast;
+    return stair_drive_profile_.fast_speed_mps;
   }
-  if (!climb_rear_profile_started_) {
-    climb_rear_profile_start_ = node_->now();
-    climb_rear_profile_started_ = true;
+  if (!stair_drive_profile_started_) {
+    stair_drive_profile_start_ = node_->now();
+    stair_drive_profile_started_ = true;
   }
-  if (duration <= 0.0) {
-    return slow;
-  }
-  const double ratio =
-      std::clamp((node_->now() - climb_rear_profile_start_).seconds() / duration,
-                 0.0, 1.0);
-  return fast + (slow - fast) * ratio;
+  return sampleStairSpeedProfile(
+      stair_drive_profile_,
+      (node_->now() - stair_drive_profile_start_).seconds());
+}
+
+void MfPreselectionFlowAction::publishProfiledStairTwist(
+    double direction_sign) {
+  publishTwist((direction_sign < 0.0 ? -1.0 : 1.0) *
+                   stairDriveProfileSpeed(),
+               0.0, headingAngularZ(turn_target_yaw_));
 }
 
 std::optional<MfPreselectionFlowAction::KfsVisualObservation>
