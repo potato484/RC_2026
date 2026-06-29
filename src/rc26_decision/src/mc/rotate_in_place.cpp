@@ -28,7 +28,8 @@ RotateInPlaceAction::RotateInPlaceAction(const std::string& name, const BT::Node
 
 // onStart: 行为树首次进入本动作时调用一次。
 // 负责：从黑板读取 mc_params → 计算目标角度和容差 → 创建 cmd_vel 发布器 →
-//       订阅 mc_odom_topic，默认使用雷达标准 /odom → 通过 yaw 增量积分跟踪累计转角。
+//       订阅 mc_odom_topic，默认使用雷达标准 /odom。
+// 未配置 target_yaw_rad 时沿用累计 yaw 增量的相对旋转；配置后切到绝对 yaw 对齐。
 // 注意：/odom 是自动导航链的雷达里程计契约；底盘执行默认由 rc26_mcu_transport 消费 /cmd_vel。
 // 返回 RUNNING 后由 onRunning 接管持续控制。
 BT::NodeStatus RotateInPlaceAction::onStart() {
@@ -42,7 +43,19 @@ BT::NodeStatus RotateInPlaceAction::onStart() {
         return BT::NodeStatus::FAILURE;
     }
 
-    // 将配置中的度转换为弧度
+    double requested_target_yaw = 0.0;
+    absolute_target_mode_ =
+        config().input_ports.find("target_yaw_rad") != config().input_ports.end();
+    if (absolute_target_mode_) {
+        const auto target_yaw_result = getInput("target_yaw_rad", requested_target_yaw);
+        if (!target_yaw_result.has_value() || !std::isfinite(requested_target_yaw)) {
+            RCLCPP_ERROR(node_->get_logger(), "武馆区原地旋转: target_yaw_rad 非法");
+            return BT::NodeStatus::FAILURE;
+        }
+        absolute_target_yaw_rad_ = normalizeAngle(requested_target_yaw);
+    }
+
+    // 将配置中的度转换为弧度；相对旋转模式继续使用这些参数，绝对 yaw 模式复用速度和容差。
     target_rad_ = std::abs(params_.rotate_angle_deg) * kDeg2Rad;
     signed_target_rad_ = (params_.rotate_direction >= 0 ? 1.0 : -1.0) * target_rad_;
     tolerance_rad_ = std::abs(params_.rotate_yaw_tolerance_deg) * kDeg2Rad;
@@ -60,7 +73,8 @@ BT::NodeStatus RotateInPlaceAction::onStart() {
         params_.odom_topic, rclcpp::QoS(rclcpp::KeepLast(10)),
         [this](const OdomMsg::SharedPtr msg) {
             const double yaw = yawFromQuaternion(msg->pose.pose.orientation);
-            if (has_yaw_) {
+            current_yaw_ = yaw;
+            if (has_yaw_ && !absolute_target_mode_) {
                 // 相邻两帧 yaw 差值（带角度归一化）累加到累计转角
                 accumulated_rad_ += normalizeAngle(yaw - last_yaw_);
             }
@@ -70,15 +84,22 @@ BT::NodeStatus RotateInPlaceAction::onStart() {
         });
 
     start_time_ = node_->now();
-    RCLCPP_INFO(node_->get_logger(),
-                "武馆区原地旋转启动: 目标=%.1f° 速度=%.2frad/s min=%.2frad/s slowdown=%.1f° odom=%s",
-                params_.rotate_angle_deg, params_.rotate_speed_radps, min_speed_radps_,
-                params_.rotate_slowdown_angle_deg, params_.odom_topic.c_str());
+    if (absolute_target_mode_) {
+        RCLCPP_INFO(node_->get_logger(),
+                    "武馆区绝对转向启动: target_yaw=%.4frad 速度=%.2frad/s min=%.2frad/s slowdown=%.1f° odom=%s",
+                    absolute_target_yaw_rad_, params_.rotate_speed_radps, min_speed_radps_,
+                    params_.rotate_slowdown_angle_deg, params_.odom_topic.c_str());
+    } else {
+        RCLCPP_INFO(node_->get_logger(),
+                    "武馆区原地旋转启动: 目标=%.1f° 速度=%.2frad/s min=%.2frad/s slowdown=%.1f° odom=%s",
+                    params_.rotate_angle_deg, params_.rotate_speed_radps, min_speed_radps_,
+                    params_.rotate_slowdown_angle_deg, params_.odom_topic.c_str());
+    }
     return BT::NodeStatus::RUNNING;
 }
 
 // onRunning: 行为树每次 tick 时调用（onStart 返回 RUNNING 之后）。
-// 负责：检查超时 → 等待首个里程计到来 → 判断累计转角是否到达目标 →
+// 负责：检查超时 → 等待首个里程计到来 → 判断累计转角或绝对 yaw 是否到达目标 →
 //       未到达则持续发布旋转角速度到 cmd_vel。
 BT::NodeStatus RotateInPlaceAction::onRunning() {
     // 超时保护：超过配置时间则停止旋转并返回 FAILURE
@@ -99,6 +120,31 @@ BT::NodeStatus RotateInPlaceAction::onRunning() {
         std::chrono::duration<double>(std::chrono::steady_clock::now() - last_odom_tp_).count();
     if (odom_age_s > params_.rotate_odom_timeout_s) {
         publishStop();
+        return BT::NodeStatus::RUNNING;
+    }
+
+    if (absolute_target_mode_) {
+        const double yaw_error = normalizeAngle(absolute_target_yaw_rad_ - current_yaw_);
+        const double remaining_rad = std::abs(yaw_error);
+
+        if (remaining_rad <= tolerance_rad_) {
+            publishStop();
+            odom_sub_.reset();
+            RCLCPP_INFO(node_->get_logger(),
+                        "武馆区绝对转向完成: target_yaw=%.4frad current_yaw=%.4frad error=%.1f°",
+                        absolute_target_yaw_rad_, current_yaw_, yaw_error / kDeg2Rad);
+            return BT::NodeStatus::SUCCESS;
+        }
+
+        double speed = std::abs(params_.rotate_speed_radps);
+        if (slowdown_rad_ > tolerance_rad_ && remaining_rad < slowdown_rad_) {
+            const double ratio = std::clamp(remaining_rad / slowdown_rad_, 0.0, 1.0);
+            speed = min_speed_radps_ + (speed - min_speed_radps_) * ratio;
+        }
+
+        TwistMsg msg;
+        msg.angular.z = (yaw_error >= 0.0 ? 1.0 : -1.0) * speed;
+        cmd_pub_->publish(msg);
         return BT::NodeStatus::RUNNING;
     }
 

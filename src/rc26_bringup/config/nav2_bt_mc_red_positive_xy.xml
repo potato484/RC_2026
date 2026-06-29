@@ -1,6 +1,8 @@
 <!--
   红方武馆区 NavToPose 专用 Nav2 行为树。
-  本树只调用 MCPositiveXYRed controller，避免 BackUp / DriveOnHeading 等会产生负向线速度的运动恢复。
+  本树只调用 MCPositiveXYRed controller，并使用 mc_xy_goal_checker 忽略 yaw 到点；
+  MC 行为树会在 Nav2 xy 到点成功后再单独执行原地转向。
+  本树不使用 BackUp / DriveOnHeading 等会产生负向线速度或绕过 xy-only 约束的运动恢复。
 -->
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
@@ -13,7 +15,7 @@
           </RecoveryNode>
         </RateController>
         <RecoveryNode number_of_retries="1" name="MCPositiveXYRedFollowPath">
-          <FollowPath path="{path}" controller_id="MCPositiveXYRed"/>
+          <FollowPath path="{path}" controller_id="MCPositiveXYRed" goal_checker_id="mc_xy_goal_checker"/>
           <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
         </RecoveryNode>
       </PipelineSequence>

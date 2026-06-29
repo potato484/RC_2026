@@ -99,7 +99,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 - **规则**：控制器包可以依赖导航状态、定位健康和控制参数；已删除的旧地形链路不得作为当前默认控制输入。
 - **规则**：控制器包不得吸纳比赛阶段语义、操作界面需求或临时策略分支。
 - **规则**：任何带有“梅林阶段时这样做”“武馆阶段时那样做”的逻辑，如果不是纯控制保护，大概率应放在决策层而不是控制器层。
-- **补充口径**：当前导航运行权威是 Nav2。底盘速度命令必须通过 Nav2 controller 和 velocity_smoother 输出到 `/cmd_vel`，决策层只通过 action 下发目标，不在旁路发布速度命令。
+- **补充口径**：当前常规位姿导航运行权威是 Nav2。普通导航目标的底盘速度命令必须通过 Nav2 controller 和 velocity_smoother 输出到 `/cmd_vel`，决策层只通过 action 下发目标；受限独立转向、台阶、MC/MF 视觉对齐等直接 `cmd_vel` 动作必须按 3.13 的命令权威规则串行执行。
 
 ### 3.5 状态估计与感知包负责产出状态，不负责操作员策略
 
@@ -161,7 +161,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 - **规则**：如果系统同时存在遥控、Nav2 和其它运动测试节点，必须在 launch 装配层保证任一时刻只有一个节点发布运动命令。
 - **规则**：观察节点可以发布 preview、planner state 或诊断状态，但不得在旁路上直接输出 `cmd_vel`。
 - **当前口径**：导航模式下 `/cmd_vel` 由 Nav2 velocity_smoother 输出；人工遥控测试应与导航 bringup 分开启动或显式停用导航命令链。
-- **补充口径**：`rc26_decision` 的 `grid_heading_tree.xml` 是正式 Grid heading 转向/对齐入口，会由 `GridTurn` / `GridHeadingAlign` 直接发布 `cmd_vel` 但不触发推杆；`stair_climb_tree.xml` / `stair_descend_tree.xml` 是受限的独立台阶入口，会由 BT 动作直接发布 `cmd_vel` 并调用推杆共享 transport；正式 `MfPreselectionFlow` 在 R2 KFS 夹取前也会直接发布 `cmd_vel` 做视觉横移对齐，并在锁定一次有效深度后按 `max(0, locked_depth - mf_preselect_kfs_grab_distance_m) / mf_preselect_kfs_approach_speed_mps` 做 x 方向纯开环趋近，向下夹取会在开环前先通过 `/mechanism/send_command` 发送 `ARM_SECOND_LOWER(0x0E)` 并等待同 `seq` 的 `ARM_SECOND_LOWER_DONE(0x0A)`；开环期间不再依据实时 YOLO 框或深度闭环停车；随后通过 `/mechanism/send_command` 发送 `GRAB_KFS_UP/DOWN` 并在 ACK 后用原目标视觉消失确认物理夹取成功。旧 `KfsStairPickup` 阶梯等待 BT 节点和 `kfs_stair_*_test_tree.xml` 独立入口已删除；`rc26_vision/test_kfs_vision.launch.py action_enable:=true` 是与 tip test 类似的受限实机测试例外，保留同类横移对齐、一次锁深度、向下夹取前第二节放下确认和开环趋近验收能力，但默认关闭且不属于正式比赛决策权威；MF 格间动作按 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> GridTransition -> GridCenterAlign` 串行复用同一套转向、对齐、台阶执行、heading hold 与二维格中心归位，红方中间列独立树首段还会通过 `MFEntryCenterAdvance` 建立 `grid2` 中心参考。运行这些树、正式 MF 预选赛或视觉动作测试前必须停用 Nav2/遥控等其它运动命令权威，失败或 halt 时相关动作只发布零速，不做额外推杆补偿。
+- **补充口径**：`rc26_decision` 的 `grid_heading_tree.xml` 是正式 Grid heading 转向/对齐入口，会由 `GridTurn` / `GridHeadingAlign` 直接发布 `cmd_vel` 但不触发推杆；`mc_tree.xml` 的武馆区去程先由 Nav2 的 `MCPositiveXYRed` xy-only 阶段发布线速度，到达 `mc_nav_x/y` 后 Nav2 action 结束，再由 `RotateInPlace target_yaw_rad={mc_nav_yaw}` 直接发布角速度完成转向，两个阶段不得并发；`stair_climb_tree.xml` / `stair_descend_tree.xml` 是受限的独立台阶入口，会由 BT 动作直接发布 `cmd_vel` 并调用推杆共享 transport；正式 `MfPreselectionFlow` 在 R2 KFS 夹取前也会直接发布 `cmd_vel` 做视觉横移对齐，并在锁定一次有效深度后按 `max(0, locked_depth - mf_preselect_kfs_grab_distance_m) / mf_preselect_kfs_approach_speed_mps` 做 x 方向纯开环趋近，向下夹取会在开环前先通过 `/mechanism/send_command` 发送 `ARM_SECOND_LOWER(0x0E)` 并等待同 `seq` 的 `ARM_SECOND_LOWER_DONE(0x0A)`；开环期间不再依据实时 YOLO 框或深度闭环停车；随后通过 `/mechanism/send_command` 发送 `GRAB_KFS_UP/DOWN` 并在 ACK 后用原目标视觉消失确认物理夹取成功。旧 `KfsStairPickup` 阶梯等待 BT 节点和 `kfs_stair_*_test_tree.xml` 独立入口已删除；`rc26_vision/test_kfs_vision.launch.py action_enable:=true` 是与 tip test 类似的受限实机测试例外，保留同类横移对齐、一次锁深度、向下夹取前第二节放下确认和开环趋近验收能力，但默认关闭且不属于正式比赛决策权威；MF 格间动作按 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> GridTransition -> GridCenterAlign` 串行复用同一套转向、对齐、台阶执行、heading hold 与二维格中心归位，红方中间列独立树首段还会通过 `MFEntryCenterAdvance` 建立 `grid2` 中心参考。运行这些树、正式 MF 预选赛或视觉动作测试前必须停用 Nav2/遥控等其它运动命令权威，失败或 halt 时相关动作只发布零速，不做额外推杆补偿。
 
 ### 3.14 静态传感器安装外参必须单一真源
 

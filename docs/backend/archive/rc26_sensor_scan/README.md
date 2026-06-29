@@ -2,7 +2,7 @@
 
 ## 模块定位
 
-`rc26_sensor_scan` 是点云与里程计的时空对齐模块，用来给导航链调试、后续恢复 Nav2 obstacle layer，和其它下游局部感知模块提供“已经同步并投影到传感器视角”的干净输入。
+`rc26_sensor_scan` 是点云与里程计的时空对齐模块，用来给当前 Nav2 obstacle layer 和其它下游局部感知模块提供“已经同步并投影到传感器视角”的干净输入。
 
 ## 当前实现
 
@@ -16,7 +16,7 @@
 - 根据 TF 做逆向投影，把全局/底盘视角点云转换回传感器局部视角
 - 同步分发局部视角点云和对应姿态
 - 减少重复计算，尽量透传上游已存在的状态量
-- 当前 `sensor_scan` 话题默认使用 `livox_frame` 作为 `frame_id`；`rc26_bringup/config/nav2_params.yaml` 里仍保留 Nav2 obstacle layer 的 `sensor_scan` 参数块，但默认已关闭 local/global obstacle layer
+- 当前 `sensor_scan` 话题默认使用 `livox_frame` 作为 `frame_id`；`rc26_bringup/config/nav2_params.yaml` 默认在 local/global costmap 的 obstacle layer 中消费该话题，并在后级 inflation layer 生成障碍缓冲代价
 - 当前自动导航链要求输入 `/odom.child_frame_id=base_footprint`
 - 由于 `base_link` 现在保留 roll/pitch，`base_footprint -> livox_frame` 对导航链不再是纯静态量；模块已改为按每帧时间戳实时查询组合 TF
 
@@ -44,4 +44,4 @@
 - 它不是点云配准算法，不代替 `rc26_point_lio`
 - 它不做地形语义分割，也不承担已删除旧地形链路的语义栅格职责
 - 它的职责是“整理输入给别人用”，不是直接产出高层决策结果
-- 它当前不负责生成 `/scan` LaserScan 兼容话题；导航主链默认不再把 `sensor_scan` (`PointCloud2`) 接入 obstacle layer
+- 它当前不负责生成 `/scan` LaserScan 兼容话题；导航主链默认把 `sensor_scan` (`PointCloud2`) 接入 obstacle layer

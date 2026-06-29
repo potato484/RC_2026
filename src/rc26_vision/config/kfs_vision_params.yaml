@@ -5,7 +5,7 @@ kfs_vision_test_node:  # KFS 独立视觉测试节点的 ROS 2 参数命名空�
 
 
     # KFS 深度有效窗口；仅约束横移对齐稳定后进入开环前进时锁定的那一次深度采样。
-    vision_depth_min_m: 0.50  # KFS 开环锁定深度下限，单位 m
+    vision_depth_min_m: 0.35  # KFS 开环锁定深度下限，单位 m
     vision_depth_max_m: 0.90  # KFS 开环锁定深度上限，单位 m
 
 

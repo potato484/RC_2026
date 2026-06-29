@@ -1,7 +1,7 @@
 # R2 当前 Nav2 最小导航闭环配置
 # 口径说明：
 # - map -> odom 继续由 rc26_localization 负责，Nav2 不接管定位权威
-# - 当前 local/global costmap 加载 obstacle_layer 但不加载 inflation_layer；sensor_scan 进入 Nav2 costmap
+# - 当前 local/global costmap 加载 obstacle_layer 与 inflation_layer；sensor_scan 进入 Nav2 costmap
 # - /cmd_vel 由 Nav2 controller + velocity_smoother 输出；默认由 rc26_mcu_transport 消费并下发 POSE_TARGET
 
 # BT 导航器：负责调 planner / controller / recovery 等动作节点
@@ -92,9 +92,9 @@ controller_server: # Nav2 局部控制器服务器参数组
     # 进度检查器：防止机器人长时间原地不动
     progress_checker_plugin: progress_checker # Humble 口径的进度检查器插件 ID
     # 到点判定器：控制“算到达”的位置与朝向阈值
-    goal_checker_plugins: [general_goal_checker] # 可用 goal checker 插件 ID 列表
+    goal_checker_plugins: [general_goal_checker, mc_xy_goal_checker] # 可用 goal checker 插件 ID 列表
     # 默认导航使用 FollowPath；MC / MF 入口等专项树显式选择受限 controller
-    controller_plugins: [FollowPath, MCPositiveXYRed, MCNegativeXYRed, MFPreselectEntryXPositiveYNegative] # 可用局部控制器插件 ID 列表
+    controller_plugins: [FollowPath, MCPositiveXYRed, MFPreselectEntryXPositiveYNegative] # 可用局部控制器插件 ID 列表
     progress_checker: # SimpleProgressChecker 插件参数组
       plugin: nav2_controller::SimpleProgressChecker # 使用 Nav2 简单进度检查器插件
       # 指定时间内至少移动这么远，否则判定为无进展
@@ -106,6 +106,11 @@ controller_server: # Nav2 局部控制器服务器参数组
       # 到点位置 / 朝向容差
       xy_goal_tolerance: 0.18 # 目标位置 xy 容差，单位米
       yaw_goal_tolerance: 0.20 # 目标朝向 yaw 容差，单位弧度
+    mc_xy_goal_checker: # MC 去程 xy-only 到点判定器
+      plugin: nav2_controller::SimpleGoalChecker # 使用 Nav2 简单到点判定插件
+      stateful: true # 进入 xy 容差后保持到点状态，由 MC 行为树后续单独转向
+      xy_goal_tolerance: 0.18 # 目标位置 xy 容差，单位米
+      yaw_goal_tolerance: 6.283185 # 第一阶段忽略 yaw，转向交给后续 RotateInPlace
     FollowPath: # 默认 DWB 局部控制器参数组
       # DWB：当前主运行时的局部速度控制器
       plugin: dwb_core::DWBLocalPlanner # 使用 DWB 局部规划器插件
@@ -152,15 +157,15 @@ controller_server: # Nav2 局部控制器服务器参数组
       RotateToGoal.scale: 24.0 # 到点旋转评分权重
       RotateToGoal.slowing_factor: 5.0 # 到点旋转减速系数
       RotateToGoal.lookahead_time: -1.0 # 到点旋转前视时间；负值表示使用默认/禁用前视
-    MCPositiveXYRed: # 红方 MC 正向受限 DWB 控制器参数组
-      # 红方武馆区 NavToPose 专用 DWB：只采样车体系 x/y 正向与角速度，普通导航不使用它。
+    MCPositiveXYRed: # 红方 MC 正向 xy-only DWB 控制器参数组
+      # 红方武馆区 NavToPose 第一阶段专用 DWB：只采样车体系 x/y 正向，角速度保持 0。
       plugin: dwb_core::DWBLocalPlanner # 使用 DWB 局部规划器插件
       debug_trajectory_details: false # 是否输出 DWB 轨迹评分调试细节
       min_vel_x: 0.0 # x 方向最小采样速度，单位 m/s
       max_vel_x: 0.25 # x 方向最大采样速度，单位 m/s
       min_vel_y: 0.0 # y 方向最小采样速度，单位 m/s
       max_vel_y: 0.25 # y 方向最大采样速度，单位 m/s
-      max_vel_theta: 0.5 # 最大角速度采样值，单位 rad/s
+      max_vel_theta: 0.0 # 第一阶段禁止角速度输出，单位 rad/s
       min_speed_xy: 0.0 # 平面合速度最小值，单位 m/s
       max_speed_xy: 0.50 # 平面合速度最大值，单位 m/s
       min_speed_theta: 0.0 # 角速度绝对值最小值，单位 rad/s
@@ -172,7 +177,7 @@ controller_server: # Nav2 局部控制器服务器参数组
       decel_lim_theta: -1.8 # 角减速度下限，单位 rad/s^2
       vx_samples: 20 # x 方向速度采样数量
       vy_samples: 15 # y 方向速度采样数量
-      vtheta_samples: 20 # 角速度采样数量
+      vtheta_samples: 1 # 角速度只采样 0，转向由 MC 行为树下一步完成
       sim_time: 1.7 # DWB 前向轨迹仿真时长，单位秒
       linear_granularity: 0.05 # 轨迹线性采样粒度，单位米
       angular_granularity: 0.025 # 轨迹角度采样粒度，单位弧度
@@ -181,17 +186,10 @@ controller_server: # Nav2 局部控制器服务器参数组
       trans_stopped_velocity: 0.05 # 判定平移已停止的速度阈值，单位 m/s
       short_circuit_trajectory_evaluation: true # 是否在已知不优时提前停止轨迹评分
       stateful: true # DWB 是否启用有状态到点逻辑
-      critics: [RotateToGoal, Oscillation, BaseObstacle, GoalAlign, PathAlign, PathDist, GoalDist] # DWB 轨迹评分器列表
+      critics: [Oscillation, BaseObstacle, PathDist, GoalDist] # xy-only 阶段只评价避障、贴路与到点
       BaseObstacle.scale: 0.02 # 障碍代价评分权重
-      PathAlign.scale: 20.0 # 路径朝向对齐评分权重
-      PathAlign.forward_point_distance: 0.1 # 路径对齐前视点距离，单位米
-      GoalAlign.scale: 16.0 # 目标朝向对齐评分权重
-      GoalAlign.forward_point_distance: 0.1 # 目标对齐前视点距离，单位米
       PathDist.scale: 20.0 # 偏离全局路径距离评分权重
       GoalDist.scale: 16.0 # 距离目标评分权重
-      RotateToGoal.scale: 24.0 # 到点旋转评分权重
-      RotateToGoal.slowing_factor: 5.0 # 到点旋转减速系数
-      RotateToGoal.lookahead_time: -1.0 # 到点旋转前视时间；负值表示使用默认/禁用前视
     MFPreselectEntryXPositiveYNegative: # 梅林预选入口 x 正 y 负受限 DWB 控制器参数组
       # 梅林预选 2 号入口 NavToPose 专用 DWB：只采样车体系 x 正向、y 负向和很小角速度。
       plugin: dwb_core::DWBLocalPlanner # 使用 DWB 局部规划器插件
@@ -233,7 +231,7 @@ controller_server: # Nav2 局部控制器服务器参数组
       RotateToGoal.slowing_factor: 5.0 # 到点旋转减速系数
       RotateToGoal.lookahead_time: -1.0 # 到点旋转前视时间；负值表示使用默认/禁用前视
 
-# 局部代价地图：在 odom 坐标系下滚动更新；当前启用动态障碍层但不做膨胀层
+# 局部代价地图：在 odom 坐标系下滚动更新；当前启用动态障碍层和膨胀层
 local_costmap: # 局部代价地图顶层参数组
   local_costmap: # local_costmap 生命周期节点参数组
     ros__parameters: # 局部代价地图 ROS 参数集合
@@ -251,7 +249,7 @@ local_costmap: # 局部代价地图顶层参数组
       resolution: 0.05 # 代价地图分辨率，单位米/栅格
       # 当前按圆形机器人近似；若未来切 footprint，再统一调整
       robot_radius: 0.42 # 圆形机器人半径近似，单位米
-      plugins: [obstacle_layer] # 局部代价地图启用的图层插件列表；当前不加载 inflation_layer
+      plugins: [obstacle_layer, inflation_layer] # 局部代价地图启用的图层插件列表；障碍层后接膨胀层
       obstacle_layer: # 局部障碍层参数组
         plugin: nav2_costmap_2d::ObstacleLayer # 使用 Nav2 2D 障碍层插件
         enabled: true # 是否启用局部障碍层
@@ -271,9 +269,14 @@ local_costmap: # 局部代价地图顶层参数组
           raytrace_min_range: 0.0 # 射线清空最小距离，单位米
           obstacle_max_range: 2.5 # 障碍标记最大距离，单位米
           obstacle_min_range: 0.0 # 障碍标记最小距离，单位米
+      inflation_layer: # 局部膨胀层参数组
+        plugin: nav2_costmap_2d::InflationLayer # 使用 Nav2 2D 膨胀层插件
+        enabled: true # 是否启用局部膨胀层
+        inflation_radius: 0.55 # 障碍物膨胀半径，单位米
+        cost_scaling_factor: 3.0 # 膨胀代价随距离衰减的系数
       always_send_full_costmap: true # 是否每次发布完整代价地图
 
-# 全局代价地图：在 map 坐标系下维护静态地图；当前启用动态障碍层但不做膨胀层
+# 全局代价地图：在 map 坐标系下维护静态地图；当前启用动态障碍层和膨胀层
 global_costmap: # 全局代价地图顶层参数组
   global_costmap: # global_costmap 生命周期节点参数组
     ros__parameters: # 全局代价地图 ROS 参数集合
@@ -287,7 +290,7 @@ global_costmap: # 全局代价地图顶层参数组
       robot_radius: 0.42 # 圆形机器人半径近似，单位米
       # 当前允许未知区，避免占位图把规划直接锁死
       track_unknown_space: true # 是否保留并追踪 unknown 区域
-      plugins: [static_layer, obstacle_layer] # 全局代价地图启用的图层插件列表；当前不加载 inflation_layer
+      plugins: [static_layer, obstacle_layer, inflation_layer] # 全局代价地图启用的图层插件列表；静态/障碍层后接膨胀层
       static_layer: # 静态地图层参数组
         plugin: nav2_costmap_2d::StaticLayer # 使用 Nav2 2D 静态地图层插件
         # 使用 map_server 的静态地图；需订阅保留最后一帧
@@ -306,6 +309,11 @@ global_costmap: # 全局代价地图顶层参数组
           raytrace_min_range: 0.0 # 射线清空最小距离，单位米
           obstacle_max_range: 2.5 # 障碍标记最大距离，单位米
           obstacle_min_range: 0.0 # 障碍标记最小距离，单位米
+      inflation_layer: # 全局膨胀层参数组
+        plugin: nav2_costmap_2d::InflationLayer # 使用 Nav2 2D 膨胀层插件
+        enabled: true # 是否启用全局膨胀层
+        inflation_radius: 0.55 # 障碍物膨胀半径，单位米
+        cost_scaling_factor: 3.0 # 膨胀代价随距离衰减的系数
       always_send_full_costmap: true # 是否每次发布完整代价地图
 
 # 地图服务：当前可接受占位地图，只用于拉起 Nav2 生命周期与 costmap 链路

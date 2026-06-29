@@ -105,7 +105,7 @@ ros2 run tf2_ros tf2_echo base_footprint base_link
 
 ### 2. 传感器扫描测试 (rc26_sensor_scan)
 
-**功能**: 验证点云坐标转换、里程计速度发布、pose 协方差透传，以及供导航链调试或后续恢复 obstacle layer 使用的 `sensor_scan` 点云输出
+**功能**: 验证点云坐标转换、里程计速度发布、pose 协方差透传，以及当前进入 Nav2 obstacle layer 的 `sensor_scan` 点云输出
 
 ```bash
 # 启动测试 (需要 odom_interface 数据源)
@@ -220,7 +220,7 @@ ros2 topic echo /cmd_vel
 说明：
 
 - `rc26_bringup` 当前保持 headless，不再通过 launch 参数拉起仓库内 GUI
-- Nav2 当前默认关闭 local/global obstacle layer；`/sensor_scan` (`PointCloud2`) 仍会输出，但不再默认参与 costmap 障碍投影
+- Nav2 当前默认在 local/global costmap 加载 obstacle layer 与 inflation layer；`/sensor_scan` (`PointCloud2`) 会参与 costmap 障碍投影，并由 inflation layer 生成缓冲代价
 - `test_navigation.launch.py` 不拉起 `rc26_mcu_transport`；需要真实运动时请改用完整 `bringup.launch.py`，或显式启动 `rc26_mcu_transport`
 - 点云、地图和行为树入口默认来自 `src/rc26_bringup/config/r2_runtime.yaml`，其中 `paths.*` 必须使用绝对路径；`prior_pcd_file:=...` 和 `nav2_map_file:=...` 仍可临时覆盖
 - `src/rc26_bringup/map/test.yaml` 是当前默认样本地图，由 `scan.pcd` 过滤投影为黑白 `test.png`；可用于基础导航链联调，不代表可直接通过现场真实规划验收
@@ -240,10 +240,10 @@ ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \
 | 模块 | 话题/TF | 预期结果 |
 |------|---------|----------|
 | odom_interface | `/odom` | odom→base_footprint 里程计，TF 同时提供 base_footprint→base_link |
-| sensor_scan | `/sensor_scan` | `livox_frame` 坐标系点云；当前保留供导航链调试或后续恢复 obstacle layer 使用，`/odometry` 协方差继续透传 |
+| sensor_scan | `/sensor_scan` | `livox_frame` 坐标系点云；当前作为 Nav2 obstacle layer 输入，`/odometry` 协方差继续透传 |
 | rc26_point_lio | `/state_estimation` + `/cloud_registered` | LIO 里程计与原生配准点云持续输出 |
 | localization | `map->odom` + `/localization/pose_with_cov` + `/localization/diagnostics` | TF 和标准定位观测持续发布 |
-| Nav2 | `/navigate_to_pose` + `/plan` + costmap topics + `/sensor_scan` | action server、路径和 costmap 可观察；当前默认不接入动态障碍层，`/sensor_scan` 只校验链路存在 |
+| Nav2 | `/navigate_to_pose` + `/plan` + costmap topics + `/sensor_scan` | action server、路径和 costmap 可观察；当前默认接入动态障碍层，并在 local/global costmap 后接膨胀层 |
 | rc26_mcu_transport | `/cmd_vel` | 完整 bringup/遥控入口默认消费速度命令并下发 `POSE_TARGET(0x0C)`；`test_navigation.launch.py` 默认关闭该节点 |
 
 ---

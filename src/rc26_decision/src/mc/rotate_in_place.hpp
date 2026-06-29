@@ -17,7 +17,9 @@ class RotateInPlaceAction : public BT::StatefulActionNode {
 public:
     RotateInPlaceAction(const std::string& name, const BT::NodeConfig& config);
 
-    static BT::PortsList providedPorts() { return {}; }
+    static BT::PortsList providedPorts() {
+        return {BT::InputPort<double>("target_yaw_rad", "Optional absolute target yaw in radians")};
+    }
 
     BT::NodeStatus onStart() override;
     BT::NodeStatus onRunning() override;
@@ -36,11 +38,14 @@ private:
 
     double target_rad_{0.0};
     double signed_target_rad_{0.0};
+    double absolute_target_yaw_rad_{0.0};
     double tolerance_rad_{0.0};
     double min_speed_radps_{0.0};
     double slowdown_rad_{0.0};
     double accumulated_rad_{0.0};
+    double current_yaw_{0.0};
     double last_yaw_{0.0};
+    bool absolute_target_mode_{false};
     bool has_yaw_{false};
     std::chrono::steady_clock::time_point last_odom_tp_{};
     rclcpp::Time start_time_;
