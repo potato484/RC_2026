@@ -203,6 +203,28 @@ uint8_t MfPreselectionLogicResult::grabCommandForHighSide(
   return static_cast<uint8_t>(std::clamp(value, 0, 255));
 }
 
+uint8_t MfPreselectionLogicResult::grabCommandForPickup(
+    bool high_side, MfPreselectionPickupSource source,
+    bool entry_high_protocol, const MfPreselectionParams &params) {
+  if (high_side &&
+      (entry_high_protocol || source != MfPreselectionPickupSource::None)) {
+    return static_cast<uint8_t>(
+        std::clamp(params.entry_grab_kfs_up_command_id, 0, 255));
+  }
+  return grabCommandForHighSide(high_side, params);
+}
+
+int MfPreselectionLogicResult::grabDoneFeedbackForPickup(
+    bool high_side, MfPreselectionPickupSource source,
+    bool entry_high_protocol, const MfPreselectionParams &params) {
+  if (high_side &&
+      (entry_high_protocol || source != MfPreselectionPickupSource::None)) {
+    return static_cast<uint8_t>(
+        std::clamp(params.entry_grab_kfs_up_done_feedback_id, 0, 255));
+  }
+  return -1;
+}
+
 double MfPreselectionLogicResult::bboxIou(
     const MfPreselectionTargetSnapshot &a,
     const MfPreselectionTargetSnapshot &b) {
@@ -237,6 +259,37 @@ std::optional<int> MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
     return std::nullopt;
   }
   return gridRow(current_grid) * 3 + target_col + 1;
+}
+
+MfPreselectionPickupSource
+MfPreselectionLogicResult::entryPickupSourceForLateralOffset(
+    double lateral_offset_m, double tolerance_m) {
+  const double tolerance = std::max(0.0, std::abs(tolerance_m));
+  if (!std::isfinite(lateral_offset_m) ||
+      std::abs(lateral_offset_m) <= tolerance) {
+    return MfPreselectionPickupSource::Stair2;
+  }
+  return lateral_offset_m > 0.0 ? MfPreselectionPickupSource::Stair1
+                                : MfPreselectionPickupSource::Stair3;
+}
+
+bool MfPreselectionLogicResult::entryReturnToCenterCommand(
+    double lateral_offset_m, double tolerance_m, double speed_mps, double &vy,
+    double &distance_m) {
+  if (!std::isfinite(lateral_offset_m)) {
+    return false;
+  }
+  const double tolerance = std::max(0.0, std::abs(tolerance_m));
+  const double abs_offset = std::abs(lateral_offset_m);
+  if (abs_offset <= tolerance) {
+    vy = 0.0;
+    distance_m = 0.0;
+    return true;
+  }
+  const double speed = std::max(kMinSpeed, finiteAbsOr(speed_mps, kMinSpeed));
+  vy = lateral_offset_m > 0.0 ? -speed : speed;
+  distance_m = abs_offset;
+  return true;
 }
 
 bool MfPreselectionLogicResult::finalExitCenterTarget(
@@ -285,8 +338,18 @@ BT::NodeStatus MfPreselectionFlowAction::onStart() {
   pending_grab_commit_ = false;
   pending_grab_source_ = MfPreselectionPickupSource::None;
   pending_grab_target_.reset();
+  pending_grab_entry_high_protocol_ = false;
   ignored_r2_targets_.clear();
   grab_success_direct_exit_ = false;
+  entry_lateral_reference_captured_ = false;
+  entry_lateral_reference_x_ = 0.0;
+  entry_lateral_reference_y_ = 0.0;
+  entry_lateral_reference_yaw_ = entry_heading_yaw_;
+  entry_move_interrupted_active_ = false;
+  interrupted_entry_move_next_phase_ = Phase::Done;
+  interrupted_entry_move_label_.clear();
+  interrupted_entry_move_target_offset_m_ = 0.0;
+  entry_move_last_interrupt_sequence_ = 0;
   clearKfsVisualPickup();
   grab_verify_lost_count_ = 0;
   grab_verify_last_sequence_ = 0;
@@ -369,6 +432,12 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
                       params_.entry_probe_return_distance_m,
                       Phase::EntryPrepareClimb, "entry_return_from_stair3");
     return BT::NodeStatus::RUNNING;
+
+  case Phase::EntryReturnToCenterAfterInterruptedPickup:
+    return beginEntryReturnToCenterAfterInterruptedPickup();
+
+  case Phase::EntryResumeInterruptedProbeMove:
+    return resumeInterruptedEntryMove();
 
   case Phase::EntryPrepareClimb:
     // 若入口探测阶段已经执行过 ARM_HIGH_RAISE，则保持高抬升姿态上首阶，
@@ -1126,6 +1195,42 @@ MfPreselectionFlowAction::findR2Target() {
 }
 
 std::optional<MfPreselectionTargetSnapshot>
+MfPreselectionFlowAction::findR2TargetLabelOnly() {
+  if (!canPickup() || !vision_ || !vision_->isRunning()) {
+    return std::nullopt;
+  }
+
+  rc26_vision::VisionInferenceManager::FrameSnapshot snapshot;
+  if (!vision_->getLatestFrameSnapshot(snapshot) || !snapshot.has_display ||
+      snapshot.display_sequence <= 0) {
+    return std::nullopt;
+  }
+
+  const rc26_vision::Detection *best = nullptr;
+  for (const auto &det : snapshot.detections) {
+    const std::string name = rc26_vision::visualTargetLabel(det);
+    if (!MfPreselectionLogicResult::labelMatches(
+            name, params_.r2_target_labels, params_.r2_target_label_prefixes)) {
+      continue;
+    }
+    const MfPreselectionTargetSnapshot candidate =
+        rc26_vision::makeVisualTargetSnapshot(det, snapshot.display_sequence);
+    if (MfPreselectionLogicResult::isIgnoredTarget(
+            candidate, ignored_r2_targets_, params_.grab_verify_iou_threshold)) {
+      continue;
+    }
+    if (!best || det.score > best->score) {
+      best = &det;
+    }
+  }
+  if (!best) {
+    return std::nullopt;
+  }
+  return rc26_vision::makeVisualTargetSnapshot(*best,
+                                               snapshot.display_sequence);
+}
+
+std::optional<MfPreselectionTargetSnapshot>
 MfPreselectionFlowAction::findR1BlockingTarget() {
   return findTarget(params_.r1_blocking_labels,
                     params_.r1_blocking_label_prefixes, false);
@@ -1320,6 +1425,10 @@ const char *MfPreselectionFlowAction::phaseText(Phase phase) {
     return "entry_return_from_stair1";
   case Phase::EntryReturnFromStair3:
     return "entry_return_from_stair3";
+  case Phase::EntryReturnToCenterAfterInterruptedPickup:
+    return "entry_return_to_center_after_interrupted_pickup";
+  case Phase::EntryResumeInterruptedProbeMove:
+    return "entry_resume_interrupted_probe_move";
   case Phase::AfterEntry:
     return "after_entry";
   case Phase::RowFrontDetect:
@@ -1608,18 +1717,18 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
         // 2 号入口正前方夹取后直接准备上首阶，来源记录为 Stair2。
         beginKfsVisualPickup(true, MfPreselectionPickupSource::Stair2,
                              *r2, Phase::EntryPrepareClimb,
-                             detectionMissNextPhase(), false);
+                             detectionMissNextPhase(), false, true);
         break;
       case DetectMode::Stair1:
         // 1/3 号入口夹取完成后先横移回 2 号入口，再统一入场。
         beginKfsVisualPickup(true, MfPreselectionPickupSource::Stair1,
                              *r2, Phase::EntryReturnFromStair1,
-                             detectionMissNextPhase(), false);
+                             detectionMissNextPhase(), false, true);
         break;
       case DetectMode::Stair3:
         beginKfsVisualPickup(true, MfPreselectionPickupSource::Stair3,
                              *r2, Phase::EntryReturnFromStair3,
-                             detectionMissNextPhase(), false);
+                             detectionMissNextPhase(), false, true);
         break;
       case DetectMode::RowFront:
       case DetectMode::Scan:
@@ -1628,7 +1737,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
         beginKfsVisualPickup(active_detection_high_side_,
                              MfPreselectionPickupSource::None, *r2,
                              Phase::AfterEntry,
-                             detectionMissNextPhase(), true);
+                             detectionMissNextPhase(), true, false);
         break;
       case DetectMode::TransitionObserve:
         // 台阶切换前方观察到 R2 KFS 时，按本次台阶高低侧决定夹取命令，
@@ -1636,7 +1745,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
         beginKfsVisualPickup(transition_high_side_,
                              MfPreselectionPickupSource::None, *r2,
                              Phase::TransitionStair, detectionMissNextPhase(),
-                             false);
+                             false, false);
         break;
       case DetectMode::Row4Fake:
         break;
@@ -2041,6 +2150,189 @@ void MfPreselectionFlowAction::beginMoveRelative(double vx, double vy,
   phase_ = Phase::MoveRelative;
 }
 
+void MfPreselectionFlowAction::continueAfterMoveRelative(Phase next_phase) {
+  phase_ = next_phase;
+  if (phase_ == Phase::EntryDetectStair1) {
+    // 入口探测横移完成后立即进入对应检测窗口，不等下一次 onRunning()
+    // 再做模式映射。
+    beginDetection(DetectMode::Stair1, params_.scan_detect_timeout_s);
+  } else if (phase_ == Phase::EntryDetectStair3) {
+    beginDetection(DetectMode::Stair3, params_.scan_detect_timeout_s);
+  } else if (phase_ == Phase::FinalStop) {
+    beginZeroHold(0.5, Phase::Done, "final_stop_hold");
+  }
+}
+
+bool MfPreselectionFlowAction::isEntryInterruptibleMove() const {
+  return move_label_ == "entry_probe_left" ||
+         move_label_ == "entry_probe_stair3" ||
+         move_label_ == "entry_return_from_stair1" ||
+         move_label_ == "entry_return_from_stair3" ||
+         move_label_ == "entry_return_to_center_after_interrupted_pickup";
+}
+
+std::optional<double> MfPreselectionFlowAction::entryMoveTargetOffset() const {
+  if (move_label_ == "entry_probe_left") {
+    return params_.entry_probe_left_distance_m;
+  }
+  if (move_label_ == "entry_probe_stair3") {
+    return params_.entry_probe_left_distance_m -
+           params_.entry_probe_right_sweep_distance_m;
+  }
+  if (move_label_ == "entry_return_from_stair1" ||
+      move_label_ == "entry_return_from_stair3" ||
+      move_label_ == "entry_return_to_center_after_interrupted_pickup") {
+    return 0.0;
+  }
+  return std::nullopt;
+}
+
+bool MfPreselectionFlowAction::captureEntryLateralReferenceIfNeeded() {
+  if (entry_lateral_reference_captured_) {
+    return true;
+  }
+  if (!odomReady()) {
+    return false;
+  }
+  if (move_label_ == "entry_probe_left") {
+    entry_lateral_reference_x_ = move_start_captured_ ? move_start_x_ : odom_x_;
+    entry_lateral_reference_y_ = move_start_captured_ ? move_start_y_ : odom_y_;
+    entry_lateral_reference_yaw_ =
+        move_start_captured_ ? move_start_yaw_ : odom_yaw_;
+    entry_lateral_reference_captured_ = true;
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛入口横向参考已记录：x=%.3f y=%.3f yaw=%.3f",
+                entry_lateral_reference_x_, entry_lateral_reference_y_,
+                entry_lateral_reference_yaw_);
+    return true;
+  }
+  return false;
+}
+
+double MfPreselectionFlowAction::currentEntryLateralOffset() const {
+  const double dx = odom_x_ - entry_lateral_reference_x_;
+  const double dy = odom_y_ - entry_lateral_reference_y_;
+  const double left_x = -std::sin(entry_lateral_reference_yaw_);
+  const double left_y = std::cos(entry_lateral_reference_yaw_);
+  return dx * left_x + dy * left_y;
+}
+
+bool MfPreselectionFlowAction::maybeInterruptEntryMoveForKfs() {
+  if (!isEntryInterruptibleMove() || !canPickup()) {
+    return false;
+  }
+  if (!captureEntryLateralReferenceIfNeeded() ||
+      !entry_lateral_reference_captured_) {
+    return false;
+  }
+  const auto target_offset = entryMoveTargetOffset();
+  if (!target_offset.has_value()) {
+    return false;
+  }
+  const auto r2 = findR2TargetLabelOnly();
+  if (!r2.has_value() || r2->sequence == entry_move_last_interrupt_sequence_) {
+    return false;
+  }
+
+  publishStop();
+  entry_move_last_interrupt_sequence_ = r2->sequence;
+  entry_move_interrupted_active_ = true;
+  interrupted_entry_move_next_phase_ = move_next_phase_;
+  interrupted_entry_move_label_ = move_label_;
+  interrupted_entry_move_target_offset_m_ = *target_offset;
+
+  const double lateral_offset = currentEntryLateralOffset();
+  MfPreselectionPickupSource source =
+      MfPreselectionLogicResult::entryPickupSourceForLateralOffset(
+          lateral_offset, params_.move_tolerance_m);
+  if (pickup_source_ != MfPreselectionPickupSource::None) {
+    source = MfPreselectionPickupSource::None;
+  }
+
+  RCLCPP_INFO(node_->get_logger(),
+              "梅林预选赛入口横移中单帧发现R2 KFS：move=%s label=%s seq=%ld offset=%.3fm source=%s，立即停车进入正式视觉对齐夹取",
+              move_label_.c_str(), r2->label.c_str(),
+              static_cast<long>(r2->sequence), lateral_offset,
+              sourceName(source));
+  beginKfsVisualPickup(true, source, *r2,
+                       Phase::EntryReturnToCenterAfterInterruptedPickup,
+                       Phase::EntryResumeInterruptedProbeMove, false, true);
+  return true;
+}
+
+BT::NodeStatus
+MfPreselectionFlowAction::beginEntryReturnToCenterAfterInterruptedPickup() {
+  if (!entry_move_interrupted_active_) {
+    phase_ = Phase::EntryPrepareClimb;
+    return BT::NodeStatus::RUNNING;
+  }
+  if (!node_ || !odomReady() || !entry_lateral_reference_captured_) {
+    return fail("entry_return_to_center_reference_missing");
+  }
+
+  double vy = 0.0;
+  double distance_m = 0.0;
+  const double lateral_offset = currentEntryLateralOffset();
+  if (!MfPreselectionLogicResult::entryReturnToCenterCommand(
+          lateral_offset, params_.move_tolerance_m,
+          params_.lateral_probe_speed_mps, vy, distance_m)) {
+    return fail("entry_return_to_center_invalid_offset");
+  }
+
+  entry_move_interrupted_active_ = false;
+  if (distance_m <= 0.0) {
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛入口中途夹取后已在2号入口横向容差内：offset=%.3fm，直接准备上阶梯",
+                lateral_offset);
+    phase_ = Phase::EntryPrepareClimb;
+    return BT::NodeStatus::RUNNING;
+  }
+
+  RCLCPP_INFO(node_->get_logger(),
+              "梅林预选赛入口中途夹取成功后回2号入口：offset=%.3fm vy=%.3f distance=%.3fm",
+              lateral_offset, vy, distance_m);
+  beginMoveRelative(0.0, vy, distance_m, Phase::EntryPrepareClimb,
+                    "entry_return_to_center_after_interrupted_pickup");
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus MfPreselectionFlowAction::resumeInterruptedEntryMove() {
+  if (!entry_move_interrupted_active_) {
+    phase_ = interrupted_entry_move_next_phase_;
+    continueAfterMoveRelative(phase_);
+    return BT::NodeStatus::RUNNING;
+  }
+  if (!node_ || !odomReady() || !entry_lateral_reference_captured_) {
+    return fail("entry_resume_probe_reference_missing");
+  }
+
+  const double lateral_offset = currentEntryLateralOffset();
+  const double remaining =
+      interrupted_entry_move_target_offset_m_ - lateral_offset;
+  entry_move_interrupted_active_ = false;
+  if (std::abs(remaining) <= params_.move_tolerance_m) {
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛入口横移夹取未成功但已到原目标横向位置：move=%s offset=%.3fm target=%.3fm",
+                interrupted_entry_move_label_.c_str(), lateral_offset,
+                interrupted_entry_move_target_offset_m_);
+    continueAfterMoveRelative(interrupted_entry_move_next_phase_);
+    return BT::NodeStatus::RUNNING;
+  }
+
+  const double vy =
+      remaining > 0.0 ? std::abs(params_.lateral_probe_speed_mps)
+                      : -std::abs(params_.lateral_probe_speed_mps);
+  RCLCPP_INFO(node_->get_logger(),
+              "梅林预选赛入口横移夹取未成功，补完原横移：move=%s offset=%.3fm target=%.3fm vy=%.3f distance=%.3fm",
+              interrupted_entry_move_label_.c_str(), lateral_offset,
+              interrupted_entry_move_target_offset_m_, vy,
+              std::abs(remaining));
+  beginMoveRelative(0.0, vy, std::abs(remaining),
+                    interrupted_entry_move_next_phase_,
+                    interrupted_entry_move_label_);
+  return BT::NodeStatus::RUNNING;
+}
+
 BT::NodeStatus MfPreselectionFlowAction::tickMoveRelative() {
   if (!node_) {
     return fail("move_runtime_missing");
@@ -2075,6 +2367,12 @@ BT::NodeStatus MfPreselectionFlowAction::tickMoveRelative() {
                   move_start_yaw_);
     }
   }
+  if (move_start_captured_ && isEntryInterruptibleMove()) {
+    (void)captureEntryLateralReferenceIfNeeded();
+    if (maybeInterruptEntryMoveForKfs()) {
+      return BT::NodeStatus::RUNNING;
+    }
+  }
   const double dx = odom_x_ - move_start_x_;
   const double dy = odom_y_ - move_start_y_;
   const double traveled = std::hypot(dx, dy);
@@ -2085,16 +2383,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickMoveRelative() {
     RCLCPP_INFO(node_->get_logger(),
                 "梅林预选赛相对移动完成：%s，已行驶=%.3fm 目标=%.3fm",
                 move_label_.c_str(), traveled, move_distance_m_);
-    phase_ = move_next_phase_;
-    if (phase_ == Phase::EntryDetectStair1) {
-      // 入口探测横移完成后立即进入对应检测窗口，不等下一次 onRunning()
-      // 再做模式映射。
-      beginDetection(DetectMode::Stair1, params_.scan_detect_timeout_s);
-    } else if (phase_ == Phase::EntryDetectStair3) {
-      beginDetection(DetectMode::Stair3, params_.scan_detect_timeout_s);
-    } else if (phase_ == Phase::FinalStop) {
-      beginZeroHold(0.5, Phase::Done, "final_stop_hold");
-    }
+    continueAfterMoveRelative(move_next_phase_);
     return BT::NodeStatus::RUNNING;
   }
   if ((node_->now() - phase_start_).seconds() > params_.move_timeout_s) {
@@ -2138,7 +2427,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickDirectExitDrive() {
                   "梅林预选赛直行离场途中检测到R2 KFS，先夹取后继续离场");
       beginKfsVisualPickup(true, MfPreselectionPickupSource::None, *r2,
                            Phase::DirectExitDrive, Phase::DirectExitDrive,
-                           false);
+                           false, false);
       return BT::NodeStatus::RUNNING;
     }
   }
@@ -3064,6 +3353,7 @@ MfPreselectionFlowAction::findKfsVisualTarget() {
   }
 
   const rc26_vision::Detection *best = nullptr;
+  MfPreselectionTargetSnapshot best_snapshot;
   for (const auto &det : snapshot.detections) {
     const std::string name = rc26_vision::visualTargetLabel(det);
     if (!MfPreselectionLogicResult::labelMatches(
@@ -3076,8 +3366,15 @@ MfPreselectionFlowAction::findKfsVisualTarget() {
             candidate, ignored_r2_targets_, params_.grab_verify_iou_threshold)) {
       continue;
     }
+    if (kfs_locked_target_.has_value() &&
+        !MfPreselectionLogicResult::isSameVisualTarget(
+            *kfs_locked_target_, candidate,
+            params_.grab_verify_iou_threshold)) {
+      continue;
+    }
     if (!best || det.score > best->score) {
       best = &det;
+      best_snapshot = candidate;
     }
   }
   if (!best) {
@@ -3085,8 +3382,8 @@ MfPreselectionFlowAction::findKfsVisualTarget() {
   }
 
   KfsVisualObservation observation;
-  observation.target =
-      rc26_vision::makeVisualTargetSnapshot(*best, snapshot.display_sequence);
+  observation.target = best_snapshot;
+  kfs_locked_target_ = best_snapshot;
   const double center_x = (static_cast<double>(best->x1) +
                            static_cast<double>(best->x2)) *
                           0.5;
@@ -3118,7 +3415,8 @@ MfPreselectionFlowAction::findKfsVisualTarget() {
 void MfPreselectionFlowAction::beginKfsVisualPickup(
     bool high_side, MfPreselectionPickupSource source,
     const MfPreselectionTargetSnapshot &target, Phase success_phase,
-    Phase failure_phase, bool direct_exit_on_success) {
+    Phase failure_phase, bool direct_exit_on_success,
+    bool entry_high_protocol) {
   if (!canPickup()) {
     if (node_) {
       RCLCPP_INFO(node_->get_logger(),
@@ -3135,7 +3433,9 @@ void MfPreselectionFlowAction::beginKfsVisualPickup(
   kfs_pickup_success_phase_ = success_phase;
   kfs_pickup_failure_phase_ = failure_phase;
   kfs_pickup_direct_exit_on_success_ = direct_exit_on_success;
+  kfs_pickup_entry_high_protocol_ = entry_high_protocol;
   kfs_pickup_initial_target_ = target;
+  kfs_locked_target_ = target;
   kfs_open_loop_target_.reset();
   kfs_align_stable_count_ = 0;
   kfs_align_lost_count_ = 0;
@@ -3178,6 +3478,11 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
       RCLCPP_WARN(node_->get_logger(),
                   "梅林预选赛KFS视觉对齐阶段目标连续丢失：lost=%d/%d，回到原失败路线",
                   kfs_align_lost_count_, params_.kfs_lost_stop_frames);
+      if (kfs_locked_target_.has_value()) {
+        ignored_r2_targets_.push_back(*kfs_locked_target_);
+      } else if (kfs_pickup_initial_target_.has_value()) {
+        ignored_r2_targets_.push_back(*kfs_pickup_initial_target_);
+      }
       const Phase failure_phase = kfs_pickup_failure_phase_;
       clearKfsVisualPickup();
       phase_ = failure_phase;
@@ -3282,7 +3587,8 @@ void MfPreselectionFlowAction::startKfsOpenLoopApproach() {
                 "梅林预选赛KFS锁定深度已在机械臂可触达范围内，直接发送夹取命令");
     beginGrab(kfs_pickup_high_side_, kfs_pickup_source_, *kfs_open_loop_target_,
               kfs_pickup_success_phase_, kfs_pickup_failure_phase_,
-              kfs_pickup_direct_exit_on_success_);
+              kfs_pickup_direct_exit_on_success_,
+              kfs_pickup_entry_high_protocol_);
     clearKfsVisualPickup();
   } else {
     publishTwist(kfsApproachVx(), 0.0, 0.0);
@@ -3307,7 +3613,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsOpenLoopApproach() {
                 kfs_open_loop_locked_depth_m_, kfs_open_loop_distance_m_);
     beginGrab(kfs_pickup_high_side_, kfs_pickup_source_, *kfs_open_loop_target_,
               kfs_pickup_success_phase_, kfs_pickup_failure_phase_,
-              kfs_pickup_direct_exit_on_success_);
+              kfs_pickup_direct_exit_on_success_,
+              kfs_pickup_entry_high_protocol_);
     clearKfsVisualPickup();
     return BT::NodeStatus::RUNNING;
   }
@@ -3332,7 +3639,9 @@ void MfPreselectionFlowAction::clearKfsVisualPickup() {
   kfs_pickup_success_phase_ = Phase::Done;
   kfs_pickup_failure_phase_ = Phase::Done;
   kfs_pickup_direct_exit_on_success_ = false;
+  kfs_pickup_entry_high_protocol_ = false;
   kfs_pickup_initial_target_.reset();
+  kfs_locked_target_.reset();
   kfs_open_loop_target_.reset();
   kfs_align_stable_count_ = 0;
   kfs_align_lost_count_ = 0;
@@ -3347,7 +3656,8 @@ void MfPreselectionFlowAction::clearKfsVisualPickup() {
 void MfPreselectionFlowAction::beginGrab(
     bool high_side, MfPreselectionPickupSource source,
     const MfPreselectionTargetSnapshot &target, Phase success_phase,
-    Phase failure_phase, bool direct_exit_on_success) {
+    Phase failure_phase, bool direct_exit_on_success,
+    bool entry_high_protocol) {
   // 夹取命令 ACK 只表示 transport 收到通用确认；真正计数要等后续
   // GrabVerify 阶段确认夹取前的同一视觉目标已经连续新帧消失。
   if (!canPickup()) {
@@ -3366,21 +3676,41 @@ void MfPreselectionFlowAction::beginGrab(
   // ACK 成功但空夹时仍消耗本局最多夹取次数。
   pending_grab_commit_ = true;
   pending_grab_source_ = source;
+  pending_grab_entry_high_protocol_ = entry_high_protocol;
   pending_grab_target_ = target;
   const uint8_t command_id =
-      MfPreselectionLogicResult::grabCommandForHighSide(high_side, params_);
+      MfPreselectionLogicResult::grabCommandForPickup(high_side, source,
+                                                      entry_high_protocol,
+                                                      params_);
+  const int done_feedback_id =
+      MfPreselectionLogicResult::grabDoneFeedbackForPickup(high_side, source,
+                                                           entry_high_protocol,
+                                                           params_);
+  const char *command_label =
+      done_feedback_id >= 0
+          ? "ENTRY_GRAB_KFS_UP"
+          : (high_side ? "GRAB_KFS_UP" : "GRAB_KFS_DOWN");
   if (node_) {
-    RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛开始夹取R2 KFS：command=%s(0x%02X)，高侧=%s，来源=%s，目标=%s seq=%ld bbox=[%.1f %.1f %.1f %.1f]，当前计数=%d/%d",
-                high_side ? "GRAB_KFS_UP" : "GRAB_KFS_DOWN",
-                static_cast<unsigned int>(command_id),
-                high_side ? "是" : "否", sourceName(source),
-                target.label.c_str(), static_cast<long>(target.sequence),
-                target.x1, target.y1, target.x2, target.y2, pickup_count_,
-                params_.max_pickup_count);
+    if (done_feedback_id >= 0) {
+      RCLCPP_INFO(
+          node_->get_logger(),
+          "梅林预选赛开始入口高夹取R2 KFS：command=%s(0x%02X)，等待完成反馈=0x%02X，来源=%s，目标=%s seq=%ld bbox=[%.1f %.1f %.1f %.1f]，当前计数=%d/%d",
+          command_label, static_cast<unsigned int>(command_id),
+          static_cast<unsigned int>(done_feedback_id), sourceName(source),
+          target.label.c_str(), static_cast<long>(target.sequence), target.x1,
+          target.y1, target.x2, target.y2, pickup_count_,
+          params_.max_pickup_count);
+    } else {
+      RCLCPP_INFO(
+          node_->get_logger(),
+          "梅林预选赛开始夹取R2 KFS：command=%s(0x%02X)，高侧=%s，来源=%s，目标=%s seq=%ld bbox=[%.1f %.1f %.1f %.1f]，当前计数=%d/%d",
+          command_label, static_cast<unsigned int>(command_id),
+          high_side ? "是" : "否", sourceName(source), target.label.c_str(),
+          static_cast<long>(target.sequence), target.x1, target.y1, target.x2,
+          target.y2, pickup_count_, params_.max_pickup_count);
+    }
   }
-  beginMechanismCommand(command_id,
-                        high_side ? "GRAB_KFS_UP" : "GRAB_KFS_DOWN", -1,
+  beginMechanismCommand(command_id, command_label, done_feedback_id,
                         Phase::GrabVerify, "grab_kfs_failed");
 }
 
@@ -3493,7 +3823,7 @@ void MfPreselectionFlowAction::commitPendingGrab() {
   }
   ++pickup_count_;
   entry_pickup_done_ =
-      entry_pickup_done_ ||
+      entry_pickup_done_ || pending_grab_entry_high_protocol_ ||
       pending_grab_source_ != MfPreselectionPickupSource::None;
   rememberPickupSource(pending_grab_source_);
   if (config().blackboard) {
@@ -3507,6 +3837,7 @@ void MfPreselectionFlowAction::commitPendingGrab() {
   }
   pending_grab_commit_ = false;
   pending_grab_source_ = MfPreselectionPickupSource::None;
+  pending_grab_entry_high_protocol_ = false;
   pending_grab_target_.reset();
   grab_success_direct_exit_ = false;
 }
@@ -3525,6 +3856,7 @@ void MfPreselectionFlowAction::finishGrabVerificationFailure(
   }
   pending_grab_commit_ = false;
   pending_grab_source_ = MfPreselectionPickupSource::None;
+  pending_grab_entry_high_protocol_ = false;
   pending_grab_target_.reset();
   grab_success_direct_exit_ = false;
   grab_verify_lost_count_ = 0;
@@ -3625,6 +3957,12 @@ void loadMfPreselectionParams(rclcpp::Node &node,
       "mf_preselect_grab_kfs_up_command_id", p.grab_kfs_up_command_id);
   p.grab_kfs_down_command_id = node.declare_parameter<int>(
       "mf_preselect_grab_kfs_down_command_id", p.grab_kfs_down_command_id);
+  p.entry_grab_kfs_up_command_id = node.declare_parameter<int>(
+      "mf_preselect_entry_grab_kfs_up_command_id",
+      p.entry_grab_kfs_up_command_id);
+  p.entry_grab_kfs_up_done_feedback_id = node.declare_parameter<int>(
+      "mf_preselect_entry_grab_kfs_up_done_feedback_id",
+      p.entry_grab_kfs_up_done_feedback_id);
 
   // 运动、机构 service 和反馈 topic。cmd_vel 是本状态机直接发布的运动权威。
   p.cmd_vel_topic = node.declare_parameter<std::string>(
@@ -3748,10 +4086,12 @@ void loadMfPreselectionParams(rclcpp::Node &node,
           "mf_preselect_entry2_nav_behavior_tree_file", ""));
 
   RCLCPP_INFO(node.get_logger(),
-              "梅林预选赛参数已加载: model=%s R2_prefixes=%zu fake_prefixes=%zu max_pickup=%d cmd_vel=%s odom=%s high_raise=0x%02X done=0x%02X second_lower=0x%02X done=0x%02X",
+              "梅林预选赛参数已加载: model=%s R2_prefixes=%zu fake_prefixes=%zu max_pickup=%d cmd_vel=%s odom=%s entry_grab_up=0x%02X done=0x%02X high_raise=0x%02X done=0x%02X second_lower=0x%02X done=0x%02X",
               p.model_id.c_str(), p.r2_target_label_prefixes.size(),
               p.fake_label_prefixes.size(), p.max_pickup_count,
               p.cmd_vel_topic.c_str(), p.odom_topic.c_str(),
+              static_cast<unsigned int>(std::clamp(p.entry_grab_kfs_up_command_id, 0, 255)),
+              static_cast<unsigned int>(std::clamp(p.entry_grab_kfs_up_done_feedback_id, 0, 255)),
               static_cast<unsigned int>(std::clamp(p.arm_high_raise_command_id, 0, 255)),
               static_cast<unsigned int>(std::clamp(p.arm_high_raise_done_feedback_id, 0, 255)),
               static_cast<unsigned int>(std::clamp(p.second_arm_lower_command_id, 0, 255)),

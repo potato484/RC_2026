@@ -61,6 +61,8 @@ struct MfPreselectionParams {
   double grab_verify_iou_threshold{0.30};
   int grab_kfs_up_command_id{0x03};
   int grab_kfs_down_command_id{0x02};
+  int entry_grab_kfs_up_command_id{0x0F};
+  int entry_grab_kfs_up_done_feedback_id{0x0B};
 
   std::string cmd_vel_topic{"cmd_vel"};
   std::string odom_topic{"odom"};
@@ -117,6 +119,14 @@ struct MfPreselectionLogicResult {
                                  const MfPreselectionParams &params);
   static uint8_t grabCommandForHighSide(bool high_side,
                                         const MfPreselectionParams &params);
+  static uint8_t grabCommandForPickup(bool high_side,
+                                      MfPreselectionPickupSource source,
+                                      bool entry_high_protocol,
+                                      const MfPreselectionParams &params);
+  static int grabDoneFeedbackForPickup(bool high_side,
+                                       MfPreselectionPickupSource source,
+                                       bool entry_high_protocol,
+                                       const MfPreselectionParams &params);
   static double bboxIou(const MfPreselectionTargetSnapshot &a,
                         const MfPreselectionTargetSnapshot &b);
   static bool isSameVisualTarget(const MfPreselectionTargetSnapshot &reference,
@@ -129,6 +139,13 @@ struct MfPreselectionLogicResult {
   static std::optional<int>
   fakeAvoidanceTargetGrid(int current_grid,
                           MfPreselectionPickupSource source);
+  static MfPreselectionPickupSource
+  entryPickupSourceForLateralOffset(double lateral_offset_m,
+                                    double tolerance_m);
+  static bool entryReturnToCenterCommand(double lateral_offset_m,
+                                         double tolerance_m,
+                                         double speed_mps,
+                                         double &vy, double &distance_m);
   static bool finalExitCenterTarget(double current_center_x,
                                     double current_center_y,
                                     double exit_heading_yaw_rad,
@@ -167,6 +184,8 @@ private:
     EntryMoveRightToStair3,
     EntryDetectStair3,
     EntryReturnFromStair3,
+    EntryReturnToCenterAfterInterruptedPickup,
+    EntryResumeInterruptedProbeMove,
     EntryPrepareClimb,
     EntryClimb,
     AfterEntry,
@@ -260,6 +279,7 @@ private:
   double headingAngularZ(double target_yaw_rad) const;
 
   std::optional<MfPreselectionTargetSnapshot> findR2Target();
+  std::optional<MfPreselectionTargetSnapshot> findR2TargetLabelOnly();
   std::optional<MfPreselectionTargetSnapshot> findR1BlockingTarget();
   std::optional<MfPreselectionTargetSnapshot> findFakeTarget();
   std::optional<MfPreselectionTargetSnapshot>
@@ -296,6 +316,14 @@ private:
   void beginMoveRelative(double vx, double vy, double distance_m,
                          Phase next_phase, std::string label);
   BT::NodeStatus tickMoveRelative();
+  void continueAfterMoveRelative(Phase next_phase);
+  bool isEntryInterruptibleMove() const;
+  std::optional<double> entryMoveTargetOffset() const;
+  bool captureEntryLateralReferenceIfNeeded();
+  double currentEntryLateralOffset() const;
+  bool maybeInterruptEntryMoveForKfs();
+  BT::NodeStatus beginEntryReturnToCenterAfterInterruptedPickup();
+  BT::NodeStatus resumeInterruptedEntryMove();
   void beginDirectExitDrive();
   BT::NodeStatus tickDirectExitDrive();
   bool guardPathObstacles();
@@ -342,7 +370,8 @@ private:
   void beginKfsVisualPickup(bool high_side, MfPreselectionPickupSource source,
                             const MfPreselectionTargetSnapshot &target,
                             Phase success_phase, Phase failure_phase,
-                            bool direct_exit_on_success);
+                            bool direct_exit_on_success,
+                            bool entry_high_protocol);
   BT::NodeStatus tickKfsVisualAlign();
   BT::NodeStatus beginKfsOpenLoopApproach(
       const KfsVisualObservation &observation);
@@ -354,7 +383,7 @@ private:
   void beginGrab(bool high_side, MfPreselectionPickupSource source,
                  const MfPreselectionTargetSnapshot &target,
                  Phase success_phase, Phase failure_phase,
-                 bool direct_exit_on_success);
+                 bool direct_exit_on_success, bool entry_high_protocol);
   void beginGrabVerify();
   BT::NodeStatus tickGrabVerify();
   void commitPendingGrab();
@@ -514,7 +543,9 @@ private:
   Phase kfs_pickup_success_phase_{Phase::Done};
   Phase kfs_pickup_failure_phase_{Phase::Done};
   bool kfs_pickup_direct_exit_on_success_{false};
+  bool kfs_pickup_entry_high_protocol_{false};
   std::optional<MfPreselectionTargetSnapshot> kfs_pickup_initial_target_;
+  std::optional<MfPreselectionTargetSnapshot> kfs_locked_target_;
   std::optional<MfPreselectionTargetSnapshot> kfs_open_loop_target_;
   int kfs_align_stable_count_{0};
   int kfs_align_lost_count_{0};
@@ -524,8 +555,18 @@ private:
   double kfs_open_loop_distance_m_{0.0};
   double kfs_open_loop_duration_s_{0.0};
   bool kfs_open_loop_started_{false};
+  bool entry_lateral_reference_captured_{false};
+  double entry_lateral_reference_x_{0.0};
+  double entry_lateral_reference_y_{0.0};
+  double entry_lateral_reference_yaw_{0.0};
+  bool entry_move_interrupted_active_{false};
+  Phase interrupted_entry_move_next_phase_{Phase::Done};
+  std::string interrupted_entry_move_label_;
+  double interrupted_entry_move_target_offset_m_{0.0};
+  int64_t entry_move_last_interrupt_sequence_{0};
   bool pending_grab_commit_{false};
   MfPreselectionPickupSource pending_grab_source_{MfPreselectionPickupSource::None};
+  bool pending_grab_entry_high_protocol_{false};
   std::optional<MfPreselectionTargetSnapshot> pending_grab_target_;
   std::vector<MfPreselectionTargetSnapshot> ignored_r2_targets_;
   bool grab_success_direct_exit_{false};

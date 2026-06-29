@@ -116,7 +116,7 @@ r2_runtime:
       mf_preselect_r1_blocking_label_prefixes: ["__none__"] # R1 标签前缀占位
       mf_preselect_fake_label_prefixes: ["F_"]   # 假 KFS 标签前缀
       mf_preselect_fake_labels: ["__none__"]     # 精确假 KFS 标签占位
-      mf_preselect_depth_min_m: 0.65              # KFS 锁定深度有效下限，单位 m；只约束进入开环前的采样
+      mf_preselect_depth_min_m: 0.35              # KFS 锁定深度有效下限，单位 m；只约束进入开环前的采样
       mf_preselect_depth_max_m: 0.8             # KFS 锁定深度有效上限，单位 m；开环途中不再按实时深度闭环停车
       mf_preselect_detect_seen_stable_frames: 1  # 连续看到目标多少帧后确认
       mf_preselect_detect_lost_stable_frames: 5  # 连续未看到目标多少帧后确认无目标
@@ -140,6 +140,8 @@ r2_runtime:
       mf_preselect_grab_verify_iou_threshold: 0.30 # 同 label 且 bbox IoU 达到该值才认为仍是夹取前目标
       mf_preselect_grab_kfs_up_command_id: 3     # 0x03 GRAB_KFS_UP，用于高侧/抬升场景
       mf_preselect_grab_kfs_down_command_id: 2   # 0x02 GRAB_KFS_DOWN，用于低侧/下降场景
+      mf_preselect_entry_grab_kfs_up_command_id: 15 # 0x0F ENTRY_GRAB_KFS_UP，入口高夹取专用
+      mf_preselect_entry_grab_kfs_up_done_feedback_id: 11 # 0x0B ENTRY_GRAB_KFS_UP_DONE，必须与 0x0F 的 ACK seq 匹配
 
       mf_preselect_cmd_vel_topic: "cmd_vel"      # 预选赛链路发布底盘速度话题
       mf_preselect_odom_topic: "odom"            # 相对移动/转向闭环 odom 话题

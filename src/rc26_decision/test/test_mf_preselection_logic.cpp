@@ -162,6 +162,54 @@ TEST(MfPreselectionLogic, FakeAvoidanceTargetGridUsesSideColumns) {
           .has_value());
 }
 
+TEST(MfPreselectionLogic, EntryPickupSourceUsesLateralOffset) {
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::
+          entryPickupSourceForLateralOffset(0.20, 0.03),
+      rc26_decision::MfPreselectionPickupSource::Stair1);
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::
+          entryPickupSourceForLateralOffset(-0.20, 0.03),
+      rc26_decision::MfPreselectionPickupSource::Stair3);
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::
+          entryPickupSourceForLateralOffset(0.02, 0.03),
+      rc26_decision::MfPreselectionPickupSource::Stair2);
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::
+          entryPickupSourceForLateralOffset(
+              std::numeric_limits<double>::quiet_NaN(), 0.03),
+      rc26_decision::MfPreselectionPickupSource::Stair2);
+}
+
+TEST(MfPreselectionLogic, EntryReturnToCenterCommandUsesOffsetSign) {
+  double vy = 0.0;
+  double distance_m = 0.0;
+
+  ASSERT_TRUE(rc26_decision::MfPreselectionLogicResult::
+                  entryReturnToCenterCommand(0.30, 0.03, 0.20, vy,
+                                             distance_m));
+  EXPECT_DOUBLE_EQ(vy, -0.20);
+  EXPECT_DOUBLE_EQ(distance_m, 0.30);
+
+  ASSERT_TRUE(rc26_decision::MfPreselectionLogicResult::
+                  entryReturnToCenterCommand(-0.40, 0.03, 0.20, vy,
+                                             distance_m));
+  EXPECT_DOUBLE_EQ(vy, 0.20);
+  EXPECT_DOUBLE_EQ(distance_m, 0.40);
+
+  ASSERT_TRUE(rc26_decision::MfPreselectionLogicResult::
+                  entryReturnToCenterCommand(0.02, 0.03, 0.20, vy,
+                                             distance_m));
+  EXPECT_DOUBLE_EQ(vy, 0.0);
+  EXPECT_DOUBLE_EQ(distance_m, 0.0);
+
+  EXPECT_FALSE(rc26_decision::MfPreselectionLogicResult::
+                   entryReturnToCenterCommand(
+                       std::numeric_limits<double>::quiet_NaN(), 0.03, 0.20,
+                       vy, distance_m));
+}
+
 TEST(MfPreselectionLogic, FinalExitCenterTargetUsesForwardEntryHeading) {
   constexpr double kHalfPi = 1.57079632679489661923;
   double target_x = 0.0;
@@ -185,6 +233,8 @@ TEST(MfPreselectionLogic, GrabCommandFollowsHighSide) {
   rc26_decision::MfPreselectionParams params;
   params.grab_kfs_up_command_id = 0x03;
   params.grab_kfs_down_command_id = 0x02;
+  params.entry_grab_kfs_up_command_id = 0x0F;
+  params.entry_grab_kfs_up_done_feedback_id = 0x0B;
 
   EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabCommandForHighSide(
                 true, params),
@@ -192,6 +242,38 @@ TEST(MfPreselectionLogic, GrabCommandFollowsHighSide) {
   EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabCommandForHighSide(
                 false, params),
             static_cast<uint8_t>(0x02));
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabCommandForPickup(
+                true, rc26_decision::MfPreselectionPickupSource::None, false,
+                params),
+            static_cast<uint8_t>(0x03));
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabDoneFeedbackForPickup(
+                true, rc26_decision::MfPreselectionPickupSource::None, false,
+                params),
+            -1);
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabCommandForPickup(
+                false, rc26_decision::MfPreselectionPickupSource::Stair1, true,
+                params),
+            static_cast<uint8_t>(0x02));
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabDoneFeedbackForPickup(
+                false, rc26_decision::MfPreselectionPickupSource::Stair1, true,
+                params),
+            -1);
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabCommandForPickup(
+                true, rc26_decision::MfPreselectionPickupSource::Stair1, true,
+                params),
+            static_cast<uint8_t>(0x0F));
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabDoneFeedbackForPickup(
+                true, rc26_decision::MfPreselectionPickupSource::Stair1, true,
+                params),
+            0x0B);
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabCommandForPickup(
+                true, rc26_decision::MfPreselectionPickupSource::None, true,
+                params),
+            static_cast<uint8_t>(0x0F));
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabDoneFeedbackForPickup(
+                true, rc26_decision::MfPreselectionPickupSource::None, true,
+                params),
+            0x0B);
 }
 
 TEST(MfPreselectionLogic, BboxIouAndSameTargetUseLabelAndOverlap) {
