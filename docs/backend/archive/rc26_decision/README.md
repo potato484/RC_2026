@@ -22,6 +22,7 @@
   - `behavior_trees/stair_descend_tree.xml`（独立下台阶测试入口，默认主流程不引用）
   - `behavior_trees/mf_red_middle_column_tree.xml`（红方中间列连续台阶独立入口，默认主流程不引用）
   - `behavior_trees/mf_preselection_tree.xml`（梅林区预选赛专属正式入口，默认完整 bringup 可指向本树）
+  - `behavior_trees/odom_right_turn_nav_tree.xml`（独立 odom 闭环右转导航入口，默认主流程不引用）
 - 关键源码:
   - `src/decision_node.cpp`
   - `src/navigation/bt_nav2_pose.cpp`
@@ -90,6 +91,14 @@ ros2 launch rc26_bringup grid_heading.launch.py
 本入口只串行执行 `GridTurn -> GridHeadingAlign`，不读取 `current_grid` / `target_grid`，不调用 `/mechanism/send_command`，也不等待 0x04/0x05/0x07 激光事件。它会直接发布 `grid_heading_cmd_vel_topic`（默认 `cmd_vel`），运行前必须停用 Nav2 controller、遥控或其它运动命令权威。
 
 方向和目标 yaw 由 `rc26_bringup/config/r2_runtime.yaml` 的 `grid_heading_*` 参数维护：`grid_heading_direction` 可取 `forward | left | right | backward`，分别映射到 `grid_heading_forward_yaw_rad`、`grid_heading_left_yaw_rad`、`grid_heading_right_yaw_rad`、`grid_heading_backward_yaw_rad`。`GridTurn` 的粗转向角速度上限使用 `grid_heading_turn_max_speed_radps`，`GridHeadingAlign` 的精对齐角速度上限使用 `grid_heading_align_max_speed_radps`；不再声明或兼容合并角速度参数。`decision_node` 启动时会把选中的目标 yaw 写入黑板 `grid_heading_target_yaw_rad`；方向非法时节点启动失败，避免未知方向误动作。
+
+## odom 闭环右转导航独立入口
+
+`behavior_trees/odom_right_turn_nav_tree.xml` 是一棵独立可加载树，默认主比赛流程不引用它。运行它需要通过 `rc26_bringup/launch/odom_right_turn_nav.launch.py` 显式拉起；该 launch 不启动 Nav2 或遥控链，默认启动 odometry 和 `rc26_mcu_transport`，让本树成为唯一 `/cmd_vel` 发布权威。该入口会启用 `decision_node` 的启动 odom gate：先订阅 `odom_right_turn_nav_odom_topic`，等待连续低速、新鲜 `/odom` 样本满足 `odom_right_turn_nav_startup_odom_*` 参数后，才创建并 tick 行为树；等待超时则不执行 BT、不发布运动命令。
+
+本树固定执行 `OdomRelativeDrive -> RelativeYawTarget -> GridTurn -> GridHeadingAlign -> OdomRelativeDrive`：先按 `odom_right_turn_nav_forward_distance_m` 沿启动时车头 x+ 方向做 odom 相对位移闭环，默认 `0.40m`；随后 `RelativeYawTarget` 从当前 odom yaw 加 `odom_right_turn_nav_right_turn_delta_rad`，默认 `-pi/2`，并由 `GridTurn/GridHeadingAlign` 闭环右转 90°；最后按 `odom_right_turn_nav_reverse_distance_m` 沿转向后车头 x- 方向做 odom 相对位移闭环，默认 `-0.40m`。任一平移段 odom 超时、动作超时、参数非法或 halt 都会发布零速；转向段继续复用 Grid heading 的 odom yaw 闭环和超时语义。
+
+`OdomRelativeDrive` 和 `RelativeYawTarget` 是通用 BT 节点，注册在 `src/navigation/bt_nav2_pose.cpp`：前者从 `nav_msgs/msg/Odometry` 捕获启动位姿并按目标点误差发布有限闭环 `geometry_msgs/msg/Twist`，后者只从 odom yaw 计算相对 yaw 输出黑板键。二者不调用 Nav2、不触发机构、不处理串口协议。启动 odom gate 属于 `decision_node` 的树注入前保护，不改变这两个 BT 节点的动作语义。
 
 `NavToPose` 仍作为非 MF 格间移动的 BT 节点保留，调用 Nav2 `/navigate_to_pose`，action 类型为 `nav2_msgs/action/NavigateToPose`。当前 `mc_tree.xml`、`two_pose_nav_tree.xml` 等连续位姿导航入口仍可使用它。
 
@@ -163,6 +172,8 @@ Nav2 action result 映射规则：
 - `VisualServoGrabAction`（`src/mc/visual_servo_grab.cpp`）：内嵌直连相机 + `rc26_vision::InferenceEngine`，在独立工作线程中执行"取帧→推理→锁定同一物理端头→雷达 odom yaw 姿态保持 + 横移 P 控制对齐→对齐稳定后以 `cmd_vel.linear.x` 负方向前探→等待 `/mechanism/command_feedback` 上行 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)`→立即停车→经 `/mechanism/send_command` 下发 `GRAB_TIP(0x01)`"。多框同时出现时，目标选择复用 `rc26_vision` 的 tip alignment helper：初次按离画面中心最近获锁，短暂丢失不立即切到另一侧框。单端头场景下，若 `mc_odom_topic` yaw 偏离目标 yaw 超过 `mc_align_heading_gate_deg`，动作只发布 `cmd_vel.angular.z` 修正车身朝向，暂停 `linear.y` 横移和前探；只有像素偏差进入 `mc_align_tolerance_px` 且 yaw 偏差进入 `mc_align_heading_tolerance_deg` 后才累计稳定帧并进入前探。每次动作生命周期最多发送一次实际进入 `async_send_request` 的 `GRAB_TIP`；service 未就绪时不消耗这次发送机会并在停车状态下继续等待，前探等待 0x06 超过 `mc_grab_approach_timeout_s` 则停车失败。`/mechanism/send_command` 返回 `accepted=false` 只表示通用 ACK 未被可靠确认或 transport 拒绝，MC 夹取动作不会因此立即让行为树失败。**完成判定**：夹取已下发后端头持续消失达 `mc_grab_done_lost_time_s` → `SUCCESS`；端头未消失则超 `mc_servo_timeout_s` → `FAILURE`。该宽容 ACK 语义只适用于 MC 视觉夹取，不改变台阶动作对 accepted 的严格判定。
 - `RotateInPlaceAction`（`src/mc/rotate_in_place.cpp`）：发布 `cmd_vel.angular.z`，订阅 `mc_odom_topic`（默认 `odom`）。未提供 BT 端口 `target_yaw_rad` 时保持旧语义：使用 `rc26_odom_interface` 发布的雷达标准 `/odom` yaw 增量作为 180° 闭环反馈，按 `mc_rotate_direction` 的符号判断累计角度和剩余角度。提供 `target_yaw_rad` 时切换为绝对 yaw 对齐模式，按当前 odom yaw 到目标 yaw 的最短角误差发布角速度，`剩余角度 ≤ mc_rotate_yaw_tolerance_deg` → 停车 `SUCCESS`。角速度由 `mc_rotate_speed_radps` 配置为最大值，末段按 `mc_rotate_slowdown_angle_deg` 线性降到 `mc_rotate_min_speed_radps` 以降低过冲；`mc_rotate_odom_timeout_s` 内无新 odom 时停车等待，超 `mc_rotate_timeout_s` → `FAILURE`（yaw 直接由四元数解算，不依赖 tf2）。
 - `CaptureCurrentPoseAction`（`src/navigation/bt_nav2_pose.cpp`）：订阅 TF 并等待 `mc_nav_frame_id -> base_footprint` 新鲜，在超时内捕获当前 `x/y/yaw` 写入对应黑板输出键。它作为通用 BT 节点保留，当前 MC 树不再使用它来生成返程目标位姿。
+- `OdomRelativeDriveAction`（`src/navigation/bt_nav2_pose.cpp`）：订阅 odom 捕获启动 `x/y/yaw`，按相对距离生成目标点，并用 `linear.x/y + angular.z` 做有限时长位移闭环；完成、失败或 halt 时发布零速。
+- `RelativeYawTargetAction`（`src/navigation/bt_nav2_pose.cpp`）：订阅 odom yaw，按当前 yaw 加相对 yaw delta 生成目标 yaw 输出端口，供 `GridTurn` / `GridHeadingAlign` 复用。
 - `WaitForeverAction`（`src/mc/wait_forever.cpp`）：恒 `RUNNING`。
 
 ### 参数

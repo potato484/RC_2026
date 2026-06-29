@@ -353,9 +353,11 @@ def _create_point_lio_actions(context, *, namespace, use_sim_time, point_lio_con
 
 def _create_odom_interface_actions(context, *, namespace, use_sim_time, odom_interface_config,
                                    sensor_extrinsics_file, sensor_extrinsics_profile,
-                                   point_lio_config_file, point_lio_dir):
+                                   point_lio_config_file, point_lio_dir,
+                                   odom_interface_publish_bootstrap_pose):
     namespace_value = namespace.perform(context)
     use_sim_time_value = _as_bool(use_sim_time.perform(context))
+    publish_bootstrap_pose_value = _as_bool(odom_interface_publish_bootstrap_pose.perform(context))
     context_data = _resolve_odometry_context(
         context,
         sensor_extrinsics_file=sensor_extrinsics_file,
@@ -373,6 +375,7 @@ def _create_odom_interface_actions(context, *, namespace, use_sim_time, odom_int
         parameters=[
             odom_interface_config,
             {'use_sim_time': use_sim_time_value},
+            {'publish_bootstrap_pose': publish_bootstrap_pose_value},
             {'input_body_frame': context_data['point_lio_body_frame']},
             {'base_to_input_body_xyz_m': context_data['point_lio_body_xyz']},
             {'base_to_input_body_rpy_rad': context_data['point_lio_body_rpy']},
@@ -386,6 +389,8 @@ def _create_odom_interface_actions(context, *, namespace, use_sim_time, odom_int
             f'xyz={context_data["point_lio_body_xyz"]}, '
             f'rpy={context_data["point_lio_body_rpy"]}'
         )),
+        LogInfo(msg='[odometry] odom_interface.publish_bootstrap_pose='
+                    f'{str(publish_bootstrap_pose_value).lower()}'),
         odom_interface_node,
     ]
 
@@ -406,6 +411,7 @@ def generate_launch_description():
     point_lio_publish_odometry_without_downsample = LaunchConfiguration(
         'point_lio_publish_odometry_without_downsample')
     point_lio_full_map_publish_en = LaunchConfiguration('point_lio_full_map_publish_en')
+    odom_interface_publish_bootstrap_pose = LaunchConfiguration('odom_interface_publish_bootstrap_pose')
     sensor_extrinsics_file = LaunchConfiguration('sensor_extrinsics_file')
     sensor_extrinsics_profile = LaunchConfiguration('sensor_extrinsics_profile')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
@@ -454,6 +460,11 @@ def generate_launch_description():
         'point_lio_full_map_publish_en',
         default_value='true',
         description='是否发布 Point-LIO 完整累计地图可视化点云；导航模式建议关闭，建图观察可开启')
+
+    declare_odom_interface_publish_bootstrap_pose = DeclareLaunchArgument(
+        'odom_interface_publish_bootstrap_pose',
+        default_value='true',
+        description='真实 Point-LIO odom 接管前，odom_interface 是否发布 bootstrap /odom 与动态 TF')
 
     declare_sensor_extrinsics_file = DeclareLaunchArgument(
         'sensor_extrinsics_file',
@@ -570,6 +581,7 @@ def generate_launch_description():
             sensor_extrinsics_profile=sensor_extrinsics_profile,
             point_lio_config_file=point_lio_config_file,
             point_lio_dir=point_lio_dir,
+            odom_interface_publish_bootstrap_pose=odom_interface_publish_bootstrap_pose,
         )
     )
 
@@ -607,6 +619,7 @@ def generate_launch_description():
         declare_point_lio_config_file,
         declare_point_lio_publish_odometry_without_downsample,
         declare_point_lio_full_map_publish_en,
+        declare_odom_interface_publish_bootstrap_pose,
         declare_sensor_extrinsics_file,
         declare_sensor_extrinsics_profile,
         declare_recover_mid360_stream,

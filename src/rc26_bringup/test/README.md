@@ -80,6 +80,20 @@ ros2 launch rc26_bringup grid_heading.launch.py \
   start_mcu_transport:=false
 ```
 
+### 6. odom 闭环右转导航独立入口
+
+```bash
+ros2 launch rc26_bringup odom_right_turn_nav.launch.py
+```
+
+本入口启动后会先等 `/odom` 连续低速稳定，满足 `odom_right_turn_nav_startup_odom_*` 参数后才加载并 tick `odom_right_turn_nav_tree.xml`；若默认由本入口启动 odometry，会关闭 bootstrap `/odom`，避免把启动占位姿态当成可运动依据。树默认执行 `OdomRelativeDrive(+0.40m) -> RelativeYawTarget(-pi/2) -> GridTurn/GridHeadingAlign -> OdomRelativeDrive(-0.40m)`。距离、速度、容差和超时由 `src/rc26_bringup/config/r2_runtime.yaml` 的 `odom_right_turn_nav_*` 参数维护；平移段读取 `/odom` 做相对位移闭环，转向段复用 Grid heading yaw 闭环。实车运行前必须停用 Nav2、遥控和其它 `/cmd_vel` 发布者；若 `/odom` 和 `rc26_mcu_transport` 已由其它入口提供，可关闭重复链路：
+
+```bash
+ros2 launch rc26_bringup odom_right_turn_nav.launch.py \
+  start_odometry:=false \
+  start_mcu_transport:=false
+```
+
 ---
 
 ## 测试指令汇总

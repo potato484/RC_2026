@@ -196,7 +196,7 @@ r2_runtime:
       grid_heading_cmd_vel_topic: "cmd_vel"         # GridTurn/GridHeadingAlign 发布的速度话题
       grid_heading_odom_topic: "odom"               # GridTurn/GridHeadingAlign 使用的 odom yaw 话题
       grid_heading_kp: 1.2                          # yaw 误差到 angular.z 的比例系数
-      grid_heading_turn_max_speed_radps: 1.0        # GridTurn 粗转向最大角速度，单位 rad/s
+      grid_heading_turn_max_speed_radps: 0.5        # GridTurn 粗转向最大角速度，单位 rad/s
       grid_heading_align_max_speed_radps: 0.30      # GridHeadingAlign 精对齐最大角速度，单位 rad/s
       grid_heading_turn_gate_deg: 8.0               # GridTurn 进入粗对准的角度 gate，单位度
       grid_heading_align_tolerance_deg: 3.0         # GridHeadingAlign 成功容差，单位度
@@ -204,6 +204,31 @@ r2_runtime:
       grid_heading_odom_timeout_s: 0.5              # odom yaw 超过该时间未更新时停车等待/失败
       grid_heading_turn_timeout_s: 16.0              # GridTurn 最大运行时间，单位秒
       grid_heading_align_timeout_s: 5.0             # GridHeadingAlign 最大运行时间，单位秒
+
+      # ======================================================================
+      # 右转导航独立入口 —— odom闭环x+前进 -> odom闭环右转90° -> odom闭环x-后退
+      # ======================================================================
+      odom_right_turn_nav_cmd_vel_topic: "cmd_vel"   # OdomRelativeDrive 发布的速度话题；转向段复用 grid_heading_cmd_vel_topic
+      odom_right_turn_nav_odom_topic: "odom"         # OdomRelativeDrive/RelativeYawTarget 使用的 odom 话题
+      odom_right_turn_nav_forward_distance_m: 0.40   # 第一段沿启动时车头 x+ 方向闭环行驶距离，单位米
+      odom_right_turn_nav_reverse_distance_m: -0.70  # 第三段沿转向后车头 x- 方向闭环行驶距离，单位米
+      odom_right_turn_nav_drive_max_speed_mps: 0.20  # OdomRelativeDrive 平移速度上限，单位 m/s
+      odom_right_turn_nav_drive_min_speed_mps: 0.03  # 未进入位置容差时的最小平移速度，单位 m/s
+      odom_right_turn_nav_drive_xy_kp: 0.8           # odom x/y 误差到车体系平移速度的比例系数
+      odom_right_turn_nav_drive_heading_kp: 1.2      # 平移段 yaw 保持的 P 增益
+      odom_right_turn_nav_drive_heading_max_speed_radps: 0.30 # 平移段 yaw 保持角速度上限，单位 rad/s
+      odom_right_turn_nav_drive_xy_tolerance_m: 0.03 # 平移目标距离容差，单位米
+      odom_right_turn_nav_drive_yaw_tolerance_deg: 3.0 # 平移段 yaw 保持成功容差，单位度
+      odom_right_turn_nav_drive_stable_ticks: 3      # 平移和 yaw 同时进入容差后连续多少 tick 判定完成
+      odom_right_turn_nav_drive_timeout_s: 10.0      # 单段相对平移闭环最大运行时间，单位秒
+      odom_right_turn_nav_right_turn_delta_rad: -1.57079632679 # RelativeYawTarget 使用的右转 90° 相对 yaw，单位 rad
+      odom_right_turn_nav_odom_capture_timeout_s: 2.0 # 捕获当前 yaw 生成相对目标的超时，单位秒
+      odom_right_turn_nav_odom_timeout_s: 0.5        # odom 新鲜度超时，单位秒
+      odom_right_turn_nav_startup_odom_wait_timeout_s: 20.0 # 右转入口启动 BT 前等待 /odom 稳定的最长时间，单位秒
+      odom_right_turn_nav_startup_odom_min_wait_s: 1.0 # 收到 /odom 后至少等待多久才允许启动行为树，单位秒
+      odom_right_turn_nav_startup_odom_stable_samples: 10 # 启动前需要连续多少帧低速 /odom 才认为稳定
+      odom_right_turn_nav_startup_odom_max_linear_speed_mps: 0.03 # 启动稳定判定允许的最大线速度
+      odom_right_turn_nav_startup_odom_max_angular_speed_radps: 0.05 # 启动稳定判定允许的最大角速度
 
       # ======================================================================
       # MF 格中心归位参数 —— 台阶动作完成后用麦克纳姆横移/前后平移回二维格中心
