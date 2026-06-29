@@ -15,7 +15,7 @@
 - `filter_car_body` 与 `body_*` 车身 ROI 输入侧过滤
 - 车身 ROI 运行时热更新，依赖 `base_link <- livox_frame` TF
 - `/state_estimation`、`/cloud_registered`、`/cloud_registered_body`、`/Laser_map`、`/point_lio/map_cloud`、`/path`
-- 低频完整累计点云发布：默认向 `/point_lio/map_cloud` 发布可视化用完整地图
+- 低频完整累计点云发布：建图观察可向 `/point_lio/map_cloud` 发布可视化用完整地图；完整导航 bringup 默认覆盖关闭，避免 X1 板卡在比赛链路中持续发布大点云
 - 基础 PCD 保存：默认开启，正常退出后写入包内 `PCD/`
 - PCD 地图检查脚本：`scripts/pcd_map_inspector.py` 可解析 PCD 边界，并只读校验 Nav2 map YAML/image 覆盖范围
 - PCD 到 Nav2 map 转换脚本：`scripts/pcd_to_nav2_map.py` 可把过滤后的 PCD 投影成黑白 `PNG + YAML`，并可显式选择 PGM
@@ -54,7 +54,7 @@ source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 - `filter_car_body`、`body_x_min/max`、`body_y_min/max`、`body_z_min/max`：Mid-360 输入侧车身 ROI，单位米，坐标系为 `base_link`。
 - `odometry.publish_odometry_without_downsample`：默认 `False`，保持 `/state_estimation` 与 `/cloud_registered` 的时间戳同源。
 - `publish.scan_bodyframe_pub_en`：控制 `/cloud_registered_body` 是否发布。
-- `publish.full_map_publish_en`、`publish.full_map_topic`、`publish.full_map_interval_sec`、`publish.full_map_voxel_size`、`publish.full_map_max_points`：控制完整累计地图可视化发布。默认开启，低频、降采样并限制单次发布点数；该 topic 只用于观察，不作为定位或导航权威。
+- `publish.full_map_publish_en`、`publish.full_map_topic`、`publish.full_map_interval_sec`、`publish.full_map_voxel_size`、`publish.full_map_max_points`：控制完整累计地图可视化发布。YAML 默认保留建图观察能力；完整导航 bringup 默认传 `point_lio_full_map_publish_en=false` 覆盖关闭。该 topic 只用于观察，不作为定位或导航权威。
 - `pcd_save.pcd_save_en`、`pcd_save.interval`：控制 PCD 保存。默认开启且 `interval=-1`，建图正常退出后保存单个 `scans.pcd`。
 - `experimental_loop_closure.*`：实验性全局闭环参数组，默认 `enable=false`。开启后会维护关键帧、执行 Scan Context/ICP 闭环检测和 GTSAM/iSAM2 位姿图优化；闭环成功后按优化结果修正当前 Point-LIO 状态、重建 iVox 局部地图，并复用 `/state_estimation`、`/cloud_registered`、`/path` 输出修正后的 LIO 结果。
 

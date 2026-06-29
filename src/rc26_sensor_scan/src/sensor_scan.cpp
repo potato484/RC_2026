@@ -74,6 +74,8 @@ SensorScanNode::SensorScanNode(const rclcpp::NodeOptions& options) : Node("senso
     this->declare_parameter<std::string>("odometry_topic", "odometry");
     this->declare_parameter<double>("tf_timeout_sec", 0.5);
     this->declare_parameter<double>("max_time_diff_sec", 0.1);
+    this->declare_parameter<int>("sync_queue_size", 20);
+    this->declare_parameter<int>("input_qos_depth", 20);
 
     // ===== 参数读取与校验，任何空参数立即报错 =====
     this->get_parameter("lidar_frame", lidar_frame_);
@@ -85,6 +87,8 @@ SensorScanNode::SensorScanNode(const rclcpp::NodeOptions& options) : Node("senso
     this->get_parameter("odometry_topic", odometry_topic_);
     this->get_parameter("tf_timeout_sec", tf_timeout_sec_);
     this->get_parameter("max_time_diff_sec", max_time_diff_sec_);
+    this->get_parameter("sync_queue_size", sync_queue_size_);
+    this->get_parameter("input_qos_depth", input_qos_depth_);
 
     auto require_non_empty = [&](const char* param_name, const std::string& value) {
         if (value.empty()) {
@@ -108,6 +112,14 @@ SensorScanNode::SensorScanNode(const rclcpp::NodeOptions& options) : Node("senso
         RCLCPP_WARN(this->get_logger(), "max_time_diff_sec=%.3f 非法，已禁用同步时间差守卫", max_time_diff_sec_);
         max_time_diff_sec_ = 0.0;
     }
+    if (sync_queue_size_ < 1) {
+        RCLCPP_WARN(this->get_logger(), "sync_queue_size=%d 非法，已钳制为 1", sync_queue_size_);
+        sync_queue_size_ = 1;
+    }
+    if (input_qos_depth_ < 1) {
+        RCLCPP_WARN(this->get_logger(), "input_qos_depth=%d 非法，已钳制为 1", input_qos_depth_);
+        input_qos_depth_ = 1;
+    }
     if (robot_base_frame_ != base_frame_) {
         throw std::runtime_error("robot_base_frame (" + robot_base_frame_ + ") must equal base_frame (" + base_frame_ +
                                  ") in the current automatic navigation chain");
@@ -120,7 +132,7 @@ SensorScanNode::SensorScanNode(const rclcpp::NodeOptions& options) : Node("senso
     pub_chassis_odometry_ = this->create_publisher<nav_msgs::msg::Odometry>(odometry_topic_, 2);
 
     rmw_qos_profile_t qos_profile = {RMW_QOS_POLICY_HISTORY_KEEP_LAST,
-                                     1,
+                                     static_cast<size_t>(input_qos_depth_),
                                      RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT,
                                      RMW_QOS_POLICY_DURABILITY_VOLATILE,
                                      RMW_QOS_DEADLINE_DEFAULT,
@@ -132,10 +144,13 @@ SensorScanNode::SensorScanNode(const rclcpp::NodeOptions& options) : Node("senso
     odometry_sub_.subscribe(this, lidar_odometry_topic_, qos_profile);
     laser_cloud_sub_.subscribe(this, registered_scan_topic_, qos_profile);
 
-    sync_ =
-        std::make_unique<message_filters::Synchronizer<SyncPolicy>>(SyncPolicy(10), odometry_sub_, laser_cloud_sub_);
+    sync_ = std::make_unique<message_filters::Synchronizer<SyncPolicy>>(
+        SyncPolicy(static_cast<uint32_t>(sync_queue_size_)), odometry_sub_, laser_cloud_sub_);
     sync_->registerCallback(
         std::bind(&SensorScanNode::laserCloudAndOdometryHandler, this, std::placeholders::_1, std::placeholders::_2));
+
+    RCLCPP_INFO(this->get_logger(), "sensor_scan 同步缓存: input_qos_depth=%d, sync_queue_size=%d",
+                input_qos_depth_, sync_queue_size_);
 }
 
 void SensorScanNode::laserCloudAndOdometryHandler(const nav_msgs::msg::Odometry::ConstSharedPtr& odometry_msg,

@@ -13,12 +13,15 @@
   - `base_footprint -> base_link`
 - 发布标准化 `/odom`，其中 `child_frame_id=base_footprint`
 - 继续输出 `registered_scan`，保持在 `odom` 坐标系表达
+- 启动阶段可先发布动态 bootstrap `/odom` 与 TF，给 Nav2 和下游节点提供稳定零速基座位姿；真实 Point-LIO odom 完成静止归零并接管后停止 bootstrap
+- `registered_scan` 与 odom 的短时缓存由 `cloud_queue_size`、`pending_cloud_queue_size` 和 `odom_stamp_history_size` 调节
+- 低算力完整导航默认关闭 `odom_path` 与 `odom_pose_markers` 调试发布；需要 RViz 观察时再通过 `odom_interface.yaml` 打开
 
 ## 当前坐标语义
 
 - `base_footprint`：导航使用的 2D 地面投影基座
 - `base_link`：底盘最下层金属刚性主板中心
-- `base_link` 相对 `base_footprint` 的高度由 `rc26_bringup/config/odom_interface.yaml` 提供，当前为 `0.2m`
+- `base_link` 相对 `base_footprint` 的高度由 `rc26_bringup/config/odom_interface.yaml` 提供，当前为 `0.065m`
 - `base_link` 保留 Point-LIO 解算出来的 roll/pitch；`odom -> base_footprint` 只保留 `x/y/yaw`
 - `base_link -> input_body_frame` 外参按 TF 语义注入；节点在位姿链中使用其 inverse 恢复 `odom -> base_link`，并把 Point-LIO twist 从 `input_body_frame` 转换到底盘 `base_link` 后再输出给导航链。
 
@@ -28,3 +31,4 @@
 - 不负责里程计估计本体
 - 不再查询或发布 `base_link -> point_lio.body_frame` 对外 TF；这段内部外参只在 bringup 装配期推导并注入
 - 不直接做控制求解
+- 不发布静态 `base_footprint -> base_link`；该边仍由本节点作为唯一权威动态发布

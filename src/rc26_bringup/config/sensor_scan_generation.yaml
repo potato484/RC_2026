@@ -21,3 +21,5 @@ sensor_scan:
     tf_timeout_sec: 0.5              # TF 查询超时
     # 参数说明：max_time_diff_sec - 时间参数，单位秒。
     max_time_diff_sec: 0.1           # 点云与里程计允许的最大时间差（秒）
+    input_qos_depth: 20              # /odom 与 /registered_scan 输入订阅 QoS 队列深度
+    sync_queue_size: 20              # ExactTime 同步器缓存深度，吸收短时回调拥塞

@@ -157,7 +157,7 @@ r2_runtime:
 
       mf_preselect_entry_probe_left_distance_m: 0.9     # 2号入口向1号阶梯横移探测距离
       mf_preselect_entry_probe_right_sweep_distance_m: 2.0 # 从1号阶梯扫到3号阶梯横移距离
-      mf_preselect_entry_probe_return_distance_m: 0.5   # 从1/3号阶梯返回2号入口横移距离
+      mf_preselect_entry_probe_return_distance_m: 0.8   # 从1/3号阶梯返回2号入口横移距离
       mf_preselect_lateral_probe_speed_mps: 0.40        # 入口 Y 向平移探测速度绝对值
       mf_preselect_move_tolerance_m: 0.03               # 相对移动完成距离容差
       mf_preselect_move_timeout_s: 12.0                 # 单段相对移动超时，单位秒

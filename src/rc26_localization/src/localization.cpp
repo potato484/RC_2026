@@ -185,6 +185,7 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("prior_pcd_file", prior_pcd_file_);
     this->declare_parameter("init_pose", std::vector<double>{0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
     this->declare_parameter("input_cloud_topic", input_cloud_topic_);
+    this->declare_parameter("input_cloud_queue_size", input_cloud_queue_size_);
     this->declare_parameter("pose_cov_topic", pose_cov_topic_);
     this->declare_parameter("diagnostics_topic", diagnostics_topic_);
 
@@ -212,6 +213,7 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     this->get_parameter("prior_pcd_file", prior_pcd_file_);
     this->get_parameter("init_pose", init_pose_);
     this->get_parameter("input_cloud_topic", input_cloud_topic_);
+    this->get_parameter("input_cloud_queue_size", input_cloud_queue_size_);
     this->get_parameter("pose_cov_topic", pose_cov_topic_);
     this->get_parameter("diagnostics_topic", diagnostics_topic_);
 
@@ -231,6 +233,7 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     online_relocalization_max_attempts_ = std::max(1, online_relocalization_max_attempts_);
     online_relocalization_collect_ms_ = std::max(0, online_relocalization_collect_ms_);
     online_relocalization_leaf_size_ = std::max(0.05, online_relocalization_leaf_size_);
+    input_cloud_queue_size_ = std::max(1, input_cloud_queue_size_);
     last_pose_cov_diag_ = kPoseCovDiag;
     startup_relocalization_pending_ = startup_relocalization_enable_;
     startup_relocalization_state_ = startup_relocalization_enable_ ? "pending" : "disabled";
@@ -259,7 +262,8 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
     pose_cov_pub_ = this->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(pose_cov_topic_, 10);
     diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(diagnostics_topic_, 10);
     pcd_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-        input_cloud_topic_, 10, std::bind(&LocalizationNode::registeredPcdCallback, this, std::placeholders::_1));
+        input_cloud_topic_, input_cloud_queue_size_,
+        std::bind(&LocalizationNode::registeredPcdCallback, this, std::placeholders::_1));
     initial_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
         "initialpose", 10, std::bind(&LocalizationNode::initialPoseCallback, this, std::placeholders::_1));
 
@@ -271,9 +275,9 @@ LocalizationNode::LocalizationNode(const rclcpp::NodeOptions& options)
         std::chrono::milliseconds(kTransformPeriodMs), std::bind(&LocalizationNode::publishTransform, this));
 
     RCLCPP_INFO(this->get_logger(),
-                "定位链路已启动: 输入点云=%s, map_frame=%s, odom_frame=%s, base=%s, 开局重定位=%s, 实验性在线重定位=%s",
-                input_cloud_topic_.c_str(), map_frame_.c_str(), odom_frame_.c_str(), robot_base_frame_.c_str(),
-                startup_relocalization_enable_ ? "开启" : "关闭",
+                "定位链路已启动: 输入点云=%s(queue=%d), map_frame=%s, odom_frame=%s, base=%s, 开局重定位=%s, 实验性在线重定位=%s",
+                input_cloud_topic_.c_str(), input_cloud_queue_size_, map_frame_.c_str(), odom_frame_.c_str(),
+                robot_base_frame_.c_str(), startup_relocalization_enable_ ? "开启" : "关闭",
                 online_relocalization_enable_ ? "开启" : "关闭");
 }
 

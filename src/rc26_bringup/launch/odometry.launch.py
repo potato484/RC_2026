@@ -290,8 +290,9 @@ def _create_sensor_extrinsics_actions(context, *, sensor_extrinsics_file, sensor
 
 
 def _create_point_lio_actions(context, *, namespace, use_sim_time, point_lio_config_file, point_lio_dir,
-                              point_lio_publish_odometry_without_downsample, sensor_extrinsics_file,
-                              sensor_extrinsics_profile, start_point_lio):
+                              point_lio_publish_odometry_without_downsample,
+                              point_lio_full_map_publish_en,
+                              sensor_extrinsics_file, sensor_extrinsics_profile, start_point_lio):
     if not _as_bool(start_point_lio.perform(context)):
         return [LogInfo(msg='[odometry] 跳过 Point-LIO 启动: start_point_lio=false')]
 
@@ -301,6 +302,7 @@ def _create_point_lio_actions(context, *, namespace, use_sim_time, point_lio_con
     publish_odometry_without_downsample_value = _as_bool(
         point_lio_publish_odometry_without_downsample.perform(context)
     )
+    full_map_publish_en_value = _as_bool(point_lio_full_map_publish_en.perform(context))
     context_data = _resolve_odometry_context(
         context,
         sensor_extrinsics_file=sensor_extrinsics_file,
@@ -317,6 +319,7 @@ def _create_point_lio_actions(context, *, namespace, use_sim_time, point_lio_con
         {'use_sim_time': use_sim_time_value},
         {'frame.body_frame': context_data['point_lio_body_frame']},
         {'odometry.publish_odometry_without_downsample': publish_odometry_without_downsample_value},
+        {'publish.full_map_publish_en': full_map_publish_en_value},
         {'publish.tf_send_en': False},
     ]
 
@@ -339,6 +342,10 @@ def _create_point_lio_actions(context, *, namespace, use_sim_time, point_lio_con
             msg='[odometry] 强制 odometry.publish_odometry_without_downsample='
                 f'{str(publish_odometry_without_downsample_value).lower()}，'
                 '确保 state_estimation 与 cloud_registered 时间戳保持同源'
+        ),
+        LogInfo(
+            msg='[odometry] Point-LIO 完整累计地图可视化 publish.full_map_publish_en='
+                f'{str(full_map_publish_en_value).lower()}'
         ),
         point_lio_node,
     ]
@@ -398,6 +405,7 @@ def generate_launch_description():
     point_lio_config_file = LaunchConfiguration('point_lio_config_file')
     point_lio_publish_odometry_without_downsample = LaunchConfiguration(
         'point_lio_publish_odometry_without_downsample')
+    point_lio_full_map_publish_en = LaunchConfiguration('point_lio_full_map_publish_en')
     sensor_extrinsics_file = LaunchConfiguration('sensor_extrinsics_file')
     sensor_extrinsics_profile = LaunchConfiguration('sensor_extrinsics_profile')
     recover_mid360_stream = LaunchConfiguration('recover_mid360_stream')
@@ -441,6 +449,11 @@ def generate_launch_description():
         'point_lio_publish_odometry_without_downsample',
         default_value='false',
         description='是否允许 Point-LIO 在扫描内部提前发布 state_estimation；默认 false，保持与 cloud_registered 同戳')
+
+    declare_point_lio_full_map_publish_en = DeclareLaunchArgument(
+        'point_lio_full_map_publish_en',
+        default_value='true',
+        description='是否发布 Point-LIO 完整累计地图可视化点云；导航模式建议关闭，建图观察可开启')
 
     declare_sensor_extrinsics_file = DeclareLaunchArgument(
         'sensor_extrinsics_file',
@@ -538,6 +551,7 @@ def generate_launch_description():
             point_lio_config_file=point_lio_config_file,
             point_lio_dir=point_lio_dir,
             point_lio_publish_odometry_without_downsample=point_lio_publish_odometry_without_downsample,
+            point_lio_full_map_publish_en=point_lio_full_map_publish_en,
             sensor_extrinsics_file=sensor_extrinsics_file,
             sensor_extrinsics_profile=sensor_extrinsics_profile,
             start_point_lio=start_point_lio,
@@ -592,6 +606,7 @@ def generate_launch_description():
         declare_start_sensor_scan,
         declare_point_lio_config_file,
         declare_point_lio_publish_odometry_without_downsample,
+        declare_point_lio_full_map_publish_en,
         declare_sensor_extrinsics_file,
         declare_sensor_extrinsics_profile,
         declare_recover_mid360_stream,

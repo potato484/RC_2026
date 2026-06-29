@@ -1,7 +1,7 @@
 # R2 当前 Nav2 最小导航闭环配置
 # 口径说明：
 # - map -> odom 继续由 rc26_localization 负责，Nav2 不接管定位权威
-# - 当前 local/global costmap 加载 obstacle_layer 与 inflation_layer；sensor_scan 进入 Nav2 costmap
+# - 当前 local/global costmap 加载 obstacle_layer 与 inflation_layer；sensor_scan 进入 Nav2 costmap，并过滤 0.05m 以下低矮点
 # - /cmd_vel 由 Nav2 controller + velocity_smoother 输出；默认由 rc26_mcu_transport 消费并下发 POSE_TARGET
 
 # BT 导航器：负责调 planner / controller / recovery 等动作节点
@@ -14,7 +14,7 @@ bt_navigator: # BT 导航器节点参数组
     # BT 导航器内部用于监听当前机体速度与位姿的 odom 话题
     odom_topic: /odom # BT 导航器读取里程计的话题
     # 行为树 tick 周期（毫秒）
-    bt_loop_duration: 10 # Nav2 行为树循环周期，单位毫秒
+    bt_loop_duration: 50 # Nav2 行为树循环周期，单位毫秒；低算力板卡默认 20Hz，降低空转开销
     # 单次 action/service 默认等待时间（秒）
     default_server_timeout: 20 # BT 节点等待 action/service 的默认超时，单位秒
     # 等待下游服务就绪的超时时间（毫秒）
@@ -82,7 +82,7 @@ controller_server: # Nav2 局部控制器服务器参数组
   ros__parameters: # controller_server ROS 参数集合
     use_sim_time: false # 是否使用仿真时间；实车使用系统时间
     # 控制循环频率（Hz）
-    controller_frequency: 20.0 # 局部控制器主循环频率，单位 Hz
+    controller_frequency: 10.0 # 局部控制器主循环频率，单位 Hz；低算力板卡优先降低 DWB 常驻负载
     # 低于阈值的速度分量会被当作 0，避免控制器抖动
     min_x_velocity_threshold: 0.001 # x 方向速度死区阈值，低于该值视为 0
     min_y_velocity_threshold: 0.001 # y 方向速度死区阈值，低于该值视为 0
@@ -132,11 +132,11 @@ controller_server: # Nav2 局部控制器服务器参数组
       decel_lim_y: -0.8 # y 方向减速度下限，单位 m/s^2
       decel_lim_theta: -1.8 # 角减速度下限，单位 rad/s^2
       # 轨迹采样密度：分别在 vx / vy / wz 上离散取样
-      vx_samples: 20 # x 方向速度采样数量
-      vy_samples: 15 # y 方向速度采样数量
-      vtheta_samples: 20 # 角速度采样数量
+      vx_samples: 12 # x 方向速度采样数量；低算力档减少 DWB 轨迹组合数
+      vy_samples: 9 # y 方向速度采样数量；低算力档减少 DWB 轨迹组合数
+      vtheta_samples: 12 # 角速度采样数量；低算力档减少 DWB 轨迹组合数
       # 前向仿真时间越大，绕障更积极，但也更容易保守
-      sim_time: 1.7 # DWB 前向轨迹仿真时长，单位秒
+      sim_time: 1.3 # DWB 前向轨迹仿真时长，单位秒；降低每次评分步数
       linear_granularity: 0.05 # 轨迹线性采样粒度，单位米
       angular_granularity: 0.025 # 轨迹角度采样粒度，单位弧度
       # TF 允许滞后窗口；过小会更容易报 transform timeout
@@ -175,10 +175,10 @@ controller_server: # Nav2 局部控制器服务器参数组
       decel_lim_x: -0.8 # x 方向减速度下限，单位 m/s^2
       decel_lim_y: -0.8 # y 方向减速度下限，单位 m/s^2
       decel_lim_theta: -1.8 # 角减速度下限，单位 rad/s^2
-      vx_samples: 20 # x 方向速度采样数量
-      vy_samples: 15 # y 方向速度采样数量
+      vx_samples: 10 # x 方向速度采样数量；MC 专用 xy-only 控制低算力档
+      vy_samples: 8 # y 方向速度采样数量；MC 专用 xy-only 控制低算力档
       vtheta_samples: 1 # 角速度只采样 0，转向由 MC 行为树下一步完成
-      sim_time: 1.7 # DWB 前向轨迹仿真时长，单位秒
+      sim_time: 1.3 # DWB 前向轨迹仿真时长，单位秒
       linear_granularity: 0.05 # 轨迹线性采样粒度，单位米
       angular_granularity: 0.025 # 轨迹角度采样粒度，单位弧度
       transform_tolerance: 0.2 # 控制器 TF 查询容忍时间，单位秒
@@ -208,10 +208,10 @@ controller_server: # Nav2 局部控制器服务器参数组
       decel_lim_x: -0.8 # x 方向减速度下限，单位 m/s^2
       decel_lim_y: -0.8 # y 方向减速度下限，单位 m/s^2
       decel_lim_theta: -0.25 # 角减速度下限，单位 rad/s^2
-      vx_samples: 20 # x 方向速度采样数量
-      vy_samples: 15 # y 方向速度采样数量
-      vtheta_samples: 7 # 角速度采样数量
-      sim_time: 1.7 # DWB 前向轨迹仿真时长，单位秒
+      vx_samples: 10 # x 方向速度采样数量；梅林入口专用低算力档
+      vy_samples: 8 # y 方向速度采样数量；梅林入口专用低算力档
+      vtheta_samples: 5 # 角速度采样数量；梅林入口专用低算力档
+      sim_time: 1.3 # DWB 前向轨迹仿真时长，单位秒
       linear_granularity: 0.05 # 轨迹线性采样粒度，单位米
       angular_granularity: 0.025 # 轨迹角度采样粒度，单位弧度
       transform_tolerance: 0.2 # 控制器 TF 查询容忍时间，单位秒
@@ -240,9 +240,10 @@ local_costmap: # 局部代价地图顶层参数组
       global_frame: odom # 局部代价地图参考坐标系
       robot_base_frame: base_footprint # 代价地图使用的机器人基座坐标系
       # 更新频率要高于全局图，保证近场避障及时
-      update_frequency: 5.0 # 局部代价地图更新频率，单位 Hz
-      publish_frequency: 2.0 # 局部代价地图发布频率，单位 Hz
+      update_frequency: 3.0 # 局部代价地图更新频率，单位 Hz；低算力档减少点云投影开销
+      publish_frequency: 1.0 # 局部代价地图发布频率，单位 Hz；默认 headless，降低序列化/发布压力
       rolling_window: true # 是否启用随机器人移动的滚动窗口
+      transform_tolerance: 0.5 # local costmap 查询 TF 的容忍时间，吸收启动阶段和实机链路轻微滞后
       # 当前局部窗口大小（米）
       width: 4 # 局部代价地图宽度，单位米
       height: 4 # 局部代价地图高度，单位米
@@ -258,6 +259,8 @@ local_costmap: # 局部代价地图顶层参数组
         sensor_scan: # sensor_scan 点云观测源参数组
           # 相对话题名；会跟随 namespace 进入对应机器人命名空间
           topic: sensor_scan # 障碍输入 PointCloud2 话题名
+          # 低于这个高度的点不参与 2D 障碍投影，避免地面噪声/车身低矮回波把近场代价图刷死
+          min_obstacle_height: 0.05 # 参与障碍投影的最小高度，单位米
           # 高于这个高度的点不参与 2D 障碍投影
           max_obstacle_height: 2.0 # 参与障碍投影的最大高度，单位米
           # marking=标记障碍，clearing=按射线清空自由空间
@@ -274,7 +277,7 @@ local_costmap: # 局部代价地图顶层参数组
         enabled: true # 是否启用局部膨胀层
         inflation_radius: 0.45 # 障碍膨胀半径，单位米
         cost_scaling_factor: 3.0 # 膨胀代价随距离衰减系数
-      always_send_full_costmap: true # 是否每次发布完整代价地图
+      always_send_full_costmap: false # 是否每次发布完整代价地图；headless 默认发布增量以降低带宽和 CPU
 
 # 全局代价地图：在 map 坐标系下维护静态地图；当前启用动态障碍层并做膨胀层
 global_costmap: # 全局代价地图顶层参数组
@@ -285,7 +288,7 @@ global_costmap: # 全局代价地图顶层参数组
       robot_base_frame: base_footprint # 代价地图使用的机器人基座坐标系
       # 全局图更新较慢，重点服务 planner
       update_frequency: 1.0 # 全局代价地图更新频率，单位 Hz
-      publish_frequency: 1.0 # 全局代价地图发布频率，单位 Hz
+      publish_frequency: 0.5 # 全局代价地图发布频率，单位 Hz；默认 headless，降低发布压力
       resolution: 0.05 # 全局代价地图分辨率，单位米/栅格
       robot_radius: 0.42 # 圆形机器人半径近似，单位米
       # 当前允许未知区，避免占位图把规划直接锁死
@@ -301,6 +304,7 @@ global_costmap: # 全局代价地图顶层参数组
         observation_sources: sensor_scan # 障碍层观测源名称列表
         sensor_scan: # sensor_scan 点云观测源参数组
           topic: sensor_scan # 障碍输入 PointCloud2 话题名
+          min_obstacle_height: 0.05 # 参与障碍投影的最小高度，单位米；过滤地面噪声/车身低矮回波
           max_obstacle_height: 2.0 # 参与障碍投影的最大高度，单位米
           clearing: true # 是否用该观测源清空自由空间
           marking: true # 是否用该观测源标记障碍
@@ -314,7 +318,7 @@ global_costmap: # 全局代价地图顶层参数组
         enabled: true # 是否启用全局膨胀层
         inflation_radius: 0.50 # 障碍膨胀半径，单位米
         cost_scaling_factor: 3.0 # 膨胀代价随距离衰减系数
-      always_send_full_costmap: true # 是否每次发布完整代价地图
+      always_send_full_costmap: false # 是否每次发布完整代价地图；headless 默认发布增量以降低带宽和 CPU
 
 # 地图服务：当前可接受占位地图，只用于拉起 Nav2 生命周期与 costmap 链路
 map_server: # Nav2 map_server 参数组
@@ -327,7 +331,7 @@ planner_server: # Nav2 全局规划器服务器参数组
   ros__parameters: # planner_server ROS 参数集合
     use_sim_time: false # 是否使用仿真时间；实车使用系统时间
     # 期望规划频率（Hz）
-    expected_planner_frequency: 10.0 # planner 期望运行频率，单位 Hz
+    expected_planner_frequency: 2.0 # planner 期望运行频率，单位 Hz；低算力板卡避免频繁重规划压垮 CPU
     planner_plugins: [GridBased] # 可用全局规划器插件 ID 列表
     GridBased: # NavFn 全局规划器参数组
       plugin: nav2_navfn_planner/NavfnPlanner # 使用 NavFn 全局规划器插件
@@ -346,8 +350,8 @@ smoother_server: # Nav2 路径平滑器服务器参数组
     simple_smoother: # SimpleSmoother 参数组
       plugin: nav2_smoother::SimpleSmoother # 使用 Nav2 简单路径平滑器插件
       tolerance: 1.0e-10 # 平滑迭代收敛容差
-      max_its: 1000 # 平滑最大迭代次数
-      do_refinement: true # 是否执行额外路径细化
+      max_its: 100 # 平滑最大迭代次数；低算力档减少单次路径平滑耗时
+      do_refinement: false # 是否执行额外路径细化；默认关闭以降低 CPU 峰值
 
 # 恢复行为服务器：局部控制失败时的原地转、后退、等待等动作
 behavior_server: # Nav2 恢复行为服务器参数组
@@ -355,7 +359,7 @@ behavior_server: # Nav2 恢复行为服务器参数组
     use_sim_time: false # 是否使用仿真时间；实车使用系统时间
     costmap_topic: local_costmap/costmap_raw # 恢复行为读取的局部代价地图话题
     footprint_topic: local_costmap/published_footprint # 恢复行为读取的机器人 footprint 话题
-    cycle_frequency: 10.0 # 恢复行为服务器循环频率，单位 Hz
+    cycle_frequency: 5.0 # 恢复行为服务器循环频率，单位 Hz
     behavior_plugins: [spin, backup, drive_on_heading, wait] # 可用恢复行为插件 ID 列表
     spin: # 原地旋转恢复行为参数组
       plugin: nav2_behaviors/Spin # 使用 Nav2 原地旋转恢复插件
@@ -377,7 +381,7 @@ behavior_server: # Nav2 恢复行为服务器参数组
 waypoint_follower: # Nav2 路点跟随服务器参数组
   ros__parameters: # waypoint_follower ROS 参数集合
     use_sim_time: false # 是否使用仿真时间；实车使用系统时间
-    loop_rate: 20 # 路点跟随循环频率，单位 Hz
+    loop_rate: 10 # 路点跟随循环频率，单位 Hz
     stop_on_failure: false # 单个路点失败时是否停止整个路点任务
     waypoint_task_executor_plugin: wait_at_waypoint # 路点到达后执行的任务插件 ID
     wait_at_waypoint: # 路点等待任务插件参数组
@@ -390,7 +394,7 @@ velocity_smoother: # Nav2 速度平滑器参数组
   ros__parameters: # velocity_smoother ROS 参数集合
     use_sim_time: false # 是否使用仿真时间；实车使用系统时间
     # 平滑频率要与 controller 频率接近，避免输出台阶感过重
-    smoothing_frequency: 20.0 # 速度平滑输出频率，单位 Hz
+    smoothing_frequency: 10.0 # 速度平滑输出频率，单位 Hz；与 controller 低算力频率对齐
     scale_velocities: false # 是否按比例缩放各速度分量以满足限制
     # 当前按开环模式工作，依赖 odom 仅做时间窗口观测
     feedback: OPEN_LOOP # 速度平滑反馈模式；OPEN_LOOP 表示不闭环追踪实际速度

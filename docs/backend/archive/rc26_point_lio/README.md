@@ -30,7 +30,7 @@
 - `point_filter_num` 整数抽样入口
 - Mid-360 输入侧车身 ROI 裁剪，运行时只允许 `filter_car_body` 与 `body_*` 热更新
 - `/state_estimation`、`/cloud_registered`、`/cloud_registered_body`、`/Laser_map`、`/point_lio/map_cloud`、`/path`
-- 默认低频完整累计地图可视化发布，供 RViz/Foxglove 等下游只读观察
+- 低频完整累计地图可视化发布，供 RViz/Foxglove 等下游只读观察；完整导航 bringup 在 `run_mode:=navigation` 默认通过 launch 覆盖关闭该发布，以降低 X1 板卡 CPU、内存和网络压力，建图模式仍可打开
 - 默认基础 PCD 保存能力，`interval=-1` 时正常退出后写入单个 `scans.pcd`
 - `scripts/pcd_map_inspector.py` 提供只读 PCD 边界分析和 Nav2 map YAML 覆盖校验；支持 ASCII、binary 和 PCL binary_compressed PCD，只输出报告，不生成或修改栅格地图
 - `scripts/pcd_to_nav2_map.py` 复用同一套 PCD 解析能力，把高度过滤后的 PCD 投影成 Nav2 `PNG + YAML` 黑白静态地图；默认 `resolution=0.05`、`z_min=0.05`、`z_max=2.0`、`min_points_per_cell=3`、`image_format=png`，也可显式生成 PGM
@@ -97,7 +97,7 @@
 - `config/mid360.yaml` 保留常用/高影响参数的中文注释，重点说明 Point-LIO 常用预处理、IMU/点云时间、滤波、发布和建图保存相关字段。
 - `point_filter_num` 是公开输入点云密度入口，按旧 Point-LIO 整数抽样语义工作。
 - `filter_car_body` 和 `body_x/y/z_min/max` 是 Mid-360 输入侧车身 ROI 参数，单位米，坐标系为 `base_link`。这些参数支持热更新；初始配置或运行时更新若出现非有限数或 `min > max`，应直接失败。
-- `publish.full_map_*` 控制完整累计地图可视化发布，默认开启、2 秒一次、0.1m 体素降采样、最多 150 万点。
+- `publish.full_map_*` 控制完整累计地图可视化发布。Point-LIO YAML 仍保留建图观察用途的默认值；完整导航 bringup 在 `run_mode:=navigation` 默认传入 `point_lio_full_map_publish_en=false` 覆盖关闭，需要观察完整累计图时可显式传 `point_lio_full_map_publish_en:=true`。
 - `experimental_loop_closure.*` 是实验性全局闭环参数组，默认关闭。开启后会保存关键帧、执行 Scan Context/ICP 候选验证和 GTSAM/iSAM2 优化；闭环成功后按优化关键帧相对原关键帧的位姿差回写当前 `kf_output` 或 `kf_input` 的 `pos/rot`，并重建 iVox 局部地图。
 - `pcd_save.pcd_save_en` 当前默认开启，`pcd_save.interval=-1` 表示正常退出后写入单个 `scans.pcd`；长时间建图需注意单文件和内存压力。
 - 点密度、滤波尺寸、量程、建图参数、发布开关和保存开关均需通过完整 YAML 修改后重启，不再作为热更新入口。

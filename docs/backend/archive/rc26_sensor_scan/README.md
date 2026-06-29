@@ -16,7 +16,8 @@
 - 根据 TF 做逆向投影，把全局/底盘视角点云转换回传感器局部视角
 - 同步分发局部视角点云和对应姿态
 - 减少重复计算，尽量透传上游已存在的状态量
-- 当前 `sensor_scan` 话题默认使用 `livox_frame` 作为 `frame_id`；`rc26_bringup/config/nav2_params.yaml` 的 local/global obstacle layer 默认消费该 PointCloud2，并在合成 costmap 中叠加 inflation layer
+- 当前 `sensor_scan` 话题默认使用 `livox_frame` 作为 `frame_id`；`rc26_bringup/config/nav2_params.yaml` 的 local/global obstacle layer 默认消费该 PointCloud2，并在 obstacle layer 侧过滤 `0.05m` 以下低矮点后叠加 inflation layer
+- `/odom` 与 `/registered_scan` 输入订阅 QoS 深度由 `input_qos_depth` 控制，ExactTime 同步缓存由 `sync_queue_size` 控制，默认均为 20，用于吸收短时回调拥塞
 - 当前自动导航链要求输入 `/odom.child_frame_id=base_footprint`
 - 由于 `base_link` 现在保留 roll/pitch，`base_footprint -> livox_frame` 对导航链不再是纯静态量；模块已改为按每帧时间戳实时查询组合 TF
 
@@ -44,4 +45,4 @@
 - 它不是点云配准算法，不代替 `rc26_point_lio`
 - 它不做地形语义分割，也不承担已删除旧地形链路的语义栅格职责
 - 它的职责是“整理输入给别人用”，不是直接产出高层决策结果
-- 它当前不负责生成 `/scan` LaserScan 兼容话题；导航主链默认直接把 `sensor_scan` (`PointCloud2`) 接入 Nav2 obstacle layer
+- 它当前不负责生成 `/scan` LaserScan 兼容话题；导航主链默认直接把 `sensor_scan` (`PointCloud2`) 接入 Nav2 obstacle layer，具体障碍高度过滤由 `rc26_bringup/config/nav2_params.yaml` 维护

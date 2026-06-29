@@ -15,10 +15,11 @@
 运行时链路已经按比赛最小可用口径收口：
 
 - 输入 `registered_scan`，默认由 `rc26_odom_interface` 提供，假设已经在 `odom` 坐标系表达
+- `registered_scan` 订阅队列由 `input_cloud_queue_size` 控制，默认 30，用于吸收启动阶段和短时回调拥塞；累计点云仍受内部上限保护，避免无界占用内存
 - 默认 `robot_base_frame=base_footprint`，连续定位和 `initialpose` 接管都以 2D 导航基座为准
 - 加载 `prior_pcd_file`，假设先验 PCD 已经在 `map` 坐标系表达
 - 启动后继续发布配置初值 TF，并用开局累计点云做一次 FPFH/SAC-IA 粗配准 + small_gicp 精配准
-- 2Hz 执行 small_gicp 局部配准，质量通过 `min_inliers` 和 `max_normalized_error` 门控
+- 2Hz 执行 small_gicp 局部配准，质量通过 `min_inliers` 和 `max_normalized_error` 门控；默认 `num_threads=2`，按 X1 低算力整车链路限制 GICP 并行度，避免与 Point-LIO、Nav2 costmap/DWB 和相机驱动抢满 CPU
 - 20Hz 发布 `map -> odom`，同时发布 `/localization/pose_with_cov`
 - 发布 `/localization/diagnostics`，记录本帧是否接受、收敛、内点数、归一化误差和开局重定位状态；`status.message` 继续保留英文 reason code，同时新增 `human_message` 中文说明字段供现场排查
 - 订阅 `initialpose`，用 `map_to_odom = map_to_base * inverse(odom_to_base)` 接管定位；当前查询的是 `odom -> base_footprint`

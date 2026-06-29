@@ -31,12 +31,17 @@ odom_interface:
     # ===== 时间同步 =====
     # 参数说明：max_time_diff_sec - 时间参数，单位秒。
     max_time_diff_sec: 0.2    # 点云与里程计允许的最大严重失配时间差 (秒)；代码内部会吸收毫秒级抖动
+    publish_bootstrap_pose: true  # 启动阶段在真实 odom 接管前发布稳定零速 /odom 和动态 TF，不代表定位成功
+    bootstrap_pose_rate_hz: 20.0  # bootstrap /odom 和 TF 发布频率
+    cloud_queue_size: 20  # Point-LIO 点云/里程计订阅与 registered_scan/odom 发布队列深度
+    pending_cloud_queue_size: 32  # 点云先于 odom 到达时的等待匹配队列深度
+    odom_stamp_history_size: 256  # registered_scan 匹配最近 odom 时间戳的历史窗口长度
     clamp_cloud_stamp_to_latest_odom: true  # 若点云 stamp 略超前于最新 odom，则向后钳制，避免下游 TF future extrapolation
     defer_cloud_until_matching_odom: true  # 点云先到时先缓存，等对应 odom 到达后再发布 registered_scan（支持少量时间抖动）
     # 参数说明：publish_debug_path - 调试路径发布开关；开启后输出 odom_path 便于观察。
-    publish_debug_path: true  # 调试路径话题 odom_path；比赛最小链可关闭
+    publish_debug_path: false  # 调试路径话题 odom_path；低算力导航默认关闭，需要观察时再打开
     # 参数说明：publish_pose_markers - 布尔开关；控制对应能力是否启用。
-    publish_pose_markers: true  # 调试位姿 marker 话题 odom_pose_markers；比赛最小链可关闭
+    publish_pose_markers: false  # 调试位姿 marker 话题 odom_pose_markers；低算力导航默认关闭
     # 参数说明：use_input_twist - 布尔开关；控制对应能力是否启用。
     use_input_twist: true
     # 参数说明：zero_origin_to_first_frame - 启动归零开关；开启后以首段静止均值作为坐标原点。

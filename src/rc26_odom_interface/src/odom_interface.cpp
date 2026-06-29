@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <Eigen/Dense>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -34,8 +35,6 @@ namespace rc26_odom_interface {
 namespace {
 
 constexpr size_t kMaxPathPoses = 2000;
-constexpr size_t kMaxOdomStampHistorySize = 128;
-constexpr size_t kMaxPendingClouds = 8;
 constexpr double kCloudOdomStampToleranceSec = 0.005;  // 吸收 ROS 回调调度造成的毫秒级时间戳抖动
 
 bool sameStamp(const builtin_interfaces::msg::Time& lhs, const builtin_interfaces::msg::Time& rhs) {
@@ -210,6 +209,11 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     this->declare_parameter<bool>("defer_cloud_until_matching_odom", true);
     this->declare_parameter<bool>("publish_debug_path", true);
     this->declare_parameter<bool>("publish_pose_markers", true);
+    this->declare_parameter<bool>("publish_bootstrap_pose", true);
+    this->declare_parameter<double>("bootstrap_pose_rate_hz", 20.0);
+    this->declare_parameter<int>("odom_stamp_history_size", 128);
+    this->declare_parameter<int>("pending_cloud_queue_size", 8);
+    this->declare_parameter<int>("cloud_queue_size", 5);
     this->declare_parameter<bool>("use_input_twist", true);
     this->declare_parameter<bool>("zero_origin_to_first_frame", true);
     this->declare_parameter<int>("zero_origin_warmup_frames", 10);
@@ -234,6 +238,13 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     this->get_parameter("defer_cloud_until_matching_odom", defer_cloud_until_matching_odom_);
     this->get_parameter("publish_debug_path", publish_debug_path_);
     this->get_parameter("publish_pose_markers", publish_pose_markers_);
+    this->get_parameter("publish_bootstrap_pose", publish_bootstrap_pose_);
+    this->get_parameter("bootstrap_pose_rate_hz", bootstrap_pose_rate_hz_);
+    int odom_stamp_history_size_param = 128;
+    int pending_cloud_queue_size_param = 8;
+    this->get_parameter("odom_stamp_history_size", odom_stamp_history_size_param);
+    this->get_parameter("pending_cloud_queue_size", pending_cloud_queue_size_param);
+    this->get_parameter("cloud_queue_size", cloud_queue_size_);
     this->get_parameter("use_input_twist", use_input_twist_);
     this->get_parameter("zero_origin_to_first_frame", zero_origin_to_first_frame_);
     this->get_parameter("zero_origin_warmup_frames", zero_origin_warmup_frames_);
@@ -276,6 +287,27 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
                     debug_pose_log_interval_sec_);
         debug_pose_log_interval_sec_ = 1.0;
     }
+    if (!std::isfinite(bootstrap_pose_rate_hz_) || bootstrap_pose_rate_hz_ <= 0.0) {
+        RCLCPP_WARN(this->get_logger(), "bootstrap_pose_rate_hz=%.3f 非法，已回退为 20.0",
+                    bootstrap_pose_rate_hz_);
+        bootstrap_pose_rate_hz_ = 20.0;
+    }
+    if (odom_stamp_history_size_param < 16) {
+        RCLCPP_WARN(this->get_logger(), "odom_stamp_history_size=%d 过小，已钳制为 16",
+                    odom_stamp_history_size_param);
+        odom_stamp_history_size_param = 16;
+    }
+    if (pending_cloud_queue_size_param < 1) {
+        RCLCPP_WARN(this->get_logger(), "pending_cloud_queue_size=%d 非法，已钳制为 1",
+                    pending_cloud_queue_size_param);
+        pending_cloud_queue_size_param = 1;
+    }
+    if (cloud_queue_size_ < 1) {
+        RCLCPP_WARN(this->get_logger(), "cloud_queue_size=%d 非法，已钳制为 1", cloud_queue_size_);
+        cloud_queue_size_ = 1;
+    }
+    odom_stamp_history_size_ = static_cast<size_t>(odom_stamp_history_size_param);
+    pending_cloud_queue_size_ = static_cast<size_t>(pending_cloud_queue_size_param);
     if (!std::isfinite(base_link_height_above_base_footprint_m_)) {
         throw std::runtime_error("base_link_height_above_base_footprint_m 必须是有限数值");
     }
@@ -308,8 +340,8 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     rotation.normalize();
     tf_base_to_input_body_.setRotation(rotation);
 
-    pcd_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("registered_scan", 5);
-    odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("odom", 5);
+    pcd_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("registered_scan", cloud_queue_size_);
+    odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("odom", cloud_queue_size_);
     if (publish_debug_path_) {
         odom_path_pub_ = this->create_publisher<nav_msgs::msg::Path>("odom_path", 5);
     }
@@ -319,13 +351,25 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
     odom_path_msg_.header.frame_id = odom_frame_;
 
     pcd_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-        registered_scan_topic_, 5, std::bind(&OdomInterfaceNode::pointCloudCallback, this, std::placeholders::_1));
+        registered_scan_topic_, cloud_queue_size_,
+        std::bind(&OdomInterfaceNode::pointCloudCallback, this, std::placeholders::_1));
     odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-        state_estimation_topic_, 5, std::bind(&OdomInterfaceNode::odometryCallback, this, std::placeholders::_1));
+        state_estimation_topic_, cloud_queue_size_,
+        std::bind(&OdomInterfaceNode::odometryCallback, this, std::placeholders::_1));
+
+    if (publish_bootstrap_pose_) {
+        const auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::duration<double>(1.0 / bootstrap_pose_rate_hz_));
+        bootstrap_pose_timer_ = this->create_wall_timer(period, [this]() { publishBootstrapPose(); });
+    }
 
     RCLCPP_INFO(this->get_logger(), "debug publishers: odom_path=%s, odom_pose_markers=%s",
                 publish_debug_path_ ? "enabled" : "disabled",
                 publish_pose_markers_ ? "enabled" : "disabled");
+    RCLCPP_INFO(this->get_logger(),
+                "启动位姿与缓存: bootstrap=%s@%.1fHz, cloud_queue=%d, pending_cloud_queue=%zu, odom_history=%zu",
+                publish_bootstrap_pose_ ? "enabled" : "disabled", bootstrap_pose_rate_hz_, cloud_queue_size_,
+                pending_cloud_queue_size_, odom_stamp_history_size_);
     if (base_frame_ == base_link_frame_) {
         RCLCPP_WARN(this->get_logger(),
                     "base_frame 与 base_link_frame 同名 (%s)，将回退为单边 odom -> %s 兼容模式",
@@ -352,7 +396,7 @@ void OdomInterfaceNode::storeOdometryStampLocked(const rclcpp::Time& odom_stamp)
         odometry_stamp_history_.insert(it, odom_stamp);
     }
 
-    while (odometry_stamp_history_.size() > kMaxOdomStampHistorySize) {
+    while (odometry_stamp_history_.size() > odom_stamp_history_size_) {
         odometry_stamp_history_.pop_front();
     }
 }
@@ -450,7 +494,7 @@ void OdomInterfaceNode::pointCloudCallback(const sensor_msgs::msg::PointCloud2::
                 return;
             }
             pending_clouds_.push_back(msg);
-            if (pending_clouds_.size() > kMaxPendingClouds) {
+            if (pending_clouds_.size() > pending_cloud_queue_size_) {
                 const auto dropped_stamp = rclcpp::Time(pending_clouds_.front()->header.stamp);
                 pending_clouds_.pop_front();
                 RCLCPP_WARN_THROTTLE(
@@ -517,6 +561,61 @@ void OdomInterfaceNode::publishRegisteredCloud(const sensor_msgs::msg::PointClou
     pcd_pub_->publish(out);
 }
 
+void OdomInterfaceNode::publishBootstrapPose() {
+    bool should_publish = false;
+    double yaw = 0.0;
+    {
+        std::lock_guard<std::mutex> lock(transform_mutex_);
+        should_publish = !odom_pose_ready_;
+        yaw = bootstrap_yaw_rad_;
+    }
+    if (!should_publish) {
+        if (bootstrap_pose_timer_) {
+            bootstrap_pose_timer_->cancel();
+        }
+        return;
+    }
+
+    tf2::Quaternion yaw_rotation;
+    yaw_rotation.setRPY(0.0, 0.0, yaw);
+    yaw_rotation.normalize();
+
+    tf2::Transform tf_odom_to_base;
+    tf_odom_to_base.setIdentity();
+    tf_odom_to_base.setRotation(yaw_rotation);
+
+    nav_msgs::msg::Odometry out;
+    out.header.stamp = this->now();
+    out.header.frame_id = odom_frame_;
+    out.child_frame_id = base_frame_;
+    out.pose.pose.orientation = tf2::toMsg(yaw_rotation);
+    out.pose.covariance.fill(0.0);
+    out.twist.covariance.fill(0.0);
+    odom_pub_->publish(out);
+
+    std::vector<geometry_msgs::msg::TransformStamped> tf_msgs;
+    geometry_msgs::msg::TransformStamped tf_base_frame_msg;
+    tf_base_frame_msg.header = out.header;
+    tf_base_frame_msg.child_frame_id = base_frame_;
+    tf_base_frame_msg.transform = tf2::toMsg(tf_odom_to_base);
+    tf_msgs.emplace_back(std::move(tf_base_frame_msg));
+
+    if (base_frame_ != base_link_frame_) {
+        tf2::Transform tf_base_to_base_link;
+        tf_base_to_base_link.setIdentity();
+        tf_base_to_base_link.setOrigin(tf2::Vector3(0.0, 0.0, base_link_height_above_base_footprint_m_));
+
+        geometry_msgs::msg::TransformStamped tf_base_link_msg;
+        tf_base_link_msg.header.stamp = out.header.stamp;
+        tf_base_link_msg.header.frame_id = base_frame_;
+        tf_base_link_msg.child_frame_id = base_link_frame_;
+        tf_base_link_msg.transform = tf2::toMsg(tf_base_to_base_link);
+        tf_msgs.emplace_back(std::move(tf_base_link_msg));
+    }
+
+    tf_broadcaster_->sendTransform(tf_msgs);
+}
+
 void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSharedPtr msg) {
     if (msg->header.frame_id != odom_frame_) {
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
@@ -555,6 +654,18 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
 
     // Compute the raw Point-LIO odom -> base_link transform before splitting.
     tf2::Transform tf_input_odom_to_base_link = tf_input_body_odom_to_input_body * tf_input_body_to_base_link;
+
+    {
+        std::lock_guard<std::mutex> lock(transform_mutex_);
+        if (!bootstrap_yaw_locked_) {
+            double roll = 0.0;
+            double pitch = 0.0;
+            double yaw = 0.0;
+            tf2::Matrix3x3(tf_input_odom_to_base_link.getRotation()).getRPY(roll, pitch, yaw);
+            bootstrap_yaw_rad_ = yaw;
+            bootstrap_yaw_locked_ = true;
+        }
+    }
 
     if (zero_origin_to_first_frame_) {
         std::lock_guard<std::mutex> lock(transform_mutex_);
@@ -605,6 +716,10 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
     const auto base_frame_split =
         splitBaseLinkTransform(tf_input_odom_to_base_link, base_link_height_above_base_footprint_m_, split_base_frame);
     const tf2::Transform& tf_odom_to_output_base = base_frame_split.odom_to_base_frame;
+
+    if (bootstrap_pose_timer_) {
+        bootstrap_pose_timer_->cancel();
+    }
 
     nav_msgs::msg::Odometry out;
     out.header.stamp = msg->header.stamp;

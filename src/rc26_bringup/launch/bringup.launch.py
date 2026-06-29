@@ -21,7 +21,7 @@ import os
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -61,6 +61,18 @@ def _select_bool(context, name, default_value):
     if value != '':
         return _parse_bool(value)
     return _parse_bool(default_value) if isinstance(default_value, str) else bool(default_value)
+
+
+def _select_nonnegative_float(context, name, default_value):
+    value = _launch_value(context, name)
+    text = str(default_value) if value == '' else value
+    try:
+        parsed = float(text)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a number, got: {text}") from exc
+    if parsed < 0.0:
+        raise RuntimeError(f"{name} must be >= 0.0, got: {parsed}")
+    return parsed
 
 
 def _select_abs_path(context, name, default_value):
@@ -144,6 +156,12 @@ def _load_r2_runtime_defaults(config_file):
     return defaults
 
 
+def _after_delay(delay_sec, actions):
+    if delay_sec <= 0.0:
+        return list(actions)
+    return [TimerAction(period=delay_sec, actions=list(actions))]
+
+
 def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2_bringup_dir, mcu_transport_dir):
     runtime_config_file = _launch_value(context, 'runtime_config_file')
     runtime_defaults = _load_r2_runtime_defaults(runtime_config_file)
@@ -168,6 +186,16 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2
         context,
         'localization_params_file',
         os.path.join(bringup_dir, 'config', 'localization.yaml'))
+    startup_delay_localization_sec = _select_nonnegative_float(
+        context, 'startup_delay_localization_sec', 4.0)
+    startup_delay_map_sec = _select_nonnegative_float(
+        context, 'startup_delay_map_sec', 6.0)
+    startup_delay_nav2_sec = _select_nonnegative_float(
+        context, 'startup_delay_nav2_sec', 8.0)
+    startup_delay_decision_sec = _select_nonnegative_float(
+        context, 'startup_delay_decision_sec', 14.0)
+    startup_delay_realsense_sec = _select_nonnegative_float(
+        context, 'startup_delay_realsense_sec', 18.0)
 
     use_decision = _parse_bool(_launch_value(context, 'use_decision') or 'true')
     use_realsense = _parse_bool(_launch_value(context, 'use_realsense'))
@@ -185,6 +213,10 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2
         'nav2_params_file',
         os.path.join(bringup_dir, 'config', 'nav2_params.yaml'))
     nav2_map_file = _select_abs_path(context, 'nav2_map_file', runtime_defaults['paths']['nav2_map_file'])
+    point_lio_full_map_publish_en = _select_str(
+        context,
+        'point_lio_full_map_publish_en',
+        'false' if navigation_mode else 'true')
     behavior_tree_file = runtime_defaults['paths']['behavior_tree_file']
     mcu_transport_defaults = runtime_defaults['mcu_transport']
     start_mcu_transport = _select_bool(context, 'start_mcu_transport', mcu_transport_defaults['enabled'])
@@ -267,6 +299,7 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2
             'sensor_extrinsics_file': sensor_extrinsics_file,
             'sensor_extrinsics_profile': sensor_extrinsics_profile,
             'point_lio_publish_odometry_without_downsample': 'false',
+            'point_lio_full_map_publish_en': point_lio_full_map_publish_en,
             'start_mid360_driver': start_mid360_driver,
             'recover_mid360_stream': recover_mid360_stream,
         }.items()
@@ -285,10 +318,10 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2
             'localization_params_file': localization_params_file,
         }.items()
     )
-    actions.append(localization_launch)
+    actions.extend(_after_delay(startup_delay_localization_sec, [localization_launch]))
 
     if navigation_mode:
-        actions.append(Node(
+        map_server_node = Node(
             package='nav2_map_server',
             executable='map_server',
             name='map_server',
@@ -301,9 +334,9 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2
                     'yaml_filename': nav2_map_file,
                 },
             ],
-        ))
+        )
 
-        actions.append(Node(
+        map_lifecycle_node = Node(
             package='nav2_lifecycle_manager',
             executable='lifecycle_manager',
             name='lifecycle_manager_map',
@@ -314,9 +347,10 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2
                 'autostart': True,
                 'node_names': ['map_server'],
             }],
-        ))
+        )
+        actions.extend(_after_delay(startup_delay_map_sec, [map_server_node, map_lifecycle_node]))
 
-        actions.append(IncludeLaunchDescription(
+        nav2_launch = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 PathJoinSubstitution([nav2_bringup_dir, 'launch', 'navigation_launch.py'])
             ),
@@ -328,13 +362,14 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2
                 'use_composition': 'False',
                 'use_respawn': 'False',
             }.items(),
-        ))
+        )
+        actions.extend(_after_delay(startup_delay_nav2_sec, [nav2_launch]))
 
     if use_decision and not (mapping_mode and pure_mapping_mode):
         decision_params = dict(runtime_defaults['decision_params'])
         decision_params.pop('team', None)
         decision_params.pop('tree_file', None)
-        actions.append(Node(
+        decision_node = Node(
             package='rc26_decision',
             executable='decision_node',
             name='rc26_decision',
@@ -348,7 +383,8 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2
                     'tree_file': behavior_tree_file,
                 },
             ],
-        ))
+        )
+        actions.extend(_after_delay(startup_delay_decision_sec, [decision_node]))
 
     if use_realsense:
         realsense_launch = IncludeLaunchDescription(
@@ -360,12 +396,13 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, nav2
                 'config_file': realsense_config_file,
             }.items()
         )
-        actions.append(GroupAction(
+        realsense_group = GroupAction(
             actions=[
                 PushRosNamespace(namespace),
                 realsense_launch,
             ],
-        ))
+        )
+        actions.extend(_after_delay(startup_delay_realsense_sec, [realsense_group]))
 
     return actions
 
@@ -425,6 +462,30 @@ def generate_launch_description():
             'localization_params_file',
             default_value='',
             description='基础定位参数文件路径；为空时使用 rc26_bringup/config/localization.yaml'),
+        DeclareLaunchArgument(
+            'startup_delay_localization_sec',
+            default_value='4.0',
+            description='错峰启动延时：定位链路启动前等待秒数；0 表示不延时'),
+        DeclareLaunchArgument(
+            'startup_delay_map_sec',
+            default_value='6.0',
+            description='错峰启动延时：map_server 与 map lifecycle 启动前等待秒数；0 表示不延时'),
+        DeclareLaunchArgument(
+            'startup_delay_nav2_sec',
+            default_value='8.0',
+            description='错峰启动延时：Nav2 navigation_launch 启动前等待秒数；0 表示不延时'),
+        DeclareLaunchArgument(
+            'startup_delay_decision_sec',
+            default_value='14.0',
+            description='错峰启动延时：decision_node 启动前等待秒数；0 表示不延时'),
+        DeclareLaunchArgument(
+            'startup_delay_realsense_sec',
+            default_value='18.0',
+            description='错峰启动延时：RealSense 启动前等待秒数；0 表示不延时'),
+        DeclareLaunchArgument(
+            'point_lio_full_map_publish_en',
+            default_value='',
+            description='Point-LIO 完整累计地图可视化发布开关；空字符串表示 navigation=false、mapping=true'),
         DeclareLaunchArgument(
             'start_mcu_transport',
             default_value='',

@@ -56,6 +56,8 @@ private:
     std::string scan_topic_;
     std::string odometry_topic_;
     double max_time_diff_sec_{0.1};
+    int sync_queue_size_{20};
+    int input_qos_depth_{20};
 
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_laser_cloud_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_chassis_odometry_;

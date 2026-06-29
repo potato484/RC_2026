@@ -97,6 +97,7 @@ private:
     std::string input_cloud_topic_{"registered_scan"};
     std::string pose_cov_topic_{"/localization/pose_with_cov"};
     std::string diagnostics_topic_{"/localization/diagnostics"};
+    int input_cloud_queue_size_{30};
     std::string current_scan_frame_id_;
     rclcpp::Time last_scan_time_;
 

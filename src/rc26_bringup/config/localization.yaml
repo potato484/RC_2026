@@ -22,12 +22,13 @@ localization:
 
     prior_pcd_file: ""
     input_cloud_topic: "registered_scan"
+    input_cloud_queue_size: 30
     pose_cov_topic: "/localization/pose_with_cov"
     diagnostics_topic: "/localization/diagnostics"
 
     init_pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
-    num_threads: 4
+    num_threads: 2
     num_neighbors: 20
     global_leaf_size: 0.25
     registered_leaf_size: 0.25

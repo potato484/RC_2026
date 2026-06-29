@@ -66,6 +66,8 @@ private:
                                 const rclcpp::Time& output_stamp,
                                 const tf2::Transform& tf_input_odom_to_output_odom);
 
+    void publishBootstrapPose();
+
     void storeOdometryStampLocked(const rclcpp::Time& odom_stamp);
 
     OdomHistoryLookupResult lookupOdometryStampLocked(const rclcpp::Time& stamp, double max_abs_diff_sec) const;
@@ -77,6 +79,7 @@ private:
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr odom_path_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr odom_pose_markers_pub_;
+    rclcpp::TimerBase::SharedPtr bootstrap_pose_timer_;
 
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 
@@ -107,6 +110,13 @@ private:
     bool defer_cloud_until_matching_odom_{true};  // 点云超前时先缓存，等待对应 odom 到达后再发布
     bool publish_debug_path_{true};
     bool publish_pose_markers_{true};
+    bool publish_bootstrap_pose_{true};
+    bool bootstrap_yaw_locked_{false};
+    double bootstrap_pose_rate_hz_{20.0};
+    double bootstrap_yaw_rad_{0.0};
+    size_t odom_stamp_history_size_{128};
+    size_t pending_cloud_queue_size_{8};
+    int cloud_queue_size_{5};
     tf2::Transform tf_input_odom_to_output_odom_;  // 首帧平移归零: 将 Point-LIO odom 平移到输出基座首帧原点
     tf2::Vector3 zero_origin_translation_sum_{0.0, 0.0, 0.0};
     nav_msgs::msg::Path odom_path_msg_;
