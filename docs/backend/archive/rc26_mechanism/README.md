@@ -34,7 +34,7 @@
 - service `/mechanism/send_command`
 - topic `/mechanism/command_feedback`
 
-上层若要发送 `GRAB_TIP(0x01)`、`GRAB_KFS_DOWN(0x02)`、`GRAB_KFS_UP(0x03)`、`ARM_SECOND_LOWER(0x0E)`、`PLACE_KFS_GRID(0x06)`、推杆命令或其它原始机构命令，都直接调用 `/mechanism/send_command`。service `accepted=true` 只表示目标 MCU 已返回通用 `ACK(0x00)`，不表示动作已经完成。
+上层若要发送 `GRAB_TIP(0x01)`、`GRAB_KFS_DOWN(0x02)`、`GRAB_KFS_UP(0x03)`、`ENTRY_GRAB_KFS_UP(0x0F)`、`ARM_SECOND_LOWER(0x0E)`、`PLACE_KFS_GRID(0x06)`、推杆命令或其它原始机构命令，都直接调用 `/mechanism/send_command`。service `accepted=true` 只表示目标 MCU 已返回通用 `ACK(0x00)`，不表示动作已经完成。
 
 ## 协议口径
 
@@ -55,6 +55,7 @@
 - `POSE_TARGET = 0x0C`
 - `ARM_HIGH_RAISE = 0x0D`
 - `ARM_SECOND_LOWER = 0x0E`
+- `ENTRY_GRAB_KFS_UP = 0x0F`
 
 当前业务反馈口径：
 
@@ -66,8 +67,9 @@
 - `FRONT_SECOND_LASER_HEIGHT_JUMP = 0x07`
 - `ARM_HIGH_RAISE_DONE = 0x09`
 - `ARM_SECOND_LOWER_DONE = 0x0A`
+- `ENTRY_GRAB_KFS_UP_DONE = 0x0B`
 
-KFS 阶梯等待测试链不因 `R_R1/B_R1` 阻塞标签发送夹取命令。`ARM_RAISE(0x04)` / `ARM_LOWER(0x05)` 由决策层直接通过 `/mechanism/send_command` 发送，并等待同 `seq` 的 `ARM_RAISE_DONE(0x02)` / `ARM_LOWER_DONE(0x03)`。向下夹取在锁定视觉深度并计算开环距离后，会先发送 `ARM_SECOND_LOWER(0x0E)` 并等待同 `seq` 的 `ARM_SECOND_LOWER_DONE(0x0A)`，确认后才前进或直接夹取。`GRAB_KFS_UP(0x03)` 与 `GRAB_KFS_DOWN(0x02)` 已由梅林预选赛和 `rc26_vision` 独立 KFS action test 作为 raw transport 命令使用；本包不把 service ACK 解释为物理夹取成功，成功判定由上层视觉消失验证完成。
+KFS 阶梯等待测试链不因 `R_R1/B_R1` 阻塞标签发送夹取命令。`ARM_RAISE(0x04)` / `ARM_LOWER(0x05)` 由决策层直接通过 `/mechanism/send_command` 发送，并等待同 `seq` 的 `ARM_RAISE_DONE(0x02)` / `ARM_LOWER_DONE(0x03)`。向下夹取在锁定视觉深度并计算开环距离后，会先发送 `ARM_SECOND_LOWER(0x0E)` 并等待同 `seq` 的 `ARM_SECOND_LOWER_DONE(0x0A)`，确认后才前进或直接夹取。梅林预选赛入口高侧夹取使用 `ENTRY_GRAB_KFS_UP(0x0F)` 并等待同 `seq` 的 `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 后进入视觉消失验证。`GRAB_KFS_UP(0x03)` 与 `GRAB_KFS_DOWN(0x02)` 已由梅林预选赛和 `rc26_vision` 独立 KFS action test 作为 raw transport 命令使用；本包不把 service ACK 解释为物理夹取成功，成功判定由上层视觉消失验证完成。
 
 `PLACE_KFS_GRID(0x06)` 若仍需发送，只能走 raw `/mechanism/send_command`，不再有高层“完成反馈即成功”的封装。
 
@@ -83,6 +85,8 @@ KFS 阶梯等待测试链不因 `R_R1/B_R1` 阻塞标签发送夹取命令。`AR
 新增机构原始命令时，先在 `rc26_serial/protocol.hpp` 定义 ID，再由需要该命令的上层直接调用 `/mechanism/send_command`。只有确实需要恢复高层动作语义时，才重新设计 action、完成反馈、超时规则和中间层文档契约。
 
 ## 本轮同步
+
+2026-06-30 同步：协议真源新增梅林预选赛入口高侧 KFS 夹取 `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)`。`rc26_mechanism` 仍保持 shared-serial 占位，不恢复高层 catalog；完成反馈由上层按同 `seq` 自行解释。
 
 2026-06-27 同步：KFS 向下夹取新增 `ARM_SECOND_LOWER(0x0E)` / `ARM_SECOND_LOWER_DONE(0x0A)`，仍由上层经 `/mechanism/send_command` 和 `/mechanism/command_feedback` 解释，本包不恢复高层动作 catalog。
 

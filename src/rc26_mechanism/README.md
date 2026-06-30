@@ -29,10 +29,10 @@
 ## 当前对外语义
 
 - 当前没有高层 action 对外语义。
-- `mechanism_command_catalog()` 返回空目录；`GRAB_TIP`、`PLACE_KFS_GRID`、上下 KFS 夹取和推杆命令若要发送，都直接调用 `/mechanism/send_command`。
+- `mechanism_command_catalog()` 返回空目录；`GRAB_TIP`、`PLACE_KFS_GRID`、上下 KFS 夹取、梅林预选赛入口高侧 KFS 夹取和推杆命令若要发送，都直接调用 `/mechanism/send_command`。
 - 旧通用 KFS 夹取、旧组装动作、旧专用完成反馈和旧即时负确认已从串口协议删除。
 
-KFS 阶梯等待测试链当前不把新的上下阶梯夹取预留命令加入 catalog。`ARM_RAISE(0x04)`、`ARM_LOWER(0x05)` 由决策层测试节点直接通过 `/mechanism/send_command` 发送，并等待同 `seq` 的 `ARM_RAISE_DONE(0x02)` / `ARM_LOWER_DONE(0x03)`；`GRAB_KFS_UP(0x03)` 与 `GRAB_KFS_DOWN(0x02)` 只作为后续本车目标标签明确后的串口预留能力。
+KFS 阶梯等待测试链当前不把新的上下阶梯夹取命令加入 catalog。`ARM_RAISE(0x04)`、`ARM_LOWER(0x05)` 由决策层测试节点直接通过 `/mechanism/send_command` 发送，并等待同 `seq` 的 `ARM_RAISE_DONE(0x02)` / `ARM_LOWER_DONE(0x03)`；向下夹取开环前第二节机械臂放下使用 `ARM_SECOND_LOWER(0x0E)` / `ARM_SECOND_LOWER_DONE(0x0A)`；梅林预选赛入口高侧夹取使用 `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)`。service ACK 只表示通用 `ACK(0x00)`，不等同于动作完成或物理夹取成功。
 
 ## 维护规则
 

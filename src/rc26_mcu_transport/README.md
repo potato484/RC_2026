@@ -12,7 +12,7 @@
 - 把 `rc26_serial::SerialDriver::sendCommand()` 的通用 ACK 结果映射为 service response
 - 默认订阅 `/cmd_vel`，以 `50Hz` no-ack 路径下发 `POSE_TARGET(0x0C)`，payload 为 `(vx, vy, wz)` 三个 float
 - 透传 MCU 上行业务反馈，过滤底层 `ACK(0x00)`、`HEARTBEAT_ACK(0x01)`、`ODOM_DATA(0x08)` 与 transport 级 `MCU_ERROR(0xFE)`
-- 当前透传的业务反馈包括 KFS 机械臂升降完成 `0x02/0x03`、台阶激光事件 `0x04/0x05/0x07` 和前方限位事件 `0x06`；`/mechanism/send_command.accepted=true` 仍只表示通用 `ACK(0x00)` 已可靠返回
+- 当前透传的业务反馈包括 KFS 机械臂升降完成 `0x02/0x03`、台阶激光事件 `0x04/0x05/0x07`、前方限位事件 `0x06`、第二节机械臂放下完成 `0x0A` 和入口高侧 KFS 夹取完成 `0x0B`；`/mechanism/send_command.accepted=true` 仍只表示通用 `ACK(0x00)` 已可靠返回
 - 发布 `/mcu_transport/diagnostics`，其中 `last_error` 和 `mcu_error_responses` 会暴露 MCU `0xFE` 下位机原因
 
 ## 边界
@@ -46,6 +46,7 @@ ros2 launch rc26_mcu_transport mcu_transport.launch.py \
 - 直接调用 `/mechanism/send_command` 的机构动作链
 - `rc26_decision` 中等待限位后下发 `GRAB_TIP` 或台阶推杆命令的动作
 - `rc26_vision` tip test 中对齐后下发 `GRAB_TIP` 的链路
+- `rc26_decision` 梅林预选赛入口高侧下发 `ENTRY_GRAB_KFS_UP(0x0F)` 并等待 `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 的链路
 - Nav2、遥控、台阶动作、视觉对齐等发布 `/cmd_vel` 的链路
 
 如果串口暂时不存在，节点不会退出；`/mechanism/send_command` 会拒绝发送，`/cmd_vel` consumer 会节流报告发送失败，并持续重试初始打开，直到目标串口可用。

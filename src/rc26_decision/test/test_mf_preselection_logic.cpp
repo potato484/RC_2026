@@ -278,21 +278,25 @@ TEST(MfPreselectionLogic, FinalExitCenterTargetUsesForwardEntryHeading) {
 
 TEST(MfPreselectionLogic, GrabCommandFollowsHighSide) {
   rc26_decision::MfPreselectionParams params;
-  params.grab_kfs_up_command_id = 0x03;
-  params.grab_kfs_down_command_id = 0x02;
-  params.entry_grab_kfs_up_command_id = 0x0F;
-  params.entry_grab_kfs_up_done_feedback_id = 0x0B;
+  params.grab_kfs_up_command_id =
+      static_cast<int>(rc26_serial::CommandID::GRAB_KFS_UP);
+  params.grab_kfs_down_command_id =
+      static_cast<int>(rc26_serial::CommandID::GRAB_KFS_DOWN);
+  params.entry_grab_kfs_up_command_id =
+      static_cast<int>(rc26_serial::CommandID::ENTRY_GRAB_KFS_UP);
+  params.entry_grab_kfs_up_done_feedback_id =
+      static_cast<int>(rc26_serial::FeedbackID::ENTRY_GRAB_KFS_UP_DONE);
 
   EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabCommandForHighSide(
                 true, params),
-            static_cast<uint8_t>(0x03));
+            static_cast<uint8_t>(rc26_serial::CommandID::GRAB_KFS_UP));
   EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabCommandForHighSide(
                 false, params),
-            static_cast<uint8_t>(0x02));
+            static_cast<uint8_t>(rc26_serial::CommandID::GRAB_KFS_DOWN));
   EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabCommandForPickup(
                 true, rc26_decision::MfPreselectionPickupSource::None, false,
                 params),
-            static_cast<uint8_t>(0x03));
+            static_cast<uint8_t>(rc26_serial::CommandID::GRAB_KFS_UP));
   EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabDoneFeedbackForPickup(
                 true, rc26_decision::MfPreselectionPickupSource::None, false,
                 params),
@@ -300,7 +304,7 @@ TEST(MfPreselectionLogic, GrabCommandFollowsHighSide) {
   EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabCommandForPickup(
                 false, rc26_decision::MfPreselectionPickupSource::Stair1, true,
                 params),
-            static_cast<uint8_t>(0x02));
+            static_cast<uint8_t>(rc26_serial::CommandID::GRAB_KFS_DOWN));
   EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabDoneFeedbackForPickup(
                 false, rc26_decision::MfPreselectionPickupSource::Stair1, true,
                 params),
@@ -308,19 +312,19 @@ TEST(MfPreselectionLogic, GrabCommandFollowsHighSide) {
   EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabCommandForPickup(
                 true, rc26_decision::MfPreselectionPickupSource::Stair1, true,
                 params),
-            static_cast<uint8_t>(0x0F));
+            static_cast<uint8_t>(rc26_serial::CommandID::ENTRY_GRAB_KFS_UP));
   EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabDoneFeedbackForPickup(
                 true, rc26_decision::MfPreselectionPickupSource::Stair1, true,
                 params),
-            0x0B);
+            static_cast<int>(rc26_serial::FeedbackID::ENTRY_GRAB_KFS_UP_DONE));
   EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabCommandForPickup(
                 true, rc26_decision::MfPreselectionPickupSource::None, true,
                 params),
-            static_cast<uint8_t>(0x0F));
+            static_cast<uint8_t>(rc26_serial::CommandID::ENTRY_GRAB_KFS_UP));
   EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabDoneFeedbackForPickup(
                 true, rc26_decision::MfPreselectionPickupSource::None, true,
                 params),
-            0x0B);
+            static_cast<int>(rc26_serial::FeedbackID::ENTRY_GRAB_KFS_UP_DONE));
 }
 
 TEST(MfPreselectionLogic, BboxIouAndSameTargetUseLabelAndOverlap) {

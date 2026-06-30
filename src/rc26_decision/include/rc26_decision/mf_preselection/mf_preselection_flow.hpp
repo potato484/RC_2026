@@ -17,6 +17,7 @@
 #include "rc26_decision/stair/stair_area.hpp"
 #include "rc26_interfaces/msg/mechanism_transport_feedback.hpp"
 #include "rc26_interfaces/srv/send_mechanism_transport_command.hpp"
+#include "rc26_serial/protocol.hpp"
 #include "rc26_vision/inference/runtime/vision_inference_manager.hpp"
 #include "rc26_vision/shared/target/visual_target_match.hpp"
 
@@ -62,24 +63,34 @@ struct MfPreselectionParams {
   double grab_verify_timeout_s{3.0};
   int grab_verify_lost_stable_frames{3};
   double grab_verify_iou_threshold{0.30};
-  int grab_kfs_up_command_id{0x03};
-  int grab_kfs_down_command_id{0x02};
-  int entry_grab_kfs_up_command_id{0x0F};
-  int entry_grab_kfs_up_done_feedback_id{0x0B};
+  int grab_kfs_up_command_id{
+      static_cast<int>(rc26_serial::CommandID::GRAB_KFS_UP)};
+  int grab_kfs_down_command_id{
+      static_cast<int>(rc26_serial::CommandID::GRAB_KFS_DOWN)};
+  int entry_grab_kfs_up_command_id{
+      static_cast<int>(rc26_serial::CommandID::ENTRY_GRAB_KFS_UP)};
+  int entry_grab_kfs_up_done_feedback_id{
+      static_cast<int>(rc26_serial::FeedbackID::ENTRY_GRAB_KFS_UP_DONE)};
 
   std::string cmd_vel_topic{"cmd_vel"};
   std::string odom_topic{"odom"};
   std::string send_command_service{"/mechanism/send_command"};
   std::string feedback_topic{"/mechanism/command_feedback"};
   double command_timeout_s{3.0};
-  int arm_high_raise_command_id{0x0D};
-  int arm_high_raise_done_feedback_id{0x09};
-  int arm_raise_command_id{0x04};
-  int arm_lower_command_id{0x05};
-  int arm_raise_done_feedback_id{0x02};
-  int arm_lower_done_feedback_id{0x03};
-  int second_arm_lower_command_id{0x0E};
-  int second_arm_lower_done_feedback_id{0x0A};
+  int arm_high_raise_command_id{
+      static_cast<int>(rc26_serial::CommandID::ARM_HIGH_RAISE)};
+  int arm_high_raise_done_feedback_id{
+      static_cast<int>(rc26_serial::FeedbackID::ARM_HIGH_RAISE_DONE)};
+  int arm_raise_command_id{static_cast<int>(rc26_serial::CommandID::ARM_RAISE)};
+  int arm_lower_command_id{static_cast<int>(rc26_serial::CommandID::ARM_LOWER)};
+  int arm_raise_done_feedback_id{
+      static_cast<int>(rc26_serial::FeedbackID::ARM_RAISE_DONE)};
+  int arm_lower_done_feedback_id{
+      static_cast<int>(rc26_serial::FeedbackID::ARM_LOWER_DONE)};
+  int second_arm_lower_command_id{
+      static_cast<int>(rc26_serial::CommandID::ARM_SECOND_LOWER)};
+  int second_arm_lower_done_feedback_id{
+      static_cast<int>(rc26_serial::FeedbackID::ARM_SECOND_LOWER_DONE)};
 
   double entry_probe_left_distance_m{1.2};
   double entry_probe_right_sweep_distance_m{2.4};

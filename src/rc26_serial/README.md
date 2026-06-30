@@ -40,6 +40,7 @@
 *   `ARM_SECOND_LOWER = 0x0E`
 *   `GRAB_KFS_UP = 0x03`
 *   `GRAB_KFS_DOWN = 0x02`
+*   `ENTRY_GRAB_KFS_UP = 0x0F`
 *   `PLACE_KFS_GRID = 0x06`
 
 当前 KFS 机械臂业务反馈编号为：
@@ -47,6 +48,7 @@
 *   `ARM_RAISE_DONE = 0x02`
 *   `ARM_LOWER_DONE = 0x03`
 *   `ARM_SECOND_LOWER_DONE = 0x0A`
+*   `ENTRY_GRAB_KFS_UP_DONE = 0x0B`
 
 当前 transport 级 MCU 错误反馈编号为：
 
@@ -66,8 +68,9 @@
 *   4 条双推杆命令都通过 `rc26_mcu_transport` 走可靠 `sendCommand()` ACK 路径；若 MCU 不回通用 `ACK(0x00)`，会像其它可靠命令一样重传并打印超时日志。
 *   `rc26_telecontrol_front_pushrod_buttons` 会在 `Y/A` 按下沿单次调用 `/mechanism/send_command`，分别桥成前推杆伸展 / 收缩。
 *   `rc26_telecontrol_rear_pushrod_buttons` 会在 `Select/Back` / `Start` 按下沿单次调用 `/mechanism/send_command`，分别桥成后推杆伸展 / 收缩；`Dpad 左/右` 已回归底盘横移控制。
-*   transport service 返回 `accepted=true` 的前提仍然是 MCU 先回通用 `ACK(0x00)`；`0x02~0x07`、`0x09` 与 `0x0A` 业务反馈会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定。
+*   transport service 返回 `accepted=true` 的前提仍然是 MCU 先回通用 `ACK(0x00)`；`0x02~0x07`、`0x09`、`0x0A` 与 `0x0B` 业务反馈会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定。
 *   KFS 向下夹取在 `ARM_LOWER_DONE(0x03)` 后完成视觉横移对齐和一次锁深度，开环前进前还会发送 `ARM_SECOND_LOWER(0x0E)`，并等待同 `seq` 的 `ARM_SECOND_LOWER_DONE(0x0A)` 后才前进或直接夹取。
+*   梅林预选赛入口高侧 KFS 夹取使用 `ENTRY_GRAB_KFS_UP(0x0F)`，并等待同 `seq` 的 `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 后再进入视觉消失验证；service ACK 不等同于夹取完成。
 *   串口层当前只把 `ACK(0x00)` 和心跳场景下的 `HEARTBEAT_ACK(0x01)` 视为成功 ACK 等待结果；`MCU_ERROR(0xFE)` 只作为下位机原因的负响应参与 retry 和错误说明，不作为业务反馈发布语义。旧即时负确认和旧动作完成反馈已经从协议中移除。
 *   真机部署时，目标 MCU 串口由 `rc26_mcu_transport` 独占打开；其它上层只复用 transport，不再次直连同一设备。
 *   端头视觉对齐后的抓取改为先经 `/cmd_vel` x 负向前探等待 0x06 限位反馈，再经 `/mechanism/send_command` 下发 `GRAB_TIP(0x01)` 空 payload。
@@ -81,7 +84,7 @@
 
 ## 3. 设计原则与平台限制
 
-1.  **帧结构稳定性**: 当前双推杆协议语义保持前/后推杆四命令；KFS 阶梯测试链使用机械臂升降预调命令 `0x04/0x05` 与完成反馈 `0x02/0x03`，向下夹取开环前第二节机械臂放下使用 `0x0E/0x0A`，`0x03/0x02` 作为上下阶梯 KFS 夹取命令。台阶激光测距高度突变事件使用独立上行 `0x04/0x05/0x07`，武馆前方限位开关触发使用独立上行 `0x06`，MCU 端错误使用上行 `0xFE` 并只表示下位机原因。除此之外，v3.0 的帧头、CRC32 MPEG-2 校验和最大长度限制保持不变。
+1.  **帧结构稳定性**: 当前双推杆协议语义保持前/后推杆四命令；KFS 阶梯测试链使用机械臂升降预调命令 `0x04/0x05` 与完成反馈 `0x02/0x03`，向下夹取开环前第二节机械臂放下使用 `0x0E/0x0A`，`0x03/0x02` 作为上下阶梯 KFS 夹取命令，梅林预选赛入口高侧夹取使用 `0x0F/0x0B`。台阶激光测距高度突变事件使用独立上行 `0x04/0x05/0x07`，武馆前方限位开关触发使用独立上行 `0x06`，MCU 端错误使用上行 `0xFE` 并只表示下位机原因。除此之外，v3.0 的帧头、CRC32 MPEG-2 校验和最大长度限制保持不变。
 2.  **兼容性第一**: 考虑到 AidLux 混合环境的特殊性，优先采用成熟稳定的 POSIX 接口（如 `epoll`）而非激进的异步 I/O（如 `io_uring` on TTY）。
 3.  **单体非阻塞**: 核心驱动类不抛出未捕获异常，任何发送/接收回调均被妥善隔离，防止上层业务逻辑的故障波及底层通信主循环。
 

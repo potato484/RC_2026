@@ -41,7 +41,7 @@ ros2 launch rc26_mcu_transport mcu_transport.launch.py \
 - `/mechanism/command_feedback`
   - type: `rc26_interfaces/msg/MechanismTransportFeedback`
   - 透传机构业务反馈，过滤底层 `ACK(0x00)`、`HEARTBEAT_ACK(0x01)`、`ODOM_DATA(0x08)` 与 transport 级 `MCU_ERROR(0xFE)`
-  - 当前会透传 KFS 机械臂升降完成 `0x02/0x03`、台阶激光事件 `0x04/0x05/0x07`、前方限位事件 `0x06` 与第二节机械臂放下完成 `0x0A`；service 的 `accepted=true` 仍只表示可靠命令已收到通用 `ACK(0x00)`
+  - 当前会透传 KFS 机械臂升降完成 `0x02/0x03`、台阶激光事件 `0x04/0x05/0x07`、前方限位事件 `0x06`、第二节机械臂放下完成 `0x0A` 与入口高侧 KFS 夹取完成 `0x0B`；service 的 `accepted=true` 仍只表示可靠命令已收到通用 `ACK(0x00)`
 - `/mcu_transport/diagnostics`
   - type: `diagnostic_msgs/msg/DiagnosticArray`
   - 暴露串口打开状态、ACK 超时、MCU 错误响应计数、解析错误、重连次数、机构发送统计、底盘 `POSE_TARGET` 发送统计和最近错误
@@ -66,14 +66,17 @@ ros2 launch rc26_mcu_transport mcu_transport.launch.py \
 - `POSE_TARGET = 0x0C`
 - `ARM_HIGH_RAISE = 0x0D`
 - `ARM_SECOND_LOWER = 0x0E`
+- `ENTRY_GRAB_KFS_UP = 0x0F`
 
 本包不新增业务命令目录。新增机构命令时，先在 `rc26_serial/protocol.hpp` 定义原始 ID，再由需要该能力的上层直接调用 `/mechanism/send_command`。只有重新设计高层动作语义时，才需要恢复 action、完成反馈和中间层契约。
 
 `MCU_ERROR(0xFE)` 是 transport 级上行错误码，表示本次失败来自下位机原因；本包不把它发布到 `/mechanism/command_feedback`，也不改变 service response 字段。调用方只看到 `accepted=false`，具体原因从节点日志和 `/mcu_transport/diagnostics.last_error` 读取。
 
-KFS 阶梯等待测试链属于直接 transport service 消费场景：决策层发送 `ARM_RAISE(0x04)` / `ARM_LOWER(0x05)`，并等待同 `seq` 的 `0x02/0x03` 完成反馈。梅林预选赛入口 1/3 阶梯探测会发送 `ARM_HIGH_RAISE(0x0D)`，并等待同 `seq` 的 `ARM_HIGH_RAISE_DONE(0x09)`；本包只透传 raw command 与业务反馈，不赋予高抬升额外动作语义。KFS 向下夹取在视觉锁定开环距离后还会发送 `ARM_SECOND_LOWER(0x0E)`，并等待同 `seq` 的 `ARM_SECOND_LOWER_DONE(0x0A)` 后才允许前进。`rc26_vision` 独立 KFS action test 也只把本包当 raw transport provider，开启后先按方向发送 `ARM_RAISE(0x04)` / `ARM_LOWER(0x05)` 并订阅完成反馈；`direction=down` 时开环前再发送 `ARM_SECOND_LOWER(0x0E)` 等待 `0x0A`，随后发送空 payload 的 `GRAB_KFS_DOWN(0x02)`，`direction=up` 仍直接趋近并发送 `GRAB_KFS_UP(0x03)`；本包的 service `accepted=true` 仍只代表通用 ACK，KFS 物理夹取成功由视觉节点或决策节点通过原目标消失验证判断。
+KFS 阶梯等待测试链属于直接 transport service 消费场景：决策层发送 `ARM_RAISE(0x04)` / `ARM_LOWER(0x05)`，并等待同 `seq` 的 `0x02/0x03` 完成反馈。梅林预选赛入口 1/3 阶梯探测会发送 `ARM_HIGH_RAISE(0x0D)`，并等待同 `seq` 的 `ARM_HIGH_RAISE_DONE(0x09)`；本包只透传 raw command 与业务反馈，不赋予高抬升额外动作语义。KFS 向下夹取在视觉锁定开环距离后还会发送 `ARM_SECOND_LOWER(0x0E)`，并等待同 `seq` 的 `ARM_SECOND_LOWER_DONE(0x0A)` 后才允许前进。梅林预选赛入口高侧夹取使用 `ENTRY_GRAB_KFS_UP(0x0F)`，并等待同 `seq` 的 `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 后进入视觉消失验证；本包仍只透传 raw command 与业务反馈。`rc26_vision` 独立 KFS action test 也只把本包当 raw transport provider，开启后先按方向发送 `ARM_RAISE(0x04)` / `ARM_LOWER(0x05)` 并订阅完成反馈；`direction=down` 时开环前再发送 `ARM_SECOND_LOWER(0x0E)` 等待 `0x0A`，随后发送空 payload 的 `GRAB_KFS_DOWN(0x02)`，`direction=up` 仍直接趋近并发送 `GRAB_KFS_UP(0x03)`；本包的 service `accepted=true` 仍只代表通用 ACK，KFS 物理夹取成功由视觉节点或决策节点通过原目标消失验证判断。
 
 ## 本轮同步
+
+2026-06-30 同步：`rc26_serial` 真源新增梅林预选赛入口高侧 KFS 夹取 `ENTRY_GRAB_KFS_UP(0x0F)` 与完成反馈 `ENTRY_GRAB_KFS_UP_DONE(0x0B)`。本包无需新增高层目录，仍按 raw transport 发送并透传 `0x0B` 业务反馈，service ACK 语义不变。
 
 2026-06-29 同步：串口协议新增 `MCU_ERROR(0xFE)`。本包继续保持 raw transport provider 职责，service wire shape 不变；`0xFE` 被过滤为 transport 级错误，不作为业务反馈透传，持续 `0xFE` 后的发送失败通过日志和 diagnostics 明确说明是下位机原因。
 

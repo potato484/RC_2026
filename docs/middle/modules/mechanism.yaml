@@ -73,7 +73,8 @@ components:
             MCU 上行业务反馈 ID。当前透传的主要反馈包括 0x02/0x03
             机械臂升降预调完成、0x04/0x05/0x07 台阶激光高度突变、
             0x06 武馆前方限位触发、0x09 梅林预选赛高抬升完成、
-            0x0A KFS 向下夹取前第二节机械臂放下完成；
+            0x0A KFS 向下夹取前第二节机械臂放下完成、
+            0x0B 梅林预选赛入口高侧 KFS 夹取完成；
             payload v1 为空或由消费方忽略。transport 级 0xFE 表示
             MCU 下位机原因，不作为业务反馈透传。
         payload:
@@ -96,7 +97,8 @@ components:
             ARM_LOWER=0x05、PLACE_KFS_GRID=0x06、FRONT_PUSHROD_EXTEND=0x08、
             FRONT_PUSHROD_RETRACT=0x09、REAR_PUSHROD_EXTEND=0x0A、
             REAR_PUSHROD_RETRACT=0x0B、POSE_TARGET=0x0C、
-            ARM_HIGH_RAISE=0x0D、ARM_SECOND_LOWER=0x0E。
+            ARM_HIGH_RAISE=0x0D、ARM_SECOND_LOWER=0x0E、
+            ENTRY_GRAB_KFS_UP=0x0F。
         payload:
           type: array
           items:
