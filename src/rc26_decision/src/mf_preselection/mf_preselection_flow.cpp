@@ -131,6 +131,9 @@ std::string translateMfFailureReason(const std::string &reason) {
   if (reason == "final_exit_center_start_failed") {
     return "最终离场格中心归位启动失败";
   }
+  if (reason == "post_grab_center_start_failed") {
+    return "夹取后格中心归位启动失败";
+  }
   if (reason == "wheel_event_timeout") {
     return "等待激光高度突变事件超时";
   }
@@ -583,6 +586,11 @@ int MfPreselectionLogicResult::grabDoneFeedbackForPickup(
   return -1;
 }
 
+bool MfPreselectionLogicResult::postGrabCenterAlignRequired(
+    MfPreselectionPickupSource source, bool entry_high_protocol) {
+  return source == MfPreselectionPickupSource::None && !entry_high_protocol;
+}
+
 double MfPreselectionLogicResult::bboxIou(
     const MfPreselectionTargetSnapshot &a,
     const MfPreselectionTargetSnapshot &b) {
@@ -716,6 +724,7 @@ BT::NodeStatus MfPreselectionFlowAction::onStart() {
   pending_grab_entry_high_protocol_ = false;
   ignored_r2_targets_.clear();
   grab_success_direct_exit_ = false;
+  post_grab_center_next_phase_ = Phase::Done;
   entry_lateral_reference_captured_ = false;
   entry_lateral_reference_x_ = 0.0;
   entry_lateral_reference_y_ = 0.0;
@@ -1159,6 +1168,8 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return tickZeroHold();
   case Phase::StairPrimitive:
     return tickStair();
+  case Phase::PostGrabCenterAlign:
+    return beginPostGrabCenterAlign();
   case Phase::CenterAlign:
     return tickCenterAlign();
 
@@ -1370,6 +1381,7 @@ void MfPreselectionFlowAction::releaseRuntime() {
   pending_grab_target_.reset();
   ignored_r2_targets_.clear();
   grab_success_direct_exit_ = false;
+  post_grab_center_next_phase_ = Phase::Done;
   clearKfsVisualPickup();
 }
 
@@ -1986,6 +1998,8 @@ const char *MfPreselectionFlowAction::phaseText(Phase phase) {
     return "零速等待";
   case Phase::StairPrimitive:
     return "台阶原语";
+  case Phase::PostGrabCenterAlign:
+    return "夹取后格中心归位";
   case Phase::CenterAlign:
     return "格中心归位";
   case Phase::Done:
@@ -3351,6 +3365,36 @@ bool MfPreselectionFlowAction::beginFinalExitCenterAlign(Phase next_phase,
   }
   phase_ = Phase::CenterAlign;
   return true;
+}
+
+BT::NodeStatus MfPreselectionFlowAction::beginPostGrabCenterAlign() {
+  const Phase next_phase = post_grab_center_next_phase_;
+  const double target_yaw = postGrabCenterYaw();
+  if (next_phase == Phase::DirectExitDrive) {
+    direct_exit_move_active_ = false;
+  }
+  if (!beginGridCenterAlign(current_grid_, target_yaw, next_phase,
+                            "post_grab_center")) {
+    return fail("post_grab_center_start_failed");
+  }
+  post_grab_center_next_phase_ = Phase::Done;
+  writeBlackboardState("post_grab_center_align");
+  if (node_) {
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛夹取稳定后先归当前格中心：grid=%d yaw=%.3f，归位后进入%s",
+                current_grid_, target_yaw, phaseText(next_phase));
+  }
+  return BT::NodeStatus::RUNNING;
+}
+
+double MfPreselectionFlowAction::postGrabCenterYaw() const {
+  if (centerOdomReady()) {
+    return normalizeAngle(center_odom_yaw_);
+  }
+  if (odomReady()) {
+    return normalizeAngle(odom_yaw_);
+  }
+  return normalizeAngle(turn_target_yaw_);
 }
 
 BT::NodeStatus MfPreselectionFlowAction::tickCenterAlign() {
@@ -4871,6 +4915,7 @@ void MfPreselectionFlowAction::beginGrab(
   grab_success_phase_ = success_phase;
   grab_failure_phase_ = failure_phase;
   grab_success_direct_exit_ = direct_exit_on_success;
+  post_grab_center_next_phase_ = Phase::Done;
   // pending_grab_commit_ 让计数更新延迟到物理夹取视觉验证成功之后，避免
   // ACK 成功但空夹时仍消耗本局最多夹取次数。
   pending_grab_commit_ = true;
@@ -4996,14 +5041,25 @@ BT::NodeStatus MfPreselectionFlowAction::tickGrabVerify() {
       grab_verify_last_logged_lost_count_ = grab_verify_lost_count_;
     }
     if (grab_verify_lost_count_ >= params_.grab_verify_lost_stable_frames) {
+      const bool center_align_after_grab =
+          MfPreselectionLogicResult::postGrabCenterAlignRequired(
+              pending_grab_source_, pending_grab_entry_high_protocol_);
+      Phase settle_next_phase = grab_success_phase_;
+      if (center_align_after_grab) {
+        post_grab_center_next_phase_ = grab_success_phase_;
+        settle_next_phase = Phase::PostGrabCenterAlign;
+      } else {
+        post_grab_center_next_phase_ = Phase::Done;
+      }
       if (grab_success_direct_exit_) {
         direct_exit_mode_ = true;
       }
       commitPendingGrab();
       RCLCPP_INFO(node_->get_logger(),
-                  "梅林预选赛物理夹取确认成功：连续%d帧未识别到原目标，进入夹取稳定等待",
-                  params_.grab_verify_lost_stable_frames);
-      beginZeroHold(params_.grab_settle_s, grab_success_phase_, "grab_settle");
+                  "梅林预选赛物理夹取确认成功：连续%d帧未识别到原目标，进入夹取稳定等待，随后%s",
+                  params_.grab_verify_lost_stable_frames,
+                  center_align_after_grab ? "先归当前格中心" : "继续原流程");
+      beginZeroHold(params_.grab_settle_s, settle_next_phase, "grab_settle");
       return BT::NodeStatus::RUNNING;
     }
   }
@@ -5058,6 +5114,7 @@ void MfPreselectionFlowAction::finishGrabVerificationFailure(
   pending_grab_entry_high_protocol_ = false;
   pending_grab_target_.reset();
   grab_success_direct_exit_ = false;
+  post_grab_center_next_phase_ = Phase::Done;
   grab_verify_lost_count_ = 0;
   grab_verify_last_sequence_ = 0;
   grab_verify_seen_new_frame_ = false;

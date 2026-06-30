@@ -184,6 +184,8 @@ struct MfPreselectionLogicResult {
                                        MfPreselectionPickupSource source,
                                        bool entry_high_protocol,
                                        const MfPreselectionParams &params);
+  static bool postGrabCenterAlignRequired(MfPreselectionPickupSource source,
+                                          bool entry_high_protocol);
   static double bboxIou(const MfPreselectionTargetSnapshot &a,
                         const MfPreselectionTargetSnapshot &b);
   static bool isSameVisualTarget(const MfPreselectionTargetSnapshot &reference,
@@ -280,6 +282,7 @@ private:
     TurnYaw,
     ZeroHold,
     StairPrimitive,
+    PostGrabCenterAlign,
     CenterAlign,
     Done
   };
@@ -421,6 +424,8 @@ private:
   bool beginGridCenterAlign(int target_grid, double target_yaw_rad,
                             Phase next_phase, std::string label);
   bool beginFinalExitCenterAlign(Phase next_phase, std::string label);
+  BT::NodeStatus beginPostGrabCenterAlign();
+  double postGrabCenterYaw() const;
   BT::NodeStatus tickCenterAlign();
   bool centerOdomReady() const;
   bool prepareEntryCenterTarget();
@@ -496,6 +501,7 @@ private:
   Phase center_next_phase_{Phase::Done};
   Phase grab_success_phase_{Phase::Done};
   Phase grab_failure_phase_{Phase::Done};
+  Phase post_grab_center_next_phase_{Phase::Done};
   Phase pending_detection_phase_{Phase::Done};
 
   DetectMode detect_mode_{DetectMode::Entry2};

@@ -533,6 +533,25 @@ TEST(MfPreselectionLogic, GrabCommandFollowsHighSide) {
             static_cast<int>(rc26_serial::FeedbackID::ENTRY_GRAB_KFS_UP_DONE));
 }
 
+TEST(MfPreselectionLogic, PostGrabCenterAlignOnlyAppliesInsideMerlin) {
+  EXPECT_TRUE(
+      rc26_decision::MfPreselectionLogicResult::postGrabCenterAlignRequired(
+          rc26_decision::MfPreselectionPickupSource::None, false));
+
+  EXPECT_FALSE(
+      rc26_decision::MfPreselectionLogicResult::postGrabCenterAlignRequired(
+          rc26_decision::MfPreselectionPickupSource::None, true));
+  EXPECT_FALSE(
+      rc26_decision::MfPreselectionLogicResult::postGrabCenterAlignRequired(
+          rc26_decision::MfPreselectionPickupSource::Stair1, false));
+  EXPECT_FALSE(
+      rc26_decision::MfPreselectionLogicResult::postGrabCenterAlignRequired(
+          rc26_decision::MfPreselectionPickupSource::Stair2, false));
+  EXPECT_FALSE(
+      rc26_decision::MfPreselectionLogicResult::postGrabCenterAlignRequired(
+          rc26_decision::MfPreselectionPickupSource::Stair3, false));
+}
+
 TEST(MfPreselectionLogic, BboxIouAndSameTargetUseLabelAndOverlap) {
   rc26_decision::MfPreselectionTargetSnapshot reference;
   reference.label = "T_03";
