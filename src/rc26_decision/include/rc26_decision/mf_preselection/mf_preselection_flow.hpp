@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include <behaviortree_cpp/bt_factory.h>
@@ -432,6 +433,10 @@ private:
 
   std::optional<KfsVisualObservation>
   findR2LockObservation(R2DepthProfile depth_profile = R2DepthProfile::General);
+  void recordR2LockReject(const std::string &reason,
+                          const std::string &detail, int64_t sequence);
+  void clearR2LockReject();
+  std::string r2LockRejectSummary() const;
   rc26_vision::TipAlignmentConfig makeKfsAlignmentConfig() const;
   std::optional<rc26_vision::TipHeadingControl> kfsVisualAlignHeadingControl();
   std::optional<KfsVisualObservation> kfsAlignTimeoutObservation() const;
@@ -676,6 +681,10 @@ private:
   bool pending_grab_entry_high_protocol_{false};
   std::optional<MfPreselectionTargetSnapshot> pending_grab_target_;
   std::vector<MfPreselectionTargetSnapshot> ignored_r2_targets_;
+  std::string last_r2_lock_reject_reason_;
+  std::string last_r2_lock_reject_detail_;
+  int64_t last_r2_lock_reject_sequence_{0};
+  std::unordered_set<std::string> r2_lock_logged_reasons_this_detection_;
   bool grab_success_direct_exit_{false};
   int grab_verify_lost_count_{0};
   int64_t grab_verify_last_sequence_{0};

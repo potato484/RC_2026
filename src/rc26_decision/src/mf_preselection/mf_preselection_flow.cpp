@@ -59,6 +59,8 @@ std::string seqText(int seq) {
   return seq >= 0 ? std::to_string(seq) : std::string("未知");
 }
 
+const char *yesNoText(bool value) { return value ? "是" : "否"; }
+
 std::string byteHex(uint8_t value) {
   std::ostringstream oss;
   oss << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
@@ -235,6 +237,31 @@ std::string translateMfFailureReason(const std::string &reason) {
            suffixAfter(reason, "kfs_odom_motion_speed_non_positive_");
   }
   return reason;
+}
+
+std::string translateR2LockRejectReason(const std::string &reason) {
+  if (reason == "pickup_limit_reached") {
+    return "夹取数量已达上限";
+  }
+  if (reason == "vision_not_running") {
+    return "视觉运行时未运行";
+  }
+  if (reason == "snapshot_invalid") {
+    return "视觉快照无效";
+  }
+  if (reason == "no_label_match") {
+    return "没有匹配R2目标标签的检测框";
+  }
+  if (reason == "ignored_target") {
+    return "目标已在忽略列表中";
+  }
+  if (reason == "depth_invalid") {
+    return "深度采样失败";
+  }
+  if (reason == "selection_failed") {
+    return "目标选择失败";
+  }
+  return reason.empty() ? "未知原因" : reason;
 }
 
 // 视觉配置参数既允许传绝对路径，也允许传 rc26_vision share 目录下的相对路径。
@@ -2340,9 +2367,12 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
     phase_ = Phase::EntryReturnFromStair3;
     break;
   case DetectMode::RowFront:
+  {
+    const std::string reject_summary = r2LockRejectSummary();
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛当前行前方未发现可处理目标：grid=%d，直出模式=%s",
-                current_grid_, direct_exit_mode_ ? "是" : "否");
+                "梅林预选赛当前行前方未发现可处理目标：grid=%d，直出模式=%s%s",
+                current_grid_, direct_exit_mode_ ? "是" : "否",
+                reject_summary.c_str());
     // 第一行不做周身扫描，直接向下一格推进；第 2/3 行未夹取时才进入扫描。
     if (direct_exit_mode_) {
       phase_ = (current_grid_ == 11) ? Phase::Row4ForcedTurn
@@ -2355,6 +2385,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
       phase_ = Phase::RowScanTurnLeft;
     }
     break;
+  }
   case DetectMode::Scan:
     if (active_detection_phase_ == Phase::RowScanDetectLeft) {
       RCLCPP_INFO(node_->get_logger(),
@@ -2367,10 +2398,14 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
     }
     break;
   case DetectMode::TransitionObserve:
+  {
+    const std::string reject_summary = r2LockRejectSummary();
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛高低阶梯切换前方观察未发现R2 KFS，继续执行格间台阶动作");
+                "梅林预选赛高低阶梯切换前方观察未发现R2 KFS，继续执行格间台阶动作%s",
+                reject_summary.c_str());
     phase_ = Phase::TransitionStair;
     break;
+  }
   case DetectMode::Row4Fake:
     break;
   }
@@ -2386,6 +2421,8 @@ void MfPreselectionFlowAction::resetDetectionCounters() {
   kfs_align_target_lock_state_.reset();
   kfs_align_last_observation_.reset();
   kfs_align_target_lock_sequence_ = 0;
+  r2_lock_logged_reasons_this_detection_.clear();
+  clearR2LockReject();
 }
 
 void MfPreselectionFlowAction::beginMechanismCommand(
@@ -4006,17 +4043,103 @@ void MfPreselectionFlowAction::publishProfiledStairTwist(
                0.0, headingAngularZ(turn_target_yaw_));
 }
 
+void MfPreselectionFlowAction::recordR2LockReject(
+    const std::string &reason, const std::string &detail, int64_t sequence) {
+  last_r2_lock_reject_reason_ = reason;
+  last_r2_lock_reject_detail_ = detail;
+  last_r2_lock_reject_sequence_ = sequence;
+
+  if (config().blackboard) {
+    config().blackboard->set("mf_preselect_r2_lock_reject_reason",
+                             last_r2_lock_reject_reason_);
+    config().blackboard->set("mf_preselect_r2_lock_reject_detail",
+                             last_r2_lock_reject_detail_);
+    config().blackboard->set("mf_preselect_r2_lock_reject_sequence",
+                             last_r2_lock_reject_sequence_);
+  }
+
+  if (node_ &&
+      r2_lock_logged_reasons_this_detection_.insert(reason).second) {
+    const std::string reason_text =
+        translateR2LockRejectReason(last_r2_lock_reject_reason_);
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "梅林预选赛R2 KFS候选拒绝：原因=%s，原因代码=%s，详情={%s}",
+        reason_text.c_str(),
+        last_r2_lock_reject_reason_.c_str(),
+        last_r2_lock_reject_detail_.c_str());
+  }
+}
+
+void MfPreselectionFlowAction::clearR2LockReject() {
+  last_r2_lock_reject_reason_.clear();
+  last_r2_lock_reject_detail_.clear();
+  last_r2_lock_reject_sequence_ = 0;
+  if (config().blackboard) {
+    config().blackboard->set("mf_preselect_r2_lock_reject_reason",
+                             last_r2_lock_reject_reason_);
+    config().blackboard->set("mf_preselect_r2_lock_reject_detail",
+                             last_r2_lock_reject_detail_);
+    config().blackboard->set("mf_preselect_r2_lock_reject_sequence",
+                             last_r2_lock_reject_sequence_);
+  }
+}
+
+std::string MfPreselectionFlowAction::r2LockRejectSummary() const {
+  if (last_r2_lock_reject_reason_.empty()) {
+    return "";
+  }
+  return "，最近R2候选拒绝=" +
+         translateR2LockRejectReason(last_r2_lock_reject_reason_) +
+         "，原因代码=" + last_r2_lock_reject_reason_ +
+         "，详情={" + last_r2_lock_reject_detail_ + "}";
+}
+
 std::optional<MfPreselectionFlowAction::KfsVisualObservation>
 MfPreselectionFlowAction::findR2LockObservation(R2DepthProfile depth_profile) {
-  if (!canPickup() || !vision_ || !vision_->isRunning()) {
+  const auto profileText = [](R2DepthProfile profile) {
+    return profile == R2DepthProfile::Entry ? "入口深度窗口" : "常规深度窗口";
+  };
+  const auto detailPrefix = [this, depth_profile,
+                             &profileText](int64_t sequence) {
+    const bool entry_profile = depth_profile == R2DepthProfile::Entry;
+    const double min_depth =
+        entry_profile ? params_.entry_depth_min_m : params_.depth_min_m;
+    const double max_depth =
+        entry_profile ? params_.entry_depth_max_m : params_.depth_max_m;
+    std::ostringstream oss;
+    oss << "检测模式=" << detectModeText(detect_mode_) << " 当前格="
+        << current_grid_ << " 图像序号=" << sequence << " 深度档位="
+        << profileText(depth_profile) << " 深度窗口=[" << min_depth << ","
+        << max_depth << "] 已夹取数量=" << pickup_count_ << "/"
+        << params_.max_pickup_count;
+    return oss.str();
+  };
+
+  if (!canPickup()) {
+    recordR2LockReject("pickup_limit_reached", detailPrefix(0), 0);
+    return std::nullopt;
+  }
+  if (!vision_ || !vision_->isRunning()) {
+    recordR2LockReject("vision_not_running", detailPrefix(0), 0);
     return std::nullopt;
   }
 
   rc26_vision::VisionInferenceManager::FrameSnapshot snapshot;
-  if (!vision_->getLatestFrameSnapshot(snapshot) || !snapshot.has_display ||
-      !snapshot.has_color || snapshot.color_bgr.empty() ||
-      !snapshot.has_depth || snapshot.depth.empty() ||
+  const bool got_snapshot = vision_->getLatestFrameSnapshot(snapshot);
+  if (!got_snapshot || !snapshot.has_display || !snapshot.has_color ||
+      snapshot.color_bgr.empty() || !snapshot.has_depth || snapshot.depth.empty() ||
       snapshot.display_sequence <= 0) {
+    std::ostringstream detail;
+    detail << detailPrefix(got_snapshot ? snapshot.display_sequence : 0)
+           << " 获取快照=" << yesNoText(got_snapshot)
+           << " 有显示图=" << yesNoText(snapshot.has_display)
+           << " 有彩色图=" << yesNoText(snapshot.has_color)
+           << " 彩色图为空=" << yesNoText(snapshot.color_bgr.empty())
+           << " 有深度图=" << yesNoText(snapshot.has_depth)
+           << " 深度图为空=" << yesNoText(snapshot.depth.empty());
+    recordR2LockReject("snapshot_invalid", detail.str(),
+                       got_snapshot ? snapshot.display_sequence : 0);
     return std::nullopt;
   }
   if (snapshot.display_sequence == kfs_align_target_lock_sequence_) {
@@ -4032,6 +4155,9 @@ MfPreselectionFlowAction::findR2LockObservation(R2DepthProfile depth_profile) {
   snapshots.reserve(snapshot.detections.size());
   std::vector<double> depths;
   depths.reserve(snapshot.detections.size());
+  int label_match_count = 0;
+  int ignored_count = 0;
+  int depth_invalid_count = 0;
 
   for (const auto &det : snapshot.detections) {
     const std::string name = rc26_vision::visualTargetLabel(det);
@@ -4039,10 +4165,12 @@ MfPreselectionFlowAction::findR2LockObservation(R2DepthProfile depth_profile) {
             name, params_.r2_target_labels, params_.r2_target_label_prefixes)) {
       continue;
     }
+    ++label_match_count;
     const MfPreselectionTargetSnapshot candidate =
         rc26_vision::makeVisualTargetSnapshot(det, snapshot.display_sequence);
     if (MfPreselectionLogicResult::isIgnoredTarget(
             candidate, ignored_r2_targets_, params_.grab_verify_iou_threshold)) {
+      ++ignored_count;
       continue;
     }
 
@@ -4064,6 +4192,7 @@ MfPreselectionFlowAction::findR2LockObservation(R2DepthProfile depth_profile) {
     const auto sampled =
         rc26_vision::sampleMedianDepth(snapshot.depth, cx, cy, depth_config);
     if (!sampled.has_value()) {
+      ++depth_invalid_count;
       continue;
     }
 
@@ -4072,6 +4201,31 @@ MfPreselectionFlowAction::findR2LockObservation(R2DepthProfile depth_profile) {
     candidates.push_back(det);
     snapshots.push_back(with_depth);
     depths.push_back(*sampled);
+  }
+
+  const auto candidateDetail = [&]() {
+    std::ostringstream detail;
+    detail << detailPrefix(snapshot.display_sequence)
+           << " 检测框总数=" << snapshot.detections.size()
+           << " 标签匹配数=" << label_match_count
+           << " 忽略过滤数=" << ignored_count
+           << " 深度失败数=" << depth_invalid_count
+           << " 有效候选数=" << candidates.size();
+    return detail.str();
+  };
+
+  if (label_match_count == 0) {
+    recordR2LockReject("no_label_match", candidateDetail(),
+                       snapshot.display_sequence);
+    return std::nullopt;
+  }
+  if (candidates.empty()) {
+    const std::string reason =
+        (ignored_count > 0 && ignored_count == label_match_count)
+            ? "ignored_target"
+            : "depth_invalid";
+    recordR2LockReject(reason, candidateDetail(), snapshot.display_sequence);
+    return std::nullopt;
   }
 
   std::vector<int> target_class_ids;
@@ -4088,6 +4242,12 @@ MfPreselectionFlowAction::findR2LockObservation(R2DepthProfile depth_profile) {
   if (!selection.has_target || selection.target.source_index < 0 ||
       static_cast<std::size_t>(selection.target.source_index) >=
           candidates.size()) {
+    std::ostringstream detail;
+    detail << candidateDetail()
+           << " 选择器返回目标=" << yesNoText(selection.has_target)
+           << " 源索引=" << selection.target.source_index;
+    recordR2LockReject("selection_failed", detail.str(),
+                       snapshot.display_sequence);
     return std::nullopt;
   }
 
@@ -4099,6 +4259,7 @@ MfPreselectionFlowAction::findR2LockObservation(R2DepthProfile depth_profile) {
   observation.offset_px = selection.offset_px;
   observation.has_depth = true;
   kfs_align_last_observation_ = observation;
+  clearR2LockReject();
   return observation;
 }
 
