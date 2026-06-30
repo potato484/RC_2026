@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -164,6 +165,15 @@ private:
     bool ack_response_received_{false};
     bool ack_success_{false};
     bool ack_mcu_error_received_{false};
+    struct DeferredRxFrame {
+        uint8_t seq{0};
+        uint8_t cmd{0};
+        std::vector<uint8_t> payload;
+    };
+    std::vector<DeferredRxFrame> ack_window_deferred_frames_;  // 受 ack_mutex_ 保护
+    bool post_ack_defer_active_{false};                        // 受 ack_mutex_ 保护
+    uint8_t post_ack_defer_seq_{0};                            // 受 ack_mutex_ 保护
+    std::chrono::steady_clock::time_point post_ack_defer_until_{};  // 受 ack_mutex_ 保护
     rc26_serial::RingParser ring_parser_;
 
     uint8_t nextSeq();
@@ -177,8 +187,11 @@ private:
 
     void beginWaitAck(uint8_t seq, uint8_t cmd);
     void endWaitAck();
+    std::vector<DeferredRxFrame> endWaitAckAndConsumeDeferred();
     AckWaitResult waitForAck(std::chrono::milliseconds timeout, bool& success);
     void notifyAck(uint8_t seq, uint8_t cmd);
+    bool deferReceiveFrameIfNeeded(uint8_t seq, uint8_t cmd, const uint8_t* payload, size_t plen);
+    bool shouldDeferAckWindowFrameLocked(uint8_t seq, uint8_t cmd) const;
 
     void notifyHeartbeatFailure();
     void notifyReconnect();
@@ -192,6 +205,19 @@ private:
 
     void recvThreadFunc();
     void dispatchFrame(uint8_t seq, uint8_t cmd, const uint8_t* payload, size_t plen);
+    void deliverReceiveCallback(uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload);
+    std::mutex receive_callback_invoke_mutex_;
+
+    struct ScheduledRxFrame {
+        std::chrono::steady_clock::time_point due;
+        uint64_t order{0};
+        uint32_t link_epoch{0};
+        DeferredRxFrame frame;
+    };
+    void scheduleDeferredReceiveCallbacks(std::vector<DeferredRxFrame> frames);
+    void deferredReceiveThreadFunc();
+    void stopDeferredReceiveThread();
+    void clearDeferredReceiveQueue();
 
     bool write_error_active_{false};
     bool recv_error_active_{false};
@@ -212,6 +238,16 @@ private:
     std::mutex reconnect_cv_mutex_;
     std::condition_variable reconnect_cv_;
     std::atomic<bool> reconnect_requested_{false};
+
+    std::atomic<bool> deferred_receive_thread_running_{false};
+    std::thread deferred_receive_thread_;
+    std::mutex deferred_receive_mutex_;
+    std::condition_variable deferred_receive_cv_;
+    std::vector<ScheduledRxFrame> deferred_receive_queue_;
+    uint64_t deferred_receive_next_order_{0};  // 受 deferred_receive_mutex_ 保护
+
+    static constexpr size_t kMaxAckWindowDeferredFrames = 16;
+    static constexpr std::chrono::milliseconds kPostAckBusinessFeedbackDelay{20};
 };
 
 }  // namespace rc26_decision

@@ -21,6 +21,7 @@
 - 环形缓冲与流式解析
 - `epoll` 事件驱动 I/O
 - 自适应 ACK/RTO 超时计算
+- 可靠命令 ACK 窗口内同 `seq` 业务反馈短暂延迟投递
 - 断链快速失败
 - 滑动窗口健康度统计
 - 长度与负载保护
@@ -75,6 +76,7 @@
 - `POSE_TARGET(0x0C)` payload 为 `(vx, vy, wz)` 三个 float，由 `rc26_mcu_transport` 默认按 `50Hz` no-ack 路径从 `/cmd_vel` 下发。
 - `ODOM_DATA(0x08)` payload 固定为 `<v_fl, v_rl, v_rr, v_fr>`，共 `16B / 4 float`，保留为麦克纳姆四轮反馈格式。
 - 4 条推杆命令通过 `/mechanism/send_command` 走可靠 `sendCommand()`，service `accepted=true` 只表示 MCU 已返回通用 `ACK(0x00)`。
+- `sendCommand()` 等待 `ACK(0x00)` 期间，若接收线程先拿到同 `seq` 的非控制业务反馈，会在串口层短暂缓存并于 ACK 成功后延迟投递给上层 receive callback；ACK 成功后的极短窗口内继续到达的同 `seq` 业务反馈也按同一口径延迟投递。这样 `/mechanism/send_command` 有机会先写入 `accepted=true + seq`，随后 `/mechanism/command_feedback` 再发布对应 done。`ACK(0x00)`、`HEARTBEAT_ACK(0x01)`、`MCU_ERROR(0xFE)` 不进入该缓存，仍按可靠发送/心跳/错误语义即时处理；失败、超时、重试、关闭或重连会丢弃本轮 ACK 窗口缓存。
 - `ARM_RAISE_DONE(0x02)` / `ARM_LOWER_DONE(0x03)` 是 KFS 机械臂预调完成反馈，决策层按同 `seq + feedback_id` 匹配。
 - `GRAB_KFS_DOWN(0x02)` / `GRAB_KFS_UP(0x03)` 是当前 KFS 下台阶/下降方向与上台阶/抬升方向夹取命令；transport 仍只提供通用 ACK，物理夹取是否成功由上层视觉消失验证等业务逻辑判断。
 - `ARM_HIGH_RAISE(0x0D)` / `ARM_HIGH_RAISE_DONE(0x09)` 只服务梅林区预选赛入口 1/3 阶梯全域探测前的机械臂底座高抬升；它不替代普通 `ARM_RAISE(0x04)`，决策层仍按同 `seq + feedback_id` 匹配完成。
@@ -100,6 +102,8 @@
 4. 最后回到 `rc26_mcu_transport`、`rc26_decision`、`rc26_telecontrol`、`rc26_vision` 等消费者，确认哪一层在使用 raw transport。
 
 ## 本轮同步
+
+2026-07-01 同步：`sendCommand()` 新增可靠 ACK 窗口内同 `seq` 业务反馈延迟投递机制。若 MCU 将 `ACK(0x00)` 和 `ARM_RAISE_DONE(0x02)` 等业务 done 背靠背发回，串口层会先让 ACK 唤醒 service 调用，再把同 `seq` 非控制反馈通过短延迟队列交给 receive callback，避免 `/mechanism/command_feedback` 早于 `/mechanism/send_command` response。该逻辑只在 `rc26_serial` 内部调整时序，不改变协议 ID、payload、ROS service/topic wire shape，也不缓存 `MCU_ERROR(0xFE)`。
 
 2026-06-30 同步：把梅林预选赛已经使用的入口高侧 KFS 夹取协议收回到 `rc26_serial` 真源：新增下行 `ENTRY_GRAB_KFS_UP(0x0F)` 与上行 `ENTRY_GRAB_KFS_UP_DONE(0x0B)`。该命令仍走 raw transport 空 payload，`/mechanism/send_command.accepted=true` 只表示通用 ACK，动作完成需要同 `seq` 的 `0x0B`，后续物理夹取成功仍由决策侧视觉消失验证提交。
 

@@ -345,6 +345,93 @@ bool MfPreselectionLogicResult::entryInterruptOffsetAcceptable(
   return std::abs(offset_px) <= std::max(0, params.entry_interrupt_max_offset_px);
 }
 
+bool MfPreselectionLogicResult::entryInterruptOffsetAcceptable(
+    int offset_px, double lateral_speed_mps, double depth_m,
+    const MfPreselectionParams &params) {
+  return std::abs(offset_px) <=
+         entryInterruptEffectiveOffsetLimitPx(lateral_speed_mps, depth_m,
+                                              params);
+}
+
+double MfPreselectionLogicResult::mcuSineStopTime(double speed_mps,
+                                                  double acc_mps2) {
+  if (!std::isfinite(speed_mps) || !std::isfinite(acc_mps2) ||
+      acc_mps2 <= 0.0) {
+    return 0.0;
+  }
+  return kPi * std::abs(speed_mps) / (2.0 * acc_mps2);
+}
+
+double MfPreselectionLogicResult::mcuSineStopDistance(double speed_mps,
+                                                      double acc_mps2) {
+  if (!std::isfinite(speed_mps) || !std::isfinite(acc_mps2) ||
+      acc_mps2 <= 0.0) {
+    return 0.0;
+  }
+  const double speed = std::abs(speed_mps);
+  return kPi * speed * speed / (4.0 * acc_mps2);
+}
+
+int MfPreselectionLogicResult::entryInterruptDynamicExtraPx(
+    double lateral_speed_mps, double depth_m,
+    const MfPreselectionParams &params) {
+  if (!params.entry_interrupt_dynamic_comp_enable ||
+      !std::isfinite(depth_m) || depth_m <= 0.0 ||
+      !std::isfinite(params.entry_interrupt_fx_px) ||
+      params.entry_interrupt_fx_px <= 0.0) {
+    return 0;
+  }
+
+  const double speed = std::isfinite(lateral_speed_mps)
+                           ? std::abs(lateral_speed_mps)
+                           : 0.0;
+  const double stop_distance =
+      mcuSineStopDistance(speed, params.entry_mcu_vy_acc_mps2);
+  const double latency =
+      std::max(0.0, std::isfinite(params.entry_interrupt_latency_s)
+                        ? params.entry_interrupt_latency_s
+                        : 0.0);
+  const double compensated_m = stop_distance + speed * latency;
+  if (compensated_m <= 0.0) {
+    return 0;
+  }
+
+  const int raw_extra_px = static_cast<int>(
+      std::lround(compensated_m * params.entry_interrupt_fx_px / depth_m));
+  const int min_extra = std::max(0, params.entry_interrupt_extra_px_min);
+  const int max_extra = std::max(min_extra, params.entry_interrupt_extra_px_max);
+  return std::clamp(raw_extra_px, min_extra, max_extra);
+}
+
+int MfPreselectionLogicResult::entryInterruptEffectiveOffsetLimitPx(
+    double lateral_speed_mps, double depth_m,
+    const MfPreselectionParams &params) {
+  return std::max(0, params.entry_interrupt_max_offset_px) +
+         entryInterruptDynamicExtraPx(lateral_speed_mps, depth_m, params);
+}
+
+double MfPreselectionLogicResult::entryMcuStopSettleDuration(
+    double lateral_speed_mps, const MfPreselectionParams &params) {
+  if (!params.entry_mcu_stop_settle_enable) {
+    return 0.0;
+  }
+  const double stop_time =
+      mcuSineStopTime(lateral_speed_mps, params.entry_mcu_vy_acc_mps2);
+  const double margin =
+      std::max(0.0, std::isfinite(params.entry_mcu_stop_margin_s)
+                        ? params.entry_mcu_stop_margin_s
+                        : 0.0);
+  const double max_wait =
+      std::max(0.0, std::isfinite(params.entry_mcu_stop_max_wait_s)
+                        ? params.entry_mcu_stop_max_wait_s
+                        : 0.0);
+  const double wait = stop_time + margin;
+  if (wait <= 0.0) {
+    return 0.0;
+  }
+  return max_wait > 0.0 ? std::min(wait, max_wait) : wait;
+}
+
 bool MfPreselectionLogicResult::kfsAlignTimeoutPickupAllowed(
     int offset_px, bool has_depth, const MfPreselectionParams &params) {
   return has_depth && std::abs(offset_px) <=
@@ -1178,12 +1265,21 @@ bool MfPreselectionFlowAction::setupRuntime() {
   config().blackboard->set("mf_preselect_pickup_source", std::string("无"));
   config().blackboard->set("mf_preselect_done", false);
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛运行接口就绪：cmd_vel=%s odom=%s center_cmd_vel=%s center_odom=%s command_service=%s feedback=%s entry_interrupt_offset<=%dpx kfs_align_speed=[%.3f, %.3f]m/s timeout_pickup<=%dpx kfs_approach_odom_kp=%.3f approach_tol=%.3fm approach_speed=%.3fm/s approach_min=%.3fm/s arm_reach=%.3fm approach_timeout=%.2fs",
+              "梅林预选赛运行接口就绪：cmd_vel=%s odom=%s center_cmd_vel=%s center_odom=%s command_service=%s feedback=%s entry_interrupt_offset<=%dpx dynamic_comp=%s fx=%.1f latency=%.3fs extra=[%d,%d]px stop_settle=%s acc=%.3fm/s^2 margin=%.3fs max_wait=%.3fs kfs_align_speed=[%.3f, %.3f]m/s timeout_pickup<=%dpx kfs_approach_odom_kp=%.3f approach_tol=%.3fm approach_speed=%.3fm/s approach_min=%.3fm/s arm_reach=%.3fm approach_timeout=%.2fs",
               params_.cmd_vel_topic.c_str(), params_.odom_topic.c_str(),
               center_params_.cmd_vel_topic.c_str(),
               center_params_.odom_topic.c_str(),
               params_.send_command_service.c_str(), params_.feedback_topic.c_str(),
               params_.entry_interrupt_max_offset_px,
+              params_.entry_interrupt_dynamic_comp_enable ? "开" : "关",
+              params_.entry_interrupt_fx_px,
+              params_.entry_interrupt_latency_s,
+              params_.entry_interrupt_extra_px_min,
+              params_.entry_interrupt_extra_px_max,
+              params_.entry_mcu_stop_settle_enable ? "开" : "关",
+              params_.entry_mcu_vy_acc_mps2,
+              params_.entry_mcu_stop_margin_s,
+              params_.entry_mcu_stop_max_wait_s,
               params_.kfs_align_min_speed_mps, params_.kfs_align_max_speed_mps,
               params_.kfs_align_timeout_pickup_tolerance_px,
               params_.kfs_odom_xy_kp, params_.kfs_approach_odom_tolerance_m,
@@ -1214,13 +1310,14 @@ bool MfPreselectionFlowAction::setupVision() {
       return false;
     }
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛 KFS 视觉已启动：config=%s model=%s R2前缀数=%zu R1标签数=%zu 假KFS前缀数=%zu 通用深度=[%.2f, %.2f]m 入口深度=[%.2f, %.2f]m 入口打断offset<=%dpx 横移视觉速度=[%.3f, %.3f]m/s 超时补夹offset<=%dpx 前向odom速度=%.3fm/s 臂长=%.3fm 超时=%.2fs",
+                "梅林预选赛 KFS 视觉已启动：config=%s model=%s R2前缀数=%zu R1标签数=%zu 假KFS前缀数=%zu 通用深度=[%.2f, %.2f]m 入口深度=[%.2f, %.2f]m 入口打断offset<=%dpx dynamic_comp=%s 横移视觉速度=[%.3f, %.3f]m/s 超时补夹offset<=%dpx 前向odom速度=%.3fm/s 臂长=%.3fm 超时=%.2fs",
                 params_.vision_config_file.c_str(), params_.model_id.c_str(),
                 params_.r2_target_label_prefixes.size(),
                 params_.r1_blocking_labels.size(),
                 params_.fake_label_prefixes.size(), params_.depth_min_m,
                 params_.depth_max_m, params_.entry_depth_min_m,
                 params_.entry_depth_max_m, params_.entry_interrupt_max_offset_px,
+                params_.entry_interrupt_dynamic_comp_enable ? "开" : "关",
                 params_.kfs_align_min_speed_mps,
                 params_.kfs_align_max_speed_mps,
                 params_.kfs_align_timeout_pickup_tolerance_px,
@@ -1292,6 +1389,31 @@ void MfPreselectionFlowAction::normalizeParams() {
       std::max(kMinTimeoutS, params_.scan_detect_timeout_s);
   params_.entry_interrupt_max_offset_px =
       std::max(0, params_.entry_interrupt_max_offset_px);
+  params_.entry_interrupt_latency_s =
+      std::max(0.0, std::isfinite(params_.entry_interrupt_latency_s)
+                        ? params_.entry_interrupt_latency_s
+                        : 0.0);
+  if (!std::isfinite(params_.entry_interrupt_fx_px) ||
+      params_.entry_interrupt_fx_px < 0.0) {
+    params_.entry_interrupt_fx_px = 0.0;
+  }
+  params_.entry_interrupt_extra_px_min =
+      std::max(0, params_.entry_interrupt_extra_px_min);
+  params_.entry_interrupt_extra_px_max =
+      std::max(params_.entry_interrupt_extra_px_min,
+               params_.entry_interrupt_extra_px_max);
+  if (!std::isfinite(params_.entry_mcu_vy_acc_mps2) ||
+      params_.entry_mcu_vy_acc_mps2 < 0.0) {
+    params_.entry_mcu_vy_acc_mps2 = 0.0;
+  }
+  params_.entry_mcu_stop_margin_s =
+      std::max(0.0, std::isfinite(params_.entry_mcu_stop_margin_s)
+                        ? params_.entry_mcu_stop_margin_s
+                        : 0.0);
+  params_.entry_mcu_stop_max_wait_s =
+      std::max(0.0, std::isfinite(params_.entry_mcu_stop_max_wait_s)
+                        ? params_.entry_mcu_stop_max_wait_s
+                        : 0.0);
   params_.kfs_align_tolerance_px =
       std::max(0, params_.kfs_align_tolerance_px);
   params_.kfs_align_stable_frames =
@@ -2664,16 +2786,24 @@ bool MfPreselectionFlowAction::maybeInterruptEntryMoveForKfs() {
     return false;
   }
 
+  const double lateral_speed = move_vy_;
+  const int dynamic_extra_px =
+      MfPreselectionLogicResult::entryInterruptDynamicExtraPx(
+          lateral_speed, r2->target.distance_m, params_);
+  const int effective_limit_px =
+      MfPreselectionLogicResult::entryInterruptEffectiveOffsetLimitPx(
+          lateral_speed, r2->target.distance_m, params_);
   if (!MfPreselectionLogicResult::entryInterruptOffsetAcceptable(
-          r2->offset_px, params_)) {
+          r2->offset_px, lateral_speed, r2->target.distance_m, params_)) {
     entry_move_last_interrupt_sequence_ = r2->target.sequence;
     if (node_) {
       RCLCPP_INFO(
           node_->get_logger(),
-          "梅林预选赛入口横移中看到R2 KFS但暂不停车：move=%s label=%s seq=%ld image_offset=%dpx limit=%dpx depth=%.3fm，继续横移等待目标进入可夹取窗口",
+          "梅林预选赛入口横移中看到R2 KFS但暂不停车：move=%s label=%s seq=%ld image_offset=%dpx base_limit=%dpx dynamic_extra=%dpx effective_limit=%dpx vy=%.3fm/s depth=%.3fm，继续横移等待目标进入可夹取窗口",
           move_label_.c_str(), r2->target.label.c_str(),
           static_cast<long>(r2->target.sequence), r2->offset_px,
-          params_.entry_interrupt_max_offset_px, r2->target.distance_m);
+          params_.entry_interrupt_max_offset_px, dynamic_extra_px,
+          effective_limit_px, lateral_speed, r2->target.distance_m);
     }
     return false;
   }
@@ -2694,16 +2824,70 @@ bool MfPreselectionFlowAction::maybeInterruptEntryMoveForKfs() {
   }
 
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛入口横移中单帧锁定R2 KFS：move=%s label=%s seq=%ld lateral_offset=%.3fm image_offset=%dpx depth=%.3fm source=%s，立即停车进入视觉横移对齐夹取",
+              "梅林预选赛入口横移中单帧锁定R2 KFS：move=%s label=%s seq=%ld lateral_offset=%.3fm image_offset=%dpx base_limit=%dpx dynamic_extra=%dpx effective_limit=%dpx vy=%.3fm/s depth=%.3fm source=%s，立即停车进入视觉横移对齐夹取",
               move_label_.c_str(), r2->target.label.c_str(),
               static_cast<long>(r2->target.sequence), lateral_offset,
-              r2->offset_px, r2->target.distance_m,
+              r2->offset_px, params_.entry_interrupt_max_offset_px,
+              dynamic_extra_px, effective_limit_px, lateral_speed,
+              r2->target.distance_m,
               sourceName(source));
   beginKfsVisualPickup(true, source, *r2,
                        Phase::EntryReturnToCenterAfterInterruptedPickup,
                        Phase::EntryResumeInterruptedProbeMove, false, true,
                        R2DepthProfile::Entry);
+  beginEntryMcuStopSettle(lateral_speed);
   return true;
+}
+
+void MfPreselectionFlowAction::beginEntryMcuStopSettle(
+    double lateral_speed_mps) {
+  kfs_entry_mcu_stop_settle_active_ = false;
+  kfs_entry_mcu_stop_settle_done_logged_ = false;
+  kfs_entry_mcu_stop_settle_duration_s_ =
+      MfPreselectionLogicResult::entryMcuStopSettleDuration(lateral_speed_mps,
+                                                            params_);
+  kfs_entry_mcu_stop_settle_speed_mps_ = lateral_speed_mps;
+  if (!node_ || kfs_entry_mcu_stop_settle_duration_s_ <= 0.0) {
+    return;
+  }
+
+  kfs_entry_mcu_stop_settle_active_ = true;
+  kfs_entry_mcu_stop_settle_until_ =
+      node_->now() + seconds(kfs_entry_mcu_stop_settle_duration_s_);
+  publishStop();
+  RCLCPP_INFO(
+      node_->get_logger(),
+      "梅林预选赛入口横移中断后进入MCU减速等待：vy=%.3fm/s acc=%.3fm/s^2 wait=%.3fs margin=%.3fs max_wait=%.3fs",
+      lateral_speed_mps, params_.entry_mcu_vy_acc_mps2,
+      kfs_entry_mcu_stop_settle_duration_s_, params_.entry_mcu_stop_margin_s,
+      params_.entry_mcu_stop_max_wait_s);
+}
+
+bool MfPreselectionFlowAction::tickEntryMcuStopSettle() {
+  if (!kfs_entry_mcu_stop_settle_active_) {
+    return false;
+  }
+  publishStop();
+  if (!node_) {
+    kfs_entry_mcu_stop_settle_active_ = false;
+    return false;
+  }
+  if (node_->now() < kfs_entry_mcu_stop_settle_until_) {
+    return true;
+  }
+
+  kfs_entry_mcu_stop_settle_active_ = false;
+  if (!kfs_entry_mcu_stop_settle_done_logged_) {
+    kfs_entry_mcu_stop_settle_done_logged_ = true;
+    // 等待 MCU 收完入口扫线速度后再开始计算视觉对齐总超时。
+    kfs_align_total_start_ = node_->now();
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "梅林预选赛入口MCU减速等待完成：vy=%.3fm/s wait=%.3fs，开始KFS视觉横移对齐",
+        kfs_entry_mcu_stop_settle_speed_mps_,
+        kfs_entry_mcu_stop_settle_duration_s_);
+  }
+  return false;
 }
 
 BT::NodeStatus
@@ -4227,6 +4411,10 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
     return fail("kfs_visual_align_target_missing");
   }
 
+  if (tickEntryMcuStopSettle()) {
+    return BT::NodeStatus::RUNNING;
+  }
+
   const double total_elapsed =
       (node_->now() - kfs_align_total_start_).seconds();
   if (total_elapsed > params_.kfs_align_timeout_s) {
@@ -4482,6 +4670,11 @@ void MfPreselectionFlowAction::clearKfsVisualPickup() {
   kfs_align_lost_count_ = 0;
   kfs_align_last_sequence_ = 0;
   kfs_align_total_start_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+  kfs_entry_mcu_stop_settle_active_ = false;
+  kfs_entry_mcu_stop_settle_until_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+  kfs_entry_mcu_stop_settle_duration_s_ = 0.0;
+  kfs_entry_mcu_stop_settle_speed_mps_ = 0.0;
+  kfs_entry_mcu_stop_settle_done_logged_ = false;
   kfs_align_waiting_verify_frame_ = false;
   kfs_align_yaw_hold_captured_ = false;
   kfs_align_yaw_hold_target_ = 0.0;
@@ -4761,6 +4954,31 @@ void loadMfPreselectionParams(rclcpp::Node &node,
   p.entry_interrupt_max_offset_px = node.declare_parameter<int>(
       "mf_preselect_entry_interrupt_max_offset_px",
       p.entry_interrupt_max_offset_px);
+  p.entry_interrupt_dynamic_comp_enable = node.declare_parameter<bool>(
+      "mf_preselect_entry_interrupt_dynamic_comp_enable",
+      p.entry_interrupt_dynamic_comp_enable);
+  p.entry_interrupt_latency_s = node.declare_parameter<double>(
+      "mf_preselect_entry_interrupt_latency_s",
+      p.entry_interrupt_latency_s);
+  p.entry_interrupt_fx_px = node.declare_parameter<double>(
+      "mf_preselect_entry_interrupt_fx_px", p.entry_interrupt_fx_px);
+  p.entry_interrupt_extra_px_min = node.declare_parameter<int>(
+      "mf_preselect_entry_interrupt_extra_px_min",
+      p.entry_interrupt_extra_px_min);
+  p.entry_interrupt_extra_px_max = node.declare_parameter<int>(
+      "mf_preselect_entry_interrupt_extra_px_max",
+      p.entry_interrupt_extra_px_max);
+  p.entry_mcu_stop_settle_enable = node.declare_parameter<bool>(
+      "mf_preselect_entry_mcu_stop_settle_enable",
+      p.entry_mcu_stop_settle_enable);
+  p.entry_mcu_vy_acc_mps2 = node.declare_parameter<double>(
+      "mf_preselect_entry_mcu_vy_acc_mps2", p.entry_mcu_vy_acc_mps2);
+  p.entry_mcu_stop_margin_s = node.declare_parameter<double>(
+      "mf_preselect_entry_mcu_stop_margin_s",
+      p.entry_mcu_stop_margin_s);
+  p.entry_mcu_stop_max_wait_s = node.declare_parameter<double>(
+      "mf_preselect_entry_mcu_stop_max_wait_s",
+      p.entry_mcu_stop_max_wait_s);
 
   // R2 KFS 夹取前视觉横移和前向 odom 趋近参数。入口区使用独立
   // entry_depth_min/max 窗口，其余检测使用 depth_min/max；横移阶段用视觉

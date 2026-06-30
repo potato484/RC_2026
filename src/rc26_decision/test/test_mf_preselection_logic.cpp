@@ -76,6 +76,94 @@ TEST(MfPreselectionLogic, EntryInterruptWaitsForCenteredTarget) {
           240, params));
 }
 
+TEST(MfPreselectionLogic, EntryInterruptCompensatesMcuSineStopModel) {
+  rc26_decision::MfPreselectionParams params;
+  params.entry_interrupt_max_offset_px = 170;
+  params.entry_interrupt_dynamic_comp_enable = true;
+  params.entry_interrupt_latency_s = 0.15;
+  params.entry_interrupt_fx_px = 450.0;
+  params.entry_interrupt_extra_px_min = 20;
+  params.entry_interrupt_extra_px_max = 80;
+  params.entry_mcu_vy_acc_mps2 = 1.0;
+
+  EXPECT_NEAR(
+      rc26_decision::MfPreselectionLogicResult::mcuSineStopTime(0.30, 1.0),
+      M_PI * 0.30 / 2.0, 1e-9);
+  EXPECT_NEAR(
+      rc26_decision::MfPreselectionLogicResult::mcuSineStopDistance(0.30, 1.0),
+      M_PI * 0.30 * 0.30 / 4.0, 1e-9);
+
+  const int extra =
+      rc26_decision::MfPreselectionLogicResult::entryInterruptDynamicExtraPx(
+          0.30, 1.0, params);
+  EXPECT_EQ(extra, 52);
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::
+          entryInterruptEffectiveOffsetLimitPx(0.30, 1.0, params),
+      222);
+  EXPECT_TRUE(
+      rc26_decision::MfPreselectionLogicResult::entryInterruptOffsetAcceptable(
+          222, 0.30, 1.0, params));
+  EXPECT_FALSE(
+      rc26_decision::MfPreselectionLogicResult::entryInterruptOffsetAcceptable(
+          223, 0.30, 1.0, params));
+}
+
+TEST(MfPreselectionLogic, EntryInterruptCompensationClampsAndCanDisable) {
+  rc26_decision::MfPreselectionParams params;
+  params.entry_interrupt_max_offset_px = 170;
+  params.entry_interrupt_dynamic_comp_enable = true;
+  params.entry_interrupt_latency_s = 0.15;
+  params.entry_interrupt_fx_px = 450.0;
+  params.entry_interrupt_extra_px_min = 20;
+  params.entry_interrupt_extra_px_max = 80;
+  params.entry_mcu_vy_acc_mps2 = 1.0;
+
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::entryInterruptDynamicExtraPx(
+          0.30, 10.0, params),
+      20);
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::entryInterruptDynamicExtraPx(
+          0.80, 0.30, params),
+      80);
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::entryInterruptDynamicExtraPx(
+          0.30, 0.0, params),
+      0);
+
+  params.entry_interrupt_dynamic_comp_enable = false;
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::
+          entryInterruptEffectiveOffsetLimitPx(0.30, 1.0, params),
+      170);
+}
+
+TEST(MfPreselectionLogic, EntryMcuStopSettleUsesStopTimeMarginAndCap) {
+  rc26_decision::MfPreselectionParams params;
+  params.entry_mcu_stop_settle_enable = true;
+  params.entry_mcu_vy_acc_mps2 = 1.0;
+  params.entry_mcu_stop_margin_s = 0.08;
+  params.entry_mcu_stop_max_wait_s = 0.70;
+
+  EXPECT_NEAR(
+      rc26_decision::MfPreselectionLogicResult::entryMcuStopSettleDuration(
+          0.30, params),
+      M_PI * 0.30 / 2.0 + 0.08, 1e-9);
+
+  params.entry_mcu_stop_max_wait_s = 0.40;
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::entryMcuStopSettleDuration(
+          0.30, params),
+      0.40);
+
+  params.entry_mcu_stop_settle_enable = false;
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::entryMcuStopSettleDuration(
+          0.30, params),
+      0.0);
+}
+
 TEST(MfPreselectionLogic, AlignTimeoutPickupRequiresDepthAndLooseTolerance) {
   rc26_decision::MfPreselectionParams params;
   params.kfs_align_tolerance_px = 5;

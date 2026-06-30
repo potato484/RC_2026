@@ -46,6 +46,15 @@ struct MfPreselectionParams {
   double entry_detect_timeout_s{2.0};
   double scan_detect_timeout_s{2.0};
   int entry_interrupt_max_offset_px{180};
+  bool entry_interrupt_dynamic_comp_enable{true};
+  double entry_interrupt_latency_s{0.15};
+  double entry_interrupt_fx_px{450.0};
+  int entry_interrupt_extra_px_min{20};
+  int entry_interrupt_extra_px_max{80};
+  bool entry_mcu_stop_settle_enable{true};
+  double entry_mcu_vy_acc_mps2{1.0};
+  double entry_mcu_stop_margin_s{0.08};
+  double entry_mcu_stop_max_wait_s{0.70};
 
   int kfs_align_tolerance_px{20};
   int kfs_align_stable_frames{5};
@@ -137,6 +146,20 @@ struct MfPreselectionLogicResult {
   static bool canPickup(int pickup_count, int max_pickup_count);
   static bool entryInterruptOffsetAcceptable(int offset_px,
                                              const MfPreselectionParams &params);
+  static bool entryInterruptOffsetAcceptable(int offset_px,
+                                             double lateral_speed_mps,
+                                             double depth_m,
+                                             const MfPreselectionParams &params);
+  static double mcuSineStopTime(double speed_mps, double acc_mps2);
+  static double mcuSineStopDistance(double speed_mps, double acc_mps2);
+  static int entryInterruptDynamicExtraPx(double lateral_speed_mps,
+                                          double depth_m,
+                                          const MfPreselectionParams &params);
+  static int entryInterruptEffectiveOffsetLimitPx(
+      double lateral_speed_mps, double depth_m,
+      const MfPreselectionParams &params);
+  static double entryMcuStopSettleDuration(double lateral_speed_mps,
+                                           const MfPreselectionParams &params);
   static bool kfsAlignTimeoutPickupAllowed(int offset_px, bool has_depth,
                                            const MfPreselectionParams &params);
   static rc26_vision::TipAlignmentConfig
@@ -359,6 +382,8 @@ private:
   bool captureEntryLateralReferenceIfNeeded();
   double currentEntryLateralOffset() const;
   bool maybeInterruptEntryMoveForKfs();
+  void beginEntryMcuStopSettle(double lateral_speed_mps);
+  bool tickEntryMcuStopSettle();
   BT::NodeStatus beginEntryReturnToCenterAfterInterruptedPickup();
   BT::NodeStatus resumeInterruptedEntryMove();
   void beginDirectExitDrive();
@@ -608,6 +633,11 @@ private:
   int kfs_align_lost_count_{0};
   int64_t kfs_align_last_sequence_{0};
   rclcpp::Time kfs_align_total_start_{0, 0, RCL_ROS_TIME};
+  bool kfs_entry_mcu_stop_settle_active_{false};
+  rclcpp::Time kfs_entry_mcu_stop_settle_until_{0, 0, RCL_ROS_TIME};
+  double kfs_entry_mcu_stop_settle_duration_s_{0.0};
+  double kfs_entry_mcu_stop_settle_speed_mps_{0.0};
+  bool kfs_entry_mcu_stop_settle_done_logged_{false};
   bool kfs_align_waiting_verify_frame_{false};
   bool kfs_align_yaw_hold_captured_{false};
   double kfs_align_yaw_hold_target_{0.0};

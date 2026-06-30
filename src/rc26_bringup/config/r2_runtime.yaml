@@ -59,9 +59,9 @@ r2_runtime:
       # 红方武馆区 (MC) 运行参数 —— 启动时由 r2_runtime.yaml/launch 参数写入决策节点
       # ======================================================================
       # --- 红方 odom 单轴分段导航：+X 0.2m -> 右转 90° -> -X 0.6m ---
-      mc_nav_forward_x_m: 0.20      # 红方武馆区去程第一段 OdomDriveX 车体系 x 正向位移
+      mc_nav_forward_x_m: 0.25      # 红方武馆区去程第一段 OdomDriveX 车体系 x 正向位移
       mc_nav_right_turn_delta_rad: -1.5708 # 第一段后相对右转角度；运行时由 RelativeYawTarget 转成绝对 odom yaw
-      mc_nav_reverse_x_m: -0.60     # 右转后第二段 OdomDriveX 车体系 x 负向位移
+      mc_nav_reverse_x_m: -0.65     # 右转后第二段 OdomDriveX 车体系 x 负向位移
       mc_nav_timeout_sec: 180.0     # 单个 OdomDriveX/OdomDriveY/OdomTurnToYaw 段的超时时间，单位秒
 
       # --- 相机 / 推理（内嵌直连相机，对齐 tip_vision_test_node）---
@@ -124,7 +124,7 @@ r2_runtime:
       # ======================================================================
       mf_preselect_entry2_nav_enable: true      # 2号入口导航点未标定前关闭；关闭时默认机器人已在2号入口
       mf_preselect_entry2_nav_segment1_x_m: 2.0  # 2号入口 OdomDriveX 车体系 x 正向位移
-      mf_preselect_entry2_nav_segment1_y_m: -1.8 # 2号入口 OdomDriveY 车体系 y 负向位移
+      mf_preselect_entry2_nav_segment1_y_m: -1.7 # 2号入口 OdomDriveY 车体系 y 负向位移
       mf_preselect_entry2_nav_timeout_sec: 180.0 # 入口单个 x/y 动作超时，单位秒
 
       mf_preselect_vision_config_file: ""        # KFS 视觉模型配置；空则回退 rc26_vision/config/vision_models.yaml
@@ -136,16 +136,25 @@ r2_runtime:
       mf_preselect_fake_label_prefixes: ["F_"]   # 假 KFS 标签前缀
       mf_preselect_fake_labels: ["__none__"]     # 精确假 KFS 标签占位
       mf_preselect_depth_min_m: 0.35              # 梅林内部/旁列/直出 KFS 锁定深度有效下限，单位 m
-      mf_preselect_depth_max_m: 0.8             # 梅林内部/旁列/直出 KFS 锁定深度有效上限，单位 m
+      mf_preselect_depth_max_m: 1.0             # 梅林内部/旁列/直出 KFS 锁定深度有效上限，单位 m
       mf_preselect_entry_depth_min_m: 0.35       # 入口2/1/3定点与入口横移中断 KFS 锁定深度下限，单位 m
       mf_preselect_entry_depth_max_m: 1.4        # 入口2/1/3定点与入口横移中断 KFS 锁定深度上限，单位 m
       mf_preselect_detect_seen_stable_frames: 1  # 连续看到目标多少帧后确认
       mf_preselect_detect_lost_stable_frames: 5  # 连续未看到目标多少帧后确认无目标
       mf_preselect_entry_detect_timeout_s: 2.0   # 入口单点检测最长等待，单位秒
       mf_preselect_scan_detect_timeout_s: 2.0    # 行内/阶梯扫描检测最长等待，单位秒
-      mf_preselect_entry_interrupt_max_offset_px: 160 # 入口横移中 KFS 偏离中心超过该值时继续扫线，不立即停车夹取
-      mf_preselect_kfs_align_tolerance_px: 20    # KFS 锁定帧像素偏差容差；容差内跳过视觉横移对齐
-      mf_preselect_kfs_align_stable_frames: 1    # KFS 横移视觉闭环/复核前要求同一目标连续稳定新帧数
+      mf_preselect_entry_interrupt_max_offset_px: 170 # 入口横移中 KFS 偏离中心超过该值时继续扫线，不立即停车夹取
+      mf_preselect_entry_interrupt_dynamic_comp_enable: true # 入口横移按 MCU 半余弦减速模型动态放大中断窗口
+      mf_preselect_entry_interrupt_latency_s: 0.15 # 入口横移中断补偿的视觉/BT/下发延迟估计，单位秒
+      mf_preselect_entry_interrupt_fx_px: 385.83319091796875 # 当前 D455 640x480 彩色流 CameraInfo.K[0] 实测 fx，单位 px
+      mf_preselect_entry_interrupt_extra_px_min: 20 # 动态提前中断像素补偿下限，单位 px
+      mf_preselect_entry_interrupt_extra_px_max: 80 # 动态提前中断像素补偿上限，单位 px
+      mf_preselect_entry_mcu_stop_settle_enable: true # 入口横移中断后先持续零速等待 MCU 收完速度规划
+      mf_preselect_entry_mcu_vy_acc_mps2: 1.0     # MCU Chassis_driver.h 中 CHASSIS_MAX_VY_ACC 对应值
+      mf_preselect_entry_mcu_stop_margin_s: 0.08  # MCU 理论减速时间外的保守余量，单位秒
+      mf_preselect_entry_mcu_stop_max_wait_s: 0.70 # 入口横移中断后零速等待上限，单位秒
+      mf_preselect_kfs_align_tolerance_px: 10    # KFS 锁定帧像素偏差容差；容差内跳过视觉横移对齐
+      mf_preselect_kfs_align_stable_frames: 3    # KFS 横移视觉闭环/复核前要求同一目标连续稳定新帧数
       mf_preselect_kfs_align_max_jump_px: 50     # KFS tip_alignment 目标锁定允许的单帧中心跳变阈值，单位 px
       mf_preselect_kfs_align_kp: 0.0010          # KFS 视觉横移 offset 到 linear.y 的比例系数
       mf_preselect_kfs_align_min_speed_mps: 0.05 # KFS 视觉横移最小速度幅值
@@ -163,7 +172,7 @@ r2_runtime:
       mf_preselect_kfs_approach_min_speed_mps: 0.03 # KFS 前向 odom 闭环 x 方向最小速度幅值，单位 m/s
       mf_preselect_kfs_approach_x_sign: 1        # KFS 趋近方向符号；1 为 linear.x 正向，-1 为负向
       mf_preselect_kfs_approach_timeout_s: 8.0   # KFS 前向 odom 闭环趋近安全超时；计划时长超出会失败停车
-      mf_preselect_kfs_grab_distance_m: 0.50     # KFS 机械臂可触达距离/停止目标距离，前进距离=max(0,锁定深度-该值)
+      mf_preselect_kfs_grab_distance_m: 0.40     # KFS 机械臂可触达距离/停止目标距离，前进距离=max(0,锁定深度-该值)
       mf_preselect_max_pickup_count: 2           # 单局预选赛最多夹取 R2 KFS 数量
       mf_preselect_grab_settle_s: 0.5            # KFS 视觉确认夹取成功后零速稳定等待，单位秒
       mf_preselect_grab_verify_timeout_s: 3.0    # KFS 夹取 ACK 后等待原目标消失的最长视觉验证时间
@@ -178,7 +187,7 @@ r2_runtime:
       mf_preselect_odom_topic: "odom"            # 相对移动/转向闭环 odom 话题
       mf_preselect_send_command_service: "/mechanism/send_command" # 机构 raw transport service
       mf_preselect_feedback_topic: "/mechanism/command_feedback"   # 机构/台阶反馈 topic
-      mf_preselect_command_timeout_s: 15.0        # 机构命令 ACK/完成反馈超时，单位秒
+      mf_preselect_command_timeout_s: 180.0        # 机构命令 ACK/完成反馈超时，单位秒
       mf_preselect_arm_high_raise_command_id: 13 # 0x0D ARM_HIGH_RAISE，入口1/3阶梯高抬升
       mf_preselect_arm_high_raise_done_feedback_id: 9 # 0x09 ARM_HIGH_RAISE_DONE
       mf_preselect_arm_raise_command_id: 4       # 0x04 ARM_RAISE，低到高阶梯预调
@@ -191,7 +200,7 @@ r2_runtime:
       mf_preselect_entry_probe_left_distance_m: 1.2     # 2号入口向1号阶梯横移探测距离
       mf_preselect_entry_probe_right_sweep_distance_m: 2.4 # 从1号阶梯扫到3号阶梯横移距离
       mf_preselect_entry_probe_return_distance_m: 1.1   # 从1/3号阶梯返回2号入口横移距离
-      mf_preselect_lateral_probe_speed_mps: 0.40        # 入口 Y 向平移探测速度绝对值
+      mf_preselect_lateral_probe_speed_mps: 0.30        # 入口 Y 向平移探测速度绝对值
       mf_preselect_move_tolerance_m: 0.03               # 相对移动完成距离容差
       mf_preselect_move_timeout_s: 12.0                 # 单段相对移动超时，单位秒
       mf_preselect_direct_exit_drive_distance_m: 4.8    # 直出梅林相对前进距离，占位可现场调

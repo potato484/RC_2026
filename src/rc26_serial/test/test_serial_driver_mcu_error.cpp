@@ -4,6 +4,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -27,6 +28,7 @@ namespace {
 
 constexpr uint8_t kMcuError = static_cast<uint8_t>(rc26_serial::FeedbackID::MCU_ERROR);
 constexpr uint8_t kAck = static_cast<uint8_t>(rc26_serial::FeedbackID::ACK);
+constexpr uint8_t kArmRaiseDone = static_cast<uint8_t>(rc26_serial::FeedbackID::ARM_RAISE_DONE);
 
 std::vector<uint8_t> buildFrame(uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload,
                                 uint8_t retry = 0x00) {
@@ -245,6 +247,53 @@ TEST(SerialDriverMcuError, RetriesAfterMcuErrorAndSucceedsOnAck) {
     EXPECT_EQ(frames[1].retry, 0x01U);
     EXPECT_EQ(frames[2].retry, 0x02U);
     EXPECT_EQ(driver.commHealth().mcu_error_responses.load(), 2U);
+}
+
+TEST(SerialDriverMcuError, SameSeqBusinessFeedbackAfterAckIsDeliveredAfterSendCommandReturns) {
+    PseudoMcu mcu([](const TxFrame& frame, size_t) {
+        return std::vector<ResponseFrame>{{frame.seq, kAck}, {frame.seq, kArmRaiseDone}};
+    });
+
+    rc26_decision::SerialDriver driver;
+    ASSERT_TRUE(driver.open(mcu.slavePath(), rc26_decision::UART_BAUDRATE)) << driver.lastError();
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::atomic<bool> send_returned{false};
+    bool done_received = false;
+    bool done_after_return = false;
+    uint8_t done_seq = 0;
+
+    driver.setReceiveCallback([&](uint8_t seq, uint8_t cmd, const std::vector<uint8_t>&) {
+        if (cmd != kArmRaiseDone) {
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(mutex);
+        done_received = true;
+        done_after_return = send_returned.load(std::memory_order_acquire);
+        done_seq = seq;
+        cv.notify_one();
+    });
+
+    uint8_t seq = 0;
+    const bool sent = driver.sendCommand(static_cast<uint8_t>(rc26_serial::CommandID::ARM_RAISE), {}, seq);
+    send_returned.store(true, std::memory_order_release);
+    ASSERT_TRUE(sent) << driver.lastError();
+
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(1), [&]() { return done_received; }));
+        EXPECT_TRUE(done_after_return);
+        EXPECT_EQ(done_seq, seq);
+    }
+
+    driver.close();
+
+    const auto frames = mcu.receivedFrames();
+    ASSERT_EQ(frames.size(), 1U);
+    EXPECT_EQ(frames[0].seq, seq);
+    EXPECT_EQ(frames[0].retry, 0x00U);
 }
 
 TEST(SerialDriverMcuError, FailsWithLowerMachineReasonAfterRetryExhaustion) {

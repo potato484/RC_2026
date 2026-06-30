@@ -1,9 +1,11 @@
 // RC2026 串口驱动实现
 #include "rc26_serial/serial_driver.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <cerrno>
 #include <cstring>
+#include <iterator>
 #include <stdexcept>
 
 #include <fcntl.h>
@@ -102,12 +104,27 @@ std::string errnoText(int err) {
     return std::to_string(err) + " (" + std::string(std::strerror(err)) + ")";
 }
 
+bool isAckControlFrame(uint8_t cmd) {
+    return cmd == static_cast<uint8_t>(FeedbackID::ACK) ||
+           cmd == static_cast<uint8_t>(FeedbackID::HEARTBEAT_ACK) ||
+           cmd == static_cast<uint8_t>(FeedbackID::MCU_ERROR);
+}
+
+std::vector<uint8_t> copyPayload(const uint8_t* payload, size_t plen) {
+    if (plen == 0U) {
+        return {};
+    }
+    return std::vector<uint8_t>(payload, payload + plen);
+}
+
 thread_local bool tl_in_recv_callback = false;
 }  // namespace
 
 SerialDriver::SerialDriver() {
     reconnect_thread_running_ = true;
     reconnect_thread_ = std::thread(&SerialDriver::reconnectThreadFunc, this);
+    deferred_receive_thread_running_ = true;
+    deferred_receive_thread_ = std::thread(&SerialDriver::deferredReceiveThreadFunc, this);
 }
 
 SerialDriver::~SerialDriver() {
@@ -119,6 +136,7 @@ SerialDriver::~SerialDriver() {
         reconnect_thread_.join();
     }
     closePort();
+    stopDeferredReceiveThread();
 }
 
 std::string SerialDriver::lastError() const {
@@ -328,6 +346,16 @@ void SerialDriver::closePort() {
     }
 
     ring_parser_.reset();
+    {
+        std::lock_guard<std::mutex> ack_lock(ack_mutex_);
+        waiting_for_ack_ = false;
+        ack_response_received_ = false;
+        ack_success_ = false;
+        ack_mcu_error_received_ = false;
+        ack_window_deferred_frames_.clear();
+        post_ack_defer_active_ = false;
+    }
+    clearDeferredReceiveQueue();
 }
 
 uint8_t SerialDriver::nextSeq() {
@@ -584,6 +612,7 @@ void SerialDriver::beginWaitAck(uint8_t seq, uint8_t cmd) {
     ack_response_received_ = false;
     ack_success_ = false;
     ack_mcu_error_received_ = false;
+    ack_window_deferred_frames_.clear();
     waiting_epoch_ = link_epoch_.load(std::memory_order_relaxed);
 }
 
@@ -593,6 +622,23 @@ void SerialDriver::endWaitAck() {
     ack_response_received_ = false;
     ack_success_ = false;
     ack_mcu_error_received_ = false;
+    ack_window_deferred_frames_.clear();
+}
+
+std::vector<SerialDriver::DeferredRxFrame> SerialDriver::endWaitAckAndConsumeDeferred() {
+    std::lock_guard<std::mutex> lock(ack_mutex_);
+    std::vector<DeferredRxFrame> frames;
+    frames.swap(ack_window_deferred_frames_);
+    const uint8_t seq = waiting_seq_;
+
+    waiting_for_ack_ = false;
+    ack_response_received_ = false;
+    ack_success_ = false;
+    ack_mcu_error_received_ = false;
+    post_ack_defer_active_ = true;
+    post_ack_defer_seq_ = seq;
+    post_ack_defer_until_ = std::chrono::steady_clock::now() + kPostAckBusinessFeedbackDelay;
+    return frames;
 }
 
 SerialDriver::AckWaitResult SerialDriver::waitForAck(std::chrono::milliseconds timeout, bool& success) {
@@ -659,6 +705,56 @@ void SerialDriver::notifyAck(uint8_t seq, uint8_t cmd) {
                     waiting_cmd_);
         return;
     }
+}
+
+bool SerialDriver::shouldDeferAckWindowFrameLocked(uint8_t seq, uint8_t cmd) const {
+    if (isAckControlFrame(cmd)) {
+        return false;
+    }
+    return waiting_for_ack_ && waiting_cmd_ != static_cast<uint8_t>(CommandID::HEARTBEAT) && seq == waiting_seq_;
+}
+
+bool SerialDriver::deferReceiveFrameIfNeeded(uint8_t seq, uint8_t cmd, const uint8_t* payload, size_t plen) {
+    if (isAckControlFrame(cmd)) {
+        return false;
+    }
+
+    bool schedule_after_unlock = false;
+    DeferredRxFrame post_ack_frame;
+    {
+        std::lock_guard<std::mutex> lock(ack_mutex_);
+        const auto now = std::chrono::steady_clock::now();
+        if (post_ack_defer_active_ && now >= post_ack_defer_until_) {
+            post_ack_defer_active_ = false;
+        }
+
+        if (shouldDeferAckWindowFrameLocked(seq, cmd)) {
+            if (ack_window_deferred_frames_.size() >= kMaxAckWindowDeferredFrames) {
+                RCLCPP_WARN(serialLogger(),
+                            "ACK 等待窗口同 seq 业务反馈缓存已满，丢弃该帧：seq=%u cmd=0x%02X size=%zu", seq,
+                            cmd, ack_window_deferred_frames_.size());
+                return true;
+            }
+            ack_window_deferred_frames_.push_back(DeferredRxFrame{seq, cmd, copyPayload(payload, plen)});
+            RCLCPP_DEBUG(serialLogger(), "ACK 等待窗口暂存同 seq 业务反馈：seq=%u cmd=0x%02X", seq, cmd);
+            return true;
+        }
+
+        if (post_ack_defer_active_ && seq == post_ack_defer_seq_) {
+            post_ack_frame = DeferredRxFrame{seq, cmd, copyPayload(payload, plen)};
+            schedule_after_unlock = true;
+        }
+    }
+
+    if (schedule_after_unlock) {
+        std::vector<DeferredRxFrame> frames;
+        frames.push_back(std::move(post_ack_frame));
+        scheduleDeferredReceiveCallbacks(std::move(frames));
+        RCLCPP_DEBUG(serialLogger(), "ACK 后短延迟窗口暂存同 seq 业务反馈：seq=%u cmd=0x%02X", seq, cmd);
+        return true;
+    }
+
+    return false;
 }
 
 bool SerialDriver::sendCommandNoAck(uint8_t cmd, const std::vector<uint8_t>& payload) {
@@ -777,7 +873,8 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload,
                 std::lock_guard<std::mutex> lock(timeout_mutex_);
                 adaptive_timeout_.update(measured_ms);
             }
-            endWaitAck();
+            auto deferred_frames = endWaitAckAndConsumeDeferred();
+            scheduleDeferredReceiveCallbacks(std::move(deferred_frames));
             return true;
         }
 
@@ -954,6 +1051,7 @@ bool SerialDriver::sendHeartbeat() {
 }
 
 void SerialDriver::setReceiveCallback(ReceiveCallback callback) {
+    std::lock_guard<std::mutex> invoke_lock(receive_callback_invoke_mutex_);
     std::lock_guard<std::mutex> lock(callback_mutex_);
     recv_callback_ = std::move(callback);
 }
@@ -970,11 +1068,9 @@ void SerialDriver::setDebugCallback(DebugCallback callback) {
 
 void SerialDriver::dispatchFrame(uint8_t seq, uint8_t cmd, const uint8_t* payload, size_t plen) {
     DebugCallback debug_cb;
-    ReceiveCallback recv_cb;
     {
         std::lock_guard<std::mutex> lock(callback_mutex_);
         debug_cb = debug_callback_;
-        recv_cb = recv_callback_;
     }
 
     if (debug_cb) {
@@ -1007,19 +1103,124 @@ void SerialDriver::dispatchFrame(uint8_t seq, uint8_t cmd, const uint8_t* payloa
     comm_health_.parse_window.record(true);
     comm_health_.total_frames.fetch_add(1, std::memory_order_relaxed);
 
-    if (recv_cb) {
-        tl_in_recv_callback = true;
-        try {
-            recv_cb(seq, cmd, std::vector<uint8_t>(payload, payload + plen));
-        } catch (const std::exception& e) {
-            setLastError(std::string("接收回调异常: ") + e.what());
-            RCLCPP_ERROR(serialLogger(), "接收回调抛异常：%s", e.what());
-        } catch (...) {
-            setLastError("接收回调异常: 未知异常");
-            RCLCPP_ERROR(serialLogger(), "接收回调抛未知异常");
-        }
-        tl_in_recv_callback = false;
+    if (deferReceiveFrameIfNeeded(seq, cmd, payload, plen)) {
+        return;
     }
+
+    deliverReceiveCallback(seq, cmd, copyPayload(payload, plen));
+}
+
+void SerialDriver::deliverReceiveCallback(uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload) {
+    std::lock_guard<std::mutex> invoke_lock(receive_callback_invoke_mutex_);
+
+    ReceiveCallback recv_cb;
+    {
+        std::lock_guard<std::mutex> lock(callback_mutex_);
+        recv_cb = recv_callback_;
+    }
+
+    if (!recv_cb) {
+        return;
+    }
+
+    tl_in_recv_callback = true;
+    try {
+        recv_cb(seq, cmd, payload);
+    } catch (const std::exception& e) {
+        setLastError(std::string("接收回调异常: ") + e.what());
+        RCLCPP_ERROR(serialLogger(), "接收回调抛异常：%s", e.what());
+    } catch (...) {
+        setLastError("接收回调异常: 未知异常");
+        RCLCPP_ERROR(serialLogger(), "接收回调抛未知异常");
+    }
+    tl_in_recv_callback = false;
+}
+
+void SerialDriver::scheduleDeferredReceiveCallbacks(std::vector<DeferredRxFrame> frames) {
+    if (frames.empty()) {
+        return;
+    }
+
+    const auto due = std::chrono::steady_clock::now() + kPostAckBusinessFeedbackDelay;
+    const uint32_t link_epoch = link_epoch_.load(std::memory_order_acquire);
+    {
+        std::lock_guard<std::mutex> lock(deferred_receive_mutex_);
+        if (!deferred_receive_thread_running_.load(std::memory_order_acquire)) {
+            return;
+        }
+        for (auto& frame : frames) {
+            deferred_receive_queue_.push_back(
+                ScheduledRxFrame{due, deferred_receive_next_order_++, link_epoch, std::move(frame)});
+        }
+    }
+    deferred_receive_cv_.notify_one();
+}
+
+void SerialDriver::deferredReceiveThreadFunc() {
+    while (true) {
+        std::vector<ScheduledRxFrame> ready;
+        {
+            std::unique_lock<std::mutex> lock(deferred_receive_mutex_);
+            deferred_receive_cv_.wait(lock, [this]() {
+                return !deferred_receive_thread_running_.load(std::memory_order_acquire) ||
+                       !deferred_receive_queue_.empty();
+            });
+
+            if (!deferred_receive_thread_running_.load(std::memory_order_acquire) && deferred_receive_queue_.empty()) {
+                break;
+            }
+            if (deferred_receive_queue_.empty()) {
+                continue;
+            }
+
+            std::stable_sort(deferred_receive_queue_.begin(), deferred_receive_queue_.end(),
+                             [](const ScheduledRxFrame& lhs, const ScheduledRxFrame& rhs) {
+                                 if (lhs.due == rhs.due) {
+                                     return lhs.order < rhs.order;
+                                 }
+                                 return lhs.due < rhs.due;
+                             });
+
+            const auto due = deferred_receive_queue_.front().due;
+            if (deferred_receive_thread_running_.load(std::memory_order_acquire) &&
+                std::chrono::steady_clock::now() < due) {
+                deferred_receive_cv_.wait_until(lock, due);
+                continue;
+            }
+
+            const auto now = std::chrono::steady_clock::now();
+            auto split = deferred_receive_queue_.begin();
+            while (split != deferred_receive_queue_.end() && split->due <= now) {
+                ++split;
+            }
+            ready.assign(std::make_move_iterator(deferred_receive_queue_.begin()), std::make_move_iterator(split));
+            deferred_receive_queue_.erase(deferred_receive_queue_.begin(), split);
+        }
+
+        for (const auto& scheduled : ready) {
+            if (scheduled.link_epoch != link_epoch_.load(std::memory_order_acquire)) {
+                continue;
+            }
+            deliverReceiveCallback(scheduled.frame.seq, scheduled.frame.cmd, scheduled.frame.payload);
+        }
+    }
+}
+
+void SerialDriver::stopDeferredReceiveThread() {
+    deferred_receive_thread_running_.store(false, std::memory_order_release);
+    clearDeferredReceiveQueue();
+    deferred_receive_cv_.notify_all();
+    if (deferred_receive_thread_.joinable()) {
+        deferred_receive_thread_.join();
+    }
+}
+
+void SerialDriver::clearDeferredReceiveQueue() {
+    {
+        std::lock_guard<std::mutex> lock(deferred_receive_mutex_);
+        deferred_receive_queue_.clear();
+    }
+    deferred_receive_cv_.notify_all();
 }
 
 void SerialDriver::recvThreadFunc() {
