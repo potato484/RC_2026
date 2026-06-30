@@ -38,6 +38,8 @@ struct MfPreselectionParams {
   std::vector<std::string> fake_labels;
   double depth_min_m{0.6};
   double depth_max_m{1.2};
+  double entry_depth_min_m{0.6};
+  double entry_depth_max_m{1.2};
   int detect_seen_stable_frames{1};
   int detect_lost_stable_frames{5};
   double entry_detect_timeout_s{2.0};
@@ -157,6 +159,7 @@ struct MfPreselectionLogicResult {
   static std::optional<int>
   fakeAvoidanceTargetGrid(int current_grid,
                           MfPreselectionPickupSource source);
+  static std::optional<int> fakeAvoidanceForwardTargetGrid(int current_grid);
   static MfPreselectionPickupSource
   entryPickupSourceForLateralOffset(double lateral_offset_m,
                                     double tolerance_m);
@@ -214,9 +217,10 @@ private:
     RowScanDetectBack,
     RowAlignExit,
     FakeAvoidTurn,
-    FakeAvoidArmRaise,
-    FakeAvoidClimb,
+    FakeAvoidArmAdjust,
+    FakeAvoidStair,
     FakeAvoidAlignExit,
+    FakeAvoidForwardStep,
     TransitionTurn,
     TransitionArmAdjust,
     DetectionArmAdjust,
@@ -244,6 +248,7 @@ private:
   };
 
   enum class DetectMode { Entry2, Stair1, Stair3, RowFront, Scan, Row4Fake, TransitionObserve };
+  enum class R2DepthProfile { General, Entry };
   enum class StairMode { Climb, Descend };
   enum class StairCenterPolicy {
     None,
@@ -297,7 +302,6 @@ private:
   double headingAngularZ(double target_yaw_rad) const;
 
   std::optional<MfPreselectionTargetSnapshot> findR2Target();
-  std::optional<MfPreselectionTargetSnapshot> findR2TargetLabelOnly();
   std::optional<MfPreselectionTargetSnapshot> findR1BlockingTarget();
   std::optional<MfPreselectionTargetSnapshot> findFakeTarget();
   std::optional<MfPreselectionTargetSnapshot>
@@ -354,8 +358,10 @@ private:
 
   bool prepareTransitionTo(int target_grid);
   BT::NodeStatus startTransitionTo(int target_grid);
+  BT::NodeStatus startFakeAvoidForwardTransitionTo(int target_grid);
   bool continueAfterTransition();
   Phase phaseAfterTransition() const;
+  double transitionEdgeYaw(int from_grid, int target_grid) const;
   double transitionYaw(int from_grid, int target_grid, int height_delta) const;
 
   void beginStair(StairMode mode, Phase next_phase, std::string label,
@@ -384,7 +390,8 @@ private:
   void writeCenterTargetBlackboard() const;
   void setCenterError(const std::string &reason) const;
 
-  std::optional<KfsVisualObservation> findR2LockObservation();
+  std::optional<KfsVisualObservation>
+  findR2LockObservation(R2DepthProfile depth_profile = R2DepthProfile::General);
   bool configureKfsAlignPlan(const KfsVisualObservation &observation,
                              const char *context);
   void finishKfsAlignFailure(const std::string &reason);
@@ -392,7 +399,8 @@ private:
                             const KfsVisualObservation &observation,
                             Phase success_phase, Phase failure_phase,
                             bool direct_exit_on_success,
-                            bool entry_high_protocol);
+                            bool entry_high_protocol,
+                            R2DepthProfile depth_profile = R2DepthProfile::General);
   BT::NodeStatus tickKfsVisualAlign();
   BT::NodeStatus beginKfsOpenLoopApproach(
       const KfsVisualObservation &observation);
@@ -534,6 +542,7 @@ private:
   int pickup_count_{0};
   bool entry_pickup_done_{false};
   bool direct_exit_mode_{false};
+  bool fake_avoid_forward_mode_{false};
   bool arm_high_raised_{false};
   bool arm_high_side_{false};
   MfPreselectionPickupSource pickup_source_{MfPreselectionPickupSource::None};
@@ -565,6 +574,7 @@ private:
   Phase kfs_pickup_failure_phase_{Phase::Done};
   bool kfs_pickup_direct_exit_on_success_{false};
   bool kfs_pickup_entry_high_protocol_{false};
+  R2DepthProfile kfs_pickup_depth_profile_{R2DepthProfile::General};
   std::optional<MfPreselectionTargetSnapshot> kfs_pickup_initial_target_;
   std::optional<MfPreselectionTargetSnapshot> kfs_locked_target_;
   std::optional<MfPreselectionTargetSnapshot> kfs_open_loop_target_;

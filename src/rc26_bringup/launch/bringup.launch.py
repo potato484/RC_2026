@@ -292,6 +292,7 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, mcu_
             'sensor_extrinsics_profile': sensor_extrinsics_profile,
             'point_lio_publish_odometry_without_downsample': 'false',
             'point_lio_full_map_publish_en': point_lio_full_map_publish_en,
+            'odom_interface_publish_bootstrap_pose': 'false' if navigation_mode else 'true',
             'start_sensor_scan': 'false' if navigation_mode else 'true',
             'start_mid360_driver': start_mid360_driver,
             'recover_mid360_stream': recover_mid360_stream,

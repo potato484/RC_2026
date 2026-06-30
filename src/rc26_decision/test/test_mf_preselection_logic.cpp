@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 
+#include "rc26_decision/mf/merlin_map.hpp"
 #include "rc26_decision/mf_preselection/mf_preselection_flow.hpp"
 #include "rc26_decision/stair/stair_area.hpp"
 
@@ -206,6 +207,70 @@ TEST(MfPreselectionLogic, FakeAvoidanceTargetGridUsesSideColumns) {
   EXPECT_FALSE(
       rc26_decision::MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
           3, rc26_decision::MfPreselectionPickupSource::Stair3)
+          .has_value());
+}
+
+TEST(MfPreselectionLogic, FakeAvoidanceTargetGridCanBeClimbOrDescendByMap) {
+  rc26_decision::MerlinMapManager red_map;
+  ASSERT_TRUE(red_map.initRedMap());
+  rc26_decision::MerlinMapManager blue_map;
+  ASSERT_TRUE(blue_map.initBlueMap());
+
+  const auto from_grid5_to_stair1 =
+      rc26_decision::MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
+          5, rc26_decision::MfPreselectionPickupSource::Stair1);
+  ASSERT_TRUE(from_grid5_to_stair1.has_value());
+  EXPECT_EQ(*from_grid5_to_stair1, 4);
+  EXPECT_EQ(red_map.getDepth(*from_grid5_to_stair1) - red_map.getDepth(5), 1);
+  EXPECT_EQ(blue_map.getDepth(*from_grid5_to_stair1) - blue_map.getDepth(5), -1);
+
+  const auto from_grid5_to_stair3 =
+      rc26_decision::MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
+          5, rc26_decision::MfPreselectionPickupSource::Stair3);
+  ASSERT_TRUE(from_grid5_to_stair3.has_value());
+  EXPECT_EQ(*from_grid5_to_stair3, 6);
+  EXPECT_EQ(red_map.getDepth(*from_grid5_to_stair3) - red_map.getDepth(5), -1);
+  EXPECT_EQ(blue_map.getDepth(*from_grid5_to_stair3) - blue_map.getDepth(5), 1);
+}
+
+TEST(MfPreselectionLogic, FakeAvoidanceForwardTargetGridUsesSideColumns) {
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::fakeAvoidanceForwardTargetGrid(1),
+      4);
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::fakeAvoidanceForwardTargetGrid(4),
+      7);
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::fakeAvoidanceForwardTargetGrid(7),
+      10);
+
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::fakeAvoidanceForwardTargetGrid(3),
+      6);
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::fakeAvoidanceForwardTargetGrid(6),
+      9);
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::fakeAvoidanceForwardTargetGrid(9),
+      12);
+
+  EXPECT_FALSE(
+      rc26_decision::MfPreselectionLogicResult::fakeAvoidanceForwardTargetGrid(0)
+          .has_value());
+  EXPECT_FALSE(
+      rc26_decision::MfPreselectionLogicResult::fakeAvoidanceForwardTargetGrid(2)
+          .has_value());
+  EXPECT_FALSE(
+      rc26_decision::MfPreselectionLogicResult::fakeAvoidanceForwardTargetGrid(5)
+          .has_value());
+  EXPECT_FALSE(
+      rc26_decision::MfPreselectionLogicResult::fakeAvoidanceForwardTargetGrid(8)
+          .has_value());
+  EXPECT_FALSE(
+      rc26_decision::MfPreselectionLogicResult::fakeAvoidanceForwardTargetGrid(10)
+          .has_value());
+  EXPECT_FALSE(
+      rc26_decision::MfPreselectionLogicResult::fakeAvoidanceForwardTargetGrid(12)
           .has_value());
 }
 

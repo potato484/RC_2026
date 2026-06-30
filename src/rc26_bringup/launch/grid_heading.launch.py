@@ -137,6 +137,7 @@ def _create_actions(context, *, bringup_dir, decision_dir, sensor_extrinsics_dir
                 'sensor_extrinsics_file': sensor_extrinsics_file,
                 'sensor_extrinsics_profile': sensor_extrinsics_profile,
                 'point_lio_publish_odometry_without_downsample': 'false',
+                'odom_interface_publish_bootstrap_pose': 'false',
                 'start_sensor_scan': 'false',
                 'start_mid360_driver': start_mid360_driver,
                 'recover_mid360_stream': recover_mid360_stream,

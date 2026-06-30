@@ -278,6 +278,22 @@ std::optional<int> MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
   return gridRow(current_grid) * 3 + target_col + 1;
 }
 
+std::optional<int>
+MfPreselectionLogicResult::fakeAvoidanceForwardTargetGrid(int current_grid) {
+  if (!validGrid(current_grid)) {
+    return std::nullopt;
+  }
+  const int col = gridCol(current_grid);
+  if (col != 0 && col != 2) {
+    return std::nullopt;
+  }
+  const int next_grid = current_grid + 3;
+  if (!validGrid(next_grid)) {
+    return std::nullopt;
+  }
+  return next_grid;
+}
+
 MfPreselectionPickupSource
 MfPreselectionLogicResult::entryPickupSourceForLateralOffset(
     double lateral_offset_m, double tolerance_m) {
@@ -345,6 +361,7 @@ BT::NodeStatus MfPreselectionFlowAction::onStart() {
   pickup_count_ = 0;
   entry_pickup_done_ = false;
   direct_exit_mode_ = false;
+  fake_avoid_forward_mode_ = false;
   arm_high_raised_ = false;
   arm_high_side_ = false;
   pickup_source_ = MfPreselectionPickupSource::None;
@@ -540,32 +557,9 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return BT::NodeStatus::RUNNING;
 
   case Phase::FakeAvoidTurn:
+  {
     // 假 KFS 是不可夹取目标。第 1/2/3 行前方遇到时，按入口夹取来源选择
-    // 向 1 号或 3 号侧绕行，上台阶后再回到出口方向进入直出兜底。
-    RCLCPP_WARN(node_->get_logger(),
-                "梅林预选赛开始假KFS避障转向：pickup_source=%s，目标yaw=%.3f",
-                sourceName(pickup_source_),
-                MfPreselectionLogicResult::fakeAvoidanceYaw(pickup_source_,
-                                                            params_));
-    beginTurnYaw(MfPreselectionLogicResult::fakeAvoidanceYaw(pickup_source_,
-                                                             params_),
-                 Phase::FakeAvoidArmRaise, "fake_kfs_avoid_turn");
-    return BT::NodeStatus::RUNNING;
-
-  case Phase::FakeAvoidArmRaise:
-    if (arm_high_raised_) {
-      RCLCPP_INFO(node_->get_logger(),
-                  "梅林预选赛假KFS避障：机械臂已处于高抬升保持态，直接执行上阶梯");
-      phase_ = Phase::FakeAvoidClimb;
-      return BT::NodeStatus::RUNNING;
-    }
-    beginMechanismCommand(clampByte(params_.arm_raise_command_id), "ARM_RAISE",
-                          clampByte(params_.arm_raise_done_feedback_id),
-                          Phase::FakeAvoidClimb, "fake_avoid_arm_raise_failed");
-    arm_high_side_ = true;
-    return BT::NodeStatus::RUNNING;
-
-  case Phase::FakeAvoidClimb:
+    // 向 1 号或 3 号侧绕行；yaw、上/下阶和机构预调都由静态高度表决定。
     if (const auto target_grid =
             MfPreselectionLogicResult::fakeAvoidanceTargetGrid(current_grid_,
                                                                pickup_source_)) {
@@ -573,17 +567,86 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     } else {
       return fail("invalid_fake_avoid_target_grid");
     }
-    beginStair(StairMode::Climb, Phase::FakeAvoidAlignExit,
-               "fake_avoid_climb", StairCenterPolicy::FakeAvoidTargetGrid);
+    if (!prepareTransitionTo(fake_avoid_target_grid_)) {
+      return fail("invalid_fake_avoid_transition");
+    }
+    const double yaw = transitionYaw(transition_from_grid_, transition_target_grid_,
+                                     transition_height_delta_);
+    RCLCPP_WARN(node_->get_logger(),
+                "梅林预选赛开始假KFS避障格间动作：pickup_source=%s grid%d -> grid%d 高度差=%d 类型=%s 目标yaw=%.3f",
+                sourceName(pickup_source_), transition_from_grid_,
+                transition_target_grid_, transition_height_delta_,
+                transition_height_delta_ > 0 ? "上阶梯" : "下阶梯", yaw);
+    beginTurnYaw(yaw, Phase::FakeAvoidArmAdjust, "fake_kfs_avoid_turn");
+    return BT::NodeStatus::RUNNING;
+  }
+
+  case Phase::FakeAvoidArmAdjust:
+    if (transition_high_side_) {
+      if (arm_high_raised_) {
+        RCLCPP_INFO(node_->get_logger(),
+                    "梅林预选赛假KFS避障：机械臂已处于高抬升保持态，直接执行上阶梯");
+        phase_ = Phase::FakeAvoidStair;
+        return BT::NodeStatus::RUNNING;
+      }
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛假KFS避障为低到高，先执行ARM_RAISE后上阶梯");
+      beginMechanismCommand(clampByte(params_.arm_raise_command_id),
+                            "ARM_RAISE",
+                            clampByte(params_.arm_raise_done_feedback_id),
+                            Phase::FakeAvoidStair,
+                            "fake_avoid_arm_raise_failed");
+      arm_high_side_ = true;
+      return BT::NodeStatus::RUNNING;
+    }
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛假KFS避障为高到低，先执行ARM_LOWER后下阶梯");
+    beginMechanismCommand(clampByte(params_.arm_lower_command_id),
+                          "ARM_LOWER",
+                          clampByte(params_.arm_lower_done_feedback_id),
+                          Phase::FakeAvoidStair,
+                          "fake_avoid_arm_lower_failed");
+    arm_high_raised_ = false;
+    arm_high_side_ = false;
+    return BT::NodeStatus::RUNNING;
+
+  case Phase::FakeAvoidStair:
+    beginStair(transition_height_delta_ > 0 ? StairMode::Climb
+                                            : StairMode::Descend,
+               Phase::FakeAvoidAlignExit,
+               transition_height_delta_ > 0 ? "fake_avoid_climb"
+                                            : "fake_avoid_descend",
+               StairCenterPolicy::FakeAvoidTargetGrid);
     return BT::NodeStatus::RUNNING;
 
   case Phase::FakeAvoidAlignExit:
-    direct_exit_mode_ = true;
+    fake_avoid_forward_mode_ = true;
+    direct_exit_mode_ = false;
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛假KFS避障上阶梯完成，重新朝出口方向对齐并进入直行离场兜底");
-    beginTurnYaw(entry_heading_yaw_, Phase::DirectExitDrive,
-                 "fake_avoid_align_exit");
+                "梅林预选赛假KFS避障台阶动作完成，进入旁列前向观察/上下阶梯决策");
+    phase_ = Phase::FakeAvoidForwardStep;
     return BT::NodeStatus::RUNNING;
+
+  case Phase::FakeAvoidForwardStep:
+  {
+    fake_avoid_forward_mode_ = true;
+    if (current_grid_ == 10 || current_grid_ == 12) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛假KFS旁列推进到出口行grid%d，准备下阶梯离场",
+                  current_grid_);
+      phase_ = Phase::FinalExitYawAlign;
+      return BT::NodeStatus::RUNNING;
+    }
+    const auto target_grid =
+        MfPreselectionLogicResult::fakeAvoidanceForwardTargetGrid(current_grid_);
+    if (!target_grid.has_value()) {
+      return fail("invalid_fake_avoid_forward_target");
+    }
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛假KFS旁列前向推进：grid%d -> grid%d，先复用正前方KFS观察",
+                current_grid_, *target_grid);
+    return startFakeAvoidForwardTransitionTo(*target_grid);
+  }
 
   case Phase::TransitionTurn:
     // 预选赛正式路线固定走中间列。这里显式枚举合法下一格，避免因为
@@ -661,6 +724,22 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     // prepareTransitionTo() 已经确认高度差只能是 +/-1；这里把它映射到
     // 上/下台阶原语。成功后 tickStair() 会通过 continueAfterTransition()
     // 提交 current_grid。
+    if (fake_avoid_forward_mode_) {
+      const double stair_yaw =
+          transitionYaw(transition_from_grid_, transition_target_grid_,
+                        transition_height_delta_);
+      const double yaw_error = normalizeAngle(stair_yaw - turn_target_yaw_);
+      if (std::abs(yaw_error) > params_.turn_tolerance_deg * kDeg2Rad) {
+        RCLCPP_INFO(
+            node_->get_logger(),
+            "梅林预选赛假KFS旁列观察完成，转到台阶执行yaw：grid%d -> grid%d，高度差=%d，target_yaw=%.3f",
+            transition_from_grid_, transition_target_grid_,
+            transition_height_delta_, stair_yaw);
+        beginTurnYaw(stair_yaw, Phase::TransitionStair,
+                     "fake_avoid_forward_stair_yaw");
+        return BT::NodeStatus::RUNNING;
+      }
+    }
     RCLCPP_INFO(node_->get_logger(),
                 "梅林预选赛开始执行格间台阶动作：grid%d -> grid%d，类型=%s",
                 transition_from_grid_, transition_target_grid_,
@@ -895,12 +974,13 @@ bool MfPreselectionFlowAction::setupVision() {
       return false;
     }
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛 KFS 视觉已启动：config=%s model=%s R2前缀数=%zu R1标签数=%zu 假KFS前缀数=%zu 深度=[%.2f, %.2f]m 开环速度=%.3fm/s 臂长=%.3fm 超时=%.2fs",
+                "梅林预选赛 KFS 视觉已启动：config=%s model=%s R2前缀数=%zu R1标签数=%zu 假KFS前缀数=%zu 通用深度=[%.2f, %.2f]m 入口深度=[%.2f, %.2f]m 开环速度=%.3fm/s 臂长=%.3fm 超时=%.2fs",
                 params_.vision_config_file.c_str(), params_.model_id.c_str(),
                 params_.r2_target_label_prefixes.size(),
                 params_.r1_blocking_labels.size(),
                 params_.fake_label_prefixes.size(), params_.depth_min_m,
-                params_.depth_max_m, params_.kfs_approach_speed_mps,
+                params_.depth_max_m, params_.entry_depth_min_m,
+                params_.entry_depth_max_m, params_.kfs_approach_speed_mps,
                 params_.kfs_grab_distance_m, params_.kfs_approach_timeout_s);
     return true;
   } catch (const std::exception &e) {
@@ -931,6 +1011,7 @@ void MfPreselectionFlowAction::releaseRuntime() {
   phase_ = Phase::Done;
   detection_active_ = false;
   direct_exit_move_active_ = false;
+  fake_avoid_forward_mode_ = false;
   center_target_ready_ = false;
   pending_grab_commit_ = false;
   pending_grab_source_ = MfPreselectionPickupSource::None;
@@ -954,6 +1035,9 @@ void MfPreselectionFlowAction::normalizeParams() {
   params_.fake_labels = sanitized(std::move(params_.fake_labels));
   params_.depth_min_m = std::max(0.0, params_.depth_min_m);
   params_.depth_max_m = std::max(params_.depth_min_m, params_.depth_max_m);
+  params_.entry_depth_min_m = std::max(0.0, params_.entry_depth_min_m);
+  params_.entry_depth_max_m =
+      std::max(params_.entry_depth_min_m, params_.entry_depth_max_m);
   params_.detect_seen_stable_frames =
       std::max(1, params_.detect_seen_stable_frames);
   params_.detect_lost_stable_frames =
@@ -1212,42 +1296,6 @@ MfPreselectionFlowAction::findR2Target() {
 }
 
 std::optional<MfPreselectionTargetSnapshot>
-MfPreselectionFlowAction::findR2TargetLabelOnly() {
-  if (!canPickup() || !vision_ || !vision_->isRunning()) {
-    return std::nullopt;
-  }
-
-  rc26_vision::VisionInferenceManager::FrameSnapshot snapshot;
-  if (!vision_->getLatestFrameSnapshot(snapshot) || !snapshot.has_display ||
-      snapshot.display_sequence <= 0) {
-    return std::nullopt;
-  }
-
-  const rc26_vision::Detection *best = nullptr;
-  for (const auto &det : snapshot.detections) {
-    const std::string name = rc26_vision::visualTargetLabel(det);
-    if (!MfPreselectionLogicResult::labelMatches(
-            name, params_.r2_target_labels, params_.r2_target_label_prefixes)) {
-      continue;
-    }
-    const MfPreselectionTargetSnapshot candidate =
-        rc26_vision::makeVisualTargetSnapshot(det, snapshot.display_sequence);
-    if (MfPreselectionLogicResult::isIgnoredTarget(
-            candidate, ignored_r2_targets_, params_.grab_verify_iou_threshold)) {
-      continue;
-    }
-    if (!best || det.score > best->score) {
-      best = &det;
-    }
-  }
-  if (!best) {
-    return std::nullopt;
-  }
-  return rc26_vision::makeVisualTargetSnapshot(*best,
-                                               snapshot.display_sequence);
-}
-
-std::optional<MfPreselectionTargetSnapshot>
 MfPreselectionFlowAction::findR1BlockingTarget() {
   return findTarget(params_.r1_blocking_labels,
                     params_.r1_blocking_label_prefixes, false);
@@ -1456,6 +1504,16 @@ const char *MfPreselectionFlowAction::phaseText(Phase phase) {
     return "row_scan_detect_back";
   case Phase::RowAlignExit:
     return "row_align_exit";
+  case Phase::FakeAvoidTurn:
+    return "fake_avoid_turn";
+  case Phase::FakeAvoidArmAdjust:
+    return "fake_avoid_arm_adjust";
+  case Phase::FakeAvoidStair:
+    return "fake_avoid_stair";
+  case Phase::FakeAvoidAlignExit:
+    return "fake_avoid_align_exit";
+  case Phase::FakeAvoidForwardStep:
+    return "fake_avoid_forward_step";
   case Phase::TransitionStair:
     return "transition_stair";
   case Phase::TransitionTurn:
@@ -1715,7 +1773,11 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
     }
   }
 
-  const auto r2 = findR2LockObservation();
+  const bool entry_detection =
+      detect_mode_ == DetectMode::Entry2 || detect_mode_ == DetectMode::Stair1 ||
+      detect_mode_ == DetectMode::Stair3;
+  const auto r2 = findR2LockObservation(
+      entry_detection ? R2DepthProfile::Entry : R2DepthProfile::General);
   if (r2.has_value()) {
     if (r2->target.sequence != last_detection_sequence_) {
       // 只有新帧才累计 stable 计数，避免同一帧在高 tick 率下被重复计算。
@@ -1735,18 +1797,21 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
         // 2 号入口正前方夹取后直接准备上首阶，来源记录为 Stair2。
         beginKfsVisualPickup(true, MfPreselectionPickupSource::Stair2,
                              *r2, Phase::EntryPrepareClimb,
-                             detectionMissNextPhase(), false, true);
+                             detectionMissNextPhase(), false, true,
+                             R2DepthProfile::Entry);
         break;
       case DetectMode::Stair1:
         // 1/3 号入口夹取完成后先横移回 2 号入口，再统一入场。
         beginKfsVisualPickup(true, MfPreselectionPickupSource::Stair1,
                              *r2, Phase::EntryReturnFromStair1,
-                             detectionMissNextPhase(), false, true);
+                             detectionMissNextPhase(), false, true,
+                             R2DepthProfile::Entry);
         break;
       case DetectMode::Stair3:
         beginKfsVisualPickup(true, MfPreselectionPickupSource::Stair3,
                              *r2, Phase::EntryReturnFromStair3,
-                             detectionMissNextPhase(), false, true);
+                             detectionMissNextPhase(), false, true,
+                             R2DepthProfile::Entry);
         break;
       case DetectMode::RowFront:
       case DetectMode::Scan:
@@ -1782,6 +1847,9 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
       RCLCPP_WARN(node_->get_logger(),
                   "梅林预选赛当前行前方检测到假KFS：grid=%d label=%s distance=%.3fm，进入假KFS避障",
                   current_grid_, fake->label.c_str(), fake->distance_m);
+      detection_active_ = false;
+      resetDetectionCounters();
+      active_detection_phase_ = Phase::Done;
       phase_ = Phase::FakeAvoidTurn;
       return BT::NodeStatus::RUNNING;
     }
@@ -2247,7 +2315,7 @@ bool MfPreselectionFlowAction::maybeInterruptEntryMoveForKfs() {
   if (!target_offset.has_value()) {
     return false;
   }
-  const auto r2 = findR2LockObservation();
+  const auto r2 = findR2LockObservation(R2DepthProfile::Entry);
   if (!r2.has_value() ||
       r2->target.sequence == entry_move_last_interrupt_sequence_) {
     return false;
@@ -2276,7 +2344,8 @@ bool MfPreselectionFlowAction::maybeInterruptEntryMoveForKfs() {
               sourceName(source));
   beginKfsVisualPickup(true, source, *r2,
                        Phase::EntryReturnToCenterAfterInterruptedPickup,
-                       Phase::EntryResumeInterruptedProbeMove, false, true);
+                       Phase::EntryResumeInterruptedProbeMove, false, true,
+                       R2DepthProfile::Entry);
   return true;
 }
 
@@ -2901,7 +2970,7 @@ void MfPreselectionFlowAction::setCenterError(
 }
 
 bool MfPreselectionFlowAction::prepareTransitionTo(int target_grid) {
-  // 格间转换仍以 MerlinMapManager 的静态深度表为准，只允许相邻中间列上/下
+  // 格间转换仍以 MerlinMapManager 的静态深度表为准，只允许相邻格上/下
   // 一档高度。平地同高移动和跨多档高度都不是本预选赛链路的合法动作。
   std::shared_ptr<MerlinMapManager> map;
   if (!config().blackboard->get("merlin_map", map) || !map) {
@@ -2939,6 +3008,28 @@ BT::NodeStatus MfPreselectionFlowAction::startTransitionTo(int target_grid) {
   return BT::NodeStatus::RUNNING;
 }
 
+BT::NodeStatus
+MfPreselectionFlowAction::startFakeAvoidForwardTransitionTo(int target_grid) {
+  // 假 KFS 旁列推进要先朝目标格正前方观察 R2 KFS；如果这条边是下阶，
+  // 台阶原语需要的后轮先下 yaw 会在 TransitionStair 前再单独对齐。
+  if (!prepareTransitionTo(target_grid)) {
+    return fail("invalid_transition");
+  }
+  const double observe_yaw =
+      transitionEdgeYaw(transition_from_grid_, transition_target_grid_);
+  const double stair_yaw = transitionYaw(transition_from_grid_,
+                                         transition_target_grid_,
+                                         transition_height_delta_);
+  RCLCPP_INFO(
+      node_->get_logger(),
+      "梅林预选赛假KFS旁列准备前向观察：grid%d -> grid%d，高度差=%d，observe_yaw=%.3f stair_yaw=%.3f",
+      transition_from_grid_, transition_target_grid_, transition_height_delta_,
+      observe_yaw, stair_yaw);
+  beginTurnYaw(observe_yaw, Phase::TransitionArmAdjust,
+               "fake_avoid_forward_observe_turn");
+  return BT::NodeStatus::RUNNING;
+}
+
 bool MfPreselectionFlowAction::continueAfterTransition() {
   // current_grid 只在台阶原语完整成功后提交，避免中途失败时黑板误认为
   // 机器人已经到达目标格。
@@ -2946,8 +3037,9 @@ bool MfPreselectionFlowAction::continueAfterTransition() {
   config().blackboard->set("current_grid", current_grid_);
   writeBlackboardState("transition_done");
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛格间转换完成：当前grid=%d，直出模式=%s",
-              current_grid_, direct_exit_mode_ ? "是" : "否");
+              "梅林预选赛格间转换完成：当前grid=%d，直出模式=%s，假KFS旁列推进=%s",
+              current_grid_, direct_exit_mode_ ? "是" : "否",
+              fake_avoid_forward_mode_ ? "是" : "否");
   const Phase next_phase = phaseAfterTransition();
   if (!beginGridCenterAlign(current_grid_, turn_target_yaw_, next_phase,
                             "grid_transition_center")) {
@@ -2958,6 +3050,12 @@ bool MfPreselectionFlowAction::continueAfterTransition() {
 
 MfPreselectionFlowAction::Phase
 MfPreselectionFlowAction::phaseAfterTransition() const {
+  if (fake_avoid_forward_mode_) {
+    if (current_grid_ == 10 || current_grid_ == 12) {
+      return Phase::FinalExitYawAlign;
+    }
+    return Phase::FakeAvoidForwardStep;
+  }
   if (direct_exit_mode_) {
     // 直出模式回到 AfterEntry 统一调度，让它仍能在下一格做前方守卫检测。
     return Phase::AfterEntry;
@@ -2974,15 +3072,20 @@ MfPreselectionFlowAction::phaseAfterTransition() const {
   return Phase::RowFrontDetect;
 }
 
-double MfPreselectionFlowAction::transitionYaw(int from_grid, int target_grid,
-                                               int height_delta) const {
+double MfPreselectionFlowAction::transitionEdgeYaw(int from_grid,
+                                                   int target_grid) const {
   // 离散格方向约定与 MF 主链一致：行号增加是 +X，列号减少是 +Y。
-  // 上台阶面向目标边，下台阶反向，让后轮先下。
   const int row_delta = gridRow(target_grid) - gridRow(from_grid);
   const int col_delta = gridCol(target_grid) - gridCol(from_grid);
   const double dx = static_cast<double>(row_delta);
   const double dy = static_cast<double>(-col_delta);
-  const double edge_yaw = std::atan2(dy, dx);
+  return std::atan2(dy, dx);
+}
+
+double MfPreselectionFlowAction::transitionYaw(int from_grid, int target_grid,
+                                               int height_delta) const {
+  // 上台阶面向目标边，下台阶反向，让后轮先下。
+  const double edge_yaw = transitionEdgeYaw(from_grid, target_grid);
   return normalizeAngle(height_delta > 0 ? edge_yaw : edge_yaw + kPi);
 }
 
@@ -3363,15 +3466,16 @@ void MfPreselectionFlowAction::publishProfiledStairTwist(
 }
 
 std::optional<MfPreselectionFlowAction::KfsVisualObservation>
-MfPreselectionFlowAction::findR2LockObservation() {
+MfPreselectionFlowAction::findR2LockObservation(R2DepthProfile depth_profile) {
   if (!canPickup() || !vision_ || !vision_->isRunning()) {
     return std::nullopt;
   }
 
   rc26_vision::VisionInferenceManager::FrameSnapshot snapshot;
   if (!vision_->getLatestFrameSnapshot(snapshot) || !snapshot.has_display ||
-      !snapshot.has_color || snapshot.color_bgr.empty() || !snapshot.has_depth ||
-      snapshot.depth.empty() || snapshot.display_sequence <= 0) {
+      !snapshot.has_color || snapshot.color_bgr.empty() ||
+      !snapshot.has_depth || snapshot.depth.empty() ||
+      snapshot.display_sequence <= 0) {
     return std::nullopt;
   }
 
@@ -3415,8 +3519,11 @@ MfPreselectionFlowAction::findR2LockObservation() {
   rc26_vision::DepthRoiSamplerConfig depth_config;
   depth_config.roi_size = 7;
   depth_config.min_valid_count = 10;
-  depth_config.min_depth_m = params_.depth_min_m;
-  depth_config.max_depth_m = params_.depth_max_m;
+  const bool entry_profile = depth_profile == R2DepthProfile::Entry;
+  depth_config.min_depth_m =
+      entry_profile ? params_.entry_depth_min_m : params_.depth_min_m;
+  depth_config.max_depth_m =
+      entry_profile ? params_.entry_depth_max_m : params_.depth_max_m;
   const auto sampled =
       rc26_vision::sampleMedianDepth(snapshot.depth, cx, cy, depth_config);
   if (!sampled.has_value()) {
@@ -3508,7 +3615,7 @@ void MfPreselectionFlowAction::beginKfsVisualPickup(
     bool high_side, MfPreselectionPickupSource source,
     const KfsVisualObservation &observation, Phase success_phase,
     Phase failure_phase, bool direct_exit_on_success,
-    bool entry_high_protocol) {
+    bool entry_high_protocol, R2DepthProfile depth_profile) {
   const auto &target = observation.target;
   if (!canPickup()) {
     if (node_) {
@@ -3527,6 +3634,7 @@ void MfPreselectionFlowAction::beginKfsVisualPickup(
   kfs_pickup_failure_phase_ = failure_phase;
   kfs_pickup_direct_exit_on_success_ = direct_exit_on_success;
   kfs_pickup_entry_high_protocol_ = entry_high_protocol;
+  kfs_pickup_depth_profile_ = depth_profile;
   kfs_pickup_initial_target_ = target;
   kfs_locked_target_ = target;
   kfs_open_loop_target_ = target;
@@ -3544,10 +3652,12 @@ void MfPreselectionFlowAction::beginKfsVisualPickup(
     phase_start_ = node_->now();
     kfs_align_total_start_ = phase_start_;
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛单帧锁定KFS并进入横移对齐复核：source=%s high_side=%s target=%s seq=%ld depth=%.3fm offset=%dpx target_offset=%.1fpx align_distance=%.3fm align_speed=%.3fm/s align_duration=%.3fs bbox=[%.1f %.1f %.1f %.1f] success=%s failure=%s direct_exit=%s",
+                "梅林预选赛单帧锁定KFS并进入横移对齐复核：source=%s high_side=%s target=%s seq=%ld depth=%.3fm depth_profile=%s offset=%dpx target_offset=%.1fpx align_distance=%.3fm align_speed=%.3fm/s align_duration=%.3fs bbox=[%.1f %.1f %.1f %.1f] success=%s failure=%s direct_exit=%s",
                 sourceName(source), high_side ? "是" : "否",
                 target.label.c_str(), static_cast<long>(target.sequence),
-                target.distance_m, observation.offset_px,
+                target.distance_m,
+                depth_profile == R2DepthProfile::Entry ? "entry" : "general",
+                observation.offset_px,
                 params_.kfs_align_target_offset_px, kfs_align_distance_m_,
                 kfs_align_vy_,
                 kfs_align_duration_s_, target.x1, target.y1, target.x2, target.y2,
@@ -3580,11 +3690,11 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
     if (!kfs_align_waiting_verify_frame_) {
       kfs_align_waiting_verify_frame_ = true;
       RCLCPP_INFO(node_->get_logger(),
-                  "梅林预选赛KFS等待新视觉帧确认横移对齐：offset=%dpx tolerance=%dpx min_seq=%ld",
+                  "梅林预选赛KFS等待新视觉帧确认横移对齐和有效深度：offset=%dpx tolerance=%dpx min_seq=%ld",
                   kfs_open_loop_offset_px_, params_.kfs_align_tolerance_px,
                   static_cast<long>(kfs_align_verify_min_sequence_));
     }
-    const auto observation = findR2LockObservation();
+    const auto observation = findR2LockObservation(kfs_pickup_depth_profile_);
     if (!observation.has_value() ||
         observation->target.sequence <= kfs_align_verify_min_sequence_) {
       return BT::NodeStatus::RUNNING;
@@ -3627,7 +3737,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
     kfs_align_verify_min_sequence_ =
         latest_sequence.value_or(kfs_align_last_sequence_);
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛KFS开环横移段完成：elapsed=%.3fs min_seq=%ld，等待新视觉帧复核是否真正对齐",
+                "梅林预选赛KFS开环横移段完成：elapsed=%.3fs min_seq=%ld，等待新视觉帧复核对齐并取得有效深度",
                 elapsed, static_cast<long>(kfs_align_verify_min_sequence_));
     return BT::NodeStatus::RUNNING;
   }
@@ -3644,6 +3754,10 @@ BT::NodeStatus MfPreselectionFlowAction::beginKfsOpenLoopApproach(
     const KfsVisualObservation &observation) {
   if (!node_ || !kfs_pickup_active_) {
     return fail("kfs_open_loop_state_missing");
+  }
+  if (!observation.has_depth) {
+    finishKfsAlignFailure("kfs_open_loop_depth_missing");
+    return BT::NodeStatus::RUNNING;
   }
 
   const double planned_distance_m =
@@ -3761,6 +3875,7 @@ void MfPreselectionFlowAction::clearKfsVisualPickup() {
   kfs_pickup_failure_phase_ = Phase::Done;
   kfs_pickup_direct_exit_on_success_ = false;
   kfs_pickup_entry_high_protocol_ = false;
+  kfs_pickup_depth_profile_ = R2DepthProfile::General;
   kfs_pickup_initial_target_.reset();
   kfs_locked_target_.reset();
   kfs_open_loop_target_.reset();
@@ -4033,6 +4148,10 @@ void loadMfPreselectionParams(rclcpp::Node &node,
       node.declare_parameter<double>("mf_preselect_depth_min_m", p.depth_min_m);
   p.depth_max_m =
       node.declare_parameter<double>("mf_preselect_depth_max_m", p.depth_max_m);
+  p.entry_depth_min_m = node.declare_parameter<double>(
+      "mf_preselect_entry_depth_min_m", p.entry_depth_min_m);
+  p.entry_depth_max_m = node.declare_parameter<double>(
+      "mf_preselect_entry_depth_max_m", p.entry_depth_max_m);
   p.detect_seen_stable_frames = node.declare_parameter<int>(
       "mf_preselect_detect_seen_stable_frames", p.detect_seen_stable_frames);
   p.detect_lost_stable_frames = node.declare_parameter<int>(
@@ -4042,8 +4161,9 @@ void loadMfPreselectionParams(rclcpp::Node &node,
   p.scan_detect_timeout_s = node.declare_parameter<double>(
       "mf_preselect_scan_detect_timeout_s", p.scan_detect_timeout_s);
 
-  // R2 KFS 夹取前视觉横移对齐和开环趋近参数。depth_min/max 只约束进入
-  // 开环前的锁定深度；开环阶段不再读取实时框或深度闭环停车。
+  // R2 KFS 夹取前视觉横移对齐和开环趋近参数。入口区使用独立
+  // entry_depth_min/max 窗口，其余检测使用 depth_min/max；开环阶段不再
+  // 读取实时框或深度闭环停车。
   p.kfs_align_tolerance_px = node.declare_parameter<int>(
       "mf_preselect_kfs_align_tolerance_px", p.kfs_align_tolerance_px);
   p.kfs_align_stable_frames = node.declare_parameter<int>(

@@ -153,7 +153,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 ### 3.12 共享场地几何必须单一真源
 
 - **规则**：像 MF 主区 block 几何、入口/出口 block 集合这类会同时被多个运行时包消费的场地事实，必须只有一个文档化配置真源。
-- **当前口径**：旧 MF keepout 包已删除，原 MF world 几何文件不再是当前 MF 主区共享几何真源。当前 MF 决策只使用 `rc26_decision` 包内静态深度表、离散格号和 BT 黑板状态；格间运动由 `GridTransition` 按相邻边和高度差选择上/下台阶动作，并由 `GridCenterAlign` 依据入口建立的格中心参考和 `mf_center_grid_step_m` 做二维中心归位，MF XML 不再用外部位姿目标表达格间移动。正式 `MfPreselectionFlow` 内部也复用同一格中心参数：入口上阶后建立 `grid2` 中心参考，格间台阶和假 KFS 避障上阶后归位到对应离散格，最终下阶后用 `mf_preselect_final_exit_center_offset_m` 外推梅林外虚拟目标。
+- **当前口径**：旧 MF keepout 包已删除，原 MF world 几何文件不再是当前 MF 主区共享几何真源。当前 MF 决策只使用 `rc26_decision` 包内静态深度表、离散格号和 BT 黑板状态；格间运动由 `GridTransition` 按相邻边和高度差选择上/下台阶动作，并由 `GridCenterAlign` 依据入口建立的格中心参考和 `mf_center_grid_step_m` 做二维中心归位，MF XML 不再用外部位姿目标表达格间移动。正式 `MfPreselectionFlow` 内部也复用同一格中心参数：入口上阶后建立 `grid2` 中心参考，格间台阶和假 KFS 避障按静态高度差完成上/下阶后归位到对应离散格，最终下阶后用 `mf_preselect_final_exit_center_offset_m` 外推梅林外虚拟目标。
 - **规则**：如果未来重新引入由共享几何推导的 keepout、目标生成器或可视化状态，必须先定义新的运行时真源、生成入口和文档化输出，不得把新主链依赖接回已删除的旧 keepout 链路。
 - **规则**：无法从共享几何稳定推导出的比赛语义，例如 staging 点、坡道边或任务路线，必须明确留在决策/导航配置文档里，而不是偷偷塞回底层几何文件。
 
