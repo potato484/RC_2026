@@ -3,7 +3,11 @@
 #include <algorithm>
 #include <cmath>
 #include <exception>
+#include <iomanip>
+#include <sstream>
+#include <string>
 
+#include "rc26_decision/decision_failure.hpp"
 #include "rc26_vision/inference/config/model_profile_loader.hpp"
 #include "rc26_vision/inference/runtime/engine_factory.hpp"
 
@@ -22,6 +26,13 @@ double yawFromQuaternion(const geometry_msgs::msg::Quaternion& q) {
     return std::atan2(2.0 * (q.w * q.z + q.x * q.y),
                       1.0 - 2.0 * (q.y * q.y + q.z * q.z));
 }
+
+std::string byteHex(int value) {
+    std::ostringstream oss;
+    oss << "0x" << std::uppercase << std::hex << std::setw(2)
+        << std::setfill('0') << static_cast<unsigned int>(value & 0xFF);
+    return oss.str();
+}
 }  // namespace
 
 VisualServoGrabAction::VisualServoGrabAction(const std::string& name, const BT::NodeConfig& config)
@@ -35,10 +46,12 @@ VisualServoGrabAction::~VisualServoGrabAction() { stopWorker(); }
 // 返回 RUNNING，后续由 onRunning 轮询工作线程的完成状态。
 BT::NodeStatus VisualServoGrabAction::onStart() {
     if (!config().blackboard->get("node", node_) || node_ == nullptr) {
+        writeDecisionFailure(config().blackboard, "VisualServoGrab", "运行上下文缺失：node 不可用");
         return BT::NodeStatus::FAILURE;
     }
     if (!config().blackboard->get("mc_params", params_)) {
         RCLCPP_ERROR(node_->get_logger(), "武馆区视觉伺服: 黑板缺少 mc_params");
+        writeDecisionFailure(config().blackboard, "VisualServoGrab", "黑板缺少 mc_params");
         return BT::NodeStatus::FAILURE;
     }
     double requested_target_yaw = params_.align_target_yaw_rad;
@@ -124,6 +137,16 @@ void VisualServoGrabAction::stopWorker() {
     }
 }
 
+void VisualServoGrabAction::failWithReason(const std::string& reason) {
+    if (config().blackboard) {
+        writeDecisionFailure(config().blackboard, "VisualServoGrab", reason);
+    }
+    if (node_) {
+        RCLCPP_ERROR(node_->get_logger(), "武馆区视觉伺服失败: %s", reason.c_str());
+    }
+    failed_ = true;
+}
+
 // ================================================================
 // 工作线程主循环：初始化引擎/相机 → 横移对齐 → x 负向前探等 0x06 → 夹取 → 消失判定
 // ================================================================
@@ -131,7 +154,9 @@ void VisualServoGrabAction::workerLoop() {
     // 初始化推理引擎和相机
     if (!initEngine() || !initCamera()) {
         publishStop(true);
-        failed_ = true;
+        failWithReason("视觉运行时初始化失败，model=" + params_.model_id +
+                       "，camera_index=" + std::to_string(params_.camera_index) +
+                       "，camera_device=" + params_.camera_device);
         return;
     }
     // 将配置的目标标签（如 "JK"）解析为模型输出的类别 ID
@@ -139,7 +164,7 @@ void VisualServoGrabAction::workerLoop() {
     if (target_class_ids_.empty()) {
         RCLCPP_ERROR(node_->get_logger(), "武馆区视觉伺服: 目标标签未匹配到任何类别");
         publishStop(true);
-        failed_ = true;
+        failWithReason("目标标签未匹配到任何模型类别，model=" + params_.model_id);
         return;
     }
 
@@ -152,7 +177,8 @@ void VisualServoGrabAction::workerLoop() {
             RCLCPP_WARN(node_->get_logger(), "武馆区视觉伺服超时 %.1fs", params_.servo_timeout_s);
             waiting_for_limit_switch_ = false;
             publishStop(true);
-            failed_ = true;
+            failWithReason("视觉伺服整体超时，超时_s=" +
+                           std::to_string(params_.servo_timeout_s));
             return;
         }
 
@@ -193,7 +219,10 @@ void VisualServoGrabAction::workerLoop() {
                 publishStop(true);
                 RCLCPP_WARN(node_->get_logger(), "武馆区前探等待限位超时 %.2fs",
                             params_.grab_approach_timeout_s);
-                failed_ = true;
+                failWithReason("前探等待限位超时，超时_s=" +
+                               std::to_string(params_.grab_approach_timeout_s) +
+                               "，反馈ID=" +
+                               byteHex(params_.grab_limit_switch_feedback_id));
                 return;
             }
             const double vx = heading_control.allow_lateral ? computeApproachVx() : 0.0;
@@ -210,7 +239,8 @@ void VisualServoGrabAction::workerLoop() {
                 break;
             case GrabStepStatus::Failure:
                 publishStop(true);
-                failed_ = true;
+                failWithReason("GRAB_TIP 命令失败，cmd=" +
+                               byteHex(params_.grab_command_id));
                 return;
             case GrabStepStatus::Running:
                 break;
@@ -456,6 +486,9 @@ bool VisualServoGrabAction::tryStartGrabCommand() {
             grab_response_seen_.store(true, std::memory_order_relaxed);
             if (accepted) {
                 RCLCPP_INFO(node->get_logger(), "GRAB_TIP 已接受: seq=%u",
+                            static_cast<unsigned int>(seq));
+            } else {
+                RCLCPP_WARN(node->get_logger(), "GRAB_TIP 被拒绝: seq=%u",
                             static_cast<unsigned int>(seq));
             }
         });

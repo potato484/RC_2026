@@ -3,12 +3,15 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <iomanip>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <utility>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
+#include "rc26_decision/decision_failure.hpp"
 #include "rc26_decision/mf/merlin_map.hpp"
 #include "rc26_serial/protocol.hpp"
 #include "rc26_vision/inference/config/model_profile_loader.hpp"
@@ -51,6 +54,188 @@ constexpr double kDefaultKfsApproachOdomToleranceM = 0.02;
 constexpr double kDefaultKfsOdomYawToleranceDeg = 3.0;
 constexpr double kDefaultKfsApproachMinSpeedMps = 0.03;
 constexpr int kFinalExitVirtualGrid = 0;
+
+std::string seqText(int seq) {
+  return seq >= 0 ? std::to_string(seq) : std::string("未知");
+}
+
+std::string byteHex(uint8_t value) {
+  std::ostringstream oss;
+  oss << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
+      << static_cast<unsigned int>(value);
+  return oss.str();
+}
+
+bool startsWith(const std::string &text, const std::string &prefix) {
+  return text.rfind(prefix, 0) == 0;
+}
+
+std::string suffixAfter(const std::string &text, const std::string &prefix) {
+  return startsWith(text, prefix) ? text.substr(prefix.size()) : std::string{};
+}
+
+std::string translateMfFailureReason(const std::string &reason) {
+  if (reason.empty()) {
+    return "未知原因";
+  }
+  if (reason == "vision_start_failed") {
+    return "KFS 视觉启动失败";
+  }
+  if (reason == "invalid_fake_avoid_target_grid") {
+    return "假 KFS 避障目标格非法";
+  }
+  if (reason == "invalid_fake_avoid_transition") {
+    return "假 KFS 避障格间转换非法";
+  }
+  if (reason == "invalid_fake_avoid_forward_target") {
+    return "假 KFS 旁列前向推进目标格非法";
+  }
+  if (reason == "no_transition_target") {
+    return "当前格没有合法的下一格转换目标";
+  }
+  if (reason == "entry_return_to_center_reference_missing") {
+    return "入口回中线缺少横移参考";
+  }
+  if (reason == "entry_return_to_center_invalid_offset") {
+    return "入口回中线横移偏差非法";
+  }
+  if (reason == "entry_resume_probe_reference_missing") {
+    return "入口恢复探测横移缺少参考";
+  }
+  if (reason == "move_runtime_missing") {
+    return "相对移动运行上下文缺失";
+  }
+  if (reason == "turn_runtime_missing") {
+    return "转向运行上下文缺失";
+  }
+  if (reason == "center_runtime_missing") {
+    return "格中心归位运行上下文缺失";
+  }
+  if (reason == "entry_center_target_prepare_failed") {
+    return "入口格中心目标计算失败";
+  }
+  if (reason == "invalid_transition") {
+    return "格间转换参数非法";
+  }
+  if (reason == "entry_center_start_failed") {
+    return "入口格中心前进启动失败";
+  }
+  if (reason == "transition_center_start_failed") {
+    return "格间转换后的格中心归位启动失败";
+  }
+  if (reason == "fake_avoid_center_start_failed") {
+    return "假 KFS 避障后的格中心归位启动失败";
+  }
+  if (reason == "final_exit_center_start_failed") {
+    return "最终离场格中心归位启动失败";
+  }
+  if (reason == "wheel_event_timeout") {
+    return "等待激光高度突变事件超时";
+  }
+  if (reason == "kfs_visual_align_state_missing") {
+    return "KFS 视觉横移对齐状态缺失";
+  }
+  if (reason == "kfs_visual_align_target_missing") {
+    return "KFS 视觉横移对齐目标缺失";
+  }
+  if (reason == "kfs_odom_approach_state_missing") {
+    return "KFS odom 前向趋近状态缺失";
+  }
+  if (reason == "kfs_odom_approach_depth_missing") {
+    return "KFS odom 前向趋近缺少有效深度";
+  }
+  if (reason == "kfs_odom_approach_speed_non_positive") {
+    return "KFS odom 前向趋近速度配置非正";
+  }
+  if (reason == "kfs_odom_approach_plan_timeout") {
+    return "KFS odom 前向趋近规划时长超过安全超时";
+  }
+  if (reason == "kfs_odom_approach_target_missing") {
+    return "KFS odom 前向趋近目标缺失";
+  }
+  if (reason == "kfs_odom_approach_runtime_failed") {
+    return "KFS odom 前向趋近运行失败";
+  }
+  if (reason == "grab_kfs_failed") {
+    return "KFS 夹取命令失败";
+  }
+  if (reason == "grab_verify_target_missing") {
+    return "夹取视觉验证目标缺失";
+  }
+  if (reason == "grab_verify_target_still_visible") {
+    return "夹取视觉验证超时后原目标仍可见";
+  }
+  if (reason == "grab_verify_no_new_frame") {
+    return "夹取视觉验证期间没有新视觉帧";
+  }
+  if (reason == "kfs_visual_align_total_timeout") {
+    return "KFS 视觉横移对齐总超时";
+  }
+  if (reason == "arm_high_raise_failed") {
+    return "ARM_HIGH_RAISE 命令或完成反馈失败";
+  }
+  if (reason == "entry_arm_raise_failed") {
+    return "入口 ARM_RAISE 命令或完成反馈失败";
+  }
+  if (reason == "fake_avoid_arm_raise_failed") {
+    return "假 KFS 避障 ARM_RAISE 命令或完成反馈失败";
+  }
+  if (reason == "fake_avoid_arm_lower_failed") {
+    return "假 KFS 避障 ARM_LOWER 命令或完成反馈失败";
+  }
+  if (reason == "transition_arm_raise_failed") {
+    return "格间转换 ARM_RAISE 命令或完成反馈失败";
+  }
+  if (reason == "transition_arm_lower_failed") {
+    return "格间转换 ARM_LOWER 命令或完成反馈失败";
+  }
+  if (reason == "row4_arm_lower_failed") {
+    return "第四行 ARM_LOWER 命令或完成反馈失败";
+  }
+  if (reason == "second_arm_lower_failed" ||
+      reason == "kfs_second_arm_lower_failed") {
+    return "KFS 夹取前第二节机械臂下降命令或完成反馈失败";
+  }
+  if (reason == "front_pushrod_extend_failed") {
+    return "FRONT_PUSHROD_EXTEND 命令失败";
+  }
+  if (reason == "rear_pushrod_retract_failed") {
+    return "REAR_PUSHROD_RETRACT 命令失败";
+  }
+  if (reason == "rear_pushrod_extend_failed") {
+    return "REAR_PUSHROD_EXTEND 命令失败";
+  }
+  if (reason == "front_pushrod_retract_failed") {
+    return "FRONT_PUSHROD_RETRACT 命令失败";
+  }
+  if (reason == "climb_pair_command_failed") {
+    return "上阶梯前推杆收回和后推杆伸出并发命令失败";
+  }
+  if (reason == "descend_pair_command_failed") {
+    return "下阶梯后推杆收回和前推杆伸出并发命令失败";
+  }
+  if (reason == "kfs_odom_motion_not_started") {
+    return "KFS odom 闭环运动尚未启动";
+  }
+  if (startsWith(reason, "move_timeout_")) {
+    return "相对移动超时，段=" + suffixAfter(reason, "move_timeout_");
+  }
+  if (startsWith(reason, "turn_timeout_")) {
+    return "转向超时，段=" + suffixAfter(reason, "turn_timeout_");
+  }
+  if (startsWith(reason, "center_align_timeout_")) {
+    return "格中心归位超时，段=" + suffixAfter(reason, "center_align_timeout_");
+  }
+  if (startsWith(reason, "kfs_odom_motion_timeout_")) {
+    return "KFS odom 闭环运动超时，段=" +
+           suffixAfter(reason, "kfs_odom_motion_timeout_");
+  }
+  if (startsWith(reason, "kfs_odom_motion_speed_non_positive_")) {
+    return "KFS odom 闭环速度配置非正，段=" +
+           suffixAfter(reason, "kfs_odom_motion_speed_non_positive_");
+  }
+  return reason;
+}
 
 // 视觉配置参数既允许传绝对路径，也允许传 rc26_vision share 目录下的相对路径。
 // 这里把“空值”解析为 rc26_vision/config/vision_models.yaml，便于 bringup YAML 只
@@ -118,14 +303,14 @@ double normalizedAngle(double angle_rad) {
 const char *sourceName(MfPreselectionPickupSource source) {
   switch (source) {
   case MfPreselectionPickupSource::Stair1:
-    return "stair1";
+    return "1号入口";
   case MfPreselectionPickupSource::Stair2:
-    return "stair2";
+    return "2号入口";
   case MfPreselectionPickupSource::Stair3:
-    return "stair3";
+    return "3号入口";
   case MfPreselectionPickupSource::None:
   default:
-    return "none";
+    return "无";
   }
 }
 
@@ -908,18 +1093,26 @@ bool MfPreselectionFlowAction::setupRuntime() {
   // 缺任一项都说明当前 BT 装配不完整，不能以默认值猜测实车行为。
   if (!config().blackboard || !config().blackboard->get("node", node_) ||
       !node_) {
+    writeDecisionFailure(config().blackboard, "MfPreselectionFlow",
+                         "运行上下文缺失：blackboard 或 node 不可用");
     return false;
   }
   if (!config().blackboard->get("mf_preselection_params", params_)) {
     RCLCPP_ERROR(node_->get_logger(), "梅林预选赛: 黑板缺少 mf_preselection_params");
+    writeDecisionFailure(config().blackboard, "MfPreselectionFlow",
+                         "黑板缺少 mf_preselection_params");
     return false;
   }
   if (!config().blackboard->get("stair_params", stair_params_)) {
     RCLCPP_ERROR(node_->get_logger(), "梅林预选赛: 黑板缺少 stair_params");
+    writeDecisionFailure(config().blackboard, "MfPreselectionFlow",
+                         "黑板缺少 stair_params");
     return false;
   }
   if (!config().blackboard->get("mf_center_params", center_params_)) {
     RCLCPP_ERROR(node_->get_logger(), "梅林预选赛: 黑板缺少 mf_center_params");
+    writeDecisionFailure(config().blackboard, "MfPreselectionFlow",
+                         "黑板缺少 mf_center_params");
     return false;
   }
   normalizeParams();
@@ -982,7 +1175,7 @@ bool MfPreselectionFlowAction::setupRuntime() {
   // 防止流程 halt 后旧 future 回调写回新一轮状态。
   command_generation_.fetch_add(1, std::memory_order_relaxed);
   config().blackboard->set("mf_preselect_pickup_count", 0);
-  config().blackboard->set("mf_preselect_pickup_source", std::string("none"));
+  config().blackboard->set("mf_preselect_pickup_source", std::string("无"));
   config().blackboard->set("mf_preselect_done", false);
   RCLCPP_INFO(node_->get_logger(),
               "梅林预选赛运行接口就绪：cmd_vel=%s odom=%s center_cmd_vel=%s center_odom=%s command_service=%s feedback=%s entry_interrupt_offset<=%dpx kfs_align_speed=[%.3f, %.3f]m/s timeout_pickup<=%dpx kfs_approach_odom_kp=%.3f approach_tol=%.3fm approach_speed=%.3fm/s approach_min=%.3fm/s arm_reach=%.3fm approach_timeout=%.2fs",
@@ -1212,11 +1405,49 @@ void MfPreselectionFlowAction::normalizeParams() {
 BT::NodeStatus MfPreselectionFlowAction::fail(const std::string &reason) {
   // 失败路径统一写黑板 mf_preselect_error，方便外层日志或后续诊断知道卡在哪个
   // 语义阶段，而不是只能从最后一条 ROS 日志倒推。
+  std::string detail = translateMfFailureReason(reason);
+  detail += "，阶段=" + std::string(phaseText(phase_));
+  detail += "，当前格=" + std::to_string(current_grid_);
+  if (command_sent_ ||
+      command_response_seen_.load(std::memory_order_relaxed) ||
+      !command_label_.empty()) {
+    detail += "，命令=" + command_label_;
+    detail += "(0x" + byteHex(command_id_) + ")";
+    detail += "，seq=" + seqText(command_seq_.load(std::memory_order_relaxed));
+    detail += (command_accepted_.load(std::memory_order_relaxed)
+                   ? " 已接受=是"
+                   : " 已接受=否");
+    if (command_done_feedback_id_ >= 0) {
+      detail += " 完成反馈=0x" +
+                byteHex(static_cast<uint8_t>(command_done_feedback_id_));
+      detail += (command_done_seen_.load(std::memory_order_relaxed)
+                     ? " 已收到完成反馈=是"
+                     : " 已收到完成反馈=否");
+    }
+  }
+  if (command_pair_active_) {
+    detail += "，并发命令=" + command_pair_[0].label + "(0x" +
+              byteHex(command_pair_[0].command_id) + ",seq=" +
+              seqText(command_pair_[0].seq.load(std::memory_order_relaxed)) +
+              ",已接受=" +
+              (command_pair_[0].accepted.load(std::memory_order_relaxed)
+                   ? "是"
+                   : "否") +
+              ")+" + command_pair_[1].label + "(0x" +
+              byteHex(command_pair_[1].command_id) + ",seq=" +
+              seqText(command_pair_[1].seq.load(std::memory_order_relaxed)) +
+              ",已接受=" +
+              (command_pair_[1].accepted.load(std::memory_order_relaxed)
+                   ? "是"
+                   : "否") +
+              ")";
+  }
   if (node_) {
-    RCLCPP_ERROR(node_->get_logger(), "梅林预选赛失败: %s", reason.c_str());
+    RCLCPP_ERROR(node_->get_logger(), "梅林预选赛失败: %s", detail.c_str());
   }
   if (config().blackboard) {
-    config().blackboard->set("mf_preselect_error", reason);
+    config().blackboard->set("mf_preselect_error", detail);
+    writeDecisionFailure(config().blackboard, "MfPreselectionFlow", detail);
   }
   releaseRuntime();
   return BT::NodeStatus::FAILURE;
@@ -1531,65 +1762,103 @@ const char *MfPreselectionFlowAction::wheelEventText(WheelEvent event) {
 const char *MfPreselectionFlowAction::phaseText(Phase phase) {
   switch (phase) {
   case Phase::EntryDetectStair2:
-    return "entry_detect_stair2";
+    return "入口2号检测";
+  case Phase::EntryHighRaise:
+    return "入口机械臂高位抬升";
+  case Phase::EntryMoveLeft:
+    return "入口左移探测";
   case Phase::EntryDetectStair1:
-    return "entry_detect_stair1";
+    return "入口1号检测";
+  case Phase::EntryMoveRightToStair3:
+    return "入口右移到3号";
   case Phase::EntryDetectStair3:
-    return "entry_detect_stair3";
+    return "入口3号检测";
   case Phase::EntryPrepareClimb:
-    return "entry_prepare_climb";
+    return "入口上阶准备";
+  case Phase::EntryClimb:
+    return "入口上阶";
   case Phase::EntryReturnFromStair1:
-    return "entry_return_from_stair1";
+    return "入口从1号回中";
   case Phase::EntryReturnFromStair3:
-    return "entry_return_from_stair3";
+    return "入口从3号回中";
   case Phase::EntryReturnToCenterAfterInterruptedPickup:
-    return "entry_return_to_center_after_interrupted_pickup";
+    return "入口中途夹取后回中";
   case Phase::EntryResumeInterruptedProbeMove:
-    return "entry_resume_interrupted_probe_move";
+    return "入口恢复被中断横移";
   case Phase::AfterEntry:
-    return "after_entry";
+    return "进入梅林内部决策";
   case Phase::RowFrontDetect:
-    return "row_front_detect";
+    return "行前方检测";
+  case Phase::RowScanTurnLeft:
+    return "周身扫描左转";
   case Phase::RowScanDetectLeft:
-    return "row_scan_detect_left";
+    return "周身扫描左侧检测";
+  case Phase::RowScanTurnBack:
+    return "周身扫描背向转向";
   case Phase::RowScanDetectBack:
-    return "row_scan_detect_back";
+    return "周身扫描背向检测";
   case Phase::RowAlignExit:
-    return "row_align_exit";
+    return "重新对齐出口方向";
   case Phase::FakeAvoidTurn:
-    return "fake_avoid_turn";
+    return "假KFS避障转向";
   case Phase::FakeAvoidArmAdjust:
-    return "fake_avoid_arm_adjust";
+    return "假KFS避障机械臂调整";
   case Phase::FakeAvoidStair:
-    return "fake_avoid_stair";
+    return "假KFS避障台阶动作";
   case Phase::FakeAvoidAlignExit:
-    return "fake_avoid_align_exit";
+    return "假KFS避障后对齐出口";
   case Phase::FakeAvoidForwardStep:
-    return "fake_avoid_forward_step";
+    return "假KFS旁列前向推进";
   case Phase::TransitionStair:
-    return "transition_stair";
+    return "格间台阶动作";
   case Phase::TransitionTurn:
-    return "transition_turn";
+    return "格间转向";
+  case Phase::TransitionArmAdjust:
+    return "格间机械臂调整";
   case Phase::DetectionArmAdjust:
-    return "detection_arm_adjust";
+    return "检测前机械臂调整";
+  case Phase::TransitionObserve:
+    return "格间前方观察";
+  case Phase::Row4ForcedTurn:
+    return "第四行强制转向";
+  case Phase::Row4DetectFake:
+    return "第四行假KFS检测";
+  case Phase::Row4FakeTurnBack:
+    return "第四行假KFS转回";
   case Phase::FinalExitYawAlign:
-    return "final_exit_yaw_align";
+    return "最终离场朝向对齐";
+  case Phase::Row4DirectDescendPrep:
+    return "第四行直接下阶准备";
+  case Phase::Row4DirectDescend:
+    return "第四行直接下阶";
   case Phase::DirectExitDrive:
-    return "direct_exit_drive";
+    return "直行离场兜底";
+  case Phase::FinalStop:
+    return "最终停车等待";
   case Phase::KfsVisualAlign:
-    return "kfs_visual_align";
+    return "KFS视觉横移对齐";
   case Phase::KfsSecondArmLower:
-    return "kfs_second_arm_lower";
+    return "KFS第二节机械臂下降";
   case Phase::KfsOdomApproach:
-    return "kfs_odom_approach";
+    return "KFS odom前向趋近";
+  case Phase::MechanismCommand:
+    return "机构命令等待";
   case Phase::GrabVerify:
-    return "grab_verify";
+    return "夹取视觉验证";
+  case Phase::MoveRelative:
+    return "相对移动";
+  case Phase::TurnYaw:
+    return "转向";
+  case Phase::ZeroHold:
+    return "零速等待";
+  case Phase::StairPrimitive:
+    return "台阶原语";
   case Phase::CenterAlign:
-    return "center_align";
+    return "格中心归位";
   case Phase::Done:
-    return "done";
+    return "完成";
   default:
-    return "phase";
+    return "未知阶段";
   }
 }
 
@@ -2162,12 +2431,14 @@ void MfPreselectionFlowAction::beginCommandPair(
   command_pair_[0].sent = false;
   command_pair_[0].response_seen = false;
   command_pair_[0].accepted = false;
+  command_pair_[0].seq = -1;
   command_pair_ack_logged_[0] = false;
   command_pair_[1].command_id = second_id;
   command_pair_[1].label = std::move(second_label);
   command_pair_[1].sent = false;
   command_pair_[1].response_seen = false;
   command_pair_[1].accepted = false;
+  command_pair_[1].seq = -1;
   command_pair_ack_logged_[1] = false;
   command_pair_active_ = true;
   command_pair_waiting_service_logged_ = false;
@@ -2207,9 +2478,10 @@ BT::NodeStatus MfPreselectionFlowAction::tickCommandPair() {
         command_pair_[index].response_seen.load(std::memory_order_relaxed) &&
         command_pair_[index].accepted.load(std::memory_order_relaxed)) {
       RCLCPP_INFO(node_->get_logger(),
-                  "梅林预选赛并发机构命令ACK成功：%s(0x%02X)",
+                  "梅林预选赛并发机构命令ACK成功：%s(0x%02X)，seq=%d",
                   command_pair_[index].label.c_str(),
-                  static_cast<unsigned int>(command_pair_[index].command_id));
+                  static_cast<unsigned int>(command_pair_[index].command_id),
+                  command_pair_[index].seq.load(std::memory_order_relaxed));
       command_pair_ack_logged_[index] = true;
     }
   }
@@ -2224,7 +2496,13 @@ BT::NodeStatus MfPreselectionFlowAction::tickCommandPair() {
         stair_phase_ = StairPhase::DescendHoldAfterRearRetractAndFrontExtend;
       }
     }
-    RCLCPP_INFO(node_->get_logger(), "梅林预选赛并发机构命令均ACK成功，进入下一阶段");
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "梅林预选赛并发机构命令均ACK成功：%s seq=%d + %s seq=%d，进入下一阶段",
+        command_pair_[0].label.c_str(),
+        command_pair_[0].seq.load(std::memory_order_relaxed),
+        command_pair_[1].label.c_str(),
+        command_pair_[1].seq.load(std::memory_order_relaxed));
     phase_ = command_next_phase_;
     return BT::NodeStatus::RUNNING;
   }
@@ -2265,6 +2543,10 @@ BT::NodeStatus MfPreselectionFlowAction::tickCommandPair() {
           try {
             const auto response = future.get();
             accepted = response && response->accepted;
+            if (response) {
+              command_pair_[index].seq.store(static_cast<int>(response->seq),
+                                             std::memory_order_relaxed);
+            }
           } catch (...) {
             accepted = false;
           }
@@ -3711,8 +3993,8 @@ void MfPreselectionFlowAction::finishKfsAlignFailure(
   }
   if (node_) {
     RCLCPP_WARN(node_->get_logger(),
-                "梅林预选赛KFS横移对齐失败但继续原路线：reason=%s target=%s offset=%dpx entry_retry=%s",
-                reason.c_str(),
+                "梅林预选赛KFS横移对齐失败但继续原路线：原因=%s 目标=%s 偏移=%dpx 入口目标允许重试=%s",
+                translateMfFailureReason(reason).c_str(),
                 kfs_pickup_initial_target_.has_value()
                     ? kfs_pickup_initial_target_->label.c_str()
                     : "",
@@ -4410,8 +4692,8 @@ void MfPreselectionFlowAction::finishGrabVerificationFailure(
     const char *label =
         pending_grab_target_.has_value() ? pending_grab_target_->label.c_str() : "";
     RCLCPP_WARN(node_->get_logger(),
-                "梅林预选赛物理夹取验证失败但继续流程：reason=%s target=%s，忽略该目标且不更新计数",
-                reason.c_str(), label);
+                "梅林预选赛物理夹取验证失败但继续流程：原因=%s 目标=%s，忽略该目标且不更新计数",
+                translateMfFailureReason(reason).c_str(), label);
   }
   pending_grab_commit_ = false;
   pending_grab_source_ = MfPreselectionPickupSource::None;

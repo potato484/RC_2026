@@ -69,6 +69,7 @@ private:
     void beginApproach();
     GrabStepStatus tickGrabCommand();
     bool tryStartGrabCommand();
+    void failWithReason(const std::string& reason);
     void stopWorker();
 
     McParams params_;

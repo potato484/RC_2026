@@ -1,6 +1,9 @@
 #include "rc26_decision/mf/select_next_grid.hpp"
 
 #include <cmath>
+#include <string>
+
+#include "rc26_decision/decision_failure.hpp"
 
 namespace {
 
@@ -37,6 +40,10 @@ BT::NodeStatus SelectNextGridAction::tick() {
   std::shared_ptr<MerlinMapManager> map;
   (void)config().blackboard->get("merlin_map", map);
   if (!map) {
+    writeDecisionFailure(config().blackboard, "SelectNextGrid",
+                         "黑板缺少 merlin_map，current_grid=" +
+                             std::to_string(current) +
+                             "，exit_grid=" + std::to_string(exit_grid));
     return BT::NodeStatus::FAILURE;
   }
 

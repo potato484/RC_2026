@@ -113,6 +113,8 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 ## 本轮同步
 
+2026-07-01 同步：决策侧机构指令日志统一补充 `/mechanism/send_command` response 返回的真实 `seq`。单条机构命令、台阶前后推杆并发命令、`MfPreselectionFlow` 内部机构命令和 MC `GRAB_TIP` 的 ACK / rejected 日志都会打印 `seq`；`/cmd_vel` 本身没有 `seq` 字段，本次不为速度指令伪造序号。`decision_node` 新增 `decision_last_failure_source/reason/detail` 黑板失败汇总，行为树最终 `FAILURE` 日志会用中文打印失败来源和详细原因；导航、MC、MF、台阶和 MF 预选赛动作失败时会尽量写入阶段、当前格、命令、`seq`、完成反馈、odom/topic、超时等上下文，方便现场从最终失败日志直接定位卡点。
+
 2026-06-30 同步：`MfPreselectionFlow` 的入口横移 KFS 处理改为“看到后尽量夹取，但不被贴边框过早打断”。入口横移中有效 R2 KFS 若像素偏差超过 `mf_preselect_entry_interrupt_max_offset_px`，流程继续横移扫线，等目标进入窗口后再停车进入 KFS 对齐；KFS 对齐超时若最后有效目标仍在 `mf_preselect_kfs_align_timeout_pickup_tolerance_px` 内且有深度，则不放弃目标，直接进入前向 odom 趋近和夹取链。入口来源的对齐失败不再把该 KFS 加入 ignored 列表，后续重新进入窗口时仍可再次尝试。
 
 2026-06-30 同步：修正 `MfPreselectionFlow::tickDetection()` 的未命中窗口语义。入口检测、行前方检测、周身扫描和旁列 `TransitionObserve` 在没有 R2 KFS 时会先停满 `mf_preselect_entry_detect_timeout_s` 或 `mf_preselect_scan_detect_timeout_s`，再用 `mf_preselect_detect_lost_stable_frames` 做稳定丢失确认；不会再因为 RealSense 连续几帧无目标而把 2 秒观察窗口提前缩短到约半秒。看到 R2 或假 KFS 的命中分支仍保持即时响应。

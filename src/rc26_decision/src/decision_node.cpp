@@ -11,6 +11,7 @@
 #include <memory>
 #include <string>
 
+#include "rc26_decision/decision_failure.hpp"
 #include "rc26_decision/mc/mc_area.hpp"
 #include "rc26_decision/mf/mf_area.hpp"
 #include "rc26_decision/mf_preselection/mf_preselection_flow.hpp"
@@ -111,6 +112,7 @@ private:
     blackboard_->set("relative_nav_last_exec_state", std::string("IDLE"));
     blackboard_->set("relative_nav_last_failure_reason", std::string(""));
     blackboard_->set("relative_nav_last_distance_remaining", 0.0);
+    clearDecisionFailure(blackboard_);
   }
 
   void loadBehaviorTree() {
@@ -121,6 +123,7 @@ private:
     }
 
     tree_ = factory_.createTreeFromFile(tree_path_, blackboard_);
+    clearDecisionFailure(blackboard_);
     terminal_ = false;
   }
 
@@ -296,7 +299,10 @@ private:
     if (status == BT::NodeStatus::SUCCESS) {
       RCLCPP_INFO(this->get_logger(), "行为树执行完成: SUCCESS");
     } else if (status == BT::NodeStatus::FAILURE) {
-      RCLCPP_ERROR(this->get_logger(), "行为树执行失败: FAILURE");
+      RCLCPP_ERROR(this->get_logger(),
+                   "行为树执行失败: FAILURE，失败原因=%s，行为树=%s",
+                   readDecisionFailureDetail(blackboard_).c_str(),
+                   tree_path_.c_str());
     }
 
     if (terminal_) {

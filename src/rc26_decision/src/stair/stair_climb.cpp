@@ -42,7 +42,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
       break;
     case StepStatus::Failure:
       // 命令被拒绝或等待超时，发布零速并返回 FAILURE。
-      return failWithStop("FRONT_PUSHROD_EXTEND failed");
+      return failWithStop("FRONT_PUSHROD_EXTEND 命令失败");
     case StepStatus::Running:
       // service 尚未返回或尚未就绪，本 tick 不阻塞，继续 RUNNING。
       break;
@@ -61,7 +61,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
                         "climb_front_first");
       break;
     case StepStatus::Failure:
-      return failWithStop("front extend zero hold failed");
+      return failWithStop("前推杆伸出后零速等待失败");
     case StepStatus::Running:
       break;
     }
@@ -88,14 +88,14 @@ BT::NodeStatus StairClimbAction::onRunning() {
         break;
       case StepStatus::Failure:
         return failWithStop(
-            "FRONT_PUSHROD_RETRACT + REAR_PUSHROD_EXTEND failed");
+            "FRONT_PUSHROD_RETRACT + REAR_PUSHROD_EXTEND 并发命令失败");
       case StepStatus::Running:
         break;
       }
       break;
     case StepStatus::Failure:
       // 等不到前轮第一个突变，说明流程卡住或传感器异常，安全停车并失败。
-      return failWithStop("front first laser event timeout");
+      return failWithStop("等待前轮第一激光高度突变超时");
     case StepStatus::Running:
       // 还没等到前轮第一个突变，本 tick 保持 RUNNING，下个 tick 继续发速度。
       break;
@@ -114,7 +114,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
       break;
     case StepStatus::Failure:
       // 任一组合命令失败时不再继续运动，防止机构姿态不确定。
-      return failWithStop("FRONT_PUSHROD_RETRACT + REAR_PUSHROD_EXTEND failed");
+      return failWithStop("FRONT_PUSHROD_RETRACT + REAR_PUSHROD_EXTEND 并发命令失败");
     case StepStatus::Running:
       break;
     }
@@ -130,7 +130,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
       beginDriveProfile(params_.climb_rear_drive_profile, "climb_rear");
       break;
     case StepStatus::Failure:
-      return failWithStop("front retract rear extend zero hold failed");
+      return failWithStop("前推杆收回和后推杆伸出后零速等待失败");
     case StepStatus::Running:
       break;
     }
@@ -152,7 +152,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
       break;
     case StepStatus::Failure:
       // 后轮事件超时，说明后轮未按预期上台阶或传感器没有反馈，停车失败。
-      return failWithStop("rear laser event timeout");
+      return failWithStop("等待后轮激光高度突变超时");
     case StepStatus::Running:
       // 后轮事件尚未到达，保持 RUNNING，下个 tick 继续发 x 正向速度。
       break;
@@ -170,7 +170,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
       break;
     case StepStatus::Failure:
       // 后推杆收回失败时仍然停车，并把动作结果报告为 FAILURE。
-      return failWithStop("REAR_PUSHROD_RETRACT failed");
+      return failWithStop("REAR_PUSHROD_RETRACT 命令失败");
     case StepStatus::Running:
       // 继续等待后推杆收回命令 accepted。
       break;
@@ -186,7 +186,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
       releaseRuntime();
       return BT::NodeStatus::SUCCESS;
     case StepStatus::Failure:
-      return failWithStop("rear retract zero hold failed");
+      return failWithStop("后推杆收回后零速等待失败");
     case StepStatus::Running:
       break;
     }

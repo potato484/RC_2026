@@ -44,7 +44,7 @@ BT::NodeStatus StairDescendAction::onRunning() {
       break;
     case StepStatus::Failure:
       // 后轮事件超时，说明没有到达预期边缘或传感器异常，停车失败。
-      return failWithStop("rear laser event timeout");
+      return failWithStop("等待后轮激光高度突变超时");
     case StepStatus::Running:
       // 后轮事件尚未到达，保持 RUNNING，下个 tick 继续发 x 负向速度。
       break;
@@ -63,7 +63,7 @@ BT::NodeStatus StairDescendAction::onRunning() {
       break;
     case StepStatus::Failure:
       // 后推杆伸出失败时不再继续运动，防止车体失去支撑。
-      return failWithStop("REAR_PUSHROD_EXTEND failed");
+      return failWithStop("REAR_PUSHROD_EXTEND 命令失败");
     case StepStatus::Running:
       // service 仍在等待 accepted，本 tick 不阻塞。
       break;
@@ -83,7 +83,7 @@ BT::NodeStatus StairDescendAction::onRunning() {
                         "descend_front_second");
       break;
     case StepStatus::Failure:
-      return failWithStop("rear extend zero hold failed");
+      return failWithStop("后推杆伸出后零速等待失败");
     case StepStatus::Running:
       break;
     }
@@ -110,14 +110,14 @@ BT::NodeStatus StairDescendAction::onRunning() {
         break;
       case StepStatus::Failure:
         return failWithStop(
-            "REAR_PUSHROD_RETRACT + FRONT_PUSHROD_EXTEND failed");
+            "REAR_PUSHROD_RETRACT + FRONT_PUSHROD_EXTEND 并发命令失败");
       case StepStatus::Running:
         break;
       }
       break;
     case StepStatus::Failure:
       // 前轮第二激光事件超时，说明下台阶未按预期推进，停车失败。
-      return failWithStop("front second laser event timeout");
+      return failWithStop("等待前轮第二激光高度突变超时");
     case StepStatus::Running:
       // 前轮第二激光事件尚未到达，保持 RUNNING，下个 tick 继续发布负向速度。
       break;
@@ -136,7 +136,7 @@ BT::NodeStatus StairDescendAction::onRunning() {
       break;
     case StepStatus::Failure:
       // 任一组合命令失败时不再继续运动，防止机构姿态不确定。
-      return failWithStop("REAR_PUSHROD_RETRACT + FRONT_PUSHROD_EXTEND failed");
+      return failWithStop("REAR_PUSHROD_RETRACT + FRONT_PUSHROD_EXTEND 并发命令失败");
     case StepStatus::Running:
       break;
     }
@@ -153,7 +153,7 @@ BT::NodeStatus StairDescendAction::onRunning() {
                       "front_retract_trigger_drive");
       break;
     case StepStatus::Failure:
-      return failWithStop("rear retract front extend zero hold failed");
+      return failWithStop("后推杆收回和前推杆伸出后零速等待失败");
     case StepStatus::Running:
       break;
     }
@@ -170,7 +170,7 @@ BT::NodeStatus StairDescendAction::onRunning() {
                    "FRONT_PUSHROD_RETRACT");
       break;
     case StepStatus::Failure:
-      return failWithStop("front retract trigger drive failed");
+      return failWithStop("前推杆收回触发定时行驶失败");
     case StepStatus::Running:
       break;
     }
@@ -187,7 +187,7 @@ BT::NodeStatus StairDescendAction::onRunning() {
                     "front_retract_settle");
       break;
     case StepStatus::Failure:
-      return failWithStop("FRONT_PUSHROD_RETRACT failed");
+      return failWithStop("FRONT_PUSHROD_RETRACT 命令失败");
     case StepStatus::Running:
       break;
     }
@@ -206,7 +206,7 @@ BT::NodeStatus StairDescendAction::onRunning() {
       // 下台阶动作成功。
       return BT::NodeStatus::SUCCESS;
     case StepStatus::Failure:
-      return failWithStop("front retract zero hold failed");
+      return failWithStop("前推杆收回后零速等待失败");
     case StepStatus::Running:
       break;
     }

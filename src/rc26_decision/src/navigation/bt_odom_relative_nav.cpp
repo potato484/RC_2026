@@ -5,6 +5,8 @@
 #include <cmath>
 #include <string>
 
+#include "rc26_decision/decision_failure.hpp"
+
 namespace rc26_decision {
 
 namespace {
@@ -250,6 +252,8 @@ BT::PortsList OdomAxisDriveAction::providedPorts() {
 BT::NodeStatus OdomAxisDriveAction::onStart() {
   if (!config().blackboard || !config().blackboard->get("node", node_) ||
       !node_) {
+    writeDecisionFailure(config().blackboard, action_label_,
+                         "运行上下文缺失：blackboard 或 node 不可用");
     return BT::NodeStatus::FAILURE;
   }
 
@@ -261,7 +265,7 @@ BT::NodeStatus OdomAxisDriveAction::onStart() {
       node_->create_publisher<TwistMsg>(cmd_vel_topic_, rclcpp::QoS(10));
 
   if (!getInput("distance_m", distance_m_) || !std::isfinite(distance_m_)) {
-    return failWithStop("relative axis distance_m is invalid");
+    return failWithStop("相对单轴距离 distance_m 非法");
   }
   (void)getInput("max_speed_mps", max_speed_mps_);
   (void)getInput("min_speed_mps", min_speed_mps_);
@@ -386,10 +390,13 @@ bool OdomAxisDriveAction::prepareTargetFromCurrentOdom() {
 
 BT::NodeStatus OdomAxisDriveAction::tickTowardTarget() {
   if (!node_ || !cmd_pub_) {
+    writeDecisionFailure(config().blackboard, action_label_,
+                         "运行上下文缺失：node 或 cmd_vel 发布器不可用，cmd_vel=" +
+                             cmd_vel_topic_ + "，odom=" + odom_topic_);
     return BT::NodeStatus::FAILURE;
   }
   if (timedOut()) {
-    return failWithStop("relative drive timeout");
+    return failWithStop("相对行驶超时");
   }
   if (!target_ready_) {
     if (!odomReady()) {
@@ -398,7 +405,7 @@ BT::NodeStatus OdomAxisDriveAction::tickTowardTarget() {
       return BT::NodeStatus::RUNNING;
     }
     if (!prepareTargetFromCurrentOdom()) {
-      return failWithStop("relative drive target prepare failed");
+      return failWithStop("相对行驶目标捕获失败");
     }
     writeState("RUNNING");
   }
@@ -463,11 +470,17 @@ BT::NodeStatus OdomAxisDriveAction::tickTowardTarget() {
 
 BT::NodeStatus OdomAxisDriveAction::failWithStop(
     const std::string &reason) {
+  const std::string detail =
+      reason + "，cmd_vel=" + cmd_vel_topic_ + "，odom=" + odom_topic_ +
+      "，距离_m=" + std::to_string(distance_m_) +
+      "，动作超时_s=" + std::to_string(timeout_s_) +
+      "，odom超时_s=" + std::to_string(odom_timeout_s_);
   if (node_) {
     RCLCPP_WARN(node_->get_logger(), "%s 失败: %s", action_label_,
-                reason.c_str());
+                detail.c_str());
   }
-  writeFailure(reason);
+  writeFailure(detail);
+  writeDecisionFailure(config().blackboard, action_label_, detail);
   publishStop();
   releaseRuntime();
   return BT::NodeStatus::FAILURE;
@@ -545,6 +558,8 @@ BT::PortsList OdomTurnToYawAction::providedPorts() {
 BT::NodeStatus OdomTurnToYawAction::onStart() {
   if (!config().blackboard || !config().blackboard->get("node", node_) ||
       !node_) {
+    writeDecisionFailure(config().blackboard, "OdomTurnToYaw",
+                         "运行上下文缺失：blackboard 或 node 不可用");
     return BT::NodeStatus::FAILURE;
   }
 
@@ -556,7 +571,7 @@ BT::NodeStatus OdomTurnToYawAction::onStart() {
       node_->create_publisher<TwistMsg>(cmd_vel_topic_, rclcpp::QoS(10));
   if (!getInput("target_yaw_rad", target_yaw_rad_) ||
       !std::isfinite(target_yaw_rad_)) {
-    return failWithStop("target_yaw_rad is invalid");
+    return failWithStop("目标 yaw 参数 target_yaw_rad 非法");
   }
   target_yaw_rad_ = normalizeAngle(target_yaw_rad_);
   (void)getInput("kp", kp_);
@@ -638,10 +653,13 @@ bool OdomTurnToYawAction::timedOut() const {
 
 BT::NodeStatus OdomTurnToYawAction::tickTurn() {
   if (!node_ || !cmd_pub_) {
+    writeDecisionFailure(config().blackboard, "OdomTurnToYaw",
+                         "运行上下文缺失：node 或 cmd_vel 发布器不可用，cmd_vel=" +
+                             cmd_vel_topic_ + "，odom=" + odom_topic_);
     return BT::NodeStatus::FAILURE;
   }
   if (timedOut()) {
-    return failWithStop("turn timeout");
+    return failWithStop("odom 绝对转向超时");
   }
   if (!odomReady()) {
     stable_ticks_ = 0;
@@ -676,11 +694,18 @@ BT::NodeStatus OdomTurnToYawAction::tickTurn() {
 
 BT::NodeStatus OdomTurnToYawAction::failWithStop(
     const std::string &reason) {
+  const std::string detail =
+      reason + "，cmd_vel=" + cmd_vel_topic_ + "，odom=" + odom_topic_ +
+      "，目标yaw_rad=" + std::to_string(target_yaw_rad_) +
+      "，当前yaw_rad=" + std::to_string(current_yaw_rad_) +
+      "，动作超时_s=" + std::to_string(timeout_s_) +
+      "，odom超时_s=" + std::to_string(odom_timeout_s_);
   if (node_) {
     RCLCPP_WARN(node_->get_logger(), "odom 绝对转向失败: %s",
-                reason.c_str());
+                detail.c_str());
   }
-  writeFailure(reason);
+  writeFailure(detail);
+  writeDecisionFailure(config().blackboard, "OdomTurnToYaw", detail);
   publishStop();
   releaseRuntime();
   return BT::NodeStatus::FAILURE;
@@ -726,6 +751,8 @@ BT::PortsList RelativeYawTargetAction::providedPorts() {
 BT::NodeStatus RelativeYawTargetAction::onStart() {
   if (!config().blackboard || !config().blackboard->get("node", node_) ||
       !node_) {
+    writeDecisionFailure(config().blackboard, "RelativeYawTarget",
+                         "运行上下文缺失：blackboard 或 node 不可用");
     return BT::NodeStatus::FAILURE;
   }
 
@@ -734,6 +761,8 @@ BT::NodeStatus RelativeYawTargetAction::onStart() {
   if (!getInput("yaw_delta_rad", yaw_delta_rad_) ||
       !std::isfinite(yaw_delta_rad_)) {
     RCLCPP_ERROR(node_->get_logger(), "相对 yaw 目标参数非法: yaw_delta_rad");
+    writeDecisionFailure(config().blackboard, "RelativeYawTarget",
+                         "相对 yaw 增量 yaw_delta_rad 非法，odom=" + odom_topic_);
     releaseRuntime();
     return BT::NodeStatus::FAILURE;
   }
@@ -768,6 +797,8 @@ void RelativeYawTargetAction::onHalted() { releaseRuntime(); }
 
 BT::NodeStatus RelativeYawTargetAction::tryCaptureTarget() {
   if (!node_) {
+    writeDecisionFailure(config().blackboard, "RelativeYawTarget",
+                         "运行上下文缺失：node 不可用，odom=" + odom_topic_);
     return BT::NodeStatus::FAILURE;
   }
   if (has_yaw_) {
@@ -789,6 +820,11 @@ BT::NodeStatus RelativeYawTargetAction::tryCaptureTarget() {
   if ((node_->now() - start_time_).seconds() > timeout_s_) {
     RCLCPP_WARN(node_->get_logger(), "相对 yaw 目标捕获超时: odom=%s",
                 odom_topic_.c_str());
+    writeDecisionFailure(
+        config().blackboard, "RelativeYawTarget",
+        "相对 yaw 目标捕获超时，odom=" + odom_topic_ +
+            "，捕获超时_s=" + std::to_string(timeout_s_) +
+            "，odom超时_s=" + std::to_string(odom_timeout_s_));
     releaseRuntime();
     return BT::NodeStatus::FAILURE;
   }

@@ -4,6 +4,8 @@
 #include <cmath>
 #include <stdexcept>
 
+#include "rc26_decision/decision_failure.hpp"
+
 namespace rc26_decision {
 
 namespace {
@@ -98,16 +100,22 @@ BT::PortsList GridHeadingActionBase::providedPorts() {
 bool GridHeadingActionBase::setupRuntime(const char *action_label) {
   action_label_ = action_label ? action_label : "GridHeading";
   if (!config().blackboard->get("node", node_) || node_ == nullptr) {
+    writeDecisionFailure(config().blackboard, action_label_,
+                         "运行上下文缺失：node 不可用");
     return false;
   }
   if (!config().blackboard->get("grid_heading_params", params_)) {
     RCLCPP_ERROR(node_->get_logger(), "%s: 黑板缺少 grid_heading_params",
                  action_label_.c_str());
+    writeDecisionFailure(config().blackboard, action_label_,
+                         "黑板缺少 grid_heading_params");
     return false;
   }
   if (!readTargetYaw()) {
     RCLCPP_ERROR(node_->get_logger(), "%s: 缺少 target_yaw_rad 输入",
                  action_label_.c_str());
+    writeDecisionFailure(config().blackboard, action_label_,
+                         "缺少 target_yaw_rad 输入");
     return false;
   }
 
@@ -193,10 +201,18 @@ double GridHeadingActionBase::elapsedSinceStart() const {
 }
 
 BT::NodeStatus GridHeadingActionBase::failWithStop(const char *reason) {
+  const std::string detail =
+      std::string(reason ? reason : "未知原因") +
+      "，目标yaw_rad=" + std::to_string(target_yaw_rad_) +
+      "，当前yaw_rad=" + std::to_string(current_yaw_rad_) +
+      "，odom=" + params_.odom_topic +
+      "，转向超时_s=" + std::to_string(params_.turn_timeout_s) +
+      "，对齐超时_s=" + std::to_string(params_.align_timeout_s);
   if (node_) {
     RCLCPP_WARN(node_->get_logger(), "%s 失败: %s", action_label_.c_str(),
-                reason ? reason : "unknown");
+                detail.c_str());
   }
+  writeDecisionFailure(config().blackboard, action_label_, detail);
   publishStop();
   releaseRuntime();
   return BT::NodeStatus::FAILURE;
@@ -232,7 +248,7 @@ BT::NodeStatus GridTurnAction::onStart() {
 
 BT::NodeStatus GridTurnAction::onRunning() {
   if (elapsedSinceStart() > params_.turn_timeout_s) {
-    return failWithStop("turn timeout");
+    return failWithStop("转向超时");
   }
   if (!odomReady()) {
     publishStop();
@@ -270,7 +286,7 @@ BT::NodeStatus GridHeadingAlignAction::onStart() {
 
 BT::NodeStatus GridHeadingAlignAction::onRunning() {
   if (elapsedSinceStart() > params_.align_timeout_s) {
-    return failWithStop("align timeout");
+    return failWithStop("对齐超时");
   }
   if (!odomReady()) {
     stable_ticks_ = 0;

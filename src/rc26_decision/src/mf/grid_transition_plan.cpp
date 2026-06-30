@@ -1,6 +1,9 @@
 #include "rc26_decision/mf/grid_transition_plan.hpp"
 
 #include <cmath>
+#include <string>
+
+#include "rc26_decision/decision_failure.hpp"
 
 namespace rc26_decision {
 
@@ -19,6 +22,8 @@ BT::NodeStatus PlanGridTransitionAction::tick() {
   int target_grid = 0;
   if (!getInput("target_grid", target_grid)) {
     setTransitionError("missing_target_grid");
+    writeDecisionFailure(config().blackboard, "PlanGridTransition",
+                         "缺少 target_grid 输入");
     return BT::NodeStatus::FAILURE;
   }
 
@@ -27,12 +32,20 @@ BT::NodeStatus PlanGridTransitionAction::tick() {
   if (current_grid < 1 || current_grid > 12 || target_grid < 1 ||
       target_grid > 12) {
     setTransitionError("invalid_grid_id");
+    writeDecisionFailure(
+        config().blackboard, "PlanGridTransition",
+        "格号非法，current_grid=" + std::to_string(current_grid) +
+            "，target_grid=" + std::to_string(target_grid));
     return BT::NodeStatus::FAILURE;
   }
 
   std::shared_ptr<MerlinMapManager> map;
   if (!config().blackboard->get("merlin_map", map) || !map) {
     setTransitionError("missing_merlin_map");
+    writeDecisionFailure(config().blackboard, "PlanGridTransition",
+                         "黑板缺少 merlin_map，current_grid=" +
+                             std::to_string(current_grid) +
+                             "，target_grid=" + std::to_string(target_grid));
     return BT::NodeStatus::FAILURE;
   }
 
@@ -44,6 +57,11 @@ BT::NodeStatus PlanGridTransitionAction::tick() {
   const int col_delta = to_col - from_col;
   if (std::abs(row_delta) + std::abs(col_delta) != 1) {
     setTransitionError("non_adjacent_grid_transition");
+    writeDecisionFailure(
+        config().blackboard, "PlanGridTransition",
+        "格间转换不是相邻格，current_grid=" +
+            std::to_string(current_grid) +
+            "，target_grid=" + std::to_string(target_grid));
     return BT::NodeStatus::FAILURE;
   }
 
@@ -51,16 +69,33 @@ BT::NodeStatus PlanGridTransitionAction::tick() {
   const int to_depth = map->getDepth(target_grid);
   if (from_depth < 0 || to_depth < 0) {
     setTransitionError("invalid_grid_depth");
+    writeDecisionFailure(
+        config().blackboard, "PlanGridTransition",
+        "格高度非法，current_grid=" + std::to_string(current_grid) +
+            "，target_grid=" + std::to_string(target_grid) +
+            "，from_depth=" + std::to_string(from_depth) +
+            "，to_depth=" + std::to_string(to_depth));
     return BT::NodeStatus::FAILURE;
   }
 
   const int height_delta = to_depth - from_depth;
   if (height_delta == 0) {
     setTransitionError("flat_transition_unsupported");
+    writeDecisionFailure(
+        config().blackboard, "PlanGridTransition",
+        "平层格间转换不支持，current_grid=" +
+            std::to_string(current_grid) +
+            "，target_grid=" + std::to_string(target_grid));
     return BT::NodeStatus::FAILURE;
   }
   if (std::abs(height_delta) > 1) {
     setTransitionError("height_delta_too_large");
+    writeDecisionFailure(
+        config().blackboard, "PlanGridTransition",
+        "格间高度差过大，current_grid=" +
+            std::to_string(current_grid) +
+            "，target_grid=" + std::to_string(target_grid) +
+            "，height_delta=" + std::to_string(height_delta));
     return BT::NodeStatus::FAILURE;
   }
 

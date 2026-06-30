@@ -108,6 +108,7 @@ private:
   std::atomic<bool> command_response_seen_{false};
   std::atomic<bool> command_accepted_{false};
   std::atomic<bool> command_rejected_{false};
+  std::atomic<int> command_seq_{-1};
   std::atomic<uint64_t> command_generation_{0};
 
   struct CommandSlot {
@@ -117,6 +118,7 @@ private:
     std::atomic<bool> response_seen{false};
     std::atomic<bool> accepted{false};
     std::atomic<bool> rejected{false};
+    std::atomic<int> seq{-1};
   };
   CommandSlot command_pair_[2];
   bool command_pair_active_{false};

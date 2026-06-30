@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <string>
+
+#include "rc26_decision/decision_failure.hpp"
 
 namespace rc26_decision {
 
@@ -35,11 +38,13 @@ RotateInPlaceAction::RotateInPlaceAction(const std::string& name, const BT::Node
 BT::NodeStatus RotateInPlaceAction::onStart() {
     // 获取 ROS 节点指针
     if (!config().blackboard->get("node", node_) || node_ == nullptr) {
+        writeDecisionFailure(config().blackboard, "RotateInPlace", "运行上下文缺失：node 不可用");
         return BT::NodeStatus::FAILURE;
     }
     // 读取武馆区运行参数（旋转角度、速度、方向等）
     if (!config().blackboard->get("mc_params", params_)) {
         RCLCPP_ERROR(node_->get_logger(), "武馆区原地旋转: 黑板缺少 mc_params");
+        writeDecisionFailure(config().blackboard, "RotateInPlace", "黑板缺少 mc_params");
         return BT::NodeStatus::FAILURE;
     }
 
@@ -50,6 +55,8 @@ BT::NodeStatus RotateInPlaceAction::onStart() {
         const auto target_yaw_result = getInput("target_yaw_rad", requested_target_yaw);
         if (!target_yaw_result.has_value() || !std::isfinite(requested_target_yaw)) {
             RCLCPP_ERROR(node_->get_logger(), "武馆区原地旋转: target_yaw_rad 非法");
+            writeDecisionFailure(config().blackboard, "RotateInPlace",
+                                 "目标 yaw 参数 target_yaw_rad 非法");
             return BT::NodeStatus::FAILURE;
         }
         absolute_target_yaw_rad_ = normalizeAngle(requested_target_yaw);
@@ -106,6 +113,16 @@ BT::NodeStatus RotateInPlaceAction::onRunning() {
     if (params_.rotate_timeout_s > 0.0 &&
         (node_->now() - start_time_).seconds() > params_.rotate_timeout_s) {
         RCLCPP_WARN(node_->get_logger(), "武馆区原地旋转超时 %.1fs", params_.rotate_timeout_s);
+        writeDecisionFailure(config().blackboard, "RotateInPlace",
+                             "原地旋转超时，超时_s=" +
+                                 std::to_string(params_.rotate_timeout_s) +
+                                 "，odom=" + params_.odom_topic +
+                                 "，绝对目标模式=" +
+                                 (absolute_target_mode_ ? "是" : "否") +
+                                 "，当前yaw_rad=" +
+                                 std::to_string(current_yaw_) +
+                                 "，累计旋转_rad=" +
+                                 std::to_string(accumulated_rad_));
         publishStop();
         odom_sub_.reset();
         return BT::NodeStatus::FAILURE;

@@ -1,9 +1,12 @@
 #include "rc26_decision/stair/stair_action_base.hpp"
 
+#include "rc26_decision/decision_failure.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <exception>
 #include <memory>
+#include <string>
 #include <utility>
 
 namespace rc26_decision {
@@ -16,17 +19,21 @@ constexpr double kMinCommandRateHz = 1.0;
 // 所有等待超时的最小值；避免配置为 0 或负数导致阶段立即异常结束。
 constexpr double kMinTimeoutS = 0.001;
 
-// 将内部枚举转换成日志里可读的英文标签，避免每个调用点重复写 switch。
+std::string commandSeqText(int seq) {
+  return seq >= 0 ? std::to_string(seq) : std::string("未知");
+}
+
+// 将内部枚举转换成日志里可读的中文标签，避免每个调用点重复写 switch。
 const char *eventName(StairActionBase::WheelEvent event) {
   switch (event) {
   case StairActionBase::WheelEvent::FrontFirst:
-    return "front_first";
+    return "前轮第一激光高度突变";
   case StairActionBase::WheelEvent::FrontSecond:
-    return "front_second";
+    return "前轮第二激光高度突变";
   case StairActionBase::WheelEvent::Rear:
-    return "rear";
+    return "后轮激光高度突变";
   }
-  return "unknown";
+  return "未知激光事件";
 }
 
 double yawFromQuaternion(const geometry_msgs::msg::Quaternion &q) {
@@ -52,8 +59,11 @@ bool StairActionBase::setupRuntime(const char *action_label) {
   // 保存动作中文名，用于后续日志区分“上台阶”和“下台阶”。
   action_label_ = action_label ? action_label : "stair";
   // 从黑板取出 decision_node 的 ROS 节点指针；没有 node 就无法创建 publisher/client/subscription。
-  if (!config().blackboard->get("node", node_) || node_ == nullptr) {
+  if (!config().blackboard || !config().blackboard->get("node", node_) ||
+      node_ == nullptr) {
     // 不在这里打日志，是因为没有 node 时也没有 logger；由调用方返回 FAILURE。
+    writeDecisionFailure(config().blackboard, action_label_,
+                         "运行上下文缺失：node 不可用");
     return false;
   }
   // 从黑板取台阶参数；这些参数由 loadStairParams() 在 decision_node 启动时写入。
@@ -61,6 +71,8 @@ bool StairActionBase::setupRuntime(const char *action_label) {
     // 缺少参数说明 decision_node 初始化链不完整，动作不能安全运行。
     RCLCPP_ERROR(node_->get_logger(), "%s: 黑板缺少 stair_params",
                  action_label_.c_str());
+    writeDecisionFailure(config().blackboard, action_label_,
+                         "黑板缺少 stair_params");
     return false;
   }
 
@@ -328,14 +340,17 @@ StairActionBase::StepStatus StairActionBase::tickCommand() {
   // 如果异步 service 回调已经写入结果，本 tick 直接把结果映射成阶段状态。
   if (command_response_seen_.load(std::memory_order_relaxed)) {
     // accepted=true 表示 bridge 已经通过可靠 sendCommand() 收到 MCU 通用 ACK。
+    const int seq = command_seq_.load(std::memory_order_relaxed);
     if (command_accepted_.load(std::memory_order_relaxed)) {
-      RCLCPP_INFO(node_->get_logger(), "%s: %s accepted",
-                  action_label_.c_str(), active_command_label_.c_str());
+      RCLCPP_INFO(node_->get_logger(), "%s: %s 已接受 seq=%s",
+                  action_label_.c_str(), active_command_label_.c_str(),
+                  commandSeqText(seq).c_str());
       return StepStatus::Success;
     }
     // accepted=false 表示 service 拒绝或回调异常，状态机应停车失败。
-    RCLCPP_WARN(node_->get_logger(), "%s: %s rejected",
-                action_label_.c_str(), active_command_label_.c_str());
+    RCLCPP_WARN(node_->get_logger(), "%s: %s 被拒绝 seq=%s",
+                action_label_.c_str(), active_command_label_.c_str(),
+                commandSeqText(seq).c_str());
     return StepStatus::Failure;
   }
 
@@ -384,6 +399,10 @@ StairActionBase::StepStatus StairActionBase::tickCommand() {
               const auto response = future.get();
               // accepted=true 是本状态机推进到下一阶段的唯一命令成功条件。
               const bool accepted = response && response->accepted;
+              if (response) {
+                command_seq_.store(static_cast<int>(response->seq),
+                                   std::memory_order_relaxed);
+              }
               // 写入 accepted 标志；onRunning() 后续 tick 会读取。
               command_accepted_.store(accepted, std::memory_order_relaxed);
               // 写入 rejected 标志，主要用于调试和状态完整性。
@@ -451,8 +470,10 @@ StairActionBase::StepStatus StairActionBase::tickCommandPair() {
   for (const auto &slot : command_pair_) {
     if (slot.response_seen.load(std::memory_order_relaxed) &&
         !slot.accepted.load(std::memory_order_relaxed)) {
-      RCLCPP_WARN(node_->get_logger(), "%s: %s rejected",
-                  action_label_.c_str(), slot.label.c_str());
+      RCLCPP_WARN(node_->get_logger(), "%s: %s 被拒绝 seq=%s",
+                  action_label_.c_str(), slot.label.c_str(),
+                  commandSeqText(slot.seq.load(std::memory_order_relaxed))
+                      .c_str());
       return StepStatus::Failure;
     }
   }
@@ -464,9 +485,13 @@ StairActionBase::StepStatus StairActionBase::tickCommandPair() {
       command_pair_[1].response_seen.load(std::memory_order_relaxed) &&
       command_pair_[1].accepted.load(std::memory_order_relaxed);
   if (first_done && second_done) {
-    RCLCPP_INFO(node_->get_logger(), "%s: %s + %s accepted",
+    RCLCPP_INFO(node_->get_logger(), "%s: %s seq=%s + %s seq=%s 均已接受",
                 action_label_.c_str(), command_pair_[0].label.c_str(),
-                command_pair_[1].label.c_str());
+                commandSeqText(command_pair_[0].seq.load(std::memory_order_relaxed))
+                    .c_str(),
+                command_pair_[1].label.c_str(),
+                commandSeqText(command_pair_[1].seq.load(std::memory_order_relaxed))
+                    .c_str());
     command_pair_active_ = false;
     return StepStatus::Success;
   }
@@ -618,8 +643,38 @@ StairActionBase::StepStatus StairActionBase::tickZeroHold() {
 BT::NodeStatus StairActionBase::failWithStop(const char *reason) {
   // 失败入口统一打印原因，让上台阶/下台阶不用在每个分支重复写停车收尾。
   if (node_) {
+    std::string detail = reason ? reason : "未知原因";
+    if (command_sent_ || command_response_seen_.load(std::memory_order_relaxed)) {
+      detail += "，命令=" + active_command_label_;
+      detail += "，seq=" +
+                commandSeqText(command_seq_.load(std::memory_order_relaxed));
+      detail += (command_accepted_.load(std::memory_order_relaxed)
+                     ? " 已接受=是"
+                     : " 已接受=否");
+      detail += (command_rejected_.load(std::memory_order_relaxed)
+                     ? " 被拒绝=是"
+                     : " 被拒绝=否");
+    }
+    if (command_pair_active_) {
+      detail += "，并发命令=" + command_pair_[0].label + "(seq=" +
+                commandSeqText(command_pair_[0].seq.load(std::memory_order_relaxed)) +
+                ",已接受=" +
+                (command_pair_[0].accepted.load(std::memory_order_relaxed) ? "是"
+                                                                           : "否") +
+                ")+" + command_pair_[1].label + "(seq=" +
+                commandSeqText(command_pair_[1].seq.load(std::memory_order_relaxed)) +
+                ",已接受=" +
+                (command_pair_[1].accepted.load(std::memory_order_relaxed) ? "是"
+                                                                           : "否") +
+                ")";
+    }
+    if (!active_event_label_.empty() && active_event_timeout_s_ > 0.0) {
+      detail += "，等待事件=" + active_event_label_;
+      detail += "，事件超时_s=" + std::to_string(active_event_timeout_s_);
+    }
+    writeDecisionFailure(config().blackboard, action_label_, detail);
     RCLCPP_WARN(node_->get_logger(), "%s 失败: %s", action_label_.c_str(),
-                reason ? reason : "unknown");
+                detail.c_str());
   }
   // 任何失败都先发布零速，确保离开动作前底盘没有继续运动。
   publishStop();
@@ -655,6 +710,7 @@ void StairActionBase::resetCommandState() {
   command_accepted_.store(false, std::memory_order_relaxed);
   // 当前阶段尚未确认 rejected。
   command_rejected_.store(false, std::memory_order_relaxed);
+  command_seq_.store(-1, std::memory_order_relaxed);
 }
 
 void StairActionBase::resetCommandPairState() {
@@ -666,6 +722,7 @@ void StairActionBase::resetCommandPairState() {
     slot.response_seen.store(false, std::memory_order_relaxed);
     slot.accepted.store(false, std::memory_order_relaxed);
     slot.rejected.store(false, std::memory_order_relaxed);
+    slot.seq.store(-1, std::memory_order_relaxed);
   }
 }
 
@@ -693,6 +750,10 @@ bool StairActionBase::sendPairCommand(std::size_t index) {
           try {
             const auto response = future.get();
             const bool accepted = response && response->accepted;
+            if (response) {
+              command_pair_[index].seq.store(static_cast<int>(response->seq),
+                                             std::memory_order_relaxed);
+            }
             command_pair_[index].accepted.store(accepted,
                                                 std::memory_order_relaxed);
             command_pair_[index].rejected.store(!accepted,

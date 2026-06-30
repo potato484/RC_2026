@@ -2,6 +2,9 @@
 
 #include <cmath>
 #include <memory>
+#include <string>
+
+#include "rc26_decision/decision_failure.hpp"
 
 namespace {
 
@@ -33,10 +36,24 @@ BT::PortsList GridTransitionAction::providedPorts() {
 
 BT::NodeStatus GridTransitionAction::onStart() {
   if (!planTransition()) {
+    std::string reason;
+    if (config().blackboard) {
+      (void)config().blackboard->get("mf_transition_error", reason);
+    }
+    writeDecisionFailure(
+        config().blackboard, "GridTransition",
+        (reason.empty() ? std::string("格间转换规划失败") : reason) +
+            "，from_grid=" + std::to_string(from_grid_) +
+            "，target_grid=" + std::to_string(target_grid_));
     return BT::NodeStatus::FAILURE;
   }
   if (!setupRuntime("梅林格间转移")) {
     setTransitionError("runtime_setup_failed");
+    writeDecisionFailure(
+        config().blackboard, "GridTransition",
+        "运行资源初始化失败，from_grid=" + std::to_string(from_grid_) +
+            "，target_grid=" + std::to_string(target_grid_) +
+            "，target_yaw_rad=" + std::to_string(target_yaw_rad_));
     return BT::NodeStatus::FAILURE;
   }
 
@@ -66,7 +83,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
                     "front_extend_settle");
       break;
     case StepStatus::Failure:
-      return failTransition("FRONT_PUSHROD_EXTEND failed");
+      return failTransition("FRONT_PUSHROD_EXTEND 命令失败");
     case StepStatus::Running:
       break;
     }
@@ -82,7 +99,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
                         "climb_front_first");
       break;
     case StepStatus::Failure:
-      return failTransition("front extend zero hold failed");
+      return failTransition("前推杆伸出后零速等待失败");
     case StepStatus::Running:
       break;
     }
@@ -93,7 +110,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
       publishStop();
       switch (tickEventWait()) {
       case StepStatus::Failure:
-        return failTransition("heading odom stale before front first event");
+        return failTransition("等待前轮第一激光事件前 heading odom 过期");
       case StepStatus::Success:
       case StepStatus::Running:
         break;
@@ -117,13 +134,13 @@ BT::NodeStatus GridTransitionAction::onRunning() {
         break;
       case StepStatus::Failure:
         return failTransition(
-            "FRONT_PUSHROD_RETRACT + REAR_PUSHROD_EXTEND failed");
+            "FRONT_PUSHROD_RETRACT + REAR_PUSHROD_EXTEND 并发命令失败");
       case StepStatus::Running:
         break;
       }
       break;
     case StepStatus::Failure:
-      return failTransition("front first laser event timeout");
+      return failTransition("等待前轮第一激光高度突变超时");
     case StepStatus::Running:
       break;
     }
@@ -139,7 +156,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
       break;
     case StepStatus::Failure:
       return failTransition(
-          "FRONT_PUSHROD_RETRACT + REAR_PUSHROD_EXTEND failed");
+          "FRONT_PUSHROD_RETRACT + REAR_PUSHROD_EXTEND 并发命令失败");
     case StepStatus::Running:
       break;
     }
@@ -153,7 +170,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
       beginDriveProfile(params_.climb_rear_drive_profile, "climb_rear");
       break;
     case StepStatus::Failure:
-      return failTransition("front retract rear extend zero hold failed");
+      return failTransition("前推杆收回和后推杆伸出后零速等待失败");
     case StepStatus::Running:
       break;
     }
@@ -164,7 +181,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
       publishStop();
       switch (tickEventWait()) {
       case StepStatus::Failure:
-        return failTransition("heading odom stale before rear event");
+        return failTransition("等待后轮激光事件前 heading odom 过期");
       case StepStatus::Success:
       case StepStatus::Running:
         break;
@@ -179,7 +196,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
       beginCommand(CommandID::REAR_PUSHROD_RETRACT, "REAR_PUSHROD_RETRACT");
       break;
     case StepStatus::Failure:
-      return failTransition("rear laser event timeout");
+      return failTransition("等待后轮激光高度突变超时");
     case StepStatus::Running:
       break;
     }
@@ -194,7 +211,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
                     "rear_retract_settle");
       break;
     case StepStatus::Failure:
-      return failTransition("REAR_PUSHROD_RETRACT failed");
+      return failTransition("REAR_PUSHROD_RETRACT 命令失败");
     case StepStatus::Running:
       break;
     }
@@ -209,7 +226,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
       releaseRuntime();
       return BT::NodeStatus::SUCCESS;
     case StepStatus::Failure:
-      return failTransition("rear retract zero hold failed");
+      return failTransition("后推杆收回后零速等待失败");
     case StepStatus::Running:
       break;
     }
@@ -220,7 +237,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
       publishStop();
       switch (tickEventWait()) {
       case StepStatus::Failure:
-        return failTransition("heading odom stale before rear event");
+        return failTransition("等待后轮激光事件前 heading odom 过期");
       case StepStatus::Success:
       case StepStatus::Running:
         break;
@@ -235,7 +252,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
       beginCommand(CommandID::REAR_PUSHROD_EXTEND, "REAR_PUSHROD_EXTEND");
       break;
     case StepStatus::Failure:
-      return failTransition("rear laser event timeout");
+      return failTransition("等待后轮激光高度突变超时");
     case StepStatus::Running:
       break;
     }
@@ -250,7 +267,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
                     "rear_extend_settle");
       break;
     case StepStatus::Failure:
-      return failTransition("REAR_PUSHROD_EXTEND failed");
+      return failTransition("REAR_PUSHROD_EXTEND 命令失败");
     case StepStatus::Running:
       break;
     }
@@ -266,7 +283,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
                         "descend_front_second");
       break;
     case StepStatus::Failure:
-      return failTransition("rear extend zero hold failed");
+      return failTransition("后推杆伸出后零速等待失败");
     case StepStatus::Running:
       break;
     }
@@ -277,7 +294,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
       publishStop();
       switch (tickEventWait()) {
       case StepStatus::Failure:
-        return failTransition("heading odom stale before front second event");
+        return failTransition("等待前轮第二激光事件前 heading odom 过期");
       case StepStatus::Success:
       case StepStatus::Running:
         break;
@@ -301,13 +318,13 @@ BT::NodeStatus GridTransitionAction::onRunning() {
         break;
       case StepStatus::Failure:
         return failTransition(
-            "REAR_PUSHROD_RETRACT + FRONT_PUSHROD_EXTEND failed");
+            "REAR_PUSHROD_RETRACT + FRONT_PUSHROD_EXTEND 并发命令失败");
       case StepStatus::Running:
         break;
       }
       break;
     case StepStatus::Failure:
-      return failTransition("front second laser event timeout");
+      return failTransition("等待前轮第二激光高度突变超时");
     case StepStatus::Running:
       break;
     }
@@ -323,7 +340,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
       break;
     case StepStatus::Failure:
       return failTransition(
-          "REAR_PUSHROD_RETRACT + FRONT_PUSHROD_EXTEND failed");
+          "REAR_PUSHROD_RETRACT + FRONT_PUSHROD_EXTEND 并发命令失败");
     case StepStatus::Running:
       break;
     }
@@ -338,7 +355,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
                       "front_retract_trigger_drive");
       break;
     case StepStatus::Failure:
-      return failTransition("rear retract front extend zero hold failed");
+      return failTransition("后推杆收回和前推杆伸出后零速等待失败");
     case StepStatus::Running:
       break;
     }
@@ -346,7 +363,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
 
   case Phase::DescendTimedDriveBeforeFrontRetract:
     if (!headingReadyForMotion()) {
-      return failTransition("heading odom stale before front retract");
+      return failTransition("前推杆收回前 heading odom 过期");
     }
     switch (tickTimedDrive()) {
     case StepStatus::Success:
@@ -356,7 +373,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
                    "FRONT_PUSHROD_RETRACT");
       break;
     case StepStatus::Failure:
-      return failTransition("front retract trigger drive failed");
+      return failTransition("前推杆收回触发定时行驶失败");
     case StepStatus::Running:
       break;
     }
@@ -371,7 +388,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
                     "front_retract_settle");
       break;
     case StepStatus::Failure:
-      return failTransition("FRONT_PUSHROD_RETRACT failed");
+      return failTransition("FRONT_PUSHROD_RETRACT 命令失败");
     case StepStatus::Running:
       break;
     }
@@ -386,7 +403,7 @@ BT::NodeStatus GridTransitionAction::onRunning() {
       releaseRuntime();
       return BT::NodeStatus::SUCCESS;
     case StepStatus::Failure:
-      return failTransition("front retract zero hold failed");
+      return failTransition("前推杆收回后零速等待失败");
     case StepStatus::Running:
       break;
     }

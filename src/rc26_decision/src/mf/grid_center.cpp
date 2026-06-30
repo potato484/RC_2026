@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "rc26_decision/decision_failure.hpp"
+
 namespace rc26_decision {
 
 namespace {
@@ -108,11 +110,15 @@ bool GridCenterActionBase::setupRuntime(const char *action_label) {
   action_label_ = action_label ? action_label : "GridCenter";
   if (!config().blackboard || !config().blackboard->get("node", node_) ||
       !node_) {
+    writeDecisionFailure(config().blackboard, action_label_,
+                         "运行上下文缺失：blackboard 或 node 不可用");
     return false;
   }
   if (!config().blackboard->get("mf_center_params", params_)) {
     RCLCPP_ERROR(node_->get_logger(), "%s: 黑板缺少 mf_center_params",
                  action_label_.c_str());
+    writeDecisionFailure(config().blackboard, action_label_,
+                         "黑板缺少 mf_center_params");
     return false;
   }
 
@@ -259,10 +265,14 @@ BT::NodeStatus GridCenterActionBase::tickTowardTarget(double target_x,
                                                       double target_y,
                                                       double target_yaw) {
   if (!node_ || !cmd_pub_) {
+    writeDecisionFailure(config().blackboard, action_label_,
+                         "运行上下文缺失：node 或 cmd_vel 发布器不可用，cmd_vel=" +
+                             params_.cmd_vel_topic + "，odom=" +
+                             params_.odom_topic);
     return BT::NodeStatus::FAILURE;
   }
   if (timedOut()) {
-    return failWithStop("center align timeout");
+    return failWithStop("格中心归位超时");
   }
   if (!odomReady()) {
     stable_ticks_ = 0;
@@ -329,11 +339,18 @@ BT::NodeStatus GridCenterActionBase::tickTowardTarget(double target_x,
 }
 
 BT::NodeStatus GridCenterActionBase::failWithStop(const char *reason) {
+  const std::string detail =
+      std::string(reason ? reason : "格中心归位失败") +
+      "，cmd_vel=" + params_.cmd_vel_topic + "，odom=" + params_.odom_topic +
+      "，当前位姿=(" + std::to_string(current_x_) + "," +
+      std::to_string(current_y_) + "," + std::to_string(current_yaw_) + ")" +
+      "，超时_s=" + std::to_string(params_.align_timeout_s);
   if (node_) {
     RCLCPP_WARN(node_->get_logger(), "%s 失败: %s", action_label_.c_str(),
-                reason ? reason : "unknown");
+                detail.c_str());
   }
-  setCenterError(reason ? reason : "center_align_failed");
+  setCenterError(detail);
+  writeDecisionFailure(config().blackboard, action_label_, detail);
   publishStop();
   releaseRuntime();
   return BT::NodeStatus::FAILURE;
@@ -378,7 +395,7 @@ BT::NodeStatus CaptureGridCenterReferenceAction::onStart() {
   }
   (void)getInput("reference_grid", reference_grid_);
   if (!validGrid(reference_grid_)) {
-    return failWithStop("invalid reference_grid");
+    return failWithStop("reference_grid 非法");
   }
   return tryCapture();
 }
@@ -394,7 +411,7 @@ void CaptureGridCenterReferenceAction::onHalted() {
 
 BT::NodeStatus CaptureGridCenterReferenceAction::tryCapture() {
   if (timedOut()) {
-    return failWithStop("capture center reference timeout");
+    return failWithStop("捕获格中心参考超时");
   }
   if (!odomReady()) {
     publishStop();
@@ -430,7 +447,7 @@ BT::NodeStatus MFEntryCenterAdvanceAction::onStart() {
   }
   target_yaw_rad_ = normalizeAngle(target_yaw_rad_);
   if (!validGrid(reference_grid_)) {
-    return failWithStop("invalid reference_grid");
+    return failWithStop("reference_grid 非法");
   }
   params_.max_speed_mps =
       std::min(params_.max_speed_mps, params_.entry_forward_speed_mps);
@@ -442,14 +459,14 @@ BT::NodeStatus MFEntryCenterAdvanceAction::onStart() {
 BT::NodeStatus MFEntryCenterAdvanceAction::onRunning() {
   if (!target_ready_) {
     if (timedOut()) {
-      return failWithStop("entry center odom timeout");
+      return failWithStop("入口格中心前进等待 odom 超时");
     }
     if (!odomReady()) {
       publishStop();
       return BT::NodeStatus::RUNNING;
     }
     if (!prepareTargetFromCurrentOdom()) {
-      return failWithStop("entry center target prepare failed");
+      return failWithStop("入口格中心前进目标计算失败");
     }
   }
 
@@ -509,7 +526,7 @@ BT::NodeStatus GridCenterAlignAction::onStart() {
     return BT::NodeStatus::FAILURE;
   }
   if (!getInput("target_grid", target_grid_) || !validGrid(target_grid_)) {
-    return failWithStop("invalid target_grid");
+    return failWithStop("target_grid 非法");
   }
   (void)getInput("target_yaw_rad", target_yaw_rad_);
   if (!std::isfinite(target_yaw_rad_)) {
@@ -517,7 +534,7 @@ BT::NodeStatus GridCenterAlignAction::onStart() {
   }
   target_yaw_rad_ = normalizeAngle(target_yaw_rad_);
   if (!computeGridCenterFromReference(target_grid_, target_x_, target_y_)) {
-    return failWithStop("missing center reference");
+    return failWithStop("缺少格中心参考");
   }
   if (config().blackboard) {
     config().blackboard->set("mf_center_target_grid", target_grid_);

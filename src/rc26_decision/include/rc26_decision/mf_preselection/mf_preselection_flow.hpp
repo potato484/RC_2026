@@ -522,6 +522,7 @@ private:
     bool sent{false};
     std::atomic<bool> response_seen{false};
     std::atomic<bool> accepted{false};
+    std::atomic<int> seq{-1};
   };
   CommandSlot command_pair_[2];
   bool command_pair_active_{false};
