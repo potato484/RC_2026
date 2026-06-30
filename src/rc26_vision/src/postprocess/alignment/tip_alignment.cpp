@@ -27,7 +27,8 @@ std::vector<TipTargetCandidate> collectCandidates(
   std::vector<TipTargetCandidate> candidates;
   candidates.reserve(detections.size());
 
-  for (const auto & det : detections) {
+  for (std::size_t index = 0; index < detections.size(); ++index) {
+    const auto & det = detections[index];
     if (!isTipTargetClass(det.class_id, target_class_ids)) {
       continue;
     }
@@ -41,7 +42,8 @@ std::vector<TipTargetCandidate> collectCandidates(
       continue;
     }
 
-    candidates.push_back(TipTargetCandidate{box, det.class_id, det.score});
+    candidates.push_back(TipTargetCandidate{
+      box, det.class_id, det.score, static_cast<int>(index)});
   }
 
   return candidates;

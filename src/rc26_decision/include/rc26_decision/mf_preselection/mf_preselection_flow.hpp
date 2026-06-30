@@ -19,6 +19,7 @@
 #include "rc26_interfaces/srv/send_mechanism_transport_command.hpp"
 #include "rc26_serial/protocol.hpp"
 #include "rc26_vision/inference/runtime/vision_inference_manager.hpp"
+#include "rc26_vision/postprocess/alignment/tip_alignment.hpp"
 #include "rc26_vision/shared/target/visual_target_match.hpp"
 
 namespace rc26_decision {
@@ -44,23 +45,20 @@ struct MfPreselectionParams {
   int detect_lost_stable_frames{5};
   double entry_detect_timeout_s{2.0};
   double scan_detect_timeout_s{2.0};
+  int entry_interrupt_max_offset_px{180};
 
   int kfs_align_tolerance_px{20};
   int kfs_align_stable_frames{5};
   int kfs_align_max_jump_px{60};
-  int kfs_align_release_tolerance_px{30};
-  int kfs_align_min_progress_px{5};
-  int kfs_align_no_progress_limit{3};
   double kfs_align_kp{0.0010};
   double kfs_align_min_speed_mps{0.015};
   double kfs_align_max_speed_mps{0.06};
-  double kfs_align_target_offset_px{0.0};
-  double kfs_align_px_to_m{0.0005};
   double kfs_align_timeout_s{3.0};
+  int kfs_align_timeout_pickup_tolerance_px{40};
+  double kfs_align_heading_gate_deg{8.0};
   int kfs_lost_stop_frames{3};
   bool kfs_invert_lateral_direction{false};
   double kfs_odom_xy_kp{0.8};
-  double kfs_align_odom_tolerance_m{0.005};
   double kfs_approach_odom_tolerance_m{0.02};
   double kfs_odom_yaw_tolerance_deg{3.0};
   int kfs_odom_stable_ticks{3};
@@ -137,25 +135,19 @@ struct MfPreselectionLogicResult {
                            const std::vector<std::string> &exact_labels,
                            const std::vector<std::string> &prefixes);
   static bool canPickup(int pickup_count, int max_pickup_count);
-  static double kfsAlignVy(int offset_px, const MfPreselectionParams &params);
-  static int kfsAlignOffsetPx(double bbox_center_x, double image_width_px,
-                              const MfPreselectionParams &params);
-  static double kfsAlignOpenLoopDistance(int offset_px,
-                                         const MfPreselectionParams &params);
-  static double kfsAlignOdomDistance(int offset_px,
-                                     const MfPreselectionParams &params);
+  static bool entryInterruptOffsetAcceptable(int offset_px,
+                                             const MfPreselectionParams &params);
+  static bool kfsAlignTimeoutPickupAllowed(int offset_px, bool has_depth,
+                                           const MfPreselectionParams &params);
+  static rc26_vision::TipAlignmentConfig
+  kfsAlignmentConfig(const MfPreselectionParams &params,
+                     double target_yaw_rad);
   static double kfsOpenLoopDistance(double locked_depth_m,
                                     double grab_distance_m);
   static double kfsOpenLoopDuration(double distance_m, double speed_mps);
   static double kfsApproachOdomDistance(double locked_depth_m,
                                         const MfPreselectionParams &params);
   static void normalizeKfsOdomParams(MfPreselectionParams &params);
-  static bool kfsAlignOffsetAcceptable(int offset_px,
-                                       const MfPreselectionParams &params,
-                                       bool use_release_tolerance = false);
-  static bool kfsAlignMadeProgress(int previous_abs_offset_px,
-                                   int current_abs_offset_px,
-                                   const MfPreselectionParams &params);
   static double fakeAvoidanceYaw(MfPreselectionPickupSource source,
                                  const MfPreselectionParams &params);
   static uint8_t grabCommandForHighSide(bool high_side,
@@ -415,13 +407,11 @@ private:
 
   std::optional<KfsVisualObservation>
   findR2LockObservation(R2DepthProfile depth_profile = R2DepthProfile::General);
-  void resetKfsStableObservation();
-  bool updateKfsStableObservation(const KfsVisualObservation &observation,
-                                  const char *context);
-  bool recordKfsAlignProgress(int abs_offset_px, std::string &reason);
-  bool configureKfsAlignPlan(const KfsVisualObservation &observation,
-                             const char *context);
+  rc26_vision::TipAlignmentConfig makeKfsAlignmentConfig() const;
+  std::optional<rc26_vision::TipHeadingControl> kfsVisualAlignHeadingControl();
+  std::optional<KfsVisualObservation> kfsAlignTimeoutObservation() const;
   void finishKfsAlignFailure(const std::string &reason);
+  void publishKfsVisualAlignTwist(double vy, double wz);
   void beginKfsOdomAxisMotion(KfsOdomAxis axis, double distance_m,
                               double max_speed_mps, double min_speed_mps,
                               double tolerance_m, double timeout_s,
@@ -610,20 +600,17 @@ private:
   std::optional<MfPreselectionTargetSnapshot> kfs_pickup_initial_target_;
   std::optional<MfPreselectionTargetSnapshot> kfs_locked_target_;
   std::optional<MfPreselectionTargetSnapshot> kfs_odom_target_;
-  std::optional<KfsVisualObservation> kfs_align_stable_candidate_;
+  rc26_vision::TipTargetLockState kfs_align_target_lock_state_;
+  std::optional<KfsVisualObservation> kfs_align_last_observation_;
+  int64_t kfs_align_target_lock_sequence_{0};
   int kfs_align_stable_count_{0};
   int kfs_align_lost_count_{0};
   int64_t kfs_align_last_sequence_{0};
-  int64_t kfs_align_verify_min_sequence_{0};
   rclcpp::Time kfs_align_total_start_{0, 0, RCL_ROS_TIME};
-  bool kfs_align_plan_ready_{false};
-  double kfs_align_distance_m_{0.0};
-  double kfs_align_speed_limit_mps_{0.0};
-  bool kfs_align_started_{false};
   bool kfs_align_waiting_verify_frame_{false};
-  int kfs_align_best_abs_offset_px_{-1};
-  int kfs_align_no_progress_count_{0};
-  bool kfs_align_motion_completed_{false};
+  bool kfs_align_yaw_hold_captured_{false};
+  double kfs_align_yaw_hold_target_{0.0};
+  bool kfs_align_waiting_odom_logged_{false};
   int kfs_odom_offset_px_{0};
   double kfs_odom_locked_depth_m_{0.0};
   double kfs_odom_approach_distance_m_{0.0};

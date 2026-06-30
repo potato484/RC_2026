@@ -32,6 +32,7 @@ struct TipTargetCandidate
   cv::Rect box{};
   int class_id{-1};
   float score{0.0F};
+  int source_index{-1};
 };
 
 struct TipTargetLockState

@@ -84,7 +84,9 @@
 
 MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> GridTransition -> GridCenterAlign` 串行完成。`GridTurn` / `GridHeadingAlign` 服务 MF 格间 yaw 对齐和独立 heading 校准入口；它们不是通用分段导航转向节点，通用分段转向使用 `OdomTurnToYaw`。
 
-`GridTransition` 负责选择上/下台阶动作、发布台阶直行速度、等待激光事件并提交 `current_grid`。`GridCenterAlign` 在台阶完成后依据 `mf_center_grid_step_m` 执行二维格中心归位。`MfPreselectionFlow` 内部继续负责入口探测、KFS 视觉锁定、横移 odom 闭环段、新视觉帧复核、机构命令、夹取视觉消失验证、入口/格间台阶和最终离场归位。KFS 横移由稳定锁定后的像素偏差规划车体系 Y 轴距离，前向趋近由稳定复核帧深度减 `mf_preselect_kfs_grab_distance_m` 规划车体系 X 轴距离；两段都捕获当前 `/odom` 起点和 yaw 后闭环执行规划距离并保持 heading，闭环执行本身不引入实时深度连续停车。KFS 视觉规划/复核要求同一目标连续稳定新帧；offset 跳变过大时重建稳定窗口，初始锁定使用严格进入阈值，横移后复核使用释放阈值做滞回，连续多次横移后 offset 无明显改善会放弃该目标并回到原失败路线。odom 不新鲜时会停车等待；横移对齐总超时会按原失败路线继续；前向趋近超时会使 `MfPreselectionFlow` 失败停车；成功、失败和 halt 都发布零速。假 KFS 避障不再硬编码为上阶：从中列绕到 1 号侧或 3 号侧旁列时，会先按 `MerlinMapManager` 静态高度表计算高度差，再选择上/下台阶和机构预调。完成该横向格间动作后不再进入 `direct_exit` 直行兜底，而是沿避障后的旁列继续前向推进：1 号侧旁列按 `grid1 -> grid4 -> grid7 -> grid10`，3 号侧旁列按 `grid3 -> grid6 -> grid9 -> grid12`。每个旁列格间转换前复用现有 `TransitionObserve` 正前方观察和机构预调逻辑，只看前方 R2 KFS；看到则按现有 KFS 夹取链处理，未看到则继续对应上/下阶梯，抵达出口行后复用最终下阶离场。
+`GridTransition` 负责选择上/下台阶动作、发布台阶直行速度、等待激光事件并提交 `current_grid`。`GridCenterAlign` 在台阶完成后依据 `mf_center_grid_step_m` 执行二维格中心归位。`MfPreselectionFlow` 内部继续负责入口探测、KFS 视觉锁定、横移视觉闭环、新视觉帧复核、机构命令、夹取视觉消失验证、入口/格间台阶和最终离场归位。KFS 横移现在复用 `rc26_vision::tip_alignment` 的目标选择、目标锁定、横移速度和 yaw gate 口径：未锁定时选择识别框中心离图像中心线最近的有效 `T_*` KFS，锁定后跟踪同一物理目标，像素 offset 以图像中心线为 0；yaw 超出 `mf_preselect_kfs_align_heading_gate_deg` 时只修正朝向，odom 不新鲜时停车等待。入口横移探测中若 KFS 还在 `mf_preselect_entry_interrupt_max_offset_px` 外侧，不立即停车夹取，而是继续扫线等待目标进入可夹取窗口；进入窗口后才中断横移并执行视觉对齐。像素误差和 yaw 误差同时进入容差后按新视觉帧累计 `mf_preselect_kfs_align_stable_frames`，稳定后由锁定深度减 `mf_preselect_kfs_grab_distance_m` 规划车体系 X 轴距离，并捕获当前 `/odom` 起点和 yaw 后闭环执行规划距离。KFS 横移不再维护目标线偏置、释放滞回或 no-progress 快速失败；横移对齐总超时时，如果最后有效锁定目标仍在 `mf_preselect_kfs_align_timeout_pickup_tolerance_px` 内且深度有效，则继续进入前向趋近和夹取，否则按原失败路线继续。前向趋近超时会使 `MfPreselectionFlow` 失败停车；成功、失败和 halt 都发布零速。假 KFS 避障不再硬编码为上阶：从中列绕到 1 号侧或 3 号侧旁列时，会先按 `MerlinMapManager` 静态高度表计算高度差，再选择上/下台阶和机构预调。完成该横向格间动作后不再进入 `direct_exit` 直行兜底，而是沿避障后的旁列继续前向推进：1 号侧旁列按 `grid1 -> grid4 -> grid7 -> grid10`，3 号侧旁列按 `grid3 -> grid6 -> grid9 -> grid12`。每个旁列格间转换前复用现有 `TransitionObserve` 正前方观察和机构预调逻辑，只看前方 R2 KFS；看到则按现有 KFS 夹取链处理，未看到则继续对应上/下阶梯，抵达出口行后复用最终下阶离场。
+
+`MfPreselectionFlow` 的入口、行前方、周身和 `TransitionObserve` 检测窗口在未发现 R2 KFS 时必须先等满对应 `mf_preselect_*_detect_timeout_s`，再按 `mf_preselect_detect_lost_stable_frames` 确认未命中并切到下一阶段；连续丢失帧只用于抗抖，不再提前截短检测窗口。发现 R2 KFS 或假 KFS 仍可在窗口内立即触发对应夹取/避障分支。
 
 台阶动作既可通过 `stair_climb_tree.xml` / `stair_descend_tree.xml` 独立加载测试，也可由 MF 状态机复用。它们通过 `/mechanism/send_command` 请求推杆动作，通过 `/mechanism/command_feedback` 等待对应反馈，通过 `/cmd_vel` 发布受限直行速度；失败或 halt 时只发布零速，不做额外推杆补偿。
 
@@ -111,9 +113,15 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 ## 本轮同步
 
-2026-06-30 同步：`MfPreselectionFlow` 的 KFS 横移对齐和前向趋近已经从定时开环改为 odom 闭环执行。视觉仍负责锁定目标、提供像素偏差和锁定深度；横移用像素偏差规划 Y 轴距离，前向用锁定深度规划 X 轴距离，随后按 `/odom` 起点、启动 yaw、轴向投影和 heading hold 闭环到位。`mf_preselect_kfs_odom_xy_kp`、`mf_preselect_kfs_align_odom_tolerance_m`、`mf_preselect_kfs_approach_odom_tolerance_m`、`mf_preselect_kfs_odom_yaw_tolerance_deg`、`mf_preselect_kfs_odom_stable_ticks` 与 `mf_preselect_kfs_approach_min_speed_mps` 是当前 KFS 闭环执行调参入口；闭环只执行锁定时规划出的距离，不读取实时深度连续停车。
+2026-06-30 同步：`MfPreselectionFlow` 的入口横移 KFS 处理改为“看到后尽量夹取，但不被贴边框过早打断”。入口横移中有效 R2 KFS 若像素偏差超过 `mf_preselect_entry_interrupt_max_offset_px`，流程继续横移扫线，等目标进入窗口后再停车进入 KFS 对齐；KFS 对齐超时若最后有效目标仍在 `mf_preselect_kfs_align_timeout_pickup_tolerance_px` 内且有深度，则不放弃目标，直接进入前向 odom 趋近和夹取链。入口来源的对齐失败不再把该 KFS 加入 ignored 列表，后续重新进入窗口时仍可再次尝试。
 
-2026-06-30 同步：KFS 横移规划/复核新增视觉稳定和临界滞回保护。`mf_preselect_kfs_align_stable_frames` 重新作为正式稳定帧要求；`mf_preselect_kfs_align_max_jump_px` 过滤识别框 offset 跳变；`mf_preselect_kfs_align_release_tolerance_px` 只在完成过横移后的复核中作为释放阈值，避免卡在进入阈值边缘反复横移；`mf_preselect_kfs_align_min_progress_px` 和 `mf_preselect_kfs_align_no_progress_limit` 用于发现连续重规划仍无明显改善的目标，并按原横移失败分支忽略该目标继续路线。
+2026-06-30 同步：修正 `MfPreselectionFlow::tickDetection()` 的未命中窗口语义。入口检测、行前方检测、周身扫描和旁列 `TransitionObserve` 在没有 R2 KFS 时会先停满 `mf_preselect_entry_detect_timeout_s` 或 `mf_preselect_scan_detect_timeout_s`，再用 `mf_preselect_detect_lost_stable_frames` 做稳定丢失确认；不会再因为 RealSense 连续几帧无目标而把 2 秒观察窗口提前缩短到约半秒。看到 R2 或假 KFS 的命中分支仍保持即时响应。
+
+2026-06-30 同步：`MfPreselectionFlow` 的 KFS 识别横移对齐已收口到 `rc26_vision::tip_alignment` 口径。KFS 不再按最高置信度或夹爪偏置线选框，而是在经过 `T_*` 标签、ignored target 和深度窗口过滤后，按识别框中心距离图像中心线最近获取锁定目标；锁定窗口内继续跟踪同一物理 KFS。旧的目标线偏置、释放滞回和 no-progress 快速失败参数已删除，横移失败不再由 no-progress 触发，只保留目标丢失等待和 `mf_preselect_kfs_align_timeout_s` 总超时兜底。
+
+2026-06-30 同步：KFS 横移速度直接复用 `computeTipAlignmentVy()`，`mf_preselect_kfs_align_kp`、`mf_preselect_kfs_align_min_speed_mps`、`mf_preselect_kfs_align_max_speed_mps` 和 `mf_preselect_kfs_invert_lateral_direction` 是横移调参入口；当前相机/底盘口径仍保持 `mf_preselect_kfs_invert_lateral_direction=true`。横移阶段捕获当前 odom yaw 作为 `tip_alignment` 的 heading target，`mf_preselect_kfs_odom_yaw_tolerance_deg` 作为 yaw 进入容差，新增 `mf_preselect_kfs_align_heading_gate_deg` 控制 yaw gate；odom 不新鲜时停车等待，yaw 超 gate 时暂停横移只修正朝向。
+
+2026-06-30 同步：KFS 前向趋近仍使用锁定深度规划 X 轴距离，并由 `mf_preselect_kfs_odom_xy_kp`、`mf_preselect_kfs_approach_odom_tolerance_m`、`mf_preselect_kfs_odom_yaw_tolerance_deg`、`mf_preselect_kfs_odom_stable_ticks`、`mf_preselect_kfs_approach_speed_mps` 和 `mf_preselect_kfs_approach_min_speed_mps` 控制 odom 闭环执行；趋近闭环只执行锁定时规划出的距离，不读取实时深度连续停车。
 
 2026-06-30 同步：`MfPreselectionFlow` 的入口区 R2 KFS 发现仍要求有效深度，但入口深度窗口已经从通用窗口拆出独立配置。入口 2 号、入口 1/3 号定点检测、入口横移中断检测，以及这些入口目标后续横移复核使用 `mf_preselect_entry_depth_min_m/max_m`；梅林内部行检测、旁列 `TransitionObserve` 和直出补夹继续使用 `mf_preselect_depth_min_m/max_m`。两套窗口只影响 R2 KFS 锁定和 odom 闭环趋近前的新帧复核，趋近阶段仍使用锁定深度规划目标距离，不按实时深度连续停车。
 

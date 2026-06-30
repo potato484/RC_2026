@@ -78,7 +78,7 @@ workspace_dir="${RC26_WS:-${script_dir}}"
 setup_file="${workspace_dir}/install/setup.bash"
 
 mode="dpad"
-v_linear="0.2"
+v_linear="0.5"
 v_angular="0.5"
 cmd_vel_topic="cmd_vel"
 device_name="Xbox 360 Controller"

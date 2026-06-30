@@ -90,7 +90,7 @@
 - `tip_vision_test_node` 已移除旧的距离估计和距离文字叠加；`show_center_distance` 与旧距离参数名只为兼容旧配置而保留，不再参与运行时判定。
 - 当前犀牛派 X1 板上实测 `models/tip.onnx` 为固定 `640x640` 的 CPU ONNX 链，`infer_ms` 大约 `80~95ms`、`infer_fps` 大约 `10~12`；这套 AidLite ONNX 后端对该模型不支持 `GPU/DSP`，若要逼近 `30 infer_fps`，需要换更小输入的 ONNX，或改用可落到 QNN/AMF 的量化资产。
 - `tip_vision_test_node` 已删除旧的视觉直连串口状态下发链路，不再发送原下行 `0x12` 状态命令，也不再维护 `serial_*` 参数。
-- `tip` test 链的自动横移对线以画面中心竖线作为目标线，primary target 识别框中心竖线作为检测线；多框同时出现时，节点会先按“识别框中心距离画面中心竖线最近”获取锁定目标，随后在锁定窗口内持续跟踪同一个物理端头，不再因为另一侧框短暂更近就来回切换。启用 `alignment_control_enable=true` 后，对齐阶段发布 `cmd_vel.linear.y` 执行左右横移；当前默认同时启用 `alignment_heading_hold_enable=true`，订阅 `alignment_odom_topic=odom` 并按 `alignment_target_yaw_rad` 发布 `cmd_vel.angular.z` 保持车身朝向。yaw 偏差超过 `alignment_heading_gate_deg` 时暂停横移/前探，只先转向；像素误差和 yaw 误差都进入容差后才允许稳定计数。对齐稳定后发布 `cmd_vel.linear.x<0` 前探，等待 `/mechanism/command_feedback` 中的 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 后立即停车并进入抓取。当前 tip test 默认按相机朝机器人后方的安装口径反转横移方向，可通过 `alignment_invert_direction` 现场一键改回；纯相机桌面调试或未启动 odom 链路时，应显式设置 `alignment_heading_hold_enable=false`。
+- `tip` test 链的自动横移对线以画面中心竖线作为目标线，primary target 识别框中心竖线作为检测线；多框同时出现时，节点会先按“识别框中心距离画面中心竖线最近”获取锁定目标，随后在锁定窗口内持续跟踪同一个物理端头，不再因为另一侧框短暂更近就来回切换。启用 `alignment_control_enable=true` 后，对齐阶段发布 `cmd_vel.linear.y` 执行左右横移；当前默认同时启用 `alignment_heading_hold_enable=true`，订阅 `alignment_odom_topic=odom` 并按 `alignment_target_yaw_rad` 发布 `cmd_vel.angular.z` 保持车身朝向。yaw 偏差超过 `alignment_heading_gate_deg` 时暂停横移/前探，只先转向；像素误差和 yaw 误差都进入容差后才允许稳定计数。对齐稳定后发布 `cmd_vel.linear.x<0` 前探，等待 `/mechanism/command_feedback` 中的 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 后立即停车并进入抓取。当前 tip test 默认按相机朝机器人后方的安装口径反转横移方向，可通过 `alignment_invert_direction` 现场一键改回；纯相机桌面调试或未启动 odom 链路时，应显式设置 `alignment_heading_hold_enable=false`。`postprocess/alignment/tip_alignment` 的目标选择结果现在保留原始 detection 下标，供 `rc26_decision` 在复用同一中心线锁定口径时回查 KFS 深度、标签和视觉消失验证信息。
 - `tip` test 链的 `single_target_mode` 默认保持关闭；如果手动开启，推理结果会先按置信度截断到单个框，这会绕过多框中心优先选择，主要用于旧式单目标调试。
 - 对齐误差进入 `alignment_tolerance_px` 并稳定达到 `alignment_stable_frames` 后，tip test 节点必须先 x 负向前探并等待 0x06 前方限位反馈；收到限位后才会通过 `/mechanism/send_command` 共享 transport 下发一次 `GRAB_TIP(0x01)` 空 payload。它不直接打开目标 MCU 串口，`/cmd_vel` 消费和 mechanism transport 都由 `rc26_mcu_transport` 提供。
 - 启用自动对线时，同一时刻不要启动遥控、决策导航或其它 `/cmd_vel` 发布权威；必须启动 `rc26_mcu_transport` 消费 `/cmd_vel` 并提供 `/mechanism/send_command` 与 `/mechanism/command_feedback`。
@@ -123,7 +123,7 @@
 - tip test 节点已删除距离估计和距离 overlay；异步推理线程也去掉了一次多余的 pending frame `clone()`，仅保留提交队列时的必要复制，稍微降低了显示侧额外开销。
 - tip 启动时现在会以模型真实 input tensor shape 为准校正 `input_width / input_height`；如果参数误配成与 ONNX 不一致的尺寸，会给出告警并自动回到模型尺寸，避免固定 `640x640` 模型因误改参数直接跑崩。
 - tip test 链已删除旧视觉状态下发；当前只在自动对线启用、稳定对齐并收到 0x06 前方限位反馈后，通过 `/mechanism/send_command` 共享 transport 发送 `GRAB_TIP(0x01)` 空 payload。
-- tip test 节点当前按测试链口径保留为 `test/tip_vision_test_node.cpp` 单文件实现，便于联调时直接查看参数、串口、相机、推理和 overlay 全链路而不改变外部行为；对线目标选择与速度计算已收口到共享 alignment helper，避免 test 与决策链分叉。
+- tip test 节点当前按测试链口径保留为 `test/tip_vision_test_node.cpp` 单文件实现，便于联调时直接查看参数、串口、相机、推理和 overlay 全链路而不改变外部行为；对线目标选择与速度计算已收口到共享 alignment helper，当前 MC 端头夹取与 MF 预选赛 KFS 横移都复用这套 helper，避免 test 与决策链分叉。
 - 本次进一步把 tip 推理收口到主链 `InferenceEngine / AidLiteEngine`：`tip_vision_test_node` 只保留 USB 相机、目标选择、可选对线控制、抓取 service 触发和 overlay 业务；私有后处理头文件已删除，tip test 节点私有声明合并进 `test/tip_vision_test_node.cpp`，不再放入公开 `include/`。
 - 本次按其他模块口径把 tip test 链路源码收口到包根 `test/`，不再放入 `src/` 或公开 `include/`；tip test 参数和模型资产直接放在包内 `config/` 与 `models/` 根目录，避免测试链继续维护额外嵌套目录。
 - 模型 profile 已统一到 `config/vision_models.yaml`，`config/test/vision_models_tip.yaml` 删除；模型文件按用途重命名为 `kfs.pt/onnx` 与 `tip.pt/onnx`。

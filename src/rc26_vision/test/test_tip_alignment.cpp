@@ -50,6 +50,24 @@ TEST(TipAlignment, SelectsClosestTargetToFrameCenterWhenUnlocked)
   EXPECT_EQ(selection.lock_lost_count, 0);
 }
 
+TEST(TipAlignment, SelectionCarriesOriginalDetectionIndex)
+{
+  auto config = defaultConfig();
+  rc26_vision::TipTargetLockState state;
+  const std::vector<int> target_ids{0};
+
+  auto ignored_class = det(300, 100, 340, 180);
+  ignored_class.class_id = 1;
+
+  const auto selection = rc26_vision::updateTipAlignmentTarget(
+    {det(30, 100, 90, 180), ignored_class, det(290, 100, 350, 180)}, 640,
+    target_ids, state, config);
+
+  ASSERT_TRUE(selection.has_target);
+  EXPECT_EQ(selection.box_cx, 320);
+  EXPECT_EQ(selection.target.source_index, 2);
+}
+
 TEST(TipAlignment, KeepsLockedTargetEvenWhenAnotherTargetBecomesCloserToCenter)
 {
   auto config = defaultConfig();
