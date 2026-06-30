@@ -84,7 +84,7 @@
 
 MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> GridTransition -> GridCenterAlign` 串行完成。`GridTurn` / `GridHeadingAlign` 服务 MF 格间 yaw 对齐和独立 heading 校准入口；它们不是通用分段导航转向节点，通用分段转向使用 `OdomTurnToYaw`。
 
-`GridTransition` 负责选择上/下台阶动作、发布台阶直行速度、等待激光事件并提交 `current_grid`。`GridCenterAlign` 在台阶完成后依据 `mf_center_grid_step_m` 执行二维格中心归位。`MfPreselectionFlow` 内部继续负责入口探测、KFS 视觉锁定、横移开环段、新视觉帧复核、机构命令、夹取视觉消失验证、入口/格间台阶和最终离场归位。假 KFS 避障不再硬编码为上阶：从中列绕到 1 号侧或 3 号侧旁列时，会先按 `MerlinMapManager` 静态高度表计算高度差，再选择上/下台阶和机构预调。完成该横向格间动作后不再进入 `direct_exit` 直行兜底，而是沿避障后的旁列继续前向推进：1 号侧旁列按 `grid1 -> grid4 -> grid7 -> grid10`，3 号侧旁列按 `grid3 -> grid6 -> grid9 -> grid12`。每个旁列格间转换前复用现有 `TransitionObserve` 正前方观察和机构预调逻辑，只看前方 R2 KFS；看到则按现有 KFS 夹取链处理，未看到则继续对应上/下阶梯，抵达出口行后复用最终下阶离场。
+`GridTransition` 负责选择上/下台阶动作、发布台阶直行速度、等待激光事件并提交 `current_grid`。`GridCenterAlign` 在台阶完成后依据 `mf_center_grid_step_m` 执行二维格中心归位。`MfPreselectionFlow` 内部继续负责入口探测、KFS 视觉锁定、横移 odom 闭环段、新视觉帧复核、机构命令、夹取视觉消失验证、入口/格间台阶和最终离场归位。KFS 横移由稳定锁定后的像素偏差规划车体系 Y 轴距离，前向趋近由稳定复核帧深度减 `mf_preselect_kfs_grab_distance_m` 规划车体系 X 轴距离；两段都捕获当前 `/odom` 起点和 yaw 后闭环执行规划距离并保持 heading，闭环执行本身不引入实时深度连续停车。KFS 视觉规划/复核要求同一目标连续稳定新帧；offset 跳变过大时重建稳定窗口，初始锁定使用严格进入阈值，横移后复核使用释放阈值做滞回，连续多次横移后 offset 无明显改善会放弃该目标并回到原失败路线。odom 不新鲜时会停车等待；横移对齐总超时会按原失败路线继续；前向趋近超时会使 `MfPreselectionFlow` 失败停车；成功、失败和 halt 都发布零速。假 KFS 避障不再硬编码为上阶：从中列绕到 1 号侧或 3 号侧旁列时，会先按 `MerlinMapManager` 静态高度表计算高度差，再选择上/下台阶和机构预调。完成该横向格间动作后不再进入 `direct_exit` 直行兜底，而是沿避障后的旁列继续前向推进：1 号侧旁列按 `grid1 -> grid4 -> grid7 -> grid10`，3 号侧旁列按 `grid3 -> grid6 -> grid9 -> grid12`。每个旁列格间转换前复用现有 `TransitionObserve` 正前方观察和机构预调逻辑，只看前方 R2 KFS；看到则按现有 KFS 夹取链处理，未看到则继续对应上/下阶梯，抵达出口行后复用最终下阶离场。
 
 台阶动作既可通过 `stair_climb_tree.xml` / `stair_descend_tree.xml` 独立加载测试，也可由 MF 状态机复用。它们通过 `/mechanism/send_command` 请求推杆动作，通过 `/mechanism/command_feedback` 等待对应反馈，通过 `/cmd_vel` 发布受限直行速度；失败或 halt 时只发布零速，不做额外推杆补偿。
 
@@ -111,7 +111,11 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 ## 本轮同步
 
-2026-06-30 同步：`MfPreselectionFlow` 的入口区 R2 KFS 发现仍要求有效深度，但入口深度窗口已经从通用窗口拆出独立配置。入口 2 号、入口 1/3 号定点检测、入口横移中断检测，以及这些入口目标后续横移复核使用 `mf_preselect_entry_depth_min_m/max_m`；梅林内部行检测、旁列 `TransitionObserve` 和直出补夹继续使用 `mf_preselect_depth_min_m/max_m`。两套窗口只影响 R2 KFS 锁定和开环趋近前的新帧复核，开环趋近阶段仍使用锁定深度规划固定前进，不按实时深度闭环停车。
+2026-06-30 同步：`MfPreselectionFlow` 的 KFS 横移对齐和前向趋近已经从定时开环改为 odom 闭环执行。视觉仍负责锁定目标、提供像素偏差和锁定深度；横移用像素偏差规划 Y 轴距离，前向用锁定深度规划 X 轴距离，随后按 `/odom` 起点、启动 yaw、轴向投影和 heading hold 闭环到位。`mf_preselect_kfs_odom_xy_kp`、`mf_preselect_kfs_align_odom_tolerance_m`、`mf_preselect_kfs_approach_odom_tolerance_m`、`mf_preselect_kfs_odom_yaw_tolerance_deg`、`mf_preselect_kfs_odom_stable_ticks` 与 `mf_preselect_kfs_approach_min_speed_mps` 是当前 KFS 闭环执行调参入口；闭环只执行锁定时规划出的距离，不读取实时深度连续停车。
+
+2026-06-30 同步：KFS 横移规划/复核新增视觉稳定和临界滞回保护。`mf_preselect_kfs_align_stable_frames` 重新作为正式稳定帧要求；`mf_preselect_kfs_align_max_jump_px` 过滤识别框 offset 跳变；`mf_preselect_kfs_align_release_tolerance_px` 只在完成过横移后的复核中作为释放阈值，避免卡在进入阈值边缘反复横移；`mf_preselect_kfs_align_min_progress_px` 和 `mf_preselect_kfs_align_no_progress_limit` 用于发现连续重规划仍无明显改善的目标，并按原横移失败分支忽略该目标继续路线。
+
+2026-06-30 同步：`MfPreselectionFlow` 的入口区 R2 KFS 发现仍要求有效深度，但入口深度窗口已经从通用窗口拆出独立配置。入口 2 号、入口 1/3 号定点检测、入口横移中断检测，以及这些入口目标后续横移复核使用 `mf_preselect_entry_depth_min_m/max_m`；梅林内部行检测、旁列 `TransitionObserve` 和直出补夹继续使用 `mf_preselect_depth_min_m/max_m`。两套窗口只影响 R2 KFS 锁定和 odom 闭环趋近前的新帧复核，趋近阶段仍使用锁定深度规划目标距离，不按实时深度连续停车。
 
 2026-06-30 同步：`MfPreselectionFlow` 的假 KFS 避障分支改为高度表驱动的旁列前向观察推进。初始避障从中列绕到旁列时先通过 `prepareTransitionTo()` 读取静态高度差，不再硬编码 `StairMode::Climb`；后续 `FakeAvoidAlignExit` 不再设置 `direct_exit_mode_` 或进入 `DirectExitDrive`，而是进入旁列模式，按当前旁列固定向前格复用 `TransitionTurn -> TransitionArmAdjust -> TransitionObserve -> TransitionStair -> GridCenterAlign`；出口行 `grid10/grid12` 复用最终下阶离场。从 `RowFront` 发现假 KFS 切入避障时会显式结束当前检测窗口，避免旁列 `TransitionObserve` 继承旧 `RowFront` 状态后误入周身扫描。旁列前向推进的观察朝向与台阶执行朝向分开：先面向目标格正前方观察/夹取 R2 KFS；若该边按高度表是下阶，再在 `TransitionStair` 前转到后轮先下的台阶 yaw。该改动只调整预选赛策略分支，不改变 `/cmd_vel`、机构 service、视觉标签或台阶原语接口。
 

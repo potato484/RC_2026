@@ -47,6 +47,10 @@ struct MfPreselectionParams {
 
   int kfs_align_tolerance_px{20};
   int kfs_align_stable_frames{5};
+  int kfs_align_max_jump_px{60};
+  int kfs_align_release_tolerance_px{30};
+  int kfs_align_min_progress_px{5};
+  int kfs_align_no_progress_limit{3};
   double kfs_align_kp{0.0010};
   double kfs_align_min_speed_mps{0.015};
   double kfs_align_max_speed_mps{0.06};
@@ -55,7 +59,13 @@ struct MfPreselectionParams {
   double kfs_align_timeout_s{3.0};
   int kfs_lost_stop_frames{3};
   bool kfs_invert_lateral_direction{false};
+  double kfs_odom_xy_kp{0.8};
+  double kfs_align_odom_tolerance_m{0.005};
+  double kfs_approach_odom_tolerance_m{0.02};
+  double kfs_odom_yaw_tolerance_deg{3.0};
+  int kfs_odom_stable_ticks{3};
   double kfs_approach_speed_mps{0.10};
+  double kfs_approach_min_speed_mps{0.03};
   int kfs_approach_x_sign{1};
   double kfs_approach_timeout_s{8.0};
   double kfs_grab_distance_m{0.50};
@@ -132,9 +142,20 @@ struct MfPreselectionLogicResult {
                               const MfPreselectionParams &params);
   static double kfsAlignOpenLoopDistance(int offset_px,
                                          const MfPreselectionParams &params);
+  static double kfsAlignOdomDistance(int offset_px,
+                                     const MfPreselectionParams &params);
   static double kfsOpenLoopDistance(double locked_depth_m,
                                     double grab_distance_m);
   static double kfsOpenLoopDuration(double distance_m, double speed_mps);
+  static double kfsApproachOdomDistance(double locked_depth_m,
+                                        const MfPreselectionParams &params);
+  static void normalizeKfsOdomParams(MfPreselectionParams &params);
+  static bool kfsAlignOffsetAcceptable(int offset_px,
+                                       const MfPreselectionParams &params,
+                                       bool use_release_tolerance = false);
+  static bool kfsAlignMadeProgress(int previous_abs_offset_px,
+                                   int current_abs_offset_px,
+                                   const MfPreselectionParams &params);
   static double fakeAvoidanceYaw(MfPreselectionPickupSource source,
                                  const MfPreselectionParams &params);
   static uint8_t grabCommandForHighSide(bool high_side,
@@ -236,7 +257,7 @@ private:
     FinalStop,
     KfsVisualAlign,
     KfsSecondArmLower,
-    KfsOpenLoopApproach,
+    KfsOdomApproach,
     MechanismCommand,
     GrabVerify,
     MoveRelative,
@@ -250,6 +271,8 @@ private:
   enum class DetectMode { Entry2, Stair1, Stair3, RowFront, Scan, Row4Fake, TransitionObserve };
   enum class R2DepthProfile { General, Entry };
   enum class StairMode { Climb, Descend };
+  enum class KfsOdomAxis { X, Y };
+  enum class KfsOdomMotionResult { Running, Succeeded, Failed };
   enum class StairCenterPolicy {
     None,
     EntryGrid2Reference,
@@ -392,9 +415,19 @@ private:
 
   std::optional<KfsVisualObservation>
   findR2LockObservation(R2DepthProfile depth_profile = R2DepthProfile::General);
+  void resetKfsStableObservation();
+  bool updateKfsStableObservation(const KfsVisualObservation &observation,
+                                  const char *context);
+  bool recordKfsAlignProgress(int abs_offset_px, std::string &reason);
   bool configureKfsAlignPlan(const KfsVisualObservation &observation,
                              const char *context);
   void finishKfsAlignFailure(const std::string &reason);
+  void beginKfsOdomAxisMotion(KfsOdomAxis axis, double distance_m,
+                              double max_speed_mps, double min_speed_mps,
+                              double tolerance_m, double timeout_s,
+                              std::string label);
+  KfsOdomMotionResult tickKfsOdomAxisMotion(std::string &failure_reason);
+  void clearKfsOdomAxisMotion();
   void beginKfsVisualPickup(bool high_side, MfPreselectionPickupSource source,
                             const KfsVisualObservation &observation,
                             Phase success_phase, Phase failure_phase,
@@ -402,11 +435,10 @@ private:
                             bool entry_high_protocol,
                             R2DepthProfile depth_profile = R2DepthProfile::General);
   BT::NodeStatus tickKfsVisualAlign();
-  BT::NodeStatus beginKfsOpenLoopApproach(
+  BT::NodeStatus beginKfsOdomApproach(
       const KfsVisualObservation &observation);
-  void startKfsOpenLoopApproach();
-  BT::NodeStatus tickKfsOpenLoopApproach();
-  double kfsApproachVx() const;
+  void startKfsOdomApproach();
+  BT::NodeStatus tickKfsOdomApproach();
   void clearKfsVisualPickup();
 
   void beginGrab(bool high_side, MfPreselectionPickupSource source,
@@ -577,22 +609,41 @@ private:
   R2DepthProfile kfs_pickup_depth_profile_{R2DepthProfile::General};
   std::optional<MfPreselectionTargetSnapshot> kfs_pickup_initial_target_;
   std::optional<MfPreselectionTargetSnapshot> kfs_locked_target_;
-  std::optional<MfPreselectionTargetSnapshot> kfs_open_loop_target_;
+  std::optional<MfPreselectionTargetSnapshot> kfs_odom_target_;
+  std::optional<KfsVisualObservation> kfs_align_stable_candidate_;
   int kfs_align_stable_count_{0};
   int kfs_align_lost_count_{0};
   int64_t kfs_align_last_sequence_{0};
   int64_t kfs_align_verify_min_sequence_{0};
   rclcpp::Time kfs_align_total_start_{0, 0, RCL_ROS_TIME};
+  bool kfs_align_plan_ready_{false};
   double kfs_align_distance_m_{0.0};
-  double kfs_align_duration_s_{0.0};
-  double kfs_align_vy_{0.0};
+  double kfs_align_speed_limit_mps_{0.0};
   bool kfs_align_started_{false};
   bool kfs_align_waiting_verify_frame_{false};
-  int kfs_open_loop_offset_px_{0};
-  double kfs_open_loop_locked_depth_m_{0.0};
-  double kfs_open_loop_distance_m_{0.0};
-  double kfs_open_loop_duration_s_{0.0};
-  bool kfs_open_loop_started_{false};
+  int kfs_align_best_abs_offset_px_{-1};
+  int kfs_align_no_progress_count_{0};
+  bool kfs_align_motion_completed_{false};
+  int kfs_odom_offset_px_{0};
+  double kfs_odom_locked_depth_m_{0.0};
+  double kfs_odom_approach_distance_m_{0.0};
+  double kfs_odom_approach_estimated_duration_s_{0.0};
+  bool kfs_odom_approach_started_{false};
+  KfsOdomAxis kfs_odom_axis_{KfsOdomAxis::X};
+  double kfs_odom_motion_distance_m_{0.0};
+  double kfs_odom_motion_min_speed_mps_{0.0};
+  double kfs_odom_motion_max_speed_mps_{0.0};
+  double kfs_odom_motion_tolerance_m_{0.0};
+  double kfs_odom_motion_timeout_s_{0.0};
+  double kfs_odom_motion_start_x_{0.0};
+  double kfs_odom_motion_start_y_{0.0};
+  double kfs_odom_motion_start_yaw_{0.0};
+  rclcpp::Time kfs_odom_motion_start_time_{0, 0, RCL_ROS_TIME};
+  bool kfs_odom_motion_started_{false};
+  bool kfs_odom_motion_start_captured_{false};
+  bool kfs_odom_motion_waiting_logged_{false};
+  int kfs_odom_motion_stable_ticks_{0};
+  std::string kfs_odom_motion_label_;
   bool entry_lateral_reference_captured_{false};
   double entry_lateral_reference_x_{0.0};
   double entry_lateral_reference_y_{0.0};

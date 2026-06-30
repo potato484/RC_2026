@@ -104,45 +104,74 @@ TEST(MfPreselectionLogic, KfsAlignOffsetUsesConfigurableTargetLine) {
             -30);
 }
 
-TEST(MfPreselectionLogic, KfsAlignOpenLoopDistanceUsesLockedPixelOffset) {
+TEST(MfPreselectionLogic, KfsAlignOdomDistanceUsesLockedPixelOffset) {
   rc26_decision::MfPreselectionParams params;
   params.kfs_align_tolerance_px = 20;
   params.kfs_align_px_to_m = 0.0005;
+  params.kfs_invert_lateral_direction = false;
 
   EXPECT_DOUBLE_EQ(
-      rc26_decision::MfPreselectionLogicResult::kfsAlignOpenLoopDistance(0,
-                                                                         params),
+      rc26_decision::MfPreselectionLogicResult::kfsAlignOdomDistance(0,
+                                                                     params),
       0.0);
   EXPECT_DOUBLE_EQ(
-      rc26_decision::MfPreselectionLogicResult::kfsAlignOpenLoopDistance(20,
-                                                                         params),
+      rc26_decision::MfPreselectionLogicResult::kfsAlignOdomDistance(20,
+                                                                     params),
       0.0);
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::kfsAlignOdomDistance(200,
+                                                                     params),
+      -0.10);
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::kfsAlignOdomDistance(-200,
+                                                                     params),
+      0.10);
   EXPECT_DOUBLE_EQ(
       rc26_decision::MfPreselectionLogicResult::kfsAlignOpenLoopDistance(200,
                                                                          params),
       0.10);
+
+  params.kfs_invert_lateral_direction = true;
   EXPECT_DOUBLE_EQ(
-      rc26_decision::MfPreselectionLogicResult::kfsAlignOpenLoopDistance(-200,
-                                                                         params),
+      rc26_decision::MfPreselectionLogicResult::kfsAlignOdomDistance(200,
+                                                                     params),
       0.10);
 
   params.kfs_align_px_to_m = -0.001;
   EXPECT_DOUBLE_EQ(
-      rc26_decision::MfPreselectionLogicResult::kfsAlignOpenLoopDistance(200,
-                                                                         params),
+      rc26_decision::MfPreselectionLogicResult::kfsAlignOdomDistance(200,
+                                                                     params),
       0.0);
 }
 
-TEST(MfPreselectionLogic, KfsOpenLoopDistanceAndDurationUseArmReach) {
+TEST(MfPreselectionLogic, KfsApproachPlanUsesArmReachAndXAxisSign) {
+  rc26_decision::MfPreselectionParams params;
+  params.kfs_grab_distance_m = 0.40;
+  params.kfs_approach_x_sign = 1;
+
   EXPECT_DOUBLE_EQ(rc26_decision::MfPreselectionLogicResult::kfsOpenLoopDistance(
                        0.55, 0.40),
                    0.15);
   EXPECT_DOUBLE_EQ(rc26_decision::MfPreselectionLogicResult::kfsOpenLoopDuration(
                        0.15, 0.05),
                    3.0);
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::kfsApproachOdomDistance(0.55,
+                                                                        params),
+      0.15);
+
+  params.kfs_approach_x_sign = -1;
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::kfsApproachOdomDistance(0.55,
+                                                                        params),
+      -0.15);
   EXPECT_DOUBLE_EQ(rc26_decision::MfPreselectionLogicResult::kfsOpenLoopDistance(
                        0.35, 0.40),
                    0.0);
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::MfPreselectionLogicResult::kfsApproachOdomDistance(0.35,
+                                                                        params),
+      -0.0);
   EXPECT_DOUBLE_EQ(rc26_decision::MfPreselectionLogicResult::kfsOpenLoopDuration(
                        0.0, 0.0),
                    0.0);
@@ -151,6 +180,83 @@ TEST(MfPreselectionLogic, KfsOpenLoopDistanceAndDurationUseArmReach) {
   EXPECT_GT(rc26_decision::MfPreselectionLogicResult::kfsOpenLoopDuration(
                 0.90, 0.10),
             8.0);
+}
+
+TEST(MfPreselectionLogic, KfsAlignOffsetAcceptableUsesEnterAndReleaseBands) {
+  rc26_decision::MfPreselectionParams params;
+  params.kfs_align_tolerance_px = 20;
+  params.kfs_align_release_tolerance_px = 30;
+
+  EXPECT_TRUE(rc26_decision::MfPreselectionLogicResult::kfsAlignOffsetAcceptable(
+      20, params));
+  EXPECT_FALSE(rc26_decision::MfPreselectionLogicResult::kfsAlignOffsetAcceptable(
+      21, params));
+  EXPECT_FALSE(rc26_decision::MfPreselectionLogicResult::kfsAlignOffsetAcceptable(
+      30, params));
+  EXPECT_TRUE(rc26_decision::MfPreselectionLogicResult::kfsAlignOffsetAcceptable(
+      30, params, true));
+  EXPECT_FALSE(rc26_decision::MfPreselectionLogicResult::kfsAlignOffsetAcceptable(
+      -31, params, true));
+}
+
+TEST(MfPreselectionLogic, KfsAlignProgressRequiresMeaningfulImprovement) {
+  rc26_decision::MfPreselectionParams params;
+  params.kfs_align_min_progress_px = 5;
+
+  EXPECT_TRUE(rc26_decision::MfPreselectionLogicResult::kfsAlignMadeProgress(
+      -1, 80, params));
+  EXPECT_TRUE(rc26_decision::MfPreselectionLogicResult::kfsAlignMadeProgress(
+      80, 75, params));
+  EXPECT_FALSE(rc26_decision::MfPreselectionLogicResult::kfsAlignMadeProgress(
+      80, 76, params));
+
+  params.kfs_align_min_progress_px = 0;
+  EXPECT_FALSE(rc26_decision::MfPreselectionLogicResult::kfsAlignMadeProgress(
+      80, 80, params));
+  EXPECT_TRUE(rc26_decision::MfPreselectionLogicResult::kfsAlignMadeProgress(
+      80, 79, params));
+}
+
+TEST(MfPreselectionLogic, KfsOdomParamsNormalizeInvalidValues) {
+  rc26_decision::MfPreselectionParams params;
+  params.kfs_align_tolerance_px = -10;
+  params.kfs_align_max_jump_px = -1;
+  params.kfs_align_release_tolerance_px = -2;
+  params.kfs_align_min_progress_px = -3;
+  params.kfs_align_no_progress_limit = 0;
+  params.kfs_odom_xy_kp = -1.0;
+  params.kfs_align_odom_tolerance_m = -0.01;
+  params.kfs_approach_odom_tolerance_m =
+      std::numeric_limits<double>::quiet_NaN();
+  params.kfs_odom_yaw_tolerance_deg =
+      std::numeric_limits<double>::quiet_NaN();
+  params.kfs_odom_stable_ticks = 0;
+  params.kfs_approach_speed_mps = 0.02;
+  params.kfs_approach_min_speed_mps = 0.05;
+
+  rc26_decision::MfPreselectionLogicResult::normalizeKfsOdomParams(params);
+
+  EXPECT_EQ(params.kfs_align_tolerance_px, 0);
+  EXPECT_EQ(params.kfs_align_max_jump_px, 0);
+  EXPECT_EQ(params.kfs_align_release_tolerance_px, 0);
+  EXPECT_EQ(params.kfs_align_min_progress_px, 0);
+  EXPECT_EQ(params.kfs_align_no_progress_limit, 1);
+  EXPECT_DOUBLE_EQ(params.kfs_odom_xy_kp, 0.8);
+  EXPECT_DOUBLE_EQ(params.kfs_align_odom_tolerance_m, 0.005);
+  EXPECT_DOUBLE_EQ(params.kfs_approach_odom_tolerance_m, 0.02);
+  EXPECT_DOUBLE_EQ(params.kfs_odom_yaw_tolerance_deg, 3.0);
+  EXPECT_EQ(params.kfs_odom_stable_ticks, 1);
+  EXPECT_DOUBLE_EQ(params.kfs_approach_min_speed_mps, 0.02);
+}
+
+TEST(MfPreselectionLogic, KfsOdomParamsNormalizeReleaseAtLeastEnterTolerance) {
+  rc26_decision::MfPreselectionParams params;
+  params.kfs_align_tolerance_px = 20;
+  params.kfs_align_release_tolerance_px = 10;
+
+  rc26_decision::MfPreselectionLogicResult::normalizeKfsOdomParams(params);
+
+  EXPECT_EQ(params.kfs_align_release_tolerance_px, 20);
 }
 
 TEST(MfPreselectionLogic, FakeAvoidanceDirectionUsesPickupSource) {

@@ -143,20 +143,30 @@ r2_runtime:
       mf_preselect_detect_lost_stable_frames: 5  # 连续未看到目标多少帧后确认无目标
       mf_preselect_entry_detect_timeout_s: 2.0   # 入口单点检测最长等待，单位秒
       mf_preselect_scan_detect_timeout_s: 2.0    # 行内/阶梯扫描检测最长等待，单位秒
-      mf_preselect_kfs_align_tolerance_px: 20    # KFS 锁定帧像素偏差容差；容差内跳过横移开环对齐
-      mf_preselect_kfs_align_stable_frames: 5    # 兼容旧参数；当前正式流程单帧锁定后不再用连续帧确认对齐
-      mf_preselect_kfs_align_kp: 0.0010          # KFS 锁定帧横移开环速度比例控制系数
-      mf_preselect_kfs_align_min_speed_mps: 0.015 # KFS 横移最小速度幅值
-      mf_preselect_kfs_align_max_speed_mps: 0.06 # KFS 横移最大速度幅值
+      mf_preselect_kfs_align_tolerance_px: 20    # KFS 锁定帧像素偏差容差；容差内跳过横移闭环对齐
+      mf_preselect_kfs_align_stable_frames: 5    # KFS 对齐规划/复核前要求同一目标连续稳定新帧数
+      mf_preselect_kfs_align_max_jump_px: 60     # KFS 稳定锁定允许的单帧 offset 最大跳变，超出则重建稳定窗口
+      mf_preselect_kfs_align_release_tolerance_px: 30 # KFS 已对齐滞回释放阈值，避免在容差边缘反复横移
+      mf_preselect_kfs_align_min_progress_px: 5  # KFS 多次横移重规划后 offset 至少要改善的像素数
+      mf_preselect_kfs_align_no_progress_limit: 3 # KFS 连续无明显改善多少次后放弃该目标
+      mf_preselect_kfs_align_kp: 0.0010          # KFS 锁定帧像素偏差到横移闭环段速度上限的比例系数
+      mf_preselect_kfs_align_min_speed_mps: 0.015 # KFS 横移闭环段最小速度幅值
+      mf_preselect_kfs_align_max_speed_mps: 0.06 # KFS 横移闭环段最大速度幅值
       mf_preselect_kfs_align_target_offset_px: 0.0 # 夹取目标线相对图像中心的像素偏置；机械臂不在相机中心线时现场标定
       mf_preselect_kfs_align_px_to_m: 0.0005     # 锁定帧像素偏差到横移距离的标定，横移距离=abs(offset_px)*该值
-      mf_preselect_kfs_align_timeout_s: 3.0      # KFS 横移对齐总安全超时，每段横移完成后必须等更晚的新视觉帧确认进入像素容差
+      mf_preselect_kfs_align_timeout_s: 3.0      # KFS 横移视觉规划+odom闭环对齐总安全超时，每段完成后必须等更晚的新视觉帧确认进入当前像素阈值
       mf_preselect_kfs_lost_stop_frames: 3       # 兼容旧参数；当前正式流程横移对齐不再按后续帧丢失计数放弃
       mf_preselect_kfs_invert_lateral_direction: false # 是否反转 KFS 横移方向
-      mf_preselect_kfs_approach_speed_mps: 0.10  # KFS 开环趋近 x 方向速度幅值，单位 m/s
+      mf_preselect_kfs_odom_xy_kp: 0.8           # KFS 横移/前向 odom 闭环距离误差 P 增益
+      mf_preselect_kfs_align_odom_tolerance_m: 0.005 # KFS 横移 odom 闭环距离容差，单位 m
+      mf_preselect_kfs_approach_odom_tolerance_m: 0.02 # KFS 前向趋近 odom 闭环距离容差，单位 m
+      mf_preselect_kfs_odom_yaw_tolerance_deg: 3.0 # KFS odom 闭环 heading hold 完成 yaw 容差
+      mf_preselect_kfs_odom_stable_ticks: 3      # KFS odom 闭环完成前要求连续稳定 tick 数
+      mf_preselect_kfs_approach_speed_mps: 0.10  # KFS 前向 odom 闭环 x 方向最大速度幅值，单位 m/s
+      mf_preselect_kfs_approach_min_speed_mps: 0.03 # KFS 前向 odom 闭环 x 方向最小速度幅值，单位 m/s
       mf_preselect_kfs_approach_x_sign: 1        # KFS 趋近方向符号；1 为 linear.x 正向，-1 为负向
-      mf_preselect_kfs_approach_timeout_s: 8.0   # KFS 开环趋近安全超时；计划时长超出会失败停车
-      mf_preselect_kfs_grab_distance_m: 0.50     # KFS 机械臂可触达距离/开环停止距离，前进距离=max(0,锁定深度-该值)
+      mf_preselect_kfs_approach_timeout_s: 8.0   # KFS 前向 odom 闭环趋近安全超时；计划时长超出会失败停车
+      mf_preselect_kfs_grab_distance_m: 0.50     # KFS 机械臂可触达距离/停止目标距离，前进距离=max(0,锁定深度-该值)
       mf_preselect_max_pickup_count: 2           # 单局预选赛最多夹取 R2 KFS 数量
       mf_preselect_grab_settle_s: 0.5            # KFS 视觉确认夹取成功后零速稳定等待，单位秒
       mf_preselect_grab_verify_timeout_s: 3.0    # KFS 夹取 ACK 后等待原目标消失的最长视觉验证时间
@@ -178,7 +188,7 @@ r2_runtime:
       mf_preselect_arm_lower_command_id: 5       # 0x05 ARM_LOWER，高到低阶梯预调
       mf_preselect_arm_raise_done_feedback_id: 2 # 0x02 ARM_RAISE_DONE
       mf_preselect_arm_lower_done_feedback_id: 3 # 0x03 ARM_LOWER_DONE
-      mf_preselect_second_arm_lower_command_id: 14 # 0x0E ARM_SECOND_LOWER，向下夹取开环前放下第二节机械臂
+      mf_preselect_second_arm_lower_command_id: 14 # 0x0E ARM_SECOND_LOWER，向下夹取 odom 闭环趋近前放下第二节机械臂
       mf_preselect_second_arm_lower_done_feedback_id: 10 # 0x0A ARM_SECOND_LOWER_DONE，必须与 0x0E 的 ACK seq 匹配
 
       mf_preselect_entry_probe_left_distance_m: 1.2     # 2号入口向1号阶梯横移探测距离

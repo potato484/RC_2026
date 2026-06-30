@@ -45,6 +45,11 @@ constexpr double kPi = 3.14159265358979323846;
 constexpr double kDeg2Rad = kPi / 180.0;
 constexpr double kMinTimeoutS = 0.001;
 constexpr double kMinSpeed = 0.001;
+constexpr double kDefaultKfsOdomXyKp = 0.8;
+constexpr double kDefaultKfsAlignOdomToleranceM = 0.005;
+constexpr double kDefaultKfsApproachOdomToleranceM = 0.02;
+constexpr double kDefaultKfsOdomYawToleranceDeg = 3.0;
+constexpr double kDefaultKfsApproachMinSpeedMps = 0.03;
 constexpr int kFinalExitVirtualGrid = 0;
 
 // 视觉配置参数既允许传绝对路径，也允许传 rc26_vision share 目录下的相对路径。
@@ -178,10 +183,19 @@ int MfPreselectionLogicResult::kfsAlignOffsetPx(
 
 double MfPreselectionLogicResult::kfsAlignOpenLoopDistance(
     int offset_px, const MfPreselectionParams &params) {
+  return std::abs(kfsAlignOdomDistance(offset_px, params));
+}
+
+double MfPreselectionLogicResult::kfsAlignOdomDistance(
+    int offset_px, const MfPreselectionParams &params) {
   if (std::abs(offset_px) <= params.kfs_align_tolerance_px) {
     return 0.0;
   }
-  return static_cast<double>(std::abs(offset_px)) *
+  double direction = offset_px > 0 ? -1.0 : 1.0;
+  if (params.kfs_invert_lateral_direction) {
+    direction = -direction;
+  }
+  return direction * static_cast<double>(std::abs(offset_px)) *
          std::max(0.0, params.kfs_align_px_to_m);
 }
 
@@ -199,6 +213,78 @@ double MfPreselectionLogicResult::kfsOpenLoopDuration(double distance_m,
     return std::numeric_limits<double>::infinity();
   }
   return distance_m / speed_mps;
+}
+
+double MfPreselectionLogicResult::kfsApproachOdomDistance(
+    double locked_depth_m, const MfPreselectionParams &params) {
+  const double sign = params.kfs_approach_x_sign < 0 ? -1.0 : 1.0;
+  return sign *
+         kfsOpenLoopDistance(locked_depth_m, params.kfs_grab_distance_m);
+}
+
+void MfPreselectionLogicResult::normalizeKfsOdomParams(
+    MfPreselectionParams &params) {
+  params.kfs_align_tolerance_px =
+      std::max(0, params.kfs_align_tolerance_px);
+  params.kfs_odom_xy_kp =
+      std::isfinite(params.kfs_odom_xy_kp) && params.kfs_odom_xy_kp > 0.0
+          ? params.kfs_odom_xy_kp
+          : kDefaultKfsOdomXyKp;
+  params.kfs_align_odom_tolerance_m =
+      std::isfinite(params.kfs_align_odom_tolerance_m) &&
+              params.kfs_align_odom_tolerance_m > 0.0
+          ? std::abs(params.kfs_align_odom_tolerance_m)
+          : kDefaultKfsAlignOdomToleranceM;
+  params.kfs_approach_odom_tolerance_m =
+      std::isfinite(params.kfs_approach_odom_tolerance_m) &&
+              params.kfs_approach_odom_tolerance_m > 0.0
+          ? std::abs(params.kfs_approach_odom_tolerance_m)
+          : kDefaultKfsApproachOdomToleranceM;
+  params.kfs_odom_yaw_tolerance_deg =
+      std::isfinite(params.kfs_odom_yaw_tolerance_deg) &&
+              params.kfs_odom_yaw_tolerance_deg >= 0.0
+          ? params.kfs_odom_yaw_tolerance_deg
+          : kDefaultKfsOdomYawToleranceDeg;
+  params.kfs_odom_stable_ticks =
+      std::max(1, params.kfs_odom_stable_ticks);
+  params.kfs_align_max_jump_px =
+      std::max(0, params.kfs_align_max_jump_px);
+  params.kfs_align_release_tolerance_px =
+      std::max(params.kfs_align_tolerance_px,
+               std::max(0, params.kfs_align_release_tolerance_px));
+  params.kfs_align_min_progress_px =
+      std::max(0, params.kfs_align_min_progress_px);
+  params.kfs_align_no_progress_limit =
+      std::max(1, params.kfs_align_no_progress_limit);
+  if (!std::isfinite(params.kfs_approach_min_speed_mps) ||
+      params.kfs_approach_min_speed_mps < 0.0) {
+    params.kfs_approach_min_speed_mps = kDefaultKfsApproachMinSpeedMps;
+  }
+  params.kfs_approach_min_speed_mps =
+      std::min(std::abs(params.kfs_approach_min_speed_mps),
+               std::abs(params.kfs_approach_speed_mps));
+}
+
+bool MfPreselectionLogicResult::kfsAlignOffsetAcceptable(
+    int offset_px, const MfPreselectionParams &params,
+    bool use_release_tolerance) {
+  const int tolerance_px =
+      use_release_tolerance ? params.kfs_align_release_tolerance_px
+                            : params.kfs_align_tolerance_px;
+  return std::abs(offset_px) <= tolerance_px;
+}
+
+bool MfPreselectionLogicResult::kfsAlignMadeProgress(
+    int previous_abs_offset_px, int current_abs_offset_px,
+    const MfPreselectionParams &params) {
+  if (previous_abs_offset_px < 0) {
+    return true;
+  }
+  if (params.kfs_align_min_progress_px <= 0) {
+    return current_abs_offset_px < previous_abs_offset_px;
+  }
+  return current_abs_offset_px + params.kfs_align_min_progress_px <=
+         previous_abs_offset_px;
 }
 
 double MfPreselectionLogicResult::fakeAvoidanceYaw(
@@ -820,10 +906,10 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
   case Phase::KfsVisualAlign:
     return tickKfsVisualAlign();
   case Phase::KfsSecondArmLower:
-    startKfsOpenLoopApproach();
+    startKfsOdomApproach();
     return BT::NodeStatus::RUNNING;
-  case Phase::KfsOpenLoopApproach:
-    return tickKfsOpenLoopApproach();
+  case Phase::KfsOdomApproach:
+    return tickKfsOdomApproach();
   case Phase::GrabVerify:
     return tickGrabVerify();
   case Phase::MoveRelative:
@@ -943,12 +1029,14 @@ bool MfPreselectionFlowAction::setupRuntime() {
   config().blackboard->set("mf_preselect_pickup_source", std::string("none"));
   config().blackboard->set("mf_preselect_done", false);
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛运行接口就绪：cmd_vel=%s odom=%s center_cmd_vel=%s center_odom=%s command_service=%s feedback=%s kfs_approach_speed=%.3fm/s kfs_arm_reach=%.3fm kfs_approach_timeout=%.2fs",
+              "梅林预选赛运行接口就绪：cmd_vel=%s odom=%s center_cmd_vel=%s center_odom=%s command_service=%s feedback=%s kfs_odom_kp=%.3f align_tol=%.3fm approach_speed=%.3fm/s approach_min=%.3fm/s arm_reach=%.3fm approach_timeout=%.2fs",
               params_.cmd_vel_topic.c_str(), params_.odom_topic.c_str(),
               center_params_.cmd_vel_topic.c_str(),
               center_params_.odom_topic.c_str(),
               params_.send_command_service.c_str(), params_.feedback_topic.c_str(),
-              params_.kfs_approach_speed_mps, params_.kfs_grab_distance_m,
+              params_.kfs_odom_xy_kp, params_.kfs_align_odom_tolerance_m,
+              params_.kfs_approach_speed_mps, params_.kfs_approach_min_speed_mps,
+              params_.kfs_grab_distance_m,
               params_.kfs_approach_timeout_s);
   return true;
 }
@@ -974,7 +1062,7 @@ bool MfPreselectionFlowAction::setupVision() {
       return false;
     }
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛 KFS 视觉已启动：config=%s model=%s R2前缀数=%zu R1标签数=%zu 假KFS前缀数=%zu 通用深度=[%.2f, %.2f]m 入口深度=[%.2f, %.2f]m 开环速度=%.3fm/s 臂长=%.3fm 超时=%.2fs",
+                "梅林预选赛 KFS 视觉已启动：config=%s model=%s R2前缀数=%zu R1标签数=%zu 假KFS前缀数=%zu 通用深度=[%.2f, %.2f]m 入口深度=[%.2f, %.2f]m odom闭环速度=%.3fm/s 臂长=%.3fm 超时=%.2fs",
                 params_.vision_config_file.c_str(), params_.model_id.c_str(),
                 params_.r2_target_label_prefixes.size(),
                 params_.r1_blocking_labels.size(),
@@ -1075,6 +1163,7 @@ void MfPreselectionFlowAction::normalizeParams() {
   }
   params_.kfs_approach_x_sign =
       params_.kfs_approach_x_sign < 0 ? -1 : 1;
+  MfPreselectionLogicResult::normalizeKfsOdomParams(params_);
   if (!std::isfinite(params_.kfs_approach_timeout_s) ||
       params_.kfs_approach_timeout_s <= 0.0) {
     params_.kfs_approach_timeout_s = kMinTimeoutS;
@@ -1528,8 +1617,8 @@ const char *MfPreselectionFlowAction::phaseText(Phase phase) {
     return "kfs_visual_align";
   case Phase::KfsSecondArmLower:
     return "kfs_second_arm_lower";
-  case Phase::KfsOpenLoopApproach:
-    return "kfs_open_loop_approach";
+  case Phase::KfsOdomApproach:
+    return "kfs_odom_approach";
   case Phase::GrabVerify:
     return "grab_verify";
   case Phase::CenterAlign:
@@ -2337,7 +2426,7 @@ bool MfPreselectionFlowAction::maybeInterruptEntryMoveForKfs() {
   }
 
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛入口横移中单帧锁定R2 KFS：move=%s label=%s seq=%ld lateral_offset=%.3fm image_offset=%dpx depth=%.3fm source=%s，立即停车进入开环横移对齐夹取",
+              "梅林预选赛入口横移中单帧锁定R2 KFS：move=%s label=%s seq=%ld lateral_offset=%.3fm image_offset=%dpx depth=%.3fm source=%s，立即停车进入odom闭环横移对齐夹取",
               move_label_.c_str(), r2->target.label.c_str(),
               static_cast<long>(r2->target.sequence), lateral_offset,
               r2->offset_px, r2->target.distance_m,
@@ -3534,54 +3623,137 @@ MfPreselectionFlowAction::findR2LockObservation(R2DepthProfile depth_profile) {
   return observation;
 }
 
+void MfPreselectionFlowAction::resetKfsStableObservation() {
+  kfs_align_stable_candidate_.reset();
+  kfs_align_stable_count_ = 0;
+}
+
+bool MfPreselectionFlowAction::updateKfsStableObservation(
+    const KfsVisualObservation &observation, const char *context) {
+  if (observation.target.sequence <= kfs_align_verify_min_sequence_) {
+    return false;
+  }
+
+  bool same_target = true;
+  if (kfs_align_stable_candidate_.has_value()) {
+    same_target = MfPreselectionLogicResult::isSameVisualTarget(
+        kfs_align_stable_candidate_->target, observation.target,
+        params_.grab_verify_iou_threshold);
+    const int offset_jump =
+        std::abs(observation.offset_px -
+                 kfs_align_stable_candidate_->offset_px);
+    if (params_.kfs_align_max_jump_px > 0 &&
+        offset_jump > params_.kfs_align_max_jump_px) {
+      same_target = false;
+      if (node_) {
+        RCLCPP_WARN(node_->get_logger(),
+                    "梅林预选赛KFS稳定锁定过滤跳变框：context=%s prev_offset=%d current_offset=%d jump=%d max_jump=%d",
+                    context ? context : "unknown",
+                    kfs_align_stable_candidate_->offset_px,
+                    observation.offset_px, offset_jump,
+                    params_.kfs_align_max_jump_px);
+      }
+    }
+  }
+
+  if (!same_target) {
+    kfs_align_stable_candidate_ = observation;
+    kfs_align_stable_count_ = 1;
+  } else {
+    kfs_align_stable_candidate_ = observation;
+    ++kfs_align_stable_count_;
+  }
+  kfs_align_lost_count_ = 0;
+  kfs_align_verify_min_sequence_ = observation.target.sequence;
+
+  if (node_) {
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛KFS稳定锁定计数：context=%s label=%s seq=%ld offset=%dpx stable=%d/%d",
+                context ? context : "unknown",
+                observation.target.label.c_str(),
+                static_cast<long>(observation.target.sequence),
+                observation.offset_px, kfs_align_stable_count_,
+                params_.kfs_align_stable_frames);
+  }
+  return kfs_align_stable_count_ >= params_.kfs_align_stable_frames;
+}
+
+bool MfPreselectionFlowAction::recordKfsAlignProgress(
+    int abs_offset_px, std::string &reason) {
+  reason.clear();
+  if (MfPreselectionLogicResult::kfsAlignMadeProgress(
+          kfs_align_best_abs_offset_px_, abs_offset_px, params_)) {
+    kfs_align_best_abs_offset_px_ = abs_offset_px;
+    kfs_align_no_progress_count_ = 0;
+    return true;
+  }
+  ++kfs_align_no_progress_count_;
+  if (node_) {
+    RCLCPP_WARN(node_->get_logger(),
+                "梅林预选赛KFS横移对齐无明显改善：best=%dpx current=%dpx min_progress=%dpx no_progress=%d/%d",
+                kfs_align_best_abs_offset_px_, abs_offset_px,
+                params_.kfs_align_min_progress_px,
+                kfs_align_no_progress_count_,
+                params_.kfs_align_no_progress_limit);
+  }
+  if (kfs_align_no_progress_count_ >=
+      params_.kfs_align_no_progress_limit) {
+    reason = "kfs_align_no_progress";
+    return false;
+  }
+  return true;
+}
+
 bool MfPreselectionFlowAction::configureKfsAlignPlan(
     const KfsVisualObservation &observation, const char *context) {
-  kfs_open_loop_offset_px_ = observation.offset_px;
-  kfs_open_loop_locked_depth_m_ = observation.target.distance_m;
-  kfs_open_loop_target_ = observation.target;
+  kfs_odom_offset_px_ = observation.offset_px;
+  kfs_odom_locked_depth_m_ = observation.target.distance_m;
+  kfs_odom_target_ = observation.target;
   kfs_locked_target_ = observation.target;
   kfs_align_last_sequence_ = observation.target.sequence;
   kfs_align_verify_min_sequence_ = observation.target.sequence;
   kfs_align_distance_m_ =
-      MfPreselectionLogicResult::kfsAlignOpenLoopDistance(observation.offset_px,
-                                                         params_);
-  kfs_align_vy_ =
-      MfPreselectionLogicResult::kfsAlignVy(observation.offset_px, params_);
-  if (kfs_align_distance_m_ > 0.0 && std::abs(kfs_align_vy_) > 0.0) {
-    kfs_align_duration_s_ = kfs_align_distance_m_ / std::abs(kfs_align_vy_);
-  } else {
-    kfs_align_duration_s_ = 0.0;
-    kfs_align_vy_ = 0.0;
-  }
+      MfPreselectionLogicResult::kfsAlignOdomDistance(observation.offset_px,
+                                                      params_);
+  kfs_align_speed_limit_mps_ =
+      std::abs(MfPreselectionLogicResult::kfsAlignVy(observation.offset_px,
+                                                     params_));
   kfs_align_started_ = false;
   kfs_align_waiting_verify_frame_ = false;
+  clearKfsOdomAxisMotion();
 
   const bool aligned =
       std::abs(observation.offset_px) <= params_.kfs_align_tolerance_px;
-  if (!aligned && kfs_align_distance_m_ <= 0.0) {
+  if (!aligned && std::abs(kfs_align_distance_m_) <= 0.0) {
     if (node_) {
       RCLCPP_WARN(node_->get_logger(),
                   "梅林预选赛KFS横移对齐无法规划：context=%s offset=%dpx tolerance=%dpx px_to_m=%.6f，忽略目标并回到原失败路线",
-                  context ? context : "unknown", kfs_open_loop_offset_px_,
+                  context ? context : "unknown", kfs_odom_offset_px_,
                   params_.kfs_align_tolerance_px, params_.kfs_align_px_to_m);
     }
     return false;
   }
-  if (kfs_align_distance_m_ > 0.0 && kfs_align_vy_ == 0.0) {
+  if (std::abs(kfs_align_distance_m_) > 0.0 &&
+      kfs_align_speed_limit_mps_ <= 0.0) {
     if (node_) {
       RCLCPP_WARN(node_->get_logger(),
-                  "梅林预选赛KFS横移对齐无法规划：context=%s offset=%dpx distance=%.3fm vy=0，忽略目标并回到原失败路线",
-                  context ? context : "unknown", kfs_open_loop_offset_px_,
+                  "梅林预选赛KFS横移对齐无法规划：context=%s offset=%dpx distance=%.3fm speed_limit=0，忽略目标并回到原失败路线",
+                  context ? context : "unknown", kfs_odom_offset_px_,
                   kfs_align_distance_m_);
     }
     return false;
   }
-  if (kfs_align_duration_s_ > params_.kfs_align_timeout_s) {
+  const double estimated_duration_s =
+      kfs_align_speed_limit_mps_ > 0.0
+          ? std::abs(kfs_align_distance_m_) / kfs_align_speed_limit_mps_
+          : 0.0;
+  if (estimated_duration_s > params_.kfs_align_timeout_s) {
     if (node_) {
       RCLCPP_WARN(node_->get_logger(),
-                  "梅林预选赛KFS横移对齐单段计划超过安全超时：context=%s offset=%dpx distance=%.3fm vy=%.3fm/s duration=%.3fs timeout=%.3fs",
-                  context ? context : "unknown", kfs_open_loop_offset_px_,
-                  kfs_align_distance_m_, kfs_align_vy_, kfs_align_duration_s_,
+                  "梅林预选赛KFS横移对齐单段计划超过安全超时：context=%s offset=%dpx distance=%.3fm speed_limit=%.3fm/s estimated_duration=%.3fs timeout=%.3fs",
+                  context ? context : "unknown", kfs_odom_offset_px_,
+                  kfs_align_distance_m_, kfs_align_speed_limit_mps_,
+                  estimated_duration_s,
                   params_.kfs_align_timeout_s);
     }
     return false;
@@ -3604,11 +3776,156 @@ void MfPreselectionFlowAction::finishKfsAlignFailure(
                 kfs_pickup_initial_target_.has_value()
                     ? kfs_pickup_initial_target_->label.c_str()
                     : "",
-                kfs_open_loop_offset_px_);
+                kfs_odom_offset_px_);
   }
   const Phase failure_phase = kfs_pickup_failure_phase_;
   clearKfsVisualPickup();
   phase_ = failure_phase;
+}
+
+void MfPreselectionFlowAction::beginKfsOdomAxisMotion(
+    KfsOdomAxis axis, double distance_m, double max_speed_mps,
+    double min_speed_mps, double tolerance_m, double timeout_s,
+    std::string label) {
+  clearKfsOdomAxisMotion();
+  kfs_odom_axis_ = axis;
+  kfs_odom_motion_distance_m_ = distance_m;
+  kfs_odom_motion_max_speed_mps_ =
+      std::max(0.0, std::abs(max_speed_mps));
+  kfs_odom_motion_min_speed_mps_ =
+      std::min(std::max(0.0, std::abs(min_speed_mps)),
+               kfs_odom_motion_max_speed_mps_);
+  kfs_odom_motion_tolerance_m_ =
+      std::max(kMinSpeed, std::abs(tolerance_m));
+  kfs_odom_motion_timeout_s_ = std::max(kMinTimeoutS, timeout_s);
+  kfs_odom_motion_label_ = std::move(label);
+  kfs_odom_motion_started_ = true;
+  kfs_odom_motion_waiting_logged_ = false;
+  kfs_odom_motion_stable_ticks_ = 0;
+  if (node_) {
+    kfs_odom_motion_start_time_ = node_->now();
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛KFS odom闭环段启动：%s axis=%s distance=%.3fm min=%.3fm/s max=%.3fm/s tol=%.3fm yaw_tol=%.1fdeg timeout=%.3fs",
+                kfs_odom_motion_label_.c_str(),
+                axis == KfsOdomAxis::X ? "X" : "Y",
+                kfs_odom_motion_distance_m_,
+                kfs_odom_motion_min_speed_mps_,
+                kfs_odom_motion_max_speed_mps_,
+                kfs_odom_motion_tolerance_m_,
+                params_.kfs_odom_yaw_tolerance_deg,
+                kfs_odom_motion_timeout_s_);
+  }
+}
+
+MfPreselectionFlowAction::KfsOdomMotionResult
+MfPreselectionFlowAction::tickKfsOdomAxisMotion(
+    std::string &failure_reason) {
+  failure_reason.clear();
+  if (!node_ || !kfs_odom_motion_started_) {
+    failure_reason = "kfs_odom_motion_not_started";
+    publishStop();
+    return KfsOdomMotionResult::Failed;
+  }
+  if ((node_->now() - kfs_odom_motion_start_time_).seconds() >
+      kfs_odom_motion_timeout_s_) {
+    failure_reason = "kfs_odom_motion_timeout_" + kfs_odom_motion_label_;
+    publishStop();
+    return KfsOdomMotionResult::Failed;
+  }
+  if (!odomReady()) {
+    kfs_odom_motion_stable_ticks_ = 0;
+    publishStop();
+    if (!kfs_odom_motion_waiting_logged_) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "梅林预选赛KFS odom闭环等待odom新鲜：%s，odom_topic=%s",
+                  kfs_odom_motion_label_.c_str(), params_.odom_topic.c_str());
+      kfs_odom_motion_waiting_logged_ = true;
+    }
+    return KfsOdomMotionResult::Running;
+  }
+  if (!kfs_odom_motion_start_captured_) {
+    kfs_odom_motion_start_x_ = odom_x_;
+    kfs_odom_motion_start_y_ = odom_y_;
+    kfs_odom_motion_start_yaw_ = odom_yaw_;
+    kfs_odom_motion_start_captured_ = true;
+    kfs_odom_motion_waiting_logged_ = false;
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛KFS odom闭环已捕获起点：%s start=(%.3f, %.3f, %.3f)",
+                kfs_odom_motion_label_.c_str(), kfs_odom_motion_start_x_,
+                kfs_odom_motion_start_y_, kfs_odom_motion_start_yaw_);
+  }
+
+  const double c = std::cos(kfs_odom_motion_start_yaw_);
+  const double s = std::sin(kfs_odom_motion_start_yaw_);
+  const double dx = odom_x_ - kfs_odom_motion_start_x_;
+  const double dy = odom_y_ - kfs_odom_motion_start_y_;
+  const double progress =
+      kfs_odom_axis_ == KfsOdomAxis::X ? dx * c + dy * s
+                                       : -dx * s + dy * c;
+  const double remaining = kfs_odom_motion_distance_m_ - progress;
+  const double distance = std::abs(remaining);
+  const double yaw_error =
+      normalizeAngle(kfs_odom_motion_start_yaw_ - odom_yaw_);
+  const double yaw_tolerance_rad =
+      std::abs(params_.kfs_odom_yaw_tolerance_deg) * kDeg2Rad;
+
+  if (distance <= kfs_odom_motion_tolerance_m_ &&
+      std::abs(yaw_error) <= yaw_tolerance_rad) {
+    ++kfs_odom_motion_stable_ticks_;
+    publishStop();
+    if (kfs_odom_motion_stable_ticks_ >= params_.kfs_odom_stable_ticks) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛KFS odom闭环完成：%s progress=%.3fm target=%.3fm remaining=%.3fm yaw_error=%.3frad",
+                  kfs_odom_motion_label_.c_str(), progress,
+                  kfs_odom_motion_distance_m_, remaining, yaw_error);
+      return KfsOdomMotionResult::Succeeded;
+    }
+    return KfsOdomMotionResult::Running;
+  }
+
+  kfs_odom_motion_stable_ticks_ = 0;
+  if (kfs_odom_motion_max_speed_mps_ <= 0.0) {
+    failure_reason = "kfs_odom_motion_speed_non_positive_" +
+                     kfs_odom_motion_label_;
+    publishStop();
+    return KfsOdomMotionResult::Failed;
+  }
+
+  double axis_speed = params_.kfs_odom_xy_kp * remaining;
+  if (std::abs(axis_speed) > kfs_odom_motion_max_speed_mps_) {
+    axis_speed = std::copysign(kfs_odom_motion_max_speed_mps_, axis_speed);
+  }
+  const double limited_abs_speed = std::abs(axis_speed);
+  if (limited_abs_speed < kfs_odom_motion_min_speed_mps_ &&
+      limited_abs_speed > 1e-9) {
+    axis_speed = std::copysign(kfs_odom_motion_min_speed_mps_, axis_speed);
+  }
+
+  const double wz = headingAngularZ(kfs_odom_motion_start_yaw_);
+  if (kfs_odom_axis_ == KfsOdomAxis::X) {
+    publishTwist(axis_speed, 0.0, wz);
+  } else {
+    publishTwist(0.0, axis_speed, wz);
+  }
+  return KfsOdomMotionResult::Running;
+}
+
+void MfPreselectionFlowAction::clearKfsOdomAxisMotion() {
+  kfs_odom_axis_ = KfsOdomAxis::X;
+  kfs_odom_motion_distance_m_ = 0.0;
+  kfs_odom_motion_min_speed_mps_ = 0.0;
+  kfs_odom_motion_max_speed_mps_ = 0.0;
+  kfs_odom_motion_tolerance_m_ = 0.0;
+  kfs_odom_motion_timeout_s_ = 0.0;
+  kfs_odom_motion_start_x_ = 0.0;
+  kfs_odom_motion_start_y_ = 0.0;
+  kfs_odom_motion_start_yaw_ = 0.0;
+  kfs_odom_motion_start_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+  kfs_odom_motion_started_ = false;
+  kfs_odom_motion_start_captured_ = false;
+  kfs_odom_motion_waiting_logged_ = false;
+  kfs_odom_motion_stable_ticks_ = 0;
+  kfs_odom_motion_label_.clear();
 }
 
 void MfPreselectionFlowAction::beginKfsVisualPickup(
@@ -3637,30 +3954,38 @@ void MfPreselectionFlowAction::beginKfsVisualPickup(
   kfs_pickup_depth_profile_ = depth_profile;
   kfs_pickup_initial_target_ = target;
   kfs_locked_target_ = target;
-  kfs_open_loop_target_ = target;
-  kfs_align_stable_count_ = 0;
+  kfs_odom_target_ = target;
+  resetKfsStableObservation();
   kfs_align_lost_count_ = 0;
-  kfs_open_loop_distance_m_ = 0.0;
-  kfs_open_loop_duration_s_ = 0.0;
-  kfs_open_loop_started_ = false;
+  kfs_odom_approach_distance_m_ = 0.0;
+  kfs_odom_approach_estimated_duration_s_ = 0.0;
+  kfs_odom_approach_started_ = false;
+  kfs_align_plan_ready_ = false;
+  kfs_align_last_sequence_ = target.sequence;
+  kfs_align_distance_m_ = 0.0;
+  kfs_align_speed_limit_mps_ = 0.0;
+  kfs_align_started_ = false;
+  kfs_align_waiting_verify_frame_ = false;
+  kfs_align_best_abs_offset_px_ = -1;
+  kfs_align_no_progress_count_ = 0;
+  kfs_align_motion_completed_ = false;
   kfs_align_verify_min_sequence_ = target.sequence;
-  if (!configureKfsAlignPlan(observation, "initial_lock")) {
-    finishKfsAlignFailure("kfs_align_initial_plan_invalid");
-    return;
-  }
+  kfs_odom_offset_px_ = observation.offset_px;
+  kfs_odom_locked_depth_m_ = target.distance_m;
+  clearKfsOdomAxisMotion();
   if (node_) {
     phase_start_ = node_->now();
     kfs_align_total_start_ = phase_start_;
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛单帧锁定KFS并进入横移对齐复核：source=%s high_side=%s target=%s seq=%ld depth=%.3fm depth_profile=%s offset=%dpx target_offset=%.1fpx align_distance=%.3fm align_speed=%.3fm/s align_duration=%.3fs bbox=[%.1f %.1f %.1f %.1f] success=%s failure=%s direct_exit=%s",
+                "梅林预选赛单帧发现KFS，等待稳定锁定后再规划横移：source=%s high_side=%s target=%s seq=%ld depth=%.3fm depth_profile=%s offset=%dpx target_offset=%.1fpx stable_required=%d bbox=[%.1f %.1f %.1f %.1f] success=%s failure=%s direct_exit=%s",
                 sourceName(source), high_side ? "是" : "否",
                 target.label.c_str(), static_cast<long>(target.sequence),
                 target.distance_m,
                 depth_profile == R2DepthProfile::Entry ? "entry" : "general",
                 observation.offset_px,
-                params_.kfs_align_target_offset_px, kfs_align_distance_m_,
-                kfs_align_vy_,
-                kfs_align_duration_s_, target.x1, target.y1, target.x2, target.y2,
+                params_.kfs_align_target_offset_px,
+                params_.kfs_align_stable_frames, target.x1, target.y1,
+                target.x2, target.y2,
                 phaseText(success_phase), phaseText(failure_phase),
                 direct_exit_on_success ? "是" : "否");
   }
@@ -3673,7 +3998,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
     return fail("kfs_visual_align_state_missing");
   }
 
-  if (!kfs_open_loop_target_.has_value() ||
+  if (!kfs_odom_target_.has_value() ||
       !kfs_pickup_initial_target_.has_value()) {
     return fail("kfs_visual_align_target_missing");
   }
@@ -3685,116 +4010,176 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
     return BT::NodeStatus::RUNNING;
   }
 
-  if (kfs_align_duration_s_ <= 0.0) {
+  if (!kfs_align_plan_ready_) {
     publishStop();
     if (!kfs_align_waiting_verify_frame_) {
       kfs_align_waiting_verify_frame_ = true;
       RCLCPP_INFO(node_->get_logger(),
-                  "梅林预选赛KFS等待新视觉帧确认横移对齐和有效深度：offset=%dpx tolerance=%dpx min_seq=%ld",
-                  kfs_open_loop_offset_px_, params_.kfs_align_tolerance_px,
+                  "梅林预选赛KFS等待稳定视觉帧：enter_tolerance=%dpx release_tolerance=%dpx stable=%d min_seq=%ld",
+                  params_.kfs_align_tolerance_px,
+                  params_.kfs_align_release_tolerance_px,
+                  params_.kfs_align_stable_frames,
                   static_cast<long>(kfs_align_verify_min_sequence_));
     }
     const auto observation = findR2LockObservation(kfs_pickup_depth_profile_);
-    if (!observation.has_value() ||
-        observation->target.sequence <= kfs_align_verify_min_sequence_) {
+    if (!observation.has_value()) {
+      ++kfs_align_lost_count_;
+      if (kfs_align_lost_count_ >= params_.kfs_lost_stop_frames) {
+        resetKfsStableObservation();
+        kfs_align_lost_count_ = params_.kfs_lost_stop_frames;
+      }
       return BT::NodeStatus::RUNNING;
     }
+    if (observation->target.sequence <= kfs_align_verify_min_sequence_) {
+      return BT::NodeStatus::RUNNING;
+    }
+    if (!updateKfsStableObservation(*observation,
+                                    kfs_align_motion_completed_
+                                        ? "post_motion_verify"
+                                        : "initial_stable_lock")) {
+      return BT::NodeStatus::RUNNING;
+    }
+    const bool use_release_tolerance = kfs_align_motion_completed_;
+    const bool offset_acceptable =
+        MfPreselectionLogicResult::kfsAlignOffsetAcceptable(
+            observation->offset_px, params_, use_release_tolerance);
+    if (offset_acceptable) {
+      const int active_tolerance_px =
+          use_release_tolerance ? params_.kfs_align_release_tolerance_px
+                                : params_.kfs_align_tolerance_px;
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛KFS稳定确认已对齐：offset=%dpx tolerance=%dpx mode=%s depth=%.3fm，进入前向odom闭环趋近规划",
+                  observation->offset_px, active_tolerance_px,
+                  use_release_tolerance ? "post_motion_release"
+                                        : "initial_enter",
+                  observation->target.distance_m);
+      return beginKfsOdomApproach(*observation);
+    }
+
     if (!configureKfsAlignPlan(*observation, "verify_frame")) {
       finishKfsAlignFailure("kfs_align_replan_invalid");
       return BT::NodeStatus::RUNNING;
     }
-    if (std::abs(observation->offset_px) > params_.kfs_align_tolerance_px) {
+    {
+      const int abs_offset = std::abs(observation->offset_px);
+      std::string progress_reason;
+      if (!recordKfsAlignProgress(abs_offset, progress_reason)) {
+        finishKfsAlignFailure(progress_reason);
+        return BT::NodeStatus::RUNNING;
+      }
+      const int active_tolerance_px =
+          use_release_tolerance ? params_.kfs_align_release_tolerance_px
+                                : params_.kfs_align_tolerance_px;
       RCLCPP_INFO(node_->get_logger(),
-                  "梅林预选赛KFS新帧确认仍未对齐：offset=%dpx tolerance=%dpx，继续下一段横移对齐",
-                  observation->offset_px, params_.kfs_align_tolerance_px);
+                  "梅林预选赛KFS稳定确认仍需横移：offset=%dpx tolerance=%dpx mode=%s distance=%.3fm",
+                  observation->offset_px, active_tolerance_px,
+                  use_release_tolerance ? "post_motion_release"
+                                        : "initial_enter",
+                  kfs_align_distance_m_);
+      kfs_align_plan_ready_ = true;
+      kfs_align_waiting_verify_frame_ = false;
+      resetKfsStableObservation();
+      kfs_align_lost_count_ = 0;
       return BT::NodeStatus::RUNNING;
     }
-    RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛KFS新帧确认已对齐：offset=%dpx tolerance=%dpx depth=%.3fm，进入前向开环趋近规划",
-                observation->offset_px, params_.kfs_align_tolerance_px,
-                observation->target.distance_m);
-    return beginKfsOpenLoopApproach(*observation);
+  }
+
+  if (std::abs(kfs_align_distance_m_) <= params_.kfs_align_odom_tolerance_m) {
+    kfs_align_plan_ready_ = false;
+    kfs_align_waiting_verify_frame_ = false;
+    resetKfsStableObservation();
+    kfs_align_lost_count_ = 0;
+    return BT::NodeStatus::RUNNING;
   }
 
   if (!kfs_align_started_) {
-    phase_start_ = node_->now();
     kfs_align_started_ = true;
-    RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛KFS开始开环横移对齐：offset=%dpx distance=%.3fm vy=%.3fm/s duration=%.3fs timeout=%.3fs",
-                kfs_open_loop_offset_px_, kfs_align_distance_m_, kfs_align_vy_,
-                kfs_align_duration_s_, params_.kfs_align_timeout_s);
+    const double remaining_timeout_s =
+        std::max(kMinTimeoutS, params_.kfs_align_timeout_s - total_elapsed);
+    beginKfsOdomAxisMotion(KfsOdomAxis::Y, kfs_align_distance_m_,
+                           kfs_align_speed_limit_mps_,
+                           params_.kfs_align_min_speed_mps,
+                           params_.kfs_align_odom_tolerance_m,
+                           remaining_timeout_s, "kfs_lateral_align");
   }
 
-  const double elapsed = (node_->now() - phase_start_).seconds();
-  if (elapsed >= kfs_align_duration_s_) {
+  std::string failure_reason;
+  const auto motion_result = tickKfsOdomAxisMotion(failure_reason);
+  if (motion_result == KfsOdomMotionResult::Failed) {
+    finishKfsAlignFailure(failure_reason.empty() ? "kfs_align_odom_failed"
+                                                 : failure_reason);
+    return BT::NodeStatus::RUNNING;
+  }
+  if (motion_result == KfsOdomMotionResult::Succeeded) {
     publishStop();
-    kfs_align_duration_s_ = 0.0;
-    kfs_align_vy_ = 0.0;
     kfs_align_distance_m_ = 0.0;
+    kfs_align_speed_limit_mps_ = 0.0;
     kfs_align_started_ = false;
     kfs_align_waiting_verify_frame_ = true;
+    kfs_align_plan_ready_ = false;
+    kfs_align_motion_completed_ = true;
+    clearKfsOdomAxisMotion();
     const auto latest_sequence = latestVisionSequence();
     kfs_align_verify_min_sequence_ =
         latest_sequence.value_or(kfs_align_last_sequence_);
+    resetKfsStableObservation();
+    kfs_align_lost_count_ = 0;
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛KFS开环横移段完成：elapsed=%.3fs min_seq=%ld，等待新视觉帧复核对齐并取得有效深度",
-                elapsed, static_cast<long>(kfs_align_verify_min_sequence_));
+                "梅林预选赛KFS odom闭环横移段完成：min_seq=%ld，等待新视觉帧复核对齐并取得有效深度",
+                static_cast<long>(kfs_align_verify_min_sequence_));
     return BT::NodeStatus::RUNNING;
   }
-  if (elapsed > params_.kfs_align_timeout_s) {
-    finishKfsAlignFailure("kfs_align_segment_timeout");
-    return BT::NodeStatus::RUNNING;
-  }
-
-  publishTwist(0.0, kfs_align_vy_, 0.0);
   return BT::NodeStatus::RUNNING;
 }
 
-BT::NodeStatus MfPreselectionFlowAction::beginKfsOpenLoopApproach(
+BT::NodeStatus MfPreselectionFlowAction::beginKfsOdomApproach(
     const KfsVisualObservation &observation) {
   if (!node_ || !kfs_pickup_active_) {
-    return fail("kfs_open_loop_state_missing");
+    return fail("kfs_odom_approach_state_missing");
   }
   if (!observation.has_depth) {
-    finishKfsAlignFailure("kfs_open_loop_depth_missing");
+    finishKfsAlignFailure("kfs_odom_approach_depth_missing");
     return BT::NodeStatus::RUNNING;
   }
 
   const double planned_distance_m =
-      MfPreselectionLogicResult::kfsOpenLoopDistance(
-          observation.target.distance_m, params_.kfs_grab_distance_m);
+      MfPreselectionLogicResult::kfsApproachOdomDistance(
+          observation.target.distance_m, params_);
+  const double planned_abs_distance_m = std::abs(planned_distance_m);
   const double planned_duration_s =
       MfPreselectionLogicResult::kfsOpenLoopDuration(
-          planned_distance_m, params_.kfs_approach_speed_mps);
-  if (planned_distance_m > 0.0 && params_.kfs_approach_speed_mps <= 0.0) {
-    return fail("kfs_open_loop_speed_non_positive");
+          planned_abs_distance_m, params_.kfs_approach_speed_mps);
+  if (planned_abs_distance_m > 0.0 && params_.kfs_approach_speed_mps <= 0.0) {
+    return fail("kfs_odom_approach_speed_non_positive");
   }
   if (planned_duration_s > params_.kfs_approach_timeout_s) {
     RCLCPP_ERROR(node_->get_logger(),
-                 "梅林预选赛KFS开环趋近计划超过安全超时：distance=%.3fm speed=%.3fm/s duration=%.3fs timeout=%.3fs",
-                 planned_distance_m, params_.kfs_approach_speed_mps,
+                 "梅林预选赛KFS odom闭环趋近计划超过安全超时：distance=%.3fm speed=%.3fm/s estimated_duration=%.3fs timeout=%.3fs",
+                 planned_abs_distance_m, params_.kfs_approach_speed_mps,
                  planned_duration_s, params_.kfs_approach_timeout_s);
-    return fail("kfs_open_loop_plan_timeout");
+    return fail("kfs_odom_approach_plan_timeout");
   }
 
-  kfs_open_loop_target_ = observation.target;
-  kfs_open_loop_offset_px_ = observation.offset_px;
-  kfs_open_loop_locked_depth_m_ = observation.target.distance_m;
-  kfs_open_loop_distance_m_ = planned_distance_m;
-  kfs_open_loop_duration_s_ = planned_duration_s;
-  kfs_open_loop_started_ = false;
+  kfs_odom_target_ = observation.target;
+  kfs_odom_offset_px_ = observation.offset_px;
+  kfs_odom_locked_depth_m_ = observation.target.distance_m;
+  kfs_odom_approach_distance_m_ = planned_distance_m;
+  kfs_odom_approach_estimated_duration_s_ = planned_duration_s;
+  kfs_odom_approach_started_ = false;
+  clearKfsOdomAxisMotion();
 
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛KFS目标对齐稳定，锁定开环趋近：label=%s offset=%d locked_depth=%.3fm arm_reach=%.3fm distance=%.3fm speed=%.3fm/s duration=%.3fs vx=%.3f",
+              "梅林预选赛KFS目标对齐稳定，锁定odom闭环趋近：label=%s offset=%d locked_depth=%.3fm arm_reach=%.3fm distance=%.3fm speed_max=%.3fm/s speed_min=%.3fm/s estimated_duration=%.3fs",
               observation.target.label.c_str(), observation.offset_px,
-              kfs_open_loop_locked_depth_m_, params_.kfs_grab_distance_m,
-              kfs_open_loop_distance_m_, params_.kfs_approach_speed_mps,
-              kfs_open_loop_duration_s_, kfsApproachVx());
+              kfs_odom_locked_depth_m_, params_.kfs_grab_distance_m,
+              kfs_odom_approach_distance_m_, params_.kfs_approach_speed_mps,
+              params_.kfs_approach_min_speed_mps,
+              kfs_odom_approach_estimated_duration_s_);
   if (!kfs_pickup_high_side_) {
     publishStop();
     writeBlackboardState("kfs_second_arm_lower");
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛KFS向下夹取开环前先放下第二节机械臂：cmd=0x%02X feedback=0x%02X",
+                "梅林预选赛KFS向下夹取odom闭环趋近前先放下第二节机械臂：cmd=0x%02X feedback=0x%02X",
                 static_cast<unsigned int>(clampByte(params_.second_arm_lower_command_id)),
                 static_cast<unsigned int>(clampByte(params_.second_arm_lower_done_feedback_id)));
     beginMechanismCommand(clampByte(params_.second_arm_lower_command_id),
@@ -3804,67 +4189,67 @@ BT::NodeStatus MfPreselectionFlowAction::beginKfsOpenLoopApproach(
                           "kfs_second_arm_lower_failed");
     return BT::NodeStatus::RUNNING;
   }
-  startKfsOpenLoopApproach();
+  startKfsOdomApproach();
   return BT::NodeStatus::RUNNING;
 }
 
-void MfPreselectionFlowAction::startKfsOpenLoopApproach() {
-  if (!node_ || !kfs_pickup_active_ || !kfs_open_loop_target_.has_value()) {
+void MfPreselectionFlowAction::startKfsOdomApproach() {
+  if (!node_ || !kfs_pickup_active_ || !kfs_odom_target_.has_value()) {
     return;
   }
-  kfs_open_loop_started_ = true;
-  phase_start_ = node_->now();
-  writeBlackboardState("kfs_open_loop_approach");
-  phase_ = Phase::KfsOpenLoopApproach;
-  if (kfs_open_loop_duration_s_ <= 0.0) {
+  kfs_odom_approach_started_ = true;
+  writeBlackboardState("kfs_odom_approach");
+  phase_ = Phase::KfsOdomApproach;
+  if (std::abs(kfs_odom_approach_distance_m_) <=
+      params_.kfs_approach_odom_tolerance_m) {
     publishStop();
     RCLCPP_INFO(node_->get_logger(),
                 "梅林预选赛KFS锁定深度已在机械臂可触达范围内，直接发送夹取命令");
-    beginGrab(kfs_pickup_high_side_, kfs_pickup_source_, *kfs_open_loop_target_,
+    beginGrab(kfs_pickup_high_side_, kfs_pickup_source_, *kfs_odom_target_,
               kfs_pickup_success_phase_, kfs_pickup_failure_phase_,
               kfs_pickup_direct_exit_on_success_,
               kfs_pickup_entry_high_protocol_);
     clearKfsVisualPickup();
   } else {
-    publishTwist(kfsApproachVx(), 0.0, 0.0);
+    beginKfsOdomAxisMotion(KfsOdomAxis::X, kfs_odom_approach_distance_m_,
+                           params_.kfs_approach_speed_mps,
+                           params_.kfs_approach_min_speed_mps,
+                           params_.kfs_approach_odom_tolerance_m,
+                           params_.kfs_approach_timeout_s,
+                           "kfs_forward_approach");
   }
 }
 
-BT::NodeStatus MfPreselectionFlowAction::tickKfsOpenLoopApproach() {
-  if (!node_ || !kfs_pickup_active_ || !kfs_open_loop_target_.has_value()) {
-    return fail("kfs_open_loop_target_missing");
+BT::NodeStatus MfPreselectionFlowAction::tickKfsOdomApproach() {
+  if (!node_ || !kfs_pickup_active_ || !kfs_odom_target_.has_value()) {
+    return fail("kfs_odom_approach_target_missing");
   }
-  if (!kfs_open_loop_started_) {
-    phase_start_ = node_->now();
-    kfs_open_loop_started_ = true;
+  if (!kfs_odom_approach_started_) {
+    startKfsOdomApproach();
+    return BT::NodeStatus::RUNNING;
   }
 
-  const double elapsed = (node_->now() - phase_start_).seconds();
-  if (elapsed >= kfs_open_loop_duration_s_) {
+  std::string failure_reason;
+  const auto motion_result = tickKfsOdomAxisMotion(failure_reason);
+  if (motion_result == KfsOdomMotionResult::Succeeded) {
     publishStop();
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛KFS开环趋近完成：elapsed=%.3fs duration=%.3fs locked_depth=%.3fm planned_distance=%.3fm，发送夹取",
-                elapsed, kfs_open_loop_duration_s_,
-                kfs_open_loop_locked_depth_m_, kfs_open_loop_distance_m_);
-    beginGrab(kfs_pickup_high_side_, kfs_pickup_source_, *kfs_open_loop_target_,
+                "梅林预选赛KFS odom闭环趋近完成：locked_depth=%.3fm planned_distance=%.3fm，发送夹取",
+                kfs_odom_locked_depth_m_, kfs_odom_approach_distance_m_);
+    beginGrab(kfs_pickup_high_side_, kfs_pickup_source_, *kfs_odom_target_,
               kfs_pickup_success_phase_, kfs_pickup_failure_phase_,
               kfs_pickup_direct_exit_on_success_,
               kfs_pickup_entry_high_protocol_);
     clearKfsVisualPickup();
     return BT::NodeStatus::RUNNING;
   }
-  if (elapsed > params_.kfs_approach_timeout_s) {
+  if (motion_result == KfsOdomMotionResult::Failed) {
     publishStop();
-    return fail("kfs_open_loop_runtime_timeout");
+    return fail(failure_reason.empty() ? "kfs_odom_approach_runtime_failed"
+                                       : failure_reason);
   }
 
-  publishTwist(kfsApproachVx(), 0.0, 0.0);
   return BT::NodeStatus::RUNNING;
-}
-
-double MfPreselectionFlowAction::kfsApproachVx() const {
-  return static_cast<double>(params_.kfs_approach_x_sign) *
-         params_.kfs_approach_speed_mps;
 }
 
 void MfPreselectionFlowAction::clearKfsVisualPickup() {
@@ -3878,22 +4263,26 @@ void MfPreselectionFlowAction::clearKfsVisualPickup() {
   kfs_pickup_depth_profile_ = R2DepthProfile::General;
   kfs_pickup_initial_target_.reset();
   kfs_locked_target_.reset();
-  kfs_open_loop_target_.reset();
-  kfs_align_stable_count_ = 0;
+  kfs_odom_target_.reset();
+  resetKfsStableObservation();
   kfs_align_lost_count_ = 0;
   kfs_align_last_sequence_ = 0;
   kfs_align_verify_min_sequence_ = 0;
   kfs_align_total_start_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+  kfs_align_plan_ready_ = false;
   kfs_align_distance_m_ = 0.0;
-  kfs_align_duration_s_ = 0.0;
-  kfs_align_vy_ = 0.0;
+  kfs_align_speed_limit_mps_ = 0.0;
   kfs_align_started_ = false;
   kfs_align_waiting_verify_frame_ = false;
-  kfs_open_loop_offset_px_ = 0;
-  kfs_open_loop_locked_depth_m_ = 0.0;
-  kfs_open_loop_distance_m_ = 0.0;
-  kfs_open_loop_duration_s_ = 0.0;
-  kfs_open_loop_started_ = false;
+  kfs_align_best_abs_offset_px_ = -1;
+  kfs_align_no_progress_count_ = 0;
+  kfs_align_motion_completed_ = false;
+  kfs_odom_offset_px_ = 0;
+  kfs_odom_locked_depth_m_ = 0.0;
+  kfs_odom_approach_distance_m_ = 0.0;
+  kfs_odom_approach_estimated_duration_s_ = 0.0;
+  kfs_odom_approach_started_ = false;
+  clearKfsOdomAxisMotion();
 }
 
 void MfPreselectionFlowAction::beginGrab(
@@ -4161,13 +4550,24 @@ void loadMfPreselectionParams(rclcpp::Node &node,
   p.scan_detect_timeout_s = node.declare_parameter<double>(
       "mf_preselect_scan_detect_timeout_s", p.scan_detect_timeout_s);
 
-  // R2 KFS 夹取前视觉横移对齐和开环趋近参数。入口区使用独立
-  // entry_depth_min/max 窗口，其余检测使用 depth_min/max；开环阶段不再
-  // 读取实时框或深度闭环停车。
+  // R2 KFS 夹取前视觉规划和 odom 闭环执行参数。入口区使用独立
+  // entry_depth_min/max 窗口，其余检测使用 depth_min/max；趋近阶段只闭环
+  // 执行锁定深度规划出的距离，不读取实时深度连续停车。
   p.kfs_align_tolerance_px = node.declare_parameter<int>(
       "mf_preselect_kfs_align_tolerance_px", p.kfs_align_tolerance_px);
   p.kfs_align_stable_frames = node.declare_parameter<int>(
       "mf_preselect_kfs_align_stable_frames", p.kfs_align_stable_frames);
+  p.kfs_align_max_jump_px = node.declare_parameter<int>(
+      "mf_preselect_kfs_align_max_jump_px", p.kfs_align_max_jump_px);
+  p.kfs_align_release_tolerance_px = node.declare_parameter<int>(
+      "mf_preselect_kfs_align_release_tolerance_px",
+      p.kfs_align_release_tolerance_px);
+  p.kfs_align_min_progress_px = node.declare_parameter<int>(
+      "mf_preselect_kfs_align_min_progress_px",
+      p.kfs_align_min_progress_px);
+  p.kfs_align_no_progress_limit = node.declare_parameter<int>(
+      "mf_preselect_kfs_align_no_progress_limit",
+      p.kfs_align_no_progress_limit);
   p.kfs_align_kp = node.declare_parameter<double>(
       "mf_preselect_kfs_align_kp", p.kfs_align_kp);
   p.kfs_align_min_speed_mps = node.declare_parameter<double>(
@@ -4186,8 +4586,24 @@ void loadMfPreselectionParams(rclcpp::Node &node,
   p.kfs_invert_lateral_direction = node.declare_parameter<bool>(
       "mf_preselect_kfs_invert_lateral_direction",
       p.kfs_invert_lateral_direction);
+  p.kfs_odom_xy_kp = node.declare_parameter<double>(
+      "mf_preselect_kfs_odom_xy_kp", p.kfs_odom_xy_kp);
+  p.kfs_align_odom_tolerance_m = node.declare_parameter<double>(
+      "mf_preselect_kfs_align_odom_tolerance_m",
+      p.kfs_align_odom_tolerance_m);
+  p.kfs_approach_odom_tolerance_m = node.declare_parameter<double>(
+      "mf_preselect_kfs_approach_odom_tolerance_m",
+      p.kfs_approach_odom_tolerance_m);
+  p.kfs_odom_yaw_tolerance_deg = node.declare_parameter<double>(
+      "mf_preselect_kfs_odom_yaw_tolerance_deg",
+      p.kfs_odom_yaw_tolerance_deg);
+  p.kfs_odom_stable_ticks = node.declare_parameter<int>(
+      "mf_preselect_kfs_odom_stable_ticks", p.kfs_odom_stable_ticks);
   p.kfs_approach_speed_mps = node.declare_parameter<double>(
       "mf_preselect_kfs_approach_speed_mps", p.kfs_approach_speed_mps);
+  p.kfs_approach_min_speed_mps = node.declare_parameter<double>(
+      "mf_preselect_kfs_approach_min_speed_mps",
+      p.kfs_approach_min_speed_mps);
   p.kfs_approach_x_sign = node.declare_parameter<int>(
       "mf_preselect_kfs_approach_x_sign", p.kfs_approach_x_sign);
   p.kfs_approach_timeout_s = node.declare_parameter<double>(
