@@ -197,7 +197,7 @@ r2_runtime:
       mf_preselect_second_arm_lower_command_id: 14 # 0x0E ARM_SECOND_LOWER，向下夹取 odom 闭环趋近前放下第二节机械臂
       mf_preselect_second_arm_lower_done_feedback_id: 10 # 0x0A ARM_SECOND_LOWER_DONE，必须与 0x0E 的 ACK seq 匹配
 
-      mf_preselect_entry_probe_left_distance_m: 1.2     # 2号入口向1号阶梯横移探测距离
+      mf_preselect_entry_probe_left_distance_m: 1.1     # 2号入口向1号阶梯横移探测距离
       mf_preselect_entry_probe_right_sweep_distance_m: 2.4 # 从1号阶梯扫到3号阶梯横移距离
       mf_preselect_entry_probe_return_distance_m: 1.1   # 从1/3号阶梯返回2号入口横移距离
       mf_preselect_lateral_probe_speed_mps: 0.30        # 入口 Y 向平移探测速度绝对值

@@ -399,6 +399,7 @@ private:
 
   bool prepareTransitionTo(int target_grid);
   BT::NodeStatus startTransitionTo(int target_grid);
+  BT::NodeStatus startFakeAvoidForwardObservation();
   BT::NodeStatus startFakeAvoidForwardTransitionTo(int target_grid);
   bool continueAfterTransition();
   Phase phaseAfterTransition() const;

@@ -964,29 +964,13 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     fake_avoid_forward_mode_ = true;
     direct_exit_mode_ = false;
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛假KFS避障台阶动作完成，进入旁列前向观察/上下阶梯决策");
-    phase_ = Phase::FakeAvoidForwardStep;
-    return BT::NodeStatus::RUNNING;
+                "梅林预选赛假KFS避障台阶动作完成，先观察旁列正前方KFS");
+    return startFakeAvoidForwardObservation();
 
   case Phase::FakeAvoidForwardStep:
   {
     fake_avoid_forward_mode_ = true;
-    if (current_grid_ == 10 || current_grid_ == 12) {
-      RCLCPP_INFO(node_->get_logger(),
-                  "梅林预选赛假KFS旁列推进到出口行grid%d，准备下阶梯离场",
-                  current_grid_);
-      phase_ = Phase::FinalExitYawAlign;
-      return BT::NodeStatus::RUNNING;
-    }
-    const auto target_grid =
-        MfPreselectionLogicResult::fakeAvoidanceForwardTargetGrid(current_grid_);
-    if (!target_grid.has_value()) {
-      return fail("invalid_fake_avoid_forward_target");
-    }
-    RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛假KFS旁列前向推进：grid%d -> grid%d，先复用正前方KFS观察",
-                current_grid_, *target_grid);
-    return startFakeAvoidForwardTransitionTo(*target_grid);
+    return startFakeAvoidForwardObservation();
   }
 
   case Phase::TransitionTurn:
@@ -3584,6 +3568,26 @@ BT::NodeStatus MfPreselectionFlowAction::startTransitionTo(int target_grid) {
               transition_height_delta_, yaw);
   beginTurnYaw(yaw, Phase::TransitionArmAdjust, "transition_turn");
   return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus MfPreselectionFlowAction::startFakeAvoidForwardObservation() {
+  fake_avoid_forward_mode_ = true;
+  if (current_grid_ == 10 || current_grid_ == 12) {
+    RCLCPP_INFO(node_->get_logger(),
+                "梅林预选赛假KFS旁列推进到出口行grid%d，准备下阶梯离场",
+                current_grid_);
+    phase_ = Phase::FinalExitYawAlign;
+    return BT::NodeStatus::RUNNING;
+  }
+  const auto target_grid =
+      MfPreselectionLogicResult::fakeAvoidanceForwardTargetGrid(current_grid_);
+  if (!target_grid.has_value()) {
+    return fail("invalid_fake_avoid_forward_target");
+  }
+  RCLCPP_INFO(node_->get_logger(),
+              "梅林预选赛假KFS旁列前向观察：grid%d -> grid%d",
+              current_grid_, *target_grid);
+  return startFakeAvoidForwardTransitionTo(*target_grid);
 }
 
 BT::NodeStatus
