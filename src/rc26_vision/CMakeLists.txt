@@ -243,6 +243,17 @@ if(BUILD_TESTING)
     src/shared/target/visual_target_match.cpp
   )
   target_include_directories(test_visual_target_match PUBLIC ${COMMON_INCLUDE_DIRS})
+
+  ament_add_gtest(test_vision_frame_snapshot
+    test/test_vision_frame_snapshot.cpp
+  )
+  target_include_directories(test_vision_frame_snapshot PUBLIC ${COMMON_INCLUDE_DIRS})
+  target_include_directories(test_vision_frame_snapshot PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${OpenCV_INCLUDE_DIRS}
+  )
+  target_link_libraries(test_vision_frame_snapshot ${OpenCV_LIBS})
+  ament_target_dependencies(test_vision_frame_snapshot rclcpp sensor_msgs)
 endif()
 
 # ============================================================================

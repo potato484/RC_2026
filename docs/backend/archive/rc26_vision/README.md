@@ -59,7 +59,7 @@
 - `src/shared/sensors/depth_roi_sampler.cpp`：共享深度 ROI 中值采样，供默认推理链和 tip localizer 共用。
 - `src/preprocess/yolo/yolo_image_preprocessor.cpp`：YOLO 输入图像预处理与 letterbox/stretch 变换信息。
 - `src/inference/runtime/vision_inference_manager.cpp`：配置载入、模型切换、推理线程和图像/深度/相机信息缓存。
-- `VisionInferenceManager::getLatestFrameSnapshot()`：只读深拷贝快照 API，暴露最近彩色帧、深度帧、完整 detections、目标结果和推理帧序号，供决策层 KFS 阶梯等待链判断占用目标是否仍在有效深度范围内。
+- `VisionInferenceManager::getLatestFrameSnapshot()`：只读深拷贝快照 API，暴露最近彩色帧、深度帧、完整 detections、目标结果和推理帧序号，供决策层 KFS 阶梯等待链判断占用目标是否仍在有效深度范围内。快照优先使用尚未被推理线程消费的最新 color；若该缓存已被消费但 display 缓存有效，则用与 `display_detections_` 同源的 `display_frame_` 回填彩色帧，避免决策侧在已有检测和深度时误判缺少彩色图。
 - `src/inference/config/model_profile_loader.cpp`：模型 profile 解析。
 - `src/inference/runtime/backend_resolver.cpp` / `src/inference/runtime/engine_factory.cpp`：启动时的后端探测、自动选链、中文日志与引擎创建逻辑。
 - `src/inference/aidlite/aidlite_engine.cpp` / `src/inference/aidlite/aidlite_engine_stub.cpp` / `src/inference/onnx/onnx_runtime_engine.cpp` / `src/inference/onnx/onnx_runtime_engine_stub.cpp`：AidLite 实机链、本地 ONNX Runtime 链与缺依赖时的 stub。
@@ -108,9 +108,11 @@
 - `tip` test 链继续留在包内，但与默认 RealSense 主链隔离；它面向 USB 相机/单目 test，不是当前决策运行时权威入口
 - `tip` test 链的自动横移和限位前探只通过标准 `/cmd_vel` 接入底盘，限位反馈只订阅 `/mechanism/command_feedback`，抓取只通过 `/mechanism/send_command` 共享 transport 接入机构；它不拥有目标 MCU 串口，也不是默认导航/决策运行时权威入口
 - KFS action test 同样只通过标准 `/cmd_vel` 接入底盘，通过 `/mechanism/send_command` 共享 transport 发送机械臂预调、down 方向第二节放下和 KFS 夹取 raw command，并订阅 `/mechanism/command_feedback` 等待对应完成反馈；它不直接打开目标 MCU 串口，也不改变 `rc26_bringup + rc26_decision` 的正式 KFS 阶梯等待链。
-- `VisionInferenceManager` 当前除 `getLatestDisplay()` 外，还提供 `getLatestFrameSnapshot()` 供 headless 决策节点消费；getter 端深拷贝图像与检测结果，不新增视觉 ROS topic，也不改变 `/vision/tip_detections` 等既有外部契约。
+- `VisionInferenceManager` 当前除 `getLatestDisplay()` 外，还提供 `getLatestFrameSnapshot()` 供 headless 决策节点消费；getter 端深拷贝图像与检测结果，不新增视觉 ROS topic，也不改变 `/vision/tip_detections` 等既有外部契约。推理线程会消费并清空 `latest_color_`，因此快照 API 在 color 缺失但 display 有效时会回填 display 帧，保证 `color_bgr`、detections 和 `display_sequence` 在决策侧保持可用且同源。
 
 ## 本轮收口
+
+- 本次修正 `VisionInferenceManager::getLatestFrameSnapshot()` 的彩色帧来源：当推理线程已经消费 `latest_color_`，但 `display_frame_ / display_detections_ / display_sequence_` 有效时，快照会用 display 帧回填 `color_bgr` 并把 `color_stamp_ns` 对齐到 display 结果时间戳。该改动只修复内部快照完整性，不新增 ROS topic/service，也不改变推理结果、深度采样或外部消费契约。
 
 - 本次把 ONNX Runtime C++ 改为可选编译后端：缺 `onnxruntime_cxx_api.h` 或 `libonnxruntime.so` 时不再阻塞 `rc26_vision` 构建，而是编译本地 ONNX stub；当前 AidLux 板卡可在 AidLite 已安装、ONNX Runtime C++ 开发头缺失的状态下构建并通过 `engine: auto` 选择 AidLite。
 - 本次补充了后端能力日志和 resolver 测试，`engine: auto` 的顺序固定为 AidLite 优先、ONNX Runtime 次之、两者都不可用时明确报错。

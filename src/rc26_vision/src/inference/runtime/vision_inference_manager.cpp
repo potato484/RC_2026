@@ -1,6 +1,7 @@
 #include "rc26_vision/inference/runtime/engine_factory.hpp"
 #include "rc26_vision/inference/runtime/vision_inference_manager.hpp"
 #include "rc26_vision/shared/sensors/depth_roi_sampler.hpp"
+#include "vision_frame_snapshot_utils.hpp"
 
 #include <cv_bridge/cv_bridge.h>
 #include <opencv2/core.hpp>
@@ -247,6 +248,7 @@ bool VisionInferenceManager::getLatestFrameSnapshot(FrameSnapshot& snapshot_out)
     FrameSnapshot snapshot;
     sensor_msgs::msg::Image::ConstSharedPtr color_msg;
     sensor_msgs::msg::Image::ConstSharedPtr depth_msg;
+    cv::Mat display_frame;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         color_msg = latest_color_;
@@ -257,7 +259,7 @@ bool VisionInferenceManager::getLatestFrameSnapshot(FrameSnapshot& snapshot_out)
         try {
             snapshot.color_bgr = cv_bridge::toCvCopy(color_msg, "bgr8")->image.clone();
             snapshot.color_stamp_ns = rclcpp::Time(color_msg->header.stamp).nanoseconds();
-            snapshot.has_color = true;
+            snapshot.has_color = !snapshot.color_bgr.empty();
         } catch (...) {
             snapshot.has_color = false;
         }
@@ -280,7 +282,11 @@ bool VisionInferenceManager::getLatestFrameSnapshot(FrameSnapshot& snapshot_out)
         snapshot.display_stamp_ns = display_result_.timestamp_ns;
         snapshot.display_sequence = display_sequence_;
         snapshot.has_display = display_valid_;
+        if (display_valid_ && !display_frame_.empty()) {
+            display_frame = display_frame_;
+        }
     }
+    runtime_detail::fillSnapshotColorFromDisplayFrame(snapshot, display_frame);
     if (!snapshot.has_display) {
         std::lock_guard<std::mutex> lock(result_mutex_);
         snapshot.result = latest_result_;
