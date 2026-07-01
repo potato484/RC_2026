@@ -119,7 +119,7 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 2026-07-01 同步：`MfPreselectionFlow` 的假 KFS 横向避障落到 1 号侧或 3 号侧旁列后，会立即通过 `startFakeAvoidForwardObservation()` 选择旁列下一格并复用现有 `TransitionArmAdjust -> TransitionObserve` 正前方观察链路；观察到 R2 KFS 时沿现有夹取链处理，未观察到时继续原旁列格间上/下阶梯推进。该改动只调整避障后旁列观察调度和日志，不新增视觉接口、机构命令或 `/cmd_vel` 发布权威。
 
-2026-07-01 同步：`MfPreselectionFlow::findR2LockObservation()` 新增 R2 KFS 候选拒绝诊断。行前方、周身和 `TransitionObserve` 检测中若画面未形成可夹取目标，会记录 `pickup_limit_reached`、`vision_not_running`、`snapshot_invalid`、`no_label_match`、`ignored_target`、`depth_invalid` 或 `selection_failed`，同步写入 `mf_preselect_r2_lock_reject_reason/detail/sequence` 黑板键，并把最近拒绝中文摘要追加到“未发现”日志；黑板中的 reason 保持英文代码，现场 INFO 日志使用中文原因和中文详情。该改动只增强现场排查信息，不改变标签、深度、目标选择、夹取次数、台阶或 `/cmd_vel` 行为。
+2026-07-01 同步：`MfPreselectionFlow::findR2LockObservation()` 新增 R2 KFS 候选拒绝诊断。行前方、周身和 `TransitionObserve` 检测中若画面未形成可夹取目标，会记录 `pickup_limit_reached`、`vision_not_running`、`snapshot_invalid`、`no_label_match`、`ignored_target`、`depth_invalid` 或 `selection_failed`，同步写入 `mf_preselect_r2_lock_reject_reason/detail/sequence` 黑板键，并把最近拒绝中文摘要追加到入口、行前方、周身和台阶观察的“未发现”日志；黑板中的 reason 保持英文代码，现场 INFO 日志使用中文原因和中文详情。`depth_invalid` 详情会按同一 `7x7` ROI 与最小有效点口径输出采样点、深度类型、深度尺寸、窗口内有效点、原始深度中位数和 `ROI无有效原始深度 / 有效深度低于窗口 / 有效深度高于窗口 / 窗口内有效点不足` 等主因，帮助区分深度空洞、采到背景和窗口配置问题。KFS 横移对齐丢帧和超时日志也会附带最近 R2 候选拒绝摘要。该改动只增强现场排查信息，不改变标签、深度窗口、目标选择、夹取次数、台阶或 `/cmd_vel` 行为。
 
 2026-07-01 同步：针对实车出现的 `snapshot_invalid` 且详情为“有显示图=是、有彩色图=否、有深度图=是”的情况，根因修正在 `rc26_vision::VisionInferenceManager::getLatestFrameSnapshot()`：推理线程消费 `latest_color_` 后，快照 API 会用与 detections 同源的 display 帧回填 `color_bgr`。`MfPreselectionFlow` 仍要求 color/depth/display/sequence 完整，不放宽夹取入口校验；该修复只保证视觉快照完整性，不改变 R2 KFS 策略、深度窗口、目标选择、台阶流程或 `/cmd_vel` 行为。
 

@@ -12,6 +12,7 @@
 #include <behaviortree_cpp/bt_factory.h>
 #include <geometry_msgs/msg/twist.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <opencv2/core.hpp>
 #include <rclcpp/rclcpp.hpp>
 
 #include "rc26_decision/mf/grid_center.hpp"
@@ -21,6 +22,7 @@
 #include "rc26_serial/protocol.hpp"
 #include "rc26_vision/inference/runtime/vision_inference_manager.hpp"
 #include "rc26_vision/postprocess/alignment/tip_alignment.hpp"
+#include "rc26_vision/shared/sensors/depth_roi_sampler.hpp"
 #include "rc26_vision/shared/target/visual_target_match.hpp"
 
 namespace rc26_decision {
@@ -142,6 +144,34 @@ struct MfPreselectionParams {
 };
 
 struct MfPreselectionLogicResult {
+  struct DepthRoiDiagnostic {
+    int cx{0};
+    int cy{0};
+    int roi_size{0};
+    int min_valid_count{0};
+    int depth_rows{0};
+    int depth_cols{0};
+    int depth_type{0};
+    std::string depth_type_name;
+    double min_depth_m{0.0};
+    double max_depth_m{0.0};
+    int total_pixels{0};
+    int zero_depth_count{0};
+    int non_finite_count{0};
+    int below_min_count{0};
+    int above_max_count{0};
+    int window_valid_count{0};
+    int raw_valid_count{0};
+    double raw_min_m{0.0};
+    double raw_max_m{0.0};
+    double raw_median_m{0.0};
+    bool depth_empty{false};
+    bool unsupported_type{false};
+    bool sampled{false};
+    double sampled_depth_m{0.0};
+    std::string primary_failure;
+  };
+
   static bool labelMatches(const std::string &label,
                            const std::vector<std::string> &exact_labels,
                            const std::vector<std::string> &prefixes);
@@ -164,6 +194,11 @@ struct MfPreselectionLogicResult {
                                            const MfPreselectionParams &params);
   static bool kfsAlignTimeoutPickupAllowed(int offset_px, bool has_depth,
                                            const MfPreselectionParams &params);
+  static DepthRoiDiagnostic depthRoiDiagnostic(
+      const cv::Mat &depth, int cx, int cy,
+      const rc26_vision::DepthRoiSamplerConfig &config);
+  static std::string depthRoiDiagnosticDetail(
+      const DepthRoiDiagnostic &diagnostic);
   static rc26_vision::TipAlignmentConfig
   kfsAlignmentConfig(const MfPreselectionParams &params,
                      double target_yaw_rad);
@@ -693,6 +728,7 @@ private:
   std::string last_r2_lock_reject_detail_;
   int64_t last_r2_lock_reject_sequence_{0};
   std::unordered_set<std::string> r2_lock_logged_reasons_this_detection_;
+  std::string kfs_align_last_logged_reject_reason_;
   bool grab_success_direct_exit_{false};
   int grab_verify_lost_count_{0};
   int64_t grab_verify_last_sequence_{0};

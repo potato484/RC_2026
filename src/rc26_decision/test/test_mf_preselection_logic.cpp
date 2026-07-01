@@ -5,12 +5,23 @@
 #include <vector>
 
 #include <gtest/gtest.h>
+#include <opencv2/core.hpp>
 
 #include "rc26_decision/mf/merlin_map.hpp"
 #include "rc26_decision/mf_preselection/mf_preselection_flow.hpp"
 #include "rc26_decision/stair/stair_area.hpp"
+#include "rc26_vision/shared/sensors/depth_roi_sampler.hpp"
 
 namespace {
+
+rc26_vision::DepthRoiSamplerConfig diagnosticDepthConfig() {
+  rc26_vision::DepthRoiSamplerConfig config;
+  config.roi_size = 3;
+  config.min_valid_count = 4;
+  config.min_depth_m = 0.35;
+  config.max_depth_m = 1.00;
+  return config;
+}
 
 TEST(StairSpeedProfile, SamplesLinearFastToSlow) {
   const rc26_decision::StairSpeedProfile profile{0.10, 0.05, 1.0};
@@ -56,6 +67,104 @@ TEST(MfPreselectionLogic, PickupLimitUsesStrictMaximum) {
   EXPECT_TRUE(rc26_decision::MfPreselectionLogicResult::canPickup(1, 2));
   EXPECT_FALSE(rc26_decision::MfPreselectionLogicResult::canPickup(2, 2));
   EXPECT_FALSE(rc26_decision::MfPreselectionLogicResult::canPickup(0, 0));
+}
+
+TEST(MfPreselectionLogic, DepthRoiDiagnosticReportsZeroDepthHole) {
+  cv::Mat depth(5, 5, CV_16UC1, cv::Scalar(0));
+  const auto diagnostic =
+      rc26_decision::MfPreselectionLogicResult::depthRoiDiagnostic(
+          depth, 2, 2, diagnosticDepthConfig());
+
+  EXPECT_FALSE(diagnostic.sampled);
+  EXPECT_EQ(diagnostic.primary_failure, "ROI无有效原始深度");
+  EXPECT_EQ(diagnostic.total_pixels, 9);
+  EXPECT_EQ(diagnostic.zero_depth_count, 9);
+  EXPECT_EQ(diagnostic.raw_valid_count, 0);
+  const std::string detail =
+      rc26_decision::MfPreselectionLogicResult::depthRoiDiagnosticDetail(
+          diagnostic);
+  EXPECT_NE(detail.find("深度失败主因=ROI无有效原始深度"),
+            std::string::npos);
+  EXPECT_NE(detail.find("深度采样点=(2,2)"), std::string::npos);
+  EXPECT_NE(detail.find("ROI=3"), std::string::npos);
+  EXPECT_NE(detail.find("窗口内有效点=0"), std::string::npos);
+}
+
+TEST(MfPreselectionLogic, DepthRoiDiagnosticReportsDepthAboveWindow) {
+  cv::Mat depth(5, 5, CV_16UC1, cv::Scalar(1500));
+  const auto diagnostic =
+      rc26_decision::MfPreselectionLogicResult::depthRoiDiagnostic(
+          depth, 2, 2, diagnosticDepthConfig());
+
+  EXPECT_FALSE(diagnostic.sampled);
+  EXPECT_EQ(diagnostic.primary_failure, "有效深度高于窗口");
+  EXPECT_EQ(diagnostic.raw_valid_count, 9);
+  EXPECT_EQ(diagnostic.above_max_count, 9);
+  EXPECT_DOUBLE_EQ(diagnostic.raw_median_m, 1.5);
+  const std::string detail =
+      rc26_decision::MfPreselectionLogicResult::depthRoiDiagnosticDetail(
+          diagnostic);
+  EXPECT_NE(detail.find("raw_median=1.5"), std::string::npos);
+}
+
+TEST(MfPreselectionLogic, DepthRoiDiagnosticReportsDepthBelowWindow) {
+  cv::Mat depth(5, 5, CV_16UC1, cv::Scalar(200));
+  const auto diagnostic =
+      rc26_decision::MfPreselectionLogicResult::depthRoiDiagnostic(
+          depth, 2, 2, diagnosticDepthConfig());
+
+  EXPECT_FALSE(diagnostic.sampled);
+  EXPECT_EQ(diagnostic.primary_failure, "有效深度低于窗口");
+  EXPECT_EQ(diagnostic.raw_valid_count, 9);
+  EXPECT_EQ(diagnostic.below_min_count, 9);
+}
+
+TEST(MfPreselectionLogic, DepthRoiDiagnosticReportsInsufficientWindowSamples) {
+  cv::Mat depth(5, 5, CV_16UC1, cv::Scalar(0));
+  depth.at<uint16_t>(2, 2) = 600;
+  depth.at<uint16_t>(2, 3) = 610;
+  depth.at<uint16_t>(3, 2) = 620;
+  const auto diagnostic =
+      rc26_decision::MfPreselectionLogicResult::depthRoiDiagnostic(
+          depth, 2, 2, diagnosticDepthConfig());
+
+  EXPECT_FALSE(diagnostic.sampled);
+  EXPECT_EQ(diagnostic.primary_failure, "窗口内有效点不足");
+  EXPECT_EQ(diagnostic.raw_valid_count, 3);
+  EXPECT_EQ(diagnostic.window_valid_count, 3);
+  EXPECT_EQ(diagnostic.zero_depth_count, 6);
+}
+
+TEST(MfPreselectionLogic, DepthRoiDiagnosticReportsUnsupportedType) {
+  cv::Mat depth(5, 5, CV_8UC1, cv::Scalar(20));
+  const auto diagnostic =
+      rc26_decision::MfPreselectionLogicResult::depthRoiDiagnostic(
+          depth, 2, 2, diagnosticDepthConfig());
+
+  EXPECT_FALSE(diagnostic.sampled);
+  EXPECT_TRUE(diagnostic.unsupported_type);
+  EXPECT_EQ(diagnostic.primary_failure, "深度类型不支持");
+  const std::string detail =
+      rc26_decision::MfPreselectionLogicResult::depthRoiDiagnosticDetail(
+          diagnostic);
+  EXPECT_NE(detail.find("深度类型=CV_8UC1"), std::string::npos);
+}
+
+TEST(MfPreselectionLogic, DepthRoiDiagnosticReportsSuccessfulSample) {
+  cv::Mat depth(5, 5, CV_16UC1, cv::Scalar(600));
+  const auto diagnostic =
+      rc26_decision::MfPreselectionLogicResult::depthRoiDiagnostic(
+          depth, 2, 2, diagnosticDepthConfig());
+
+  EXPECT_TRUE(diagnostic.sampled);
+  EXPECT_TRUE(diagnostic.primary_failure.empty());
+  EXPECT_EQ(diagnostic.window_valid_count, 9);
+  EXPECT_DOUBLE_EQ(diagnostic.sampled_depth_m, 0.6);
+  const std::string detail =
+      rc26_decision::MfPreselectionLogicResult::depthRoiDiagnosticDetail(
+          diagnostic);
+  EXPECT_NE(detail.find("深度失败主因=无"), std::string::npos);
+  EXPECT_NE(detail.find("sampled_depth=0.6"), std::string::npos);
 }
 
 TEST(MfPreselectionLogic, EntryInterruptWaitsForCenteredTarget) {
