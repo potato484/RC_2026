@@ -215,6 +215,11 @@ struct MfPreselectionLogicResult {
                                              const MfPreselectionParams &params);
   static double mcuSineStopTime(double speed_mps, double acc_mps2);
   static double mcuSineStopDistance(double speed_mps, double acc_mps2);
+  static double entryReturnToCenterDistanceCompensation(
+      double lateral_speed_mps, const MfPreselectionParams &params);
+  static double entryReturnToCenterCompensatedDistance(
+      double raw_distance_m, double lateral_speed_mps,
+      const MfPreselectionParams &params, double &compensation_m);
   static int entryInterruptDynamicExtraPx(double lateral_speed_mps,
                                           double depth_m,
                                           const MfPreselectionParams &params);

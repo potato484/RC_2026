@@ -477,6 +477,32 @@ double MfPreselectionLogicResult::mcuSineStopDistance(double speed_mps,
   return kPi * speed * speed / (4.0 * acc_mps2);
 }
 
+double MfPreselectionLogicResult::entryReturnToCenterDistanceCompensation(
+    double lateral_speed_mps, const MfPreselectionParams &params) {
+  const double speed =
+      std::isfinite(lateral_speed_mps) ? std::abs(lateral_speed_mps) : 0.0;
+  if (speed <= 0.0) {
+    return 0.0;
+  }
+  const double stop_distance =
+      mcuSineStopDistance(speed, params.entry_mcu_vy_acc_mps2);
+  const double latency =
+      std::max(0.0, std::isfinite(params.entry_interrupt_latency_s)
+                        ? params.entry_interrupt_latency_s
+                        : 0.0);
+  return stop_distance + speed * latency;
+}
+
+double MfPreselectionLogicResult::entryReturnToCenterCompensatedDistance(
+    double raw_distance_m, double lateral_speed_mps,
+    const MfPreselectionParams &params, double &compensation_m) {
+  const double raw =
+      std::isfinite(raw_distance_m) ? std::max(0.0, raw_distance_m) : 0.0;
+  compensation_m =
+      entryReturnToCenterDistanceCompensation(lateral_speed_mps, params);
+  return std::max(0.0, raw - compensation_m);
+}
+
 int MfPreselectionLogicResult::entryInterruptDynamicExtraPx(
     double lateral_speed_mps, double depth_m,
     const MfPreselectionParams &params) {
@@ -3437,9 +3463,25 @@ MfPreselectionFlowAction::beginEntryReturnToCenterAfterInterruptedPickup() {
     return BT::NodeStatus::RUNNING;
   }
 
+  const double raw_distance_m = distance_m;
+  double compensation_m = 0.0;
+  distance_m =
+      MfPreselectionLogicResult::entryReturnToCenterCompensatedDistance(
+          raw_distance_m, vy, params_, compensation_m);
+  if (distance_m <= params_.move_tolerance_m) {
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "梅林预选赛入口中途夹取成功后回2号入口距离经MCU减速+延迟补偿后已无需横移：offset=%.3fm vy=%.3f raw_distance=%.3fm compensation=%.3fm distance=%.3fm tolerance=%.3fm",
+        lateral_offset, vy, raw_distance_m, compensation_m, distance_m,
+        params_.move_tolerance_m);
+    publishStop();
+    phase_ = Phase::EntryPrepareClimb;
+    return BT::NodeStatus::RUNNING;
+  }
+
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛入口中途夹取成功后回2号入口：offset=%.3fm vy=%.3f distance=%.3fm",
-              lateral_offset, vy, distance_m);
+              "梅林预选赛入口中途夹取成功后回2号入口：offset=%.3fm vy=%.3f raw_distance=%.3fm compensation=%.3fm distance=%.3fm",
+              lateral_offset, vy, raw_distance_m, compensation_m, distance_m);
   beginMoveRelative(0.0, vy, distance_m, Phase::EntryPrepareClimb,
                     "entry_return_to_center_after_interrupted_pickup");
   return BT::NodeStatus::RUNNING;

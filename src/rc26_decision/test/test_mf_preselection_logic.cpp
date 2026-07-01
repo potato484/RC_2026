@@ -379,6 +379,71 @@ TEST(MfPreselectionLogic, EntryMcuStopSettleUsesStopTimeMarginAndCap) {
       0.0);
 }
 
+TEST(MfPreselectionLogic,
+     EntryReturnToCenterCompensatesMcuStopTailAndLatency) {
+  rc26_decision::MfPreselectionParams params;
+  params.entry_mcu_vy_acc_mps2 = 1.0;
+  params.entry_interrupt_latency_s = 0.15;
+
+  double compensation_m = 0.0;
+  const double distance_m =
+      rc26_decision::MfPreselectionLogicResult::
+          entryReturnToCenterCompensatedDistance(1.369, 0.30, params,
+                                                 compensation_m);
+  const double expected_compensation = M_PI * 0.30 * 0.30 / 4.0 + 0.30 * 0.15;
+
+  EXPECT_NEAR(compensation_m, expected_compensation, 1e-9);
+  EXPECT_NEAR(distance_m, 1.369 - expected_compensation, 1e-9);
+
+  compensation_m = 0.0;
+  const double reverse_distance_m =
+      rc26_decision::MfPreselectionLogicResult::
+          entryReturnToCenterCompensatedDistance(1.369, -0.30, params,
+                                                 compensation_m);
+  EXPECT_NEAR(compensation_m, expected_compensation, 1e-9);
+  EXPECT_NEAR(reverse_distance_m, distance_m, 1e-9);
+}
+
+TEST(MfPreselectionLogic, EntryReturnToCenterCompensationClampsDistance) {
+  rc26_decision::MfPreselectionParams params;
+  params.entry_mcu_vy_acc_mps2 = 1.0;
+  params.entry_interrupt_latency_s = 0.15;
+
+  double compensation_m = 0.0;
+  const double distance_m =
+      rc26_decision::MfPreselectionLogicResult::
+          entryReturnToCenterCompensatedDistance(0.05, 0.30, params,
+                                                 compensation_m);
+
+  EXPECT_GT(compensation_m, 0.05);
+  EXPECT_DOUBLE_EQ(distance_m, 0.0);
+}
+
+TEST(MfPreselectionLogic,
+     EntryReturnToCenterCompensationFallsBackToLatencyWhenAccInvalid) {
+  rc26_decision::MfPreselectionParams params;
+  params.entry_mcu_vy_acc_mps2 = 0.0;
+  params.entry_interrupt_latency_s = 0.15;
+
+  double compensation_m = 0.0;
+  const double distance_m =
+      rc26_decision::MfPreselectionLogicResult::
+          entryReturnToCenterCompensatedDistance(1.369, 0.30, params,
+                                                 compensation_m);
+
+  EXPECT_NEAR(compensation_m, 0.30 * 0.15, 1e-9);
+  EXPECT_NEAR(distance_m, 1.369 - 0.30 * 0.15, 1e-9);
+
+  compensation_m = 1.0;
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  const double invalid_speed_distance_m =
+      rc26_decision::MfPreselectionLogicResult::
+          entryReturnToCenterCompensatedDistance(1.369, nan, params,
+                                                 compensation_m);
+  EXPECT_DOUBLE_EQ(compensation_m, 0.0);
+  EXPECT_DOUBLE_EQ(invalid_speed_distance_m, 1.369);
+}
+
 TEST(MfPreselectionLogic, AlignTimeoutPickupRequiresDepthAndLooseTolerance) {
   rc26_decision::MfPreselectionParams params;
   params.kfs_align_tolerance_px = 5;
