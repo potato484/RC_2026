@@ -14,6 +14,7 @@
 
 #include "rc26_decision/decision_failure.hpp"
 #include "rc26_decision/mf/merlin_map.hpp"
+#include "rc26_decision/team_color.hpp"
 #include "rc26_serial/protocol.hpp"
 #include "rc26_vision/inference/config/model_profile_loader.hpp"
 #include "rc26_vision/postprocess/alignment/tip_alignment.hpp"
@@ -1061,14 +1062,15 @@ bool MfPreselectionLogicResult::isIgnoredTarget(
 }
 
 std::optional<int> MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
-    int current_grid, MfPreselectionPickupSource source) {
+    int current_grid, MfPreselectionPickupSource source, int mirror_sign) {
   if (!validGrid(current_grid)) {
     return std::nullopt;
   }
+  const int side_sign = normalizedMirrorSign(mirror_sign);
   const int col = gridCol(current_grid);
-  int target_col = col - 1;
+  int target_col = col - side_sign;
   if (source == MfPreselectionPickupSource::Stair3) {
-    target_col = col + 1;
+    target_col = col + side_sign;
   }
   if (target_col < 0 || target_col > 2) {
     return std::nullopt;
@@ -1094,14 +1096,16 @@ MfPreselectionLogicResult::fakeAvoidanceForwardTargetGrid(int current_grid) {
 
 MfPreselectionPickupSource
 MfPreselectionLogicResult::entryPickupSourceForLateralOffset(
-    double lateral_offset_m, double tolerance_m) {
+    double lateral_offset_m, double tolerance_m, int mirror_sign) {
   const double tolerance = std::max(0.0, std::abs(tolerance_m));
   if (!std::isfinite(lateral_offset_m) ||
       std::abs(lateral_offset_m) <= tolerance) {
     return MfPreselectionPickupSource::Stair2;
   }
-  return lateral_offset_m > 0.0 ? MfPreselectionPickupSource::Stair1
-                                : MfPreselectionPickupSource::Stair3;
+  const double mirrored_offset =
+      lateral_offset_m * static_cast<double>(normalizedMirrorSign(mirror_sign));
+  return mirrored_offset > 0.0 ? MfPreselectionPickupSource::Stair1
+                               : MfPreselectionPickupSource::Stair3;
 }
 
 bool MfPreselectionLogicResult::entryReturnToCenterCommand(
@@ -1228,29 +1232,33 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
 
   case Phase::EntryMoveLeft:
     // 从 2 号入口横移到 1 号入口探测。横移距离和速度只来自参数，
-    // 不在这里假设场地绝对坐标。
-    beginMoveRelative(0.0, std::abs(params_.lateral_probe_speed_mps),
+    // 左右方向由 team 镜像符号派生，不在这里假设场地绝对坐标。
+    beginMoveRelative(0.0, std::abs(params_.lateral_probe_speed_mps) *
+                               static_cast<double>(params_.field_mirror_sign),
                       params_.entry_probe_left_distance_m,
                       Phase::EntryDetectStair1, "entry_probe_left");
     return BT::NodeStatus::RUNNING;
 
   case Phase::EntryReturnFromStair1:
     // 1 号入口夹取后或探测完成后回到中间入口，为上中间列首个台阶做准备。
-    beginMoveRelative(0.0, -std::abs(params_.lateral_probe_speed_mps),
+    beginMoveRelative(0.0, -std::abs(params_.lateral_probe_speed_mps) *
+                               static_cast<double>(params_.field_mirror_sign),
                       params_.entry_probe_return_distance_m,
                       Phase::EntryPrepareClimb, "entry_return_from_stair1");
     return BT::NodeStatus::RUNNING;
 
   case Phase::EntryMoveRightToStair3:
     // 如果 1 号也没发现目标，从当前 1 号位置一次横移扫到 3 号入口。
-    beginMoveRelative(0.0, -std::abs(params_.lateral_probe_speed_mps),
+    beginMoveRelative(0.0, -std::abs(params_.lateral_probe_speed_mps) *
+                               static_cast<double>(params_.field_mirror_sign),
                       params_.entry_probe_right_sweep_distance_m,
                       Phase::EntryDetectStair3, "entry_probe_stair3");
     return BT::NodeStatus::RUNNING;
 
   case Phase::EntryReturnFromStair3:
     // 3 号入口探测结束后回到中间入口，统一从 grid2 方向入场。
-    beginMoveRelative(0.0, std::abs(params_.lateral_probe_speed_mps),
+    beginMoveRelative(0.0, std::abs(params_.lateral_probe_speed_mps) *
+                               static_cast<double>(params_.field_mirror_sign),
                       params_.entry_probe_return_distance_m,
                       Phase::EntryPrepareClimb, "entry_return_from_stair3");
     return BT::NodeStatus::RUNNING;
@@ -1360,8 +1368,8 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     // 假 KFS 是不可夹取目标。第 1/2/3 行前方遇到时，按入口夹取来源选择
     // 向 1 号或 3 号侧绕行；yaw、上/下阶和机构预调都由静态高度表决定。
     if (const auto target_grid =
-            MfPreselectionLogicResult::fakeAvoidanceTargetGrid(current_grid_,
-                                                               pickup_source_)) {
+            MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
+                current_grid_, pickup_source_, params_.field_mirror_sign)) {
       fake_avoid_target_grid_ = *target_grid;
     } else {
       return fail("invalid_fake_avoid_target_grid");
@@ -3265,12 +3273,13 @@ bool MfPreselectionFlowAction::isEntryInterruptibleMove() const {
 }
 
 std::optional<double> MfPreselectionFlowAction::entryMoveTargetOffset() const {
+  const double mirror_sign = static_cast<double>(params_.field_mirror_sign);
   if (move_label_ == "entry_probe_left") {
-    return params_.entry_probe_left_distance_m;
+    return mirror_sign * params_.entry_probe_left_distance_m;
   }
   if (move_label_ == "entry_probe_stair3") {
-    return params_.entry_probe_left_distance_m -
-           params_.entry_probe_right_sweep_distance_m;
+    return mirror_sign * (params_.entry_probe_left_distance_m -
+                          params_.entry_probe_right_sweep_distance_m);
   }
   if (move_label_ == "entry_return_from_stair1" ||
       move_label_ == "entry_return_from_stair3" ||
@@ -3362,7 +3371,8 @@ bool MfPreselectionFlowAction::maybeInterruptEntryMoveForKfs() {
   const double lateral_offset = currentEntryLateralOffset();
   MfPreselectionPickupSource source =
       MfPreselectionLogicResult::entryPickupSourceForLateralOffset(
-          lateral_offset, params_.move_tolerance_m);
+          lateral_offset, params_.move_tolerance_m,
+          params_.field_mirror_sign);
   if (pickup_source_ != MfPreselectionPickupSource::None) {
     source = MfPreselectionPickupSource::None;
   }
@@ -5878,6 +5888,13 @@ void loadMfPreselectionParams(rclcpp::Node &node,
   // 参数集中由 decision_node 启动时声明并写入黑板；MfPreselectionFlowAction
   // 运行中不监听参数变化。这里按语义分组声明，便于和 r2_runtime.yaml 对照。
   MfPreselectionParams p;
+  int mirror_sign = 1;
+  if (blackboard) {
+    (void)blackboard->get("team_mirror_sign", mirror_sign);
+  }
+  mirror_sign = normalizedMirrorSign(mirror_sign);
+  p.field_mirror_sign = mirror_sign;
+
   // 视觉模型、标签和深度有效区间。R2/R1/假 KFS 的语义完全由这些标签配置决定。
   p.vision_config_file =
       node.declare_parameter<std::string>("mf_preselect_vision_config_file",
@@ -6129,6 +6146,12 @@ void loadMfPreselectionParams(rclcpp::Node &node,
   p.final_exit_center_offset_m = node.declare_parameter<double>(
       "mf_preselect_final_exit_center_offset_m",
       p.final_exit_center_offset_m);
+  p.exit_yaw_rad *= static_cast<double>(mirror_sign);
+  p.stair1_direction_yaw_rad *= static_cast<double>(mirror_sign);
+  p.stair3_direction_yaw_rad *= static_cast<double>(mirror_sign);
+  p.row_scan_left_yaw_delta_rad *= static_cast<double>(mirror_sign);
+  p.row_scan_back_yaw_delta_rad *= static_cast<double>(mirror_sign);
+  p.row4_exit_turn_yaw_rad *= static_cast<double>(mirror_sign);
 
   p.vision_config_file = resolveVisionConfig(p.vision_config_file);
   blackboard->set("mf_preselection_params", p);
@@ -6142,20 +6165,24 @@ void loadMfPreselectionParams(rclcpp::Node &node,
       "mf_preselect_entry2_nav_segment1_x_m",
       node.declare_parameter<double>("mf_preselect_entry2_nav_segment1_x_m",
                                      0.0));
-  blackboard->set(
-      "mf_preselect_entry2_nav_segment1_y_m",
+  const double entry2_nav_segment1_y_m =
       node.declare_parameter<double>("mf_preselect_entry2_nav_segment1_y_m",
-                                     0.0));
+                                     0.0) *
+      static_cast<double>(mirror_sign);
+  blackboard->set(
+      "mf_preselect_entry2_nav_segment1_y_m", entry2_nav_segment1_y_m);
   blackboard->set(
       "mf_preselect_entry2_nav_timeout_sec",
       node.declare_parameter<double>("mf_preselect_entry2_nav_timeout_sec",
                                      180.0));
 
   RCLCPP_INFO(node.get_logger(),
-              "梅林预选赛参数已加载: model=%s R2_prefixes=%zu fake_prefixes=%zu max_pickup=%d cmd_vel=%s odom=%s entry_grab_up=0x%02X done=0x%02X high_raise=0x%02X done=0x%02X second_lower=0x%02X done=0x%02X",
-              p.model_id.c_str(), p.r2_target_label_prefixes.size(),
-              p.fake_label_prefixes.size(), p.max_pickup_count,
-              p.cmd_vel_topic.c_str(), p.odom_topic.c_str(),
+              "梅林预选赛参数已加载: model=%s mirror_sign=%d R2_prefixes=%zu fake_prefixes=%zu max_pickup=%d cmd_vel=%s odom=%s entry_y=%.3f exit_yaw=%.3f row4_yaw=%.3f entry_grab_up=0x%02X done=0x%02X high_raise=0x%02X done=0x%02X second_lower=0x%02X done=0x%02X",
+              p.model_id.c_str(), mirror_sign,
+              p.r2_target_label_prefixes.size(), p.fake_label_prefixes.size(),
+              p.max_pickup_count, p.cmd_vel_topic.c_str(),
+              p.odom_topic.c_str(), entry2_nav_segment1_y_m,
+              p.exit_yaw_rad, p.row4_exit_turn_yaw_rad,
               static_cast<unsigned int>(std::clamp(p.entry_grab_kfs_up_command_id, 0, 255)),
               static_cast<unsigned int>(std::clamp(p.entry_grab_kfs_up_done_feedback_id, 0, 255)),
               static_cast<unsigned int>(std::clamp(p.arm_high_raise_command_id, 0, 255)),

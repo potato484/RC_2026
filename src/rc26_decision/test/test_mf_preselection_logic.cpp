@@ -637,6 +637,22 @@ TEST(MfPreselectionLogic, FakeAvoidanceTargetGridUsesSideColumns) {
           .has_value());
 }
 
+TEST(MfPreselectionLogic, FakeAvoidanceTargetGridMirrorsForBlueSide) {
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
+                5, rc26_decision::MfPreselectionPickupSource::Stair1, 1),
+            4);
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
+                5, rc26_decision::MfPreselectionPickupSource::Stair3, 1),
+            6);
+
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
+                5, rc26_decision::MfPreselectionPickupSource::Stair1, -1),
+            6);
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::fakeAvoidanceTargetGrid(
+                5, rc26_decision::MfPreselectionPickupSource::Stair3, -1),
+            4);
+}
+
 TEST(MfPreselectionLogic, FakeAvoidanceTargetGridCanBeClimbOrDescendByMap) {
   rc26_decision::MerlinMapManager red_map;
   ASSERT_TRUE(red_map.initRedMap());
@@ -719,6 +735,26 @@ TEST(MfPreselectionLogic, EntryPickupSourceUsesLateralOffset) {
           entryPickupSourceForLateralOffset(
               std::numeric_limits<double>::quiet_NaN(), 0.03),
       rc26_decision::MfPreselectionPickupSource::Stair2);
+}
+
+TEST(MfPreselectionLogic, EntryPickupSourceMirrorsForBlueSide) {
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::
+          entryPickupSourceForLateralOffset(0.20, 0.03, 1),
+      rc26_decision::MfPreselectionPickupSource::Stair1);
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::
+          entryPickupSourceForLateralOffset(-0.20, 0.03, 1),
+      rc26_decision::MfPreselectionPickupSource::Stair3);
+
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::
+          entryPickupSourceForLateralOffset(-0.20, 0.03, -1),
+      rc26_decision::MfPreselectionPickupSource::Stair1);
+  EXPECT_EQ(
+      rc26_decision::MfPreselectionLogicResult::
+          entryPickupSourceForLateralOffset(0.20, 0.03, -1),
+      rc26_decision::MfPreselectionPickupSource::Stair3);
 }
 
 TEST(MfPreselectionLogic, EntryReturnToCenterCommandUsesOffsetSign) {

@@ -27,7 +27,7 @@ r2_runtime:
   decision:
     ros__parameters:
       tick_rate_ms: 100             # 行为树 tick 周期，单位毫秒；数值越小调度越频繁
-      team: "red"                   # 当前默认按红方配置运行；用于梅林区静态地图初始化
+      team: "red"                   # 红蓝方场地镜像选择：red 使用下方红方基准值，blue 启动时由 rc26_decision 自动镜像 Y/yaw
       # ======================================================================
       # 完整导航链启动 odom gate —— 决策树 tick 前等待 /odom 新鲜且低速稳定
       # ======================================================================
@@ -56,12 +56,12 @@ r2_runtime:
       odom_relative_nav_timeout_s: 10.0               # 独立相对分段默认超时，单位秒
 
       # ======================================================================
-      # 红方武馆区 (MC) 运行参数 —— 启动时由 r2_runtime.yaml/launch 参数写入决策节点
+      # 武馆区 (MC) 红方基准运行参数 —— blue 启动时自动镜像侧向 yaw 和原地旋转方向
       # ======================================================================
-      # --- 红方 odom 单轴分段导航：+X 0.2m -> 右转 90° -> -X 0.6m ---
-      mc_nav_forward_x_m: 0.25      # 红方武馆区去程第一段 OdomDriveX 车体系 x 正向位移
-      mc_nav_right_turn_delta_rad: -1.5708 # 第一段后相对右转角度；运行时由 RelativeYawTarget 转成绝对 odom yaw
-      mc_nav_reverse_x_m: -0.65     # 右转后第二段 OdomDriveX 车体系 x 负向位移
+      # --- 红方基准 odom 单轴分段导航：+X 0.2m -> 右转 90° -> -X 0.6m ---
+      mc_nav_forward_x_m: 0.25      # 红方基准第一段 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
+      mc_nav_right_turn_delta_rad: -1.5708 # 红方基准第一段后相对右转角度；blue 自动取反为左转
+      mc_nav_reverse_x_m: -0.65     # 红方基准转向后第二段 OdomDriveX 车体系 x 负向位移；blue 不镜像 X
       mc_nav_timeout_sec: 180.0     # 单个 OdomDriveX/OdomDriveY/OdomTurnToYaw 段的超时时间，单位秒
 
       # --- 相机 / 推理（内嵌直连相机，对齐 tip_vision_test_node）---
@@ -120,11 +120,11 @@ r2_runtime:
       mc_rotate_timeout_s: 15.0        # 原地旋转安全超时，单位秒
 
       # ======================================================================
-      # 梅林区预选赛专属链路参数 —— 独立 mf_preselection_tree.xml 使用
+      # 梅林区预选赛红方基准链路参数 —— blue 启动时自动镜像入口 Y、左右探测和 yaw
       # ======================================================================
       mf_preselect_entry2_nav_enable: true      # 2号入口导航点未标定前关闭；关闭时默认机器人已在2号入口
-      mf_preselect_entry2_nav_segment1_x_m: 2.0  # 2号入口 OdomDriveX 车体系 x 正向位移
-      mf_preselect_entry2_nav_segment1_y_m: -1.7 # 2号入口 OdomDriveY 车体系 y 负向位移
+      mf_preselect_entry2_nav_segment1_x_m: 2.0  # 红方基准 2号入口 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
+      mf_preselect_entry2_nav_segment1_y_m: -1.7 # 红方基准 2号入口 OdomDriveY 车体系 y 负向位移；blue 自动取反
       mf_preselect_entry2_nav_timeout_sec: 180.0 # 入口单个 x/y 动作超时，单位秒
 
       mf_preselect_vision_config_file: ""        # KFS 视觉模型配置；空则回退 rc26_vision/config/vision_models.yaml
@@ -213,12 +213,12 @@ r2_runtime:
       mf_preselect_move_timeout_s: 12.0                 # 单段相对移动超时，单位秒
       mf_preselect_direct_exit_drive_distance_m: 4.8    # 直出梅林相对前进距离，占位可现场调
       mf_preselect_direct_exit_drive_speed_mps: 0.25    # 直出梅林速度绝对值
-      mf_preselect_exit_yaw_rad: 0.0                    # 梅林出口方向 yaw
-      mf_preselect_stair1_direction_yaw_rad: 1.5708     # 假KFS避障朝1号阶梯方向 yaw
-      mf_preselect_stair3_direction_yaw_rad: -1.5708    # 假KFS避障朝3号阶梯方向 yaw
-      mf_preselect_row_scan_left_yaw_delta_rad: 1.5708  # 第2/3行周身探测左转角度
-      mf_preselect_row_scan_back_yaw_delta_rad: 3.1416  # 第2/3行周身探测背向转角
-      mf_preselect_row4_exit_turn_yaw_rad: -1.5708      # 第二列第四行强制出口转向 yaw
+      mf_preselect_exit_yaw_rad: 0.0                    # 红方基准梅林出口方向 yaw；blue 自动取反
+      mf_preselect_stair1_direction_yaw_rad: 1.5708     # 红方基准假KFS避障朝1号阶梯方向 yaw；blue 自动取反
+      mf_preselect_stair3_direction_yaw_rad: -1.5708    # 红方基准假KFS避障朝3号阶梯方向 yaw；blue 自动取反
+      mf_preselect_row_scan_left_yaw_delta_rad: 1.5708  # 红方基准第2/3行周身探测左转角度；blue 自动取反
+      mf_preselect_row_scan_back_yaw_delta_rad: 3.1416  # 红方基准第2/3行周身探测背向转角；blue 自动取反
+      mf_preselect_row4_exit_turn_yaw_rad: -1.5708      # 红方基准第二列第四行强制出口转向 yaw；blue 自动取反
       mf_preselect_turn_kp: 1.2                         # 转向 yaw P 增益
       mf_preselect_turn_max_speed_radps: 0.50           # 转向最大角速度
       mf_preselect_turn_tolerance_deg: 3.0              # 转向完成角度容差

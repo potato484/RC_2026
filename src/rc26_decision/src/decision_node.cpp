@@ -17,6 +17,7 @@
 #include "rc26_decision/mf_preselection/mf_preselection_flow.hpp"
 #include "rc26_decision/navigation/bt_odom_relative_nav.hpp"
 #include "rc26_decision/stair/stair_area.hpp"
+#include "rc26_decision/team_color.hpp"
 
 namespace rc26_decision {
 
@@ -65,7 +66,7 @@ private:
   void declareParameters() {
     this->declare_parameter<std::string>("tree_file", "main_tree.xml");
     this->declare_parameter<int>("tick_rate_ms", 100);
-    this->declare_parameter<std::string>("team", "blue");
+    this->declare_parameter<std::string>("team", "red");
     this->declare_parameter<bool>("startup_wait_for_odom", false);
     this->declare_parameter<std::string>("startup_odom_topic", "odom");
     this->declare_parameter<double>("startup_odom_timeout_s", 0.5);
@@ -83,23 +84,33 @@ private:
   }
 
   void initializeMerlinState() {
-    const std::string team = this->get_parameter("team").as_string();
-    blackboard_->set("team", team);
+    const TeamColorRuntime team_runtime =
+        resolveTeamColorRuntime(this->get_parameter("team").as_string());
+    if (team_runtime.used_fallback) {
+      RCLCPP_WARN(this->get_logger(),
+                  "team=%s 非法，按 red/+1 红方基准运行",
+                  team_runtime.requested.c_str());
+    }
+    blackboard_->set("team", team_runtime.normalized);
+    blackboard_->set("team_mirror_sign", team_runtime.mirror_sign);
 
     auto merlin_map = std::make_shared<MerlinMapManager>();
     const bool layout_loaded =
-        (team == "blue") ? merlin_map->initBlueMap() : merlin_map->initRedMap();
+        (team_runtime.normalized == "blue") ? merlin_map->initBlueMap()
+                                            : merlin_map->initRedMap();
     blackboard_->set("merlin_map", merlin_map);
 
     if (layout_loaded) {
       RCLCPP_INFO(this->get_logger(),
-                  "Cold-start merlin_map initialized for team=%s using %s",
-                  team.c_str(), merlin_map->layoutStatus().c_str());
+                  "Cold-start merlin_map initialized for team=%s mirror_sign=%d using %s",
+                  team_runtime.normalized.c_str(), team_runtime.mirror_sign,
+                  merlin_map->layoutStatus().c_str());
     } else {
       RCLCPP_WARN(this->get_logger(),
                   "Cold-start merlin_map fell back to legacy depths for "
-                  "team=%s: %s",
-                  team.c_str(), merlin_map->layoutStatus().c_str());
+                  "team=%s mirror_sign=%d: %s",
+                  team_runtime.normalized.c_str(), team_runtime.mirror_sign,
+                  merlin_map->layoutStatus().c_str());
     }
   }
 

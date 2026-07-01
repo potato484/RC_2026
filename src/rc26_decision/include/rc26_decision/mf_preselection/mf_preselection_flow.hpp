@@ -130,6 +130,7 @@ struct MfPreselectionParams {
   double move_timeout_s{12.0};
   double direct_exit_drive_distance_m{4.8};
   double direct_exit_drive_speed_mps{0.25};
+  int field_mirror_sign{1};
 
   double exit_yaw_rad{0.0};
   double stair1_direction_yaw_rad{1.5708};
@@ -278,11 +279,13 @@ struct MfPreselectionLogicResult {
       double iou_threshold);
   static std::optional<int>
   fakeAvoidanceTargetGrid(int current_grid,
-                          MfPreselectionPickupSource source);
+                          MfPreselectionPickupSource source,
+                          int mirror_sign = 1);
   static std::optional<int> fakeAvoidanceForwardTargetGrid(int current_grid);
   static MfPreselectionPickupSource
   entryPickupSourceForLateralOffset(double lateral_offset_m,
-                                    double tolerance_m);
+                                    double tolerance_m,
+                                    int mirror_sign = 1);
   static bool entryReturnToCenterCommand(double lateral_offset_m,
                                          double tolerance_m,
                                          double speed_mps,

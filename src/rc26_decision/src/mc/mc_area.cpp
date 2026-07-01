@@ -14,6 +14,7 @@
 #include "rotate_in_place.hpp"
 #include "visual_servo_grab.hpp"
 #include "wait_forever.hpp"
+#include "rc26_decision/team_color.hpp"
 
 namespace rc26_decision {
 
@@ -41,11 +42,18 @@ std::string resolveVisionConfig(const std::string& configured) {
 
 void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     McParams p;
+    int mirror_sign = 1;
+    if (blackboard) {
+        (void)blackboard->get("team_mirror_sign", mirror_sign);
+    }
+    mirror_sign = normalizedMirrorSign(mirror_sign);
 
     // 去程 odom 相对分段导航参数（写入黑板键供 mc_tree.xml 端口重映射）
     const double nav_forward_x_m = node.declare_parameter<double>("mc_nav_forward_x_m", 0.2);
-    const double nav_right_turn_delta_rad =
+    const double configured_nav_right_turn_delta_rad =
         node.declare_parameter<double>("mc_nav_right_turn_delta_rad", -1.5707963267948966);
+    const double nav_right_turn_delta_rad =
+        configured_nav_right_turn_delta_rad * static_cast<double>(mirror_sign);
     const double nav_reverse_x_m = node.declare_parameter<double>("mc_nav_reverse_x_m", -0.6);
     const double nav_timeout = node.declare_parameter<double>("mc_nav_timeout_sec", 60.0);
 
@@ -120,6 +128,7 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     p.rotate_slowdown_angle_deg =
         node.declare_parameter<double>("mc_rotate_slowdown_angle_deg", p.rotate_slowdown_angle_deg);
     p.rotate_direction = node.declare_parameter<int>("mc_rotate_direction", p.rotate_direction);
+    p.rotate_direction = (p.rotate_direction < 0 ? -1 : 1) * mirror_sign;
     p.rotate_yaw_tolerance_deg = node.declare_parameter<double>("mc_rotate_yaw_tolerance_deg", p.rotate_yaw_tolerance_deg);
     p.rotate_cmd_vel_topic = node.declare_parameter<std::string>("mc_rotate_cmd_vel_topic", p.rotate_cmd_vel_topic);
     p.odom_topic = node.declare_parameter<std::string>("mc_odom_topic", p.odom_topic);
@@ -146,9 +155,10 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     blackboard->set("mc_nav_right_turn_target_yaw", 0.0);
     blackboard->set("mc_nav_timeout_sec", nav_timeout);
     RCLCPP_INFO(node.get_logger(),
-                "武馆区参数已加载: vision_config=%s relative_nav=+x %.2fm, yaw_delta %.2frad, x %.2fm",
-                p.vision_config_file.c_str(), nav_forward_x_m,
-                nav_right_turn_delta_rad, nav_reverse_x_m);
+                "武馆区参数已加载: vision_config=%s mirror_sign=%d relative_nav=+x %.2fm, yaw_delta %.2frad, x %.2fm, rotate_direction=%d",
+                p.vision_config_file.c_str(), mirror_sign, nav_forward_x_m,
+                nav_right_turn_delta_rad, nav_reverse_x_m,
+                p.rotate_direction);
 }
 
 void registerMCAreaNodes(BT::BehaviorTreeFactory& factory) {

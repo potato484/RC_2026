@@ -1,8 +1,8 @@
-<!-- 武馆区专属行为树 (MC Area)：前进 X 段 → 相对右转 90° → 后退 X 段 → 视觉伺服夹取 → 原地旋转180° → 无限期等待 -->
+<!-- 武馆区专属行为树 (MC Area)：前进 X 段 → team 派生侧向转向 → 后退 X 段 → 视觉伺服夹取 → 原地旋转 → 无限期等待 -->
 <root BTCPP_format="4" main_tree_to_execute="MCAreaTree">
   <BehaviorTree ID="MCAreaTree">
     <Sequence name="MC_Sequence">
-      <!-- 1. 使用 odom 单轴闭环复刻原始去程：+X 0.2m，右转 90°，-X 0.6m -->
+      <!-- 1. 使用 odom 单轴闭环复刻去程：X 距离保持红方基准，侧向转向由 team 派生 -->
       <OdomDriveX name="mc_nav_forward_x"
                   distance_m="{mc_nav_forward_x_m}"
                   cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"

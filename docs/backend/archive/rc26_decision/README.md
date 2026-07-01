@@ -12,7 +12,7 @@
 - 当前导航实现：[bt_odom_relative_nav.cpp](/home/potato/RC_2026/src/rc26_decision/src/navigation/bt_odom_relative_nav.cpp)
 - 运行参数真源：[r2_runtime.yaml](/home/potato/RC_2026/src/rc26_bringup/config/r2_runtime.yaml)
 
-`decision_node` 启动时会加载 `r2_runtime.decision.ros__parameters`，把共享参数写入 blackboard，并注册 MC、MF、MF 预选赛、台阶和 odom 导航节点。完整导航链中默认启用启动 odom gate：只有 `/odom` 连续新鲜且低速稳定后才创建并 tick 行为树，避免开机里程计未稳定时直接运动。
+`decision_node` 启动时会加载 `r2_runtime.decision.ros__parameters`，把共享参数写入 blackboard，并注册 MC、MF、MF 预选赛、台阶和 odom 导航节点。`team` 是当前红蓝方场地镜像参数：`red` 使用 YAML 中维护的红方基准路线，`blue` 在启动加载参数时自动派生侧向 Y 和 yaw 的镜像值；非法值会告警并按 `red` 运行。完整导航链中默认启用启动 odom gate：只有 `/odom` 连续新鲜且低速稳定后才创建并 tick 行为树，避免开机里程计未稳定时直接运动。
 
 ## Odom 单轴分段导航
 
@@ -67,12 +67,12 @@
 
 ## 行为树导航流程
 
-- `mc_tree.xml`：`OdomDriveX(mc_nav_forward_x_m=+0.2m) -> RelativeYawTarget(mc_nav_right_turn_delta_rad=-pi/2) -> OdomTurnToYaw -> OdomDriveX(mc_nav_reverse_x_m=-0.6m) -> VisualServoGrab -> Delay -> RotateInPlace -> WaitForever`。右转后的绝对 odom yaw 会传给 `VisualServoGrab target_yaw_rad`，作为视觉阶段 heading hold 目标。
-- `mf_preselection_tree.xml`：可选入口导航为 `OdomDriveX(mf_preselect_entry2_nav_segment1_x_m=+2.0m) -> OdomDriveY(mf_preselect_entry2_nav_segment1_y_m=-1.8m)`，随后进入 `MfPreselectionFlow`；该入口不在树前额外转向。
+- `mc_tree.xml`：`OdomDriveX(mc_nav_forward_x_m=+0.2m) -> RelativeYawTarget(mc_nav_right_turn_delta_rad=team 派生侧向 yaw) -> OdomTurnToYaw -> OdomDriveX(mc_nav_reverse_x_m=-0.6m) -> VisualServoGrab -> Delay -> RotateInPlace -> WaitForever`。转向后的绝对 odom yaw 会传给 `VisualServoGrab target_yaw_rad`，作为视觉阶段 heading hold 目标；`team=blue` 时侧向 yaw 和后续原地旋转方向相对红方基准取反。
+- `mf_preselection_tree.xml`：可选入口导航为 `OdomDriveX(mf_preselect_entry2_nav_segment1_x_m=+2.0m) -> OdomDriveY(mf_preselect_entry2_nav_segment1_y_m=team 派生横移 Y)`，随后进入 `MfPreselectionFlow`；该入口不在树前额外转向。`MfPreselectionFlow` 内部的入口 1/3 号横移、假 KFS 侧列绕行、出口 yaw、周身扫描 yaw 和第四行收尾 yaw 同样按 `team` 从红方基准派生。
 - `odom_right_turn_nav_tree.xml`：`OdomDriveX(odom_right_turn_nav_forward_x_m) -> RelativeYawTarget(odom_right_turn_nav_right_turn_delta_rad) -> OdomTurnToYaw -> OdomDriveX(odom_right_turn_nav_reverse_x_m)`。
 - `relative_segment_nav_tree.xml`：独立验收用单轴分段树，依次示例调用 `OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw`。
 
-旧外部 action 位姿导航节点、TF 采点节点、旧双点位姿测试树和相关 action helper 已删除。当前 MC/MF 入口坐标不再是绝对地图位姿；`mc_nav_forward_x_m` / `mc_nav_reverse_x_m` 与 `mf_preselect_entry2_nav_segment1_*` 是按启动姿态和分段动作顺序标定的相对单轴段。
+旧外部 action 位姿导航节点、TF 采点节点、旧双点位姿测试树和相关 action helper 已删除。当前 MC/MF 入口坐标不再是绝对地图位姿；`mc_nav_forward_x_m` / `mc_nav_reverse_x_m` 与 `mf_preselect_entry2_nav_segment1_*` 是按启动姿态和分段动作顺序标定的相对单轴段。YAML 中这些路线值按红方基准维护，蓝方只在决策节点启动加载阶段派生运行值，不需要维护第二套 XML。
 
 ## MC 链路
 
@@ -98,8 +98,9 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 - `odom_relative_nav_*`：单轴平移与通用 yaw 容差、增益、速度、topic 和超时。
 - `startup_odom_*`：完整导航链启动前 odom 新鲜度和低速稳定 gate。
-- `mc_nav_forward_x_m`、`mc_nav_right_turn_delta_rad`、`mc_nav_reverse_x_m`、`mc_nav_timeout_sec`：MC 去程原始动作顺序，默认 `+X 0.2m -> 右转 90° -> -X 0.6m`。
-- `mf_preselect_entry2_nav_segment1_x_m`、`mf_preselect_entry2_nav_segment1_y_m`、`mf_preselect_entry2_nav_timeout_sec`：MF 预选入口单轴段，默认 `+X 2.0m -> -Y 1.8m`。
+- `team`：红蓝方场地镜像选择；`red` 使用红方基准，`blue` 自动镜像 MC/MF 侧向 Y 和 yaw，非法值按 `red`。
+- `mc_nav_forward_x_m`、`mc_nav_right_turn_delta_rad`、`mc_nav_reverse_x_m`、`mc_nav_timeout_sec`：MC 去程红方基准动作顺序，默认 `+X 0.2m -> 右转 90° -> -X 0.6m`；蓝方只镜像 yaw 和原地旋转方向，X 距离不变。
+- `mf_preselect_entry2_nav_segment1_x_m`、`mf_preselect_entry2_nav_segment1_y_m`、`mf_preselect_entry2_nav_timeout_sec`：MF 预选入口红方基准单轴段，默认 `+X 2.0m -> -Y 1.8m`；蓝方只镜像 Y，X 距离不变。
 - `odom_right_turn_nav_*`：独立右转入口的前进、相对 yaw 捕获、绝对 yaw 对齐和后退参数。
 
 参数在节点构造时声明并写入 blackboard；当前没有运行期参数变更回调，`ros2 param set` 不会自动回写已经进入树的参数。
@@ -112,6 +113,8 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 - `rc26_interfaces` 当前不提供自定义导航 action；导航对外契约只保留 `/cmd_vel` 速度输出。
 
 ## 本轮同步
+
+2026-07-01 同步：`team` 参数扩展为决策层红蓝方场地镜像契约。`r2_runtime.yaml` 继续维护红方基准路线；`decision_node` 启动时规范化 `team`，写入 `team_mirror_sign`，并用同一镜像符号派生 MC 侧向 yaw、MC 原地旋转方向、MF 预选入口 Y、MF 入口 1/3 号横移、假 KFS 侧列绕行、出口 yaw、周身扫描 yaw 和第四行收尾 yaw。`team=blue` 只改变场地几何方向，不新增 XML、topic、service、action、MCU 协议或视觉参数；非法 `team` 会告警并按 `red` 运行。
 
 2026-07-01 同步：`MfPreselectionFlow` 修复 KFS 横移阶段中心深度洞导致目标丢失的问题。R2 初始检测仍必须有真实深度，但深度采样从单个中心 `7x7` ROI 扩展为 bbox 内 `3x3` 多点 ROI；横移对齐阶段即使当前帧没有可用深度，只要 RGB bbox 仍能被 `tip_alignment` 锁定，就继续按 offset 横移，只有在像素和 yaw 已对齐且当前链路有可用深度时才累计稳定并进入前向 odom 趋近。新增 `mf_preselect_kfs_mono_distance_fallback_enable`、`mf_preselect_kfs_mono_target_width_m/height_m`、`mf_preselect_kfs_mono_fx_px/fy_px`、`mf_preselect_kfs_mono_min_bbox_px` 和 `mf_preselect_kfs_mono_max_delta_from_locked_m`，用于在真实深度洞持续存在时按 `350mm x 350mm` KFS bbox 尺寸做保守估距；尺寸估距只在已有真实锁定深度后启用，并且必须落在当前深度窗口内、且与最近真实深度差值不超过配置阈值。横移、稳定计数和前向趋近日志会打印中文 `depth_source=中心ROI/bbox多点ROI/尺寸估距/无` 及估距详情；不新增 ROS topic/service/action，不改变机构协议、ignored 目标、台阶流程或 `/cmd_vel` 权威。
 

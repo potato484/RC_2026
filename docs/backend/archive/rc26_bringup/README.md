@@ -39,12 +39,13 @@
 
 - `startup_odom_*`：完整导航链创建行为树前等待 `/odom` 新鲜且低速稳定。
 - `odom_relative_nav_*`：`OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw` 共享 topic、速度、增益、容差、稳定 tick 和超时。
-- `mc_nav_forward_x_m`、`mc_nav_right_turn_delta_rad`、`mc_nav_reverse_x_m`、`mc_nav_timeout_sec`：MC 去程原始动作顺序，默认 `+X 0.2m -> 右转 90° -> -X 0.6m`。
-- `mf_preselect_entry2_nav_segment1_x_m`、`mf_preselect_entry2_nav_segment1_y_m`、`mf_preselect_entry2_nav_timeout_sec`：MF 预选 2 号入口单轴段，默认 `+X 2.0m -> -Y 1.8m`，不在入口树前额外转向。
+- `team`：红蓝方场地镜像选择；`r2_runtime.yaml` 中路线数值按红方基准维护，`team:=blue` 时由 `rc26_decision` 启动加载阶段派生蓝方 Y/yaw 镜像值。bringup 只负责传参，不在 launch 中承载红蓝方路线逻辑。
+- `mc_nav_forward_x_m`、`mc_nav_right_turn_delta_rad`、`mc_nav_reverse_x_m`、`mc_nav_timeout_sec`：MC 去程红方基准动作顺序，默认 `+X 0.2m -> 右转 90° -> -X 0.6m`；蓝方自动镜像侧向 yaw 和原地旋转方向，X 距离不变。
+- `mf_preselect_entry2_nav_segment1_x_m`、`mf_preselect_entry2_nav_segment1_y_m`、`mf_preselect_entry2_nav_timeout_sec`：MF 预选 2 号入口红方基准单轴段，默认 `+X 2.0m -> -Y 1.8m`，不在入口树前额外转向；蓝方自动镜像 Y。
 - `mf_preselect_kfs_align_target_line_offset_px`：MF KFS 视觉横移对齐时，识别框中线要对齐的目标线相对图像中心线的像素偏置；默认 `0`，负值表示目标线向图像左侧移动。
 - `odom_right_turn_nav_*`：右转独立入口前进段、相对 yaw 捕获、绝对 yaw 对齐和后退段。
 
-这些参数描述相对分段和 odom yaw 目标生成，不是地图位姿。现场标定时应按启动姿态重新调整每段 `distance_m` 和相对/绝对 yaw。
+这些参数描述相对分段和 odom yaw 目标生成，不是地图位姿。现场标定时应按红方启动姿态重新调整每段 `distance_m` 和相对/绝对 yaw；蓝方若只做标准镜像，切换 `team:=blue` 即可复用同一组红方基准值。
 
 ## 独立入口
 
@@ -68,6 +69,8 @@
 - `/cmd_vel` 默认由 `rc26_decision` 的导航/动作节点串行发布，由 `rc26_mcu_transport` 消费；运行遥控或其它测试入口时必须显式保证命令权威唯一。
 
 ## 本轮同步
+
+2026-07-01 同步：`team` 参数现在由 bringup 传入 `rc26_decision` 后作为红蓝方场地镜像选择使用。`r2_runtime.yaml` 中 MC/MF 路线值继续按红方基准维护；`team:=blue` 时，决策节点在启动加载参数阶段派生蓝方入口 Y、侧向 yaw、入口 1/3 号横移和假 KFS 侧列绕行等镜像行为。bringup 未新增 launch 分支或第二套 XML，现场切蓝方可改 `r2_runtime.yaml` 的 `team` 或通过 launch 参数覆盖 `team:=blue`。
 
 2026-07-01 同步：`r2_runtime.yaml` 新增 `mf_preselect_kfs_align_target_line_offset_px`，用于现场标定 MF KFS 夹取时识别框中线的目标线。默认 `0` 保持图像中心线口径；实车若夹爪肉眼已对齐但日志 offset 仍为负，可按该负值附近配置偏置，让决策的 offset 以新的目标线为 0。
 
