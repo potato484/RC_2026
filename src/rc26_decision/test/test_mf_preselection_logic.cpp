@@ -23,6 +23,15 @@ rc26_vision::DepthRoiSamplerConfig diagnosticDepthConfig() {
   return config;
 }
 
+rc26_vision::DepthRoiSamplerConfig kfsDepthConfig() {
+  rc26_vision::DepthRoiSamplerConfig config;
+  config.roi_size = 7;
+  config.min_valid_count = 10;
+  config.min_depth_m = 0.35;
+  config.max_depth_m = 1.40;
+  return config;
+}
+
 TEST(StairSpeedProfile, SamplesLinearFastToSlow) {
   const rc26_decision::StairSpeedProfile profile{0.10, 0.05, 1.0};
 
@@ -165,6 +174,103 @@ TEST(MfPreselectionLogic, DepthRoiDiagnosticReportsSuccessfulSample) {
           diagnostic);
   EXPECT_NE(detail.find("深度失败主因=无"), std::string::npos);
   EXPECT_NE(detail.find("sampled_depth=0.6"), std::string::npos);
+}
+
+TEST(MfPreselectionLogic, KfsBboxDepthSampleUsesNonCenterRoi) {
+  cv::Mat depth(100, 100, CV_16UC1, cv::Scalar(0));
+  for (int y = 32; y <= 38; ++y) {
+    for (int x = 32; x <= 38; ++x) {
+      depth.at<uint16_t>(y, x) = 700;
+    }
+  }
+
+  const auto sample =
+      rc26_decision::MfPreselectionLogicResult::sampleKfsDepthFromBbox(
+          depth, 20.0, 20.0, 80.0, 80.0, kfsDepthConfig());
+
+  EXPECT_TRUE(sample.has_depth);
+  EXPECT_DOUBLE_EQ(sample.depth_m, 0.7);
+  EXPECT_EQ(sample.source,
+            rc26_decision::MfPreselectionLogicResult::KfsDepthSource::
+                BboxMultiRoi);
+  EXPECT_EQ(sample.sample_point_count, 9);
+  EXPECT_EQ(sample.success_count, 1);
+  EXPECT_NE(sample.detail.find("bbox采样成功数=1"), std::string::npos);
+}
+
+TEST(MfPreselectionLogic, KfsBboxDepthSampleReportsRepresentativeFailure) {
+  cv::Mat depth(100, 100, CV_16UC1, cv::Scalar(0));
+
+  const auto sample =
+      rc26_decision::MfPreselectionLogicResult::sampleKfsDepthFromBbox(
+          depth, 20.0, 20.0, 80.0, 80.0, kfsDepthConfig());
+
+  EXPECT_FALSE(sample.has_depth);
+  EXPECT_EQ(sample.sample_point_count, 9);
+  EXPECT_EQ(sample.success_count, 0);
+  EXPECT_EQ(sample.representative_failure.primary_failure,
+            "ROI无有效原始深度");
+  EXPECT_NE(sample.detail.find("bbox采样点数=9"), std::string::npos);
+  EXPECT_NE(sample.detail.find("深度失败主因=ROI无有效原始深度"),
+            std::string::npos);
+}
+
+TEST(MfPreselectionLogic, MonocularDepthFallbackUsesConservativeCubeEstimate) {
+  rc26_decision::MfPreselectionParams params;
+  params.kfs_mono_distance_fallback_enable = true;
+  params.kfs_mono_target_width_m = 0.35;
+  params.kfs_mono_target_height_m = 0.35;
+  params.kfs_mono_fx_px = 385.83319091796875;
+  params.kfs_mono_fy_px = 385.83319091796875;
+  params.kfs_mono_min_bbox_px = 40;
+  params.kfs_mono_max_delta_from_locked_m = 0.25;
+  const double bbox_px = params.kfs_mono_fx_px * 0.35;
+
+  const auto estimate =
+      rc26_decision::MfPreselectionLogicResult::estimateKfsMonocularDepth(
+          bbox_px, bbox_px, 0.98, params, 0.35, 1.40);
+
+  EXPECT_TRUE(estimate.usable);
+  EXPECT_NEAR(estimate.depth_m, 1.0, 1e-9);
+  EXPECT_NEAR(estimate.z_width_m, 1.0, 1e-9);
+  EXPECT_NEAR(estimate.z_height_m, 1.0, 1e-9);
+  EXPECT_NE(estimate.detail.find("尺寸估距可用=是"), std::string::npos);
+}
+
+TEST(MfPreselectionLogic, MonocularDepthFallbackRejectsUnsafeInputs) {
+  rc26_decision::MfPreselectionParams params;
+  params.kfs_mono_distance_fallback_enable = true;
+  params.kfs_mono_target_width_m = 0.35;
+  params.kfs_mono_target_height_m = 0.35;
+  params.kfs_mono_fx_px = 385.83319091796875;
+  params.kfs_mono_fy_px = 385.83319091796875;
+  params.kfs_mono_min_bbox_px = 40;
+  params.kfs_mono_max_delta_from_locked_m = 0.25;
+  const double bbox_px = params.kfs_mono_fx_px * 0.35;
+
+  auto estimate =
+      rc26_decision::MfPreselectionLogicResult::estimateKfsMonocularDepth(
+          bbox_px, bbox_px, 0.0, params, 0.35, 1.40);
+  EXPECT_FALSE(estimate.usable);
+  EXPECT_EQ(estimate.reject_reason, "无真实锁定深度");
+
+  estimate =
+      rc26_decision::MfPreselectionLogicResult::estimateKfsMonocularDepth(
+          30.0, bbox_px, 1.0, params, 0.35, 1.40);
+  EXPECT_FALSE(estimate.usable);
+  EXPECT_EQ(estimate.reject_reason, "bbox尺寸过小");
+
+  estimate =
+      rc26_decision::MfPreselectionLogicResult::estimateKfsMonocularDepth(
+          bbox_px, bbox_px, 0.50, params, 0.35, 1.40);
+  EXPECT_FALSE(estimate.usable);
+  EXPECT_EQ(estimate.reject_reason, "尺寸估距偏离真实锁定深度过大");
+
+  estimate =
+      rc26_decision::MfPreselectionLogicResult::estimateKfsMonocularDepth(
+          bbox_px, bbox_px, 1.0, params, 0.35, 0.80);
+  EXPECT_FALSE(estimate.usable);
+  EXPECT_EQ(estimate.reject_reason, "尺寸估距超出深度窗口");
 }
 
 TEST(MfPreselectionLogic, EntryInterruptWaitsForCenteredTarget) {

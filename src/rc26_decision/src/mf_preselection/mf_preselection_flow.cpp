@@ -1,6 +1,7 @@
 #include "rc26_decision/mf_preselection/mf_preselection_flow.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <iomanip>
@@ -60,6 +61,15 @@ std::string seqText(int seq) {
 }
 
 const char *yesNoText(bool value) { return value ? "是" : "否"; }
+
+std::string metersText(bool has_value, double value_m) {
+  if (!has_value || !std::isfinite(value_m) || value_m <= 0.0) {
+    return "无";
+  }
+  std::ostringstream oss;
+  oss << std::fixed << std::setprecision(3) << value_m << "m";
+  return oss.str();
+}
 
 std::string matTypeName(int type) {
   switch (type) {
@@ -684,6 +694,198 @@ std::string MfPreselectionLogicResult::depthRoiDiagnosticDetail(
     detail << " sampled_depth=" << diagnostic.sampled_depth_m;
   }
   return detail.str();
+}
+
+const char *MfPreselectionLogicResult::kfsDepthSourceText(
+    KfsDepthSource source) {
+  switch (source) {
+  case KfsDepthSource::CenterRoi:
+    return "中心ROI";
+  case KfsDepthSource::BboxMultiRoi:
+    return "bbox多点ROI";
+  case KfsDepthSource::MonocularBbox:
+    return "尺寸估距";
+  case KfsDepthSource::None:
+  default:
+    return "无";
+  }
+}
+
+bool MfPreselectionLogicResult::kfsDepthSourceIsReal(KfsDepthSource source) {
+  return source == KfsDepthSource::CenterRoi ||
+         source == KfsDepthSource::BboxMultiRoi;
+}
+
+MfPreselectionLogicResult::KfsBboxDepthSample
+MfPreselectionLogicResult::sampleKfsDepthFromBbox(
+    const cv::Mat &depth, double x1, double y1, double x2, double y2,
+    const rc26_vision::DepthRoiSamplerConfig &config) {
+  KfsBboxDepthSample result;
+  const double left = std::min(x1, x2);
+  const double right = std::max(x1, x2);
+  const double top = std::min(y1, y2);
+  const double bottom = std::max(y1, y2);
+  const std::array<double, 3> ratios{0.25, 0.50, 0.75};
+  std::vector<double> samples;
+  std::optional<DepthRoiDiagnostic> representative;
+
+  for (const double yr : ratios) {
+    for (const double xr : ratios) {
+      const int cx = static_cast<int>(std::lround(left + (right - left) * xr));
+      const int cy = static_cast<int>(std::lround(top + (bottom - top) * yr));
+      ++result.sample_point_count;
+      const auto sampled =
+          rc26_vision::sampleMedianDepth(depth, cx, cy, config);
+      const auto diagnostic = depthRoiDiagnostic(depth, cx, cy, config);
+      if (sampled.has_value()) {
+        ++result.success_count;
+        samples.push_back(*sampled);
+      } else {
+        const bool replace =
+            !representative.has_value() ||
+            diagnostic.window_valid_count >
+                representative->window_valid_count ||
+            (diagnostic.window_valid_count ==
+                 representative->window_valid_count &&
+             diagnostic.raw_valid_count > representative->raw_valid_count);
+        if (replace) {
+          representative = diagnostic;
+        }
+      }
+    }
+  }
+
+  if (!samples.empty()) {
+    auto mid = samples.begin() +
+               static_cast<std::ptrdiff_t>(samples.size() / 2);
+    std::nth_element(samples.begin(), mid, samples.end());
+    result.has_depth = true;
+    result.depth_m = *mid;
+    result.source = result.success_count == 1 && samples.size() == 1
+                        ? KfsDepthSource::CenterRoi
+                        : KfsDepthSource::BboxMultiRoi;
+    if (result.success_count == 1) {
+      const int center_cx =
+          static_cast<int>(std::lround((left + right) * 0.5));
+      const int center_cy =
+          static_cast<int>(std::lround((top + bottom) * 0.5));
+      const auto center_sample =
+          rc26_vision::sampleMedianDepth(depth, center_cx, center_cy, config);
+      result.source = center_sample.has_value()
+                          ? KfsDepthSource::CenterRoi
+                          : KfsDepthSource::BboxMultiRoi;
+    }
+  } else if (representative.has_value()) {
+    result.representative_failure = *representative;
+  } else {
+    result.representative_failure =
+        depthRoiDiagnostic(depth, static_cast<int>(std::lround((left + right) * 0.5)),
+                           static_cast<int>(std::lround((top + bottom) * 0.5)),
+                           config);
+  }
+
+  std::ostringstream detail;
+  detail << "bbox采样点数=" << result.sample_point_count
+         << " bbox采样成功数=" << result.success_count;
+  if (result.has_depth) {
+    detail << " bbox采样深度=" << result.depth_m
+           << " depth_source=" << kfsDepthSourceText(result.source);
+  } else {
+    detail << " "
+           << depthRoiDiagnosticDetail(result.representative_failure);
+  }
+  result.detail = detail.str();
+  return result;
+}
+
+MfPreselectionLogicResult::KfsMonocularDepthEstimate
+MfPreselectionLogicResult::estimateKfsMonocularDepth(
+    double bbox_width_px, double bbox_height_px, double locked_depth_m,
+    const MfPreselectionParams &params, double min_depth_m,
+    double max_depth_m) {
+  KfsMonocularDepthEstimate estimate;
+  estimate.bbox_width_px = bbox_width_px;
+  estimate.bbox_height_px = bbox_height_px;
+
+  const auto reject = [&estimate](const std::string &reason) {
+    estimate.reject_reason = reason;
+    std::ostringstream detail;
+    detail << "尺寸估距可用=否 尺寸估距拒绝原因=" << reason
+           << " bbox_w=" << estimate.bbox_width_px
+           << " bbox_h=" << estimate.bbox_height_px
+           << " z_width=" << estimate.z_width_m
+           << " z_height=" << estimate.z_height_m
+           << " chosen_z=" << estimate.depth_m
+           << " locked_delta=" << estimate.locked_delta_m;
+    estimate.detail = detail.str();
+  };
+
+  if (!params.kfs_mono_distance_fallback_enable) {
+    reject("尺寸估距未启用");
+    return estimate;
+  }
+  if (!std::isfinite(locked_depth_m) || locked_depth_m <= 0.0) {
+    reject("无真实锁定深度");
+    return estimate;
+  }
+  const double min_bbox_px =
+      static_cast<double>(std::max(1, params.kfs_mono_min_bbox_px));
+  if (!std::isfinite(bbox_width_px) || !std::isfinite(bbox_height_px) ||
+      bbox_width_px < min_bbox_px || bbox_height_px < min_bbox_px) {
+    reject("bbox尺寸过小");
+    return estimate;
+  }
+  if (!std::isfinite(params.kfs_mono_target_width_m) ||
+      !std::isfinite(params.kfs_mono_target_height_m) ||
+      !std::isfinite(params.kfs_mono_fx_px) ||
+      !std::isfinite(params.kfs_mono_fy_px) ||
+      params.kfs_mono_target_width_m <= 0.0 ||
+      params.kfs_mono_target_height_m <= 0.0 ||
+      params.kfs_mono_fx_px <= 0.0 || params.kfs_mono_fy_px <= 0.0) {
+    reject("尺寸或内参非法");
+    return estimate;
+  }
+
+  estimate.z_width_m =
+      params.kfs_mono_fx_px * params.kfs_mono_target_width_m / bbox_width_px;
+  estimate.z_height_m =
+      params.kfs_mono_fy_px * params.kfs_mono_target_height_m / bbox_height_px;
+  if (!std::isfinite(estimate.z_width_m) ||
+      !std::isfinite(estimate.z_height_m) || estimate.z_width_m <= 0.0 ||
+      estimate.z_height_m <= 0.0) {
+    reject("尺寸估距结果非法");
+    return estimate;
+  }
+
+  estimate.depth_m = std::min(estimate.z_width_m, estimate.z_height_m);
+  if (estimate.depth_m < min_depth_m || estimate.depth_m > max_depth_m) {
+    reject("尺寸估距超出深度窗口");
+    return estimate;
+  }
+
+  estimate.locked_delta_m = std::abs(estimate.depth_m - locked_depth_m);
+  const double max_delta =
+      std::max(0.0, params.kfs_mono_max_delta_from_locked_m);
+  if (estimate.locked_delta_m > max_delta) {
+    reject("尺寸估距偏离真实锁定深度过大");
+    return estimate;
+  }
+
+  estimate.usable = true;
+  std::ostringstream detail;
+  detail << "尺寸估距可用=是"
+         << " bbox_w=" << estimate.bbox_width_px
+         << " bbox_h=" << estimate.bbox_height_px
+         << " fx=" << params.kfs_mono_fx_px
+         << " fy=" << params.kfs_mono_fy_px
+         << " target_w=" << params.kfs_mono_target_width_m
+         << " target_h=" << params.kfs_mono_target_height_m
+         << " z_width=" << estimate.z_width_m
+         << " z_height=" << estimate.z_height_m
+         << " chosen_z=" << estimate.depth_m
+         << " locked_delta=" << estimate.locked_delta_m;
+  estimate.detail = detail.str();
+  return estimate;
 }
 
 rc26_vision::TipAlignmentConfig MfPreselectionLogicResult::kfsAlignmentConfig(
@@ -1508,7 +1710,7 @@ bool MfPreselectionFlowAction::setupRuntime() {
   config().blackboard->set("mf_preselect_pickup_source", std::string("无"));
   config().blackboard->set("mf_preselect_done", false);
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛运行接口就绪：cmd_vel=%s odom=%s center_cmd_vel=%s center_odom=%s command_service=%s feedback=%s entry_interrupt_offset<=%dpx dynamic_comp=%s fx=%.1f latency=%.3fs extra=[%d,%d]px stop_settle=%s acc=%.3fm/s^2 margin=%.3fs max_wait=%.3fs kfs_align_target_line_offset=%dpx kfs_align_speed=[%.3f, %.3f]m/s timeout_pickup<=%dpx kfs_approach_odom_kp=%.3f approach_tol=%.3fm approach_speed=%.3fm/s approach_min=%.3fm/s arm_reach=%.3fm approach_timeout=%.2fs",
+              "梅林预选赛运行接口就绪：cmd_vel=%s odom=%s center_cmd_vel=%s center_odom=%s command_service=%s feedback=%s entry_interrupt_offset<=%dpx dynamic_comp=%s fx=%.1f latency=%.3fs extra=[%d,%d]px stop_settle=%s acc=%.3fm/s^2 margin=%.3fs max_wait=%.3fs kfs_align_target_line_offset=%dpx kfs_align_speed=[%.3f, %.3f]m/s timeout_pickup<=%dpx kfs_approach_odom_kp=%.3f approach_tol=%.3fm approach_speed=%.3fm/s approach_min=%.3fm/s arm_reach=%.3fm approach_timeout=%.2fs mono_fallback=%s mono_size=[%.3f,%.3f]m mono_fx_fy=[%.1f,%.1f]px mono_min_bbox=%dpx mono_max_delta=%.3fm",
               params_.cmd_vel_topic.c_str(), params_.odom_topic.c_str(),
               center_params_.cmd_vel_topic.c_str(),
               center_params_.odom_topic.c_str(),
@@ -1529,7 +1731,12 @@ bool MfPreselectionFlowAction::setupRuntime() {
               params_.kfs_odom_xy_kp, params_.kfs_approach_odom_tolerance_m,
               params_.kfs_approach_speed_mps, params_.kfs_approach_min_speed_mps,
               params_.kfs_grab_distance_m,
-              params_.kfs_approach_timeout_s);
+              params_.kfs_approach_timeout_s,
+              params_.kfs_mono_distance_fallback_enable ? "开" : "关",
+              params_.kfs_mono_target_width_m,
+              params_.kfs_mono_target_height_m, params_.kfs_mono_fx_px,
+              params_.kfs_mono_fy_px, params_.kfs_mono_min_bbox_px,
+              params_.kfs_mono_max_delta_from_locked_m);
   return true;
 }
 
@@ -1554,7 +1761,7 @@ bool MfPreselectionFlowAction::setupVision() {
       return false;
     }
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛 KFS 视觉已启动：config=%s model=%s R2前缀数=%zu R1标签数=%zu 假KFS前缀数=%zu 通用深度=[%.2f, %.2f]m 入口深度=[%.2f, %.2f]m 入口打断offset<=%dpx dynamic_comp=%s 识别框中线目标偏置=%dpx 横移视觉速度=[%.3f, %.3f]m/s 超时补夹offset<=%dpx 前向odom速度=%.3fm/s 臂长=%.3fm 超时=%.2fs",
+                "梅林预选赛 KFS 视觉已启动：config=%s model=%s R2前缀数=%zu R1标签数=%zu 假KFS前缀数=%zu 通用深度=[%.2f, %.2f]m 入口深度=[%.2f, %.2f]m 入口打断offset<=%dpx dynamic_comp=%s 识别框中线目标偏置=%dpx 横移视觉速度=[%.3f, %.3f]m/s 超时补夹offset<=%dpx 前向odom速度=%.3fm/s 臂长=%.3fm 超时=%.2fs mono_fallback=%s mono_size=[%.3f,%.3f]m mono_fx_fy=[%.1f,%.1f]px mono_max_delta=%.3fm",
                 params_.vision_config_file.c_str(), params_.model_id.c_str(),
                 params_.r2_target_label_prefixes.size(),
                 params_.r1_blocking_labels.size(),
@@ -1567,7 +1774,12 @@ bool MfPreselectionFlowAction::setupVision() {
                 params_.kfs_align_max_speed_mps,
                 params_.kfs_align_timeout_pickup_tolerance_px,
                 params_.kfs_approach_speed_mps,
-                params_.kfs_grab_distance_m, params_.kfs_approach_timeout_s);
+                params_.kfs_grab_distance_m, params_.kfs_approach_timeout_s,
+                params_.kfs_mono_distance_fallback_enable ? "开" : "关",
+                params_.kfs_mono_target_width_m,
+                params_.kfs_mono_target_height_m, params_.kfs_mono_fx_px,
+                params_.kfs_mono_fy_px,
+                params_.kfs_mono_max_delta_from_locked_m);
     return true;
   } catch (const std::exception &e) {
     RCLCPP_ERROR(node_->get_logger(), "梅林预选赛 KFS 视觉初始化异常: %s",
@@ -1698,6 +1910,28 @@ void MfPreselectionFlowAction::normalizeParams() {
       params_.kfs_grab_distance_m < 0.0) {
     params_.kfs_grab_distance_m = 0.0;
   }
+  params_.kfs_mono_target_width_m =
+      std::max(0.0, std::isfinite(params_.kfs_mono_target_width_m)
+                        ? params_.kfs_mono_target_width_m
+                        : 0.0);
+  params_.kfs_mono_target_height_m =
+      std::max(0.0, std::isfinite(params_.kfs_mono_target_height_m)
+                        ? params_.kfs_mono_target_height_m
+                        : 0.0);
+  params_.kfs_mono_fx_px =
+      std::max(0.0, std::isfinite(params_.kfs_mono_fx_px)
+                        ? params_.kfs_mono_fx_px
+                        : 0.0);
+  params_.kfs_mono_fy_px =
+      std::max(0.0, std::isfinite(params_.kfs_mono_fy_px)
+                        ? params_.kfs_mono_fy_px
+                        : 0.0);
+  params_.kfs_mono_min_bbox_px =
+      std::max(1, params_.kfs_mono_min_bbox_px);
+  params_.kfs_mono_max_delta_from_locked_m =
+      std::max(0.0, std::isfinite(params_.kfs_mono_max_delta_from_locked_m)
+                        ? params_.kfs_mono_max_delta_from_locked_m
+                        : 0.0);
   params_.max_pickup_count = std::max(0, params_.max_pickup_count);
   params_.grab_settle_s = std::max(0.0, params_.grab_settle_s);
   params_.grab_verify_timeout_s =
@@ -2480,10 +2714,13 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
     }
     if (detect_seen_count_ >= params_.detect_seen_stable_frames) {
       RCLCPP_INFO(node_->get_logger(),
-                  "梅林预选赛检测到R2 KFS并锁定单帧：阶段=%s label=%s seq=%ld distance=%.3fm score=%.3f offset=%dpx target_line_offset=%dpx stable=%d/%d bbox=[%.1f %.1f %.1f %.1f]",
+                  "梅林预选赛检测到R2 KFS并锁定单帧：阶段=%s label=%s seq=%ld distance=%s depth_source=%s score=%.3f offset=%dpx target_line_offset=%dpx stable=%d/%d bbox=[%.1f %.1f %.1f %.1f]",
                   detectModeText(detect_mode_), r2->target.label.c_str(),
                   static_cast<long>(r2->target.sequence),
-                  r2->target.distance_m, r2->target.score, r2->offset_px,
+                  metersText(r2->has_depth, r2->target.distance_m).c_str(),
+                  MfPreselectionLogicResult::kfsDepthSourceText(
+                      r2->depth_source),
+                  r2->target.score, r2->offset_px,
                   params_.kfs_align_target_line_offset_px, detect_seen_count_,
                   params_.detect_seen_stable_frames, r2->target.x1,
                   r2->target.y1, r2->target.x2, r2->target.y2);
@@ -3078,11 +3315,13 @@ bool MfPreselectionFlowAction::maybeInterruptEntryMoveForKfs() {
     if (node_) {
       RCLCPP_INFO(
           node_->get_logger(),
-          "梅林预选赛入口横移中看到R2 KFS但暂不停车：move=%s label=%s seq=%ld image_offset=%dpx base_limit=%dpx dynamic_extra=%dpx effective_limit=%dpx vy=%.3fm/s depth=%.3fm，继续横移等待目标进入可夹取窗口",
+          "梅林预选赛入口横移中看到R2 KFS但暂不停车：move=%s label=%s seq=%ld image_offset=%dpx base_limit=%dpx dynamic_extra=%dpx effective_limit=%dpx vy=%.3fm/s depth=%s depth_source=%s，继续横移等待目标进入可夹取窗口",
           move_label_.c_str(), r2->target.label.c_str(),
           static_cast<long>(r2->target.sequence), r2->offset_px,
           params_.entry_interrupt_max_offset_px, dynamic_extra_px,
-          effective_limit_px, lateral_speed, r2->target.distance_m);
+          effective_limit_px, lateral_speed,
+          metersText(r2->has_depth, r2->target.distance_m).c_str(),
+          MfPreselectionLogicResult::kfsDepthSourceText(r2->depth_source));
     }
     return false;
   }
@@ -3103,12 +3342,13 @@ bool MfPreselectionFlowAction::maybeInterruptEntryMoveForKfs() {
   }
 
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛入口横移中单帧锁定R2 KFS：move=%s label=%s seq=%ld lateral_offset=%.3fm image_offset=%dpx base_limit=%dpx dynamic_extra=%dpx effective_limit=%dpx vy=%.3fm/s depth=%.3fm source=%s，立即停车进入视觉横移对齐夹取",
+              "梅林预选赛入口横移中单帧锁定R2 KFS：move=%s label=%s seq=%ld lateral_offset=%.3fm image_offset=%dpx base_limit=%dpx dynamic_extra=%dpx effective_limit=%dpx vy=%.3fm/s depth=%s depth_source=%s source=%s，立即停车进入视觉横移对齐夹取",
               move_label_.c_str(), r2->target.label.c_str(),
               static_cast<long>(r2->target.sequence), lateral_offset,
               r2->offset_px, params_.entry_interrupt_max_offset_px,
               dynamic_extra_px, effective_limit_px, lateral_speed,
-              r2->target.distance_m,
+              metersText(r2->has_depth, r2->target.distance_m).c_str(),
+              MfPreselectionLogicResult::kfsDepthSourceText(r2->depth_source),
               sourceName(source));
   beginKfsVisualPickup(true, source, *r2,
                        Phase::EntryReturnToCenterAfterInterruptedPickup,
@@ -3333,9 +3573,11 @@ BT::NodeStatus MfPreselectionFlowAction::tickDirectExitDrive() {
     if (r2.has_value()) {
     // 直出途中仍然允许补夹 R2 KFS，但不记录新的入口来源。
       RCLCPP_INFO(node_->get_logger(),
-                  "梅林预选赛直行离场途中单帧锁定R2 KFS：label=%s offset=%dpx depth=%.3fm，先夹取后继续离场",
+                  "梅林预选赛直行离场途中单帧锁定R2 KFS：label=%s offset=%dpx depth=%s depth_source=%s，先夹取后继续离场",
                   r2->target.label.c_str(), r2->offset_px,
-                  r2->target.distance_m);
+                  metersText(r2->has_depth, r2->target.distance_m).c_str(),
+                  MfPreselectionLogicResult::kfsDepthSourceText(
+                      r2->depth_source));
       beginKfsVisualPickup(true, MfPreselectionPickupSource::None, *r2,
                            Phase::DirectExitDrive, Phase::DirectExitDrive,
                            false, false);
@@ -4388,7 +4630,10 @@ std::string MfPreselectionFlowAction::r2LockRejectSummary() const {
 }
 
 std::optional<MfPreselectionFlowAction::KfsVisualObservation>
-MfPreselectionFlowAction::findR2LockObservation(R2DepthProfile depth_profile) {
+MfPreselectionFlowAction::findR2LockObservation(
+    R2DepthProfile depth_profile, R2LockObservationMode mode) {
+  const bool allow_depthless_align =
+      mode == R2LockObservationMode::AllowDepthlessForAlign;
   const auto profileText = [](R2DepthProfile profile) {
     return profile == R2DepthProfile::Entry ? "入口深度窗口" : "常规深度窗口";
   };
@@ -4452,15 +4697,35 @@ MfPreselectionFlowAction::findR2LockObservation(R2DepthProfile depth_profile) {
   kfs_align_target_lock_sequence_ = snapshot.display_sequence;
   kfs_align_last_observation_.reset();
 
+  struct CandidateDepthState {
+    bool has_depth{false};
+    double depth_m{0.0};
+    MfPreselectionLogicResult::KfsDepthSource source{
+        MfPreselectionLogicResult::KfsDepthSource::None};
+    std::string detail;
+  };
+
+  const bool entry_profile = depth_profile == R2DepthProfile::Entry;
+  rc26_vision::DepthRoiSamplerConfig depth_config;
+  depth_config.roi_size = 7;
+  depth_config.min_valid_count = 10;
+  depth_config.min_depth_m =
+      entry_profile ? params_.entry_depth_min_m : params_.depth_min_m;
+  depth_config.max_depth_m =
+      entry_profile ? params_.entry_depth_max_m : params_.depth_max_m;
+
   std::vector<rc26_vision::Detection> candidates;
   candidates.reserve(snapshot.detections.size());
   std::vector<MfPreselectionTargetSnapshot> snapshots;
   snapshots.reserve(snapshot.detections.size());
-  std::vector<double> depths;
-  depths.reserve(snapshot.detections.size());
+  std::vector<CandidateDepthState> depth_states;
+  depth_states.reserve(snapshot.detections.size());
   int label_match_count = 0;
   int ignored_count = 0;
   int depth_invalid_count = 0;
+  int usable_depth_count = 0;
+  int mono_depth_count = 0;
+  int depthless_align_count = 0;
   std::string ignored_detail;
   std::string depth_invalid_detail;
   int depth_invalid_best_window_valid_count = -1;
@@ -4497,56 +4762,81 @@ MfPreselectionFlowAction::findR2LockObservation(R2DepthProfile depth_profile) {
       continue;
     }
 
-    const double center_x =
-        (static_cast<double>(det.x1) + static_cast<double>(det.x2)) * 0.5;
-    const int cx = static_cast<int>(std::lround(center_x));
-    const int cy = static_cast<int>(
-        std::lround((static_cast<double>(det.y1) +
-                     static_cast<double>(det.y2)) *
-                    0.5));
-    rc26_vision::DepthRoiSamplerConfig depth_config;
-    depth_config.roi_size = 7;
-    depth_config.min_valid_count = 10;
-    const bool entry_profile = depth_profile == R2DepthProfile::Entry;
-    depth_config.min_depth_m =
-        entry_profile ? params_.entry_depth_min_m : params_.depth_min_m;
-    depth_config.max_depth_m =
-        entry_profile ? params_.entry_depth_max_m : params_.depth_max_m;
-    const auto sampled =
-        rc26_vision::sampleMedianDepth(snapshot.depth, cx, cy, depth_config);
-    const auto depth_diag = MfPreselectionLogicResult::depthRoiDiagnostic(
-        snapshot.depth, cx, cy, depth_config);
-    if (!sampled.has_value()) {
+    CandidateDepthState depth_state;
+    const auto bbox_depth = MfPreselectionLogicResult::sampleKfsDepthFromBbox(
+        snapshot.depth, det.x1, det.y1, det.x2, det.y2, depth_config);
+    if (bbox_depth.has_depth) {
+      depth_state.has_depth = true;
+      depth_state.depth_m = bbox_depth.depth_m;
+      depth_state.source = bbox_depth.source;
+      depth_state.detail = bbox_depth.detail;
+      ++usable_depth_count;
+    } else {
       ++depth_invalid_count;
       const bool replace_depth_detail =
           depth_invalid_detail.empty() ||
-          depth_diag.window_valid_count > depth_invalid_best_window_valid_count ||
-          (depth_diag.window_valid_count ==
+          bbox_depth.representative_failure.window_valid_count >
+              depth_invalid_best_window_valid_count ||
+          (bbox_depth.representative_failure.window_valid_count ==
                depth_invalid_best_window_valid_count &&
-           depth_diag.raw_valid_count > depth_invalid_best_raw_valid_count);
+           bbox_depth.representative_failure.raw_valid_count >
+               depth_invalid_best_raw_valid_count);
       if (replace_depth_detail) {
-        depth_invalid_best_window_valid_count = depth_diag.window_valid_count;
-        depth_invalid_best_raw_valid_count = depth_diag.raw_valid_count;
+        depth_invalid_best_window_valid_count =
+            bbox_depth.representative_failure.window_valid_count;
+        depth_invalid_best_raw_valid_count =
+            bbox_depth.representative_failure.raw_valid_count;
         std::ostringstream detail;
         detail << "代表失败候选=" << detectionSummary(det) << " "
-               << MfPreselectionLogicResult::depthRoiDiagnosticDetail(depth_diag);
+               << bbox_depth.detail;
         depth_invalid_detail = detail.str();
       }
+
+      if (allow_depthless_align) {
+        const auto mono = MfPreselectionLogicResult::estimateKfsMonocularDepth(
+            std::abs(static_cast<double>(det.x2) -
+                     static_cast<double>(det.x1)),
+            std::abs(static_cast<double>(det.y2) -
+                     static_cast<double>(det.y1)),
+            kfs_last_real_depth_m_, params_, depth_config.min_depth_m,
+            depth_config.max_depth_m);
+        if (mono.usable) {
+          depth_state.has_depth = true;
+          depth_state.depth_m = mono.depth_m;
+          depth_state.source =
+              MfPreselectionLogicResult::KfsDepthSource::MonocularBbox;
+          depth_state.detail = mono.detail;
+          ++usable_depth_count;
+          ++mono_depth_count;
+        } else {
+          ++depthless_align_count;
+          depth_state.detail = bbox_depth.detail + " " + mono.detail;
+        }
+      }
+    }
+
+    if (!depth_state.has_depth && !allow_depthless_align) {
       continue;
     }
 
     auto with_depth = candidate;
-    with_depth.distance_m = *sampled;
-    if (!first_valid_depth.has_value()) {
-      first_valid_depth = *sampled;
+    if (depth_state.has_depth) {
+      with_depth.distance_m = depth_state.depth_m;
+    }
+    if (depth_state.has_depth && !first_valid_depth.has_value()) {
+      first_valid_depth = depth_state.depth_m;
       std::ostringstream detail;
       detail << "首个有效候选=" << detectionSummary(det)
-             << " sampled_depth=" << *sampled;
+             << " depth=" << depth_state.depth_m
+             << " depth_source="
+             << MfPreselectionLogicResult::kfsDepthSourceText(
+                    depth_state.source)
+             << " " << depth_state.detail;
       first_valid_depth_detail = detail.str();
     }
     candidates.push_back(det);
     snapshots.push_back(with_depth);
-    depths.push_back(*sampled);
+    depth_states.push_back(depth_state);
   }
 
   const auto candidateDetail = [&]() {
@@ -4556,7 +4846,10 @@ MfPreselectionFlowAction::findR2LockObservation(R2DepthProfile depth_profile) {
            << " 标签匹配数=" << label_match_count
            << " 忽略过滤数=" << ignored_count
            << " 深度失败数=" << depth_invalid_count
-           << " 有效候选数=" << candidates.size();
+           << " 有效深度候选数=" << usable_depth_count
+           << " 尺寸估距成功数=" << mono_depth_count
+           << " 横移无深度跟踪数=" << depthless_align_count
+           << " 参与选择候选数=" << candidates.size();
     if (!ignored_detail.empty()) {
       detail << " " << ignored_detail;
     }
@@ -4624,11 +4917,16 @@ MfPreselectionFlowAction::findR2LockObservation(R2DepthProfile depth_profile) {
 
   const auto selected_index =
       static_cast<std::size_t>(selection.target.source_index);
+  const auto &selected_depth = depth_states[selected_index];
   KfsVisualObservation observation;
   observation.target = snapshots[selected_index];
-  observation.target.distance_m = depths[selected_index];
   observation.offset_px = selection.offset_px;
-  observation.has_depth = true;
+  observation.has_depth = selected_depth.has_depth;
+  observation.depth_source = selected_depth.source;
+  observation.depth_detail = selected_depth.detail;
+  if (selected_depth.has_depth) {
+    observation.target.distance_m = selected_depth.depth_m;
+  }
   kfs_align_last_observation_ = observation;
   clearR2LockReject();
   return observation;
@@ -4679,19 +4977,11 @@ MfPreselectionFlowAction::kfsVisualAlignHeadingControl() {
 
 std::optional<MfPreselectionFlowAction::KfsVisualObservation>
 MfPreselectionFlowAction::kfsAlignTimeoutObservation() const {
-  if (kfs_align_last_observation_.has_value()) {
+  if (kfs_align_last_observation_.has_value() &&
+      kfs_align_last_observation_->has_depth) {
     return kfs_align_last_observation_;
   }
-  if (!kfs_odom_target_.has_value() || kfs_odom_locked_depth_m_ <= 0.0) {
-    return std::nullopt;
-  }
-
-  KfsVisualObservation observation;
-  observation.target = *kfs_odom_target_;
-  observation.target.distance_m = kfs_odom_locked_depth_m_;
-  observation.offset_px = kfs_odom_offset_px_;
-  observation.has_depth = true;
-  return observation;
+  return std::nullopt;
 }
 
 void MfPreselectionFlowAction::finishKfsAlignFailure(
@@ -4916,15 +5206,23 @@ void MfPreselectionFlowAction::beginKfsVisualPickup(
   kfs_align_last_logged_reject_reason_.clear();
   kfs_odom_offset_px_ = observation.offset_px;
   kfs_odom_locked_depth_m_ = target.distance_m;
+  kfs_last_real_depth_m_ =
+      observation.has_depth &&
+              MfPreselectionLogicResult::kfsDepthSourceIsReal(
+                  observation.depth_source)
+          ? target.distance_m
+          : 0.0;
   clearKfsOdomAxisMotion();
   if (node_) {
     phase_start_ = node_->now();
     kfs_align_total_start_ = phase_start_;
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛单帧发现KFS，按tip_alignment目标线口径进入视觉横移对齐：source=%s high_side=%s target=%s seq=%ld depth=%.3fm depth_profile=%s offset=%dpx target_line_offset=%dpx stable_required=%d bbox=[%.1f %.1f %.1f %.1f] success=%s failure=%s direct_exit=%s",
+                "梅林预选赛单帧发现KFS，按tip_alignment目标线口径进入视觉横移对齐：source=%s high_side=%s target=%s seq=%ld depth=%s depth_source=%s depth_profile=%s offset=%dpx target_line_offset=%dpx stable_required=%d bbox=[%.1f %.1f %.1f %.1f] success=%s failure=%s direct_exit=%s",
                 sourceName(source), high_side ? "是" : "否",
                 target.label.c_str(), static_cast<long>(target.sequence),
-                target.distance_m,
+                metersText(observation.has_depth, target.distance_m).c_str(),
+                MfPreselectionLogicResult::kfsDepthSourceText(
+                    observation.depth_source),
                 depth_profile == R2DepthProfile::Entry ? "entry" : "general",
                 observation.offset_px, params_.kfs_align_target_line_offset_px,
                 params_.kfs_align_stable_frames, target.x1, target.y1,
@@ -4960,11 +5258,15 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
             params_)) {
       const std::string reject_summary = r2LockRejectSummary();
       RCLCPP_WARN(node_->get_logger(),
-                  "梅林预选赛KFS横移对齐超时但目标仍在补夹窗口内，继续前向趋近夹取：target=%s offset=%dpx tolerance=%dpx depth=%.3fm timeout=%.2fs%s",
+                  "梅林预选赛KFS横移对齐超时但目标仍在补夹窗口内，继续前向趋近夹取：target=%s offset=%dpx tolerance=%dpx depth=%s depth_source=%s timeout=%.2fs%s",
                   timeout_observation->target.label.c_str(),
                   timeout_observation->offset_px,
                   params_.kfs_align_timeout_pickup_tolerance_px,
-                  timeout_observation->target.distance_m,
+                  metersText(timeout_observation->has_depth,
+                             timeout_observation->target.distance_m)
+                      .c_str(),
+                  MfPreselectionLogicResult::kfsDepthSourceText(
+                      timeout_observation->depth_source),
                   params_.kfs_align_timeout_s, reject_summary.c_str());
       return beginKfsOdomApproach(*timeout_observation);
     }
@@ -4972,7 +5274,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
     return BT::NodeStatus::RUNNING;
   }
 
-  const auto observation = findR2LockObservation(kfs_pickup_depth_profile_);
+  const auto observation = findR2LockObservation(
+      kfs_pickup_depth_profile_, R2LockObservationMode::AllowDepthlessForAlign);
   if (!observation.has_value()) {
     const bool has_new_lock_sequence =
         kfs_align_target_lock_sequence_ > 0 &&
@@ -4983,14 +5286,14 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
       kfs_align_stable_count_ = 0;
     }
     if (has_new_lock_sequence && !last_r2_lock_reject_reason_.empty()) {
-      const std::string reject_key =
-          last_r2_lock_reject_reason_ + "#" +
-          std::to_string(last_r2_lock_reject_sequence_);
+      const std::string reject_key = last_r2_lock_reject_reason_;
       if (reject_key != kfs_align_last_logged_reject_reason_) {
         kfs_align_last_logged_reject_reason_ = reject_key;
+        const int visible_lost = std::clamp(
+            kfs_align_lost_count_, 0, params_.kfs_lost_stop_frames);
         RCLCPP_INFO(node_->get_logger(),
                     "梅林预选赛KFS横移对齐本帧未形成可用R2目标：lost=%d/%d%s",
-                    kfs_align_lost_count_, params_.kfs_lost_stop_frames,
+                    visible_lost, params_.kfs_lost_stop_frames,
                     r2LockRejectSummary().c_str());
       }
     }
@@ -5023,8 +5326,14 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
 
   kfs_align_lost_count_ = 0;
   kfs_odom_offset_px_ = observation->offset_px;
-  kfs_odom_locked_depth_m_ = observation->target.distance_m;
-  kfs_odom_target_ = observation->target;
+  if (observation->has_depth) {
+    kfs_odom_locked_depth_m_ = observation->target.distance_m;
+    kfs_odom_target_ = observation->target;
+    if (MfPreselectionLogicResult::kfsDepthSourceIsReal(
+            observation->depth_source)) {
+      kfs_last_real_depth_m_ = observation->target.distance_m;
+    }
+  }
   kfs_locked_target_ = observation->target;
 
   const bool new_frame = observation->target.sequence != kfs_align_last_sequence_;
@@ -5035,13 +5344,35 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
       std::abs(observation->offset_px) <= params_.kfs_align_tolerance_px;
   const bool aligned = pixel_aligned && heading_control->aligned;
   if (aligned) {
+    if (!observation->has_depth) {
+      if (new_frame) {
+        kfs_align_stable_count_ = 0;
+      }
+      publishStop();
+      const std::string wait_key = "aligned_wait_depth";
+      if (new_frame && wait_key != kfs_align_last_logged_reject_reason_) {
+        kfs_align_last_logged_reject_reason_ = wait_key;
+        RCLCPP_INFO(node_->get_logger(),
+                    "梅林预选赛KFS tip_alignment已对齐但等待可用深度：label=%s seq=%ld offset=%dpx target_line_offset=%dpx tolerance=%dpx yaw_error=%.3frad depth_source=%s detail={%s}",
+                    observation->target.label.c_str(),
+                    static_cast<long>(observation->target.sequence),
+                    observation->offset_px,
+                    params_.kfs_align_target_line_offset_px,
+                    params_.kfs_align_tolerance_px,
+                    heading_control->yaw_error_rad,
+                    MfPreselectionLogicResult::kfsDepthSourceText(
+                        observation->depth_source),
+                    observation->depth_detail.c_str());
+      }
+      return BT::NodeStatus::RUNNING;
+    }
     if (new_frame) {
       ++kfs_align_stable_count_;
     }
     publishStop();
     if (new_frame) {
       RCLCPP_INFO(node_->get_logger(),
-                  "梅林预选赛KFS tip_alignment稳定计数：label=%s seq=%ld offset=%dpx target_line_offset=%dpx tolerance=%dpx yaw_error=%.3frad stable=%d/%d depth=%.3fm",
+                  "梅林预选赛KFS tip_alignment稳定计数：label=%s seq=%ld offset=%dpx target_line_offset=%dpx tolerance=%dpx yaw_error=%.3frad stable=%d/%d depth=%s depth_source=%s detail={%s}",
                   observation->target.label.c_str(),
                   static_cast<long>(observation->target.sequence),
                   observation->offset_px,
@@ -5049,16 +5380,25 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
                   params_.kfs_align_tolerance_px,
                   heading_control->yaw_error_rad, kfs_align_stable_count_,
                   params_.kfs_align_stable_frames,
-                  observation->target.distance_m);
+                  metersText(observation->has_depth,
+                             observation->target.distance_m)
+                      .c_str(),
+                  MfPreselectionLogicResult::kfsDepthSourceText(
+                      observation->depth_source),
+                  observation->depth_detail.c_str());
     }
     if (kfs_align_stable_count_ >= params_.kfs_align_stable_frames) {
       RCLCPP_INFO(node_->get_logger(),
-                  "梅林预选赛KFS tip_alignment确认已对齐：offset=%dpx target_line_offset=%dpx tolerance=%dpx yaw_error=%.3frad depth=%.3fm，进入前向odom闭环趋近规划",
+                  "梅林预选赛KFS tip_alignment确认已对齐：offset=%dpx target_line_offset=%dpx tolerance=%dpx yaw_error=%.3frad depth=%s depth_source=%s，进入前向odom闭环趋近规划",
                   observation->offset_px,
                   params_.kfs_align_target_line_offset_px,
                   params_.kfs_align_tolerance_px,
                   heading_control->yaw_error_rad,
-                  observation->target.distance_m);
+                  metersText(observation->has_depth,
+                             observation->target.distance_m)
+                      .c_str(),
+                  MfPreselectionLogicResult::kfsDepthSourceText(
+                      observation->depth_source));
       return beginKfsOdomApproach(*observation);
     }
     return BT::NodeStatus::RUNNING;
@@ -5072,7 +5412,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
                               observation->offset_px, makeKfsAlignmentConfig())
                         : 0.0;
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛KFS tip_alignment更新：label=%s seq=%ld offset=%dpx target_line_offset=%dpx tolerance=%dpx pixel_aligned=%s yaw_aligned=%s yaw_gate=%s vy=%.3fm/s wz=%.3frad/s depth=%.3fm",
+              "梅林预选赛KFS tip_alignment更新：label=%s seq=%ld offset=%dpx target_line_offset=%dpx tolerance=%dpx pixel_aligned=%s yaw_aligned=%s yaw_gate=%s vy=%.3fm/s wz=%.3frad/s depth=%s depth_source=%s detail={%s}",
               observation->target.label.c_str(),
               static_cast<long>(observation->target.sequence),
               observation->offset_px, params_.kfs_align_target_line_offset_px,
@@ -5080,7 +5420,13 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
               pixel_aligned ? "是" : "否",
               heading_control->aligned ? "是" : "否",
               heading_control->within_gate ? "是" : "否", vy,
-              heading_control->angular_z_radps, observation->target.distance_m);
+              heading_control->angular_z_radps,
+              metersText(observation->has_depth,
+                         observation->target.distance_m)
+                  .c_str(),
+              MfPreselectionLogicResult::kfsDepthSourceText(
+                  observation->depth_source),
+              observation->depth_detail.c_str());
   publishKfsVisualAlignTwist(vy, heading_control->angular_z_radps);
   return BT::NodeStatus::RUNNING;
 }
@@ -5116,15 +5462,22 @@ BT::NodeStatus MfPreselectionFlowAction::beginKfsOdomApproach(
   kfs_odom_target_ = observation.target;
   kfs_odom_offset_px_ = observation.offset_px;
   kfs_odom_locked_depth_m_ = observation.target.distance_m;
+  if (MfPreselectionLogicResult::kfsDepthSourceIsReal(
+          observation.depth_source)) {
+    kfs_last_real_depth_m_ = observation.target.distance_m;
+  }
   kfs_odom_approach_distance_m_ = planned_distance_m;
   kfs_odom_approach_estimated_duration_s_ = planned_duration_s;
   kfs_odom_approach_started_ = false;
   clearKfsOdomAxisMotion();
 
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛KFS目标对齐稳定，锁定odom闭环趋近：label=%s offset=%d locked_depth=%.3fm arm_reach=%.3fm distance=%.3fm speed_max=%.3fm/s speed_min=%.3fm/s estimated_duration=%.3fs",
+              "梅林预选赛KFS目标对齐稳定，锁定odom闭环趋近：label=%s offset=%d locked_depth=%.3fm depth_source=%s depth_detail={%s} arm_reach=%.3fm distance=%.3fm speed_max=%.3fm/s speed_min=%.3fm/s estimated_duration=%.3fs",
               observation.target.label.c_str(), observation.offset_px,
-              kfs_odom_locked_depth_m_, params_.kfs_grab_distance_m,
+              kfs_odom_locked_depth_m_,
+              MfPreselectionLogicResult::kfsDepthSourceText(
+                  observation.depth_source),
+              observation.depth_detail.c_str(), params_.kfs_grab_distance_m,
               kfs_odom_approach_distance_m_, params_.kfs_approach_speed_mps,
               params_.kfs_approach_min_speed_mps,
               kfs_odom_approach_estimated_duration_s_);
@@ -5236,6 +5589,7 @@ void MfPreselectionFlowAction::clearKfsVisualPickup() {
   kfs_align_last_logged_reject_reason_.clear();
   kfs_odom_offset_px_ = 0;
   kfs_odom_locked_depth_m_ = 0.0;
+  kfs_last_real_depth_m_ = 0.0;
   kfs_odom_approach_distance_m_ = 0.0;
   kfs_odom_approach_estimated_duration_s_ = 0.0;
   kfs_odom_approach_started_ = false;
@@ -5600,6 +5954,24 @@ void loadMfPreselectionParams(rclcpp::Node &node,
       "mf_preselect_kfs_approach_timeout_s", p.kfs_approach_timeout_s);
   p.kfs_grab_distance_m = node.declare_parameter<double>(
       "mf_preselect_kfs_grab_distance_m", p.kfs_grab_distance_m);
+  p.kfs_mono_distance_fallback_enable = node.declare_parameter<bool>(
+      "mf_preselect_kfs_mono_distance_fallback_enable",
+      p.kfs_mono_distance_fallback_enable);
+  p.kfs_mono_target_width_m = node.declare_parameter<double>(
+      "mf_preselect_kfs_mono_target_width_m",
+      p.kfs_mono_target_width_m);
+  p.kfs_mono_target_height_m = node.declare_parameter<double>(
+      "mf_preselect_kfs_mono_target_height_m",
+      p.kfs_mono_target_height_m);
+  p.kfs_mono_fx_px = node.declare_parameter<double>(
+      "mf_preselect_kfs_mono_fx_px", p.kfs_mono_fx_px);
+  p.kfs_mono_fy_px = node.declare_parameter<double>(
+      "mf_preselect_kfs_mono_fy_px", p.kfs_mono_fy_px);
+  p.kfs_mono_min_bbox_px = node.declare_parameter<int>(
+      "mf_preselect_kfs_mono_min_bbox_px", p.kfs_mono_min_bbox_px);
+  p.kfs_mono_max_delta_from_locked_m = node.declare_parameter<double>(
+      "mf_preselect_kfs_mono_max_delta_from_locked_m",
+      p.kfs_mono_max_delta_from_locked_m);
 
   // 夹取次数和夹爪命令。max_pickup_count=0 可用于路线/避障干跑。
   p.max_pickup_count = node.declare_parameter<int>(

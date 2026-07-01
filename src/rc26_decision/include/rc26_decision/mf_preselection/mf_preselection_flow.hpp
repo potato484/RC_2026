@@ -80,6 +80,13 @@ struct MfPreselectionParams {
   int kfs_approach_x_sign{1};
   double kfs_approach_timeout_s{8.0};
   double kfs_grab_distance_m{0.50};
+  bool kfs_mono_distance_fallback_enable{true};
+  double kfs_mono_target_width_m{0.35};
+  double kfs_mono_target_height_m{0.35};
+  double kfs_mono_fx_px{385.83319091796875};
+  double kfs_mono_fy_px{385.83319091796875};
+  int kfs_mono_min_bbox_px{40};
+  double kfs_mono_max_delta_from_locked_m{0.25};
 
   int max_pickup_count{2};
   double grab_settle_s{0.5};
@@ -144,6 +151,8 @@ struct MfPreselectionParams {
 };
 
 struct MfPreselectionLogicResult {
+  enum class KfsDepthSource { None, CenterRoi, BboxMultiRoi, MonocularBbox };
+
   struct DepthRoiDiagnostic {
     int cx{0};
     int cy{0};
@@ -170,6 +179,28 @@ struct MfPreselectionLogicResult {
     bool sampled{false};
     double sampled_depth_m{0.0};
     std::string primary_failure;
+  };
+
+  struct KfsBboxDepthSample {
+    bool has_depth{false};
+    double depth_m{0.0};
+    KfsDepthSource source{KfsDepthSource::None};
+    int sample_point_count{0};
+    int success_count{0};
+    DepthRoiDiagnostic representative_failure;
+    std::string detail;
+  };
+
+  struct KfsMonocularDepthEstimate {
+    bool usable{false};
+    double depth_m{0.0};
+    double bbox_width_px{0.0};
+    double bbox_height_px{0.0};
+    double z_width_m{0.0};
+    double z_height_m{0.0};
+    double locked_delta_m{0.0};
+    std::string reject_reason;
+    std::string detail;
   };
 
   static bool labelMatches(const std::string &label,
@@ -199,6 +230,15 @@ struct MfPreselectionLogicResult {
       const rc26_vision::DepthRoiSamplerConfig &config);
   static std::string depthRoiDiagnosticDetail(
       const DepthRoiDiagnostic &diagnostic);
+  static const char *kfsDepthSourceText(KfsDepthSource source);
+  static bool kfsDepthSourceIsReal(KfsDepthSource source);
+  static KfsBboxDepthSample sampleKfsDepthFromBbox(
+      const cv::Mat &depth, double x1, double y1, double x2, double y2,
+      const rc26_vision::DepthRoiSamplerConfig &config);
+  static KfsMonocularDepthEstimate estimateKfsMonocularDepth(
+      double bbox_width_px, double bbox_height_px, double locked_depth_m,
+      const MfPreselectionParams &params, double min_depth_m,
+      double max_depth_m);
   static rc26_vision::TipAlignmentConfig
   kfsAlignmentConfig(const MfPreselectionParams &params,
                      double target_yaw_rad);
@@ -328,6 +368,10 @@ private:
   enum class StairMode { Climb, Descend };
   enum class KfsOdomAxis { X, Y };
   enum class KfsOdomMotionResult { Running, Succeeded, Failed };
+  enum class R2LockObservationMode {
+    RequireDepthForDetection,
+    AllowDepthlessForAlign
+  };
   enum class StairCenterPolicy {
     None,
     EntryGrid2Reference,
@@ -361,6 +405,9 @@ private:
     MfPreselectionTargetSnapshot target;
     int offset_px{0};
     bool has_depth{false};
+    MfPreselectionLogicResult::KfsDepthSource depth_source{
+        MfPreselectionLogicResult::KfsDepthSource::None};
+    std::string depth_detail;
   };
 
   bool setupRuntime();
@@ -474,7 +521,9 @@ private:
   void setCenterError(const std::string &reason) const;
 
   std::optional<KfsVisualObservation>
-  findR2LockObservation(R2DepthProfile depth_profile = R2DepthProfile::General);
+  findR2LockObservation(
+      R2DepthProfile depth_profile = R2DepthProfile::General,
+      R2LockObservationMode mode = R2LockObservationMode::RequireDepthForDetection);
   void recordR2LockReject(const std::string &reason,
                           const std::string &detail, int64_t sequence);
   void clearR2LockReject();
@@ -692,6 +741,7 @@ private:
   bool kfs_align_waiting_odom_logged_{false};
   int kfs_odom_offset_px_{0};
   double kfs_odom_locked_depth_m_{0.0};
+  double kfs_last_real_depth_m_{0.0};
   double kfs_odom_approach_distance_m_{0.0};
   double kfs_odom_approach_estimated_duration_s_{0.0};
   bool kfs_odom_approach_started_{false};
