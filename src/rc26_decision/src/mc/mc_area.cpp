@@ -14,6 +14,7 @@
 #include "rotate_in_place.hpp"
 #include "visual_servo_grab.hpp"
 #include "wait_for_red_element.hpp"
+#include "wait_start_signal_and_notify.hpp"
 #include "wait_forever.hpp"
 #include "rc26_decision/team_color.hpp"
 
@@ -153,6 +154,27 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     p.red_log_period_s =
         node.declare_parameter<double>("mc_red_log_period_s", p.red_log_period_s);
 
+    // 组合树启动 gate：等待人工 0x06 后通知下位机比赛开始。
+    p.start_signal_feedback_topic =
+        node.declare_parameter<std::string>("mc_mf_start_signal_feedback_topic",
+                                            p.start_signal_feedback_topic);
+    p.start_signal_feedback_id =
+        node.declare_parameter<int>("mc_mf_start_signal_feedback_id",
+                                    p.start_signal_feedback_id);
+    p.start_signal_timeout_s =
+        node.declare_parameter<double>("mc_mf_start_signal_timeout_s",
+                                       p.start_signal_timeout_s);
+    p.start_command_service =
+        node.declare_parameter<std::string>("mc_mf_start_command_service",
+                                            p.start_command_service);
+    p.start_command_id =
+        node.declare_parameter<int>("mc_mf_start_command_id", p.start_command_id);
+    p.start_command_timeout_s =
+        node.declare_parameter<double>("mc_mf_start_command_timeout_s",
+                                       p.start_command_timeout_s);
+    p.start_log_period_s =
+        node.declare_parameter<double>("mc_mf_start_log_period_s", p.start_log_period_s);
+
     p.align_heading_kp = std::max(0.0, p.align_heading_kp);
     p.align_heading_max_speed_radps = std::max(0.0, p.align_heading_max_speed_radps);
     p.align_heading_tolerance_deg = std::max(0.0, p.align_heading_tolerance_deg);
@@ -172,6 +194,11 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     p.red_stable_frames = std::max(1, p.red_stable_frames);
     p.red_detect_timeout_s = std::max(0.001, p.red_detect_timeout_s);
     p.red_log_period_s = std::max(0.1, p.red_log_period_s);
+    p.start_signal_feedback_id = std::clamp(p.start_signal_feedback_id, 0, 255);
+    p.start_signal_timeout_s = std::max(0.0, p.start_signal_timeout_s);
+    p.start_command_id = std::clamp(p.start_command_id, 0, 255);
+    p.start_command_timeout_s = std::max(0.001, p.start_command_timeout_s);
+    p.start_log_period_s = std::max(0.1, p.start_log_period_s);
 
     p.vision_config_file = resolveVisionConfig(p.vision_config_file);
 
@@ -183,13 +210,22 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     blackboard->set("mc_nav_timeout_sec", nav_timeout);
     blackboard->set("mc_red_detect_timeout_s", p.red_detect_timeout_s);
     blackboard->set("mc_red_stable_frames", p.red_stable_frames);
+    blackboard->set("mc_mf_start_signal_feedback_topic", p.start_signal_feedback_topic);
+    blackboard->set("mc_mf_start_signal_feedback_id", p.start_signal_feedback_id);
+    blackboard->set("mc_mf_start_signal_timeout_s", p.start_signal_timeout_s);
+    blackboard->set("mc_mf_start_command_service", p.start_command_service);
+    blackboard->set("mc_mf_start_command_id", p.start_command_id);
+    blackboard->set("mc_mf_start_command_timeout_s", p.start_command_timeout_s);
+    blackboard->set("mc_mf_start_log_period_s", p.start_log_period_s);
     RCLCPP_INFO(node.get_logger(),
-                "武馆区参数已加载: vision_config=%s mirror_sign=%d relative_nav=+x %.2fm, yaw_delta %.2frad, x %.2fm, rotate_direction=%d red_hsv=[%d-%d,%d-%d] s>=%d v>=%d area>=%d stable=%d",
+                "武馆区参数已加载: vision_config=%s mirror_sign=%d relative_nav=+x %.2fm, yaw_delta %.2frad, x %.2fm, rotate_direction=%d red_hsv=[%d-%d,%d-%d] s>=%d v>=%d area>=%d stable=%d start_signal=0x%02X start_cmd=0x%02X",
                 p.vision_config_file.c_str(), mirror_sign, nav_forward_x_m,
                 nav_right_turn_delta_rad, nav_reverse_x_m,
                 p.rotate_direction, p.red_hue_low1, p.red_hue_high1,
                 p.red_hue_low2, p.red_hue_high2, p.red_saturation_min,
-                p.red_value_min, p.red_min_area_px, p.red_stable_frames);
+                p.red_value_min, p.red_min_area_px, p.red_stable_frames,
+                static_cast<unsigned int>(p.start_signal_feedback_id & 0xFF),
+                static_cast<unsigned int>(p.start_command_id & 0xFF));
 }
 
 void registerMCAreaNodes(BT::BehaviorTreeFactory& factory) {
@@ -197,6 +233,7 @@ void registerMCAreaNodes(BT::BehaviorTreeFactory& factory) {
     factory.registerNodeType<RotateInPlaceAction>("RotateInPlace");
     factory.registerNodeType<WaitForeverAction>("WaitForever");
     factory.registerNodeType<WaitForRedElementAction>("WaitForRedElement");
+    factory.registerNodeType<WaitStartSignalAndNotifyAction>("WaitStartSignalAndNotify");
 }
 
 }  // namespace rc26_decision

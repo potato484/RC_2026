@@ -38,6 +38,7 @@ add_library(${PROJECT_NAME}_nodes SHARED
   src/mc/rotate_in_place.cpp
   src/mc/wait_forever.cpp
   src/mc/wait_for_red_element.cpp
+  src/mc/wait_start_signal_and_notify.cpp
   src/stair/stair_action_base.cpp
   src/stair/stair_area.cpp
   src/stair/stair_climb.cpp

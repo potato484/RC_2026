@@ -50,6 +50,7 @@
 | `ARM_HIGH_RAISE` | `0x0D` |
 | `ARM_SECOND_LOWER` | `0x0E` |
 | `ENTRY_GRAB_KFS_UP` | `0x0F` |
+| `COMPETITION_START` | `0x10` |
 
 上行 `FeedbackID`：
 
@@ -82,6 +83,7 @@
 - `ARM_HIGH_RAISE(0x0D)` / `ARM_HIGH_RAISE_DONE(0x09)` 只服务梅林区预选赛入口 1/3 阶梯全域探测前的机械臂底座高抬升；它不替代普通 `ARM_RAISE(0x04)`，决策层仍按同 `seq + feedback_id` 匹配完成。
 - `ARM_SECOND_LOWER(0x0E)` / `ARM_SECOND_LOWER_DONE(0x0A)` 只服务 KFS 向下夹取：上层在 `ARM_LOWER_DONE(0x03)` 后完成视觉横移对齐与一次锁深度，进入开环前进前先发送 `0x0E`，并等待同 `seq` 的 `0x0A` 后才允许前进或直接夹取。
 - `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 只服务梅林预选赛入口高侧 KFS 夹取链；决策层在入口 1/3 阶梯高侧锁定目标、横移复核并完成开环趋近后发送 `0x0F`，service ACK 仍只代表通用 `ACK(0x00)`，随后必须按同 `seq` 等待 `0x0B` 进入视觉消失验证。
+- `COMPETITION_START(0x10)` 是比赛开始通知命令，当前由 `mc_mf_preselection_tree.xml` 启动 gate 在收到人工 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 后发送；payload 为空，service ACK 只表示 MCU 已确认收到。
 - `MCU_ERROR(0xFE)` 是 MCU 端错误码，不是机构业务完成反馈；它只用于说明本轮失败来自下位机原因。可靠发送会继续重试，最终失败不会触发串口重连，调用方通过 service `accepted=false`、节点日志和 diagnostics `last_error` 判断。
 - `FRONT_LASER_HEIGHT_JUMP(0x04)`、`REAR_LASER_HEIGHT_JUMP(0x05)`、`FRONT_SECOND_LASER_HEIGHT_JUMP(0x07)` 是台阶激光高度突变事件，v1 payload 为空或忽略。
 - `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 是武馆前方限位开关触发事件，视觉夹取链在对齐后 x 负向前探等待该事件，再下发 `GRAB_TIP(0x01)`。
@@ -102,6 +104,8 @@
 4. 最后回到 `rc26_mcu_transport`、`rc26_decision`、`rc26_telecontrol`、`rc26_vision` 等消费者，确认哪一层在使用 raw transport。
 
 ## 本轮同步
+
+2026-07-01 同步：新增下行 `COMPETITION_START(0x10)`，用于组合树启动时通知下位机比赛开始。该命令走 `/mechanism/send_command` 可靠 ACK 路径，payload 为空，ACK 只表示 MCU 已确认收到；当前由 `rc26_decision` 在收到人工 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 启动信号后发送。
 
 2026-07-01 同步：`sendCommand()` 新增可靠 ACK 窗口内同 `seq` 业务反馈延迟投递机制。若 MCU 将 `ACK(0x00)` 和 `ARM_RAISE_DONE(0x02)` 等业务 done 背靠背发回，串口层会先让 ACK 唤醒 service 调用，再把同 `seq` 非控制反馈通过短延迟队列交给 receive callback，避免 `/mechanism/command_feedback` 早于 `/mechanism/send_command` response。该逻辑只在 `rc26_serial` 内部调整时序，不改变协议 ID、payload、ROS service/topic wire shape，也不缓存 `MCU_ERROR(0xFE)`。
 

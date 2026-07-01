@@ -45,6 +45,7 @@ enum class CommandID : uint8_t {
     ARM_HIGH_RAISE = 0x0D,        // 梅林预选赛入口专属机械臂底座高抬升
     ARM_SECOND_LOWER = 0x0E,      // KFS 向下夹取前第二节机械臂彻底放下
     ENTRY_GRAB_KFS_UP = 0x0F,     // 梅林预选赛入口高侧 KFS 夹取
+    COMPETITION_START = 0x10,     // 比赛开始通知
 };
 
 // ============================================================================

@@ -131,6 +131,15 @@ r2_runtime:
       mc_red_detect_timeout_s: 120.0    # 等待红色元素的最长时间，单位秒
       mc_red_log_period_s: 1.0          # 等待期间 INFO 日志节流周期，单位秒
 
+      # --- 组合树启动 gate：等待人工 0x06 后下发比赛开始 0x10，再延时 500ms 进入 MC ---
+      mc_mf_start_signal_feedback_topic: "/mechanism/command_feedback" # 人工启动信号来源
+      mc_mf_start_signal_feedback_id: 6    # FRONT_LIMIT_SWITCH_TRIGGERED(0x06)，组合树启动前表示人工开始信号
+      mc_mf_start_signal_timeout_s: 0.0    # 0 表示无限等待人工开始信号
+      mc_mf_start_command_service: "/mechanism/send_command" # rc26_mcu_transport 可靠命令服务
+      mc_mf_start_command_id: 16           # COMPETITION_START(0x10)，通知下位机比赛开始
+      mc_mf_start_command_timeout_s: 5.0   # 等待 0x10 可靠 ACK 的最长时间，单位秒
+      mc_mf_start_log_period_s: 1.0        # 等待人工开始信号期间 INFO 日志节流周期，单位秒
+
       # ======================================================================
       # 梅林区预选赛红方基准链路参数 —— blue 启动时自动镜像入口 Y、左右探测和 yaw
       # ======================================================================

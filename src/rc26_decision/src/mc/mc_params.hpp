@@ -73,6 +73,15 @@ struct McParams {
     int red_stable_frames{3};
     double red_detect_timeout_s{120.0};
     double red_log_period_s{1.0};
+
+    // MC + MF 组合树启动 gate（等待人工 0x06，再下发比赛开始 0x10）
+    std::string start_signal_feedback_topic{"/mechanism/command_feedback"};
+    int start_signal_feedback_id{6};
+    double start_signal_timeout_s{0.0};
+    std::string start_command_service{"/mechanism/send_command"};
+    int start_command_id{0x10};
+    double start_command_timeout_s{5.0};
+    double start_log_period_s{1.0};
 };
 
 }  // namespace rc26_decision

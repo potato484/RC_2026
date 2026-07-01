@@ -25,6 +25,7 @@ TEST(ProtocolIDs, CommandIDsAreContinuousAfterLegacyMechanismCleanup) {
     EXPECT_EQ(static_cast<uint8_t>(CID::ARM_HIGH_RAISE), 0x0DU);
     EXPECT_EQ(static_cast<uint8_t>(CID::ARM_SECOND_LOWER), 0x0EU);
     EXPECT_EQ(static_cast<uint8_t>(CID::ENTRY_GRAB_KFS_UP), 0x0FU);
+    EXPECT_EQ(static_cast<uint8_t>(CID::COMPETITION_START), 0x10U);
 }
 
 TEST(ProtocolIDs, FeedbackIDsAreContinuousAfterLegacyMechanismCleanup) {
