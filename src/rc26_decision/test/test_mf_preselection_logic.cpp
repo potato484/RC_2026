@@ -273,6 +273,7 @@ TEST(MfPreselectionLogic, KfsApproachPlanUsesArmReachAndXAxisSign) {
 TEST(MfPreselectionLogic, KfsOdomParamsNormalizeInvalidValues) {
   rc26_decision::MfPreselectionParams params;
   params.kfs_align_tolerance_px = -10;
+  params.kfs_align_target_line_offset_px = -120;
   params.kfs_align_max_jump_px = -1;
   params.kfs_odom_xy_kp = -1.0;
   params.kfs_approach_odom_tolerance_m =
@@ -286,12 +287,17 @@ TEST(MfPreselectionLogic, KfsOdomParamsNormalizeInvalidValues) {
   rc26_decision::MfPreselectionLogicResult::normalizeKfsOdomParams(params);
 
   EXPECT_EQ(params.kfs_align_tolerance_px, 0);
+  EXPECT_EQ(params.kfs_align_target_line_offset_px, -120);
   EXPECT_EQ(params.kfs_align_max_jump_px, 0);
   EXPECT_DOUBLE_EQ(params.kfs_odom_xy_kp, 0.8);
   EXPECT_DOUBLE_EQ(params.kfs_approach_odom_tolerance_m, 0.02);
   EXPECT_DOUBLE_EQ(params.kfs_odom_yaw_tolerance_deg, 3.0);
   EXPECT_EQ(params.kfs_odom_stable_ticks, 1);
   EXPECT_DOUBLE_EQ(params.kfs_approach_min_speed_mps, 0.02);
+
+  params.kfs_align_target_line_offset_px = 20000;
+  rc26_decision::MfPreselectionLogicResult::normalizeKfsOdomParams(params);
+  EXPECT_EQ(params.kfs_align_target_line_offset_px, 10000);
 }
 
 TEST(MfPreselectionLogic, FakeAvoidanceDirectionUsesPickupSource) {

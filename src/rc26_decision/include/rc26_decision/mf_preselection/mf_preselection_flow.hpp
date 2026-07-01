@@ -58,6 +58,7 @@ struct MfPreselectionParams {
   double entry_mcu_stop_max_wait_s{0.70};
 
   int kfs_align_tolerance_px{20};
+  int kfs_align_target_line_offset_px{0};
   int kfs_align_stable_frames{5};
   int kfs_align_max_jump_px{60};
   double kfs_align_kp{0.0010};

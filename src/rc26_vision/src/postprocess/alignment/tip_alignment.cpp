@@ -135,6 +135,7 @@ TipTargetSelection updateTipAlignmentTarget(
   const TipAlignmentConfig & config)
 {
   const int frame_center_x = std::max(0, frame_width_px / 2);
+  const int target_line_x = frame_center_x + config.target_line_offset_px;
   const int max_jump_px = std::max(0, config.target_lock_max_jump_px);
   const int lost_stop_frames = std::max(1, config.lost_stop_frames);
   const std::vector<TipTargetCandidate> candidates =
@@ -142,11 +143,11 @@ TipTargetSelection updateTipAlignmentTarget(
 
   if (!config.target_lock_enable) {
     lock_state.reset();
-    const auto selected = chooseClosestToCenter(candidates, frame_center_x);
+    const auto selected = chooseClosestToCenter(candidates, target_line_x);
     if (!selected.has_value()) {
       return TipTargetSelection{};
     }
-    return makeSelection(*selected, frame_center_x, lock_state);
+    return makeSelection(*selected, target_line_x, lock_state);
   }
 
   if (lock_state.locked) {
@@ -155,7 +156,7 @@ TipTargetSelection updateTipAlignmentTarget(
     if (tracked.has_value()) {
       lock_state.target = *tracked;
       lock_state.lost_count = 0;
-      return makeSelection(lock_state.target, frame_center_x, lock_state);
+      return makeSelection(lock_state.target, target_line_x, lock_state);
     }
 
     ++lock_state.lost_count;
@@ -169,7 +170,7 @@ TipTargetSelection updateTipAlignmentTarget(
     lock_state.reset();
   }
 
-  const auto selected = chooseClosestToCenter(candidates, frame_center_x);
+  const auto selected = chooseClosestToCenter(candidates, target_line_x);
   if (!selected.has_value()) {
     return TipTargetSelection{};
   }
@@ -177,7 +178,7 @@ TipTargetSelection updateTipAlignmentTarget(
   lock_state.locked = true;
   lock_state.target = *selected;
   lock_state.lost_count = 0;
-  return makeSelection(lock_state.target, frame_center_x, lock_state);
+  return makeSelection(lock_state.target, target_line_x, lock_state);
 }
 
 double computeTipAlignmentVy(int offset_px, const TipAlignmentConfig & config)

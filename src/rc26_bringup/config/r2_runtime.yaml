@@ -154,6 +154,7 @@ r2_runtime:
       mf_preselect_entry_mcu_stop_margin_s: 0.08  # MCU 理论减速时间外的保守余量，单位秒
       mf_preselect_entry_mcu_stop_max_wait_s: 0.70 # 入口横移中断后零速等待上限，单位秒
       mf_preselect_kfs_align_tolerance_px: 10    # KFS 锁定帧像素偏差容差；容差内跳过视觉横移对齐
+      mf_preselect_kfs_align_target_line_offset_px: 0 # KFS 识别框中线目标相对图像中心线的偏置，单位 px；负值表示目标线向图像左侧移动
       mf_preselect_kfs_align_stable_frames: 3    # KFS 横移视觉闭环/复核前要求同一目标连续稳定新帧数
       mf_preselect_kfs_align_max_jump_px: 50     # KFS tip_alignment 目标锁定允许的单帧中心跳变阈值，单位 px
       mf_preselect_kfs_align_kp: 0.0010          # KFS 视觉横移 offset 到 linear.y 的比例系数

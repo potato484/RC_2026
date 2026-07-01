@@ -15,6 +15,7 @@ struct TipAlignmentConfig
   int target_lock_max_jump_px{160};
   int lost_stop_frames{3};
   int tolerance_px{20};
+  int target_line_offset_px{0};
   double kp{0.0015};
   double min_speed_mps{0.04};
   double max_speed_mps{0.15};

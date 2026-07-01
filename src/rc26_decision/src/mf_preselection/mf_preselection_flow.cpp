@@ -475,6 +475,7 @@ rc26_vision::TipAlignmentConfig MfPreselectionLogicResult::kfsAlignmentConfig(
   config.target_lock_max_jump_px = params.kfs_align_max_jump_px;
   config.lost_stop_frames = params.kfs_lost_stop_frames;
   config.tolerance_px = params.kfs_align_tolerance_px;
+  config.target_line_offset_px = params.kfs_align_target_line_offset_px;
   config.kp = params.kfs_align_kp;
   config.min_speed_mps = params.kfs_align_min_speed_mps;
   config.max_speed_mps = params.kfs_align_max_speed_mps;
@@ -518,6 +519,8 @@ void MfPreselectionLogicResult::normalizeKfsOdomParams(
     MfPreselectionParams &params) {
   params.kfs_align_tolerance_px =
       std::max(0, params.kfs_align_tolerance_px);
+  params.kfs_align_target_line_offset_px =
+      std::clamp(params.kfs_align_target_line_offset_px, -10000, 10000);
   params.kfs_odom_xy_kp =
       std::isfinite(params.kfs_odom_xy_kp) && params.kfs_odom_xy_kp > 0.0
           ? params.kfs_odom_xy_kp
@@ -1287,7 +1290,7 @@ bool MfPreselectionFlowAction::setupRuntime() {
   config().blackboard->set("mf_preselect_pickup_source", std::string("无"));
   config().blackboard->set("mf_preselect_done", false);
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛运行接口就绪：cmd_vel=%s odom=%s center_cmd_vel=%s center_odom=%s command_service=%s feedback=%s entry_interrupt_offset<=%dpx dynamic_comp=%s fx=%.1f latency=%.3fs extra=[%d,%d]px stop_settle=%s acc=%.3fm/s^2 margin=%.3fs max_wait=%.3fs kfs_align_speed=[%.3f, %.3f]m/s timeout_pickup<=%dpx kfs_approach_odom_kp=%.3f approach_tol=%.3fm approach_speed=%.3fm/s approach_min=%.3fm/s arm_reach=%.3fm approach_timeout=%.2fs",
+              "梅林预选赛运行接口就绪：cmd_vel=%s odom=%s center_cmd_vel=%s center_odom=%s command_service=%s feedback=%s entry_interrupt_offset<=%dpx dynamic_comp=%s fx=%.1f latency=%.3fs extra=[%d,%d]px stop_settle=%s acc=%.3fm/s^2 margin=%.3fs max_wait=%.3fs kfs_align_target_line_offset=%dpx kfs_align_speed=[%.3f, %.3f]m/s timeout_pickup<=%dpx kfs_approach_odom_kp=%.3f approach_tol=%.3fm approach_speed=%.3fm/s approach_min=%.3fm/s arm_reach=%.3fm approach_timeout=%.2fs",
               params_.cmd_vel_topic.c_str(), params_.odom_topic.c_str(),
               center_params_.cmd_vel_topic.c_str(),
               center_params_.odom_topic.c_str(),
@@ -1302,6 +1305,7 @@ bool MfPreselectionFlowAction::setupRuntime() {
               params_.entry_mcu_vy_acc_mps2,
               params_.entry_mcu_stop_margin_s,
               params_.entry_mcu_stop_max_wait_s,
+              params_.kfs_align_target_line_offset_px,
               params_.kfs_align_min_speed_mps, params_.kfs_align_max_speed_mps,
               params_.kfs_align_timeout_pickup_tolerance_px,
               params_.kfs_odom_xy_kp, params_.kfs_approach_odom_tolerance_m,
@@ -1332,7 +1336,7 @@ bool MfPreselectionFlowAction::setupVision() {
       return false;
     }
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛 KFS 视觉已启动：config=%s model=%s R2前缀数=%zu R1标签数=%zu 假KFS前缀数=%zu 通用深度=[%.2f, %.2f]m 入口深度=[%.2f, %.2f]m 入口打断offset<=%dpx dynamic_comp=%s 横移视觉速度=[%.3f, %.3f]m/s 超时补夹offset<=%dpx 前向odom速度=%.3fm/s 臂长=%.3fm 超时=%.2fs",
+                "梅林预选赛 KFS 视觉已启动：config=%s model=%s R2前缀数=%zu R1标签数=%zu 假KFS前缀数=%zu 通用深度=[%.2f, %.2f]m 入口深度=[%.2f, %.2f]m 入口打断offset<=%dpx dynamic_comp=%s 识别框中线目标偏置=%dpx 横移视觉速度=[%.3f, %.3f]m/s 超时补夹offset<=%dpx 前向odom速度=%.3fm/s 臂长=%.3fm 超时=%.2fs",
                 params_.vision_config_file.c_str(), params_.model_id.c_str(),
                 params_.r2_target_label_prefixes.size(),
                 params_.r1_blocking_labels.size(),
@@ -1340,6 +1344,7 @@ bool MfPreselectionFlowAction::setupVision() {
                 params_.depth_max_m, params_.entry_depth_min_m,
                 params_.entry_depth_max_m, params_.entry_interrupt_max_offset_px,
                 params_.entry_interrupt_dynamic_comp_enable ? "开" : "关",
+                params_.kfs_align_target_line_offset_px,
                 params_.kfs_align_min_speed_mps,
                 params_.kfs_align_max_speed_mps,
                 params_.kfs_align_timeout_pickup_tolerance_px,
@@ -1439,6 +1444,8 @@ void MfPreselectionFlowAction::normalizeParams() {
                         : 0.0);
   params_.kfs_align_tolerance_px =
       std::max(0, params_.kfs_align_tolerance_px);
+  params_.kfs_align_target_line_offset_px =
+      std::clamp(params_.kfs_align_target_line_offset_px, -10000, 10000);
   params_.kfs_align_stable_frames =
       std::max(1, params_.kfs_align_stable_frames);
   params_.kfs_align_kp = std::max(0.0, params_.kfs_align_kp);
@@ -4701,18 +4708,22 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
     publishStop();
     if (new_frame) {
       RCLCPP_INFO(node_->get_logger(),
-                  "梅林预选赛KFS tip_alignment稳定计数：label=%s seq=%ld offset=%dpx tolerance=%dpx yaw_error=%.3frad stable=%d/%d depth=%.3fm",
+                  "梅林预选赛KFS tip_alignment稳定计数：label=%s seq=%ld offset=%dpx target_line_offset=%dpx tolerance=%dpx yaw_error=%.3frad stable=%d/%d depth=%.3fm",
                   observation->target.label.c_str(),
                   static_cast<long>(observation->target.sequence),
-                  observation->offset_px, params_.kfs_align_tolerance_px,
+                  observation->offset_px,
+                  params_.kfs_align_target_line_offset_px,
+                  params_.kfs_align_tolerance_px,
                   heading_control->yaw_error_rad, kfs_align_stable_count_,
                   params_.kfs_align_stable_frames,
                   observation->target.distance_m);
     }
     if (kfs_align_stable_count_ >= params_.kfs_align_stable_frames) {
       RCLCPP_INFO(node_->get_logger(),
-                  "梅林预选赛KFS tip_alignment确认已对齐：offset=%dpx tolerance=%dpx yaw_error=%.3frad depth=%.3fm，进入前向odom闭环趋近规划",
-                  observation->offset_px, params_.kfs_align_tolerance_px,
+                  "梅林预选赛KFS tip_alignment确认已对齐：offset=%dpx target_line_offset=%dpx tolerance=%dpx yaw_error=%.3frad depth=%.3fm，进入前向odom闭环趋近规划",
+                  observation->offset_px,
+                  params_.kfs_align_target_line_offset_px,
+                  params_.kfs_align_tolerance_px,
                   heading_control->yaw_error_rad,
                   observation->target.distance_m);
       return beginKfsOdomApproach(*observation);
@@ -4728,10 +4739,11 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
                               observation->offset_px, makeKfsAlignmentConfig())
                         : 0.0;
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛KFS tip_alignment更新：label=%s seq=%ld offset=%dpx tolerance=%dpx pixel_aligned=%s yaw_aligned=%s yaw_gate=%s vy=%.3fm/s wz=%.3frad/s depth=%.3fm",
+              "梅林预选赛KFS tip_alignment更新：label=%s seq=%ld offset=%dpx target_line_offset=%dpx tolerance=%dpx pixel_aligned=%s yaw_aligned=%s yaw_gate=%s vy=%.3fm/s wz=%.3frad/s depth=%.3fm",
               observation->target.label.c_str(),
               static_cast<long>(observation->target.sequence),
-              observation->offset_px, params_.kfs_align_tolerance_px,
+              observation->offset_px, params_.kfs_align_target_line_offset_px,
+              params_.kfs_align_tolerance_px,
               pixel_aligned ? "是" : "否",
               heading_control->aligned ? "是" : "否",
               heading_control->within_gate ? "是" : "否", vy,
@@ -5207,6 +5219,9 @@ void loadMfPreselectionParams(rclcpp::Node &node,
   // offset 闭环发布 vy，趋近阶段只闭环执行锁定深度规划出的距离。
   p.kfs_align_tolerance_px = node.declare_parameter<int>(
       "mf_preselect_kfs_align_tolerance_px", p.kfs_align_tolerance_px);
+  p.kfs_align_target_line_offset_px = node.declare_parameter<int>(
+      "mf_preselect_kfs_align_target_line_offset_px",
+      p.kfs_align_target_line_offset_px);
   p.kfs_align_stable_frames = node.declare_parameter<int>(
       "mf_preselect_kfs_align_stable_frames", p.kfs_align_stable_frames);
   p.kfs_align_max_jump_px = node.declare_parameter<int>(

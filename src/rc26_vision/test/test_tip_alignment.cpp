@@ -68,6 +68,22 @@ TEST(TipAlignment, SelectionCarriesOriginalDetectionIndex)
   EXPECT_EQ(selection.target.source_index, 2);
 }
 
+TEST(TipAlignment, TargetLineOffsetMovesAlignmentReference)
+{
+  auto config = defaultConfig();
+  config.target_line_offset_px = -100;
+  rc26_vision::TipTargetLockState state;
+  const std::vector<int> target_ids{0};
+
+  const auto selection = rc26_vision::updateTipAlignmentTarget(
+    {det(180, 100, 260, 180), det(280, 100, 360, 180)}, 640, target_ids, state, config);
+
+  ASSERT_TRUE(selection.has_target);
+  EXPECT_EQ(selection.box_cx, 220);
+  EXPECT_EQ(selection.offset_px, 0);
+  EXPECT_EQ(selection.target.source_index, 0);
+}
+
 TEST(TipAlignment, KeepsLockedTargetEvenWhenAnotherTargetBecomesCloserToCenter)
 {
   auto config = defaultConfig();
