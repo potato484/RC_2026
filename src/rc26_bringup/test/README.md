@@ -80,7 +80,7 @@ ros2 launch rc26_bringup grid_heading.launch.py \
 ros2 launch rc26_bringup odom_right_turn_nav.launch.py
 ```
 
-本入口启动后会先等 `/odom` 连续低速稳定，满足 `odom_right_turn_nav_startup_odom_*` 参数后才加载并 tick `odom_right_turn_nav_tree.xml`。若默认由本入口启动 odometry，会关闭 bootstrap `/odom`，避免把启动占位姿态当成可运动依据。
+本入口启动后会先等 `/odom` 连续低速稳定，满足通用 startup odom gate 后才加载并 tick 右转验证树。若默认由本入口启动 odometry，会关闭 bootstrap `/odom`，避免把启动占位姿态当成可运动依据。
 
 树默认执行：
 
@@ -88,7 +88,7 @@ ros2 launch rc26_bringup odom_right_turn_nav.launch.py
 OdomDriveX(+0.40m) -> RelativeYawTarget(-pi/2) -> OdomTurnToYaw -> OdomDriveX(-0.70m)
 ```
 
-距离、速度、容差和超时由 `r2_runtime.yaml` 的 `odom_right_turn_nav_*` 参数维护。实车运行前必须停用遥控和其它 `/cmd_vel` 发布者；若 `/odom` 和 `rc26_mcu_transport` 已由其它入口提供，可关闭重复链路：
+右转验证树内固定验收距离和相对 yaw，速度、容差、topic 和超时复用通用 odom 相对导航参数。实车运行前必须停用遥控和其它 `/cmd_vel` 发布者；若 `/odom` 和 `rc26_mcu_transport` 已由其它入口提供，可关闭重复链路：
 
 ```bash
 ros2 launch rc26_bringup odom_right_turn_nav.launch.py \

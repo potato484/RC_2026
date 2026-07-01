@@ -23,8 +23,6 @@ constexpr double kDefaultOdomRelativeXyToleranceM = 0.03;
 constexpr double kDefaultOdomRelativeYawToleranceDeg = 3.0;
 constexpr int kDefaultOdomRelativeStableTicks = 3;
 constexpr double kDefaultOdomRelativeTimeoutSec = 10.0;
-constexpr double kDefaultRightTurnForwardXM = 0.40;
-constexpr double kDefaultRightTurnReverseXM = -0.70;
 
 double normalizeAngle(double angle) {
   while (angle > kPi) {
@@ -132,82 +130,6 @@ void loadOdomRelativeNavParams(rclcpp::Node &node,
               "odom 单轴分段导航参数已加载: cmd_vel=%s odom=%s max=%.2fm/s xy_tol=%.3fm yaw_tol=%.1fdeg timeout=%.1fs",
               cmd_vel_topic.c_str(), odom_topic.c_str(), max_speed_mps,
               xy_tolerance_m, yaw_tolerance_deg, timeout_s);
-}
-
-void loadOdomRightTurnNavParams(rclcpp::Node &node,
-                                const BT::Blackboard::Ptr &blackboard) {
-  std::string cmd_vel_topic = node.declare_parameter<std::string>(
-      "odom_right_turn_nav_cmd_vel_topic", "cmd_vel");
-  std::string odom_topic = node.declare_parameter<std::string>(
-      "odom_right_turn_nav_odom_topic", "odom");
-  const double forward_x_m = node.declare_parameter<double>(
-      "odom_right_turn_nav_forward_x_m", kDefaultRightTurnForwardXM);
-  const double reverse_x_m = node.declare_parameter<double>(
-      "odom_right_turn_nav_reverse_x_m", kDefaultRightTurnReverseXM);
-  const double right_turn_delta_rad = node.declare_parameter<double>(
-      "odom_right_turn_nav_right_turn_delta_rad", -0.5 * kPi);
-  const double odom_capture_timeout_s = node.declare_parameter<double>(
-      "odom_right_turn_nav_odom_capture_timeout_s",
-      kDefaultRelativeYawCaptureTimeoutSec);
-  const double odom_timeout_s = node.declare_parameter<double>(
-      "odom_right_turn_nav_odom_timeout_s", kDefaultOdomTimeoutSec);
-  const double drive_max_speed_mps = node.declare_parameter<double>(
-      "odom_right_turn_nav_drive_max_speed_mps",
-      kDefaultOdomRelativeMaxSpeedMps);
-  const double drive_min_speed_mps = node.declare_parameter<double>(
-      "odom_right_turn_nav_drive_min_speed_mps",
-      kDefaultOdomRelativeMinSpeedMps);
-  const double drive_xy_kp = node.declare_parameter<double>(
-      "odom_right_turn_nav_drive_xy_kp", kDefaultOdomRelativeXyKp);
-  const double drive_heading_kp = node.declare_parameter<double>(
-      "odom_right_turn_nav_drive_heading_kp", kDefaultOdomRelativeHeadingKp);
-  const double drive_heading_max_speed_radps =
-      node.declare_parameter<double>(
-          "odom_right_turn_nav_drive_heading_max_speed_radps",
-          kDefaultOdomRelativeHeadingMaxSpeedRadps);
-  const double drive_xy_tolerance_m = node.declare_parameter<double>(
-      "odom_right_turn_nav_drive_xy_tolerance_m",
-      kDefaultOdomRelativeXyToleranceM);
-  const double drive_yaw_tolerance_deg = node.declare_parameter<double>(
-      "odom_right_turn_nav_drive_yaw_tolerance_deg",
-      kDefaultOdomRelativeYawToleranceDeg);
-  const int drive_stable_ticks = node.declare_parameter<int>(
-      "odom_right_turn_nav_drive_stable_ticks",
-      kDefaultOdomRelativeStableTicks);
-  const double drive_timeout_s = node.declare_parameter<double>(
-      "odom_right_turn_nav_drive_timeout_s", kDefaultOdomRelativeTimeoutSec);
-
-  cmd_vel_topic = nonEmptyOr(cmd_vel_topic, "cmd_vel");
-  odom_topic = nonEmptyOr(odom_topic, "odom");
-  blackboard->set("odom_right_turn_nav_cmd_vel_topic", cmd_vel_topic);
-  blackboard->set("odom_right_turn_nav_odom_topic", odom_topic);
-  blackboard->set("odom_right_turn_nav_forward_x_m", forward_x_m);
-  blackboard->set("odom_right_turn_nav_reverse_x_m", reverse_x_m);
-  blackboard->set("odom_right_turn_nav_right_turn_delta_rad",
-                  right_turn_delta_rad);
-  blackboard->set("odom_right_turn_nav_odom_capture_timeout_s",
-                  odom_capture_timeout_s);
-  blackboard->set("odom_right_turn_nav_odom_timeout_s", odom_timeout_s);
-  blackboard->set("odom_right_turn_nav_drive_max_speed_mps",
-                  drive_max_speed_mps);
-  blackboard->set("odom_right_turn_nav_drive_min_speed_mps",
-                  drive_min_speed_mps);
-  blackboard->set("odom_right_turn_nav_drive_xy_kp", drive_xy_kp);
-  blackboard->set("odom_right_turn_nav_drive_heading_kp", drive_heading_kp);
-  blackboard->set("odom_right_turn_nav_drive_heading_max_speed_radps",
-                  drive_heading_max_speed_radps);
-  blackboard->set("odom_right_turn_nav_drive_xy_tolerance_m",
-                  drive_xy_tolerance_m);
-  blackboard->set("odom_right_turn_nav_drive_yaw_tolerance_deg",
-                  drive_yaw_tolerance_deg);
-  blackboard->set("odom_right_turn_nav_drive_stable_ticks",
-                  drive_stable_ticks);
-  blackboard->set("odom_right_turn_nav_drive_timeout_s", drive_timeout_s);
-
-  RCLCPP_INFO(node.get_logger(),
-              "odom 右转导航参数已加载: cmd_vel=%s odom=%s forward_x=%.2fm right_turn=%.4frad reverse_x=%.2fm max_speed=%.2fm/s",
-              cmd_vel_topic.c_str(), odom_topic.c_str(), forward_x_m,
-              right_turn_delta_rad, reverse_x_m, drive_max_speed_mps);
 }
 
 OdomAxisDriveAction::OdomAxisDriveAction(const std::string &name,

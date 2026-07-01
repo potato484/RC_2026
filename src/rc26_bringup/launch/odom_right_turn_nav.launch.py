@@ -7,7 +7,7 @@
   - rc26_decision decision_node，加载 odom_right_turn_nav_tree.xml
 
 本入口不启动定位或遥控，确保 /cmd_vel 只有一个运动命令权威。
-动作顺序由 odom_right_turn_nav_* 参数决定，默认 odom 闭环 x+ 0.4m -> 右转90°闭环对齐 -> odom 闭环 x- 0.4m。
+动作树内使用固定右转验收距离和通用 odom 相对导航参数，默认 odom 闭环 x+ 0.4m -> 右转90°闭环对齐 -> odom 闭环 x- 0.7m。
 """
 import os
 
@@ -180,19 +180,21 @@ def _create_actions(context, *, bringup_dir, decision_dir, sensor_extrinsics_dir
                 'tree_file': tree_file,
                 'startup_wait_for_odom': True,
                 'startup_odom_topic': decision_params.get(
-                    'odom_right_turn_nav_odom_topic', 'odom'),
+                    'startup_odom_topic',
+                    decision_params.get('odom_relative_nav_odom_topic', 'odom')),
                 'startup_odom_timeout_s': decision_params.get(
-                    'odom_right_turn_nav_odom_timeout_s', 0.5),
+                    'startup_odom_timeout_s',
+                    decision_params.get('odom_relative_nav_odom_timeout_s', 0.5)),
                 'startup_odom_wait_timeout_s': decision_params.get(
-                    'odom_right_turn_nav_startup_odom_wait_timeout_s', 20.0),
+                    'startup_odom_wait_timeout_s', 20.0),
                 'startup_odom_min_wait_s': decision_params.get(
-                    'odom_right_turn_nav_startup_odom_min_wait_s', 1.0),
+                    'startup_odom_min_wait_s', 1.0),
                 'startup_odom_stable_samples': decision_params.get(
-                    'odom_right_turn_nav_startup_odom_stable_samples', 10),
+                    'startup_odom_stable_samples', 10),
                 'startup_odom_max_linear_speed_mps': decision_params.get(
-                    'odom_right_turn_nav_startup_odom_max_linear_speed_mps', 0.03),
+                    'startup_odom_max_linear_speed_mps', 0.03),
                 'startup_odom_max_angular_speed_radps': decision_params.get(
-                    'odom_right_turn_nav_startup_odom_max_angular_speed_radps', 0.05),
+                    'startup_odom_max_angular_speed_radps', 0.05),
             },
         ],
     ))

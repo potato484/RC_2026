@@ -32,7 +32,6 @@ public:
     loadMCParams(*this, blackboard_);
     loadOdomRelativeNavParams(*this, blackboard_);
     loadGridHeadingParams(*this, blackboard_);
-    loadOdomRightTurnNavParams(*this, blackboard_);
     loadGridCenterParams(*this, blackboard_);
     loadStairParams(*this, blackboard_);
     loadMfPreselectionParams(*this, blackboard_);

@@ -13,9 +13,6 @@ namespace rc26_decision {
 void loadOdomRelativeNavParams(rclcpp::Node &node,
                                const BT::Blackboard::Ptr &blackboard);
 
-void loadOdomRightTurnNavParams(rclcpp::Node &node,
-                                const BT::Blackboard::Ptr &blackboard);
-
 class OdomAxisDriveAction : public BT::StatefulActionNode {
 public:
   enum class Axis { X, Y };

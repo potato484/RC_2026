@@ -22,7 +22,7 @@
 - [launch/bringup.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/bringup.launch.py)：整车导航/建图统一入口。
 - [launch/odometry.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/odometry.launch.py)：Point-LIO、里程计接口、静态外参和可选 sensor scan 装配。
 - [launch/grid_heading.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/grid_heading.launch.py)：独立 yaw heading 校准入口，只启动 odom、MCU transport 和 `grid_heading_tree.xml`。
-- [launch/odom_right_turn_nav.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/odom_right_turn_nav.launch.py)：独立 odom 单轴右转分段入口，只启动 odom、MCU transport 和 `odom_right_turn_nav_tree.xml`。
+- 独立 odom 单轴右转分段入口：保留为包内验证入口，只启动 odom、MCU transport 和独立右转验证树。
 - [config/r2_runtime.yaml](/home/potato/RC_2026/src/rc26_bringup/config/r2_runtime.yaml)：点云路径、行为树路径、MCU transport 和决策参数真源。
 - [rviz/navigation_default.rviz](/home/potato/RC_2026/src/rc26_bringup/rviz/navigation_default.rviz)：只用于观察 odom/TF 的轻量预设。
 
@@ -43,8 +43,6 @@
 - `mc_nav_forward_x_m`、`mc_nav_right_turn_delta_rad`、`mc_nav_reverse_x_m`、`mc_nav_timeout_sec`：MC 去程红方基准动作顺序，默认 `+X 0.2m -> 右转 90° -> -X 0.6m`；蓝方自动镜像侧向 yaw 和原地旋转方向，X 距离不变。
 - `mf_preselect_entry2_nav_segment1_x_m`、`mf_preselect_entry2_nav_segment1_y_m`、`mf_preselect_entry2_nav_timeout_sec`：MF 预选 2 号入口红方基准单轴段，默认 `+X 2.0m -> -Y 1.8m`，不在入口树前额外转向；蓝方自动镜像 Y。
 - `mf_preselect_kfs_align_target_line_offset_px`：MF KFS 视觉横移对齐时，识别框中线要对齐的目标线相对图像中心线的像素偏置；默认 `0`，负值表示目标线向图像左侧移动。
-- `odom_right_turn_nav_*`：右转独立入口前进段、相对 yaw 捕获、绝对 yaw 对齐和后退段。
-
 这些参数描述相对分段和 odom yaw 目标生成，不是地图位姿。现场标定时应按红方启动姿态重新调整每段 `distance_m` 和相对/绝对 yaw；蓝方若只做标准镜像，切换 `team:=blue` 即可复用同一组红方基准值。
 
 ## 独立入口
@@ -53,7 +51,7 @@
 
 `grid_heading.launch.py` 与完整导航模式一样，启动 odometry 时显式关闭 `odom_interface` bootstrap `/odom`。该入口会直接发布 `/cmd_vel` 做 yaw 对齐，不能在真实里程计未接管时用占位零位姿放行动作。
 
-`odom_right_turn_nav.launch.py` 会加载 `odom_right_turn_nav_tree.xml`，执行 `OdomDriveX(+forward) -> RelativeYawTarget(delta) -> OdomTurnToYaw -> OdomDriveX(reverse)`。该入口默认关闭 bootstrap odom，先等真实 odom 稳定后再 tick 行为树；启动 odometry 时同样显式关闭 sensor scan。
+独立右转验证入口会加载包内右转验证树，执行 `OdomDriveX(+0.4m) -> RelativeYawTarget(-90deg) -> OdomTurnToYaw -> OdomDriveX(-0.7m)`。右转独立入口专用参数族已退役，不再由 `r2_runtime.yaml` 维护或由 `decision_node` 加载；该入口的启动 odom gate 复用通用 startup / odom 相对导航参数或固定默认值。该入口默认关闭 bootstrap odom，先等真实 odom 稳定后再 tick 行为树；启动 odometry 时同样显式关闭 sensor scan。
 
 ## RViz 与测试资产
 
@@ -69,6 +67,8 @@
 - `/cmd_vel` 默认由 `rc26_decision` 的导航/动作节点串行发布，由 `rc26_mcu_transport` 消费；运行遥控或其它测试入口时必须显式保证命令权威唯一。
 
 ## 本轮同步
+
+2026-07-01 同步：右转导航独立入口专用参数族已从 `r2_runtime.yaml` 删除，并且 `rc26_decision` 不再声明、读取或写入这些参数。独立右转验证入口若继续保留，启动 odom gate 改用通用 startup / odom 相对导航参数或固定默认值。
 
 2026-07-01 同步：`team` 参数现在由 bringup 传入 `rc26_decision` 后作为红蓝方场地镜像选择使用。`r2_runtime.yaml` 中 MC/MF 路线值继续按红方基准维护；`team:=blue` 时，决策节点在启动加载参数阶段派生蓝方入口 Y、侧向 yaw、入口 1/3 号横移和假 KFS 侧列绕行等镜像行为。bringup 未新增 launch 分支或第二套 XML，现场切蓝方可改 `r2_runtime.yaml` 的 `team` 或通过 launch 参数覆盖 `team:=blue`。
 
