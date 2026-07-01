@@ -4,7 +4,7 @@
 r2_runtime:
   paths:
     prior_pcd_file: "/home/aidlux/RC_2026/src/rc26_point_lio/PCD/class_plus.pcd"
-    behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/mf_preselection_tree.xml"
+    behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/mc_mf_preselection_tree.xml"
 
   # 目标 MCU 共享串口 transport。
   # 只要运行链会下发机构动作指令，就必须启动 rc26_mcu_transport。
@@ -119,6 +119,18 @@ r2_runtime:
       mc_rotate_odom_timeout_s: 0.5    # 旋转阶段 odom 超过该时间未更新时停车等待，单位秒
       mc_rotate_timeout_s: 15.0        # 原地旋转安全超时，单位秒
 
+      # --- 红色元素等待（MC 结束后进入 MF 预选前的视觉 gate，OpenCV HSV 阈值）---
+      mc_red_hue_low1: 0                # 红色低 hue 段下限，OpenCV HSV H 范围 0-180
+      mc_red_hue_high1: 10              # 红色低 hue 段上限
+      mc_red_hue_low2: 170              # 红色高 hue 段下限
+      mc_red_hue_high2: 180             # 红色高 hue 段上限
+      mc_red_saturation_min: 80         # 红色检测最小饱和度
+      mc_red_value_min: 60              # 红色检测最小亮度
+      mc_red_min_area_px: 1500          # 最大红色连通域达到该面积后记为看到红色元素
+      mc_red_stable_frames: 3           # 连续多少帧看到红色元素后允许进入 5s 延时
+      mc_red_detect_timeout_s: 120.0    # 等待红色元素的最长时间，单位秒
+      mc_red_log_period_s: 1.0          # 等待期间 INFO 日志节流周期，单位秒
+
       # ======================================================================
       # 梅林区预选赛红方基准链路参数 —— blue 启动时自动镜像入口 Y、左右探测和 yaw
       # ======================================================================
@@ -126,6 +138,13 @@ r2_runtime:
       mf_preselect_entry2_nav_segment1_x_m: 2.0  # 红方基准 2号入口 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
       mf_preselect_entry2_nav_segment1_y_m: -1.7 # 红方基准 2号入口 OdomDriveY 车体系 y 负向位移；blue 自动取反
       mf_preselect_entry2_nav_timeout_sec: 180.0 # 入口单个 x/y 动作超时，单位秒
+
+      # --- MC 后置 MF 预选组合树入口导航；只由 mf_preselection_after_mc_tree.xml 使用 ---
+      mc_to_mf_preselect_nav_enable: true       # 组合树中 MC 完成后是否执行到 MF 预选的专用入口导航
+      mc_to_mf_preselect_nav_segment1_x_m: -2.4 # MC 后置入口第一段 OdomDriveX 车体系 x 负向位移；blue 不镜像 X
+      mc_to_mf_preselect_nav_turn_delta_rad: -1.5708 # 第一段后右转 90°；blue 自动取反为左转
+      mc_to_mf_preselect_nav_segment2_x_m: 1.6  # 转向后第二段 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
+      mc_to_mf_preselect_nav_timeout_sec: 180.0 # MC 后置入口单个 x/turn 动作超时，单位秒
 
       mf_preselect_vision_config_file: ""        # KFS 视觉模型配置；空则回退 rc26_vision/config/vision_models.yaml
       mf_preselect_model_id: "kfs_default"       # KFS 模型 profile ID

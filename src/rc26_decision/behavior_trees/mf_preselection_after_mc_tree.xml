@@ -1,0 +1,66 @@
+<!--
+  MC 后置梅林区预选赛行为树：
+  - 原 mf_preselection_tree.xml 保持独立调试入口和旧参数不变。
+  - 本树使用 mc_to_mf_preselect_* 参数执行 -X 2.4m、team 派生右转 90°、+X 1.6m。
+  - 后续复用 MfPreselectionFlow，流程成功驶出梅林后进入 WaitForever。
+-->
+<root BTCPP_format="4" main_tree_to_execute="MFPreselectionAfterMCTree">
+  <BehaviorTree ID="MFPreselectionAfterMCTree">
+    <Sequence name="MF_Preselection_After_MC_Sequence">
+      <Fallback name="Optional_MC_To_MF_Preselection_Navigation">
+        <Sequence name="MC_To_MF_Preselection_Navigation_When_Enabled">
+          <ScriptCondition code="mc_to_mf_preselect_nav_enable"/>
+          <OdomDriveX name="mc_to_mf_preselect_nav_reverse_x"
+                      distance_m="{mc_to_mf_preselect_nav_segment1_x_m}"
+                      cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                      odom_topic="{odom_relative_nav_odom_topic}"
+                      max_speed_mps="{odom_relative_nav_max_speed_mps}"
+                      min_speed_mps="{odom_relative_nav_min_speed_mps}"
+                      xy_kp="{odom_relative_nav_xy_kp}"
+                      heading_kp="{odom_relative_nav_heading_kp}"
+                      heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                      xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                      yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                      stable_ticks="{odom_relative_nav_stable_ticks}"
+                      odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                      timeout_s="{mc_to_mf_preselect_nav_timeout_sec}"/>
+          <RelativeYawTarget name="mc_to_mf_preselect_nav_turn_target"
+                             odom_topic="{odom_relative_nav_odom_topic}"
+                             yaw_delta_rad="{mc_to_mf_preselect_nav_turn_delta_rad}"
+                             timeout_s="{odom_relative_nav_timeout_s}"
+                             odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                             target_yaw_rad="{mc_to_mf_preselect_nav_turn_target_yaw}"/>
+          <OdomTurnToYaw name="mc_to_mf_preselect_nav_right_turn"
+                         target_yaw_rad="{mc_to_mf_preselect_nav_turn_target_yaw}"
+                         cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                         odom_topic="{odom_relative_nav_odom_topic}"
+                         kp="{odom_relative_nav_heading_kp}"
+                         max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                         yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                         stable_ticks="{odom_relative_nav_stable_ticks}"
+                         odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                         timeout_s="{mc_to_mf_preselect_nav_timeout_sec}"/>
+          <OdomDriveX name="mc_to_mf_preselect_nav_forward_x"
+                      distance_m="{mc_to_mf_preselect_nav_segment2_x_m}"
+                      cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                      odom_topic="{odom_relative_nav_odom_topic}"
+                      max_speed_mps="{odom_relative_nav_max_speed_mps}"
+                      min_speed_mps="{odom_relative_nav_min_speed_mps}"
+                      xy_kp="{odom_relative_nav_xy_kp}"
+                      heading_kp="{odom_relative_nav_heading_kp}"
+                      heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                      xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                      yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                      stable_ticks="{odom_relative_nav_stable_ticks}"
+                      odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                      timeout_s="{mc_to_mf_preselect_nav_timeout_sec}"/>
+        </Sequence>
+        <Inverter>
+          <ScriptCondition code="mc_to_mf_preselect_nav_enable"/>
+        </Inverter>
+      </Fallback>
+      <MfPreselectionFlow name="mf_preselection_flow_after_mc"/>
+      <WaitForever name="mf_preselection_after_mc_wait_forever"/>
+    </Sequence>
+  </BehaviorTree>
+</root>

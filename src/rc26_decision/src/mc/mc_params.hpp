@@ -61,6 +61,18 @@ struct McParams {
     std::string odom_topic{"odom"};
     double rotate_odom_timeout_s{0.5};
     double rotate_timeout_s{15.0};
+
+    // 红色元素等待（MC 结束后进入 MF 预选前的视觉 gate）
+    int red_hue_low1{0};
+    int red_hue_high1{10};
+    int red_hue_low2{170};
+    int red_hue_high2{180};
+    int red_saturation_min{80};
+    int red_value_min{60};
+    int red_min_area_px{1500};
+    int red_stable_frames{3};
+    double red_detect_timeout_s{120.0};
+    double red_log_period_s{1.0};
 };
 
 }  // namespace rc26_decision

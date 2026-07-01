@@ -6176,12 +6176,36 @@ void loadMfPreselectionParams(rclcpp::Node &node,
       node.declare_parameter<double>("mf_preselect_entry2_nav_timeout_sec",
                                      180.0));
 
+  const bool mc_to_mf_nav_enable = node.declare_parameter<bool>(
+      "mc_to_mf_preselect_nav_enable", entry_nav_enable);
+  blackboard->set("mc_to_mf_preselect_nav_enable", mc_to_mf_nav_enable);
+  blackboard->set(
+      "mc_to_mf_preselect_nav_segment1_x_m",
+      node.declare_parameter<double>("mc_to_mf_preselect_nav_segment1_x_m",
+                                     -2.4));
+  const double mc_to_mf_nav_turn_delta_rad =
+      node.declare_parameter<double>("mc_to_mf_preselect_nav_turn_delta_rad",
+                                     -1.5707963267948966) *
+      static_cast<double>(mirror_sign);
+  blackboard->set(
+      "mc_to_mf_preselect_nav_turn_delta_rad", mc_to_mf_nav_turn_delta_rad);
+  blackboard->set("mc_to_mf_preselect_nav_turn_target_yaw", 0.0);
+  blackboard->set(
+      "mc_to_mf_preselect_nav_segment2_x_m",
+      node.declare_parameter<double>("mc_to_mf_preselect_nav_segment2_x_m",
+                                     1.6));
+  blackboard->set(
+      "mc_to_mf_preselect_nav_timeout_sec",
+      node.declare_parameter<double>("mc_to_mf_preselect_nav_timeout_sec",
+                                     180.0));
+
   RCLCPP_INFO(node.get_logger(),
-              "梅林预选赛参数已加载: model=%s mirror_sign=%d R2_prefixes=%zu fake_prefixes=%zu max_pickup=%d cmd_vel=%s odom=%s entry_y=%.3f exit_yaw=%.3f row4_yaw=%.3f entry_grab_up=0x%02X done=0x%02X high_raise=0x%02X done=0x%02X second_lower=0x%02X done=0x%02X",
+              "梅林预选赛参数已加载: model=%s mirror_sign=%d R2_prefixes=%zu fake_prefixes=%zu max_pickup=%d cmd_vel=%s odom=%s entry_y=%.3f mc_to_mf_turn=%.3f exit_yaw=%.3f row4_yaw=%.3f entry_grab_up=0x%02X done=0x%02X high_raise=0x%02X done=0x%02X second_lower=0x%02X done=0x%02X",
               p.model_id.c_str(), mirror_sign,
               p.r2_target_label_prefixes.size(), p.fake_label_prefixes.size(),
               p.max_pickup_count, p.cmd_vel_topic.c_str(),
               p.odom_topic.c_str(), entry2_nav_segment1_y_m,
+              mc_to_mf_nav_turn_delta_rad,
               p.exit_yaw_rad, p.row4_exit_turn_yaw_rad,
               static_cast<unsigned int>(std::clamp(p.entry_grab_kfs_up_command_id, 0, 255)),
               static_cast<unsigned int>(std::clamp(p.entry_grab_kfs_up_done_feedback_id, 0, 255)),

@@ -13,6 +13,7 @@
 #include "mc_params.hpp"
 #include "rotate_in_place.hpp"
 #include "visual_servo_grab.hpp"
+#include "wait_for_red_element.hpp"
 #include "wait_forever.hpp"
 #include "rc26_decision/team_color.hpp"
 
@@ -136,6 +137,22 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
         node.declare_parameter<double>("mc_rotate_odom_timeout_s", p.rotate_odom_timeout_s);
     p.rotate_timeout_s = node.declare_parameter<double>("mc_rotate_timeout_s", p.rotate_timeout_s);
 
+    // 红色元素等待：MC 完成后以 HSV 颜色阈值作为进入 MF 预选的视觉 gate。
+    p.red_hue_low1 = node.declare_parameter<int>("mc_red_hue_low1", p.red_hue_low1);
+    p.red_hue_high1 = node.declare_parameter<int>("mc_red_hue_high1", p.red_hue_high1);
+    p.red_hue_low2 = node.declare_parameter<int>("mc_red_hue_low2", p.red_hue_low2);
+    p.red_hue_high2 = node.declare_parameter<int>("mc_red_hue_high2", p.red_hue_high2);
+    p.red_saturation_min =
+        node.declare_parameter<int>("mc_red_saturation_min", p.red_saturation_min);
+    p.red_value_min = node.declare_parameter<int>("mc_red_value_min", p.red_value_min);
+    p.red_min_area_px = node.declare_parameter<int>("mc_red_min_area_px", p.red_min_area_px);
+    p.red_stable_frames =
+        node.declare_parameter<int>("mc_red_stable_frames", p.red_stable_frames);
+    p.red_detect_timeout_s =
+        node.declare_parameter<double>("mc_red_detect_timeout_s", p.red_detect_timeout_s);
+    p.red_log_period_s =
+        node.declare_parameter<double>("mc_red_log_period_s", p.red_log_period_s);
+
     p.align_heading_kp = std::max(0.0, p.align_heading_kp);
     p.align_heading_max_speed_radps = std::max(0.0, p.align_heading_max_speed_radps);
     p.align_heading_tolerance_deg = std::max(0.0, p.align_heading_tolerance_deg);
@@ -145,6 +162,16 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     p.rotate_min_speed_radps = std::max(0.0, std::abs(p.rotate_min_speed_radps));
     p.rotate_slowdown_angle_deg = std::max(0.0, p.rotate_slowdown_angle_deg);
     p.rotate_odom_timeout_s = std::max(0.001, p.rotate_odom_timeout_s);
+    p.red_hue_low1 = std::clamp(p.red_hue_low1, 0, 180);
+    p.red_hue_high1 = std::clamp(p.red_hue_high1, 0, 180);
+    p.red_hue_low2 = std::clamp(p.red_hue_low2, 0, 180);
+    p.red_hue_high2 = std::clamp(p.red_hue_high2, 0, 180);
+    p.red_saturation_min = std::clamp(p.red_saturation_min, 0, 255);
+    p.red_value_min = std::clamp(p.red_value_min, 0, 255);
+    p.red_min_area_px = std::max(1, p.red_min_area_px);
+    p.red_stable_frames = std::max(1, p.red_stable_frames);
+    p.red_detect_timeout_s = std::max(0.001, p.red_detect_timeout_s);
+    p.red_log_period_s = std::max(0.1, p.red_log_period_s);
 
     p.vision_config_file = resolveVisionConfig(p.vision_config_file);
 
@@ -154,17 +181,22 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     blackboard->set("mc_nav_reverse_x_m", nav_reverse_x_m);
     blackboard->set("mc_nav_right_turn_target_yaw", 0.0);
     blackboard->set("mc_nav_timeout_sec", nav_timeout);
+    blackboard->set("mc_red_detect_timeout_s", p.red_detect_timeout_s);
+    blackboard->set("mc_red_stable_frames", p.red_stable_frames);
     RCLCPP_INFO(node.get_logger(),
-                "武馆区参数已加载: vision_config=%s mirror_sign=%d relative_nav=+x %.2fm, yaw_delta %.2frad, x %.2fm, rotate_direction=%d",
+                "武馆区参数已加载: vision_config=%s mirror_sign=%d relative_nav=+x %.2fm, yaw_delta %.2frad, x %.2fm, rotate_direction=%d red_hsv=[%d-%d,%d-%d] s>=%d v>=%d area>=%d stable=%d",
                 p.vision_config_file.c_str(), mirror_sign, nav_forward_x_m,
                 nav_right_turn_delta_rad, nav_reverse_x_m,
-                p.rotate_direction);
+                p.rotate_direction, p.red_hue_low1, p.red_hue_high1,
+                p.red_hue_low2, p.red_hue_high2, p.red_saturation_min,
+                p.red_value_min, p.red_min_area_px, p.red_stable_frames);
 }
 
 void registerMCAreaNodes(BT::BehaviorTreeFactory& factory) {
     factory.registerNodeType<VisualServoGrabAction>("VisualServoGrab");
     factory.registerNodeType<RotateInPlaceAction>("RotateInPlace");
     factory.registerNodeType<WaitForeverAction>("WaitForever");
+    factory.registerNodeType<WaitForRedElementAction>("WaitForRedElement");
 }
 
 }  // namespace rc26_decision

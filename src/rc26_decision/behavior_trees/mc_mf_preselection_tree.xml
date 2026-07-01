@@ -1,0 +1,14 @@
+<!-- MC + 梅林预选赛组合入口：MC 成功等待红色元素并延时后，继续执行 MF 预选流程。 -->
+<root BTCPP_format="4" main_tree_to_execute="MCMFPreselectionTree">
+
+  <include path="mc_tree.xml"/>
+  <include path="mf_preselection_after_mc_tree.xml"/>
+
+  <BehaviorTree ID="MCMFPreselectionTree">
+    <Sequence name="MC_MF_Preselection_Sequence">
+      <SubTree ID="MCAreaTree" _autoremap="true"/>
+      <SubTree ID="MFPreselectionAfterMCTree" _autoremap="true"/>
+    </Sequence>
+  </BehaviorTree>
+
+</root>

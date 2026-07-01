@@ -67,18 +67,22 @@
 
 ## 行为树导航流程
 
-- `mc_tree.xml`：`OdomDriveX(mc_nav_forward_x_m=+0.2m) -> RelativeYawTarget(mc_nav_right_turn_delta_rad=team 派生侧向 yaw) -> OdomTurnToYaw -> OdomDriveX(mc_nav_reverse_x_m=-0.6m) -> VisualServoGrab -> Delay -> RotateInPlace -> WaitForever`。转向后的绝对 odom yaw 会传给 `VisualServoGrab target_yaw_rad`，作为视觉阶段 heading hold 目标；`team=blue` 时侧向 yaw 和后续原地旋转方向相对红方基准取反。
-- `mf_preselection_tree.xml`：可选入口导航为 `OdomDriveX(mf_preselect_entry2_nav_segment1_x_m=+2.0m) -> OdomDriveY(mf_preselect_entry2_nav_segment1_y_m=team 派生横移 Y)`，随后进入 `MfPreselectionFlow`；该入口不在树前额外转向。`MfPreselectionFlow` 内部的入口 1/3 号横移、假 KFS 侧列绕行、出口 yaw、周身扫描 yaw 和第四行收尾 yaw 同样按 `team` 从红方基准派生。
+- `mc_mf_preselection_tree.xml`：当前默认完整入口，结构参考主树，先执行 `MCAreaTree`，待 MC 末尾通过红色元素视觉 gate 并延时 5s 后，再进入 `MFPreselectionAfterMCTree`。
+- `mc_tree.xml`：`OdomDriveX(mc_nav_forward_x_m=+0.2m) -> RelativeYawTarget(mc_nav_right_turn_delta_rad=team 派生侧向 yaw) -> OdomTurnToYaw -> OdomDriveX(mc_nav_reverse_x_m=-0.6m) -> VisualServoGrab -> Delay -> RotateInPlace -> WaitForRedElement -> Delay(5s)`。转向后的绝对 odom yaw 会传给 `VisualServoGrab target_yaw_rad`，作为视觉阶段 heading hold 目标；`team=blue` 时侧向 yaw 和后续原地旋转方向相对红方基准取反。`WaitForRedElement` 复用 MC USB 相机参数，通过 OpenCV HSV 阈值等待画面中红色元素稳定出现，成功后让 MC 子树返回 `SUCCESS`。
+- `mf_preselection_tree.xml`：保持原独立调试入口不变，可选入口导航为 `OdomDriveX(mf_preselect_entry2_nav_segment1_x_m=+2.0m) -> OdomDriveY(mf_preselect_entry2_nav_segment1_y_m=team 派生横移 Y)`，随后进入 `MfPreselectionFlow`；该入口不在树前额外转向。
+- `mf_preselection_after_mc_tree.xml`：MC 后置 MF 预选专用入口，可选入口导航为 `OdomDriveX(mc_to_mf_preselect_nav_segment1_x_m=-2.4m) -> RelativeYawTarget(mc_to_mf_preselect_nav_turn_delta_rad=team 派生右转 yaw) -> OdomTurnToYaw -> OdomDriveX(mc_to_mf_preselect_nav_segment2_x_m=+1.6m)`，随后进入 `MfPreselectionFlow`。`MfPreselectionFlow` 内部的入口 1/3 号横移、假 KFS 侧列绕行、出口 yaw、周身扫描 yaw 和第四行收尾 yaw 同样按 `team` 从红方基准派生。
 - 独立右转验证树：右转专用参数族已退役，树内固定验收路线为 `OdomDriveX(+0.4m) -> RelativeYawTarget(-90deg) -> OdomTurnToYaw -> OdomDriveX(-0.7m)`，速度、topic、容差和超时复用通用 odom 相对导航参数。
 - `relative_segment_nav_tree.xml`：独立验收用单轴分段树，依次示例调用 `OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw`。
 
-旧外部 action 位姿导航节点、TF 采点节点、旧双点位姿测试树和相关 action helper 已删除。当前 MC/MF 入口坐标不再是绝对地图位姿；`mc_nav_forward_x_m` / `mc_nav_reverse_x_m` 与 `mf_preselect_entry2_nav_segment1_*` 是按启动姿态和分段动作顺序标定的相对单轴段。YAML 中这些路线值按红方基准维护，蓝方只在决策节点启动加载阶段派生运行值，不需要维护第二套 XML。
+旧外部 action 位姿导航节点、TF 采点节点、旧双点位姿测试树和相关 action helper 已删除。当前 MC/MF 入口坐标不再是绝对地图位姿；`mc_nav_forward_x_m` / `mc_nav_reverse_x_m`、`mf_preselect_entry2_nav_segment1_*` 与 `mc_to_mf_preselect_nav_*` 都是按启动姿态和分段动作顺序标定的相对单轴段。YAML 中这些路线值按红方基准维护，蓝方只在决策节点启动加载阶段派生 yaw/Y 方向运行值，不需要维护第二套 XML。
 
 ## MC 链路
 
 `VisualServoGrabAction` 内嵌相机采集和端头推理，在工作线程中执行目标锁定、横移 P 控制、odom yaw 姿态保持、限位前探和 `GRAB_TIP(0x01)` service 请求。它只通过 `/cmd_vel`、`/mechanism/send_command` 和 `/mechanism/command_feedback` 与下层交互，不直接打开串口。
 
 `VisualServoGrabAction` 可通过 `target_yaw_rad` 输入端口接收当前 MC 导航右转后的绝对 odom yaw；没有传入时才使用 `mc_align_target_yaw_rad` 静态兜底。`RotateInPlaceAction` 订阅 `mc_odom_topic`，发布 `cmd_vel.angular.z`。未显式传入 `target_yaw_rad` 时按相对角度旋转；传入时按绝对 odom yaw 对齐。
+
+`WaitForRedElementAction` 是 MC 到 MF 预选组合流程之间的视觉 gate：它复用 MC 相机打开参数，按 `mc_red_hue_low/high*`、`mc_red_saturation_min`、`mc_red_value_min`、`mc_red_min_area_px` 和 `mc_red_stable_frames` 判断红色元素是否稳定出现。成功返回 `SUCCESS`，超时或相机不可用返回 `FAILURE` 并写入 `decision_last_failure_*`；该节点只读相机，不发布 `/cmd_vel` 或机构命令。
 
 ## MF 与台阶链路
 
@@ -100,7 +104,9 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 - `startup_odom_*`：完整导航链启动前 odom 新鲜度和低速稳定 gate。
 - `team`：红蓝方场地镜像选择；`red` 使用红方基准，`blue` 自动镜像 MC/MF 侧向 Y 和 yaw，非法值按 `red`。
 - `mc_nav_forward_x_m`、`mc_nav_right_turn_delta_rad`、`mc_nav_reverse_x_m`、`mc_nav_timeout_sec`：MC 去程红方基准动作顺序，默认 `+X 0.2m -> 右转 90° -> -X 0.6m`；蓝方只镜像 yaw 和原地旋转方向，X 距离不变。
-- `mf_preselect_entry2_nav_segment1_x_m`、`mf_preselect_entry2_nav_segment1_y_m`、`mf_preselect_entry2_nav_timeout_sec`：MF 预选入口红方基准单轴段，默认 `+X 2.0m -> -Y 1.8m`；蓝方只镜像 Y，X 距离不变。
+- `mc_red_hue_low1/high1`、`mc_red_hue_low2/high2`、`mc_red_saturation_min`、`mc_red_value_min`、`mc_red_min_area_px`、`mc_red_stable_frames`、`mc_red_detect_timeout_s`、`mc_red_log_period_s`：MC 末尾红色元素 HSV 检测 gate 参数。
+- `mf_preselect_entry2_nav_segment1_x_m`、`mf_preselect_entry2_nav_segment1_y_m`、`mf_preselect_entry2_nav_timeout_sec`：MF 预选独立入口红方基准单轴段，默认 `+X 2.0m -> -Y 1.8m`；蓝方只镜像 Y，X 距离不变。
+- `mc_to_mf_preselect_nav_segment1_x_m`、`mc_to_mf_preselect_nav_turn_delta_rad`、`mc_to_mf_preselect_nav_segment2_x_m`、`mc_to_mf_preselect_nav_timeout_sec`：MC 后置 MF 预选组合树专用入口段，默认 `-X 2.4m -> 右转 90° -> +X 1.6m`；蓝方只镜像 yaw，X 距离不变。
 参数在节点构造时声明并写入 blackboard；当前没有运行期参数变更回调，`ros2 param set` 不会自动回写已经进入树的参数。
 
 ## 边界
@@ -111,6 +117,8 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 - `rc26_interfaces` 当前不提供自定义导航 action；导航对外契约只保留 `/cmd_vel` 速度输出。
 
 ## 本轮同步
+
+2026-07-01 同步：新增 `mc_mf_preselection_tree.xml` 作为默认 MC + MF 预选组合入口，并新增 `mf_preselection_after_mc_tree.xml` 承载 MC 后置 MF 预选入口导航；原 `mf_preselection_tree.xml` 和 `mf_preselect_entry2_nav_*` 独立调试入口保持不变。`mc_tree.xml` 末尾不再停在 `WaitForever`，而是在旋转完成后通过 `WaitForRedElement` 使用 MC USB 相机和 OpenCV HSV 阈值等待红色元素稳定出现，再延时 5s 返回成功进入 `mf_preselection_after_mc_tree.xml`。后置入口导航使用新的 `mc_to_mf_preselect_nav_*` 参数，路线为 `OdomDriveX(-2.4m) -> RelativeYawTarget(team 派生 -90deg) -> OdomTurnToYaw -> OdomDriveX(+1.6m)`；该改动只调整行为树编排和 odom 单轴段参数，不新增 `/cmd_vel` 权威、ROS topic/service/action 或 MCU 协议。
 
 2026-07-01 同步：右转导航独立入口专用参数族已退役，`decision_node` 启动时不再声明、读取或写入对应 blackboard 键。通用 `OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw` 和 `RelativeYawTarget` 动作继续保留，供 MC/MF 和其它行为树复用；独立右转验证树若加载运行，则使用树内固定路线和通用 odom 相对导航参数。
 
