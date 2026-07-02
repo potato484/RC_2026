@@ -40,7 +40,7 @@ ros2 launch rc26_mcu_transport mcu_transport.launch.py \
   - 若目标 MCU 对同 `seq` 返回 `MCU_ERROR(0xFE)`，底层会按 retry `0x00~0x09` 重发；若持续 `0xFE`，service 返回 `accepted=false`，错误原因通过日志、`last_error` diagnostics 暴露为下位机原因
 - `/mechanism/command_feedback`
   - type: `rc26_interfaces/msg/MechanismTransportFeedback`
-  - 透传机构业务反馈，过滤底层 `ACK(0x00)`、`HEARTBEAT_ACK(0x01)`、`ODOM_DATA(0x08)` 与 transport 级 `MCU_ERROR(0xFE)`
+  - 透传机构业务反馈，过滤底层 `ACK(0x00)`、`HEARTBEAT_ACK(0x01)`、`ODOM_DATA(0x08)` 与 transport 级 `MCU_ERROR(0xFE)`；`COMPETITION_START_DONE(0x0C)` 作为业务反馈透传给启动 gate
   - 当前会透传 KFS 机械臂升降完成 `0x02/0x03`、台阶激光事件 `0x04/0x05/0x07`、前方限位事件 `0x06`、第二节机械臂放下完成 `0x0A` 与入口高侧 KFS 夹取完成 `0x0B`；service 的 `accepted=true` 仍只表示可靠命令已收到通用 `ACK(0x00)`
 - `/mcu_transport/diagnostics`
   - type: `diagnostic_msgs/msg/DiagnosticArray`

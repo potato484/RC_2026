@@ -11,7 +11,7 @@
 - 发布 topic `/mechanism/command_feedback`
 - 把 `rc26_serial::SerialDriver::sendCommand()` 的通用 ACK 结果映射为 service response
 - 默认订阅 `/cmd_vel`，以 `50Hz` no-ack 路径下发 `POSE_TARGET(0x0C)`，payload 为 `(vx, vy, wz)` 三个 float
-- 透传 MCU 上行业务反馈，过滤底层 `ACK(0x00)`、`HEARTBEAT_ACK(0x01)`、`ODOM_DATA(0x08)` 与 transport 级 `MCU_ERROR(0xFE)`
+- 透传 MCU 上行业务反馈，过滤底层 `ACK(0x00)`、`HEARTBEAT_ACK(0x01)`、`ODOM_DATA(0x08)` 与 transport 级 `MCU_ERROR(0xFE)`；`COMPETITION_START_DONE(0x0C)` 作为业务反馈透传给启动 gate
 - 当前透传的业务反馈包括 KFS 机械臂升降完成 `0x02/0x03`、台阶激光事件 `0x04/0x05/0x07`、前方限位事件 `0x06`、第二节机械臂放下完成 `0x0A` 和入口高侧 KFS 夹取完成 `0x0B`；`/mechanism/send_command.accepted=true` 仍只表示通用 `ACK(0x00)` 已可靠返回
 - 发布 `/mcu_transport/diagnostics`，其中 `last_error` 和 `mcu_error_responses` 会暴露 MCU `0xFE` 下位机原因
 

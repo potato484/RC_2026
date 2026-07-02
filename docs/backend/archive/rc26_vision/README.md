@@ -77,7 +77,7 @@
 - 当前兼容矩阵：AidLite 有且 ONNX Runtime C++ 缺失时可构建并由 `engine: auto` 选择 AidLite；AidLite 缺失且 ONNX Runtime C++ 存在时可构建并回退 ONNX Runtime；两者都有时优先 AidLite；两者都没有时仍允许构建，但启动推理会报“无可用推理后端”。
 - `config/vision_models.yaml` 是唯一模型 profile 配置入口，当前包含 `kfs_default` 与 `tip_default`。
 - `config/vision_models.yaml` 当前默认 profile 已切到 `engine: auto`；显式写 `onnxruntime` / `opencv_onnx` 仍会落到本地 ONNX Runtime 链，显式写 `aidlite` 则保持强制 AidLite、不参与自动回退。
-- 默认视觉主链当前通过 `VisionInferenceManager` 使用 `vision_depth_min_m / vision_depth_max_m` 作为深度 ROI 有效距离窗口；未覆盖时库默认值为 `0.6m ~ 1.2m`。`config/kfs_vision_params.yaml` 已为独立 KFS action test 显式覆盖该窗口，当前实机调试值为 `0.50m ~ 0.55m`；正式 MF 预选赛仍读取 `r2_runtime.yaml` 中的 `mf_preselect_depth_min_m / mf_preselect_depth_max_m`。落在窗口外或有效深度样本不足的检测不会被上游决策当作 `has_target=true`。
+- 默认视觉主链当前通过 `VisionInferenceManager` 使用 `vision_depth_min_m / vision_depth_max_m` 作为深度 ROI 有效距离窗口；未覆盖时库默认值为 `0.6m ~ 1.2m`。`config/kfs_vision_params.yaml` 已为独立 KFS action test 显式覆盖该窗口，当前实机调试值为 `0.50m ~ 0.55m`；正式 MF 预选赛读取当前红/蓝运行配置中的 `mf_preselect_depth_min_m / mf_preselect_depth_max_m`。落在窗口外或有效深度样本不足的检测不会被上游决策当作 `has_target=true`。
 - `tip` test 链已经并入 `rc26_vision`，当前入口是 `tip_vision_test_node` 与 `launch/test_tip_vision.launch.py`。
 - 默认 KFS 模型资产命名为 `models/kfs.pt` / `models/kfs.onnx`，标签文件命名为 `models/kfs_labels.txt`；tip test 模型资产命名为 `models/tip.pt` / `models/tip.onnx`，标签文件命名为 `models/tip_labels.txt`。
 - 当前 `models/kfs_labels.txt` 中的 `R_R1` / `B_R1` 表示其它机器人需要拾取的 KFS，占用本车当前阶梯格时用于决策层停车等待；它们不是本车可夹取标签。`rc26_vision` 独立 KFS action test 默认只把 `T_*` 当作本车可夹取真目标，`F_*` 和其它未知标签默认忽略。

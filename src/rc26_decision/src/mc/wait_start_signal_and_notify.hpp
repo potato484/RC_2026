@@ -30,7 +30,7 @@ private:
     using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
     using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
 
-    enum class Phase { WaitingSignal, SendingCommand, WaitingCommandAck };
+    enum class Phase { WaitingSignal, SendingCommand, WaitingCommandAck, WaitingDoneFeedback };
 
     void handleFeedback(const FeedbackMsg::SharedPtr msg);
     bool sendStartCommand();
@@ -46,6 +46,7 @@ private:
     std::atomic<bool> signal_seen_{false};
     std::atomic<bool> command_response_seen_{false};
     std::atomic<bool> command_accepted_{false};
+    std::atomic<bool> done_feedback_seen_{false};
     std::atomic<int> command_seq_{-1};
     std::atomic<uint64_t> generation_{0};
     Phase phase_{Phase::WaitingSignal};

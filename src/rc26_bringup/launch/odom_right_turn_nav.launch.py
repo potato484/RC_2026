@@ -210,7 +210,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             'runtime_config_file',
-            default_value=PathJoinSubstitution([bringup_dir, 'config', 'r2_runtime.yaml']),
+            default_value=PathJoinSubstitution([bringup_dir, 'config', 'r2_red.yaml']),
             description='R2 统一运行配置 YAML'),
         DeclareLaunchArgument(
             'namespace',
@@ -223,7 +223,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'team',
             default_value='',
-            description='Active competition side: blue | red；空字符串表示使用 r2_runtime.yaml'),
+            description='Active competition side: blue | red；空字符串表示使用运行配置'),
         DeclareLaunchArgument(
             'start_odometry',
             default_value='true',
@@ -231,7 +231,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'start_mcu_transport',
             default_value='',
-            description='是否启动 rc26_mcu_transport；空字符串表示使用 r2_runtime.yaml'),
+            description='是否启动 rc26_mcu_transport；空字符串表示使用运行配置'),
         DeclareLaunchArgument(
             'point_lio_config_file',
             default_value='',

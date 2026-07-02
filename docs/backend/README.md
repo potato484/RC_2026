@@ -12,6 +12,8 @@ R2 运行时导航权威已经迁移到 `rc26_decision` 内部 odom 单轴分段
 
 `rc26_bringup run_mode:=navigation` 只装配 `rc26_mcu_transport`、`odometry.launch.py start_sensor_scan:=false`、`rc26_decision`，以及按需 RealSense。`/cmd_vel` 由决策侧导航/动作节点串行发布，默认硬件消费方由 `rc26_mcu_transport` 提供并下发 `POSE_TARGET(0x0C)`；同一时刻不得启动遥控、测试动作或其它 `/cmd_vel` 发布者。
 
+根目录 `start_r2_auto.sh` 是完整自动决策/比赛链路的快捷启动脚本，默认读取 `r2_active_side.yaml` 并带起 RealSense；运行时装配权威仍在 `rc26_bringup`，脚本不承载红蓝路线或决策逻辑。
+
 `rc26_merge_odom` 已从当前 R2 默认运行装配中停用但保留源码：`rc26_bringup`、导航联调入口和遥控脚本不再启动它，也不再把 `/merge_odom` 作为当前运行时契约。`/cmd_vel` 的默认硬件消费方由 `rc26_mcu_transport` 提供，它复用目标 MCU 串口下发 `POSE_TARGET(0x0C)`；机构指令共享串口 provider 同样由 `rc26_mcu_transport` 提供。
 
 旧地形、base-ground 与 MF keepout 包已经从工作区删除，相关 keepout / terrain / MF KFS 兼容接口也不再由 `rc26_interfaces` 生成。当前 `rc26_bringup` 不启动这些链路，`rc26_decision` 不订阅、发布或调用它们，默认运行和手动验证闭包也不再包含这些历史包。

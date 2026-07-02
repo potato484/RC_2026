@@ -64,6 +64,7 @@ enum class FeedbackID : uint8_t {
     ARM_HIGH_RAISE_DONE = 0x09,         // 梅林预选赛入口专属高抬升完成
     ARM_SECOND_LOWER_DONE = 0x0A,       // KFS 向下夹取前第二节机械臂放下完成
     ENTRY_GRAB_KFS_UP_DONE = 0x0B,      // 梅林预选赛入口高侧 KFS 夹取完成
+    COMPETITION_START_DONE = 0x0C,      // 比赛开始状态切换完成
     MCU_ERROR = 0xFE,                   // MCU 端错误码：下位机原因
 };
 

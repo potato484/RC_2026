@@ -12,7 +12,7 @@ source "${RC26_WS:-$HOME/RC_2026}/install/setup.bash"
 
 ## 联调阶段入口
 
-涉及真实运动或机构动作时必须启动 `rc26_mcu_transport`，并确认同一时刻只有一个 `/cmd_vel` 发布者。完整导航/决策链默认从 [r2_runtime.yaml](/home/potato/RC_2026/src/rc26_bringup/config/r2_runtime.yaml) 读取点云路径、行为树入口和决策参数；现场切换 BT 或调整分段距离时优先修改该文件。
+涉及真实运动或机构动作时必须启动 `rc26_mcu_transport`，并确认同一时刻只有一个 `/cmd_vel` 发布者。完整导航/决策链默认由 [r2_active_side.yaml](/home/potato/RC_2026/src/rc26_bringup/config/r2_active_side.yaml) 选择 [r2_red.yaml](/home/potato/RC_2026/src/rc26_bringup/config/r2_red.yaml) 或 [r2_blue.yaml](/home/potato/RC_2026/src/rc26_bringup/config/r2_blue.yaml) 读取点云路径、行为树入口和决策参数；现场切换 BT 或调整分段距离时优先修改对应红/蓝配置文件。
 
 ### 遥控
 
@@ -58,7 +58,7 @@ ros2 launch rc26_bringup bringup.launch.py \
 ros2 launch rc26_bringup grid_heading.launch.py
 ```
 
-方向由 `r2_runtime.yaml` 维护：
+方向由当前红/蓝运行配置维护：
 
 ```yaml
 grid_heading_direction: "left"  # forward | left | right | backward

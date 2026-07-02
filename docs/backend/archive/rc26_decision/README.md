@@ -10,7 +10,7 @@
 - 运行入口：不提供独立 launch；完整运行由 [bringup.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/bringup.launch.py) 装配
 - 行为树目录：[behavior_trees](/home/potato/RC_2026/src/rc26_decision/behavior_trees)
 - 当前导航实现：[bt_odom_relative_nav.cpp](/home/potato/RC_2026/src/rc26_decision/src/navigation/bt_odom_relative_nav.cpp)
-- 运行参数真源：[r2_runtime.yaml](/home/potato/RC_2026/src/rc26_bringup/config/r2_runtime.yaml)
+- 运行参数真源：由 [r2_active_side.yaml](/home/potato/RC_2026/src/rc26_bringup/config/r2_active_side.yaml) 选择 [r2_red.yaml](/home/potato/RC_2026/src/rc26_bringup/config/r2_red.yaml) 或 [r2_blue.yaml](/home/potato/RC_2026/src/rc26_bringup/config/r2_blue.yaml)
 
 `decision_node` 启动时会加载 `r2_runtime.decision.ros__parameters`，把共享参数写入 blackboard，并注册 MC、MF、MF 预选赛、台阶和 odom 导航节点。`team` 是当前红蓝方场地镜像参数：`red` 使用 YAML 中维护的红方基准路线，`blue` 在启动加载参数时自动派生侧向 Y 和 yaw 的镜像值；非法值会告警并按 `red` 运行。完整导航链中默认启用启动 odom gate：只有 `/odom` 连续新鲜且低速稳定后才创建并 tick 行为树，避免开机里程计未稳定时直接运动。
 
@@ -67,7 +67,7 @@
 
 ## 行为树导航流程
 
-- `mc_mf_preselection_tree.xml`：当前默认完整入口，结构参考主树，先等待人工 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 启动信号，再下发 `COMPETITION_START(0x10)` 通知下位机比赛开始，ACK 后延时 500ms 执行 `MCAreaTree`，待 MC 末尾通过红色元素视觉 gate 并延时 5s 后，再进入 `MFPreselectionAfterMCTree`。
+- `mc_mf_preselection_tree.xml`：当前默认完整入口，结构参考主树，先等待人工 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 启动信号，再下发 `COMPETITION_START(0x10)` 通知下位机比赛开始，ACK 后继续等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`，随后延时 500ms 执行 `MCAreaTree`，待 MC 末尾通过红色元素视觉 gate 并延时 5s 后，再进入 `MFPreselectionAfterMCTree`。
 - `mc_tree.xml`：`OdomDriveX(mc_nav_forward_x_m=+0.2m) -> RelativeYawTarget(mc_nav_right_turn_delta_rad=team 派生侧向 yaw) -> OdomTurnToYaw -> OdomDriveX(mc_nav_reverse_x_m=-0.6m) -> VisualServoGrab -> Delay -> RotateInPlace -> WaitForRedElement -> Delay(5s)`。转向后的绝对 odom yaw 会传给 `VisualServoGrab target_yaw_rad`，作为视觉阶段 heading hold 目标；`team=blue` 时侧向 yaw 和后续原地旋转方向相对红方基准取反。`WaitForRedElement` 复用 MC USB 相机参数，通过 OpenCV HSV 阈值等待画面中红色元素稳定出现，成功后让 MC 子树返回 `SUCCESS`。
 - `mf_preselection_tree.xml`：保持原独立调试入口不变，可选入口导航为 `OdomDriveX(mf_preselect_entry2_nav_segment1_x_m=+2.0m) -> OdomDriveY(mf_preselect_entry2_nav_segment1_y_m=team 派生横移 Y)`，随后进入 `MfPreselectionFlow`；该入口不在树前额外转向。
 - `mf_preselection_after_mc_tree.xml`：MC 后置 MF 预选专用入口，可选入口导航为 `OdomDriveX(mc_to_mf_preselect_nav_segment1_x_m=-2.4m) -> RelativeYawTarget(mc_to_mf_preselect_nav_turn_delta_rad=team 派生右转 yaw) -> OdomTurnToYaw -> OdomDriveX(mc_to_mf_preselect_nav_segment2_x_m=+1.6m)`，随后进入 `MfPreselectionFlow`。`MfPreselectionFlow` 内部的入口 1/3 号横移、假 KFS 侧列绕行、出口 yaw、周身扫描 yaw 和第四行收尾 yaw 同样按 `team` 从红方基准派生。
@@ -84,7 +84,7 @@
 
 `WaitForRedElementAction` 是 MC 到 MF 预选组合流程之间的视觉 gate：它复用 MC 相机打开参数，按 `mc_red_hue_low/high*`、`mc_red_saturation_min`、`mc_red_value_min`、`mc_red_min_area_px` 和 `mc_red_stable_frames` 判断红色元素是否稳定出现。成功返回 `SUCCESS`，超时或相机不可用返回 `FAILURE` 并写入 `decision_last_failure_*`；该节点只读相机，不发布 `/cmd_vel` 或机构命令。
 
-`WaitStartSignalAndNotifyAction` 只服务 `mc_mf_preselection_tree.xml` 启动 gate：启动前的 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 表示人为开始信号，收到后通过 `/mechanism/send_command` 下发 `COMPETITION_START(0x10)` 空 payload，service ACK 成功后外层树延时 500ms 进入 MC。MC `VisualServoGrabAction` 前探阶段继续把同一个 `0x06` 当作前方限位开关触发，两种语义通过不同 BT 阶段和独立节点隔离。
+`WaitStartSignalAndNotifyAction` 只服务 `mc_mf_preselection_tree.xml` 启动 gate：启动前的 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 表示人为开始信号，收到后通过 `/mechanism/send_command` 下发 `COMPETITION_START(0x10)` 空 payload，service ACK 成功后继续等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`，外层树再延时 500ms 进入 MC。MC `VisualServoGrabAction` 前探阶段继续把同一个 `0x06` 当作前方限位开关触发，两种语义通过不同 BT 阶段和独立节点隔离。
 
 ## MF 与台阶链路
 
@@ -100,14 +100,14 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 ## 参数口径
 
-导航相关参数集中在 `r2_runtime.yaml`：
+导航相关参数由 `r2_active_side.yaml` 选择的 `r2_red.yaml` / `r2_blue.yaml` 提供；`r2_runtime.yaml` 仅保留为兼容调试入口：
 
 - `odom_relative_nav_*`：单轴平移与通用 yaw 容差、增益、速度、topic 和超时。
 - `startup_odom_*`：完整导航链启动前 odom 新鲜度和低速稳定 gate。
 - `team`：红蓝方场地镜像选择；`red` 使用红方基准，`blue` 自动镜像 MC/MF 侧向 Y 和 yaw，非法值按 `red`。
 - `mc_nav_forward_x_m`、`mc_nav_right_turn_delta_rad`、`mc_nav_reverse_x_m`、`mc_nav_timeout_sec`：MC 去程红方基准动作顺序，默认 `+X 0.2m -> 右转 90° -> -X 0.6m`；蓝方只镜像 yaw 和原地旋转方向，X 距离不变。
 - `mc_red_hue_low1/high1`、`mc_red_hue_low2/high2`、`mc_red_saturation_min`、`mc_red_value_min`、`mc_red_min_area_px`、`mc_red_stable_frames`、`mc_red_detect_timeout_s`、`mc_red_log_period_s`：MC 末尾红色元素 HSV 检测 gate 参数。
-- `mc_mf_start_signal_feedback_topic`、`mc_mf_start_signal_feedback_id`、`mc_mf_start_signal_timeout_s`、`mc_mf_start_command_service`、`mc_mf_start_command_id`、`mc_mf_start_command_timeout_s`、`mc_mf_start_log_period_s`：组合树启动 gate 参数，默认等待 `/mechanism/command_feedback` 的 `0x06`，随后下发 `COMPETITION_START(0x10)`。
+- `mc_mf_start_signal_feedback_topic`、`mc_mf_start_signal_feedback_id`、`mc_mf_start_signal_timeout_s`、`mc_mf_start_command_service`、`mc_mf_start_command_id`、`mc_mf_start_command_timeout_s`、`mc_mf_start_done_feedback_id`、`mc_mf_start_done_timeout_s`、`mc_mf_start_log_period_s`：组合树启动 gate 参数，默认等待 `/mechanism/command_feedback` 的 `0x06`，随后下发 `COMPETITION_START(0x10)` 并等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`。
 - `mf_preselect_entry2_nav_segment1_x_m`、`mf_preselect_entry2_nav_segment1_y_m`、`mf_preselect_entry2_nav_timeout_sec`：MF 预选独立入口红方基准单轴段，默认 `+X 2.0m -> -Y 1.8m`；蓝方只镜像 Y，X 距离不变。
 - `mc_to_mf_preselect_nav_segment1_x_m`、`mc_to_mf_preselect_nav_turn_delta_rad`、`mc_to_mf_preselect_nav_segment2_x_m`、`mc_to_mf_preselect_nav_timeout_sec`：MC 后置 MF 预选组合树专用入口段，默认 `-X 2.4m -> 右转 90° -> +X 1.6m`；蓝方只镜像 yaw，X 距离不变。
 参数在节点构造时声明并写入 blackboard；当前没有运行期参数变更回调，`ros2 param set` 不会自动回写已经进入树的参数。
@@ -121,11 +121,13 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 ## 本轮同步
 
+2026-07-02 同步：组合树启动 gate 增加 `COMPETITION_START_DONE(0x0C)` 等待，`COMPETITION_START(0x10)` 的通用 ACK 只表示 MCU 收到命令，只有同 `seq` 上行 `0x0C` 到达后才延时 500ms 进入 MC。默认运行配置也从单个 `r2_runtime.yaml` 拆分为 `r2_red.yaml` / `r2_blue.yaml`，由 `r2_active_side.yaml` 选择当前比赛方；显式传入 `runtime_config_file` 仍可覆盖。
+
 2026-07-01 同步：新增 `mc_mf_preselection_tree.xml` 作为默认 MC + MF 预选组合入口，并新增 `mf_preselection_after_mc_tree.xml` 承载 MC 后置 MF 预选入口导航；原 `mf_preselection_tree.xml` 和 `mf_preselect_entry2_nav_*` 独立调试入口保持不变。组合树启动前先由 `WaitStartSignalAndNotify` 等待人工 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)`，随后下发 `COMPETITION_START(0x10)` 并在 ACK 后延时 500ms 进入 MC；MC 视觉夹取前探阶段仍独立消费 `0x06` 作为前方限位触发。`mc_tree.xml` 末尾不再停在 `WaitForever`，而是在旋转完成后通过 `WaitForRedElement` 使用 MC USB 相机和 OpenCV HSV 阈值等待红色元素稳定出现，再延时 5s 返回成功进入 `mf_preselection_after_mc_tree.xml`。后置入口导航使用新的 `mc_to_mf_preselect_nav_*` 参数，路线为 `OdomDriveX(-2.4m) -> RelativeYawTarget(team 派生 -90deg) -> OdomTurnToYaw -> OdomDriveX(+1.6m)`；该改动只调整行为树编排、启动通知和 odom 单轴段参数，不新增 `/cmd_vel` 权威或 ROS topic/service/action。
 
 2026-07-01 同步：右转导航独立入口专用参数族已退役，`decision_node` 启动时不再声明、读取或写入对应 blackboard 键。通用 `OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw` 和 `RelativeYawTarget` 动作继续保留，供 MC/MF 和其它行为树复用；独立右转验证树若加载运行，则使用树内固定路线和通用 odom 相对导航参数。
 
-2026-07-01 同步：`team` 参数扩展为决策层红蓝方场地镜像契约。`r2_runtime.yaml` 继续维护红方基准路线；`decision_node` 启动时规范化 `team`，写入 `team_mirror_sign`，并用同一镜像符号派生 MC 侧向 yaw、MC 原地旋转方向、MF 预选入口 Y、MF 入口 1/3 号横移、假 KFS 侧列绕行、出口 yaw、周身扫描 yaw 和第四行收尾 yaw。`team=blue` 只改变场地几何方向，不新增 XML、topic、service、action、MCU 协议或视觉参数；非法 `team` 会告警并按 `red` 运行。
+2026-07-01 同步：`team` 参数扩展为决策层红蓝方场地镜像契约。红/蓝运行配置继续维护红方基准路线；`decision_node` 启动时规范化 `team`，写入 `team_mirror_sign`，并用同一镜像符号派生 MC 侧向 yaw、MC 原地旋转方向、MF 预选入口 Y、MF 入口 1/3 号横移、假 KFS 侧列绕行、出口 yaw、周身扫描 yaw 和第四行收尾 yaw。`team=blue` 只改变场地几何方向，不新增 XML、topic、service、action、MCU 协议或视觉参数；非法 `team` 会告警并按 `red` 运行。
 
 2026-07-01 同步：`MfPreselectionFlow` 修复 KFS 横移阶段中心深度洞导致目标丢失的问题。R2 初始检测仍必须有真实深度，但深度采样从单个中心 `7x7` ROI 扩展为 bbox 内 `3x3` 多点 ROI；横移对齐阶段即使当前帧没有可用深度，只要 RGB bbox 仍能被 `tip_alignment` 锁定，就继续按 offset 横移，只有在像素和 yaw 已对齐且当前链路有可用深度时才累计稳定并进入前向 odom 趋近。新增 `mf_preselect_kfs_mono_distance_fallback_enable`、`mf_preselect_kfs_mono_target_width_m/height_m`、`mf_preselect_kfs_mono_fx_px/fy_px`、`mf_preselect_kfs_mono_min_bbox_px` 和 `mf_preselect_kfs_mono_max_delta_from_locked_m`，用于在真实深度洞持续存在时按 `350mm x 350mm` KFS bbox 尺寸做保守估距；尺寸估距只在已有真实锁定深度后启用，并且必须落在当前深度窗口内、且与最近真实深度差值不超过配置阈值。横移、稳定计数和前向趋近日志会打印中文 `depth_source=中心ROI/bbox多点ROI/尺寸估距/无` 及估距详情；不新增 ROS topic/service/action，不改变机构协议、ignored 目标、台阶流程或 `/cmd_vel` 权威。
 

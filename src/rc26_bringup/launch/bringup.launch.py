@@ -11,7 +11,7 @@ src R2 odom 闭环导航系统 - 主启动文件
 
 默认装配口径:
   - 车端 bringup 默认维持 headless，可通过 use_rviz:=true 临时打开 RViz2
-  - r2_runtime.yaml 是点云、行为树入口与决策参数的运行配置真源
+  - r2_active_side.yaml 选择 r2_red.yaml / r2_blue.yaml 作为运行配置
   - /cmd_vel 的默认底盘执行与机构指令共享串口由 rc26_mcu_transport 提供
   - RViz2 只作为现场观察工具，不接管运行时权威
 """
@@ -44,7 +44,7 @@ def _launch_value(context, name):
 
 def _read_required_abs_path(mapping, key):
     if key not in mapping:
-        raise RuntimeError(f"r2_runtime.paths.{key} is required in r2_runtime.yaml")
+        raise RuntimeError(f"r2_runtime.paths.{key} is required in runtime config")
     value = str(mapping.get(key, '')).strip()
     if value == '':
         raise RuntimeError(f"r2_runtime.paths.{key} must not be empty")
@@ -97,12 +97,49 @@ def _read_run_mode(context):
     return run_mode
 
 
-def _load_r2_runtime_defaults(config_file):
-    if not os.path.isabs(config_file):
-        raise RuntimeError(f"runtime_config_file must be an absolute path: {config_file}")
-    if not os.path.exists(config_file):
-        raise RuntimeError(f"runtime_config_file does not exist: {config_file}")
+def _load_yaml_file(path, label):
+    if not os.path.isabs(path):
+        raise RuntimeError(f"{label} must be an absolute path: {path}")
+    if not os.path.exists(path):
+        raise RuntimeError(f"{label} does not exist: {path}")
+    with open(path, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f) or {}
 
+
+def _resolve_runtime_config_file(context, bringup_dir):
+    explicit_config = _launch_value(context, 'runtime_config_file')
+    if explicit_config:
+        if not os.path.isabs(explicit_config):
+            raise RuntimeError(
+                f"runtime_config_file must be an absolute path when explicitly set: {explicit_config}")
+        if not os.path.exists(explicit_config):
+            raise RuntimeError(f"runtime_config_file does not exist: {explicit_config}")
+        return explicit_config
+
+    selector_file = _launch_value(context, 'side_config_file')
+    if selector_file == '':
+        selector_file = os.path.join(bringup_dir, 'config', 'r2_active_side.yaml')
+    selector = _load_yaml_file(selector_file, 'side_config_file')
+    active_side = str(selector.get('active_side', '')).strip().lower()
+    runtime_configs = selector.get('runtime_configs') or {}
+    if active_side not in ('red', 'blue'):
+        raise RuntimeError(
+            f"r2_active_side.yaml active_side must be red or blue, got: {active_side}")
+    if active_side not in runtime_configs:
+        raise RuntimeError(
+            f"r2_active_side.yaml missing runtime_configs.{active_side}")
+
+    selected = str(runtime_configs.get(active_side, '')).strip()
+    if selected == '':
+        raise RuntimeError(f"r2_active_side.yaml runtime_configs.{active_side} must not be empty")
+    if not os.path.isabs(selected):
+        selected = os.path.abspath(os.path.join(os.path.dirname(selector_file), selected))
+    if not os.path.exists(selected):
+        raise RuntimeError(f"selected runtime config does not exist: {selected}")
+    return selected
+
+
+def _load_r2_runtime_defaults(config_file):
     defaults = {
         'paths': {},
         'decision_params': {},
@@ -122,8 +159,7 @@ def _load_r2_runtime_defaults(config_file):
         },
     }
 
-    with open(config_file, 'r', encoding='utf-8') as f:
-        yaml_data = yaml.safe_load(f) or {}
+    yaml_data = _load_yaml_file(config_file, 'runtime_config_file')
 
     runtime = yaml_data.get('r2_runtime') or {}
     paths = runtime.get('paths') or {}
@@ -164,7 +200,7 @@ def _after_delay(delay_sec, actions):
 
 
 def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, mcu_transport_dir):
-    runtime_config_file = _launch_value(context, 'runtime_config_file')
+    runtime_config_file = _resolve_runtime_config_file(context, bringup_dir)
     runtime_defaults = _load_r2_runtime_defaults(runtime_config_file)
 
     namespace = _launch_value(context, 'namespace')
@@ -399,8 +435,12 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             'runtime_config_file',
-            default_value=PathJoinSubstitution([bringup_dir, 'config', 'r2_runtime.yaml']),
-            description='R2 统一运行配置 YAML；点云、行为树路径必须为绝对路径'),
+            default_value='',
+            description='显式覆盖 R2 运行配置 YAML；为空时由 r2_active_side.yaml 选择红/蓝配置'),
+        DeclareLaunchArgument(
+            'side_config_file',
+            default_value=PathJoinSubstitution([bringup_dir, 'config', 'r2_active_side.yaml']),
+            description='R2 红蓝方配置选择 YAML；runtime_config_file 为空时生效'),
         DeclareLaunchArgument(
             'namespace',
             default_value='',
@@ -420,7 +460,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'prior_pcd_file',
             default_value='',
-            description='先验点云文件绝对路径；空字符串表示使用 r2_runtime.yaml'),
+            description='先验点云文件绝对路径；空字符串表示使用当前红/蓝运行配置'),
         DeclareLaunchArgument(
             'point_lio_config_file',
             default_value='',
@@ -464,51 +504,51 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'start_mcu_transport',
             default_value='',
-            description='是否启动 rc26_mcu_transport；空字符串表示使用 r2_runtime.yaml'),
+            description='是否启动 rc26_mcu_transport；空字符串表示使用当前红/蓝运行配置'),
         DeclareLaunchArgument(
             'mcu_transport_target_serial_port',
             default_value='',
-            description='目标 MCU 串口设备；为空时使用 r2_runtime.yaml'),
+            description='目标 MCU 串口设备；为空时使用当前红/蓝运行配置'),
         DeclareLaunchArgument(
             'mcu_transport_target_baudrate',
             default_value='',
-            description='目标 MCU 串口波特率；为空时使用 r2_runtime.yaml'),
+            description='目标 MCU 串口波特率；为空时使用当前红/蓝运行配置'),
         DeclareLaunchArgument(
             'mcu_transport_open_retry_period_ms',
             default_value='',
-            description='目标 MCU 串口初始打开重试周期；为空时使用 r2_runtime.yaml'),
+            description='目标 MCU 串口初始打开重试周期；为空时使用当前红/蓝运行配置'),
         DeclareLaunchArgument(
             'mcu_transport_diagnostics_period_ms',
             default_value='',
-            description='rc26_mcu_transport diagnostics 发布周期；为空时使用 r2_runtime.yaml'),
+            description='rc26_mcu_transport diagnostics 发布周期；为空时使用当前红/蓝运行配置'),
         DeclareLaunchArgument(
             'mcu_transport_enable_chassis_cmd_vel_consumer',
             default_value='',
-            description='是否让 rc26_mcu_transport 订阅 /cmd_vel；为空时使用 r2_runtime.yaml'),
+            description='是否让 rc26_mcu_transport 订阅 /cmd_vel；为空时使用当前红/蓝运行配置'),
         DeclareLaunchArgument(
             'mcu_transport_chassis_cmd_vel_topic',
             default_value='',
-            description='rc26_mcu_transport 消费的底盘速度话题；为空时使用 r2_runtime.yaml'),
+            description='rc26_mcu_transport 消费的底盘速度话题；为空时使用当前红/蓝运行配置'),
         DeclareLaunchArgument(
             'mcu_transport_chassis_target_send_rate_hz',
             default_value='',
-            description='rc26_mcu_transport 底盘目标速度发送频率；为空时使用 r2_runtime.yaml'),
+            description='rc26_mcu_transport 底盘目标速度发送频率；为空时使用当前红/蓝运行配置'),
         DeclareLaunchArgument(
             'mcu_transport_chassis_cmd_vel_timeout_ms',
             default_value='',
-            description='rc26_mcu_transport 底盘速度超时；为空时使用 r2_runtime.yaml'),
+            description='rc26_mcu_transport 底盘速度超时；为空时使用当前红/蓝运行配置'),
         DeclareLaunchArgument(
             'mcu_transport_chassis_v_max_mps',
             default_value='',
-            description='rc26_mcu_transport 底盘线速度上限；为空时使用 r2_runtime.yaml'),
+            description='rc26_mcu_transport 底盘线速度上限；为空时使用当前红/蓝运行配置'),
         DeclareLaunchArgument(
             'mcu_transport_chassis_w_max_radps',
             default_value='',
-            description='rc26_mcu_transport 底盘角速度上限；为空时使用 r2_runtime.yaml'),
+            description='rc26_mcu_transport 底盘角速度上限；为空时使用当前红/蓝运行配置'),
         DeclareLaunchArgument(
             'mcu_transport_chassis_stop_repeat_n',
             default_value='',
-            description='rc26_mcu_transport 底盘超时零速重复帧数；为空时使用 r2_runtime.yaml'),
+            description='rc26_mcu_transport 底盘超时零速重复帧数；为空时使用当前红/蓝运行配置'),
         DeclareLaunchArgument(
             'use_decision',
             default_value='true',
@@ -528,7 +568,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'team',
             default_value='',
-            description='Active competition side: blue | red；空字符串表示使用 r2_runtime.yaml'),
+            description='Active competition side: blue | red；空字符串表示使用当前红/蓝运行配置'),
         DeclareLaunchArgument(
             'use_rviz',
             default_value='false',

@@ -43,6 +43,7 @@ TEST(ProtocolIDs, FeedbackIDsAreContinuousAfterLegacyMechanismCleanup) {
     EXPECT_EQ(static_cast<uint8_t>(FID::ARM_HIGH_RAISE_DONE), 0x09U);
     EXPECT_EQ(static_cast<uint8_t>(FID::ARM_SECOND_LOWER_DONE), 0x0AU);
     EXPECT_EQ(static_cast<uint8_t>(FID::ENTRY_GRAB_KFS_UP_DONE), 0x0BU);
+    EXPECT_EQ(static_cast<uint8_t>(FID::COMPETITION_START_DONE), 0x0CU);
     EXPECT_EQ(static_cast<uint8_t>(FID::MCU_ERROR), 0xFEU);
 }
 

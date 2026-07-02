@@ -1,4 +1,4 @@
-// 武馆区(MC)运行参数集合：启动时来自 r2_runtime.yaml/launch，经 loadMCParams 写入黑板。
+// 武馆区(MC)运行参数集合：启动时来自当前红/蓝运行配置或 launch，经 loadMCParams 写入黑板。
 #pragma once
 
 #include <cstdint>
@@ -81,6 +81,8 @@ struct McParams {
     std::string start_command_service{"/mechanism/send_command"};
     int start_command_id{0x10};
     double start_command_timeout_s{5.0};
+    int start_done_feedback_id{0x0C};
+    double start_done_timeout_s{5.0};
     double start_log_period_s{1.0};
 };
 

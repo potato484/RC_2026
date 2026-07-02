@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <exception>
 
 #include "rc26_decision/decision_failure.hpp"
@@ -42,6 +43,7 @@ BT::NodeStatus WaitStartSignalAndNotifyAction::onStart() {
     signal_seen_ = false;
     command_response_seen_ = false;
     command_accepted_ = false;
+    done_feedback_seen_ = false;
     command_seq_ = -1;
     generation_.fetch_add(1, std::memory_order_relaxed);
     phase_ = Phase::WaitingSignal;
@@ -55,12 +57,13 @@ BT::NodeStatus WaitStartSignalAndNotifyAction::onStart() {
     send_client_ = node_->create_client<SendCommandSrv>(params_.start_command_service);
 
     RCLCPP_INFO(node_->get_logger(),
-                "组合树启动 gate: 等待人工开始信号 feedback=%s topic=%s timeout=%.1fs，随后下发比赛开始 command=%s service=%s",
+                "组合树启动 gate: 等待人工开始信号 feedback=%s topic=%s timeout=%.1fs，随后下发比赛开始 command=%s service=%s，并等待完成反馈=%s",
                 byteHex(params_.start_signal_feedback_id).c_str(),
                 params_.start_signal_feedback_topic.c_str(),
                 params_.start_signal_timeout_s,
                 byteHex(params_.start_command_id).c_str(),
-                params_.start_command_service.c_str());
+                params_.start_command_service.c_str(),
+                byteHex(params_.start_done_feedback_id).c_str());
     return BT::NodeStatus::RUNNING;
 }
 
@@ -99,6 +102,12 @@ BT::NodeStatus WaitStartSignalAndNotifyAction::onRunning() {
 
     if (phase_ == Phase::SendingCommand) {
         if (!sendStartCommand()) {
+            if (elapsedSec(phase_tp_) > params_.start_command_timeout_s) {
+                writeDecisionFailure(config().blackboard, "WaitStartSignalAndNotify",
+                                     "等待比赛开始命令服务可用超时");
+                resetRuntimeHandles();
+                return BT::NodeStatus::FAILURE;
+            }
             return BT::NodeStatus::RUNNING;
         }
         phase_ = Phase::WaitingCommandAck;
@@ -111,10 +120,13 @@ BT::NodeStatus WaitStartSignalAndNotifyAction::onRunning() {
             const int seq = command_seq_.load(std::memory_order_relaxed);
             if (command_accepted_.load(std::memory_order_relaxed)) {
                 RCLCPP_INFO(node_->get_logger(),
-                            "组合树启动 gate: 比赛开始命令 ACK 成功 command=%s seq=%d",
-                            byteHex(params_.start_command_id).c_str(), seq);
-                resetRuntimeHandles();
-                return BT::NodeStatus::SUCCESS;
+                            "组合树启动 gate: 比赛开始命令 ACK 成功 command=%s seq=%d，继续等待完成反馈 %s",
+                            byteHex(params_.start_command_id).c_str(), seq,
+                            byteHex(params_.start_done_feedback_id).c_str());
+                phase_ = Phase::WaitingDoneFeedback;
+                phase_tp_ = now;
+                last_log_tp_ = now;
+                return BT::NodeStatus::RUNNING;
             }
             writeDecisionFailure(config().blackboard, "WaitStartSignalAndNotify",
                                  "比赛开始命令被拒绝，seq=" + std::to_string(seq));
@@ -126,6 +138,30 @@ BT::NodeStatus WaitStartSignalAndNotifyAction::onRunning() {
                                  "等待比赛开始命令 ACK 超时");
             resetRuntimeHandles();
             return BT::NodeStatus::FAILURE;
+        }
+    }
+
+    if (phase_ == Phase::WaitingDoneFeedback) {
+        const int seq = command_seq_.load(std::memory_order_relaxed);
+        if (done_feedback_seen_.load(std::memory_order_relaxed)) {
+            RCLCPP_INFO(node_->get_logger(),
+                        "组合树启动 gate: 已收到比赛开始完成反馈 %s seq=%d",
+                        byteHex(params_.start_done_feedback_id).c_str(), seq);
+            resetRuntimeHandles();
+            return BT::NodeStatus::SUCCESS;
+        }
+        if (elapsedSec(phase_tp_) > params_.start_done_timeout_s) {
+            writeDecisionFailure(config().blackboard, "WaitStartSignalAndNotify",
+                                 "等待比赛开始完成反馈超时，seq=" + std::to_string(seq));
+            resetRuntimeHandles();
+            return BT::NodeStatus::FAILURE;
+        }
+        if (elapsedSec(last_log_tp_) >= params_.start_log_period_s) {
+            RCLCPP_INFO(node_->get_logger(),
+                        "组合树启动 gate: 等待比赛开始完成反馈 %s seq=%d elapsed=%.1fs",
+                        byteHex(params_.start_done_feedback_id).c_str(), seq,
+                        elapsedSec(phase_tp_));
+            last_log_tp_ = now;
         }
     }
     return BT::NodeStatus::RUNNING;
@@ -140,10 +176,17 @@ void WaitStartSignalAndNotifyAction::handleFeedback(const FeedbackMsg::SharedPtr
     if (!msg) {
         return;
     }
-    if (msg->feedback_id != static_cast<uint8_t>(params_.start_signal_feedback_id & 0xFF)) {
+    const int seq = command_seq_.load(std::memory_order_relaxed);
+    if (seq >= 0 &&
+        msg->seq == static_cast<uint8_t>(seq & 0xFF) &&
+        msg->feedback_id == static_cast<uint8_t>(params_.start_done_feedback_id & 0xFF)) {
+        done_feedback_seen_.store(true, std::memory_order_relaxed);
         return;
     }
-    signal_seen_.store(true, std::memory_order_relaxed);
+    if (msg->feedback_id == static_cast<uint8_t>(params_.start_signal_feedback_id & 0xFF) &&
+        phase_ == Phase::WaitingSignal) {
+        signal_seen_.store(true, std::memory_order_relaxed);
+    }
 }
 
 bool WaitStartSignalAndNotifyAction::sendStartCommand() {

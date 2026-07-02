@@ -98,7 +98,7 @@ components:
             FRONT_PUSHROD_RETRACT=0x09、REAR_PUSHROD_EXTEND=0x0A、
             REAR_PUSHROD_RETRACT=0x0B、POSE_TARGET=0x0C、
             ARM_HIGH_RAISE=0x0D、ARM_SECOND_LOWER=0x0E、
-            ENTRY_GRAB_KFS_UP=0x0F。
+            ENTRY_GRAB_KFS_UP=0x0F、COMPETITION_START=0x10。
         payload:
           type: array
           items:
