@@ -62,17 +62,32 @@ struct McParams {
     double rotate_odom_timeout_s{0.5};
     double rotate_timeout_s{15.0};
 
-    // 红色元素等待（MC 结束后进入 MF 预选前的视觉 gate）
-    int red_hue_low1{0};
-    int red_hue_high1{10};
-    int red_hue_low2{170};
-    int red_hue_high2{180};
-    int red_saturation_min{80};
-    int red_value_min{60};
-    int red_min_area_px{1500};
-    int red_stable_frames{3};
-    double red_detect_timeout_s{120.0};
-    double red_log_period_s{1.0};
+    // MC 末尾视觉 gate：背景配准到启动基准帧后，确认中央夹取区域出现稳定端头前景。
+    bool registration_gate_enable{true};
+    std::string registration_reference_blackboard_key{"mc_registration_reference_gray"};
+    double registration_capture_settle_s{0.2};
+    int registration_stable_frames{5};
+    double registration_detect_timeout_s{120.0};
+    double registration_log_period_s{1.0};
+    double registration_roi_x_min_ratio{0.0};
+    double registration_roi_x_max_ratio{1.0};
+    double registration_roi_y_min_ratio{0.42};
+    double registration_roi_y_max_ratio{0.78};
+    double registration_foreground_roi_x_min_ratio{0.20};
+    double registration_foreground_roi_x_max_ratio{0.80};
+    double registration_foreground_roi_y_min_ratio{0.42};
+    double registration_foreground_roi_y_max_ratio{0.95};
+    int registration_max_corners{400};
+    double registration_quality_level{0.01};
+    double registration_min_distance_px{8.0};
+    int registration_min_inliers{16};
+    double registration_max_reproj_error_px{4.0};
+    int registration_diff_threshold{28};
+    int registration_min_changed_area_px{24000};
+    double registration_min_changed_ratio{0.20};
+    int registration_min_changed_bbox_height_px{180};
+    int registration_min_changed_bbox_width_px{80};
+    double registration_min_match_score{0.20};
 
     // MC + MF 组合树启动 gate（等待人工 0x06，再下发比赛开始 0x10）
     std::string start_signal_feedback_topic{"/mechanism/command_feedback"};

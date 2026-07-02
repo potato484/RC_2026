@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdio>
 #include <exception>
+#include <thread>
 
 #include "rc26_decision/decision_failure.hpp"
 
@@ -147,6 +148,12 @@ BT::NodeStatus WaitStartSignalAndNotifyAction::onRunning() {
             RCLCPP_INFO(node_->get_logger(),
                         "组合树启动 gate: 已收到比赛开始完成反馈 %s seq=%d",
                         byteHex(params_.start_done_feedback_id).c_str(), seq);
+            if (params_.registration_gate_enable && !captureRegistrationReference()) {
+                writeDecisionFailure(config().blackboard, "WaitStartSignalAndNotify",
+                                     "比赛开始后采集 MC 配准基准帧失败");
+                resetRuntimeHandles();
+                return BT::NodeStatus::FAILURE;
+            }
             resetRuntimeHandles();
             return BT::NodeStatus::SUCCESS;
         }
@@ -242,6 +249,70 @@ bool WaitStartSignalAndNotifyAction::sendStartCommand() {
 void WaitStartSignalAndNotifyAction::resetRuntimeHandles() {
     feedback_sub_.reset();
     send_client_.reset();
+}
+
+bool WaitStartSignalAndNotifyAction::openCamera(cv::VideoCapture& camera,
+                                                int index,
+                                                const std::string& path) const {
+    const bool opened = path.empty() ? (camera.open(index, cv::CAP_V4L2) || camera.open(index))
+                                     : (camera.open(path, cv::CAP_V4L2) || camera.open(path));
+    if (!opened) {
+        return false;
+    }
+    camera.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
+    camera.set(cv::CAP_PROP_FRAME_WIDTH, static_cast<double>(params_.width));
+    camera.set(cv::CAP_PROP_FRAME_HEIGHT, static_cast<double>(params_.height));
+    camera.set(cv::CAP_PROP_FPS, static_cast<double>(params_.fps));
+    return true;
+}
+
+bool WaitStartSignalAndNotifyAction::captureRegistrationReference() {
+    if (node_ == nullptr) {
+        return false;
+    }
+    if (params_.registration_capture_settle_s > 0.0) {
+        std::this_thread::sleep_for(std::chrono::duration<double>(
+            params_.registration_capture_settle_s));
+    }
+
+    cv::VideoCapture camera;
+    bool ok = params_.camera_device.empty() ? openCamera(camera, params_.camera_index, "")
+                                             : openCamera(camera, -1, params_.camera_device);
+    if (!ok && params_.auto_scan_camera) {
+        for (int i = 0; i < 10 && !ok; ++i) {
+            if (i == params_.camera_index) {
+                continue;
+            }
+            ok = openCamera(camera, i, "");
+        }
+    }
+    if (!ok) {
+        RCLCPP_ERROR(node_->get_logger(),
+                     "组合树启动 gate: 无法打开 MC 相机采集配准基准帧 (index=%d device='%s')",
+                     params_.camera_index, params_.camera_device.c_str());
+        return false;
+    }
+
+    cv::Mat frame;
+    for (int i = 0; i < 5; ++i) {
+        if (!camera.read(frame) || frame.empty()) {
+            frame.release();
+            continue;
+        }
+    }
+    camera.release();
+    if (frame.empty()) {
+        RCLCPP_ERROR(node_->get_logger(), "组合树启动 gate: MC 相机基准帧为空");
+        return false;
+    }
+
+    cv::Mat gray;
+    cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
+    config().blackboard->set(params_.registration_reference_blackboard_key, gray.clone());
+    RCLCPP_INFO(node_->get_logger(),
+                "组合树启动 gate: 已采集 MC 配准基准帧 key=%s size=%dx%d",
+                params_.registration_reference_blackboard_key.c_str(), gray.cols, gray.rows);
+    return true;
 }
 
 }  // namespace rc26_decision

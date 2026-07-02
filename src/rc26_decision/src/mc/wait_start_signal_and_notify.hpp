@@ -7,6 +7,7 @@
 #include <string>
 
 #include <behaviortree_cpp/bt_factory.h>
+#include <opencv2/opencv.hpp>
 #include <rclcpp/rclcpp.hpp>
 
 #include "mc_params.hpp"
@@ -35,6 +36,8 @@ private:
     void handleFeedback(const FeedbackMsg::SharedPtr msg);
     bool sendStartCommand();
     void resetRuntimeHandles();
+    bool captureRegistrationReference();
+    bool openCamera(cv::VideoCapture& camera, int index, const std::string& path) const;
 
     McParams params_;
     rclcpp::Node* node_{nullptr};

@@ -13,7 +13,7 @@
 #include "mc_params.hpp"
 #include "rotate_in_place.hpp"
 #include "visual_servo_grab.hpp"
-#include "wait_for_red_element.hpp"
+#include "wait_for_registration_confirm.hpp"
 #include "wait_start_signal_and_notify.hpp"
 #include "wait_forever.hpp"
 #include "rc26_decision/team_color.hpp"
@@ -138,21 +138,81 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
         node.declare_parameter<double>("mc_rotate_odom_timeout_s", p.rotate_odom_timeout_s);
     p.rotate_timeout_s = node.declare_parameter<double>("mc_rotate_timeout_s", p.rotate_timeout_s);
 
-    // 红色元素等待：MC 完成后以 HSV 颜色阈值作为进入 MF 预选的视觉 gate。
-    p.red_hue_low1 = node.declare_parameter<int>("mc_red_hue_low1", p.red_hue_low1);
-    p.red_hue_high1 = node.declare_parameter<int>("mc_red_hue_high1", p.red_hue_high1);
-    p.red_hue_low2 = node.declare_parameter<int>("mc_red_hue_low2", p.red_hue_low2);
-    p.red_hue_high2 = node.declare_parameter<int>("mc_red_hue_high2", p.red_hue_high2);
-    p.red_saturation_min =
-        node.declare_parameter<int>("mc_red_saturation_min", p.red_saturation_min);
-    p.red_value_min = node.declare_parameter<int>("mc_red_value_min", p.red_value_min);
-    p.red_min_area_px = node.declare_parameter<int>("mc_red_min_area_px", p.red_min_area_px);
-    p.red_stable_frames =
-        node.declare_parameter<int>("mc_red_stable_frames", p.red_stable_frames);
-    p.red_detect_timeout_s =
-        node.declare_parameter<double>("mc_red_detect_timeout_s", p.red_detect_timeout_s);
-    p.red_log_period_s =
-        node.declare_parameter<double>("mc_red_log_period_s", p.red_log_period_s);
+    // MC 末尾视觉 gate：启动时采集基准帧，MC 结束时配准差分确认端头场景变化。
+    p.registration_gate_enable =
+        node.declare_parameter<bool>("mc_registration_gate_enable", p.registration_gate_enable);
+    p.registration_reference_blackboard_key =
+        node.declare_parameter<std::string>("mc_registration_reference_blackboard_key",
+                                            p.registration_reference_blackboard_key);
+    p.registration_capture_settle_s =
+        node.declare_parameter<double>("mc_registration_capture_settle_s",
+                                       p.registration_capture_settle_s);
+    p.registration_stable_frames =
+        node.declare_parameter<int>("mc_registration_stable_frames",
+                                    p.registration_stable_frames);
+    p.registration_detect_timeout_s =
+        node.declare_parameter<double>("mc_registration_detect_timeout_s",
+                                       p.registration_detect_timeout_s);
+    p.registration_log_period_s =
+        node.declare_parameter<double>("mc_registration_log_period_s",
+                                       p.registration_log_period_s);
+    p.registration_roi_x_min_ratio =
+        node.declare_parameter<double>("mc_registration_roi_x_min_ratio",
+                                       p.registration_roi_x_min_ratio);
+    p.registration_roi_x_max_ratio =
+        node.declare_parameter<double>("mc_registration_roi_x_max_ratio",
+                                       p.registration_roi_x_max_ratio);
+    p.registration_roi_y_min_ratio =
+        node.declare_parameter<double>("mc_registration_roi_y_min_ratio",
+                                       p.registration_roi_y_min_ratio);
+    p.registration_roi_y_max_ratio =
+        node.declare_parameter<double>("mc_registration_roi_y_max_ratio",
+                                       p.registration_roi_y_max_ratio);
+    p.registration_foreground_roi_x_min_ratio =
+        node.declare_parameter<double>("mc_registration_foreground_roi_x_min_ratio",
+                                       p.registration_foreground_roi_x_min_ratio);
+    p.registration_foreground_roi_x_max_ratio =
+        node.declare_parameter<double>("mc_registration_foreground_roi_x_max_ratio",
+                                       p.registration_foreground_roi_x_max_ratio);
+    p.registration_foreground_roi_y_min_ratio =
+        node.declare_parameter<double>("mc_registration_foreground_roi_y_min_ratio",
+                                       p.registration_foreground_roi_y_min_ratio);
+    p.registration_foreground_roi_y_max_ratio =
+        node.declare_parameter<double>("mc_registration_foreground_roi_y_max_ratio",
+                                       p.registration_foreground_roi_y_max_ratio);
+    p.registration_max_corners =
+        node.declare_parameter<int>("mc_registration_max_corners",
+                                    p.registration_max_corners);
+    p.registration_quality_level =
+        node.declare_parameter<double>("mc_registration_quality_level",
+                                       p.registration_quality_level);
+    p.registration_min_distance_px =
+        node.declare_parameter<double>("mc_registration_min_distance_px",
+                                       p.registration_min_distance_px);
+    p.registration_min_inliers =
+        node.declare_parameter<int>("mc_registration_min_inliers",
+                                    p.registration_min_inliers);
+    p.registration_max_reproj_error_px =
+        node.declare_parameter<double>("mc_registration_max_reproj_error_px",
+                                       p.registration_max_reproj_error_px);
+    p.registration_diff_threshold =
+        node.declare_parameter<int>("mc_registration_diff_threshold",
+                                    p.registration_diff_threshold);
+    p.registration_min_changed_area_px =
+        node.declare_parameter<int>("mc_registration_min_changed_area_px",
+                                    p.registration_min_changed_area_px);
+    p.registration_min_changed_ratio =
+        node.declare_parameter<double>("mc_registration_min_changed_ratio",
+                                       p.registration_min_changed_ratio);
+    p.registration_min_changed_bbox_height_px =
+        node.declare_parameter<int>("mc_registration_min_changed_bbox_height_px",
+                                    p.registration_min_changed_bbox_height_px);
+    p.registration_min_changed_bbox_width_px =
+        node.declare_parameter<int>("mc_registration_min_changed_bbox_width_px",
+                                    p.registration_min_changed_bbox_width_px);
+    p.registration_min_match_score =
+        node.declare_parameter<double>("mc_registration_min_match_score",
+                                       p.registration_min_match_score);
 
     // 组合树启动 gate：等待人工 0x06 后通知下位机比赛开始。
     p.start_signal_feedback_topic =
@@ -190,16 +250,53 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     p.rotate_min_speed_radps = std::max(0.0, std::abs(p.rotate_min_speed_radps));
     p.rotate_slowdown_angle_deg = std::max(0.0, p.rotate_slowdown_angle_deg);
     p.rotate_odom_timeout_s = std::max(0.001, p.rotate_odom_timeout_s);
-    p.red_hue_low1 = std::clamp(p.red_hue_low1, 0, 180);
-    p.red_hue_high1 = std::clamp(p.red_hue_high1, 0, 180);
-    p.red_hue_low2 = std::clamp(p.red_hue_low2, 0, 180);
-    p.red_hue_high2 = std::clamp(p.red_hue_high2, 0, 180);
-    p.red_saturation_min = std::clamp(p.red_saturation_min, 0, 255);
-    p.red_value_min = std::clamp(p.red_value_min, 0, 255);
-    p.red_min_area_px = std::max(1, p.red_min_area_px);
-    p.red_stable_frames = std::max(1, p.red_stable_frames);
-    p.red_detect_timeout_s = std::max(0.001, p.red_detect_timeout_s);
-    p.red_log_period_s = std::max(0.1, p.red_log_period_s);
+    p.registration_capture_settle_s = std::max(0.0, p.registration_capture_settle_s);
+    p.registration_stable_frames = std::max(1, p.registration_stable_frames);
+    p.registration_detect_timeout_s = std::max(0.001, p.registration_detect_timeout_s);
+    p.registration_log_period_s = std::max(0.1, p.registration_log_period_s);
+    p.registration_roi_x_min_ratio = std::clamp(p.registration_roi_x_min_ratio, 0.0, 1.0);
+    p.registration_roi_x_max_ratio = std::clamp(p.registration_roi_x_max_ratio, 0.0, 1.0);
+    p.registration_roi_y_min_ratio = std::clamp(p.registration_roi_y_min_ratio, 0.0, 1.0);
+    p.registration_roi_y_max_ratio = std::clamp(p.registration_roi_y_max_ratio, 0.0, 1.0);
+    p.registration_foreground_roi_x_min_ratio =
+        std::clamp(p.registration_foreground_roi_x_min_ratio, 0.0, 1.0);
+    p.registration_foreground_roi_x_max_ratio =
+        std::clamp(p.registration_foreground_roi_x_max_ratio, 0.0, 1.0);
+    p.registration_foreground_roi_y_min_ratio =
+        std::clamp(p.registration_foreground_roi_y_min_ratio, 0.0, 1.0);
+    p.registration_foreground_roi_y_max_ratio =
+        std::clamp(p.registration_foreground_roi_y_max_ratio, 0.0, 1.0);
+    if (p.registration_roi_x_max_ratio <= p.registration_roi_x_min_ratio) {
+        p.registration_roi_x_min_ratio = 0.0;
+        p.registration_roi_x_max_ratio = 1.0;
+    }
+    if (p.registration_roi_y_max_ratio <= p.registration_roi_y_min_ratio) {
+        p.registration_roi_y_min_ratio = 0.0;
+        p.registration_roi_y_max_ratio = 1.0;
+    }
+    if (p.registration_foreground_roi_x_max_ratio <=
+        p.registration_foreground_roi_x_min_ratio) {
+        p.registration_foreground_roi_x_min_ratio = 0.20;
+        p.registration_foreground_roi_x_max_ratio = 0.80;
+    }
+    if (p.registration_foreground_roi_y_max_ratio <=
+        p.registration_foreground_roi_y_min_ratio) {
+        p.registration_foreground_roi_y_min_ratio = 0.30;
+        p.registration_foreground_roi_y_max_ratio = 0.95;
+    }
+    p.registration_max_corners = std::max(16, p.registration_max_corners);
+    p.registration_quality_level = std::clamp(p.registration_quality_level, 0.001, 0.2);
+    p.registration_min_distance_px = std::max(1.0, p.registration_min_distance_px);
+    p.registration_min_inliers = std::max(4, p.registration_min_inliers);
+    p.registration_max_reproj_error_px = std::max(0.5, p.registration_max_reproj_error_px);
+    p.registration_diff_threshold = std::clamp(p.registration_diff_threshold, 1, 255);
+    p.registration_min_changed_area_px = std::max(1, p.registration_min_changed_area_px);
+    p.registration_min_changed_ratio = std::clamp(p.registration_min_changed_ratio, 0.0, 1.0);
+    p.registration_min_changed_bbox_height_px =
+        std::max(1, p.registration_min_changed_bbox_height_px);
+    p.registration_min_changed_bbox_width_px =
+        std::max(1, p.registration_min_changed_bbox_width_px);
+    p.registration_min_match_score = std::clamp(p.registration_min_match_score, 0.0, 1.0);
     p.start_signal_feedback_id = std::clamp(p.start_signal_feedback_id, 0, 255);
     p.start_signal_timeout_s = std::max(0.0, p.start_signal_timeout_s);
     p.start_command_id = std::clamp(p.start_command_id, 0, 255);
@@ -216,8 +313,8 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     blackboard->set("mc_nav_reverse_x_m", nav_reverse_x_m);
     blackboard->set("mc_nav_right_turn_target_yaw", 0.0);
     blackboard->set("mc_nav_timeout_sec", nav_timeout);
-    blackboard->set("mc_red_detect_timeout_s", p.red_detect_timeout_s);
-    blackboard->set("mc_red_stable_frames", p.red_stable_frames);
+    blackboard->set("mc_registration_detect_timeout_s", p.registration_detect_timeout_s);
+    blackboard->set("mc_registration_stable_frames", p.registration_stable_frames);
     blackboard->set("mc_mf_start_signal_feedback_topic", p.start_signal_feedback_topic);
     blackboard->set("mc_mf_start_signal_feedback_id", p.start_signal_feedback_id);
     blackboard->set("mc_mf_start_signal_timeout_s", p.start_signal_timeout_s);
@@ -228,12 +325,18 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     blackboard->set("mc_mf_start_done_timeout_s", p.start_done_timeout_s);
     blackboard->set("mc_mf_start_log_period_s", p.start_log_period_s);
     RCLCPP_INFO(node.get_logger(),
-                "武馆区参数已加载: vision_config=%s mirror_sign=%d relative_nav=+x %.2fm, yaw_delta %.2frad, x %.2fm, rotate_direction=%d red_hsv=[%d-%d,%d-%d] s>=%d v>=%d area>=%d stable=%d start_signal=0x%02X start_cmd=0x%02X start_done=0x%02X",
+                "武馆区参数已加载: vision_config=%s mirror_sign=%d relative_nav=+x %.2fm, yaw_delta %.2frad, x %.2fm, rotate_direction=%d registration_gate=%s bg_roi_x=%.2f-%.2f bg_roi_y=%.2f-%.2f fg_roi_x=%.2f-%.2f fg_roi_y=%.2f-%.2f diff_threshold=%d area>=%d ratio>=%.3f stable=%d start_signal=0x%02X start_cmd=0x%02X start_done=0x%02X",
                 p.vision_config_file.c_str(), mirror_sign, nav_forward_x_m,
                 nav_right_turn_delta_rad, nav_reverse_x_m,
-                p.rotate_direction, p.red_hue_low1, p.red_hue_high1,
-                p.red_hue_low2, p.red_hue_high2, p.red_saturation_min,
-                p.red_value_min, p.red_min_area_px, p.red_stable_frames,
+                p.rotate_direction, p.registration_gate_enable ? "true" : "false",
+                p.registration_roi_x_min_ratio, p.registration_roi_x_max_ratio,
+                p.registration_roi_y_min_ratio, p.registration_roi_y_max_ratio,
+                p.registration_foreground_roi_x_min_ratio,
+                p.registration_foreground_roi_x_max_ratio,
+                p.registration_foreground_roi_y_min_ratio,
+                p.registration_foreground_roi_y_max_ratio,
+                p.registration_diff_threshold, p.registration_min_changed_area_px,
+                p.registration_min_changed_ratio, p.registration_stable_frames,
                 static_cast<unsigned int>(p.start_signal_feedback_id & 0xFF),
                 static_cast<unsigned int>(p.start_command_id & 0xFF),
                 static_cast<unsigned int>(p.start_done_feedback_id & 0xFF));
@@ -243,7 +346,7 @@ void registerMCAreaNodes(BT::BehaviorTreeFactory& factory) {
     factory.registerNodeType<VisualServoGrabAction>("VisualServoGrab");
     factory.registerNodeType<RotateInPlaceAction>("RotateInPlace");
     factory.registerNodeType<WaitForeverAction>("WaitForever");
-    factory.registerNodeType<WaitForRedElementAction>("WaitForRedElement");
+    factory.registerNodeType<WaitForRegistrationConfirmAction>("WaitForRegistrationConfirm");
     factory.registerNodeType<WaitStartSignalAndNotifyAction>("WaitStartSignalAndNotify");
 }
 

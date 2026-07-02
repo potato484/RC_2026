@@ -48,7 +48,7 @@ r2_runtime:
       odom_relative_nav_min_speed_mps: 0.03           # 未进入位置容差时的最小平移速度，单位 m/s
       odom_relative_nav_xy_kp: 0.8                    # odom x/y 误差到车体系平移速度的比例系数
       odom_relative_nav_heading_kp: 1.2               # 平移段保持启动 yaw 的 P 增益
-      odom_relative_nav_heading_max_speed_radps: 0.30 # 平移段 heading hold 最大角速度，单位 rad/s
+      odom_relative_nav_heading_max_speed_radps: 0.5 # 平移段 heading hold 最大角速度，单位 rad/s
       odom_relative_nav_xy_tolerance_m: 0.03          # 平移目标距离容差，单位米
       odom_relative_nav_yaw_tolerance_deg: 3.0        # 平移段 yaw 保持成功容差，单位度
       odom_relative_nav_stable_ticks: 3               # 平移和 yaw 同时进入容差后连续多少 tick 判定完成
@@ -59,7 +59,7 @@ r2_runtime:
       # 武馆区 (MC) 红方基准运行参数 —— blue 启动时自动镜像侧向 yaw 和原地旋转方向
       # ======================================================================
       # --- 红方基准 odom 单轴分段导航：+X 0.2m -> 右转 90° -> -X 0.6m ---
-      mc_nav_forward_x_m: 0.65      # 红方基准第一段 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
+      mc_nav_forward_x_m: 0.55     # 红方基准第一段 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
       mc_nav_right_turn_delta_rad: -1.5708 # 红方基准第一段后相对右转角度；blue 自动取反为左转
       mc_nav_reverse_x_m: -0.80     # 红方基准转向后第二段 OdomDriveX 车体系 x 负向位移；blue 不镜像 X
       mc_nav_timeout_sec: 180.0     # 单个 OdomDriveX/OdomDriveY/OdomTurnToYaw 段的超时时间，单位秒
@@ -119,17 +119,31 @@ r2_runtime:
       mc_rotate_odom_timeout_s: 0.5    # 旋转阶段 odom 超过该时间未更新时停车等待，单位秒
       mc_rotate_timeout_s: 15.0        # 原地旋转安全超时，单位秒
 
-      # --- 红色元素等待（MC 结束后进入 MF 预选前的视觉 gate，OpenCV HSV 阈值）---
-      mc_red_hue_low1: 0                # 红色低 hue 段下限，OpenCV HSV H 范围 0-180
-      mc_red_hue_high1: 10              # 红色低 hue 段上限
-      mc_red_hue_low2: 170              # 红色高 hue 段下限
-      mc_red_hue_high2: 180             # 红色高 hue 段上限
-      mc_red_saturation_min: 80         # 红色检测最小饱和度
-      mc_red_value_min: 60              # 红色检测最小亮度
-      mc_red_min_area_px: 1500          # 最大红色连通域达到该面积后记为看到红色元素
-      mc_red_stable_frames: 3           # 连续多少帧看到红色元素后允许进入 5s 延时
-      mc_red_detect_timeout_s: 120.0    # 等待红色元素的最长时间，单位秒
-      mc_red_log_period_s: 1.0          # 等待期间 INFO 日志节流周期，单位秒
+      # --- MC 末尾配准确认 gate：启动时采集空夹爪基准帧，结束时配准背景并确认中央端头前景 ---
+      mc_registration_gate_enable: true        # true 时 WaitStartSignalAndNotify 采集基准帧，WaitForRegistrationConfirm 使用配准前景确认
+      mc_registration_capture_settle_s: 0.2    # 收到比赛开始完成反馈后等待画面稳定再采集基准帧，单位秒
+      mc_registration_stable_frames: 5         # 连续多少帧满足中央端头前景变化后允许进入 5s 延时
+      mc_registration_detect_timeout_s: 120.0  # 等待配准前景确认的最长时间，单位秒
+      mc_registration_log_period_s: 1.0        # 等待期间 INFO 日志节流周期，单位秒
+      mc_registration_roi_x_min_ratio: 0.0     # 背景配准 ROI 左边界，归一化画面宽度
+      mc_registration_roi_x_max_ratio: 1.0     # 背景配准 ROI 右边界，归一化画面宽度
+      mc_registration_roi_y_min_ratio: 0.42    # 背景配准 ROI 上边界，避开顶部文字 overlay
+      mc_registration_roi_y_max_ratio: 0.78    # 背景配准 ROI 下边界；特征提取时会剔除中央前景 ROI
+      mc_registration_foreground_roi_x_min_ratio: 0.20 # 端头前景差分 ROI 左边界，覆盖画面中央端头区域
+      mc_registration_foreground_roi_x_max_ratio: 0.80 # 端头前景差分 ROI 右边界
+      mc_registration_foreground_roi_y_min_ratio: 0.42 # 端头前景差分 ROI 上边界，避开顶部文字 overlay
+      mc_registration_foreground_roi_y_max_ratio: 0.95 # 端头前景差分 ROI 下边界，覆盖夹取后端头主体
+      mc_registration_max_corners: 400         # 基准帧角点上限，用于 LK 光流 + RANSAC 仿射配准
+      mc_registration_quality_level: 0.01      # goodFeaturesToTrack 角点质量阈值
+      mc_registration_min_distance_px: 8.0     # 角点最小间距，单位像素
+      mc_registration_min_inliers: 16          # 配准成功所需最小 RANSAC 内点数
+      mc_registration_max_reproj_error_px: 4.0 # RANSAC 最大重投影误差，单位像素
+      mc_registration_diff_threshold: 28       # 配准后灰度差超过该值计入变化像素
+      mc_registration_min_changed_area_px: 24000 # 中央前景 ROI 内变化像素数量下限，用于确认夹到端头
+      mc_registration_min_changed_ratio: 0.20  # 中央前景 ROI 内变化像素占比下限
+      mc_registration_min_changed_bbox_height_px: 180 # 最大变化连通域外接框最小高度
+      mc_registration_min_changed_bbox_width_px: 80 # 最大变化连通域外接框最小宽度
+      mc_registration_min_match_score: 0.20    # RANSAC 内点/光流跟踪点比例下限，低于该值认为配准不可信
 
       # --- 组合树启动 gate：等待人工 0x06 后下发比赛开始 0x10，再延时 500ms 进入 MC ---
       mc_mf_start_signal_feedback_topic: "/mechanism/command_feedback" # 人工启动信号来源
@@ -154,7 +168,7 @@ r2_runtime:
       mc_to_mf_preselect_nav_enable: true       # 组合树中 MC 完成后是否执行到 MF 预选的专用入口导航
       mc_to_mf_preselect_nav_segment1_x_m: -2.45 # MC 后置入口第一段 OdomDriveX 车体系 x 负向位移；blue 不镜像 X
       mc_to_mf_preselect_nav_turn_delta_rad: -1.5708 # 第一段后右转 90°；blue 自动取反为左转
-      mc_to_mf_preselect_nav_segment2_x_m: 1.75 # 转向后第二段 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
+      mc_to_mf_preselect_nav_segment2_x_m: 1.6 # 转向后第二段 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
       mc_to_mf_preselect_nav_timeout_sec: 180.0 # MC 后置入口单个 x/turn 动作超时，单位秒
 
       mf_preselect_vision_config_file: ""        # KFS 视觉模型配置；空则回退 rc26_vision/config/vision_models.yaml
