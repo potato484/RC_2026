@@ -59,9 +59,9 @@ r2_runtime:
       # 武馆区 (MC) 红方基准运行参数 —— blue 启动时自动镜像侧向 yaw 和原地旋转方向
       # ======================================================================
       # --- 红方基准 odom 单轴分段导航：+X 0.2m -> 右转 90° -> -X 0.6m ---
-      mc_nav_forward_x_m: 0.25      # 红方基准第一段 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
+      mc_nav_forward_x_m: 0.65      # 红方基准第一段 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
       mc_nav_right_turn_delta_rad: -1.5708 # 红方基准第一段后相对右转角度；blue 自动取反为左转
-      mc_nav_reverse_x_m: -0.65     # 红方基准转向后第二段 OdomDriveX 车体系 x 负向位移；blue 不镜像 X
+      mc_nav_reverse_x_m: -0.80     # 红方基准转向后第二段 OdomDriveX 车体系 x 负向位移；blue 不镜像 X
       mc_nav_timeout_sec: 180.0     # 单个 OdomDriveX/OdomDriveY/OdomTurnToYaw 段的超时时间，单位秒
 
       # --- 相机 / 推理（内嵌直连相机，对齐 tip_vision_test_node）---
@@ -146,15 +146,15 @@ r2_runtime:
       # 梅林区预选赛红方基准链路参数 —— blue 启动时自动镜像入口 Y、左右探测和 yaw
       # ======================================================================
       mf_preselect_entry2_nav_enable: true      # 2号入口导航点未标定前关闭；关闭时默认机器人已在2号入口
-      mf_preselect_entry2_nav_segment1_x_m: 2.0  # 红方基准 2号入口 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
-      mf_preselect_entry2_nav_segment1_y_m: -1.7 # 红方基准 2号入口 OdomDriveY 车体系 y 负向位移；blue 自动取反
+      mf_preselect_entry2_nav_segment1_x_m: 2.4  # 红方基准 2号入口 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
+      mf_preselect_entry2_nav_segment1_y_m: -1.6 # 红方基准 2号入口 OdomDriveY 车体系 y 负向位移；blue 自动取反
       mf_preselect_entry2_nav_timeout_sec: 180.0 # 入口单个 x/y 动作超时，单位秒
 
       # --- MC 后置 MF 预选组合树入口导航；只由 mf_preselection_after_mc_tree.xml 使用 ---
       mc_to_mf_preselect_nav_enable: true       # 组合树中 MC 完成后是否执行到 MF 预选的专用入口导航
-      mc_to_mf_preselect_nav_segment1_x_m: -2.4 # MC 后置入口第一段 OdomDriveX 车体系 x 负向位移；blue 不镜像 X
+      mc_to_mf_preselect_nav_segment1_x_m: -2.45 # MC 后置入口第一段 OdomDriveX 车体系 x 负向位移；blue 不镜像 X
       mc_to_mf_preselect_nav_turn_delta_rad: -1.5708 # 第一段后右转 90°；blue 自动取反为左转
-      mc_to_mf_preselect_nav_segment2_x_m: 1.6  # 转向后第二段 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
+      mc_to_mf_preselect_nav_segment2_x_m: 1.75 # 转向后第二段 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
       mc_to_mf_preselect_nav_timeout_sec: 180.0 # MC 后置入口单个 x/turn 动作超时，单位秒
 
       mf_preselect_vision_config_file: ""        # KFS 视觉模型配置；空则回退 rc26_vision/config/vision_models.yaml
