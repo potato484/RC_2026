@@ -16,6 +16,7 @@
 #include "rc26_decision/mf/mf_area.hpp"
 #include "rc26_decision/mf_preselection/mf_preselection_flow.hpp"
 #include "rc26_decision/navigation/bt_odom_relative_nav.hpp"
+#include "rc26_decision/second_preselection/second_preselection.hpp"
 #include "rc26_decision/stair/stair_area.hpp"
 #include "rc26_decision/team_color.hpp"
 
@@ -35,10 +36,12 @@ public:
     loadGridCenterParams(*this, blackboard_);
     loadStairParams(*this, blackboard_);
     loadMfPreselectionParams(*this, blackboard_);
+    loadSecondPreselectionParams(*this, blackboard_);
 
     registerMCAreaNodes(factory_);
     registerMFAreaNodes(factory_);
     registerMfPreselectionNodes(factory_);
+    registerSecondPreselectionNodes(factory_);
     registerOdomNavigationNodes(factory_);
     registerStairNodes(factory_);
 

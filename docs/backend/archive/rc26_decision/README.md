@@ -71,6 +71,7 @@
 - `mc_tree.xml`：`OdomDriveX(mc_nav_forward_x_m=+0.2m) -> RelativeYawTarget(mc_nav_right_turn_delta_rad=team 派生侧向 yaw) -> OdomTurnToYaw -> OdomDriveX(mc_nav_reverse_x_m=-0.6m) -> VisualServoGrab -> Delay -> RotateInPlace -> WaitForRegistrationConfirm -> Delay(5s)`。转向后的绝对 odom yaw 会传给 `VisualServoGrab target_yaw_rad`，作为视觉阶段 heading hold 目标；`team=blue` 时侧向 yaw 和后续原地旋转方向相对红方基准取反。`VisualServoGrab` 在 `GRAB_TIP` 后若端头持续消失，会把 `mc_tip_grab_confirmed=true` 和 `mc_tip_grab_confirm_method=tip_lost_after_grab` 写入黑板。`WaitForRegistrationConfirm` 会先信任这个已夹取确认并直接放行，避免端头已经离开视野时继续卡在前景配准；若没有该确认，则复用 MC USB 相机参数，用端头区域外的背景角点把当前帧配准到 `WaitStartSignalAndNotify` 缓存的空夹爪基准帧，再稳定确认中央端头 ROI 中出现足够大的前景变化后让 MC 子树返回 `SUCCESS`。
 - `mf_preselection_tree.xml`：保持原独立调试入口不变，可选入口导航为 `OdomDriveX(mf_preselect_entry2_nav_segment1_x_m=+2.0m) -> OdomDriveY(mf_preselect_entry2_nav_segment1_y_m=team 派生横移 Y)`，随后进入 `MfPreselectionFlow`；该入口不在树前额外转向。
 - `mf_preselection_after_mc_tree.xml`：MC 后置 MF 预选专用入口，可选入口导航为 `OdomDriveX(mc_to_mf_preselect_nav_segment1_x_m=-2.4m) -> RelativeYawTarget(mc_to_mf_preselect_nav_turn_delta_rad=team 派生右转 yaw) -> OdomTurnToYaw -> OdomDriveX(mc_to_mf_preselect_nav_segment2_x_m=+1.6m)`，随后进入 `MfPreselectionFlow`。`MfPreselectionFlow` 内部的入口 1/3 号横移、假 KFS 侧列绕行、出口 yaw、周身扫描 yaw 和第四行收尾 yaw 同样按 `team` 从红方基准派生。
+- `second_preselection_tree.xml`：第二个预选赛独立入口，不改变当前红/蓝默认 `behavior_tree_file`。流程为 `SECOND_PRESELECTION_START(0x11)` 等待同 `seq` 的 `SECOND_PRESELECTION_START_DONE(0x0D)`，随后按车体系 `+X 1.8m -> +Y 1.2m -> +X 2.5m` 执行 odom 单轴导航，再发送 `SECOND_PRESELECTION_ARM_HIGH_RAISE(0x12)` 等待同 `seq` 的 `SECOND_PRESELECTION_ARM_HIGH_RAISE_DONE(0x0F)`。到达观察位后用深度相机彩色帧在可配置 ROI 中做 HSV 对方 KFS 占据判断：`team=red` 检测蓝色，`team=blue` 检测红色。初始窗口被占据时先 `+Y 0.2m` 再观察，仍占据则 `-Y 0.6m` 再观察；任一窗口为空即 `+X 0.7m`、发送 ACK-only `SECOND_PRESELECTION_PLACE_KFS(0x13)`，最后 `-X 0.7m` 后退。三次均被占据、相机失败、命令超时或导航超时会停车并返回 `FAILURE`。
 - 独立右转验证树：右转专用参数族已退役，树内固定验收路线为 `OdomDriveX(+0.4m) -> RelativeYawTarget(-90deg) -> OdomTurnToYaw -> OdomDriveX(-0.7m)`，速度、topic、容差和超时复用通用 odom 相对导航参数。
 - `relative_segment_nav_tree.xml`：独立验收用单轴分段树，依次示例调用 `OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw`。
 
@@ -110,6 +111,7 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 - `mc_mf_start_signal_feedback_topic`、`mc_mf_start_signal_feedback_id`、`mc_mf_start_signal_timeout_s`、`mc_mf_start_command_service`、`mc_mf_start_command_id`、`mc_mf_start_command_timeout_s`、`mc_mf_start_done_feedback_id`、`mc_mf_start_done_timeout_s`、`mc_mf_start_log_period_s`：组合树启动 gate 参数，默认等待 `/mechanism/command_feedback` 的 `0x06`，随后下发 `COMPETITION_START(0x10)` 并等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`。
 - `mf_preselect_entry2_nav_segment1_x_m`、`mf_preselect_entry2_nav_segment1_y_m`、`mf_preselect_entry2_nav_timeout_sec`：MF 预选独立入口红方基准单轴段，默认 `+X 2.0m -> -Y 1.8m`；蓝方只镜像 Y，X 距离不变。
 - `mc_to_mf_preselect_nav_segment1_x_m`、`mc_to_mf_preselect_nav_turn_delta_rad`、`mc_to_mf_preselect_nav_segment2_x_m`、`mc_to_mf_preselect_nav_timeout_sec`：MC 后置 MF 预选组合树专用入口段，默认 `-X 2.4m -> 右转 90° -> +X 1.6m`；蓝方只镜像 yaw，X 距离不变。
+- `second_preselect_*`：第二个预选赛独立树参数。命令参数默认 `0x11/0x0D` 开始握手、`0x12/0x0F` 高抬升握手、`0x13` ACK-only 放置；导航参数默认 `+X 1.8m -> +Y 1.2m -> +X 2.5m`，空位搜索为初始观察、`+Y 0.2m`、再 `-Y 0.6m`，放置后 `+X 0.7m -> 0x13 -> -X 0.7m`；视觉参数包括九宫格中层 ROI、红/蓝 HSV 阈值、占据最小面积、稳定帧和观察超时。该流程的车体系 X/Y 不按红蓝镜像，`team` 只用于选择对方 KFS 颜色。
 参数在节点构造时声明并写入 blackboard；当前没有运行期参数变更回调，`ros2 param set` 不会自动回写已经进入树的参数。
 
 ## 边界
@@ -120,6 +122,8 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 - `rc26_interfaces` 当前不提供自定义导航 action；导航对外契约只保留 `/cmd_vel` 速度输出。
 
 ## 本轮同步
+
+2026-07-02 同步：新增第二个预选赛独立树 `second_preselection_tree.xml`。该树通过 `/mechanism/send_command` 下发 `0x11` 并等待同 `seq` 的 `0x0D` 后启动路线，按车体系 `+X 1.8m -> +Y 1.2m -> +X 2.5m` 到达观察位，再下发 `0x12` 并等待同 `seq` 的 `0x0F` 后用深度相机彩色帧 HSV 判断九宫格中层是否被对方 KFS 占据；被占据时依次尝试 `+Y 0.2m` 与 `-Y 0.6m` 两个观察点，任一为空则 `+X 0.7m`、发送 ACK-only `0x13` 放置 KFS 并 `-X 0.7m` 后退。红方检测蓝色对方 KFS，蓝方检测红色对方 KFS；本轮只新增独立树和 `second_preselect_*` 参数，不修改红/蓝默认行为树入口，也不新增 `/cmd_vel` 权威或高层 action。
 
 2026-07-02 同步：MC 末尾视觉 gate 从红色 HSV 检测改为“视觉伺服消失确认优先，必要时背景配准 + 中央端头前景变化补充确认”。`WaitStartSignalAndNotify` 在收到 `COMPETITION_START_DONE(0x0C)` 后采集空夹爪灰度基准帧写入黑板；`VisualServoGrab` 在 `GRAB_TIP` 后端头持续消失时写入 `mc_tip_grab_confirmed=true`，供 `WaitForRegistrationConfirm` 直接放行。若没有该前序确认，`WaitForRegistrationConfirm` 再用中央端头 ROI 外的背景特征完成配准，并要求中央端头 ROI 中的灰度差分面积、占比和最大连通域尺寸连续达到阈值才返回 `SUCCESS`。该改动不新增 ROS topic/service/action，不改变 `/cmd_vel` 或机构命令权威。
 

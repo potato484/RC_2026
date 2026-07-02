@@ -56,6 +56,50 @@ r2_runtime:
       odom_relative_nav_timeout_s: 10.0               # 独立相对分段默认超时，单位秒
 
       # ======================================================================
+      # 第二个预选赛独立树参数 —— 仅 second_preselection_tree.xml 使用；默认树不切换
+      # ======================================================================
+      second_preselect_send_command_service: "/mechanism/send_command" # rc26_mcu_transport 可靠命令服务
+      second_preselect_feedback_topic: "/mechanism/command_feedback"   # MCU 上行业务反馈 topic
+      second_preselect_command_timeout_s: 5.0       # 等待 0x11/0x12/0x13 service ACK 的最长时间
+      second_preselect_done_timeout_s: 5.0          # 等待 0x0D/0x0F 同 seq 完成反馈的最长时间
+      second_preselect_log_period_s: 1.0            # 机构等待日志节流周期
+      second_preselect_start_command_id: 17         # 0x11 SECOND_PRESELECTION_START
+      second_preselect_start_done_feedback_id: 13   # 0x0D SECOND_PRESELECTION_START_DONE
+      second_preselect_arm_high_raise_command_id: 18 # 0x12 SECOND_PRESELECTION_ARM_HIGH_RAISE
+      second_preselect_arm_high_raise_done_feedback_id: 15 # 0x0F SECOND_PRESELECTION_ARM_HIGH_RAISE_DONE
+      second_preselect_place_kfs_command_id: 19     # 0x13 SECOND_PRESELECTION_PLACE_KFS，ACK 即发送完成
+      second_preselect_nav_x1_m: 1.8                # 开始完成后沿车体系 +X 前进距离；blue 不镜像 X
+      second_preselect_nav_y1_m: 1.2                # 第二段沿车体系 +Y 前进距离；本流程不按红蓝镜像
+      second_preselect_nav_x2_m: 2.5                # 第三段沿车体系 +X 前进距离
+      second_preselect_search_y_positive_m: 0.2     # 初始窗口被挡后沿 +Y 搜索
+      second_preselect_search_y_negative_m: -0.6    # +Y 搜索仍被挡后沿 -Y 搜索；相对初始点为 -0.4m
+      second_preselect_place_forward_x_m: 0.7       # 找到空位后沿 +X 前进放置
+      second_preselect_retreat_x_m: -0.7            # 放置命令 ACK 后沿 -X 后退
+      second_preselect_nav_timeout_s: 180.0         # 第二预选赛每个 odom 单轴段超时
+      second_preselect_vision_config_file: ""       # 空则回退 rc26_vision/config/vision_models.yaml
+      second_preselect_model_id: "kfs_default"      # 只用于启动深度相机/视觉快照，HSV 判断不依赖类别标签
+      second_preselect_roi_x: 220                   # 九宫格中层可见窗口 ROI 左上角 x，需实机标定
+      second_preselect_roi_y: 150                   # 九宫格中层可见窗口 ROI 左上角 y，需实机标定
+      second_preselect_roi_width: 200               # 九宫格中层可见窗口 ROI 宽度
+      second_preselect_roi_height: 180              # 九宫格中层可见窗口 ROI 高度
+      second_preselect_occupied_min_area_px: 1200   # ROI 内对方颜色最大连通域达到该面积判定被占据
+      second_preselect_occupied_stable_frames: 2    # 连续多少帧被占据后确认窗口被挡
+      second_preselect_observe_timeout_s: 2.0       # 单次窗口观察最长时间；超时保守视为被占据
+      second_preselect_observe_log_period_s: 0.5    # 观察日志节流周期
+      second_preselect_red_hue_low1: 0              # 红色 hue 段；blue 队检测红色对方 KFS
+      second_preselect_red_hue_high1: 10
+      second_preselect_red_hue_low2: 170
+      second_preselect_red_hue_high2: 180
+      second_preselect_red_saturation_min: 80
+      second_preselect_red_value_min: 60
+      second_preselect_blue_hue_low1: 95
+      second_preselect_blue_hue_high1: 130
+      second_preselect_blue_hue_low2: 95
+      second_preselect_blue_hue_high2: 130
+      second_preselect_blue_saturation_min: 80
+      second_preselect_blue_value_min: 50
+
+      # ======================================================================
       # 武馆区 (MC) 红方基准运行参数 —— blue 启动时自动镜像侧向 yaw 和原地旋转方向
       # ======================================================================
       # --- 红方基准 odom 单轴分段导航：+X 0.2m -> 右转 90° -> -X 0.6m ---

@@ -46,6 +46,9 @@ enum class CommandID : uint8_t {
     ARM_SECOND_LOWER = 0x0E,      // KFS 向下夹取前第二节机械臂彻底放下
     ENTRY_GRAB_KFS_UP = 0x0F,     // 梅林预选赛入口高侧 KFS 夹取
     COMPETITION_START = 0x10,     // 比赛开始通知
+    SECOND_PRESELECTION_START = 0x11,          // 第二预选赛开始通知
+    SECOND_PRESELECTION_ARM_HIGH_RAISE = 0x12, // 第二预选赛机械臂底座高抬升
+    SECOND_PRESELECTION_PLACE_KFS = 0x13,      // 第二预选赛放置 KFS 到中层九宫格
 };
 
 // ============================================================================
@@ -65,6 +68,8 @@ enum class FeedbackID : uint8_t {
     ARM_SECOND_LOWER_DONE = 0x0A,       // KFS 向下夹取前第二节机械臂放下完成
     ENTRY_GRAB_KFS_UP_DONE = 0x0B,      // 梅林预选赛入口高侧 KFS 夹取完成
     COMPETITION_START_DONE = 0x0C,      // 比赛开始状态切换完成
+    SECOND_PRESELECTION_START_DONE = 0x0D, // 第二预选赛开始状态切换完成
+    SECOND_PRESELECTION_ARM_HIGH_RAISE_DONE = 0x0F, // 第二预选赛机械臂高抬升完成
     MCU_ERROR = 0xFE,                   // MCU 端错误码：下位机原因
 };
 

@@ -26,6 +26,9 @@ TEST(ProtocolIDs, CommandIDsAreContinuousAfterLegacyMechanismCleanup) {
     EXPECT_EQ(static_cast<uint8_t>(CID::ARM_SECOND_LOWER), 0x0EU);
     EXPECT_EQ(static_cast<uint8_t>(CID::ENTRY_GRAB_KFS_UP), 0x0FU);
     EXPECT_EQ(static_cast<uint8_t>(CID::COMPETITION_START), 0x10U);
+    EXPECT_EQ(static_cast<uint8_t>(CID::SECOND_PRESELECTION_START), 0x11U);
+    EXPECT_EQ(static_cast<uint8_t>(CID::SECOND_PRESELECTION_ARM_HIGH_RAISE), 0x12U);
+    EXPECT_EQ(static_cast<uint8_t>(CID::SECOND_PRESELECTION_PLACE_KFS), 0x13U);
 }
 
 TEST(ProtocolIDs, FeedbackIDsAreContinuousAfterLegacyMechanismCleanup) {
@@ -44,6 +47,8 @@ TEST(ProtocolIDs, FeedbackIDsAreContinuousAfterLegacyMechanismCleanup) {
     EXPECT_EQ(static_cast<uint8_t>(FID::ARM_SECOND_LOWER_DONE), 0x0AU);
     EXPECT_EQ(static_cast<uint8_t>(FID::ENTRY_GRAB_KFS_UP_DONE), 0x0BU);
     EXPECT_EQ(static_cast<uint8_t>(FID::COMPETITION_START_DONE), 0x0CU);
+    EXPECT_EQ(static_cast<uint8_t>(FID::SECOND_PRESELECTION_START_DONE), 0x0DU);
+    EXPECT_EQ(static_cast<uint8_t>(FID::SECOND_PRESELECTION_ARM_HIGH_RAISE_DONE), 0x0FU);
     EXPECT_EQ(static_cast<uint8_t>(FID::MCU_ERROR), 0xFEU);
 }
 
