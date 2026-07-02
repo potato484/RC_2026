@@ -15,10 +15,12 @@
 #include "rc26_decision/mc/mc_area.hpp"
 #include "rc26_decision/mf/mf_area.hpp"
 #include "rc26_decision/mf_preselection/mf_preselection_flow.hpp"
+#include "rc26_decision/mf_preselection_trigger.hpp"
 #include "rc26_decision/navigation/bt_odom_relative_nav.hpp"
 #include "rc26_decision/second_preselection/second_preselection.hpp"
 #include "rc26_decision/stair/stair_area.hpp"
 #include "rc26_decision/team_color.hpp"
+#include "rc26_interfaces/msg/mechanism_transport_feedback.hpp"
 
 namespace rc26_decision {
 
@@ -47,17 +49,12 @@ public:
 
     tick_rate_ms_ = this->get_parameter("tick_rate_ms").as_int();
     loadStartupOdomGateParams();
+    loadMfPreselectionExternalTriggerParams();
     tree_file_ = this->get_parameter("tree_file").as_string();
-    const std::filesystem::path configured_tree(tree_file_);
-    tree_path_ = configured_tree.is_absolute()
-                     ? configured_tree.lexically_normal().string()
-                     : (std::filesystem::path(
-                            ament_index_cpp::get_package_share_directory("rc26_decision")) /
-                        "behavior_trees" / configured_tree)
-                           .lexically_normal()
-                           .string();
+    tree_path_ = resolveTreePath(tree_file_);
 
     RCLCPP_INFO(this->get_logger(), "准备行为树: %s", tree_path_.c_str());
+    startMfPreselectionExternalTriggerListener();
     startWhenRuntimeReady();
 
     RCLCPP_INFO(this->get_logger(), "决策节点已启动, tick_rate_ms=%d",
@@ -77,6 +74,16 @@ private:
     this->declare_parameter<int>("startup_odom_stable_samples", 10);
     this->declare_parameter<double>("startup_odom_max_linear_speed_mps", 0.03);
     this->declare_parameter<double>("startup_odom_max_angular_speed_radps", 0.05);
+    this->declare_parameter<bool>("mf_preselection_external_trigger_enable", true);
+    this->declare_parameter<std::string>(
+        "mf_preselection_external_trigger_feedback_topic",
+        "/mechanism/command_feedback");
+    this->declare_parameter<int>("mf_preselection_external_trigger_feedback_id",
+                                 static_cast<int>(
+                                     rc26_serial::FeedbackID::MF_PRESELECTION_TRIGGER));
+    this->declare_parameter<std::string>(
+        "mf_preselection_external_trigger_tree_file",
+        "mf_preselection_tree.xml");
   }
 
   void initializeBlackboard() {
@@ -138,6 +145,102 @@ private:
     tree_ = factory_.createTreeFromFile(tree_path_, blackboard_);
     clearDecisionFailure(blackboard_);
     terminal_ = false;
+  }
+
+  std::string resolveTreePath(const std::string &tree_file) const {
+    const std::filesystem::path configured_tree(tree_file);
+    return configured_tree.is_absolute()
+               ? configured_tree.lexically_normal().string()
+               : (std::filesystem::path(
+                      ament_index_cpp::get_package_share_directory("rc26_decision")) /
+                  "behavior_trees" / configured_tree)
+                     .lexically_normal()
+                     .string();
+  }
+
+  void loadMfPreselectionExternalTriggerParams() {
+    mf_trigger_config_.enable =
+        this->get_parameter("mf_preselection_external_trigger_enable").as_bool();
+    mf_trigger_config_.feedback_topic =
+        this->get_parameter("mf_preselection_external_trigger_feedback_topic")
+            .as_string();
+    mf_trigger_config_.feedback_id =
+        this->get_parameter("mf_preselection_external_trigger_feedback_id").as_int();
+    mf_trigger_config_.tree_file =
+        this->get_parameter("mf_preselection_external_trigger_tree_file")
+            .as_string();
+    if (mf_trigger_config_.feedback_topic.empty()) {
+      mf_trigger_config_.feedback_topic = "/mechanism/command_feedback";
+    }
+    if (mf_trigger_config_.tree_file.empty()) {
+      mf_trigger_config_.tree_file = "mf_preselection_tree.xml";
+    }
+    mf_trigger_tree_path_ = resolveTreePath(mf_trigger_config_.tree_file);
+  }
+
+  void startMfPreselectionExternalTriggerListener() {
+    if (!mf_trigger_config_.enable) {
+      RCLCPP_INFO(this->get_logger(), "MF 外部触发监听已禁用");
+      return;
+    }
+    mf_trigger_sub_ =
+        this->create_subscription<rc26_interfaces::msg::MechanismTransportFeedback>(
+            mf_trigger_config_.feedback_topic, rclcpp::QoS(32).reliable(),
+            [this](
+                const rc26_interfaces::msg::MechanismTransportFeedback::SharedPtr
+                    msg) { handleMfPreselectionExternalTrigger(msg); });
+    RCLCPP_INFO(
+        this->get_logger(),
+        "MF 外部触发监听已启动: topic=%s feedback=0x%02X target_tree=%s",
+        mf_trigger_config_.feedback_topic.c_str(),
+        static_cast<unsigned int>(mf_trigger_config_.feedback_id & 0xFF),
+        mf_trigger_tree_path_.c_str());
+  }
+
+  void handleMfPreselectionExternalTrigger(
+      const rc26_interfaces::msg::MechanismTransportFeedback::SharedPtr msg) {
+    if (!msg || !isMfPreselectionExternalTriggerFeedback(
+                    msg->feedback_id, mf_trigger_config_)) {
+      return;
+    }
+
+    const bool current_tree_active =
+        tree_.rootNode() != nullptr && !terminal_ && auto_tick_timer_ != nullptr;
+    if (!shouldReloadForMfPreselectionTrigger(tree_path_, mf_trigger_tree_path_,
+                                              mf_trigger_pending_,
+                                              current_tree_active)) {
+      RCLCPP_WARN_THROTTLE(
+          this->get_logger(), *this->get_clock(), 1000,
+          "收到 MF 外部触发 0x%02X，但目标树已在运行或切换已挂起，忽略重复触发",
+          static_cast<unsigned int>(msg->feedback_id));
+      return;
+    }
+
+    RCLCPP_WARN(this->get_logger(),
+                "收到 MCU 上行 MF 外部触发 feedback=0x%02X seq=%u，准备切换行为树: %s",
+                static_cast<unsigned int>(msg->feedback_id),
+                static_cast<unsigned int>(msg->seq),
+                mf_trigger_tree_path_.c_str());
+    mf_trigger_pending_ = true;
+    if (startup_odom_gate_timer_) {
+      RCLCPP_INFO(this->get_logger(),
+                  "MF 外部触发已挂起，等待启动 odom gate 稳定后加载目标树");
+      return;
+    }
+    switchToMfPreselectionTree();
+  }
+
+  void switchToMfPreselectionTree() {
+    if (!mf_trigger_pending_) {
+      return;
+    }
+    tree_file_ = mf_trigger_config_.tree_file;
+    tree_path_ = mf_trigger_tree_path_;
+    mf_trigger_pending_ = false;
+    RCLCPP_WARN(this->get_logger(), "切换执行 MF 预选独立树: %s",
+                tree_path_.c_str());
+    loadBehaviorTree();
+    startAutoTicking();
   }
 
   void loadStartupOdomGateParams() {
@@ -262,6 +365,10 @@ private:
           "odom 已稳定，加载并开始 tick 行为树: topic=%s stable_samples=%d elapsed=%.2fs",
           startup_odom_topic_.c_str(), startup_odom_stable_count_, elapsed_s);
       stopStartupOdomGate();
+      if (mf_trigger_pending_) {
+        switchToMfPreselectionTree();
+        return;
+      }
       loadBehaviorTree();
       startAutoTicking();
       return;
@@ -332,7 +439,9 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr startup_odom_sub_;
   std::string tree_file_;
   std::string tree_path_;
+  std::string mf_trigger_tree_path_;
   std::string startup_odom_topic_{"odom"};
+  MfPreselectionExternalTriggerConfig mf_trigger_config_;
   int tick_rate_ms_{100};
   int startup_odom_stable_samples_{10};
   int startup_odom_stable_count_{0};
@@ -345,6 +454,9 @@ private:
   std::chrono::steady_clock::time_point startup_odom_last_msg_tp_{};
   bool terminal_{false};
   bool startup_wait_for_odom_{false};
+  bool mf_trigger_pending_{false};
+  rclcpp::Subscription<rc26_interfaces::msg::MechanismTransportFeedback>::SharedPtr
+      mf_trigger_sub_;
 };
 
 } // namespace rc26_decision

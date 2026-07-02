@@ -170,6 +170,29 @@ if(BUILD_TESTING)
     rc26_serial
     rc26_vision
   )
+
+  ament_add_gtest(test_mf_preselection_trigger
+    test/test_mf_preselection_trigger.cpp
+  )
+  target_link_libraries(test_mf_preselection_trigger
+    ${PROJECT_NAME}_nodes
+    ${OpenCV_LIBS}
+  )
+  target_include_directories(test_mf_preselection_trigger PRIVATE
+    ${OpenCV_INCLUDE_DIRS}
+  )
+  target_compile_definitions(test_mf_preselection_trigger PRIVATE
+    RC26_DECISION_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+  )
+  ament_target_dependencies(test_mf_preselection_trigger
+    behaviortree_cpp
+    geometry_msgs
+    nav_msgs
+    rclcpp
+    rc26_interfaces
+    rc26_serial
+    rc26_vision
+  )
 endif()
 
 ament_package()

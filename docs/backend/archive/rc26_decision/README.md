@@ -87,6 +87,8 @@
 
 `WaitStartSignalAndNotifyAction` 只服务 `mc_mf_preselection_tree.xml` 启动 gate：启动前的 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 表示人为开始信号，收到后通过 `/mechanism/send_command` 下发 `COMPETITION_START(0x10)` 空 payload，service ACK 成功后继续等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`；完成反馈到达后若 `mc_registration_gate_enable=true`，会等待 `mc_registration_capture_settle_s` 并采集一张 MC 相机灰度基准帧写入黑板，外层树再延时 500ms 进入 MC。MC `VisualServoGrabAction` 前探阶段继续把同一个 `0x06` 当作前方限位开关触发，两种语义通过不同 BT 阶段和独立节点隔离。
 
+`decision_node` 还会全局监听 `/mechanism/command_feedback` 中的 `MF_PRESELECTION_TRIGGER(0x10)`。收到该上行业务事件后，不要求匹配任何下行 `seq`，节点会先 halt 当前行为树以释放相机和停车，再加载并执行 `mf_preselection_tree.xml`；如果启动 odom gate 尚未放行，则先挂起触发，等 odom 稳定后直接加载 MF 预选独立树。该触发不替代 `WaitStartSignalAndNotifyAction` 等待的 `COMPETITION_START_DONE(0x0C)`。
+
 ## MF 与台阶链路
 
 MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> GridTransition -> GridCenterAlign` 串行完成。`GridTurn` / `GridHeadingAlign` 服务 MF 格间 yaw 对齐和独立 heading 校准入口；它们不是通用分段导航转向节点，通用分段转向使用 `OdomTurnToYaw`。
@@ -109,6 +111,7 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 - `mc_nav_forward_x_m`、`mc_nav_right_turn_delta_rad`、`mc_nav_reverse_x_m`、`mc_nav_timeout_sec`：MC 去程红方基准动作顺序，默认 `+X 0.2m -> 右转 90° -> -X 0.6m`；蓝方只镜像 yaw 和原地旋转方向，X 距离不变。
 - `mc_registration_gate_enable`、`mc_registration_capture_settle_s`、`mc_registration_stable_frames`、`mc_registration_detect_timeout_s`、`mc_registration_log_period_s`、`mc_registration_roi_*_ratio`、`mc_registration_foreground_roi_*_ratio`、`mc_registration_max_corners`、`mc_registration_quality_level`、`mc_registration_min_distance_px`、`mc_registration_min_inliers`、`mc_registration_max_reproj_error_px`、`mc_registration_diff_threshold`、`mc_registration_min_changed_area_px`、`mc_registration_min_changed_ratio`、`mc_registration_min_changed_bbox_height_px`、`mc_registration_min_changed_bbox_width_px`、`mc_registration_min_match_score`：MC 末尾背景配准 + 中央端头前景确认 gate 参数。
 - `mc_mf_start_signal_feedback_topic`、`mc_mf_start_signal_feedback_id`、`mc_mf_start_signal_timeout_s`、`mc_mf_start_command_service`、`mc_mf_start_command_id`、`mc_mf_start_command_timeout_s`、`mc_mf_start_done_feedback_id`、`mc_mf_start_done_timeout_s`、`mc_mf_start_log_period_s`：组合树启动 gate 参数，默认等待 `/mechanism/command_feedback` 的 `0x06`，随后下发 `COMPETITION_START(0x10)` 并等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`。
+- `mf_preselection_external_trigger_enable`、`mf_preselection_external_trigger_feedback_topic`、`mf_preselection_external_trigger_feedback_id`、`mf_preselection_external_trigger_tree_file`：MCU 上行外部触发参数。默认监听 `/mechanism/command_feedback` 的 `0x10`，收到后 halt 当前树并切换执行 `mf_preselection_tree.xml`；若该树正在运行则忽略重复触发，若树已终止则允许重新加载。
 - `mf_preselect_entry2_nav_segment1_x_m`、`mf_preselect_entry2_nav_segment1_y_m`、`mf_preselect_entry2_nav_timeout_sec`：MF 预选独立入口红方基准单轴段，默认 `+X 2.0m -> -Y 1.8m`；蓝方只镜像 Y，X 距离不变。
 - `mc_to_mf_preselect_nav_segment1_x_m`、`mc_to_mf_preselect_nav_turn_delta_rad`、`mc_to_mf_preselect_nav_segment2_x_m`、`mc_to_mf_preselect_nav_timeout_sec`：MC 后置 MF 预选组合树专用入口段，默认 `-X 2.4m -> 右转 90° -> +X 1.6m`；蓝方只镜像 yaw，X 距离不变。
 - `second_preselect_*`：第二个预选赛独立树参数。命令参数默认 `0x11/0x0D` 开始握手、`0x12/0x0F` 高抬升握手、`0x13` ACK-only 放置；导航参数默认 `+X 1.8m -> +Y 1.2m -> +X 2.5m`，空位搜索为初始观察、`+Y 0.2m`、再 `-Y 0.6m`，放置后 `+X 0.7m -> 0x13 -> -X 0.7m`；视觉参数包括九宫格中层 ROI、红/蓝 HSV 阈值、占据最小面积、稳定帧和观察超时。该流程的车体系 X/Y 不按红蓝镜像，`team` 只用于选择对方 KFS 颜色。
@@ -122,6 +125,8 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 - `rc26_interfaces` 当前不提供自定义导航 action；导航对外契约只保留 `/cmd_vel` 速度输出。
 
 ## 本轮同步
+
+2026-07-02 同步：新增 MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)` 全局触发。`decision_node` 默认订阅 `/mechanism/command_feedback`，收到该事件后会 halt 当前树并切换到 `mf_preselection_tree.xml`；这覆盖 `start_r2_auto.sh` 默认启动的完整链路，也覆盖组合树执行到 `MCAreaTree/WaitForRegistrationConfirm` 时的卡住场景。该上行触发无需匹配下行 `seq`，不改变 `WaitStartSignalAndNotify` 的人工 `0x06 -> 下行 0x10 -> 上行 0x0C` 启动流程。
 
 2026-07-02 同步：新增第二个预选赛独立树 `second_preselection_tree.xml`。该树通过 `/mechanism/send_command` 下发 `0x11` 并等待同 `seq` 的 `0x0D` 后启动路线，按车体系 `+X 1.8m -> +Y 1.2m -> +X 2.5m` 到达观察位，再下发 `0x12` 并等待同 `seq` 的 `0x0F` 后用深度相机彩色帧 HSV 判断九宫格中层是否被对方 KFS 占据；被占据时依次尝试 `+Y 0.2m` 与 `-Y 0.6m` 两个观察点，任一为空则 `+X 0.7m`、发送 ACK-only `0x13` 放置 KFS 并 `-X 0.7m` 后退。红方检测蓝色对方 KFS，蓝方检测红色对方 KFS；本轮只新增独立树和 `second_preselect_*` 参数，不修改红/蓝默认行为树入口，也不新增 `/cmd_vel` 权威或高层 action。
 

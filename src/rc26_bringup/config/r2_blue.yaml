@@ -48,7 +48,7 @@ r2_runtime:
       odom_relative_nav_min_speed_mps: 0.03           # 未进入位置容差时的最小平移速度，单位 m/s
       odom_relative_nav_xy_kp: 0.8                    # odom x/y 误差到车体系平移速度的比例系数
       odom_relative_nav_heading_kp: 1.2               # 平移段保持启动 yaw 的 P 增益
-      odom_relative_nav_heading_max_speed_radps: 0.30 # 平移段 heading hold 最大角速度，单位 rad/s
+      odom_relative_nav_heading_max_speed_radps: 0.50  # 平移段 heading hold 最大角速度，单位 rad/s
       odom_relative_nav_xy_tolerance_m: 0.03          # 平移目标距离容差，单位米
       odom_relative_nav_yaw_tolerance_deg: 3.0        # 平移段 yaw 保持成功容差，单位度
       odom_relative_nav_stable_ticks: 3               # 平移和 yaw 同时进入容差后连续多少 tick 判定完成
@@ -103,7 +103,7 @@ r2_runtime:
       # 武馆区 (MC) 红方基准运行参数 —— blue 启动时自动镜像侧向 yaw 和原地旋转方向
       # ======================================================================
       # --- 红方基准 odom 单轴分段导航：+X 0.2m -> 右转 90° -> -X 0.6m ---
-      mc_nav_forward_x_m: 0.65      # 红方基准第一段 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
+      mc_nav_forward_x_m: 0.98     # 红方基准第一段 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
       mc_nav_right_turn_delta_rad: -1.5708 # 红方基准第一段后相对右转角度；blue 自动取反为左转
       mc_nav_reverse_x_m: -0.80    # 红方基准转向后第二段 OdomDriveX 车体系 x 负向位移；blue 不镜像 X
       mc_nav_timeout_sec: 180.0     # 单个 OdomDriveX/OdomDriveY/OdomTurnToYaw 段的超时时间，单位秒
@@ -199,14 +199,18 @@ r2_runtime:
       mc_mf_start_done_feedback_id: 12     # COMPETITION_START_DONE(0x0C)，必须与 0x10 的 ACK seq 匹配
       mc_mf_start_done_timeout_s: 5.0      # 等待 0x0C 比赛开始完成反馈的最长时间，单位秒
       mc_mf_start_log_period_s: 1.0        # 等待人工开始信号期间 INFO 日志节流周期，单位秒
+      mf_preselection_external_trigger_enable: true # 收到 MCU 上行 0x10 时切换到 MF 预选独立树
+      mf_preselection_external_trigger_feedback_topic: "/mechanism/command_feedback" # 全局 MF 外部触发来源
+      mf_preselection_external_trigger_feedback_id: 16 # MF_PRESELECTION_TRIGGER(0x10)，无需匹配下行 seq
+      mf_preselection_external_trigger_tree_file: "mf_preselection_tree.xml" # 触发后执行的目标行为树
 
       # ======================================================================
       # 梅林区预选赛红方基准链路参数 —— blue 启动时自动镜像入口 Y、左右探测和 yaw
       # ======================================================================
       mf_preselect_entry2_nav_enable: true      # 2号入口导航点未标定前关闭；关闭时默认机器人已在2号入口
-      mf_preselect_entry2_nav_segment1_x_m: 2.4  # 红方基准 2号入口 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
+      mf_preselect_entry2_nav_segment1_x_m: 2.1  # 红方基准 2号入口 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
       mf_preselect_entry2_nav_segment1_y_m: -1.6 # 红方基准 2号入口 OdomDriveY 车体系 y 负向位移；blue 自动取反
-      mf_preselect_entry2_nav_timeout_sec: 180.0 # 入口单个 x/y 动作超时，单位秒
+      mf_preselect_entry2_nav_timeout_sec: 180.0 # 入口-个 x/y 动作超时，单位秒
 
       # --- MC 后置 MF 预选组合树入口导航；只由 mf_preselection_after_mc_tree.xml 使用 ---
       mc_to_mf_preselect_nav_enable: true       # 组合树中 MC 完成后是否执行到 MF 预选的专用入口导航

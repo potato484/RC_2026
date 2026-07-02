@@ -69,6 +69,7 @@
 | `ARM_SECOND_LOWER_DONE` | `0x0A` |
 | `ENTRY_GRAB_KFS_UP_DONE` | `0x0B` |
 | `COMPETITION_START_DONE` | `0x0C` |
+| `MF_PRESELECTION_TRIGGER` | `0x10` |
 | `MCU_ERROR` | `0xFE` |
 
 已经移除的旧协议项包括旧组装动作、通用 KFS 夹取动作、旧动作完成反馈和旧即时负确认语义。可靠命令只通过通用 `ACK(0x00)` 成功；同 `seq` 收到 `MCU_ERROR(0xFE)` 表示下位机原因，串口层会按现有 retry `0x00~0x09` 继续重发，若后续收到 `ACK(0x00)` 则成功，若持续收到 `0xFE` 则失败并在 `lastError()` / diagnostics 中明确写出下位机原因。未收到确认时仍通过超时或断链失败收敛。心跳只通过 `HEARTBEAT_ACK(0x01)` 成功，心跳收到 `0xFE` 会记录为下位机原因但不按串口断链触发重连。
@@ -85,6 +86,7 @@
 - `ARM_SECOND_LOWER(0x0E)` / `ARM_SECOND_LOWER_DONE(0x0A)` 只服务 KFS 向下夹取：上层在 `ARM_LOWER_DONE(0x03)` 后完成视觉横移对齐与一次锁深度，进入开环前进前先发送 `0x0E`，并等待同 `seq` 的 `0x0A` 后才允许前进或直接夹取。
 - `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 只服务梅林预选赛入口高侧 KFS 夹取链；决策层在入口 1/3 阶梯高侧锁定目标、横移复核并完成开环趋近后发送 `0x0F`，service ACK 仍只代表通用 `ACK(0x00)`，随后必须按同 `seq` 等待 `0x0B` 进入视觉消失验证。
 - `COMPETITION_START(0x10)` 是比赛开始通知命令，当前由 `mc_mf_preselection_tree.xml` 启动 gate 在收到人工 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 后发送；payload 为空，service ACK 只表示 MCU 已确认收到，真正放行还要等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`。
+- 上行 `MF_PRESELECTION_TRIGGER(0x10)` 是 MCU 触发 MF 预选独立树的业务事件；它不要求匹配任何下行 `seq`，也不替代 `COMPETITION_START_DONE(0x0C)`。`rc26_decision` 收到后会 halt 当前树并切换执行 `mf_preselection_tree.xml`。
 - `MCU_ERROR(0xFE)` 是 MCU 端错误码，不是机构业务完成反馈；它只用于说明本轮失败来自下位机原因。可靠发送会继续重试，最终失败不会触发串口重连，调用方通过 service `accepted=false`、节点日志和 diagnostics `last_error` 判断。
 - `FRONT_LASER_HEIGHT_JUMP(0x04)`、`REAR_LASER_HEIGHT_JUMP(0x05)`、`FRONT_SECOND_LASER_HEIGHT_JUMP(0x07)` 是台阶激光高度突变事件，v1 payload 为空或忽略。
 - `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 是武馆前方限位开关触发事件，视觉夹取链在对齐后 x 负向前探等待该事件，再下发 `GRAB_TIP(0x01)`。
@@ -105,6 +107,8 @@
 4. 最后回到 `rc26_mcu_transport`、`rc26_decision`、`rc26_telecontrol`、`rc26_vision` 等消费者，确认哪一层在使用 raw transport。
 
 ## 本轮同步
+
+2026-07-02 同步：新增上行 `MF_PRESELECTION_TRIGGER(0x10)`，用于 MCU 主动要求上位机立即切换到 `mf_preselection_tree.xml`。该上行 `0x10` 与下行 `COMPETITION_START(0x10)` 位于不同方向的 ID 空间，不需要与任何下行命令 `seq` 匹配，也不替代 `COMPETITION_START_DONE(0x0C)`。
 
 2026-07-02 同步：新增上行 `COMPETITION_START_DONE(0x0C)`，用于 `COMPETITION_START(0x10)` 的业务完成反馈。组合树启动 gate 现在按人工 `0x06`、下行 `0x10` 通用 ACK、同 `seq` 上行 `0x0C` 的顺序放行；`POSE_TARGET(0x0C)` 仍是下行底盘速度命令，上下行 ID 空间独立。
 
