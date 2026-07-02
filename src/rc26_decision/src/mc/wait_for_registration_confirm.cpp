@@ -60,6 +60,21 @@ BT::NodeStatus WaitForRegistrationConfirmAction::onStart() {
                     "MC 配准变化 gate 已禁用，直接允许 MC 子树进入后续延时");
         return BT::NodeStatus::SUCCESS;
     }
+
+    bool tip_grab_confirmed = false;
+    std::string tip_grab_method;
+    if (config().blackboard &&
+        config().blackboard->get("mc_tip_grab_confirmed", tip_grab_confirmed) &&
+        tip_grab_confirmed) {
+        const bool has_tip_grab_method =
+            config().blackboard->get("mc_tip_grab_confirm_method", tip_grab_method);
+        RCLCPP_WARN(node_->get_logger(),
+                    "MC 视觉伺服已确认夹取完成(method=%s)，端头可能已离开配准 ROI，跳过末尾配准前景确认",
+                    (!has_tip_grab_method || tip_grab_method.empty()) ? "unknown"
+                                                                      : tip_grab_method.c_str());
+        return BT::NodeStatus::SUCCESS;
+    }
+
     if (!initCamera()) {
         writeDecisionFailure(config().blackboard, "WaitForRegistrationConfirm",
                              "无法打开用于 MC 配准确认的相机");

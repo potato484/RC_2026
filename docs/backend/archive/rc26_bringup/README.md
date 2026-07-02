@@ -48,7 +48,7 @@
 - `mc_nav_forward_x_m`、`mc_nav_right_turn_delta_rad`、`mc_nav_reverse_x_m`、`mc_nav_timeout_sec`：MC 去程红方基准动作顺序，默认 `+X 0.2m -> 右转 90° -> -X 0.6m`；蓝方自动镜像侧向 yaw 和原地旋转方向，X 距离不变。
 - `mf_preselect_entry2_nav_segment1_x_m`、`mf_preselect_entry2_nav_segment1_y_m`、`mf_preselect_entry2_nav_timeout_sec`：MF 预选 2 号入口红方基准单轴段，默认 `+X 2.0m -> -Y 1.8m`，不在入口树前额外转向；蓝方自动镜像 Y。
 - `mf_preselect_kfs_align_target_line_offset_px`：MF KFS 视觉横移对齐时，识别框中线要对齐的目标线相对图像中心线的像素偏置；默认 `0`，负值表示目标线向图像左侧移动。
-- `mc_registration_*`：MC 末尾视觉 gate 参数。组合树启动 `WaitStartSignalAndNotify` 在收到 `COMPETITION_START_DONE(0x0C)` 后采集一张“空夹爪/未夹端头”的 MC USB 相机灰度基准帧；MC 完成视觉伺服夹取并旋转回同一视角后，`WaitForRegistrationConfirm` 复用同一相机，先用中央端头 ROI 外的背景角点做 LK 光流 + RANSAC 仿射配准，再在中央端头 ROI 内按灰度差分面积、差分占比和最大连通域尺寸稳定确认已经夹到端头。该 gate 不再依赖红色 HSV 阈值。
+- `mc_registration_*`：MC 末尾视觉 gate 参数。组合树启动 `WaitStartSignalAndNotify` 在收到 `COMPETITION_START_DONE(0x0C)` 后采集一张“空夹爪/未夹端头”的 MC USB 相机灰度基准帧；MC 完成视觉伺服夹取时若 `VisualServoGrab` 已通过 `GRAB_TIP` 后端头持续消失确认夹取完成，`WaitForRegistrationConfirm` 直接放行。若没有该确认，节点复用同一相机，先用中央端头 ROI 外的背景角点做 LK 光流 + RANSAC 仿射配准，再在中央端头 ROI 内按灰度差分面积、差分占比和最大连通域尺寸稳定确认已经夹到端头。该 gate 不再依赖红色 HSV 阈值。
 这些参数描述相对分段和 odom yaw 目标生成，不是地图位姿。现场标定时应按启动姿态重新调整每段 `distance_m` 和相对/绝对 yaw；蓝方若只做标准镜像，保持 `r2_blue.yaml` 的 `team: blue` 即可复用同一组红方基准值。
 
 ## 独立入口
@@ -74,7 +74,7 @@
 
 ## 本轮同步
 
-2026-07-02 同步：MC 末尾视觉 gate 从红色 HSV 连通域检测改为“背景配准 + 中央端头前景变化”确认。红/蓝运行配置和历史兼容 `r2_runtime.yaml` 删除 `mc_red_*` 参数，新增 `mc_registration_*` 参数；默认背景配准 ROI 避开顶部 overlay，并在特征提取时剔除中央前景 ROI，随后要求中央前景 ROI 的灰度差分面积、占比和最大连通域尺寸达到阈值，才认为夹取后画面中出现稳定端头。
+2026-07-02 同步：MC 末尾视觉 gate 从红色 HSV 连通域检测改为“视觉伺服消失确认优先，必要时背景配准 + 中央端头前景变化补充确认”。红/蓝运行配置和历史兼容 `r2_runtime.yaml` 删除 `mc_red_*` 参数，新增 `mc_registration_*` 参数；默认背景配准 ROI 避开顶部 overlay，并在特征提取时剔除中央前景 ROI，随后要求中央前景 ROI 的灰度差分面积、占比和最大连通域尺寸达到阈值。若 `VisualServoGrab` 已通过 `GRAB_TIP` 后端头持续消失确认夹取完成，末尾 gate 会直接放行，避免端头离开视野后配准前景不可观测导致组合树卡住。
 
 2026-07-02 同步：新增根目录 `start_r2_auto.sh` 作为自动决策/比赛链路快捷入口。脚本只封装 `ros2 launch rc26_bringup bringup.launch.py run_mode:=navigation`，默认读取 `r2_active_side.yaml`、打印当前红/蓝方和选中的运行配置，并默认传入 `use_realsense:=true`；红蓝方路线、行为树、MCU transport 与决策参数仍由 `rc26_bringup` 和对应运行配置负责。
 

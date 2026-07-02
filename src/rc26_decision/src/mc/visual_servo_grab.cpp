@@ -89,6 +89,10 @@ BT::NodeStatus VisualServoGrabAction::onStart() {
     last_pub_tp_ = {};
     last_grab_tp_ = {};
     target_lock_state_.reset();
+    if (config().blackboard) {
+        config().blackboard->set("mc_tip_grab_confirmed", false);
+        config().blackboard->set("mc_tip_grab_confirm_method", std::string(""));
+    }
 
     // 启动独立工作线程（避免阻塞行为树的 tick 循环）
     worker_ = std::thread(&VisualServoGrabAction::workerLoop, this);
@@ -257,6 +261,11 @@ void VisualServoGrabAction::workerLoop() {
                 } else if (elapsedSec(lost_since_tp_) >= params_.grab_done_lost_time_s) {
                     RCLCPP_INFO(node_->get_logger(), "武馆区夹取完成: 端头消失 %.1fs",
                                 params_.grab_done_lost_time_s);
+                    if (config().blackboard) {
+                        config().blackboard->set("mc_tip_grab_confirmed", true);
+                        config().blackboard->set("mc_tip_grab_confirm_method",
+                                                 std::string("tip_lost_after_grab"));
+                    }
                     publishStop(true);
                     done_ = true;
                     return;
