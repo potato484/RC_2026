@@ -1,15 +1,17 @@
 #include "rc26_decision/second_preselection/second_preselection.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
+#include <optional>
 #include <sstream>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
-#include <opencv2/imgproc.hpp>
+#include <opencv2/core.hpp>
 
 #include "rc26_decision/decision_failure.hpp"
 #include "rc26_decision/team_color.hpp"
@@ -20,14 +22,13 @@ namespace rc26_decision {
 
 namespace {
 
+constexpr std::array<int, 3> kGridCols{-1, 0, 1};
+constexpr std::array<int, 3> kGridRows{-1, 0, 1};
+
 double elapsedSec(const std::chrono::steady_clock::time_point &since) {
   return std::chrono::duration<double>(std::chrono::steady_clock::now() - since)
       .count();
 }
-
-int clampByteParam(int value) { return std::clamp(value, 0, 255); }
-
-int clampHueParam(int value) { return std::clamp(value, 0, 180); }
 
 std::string resolveVisionConfig(const std::string &configured) {
   namespace fs = std::filesystem;
@@ -48,69 +49,181 @@ std::string resolveVisionConfig(const std::string &configured) {
   return configured;
 }
 
-cv::Scalar hsvLower(const SecondPreselectionHsvRange &range) {
-  return cv::Scalar(clampHueParam(range.hue_low),
-                    clampByteParam(range.saturation_min),
-                    clampByteParam(range.value_min));
-}
-
-cv::Scalar hsvUpper(const SecondPreselectionHsvRange &range) {
-  return cv::Scalar(clampHueParam(range.hue_high), 255, 255);
-}
-
-void addRangeMask(const cv::Mat &hsv, const SecondPreselectionHsvRange &range,
-                  cv::Mat &mask) {
-  cv::Mat part;
-  cv::inRange(hsv, hsvLower(range), hsvUpper(range), part);
-  if (mask.empty()) {
-    mask = part;
-  } else {
-    cv::bitwise_or(mask, part, mask);
-  }
-}
-
 std::vector<uint8_t> emptyPayload() { return {}; }
+
+cv::Point2f detectionCenter(const rc26_vision::Detection &detection) {
+  return cv::Point2f((detection.x1 + detection.x2) * 0.5F,
+                     (detection.y1 + detection.y2) * 0.5F);
+}
+
+bool pointInRoi(const cv::Point2f &point, const cv::Rect2f &roi) {
+  return point.x >= roi.x && point.x <= roi.x + roi.width &&
+         point.y >= roi.y && point.y <= roi.y + roi.height;
+}
+
+bool startsWith(const std::string &value, const std::string &prefix) {
+  return value.size() >= prefix.size() &&
+         value.compare(0, prefix.size(), prefix) == 0;
+}
+
+bool labelAllowed(const std::string &label,
+                  const SecondPreselectionParams &params) {
+  if (label.empty()) {
+    return false;
+  }
+  if (params.grid_label_exact_names.empty() &&
+      params.grid_label_prefixes.empty()) {
+    return true;
+  }
+  if (std::find(params.grid_label_exact_names.begin(),
+                params.grid_label_exact_names.end(),
+                label) != params.grid_label_exact_names.end()) {
+    return true;
+  }
+  for (const auto &prefix : params.grid_label_prefixes) {
+    if (!prefix.empty() && startsWith(label, prefix)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+int gridCellIndex(int col, int row) {
+  const auto col_it = std::find(kGridCols.begin(), kGridCols.end(), col);
+  const auto row_it = std::find(kGridRows.begin(), kGridRows.end(), row);
+  if (col_it == kGridCols.end() || row_it == kGridRows.end()) {
+    return -1;
+  }
+  return static_cast<int>(std::distance(kGridRows.begin(), row_it) * 3 +
+                          std::distance(kGridCols.begin(), col_it));
+}
+
+double currentGridDistance(const SecondPreselectionParams &params,
+                           double odom_delta_x_m) {
+  return std::max(0.05, params.grid_initial_distance_m - odom_delta_x_m);
+}
+
+double currentGridLateralOffset(const SecondPreselectionParams &params,
+                                double odom_delta_y_m) {
+  return params.grid_initial_lateral_offset_m +
+         params.grid_base_y_to_grid_x_sign * odom_delta_y_m;
+}
+
+double gridColumnCenterX(const SecondPreselectionParams &params, int col) {
+  if (col < 0) {
+    return -(params.grid_center_col_width_m + params.grid_left_col_width_m) *
+           0.5;
+  }
+  if (col > 0) {
+    return (params.grid_center_col_width_m + params.grid_right_col_width_m) *
+           0.5;
+  }
+  return 0.0;
+}
+
+SecondPreselectionGridCellProjection projectGridCell(
+    int col, int row, const SecondPreselectionParams &params, double distance_m,
+    double lateral_offset_m) {
+  SecondPreselectionGridCellProjection cell;
+  cell.col = col;
+  cell.row = row;
+
+  const double center_grid_x_m = gridColumnCenterX(params, col);
+  const double center_grid_height_m =
+      params.grid_middle_center_height_m +
+      static_cast<double>(row) * params.grid_row_pitch_m;
+  const double u = params.grid_camera_ppx_px +
+                   params.grid_camera_fx_px *
+                       (center_grid_x_m - lateral_offset_m) / distance_m;
+  const double v = params.grid_camera_ppy_px +
+                   params.grid_camera_fy_px *
+                       (params.grid_camera_height_m - center_grid_height_m) /
+                       distance_m;
+  const double width_px =
+      params.grid_camera_fx_px * params.grid_safe_width_m / distance_m;
+  const double height_px =
+      params.grid_camera_fy_px * params.grid_safe_height_m / distance_m;
+
+  cell.center =
+      cv::Point2f(static_cast<float>(u), static_cast<float>(v));
+  cell.roi = cv::Rect2f(static_cast<float>(u - width_px * 0.5),
+                        static_cast<float>(v - height_px * 0.5),
+                        static_cast<float>(width_px),
+                        static_cast<float>(height_px));
+  return cell;
+}
+
+std::optional<int> selectMiddleColumn(
+    uint16_t mask, const SecondPreselectionParams &params) {
+  (void)params;
+  for (const int col : std::array<int, 3>{0, -1, 1}) {
+    const int index = gridCellIndex(col, 0);
+    if (index >= 0 && (mask & (static_cast<uint16_t>(1U) << index)) == 0U) {
+      return col;
+    }
+  }
+  return std::nullopt;
+}
+
+double selectedLateralMotion(const SecondPreselectionParams &params,
+                             int selected_col, double odom_delta_y_m) {
+  const double current_offset_m = currentGridLateralOffset(params, odom_delta_y_m);
+  const double target_offset_m =
+      gridColumnCenterX(params, selected_col) + params.grid_place_lateral_bias_m;
+  return params.grid_base_y_to_grid_x_sign *
+         (target_offset_m - current_offset_m);
+}
 
 } // namespace
 
-SecondPreselectionHsvObservation evaluateSecondPreselectionOccupancy(
-    const cv::Mat &frame_bgr, const SecondPreselectionParams &params,
-    const std::string &team) {
-  SecondPreselectionHsvObservation result;
-  if (frame_bgr.empty()) {
-    return result;
+SecondPreselectionOccupancyObservation evaluateSecondPreselectionGridOccupancy(
+    const std::vector<rc26_vision::Detection> &detections,
+    const SecondPreselectionParams &params, double odom_delta_x_m,
+    double odom_delta_y_m) {
+  SecondPreselectionOccupancyObservation result;
+  const double distance_m = currentGridDistance(params, odom_delta_x_m);
+  const double lateral_offset_m = currentGridLateralOffset(params, odom_delta_y_m);
+
+  for (const int row : kGridRows) {
+    for (const int col : kGridCols) {
+      const int index = gridCellIndex(col, row);
+      if (index < 0) {
+        continue;
+      }
+      result.grid_cells[static_cast<std::size_t>(index)] =
+          projectGridCell(col, row, params, distance_m, lateral_offset_m);
+    }
   }
 
-  const int x = std::clamp(params.roi_x, 0, std::max(0, frame_bgr.cols - 1));
-  const int y = std::clamp(params.roi_y, 0, std::max(0, frame_bgr.rows - 1));
-  const int width = std::clamp(params.roi_width, 1, frame_bgr.cols - x);
-  const int height = std::clamp(params.roi_height, 1, frame_bgr.rows - y);
-  const cv::Mat roi = frame_bgr(cv::Rect(x, y, width, height));
+  for (const auto &detection : detections) {
+    if (!labelAllowed(detection.class_name, params)) {
+      continue;
+    }
+    const cv::Point2f center = detectionCenter(detection);
+    for (std::size_t i = 0; i < result.grid_cells.size(); ++i) {
+      if (!pointInRoi(center, result.grid_cells[i].roi)) {
+        continue;
+      }
+      ++result.grid_detection_counts[i];
+      result.grid_occupied_mask |= static_cast<uint16_t>(1U << i);
+      ++result.matched_detections;
+      if (result.first_label.empty()) {
+        result.first_label = detection.class_name;
+      }
+      break;
+    }
+  }
 
-  cv::Mat hsv;
-  cv::cvtColor(roi, hsv, cv::COLOR_BGR2HSV);
-  cv::Mat mask;
-  const bool our_team_is_red = resolveTeamColorRuntime(team).normalized == "red";
-  if (our_team_is_red) {
-    addRangeMask(hsv, params.blue_hsv1, mask);
-    addRangeMask(hsv, params.blue_hsv2, mask);
+  result.selected_middle_col =
+      selectMiddleColumn(result.grid_occupied_mask, params);
+  if (result.selected_middle_col.has_value()) {
+    result.selected_lateral_m =
+        selectedLateralMotion(params, *result.selected_middle_col, odom_delta_y_m);
+    result.occupied = false;
   } else {
-    addRangeMask(hsv, params.red_hsv1, mask);
-    addRangeMask(hsv, params.red_hsv2, mask);
+    result.selected_lateral_m = 0.0;
+    result.occupied = true;
   }
-
-  const cv::Mat kernel =
-      cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5));
-  cv::morphologyEx(mask, mask, cv::MORPH_OPEN, kernel);
-  cv::morphologyEx(mask, mask, cv::MORPH_CLOSE, kernel);
-
-  std::vector<std::vector<cv::Point>> contours;
-  cv::findContours(mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-  for (const auto &contour : contours) {
-    result.best_area_px = std::max(result.best_area_px, cv::contourArea(contour));
-  }
-  result.occupied =
-      result.best_area_px >= static_cast<double>(params.occupied_min_area_px);
   return result;
 }
 
@@ -342,6 +455,7 @@ SecondPreselectionObserveAction::SecondPreselectionObserveAction(
 
 SecondPreselectionObserveAction::~SecondPreselectionObserveAction() {
   releaseVision();
+  releaseOdom();
 }
 
 BT::NodeStatus SecondPreselectionObserveAction::onStart() {
@@ -359,23 +473,34 @@ BT::NodeStatus SecondPreselectionObserveAction::onStart() {
   config().blackboard->set("second_preselection_observe_error", false);
   config().blackboard->set("second_preselection_middle_empty", false);
   config().blackboard->set("second_preselection_middle_occupied", false);
-  config().blackboard->set("second_preselection_last_observe_area_px", 0.0);
+  config().blackboard->set("second_preselection_last_observe_detection_count", 0);
+  config().blackboard->set("second_preselection_grid_occupied_mask", 0);
+  config().blackboard->set("second_preselection_selected_middle_col", 0);
+  config().blackboard->set("second_preselection_selected_lateral_m", 0.0);
 
   occupied_stable_count_ = 0;
+  has_odom_ = false;
+  odom_reference_ready_ = false;
   start_tp_ = std::chrono::steady_clock::now();
   last_log_tp_ = start_tp_;
+  if (!setupOdom()) {
+    config().blackboard->set("second_preselection_observe_error", true);
+    return fail("第二预选赛动态 ROI odom 启动失败");
+  }
   if (!setupVision()) {
     config().blackboard->set("second_preselection_observe_error", true);
     return fail("第二预选赛九宫格中层视觉启动失败");
   }
 
   RCLCPP_INFO(node_->get_logger(),
-              "第二预选赛开始观察九宫格中层：team=%s ROI=[%d,%d,%d,%d] opponent=%s timeout=%.1fs area>=%d stable=%d",
-              team_.c_str(), params_.roi_x, params_.roi_y, params_.roi_width,
-              params_.roi_height,
-              resolveTeamColorRuntime(team_).normalized == "red" ? "blue"
-                                                                 : "red",
-              params_.observe_timeout_s, params_.occupied_min_area_px,
+              "第二预选赛开始动态九宫格观察：team=%s D0=%.2f S0=%.2f cols=[%.2f,%.2f,%.2f] row_pitch=%.2f camera=[fx %.1f fy %.1f ppx %.1f ppy %.1f] odom=%s timeout=%.1fs label_stable=%d",
+              team_.c_str(), params_.grid_initial_distance_m,
+              params_.grid_initial_lateral_offset_m,
+              params_.grid_left_col_width_m, params_.grid_center_col_width_m,
+              params_.grid_right_col_width_m, params_.grid_row_pitch_m,
+              params_.grid_camera_fx_px, params_.grid_camera_fy_px,
+              params_.grid_camera_ppx_px, params_.grid_camera_ppy_px,
+              params_.odom_topic.c_str(), params_.observe_timeout_s,
               params_.occupied_stable_frames);
   return BT::NodeStatus::RUNNING;
 }
@@ -389,37 +514,73 @@ BT::NodeStatus SecondPreselectionObserveAction::onRunning() {
   rc26_vision::VisionInferenceManager::FrameSnapshot snapshot;
   const bool got_snapshot = vision_->getLatestFrameSnapshot(snapshot);
   if (got_snapshot && snapshot.has_color && !snapshot.color_bgr.empty()) {
-    const auto observation = evaluateSecondPreselectionOccupancy(
-        snapshot.color_bgr, params_, team_);
-    config().blackboard->set("second_preselection_last_observe_area_px",
-                             observation.best_area_px);
+    if (!odomReady()) {
+      if (odom_reference_ready_) {
+        config().blackboard->set("second_preselection_observe_error", true);
+        return fail("第二预选赛动态 ROI odom 超时");
+      }
+      if (elapsedSec(last_log_tp_) >= params_.observe_log_period_s) {
+        RCLCPP_WARN(node_->get_logger(),
+                    "第二预选赛动态 ROI 等待 odom：topic=%s elapsed=%.1fs",
+                    params_.odom_topic.c_str(), elapsedSec(start_tp_));
+        last_log_tp_ = std::chrono::steady_clock::now();
+      }
+      if (elapsedSec(start_tp_) > params_.observe_timeout_s) {
+        config().blackboard->set("second_preselection_observe_error", true);
+        return fail("第二预选赛动态 ROI 等待 odom 超时");
+      }
+      return BT::NodeStatus::RUNNING;
+    }
+
+    SecondPreselectionOccupancyObservation observation =
+        evaluateSecondPreselectionGridOccupancy(
+            snapshot.detections, params_, current_odom_x_ - start_odom_x_,
+            current_odom_y_ - start_odom_y_);
+    writeObservationToBlackboard(observation);
+
+    if (observation.selected_middle_col) {
+      config().blackboard->set("second_preselection_middle_empty", true);
+      config().blackboard->set("second_preselection_middle_occupied", false);
+      RCLCPP_INFO(node_->get_logger(),
+                  "第二预选赛中层选位成功：col=%d lateral=%.3fm mask=0x%03X detections=%d",
+                  *observation.selected_middle_col, observation.selected_lateral_m,
+                  observation.grid_occupied_mask, observation.matched_detections);
+      releaseVision();
+      releaseOdom();
+      return BT::NodeStatus::SUCCESS;
+    }
+
     if (observation.occupied) {
       ++occupied_stable_count_;
     } else {
       config().blackboard->set("second_preselection_middle_empty", true);
       config().blackboard->set("second_preselection_middle_occupied", false);
       RCLCPP_INFO(node_->get_logger(),
-                  "第二预选赛九宫格中层判定为空：best_area=%.0fpx",
-                  observation.best_area_px);
+                  "第二预选赛九宫格中层判定为空：ROI内无目标标签");
       releaseVision();
+      releaseOdom();
       return BT::NodeStatus::SUCCESS;
     }
     if (occupied_stable_count_ >= params_.occupied_stable_frames) {
       config().blackboard->set("second_preselection_middle_empty", false);
       config().blackboard->set("second_preselection_middle_occupied", true);
       RCLCPP_INFO(node_->get_logger(),
-                  "第二预选赛九宫格中层被对方 KFS 占据：best_area=%.0fpx stable=%d/%d",
-                  observation.best_area_px, occupied_stable_count_,
+                  "第二预选赛九宫格中层被目标标签占据：label=%s count=%d stable=%d/%d",
+                  observation.first_label.c_str(), observation.matched_detections,
+                  occupied_stable_count_,
                   params_.occupied_stable_frames);
       releaseVision();
+      releaseOdom();
       return BT::NodeStatus::SUCCESS;
     }
     if (elapsedSec(last_log_tp_) >= params_.observe_log_period_s) {
       RCLCPP_INFO(node_->get_logger(),
-                  "第二预选赛九宫格中层观察中：occupied=%s best_area=%.0fpx stable=%d/%d elapsed=%.1fs",
+                  "第二预选赛九宫格中层观察中：occupied=%s label=%s count=%d stable=%d/%d mask=0x%03X elapsed=%.1fs",
                   observation.occupied ? "true" : "false",
-                  observation.best_area_px, occupied_stable_count_,
-                  params_.occupied_stable_frames, elapsedSec(start_tp_));
+                  observation.first_label.empty() ? "-" : observation.first_label.c_str(),
+                  observation.matched_detections, occupied_stable_count_,
+                  params_.occupied_stable_frames, observation.grid_occupied_mask,
+                  elapsedSec(start_tp_));
       last_log_tp_ = std::chrono::steady_clock::now();
     }
   } else if (elapsedSec(last_log_tp_) >= params_.observe_log_period_s) {
@@ -437,12 +598,16 @@ BT::NodeStatus SecondPreselectionObserveAction::onRunning() {
     RCLCPP_WARN(node_->get_logger(),
                 "第二预选赛九宫格中层观察超时，保守判定为被占据");
     releaseVision();
+    releaseOdom();
     return BT::NodeStatus::SUCCESS;
   }
   return BT::NodeStatus::RUNNING;
 }
 
-void SecondPreselectionObserveAction::onHalted() { releaseVision(); }
+void SecondPreselectionObserveAction::onHalted() {
+  releaseVision();
+  releaseOdom();
+}
 
 BT::NodeStatus SecondPreselectionObserveAction::fail(
     const std::string &reason) {
@@ -452,6 +617,7 @@ BT::NodeStatus SecondPreselectionObserveAction::fail(
   }
   writeDecisionFailure(config().blackboard, "SecondPreselectionObserve", reason);
   releaseVision();
+  releaseOdom();
   return BT::NodeStatus::FAILURE;
 }
 
@@ -489,9 +655,62 @@ void SecondPreselectionObserveAction::releaseVision() {
   }
 }
 
+bool SecondPreselectionObserveAction::setupOdom() {
+  odom_sub_ = node_->create_subscription<OdomMsg>(
+      params_.odom_topic, rclcpp::QoS(rclcpp::KeepLast(10)),
+      [this](const OdomMsg::SharedPtr msg) {
+        if (!msg) {
+          return;
+        }
+        current_odom_x_ = msg->pose.pose.position.x;
+        current_odom_y_ = msg->pose.pose.position.y;
+        has_odom_ = true;
+        last_odom_tp_ = std::chrono::steady_clock::now();
+        if (!odom_reference_ready_) {
+          start_odom_x_ = current_odom_x_;
+          start_odom_y_ = current_odom_y_;
+          odom_reference_ready_ = true;
+        }
+      });
+  return static_cast<bool>(odom_sub_);
+}
+
+void SecondPreselectionObserveAction::releaseOdom() {
+  odom_sub_.reset();
+}
+
+bool SecondPreselectionObserveAction::odomReady() const {
+  if (!has_odom_ || !odom_reference_ready_) {
+    return false;
+  }
+  return elapsedSec(last_odom_tp_) <= params_.odom_timeout_s;
+}
+
+void SecondPreselectionObserveAction::writeObservationToBlackboard(
+    const SecondPreselectionOccupancyObservation &observation) {
+  if (!config().blackboard) {
+    return;
+  }
+  config().blackboard->set("second_preselection_last_observe_detection_count",
+                           observation.matched_detections);
+  config().blackboard->set(
+      "second_preselection_grid_occupied_mask",
+      static_cast<int>(observation.grid_occupied_mask));
+  config().blackboard->set(
+      "second_preselection_selected_middle_col",
+      observation.selected_middle_col.value_or(0));
+  config().blackboard->set("second_preselection_selected_lateral_m",
+                           observation.selected_lateral_m);
+}
+
 void loadSecondPreselectionParams(rclcpp::Node &node,
                                   const BT::Blackboard::Ptr &blackboard) {
   SecondPreselectionParams p;
+  int mirror_sign = 1;
+  if (blackboard) {
+    (void)blackboard->get("team_mirror_sign", mirror_sign);
+  }
+  mirror_sign = normalizedMirrorSign(mirror_sign);
   p.send_command_service = node.declare_parameter<std::string>(
       "second_preselect_send_command_service", p.send_command_service);
   p.feedback_topic = node.declare_parameter<std::string>(
@@ -521,10 +740,6 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
       node.declare_parameter<double>("second_preselect_nav_y1_m", p.nav_y1_m);
   p.nav_x2_m =
       node.declare_parameter<double>("second_preselect_nav_x2_m", p.nav_x2_m);
-  p.search_y_positive_m = node.declare_parameter<double>(
-      "second_preselect_search_y_positive_m", p.search_y_positive_m);
-  p.search_y_negative_m = node.declare_parameter<double>(
-      "second_preselect_search_y_negative_m", p.search_y_negative_m);
   p.place_forward_x_m = node.declare_parameter<double>(
       "second_preselect_place_forward_x_m", p.place_forward_x_m);
   p.retreat_x_m = node.declare_parameter<double>(
@@ -536,69 +751,139 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
       "second_preselect_vision_config_file", p.vision_config_file);
   p.model_id = node.declare_parameter<std::string>(
       "second_preselect_model_id", p.model_id);
-  p.roi_x = node.declare_parameter<int>("second_preselect_roi_x", p.roi_x);
-  p.roi_y = node.declare_parameter<int>("second_preselect_roi_y", p.roi_y);
-  p.roi_width =
-      node.declare_parameter<int>("second_preselect_roi_width", p.roi_width);
-  p.roi_height =
-      node.declare_parameter<int>("second_preselect_roi_height", p.roi_height);
-  p.occupied_min_area_px = node.declare_parameter<int>(
-      "second_preselect_occupied_min_area_px", p.occupied_min_area_px);
+  p.grid_camera_fx_px = node.declare_parameter<double>(
+      "second_preselect_grid_camera_fx_px", p.grid_camera_fx_px);
+  p.grid_camera_fy_px = node.declare_parameter<double>(
+      "second_preselect_grid_camera_fy_px", p.grid_camera_fy_px);
+  p.grid_camera_ppx_px = node.declare_parameter<double>(
+      "second_preselect_grid_camera_ppx_px", p.grid_camera_ppx_px);
+  p.grid_camera_ppy_px = node.declare_parameter<double>(
+      "second_preselect_grid_camera_ppy_px", p.grid_camera_ppy_px);
+  p.grid_left_col_width_m = node.declare_parameter<double>(
+      "second_preselect_grid_left_col_width_m", p.grid_left_col_width_m);
+  p.grid_center_col_width_m = node.declare_parameter<double>(
+      "second_preselect_grid_center_col_width_m", p.grid_center_col_width_m);
+  p.grid_right_col_width_m = node.declare_parameter<double>(
+      "second_preselect_grid_right_col_width_m", p.grid_right_col_width_m);
+  p.grid_row_pitch_m = node.declare_parameter<double>(
+      "second_preselect_grid_row_pitch_m", p.grid_row_pitch_m);
+  p.grid_middle_center_height_m = node.declare_parameter<double>(
+      "second_preselect_grid_middle_center_height_m",
+      p.grid_middle_center_height_m);
+  p.grid_safe_width_m = node.declare_parameter<double>(
+      "second_preselect_grid_safe_width_m", p.grid_safe_width_m);
+  p.grid_safe_height_m = node.declare_parameter<double>(
+      "second_preselect_grid_safe_height_m", p.grid_safe_height_m);
+  p.grid_camera_height_m = node.declare_parameter<double>(
+      "second_preselect_grid_camera_height_m", p.grid_camera_height_m);
+  p.grid_initial_distance_m = node.declare_parameter<double>(
+      "second_preselect_grid_initial_distance_m",
+      p.grid_initial_distance_m);
+  p.grid_initial_lateral_offset_m = node.declare_parameter<double>(
+      "second_preselect_grid_initial_lateral_offset_m",
+      p.grid_initial_lateral_offset_m);
+  p.grid_base_y_to_grid_x_sign = node.declare_parameter<double>(
+      "second_preselect_grid_base_y_to_grid_x_sign",
+      p.grid_base_y_to_grid_x_sign);
+  p.grid_place_lateral_bias_m = node.declare_parameter<double>(
+      "second_preselect_grid_place_lateral_bias_m",
+      p.grid_place_lateral_bias_m);
+  p.grid_label_prefixes = node.declare_parameter<std::vector<std::string>>(
+      "second_preselect_grid_label_prefixes", p.grid_label_prefixes);
+  p.grid_label_exact_names = node.declare_parameter<std::vector<std::string>>(
+      "second_preselect_grid_label_exact_names", p.grid_label_exact_names);
   p.occupied_stable_frames = node.declare_parameter<int>(
       "second_preselect_occupied_stable_frames", p.occupied_stable_frames);
   p.observe_timeout_s = node.declare_parameter<double>(
       "second_preselect_observe_timeout_s", p.observe_timeout_s);
   p.observe_log_period_s = node.declare_parameter<double>(
       "second_preselect_observe_log_period_s", p.observe_log_period_s);
-
-  p.red_hsv1.hue_low =
-      node.declare_parameter<int>("second_preselect_red_hue_low1",
-                                  p.red_hsv1.hue_low);
-  p.red_hsv1.hue_high =
-      node.declare_parameter<int>("second_preselect_red_hue_high1",
-                                  p.red_hsv1.hue_high);
-  p.red_hsv2.hue_low =
-      node.declare_parameter<int>("second_preselect_red_hue_low2",
-                                  p.red_hsv2.hue_low);
-  p.red_hsv2.hue_high =
-      node.declare_parameter<int>("second_preselect_red_hue_high2",
-                                  p.red_hsv2.hue_high);
-  p.red_hsv1.saturation_min = p.red_hsv2.saturation_min =
-      node.declare_parameter<int>("second_preselect_red_saturation_min",
-                                  p.red_hsv1.saturation_min);
-  p.red_hsv1.value_min = p.red_hsv2.value_min =
-      node.declare_parameter<int>("second_preselect_red_value_min",
-                                  p.red_hsv1.value_min);
-
-  p.blue_hsv1.hue_low =
-      node.declare_parameter<int>("second_preselect_blue_hue_low1",
-                                  p.blue_hsv1.hue_low);
-  p.blue_hsv1.hue_high =
-      node.declare_parameter<int>("second_preselect_blue_hue_high1",
-                                  p.blue_hsv1.hue_high);
-  p.blue_hsv2.hue_low =
-      node.declare_parameter<int>("second_preselect_blue_hue_low2",
-                                  p.blue_hsv2.hue_low);
-  p.blue_hsv2.hue_high =
-      node.declare_parameter<int>("second_preselect_blue_hue_high2",
-                                  p.blue_hsv2.hue_high);
-  p.blue_hsv1.saturation_min = p.blue_hsv2.saturation_min =
-      node.declare_parameter<int>("second_preselect_blue_saturation_min",
-                                  p.blue_hsv1.saturation_min);
-  p.blue_hsv1.value_min = p.blue_hsv2.value_min =
-      node.declare_parameter<int>("second_preselect_blue_value_min",
-                                  p.blue_hsv1.value_min);
+  p.odom_topic = node.declare_parameter<std::string>(
+      "second_preselect_odom_topic", p.odom_topic);
+  p.odom_timeout_s = node.declare_parameter<double>(
+      "second_preselect_odom_timeout_s", p.odom_timeout_s);
 
   p.command_timeout_s = std::max(0.001, p.command_timeout_s);
   p.done_timeout_s = std::max(0.001, p.done_timeout_s);
   p.log_period_s = std::max(0.1, p.log_period_s);
   p.nav_timeout_s = std::max(0.001, p.nav_timeout_s);
-  p.roi_width = std::max(1, p.roi_width);
-  p.roi_height = std::max(1, p.roi_height);
-  p.occupied_min_area_px = std::max(1, p.occupied_min_area_px);
   p.occupied_stable_frames = std::max(1, p.occupied_stable_frames);
   p.observe_timeout_s = std::max(0.001, p.observe_timeout_s);
   p.observe_log_period_s = std::max(0.1, p.observe_log_period_s);
+  p.grid_camera_fx_px =
+      (std::isfinite(p.grid_camera_fx_px) && p.grid_camera_fx_px > 0.0)
+          ? p.grid_camera_fx_px
+          : SecondPreselectionParams{}.grid_camera_fx_px;
+  p.grid_camera_fy_px =
+      (std::isfinite(p.grid_camera_fy_px) && p.grid_camera_fy_px > 0.0)
+          ? p.grid_camera_fy_px
+          : SecondPreselectionParams{}.grid_camera_fy_px;
+  p.grid_camera_ppx_px =
+      std::isfinite(p.grid_camera_ppx_px)
+          ? p.grid_camera_ppx_px
+          : SecondPreselectionParams{}.grid_camera_ppx_px;
+  p.grid_camera_ppy_px =
+      std::isfinite(p.grid_camera_ppy_px)
+          ? p.grid_camera_ppy_px
+          : SecondPreselectionParams{}.grid_camera_ppy_px;
+  p.grid_left_col_width_m =
+      (std::isfinite(p.grid_left_col_width_m) &&
+       p.grid_left_col_width_m > 0.0)
+          ? p.grid_left_col_width_m
+          : SecondPreselectionParams{}.grid_left_col_width_m;
+  p.grid_center_col_width_m =
+      (std::isfinite(p.grid_center_col_width_m) &&
+       p.grid_center_col_width_m > 0.0)
+          ? p.grid_center_col_width_m
+          : SecondPreselectionParams{}.grid_center_col_width_m;
+  p.grid_right_col_width_m =
+      (std::isfinite(p.grid_right_col_width_m) &&
+       p.grid_right_col_width_m > 0.0)
+          ? p.grid_right_col_width_m
+          : SecondPreselectionParams{}.grid_right_col_width_m;
+  p.grid_row_pitch_m =
+      (std::isfinite(p.grid_row_pitch_m) && p.grid_row_pitch_m > 0.0)
+          ? p.grid_row_pitch_m
+          : SecondPreselectionParams{}.grid_row_pitch_m;
+  p.grid_middle_center_height_m =
+      std::isfinite(p.grid_middle_center_height_m)
+          ? p.grid_middle_center_height_m
+          : SecondPreselectionParams{}.grid_middle_center_height_m;
+  p.grid_safe_width_m =
+      (std::isfinite(p.grid_safe_width_m) && p.grid_safe_width_m > 0.0)
+          ? p.grid_safe_width_m
+          : SecondPreselectionParams{}.grid_safe_width_m;
+  p.grid_safe_height_m =
+      (std::isfinite(p.grid_safe_height_m) && p.grid_safe_height_m > 0.0)
+          ? p.grid_safe_height_m
+          : SecondPreselectionParams{}.grid_safe_height_m;
+  p.grid_camera_height_m =
+      std::isfinite(p.grid_camera_height_m)
+          ? p.grid_camera_height_m
+          : SecondPreselectionParams{}.grid_camera_height_m;
+  p.grid_initial_distance_m =
+      (std::isfinite(p.grid_initial_distance_m) &&
+       p.grid_initial_distance_m > 0.05)
+          ? p.grid_initial_distance_m
+          : SecondPreselectionParams{}.grid_initial_distance_m;
+  p.grid_initial_lateral_offset_m =
+      std::isfinite(p.grid_initial_lateral_offset_m)
+          ? p.grid_initial_lateral_offset_m
+          : SecondPreselectionParams{}.grid_initial_lateral_offset_m;
+  p.grid_base_y_to_grid_x_sign =
+      (std::isfinite(p.grid_base_y_to_grid_x_sign) &&
+       p.grid_base_y_to_grid_x_sign >= 0.0)
+          ? 1.0
+          : -1.0;
+  p.nav_y1_m *= static_cast<double>(mirror_sign);
+  p.grid_initial_lateral_offset_m *= static_cast<double>(mirror_sign);
+  p.grid_base_y_to_grid_x_sign *= static_cast<double>(mirror_sign);
+  p.grid_place_lateral_bias_m *= static_cast<double>(mirror_sign);
+  p.grid_place_lateral_bias_m =
+      std::isfinite(p.grid_place_lateral_bias_m)
+          ? p.grid_place_lateral_bias_m
+          : SecondPreselectionParams{}.grid_place_lateral_bias_m;
+  p.odom_timeout_s = std::max(0.001, p.odom_timeout_s);
   p.vision_config_file = resolveVisionConfig(p.vision_config_file);
 
   blackboard->set("second_preselection_params", p);
@@ -616,28 +901,34 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   blackboard->set("second_preselect_nav_x1_m", p.nav_x1_m);
   blackboard->set("second_preselect_nav_y1_m", p.nav_y1_m);
   blackboard->set("second_preselect_nav_x2_m", p.nav_x2_m);
-  blackboard->set("second_preselect_search_y_positive_m",
-                  p.search_y_positive_m);
-  blackboard->set("second_preselect_search_y_negative_m",
-                  p.search_y_negative_m);
   blackboard->set("second_preselect_place_forward_x_m", p.place_forward_x_m);
   blackboard->set("second_preselect_retreat_x_m", p.retreat_x_m);
   blackboard->set("second_preselect_nav_timeout_s", p.nav_timeout_s);
+  blackboard->set("second_preselect_odom_topic", p.odom_topic);
+  blackboard->set("second_preselect_odom_timeout_s", p.odom_timeout_s);
   blackboard->set("second_preselection_middle_empty", false);
   blackboard->set("second_preselection_middle_occupied", false);
   blackboard->set("second_preselection_observe_error", false);
-  blackboard->set("second_preselection_last_observe_area_px", 0.0);
+  blackboard->set("second_preselection_last_observe_detection_count", 0);
+  blackboard->set("second_preselection_grid_occupied_mask", 0);
+  blackboard->set("second_preselection_selected_middle_col", 0);
+  blackboard->set("second_preselection_selected_lateral_m", 0.0);
 
   RCLCPP_INFO(node.get_logger(),
-              "第二预选赛参数已加载: start=0x%02X/done=0x%02X high=0x%02X/done=0x%02X place=0x%02X nav=[x1 %.2f, y1 %.2f, x2 %.2f, y+ %.2f, y- %.2f, place %.2f, retreat %.2f] ROI=[%d,%d,%d,%d] area>=%d stable=%d",
+              "第二预选赛参数已加载: mirror_sign=%d start=0x%02X/done=0x%02X high=0x%02X/done=0x%02X place=0x%02X nav=[x1 %.2f, y1 %.2f, x2 %.2f, place %.2f, retreat %.2f] D0=%.2f S0=%.2f base_y_to_grid_x=%.1f camera=[fx %.1f fy %.1f ppx %.1f ppy %.1f] cols=[%.2f,%.2f,%.2f] row_pitch=%.2f safe=[%.2f,%.2f] odom=%s label_stable=%d",
+              mirror_sign,
               p.start_command_id & 0xFF, p.start_done_feedback_id & 0xFF,
               p.arm_high_raise_command_id & 0xFF,
               p.arm_high_raise_done_feedback_id & 0xFF,
               p.place_kfs_command_id & 0xFF, p.nav_x1_m, p.nav_y1_m,
-              p.nav_x2_m, p.search_y_positive_m, p.search_y_negative_m,
-              p.place_forward_x_m, p.retreat_x_m, p.roi_x, p.roi_y,
-              p.roi_width, p.roi_height, p.occupied_min_area_px,
-              p.occupied_stable_frames);
+              p.nav_x2_m, p.place_forward_x_m, p.retreat_x_m,
+              p.grid_initial_distance_m, p.grid_initial_lateral_offset_m,
+              p.grid_base_y_to_grid_x_sign, p.grid_camera_fx_px,
+              p.grid_camera_fy_px, p.grid_camera_ppx_px,
+              p.grid_camera_ppy_px, p.grid_left_col_width_m,
+              p.grid_center_col_width_m, p.grid_right_col_width_m,
+              p.grid_row_pitch_m, p.grid_safe_width_m, p.grid_safe_height_m,
+              p.odom_topic.c_str(), p.occupied_stable_frames);
 }
 
 void registerSecondPreselectionNodes(BT::BehaviorTreeFactory &factory) {
@@ -659,7 +950,7 @@ BT::NodeStatus SecondPreselectionNoEmptyFailureAction::tick() {
     (void)config().blackboard->get("node", node);
   }
   const std::string reason =
-      "第二预选赛三次观察九宫格中层均被对方 KFS 占据，停止放置";
+      "第二预选赛动态九宫格观察未找到中层空位，停止放置";
   if (node) {
     RCLCPP_ERROR(node->get_logger(), "%s", reason.c_str());
   }

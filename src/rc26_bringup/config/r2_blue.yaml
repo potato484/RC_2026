@@ -69,35 +69,36 @@ r2_runtime:
       second_preselect_arm_high_raise_done_feedback_id: 15 # 0x0F SECOND_PRESELECTION_ARM_HIGH_RAISE_DONE
       second_preselect_place_kfs_command_id: 19     # 0x13 SECOND_PRESELECTION_PLACE_KFS，ACK 即发送完成
       second_preselect_nav_x1_m: 1.8                # 开始完成后沿车体系 +X 前进距离；blue 不镜像 X
-      second_preselect_nav_y1_m: 1.2                # 第二段沿车体系 +Y 前进距离；本流程不按红蓝镜像
-      second_preselect_nav_x2_m: 2.5                # 第三段沿车体系 +X 前进距离
-      second_preselect_search_y_positive_m: 0.2     # 初始窗口被挡后沿 +Y 搜索
-      second_preselect_search_y_negative_m: -0.6    # +Y 搜索仍被挡后沿 -Y 搜索；相对初始点为 -0.4m
+      second_preselect_nav_y1_m: 1.2                # 红方基准第二段车体系 Y；blue 启动时自动取反
+      second_preselect_nav_x2_m: 0.75                # 第三段沿车体系 +X 前进距离
       second_preselect_place_forward_x_m: 0.7       # 找到空位后沿 +X 前进放置
       second_preselect_retreat_x_m: -0.7            # 放置命令 ACK 后沿 -X 后退
       second_preselect_nav_timeout_s: 180.0         # 第二预选赛每个 odom 单轴段超时
       second_preselect_vision_config_file: ""       # 空则回退 rc26_vision/config/vision_models.yaml
-      second_preselect_model_id: "kfs_default"      # 只用于启动深度相机/视觉快照，HSV 判断不依赖类别标签
-      second_preselect_roi_x: 220                   # 九宫格中层可见窗口 ROI 左上角 x，需实机标定
-      second_preselect_roi_y: 150                   # 九宫格中层可见窗口 ROI 左上角 y，需实机标定
-      second_preselect_roi_width: 200               # 九宫格中层可见窗口 ROI 宽度
-      second_preselect_roi_height: 180              # 九宫格中层可见窗口 ROI 高度
-      second_preselect_occupied_min_area_px: 1200   # ROI 内对方颜色最大连通域达到该面积判定被占据
-      second_preselect_occupied_stable_frames: 2    # 连续多少帧被占据后确认窗口被挡
+      second_preselect_model_id: "kfs_default"      # 用于启动深度相机/视觉快照；目标标签中心落入动态格子 ROI 即占据
+      second_preselect_grid_camera_fx_px: 385.6756287 # Color 640x480 fx
+      second_preselect_grid_camera_fy_px: 385.1935120 # Color 640x480 fy
+      second_preselect_grid_camera_ppx_px: 323.6063232 # Color 640x480 ppx
+      second_preselect_grid_camera_ppy_px: 241.5680695 # Color 640x480 ppy
+      second_preselect_grid_left_col_width_m: 0.54  # 红方基准从左往右第一列宽度
+      second_preselect_grid_center_col_width_m: 0.58 # 红方基准中间一列宽度
+      second_preselect_grid_right_col_width_m: 0.50 # 红方基准从右往左第一列宽度
+      second_preselect_grid_row_pitch_m: 0.54       # 九宫格每一行高度/行中心距
+      second_preselect_grid_middle_center_height_m: 1.21 # 中层格中心离地高度
+      second_preselect_grid_safe_width_m: 0.40      # 单格动态 ROI 安全宽度
+      second_preselect_grid_safe_height_m: 0.40     # 单格动态 ROI 安全高度
+      second_preselect_grid_camera_height_m: 0.80   # 当前水平安装相机离地高度
+      second_preselect_grid_initial_distance_m: 1.80 # 观察开始时相机到九宫格平面的距离
+      second_preselect_grid_initial_lateral_offset_m: 0.0 # 红方基准观察开始横向偏移；blue 自动取反
+      second_preselect_grid_base_y_to_grid_x_sign: -1.0 # 红方基准 +Y_base 对应 -X_grid；blue 自动取反
+      second_preselect_grid_place_lateral_bias_m: 0.0 # 红方基准放置横向偏置补偿；blue 自动取反
+      second_preselect_grid_label_prefixes: []      # 空列表表示所有非空 class_name 有效
+      second_preselect_grid_label_exact_names: []   # 空列表表示所有非空 class_name 有效
+      second_preselect_odom_topic: "odom"           # 动态 ROI 观察时读取的 odom topic
+      second_preselect_odom_timeout_s: 0.5          # 动态 ROI odom 新鲜度超时
+      second_preselect_occupied_stable_frames: 2    # 中层全占据时连续多少帧确认无空位
       second_preselect_observe_timeout_s: 2.0       # 单次窗口观察最长时间；超时保守视为被占据
       second_preselect_observe_log_period_s: 0.5    # 观察日志节流周期
-      second_preselect_red_hue_low1: 0              # 红色 hue 段；blue 队检测红色对方 KFS
-      second_preselect_red_hue_high1: 10
-      second_preselect_red_hue_low2: 170
-      second_preselect_red_hue_high2: 180
-      second_preselect_red_saturation_min: 80
-      second_preselect_red_value_min: 60
-      second_preselect_blue_hue_low1: 95
-      second_preselect_blue_hue_high1: 130
-      second_preselect_blue_hue_low2: 95
-      second_preselect_blue_hue_high2: 130
-      second_preselect_blue_saturation_min: 80
-      second_preselect_blue_value_min: 50
 
       # ======================================================================
       # 武馆区 (MC) 红方基准运行参数 —— blue 启动时自动镜像侧向 yaw 和原地旋转方向

@@ -1,72 +1,277 @@
 #include <gtest/gtest.h>
 
+#include <array>
 #include <filesystem>
 
 #include <behaviortree_cpp/bt_factory.h>
-#include <opencv2/imgproc.hpp>
 
 #include "rc26_decision/navigation/bt_odom_relative_nav.hpp"
 #include "rc26_decision/second_preselection/second_preselection.hpp"
 
 namespace {
 
-cv::Mat makeFrameWithHsvRect(const cv::Scalar &hsv, const cv::Rect &rect) {
-  cv::Mat hsv_frame(480, 640, CV_8UC3, cv::Scalar(0, 0, 0));
-  cv::rectangle(hsv_frame, rect, hsv, cv::FILLED);
-  cv::Mat bgr;
-  cv::cvtColor(hsv_frame, bgr, cv::COLOR_HSV2BGR);
-  return bgr;
+rc26_decision::SecondPreselectionParams defaultParams() {
+  return rc26_decision::SecondPreselectionParams{};
 }
 
-rc26_decision::SecondPreselectionParams defaultParams() {
-  rc26_decision::SecondPreselectionParams params;
-  params.roi_x = 200;
-  params.roi_y = 140;
-  params.roi_width = 240;
-  params.roi_height = 200;
-  params.occupied_min_area_px = 1000;
-  params.red_hsv1 = {0, 10, 80, 60};
-  params.red_hsv2 = {170, 180, 80, 60};
-  params.blue_hsv1 = {95, 130, 80, 50};
-  params.blue_hsv2 = {95, 130, 80, 50};
-  return params;
+rc26_vision::Detection makeDetection(const std::string &label, float x1,
+                                     float y1, float x2, float y2) {
+  rc26_vision::Detection detection;
+  detection.x1 = x1;
+  detection.y1 = y1;
+  detection.x2 = x2;
+  detection.y2 = y2;
+  detection.score = 0.9F;
+  detection.class_id = 1;
+  detection.class_name = label;
+  return detection;
 }
 
 } // namespace
 
-TEST(SecondPreselectionLogic, RedTeamDetectsBlueOpponentOccupied) {
-  const auto frame =
-      makeFrameWithHsvRect(cv::Scalar(110, 220, 220), cv::Rect(260, 190, 90, 90));
-  const auto observation = rc26_decision::evaluateSecondPreselectionOccupancy(
-      frame, defaultParams(), "red");
-  EXPECT_TRUE(observation.occupied);
-  EXPECT_GE(observation.best_area_px, 1000.0);
+TEST(SecondPreselectionLogic, DynamicProjectionUsesColor640Intrinsics) {
+  const auto params = defaultParams();
+  const auto observation = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      {}, params, 0.0, 0.0);
+
+  const auto &middle_left = observation.grid_cells[3];
+  const auto &middle_center = observation.grid_cells[4];
+  const auto &middle_right = observation.grid_cells[5];
+
+  EXPECT_EQ(middle_center.col, 0);
+  EXPECT_EQ(middle_center.row, 0);
+  EXPECT_NEAR(middle_center.center.x, params.grid_camera_ppx_px, 1.0e-3);
+  EXPECT_NEAR(middle_center.center.y,
+              params.grid_camera_ppy_px +
+                  params.grid_camera_fy_px *
+                      (params.grid_camera_height_m -
+                       params.grid_middle_center_height_m) /
+                      params.grid_initial_distance_m,
+              1.0e-3);
+  EXPECT_NEAR(middle_right.center.x - middle_center.center.x,
+              params.grid_camera_fx_px *
+                  ((params.grid_center_col_width_m +
+                    params.grid_right_col_width_m) *
+                   0.5) /
+                  params.grid_initial_distance_m,
+              1.0e-3);
+  EXPECT_NEAR(middle_center.center.x - middle_left.center.x,
+              params.grid_camera_fx_px *
+                  ((params.grid_center_col_width_m +
+                    params.grid_left_col_width_m) *
+                   0.5) /
+                  params.grid_initial_distance_m,
+              1.0e-3);
+  EXPECT_NEAR(middle_center.roi.width,
+              params.grid_camera_fx_px * params.grid_safe_width_m /
+                  params.grid_initial_distance_m,
+              1.0e-3);
+  EXPECT_NEAR(middle_center.roi.height,
+              params.grid_camera_fy_px * params.grid_safe_height_m /
+                  params.grid_initial_distance_m,
+              1.0e-3);
 }
 
-TEST(SecondPreselectionLogic, BlueTeamDetectsRedOpponentOccupied) {
-  const auto frame =
-      makeFrameWithHsvRect(cv::Scalar(0, 220, 220), cv::Rect(260, 190, 90, 90));
-  const auto observation = rc26_decision::evaluateSecondPreselectionOccupancy(
-      frame, defaultParams(), "blue");
-  EXPECT_TRUE(observation.occupied);
-  EXPECT_GE(observation.best_area_px, 1000.0);
-}
+TEST(SecondPreselectionLogic, DynamicCenterPointInsideCellMarksOccupied) {
+  const auto params = defaultParams();
+  const auto projection = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      {}, params, 0.0, 0.0);
+  const auto center = projection.grid_cells[4].center;
 
-TEST(SecondPreselectionLogic, EmptyRoiIsNotOccupied) {
-  const cv::Mat frame(480, 640, CV_8UC3, cv::Scalar(0, 0, 0));
-  const auto observation = rc26_decision::evaluateSecondPreselectionOccupancy(
-      frame, defaultParams(), "red");
+  const std::vector<rc26_vision::Detection> detections{makeDetection(
+      "KFS_A", center.x - 10.0F, center.y - 10.0F, center.x + 10.0F,
+      center.y + 10.0F)};
+  const auto observation = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      detections, params, 0.0, 0.0);
+
   EXPECT_FALSE(observation.occupied);
-  EXPECT_EQ(observation.best_area_px, 0.0);
+  EXPECT_EQ(observation.grid_occupied_mask, 1U << 4);
+  EXPECT_EQ(observation.grid_detection_counts[4], 1);
+  ASSERT_TRUE(observation.selected_middle_col.has_value());
+  EXPECT_EQ(*observation.selected_middle_col, -1);
 }
 
-TEST(SecondPreselectionLogic, SmallOpponentBlobIsIgnored) {
-  const auto frame =
-      makeFrameWithHsvRect(cv::Scalar(110, 220, 220), cv::Rect(260, 190, 12, 12));
-  const auto observation = rc26_decision::evaluateSecondPreselectionOccupancy(
-      frame, defaultParams(), "red");
+TEST(SecondPreselectionLogic, DynamicBboxEdgeIntersectionWithoutCenterIsIgnored) {
+  const auto params = defaultParams();
+  const auto projection = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      {}, params, 0.0, 0.0);
+  const auto roi = projection.grid_cells[4].roi;
+
+  const std::vector<rc26_vision::Detection> detections{makeDetection(
+      "KFS_A", roi.x - 20.0F, roi.y + 5.0F, roi.x + 4.0F,
+      roi.y + 30.0F)};
+  const auto observation = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      detections, params, 0.0, 0.0);
+
   EXPECT_FALSE(observation.occupied);
-  EXPECT_LT(observation.best_area_px, 1000.0);
+  EXPECT_EQ(observation.grid_occupied_mask, 0U);
+  EXPECT_EQ(observation.matched_detections, 0);
+  ASSERT_TRUE(observation.selected_middle_col.has_value());
+  EXPECT_EQ(*observation.selected_middle_col, 0);
+}
+
+TEST(SecondPreselectionLogic, DynamicMultipleLabelsAssignToDifferentCells) {
+  const auto params = defaultParams();
+  const auto projection = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      {}, params, 0.0, 0.0);
+  const auto left = projection.grid_cells[3].center;
+  const auto upper_right = projection.grid_cells[2].center;
+
+  const std::vector<rc26_vision::Detection> detections{
+      makeDetection("KFS_LEFT", left.x - 8.0F, left.y - 8.0F, left.x + 8.0F,
+                    left.y + 8.0F),
+      makeDetection("KFS_UPPER_RIGHT", upper_right.x - 8.0F,
+                    upper_right.y - 8.0F, upper_right.x + 8.0F,
+                    upper_right.y + 8.0F)};
+  const auto observation = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      detections, params, 0.0, 0.0);
+
+  EXPECT_EQ(observation.grid_occupied_mask, (1U << 3) | (1U << 2));
+  EXPECT_EQ(observation.grid_detection_counts[3], 1);
+  EXPECT_EQ(observation.grid_detection_counts[2], 1);
+  EXPECT_EQ(observation.matched_detections, 2);
+  ASSERT_TRUE(observation.selected_middle_col.has_value());
+  EXPECT_EQ(*observation.selected_middle_col, 0);
+}
+
+TEST(SecondPreselectionLogic, DynamicEmptyClassNameDoesNotOccupyCell) {
+  const auto params = defaultParams();
+  const auto projection = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      {}, params, 0.0, 0.0);
+  const auto center = projection.grid_cells[4].center;
+
+  const std::vector<rc26_vision::Detection> detections{makeDetection(
+      "", center.x - 8.0F, center.y - 8.0F, center.x + 8.0F,
+      center.y + 8.0F)};
+  const auto observation = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      detections, params, 0.0, 0.0);
+
+  EXPECT_FALSE(observation.occupied);
+  EXPECT_EQ(observation.grid_occupied_mask, 0U);
+  EXPECT_EQ(observation.matched_detections, 0);
+}
+
+TEST(SecondPreselectionLogic, DynamicMiddleSelectionPrefersCenterColumn) {
+  const auto params = defaultParams();
+  const auto observation = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      {}, params, 0.0, 0.0);
+
+  ASSERT_TRUE(observation.selected_middle_col.has_value());
+  EXPECT_EQ(*observation.selected_middle_col, 0);
+  EXPECT_NEAR(observation.selected_lateral_m, 0.0, 1.0e-6);
+  EXPECT_FALSE(observation.occupied);
+}
+
+TEST(SecondPreselectionLogic, DynamicMiddleSelectionUsesBasePositiveYSideNext) {
+  const auto params = defaultParams();
+  const auto projection = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      {}, params, 0.0, 0.0);
+  const auto center = projection.grid_cells[4].center;
+
+  const std::vector<rc26_vision::Detection> detections{makeDetection(
+      "KFS_CENTER", center.x - 8.0F, center.y - 8.0F, center.x + 8.0F,
+      center.y + 8.0F)};
+  const auto observation = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      detections, params, 0.0, 0.0);
+
+  ASSERT_TRUE(observation.selected_middle_col.has_value());
+  EXPECT_EQ(*observation.selected_middle_col, -1);
+  EXPECT_NEAR(observation.selected_lateral_m,
+              (params.grid_center_col_width_m + params.grid_left_col_width_m) *
+                  0.5,
+              1.0e-6);
+  EXPECT_FALSE(observation.occupied);
+}
+
+TEST(SecondPreselectionLogic, DynamicMiddleSelectionUsesBaseNegativeYSideLast) {
+  const auto params = defaultParams();
+  const auto projection = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      {}, params, 0.0, 0.0);
+  const auto left = projection.grid_cells[3].center;
+  const auto center = projection.grid_cells[4].center;
+
+  const std::vector<rc26_vision::Detection> detections{
+      makeDetection("KFS_LEFT", left.x - 8.0F, left.y - 8.0F, left.x + 8.0F,
+                    left.y + 8.0F),
+      makeDetection("KFS_CENTER", center.x - 8.0F, center.y - 8.0F,
+                    center.x + 8.0F, center.y + 8.0F)};
+  const auto observation = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      detections, params, 0.0, 0.0);
+
+  ASSERT_TRUE(observation.selected_middle_col.has_value());
+  EXPECT_EQ(*observation.selected_middle_col, 1);
+  EXPECT_NEAR(observation.selected_lateral_m,
+              -(params.grid_center_col_width_m +
+                params.grid_right_col_width_m) *
+                  0.5,
+              1.0e-6);
+  EXPECT_FALSE(observation.occupied);
+}
+
+TEST(SecondPreselectionLogic, DynamicMiddleSelectionMirrorsMovableSpaceToBlueNegativeY) {
+  auto params = defaultParams();
+  params.grid_base_y_to_grid_x_sign = 1.0;
+  const auto projection = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      {}, params, 0.0, 0.0);
+  const auto center = projection.grid_cells[4].center;
+
+  const std::vector<rc26_vision::Detection> detections{makeDetection(
+      "KFS_CENTER", center.x - 8.0F, center.y - 8.0F, center.x + 8.0F,
+      center.y + 8.0F)};
+  const auto observation = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      detections, params, 0.0, 0.0);
+
+  ASSERT_TRUE(observation.selected_middle_col.has_value());
+  EXPECT_EQ(*observation.selected_middle_col, -1);
+  EXPECT_NEAR(observation.selected_lateral_m,
+              -(params.grid_center_col_width_m + params.grid_left_col_width_m) *
+                  0.5,
+              1.0e-6);
+  EXPECT_FALSE(observation.occupied);
+}
+
+TEST(SecondPreselectionLogic, DynamicMiddleSelectionReportsNoEmptyWhenFull) {
+  const auto params = defaultParams();
+  const auto projection = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      {}, params, 0.0, 0.0);
+
+  std::vector<rc26_vision::Detection> detections;
+  for (const std::size_t index : std::array<std::size_t, 3>{3, 4, 5}) {
+    const auto center = projection.grid_cells[index].center;
+    detections.push_back(makeDetection("KFS_FULL", center.x - 8.0F,
+                                       center.y - 8.0F, center.x + 8.0F,
+                                       center.y + 8.0F));
+  }
+  const auto observation = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      detections, params, 0.0, 0.0);
+
+  EXPECT_FALSE(observation.selected_middle_col.has_value());
+  EXPECT_TRUE(observation.occupied);
+  EXPECT_EQ(observation.grid_occupied_mask, (1U << 3) | (1U << 4) | (1U << 5));
+}
+
+TEST(SecondPreselectionLogic, DynamicSelectedLateralAccountsForOdomDeltaY) {
+  const auto params = defaultParams();
+  const double odom_delta_y_m = 0.20;
+  const auto observation = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      {}, params, 0.0, odom_delta_y_m);
+
+  ASSERT_TRUE(observation.selected_middle_col.has_value());
+  EXPECT_EQ(*observation.selected_middle_col, 0);
+  EXPECT_NEAR(observation.selected_lateral_m,
+              params.grid_base_y_to_grid_x_sign * odom_delta_y_m, 1.0e-6);
+}
+
+TEST(SecondPreselectionLogic, DynamicSelectedLateralMirrorsOdomDeltaY) {
+  auto params = defaultParams();
+  params.grid_base_y_to_grid_x_sign = 1.0;
+  const double odom_delta_y_m = 0.20;
+  const auto observation = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      {}, params, 0.0, odom_delta_y_m);
+
+  ASSERT_TRUE(observation.selected_middle_col.has_value());
+  EXPECT_EQ(*observation.selected_middle_col, 0);
+  EXPECT_NEAR(observation.selected_lateral_m, -odom_delta_y_m, 1.0e-6);
 }
 
 TEST(SecondPreselectionLogic, BehaviorTreeXmlLoadsWithRegisteredNodes) {

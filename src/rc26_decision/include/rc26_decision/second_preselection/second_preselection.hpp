@@ -1,13 +1,16 @@
 #pragma once
 
 #include <atomic>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include <behaviortree_cpp/bt_factory.h>
+#include <nav_msgs/msg/odometry.hpp>
 #include <opencv2/core.hpp>
 #include <rclcpp/rclcpp.hpp>
 
@@ -16,13 +19,6 @@
 #include "rc26_vision/inference/runtime/vision_inference_manager.hpp"
 
 namespace rc26_decision {
-
-struct SecondPreselectionHsvRange {
-  int hue_low{0};
-  int hue_high{10};
-  int saturation_min{80};
-  int value_min{60};
-};
 
 struct SecondPreselectionParams {
   std::string send_command_service{"/mechanism/send_command"};
@@ -39,36 +35,59 @@ struct SecondPreselectionParams {
   double nav_x1_m{1.8};
   double nav_y1_m{1.2};
   double nav_x2_m{2.5};
-  double search_y_positive_m{0.2};
-  double search_y_negative_m{-0.6};
   double place_forward_x_m{0.7};
   double retreat_x_m{-0.7};
   double nav_timeout_s{180.0};
 
   std::string vision_config_file;
   std::string model_id{"kfs_default"};
-  int roi_x{220};
-  int roi_y{150};
-  int roi_width{200};
-  int roi_height{180};
-  int occupied_min_area_px{1200};
+  double grid_camera_fx_px{385.6756287};
+  double grid_camera_fy_px{385.1935120};
+  double grid_camera_ppx_px{323.6063232};
+  double grid_camera_ppy_px{241.5680695};
+  double grid_left_col_width_m{0.54};
+  double grid_center_col_width_m{0.58};
+  double grid_right_col_width_m{0.50};
+  double grid_row_pitch_m{0.54};
+  double grid_middle_center_height_m{1.21};
+  double grid_safe_width_m{0.40};
+  double grid_safe_height_m{0.40};
+  double grid_camera_height_m{0.80};
+  double grid_initial_distance_m{1.80};
+  double grid_initial_lateral_offset_m{0.0};
+  double grid_base_y_to_grid_x_sign{-1.0};
+  double grid_place_lateral_bias_m{0.0};
+  std::vector<std::string> grid_label_prefixes;
+  std::vector<std::string> grid_label_exact_names;
   int occupied_stable_frames{2};
   double observe_timeout_s{2.0};
   double observe_log_period_s{0.5};
-  SecondPreselectionHsvRange red_hsv1{0, 10, 80, 60};
-  SecondPreselectionHsvRange red_hsv2{170, 180, 80, 60};
-  SecondPreselectionHsvRange blue_hsv1{95, 130, 80, 50};
-  SecondPreselectionHsvRange blue_hsv2{95, 130, 80, 50};
+  std::string odom_topic{"odom"};
+  double odom_timeout_s{0.5};
 };
 
-struct SecondPreselectionHsvObservation {
+struct SecondPreselectionGridCellProjection {
+  int col{0};
+  int row{0};
+  cv::Rect2f roi;
+  cv::Point2f center;
+};
+
+struct SecondPreselectionOccupancyObservation {
   bool occupied{false};
-  double best_area_px{0.0};
+  int matched_detections{0};
+  std::string first_label;
+  uint16_t grid_occupied_mask{0};
+  std::array<int, 9> grid_detection_counts{};
+  std::array<SecondPreselectionGridCellProjection, 9> grid_cells{};
+  std::optional<int> selected_middle_col;
+  double selected_lateral_m{0.0};
 };
 
-SecondPreselectionHsvObservation evaluateSecondPreselectionOccupancy(
-    const cv::Mat &frame_bgr, const SecondPreselectionParams &params,
-    const std::string &team);
+SecondPreselectionOccupancyObservation evaluateSecondPreselectionGridOccupancy(
+    const std::vector<rc26_vision::Detection> &detections,
+    const SecondPreselectionParams &params, double odom_delta_x_m,
+    double odom_delta_y_m);
 
 void loadSecondPreselectionParams(rclcpp::Node &node,
                                   const BT::Blackboard::Ptr &blackboard);
@@ -129,16 +148,31 @@ public:
   void onHalted() override;
 
 private:
+  using OdomMsg = nav_msgs::msg::Odometry;
+
   BT::NodeStatus fail(const std::string &reason);
   bool setupVision();
   void releaseVision();
+  bool setupOdom();
+  void releaseOdom();
+  bool odomReady() const;
+  void writeObservationToBlackboard(
+      const SecondPreselectionOccupancyObservation &observation);
 
   SecondPreselectionParams params_;
   rclcpp::Node *node_{nullptr};
   std::shared_ptr<rc26_vision::VisionInferenceManager> vision_;
+  rclcpp::Subscription<OdomMsg>::SharedPtr odom_sub_;
   std::string team_{"red"};
   std::chrono::steady_clock::time_point start_tp_{};
   std::chrono::steady_clock::time_point last_log_tp_{};
+  std::chrono::steady_clock::time_point last_odom_tp_{};
+  double start_odom_x_{0.0};
+  double start_odom_y_{0.0};
+  double current_odom_x_{0.0};
+  double current_odom_y_{0.0};
+  bool has_odom_{false};
+  bool odom_reference_ready_{false};
   int occupied_stable_count_{0};
 };
 
