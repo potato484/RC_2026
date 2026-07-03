@@ -88,6 +88,10 @@ struct MfPreselectionParams {
   double kfs_mono_fy_px{385.83319091796875};
   int kfs_mono_min_bbox_px{40};
   double kfs_mono_max_delta_from_locked_m{0.25};
+  int kfs_depth_roi_size{7};
+  int kfs_depth_min_valid_count{10};
+  std::vector<double> kfs_depth_bbox_sample_ratios{0.25, 0.50, 0.75};
+  int kfs_depth_bbox_min_success_count{1};
 
   int max_pickup_count{2};
   double grab_settle_s{0.5};
@@ -247,7 +251,8 @@ struct MfPreselectionLogicResult {
   static bool kfsDepthSourceIsReal(KfsDepthSource source);
   static KfsBboxDepthSample sampleKfsDepthFromBbox(
       const cv::Mat &depth, double x1, double y1, double x2, double y2,
-      const rc26_vision::DepthRoiSamplerConfig &config);
+      const rc26_vision::DepthRoiSamplerConfig &config,
+      const std::vector<double> &sample_ratios, int min_success_count);
   static KfsMonocularDepthEstimate estimateKfsMonocularDepth(
       double bbox_width_px, double bbox_height_px, double locked_depth_m,
       const MfPreselectionParams &params, double min_depth_m,

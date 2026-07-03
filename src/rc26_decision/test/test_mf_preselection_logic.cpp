@@ -215,7 +215,8 @@ TEST(MfPreselectionLogic, KfsBboxDepthSampleUsesNonCenterRoi) {
 
   const auto sample =
       rc26_decision::MfPreselectionLogicResult::sampleKfsDepthFromBbox(
-          depth, 20.0, 20.0, 80.0, 80.0, kfsDepthConfig());
+          depth, 20.0, 20.0, 80.0, 80.0, kfsDepthConfig(),
+          {0.25, 0.50, 0.75}, 1);
 
   EXPECT_TRUE(sample.has_depth);
   EXPECT_DOUBLE_EQ(sample.depth_m, 0.7);
@@ -232,7 +233,8 @@ TEST(MfPreselectionLogic, KfsBboxDepthSampleReportsRepresentativeFailure) {
 
   const auto sample =
       rc26_decision::MfPreselectionLogicResult::sampleKfsDepthFromBbox(
-          depth, 20.0, 20.0, 80.0, 80.0, kfsDepthConfig());
+          depth, 20.0, 20.0, 80.0, 80.0, kfsDepthConfig(),
+          {0.25, 0.50, 0.75}, 1);
 
   EXPECT_FALSE(sample.has_depth);
   EXPECT_EQ(sample.sample_point_count, 9);
@@ -242,6 +244,45 @@ TEST(MfPreselectionLogic, KfsBboxDepthSampleReportsRepresentativeFailure) {
   EXPECT_NE(sample.detail.find("bbox采样点数=9"), std::string::npos);
   EXPECT_NE(sample.detail.find("深度失败主因=ROI无有效原始深度"),
             std::string::npos);
+}
+
+TEST(MfPreselectionLogic, KfsBboxDepthSampleRequiresConfiguredSuccessCount) {
+  cv::Mat depth(100, 100, CV_16UC1, cv::Scalar(0));
+  for (int y = 32; y <= 38; ++y) {
+    for (int x = 32; x <= 38; ++x) {
+      depth.at<uint16_t>(y, x) = 700;
+    }
+  }
+
+  const auto sample =
+      rc26_decision::MfPreselectionLogicResult::sampleKfsDepthFromBbox(
+          depth, 20.0, 20.0, 80.0, 80.0, kfsDepthConfig(),
+          {0.25, 0.50, 0.75}, 2);
+
+  EXPECT_FALSE(sample.has_depth);
+  EXPECT_EQ(sample.sample_point_count, 9);
+  EXPECT_EQ(sample.success_count, 1);
+  EXPECT_NE(sample.detail.find("bbox最少成功点=2"), std::string::npos);
+  EXPECT_NE(sample.detail.find("成功点未达阈值"), std::string::npos);
+}
+
+TEST(MfPreselectionLogic, KfsBboxDepthSampleUsesConfiguredRatios) {
+  cv::Mat depth(100, 100, CV_16UC1, cv::Scalar(0));
+  for (int y = 48; y <= 52; ++y) {
+    for (int x = 48; x <= 52; ++x) {
+      depth.at<uint16_t>(y, x) = 650;
+    }
+  }
+
+  const auto sample =
+      rc26_decision::MfPreselectionLogicResult::sampleKfsDepthFromBbox(
+          depth, 20.0, 20.0, 80.0, 80.0, kfsDepthConfig(), {0.50}, 1);
+
+  EXPECT_TRUE(sample.has_depth);
+  EXPECT_DOUBLE_EQ(sample.depth_m, 0.65);
+  EXPECT_EQ(sample.sample_point_count, 1);
+  EXPECT_EQ(sample.success_count, 1);
+  EXPECT_NE(sample.detail.find("bbox采样比例数=1"), std::string::npos);
 }
 
 TEST(MfPreselectionLogic, MonocularDepthFallbackUsesConservativeCubeEstimate) {

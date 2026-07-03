@@ -779,13 +779,28 @@ bool MfPreselectionLogicResult::kfsDepthSourceIsReal(KfsDepthSource source) {
 MfPreselectionLogicResult::KfsBboxDepthSample
 MfPreselectionLogicResult::sampleKfsDepthFromBbox(
     const cv::Mat &depth, double x1, double y1, double x2, double y2,
-    const rc26_vision::DepthRoiSamplerConfig &config) {
+    const rc26_vision::DepthRoiSamplerConfig &config,
+    const std::vector<double> &sample_ratios, int min_success_count) {
   KfsBboxDepthSample result;
   const double left = std::min(x1, x2);
   const double right = std::max(x1, x2);
   const double top = std::min(y1, y2);
   const double bottom = std::max(y1, y2);
-  const std::array<double, 3> ratios{0.25, 0.50, 0.75};
+  std::vector<double> ratios;
+  ratios.reserve(sample_ratios.size());
+  for (const double ratio : sample_ratios) {
+    if (std::isfinite(ratio)) {
+      ratios.push_back(std::clamp(ratio, 0.0, 1.0));
+    }
+  }
+  if (ratios.empty()) {
+    ratios = {0.25, 0.50, 0.75};
+  }
+  std::sort(ratios.begin(), ratios.end());
+  ratios.erase(std::unique(ratios.begin(), ratios.end()), ratios.end());
+  const int required_success_count =
+      std::clamp(min_success_count, 1,
+                 static_cast<int>(ratios.size() * ratios.size()));
   std::vector<double> samples;
   std::optional<DepthRoiDiagnostic> representative;
 
@@ -815,7 +830,7 @@ MfPreselectionLogicResult::sampleKfsDepthFromBbox(
     }
   }
 
-  if (!samples.empty()) {
+  if (static_cast<int>(samples.size()) >= required_success_count) {
     auto mid = samples.begin() +
                static_cast<std::ptrdiff_t>(samples.size() / 2);
     std::nth_element(samples.begin(), mid, samples.end());
@@ -846,10 +861,16 @@ MfPreselectionLogicResult::sampleKfsDepthFromBbox(
 
   std::ostringstream detail;
   detail << "bbox采样点数=" << result.sample_point_count
-         << " bbox采样成功数=" << result.success_count;
+         << " bbox采样成功数=" << result.success_count
+         << " bbox最少成功点=" << required_success_count
+         << " bbox采样比例数=" << ratios.size();
   if (result.has_depth) {
     detail << " bbox采样深度=" << result.depth_m
            << " depth_source=" << kfsDepthSourceText(result.source);
+  } else if (!samples.empty()) {
+    detail << " 深度失败主因=窗口内有效点不足"
+           << " 成功点未达阈值 sampled_success=" << samples.size()
+           << " required_success=" << required_success_count;
   } else {
     detail << " "
            << depthRoiDiagnosticDetail(result.representative_failure);
@@ -1784,7 +1805,7 @@ bool MfPreselectionFlowAction::setupRuntime() {
   config().blackboard->set("mf_preselect_pickup_source", std::string("无"));
   config().blackboard->set("mf_preselect_done", false);
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛运行接口就绪：cmd_vel=%s odom=%s center_cmd_vel=%s center_odom=%s command_service=%s feedback=%s entry_interrupt_offset<=%dpx dynamic_comp=%s fx=%.1f latency=%.3fs extra=[%d,%d]px stop_settle=%s acc=%.3fm/s^2 margin=%.3fs max_wait=%.3fs kfs_align_target_line_offset=%dpx kfs_align_speed=[%.3f, %.3f]m/s timeout_pickup<=%dpx kfs_approach_odom_kp=%.3f approach_tol=%.3fm approach_speed=%.3fm/s approach_min=%.3fm/s arm_reach=%.3fm approach_timeout=%.2fs mono_fallback=%s mono_size=[%.3f,%.3f]m mono_fx_fy=[%.1f,%.1f]px mono_min_bbox=%dpx mono_max_delta=%.3fm",
+              "梅林预选赛运行接口就绪：cmd_vel=%s odom=%s center_cmd_vel=%s center_odom=%s command_service=%s feedback=%s entry_interrupt_offset<=%dpx dynamic_comp=%s fx=%.1f latency=%.3fs extra=[%d,%d]px stop_settle=%s acc=%.3fm/s^2 margin=%.3fs max_wait=%.3fs kfs_align_target_line_offset=%dpx kfs_align_speed=[%.3f, %.3f]m/s timeout_pickup<=%dpx kfs_approach_odom_kp=%.3f approach_tol=%.3fm approach_speed=%.3fm/s approach_min=%.3fm/s arm_reach=%.3fm approach_timeout=%.2fs mono_fallback=%s mono_size=[%.3f,%.3f]m mono_fx_fy=[%.1f,%.1f]px mono_min_bbox=%dpx mono_max_delta=%.3fm depth_roi=%d depth_min_valid=%d bbox_sample_ratios=%zu bbox_min_success=%d",
               params_.cmd_vel_topic.c_str(), params_.odom_topic.c_str(),
               center_params_.cmd_vel_topic.c_str(),
               center_params_.odom_topic.c_str(),
@@ -1810,7 +1831,11 @@ bool MfPreselectionFlowAction::setupRuntime() {
               params_.kfs_mono_target_width_m,
               params_.kfs_mono_target_height_m, params_.kfs_mono_fx_px,
               params_.kfs_mono_fy_px, params_.kfs_mono_min_bbox_px,
-              params_.kfs_mono_max_delta_from_locked_m);
+              params_.kfs_mono_max_delta_from_locked_m,
+              params_.kfs_depth_roi_size,
+              params_.kfs_depth_min_valid_count,
+              params_.kfs_depth_bbox_sample_ratios.size(),
+              params_.kfs_depth_bbox_min_success_count);
   return true;
 }
 
@@ -1835,7 +1860,7 @@ bool MfPreselectionFlowAction::setupVision() {
       return false;
     }
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛 KFS 视觉已启动：config=%s model=%s R2前缀数=%zu R1标签数=%zu 假KFS前缀数=%zu 通用深度=[%.2f, %.2f]m 入口深度=[%.2f, %.2f]m 入口打断offset<=%dpx dynamic_comp=%s 识别框中线目标偏置=%dpx 横移视觉速度=[%.3f, %.3f]m/s 超时补夹offset<=%dpx 前向odom速度=%.3fm/s 臂长=%.3fm 超时=%.2fs mono_fallback=%s mono_size=[%.3f,%.3f]m mono_fx_fy=[%.1f,%.1f]px mono_max_delta=%.3fm",
+                "梅林预选赛 KFS 视觉已启动：config=%s model=%s R2前缀数=%zu R1标签数=%zu 假KFS前缀数=%zu 通用深度=[%.2f, %.2f]m 入口深度=[%.2f, %.2f]m 入口打断offset<=%dpx dynamic_comp=%s 识别框中线目标偏置=%dpx 横移视觉速度=[%.3f, %.3f]m/s 超时补夹offset<=%dpx 前向odom速度=%.3fm/s 臂长=%.3fm 超时=%.2fs mono_fallback=%s mono_size=[%.3f,%.3f]m mono_fx_fy=[%.1f,%.1f]px mono_max_delta=%.3fm depth_roi=%d depth_min_valid=%d bbox_sample_ratios=%zu bbox_min_success=%d",
                 params_.vision_config_file.c_str(), params_.model_id.c_str(),
                 params_.r2_target_label_prefixes.size(),
                 params_.r1_blocking_labels.size(),
@@ -1853,7 +1878,11 @@ bool MfPreselectionFlowAction::setupVision() {
                 params_.kfs_mono_target_width_m,
                 params_.kfs_mono_target_height_m, params_.kfs_mono_fx_px,
                 params_.kfs_mono_fy_px,
-                params_.kfs_mono_max_delta_from_locked_m);
+                params_.kfs_mono_max_delta_from_locked_m,
+                params_.kfs_depth_roi_size,
+                params_.kfs_depth_min_valid_count,
+                params_.kfs_depth_bbox_sample_ratios.size(),
+                params_.kfs_depth_bbox_min_success_count);
     return true;
   } catch (const std::exception &e) {
     RCLCPP_ERROR(node_->get_logger(), "梅林预选赛 KFS 视觉初始化异常: %s",
@@ -2012,6 +2041,29 @@ void MfPreselectionFlowAction::normalizeParams() {
       std::max(0.0, std::isfinite(params_.kfs_mono_max_delta_from_locked_m)
                         ? params_.kfs_mono_max_delta_from_locked_m
                         : 0.0);
+  params_.kfs_depth_roi_size = std::max(1, params_.kfs_depth_roi_size);
+  params_.kfs_depth_min_valid_count =
+      std::max(1, params_.kfs_depth_min_valid_count);
+  std::vector<double> sanitized_depth_ratios;
+  sanitized_depth_ratios.reserve(params_.kfs_depth_bbox_sample_ratios.size());
+  for (const double ratio : params_.kfs_depth_bbox_sample_ratios) {
+    if (std::isfinite(ratio)) {
+      sanitized_depth_ratios.push_back(std::clamp(ratio, 0.0, 1.0));
+    }
+  }
+  if (sanitized_depth_ratios.empty()) {
+    sanitized_depth_ratios = {0.25, 0.50, 0.75};
+  }
+  std::sort(sanitized_depth_ratios.begin(), sanitized_depth_ratios.end());
+  sanitized_depth_ratios.erase(
+      std::unique(sanitized_depth_ratios.begin(), sanitized_depth_ratios.end()),
+      sanitized_depth_ratios.end());
+  params_.kfs_depth_bbox_sample_ratios = std::move(sanitized_depth_ratios);
+  const int max_bbox_success_count = static_cast<int>(
+      params_.kfs_depth_bbox_sample_ratios.size() *
+      params_.kfs_depth_bbox_sample_ratios.size());
+  params_.kfs_depth_bbox_min_success_count = std::clamp(
+      params_.kfs_depth_bbox_min_success_count, 1, max_bbox_success_count);
   params_.max_pickup_count = std::max(0, params_.max_pickup_count);
   params_.grab_settle_s = std::max(0.0, params_.grab_settle_s);
   params_.grab_verify_timeout_s =
@@ -2330,8 +2382,8 @@ MfPreselectionFlowAction::findTarget(const std::vector<std::string> &exact,
   const int cx = static_cast<int>((best->x1 + best->x2) * 0.5F);
   const int cy = static_cast<int>((best->y1 + best->y2) * 0.5F);
   rc26_vision::DepthRoiSamplerConfig depth_config;
-  depth_config.roi_size = 7;
-  depth_config.min_valid_count = 10;
+  depth_config.roi_size = params_.kfs_depth_roi_size;
+  depth_config.min_valid_count = params_.kfs_depth_min_valid_count;
   depth_config.min_depth_m = params_.depth_min_m;
   depth_config.max_depth_m = params_.depth_max_m;
   // 深度门限是检测有效性的第二道过滤：模型看到标签但 ROI 深度不可信时，
@@ -5001,8 +5053,8 @@ MfPreselectionFlowAction::findR2LockObservation(
 
   const bool entry_profile = depth_profile == R2DepthProfile::Entry;
   rc26_vision::DepthRoiSamplerConfig depth_config;
-  depth_config.roi_size = 7;
-  depth_config.min_valid_count = 10;
+  depth_config.roi_size = params_.kfs_depth_roi_size;
+  depth_config.min_valid_count = params_.kfs_depth_min_valid_count;
   depth_config.min_depth_m =
       entry_profile ? params_.entry_depth_min_m : params_.depth_min_m;
   depth_config.max_depth_m =
@@ -5058,7 +5110,9 @@ MfPreselectionFlowAction::findR2LockObservation(
 
     CandidateDepthState depth_state;
     const auto bbox_depth = MfPreselectionLogicResult::sampleKfsDepthFromBbox(
-        snapshot.depth, det.x1, det.y1, det.x2, det.y2, depth_config);
+        snapshot.depth, det.x1, det.y1, det.x2, det.y2, depth_config,
+        params_.kfs_depth_bbox_sample_ratios,
+        params_.kfs_depth_bbox_min_success_count);
     if (bbox_depth.has_depth) {
       depth_state.has_depth = true;
       depth_state.depth_m = bbox_depth.depth_m;
@@ -6308,6 +6362,18 @@ void loadMfPreselectionParams(rclcpp::Node &node,
   p.kfs_mono_max_delta_from_locked_m = node.declare_parameter<double>(
       "mf_preselect_kfs_mono_max_delta_from_locked_m",
       p.kfs_mono_max_delta_from_locked_m);
+  p.kfs_depth_roi_size = node.declare_parameter<int>(
+      "mf_preselect_kfs_depth_roi_size", p.kfs_depth_roi_size);
+  p.kfs_depth_min_valid_count = node.declare_parameter<int>(
+      "mf_preselect_kfs_depth_min_valid_count",
+      p.kfs_depth_min_valid_count);
+  p.kfs_depth_bbox_sample_ratios =
+      node.declare_parameter<std::vector<double>>(
+          "mf_preselect_kfs_depth_bbox_sample_ratios",
+          p.kfs_depth_bbox_sample_ratios);
+  p.kfs_depth_bbox_min_success_count = node.declare_parameter<int>(
+      "mf_preselect_kfs_depth_bbox_min_success_count",
+      p.kfs_depth_bbox_min_success_count);
 
   // 夹取次数和夹爪命令。max_pickup_count=0 可用于路线/避障干跑。
   p.max_pickup_count = node.declare_parameter<int>(

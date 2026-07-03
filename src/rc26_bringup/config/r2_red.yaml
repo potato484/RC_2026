@@ -4,7 +4,7 @@
 r2_runtime:
   paths:
     prior_pcd_file: "/home/aidlux/RC_2026/src/rc26_point_lio/PCD/class_plus.pcd"
-    behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/mc_mf_preselection_tree.xml"
+    behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/mf_preselection_start_tree.xml"
 
   # 目标 MCU 共享串口 transport。
   # 只要运行链会下发机构动作指令，就必须启动 rc26_mcu_transport。
@@ -94,8 +94,8 @@ r2_runtime:
       second_preselect_grid_initial_lateral_offset_m: 0.0 # 红方基准观察开始横向偏移；blue 自动取反
       second_preselect_grid_base_y_to_grid_x_sign: -1.0 # 红方基准 +Y_base 对应 -X_grid；blue 自动取反
       second_preselect_grid_place_lateral_bias_m: 0.0 # 红方基准放置横向偏置补偿；blue 自动取反
-      second_preselect_grid_label_prefixes: []      # 空列表表示所有非空 class_name 有效
-      second_preselect_grid_label_exact_names: []   # 空列表表示所有非空 class_name 有效
+      # 标签过滤默认省略，decision_node 使用空过滤列表，表示所有非空 class_name 有效。
+      # 如需过滤，填非空 second_preselect_grid_label_prefixes / exact_names 字符串数组。
       second_preselect_odom_topic: "odom"           # 动态 ROI 观察时读取的 odom topic
       second_preselect_odom_timeout_s: 0.5          # 动态 ROI odom 新鲜度超时
       second_preselect_occupied_stable_frames: 2    # 中层全占据时连续多少帧确认无空位
@@ -277,6 +277,10 @@ r2_runtime:
       mf_preselect_kfs_mono_fy_px: 385.83319091796875 # 当前 D455 640x480 彩色流 CameraInfo.K[4] 兜底 fy，单位 px
       mf_preselect_kfs_mono_min_bbox_px: 40       # 尺寸估距要求 bbox 宽高至少达到该像素，避免小框误估距
       mf_preselect_kfs_mono_max_delta_from_locked_m: 0.25 # 尺寸估距与最近真实锁定深度允许的最大差值，单位 m
+      mf_preselect_kfs_depth_roi_size: 7          # KFS 深度单点 ROI 边长，单位 px
+      mf_preselect_kfs_depth_min_valid_count: 10  # 单个 ROI 内判定有效深度所需最少点数
+      mf_preselect_kfs_depth_bbox_sample_ratios: [0.25, 0.50, 0.75] # bbox 内横纵采样比例，组合成 NxN 个候选深度点
+      mf_preselect_kfs_depth_bbox_min_success_count: 1 # bbox 多点采样中至少多少个候选点有效，才认为该 KFS 深度有效
       mf_preselect_max_pickup_count: 2           # 单局预选赛最多夹取 R2 KFS 数量
       mf_preselect_grab_settle_s: 0.5            # KFS 视觉确认夹取成功后零速稳定等待，单位秒
       mf_preselect_grab_verify_timeout_s: 3.0    # KFS 夹取 ACK 后等待原目标消失的最长视觉验证时间

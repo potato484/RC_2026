@@ -12,7 +12,7 @@ sensor_extrinsics:
         parent_frame: "base_link"
         child_frame: "livox_frame"
         xyz_m: [0.21, 0.0, 0.42]
-        rpy_rad: [0.0, 0.261799, -1.57079632679]
+        rpy_rad: [0.0, 0.261799, 1.570796]
       control_mount:
         parent_frame: "base_link_control"
         child_frame: "livox_frame_control"
