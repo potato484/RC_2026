@@ -228,7 +228,7 @@ private:
 
 TEST(SerialDriverMcuError, RetriesAfterMcuErrorAndSucceedsOnAck) {
     PseudoMcu mcu([](const TxFrame& frame, size_t index) {
-        return std::vector<ResponseFrame>{{frame.seq, index < 2U ? kMcuError : kAck}};
+        return std::vector<ResponseFrame>{{frame.seq, index < 2U ? kMcuError : kAck, {}}};
     });
 
     rc26_decision::SerialDriver driver;
@@ -252,7 +252,7 @@ TEST(SerialDriverMcuError, RetriesAfterMcuErrorAndSucceedsOnAck) {
 
 TEST(SerialDriverMcuError, SameSeqBusinessFeedbackAfterAckIsDeliveredAfterSendCommandReturns) {
     PseudoMcu mcu([](const TxFrame& frame, size_t) {
-        return std::vector<ResponseFrame>{{frame.seq, kAck}, {frame.seq, kArmRaiseDone}};
+        return std::vector<ResponseFrame>{{frame.seq, kAck, {}}, {frame.seq, kArmRaiseDone, {}}};
     });
 
     rc26_decision::SerialDriver driver;
@@ -300,7 +300,7 @@ TEST(SerialDriverMcuError, SameSeqBusinessFeedbackAfterAckIsDeliveredAfterSendCo
 TEST(SerialDriverMcuError, TwoByteMcuErrorPayloadIsDeliveredAsBusinessFeedback) {
     PseudoMcu mcu([](const TxFrame& frame, size_t) {
         return std::vector<ResponseFrame>{
-            {frame.seq, kAck},
+            {frame.seq, kAck, {}},
             {frame.seq, kMcuError,
              {static_cast<uint8_t>(rc26_serial::CommandID::ARM_LOWER),
               static_cast<uint8_t>(rc26_serial::PlanarArmFailCode::BUSY)}}};
@@ -345,7 +345,7 @@ TEST(SerialDriverMcuError, TwoByteMcuErrorPayloadIsDeliveredAsBusinessFeedback) 
 
 TEST(SerialDriverMcuError, FailsWithLowerMachineReasonAfterRetryExhaustion) {
     PseudoMcu mcu([](const TxFrame& frame, size_t) {
-        return std::vector<ResponseFrame>{{frame.seq, kMcuError}};
+        return std::vector<ResponseFrame>{{frame.seq, kMcuError, {}}};
     });
 
     rc26_decision::SerialDriver driver;
@@ -371,9 +371,9 @@ TEST(SerialDriverMcuError, FailsWithLowerMachineReasonAfterRetryExhaustion) {
 TEST(SerialDriverMcuError, UnmatchedMcuErrorDoesNotSatisfyAckWait) {
     PseudoMcu mcu([](const TxFrame& frame, size_t index) {
         if (index == 0U) {
-            return std::vector<ResponseFrame>{{static_cast<uint8_t>(frame.seq + 1U), kMcuError}};
+            return std::vector<ResponseFrame>{{static_cast<uint8_t>(frame.seq + 1U), kMcuError, {}}};
         }
-        return std::vector<ResponseFrame>{{frame.seq, kAck}};
+        return std::vector<ResponseFrame>{{frame.seq, kAck, {}}};
     });
 
     rc26_decision::SerialDriver driver;
