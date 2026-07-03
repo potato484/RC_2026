@@ -48,7 +48,7 @@ r2_runtime:
       odom_relative_nav_min_speed_mps: 0.03           # 未进入位置容差时的最小平移速度，单位 m/s
       odom_relative_nav_xy_kp: 0.8                    # odom x/y 误差到车体系平移速度的比例系数
       odom_relative_nav_heading_kp: 1.2               # 平移段保持启动 yaw 的 P 增益
-      odom_relative_nav_heading_max_speed_radps: 0.50  # 平移段 heading hold 最大角速度，单位 rad/s
+      odom_relative_nav_heading_max_speed_radps: 0.70  # 平移段 heading hold 最大角速度，单位 rad/s
       odom_relative_nav_xy_tolerance_m: 0.03          # 平移目标距离容差，单位米
       odom_relative_nav_yaw_tolerance_deg: 3.0        # 平移段 yaw 保持成功容差，单位度
       odom_relative_nav_stable_ticks: 3               # 平移和 yaw 同时进入容差后连续多少 tick 判定完成
@@ -144,7 +144,7 @@ r2_runtime:
       mc_align_heading_hold_enable: true     # 是否订阅 mc_odom_topic 并发布 angular.z 保持车身朝向
       # mc_align_target_yaw_rad 可作为视觉阶段静态兜底；mc_tree.xml 默认传入右转后的动态 odom yaw
       mc_align_heading_kp: 1.2               # yaw 误差到 angular.z 的比例系数
-      mc_align_heading_max_speed_radps: 0.30 # 视觉伺服 heading hold 最大角速度，单位 rad/s
+      mc_align_heading_max_speed_radps: 0.40 # 视觉伺服 heading hold 最大角速度，单位 rad/s
       mc_align_heading_tolerance_deg: 3.0    # yaw 误差进入该容差后才允许稳定计数
       mc_align_heading_gate_deg: 8.0         # yaw 误差超过该 gate 时暂停横移/前探，只先修正朝向
       mc_align_odom_timeout_s: 0.5           # odom 超过该时间未更新时停车等待，单位秒
@@ -252,7 +252,7 @@ r2_runtime:
       mf_preselect_kfs_approach_min_speed_mps: 0.03 # KFS 前向 odom 闭环 x 方向最小速度幅值，单位 m/s
       mf_preselect_kfs_approach_x_sign: 1        # KFS 趋近方向符号；1 为 linear.x 正向，-1 为负向
       mf_preselect_kfs_approach_timeout_s: 8.0   # KFS 前向 odom 闭环趋近安全超时；计划时长超出会失败停车
-      mf_preselect_kfs_grab_distance_m: 0.50     # KFS 机械臂可触达距离/停止目标距离，前进距离=max(0,锁定深度-该值)
+      mf_preselect_kfs_grab_distance_m: 0.48     # KFS 机械臂可触达距离/停止目标距离，前进距离=max(0,锁定深度-该值)
       mf_preselect_kfs_mono_distance_fallback_enable: true # 横移对齐阶段真实深度洞时，允许用已锁定 KFS 的 350mm 尺寸估距兜底
       mf_preselect_kfs_mono_target_width_m: 0.35  # KFS 正面可见宽度，单位 m
       mf_preselect_kfs_mono_target_height_m: 0.35 # KFS 正面可见高度，单位 m
@@ -303,7 +303,7 @@ r2_runtime:
       mf_preselect_row_scan_back_yaw_delta_rad: 3.1416  # 红方基准第2/3行周身探测背向转角；blue 自动取反
       mf_preselect_row4_exit_turn_yaw_rad: -1.5708      # 红方基准第二列第四行强制出口转向 yaw；blue 自动取反
       mf_preselect_turn_kp: 1.2                         # 转向 yaw P 增益
-      mf_preselect_turn_max_speed_radps: 0.50           # 转向最大角速度
+      mf_preselect_turn_max_speed_radps: 0.60           # 转向最大角速度
       mf_preselect_turn_tolerance_deg: 3.0              # 转向完成角度容差
       mf_preselect_turn_stable_ticks: 3                 # 转向稳定 tick 数
       mf_preselect_turn_timeout_s: 16.0                 # 单次转向超时，单位秒
@@ -324,7 +324,7 @@ r2_runtime:
       grid_heading_cmd_vel_topic: "cmd_vel"         # GridTurn/GridHeadingAlign 发布的速度话题
       grid_heading_odom_topic: "odom"               # GridTurn/GridHeadingAlign 使用的 odom yaw 话题
       grid_heading_kp: 1.2                          # yaw 误差到 angular.z 的比例系数
-      grid_heading_turn_max_speed_radps: 0.5        # GridTurn 粗转向最大角速度，单位 rad/s
+      grid_heading_turn_max_speed_radps: 0.6        # GridTurn 粗转向最大角速度，单位 rad/s
       grid_heading_align_max_speed_radps: 0.30      # GridHeadingAlign 精对齐最大角速度，单位 rad/s
       grid_heading_turn_gate_deg: 8.0               # GridTurn 进入粗对准的角度 gate，单位度
       grid_heading_align_tolerance_deg: 3.0         # GridHeadingAlign 成功容差，单位度
