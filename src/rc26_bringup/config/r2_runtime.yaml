@@ -179,8 +179,9 @@ r2_runtime:
       mf_preselect_model_id: "kfs_default"       # KFS 模型 profile ID
       mf_preselect_r2_target_label_prefixes: ["T_"] # R2 可夹取 KFS 标签前缀
       mf_preselect_r2_target_labels: ["__none__"]    # 精确 R2 标签占位；无精确过滤时保留不可匹配占位
-      mf_preselect_r1_blocking_labels: ["R_R1", "B_R1"] # R1 干扰/阻挡目标标签
+      mf_preselect_r1_blocking_labels: ["R_R1", "B_R1", "R1_KFS"] # R1 干扰/阻挡目标标签
       mf_preselect_r1_blocking_label_prefixes: ["__none__"] # R1 标签前缀占位
+      mf_preselect_r1_kfs_min_score: 0.50      # R1_KFS 低置信度过滤阈值，低于该值不作为R1阻挡
       mf_preselect_fake_label_prefixes: ["F_"]   # 假 KFS 标签前缀
       mf_preselect_fake_labels: ["__none__"]     # 精确假 KFS 标签占位
       mf_preselect_depth_min_m: 0.35              # 梅林内部/旁列/直出 KFS 锁定深度有效下限，单位 m

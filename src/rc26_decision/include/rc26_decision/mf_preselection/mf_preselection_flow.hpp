@@ -36,8 +36,9 @@ struct MfPreselectionParams {
   std::string model_id{"kfs_default"};
   std::vector<std::string> r2_target_label_prefixes{"T_"};
   std::vector<std::string> r2_target_labels;
-  std::vector<std::string> r1_blocking_labels{"R_R1", "B_R1"};
+  std::vector<std::string> r1_blocking_labels{"R_R1", "B_R1", "R1_KFS"};
   std::vector<std::string> r1_blocking_label_prefixes;
+  double r1_kfs_min_score{0.50};
   std::vector<std::string> fake_label_prefixes{"F_"};
   std::vector<std::string> fake_labels;
   double depth_min_m{0.6};
@@ -153,6 +154,7 @@ struct MfPreselectionParams {
 
 struct MfPreselectionLogicResult {
   enum class KfsDepthSource { None, CenterRoi, BboxMultiRoi, MonocularBbox };
+  enum class GrabRetryAction { None, EntryBackoff, GridCenterRetry };
 
   struct DepthRoiDiagnostic {
     int cx{0};
@@ -207,7 +209,12 @@ struct MfPreselectionLogicResult {
   static bool labelMatches(const std::string &label,
                            const std::vector<std::string> &exact_labels,
                            const std::vector<std::string> &prefixes);
+  static bool r1KfsScoreAccepted(const std::string &label, double score,
+                                 double min_score);
   static bool canPickup(int pickup_count, int max_pickup_count);
+  static GrabRetryAction
+  grabRetryAction(bool target_still_visible, MfPreselectionPickupSource source,
+                  bool entry_high_protocol, bool path_blocking);
   static bool entryInterruptOffsetAcceptable(int offset_px,
                                              const MfPreselectionParams &params);
   static bool entryInterruptOffsetAcceptable(int offset_px,
@@ -357,6 +364,8 @@ private:
     Row4DirectDescend,
     DirectExitDrive,
     FinalStop,
+    EntryRetryBackoff,
+    RetryPostGrabCenterAlign,
     KfsVisualAlign,
     KfsSecondArmLower,
     KfsOdomApproach,
@@ -439,7 +448,8 @@ private:
   std::optional<MfPreselectionTargetSnapshot> findFakeTarget();
   std::optional<MfPreselectionTargetSnapshot>
   findTarget(const std::vector<std::string> &exact,
-             const std::vector<std::string> &prefixes, bool skip_ignored_r2);
+             const std::vector<std::string> &prefixes, bool skip_ignored_r2,
+             bool filter_r1_kfs_score = false);
   std::optional<int64_t> latestVisionSequence() const;
   bool canPickup() const;
   Phase detectionMissNextPhase() const;
@@ -485,6 +495,11 @@ private:
   BT::NodeStatus tickDirectExitDrive();
   bool guardPathObstacles();
   void clearPathR1Wait();
+  bool lastGrabOriginPathBlocking() const;
+  bool scheduleGrabRetryAfterVisibleFailure(const std::string &reason);
+  BT::NodeStatus tickEntryRetryBackoff();
+  BT::NodeStatus beginRetryPostGrabCenterAlign();
+  void clearGrabRetryContext();
 
   void beginTurnYaw(double target_yaw_rad, Phase next_phase, std::string label);
   BT::NodeStatus tickTurnYaw();
@@ -596,9 +611,15 @@ private:
   Phase grab_failure_phase_{Phase::Done};
   Phase post_grab_center_next_phase_{Phase::Done};
   Phase pending_detection_phase_{Phase::Done};
+  Phase kfs_pickup_origin_phase_{Phase::Done};
+  Phase last_grab_origin_phase_{Phase::Done};
+  Phase retry_grab_origin_phase_{Phase::Done};
 
   DetectMode detect_mode_{DetectMode::Entry2};
   DetectMode pending_detection_mode_{DetectMode::Entry2};
+  DetectMode kfs_pickup_origin_detect_mode_{DetectMode::Entry2};
+  DetectMode last_grab_origin_detect_mode_{DetectMode::Entry2};
+  DetectMode retry_grab_origin_detect_mode_{DetectMode::Entry2};
   rclcpp::Time phase_start_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_cmd_publish_{0, 0, RCL_ROS_TIME};
   bool has_last_cmd_publish_{false};
@@ -768,6 +789,17 @@ private:
   bool kfs_odom_motion_waiting_logged_{false};
   int kfs_odom_motion_stable_ticks_{0};
   std::string kfs_odom_motion_label_;
+  bool retry_grab_context_valid_{false};
+  bool retry_grab_backoff_started_{false};
+  bool retry_grab_high_side_{true};
+  MfPreselectionPickupSource retry_grab_source_{MfPreselectionPickupSource::None};
+  Phase retry_grab_success_phase_{Phase::Done};
+  Phase retry_grab_failure_phase_{Phase::Done};
+  bool retry_grab_direct_exit_on_success_{false};
+  bool retry_grab_entry_high_protocol_{false};
+  R2DepthProfile retry_grab_depth_profile_{R2DepthProfile::General};
+  double retry_grab_approach_distance_m_{0.0};
+  std::optional<MfPreselectionTargetSnapshot> retry_grab_target_;
   bool entry_lateral_reference_captured_{false};
   double entry_lateral_reference_x_{0.0};
   double entry_lateral_reference_y_{0.0};
@@ -781,6 +813,16 @@ private:
   MfPreselectionPickupSource pending_grab_source_{MfPreselectionPickupSource::None};
   bool pending_grab_entry_high_protocol_{false};
   std::optional<MfPreselectionTargetSnapshot> pending_grab_target_;
+  bool last_grab_retry_context_valid_{false};
+  bool last_grab_high_side_{true};
+  MfPreselectionPickupSource last_grab_source_{MfPreselectionPickupSource::None};
+  Phase last_grab_success_phase_{Phase::Done};
+  Phase last_grab_failure_phase_{Phase::Done};
+  bool last_grab_direct_exit_on_success_{false};
+  bool last_grab_entry_high_protocol_{false};
+  R2DepthProfile last_grab_depth_profile_{R2DepthProfile::General};
+  double last_grab_approach_distance_m_{0.0};
+  std::optional<MfPreselectionTargetSnapshot> last_grab_target_;
   std::vector<MfPreselectionTargetSnapshot> ignored_r2_targets_;
   std::string last_r2_lock_reject_reason_;
   std::string last_r2_lock_reject_detail_;
@@ -793,6 +835,7 @@ private:
   bool grab_verify_seen_new_frame_{false};
   bool grab_verify_visible_logged_{false};
   int grab_verify_last_logged_lost_count_{0};
+  int64_t r1_kfs_low_score_last_logged_sequence_{0};
 };
 
 } // namespace rc26_decision

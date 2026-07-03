@@ -71,6 +71,35 @@ TEST(MfPreselectionLogic, LabelMatchesExactAndPrefix) {
       "B_R2", exact, prefixes));
 }
 
+TEST(MfPreselectionLogic, R1KfsScoreThresholdFiltersOnlyR1Kfs) {
+  EXPECT_FALSE(rc26_decision::MfPreselectionLogicResult::r1KfsScoreAccepted(
+      "R1_KFS", 0.49, 0.50));
+  EXPECT_TRUE(rc26_decision::MfPreselectionLogicResult::r1KfsScoreAccepted(
+      "R1_KFS", 0.50, 0.50));
+  EXPECT_TRUE(rc26_decision::MfPreselectionLogicResult::r1KfsScoreAccepted(
+      "R1_KFS", 0.90, 0.50));
+  EXPECT_TRUE(rc26_decision::MfPreselectionLogicResult::r1KfsScoreAccepted(
+      "R_R1", 0.10, 0.50));
+}
+
+TEST(MfPreselectionLogic, GrabRetryActionClassifiesVisibleFailures) {
+  using rc26_decision::MfPreselectionLogicResult;
+  using rc26_decision::MfPreselectionPickupSource;
+
+  EXPECT_EQ(MfPreselectionLogicResult::grabRetryAction(
+                false, MfPreselectionPickupSource::Stair2, true, true),
+            MfPreselectionLogicResult::GrabRetryAction::None);
+  EXPECT_EQ(MfPreselectionLogicResult::grabRetryAction(
+                true, MfPreselectionPickupSource::Stair2, true, false),
+            MfPreselectionLogicResult::GrabRetryAction::EntryBackoff);
+  EXPECT_EQ(MfPreselectionLogicResult::grabRetryAction(
+                true, MfPreselectionPickupSource::None, false, true),
+            MfPreselectionLogicResult::GrabRetryAction::GridCenterRetry);
+  EXPECT_EQ(MfPreselectionLogicResult::grabRetryAction(
+                true, MfPreselectionPickupSource::None, false, false),
+            MfPreselectionLogicResult::GrabRetryAction::None);
+}
+
 TEST(MfPreselectionLogic, PickupLimitUsesStrictMaximum) {
   EXPECT_TRUE(rc26_decision::MfPreselectionLogicResult::canPickup(0, 2));
   EXPECT_TRUE(rc26_decision::MfPreselectionLogicResult::canPickup(1, 2));

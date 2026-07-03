@@ -204,6 +204,15 @@ std::string translateMfFailureReason(const std::string &reason) {
   if (reason == "grab_verify_no_new_frame") {
     return "夹取视觉验证期间没有新视觉帧";
   }
+  if (reason == "grab_verify_target_not_stably_lost") {
+    return "夹取视觉验证超时且未达到连续消失帧";
+  }
+  if (reason == "grab_retry_context_missing") {
+    return "夹取失败重试上下文缺失";
+  }
+  if (reason == "grab_retry_center_start_failed") {
+    return "夹取失败重试前格中心归位启动失败";
+  }
   if (reason == "kfs_visual_align_total_timeout") {
     return "KFS 视觉横移对齐总超时";
   }
@@ -440,10 +449,34 @@ bool MfPreselectionLogicResult::labelMatches(
   return false;
 }
 
+bool MfPreselectionLogicResult::r1KfsScoreAccepted(
+    const std::string &label, double score, double min_score) {
+  if (label != "R1_KFS") {
+    return true;
+  }
+  const double normalized_min_score =
+      std::clamp(std::isfinite(min_score) ? min_score : 0.50, 0.0, 1.0);
+  return std::isfinite(score) && score >= normalized_min_score;
+}
+
 bool MfPreselectionLogicResult::canPickup(int pickup_count,
                                           int max_pickup_count) {
   // max_pickup_count 允许配置为 0，用于现场只跑避障/路线、不触发夹取的测试。
   return pickup_count < std::max(0, max_pickup_count);
+}
+
+MfPreselectionLogicResult::GrabRetryAction
+MfPreselectionLogicResult::grabRetryAction(
+    bool target_still_visible, MfPreselectionPickupSource source,
+    bool entry_high_protocol, bool path_blocking) {
+  if (!target_still_visible) {
+    return GrabRetryAction::None;
+  }
+  if (entry_high_protocol || source != MfPreselectionPickupSource::None) {
+    return GrabRetryAction::EntryBackoff;
+  }
+  return path_blocking ? GrabRetryAction::GridCenterRetry
+                       : GrabRetryAction::None;
 }
 
 bool MfPreselectionLogicResult::entryInterruptOffsetAcceptable(
@@ -1171,6 +1204,7 @@ BT::NodeStatus MfPreselectionFlowAction::onStart() {
   row4_fake_detected_ = false;
   direct_exit_move_active_ = false;
   clearPathR1Wait();
+  clearGrabRetryContext();
   pending_grab_commit_ = false;
   pending_grab_source_ = MfPreselectionPickupSource::None;
   pending_grab_target_.reset();
@@ -1593,6 +1627,12 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
   case Phase::DirectExitDrive:
     return tickDirectExitDrive();
 
+  case Phase::EntryRetryBackoff:
+    return tickEntryRetryBackoff();
+
+  case Phase::RetryPostGrabCenterAlign:
+    return beginRetryPostGrabCenterAlign();
+
   case Phase::FinalStop:
     publishStop();
     writeBlackboardState("final_stop");
@@ -1851,6 +1891,7 @@ void MfPreselectionFlowAction::releaseRuntime() {
   ignored_r2_targets_.clear();
   grab_success_direct_exit_ = false;
   post_grab_center_next_phase_ = Phase::Done;
+  clearGrabRetryContext();
   clearKfsVisualPickup();
 }
 
@@ -1864,6 +1905,11 @@ void MfPreselectionFlowAction::normalizeParams() {
   params_.r1_blocking_labels = sanitized(std::move(params_.r1_blocking_labels));
   params_.r1_blocking_label_prefixes =
       sanitized(std::move(params_.r1_blocking_label_prefixes));
+  params_.r1_kfs_min_score =
+      std::clamp(std::isfinite(params_.r1_kfs_min_score)
+                     ? params_.r1_kfs_min_score
+                     : 0.50,
+                 0.0, 1.0);
   params_.fake_label_prefixes = sanitized(std::move(params_.fake_label_prefixes));
   params_.fake_labels = sanitized(std::move(params_.fake_labels));
   params_.depth_min_m = std::max(0.0, params_.depth_min_m);
@@ -2219,7 +2265,7 @@ MfPreselectionFlowAction::findR2Target() {
 std::optional<MfPreselectionTargetSnapshot>
 MfPreselectionFlowAction::findR1BlockingTarget() {
   return findTarget(params_.r1_blocking_labels,
-                    params_.r1_blocking_label_prefixes, false);
+                    params_.r1_blocking_label_prefixes, false, true);
 }
 
 std::optional<MfPreselectionTargetSnapshot>
@@ -2230,7 +2276,8 @@ MfPreselectionFlowAction::findFakeTarget() {
 std::optional<MfPreselectionTargetSnapshot>
 MfPreselectionFlowAction::findTarget(const std::vector<std::string> &exact,
                                      const std::vector<std::string> &prefixes,
-                                     bool skip_ignored_r2) {
+                                     bool skip_ignored_r2,
+                                     bool filter_r1_kfs_score) {
   // 目标读取是“快照式”的：同一帧里的 detection 和 depth 一起使用，
   // 避免检测框来自新帧、深度来自旧帧导致距离门限失真。
   if (!vision_ || !vision_->isRunning()) {
@@ -2246,6 +2293,21 @@ MfPreselectionFlowAction::findTarget(const std::vector<std::string> &exact,
   for (const auto &det : snapshot.detections) {
     const std::string name = rc26_vision::visualTargetLabel(det);
     if (!MfPreselectionLogicResult::labelMatches(name, exact, prefixes)) {
+      continue;
+    }
+    if (filter_r1_kfs_score &&
+        !MfPreselectionLogicResult::r1KfsScoreAccepted(
+            name, det.score, params_.r1_kfs_min_score)) {
+      if (node_ && snapshot.display_sequence !=
+                       r1_kfs_low_score_last_logged_sequence_) {
+        r1_kfs_low_score_last_logged_sequence_ = snapshot.display_sequence;
+        RCLCPP_INFO(
+            node_->get_logger(),
+            "梅林预选赛过滤低置信度R1_KFS：score=%.3f threshold=%.3f seq=%ld bbox=[%.1f %.1f %.1f %.1f]",
+            det.score, params_.r1_kfs_min_score,
+            static_cast<long>(snapshot.display_sequence), det.x1, det.y1,
+            det.x2, det.y2);
+      }
       continue;
     }
     const MfPreselectionTargetSnapshot candidate =
@@ -2473,6 +2535,10 @@ const char *MfPreselectionFlowAction::phaseText(Phase phase) {
     return "直行离场兜底";
   case Phase::FinalStop:
     return "最终停车等待";
+  case Phase::EntryRetryBackoff:
+    return "入口夹取失败后退重试";
+  case Phase::RetryPostGrabCenterAlign:
+    return "夹取失败后归中重试";
   case Phase::KfsVisualAlign:
     return "KFS视觉横移对齐";
   case Phase::KfsSecondArmLower:
@@ -3711,6 +3777,182 @@ void MfPreselectionFlowAction::clearPathR1Wait() {
   path_r1_waiting_ = false;
   path_r1_lost_count_ = 0;
   path_r1_last_sequence_ = 0;
+}
+
+bool MfPreselectionFlowAction::lastGrabOriginPathBlocking() const {
+  return last_grab_origin_phase_ == Phase::DirectExitDrive ||
+         last_grab_origin_detect_mode_ == DetectMode::RowFront ||
+         last_grab_origin_detect_mode_ == DetectMode::TransitionObserve;
+}
+
+bool MfPreselectionFlowAction::scheduleGrabRetryAfterVisibleFailure(
+    const std::string &reason) {
+  if (reason != "grab_verify_target_still_visible" ||
+      !last_grab_retry_context_valid_ || !last_grab_target_.has_value()) {
+    return false;
+  }
+
+  const auto retry_action = MfPreselectionLogicResult::grabRetryAction(
+      true, last_grab_source_, last_grab_entry_high_protocol_,
+      lastGrabOriginPathBlocking());
+  if (retry_action == MfPreselectionLogicResult::GrabRetryAction::None) {
+    return false;
+  }
+
+  retry_grab_context_valid_ = true;
+  retry_grab_backoff_started_ = false;
+  retry_grab_high_side_ = last_grab_high_side_;
+  retry_grab_source_ = last_grab_source_;
+  retry_grab_success_phase_ = last_grab_success_phase_;
+  retry_grab_failure_phase_ = last_grab_failure_phase_;
+  retry_grab_direct_exit_on_success_ = last_grab_direct_exit_on_success_;
+  retry_grab_entry_high_protocol_ = last_grab_entry_high_protocol_;
+  retry_grab_depth_profile_ = last_grab_depth_profile_;
+  retry_grab_approach_distance_m_ = last_grab_approach_distance_m_;
+  retry_grab_target_ = last_grab_target_;
+  retry_grab_origin_phase_ = last_grab_origin_phase_;
+  retry_grab_origin_detect_mode_ = last_grab_origin_detect_mode_;
+
+  if (node_) {
+    RCLCPP_WARN(
+        node_->get_logger(),
+        "梅林预选赛夹取后原目标仍可见，调度重新夹取：action=%s source=%s origin=%s detect=%s approach=%.3fm target=%s seq=%ld",
+        retry_action == MfPreselectionLogicResult::GrabRetryAction::EntryBackoff
+            ? "entry_backoff"
+            : "grid_center_retry",
+        sourceName(retry_grab_source_), phaseText(retry_grab_origin_phase_),
+        detectModeText(retry_grab_origin_detect_mode_),
+        retry_grab_approach_distance_m_, retry_grab_target_->label.c_str(),
+        static_cast<long>(retry_grab_target_->sequence));
+  }
+
+  phase_ =
+      retry_action == MfPreselectionLogicResult::GrabRetryAction::EntryBackoff
+          ? Phase::EntryRetryBackoff
+          : Phase::RetryPostGrabCenterAlign;
+  return true;
+}
+
+BT::NodeStatus MfPreselectionFlowAction::tickEntryRetryBackoff() {
+  if (!node_ || !retry_grab_context_valid_) {
+    return fail("grab_retry_context_missing");
+  }
+
+  if (!retry_grab_backoff_started_) {
+    const double backoff_distance = -retry_grab_approach_distance_m_;
+    retry_grab_backoff_started_ = true;
+    if (std::abs(backoff_distance) > params_.kfs_approach_odom_tolerance_m) {
+      RCLCPP_WARN(
+          node_->get_logger(),
+          "梅林预选赛入口夹取失败后退到可重新识别位置：distance=%.3fm target=%s",
+          backoff_distance,
+          retry_grab_target_.has_value() ? retry_grab_target_->label.c_str()
+                                         : "");
+      beginKfsOdomAxisMotion(KfsOdomAxis::X, backoff_distance,
+                             params_.kfs_approach_speed_mps,
+                             params_.kfs_approach_min_speed_mps,
+                             params_.kfs_approach_odom_tolerance_m,
+                             params_.kfs_approach_timeout_s,
+                             "entry_grab_retry_backoff");
+      return BT::NodeStatus::RUNNING;
+    }
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "梅林预选赛入口夹取失败但前向趋近距离在容差内，直接重新识别夹取：distance=%.3fm",
+        backoff_distance);
+  } else if (kfs_odom_motion_started_) {
+    std::string failure_reason;
+    const auto motion_result = tickKfsOdomAxisMotion(failure_reason);
+    if (motion_result == KfsOdomMotionResult::Failed) {
+      return fail(failure_reason.empty() ? "kfs_odom_approach_runtime_failed"
+                                         : failure_reason);
+    }
+    if (motion_result == KfsOdomMotionResult::Running) {
+      return BT::NodeStatus::RUNNING;
+    }
+    publishStop();
+    clearKfsOdomAxisMotion();
+  }
+
+  const auto observation = findR2LockObservation(retry_grab_depth_profile_);
+  if (!observation.has_value()) {
+    publishStop();
+    writeBlackboardState("entry_grab_retry_wait_target");
+    return BT::NodeStatus::RUNNING;
+  }
+
+  const auto high_side = retry_grab_high_side_;
+  const auto source = retry_grab_source_;
+  const auto success_phase = retry_grab_success_phase_;
+  const auto failure_phase = retry_grab_failure_phase_;
+  const auto direct_exit_on_success = retry_grab_direct_exit_on_success_;
+  const auto entry_high_protocol = retry_grab_entry_high_protocol_;
+  const auto depth_profile = retry_grab_depth_profile_;
+  RCLCPP_INFO(node_->get_logger(),
+              "梅林预选赛入口夹取失败后重新识别到R2 KFS，继续夹取：label=%s seq=%ld",
+              observation->target.label.c_str(),
+              static_cast<long>(observation->target.sequence));
+  clearGrabRetryContext();
+  beginKfsVisualPickup(high_side, source, *observation, success_phase,
+                       failure_phase, direct_exit_on_success,
+                       entry_high_protocol, depth_profile);
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus MfPreselectionFlowAction::beginRetryPostGrabCenterAlign() {
+  if (!node_ || !retry_grab_context_valid_) {
+    return fail("grab_retry_context_missing");
+  }
+
+  Phase next_phase = retry_grab_origin_phase_;
+  if (next_phase == Phase::Done || next_phase == Phase::KfsVisualAlign ||
+      next_phase == Phase::KfsOdomApproach || next_phase == Phase::GrabVerify) {
+    next_phase = retry_grab_origin_detect_mode_ == DetectMode::TransitionObserve
+                     ? Phase::TransitionObserve
+                     : Phase::RowFrontDetect;
+  }
+  if (next_phase == Phase::DirectExitDrive) {
+    direct_exit_move_active_ = false;
+  }
+  const double target_yaw = postGrabCenterYaw();
+  RCLCPP_WARN(node_->get_logger(),
+              "梅林预选赛梅林内夹取失败且原目标仍可见，先归当前格中心后重新观察：grid=%d next=%s yaw=%.3f",
+              current_grid_, phaseText(next_phase), target_yaw);
+  if (!beginGridCenterAlign(current_grid_, target_yaw, next_phase,
+                            "retry_after_failed_grab_center")) {
+    return fail("grab_retry_center_start_failed");
+  }
+  clearGrabRetryContext();
+  writeBlackboardState("grab_retry_center_align");
+  return BT::NodeStatus::RUNNING;
+}
+
+void MfPreselectionFlowAction::clearGrabRetryContext() {
+  retry_grab_context_valid_ = false;
+  retry_grab_backoff_started_ = false;
+  retry_grab_high_side_ = true;
+  retry_grab_source_ = MfPreselectionPickupSource::None;
+  retry_grab_success_phase_ = Phase::Done;
+  retry_grab_failure_phase_ = Phase::Done;
+  retry_grab_direct_exit_on_success_ = false;
+  retry_grab_entry_high_protocol_ = false;
+  retry_grab_depth_profile_ = R2DepthProfile::General;
+  retry_grab_approach_distance_m_ = 0.0;
+  retry_grab_target_.reset();
+  retry_grab_origin_phase_ = Phase::Done;
+  retry_grab_origin_detect_mode_ = DetectMode::Entry2;
+  last_grab_retry_context_valid_ = false;
+  last_grab_high_side_ = true;
+  last_grab_source_ = MfPreselectionPickupSource::None;
+  last_grab_success_phase_ = Phase::Done;
+  last_grab_failure_phase_ = Phase::Done;
+  last_grab_direct_exit_on_success_ = false;
+  last_grab_entry_high_protocol_ = false;
+  last_grab_depth_profile_ = R2DepthProfile::General;
+  last_grab_approach_distance_m_ = 0.0;
+  last_grab_target_.reset();
+  last_grab_origin_phase_ = Phase::Done;
+  last_grab_origin_detect_mode_ = DetectMode::Entry2;
 }
 
 void MfPreselectionFlowAction::beginTurnYaw(double target_yaw_rad,
@@ -5239,6 +5481,8 @@ void MfPreselectionFlowAction::beginKfsVisualPickup(
   kfs_pickup_direct_exit_on_success_ = direct_exit_on_success;
   kfs_pickup_entry_high_protocol_ = entry_high_protocol;
   kfs_pickup_depth_profile_ = depth_profile;
+  kfs_pickup_origin_phase_ = phase_;
+  kfs_pickup_origin_detect_mode_ = detect_mode_;
   kfs_pickup_initial_target_ = target;
   kfs_locked_target_ = target;
   kfs_odom_target_ = target;
@@ -5521,6 +5765,7 @@ BT::NodeStatus MfPreselectionFlowAction::beginKfsOdomApproach(
   kfs_odom_approach_distance_m_ = planned_distance_m;
   kfs_odom_approach_estimated_duration_s_ = planned_duration_s;
   kfs_odom_approach_started_ = false;
+  last_grab_approach_distance_m_ = planned_distance_m;
   clearKfsOdomAxisMotion();
 
   RCLCPP_INFO(node_->get_logger(),
@@ -5619,6 +5864,8 @@ void MfPreselectionFlowAction::clearKfsVisualPickup() {
   kfs_pickup_direct_exit_on_success_ = false;
   kfs_pickup_entry_high_protocol_ = false;
   kfs_pickup_depth_profile_ = R2DepthProfile::General;
+  kfs_pickup_origin_phase_ = Phase::Done;
+  kfs_pickup_origin_detect_mode_ = DetectMode::Entry2;
   kfs_pickup_initial_target_.reset();
   kfs_locked_target_.reset();
   kfs_odom_target_.reset();
@@ -5668,6 +5915,17 @@ void MfPreselectionFlowAction::beginGrab(
   grab_failure_phase_ = failure_phase;
   grab_success_direct_exit_ = direct_exit_on_success;
   post_grab_center_next_phase_ = Phase::Done;
+  last_grab_retry_context_valid_ = true;
+  last_grab_high_side_ = high_side;
+  last_grab_source_ = source;
+  last_grab_success_phase_ = success_phase;
+  last_grab_failure_phase_ = failure_phase;
+  last_grab_direct_exit_on_success_ = direct_exit_on_success;
+  last_grab_entry_high_protocol_ = entry_high_protocol;
+  last_grab_depth_profile_ = kfs_pickup_depth_profile_;
+  last_grab_target_ = target;
+  last_grab_origin_phase_ = kfs_pickup_origin_phase_;
+  last_grab_origin_detect_mode_ = kfs_pickup_origin_detect_mode_;
   // pending_grab_commit_ 让计数更新延迟到物理夹取视觉验证成功之后，避免
   // ACK 成功但空夹时仍消耗本局最多夹取次数。
   pending_grab_commit_ = true;
@@ -5817,9 +6075,12 @@ BT::NodeStatus MfPreselectionFlowAction::tickGrabVerify() {
   }
 
   if (elapsed >= params_.grab_verify_timeout_s) {
-    finishGrabVerificationFailure(grab_verify_seen_new_frame_
-                                      ? "grab_verify_target_still_visible"
-                                      : "grab_verify_no_new_frame");
+    const char *failure_reason =
+        !grab_verify_seen_new_frame_
+            ? "grab_verify_no_new_frame"
+            : (still_visible ? "grab_verify_target_still_visible"
+                             : "grab_verify_target_not_stably_lost");
+    finishGrabVerificationFailure(failure_reason);
   }
   return BT::NodeStatus::RUNNING;
 }
@@ -5851,6 +6112,20 @@ void MfPreselectionFlowAction::commitPendingGrab() {
 
 void MfPreselectionFlowAction::finishGrabVerificationFailure(
     const std::string &reason) {
+  if (scheduleGrabRetryAfterVisibleFailure(reason)) {
+    pending_grab_commit_ = false;
+    pending_grab_source_ = MfPreselectionPickupSource::None;
+    pending_grab_entry_high_protocol_ = false;
+    pending_grab_target_.reset();
+    grab_success_direct_exit_ = false;
+    post_grab_center_next_phase_ = Phase::Done;
+    grab_verify_lost_count_ = 0;
+    grab_verify_last_sequence_ = 0;
+    grab_verify_seen_new_frame_ = false;
+    grab_verify_visible_logged_ = false;
+    grab_verify_last_logged_lost_count_ = 0;
+    return;
+  }
   if (pending_grab_target_.has_value()) {
     ignored_r2_targets_.push_back(*pending_grab_target_);
   }
@@ -5912,6 +6187,8 @@ void loadMfPreselectionParams(rclcpp::Node &node,
       node.declare_parameter<std::vector<std::string>>(
           "mf_preselect_r1_blocking_label_prefixes",
           p.r1_blocking_label_prefixes);
+  p.r1_kfs_min_score = node.declare_parameter<double>(
+      "mf_preselect_r1_kfs_min_score", p.r1_kfs_min_score);
   p.fake_label_prefixes = node.declare_parameter<std::vector<std::string>>(
       "mf_preselect_fake_label_prefixes", p.fake_label_prefixes);
   p.fake_labels = node.declare_parameter<std::vector<std::string>>(
