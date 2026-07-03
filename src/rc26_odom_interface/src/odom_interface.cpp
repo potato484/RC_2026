@@ -317,6 +317,8 @@ OdomInterfaceNode::OdomInterfaceNode(const rclcpp::NodeOptions& options) : Node(
 
     tf_input_odom_to_output_odom_.setIdentity();
     zero_origin_translation_sum_.setZero();
+    zero_origin_yaw_sin_sum_ = 0.0;
+    zero_origin_yaw_cos_sum_ = 0.0;
 
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
@@ -662,7 +664,7 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
             double pitch = 0.0;
             double yaw = 0.0;
             tf2::Matrix3x3(tf_input_odom_to_base_link.getRotation()).getRPY(roll, pitch, yaw);
-            bootstrap_yaw_rad_ = yaw;
+            bootstrap_yaw_rad_ = zero_origin_to_first_frame_ ? 0.0 : yaw;
             bootstrap_yaw_locked_ = true;
         }
     }
@@ -681,6 +683,8 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
                 if (zero_origin_accumulated_frames_ > 0) {
                     zero_origin_accumulated_frames_ = 0;
                     zero_origin_translation_sum_.setZero();
+                    zero_origin_yaw_sin_sum_ = 0.0;
+                    zero_origin_yaw_cos_sum_ = 0.0;
                     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
                                          "启动归零阶段检测到运动，重置静止均值累计");
                 }
@@ -691,7 +695,13 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
                 splitBaseLinkTransform(tf_input_odom_to_base_link, base_link_height_above_base_footprint_m_,
                                        split_base_frame)
                     .odom_to_base_frame;
+            double zero_roll = 0.0;
+            double zero_pitch = 0.0;
+            double zero_yaw = 0.0;
+            tf2::Matrix3x3(zero_origin_reference.getRotation()).getRPY(zero_roll, zero_pitch, zero_yaw);
             zero_origin_translation_sum_ += zero_origin_reference.getOrigin();
+            zero_origin_yaw_sin_sum_ += std::sin(zero_yaw);
+            zero_origin_yaw_cos_sum_ += std::cos(zero_yaw);
             ++zero_origin_accumulated_frames_;
 
             if (zero_origin_accumulated_frames_ < zero_origin_warmup_frames_) {
@@ -703,12 +713,21 @@ void OdomInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
 
             const tf2::Vector3 averaged_origin =
                 zero_origin_translation_sum_ / static_cast<double>(zero_origin_accumulated_frames_);
+            const double averaged_yaw = std::atan2(zero_origin_yaw_sin_sum_, zero_origin_yaw_cos_sum_);
+            tf2::Quaternion zero_yaw_rotation;
+            zero_yaw_rotation.setRPY(0.0, 0.0, -averaged_yaw);
+            zero_yaw_rotation.normalize();
+            tf2::Transform zero_origin_to_output_odom;
+            zero_origin_to_output_odom.setIdentity();
+            zero_origin_to_output_odom.setRotation(zero_yaw_rotation);
+            zero_origin_to_output_odom.setOrigin(tf2::quatRotate(zero_yaw_rotation, -averaged_origin));
             tf_input_odom_to_output_odom_.setIdentity();
-            tf_input_odom_to_output_odom_.setOrigin(-averaged_origin);
+            tf_input_odom_to_output_odom_ = zero_origin_to_output_odom;
             odom_origin_initialized_ = true;
             RCLCPP_INFO(this->get_logger(),
-                        "已建立 odom 静止均值归零: frames=%d, output_origin=(%.3f, %.3f, %.3f)",
-                        zero_origin_accumulated_frames_, averaged_origin.x(), averaged_origin.y(), averaged_origin.z());
+                        "已建立 odom 静止均值归零: frames=%d, input_origin=(%.3f, %.3f, %.3f), input_yaw=%.3f rad",
+                        zero_origin_accumulated_frames_, averaged_origin.x(), averaged_origin.y(), averaged_origin.z(),
+                        averaged_yaw);
         }
         tf_input_odom_to_base_link = tf_input_odom_to_output_odom_ * tf_input_odom_to_base_link;
     }

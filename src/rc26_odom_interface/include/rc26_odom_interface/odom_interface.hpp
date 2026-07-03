@@ -117,8 +117,10 @@ private:
     size_t odom_stamp_history_size_{128};
     size_t pending_cloud_queue_size_{8};
     int cloud_queue_size_{5};
-    tf2::Transform tf_input_odom_to_output_odom_;  // 首帧平移归零: 将 Point-LIO odom 平移到输出基座首帧原点
+    tf2::Transform tf_input_odom_to_output_odom_;  // 首帧位姿归零: 将 Point-LIO odom 对齐到输出基座首帧原点和 yaw
     tf2::Vector3 zero_origin_translation_sum_{0.0, 0.0, 0.0};
+    double zero_origin_yaw_sin_sum_{0.0};
+    double zero_origin_yaw_cos_sum_{0.0};
     nav_msgs::msg::Path odom_path_msg_;
     std::deque<rclcpp::Time> odometry_stamp_history_;
     std::deque<sensor_msgs::msg::PointCloud2::ConstSharedPtr> pending_clouds_;
