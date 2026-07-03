@@ -90,6 +90,9 @@ TEST(MfPreselectionLogic, GrabRetryActionClassifiesVisibleFailures) {
                 false, MfPreselectionPickupSource::Stair2, true, true),
             MfPreselectionLogicResult::GrabRetryAction::None);
   EXPECT_EQ(MfPreselectionLogicResult::grabRetryAction(
+                true, MfPreselectionPickupSource::Stair2, false, false),
+            MfPreselectionLogicResult::GrabRetryAction::EntryBackoff);
+  EXPECT_EQ(MfPreselectionLogicResult::grabRetryAction(
                 true, MfPreselectionPickupSource::Stair2, true, false),
             MfPreselectionLogicResult::GrabRetryAction::EntryBackoff);
   EXPECT_EQ(MfPreselectionLogicResult::grabRetryAction(
@@ -98,6 +101,12 @@ TEST(MfPreselectionLogic, GrabRetryActionClassifiesVisibleFailures) {
   EXPECT_EQ(MfPreselectionLogicResult::grabRetryAction(
                 true, MfPreselectionPickupSource::None, false, false),
             MfPreselectionLogicResult::GrabRetryAction::None);
+  EXPECT_TRUE(MfPreselectionLogicResult::mandatoryEntryStair2Retry(
+      MfPreselectionPickupSource::Stair2, false));
+  EXPECT_FALSE(MfPreselectionLogicResult::mandatoryEntryStair2Retry(
+      MfPreselectionPickupSource::Stair2, true));
+  EXPECT_FALSE(MfPreselectionLogicResult::mandatoryEntryStair2Retry(
+      MfPreselectionPickupSource::Stair1, false));
 }
 
 TEST(MfPreselectionLogic, PickupLimitUsesStrictMaximum) {
@@ -897,6 +906,14 @@ TEST(MfPreselectionLogic, GrabCommandFollowsHighSide) {
             static_cast<uint8_t>(rc26_serial::CommandID::GRAB_KFS_UP));
   EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabDoneFeedbackForPickup(
                 true, rc26_decision::MfPreselectionPickupSource::None, false,
+                params),
+            -1);
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabCommandForPickup(
+                true, rc26_decision::MfPreselectionPickupSource::Stair2, false,
+                params),
+            static_cast<uint8_t>(rc26_serial::CommandID::GRAB_KFS_UP));
+  EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabDoneFeedbackForPickup(
+                true, rc26_decision::MfPreselectionPickupSource::Stair2, false,
                 params),
             -1);
   EXPECT_EQ(rc26_decision::MfPreselectionLogicResult::grabCommandForPickup(

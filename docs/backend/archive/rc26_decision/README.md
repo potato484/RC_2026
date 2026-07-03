@@ -95,11 +95,11 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 台阶动作进入跨阶直行前会先用 `stair_heading_*` 参数完成 yaw 对齐；直行期间只叠加小幅 heading hold，若 yaw 偏差再次超过 `stair_heading_gate_deg`，会暂停线速度并原地纠偏，且不推进当前激光事件或定时直行窗口。
 
-`MfPreselectionFlow` 的入口、行前方、周身和 `TransitionObserve` 检测窗口在未发现 R2 KFS 时必须先等满对应 `mf_preselect_*_detect_timeout_s`，再按 `mf_preselect_detect_lost_stable_frames` 确认未命中并切到下一阶段；连续丢失帧只用于抗抖，不再提前截短检测窗口。发现 R2 KFS 或假 KFS 仍可在窗口内立即触发对应夹取/避障分支。R2 KFS 夹取命令完成后若视觉验证超时且原目标仍可见，不再把该目标加入 ignored 列表：入口侧会按本次前向趋近规划距离反向后退到可重新识别位置，再重新进入 KFS 视觉对齐和夹取；梅林内部路径前方或台阶前观察夹取失败时，会先复用当前格 `GridCenterAlign` 归中，再回到原前方观察阶段继续夹取。没有新视觉帧、目标已消失但未达到稳定消失帧、机构命令失败、odom 运动失败或归中失败仍沿原失败/硬失败语义处理。R1 阻挡标签新增 `R1_KFS` 兼容，但会用 `mf_preselect_r1_kfs_min_score` 做低置信度过滤，默认 0.50，低于阈值的 `R1_KFS` 不作为路径阻挡。R2 KFS 候选若被过滤，会把最近一次拒绝原因代码写入 `mf_preselect_r2_lock_reject_reason/detail/sequence` 黑板键，并在同一检测窗口内按原因去重打印中文 INFO 日志；检测 miss 日志会附带中文摘要，便于区分夹取数已满、视觉帧无效、标签不匹配、已忽略目标、深度采样失败或目标选择失败。
+`MfPreselectionFlow` 的入口、行前方、周身和 `TransitionObserve` 检测窗口在未发现 R2 KFS 时必须先等满对应 `mf_preselect_*_detect_timeout_s`，再按 `mf_preselect_detect_lost_stable_frames` 确认未命中并切到下一阶段；连续丢失帧只用于抗抖，不再提前截短检测窗口。发现 R2 KFS 或假 KFS 仍可在窗口内立即触发对应夹取/避障分支。R2 KFS 夹取命令完成后若视觉验证超时且原目标仍可见，不再把该目标加入 ignored 列表：入口侧会按本次前向趋近规划距离反向后退到可重新识别位置，再重新进入 KFS 视觉对齐和夹取；梅林内部路径前方或台阶前观察夹取失败时，会先复用当前格 `GridCenterAlign` 归中，再回到原前方观察阶段继续夹取。除 2 号入口必须无限重试的夹取确认失败外，没有新视觉帧、目标已消失但未达到稳定消失帧、机构命令失败、odom 运动失败或归中失败仍沿原失败/硬失败语义处理。R1 阻挡标签新增 `R1_KFS` 兼容，但会用 `mf_preselect_r1_kfs_min_score` 做低置信度过滤，默认 0.50，低于阈值的 `R1_KFS` 不作为路径阻挡。R2 KFS 候选若被过滤，会把最近一次拒绝原因代码写入 `mf_preselect_r2_lock_reject_reason/detail/sequence` 黑板键，并在同一检测窗口内按原因去重打印中文 INFO 日志；检测 miss 日志会附带中文摘要，便于区分夹取数已满、视觉帧无效、标签不匹配、已忽略目标、深度采样失败或目标选择失败。
 
 台阶动作既可通过 `stair_climb_tree.xml` / `stair_descend_tree.xml` 独立加载测试，也可由 MF 状态机复用。它们通过 `/mechanism/send_command` 请求推杆动作，通过 `/mechanism/command_feedback` 等待对应反馈，通过 `/cmd_vel` 发布受限直行速度；跨阶前先完成 yaw 预对齐，跨阶直行时若 yaw 超出 gate 会停止线速度并只修正朝向。失败或 halt 时只发布零速，不做额外推杆补偿。
 
-梅林预选赛入口高侧 KFS 夹取使用 `rc26_serial` 真源中的 `ENTRY_GRAB_KFS_UP(0x0F)`，并在 service ACK 后等待同 `seq` 的 `ENTRY_GRAB_KFS_UP_DONE(0x0B)`；ACK 只代表 transport 通用确认，真正计数仍延迟到后续视觉消失验证成功。
+梅林预选赛 2 号入口正前方 R2 KFS 夹取使用 `rc26_serial` 真源中的普通高侧 `GRAB_KFS_UP(0x03)`，夹取完成仍以视觉消失验证为准；若 2 号入口未完成视觉夹取验证，会持续停车、重新识别、重新对齐、重新趋近并重新夹取，直到原目标连续新帧消失确认成功，不会忽略该目标或继续上阶。入口专用 `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 仅保留给仍显式启用 `entry_high_protocol` 的入口高侧场景；ACK 只代表 transport 通用确认，真正计数仍延迟到后续视觉消失验证成功。
 
 ## 参数口径
 
@@ -128,6 +128,8 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 - `rc26_interfaces` 当前不提供自定义导航 action；导航对外契约只保留 `/cmd_vel` 速度输出。
 
 ## 本轮同步
+
+2026-07-03 同步：`MfPreselectionFlow` 的 2 号入口 R2 KFS 夹取改用普通高侧 `GRAB_KFS_UP(0x03)`，不再走入口专用 `ENTRY_GRAB_KFS_UP(0x0F)`；2 号入口夹取完成仍以视觉消失验证为准，未完成时会无限重试夹取链，不忽略该目标且不推进到上阶或 1/3 号入口探测。入口专用 `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 仅保留给显式 `entry_high_protocol` 场景。
 
 2026-07-03 同步：台阶动作改为先 yaw 对齐再跨阶直行。独立 `StairClimb` / `StairDescend` 复用既有 `stair_heading_*` 参数，在开始推杆和直行前先完成 yaw 预对齐；`MfPreselectionFlow` 内嵌入口、格间和最终离场台阶也使用同一口径。跨阶直行期间只保留小幅 heading hold，若 yaw 偏差超过 `stair_heading_gate_deg`，会暂停线速度并原地纠偏，且不推进当前激光事件等待或定时直行窗口。本轮不改变 `/cmd_vel`、机构 service、MCU 反馈协议、`OdomDriveX/Y`、`GridCenterAlign` 或 KFS odom 前向趋近控制策略。
 
@@ -187,6 +189,6 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 2026-06-30 同步：`MfPreselectionFlow` 的假 KFS 避障分支改为高度表驱动的旁列前向观察推进。初始避障从中列绕到旁列时先通过 `prepareTransitionTo()` 读取静态高度差，不再硬编码 `StairMode::Climb`；后续 `FakeAvoidAlignExit` 不再设置 `direct_exit_mode_` 或进入 `DirectExitDrive`，而是进入旁列模式，按当前旁列固定向前格复用 `TransitionTurn -> TransitionArmAdjust -> TransitionObserve -> TransitionStair -> GridCenterAlign`；出口行 `grid10/grid12` 复用最终下阶离场。从 `RowFront` 发现假 KFS 切入避障时会显式结束当前检测窗口，避免旁列 `TransitionObserve` 继承旧 `RowFront` 状态后误入周身扫描。旁列前向推进的观察朝向与台阶执行朝向分开：先面向目标格正前方观察/夹取 R2 KFS；若该边按高度表是下阶，再在 `TransitionStair` 前转到后轮先下的台阶 yaw。该改动只调整预选赛策略分支，不改变 `/cmd_vel`、机构 service、视觉标签或台阶原语接口。
 
-2026-06-30 同步：`MfPreselectionFlow` 的默认机构协议 ID 改为引用 `rc26_serial::CommandID/FeedbackID`，其中入口高侧 KFS 夹取对应 `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)`。决策层继续只消费 `/mechanism/send_command` 与 `/mechanism/command_feedback`，不解析串口帧。
+2026-06-30 同步：`MfPreselectionFlow` 的默认机构协议 ID 改为引用 `rc26_serial::CommandID/FeedbackID`。决策层继续只消费 `/mechanism/send_command` 与 `/mechanism/command_feedback`，不解析串口帧。
 
 2026-06-30 同步：移除旧外部 action 位姿导航链，导航权威收敛到 `rc26_decision` 内部 odom 单轴分段闭环。新增并注册 `OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw`，保留 `RelativeYawTarget`；MC 改回原始 `+X 0.2m -> 右转 90° -> -X 0.6m`，MF 预选入口改回 `+X 2.0m -> -Y 1.8m`。`relative_nav_last_*` 是当前导航观测黑板键，旧 action result/recovery 语义不再维护。

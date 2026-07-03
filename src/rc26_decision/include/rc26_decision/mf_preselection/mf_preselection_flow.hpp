@@ -219,6 +219,8 @@ struct MfPreselectionLogicResult {
   static GrabRetryAction
   grabRetryAction(bool target_still_visible, MfPreselectionPickupSource source,
                   bool entry_high_protocol, bool path_blocking);
+  static bool mandatoryEntryStair2Retry(MfPreselectionPickupSource source,
+                                        bool entry_high_protocol);
   static bool entryInterruptOffsetAcceptable(int offset_px,
                                              const MfPreselectionParams &params);
   static bool entryInterruptOffsetAcceptable(int offset_px,
@@ -502,7 +504,9 @@ private:
   bool guardPathObstacles();
   void clearPathR1Wait();
   bool lastGrabOriginPathBlocking() const;
+  void rememberCurrentKfsPickupForRetry();
   bool scheduleGrabRetryAfterVisibleFailure(const std::string &reason);
+  bool mandatoryEntryStair2RetryActive() const;
   BT::NodeStatus tickEntryRetryBackoff();
   BT::NodeStatus beginRetryPostGrabCenterAlign();
   void clearGrabRetryContext();

@@ -78,7 +78,7 @@
 *   `rc26_telecontrol_rear_pushrod_buttons` 会在 `Select/Back` / `Start` 按下沿单次调用 `/mechanism/send_command`，分别桥成后推杆伸展 / 收缩；`Dpad 左/右` 已回归底盘横移控制。
 *   transport service 返回 `accepted=true` 的前提仍然是 MCU 先回通用 `ACK(0x00)`；`0x02~0x07`、`0x09`、`0x0A`、`0x0B`、`0x0C`、`0x0D`、`0x0F` 与 `0x10` 业务反馈会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定。
 *   KFS 向下夹取在 `ARM_LOWER_DONE(0x03)` 后完成视觉横移对齐和一次锁深度，开环前进前还会发送 `ARM_SECOND_LOWER(0x0E)`，并等待同 `seq` 的 `ARM_SECOND_LOWER_DONE(0x0A)` 后才前进或直接夹取。
-*   梅林预选赛入口高侧 KFS 夹取使用 `ENTRY_GRAB_KFS_UP(0x0F)`，并等待同 `seq` 的 `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 后再进入视觉消失验证；service ACK 不等同于夹取完成。
+*   梅林预选赛 2 号入口 R2 KFS 夹取使用普通高侧 `GRAB_KFS_UP(0x03)`；入口专用 `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 仅用于决策层仍显式启用 `entry_high_protocol` 的入口高侧场景。service ACK 不等同于夹取完成，真正计数仍由决策层视觉消失验证决定。
 *   MCU 上行 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 是第一个限位开关事件；上行 `MF_PRESELECTION_TRIGGER(0x10)` 是第二个限位开关事件。两者只选择入口分支，不直接决定下行命令或目标树。
 *   managed first 入口下，`0x06` 与 `0x10` 都会先下发 `COMPETITION_START(0x10)` 并等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`；`0x06` 继续武馆+梅林完整树，`0x10` 切到 `mf_preselection_tree.xml`。
 *   managed second 入口下，`0x06` 与 `0x10` 都会先下发 `SECOND_PRESELECTION_START(0x11)` 并等待同 `seq` 的 `SECOND_PRESELECTION_START_DONE(0x0D)`；`0x06` 继续斜坡+转向+对抗区树，`0x10` 切到 `second_preselection_tree.xml`。

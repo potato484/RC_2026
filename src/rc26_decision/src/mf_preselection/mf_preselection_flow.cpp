@@ -479,6 +479,11 @@ MfPreselectionLogicResult::grabRetryAction(
                        : GrabRetryAction::None;
 }
 
+bool MfPreselectionLogicResult::mandatoryEntryStair2Retry(
+    MfPreselectionPickupSource source, bool entry_high_protocol) {
+  return source == MfPreselectionPickupSource::Stair2 && !entry_high_protocol;
+}
+
 bool MfPreselectionLogicResult::entryInterruptOffsetAcceptable(
     int offset_px, const MfPreselectionParams &params) {
   return std::abs(offset_px) <= std::max(0, params.entry_interrupt_max_offset_px);
@@ -1071,8 +1076,8 @@ uint8_t MfPreselectionLogicResult::grabCommandForHighSide(
 uint8_t MfPreselectionLogicResult::grabCommandForPickup(
     bool high_side, MfPreselectionPickupSource source,
     bool entry_high_protocol, const MfPreselectionParams &params) {
-  if (high_side &&
-      (entry_high_protocol || source != MfPreselectionPickupSource::None)) {
+  (void)source;
+  if (high_side && entry_high_protocol) {
     return static_cast<uint8_t>(
         std::clamp(params.entry_grab_kfs_up_command_id, 0, 255));
   }
@@ -1082,8 +1087,8 @@ uint8_t MfPreselectionLogicResult::grabCommandForPickup(
 int MfPreselectionLogicResult::grabDoneFeedbackForPickup(
     bool high_side, MfPreselectionPickupSource source,
     bool entry_high_protocol, const MfPreselectionParams &params) {
-  if (high_side &&
-      (entry_high_protocol || source != MfPreselectionPickupSource::None)) {
+  (void)source;
+  if (high_side && entry_high_protocol) {
     return static_cast<uint8_t>(
         std::clamp(params.entry_grab_kfs_up_done_feedback_id, 0, 255));
   }
@@ -2923,9 +2928,11 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
       switch (detect_mode_) {
       case DetectMode::Entry2:
         // 2 号入口正前方夹取后直接准备上首阶，来源记录为 Stair2。
+        // 2 号入口使用普通高侧夹取 GRAB_KFS_UP(0x03)，但仍保留
+        // Stair2 来源用于后续入口来源和假 KFS 避障语义。
         beginKfsVisualPickup(true, MfPreselectionPickupSource::Stair2,
                              *r2, Phase::EntryPrepareClimb,
-                             detectionMissNextPhase(), false, true,
+                             detectionMissNextPhase(), false, false,
                              R2DepthProfile::Entry);
         break;
       case DetectMode::Stair1:
@@ -3146,6 +3153,16 @@ BT::NodeStatus MfPreselectionFlowAction::tickMechanismCommand() {
   }
   if (command_response_seen_.load(std::memory_order_relaxed)) {
     if (!command_accepted_.load(std::memory_order_relaxed)) {
+      if (command_failure_reason_ == "grab_kfs_failed" &&
+          scheduleGrabRetryAfterVisibleFailure(command_failure_reason_)) {
+        pending_grab_commit_ = false;
+        pending_grab_source_ = MfPreselectionPickupSource::None;
+        pending_grab_entry_high_protocol_ = false;
+        pending_grab_target_.reset();
+        grab_success_direct_exit_ = false;
+        post_grab_center_next_phase_ = Phase::Done;
+        return BT::NodeStatus::RUNNING;
+      }
       return fail(command_failure_reason_);
     }
     if (!command_ack_logged_) {
@@ -3208,6 +3225,16 @@ BT::NodeStatus MfPreselectionFlowAction::tickMechanismCommand() {
     }
   }
   if ((node_->now() - phase_start_).seconds() > params_.command_timeout_s) {
+    if (command_failure_reason_ == "grab_kfs_failed" &&
+        scheduleGrabRetryAfterVisibleFailure(command_failure_reason_)) {
+      pending_grab_commit_ = false;
+      pending_grab_source_ = MfPreselectionPickupSource::None;
+      pending_grab_entry_high_protocol_ = false;
+      pending_grab_target_.reset();
+      grab_success_direct_exit_ = false;
+      post_grab_center_next_phase_ = Phase::Done;
+      return BT::NodeStatus::RUNNING;
+    }
     return fail(command_failure_reason_);
   }
   if (!command_sent_) {
@@ -3881,10 +3908,30 @@ bool MfPreselectionFlowAction::lastGrabOriginPathBlocking() const {
          last_grab_origin_detect_mode_ == DetectMode::TransitionObserve;
 }
 
+void MfPreselectionFlowAction::rememberCurrentKfsPickupForRetry() {
+  last_grab_retry_context_valid_ = true;
+  last_grab_high_side_ = kfs_pickup_high_side_;
+  last_grab_source_ = kfs_pickup_source_;
+  last_grab_success_phase_ = kfs_pickup_success_phase_;
+  last_grab_failure_phase_ = kfs_pickup_failure_phase_;
+  last_grab_direct_exit_on_success_ = kfs_pickup_direct_exit_on_success_;
+  last_grab_entry_high_protocol_ = kfs_pickup_entry_high_protocol_;
+  last_grab_depth_profile_ = kfs_pickup_depth_profile_;
+  last_grab_approach_distance_m_ = kfs_odom_approach_distance_m_;
+  last_grab_target_ = kfs_locked_target_.has_value()
+                          ? kfs_locked_target_
+                          : kfs_pickup_initial_target_;
+  last_grab_origin_phase_ = kfs_pickup_origin_phase_;
+  last_grab_origin_detect_mode_ = kfs_pickup_origin_detect_mode_;
+}
+
 bool MfPreselectionFlowAction::scheduleGrabRetryAfterVisibleFailure(
     const std::string &reason) {
-  if (reason != "grab_verify_target_still_visible" ||
-      !last_grab_retry_context_valid_ || !last_grab_target_.has_value()) {
+  if (!last_grab_retry_context_valid_ || !last_grab_target_.has_value()) {
+    return false;
+  }
+  if (reason != "grab_verify_target_still_visible" &&
+      !mandatoryEntryStair2RetryActive()) {
     return false;
   }
 
@@ -3912,7 +3959,8 @@ bool MfPreselectionFlowAction::scheduleGrabRetryAfterVisibleFailure(
   if (node_) {
     RCLCPP_WARN(
         node_->get_logger(),
-        "梅林预选赛夹取后原目标仍可见，调度重新夹取：action=%s source=%s origin=%s detect=%s approach=%.3fm target=%s seq=%ld",
+        "梅林预选赛夹取未确认成功，调度重新夹取：reason=%s action=%s source=%s origin=%s detect=%s approach=%.3fm target=%s seq=%ld",
+        translateMfFailureReason(reason).c_str(),
         retry_action == MfPreselectionLogicResult::GrabRetryAction::EntryBackoff
             ? "entry_backoff"
             : "grid_center_retry",
@@ -3927,6 +3975,11 @@ bool MfPreselectionFlowAction::scheduleGrabRetryAfterVisibleFailure(
           ? Phase::EntryRetryBackoff
           : Phase::RetryPostGrabCenterAlign;
   return true;
+}
+
+bool MfPreselectionFlowAction::mandatoryEntryStair2RetryActive() const {
+  return MfPreselectionLogicResult::mandatoryEntryStair2Retry(
+      last_grab_source_, last_grab_entry_high_protocol_);
 }
 
 BT::NodeStatus MfPreselectionFlowAction::tickEntryRetryBackoff() {
@@ -5511,6 +5564,14 @@ MfPreselectionFlowAction::kfsAlignTimeoutObservation() const {
 void MfPreselectionFlowAction::finishKfsAlignFailure(
     const std::string &reason) {
   publishStop();
+  if (MfPreselectionLogicResult::mandatoryEntryStair2Retry(
+          kfs_pickup_source_, kfs_pickup_entry_high_protocol_)) {
+    rememberCurrentKfsPickupForRetry();
+    if (scheduleGrabRetryAfterVisibleFailure(reason)) {
+      clearKfsVisualPickup();
+      return;
+    }
+  }
   const bool entry_source =
       kfs_pickup_source_ != MfPreselectionPickupSource::None ||
       kfs_pickup_entry_high_protocol_;
