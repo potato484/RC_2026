@@ -32,6 +32,21 @@ rc26_vision::DepthRoiSamplerConfig kfsDepthConfig() {
   return config;
 }
 
+rc26_decision::MfPreselectionLogicResult::NearestKfsCandidate
+nearestCandidate(
+    rc26_decision::MfPreselectionLogicResult::NearestKfsKind kind,
+    std::string label, double distance_m, int offset_px, double score = 0.8) {
+  rc26_decision::MfPreselectionLogicResult::NearestKfsCandidate candidate;
+  candidate.kind = kind;
+  candidate.target.label = std::move(label);
+  candidate.target.distance_m = distance_m;
+  candidate.target.score = score;
+  candidate.offset_px = offset_px;
+  candidate.depth_source =
+      rc26_decision::MfPreselectionLogicResult::KfsDepthSource::BboxMultiRoi;
+  return candidate;
+}
+
 TEST(StairSpeedProfile, SamplesLinearFastToSlow) {
   const rc26_decision::StairSpeedProfile profile{0.10, 0.05, 1.0};
 
@@ -114,6 +129,87 @@ TEST(MfPreselectionLogic, PickupLimitUsesStrictMaximum) {
   EXPECT_TRUE(rc26_decision::MfPreselectionLogicResult::canPickup(1, 2));
   EXPECT_FALSE(rc26_decision::MfPreselectionLogicResult::canPickup(2, 2));
   EXPECT_FALSE(rc26_decision::MfPreselectionLogicResult::canPickup(0, 0));
+}
+
+TEST(MfPreselectionLogic, NearestKfsSelectsR1WhenR1DepthIsCloser) {
+  using Kind = rc26_decision::MfPreselectionLogicResult::NearestKfsKind;
+
+  const auto selected =
+      rc26_decision::MfPreselectionLogicResult::selectNearestKfsCandidate(
+          {nearestCandidate(Kind::R2, "T_01", 0.82, 5, 0.95),
+           nearestCandidate(Kind::R1, "R1_KFS", 0.56, 90, 0.60)});
+
+  ASSERT_TRUE(selected.has_value());
+  EXPECT_EQ(selected->kind, Kind::R1);
+  EXPECT_EQ(selected->target.label, "R1_KFS");
+  EXPECT_DOUBLE_EQ(selected->target.distance_m, 0.56);
+}
+
+TEST(MfPreselectionLogic, NearestKfsSelectsR2WhenR2DepthIsCloser) {
+  using Kind = rc26_decision::MfPreselectionLogicResult::NearestKfsKind;
+
+  const auto selected =
+      rc26_decision::MfPreselectionLogicResult::selectNearestKfsCandidate(
+          {nearestCandidate(Kind::R2, "T_01", 0.48, 120, 0.55),
+           nearestCandidate(Kind::R1, "R_R1", 0.73, 3, 0.99)});
+
+  ASSERT_TRUE(selected.has_value());
+  EXPECT_EQ(selected->kind, Kind::R2);
+  EXPECT_EQ(selected->target.label, "T_01");
+  EXPECT_DOUBLE_EQ(selected->target.distance_m, 0.48);
+}
+
+TEST(MfPreselectionLogic, NearestKfsIgnoresInvalidDepthCandidates) {
+  using Kind = rc26_decision::MfPreselectionLogicResult::NearestKfsKind;
+
+  const auto selected =
+      rc26_decision::MfPreselectionLogicResult::selectNearestKfsCandidate(
+          {nearestCandidate(Kind::R1, "R1_KFS", 0.0, 0, 0.99),
+           nearestCandidate(Kind::R2, "T_01",
+                            std::numeric_limits<double>::quiet_NaN(), 0, 0.99),
+           nearestCandidate(Kind::R2, "T_02", 0.68, 80, 0.40)});
+
+  ASSERT_TRUE(selected.has_value());
+  EXPECT_EQ(selected->kind, Kind::R2);
+  EXPECT_EQ(selected->target.label, "T_02");
+  EXPECT_DOUBLE_EQ(selected->target.distance_m, 0.68);
+}
+
+TEST(MfPreselectionLogic, NearestKfsKeepsClosestR2AcrossMultipleR2Targets) {
+  using Kind = rc26_decision::MfPreselectionLogicResult::NearestKfsKind;
+
+  const auto selected =
+      rc26_decision::MfPreselectionLogicResult::selectNearestKfsCandidate(
+          {nearestCandidate(Kind::R2, "T_center_high_score", 0.95, 1, 0.99),
+           nearestCandidate(Kind::R2, "T_nearest", 0.61, 160, 0.30),
+           nearestCandidate(Kind::R2, "T_middle", 0.80, 20, 0.80)});
+
+  ASSERT_TRUE(selected.has_value());
+  EXPECT_EQ(selected->kind, Kind::R2);
+  EXPECT_EQ(selected->target.label, "T_nearest");
+  EXPECT_DOUBLE_EQ(selected->target.distance_m, 0.61);
+}
+
+TEST(MfPreselectionLogic, NearestKfsTiesByOffsetThenScore) {
+  using Kind = rc26_decision::MfPreselectionLogicResult::NearestKfsKind;
+
+  auto selected =
+      rc26_decision::MfPreselectionLogicResult::selectNearestKfsCandidate(
+          {nearestCandidate(Kind::R2, "T_farther_offset", 0.70, -40, 0.99),
+           nearestCandidate(Kind::R1, "R_R1", 0.70, 12, 0.50)});
+
+  ASSERT_TRUE(selected.has_value());
+  EXPECT_EQ(selected->kind, Kind::R1);
+  EXPECT_EQ(selected->target.label, "R_R1");
+
+  selected =
+      rc26_decision::MfPreselectionLogicResult::selectNearestKfsCandidate(
+          {nearestCandidate(Kind::R2, "T_lower_score", 0.70, -12, 0.60),
+           nearestCandidate(Kind::R1, "B_R1", 0.70, 12, 0.92)});
+
+  ASSERT_TRUE(selected.has_value());
+  EXPECT_EQ(selected->kind, Kind::R1);
+  EXPECT_EQ(selected->target.label, "B_R1");
 }
 
 TEST(MfPreselectionLogic, DepthRoiDiagnosticReportsZeroDepthHole) {

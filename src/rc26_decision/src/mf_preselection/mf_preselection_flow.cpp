@@ -304,6 +304,24 @@ std::string translateR2LockRejectReason(const std::string &reason) {
   if (reason == "selection_failed") {
     return "目标选择失败";
   }
+  if (reason == "nearest_kfs_not_r2") {
+    return "最近KFS不是R2目标";
+  }
+  if (reason == "nearest_kfs_missing") {
+    return "没有可用最近KFS候选";
+  }
+  if (reason == "nearest_kfs_selection_failed") {
+    return "最近KFS目标选择失败";
+  }
+  if (reason == "nearest_kfs_depth_invalid") {
+    return "最近KFS深度采样失败";
+  }
+  if (reason == "nearest_kfs_no_label_match") {
+    return "没有匹配R1/R2 KFS标签的检测框";
+  }
+  if (reason == "nearest_kfs_r2_ignored") {
+    return "最近R2目标已在忽略列表中";
+  }
   return reason.empty() ? "未知原因" : reason;
 }
 
@@ -392,22 +410,6 @@ std::string detectionsSummary(const std::vector<rc26_vision::Detection> &dets,
   }
   if (dets.size() > count) {
     oss << "; ...共" << dets.size() << "个";
-  }
-  oss << "]";
-  return oss.str();
-}
-
-std::string intVectorSummary(const std::vector<int> &values) {
-  if (values.empty()) {
-    return "[]";
-  }
-  std::ostringstream oss;
-  oss << "[";
-  for (std::size_t i = 0; i < values.size(); ++i) {
-    if (i > 0) {
-      oss << ",";
-    }
-    oss << values[i];
   }
   oss << "]";
   return oss.str();
@@ -972,6 +974,47 @@ MfPreselectionLogicResult::estimateKfsMonocularDepth(
          << " locked_delta=" << estimate.locked_delta_m;
   estimate.detail = detail.str();
   return estimate;
+}
+
+std::optional<MfPreselectionLogicResult::NearestKfsCandidate>
+MfPreselectionLogicResult::selectNearestKfsCandidate(
+    const std::vector<NearestKfsCandidate> &candidates) {
+  const NearestKfsCandidate *best = nullptr;
+  for (const auto &candidate : candidates) {
+    if (!std::isfinite(candidate.target.distance_m) ||
+        candidate.target.distance_m <= 0.0) {
+      continue;
+    }
+    if (!best) {
+      best = &candidate;
+      continue;
+    }
+    const double depth_delta =
+        candidate.target.distance_m - best->target.distance_m;
+    if (depth_delta < -1e-9) {
+      best = &candidate;
+      continue;
+    }
+    if (std::abs(depth_delta) > 1e-9) {
+      continue;
+    }
+    const int offset_abs = std::abs(candidate.offset_px);
+    const int best_offset_abs = std::abs(best->offset_px);
+    if (offset_abs < best_offset_abs) {
+      best = &candidate;
+      continue;
+    }
+    if (offset_abs > best_offset_abs) {
+      continue;
+    }
+    if (candidate.target.score > best->target.score) {
+      best = &candidate;
+    }
+  }
+  if (!best) {
+    return std::nullopt;
+  }
+  return *best;
 }
 
 rc26_vision::TipAlignmentConfig MfPreselectionLogicResult::kfsAlignmentConfig(
@@ -2900,19 +2943,21 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
     return BT::NodeStatus::RUNNING;
   }
 
+  const bool entry_detection =
+      detect_mode_ == DetectMode::Entry2 || detect_mode_ == DetectMode::Stair1 ||
+      detect_mode_ == DetectMode::Stair3;
+
   if (detect_mode_ != DetectMode::Scan) {
     if ((detect_mode_ == DetectMode::RowFront ||
          detect_mode_ == DetectMode::TransitionObserve) &&
-        guardPathObstacles()) {
+        guardPathObstacles(
+            entry_detection ? R2DepthProfile::Entry : R2DepthProfile::General)) {
       // 前方检测/台阶观察阶段看到 R1 时，守卫函数会持续停车等待；
       // 周身扫描阶段故意不等 R1，因为扫描看到的 R1 不一定挡住当前行进路径。
       return BT::NodeStatus::RUNNING;
     }
   }
 
-  const bool entry_detection =
-      detect_mode_ == DetectMode::Entry2 || detect_mode_ == DetectMode::Stair1 ||
-      detect_mode_ == DetectMode::Stair3;
   const auto r2 = findR2LockObservation(
       entry_detection ? R2DepthProfile::Entry : R2DepthProfile::General);
   if (r2.has_value()) {
@@ -3736,7 +3781,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickMoveRelative() {
   if (!node_) {
     return fail("move_runtime_missing");
   }
-  if (guardPathObstacles()) {
+  if (guardPathObstacles(isEntryInterruptibleMove() ? R2DepthProfile::Entry
+                                                    : R2DepthProfile::General)) {
     // R1 阻挡期间保持停车，并重置相对移动超时窗口；等待人工机器人让开
     // 不应被算入本段移动超时。
     phase_start_ = node_->now();
@@ -3846,9 +3892,25 @@ BT::NodeStatus MfPreselectionFlowAction::tickDirectExitDrive() {
 }
 
 bool MfPreselectionFlowAction::guardPathObstacles() {
+  return guardPathObstacles(R2DepthProfile::General);
+}
+
+std::optional<MfPreselectionTargetSnapshot>
+MfPreselectionFlowAction::findNearestR1BlockingTarget(
+    R2DepthProfile depth_profile) {
+  const auto nearest = findNearestKfsObservation(depth_profile, false);
+  if (!nearest.has_value() ||
+      nearest->kind != MfPreselectionLogicResult::NearestKfsKind::R1) {
+    return std::nullopt;
+  }
+  return nearest->observation.target;
+}
+
+bool MfPreselectionFlowAction::guardPathObstacles(
+    R2DepthProfile depth_profile) {
   // R1 是人工机器人需要处理的阻挡目标。只要路径前方稳定看到 R1，本车就
   // 零速等待；默认没有总超时，除非现场显式配置 path_r1_lost_wait_timeout_s。
-  const auto r1 = findR1BlockingTarget();
+  const auto r1 = findNearestR1BlockingTarget(depth_profile);
   if (r1.has_value()) {
     publishStop();
     writeBlackboardState("waiting_r1_blocker");
@@ -5222,8 +5284,31 @@ std::string MfPreselectionFlowAction::r2LockRejectSummary() const {
 std::optional<MfPreselectionFlowAction::KfsVisualObservation>
 MfPreselectionFlowAction::findR2LockObservation(
     R2DepthProfile depth_profile, R2LockObservationMode mode) {
-  const bool allow_depthless_align =
-      mode == R2LockObservationMode::AllowDepthlessForAlign;
+  const auto nearest = findNearestKfsObservation(
+      depth_profile, mode == R2LockObservationMode::AllowDepthlessForAlign);
+  if (!nearest.has_value()) {
+    return std::nullopt;
+  }
+  if (nearest->kind != MfPreselectionLogicResult::NearestKfsKind::R2) {
+    std::ostringstream detail;
+    detail << nearest->detail << " 最近KFS类型=R1 最近KFS标签="
+           << nearest->observation.target.label
+           << " 最近KFS深度=" << nearest->observation.target.distance_m
+           << " 最近KFSoffset=" << nearest->observation.offset_px
+           << " 被屏蔽候选数=" << nearest->suppressed_candidate_count;
+    recordR2LockReject("nearest_kfs_not_r2", detail.str(),
+                       nearest->observation.target.sequence);
+    return std::nullopt;
+  }
+  kfs_align_target_lock_sequence_ = nearest->observation.target.sequence;
+  kfs_align_last_observation_ = nearest->observation;
+  clearR2LockReject();
+  return nearest->observation;
+}
+
+std::optional<MfPreselectionFlowAction::NearestKfsObservation>
+MfPreselectionFlowAction::findNearestKfsObservation(
+    R2DepthProfile depth_profile, bool allow_depthless_r2_align) {
   const auto profileText = [](R2DepthProfile profile) {
     return profile == R2DepthProfile::Entry ? "入口深度窗口" : "常规深度窗口";
   };
@@ -5243,12 +5328,6 @@ MfPreselectionFlowAction::findR2LockObservation(
     return oss.str();
   };
 
-  if (!canPickup()) {
-    std::ostringstream detail;
-    detail << detailPrefix(0) << " can_pickup=否";
-    recordR2LockReject("pickup_limit_reached", detail.str(), 0);
-    return std::nullopt;
-  }
   if (!vision_ || !vision_->isRunning()) {
     std::ostringstream detail;
     detail << detailPrefix(0)
@@ -5280,20 +5359,6 @@ MfPreselectionFlowAction::findR2LockObservation(
                        got_snapshot ? snapshot.display_sequence : 0);
     return std::nullopt;
   }
-  if (snapshot.display_sequence == kfs_align_target_lock_sequence_) {
-    return kfs_align_last_observation_;
-  }
-
-  kfs_align_target_lock_sequence_ = snapshot.display_sequence;
-  kfs_align_last_observation_.reset();
-
-  struct CandidateDepthState {
-    bool has_depth{false};
-    double depth_m{0.0};
-    MfPreselectionLogicResult::KfsDepthSource source{
-        MfPreselectionLogicResult::KfsDepthSource::None};
-    std::string detail;
-  };
 
   const bool entry_profile = depth_profile == R2DepthProfile::Entry;
   rc26_vision::DepthRoiSamplerConfig depth_config;
@@ -5304,223 +5369,251 @@ MfPreselectionFlowAction::findR2LockObservation(
   depth_config.max_depth_m =
       entry_profile ? params_.entry_depth_max_m : params_.depth_max_m;
 
-  std::vector<rc26_vision::Detection> candidates;
+  std::vector<MfPreselectionLogicResult::NearestKfsCandidate> candidates;
   candidates.reserve(snapshot.detections.size());
-  std::vector<MfPreselectionTargetSnapshot> snapshots;
-  snapshots.reserve(snapshot.detections.size());
-  std::vector<CandidateDepthState> depth_states;
-  depth_states.reserve(snapshot.detections.size());
-  int label_match_count = 0;
+  std::vector<rc26_vision::Detection> r2_tip_candidates;
+  r2_tip_candidates.reserve(snapshot.detections.size());
+  std::vector<MfPreselectionTargetSnapshot> r2_snapshots;
+  r2_snapshots.reserve(snapshot.detections.size());
+  std::vector<MfPreselectionLogicResult::NearestKfsCandidate> r2_candidates;
+  r2_candidates.reserve(snapshot.detections.size());
+  int r2_label_match_count = 0;
+  int r1_label_match_count = 0;
   int ignored_count = 0;
   int depth_invalid_count = 0;
-  int usable_depth_count = 0;
+  int low_score_r1_count = 0;
   int mono_depth_count = 0;
   int depthless_align_count = 0;
   std::string ignored_detail;
   std::string depth_invalid_detail;
-  int depth_invalid_best_window_valid_count = -1;
-  int depth_invalid_best_raw_valid_count = -1;
-  std::optional<double> first_valid_depth;
-  std::string first_valid_depth_detail;
+
+  const int frame_width = snapshot.color_bgr.cols;
+  const int target_line_x =
+      std::max(0, frame_width / 2) + params_.kfs_align_target_line_offset_px;
 
   for (const auto &det : snapshot.detections) {
     const std::string name = rc26_vision::visualTargetLabel(det);
-    if (!MfPreselectionLogicResult::labelMatches(
-            name, params_.r2_target_labels, params_.r2_target_label_prefixes)) {
+    const bool is_r2 = canPickup() &&
+        MfPreselectionLogicResult::labelMatches(
+            name, params_.r2_target_labels, params_.r2_target_label_prefixes);
+    const bool is_r1 = MfPreselectionLogicResult::labelMatches(
+        name, params_.r1_blocking_labels, params_.r1_blocking_label_prefixes);
+    if (!is_r2 && !is_r1) {
       continue;
     }
-    ++label_match_count;
-    const MfPreselectionTargetSnapshot candidate =
-        rc26_vision::makeVisualTargetSnapshot(det, snapshot.display_sequence);
-    double ignored_best_iou = 0.0;
-    for (const auto &ignored : ignored_r2_targets_) {
-      ignored_best_iou = std::max(
-          ignored_best_iou,
-          MfPreselectionLogicResult::bboxIou(ignored, candidate));
+    if (is_r2) {
+      ++r2_label_match_count;
     }
-    if (MfPreselectionLogicResult::isIgnoredTarget(
-            candidate, ignored_r2_targets_, params_.grab_verify_iou_threshold)) {
+    if (is_r1) {
+      ++r1_label_match_count;
+    }
+    if (is_r1 && !MfPreselectionLogicResult::r1KfsScoreAccepted(
+                     name, det.score, params_.r1_kfs_min_score)) {
+      ++low_score_r1_count;
+      if (node_ && snapshot.display_sequence !=
+                       r1_kfs_low_score_last_logged_sequence_) {
+        r1_kfs_low_score_last_logged_sequence_ = snapshot.display_sequence;
+        RCLCPP_INFO(
+            node_->get_logger(),
+            "梅林预选赛过滤低置信度R1_KFS：score=%.3f threshold=%.3f seq=%ld bbox=[%.1f %.1f %.1f %.1f]",
+            det.score, params_.r1_kfs_min_score,
+            static_cast<long>(snapshot.display_sequence), det.x1, det.y1,
+            det.x2, det.y2);
+      }
+      continue;
+    }
+
+    MfPreselectionTargetSnapshot target =
+        rc26_vision::makeVisualTargetSnapshot(det, snapshot.display_sequence);
+    if (is_r2 && MfPreselectionLogicResult::isIgnoredTarget(
+                     target, ignored_r2_targets_,
+                     params_.grab_verify_iou_threshold)) {
       ++ignored_count;
       if (ignored_detail.empty()) {
         std::ostringstream detail;
         detail << "代表忽略候选=" << detectionSummary(det)
                << " ignored列表数量=" << ignored_r2_targets_.size()
-               << " 最高IoU=" << ignored_best_iou
                << " 阈值=" << params_.grab_verify_iou_threshold;
         ignored_detail = detail.str();
       }
       continue;
     }
 
-    CandidateDepthState depth_state;
-    const auto bbox_depth = MfPreselectionLogicResult::sampleKfsDepthFromBbox(
+    auto depth = MfPreselectionLogicResult::sampleKfsDepthFromBbox(
         snapshot.depth, det.x1, det.y1, det.x2, det.y2, depth_config,
         params_.kfs_depth_bbox_sample_ratios,
         params_.kfs_depth_bbox_min_success_count);
-    if (bbox_depth.has_depth) {
-      depth_state.has_depth = true;
-      depth_state.depth_m = bbox_depth.depth_m;
-      depth_state.source = bbox_depth.source;
-      depth_state.detail = bbox_depth.detail;
-      ++usable_depth_count;
-    } else {
-      ++depth_invalid_count;
-      const bool replace_depth_detail =
-          depth_invalid_detail.empty() ||
-          bbox_depth.representative_failure.window_valid_count >
-              depth_invalid_best_window_valid_count ||
-          (bbox_depth.representative_failure.window_valid_count ==
-               depth_invalid_best_window_valid_count &&
-           bbox_depth.representative_failure.raw_valid_count >
-               depth_invalid_best_raw_valid_count);
-      if (replace_depth_detail) {
-        depth_invalid_best_window_valid_count =
-            bbox_depth.representative_failure.window_valid_count;
-        depth_invalid_best_raw_valid_count =
-            bbox_depth.representative_failure.raw_valid_count;
-        std::ostringstream detail;
-        detail << "代表失败候选=" << detectionSummary(det) << " "
-               << bbox_depth.detail;
-        depth_invalid_detail = detail.str();
-      }
-
-      if (allow_depthless_align) {
-        const auto mono = MfPreselectionLogicResult::estimateKfsMonocularDepth(
-            std::abs(static_cast<double>(det.x2) -
-                     static_cast<double>(det.x1)),
-            std::abs(static_cast<double>(det.y2) -
-                     static_cast<double>(det.y1)),
-            kfs_last_real_depth_m_, params_, depth_config.min_depth_m,
-            depth_config.max_depth_m);
-        if (mono.usable) {
-          depth_state.has_depth = true;
-          depth_state.depth_m = mono.depth_m;
-          depth_state.source =
-              MfPreselectionLogicResult::KfsDepthSource::MonocularBbox;
-          depth_state.detail = mono.detail;
-          ++usable_depth_count;
-          ++mono_depth_count;
-        } else {
-          ++depthless_align_count;
-          depth_state.detail = bbox_depth.detail + " " + mono.detail;
-        }
+    bool has_depth = depth.has_depth;
+    double depth_m = depth.depth_m;
+    auto depth_source = depth.source;
+    std::string depth_detail = depth.detail;
+    if (!has_depth && is_r2 && allow_depthless_r2_align) {
+      const auto mono = MfPreselectionLogicResult::estimateKfsMonocularDepth(
+          std::abs(static_cast<double>(det.x2) -
+                   static_cast<double>(det.x1)),
+          std::abs(static_cast<double>(det.y2) -
+                   static_cast<double>(det.y1)),
+          kfs_last_real_depth_m_, params_, depth_config.min_depth_m,
+          depth_config.max_depth_m);
+      if (mono.usable) {
+        has_depth = true;
+        depth_m = mono.depth_m;
+        depth_source = MfPreselectionLogicResult::KfsDepthSource::MonocularBbox;
+        depth_detail = mono.detail;
+        ++mono_depth_count;
+      } else {
+        ++depthless_align_count;
+        depth_detail = depth.detail + " " + mono.detail;
       }
     }
-
-    if (!depth_state.has_depth && !allow_depthless_align) {
+    if (!has_depth) {
+      ++depth_invalid_count;
+      if (depth_invalid_detail.empty()) {
+        std::ostringstream detail;
+        detail << "代表失败候选=" << detectionSummary(det) << " "
+               << depth.detail;
+        depth_invalid_detail = detail.str();
+      }
       continue;
     }
 
-    auto with_depth = candidate;
-    if (depth_state.has_depth) {
-      with_depth.distance_m = depth_state.depth_m;
+    target.distance_m = depth_m;
+    MfPreselectionLogicResult::NearestKfsCandidate candidate;
+    candidate.kind = is_r2 ? MfPreselectionLogicResult::NearestKfsKind::R2
+                           : MfPreselectionLogicResult::NearestKfsKind::R1;
+    candidate.target = target;
+    candidate.offset_px =
+        static_cast<int>(((det.x1 + det.x2) * 0.5F) - target_line_x);
+    candidate.depth_source = depth_source;
+    candidate.depth_detail = depth_detail;
+    candidates.push_back(candidate);
+    if (is_r2) {
+      r2_tip_candidates.push_back(det);
+      r2_snapshots.push_back(target);
+      r2_candidates.push_back(candidate);
     }
-    if (depth_state.has_depth && !first_valid_depth.has_value()) {
-      first_valid_depth = depth_state.depth_m;
-      std::ostringstream detail;
-      detail << "首个有效候选=" << detectionSummary(det)
-             << " depth=" << depth_state.depth_m
-             << " depth_source="
-             << MfPreselectionLogicResult::kfsDepthSourceText(
-                    depth_state.source)
-             << " " << depth_state.detail;
-      first_valid_depth_detail = detail.str();
-    }
-    candidates.push_back(det);
-    snapshots.push_back(with_depth);
-    depth_states.push_back(depth_state);
   }
 
-  const auto candidateDetail = [&]() {
+  const auto detailText = [&](const std::string &extra = "") {
     std::ostringstream detail;
     detail << detailPrefix(snapshot.display_sequence)
            << " 检测框总数=" << snapshot.detections.size()
-           << " 标签匹配数=" << label_match_count
-           << " 忽略过滤数=" << ignored_count
+           << " R2标签匹配数=" << r2_label_match_count
+           << " R1标签匹配数=" << r1_label_match_count
+           << " 低置信R1过滤数=" << low_score_r1_count
+           << " R2忽略过滤数=" << ignored_count
            << " 深度失败数=" << depth_invalid_count
-           << " 有效深度候选数=" << usable_depth_count
            << " 尺寸估距成功数=" << mono_depth_count
            << " 横移无深度跟踪数=" << depthless_align_count
-           << " 参与选择候选数=" << candidates.size();
+           << " 参与最近选择候选数=" << candidates.size();
     if (!ignored_detail.empty()) {
       detail << " " << ignored_detail;
     }
     if (!depth_invalid_detail.empty()) {
-      detail << " 失败候选数=" << depth_invalid_count << " "
-             << depth_invalid_detail;
+      detail << " " << depth_invalid_detail;
     }
-    if (!first_valid_depth_detail.empty()) {
-      detail << " " << first_valid_depth_detail;
+    if (!extra.empty()) {
+      detail << " " << extra;
     }
     return detail.str();
   };
 
-  if (label_match_count == 0) {
+  if (r2_label_match_count == 0 && r1_label_match_count == 0) {
     std::ostringstream detail;
-    detail << candidateDetail()
+    detail << detailText()
            << " 检测框摘要=" << detectionsSummary(snapshot.detections);
-    recordR2LockReject("no_label_match", detail.str(),
+    recordR2LockReject("nearest_kfs_no_label_match", detail.str(),
                        snapshot.display_sequence);
     return std::nullopt;
   }
-  if (candidates.empty()) {
-    const std::string reason =
-        (ignored_count > 0 && ignored_count == label_match_count)
-            ? "ignored_target"
-            : "depth_invalid";
-    recordR2LockReject(reason, candidateDetail(), snapshot.display_sequence);
+  const auto nearest =
+      MfPreselectionLogicResult::selectNearestKfsCandidate(candidates);
+  if (!nearest.has_value()) {
+    recordR2LockReject("nearest_kfs_depth_invalid", detailText(),
+                       snapshot.display_sequence);
     return std::nullopt;
   }
 
-  std::vector<int> target_class_ids;
-  target_class_ids.reserve(candidates.size());
-  for (const auto &det : candidates) {
-    if (!rc26_vision::isTipTargetClass(det.class_id, target_class_ids)) {
-      target_class_ids.push_back(det.class_id);
+  NearestKfsObservation observation;
+  observation.kind = nearest->kind;
+  observation.r2_label_match_count = r2_label_match_count;
+  observation.r1_label_match_count = r1_label_match_count;
+  observation.depth_invalid_count = depth_invalid_count;
+  observation.ignored_r2_count = ignored_count;
+  observation.low_score_r1_count = low_score_r1_count;
+  observation.participating_candidate_count = static_cast<int>(candidates.size());
+  observation.suppressed_candidate_count =
+      std::max(0, static_cast<int>(candidates.size()) - 1);
+  observation.observation.target = nearest->target;
+  observation.observation.offset_px = nearest->offset_px;
+  observation.observation.has_depth = true;
+  observation.observation.depth_source = nearest->depth_source;
+  observation.observation.depth_detail = nearest->depth_detail;
+  observation.detail = detailText();
+
+  if (nearest->kind == MfPreselectionLogicResult::NearestKfsKind::R2) {
+    std::vector<rc26_vision::Detection> selected_detection;
+    selected_detection.reserve(1);
+    std::vector<MfPreselectionTargetSnapshot> selected_snapshot;
+    selected_snapshot.reserve(1);
+    std::vector<MfPreselectionLogicResult::NearestKfsCandidate> selected_candidate;
+    selected_candidate.reserve(1);
+    for (std::size_t i = 0; i < r2_candidates.size(); ++i) {
+      if (r2_candidates[i].target.sequence == nearest->target.sequence &&
+          r2_candidates[i].target.label == nearest->target.label &&
+          MfPreselectionLogicResult::bboxIou(r2_candidates[i].target,
+                                             nearest->target) >= 0.999) {
+        selected_detection.push_back(r2_tip_candidates[i]);
+        selected_snapshot.push_back(r2_snapshots[i]);
+        selected_candidate.push_back(r2_candidates[i]);
+        break;
+      }
     }
+    if (selected_detection.empty()) {
+      recordR2LockReject("nearest_kfs_selection_failed", observation.detail,
+                         snapshot.display_sequence);
+      return std::nullopt;
+    }
+    std::vector<int> target_class_ids{selected_detection.front().class_id};
+    const auto selection = rc26_vision::updateTipAlignmentTarget(
+        selected_detection, frame_width, target_class_ids,
+        kfs_align_target_lock_state_, makeKfsAlignmentConfig());
+    if (!selection.has_target || selection.target.source_index != 0) {
+      std::ostringstream detail;
+      detail << observation.detail
+             << " 选择器返回目标=" << yesNoText(selection.has_target)
+             << " 源索引=" << selection.target.source_index
+             << " target_line_x=" << target_line_x
+             << " 锁定状态=" << yesNoText(kfs_align_target_lock_state_.locked)
+             << " lost_count=" << kfs_align_target_lock_state_.lost_count;
+      recordR2LockReject("nearest_kfs_selection_failed", detail.str(),
+                         snapshot.display_sequence);
+      return std::nullopt;
+    }
+    observation.observation.target = selected_snapshot.front();
+    observation.observation.offset_px = selection.offset_px;
+    observation.observation.depth_source = selected_candidate.front().depth_source;
+    observation.observation.depth_detail = selected_candidate.front().depth_detail;
   }
 
-  const auto selection = rc26_vision::updateTipAlignmentTarget(
-      candidates, snapshot.color_bgr.cols, target_class_ids,
-      kfs_align_target_lock_state_, makeKfsAlignmentConfig());
-  if (!selection.has_target || selection.target.source_index < 0 ||
-      static_cast<std::size_t>(selection.target.source_index) >=
-          candidates.size()) {
-    std::ostringstream detail;
-    const int frame_width = snapshot.color_bgr.cols;
-    const int target_line_x =
-        std::max(0, frame_width / 2) + params_.kfs_align_target_line_offset_px;
-    detail << candidateDetail()
-           << " 选择器返回目标=" << yesNoText(selection.has_target)
-           << " 源索引=" << selection.target.source_index
-           << " frame_width=" << frame_width
-           << " target_line_offset="
-           << params_.kfs_align_target_line_offset_px
-           << " target_line_x=" << target_line_x
-           << " 候选class集合=" << intVectorSummary(target_class_ids)
-           << " 锁定状态=" << yesNoText(kfs_align_target_lock_state_.locked)
-           << " lost_count=" << kfs_align_target_lock_state_.lost_count
-           << " selection_locked=" << yesNoText(selection.locked)
-           << " selection_lost_count=" << selection.lock_lost_count;
-    recordR2LockReject("selection_failed", detail.str(),
-                       snapshot.display_sequence);
-    return std::nullopt;
+  if (node_) {
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "梅林预选赛最近KFS门控：类型=%s label=%s seq=%ld depth=%s offset=%dpx depth_source=%s 被屏蔽候选数=%d R2标签=%d R1标签=%d",
+        observation.kind == MfPreselectionLogicResult::NearestKfsKind::R2
+            ? "R2"
+            : "R1",
+        observation.observation.target.label.c_str(),
+        static_cast<long>(observation.observation.target.sequence),
+        metersText(observation.observation.has_depth,
+                   observation.observation.target.distance_m)
+            .c_str(),
+        observation.observation.offset_px,
+        MfPreselectionLogicResult::kfsDepthSourceText(
+            observation.observation.depth_source),
+        observation.suppressed_candidate_count, r2_label_match_count,
+        r1_label_match_count);
   }
-
-  const auto selected_index =
-      static_cast<std::size_t>(selection.target.source_index);
-  const auto &selected_depth = depth_states[selected_index];
-  KfsVisualObservation observation;
-  observation.target = snapshots[selected_index];
-  observation.offset_px = selection.offset_px;
-  observation.has_depth = selected_depth.has_depth;
-  observation.depth_source = selected_depth.source;
-  observation.depth_detail = selected_depth.detail;
-  if (selected_depth.has_depth) {
-    observation.target.distance_m = selected_depth.depth_m;
-  }
-  kfs_align_last_observation_ = observation;
-  clearR2LockReject();
   return observation;
 }
 

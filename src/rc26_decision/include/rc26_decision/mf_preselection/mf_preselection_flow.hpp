@@ -159,6 +159,7 @@ struct MfPreselectionParams {
 struct MfPreselectionLogicResult {
   enum class KfsDepthSource { None, CenterRoi, BboxMultiRoi, MonocularBbox };
   enum class GrabRetryAction { None, EntryBackoff, GridCenterRetry };
+  enum class NearestKfsKind { R2, R1 };
 
   struct DepthRoiDiagnostic {
     int cx{0};
@@ -210,6 +211,14 @@ struct MfPreselectionLogicResult {
     std::string detail;
   };
 
+  struct NearestKfsCandidate {
+    NearestKfsKind kind{NearestKfsKind::R2};
+    MfPreselectionTargetSnapshot target;
+    int offset_px{0};
+    KfsDepthSource depth_source{KfsDepthSource::None};
+    std::string depth_detail;
+  };
+
   static bool labelMatches(const std::string &label,
                            const std::vector<std::string> &exact_labels,
                            const std::vector<std::string> &prefixes);
@@ -259,6 +268,8 @@ struct MfPreselectionLogicResult {
       double bbox_width_px, double bbox_height_px, double locked_depth_m,
       const MfPreselectionParams &params, double min_depth_m,
       double max_depth_m);
+  static std::optional<NearestKfsCandidate> selectNearestKfsCandidate(
+      const std::vector<NearestKfsCandidate> &candidates);
   static rc26_vision::TipAlignmentConfig
   kfsAlignmentConfig(const MfPreselectionParams &params,
                      double target_yaw_rad);
@@ -435,6 +446,20 @@ private:
     std::string depth_detail;
   };
 
+  struct NearestKfsObservation {
+    MfPreselectionLogicResult::NearestKfsKind kind{
+        MfPreselectionLogicResult::NearestKfsKind::R2};
+    KfsVisualObservation observation;
+    int suppressed_candidate_count{0};
+    int r2_label_match_count{0};
+    int r1_label_match_count{0};
+    int depth_invalid_count{0};
+    int ignored_r2_count{0};
+    int low_score_r1_count{0};
+    int participating_candidate_count{0};
+    std::string detail;
+  };
+
   bool setupRuntime();
   bool setupVision();
   void releaseRuntime();
@@ -502,6 +527,7 @@ private:
   void beginDirectExitDrive();
   BT::NodeStatus tickDirectExitDrive();
   bool guardPathObstacles();
+  bool guardPathObstacles(R2DepthProfile depth_profile);
   void clearPathR1Wait();
   bool lastGrabOriginPathBlocking() const;
   void rememberCurrentKfsPickupForRetry();
@@ -561,6 +587,13 @@ private:
   findR2LockObservation(
       R2DepthProfile depth_profile = R2DepthProfile::General,
       R2LockObservationMode mode = R2LockObservationMode::RequireDepthForDetection);
+  std::optional<NearestKfsObservation>
+  findNearestKfsObservation(
+      R2DepthProfile depth_profile = R2DepthProfile::General,
+      bool allow_depthless_r2_align = false);
+  std::optional<MfPreselectionTargetSnapshot>
+  findNearestR1BlockingTarget(
+      R2DepthProfile depth_profile = R2DepthProfile::General);
   void recordR2LockReject(const std::string &reason,
                           const std::string &detail, int64_t sequence);
   void clearR2LockReject();
