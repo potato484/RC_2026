@@ -99,7 +99,7 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 台阶动作既可通过 `stair_climb_tree.xml` / `stair_descend_tree.xml` 独立加载测试，也可由 MF 状态机复用。它们通过 `/mechanism/send_command` 请求推杆动作，通过 `/mechanism/command_feedback` 等待对应反馈，通过 `/cmd_vel` 发布受限直行速度；跨阶前先完成 yaw 预对齐，跨阶直行时若 yaw 超出 gate 会停止线速度并只修正朝向。失败或 halt 时只发布零速，不做额外推杆补偿。
 
-梅林预选赛到达 2 号入口后会先发送普通 `ARM_RAISE(0x04)` 并等待 `ARM_RAISE_DONE(0x02)`，确认机械臂进入普通高侧姿态后才启动入口 2 号视觉识别窗口。2 号入口正前方 R2 KFS 夹取使用 `rc26_serial` 真源中的普通高侧 `GRAB_KFS_UP(0x03)`；后续视觉横移对齐、锁定深度、odom 前向趋近和普通上夹取都建立在该普通高侧姿态上。夹取完成仍以视觉消失验证为准；若 2 号入口未完成视觉夹取验证，会持续停车、重新识别、重新对齐、重新趋近并重新夹取，直到原目标连续新帧消失确认成功，不会忽略该目标或继续上阶。入口专用 `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 仅保留给仍显式启用 `entry_high_protocol` 的入口高侧场景；ACK 只代表 transport 通用确认，真正计数仍延迟到后续视觉消失验证成功。
+梅林预选赛到达 2 号入口后会先发送普通 `ARM_RAISE(0x04)` 并等待 `ARM_RAISE_DONE(0x02)`，确认机械臂进入普通高侧姿态后才启动入口 2 号视觉识别窗口。2 号入口正前方 R2 KFS 夹取使用 `rc26_serial` 真源中的普通高侧 `GRAB_KFS_UP(0x03)`；后续视觉横移对齐、锁定深度、odom 前向趋近和普通上夹取都建立在该普通高侧姿态上。夹取完成仍以视觉消失验证为准；若 2 号入口未完成视觉夹取验证，会持续停车、重新识别、重新对齐、重新趋近并重新夹取，直到原目标连续新帧消失确认成功，不会忽略该目标或继续上阶。入口 2 号夹取确认成功后会直接复用已完成的普通高侧姿态进入首阶台阶动作，不再重复下发 `ARM_RAISE(0x04)` 或再次等待 `ARM_RAISE_DONE(0x02)`。入口专用 `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 仅保留给仍显式启用 `entry_high_protocol` 的入口高侧场景；ACK 只代表 transport 通用确认，真正计数仍延迟到后续视觉消失验证成功。
 
 ## 参数口径
 
@@ -130,6 +130,8 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 ## 本轮同步
 
 2026-07-04 同步：`mc_tree.xml` 在 `RotateInPlace rotate_180` 成功后新增 0.5s 延时，并直接复用 `OdomDriveX` / `OdomDriveY` 通用 odom 单轴分段动作，按车体系 `-X 0.4m -> -Y 0.4m` 完成旋转后的退让，再进入 `WaitPreselectionBranchGate`。该改动只调整 MC 行为树编排，不新增 `/cmd_vel` 权威、ROS topic/service/action、机构协议或导航节点类型。
+
+2026-07-04 同步：`MfPreselectionFlow` 修正入口 2 号 R2 KFS 夹取成功后的上首阶准备逻辑。入口启动时已经完成普通 `ARM_RAISE(0x04)` / `ARM_RAISE_DONE(0x02)` 并记录机械臂处于高侧姿态；夹取视觉消失验证成功后，`EntryPrepareClimb` 会直接进入 `EntryClimb`，不再重复下发普通 `ARM_RAISE`，避免机构对重复抬臂不回完成反馈时卡在首阶前。
 
 2026-07-03 同步：`MfPreselectionFlow` 的 2 号入口 R2 KFS 夹取改用普通高侧 `GRAB_KFS_UP(0x03)`，不再走入口专用 `ENTRY_GRAB_KFS_UP(0x0F)`；到达 2 号入口后必须先完成普通 `ARM_RAISE(0x04)` / `ARM_RAISE_DONE(0x02)`，再启动 Entry2 视觉识别、视觉横移对齐、odom 前向趋近和夹取。2 号入口夹取完成仍以视觉消失验证为准，未完成时会无限重试夹取链，不忽略该目标且不推进到上阶或 1/3 号入口探测。入口专用 `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 仅保留给显式 `entry_high_protocol` 场景。
 

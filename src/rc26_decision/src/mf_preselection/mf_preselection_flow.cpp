@@ -1425,9 +1425,9 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return resumeInterruptedEntryMove();
 
   case Phase::EntryPrepareClimb:
-    // 若入口探测阶段已经执行过 ARM_HIGH_RAISE，则保持高抬升姿态上首阶，
-    // 避免重复发送普通 ARM_RAISE 造成机构姿态回退或多余等待。
-    if (arm_high_raised_) {
+    // 若入口探测或侧边扫线阶段已经让机械臂处于高侧姿态，则直接上首阶，
+    // 避免入口2夹取成功后重复发送普通 ARM_RAISE 并再次等待完成反馈。
+    if (arm_high_raised_ || arm_high_side_) {
       phase_ = Phase::EntryClimb;
       return BT::NodeStatus::RUNNING;
     }
