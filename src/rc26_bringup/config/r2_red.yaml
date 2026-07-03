@@ -222,27 +222,27 @@ r2_runtime:
       mf_preselect_detect_lost_stable_frames: 5  # 连续未看到目标多少帧后确认无目标
       mf_preselect_entry_detect_timeout_s: 2.0   # 入口单点检测最长等待，单位秒
       mf_preselect_scan_detect_timeout_s: 2.0    # 行内/阶梯扫描检测最长等待，单位秒
-      mf_preselect_entry_interrupt_max_offset_px: 170 # 入口横移中 KFS 偏离中心超过该值时继续扫线，不立即停车夹取
+      mf_preselect_entry_interrupt_max_offset_px: 165 # 入口横移中 KFS 偏离中心超过该值时继续扫线，不立即停车夹取
       mf_preselect_entry_interrupt_dynamic_comp_enable: true # 入口横移按 MCU 半余弦减速模型动态放大中断窗口
       mf_preselect_entry_interrupt_latency_s: 0.15 # 入口横移中断补偿的视觉/BT/下发延迟估计，单位秒
       mf_preselect_entry_interrupt_fx_px: 385.83319091796875 # 当前 D455 640x480 彩色流 CameraInfo.K[0] 实测 fx，单位 px
-      mf_preselect_entry_interrupt_extra_px_min: 20 # 动态提前中断像素补偿下限，单位 px
-      mf_preselect_entry_interrupt_extra_px_max: 80 # 动态提前中断像素补偿上限，单位 px
+      mf_preselect_entry_interrupt_extra_px_min: 10 # 动态提前中断像素补偿下限，单位 px
+      mf_preselect_entry_interrupt_extra_px_max: 50 # 动态提前中断像素补偿上限，单位 px
       mf_preselect_entry_mcu_stop_settle_enable: true # 入口横移中断后先持续零速等待 MCU 收完速度规划
       mf_preselect_entry_mcu_vy_acc_mps2: 1.0     # MCU Chassis_driver.h 中 CHASSIS_MAX_VY_ACC 对应值
       mf_preselect_entry_mcu_stop_margin_s: 0.08  # MCU 理论减速时间外的保守余量，单位秒
       mf_preselect_entry_mcu_stop_max_wait_s: 0.70 # 入口横移中断后零速等待上限，单位秒
-      mf_preselect_kfs_align_tolerance_px: 10    # KFS 锁定帧像素偏差容差；容差内跳过视觉横移对齐
-      mf_preselect_kfs_align_target_line_offset_px: 0 # KFS 识别框中线目标相对图像中心线的偏置，单位 px；负值表示目标线向图像左侧移动
+      mf_preselect_kfs_align_tolerance_px: 15    # KFS 锁定帧像素偏差容差；容差内跳过视觉横移对齐
+      mf_preselect_kfs_align_target_line_offset_px: 10 # KFS 识别框中线目标相对图像中心线的偏置，单位 px；负值表示目标线向图像左侧移动
       mf_preselect_kfs_align_stable_frames: 3    # KFS 横移视觉闭环/复核前要求同一目标连续稳定新帧数
-      mf_preselect_kfs_align_max_jump_px: 50     # KFS tip_alignment 目标锁定允许的单帧中心跳变阈值，单位 px
-      mf_preselect_kfs_align_kp: 0.0010          # KFS 视觉横移 offset 到 linear.y 的比例系数
-      mf_preselect_kfs_align_min_speed_mps: 0.05 # KFS 视觉横移最小速度幅值
-      mf_preselect_kfs_align_max_speed_mps: 0.10 # KFS 视觉横移最大速度幅值
+      mf_preselect_kfs_align_max_jump_px: 70     # KFS tip_alignment 目标锁定允许的单帧中心跳变阈值，单位 px
+      mf_preselect_kfs_align_kp: 0.0015         # KFS 视觉横移 offset 到 linear.y 的比例系数
+      mf_preselect_kfs_align_min_speed_mps: 0.06 # KFS 视觉横移最小速度幅值
+      mf_preselect_kfs_align_max_speed_mps: 0.14 # KFS 视觉横移最大速度幅值
       mf_preselect_kfs_align_timeout_s: 20.0      # KFS 横移视觉闭环总安全超时
       mf_preselect_kfs_align_timeout_pickup_tolerance_px: 40 # 超时但仍在该偏差内且深度有效时继续趋近夹取
       mf_preselect_kfs_align_heading_gate_deg: 3.0 # KFS tip_alignment yaw gate；超过该偏差时暂停横移只修正朝向
-      mf_preselect_kfs_lost_stop_frames: 3       # KFS 视觉横移中连续多少帧未锁定目标后停车等待新稳定帧
+      mf_preselect_kfs_lost_stop_frames: 6       # KFS 视觉横移中连续多少帧未锁定目标后停车等待新稳定帧
       mf_preselect_kfs_invert_lateral_direction: false # 当前相机/底盘安装下需反转 KFS 横移方向
       mf_preselect_kfs_odom_xy_kp: 0.8           # KFS 前向 odom 闭环距离误差 P 增益
       mf_preselect_kfs_approach_odom_tolerance_m: 0.02 # KFS 前向趋近 odom 闭环距离容差，单位 m
