@@ -402,6 +402,7 @@ private:
     FinalExitVirtual
   };
   enum class StairPhase {
+    HeadingAlign,
     ClimbSendFrontExtend,
     ClimbHoldAfterFrontExtend,
     ClimbDriveUntilFrontFirstEvent,
@@ -523,12 +524,16 @@ private:
   void beginStair(StairMode mode, Phase next_phase, std::string label,
                   StairCenterPolicy center_policy = StairCenterPolicy::None);
   BT::NodeStatus tickStair();
+  BT::NodeStatus tickStairHeadingAlign();
   void beginWheelEvent(WheelEvent event, double timeout_s, std::string label);
   bool wheelEventReceived() const;
   BT::NodeStatus tickWheelEvent();
   void beginStairDriveProfile(const StairSpeedProfile &profile,
                               std::string label);
   double stairDriveProfileSpeed();
+  double stairHeadingAngularZ() const;
+  bool stairHeadingReady() const;
+  bool tickStairDriveYawGate(const std::string &label);
   void publishProfiledStairTwist(double direction_sign);
 
   bool beginEntryCenterAdvance(Phase next_phase, std::string label);
@@ -706,6 +711,10 @@ private:
   bool stair_drive_profile_started_{false};
   StairSpeedProfile stair_drive_profile_;
   std::string stair_drive_profile_label_;
+  StairPhase stair_after_heading_phase_{StairPhase::Complete};
+  int stair_heading_stable_ticks_{0};
+  bool stair_heading_waiting_odom_logged_{false};
+  bool stair_heading_gate_logged_{false};
   double timed_drive_speed_mps_{0.0};
   double timed_drive_duration_s_{0.0};
   int center_target_grid_{0};

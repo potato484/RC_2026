@@ -17,10 +17,10 @@ BT::NodeStatus StairDescendAction::onStart() {
 
   // 清掉上一轮下台阶完成标记，保证本轮结果由当前状态机写入。
   config().blackboard->set("stair_descend_done", false);
-  // 下台阶要求后轮朝前，第一阶段先负向行驶，等待后轮激光高度突变。
-  phase_ = Phase::DriveUntilRearEvent;
-  // 设置后轮事件等待基线和超时时间；只接受本动作开始后新来的 0x05。
-  beginEventWait(WheelEvent::Rear, params_.rear_event_timeout_s, "rear");
+  publishStop();
+  // 下台阶要求后轮朝前，先锁定并对齐当前 yaw，再开始 x 负向行驶。
+  phase_ = Phase::HeadingAlign;
+  beginHeadingAlignment();
   // 返回 RUNNING，让后续 tick 持续发布 x 负向速度。
   return BT::NodeStatus::RUNNING;
 }
@@ -29,8 +29,24 @@ BT::NodeStatus StairDescendAction::onStart() {
 BT::NodeStatus StairDescendAction::onRunning() {
   // phase_ 表示当前处于“行驶等事件”“等命令 accepted”或“零速等待”的哪一步。
   switch (phase_) {
+  case Phase::HeadingAlign:
+    switch (tickHeadingAlignment()) {
+    case StepStatus::Success:
+      phase_ = Phase::DriveUntilRearEvent;
+      beginEventWait(WheelEvent::Rear, params_.rear_event_timeout_s, "rear");
+      break;
+    case StepStatus::Failure:
+      return failWithStop("下台阶前 yaw 对齐失败");
+    case StepStatus::Running:
+      break;
+    }
+    break;
+
   case Phase::DriveUntilRearEvent:
     // 第一阶段：后轮在前，持续发布 x 负方向速度靠近下阶梯边缘。
+    if (tickDriveYawGate("descend_rear")) {
+      break;
+    }
     publishDrive(-params_.descend_rear_drive_speed_mps);
     // 检查 MCU 是否已经上报后轮激光测距高度突变。
     switch (tickEventWait()) {
@@ -91,6 +107,9 @@ BT::NodeStatus StairDescendAction::onRunning() {
 
   case Phase::DriveUntilFrontSecondEvent:
     // 第四阶段：按前轮第二激光段速度规划发布 x 负方向速度，等待 0x07。
+    if (tickDriveYawGate("descend_front_second")) {
+      break;
+    }
     publishProfiledDrive(-1.0);
     // 检查 MCU 是否已经上报前轮第二个激光测距模块高度突变 0x07。
     switch (tickEventWait()) {
@@ -161,6 +180,9 @@ BT::NodeStatus StairDescendAction::onRunning() {
 
   case Phase::TimedDriveBeforeFrontRetract:
     // 第七阶段：收到 0x07 并完成后收+前伸后，以 x 负向 0.025m/s 默认速度持续 4s。
+    if (tickDriveYawGate("descend_front_retract_timed")) {
+      break;
+    }
     switch (tickTimedDrive()) {
     case StepStatus::Success:
       // 定时行驶完成后，收回前推杆作为下台阶最后动作。

@@ -309,6 +309,40 @@ bool StairActionBase::headingReadyForMotion() const {
   return heading_target_set_ && has_heading_yaw_ && !headingOdomStale();
 }
 
+bool StairActionBase::tickDriveYawGate(const char *label) {
+  if (!params_.heading_hold_enable) {
+    return false;
+  }
+  if (!heading_target_set_ || !has_heading_yaw_ || headingOdomStale()) {
+    publishStop();
+    markStageStart();
+    has_last_drive_publish_ = false;
+    return true;
+  }
+  const double gate_rad = params_.heading_gate_deg * kDeg2Rad;
+  const double error_rad = headingError();
+  if (std::abs(error_rad) <= gate_rad) {
+    return false;
+  }
+
+  TwistMsg msg;
+  msg.angular.z = headingAngularZ();
+  cmd_pub_->publish(msg);
+  markStageStart();
+  has_last_drive_publish_ = false;
+  if (active_drive_profile_started_) {
+    active_drive_profile_start_ = node_->now();
+  }
+  if (node_) {
+    RCLCPP_WARN_THROTTLE(
+        node_->get_logger(), *node_->get_clock(), 1000,
+        "%s: %s yaw超gate，暂停线速度先纠偏 current=%.3f target=%.3f error=%.3frad gate=%.1fdeg",
+        action_label_.c_str(), label ? label : "drive", current_yaw_rad_,
+        heading_target_yaw_rad_, error_rad, params_.heading_gate_deg);
+  }
+  return true;
+}
+
 // beginCommand() 开始一个“下发推杆命令并等待 accepted”的阶段。
 void StairActionBase::beginCommand(CommandID command_id, const char *label) {
   // 每个命令阶段单独切 generation，避免旧 service 回调跨阶段写入新状态。

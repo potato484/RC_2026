@@ -19,10 +19,9 @@ BT::NodeStatus StairClimbAction::onStart() {
   config().blackboard->set("stair_climb_done", false);
   // 接管台阶动作前先补一帧零速，确保前推杆伸出前底盘不动。
   publishStop();
-  // 上台阶第一步必须先伸出前推杆，为前轮上台阶做支撑。
-  phase_ = Phase::SendFrontExtend;
-  // 下发 FRONT_PUSHROD_EXTEND；tickCommand() 后续会等待 /mechanism/send_command accepted=true。
-  beginCommand(CommandID::FRONT_PUSHROD_EXTEND, "FRONT_PUSHROD_EXTEND");
+  // 上台阶先把当前 yaw 作为跨阶目标姿态，对齐稳定后才开始推杆和直行。
+  phase_ = Phase::HeadingAlign;
+  beginHeadingAlignment();
   // 命令是异步等待的，所以第一次进入动作后返回 RUNNING，让行为树下一 tick 继续推进。
   return BT::NodeStatus::RUNNING;
 }
@@ -31,6 +30,19 @@ BT::NodeStatus StairClimbAction::onStart() {
 BT::NodeStatus StairClimbAction::onRunning() {
   // 根据当前阶段决定本 tick 要做的是等命令 accepted、发速度、等激光事件，还是收尾。
   switch (phase_) {
+  case Phase::HeadingAlign:
+    switch (tickHeadingAlignment()) {
+    case StepStatus::Success:
+      phase_ = Phase::SendFrontExtend;
+      beginCommand(CommandID::FRONT_PUSHROD_EXTEND, "FRONT_PUSHROD_EXTEND");
+      break;
+    case StepStatus::Failure:
+      return failWithStop("上台阶前 yaw 对齐失败");
+    case StepStatus::Running:
+      break;
+    }
+    break;
+
   case Phase::SendFrontExtend:
     // 第一阶段：等待前推杆伸出命令被共享串口 transport 接受。
     switch (tickCommand()) {
@@ -69,6 +81,9 @@ BT::NodeStatus StairClimbAction::onRunning() {
 
   case Phase::DriveUntilFrontFirstEvent:
     // 第三阶段：前推杆已伸出，按前轮段速度规划发布 x 正方向速度推动前轮上台阶。
+    if (tickDriveYawGate("climb_front_first")) {
+      break;
+    }
     publishProfiledDrive(1.0);
     // 同时检查 MCU 是否已经上报前轮第一个激光测距高度突变。
     switch (tickEventWait()) {
@@ -138,6 +153,9 @@ BT::NodeStatus StairClimbAction::onRunning() {
 
   case Phase::DriveUntilRearEvent:
     // 第六阶段：后推杆已伸出，继续发布 x 正方向速度推动后轮上台阶，速度从快到慢规划。
+    if (tickDriveYawGate("climb_rear")) {
+      break;
+    }
     publishProfiledDrive(1.0);
     // 检查 MCU 是否已经上报后轮激光测距高度突变。
     switch (tickEventWait()) {

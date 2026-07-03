@@ -14,6 +14,7 @@ public:
 
 private:
   enum class Phase {
+    HeadingAlign,
     SendFrontExtend,
     HoldAfterFrontExtend,
     DriveUntilFrontFirstEvent,

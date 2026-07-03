@@ -93,9 +93,11 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 `GridTransition` 负责选择上/下台阶动作、发布台阶直行速度、等待激光事件并提交 `current_grid`。`GridCenterAlign` 在台阶完成后依据 `mf_center_grid_step_m` 执行二维格中心归位。`MfPreselectionFlow` 内部继续负责入口探测、KFS 视觉锁定、横移视觉闭环、新视觉帧复核、机构命令、夹取视觉消失验证、入口/格间台阶和最终离场归位。梅林内部 R2 KFS 夹取成功后会先复用当前格 `GridCenterAlign` 归回梅林格中心，再继续原本的转向、格间台阶或直出动作；入口侧夹取仍走入口回 2 号入口或准备入场的既有逻辑。`MfPreselectionFlow` 现在会在入口回 2 号入口的相对横移段上扣除 MCU 半余弦停车尾巴和下发延迟对应的距离补偿，既覆盖“入口中途夹取成功后回 2 号入口”，也覆盖 1/3 号入口未被 KFS 打断时的固定回中线，避免回中线段在减速滑移后越过 2 号入口中心。KFS 横移现在复用 `rc26_vision::tip_alignment` 的目标选择、目标锁定、横移速度和 yaw gate 口径：未锁定时选择识别框中心离目标线最近的有效 `T_*` KFS，目标线默认为图像中心线，并可通过 `mf_preselect_kfs_align_target_line_offset_px` 平移到 `图像中心线 + 偏置`；锁定后跟踪同一物理目标，像素 offset 以该目标线为 0；yaw 超出 `mf_preselect_kfs_align_heading_gate_deg` 时只修正朝向，odom 不新鲜时停车等待。入口横移探测中若 KFS 还在入口中断窗口外侧，不立即停车夹取，而是继续扫线等待目标进入可夹取窗口；当前入口中断窗口以 `mf_preselect_entry_interrupt_max_offset_px` 为基础，并可按 MCU 半余弦减速模型、入口横移速度、锁定深度、相机 `fx` 回填值和延迟估计动态放大，补偿高速扫线切零速时的停车尾巴。入口横移中断后会按同一 MCU 减速模型持续发布零速等待一小段时间，再开始 KFS 视觉横移对齐；这套补偿只作用于入口横移中断，不改变梅林内部 KFS 对齐。像素误差和 yaw 误差同时进入容差后按新视觉帧累计 `mf_preselect_kfs_align_stable_frames`，稳定且当前横移链路有可用深度后由该深度减 `mf_preselect_kfs_grab_distance_m` 规划车体系 X 轴距离，并捕获当前 `/odom` 起点和 yaw 后闭环执行规划距离；横移跟踪可在单帧中心深度洞时继续使用 RGB bbox offset，真实深度优先从 bbox 内 `3x3` 多点 ROI 更新，仍失败时可在已有真实锁定深度约束下用 `350mm x 350mm` KFS 尺寸估距兜底。KFS 横移不再维护释放滞回或 no-progress 快速失败；横移对齐总超时时，如果最后有效锁定目标仍在 `mf_preselect_kfs_align_timeout_pickup_tolerance_px` 内且当前链路深度有效，则继续进入前向趋近和夹取，否则按原失败路线继续。前向趋近超时会使 `MfPreselectionFlow` 失败停车；成功、失败和 halt 都发布零速。假 KFS 避障不再硬编码为上阶：从中列绕到 1 号侧或 3 号侧旁列时，会先通过 `MerlinMapManager` 静态高度表计算高度差，再选择上/下台阶和机构预调。完成该横向格间动作并归位到 `grid1` 或 `grid3` 后，不再进入 `direct_exit` 直行兜底，而是立即按旁列下一格建立前向观察目标并复用 `TransitionObserve` 看正前方 R2 KFS；随后沿避障后的旁列继续前向推进：1 号侧旁列按 `grid1 -> grid4 -> grid7 -> grid10`，3 号侧旁列按 `grid3 -> grid6 -> grid9 -> grid12`。每个旁列格间转换前复用现有 `TransitionObserve` 正前方观察和机构预调逻辑，只看前方 R2 KFS；看到则按现有 KFS 夹取链处理，未看到则继续对应上/下阶梯，抵达出口行后复用最终下阶离场。
 
+台阶动作进入跨阶直行前会先用 `stair_heading_*` 参数完成 yaw 对齐；直行期间只叠加小幅 heading hold，若 yaw 偏差再次超过 `stair_heading_gate_deg`，会暂停线速度并原地纠偏，且不推进当前激光事件或定时直行窗口。
+
 `MfPreselectionFlow` 的入口、行前方、周身和 `TransitionObserve` 检测窗口在未发现 R2 KFS 时必须先等满对应 `mf_preselect_*_detect_timeout_s`，再按 `mf_preselect_detect_lost_stable_frames` 确认未命中并切到下一阶段；连续丢失帧只用于抗抖，不再提前截短检测窗口。发现 R2 KFS 或假 KFS 仍可在窗口内立即触发对应夹取/避障分支。R2 KFS 夹取命令完成后若视觉验证超时且原目标仍可见，不再把该目标加入 ignored 列表：入口侧会按本次前向趋近规划距离反向后退到可重新识别位置，再重新进入 KFS 视觉对齐和夹取；梅林内部路径前方或台阶前观察夹取失败时，会先复用当前格 `GridCenterAlign` 归中，再回到原前方观察阶段继续夹取。没有新视觉帧、目标已消失但未达到稳定消失帧、机构命令失败、odom 运动失败或归中失败仍沿原失败/硬失败语义处理。R1 阻挡标签新增 `R1_KFS` 兼容，但会用 `mf_preselect_r1_kfs_min_score` 做低置信度过滤，默认 0.50，低于阈值的 `R1_KFS` 不作为路径阻挡。R2 KFS 候选若被过滤，会把最近一次拒绝原因代码写入 `mf_preselect_r2_lock_reject_reason/detail/sequence` 黑板键，并在同一检测窗口内按原因去重打印中文 INFO 日志；检测 miss 日志会附带中文摘要，便于区分夹取数已满、视觉帧无效、标签不匹配、已忽略目标、深度采样失败或目标选择失败。
 
-台阶动作既可通过 `stair_climb_tree.xml` / `stair_descend_tree.xml` 独立加载测试，也可由 MF 状态机复用。它们通过 `/mechanism/send_command` 请求推杆动作，通过 `/mechanism/command_feedback` 等待对应反馈，通过 `/cmd_vel` 发布受限直行速度；失败或 halt 时只发布零速，不做额外推杆补偿。
+台阶动作既可通过 `stair_climb_tree.xml` / `stair_descend_tree.xml` 独立加载测试，也可由 MF 状态机复用。它们通过 `/mechanism/send_command` 请求推杆动作，通过 `/mechanism/command_feedback` 等待对应反馈，通过 `/cmd_vel` 发布受限直行速度；跨阶前先完成 yaw 预对齐，跨阶直行时若 yaw 超出 gate 会停止线速度并只修正朝向。失败或 halt 时只发布零速，不做额外推杆补偿。
 
 梅林预选赛入口高侧 KFS 夹取使用 `rc26_serial` 真源中的 `ENTRY_GRAB_KFS_UP(0x0F)`，并在 service ACK 后等待同 `seq` 的 `ENTRY_GRAB_KFS_UP_DONE(0x0B)`；ACK 只代表 transport 通用确认，真正计数仍延迟到后续视觉消失验证成功。
 
@@ -126,6 +128,8 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 - `rc26_interfaces` 当前不提供自定义导航 action；导航对外契约只保留 `/cmd_vel` 速度输出。
 
 ## 本轮同步
+
+2026-07-03 同步：台阶动作改为先 yaw 对齐再跨阶直行。独立 `StairClimb` / `StairDescend` 复用既有 `stair_heading_*` 参数，在开始推杆和直行前先完成 yaw 预对齐；`MfPreselectionFlow` 内嵌入口、格间和最终离场台阶也使用同一口径。跨阶直行期间只保留小幅 heading hold，若 yaw 偏差超过 `stair_heading_gate_deg`，会暂停线速度并原地纠偏，且不推进当前激光事件等待或定时直行窗口。本轮不改变 `/cmd_vel`、机构 service、MCU 反馈协议、`OdomDriveX/Y`、`GridCenterAlign` 或 KFS odom 前向趋近控制策略。
 
 2026-07-03 同步：修复 first managed 行为树启动时 `Delay.delay_msec` 端口类型冲突。`preselection_entry_continue_delay_msec` 与 `preselection_after_mc_continue_delay_msec` 仍从 ROS 参数按 `int` 读取并裁剪为非负值，但写入 blackboard 时统一转换为 `unsigned int`，与 BehaviorTree.CPP 内置 `Delay` 节点端口类型一致，避免创建 `mc_mf_preselection_tree.xml` 时因 `int` / `unsigned int` 混用导致 `BT::RuntimeError`。
 

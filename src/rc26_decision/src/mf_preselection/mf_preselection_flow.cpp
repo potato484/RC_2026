@@ -4595,28 +4595,36 @@ void MfPreselectionFlowAction::beginStair(StairMode mode, Phase next_phase,
                                           std::string label,
                                           StairCenterPolicy center_policy) {
   // 台阶动作在本节点内部复刻独立 StairClimb/StairDescend 的关键时序：
-  // 推杆命令通过 service，轮组到位通过激光事件，直行阶段叠加 heading hold。
+  // 推杆命令通过 service，轮组到位通过激光事件；跨阶梯前先完成 yaw 对齐，
+  // 直行阶段只做小幅 heading hold，偏差超 gate 时停车原地修正。
   stair_mode_ = mode;
   stair_next_phase_ = next_phase;
   stair_center_policy_ = center_policy;
   stair_label_ = std::move(label);
-  stair_phase_ = (mode == StairMode::Climb) ? StairPhase::ClimbSendFrontExtend
-                                            : StairPhase::DescendDriveUntilRearEvent;
+  stair_after_heading_phase_ = (mode == StairMode::Climb)
+                                   ? StairPhase::ClimbSendFrontExtend
+                                   : StairPhase::DescendDriveUntilRearEvent;
+  stair_phase_ = StairPhase::HeadingAlign;
   active_wheel_event_label_.clear();
   active_wheel_event_started_ = false;
   timed_drive_started_ = false;
   stair_drive_profile_started_ = false;
+  stair_heading_stable_ticks_ = 0;
+  stair_heading_waiting_odom_logged_ = false;
+  stair_heading_gate_logged_ = false;
   if (node_) {
     phase_start_ = node_->now();
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛开始%s动作：%s，完成后进入下一阶段",
-                stairModeText(mode), stair_label_.c_str());
+                "梅林预选赛开始%s动作：%s，先对齐yaw=%.3frad，完成后进入下一阶段",
+                stairModeText(mode), stair_label_.c_str(), turn_target_yaw_);
   }
   phase_ = Phase::StairPrimitive;
 }
 
 BT::NodeStatus MfPreselectionFlowAction::tickStair() {
   switch (stair_phase_) {
+  case StairPhase::HeadingAlign:
+    return tickStairHeadingAlign();
   case StairPhase::ClimbSendFrontExtend:
     // 上台阶第 1 步：伸出前推杆，只要求 transport ACK。
     beginMechanismCommand(static_cast<uint8_t>(rc26_serial::CommandID::FRONT_PUSHROD_EXTEND),
@@ -4636,6 +4644,9 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
     // 上台阶前轮阶段：x 正方向前进，直到前轮第一激光高度突变 0x04。
     if (guardPathObstacles()) {
       phase_start_ = node_->now();
+      break;
+    }
+    if (tickStairDriveYawGate("climb_front_first")) {
       break;
     }
     if (!active_wheel_event_started_) {
@@ -4680,6 +4691,9 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
       phase_start_ = node_->now();
       break;
     }
+    if (tickStairDriveYawGate("climb_rear")) {
+      break;
+    }
     if (!active_wheel_event_started_) {
       beginWheelEvent(WheelEvent::Rear, stair_params_.rear_event_timeout_s,
                       "rear");
@@ -4719,8 +4733,11 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
       phase_start_ = node_->now();
       break;
     }
+    if (tickStairDriveYawGate("descend_rear")) {
+      break;
+    }
     publishTwist(-stair_params_.descend_rear_drive_speed_mps, 0.0,
-                 headingAngularZ(turn_target_yaw_));
+                 stairHeadingAngularZ());
     if (!active_wheel_event_started_) {
       beginWheelEvent(WheelEvent::Rear, stair_params_.rear_event_timeout_s,
                       "rear");
@@ -4755,6 +4772,9 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
     // 下台阶前轮阶段只等待前轮第二激光 0x07，不使用 0x04 作为推进条件。
     if (guardPathObstacles()) {
       phase_start_ = node_->now();
+      break;
+    }
+    if (tickStairDriveYawGate("descend_front_second")) {
       break;
     }
     if (!active_wheel_event_started_) {
@@ -4796,6 +4816,9 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
   case StairPhase::DescendTimedDriveBeforeFrontRetract:
     // 定时后退用于给前推杆收回创造空间；这段没有额外激光事件判定，
     // 只由参数时长控制。
+    if (tickStairDriveYawGate("descend_front_retract_timed")) {
+      break;
+    }
     if (!timed_drive_started_) {
       phase_start_ = node_->now();
       timed_drive_started_ = true;
@@ -4812,7 +4835,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
       stair_phase_ = StairPhase::DescendSendFrontRetract;
     } else {
       publishTwist(-stair_params_.descend_front_retract_timed_drive_speed_mps,
-                   0.0, headingAngularZ(turn_target_yaw_));
+                   0.0, stairHeadingAngularZ());
     }
     break;
   case StairPhase::DescendSendFrontRetract:
@@ -4864,6 +4887,52 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
     stair_center_policy_ = StairCenterPolicy::None;
     break;
   }
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus MfPreselectionFlowAction::tickStairHeadingAlign() {
+  if (!stair_params_.heading_hold_enable) {
+    stair_phase_ = stair_after_heading_phase_;
+    return BT::NodeStatus::RUNNING;
+  }
+  if (!node_) {
+    return fail("stair_heading_runtime_missing");
+  }
+  if ((node_->now() - phase_start_).seconds() >
+      stair_params_.heading_align_timeout_s) {
+    publishStop();
+    return fail("stair_heading_align_timeout");
+  }
+  if (!odomReady()) {
+    publishStop();
+    if (!stair_heading_waiting_odom_logged_) {
+      stair_heading_waiting_odom_logged_ = true;
+      RCLCPP_WARN(node_->get_logger(),
+                  "梅林预选赛台阶yaw预对齐等待odom新鲜：%s，odom_topic=%s",
+                  stair_label_.c_str(), params_.odom_topic.c_str());
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+
+  const double error =
+      normalizeAngle(turn_target_yaw_ - odom_yaw_);
+  const double tolerance_rad =
+      std::abs(stair_params_.heading_tolerance_deg) * kDeg2Rad;
+  if (std::abs(error) <= tolerance_rad) {
+    ++stair_heading_stable_ticks_;
+    publishStop();
+    if (stair_heading_stable_ticks_ >= stair_params_.heading_stable_ticks) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛台阶yaw预对齐完成：%s current=%.3f target=%.3f error=%.3frad",
+                  stair_label_.c_str(), odom_yaw_, turn_target_yaw_, error);
+      stair_phase_ = stair_after_heading_phase_;
+      stair_heading_gate_logged_ = false;
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+
+  stair_heading_stable_ticks_ = 0;
+  publishTwist(0.0, 0.0, stairHeadingAngularZ());
   return BT::NodeStatus::RUNNING;
 }
 
@@ -4960,11 +5029,74 @@ double MfPreselectionFlowAction::stairDriveProfileSpeed() {
       (node_->now() - stair_drive_profile_start_).seconds());
 }
 
+double MfPreselectionFlowAction::stairHeadingAngularZ() const {
+  if (!stair_params_.heading_hold_enable || !odomReady()) {
+    return 0.0;
+  }
+  const double error = normalizeAngle(turn_target_yaw_ - odom_yaw_);
+  const double raw = stair_params_.heading_kp * error;
+  const double limit = std::abs(stair_params_.heading_max_speed_radps);
+  return std::clamp(raw, -limit, limit);
+}
+
+bool MfPreselectionFlowAction::stairHeadingReady() const {
+  if (!stair_params_.heading_hold_enable) {
+    return true;
+  }
+  if (!odomReady()) {
+    return false;
+  }
+  const double gate_rad =
+      std::abs(stair_params_.heading_gate_deg) * kDeg2Rad;
+  const double error = normalizeAngle(turn_target_yaw_ - odom_yaw_);
+  return std::abs(error) <= gate_rad;
+}
+
+bool MfPreselectionFlowAction::tickStairDriveYawGate(
+    const std::string &label) {
+  if (!stair_params_.heading_hold_enable) {
+    return false;
+  }
+  if (!odomReady()) {
+    publishStop();
+    phase_start_ = node_->now();
+    has_last_cmd_publish_ = false;
+    if (!stair_heading_waiting_odom_logged_) {
+      stair_heading_waiting_odom_logged_ = true;
+      RCLCPP_WARN(node_->get_logger(),
+                  "梅林预选赛台阶直行等待odom新鲜：%s/%s，odom_topic=%s",
+                  stair_label_.c_str(), label.c_str(), params_.odom_topic.c_str());
+    }
+    return true;
+  }
+  stair_heading_waiting_odom_logged_ = false;
+  if (stairHeadingReady()) {
+    stair_heading_gate_logged_ = false;
+    return false;
+  }
+
+  publishTwist(0.0, 0.0, stairHeadingAngularZ());
+  phase_start_ = node_->now();
+  has_last_cmd_publish_ = false;
+  if (stair_drive_profile_started_) {
+    stair_drive_profile_start_ = node_->now();
+  }
+  if (!stair_heading_gate_logged_) {
+    const double error = normalizeAngle(turn_target_yaw_ - odom_yaw_);
+    RCLCPP_WARN(node_->get_logger(),
+                "梅林预选赛台阶直行yaw超gate，暂停线速度先纠偏：%s/%s current=%.3f target=%.3f error=%.3frad gate=%.1fdeg",
+                stair_label_.c_str(), label.c_str(), odom_yaw_, turn_target_yaw_,
+                error, stair_params_.heading_gate_deg);
+    stair_heading_gate_logged_ = true;
+  }
+  return true;
+}
+
 void MfPreselectionFlowAction::publishProfiledStairTwist(
     double direction_sign) {
   publishTwist((direction_sign < 0.0 ? -1.0 : 1.0) *
                    stairDriveProfileSpeed(),
-               0.0, headingAngularZ(turn_target_yaw_));
+               0.0, stairHeadingAngularZ());
 }
 
 void MfPreselectionFlowAction::recordR2LockReject(

@@ -41,6 +41,7 @@ protected:
   void beginHeadingAlignment();
   StepStatus tickHeadingAlignment();
   bool headingReadyForMotion() const;
+  bool tickDriveYawGate(const char *label);
 
   void beginCommand(CommandID command_id, const char *label);
   StepStatus tickCommand();
