@@ -107,7 +107,7 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 - `startup_odom_*`：完整导航链启动前 odom 新鲜度和低速稳定 gate。
 - `team`：红蓝方场地镜像选择；`red` 使用红方基准，`blue` 自动镜像 MC/MF/第二预选赛侧向 Y 和 yaw，非法值按 `red`。
 - `mc_nav_forward_x_m`、`mc_nav_right_turn_delta_rad`、`mc_nav_reverse_x_m`、`mc_nav_timeout_sec`：MC 去程红方基准动作顺序，默认 `+X 0.2m -> 右转 90° -> -X 0.6m`；蓝方只镜像 yaw 和原地旋转方向，X 距离不变。
-- `preselection_entry_continue_delay_msec`、`preselection_after_mc_continue_delay_msec`：first managed 入口和 MC 末尾 branch gate 在 0x06 分支完成后的继续延时。
+- `preselection_entry_continue_delay_msec`、`preselection_after_mc_continue_delay_msec`：first managed 入口和 MC 末尾 branch gate 在 0x06 分支完成后的继续延时。参数侧按有符号整数读取并归零裁剪，写入 blackboard 时按 BehaviorTree.CPP `Delay.delay_msec` 的 `unsigned int` 端口类型保存，避免同一端口先后出现 `int` / `unsigned int` 类型冲突。
 - `preselection_ramp_approach_x_m`、`preselection_ramp_climb_x_m`、`preselection_ramp_max_speed_mps`、`preselection_ramp_min_speed_mps`、`preselection_ramp_timeout_s`：second managed 斜坡前进两段 `OdomDriveX` 参数。
 - `second_preselect_after_ramp_turn_delta_rad`、`second_preselect_after_ramp_turn_timeout_s`：second managed 斜坡后 90° 相对转向参数；红方默认 `-1.5708`，blue 在参数加载阶段镜像为 `+1.5708`。
 - `mf_preselection_external_trigger_enable`、`mf_preselection_external_trigger_feedback_topic`、`mf_preselection_external_trigger_feedback_id`、`mf_preselection_external_trigger_tree_file`：历史全局外部触发参数。managed first/second 入口由 branch gate 管理 0x10，bringup 会强制 `mf_preselection_external_trigger_enable=false`；仅显式历史调试配置可重新打开旧全局监听。
@@ -126,6 +126,8 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 - `rc26_interfaces` 当前不提供自定义导航 action；导航对外契约只保留 `/cmd_vel` 速度输出。
 
 ## 本轮同步
+
+2026-07-03 同步：修复 first managed 行为树启动时 `Delay.delay_msec` 端口类型冲突。`preselection_entry_continue_delay_msec` 与 `preselection_after_mc_continue_delay_msec` 仍从 ROS 参数按 `int` 读取并裁剪为非负值，但写入 blackboard 时统一转换为 `unsigned int`，与 BehaviorTree.CPP 内置 `Delay` 节点端口类型一致，避免创建 `mc_mf_preselection_tree.xml` 时因 `int` / `unsigned int` 混用导致 `BT::RuntimeError`。
 
 2026-07-03 同步：新增 `WaitPreselectionBranchGate` 并以 first/second managed 入口替代历史启动 XML。first 语义为武馆+梅林完整 `0x06 -> 下行 0x10 -> 上行 0x0C -> MC -> MC 后置 MF`，以及单独梅林 `0x10 -> 下行 0x10 -> 上行 0x0C -> mf_preselection_tree.xml`；second 语义为对抗区完整 `0x06 -> 下行 0x11 -> 上行 0x0D -> 斜坡 -> 转 90° -> second_preselection_tree.xml`，以及对抗区不完整 `0x10 -> 下行 0x11 -> 上行 0x0D -> second_preselection_tree.xml`。`mc_tree.xml` 末尾删除 `WaitForRegistrationConfirm` 和 5s 视觉配准等待，旋转后改为同一 branch gate。新增 `preselection_ramp_forward_tree.xml` 与 `second_preselection_combo_tree.xml`，历史 `mf_preselection_start_tree.xml` 已删除。
 
