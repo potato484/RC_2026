@@ -107,18 +107,6 @@ TEST(MfPreselectionLogic, GrabRetryActionClassifiesVisibleFailures) {
       MfPreselectionPickupSource::Stair2, true));
   EXPECT_FALSE(MfPreselectionLogicResult::mandatoryEntryStair2Retry(
       MfPreselectionPickupSource::Stair1, false));
-  EXPECT_TRUE(
-      MfPreselectionLogicResult::entryStair2OrdinaryUpGrabNeedsArmLower(
-          MfPreselectionPickupSource::Stair2, true, false, false));
-  EXPECT_FALSE(
-      MfPreselectionLogicResult::entryStair2OrdinaryUpGrabNeedsArmLower(
-          MfPreselectionPickupSource::Stair2, true, false, true));
-  EXPECT_FALSE(
-      MfPreselectionLogicResult::entryStair2OrdinaryUpGrabNeedsArmLower(
-          MfPreselectionPickupSource::Stair2, false, false, false));
-  EXPECT_FALSE(
-      MfPreselectionLogicResult::entryStair2OrdinaryUpGrabNeedsArmLower(
-          MfPreselectionPickupSource::Stair1, true, false, false));
 }
 
 TEST(MfPreselectionLogic, PickupLimitUsesStrictMaximum) {

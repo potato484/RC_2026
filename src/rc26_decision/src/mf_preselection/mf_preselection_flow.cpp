@@ -222,9 +222,6 @@ std::string translateMfFailureReason(const std::string &reason) {
   if (reason == "entry_arm_raise_failed") {
     return "入口 ARM_RAISE 命令或完成反馈失败";
   }
-  if (reason == "entry_arm_lower_failed") {
-    return "入口 ARM_LOWER 命令或完成反馈失败";
-  }
   if (reason == "fake_avoid_arm_raise_failed") {
     return "假 KFS 避障 ARM_RAISE 命令或完成反馈失败";
   }
@@ -485,13 +482,6 @@ MfPreselectionLogicResult::grabRetryAction(
 bool MfPreselectionLogicResult::mandatoryEntryStair2Retry(
     MfPreselectionPickupSource source, bool entry_high_protocol) {
   return source == MfPreselectionPickupSource::Stair2 && !entry_high_protocol;
-}
-
-bool MfPreselectionLogicResult::entryStair2OrdinaryUpGrabNeedsArmLower(
-    MfPreselectionPickupSource source, bool high_side,
-    bool entry_high_protocol, bool arm_lower_done) {
-  return high_side && !arm_lower_done &&
-         mandatoryEntryStair2Retry(source, entry_high_protocol);
 }
 
 bool MfPreselectionLogicResult::entryInterruptOffsetAcceptable(
@@ -1267,18 +1257,18 @@ BT::NodeStatus MfPreselectionFlowAction::onStart() {
   turn_target_yaw_ = entry_heading_yaw_;
   // 预选赛 XML 可以在本节点前放可选 OdomDriveX/OdomDriveY 分段入口。
   // 进入本节点时按“已在 2 号入口预备姿态”处理，但 2 号入口识别和夹取前
-  // 必须先把机械臂底座降下，避免普通上夹取链路在高位姿态下开始视觉对齐。
-  writeBlackboardState("entry2_arm_lower_before_detect");
+  // 必须先把机械臂切到普通高侧姿态，再开始视觉对齐和夹取链路。
+  writeBlackboardState("entry2_arm_raise_before_detect");
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛流程启动：当前位置按 grid2 / 2号入口处理，入口导航已由行为树前置控制，先下降机械臂底座再识别，入口heading=%.3frad，最大夹取数=%d",
+              "梅林预选赛流程启动：当前位置按 grid2 / 2号入口处理，入口导航已由行为树前置控制，先执行ARM_RAISE再识别，入口heading=%.3frad，最大夹取数=%d",
               entry_heading_yaw_, params_.max_pickup_count);
-  beginMechanismCommand(clampByte(params_.arm_lower_command_id),
-                        "ARM_LOWER",
-                        clampByte(params_.arm_lower_done_feedback_id),
+  beginMechanismCommand(clampByte(params_.arm_raise_command_id),
+                        "ARM_RAISE",
+                        clampByte(params_.arm_raise_done_feedback_id),
                         Phase::EntryDetectStair2,
-                        "entry_arm_lower_failed");
+                        "entry_arm_raise_failed");
   arm_high_raised_ = false;
-  arm_high_side_ = false;
+  arm_high_side_ = true;
   return BT::NodeStatus::RUNNING;
 }
 
@@ -1737,12 +1727,6 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return tickMechanismCommand();
   case Phase::KfsVisualAlign:
     return tickKfsVisualAlign();
-  case Phase::KfsEntryArmLower:
-    kfs_entry_arm_lower_done_ = true;
-    arm_high_raised_ = false;
-    arm_high_side_ = false;
-    startKfsOdomApproach();
-    return BT::NodeStatus::RUNNING;
   case Phase::KfsSecondArmLower:
     startKfsOdomApproach();
     return BT::NodeStatus::RUNNING;
@@ -2665,8 +2649,6 @@ const char *MfPreselectionFlowAction::phaseText(Phase phase) {
     return "夹取失败后归中重试";
   case Phase::KfsVisualAlign:
     return "KFS视觉横移对齐";
-  case Phase::KfsEntryArmLower:
-    return "KFS入口底座下降";
   case Phase::KfsSecondArmLower:
     return "KFS第二节机械臂下降";
   case Phase::KfsOdomApproach:
@@ -4013,12 +3995,6 @@ bool MfPreselectionFlowAction::entryStair2OrdinaryUpGrabActive() const {
   return kfs_pickup_high_side_ &&
          MfPreselectionLogicResult::mandatoryEntryStair2Retry(
              kfs_pickup_source_, kfs_pickup_entry_high_protocol_);
-}
-
-bool MfPreselectionFlowAction::entryStair2OrdinaryUpGrabNeedsArmLower() const {
-  return MfPreselectionLogicResult::entryStair2OrdinaryUpGrabNeedsArmLower(
-      kfs_pickup_source_, kfs_pickup_high_side_,
-      kfs_pickup_entry_high_protocol_, kfs_entry_arm_lower_done_);
 }
 
 BT::NodeStatus MfPreselectionFlowAction::tickEntryRetryBackoff() {
@@ -5810,10 +5786,6 @@ void MfPreselectionFlowAction::beginKfsVisualPickup(
   kfs_pickup_failure_phase_ = failure_phase;
   kfs_pickup_direct_exit_on_success_ = direct_exit_on_success;
   kfs_pickup_entry_high_protocol_ = entry_high_protocol;
-  kfs_entry_arm_lower_done_ =
-      MfPreselectionLogicResult::mandatoryEntryStair2Retry(
-          source, entry_high_protocol) &&
-      high_side && !arm_high_side_;
   kfs_pickup_depth_profile_ = depth_profile;
   kfs_pickup_origin_phase_ = phase_;
   kfs_pickup_origin_detect_mode_ = detect_mode_;
@@ -6112,20 +6084,6 @@ BT::NodeStatus MfPreselectionFlowAction::beginKfsOdomApproach(
               kfs_odom_approach_distance_m_, params_.kfs_approach_speed_mps,
               params_.kfs_approach_min_speed_mps,
               kfs_odom_approach_estimated_duration_s_);
-  if (entryStair2OrdinaryUpGrabNeedsArmLower()) {
-    publishStop();
-    writeBlackboardState("kfs_entry_arm_lower");
-    RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛2号入口普通上夹取前先下降机械臂底座：cmd=0x%02X feedback=0x%02X",
-                static_cast<unsigned int>(clampByte(params_.arm_lower_command_id)),
-                static_cast<unsigned int>(clampByte(params_.arm_lower_done_feedback_id)));
-    beginMechanismCommand(clampByte(params_.arm_lower_command_id),
-                          "ARM_LOWER",
-                          clampByte(params_.arm_lower_done_feedback_id),
-                          Phase::KfsEntryArmLower,
-                          "entry_arm_lower_failed");
-    return BT::NodeStatus::RUNNING;
-  }
   if (!kfs_pickup_high_side_) {
     publishStop();
     writeBlackboardState("kfs_second_arm_lower");
@@ -6211,7 +6169,6 @@ void MfPreselectionFlowAction::clearKfsVisualPickup() {
   kfs_pickup_failure_phase_ = Phase::Done;
   kfs_pickup_direct_exit_on_success_ = false;
   kfs_pickup_entry_high_protocol_ = false;
-  kfs_entry_arm_lower_done_ = false;
   kfs_pickup_depth_profile_ = R2DepthProfile::General;
   kfs_pickup_origin_phase_ = Phase::Done;
   kfs_pickup_origin_detect_mode_ = DetectMode::Entry2;

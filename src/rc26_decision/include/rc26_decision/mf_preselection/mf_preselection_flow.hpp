@@ -221,9 +221,6 @@ struct MfPreselectionLogicResult {
                   bool entry_high_protocol, bool path_blocking);
   static bool mandatoryEntryStair2Retry(MfPreselectionPickupSource source,
                                         bool entry_high_protocol);
-  static bool entryStair2OrdinaryUpGrabNeedsArmLower(
-      MfPreselectionPickupSource source, bool high_side,
-      bool entry_high_protocol, bool arm_lower_done);
   static bool entryInterruptOffsetAcceptable(int offset_px,
                                              const MfPreselectionParams &params);
   static bool entryInterruptOffsetAcceptable(int offset_px,
@@ -377,7 +374,6 @@ private:
     EntryRetryBackoff,
     RetryPostGrabCenterAlign,
     KfsVisualAlign,
-    KfsEntryArmLower,
     KfsSecondArmLower,
     KfsOdomApproach,
     MechanismCommand,
@@ -587,7 +583,6 @@ private:
                             bool entry_high_protocol,
                             R2DepthProfile depth_profile = R2DepthProfile::General);
   bool entryStair2OrdinaryUpGrabActive() const;
-  bool entryStair2OrdinaryUpGrabNeedsArmLower() const;
   BT::NodeStatus tickKfsVisualAlign();
   BT::NodeStatus beginKfsOdomApproach(
       const KfsVisualObservation &observation);
@@ -772,7 +767,6 @@ private:
   Phase kfs_pickup_failure_phase_{Phase::Done};
   bool kfs_pickup_direct_exit_on_success_{false};
   bool kfs_pickup_entry_high_protocol_{false};
-  bool kfs_entry_arm_lower_done_{false};
   R2DepthProfile kfs_pickup_depth_profile_{R2DepthProfile::General};
   std::optional<MfPreselectionTargetSnapshot> kfs_pickup_initial_target_;
   std::optional<MfPreselectionTargetSnapshot> kfs_locked_target_;
