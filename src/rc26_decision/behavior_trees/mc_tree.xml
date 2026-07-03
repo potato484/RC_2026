@@ -1,4 +1,4 @@
-<!-- 武馆区专属行为树 (MC Area)：前进 X 段 → team 派生侧向转向 → 后退 X 段 → 视觉伺服夹取 → 原地旋转 → 分支 gate 返回组合树或切 MF 独立树 -->
+<!-- 武馆区专属行为树 (MC Area)：前进 X 段 → team 派生侧向转向 → 后退 X 段 → 视觉伺服夹取 → 原地旋转 → 后退避让 → 分支 gate 返回组合树或切 MF 独立树 -->
 <root BTCPP_format="4" main_tree_to_execute="MCAreaTree">
   <BehaviorTree ID="MCAreaTree">
     <Sequence name="MC_Sequence">
@@ -57,12 +57,44 @@
         </Delay>
       <!-- 4. 原地旋转 180° -->
       <RotateInPlace name="rotate_180"/>
-      <!-- 5. 旋转后等待分支 gate：0x06 走 0x10/0x0C 后继续，0x10 走 0x10/0x0C 后切 MF 独立树 -->
+      <!-- 5. 旋转完成后等待 0.5s，再沿车体系 -X / -Y 各退让 0.4m -->
+      <Delay delay_msec="500">
+        <AlwaysSuccess/>
+      </Delay>
+      <OdomDriveX name="mc_after_rotate_retreat_x"
+                  distance_m="-0.4"
+                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                  odom_topic="{odom_relative_nav_odom_topic}"
+                  max_speed_mps="{odom_relative_nav_max_speed_mps}"
+                  min_speed_mps="{odom_relative_nav_min_speed_mps}"
+                  xy_kp="{odom_relative_nav_xy_kp}"
+                  heading_kp="{odom_relative_nav_heading_kp}"
+                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                  stable_ticks="{odom_relative_nav_stable_ticks}"
+                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                  timeout_s="{mc_nav_timeout_sec}"/>
+      <OdomDriveY name="mc_after_rotate_retreat_y"
+                  distance_m="-0.4"
+                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                  odom_topic="{odom_relative_nav_odom_topic}"
+                  max_speed_mps="{odom_relative_nav_max_speed_mps}"
+                  min_speed_mps="{odom_relative_nav_min_speed_mps}"
+                  xy_kp="{odom_relative_nav_xy_kp}"
+                  heading_kp="{odom_relative_nav_heading_kp}"
+                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                  stable_ticks="{odom_relative_nav_stable_ticks}"
+                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                  timeout_s="{mc_nav_timeout_sec}"/>
+      <!-- 6. 旋转后等待分支 gate：0x06 走 0x10/0x0C 后继续，0x10 走 0x10/0x0C 后切 MF 独立树 -->
       <WaitPreselectionBranchGate name="preselection_after_mc_branch_gate"
                                   continue_start_profile="mc"
                                   switch_start_profile="mc"
                                   switch_tree_file="mf_preselection_tree.xml"/>
-      <!-- 6. 继续分支确认后延时，再让 MC 子树成功返回给组合树 -->
+      <!-- 7. 继续分支确认后延时，再让 MC 子树成功返回给组合树 -->
       <Delay delay_msec="{preselection_after_mc_continue_delay_msec}">
         <AlwaysSuccess/>
       </Delay>

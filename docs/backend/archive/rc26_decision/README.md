@@ -68,7 +68,7 @@
 ## 行为树导航流程
 
 - `mc_mf_preselection_tree.xml`：first managed 完整入口，入口 `WaitPreselectionBranchGate` 同时监听 `/mechanism/command_feedback` 上的第一个限位 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 与第二个限位 `MF_PRESELECTION_TRIGGER(0x10)`。0x06 分支下发 `COMPETITION_START(0x10)` 并等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`，随后按 `preselection_entry_continue_delay_msec` 延时进入 `MCAreaTree -> MFPreselectionAfterMCTree`；0x10 分支同样下发 `COMPETITION_START(0x10)` 并等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`，成功后请求 `decision_node` halt 当前树并切换到 `mf_preselection_tree.xml`。
-- `mc_tree.xml`：`OdomDriveX(mc_nav_forward_x_m) -> RelativeYawTarget(mc_nav_right_turn_delta_rad=team 派生侧向 yaw) -> OdomTurnToYaw -> OdomDriveX(mc_nav_reverse_x_m) -> VisualServoGrab -> Delay -> RotateInPlace -> WaitPreselectionBranchGate -> Delay(preselection_after_mc_continue_delay_msec)`。MC 末尾正式流程不再执行 `WaitForRegistrationConfirm` 或 5s 视觉配准等待；旋转后只等待 0x06/0x10 branch gate。转向后的绝对 odom yaw 会传给 `VisualServoGrab target_yaw_rad`，作为视觉阶段 heading hold 目标；`team=blue` 时侧向 yaw 和后续原地旋转方向相对红方基准取反。
+- `mc_tree.xml`：`OdomDriveX(mc_nav_forward_x_m) -> RelativeYawTarget(mc_nav_right_turn_delta_rad=team 派生侧向 yaw) -> OdomTurnToYaw -> OdomDriveX(mc_nav_reverse_x_m) -> VisualServoGrab -> Delay -> RotateInPlace -> Delay(0.5s) -> OdomDriveX(-0.4m) -> OdomDriveY(-0.4m) -> WaitPreselectionBranchGate -> Delay(preselection_after_mc_continue_delay_msec)`。MC 末尾正式流程不再执行 `WaitForRegistrationConfirm` 或 5s 视觉配准等待；旋转后先复用 odom 单轴分段动作做车体系 -X/-Y 退让，再等待 0x06/0x10 branch gate。转向后的绝对 odom yaw 会传给 `VisualServoGrab target_yaw_rad`，作为视觉阶段 heading hold 目标；`team=blue` 时侧向 yaw 和后续原地旋转方向相对红方基准取反。
 - `mf_preselection_tree.xml`：保持原独立调试入口不变，可选入口导航为 `OdomDriveX(mf_preselect_entry2_nav_segment1_x_m=+2.0m) -> OdomDriveY(mf_preselect_entry2_nav_segment1_y_m=team 派生横移 Y)`，随后进入 `MfPreselectionFlow`；该入口不在树前额外转向。
 - `mf_preselection_after_mc_tree.xml`：MC 后置 MF 预选专用入口，可选入口导航为 `OdomDriveX(mc_to_mf_preselect_nav_segment1_x_m=-2.4m) -> RelativeYawTarget(mc_to_mf_preselect_nav_turn_delta_rad=team 派生右转 yaw) -> OdomTurnToYaw -> OdomDriveX(mc_to_mf_preselect_nav_segment2_x_m=+1.6m)`，随后进入 `MfPreselectionFlow`。`MfPreselectionFlow` 内部的入口 1/3 号横移、假 KFS 侧列绕行、出口 yaw、周身扫描 yaw 和第四行收尾 yaw 同样按 `team` 从红方基准派生。
 - `preselection_ramp_forward_tree.xml`：second managed 入口的斜坡子树，按 `preselection_ramp_approach_x_m` 与 `preselection_ramp_climb_x_m` 连续执行两段 `OdomDriveX`，速度和超时由 `preselection_ramp_*` 参数控制，动作完成即停车。
@@ -99,7 +99,7 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 台阶动作既可通过 `stair_climb_tree.xml` / `stair_descend_tree.xml` 独立加载测试，也可由 MF 状态机复用。它们通过 `/mechanism/send_command` 请求推杆动作，通过 `/mechanism/command_feedback` 等待对应反馈，通过 `/cmd_vel` 发布受限直行速度；跨阶前先完成 yaw 预对齐，跨阶直行时若 yaw 超出 gate 会停止线速度并只修正朝向。失败或 halt 时只发布零速，不做额外推杆补偿。
 
-梅林预选赛 2 号入口正前方 R2 KFS 夹取使用 `rc26_serial` 真源中的普通高侧 `GRAB_KFS_UP(0x03)`，夹取完成仍以视觉消失验证为准；若 2 号入口未完成视觉夹取验证，会持续停车、重新识别、重新对齐、重新趋近并重新夹取，直到原目标连续新帧消失确认成功，不会忽略该目标或继续上阶。入口专用 `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 仅保留给仍显式启用 `entry_high_protocol` 的入口高侧场景；ACK 只代表 transport 通用确认，真正计数仍延迟到后续视觉消失验证成功。
+梅林预选赛 2 号入口正前方 R2 KFS 夹取使用 `rc26_serial` 真源中的普通高侧 `GRAB_KFS_UP(0x03)`；视觉横移对齐并锁定深度后，会先发送 `ARM_LOWER(0x05)` 并等待 `ARM_LOWER_DONE(0x03)`，确认机械臂底座下降后才进入 odom 前向趋近和普通上夹取。夹取完成仍以视觉消失验证为准；若 2 号入口未完成视觉夹取验证，会持续停车、重新识别、重新对齐、重新趋近并重新夹取，直到原目标连续新帧消失确认成功，不会忽略该目标或继续上阶。入口专用 `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 仅保留给仍显式启用 `entry_high_protocol` 的入口高侧场景；ACK 只代表 transport 通用确认，真正计数仍延迟到后续视觉消失验证成功。
 
 ## 参数口径
 
@@ -129,7 +129,9 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 ## 本轮同步
 
-2026-07-03 同步：`MfPreselectionFlow` 的 2 号入口 R2 KFS 夹取改用普通高侧 `GRAB_KFS_UP(0x03)`，不再走入口专用 `ENTRY_GRAB_KFS_UP(0x0F)`；2 号入口夹取完成仍以视觉消失验证为准，未完成时会无限重试夹取链，不忽略该目标且不推进到上阶或 1/3 号入口探测。入口专用 `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 仅保留给显式 `entry_high_protocol` 场景。
+2026-07-04 同步：`mc_tree.xml` 在 `RotateInPlace rotate_180` 成功后新增 0.5s 延时，并直接复用 `OdomDriveX` / `OdomDriveY` 通用 odom 单轴分段动作，按车体系 `-X 0.4m -> -Y 0.4m` 完成旋转后的退让，再进入 `WaitPreselectionBranchGate`。该改动只调整 MC 行为树编排，不新增 `/cmd_vel` 权威、ROS topic/service/action、机构协议或导航节点类型。
+
+2026-07-03 同步：`MfPreselectionFlow` 的 2 号入口 R2 KFS 夹取改用普通高侧 `GRAB_KFS_UP(0x03)`，不再走入口专用 `ENTRY_GRAB_KFS_UP(0x0F)`；普通上夹取前必须先完成 `ARM_LOWER(0x05)` / `ARM_LOWER_DONE(0x03)` 底座下降，再执行 odom 前向趋近和夹取。2 号入口夹取完成仍以视觉消失验证为准，未完成时会无限重试夹取链，不忽略该目标且不推进到上阶或 1/3 号入口探测。入口专用 `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 仅保留给显式 `entry_high_protocol` 场景。
 
 2026-07-03 同步：台阶动作改为先 yaw 对齐再跨阶直行。独立 `StairClimb` / `StairDescend` 复用既有 `stair_heading_*` 参数，在开始推杆和直行前先完成 yaw 预对齐；`MfPreselectionFlow` 内嵌入口、格间和最终离场台阶也使用同一口径。跨阶直行期间只保留小幅 heading hold，若 yaw 偏差超过 `stair_heading_gate_deg`，会暂停线速度并原地纠偏，且不推进当前激光事件等待或定时直行窗口。本轮不改变 `/cmd_vel`、机构 service、MCU 反馈协议、`OdomDriveX/Y`、`GridCenterAlign` 或 KFS odom 前向趋近控制策略。
 
