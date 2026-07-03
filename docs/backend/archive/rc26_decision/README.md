@@ -99,7 +99,7 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 台阶动作既可通过 `stair_climb_tree.xml` / `stair_descend_tree.xml` 独立加载测试，也可由 MF 状态机复用。它们通过 `/mechanism/send_command` 请求推杆动作，通过 `/mechanism/command_feedback` 等待对应反馈，通过 `/cmd_vel` 发布受限直行速度；跨阶前先完成 yaw 预对齐，跨阶直行时若 yaw 超出 gate 会停止线速度并只修正朝向。失败或 halt 时只发布零速，不做额外推杆补偿。
 
-梅林预选赛 2 号入口正前方 R2 KFS 夹取使用 `rc26_serial` 真源中的普通高侧 `GRAB_KFS_UP(0x03)`；视觉横移对齐并锁定深度后，会先发送 `ARM_LOWER(0x05)` 并等待 `ARM_LOWER_DONE(0x03)`，确认机械臂底座下降后才进入 odom 前向趋近和普通上夹取。夹取完成仍以视觉消失验证为准；若 2 号入口未完成视觉夹取验证，会持续停车、重新识别、重新对齐、重新趋近并重新夹取，直到原目标连续新帧消失确认成功，不会忽略该目标或继续上阶。入口专用 `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 仅保留给仍显式启用 `entry_high_protocol` 的入口高侧场景；ACK 只代表 transport 通用确认，真正计数仍延迟到后续视觉消失验证成功。
+梅林预选赛到达 2 号入口后会先发送 `ARM_LOWER(0x05)` 并等待 `ARM_LOWER_DONE(0x03)`，确认机械臂底座下降后才启动入口 2 号视觉识别窗口。2 号入口正前方 R2 KFS 夹取使用 `rc26_serial` 真源中的普通高侧 `GRAB_KFS_UP(0x03)`；后续视觉横移对齐、锁定深度、odom 前向趋近和普通上夹取都建立在该低底座姿态上。夹取完成仍以视觉消失验证为准；若 2 号入口未完成视觉夹取验证，会持续停车、重新识别、重新对齐、重新趋近并重新夹取，直到原目标连续新帧消失确认成功，不会忽略该目标或继续上阶。入口专用 `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 仅保留给仍显式启用 `entry_high_protocol` 的入口高侧场景；ACK 只代表 transport 通用确认，真正计数仍延迟到后续视觉消失验证成功。
 
 ## 参数口径
 
@@ -131,7 +131,7 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 2026-07-04 同步：`mc_tree.xml` 在 `RotateInPlace rotate_180` 成功后新增 0.5s 延时，并直接复用 `OdomDriveX` / `OdomDriveY` 通用 odom 单轴分段动作，按车体系 `-X 0.4m -> -Y 0.4m` 完成旋转后的退让，再进入 `WaitPreselectionBranchGate`。该改动只调整 MC 行为树编排，不新增 `/cmd_vel` 权威、ROS topic/service/action、机构协议或导航节点类型。
 
-2026-07-03 同步：`MfPreselectionFlow` 的 2 号入口 R2 KFS 夹取改用普通高侧 `GRAB_KFS_UP(0x03)`，不再走入口专用 `ENTRY_GRAB_KFS_UP(0x0F)`；普通上夹取前必须先完成 `ARM_LOWER(0x05)` / `ARM_LOWER_DONE(0x03)` 底座下降，再执行 odom 前向趋近和夹取。2 号入口夹取完成仍以视觉消失验证为准，未完成时会无限重试夹取链，不忽略该目标且不推进到上阶或 1/3 号入口探测。入口专用 `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 仅保留给显式 `entry_high_protocol` 场景。
+2026-07-03 同步：`MfPreselectionFlow` 的 2 号入口 R2 KFS 夹取改用普通高侧 `GRAB_KFS_UP(0x03)`，不再走入口专用 `ENTRY_GRAB_KFS_UP(0x0F)`；到达 2 号入口后必须先完成 `ARM_LOWER(0x05)` / `ARM_LOWER_DONE(0x03)` 底座下降，再启动 Entry2 视觉识别、视觉横移对齐、odom 前向趋近和夹取。2 号入口夹取完成仍以视觉消失验证为准，未完成时会无限重试夹取链，不忽略该目标且不推进到上阶或 1/3 号入口探测。入口专用 `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 仅保留给显式 `entry_high_protocol` 场景。
 
 2026-07-03 同步：台阶动作改为先 yaw 对齐再跨阶直行。独立 `StairClimb` / `StairDescend` 复用既有 `stair_heading_*` 参数，在开始推杆和直行前先完成 yaw 预对齐；`MfPreselectionFlow` 内嵌入口、格间和最终离场台阶也使用同一口径。跨阶直行期间只保留小幅 heading hold，若 yaw 偏差超过 `stair_heading_gate_deg`，会暂停线速度并原地纠偏，且不推进当前激光事件等待或定时直行窗口。本轮不改变 `/cmd_vel`、机构 service、MCU 反馈协议、`OdomDriveX/Y`、`GridCenterAlign` 或 KFS odom 前向趋近控制策略。
 

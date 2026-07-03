@@ -1266,12 +1266,19 @@ BT::NodeStatus MfPreselectionFlowAction::onStart() {
   entry_heading_yaw_ = params_.exit_yaw_rad;
   turn_target_yaw_ = entry_heading_yaw_;
   // 预选赛 XML 可以在本节点前放可选 OdomDriveX/OdomDriveY 分段入口。
-  // 进入本节点时按“已在 2 号入口预备姿态”处理，先看正前方是否已经有 R2 可夹取 KFS。
-  writeBlackboardState("entry_detect_stair2");
+  // 进入本节点时按“已在 2 号入口预备姿态”处理，但 2 号入口识别和夹取前
+  // 必须先把机械臂底座降下，避免普通上夹取链路在高位姿态下开始视觉对齐。
+  writeBlackboardState("entry2_arm_lower_before_detect");
   RCLCPP_INFO(node_->get_logger(),
-              "梅林预选赛流程启动：当前位置按 grid2 / 2号入口处理，入口导航已由行为树前置控制，入口heading=%.3frad，最大夹取数=%d",
+              "梅林预选赛流程启动：当前位置按 grid2 / 2号入口处理，入口导航已由行为树前置控制，先下降机械臂底座再识别，入口heading=%.3frad，最大夹取数=%d",
               entry_heading_yaw_, params_.max_pickup_count);
-  beginDetection(DetectMode::Entry2, params_.entry_detect_timeout_s);
+  beginMechanismCommand(clampByte(params_.arm_lower_command_id),
+                        "ARM_LOWER",
+                        clampByte(params_.arm_lower_done_feedback_id),
+                        Phase::EntryDetectStair2,
+                        "entry_arm_lower_failed");
+  arm_high_raised_ = false;
+  arm_high_side_ = false;
   return BT::NodeStatus::RUNNING;
 }
 
@@ -2861,7 +2868,9 @@ BT::NodeStatus MfPreselectionFlowAction::tickDetection() {
   // 某些 phase 是从 onRunning() 直接切过来的，可能尚未调用 beginDetection()。
   // 这里做一次自恢复初始化，保证检测阶段不会因状态切换顺序漏掉定时器和计数器。
   if (!detection_active_) {
-    if (phase_ == Phase::RowScanDetectLeft) {
+    if (phase_ == Phase::EntryDetectStair2) {
+      beginDetection(DetectMode::Entry2, params_.entry_detect_timeout_s);
+    } else if (phase_ == Phase::RowScanDetectLeft) {
       beginPreparedDetection(DetectMode::Scan, params_.scan_detect_timeout_s,
                              Phase::RowScanDetectLeft);
     } else if (phase_ == Phase::RowScanDetectBack) {
@@ -5801,7 +5810,10 @@ void MfPreselectionFlowAction::beginKfsVisualPickup(
   kfs_pickup_failure_phase_ = failure_phase;
   kfs_pickup_direct_exit_on_success_ = direct_exit_on_success;
   kfs_pickup_entry_high_protocol_ = entry_high_protocol;
-  kfs_entry_arm_lower_done_ = false;
+  kfs_entry_arm_lower_done_ =
+      MfPreselectionLogicResult::mandatoryEntryStair2Retry(
+          source, entry_high_protocol) &&
+      high_side && !arm_high_side_;
   kfs_pickup_depth_profile_ = depth_profile;
   kfs_pickup_origin_phase_ = phase_;
   kfs_pickup_origin_detect_mode_ = detect_mode_;
