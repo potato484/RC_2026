@@ -7,6 +7,8 @@
   <BehaviorTree ID="SecondPreselectionComboTree">
     <Sequence name="second_preselection_combo_sequence">
       <WaitPreselectionBranchGate name="second_preselection_entry_branch_gate"
+                                  continue_start_profile="second"
+                                  switch_start_profile="second"
                                   switch_tree_file="second_preselection_tree.xml"/>
       <SubTree ID="PreselectionRampForwardTree" _autoremap="true"/>
       <RelativeYawTarget name="second_preselect_after_ramp_turn_target"

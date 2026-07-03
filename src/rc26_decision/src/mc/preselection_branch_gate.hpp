@@ -31,7 +31,8 @@ private:
   using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
   using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
 
-  enum class Branch { None, ContinueFirst, SwitchSecond };
+  enum class Branch { None, ContinueFirst, SwitchTarget };
+  enum class StartProfile { Mc, Second };
   enum class Phase {
     WaitingBranch,
     SendingCommand,
@@ -42,6 +43,9 @@ private:
 
   void handleFeedback(const FeedbackMsg::SharedPtr msg);
   void configureBranch(Branch branch);
+  void configureStartProfile(StartProfile profile);
+  static StartProfile toStartProfile(const std::string &profile);
+  static const char *profileName(StartProfile profile);
   bool sendBranchCommand();
   BT::NodeStatus fail(const std::string &reason);
   void resetRuntimeHandles();
@@ -62,8 +66,11 @@ private:
   std::atomic<int> command_seq_{-1};
   std::atomic<uint64_t> generation_{0};
   Branch branch_{Branch::None};
+  StartProfile branch_start_profile_{StartProfile::Mc};
   Phase phase_{Phase::WaitingBranch};
   std::string switch_tree_file_{"mf_preselection_tree.xml"};
+  std::string continue_start_profile_text_{"mc"};
+  std::string switch_start_profile_text_{"mc"};
   std::string command_service_;
   int branch_command_id_{0};
   int branch_done_feedback_id_{0};

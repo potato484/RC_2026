@@ -173,7 +173,7 @@ r2_runtime:
       mc_rotate_odom_timeout_s: 0.5    # 旋转阶段 odom 超过该时间未更新时停车等待，单位秒
       mc_rotate_timeout_s: 15.0        # 原地旋转安全超时，单位秒
 
-      # --- managed 预选入口 branch gate：0x06 继续，0x10 先握手 second start 后切树 ---
+      # --- managed 预选入口 branch gate：first 用 0x10/0x0C，second 用 0x11/0x0D ---
       mc_mf_start_signal_feedback_topic: "/mechanism/command_feedback" # 人工启动信号来源
       mc_mf_start_signal_feedback_id: 6    # FRONT_LIMIT_SWITCH_TRIGGERED(0x06)，组合树启动前表示人工开始信号
       mc_mf_start_signal_timeout_s: 0.0    # 0 表示无限等待人工开始信号
@@ -185,10 +185,10 @@ r2_runtime:
       mc_mf_start_log_period_s: 1.0        # 等待人工开始信号期间 INFO 日志节流周期，单位秒
       preselection_entry_continue_delay_msec: 500 # first 入口 0x06 握手完成后进入 MC 前延时
       preselection_after_mc_continue_delay_msec: 500 # MC 末尾 0x06 握手完成后返回组合树前延时
-      mf_preselection_external_trigger_enable: false # managed first/second 入口禁用旧全局 0x10 监听，统一由 branch gate 切树
-      mf_preselection_external_trigger_feedback_topic: "/mechanism/command_feedback" # 全局 MF 外部触发来源
-      mf_preselection_external_trigger_feedback_id: 16 # MF_PRESELECTION_TRIGGER(0x10)，无需匹配下行 seq
-      mf_preselection_external_trigger_tree_file: "mf_preselection_tree.xml" # 触发后执行的目标行为树
+      mf_preselection_external_trigger_enable: false # managed first/second 入口禁用旧全局 0x10 监听，0x10 作为第二限位事件交给 branch gate
+      mf_preselection_external_trigger_feedback_topic: "/mechanism/command_feedback" # 历史全局外部触发来源；managed 模式不使用
+      mf_preselection_external_trigger_feedback_id: 16 # MF_PRESELECTION_TRIGGER(0x10)，第二限位开关事件
+      mf_preselection_external_trigger_tree_file: "mf_preselection_tree.xml" # 历史全局触发目标；managed 模式由 XML gate 决定目标
 
       # ======================================================================
       # 梅林区预选赛红方基准链路参数 —— blue 启动时自动镜像入口 Y、左右探测和 yaw

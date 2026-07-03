@@ -91,6 +91,34 @@ TEST(PreselectionBranchGateLogic, SelectsContinueSwitchAndDoneBySameSeq) {
   EXPECT_TRUE(rc26_decision::isSameSeqDoneFeedback(7, 0x0C, 7, 0x0C));
   EXPECT_FALSE(rc26_decision::isSameSeqDoneFeedback(8, 0x0C, 7, 0x0C));
   EXPECT_FALSE(rc26_decision::isSameSeqDoneFeedback(7, 0x0D, 7, 0x0C));
+
+  EXPECT_EQ(rc26_decision::parsePreselectionStartProfile("mc"),
+            rc26_decision::PreselectionStartProfile::Mc);
+  EXPECT_EQ(rc26_decision::parsePreselectionStartProfile("second"),
+            rc26_decision::PreselectionStartProfile::Second);
+  EXPECT_EQ(rc26_decision::parsePreselectionStartProfile(""),
+            rc26_decision::PreselectionStartProfile::Mc);
+
+  EXPECT_EQ(rc26_decision::selectPreselectionStartProfile(
+                rc26_decision::PreselectionBranchSelection::ContinueFirst,
+                "mc", "mc"),
+            rc26_decision::PreselectionStartProfile::Mc);
+  EXPECT_EQ(rc26_decision::selectPreselectionStartProfile(
+                rc26_decision::PreselectionBranchSelection::SwitchTarget,
+                "mc", "mc"),
+            rc26_decision::PreselectionStartProfile::Mc);
+  EXPECT_EQ(rc26_decision::selectPreselectionStartProfile(
+                rc26_decision::PreselectionBranchSelection::ContinueFirst,
+                "second", "second"),
+            rc26_decision::PreselectionStartProfile::Second);
+  EXPECT_EQ(rc26_decision::selectPreselectionStartProfile(
+                rc26_decision::PreselectionBranchSelection::SwitchTarget,
+                "second", "second"),
+            rc26_decision::PreselectionStartProfile::Second);
+  EXPECT_FALSE(rc26_decision::usesSecondPreselectionStart(
+      rc26_decision::PreselectionStartProfile::Mc));
+  EXPECT_TRUE(rc26_decision::usesSecondPreselectionStart(
+      rc26_decision::PreselectionStartProfile::Second));
 }
 
 TEST(TreeSwitchRequest, ConsumesRequestAndSuppressesDuplicateActiveTarget) {

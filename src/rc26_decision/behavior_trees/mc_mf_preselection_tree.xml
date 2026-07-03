@@ -1,4 +1,4 @@
-<!-- first managed 入口：0x06 分支启动 MC + MF；0x10 分支先握手 second start 后切到 MF 独立树。 -->
+<!-- first managed 入口：0x06 走 0x10/0x0C 后启动 MC+MF；0x10 走 0x10/0x0C 后切到 MF 独立树。 -->
 <root BTCPP_format="4" main_tree_to_execute="MCMFPreselectionTree">
 
   <include path="mc_tree.xml"/>
@@ -7,6 +7,8 @@
   <BehaviorTree ID="MCMFPreselectionTree">
     <Sequence name="MC_MF_Preselection_Sequence">
       <WaitPreselectionBranchGate name="preselection_entry_branch_gate"
+                                  continue_start_profile="mc"
+                                  switch_start_profile="mc"
                                   switch_tree_file="mf_preselection_tree.xml"/>
       <Delay delay_msec="{preselection_entry_continue_delay_msec}">
         <AlwaysSuccess/>

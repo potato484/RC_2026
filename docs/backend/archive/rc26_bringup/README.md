@@ -52,7 +52,7 @@
 - `preselection_entry_continue_delay_msec`、`preselection_after_mc_continue_delay_msec`：first managed 入口 gate 与 MC 末尾 gate 的 0x06 分支继续延时。
 - `preselection_ramp_approach_x_m`、`preselection_ramp_climb_x_m`、`preselection_ramp_max_speed_mps`、`preselection_ramp_min_speed_mps`、`preselection_ramp_timeout_s`：second managed 斜坡两段 odom 前进参数。
 - `second_preselect_after_ramp_turn_delta_rad`、`second_preselect_after_ramp_turn_timeout_s`：second managed 斜坡后 90° 转向参数；红方默认 `-1.5708`，`team=blue` 时由 `rc26_decision` 参数加载阶段镜像为 `+1.5708`。
-- `mf_preselection_external_trigger_*`：历史全局 MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)` 触发参数。managed first/second 模式下，bringup 会强制 `mf_preselection_external_trigger_enable=false`，避免旧监听绕过 `WaitPreselectionBranchGate` 的 0x11/0x0D 握手。
+- `mf_preselection_external_trigger_*`：历史全局 MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)` 触发参数。managed first/second 模式下，bringup 会强制 `mf_preselection_external_trigger_enable=false`，避免旧监听绕过 `WaitPreselectionBranchGate`；0x10 在 managed 模式中只表示第二限位开关事件，具体握手由当前树的 gate profile 决定。
 - `second_preselect_grid_label_prefixes` / `second_preselect_grid_label_exact_names`：第二预选赛动态 ROI 的可选标签过滤列表。红/蓝运行配置默认省略这两个键，由 `rc26_decision` 使用空过滤列表，表示所有非空 `class_name` 有效；不要在 launch 运行配置中写 `[]`，空数组经 Python dict 传给 ROS2 launch 时没有元素类型，会在创建 `decision_node` 前触发参数类型异常。
 这些参数描述相对分段和 odom yaw 目标生成，不是地图位姿。现场标定时应按启动姿态重新调整每段 `distance_m` 和相对/绝对 yaw；蓝方若只做标准镜像，保持 `r2_blue.yaml` 的 `team: blue` 即可复用同一组红方基准值。
 
@@ -83,11 +83,11 @@
 
 2026-07-03 同步：红/蓝运行配置和历史 `r2_runtime.yaml` 新增 `mf_preselect_kfs_depth_roi_size`、`mf_preselect_kfs_depth_min_valid_count`、`mf_preselect_kfs_depth_bbox_sample_ratios`、`mf_preselect_kfs_depth_bbox_min_success_count`。这些参数只配置 `rc26_decision` 的 R2 KFS 深度有效点判定，不把视觉算法逻辑放入 bringup。
 
-2026-07-03 同步：`r2_active_side.yaml` 新增 `preselection_mode: first|second`。未显式传入 `runtime_config_file` 时，bringup 按该模式覆盖默认树：first 为 `mc_mf_preselection_tree.xml`，second 为 `second_preselection_combo_tree.xml`；managed 模式同时强制 `mf_preselection_external_trigger_enable=false`，由 `WaitPreselectionBranchGate` 统一处理 0x06/0x10 分支。红/蓝运行配置和历史 `r2_runtime.yaml` 新增 first gate 延时、second 斜坡前进和斜坡后转向参数；正式 MC 末尾流程不再依赖视觉配准 gate。
+2026-07-03 同步：`r2_active_side.yaml` 新增 `preselection_mode: first|second`。未显式传入 `runtime_config_file` 时，bringup 按该模式覆盖默认树：first 为 `mc_mf_preselection_tree.xml`，second 为 `second_preselection_combo_tree.xml`；managed 模式同时强制 `mf_preselection_external_trigger_enable=false`，由 `WaitPreselectionBranchGate` 统一处理 0x06/0x10 分支。first 决策族中两条分支都使用 0x10/0x0C 握手；second 决策族中两条分支都使用 0x11/0x0D 握手。红/蓝运行配置和历史 `r2_runtime.yaml` 新增 first gate 延时、second 斜坡前进和斜坡后转向参数；正式 MC 末尾流程不再依赖视觉配准 gate。
 
 2026-07-02 同步：新增根目录 `start_r2_auto.sh` 作为自动决策/比赛链路快捷入口。脚本只封装 `ros2 launch rc26_bringup bringup.launch.py run_mode:=navigation`，默认读取 `r2_active_side.yaml`、打印当前红/蓝方和选中的运行配置，并默认传入 `use_realsense:=true`；红蓝方路线、行为树、MCU transport 与决策参数仍由 `rc26_bringup` 和对应运行配置负责。
 
-2026-07-02 同步：红/蓝运行配置和历史 `r2_runtime.yaml` 新增 `mf_preselection_external_trigger_*` 参数。当前 managed first/second 入口默认禁用该旧全局监听，0x10 由 branch gate 在完成 `SECOND_PRESELECTION_START(0x11)` / `SECOND_PRESELECTION_START_DONE(0x0D)` 后触发切树。
+2026-07-02 同步：红/蓝运行配置和历史 `r2_runtime.yaml` 新增 `mf_preselection_external_trigger_*` 参数。当前 managed first/second 入口默认禁用该旧全局监听，0x10 由 branch gate 作为第二限位开关事件消费；first 使用 0x10/0x0C 后切梅林树，second 使用 0x11/0x0D 后切对抗区树。
 
 2026-07-02 同步：默认运行配置拆分为 `r2_red.yaml` / `r2_blue.yaml`，由 `r2_active_side.yaml` 选择当前比赛方。`bringup.launch.py` 默认不再直接加载单个 `r2_runtime.yaml`；显式传入 `runtime_config_file` 仍可覆盖，供临时调试或历史兼容使用。
 

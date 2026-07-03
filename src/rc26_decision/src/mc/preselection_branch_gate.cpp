@@ -29,9 +29,16 @@ bool targetsSecondPreselectionTree(const std::string &tree_file) {
 } // namespace
 
 BT::PortsList PreselectionBranchGateAction::providedPorts() {
-  return {BT::InputPort<std::string>(
-      "switch_tree_file", "mf_preselection_tree.xml",
-      "Target tree to load when feedback 0x10 selects the switch branch")};
+  return {
+      BT::InputPort<std::string>(
+          "switch_tree_file", "mf_preselection_tree.xml",
+          "Target tree to load when feedback 0x10 selects the switch branch"),
+      BT::InputPort<std::string>(
+          "continue_start_profile", "mc",
+          "Start profile used by the 0x06 branch: mc or second"),
+      BT::InputPort<std::string>(
+          "switch_start_profile", "mc",
+          "Start profile used by the 0x10 branch: mc or second")};
 }
 
 PreselectionBranchGateAction::PreselectionBranchGateAction(
@@ -61,6 +68,8 @@ BT::NodeStatus PreselectionBranchGateAction::onStart() {
   if (switch_tree_file_.empty()) {
     switch_tree_file_ = "mf_preselection_tree.xml";
   }
+  (void)getInput("continue_start_profile", continue_start_profile_text_);
+  (void)getInput("switch_start_profile", switch_start_profile_text_);
 
   branch_seen_ = false;
   command_response_seen_ = false;
@@ -69,6 +78,7 @@ BT::NodeStatus PreselectionBranchGateAction::onStart() {
   command_seq_ = -1;
   generation_.fetch_add(1, std::memory_order_relaxed);
   branch_ = Branch::None;
+  branch_start_profile_ = StartProfile::Mc;
   phase_ = Phase::WaitingBranch;
   start_tp_ = std::chrono::steady_clock::now();
   phase_tp_ = start_tp_;
@@ -85,12 +95,13 @@ BT::NodeStatus PreselectionBranchGateAction::onStart() {
 
   RCLCPP_INFO(
       node_->get_logger(),
-      "预选入口 branch gate: 等待 0x%02X 继续或 0x%02X 切树 topic=%s switch_tree=%s",
+      "预选入口 branch gate: 等待 0x%02X 继续或 0x%02X 切树 topic=%s switch_tree=%s continue_profile=%s switch_profile=%s",
       static_cast<unsigned int>(mc_params_.start_signal_feedback_id & 0xFF),
       static_cast<unsigned int>(
           static_cast<int>(rc26_serial::FeedbackID::MF_PRESELECTION_TRIGGER) &
           0xFF),
-      feedback_topic.c_str(), switch_tree_file_.c_str());
+      feedback_topic.c_str(), switch_tree_file_.c_str(),
+      continue_start_profile_text_.c_str(), switch_start_profile_text_.c_str());
   return BT::NodeStatus::RUNNING;
 }
 
@@ -168,7 +179,8 @@ BT::NodeStatus PreselectionBranchGateAction::onRunning() {
         return BT::NodeStatus::SUCCESS;
       }
 
-      if (targetsSecondPreselectionTree(switch_tree_file_)) {
+      if (branch_start_profile_ == StartProfile::Second &&
+          targetsSecondPreselectionTree(switch_tree_file_)) {
         config().blackboard->set(kPreselectionGateSecondStartDoneKey, true);
       }
       requestBehaviorTreeSwitch(config().blackboard, switch_tree_file_);
@@ -223,27 +235,47 @@ void PreselectionBranchGateAction::handleFeedback(
   }
 
   if (branch == PreselectionBranchSelection::SwitchTarget) {
-    branch_ = Branch::SwitchSecond;
+    branch_ = Branch::SwitchTarget;
     branch_seen_.store(true, std::memory_order_relaxed);
   }
 }
 
 void PreselectionBranchGateAction::configureBranch(Branch branch) {
-  if (branch == Branch::SwitchSecond) {
+  if (branch == Branch::SwitchTarget) {
+    branch_start_profile_ = toStartProfile(switch_start_profile_text_);
+    configureStartProfile(branch_start_profile_);
+    RCLCPP_WARN(
+        node_->get_logger(),
+        "预选入口 branch gate: 收到 0x10 profile=%s，发送 0x%02X 等 0x%02X，成功后切树 %s",
+        profileName(branch_start_profile_),
+        static_cast<unsigned int>(branch_command_id_ & 0xFF),
+        static_cast<unsigned int>(branch_done_feedback_id_ & 0xFF),
+        switch_tree_file_.c_str());
+    return;
+  }
+
+  branch_start_profile_ = toStartProfile(continue_start_profile_text_);
+  configureStartProfile(branch_start_profile_);
+  RCLCPP_INFO(
+      node_->get_logger(),
+      "预选入口 branch gate: 收到 0x06 profile=%s，发送 0x%02X 等 0x%02X 后继续",
+      profileName(branch_start_profile_),
+      static_cast<unsigned int>(branch_command_id_ & 0xFF),
+      static_cast<unsigned int>(branch_done_feedback_id_ & 0xFF));
+}
+
+void PreselectionBranchGateAction::configureStartProfile(StartProfile profile) {
+  if (profile == StartProfile::Second) {
     command_service_ = second_params_.send_command_service.empty()
                            ? std::string("/mechanism/send_command")
                            : second_params_.send_command_service;
     branch_command_id_ = second_params_.start_command_id;
     branch_done_feedback_id_ = second_params_.start_done_feedback_id;
     branch_signal_timeout_s_ = 0.0;
-    branch_command_timeout_s_ = std::max(0.001, second_params_.command_timeout_s);
+    branch_command_timeout_s_ =
+        std::max(0.001, second_params_.command_timeout_s);
     branch_done_timeout_s_ = std::max(0.001, second_params_.done_timeout_s);
     branch_log_period_s_ = std::max(0.1, second_params_.log_period_s);
-    RCLCPP_WARN(node_->get_logger(),
-                "预选入口 branch gate: 收到 0x10，发送 0x%02X 等 0x%02X，成功后切树 %s",
-                static_cast<unsigned int>(branch_command_id_ & 0xFF),
-                static_cast<unsigned int>(branch_done_feedback_id_ & 0xFF),
-                switch_tree_file_.c_str());
     return;
   }
 
@@ -256,10 +288,17 @@ void PreselectionBranchGateAction::configureBranch(Branch branch) {
   branch_command_timeout_s_ = std::max(0.001, mc_params_.start_command_timeout_s);
   branch_done_timeout_s_ = std::max(0.001, mc_params_.start_done_timeout_s);
   branch_log_period_s_ = std::max(0.1, mc_params_.start_log_period_s);
-  RCLCPP_INFO(node_->get_logger(),
-              "预选入口 branch gate: 收到 0x06，发送 0x%02X 等 0x%02X 后继续",
-              static_cast<unsigned int>(branch_command_id_ & 0xFF),
-              static_cast<unsigned int>(branch_done_feedback_id_ & 0xFF));
+}
+
+PreselectionBranchGateAction::StartProfile
+PreselectionBranchGateAction::toStartProfile(const std::string &profile) {
+  return usesSecondPreselectionStart(parsePreselectionStartProfile(profile))
+             ? StartProfile::Second
+             : StartProfile::Mc;
+}
+
+const char *PreselectionBranchGateAction::profileName(StartProfile profile) {
+  return profile == StartProfile::Second ? "second" : "mc";
 }
 
 bool PreselectionBranchGateAction::sendBranchCommand() {

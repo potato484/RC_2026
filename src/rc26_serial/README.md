@@ -79,8 +79,9 @@
 *   transport service 返回 `accepted=true` 的前提仍然是 MCU 先回通用 `ACK(0x00)`；`0x02~0x07`、`0x09`、`0x0A`、`0x0B`、`0x0C`、`0x0D`、`0x0F` 与 `0x10` 业务反馈会继续发布到 `/mechanism/command_feedback`，但不参与 `sendCommand()` 的可靠 ACK 判定。
 *   KFS 向下夹取在 `ARM_LOWER_DONE(0x03)` 后完成视觉横移对齐和一次锁深度，开环前进前还会发送 `ARM_SECOND_LOWER(0x0E)`，并等待同 `seq` 的 `ARM_SECOND_LOWER_DONE(0x0A)` 后才前进或直接夹取。
 *   梅林预选赛入口高侧 KFS 夹取使用 `ENTRY_GRAB_KFS_UP(0x0F)`，并等待同 `seq` 的 `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 后再进入视觉消失验证；service ACK 不等同于夹取完成。
-*   组合树启动 gate 收到人工 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 后，会通过 `/mechanism/send_command` 下发 `COMPETITION_START(0x10)` 空 payload；service ACK 只表示下位机已确认收到命令，随后还必须等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`，才进入 500ms 延时和 MC 流程。
-*   MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)` 是预选入口分支事件；managed first/second 入口下由 `WaitPreselectionBranchGate` 消费，随后决策层先发送 `SECOND_PRESELECTION_START(0x11)`、等待同 `seq` 的 `SECOND_PRESELECTION_START_DONE(0x0D)`，再请求切换目标树。它不要求匹配任何已有下行 `seq`，也不替代 `COMPETITION_START_DONE(0x0C)`。
+*   MCU 上行 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 是第一个限位开关事件；上行 `MF_PRESELECTION_TRIGGER(0x10)` 是第二个限位开关事件。两者只选择入口分支，不直接决定下行命令或目标树。
+*   managed first 入口下，`0x06` 与 `0x10` 都会先下发 `COMPETITION_START(0x10)` 并等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`；`0x06` 继续武馆+梅林完整树，`0x10` 切到 `mf_preselection_tree.xml`。
+*   managed second 入口下，`0x06` 与 `0x10` 都会先下发 `SECOND_PRESELECTION_START(0x11)` 并等待同 `seq` 的 `SECOND_PRESELECTION_START_DONE(0x0D)`；`0x06` 继续斜坡+转向+对抗区树，`0x10` 切到 `second_preselection_tree.xml`。
 *   第二个预选赛独立树使用 `SECOND_PRESELECTION_START(0x11)` 并等待同 `seq` 的 `SECOND_PRESELECTION_START_DONE(0x0D)` 后开始底盘导航；到达九宫格观察位后使用 `SECOND_PRESELECTION_ARM_HIGH_RAISE(0x12)` 并等待同 `seq` 的 `SECOND_PRESELECTION_ARM_HIGH_RAISE_DONE(0x0F)`；放置 KFS 使用 `SECOND_PRESELECTION_PLACE_KFS(0x13)`，该命令当前只要求通用 ACK，不等待业务完成反馈。
 *   串口层当前只把 `ACK(0x00)` 和心跳场景下的 `HEARTBEAT_ACK(0x01)` 视为成功 ACK 等待结果；`MCU_ERROR(0xFE)` 只作为下位机原因的负响应参与 retry 和错误说明，不作为业务反馈发布语义。旧即时负确认和旧动作完成反馈已经从协议中移除。
 *   真机部署时，目标 MCU 串口由 `rc26_mcu_transport` 独占打开；其它上层只复用 transport，不再次直连同一设备。
@@ -95,7 +96,7 @@
 
 ## 3. 设计原则与平台限制
 
-1.  **帧结构稳定性**: 当前双推杆协议语义保持前/后推杆四命令；KFS 阶梯测试链使用机械臂升降预调命令 `0x04/0x05` 与完成反馈 `0x02/0x03`，向下夹取开环前第二节机械臂放下使用 `0x0E/0x0A`，`0x03/0x02` 作为上下阶梯 KFS 夹取命令，梅林预选赛入口高侧夹取使用 `0x0F/0x0B`，组合树比赛开始通知使用下行 `0x10` 空 payload 并等待上行 `0x0C` 完成反馈；MCU 上行 `0x10` 是外部 MF 预选独立树触发事件；第二个预选赛使用 `0x11/0x0D` 做开始握手、`0x12/0x0F` 做机械臂高抬升握手、`0x13` 做 ACK-only 放置命令。台阶激光测距高度突变事件使用独立上行 `0x04/0x05/0x07`，武馆前方限位开关触发使用独立上行 `0x06`，MCU 端错误使用上行 `0xFE` 并只表示下位机原因。除此之外，v3.0 的帧头、CRC32 MPEG-2 校验和最大长度限制保持不变。
+1.  **帧结构稳定性**: 当前双推杆协议语义保持前/后推杆四命令；KFS 阶梯测试链使用机械臂升降预调命令 `0x04/0x05` 与完成反馈 `0x02/0x03`，向下夹取开环前第二节机械臂放下使用 `0x0E/0x0A`，`0x03/0x02` 作为上下阶梯 KFS 夹取命令，梅林预选赛入口高侧夹取使用 `0x0F/0x0B`。managed first 使用下行 `0x10` 等上行 `0x0C` 做开始握手；managed second 使用下行 `0x11` 等上行 `0x0D` 做开始握手；第二个预选赛后续仍用 `0x12/0x0F` 做机械臂高抬升握手、`0x13` 做 ACK-only 放置命令。台阶激光测距高度突变事件使用独立上行 `0x04/0x05/0x07`，第一个限位开关使用独立上行 `0x06`，第二个限位开关使用独立上行 `0x10`，MCU 端错误使用上行 `0xFE` 并只表示下位机原因。除此之外，v3.0 的帧头、CRC32 MPEG-2 校验和最大长度限制保持不变。
 2.  **兼容性第一**: 考虑到 AidLux 混合环境的特殊性，优先采用成熟稳定的 POSIX 接口（如 `epoll`）而非激进的异步 I/O（如 `io_uring` on TTY）。
 3.  **单体非阻塞**: 核心驱动类不抛出未捕获异常，任何发送/接收回调均被妥善隔离，防止上层业务逻辑的故障波及底层通信主循环。
 
