@@ -20,6 +20,7 @@
 #include "rc26_decision/second_preselection/second_preselection.hpp"
 #include "rc26_decision/stair/stair_area.hpp"
 #include "rc26_decision/team_color.hpp"
+#include "rc26_decision/tree_switch_request.hpp"
 #include "rc26_interfaces/msg/mechanism_transport_feedback.hpp"
 
 namespace rc26_decision {
@@ -132,6 +133,8 @@ private:
     blackboard_->set("relative_nav_last_exec_state", std::string("IDLE"));
     blackboard_->set("relative_nav_last_failure_reason", std::string(""));
     blackboard_->set("relative_nav_last_distance_remaining", 0.0);
+    clearBehaviorTreeSwitchRequest(blackboard_);
+    blackboard_->set(kPreselectionGateSecondStartDoneKey, false);
     clearDecisionFailure(blackboard_);
   }
 
@@ -143,6 +146,7 @@ private:
     }
 
     tree_ = factory_.createTreeFromFile(tree_path_, blackboard_);
+    clearBehaviorTreeSwitchRequest(blackboard_);
     clearDecisionFailure(blackboard_);
     terminal_ = false;
   }
@@ -413,6 +417,9 @@ private:
     }
 
     const BT::NodeStatus status = tree_.tickOnce();
+    if (handleRequestedTreeSwitch()) {
+      return true;
+    }
     terminal_ =
         (status == BT::NodeStatus::SUCCESS || status == BT::NodeStatus::FAILURE);
 
@@ -428,6 +435,32 @@ private:
     if (terminal_) {
       stopAutoTicking();
     }
+    return true;
+  }
+
+  bool handleRequestedTreeSwitch() {
+    std::string requested_tree_file;
+    if (!consumeBehaviorTreeSwitchRequest(blackboard_, requested_tree_file)) {
+      return false;
+    }
+
+    const std::string requested_tree_path = resolveTreePath(requested_tree_file);
+    const bool current_tree_active =
+        tree_.rootNode() != nullptr && !terminal_ && auto_tick_timer_ != nullptr;
+    if (!shouldSwitchToRequestedTree(tree_path_, requested_tree_path,
+                                     current_tree_active)) {
+      RCLCPP_WARN(this->get_logger(),
+                  "行为树切换请求目标已在运行或无效，忽略: %s",
+                  requested_tree_path.c_str());
+      return false;
+    }
+
+    RCLCPP_WARN(this->get_logger(), "行为树请求切换: %s -> %s",
+                tree_path_.c_str(), requested_tree_path.c_str());
+    tree_file_ = requested_tree_file;
+    tree_path_ = requested_tree_path;
+    loadBehaviorTree();
+    startAutoTicking();
     return true;
   }
 

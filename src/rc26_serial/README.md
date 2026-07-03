@@ -80,7 +80,7 @@
 *   KFS 向下夹取在 `ARM_LOWER_DONE(0x03)` 后完成视觉横移对齐和一次锁深度，开环前进前还会发送 `ARM_SECOND_LOWER(0x0E)`，并等待同 `seq` 的 `ARM_SECOND_LOWER_DONE(0x0A)` 后才前进或直接夹取。
 *   梅林预选赛入口高侧 KFS 夹取使用 `ENTRY_GRAB_KFS_UP(0x0F)`，并等待同 `seq` 的 `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 后再进入视觉消失验证；service ACK 不等同于夹取完成。
 *   组合树启动 gate 收到人工 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 后，会通过 `/mechanism/send_command` 下发 `COMPETITION_START(0x10)` 空 payload；service ACK 只表示下位机已确认收到命令，随后还必须等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`，才进入 500ms 延时和 MC 流程。
-*   MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)` 是全局 MF 预选独立树触发事件；它不要求匹配任何下行 `seq`，也不替代 `COMPETITION_START_DONE(0x0C)`。`rc26_decision` 收到后会 halt 当前树并切换执行 `mf_preselection_tree.xml`。
+*   MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)` 是预选入口分支事件；managed first/second 入口下由 `WaitPreselectionBranchGate` 消费，随后决策层先发送 `SECOND_PRESELECTION_START(0x11)`、等待同 `seq` 的 `SECOND_PRESELECTION_START_DONE(0x0D)`，再请求切换目标树。它不要求匹配任何已有下行 `seq`，也不替代 `COMPETITION_START_DONE(0x0C)`。
 *   第二个预选赛独立树使用 `SECOND_PRESELECTION_START(0x11)` 并等待同 `seq` 的 `SECOND_PRESELECTION_START_DONE(0x0D)` 后开始底盘导航；到达九宫格观察位后使用 `SECOND_PRESELECTION_ARM_HIGH_RAISE(0x12)` 并等待同 `seq` 的 `SECOND_PRESELECTION_ARM_HIGH_RAISE_DONE(0x0F)`；放置 KFS 使用 `SECOND_PRESELECTION_PLACE_KFS(0x13)`，该命令当前只要求通用 ACK，不等待业务完成反馈。
 *   串口层当前只把 `ACK(0x00)` 和心跳场景下的 `HEARTBEAT_ACK(0x01)` 视为成功 ACK 等待结果；`MCU_ERROR(0xFE)` 只作为下位机原因的负响应参与 retry 和错误说明，不作为业务反馈发布语义。旧即时负确认和旧动作完成反馈已经从协议中移除。
 *   真机部署时，目标 MCU 串口由 `rc26_mcu_transport` 独占打开；其它上层只复用 transport，不再次直连同一设备。

@@ -4,7 +4,7 @@
 r2_runtime:
   paths:
     prior_pcd_file: "/home/aidlux/RC_2026/src/rc26_point_lio/PCD/class_plus.pcd"
-    behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/mf_preselection_start_tree.xml"
+    behavior_tree_file: "/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/mc_mf_preselection_tree.xml"
 
   # 目标 MCU 共享串口 transport。
   # 只要运行链会下发机构动作指令，就必须启动 rc26_mcu_transport。
@@ -54,6 +54,56 @@ r2_runtime:
       odom_relative_nav_stable_ticks: 3               # 平移和 yaw 同时进入容差后连续多少 tick 判定完成
       odom_relative_nav_odom_timeout_s: 0.5           # odom 超过该时间未更新时停车等待
       odom_relative_nav_timeout_s: 10.0               # 独立相对分段默认超时，单位秒
+
+      # ======================================================================
+      # 第二个预选赛参数 —— second managed 入口和 second_preselection_tree.xml 共用
+      # ======================================================================
+      second_preselect_send_command_service: "/mechanism/send_command" # rc26_mcu_transport 可靠命令服务
+      second_preselect_feedback_topic: "/mechanism/command_feedback"   # MCU 上行业务反馈 topic
+      second_preselect_command_timeout_s: 5.0       # 等待 0x11/0x12/0x13 service ACK 的最长时间
+      second_preselect_done_timeout_s: 5.0          # 等待 0x0D/0x0F 同 seq 完成反馈的最长时间
+      second_preselect_log_period_s: 1.0            # 机构等待日志节流周期
+      second_preselect_start_command_id: 17         # 0x11 SECOND_PRESELECTION_START
+      second_preselect_start_done_feedback_id: 13   # 0x0D SECOND_PRESELECTION_START_DONE
+      second_preselect_arm_high_raise_command_id: 18 # 0x12 SECOND_PRESELECTION_ARM_HIGH_RAISE
+      second_preselect_arm_high_raise_done_feedback_id: 15 # 0x0F SECOND_PRESELECTION_ARM_HIGH_RAISE_DONE
+      second_preselect_place_kfs_command_id: 19     # 0x13 SECOND_PRESELECTION_PLACE_KFS，ACK 即发送完成
+      second_preselect_nav_x1_m: 1.8                # 开始完成后沿车体系 +X 前进距离
+      second_preselect_nav_y1_m: 0.75               # 红方基准第二段车体系 Y；blue 启动时自动取反
+      second_preselect_nav_x2_m: 2.5                # 第三段沿车体系 +X 前进距离
+      second_preselect_place_forward_x_m: 0.7       # 找到空位后沿 +X 前进放置
+      second_preselect_retreat_x_m: -0.7            # 放置命令 ACK 后沿 -X 后退
+      second_preselect_nav_timeout_s: 180.0         # 第二预选赛每个 odom 单轴段超时
+      preselection_ramp_approach_x_m: 0.50          # second managed 入口斜坡前接近段 OdomDriveX 距离
+      preselection_ramp_climb_x_m: 1.50             # second managed 入口斜坡爬坡段 OdomDriveX 距离
+      preselection_ramp_max_speed_mps: 0.30         # 斜坡段平移速度上限
+      preselection_ramp_min_speed_mps: 0.03         # 斜坡段最小平移速度
+      preselection_ramp_timeout_s: 180.0            # 斜坡段每段超时
+      second_preselect_after_ramp_turn_delta_rad: -1.5708 # 红方基准斜坡后右转 90°；blue 启动时自动取反
+      second_preselect_after_ramp_turn_timeout_s: 30.0 # 斜坡后 90° 转向超时
+      second_preselect_vision_config_file: ""       # 空则回退 rc26_vision/config/vision_models.yaml
+      second_preselect_model_id: "kfs_default"      # 用于启动深度相机/视觉快照；目标标签中心落入动态格子 ROI 即占据
+      second_preselect_grid_camera_fx_px: 385.6756287 # Color 640x480 fx
+      second_preselect_grid_camera_fy_px: 385.1935120 # Color 640x480 fy
+      second_preselect_grid_camera_ppx_px: 323.6063232 # Color 640x480 ppx
+      second_preselect_grid_camera_ppy_px: 241.5680695 # Color 640x480 ppy
+      second_preselect_grid_left_col_width_m: 0.54  # 红方基准从左往右第一列宽度
+      second_preselect_grid_center_col_width_m: 0.58 # 红方基准中间一列宽度
+      second_preselect_grid_right_col_width_m: 0.50 # 红方基准从右往左第一列宽度
+      second_preselect_grid_row_pitch_m: 0.54       # 九宫格每一行高度/行中心距
+      second_preselect_grid_middle_center_height_m: 1.21 # 中层格中心离地高度
+      second_preselect_grid_safe_width_m: 0.40      # 单格动态 ROI 安全宽度
+      second_preselect_grid_safe_height_m: 0.40     # 单格动态 ROI 安全高度
+      second_preselect_grid_camera_height_m: 0.80   # 当前水平安装相机离地高度
+      second_preselect_grid_initial_distance_m: 1.50 # 观察开始时相机到九宫格平面的距离
+      second_preselect_grid_initial_lateral_offset_m: 0.0 # 红方基准观察开始横向偏移；blue 自动取反
+      second_preselect_grid_base_y_to_grid_x_sign: -1.0 # 红方基准 +Y_base 对应 -X_grid；blue 自动取反
+      second_preselect_grid_place_lateral_bias_m: 0.0 # 红方基准放置横向偏置补偿；blue 自动取反
+      second_preselect_odom_topic: "odom"           # 动态 ROI 观察时读取的 odom topic
+      second_preselect_odom_timeout_s: 0.5          # 动态 ROI odom 新鲜度超时
+      second_preselect_occupied_stable_frames: 2    # 中层全占据时连续多少帧确认无空位
+      second_preselect_observe_timeout_s: 2.0       # 单次窗口观察最长时间；超时保守视为被占据
+      second_preselect_observe_log_period_s: 0.5    # 观察日志节流周期
 
       # ======================================================================
       # 武馆区 (MC) 红方基准运行参数 —— blue 启动时自动镜像侧向 yaw 和原地旋转方向
@@ -119,33 +169,7 @@ r2_runtime:
       mc_rotate_odom_timeout_s: 0.5    # 旋转阶段 odom 超过该时间未更新时停车等待，单位秒
       mc_rotate_timeout_s: 15.0        # 原地旋转安全超时，单位秒
 
-      # --- MC 末尾配准确认 gate：启动时采集空夹爪基准帧，结束时配准背景并确认中央端头前景 ---
-      mc_registration_gate_enable: true        # true 时 WaitStartSignalAndNotify 采集基准帧，WaitForRegistrationConfirm 使用配准前景确认
-      mc_registration_capture_settle_s: 0.2    # 收到比赛开始完成反馈后等待画面稳定再采集基准帧，单位秒
-      mc_registration_stable_frames: 5         # 连续多少帧满足中央端头前景变化后允许进入 5s 延时
-      mc_registration_detect_timeout_s: 120.0  # 等待配准前景确认的最长时间，单位秒
-      mc_registration_log_period_s: 1.0        # 等待期间 INFO 日志节流周期，单位秒
-      mc_registration_roi_x_min_ratio: 0.0     # 背景配准 ROI 左边界，归一化画面宽度
-      mc_registration_roi_x_max_ratio: 1.0     # 背景配准 ROI 右边界，归一化画面宽度
-      mc_registration_roi_y_min_ratio: 0.42    # 背景配准 ROI 上边界，避开顶部文字 overlay
-      mc_registration_roi_y_max_ratio: 0.78    # 背景配准 ROI 下边界；特征提取时会剔除中央前景 ROI
-      mc_registration_foreground_roi_x_min_ratio: 0.20 # 端头前景差分 ROI 左边界，覆盖画面中央端头区域
-      mc_registration_foreground_roi_x_max_ratio: 0.80 # 端头前景差分 ROI 右边界
-      mc_registration_foreground_roi_y_min_ratio: 0.42 # 端头前景差分 ROI 上边界，避开顶部文字 overlay
-      mc_registration_foreground_roi_y_max_ratio: 0.95 # 端头前景差分 ROI 下边界，覆盖夹取后端头主体
-      mc_registration_max_corners: 400         # 基准帧角点上限，用于 LK 光流 + RANSAC 仿射配准
-      mc_registration_quality_level: 0.01      # goodFeaturesToTrack 角点质量阈值
-      mc_registration_min_distance_px: 8.0     # 角点最小间距，单位像素
-      mc_registration_min_inliers: 16          # 配准成功所需最小 RANSAC 内点数
-      mc_registration_max_reproj_error_px: 4.0 # RANSAC 最大重投影误差，单位像素
-      mc_registration_diff_threshold: 28       # 配准后灰度差超过该值计入变化像素
-      mc_registration_min_changed_area_px: 24000 # 中央前景 ROI 内变化像素数量下限，用于确认夹到端头
-      mc_registration_min_changed_ratio: 0.20  # 中央前景 ROI 内变化像素占比下限
-      mc_registration_min_changed_bbox_height_px: 180 # 最大变化连通域外接框最小高度
-      mc_registration_min_changed_bbox_width_px: 80 # 最大变化连通域外接框最小宽度
-      mc_registration_min_match_score: 0.20    # RANSAC 内点/光流跟踪点比例下限，低于该值认为配准不可信
-
-      # --- 组合树启动 gate：等待人工 0x06 后下发比赛开始 0x10，再延时 500ms 进入 MC ---
+      # --- managed 预选入口 branch gate：0x06 继续，0x10 先握手 second start 后切树 ---
       mc_mf_start_signal_feedback_topic: "/mechanism/command_feedback" # 人工启动信号来源
       mc_mf_start_signal_feedback_id: 6    # FRONT_LIMIT_SWITCH_TRIGGERED(0x06)，组合树启动前表示人工开始信号
       mc_mf_start_signal_timeout_s: 0.0    # 0 表示无限等待人工开始信号
@@ -155,7 +179,9 @@ r2_runtime:
       mc_mf_start_done_feedback_id: 12     # COMPETITION_START_DONE(0x0C)，必须与 0x10 的 ACK seq 匹配
       mc_mf_start_done_timeout_s: 5.0      # 等待 0x0C 比赛开始完成反馈的最长时间，单位秒
       mc_mf_start_log_period_s: 1.0        # 等待人工开始信号期间 INFO 日志节流周期，单位秒
-      mf_preselection_external_trigger_enable: true # 收到 MCU 上行 0x10 时切换到 MF 预选独立树
+      preselection_entry_continue_delay_msec: 500 # first 入口 0x06 握手完成后进入 MC 前延时
+      preselection_after_mc_continue_delay_msec: 500 # MC 末尾 0x06 握手完成后返回组合树前延时
+      mf_preselection_external_trigger_enable: false # managed first/second 入口禁用旧全局 0x10 监听，统一由 branch gate 切树
       mf_preselection_external_trigger_feedback_topic: "/mechanism/command_feedback" # 全局 MF 外部触发来源
       mf_preselection_external_trigger_feedback_id: 16 # MF_PRESELECTION_TRIGGER(0x10)，无需匹配下行 seq
       mf_preselection_external_trigger_tree_file: "mf_preselection_tree.xml" # 触发后执行的目标行为树

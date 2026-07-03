@@ -10,7 +10,7 @@
 
 - `rc26_mcu_transport`：默认消费 `/cmd_vel` 并下发 `POSE_TARGET(0x0C)`，同时提供 `/mechanism/send_command` 与 `/mechanism/command_feedback`。
 - [odometry.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/odometry.launch.py)：启动 Point-LIO、`rc26_odom_interface` 和必要 TF/odom 输出；导航模式传入 `start_sensor_scan:=false`，并显式传入 `odom_interface_publish_bootstrap_pose:=false`，避免决策启动 gate 把 bootstrap 零位姿 `/odom` 当成真实里程计后直接运动。
-- `rc26_decision`：加载当前红/蓝运行配置中 `r2_runtime.paths.behavior_tree_file` 指向的行为树，并在导航模式强制启用 startup odom gate。
+- `rc26_decision`：加载当前红/蓝运行配置中 `r2_runtime.paths.behavior_tree_file` 指向的行为树，并在导航模式强制启用 startup odom gate。未显式传入 `runtime_config_file` 时，`bringup.launch.py` 会按 `r2_active_side.yaml` 的 `preselection_mode` 覆盖默认树：`first` 使用 `mc_mf_preselection_tree.xml`，`second` 使用 `second_preselection_combo_tree.xml`。
 - RealSense D455：仅当 `use_realsense:=true` 时启动，用于视觉任务，不属于导航必需节点。
 
 导航模式不装配地图定位、外部地图规划链、代价图、路径规划/控制平滑链或 `rc26_sensor_scan`。`/cmd_vel` 的发布权威在决策侧，默认消费方在 `rc26_mcu_transport`；同一时刻不得再启动遥控、测试动作或其它速度发布者。导航模式的 `/odom` 启动 gate 只应由真实 Point-LIO 经 `rc26_odom_interface` 接管后的输出放行；若真实 `/odom` 未接管，决策应等待或超时失败，不应靠 bootstrap `/odom` 开始闭环运动。
@@ -24,14 +24,14 @@
 - [launch/odometry.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/odometry.launch.py)：Point-LIO、里程计接口、静态外参和可选 sensor scan 装配。
 - [launch/grid_heading.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/grid_heading.launch.py)：独立 yaw heading 校准入口，只启动 odom、MCU transport 和 `grid_heading_tree.xml`。
 - 独立 odom 单轴右转分段入口：保留为包内验证入口，只启动 odom、MCU transport 和独立右转验证树。
-- [config/r2_active_side.yaml](/home/potato/RC_2026/src/rc26_bringup/config/r2_active_side.yaml)：默认红蓝方选择入口，指向 `r2_red.yaml` 或 `r2_blue.yaml`。
+- [config/r2_active_side.yaml](/home/potato/RC_2026/src/rc26_bringup/config/r2_active_side.yaml)：默认红蓝方与 first/second 预选入口选择入口，`active_side` 指向 `r2_red.yaml` 或 `r2_blue.yaml`，`preselection_mode` 选择 managed 默认树。
 - [config/r2_red.yaml](/home/potato/RC_2026/src/rc26_bringup/config/r2_red.yaml) / [config/r2_blue.yaml](/home/potato/RC_2026/src/rc26_bringup/config/r2_blue.yaml)：红/蓝双方独立完整运行配置，维护点云路径、行为树路径、MCU transport 和决策参数。
 - [config/r2_runtime.yaml](/home/potato/RC_2026/src/rc26_bringup/config/r2_runtime.yaml)：历史兼容调试配置；默认 bringup 不再直接指向它。
 - [rviz/navigation_default.rviz](/home/potato/RC_2026/src/rc26_bringup/rviz/navigation_default.rviz)：只用于观察 odom/TF 的轻量预设。
 
 ## 红蓝配置口径
 
-默认 `bringup.launch.py` 在未显式传入 `runtime_config_file` 时读取 `r2_active_side.yaml`，按 `active_side: red|blue` 选择 `r2_red.yaml` 或 `r2_blue.yaml`。现场切换比赛方优先改 `r2_active_side.yaml`；如需临时调试其它完整配置，仍可传入 `runtime_config_file:=/abs/path.yaml` 覆盖。
+默认 `bringup.launch.py` 在未显式传入 `runtime_config_file` 时读取 `r2_active_side.yaml`，按 `active_side: red|blue` 选择 `r2_red.yaml` 或 `r2_blue.yaml`，并按 `preselection_mode: first|second` 覆盖默认行为树。现场切换比赛方或 first/second 入口优先改 `r2_active_side.yaml`；如需临时调试其它完整配置，仍可传入 `runtime_config_file:=/abs/path.yaml` 覆盖，显式配置不会再被 `preselection_mode` 改写。
 
 每个红/蓝运行配置的 `r2_runtime.paths` 当前只维护：
 
@@ -49,8 +49,10 @@
 - `mf_preselect_entry2_nav_segment1_x_m`、`mf_preselect_entry2_nav_segment1_y_m`、`mf_preselect_entry2_nav_timeout_sec`：MF 预选 2 号入口红方基准单轴段，默认 `+X 2.0m -> -Y 1.8m`，不在入口树前额外转向；蓝方自动镜像 Y。
 - `mf_preselect_kfs_align_target_line_offset_px`：MF KFS 视觉横移对齐时，识别框中线要对齐的目标线相对图像中心线的像素偏置；默认 `0`，负值表示目标线向图像左侧移动。
 - `mf_preselect_kfs_depth_roi_size`、`mf_preselect_kfs_depth_min_valid_count`、`mf_preselect_kfs_depth_bbox_sample_ratios`、`mf_preselect_kfs_depth_bbox_min_success_count`：MF R2 KFS 有效深度点配置，分别控制单点 ROI 边长、单 ROI 最少有效点、bbox 多点采样比例和最少成功采样点数；默认值写在 `r2_red.yaml` / `r2_blue.yaml`，bringup 只负责传参。
-- `mc_registration_*`：MC 末尾视觉 gate 参数。组合树启动 `WaitStartSignalAndNotify` 在收到 `COMPETITION_START_DONE(0x0C)` 后采集一张“空夹爪/未夹端头”的 MC USB 相机灰度基准帧；MC 完成视觉伺服夹取时若 `VisualServoGrab` 已通过 `GRAB_TIP` 后端头持续消失确认夹取完成，`WaitForRegistrationConfirm` 直接放行。若没有该确认，节点复用同一相机，先用中央端头 ROI 外的背景角点做 LK 光流 + RANSAC 仿射配准，再在中央端头 ROI 内按灰度差分面积、差分占比和最大连通域尺寸稳定确认已经夹到端头。该 gate 不再依赖红色 HSV 阈值。
-- `mf_preselection_external_trigger_*`：`decision_node` 全局监听 MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)`。`start_r2_auto.sh` 启动默认完整链路后，若收到该反馈，决策节点会 halt 当前树并切换执行 `mf_preselection_tree.xml`；bringup 和脚本不承载额外切树逻辑。
+- `preselection_entry_continue_delay_msec`、`preselection_after_mc_continue_delay_msec`：first managed 入口 gate 与 MC 末尾 gate 的 0x06 分支继续延时。
+- `preselection_ramp_approach_x_m`、`preselection_ramp_climb_x_m`、`preselection_ramp_max_speed_mps`、`preselection_ramp_min_speed_mps`、`preselection_ramp_timeout_s`：second managed 斜坡两段 odom 前进参数。
+- `second_preselect_after_ramp_turn_delta_rad`、`second_preselect_after_ramp_turn_timeout_s`：second managed 斜坡后 90° 转向参数；红方默认 `-1.5708`，`team=blue` 时由 `rc26_decision` 参数加载阶段镜像为 `+1.5708`。
+- `mf_preselection_external_trigger_*`：历史全局 MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)` 触发参数。managed first/second 模式下，bringup 会强制 `mf_preselection_external_trigger_enable=false`，避免旧监听绕过 `WaitPreselectionBranchGate` 的 0x11/0x0D 握手。
 - `second_preselect_grid_label_prefixes` / `second_preselect_grid_label_exact_names`：第二预选赛动态 ROI 的可选标签过滤列表。红/蓝运行配置默认省略这两个键，由 `rc26_decision` 使用空过滤列表，表示所有非空 `class_name` 有效；不要在 launch 运行配置中写 `[]`，空数组经 Python dict 传给 ROS2 launch 时没有元素类型，会在创建 `decision_node` 前触发参数类型异常。
 这些参数描述相对分段和 odom yaw 目标生成，不是地图位姿。现场标定时应按启动姿态重新调整每段 `distance_m` 和相对/绝对 yaw；蓝方若只做标准镜像，保持 `r2_blue.yaml` 的 `team: blue` 即可复用同一组红方基准值。
 
@@ -81,11 +83,11 @@
 
 2026-07-03 同步：红/蓝运行配置和历史 `r2_runtime.yaml` 新增 `mf_preselect_kfs_depth_roi_size`、`mf_preselect_kfs_depth_min_valid_count`、`mf_preselect_kfs_depth_bbox_sample_ratios`、`mf_preselect_kfs_depth_bbox_min_success_count`。这些参数只配置 `rc26_decision` 的 R2 KFS 深度有效点判定，不把视觉算法逻辑放入 bringup。
 
-2026-07-02 同步：MC 末尾视觉 gate 从红色 HSV 连通域检测改为“视觉伺服消失确认优先，必要时背景配准 + 中央端头前景变化补充确认”。红/蓝运行配置和历史兼容 `r2_runtime.yaml` 删除 `mc_red_*` 参数，新增 `mc_registration_*` 参数；默认背景配准 ROI 避开顶部 overlay，并在特征提取时剔除中央前景 ROI，随后要求中央前景 ROI 的灰度差分面积、占比和最大连通域尺寸达到阈值。若 `VisualServoGrab` 已通过 `GRAB_TIP` 后端头持续消失确认夹取完成，末尾 gate 会直接放行，避免端头离开视野后配准前景不可观测导致组合树卡住。
+2026-07-03 同步：`r2_active_side.yaml` 新增 `preselection_mode: first|second`。未显式传入 `runtime_config_file` 时，bringup 按该模式覆盖默认树：first 为 `mc_mf_preselection_tree.xml`，second 为 `second_preselection_combo_tree.xml`；managed 模式同时强制 `mf_preselection_external_trigger_enable=false`，由 `WaitPreselectionBranchGate` 统一处理 0x06/0x10 分支。红/蓝运行配置和历史 `r2_runtime.yaml` 新增 first gate 延时、second 斜坡前进和斜坡后转向参数；正式 MC 末尾流程不再依赖视觉配准 gate。
 
 2026-07-02 同步：新增根目录 `start_r2_auto.sh` 作为自动决策/比赛链路快捷入口。脚本只封装 `ros2 launch rc26_bringup bringup.launch.py run_mode:=navigation`，默认读取 `r2_active_side.yaml`、打印当前红/蓝方和选中的运行配置，并默认传入 `use_realsense:=true`；红蓝方路线、行为树、MCU transport 与决策参数仍由 `rc26_bringup` 和对应运行配置负责。
 
-2026-07-02 同步：红/蓝运行配置和历史 `r2_runtime.yaml` 新增 `mf_preselection_external_trigger_*` 参数。根目录 `start_r2_auto.sh` 不新增命令行开关；启动完整导航链后，由 `rc26_decision` 监听 `/mechanism/command_feedback` 的上行 `0x10` 并切换到 `mf_preselection_tree.xml`。
+2026-07-02 同步：红/蓝运行配置和历史 `r2_runtime.yaml` 新增 `mf_preselection_external_trigger_*` 参数。当前 managed first/second 入口默认禁用该旧全局监听，0x10 由 branch gate 在完成 `SECOND_PRESELECTION_START(0x11)` / `SECOND_PRESELECTION_START_DONE(0x0D)` 后触发切树。
 
 2026-07-02 同步：默认运行配置拆分为 `r2_red.yaml` / `r2_blue.yaml`，由 `r2_active_side.yaml` 选择当前比赛方。`bringup.launch.py` 默认不再直接加载单个 `r2_runtime.yaml`；显式传入 `runtime_config_file` 仍可覆盖，供临时调试或历史兼容使用。
 

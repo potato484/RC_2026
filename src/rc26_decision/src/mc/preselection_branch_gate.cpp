@@ -1,0 +1,339 @@
+#include "preselection_branch_gate.hpp"
+
+#include <algorithm>
+#include <chrono>
+#include <cstdio>
+#include <exception>
+#include <filesystem>
+
+#include "rc26_decision/decision_failure.hpp"
+#include "rc26_decision/preselection_branch_gate_logic.hpp"
+#include "rc26_decision/tree_switch_request.hpp"
+#include "rc26_serial/protocol.hpp"
+
+namespace rc26_decision {
+
+namespace {
+
+double elapsedSec(const std::chrono::steady_clock::time_point &since) {
+  return std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                       since)
+      .count();
+}
+
+bool targetsSecondPreselectionTree(const std::string &tree_file) {
+  return std::filesystem::path(tree_file).filename() ==
+         std::filesystem::path("second_preselection_tree.xml");
+}
+
+} // namespace
+
+BT::PortsList PreselectionBranchGateAction::providedPorts() {
+  return {BT::InputPort<std::string>(
+      "switch_tree_file", "mf_preselection_tree.xml",
+      "Target tree to load when feedback 0x10 selects the switch branch")};
+}
+
+PreselectionBranchGateAction::PreselectionBranchGateAction(
+    const std::string &name, const BT::NodeConfig &config)
+    : BT::StatefulActionNode(name, config) {}
+
+BT::NodeStatus PreselectionBranchGateAction::onStart() {
+  if (!config().blackboard || !config().blackboard->get("node", node_) ||
+      node_ == nullptr) {
+    writeDecisionFailure(config().blackboard, "WaitPreselectionBranchGate",
+                         "运行上下文缺失：blackboard 或 node 不可用");
+    return BT::NodeStatus::FAILURE;
+  }
+  if (!config().blackboard->get("mc_params", mc_params_)) {
+    writeDecisionFailure(config().blackboard, "WaitPreselectionBranchGate",
+                         "黑板缺少 mc_params");
+    return BT::NodeStatus::FAILURE;
+  }
+  if (!config().blackboard->get("second_preselection_params",
+                                second_params_)) {
+    writeDecisionFailure(config().blackboard, "WaitPreselectionBranchGate",
+                         "黑板缺少 second_preselection_params");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  (void)getInput("switch_tree_file", switch_tree_file_);
+  if (switch_tree_file_.empty()) {
+    switch_tree_file_ = "mf_preselection_tree.xml";
+  }
+
+  branch_seen_ = false;
+  command_response_seen_ = false;
+  command_accepted_ = false;
+  done_feedback_seen_ = false;
+  command_seq_ = -1;
+  generation_.fetch_add(1, std::memory_order_relaxed);
+  branch_ = Branch::None;
+  phase_ = Phase::WaitingBranch;
+  start_tp_ = std::chrono::steady_clock::now();
+  phase_tp_ = start_tp_;
+  last_log_tp_ = start_tp_;
+  config().blackboard->set(kPreselectionGateSecondStartDoneKey, false);
+
+  const std::string feedback_topic =
+      mc_params_.start_signal_feedback_topic.empty()
+          ? std::string("/mechanism/command_feedback")
+          : mc_params_.start_signal_feedback_topic;
+  feedback_sub_ = node_->create_subscription<FeedbackMsg>(
+      feedback_topic, rclcpp::QoS(32).reliable(),
+      [this](const FeedbackMsg::SharedPtr msg) { handleFeedback(msg); });
+
+  RCLCPP_INFO(
+      node_->get_logger(),
+      "预选入口 branch gate: 等待 0x%02X 继续或 0x%02X 切树 topic=%s switch_tree=%s",
+      static_cast<unsigned int>(mc_params_.start_signal_feedback_id & 0xFF),
+      static_cast<unsigned int>(
+          static_cast<int>(rc26_serial::FeedbackID::MF_PRESELECTION_TRIGGER) &
+          0xFF),
+      feedback_topic.c_str(), switch_tree_file_.c_str());
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus PreselectionBranchGateAction::onRunning() {
+  const auto now = std::chrono::steady_clock::now();
+
+  if (phase_ == Phase::WaitingBranch) {
+    if (branch_seen_.load(std::memory_order_relaxed) &&
+        branch_ != Branch::None) {
+      configureBranch(branch_);
+      phase_ = Phase::SendingCommand;
+      phase_tp_ = now;
+    } else {
+      if (branch_signal_timeout_s_ > 0.0 &&
+          elapsedSec(start_tp_) > branch_signal_timeout_s_) {
+        return fail("等待预选入口分支反馈超时");
+      }
+      if (elapsedSec(last_log_tp_) >= mc_params_.start_log_period_s) {
+        RCLCPP_INFO(
+            node_->get_logger(),
+            "预选入口 branch gate: 等待 0x%02X/0x%02X elapsed=%.1fs",
+            static_cast<unsigned int>(mc_params_.start_signal_feedback_id &
+                                      0xFF),
+            static_cast<unsigned int>(
+                static_cast<int>(
+                    rc26_serial::FeedbackID::MF_PRESELECTION_TRIGGER) &
+                0xFF),
+            elapsedSec(start_tp_));
+        last_log_tp_ = now;
+      }
+      return BT::NodeStatus::RUNNING;
+    }
+  }
+
+  if (phase_ == Phase::SendingCommand) {
+    if (!sendBranchCommand()) {
+      if (elapsedSec(phase_tp_) > branch_command_timeout_s_) {
+        return fail("等待预选入口分支命令服务可用超时");
+      }
+      return BT::NodeStatus::RUNNING;
+    }
+    phase_ = Phase::WaitingAck;
+    phase_tp_ = now;
+    return BT::NodeStatus::RUNNING;
+  }
+
+  if (phase_ == Phase::WaitingAck) {
+    if (command_response_seen_.load(std::memory_order_relaxed)) {
+      const int seq = command_seq_.load(std::memory_order_relaxed);
+      if (!command_accepted_.load(std::memory_order_relaxed)) {
+        return fail("预选入口分支命令被拒绝，seq=" + std::to_string(seq));
+      }
+      RCLCPP_INFO(node_->get_logger(),
+                  "预选入口 branch gate: command=%s ACK 成功 seq=%d，等待 done=%s",
+                  byteHex(branch_command_id_).c_str(), seq,
+                  byteHex(branch_done_feedback_id_).c_str());
+      phase_ = Phase::WaitingDone;
+      phase_tp_ = now;
+      last_log_tp_ = now;
+      return BT::NodeStatus::RUNNING;
+    }
+    if (elapsedSec(phase_tp_) > branch_command_timeout_s_) {
+      return fail("等待预选入口分支命令 ACK 超时");
+    }
+  }
+
+  if (phase_ == Phase::WaitingDone) {
+    const int seq = command_seq_.load(std::memory_order_relaxed);
+    if (done_feedback_seen_.load(std::memory_order_relaxed)) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "预选入口 branch gate: 已收到 done=%s seq=%d",
+                  byteHex(branch_done_feedback_id_).c_str(), seq);
+      if (branch_ == Branch::ContinueFirst) {
+        resetRuntimeHandles();
+        return BT::NodeStatus::SUCCESS;
+      }
+
+      if (targetsSecondPreselectionTree(switch_tree_file_)) {
+        config().blackboard->set(kPreselectionGateSecondStartDoneKey, true);
+      }
+      requestBehaviorTreeSwitch(config().blackboard, switch_tree_file_);
+      phase_ = Phase::SwitchRequested;
+      resetRuntimeHandles();
+      return BT::NodeStatus::RUNNING;
+    }
+    if (elapsedSec(phase_tp_) > branch_done_timeout_s_) {
+      return fail("等待预选入口分支 done 超时，seq=" + std::to_string(seq));
+    }
+    if (elapsedSec(last_log_tp_) >= branch_log_period_s_) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "预选入口 branch gate: 等待 done=%s seq=%d elapsed=%.1fs",
+                  byteHex(branch_done_feedback_id_).c_str(), seq,
+                  elapsedSec(phase_tp_));
+      last_log_tp_ = now;
+    }
+  }
+
+  return BT::NodeStatus::RUNNING;
+}
+
+void PreselectionBranchGateAction::onHalted() {
+  generation_.fetch_add(1, std::memory_order_relaxed);
+  resetRuntimeHandles();
+}
+
+void PreselectionBranchGateAction::handleFeedback(
+    const FeedbackMsg::SharedPtr msg) {
+  if (!msg) {
+    return;
+  }
+
+  const int seq = command_seq_.load(std::memory_order_relaxed);
+  if (isSameSeqDoneFeedback(msg->seq, msg->feedback_id, seq,
+                            branch_done_feedback_id_)) {
+    done_feedback_seen_.store(true, std::memory_order_relaxed);
+    return;
+  }
+
+  if (phase_ != Phase::WaitingBranch) {
+    return;
+  }
+
+  const auto branch = selectPreselectionBranch(
+      msg->feedback_id, mc_params_.start_signal_feedback_id,
+      static_cast<int>(rc26_serial::FeedbackID::MF_PRESELECTION_TRIGGER));
+  if (branch == PreselectionBranchSelection::ContinueFirst) {
+    branch_ = Branch::ContinueFirst;
+    branch_seen_.store(true, std::memory_order_relaxed);
+    return;
+  }
+
+  if (branch == PreselectionBranchSelection::SwitchTarget) {
+    branch_ = Branch::SwitchSecond;
+    branch_seen_.store(true, std::memory_order_relaxed);
+  }
+}
+
+void PreselectionBranchGateAction::configureBranch(Branch branch) {
+  if (branch == Branch::SwitchSecond) {
+    command_service_ = second_params_.send_command_service.empty()
+                           ? std::string("/mechanism/send_command")
+                           : second_params_.send_command_service;
+    branch_command_id_ = second_params_.start_command_id;
+    branch_done_feedback_id_ = second_params_.start_done_feedback_id;
+    branch_signal_timeout_s_ = 0.0;
+    branch_command_timeout_s_ = std::max(0.001, second_params_.command_timeout_s);
+    branch_done_timeout_s_ = std::max(0.001, second_params_.done_timeout_s);
+    branch_log_period_s_ = std::max(0.1, second_params_.log_period_s);
+    RCLCPP_WARN(node_->get_logger(),
+                "预选入口 branch gate: 收到 0x10，发送 0x%02X 等 0x%02X，成功后切树 %s",
+                static_cast<unsigned int>(branch_command_id_ & 0xFF),
+                static_cast<unsigned int>(branch_done_feedback_id_ & 0xFF),
+                switch_tree_file_.c_str());
+    return;
+  }
+
+  command_service_ = mc_params_.start_command_service.empty()
+                         ? std::string("/mechanism/send_command")
+                         : mc_params_.start_command_service;
+  branch_command_id_ = mc_params_.start_command_id;
+  branch_done_feedback_id_ = mc_params_.start_done_feedback_id;
+  branch_signal_timeout_s_ = std::max(0.0, mc_params_.start_signal_timeout_s);
+  branch_command_timeout_s_ = std::max(0.001, mc_params_.start_command_timeout_s);
+  branch_done_timeout_s_ = std::max(0.001, mc_params_.start_done_timeout_s);
+  branch_log_period_s_ = std::max(0.1, mc_params_.start_log_period_s);
+  RCLCPP_INFO(node_->get_logger(),
+              "预选入口 branch gate: 收到 0x06，发送 0x%02X 等 0x%02X 后继续",
+              static_cast<unsigned int>(branch_command_id_ & 0xFF),
+              static_cast<unsigned int>(branch_done_feedback_id_ & 0xFF));
+}
+
+bool PreselectionBranchGateAction::sendBranchCommand() {
+  if (!send_client_) {
+    send_client_ = node_->create_client<SendCommandSrv>(command_service_);
+  }
+  if (!send_client_->service_is_ready()) {
+    RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
+                         "预选入口 branch gate: 等待服务 %s",
+                         command_service_.c_str());
+    return false;
+  }
+
+  auto request = std::make_shared<SendCommandSrv::Request>();
+  request->command_id = static_cast<uint8_t>(branch_command_id_ & 0xFF);
+  request->payload.clear();
+
+  const uint64_t token = generation_.load(std::memory_order_relaxed);
+  command_response_seen_ = false;
+  command_accepted_ = false;
+  command_seq_ = -1;
+  try {
+    send_client_->async_send_request(
+        request, [this, token](rclcpp::Client<SendCommandSrv>::SharedFuture future) {
+          if (token != generation_.load(std::memory_order_relaxed)) {
+            return;
+          }
+          bool accepted = false;
+          int seq = -1;
+          try {
+            const auto response = future.get();
+            accepted = response && response->accepted;
+            if (response) {
+              seq = static_cast<int>(response->seq);
+            }
+          } catch (const std::exception &) {
+            accepted = false;
+          }
+          command_seq_.store(seq, std::memory_order_relaxed);
+          command_accepted_.store(accepted, std::memory_order_relaxed);
+          command_response_seen_.store(true, std::memory_order_relaxed);
+        });
+  } catch (const std::exception &e) {
+    writeDecisionFailure(config().blackboard, "WaitPreselectionBranchGate",
+                         std::string("预选入口分支命令发送异常: ") + e.what());
+    command_response_seen_ = true;
+    command_accepted_ = false;
+    return true;
+  }
+
+  RCLCPP_INFO(node_->get_logger(),
+              "预选入口 branch gate: 已发送 command=%s service=%s",
+              byteHex(branch_command_id_).c_str(), command_service_.c_str());
+  return true;
+}
+
+BT::NodeStatus PreselectionBranchGateAction::fail(
+    const std::string &reason) {
+  writeDecisionFailure(config().blackboard, "WaitPreselectionBranchGate",
+                       reason);
+  resetRuntimeHandles();
+  return BT::NodeStatus::FAILURE;
+}
+
+void PreselectionBranchGateAction::resetRuntimeHandles() {
+  feedback_sub_.reset();
+  send_client_.reset();
+}
+
+std::string PreselectionBranchGateAction::byteHex(int value) {
+  char buf[8];
+  std::snprintf(buf, sizeof(buf), "0x%02X",
+                static_cast<unsigned int>(value & 0xFF));
+  return std::string(buf);
+}
+
+} // namespace rc26_decision

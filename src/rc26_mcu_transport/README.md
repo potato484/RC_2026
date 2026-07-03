@@ -47,7 +47,7 @@ ros2 launch rc26_mcu_transport mcu_transport.launch.py \
 - `rc26_decision` 中等待限位后下发 `GRAB_TIP` 或台阶推杆命令的动作
 - `rc26_vision` tip test 中对齐后下发 `GRAB_TIP` 的链路
 - `rc26_decision` 梅林预选赛入口高侧下发 `ENTRY_GRAB_KFS_UP(0x0F)` 并等待 `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 的链路
-- `rc26_decision` 收到 MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)` 后切换执行 `mf_preselection_tree.xml` 的链路
+- `rc26_decision` 在 managed branch gate 内消费 MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)`，并在发送 `SECOND_PRESELECTION_START(0x11)`、等待同 `seq` 的 `0x0D` 后切换目标树的链路
 - Nav2、遥控、台阶动作、视觉对齐等发布 `/cmd_vel` 的链路
 
 如果串口暂时不存在，节点不会退出；`/mechanism/send_command` 会拒绝发送，`/cmd_vel` consumer 会节流报告发送失败，并持续重试初始打开，直到目标串口可用。

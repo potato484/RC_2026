@@ -11,6 +11,7 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include "mc_params.hpp"
+#include "preselection_branch_gate.hpp"
 #include "rotate_in_place.hpp"
 #include "visual_servo_grab.hpp"
 #include "wait_for_registration_confirm.hpp"
@@ -214,6 +215,12 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
         node.declare_parameter<double>("mc_registration_min_match_score",
                                        p.registration_min_match_score);
 
+    // 预选入口 branch gate：0x06 继续，0x10 切树。
+    int preselection_entry_continue_delay_msec =
+        node.declare_parameter<int>("preselection_entry_continue_delay_msec", 500);
+    int preselection_after_mc_continue_delay_msec =
+        node.declare_parameter<int>("preselection_after_mc_continue_delay_msec", 500);
+
     // 组合树启动 gate：等待人工 0x06 后通知下位机比赛开始。
     p.start_signal_feedback_topic =
         node.declare_parameter<std::string>("mc_mf_start_signal_feedback_topic",
@@ -240,6 +247,10 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
                                        p.start_done_timeout_s);
     p.start_log_period_s =
         node.declare_parameter<double>("mc_mf_start_log_period_s", p.start_log_period_s);
+    preselection_entry_continue_delay_msec =
+        std::max(0, preselection_entry_continue_delay_msec);
+    preselection_after_mc_continue_delay_msec =
+        std::max(0, preselection_after_mc_continue_delay_msec);
 
     p.align_heading_kp = std::max(0.0, p.align_heading_kp);
     p.align_heading_max_speed_radps = std::max(0.0, p.align_heading_max_speed_radps);
@@ -324,8 +335,12 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     blackboard->set("mc_mf_start_done_feedback_id", p.start_done_feedback_id);
     blackboard->set("mc_mf_start_done_timeout_s", p.start_done_timeout_s);
     blackboard->set("mc_mf_start_log_period_s", p.start_log_period_s);
+    blackboard->set("preselection_entry_continue_delay_msec",
+                    preselection_entry_continue_delay_msec);
+    blackboard->set("preselection_after_mc_continue_delay_msec",
+                    preselection_after_mc_continue_delay_msec);
     RCLCPP_INFO(node.get_logger(),
-                "武馆区参数已加载: vision_config=%s mirror_sign=%d relative_nav=+x %.2fm, yaw_delta %.2frad, x %.2fm, rotate_direction=%d registration_gate=%s bg_roi_x=%.2f-%.2f bg_roi_y=%.2f-%.2f fg_roi_x=%.2f-%.2f fg_roi_y=%.2f-%.2f diff_threshold=%d area>=%d ratio>=%.3f stable=%d start_signal=0x%02X start_cmd=0x%02X start_done=0x%02X",
+                "武馆区参数已加载: vision_config=%s mirror_sign=%d relative_nav=+x %.2fm, yaw_delta %.2frad, x %.2fm, rotate_direction=%d registration_gate=%s bg_roi_x=%.2f-%.2f bg_roi_y=%.2f-%.2f fg_roi_x=%.2f-%.2f fg_roi_y=%.2f-%.2f diff_threshold=%d area>=%d ratio>=%.3f stable=%d start_signal=0x%02X start_cmd=0x%02X start_done=0x%02X entry_delay_ms=%d after_mc_delay_ms=%d",
                 p.vision_config_file.c_str(), mirror_sign, nav_forward_x_m,
                 nav_right_turn_delta_rad, nav_reverse_x_m,
                 p.rotate_direction, p.registration_gate_enable ? "true" : "false",
@@ -339,13 +354,16 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
                 p.registration_min_changed_ratio, p.registration_stable_frames,
                 static_cast<unsigned int>(p.start_signal_feedback_id & 0xFF),
                 static_cast<unsigned int>(p.start_command_id & 0xFF),
-                static_cast<unsigned int>(p.start_done_feedback_id & 0xFF));
+                static_cast<unsigned int>(p.start_done_feedback_id & 0xFF),
+                preselection_entry_continue_delay_msec,
+                preselection_after_mc_continue_delay_msec);
 }
 
 void registerMCAreaNodes(BT::BehaviorTreeFactory& factory) {
     factory.registerNodeType<VisualServoGrabAction>("VisualServoGrab");
     factory.registerNodeType<RotateInPlaceAction>("RotateInPlace");
     factory.registerNodeType<WaitForeverAction>("WaitForever");
+    factory.registerNodeType<PreselectionBranchGateAction>("WaitPreselectionBranchGate");
     factory.registerNodeType<WaitForRegistrationConfirmAction>("WaitForRegistrationConfirm");
     factory.registerNodeType<WaitStartSignalAndNotifyAction>("WaitStartSignalAndNotify");
 }

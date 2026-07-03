@@ -70,7 +70,7 @@ enum class FeedbackID : uint8_t {
     COMPETITION_START_DONE = 0x0C,      // 比赛开始状态切换完成
     SECOND_PRESELECTION_START_DONE = 0x0D, // 第二预选赛开始状态切换完成
     SECOND_PRESELECTION_ARM_HIGH_RAISE_DONE = 0x0F, // 第二预选赛机械臂高抬升完成
-    MF_PRESELECTION_TRIGGER = 0x10,      // 外部第二个限位开关触发立即切换执行 MF 预选独立树
+    MF_PRESELECTION_TRIGGER = 0x10,      // 预选入口分支触发；决策 gate 内先发送 0x11 并等待 0x0D 后切树
     MCU_ERROR = 0xFE,                   // MCU 端错误码：下位机原因
 };
 

@@ -746,6 +746,24 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
       "second_preselect_retreat_x_m", p.retreat_x_m);
   p.nav_timeout_s = node.declare_parameter<double>(
       "second_preselect_nav_timeout_s", p.nav_timeout_s);
+  p.ramp_approach_x_m = node.declare_parameter<double>(
+      "preselection_ramp_approach_x_m", p.ramp_approach_x_m);
+  p.ramp_climb_x_m = node.declare_parameter<double>(
+      "preselection_ramp_climb_x_m", p.ramp_climb_x_m);
+  p.ramp_max_speed_mps = node.declare_parameter<double>(
+      "preselection_ramp_max_speed_mps", p.ramp_max_speed_mps);
+  p.ramp_min_speed_mps = node.declare_parameter<double>(
+      "preselection_ramp_min_speed_mps", p.ramp_min_speed_mps);
+  p.ramp_timeout_s = node.declare_parameter<double>(
+      "preselection_ramp_timeout_s", p.ramp_timeout_s);
+  const double configured_after_ramp_turn_delta_rad =
+      node.declare_parameter<double>("second_preselect_after_ramp_turn_delta_rad",
+                                     p.after_ramp_turn_delta_rad);
+  p.after_ramp_turn_delta_rad =
+      configured_after_ramp_turn_delta_rad * static_cast<double>(mirror_sign);
+  p.after_ramp_turn_timeout_s = node.declare_parameter<double>(
+      "second_preselect_after_ramp_turn_timeout_s",
+      p.after_ramp_turn_timeout_s);
 
   p.vision_config_file = node.declare_parameter<std::string>(
       "second_preselect_vision_config_file", p.vision_config_file);
@@ -807,6 +825,21 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   p.done_timeout_s = std::max(0.001, p.done_timeout_s);
   p.log_period_s = std::max(0.1, p.log_period_s);
   p.nav_timeout_s = std::max(0.001, p.nav_timeout_s);
+  p.ramp_max_speed_mps =
+      (std::isfinite(p.ramp_max_speed_mps) && p.ramp_max_speed_mps > 0.0)
+          ? std::abs(p.ramp_max_speed_mps)
+          : SecondPreselectionParams{}.ramp_max_speed_mps;
+  p.ramp_min_speed_mps =
+      (std::isfinite(p.ramp_min_speed_mps) && p.ramp_min_speed_mps >= 0.0)
+          ? std::min(std::abs(p.ramp_min_speed_mps), p.ramp_max_speed_mps)
+          : SecondPreselectionParams{}.ramp_min_speed_mps;
+  p.ramp_timeout_s = std::max(0.001, p.ramp_timeout_s);
+  p.after_ramp_turn_delta_rad =
+      std::isfinite(p.after_ramp_turn_delta_rad)
+          ? p.after_ramp_turn_delta_rad
+          : SecondPreselectionParams{}.after_ramp_turn_delta_rad;
+  p.after_ramp_turn_timeout_s =
+      std::max(0.001, p.after_ramp_turn_timeout_s);
   p.occupied_stable_frames = std::max(1, p.occupied_stable_frames);
   p.observe_timeout_s = std::max(0.001, p.observe_timeout_s);
   p.observe_log_period_s = std::max(0.1, p.observe_log_period_s);
@@ -904,6 +937,16 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   blackboard->set("second_preselect_place_forward_x_m", p.place_forward_x_m);
   blackboard->set("second_preselect_retreat_x_m", p.retreat_x_m);
   blackboard->set("second_preselect_nav_timeout_s", p.nav_timeout_s);
+  blackboard->set("preselection_ramp_approach_x_m", p.ramp_approach_x_m);
+  blackboard->set("preselection_ramp_climb_x_m", p.ramp_climb_x_m);
+  blackboard->set("preselection_ramp_max_speed_mps", p.ramp_max_speed_mps);
+  blackboard->set("preselection_ramp_min_speed_mps", p.ramp_min_speed_mps);
+  blackboard->set("preselection_ramp_timeout_s", p.ramp_timeout_s);
+  blackboard->set("second_preselect_after_ramp_turn_delta_rad",
+                  p.after_ramp_turn_delta_rad);
+  blackboard->set("second_preselect_after_ramp_turn_timeout_s",
+                  p.after_ramp_turn_timeout_s);
+  blackboard->set("second_preselect_after_ramp_turn_target_yaw", 0.0);
   blackboard->set("second_preselect_odom_topic", p.odom_topic);
   blackboard->set("second_preselect_odom_timeout_s", p.odom_timeout_s);
   blackboard->set("second_preselection_middle_empty", false);
@@ -915,13 +958,17 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   blackboard->set("second_preselection_selected_lateral_m", 0.0);
 
   RCLCPP_INFO(node.get_logger(),
-              "第二预选赛参数已加载: mirror_sign=%d start=0x%02X/done=0x%02X high=0x%02X/done=0x%02X place=0x%02X nav=[x1 %.2f, y1 %.2f, x2 %.2f, place %.2f, retreat %.2f] D0=%.2f S0=%.2f base_y_to_grid_x=%.1f camera=[fx %.1f fy %.1f ppx %.1f ppy %.1f] cols=[%.2f,%.2f,%.2f] row_pitch=%.2f safe=[%.2f,%.2f] odom=%s label_stable=%d",
+              "第二预选赛参数已加载: mirror_sign=%d start=0x%02X/done=0x%02X high=0x%02X/done=0x%02X place=0x%02X nav=[x1 %.2f, y1 %.2f, x2 %.2f, place %.2f, retreat %.2f] ramp=[approach %.2f climb %.2f max %.2f min %.2f timeout %.1f turn %.2f timeout %.1f] D0=%.2f S0=%.2f base_y_to_grid_x=%.1f camera=[fx %.1f fy %.1f ppx %.1f ppy %.1f] cols=[%.2f,%.2f,%.2f] row_pitch=%.2f safe=[%.2f,%.2f] odom=%s label_stable=%d",
               mirror_sign,
               p.start_command_id & 0xFF, p.start_done_feedback_id & 0xFF,
               p.arm_high_raise_command_id & 0xFF,
               p.arm_high_raise_done_feedback_id & 0xFF,
               p.place_kfs_command_id & 0xFF, p.nav_x1_m, p.nav_y1_m,
               p.nav_x2_m, p.place_forward_x_m, p.retreat_x_m,
+              p.ramp_approach_x_m, p.ramp_climb_x_m,
+              p.ramp_max_speed_mps, p.ramp_min_speed_mps,
+              p.ramp_timeout_s, p.after_ramp_turn_delta_rad,
+              p.after_ramp_turn_timeout_s,
               p.grid_initial_distance_m, p.grid_initial_lateral_offset_m,
               p.grid_base_y_to_grid_x_sign, p.grid_camera_fx_px,
               p.grid_camera_fy_px, p.grid_camera_ppx_px,

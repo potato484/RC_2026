@@ -1,0 +1,35 @@
+<!-- second managed 入口的斜坡前进子树：前进接近段 + 爬坡段，完成时由 odom 动作停车。 -->
+<root BTCPP_format="4" main_tree_to_execute="PreselectionRampForwardTree">
+  <BehaviorTree ID="PreselectionRampForwardTree">
+    <Sequence name="preselection_ramp_forward_sequence">
+      <OdomDriveX name="preselection_ramp_approach"
+                  distance_m="{preselection_ramp_approach_x_m}"
+                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                  odom_topic="{odom_relative_nav_odom_topic}"
+                  max_speed_mps="{preselection_ramp_max_speed_mps}"
+                  min_speed_mps="{preselection_ramp_min_speed_mps}"
+                  xy_kp="{odom_relative_nav_xy_kp}"
+                  heading_kp="{odom_relative_nav_heading_kp}"
+                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                  stable_ticks="{odom_relative_nav_stable_ticks}"
+                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                  timeout_s="{preselection_ramp_timeout_s}"/>
+      <OdomDriveX name="preselection_ramp_climb"
+                  distance_m="{preselection_ramp_climb_x_m}"
+                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                  odom_topic="{odom_relative_nav_odom_topic}"
+                  max_speed_mps="{preselection_ramp_max_speed_mps}"
+                  min_speed_mps="{preselection_ramp_min_speed_mps}"
+                  xy_kp="{odom_relative_nav_xy_kp}"
+                  heading_kp="{odom_relative_nav_heading_kp}"
+                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                  stable_ticks="{odom_relative_nav_stable_ticks}"
+                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                  timeout_s="{preselection_ramp_timeout_s}"/>
+    </Sequence>
+  </BehaviorTree>
+</root>

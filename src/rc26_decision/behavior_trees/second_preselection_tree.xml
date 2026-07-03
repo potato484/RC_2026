@@ -1,12 +1,15 @@
 <root BTCPP_format="4">
   <BehaviorTree ID="SecondPreselectionTree">
     <Sequence name="second_preselection_sequence">
-      <SecondPreselectionCommand name="second_preselection_start"
-                                 command_id="{second_preselect_start_command_id}"
-                                 done_feedback_id="{second_preselect_start_done_feedback_id}"
-                                 command_timeout_s="{second_preselect_command_timeout_s}"
-                                 done_timeout_s="{second_preselect_done_timeout_s}"
-                                 label="SECOND_PRESELECTION_START"/>
+      <Fallback name="second_preselection_start_once">
+        <ScriptCondition code="preselection_branch_gate_second_start_done"/>
+        <SecondPreselectionCommand name="second_preselection_start"
+                                   command_id="{second_preselect_start_command_id}"
+                                   done_feedback_id="{second_preselect_start_done_feedback_id}"
+                                   command_timeout_s="{second_preselect_command_timeout_s}"
+                                   done_timeout_s="{second_preselect_done_timeout_s}"
+                                   label="SECOND_PRESELECTION_START"/>
+      </Fallback>
 
       <OdomDriveX name="second_preselection_nav_x1"
                   distance_m="{second_preselect_nav_x1_m}"

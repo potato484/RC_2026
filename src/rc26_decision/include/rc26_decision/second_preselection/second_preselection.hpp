@@ -38,6 +38,13 @@ struct SecondPreselectionParams {
   double place_forward_x_m{0.7};
   double retreat_x_m{-0.7};
   double nav_timeout_s{180.0};
+  double ramp_approach_x_m{0.50};
+  double ramp_climb_x_m{1.50};
+  double ramp_max_speed_mps{0.30};
+  double ramp_min_speed_mps{0.03};
+  double ramp_timeout_s{180.0};
+  double after_ramp_turn_delta_rad{-1.5708};
+  double after_ramp_turn_timeout_s{30.0};
 
   std::string vision_config_file;
   std::string model_id{"kfs_default"};

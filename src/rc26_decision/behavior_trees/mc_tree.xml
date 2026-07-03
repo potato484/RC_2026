@@ -1,4 +1,4 @@
-<!-- 武馆区专属行为树 (MC Area)：前进 X 段 → team 派生侧向转向 → 后退 X 段 → 视觉伺服夹取 → 原地旋转 → 配准确认启动视角 → 延时进入下一子树 -->
+<!-- 武馆区专属行为树 (MC Area)：前进 X 段 → team 派生侧向转向 → 后退 X 段 → 视觉伺服夹取 → 原地旋转 → 分支 gate 返回组合树或切 MF 独立树 -->
 <root BTCPP_format="4" main_tree_to_execute="MCAreaTree">
   <BehaviorTree ID="MCAreaTree">
     <Sequence name="MC_Sequence">
@@ -57,10 +57,11 @@
         </Delay>
       <!-- 4. 原地旋转 180° -->
       <RotateInPlace name="rotate_180"/>
-      <!-- 5. 与组合树启动时缓存的相机基准帧做配准，稳定确认回到启动视角 -->
-      <WaitForRegistrationConfirm name="wait_for_registration_confirm"/>
-      <!-- 6. 配准确认后延时 5s，再让 MC 子树成功返回给组合树 -->
-      <Delay delay_msec="5000">
+      <!-- 5. 旋转后等待分支 gate：0x06 继续组合树，0x10 切 MF 预选独立树 -->
+      <WaitPreselectionBranchGate name="preselection_after_mc_branch_gate"
+                                  switch_tree_file="mf_preselection_tree.xml"/>
+      <!-- 6. 继续分支确认后延时，再让 MC 子树成功返回给组合树 -->
+      <Delay delay_msec="{preselection_after_mc_continue_delay_msec}">
         <AlwaysSuccess/>
       </Delay>
     </Sequence>

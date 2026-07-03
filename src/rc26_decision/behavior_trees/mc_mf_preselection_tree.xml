@@ -1,4 +1,4 @@
-<!-- MC + 梅林预选赛组合入口：人工 0x06 启动 → 下发比赛开始 0x10 → 延时 → MC → MF 预选。 -->
+<!-- first managed 入口：0x06 分支启动 MC + MF；0x10 分支先握手 second start 后切到 MF 独立树。 -->
 <root BTCPP_format="4" main_tree_to_execute="MCMFPreselectionTree">
 
   <include path="mc_tree.xml"/>
@@ -6,8 +6,9 @@
 
   <BehaviorTree ID="MCMFPreselectionTree">
     <Sequence name="MC_MF_Preselection_Sequence">
-      <WaitStartSignalAndNotify name="wait_start_signal_and_notify"/>
-      <Delay delay_msec="500">
+      <WaitPreselectionBranchGate name="preselection_entry_branch_gate"
+                                  switch_tree_file="mf_preselection_tree.xml"/>
+      <Delay delay_msec="{preselection_entry_continue_delay_msec}">
         <AlwaysSuccess/>
       </Delay>
       <SubTree ID="MCAreaTree" _autoremap="true"/>
