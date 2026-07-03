@@ -1,0 +1,71 @@
+# R2 自动程序开机自启动配置
+#
+# 用法：
+# 1. 打开终端
+# 2. 整段复制本文件内容
+# 3. 粘贴到终端并回车执行
+#
+# 说明：
+# - 该配置使用 systemd 开机自启动 /home/aidlux/RC_2026/start_r2_auto.sh
+# - 服务名：r2-auto.service
+# - 运行用户：aidlux
+# - 工作目录：/home/aidlux/RC_2026
+
+set -e
+
+echo "==> 检查启动脚本是否存在"
+if [ ! -f /home/aidlux/RC_2026/start_r2_auto.sh ]; then
+  echo "错误：找不到 /home/aidlux/RC_2026/start_r2_auto.sh"
+  exit 1
+fi
+
+echo "==> 给启动脚本添加可执行权限"
+chmod +x /home/aidlux/RC_2026/start_r2_auto.sh
+
+echo "==> 创建 systemd 服务：/etc/systemd/system/r2-auto.service"
+sudo tee /etc/systemd/system/r2-auto.service >/dev/null <<'EOF'
+[Unit]
+Description=R2 Auto Startup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aidlux
+Group=aidlux
+WorkingDirectory=/home/aidlux/RC_2026
+Environment=HOME=/home/aidlux
+ExecStart=/bin/bash /home/aidlux/RC_2026/start_r2_auto.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+echo "==> 重新加载 systemd"
+sudo systemctl daemon-reload
+
+echo "==> 设置开机自启动"
+sudo systemctl enable r2-auto.service
+
+echo "==> 立即启动服务"
+sudo systemctl restart r2-auto.service
+
+echo "==> 显示服务状态"
+systemctl --no-pager status r2-auto.service || true
+
+echo
+echo "配置完成。"
+echo
+echo "常用命令："
+echo "  查看状态：systemctl status r2-auto.service"
+echo "  查看日志：journalctl -u r2-auto.service -f"
+echo "  停止服务：sudo systemctl stop r2-auto.service"
+echo "  重启服务：sudo systemctl restart r2-auto.service"
+echo "  取消开机自启：sudo systemctl disable r2-auto.service"
+echo
+echo "如果需要卸载这个开机自启动服务，可以执行："
+echo "  sudo systemctl disable --now r2-auto.service"
+echo "  sudo rm -f /etc/systemd/system/r2-auto.service"
+echo "  sudo systemctl daemon-reload"
