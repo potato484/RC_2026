@@ -1,6 +1,7 @@
 #include "rc26_decision/stair/stair_action_base.hpp"
 
 #include "rc26_decision/decision_failure.hpp"
+#include "rc26_decision/mechanism_error_diagnostic.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -105,6 +106,12 @@ bool StairActionBase::setupRuntime(const char *action_label) {
   feedback_sub_ = node_->create_subscription<FeedbackMsg>(
       params_.feedback_topic, rclcpp::QoS(32).reliable(),
       [this](const FeedbackMsg::SharedPtr msg) {
+        if (!msg) {
+          return;
+        }
+        if (handleMechanismErrorFeedback(*msg)) {
+          return;
+        }
         // feedback_id 是 uint8，先转成协议枚举，便于只匹配明确的台阶事件。
         const auto id = static_cast<FeedbackID>(msg->feedback_id);
         if (id == FeedbackID::FRONT_LASER_HEIGHT_JUMP) {
@@ -371,6 +378,13 @@ StairActionBase::StepStatus StairActionBase::tickCommand() {
     return StepStatus::Failure;
   }
 
+  if (command_error_seen_.load(std::memory_order_relaxed)) {
+    RCLCPP_WARN(node_->get_logger(), "%s: %s 收到 MCU 错误：%s",
+                action_label_.c_str(), active_command_label_.c_str(),
+                command_error_detail_.c_str());
+    return StepStatus::Failure;
+  }
+
   // 如果异步 service 回调已经写入结果，本 tick 直接把结果映射成阶段状态。
   if (command_response_seen_.load(std::memory_order_relaxed)) {
     // accepted=true 表示 bridge 已经通过可靠 sendCommand() 收到 MCU 通用 ACK。
@@ -498,6 +512,12 @@ void StairActionBase::beginCommandPair(CommandID first_command_id,
 // tickCommandPair() 推进双命令阶段：同一 tick 发送两条异步请求，等待两条都 accepted。
 StairActionBase::StepStatus StairActionBase::tickCommandPair() {
   if (!node_ || !send_client_ || !command_pair_active_) {
+    return StepStatus::Failure;
+  }
+
+  if (command_error_seen_.load(std::memory_order_relaxed)) {
+    RCLCPP_WARN(node_->get_logger(), "%s: 并发命令收到 MCU 错误：%s",
+                action_label_.c_str(), command_error_detail_.c_str());
     return StepStatus::Failure;
   }
 
@@ -744,7 +764,10 @@ void StairActionBase::resetCommandState() {
   command_accepted_.store(false, std::memory_order_relaxed);
   // 当前阶段尚未确认 rejected。
   command_rejected_.store(false, std::memory_order_relaxed);
+  command_error_seen_.store(false, std::memory_order_relaxed);
+  command_busy_seen_.store(false, std::memory_order_relaxed);
   command_seq_.store(-1, std::memory_order_relaxed);
+  command_error_detail_.clear();
 }
 
 void StairActionBase::resetCommandPairState() {
@@ -758,6 +781,53 @@ void StairActionBase::resetCommandPairState() {
     slot.rejected.store(false, std::memory_order_relaxed);
     slot.seq.store(-1, std::memory_order_relaxed);
   }
+}
+
+bool StairActionBase::handleMechanismErrorFeedback(const FeedbackMsg &msg) {
+  std::optional<MechanismErrorDiagnostic> diagnostic;
+  const int single_seq = command_seq_.load(std::memory_order_relaxed);
+  if (isSameSeqMechanismError(msg, single_seq, diagnostic)) {
+    const std::string detail = mechanismErrorDiagnosticText(*diagnostic);
+    if (diagnostic->busy) {
+      command_busy_seen_.store(true, std::memory_order_relaxed);
+      if (node_) {
+        RCLCPP_INFO(node_->get_logger(), "%s: 机构命令仍在处理中：%s",
+                    action_label_.c_str(), detail.c_str());
+      }
+    } else {
+      command_error_detail_ = detail;
+      command_error_seen_.store(true, std::memory_order_relaxed);
+      if (node_) {
+        RCLCPP_ERROR(node_->get_logger(), "%s: 机构命令收到 MCU 错误：%s",
+                     action_label_.c_str(), detail.c_str());
+      }
+    }
+    return true;
+  }
+
+  for (const auto &slot : command_pair_) {
+    const int seq = slot.seq.load(std::memory_order_relaxed);
+    if (!isSameSeqMechanismError(msg, seq, diagnostic)) {
+      continue;
+    }
+    const std::string detail = mechanismErrorDiagnosticText(*diagnostic);
+    if (diagnostic->busy) {
+      command_busy_seen_.store(true, std::memory_order_relaxed);
+      if (node_) {
+        RCLCPP_INFO(node_->get_logger(), "%s: 并发机构命令仍在处理中：%s",
+                    action_label_.c_str(), detail.c_str());
+      }
+    } else {
+      command_error_detail_ = detail;
+      command_error_seen_.store(true, std::memory_order_relaxed);
+      if (node_) {
+        RCLCPP_ERROR(node_->get_logger(), "%s: 并发机构命令收到 MCU 错误：%s",
+                     action_label_.c_str(), detail.c_str());
+      }
+    }
+    return true;
+  }
+  return parseMechanismErrorDiagnostic(msg).has_value();
 }
 
 bool StairActionBase::sendPairCommand(std::size_t index) {

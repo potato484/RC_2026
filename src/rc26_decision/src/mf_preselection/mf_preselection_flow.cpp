@@ -13,6 +13,7 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include "rc26_decision/decision_failure.hpp"
+#include "rc26_decision/mechanism_error_diagnostic.hpp"
 #include "rc26_decision/mf/merlin_map.hpp"
 #include "rc26_decision/team_color.hpp"
 #include "rc26_serial/protocol.hpp"
@@ -1869,6 +1870,25 @@ bool MfPreselectionFlowAction::setupRuntime() {
         }
         const int expected_feedback = command_done_feedback_id_;
         const int expected_seq = command_seq_.load(std::memory_order_relaxed);
+        std::optional<MechanismErrorDiagnostic> diagnostic;
+        if (isSameSeqMechanismError(*msg, expected_seq, diagnostic)) {
+          const std::string detail = mechanismErrorDiagnosticText(*diagnostic);
+          if (diagnostic->busy) {
+            command_busy_seen_.store(true, std::memory_order_relaxed);
+            if (node_) {
+              RCLCPP_INFO(node_->get_logger(),
+                          "梅林预选赛机构命令仍在处理中：%s", detail.c_str());
+            }
+          } else {
+            command_error_detail_ = detail;
+            command_error_seen_.store(true, std::memory_order_relaxed);
+            if (node_) {
+              RCLCPP_ERROR(node_->get_logger(),
+                           "梅林预选赛机构命令收到 MCU 错误：%s", detail.c_str());
+            }
+          }
+          return;
+        }
         if (expected_feedback >= 0 && expected_seq >= 0 &&
             msg->feedback_id == static_cast<uint8_t>(expected_feedback) &&
             msg->seq == static_cast<uint8_t>(expected_seq)) {
@@ -3178,6 +3198,9 @@ void MfPreselectionFlowAction::beginMechanismCommand(
   command_accepted_ = false;
   command_seq_ = -1;
   command_done_seen_ = done_feedback_id < 0;
+  command_error_seen_ = false;
+  command_busy_seen_ = false;
+  command_error_detail_.clear();
   command_sent_ = false;
   command_waiting_service_logged_ = false;
   command_ack_logged_ = false;
@@ -3204,6 +3227,10 @@ BT::NodeStatus MfPreselectionFlowAction::tickMechanismCommand() {
   publishStop();
   if (!node_ || !send_client_) {
     return fail(command_failure_reason_);
+  }
+  if (command_error_seen_.load(std::memory_order_relaxed)) {
+    return fail(command_error_detail_.empty() ? command_failure_reason_
+                                              : command_error_detail_);
   }
   if (command_response_seen_.load(std::memory_order_relaxed)) {
     if (!command_accepted_.load(std::memory_order_relaxed)) {
@@ -3271,10 +3298,11 @@ BT::NodeStatus MfPreselectionFlowAction::tickMechanismCommand() {
     }
     if (!command_waiting_done_logged_) {
       RCLCPP_INFO(node_->get_logger(),
-                  "梅林预选赛机构命令ACK后等待完成反馈：%s，feedback=0x%02X，seq=%d",
+                  "梅林预选赛机构命令ACK后等待完成反馈：%s，feedback=0x%02X，seq=%d，busy=%s",
                   command_label_.c_str(),
                   static_cast<unsigned int>(command_done_feedback_id_),
-                  command_seq_.load(std::memory_order_relaxed));
+                  command_seq_.load(std::memory_order_relaxed),
+                  command_busy_seen_.load(std::memory_order_relaxed) ? "是" : "否");
       command_waiting_done_logged_ = true;
     }
   }

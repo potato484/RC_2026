@@ -104,7 +104,11 @@ std::string errnoText(int err) {
     return std::to_string(err) + " (" + std::string(std::strerror(err)) + ")";
 }
 
-bool isAckControlFrame(uint8_t cmd) {
+bool isAckControlFrame(uint8_t cmd, size_t payload_size) {
+    if (cmd == static_cast<uint8_t>(FeedbackID::MCU_ERROR) &&
+        isPlanarArmErrorPayloadSize(payload_size)) {
+        return false;
+    }
     return cmd == static_cast<uint8_t>(FeedbackID::ACK) ||
            cmd == static_cast<uint8_t>(FeedbackID::HEARTBEAT_ACK) ||
            cmd == static_cast<uint8_t>(FeedbackID::MCU_ERROR);
@@ -707,15 +711,15 @@ void SerialDriver::notifyAck(uint8_t seq, uint8_t cmd) {
     }
 }
 
-bool SerialDriver::shouldDeferAckWindowFrameLocked(uint8_t seq, uint8_t cmd) const {
-    if (isAckControlFrame(cmd)) {
+bool SerialDriver::shouldDeferAckWindowFrameLocked(uint8_t seq, uint8_t cmd, size_t payload_size) const {
+    if (isAckControlFrame(cmd, payload_size)) {
         return false;
     }
     return waiting_for_ack_ && waiting_cmd_ != static_cast<uint8_t>(CommandID::HEARTBEAT) && seq == waiting_seq_;
 }
 
 bool SerialDriver::deferReceiveFrameIfNeeded(uint8_t seq, uint8_t cmd, const uint8_t* payload, size_t plen) {
-    if (isAckControlFrame(cmd)) {
+    if (isAckControlFrame(cmd, plen)) {
         return false;
     }
 
@@ -728,7 +732,7 @@ bool SerialDriver::deferReceiveFrameIfNeeded(uint8_t seq, uint8_t cmd, const uin
             post_ack_defer_active_ = false;
         }
 
-        if (shouldDeferAckWindowFrameLocked(seq, cmd)) {
+        if (shouldDeferAckWindowFrameLocked(seq, cmd, plen)) {
             if (ack_window_deferred_frames_.size() >= kMaxAckWindowDeferredFrames) {
                 RCLCPP_WARN(serialLogger(),
                             "ACK 等待窗口同 seq 业务反馈缓存已满，丢弃该帧：seq=%u cmd=0x%02X size=%zu", seq,
@@ -1099,7 +1103,9 @@ void SerialDriver::dispatchFrame(uint8_t seq, uint8_t cmd, const uint8_t* payloa
         invokeDebugCallback(false, frame, debug_cb);
     }
 
-    notifyAck(seq, cmd);
+    if (isAckControlFrame(cmd, plen)) {
+        notifyAck(seq, cmd);
+    }
     comm_health_.parse_window.record(true);
     comm_health_.total_frames.fetch_add(1, std::memory_order_relaxed);
 

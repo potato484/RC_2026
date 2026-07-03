@@ -18,19 +18,6 @@ constexpr char kDefaultCommandFeedbackTopic[] = "/mechanism/command_feedback";
 constexpr char kDiagnosticsTopic[] = "/mcu_transport/diagnostics";
 constexpr auto kFlushPeriod = std::chrono::milliseconds(10);
 
-bool shouldPublishTransportFeedback(uint8_t feedback_id) {
-    using FeedbackID = rc26_serial::FeedbackID;
-    switch (static_cast<FeedbackID>(feedback_id)) {
-    case FeedbackID::ACK:
-    case FeedbackID::HEARTBEAT_ACK:
-    case FeedbackID::ODOM_DATA:
-    case FeedbackID::MCU_ERROR:
-        return false;
-    default:
-        return true;
-    }
-}
-
 std::chrono::milliseconds clampPeriodMs(int period_ms, int fallback_ms) {
     return std::chrono::milliseconds(std::max(period_ms > 0 ? period_ms : fallback_ms, 100));
 }
@@ -226,7 +213,14 @@ void McuTransportNode::sendChassisTarget() {
 
 void McuTransportNode::enqueueFeedback(uint8_t seq, uint8_t feedback_id,
                                        const std::vector<uint8_t>& payload) {
-    if (!shouldPublishTransportFeedback(feedback_id)) {
+    if (!shouldPublishTransportFeedback(feedback_id, payload.size())) {
+        if (feedback_id == static_cast<uint8_t>(rc26_serial::FeedbackID::MCU_ERROR) &&
+            !payload.empty()) {
+            RCLCPP_WARN(
+                get_logger(),
+                "drop invalid MCU_ERROR(0xFE) feedback payload: seq=%u payload_size=%zu",
+                static_cast<unsigned int>(seq), payload.size());
+        }
         return;
     }
 

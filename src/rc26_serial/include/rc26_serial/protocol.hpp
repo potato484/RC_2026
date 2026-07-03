@@ -24,6 +24,7 @@ constexpr uint8_t RETRIES_PER_ROUND = 3;          // 每轮重发次数
 constexpr uint8_t MAX_HEARTBEAT_FAILURES = 3;     // 心跳连续失败次数阈值
 constexpr uint8_t MAX_PAYLOAD_SIZE = 32;          // payload 最大字节数
 constexpr uint8_t MAX_RECONNECT_ATTEMPTS = 10;    // 最大重连尝试次数
+constexpr uint8_t PLANAR_ARM_ERROR_PAYLOAD_SIZE = 2; // 0xFE 机械臂错误反馈 payload 字节数
 
 // ============================================================================
 // 下行指令 ID (上位机 -> MCU)
@@ -73,6 +74,114 @@ enum class FeedbackID : uint8_t {
     MF_PRESELECTION_TRIGGER = 0x10,      // 第二限位开关事件；当前 gate profile 决定 0x10/0x0C 或 0x11/0x0D
     MCU_ERROR = 0xFE,                   // MCU 端错误码：下位机原因
 };
+
+// ============================================================================
+// 0xFE 机械臂错误/状态反馈
+// ============================================================================
+enum class PlanarArmFailCode : uint8_t {
+    BUSY = 0x01,            // 命令已接收，当前仍在执行中
+    INVALID_PAYLOAD = 0x02, // payload 非法
+    NOT_INIT = 0x03,        // 机械臂模块尚未初始化完成
+    HAL_ERROR = 0x04,       // HAL 层或运动控制执行错误
+    INVALID_STATE = 0x05,   // 当前状态不允许执行该命令
+};
+
+struct PlanarArmErrorFeedback {
+    uint8_t failed_cmd{0};
+    uint8_t error_code{0};
+};
+
+inline bool isPlanarArmErrorPayloadSize(size_t payload_size) {
+    return payload_size == PLANAR_ARM_ERROR_PAYLOAD_SIZE;
+}
+
+inline const char* commandName(uint8_t command_id) {
+    switch (static_cast<CommandID>(command_id)) {
+    case CommandID::GRAB_TIP:
+        return "GRAB_TIP";
+    case CommandID::GRAB_KFS_DOWN:
+        return "GRAB_KFS_DOWN";
+    case CommandID::GRAB_KFS_UP:
+        return "GRAB_KFS_UP";
+    case CommandID::ARM_RAISE:
+        return "ARM_RAISE";
+    case CommandID::ARM_LOWER:
+        return "ARM_LOWER";
+    case CommandID::PLACE_KFS_GRID:
+        return "PLACE_KFS_GRID";
+    case CommandID::ARM_HIGH_RAISE:
+        return "ARM_HIGH_RAISE";
+    case CommandID::ARM_SECOND_LOWER:
+        return "GRAB_KFS_DOWN_EXTEND";
+    case CommandID::ENTRY_GRAB_KFS_UP:
+        return "HIGH_CLAMP";
+    case CommandID::COMPETITION_START:
+        return "START";
+    case CommandID::SECOND_PRESELECTION_START:
+        return "BACK_CLAMP";
+    case CommandID::SECOND_PRESELECTION_ARM_HIGH_RAISE:
+        return "ARM_TOP_RAISE";
+    case CommandID::SECOND_PRESELECTION_PLACE_KFS:
+        return "CYLINDER_RELEASE";
+    default:
+        return "UNKNOWN_COMMAND";
+    }
+}
+
+inline const char* planarArmFailCodeName(uint8_t error_code) {
+    switch (static_cast<PlanarArmFailCode>(error_code)) {
+    case PlanarArmFailCode::BUSY:
+        return "PLANAR_ARM_FAIL_BUSY";
+    case PlanarArmFailCode::INVALID_PAYLOAD:
+        return "PLANAR_ARM_FAIL_INVALID_PAYLOAD";
+    case PlanarArmFailCode::NOT_INIT:
+        return "PLANAR_ARM_FAIL_NOT_INIT";
+    case PlanarArmFailCode::HAL_ERROR:
+        return "PLANAR_ARM_FAIL_HAL_ERROR";
+    case PlanarArmFailCode::INVALID_STATE:
+        return "PLANAR_ARM_FAIL_INVALID_STATE";
+    default:
+        return "PLANAR_ARM_FAIL_UNKNOWN";
+    }
+}
+
+inline const char* planarArmFailCodeMeaning(uint8_t error_code) {
+    switch (static_cast<PlanarArmFailCode>(error_code)) {
+    case PlanarArmFailCode::BUSY:
+        return "设备忙，命令仍在执行中";
+    case PlanarArmFailCode::INVALID_PAYLOAD:
+        return "命令 payload 非法";
+    case PlanarArmFailCode::NOT_INIT:
+        return "机械臂模块尚未初始化完成";
+    case PlanarArmFailCode::HAL_ERROR:
+        return "下位机 HAL 层或运动控制执行错误";
+    case PlanarArmFailCode::INVALID_STATE:
+        return "当前机械臂状态不允许执行该命令";
+    default:
+        return "未知机械臂错误码";
+    }
+}
+
+inline const char* planarArmFailCodeRecommendation(uint8_t error_code) {
+    switch (static_cast<PlanarArmFailCode>(error_code)) {
+    case PlanarArmFailCode::BUSY:
+        return "继续等待最终业务反馈，必要时低频重发同一 cmd+seq";
+    case PlanarArmFailCode::INVALID_PAYLOAD:
+        return "停止重发，检查上位机发送帧 payload 长度和格式";
+    case PlanarArmFailCode::NOT_INIT:
+        return "等待下位机初始化完成后再发送命令";
+    case PlanarArmFailCode::HAL_ERROR:
+        return "停止连续自动重发，进入异常保护或人工检查";
+    case PlanarArmFailCode::INVALID_STATE:
+        return "检查动作流程顺序，确认前置动作是否已完成";
+    default:
+        return "停止盲目重发，保留现场日志后排查";
+    }
+}
+
+inline bool isPlanarArmBusy(uint8_t error_code) {
+    return error_code == static_cast<uint8_t>(PlanarArmFailCode::BUSY);
+}
 
 // ============================================================================
 // 决策阶段定义
@@ -167,5 +276,14 @@ namespace rc26_serial {
 
 using ::rc26_decision::CommandID;
 using ::rc26_decision::FeedbackID;
+using ::rc26_decision::PlanarArmErrorFeedback;
+using ::rc26_decision::PlanarArmFailCode;
+using ::rc26_decision::PLANAR_ARM_ERROR_PAYLOAD_SIZE;
+using ::rc26_decision::commandName;
+using ::rc26_decision::isPlanarArmBusy;
+using ::rc26_decision::isPlanarArmErrorPayloadSize;
+using ::rc26_decision::planarArmFailCodeMeaning;
+using ::rc26_decision::planarArmFailCodeName;
+using ::rc26_decision::planarArmFailCodeRecommendation;
 
 }  // namespace rc26_serial

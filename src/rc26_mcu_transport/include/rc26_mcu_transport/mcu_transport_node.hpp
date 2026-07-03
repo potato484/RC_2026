@@ -19,8 +19,24 @@
 #include "rc26_interfaces/msg/mechanism_transport_feedback.hpp"
 #include "rc26_interfaces/srv/send_mechanism_transport_command.hpp"
 #include "rc26_serial/serial_driver.hpp"
+#include "rc26_serial/protocol.hpp"
 
 namespace rc26_mcu_transport {
+
+inline bool shouldPublishTransportFeedback(uint8_t feedback_id,
+                                           std::size_t payload_size) {
+    using FeedbackID = rc26_serial::FeedbackID;
+    switch (static_cast<FeedbackID>(feedback_id)) {
+    case FeedbackID::ACK:
+    case FeedbackID::HEARTBEAT_ACK:
+    case FeedbackID::ODOM_DATA:
+        return false;
+    case FeedbackID::MCU_ERROR:
+        return rc26_serial::isPlanarArmErrorPayloadSize(payload_size);
+    default:
+        return true;
+    }
+}
 
 class McuTransportNode final : public rclcpp::Node {
 public:

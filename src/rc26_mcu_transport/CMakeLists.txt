@@ -42,6 +42,20 @@ if(BUILD_TESTING)
   target_include_directories(test_chassis_cmd_vel_logic PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   )
+
+  ament_add_gtest(test_mcu_error_feedback_filter
+    test/test_mcu_error_feedback_filter.cpp
+  )
+  target_include_directories(test_mcu_error_feedback_filter PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
+  ament_target_dependencies(test_mcu_error_feedback_filter
+    diagnostic_msgs
+    geometry_msgs
+    rclcpp
+    rc26_interfaces
+    rc26_serial
+  )
 endif()
 
 install(

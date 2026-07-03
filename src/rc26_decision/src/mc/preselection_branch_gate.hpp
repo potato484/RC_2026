@@ -64,6 +64,8 @@ private:
   std::atomic<bool> command_response_seen_{false};
   std::atomic<bool> command_accepted_{false};
   std::atomic<bool> done_feedback_seen_{false};
+  std::atomic<bool> command_error_seen_{false};
+  std::atomic<bool> command_busy_seen_{false};
   std::atomic<int> command_seq_{-1};
   std::atomic<uint64_t> generation_{0};
   Branch branch_{Branch::None};
@@ -73,6 +75,7 @@ private:
   std::string continue_start_profile_text_{"mc"};
   std::string switch_start_profile_text_{"mc"};
   std::string command_service_;
+  std::string command_error_detail_;
   int branch_command_id_{0};
   int branch_done_feedback_id_{0};
   unsigned int continue_pre_command_delay_msec_{0};

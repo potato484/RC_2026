@@ -8,6 +8,7 @@
 #include <string>
 
 #include "rc26_decision/decision_failure.hpp"
+#include "rc26_decision/mechanism_error_diagnostic.hpp"
 #include "rc26_vision/inference/config/model_profile_loader.hpp"
 #include "rc26_vision/inference/runtime/engine_factory.hpp"
 
@@ -75,6 +76,10 @@ BT::NodeStatus VisualServoGrabAction::onStart() {
     grab_attempted_ = false;
     grab_response_seen_ = false;
     grab_accepted_ = false;
+    grab_seq_ = -1;
+    grab_error_seen_ = false;
+    grab_busy_seen_ = false;
+    grab_error_detail_.clear();
     grab_generation_.fetch_add(1, std::memory_order_relaxed);
     waiting_for_limit_switch_ = false;
     limit_switch_triggered_ = false;
@@ -405,7 +410,30 @@ void VisualServoGrabAction::setupOdomSubscription() {
 }
 
 void VisualServoGrabAction::handleFeedback(const FeedbackMsg::SharedPtr msg) {
-    if (!msg || !waiting_for_limit_switch_.load(std::memory_order_relaxed)) {
+    if (!msg) {
+        return;
+    }
+    const int seq = grab_seq_.load(std::memory_order_relaxed);
+    std::optional<MechanismErrorDiagnostic> diagnostic;
+    if (isSameSeqMechanismError(*msg, seq, diagnostic)) {
+        const std::string detail = mechanismErrorDiagnosticText(*diagnostic);
+        if (diagnostic->busy) {
+            grab_busy_seen_.store(true, std::memory_order_relaxed);
+            if (node_) {
+                RCLCPP_INFO(node_->get_logger(),
+                            "GRAB_TIP 命令仍在处理中：%s", detail.c_str());
+            }
+        } else {
+            grab_error_detail_ = detail;
+            grab_error_seen_.store(true, std::memory_order_relaxed);
+            if (node_) {
+                RCLCPP_ERROR(node_->get_logger(),
+                             "GRAB_TIP 收到 MCU 错误：%s", detail.c_str());
+            }
+        }
+        return;
+    }
+    if (!waiting_for_limit_switch_.load(std::memory_order_relaxed)) {
         return;
     }
     if (msg->feedback_id != static_cast<uint8_t>(params_.grab_limit_switch_feedback_id & 0xFF)) {
@@ -442,6 +470,11 @@ void VisualServoGrabAction::beginApproach() {
 
 VisualServoGrabAction::GrabStepStatus VisualServoGrabAction::tickGrabCommand() {
     if (grab_attempted_) {
+        if (grab_error_seen_.load(std::memory_order_relaxed)) {
+            RCLCPP_WARN(node_->get_logger(), "GRAB_TIP MCU 错误：%s",
+                        grab_error_detail_.c_str());
+            return GrabStepStatus::Failure;
+        }
         if (!grab_response_seen_.load(std::memory_order_relaxed)) {
             return GrabStepStatus::Running;
         }
@@ -475,6 +508,10 @@ bool VisualServoGrabAction::tryStartGrabCommand() {
     const uint64_t token = grab_generation_.load(std::memory_order_relaxed);
     grab_response_seen_ = false;
     grab_accepted_ = false;
+    grab_seq_ = -1;
+    grab_error_seen_ = false;
+    grab_busy_seen_ = false;
+    grab_error_detail_.clear();
     grab_client_->async_send_request(
         request, [this, node, token](rclcpp::Client<SendCommandSrv>::SharedFuture future) {
             if (token != grab_generation_.load(std::memory_order_relaxed)) {
@@ -492,6 +529,7 @@ bool VisualServoGrabAction::tryStartGrabCommand() {
                 RCLCPP_WARN(node->get_logger(), "GRAB_TIP 响应异常: %s", e.what());
             }
             grab_accepted_.store(accepted, std::memory_order_relaxed);
+            grab_seq_.store(static_cast<int>(seq), std::memory_order_relaxed);
             grab_response_seen_.store(true, std::memory_order_relaxed);
             if (accepted) {
                 RCLCPP_INFO(node->get_logger(), "GRAB_TIP 已接受: seq=%u",

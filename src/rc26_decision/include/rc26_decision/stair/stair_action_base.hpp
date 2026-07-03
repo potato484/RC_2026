@@ -74,6 +74,7 @@ private:
   void resetCommandState();
   void resetCommandPairState();
   bool sendPairCommand(std::size_t index);
+  bool handleMechanismErrorFeedback(const FeedbackMsg &msg);
   bool eventReceived() const;
   static double normalizeAngle(double angle_rad);
   double headingError() const;
@@ -109,7 +110,10 @@ private:
   std::atomic<bool> command_response_seen_{false};
   std::atomic<bool> command_accepted_{false};
   std::atomic<bool> command_rejected_{false};
+  std::atomic<bool> command_error_seen_{false};
+  std::atomic<bool> command_busy_seen_{false};
   std::atomic<int> command_seq_{-1};
+  std::string command_error_detail_;
   std::atomic<uint64_t> command_generation_{0};
 
   struct CommandSlot {

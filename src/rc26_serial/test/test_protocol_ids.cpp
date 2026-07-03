@@ -53,4 +53,39 @@ TEST(ProtocolIDs, FeedbackIDsAreContinuousAfterLegacyMechanismCleanup) {
     EXPECT_EQ(static_cast<uint8_t>(FID::MCU_ERROR), 0xFEU);
 }
 
+TEST(ProtocolIDs, PlanarArmErrorHelpersDescribeKnownCodes) {
+    using Code = rc26_serial::PlanarArmFailCode;
+
+    EXPECT_TRUE(rc26_serial::isPlanarArmErrorPayloadSize(2));
+    EXPECT_FALSE(rc26_serial::isPlanarArmErrorPayloadSize(0));
+    EXPECT_TRUE(rc26_serial::isPlanarArmBusy(static_cast<uint8_t>(Code::BUSY)));
+    EXPECT_FALSE(rc26_serial::isPlanarArmBusy(static_cast<uint8_t>(Code::HAL_ERROR)));
+
+    EXPECT_STREQ(rc26_serial::commandName(static_cast<uint8_t>(
+                     rc26_serial::CommandID::ARM_LOWER)),
+                 "ARM_LOWER");
+    EXPECT_STREQ(rc26_serial::commandName(static_cast<uint8_t>(
+                     rc26_serial::CommandID::ARM_SECOND_LOWER)),
+                 "GRAB_KFS_DOWN_EXTEND");
+    EXPECT_STREQ(rc26_serial::commandName(0xEE), "UNKNOWN_COMMAND");
+
+    EXPECT_STREQ(rc26_serial::planarArmFailCodeName(static_cast<uint8_t>(
+                     Code::BUSY)),
+                 "PLANAR_ARM_FAIL_BUSY");
+    EXPECT_STREQ(rc26_serial::planarArmFailCodeName(static_cast<uint8_t>(
+                     Code::INVALID_PAYLOAD)),
+                 "PLANAR_ARM_FAIL_INVALID_PAYLOAD");
+    EXPECT_STREQ(rc26_serial::planarArmFailCodeName(static_cast<uint8_t>(
+                     Code::NOT_INIT)),
+                 "PLANAR_ARM_FAIL_NOT_INIT");
+    EXPECT_STREQ(rc26_serial::planarArmFailCodeName(static_cast<uint8_t>(
+                     Code::HAL_ERROR)),
+                 "PLANAR_ARM_FAIL_HAL_ERROR");
+    EXPECT_STREQ(rc26_serial::planarArmFailCodeName(static_cast<uint8_t>(
+                     Code::INVALID_STATE)),
+                 "PLANAR_ARM_FAIL_INVALID_STATE");
+    EXPECT_STREQ(rc26_serial::planarArmFailCodeName(0xEE),
+                 "PLANAR_ARM_FAIL_UNKNOWN");
+}
+
 }  // namespace

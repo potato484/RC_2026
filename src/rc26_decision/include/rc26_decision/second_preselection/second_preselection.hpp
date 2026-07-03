@@ -132,6 +132,8 @@ private:
   std::atomic<bool> command_response_seen_{false};
   std::atomic<bool> command_accepted_{false};
   std::atomic<bool> done_feedback_seen_{false};
+  std::atomic<bool> command_error_seen_{false};
+  std::atomic<bool> command_busy_seen_{false};
   std::atomic<int> command_seq_{-1};
   std::atomic<uint64_t> generation_{0};
   uint8_t command_id_{0};
@@ -139,6 +141,7 @@ private:
   double command_timeout_s_{5.0};
   double done_timeout_s_{5.0};
   std::string command_label_;
+  std::string command_error_detail_;
   Phase phase_{Phase::Sending};
 };
 

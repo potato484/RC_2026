@@ -40,8 +40,8 @@ ros2 launch rc26_mcu_transport mcu_transport.launch.py \
   - 若目标 MCU 对同 `seq` 返回 `MCU_ERROR(0xFE)`，底层会按 retry `0x00~0x09` 重发；若持续 `0xFE`，service 返回 `accepted=false`，错误原因通过日志、`last_error` diagnostics 暴露为下位机原因
 - `/mechanism/command_feedback`
   - type: `rc26_interfaces/msg/MechanismTransportFeedback`
-  - 透传机构业务反馈，过滤底层 `ACK(0x00)`、`HEARTBEAT_ACK(0x01)`、`ODOM_DATA(0x08)` 与 transport 级 `MCU_ERROR(0xFE)`；第一个限位 `0x06`、比赛开始完成 `0x0C`、第二预选赛 `0x0D/0x0F` 与第二限位 `0x10` 作为业务反馈透传给决策层
-  - 当前会透传 KFS 机械臂升降完成 `0x02/0x03`、台阶激光事件 `0x04/0x05/0x07`、第一个限位事件 `0x06`、第二节机械臂放下完成 `0x0A`、入口高侧 KFS 夹取完成 `0x0B`、比赛开始完成 `0x0C`、第二预选赛开始完成 `0x0D`、第二预选赛机械臂高抬升完成 `0x0F` 与第二限位事件 `0x10`；service 的 `accepted=true` 仍只表示可靠命令已收到通用 `ACK(0x00)`
+  - 透传机构业务反馈，过滤底层 `ACK(0x00)`、`HEARTBEAT_ACK(0x01)` 与 `ODOM_DATA(0x08)`；payload 长度为 2 的 `MCU_ERROR(0xFE)` 作为机械臂业务状态/失败反馈透传，其它长度的 `0xFE` 仍按 transport 异常记录并丢弃
+  - 当前会透传 KFS 机械臂升降完成 `0x02/0x03`、台阶激光事件 `0x04/0x05/0x07`、第一个限位事件 `0x06`、第二节机械臂放下完成 `0x0A`、入口高侧 KFS 夹取完成 `0x0B`、比赛开始完成 `0x0C`、第二预选赛开始完成 `0x0D`、第二预选赛机械臂高抬升完成 `0x0F`、第二限位事件 `0x10`，以及两字节 `0xFE` 机械臂业务诊断；service 的 `accepted=true` 仍只表示可靠命令已收到通用 `ACK(0x00)`
 - `/mcu_transport/diagnostics`
   - type: `diagnostic_msgs/msg/DiagnosticArray`
   - 暴露串口打开状态、ACK 超时、MCU 错误响应计数、解析错误、重连次数、机构发送统计、底盘 `POSE_TARGET` 发送统计和最近错误
@@ -74,11 +74,13 @@ ros2 launch rc26_mcu_transport mcu_transport.launch.py \
 
 本包不新增业务命令目录。新增机构命令时，先在 `rc26_serial/protocol.hpp` 定义原始 ID，再由需要该能力的上层直接调用 `/mechanism/send_command`。只有重新设计高层动作语义时，才需要恢复 action、完成反馈和中间层契约。
 
-`MCU_ERROR(0xFE)` 是 transport 级上行错误码，表示本次失败来自下位机原因；本包不把它发布到 `/mechanism/command_feedback`，也不改变 service response 字段。调用方只看到 `accepted=false`，具体原因从节点日志和 `/mcu_transport/diagnostics.last_error` 读取。
+`MCU_ERROR(0xFE)` 有两种口径：ACK 等待窗口内持续 `0xFE` 或 payload 长度不是 2 的 `0xFE` 仍按 transport 级下位机原因处理，只通过 service `accepted=false`、节点日志和 `/mcu_transport/diagnostics.last_error` 暴露；payload 长度为 2 的上行业务帧会发布到 `/mechanism/command_feedback`，其中 `payload[0]` 是 `failed_cmd`，`payload[1]` 是机械臂 `error_code`。`error_code=0x01` 表示 BUSY/仍在处理中，消费方应继续等待同 `seq` 的最终反馈；`0x02/0x03/0x04/0x05` 分别表示 payload 非法、未初始化、HAL/运动控制错误、状态非法，由上层停止当前动作等待并输出诊断。
 
 KFS 阶梯等待测试链属于直接 transport service 消费场景：决策层发送 `ARM_RAISE(0x04)` / `ARM_LOWER(0x05)`，并等待同 `seq` 的 `0x02/0x03` 完成反馈。梅林预选赛入口 1/3 阶梯探测会发送 `ARM_HIGH_RAISE(0x0D)`，并等待同 `seq` 的 `ARM_HIGH_RAISE_DONE(0x09)`；本包只透传 raw command 与业务反馈，不赋予高抬升额外动作语义。KFS 向下夹取在视觉锁定开环距离后还会发送 `ARM_SECOND_LOWER(0x0E)`，并等待同 `seq` 的 `ARM_SECOND_LOWER_DONE(0x0A)` 后才允许前进。梅林预选赛入口高侧夹取使用 `ENTRY_GRAB_KFS_UP(0x0F)`，并等待同 `seq` 的 `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 后进入视觉消失验证。managed first 入口会按分支发送 `COMPETITION_START(0x10)` 并等待同 `seq` 的 `0x0C`；managed second 入口会按分支发送 `SECOND_PRESELECTION_START(0x11)` 并等待同 `seq` 的 `0x0D`。第二个预选赛独立树后续还会发送 `SECOND_PRESELECTION_ARM_HIGH_RAISE(0x12)` 等待 `0x0F`，放置阶段发送 `SECOND_PRESELECTION_PLACE_KFS(0x13)` 后只要求通用 ACK。本包仍只透传 raw command 与业务反馈，不直接决定切换目标树。`rc26_vision` 独立 KFS action test 也只把本包当 raw transport provider，开启后先按方向发送 `ARM_RAISE(0x04)` / `ARM_LOWER(0x05)` 并订阅完成反馈；`direction=down` 时开环前再发送 `ARM_SECOND_LOWER(0x0E)` 等待 `0x0A`，随后发送空 payload 的 `GRAB_KFS_DOWN(0x02)`，`direction=up` 仍直接趋近并发送 `GRAB_KFS_UP(0x03)`；本包的 service `accepted=true` 仍只代表通用 ACK，KFS 物理夹取成功由视觉节点或决策节点通过原目标消失验证判断。
 
 ## 本轮同步
+
+2026-07-04 同步：`MCU_ERROR(0xFE)` 中 payload 长度为 2 的帧被纳入机构业务反馈契约并透传到 `/mechanism/command_feedback`，供决策层解析 `failed_cmd/error_code`。`BUSY(0x01)` 不等于最终失败；其它长度的 `0xFE` 仍停留在 transport 诊断层。
 
 2026-07-03 同步：`MF_PRESELECTION_TRIGGER(0x10)` 在 managed first/second 入口下由 `WaitPreselectionBranchGate` 作为第二限位开关事件消费。transport 仍只透传该业务反馈；决策层按当前 gate profile 决定后续握手，first 用 `0x10/0x0C`，second 用 `0x11/0x0D`。
 
@@ -86,7 +88,7 @@ KFS 阶梯等待测试链属于直接 transport service 消费场景：决策层
 
 2026-06-30 同步：`rc26_serial` 真源新增梅林预选赛入口高侧 KFS 夹取 `ENTRY_GRAB_KFS_UP(0x0F)` 与完成反馈 `ENTRY_GRAB_KFS_UP_DONE(0x0B)`。本包无需新增高层目录，仍按 raw transport 发送并透传 `0x0B` 业务反馈，service ACK 语义不变。
 
-2026-06-29 同步：串口协议新增 `MCU_ERROR(0xFE)`。本包继续保持 raw transport provider 职责，service wire shape 不变；`0xFE` 被过滤为 transport 级错误，不作为业务反馈透传，持续 `0xFE` 后的发送失败通过日志和 diagnostics 明确说明是下位机原因。
+2026-06-29 同步：串口协议新增 `MCU_ERROR(0xFE)`。本包继续保持 raw transport provider 职责，service wire shape 不变；ACK 等待窗口内持续 `0xFE` 后的发送失败通过日志和 diagnostics 明确说明是下位机原因。2026-07-04 起，两字节 payload 的 `0xFE` 另按机械臂业务诊断透传，见上文当前口径。
 
 2026-06-27 同步：KFS 向下夹取新增 `ARM_SECOND_LOWER(0x0E)` / `ARM_SECOND_LOWER_DONE(0x0A)`，本包仅作为 raw transport provider 透传命令和反馈，service wire shape 不变。
 

@@ -95,7 +95,11 @@ private:
     bool grab_attempted_{false};
     std::atomic<bool> grab_response_seen_{false};
     std::atomic<bool> grab_accepted_{false};
+    std::atomic<int> grab_seq_{-1};
     std::atomic<uint64_t> grab_generation_{0};
+    std::atomic<bool> grab_error_seen_{false};
+    std::atomic<bool> grab_busy_seen_{false};
+    std::string grab_error_detail_;
     std::atomic<bool> waiting_for_limit_switch_{false};
     std::atomic<bool> limit_switch_triggered_{false};
     std::mutex odom_mutex_;

@@ -14,6 +14,7 @@
 #include <opencv2/core.hpp>
 
 #include "rc26_decision/decision_failure.hpp"
+#include "rc26_decision/mechanism_error_diagnostic.hpp"
 #include "rc26_decision/team_color.hpp"
 #include "rc26_serial/protocol.hpp"
 #include "rc26_vision/inference/config/model_profile_loader.hpp"
@@ -278,7 +279,10 @@ BT::NodeStatus SecondPreselectionCommandAction::onStart() {
   command_response_seen_ = false;
   command_accepted_ = false;
   done_feedback_seen_ = false;
+  command_error_seen_ = false;
+  command_busy_seen_ = false;
   command_seq_ = -1;
+  command_error_detail_.clear();
   generation_.fetch_add(1, std::memory_order_relaxed);
   phase_ = Phase::Sending;
   phase_tp_ = std::chrono::steady_clock::now();
@@ -340,6 +344,12 @@ BT::NodeStatus SecondPreselectionCommandAction::onRunning() {
   }
 
   const int seq = command_seq_.load(std::memory_order_relaxed);
+  if (command_error_seen_.load(std::memory_order_relaxed)) {
+    return fail(command_error_detail_.empty()
+                    ? "机构命令收到 MCU 0xFE 最终错误：" + command_label_ +
+                          " seq=" + std::to_string(seq)
+                    : command_error_detail_);
+  }
   if (done_feedback_seen_.load(std::memory_order_relaxed)) {
     RCLCPP_INFO(node_->get_logger(),
                 "第二预选赛机构命令完成反馈已收到：%s feedback=%s seq=%d",
@@ -352,10 +362,11 @@ BT::NodeStatus SecondPreselectionCommandAction::onRunning() {
                 " seq=" + std::to_string(seq));
   }
   if (elapsedSec(last_log_tp_) >= params_.log_period_s) {
+    const bool busy_seen = command_busy_seen_.load(std::memory_order_relaxed);
     RCLCPP_INFO(node_->get_logger(),
-                "第二预选赛等待机构完成反馈：%s feedback=%s seq=%d elapsed=%.1fs",
+                "第二预选赛等待机构完成反馈：%s feedback=%s seq=%d elapsed=%.1fs busy=%s",
                 command_label_.c_str(), byteHex(done_feedback_id_).c_str(), seq,
-                elapsedSec(phase_tp_));
+                elapsedSec(phase_tp_), busy_seen ? "是" : "否");
     last_log_tp_ = now;
   }
   return BT::NodeStatus::RUNNING;
@@ -372,6 +383,25 @@ void SecondPreselectionCommandAction::handleFeedback(
     return;
   }
   const int seq = command_seq_.load(std::memory_order_relaxed);
+  std::optional<MechanismErrorDiagnostic> diagnostic;
+  if (isSameSeqMechanismError(*msg, seq, diagnostic)) {
+    const std::string detail = mechanismErrorDiagnosticText(*diagnostic);
+    if (diagnostic->busy) {
+      command_busy_seen_.store(true, std::memory_order_relaxed);
+      if (node_) {
+        RCLCPP_INFO(node_->get_logger(),
+                    "第二预选赛机构命令仍在处理中：%s", detail.c_str());
+      }
+    } else {
+      command_error_detail_ = detail;
+      command_error_seen_.store(true, std::memory_order_relaxed);
+      if (node_) {
+        RCLCPP_ERROR(node_->get_logger(),
+                     "第二预选赛机构命令收到 MCU 错误：%s", detail.c_str());
+      }
+    }
+    return;
+  }
   if (seq >= 0 && msg->seq == static_cast<uint8_t>(seq & 0xFF) &&
       msg->feedback_id == static_cast<uint8_t>(done_feedback_id_ & 0xFF)) {
     done_feedback_seen_.store(true, std::memory_order_relaxed);

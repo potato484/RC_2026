@@ -706,10 +706,13 @@ private:
   std::atomic<bool> command_accepted_{false};
   std::atomic<int> command_seq_{-1};
   std::atomic<bool> command_done_seen_{false};
+  std::atomic<bool> command_error_seen_{false};
+  std::atomic<bool> command_busy_seen_{false};
   int command_done_feedback_id_{-1};
   uint8_t command_id_{0};
   std::string command_label_;
   std::string command_failure_reason_;
+  std::string command_error_detail_;
   bool command_sent_{false};
   bool command_waiting_service_logged_{false};
   bool command_ack_logged_{false};

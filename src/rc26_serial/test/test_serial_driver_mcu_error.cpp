@@ -66,6 +66,7 @@ struct TxFrame {
 struct ResponseFrame {
     uint8_t seq = 0;
     uint8_t feedback_id = 0;
+    std::vector<uint8_t> payload;
 };
 
 class PseudoMcu {
@@ -195,7 +196,7 @@ private:
             }
 
             for (const auto& response : response_fn_(frame, index)) {
-                const auto response_frame = buildFrame(response.seq, response.feedback_id, {});
+                const auto response_frame = buildFrame(response.seq, response.feedback_id, response.payload);
                 writeAll(response_frame);
             }
         }
@@ -294,6 +295,52 @@ TEST(SerialDriverMcuError, SameSeqBusinessFeedbackAfterAckIsDeliveredAfterSendCo
     ASSERT_EQ(frames.size(), 1U);
     EXPECT_EQ(frames[0].seq, seq);
     EXPECT_EQ(frames[0].retry, 0x00U);
+}
+
+TEST(SerialDriverMcuError, TwoByteMcuErrorPayloadIsDeliveredAsBusinessFeedback) {
+    PseudoMcu mcu([](const TxFrame& frame, size_t) {
+        return std::vector<ResponseFrame>{
+            {frame.seq, kAck},
+            {frame.seq, kMcuError,
+             {static_cast<uint8_t>(rc26_serial::CommandID::ARM_LOWER),
+              static_cast<uint8_t>(rc26_serial::PlanarArmFailCode::BUSY)}}};
+    });
+
+    rc26_decision::SerialDriver driver;
+    ASSERT_TRUE(driver.open(mcu.slavePath(), rc26_decision::UART_BAUDRATE)) << driver.lastError();
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool error_received = false;
+    uint8_t error_seq = 0;
+    std::vector<uint8_t> error_payload;
+
+    driver.setReceiveCallback([&](uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload) {
+        if (cmd != kMcuError) {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(mutex);
+        error_received = true;
+        error_seq = seq;
+        error_payload = payload;
+        cv.notify_one();
+    });
+
+    uint8_t seq = 0;
+    ASSERT_TRUE(driver.sendCommand(static_cast<uint8_t>(rc26_serial::CommandID::ARM_LOWER), {}, seq))
+        << driver.lastError();
+
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(1), [&]() { return error_received; }));
+        EXPECT_EQ(error_seq, seq);
+        ASSERT_EQ(error_payload.size(), 2U);
+        EXPECT_EQ(error_payload[0], static_cast<uint8_t>(rc26_serial::CommandID::ARM_LOWER));
+        EXPECT_EQ(error_payload[1], static_cast<uint8_t>(rc26_serial::PlanarArmFailCode::BUSY));
+    }
+
+    driver.close();
+    EXPECT_EQ(driver.commHealth().mcu_error_responses.load(), 0U);
 }
 
 TEST(SerialDriverMcuError, FailsWithLowerMachineReasonAfterRetryExhaustion) {

@@ -7,6 +7,7 @@
 #include <thread>
 
 #include "rc26_decision/decision_failure.hpp"
+#include "rc26_decision/mechanism_error_diagnostic.hpp"
 
 namespace rc26_decision {
 
@@ -45,7 +46,10 @@ BT::NodeStatus WaitStartSignalAndNotifyAction::onStart() {
     command_response_seen_ = false;
     command_accepted_ = false;
     done_feedback_seen_ = false;
+    command_error_seen_ = false;
+    command_busy_seen_ = false;
     command_seq_ = -1;
+    command_error_detail_.clear();
     generation_.fetch_add(1, std::memory_order_relaxed);
     phase_ = Phase::WaitingSignal;
     start_tp_ = std::chrono::steady_clock::now();
@@ -144,6 +148,15 @@ BT::NodeStatus WaitStartSignalAndNotifyAction::onRunning() {
 
     if (phase_ == Phase::WaitingDoneFeedback) {
         const int seq = command_seq_.load(std::memory_order_relaxed);
+        if (command_error_seen_.load(std::memory_order_relaxed)) {
+            writeDecisionFailure(config().blackboard, "WaitStartSignalAndNotify",
+                                 command_error_detail_.empty()
+                                     ? "比赛开始命令收到 MCU 0xFE 最终错误，seq=" +
+                                           std::to_string(seq)
+                                     : command_error_detail_);
+            resetRuntimeHandles();
+            return BT::NodeStatus::FAILURE;
+        }
         if (done_feedback_seen_.load(std::memory_order_relaxed)) {
             RCLCPP_INFO(node_->get_logger(),
                         "组合树启动 gate: 已收到比赛开始完成反馈 %s seq=%d",
@@ -165,9 +178,10 @@ BT::NodeStatus WaitStartSignalAndNotifyAction::onRunning() {
         }
         if (elapsedSec(last_log_tp_) >= params_.start_log_period_s) {
             RCLCPP_INFO(node_->get_logger(),
-                        "组合树启动 gate: 等待比赛开始完成反馈 %s seq=%d elapsed=%.1fs",
+                        "组合树启动 gate: 等待比赛开始完成反馈 %s seq=%d elapsed=%.1fs busy=%s",
                         byteHex(params_.start_done_feedback_id).c_str(), seq,
-                        elapsedSec(phase_tp_));
+                        elapsedSec(phase_tp_),
+                        command_busy_seen_.load(std::memory_order_relaxed) ? "是" : "否");
             last_log_tp_ = now;
         }
     }
@@ -184,6 +198,27 @@ void WaitStartSignalAndNotifyAction::handleFeedback(const FeedbackMsg::SharedPtr
         return;
     }
     const int seq = command_seq_.load(std::memory_order_relaxed);
+    std::optional<MechanismErrorDiagnostic> diagnostic;
+    if (isSameSeqMechanismError(*msg, seq, diagnostic)) {
+        const std::string detail = mechanismErrorDiagnosticText(*diagnostic);
+        if (diagnostic->busy) {
+            command_busy_seen_.store(true, std::memory_order_relaxed);
+            if (node_) {
+                RCLCPP_INFO(node_->get_logger(),
+                            "组合树启动 gate: 比赛开始命令仍在处理中：%s",
+                            detail.c_str());
+            }
+        } else {
+            command_error_detail_ = detail;
+            command_error_seen_.store(true, std::memory_order_relaxed);
+            if (node_) {
+                RCLCPP_ERROR(node_->get_logger(),
+                             "组合树启动 gate: 比赛开始命令收到 MCU 错误：%s",
+                             detail.c_str());
+            }
+        }
+        return;
+    }
     if (seq >= 0 &&
         msg->seq == static_cast<uint8_t>(seq & 0xFF) &&
         msg->feedback_id == static_cast<uint8_t>(params_.start_done_feedback_id & 0xFF)) {

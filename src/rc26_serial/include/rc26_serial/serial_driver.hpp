@@ -191,7 +191,7 @@ private:
     AckWaitResult waitForAck(std::chrono::milliseconds timeout, bool& success);
     void notifyAck(uint8_t seq, uint8_t cmd);
     bool deferReceiveFrameIfNeeded(uint8_t seq, uint8_t cmd, const uint8_t* payload, size_t plen);
-    bool shouldDeferAckWindowFrameLocked(uint8_t seq, uint8_t cmd) const;
+    bool shouldDeferAckWindowFrameLocked(uint8_t seq, uint8_t cmd, size_t payload_size) const;
 
     void notifyHeartbeatFailure();
     void notifyReconnect();

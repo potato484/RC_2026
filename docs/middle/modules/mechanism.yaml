@@ -11,7 +11,9 @@ info:
 
     这两个接口由 `rc26_mcu_transport` 提供；`rc26_mechanism` 当前只是轻量 lifecycle 占位，不再创建旧高层 action，也不再发布 `/mechanism/status`。
 
-    `/mechanism/send_command.accepted=true` 只表示目标 MCU 已返回通用 `ACK(0x00)`，不表示动作已经完成。若目标 MCU 返回 `MCU_ERROR(0xFE)`，transport 会按底层 retry 重发，持续失败时 `accepted=false`，原因通过 `rc26_mcu_transport` 日志和 diagnostics `last_error` 说明为下位机原因。动作完成、限位、激光突变等业务事件经 `/mechanism/command_feedback` 透传，由消费方按自身状态机解释。
+    `/mechanism/send_command.accepted=true` 只表示目标 MCU 已返回通用 `ACK(0x00)`，不表示动作已经完成。ACK 等待窗口内若持续收到 transport 级 `MCU_ERROR(0xFE)` 或超时，service 返回 `accepted=false`，原因通过 `rc26_mcu_transport` 日志和 diagnostics `last_error` 说明。
+
+    动作完成、限位、激光突变等业务事件经 `/mechanism/command_feedback` 透传，由消费方按自身状态机解释。`feedback_id=0xFE` 且 payload 长度为 2 时也属于机械臂业务状态/失败反馈：`payload[0]` 是 `failed_cmd`，`payload[1]` 是 `error_code`；`error_code=0x01` 表示命令仍在处理中，消费方应继续等待最终业务反馈，不应直接判定失败。其它长度的 `0xFE` 仍按 transport 异常处理，不作为业务反馈交给决策层。
 servers:
   - url: http://localhost:8080
 tags:
@@ -76,15 +78,23 @@ components:
             0x0A KFS 向下夹取前第二节机械臂放下完成、
             0x0B 梅林预选赛入口高侧 KFS 夹取完成、0x0C 比赛开始完成、
             0x0D 第二预选赛开始完成、0x0F 第二预选赛机械臂高抬升完成、
-            0x10 MF 预选独立树外部触发；
-            payload v1 为空或由消费方忽略。transport 级 0xFE 表示
-            MCU 下位机原因，不作为业务反馈透传。
+            0x10 MF 预选独立树外部触发，以及 payload 长度为 2 的
+            0xFE 机械臂业务状态/失败反馈。除 0xFE 外，payload v1 为空或由消费方忽略；
+            其它长度的 0xFE 仍视为 transport 异常，不作为业务反馈透传。
         payload:
           type: array
           items:
             type: integer
             minimum: 0
             maximum: 255
+          description: >
+            对 feedback_id=0xFE，payload 固定为 2 字节：
+            payload[0]=failed_cmd，payload[1]=error_code。error_code 取值：
+            0x01 PLANAR_ARM_FAIL_BUSY，命令仍在处理中，应继续等待最终反馈；
+            0x02 PLANAR_ARM_FAIL_INVALID_PAYLOAD，停止重发并检查发送帧格式；
+            0x03 PLANAR_ARM_FAIL_NOT_INIT，等待下位机初始化完成；
+            0x04 PLANAR_ARM_FAIL_HAL_ERROR，停止自动重发并进入异常保护；
+            0x05 PLANAR_ARM_FAIL_INVALID_STATE，检查动作流程顺序。
     SendMechanismTransportCommandRequest:
       type: object
       required: [command_id, payload]

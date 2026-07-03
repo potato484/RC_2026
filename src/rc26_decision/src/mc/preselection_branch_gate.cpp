@@ -7,6 +7,7 @@
 #include <filesystem>
 
 #include "rc26_decision/decision_failure.hpp"
+#include "rc26_decision/mechanism_error_diagnostic.hpp"
 #include "rc26_decision/preselection_branch_gate_logic.hpp"
 #include "rc26_decision/tree_switch_request.hpp"
 #include "rc26_serial/protocol.hpp"
@@ -85,7 +86,10 @@ BT::NodeStatus PreselectionBranchGateAction::onStart() {
   command_response_seen_ = false;
   command_accepted_ = false;
   done_feedback_seen_ = false;
+  command_error_seen_ = false;
+  command_busy_seen_ = false;
   command_seq_ = -1;
+  command_error_detail_.clear();
   generation_.fetch_add(1, std::memory_order_relaxed);
   branch_ = Branch::None;
   branch_start_profile_ = StartProfile::Mc;
@@ -210,6 +214,12 @@ BT::NodeStatus PreselectionBranchGateAction::onRunning() {
 
   if (phase_ == Phase::WaitingDone) {
     const int seq = command_seq_.load(std::memory_order_relaxed);
+    if (command_error_seen_.load(std::memory_order_relaxed)) {
+      return fail(command_error_detail_.empty()
+                      ? "预选入口分支命令收到 MCU 0xFE 最终错误，seq=" +
+                            std::to_string(seq)
+                      : command_error_detail_);
+    }
     if (done_feedback_seen_.load(std::memory_order_relaxed)) {
       RCLCPP_INFO(node_->get_logger(),
                   "预选入口 branch gate: 已收到 done=%s seq=%d",
@@ -232,10 +242,11 @@ BT::NodeStatus PreselectionBranchGateAction::onRunning() {
       return fail("等待预选入口分支 done 超时，seq=" + std::to_string(seq));
     }
     if (elapsedSec(last_log_tp_) >= branch_log_period_s_) {
+      const bool busy_seen = command_busy_seen_.load(std::memory_order_relaxed);
       RCLCPP_INFO(node_->get_logger(),
-                  "预选入口 branch gate: 等待 done=%s seq=%d elapsed=%.1fs",
+                  "预选入口 branch gate: 等待 done=%s seq=%d elapsed=%.1fs busy=%s",
                   byteHex(branch_done_feedback_id_).c_str(), seq,
-                  elapsedSec(phase_tp_));
+                  elapsedSec(phase_tp_), busy_seen ? "是" : "否");
       last_log_tp_ = now;
     }
   }
@@ -255,6 +266,27 @@ void PreselectionBranchGateAction::handleFeedback(
   }
 
   const int seq = command_seq_.load(std::memory_order_relaxed);
+  std::optional<MechanismErrorDiagnostic> diagnostic;
+  if (isSameSeqMechanismError(*msg, seq, diagnostic)) {
+    const std::string detail = mechanismErrorDiagnosticText(*diagnostic);
+    if (diagnostic->busy) {
+      command_busy_seen_.store(true, std::memory_order_relaxed);
+      if (node_) {
+        RCLCPP_INFO(node_->get_logger(),
+                    "预选入口 branch gate: 分支命令仍在处理中：%s",
+                    detail.c_str());
+      }
+    } else {
+      command_error_detail_ = detail;
+      command_error_seen_.store(true, std::memory_order_relaxed);
+      if (node_) {
+        RCLCPP_ERROR(node_->get_logger(),
+                     "预选入口 branch gate: 分支命令收到 MCU 错误：%s",
+                     detail.c_str());
+      }
+    }
+    return;
+  }
   if (isSameSeqDoneFeedback(msg->seq, msg->feedback_id, seq,
                             branch_done_feedback_id_)) {
     done_feedback_seen_.store(true, std::memory_order_relaxed);
