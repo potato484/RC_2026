@@ -38,7 +38,13 @@ BT::PortsList PreselectionBranchGateAction::providedPorts() {
           "Start profile used by the 0x06 branch: mc or second"),
       BT::InputPort<std::string>(
           "switch_start_profile", "mc",
-          "Start profile used by the 0x10 branch: mc or second")};
+          "Start profile used by the 0x10 branch: mc or second"),
+      BT::InputPort<unsigned int>(
+          "continue_pre_command_delay_msec", 0,
+          "Delay after feedback 0x06 before sending the start command"),
+      BT::InputPort<unsigned int>(
+          "switch_pre_command_delay_msec", 0,
+          "Delay after feedback 0x10 before sending the start command")};
 }
 
 PreselectionBranchGateAction::PreselectionBranchGateAction(
@@ -70,6 +76,10 @@ BT::NodeStatus PreselectionBranchGateAction::onStart() {
   }
   (void)getInput("continue_start_profile", continue_start_profile_text_);
   (void)getInput("switch_start_profile", switch_start_profile_text_);
+  (void)getInput("continue_pre_command_delay_msec",
+                 continue_pre_command_delay_msec_);
+  (void)getInput("switch_pre_command_delay_msec",
+                 switch_pre_command_delay_msec_);
 
   branch_seen_ = false;
   command_response_seen_ = false;
@@ -79,6 +89,7 @@ BT::NodeStatus PreselectionBranchGateAction::onStart() {
   generation_.fetch_add(1, std::memory_order_relaxed);
   branch_ = Branch::None;
   branch_start_profile_ = StartProfile::Mc;
+  branch_pre_command_delay_s_ = 0.0;
   phase_ = Phase::WaitingBranch;
   start_tp_ = std::chrono::steady_clock::now();
   phase_tp_ = start_tp_;
@@ -95,13 +106,14 @@ BT::NodeStatus PreselectionBranchGateAction::onStart() {
 
   RCLCPP_INFO(
       node_->get_logger(),
-      "预选入口 branch gate: 等待 0x%02X 继续或 0x%02X 切树 topic=%s switch_tree=%s continue_profile=%s switch_profile=%s",
+      "预选入口 branch gate: 等待 0x%02X 继续或 0x%02X 切树 topic=%s switch_tree=%s continue_profile=%s switch_profile=%s continue_pre_cmd_delay=%ums switch_pre_cmd_delay=%ums",
       static_cast<unsigned int>(mc_params_.start_signal_feedback_id & 0xFF),
       static_cast<unsigned int>(
           static_cast<int>(rc26_serial::FeedbackID::MF_PRESELECTION_TRIGGER) &
           0xFF),
       feedback_topic.c_str(), switch_tree_file_.c_str(),
-      continue_start_profile_text_.c_str(), switch_start_profile_text_.c_str());
+      continue_start_profile_text_.c_str(), switch_start_profile_text_.c_str(),
+      continue_pre_command_delay_msec_, switch_pre_command_delay_msec_);
   return BT::NodeStatus::RUNNING;
 }
 
@@ -112,8 +124,18 @@ BT::NodeStatus PreselectionBranchGateAction::onRunning() {
     if (branch_seen_.load(std::memory_order_relaxed) &&
         branch_ != Branch::None) {
       configureBranch(branch_);
-      phase_ = Phase::SendingCommand;
+      phase_ = branch_pre_command_delay_s_ > 0.0
+                   ? Phase::WaitingPreCommandDelay
+                   : Phase::SendingCommand;
       phase_tp_ = now;
+      last_log_tp_ = now;
+      if (phase_ == Phase::WaitingPreCommandDelay) {
+        RCLCPP_INFO(
+            node_->get_logger(),
+            "预选入口 branch gate: 收到分支后先等待 %.3fs，再发送 command=%s",
+            branch_pre_command_delay_s_, byteHex(branch_command_id_).c_str());
+        return BT::NodeStatus::RUNNING;
+      }
     } else {
       if (branch_signal_timeout_s_ > 0.0 &&
           elapsedSec(start_tp_) > branch_signal_timeout_s_) {
@@ -130,6 +152,24 @@ BT::NodeStatus PreselectionBranchGateAction::onRunning() {
                     rc26_serial::FeedbackID::MF_PRESELECTION_TRIGGER) &
                 0xFF),
             elapsedSec(start_tp_));
+        last_log_tp_ = now;
+      }
+      return BT::NodeStatus::RUNNING;
+    }
+  }
+
+  if (phase_ == Phase::WaitingPreCommandDelay) {
+    const double elapsed = elapsedSec(phase_tp_);
+    if (elapsed >= branch_pre_command_delay_s_) {
+      phase_ = Phase::SendingCommand;
+      phase_tp_ = now;
+    } else {
+      if (elapsedSec(last_log_tp_) >= branch_log_period_s_) {
+        RCLCPP_INFO(
+            node_->get_logger(),
+            "预选入口 branch gate: 发 command=%s 前延时中 elapsed=%.1fs/%.1fs",
+            byteHex(branch_command_id_).c_str(), elapsed,
+            branch_pre_command_delay_s_);
         last_log_tp_ = now;
       }
       return BT::NodeStatus::RUNNING;
@@ -244,10 +284,13 @@ void PreselectionBranchGateAction::configureBranch(Branch branch) {
   if (branch == Branch::SwitchTarget) {
     branch_start_profile_ = toStartProfile(switch_start_profile_text_);
     configureStartProfile(branch_start_profile_);
+    branch_pre_command_delay_s_ =
+        static_cast<double>(switch_pre_command_delay_msec_) / 1000.0;
     RCLCPP_WARN(
         node_->get_logger(),
-        "预选入口 branch gate: 收到 0x10 profile=%s，发送 0x%02X 等 0x%02X，成功后切树 %s",
+        "预选入口 branch gate: 收到 0x10 profile=%s，延时 %.3fs 后发送 0x%02X 等 0x%02X，成功后切树 %s",
         profileName(branch_start_profile_),
+        branch_pre_command_delay_s_,
         static_cast<unsigned int>(branch_command_id_ & 0xFF),
         static_cast<unsigned int>(branch_done_feedback_id_ & 0xFF),
         switch_tree_file_.c_str());
@@ -256,10 +299,13 @@ void PreselectionBranchGateAction::configureBranch(Branch branch) {
 
   branch_start_profile_ = toStartProfile(continue_start_profile_text_);
   configureStartProfile(branch_start_profile_);
+  branch_pre_command_delay_s_ =
+      static_cast<double>(continue_pre_command_delay_msec_) / 1000.0;
   RCLCPP_INFO(
       node_->get_logger(),
-      "预选入口 branch gate: 收到 0x06 profile=%s，发送 0x%02X 等 0x%02X 后继续",
+      "预选入口 branch gate: 收到 0x06 profile=%s，延时 %.3fs 后发送 0x%02X 等 0x%02X 后继续",
       profileName(branch_start_profile_),
+      branch_pre_command_delay_s_,
       static_cast<unsigned int>(branch_command_id_ & 0xFF),
       static_cast<unsigned int>(branch_done_feedback_id_ & 0xFF));
 }

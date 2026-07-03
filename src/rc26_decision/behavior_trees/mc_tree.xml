@@ -93,11 +93,9 @@
       <WaitPreselectionBranchGate name="preselection_after_mc_branch_gate"
                                   continue_start_profile="mc"
                                   switch_start_profile="mc"
+                                  continue_pre_command_delay_msec="{preselection_after_mc_continue_delay_msec}"
                                   switch_tree_file="mf_preselection_tree.xml"/>
-      <!-- 7. 继续分支确认后延时，再让 MC 子树成功返回给组合树 -->
-      <Delay delay_msec="{preselection_after_mc_continue_delay_msec}">
-        <AlwaysSuccess/>
-      </Delay>
+      <!-- 7. 继续分支确认后让 MC 子树成功返回给组合树；触发后延时已在 gate 内、下发 0x10 前完成。 -->
     </Sequence>
   </BehaviorTree>
 </root>

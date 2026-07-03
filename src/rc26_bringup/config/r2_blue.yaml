@@ -182,7 +182,7 @@ r2_runtime:
       mc_mf_start_done_timeout_s: 5.0      # 等待 0x0C 比赛开始完成反馈的最长时间，单位秒
       mc_mf_start_log_period_s: 1.0        # 等待人工开始信号期间 INFO 日志节流周期，单位秒
       preselection_entry_continue_delay_msec: 500 # first 入口 0x06 握手完成后进入 MC 前延时
-      preselection_after_mc_continue_delay_msec: 500 # MC 末尾 0x06 握手完成后返回组合树前延时
+      preselection_after_mc_continue_delay_msec: 500 # MC 末尾 0x06 触发后、下发 0x10 前延时
       mf_preselection_external_trigger_enable: false # managed first/second 入口禁用旧全局 0x10 监听，0x10 作为第二限位事件交给 branch gate
       mf_preselection_external_trigger_feedback_topic: "/mechanism/command_feedback" # 历史全局外部触发来源；managed 模式不使用
       mf_preselection_external_trigger_feedback_id: 16 # MF_PRESELECTION_TRIGGER(0x10)，第二限位开关事件

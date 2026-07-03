@@ -49,7 +49,7 @@
 - `mf_preselect_entry2_nav_segment1_x_m`、`mf_preselect_entry2_nav_segment1_y_m`、`mf_preselect_entry2_nav_timeout_sec`：MF 预选 2 号入口红方基准单轴段，默认 `+X 2.0m -> -Y 1.8m`，不在入口树前额外转向；蓝方自动镜像 Y。
 - `mf_preselect_kfs_align_target_line_offset_px`：MF KFS 视觉横移对齐时，识别框中线要对齐的目标线相对图像中心线的像素偏置；默认 `0`，负值表示目标线向图像左侧移动。
 - `mf_preselect_kfs_depth_roi_size`、`mf_preselect_kfs_depth_min_valid_count`、`mf_preselect_kfs_depth_bbox_sample_ratios`、`mf_preselect_kfs_depth_bbox_min_success_count`：MF R2 KFS 有效深度点配置，分别控制单点 ROI 边长、单 ROI 最少有效点、bbox 多点采样比例和最少成功采样点数；默认值写在 `r2_red.yaml` / `r2_blue.yaml`，bringup 只负责传参。
-- `preselection_entry_continue_delay_msec`、`preselection_after_mc_continue_delay_msec`：first managed 入口 gate 与 MC 末尾 gate 的 0x06 分支继续延时。
+- `preselection_entry_continue_delay_msec`、`preselection_after_mc_continue_delay_msec`：first managed gate 的 0x06 分支延时参数。入口 gate 仍在握手完成后延时进入 MC；MC 末尾 gate 会在收到 0x06 后先按 `preselection_after_mc_continue_delay_msec` 等待，再下发 `COMPETITION_START(0x10)`。
 - `preselection_ramp_approach_x_m`、`preselection_ramp_climb_x_m`、`preselection_ramp_max_speed_mps`、`preselection_ramp_min_speed_mps`、`preselection_ramp_timeout_s`：second managed 斜坡两段 odom 前进参数。
 - `second_preselect_after_ramp_turn_delta_rad`、`second_preselect_after_ramp_turn_timeout_s`：second managed 斜坡后 90° 转向参数；红方默认 `-1.5708`，`team=blue` 时由 `rc26_decision` 参数加载阶段镜像为 `+1.5708`。
 - `mf_preselection_external_trigger_*`：历史全局 MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)` 触发参数。managed first/second 模式下，bringup 会强制 `mf_preselection_external_trigger_enable=false`，避免旧监听绕过 `WaitPreselectionBranchGate`；0x10 在 managed 模式中只表示第二限位开关事件，具体握手由当前树的 gate profile 决定。

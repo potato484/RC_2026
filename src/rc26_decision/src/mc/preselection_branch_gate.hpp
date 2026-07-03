@@ -35,6 +35,7 @@ private:
   enum class StartProfile { Mc, Second };
   enum class Phase {
     WaitingBranch,
+    WaitingPreCommandDelay,
     SendingCommand,
     WaitingAck,
     WaitingDone,
@@ -74,6 +75,9 @@ private:
   std::string command_service_;
   int branch_command_id_{0};
   int branch_done_feedback_id_{0};
+  unsigned int continue_pre_command_delay_msec_{0};
+  unsigned int switch_pre_command_delay_msec_{0};
+  double branch_pre_command_delay_s_{0.0};
   double branch_signal_timeout_s_{0.0};
   double branch_command_timeout_s_{5.0};
   double branch_done_timeout_s_{5.0};
