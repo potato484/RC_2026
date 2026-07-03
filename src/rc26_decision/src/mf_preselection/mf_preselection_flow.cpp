@@ -1295,12 +1295,34 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return BT::NodeStatus::RUNNING;
 
   case Phase::EntryReturnFromStair1:
+  {
     // 1 号入口夹取后或探测完成后回到中间入口，为上中间列首个台阶做准备。
-    beginMoveRelative(0.0, -std::abs(params_.lateral_probe_speed_mps) *
-                               static_cast<double>(params_.field_mirror_sign),
-                      params_.entry_probe_return_distance_m,
+    const double vy = -std::abs(params_.lateral_probe_speed_mps) *
+                      static_cast<double>(params_.field_mirror_sign);
+    const double raw_distance_m = params_.entry_probe_return_distance_m;
+    double compensation_m = 0.0;
+    const double distance_m =
+        MfPreselectionLogicResult::entryReturnToCenterCompensatedDistance(
+            raw_distance_m, vy, params_, compensation_m);
+    if (distance_m <= params_.move_tolerance_m) {
+      RCLCPP_INFO(
+          node_->get_logger(),
+          "梅林预选赛入口1号回2号入口距离经MCU减速+延迟补偿后已无需横移：vy=%.3f raw_distance=%.3fm compensation=%.3fm distance=%.3fm tolerance=%.3fm",
+          vy, raw_distance_m, compensation_m, distance_m,
+          params_.move_tolerance_m);
+      publishStop();
+      phase_ = Phase::EntryPrepareClimb;
+      return BT::NodeStatus::RUNNING;
+    }
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "梅林预选赛入口1号回2号入口：vy=%.3f raw_distance=%.3fm compensation=%.3fm distance=%.3fm tolerance=%.3fm",
+        vy, raw_distance_m, compensation_m, distance_m,
+        params_.move_tolerance_m);
+    beginMoveRelative(0.0, vy, distance_m,
                       Phase::EntryPrepareClimb, "entry_return_from_stair1");
     return BT::NodeStatus::RUNNING;
+  }
 
   case Phase::EntryMoveRightToStair3:
     // 如果 1 号也没发现目标，从当前 1 号位置一次横移扫到 3 号入口。
@@ -1311,12 +1333,34 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
     return BT::NodeStatus::RUNNING;
 
   case Phase::EntryReturnFromStair3:
+  {
     // 3 号入口探测结束后回到中间入口，统一从 grid2 方向入场。
-    beginMoveRelative(0.0, std::abs(params_.lateral_probe_speed_mps) *
-                               static_cast<double>(params_.field_mirror_sign),
-                      params_.entry_probe_return_distance_m,
+    const double vy = std::abs(params_.lateral_probe_speed_mps) *
+                      static_cast<double>(params_.field_mirror_sign);
+    const double raw_distance_m = params_.entry_probe_return_distance_m;
+    double compensation_m = 0.0;
+    const double distance_m =
+        MfPreselectionLogicResult::entryReturnToCenterCompensatedDistance(
+            raw_distance_m, vy, params_, compensation_m);
+    if (distance_m <= params_.move_tolerance_m) {
+      RCLCPP_INFO(
+          node_->get_logger(),
+          "梅林预选赛入口3号回2号入口距离经MCU减速+延迟补偿后已无需横移：vy=%.3f raw_distance=%.3fm compensation=%.3fm distance=%.3fm tolerance=%.3fm",
+          vy, raw_distance_m, compensation_m, distance_m,
+          params_.move_tolerance_m);
+      publishStop();
+      phase_ = Phase::EntryPrepareClimb;
+      return BT::NodeStatus::RUNNING;
+    }
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "梅林预选赛入口3号回2号入口：vy=%.3f raw_distance=%.3fm compensation=%.3fm distance=%.3fm tolerance=%.3fm",
+        vy, raw_distance_m, compensation_m, distance_m,
+        params_.move_tolerance_m);
+    beginMoveRelative(0.0, vy, distance_m,
                       Phase::EntryPrepareClimb, "entry_return_from_stair3");
     return BT::NodeStatus::RUNNING;
+  }
 
   case Phase::EntryReturnToCenterAfterInterruptedPickup:
     return beginEntryReturnToCenterAfterInterruptedPickup();
