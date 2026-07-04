@@ -1,6 +1,6 @@
 <!--
   梅林区预选赛专属行为树：
-  - 入口导航由 r2_runtime.yaml 的 mf_preselect_entry2_nav_enable 控制。
+  - 入口导航由红/蓝运行配置中的 mf_preselect_entry2_nav_enable 控制。
   - 入口导航按红方基准执行 +X 后接 team 派生横移 Y，不在树前额外转向。
   - MfPreselectionFlow 内部独占发布 cmd_vel，并通过 /mechanism/send_command 消费机构 raw transport。
   - 流程成功驶出梅林后进入 WaitForever，保持永久静止。

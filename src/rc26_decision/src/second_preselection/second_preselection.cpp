@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <exception>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <sstream>
 
@@ -18,6 +19,7 @@
 #include "rc26_decision/team_color.hpp"
 #include "rc26_serial/protocol.hpp"
 #include "rc26_vision/inference/config/model_profile_loader.hpp"
+#include "rc26_vision/shared/sensors/depth_roi_sampler.hpp"
 
 namespace rc26_decision {
 
@@ -25,6 +27,7 @@ namespace {
 
 constexpr std::array<int, 3> kGridCols{-1, 0, 1};
 constexpr std::array<int, 3> kGridRows{-1, 0, 1};
+constexpr double kDeg2Rad = M_PI / 180.0;
 
 double elapsedSec(const std::chrono::steady_clock::time_point &since) {
   return std::chrono::duration<double>(std::chrono::steady_clock::now() - since)
@@ -52,6 +55,26 @@ std::string resolveVisionConfig(const std::string &configured) {
 
 std::vector<uint8_t> emptyPayload() { return {}; }
 
+uint8_t clampByte(int value) {
+  return static_cast<uint8_t>(value & 0xFF);
+}
+
+double normalizeAngle(double angle) {
+  while (angle > M_PI) {
+    angle -= 2.0 * M_PI;
+  }
+  while (angle < -M_PI) {
+    angle += 2.0 * M_PI;
+  }
+  return angle;
+}
+
+double yawFromQuaternion(double x, double y, double z, double w) {
+  const double siny_cosp = 2.0 * (w * z + x * y);
+  const double cosy_cosp = 1.0 - 2.0 * (y * y + z * z);
+  return std::atan2(siny_cosp, cosy_cosp);
+}
+
 cv::Point2f detectionCenter(const rc26_vision::Detection &detection) {
   return cv::Point2f((detection.x1 + detection.x2) * 0.5F,
                      (detection.y1 + detection.y2) * 0.5F);
@@ -65,6 +88,32 @@ bool pointInRoi(const cv::Point2f &point, const cv::Rect2f &roi) {
 bool startsWith(const std::string &value, const std::string &prefix) {
   return value.size() >= prefix.size() &&
          value.compare(0, prefix.size(), prefix) == 0;
+}
+
+bool labelsMatch(const std::string &label,
+                 const std::vector<std::string> &exact_labels,
+                 const std::vector<std::string> &prefixes) {
+  if (label.empty()) {
+    return false;
+  }
+  if (std::find(exact_labels.begin(), exact_labels.end(), label) !=
+      exact_labels.end()) {
+    return true;
+  }
+  for (const auto &prefix : prefixes) {
+    if (!prefix.empty() && startsWith(label, prefix)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool r1ScoreAccepted(const std::string &label, double score,
+                     double min_score) {
+  if (label == "R1_KFS") {
+    return score >= min_score;
+  }
+  return true;
 }
 
 bool labelAllowed(const std::string &label,
@@ -175,6 +224,80 @@ double selectedLateralMotion(const SecondPreselectionParams &params,
          (target_offset_m - current_offset_m);
 }
 
+std::optional<double> estimateMonocularDepth(
+    const rc26_vision::Detection &detection, double locked_depth_m,
+    const SecondPreselectionParams &params, double min_depth_m,
+    double max_depth_m) {
+  if (!params.kfs_mono_distance_fallback_enable ||
+      !std::isfinite(locked_depth_m) || locked_depth_m <= 0.0) {
+    return std::nullopt;
+  }
+  const double width_px =
+      std::abs(static_cast<double>(detection.x2) -
+               static_cast<double>(detection.x1));
+  const double height_px =
+      std::abs(static_cast<double>(detection.y2) -
+               static_cast<double>(detection.y1));
+  if (width_px < params.kfs_mono_min_bbox_px ||
+      height_px < params.kfs_mono_min_bbox_px ||
+      params.kfs_mono_fx_px <= 0.0 || params.kfs_mono_fy_px <= 0.0 ||
+      params.kfs_mono_target_width_m <= 0.0 ||
+      params.kfs_mono_target_height_m <= 0.0) {
+    return std::nullopt;
+  }
+  const double z_width =
+      params.kfs_mono_target_width_m * params.kfs_mono_fx_px / width_px;
+  const double z_height =
+      params.kfs_mono_target_height_m * params.kfs_mono_fy_px / height_px;
+  const double depth_m = 0.5 * (z_width + z_height);
+  if (!std::isfinite(depth_m) || depth_m < min_depth_m ||
+      depth_m > max_depth_m ||
+      std::abs(depth_m - locked_depth_m) >
+          params.kfs_mono_max_delta_from_locked_m) {
+    return std::nullopt;
+  }
+  return depth_m;
+}
+
+std::optional<double> sampleKfsDepthFromBbox(
+    const cv::Mat &depth, const rc26_vision::Detection &detection,
+    const rc26_vision::DepthRoiSamplerConfig &config,
+    const std::vector<double> &sample_ratios, int min_success_count) {
+  std::vector<double> values;
+  const int required = std::max(1, min_success_count);
+  for (const double ry : sample_ratios) {
+    if (!std::isfinite(ry)) {
+      continue;
+    }
+    for (const double rx : sample_ratios) {
+      if (!std::isfinite(rx)) {
+        continue;
+      }
+      const double clamped_rx = std::clamp(rx, 0.0, 1.0);
+      const double clamped_ry = std::clamp(ry, 0.0, 1.0);
+      const int cx = static_cast<int>(std::lround(
+          static_cast<double>(detection.x1) +
+          (static_cast<double>(detection.x2) -
+           static_cast<double>(detection.x1)) *
+              clamped_rx));
+      const int cy = static_cast<int>(std::lround(
+          static_cast<double>(detection.y1) +
+          (static_cast<double>(detection.y2) -
+           static_cast<double>(detection.y1)) *
+              clamped_ry));
+      const auto sampled = rc26_vision::sampleMedianDepth(depth, cx, cy, config);
+      if (sampled.has_value()) {
+        values.push_back(*sampled);
+      }
+    }
+  }
+  if (static_cast<int>(values.size()) < required) {
+    return std::nullopt;
+  }
+  std::sort(values.begin(), values.end());
+  return values[values.size() / 2];
+}
+
 } // namespace
 
 SecondPreselectionOccupancyObservation evaluateSecondPreselectionGridOccupancy(
@@ -226,6 +349,17 @@ SecondPreselectionOccupancyObservation evaluateSecondPreselectionGridOccupancy(
     result.occupied = true;
   }
   return result;
+}
+
+double secondPreselectionKfsApproachDistance(
+    double locked_depth_m, const SecondPreselectionParams &params) {
+  const double sign = params.kfs_approach_x_sign < 0 ? -1.0 : 1.0;
+  return sign * std::max(0.0, locked_depth_m - params.kfs_grab_distance_m);
+}
+
+bool secondPreselectionHasFrontKfs(
+    const SecondPreselectionOccupancyObservation &observation) {
+  return observation.matched_detections > 0;
 }
 
 BT::PortsList SecondPreselectionCommandAction::providedPorts() {
@@ -479,6 +613,831 @@ std::string SecondPreselectionCommandAction::byteHex(int value) {
   return std::string(buf);
 }
 
+SecondPreselectionKfsPickupAction::SecondPreselectionKfsPickupAction(
+    const std::string &name, const BT::NodeConfig &config)
+    : BT::StatefulActionNode(name, config) {}
+
+SecondPreselectionKfsPickupAction::~SecondPreselectionKfsPickupAction() {
+  clearRuntimeState();
+}
+
+BT::NodeStatus SecondPreselectionKfsPickupAction::onStart() {
+  if (!config().blackboard || !config().blackboard->get("node", node_) ||
+      !node_) {
+    writeDecisionFailure(config().blackboard, "SecondPreselectionKfsPickup",
+                         "运行上下文缺失：blackboard 或 node 不可用");
+    return BT::NodeStatus::FAILURE;
+  }
+  if (!config().blackboard->get("second_preselection_params", params_)) {
+    return fail("黑板缺少 second_preselection_params");
+  }
+
+  clearRuntimeState();
+  if (!setupOdom()) {
+    return fail("第二预选赛 KFS 夹取 odom 启动失败");
+  }
+  if (!setupVision()) {
+    return fail("第二预选赛 KFS 夹取视觉启动失败");
+  }
+  if (!setupCommandIo()) {
+    return fail("第二预选赛 KFS 夹取机构命令 IO 启动失败");
+  }
+  cmd_pub_ = node_->create_publisher<geometry_msgs::msg::Twist>(
+      params_.cmd_vel_topic, rclcpp::QoS(10));
+  if (!cmd_pub_) {
+    return fail("第二预选赛 KFS 夹取 cmd_vel publisher 创建失败");
+  }
+
+  phase_ = Phase::Search;
+  phase_tp_ = std::chrono::steady_clock::now();
+  last_log_tp_ = phase_tp_;
+  RCLCPP_INFO(node_->get_logger(),
+              "第二预选赛开始前进搜索 R2 KFS：speed=%.3fm/s timeout=%.1fs model=%s cmd_vel=%s odom=%s command=0x%02X",
+              params_.search_forward_speed_mps, params_.search_timeout_s,
+              params_.model_id.c_str(), params_.cmd_vel_topic.c_str(),
+              params_.odom_topic.c_str(), params_.pickup_command_id & 0xFF);
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus SecondPreselectionKfsPickupAction::onRunning() {
+  switch (phase_) {
+  case Phase::Search:
+    return tickSearch();
+  case Phase::VisualAlign:
+    return tickVisualAlign();
+  case Phase::OdomApproach:
+    return tickOdomApproach();
+  case Phase::SendingPickup:
+    return tickSendingPickup();
+  case Phase::WaitingPickupAck:
+    return tickWaitingPickupAck();
+  case Phase::GrabVerify:
+    return tickGrabVerify();
+  case Phase::Settle:
+    return tickSettle();
+  }
+  return fail("第二预选赛 KFS 夹取未知状态");
+}
+
+void SecondPreselectionKfsPickupAction::onHalted() {
+  publishStop();
+  clearRuntimeState();
+}
+
+BT::NodeStatus SecondPreselectionKfsPickupAction::fail(
+    const std::string &reason) {
+  if (node_) {
+    RCLCPP_ERROR(node_->get_logger(), "第二预选赛 KFS 夹取失败：%s",
+                 reason.c_str());
+  }
+  writeDecisionFailure(config().blackboard, "SecondPreselectionKfsPickup",
+                       reason);
+  publishStop();
+  clearRuntimeState();
+  return BT::NodeStatus::FAILURE;
+}
+
+bool SecondPreselectionKfsPickupAction::setupVision() {
+  try {
+    params_.vision_config_file = resolveVisionConfig(params_.vision_config_file);
+    auto config =
+        rc26_vision::ProfileLoader::loadFromYaml(params_.vision_config_file);
+    rc26_vision::ProfileLoader::validate(config);
+    if (config.profiles.find(params_.model_id) == config.profiles.end()) {
+      RCLCPP_ERROR(node_->get_logger(), "第二预选赛 KFS 视觉 profile 不存在：%s",
+                   params_.model_id.c_str());
+      return false;
+    }
+    vision_ = std::make_shared<rc26_vision::VisionInferenceManager>(*node_);
+    vision_->loadConfig(config);
+    vision_->selectModel(params_.model_id);
+    if (!vision_->start()) {
+      vision_.reset();
+      return false;
+    }
+    return true;
+  } catch (const std::exception &e) {
+    RCLCPP_ERROR(node_->get_logger(), "第二预选赛 KFS 视觉初始化异常：%s",
+                 e.what());
+    vision_.reset();
+    return false;
+  }
+}
+
+void SecondPreselectionKfsPickupAction::releaseVision() {
+  if (vision_) {
+    vision_->stop();
+    vision_.reset();
+  }
+}
+
+bool SecondPreselectionKfsPickupAction::setupOdom() {
+  odom_sub_ = node_->create_subscription<OdomMsg>(
+      params_.odom_topic, rclcpp::QoS(rclcpp::KeepLast(10)),
+      [this](const OdomMsg::SharedPtr msg) {
+        if (!msg) {
+          return;
+        }
+        odom_x_ = msg->pose.pose.position.x;
+        odom_y_ = msg->pose.pose.position.y;
+        const auto &q = msg->pose.pose.orientation;
+        odom_yaw_ = yawFromQuaternion(q.x, q.y, q.z, q.w);
+        has_odom_ = true;
+        last_odom_tp_ = std::chrono::steady_clock::now();
+      });
+  return static_cast<bool>(odom_sub_);
+}
+
+void SecondPreselectionKfsPickupAction::releaseOdom() { odom_sub_.reset(); }
+
+bool SecondPreselectionKfsPickupAction::setupCommandIo() {
+  send_client_ = node_->create_client<SendCommandSrv>(params_.send_command_service);
+  feedback_sub_ = node_->create_subscription<FeedbackMsg>(
+      params_.feedback_topic, rclcpp::QoS(32).reliable(),
+      [this](const FeedbackMsg::SharedPtr msg) { handleFeedback(msg); });
+  return static_cast<bool>(send_client_) && static_cast<bool>(feedback_sub_);
+}
+
+void SecondPreselectionKfsPickupAction::releaseCommandIo() {
+  feedback_sub_.reset();
+  send_client_.reset();
+}
+
+void SecondPreselectionKfsPickupAction::publishStop() {
+  if (!cmd_pub_) {
+    return;
+  }
+  cmd_pub_->publish(geometry_msgs::msg::Twist{});
+}
+
+void SecondPreselectionKfsPickupAction::publishTwist(double vx, double vy,
+                                                     double wz) {
+  if (!cmd_pub_) {
+    return;
+  }
+  geometry_msgs::msg::Twist twist;
+  twist.linear.x = vx;
+  twist.linear.y = vy;
+  twist.angular.z = wz;
+  cmd_pub_->publish(twist);
+}
+
+bool SecondPreselectionKfsPickupAction::odomReady() const {
+  if (!has_odom_) {
+    return false;
+  }
+  return elapsedSec(last_odom_tp_) <= params_.odom_timeout_s;
+}
+
+double
+SecondPreselectionKfsPickupAction::headingAngularZ(double target_yaw_rad) const {
+  const double yaw_error = normalizeAngle(target_yaw_rad - odom_yaw_);
+  double out = params_.kfs_heading_kp * yaw_error;
+  const double heading_max = std::max(0.0, params_.kfs_heading_max_speed_radps);
+  if (std::abs(out) > heading_max) {
+    out = std::copysign(heading_max, out);
+  }
+  return out;
+}
+
+rc26_vision::TipAlignmentConfig
+SecondPreselectionKfsPickupAction::makeAlignmentConfig() const {
+  rc26_vision::TipAlignmentConfig config;
+  config.target_lock_enable = true;
+  config.target_lock_max_jump_px = params_.kfs_align_max_jump_px;
+  config.lost_stop_frames = params_.kfs_lost_stop_frames;
+  config.tolerance_px = params_.kfs_align_tolerance_px;
+  config.target_line_offset_px = params_.kfs_align_target_line_offset_px;
+  config.kp = params_.kfs_align_kp;
+  config.min_speed_mps = params_.kfs_align_min_speed_mps;
+  config.max_speed_mps = params_.kfs_align_max_speed_mps;
+  config.invert_direction = params_.kfs_invert_lateral_direction;
+  config.heading_hold_enable = true;
+  config.target_yaw_rad = align_yaw_;
+  config.heading_kp = params_.kfs_heading_kp;
+  config.heading_max_speed_radps = params_.kfs_heading_max_speed_radps;
+  config.heading_tolerance_rad =
+      std::abs(params_.kfs_odom_yaw_tolerance_deg) * kDeg2Rad;
+  config.heading_gate_rad =
+      std::max(config.heading_tolerance_rad,
+               std::abs(params_.kfs_align_heading_gate_deg) * kDeg2Rad);
+  return config;
+}
+
+std::optional<rc26_vision::TipHeadingControl>
+SecondPreselectionKfsPickupAction::alignHeadingControl() {
+  if (!align_yaw_captured_) {
+    if (!odomReady()) {
+      if (node_ && !align_waiting_odom_logged_) {
+        RCLCPP_WARN(node_->get_logger(),
+                    "第二预选赛 KFS 视觉对齐等待 odom 捕获 yaw：topic=%s",
+                    params_.odom_topic.c_str());
+        align_waiting_odom_logged_ = true;
+      }
+      return std::nullopt;
+    }
+    align_yaw_ = odom_yaw_;
+    align_yaw_captured_ = true;
+    align_waiting_odom_logged_ = false;
+    RCLCPP_INFO(node_->get_logger(),
+                "第二预选赛 KFS 视觉对齐捕获 yaw=%.3f", align_yaw_);
+  }
+  if (!odomReady()) {
+    if (node_ && !align_waiting_odom_logged_) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "第二预选赛 KFS 视觉对齐等待 odom 新鲜：topic=%s",
+                  params_.odom_topic.c_str());
+      align_waiting_odom_logged_ = true;
+    }
+    return std::nullopt;
+  }
+  align_waiting_odom_logged_ = false;
+  return rc26_vision::computeTipHeadingControl(odom_yaw_,
+                                               makeAlignmentConfig());
+}
+
+std::optional<SecondPreselectionKfsPickupAction::KfsObservation>
+SecondPreselectionKfsPickupAction::findNearestKfs(
+    bool allow_depthless_r2_align) {
+  if (!vision_ || !vision_->isRunning()) {
+    return std::nullopt;
+  }
+  rc26_vision::VisionInferenceManager::FrameSnapshot snapshot;
+  if (!vision_->getLatestFrameSnapshot(snapshot) || !snapshot.has_color ||
+      snapshot.color_bgr.empty() || !snapshot.has_depth ||
+      snapshot.depth.empty() || snapshot.display_sequence <= 0) {
+    return std::nullopt;
+  }
+
+  rc26_vision::DepthRoiSamplerConfig depth_config;
+  depth_config.roi_size = params_.kfs_depth_roi_size;
+  depth_config.min_valid_count = params_.kfs_depth_min_valid_count;
+  depth_config.min_depth_m = params_.depth_min_m;
+  depth_config.max_depth_m = params_.depth_max_m;
+
+  std::optional<KfsObservation> best;
+  const int target_line_x =
+      std::max(0, snapshot.color_bgr.cols / 2) +
+      params_.kfs_align_target_line_offset_px;
+  for (const auto &det : snapshot.detections) {
+    const std::string label = rc26_vision::visualTargetLabel(det);
+    const bool is_r2 =
+        labelsMatch(label, params_.r2_target_labels,
+                    params_.r2_target_label_prefixes);
+    const bool is_r1 =
+        labelsMatch(label, params_.r1_blocking_labels,
+                    params_.r1_blocking_label_prefixes);
+    if (!is_r2 && !is_r1) {
+      continue;
+    }
+    if (is_r1 && !r1ScoreAccepted(label, det.score, params_.r1_kfs_min_score)) {
+      continue;
+    }
+    const auto center = detectionCenter(det);
+    const auto sampled = sampleKfsDepthFromBbox(
+        snapshot.depth, det, depth_config, params_.kfs_depth_bbox_sample_ratios,
+        params_.kfs_depth_bbox_min_success_count);
+    bool has_depth = sampled.has_value();
+    bool real_depth = has_depth;
+    double depth_m = sampled.value_or(0.0);
+    if (!has_depth && is_r2 && allow_depthless_r2_align) {
+      const auto mono = estimateMonocularDepth(det, last_real_depth_m_, params_,
+                                               params_.depth_min_m,
+                                               params_.depth_max_m);
+      if (mono.has_value()) {
+        has_depth = true;
+        real_depth = false;
+        depth_m = *mono;
+      }
+    }
+    if (!has_depth) {
+      continue;
+    }
+
+    KfsObservation observation;
+    observation.kind = is_r2 ? KfsObservation::Kind::R2 : KfsObservation::Kind::R1;
+    observation.target =
+        rc26_vision::makeVisualTargetSnapshot(det, snapshot.display_sequence);
+    observation.target.distance_m = depth_m;
+    observation.detection = det;
+    observation.offset_px =
+        static_cast<int>(std::lround(center.x - target_line_x));
+    observation.has_depth = true;
+    observation.real_depth = real_depth;
+    observation.depth_detail = real_depth ? "center_roi" : "monocular_bbox";
+
+    if (!best.has_value()) {
+      best = observation;
+      continue;
+    }
+    const double depth_delta =
+        observation.target.distance_m - best->target.distance_m;
+    if (depth_delta < -1e-9 ||
+        (std::abs(depth_delta) <= 1e-9 &&
+         (std::abs(observation.offset_px) < std::abs(best->offset_px) ||
+          (std::abs(observation.offset_px) == std::abs(best->offset_px) &&
+           observation.target.score > best->target.score)))) {
+      best = observation;
+    }
+  }
+
+  if (!best.has_value() || best->kind != KfsObservation::Kind::R2) {
+    return best;
+  }
+
+  std::vector<rc26_vision::Detection> selected_detection{best->detection};
+  std::vector<int> target_class_ids{best->detection.class_id};
+  const auto selection = rc26_vision::updateTipAlignmentTarget(
+      selected_detection, snapshot.color_bgr.cols, target_class_ids,
+      align_lock_state_, makeAlignmentConfig());
+  if (!selection.has_target || selection.target.source_index != 0) {
+    return std::nullopt;
+  }
+  best->offset_px = selection.offset_px;
+  align_target_lock_sequence_ = best->target.sequence;
+  align_last_observation_ = best;
+  if (best->real_depth) {
+    last_real_depth_m_ = best->target.distance_m;
+  }
+  return best;
+}
+
+void SecondPreselectionKfsPickupAction::beginVisualAlign(
+    const KfsObservation &observation) {
+  publishStop();
+  pickup_target_ = observation.target;
+  has_pickup_target_ = true;
+  align_lock_state_.reset();
+  align_last_observation_ = observation;
+  align_target_lock_sequence_ = 0;
+  align_stable_count_ = 0;
+  align_lost_count_ = 0;
+  align_last_sequence_ = observation.target.sequence;
+  align_waiting_verify_frame_ = false;
+  align_yaw_captured_ = false;
+  align_waiting_odom_logged_ = false;
+  if (observation.real_depth) {
+    last_real_depth_m_ = observation.target.distance_m;
+  }
+  phase_ = Phase::VisualAlign;
+  phase_tp_ = std::chrono::steady_clock::now();
+  RCLCPP_INFO(node_->get_logger(),
+              "第二预选赛发现 R2 KFS，进入视觉对齐：label=%s seq=%ld depth=%.3fm offset=%d",
+              observation.target.label.c_str(),
+              static_cast<long>(observation.target.sequence),
+              observation.target.distance_m, observation.offset_px);
+}
+
+BT::NodeStatus SecondPreselectionKfsPickupAction::tickSearch() {
+  if (elapsedSec(phase_tp_) > params_.search_timeout_s) {
+    return fail("第二预选赛前进搜索 R2 KFS 超时");
+  }
+  if (!odomReady()) {
+    publishStop();
+    if (elapsedSec(last_log_tp_) >= params_.log_period_s) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "第二预选赛前进搜索等待 odom：topic=%s elapsed=%.1fs",
+                  params_.odom_topic.c_str(), elapsedSec(phase_tp_));
+      last_log_tp_ = std::chrono::steady_clock::now();
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+  if (!search_yaw_captured_) {
+    search_yaw_ = odom_yaw_;
+    search_yaw_captured_ = true;
+  }
+
+  const auto observation = findNearestKfs(false);
+  if (observation.has_value()) {
+    if (observation->kind == KfsObservation::Kind::R2) {
+      beginVisualAlign(*observation);
+      return BT::NodeStatus::RUNNING;
+    }
+    if (elapsedSec(last_log_tp_) >= params_.log_period_s) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "第二预选赛前进搜索识别到 R1 KFS，继续前进搜索 R2：label=%s depth=%.3fm",
+                  observation->target.label.c_str(),
+                  observation->target.distance_m);
+      last_log_tp_ = std::chrono::steady_clock::now();
+    }
+  }
+
+  const double wz = headingAngularZ(search_yaw_);
+  publishTwist(params_.search_forward_speed_mps, 0.0, wz);
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus SecondPreselectionKfsPickupAction::tickVisualAlign() {
+  if (elapsedSec(phase_tp_) > params_.kfs_align_timeout_s) {
+    if (align_last_observation_.has_value() &&
+        align_last_observation_->has_depth &&
+        std::abs(align_last_observation_->offset_px) <=
+            params_.kfs_align_timeout_pickup_tolerance_px) {
+      return beginOdomApproach(*align_last_observation_);
+    }
+    return fail("第二预选赛 KFS 视觉对齐超时");
+  }
+
+  const auto observation = findNearestKfs(true);
+  if (!observation.has_value() ||
+      observation->kind != KfsObservation::Kind::R2) {
+    const bool new_lock_sequence =
+        align_target_lock_sequence_ > 0 &&
+        align_target_lock_sequence_ != align_last_sequence_;
+    if (new_lock_sequence) {
+      align_last_sequence_ = align_target_lock_sequence_;
+      ++align_lost_count_;
+      align_stable_count_ = 0;
+    }
+    if (align_lost_count_ >= params_.kfs_lost_stop_frames) {
+      publishStop();
+    } else {
+      publishStop();
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+
+  if (!align_waiting_verify_frame_) {
+    align_waiting_verify_frame_ = true;
+    RCLCPP_INFO(node_->get_logger(),
+                "第二预选赛 KFS 使用 tip_alignment 口径等待稳定帧：target_offset=%d tolerance=%d stable=%d",
+                params_.kfs_align_target_line_offset_px,
+                params_.kfs_align_tolerance_px,
+                params_.kfs_align_stable_frames);
+  }
+
+  const auto heading = alignHeadingControl();
+  if (!heading.has_value()) {
+    publishStop();
+    align_stable_count_ = 0;
+    return BT::NodeStatus::RUNNING;
+  }
+
+  align_lost_count_ = 0;
+  align_last_observation_ = observation;
+  if (observation->real_depth) {
+    last_real_depth_m_ = observation->target.distance_m;
+  }
+  pickup_target_ = observation->target;
+  has_pickup_target_ = true;
+
+  const bool new_frame = observation->target.sequence != align_last_sequence_;
+  if (new_frame) {
+    align_last_sequence_ = observation->target.sequence;
+  }
+  const bool pixel_aligned =
+      std::abs(observation->offset_px) <= params_.kfs_align_tolerance_px;
+  const bool aligned = pixel_aligned && heading->aligned;
+  if (aligned) {
+    if (new_frame) {
+      ++align_stable_count_;
+    }
+    publishStop();
+    if (align_stable_count_ >= params_.kfs_align_stable_frames) {
+      return beginOdomApproach(*observation);
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+
+  if (new_frame) {
+    align_stable_count_ = 0;
+  }
+  const double vy = heading->allow_lateral
+                        ? rc26_vision::computeTipAlignmentVy(
+                              observation->offset_px, makeAlignmentConfig())
+                        : 0.0;
+  publishTwist(0.0, vy, heading->angular_z_radps);
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus SecondPreselectionKfsPickupAction::beginOdomApproach(
+    const KfsObservation &observation) {
+  publishStop();
+  approach_distance_m_ =
+      secondPreselectionKfsApproachDistance(observation.target.distance_m,
+                                            params_);
+  const double duration =
+      params_.kfs_approach_speed_mps > 0.0
+          ? std::abs(approach_distance_m_) / params_.kfs_approach_speed_mps
+          : std::numeric_limits<double>::infinity();
+  if (duration > params_.kfs_approach_timeout_s) {
+    return fail("第二预选赛 KFS 前向趋近计划超过超时");
+  }
+  pickup_target_ = observation.target;
+  has_pickup_target_ = true;
+  approach_started_ = true;
+  approach_start_captured_ = false;
+  approach_stable_ticks_ = 0;
+  approach_waiting_odom_logged_ = false;
+  phase_ = Phase::OdomApproach;
+  phase_tp_ = std::chrono::steady_clock::now();
+  RCLCPP_INFO(node_->get_logger(),
+              "第二预选赛 KFS 前向趋近启动：locked_depth=%.3fm distance=%.3fm",
+              observation.target.distance_m, approach_distance_m_);
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus SecondPreselectionKfsPickupAction::tickOdomApproach() {
+  if (!approach_started_) {
+    return fail("第二预选赛 KFS 前向趋近未启动");
+  }
+  if (elapsedSec(phase_tp_) > params_.kfs_approach_timeout_s) {
+    return fail("第二预选赛 KFS 前向趋近超时");
+  }
+  if (!odomReady()) {
+    publishStop();
+    approach_stable_ticks_ = 0;
+    if (!approach_waiting_odom_logged_) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "第二预选赛 KFS 前向趋近等待 odom：topic=%s",
+                  params_.odom_topic.c_str());
+      approach_waiting_odom_logged_ = true;
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+  if (!approach_start_captured_) {
+    approach_start_x_ = odom_x_;
+    approach_start_y_ = odom_y_;
+    approach_start_yaw_ = odom_yaw_;
+    approach_start_captured_ = true;
+    approach_waiting_odom_logged_ = false;
+  }
+
+  const double c = std::cos(approach_start_yaw_);
+  const double s = std::sin(approach_start_yaw_);
+  const double dx = odom_x_ - approach_start_x_;
+  const double dy = odom_y_ - approach_start_y_;
+  const double progress = dx * c + dy * s;
+  const double remaining = approach_distance_m_ - progress;
+  const double yaw_error = normalizeAngle(approach_start_yaw_ - odom_yaw_);
+  const double yaw_tol = std::abs(params_.kfs_odom_yaw_tolerance_deg) * kDeg2Rad;
+
+  if (std::abs(remaining) <= params_.kfs_approach_odom_tolerance_m &&
+      std::abs(yaw_error) <= yaw_tol) {
+    ++approach_stable_ticks_;
+    publishStop();
+    if (approach_stable_ticks_ >= params_.kfs_odom_stable_ticks) {
+      beginPickupCommand();
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+  approach_stable_ticks_ = 0;
+  if (params_.kfs_approach_speed_mps <= 0.0) {
+    return fail("第二预选赛 KFS 前向趋近速度非正");
+  }
+  double vx = params_.kfs_odom_xy_kp * remaining;
+  if (std::abs(vx) > params_.kfs_approach_speed_mps) {
+    vx = std::copysign(params_.kfs_approach_speed_mps, vx);
+  }
+  if (std::abs(vx) < params_.kfs_approach_min_speed_mps &&
+      std::abs(vx) > 1e-9) {
+    vx = std::copysign(params_.kfs_approach_min_speed_mps, vx);
+  }
+  publishTwist(vx, 0.0, headingAngularZ(approach_start_yaw_));
+  return BT::NodeStatus::RUNNING;
+}
+
+void SecondPreselectionKfsPickupAction::beginPickupCommand() {
+  publishStop();
+  command_generation_.fetch_add(1, std::memory_order_relaxed);
+  command_response_seen_ = false;
+  command_accepted_ = false;
+  command_error_seen_ = false;
+  command_seq_ = -1;
+  command_error_detail_.clear();
+  phase_ = Phase::SendingPickup;
+  phase_tp_ = std::chrono::steady_clock::now();
+  RCLCPP_INFO(node_->get_logger(),
+              "第二预选赛准备发送 KFS 夹取触发命令：0x%02X",
+              params_.pickup_command_id & 0xFF);
+}
+
+BT::NodeStatus SecondPreselectionKfsPickupAction::tickSendingPickup() {
+  publishStop();
+  if (!sendPickupCommand()) {
+    if (elapsedSec(phase_tp_) > params_.command_timeout_s) {
+      return fail("第二预选赛等待 KFS 夹取命令服务超时");
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+  phase_ = Phase::WaitingPickupAck;
+  phase_tp_ = std::chrono::steady_clock::now();
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus SecondPreselectionKfsPickupAction::tickWaitingPickupAck() {
+  publishStop();
+  if (command_error_seen_.load(std::memory_order_relaxed)) {
+    return fail(command_error_detail_.empty()
+                    ? "第二预选赛 KFS 夹取命令收到 MCU 错误"
+                    : command_error_detail_);
+  }
+  if (command_response_seen_.load(std::memory_order_relaxed)) {
+    if (!command_accepted_.load(std::memory_order_relaxed)) {
+      return fail("第二预选赛 KFS 夹取命令 ACK 被拒绝");
+    }
+    return beginGrabVerify();
+  }
+  if (elapsedSec(phase_tp_) > params_.command_timeout_s) {
+    return fail("第二预选赛等待 KFS 夹取命令 ACK 超时");
+  }
+  return BT::NodeStatus::RUNNING;
+}
+
+void SecondPreselectionKfsPickupAction::handleFeedback(
+    const FeedbackMsg::SharedPtr msg) {
+  if (!msg) {
+    return;
+  }
+  const int seq = command_seq_.load(std::memory_order_relaxed);
+  std::optional<MechanismErrorDiagnostic> diagnostic;
+  if (isSameSeqMechanismError(*msg, seq, diagnostic) && diagnostic) {
+    if (diagnostic->busy) {
+      return;
+    }
+    command_error_detail_ = mechanismErrorDiagnosticText(*diagnostic);
+    command_error_seen_.store(true, std::memory_order_relaxed);
+  }
+}
+
+bool SecondPreselectionKfsPickupAction::sendPickupCommand() {
+  if (!send_client_ || !send_client_->service_is_ready()) {
+    RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
+                         "第二预选赛等待 KFS 夹取命令服务：%s",
+                         params_.send_command_service.c_str());
+    return false;
+  }
+  auto request = std::make_shared<SendCommandSrv::Request>();
+  request->command_id = clampByte(params_.pickup_command_id);
+  request->payload = emptyPayload();
+  const uint64_t token = command_generation_.load(std::memory_order_relaxed);
+  try {
+    send_client_->async_send_request(
+        request, [this, token](rclcpp::Client<SendCommandSrv>::SharedFuture future) {
+          if (token != command_generation_.load(std::memory_order_relaxed)) {
+            return;
+          }
+          bool accepted = false;
+          int seq = -1;
+          try {
+            const auto response = future.get();
+            accepted = response && response->accepted;
+            if (response) {
+              seq = static_cast<int>(response->seq);
+            }
+          } catch (const std::exception &) {
+            accepted = false;
+          }
+          command_seq_.store(seq, std::memory_order_relaxed);
+          command_accepted_.store(accepted, std::memory_order_relaxed);
+          command_response_seen_.store(true, std::memory_order_relaxed);
+        });
+  } catch (const std::exception &e) {
+    command_error_detail_ = std::string("第二预选赛 KFS 夹取命令发送异常：") + e.what();
+    command_response_seen_.store(true, std::memory_order_relaxed);
+    command_accepted_.store(false, std::memory_order_relaxed);
+  }
+  RCLCPP_INFO(node_->get_logger(), "第二预选赛已发送 KFS 夹取触发命令：0x%02X",
+              params_.pickup_command_id & 0xFF);
+  return true;
+}
+
+BT::NodeStatus SecondPreselectionKfsPickupAction::beginGrabVerify() {
+  if (!has_pickup_target_) {
+    return fail("第二预选赛 KFS 夹取验证目标缺失");
+  }
+  grab_verify_lost_count_ = 0;
+  grab_verify_last_sequence_ = pickup_target_.sequence;
+  grab_verify_seen_new_frame_ = false;
+  grab_verify_visible_logged_ = false;
+  grab_verify_last_logged_lost_count_ = 0;
+  phase_ = Phase::GrabVerify;
+  phase_tp_ = std::chrono::steady_clock::now();
+  RCLCPP_INFO(node_->get_logger(),
+              "第二预选赛开始 KFS 夹取视觉消失验证：target=%s seq=%ld timeout=%.1fs lost=%d",
+              pickup_target_.label.c_str(),
+              static_cast<long>(pickup_target_.sequence),
+              params_.grab_verify_timeout_s,
+              params_.grab_verify_lost_stable_frames);
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus SecondPreselectionKfsPickupAction::tickGrabVerify() {
+  publishStop();
+  if (!has_pickup_target_) {
+    return fail("第二预选赛 KFS 夹取验证目标缺失");
+  }
+  const double elapsed = elapsedSec(phase_tp_);
+  rc26_vision::VisionInferenceManager::FrameSnapshot snapshot;
+  const bool has_snapshot =
+      vision_ && vision_->isRunning() && vision_->getLatestFrameSnapshot(snapshot) &&
+      snapshot.display_sequence > 0;
+  if (!has_snapshot || snapshot.display_sequence <= grab_verify_last_sequence_) {
+    if (elapsed >= params_.grab_verify_timeout_s) {
+      return fail("第二预选赛 KFS 夹取验证没有新视觉帧");
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+
+  grab_verify_seen_new_frame_ = true;
+  grab_verify_last_sequence_ = snapshot.display_sequence;
+  bool still_visible = false;
+  double best_iou = 0.0;
+  for (const auto &det : snapshot.detections) {
+    const auto candidate =
+        rc26_vision::makeVisualTargetSnapshot(det, snapshot.display_sequence);
+    if (candidate.label != pickup_target_.label) {
+      continue;
+    }
+    const double iou = rc26_vision::bboxIou(pickup_target_, candidate);
+    best_iou = std::max(best_iou, iou);
+    if (iou >= params_.grab_verify_iou_threshold) {
+      still_visible = true;
+      break;
+    }
+  }
+  if (still_visible) {
+    grab_verify_lost_count_ = 0;
+    grab_verify_last_logged_lost_count_ = 0;
+    if (!grab_verify_visible_logged_) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "第二预选赛 KFS 夹取验证：原目标仍可见 iou=%.3f",
+                  best_iou);
+      grab_verify_visible_logged_ = true;
+    }
+  } else {
+    ++grab_verify_lost_count_;
+    grab_verify_visible_logged_ = false;
+    if (grab_verify_lost_count_ != grab_verify_last_logged_lost_count_) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "第二预选赛 KFS 夹取验证：原目标未匹配 stable=%d/%d best_iou=%.3f",
+                  grab_verify_lost_count_,
+                  params_.grab_verify_lost_stable_frames, best_iou);
+      grab_verify_last_logged_lost_count_ = grab_verify_lost_count_;
+    }
+    if (grab_verify_lost_count_ >= params_.grab_verify_lost_stable_frames) {
+      phase_ = Phase::Settle;
+      phase_tp_ = std::chrono::steady_clock::now();
+      RCLCPP_INFO(node_->get_logger(),
+                  "第二预选赛 KFS 夹取确认成功，进入稳定等待 %.2fs",
+                  params_.grab_settle_s);
+      return BT::NodeStatus::RUNNING;
+    }
+  }
+  if (elapsed >= params_.grab_verify_timeout_s) {
+    return fail(grab_verify_seen_new_frame_
+                    ? "第二预选赛 KFS 夹取验证未稳定消失"
+                    : "第二预选赛 KFS 夹取验证没有新视觉帧");
+  }
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus SecondPreselectionKfsPickupAction::tickSettle() {
+  publishStop();
+  if (elapsedSec(phase_tp_) >= params_.grab_settle_s) {
+    clearRuntimeState();
+    return BT::NodeStatus::SUCCESS;
+  }
+  return BT::NodeStatus::RUNNING;
+}
+
+void SecondPreselectionKfsPickupAction::clearRuntimeState() {
+  publishStop();
+  command_generation_.fetch_add(1, std::memory_order_relaxed);
+  releaseVision();
+  releaseOdom();
+  releaseCommandIo();
+  cmd_pub_.reset();
+  has_odom_ = false;
+  search_yaw_captured_ = false;
+  align_yaw_captured_ = false;
+  align_waiting_verify_frame_ = false;
+  align_waiting_odom_logged_ = false;
+  align_stable_count_ = 0;
+  align_lost_count_ = 0;
+  align_last_sequence_ = 0;
+  align_target_lock_sequence_ = 0;
+  align_lock_state_.reset();
+  align_last_observation_.reset();
+  has_pickup_target_ = false;
+  last_real_depth_m_ = 0.0;
+  approach_distance_m_ = 0.0;
+  approach_started_ = false;
+  approach_start_captured_ = false;
+  approach_stable_ticks_ = 0;
+  approach_waiting_odom_logged_ = false;
+  command_response_seen_ = false;
+  command_accepted_ = false;
+  command_error_seen_ = false;
+  command_seq_ = -1;
+  command_error_detail_.clear();
+  grab_verify_lost_count_ = 0;
+  grab_verify_last_sequence_ = 0;
+  grab_verify_seen_new_frame_ = false;
+  grab_verify_visible_logged_ = false;
+  grab_verify_last_logged_lost_count_ = 0;
+}
+
 SecondPreselectionObserveAction::SecondPreselectionObserveAction(
     const std::string &name, const BT::NodeConfig &config)
     : BT::StatefulActionNode(name, config) {}
@@ -509,6 +1468,7 @@ BT::NodeStatus SecondPreselectionObserveAction::onStart() {
   config().blackboard->set("second_preselection_selected_lateral_m", 0.0);
 
   occupied_stable_count_ = 0;
+  front_kfs_seen_ = false;
   has_odom_ = false;
   odom_reference_ready_ = false;
   start_tp_ = std::chrono::steady_clock::now();
@@ -567,6 +1527,23 @@ BT::NodeStatus SecondPreselectionObserveAction::onRunning() {
             snapshot.detections, params_, current_odom_x_ - start_odom_x_,
             current_odom_y_ - start_odom_y_);
     writeObservationToBlackboard(observation);
+    if (secondPreselectionHasFrontKfs(observation)) {
+      front_kfs_seen_ = true;
+    }
+    if (params_.require_front_kfs_before_place && !front_kfs_seen_) {
+      if (elapsedSec(last_log_tp_) >= params_.observe_log_period_s) {
+        RCLCPP_INFO(node_->get_logger(),
+                    "第二预选赛放置前观察等待前方 KFS：mask=0x%03X detections=%d elapsed=%.1fs",
+                    observation.grid_occupied_mask, observation.matched_detections,
+                    elapsedSec(start_tp_));
+        last_log_tp_ = std::chrono::steady_clock::now();
+      }
+      if (elapsedSec(start_tp_) > params_.observe_timeout_s) {
+        config().blackboard->set("second_preselection_observe_error", true);
+        return fail("第二预选赛放置前未观察到前方 KFS");
+      }
+      return BT::NodeStatus::RUNNING;
+    }
 
     if (observation.selected_middle_col) {
       config().blackboard->set("second_preselection_middle_empty", true);
@@ -623,6 +1600,10 @@ BT::NodeStatus SecondPreselectionObserveAction::onRunning() {
   }
 
   if (elapsedSec(start_tp_) > params_.observe_timeout_s) {
+    if (params_.require_front_kfs_before_place && !front_kfs_seen_) {
+      config().blackboard->set("second_preselection_observe_error", true);
+      return fail("第二预选赛放置前未观察到前方 KFS");
+    }
     config().blackboard->set("second_preselection_middle_empty", false);
     config().blackboard->set("second_preselection_middle_occupied", true);
     RCLCPP_WARN(node_->get_logger(),
@@ -755,17 +1736,13 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
       "second_preselect_start_command_id", p.start_command_id);
   p.start_done_feedback_id = node.declare_parameter<int>(
       "second_preselect_start_done_feedback_id", p.start_done_feedback_id);
-  p.arm_high_raise_command_id = node.declare_parameter<int>(
-      "second_preselect_arm_high_raise_command_id",
-      p.arm_high_raise_command_id);
-  p.arm_high_raise_done_feedback_id = node.declare_parameter<int>(
-      "second_preselect_arm_high_raise_done_feedback_id",
-      p.arm_high_raise_done_feedback_id);
+  p.pickup_command_id = node.declare_parameter<int>(
+      "second_preselect_pickup_command_id", p.pickup_command_id);
   p.place_kfs_command_id = node.declare_parameter<int>(
       "second_preselect_place_kfs_command_id", p.place_kfs_command_id);
+  p.cmd_vel_topic = node.declare_parameter<std::string>(
+      "second_preselect_cmd_vel_topic", p.cmd_vel_topic);
 
-  p.nav_x1_m =
-      node.declare_parameter<double>("second_preselect_nav_x1_m", p.nav_x1_m);
   p.nav_y1_m =
       node.declare_parameter<double>("second_preselect_nav_y1_m", p.nav_y1_m);
   p.nav_x2_m =
@@ -799,6 +1776,132 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
       "second_preselect_vision_config_file", p.vision_config_file);
   p.model_id = node.declare_parameter<std::string>(
       "second_preselect_model_id", p.model_id);
+  p.search_forward_speed_mps = node.declare_parameter<double>(
+      "second_preselect_search_forward_speed_mps",
+      p.search_forward_speed_mps);
+  p.search_timeout_s = node.declare_parameter<double>(
+      "second_preselect_search_timeout_s", p.search_timeout_s);
+  p.r2_target_label_prefixes =
+      node.declare_parameter<std::vector<std::string>>(
+          "second_preselect_r2_target_label_prefixes",
+          p.r2_target_label_prefixes);
+  p.r2_target_labels = node.declare_parameter<std::vector<std::string>>(
+      "second_preselect_r2_target_labels", p.r2_target_labels);
+  p.r1_blocking_labels = node.declare_parameter<std::vector<std::string>>(
+      "second_preselect_r1_blocking_labels", p.r1_blocking_labels);
+  p.r1_blocking_label_prefixes =
+      node.declare_parameter<std::vector<std::string>>(
+          "second_preselect_r1_blocking_label_prefixes",
+          p.r1_blocking_label_prefixes);
+  p.r1_kfs_min_score = node.declare_parameter<double>(
+      "second_preselect_r1_kfs_min_score", p.r1_kfs_min_score);
+  p.depth_min_m = node.declare_parameter<double>(
+      "second_preselect_kfs_depth_min_m", p.depth_min_m);
+  p.depth_max_m = node.declare_parameter<double>(
+      "second_preselect_kfs_depth_max_m", p.depth_max_m);
+  p.kfs_align_tolerance_px = node.declare_parameter<int>(
+      "second_preselect_kfs_align_tolerance_px",
+      p.kfs_align_tolerance_px);
+  p.kfs_align_target_line_offset_px = node.declare_parameter<int>(
+      "second_preselect_kfs_align_target_line_offset_px",
+      p.kfs_align_target_line_offset_px);
+  p.kfs_align_stable_frames = node.declare_parameter<int>(
+      "second_preselect_kfs_align_stable_frames",
+      p.kfs_align_stable_frames);
+  p.kfs_align_max_jump_px = node.declare_parameter<int>(
+      "second_preselect_kfs_align_max_jump_px", p.kfs_align_max_jump_px);
+  p.kfs_align_kp = node.declare_parameter<double>(
+      "second_preselect_kfs_align_kp", p.kfs_align_kp);
+  p.kfs_align_min_speed_mps = node.declare_parameter<double>(
+      "second_preselect_kfs_align_min_speed_mps",
+      p.kfs_align_min_speed_mps);
+  p.kfs_align_max_speed_mps = node.declare_parameter<double>(
+      "second_preselect_kfs_align_max_speed_mps",
+      p.kfs_align_max_speed_mps);
+  p.kfs_align_timeout_s = node.declare_parameter<double>(
+      "second_preselect_kfs_align_timeout_s", p.kfs_align_timeout_s);
+  p.kfs_align_timeout_pickup_tolerance_px = node.declare_parameter<int>(
+      "second_preselect_kfs_align_timeout_pickup_tolerance_px",
+      p.kfs_align_timeout_pickup_tolerance_px);
+  p.kfs_align_heading_gate_deg = node.declare_parameter<double>(
+      "second_preselect_kfs_align_heading_gate_deg",
+      p.kfs_align_heading_gate_deg);
+  p.kfs_lost_stop_frames = node.declare_parameter<int>(
+      "second_preselect_kfs_lost_stop_frames", p.kfs_lost_stop_frames);
+  p.kfs_invert_lateral_direction = node.declare_parameter<bool>(
+      "second_preselect_kfs_invert_lateral_direction",
+      p.kfs_invert_lateral_direction);
+  p.kfs_odom_xy_kp = node.declare_parameter<double>(
+      "second_preselect_kfs_odom_xy_kp", p.kfs_odom_xy_kp);
+  p.kfs_approach_odom_tolerance_m = node.declare_parameter<double>(
+      "second_preselect_kfs_approach_odom_tolerance_m",
+      p.kfs_approach_odom_tolerance_m);
+  p.kfs_odom_yaw_tolerance_deg = node.declare_parameter<double>(
+      "second_preselect_kfs_odom_yaw_tolerance_deg",
+      p.kfs_odom_yaw_tolerance_deg);
+  p.kfs_odom_stable_ticks = node.declare_parameter<int>(
+      "second_preselect_kfs_odom_stable_ticks", p.kfs_odom_stable_ticks);
+  p.kfs_approach_speed_mps = node.declare_parameter<double>(
+      "second_preselect_kfs_approach_speed_mps",
+      p.kfs_approach_speed_mps);
+  p.kfs_approach_min_speed_mps = node.declare_parameter<double>(
+      "second_preselect_kfs_approach_min_speed_mps",
+      p.kfs_approach_min_speed_mps);
+  p.kfs_approach_x_sign = node.declare_parameter<int>(
+      "second_preselect_kfs_approach_x_sign", p.kfs_approach_x_sign);
+  p.kfs_approach_timeout_s = node.declare_parameter<double>(
+      "second_preselect_kfs_approach_timeout_s",
+      p.kfs_approach_timeout_s);
+  p.kfs_grab_distance_m = node.declare_parameter<double>(
+      "second_preselect_kfs_grab_distance_m", p.kfs_grab_distance_m);
+  p.kfs_heading_kp = node.declare_parameter<double>(
+      "second_preselect_kfs_heading_kp", p.kfs_heading_kp);
+  p.kfs_heading_max_speed_radps = node.declare_parameter<double>(
+      "second_preselect_kfs_heading_max_speed_radps",
+      p.kfs_heading_max_speed_radps);
+  p.kfs_mono_distance_fallback_enable = node.declare_parameter<bool>(
+      "second_preselect_kfs_mono_distance_fallback_enable",
+      p.kfs_mono_distance_fallback_enable);
+  p.kfs_mono_target_width_m = node.declare_parameter<double>(
+      "second_preselect_kfs_mono_target_width_m",
+      p.kfs_mono_target_width_m);
+  p.kfs_mono_target_height_m = node.declare_parameter<double>(
+      "second_preselect_kfs_mono_target_height_m",
+      p.kfs_mono_target_height_m);
+  p.kfs_mono_fx_px = node.declare_parameter<double>(
+      "second_preselect_kfs_mono_fx_px", p.kfs_mono_fx_px);
+  p.kfs_mono_fy_px = node.declare_parameter<double>(
+      "second_preselect_kfs_mono_fy_px", p.kfs_mono_fy_px);
+  p.kfs_mono_min_bbox_px = node.declare_parameter<int>(
+      "second_preselect_kfs_mono_min_bbox_px", p.kfs_mono_min_bbox_px);
+  p.kfs_mono_max_delta_from_locked_m = node.declare_parameter<double>(
+      "second_preselect_kfs_mono_max_delta_from_locked_m",
+      p.kfs_mono_max_delta_from_locked_m);
+  p.kfs_depth_roi_size = node.declare_parameter<int>(
+      "second_preselect_kfs_depth_roi_size", p.kfs_depth_roi_size);
+  p.kfs_depth_min_valid_count = node.declare_parameter<int>(
+      "second_preselect_kfs_depth_min_valid_count",
+      p.kfs_depth_min_valid_count);
+  p.kfs_depth_bbox_sample_ratios =
+      node.declare_parameter<std::vector<double>>(
+          "second_preselect_kfs_depth_bbox_sample_ratios",
+          p.kfs_depth_bbox_sample_ratios);
+  p.kfs_depth_bbox_min_success_count = node.declare_parameter<int>(
+      "second_preselect_kfs_depth_bbox_min_success_count",
+      p.kfs_depth_bbox_min_success_count);
+  p.grab_verify_timeout_s = node.declare_parameter<double>(
+      "second_preselect_grab_verify_timeout_s", p.grab_verify_timeout_s);
+  p.grab_verify_lost_stable_frames = node.declare_parameter<int>(
+      "second_preselect_grab_verify_lost_stable_frames",
+      p.grab_verify_lost_stable_frames);
+  p.grab_verify_iou_threshold = node.declare_parameter<double>(
+      "second_preselect_grab_verify_iou_threshold",
+      p.grab_verify_iou_threshold);
+  p.grab_settle_s = node.declare_parameter<double>(
+      "second_preselect_grab_settle_s", p.grab_settle_s);
+  p.require_front_kfs_before_place = node.declare_parameter<bool>(
+      "second_preselect_require_front_kfs_before_place",
+      p.require_front_kfs_before_place);
   p.grid_camera_fx_px = node.declare_parameter<double>(
       "second_preselect_grid_camera_fx_px", p.grid_camera_fx_px);
   p.grid_camera_fy_px = node.declare_parameter<double>(
@@ -870,6 +1973,128 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
           : SecondPreselectionParams{}.after_ramp_turn_delta_rad;
   p.after_ramp_turn_timeout_s =
       std::max(0.001, p.after_ramp_turn_timeout_s);
+  p.search_forward_speed_mps =
+      (std::isfinite(p.search_forward_speed_mps) &&
+       p.search_forward_speed_mps > 0.0)
+          ? std::abs(p.search_forward_speed_mps)
+          : SecondPreselectionParams{}.search_forward_speed_mps;
+  p.search_timeout_s = std::max(0.001, p.search_timeout_s);
+  p.r1_kfs_min_score =
+      std::isfinite(p.r1_kfs_min_score) ? p.r1_kfs_min_score
+                                        : SecondPreselectionParams{}.r1_kfs_min_score;
+  p.depth_min_m =
+      std::isfinite(p.depth_min_m) ? std::max(0.0, p.depth_min_m)
+                                   : SecondPreselectionParams{}.depth_min_m;
+  p.depth_max_m =
+      (std::isfinite(p.depth_max_m) && p.depth_max_m >= p.depth_min_m)
+          ? p.depth_max_m
+          : SecondPreselectionParams{}.depth_max_m;
+  p.kfs_align_tolerance_px = std::max(0, p.kfs_align_tolerance_px);
+  p.kfs_align_target_line_offset_px =
+      std::clamp(p.kfs_align_target_line_offset_px, -10000, 10000);
+  p.kfs_align_stable_frames = std::max(1, p.kfs_align_stable_frames);
+  p.kfs_align_max_jump_px = std::max(0, p.kfs_align_max_jump_px);
+  p.kfs_align_kp =
+      (std::isfinite(p.kfs_align_kp) && p.kfs_align_kp > 0.0)
+          ? p.kfs_align_kp
+          : SecondPreselectionParams{}.kfs_align_kp;
+  p.kfs_align_max_speed_mps =
+      (std::isfinite(p.kfs_align_max_speed_mps) &&
+       p.kfs_align_max_speed_mps > 0.0)
+          ? std::abs(p.kfs_align_max_speed_mps)
+          : SecondPreselectionParams{}.kfs_align_max_speed_mps;
+  p.kfs_align_min_speed_mps =
+      (std::isfinite(p.kfs_align_min_speed_mps) &&
+       p.kfs_align_min_speed_mps >= 0.0)
+          ? std::min(std::abs(p.kfs_align_min_speed_mps),
+                     p.kfs_align_max_speed_mps)
+          : SecondPreselectionParams{}.kfs_align_min_speed_mps;
+  p.kfs_align_timeout_s = std::max(0.001, p.kfs_align_timeout_s);
+  p.kfs_align_timeout_pickup_tolerance_px =
+      std::max(0, p.kfs_align_timeout_pickup_tolerance_px);
+  p.kfs_align_heading_gate_deg =
+      std::isfinite(p.kfs_align_heading_gate_deg)
+          ? std::abs(p.kfs_align_heading_gate_deg)
+          : SecondPreselectionParams{}.kfs_align_heading_gate_deg;
+  p.kfs_lost_stop_frames = std::max(1, p.kfs_lost_stop_frames);
+  p.kfs_odom_xy_kp =
+      (std::isfinite(p.kfs_odom_xy_kp) && p.kfs_odom_xy_kp > 0.0)
+          ? p.kfs_odom_xy_kp
+          : SecondPreselectionParams{}.kfs_odom_xy_kp;
+  p.kfs_approach_odom_tolerance_m =
+      (std::isfinite(p.kfs_approach_odom_tolerance_m) &&
+       p.kfs_approach_odom_tolerance_m > 0.0)
+          ? std::abs(p.kfs_approach_odom_tolerance_m)
+          : SecondPreselectionParams{}.kfs_approach_odom_tolerance_m;
+  p.kfs_odom_yaw_tolerance_deg =
+      std::isfinite(p.kfs_odom_yaw_tolerance_deg)
+          ? std::abs(p.kfs_odom_yaw_tolerance_deg)
+          : SecondPreselectionParams{}.kfs_odom_yaw_tolerance_deg;
+  p.kfs_odom_stable_ticks = std::max(1, p.kfs_odom_stable_ticks);
+  p.kfs_approach_speed_mps =
+      (std::isfinite(p.kfs_approach_speed_mps) &&
+       p.kfs_approach_speed_mps > 0.0)
+          ? std::abs(p.kfs_approach_speed_mps)
+          : SecondPreselectionParams{}.kfs_approach_speed_mps;
+  p.kfs_approach_min_speed_mps =
+      (std::isfinite(p.kfs_approach_min_speed_mps) &&
+       p.kfs_approach_min_speed_mps >= 0.0)
+          ? std::min(std::abs(p.kfs_approach_min_speed_mps),
+                     p.kfs_approach_speed_mps)
+          : SecondPreselectionParams{}.kfs_approach_min_speed_mps;
+  p.kfs_approach_x_sign = p.kfs_approach_x_sign < 0 ? -1 : 1;
+  p.kfs_approach_timeout_s = std::max(0.001, p.kfs_approach_timeout_s);
+  p.kfs_grab_distance_m =
+      (std::isfinite(p.kfs_grab_distance_m) && p.kfs_grab_distance_m >= 0.0)
+          ? p.kfs_grab_distance_m
+          : SecondPreselectionParams{}.kfs_grab_distance_m;
+  p.kfs_heading_kp =
+      (std::isfinite(p.kfs_heading_kp) && p.kfs_heading_kp > 0.0)
+          ? p.kfs_heading_kp
+          : SecondPreselectionParams{}.kfs_heading_kp;
+  p.kfs_heading_max_speed_radps =
+      (std::isfinite(p.kfs_heading_max_speed_radps) &&
+       p.kfs_heading_max_speed_radps > 0.0)
+          ? std::abs(p.kfs_heading_max_speed_radps)
+          : SecondPreselectionParams{}.kfs_heading_max_speed_radps;
+  p.kfs_mono_target_width_m =
+      (std::isfinite(p.kfs_mono_target_width_m) &&
+       p.kfs_mono_target_width_m > 0.0)
+          ? p.kfs_mono_target_width_m
+          : SecondPreselectionParams{}.kfs_mono_target_width_m;
+  p.kfs_mono_target_height_m =
+      (std::isfinite(p.kfs_mono_target_height_m) &&
+       p.kfs_mono_target_height_m > 0.0)
+          ? p.kfs_mono_target_height_m
+          : SecondPreselectionParams{}.kfs_mono_target_height_m;
+  p.kfs_mono_fx_px =
+      (std::isfinite(p.kfs_mono_fx_px) && p.kfs_mono_fx_px > 0.0)
+          ? p.kfs_mono_fx_px
+          : SecondPreselectionParams{}.kfs_mono_fx_px;
+  p.kfs_mono_fy_px =
+      (std::isfinite(p.kfs_mono_fy_px) && p.kfs_mono_fy_px > 0.0)
+          ? p.kfs_mono_fy_px
+          : SecondPreselectionParams{}.kfs_mono_fy_px;
+  p.kfs_mono_min_bbox_px = std::max(1, p.kfs_mono_min_bbox_px);
+  p.kfs_mono_max_delta_from_locked_m =
+      (std::isfinite(p.kfs_mono_max_delta_from_locked_m) &&
+       p.kfs_mono_max_delta_from_locked_m >= 0.0)
+          ? p.kfs_mono_max_delta_from_locked_m
+          : SecondPreselectionParams{}.kfs_mono_max_delta_from_locked_m;
+  p.kfs_depth_roi_size = std::max(1, p.kfs_depth_roi_size);
+  p.kfs_depth_min_valid_count = std::max(1, p.kfs_depth_min_valid_count);
+  if (p.kfs_depth_bbox_sample_ratios.empty()) {
+    p.kfs_depth_bbox_sample_ratios =
+        SecondPreselectionParams{}.kfs_depth_bbox_sample_ratios;
+  }
+  p.kfs_depth_bbox_min_success_count =
+      std::max(1, p.kfs_depth_bbox_min_success_count);
+  p.grab_verify_timeout_s = std::max(0.001, p.grab_verify_timeout_s);
+  p.grab_verify_lost_stable_frames =
+      std::max(1, p.grab_verify_lost_stable_frames);
+  p.grab_verify_iou_threshold =
+      std::clamp(p.grab_verify_iou_threshold, 0.0, 1.0);
+  p.grab_settle_s = std::max(0.0, p.grab_settle_s);
   p.occupied_stable_frames = std::max(1, p.occupied_stable_frames);
   p.observe_timeout_s = std::max(0.001, p.observe_timeout_s);
   p.observe_log_period_s = std::max(0.1, p.observe_log_period_s);
@@ -955,13 +2180,11 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   blackboard->set("second_preselect_start_command_id", p.start_command_id);
   blackboard->set("second_preselect_start_done_feedback_id",
                   p.start_done_feedback_id);
-  blackboard->set("second_preselect_arm_high_raise_command_id",
-                  p.arm_high_raise_command_id);
-  blackboard->set("second_preselect_arm_high_raise_done_feedback_id",
-                  p.arm_high_raise_done_feedback_id);
+  blackboard->set("second_preselect_pickup_command_id",
+                  p.pickup_command_id);
   blackboard->set("second_preselect_place_kfs_command_id",
                   p.place_kfs_command_id);
-  blackboard->set("second_preselect_nav_x1_m", p.nav_x1_m);
+  blackboard->set("second_preselect_cmd_vel_topic", p.cmd_vel_topic);
   blackboard->set("second_preselect_nav_y1_m", p.nav_y1_m);
   blackboard->set("second_preselect_nav_x2_m", p.nav_x2_m);
   blackboard->set("second_preselect_place_forward_x_m", p.place_forward_x_m);
@@ -979,6 +2202,11 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   blackboard->set("second_preselect_after_ramp_turn_target_yaw", 0.0);
   blackboard->set("second_preselect_odom_topic", p.odom_topic);
   blackboard->set("second_preselect_odom_timeout_s", p.odom_timeout_s);
+  blackboard->set("second_preselect_search_forward_speed_mps",
+                  p.search_forward_speed_mps);
+  blackboard->set("second_preselect_search_timeout_s", p.search_timeout_s);
+  blackboard->set("second_preselect_require_front_kfs_before_place",
+                  p.require_front_kfs_before_place);
   blackboard->set("second_preselection_middle_empty", false);
   blackboard->set("second_preselection_middle_occupied", false);
   blackboard->set("second_preselection_observe_error", false);
@@ -988,13 +2216,13 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   blackboard->set("second_preselection_selected_lateral_m", 0.0);
 
   RCLCPP_INFO(node.get_logger(),
-              "第二预选赛参数已加载: mirror_sign=%d start=0x%02X/done=0x%02X high=0x%02X/done=0x%02X place=0x%02X nav=[x1 %.2f, y1 %.2f, x2 %.2f, place %.2f, retreat %.2f] ramp=[approach %.2f climb %.2f max %.2f min %.2f timeout %.1f turn %.2f timeout %.1f] D0=%.2f S0=%.2f base_y_to_grid_x=%.1f camera=[fx %.1f fy %.1f ppx %.1f ppy %.1f] cols=[%.2f,%.2f,%.2f] row_pitch=%.2f safe=[%.2f,%.2f] odom=%s label_stable=%d",
+              "第二预选赛参数已加载: mirror_sign=%d start=0x%02X/done=0x%02X pickup=0x%02X place=0x%02X search=[speed %.2f timeout %.1f] nav=[y1 %.2f, x2 %.2f, place %.2f, retreat %.2f] ramp=[approach %.2f climb %.2f max %.2f min %.2f timeout %.1f turn %.2f timeout %.1f] D0=%.2f S0=%.2f base_y_to_grid_x=%.1f camera=[fx %.1f fy %.1f ppx %.1f ppy %.1f] cols=[%.2f,%.2f,%.2f] row_pitch=%.2f safe=[%.2f,%.2f] odom=%s label_stable=%d require_front=%s",
               mirror_sign,
               p.start_command_id & 0xFF, p.start_done_feedback_id & 0xFF,
-              p.arm_high_raise_command_id & 0xFF,
-              p.arm_high_raise_done_feedback_id & 0xFF,
-              p.place_kfs_command_id & 0xFF, p.nav_x1_m, p.nav_y1_m,
-              p.nav_x2_m, p.place_forward_x_m, p.retreat_x_m,
+              p.pickup_command_id & 0xFF,
+              p.place_kfs_command_id & 0xFF,
+              p.search_forward_speed_mps, p.search_timeout_s,
+              p.nav_y1_m, p.nav_x2_m, p.place_forward_x_m, p.retreat_x_m,
               p.ramp_approach_x_m, p.ramp_climb_x_m,
               p.ramp_max_speed_mps, p.ramp_min_speed_mps,
               p.ramp_timeout_s, p.after_ramp_turn_delta_rad,
@@ -1005,12 +2233,15 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
               p.grid_camera_ppy_px, p.grid_left_col_width_m,
               p.grid_center_col_width_m, p.grid_right_col_width_m,
               p.grid_row_pitch_m, p.grid_safe_width_m, p.grid_safe_height_m,
-              p.odom_topic.c_str(), p.occupied_stable_frames);
+              p.odom_topic.c_str(), p.occupied_stable_frames,
+              p.require_front_kfs_before_place ? "是" : "否");
 }
 
 void registerSecondPreselectionNodes(BT::BehaviorTreeFactory &factory) {
   factory.registerNodeType<SecondPreselectionCommandAction>(
       "SecondPreselectionCommand");
+  factory.registerNodeType<SecondPreselectionKfsPickupAction>(
+      "SecondPreselectionKfsPickup");
   factory.registerNodeType<SecondPreselectionObserveAction>(
       "SecondPreselectionObserve");
   factory.registerNodeType<SecondPreselectionNoEmptyFailureAction>(

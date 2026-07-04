@@ -27,7 +27,7 @@ r2_runtime:
   decision:
     ros__parameters:
       tick_rate_ms: 100             # 行为树 tick 周期，单位毫秒；数值越小调度越频繁
-      team: "blue"                  # 红蓝方场地镜像选择：blue 使用独立蓝方配置文件，并由 rc26_decision 镜像 Y/yaw
+      team: "blue"                  # 红蓝方场地镜像选择：blue 使用红方基准值，并由 rc26_decision 自动镜像 Y/yaw
       # ======================================================================
       # 完整导航链启动 odom gate —— 决策树 tick 前等待 /odom 新鲜且低速稳定
       # ======================================================================
@@ -48,7 +48,7 @@ r2_runtime:
       odom_relative_nav_min_speed_mps: 0.03           # 未进入位置容差时的最小平移速度，单位 m/s
       odom_relative_nav_xy_kp: 0.8                    # odom x/y 误差到车体系平移速度的比例系数
       odom_relative_nav_heading_kp: 1.2               # 平移段保持启动 yaw 的 P 增益
-      odom_relative_nav_heading_max_speed_radps: 0.50  # 平移段 heading hold 最大角速度，单位 rad/s
+      odom_relative_nav_heading_max_speed_radps: 0.70  # 平移段 heading hold 最大角速度，单位 rad/s
       odom_relative_nav_xy_tolerance_m: 0.03          # 平移目标距离容差，单位米
       odom_relative_nav_yaw_tolerance_deg: 3.0        # 平移段 yaw 保持成功容差，单位度
       odom_relative_nav_stable_ticks: 3               # 平移和 yaw 同时进入容差后连续多少 tick 判定完成
@@ -61,28 +61,73 @@ r2_runtime:
       second_preselect_send_command_service: "/mechanism/send_command" # rc26_mcu_transport 可靠命令服务
       second_preselect_feedback_topic: "/mechanism/command_feedback"   # MCU 上行业务反馈 topic
       second_preselect_command_timeout_s: 5.0       # 等待 0x11/0x12/0x13 service ACK 的最长时间
-      second_preselect_done_timeout_s: 5.0          # 等待 0x0D/0x0F 同 seq 完成反馈的最长时间
+      second_preselect_done_timeout_s: 1800.0       # 等待 0x0D 同 seq 完成反馈的最长时间
       second_preselect_log_period_s: 1.0            # 机构等待日志节流周期
       second_preselect_start_command_id: 17         # 0x11 SECOND_PRESELECTION_START
       second_preselect_start_done_feedback_id: 13   # 0x0D SECOND_PRESELECTION_START_DONE
-      second_preselect_arm_high_raise_command_id: 18 # 0x12 SECOND_PRESELECTION_ARM_HIGH_RAISE
-      second_preselect_arm_high_raise_done_feedback_id: 15 # 0x0F SECOND_PRESELECTION_ARM_HIGH_RAISE_DONE
+      second_preselect_pickup_command_id: 18        # 0x12 第二预选赛 KFS 夹取触发，ACK 后做视觉消失验证
       second_preselect_place_kfs_command_id: 19     # 0x13 SECOND_PRESELECTION_PLACE_KFS，ACK 即发送完成
-      second_preselect_nav_x1_m: 1.8                # 开始完成后沿车体系 +X 前进距离；blue 不镜像 X
-      second_preselect_nav_y1_m: 1.2                # 红方基准第二段车体系 Y；blue 启动时自动取反
-      second_preselect_nav_x2_m: 0.75                # 第三段沿车体系 +X 前进距离
-      second_preselect_place_forward_x_m: 0.7       # 找到空位后沿 +X 前进放置
-      second_preselect_retreat_x_m: -0.7            # 放置命令 ACK 后沿 -X 后退
+      second_preselect_cmd_vel_topic: "cmd_vel"     # KFS 搜索、视觉对齐和前向趋近发布的运动命令
+      second_preselect_nav_y1_m: 0.7                # 夹取完成后红方基准 +Y 横移；blue 启动时自动取反
+      second_preselect_nav_x2_m: 2.5                # 横移后沿车体系 +X 到九宫格放置观察位
+      second_preselect_place_forward_x_m: 1.0       # 找到空位后沿 +X 前进放置
+      second_preselect_retreat_x_m: -1.0            # 放置命令 ACK 后沿 -X 后退
       second_preselect_nav_timeout_s: 180.0         # 第二预选赛每个 odom 单轴段超时
+      second_preselect_search_forward_speed_mps: 0.20 # 0x11 后沿 +X 前进搜索 R2 KFS 的速度
+      second_preselect_search_timeout_s: 20.0       # 前进搜索 R2 KFS 超时
+      second_preselect_r2_target_label_prefixes: ["T_"] # R2 KFS 标签前缀
+      second_preselect_r1_blocking_labels: ["R_R1", "B_R1", "R1_KFS"] # R1 KFS 标签集合；搜索阶段识别到后继续寻找 R2
+      second_preselect_r1_kfs_min_score: 0.50       # R1_KFS 最低置信度
+      second_preselect_kfs_depth_min_m: 0.6         # R2/R1 KFS 深度窗口下限
+      second_preselect_kfs_depth_max_m: 1.2         # R2/R1 KFS 深度窗口上限
+      second_preselect_kfs_align_tolerance_px: 15   # KFS 横移对齐像素容差
+      second_preselect_kfs_align_target_line_offset_px: 10 # KFS 目标线相对图像中心偏置
+      second_preselect_kfs_align_stable_frames: 3   # 对齐稳定新帧数
+      second_preselect_kfs_align_max_jump_px: 70    # tip_alignment 目标锁定跳变阈值
+      second_preselect_kfs_align_kp: 0.0015         # KFS offset 到 linear.y 的比例系数
+      second_preselect_kfs_align_min_speed_mps: 0.06 # KFS 横移最小速度
+      second_preselect_kfs_align_max_speed_mps: 0.14 # KFS 横移最大速度
+      second_preselect_kfs_align_timeout_s: 20.0    # KFS 横移视觉对齐超时
+      second_preselect_kfs_align_timeout_pickup_tolerance_px: 40 # 超时补夹像素容差
+      second_preselect_kfs_align_heading_gate_deg: 3.0 # yaw gate，超出时只修正朝向
+      second_preselect_kfs_lost_stop_frames: 6      # 横移中连续丢失后停车等待
+      second_preselect_kfs_invert_lateral_direction: false # 当前安装下不反转横移方向
+      second_preselect_kfs_odom_xy_kp: 0.8          # KFS 前向 odom 闭环 P 增益
+      second_preselect_kfs_approach_odom_tolerance_m: 0.02 # 前向趋近距离容差
+      second_preselect_kfs_odom_yaw_tolerance_deg: 5.0 # 前向趋近 yaw 容差
+      second_preselect_kfs_odom_stable_ticks: 3     # 前向趋近稳定 tick
+      second_preselect_kfs_approach_speed_mps: 0.20 # 前向趋近最大速度
+      second_preselect_kfs_approach_min_speed_mps: 0.03 # 前向趋近最小速度
+      second_preselect_kfs_approach_x_sign: 1       # 前向趋近沿车体系 +X
+      second_preselect_kfs_approach_timeout_s: 8.0  # 前向趋近超时
+      second_preselect_kfs_grab_distance_m: 0.45    # 机械臂可触达距离
+      second_preselect_kfs_heading_kp: 1.2          # KFS 对齐/趋近 heading hold 增益
+      second_preselect_kfs_heading_max_speed_radps: 0.30 # heading hold 最大角速度
+      second_preselect_kfs_mono_distance_fallback_enable: true # 深度洞时允许尺寸估距
+      second_preselect_kfs_mono_target_width_m: 0.35 # KFS 正面可见宽度
+      second_preselect_kfs_mono_target_height_m: 0.35 # KFS 正面可见高度
+      second_preselect_kfs_mono_fx_px: 385.83319091796875 # 尺寸估距 fx
+      second_preselect_kfs_mono_fy_px: 385.83319091796875 # 尺寸估距 fy
+      second_preselect_kfs_mono_min_bbox_px: 40     # 尺寸估距最小 bbox
+      second_preselect_kfs_mono_max_delta_from_locked_m: 0.25 # 尺寸估距与锁定深度最大差
+      second_preselect_kfs_depth_roi_size: 7        # 单点深度 ROI 边长
+      second_preselect_kfs_depth_min_valid_count: 10 # 单 ROI 有效点阈值
+      second_preselect_kfs_depth_bbox_sample_ratios: [0.25, 0.50, 0.75] # bbox 多点采样位置
+      second_preselect_kfs_depth_bbox_min_success_count: 1 # 多点采样最少成功点
+      second_preselect_grab_verify_timeout_s: 3.0   # 0x12 ACK 后视觉消失验证超时
+      second_preselect_grab_verify_lost_stable_frames: 3 # 原目标连续消失帧数
+      second_preselect_grab_verify_iou_threshold: 0.30 # 原目标匹配 IoU 阈值
+      second_preselect_grab_settle_s: 0.5           # 夹取确认成功后停车稳定时间
+      second_preselect_require_front_kfs_before_place: true # 放置前必须看到九宫格前方 KFS
       preselection_ramp_approach_x_m: 0.50      # second managed 入口斜坡前接近段 OdomDriveX 距离
       preselection_ramp_climb_x_m: 1.50         # second managed 入口斜坡爬坡段 OdomDriveX 距离
       preselection_ramp_max_speed_mps: 0.30     # 斜坡段平移速度上限
       preselection_ramp_min_speed_mps: 0.03     # 斜坡段最小平移速度
       preselection_ramp_timeout_s: 180.0        # 斜坡段每段超时
-      second_preselect_after_ramp_turn_delta_rad: -1.5708 # 红方基准斜坡后右转 90°；blue 启动时自动取反
+      second_preselect_after_ramp_turn_delta_rad: 1.5708 # 红方基准斜坡后左转 90°；blue 启动时自动取反
       second_preselect_after_ramp_turn_timeout_s: 30.0 # 斜坡后 90° 转向超时
       second_preselect_vision_config_file: ""       # 空则回退 rc26_vision/config/vision_models.yaml
-      second_preselect_model_id: "kfs_default"      # 用于启动深度相机/视觉快照；目标标签中心落入动态格子 ROI 即占据
+      second_preselect_model_id: "kfs_default"      # 用于 KFS 搜索/夹取与九宫格占据观察
       second_preselect_grid_camera_fx_px: 385.6756287 # Color 640x480 fx
       second_preselect_grid_camera_fy_px: 385.1935120 # Color 640x480 fy
       second_preselect_grid_camera_ppx_px: 323.6063232 # Color 640x480 ppx
@@ -95,7 +140,9 @@ r2_runtime:
       second_preselect_grid_safe_width_m: 0.40      # 单格动态 ROI 安全宽度
       second_preselect_grid_safe_height_m: 0.40     # 单格动态 ROI 安全高度
       second_preselect_grid_camera_height_m: 0.80   # 当前水平安装相机离地高度
-      second_preselect_grid_initial_distance_m: 1.80 # 观察开始时相机到九宫格平面的距离
+
+      second_preselect_grid_initial_distance_m: 1.50 # 观察开始时相机到九宫格平面的距离
+
       second_preselect_grid_initial_lateral_offset_m: 0.0 # 红方基准观察开始横向偏移；blue 自动取反
       second_preselect_grid_base_y_to_grid_x_sign: -1.0 # 红方基准 +Y_base 对应 -X_grid；blue 自动取反
       second_preselect_grid_place_lateral_bias_m: 0.0 # 红方基准放置横向偏置补偿；blue 自动取反
@@ -104,16 +151,16 @@ r2_runtime:
       second_preselect_odom_topic: "odom"           # 动态 ROI 观察时读取的 odom topic
       second_preselect_odom_timeout_s: 0.5          # 动态 ROI odom 新鲜度超时
       second_preselect_occupied_stable_frames: 2    # 中层全占据时连续多少帧确认无空位
-      second_preselect_observe_timeout_s: 2.0       # 单次窗口观察最长时间；超时保守视为被占据
+      second_preselect_observe_timeout_s: 2.0       # 放置前九宫格观察最长时间；未见前方 KFS 则失败
       second_preselect_observe_log_period_s: 0.5    # 观察日志节流周期
 
       # ======================================================================
       # 武馆区 (MC) 红方基准运行参数 —— blue 启动时自动镜像侧向 yaw 和原地旋转方向
       # ======================================================================
       # --- 红方基准 odom 单轴分段导航：+X 0.2m -> 右转 90° -> -X 0.6m ---
-      mc_nav_forward_x_m: 0.98     # 红方基准第一段 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
+      mc_nav_forward_x_m: 0.98     # 蓝方现场标定保留值；其余参数与红方同步，blue 不镜像 X
       mc_nav_right_turn_delta_rad: -1.5708 # 红方基准第一段后相对右转角度；blue 自动取反为左转
-      mc_nav_reverse_x_m: -0.80    # 红方基准转向后第二段 OdomDriveX 车体系 x 负向位移；blue 不镜像 X
+      mc_nav_reverse_x_m: -0.80     # 红方基准转向后第二段 OdomDriveX 车体系 x 负向位移；blue 不镜像 X
       mc_nav_timeout_sec: 180.0     # 单个 OdomDriveX/OdomDriveY/OdomTurnToYaw 段的超时时间，单位秒
 
       # --- 相机 / 推理（内嵌直连相机，对齐 tip_vision_test_node）---
@@ -142,7 +189,7 @@ r2_runtime:
       mc_align_heading_hold_enable: true     # 是否订阅 mc_odom_topic 并发布 angular.z 保持车身朝向
       # mc_align_target_yaw_rad 可作为视觉阶段静态兜底；mc_tree.xml 默认传入右转后的动态 odom yaw
       mc_align_heading_kp: 1.2               # yaw 误差到 angular.z 的比例系数
-      mc_align_heading_max_speed_radps: 0.30 # 视觉伺服 heading hold 最大角速度，单位 rad/s
+      mc_align_heading_max_speed_radps: 0.40 # 视觉伺服 heading hold 最大角速度，单位 rad/s
       mc_align_heading_tolerance_deg: 3.0    # yaw 误差进入该容差后才允许稳定计数
       mc_align_heading_gate_deg: 8.0         # yaw 误差超过该 gate 时暂停横移/前探，只先修正朝向
       mc_align_odom_timeout_s: 0.5           # odom 超过该时间未更新时停车等待，单位秒
@@ -179,10 +226,10 @@ r2_runtime:
       mc_mf_start_command_id: 16           # COMPETITION_START(0x10)，通知下位机比赛开始
       mc_mf_start_command_timeout_s: 5.0   # 等待 0x10 可靠 ACK 的最长时间，单位秒
       mc_mf_start_done_feedback_id: 12     # COMPETITION_START_DONE(0x0C)，必须与 0x10 的 ACK seq 匹配
-      mc_mf_start_done_timeout_s: 5.0      # 等待 0x0C 比赛开始完成反馈的最长时间，单位秒
+      mc_mf_start_done_timeout_s: 1800.0      # 等待 0x0C 比赛开始完成反馈的最长时间，单位秒
       mc_mf_start_log_period_s: 1.0        # 等待人工开始信号期间 INFO 日志节流周期，单位秒
       preselection_entry_continue_delay_msec: 500 # first 入口 0x06 握手完成后进入 MC 前延时
-      preselection_after_mc_continue_delay_msec: 500 # MC 末尾 0x06 触发后、下发 0x10 前延时
+      preselection_after_mc_continue_delay_msec: 5000 # MC 末尾 0x06 触发后、下发 0x10 前延时
       mf_preselection_external_trigger_enable: false # managed first/second 入口禁用旧全局 0x10 监听，0x10 作为第二限位事件交给 branch gate
       mf_preselection_external_trigger_feedback_topic: "/mechanism/command_feedback" # 历史全局外部触发来源；managed 模式不使用
       mf_preselection_external_trigger_feedback_id: 16 # MF_PRESELECTION_TRIGGER(0x10)，第二限位开关事件
@@ -192,15 +239,15 @@ r2_runtime:
       # 梅林区预选赛红方基准链路参数 —— blue 启动时自动镜像入口 Y、左右探测和 yaw
       # ======================================================================
       mf_preselect_entry2_nav_enable: true      # 2号入口导航点未标定前关闭；关闭时默认机器人已在2号入口
-      mf_preselect_entry2_nav_segment1_x_m: 2.1  # 红方基准 2号入口 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
+      mf_preselect_entry2_nav_segment1_x_m: 2.1 # 红方基准 2号入口 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
       mf_preselect_entry2_nav_segment1_y_m: -1.6 # 红方基准 2号入口 OdomDriveY 车体系 y 负向位移；blue 自动取反
-      mf_preselect_entry2_nav_timeout_sec: 180.0 # 入口-个 x/y 动作超时，单位秒
+      mf_preselect_entry2_nav_timeout_sec: 180.0 # 入口单个 x/y 动作超时，单位秒
 
       # --- MC 后置 MF 预选组合树入口导航；只由 mf_preselection_after_mc_tree.xml 使用 ---
       mc_to_mf_preselect_nav_enable: true       # 组合树中 MC 完成后是否执行到 MF 预选的专用入口导航
-      mc_to_mf_preselect_nav_segment1_x_m: -2.45 # MC 后置入口第一段 OdomDriveX 车体系 x 负向位移；blue 不镜像 X
+      mc_to_mf_preselect_nav_segment1_x_m: -2.1 # MC 后置入口第一段 OdomDriveX 车体系 x 负向位移；blue 不镜像 X
       mc_to_mf_preselect_nav_turn_delta_rad: -1.5708 # 第一段后右转 90°；blue 自动取反为左转
-      mc_to_mf_preselect_nav_segment2_x_m: 1.75 # 转向后第二段 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
+      mc_to_mf_preselect_nav_segment2_x_m: 1.3 # 转向后第二段 OdomDriveX 车体系 x 正向位移；blue 不镜像 X
       mc_to_mf_preselect_nav_timeout_sec: 180.0 # MC 后置入口单个 x/turn 动作超时，单位秒
 
       mf_preselect_vision_config_file: ""        # KFS 视觉模型配置；空则回退 rc26_vision/config/vision_models.yaml
@@ -218,29 +265,29 @@ r2_runtime:
       mf_preselect_entry_depth_max_m: 1.4        # 入口2/1/3定点与入口横移中断 KFS 锁定深度上限，单位 m
       mf_preselect_detect_seen_stable_frames: 1  # 连续看到目标多少帧后确认
       mf_preselect_detect_lost_stable_frames: 5  # 连续未看到目标多少帧后确认无目标
-      mf_preselect_entry_detect_timeout_s: 2.0   # 入口单点检测最长等待，单位秒
-      mf_preselect_scan_detect_timeout_s: 2.0    # 行内/阶梯扫描检测最长等待，单位秒
-      mf_preselect_entry_interrupt_max_offset_px: 170 # 入口横移中 KFS 偏离中心超过该值时继续扫线，不立即停车夹取
+      mf_preselect_entry_detect_timeout_s: 1.0   # 入口单点检测最长等待，单位秒
+      mf_preselect_scan_detect_timeout_s: 1.0    # 行内/阶梯扫描检测最长等待，单位秒
+      mf_preselect_entry_interrupt_max_offset_px: 165 # 入口横移中 KFS 偏离中心超过该值时继续扫线，不立即停车夹取
       mf_preselect_entry_interrupt_dynamic_comp_enable: true # 入口横移按 MCU 半余弦减速模型动态放大中断窗口
       mf_preselect_entry_interrupt_latency_s: 0.15 # 入口横移中断补偿的视觉/BT/下发延迟估计，单位秒
       mf_preselect_entry_interrupt_fx_px: 385.83319091796875 # 当前 D455 640x480 彩色流 CameraInfo.K[0] 实测 fx，单位 px
-      mf_preselect_entry_interrupt_extra_px_min: 20 # 动态提前中断像素补偿下限，单位 px
-      mf_preselect_entry_interrupt_extra_px_max: 80 # 动态提前中断像素补偿上限，单位 px
+      mf_preselect_entry_interrupt_extra_px_min: 10 # 动态提前中断像素补偿下限，单位 px
+      mf_preselect_entry_interrupt_extra_px_max: 50 # 动态提前中断像素补偿上限，单位 px
       mf_preselect_entry_mcu_stop_settle_enable: true # 入口横移中断后先持续零速等待 MCU 收完速度规划
       mf_preselect_entry_mcu_vy_acc_mps2: 1.0     # MCU Chassis_driver.h 中 CHASSIS_MAX_VY_ACC 对应值
       mf_preselect_entry_mcu_stop_margin_s: 0.08  # MCU 理论减速时间外的保守余量，单位秒
-      mf_preselect_entry_mcu_stop_max_wait_s: 0.70 # 入口横移中断后零速等待上限，单位秒
-      mf_preselect_kfs_align_tolerance_px: 10    # KFS 锁定帧像素偏差容差；容差内跳过视觉横移对齐
-      mf_preselect_kfs_align_target_line_offset_px: 0 # KFS 识别框中线目标相对图像中心线的偏置，单位 px；负值表示目标线向图像左侧移动
+      mf_preselect_entry_mcu_stop_max_wait_s: 0.40 # 入口横移中断后零速等待上限，单位秒
+      mf_preselect_kfs_align_tolerance_px: 15    # KFS 锁定帧像素偏差容差；容差内跳过视觉横移对齐
+      mf_preselect_kfs_align_target_line_offset_px: 10 # KFS 识别框中线目标相对图像中心线的偏置，单位 px；负值表示目标线向图像左侧移动
       mf_preselect_kfs_align_stable_frames: 3    # KFS 横移视觉闭环/复核前要求同一目标连续稳定新帧数
-      mf_preselect_kfs_align_max_jump_px: 50     # KFS tip_alignment 目标锁定允许的单帧中心跳变阈值，单位 px
-      mf_preselect_kfs_align_kp: 0.0010          # KFS 视觉横移 offset 到 linear.y 的比例系数
-      mf_preselect_kfs_align_min_speed_mps: 0.05 # KFS 视觉横移最小速度幅值
-      mf_preselect_kfs_align_max_speed_mps: 0.10 # KFS 视觉横移最大速度幅值
+      mf_preselect_kfs_align_max_jump_px: 70     # KFS tip_alignment 目标锁定允许的单帧中心跳变阈值，单位 px
+      mf_preselect_kfs_align_kp: 0.0015         # KFS 视觉横移 offset 到 linear.y 的比例系数
+      mf_preselect_kfs_align_min_speed_mps: 0.06 # KFS 视觉横移最小速度幅值
+      mf_preselect_kfs_align_max_speed_mps: 0.14 # KFS 视觉横移最大速度幅值
       mf_preselect_kfs_align_timeout_s: 20.0      # KFS 横移视觉闭环总安全超时
       mf_preselect_kfs_align_timeout_pickup_tolerance_px: 40 # 超时但仍在该偏差内且深度有效时继续趋近夹取
       mf_preselect_kfs_align_heading_gate_deg: 3.0 # KFS tip_alignment yaw gate；超过该偏差时暂停横移只修正朝向
-      mf_preselect_kfs_lost_stop_frames: 3       # KFS 视觉横移中连续多少帧未锁定目标后停车等待新稳定帧
+      mf_preselect_kfs_lost_stop_frames: 6       # KFS 视觉横移中连续多少帧未锁定目标后停车等待新稳定帧
       mf_preselect_kfs_invert_lateral_direction: false # 当前相机/底盘安装下需反转 KFS 横移方向
       mf_preselect_kfs_odom_xy_kp: 0.8           # KFS 前向 odom 闭环距离误差 P 增益
       mf_preselect_kfs_approach_odom_tolerance_m: 0.02 # KFS 前向趋近 odom 闭环距离容差，单位 m
@@ -250,7 +297,7 @@ r2_runtime:
       mf_preselect_kfs_approach_min_speed_mps: 0.03 # KFS 前向 odom 闭环 x 方向最小速度幅值，单位 m/s
       mf_preselect_kfs_approach_x_sign: 1        # KFS 趋近方向符号；1 为 linear.x 正向，-1 为负向
       mf_preselect_kfs_approach_timeout_s: 8.0   # KFS 前向 odom 闭环趋近安全超时；计划时长超出会失败停车
-      mf_preselect_kfs_grab_distance_m: 0.50     # KFS 机械臂可触达距离/停止目标距离，前进距离=max(0,锁定深度-该值)
+      mf_preselect_kfs_grab_distance_m: 0.45     # KFS 机械臂可触达距离/停止目标距离，前进距离=max(0,锁定深度-该值)
       mf_preselect_kfs_mono_distance_fallback_enable: true # 横移对齐阶段真实深度洞时，允许用已锁定 KFS 的 350mm 尺寸估距兜底
       mf_preselect_kfs_mono_target_width_m: 0.35  # KFS 正面可见宽度，单位 m
       mf_preselect_kfs_mono_target_height_m: 0.35 # KFS 正面可见高度，单位 m
@@ -301,8 +348,8 @@ r2_runtime:
       mf_preselect_row_scan_back_yaw_delta_rad: 3.1416  # 红方基准第2/3行周身探测背向转角；blue 自动取反
       mf_preselect_row4_exit_turn_yaw_rad: -1.5708      # 红方基准第二列第四行强制出口转向 yaw；blue 自动取反
       mf_preselect_turn_kp: 1.2                         # 转向 yaw P 增益
-      mf_preselect_turn_max_speed_radps: 0.50           # 转向最大角速度
-      mf_preselect_turn_tolerance_deg: 3.0              # 转向完成角度容差
+      mf_preselect_turn_max_speed_radps: 0.80           # 转向最大角速度
+      mf_preselect_turn_tolerance_deg: 5.0              # 转向完成角度容差
       mf_preselect_turn_stable_ticks: 3                 # 转向稳定 tick 数
       mf_preselect_turn_timeout_s: 16.0                 # 单次转向超时，单位秒
       mf_preselect_odom_timeout_s: 0.5                  # odom 新鲜度超时，单位秒
@@ -322,7 +369,7 @@ r2_runtime:
       grid_heading_cmd_vel_topic: "cmd_vel"         # GridTurn/GridHeadingAlign 发布的速度话题
       grid_heading_odom_topic: "odom"               # GridTurn/GridHeadingAlign 使用的 odom yaw 话题
       grid_heading_kp: 1.2                          # yaw 误差到 angular.z 的比例系数
-      grid_heading_turn_max_speed_radps: 0.5        # GridTurn 粗转向最大角速度，单位 rad/s
+      grid_heading_turn_max_speed_radps: 0.6        # GridTurn 粗转向最大角速度，单位 rad/s
       grid_heading_align_max_speed_radps: 0.30      # GridHeadingAlign 精对齐最大角速度，单位 rad/s
       grid_heading_turn_gate_deg: 8.0               # GridTurn 进入粗对准的角度 gate，单位度
       grid_heading_align_tolerance_deg: 3.0         # GridHeadingAlign 成功容差，单位度
@@ -362,7 +409,7 @@ r2_runtime:
       stair_climb_rear_drive_fast_speed_mps: 0.40    # 上台阶后轮 0x05 段线性降速起始速度绝对值，单位 m/s
       stair_climb_rear_drive_slow_speed_mps: 0.10    # 上台阶后轮 0x05 段线性降速目标速度绝对值，单位 m/s
       stair_climb_rear_drive_slowdown_duration_s: 2.5 # 上台阶后轮 0x05 段从 fast 降到 slow 的时长，单位秒
-      stair_descend_rear_drive_speed_mps: 0.06       # 下台阶后轮 0x05 段固定速度绝对值，单位 m/s
+      stair_descend_rear_drive_speed_mps: 0.15       # 下台阶后轮 0x05 段固定速度绝对值，单位 m/s
       stair_descend_front_second_drive_fast_speed_mps: 0.40 # 下台阶前轮第二激光 0x07 段线性降速起始速度绝对值，单位 m/s
       stair_descend_front_second_drive_slow_speed_mps: 0.05 # 下台阶前轮第二激光 0x07 段线性降速目标速度绝对值，单位 m/s
       stair_descend_front_second_drive_slowdown_duration_s: 2.0 # 下台阶前轮第二激光 0x07 段从 fast 降到 slow 的时长，单位秒

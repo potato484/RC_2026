@@ -6588,7 +6588,7 @@ rclcpp::Duration MfPreselectionFlowAction::seconds(double value) const {
 void loadMfPreselectionParams(rclcpp::Node &node,
                               const BT::Blackboard::Ptr &blackboard) {
   // 参数集中由 decision_node 启动时声明并写入黑板；MfPreselectionFlowAction
-  // 运行中不监听参数变化。这里按语义分组声明，便于和 r2_runtime.yaml 对照。
+  // 运行中不监听参数变化。这里按语义分组声明，便于和红/蓝运行配置对照。
   MfPreselectionParams p;
   int mirror_sign = 1;
   if (blackboard) {

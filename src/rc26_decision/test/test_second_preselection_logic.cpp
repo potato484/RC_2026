@@ -250,6 +250,41 @@ TEST(SecondPreselectionLogic, DynamicMiddleSelectionReportsNoEmptyWhenFull) {
   EXPECT_EQ(observation.grid_occupied_mask, (1U << 3) | (1U << 4) | (1U << 5));
 }
 
+TEST(SecondPreselectionLogic, KfsApproachDistanceUsesLockedDepthAndReach) {
+  auto params = defaultParams();
+  params.kfs_grab_distance_m = 0.45;
+  params.kfs_approach_x_sign = 1;
+  EXPECT_NEAR(rc26_decision::secondPreselectionKfsApproachDistance(0.95, params),
+              0.50, 1.0e-6);
+
+  params.kfs_approach_x_sign = -1;
+  EXPECT_NEAR(rc26_decision::secondPreselectionKfsApproachDistance(0.95, params),
+              -0.50, 1.0e-6);
+
+  params.kfs_approach_x_sign = 1;
+  EXPECT_NEAR(rc26_decision::secondPreselectionKfsApproachDistance(0.40, params),
+              0.0, 1.0e-6);
+}
+
+TEST(SecondPreselectionLogic, FrontKfsPresenceFollowsMatchedGridDetections) {
+  const auto params = defaultParams();
+  const auto empty = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      {}, params, 0.0, 0.0);
+  EXPECT_FALSE(rc26_decision::secondPreselectionHasFrontKfs(empty));
+
+  const auto projection = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      {}, params, 0.0, 0.0);
+  const auto center = projection.grid_cells[4].center;
+  const std::vector<rc26_vision::Detection> detections{makeDetection(
+      "KFS_CENTER", center.x - 8.0F, center.y - 8.0F, center.x + 8.0F,
+      center.y + 8.0F)};
+  const auto observed = rc26_decision::evaluateSecondPreselectionGridOccupancy(
+      detections, params, 0.0, 0.0);
+  EXPECT_TRUE(rc26_decision::secondPreselectionHasFrontKfs(observed));
+  ASSERT_TRUE(observed.selected_middle_col.has_value());
+  EXPECT_EQ(*observed.selected_middle_col, -1);
+}
+
 TEST(SecondPreselectionLogic, DynamicSelectedLateralAccountsForOdomDeltaY) {
   const auto params = defaultParams();
   const double odom_delta_y_m = 0.20;
