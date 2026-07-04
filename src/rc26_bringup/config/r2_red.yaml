@@ -33,7 +33,7 @@ r2_runtime:
       # ======================================================================
       startup_odom_topic: "odom"     # 完整导航链启动前等待的 odom 话题
       startup_odom_timeout_s: 0.5    # 启动 gate 接受的 odom 最大年龄，单位秒
-      startup_odom_wait_timeout_s: 20.0 # 等待 /odom 稳定的最长时间，单位秒
+      startup_odom_wait_timeout_s: 1800.0 # 等待 /odom 稳定的最长时间，单位秒
       startup_odom_min_wait_s: 1.0   # 收到 /odom 后至少等待多久才允许启动行为树，单位秒
       startup_odom_stable_samples: 10 # 连续多少帧低速 /odom 才认为稳定
       startup_odom_max_linear_speed_mps: 0.03 # 启动稳定判定允许的最大线速度
@@ -67,21 +67,24 @@ r2_runtime:
       second_preselect_start_done_feedback_id: 13   # 0x0D SECOND_PRESELECTION_START_DONE
       second_preselect_pickup_command_id: 18        # 0x12 第二预选赛 KFS 夹取触发，ACK 后等待 0x11 再做视觉消失验证
       second_preselect_pickup_done_feedback_id: 17  # 0x11 SECOND_PRESELECTION_PICKUP_KFS_DONE，必须与 0x12 的 ACK seq 匹配
+      second_preselect_pre_approach_lower_command_id: 20 # 0x14 视觉对齐后机械臂彻底放下
+      second_preselect_pre_approach_lower_done_feedback_id: 18 # 0x12 机械臂放下完成反馈，必须与 0x14 的 ACK seq 匹配
+      second_preselect_pre_approach_lower_settle_s: 0.5 # 收到 0x12 后继续停车等待，确认机械臂彻底放下再前进
       second_preselect_place_kfs_command_id: 19     # 0x13 SECOND_PRESELECTION_PLACE_KFS，ACK 即发送完成
       second_preselect_cmd_vel_topic: "cmd_vel"     # KFS 搜索、视觉对齐和前向趋近发布的运动命令
-      second_preselect_nav_y1_m: 0.7                # 夹取完成后红方基准 +Y 横移；blue 启动时自动取反
+      second_preselect_nav_y1_m: 0.75               # 夹取完成后红方基准 +Y 横移；blue 启动时自动取反
       second_preselect_nav_x2_m: 2.5                # 横移后沿车体系 +X 到九宫格放置观察位
-      second_preselect_place_forward_x_m: 2.85       # 找到空位后沿 +X 前进放置
+      second_preselect_place_forward_x_m: 3.20       # 找到空位后沿 +X 前进放置
       second_preselect_retreat_x_m: -1.0            # 放置命令 ACK 后沿 -X 后退
       second_preselect_nav_timeout_s: 180.0         # 第二预选赛每个 odom 单轴段超时
-      second_preselect_search_forward_speed_mps: 0.20 # 0x11 后沿 +X 前进搜索 R2 KFS 的速度
+      second_preselect_search_forward_speed_mps: 0.30 # 0x11 后沿 +X 前进搜索 R2 KFS 的速度
       second_preselect_search_timeout_s: 20.0       # 前进搜索 R2 KFS 超时
       second_preselect_r2_target_label_prefixes: ["T_"] # R2 KFS 标签前缀
       second_preselect_r1_blocking_labels: ["R_R1", "B_R1", "R1_KFS"] # R1 KFS 标签集合；搜索阶段识别到后继续寻找 R2
       second_preselect_r1_kfs_min_score: 0.50       # R1_KFS 最低置信度
-      second_preselect_kfs_depth_min_m: 0.6         # R2/R1 KFS 深度窗口下限
+      second_preselect_kfs_depth_min_m: 0.2         # R2/R1 KFS 深度窗口下限
       second_preselect_kfs_depth_max_m: 1.2         # R2/R1 KFS 深度窗口上限
-      second_preselect_kfs_align_tolerance_px: 18   # KFS 横移对齐像素容差；现场允许略宽，避免近距离框抖动反复清零
+      second_preselect_kfs_align_tolerance_px: 10   # KFS 横移对齐像素容差；现场允许略宽，避免近距离框抖动反复清零
       second_preselect_kfs_align_target_line_offset_px: 10 # KFS 目标线相对图像中心偏置
       second_preselect_kfs_align_stable_frames: 3   # 对齐稳定新帧数
       second_preselect_kfs_align_max_jump_px: 120   # tip_alignment 目标锁定跳变阈值；近距离 bbox 抖动时保持同一目标锁定

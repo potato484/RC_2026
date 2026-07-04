@@ -33,6 +33,9 @@ struct SecondPreselectionParams {
   int start_done_feedback_id{0x0D};
   int pickup_command_id{0x12};
   int pickup_done_feedback_id{0x11};
+  int pre_approach_lower_command_id{0x14};
+  int pre_approach_lower_done_feedback_id{0x12};
+  double pre_approach_lower_settle_s{0.5};
   int place_kfs_command_id{0x13};
 
   std::string cmd_vel_topic{"cmd_vel"};
@@ -226,6 +229,10 @@ private:
   enum class Phase {
     Search,
     VisualAlign,
+    SendingPreApproachLower,
+    WaitingPreApproachLowerAck,
+    WaitingPreApproachLowerDone,
+    PreApproachLowerSettle,
     OdomApproach,
     SendingPickup,
     WaitingPickupAck,
@@ -269,14 +276,21 @@ private:
   void beginVisualAlign(const KfsObservation &observation);
   BT::NodeStatus tickSearch();
   BT::NodeStatus tickVisualAlign();
+  void beginPreApproachLowerCommand(const KfsObservation &observation);
+  BT::NodeStatus tickSendingPreApproachLower();
+  BT::NodeStatus tickWaitingPreApproachLowerAck();
+  BT::NodeStatus tickWaitingPreApproachLowerDone();
+  BT::NodeStatus tickPreApproachLowerSettle();
   BT::NodeStatus beginOdomApproach(const KfsObservation &observation);
   BT::NodeStatus tickOdomApproach();
+  void beginMechanismCommand(int command_id, int done_feedback_id,
+                             const std::string &label);
   void beginPickupCommand();
   BT::NodeStatus tickSendingPickup();
   BT::NodeStatus tickWaitingPickupAck();
   BT::NodeStatus tickWaitingPickupDone();
   void handleFeedback(const FeedbackMsg::SharedPtr msg);
-  bool sendPickupCommand();
+  bool sendActiveCommand();
   BT::NodeStatus beginGrabVerify();
   BT::NodeStatus tickGrabVerify();
   BT::NodeStatus tickSettle();
@@ -312,6 +326,7 @@ private:
   double align_filtered_offset_px_{0.0};
   rc26_vision::VisualTargetSnapshot pickup_target_;
   bool has_pickup_target_{false};
+  std::optional<KfsObservation> pre_approach_observation_;
   double last_real_depth_m_{0.0};
   double approach_distance_m_{0.0};
   bool approach_started_{false};
@@ -323,12 +338,15 @@ private:
   bool approach_waiting_odom_logged_{false};
   std::atomic<bool> command_response_seen_{false};
   std::atomic<bool> command_accepted_{false};
-  std::atomic<bool> pickup_done_feedback_seen_{false};
+  std::atomic<bool> command_done_feedback_seen_{false};
   std::atomic<bool> command_error_seen_{false};
   std::atomic<bool> command_busy_seen_{false};
   std::atomic<int> command_seq_{-1};
   std::atomic<uint64_t> command_generation_{0};
   std::string command_error_detail_;
+  uint8_t active_command_id_{0};
+  int active_done_feedback_id_{-1};
+  std::string active_command_label_;
   int grab_verify_lost_count_{0};
   int64_t grab_verify_last_sequence_{0};
   bool grab_verify_seen_new_frame_{false};

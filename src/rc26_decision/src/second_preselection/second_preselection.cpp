@@ -807,6 +807,14 @@ BT::NodeStatus SecondPreselectionKfsPickupAction::onRunning() {
     return tickSearch();
   case Phase::VisualAlign:
     return tickVisualAlign();
+  case Phase::SendingPreApproachLower:
+    return tickSendingPreApproachLower();
+  case Phase::WaitingPreApproachLowerAck:
+    return tickWaitingPreApproachLowerAck();
+  case Phase::WaitingPreApproachLowerDone:
+    return tickWaitingPreApproachLowerDone();
+  case Phase::PreApproachLowerSettle:
+    return tickPreApproachLowerSettle();
   case Phase::OdomApproach:
     return tickOdomApproach();
   case Phase::SendingPickup:
@@ -1265,7 +1273,8 @@ BT::NodeStatus SecondPreselectionKfsPickupAction::tickVisualAlign() {
         align_last_observation_->has_depth &&
         std::abs(align_last_observation_->offset_px) <=
             params_.kfs_align_timeout_pickup_tolerance_px) {
-      return beginOdomApproach(*align_last_observation_);
+      beginPreApproachLowerCommand(*align_last_observation_);
+      return BT::NodeStatus::RUNNING;
     }
     return fail("第二预选赛 KFS 视觉对齐超时");
   }
@@ -1349,7 +1358,8 @@ BT::NodeStatus SecondPreselectionKfsPickupAction::tickVisualAlign() {
     }
     publishStop();
     if (align_stable_count_ >= params_.kfs_align_stable_frames) {
-      return beginOdomApproach(*observation);
+      beginPreApproachLowerCommand(*observation);
+      return BT::NodeStatus::RUNNING;
     }
     return BT::NodeStatus::RUNNING;
   }
@@ -1363,6 +1373,116 @@ BT::NodeStatus SecondPreselectionKfsPickupAction::tickVisualAlign() {
                         : 0.0;
   publishTwist(0.0, vy, heading->angular_z_radps);
   return BT::NodeStatus::RUNNING;
+}
+
+void SecondPreselectionKfsPickupAction::beginPreApproachLowerCommand(
+    const KfsObservation &observation) {
+  pre_approach_observation_ = observation;
+  pickup_target_ = observation.target;
+  has_pickup_target_ = true;
+  beginMechanismCommand(params_.pre_approach_lower_command_id,
+                        params_.pre_approach_lower_done_feedback_id,
+                        "SECOND_PRESELECTION_ARM_LOWER");
+  phase_ = Phase::SendingPreApproachLower;
+  RCLCPP_INFO(node_->get_logger(),
+              "第二预选赛视觉对齐完成，先发送机械臂放下命令：command=%s done_feedback=%s settle=%.2fs",
+              byteHex(params_.pre_approach_lower_command_id).c_str(),
+              byteHex(params_.pre_approach_lower_done_feedback_id).c_str(),
+              params_.pre_approach_lower_settle_s);
+}
+
+BT::NodeStatus
+SecondPreselectionKfsPickupAction::tickSendingPreApproachLower() {
+  renderKfsUi("lower-send", align_last_observation_, "sending 0x14");
+  publishStop();
+  if (!sendActiveCommand()) {
+    if (elapsedSec(phase_tp_) > params_.command_timeout_s) {
+      return fail("第二预选赛等待机械臂放下命令服务超时");
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+  phase_ = Phase::WaitingPreApproachLowerAck;
+  phase_tp_ = std::chrono::steady_clock::now();
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus
+SecondPreselectionKfsPickupAction::tickWaitingPreApproachLowerAck() {
+  renderKfsUi("lower-ack", align_last_observation_, "waiting 0x14 ACK");
+  publishStop();
+  if (command_error_seen_.load(std::memory_order_relaxed)) {
+    return fail(command_error_detail_.empty()
+                    ? "第二预选赛机械臂放下命令收到 MCU 错误"
+                    : command_error_detail_);
+  }
+  if (command_response_seen_.load(std::memory_order_relaxed)) {
+    if (!command_accepted_.load(std::memory_order_relaxed)) {
+      return fail("第二预选赛机械臂放下命令 ACK 被拒绝");
+    }
+    const int seq = command_seq_.load(std::memory_order_relaxed);
+    RCLCPP_INFO(node_->get_logger(),
+                "第二预选赛机械臂放下命令 ACK 成功：command=%s seq=%d，等待完成反馈 %s",
+                byteHex(active_command_id_).c_str(), seq,
+                byteHex(active_done_feedback_id_).c_str());
+    phase_ = Phase::WaitingPreApproachLowerDone;
+    phase_tp_ = std::chrono::steady_clock::now();
+    last_log_tp_ = phase_tp_;
+    return BT::NodeStatus::RUNNING;
+  }
+  if (elapsedSec(phase_tp_) > params_.command_timeout_s) {
+    return fail("第二预选赛等待机械臂放下命令 ACK 超时");
+  }
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus
+SecondPreselectionKfsPickupAction::tickWaitingPreApproachLowerDone() {
+  renderKfsUi("lower-done", align_last_observation_,
+              "waiting MCU 0x12 done");
+  publishStop();
+  const int seq = command_seq_.load(std::memory_order_relaxed);
+  if (command_error_seen_.load(std::memory_order_relaxed)) {
+    return fail(command_error_detail_.empty()
+                    ? "第二预选赛机械臂放下命令收到 MCU 错误"
+                    : command_error_detail_);
+  }
+  if (command_done_feedback_seen_.load(std::memory_order_relaxed)) {
+    RCLCPP_INFO(node_->get_logger(),
+                "第二预选赛机械臂放下完成反馈已收到：feedback=%s seq=%d，停车等待 %.2fs",
+                byteHex(active_done_feedback_id_).c_str(), seq,
+                params_.pre_approach_lower_settle_s);
+    phase_ = Phase::PreApproachLowerSettle;
+    phase_tp_ = std::chrono::steady_clock::now();
+    return BT::NodeStatus::RUNNING;
+  }
+  if (elapsedSec(phase_tp_) > params_.done_timeout_s) {
+    return fail("等待第二预选赛机械臂放下完成反馈超时：feedback=" +
+                byteHex(active_done_feedback_id_) +
+                " seq=" + std::to_string(seq));
+  }
+  if (elapsedSec(last_log_tp_) >= params_.log_period_s) {
+    const bool busy_seen = command_busy_seen_.load(std::memory_order_relaxed);
+    RCLCPP_INFO(node_->get_logger(),
+                "第二预选赛等待机械臂放下完成反馈：feedback=%s seq=%d elapsed=%.1fs busy=%s",
+                byteHex(active_done_feedback_id_).c_str(), seq,
+                elapsedSec(phase_tp_), busy_seen ? "是" : "否");
+    last_log_tp_ = std::chrono::steady_clock::now();
+  }
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus
+SecondPreselectionKfsPickupAction::tickPreApproachLowerSettle() {
+  renderKfsUi("lower-settle", align_last_observation_,
+              "waiting arm fully lowered");
+  publishStop();
+  if (elapsedSec(phase_tp_) < params_.pre_approach_lower_settle_s) {
+    return BT::NodeStatus::RUNNING;
+  }
+  if (!pre_approach_observation_.has_value()) {
+    return fail("第二预选赛机械臂放下后缺少前向趋近目标");
+  }
+  return beginOdomApproach(*pre_approach_observation_);
 }
 
 BT::NodeStatus SecondPreselectionKfsPickupAction::beginOdomApproach(
@@ -1453,18 +1573,28 @@ BT::NodeStatus SecondPreselectionKfsPickupAction::tickOdomApproach() {
   return BT::NodeStatus::RUNNING;
 }
 
-void SecondPreselectionKfsPickupAction::beginPickupCommand() {
+void SecondPreselectionKfsPickupAction::beginMechanismCommand(
+    int command_id, int done_feedback_id, const std::string &label) {
   publishStop();
   command_generation_.fetch_add(1, std::memory_order_relaxed);
   command_response_seen_ = false;
   command_accepted_ = false;
-  pickup_done_feedback_seen_ = false;
+  command_done_feedback_seen_ = false;
   command_error_seen_ = false;
   command_busy_seen_ = false;
   command_seq_ = -1;
   command_error_detail_.clear();
-  phase_ = Phase::SendingPickup;
+  active_command_id_ = clampByte(command_id);
+  active_done_feedback_id_ = std::clamp(done_feedback_id, 0, 255);
+  active_command_label_ = label.empty() ? "second_preselection_command" : label;
   phase_tp_ = std::chrono::steady_clock::now();
+}
+
+void SecondPreselectionKfsPickupAction::beginPickupCommand() {
+  beginMechanismCommand(params_.pickup_command_id,
+                        params_.pickup_done_feedback_id,
+                        "SECOND_PRESELECTION_PICKUP_KFS");
+  phase_ = Phase::SendingPickup;
   RCLCPP_INFO(node_->get_logger(),
               "第二预选赛准备发送 KFS 夹取触发命令：0x%02X，完成反馈=0x%02X",
               params_.pickup_command_id & 0xFF,
@@ -1474,7 +1604,7 @@ void SecondPreselectionKfsPickupAction::beginPickupCommand() {
 BT::NodeStatus SecondPreselectionKfsPickupAction::tickSendingPickup() {
   renderKfsUi("pickup-send", align_last_observation_, "sending 0x12");
   publishStop();
-  if (!sendPickupCommand()) {
+  if (!sendActiveCommand()) {
     if (elapsedSec(phase_tp_) > params_.command_timeout_s) {
       return fail("第二预选赛等待 KFS 夹取命令服务超时");
     }
@@ -1500,8 +1630,7 @@ BT::NodeStatus SecondPreselectionKfsPickupAction::tickWaitingPickupAck() {
     const int seq = command_seq_.load(std::memory_order_relaxed);
     RCLCPP_INFO(node_->get_logger(),
                 "第二预选赛 KFS 夹取命令 ACK 成功：command=0x%02X seq=%d，等待完成反馈 0x%02X",
-                params_.pickup_command_id & 0xFF, seq,
-                params_.pickup_done_feedback_id & 0xFF);
+                active_command_id_, seq, active_done_feedback_id_ & 0xFF);
     phase_ = Phase::WaitingPickupDone;
     phase_tp_ = std::chrono::steady_clock::now();
     last_log_tp_ = phase_tp_;
@@ -1522,10 +1651,10 @@ BT::NodeStatus SecondPreselectionKfsPickupAction::tickWaitingPickupDone() {
                     ? "第二预选赛 KFS 夹取命令收到 MCU 错误"
                     : command_error_detail_);
   }
-  if (pickup_done_feedback_seen_.load(std::memory_order_relaxed)) {
+  if (command_done_feedback_seen_.load(std::memory_order_relaxed)) {
     RCLCPP_INFO(node_->get_logger(),
                 "第二预选赛 KFS 夹取完成反馈已收到：feedback=0x%02X seq=%d，开始视觉验证",
-                params_.pickup_done_feedback_id & 0xFF, seq);
+                active_done_feedback_id_ & 0xFF, seq);
     return beginGrabVerify();
   }
   if (elapsedSec(phase_tp_) > params_.done_timeout_s) {
@@ -1537,7 +1666,7 @@ BT::NodeStatus SecondPreselectionKfsPickupAction::tickWaitingPickupDone() {
     const bool busy_seen = command_busy_seen_.load(std::memory_order_relaxed);
     RCLCPP_INFO(node_->get_logger(),
                 "第二预选赛等待 KFS 夹取完成反馈：feedback=0x%02X seq=%d elapsed=%.1fs busy=%s",
-                params_.pickup_done_feedback_id & 0xFF, seq,
+                active_done_feedback_id_ & 0xFF, seq,
                 elapsedSec(phase_tp_), busy_seen ? "是" : "否");
     last_log_tp_ = std::chrono::steady_clock::now();
   }
@@ -1562,20 +1691,21 @@ void SecondPreselectionKfsPickupAction::handleFeedback(
   }
   if (seq >= 0 && msg->seq == static_cast<uint8_t>(seq & 0xFF) &&
       msg->feedback_id ==
-          static_cast<uint8_t>(params_.pickup_done_feedback_id & 0xFF)) {
-    pickup_done_feedback_seen_.store(true, std::memory_order_relaxed);
+          static_cast<uint8_t>(active_done_feedback_id_ & 0xFF)) {
+    command_done_feedback_seen_.store(true, std::memory_order_relaxed);
   }
 }
 
-bool SecondPreselectionKfsPickupAction::sendPickupCommand() {
+bool SecondPreselectionKfsPickupAction::sendActiveCommand() {
   if (!send_client_ || !send_client_->service_is_ready()) {
     RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
-                         "第二预选赛等待 KFS 夹取命令服务：%s",
-                         params_.send_command_service.c_str());
+                         "第二预选赛等待机构命令服务：%s label=%s",
+                         params_.send_command_service.c_str(),
+                         active_command_label_.c_str());
     return false;
   }
   auto request = std::make_shared<SendCommandSrv::Request>();
-  request->command_id = clampByte(params_.pickup_command_id);
+  request->command_id = active_command_id_;
   request->payload = emptyPayload();
   const uint64_t token = command_generation_.load(std::memory_order_relaxed);
   try {
@@ -1600,12 +1730,13 @@ bool SecondPreselectionKfsPickupAction::sendPickupCommand() {
           command_response_seen_.store(true, std::memory_order_relaxed);
         });
   } catch (const std::exception &e) {
-    command_error_detail_ = std::string("第二预选赛 KFS 夹取命令发送异常：") + e.what();
+    command_error_detail_ = "第二预选赛机构命令发送异常：" +
+                            active_command_label_ + " " + e.what();
     command_response_seen_.store(true, std::memory_order_relaxed);
     command_accepted_.store(false, std::memory_order_relaxed);
   }
-  RCLCPP_INFO(node_->get_logger(), "第二预选赛已发送 KFS 夹取触发命令：0x%02X",
-              params_.pickup_command_id & 0xFF);
+  RCLCPP_INFO(node_->get_logger(), "第二预选赛已发送机构命令：%s command=%s",
+              active_command_label_.c_str(), byteHex(active_command_id_).c_str());
   return true;
 }
 
@@ -1738,6 +1869,7 @@ void SecondPreselectionKfsPickupAction::clearRuntimeState() {
   align_filtered_offset_valid_ = false;
   align_filtered_offset_px_ = 0.0;
   has_pickup_target_ = false;
+  pre_approach_observation_.reset();
   last_real_depth_m_ = 0.0;
   approach_distance_m_ = 0.0;
   approach_started_ = false;
@@ -1746,11 +1878,14 @@ void SecondPreselectionKfsPickupAction::clearRuntimeState() {
   approach_waiting_odom_logged_ = false;
   command_response_seen_ = false;
   command_accepted_ = false;
-  pickup_done_feedback_seen_ = false;
+  command_done_feedback_seen_ = false;
   command_error_seen_ = false;
   command_busy_seen_ = false;
   command_seq_ = -1;
   command_error_detail_.clear();
+  active_command_id_ = 0;
+  active_done_feedback_id_ = -1;
+  active_command_label_.clear();
   grab_verify_lost_count_ = 0;
   grab_verify_last_sequence_ = 0;
   grab_verify_seen_new_frame_ = false;
@@ -2187,6 +2322,15 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   p.pickup_done_feedback_id = node.declare_parameter<int>(
       "second_preselect_pickup_done_feedback_id",
       p.pickup_done_feedback_id);
+  p.pre_approach_lower_command_id = node.declare_parameter<int>(
+      "second_preselect_pre_approach_lower_command_id",
+      p.pre_approach_lower_command_id);
+  p.pre_approach_lower_done_feedback_id = node.declare_parameter<int>(
+      "second_preselect_pre_approach_lower_done_feedback_id",
+      p.pre_approach_lower_done_feedback_id);
+  p.pre_approach_lower_settle_s = node.declare_parameter<double>(
+      "second_preselect_pre_approach_lower_settle_s",
+      p.pre_approach_lower_settle_s);
   p.place_kfs_command_id = node.declare_parameter<int>(
       "second_preselect_place_kfs_command_id", p.place_kfs_command_id);
   p.cmd_vel_topic = node.declare_parameter<std::string>(
@@ -2440,6 +2584,12 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
        p.search_forward_speed_mps > 0.0)
           ? std::abs(p.search_forward_speed_mps)
           : SecondPreselectionParams{}.search_forward_speed_mps;
+  p.pre_approach_lower_done_feedback_id =
+      std::clamp(p.pre_approach_lower_done_feedback_id, 0, 255);
+  p.pre_approach_lower_settle_s =
+      std::isfinite(p.pre_approach_lower_settle_s)
+          ? std::max(0.0, p.pre_approach_lower_settle_s)
+          : SecondPreselectionParams{}.pre_approach_lower_settle_s;
   p.pickup_done_feedback_id = std::clamp(p.pickup_done_feedback_id, 0, 255);
   p.search_timeout_s = std::max(0.001, p.search_timeout_s);
   p.r1_kfs_min_score =
@@ -2655,6 +2805,12 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
                   p.pickup_command_id);
   blackboard->set("second_preselect_pickup_done_feedback_id",
                   p.pickup_done_feedback_id);
+  blackboard->set("second_preselect_pre_approach_lower_command_id",
+                  p.pre_approach_lower_command_id);
+  blackboard->set("second_preselect_pre_approach_lower_done_feedback_id",
+                  p.pre_approach_lower_done_feedback_id);
+  blackboard->set("second_preselect_pre_approach_lower_settle_s",
+                  p.pre_approach_lower_settle_s);
   blackboard->set("second_preselect_place_kfs_command_id",
                   p.place_kfs_command_id);
   blackboard->set("second_preselect_cmd_vel_topic", p.cmd_vel_topic);
@@ -2687,9 +2843,12 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   blackboard->set("second_preselection_selected_lateral_m", 0.0);
 
   RCLCPP_INFO(node.get_logger(),
-              "第二预选赛参数已加载: mirror_sign=%d start=0x%02X/done=0x%02X pickup=0x%02X/done=0x%02X place=0x%02X search=[speed %.2f timeout %.1f] nav=[y1 %.2f, x2 %.2f, place %.2f, retreat %.2f] ramp=[approach %.2f climb %.2f max %.2f min %.2f timeout %.1f turn %.2f timeout %.1f] D0=%.2f S0=%.2f base_y_to_grid_x=%.1f camera=[fx %.1f fy %.1f ppx %.1f ppy %.1f] cols=[%.2f,%.2f,%.2f] row_pitch=%.2f safe=[%.2f,%.2f] odom=%s label_stable=%d",
+              "第二预选赛参数已加载: mirror_sign=%d start=0x%02X/done=0x%02X lower=0x%02X/done=0x%02X/settle=%.2fs pickup=0x%02X/done=0x%02X place=0x%02X search=[speed %.2f timeout %.1f] nav=[y1 %.2f, x2 %.2f, place %.2f, retreat %.2f] ramp=[approach %.2f climb %.2f max %.2f min %.2f timeout %.1f turn %.2f timeout %.1f] D0=%.2f S0=%.2f base_y_to_grid_x=%.1f camera=[fx %.1f fy %.1f ppx %.1f ppy %.1f] cols=[%.2f,%.2f,%.2f] row_pitch=%.2f safe=[%.2f,%.2f] odom=%s label_stable=%d",
               mirror_sign,
               p.start_command_id & 0xFF, p.start_done_feedback_id & 0xFF,
+              p.pre_approach_lower_command_id & 0xFF,
+              p.pre_approach_lower_done_feedback_id & 0xFF,
+              p.pre_approach_lower_settle_s,
               p.pickup_command_id & 0xFF,
               p.pickup_done_feedback_id & 0xFF,
               p.place_kfs_command_id & 0xFF,

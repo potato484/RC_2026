@@ -51,7 +51,8 @@
 - `preselection_entry_continue_delay_msec`、`preselection_after_mc_continue_delay_msec`：first managed gate 的 0x06 分支延时参数。入口 gate 仍在握手完成后延时进入 MC；MC 末尾 gate 会在收到 0x06 后先按 `preselection_after_mc_continue_delay_msec` 等待，再下发 `COMPETITION_START(0x10)`。
 - `preselection_ramp_approach_x_m`、`preselection_ramp_climb_x_m`、`preselection_ramp_max_speed_mps`、`preselection_ramp_min_speed_mps`、`preselection_ramp_timeout_s`：second managed 斜坡两段 odom 前进参数。
 - `second_preselect_after_ramp_turn_delta_rad`、`second_preselect_after_ramp_turn_timeout_s`：second managed 斜坡后 90° 转向参数；红方默认 `-1.5708`，`team=blue` 时由 `rc26_decision` 参数加载阶段镜像为 `+1.5708`。
-- `second_preselect_pickup_command_id`、`second_preselect_pickup_done_feedback_id`、`second_preselect_search_*`、`second_preselect_r2_target_*`、`second_preselect_r1_*`、`second_preselect_kfs_*`、`second_preselect_grab_verify_*`、`second_preselect_grab_settle_s`：第二预选赛搜索夹取链参数。当前树内 `0x12` 用作 KFS 夹取触发，ACK 后先等待同 `seq` 的 MCU 上行 `0x11` 夹取完成反馈，再由视觉消失验证确认夹取。
+- `second_preselect_pre_approach_lower_command_id`、`second_preselect_pre_approach_lower_done_feedback_id`、`second_preselect_pre_approach_lower_settle_s`：第二预选赛视觉对齐后、odom 前向趋近前的机械臂彻底放下握手参数。当前默认下发 `0x14`，等待同 `seq` 的 `0x12`，再停车等待 `0.5s` 后才允许前进。
+- `second_preselect_pickup_command_id`、`second_preselect_pickup_done_feedback_id`、`second_preselect_search_*`、`second_preselect_r2_target_*`、`second_preselect_r1_*`、`second_preselect_kfs_*`、`second_preselect_grab_verify_*`、`second_preselect_grab_settle_s`：第二预选赛搜索夹取链参数。当前树内前向趋近后的 `0x12` 用作 KFS 夹取触发，ACK 后先等待同 `seq` 的 MCU 上行 `0x11` 夹取完成反馈，再由视觉消失验证确认夹取。
 - `second_preselect_nav_y1_m`、`second_preselect_nav_x2_m`、`second_preselect_place_forward_x_m`、`second_preselect_retreat_x_m`：第二预选赛夹取成功后的放置导航段。夹取确认后默认按红方基准 `+Y 0.7m -> +X 2.5m` 到九宫格观察位，blue 运行时由 `rc26_decision` 自动镜像 Y 段。
 - `second_preselect_dynamic_roi_ui_enable`、`second_preselect_dynamic_roi_ui_window_name`：第二预选赛本地 OpenCV 视觉调试窗口参数。现场开启后会贯穿 KFS 搜索、视觉对齐、夹取完成反馈等待、夹取消失验证和九宫格 ROI 观察，显示识别框、锁定目标、目标线、阶段状态、ROI、mask 和选位信息，不改变决策结果。
 - `mf_preselection_external_trigger_*`：历史全局 MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)` 触发参数。managed first/second 模式下，bringup 会强制 `mf_preselection_external_trigger_enable=false`，避免旧监听绕过 `WaitPreselectionBranchGate`；0x10 在 managed 模式中只表示第二限位开关事件，具体握手由当前树的 gate profile 决定。
@@ -80,6 +81,8 @@
 - `/cmd_vel` 默认由 `rc26_decision` 的导航/动作节点串行发布，由 `rc26_mcu_transport` 消费；运行遥控或其它测试入口时必须显式保证命令权威唯一。
 
 ## 本轮同步
+
+2026-07-05 同步：红/蓝运行配置新增第二预选赛视觉对齐后的机械臂放下握手参数：`second_preselect_pre_approach_lower_command_id=0x14`、`second_preselect_pre_approach_lower_done_feedback_id=0x12` 和 `second_preselect_pre_approach_lower_settle_s=0.5`。`rc26_decision` 收到同 `seq` 放下完成反馈并停车等待后，才开始原有 KFS odom 前向趋近。
 
 2026-07-04 同步：红/蓝运行配置跟随第二预选赛新流程补齐搜索夹取链参数。`0x12` 现在在第二预选赛内作为 KFS 夹取触发命令使用，ACK 后先等待同 `seq` 的 `second_preselect_pickup_done_feedback_id=0x11`，再由 `rc26_decision` 做视觉消失验证；旧 `second_preselect_arm_high_raise_*`、`second_preselect_nav_x1_m` 与放置前 KFS 必见 gate 已从运行配置中删除。夹取成功后的导航参数改为红方基准 `second_preselect_nav_y1_m: 0.7` 与 `second_preselect_nav_x2_m: 2.5`，未观察到前方 KFS 时继续按空位逻辑放置。
 

@@ -67,6 +67,9 @@ r2_runtime:
       second_preselect_start_done_feedback_id: 13   # 0x0D SECOND_PRESELECTION_START_DONE
       second_preselect_pickup_command_id: 18        # 0x12 第二预选赛 KFS 夹取触发，ACK 后等待 0x11 再做视觉消失验证
       second_preselect_pickup_done_feedback_id: 17  # 0x11 SECOND_PRESELECTION_PICKUP_KFS_DONE，必须与 0x12 的 ACK seq 匹配
+      second_preselect_pre_approach_lower_command_id: 20 # 0x14 视觉对齐后机械臂彻底放下
+      second_preselect_pre_approach_lower_done_feedback_id: 18 # 0x12 机械臂放下完成反馈，必须与 0x14 的 ACK seq 匹配
+      second_preselect_pre_approach_lower_settle_s: 0.5 # 收到 0x12 后继续停车等待，确认机械臂彻底放下再前进
       second_preselect_place_kfs_command_id: 19     # 0x13 SECOND_PRESELECTION_PLACE_KFS，ACK 即发送完成
       second_preselect_cmd_vel_topic: "cmd_vel"     # KFS 搜索、视觉对齐和前向趋近发布的运动命令
       second_preselect_nav_y1_m: 0.7                # 夹取完成后红方基准 +Y 横移；blue 启动时自动取反

@@ -51,6 +51,10 @@
 | `ARM_SECOND_LOWER` | `0x0E` |
 | `ENTRY_GRAB_KFS_UP` | `0x0F` |
 | `COMPETITION_START` | `0x10` |
+| `SECOND_PRESELECTION_START` | `0x11` |
+| `SECOND_PRESELECTION_ARM_HIGH_RAISE` | `0x12` |
+| `SECOND_PRESELECTION_PLACE_KFS` | `0x13` |
+| `SECOND_PRESELECTION_ARM_LOWER` | `0x14` |
 
 上行 `FeedbackID`：
 
@@ -73,6 +77,7 @@
 | `SECOND_PRESELECTION_ARM_HIGH_RAISE_DONE` | `0x0F` |
 | `MF_PRESELECTION_TRIGGER` | `0x10` |
 | `SECOND_PRESELECTION_PICKUP_KFS_DONE` | `0x11` |
+| `SECOND_PRESELECTION_ARM_LOWER_DONE` | `0x12` |
 | `MCU_ERROR` | `0xFE` |
 
 已经移除的旧协议项包括旧组装动作、通用 KFS 夹取动作、旧动作完成反馈和旧即时负确认语义。可靠命令只通过通用 `ACK(0x00)` 成功；同 `seq` 收到 `MCU_ERROR(0xFE)` 表示下位机原因，串口层会按现有 retry `0x00~0x09` 继续重发，若后续收到 `ACK(0x00)` 则成功，若持续收到 `0xFE` 则失败并在 `lastError()` / diagnostics 中明确写出下位机原因。未收到确认时仍通过超时或断链失败收敛。心跳只通过 `HEARTBEAT_ACK(0x01)` 成功，心跳收到 `0xFE` 会记录为下位机原因但不按串口断链触发重连。
@@ -90,7 +95,8 @@
 - `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 只服务梅林预选赛入口高侧 KFS 夹取链；决策层在入口 1/3 阶梯高侧锁定目标、横移复核并完成开环趋近后发送 `0x0F`，service ACK 仍只代表通用 `ACK(0x00)`，随后必须按同 `seq` 等待 `0x0B` 进入视觉消失验证。
 - `COMPETITION_START(0x10)` 是 first 决策族的比赛开始通知命令；payload 为空，service ACK 只表示 MCU 已确认收到，真正放行还要等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`。first 中 0x06 完整分支和 0x10 单独梅林分支都使用这组握手。
 - `SECOND_PRESELECTION_START(0x11)` 是 second 决策族的比赛开始通知命令；payload 为空，service ACK 后还要等待同 `seq` 的 `SECOND_PRESELECTION_START_DONE(0x0D)`。second 中 0x06 完整分支和 0x10 对抗区不完整分支都使用这组握手。
-- `SECOND_PRESELECTION_ARM_HIGH_RAISE/KFS_PICKUP(0x12)` 当前在第二预选赛搜索夹取链内作为 KFS 夹取触发命令使用；service ACK 只表示 MCU 已收到命令，决策层必须等待同 `seq` 的 `SECOND_PRESELECTION_PICKUP_KFS_DONE(0x11)` 后，才进入原目标视觉消失验证。
+- `SECOND_PRESELECTION_ARM_LOWER(0x14)` 当前在第二预选赛搜索夹取链视觉横移对齐后使用；service ACK 只表示 MCU 已收到命令，决策层必须等待同 `seq` 的 `SECOND_PRESELECTION_ARM_LOWER_DONE(0x12)` 并完成固定停车等待后，才允许 odom 前向趋近。
+- `SECOND_PRESELECTION_ARM_HIGH_RAISE/KFS_PICKUP(0x12)` 当前在第二预选赛搜索夹取链前向趋近完成后作为 KFS 夹取触发命令使用；service ACK 只表示 MCU 已收到命令，决策层必须等待同 `seq` 的 `SECOND_PRESELECTION_PICKUP_KFS_DONE(0x11)` 后，才进入原目标视觉消失验证。
 - 上行 `MF_PRESELECTION_TRIGGER(0x10)` 是第二限位开关事件；它不要求匹配任何已有下行 `seq`，也不替代 `COMPETITION_START_DONE(0x0C)`。managed first/second 入口下，`rc26_decision` 只在 `WaitPreselectionBranchGate` 内消费该事件，具体下行命令和 done 反馈由当前树的 `switch_start_profile` 决定。
 - `MCU_ERROR(0xFE)` 是 MCU 端错误码，不是机构业务完成反馈；它只用于说明本轮失败来自下位机原因。可靠发送会继续重试，最终失败不会触发串口重连，调用方通过 service `accepted=false`、节点日志和 diagnostics `last_error` 判断。
 - `FRONT_LASER_HEIGHT_JUMP(0x04)`、`REAR_LASER_HEIGHT_JUMP(0x05)`、`FRONT_SECOND_LASER_HEIGHT_JUMP(0x07)` 是台阶激光高度突变事件，v1 payload 为空或忽略。

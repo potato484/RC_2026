@@ -50,6 +50,7 @@ enum class CommandID : uint8_t {
     SECOND_PRESELECTION_START = 0x11,          // 第二预选赛开始通知
     SECOND_PRESELECTION_ARM_HIGH_RAISE = 0x12, // 第二预选赛机械臂底座高抬升
     SECOND_PRESELECTION_PLACE_KFS = 0x13,      // 第二预选赛放置 KFS 到中层九宫格
+    SECOND_PRESELECTION_ARM_LOWER = 0x14,      // 第二预选赛视觉对齐后机械臂彻底放下
 };
 
 // ============================================================================
@@ -73,6 +74,7 @@ enum class FeedbackID : uint8_t {
     SECOND_PRESELECTION_ARM_HIGH_RAISE_DONE = 0x0F, // 第二预选赛机械臂高抬升完成
     MF_PRESELECTION_TRIGGER = 0x10,      // 第二限位开关事件；当前 gate profile 决定 0x10/0x0C 或 0x11/0x0D
     SECOND_PRESELECTION_PICKUP_KFS_DONE = 0x11, // 第二预选赛 KFS 夹取动作完成
+    SECOND_PRESELECTION_ARM_LOWER_DONE = 0x12, // 第二预选赛机械臂彻底放下完成
     MCU_ERROR = 0xFE,                   // MCU 端错误码：下位机原因
 };
 
@@ -124,6 +126,8 @@ inline const char* commandName(uint8_t command_id) {
         return "ARM_TOP_RAISE";
     case CommandID::SECOND_PRESELECTION_PLACE_KFS:
         return "CYLINDER_RELEASE";
+    case CommandID::SECOND_PRESELECTION_ARM_LOWER:
+        return "ARM_BOTTOM_LOWER";
     default:
         return "UNKNOWN_COMMAND";
     }
