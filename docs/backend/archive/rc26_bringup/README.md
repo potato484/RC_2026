@@ -53,6 +53,7 @@
 - `second_preselect_after_ramp_turn_delta_rad`、`second_preselect_after_ramp_turn_timeout_s`：second managed 斜坡后 90° 转向参数；红方默认 `-1.5708`，`team=blue` 时由 `rc26_decision` 参数加载阶段镜像为 `+1.5708`。
 - `second_preselect_pickup_command_id`、`second_preselect_search_*`、`second_preselect_r2_target_*`、`second_preselect_r1_*`、`second_preselect_kfs_*`、`second_preselect_grab_verify_*`、`second_preselect_grab_settle_s`：第二预选赛搜索夹取链参数。当前树内 `0x12` 用作 KFS 夹取触发，ACK 后由视觉消失验证确认夹取。
 - `second_preselect_nav_y1_m`、`second_preselect_nav_x2_m`、`second_preselect_place_forward_x_m`、`second_preselect_retreat_x_m`：第二预选赛夹取成功后的放置导航段。夹取确认后默认按红方基准 `+Y 0.7m -> +X 2.5m` 到九宫格观察位，blue 运行时由 `rc26_decision` 自动镜像 Y 段。
+- `second_preselect_dynamic_roi_ui_enable`、`second_preselect_dynamic_roi_ui_window_name`：第二预选赛动态 ROI 本地 OpenCV 调试窗口参数。UI 默认关闭以兼容 AidLux/headless 运行；现场开启后只显示 ROI、检测框、mask 和选位信息，不改变决策结果。
 - `mf_preselection_external_trigger_*`：历史全局 MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)` 触发参数。managed first/second 模式下，bringup 会强制 `mf_preselection_external_trigger_enable=false`，避免旧监听绕过 `WaitPreselectionBranchGate`；0x10 在 managed 模式中只表示第二限位开关事件，具体握手由当前树的 gate profile 决定。
 - `second_preselect_grid_label_prefixes` / `second_preselect_grid_label_exact_names`：第二预选赛动态 ROI 的可选标签过滤列表。红/蓝运行配置默认省略这两个键，由 `rc26_decision` 使用空过滤列表，表示所有非空 `class_name` 有效；不要在 launch 运行配置中写 `[]`，空数组经 Python dict 传给 ROS2 launch 时没有元素类型，会在创建 `decision_node` 前触发参数类型异常。
 这些参数描述相对分段和 odom yaw 目标生成，不是地图位姿。现场标定时应按启动姿态重新调整每段 `distance_m` 和相对/绝对 yaw；蓝方若只做标准镜像，保持 `r2_blue.yaml` 的 `team: blue` 即可复用同一组红方基准值。
@@ -81,6 +82,8 @@
 ## 本轮同步
 
 2026-07-04 同步：红/蓝运行配置跟随第二预选赛新流程补齐搜索夹取链参数。`0x12` 现在在第二预选赛内作为 KFS 夹取触发命令使用，ACK 后由 `rc26_decision` 做视觉消失验证；旧 `second_preselect_arm_high_raise_*`、`second_preselect_nav_x1_m` 与放置前 KFS 必见 gate 已从运行配置中删除。夹取成功后的导航参数改为红方基准 `second_preselect_nav_y1_m: 0.7` 与 `second_preselect_nav_x2_m: 2.5`，未观察到前方 KFS 时继续按空位逻辑放置。
+
+2026-07-04 同步：红/蓝运行配置新增第二预选赛动态 ROI OpenCV UI 参数，默认 `second_preselect_dynamic_roi_ui_enable: false`。该窗口只服务现场调试观察，headless 场景保持关闭；若显式开启但窗口创建失败，决策侧会告警并继续无 UI 运行。
 
 2026-07-04 同步：红/蓝运行配置完成统一，除 `r2_blue.yaml` 保留现场标定值 `mc_nav_forward_x_m: 0.98` 和 `team: blue` 外，其余参数值、顺序与注释均同步红方基准；历史单文件 `r2_runtime.yaml` 已删除，默认和调试入口都应显式使用 `r2_red.yaml` / `r2_blue.yaml` 或其它完整自定义配置。
 

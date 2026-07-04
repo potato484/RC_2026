@@ -152,6 +152,8 @@ r2_runtime:
       second_preselect_occupied_stable_frames: 2    # 中层全占据时连续多少帧确认无空位
       second_preselect_observe_timeout_s: 2.0       # 放置前九宫格观察最长时间；未见 KFS 时继续按空位逻辑放置
       second_preselect_observe_log_period_s: 0.5    # 观察日志节流周期
+      second_preselect_dynamic_roi_ui_enable: false  # 动态 ROI OpenCV 调试窗口，默认关闭以兼容 headless
+      second_preselect_dynamic_roi_ui_window_name: "SecondPreselectionDynamicROI" # 动态 ROI 调试窗口标题
 
       # ======================================================================
       # 武馆区 (MC) 红方基准运行参数 —— blue 启动时自动镜像侧向 yaw 和原地旋转方向

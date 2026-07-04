@@ -7,12 +7,15 @@
 #include <cstdio>
 #include <exception>
 #include <filesystem>
+#include <iomanip>
 #include <limits>
 #include <optional>
 #include <sstream>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <opencv2/core.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
 
 #include "rc26_decision/decision_failure.hpp"
 #include "rc26_decision/mechanism_error_diagnostic.hpp"
@@ -136,6 +139,61 @@ bool labelAllowed(const std::string &label,
     }
   }
   return false;
+}
+
+std::optional<cv::Rect> clippedRect(const cv::Rect2f &rect,
+                                    const cv::Size &frame_size) {
+  if (frame_size.width <= 0 || frame_size.height <= 0 || rect.width <= 0.0F ||
+      rect.height <= 0.0F) {
+    return std::nullopt;
+  }
+  const int x1 = static_cast<int>(std::floor(rect.x));
+  const int y1 = static_cast<int>(std::floor(rect.y));
+  const int x2 = static_cast<int>(std::ceil(rect.x + rect.width));
+  const int y2 = static_cast<int>(std::ceil(rect.y + rect.height));
+  const cv::Rect bounds(0, 0, frame_size.width, frame_size.height);
+  const cv::Rect clipped =
+      cv::Rect(x1, y1, std::max(0, x2 - x1), std::max(0, y2 - y1)) & bounds;
+  if (clipped.width <= 0 || clipped.height <= 0) {
+    return std::nullopt;
+  }
+  return clipped;
+}
+
+void drawTextWithBackground(cv::Mat &image, const std::string &text,
+                            cv::Point origin, const cv::Scalar &text_color,
+                            const cv::Scalar &background_color,
+                            double scale = 0.45, int thickness = 1) {
+  int baseline = 0;
+  const int font = cv::FONT_HERSHEY_SIMPLEX;
+  const cv::Size text_size =
+      cv::getTextSize(text, font, scale, thickness, &baseline);
+  origin.x = std::clamp(origin.x, 0,
+                        std::max(0, image.cols - text_size.width - 4));
+  origin.y = std::clamp(origin.y, text_size.height + 4,
+                        std::max(text_size.height + 4, image.rows - 4));
+  const cv::Rect bg(origin.x - 2, origin.y - text_size.height - 3,
+                    text_size.width + 4, text_size.height + baseline + 5);
+  cv::rectangle(image, bg & cv::Rect(0, 0, image.cols, image.rows),
+                background_color, cv::FILLED);
+  cv::putText(image, text, origin, font, scale, text_color, thickness,
+              cv::LINE_AA);
+}
+
+cv::Scalar detectionColor(const std::string &label) {
+  if (startsWith(label, "T_")) {
+    return cv::Scalar(60, 220, 80);
+  }
+  if (startsWith(label, "R_") || label == "R1_KFS") {
+    return cv::Scalar(50, 50, 230);
+  }
+  if (startsWith(label, "B_")) {
+    return cv::Scalar(230, 120, 40);
+  }
+  if (startsWith(label, "F_")) {
+    return cv::Scalar(0, 170, 255);
+  }
+  return cv::Scalar(220, 220, 220);
 }
 
 int gridCellIndex(int col, int row) {
@@ -1443,6 +1501,7 @@ SecondPreselectionObserveAction::SecondPreselectionObserveAction(
     : BT::StatefulActionNode(name, config) {}
 
 SecondPreselectionObserveAction::~SecondPreselectionObserveAction() {
+  releaseUi();
   releaseVision();
   releaseOdom();
 }
@@ -1468,6 +1527,7 @@ BT::NodeStatus SecondPreselectionObserveAction::onStart() {
   config().blackboard->set("second_preselection_selected_lateral_m", 0.0);
 
   occupied_stable_count_ = 0;
+  ui_disabled_after_error_ = false;
   has_odom_ = false;
   odom_reference_ready_ = false;
   start_tp_ = std::chrono::steady_clock::now();
@@ -1521,11 +1581,13 @@ BT::NodeStatus SecondPreselectionObserveAction::onRunning() {
       return BT::NodeStatus::RUNNING;
     }
 
+    const double odom_delta_x_m = current_odom_x_ - start_odom_x_;
+    const double odom_delta_y_m = current_odom_y_ - start_odom_y_;
     SecondPreselectionOccupancyObservation observation =
         evaluateSecondPreselectionGridOccupancy(
-            snapshot.detections, params_, current_odom_x_ - start_odom_x_,
-            current_odom_y_ - start_odom_y_);
+            snapshot.detections, params_, odom_delta_x_m, odom_delta_y_m);
     writeObservationToBlackboard(observation);
+    renderObservationUi(snapshot, observation, odom_delta_x_m, odom_delta_y_m);
 
     if (observation.selected_middle_col) {
       config().blackboard->set("second_preselection_middle_empty", true);
@@ -1594,6 +1656,7 @@ BT::NodeStatus SecondPreselectionObserveAction::onRunning() {
 }
 
 void SecondPreselectionObserveAction::onHalted() {
+  releaseUi();
   releaseVision();
   releaseOdom();
 }
@@ -1605,6 +1668,7 @@ BT::NodeStatus SecondPreselectionObserveAction::fail(
                  reason.c_str());
   }
   writeDecisionFailure(config().blackboard, "SecondPreselectionObserve", reason);
+  releaseUi();
   releaseVision();
   releaseOdom();
   return BT::NodeStatus::FAILURE;
@@ -1638,6 +1702,7 @@ bool SecondPreselectionObserveAction::setupVision() {
 }
 
 void SecondPreselectionObserveAction::releaseVision() {
+  releaseUi();
   if (vision_) {
     vision_->stop();
     vision_.reset();
@@ -1673,6 +1738,147 @@ bool SecondPreselectionObserveAction::odomReady() const {
     return false;
   }
   return elapsedSec(last_odom_tp_) <= params_.odom_timeout_s;
+}
+
+bool SecondPreselectionObserveAction::setupUiIfNeeded() {
+  if (!params_.dynamic_roi_ui_enable || ui_disabled_after_error_) {
+    return false;
+  }
+  if (ui_window_active_) {
+    return true;
+  }
+  try {
+    cv::namedWindow(params_.dynamic_roi_ui_window_name, cv::WINDOW_NORMAL);
+    ui_window_active_ = true;
+    return true;
+  } catch (const cv::Exception &e) {
+    ui_disabled_after_error_ = true;
+    ui_window_active_ = false;
+    if (node_) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "第二预选赛动态 ROI UI 创建失败，自动关闭 UI：%s",
+                  e.what());
+    }
+    return false;
+  }
+}
+
+void SecondPreselectionObserveAction::releaseUi() {
+  if (!ui_window_active_) {
+    return;
+  }
+  try {
+    cv::destroyWindow(params_.dynamic_roi_ui_window_name);
+  } catch (const cv::Exception &e) {
+    if (node_) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "第二预选赛动态 ROI UI 关闭异常：%s", e.what());
+    }
+  }
+  ui_window_active_ = false;
+}
+
+void SecondPreselectionObserveAction::renderObservationUi(
+    const rc26_vision::VisionInferenceManager::FrameSnapshot &snapshot,
+    const SecondPreselectionOccupancyObservation &observation,
+    double odom_delta_x_m, double odom_delta_y_m) {
+  if (!params_.dynamic_roi_ui_enable || ui_disabled_after_error_ ||
+      !snapshot.has_color || snapshot.color_bgr.empty()) {
+    return;
+  }
+  if (!setupUiIfNeeded()) {
+    return;
+  }
+
+  try {
+    cv::Mat canvas = snapshot.color_bgr.clone();
+    const cv::Size frame_size = canvas.size();
+    const cv::Scalar occupied_color(40, 40, 230);
+    const cv::Scalar empty_color(170, 170, 170);
+    const cv::Scalar selected_color(0, 220, 255);
+    const cv::Scalar text_bg(20, 20, 20);
+
+    for (int i = 0; i < static_cast<int>(observation.grid_cells.size()); ++i) {
+      const auto &cell = observation.grid_cells[static_cast<size_t>(i)];
+      const bool occupied =
+          observation.grid_detection_counts[static_cast<size_t>(i)] > 0;
+      const bool selected =
+          observation.selected_middle_col.has_value() && cell.row == 0 &&
+          *observation.selected_middle_col == cell.col;
+      const cv::Scalar color =
+          selected ? selected_color : (occupied ? occupied_color : empty_color);
+      const int thickness = selected ? 3 : 2;
+      if (const auto rect = clippedRect(cell.roi, frame_size)) {
+        cv::rectangle(canvas, *rect, color, thickness);
+        std::ostringstream label;
+        label << "c" << cell.col << " r" << cell.row << " n"
+              << observation.grid_detection_counts[static_cast<size_t>(i)];
+        drawTextWithBackground(canvas, label.str(),
+                               cv::Point(rect->x + 3, rect->y + 15),
+                               cv::Scalar(255, 255, 255), text_bg);
+      }
+      if (cell.center.x >= 0.0F && cell.center.x < frame_size.width &&
+          cell.center.y >= 0.0F && cell.center.y < frame_size.height) {
+        const cv::Point center_i(static_cast<int>(std::lround(cell.center.x)),
+                                 static_cast<int>(std::lround(cell.center.y)));
+        cv::drawMarker(canvas, center_i, color, cv::MARKER_CROSS, 10, 1,
+                       cv::LINE_AA);
+      }
+    }
+
+    for (const auto &det : snapshot.detections) {
+      const std::string label = rc26_vision::visualTargetLabel(det);
+      const cv::Scalar color = detectionColor(label);
+      const cv::Rect2f raw_box(det.x1, det.y1, det.x2 - det.x1,
+                               det.y2 - det.y1);
+      if (const auto box = clippedRect(raw_box, frame_size)) {
+        cv::rectangle(canvas, *box, color, 2);
+        const cv::Point2f center = detectionCenter(det);
+        if (center.x >= 0.0F && center.x < frame_size.width &&
+            center.y >= 0.0F && center.y < frame_size.height) {
+          const cv::Point center_i(static_cast<int>(std::lround(center.x)),
+                                   static_cast<int>(std::lround(center.y)));
+          cv::circle(canvas, center_i, 3, color, cv::FILLED, cv::LINE_AA);
+        }
+        std::ostringstream det_text;
+        det_text << (label.empty() ? "-" : label) << " "
+                 << std::fixed << std::setprecision(2) << det.score;
+        drawTextWithBackground(canvas, det_text.str(),
+                               cv::Point(box->x, box->y - 4),
+                               cv::Scalar(255, 255, 255), text_bg);
+      }
+    }
+
+    std::ostringstream status1;
+    status1 << "mask=0x" << std::uppercase << std::hex << std::setw(3)
+            << std::setfill('0') << observation.grid_occupied_mask
+            << std::dec << " det=" << observation.matched_detections;
+    if (observation.selected_middle_col) {
+      status1 << " selected_col=" << *observation.selected_middle_col
+              << " lateral=" << std::fixed << std::setprecision(3)
+              << observation.selected_lateral_m << "m";
+    } else {
+      status1 << " selected_col=none";
+    }
+    std::ostringstream status2;
+    status2 << "odom_dx=" << std::fixed << std::setprecision(3)
+            << odom_delta_x_m << "m odom_dy=" << odom_delta_y_m << "m";
+    drawTextWithBackground(canvas, status1.str(), cv::Point(8, 20),
+                           cv::Scalar(255, 255, 255), text_bg, 0.50, 1);
+    drawTextWithBackground(canvas, status2.str(), cv::Point(8, 42),
+                           cv::Scalar(255, 255, 255), text_bg, 0.50, 1);
+
+    cv::imshow(params_.dynamic_roi_ui_window_name, canvas);
+    cv::waitKey(1);
+  } catch (const cv::Exception &e) {
+    ui_disabled_after_error_ = true;
+    if (node_) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "第二预选赛动态 ROI UI 渲染失败，自动关闭 UI：%s",
+                  e.what());
+    }
+    releaseUi();
+  }
 }
 
 void SecondPreselectionObserveAction::writeObservationToBlackboard(
@@ -1924,6 +2130,16 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
       "second_preselect_observe_timeout_s", p.observe_timeout_s);
   p.observe_log_period_s = node.declare_parameter<double>(
       "second_preselect_observe_log_period_s", p.observe_log_period_s);
+  p.dynamic_roi_ui_enable = node.declare_parameter<bool>(
+      "second_preselect_dynamic_roi_ui_enable",
+      p.dynamic_roi_ui_enable);
+  p.dynamic_roi_ui_window_name = node.declare_parameter<std::string>(
+      "second_preselect_dynamic_roi_ui_window_name",
+      p.dynamic_roi_ui_window_name);
+  if (p.dynamic_roi_ui_window_name.empty()) {
+    p.dynamic_roi_ui_window_name =
+        SecondPreselectionParams{}.dynamic_roi_ui_window_name;
+  }
   p.odom_topic = node.declare_parameter<std::string>(
       "second_preselect_odom_topic", p.odom_topic);
   p.odom_timeout_s = node.declare_parameter<double>(

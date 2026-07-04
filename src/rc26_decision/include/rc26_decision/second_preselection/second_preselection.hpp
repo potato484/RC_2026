@@ -120,6 +120,8 @@ struct SecondPreselectionParams {
   int occupied_stable_frames{2};
   double observe_timeout_s{2.0};
   double observe_log_period_s{0.5};
+  bool dynamic_roi_ui_enable{false};
+  std::string dynamic_roi_ui_window_name{"SecondPreselectionDynamicROI"};
   std::string odom_topic{"odom"};
   double odom_timeout_s{0.5};
 };
@@ -340,6 +342,12 @@ private:
   bool setupOdom();
   void releaseOdom();
   bool odomReady() const;
+  bool setupUiIfNeeded();
+  void releaseUi();
+  void renderObservationUi(
+      const rc26_vision::VisionInferenceManager::FrameSnapshot &snapshot,
+      const SecondPreselectionOccupancyObservation &observation,
+      double odom_delta_x_m, double odom_delta_y_m);
   void writeObservationToBlackboard(
       const SecondPreselectionOccupancyObservation &observation);
 
@@ -358,6 +366,8 @@ private:
   bool has_odom_{false};
   bool odom_reference_ready_{false};
   int occupied_stable_count_{0};
+  bool ui_window_active_{false};
+  bool ui_disabled_after_error_{false};
 };
 
 class SecondPreselectionNoEmptyFailureAction : public BT::SyncActionNode {
