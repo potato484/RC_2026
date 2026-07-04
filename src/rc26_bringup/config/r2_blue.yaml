@@ -118,7 +118,6 @@ r2_runtime:
       second_preselect_grab_verify_lost_stable_frames: 3 # 原目标连续消失帧数
       second_preselect_grab_verify_iou_threshold: 0.30 # 原目标匹配 IoU 阈值
       second_preselect_grab_settle_s: 0.5           # 夹取确认成功后停车稳定时间
-      second_preselect_require_front_kfs_before_place: true # 放置前必须看到九宫格前方 KFS
       preselection_ramp_approach_x_m: 0.50      # second managed 入口斜坡前接近段 OdomDriveX 距离
       preselection_ramp_climb_x_m: 1.50         # second managed 入口斜坡爬坡段 OdomDriveX 距离
       preselection_ramp_max_speed_mps: 0.30     # 斜坡段平移速度上限
@@ -151,7 +150,7 @@ r2_runtime:
       second_preselect_odom_topic: "odom"           # 动态 ROI 观察时读取的 odom topic
       second_preselect_odom_timeout_s: 0.5          # 动态 ROI odom 新鲜度超时
       second_preselect_occupied_stable_frames: 2    # 中层全占据时连续多少帧确认无空位
-      second_preselect_observe_timeout_s: 2.0       # 放置前九宫格观察最长时间；未见前方 KFS 则失败
+      second_preselect_observe_timeout_s: 2.0       # 放置前九宫格观察最长时间；未见 KFS 时继续按空位逻辑放置
       second_preselect_observe_log_period_s: 0.5    # 观察日志节流周期
 
       # ======================================================================

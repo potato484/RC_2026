@@ -1468,7 +1468,6 @@ BT::NodeStatus SecondPreselectionObserveAction::onStart() {
   config().blackboard->set("second_preselection_selected_lateral_m", 0.0);
 
   occupied_stable_count_ = 0;
-  front_kfs_seen_ = false;
   has_odom_ = false;
   odom_reference_ready_ = false;
   start_tp_ = std::chrono::steady_clock::now();
@@ -1527,23 +1526,6 @@ BT::NodeStatus SecondPreselectionObserveAction::onRunning() {
             snapshot.detections, params_, current_odom_x_ - start_odom_x_,
             current_odom_y_ - start_odom_y_);
     writeObservationToBlackboard(observation);
-    if (secondPreselectionHasFrontKfs(observation)) {
-      front_kfs_seen_ = true;
-    }
-    if (params_.require_front_kfs_before_place && !front_kfs_seen_) {
-      if (elapsedSec(last_log_tp_) >= params_.observe_log_period_s) {
-        RCLCPP_INFO(node_->get_logger(),
-                    "第二预选赛放置前观察等待前方 KFS：mask=0x%03X detections=%d elapsed=%.1fs",
-                    observation.grid_occupied_mask, observation.matched_detections,
-                    elapsedSec(start_tp_));
-        last_log_tp_ = std::chrono::steady_clock::now();
-      }
-      if (elapsedSec(start_tp_) > params_.observe_timeout_s) {
-        config().blackboard->set("second_preselection_observe_error", true);
-        return fail("第二预选赛放置前未观察到前方 KFS");
-      }
-      return BT::NodeStatus::RUNNING;
-    }
 
     if (observation.selected_middle_col) {
       config().blackboard->set("second_preselection_middle_empty", true);
@@ -1600,10 +1582,6 @@ BT::NodeStatus SecondPreselectionObserveAction::onRunning() {
   }
 
   if (elapsedSec(start_tp_) > params_.observe_timeout_s) {
-    if (params_.require_front_kfs_before_place && !front_kfs_seen_) {
-      config().blackboard->set("second_preselection_observe_error", true);
-      return fail("第二预选赛放置前未观察到前方 KFS");
-    }
     config().blackboard->set("second_preselection_middle_empty", false);
     config().blackboard->set("second_preselection_middle_occupied", true);
     RCLCPP_WARN(node_->get_logger(),
@@ -1899,9 +1877,6 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
       p.grab_verify_iou_threshold);
   p.grab_settle_s = node.declare_parameter<double>(
       "second_preselect_grab_settle_s", p.grab_settle_s);
-  p.require_front_kfs_before_place = node.declare_parameter<bool>(
-      "second_preselect_require_front_kfs_before_place",
-      p.require_front_kfs_before_place);
   p.grid_camera_fx_px = node.declare_parameter<double>(
       "second_preselect_grid_camera_fx_px", p.grid_camera_fx_px);
   p.grid_camera_fy_px = node.declare_parameter<double>(
@@ -2205,8 +2180,6 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   blackboard->set("second_preselect_search_forward_speed_mps",
                   p.search_forward_speed_mps);
   blackboard->set("second_preselect_search_timeout_s", p.search_timeout_s);
-  blackboard->set("second_preselect_require_front_kfs_before_place",
-                  p.require_front_kfs_before_place);
   blackboard->set("second_preselection_middle_empty", false);
   blackboard->set("second_preselection_middle_occupied", false);
   blackboard->set("second_preselection_observe_error", false);
@@ -2216,7 +2189,7 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   blackboard->set("second_preselection_selected_lateral_m", 0.0);
 
   RCLCPP_INFO(node.get_logger(),
-              "第二预选赛参数已加载: mirror_sign=%d start=0x%02X/done=0x%02X pickup=0x%02X place=0x%02X search=[speed %.2f timeout %.1f] nav=[y1 %.2f, x2 %.2f, place %.2f, retreat %.2f] ramp=[approach %.2f climb %.2f max %.2f min %.2f timeout %.1f turn %.2f timeout %.1f] D0=%.2f S0=%.2f base_y_to_grid_x=%.1f camera=[fx %.1f fy %.1f ppx %.1f ppy %.1f] cols=[%.2f,%.2f,%.2f] row_pitch=%.2f safe=[%.2f,%.2f] odom=%s label_stable=%d require_front=%s",
+              "第二预选赛参数已加载: mirror_sign=%d start=0x%02X/done=0x%02X pickup=0x%02X place=0x%02X search=[speed %.2f timeout %.1f] nav=[y1 %.2f, x2 %.2f, place %.2f, retreat %.2f] ramp=[approach %.2f climb %.2f max %.2f min %.2f timeout %.1f turn %.2f timeout %.1f] D0=%.2f S0=%.2f base_y_to_grid_x=%.1f camera=[fx %.1f fy %.1f ppx %.1f ppy %.1f] cols=[%.2f,%.2f,%.2f] row_pitch=%.2f safe=[%.2f,%.2f] odom=%s label_stable=%d",
               mirror_sign,
               p.start_command_id & 0xFF, p.start_done_feedback_id & 0xFF,
               p.pickup_command_id & 0xFF,
@@ -2233,8 +2206,7 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
               p.grid_camera_ppy_px, p.grid_left_col_width_m,
               p.grid_center_col_width_m, p.grid_right_col_width_m,
               p.grid_row_pitch_m, p.grid_safe_width_m, p.grid_safe_height_m,
-              p.odom_topic.c_str(), p.occupied_stable_frames,
-              p.require_front_kfs_before_place ? "是" : "否");
+              p.odom_topic.c_str(), p.occupied_stable_frames);
 }
 
 void registerSecondPreselectionNodes(BT::BehaviorTreeFactory &factory) {

@@ -98,7 +98,6 @@ struct SecondPreselectionParams {
   int grab_verify_lost_stable_frames{3};
   double grab_verify_iou_threshold{0.30};
   double grab_settle_s{0.5};
-  bool require_front_kfs_before_place{true};
 
   double grid_camera_fx_px{385.6756287};
   double grid_camera_fy_px{385.1935120};
@@ -358,7 +357,6 @@ private:
   double current_odom_y_{0.0};
   bool has_odom_{false};
   bool odom_reference_ready_{false};
-  bool front_kfs_seen_{false};
   int occupied_stable_count_{0};
 };
 
