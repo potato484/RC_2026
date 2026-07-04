@@ -78,8 +78,9 @@ components:
             0x0A KFS 向下夹取前第二节机械臂放下完成、
             0x0B 梅林预选赛入口高侧 KFS 夹取完成、0x0C 比赛开始完成、
             0x0D 第二预选赛开始完成、0x0F 第二预选赛机械臂高抬升完成、
-            0x10 MF 预选独立树外部触发，以及 payload 长度为 2 的
-            0xFE 机械臂业务状态/失败反馈。除 0xFE 外，payload v1 为空或由消费方忽略；
+            0x10 MF 预选独立树外部触发、0x11 第二预选赛 KFS 夹取完成，
+            以及 payload 长度为 2 的 0xFE 机械臂业务状态/失败反馈。
+            除 0xFE 外，payload v1 为空或由消费方忽略；
             其它长度的 0xFE 仍视为 transport 异常，不作为业务反馈透传。
         payload:
           type: array

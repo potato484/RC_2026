@@ -61,11 +61,12 @@ r2_runtime:
       second_preselect_send_command_service: "/mechanism/send_command" # rc26_mcu_transport 可靠命令服务
       second_preselect_feedback_topic: "/mechanism/command_feedback"   # MCU 上行业务反馈 topic
       second_preselect_command_timeout_s: 5.0       # 等待 0x11/0x12/0x13 service ACK 的最长时间
-      second_preselect_done_timeout_s: 1800.0       # 等待 0x0D 同 seq 完成反馈的最长时间
+      second_preselect_done_timeout_s: 1800.0       # 等待 0x0D/0x11 同 seq 完成反馈的最长时间
       second_preselect_log_period_s: 1.0            # 机构等待日志节流周期
       second_preselect_start_command_id: 17         # 0x11 SECOND_PRESELECTION_START
       second_preselect_start_done_feedback_id: 13   # 0x0D SECOND_PRESELECTION_START_DONE
-      second_preselect_pickup_command_id: 18        # 0x12 第二预选赛 KFS 夹取触发，ACK 后做视觉消失验证
+      second_preselect_pickup_command_id: 18        # 0x12 第二预选赛 KFS 夹取触发，ACK 后等待 0x11 再做视觉消失验证
+      second_preselect_pickup_done_feedback_id: 17  # 0x11 SECOND_PRESELECTION_PICKUP_KFS_DONE，必须与 0x12 的 ACK seq 匹配
       second_preselect_place_kfs_command_id: 19     # 0x13 SECOND_PRESELECTION_PLACE_KFS，ACK 即发送完成
       second_preselect_cmd_vel_topic: "cmd_vel"     # KFS 搜索、视觉对齐和前向趋近发布的运动命令
       second_preselect_nav_y1_m: 0.7                # 夹取完成后红方基准 +Y 横移；blue 启动时自动取反
@@ -114,7 +115,7 @@ r2_runtime:
       second_preselect_kfs_depth_min_valid_count: 10 # 单 ROI 有效点阈值
       second_preselect_kfs_depth_bbox_sample_ratios: [0.25, 0.50, 0.75] # bbox 多点采样位置
       second_preselect_kfs_depth_bbox_min_success_count: 1 # 多点采样最少成功点
-      second_preselect_grab_verify_timeout_s: 3.0   # 0x12 ACK 后视觉消失验证超时
+      second_preselect_grab_verify_timeout_s: 3.0   # 0x12 对应 0x11 完成反馈后视觉消失验证超时
       second_preselect_grab_verify_lost_stable_frames: 3 # 原目标连续消失帧数
       second_preselect_grab_verify_iou_threshold: 0.30 # 原目标匹配 IoU 阈值
       second_preselect_grab_settle_s: 0.5           # 夹取确认成功后停车稳定时间
@@ -152,8 +153,8 @@ r2_runtime:
       second_preselect_occupied_stable_frames: 2    # 中层全占据时连续多少帧确认无空位
       second_preselect_observe_timeout_s: 2.0       # 放置前九宫格观察最长时间；未见 KFS 时继续按空位逻辑放置
       second_preselect_observe_log_period_s: 0.5    # 观察日志节流周期
-      second_preselect_dynamic_roi_ui_enable: false  # 动态 ROI OpenCV 调试窗口，默认关闭以兼容 headless
-      second_preselect_dynamic_roi_ui_window_name: "SecondPreselectionDynamicROI" # 动态 ROI 调试窗口标题
+      second_preselect_dynamic_roi_ui_enable: true  # 第二预选赛 OpenCV 调试窗口；贯穿 KFS 搜索/夹取验证与九宫格 ROI 观察
+      second_preselect_dynamic_roi_ui_window_name: "SecondPreselectionDynamicROI" # 第二预选赛视觉调试窗口标题
 
       # ======================================================================
       # 武馆区 (MC) 红方基准运行参数 —— blue 启动时自动镜像侧向 yaw 和原地旋转方向

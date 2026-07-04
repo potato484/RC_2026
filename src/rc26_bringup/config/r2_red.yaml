@@ -61,16 +61,17 @@ r2_runtime:
       second_preselect_send_command_service: "/mechanism/send_command" # rc26_mcu_transport 可靠命令服务
       second_preselect_feedback_topic: "/mechanism/command_feedback"   # MCU 上行业务反馈 topic
       second_preselect_command_timeout_s: 5.0       # 等待 0x11/0x12/0x13 service ACK 的最长时间
-      second_preselect_done_timeout_s: 1800.0       # 等待 0x0D 同 seq 完成反馈的最长时间
+      second_preselect_done_timeout_s: 1800.0       # 等待 0x0D/0x11 同 seq 完成反馈的最长时间
       second_preselect_log_period_s: 1.0            # 机构等待日志节流周期
       second_preselect_start_command_id: 17         # 0x11 SECOND_PRESELECTION_START
       second_preselect_start_done_feedback_id: 13   # 0x0D SECOND_PRESELECTION_START_DONE
-      second_preselect_pickup_command_id: 18        # 0x12 第二预选赛 KFS 夹取触发，ACK 后做视觉消失验证
+      second_preselect_pickup_command_id: 18        # 0x12 第二预选赛 KFS 夹取触发，ACK 后等待 0x11 再做视觉消失验证
+      second_preselect_pickup_done_feedback_id: 17  # 0x11 SECOND_PRESELECTION_PICKUP_KFS_DONE，必须与 0x12 的 ACK seq 匹配
       second_preselect_place_kfs_command_id: 19     # 0x13 SECOND_PRESELECTION_PLACE_KFS，ACK 即发送完成
       second_preselect_cmd_vel_topic: "cmd_vel"     # KFS 搜索、视觉对齐和前向趋近发布的运动命令
       second_preselect_nav_y1_m: 0.7                # 夹取完成后红方基准 +Y 横移；blue 启动时自动取反
       second_preselect_nav_x2_m: 2.5                # 横移后沿车体系 +X 到九宫格放置观察位
-      second_preselect_place_forward_x_m: 1.0       # 找到空位后沿 +X 前进放置
+      second_preselect_place_forward_x_m: 2.85       # 找到空位后沿 +X 前进放置
       second_preselect_retreat_x_m: -1.0            # 放置命令 ACK 后沿 -X 后退
       second_preselect_nav_timeout_s: 180.0         # 第二预选赛每个 odom 单轴段超时
       second_preselect_search_forward_speed_mps: 0.20 # 0x11 后沿 +X 前进搜索 R2 KFS 的速度
@@ -80,17 +81,19 @@ r2_runtime:
       second_preselect_r1_kfs_min_score: 0.50       # R1_KFS 最低置信度
       second_preselect_kfs_depth_min_m: 0.6         # R2/R1 KFS 深度窗口下限
       second_preselect_kfs_depth_max_m: 1.2         # R2/R1 KFS 深度窗口上限
-      second_preselect_kfs_align_tolerance_px: 15   # KFS 横移对齐像素容差
+      second_preselect_kfs_align_tolerance_px: 18   # KFS 横移对齐像素容差；现场允许略宽，避免近距离框抖动反复清零
       second_preselect_kfs_align_target_line_offset_px: 10 # KFS 目标线相对图像中心偏置
       second_preselect_kfs_align_stable_frames: 3   # 对齐稳定新帧数
-      second_preselect_kfs_align_max_jump_px: 70    # tip_alignment 目标锁定跳变阈值
-      second_preselect_kfs_align_kp: 0.0015         # KFS offset 到 linear.y 的比例系数
-      second_preselect_kfs_align_min_speed_mps: 0.06 # KFS 横移最小速度
-      second_preselect_kfs_align_max_speed_mps: 0.14 # KFS 横移最大速度
+      second_preselect_kfs_align_max_jump_px: 120   # tip_alignment 目标锁定跳变阈值；近距离 bbox 抖动时保持同一目标锁定
+      second_preselect_kfs_align_kp: 0.0012         # KFS offset 到 linear.y 的比例系数
+      second_preselect_kfs_align_min_speed_mps: 0.035 # KFS 横移最小速度；降低近距离横移过冲
+      second_preselect_kfs_align_max_speed_mps: 0.10 # KFS 横移最大速度；降低近距离横移过冲
       second_preselect_kfs_align_timeout_s: 20.0    # KFS 横移视觉对齐超时
-      second_preselect_kfs_align_timeout_pickup_tolerance_px: 40 # 超时补夹像素容差
+      second_preselect_kfs_align_timeout_pickup_tolerance_px: 65 # 超时补夹像素容差；方向正确时允许进入前向趋近
       second_preselect_kfs_align_heading_gate_deg: 3.0 # yaw gate，超出时只修正朝向
-      second_preselect_kfs_lost_stop_frames: 6      # 横移中连续丢失后停车等待
+      second_preselect_kfs_lost_stop_frames: 10     # 横移中连续丢失后停车等待；给 D455 深度/检测短暂抖动留余量
+      second_preselect_kfs_lost_servo_speed_scale: 0.45 # 短暂丢框时按最近 offset 低速继续伺服，避免识别闪烁打断闭环
+      second_preselect_kfs_align_offset_filter_alpha: 0.45 # offset 低通滤波系数，抑制 bbox 横向抖动
       second_preselect_kfs_invert_lateral_direction: false # 当前安装下不反转横移方向
       second_preselect_kfs_odom_xy_kp: 0.8          # KFS 前向 odom 闭环 P 增益
       second_preselect_kfs_approach_odom_tolerance_m: 0.02 # 前向趋近距离容差
@@ -114,7 +117,7 @@ r2_runtime:
       second_preselect_kfs_depth_min_valid_count: 10 # 单 ROI 有效点阈值
       second_preselect_kfs_depth_bbox_sample_ratios: [0.25, 0.50, 0.75] # bbox 多点采样位置
       second_preselect_kfs_depth_bbox_min_success_count: 1 # 多点采样最少成功点
-      second_preselect_grab_verify_timeout_s: 3.0   # 0x12 ACK 后视觉消失验证超时
+      second_preselect_grab_verify_timeout_s: 3.0   # 0x12 对应 0x11 完成反馈后视觉消失验证超时
       second_preselect_grab_verify_lost_stable_frames: 10 # 原目标连续消失帧数
       second_preselect_grab_verify_iou_threshold: 0.30 # 原目标匹配 IoU 阈值
       second_preselect_grab_settle_s: 0.5           # 夹取确认成功后停车稳定时间
@@ -152,8 +155,8 @@ r2_runtime:
       second_preselect_occupied_stable_frames: 2    # 中层全占据时连续多少帧确认无空位
       second_preselect_observe_timeout_s: 2.0       # 放置前九宫格观察最长时间；未见 KFS 时继续按空位逻辑放置
       second_preselect_observe_log_period_s: 0.5    # 观察日志节流周期
-      second_preselect_dynamic_roi_ui_enable: false  # 动态 ROI OpenCV 调试窗口，默认关闭以兼容 headless
-      second_preselect_dynamic_roi_ui_window_name: "SecondPreselectionDynamicROI" # 动态 ROI 调试窗口标题
+      second_preselect_dynamic_roi_ui_enable: false # 第二预选赛 OpenCV 调试窗口；贯穿 KFS 搜索/夹取验证与九宫格 ROI 观察
+      second_preselect_dynamic_roi_ui_window_name: "SecondPreselectionDynamicROI" # 第二预选赛视觉调试窗口标题
 
       # ======================================================================
       # 武馆区 (MC) 红方基准运行参数 —— blue 启动时自动镜像侧向 yaw 和原地旋转方向

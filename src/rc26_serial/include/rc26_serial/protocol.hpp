@@ -72,6 +72,7 @@ enum class FeedbackID : uint8_t {
     SECOND_PRESELECTION_START_DONE = 0x0D, // 第二预选赛开始状态切换完成
     SECOND_PRESELECTION_ARM_HIGH_RAISE_DONE = 0x0F, // 第二预选赛机械臂高抬升完成
     MF_PRESELECTION_TRIGGER = 0x10,      // 第二限位开关事件；当前 gate profile 决定 0x10/0x0C 或 0x11/0x0D
+    SECOND_PRESELECTION_PICKUP_KFS_DONE = 0x11, // 第二预选赛 KFS 夹取动作完成
     MCU_ERROR = 0xFE,                   // MCU 端错误码：下位机原因
 };
 

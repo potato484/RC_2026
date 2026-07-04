@@ -32,6 +32,7 @@ struct SecondPreselectionParams {
   int start_command_id{0x11};
   int start_done_feedback_id{0x0D};
   int pickup_command_id{0x12};
+  int pickup_done_feedback_id{0x11};
   int place_kfs_command_id{0x13};
 
   std::string cmd_vel_topic{"cmd_vel"};
@@ -71,6 +72,8 @@ struct SecondPreselectionParams {
   int kfs_align_timeout_pickup_tolerance_px{40};
   double kfs_align_heading_gate_deg{8.0};
   int kfs_lost_stop_frames{3};
+  double kfs_lost_servo_speed_scale{0.45};
+  double kfs_align_offset_filter_alpha{0.45};
   bool kfs_invert_lateral_direction{false};
   double kfs_odom_xy_kp{0.8};
   double kfs_approach_odom_tolerance_m{0.02};
@@ -226,6 +229,7 @@ private:
     OdomApproach,
     SendingPickup,
     WaitingPickupAck,
+    WaitingPickupDone,
     GrabVerify,
     Settle
   };
@@ -248,6 +252,12 @@ private:
   void releaseOdom();
   bool setupCommandIo();
   void releaseCommandIo();
+  bool setupUiIfNeeded();
+  void releaseUi();
+  void renderKfsUi(const std::string &stage,
+                   const std::optional<KfsObservation> &observation =
+                       std::nullopt,
+                   const std::string &detail = std::string());
   void publishStop();
   void publishTwist(double vx, double vy, double wz);
   bool odomReady() const;
@@ -255,6 +265,7 @@ private:
   rc26_vision::TipAlignmentConfig makeAlignmentConfig() const;
   std::optional<rc26_vision::TipHeadingControl> alignHeadingControl();
   std::optional<KfsObservation> findNearestKfs(bool allow_depthless_r2_align);
+  KfsObservation applyAlignmentObservationFilter(const KfsObservation &observation);
   void beginVisualAlign(const KfsObservation &observation);
   BT::NodeStatus tickSearch();
   BT::NodeStatus tickVisualAlign();
@@ -263,6 +274,7 @@ private:
   void beginPickupCommand();
   BT::NodeStatus tickSendingPickup();
   BT::NodeStatus tickWaitingPickupAck();
+  BT::NodeStatus tickWaitingPickupDone();
   void handleFeedback(const FeedbackMsg::SharedPtr msg);
   bool sendPickupCommand();
   BT::NodeStatus beginGrabVerify();
@@ -296,6 +308,8 @@ private:
   int64_t align_target_lock_sequence_{0};
   rc26_vision::TipTargetLockState align_lock_state_;
   std::optional<KfsObservation> align_last_observation_;
+  bool align_filtered_offset_valid_{false};
+  double align_filtered_offset_px_{0.0};
   rc26_vision::VisualTargetSnapshot pickup_target_;
   bool has_pickup_target_{false};
   double last_real_depth_m_{0.0};
@@ -309,7 +323,9 @@ private:
   bool approach_waiting_odom_logged_{false};
   std::atomic<bool> command_response_seen_{false};
   std::atomic<bool> command_accepted_{false};
+  std::atomic<bool> pickup_done_feedback_seen_{false};
   std::atomic<bool> command_error_seen_{false};
+  std::atomic<bool> command_busy_seen_{false};
   std::atomic<int> command_seq_{-1};
   std::atomic<uint64_t> command_generation_{0};
   std::string command_error_detail_;
@@ -318,6 +334,8 @@ private:
   bool grab_verify_seen_new_frame_{false};
   bool grab_verify_visible_logged_{false};
   int grab_verify_last_logged_lost_count_{0};
+  bool ui_window_active_{false};
+  bool ui_disabled_after_error_{false};
   Phase phase_{Phase::Search};
 };
 
