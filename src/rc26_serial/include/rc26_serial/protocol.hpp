@@ -48,8 +48,8 @@ enum class CommandID : uint8_t {
     ENTRY_GRAB_KFS_UP = 0x0F,     // 梅林预选赛入口高侧 KFS 夹取
     COMPETITION_START = 0x10,     // 比赛开始通知
     SECOND_PRESELECTION_START = 0x11,          // 第二预选赛开始通知
-    SECOND_PRESELECTION_ARM_HIGH_RAISE = 0x12, // 第二预选赛机械臂底座高抬升
-    SECOND_PRESELECTION_PLACE_KFS = 0x13,      // 第二预选赛放置 KFS 到中层九宫格
+    SECOND_PRESELECTION_ARM_HIGH_RAISE = 0x12, // 夹取平地的 KFS
+    SECOND_PRESELECTION_PLACE_KFS = 0x13,      // 第二预选赛放置 KFS（打开气缸）
     SECOND_PRESELECTION_ARM_LOWER = 0x14,      // 第二预选赛视觉对齐后机械臂彻底放下
 };
 

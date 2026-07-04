@@ -1,7 +1,6 @@
 #pragma once
 
 #include <atomic>
-#include <array>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -40,9 +39,8 @@ struct SecondPreselectionParams {
 
   std::string cmd_vel_topic{"cmd_vel"};
   double nav_y1_m{0.7};
-  double nav_x2_m{2.5};
-  double place_forward_x_m{0.7};
-  double retreat_x_m{-0.7};
+  double nav_x2_m{4.5};
+  double place_forward_x_m{0.8};
   double nav_timeout_s{180.0};
   double ramp_approach_x_m{0.50};
   double ramp_climb_x_m{1.50};
@@ -105,60 +103,14 @@ struct SecondPreselectionParams {
   double grab_verify_iou_threshold{0.30};
   double grab_settle_s{0.5};
 
-  double grid_camera_fx_px{385.6756287};
-  double grid_camera_fy_px{385.1935120};
-  double grid_camera_ppx_px{323.6063232};
-  double grid_camera_ppy_px{241.5680695};
-  double grid_left_col_width_m{0.54};
-  double grid_center_col_width_m{0.58};
-  double grid_right_col_width_m{0.50};
-  double grid_row_pitch_m{0.54};
-  double grid_middle_center_height_m{1.21};
-  double grid_safe_width_m{0.40};
-  double grid_safe_height_m{0.40};
-  double grid_camera_height_m{0.80};
-  double grid_initial_distance_m{1.80};
-  double grid_initial_lateral_offset_m{0.0};
-  double grid_base_y_to_grid_x_sign{-1.0};
-  double grid_place_lateral_bias_m{0.0};
-  std::vector<std::string> grid_label_prefixes;
-  std::vector<std::string> grid_label_exact_names;
-  int occupied_stable_frames{2};
-  double observe_timeout_s{2.0};
-  double observe_log_period_s{0.5};
   bool dynamic_roi_ui_enable{false};
-  std::string dynamic_roi_ui_window_name{"SecondPreselectionDynamicROI"};
+  std::string dynamic_roi_ui_window_name{"SecondPreselectionVision"};
   std::string odom_topic{"odom"};
   double odom_timeout_s{0.5};
 };
 
-struct SecondPreselectionGridCellProjection {
-  int col{0};
-  int row{0};
-  cv::Rect2f roi;
-  cv::Point2f center;
-};
-
-struct SecondPreselectionOccupancyObservation {
-  bool occupied{false};
-  int matched_detections{0};
-  std::string first_label;
-  uint16_t grid_occupied_mask{0};
-  std::array<int, 9> grid_detection_counts{};
-  std::array<SecondPreselectionGridCellProjection, 9> grid_cells{};
-  std::optional<int> selected_middle_col;
-  double selected_lateral_m{0.0};
-};
-
-SecondPreselectionOccupancyObservation evaluateSecondPreselectionGridOccupancy(
-    const std::vector<rc26_vision::Detection> &detections,
-    const SecondPreselectionParams &params, double odom_delta_x_m,
-    double odom_delta_y_m);
-
 double secondPreselectionKfsApproachDistance(
     double locked_depth_m, const SecondPreselectionParams &params);
-bool secondPreselectionHasFrontKfs(
-    const SecondPreselectionOccupancyObservation &observation);
 
 void loadSecondPreselectionParams(rclcpp::Node &node,
                                   const BT::Blackboard::Ptr &blackboard);
@@ -357,11 +309,11 @@ private:
   Phase phase_{Phase::Search};
 };
 
-class SecondPreselectionObserveAction : public BT::StatefulActionNode {
+class SecondPreselectionR1KfsPlaceAlignAction : public BT::StatefulActionNode {
 public:
-  SecondPreselectionObserveAction(const std::string &name,
-                                  const BT::NodeConfig &config);
-  ~SecondPreselectionObserveAction() override;
+  SecondPreselectionR1KfsPlaceAlignAction(const std::string &name,
+                                          const BT::NodeConfig &config);
+  ~SecondPreselectionR1KfsPlaceAlignAction() override;
 
   static BT::PortsList providedPorts() { return {}; }
 
@@ -372,6 +324,12 @@ public:
 private:
   using OdomMsg = nav_msgs::msg::Odometry;
 
+  struct R1KfsObservation {
+    rc26_vision::VisualTargetSnapshot target;
+    rc26_vision::Detection detection;
+    int offset_px{0};
+  };
+
   BT::NodeStatus fail(const std::string &reason);
   bool setupVision();
   void releaseVision();
@@ -380,40 +338,41 @@ private:
   bool odomReady() const;
   bool setupUiIfNeeded();
   void releaseUi();
-  void renderObservationUi(
-      const rc26_vision::VisionInferenceManager::FrameSnapshot &snapshot,
-      const SecondPreselectionOccupancyObservation &observation,
-      double odom_delta_x_m, double odom_delta_y_m);
-  void writeObservationToBlackboard(
-      const SecondPreselectionOccupancyObservation &observation);
+  void renderUi(const std::string &stage,
+                const std::optional<R1KfsObservation> &observation =
+                    std::nullopt,
+                const std::string &detail = std::string());
+  void publishStop();
+  void publishTwist(double vx, double vy, double wz);
+  rc26_vision::TipAlignmentConfig makeAlignmentConfig() const;
+  std::optional<rc26_vision::TipHeadingControl> alignHeadingControl();
+  std::optional<R1KfsObservation> findNearestR1Kfs();
+  R1KfsObservation
+  applyAlignmentObservationFilter(const R1KfsObservation &observation);
+  void clearRuntimeState();
 
   SecondPreselectionParams params_;
   rclcpp::Node *node_{nullptr};
   std::shared_ptr<rc26_vision::VisionInferenceManager> vision_;
   rclcpp::Subscription<OdomMsg>::SharedPtr odom_sub_;
-  std::string team_{"red"};
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
   std::chrono::steady_clock::time_point start_tp_{};
   std::chrono::steady_clock::time_point last_log_tp_{};
   std::chrono::steady_clock::time_point last_odom_tp_{};
-  double start_odom_x_{0.0};
-  double start_odom_y_{0.0};
-  double current_odom_x_{0.0};
-  double current_odom_y_{0.0};
+  double odom_yaw_{0.0};
   bool has_odom_{false};
-  bool odom_reference_ready_{false};
-  int occupied_stable_count_{0};
+  bool align_yaw_captured_{false};
+  double align_yaw_{0.0};
+  bool waiting_odom_logged_{false};
+  int align_stable_count_{0};
+  int align_lost_count_{0};
+  int64_t align_last_sequence_{0};
+  rc26_vision::TipTargetLockState align_lock_state_;
+  std::optional<R1KfsObservation> align_last_observation_;
+  bool align_filtered_offset_valid_{false};
+  double align_filtered_offset_px_{0.0};
   bool ui_window_active_{false};
   bool ui_disabled_after_error_{false};
-};
-
-class SecondPreselectionNoEmptyFailureAction : public BT::SyncActionNode {
-public:
-  SecondPreselectionNoEmptyFailureAction(const std::string &name,
-                                         const BT::NodeConfig &config);
-
-  static BT::PortsList providedPorts() { return {}; }
-
-  BT::NodeStatus tick() override;
 };
 
 } // namespace rc26_decision

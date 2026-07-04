@@ -53,10 +53,9 @@
 - `second_preselect_after_ramp_turn_delta_rad`、`second_preselect_after_ramp_turn_timeout_s`：second managed 斜坡后 90° 转向参数；红方默认 `-1.5708`，`team=blue` 时由 `rc26_decision` 参数加载阶段镜像为 `+1.5708`。
 - `second_preselect_pre_approach_lower_command_id`、`second_preselect_pre_approach_lower_done_feedback_id`、`second_preselect_pre_approach_lower_settle_s`：第二预选赛视觉对齐后、odom 前向趋近前的机械臂彻底放下握手参数。当前默认下发 `0x14`，等待同 `seq` 的 `0x12`，再停车等待 `0.5s` 后才允许前进。
 - `second_preselect_pickup_command_id`、`second_preselect_pickup_done_feedback_id`、`second_preselect_search_*`、`second_preselect_r2_target_*`、`second_preselect_r1_*`、`second_preselect_kfs_*`、`second_preselect_grab_verify_*`、`second_preselect_grab_settle_s`：第二预选赛搜索夹取链参数。当前树内前向趋近后的 `0x12` 用作 KFS 夹取触发，ACK 后先等待同 `seq` 的 MCU 上行 `0x11` 夹取完成反馈，再由视觉消失验证确认夹取。
-- `second_preselect_nav_y1_m`、`second_preselect_nav_x2_m`、`second_preselect_place_forward_x_m`、`second_preselect_retreat_x_m`：第二预选赛夹取成功后的放置导航段。夹取确认后默认按红方基准 `+Y 0.7m -> +X 2.5m` 到九宫格观察位，blue 运行时由 `rc26_decision` 自动镜像 Y 段。
-- `second_preselect_dynamic_roi_ui_enable`、`second_preselect_dynamic_roi_ui_window_name`：第二预选赛本地 OpenCV 视觉调试窗口参数。现场开启后会贯穿 KFS 搜索、视觉对齐、夹取完成反馈等待、夹取消失验证和九宫格 ROI 观察，显示识别框、锁定目标、目标线、阶段状态、ROI、mask 和选位信息，不改变决策结果。
+- `second_preselect_nav_y1_m`、`second_preselect_nav_x2_m`、`second_preselect_place_forward_x_m`：第二预选赛夹取成功后的放置导航段。夹取确认后默认按红方基准 `+Y 0.7m -> +X 4.5m` 到 R1KFS 放置对齐观察位，blue 运行时由 `rc26_decision` 自动镜像 Y 段；视觉对齐前方最近 `R1_KFS` 后再按 `second_preselect_place_forward_x_m=0.8m` 前进并发送 `0x13`。
+- `second_preselect_dynamic_roi_ui_enable`、`second_preselect_dynamic_roi_ui_window_name`：第二预选赛本地 OpenCV 视觉调试窗口参数。现场开启后会贯穿 KFS 搜索、视觉对齐、夹取完成反馈等待、夹取消失验证和 R1KFS 放置对齐，显示识别框、锁定目标、目标线和阶段状态，不改变决策结果。
 - `mf_preselection_external_trigger_*`：历史全局 MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)` 触发参数。managed first/second 模式下，bringup 会强制 `mf_preselection_external_trigger_enable=false`，避免旧监听绕过 `WaitPreselectionBranchGate`；0x10 在 managed 模式中只表示第二限位开关事件，具体握手由当前树的 gate profile 决定。
-- `second_preselect_grid_label_prefixes` / `second_preselect_grid_label_exact_names`：第二预选赛动态 ROI 的可选标签过滤列表。红/蓝运行配置默认省略这两个键，由 `rc26_decision` 使用空过滤列表，表示所有非空 `class_name` 有效；不要在 launch 运行配置中写 `[]`，空数组经 Python dict 传给 ROS2 launch 时没有元素类型，会在创建 `decision_node` 前触发参数类型异常。
 这些参数描述相对分段和 odom yaw 目标生成，不是地图位姿。现场标定时应按启动姿态重新调整每段 `distance_m` 和相对/绝对 yaw；蓝方若只做标准镜像，保持 `r2_blue.yaml` 的 `team: blue` 即可复用同一组红方基准值。
 
 ## 独立入口
@@ -82,11 +81,13 @@
 
 ## 本轮同步
 
+2026-07-05 同步：红/蓝运行配置删除第二预选赛九宫格动态 ROI、选位过滤和放置后后退参数。夹取确认后的放置链改为红方基准 `+Y 0.7m -> +X 4.5m`，随后由 `rc26_decision` 观察前方最近 `R1_KFS` 并视觉横移对齐，再 `+X 0.8m` 前进和发送 `SECOND_PRESELECTION_PLACE_KFS(0x13)`；blue 仍只镜像 Y 段。
+
 2026-07-05 同步：红/蓝运行配置新增第二预选赛视觉对齐后的机械臂放下握手参数：`second_preselect_pre_approach_lower_command_id=0x14`、`second_preselect_pre_approach_lower_done_feedback_id=0x12` 和 `second_preselect_pre_approach_lower_settle_s=0.5`。`rc26_decision` 收到同 `seq` 放下完成反馈并停车等待后，才开始原有 KFS odom 前向趋近。
 
-2026-07-04 同步：红/蓝运行配置跟随第二预选赛新流程补齐搜索夹取链参数。`0x12` 现在在第二预选赛内作为 KFS 夹取触发命令使用，ACK 后先等待同 `seq` 的 `second_preselect_pickup_done_feedback_id=0x11`，再由 `rc26_decision` 做视觉消失验证；旧 `second_preselect_arm_high_raise_*`、`second_preselect_nav_x1_m` 与放置前 KFS 必见 gate 已从运行配置中删除。夹取成功后的导航参数改为红方基准 `second_preselect_nav_y1_m: 0.7` 与 `second_preselect_nav_x2_m: 2.5`，未观察到前方 KFS 时继续按空位逻辑放置。
+2026-07-04 同步：红/蓝运行配置跟随第二预选赛新流程补齐搜索夹取链参数。`0x12` 现在在第二预选赛内作为 KFS 夹取触发命令使用，ACK 后先等待同 `seq` 的 `second_preselect_pickup_done_feedback_id=0x11`，再由 `rc26_decision` 做视觉消失验证；旧 `second_preselect_arm_high_raise_*`、`second_preselect_nav_x1_m` 与放置前 KFS 必见 gate 已从运行配置中删除。
 
-2026-07-04 同步：红/蓝运行配置新增第二预选赛 OpenCV 视觉调试窗口参数。窗口现在贯穿 KFS 搜索/夹取验证和放置前九宫格 ROI 观察；若窗口创建失败，决策侧会告警并继续无 UI 运行。
+2026-07-04 同步：红/蓝运行配置新增第二预选赛 OpenCV 视觉调试窗口参数。窗口现在贯穿 KFS 搜索/夹取验证和放置前视觉对齐；若窗口创建失败，决策侧会告警并继续无 UI 运行。
 
 2026-07-04 同步：红/蓝运行配置完成统一，除 `r2_blue.yaml` 保留现场标定值 `mc_nav_forward_x_m: 0.98` 和 `team: blue` 外，其余参数值、顺序与注释均同步红方基准；历史单文件 `r2_runtime.yaml` 已删除，默认和调试入口都应显式使用 `r2_red.yaml` / `r2_blue.yaml` 或其它完整自定义配置。
 

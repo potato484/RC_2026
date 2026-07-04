@@ -1,7 +1,6 @@
 #include "rc26_decision/second_preselection/second_preselection.hpp"
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -28,8 +27,6 @@ namespace rc26_decision {
 
 namespace {
 
-constexpr std::array<int, 3> kGridCols{-1, 0, 1};
-constexpr std::array<int, 3> kGridRows{-1, 0, 1};
 constexpr double kDeg2Rad = M_PI / 180.0;
 
 double elapsedSec(const std::chrono::steady_clock::time_point &since) {
@@ -90,11 +87,6 @@ cv::Point2f detectionCenter(const rc26_vision::Detection &detection) {
                      (detection.y1 + detection.y2) * 0.5F);
 }
 
-bool pointInRoi(const cv::Point2f &point, const cv::Rect2f &roi) {
-  return point.x >= roi.x && point.x <= roi.x + roi.width &&
-         point.y >= roi.y && point.y <= roi.y + roi.height;
-}
-
 bool startsWith(const std::string &value, const std::string &prefix) {
   return value.size() >= prefix.size() &&
          value.compare(0, prefix.size(), prefix) == 0;
@@ -120,28 +112,6 @@ bool labelsMatch(const std::string &label,
 
 bool isKfsLabel(const std::string &label) {
   return label.find("KFS") != std::string::npos;
-}
-
-bool labelAllowed(const std::string &label,
-                  const SecondPreselectionParams &params) {
-  if (label.empty()) {
-    return false;
-  }
-  if (params.grid_label_exact_names.empty() &&
-      params.grid_label_prefixes.empty()) {
-    return true;
-  }
-  if (std::find(params.grid_label_exact_names.begin(),
-                params.grid_label_exact_names.end(),
-                label) != params.grid_label_exact_names.end()) {
-    return true;
-  }
-  for (const auto &prefix : params.grid_label_prefixes) {
-    if (!prefix.empty() && startsWith(label, prefix)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 std::optional<cv::Rect> clippedRect(const cv::Rect2f &rect,
@@ -280,92 +250,6 @@ void releaseDebugWindow(rclcpp::Node *node,
   window_active = false;
 }
 
-int gridCellIndex(int col, int row) {
-  const auto col_it = std::find(kGridCols.begin(), kGridCols.end(), col);
-  const auto row_it = std::find(kGridRows.begin(), kGridRows.end(), row);
-  if (col_it == kGridCols.end() || row_it == kGridRows.end()) {
-    return -1;
-  }
-  return static_cast<int>(std::distance(kGridRows.begin(), row_it) * 3 +
-                          std::distance(kGridCols.begin(), col_it));
-}
-
-double currentGridDistance(const SecondPreselectionParams &params,
-                           double odom_delta_x_m) {
-  return std::max(0.05, params.grid_initial_distance_m - odom_delta_x_m);
-}
-
-double currentGridLateralOffset(const SecondPreselectionParams &params,
-                                double odom_delta_y_m) {
-  return params.grid_initial_lateral_offset_m +
-         params.grid_base_y_to_grid_x_sign * odom_delta_y_m;
-}
-
-double gridColumnCenterX(const SecondPreselectionParams &params, int col) {
-  if (col < 0) {
-    return -(params.grid_center_col_width_m + params.grid_left_col_width_m) *
-           0.5;
-  }
-  if (col > 0) {
-    return (params.grid_center_col_width_m + params.grid_right_col_width_m) *
-           0.5;
-  }
-  return 0.0;
-}
-
-SecondPreselectionGridCellProjection projectGridCell(
-    int col, int row, const SecondPreselectionParams &params, double distance_m,
-    double lateral_offset_m) {
-  SecondPreselectionGridCellProjection cell;
-  cell.col = col;
-  cell.row = row;
-
-  const double center_grid_x_m = gridColumnCenterX(params, col);
-  const double center_grid_height_m =
-      params.grid_middle_center_height_m +
-      static_cast<double>(row) * params.grid_row_pitch_m;
-  const double u = params.grid_camera_ppx_px +
-                   params.grid_camera_fx_px *
-                       (center_grid_x_m - lateral_offset_m) / distance_m;
-  const double v = params.grid_camera_ppy_px +
-                   params.grid_camera_fy_px *
-                       (params.grid_camera_height_m - center_grid_height_m) /
-                       distance_m;
-  const double width_px =
-      params.grid_camera_fx_px * params.grid_safe_width_m / distance_m;
-  const double height_px =
-      params.grid_camera_fy_px * params.grid_safe_height_m / distance_m;
-
-  cell.center =
-      cv::Point2f(static_cast<float>(u), static_cast<float>(v));
-  cell.roi = cv::Rect2f(static_cast<float>(u - width_px * 0.5),
-                        static_cast<float>(v - height_px * 0.5),
-                        static_cast<float>(width_px),
-                        static_cast<float>(height_px));
-  return cell;
-}
-
-std::optional<int> selectMiddleColumn(
-    uint16_t mask, const SecondPreselectionParams &params) {
-  (void)params;
-  for (const int col : std::array<int, 3>{0, -1, 1}) {
-    const int index = gridCellIndex(col, 0);
-    if (index >= 0 && (mask & (static_cast<uint16_t>(1U) << index)) == 0U) {
-      return col;
-    }
-  }
-  return std::nullopt;
-}
-
-double selectedLateralMotion(const SecondPreselectionParams &params,
-                             int selected_col, double odom_delta_y_m) {
-  const double current_offset_m = currentGridLateralOffset(params, odom_delta_y_m);
-  const double target_offset_m =
-      gridColumnCenterX(params, selected_col) + params.grid_place_lateral_bias_m;
-  return params.grid_base_y_to_grid_x_sign *
-         (target_offset_m - current_offset_m);
-}
-
 std::optional<double> estimateMonocularDepth(
     const rc26_vision::Detection &detection, double locked_depth_m,
     const SecondPreselectionParams &params, double min_depth_m,
@@ -442,66 +326,10 @@ std::optional<double> sampleKfsDepthFromBbox(
 
 } // namespace
 
-SecondPreselectionOccupancyObservation evaluateSecondPreselectionGridOccupancy(
-    const std::vector<rc26_vision::Detection> &detections,
-    const SecondPreselectionParams &params, double odom_delta_x_m,
-    double odom_delta_y_m) {
-  SecondPreselectionOccupancyObservation result;
-  const double distance_m = currentGridDistance(params, odom_delta_x_m);
-  const double lateral_offset_m = currentGridLateralOffset(params, odom_delta_y_m);
-
-  for (const int row : kGridRows) {
-    for (const int col : kGridCols) {
-      const int index = gridCellIndex(col, row);
-      if (index < 0) {
-        continue;
-      }
-      result.grid_cells[static_cast<std::size_t>(index)] =
-          projectGridCell(col, row, params, distance_m, lateral_offset_m);
-    }
-  }
-
-  for (const auto &detection : detections) {
-    if (!labelAllowed(detection.class_name, params)) {
-      continue;
-    }
-    const cv::Point2f center = detectionCenter(detection);
-    for (std::size_t i = 0; i < result.grid_cells.size(); ++i) {
-      if (!pointInRoi(center, result.grid_cells[i].roi)) {
-        continue;
-      }
-      ++result.grid_detection_counts[i];
-      result.grid_occupied_mask |= static_cast<uint16_t>(1U << i);
-      ++result.matched_detections;
-      if (result.first_label.empty()) {
-        result.first_label = detection.class_name;
-      }
-      break;
-    }
-  }
-
-  result.selected_middle_col =
-      selectMiddleColumn(result.grid_occupied_mask, params);
-  if (result.selected_middle_col.has_value()) {
-    result.selected_lateral_m =
-        selectedLateralMotion(params, *result.selected_middle_col, odom_delta_y_m);
-    result.occupied = false;
-  } else {
-    result.selected_lateral_m = 0.0;
-    result.occupied = true;
-  }
-  return result;
-}
-
 double secondPreselectionKfsApproachDistance(
     double locked_depth_m, const SecondPreselectionParams &params) {
   const double sign = params.kfs_approach_x_sign < 0 ? -1.0 : 1.0;
   return sign * std::max(0.0, locked_depth_m - params.kfs_grab_distance_m);
-}
-
-bool secondPreselectionHasFrontKfs(
-    const SecondPreselectionOccupancyObservation &observation) {
-  return observation.matched_detections > 0;
 }
 
 BT::PortsList SecondPreselectionCommandAction::providedPorts() {
@@ -1893,192 +1721,143 @@ void SecondPreselectionKfsPickupAction::clearRuntimeState() {
   grab_verify_last_logged_lost_count_ = 0;
 }
 
-SecondPreselectionObserveAction::SecondPreselectionObserveAction(
+SecondPreselectionR1KfsPlaceAlignAction::SecondPreselectionR1KfsPlaceAlignAction(
     const std::string &name, const BT::NodeConfig &config)
     : BT::StatefulActionNode(name, config) {}
 
-SecondPreselectionObserveAction::~SecondPreselectionObserveAction() {
-  releaseUi();
-  releaseVision();
-  releaseOdom();
+SecondPreselectionR1KfsPlaceAlignAction::~SecondPreselectionR1KfsPlaceAlignAction() {
+  clearRuntimeState();
 }
 
-BT::NodeStatus SecondPreselectionObserveAction::onStart() {
+BT::NodeStatus SecondPreselectionR1KfsPlaceAlignAction::onStart() {
   if (!config().blackboard || !config().blackboard->get("node", node_) ||
       !node_) {
-    writeDecisionFailure(config().blackboard, "SecondPreselectionObserve",
+    writeDecisionFailure(config().blackboard, "SecondPreselectionR1KfsPlaceAlign",
                          "运行上下文缺失：blackboard 或 node 不可用");
     return BT::NodeStatus::FAILURE;
   }
   if (!config().blackboard->get("second_preselection_params", params_)) {
-    config().blackboard->set("second_preselection_observe_error", true);
     return fail("黑板缺少 second_preselection_params");
   }
-  (void)config().blackboard->get("team", team_);
-  config().blackboard->set("second_preselection_observe_error", false);
-  config().blackboard->set("second_preselection_middle_empty", false);
-  config().blackboard->set("second_preselection_middle_occupied", false);
-  config().blackboard->set("second_preselection_last_observe_detection_count", 0);
-  config().blackboard->set("second_preselection_grid_occupied_mask", 0);
-  config().blackboard->set("second_preselection_selected_middle_col", 0);
-  config().blackboard->set("second_preselection_selected_lateral_m", 0.0);
 
-  occupied_stable_count_ = 0;
-  ui_disabled_after_error_ = false;
-  has_odom_ = false;
-  odom_reference_ready_ = false;
+  clearRuntimeState();
   start_tp_ = std::chrono::steady_clock::now();
   last_log_tp_ = start_tp_;
   if (!setupOdom()) {
-    config().blackboard->set("second_preselection_observe_error", true);
-    return fail("第二预选赛动态 ROI odom 启动失败");
+    return fail("第二预选赛 R1KFS 放置对齐 odom 启动失败");
   }
   if (!setupVision()) {
-    config().blackboard->set("second_preselection_observe_error", true);
-    return fail("第二预选赛九宫格中层视觉启动失败");
+    return fail("第二预选赛 R1KFS 放置对齐视觉启动失败");
+  }
+  cmd_pub_ = node_->create_publisher<geometry_msgs::msg::Twist>(
+      params_.cmd_vel_topic, rclcpp::QoS(10));
+  if (!cmd_pub_) {
+    return fail("第二预选赛 R1KFS 放置对齐 cmd_vel publisher 创建失败");
   }
 
   RCLCPP_INFO(node_->get_logger(),
-              "第二预选赛开始动态九宫格观察：team=%s D0=%.2f S0=%.2f cols=[%.2f,%.2f,%.2f] row_pitch=%.2f camera=[fx %.1f fy %.1f ppx %.1f ppy %.1f] odom=%s timeout=%.1fs label_stable=%d",
-              team_.c_str(), params_.grid_initial_distance_m,
-              params_.grid_initial_lateral_offset_m,
-              params_.grid_left_col_width_m, params_.grid_center_col_width_m,
-              params_.grid_right_col_width_m, params_.grid_row_pitch_m,
-              params_.grid_camera_fx_px, params_.grid_camera_fy_px,
-              params_.grid_camera_ppx_px, params_.grid_camera_ppy_px,
-              params_.odom_topic.c_str(), params_.observe_timeout_s,
-              params_.occupied_stable_frames);
+              "第二预选赛开始观察并视觉对齐前方最近 R1KFS：timeout=%.1fs tolerance=%d stable=%d odom=%s cmd_vel=%s",
+              params_.kfs_align_timeout_s, params_.kfs_align_tolerance_px,
+              params_.kfs_align_stable_frames, params_.odom_topic.c_str(),
+              params_.cmd_vel_topic.c_str());
   return BT::NodeStatus::RUNNING;
 }
 
-BT::NodeStatus SecondPreselectionObserveAction::onRunning() {
-  if (!vision_) {
-    config().blackboard->set("second_preselection_observe_error", true);
-    return fail("第二预选赛九宫格中层视觉运行时不可用");
+BT::NodeStatus SecondPreselectionR1KfsPlaceAlignAction::onRunning() {
+  if (!vision_ || !vision_->isRunning()) {
+    return fail("第二预选赛 R1KFS 放置对齐视觉运行时不可用");
+  }
+  if (elapsedSec(start_tp_) > params_.kfs_align_timeout_s) {
+    return fail("第二预选赛 R1KFS 放置对齐超时");
   }
 
-  rc26_vision::VisionInferenceManager::FrameSnapshot snapshot;
-  const bool got_snapshot = vision_->getLatestFrameSnapshot(snapshot);
-  if (got_snapshot && snapshot.has_color && !snapshot.color_bgr.empty()) {
-    if (!odomReady()) {
-      if (odom_reference_ready_) {
-        config().blackboard->set("second_preselection_observe_error", true);
-        return fail("第二预选赛动态 ROI odom 超时");
-      }
-      if (elapsedSec(last_log_tp_) >= params_.observe_log_period_s) {
-        RCLCPP_WARN(node_->get_logger(),
-                    "第二预选赛动态 ROI 等待 odom：topic=%s elapsed=%.1fs",
-                    params_.odom_topic.c_str(), elapsedSec(start_tp_));
-        last_log_tp_ = std::chrono::steady_clock::now();
-      }
-      if (elapsedSec(start_tp_) > params_.observe_timeout_s) {
-        config().blackboard->set("second_preselection_observe_error", true);
-        return fail("第二预选赛动态 ROI 等待 odom 超时");
-      }
-      return BT::NodeStatus::RUNNING;
-    }
-
-    const double odom_delta_x_m = current_odom_x_ - start_odom_x_;
-    const double odom_delta_y_m = current_odom_y_ - start_odom_y_;
-    SecondPreselectionOccupancyObservation observation =
-        evaluateSecondPreselectionGridOccupancy(
-            snapshot.detections, params_, odom_delta_x_m, odom_delta_y_m);
-    writeObservationToBlackboard(observation);
-    renderObservationUi(snapshot, observation, odom_delta_x_m, odom_delta_y_m);
-
-    if (observation.selected_middle_col) {
-      config().blackboard->set("second_preselection_middle_empty", true);
-      config().blackboard->set("second_preselection_middle_occupied", false);
+  auto observation = findNearestR1Kfs();
+  if (!observation.has_value()) {
+    ++align_lost_count_;
+    align_stable_count_ = 0;
+    renderUi("r1-search", align_last_observation_, "waiting nearest R1KFS");
+    publishStop();
+    if (elapsedSec(last_log_tp_) >= params_.log_period_s) {
       RCLCPP_INFO(node_->get_logger(),
-                  "第二预选赛中层选位成功：col=%d lateral=%.3fm mask=0x%03X detections=%d",
-                  *observation.selected_middle_col, observation.selected_lateral_m,
-                  observation.grid_occupied_mask, observation.matched_detections);
-      releaseVision();
-      releaseOdom();
-      return BT::NodeStatus::SUCCESS;
-    }
-
-    if (observation.occupied) {
-      ++occupied_stable_count_;
-    } else {
-      config().blackboard->set("second_preselection_middle_empty", true);
-      config().blackboard->set("second_preselection_middle_occupied", false);
-      RCLCPP_INFO(node_->get_logger(),
-                  "第二预选赛九宫格中层判定为空：ROI内无目标标签");
-      releaseVision();
-      releaseOdom();
-      return BT::NodeStatus::SUCCESS;
-    }
-    if (occupied_stable_count_ >= params_.occupied_stable_frames) {
-      config().blackboard->set("second_preselection_middle_empty", false);
-      config().blackboard->set("second_preselection_middle_occupied", true);
-      RCLCPP_INFO(node_->get_logger(),
-                  "第二预选赛九宫格中层被目标标签占据：label=%s count=%d stable=%d/%d",
-                  observation.first_label.c_str(), observation.matched_detections,
-                  occupied_stable_count_,
-                  params_.occupied_stable_frames);
-      releaseVision();
-      releaseOdom();
-      return BT::NodeStatus::SUCCESS;
-    }
-    if (elapsedSec(last_log_tp_) >= params_.observe_log_period_s) {
-      RCLCPP_INFO(node_->get_logger(),
-                  "第二预选赛九宫格中层观察中：occupied=%s label=%s count=%d stable=%d/%d mask=0x%03X elapsed=%.1fs",
-                  observation.occupied ? "true" : "false",
-                  observation.first_label.empty() ? "-" : observation.first_label.c_str(),
-                  observation.matched_detections, occupied_stable_count_,
-                  params_.occupied_stable_frames, observation.grid_occupied_mask,
-                  elapsedSec(start_tp_));
+                  "第二预选赛等待前方最近 R1KFS：elapsed=%.1fs lost=%d",
+                  elapsedSec(start_tp_), align_lost_count_);
       last_log_tp_ = std::chrono::steady_clock::now();
     }
-  } else if (elapsedSec(last_log_tp_) >= params_.observe_log_period_s) {
-    RCLCPP_WARN(node_->get_logger(),
-                "第二预选赛九宫格中层观察等待彩色帧：snapshot=%s has_color=%s elapsed=%.1fs",
-                got_snapshot ? "true" : "false",
-                (got_snapshot && snapshot.has_color) ? "true" : "false",
-                elapsedSec(start_tp_));
-    last_log_tp_ = std::chrono::steady_clock::now();
+    return BT::NodeStatus::RUNNING;
   }
 
-  if (elapsedSec(start_tp_) > params_.observe_timeout_s) {
-    config().blackboard->set("second_preselection_middle_empty", false);
-    config().blackboard->set("second_preselection_middle_occupied", true);
-    RCLCPP_WARN(node_->get_logger(),
-                "第二预选赛九宫格中层观察超时，保守判定为被占据");
-    releaseVision();
-    releaseOdom();
-    return BT::NodeStatus::SUCCESS;
+  align_lost_count_ = 0;
+  observation = applyAlignmentObservationFilter(*observation);
+  align_last_observation_ = observation;
+  renderUi("r1-align", observation, "pixel/yaw alignment");
+
+  const auto heading = alignHeadingControl();
+  if (!heading.has_value()) {
+    publishStop();
+    align_stable_count_ = 0;
+    return BT::NodeStatus::RUNNING;
   }
+
+  const bool new_frame = observation->target.sequence != align_last_sequence_;
+  if (new_frame) {
+    align_last_sequence_ = observation->target.sequence;
+  }
+  const bool pixel_aligned =
+      std::abs(observation->offset_px) <= params_.kfs_align_tolerance_px;
+  if (pixel_aligned && heading->aligned) {
+    publishStop();
+    if (new_frame) {
+      ++align_stable_count_;
+    }
+    if (align_stable_count_ >= params_.kfs_align_stable_frames) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "第二预选赛 R1KFS 放置对齐完成：label=%s depth=%.3fm offset=%d stable=%d",
+                  observation->target.label.c_str(),
+                  observation->target.distance_m, observation->offset_px,
+                  align_stable_count_);
+      clearRuntimeState();
+      return BT::NodeStatus::SUCCESS;
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+
+  if (new_frame) {
+    align_stable_count_ = 0;
+  }
+  const double vy = heading->allow_lateral
+                        ? rc26_vision::computeTipAlignmentVy(
+                              observation->offset_px, makeAlignmentConfig())
+                        : 0.0;
+  publishTwist(0.0, vy, heading->angular_z_radps);
   return BT::NodeStatus::RUNNING;
 }
 
-void SecondPreselectionObserveAction::onHalted() {
-  releaseUi();
-  releaseVision();
-  releaseOdom();
+void SecondPreselectionR1KfsPlaceAlignAction::onHalted() {
+  publishStop();
+  clearRuntimeState();
 }
 
-BT::NodeStatus SecondPreselectionObserveAction::fail(
+BT::NodeStatus SecondPreselectionR1KfsPlaceAlignAction::fail(
     const std::string &reason) {
   if (node_) {
-    RCLCPP_ERROR(node_->get_logger(), "第二预选赛视觉观察失败：%s",
+    RCLCPP_ERROR(node_->get_logger(), "第二预选赛 R1KFS 放置对齐失败：%s",
                  reason.c_str());
   }
-  writeDecisionFailure(config().blackboard, "SecondPreselectionObserve", reason);
-  releaseUi();
-  releaseVision();
-  releaseOdom();
+  writeDecisionFailure(config().blackboard, "SecondPreselectionR1KfsPlaceAlign",
+                       reason);
+  publishStop();
+  clearRuntimeState();
   return BT::NodeStatus::FAILURE;
 }
 
-bool SecondPreselectionObserveAction::setupVision() {
+bool SecondPreselectionR1KfsPlaceAlignAction::setupVision() {
   try {
     params_.vision_config_file = resolveVisionConfig(params_.vision_config_file);
     auto config =
         rc26_vision::ProfileLoader::loadFromYaml(params_.vision_config_file);
     rc26_vision::ProfileLoader::validate(config);
     if (config.profiles.find(params_.model_id) == config.profiles.end()) {
-      RCLCPP_ERROR(node_->get_logger(), "第二预选赛视觉 profile 不存在：%s",
+      RCLCPP_ERROR(node_->get_logger(), "第二预选赛 R1KFS 视觉 profile 不存在：%s",
                    params_.model_id.c_str());
       return false;
     }
@@ -2091,14 +1870,14 @@ bool SecondPreselectionObserveAction::setupVision() {
     }
     return true;
   } catch (const std::exception &e) {
-    RCLCPP_ERROR(node_->get_logger(), "第二预选赛视觉初始化异常：%s",
+    RCLCPP_ERROR(node_->get_logger(), "第二预选赛 R1KFS 视觉初始化异常：%s",
                  e.what());
     vision_.reset();
     return false;
   }
 }
 
-void SecondPreselectionObserveAction::releaseVision() {
+void SecondPreselectionR1KfsPlaceAlignAction::releaseVision() {
   releaseUi();
   if (vision_) {
     vision_->stop();
@@ -2106,81 +1885,54 @@ void SecondPreselectionObserveAction::releaseVision() {
   }
 }
 
-bool SecondPreselectionObserveAction::setupOdom() {
+bool SecondPreselectionR1KfsPlaceAlignAction::setupOdom() {
   odom_sub_ = node_->create_subscription<OdomMsg>(
       params_.odom_topic, rclcpp::QoS(rclcpp::KeepLast(10)),
       [this](const OdomMsg::SharedPtr msg) {
         if (!msg) {
           return;
         }
-        current_odom_x_ = msg->pose.pose.position.x;
-        current_odom_y_ = msg->pose.pose.position.y;
+        const auto &q = msg->pose.pose.orientation;
+        odom_yaw_ = yawFromQuaternion(q.x, q.y, q.z, q.w);
         has_odom_ = true;
         last_odom_tp_ = std::chrono::steady_clock::now();
-        if (!odom_reference_ready_) {
-          start_odom_x_ = current_odom_x_;
-          start_odom_y_ = current_odom_y_;
-          odom_reference_ready_ = true;
-        }
       });
   return static_cast<bool>(odom_sub_);
 }
 
-void SecondPreselectionObserveAction::releaseOdom() {
+void SecondPreselectionR1KfsPlaceAlignAction::releaseOdom() {
   odom_sub_.reset();
 }
 
-bool SecondPreselectionObserveAction::odomReady() const {
-  if (!has_odom_ || !odom_reference_ready_) {
+bool SecondPreselectionR1KfsPlaceAlignAction::odomReady() const {
+  if (!has_odom_) {
     return false;
   }
   return elapsedSec(last_odom_tp_) <= params_.odom_timeout_s;
 }
 
-bool SecondPreselectionObserveAction::setupUiIfNeeded() {
-  if (!params_.dynamic_roi_ui_enable || ui_disabled_after_error_) {
-    return false;
-  }
-  if (ui_window_active_) {
-    return true;
-  }
-  try {
-    cv::namedWindow(params_.dynamic_roi_ui_window_name, cv::WINDOW_NORMAL);
-    ui_window_active_ = true;
-    return true;
-  } catch (const cv::Exception &e) {
-    ui_disabled_after_error_ = true;
-    ui_window_active_ = false;
-    if (node_) {
-      RCLCPP_WARN(node_->get_logger(),
-                  "第二预选赛动态 ROI UI 创建失败，自动关闭 UI：%s",
-                  e.what());
-    }
-    return false;
-  }
+bool SecondPreselectionR1KfsPlaceAlignAction::setupUiIfNeeded() {
+  return setupDebugWindowIfNeeded(node_, params_, ui_window_active_,
+                                  ui_disabled_after_error_,
+                                  "第二预选赛 R1KFS 放置对齐");
 }
 
-void SecondPreselectionObserveAction::releaseUi() {
-  if (!ui_window_active_) {
+void SecondPreselectionR1KfsPlaceAlignAction::releaseUi() {
+  releaseDebugWindow(node_, params_, ui_window_active_,
+                     "第二预选赛 R1KFS 放置对齐");
+}
+
+void SecondPreselectionR1KfsPlaceAlignAction::renderUi(
+    const std::string &stage,
+    const std::optional<R1KfsObservation> &observation,
+    const std::string &detail) {
+  if (!params_.dynamic_roi_ui_enable || ui_disabled_after_error_ || !vision_ ||
+      !vision_->isRunning()) {
     return;
   }
-  try {
-    cv::destroyWindow(params_.dynamic_roi_ui_window_name);
-  } catch (const cv::Exception &e) {
-    if (node_) {
-      RCLCPP_WARN(node_->get_logger(),
-                  "第二预选赛动态 ROI UI 关闭异常：%s", e.what());
-    }
-  }
-  ui_window_active_ = false;
-}
-
-void SecondPreselectionObserveAction::renderObservationUi(
-    const rc26_vision::VisionInferenceManager::FrameSnapshot &snapshot,
-    const SecondPreselectionOccupancyObservation &observation,
-    double odom_delta_x_m, double odom_delta_y_m) {
-  if (!params_.dynamic_roi_ui_enable || ui_disabled_after_error_ ||
-      !snapshot.has_color || snapshot.color_bgr.empty()) {
+  rc26_vision::VisionInferenceManager::FrameSnapshot snapshot;
+  if (!vision_->getLatestFrameSnapshot(snapshot) || !snapshot.has_color ||
+      snapshot.color_bgr.empty()) {
     return;
   }
   if (!setupUiIfNeeded()) {
@@ -2189,81 +1941,36 @@ void SecondPreselectionObserveAction::renderObservationUi(
 
   try {
     cv::Mat canvas = snapshot.color_bgr.clone();
-    const cv::Size frame_size = canvas.size();
-    const cv::Scalar occupied_color(40, 40, 230);
-    const cv::Scalar empty_color(170, 170, 170);
-    const cv::Scalar selected_color(0, 220, 255);
     const cv::Scalar text_bg(20, 20, 20);
-
-    for (int i = 0; i < static_cast<int>(observation.grid_cells.size()); ++i) {
-      const auto &cell = observation.grid_cells[static_cast<size_t>(i)];
-      const bool occupied =
-          observation.grid_detection_counts[static_cast<size_t>(i)] > 0;
-      const bool selected =
-          observation.selected_middle_col.has_value() && cell.row == 0 &&
-          *observation.selected_middle_col == cell.col;
-      const cv::Scalar color =
-          selected ? selected_color : (occupied ? occupied_color : empty_color);
-      const int thickness = selected ? 3 : 2;
-      if (const auto rect = clippedRect(cell.roi, frame_size)) {
-        cv::rectangle(canvas, *rect, color, thickness);
-        std::ostringstream label;
-        label << "c" << cell.col << " r" << cell.row << " n"
-              << observation.grid_detection_counts[static_cast<size_t>(i)];
-        drawTextWithBackground(canvas, label.str(),
-                               cv::Point(rect->x + 3, rect->y + 15),
-                               cv::Scalar(255, 255, 255), text_bg);
-      }
-      if (cell.center.x >= 0.0F && cell.center.x < frame_size.width &&
-          cell.center.y >= 0.0F && cell.center.y < frame_size.height) {
-        const cv::Point center_i(static_cast<int>(std::lround(cell.center.x)),
-                                 static_cast<int>(std::lround(cell.center.y)));
-        cv::drawMarker(canvas, center_i, color, cv::MARKER_CROSS, 10, 1,
-                       cv::LINE_AA);
-      }
+    std::optional<rc26_vision::VisualTargetSnapshot> locked_target;
+    if (observation.has_value()) {
+      locked_target = observation->target;
     }
+    drawDetectionsOverlay(canvas, snapshot.detections, text_bg, locked_target);
 
-    for (const auto &det : snapshot.detections) {
-      const std::string label = rc26_vision::visualTargetLabel(det);
-      const cv::Scalar color = detectionColor(label);
-      const cv::Rect2f raw_box(det.x1, det.y1, det.x2 - det.x1,
-                               det.y2 - det.y1);
-      if (const auto box = clippedRect(raw_box, frame_size)) {
-        cv::rectangle(canvas, *box, color, 2);
-        const cv::Point2f center = detectionCenter(det);
-        if (center.x >= 0.0F && center.x < frame_size.width &&
-            center.y >= 0.0F && center.y < frame_size.height) {
-          const cv::Point center_i(static_cast<int>(std::lround(center.x)),
-                                   static_cast<int>(std::lround(center.y)));
-          cv::circle(canvas, center_i, 3, color, cv::FILLED, cv::LINE_AA);
-        }
-        std::ostringstream det_text;
-        det_text << (label.empty() ? "-" : label) << " "
-                 << std::fixed << std::setprecision(2) << det.score;
-        drawTextWithBackground(canvas, det_text.str(),
-                               cv::Point(box->x, box->y - 4),
-                               cv::Scalar(255, 255, 255), text_bg);
-      }
+    const int target_line_x =
+        std::max(0, canvas.cols / 2) + params_.kfs_align_target_line_offset_px;
+    if (target_line_x >= 0 && target_line_x < canvas.cols) {
+      cv::line(canvas, cv::Point(target_line_x, 0),
+               cv::Point(target_line_x, canvas.rows - 1),
+               cv::Scalar(0, 255, 255), 1, cv::LINE_AA);
     }
 
     std::ostringstream status1;
-    status1 << "mask=0x" << std::uppercase << std::hex << std::setw(3)
-            << std::setfill('0') << observation.grid_occupied_mask
-            << std::dec << " det=" << observation.matched_detections;
-    if (observation.selected_middle_col) {
-      status1 << " selected_col=" << *observation.selected_middle_col
-              << " lateral=" << std::fixed << std::setprecision(3)
-              << observation.selected_lateral_m << "m";
-    } else {
-      status1 << " selected_col=none";
+    status1 << "stage=" << stage << " stable=" << align_stable_count_ << "/"
+            << params_.kfs_align_stable_frames;
+    if (observation.has_value()) {
+      status1 << " target=" << observation->target.label << " depth="
+              << std::fixed << std::setprecision(3)
+              << observation->target.distance_m << "m offset="
+              << observation->offset_px;
     }
-    std::ostringstream status2;
-    status2 << "odom_dx=" << std::fixed << std::setprecision(3)
-            << odom_delta_x_m << "m odom_dy=" << odom_delta_y_m << "m";
     drawTextWithBackground(canvas, status1.str(), cv::Point(8, 20),
                            cv::Scalar(255, 255, 255), text_bg, 0.50, 1);
-    drawTextWithBackground(canvas, status2.str(), cv::Point(8, 42),
-                           cv::Scalar(255, 255, 255), text_bg, 0.50, 1);
+    if (!detail.empty()) {
+      drawTextWithBackground(canvas, detail, cv::Point(8, 42),
+                             cv::Scalar(255, 255, 255), text_bg, 0.50, 1);
+    }
 
     cv::imshow(params_.dynamic_roi_ui_window_name, canvas);
     cv::waitKey(1);
@@ -2271,28 +1978,199 @@ void SecondPreselectionObserveAction::renderObservationUi(
     ui_disabled_after_error_ = true;
     if (node_) {
       RCLCPP_WARN(node_->get_logger(),
-                  "第二预选赛动态 ROI UI 渲染失败，自动关闭 UI：%s",
+                  "第二预选赛 R1KFS 放置对齐 UI 渲染失败，自动关闭 UI：%s",
                   e.what());
     }
     releaseUi();
   }
 }
 
-void SecondPreselectionObserveAction::writeObservationToBlackboard(
-    const SecondPreselectionOccupancyObservation &observation) {
-  if (!config().blackboard) {
+void SecondPreselectionR1KfsPlaceAlignAction::publishStop() {
+  if (cmd_pub_) {
+    cmd_pub_->publish(geometry_msgs::msg::Twist{});
+  }
+}
+
+void SecondPreselectionR1KfsPlaceAlignAction::publishTwist(double vx, double vy,
+                                                           double wz) {
+  if (!cmd_pub_) {
     return;
   }
-  config().blackboard->set("second_preselection_last_observe_detection_count",
-                           observation.matched_detections);
-  config().blackboard->set(
-      "second_preselection_grid_occupied_mask",
-      static_cast<int>(observation.grid_occupied_mask));
-  config().blackboard->set(
-      "second_preselection_selected_middle_col",
-      observation.selected_middle_col.value_or(0));
-  config().blackboard->set("second_preselection_selected_lateral_m",
-                           observation.selected_lateral_m);
+  geometry_msgs::msg::Twist twist;
+  twist.linear.x = vx;
+  twist.linear.y = vy;
+  twist.angular.z = wz;
+  cmd_pub_->publish(twist);
+}
+
+rc26_vision::TipAlignmentConfig
+SecondPreselectionR1KfsPlaceAlignAction::makeAlignmentConfig() const {
+  rc26_vision::TipAlignmentConfig config;
+  config.target_lock_enable = true;
+  config.target_lock_max_jump_px = params_.kfs_align_max_jump_px;
+  config.lost_stop_frames = params_.kfs_lost_stop_frames;
+  config.tolerance_px = params_.kfs_align_tolerance_px;
+  config.target_line_offset_px = params_.kfs_align_target_line_offset_px;
+  config.kp = params_.kfs_align_kp;
+  config.min_speed_mps = params_.kfs_align_min_speed_mps;
+  config.max_speed_mps = params_.kfs_align_max_speed_mps;
+  config.invert_direction = params_.kfs_invert_lateral_direction;
+  config.heading_hold_enable = true;
+  config.target_yaw_rad = align_yaw_;
+  config.heading_kp = params_.kfs_heading_kp;
+  config.heading_max_speed_radps = params_.kfs_heading_max_speed_radps;
+  config.heading_tolerance_rad =
+      std::abs(params_.kfs_odom_yaw_tolerance_deg) * kDeg2Rad;
+  config.heading_gate_rad =
+      std::max(config.heading_tolerance_rad,
+               std::abs(params_.kfs_align_heading_gate_deg) * kDeg2Rad);
+  return config;
+}
+
+std::optional<rc26_vision::TipHeadingControl>
+SecondPreselectionR1KfsPlaceAlignAction::alignHeadingControl() {
+  if (!align_yaw_captured_) {
+    if (!odomReady()) {
+      if (node_ && !waiting_odom_logged_) {
+        RCLCPP_WARN(node_->get_logger(),
+                    "第二预选赛 R1KFS 放置对齐等待 odom 捕获 yaw：topic=%s",
+                    params_.odom_topic.c_str());
+        waiting_odom_logged_ = true;
+      }
+      return std::nullopt;
+    }
+    align_yaw_ = odom_yaw_;
+    align_yaw_captured_ = true;
+    waiting_odom_logged_ = false;
+    RCLCPP_INFO(node_->get_logger(),
+                "第二预选赛 R1KFS 放置对齐捕获 yaw=%.3f", align_yaw_);
+  }
+  if (!odomReady()) {
+    if (node_ && !waiting_odom_logged_) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "第二预选赛 R1KFS 放置对齐等待 odom 新鲜：topic=%s",
+                  params_.odom_topic.c_str());
+      waiting_odom_logged_ = true;
+    }
+    return std::nullopt;
+  }
+  waiting_odom_logged_ = false;
+  return rc26_vision::computeTipHeadingControl(odom_yaw_, makeAlignmentConfig());
+}
+
+std::optional<SecondPreselectionR1KfsPlaceAlignAction::R1KfsObservation>
+SecondPreselectionR1KfsPlaceAlignAction::findNearestR1Kfs() {
+  if (!vision_ || !vision_->isRunning()) {
+    return std::nullopt;
+  }
+  rc26_vision::VisionInferenceManager::FrameSnapshot snapshot;
+  if (!vision_->getLatestFrameSnapshot(snapshot) || !snapshot.has_color ||
+      snapshot.color_bgr.empty() || !snapshot.has_depth ||
+      snapshot.depth.empty() || snapshot.display_sequence <= 0) {
+    return std::nullopt;
+  }
+
+  rc26_vision::DepthRoiSamplerConfig depth_config;
+  depth_config.roi_size = params_.kfs_depth_roi_size;
+  depth_config.min_valid_count = params_.kfs_depth_min_valid_count;
+  depth_config.min_depth_m = params_.depth_min_m;
+  depth_config.max_depth_m = params_.depth_max_m;
+
+  std::optional<R1KfsObservation> best;
+  const int target_line_x =
+      std::max(0, snapshot.color_bgr.cols / 2) +
+      params_.kfs_align_target_line_offset_px;
+  for (const auto &det : snapshot.detections) {
+    const std::string label = rc26_vision::visualTargetLabel(det);
+    if (!labelsMatch(label, params_.r1_blocking_labels,
+                     params_.r1_blocking_label_prefixes)) {
+      continue;
+    }
+    if (label == "R1_KFS" && det.score < params_.r1_kfs_min_score) {
+      continue;
+    }
+    const auto sampled = sampleKfsDepthFromBbox(
+        snapshot.depth, det, depth_config, params_.kfs_depth_bbox_sample_ratios,
+        params_.kfs_depth_bbox_min_success_count);
+    if (!sampled.has_value()) {
+      continue;
+    }
+
+    const auto center = detectionCenter(det);
+    R1KfsObservation observation;
+    observation.target =
+        rc26_vision::makeVisualTargetSnapshot(det, snapshot.display_sequence);
+    observation.target.distance_m = *sampled;
+    observation.detection = det;
+    observation.offset_px =
+        static_cast<int>(std::lround(center.x - target_line_x));
+
+    if (!best.has_value()) {
+      best = observation;
+      continue;
+    }
+    const double depth_delta =
+        observation.target.distance_m - best->target.distance_m;
+    if (depth_delta < -1e-9 ||
+        (std::abs(depth_delta) <= 1e-9 &&
+         (std::abs(observation.offset_px) < std::abs(best->offset_px) ||
+          (std::abs(observation.offset_px) == std::abs(best->offset_px) &&
+           observation.target.score > best->target.score)))) {
+      best = observation;
+    }
+  }
+
+  if (!best.has_value()) {
+    return std::nullopt;
+  }
+
+  std::vector<rc26_vision::Detection> selected_detection{best->detection};
+  std::vector<int> target_class_ids{best->detection.class_id};
+  const auto selection = rc26_vision::updateTipAlignmentTarget(
+      selected_detection, snapshot.color_bgr.cols, target_class_ids,
+      align_lock_state_, makeAlignmentConfig());
+  if (!selection.has_target || selection.target.source_index != 0) {
+    return std::nullopt;
+  }
+  best->offset_px = selection.offset_px;
+  return best;
+}
+
+SecondPreselectionR1KfsPlaceAlignAction::R1KfsObservation
+SecondPreselectionR1KfsPlaceAlignAction::applyAlignmentObservationFilter(
+    const R1KfsObservation &observation) {
+  R1KfsObservation filtered = observation;
+  const double raw_offset = static_cast<double>(observation.offset_px);
+  const double alpha =
+      std::clamp(params_.kfs_align_offset_filter_alpha, 0.05, 1.0);
+  if (!align_filtered_offset_valid_) {
+    align_filtered_offset_px_ = raw_offset;
+    align_filtered_offset_valid_ = true;
+  } else {
+    align_filtered_offset_px_ =
+        alpha * raw_offset + (1.0 - alpha) * align_filtered_offset_px_;
+  }
+  filtered.offset_px = static_cast<int>(std::lround(align_filtered_offset_px_));
+  return filtered;
+}
+
+void SecondPreselectionR1KfsPlaceAlignAction::clearRuntimeState() {
+  publishStop();
+  releaseUi();
+  releaseVision();
+  releaseOdom();
+  cmd_pub_.reset();
+  has_odom_ = false;
+  align_yaw_captured_ = false;
+  align_yaw_ = 0.0;
+  waiting_odom_logged_ = false;
+  align_stable_count_ = 0;
+  align_lost_count_ = 0;
+  align_last_sequence_ = 0;
+  align_lock_state_.reset();
+  align_last_observation_.reset();
+  align_filtered_offset_valid_ = false;
+  align_filtered_offset_px_ = 0.0;
 }
 
 void loadSecondPreselectionParams(rclcpp::Node &node,
@@ -2342,8 +2220,6 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
       node.declare_parameter<double>("second_preselect_nav_x2_m", p.nav_x2_m);
   p.place_forward_x_m = node.declare_parameter<double>(
       "second_preselect_place_forward_x_m", p.place_forward_x_m);
-  p.retreat_x_m = node.declare_parameter<double>(
-      "second_preselect_retreat_x_m", p.retreat_x_m);
   p.nav_timeout_s = node.declare_parameter<double>(
       "second_preselect_nav_timeout_s", p.nav_timeout_s);
   p.ramp_approach_x_m = node.declare_parameter<double>(
@@ -2498,53 +2374,6 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
       p.grab_verify_iou_threshold);
   p.grab_settle_s = node.declare_parameter<double>(
       "second_preselect_grab_settle_s", p.grab_settle_s);
-  p.grid_camera_fx_px = node.declare_parameter<double>(
-      "second_preselect_grid_camera_fx_px", p.grid_camera_fx_px);
-  p.grid_camera_fy_px = node.declare_parameter<double>(
-      "second_preselect_grid_camera_fy_px", p.grid_camera_fy_px);
-  p.grid_camera_ppx_px = node.declare_parameter<double>(
-      "second_preselect_grid_camera_ppx_px", p.grid_camera_ppx_px);
-  p.grid_camera_ppy_px = node.declare_parameter<double>(
-      "second_preselect_grid_camera_ppy_px", p.grid_camera_ppy_px);
-  p.grid_left_col_width_m = node.declare_parameter<double>(
-      "second_preselect_grid_left_col_width_m", p.grid_left_col_width_m);
-  p.grid_center_col_width_m = node.declare_parameter<double>(
-      "second_preselect_grid_center_col_width_m", p.grid_center_col_width_m);
-  p.grid_right_col_width_m = node.declare_parameter<double>(
-      "second_preselect_grid_right_col_width_m", p.grid_right_col_width_m);
-  p.grid_row_pitch_m = node.declare_parameter<double>(
-      "second_preselect_grid_row_pitch_m", p.grid_row_pitch_m);
-  p.grid_middle_center_height_m = node.declare_parameter<double>(
-      "second_preselect_grid_middle_center_height_m",
-      p.grid_middle_center_height_m);
-  p.grid_safe_width_m = node.declare_parameter<double>(
-      "second_preselect_grid_safe_width_m", p.grid_safe_width_m);
-  p.grid_safe_height_m = node.declare_parameter<double>(
-      "second_preselect_grid_safe_height_m", p.grid_safe_height_m);
-  p.grid_camera_height_m = node.declare_parameter<double>(
-      "second_preselect_grid_camera_height_m", p.grid_camera_height_m);
-  p.grid_initial_distance_m = node.declare_parameter<double>(
-      "second_preselect_grid_initial_distance_m",
-      p.grid_initial_distance_m);
-  p.grid_initial_lateral_offset_m = node.declare_parameter<double>(
-      "second_preselect_grid_initial_lateral_offset_m",
-      p.grid_initial_lateral_offset_m);
-  p.grid_base_y_to_grid_x_sign = node.declare_parameter<double>(
-      "second_preselect_grid_base_y_to_grid_x_sign",
-      p.grid_base_y_to_grid_x_sign);
-  p.grid_place_lateral_bias_m = node.declare_parameter<double>(
-      "second_preselect_grid_place_lateral_bias_m",
-      p.grid_place_lateral_bias_m);
-  p.grid_label_prefixes = node.declare_parameter<std::vector<std::string>>(
-      "second_preselect_grid_label_prefixes", p.grid_label_prefixes);
-  p.grid_label_exact_names = node.declare_parameter<std::vector<std::string>>(
-      "second_preselect_grid_label_exact_names", p.grid_label_exact_names);
-  p.occupied_stable_frames = node.declare_parameter<int>(
-      "second_preselect_occupied_stable_frames", p.occupied_stable_frames);
-  p.observe_timeout_s = node.declare_parameter<double>(
-      "second_preselect_observe_timeout_s", p.observe_timeout_s);
-  p.observe_log_period_s = node.declare_parameter<double>(
-      "second_preselect_observe_log_period_s", p.observe_log_period_s);
   p.dynamic_roi_ui_enable = node.declare_parameter<bool>(
       "second_preselect_dynamic_roi_ui_enable",
       p.dynamic_roi_ui_enable);
@@ -2716,82 +2545,7 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   p.grab_verify_iou_threshold =
       std::clamp(p.grab_verify_iou_threshold, 0.0, 1.0);
   p.grab_settle_s = std::max(0.0, p.grab_settle_s);
-  p.occupied_stable_frames = std::max(1, p.occupied_stable_frames);
-  p.observe_timeout_s = std::max(0.001, p.observe_timeout_s);
-  p.observe_log_period_s = std::max(0.1, p.observe_log_period_s);
-  p.grid_camera_fx_px =
-      (std::isfinite(p.grid_camera_fx_px) && p.grid_camera_fx_px > 0.0)
-          ? p.grid_camera_fx_px
-          : SecondPreselectionParams{}.grid_camera_fx_px;
-  p.grid_camera_fy_px =
-      (std::isfinite(p.grid_camera_fy_px) && p.grid_camera_fy_px > 0.0)
-          ? p.grid_camera_fy_px
-          : SecondPreselectionParams{}.grid_camera_fy_px;
-  p.grid_camera_ppx_px =
-      std::isfinite(p.grid_camera_ppx_px)
-          ? p.grid_camera_ppx_px
-          : SecondPreselectionParams{}.grid_camera_ppx_px;
-  p.grid_camera_ppy_px =
-      std::isfinite(p.grid_camera_ppy_px)
-          ? p.grid_camera_ppy_px
-          : SecondPreselectionParams{}.grid_camera_ppy_px;
-  p.grid_left_col_width_m =
-      (std::isfinite(p.grid_left_col_width_m) &&
-       p.grid_left_col_width_m > 0.0)
-          ? p.grid_left_col_width_m
-          : SecondPreselectionParams{}.grid_left_col_width_m;
-  p.grid_center_col_width_m =
-      (std::isfinite(p.grid_center_col_width_m) &&
-       p.grid_center_col_width_m > 0.0)
-          ? p.grid_center_col_width_m
-          : SecondPreselectionParams{}.grid_center_col_width_m;
-  p.grid_right_col_width_m =
-      (std::isfinite(p.grid_right_col_width_m) &&
-       p.grid_right_col_width_m > 0.0)
-          ? p.grid_right_col_width_m
-          : SecondPreselectionParams{}.grid_right_col_width_m;
-  p.grid_row_pitch_m =
-      (std::isfinite(p.grid_row_pitch_m) && p.grid_row_pitch_m > 0.0)
-          ? p.grid_row_pitch_m
-          : SecondPreselectionParams{}.grid_row_pitch_m;
-  p.grid_middle_center_height_m =
-      std::isfinite(p.grid_middle_center_height_m)
-          ? p.grid_middle_center_height_m
-          : SecondPreselectionParams{}.grid_middle_center_height_m;
-  p.grid_safe_width_m =
-      (std::isfinite(p.grid_safe_width_m) && p.grid_safe_width_m > 0.0)
-          ? p.grid_safe_width_m
-          : SecondPreselectionParams{}.grid_safe_width_m;
-  p.grid_safe_height_m =
-      (std::isfinite(p.grid_safe_height_m) && p.grid_safe_height_m > 0.0)
-          ? p.grid_safe_height_m
-          : SecondPreselectionParams{}.grid_safe_height_m;
-  p.grid_camera_height_m =
-      std::isfinite(p.grid_camera_height_m)
-          ? p.grid_camera_height_m
-          : SecondPreselectionParams{}.grid_camera_height_m;
-  p.grid_initial_distance_m =
-      (std::isfinite(p.grid_initial_distance_m) &&
-       p.grid_initial_distance_m > 0.05)
-          ? p.grid_initial_distance_m
-          : SecondPreselectionParams{}.grid_initial_distance_m;
-  p.grid_initial_lateral_offset_m =
-      std::isfinite(p.grid_initial_lateral_offset_m)
-          ? p.grid_initial_lateral_offset_m
-          : SecondPreselectionParams{}.grid_initial_lateral_offset_m;
-  p.grid_base_y_to_grid_x_sign =
-      (std::isfinite(p.grid_base_y_to_grid_x_sign) &&
-       p.grid_base_y_to_grid_x_sign >= 0.0)
-          ? 1.0
-          : -1.0;
   p.nav_y1_m *= static_cast<double>(mirror_sign);
-  p.grid_initial_lateral_offset_m *= static_cast<double>(mirror_sign);
-  p.grid_base_y_to_grid_x_sign *= static_cast<double>(mirror_sign);
-  p.grid_place_lateral_bias_m *= static_cast<double>(mirror_sign);
-  p.grid_place_lateral_bias_m =
-      std::isfinite(p.grid_place_lateral_bias_m)
-          ? p.grid_place_lateral_bias_m
-          : SecondPreselectionParams{}.grid_place_lateral_bias_m;
   p.odom_timeout_s = std::max(0.001, p.odom_timeout_s);
   p.vision_config_file = resolveVisionConfig(p.vision_config_file);
 
@@ -2817,7 +2571,6 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   blackboard->set("second_preselect_nav_y1_m", p.nav_y1_m);
   blackboard->set("second_preselect_nav_x2_m", p.nav_x2_m);
   blackboard->set("second_preselect_place_forward_x_m", p.place_forward_x_m);
-  blackboard->set("second_preselect_retreat_x_m", p.retreat_x_m);
   blackboard->set("second_preselect_nav_timeout_s", p.nav_timeout_s);
   blackboard->set("preselection_ramp_approach_x_m", p.ramp_approach_x_m);
   blackboard->set("preselection_ramp_climb_x_m", p.ramp_climb_x_m);
@@ -2834,16 +2587,9 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   blackboard->set("second_preselect_search_forward_speed_mps",
                   p.search_forward_speed_mps);
   blackboard->set("second_preselect_search_timeout_s", p.search_timeout_s);
-  blackboard->set("second_preselection_middle_empty", false);
-  blackboard->set("second_preselection_middle_occupied", false);
-  blackboard->set("second_preselection_observe_error", false);
-  blackboard->set("second_preselection_last_observe_detection_count", 0);
-  blackboard->set("second_preselection_grid_occupied_mask", 0);
-  blackboard->set("second_preselection_selected_middle_col", 0);
-  blackboard->set("second_preselection_selected_lateral_m", 0.0);
 
   RCLCPP_INFO(node.get_logger(),
-              "第二预选赛参数已加载: mirror_sign=%d start=0x%02X/done=0x%02X lower=0x%02X/done=0x%02X/settle=%.2fs pickup=0x%02X/done=0x%02X place=0x%02X search=[speed %.2f timeout %.1f] nav=[y1 %.2f, x2 %.2f, place %.2f, retreat %.2f] ramp=[approach %.2f climb %.2f max %.2f min %.2f timeout %.1f turn %.2f timeout %.1f] D0=%.2f S0=%.2f base_y_to_grid_x=%.1f camera=[fx %.1f fy %.1f ppx %.1f ppy %.1f] cols=[%.2f,%.2f,%.2f] row_pitch=%.2f safe=[%.2f,%.2f] odom=%s label_stable=%d",
+              "第二预选赛参数已加载: mirror_sign=%d start=0x%02X/done=0x%02X lower=0x%02X/done=0x%02X/settle=%.2fs pickup=0x%02X/done=0x%02X place=0x%02X search=[speed %.2f timeout %.1f] nav=[y1 %.2f, x2 %.2f, place %.2f] ramp=[approach %.2f climb %.2f max %.2f min %.2f timeout %.1f turn %.2f timeout %.1f] r1_align=[timeout %.1f tolerance %d stable %d] odom=%s",
               mirror_sign,
               p.start_command_id & 0xFF, p.start_done_feedback_id & 0xFF,
               p.pre_approach_lower_command_id & 0xFF,
@@ -2853,18 +2599,13 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
               p.pickup_done_feedback_id & 0xFF,
               p.place_kfs_command_id & 0xFF,
               p.search_forward_speed_mps, p.search_timeout_s,
-              p.nav_y1_m, p.nav_x2_m, p.place_forward_x_m, p.retreat_x_m,
+              p.nav_y1_m, p.nav_x2_m, p.place_forward_x_m,
               p.ramp_approach_x_m, p.ramp_climb_x_m,
               p.ramp_max_speed_mps, p.ramp_min_speed_mps,
               p.ramp_timeout_s, p.after_ramp_turn_delta_rad,
               p.after_ramp_turn_timeout_s,
-              p.grid_initial_distance_m, p.grid_initial_lateral_offset_m,
-              p.grid_base_y_to_grid_x_sign, p.grid_camera_fx_px,
-              p.grid_camera_fy_px, p.grid_camera_ppx_px,
-              p.grid_camera_ppy_px, p.grid_left_col_width_m,
-              p.grid_center_col_width_m, p.grid_right_col_width_m,
-              p.grid_row_pitch_m, p.grid_safe_width_m, p.grid_safe_height_m,
-              p.odom_topic.c_str(), p.occupied_stable_frames);
+              p.kfs_align_timeout_s, p.kfs_align_tolerance_px,
+              p.kfs_align_stable_frames, p.odom_topic.c_str());
 }
 
 void registerSecondPreselectionNodes(BT::BehaviorTreeFactory &factory) {
@@ -2872,28 +2613,8 @@ void registerSecondPreselectionNodes(BT::BehaviorTreeFactory &factory) {
       "SecondPreselectionCommand");
   factory.registerNodeType<SecondPreselectionKfsPickupAction>(
       "SecondPreselectionKfsPickup");
-  factory.registerNodeType<SecondPreselectionObserveAction>(
-      "SecondPreselectionObserve");
-  factory.registerNodeType<SecondPreselectionNoEmptyFailureAction>(
-      "SecondPreselectionNoEmptyFailure");
-}
-
-SecondPreselectionNoEmptyFailureAction::SecondPreselectionNoEmptyFailureAction(
-    const std::string &name, const BT::NodeConfig &config)
-    : BT::SyncActionNode(name, config) {}
-
-BT::NodeStatus SecondPreselectionNoEmptyFailureAction::tick() {
-  rclcpp::Node *node = nullptr;
-  if (config().blackboard) {
-    (void)config().blackboard->get("node", node);
-  }
-  const std::string reason =
-      "第二预选赛动态九宫格观察未找到中层空位，停止放置";
-  if (node) {
-    RCLCPP_ERROR(node->get_logger(), "%s", reason.c_str());
-  }
-  writeDecisionFailure(config().blackboard, "SecondPreselection", reason);
-  return BT::NodeStatus::FAILURE;
+  factory.registerNodeType<SecondPreselectionR1KfsPlaceAlignAction>(
+      "SecondPreselectionR1KfsPlaceAlign");
 }
 
 } // namespace rc26_decision

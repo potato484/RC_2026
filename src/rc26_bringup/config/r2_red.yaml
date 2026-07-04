@@ -73,9 +73,8 @@ r2_runtime:
       second_preselect_place_kfs_command_id: 19     # 0x13 SECOND_PRESELECTION_PLACE_KFS，ACK 即发送完成
       second_preselect_cmd_vel_topic: "cmd_vel"     # KFS 搜索、视觉对齐和前向趋近发布的运动命令
       second_preselect_nav_y1_m: 0.75               # 夹取完成后红方基准 +Y 横移；blue 启动时自动取反
-      second_preselect_nav_x2_m: 2.5                # 横移后沿车体系 +X 到九宫格放置观察位
-      second_preselect_place_forward_x_m: 3.20       # 找到空位后沿 +X 前进放置
-      second_preselect_retreat_x_m: -1.0            # 放置命令 ACK 后沿 -X 后退
+      second_preselect_nav_x2_m: 4.5                # 横移后沿车体系 +X 前进到 R1KFS 观察/对齐位
+      second_preselect_place_forward_x_m: 0.8       # R1KFS 视觉对齐后沿 +X 前进放置
       second_preselect_nav_timeout_s: 180.0         # 第二预选赛每个 odom 单轴段超时
       second_preselect_search_forward_speed_mps: 0.30 # 0x11 后沿 +X 前进搜索 R2 KFS 的速度
       second_preselect_search_timeout_s: 20.0       # 前进搜索 R2 KFS 超时
@@ -132,34 +131,11 @@ r2_runtime:
       second_preselect_after_ramp_turn_delta_rad: 1.5708 # 红方基准斜坡后左转 90°；blue 启动时自动取反
       second_preselect_after_ramp_turn_timeout_s: 30.0 # 斜坡后 90° 转向超时
       second_preselect_vision_config_file: ""       # 空则回退 rc26_vision/config/vision_models.yaml
-      second_preselect_model_id: "kfs_default"      # 用于 KFS 搜索/夹取与九宫格占据观察
-      second_preselect_grid_camera_fx_px: 385.6756287 # Color 640x480 fx
-      second_preselect_grid_camera_fy_px: 385.1935120 # Color 640x480 fy
-      second_preselect_grid_camera_ppx_px: 323.6063232 # Color 640x480 ppx
-      second_preselect_grid_camera_ppy_px: 241.5680695 # Color 640x480 ppy
-      second_preselect_grid_left_col_width_m: 0.54  # 红方基准从左往右第一列宽度
-      second_preselect_grid_center_col_width_m: 0.58 # 红方基准中间一列宽度
-      second_preselect_grid_right_col_width_m: 0.50 # 红方基准从右往左第一列宽度
-      second_preselect_grid_row_pitch_m: 0.54       # 九宫格每一行高度/行中心距
-      second_preselect_grid_middle_center_height_m: 1.21 # 中层格中心离地高度
-      second_preselect_grid_safe_width_m: 0.40      # 单格动态 ROI 安全宽度
-      second_preselect_grid_safe_height_m: 0.40     # 单格动态 ROI 安全高度
-      second_preselect_grid_camera_height_m: 0.80   # 当前水平安装相机离地高度
-
-      second_preselect_grid_initial_distance_m: 1.50 # 观察开始时相机到九宫格平面的距离
-
-      second_preselect_grid_initial_lateral_offset_m: 0.0 # 红方基准观察开始横向偏移；blue 自动取反
-      second_preselect_grid_base_y_to_grid_x_sign: -1.0 # 红方基准 +Y_base 对应 -X_grid；blue 自动取反
-      second_preselect_grid_place_lateral_bias_m: 0.0 # 红方基准放置横向偏置补偿；blue 自动取反
-      # 标签过滤默认省略，decision_node 使用空过滤列表，表示所有非空 class_name 有效。
-      # 如需过滤，填非空 second_preselect_grid_label_prefixes / exact_names 字符串数组。
-      second_preselect_odom_topic: "odom"           # 动态 ROI 观察时读取的 odom topic
-      second_preselect_odom_timeout_s: 0.5          # 动态 ROI odom 新鲜度超时
-      second_preselect_occupied_stable_frames: 2    # 中层全占据时连续多少帧确认无空位
-      second_preselect_observe_timeout_s: 2.0       # 放置前九宫格观察最长时间；未见 KFS 时继续按空位逻辑放置
-      second_preselect_observe_log_period_s: 0.5    # 观察日志节流周期
-      second_preselect_dynamic_roi_ui_enable: false # 第二预选赛 OpenCV 调试窗口；贯穿 KFS 搜索/夹取验证与九宫格 ROI 观察
-      second_preselect_dynamic_roi_ui_window_name: "SecondPreselectionDynamicROI" # 第二预选赛视觉调试窗口标题
+      second_preselect_model_id: "kfs_default"      # 用于 KFS 搜索/夹取与 R1KFS 放置对齐
+      second_preselect_odom_topic: "odom"           # KFS/R1KFS 视觉对齐读取的 odom topic
+      second_preselect_odom_timeout_s: 0.5          # KFS/R1KFS 视觉对齐 odom 新鲜度超时
+      second_preselect_dynamic_roi_ui_enable: false # 第二预选赛 OpenCV 调试窗口；贯穿 KFS 搜索/夹取验证与 R1KFS 放置对齐
+      second_preselect_dynamic_roi_ui_window_name: "SecondPreselectionVision" # 第二预选赛视觉调试窗口标题
 
       # ======================================================================
       # 武馆区 (MC) 红方基准运行参数 —— blue 启动时自动镜像侧向 yaw 和原地旋转方向

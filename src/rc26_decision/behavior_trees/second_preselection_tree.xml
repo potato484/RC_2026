@@ -42,31 +42,7 @@
                   odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
                   timeout_s="{second_preselect_nav_timeout_s}"/>
 
-      <Fallback name="second_preselection_find_empty_middle">
-        <Sequence name="second_preselection_observe_dynamic_grid">
-          <SecondPreselectionObserve name="second_preselection_observe_initial"/>
-          <ScriptCondition code="second_preselection_middle_empty"/>
-        </Sequence>
-        <Sequence name="second_preselection_no_empty_failure_path">
-          <ScriptCondition code="!second_preselection_observe_error"/>
-          <SecondPreselectionNoEmptyFailure name="second_preselection_no_empty_failure"/>
-        </Sequence>
-      </Fallback>
-
-      <OdomDriveY name="second_preselection_align_selected_middle"
-                  distance_m="{second_preselection_selected_lateral_m}"
-                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
-                  odom_topic="{odom_relative_nav_odom_topic}"
-                  max_speed_mps="{odom_relative_nav_max_speed_mps}"
-                  min_speed_mps="{odom_relative_nav_min_speed_mps}"
-                  xy_kp="{odom_relative_nav_xy_kp}"
-                  heading_kp="{odom_relative_nav_heading_kp}"
-                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
-                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
-                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
-                  stable_ticks="{odom_relative_nav_stable_ticks}"
-                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
-                  timeout_s="{second_preselect_nav_timeout_s}"/>
+      <SecondPreselectionR1KfsPlaceAlign name="second_preselection_r1_kfs_place_align"/>
 
       <OdomDriveX name="second_preselection_place_forward"
                   distance_m="{second_preselect_place_forward_x_m}"
@@ -88,20 +64,6 @@
                                  command_timeout_s="{second_preselect_command_timeout_s}"
                                  done_timeout_s="{second_preselect_done_timeout_s}"
                                  label="SECOND_PRESELECTION_PLACE_KFS"/>
-      <OdomDriveX name="second_preselection_retreat"
-                  distance_m="{second_preselect_retreat_x_m}"
-                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
-                  odom_topic="{odom_relative_nav_odom_topic}"
-                  max_speed_mps="{odom_relative_nav_max_speed_mps}"
-                  min_speed_mps="{odom_relative_nav_min_speed_mps}"
-                  xy_kp="{odom_relative_nav_xy_kp}"
-                  heading_kp="{odom_relative_nav_heading_kp}"
-                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
-                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
-                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
-                  stable_ticks="{odom_relative_nav_stable_ticks}"
-                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
-                  timeout_s="{second_preselect_nav_timeout_s}"/>
     </Sequence>
   </BehaviorTree>
 </root>
