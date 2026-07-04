@@ -69,10 +69,10 @@ r2_runtime:
       second_preselect_arm_high_raise_done_feedback_id: 15 # 0x0F SECOND_PRESELECTION_ARM_HIGH_RAISE_DONE
       second_preselect_place_kfs_command_id: 19     # 0x13 SECOND_PRESELECTION_PLACE_KFS，ACK 即发送完成
       second_preselect_nav_x1_m: 1.8                # 开始完成后沿车体系 +X 前进距离
-      second_preselect_nav_y1_m: 0.85                # 红方基准第二段车体系 Y；blue 启动时自动取反
+      second_preselect_nav_y1_m: 0.7               # 红方基准第二段车体系 Y；blue 启动时自动取反
       second_preselect_nav_x2_m: 2.5                # 第三段沿车体系 +X 前进距离
       second_preselect_place_forward_x_m: 1.0       # 找到空位后沿 +X 前进放置
-      second_preselect_retreat_x_m: -0.7            # 放置命令 ACK 后沿 -X 后退
+      second_preselect_retreat_x_m: -1.0            # 放置命令 ACK 后沿 -X 后退
       second_preselect_nav_timeout_s: 180.0         # 第二预选赛每个 odom 单轴段超时
       preselection_ramp_approach_x_m: 0.50      # second managed 入口斜坡前接近段 OdomDriveX 距离
       preselection_ramp_climb_x_m: 1.50         # second managed 入口斜坡爬坡段 OdomDriveX 距离
