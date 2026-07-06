@@ -1725,9 +1725,15 @@ BT::NodeStatus MfPreselectionFlowAction::onRunning() {
 
   case Phase::FinalExitYawAlign:
   {
-    const double descend_yaw = normalizeAngle(entry_heading_yaw_ + kPi);
+    const double descend_yaw =
+        params_.descend_direct_rush_enable
+            ? normalizeAngle(entry_heading_yaw_)
+            : normalizeAngle(entry_heading_yaw_ + kPi);
     RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛常规离场：已到grid12台阶上，下阶梯需车头反向，先对齐yaw=%.3f再下阶梯",
+                "梅林预选赛常规离场：已到grid12台阶上，下阶梯%s，先对齐yaw=%.3f再下阶梯",
+                params_.descend_direct_rush_enable
+                    ? "直冲已启用，使用入口方向预对齐"
+                    : "使用后轮先下回退模式",
                 descend_yaw);
     beginTurnYaw(descend_yaw, Phase::Row4DirectDescendPrep,
                  "final_exit_yaw_align");
@@ -4760,9 +4766,13 @@ double MfPreselectionFlowAction::transitionEdgeYaw(int from_grid,
 
 double MfPreselectionFlowAction::transitionYaw(int from_grid, int target_grid,
                                                int height_delta) const {
-  // 上台阶面向目标边，下台阶反向，让后轮先下。
+  // 上台阶面向目标边；传统下台阶反向，让后轮先下。
+  // MF 直冲下阶模式下仍先做 yaw 预对齐，但目标改为沿目标边自然前进。
   const double edge_yaw = transitionEdgeYaw(from_grid, target_grid);
-  return normalizeAngle(height_delta > 0 ? edge_yaw : edge_yaw + kPi);
+  if (height_delta > 0 || params_.descend_direct_rush_enable) {
+    return normalizeAngle(edge_yaw);
+  }
+  return normalizeAngle(edge_yaw + kPi);
 }
 
 void MfPreselectionFlowAction::beginStair(StairMode mode, Phase next_phase,
@@ -4775,9 +4785,13 @@ void MfPreselectionFlowAction::beginStair(StairMode mode, Phase next_phase,
   stair_next_phase_ = next_phase;
   stair_center_policy_ = center_policy;
   stair_label_ = std::move(label);
-  stair_after_heading_phase_ = (mode == StairMode::Climb)
-                                   ? StairPhase::ClimbSendFrontExtend
-                                   : StairPhase::DescendDriveUntilRearEvent;
+  const bool direct_rush_descend =
+      mode == StairMode::Descend && params_.descend_direct_rush_enable;
+  stair_after_heading_phase_ =
+      (mode == StairMode::Climb)
+          ? StairPhase::ClimbSendFrontExtend
+          : (direct_rush_descend ? StairPhase::DescendDirectRushTimedDrive
+                                 : StairPhase::DescendDriveUntilRearEvent);
   stair_phase_ = StairPhase::HeadingAlign;
   active_wheel_event_label_.clear();
   active_wheel_event_started_ = false;
@@ -4788,9 +4802,17 @@ void MfPreselectionFlowAction::beginStair(StairMode mode, Phase next_phase,
   stair_heading_gate_logged_ = false;
   if (node_) {
     phase_start_ = node_->now();
-    RCLCPP_INFO(node_->get_logger(),
-                "梅林预选赛开始%s动作：%s，先对齐yaw=%.3frad，完成后进入下一阶段",
-                stairModeText(mode), stair_label_.c_str(), turn_target_yaw_);
+    if (direct_rush_descend) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛开始下阶梯直冲动作：%s，先对齐yaw=%.3frad，直冲阶段跳过推杆下阶序列/0x05与0x07激光事件，speed=%.3fm/s duration=%.2fs",
+                  stair_label_.c_str(), turn_target_yaw_,
+                  params_.descend_direct_rush_speed_mps,
+                  params_.descend_direct_rush_duration_s);
+    } else {
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛开始%s动作：%s，先对齐yaw=%.3frad，完成后进入下一阶段",
+                  stairModeText(mode), stair_label_.c_str(), turn_target_yaw_);
+    }
   }
   phase_ = Phase::StairPrimitive;
 }
@@ -5025,6 +5047,29 @@ BT::NodeStatus MfPreselectionFlowAction::tickStair() {
     stair_phase_ = StairPhase::Complete;
     beginZeroHold(stair_params_.descend_front_retract_delay_s,
                   Phase::StairPrimitive, "descend_front_retract_hold");
+    break;
+  case StairPhase::DescendDirectRushTimedDrive:
+    if (guardPathObstacles()) {
+      phase_start_ = node_->now();
+      break;
+    }
+    if (!timed_drive_started_) {
+      phase_start_ = node_->now();
+      timed_drive_started_ = true;
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛下阶梯直冲：开始定时前冲，忽略0x05/0x07激光突变推进条件，speed=%.3fm/s duration=%.2fs",
+                  params_.descend_direct_rush_speed_mps,
+                  params_.descend_direct_rush_duration_s);
+    }
+    if ((node_->now() - phase_start_).seconds() >=
+        params_.descend_direct_rush_duration_s) {
+      publishStop();
+      RCLCPP_INFO(node_->get_logger(),
+                  "梅林预选赛下阶梯直冲：定时前冲完成，进入后续居中/离场阶段");
+      stair_phase_ = StairPhase::Complete;
+    } else {
+      publishTwist(params_.descend_direct_rush_speed_mps, 0.0, 0.0);
+    }
     break;
   case StairPhase::Complete:
     // 对格间转换，台阶完成后才提交 current_grid；对入口/离场独立台阶，
@@ -6900,6 +6945,19 @@ void loadMfPreselectionParams(rclcpp::Node &node,
       p.direct_exit_drive_distance_m);
   p.direct_exit_drive_speed_mps = node.declare_parameter<double>(
       "mf_preselect_direct_exit_drive_speed_mps", p.direct_exit_drive_speed_mps);
+  p.descend_direct_rush_enable = node.declare_parameter<bool>(
+      "mf_preselect_descend_direct_rush_enable",
+      p.descend_direct_rush_enable);
+  p.descend_direct_rush_speed_mps = node.declare_parameter<double>(
+      "mf_preselect_descend_direct_rush_speed_mps",
+      p.descend_direct_rush_speed_mps);
+  p.descend_direct_rush_duration_s = node.declare_parameter<double>(
+      "mf_preselect_descend_direct_rush_duration_s",
+      p.descend_direct_rush_duration_s);
+  p.descend_direct_rush_speed_mps =
+      std::max(kMinSpeed, std::abs(p.descend_direct_rush_speed_mps));
+  p.descend_direct_rush_duration_s =
+      std::max(kMinTimeoutS, p.descend_direct_rush_duration_s);
 
   // 转向和 heading hold 参数。*_yaw_rad 是比赛路线语义，P 控参数是执行层闭环。
   p.exit_yaw_rad =

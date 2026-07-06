@@ -137,6 +137,9 @@ struct MfPreselectionParams {
   double move_timeout_s{12.0};
   double direct_exit_drive_distance_m{4.8};
   double direct_exit_drive_speed_mps{0.25};
+  bool descend_direct_rush_enable{true};
+  double descend_direct_rush_speed_mps{0.45};
+  double descend_direct_rush_duration_s{2.0};
   int field_mirror_sign{1};
 
   double exit_yaw_rad{0.0};
@@ -435,6 +438,7 @@ private:
     DescendTimedDriveBeforeFrontRetract,
     DescendSendFrontRetract,
     DescendHoldAfterFrontRetract,
+    DescendDirectRushTimedDrive,
     Complete
   };
   enum class WheelEvent { FrontFirst, FrontSecond, Rear };
