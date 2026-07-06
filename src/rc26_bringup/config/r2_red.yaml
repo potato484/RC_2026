@@ -271,6 +271,8 @@ r2_runtime:
       mf_preselect_kfs_align_timeout_pickup_tolerance_px: 40 # 超时但仍在该偏差内且深度有效时继续趋近夹取
       mf_preselect_kfs_align_heading_gate_deg: 3.0 # KFS tip_alignment yaw gate；超过该偏差时暂停横移只修正朝向
       mf_preselect_kfs_lost_stop_frames: 6       # KFS 视觉横移中连续多少帧未锁定目标后停车等待新稳定帧
+      mf_preselect_kfs_lost_servo_speed_scale: 0.45 # 短暂丢框时沿用最近 offset 低速继续伺服，抑制识别闪烁导致的停走
+      mf_preselect_kfs_align_offset_filter_alpha: 0.45 # offset 低通滤波系数，抑制 bbox 横向抖动
       mf_preselect_kfs_invert_lateral_direction: false # 当前相机/底盘安装下需反转 KFS 横移方向
       mf_preselect_kfs_odom_xy_kp: 0.8           # KFS 前向 odom 闭环距离误差 P 增益
       mf_preselect_kfs_approach_odom_tolerance_m: 0.02 # KFS 前向趋近 odom 闭环距离容差，单位 m

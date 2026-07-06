@@ -1089,6 +1089,14 @@ void MfPreselectionLogicResult::normalizeKfsOdomParams(
       std::max(1, params.kfs_odom_stable_ticks);
   params.kfs_align_max_jump_px =
       std::max(0, params.kfs_align_max_jump_px);
+  params.kfs_lost_servo_speed_scale =
+      std::isfinite(params.kfs_lost_servo_speed_scale)
+          ? std::clamp(params.kfs_lost_servo_speed_scale, 0.0, 1.0)
+          : MfPreselectionParams{}.kfs_lost_servo_speed_scale;
+  params.kfs_align_offset_filter_alpha =
+      std::isfinite(params.kfs_align_offset_filter_alpha)
+          ? std::clamp(params.kfs_align_offset_filter_alpha, 0.05, 1.0)
+          : MfPreselectionParams{}.kfs_align_offset_filter_alpha;
   if (!std::isfinite(params.kfs_approach_min_speed_mps) ||
       params.kfs_approach_min_speed_mps < 0.0) {
     params.kfs_approach_min_speed_mps = kDefaultKfsApproachMinSpeedMps;
@@ -2123,6 +2131,14 @@ void MfPreselectionFlowAction::normalizeParams() {
       std::max(0.0, finiteAbsOr(params_.kfs_align_heading_gate_deg, 8.0));
   params_.kfs_lost_stop_frames =
       std::max(1, params_.kfs_lost_stop_frames);
+  params_.kfs_lost_servo_speed_scale =
+      std::isfinite(params_.kfs_lost_servo_speed_scale)
+          ? std::clamp(params_.kfs_lost_servo_speed_scale, 0.0, 1.0)
+          : MfPreselectionParams{}.kfs_lost_servo_speed_scale;
+  params_.kfs_align_offset_filter_alpha =
+      std::isfinite(params_.kfs_align_offset_filter_alpha)
+          ? std::clamp(params_.kfs_align_offset_filter_alpha, 0.05, 1.0)
+          : MfPreselectionParams{}.kfs_align_offset_filter_alpha;
   if (!std::isfinite(params_.kfs_approach_speed_mps) ||
       params_.kfs_approach_speed_mps < 0.0) {
     params_.kfs_approach_speed_mps = 0.0;
@@ -5651,6 +5667,25 @@ MfPreselectionFlowAction::makeKfsAlignmentConfig() const {
       params_, kfs_align_yaw_hold_target_);
 }
 
+MfPreselectionFlowAction::KfsVisualObservation
+MfPreselectionFlowAction::applyKfsAlignmentObservationFilter(
+    const KfsVisualObservation &observation) {
+  KfsVisualObservation filtered = observation;
+  const double raw_offset = static_cast<double>(observation.offset_px);
+  const double alpha =
+      std::clamp(params_.kfs_align_offset_filter_alpha, 0.05, 1.0);
+  if (!kfs_align_filtered_offset_valid_) {
+    kfs_align_filtered_offset_px_ = raw_offset;
+    kfs_align_filtered_offset_valid_ = true;
+  } else {
+    kfs_align_filtered_offset_px_ =
+        alpha * raw_offset + (1.0 - alpha) * kfs_align_filtered_offset_px_;
+  }
+  filtered.offset_px =
+      static_cast<int>(std::lround(kfs_align_filtered_offset_px_));
+  return filtered;
+}
+
 std::optional<rc26_vision::TipHeadingControl>
 MfPreselectionFlowAction::kfsVisualAlignHeadingControl() {
   if (!kfs_align_yaw_hold_captured_) {
@@ -5927,6 +5962,8 @@ void MfPreselectionFlowAction::beginKfsVisualPickup(
   kfs_align_yaw_hold_target_ = 0.0;
   kfs_align_waiting_odom_logged_ = false;
   kfs_align_last_logged_reject_reason_.clear();
+  kfs_align_filtered_offset_valid_ = true;
+  kfs_align_filtered_offset_px_ = static_cast<double>(observation.offset_px);
   kfs_odom_offset_px_ = observation.offset_px;
   kfs_odom_locked_depth_m_ = target.distance_m;
   kfs_last_real_depth_m_ =
@@ -6000,15 +6037,11 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
   const auto observation = findR2LockObservation(
       kfs_pickup_depth_profile_, R2LockObservationMode::AllowDepthlessForAlign);
   if (!observation.has_value()) {
-    const bool has_new_lock_sequence =
-        kfs_align_target_lock_sequence_ > 0 &&
-        kfs_align_target_lock_sequence_ != kfs_align_last_sequence_;
-    if (has_new_lock_sequence) {
-      kfs_align_last_sequence_ = kfs_align_target_lock_sequence_;
-      ++kfs_align_lost_count_;
+    ++kfs_align_lost_count_;
+    if (kfs_align_lost_count_ > 2) {
       kfs_align_stable_count_ = 0;
     }
-    if (has_new_lock_sequence && !last_r2_lock_reject_reason_.empty()) {
+    if (!last_r2_lock_reject_reason_.empty()) {
       const std::string reject_key = last_r2_lock_reject_reason_;
       if (reject_key != kfs_align_last_logged_reject_reason_) {
         kfs_align_last_logged_reject_reason_ = reject_key;
@@ -6024,11 +6057,43 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
       publishStop();
       kfs_align_lost_count_ = params_.kfs_lost_stop_frames;
       kfs_align_waiting_verify_frame_ = false;
+      kfs_align_filtered_offset_valid_ = false;
       return BT::NodeStatus::RUNNING;
     }
-    publishStop();
+
+    const auto heading_control = kfsVisualAlignHeadingControl();
+    if (!heading_control.has_value() || !kfs_align_last_observation_.has_value()) {
+      publishStop();
+      return BT::NodeStatus::RUNNING;
+    }
+
+    const int latched_offset = kfs_align_last_observation_->offset_px;
+    const bool pixel_aligned =
+        std::abs(latched_offset) <= params_.kfs_align_tolerance_px;
+    if (pixel_aligned && heading_control->aligned) {
+      publishStop();
+    } else {
+      double vy = 0.0;
+      if (heading_control->allow_lateral) {
+        vy = rc26_vision::computeTipAlignmentVy(
+                 latched_offset, makeKfsAlignmentConfig()) *
+             params_.kfs_lost_servo_speed_scale;
+      }
+      RCLCPP_INFO(
+          node_->get_logger(),
+          "梅林预选赛KFS横移对齐短暂丢框，沿用最近offset低速伺服：lost=%d/%d label=%s latched_offset=%dpx pixel_aligned=%s yaw_aligned=%s yaw_gate=%s vy=%.3fm/s wz=%.3frad/s scale=%.2f",
+          kfs_align_lost_count_, params_.kfs_lost_stop_frames,
+          kfs_align_last_observation_->target.label.c_str(), latched_offset,
+          pixel_aligned ? "是" : "否",
+          heading_control->aligned ? "是" : "否",
+          heading_control->within_gate ? "是" : "否", vy,
+          heading_control->angular_z_radps,
+          params_.kfs_lost_servo_speed_scale);
+      publishKfsVisualAlignTwist(vy, heading_control->angular_z_radps);
+    }
     return BT::NodeStatus::RUNNING;
   }
+  auto filtered_observation = applyKfsAlignmentObservationFilter(*observation);
 
   if (!kfs_align_waiting_verify_frame_) {
     kfs_align_waiting_verify_frame_ = true;
@@ -6048,26 +6113,28 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
   }
 
   kfs_align_lost_count_ = 0;
-  kfs_odom_offset_px_ = observation->offset_px;
-  if (observation->has_depth) {
-    kfs_odom_locked_depth_m_ = observation->target.distance_m;
-    kfs_odom_target_ = observation->target;
+  kfs_odom_offset_px_ = filtered_observation.offset_px;
+  if (filtered_observation.has_depth) {
+    kfs_odom_locked_depth_m_ = filtered_observation.target.distance_m;
+    kfs_odom_target_ = filtered_observation.target;
     if (MfPreselectionLogicResult::kfsDepthSourceIsReal(
-            observation->depth_source)) {
-      kfs_last_real_depth_m_ = observation->target.distance_m;
+            filtered_observation.depth_source)) {
+      kfs_last_real_depth_m_ = filtered_observation.target.distance_m;
     }
   }
-  kfs_locked_target_ = observation->target;
+  kfs_locked_target_ = filtered_observation.target;
+  kfs_align_last_observation_ = filtered_observation;
 
-  const bool new_frame = observation->target.sequence != kfs_align_last_sequence_;
+  const bool new_frame =
+      filtered_observation.target.sequence != kfs_align_last_sequence_;
   if (new_frame) {
-    kfs_align_last_sequence_ = observation->target.sequence;
+    kfs_align_last_sequence_ = filtered_observation.target.sequence;
   }
   const bool pixel_aligned =
-      std::abs(observation->offset_px) <= params_.kfs_align_tolerance_px;
+      std::abs(filtered_observation.offset_px) <= params_.kfs_align_tolerance_px;
   const bool aligned = pixel_aligned && heading_control->aligned;
   if (aligned) {
-    if (!observation->has_depth) {
+    if (!filtered_observation.has_depth) {
       if (new_frame) {
         kfs_align_stable_count_ = 0;
       }
@@ -6077,15 +6144,15 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
         kfs_align_last_logged_reject_reason_ = wait_key;
         RCLCPP_INFO(node_->get_logger(),
                     "梅林预选赛KFS tip_alignment已对齐但等待可用深度：label=%s seq=%ld offset=%dpx target_line_offset=%dpx tolerance=%dpx yaw_error=%.3frad depth_source=%s detail={%s}",
-                    observation->target.label.c_str(),
-                    static_cast<long>(observation->target.sequence),
-                    observation->offset_px,
+                    filtered_observation.target.label.c_str(),
+                    static_cast<long>(filtered_observation.target.sequence),
+                    filtered_observation.offset_px,
                     params_.kfs_align_target_line_offset_px,
                     params_.kfs_align_tolerance_px,
                     heading_control->yaw_error_rad,
                     MfPreselectionLogicResult::kfsDepthSourceText(
-                        observation->depth_source),
-                    observation->depth_detail.c_str());
+                        filtered_observation.depth_source),
+                    filtered_observation.depth_detail.c_str());
       }
       return BT::NodeStatus::RUNNING;
     }
@@ -6096,33 +6163,33 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
     if (new_frame) {
       RCLCPP_INFO(node_->get_logger(),
                   "梅林预选赛KFS tip_alignment稳定计数：label=%s seq=%ld offset=%dpx target_line_offset=%dpx tolerance=%dpx yaw_error=%.3frad stable=%d/%d depth=%s depth_source=%s detail={%s}",
-                  observation->target.label.c_str(),
-                  static_cast<long>(observation->target.sequence),
-                  observation->offset_px,
+                  filtered_observation.target.label.c_str(),
+                  static_cast<long>(filtered_observation.target.sequence),
+                  filtered_observation.offset_px,
                   params_.kfs_align_target_line_offset_px,
                   params_.kfs_align_tolerance_px,
                   heading_control->yaw_error_rad, kfs_align_stable_count_,
                   params_.kfs_align_stable_frames,
-                  metersText(observation->has_depth,
-                             observation->target.distance_m)
+                  metersText(filtered_observation.has_depth,
+                             filtered_observation.target.distance_m)
                       .c_str(),
                   MfPreselectionLogicResult::kfsDepthSourceText(
-                      observation->depth_source),
-                  observation->depth_detail.c_str());
+                      filtered_observation.depth_source),
+                  filtered_observation.depth_detail.c_str());
     }
     if (kfs_align_stable_count_ >= params_.kfs_align_stable_frames) {
       RCLCPP_INFO(node_->get_logger(),
                   "梅林预选赛KFS tip_alignment确认已对齐：offset=%dpx target_line_offset=%dpx tolerance=%dpx yaw_error=%.3frad depth=%s depth_source=%s，进入前向odom闭环趋近规划",
-                  observation->offset_px,
+                  filtered_observation.offset_px,
                   params_.kfs_align_target_line_offset_px,
                   params_.kfs_align_tolerance_px,
                   heading_control->yaw_error_rad,
-                  metersText(observation->has_depth,
-                             observation->target.distance_m)
+                  metersText(filtered_observation.has_depth,
+                             filtered_observation.target.distance_m)
                       .c_str(),
                   MfPreselectionLogicResult::kfsDepthSourceText(
-                      observation->depth_source));
-      return beginKfsOdomApproach(*observation);
+                      filtered_observation.depth_source));
+      return beginKfsOdomApproach(filtered_observation);
     }
     return BT::NodeStatus::RUNNING;
   }
@@ -6132,24 +6199,25 @@ BT::NodeStatus MfPreselectionFlowAction::tickKfsVisualAlign() {
   }
   const double vy = heading_control->allow_lateral
                         ? rc26_vision::computeTipAlignmentVy(
-                              observation->offset_px, makeKfsAlignmentConfig())
+                              filtered_observation.offset_px,
+                              makeKfsAlignmentConfig())
                         : 0.0;
   RCLCPP_INFO(node_->get_logger(),
               "梅林预选赛KFS tip_alignment更新：label=%s seq=%ld offset=%dpx target_line_offset=%dpx tolerance=%dpx pixel_aligned=%s yaw_aligned=%s yaw_gate=%s vy=%.3fm/s wz=%.3frad/s depth=%s depth_source=%s detail={%s}",
-              observation->target.label.c_str(),
-              static_cast<long>(observation->target.sequence),
-              observation->offset_px, params_.kfs_align_target_line_offset_px,
+              filtered_observation.target.label.c_str(),
+              static_cast<long>(filtered_observation.target.sequence),
+              filtered_observation.offset_px, params_.kfs_align_target_line_offset_px,
               params_.kfs_align_tolerance_px,
               pixel_aligned ? "是" : "否",
               heading_control->aligned ? "是" : "否",
               heading_control->within_gate ? "是" : "否", vy,
               heading_control->angular_z_radps,
-              metersText(observation->has_depth,
-                         observation->target.distance_m)
+              metersText(filtered_observation.has_depth,
+                         filtered_observation.target.distance_m)
                   .c_str(),
               MfPreselectionLogicResult::kfsDepthSourceText(
-                  observation->depth_source),
-              observation->depth_detail.c_str());
+                  filtered_observation.depth_source),
+              filtered_observation.depth_detail.c_str());
   publishKfsVisualAlignTwist(vy, heading_control->angular_z_radps);
   return BT::NodeStatus::RUNNING;
 }
@@ -6302,6 +6370,8 @@ void MfPreselectionFlowAction::clearKfsVisualPickup() {
   kfs_align_stable_count_ = 0;
   kfs_align_lost_count_ = 0;
   kfs_align_last_sequence_ = 0;
+  kfs_align_filtered_offset_valid_ = false;
+  kfs_align_filtered_offset_px_ = 0.0;
   kfs_align_total_start_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   kfs_entry_mcu_stop_settle_active_ = false;
   kfs_entry_mcu_stop_settle_until_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
@@ -6693,6 +6763,12 @@ void loadMfPreselectionParams(rclcpp::Node &node,
       p.kfs_align_heading_gate_deg);
   p.kfs_lost_stop_frames = node.declare_parameter<int>(
       "mf_preselect_kfs_lost_stop_frames", p.kfs_lost_stop_frames);
+  p.kfs_lost_servo_speed_scale = node.declare_parameter<double>(
+      "mf_preselect_kfs_lost_servo_speed_scale",
+      p.kfs_lost_servo_speed_scale);
+  p.kfs_align_offset_filter_alpha = node.declare_parameter<double>(
+      "mf_preselect_kfs_align_offset_filter_alpha",
+      p.kfs_align_offset_filter_alpha);
   p.kfs_invert_lateral_direction = node.declare_parameter<bool>(
       "mf_preselect_kfs_invert_lateral_direction",
       p.kfs_invert_lateral_direction);

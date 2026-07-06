@@ -71,6 +71,8 @@ struct MfPreselectionParams {
   int kfs_align_timeout_pickup_tolerance_px{40};
   double kfs_align_heading_gate_deg{8.0};
   int kfs_lost_stop_frames{3};
+  double kfs_lost_servo_speed_scale{0.45};
+  double kfs_align_offset_filter_alpha{0.45};
   bool kfs_invert_lateral_direction{false};
   double kfs_odom_xy_kp{0.8};
   double kfs_approach_odom_tolerance_m{0.02};
@@ -599,6 +601,8 @@ private:
   void clearR2LockReject();
   std::string r2LockRejectSummary() const;
   rc26_vision::TipAlignmentConfig makeKfsAlignmentConfig() const;
+  KfsVisualObservation applyKfsAlignmentObservationFilter(
+      const KfsVisualObservation &observation);
   std::optional<rc26_vision::TipHeadingControl> kfsVisualAlignHeadingControl();
   std::optional<KfsVisualObservation> kfsAlignTimeoutObservation() const;
   void finishKfsAlignFailure(const std::string &reason);
@@ -813,6 +817,8 @@ private:
   int kfs_align_stable_count_{0};
   int kfs_align_lost_count_{0};
   int64_t kfs_align_last_sequence_{0};
+  bool kfs_align_filtered_offset_valid_{false};
+  double kfs_align_filtered_offset_px_{0.0};
   rclcpp::Time kfs_align_total_start_{0, 0, RCL_ROS_TIME};
   bool kfs_entry_mcu_stop_settle_active_{false};
   rclcpp::Time kfs_entry_mcu_stop_settle_until_{0, 0, RCL_ROS_TIME};
