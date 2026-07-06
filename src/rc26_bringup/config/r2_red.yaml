@@ -90,7 +90,7 @@ r2_runtime:
       second_preselect_kfs_align_kp: 0.0012         # KFS offset 到 linear.y 的比例系数
       second_preselect_kfs_align_min_speed_mps: 0.035 # KFS 横移最小速度；降低近距离横移过冲
       second_preselect_kfs_align_max_speed_mps: 0.10 # KFS 横移最大速度；降低近距离横移过冲
-      second_preselect_kfs_align_timeout_s: 20.0    # KFS 横移视觉对齐超时
+      second_preselect_kfs_align_timeout_s: 1800.0    # KFS 横移视觉对齐超时
       second_preselect_kfs_align_timeout_pickup_tolerance_px: 65 # 超时补夹像素容差；方向正确时允许进入前向趋近
       second_preselect_kfs_align_heading_gate_deg: 3.0 # yaw gate，超出时只修正朝向
       second_preselect_kfs_lost_stop_frames: 10     # 横移中连续丢失后停车等待；给 D455 深度/检测短暂抖动留余量

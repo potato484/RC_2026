@@ -2097,6 +2097,8 @@ SecondPreselectionR1KfsPlaceAlignAction::findNearestR1Kfs() {
     }
 
     const auto center = detectionCenter(det);
+    const int camera_center_offset_px = static_cast<int>(std::lround(
+        center.x - std::max(0, snapshot.color_bgr.cols / 2)));
     R1KfsObservation observation;
     observation.target =
         rc26_vision::makeVisualTargetSnapshot(det, snapshot.display_sequence);
@@ -2109,12 +2111,18 @@ SecondPreselectionR1KfsPlaceAlignAction::findNearestR1Kfs() {
       best = observation;
       continue;
     }
+    const int best_camera_center_offset_px = static_cast<int>(std::lround(
+        detectionCenter(best->detection).x -
+        std::max(0, snapshot.color_bgr.cols / 2)));
+    const int abs_camera_center_offset = std::abs(camera_center_offset_px);
+    const int best_abs_camera_center_offset =
+        std::abs(best_camera_center_offset_px);
     const double depth_delta =
         observation.target.distance_m - best->target.distance_m;
-    if (depth_delta < -1e-9 ||
-        (std::abs(depth_delta) <= 1e-9 &&
-         (std::abs(observation.offset_px) < std::abs(best->offset_px) ||
-          (std::abs(observation.offset_px) == std::abs(best->offset_px) &&
+    if (abs_camera_center_offset < best_abs_camera_center_offset ||
+        (abs_camera_center_offset == best_abs_camera_center_offset &&
+         (depth_delta < -1e-9 ||
+          (std::abs(depth_delta) <= 1e-9 &&
            observation.target.score > best->target.score)))) {
       best = observation;
     }
