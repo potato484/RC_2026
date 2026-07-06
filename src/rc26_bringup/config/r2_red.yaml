@@ -402,14 +402,14 @@ r2_runtime:
       stair_command_timeout_s: 3.0                   # 每条推杆命令 accepted 等待超时，单位秒
       stair_front_event_timeout_s: 20.0              # 前轮激光高度突变等待超时，单位秒
       stair_rear_event_timeout_s: 20.0               # 后轮激光高度突变等待超时，单位秒
-      stair_climb_front_extend_delay_s: 4.5          # 上台阶前推杆伸出 accepted 后零速等待时间，单位秒
-      stair_climb_retract_rear_extend_delay_s: 4.0   # 上台阶前收+后伸 accepted 后零速等待时间，单位秒
-      stair_climb_rear_retract_delay_s: 4.0          # 上台阶后推杆收回 accepted 后零速等待时间，单位秒
-      stair_descend_rear_extend_delay_s: 4.0         # 下台阶后推杆伸出 accepted 后零速等待时间，单位秒
-      stair_descend_retract_front_extend_delay_s: 4.0 # 下台阶后收+前伸 accepted 后零速等待时间，单位秒
+      stair_climb_front_extend_delay_s: 3.2          # 上台阶前推杆伸出 accepted 后零速等待时间，单位秒
+      stair_climb_retract_rear_extend_delay_s: 2.7   # 上台阶前收+后伸 accepted 后零速等待时间，单位秒
+      stair_climb_rear_retract_delay_s: 3.1          # 上台阶后推杆收回 accepted 后零速等待时间，单位秒
+      stair_descend_rear_extend_delay_s: 3.1         # 下台阶后推杆伸出 accepted 后零速等待时间，单位秒
+      stair_descend_retract_front_extend_delay_s: 2.7 # 下台阶后收+前伸 accepted 后零速等待时间，单位秒
       stair_descend_front_retract_timed_drive_speed_mps: 0.10 # 下台阶前推杆收回前 x 负向定时固定速度绝对值，单位 m/s
       stair_descend_front_retract_drive_duration_s: 3.0  # 下台阶前推杆收回前 x 负向定时行驶时间，单位秒
-      stair_descend_front_retract_delay_s: 2.5       # 下台阶前推杆收回 accepted 后零速等待时间，单位秒
+      stair_descend_front_retract_delay_s: 1.8       # 下台阶前推杆收回 accepted 后零速等待时间，单位秒
       stair_odom_topic: "odom"                       # 台阶姿态微调用 odom 话题，yaw 由四元数解算
       stair_heading_hold_enable: true                # 上/下台阶前对齐 yaw，直行期间叠加 angular.z 保持方向
       stair_heading_kp: 1.2                          # yaw 误差到 angular.z 的比例系数

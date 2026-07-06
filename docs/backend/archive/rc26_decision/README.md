@@ -99,6 +99,8 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 台阶动作既可通过 `stair_climb_tree.xml` / `stair_descend_tree.xml` 独立加载测试，也可由 MF 状态机复用。它们通过 `/mechanism/send_command` 请求推杆动作，通过 `/mechanism/command_feedback` 等待对应反馈，通过 `/cmd_vel` 发布受限直行速度；跨阶前先完成 yaw 预对齐，跨阶直行时若 yaw 超出 gate 会停止线速度并只修正朝向。失败或 halt 时只发布零速，不做额外推杆补偿。
 
+2026-07-06 同步：红方运行配置 `r2_red.yaml` 已按新推杆设备首版保守口径缩短台阶推杆 accepted 后零速等待：前置推杆从 60mm/s 升级到 100mm/s，后置推杆从 100mm/s 升级到 180mm/s 后，`stair_climb_front_extend_delay_s=3.2`、`stair_climb_retract_rear_extend_delay_s=2.7`、`stair_climb_rear_retract_delay_s=3.1`、`stair_descend_rear_extend_delay_s=3.1`、`stair_descend_retract_front_extend_delay_s=2.7`、`stair_descend_front_retract_delay_s=1.8`。本次只调整运行配置中的推杆等待裕量，不改变台阶状态机、激光事件推进条件、底盘跨阶速度、机构 command/feedback 协议或 `/cmd_vel` 权威。
+
 梅林预选赛到达 2 号入口后会先发送普通 `ARM_RAISE(0x04)` 并等待 `ARM_RAISE_DONE(0x02)`，确认机械臂进入普通高侧姿态后才启动入口 2 号视觉识别窗口。2 号入口正前方 R2 KFS 夹取使用 `rc26_serial` 真源中的普通高侧 `GRAB_KFS_UP(0x03)`；后续视觉横移对齐、锁定深度、odom 前向趋近和普通上夹取都建立在该普通高侧姿态上。夹取完成仍以视觉消失验证为准；若 2 号入口未完成视觉夹取验证，会持续停车、重新识别、重新对齐、重新趋近并重新夹取，直到原目标连续新帧消失确认成功，不会忽略该目标或继续上阶。入口 2 号夹取确认成功后会直接复用已完成的普通高侧姿态进入首阶台阶动作，不再重复下发 `ARM_RAISE(0x04)` 或再次等待 `ARM_RAISE_DONE(0x02)`。入口专用 `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 仅保留给仍显式启用 `entry_high_protocol` 的入口高侧场景；ACK 只代表 transport 通用确认，真正计数仍延迟到后续视觉消失验证成功。
 
 ## 参数口径
