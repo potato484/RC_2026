@@ -14,13 +14,14 @@
 
 `decision_node` 启动时会加载 `r2_runtime.decision.ros__parameters`，把共享参数写入 blackboard，并注册 MC、MF、MF 预选赛、台阶和 odom 导航节点。`team` 是当前红蓝方场地镜像参数：`red` 使用 YAML 中维护的红方基准路线，`blue` 在启动加载参数时自动派生侧向 Y 和 yaw 的镜像值；非法值会告警并按 `red` 运行。完整导航链中默认启用启动 odom gate：只有 `/odom` 连续新鲜且低速稳定后才创建并 tick 行为树，避免开机里程计未稳定时直接运动。
 
-## Odom 单轴分段导航
+## Odom 相对闭环导航
 
-当前通用导航原语只有三类动作：
+当前通用导航原语有四类动作：
 
 - `OdomDriveX`：进入动作时捕获当前 `/odom` 位姿和 yaw，把 `distance_m` 解释为启动车体系 X 轴相对距离；后续只闭环该轴向进度，只发布 `cmd_vel.linear.x`，并用 `angular.z` 保持启动 yaw。
 - `OdomDriveY`：进入动作时捕获当前 `/odom` 位姿和 yaw，把 `distance_m` 解释为启动车体系 Y 轴相对距离；后续只闭环该轴向进度，只发布 `cmd_vel.linear.y`，并用 `angular.z` 保持启动 yaw。
 - `OdomTurnToYaw`：把 `target_yaw_rad` 解释为绝对 odom yaw，只发布 `cmd_vel.angular.z`，到达 yaw 容差并稳定后成功。
+- `OdomDriveXTurnX`：进入动作时捕获当前 `/odom` 位姿和 yaw，把 `first_x_m -> yaw_delta_rad -> second_x_m` 解释为旧串行 `X -> yaw -> X` 路线的最终位姿；运行期间一次性闭环最终平面目标和目标 yaw，合成发布 `cmd_vel.linear.x/y` 与 `cmd_vel.angular.z`，用于麦克纳姆底盘边旋转边移动的复合导航段。
 
 `RelativeYawTarget` 仍保留为小工具节点：它订阅 `/odom`，把当前 yaw 加 `yaw_delta_rad` 后写入输出端口，供右转等相对转向测试树生成绝对 yaw 目标。它不发布 `/cmd_vel`。
 
@@ -52,6 +53,25 @@
 - `odom_timeout_s`
 - `timeout_s`
 
+`OdomDriveXTurnX` 端口：
+
+- `first_x_m`
+- `yaw_delta_rad`
+- `second_x_m`
+- `cmd_vel_topic`
+- `odom_topic`
+- `max_speed_mps`
+- `min_speed_mps`
+- `xy_kp`
+- `heading_kp`
+- `heading_max_speed_radps`
+- `xy_tolerance_m`
+- `yaw_tolerance_deg`
+- `stable_ticks`
+- `odom_timeout_s`
+- `timeout_s`
+- `target_yaw_rad`
+
 共享 blackboard 观测键：
 
 - `relative_nav_last_exec_state`: `IDLE | RUNNING | WAITING_FOR_ODOM | SUCCEEDED | FAILED | HALTED`
@@ -68,7 +88,7 @@
 ## 行为树导航流程
 
 - `mc_mf_preselection_tree.xml`：first managed 完整入口，入口 `WaitPreselectionBranchGate` 同时监听 `/mechanism/command_feedback` 上的第一个限位 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 与第二个限位 `MF_PRESELECTION_TRIGGER(0x10)`。0x06 分支下发 `COMPETITION_START(0x10)` 并等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`，随后按 `preselection_entry_continue_delay_msec` 延时进入 `MCAreaTree -> MFPreselectionAfterMCTree`；0x10 分支同样下发 `COMPETITION_START(0x10)` 并等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`，成功后请求 `decision_node` halt 当前树并切换到 `mf_preselection_tree.xml`。
-- `mc_tree.xml`：`OdomDriveX(mc_nav_forward_x_m) -> RelativeYawTarget(mc_nav_right_turn_delta_rad=team 派生侧向 yaw) -> OdomTurnToYaw -> OdomDriveX(mc_nav_reverse_x_m) -> VisualServoGrab -> Delay -> RotateInPlace -> Delay(0.5s) -> OdomDriveX(-0.4m) -> OdomDriveY(-0.4m) -> WaitPreselectionBranchGate`。MC 末尾正式流程不再执行 `WaitForRegistrationConfirm` 或 5s 视觉配准等待；旋转后先复用 odom 单轴分段动作做车体系 -X/-Y 退让，再等待 0x06/0x10 branch gate。MC 末尾 gate 的 0x06 分支会在收到限位后按 `preselection_after_mc_continue_delay_msec` 延时，再下发 `COMPETITION_START(0x10)`，避免下位机在人工触发瞬间立即进入发车状态。转向后的绝对 odom yaw 会传给 `VisualServoGrab target_yaw_rad`，作为视觉阶段 heading hold 目标；`team=blue` 时侧向 yaw 和后续原地旋转方向相对红方基准取反。
+- `mc_tree.xml`：`OdomDriveXTurnX(mc_nav_forward_x_m, mc_nav_right_turn_delta_rad=team 派生侧向 yaw, mc_nav_reverse_x_m) -> VisualServoGrab -> RotateRetreat(retreat_x_m=-0.4, retreat_y_m=-0.4) -> WaitPreselectionBranchGate`。MC 入口复合动作等价旧 `X -> yaw -> X` 串行路线的最终位姿，但运行时可同时发布 `linear.x/y` 和 `angular.z`，减少前进、转向、后退之间的停车顿挫。MC 末尾正式流程不再执行 `WaitForRegistrationConfirm`、5s 视觉配准等待或旋转前后 0.5s 延时；`RotateRetreat` 使用 MC 旋转角度/方向参数计算目标 yaw，并同步闭环目标 yaw 与按目标 yaw 车体系 `-X/-Y` 各 0.4m 的退让终点，再等待 0x06/0x10 branch gate。MC 末尾 gate 的 0x06 分支会在收到限位后按 `preselection_after_mc_continue_delay_msec` 延时，再下发 `COMPETITION_START(0x10)`，避免下位机在人工触发瞬间立即进入发车状态。复合动作输出的目标 odom yaw 会传给 `VisualServoGrab target_yaw_rad`，作为视觉阶段 heading hold 目标；`team=blue` 时侧向 yaw 和后续旋转退让方向相对红方基准取反。
 - `mf_preselection_tree.xml`：保持原独立调试入口不变，可选入口导航为 `OdomDriveX(mf_preselect_entry2_nav_segment1_x_m=+2.0m) -> OdomDriveY(mf_preselect_entry2_nav_segment1_y_m=team 派生横移 Y)`，随后进入 `MfPreselectionFlow`；该入口不在树前额外转向。
 - `mf_preselection_after_mc_tree.xml`：MC 后置 MF 预选专用入口，可选入口导航为 `OdomDriveX(mc_to_mf_preselect_nav_segment1_x_m=-2.4m) -> RelativeYawTarget(mc_to_mf_preselect_nav_turn_delta_rad=team 派生右转 yaw) -> OdomTurnToYaw -> OdomDriveX(mc_to_mf_preselect_nav_segment2_x_m=+1.6m)`，随后进入 `MfPreselectionFlow`。`MfPreselectionFlow` 内部的入口 1/3 号横移、假 KFS 侧列绕行、出口 yaw、周身扫描 yaw 和第四行收尾 yaw 同样按 `team` 从红方基准派生。
 - `preselection_ramp_forward_tree.xml`：second managed 入口的斜坡子树，按 `preselection_ramp_approach_x_m` 与 `preselection_ramp_climb_x_m` 连续执行两段 `OdomDriveX`，速度和超时由 `preselection_ramp_*` 参数控制，动作完成即停车。
@@ -77,13 +97,13 @@
 - 独立右转验证树：右转专用参数族已退役，树内固定验收路线为 `OdomDriveX(+0.4m) -> RelativeYawTarget(-90deg) -> OdomTurnToYaw -> OdomDriveX(-0.7m)`，速度、topic、容差和超时复用通用 odom 相对导航参数。
 - `relative_segment_nav_tree.xml`：独立验收用单轴分段树，依次示例调用 `OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw`。
 
-旧外部 action 位姿导航节点、TF 采点节点、旧双点位姿测试树和相关 action helper 已删除。当前 MC/MF 入口坐标不再是绝对地图位姿；`mc_nav_forward_x_m` / `mc_nav_reverse_x_m`、`mf_preselect_entry2_nav_segment1_*` 与 `mc_to_mf_preselect_nav_*` 都是按启动姿态和分段动作顺序标定的相对单轴段。YAML 中这些路线值按红方基准维护，蓝方只在决策节点启动加载阶段派生 yaw/Y 方向运行值，不需要维护第二套 XML。
+旧外部 action 位姿导航节点、TF 采点节点、旧双点位姿测试树和相关 action helper 已删除。当前 MC/MF 入口坐标不再是绝对地图位姿；`mc_nav_forward_x_m` / `mc_nav_reverse_x_m` 是 MC 复合 `X-turn-X` 动作的两段 X 距离，`mf_preselect_entry2_nav_segment1_*` 与 `mc_to_mf_preselect_nav_*` 仍是按启动姿态和分段动作顺序标定的相对单轴段。YAML 中这些路线值按红方基准维护，蓝方只在决策节点启动加载阶段派生 yaw/Y 方向运行值，不需要维护第二套 XML。
 
 ## MC 链路
 
 `VisualServoGrabAction` 内嵌相机采集和端头推理，在工作线程中执行目标锁定、横移 P 控制、odom yaw 姿态保持、限位前探和 `GRAB_TIP(0x01)` service 请求。它只通过 `/cmd_vel`、`/mechanism/send_command` 和 `/mechanism/command_feedback` 与下层交互，不直接打开串口。
 
-`VisualServoGrabAction` 可通过 `target_yaw_rad` 输入端口接收当前 MC 导航右转后的绝对 odom yaw；没有传入时才使用 `mc_align_target_yaw_rad` 静态兜底。`RotateInPlaceAction` 订阅 `mc_odom_topic`，发布 `cmd_vel.angular.z`。未显式传入 `target_yaw_rad` 时按相对角度旋转；传入时按绝对 odom yaw 对齐。
+`VisualServoGrabAction` 可通过 `target_yaw_rad` 输入端口接收当前 MC 导航右转后的绝对 odom yaw；没有传入时才使用 `mc_align_target_yaw_rad` 静态兜底。`RotateInPlaceAction` 订阅 `mc_odom_topic`，发布 `cmd_vel.angular.z`。未显式传入 `target_yaw_rad` 时按相对角度旋转；传入时按绝对 odom yaw 对齐。`RotateRetreatAction` 是 MC 末尾专用复合动作：进入时捕获当前 `/odom`，按 `mc_rotate_angle_deg` 与 team 派生后的 `mc_rotate_direction` 得到目标 yaw，并把 `retreat_x_m/retreat_y_m` 解释为目标 yaw 车体系位移，同一控制环内合成 `linear.x/y` 与 `angular.z`。
 
 `WaitPreselectionBranchGate` 是 first/second managed 入口和 MC 末尾的分支 gate。节点只消费 `/mechanism/command_feedback` 上的第一个限位 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 与第二个限位 `MF_PRESELECTION_TRIGGER(0x10)`，不采集 MC 相机基准帧，也不依赖 MC 末尾视觉配准。XML 通过 `continue_start_profile` 和 `switch_start_profile` 决定两条分支使用的启动握手：first 树两条分支都使用 `mc` profile，也就是下发 `COMPETITION_START(0x10)` 并等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`；second 树两条分支都使用 `second` profile，也就是下发 `SECOND_PRESELECTION_START(0x11)` 并等待同 `seq` 的 `SECOND_PRESELECTION_START_DONE(0x0D)`。gate 可通过 `continue_pre_command_delay_msec` / `switch_pre_command_delay_msec` 在收到对应限位后、下发启动命令前等待；当前 MC 末尾 0x06 分支把 `continue_pre_command_delay_msec` 绑定到 YAML 参数 `preselection_after_mc_continue_delay_msec`。0x06 分支握手成功后返回 `SUCCESS` 继续当前完整流程；0x10 分支握手成功后写入黑板切树请求，`decision_node` 在本轮 tick 返回后 halt 当前树并加载 `switch_tree_file` 指向的目标树。managed first/second 入口下，旧 `mf_preselection_external_trigger_*` 全局监听保持禁用，0x10 只能在 branch gate 内按当前 profile 握手后切树。
 
@@ -109,10 +129,10 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 导航相关参数由 `r2_active_side.yaml` 选择的 `r2_red.yaml` / `r2_blue.yaml` 提供：
 
-- `odom_relative_nav_*`：单轴平移与通用 yaw 容差、增益、速度、topic 和超时。
+- `odom_relative_nav_*`：单轴平移、复合 X-turn-X 和通用 yaw 容差、增益、速度、topic 和超时。
 - `startup_odom_*`：完整导航链启动前 odom 新鲜度和低速稳定 gate。
 - `team`：红蓝方场地镜像选择；`red` 使用红方基准，`blue` 自动镜像 MC/MF/第二预选赛侧向 Y 和 yaw，非法值按 `red`。
-- `mc_nav_forward_x_m`、`mc_nav_right_turn_delta_rad`、`mc_nav_reverse_x_m`、`mc_nav_timeout_sec`：MC 去程红方基准动作顺序，默认 `+X 0.2m -> 右转 90° -> -X 0.6m`；蓝方只镜像 yaw 和原地旋转方向，X 距离不变。
+- `mc_nav_forward_x_m`、`mc_nav_right_turn_delta_rad`、`mc_nav_reverse_x_m`、`mc_nav_timeout_sec`：MC 去程复合 `OdomDriveXTurnX` 红方基准路线，按旧 `+X -> 右转 90° -> -X` 串行动作的最终位姿标定；蓝方只镜像 yaw 和原地旋转方向，X 距离不变，`mc_nav_timeout_sec` 是复合动作总超时。
 - `preselection_entry_continue_delay_msec`、`preselection_after_mc_continue_delay_msec`：first managed 的 0x06 分支延时参数。`preselection_entry_continue_delay_msec` 仍用于入口 gate 握手完成后进入 MC 前的 `Delay`；`preselection_after_mc_continue_delay_msec` 用于 MC 末尾 gate 收到 0x06 后、下发 `COMPETITION_START(0x10)` 前的等待。参数侧按有符号整数读取并归零裁剪，写入 blackboard 时按 BehaviorTree.CPP `unsigned int` 端口类型保存。
 - `preselection_ramp_approach_x_m`、`preselection_ramp_climb_x_m`、`preselection_ramp_max_speed_mps`、`preselection_ramp_min_speed_mps`、`preselection_ramp_timeout_s`：second managed 斜坡前进两段 `OdomDriveX` 参数。
 - `second_preselect_after_ramp_turn_delta_rad`、`second_preselect_after_ramp_turn_timeout_s`：second managed 斜坡后 90° 相对转向参数；红方默认 `-1.5708`，blue 在参数加载阶段镜像为 `+1.5708`。
@@ -141,7 +161,7 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 2026-07-04 同步：第二预选赛本地 OpenCV UI overlay 扩展为全流程视觉调试窗口。`second_preselect_dynamic_roi_ui_enable` 开启后，`SecondPreselectionKfsPickup` 会在 KFS 搜索、视觉对齐、odom 趋近、等待 `0x11` 夹取完成反馈和视觉消失验证期间持续显示彩色帧、识别框、锁定目标、目标线和阶段状态；放置前 UI 以 2026-07-05 R1KFS 放置对齐口径为准。该 UI 只用于现场调试观察，不发布 topic、不改变行为树返回值、不新增 `/cmd_vel` 权威；窗口创建或渲染失败时仅告警并自动关闭 UI。
 
-2026-07-04 同步：`mc_tree.xml` 在 `RotateInPlace rotate_180` 成功后新增 0.5s 延时，并直接复用 `OdomDriveX` / `OdomDriveY` 通用 odom 单轴分段动作，按车体系 `-X 0.4m -> -Y 0.4m` 完成旋转后的退让，再进入 `WaitPreselectionBranchGate`。该改动只调整 MC 行为树编排，不新增 `/cmd_vel` 权威、ROS topic/service/action、机构协议或导航节点类型。
+2026-07-08 同步：`mc_tree.xml` 将 MC 末尾 `RotateInPlace -> Delay -> OdomDriveX(-0.4) -> OdomDriveY(-0.4)` 合并为 `RotateRetreat`。该动作不保留旋转前后 0.5s 延时，进入时捕获当前 odom，按 MC 旋转参数计算目标 yaw，并同步闭环目标 yaw 与按目标 yaw 车体系 `-X/-Y` 各 0.4m 的退让终点；仍只通过 `/cmd_vel` 输出，不新增运动命令权威、ROS topic/service/action 或机构协议。
 
 2026-07-04 同步：`MfPreselectionFlow` 修正入口 2 号 R2 KFS 夹取成功后的上首阶准备逻辑。入口启动时已经完成普通 `ARM_RAISE(0x04)` / `ARM_RAISE_DONE(0x02)` 并记录机械臂处于高侧姿态；夹取视觉消失验证成功后，`EntryPrepareClimb` 会直接进入 `EntryClimb`，不再重复下发普通 `ARM_RAISE`，避免机构对重复抬臂不回完成反馈时卡在首阶前。
 

@@ -450,6 +450,323 @@ BT::PortsList OdomDriveYAction::providedPorts() {
   return OdomAxisDriveAction::providedPorts();
 }
 
+OdomDriveXTurnXAction::OdomDriveXTurnXAction(const std::string &name,
+                                             const BT::NodeConfig &config)
+    : BT::StatefulActionNode(name, config) {}
+
+BT::PortsList OdomDriveXTurnXAction::providedPorts() {
+  return {
+      BT::InputPort<std::string>("cmd_vel_topic", "cmd_vel",
+                                 "Velocity command topic"),
+      BT::InputPort<std::string>("odom_topic", "odom", "Odometry topic"),
+      BT::InputPort<double>("first_x_m",
+                            "First signed X displacement in the start frame"),
+      BT::InputPort<double>("yaw_delta_rad",
+                            "Relative yaw delta from the start odom yaw"),
+      BT::InputPort<double>("second_x_m",
+                            "Second signed X displacement in the target frame"),
+      BT::InputPort<double>("max_speed_mps", kDefaultOdomRelativeMaxSpeedMps,
+                            "Maximum planar speed in m/s"),
+      BT::InputPort<double>("min_speed_mps", kDefaultOdomRelativeMinSpeedMps,
+                            "Minimum planar speed before position tolerance"),
+      BT::InputPort<double>("xy_kp", kDefaultOdomRelativeXyKp,
+                            "Planar position error to speed gain"),
+      BT::InputPort<double>("heading_kp", kDefaultOdomRelativeHeadingKp,
+                            "Yaw error to angular.z gain"),
+      BT::InputPort<double>("heading_max_speed_radps",
+                            kDefaultOdomRelativeHeadingMaxSpeedRadps,
+                            "Maximum heading correction angular speed"),
+      BT::InputPort<double>("xy_tolerance_m", kDefaultOdomRelativeXyToleranceM,
+                            "Planar success tolerance in meters"),
+      BT::InputPort<double>("yaw_tolerance_deg",
+                            kDefaultOdomRelativeYawToleranceDeg,
+                            "Yaw success tolerance in degrees"),
+      BT::InputPort<int>("stable_ticks", kDefaultOdomRelativeStableTicks,
+                         "Consecutive in-tolerance ticks required"),
+      BT::InputPort<double>("odom_timeout_s", kDefaultOdomTimeoutSec,
+                            "Maximum accepted odom age"),
+      BT::InputPort<double>("timeout_s", kDefaultOdomRelativeTimeoutSec,
+                            "Action timeout in seconds"),
+      BT::OutputPort<double>("target_yaw_rad", "Computed absolute target yaw"),
+  };
+}
+
+BT::NodeStatus OdomDriveXTurnXAction::onStart() {
+  if (!config().blackboard || !config().blackboard->get("node", node_) ||
+      !node_) {
+    writeDecisionFailure(config().blackboard, "OdomDriveXTurnX",
+                         "运行上下文缺失：blackboard 或 node 不可用");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  (void)getInput("cmd_vel_topic", cmd_vel_topic_);
+  (void)getInput("odom_topic", odom_topic_);
+  cmd_vel_topic_ = nonEmptyOr(cmd_vel_topic_, "cmd_vel");
+  odom_topic_ = nonEmptyOr(odom_topic_, "odom");
+  cmd_pub_ =
+      node_->create_publisher<TwistMsg>(cmd_vel_topic_, rclcpp::QoS(10));
+
+  if (!getInput("first_x_m", first_x_m_) || !std::isfinite(first_x_m_)) {
+    return failWithStop("复合导航 first_x_m 非法");
+  }
+  if (!getInput("yaw_delta_rad", yaw_delta_rad_) ||
+      !std::isfinite(yaw_delta_rad_)) {
+    return failWithStop("复合导航 yaw_delta_rad 非法");
+  }
+  if (!getInput("second_x_m", second_x_m_) || !std::isfinite(second_x_m_)) {
+    return failWithStop("复合导航 second_x_m 非法");
+  }
+  (void)getInput("max_speed_mps", max_speed_mps_);
+  (void)getInput("min_speed_mps", min_speed_mps_);
+  (void)getInput("xy_kp", xy_kp_);
+  (void)getInput("heading_kp", heading_kp_);
+  (void)getInput("heading_max_speed_radps", heading_max_speed_radps_);
+  (void)getInput("xy_tolerance_m", xy_tolerance_m_);
+  double yaw_tolerance_deg = kDefaultOdomRelativeYawToleranceDeg;
+  (void)getInput("yaw_tolerance_deg", yaw_tolerance_deg);
+  (void)getInput("stable_ticks", stable_ticks_required_);
+  (void)getInput("odom_timeout_s", odom_timeout_s_);
+  (void)getInput("timeout_s", timeout_s_);
+
+  max_speed_mps_ =
+      std::abs(finitePositiveOr(max_speed_mps_, kDefaultOdomRelativeMaxSpeedMps));
+  min_speed_mps_ = std::min(
+      std::abs(finiteNonNegativeOr(min_speed_mps_,
+                                   kDefaultOdomRelativeMinSpeedMps)),
+      max_speed_mps_);
+  xy_kp_ = finitePositiveOr(xy_kp_, kDefaultOdomRelativeXyKp);
+  heading_kp_ =
+      finiteNonNegativeOr(heading_kp_, kDefaultOdomRelativeHeadingKp);
+  heading_max_speed_radps_ = std::abs(finiteNonNegativeOr(
+      heading_max_speed_radps_, kDefaultOdomRelativeHeadingMaxSpeedRadps));
+  xy_tolerance_m_ =
+      finitePositiveOr(xy_tolerance_m_, kDefaultOdomRelativeXyToleranceM);
+  yaw_tolerance_deg = finiteNonNegativeOr(
+      yaw_tolerance_deg, kDefaultOdomRelativeYawToleranceDeg);
+  yaw_tolerance_rad_ = std::abs(yaw_tolerance_deg) * kPi / 180.0;
+  stable_ticks_required_ = std::max(1, stable_ticks_required_);
+  odom_timeout_s_ = finitePositiveOr(odom_timeout_s_, kDefaultOdomTimeoutSec);
+  timeout_s_ = finitePositiveOr(timeout_s_, kDefaultOdomRelativeTimeoutSec);
+
+  odom_sub_ = node_->create_subscription<OdomMsg>(
+      odom_topic_, rclcpp::QoS(rclcpp::KeepLast(10)),
+      [this](const OdomMsg::SharedPtr msg) {
+        current_x_ = msg->pose.pose.position.x;
+        current_y_ = msg->pose.pose.position.y;
+        current_yaw_ = yawFromQuaternion(msg->pose.pose.orientation);
+        has_odom_ = true;
+        last_odom_tp_ = std::chrono::steady_clock::now();
+      });
+
+  has_odom_ = false;
+  target_ready_ = false;
+  stable_ticks_ = 0;
+  start_time_ = node_->now();
+  writeState("RUNNING");
+  writeDistanceRemaining(std::abs(first_x_m_) + std::abs(second_x_m_));
+  RCLCPP_INFO(node_->get_logger(),
+              "odom X-turn-X 复合导航启动: cmd_vel=%s odom=%s first_x=%.3fm yaw_delta=%.4frad second_x=%.3fm max=%.3fm/s tol=%.3fm yaw_tol=%.1fdeg timeout=%.2fs",
+              cmd_vel_topic_.c_str(), odom_topic_.c_str(), first_x_m_,
+              yaw_delta_rad_, second_x_m_, max_speed_mps_, xy_tolerance_m_,
+              yaw_tolerance_deg, timeout_s_);
+  publishStop();
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus OdomDriveXTurnXAction::onRunning() {
+  return tickTowardTarget();
+}
+
+void OdomDriveXTurnXAction::onHalted() {
+  writeState("HALTED");
+  publishStop();
+  releaseRuntime();
+}
+
+void OdomDriveXTurnXAction::publishStop() {
+  if (cmd_pub_) {
+    cmd_pub_->publish(TwistMsg{});
+  }
+}
+
+void OdomDriveXTurnXAction::releaseRuntime() {
+  odom_sub_.reset();
+  cmd_pub_.reset();
+  node_ = nullptr;
+  has_odom_ = false;
+  target_ready_ = false;
+  stable_ticks_ = 0;
+}
+
+bool OdomDriveXTurnXAction::odomReady() const {
+  if (!has_odom_) {
+    return false;
+  }
+  const auto age_s = std::chrono::duration<double>(
+                         std::chrono::steady_clock::now() - last_odom_tp_)
+                         .count();
+  return age_s <= odom_timeout_s_;
+}
+
+bool OdomDriveXTurnXAction::timedOut() const {
+  if (!node_) {
+    return false;
+  }
+  return (node_->now() - start_time_).seconds() > timeout_s_;
+}
+
+bool OdomDriveXTurnXAction::prepareTargetFromCurrentOdom() {
+  if (!odomReady()) {
+    return false;
+  }
+  start_x_ = current_x_;
+  start_y_ = current_y_;
+  start_yaw_ = current_yaw_;
+  target_yaw_ = normalizeAngle(start_yaw_ + yaw_delta_rad_);
+  const double start_c = std::cos(start_yaw_);
+  const double start_s = std::sin(start_yaw_);
+  const double target_c = std::cos(target_yaw_);
+  const double target_s = std::sin(target_yaw_);
+  target_x_ = start_x_ + first_x_m_ * start_c + second_x_m_ * target_c;
+  target_y_ = start_y_ + first_x_m_ * start_s + second_x_m_ * target_s;
+  target_ready_ = true;
+  (void)setOutput("target_yaw_rad", target_yaw_);
+  if (node_) {
+    RCLCPP_INFO(node_->get_logger(),
+                "odom X-turn-X 目标已捕获: start=(%.3f, %.3f, %.3f) target=(%.3f, %.3f, %.3f)",
+                start_x_, start_y_, start_yaw_, target_x_, target_y_,
+                target_yaw_);
+  }
+  return true;
+}
+
+BT::NodeStatus OdomDriveXTurnXAction::tickTowardTarget() {
+  if (!node_ || !cmd_pub_) {
+    writeDecisionFailure(config().blackboard, "OdomDriveXTurnX",
+                         "运行上下文缺失：node 或 cmd_vel 发布器不可用，cmd_vel=" +
+                             cmd_vel_topic_ + "，odom=" + odom_topic_);
+    return BT::NodeStatus::FAILURE;
+  }
+  if (timedOut()) {
+    return failWithStop("复合导航超时");
+  }
+  if (!target_ready_) {
+    if (!odomReady()) {
+      writeState("WAITING_FOR_ODOM");
+      publishStop();
+      return BT::NodeStatus::RUNNING;
+    }
+    if (!prepareTargetFromCurrentOdom()) {
+      return failWithStop("复合导航目标捕获失败");
+    }
+    writeState("RUNNING");
+  }
+  if (!odomReady()) {
+    stable_ticks_ = 0;
+    writeState("WAITING_FOR_ODOM");
+    publishStop();
+    return BT::NodeStatus::RUNNING;
+  }
+
+  const double error_world_x = target_x_ - current_x_;
+  const double error_world_y = target_y_ - current_y_;
+  const double distance = std::hypot(error_world_x, error_world_y);
+  const double yaw_error = normalizeAngle(target_yaw_ - current_yaw_);
+  writeDistanceRemaining(distance);
+
+  if (distance <= xy_tolerance_m_ &&
+      std::abs(yaw_error) <= yaw_tolerance_rad_) {
+    ++stable_ticks_;
+    publishStop();
+    if (stable_ticks_ >= stable_ticks_required_) {
+      writeState("SUCCEEDED");
+      RCLCPP_INFO(node_->get_logger(),
+                  "odom X-turn-X 复合导航完成: remaining=%.3fm yaw_error=%.3frad",
+                  distance, yaw_error);
+      releaseRuntime();
+      return BT::NodeStatus::SUCCESS;
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+
+  stable_ticks_ = 0;
+  writeState("RUNNING");
+  TwistMsg cmd;
+  if (distance > xy_tolerance_m_) {
+    const double c = std::cos(current_yaw_);
+    const double s = std::sin(current_yaw_);
+    double body_x = error_world_x * c + error_world_y * s;
+    double body_y = -error_world_x * s + error_world_y * c;
+    double speed_x = xy_kp_ * body_x;
+    double speed_y = xy_kp_ * body_y;
+    double speed_norm = std::hypot(speed_x, speed_y);
+    if (speed_norm > max_speed_mps_ && speed_norm > 1e-9) {
+      const double scale = max_speed_mps_ / speed_norm;
+      speed_x *= scale;
+      speed_y *= scale;
+      speed_norm = max_speed_mps_;
+    }
+    if (speed_norm < min_speed_mps_ && speed_norm > 1e-9) {
+      const double scale = min_speed_mps_ / speed_norm;
+      speed_x *= scale;
+      speed_y *= scale;
+    }
+    cmd.linear.x = speed_x;
+    cmd.linear.y = speed_y;
+  }
+  cmd.angular.z = std::clamp(heading_kp_ * yaw_error,
+                             -heading_max_speed_radps_,
+                             heading_max_speed_radps_);
+  cmd_pub_->publish(cmd);
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus OdomDriveXTurnXAction::failWithStop(
+    const std::string &reason) {
+  const std::string detail =
+      reason + "，cmd_vel=" + cmd_vel_topic_ + "，odom=" + odom_topic_ +
+      "，first_x_m=" + std::to_string(first_x_m_) +
+      "，yaw_delta_rad=" + std::to_string(yaw_delta_rad_) +
+      "，second_x_m=" + std::to_string(second_x_m_) +
+      "，动作超时_s=" + std::to_string(timeout_s_) +
+      "，odom超时_s=" + std::to_string(odom_timeout_s_);
+  if (node_) {
+    RCLCPP_WARN(node_->get_logger(), "odom X-turn-X 复合导航失败: %s",
+                detail.c_str());
+  }
+  writeFailure(detail);
+  writeDecisionFailure(config().blackboard, "OdomDriveXTurnX", detail);
+  publishStop();
+  releaseRuntime();
+  return BT::NodeStatus::FAILURE;
+}
+
+void OdomDriveXTurnXAction::writeState(const std::string &state) {
+  if (!config().blackboard) {
+    return;
+  }
+  config().blackboard->set("relative_nav_last_exec_state", state);
+  if (state != "FAILED") {
+    config().blackboard->set("relative_nav_last_failure_reason",
+                             std::string(""));
+  }
+}
+
+void OdomDriveXTurnXAction::writeFailure(const std::string &reason) {
+  if (!config().blackboard) {
+    return;
+  }
+  config().blackboard->set("relative_nav_last_exec_state",
+                           std::string("FAILED"));
+  config().blackboard->set("relative_nav_last_failure_reason", reason);
+}
+
+void OdomDriveXTurnXAction::writeDistanceRemaining(double distance) {
+  if (config().blackboard) {
+    config().blackboard->set("relative_nav_last_distance_remaining", distance);
+  }
+}
+
 OdomTurnToYawAction::OdomTurnToYawAction(const std::string &name,
                                          const BT::NodeConfig &config)
     : BT::StatefulActionNode(name, config) {}
@@ -762,6 +1079,7 @@ void RelativeYawTargetAction::releaseRuntime() {
 void registerOdomNavigationNodes(BT::BehaviorTreeFactory &factory) {
   factory.registerNodeType<OdomDriveXAction>("OdomDriveX");
   factory.registerNodeType<OdomDriveYAction>("OdomDriveY");
+  factory.registerNodeType<OdomDriveXTurnXAction>("OdomDriveXTurnX");
   factory.registerNodeType<OdomTurnToYawAction>("OdomTurnToYaw");
   factory.registerNodeType<RelativeYawTargetAction>("RelativeYawTarget");
 }

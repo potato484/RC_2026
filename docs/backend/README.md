@@ -6,9 +6,9 @@
 
 ## 当前导航口径
 
-R2 运行时导航权威已经迁移到 `rc26_decision` 内部 odom 单轴分段闭环导航。默认导航链不再启动旧外部地图定位、地图服务、路径规划、底盘控制、速度平滑或传感器扫描链路。
+R2 运行时导航权威已经迁移到 `rc26_decision` 内部 odom 相对闭环导航。默认导航链不再启动旧外部地图定位、地图服务、路径规划、底盘控制、速度平滑或传感器扫描链路。
 
-`rc26_decision` 注册三个可复用导航 BT 动作：`OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw`。X/Y 动作在进入动作时捕获当前 `/odom` 位姿和 yaw，分别只沿车体系 X 或 Y 单轴闭环发布 `/cmd_vel.linear.x/y`，并用 `angular.z` 保持进入该段时的 yaw；转向动作只按绝对 odom yaw 闭环发布 `angular.z`。当前不再提供或调用旧外部位姿导航 action，也不保留兼容 BT 节点。
+`rc26_decision` 注册四个可复用导航 BT 动作：`OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw`、`OdomDriveXTurnX`。X/Y 动作在进入动作时捕获当前 `/odom` 位姿和 yaw，分别只沿车体系 X 或 Y 单轴闭环发布 `/cmd_vel.linear.x/y`，并用 `angular.z` 保持进入该段时的 yaw；转向动作只按绝对 odom yaw 闭环发布 `angular.z`；`OdomDriveXTurnX` 用一个动作融合旧 `X -> yaw -> X` 终点，合成发布 `linear.x/y` 与 `angular.z`。当前不再提供或调用旧外部位姿导航 action，也不保留兼容 BT 节点。
 
 `rc26_bringup run_mode:=navigation` 只装配 `rc26_mcu_transport`、`odometry.launch.py start_sensor_scan:=false`、`rc26_decision`，以及按需 RealSense。`/cmd_vel` 由决策侧导航/动作节点串行发布，默认硬件消费方由 `rc26_mcu_transport` 提供并下发 `POSE_TARGET(0x0C)`；同一时刻不得启动遥控、测试动作或其它 `/cmd_vel` 发布者。
 
@@ -42,7 +42,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 ### 装配与决策
 
 - [`rc26_bringup`](archive/rc26_bringup/README.md): R2 整车链路统一装配入口；导航模式下只装配 odom、MCU transport、决策和按需 RealSense。`(file: archive/rc26_bringup/README.md)`
-- [`rc26_decision`](archive/rc26_decision/README.md): R2 主决策包；内部行为树通过 `OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw` 执行 odom 单轴分段导航，不再对外暴露 BT 调试 topic/service。`(file: archive/rc26_decision/README.md)`
+- [`rc26_decision`](archive/rc26_decision/README.md): R2 主决策包；内部行为树通过 `OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw`、`OdomDriveXTurnX` 执行 odom 相对闭环导航，不再对外暴露 BT 调试 topic/service。`(file: archive/rc26_decision/README.md)`
 - [`rc26_interfaces`](archive/rc26_interfaces/README.md): R2 自定义 ROS 2 接口契约包；当前保留机构、视觉和动态预测接口，定位主链改用标准 ROS 消息与 TF。`(file: archive/rc26_interfaces/README.md)`
 
 ### 里程计、定位与点云主链

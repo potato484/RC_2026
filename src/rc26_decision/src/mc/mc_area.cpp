@@ -366,6 +366,7 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
 void registerMCAreaNodes(BT::BehaviorTreeFactory& factory) {
     factory.registerNodeType<VisualServoGrabAction>("VisualServoGrab");
     factory.registerNodeType<RotateInPlaceAction>("RotateInPlace");
+    factory.registerNodeType<RotateRetreatAction>("RotateRetreat");
     factory.registerNodeType<WaitForeverAction>("WaitForever");
     factory.registerNodeType<PreselectionBranchGateAction>("WaitPreselectionBranchGate");
     factory.registerNodeType<WaitForRegistrationConfirmAction>("WaitForRegistrationConfirm");

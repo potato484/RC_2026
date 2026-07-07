@@ -40,10 +40,10 @@ r2_runtime:
       startup_odom_max_angular_speed_radps: 0.05 # 启动稳定判定允许的最大角速度
 
       # ======================================================================
-      # 通用 odom 单轴分段导航参数 —— OdomDriveX/OdomDriveY/OdomTurnToYaw 直接发布 /cmd_vel
+      # 通用 odom 相对闭环导航参数 —— OdomDriveX/OdomDriveY/OdomTurnToYaw/OdomDriveXTurnX 直接发布 /cmd_vel
       # ======================================================================
-      odom_relative_nav_cmd_vel_topic: "cmd_vel"      # OdomDriveX/OdomDriveY/OdomTurnToYaw 发布的速度话题
-      odom_relative_nav_odom_topic: "odom"            # OdomDriveX/OdomDriveY/OdomTurnToYaw 使用的 odom 话题
+      odom_relative_nav_cmd_vel_topic: "cmd_vel"      # OdomDriveX/OdomDriveY/OdomTurnToYaw/OdomDriveXTurnX 发布的速度话题
+      odom_relative_nav_odom_topic: "odom"            # OdomDriveX/OdomDriveY/OdomTurnToYaw/OdomDriveXTurnX 使用的 odom 话题
       odom_relative_nav_max_speed_mps: 0.60           # 平移速度上限，单位 m/s
       odom_relative_nav_min_speed_mps: 0.03           # 未进入位置容差时的最小平移速度，单位 m/s
       odom_relative_nav_xy_kp: 0.8                    # odom x/y 误差到车体系平移速度的比例系数
@@ -138,11 +138,11 @@ r2_runtime:
       # ======================================================================
       # 武馆区 (MC) 红方基准运行参数 —— blue 启动时自动镜像侧向 yaw 和原地旋转方向
       # ======================================================================
-      # --- 红方基准 odom 单轴分段导航：+X 0.2m -> 右转 90° -> -X 0.6m ---
-      mc_nav_forward_x_m: 0.98     # 蓝方现场标定保留值；其余参数与红方同步，blue 不镜像 X
+      # --- 红方基准 MC 复合 OdomDriveXTurnX 导航：按旧 +X -> 右转 90° -> -X 终点标定 ---
+      mc_nav_forward_x_m: 1.05     # 蓝方现场标定保留值；其余参数与红方同步，blue 不镜像 X
       mc_nav_right_turn_delta_rad: -1.5708 # 红方基准第一段后相对右转角度；blue 自动取反为左转
-      mc_nav_reverse_x_m: -0.80     # 红方基准转向后第二段 OdomDriveX 车体系 x 负向位移；blue 不镜像 X
-      mc_nav_timeout_sec: 180.0     # 单个 OdomDriveX/OdomDriveY/OdomTurnToYaw 段的超时时间，单位秒
+      mc_nav_reverse_x_m: -0.80     # 红方基准复合动作第二段目标 yaw 方向 x 负向位移；blue 不镜像 X
+      mc_nav_timeout_sec: 180.0     # MC 复合 OdomDriveXTurnX 动作总超时时间，单位秒
 
       # --- 相机 / 推理（内嵌直连相机，对齐 tip_vision_test_node）---
       mc_vision_config_file: ""     # 视觉模型配置文件；空则回退 rc26_vision/config/vision_models.yaml

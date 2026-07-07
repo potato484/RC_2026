@@ -99,7 +99,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 - **规则**：控制器包可以依赖导航状态、定位健康和控制参数；已删除的旧地形链路不得作为当前默认控制输入。
 - **规则**：控制器包不得吸纳比赛阶段语义、操作界面需求或临时策略分支。
 - **规则**：任何带有“梅林阶段时这样做”“武馆阶段时那样做”的逻辑，如果不是纯控制保护，大概率应放在决策层而不是控制器层。
-- **补充口径**：当前常规位姿导航运行权威是 `rc26_decision` 的 odom 单轴分段闭环导航。普通导航段由 `OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw` 按具体行为树路线串行发布 `/cmd_vel`；受限独立 heading、台阶、MC/MF 视觉对齐等直接 `cmd_vel` 动作必须按 3.13 的命令权威规则串行执行。
+- **补充口径**：当前常规位姿导航运行权威是 `rc26_decision` 的 odom 相对闭环导航。普通导航段由 `OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw` 和融合 `X -> yaw -> X` 的 `OdomDriveXTurnX` 按具体行为树路线串行发布 `/cmd_vel`；受限独立 heading、台阶、MC/MF 视觉对齐等直接 `cmd_vel` 动作必须按 3.13 的命令权威规则串行执行。
 
 ### 3.5 状态估计与感知包负责产出状态，不负责操作员策略
 

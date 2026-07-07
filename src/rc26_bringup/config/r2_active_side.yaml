@@ -2,7 +2,7 @@
 # active_side 控制 bringup 默认加载 r2_red.yaml 或 r2_blue.yaml。
 # 如需临时调试其它完整配置，仍可通过 runtime_config_file:=/abs/path.yaml 覆盖。
 active_side: red
-preselection_mode: second
+preselection_mode: first
 runtime_configs:
   red: "r2_red.yaml"
   blue: "r2_blue.yaml"
