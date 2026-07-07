@@ -90,6 +90,7 @@ BT::NodeStatus VisualServoGrabAction::onStart() {
         odom_receive_tp_ = {};
     }
     lost_active_ = false;
+    resetAlignmentPrediction();
     approach_start_tp_ = {};
     last_pub_tp_ = {};
     last_grab_tp_ = {};
@@ -102,10 +103,10 @@ BT::NodeStatus VisualServoGrabAction::onStart() {
     // 启动独立工作线程（避免阻塞行为树的 tick 循环）
     worker_ = std::thread(&VisualServoGrabAction::workerLoop, this);
     RCLCPP_INFO(node_->get_logger(),
-                "武馆区视觉伺服启动: cmd_vel=%s model=%s odom=%s heading=%s target_yaw=%.3f grab_service=%s limit_feedback=%s id=0x%02X",
+                "武馆区视觉伺服启动: cmd_vel=%s model=%s odom=%s heading=%s target_yaw=%.3f search_vy=%.3f leftmost=true grab_service=%s limit_feedback=%s id=0x%02X",
                 params_.align_cmd_vel_topic.c_str(), params_.model_id.c_str(),
                 params_.odom_topic.c_str(), params_.align_heading_hold_enable ? "开" : "关",
-                params_.align_target_yaw_rad,
+                params_.align_target_yaw_rad, params_.align_search_speed_mps,
                 params_.grab_service_name.c_str(),
                 params_.grab_limit_switch_feedback_topic.c_str(),
                 static_cast<unsigned int>(params_.grab_limit_switch_feedback_id & 0xFF));
@@ -205,7 +206,7 @@ void VisualServoGrabAction::workerLoop() {
         const auto selection = rc26_vision::updateTipAlignmentTarget(
             detections, frame.cols, target_class_ids_, target_lock_state_, makeAlignmentConfig());
         const bool has_target = selection.has_target;
-        const int offset_px = selection.offset_px;
+        const int raw_offset_px = selection.offset_px;
 
         if (phase_ == ServoPhase::ApproachingLimit) {
             if (limit_switch_triggered_.load(std::memory_order_relaxed)) {
@@ -282,14 +283,51 @@ void VisualServoGrabAction::workerLoop() {
         }
 
         if (!has_target) {
-            // 没有检测到目标：停止横移，重置稳定计数
-            publishStop(false);
             stable_count_ = 0;
+            ++align_lost_count_;
+
+            bool heading_stale = false;
+            double yaw_age_s = 0.0;
+            const auto heading_control = computeHeadingControl(heading_stale, yaw_age_s);
+            if (heading_stale) {
+                publishStop(true);
+                continue;
+            }
+
+            if (align_seen_target_ && align_has_last_offset_ &&
+                align_lost_count_ < std::max(1, params_.align_lost_stop_frames)) {
+                const bool pixel_aligned =
+                    std::abs(align_last_offset_px_) <= params_.align_tolerance_px;
+                if (pixel_aligned && heading_control.aligned) {
+                    publishStop(false);
+                } else {
+                    const double vy =
+                        heading_control.allow_lateral
+                            ? computeAlignmentVy(align_last_offset_px_) *
+                                  params_.align_lost_servo_speed_scale
+                            : 0.0;
+                    publishCmd(0.0, vy, heading_control.angular_z_radps, false);
+                }
+                continue;
+            }
+
+            if (align_lost_count_ >= std::max(1, params_.align_lost_stop_frames)) {
+                target_lock_state_.reset();
+                resetAlignmentPrediction();
+            }
+
+            const double search_vy = heading_control.allow_lateral ? params_.align_search_speed_mps : 0.0;
+            publishCmd(0.0, search_vy, heading_control.angular_z_radps, false);
             continue;
         }
 
         // 有目标：重置消失标志
         lost_active_ = false;
+        align_seen_target_ = true;
+        align_lost_count_ = 0;
+        const int offset_px = applyAlignmentOffsetFilter(raw_offset_px);
+        align_last_offset_px_ = offset_px;
+        align_has_last_offset_ = true;
 
         bool heading_stale = false;
         double yaw_age_s = 0.0;
@@ -326,6 +364,28 @@ void VisualServoGrabAction::workerLoop() {
 // 根据水平像素偏移计算横移速度（P 控制器）
 double VisualServoGrabAction::computeAlignmentVy(int offset_px) const {
     return rc26_vision::computeTipAlignmentVy(offset_px, makeAlignmentConfig());
+}
+
+int VisualServoGrabAction::applyAlignmentOffsetFilter(int offset_px) {
+    const double raw_offset = static_cast<double>(offset_px);
+    const double alpha = std::clamp(params_.align_offset_filter_alpha, 0.05, 1.0);
+    if (!align_filtered_offset_valid_) {
+        align_filtered_offset_px_ = raw_offset;
+        align_filtered_offset_valid_ = true;
+    } else {
+        align_filtered_offset_px_ =
+            alpha * raw_offset + (1.0 - alpha) * align_filtered_offset_px_;
+    }
+    return static_cast<int>(std::lround(align_filtered_offset_px_));
+}
+
+void VisualServoGrabAction::resetAlignmentPrediction() {
+    align_seen_target_ = false;
+    align_lost_count_ = 0;
+    align_has_last_offset_ = false;
+    align_last_offset_px_ = 0;
+    align_filtered_offset_valid_ = false;
+    align_filtered_offset_px_ = 0.0;
 }
 
 bool VisualServoGrabAction::readAlignmentYaw(double& yaw_rad, double& age_s) {
@@ -628,6 +688,7 @@ rc26_vision::TipAlignmentConfig VisualServoGrabAction::makeAlignmentConfig() con
     config.target_lock_max_jump_px = params_.align_target_lock_max_jump_px;
     config.lost_stop_frames = params_.align_lost_stop_frames;
     config.tolerance_px = params_.align_tolerance_px;
+    config.prefer_leftmost_target = true;
     config.kp = params_.align_kp;
     config.min_speed_mps = params_.align_min_speed_mps;
     config.max_speed_mps = params_.align_max_speed_mps;

@@ -74,6 +74,39 @@ std::optional<TipTargetCandidate> chooseClosestToCenter(
   return best;
 }
 
+std::optional<TipTargetCandidate> chooseLeftmostTarget(
+  const std::vector<TipTargetCandidate> & candidates)
+{
+  std::optional<TipTargetCandidate> best;
+  int best_center_x = -1;
+  int best_area = -1;
+
+  for (const auto & candidate : candidates) {
+    const int center_x = boxCenterX(candidate);
+    const int area = boxArea(candidate);
+    if (!best.has_value() ||
+      center_x < best_center_x ||
+      (center_x == best_center_x && candidate.score > best->score) ||
+      (center_x == best_center_x && candidate.score == best->score && area > best_area))
+    {
+      best = candidate;
+      best_center_x = center_x;
+      best_area = area;
+    }
+  }
+
+  return best;
+}
+
+std::optional<TipTargetCandidate> chooseInitialTarget(
+  const std::vector<TipTargetCandidate> & candidates,
+  int target_line_x,
+  const TipAlignmentConfig & config)
+{
+  return config.prefer_leftmost_target ? chooseLeftmostTarget(candidates)
+                                       : chooseClosestToCenter(candidates, target_line_x);
+}
+
 std::optional<TipTargetCandidate> chooseClosestToLockedTarget(
   const std::vector<TipTargetCandidate> & candidates,
   const TipTargetCandidate & locked_target,
@@ -143,7 +176,7 @@ TipTargetSelection updateTipAlignmentTarget(
 
   if (!config.target_lock_enable) {
     lock_state.reset();
-    const auto selected = chooseClosestToCenter(candidates, target_line_x);
+    const auto selected = chooseInitialTarget(candidates, target_line_x, config);
     if (!selected.has_value()) {
       return TipTargetSelection{};
     }
@@ -170,7 +203,7 @@ TipTargetSelection updateTipAlignmentTarget(
     lock_state.reset();
   }
 
-  const auto selected = chooseClosestToCenter(candidates, target_line_x);
+  const auto selected = chooseInitialTarget(candidates, target_line_x, config);
   if (!selected.has_value()) {
     return TipTargetSelection{};
   }

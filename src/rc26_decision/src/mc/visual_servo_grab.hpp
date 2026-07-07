@@ -56,6 +56,8 @@ private:
     bool openCamera(int index, const std::string& path);
     void resolveTargetClassIds();
     rc26_vision::TipAlignmentConfig makeAlignmentConfig() const;
+    int applyAlignmentOffsetFilter(int offset_px);
+    void resetAlignmentPrediction();
     double computeAlignmentVy(int offset_px) const;
     bool readAlignmentYaw(double& yaw_rad, double& age_s);
     rc26_vision::TipHeadingControl computeHeadingControl(bool& stale, double& yaw_age_s);
@@ -112,6 +114,12 @@ private:
     std::chrono::steady_clock::time_point last_grab_tp_{};
     std::chrono::steady_clock::time_point lost_since_tp_{};
     bool lost_active_{false};
+    bool align_seen_target_{false};
+    int align_lost_count_{0};
+    bool align_has_last_offset_{false};
+    int align_last_offset_px_{0};
+    bool align_filtered_offset_valid_{false};
+    double align_filtered_offset_px_{0.0};
 };
 
 }  // namespace rc26_decision

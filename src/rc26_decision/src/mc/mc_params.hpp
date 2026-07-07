@@ -26,8 +26,11 @@ struct McParams {
     double align_kp{0.0015};
     double align_min_speed_mps{0.04};
     double align_max_speed_mps{0.15};
+    double align_search_speed_mps{0.010};
     double align_command_rate_hz{20.0};
     int align_lost_stop_frames{3};
+    double align_lost_servo_speed_scale{0.45};
+    double align_offset_filter_alpha{0.45};
     bool align_target_lock_enable{true};
     int align_target_lock_max_jump_px{160};
     bool align_invert_direction{true};

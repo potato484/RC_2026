@@ -20,7 +20,7 @@
                        odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
                        timeout_s="{mc_nav_timeout_sec}"
                        target_yaw_rad="{mc_nav_right_turn_target_yaw}"/>
-      <!-- 2. 视觉伺服：横移对齐端头 → 下发 GRAB_TIP → 端头消失判定夹取完成 -->
+      <!-- 2. 视觉伺服：无端头时按红/蓝方向低速搜寻 → 左侧优先锁定端头 → 横移对齐 → 下发 GRAB_TIP → 端头消失判定夹取完成 -->
       <VisualServoGrab name="visual_servo_grab"
                        target_yaw_rad="{mc_nav_right_turn_target_yaw}"/>
 
