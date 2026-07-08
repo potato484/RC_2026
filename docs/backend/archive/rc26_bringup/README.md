@@ -81,6 +81,8 @@
 
 ## 本轮同步
 
+2026-07-08 同步：`r2_blue.yaml` 重新对齐红方基准配置，除 `team: blue` 和蓝方现场保留的 `mc_nav_forward_x_m: 1.05` 外，第二预选赛、台阶和其它决策参数值与 `r2_red.yaml` 保持一致；同时补齐 `second_preselect_kfs_lost_servo_speed_scale` 与 `second_preselect_kfs_align_offset_filter_alpha`，避免蓝方配置缺少红方已有的短暂丢框伺服和 offset 滤波入口。
+
 2026-07-05 同步：红/蓝运行配置删除第二预选赛九宫格动态 ROI、选位过滤和放置后后退参数。夹取确认后的放置链改为红方基准 `+Y 0.7m -> +X 4.5m`，随后由 `rc26_decision` 观察前方最近 `R1_KFS` 并视觉横移对齐，再 `+X 0.8m` 前进和发送 `SECOND_PRESELECTION_PLACE_KFS(0x13)`；blue 仍只镜像 Y 段。
 
 2026-07-05 同步：红/蓝运行配置新增第二预选赛视觉对齐后的机械臂放下握手参数：`second_preselect_pre_approach_lower_command_id=0x14`、`second_preselect_pre_approach_lower_done_feedback_id=0x12` 和 `second_preselect_pre_approach_lower_settle_s=0.5`。`rc26_decision` 收到同 `seq` 放下完成反馈并停车等待后，才开始原有 KFS odom 前向趋近。
@@ -89,7 +91,7 @@
 
 2026-07-04 同步：红/蓝运行配置新增第二预选赛 OpenCV 视觉调试窗口参数。窗口现在贯穿 KFS 搜索/夹取验证和放置前视觉对齐；若窗口创建失败，决策侧会告警并继续无 UI 运行。
 
-2026-07-04 同步：红/蓝运行配置完成统一，除 `r2_blue.yaml` 保留现场标定值 `mc_nav_forward_x_m: 0.98` 和 `team: blue` 外，其余参数值、顺序与注释均同步红方基准；历史单文件 `r2_runtime.yaml` 已删除，默认和调试入口都应显式使用 `r2_red.yaml` / `r2_blue.yaml` 或其它完整自定义配置。
+2026-07-04 同步：红/蓝运行配置完成统一，除 `r2_blue.yaml` 保留现场标定值 `mc_nav_forward_x_m` 和 `team: blue` 外，其余参数值、顺序与注释按红方基准维护；历史单文件 `r2_runtime.yaml` 已删除，默认和调试入口都应显式使用 `r2_red.yaml` / `r2_blue.yaml` 或其它完整自定义配置。
 
 2026-07-03 同步：红/蓝运行配置不再显式写入 `second_preselect_grid_label_prefixes: []` 和 `second_preselect_grid_label_exact_names: []`。这两个第二预选赛标签过滤参数在默认不过滤时应省略，由 `rc26_decision` 的空 vector 默认值表达“所有非空 class_name 有效”；这样避免 ROS2 launch 通过 Python dict 传空数组时无法推断数组元素类型，并在延时启动 `decision_node` 前抛出空 tuple 参数异常。
 

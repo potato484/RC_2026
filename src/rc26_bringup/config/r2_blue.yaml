@@ -72,28 +72,30 @@ r2_runtime:
       second_preselect_pre_approach_lower_settle_s: 0.5 # 收到 0x12 后继续停车等待，确认机械臂彻底放下再前进
       second_preselect_place_kfs_command_id: 19     # 0x13 SECOND_PRESELECTION_PLACE_KFS，ACK 即发送完成
       second_preselect_cmd_vel_topic: "cmd_vel"     # KFS 搜索、视觉对齐和前向趋近发布的运动命令
-      second_preselect_nav_y1_m: 0.7                # 夹取完成后红方基准 +Y 横移；blue 启动时自动取反
+      second_preselect_nav_y1_m: 0.75               # 夹取完成后红方基准 +Y 横移；blue 启动时自动取反
       second_preselect_nav_x2_m: 4.5                # 横移后沿车体系 +X 前进到 R1KFS 观察/对齐位
       second_preselect_place_forward_x_m: 0.8       # R1KFS 视觉对齐后沿 +X 前进放置
       second_preselect_nav_timeout_s: 180.0         # 第二预选赛每个 odom 单轴段超时
-      second_preselect_search_forward_speed_mps: 0.20 # 0x11 后沿 +X 前进搜索 R2 KFS 的速度
+      second_preselect_search_forward_speed_mps: 0.30 # 0x11 后沿 +X 前进搜索 R2 KFS 的速度
       second_preselect_search_timeout_s: 20.0       # 前进搜索 R2 KFS 超时
       second_preselect_r2_target_label_prefixes: ["T_"] # R2 KFS 标签前缀
       second_preselect_r1_blocking_labels: ["R_R1", "B_R1", "R1_KFS"] # R1 KFS 标签集合；搜索阶段识别到后继续寻找 R2
       second_preselect_r1_kfs_min_score: 0.50       # R1_KFS 最低置信度
-      second_preselect_kfs_depth_min_m: 0.6         # R2/R1 KFS 深度窗口下限
+      second_preselect_kfs_depth_min_m: 0.2         # R2/R1 KFS 深度窗口下限
       second_preselect_kfs_depth_max_m: 1.2         # R2/R1 KFS 深度窗口上限
-      second_preselect_kfs_align_tolerance_px: 15   # KFS 横移对齐像素容差
+      second_preselect_kfs_align_tolerance_px: 10   # KFS 横移对齐像素容差；现场允许略宽，避免近距离框抖动反复清零
       second_preselect_kfs_align_target_line_offset_px: 10 # KFS 目标线相对图像中心偏置
       second_preselect_kfs_align_stable_frames: 3   # 对齐稳定新帧数
-      second_preselect_kfs_align_max_jump_px: 70    # tip_alignment 目标锁定跳变阈值
-      second_preselect_kfs_align_kp: 0.0015         # KFS offset 到 linear.y 的比例系数
-      second_preselect_kfs_align_min_speed_mps: 0.06 # KFS 横移最小速度
-      second_preselect_kfs_align_max_speed_mps: 0.14 # KFS 横移最大速度
-      second_preselect_kfs_align_timeout_s: 20.0    # KFS 横移视觉对齐超时
-      second_preselect_kfs_align_timeout_pickup_tolerance_px: 40 # 超时补夹像素容差
+      second_preselect_kfs_align_max_jump_px: 120   # tip_alignment 目标锁定跳变阈值；近距离 bbox 抖动时保持同一目标锁定
+      second_preselect_kfs_align_kp: 0.0012         # KFS offset 到 linear.y 的比例系数
+      second_preselect_kfs_align_min_speed_mps: 0.035 # KFS 横移最小速度；降低近距离横移过冲
+      second_preselect_kfs_align_max_speed_mps: 0.10 # KFS 横移最大速度；降低近距离横移过冲
+      second_preselect_kfs_align_timeout_s: 1800.0    # KFS 横移视觉对齐超时
+      second_preselect_kfs_align_timeout_pickup_tolerance_px: 65 # 超时补夹像素容差；方向正确时允许进入前向趋近
       second_preselect_kfs_align_heading_gate_deg: 3.0 # yaw gate，超出时只修正朝向
-      second_preselect_kfs_lost_stop_frames: 6      # 横移中连续丢失后停车等待
+      second_preselect_kfs_lost_stop_frames: 10     # 横移中连续丢失后停车等待；给 D455 深度/检测短暂抖动留余量
+      second_preselect_kfs_lost_servo_speed_scale: 0.45 # 短暂丢框时按最近 offset 低速继续伺服，避免识别闪烁打断闭环
+      second_preselect_kfs_align_offset_filter_alpha: 0.45 # offset 低通滤波系数，抑制 bbox 横向抖动
       second_preselect_kfs_invert_lateral_direction: false # 当前安装下不反转横移方向
       second_preselect_kfs_odom_xy_kp: 0.8          # KFS 前向 odom 闭环 P 增益
       second_preselect_kfs_approach_odom_tolerance_m: 0.02 # 前向趋近距离容差
@@ -118,7 +120,7 @@ r2_runtime:
       second_preselect_kfs_depth_bbox_sample_ratios: [0.25, 0.50, 0.75] # bbox 多点采样位置
       second_preselect_kfs_depth_bbox_min_success_count: 1 # 多点采样最少成功点
       second_preselect_grab_verify_timeout_s: 3.0   # 0x12 对应 0x11 完成反馈后视觉消失验证超时
-      second_preselect_grab_verify_lost_stable_frames: 3 # 原目标连续消失帧数
+      second_preselect_grab_verify_lost_stable_frames: 10 # 原目标连续消失帧数
       second_preselect_grab_verify_iou_threshold: 0.30 # 原目标匹配 IoU 阈值
       second_preselect_grab_settle_s: 0.5           # 夹取确认成功后停车稳定时间
       preselection_ramp_approach_x_m: 0.50      # second managed 入口斜坡前接近段 OdomDriveX 距离
@@ -132,14 +134,14 @@ r2_runtime:
       second_preselect_model_id: "kfs_default"      # 用于 KFS 搜索/夹取与 R1KFS 放置对齐
       second_preselect_odom_topic: "odom"           # KFS/R1KFS 视觉对齐读取的 odom topic
       second_preselect_odom_timeout_s: 0.5          # KFS/R1KFS 视觉对齐 odom 新鲜度超时
-      second_preselect_dynamic_roi_ui_enable: true  # 第二预选赛 OpenCV 调试窗口；贯穿 KFS 搜索/夹取验证与 R1KFS 放置对齐
+      second_preselect_dynamic_roi_ui_enable: false # 第二预选赛 OpenCV 调试窗口；贯穿 KFS 搜索/夹取验证与 R1KFS 放置对齐
       second_preselect_dynamic_roi_ui_window_name: "SecondPreselectionVision" # 第二预选赛视觉调试窗口标题
 
       # ======================================================================
       # 武馆区 (MC) 红方基准运行参数 —— blue 启动时自动镜像侧向 yaw 和原地旋转方向
       # ======================================================================
       # --- 红方基准 MC 复合 OdomDriveXTurnX 导航：按旧 +X -> 右转 90° -> -X 终点标定 ---
-      mc_nav_forward_x_m: 1.05     # 蓝方现场标定保留值；其余参数与红方同步，blue 不镜像 X
+      mc_nav_forward_x_m: 1.05     # 蓝方现场标定保留值；除 team 外其余参数与红方同步，blue 不镜像 X
       mc_nav_right_turn_delta_rad: -1.5708 # 红方基准第一段后相对右转角度；blue 自动取反为左转
       mc_nav_reverse_x_m: -0.80     # 红方基准复合动作第二段目标 yaw 方向 x 负向位移；blue 不镜像 X
       mc_nav_timeout_sec: 180.0     # MC 复合 OdomDriveXTurnX 动作总超时时间，单位秒
@@ -406,14 +408,14 @@ r2_runtime:
       stair_command_timeout_s: 3.0                   # 每条推杆命令 accepted 等待超时，单位秒
       stair_front_event_timeout_s: 20.0              # 前轮激光高度突变等待超时，单位秒
       stair_rear_event_timeout_s: 20.0               # 后轮激光高度突变等待超时，单位秒
-      stair_climb_front_extend_delay_s: 4.5          # 上台阶前推杆伸出 accepted 后零速等待时间，单位秒
-      stair_climb_retract_rear_extend_delay_s: 4.0   # 上台阶前收+后伸 accepted 后零速等待时间，单位秒
-      stair_climb_rear_retract_delay_s: 4.0          # 上台阶后推杆收回 accepted 后零速等待时间，单位秒
-      stair_descend_rear_extend_delay_s: 4.0         # 下台阶后推杆伸出 accepted 后零速等待时间，单位秒
-      stair_descend_retract_front_extend_delay_s: 4.0 # 下台阶后收+前伸 accepted 后零速等待时间，单位秒
+      stair_climb_front_extend_delay_s: 3.2          # 上台阶前推杆伸出 accepted 后零速等待时间，单位秒
+      stair_climb_retract_rear_extend_delay_s: 2.7   # 上台阶前收+后伸 accepted 后零速等待时间，单位秒
+      stair_climb_rear_retract_delay_s: 3.1          # 上台阶后推杆收回 accepted 后零速等待时间，单位秒
+      stair_descend_rear_extend_delay_s: 3.1         # 下台阶后推杆伸出 accepted 后零速等待时间，单位秒
+      stair_descend_retract_front_extend_delay_s: 2.7 # 下台阶后收+前伸 accepted 后零速等待时间，单位秒
       stair_descend_front_retract_timed_drive_speed_mps: 0.10 # 下台阶前推杆收回前 x 负向定时固定速度绝对值，单位 m/s
       stair_descend_front_retract_drive_duration_s: 3.0  # 下台阶前推杆收回前 x 负向定时行驶时间，单位秒
-      stair_descend_front_retract_delay_s: 2.5       # 下台阶前推杆收回 accepted 后零速等待时间，单位秒
+      stair_descend_front_retract_delay_s: 1.8       # 下台阶前推杆收回 accepted 后零速等待时间，单位秒
       stair_odom_topic: "odom"                       # 台阶姿态微调用 odom 话题，yaw 由四元数解算
       stair_heading_hold_enable: true                # 上/下台阶前对齐 yaw，直行期间叠加 angular.z 保持方向
       stair_heading_kp: 1.2                          # yaw 误差到 angular.z 的比例系数
