@@ -4,7 +4,6 @@
 #include <chrono>
 #include <cstdio>
 #include <exception>
-#include <filesystem>
 
 #include "rc26_decision/decision_failure.hpp"
 #include "rc26_decision/mechanism_error_diagnostic.hpp"
@@ -20,11 +19,6 @@ double elapsedSec(const std::chrono::steady_clock::time_point &since) {
   return std::chrono::duration<double>(std::chrono::steady_clock::now() -
                                        since)
       .count();
-}
-
-bool targetsSecondPreselectionTree(const std::string &tree_file) {
-  return std::filesystem::path(tree_file).filename() ==
-         std::filesystem::path("second_preselection_tree.xml");
 }
 
 } // namespace
@@ -229,6 +223,9 @@ BT::NodeStatus PreselectionBranchGateAction::onRunning() {
       RCLCPP_INFO(node_->get_logger(),
                   "预选入口 branch gate: 已收到 done=%s seq=%d",
                   byteHex(branch_done_feedback_id_).c_str(), seq);
+      if (branch_start_profile_ == StartProfile::Second) {
+        config().blackboard->set(kPreselectionGateSecondStartDoneKey, true);
+      }
       if (branch_ == Branch::ContinueFirst) {
         resetRuntimeHandles();
         return BT::NodeStatus::SUCCESS;
@@ -241,10 +238,6 @@ BT::NodeStatus PreselectionBranchGateAction::onRunning() {
         return BT::NodeStatus::SUCCESS;
       }
 
-      if (branch_start_profile_ == StartProfile::Second &&
-          targetsSecondPreselectionTree(switch_tree_file_)) {
-        config().blackboard->set(kPreselectionGateSecondStartDoneKey, true);
-      }
       requestBehaviorTreeSwitch(config().blackboard, switch_tree_file_);
       phase_ = Phase::SwitchRequested;
       resetRuntimeHandles();

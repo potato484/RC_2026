@@ -1,4 +1,4 @@
-<!-- second managed 入口：入口 gate → 斜坡前进 → 转 90° → 第二预选独立树。 -->
+<!-- second managed 入口：0x06 → 0x11/0x0D → 斜坡前进 → 第二预选独立树；0x10 → 0x11/0x0D → 直接切第二预选独立树。 -->
 <root BTCPP_format="4" main_tree_to_execute="SecondPreselectionComboTree">
 
   <include path="preselection_ramp_forward_tree.xml"/>
@@ -11,22 +11,6 @@
                                   switch_start_profile="second"
                                   switch_tree_file="second_preselection_tree.xml"/>
       <SubTree ID="PreselectionRampForwardTree" _autoremap="true"/>
-      <RelativeYawTarget name="second_preselect_after_ramp_turn_target"
-                         odom_topic="{odom_relative_nav_odom_topic}"
-                         yaw_delta_rad="{second_preselect_after_ramp_turn_delta_rad}"
-                         timeout_s="{odom_relative_nav_timeout_s}"
-                         odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
-                         target_yaw_rad="{second_preselect_after_ramp_turn_target_yaw}"/>
-      <OdomTurnToYaw name="second_preselect_after_ramp_turn"
-                     target_yaw_rad="{second_preselect_after_ramp_turn_target_yaw}"
-                     cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
-                     odom_topic="{odom_relative_nav_odom_topic}"
-                     kp="{odom_relative_nav_heading_kp}"
-                     max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
-                     yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
-                     stable_ticks="{odom_relative_nav_stable_ticks}"
-                     odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
-                     timeout_s="{second_preselect_after_ramp_turn_timeout_s}"/>
       <SubTree ID="SecondPreselectionTree" _autoremap="true"/>
     </Sequence>
   </BehaviorTree>

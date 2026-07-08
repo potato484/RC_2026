@@ -52,8 +52,8 @@
 - `mf_preselect_kfs_depth_roi_size`、`mf_preselect_kfs_depth_min_valid_count`、`mf_preselect_kfs_depth_bbox_sample_ratios`、`mf_preselect_kfs_depth_bbox_min_success_count`：MF R2 KFS 有效深度点配置，分别控制单点 ROI 边长、单 ROI 最少有效点、bbox 多点采样比例和最少成功采样点数；默认值写在 `r2_red.yaml` / `r2_blue.yaml`，bringup 只负责传参。
 - `preselection_entry_continue_delay_msec`：first 每轮人工触发外部限位 1 上行 `0x06 -> 0x10/0x0C` 启动握手完成后进入 MC 前的延时。
 - `first_preselection_mc_repeat_enable`、`first_preselection_mc_repeat_max_count`、`first_preselection_mc_repeat_base_forward_x_m`、`first_preselection_mc_repeat_forward_x_step_m`：first MC-only 重复流程参数，默认开启、初始 MC 后最多重复 1 次，默认共 2 轮；基准距离和步进都是绝对值，运行时按 `team` 派生方向，因此红方默认 MC 距离为 `+0.2/+0.4m`，蓝方默认 `-0.2/-0.4m`。
-- `preselection_ramp_approach_x_m`、`preselection_ramp_climb_x_m`、`preselection_ramp_max_speed_mps`、`preselection_ramp_min_speed_mps`、`preselection_ramp_timeout_s`：second managed 斜坡两段 odom 前进参数。
-- `second_preselect_after_ramp_turn_delta_rad`、`second_preselect_after_ramp_turn_timeout_s`：second managed 斜坡后 90° 转向参数；红方默认 `-1.5708`，`team=blue` 时由 `rc26_decision` 参数加载阶段镜像为 `+1.5708`。
+- `preselection_ramp_approach_x_m`、`preselection_ramp_climb_x_m`、`preselection_ramp_max_speed_mps`、`preselection_ramp_min_speed_mps`、`preselection_ramp_timeout_s`：second managed 中人工触发外部限位 1 上行 `0x06` 分支的斜坡两段 odom 前进参数。
+- `second_preselect_after_ramp_turn_delta_rad`、`second_preselect_after_ramp_turn_timeout_s`：历史 second managed 斜坡后转向参数，当前默认 `second_preselection_combo_tree.xml` 不再使用；`0x06` 分支斜坡后直接进入 `SecondPreselectionTree` 搜寻，`0x10` 分支完成 `0x11/0x0D` 握手后直接切到 `second_preselection_tree.xml`。
 - `second_preselect_pre_approach_lower_command_id`、`second_preselect_pre_approach_lower_done_feedback_id`、`second_preselect_pre_approach_lower_settle_s`：第二预选赛视觉对齐后、odom 前向趋近前的机械臂彻底放下握手参数。当前默认下发 `0x14`，等待同 `seq` 的 `0x12`，再停车等待 `0.5s` 后才允许前进。
 - `second_preselect_pickup_command_id`、`second_preselect_pickup_done_feedback_id`、`second_preselect_search_*`、`second_preselect_r2_target_*`、`second_preselect_r1_*`、`second_preselect_kfs_*`、`second_preselect_grab_verify_*`、`second_preselect_grab_settle_s`：第二预选赛搜索夹取链参数。当前树内前向趋近后的 `0x12` 用作 KFS 夹取触发，ACK 后先等待同 `seq` 的 MCU 上行 `0x11` 夹取完成反馈，再由视觉消失验证确认夹取。
 - `second_preselect_nav_y1_m`、`second_preselect_nav_x2_m`、`second_preselect_place_forward_x_m`：第二预选赛夹取成功后的放置导航段。夹取确认后默认按红方基准 `+Y 0.7m -> +X 4.5m` 到 R1KFS 放置对齐观察位，blue 运行时由 `rc26_decision` 自动镜像 Y 段；视觉对齐前方最近 `R1_KFS` 后再按 `second_preselect_place_forward_x_m=0.8m` 前进并发送下行 `0x13` 放置命令。
@@ -85,6 +85,8 @@
 ## 本轮同步
 
 2026-07-08 同步：first 默认树切换为 `mc_repeat_preselection_tree.xml`，不再进入 `MFPreselectionAfterMCTree`。first 入口只接受人工触发外部限位 1 上行 `0x06 -> 0x10/0x0C` 后启动 MC；MC 末尾只接受人工触发外部限位 2 上行 `0x10 -> 0x10/0x0C` 作为舵机重新放下握手，随后等待下一次 `0x06` 重复 MC。`r2_active_side.yaml` 是 first MC 重复策略的默认真源，维护重复开关、最大重复次数、独立基准距离和前进步进；红/蓝运行配置不再重复声明这组默认值。默认开启、最多重复 1 次、默认共 2 轮；红方距离为 `+0.2/+0.4m`，蓝方距离为 `-0.2/-0.4m`，不改写红/蓝配置中已有的 `mc_nav_forward_x_m` 现场标定值。
+
+2026-07-09 同步：second 默认组合树对齐 `mc_mf_preselection_tree.xml` 的入口分支模型：进入组合树先由 `WaitPreselectionBranchGate` 同时等待人工触发外部限位 1/2 上行 `0x06/0x10`，两条分支都下发 `SECOND_PRESELECTION_START(0x11)` 并等待同 `seq` 的 `SECOND_PRESELECTION_START_DONE(0x0D)`。`0x06` 分支继续执行 `preselection_ramp_forward_tree.xml` 两段斜坡前进后进入 `SecondPreselectionTree` 搜寻；`0x10` 分支直接切到 `second_preselection_tree.xml`。当前 second 组合树不再执行斜坡后的 90° 转向。
 
 2026-07-08 同步：`start_r2_auto.sh` 新增专用上行人工触发外部限位 3 `0x13` 红蓝切换监听器。脚本非 dry-run 启动时会在后台订阅 `/mechanism/command_feedback`，收到上行 `feedback_id=0x13` 后只修改 `r2_active_side.yaml` 顶层 `active_side`，用于下一次启动选择红/蓝运行配置；dry-run 仅打印监听器命令。该能力不进入 `bringup.launch.py`，避免直接 bringup 启动时隐式写配置。下行 `SECOND_PRESELECTION_PLACE_KFS(0x13)` 保持第二预选赛放置命令语义，与上行人工触发外部限位 3 分属不同方向。
 

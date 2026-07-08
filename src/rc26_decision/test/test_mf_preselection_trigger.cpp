@@ -203,6 +203,34 @@ TEST(ManagedPreselectionTrees, XmlFilesLoadAndLegacyStartTreeIsRemoved) {
     }) << tree_name;
   }
 
+  const auto combo_tree_path = tree_dir / "second_preselection_combo_tree.xml";
+  std::ifstream combo_tree_stream(combo_tree_path);
+  ASSERT_TRUE(combo_tree_stream.good());
+  const std::string combo_tree_xml =
+      std::string(std::istreambuf_iterator<char>(combo_tree_stream),
+                  std::istreambuf_iterator<char>());
+  const auto entry_gate_pos =
+      combo_tree_xml.find("second_preselection_entry_branch_gate");
+  const auto ramp_pos =
+      combo_tree_xml.find("<SubTree ID=\"PreselectionRampForwardTree\"");
+  const auto search_tree_pos =
+      combo_tree_xml.find("<SubTree ID=\"SecondPreselectionTree\"");
+  ASSERT_NE(entry_gate_pos, std::string::npos);
+  ASSERT_NE(ramp_pos, std::string::npos);
+  ASSERT_NE(search_tree_pos, std::string::npos);
+  EXPECT_LT(entry_gate_pos, ramp_pos);
+  EXPECT_LT(ramp_pos, search_tree_pos);
+  EXPECT_NE(combo_tree_xml.find("continue_start_profile=\"second\""),
+            std::string::npos);
+  EXPECT_NE(combo_tree_xml.find("switch_start_profile=\"second\""),
+            std::string::npos);
+  EXPECT_NE(combo_tree_xml.find("switch_tree_file=\"second_preselection_tree.xml\""),
+            std::string::npos);
+  EXPECT_EQ(combo_tree_xml.find("accepted_branch=\"switch_only\""),
+            std::string::npos);
+  EXPECT_EQ(combo_tree_xml.find("second_preselect_after_ramp_turn"),
+            std::string::npos);
+
   EXPECT_FALSE(std::filesystem::exists(tree_dir / "mf_preselection_start_tree.xml"));
 
   const auto repeat_tree_path = tree_dir / "mc_repeat_preselection_tree.xml";
