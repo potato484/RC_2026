@@ -168,7 +168,6 @@ def _resolve_first_preselection_repeat_overrides(context, bringup_dir):
     mapping = {
         'first_preselection_mc_repeat_enable': bool,
         'first_preselection_mc_repeat_max_count': int,
-        'first_preselection_mc_repeat_base_forward_x_m': float,
         'first_preselection_mc_repeat_forward_x_step_m': float,
     }
     for key, caster in mapping.items():

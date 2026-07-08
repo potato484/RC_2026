@@ -97,18 +97,29 @@ TEST(PreselectionBranchGateLogic, SelectsContinueSwitchAndDoneBySameSeq) {
 }
 
 TEST(MCPreselectionRepeatLogic, ComputesSignedForwardDistance) {
-  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(0.2, 0.2, 0),
-                   0.2);
-  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(0.2, 0.2, 1),
-                   0.4);
+  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(0.05, 0.2, 0),
+                   0.05);
+  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(0.05, 0.2, 1),
+                   0.25);
+  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(0.05, 0.2, 2),
+                   0.45);
 
-  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(-0.2, 0.2, 0),
-                   -0.2);
-  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(-0.2, 0.2, 1),
-                   -0.4);
+  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(1.05, 0.2, 0),
+                   1.05);
+  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(1.05, 0.2, 1),
+                   1.25);
+  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(1.05, 0.2, 2),
+                   1.45);
 
-  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(0.2, 0.2, -1),
-                   0.2);
+  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(-0.05, 0.2, 0),
+                   -0.05);
+  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(-0.05, 0.2, 1),
+                   -0.25);
+  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(-0.05, 0.2, 2),
+                   -0.45);
+
+  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(0.05, 0.2, -1),
+                   0.05);
 }
 
 TEST(TreeSwitchRequest, ConsumesRequestAndSuppressesDuplicateActiveTarget) {
@@ -194,5 +205,6 @@ TEST(ManagedPreselectionTrees, XmlFilesLoadAndLegacyStartTreeIsRemoved) {
       std::istreambuf_iterator<char>(repeat_tree_stream),
       std::istreambuf_iterator<char>());
   EXPECT_NE(repeat_tree_xml.find("MCPreselectionRepeatControl"), std::string::npos);
+  EXPECT_EQ(repeat_tree_xml.find("base_forward_x_m"), std::string::npos);
   EXPECT_EQ(repeat_tree_xml.find("MFPreselectionAfterMCTree"), std::string::npos);
 }

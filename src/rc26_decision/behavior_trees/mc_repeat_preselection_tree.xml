@@ -8,7 +8,6 @@
     <MCPreselectionRepeatControl name="mc_preselection_repeat_control"
                                  enabled="{first_preselection_mc_repeat_enable}"
                                  max_repeat_count="{first_preselection_mc_repeat_max_count}"
-                                 base_forward_x_m="{first_preselection_mc_repeat_base_forward_x_m}"
                                  forward_step_m="{first_preselection_mc_repeat_forward_x_step_m}">
       <Sequence name="MC_Repeat_Preselection_Body">
         <WaitPreselectionBranchGate name="preselection_mc_start_gate"

@@ -188,7 +188,6 @@ active_side="$(yaml_scalar_value "${side_config_file}" "active_side" | tr '[:upp
 preselection_mode="$(yaml_scalar_value "${side_config_file}" "preselection_mode" | tr '[:upper:]' '[:lower:]')"
 first_repeat_enable="$(yaml_scalar_value "${side_config_file}" "first_preselection_mc_repeat_enable")"
 first_repeat_max_count="$(yaml_scalar_value "${side_config_file}" "first_preselection_mc_repeat_max_count")"
-first_repeat_base_forward="$(yaml_scalar_value "${side_config_file}" "first_preselection_mc_repeat_base_forward_x_m")"
 first_repeat_forward_step="$(yaml_scalar_value "${side_config_file}" "first_preselection_mc_repeat_forward_x_step_m")"
 case "${active_side}" in
   red|blue)
@@ -266,7 +265,7 @@ print_summary() {
   echo "Side config: ${side_config_file}"
   echo "Active side: ${active_side}"
   echo "Preselection mode: ${preselection_mode:-first}"
-  echo "First MC repeat: enable=${first_repeat_enable:-true}, max_count=${first_repeat_max_count:-1}, base_forward_x_m=${first_repeat_base_forward:-0.2}, forward_step_m=${first_repeat_forward_step:-0.2}"
+  echo "First MC repeat: enable=${first_repeat_enable:-true}, max_count=${first_repeat_max_count:-1}, base=mc_nav_forward_x_m, forward_step_m=${first_repeat_forward_step:-0.2}"
   echo "0x13 manual external-limit active-side switch listener: enabled by start_r2_auto.sh only"
   echo "Selected runtime config: ${selected_runtime_config}"
   if [[ -n "${runtime_config_file}" ]]; then

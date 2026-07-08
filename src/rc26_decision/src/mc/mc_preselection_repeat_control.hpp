@@ -23,7 +23,6 @@ private:
   int run_index_{0};
   int repeat_count_{0};
   int max_repeat_count_{2};
-  double base_forward_x_m_{0.2};
   double forward_step_m_{0.2};
 };
 

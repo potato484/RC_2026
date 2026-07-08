@@ -87,7 +87,7 @@
 
 ## 行为树导航流程
 
-- `mc_repeat_preselection_tree.xml`：first managed 默认入口，只执行 MC-only 可重复流程，不进入 `MFPreselectionAfterMCTree`。每轮先由入口 gate 只接受人工触发外部限位 1 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)`，下发 `COMPETITION_START(0x10)` 并等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`，随后按 `preselection_entry_continue_delay_msec` 延时进入 `MCAreaTree`；`MCAreaTree` 末尾 gate 只接受人工触发外部限位 2 `MF_PRESELECTION_TRIGGER(0x10)`，再执行同一组 `0x10/0x0C` 握手作为舵机重新放下动作，握手完成后不切树。`MCPreselectionRepeatControl` 默认开启，初始 MC 后最多重复 1 次，默认共 2 轮，并把 `mc_preselection_effective_forward_x_m` 写为红方 `+0.2/+0.4m` 或蓝方 `-0.2/-0.4m`。
+- `mc_repeat_preselection_tree.xml`：first managed 默认入口，只执行 MC-only 可重复流程，不进入 `MFPreselectionAfterMCTree`。每轮先由入口 gate 只接受人工触发外部限位 1 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)`，下发 `COMPETITION_START(0x10)` 并等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`，随后按 `preselection_entry_continue_delay_msec` 延时进入 `MCAreaTree`；`MCAreaTree` 末尾 gate 只接受人工触发外部限位 2 `MF_PRESELECTION_TRIGGER(0x10)`，再执行同一组 `0x10/0x0C` 握手作为舵机重新放下动作，握手完成后不切树。`MCPreselectionRepeatControl` 默认开启，第 0 轮使用当前红/蓝运行配置中的 `mc_nav_forward_x_m`，后续重复轮按 step 递增后写入 `mc_preselection_effective_forward_x_m`。
 - `mc_mf_preselection_tree.xml`：历史 MC+MF 组合入口保留为兼容/调试树，不再是 `preselection_mode: first` 默认树。旧树仍按人工触发外部限位 1 `0x06 -> MC -> MFPreselectionAfterMCTree` 或人工触发外部限位 2 `0x10 -> mf_preselection_tree.xml` 的分支语义运行。
 - `mc_tree.xml`：`OdomDriveXTurnX(mc_preselection_effective_forward_x_m, mc_nav_right_turn_delta_rad=team 派生侧向 yaw, mc_nav_reverse_x_m) -> VisualServoGrab -> RotateRetreat(retreat_x_m=-0.4, retreat_y_m=-0.4) -> WaitPreselectionBranchGate`。MC 入口复合动作仍按旧 `X -> yaw -> X` 串行路线计算最终位姿，但运行时跟踪进入动作起点到终点的 odom 最短线段，并同步发布 `linear.x/y` 和 `angular.z`，减少前进、转向、后退之间的停车顿挫。`VisualServoGrab` 在进入视觉阶段后会保持复合动作输出的目标 odom yaw；无端头时按 team 派生低速横移搜寻，red 为车体系 `+Y`、blue 为车体系 `-Y`，直到端头出现；同屏多个端头时初次获锁优先选择画面左侧 bbox，随后在锁定窗口内持续跟踪同一物理端头。端头框短暂不稳定时，MC 视觉伺服沿用最近 offset 并按 `mc_align_lost_servo_speed_scale` 低速继续伺服，重新识别后用 `mc_align_offset_filter_alpha` 平滑 offset，再参与稳定帧和夹取触发。MC 末尾正式流程不再执行 `WaitForRegistrationConfirm`、5s 视觉配准等待或旋转前后 0.5s 延时；`RotateRetreat` 使用 MC 旋转角度/方向参数计算目标 yaw，并跟踪动作起点到按目标 yaw 车体系 `-X/-Y` 各 0.4m 退让终点的 odom 最短线段，再进入可由 XML/黑板配置的 branch gate。默认 first 重复树把该 gate 配置为只收 0x10 且不切树；旧组合树仍保持 0x06/0x10 分支。复合动作输出的目标 odom yaw 会传给 `VisualServoGrab target_yaw_rad`，作为视觉阶段 heading hold 目标；`team=blue` 时侧向 yaw、无端头横移搜寻方向和后续旋转退让方向相对红方基准取反。
 - `mf_preselection_tree.xml`：保持原独立调试入口不变，可选入口导航为 `OdomDriveX(mf_preselect_entry2_nav_segment1_x_m=+2.0m) -> OdomDriveY(mf_preselect_entry2_nav_segment1_y_m=team 派生横移 Y)`，随后进入 `MfPreselectionFlow`；该入口不在树前额外转向。
@@ -98,7 +98,7 @@
 - 独立右转验证树：右转专用参数族已退役，树内固定验收路线为 `OdomDriveX(+0.4m) -> RelativeYawTarget(-90deg) -> OdomTurnToYaw -> OdomDriveX(-0.7m)`，速度、topic、容差和超时复用通用 odom 相对导航参数。
 - `relative_segment_nav_tree.xml`：独立验收用单轴分段树，依次示例调用 `OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw`。
 
-旧外部 action 位姿导航节点、TF 采点节点、旧双点位姿测试树和相关 action helper 已删除。当前 MC/MF 入口坐标不再是绝对地图位姿；`mc_nav_forward_x_m` / `mc_nav_reverse_x_m` 是 MC 复合 `X-turn-X` 动作的两段 X 距离，`mf_preselect_entry2_nav_segment1_*` 与 `mc_to_mf_preselect_nav_*` 仍是按启动姿态和分段动作顺序标定的相对单轴段。YAML 中 yaw/Y 路线值按红方基准维护并由 `team` 镜像；first MC 重复流程保留红/蓝配置中已有的 `mc_nav_forward_x_m` 现场标定值，重复距离由独立的 `first_preselection_mc_repeat_base_forward_x_m` 和 `first_preselection_mc_repeat_forward_x_step_m` 经 `team` 派生后写入 `mc_preselection_effective_forward_x_m`。
+旧外部 action 位姿导航节点、TF 采点节点、旧双点位姿测试树和相关 action helper 已删除。当前 MC/MF 入口坐标不再是绝对地图位姿；`mc_nav_forward_x_m` / `mc_nav_reverse_x_m` 是 MC 复合 `X-turn-X` 动作的两段 X 距离，`mf_preselect_entry2_nav_segment1_*` 与 `mc_to_mf_preselect_nav_*` 仍是按启动姿态和分段动作顺序标定的相对单轴段。YAML 中 yaw/Y 路线值按红方基准维护并由 `team` 镜像；first MC 重复流程第 0 轮直接使用红/蓝配置中已有的 `mc_nav_forward_x_m` 现场标定值，后续重复距离由 `first_preselection_mc_repeat_forward_x_step_m` 按第 0 轮符号递增后写入 `mc_preselection_effective_forward_x_m`。
 
 ## MC 链路
 
@@ -133,9 +133,9 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 - `odom_relative_nav_*`：单轴平移、复合 X-turn-X 和通用 yaw 容差、增益、速度、topic 和超时。
 - `startup_odom_*`：完整导航链启动前 odom 新鲜度和低速稳定 gate。
 - `team`：红蓝方场地镜像选择；`red` 使用红方基准，`blue` 自动镜像 MC/MF/第二预选赛侧向 Y 和 yaw，非法值按 `red`。
-- `mc_nav_forward_x_m`、`mc_nav_right_turn_delta_rad`、`mc_nav_reverse_x_m`、`mc_nav_timeout_sec`：MC 去程复合 `OdomDriveXTurnX` 路线参数，继续保留红/蓝运行配置中的现场标定值。first 默认重复树不把 `mc_nav_forward_x_m` 当作重复距离 base；运行时实际传给 MC 的是 `mc_preselection_effective_forward_x_m`。`mc_nav_right_turn_delta_rad`、无端头搜寻方向和旋转退让方向继续按 `team` 镜像，`mc_nav_timeout_sec` 是复合动作总超时。
+- `mc_nav_forward_x_m`、`mc_nav_right_turn_delta_rad`、`mc_nav_reverse_x_m`、`mc_nav_timeout_sec`：MC 去程复合 `OdomDriveXTurnX` 路线参数，继续保留红/蓝运行配置中的现场标定值。first 默认重复树把 `mc_nav_forward_x_m` 作为第 0 轮距离；运行时每轮实际传给 MC 的是内部黑板值 `mc_preselection_effective_forward_x_m`。`mc_nav_right_turn_delta_rad`、无端头搜寻方向和旋转退让方向继续按 `team` 镜像，`mc_nav_timeout_sec` 是复合动作总超时。
 - `preselection_entry_continue_delay_msec`：first 每轮入口 gate 完成人工触发外部限位 1 的 `0x06 -> 0x10/0x0C` 握手后进入 MC 前的 `Delay`。参数侧按有符号整数读取并归零裁剪，写入 blackboard 时按 BehaviorTree.CPP `unsigned int` 端口类型保存。
-- `first_preselection_mc_repeat_enable`、`first_preselection_mc_repeat_max_count`、`first_preselection_mc_repeat_base_forward_x_m`、`first_preselection_mc_repeat_forward_x_step_m`：first MC-only 重复控制参数。默认开启、初始 MC 后最多重复 1 次，默认共 2 轮；基准距离和步进都是绝对值，运行时按 `team` 派生方向，因此红方默认两轮为 `+0.2/+0.4m`，蓝方默认两轮为 `-0.2/-0.4m`。
+- `first_preselection_mc_repeat_enable`、`first_preselection_mc_repeat_max_count`、`first_preselection_mc_repeat_forward_x_step_m`：first MC-only 重复控制参数。默认开启；`max_count` 表示初始 MC 后最多重复次数。第 0 轮距离来自当前红/蓝运行配置中的 `mc_nav_forward_x_m`，后续重复轮按该值的符号叠加 `abs(first_preselection_mc_repeat_forward_x_step_m)`。
 - `preselection_ramp_approach_x_m`、`preselection_ramp_climb_x_m`、`preselection_ramp_max_speed_mps`、`preselection_ramp_min_speed_mps`、`preselection_ramp_timeout_s`：second managed 斜坡前进两段 `OdomDriveX` 参数。
 - `second_preselect_after_ramp_turn_delta_rad`、`second_preselect_after_ramp_turn_timeout_s`：历史 second managed 斜坡后 90° 相对转向参数；当前默认 `second_preselection_combo_tree.xml` 不再使用，`0x06` 分支斜坡后直接进入 `SecondPreselectionTree` 搜寻，`0x10` 分支完成 `0x11/0x0D` 握手后直接切到 `second_preselection_tree.xml`。
 - `mf_preselect_r1_kfs_min_score`：`R1_KFS` 低置信度过滤阈值，默认 `0.50`；只影响 R1 阻挡判断，不影响 R2 KFS 夹取目标和假 KFS 避障目标。
@@ -154,7 +154,7 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 ## 本轮同步
 
-2026-07-08 同步：first 默认入口改为 `mc_repeat_preselection_tree.xml`。新树只执行 MC 可重复流程，不再进入 `MFPreselectionAfterMCTree`；入口 gate 只接受人工触发外部限位 1 的 `0x06` 并执行 `0x10/0x0C` 后启动 MC，MC 末尾 gate 只接受人工触发外部限位 2 的 `0x10` 并执行 `0x10/0x0C` 作为舵机放下握手且不切树。新增 `MCPreselectionRepeatControl` 维护 `mc_preselection_effective_forward_x_m`，默认初始 MC 后最多重复 1 次，默认共 2 轮；红方为 `+0.2/+0.4m`，蓝方为 `-0.2/-0.4m`。该 repeat 距离使用 `r2_active_side.yaml` 中的独立参数计算，不改写红/蓝配置中已有的 `mc_nav_forward_x_m` 现场标定值，也不在红/蓝运行配置中重复声明默认 repeat 参数。旧 `mc_mf_preselection_tree.xml` 和 `mf_preselection_after_mc_tree.xml` 保留为兼容/调试入口。
+2026-07-09 同步：first repeat 第 0 轮距离改为直接使用当前红/蓝运行配置中的 `mc_nav_forward_x_m`，删除独立 repeat base 参数；`MCPreselectionRepeatControl` 仍维护内部黑板值 `mc_preselection_effective_forward_x_m`，后续重复轮按 `mc_nav_forward_x_m` 的符号叠加 `abs(first_preselection_mc_repeat_forward_x_step_m)`。旧 `mc_mf_preselection_tree.xml` 和 `mf_preselection_after_mc_tree.xml` 保留为兼容/调试入口。
 
 2026-07-05 同步：第二预选赛放置链删除九宫格动态 ROI 观察、中层选空位、`selected_lateral` 横移和放置后后退。`second_preselection_tree.xml` 现在在夹取验证成功后执行 `+Y 0.7m`（blue 镜像）和 `+X 4.5m`，然后 `SecondPreselectionR1KfsPlaceAlign` 观察前方 `R1_KFS` 并视觉横移对齐；若同帧存在多个有效 R1KFS，则选择 bbox 中心距离相机图像中线最近者，平局再比较深度和置信度。对齐后 `+X 0.8m` 前进，最后发送 ACK-only `SECOND_PRESELECTION_PLACE_KFS(0x13)`。
 
