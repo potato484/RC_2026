@@ -12,7 +12,7 @@
 - 把 `rc26_serial::SerialDriver::sendCommand()` 的通用 ACK 结果映射为 service response
 - 默认订阅 `/cmd_vel`，以 `50Hz` no-ack 路径下发 `POSE_TARGET(0x0C)`，payload 为 `(vx, vy, wz)` 三个 float
 - 透传 MCU 上行业务反馈，过滤底层 `ACK(0x00)`、`HEARTBEAT_ACK(0x01)` 与 `ODOM_DATA(0x08)`；payload 长度为 2 的 `MCU_ERROR(0xFE)` 作为机械臂业务状态/失败反馈透传给决策层，其它长度的 `0xFE` 仍按 transport 异常记录并丢弃
-- 当前透传的业务反馈包括 KFS 机械臂升降完成 `0x02/0x03`、台阶激光事件 `0x04/0x05/0x07`、第一个限位事件 `0x06`、第二节机械臂放下完成 `0x0A`、入口高侧 KFS 夹取完成 `0x0B`、比赛开始完成 `0x0C`、第二预选赛开始/高抬完成反馈 `0x0D/0x0F`、第二限位事件 `0x10`、第二预选赛 KFS 夹取完成 `0x11` 和两字节 `0xFE` 机械臂业务诊断；`/mechanism/send_command.accepted=true` 仍只表示通用 `ACK(0x00)` 已可靠返回
+- 当前透传的业务反馈包括 KFS 机械臂升降完成 `0x02/0x03`、台阶激光事件 `0x04/0x05/0x07`、人工触发外部限位 1 事件 `0x06`、第二节机械臂放下完成 `0x0A`、入口高侧 KFS 夹取完成 `0x0B`、比赛开始完成 `0x0C`、第二预选赛开始/高抬完成反馈 `0x0D/0x0F`、人工触发外部限位 2 事件 `0x10`、第二预选赛 KFS 夹取完成 `0x11`、脚本专用人工触发外部限位 3 事件 `0x13` 和两字节 `0xFE` 机械臂业务诊断；`/mechanism/send_command.accepted=true` 仍只表示通用 `ACK(0x00)` 已可靠返回
 - 发布 `/mcu_transport/diagnostics`，其中 `last_error` 和 `mcu_error_responses` 会暴露 MCU `0xFE` 下位机原因
 
 ## 边界
@@ -47,7 +47,7 @@ ros2 launch rc26_mcu_transport mcu_transport.launch.py \
 - `rc26_decision` 中等待限位后下发 `GRAB_TIP` 或台阶推杆命令的动作
 - `rc26_vision` tip test 中对齐后下发 `GRAB_TIP` 的链路
 - `rc26_decision` 梅林预选赛入口高侧下发 `ENTRY_GRAB_KFS_UP(0x0F)` 并等待 `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 的链路
-- `rc26_decision` 在 managed branch gate 内消费 MCU 上行 `0x06/0x10`，并按 first 的 `0x10/0x0C` 或 second 的 `0x11/0x0D` profile 握手后继续或切换目标树的链路
+- `rc26_decision` 在 managed branch gate 内消费人工触发外部限位 1/2 的 MCU 上行 `0x06/0x10`，并按 first 的 `0x10/0x0C` 或 second 的 `0x11/0x0D` profile 握手后继续或切换目标树的链路
 - Nav2、遥控、台阶动作、视觉对齐等发布 `/cmd_vel` 的链路
 
 如果串口暂时不存在，节点不会退出；`/mechanism/send_command` 会拒绝发送，`/cmd_vel` consumer 会节流报告发送失败，并持续重试初始打开，直到目标串口可用。

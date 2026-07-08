@@ -63,7 +63,7 @@ enum class FeedbackID : uint8_t {
     ARM_LOWER_DONE = 0x03,              // 机械臂下降完成
     FRONT_LASER_HEIGHT_JUMP = 0x04,     // 前轮附近第一个激光测距模块检测到车体高度突变
     REAR_LASER_HEIGHT_JUMP = 0x05,      // 后轮附近激光测距模块检测到车体高度突变
-    FRONT_LIMIT_SWITCH_TRIGGERED = 0x06, // 武馆前方限位开关触发，payload v1 为空或忽略
+    FRONT_LIMIT_SWITCH_TRIGGERED = 0x06, // 人工触发外部限位 1，payload v1 为空或忽略
     FRONT_SECOND_LASER_HEIGHT_JUMP = 0x07, // 前轮附近第二个激光测距模块检测到车体高度突变
     ODOM_DATA = 0x08,                   // 麦克纳姆轮速反馈：<v_fl,v_rl,v_rr,v_fr>，单位: m/s
     ARM_HIGH_RAISE_DONE = 0x09,         // 梅林预选赛入口专属高抬升完成
@@ -72,7 +72,7 @@ enum class FeedbackID : uint8_t {
     COMPETITION_START_DONE = 0x0C,      // 比赛开始状态切换完成
     SECOND_PRESELECTION_START_DONE = 0x0D, // 第二预选赛开始状态切换完成
     SECOND_PRESELECTION_ARM_HIGH_RAISE_DONE = 0x0F, // 第二预选赛机械臂高抬升完成
-    MF_PRESELECTION_TRIGGER = 0x10,      // 第二限位开关事件；当前 gate profile 决定 0x10/0x0C 或 0x11/0x0D
+    MF_PRESELECTION_TRIGGER = 0x10,      // 人工触发外部限位 2 事件；当前 gate profile 决定 0x10/0x0C 或 0x11/0x0D
     SECOND_PRESELECTION_PICKUP_KFS_DONE = 0x11, // 第二预选赛 KFS 夹取动作完成
     SECOND_PRESELECTION_ARM_LOWER_DONE = 0x12, // 第二预选赛机械臂彻底放下完成
     MCU_ERROR = 0xFE,                   // MCU 端错误码：下位机原因

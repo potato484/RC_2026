@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Listen for an upstream 0x13 feedback and toggle r2_active_side.yaml."""
+"""Listen for upstream manual external-limit 3 feedback 0x13 and toggle r2_active_side.yaml."""
 
 from __future__ import annotations
 
@@ -111,7 +111,10 @@ def toggle_active_side_file(path: Path) -> tuple[str, str]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Toggle r2_active_side.yaml when upstream feedback 0x13 is received."
+        description=(
+            "Toggle r2_active_side.yaml when upstream manual external-limit 3 "
+            "feedback 0x13 is received."
+        )
     )
     parser.add_argument(
         "--side-config-file",
@@ -127,7 +130,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--switch-feedback-id",
         type=parse_feedback_id,
         default=DEFAULT_SWITCH_FEEDBACK_ID,
-        help="Upstream feedback id that toggles active_side, default: 0x13.",
+        help=(
+            "Upstream manual external-limit feedback id that toggles active_side, "
+            "default: 0x13."
+        ),
     )
     parser.add_argument(
         "--once",
@@ -152,7 +158,7 @@ class ActiveSideSwitchListener:
             32,
         )
         node.get_logger().info(
-            "0x13 active-side switch listener started: topic=%s feedback=0x%02X file=%s"
+            "0x13 manual external-limit active-side switch listener started: topic=%s feedback=0x%02X file=%s"
             % (args.feedback_topic, self.switch_feedback_id, self.side_config_file)
         )
 
@@ -165,12 +171,12 @@ class ActiveSideSwitchListener:
             old_side, new_side = toggle_active_side_file(self.side_config_file)
         except Exception as exc:
             self.node.get_logger().error(
-                "failed to toggle active_side after feedback=0x%02X seq=%u: %s"
+                "failed to toggle active_side after manual external-limit feedback=0x%02X seq=%u: %s"
                 % (feedback_id, seq, exc)
             )
             return
         self.node.get_logger().warn(
-            "received feedback=0x%02X seq=%u, active_side switched: %s -> %s"
+            "received manual external-limit feedback=0x%02X seq=%u, active_side switched: %s -> %s"
             % (feedback_id, seq, old_side, new_side)
         )
         if self.once:

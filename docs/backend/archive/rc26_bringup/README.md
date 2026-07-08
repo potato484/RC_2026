@@ -19,7 +19,7 @@
 
 ## 关键入口
 
-- [start_r2_auto.sh](/home/potato/RC_2026/start_r2_auto.sh)：根目录自动决策/比赛链路快捷入口，默认读取 `r2_active_side.yaml` 并以 `use_realsense:=true` 启动完整导航决策链；脚本链路会额外启动 0x13 上行红蓝切换监听器。
+- [start_r2_auto.sh](/home/potato/RC_2026/start_r2_auto.sh)：根目录自动决策/比赛链路快捷入口，默认读取 `r2_active_side.yaml` 并以 `use_realsense:=true` 启动完整导航决策链；脚本链路会额外启动上行人工触发外部限位 3 `0x13` 红蓝切换监听器。
 - [launch/bringup.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/bringup.launch.py)：整车导航/建图统一入口。
 - [launch/odometry.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/odometry.launch.py)：Point-LIO、里程计接口、静态外参和可选 sensor scan 装配。
 - [launch/grid_heading.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/grid_heading.launch.py)：独立 yaw heading 校准入口，只启动 odom、MCU transport 和 `grid_heading_tree.xml`。
@@ -32,7 +32,7 @@
 
 默认 `bringup.launch.py` 在未显式传入 `runtime_config_file` 时读取 `r2_active_side.yaml`，按 `active_side: red|blue` 选择 `r2_red.yaml` 或 `r2_blue.yaml`，并按 `preselection_mode: first|second` 覆盖默认行为树。first 模式还会从 `r2_active_side.yaml` 读取 `first_preselection_mc_repeat_enable`、`first_preselection_mc_repeat_max_count`、`first_preselection_mc_repeat_base_forward_x_m` 和 `first_preselection_mc_repeat_forward_x_step_m`，作为 first MC 重复策略的默认真源；现场切换比赛方、first/second 入口或 first MC 重复策略优先改 `r2_active_side.yaml`。如需临时调试其它完整配置，仍可传入 `runtime_config_file:=/abs/path.yaml` 覆盖，显式配置不会再被 `preselection_mode` 或 first repeat selector 改写。
 
-`start_r2_auto.sh` 专用 0x13 上行监听器只订阅 `/mechanism/command_feedback`，收到 `feedback_id=0x13` 后写回 `r2_active_side.yaml` 顶层 `active_side`：当前 `red` 切到 `blue`，当前 `blue` 切到 `red`。该监听器不由 `bringup.launch.py` 自动启动；直接 `ros2 launch rc26_bringup bringup.launch.py run_mode:=navigation` 不会启用自动红蓝切换。现有第二预选赛下行 `SECOND_PRESELECTION_PLACE_KFS(0x13)` 命令保持不变，上下行 0x13 分属不同协议方向。
+`start_r2_auto.sh` 专用上行人工触发外部限位 3 `0x13` 监听器只订阅 `/mechanism/command_feedback`，收到 `feedback_id=0x13` 后写回 `r2_active_side.yaml` 顶层 `active_side`：当前 `red` 切到 `blue`，当前 `blue` 切到 `red`。该监听器不由 `bringup.launch.py` 自动启动；直接 `ros2 launch rc26_bringup bringup.launch.py run_mode:=navigation` 不会启用自动红蓝切换，且该切换只影响下一次启动选择的红/蓝运行配置。现有第二预选赛下行 `SECOND_PRESELECTION_PLACE_KFS(0x13)` 命令保持不变，上下行 0x13 分属不同协议方向。
 
 每个红/蓝运行配置的 `r2_runtime.paths` 当前只维护：
 
@@ -50,15 +50,15 @@
 - `mf_preselect_entry2_nav_segment1_x_m`、`mf_preselect_entry2_nav_segment1_y_m`、`mf_preselect_entry2_nav_timeout_sec`：MF 预选 2 号入口红方基准单轴段，默认 `+X 2.0m -> -Y 1.8m`，不在入口树前额外转向；蓝方自动镜像 Y。
 - `mf_preselect_kfs_align_target_line_offset_px`：MF KFS 视觉横移对齐时，识别框中线要对齐的目标线相对图像中心线的像素偏置；默认 `0`，负值表示目标线向图像左侧移动。
 - `mf_preselect_kfs_depth_roi_size`、`mf_preselect_kfs_depth_min_valid_count`、`mf_preselect_kfs_depth_bbox_sample_ratios`、`mf_preselect_kfs_depth_bbox_min_success_count`：MF R2 KFS 有效深度点配置，分别控制单点 ROI 边长、单 ROI 最少有效点、bbox 多点采样比例和最少成功采样点数；默认值写在 `r2_red.yaml` / `r2_blue.yaml`，bringup 只负责传参。
-- `preselection_entry_continue_delay_msec`：first 每轮 `0x06 -> 0x10/0x0C` 启动握手完成后进入 MC 前的延时。
+- `preselection_entry_continue_delay_msec`：first 每轮人工触发外部限位 1 上行 `0x06 -> 0x10/0x0C` 启动握手完成后进入 MC 前的延时。
 - `first_preselection_mc_repeat_enable`、`first_preselection_mc_repeat_max_count`、`first_preselection_mc_repeat_base_forward_x_m`、`first_preselection_mc_repeat_forward_x_step_m`：first MC-only 重复流程参数，默认开启、初始 MC 后最多重复 1 次，默认共 2 轮；基准距离和步进都是绝对值，运行时按 `team` 派生方向，因此红方默认 MC 距离为 `+0.2/+0.4m`，蓝方默认 `-0.2/-0.4m`。
 - `preselection_ramp_approach_x_m`、`preselection_ramp_climb_x_m`、`preselection_ramp_max_speed_mps`、`preselection_ramp_min_speed_mps`、`preselection_ramp_timeout_s`：second managed 斜坡两段 odom 前进参数。
 - `second_preselect_after_ramp_turn_delta_rad`、`second_preselect_after_ramp_turn_timeout_s`：second managed 斜坡后 90° 转向参数；红方默认 `-1.5708`，`team=blue` 时由 `rc26_decision` 参数加载阶段镜像为 `+1.5708`。
 - `second_preselect_pre_approach_lower_command_id`、`second_preselect_pre_approach_lower_done_feedback_id`、`second_preselect_pre_approach_lower_settle_s`：第二预选赛视觉对齐后、odom 前向趋近前的机械臂彻底放下握手参数。当前默认下发 `0x14`，等待同 `seq` 的 `0x12`，再停车等待 `0.5s` 后才允许前进。
 - `second_preselect_pickup_command_id`、`second_preselect_pickup_done_feedback_id`、`second_preselect_search_*`、`second_preselect_r2_target_*`、`second_preselect_r1_*`、`second_preselect_kfs_*`、`second_preselect_grab_verify_*`、`second_preselect_grab_settle_s`：第二预选赛搜索夹取链参数。当前树内前向趋近后的 `0x12` 用作 KFS 夹取触发，ACK 后先等待同 `seq` 的 MCU 上行 `0x11` 夹取完成反馈，再由视觉消失验证确认夹取。
-- `second_preselect_nav_y1_m`、`second_preselect_nav_x2_m`、`second_preselect_place_forward_x_m`：第二预选赛夹取成功后的放置导航段。夹取确认后默认按红方基准 `+Y 0.7m -> +X 4.5m` 到 R1KFS 放置对齐观察位，blue 运行时由 `rc26_decision` 自动镜像 Y 段；视觉对齐前方最近 `R1_KFS` 后再按 `second_preselect_place_forward_x_m=0.8m` 前进并发送 `0x13`。
+- `second_preselect_nav_y1_m`、`second_preselect_nav_x2_m`、`second_preselect_place_forward_x_m`：第二预选赛夹取成功后的放置导航段。夹取确认后默认按红方基准 `+Y 0.7m -> +X 4.5m` 到 R1KFS 放置对齐观察位，blue 运行时由 `rc26_decision` 自动镜像 Y 段；视觉对齐前方最近 `R1_KFS` 后再按 `second_preselect_place_forward_x_m=0.8m` 前进并发送下行 `0x13` 放置命令。
 - `second_preselect_dynamic_roi_ui_enable`、`second_preselect_dynamic_roi_ui_window_name`：第二预选赛本地 OpenCV 视觉调试窗口参数。现场开启后会贯穿 KFS 搜索、视觉对齐、夹取完成反馈等待、夹取消失验证和 R1KFS 放置对齐，显示识别框、锁定目标、目标线和阶段状态，不改变决策结果。
-- `mf_preselection_external_trigger_*`：历史全局 MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)` 触发参数。managed first/second 模式下，bringup 会强制 `mf_preselection_external_trigger_enable=false`，避免旧监听绕过 `WaitPreselectionBranchGate`；0x10 在 managed 模式中只表示第二限位开关事件，具体握手由当前树的 gate profile 决定。
+- `mf_preselection_external_trigger_*`：历史全局 MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)` 触发参数。managed first/second 模式下，bringup 会强制 `mf_preselection_external_trigger_enable=false`，避免旧监听绕过 `WaitPreselectionBranchGate`；0x10 在 managed 模式中只表示人工触发外部限位 2 事件，具体握手由当前树的 gate profile 决定。
 这些参数描述相对分段和 odom yaw 目标生成，不是地图位姿。现场标定时应按启动姿态重新调整每段 `distance_m` 和相对/绝对 yaw；蓝方若只做标准镜像，保持 `r2_blue.yaml` 的 `team: blue` 即可复用同一组红方基准值。
 
 ## 独立入口
@@ -84,9 +84,9 @@
 
 ## 本轮同步
 
-2026-07-08 同步：first 默认树切换为 `mc_repeat_preselection_tree.xml`，不再进入 `MFPreselectionAfterMCTree`。first 入口只接受 `0x06 -> 0x10/0x0C` 后启动 MC；MC 末尾只接受 `0x10 -> 0x10/0x0C` 作为舵机重新放下握手，随后等待下一次 `0x06` 重复 MC。`r2_active_side.yaml` 是 first MC 重复策略的默认真源，维护重复开关、最大重复次数、独立基准距离和前进步进；红/蓝运行配置不再重复声明这组默认值。默认开启、最多重复 1 次、默认共 2 轮；红方距离为 `+0.2/+0.4m`，蓝方距离为 `-0.2/-0.4m`，不改写红/蓝配置中已有的 `mc_nav_forward_x_m` 现场标定值。
+2026-07-08 同步：first 默认树切换为 `mc_repeat_preselection_tree.xml`，不再进入 `MFPreselectionAfterMCTree`。first 入口只接受人工触发外部限位 1 上行 `0x06 -> 0x10/0x0C` 后启动 MC；MC 末尾只接受人工触发外部限位 2 上行 `0x10 -> 0x10/0x0C` 作为舵机重新放下握手，随后等待下一次 `0x06` 重复 MC。`r2_active_side.yaml` 是 first MC 重复策略的默认真源，维护重复开关、最大重复次数、独立基准距离和前进步进；红/蓝运行配置不再重复声明这组默认值。默认开启、最多重复 1 次、默认共 2 轮；红方距离为 `+0.2/+0.4m`，蓝方距离为 `-0.2/-0.4m`，不改写红/蓝配置中已有的 `mc_nav_forward_x_m` 现场标定值。
 
-2026-07-08 同步：`start_r2_auto.sh` 新增专用 0x13 上行红蓝切换监听器。脚本非 dry-run 启动时会在后台订阅 `/mechanism/command_feedback`，收到上行 `feedback_id=0x13` 后只修改 `r2_active_side.yaml` 顶层 `active_side`，用于下一次启动选择红/蓝运行配置；dry-run 仅打印监听器命令。该能力不进入 `bringup.launch.py`，避免直接 bringup 启动时隐式写配置。
+2026-07-08 同步：`start_r2_auto.sh` 新增专用上行人工触发外部限位 3 `0x13` 红蓝切换监听器。脚本非 dry-run 启动时会在后台订阅 `/mechanism/command_feedback`，收到上行 `feedback_id=0x13` 后只修改 `r2_active_side.yaml` 顶层 `active_side`，用于下一次启动选择红/蓝运行配置；dry-run 仅打印监听器命令。该能力不进入 `bringup.launch.py`，避免直接 bringup 启动时隐式写配置。下行 `SECOND_PRESELECTION_PLACE_KFS(0x13)` 保持第二预选赛放置命令语义，与上行人工触发外部限位 3 分属不同方向。
 
 2026-07-08 同步：`r2_blue.yaml` 重新对齐红方基准配置，除 `team: blue` 和蓝方现场标定保留的 `mc_nav_forward_x_m` 外，第二预选赛、台阶和其它决策参数值与 `r2_red.yaml` 保持一致；同时补齐 `second_preselect_kfs_lost_servo_speed_scale` 与 `second_preselect_kfs_align_offset_filter_alpha`，避免蓝方配置缺少红方已有的短暂丢框伺服和 offset 滤波入口。
 
@@ -104,11 +104,11 @@
 
 2026-07-03 同步：红/蓝运行配置新增 `mf_preselect_kfs_depth_roi_size`、`mf_preselect_kfs_depth_min_valid_count`、`mf_preselect_kfs_depth_bbox_sample_ratios`、`mf_preselect_kfs_depth_bbox_min_success_count`。这些参数只配置 `rc26_decision` 的 R2 KFS 深度有效点判定，不把视觉算法逻辑放入 bringup。
 
-2026-07-03 同步：`r2_active_side.yaml` 新增 `preselection_mode: first|second`。未显式传入 `runtime_config_file` 时，bringup 按该模式覆盖默认树；当前 first 为 `mc_repeat_preselection_tree.xml`，second 为 `second_preselection_combo_tree.xml`；managed 模式同时强制 `mf_preselection_external_trigger_enable=false`，由 `WaitPreselectionBranchGate` 统一处理 0x06/0x10 分支。second 决策族中两条分支都使用 0x11/0x0D 握手。红/蓝运行配置新增 first gate 延时、second 斜坡前进和斜坡后转向参数；正式 MC 末尾流程不再依赖视觉配准 gate。
+2026-07-03 同步：`r2_active_side.yaml` 新增 `preselection_mode: first|second`。未显式传入 `runtime_config_file` 时，bringup 按该模式覆盖默认树；当前 first 为 `mc_repeat_preselection_tree.xml`，second 为 `second_preselection_combo_tree.xml`；managed 模式同时强制 `mf_preselection_external_trigger_enable=false`，由 `WaitPreselectionBranchGate` 统一处理人工触发外部限位 1/2 的上行 0x06/0x10 分支。second 决策族中两条分支都使用 0x11/0x0D 握手。红/蓝运行配置新增 first gate 延时、second 斜坡前进和斜坡后转向参数；正式 MC 末尾流程不再依赖视觉配准 gate。
 
 2026-07-02 同步：新增根目录 `start_r2_auto.sh` 作为自动决策/比赛链路快捷入口。脚本只封装 `ros2 launch rc26_bringup bringup.launch.py run_mode:=navigation`，默认读取 `r2_active_side.yaml`、打印当前红/蓝方和选中的运行配置，并默认传入 `use_realsense:=true`；红蓝方路线、行为树、MCU transport 与决策参数仍由 `rc26_bringup` 和对应运行配置负责。
 
-2026-07-02 同步：红/蓝运行配置新增 `mf_preselection_external_trigger_*` 参数。当前 managed first/second 入口默认禁用该旧全局监听，0x10 由 branch gate 作为第二限位开关事件消费；旧 first 组合树曾使用 0x10/0x0C 后切梅林树，当前 first 默认重复树仅在 MC 末尾把 0x10 作为舵机放下握手，second 仍使用 0x11/0x0D 后切对抗区树。
+2026-07-02 同步：红/蓝运行配置新增 `mf_preselection_external_trigger_*` 参数。当前 managed first/second 入口默认禁用该旧全局监听，上行 0x10 由 branch gate 作为人工触发外部限位 2 事件消费；旧 first 组合树曾使用 0x10/0x0C 后切梅林树，当前 first 默认重复树仅在 MC 末尾把 0x10 作为舵机放下握手，second 仍使用 0x11/0x0D 后切对抗区树。
 
 2026-07-02 同步：默认运行配置拆分为 `r2_red.yaml` / `r2_blue.yaml`，由 `r2_active_side.yaml` 选择当前比赛方。显式传入 `runtime_config_file` 仍可覆盖，供临时调试自定义完整配置使用。
 

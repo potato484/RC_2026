@@ -267,7 +267,7 @@ print_summary() {
   echo "Active side: ${active_side}"
   echo "Preselection mode: ${preselection_mode:-first}"
   echo "First MC repeat: enable=${first_repeat_enable:-true}, max_count=${first_repeat_max_count:-1}, base_forward_x_m=${first_repeat_base_forward:-0.2}, forward_step_m=${first_repeat_forward_step:-0.2}"
-  echo "0x13 active-side switch listener: enabled by start_r2_auto.sh only"
+  echo "0x13 manual external-limit active-side switch listener: enabled by start_r2_auto.sh only"
   echo "Selected runtime config: ${selected_runtime_config}"
   if [[ -n "${runtime_config_file}" ]]; then
     echo "Runtime config override: ${runtime_config_file}"

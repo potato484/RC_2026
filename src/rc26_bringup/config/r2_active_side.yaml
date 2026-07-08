@@ -4,7 +4,7 @@
 active_side: red
 preselection_mode: first
 first_preselection_mc_repeat_enable: true
-first_preselection_mc_repeat_max_count: 1
+first_preselection_mc_repeat_max_count: 2
 first_preselection_mc_repeat_base_forward_x_m: 0.2
 first_preselection_mc_repeat_forward_x_step_m: 0.2
 runtime_configs:
