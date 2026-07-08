@@ -8,7 +8,7 @@
 
 R2 运行时导航权威已经迁移到 `rc26_decision` 内部 odom 相对闭环导航。默认导航链不再启动旧外部地图定位、地图服务、路径规划、底盘控制、速度平滑或传感器扫描链路。
 
-`rc26_decision` 注册四个可复用导航 BT 动作：`OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw`、`OdomDriveXTurnX`。X/Y 动作在进入动作时捕获当前 `/odom` 位姿和 yaw，分别只沿车体系 X 或 Y 单轴闭环发布 `/cmd_vel.linear.x/y`，并用 `angular.z` 保持进入该段时的 yaw；转向动作只按绝对 odom yaw 闭环发布 `angular.z`；`OdomDriveXTurnX` 用一个动作融合旧 `X -> yaw -> X` 终点，合成发布 `linear.x/y` 与 `angular.z`。当前不再提供或调用旧外部位姿导航 action，也不保留兼容 BT 节点。
+`rc26_decision` 注册四个可复用导航 BT 动作：`OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw`、`OdomDriveXTurnX`。X/Y 动作在进入动作时捕获当前 `/odom` 位姿和 yaw，分别只沿车体系 X 或 Y 单轴闭环发布 `/cmd_vel.linear.x/y`，并用 `angular.z` 保持进入该段时的 yaw；转向动作只按绝对 odom yaw 闭环发布 `angular.z`；`OdomDriveXTurnX` 用旧 `X -> yaw -> X` 参数计算最终位姿，但运行时跟踪进入动作起点到终点的 odom 最短线段，同步发布 `linear.x/y` 与 `angular.z`。当前不再提供或调用旧外部位姿导航 action，也不保留兼容 BT 节点。
 
 `rc26_bringup run_mode:=navigation` 只装配 `rc26_mcu_transport`、`odometry.launch.py start_sensor_scan:=false`、`rc26_decision`，以及按需 RealSense。`/cmd_vel` 由决策侧导航/动作节点串行发布，默认硬件消费方由 `rc26_mcu_transport` 提供并下发 `POSE_TARGET(0x0C)`；同一时刻不得启动遥控、测试动作或其它 `/cmd_vel` 发布者。
 

@@ -561,6 +561,9 @@ BT::NodeStatus OdomDriveXTurnXAction::onStart() {
   has_odom_ = false;
   target_ready_ = false;
   stable_ticks_ = 0;
+  line_progress_ = 0.0;
+  line_lookahead_m_ =
+      std::max(xy_tolerance_m_, min_speed_mps_ / std::max(xy_kp_, 1.0e-9));
   start_time_ = node_->now();
   writeState("RUNNING");
   writeDistanceRemaining(std::abs(first_x_m_) + std::abs(second_x_m_));
@@ -622,22 +625,31 @@ bool OdomDriveXTurnXAction::prepareTargetFromCurrentOdom() {
   start_x_ = current_x_;
   start_y_ = current_y_;
   start_yaw_ = current_yaw_;
-  target_yaw_ = normalizeAngle(start_yaw_ + yaw_delta_rad_);
-  const double start_c = std::cos(start_yaw_);
-  const double start_s = std::sin(start_yaw_);
-  const double target_c = std::cos(target_yaw_);
-  const double target_s = std::sin(target_yaw_);
-  target_x_ = start_x_ + first_x_m_ * start_c + second_x_m_ * target_c;
-  target_y_ = start_y_ + first_x_m_ * start_s + second_x_m_ * target_s;
+  const navigation::StraightLinePose start{start_x_, start_y_, start_yaw_};
+  const auto target =
+      navigation::xTurnXTarget(start, first_x_m_, yaw_delta_rad_, second_x_m_);
+  target_x_ = target.x;
+  target_y_ = target.y;
+  target_yaw_ = target.yaw;
+  line_progress_ = 0.0;
   target_ready_ = true;
   (void)setOutput("target_yaw_rad", target_yaw_);
   if (node_) {
     RCLCPP_INFO(node_->get_logger(),
-                "odom X-turn-X 目标已捕获: start=(%.3f, %.3f, %.3f) target=(%.3f, %.3f, %.3f)",
+                "odom X-turn-X 直线轨迹目标已捕获: start=(%.3f, %.3f, %.3f) target=(%.3f, %.3f, %.3f) lookahead=%.3fm",
                 start_x_, start_y_, start_yaw_, target_x_, target_y_,
-                target_yaw_);
+                target_yaw_, line_lookahead_m_);
   }
   return true;
+}
+
+navigation::StraightLineReference OdomDriveXTurnXAction::currentLineReference() {
+  const navigation::StraightLinePose start{start_x_, start_y_, start_yaw_};
+  const navigation::StraightLinePose target{target_x_, target_y_, target_yaw_};
+  line_progress_ = navigation::projectProgressOnLine(
+      start, target, current_x_, current_y_, line_progress_);
+  return navigation::straightLineReference(start, target, line_progress_,
+                                           line_lookahead_m_);
 }
 
 BT::NodeStatus OdomDriveXTurnXAction::tickTowardTarget() {
@@ -693,10 +705,13 @@ BT::NodeStatus OdomDriveXTurnXAction::tickTowardTarget() {
   writeState("RUNNING");
   TwistMsg cmd;
   if (distance > xy_tolerance_m_) {
+    const auto reference = currentLineReference();
+    const double reference_error_world_x = reference.pose.x - current_x_;
+    const double reference_error_world_y = reference.pose.y - current_y_;
     const double c = std::cos(current_yaw_);
     const double s = std::sin(current_yaw_);
-    double body_x = error_world_x * c + error_world_y * s;
-    double body_y = -error_world_x * s + error_world_y * c;
+    double body_x = reference_error_world_x * c + reference_error_world_y * s;
+    double body_y = -reference_error_world_x * s + reference_error_world_y * c;
     double speed_x = xy_kp_ * body_x;
     double speed_y = xy_kp_ * body_y;
     double speed_norm = std::hypot(speed_x, speed_y);
@@ -714,7 +729,10 @@ BT::NodeStatus OdomDriveXTurnXAction::tickTowardTarget() {
     cmd.linear.x = speed_x;
     cmd.linear.y = speed_y;
   }
-  cmd.angular.z = std::clamp(heading_kp_ * yaw_error,
+  const auto reference = currentLineReference();
+  const double reference_yaw_error =
+      normalizeAngle(reference.pose.yaw - current_yaw_);
+  cmd.angular.z = std::clamp(heading_kp_ * reference_yaw_error,
                              -heading_max_speed_radps_,
                              heading_max_speed_radps_);
   cmd_pub_->publish(cmd);

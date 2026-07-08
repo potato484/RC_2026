@@ -194,6 +194,10 @@ if(BUILD_TESTING)
     rc26_serial
     rc26_vision
   )
+
+  ament_add_gtest(test_straight_line_trajectory
+    test/test_straight_line_trajectory.cpp
+  )
 endif()
 
 ament_package()

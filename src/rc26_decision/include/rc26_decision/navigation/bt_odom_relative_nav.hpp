@@ -8,6 +8,8 @@
 #include <chrono>
 #include <string>
 
+#include "rc26_decision/navigation/straight_line_trajectory.hpp"
+
 namespace rc26_decision {
 
 void loadOdomRelativeNavParams(rclcpp::Node &node,
@@ -106,6 +108,7 @@ private:
   bool odomReady() const;
   bool timedOut() const;
   bool prepareTargetFromCurrentOdom();
+  navigation::StraightLineReference currentLineReference();
   BT::NodeStatus tickTowardTarget();
   BT::NodeStatus failWithStop(const std::string &reason);
   void writeState(const std::string &state);
@@ -141,6 +144,8 @@ private:
   double target_x_{0.0};
   double target_y_{0.0};
   double target_yaw_{0.0};
+  double line_progress_{0.0};
+  double line_lookahead_m_{0.0};
   bool has_odom_{false};
   bool target_ready_{false};
   int stable_ticks_{0};

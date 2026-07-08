@@ -268,6 +268,8 @@ BT::NodeStatus RotateRetreatAction::onStart() {
     has_odom_ = false;
     target_ready_ = false;
     stable_ticks_ = 0;
+    line_progress_ = 0.0;
+    line_lookahead_m_ = std::max(xy_tolerance_m_, min_speed_mps_ / std::max(xy_kp_, 1.0e-9));
     start_time_ = node_->now();
     publishStop();
     RCLCPP_INFO(node_->get_logger(),
@@ -322,16 +324,27 @@ bool RotateRetreatAction::prepareTargetFromCurrentOdom() {
     start_yaw_ = current_yaw_;
     const double target_delta =
         (params_.rotate_direction >= 0 ? 1.0 : -1.0) * std::abs(params_.rotate_angle_deg) * kDeg2Rad;
-    target_yaw_ = normalizeAngle(start_yaw_ + target_delta);
-    const double c = std::cos(target_yaw_);
-    const double s = std::sin(target_yaw_);
-    target_x_ = start_x_ + retreat_x_m_ * c - retreat_y_m_ * s;
-    target_y_ = start_y_ + retreat_x_m_ * s + retreat_y_m_ * c;
+    const navigation::StraightLinePose start{start_x_, start_y_, start_yaw_};
+    const auto target =
+        navigation::rotateRetreatTarget(start, target_delta, retreat_x_m_, retreat_y_m_);
+    target_x_ = target.x;
+    target_y_ = target.y;
+    target_yaw_ = target.yaw;
+    line_progress_ = 0.0;
     target_ready_ = true;
     RCLCPP_INFO(node_->get_logger(),
-                "武馆区旋转退让目标已捕获: start=(%.3f, %.3f, %.3f) target=(%.3f, %.3f, %.3f)",
-                start_x_, start_y_, start_yaw_, target_x_, target_y_, target_yaw_);
+                "武馆区旋转退让直线轨迹目标已捕获: start=(%.3f, %.3f, %.3f) target=(%.3f, %.3f, %.3f) lookahead=%.3fm",
+                start_x_, start_y_, start_yaw_, target_x_, target_y_, target_yaw_,
+                line_lookahead_m_);
     return true;
+}
+
+navigation::StraightLineReference RotateRetreatAction::currentLineReference() {
+    const navigation::StraightLinePose start{start_x_, start_y_, start_yaw_};
+    const navigation::StraightLinePose target{target_x_, target_y_, target_yaw_};
+    line_progress_ =
+        navigation::projectProgressOnLine(start, target, current_x_, current_y_, line_progress_);
+    return navigation::straightLineReference(start, target, line_progress_, line_lookahead_m_);
 }
 
 BT::NodeStatus RotateRetreatAction::tickTowardTarget() {
@@ -379,10 +392,13 @@ BT::NodeStatus RotateRetreatAction::tickTowardTarget() {
     stable_ticks_ = 0;
     TwistMsg cmd;
     if (distance > xy_tolerance_m_) {
+        const auto reference = currentLineReference();
+        const double reference_error_world_x = reference.pose.x - current_x_;
+        const double reference_error_world_y = reference.pose.y - current_y_;
         const double c = std::cos(current_yaw_);
         const double s = std::sin(current_yaw_);
-        double speed_x = xy_kp_ * (error_world_x * c + error_world_y * s);
-        double speed_y = xy_kp_ * (-error_world_x * s + error_world_y * c);
+        double speed_x = xy_kp_ * (reference_error_world_x * c + reference_error_world_y * s);
+        double speed_y = xy_kp_ * (-reference_error_world_x * s + reference_error_world_y * c);
         const double speed_norm = std::hypot(speed_x, speed_y);
         if (speed_norm > max_speed_mps_ && speed_norm > 1e-9) {
             const double scale = max_speed_mps_ / speed_norm;
@@ -396,8 +412,10 @@ BT::NodeStatus RotateRetreatAction::tickTowardTarget() {
         cmd.linear.x = speed_x;
         cmd.linear.y = speed_y;
     }
+    const auto reference = currentLineReference();
+    const double reference_yaw_error = normalizeAngle(reference.pose.yaw - current_yaw_);
     cmd.angular.z =
-        std::clamp(heading_kp_ * yaw_error, -heading_max_speed_radps_, heading_max_speed_radps_);
+        std::clamp(heading_kp_ * reference_yaw_error, -heading_max_speed_radps_, heading_max_speed_radps_);
     cmd_pub_->publish(cmd);
     return BT::NodeStatus::RUNNING;
 }
