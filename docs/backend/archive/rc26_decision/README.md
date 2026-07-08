@@ -106,7 +106,7 @@
 
 `VisualServoGrabAction` 可通过 `target_yaw_rad` 输入端口接收当前 MC 导航右转后的绝对 odom yaw；没有传入时才使用 `mc_align_target_yaw_rad` 静态兜底。`RotateInPlaceAction` 订阅 `mc_odom_topic`，发布 `cmd_vel.angular.z`。未显式传入 `target_yaw_rad` 时按相对角度旋转；传入时按绝对 odom yaw 对齐。`RotateRetreatAction` 是 MC 末尾专用复合动作：进入时捕获当前 `/odom`，按 `mc_rotate_angle_deg` 与 team 派生后的 `mc_rotate_direction` 得到目标 yaw，并把 `retreat_x_m/retreat_y_m` 解释为目标 yaw 车体系位移；运行期间跟踪动作起点到退让终点的 odom 最短线段，并按线段进度同步插值 yaw，同一控制环内合成 `linear.x/y` 与 `angular.z`。
 
-`WaitPreselectionBranchGate` 是 first/second managed 入口和 MC 末尾的分支 gate。节点只消费 `/mechanism/command_feedback` 上的人工触发外部限位 1 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 与人工触发外部限位 2 `MF_PRESELECTION_TRIGGER(0x10)`，不采集 MC 相机基准帧，也不依赖 MC 末尾视觉配准。XML 通过 `accepted_branch` 选择 `both`、`continue_only` 或 `switch_only`；不被当前 gate 接受的 0x06/0x10 会记录节流告警并忽略。`continue_start_profile` 和 `switch_start_profile` 决定分支握手使用 `mc` 还是 `second` profile：`mc` profile 下发 `COMPETITION_START(0x10)` 并等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`，`second` profile 下发 `SECOND_PRESELECTION_START(0x11)` 并等待同 `seq` 的 `SECOND_PRESELECTION_START_DONE(0x0D)`。gate 可通过 `continue_pre_command_delay_msec` / `switch_pre_command_delay_msec` 在收到对应人工触发限位后、下发启动命令前等待；0x06 分支握手成功后返回 `SUCCESS` 继续当前树；0x10 分支握手成功后若 `switch_tree_file` 为空则返回 `SUCCESS`，否则写入黑板切树请求。managed first/second 入口下，旧 `mf_preselection_external_trigger_*` 全局监听保持禁用，0x10 只能在 branch gate 内按当前 XML gate 语义消费。
+`WaitPreselectionBranchGate` 是 first/second managed 入口和 MC 末尾的分支 gate。节点只消费 `/mechanism/command_feedback` 上的人工触发外部限位 1 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)` 与人工触发外部限位 2 `MF_PRESELECTION_TRIGGER(0x10)`，不采集 MC 相机基准帧，也不依赖 MC 末尾视觉配准。XML 通过 `accepted_branch` 选择 `both`、`continue_only` 或 `switch_only`；不被当前 gate 接受的 0x06/0x10 会记录节流告警并忽略。`continue_start_profile` 和 `switch_start_profile` 决定分支握手使用 `mc` 还是 `second` profile：`mc` profile 下发 `COMPETITION_START(0x10)` 并等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`，`second` profile 下发 `SECOND_PRESELECTION_START(0x11)` 并等待同 `seq` 的 `SECOND_PRESELECTION_START_DONE(0x0D)`。gate 可通过 `continue_pre_command_delay_msec` / `switch_pre_command_delay_msec` 在收到对应人工触发限位后、下发启动命令前等待；0x06 分支握手成功后返回 `SUCCESS` 继续当前树；0x10 分支握手成功后若 `switch_tree_file` 为空则返回 `SUCCESS`，否则写入黑板切树请求。旧全局 0x10 监听链路已删除，0x10 只能在 branch gate 内按当前 XML gate 语义消费。
 
 ## MF 与台阶链路
 
@@ -138,7 +138,6 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 - `first_preselection_mc_repeat_enable`、`first_preselection_mc_repeat_max_count`、`first_preselection_mc_repeat_base_forward_x_m`、`first_preselection_mc_repeat_forward_x_step_m`：first MC-only 重复控制参数。默认开启、初始 MC 后最多重复 1 次，默认共 2 轮；基准距离和步进都是绝对值，运行时按 `team` 派生方向，因此红方默认两轮为 `+0.2/+0.4m`，蓝方默认两轮为 `-0.2/-0.4m`。
 - `preselection_ramp_approach_x_m`、`preselection_ramp_climb_x_m`、`preselection_ramp_max_speed_mps`、`preselection_ramp_min_speed_mps`、`preselection_ramp_timeout_s`：second managed 斜坡前进两段 `OdomDriveX` 参数。
 - `second_preselect_after_ramp_turn_delta_rad`、`second_preselect_after_ramp_turn_timeout_s`：历史 second managed 斜坡后 90° 相对转向参数；当前默认 `second_preselection_combo_tree.xml` 不再使用，`0x06` 分支斜坡后直接进入 `SecondPreselectionTree` 搜寻，`0x10` 分支完成 `0x11/0x0D` 握手后直接切到 `second_preselection_tree.xml`。
-- `mf_preselection_external_trigger_enable`、`mf_preselection_external_trigger_feedback_topic`、`mf_preselection_external_trigger_feedback_id`、`mf_preselection_external_trigger_tree_file`：历史全局外部触发参数。managed first/second 入口由 branch gate 管理人工触发外部限位 2 的 0x10，bringup 会强制 `mf_preselection_external_trigger_enable=false`；仅显式历史调试配置可重新打开旧全局监听。
 - `mf_preselect_r1_kfs_min_score`：`R1_KFS` 低置信度过滤阈值，默认 `0.50`；只影响 R1 阻挡判断，不影响 R2 KFS 夹取目标和假 KFS 避障目标。
 - `mf_preselect_kfs_depth_roi_size`、`mf_preselect_kfs_depth_min_valid_count`、`mf_preselect_kfs_depth_bbox_sample_ratios`、`mf_preselect_kfs_depth_bbox_min_success_count`：R2 KFS 深度有效点判定参数。单点 ROI 边长、ROI 内最少有效深度点、bbox 内横纵采样比例和 bbox 多点采样最少成功点数都由红/蓝运行配置提供；默认保持原 `7x7` ROI、每个 ROI 至少 `10` 个有效点、bbox 内 `0.25/0.50/0.75` 组成 `3x3` 采样点且至少 `1` 个点成功。
 - `mf_preselect_entry2_nav_segment1_x_m`、`mf_preselect_entry2_nav_segment1_y_m`、`mf_preselect_entry2_nav_timeout_sec`：MF 预选独立入口红方基准单轴段，默认 `+X 2.0m -> -Y 1.8m`；蓝方只镜像 Y，X 距离不变。
@@ -162,6 +161,8 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 2026-07-05 同步：第二预选赛 KFS 搜索夹取链在视觉横移对齐稳定后新增机械臂彻底放下握手。`SecondPreselectionKfsPickup` 会先发送 `SECOND_PRESELECTION_ARM_LOWER(0x14)`，等待同 `seq` 的 `SECOND_PRESELECTION_ARM_LOWER_DONE(0x12)`，再按 `second_preselect_pre_approach_lower_settle_s` 停车等待，之后才启动原有 KFS odom 前向趋近。原趋近后的 `SECOND_PRESELECTION_ARM_HIGH_RAISE/KFS_PICKUP(0x12)` 与 `SECOND_PRESELECTION_PICKUP_KFS_DONE(0x11)` 夹取完成握手、视觉消失验证和后续放置路线保持不变。
 
 2026-07-09 同步：second 默认组合树对齐 `mc_mf_preselection_tree.xml` 的入口分支模型。`second_preselection_combo_tree.xml` 先由入口 `WaitPreselectionBranchGate` 同时等待上行 `0x06/0x10`，两条分支都执行 `SECOND_PRESELECTION_START(0x11)` / `SECOND_PRESELECTION_START_DONE(0x0D)` 握手；`0x06` 分支继续斜坡并进入内嵌 `SecondPreselectionTree` 搜寻，`0x10` 分支直接请求切到 `second_preselection_tree.xml`。组合树删除斜坡后 `RelativeYawTarget + OdomTurnToYaw`；gate 对 second profile 的 continue/switch 分支都会写入 second-start-done 黑板键，避免进入独立树时重复发送 `0x11`。
+
+2026-07-09 同步：删除决策节点旧全局 0x10 监听链路、对应参数和 helper。人工触发外部限位 2 的上行 `0x10` 不再能绕过行为树直接触发独立树；它只在当前 XML 中显式放置的 `WaitPreselectionBranchGate` 内生效，并按 gate profile 完成握手、继续或切树。
 
 2026-07-04 同步：第二预选赛 `SecondPreselectionTree` 内部流程改为搜索夹取链。树内新增 `SecondPreselectionKfsPickup`，在 `0x11` start-once 后沿 `+X` 搜索最近有效 KFS，任意识别标签属于 KFS 的目标都会按 MF 口径做视觉横移对齐、odom 前向趋近、发送 `0x12` 夹取触发，等待同 `seq` 的 MCU 上行 `0x11` 夹取完成反馈后，再用原目标视觉消失验证夹取成功，不再因 R1/R2 类型差异继续搜索。旧固定第一段、观察前高抬节点、对应兼容参数及放置前 KFS 必见 gate 已删除；夹取后的放置链以 2026-07-05 当前口径为准。
 
@@ -189,7 +190,7 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 2026-07-08 同步：统一 MCU 上行外部限位语义：0x06、0x10、0x13 都来自人工触发的外部限位开关。`rc26_decision` 当前仍只在 managed branch gate 内消费人工触发外部限位 1/2 的上行 0x06/0x10；脚本专用人工触发外部限位 3 的上行 0x13 保持由 `start_r2_auto.sh` 监听并只影响下一次启动的红蓝配置，decision 不新增 0x13 分支。
 
-2026-07-02 同步：新增 MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)` 历史全局触发能力；当前 managed first/second 入口下该能力被配置禁用，0x10 由 `WaitPreselectionBranchGate` 作为人工触发外部限位 2 事件接管，并按当前 XML profile 完成 0x10/0x0C 或 0x11/0x0D 握手后再切树。
+2026-07-02 同步：MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)` 定义为人工触发外部限位 2 事件；当前 managed first/second 入口下，0x10 由 `WaitPreselectionBranchGate` 消费，并按当前 XML profile 完成 0x10/0x0C 或 0x11/0x0D 握手后再继续或切树。
 
 2026-07-02 同步：新增第二个预选赛独立树 `second_preselection_tree.xml`。该树通过 `/mechanism/send_command` 下发 `0x11` 并等待同 `seq` 的 `0x0D` 后启动路线，按车体系 `+X 1.8m -> +Y 1.2m -> +X 2.5m` 到达观察位，再下发 `0x12` 并等待同 `seq` 的 `0x0F` 后用深度相机视觉快照判断九宫格中层是否被占据；被占据时依次尝试 `+Y 0.2m` 与 `-Y 0.6m` 两个观察点，任一为空则 `+X 0.7m`、发送 ACK-only `0x13` 放置 KFS 并 `-X 0.7m` 后退。本轮只新增独立树和 `second_preselect_*` 参数，不修改红/蓝默认行为树入口，也不新增 `/cmd_vel` 权威或高层 action。
 

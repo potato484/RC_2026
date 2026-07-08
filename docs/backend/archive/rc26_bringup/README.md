@@ -58,7 +58,6 @@
 - `second_preselect_pickup_command_id`、`second_preselect_pickup_done_feedback_id`、`second_preselect_search_*`、`second_preselect_r2_target_*`、`second_preselect_r1_*`、`second_preselect_kfs_*`、`second_preselect_grab_verify_*`、`second_preselect_grab_settle_s`：第二预选赛搜索夹取链参数。当前树内前向趋近后的 `0x12` 用作 KFS 夹取触发，ACK 后先等待同 `seq` 的 MCU 上行 `0x11` 夹取完成反馈，再由视觉消失验证确认夹取。
 - `second_preselect_nav_y1_m`、`second_preselect_nav_x2_m`、`second_preselect_place_forward_x_m`：第二预选赛夹取成功后的放置导航段。夹取确认后默认按红方基准 `+Y 0.7m -> +X 4.5m` 到 R1KFS 放置对齐观察位，blue 运行时由 `rc26_decision` 自动镜像 Y 段；视觉对齐前方最近 `R1_KFS` 后再按 `second_preselect_place_forward_x_m=0.8m` 前进并发送下行 `0x13` 放置命令。
 - `second_preselect_dynamic_roi_ui_enable`、`second_preselect_dynamic_roi_ui_window_name`：第二预选赛本地 OpenCV 视觉调试窗口参数。现场开启后会贯穿 KFS 搜索、视觉对齐、夹取完成反馈等待、夹取消失验证和 R1KFS 放置对齐，显示识别框、锁定目标、目标线和阶段状态，不改变决策结果。
-- `mf_preselection_external_trigger_*`：历史全局 MCU 上行 `MF_PRESELECTION_TRIGGER(0x10)` 触发参数。managed first/second 模式下，bringup 会强制 `mf_preselection_external_trigger_enable=false`，避免旧监听绕过 `WaitPreselectionBranchGate`；0x10 在 managed 模式中只表示人工触发外部限位 2 事件，具体握手由当前树的 gate profile 决定。
 这些参数描述相对分段和 odom yaw 目标生成，不是地图位姿。现场标定时应按启动姿态重新调整每段 `distance_m` 和相对/绝对 yaw；蓝方若只做标准镜像，保持 `r2_blue.yaml` 的 `team: blue` 即可复用同一组红方基准值。
 
 ## 独立入口
@@ -88,6 +87,8 @@
 
 2026-07-09 同步：second 默认组合树对齐 `mc_mf_preselection_tree.xml` 的入口分支模型：进入组合树先由 `WaitPreselectionBranchGate` 同时等待人工触发外部限位 1/2 上行 `0x06/0x10`，两条分支都下发 `SECOND_PRESELECTION_START(0x11)` 并等待同 `seq` 的 `SECOND_PRESELECTION_START_DONE(0x0D)`。`0x06` 分支继续执行 `preselection_ramp_forward_tree.xml` 两段斜坡前进后进入 `SecondPreselectionTree` 搜寻；`0x10` 分支直接切到 `second_preselection_tree.xml`。当前 second 组合树不再执行斜坡后的 90° 转向。
 
+2026-07-09 同步：删除决策节点旧全局 0x10 监听链路。人工触发外部限位 2 的上行 `0x10` 现在只由 `WaitPreselectionBranchGate` 在当前行为树位置消费，并按 XML 配置的 `mc` 或 `second` profile 完成握手与切树；bringup 不再注入旧全局监听关闭参数，红/蓝运行配置也不再保留旧全局触发参数。
+
 2026-07-08 同步：`start_r2_auto.sh` 新增专用上行人工触发外部限位 3 `0x13` 红蓝切换监听器。脚本非 dry-run 启动时会在后台订阅 `/mechanism/command_feedback`，收到上行 `feedback_id=0x13` 后只修改 `r2_active_side.yaml` 顶层 `active_side`，用于下一次启动选择红/蓝运行配置；dry-run 仅打印监听器命令。该能力不进入 `bringup.launch.py`，避免直接 bringup 启动时隐式写配置。下行 `SECOND_PRESELECTION_PLACE_KFS(0x13)` 保持第二预选赛放置命令语义，与上行人工触发外部限位 3 分属不同方向。
 
 2026-07-08 同步：`r2_blue.yaml` 重新对齐红方基准配置，除 `team: blue` 和蓝方现场标定保留的 `mc_nav_forward_x_m` 外，第二预选赛、台阶和其它决策参数值与 `r2_red.yaml` 保持一致；同时补齐 `second_preselect_kfs_lost_servo_speed_scale` 与 `second_preselect_kfs_align_offset_filter_alpha`，避免蓝方配置缺少红方已有的短暂丢框伺服和 offset 滤波入口。
@@ -106,11 +107,11 @@
 
 2026-07-03 同步：红/蓝运行配置新增 `mf_preselect_kfs_depth_roi_size`、`mf_preselect_kfs_depth_min_valid_count`、`mf_preselect_kfs_depth_bbox_sample_ratios`、`mf_preselect_kfs_depth_bbox_min_success_count`。这些参数只配置 `rc26_decision` 的 R2 KFS 深度有效点判定，不把视觉算法逻辑放入 bringup。
 
-2026-07-03 同步：`r2_active_side.yaml` 新增 `preselection_mode: first|second`。未显式传入 `runtime_config_file` 时，bringup 按该模式覆盖默认树；当前 first 为 `mc_repeat_preselection_tree.xml`，second 为 `second_preselection_combo_tree.xml`；managed 模式同时强制 `mf_preselection_external_trigger_enable=false`，由 `WaitPreselectionBranchGate` 统一处理人工触发外部限位 1/2 的上行 0x06/0x10 分支。second 决策族中两条分支都使用 0x11/0x0D 握手。红/蓝运行配置新增 first gate 延时、second 斜坡前进和斜坡后转向参数；正式 MC 末尾流程不再依赖视觉配准 gate。
+2026-07-03 同步：`r2_active_side.yaml` 新增 `preselection_mode: first|second`。未显式传入 `runtime_config_file` 时，bringup 按该模式覆盖默认树；当前 first 为 `mc_repeat_preselection_tree.xml`，second 为 `second_preselection_combo_tree.xml`；managed 模式由 `WaitPreselectionBranchGate` 统一处理人工触发外部限位 1/2 的上行 0x06/0x10 分支。second 决策族中两条分支都使用 0x11/0x0D 握手。红/蓝运行配置新增 first gate 延时、second 斜坡前进和斜坡后转向参数；正式 MC 末尾流程不再依赖视觉配准 gate。
 
 2026-07-02 同步：新增根目录 `start_r2_auto.sh` 作为自动决策/比赛链路快捷入口。脚本只封装 `ros2 launch rc26_bringup bringup.launch.py run_mode:=navigation`，默认读取 `r2_active_side.yaml`、打印当前红/蓝方和选中的运行配置，并默认传入 `use_realsense:=true`；红蓝方路线、行为树、MCU transport 与决策参数仍由 `rc26_bringup` 和对应运行配置负责。
 
-2026-07-02 同步：红/蓝运行配置新增 `mf_preselection_external_trigger_*` 参数。当前 managed first/second 入口默认禁用该旧全局监听，上行 0x10 由 branch gate 作为人工触发外部限位 2 事件消费；旧 first 组合树曾使用 0x10/0x0C 后切梅林树，当前 first 默认重复树仅在 MC 末尾把 0x10 作为舵机放下握手，second 仍使用 0x11/0x0D 后切对抗区树。
+2026-07-02 同步：MCU 上行 0x10 收敛为人工触发外部限位 2 事件。当前 managed first/second 入口下，该事件由 branch gate 消费；旧 first 组合树曾使用 0x10/0x0C 后切梅林树，当前 first 默认重复树仅在 MC 末尾把 0x10 作为舵机放下握手，second 使用 0x11/0x0D 后切对抗区树。
 
 2026-07-02 同步：默认运行配置拆分为 `r2_red.yaml` / `r2_blue.yaml`，由 `r2_active_side.yaml` 选择当前比赛方。显式传入 `runtime_config_file` 仍可覆盖，供临时调试自定义完整配置使用。
 

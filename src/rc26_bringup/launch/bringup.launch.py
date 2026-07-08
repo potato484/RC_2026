@@ -405,8 +405,6 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, mcu_
 
     if use_decision and not (mapping_mode and pure_mapping_mode):
         decision_params = dict(runtime_defaults['decision_params'])
-        if preselection_mode in ('first', 'second'):
-            decision_params['mf_preselection_external_trigger_enable'] = False
         if preselection_mode == 'first':
             decision_params.update(first_repeat_overrides)
         decision_params.pop('team', None)

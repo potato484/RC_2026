@@ -173,20 +173,20 @@ if(BUILD_TESTING)
     rc26_vision
   )
 
-  ament_add_gtest(test_mf_preselection_trigger
-    test/test_mf_preselection_trigger.cpp
+  ament_add_gtest(test_managed_preselection
+    test/test_managed_preselection.cpp
   )
-  target_link_libraries(test_mf_preselection_trigger
+  target_link_libraries(test_managed_preselection
     ${PROJECT_NAME}_nodes
     ${OpenCV_LIBS}
   )
-  target_include_directories(test_mf_preselection_trigger PRIVATE
+  target_include_directories(test_managed_preselection PRIVATE
     ${OpenCV_INCLUDE_DIRS}
   )
-  target_compile_definitions(test_mf_preselection_trigger PRIVATE
+  target_compile_definitions(test_managed_preselection PRIVATE
     RC26_DECISION_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
   )
-  ament_target_dependencies(test_mf_preselection_trigger
+  ament_target_dependencies(test_managed_preselection
     behaviortree_cpp
     geometry_msgs
     nav_msgs
