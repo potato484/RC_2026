@@ -1,11 +1,15 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
 #include <vector>
 
 #include <behaviortree_cpp/bt_factory.h>
 
 #include "rc26_decision/mc/mc_area.hpp"
+#include "rc26_decision/mc_preselection_repeat_logic.hpp"
 #include "rc26_decision/mf/mf_area.hpp"
 #include "rc26_decision/mf_preselection/mf_preselection_flow.hpp"
 #include "rc26_decision/mf_preselection_trigger.hpp"
@@ -98,6 +102,24 @@ TEST(PreselectionBranchGateLogic, SelectsContinueSwitchAndDoneBySameSeq) {
             rc26_decision::PreselectionStartProfile::Second);
   EXPECT_EQ(rc26_decision::parsePreselectionStartProfile(""),
             rc26_decision::PreselectionStartProfile::Mc);
+  EXPECT_EQ(rc26_decision::parsePreselectionBranchMode("continue_only"),
+            rc26_decision::PreselectionBranchMode::ContinueOnly);
+  EXPECT_EQ(rc26_decision::parsePreselectionBranchMode("switch_only"),
+            rc26_decision::PreselectionBranchMode::SwitchOnly);
+  EXPECT_EQ(rc26_decision::parsePreselectionBranchMode(""),
+            rc26_decision::PreselectionBranchMode::Both);
+  EXPECT_TRUE(rc26_decision::isPreselectionBranchAllowed(
+      rc26_decision::PreselectionBranchSelection::ContinueFirst,
+      rc26_decision::PreselectionBranchMode::ContinueOnly));
+  EXPECT_FALSE(rc26_decision::isPreselectionBranchAllowed(
+      rc26_decision::PreselectionBranchSelection::SwitchTarget,
+      rc26_decision::PreselectionBranchMode::ContinueOnly));
+  EXPECT_TRUE(rc26_decision::isPreselectionBranchAllowed(
+      rc26_decision::PreselectionBranchSelection::SwitchTarget,
+      rc26_decision::PreselectionBranchMode::SwitchOnly));
+  EXPECT_FALSE(rc26_decision::isPreselectionBranchAllowed(
+      rc26_decision::PreselectionBranchSelection::ContinueFirst,
+      rc26_decision::PreselectionBranchMode::SwitchOnly));
 
   EXPECT_EQ(rc26_decision::selectPreselectionStartProfile(
                 rc26_decision::PreselectionBranchSelection::ContinueFirst,
@@ -119,6 +141,21 @@ TEST(PreselectionBranchGateLogic, SelectsContinueSwitchAndDoneBySameSeq) {
       rc26_decision::PreselectionStartProfile::Mc));
   EXPECT_TRUE(rc26_decision::usesSecondPreselectionStart(
       rc26_decision::PreselectionStartProfile::Second));
+}
+
+TEST(MCPreselectionRepeatLogic, ComputesSignedForwardDistance) {
+  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(0.2, 0.2, 0),
+                   0.2);
+  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(0.2, 0.2, 1),
+                   0.4);
+
+  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(-0.2, 0.2, 0),
+                   -0.2);
+  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(-0.2, 0.2, 1),
+                   -0.4);
+
+  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(0.2, 0.2, -1),
+                   0.2);
 }
 
 TEST(TreeSwitchRequest, ConsumesRequestAndSuppressesDuplicateActiveTarget) {
@@ -154,7 +191,7 @@ TEST(ManagedPreselectionTrees, XmlFilesLoadAndLegacyStartTreeIsRemoved) {
   const auto tree_dir =
       std::filesystem::path(RC26_DECISION_SOURCE_DIR) / "behavior_trees";
   const std::vector<std::string> expected_trees{
-      "mc_mf_preselection_tree.xml", "mc_tree.xml",
+      "mc_repeat_preselection_tree.xml", "mc_mf_preselection_tree.xml", "mc_tree.xml",
       "preselection_ramp_forward_tree.xml", "second_preselection_combo_tree.xml",
       "second_preselection_tree.xml"};
   for (const auto &tree_name : expected_trees) {
@@ -167,4 +204,14 @@ TEST(ManagedPreselectionTrees, XmlFilesLoadAndLegacyStartTreeIsRemoved) {
   }
 
   EXPECT_FALSE(std::filesystem::exists(tree_dir / "mf_preselection_start_tree.xml"));
+
+  const auto repeat_tree_path = tree_dir / "mc_repeat_preselection_tree.xml";
+  std::ifstream repeat_tree_stream(repeat_tree_path);
+  ASSERT_TRUE(repeat_tree_stream.good());
+  const std::string repeat_tree_xml =
+      std::string(
+      std::istreambuf_iterator<char>(repeat_tree_stream),
+      std::istreambuf_iterator<char>());
+  EXPECT_NE(repeat_tree_xml.find("MCPreselectionRepeatControl"), std::string::npos);
+  EXPECT_EQ(repeat_tree_xml.find("MFPreselectionAfterMCTree"), std::string::npos);
 }

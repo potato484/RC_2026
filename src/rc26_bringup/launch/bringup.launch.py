@@ -28,7 +28,7 @@ from launch_ros.actions import Node, PushRosNamespace
 
 
 R2_D455_SERIAL_NO = '239222303644'
-FIRST_PRESELECTION_TREE = '/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/mc_mf_preselection_tree.xml'
+FIRST_PRESELECTION_TREE = '/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/mc_repeat_preselection_tree.xml'
 SECOND_PRESELECTION_TREE = '/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/second_preselection_combo_tree.xml'
 
 
@@ -156,6 +156,35 @@ def _resolve_preselection_mode(context, bringup_dir):
     return mode
 
 
+def _resolve_first_preselection_repeat_overrides(context, bringup_dir):
+    if _launch_value(context, 'runtime_config_file'):
+        return {}
+
+    selector_file = _launch_value(context, 'side_config_file')
+    if selector_file == '':
+        selector_file = os.path.join(bringup_dir, 'config', 'r2_active_side.yaml')
+    selector = _load_yaml_file(selector_file, 'side_config_file')
+    overrides = {}
+    mapping = {
+        'first_preselection_mc_repeat_enable': bool,
+        'first_preselection_mc_repeat_max_count': int,
+        'first_preselection_mc_repeat_base_forward_x_m': float,
+        'first_preselection_mc_repeat_forward_x_step_m': float,
+    }
+    for key, caster in mapping.items():
+        if key not in selector:
+            continue
+        try:
+            value = selector[key]
+            if caster is bool:
+                overrides[key] = _parse_bool(value) if isinstance(value, str) else bool(value)
+            else:
+                overrides[key] = caster(value)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(f"r2_active_side.yaml {key} has invalid value: {selector[key]}") from exc
+    return overrides
+
+
 def _load_r2_runtime_defaults(config_file):
     defaults = {
         'paths': {},
@@ -219,6 +248,7 @@ def _after_delay(delay_sec, actions):
 def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, mcu_transport_dir):
     runtime_config_file = _resolve_runtime_config_file(context, bringup_dir)
     preselection_mode = _resolve_preselection_mode(context, bringup_dir)
+    first_repeat_overrides = _resolve_first_preselection_repeat_overrides(context, bringup_dir)
     runtime_defaults = _load_r2_runtime_defaults(runtime_config_file)
 
     namespace = _launch_value(context, 'namespace')
@@ -377,6 +407,8 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, mcu_
         decision_params = dict(runtime_defaults['decision_params'])
         if preselection_mode in ('first', 'second'):
             decision_params['mf_preselection_external_trigger_enable'] = False
+        if preselection_mode == 'first':
+            decision_params.update(first_repeat_overrides)
         decision_params.pop('team', None)
         decision_params.pop('tree_file', None)
         decision_params.pop('startup_wait_for_odom', None)

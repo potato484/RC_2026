@@ -185,6 +185,11 @@ if [[ ! -f "${side_config_file}" ]]; then
 fi
 
 active_side="$(yaml_scalar_value "${side_config_file}" "active_side" | tr '[:upper:]' '[:lower:]')"
+preselection_mode="$(yaml_scalar_value "${side_config_file}" "preselection_mode" | tr '[:upper:]' '[:lower:]')"
+first_repeat_enable="$(yaml_scalar_value "${side_config_file}" "first_preselection_mc_repeat_enable")"
+first_repeat_max_count="$(yaml_scalar_value "${side_config_file}" "first_preselection_mc_repeat_max_count")"
+first_repeat_base_forward="$(yaml_scalar_value "${side_config_file}" "first_preselection_mc_repeat_base_forward_x_m")"
+first_repeat_forward_step="$(yaml_scalar_value "${side_config_file}" "first_preselection_mc_repeat_forward_x_step_m")"
 case "${active_side}" in
   red|blue)
     ;;
@@ -245,10 +250,24 @@ if [[ -n "${startup_delay_realsense_sec}" ]]; then
 fi
 launch_cmd+=("${extra_launch_args[@]}")
 
+active_side_switch_listener_cmd=(
+  python3
+  "${workspace_dir}/src/rc26_bringup/scripts/active_side_switch_listener.py"
+  "--side-config-file"
+  "${side_config_file}"
+  "--feedback-topic"
+  "/mechanism/command_feedback"
+  "--switch-feedback-id"
+  "0x13"
+)
+
 print_summary() {
   echo "Workspace: ${workspace_dir}"
   echo "Side config: ${side_config_file}"
   echo "Active side: ${active_side}"
+  echo "Preselection mode: ${preselection_mode:-first}"
+  echo "First MC repeat: enable=${first_repeat_enable:-true}, max_count=${first_repeat_max_count:-1}, base_forward_x_m=${first_repeat_base_forward:-0.2}, forward_step_m=${first_repeat_forward_step:-0.2}"
+  echo "0x13 active-side switch listener: enabled by start_r2_auto.sh only"
   echo "Selected runtime config: ${selected_runtime_config}"
   if [[ -n "${runtime_config_file}" ]]; then
     echo "Runtime config override: ${runtime_config_file}"
@@ -261,6 +280,7 @@ print_summary() {
 if [[ "${dry_run}" == "true" ]]; then
   print_summary
   print_cmd source "${setup_file}"
+  print_cmd "${active_side_switch_listener_cmd[@]}"
   print_cmd "${launch_cmd[@]}"
   exit 0
 fi
@@ -274,7 +294,11 @@ source_with_relaxed_nounset "${setup_file}"
 
 print_summary
 echo "Press Ctrl+C to stop the R2 auto stack."
+print_cmd "${active_side_switch_listener_cmd[@]}"
 print_cmd "${launch_cmd[@]}"
+
+"${active_side_switch_listener_cmd[@]}" &
+active_side_switch_listener_pid="$!"
 
 "${launch_cmd[@]}" &
 launch_pid="$!"
@@ -282,6 +306,10 @@ launch_pid="$!"
 cleanup() {
   local exit_code=$?
   trap - EXIT INT TERM
+  if [[ -n "${active_side_switch_listener_pid:-}" ]]; then
+    kill "${active_side_switch_listener_pid}" 2>/dev/null || true
+    wait "${active_side_switch_listener_pid}" 2>/dev/null || true
+  fi
   if [[ -n "${launch_pid:-}" ]]; then
     echo
     echo "Stopping R2 auto stack..."

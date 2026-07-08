@@ -11,6 +11,7 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include "mc_params.hpp"
+#include "mc_preselection_repeat_control.hpp"
 #include "preselection_branch_gate.hpp"
 #include "rotate_in_place.hpp"
 #include "visual_servo_grab.hpp"
@@ -59,6 +60,14 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
         configured_nav_right_turn_delta_rad * static_cast<double>(mirror_sign);
     const double nav_reverse_x_m = node.declare_parameter<double>("mc_nav_reverse_x_m", -0.6);
     const double nav_timeout = node.declare_parameter<double>("mc_nav_timeout_sec", 60.0);
+    const bool preselection_repeat_enable =
+        node.declare_parameter<bool>("first_preselection_mc_repeat_enable", true);
+    int preselection_repeat_max_count =
+        node.declare_parameter<int>("first_preselection_mc_repeat_max_count", 1);
+    double preselection_repeat_base_forward_x_m =
+        node.declare_parameter<double>("first_preselection_mc_repeat_base_forward_x_m", 0.2);
+    double preselection_repeat_forward_x_step_m =
+        node.declare_parameter<double>("first_preselection_mc_repeat_forward_x_step_m", 0.2);
 
     // 相机 / 推理
     p.vision_config_file = node.declare_parameter<std::string>("mc_vision_config_file", "");
@@ -349,11 +358,34 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     p.start_done_feedback_id = std::clamp(p.start_done_feedback_id, 0, 255);
     p.start_done_timeout_s = std::max(0.001, p.start_done_timeout_s);
     p.start_log_period_s = std::max(0.1, p.start_log_period_s);
+    preselection_repeat_max_count = std::max(0, preselection_repeat_max_count);
+    if (!std::isfinite(preselection_repeat_base_forward_x_m)) {
+        preselection_repeat_base_forward_x_m = 0.2;
+    }
+    preselection_repeat_base_forward_x_m =
+        std::abs(preselection_repeat_base_forward_x_m) * static_cast<double>(mirror_sign);
+    if (!std::isfinite(preselection_repeat_forward_x_step_m)) {
+        preselection_repeat_forward_x_step_m = 0.2;
+    }
+    preselection_repeat_forward_x_step_m = std::abs(preselection_repeat_forward_x_step_m);
 
     p.vision_config_file = resolveVisionConfig(p.vision_config_file);
 
     blackboard->set("mc_params", p);
     blackboard->set("mc_nav_forward_x_m", nav_forward_x_m);
+    blackboard->set("mc_preselection_effective_forward_x_m", nav_forward_x_m);
+    blackboard->set("mc_preselection_run_index", 0);
+    blackboard->set("mc_preselection_repeat_count", 0);
+    blackboard->set("mc_after_gate_accepted_branch", std::string("both"));
+    blackboard->set("mc_after_gate_switch_tree_file",
+                    std::string("mf_preselection_tree.xml"));
+    blackboard->set("first_preselection_mc_repeat_enable", preselection_repeat_enable);
+    blackboard->set("first_preselection_mc_repeat_max_count",
+                    preselection_repeat_max_count);
+    blackboard->set("first_preselection_mc_repeat_base_forward_x_m",
+                    preselection_repeat_base_forward_x_m);
+    blackboard->set("first_preselection_mc_repeat_forward_x_step_m",
+                    preselection_repeat_forward_x_step_m);
     blackboard->set("mc_nav_right_turn_delta_rad", nav_right_turn_delta_rad);
     blackboard->set("mc_nav_reverse_x_m", nav_reverse_x_m);
     blackboard->set("mc_nav_right_turn_target_yaw", 0.0);
@@ -374,9 +406,13 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     blackboard->set("preselection_after_mc_continue_delay_msec",
                     preselection_after_mc_continue_delay_msec_bt);
     RCLCPP_INFO(node.get_logger(),
-                "武馆区参数已加载: vision_config=%s mirror_sign=%d relative_nav=+x %.2fm, yaw_delta %.2frad, x %.2fm, align_search_vy=%.3f, lost_servo_scale=%.2f, offset_filter_alpha=%.2f, rotate_direction=%d registration_gate=%s bg_roi_x=%.2f-%.2f bg_roi_y=%.2f-%.2f fg_roi_x=%.2f-%.2f fg_roi_y=%.2f-%.2f diff_threshold=%d area>=%d ratio>=%.3f stable=%d start_signal=0x%02X start_cmd=0x%02X start_done=0x%02X entry_delay_ms=%d after_mc_delay_ms=%d",
+                "武馆区参数已加载: vision_config=%s mirror_sign=%d relative_nav=+x %.2fm, yaw_delta %.2frad, x %.2fm, repeat=%s max=%d base=%.2fm step=%.2fm, align_search_vy=%.3f, lost_servo_scale=%.2f, offset_filter_alpha=%.2f, rotate_direction=%d registration_gate=%s bg_roi_x=%.2f-%.2f bg_roi_y=%.2f-%.2f fg_roi_x=%.2f-%.2f fg_roi_y=%.2f-%.2f diff_threshold=%d area>=%d ratio>=%.3f stable=%d start_signal=0x%02X start_cmd=0x%02X start_done=0x%02X entry_delay_ms=%d after_mc_delay_ms=%d",
                 p.vision_config_file.c_str(), mirror_sign, nav_forward_x_m,
                 nav_right_turn_delta_rad, nav_reverse_x_m,
+                preselection_repeat_enable ? "true" : "false",
+                preselection_repeat_max_count,
+                preselection_repeat_base_forward_x_m,
+                preselection_repeat_forward_x_step_m,
                 p.align_search_speed_mps, p.align_lost_servo_speed_scale,
                 p.align_offset_filter_alpha,
                 p.rotate_direction, p.registration_gate_enable ? "true" : "false",
@@ -399,6 +435,7 @@ void registerMCAreaNodes(BT::BehaviorTreeFactory& factory) {
     factory.registerNodeType<VisualServoGrabAction>("VisualServoGrab");
     factory.registerNodeType<RotateInPlaceAction>("RotateInPlace");
     factory.registerNodeType<RotateRetreatAction>("RotateRetreat");
+    factory.registerNodeType<MCPreselectionRepeatControl>("MCPreselectionRepeatControl");
     factory.registerNodeType<WaitForeverAction>("WaitForever");
     factory.registerNodeType<PreselectionBranchGateAction>("WaitPreselectionBranchGate");
     factory.registerNodeType<WaitForRegistrationConfirmAction>("WaitForRegistrationConfirm");

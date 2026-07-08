@@ -4,7 +4,7 @@
     <Sequence name="MC_Sequence">
       <!-- 1. 复合 odom 闭环：等价旧 X → yaw → X 终点，但一次性合成 linear.x/y 与 angular.z -->
       <OdomDriveXTurnX name="mc_nav_x_turn_x"
-                       first_x_m="{mc_nav_forward_x_m}"
+                       first_x_m="{mc_preselection_effective_forward_x_m}"
                        yaw_delta_rad="{mc_nav_right_turn_delta_rad}"
                        second_x_m="{mc_nav_reverse_x_m}"
                        cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
@@ -40,12 +40,13 @@
                      stable_ticks="{odom_relative_nav_stable_ticks}"
                      odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
                      timeout_s="{mc_nav_timeout_sec}"/>
-      <!-- 4. 旋转退让完成后等待分支 gate：0x06 走 0x10/0x0C 后继续，0x10 走 0x10/0x0C 后切 MF 独立树 -->
+      <!-- 4. 旋转退让完成后等待分支 gate：旧组合树保持 0x06/0x10 分支；first 重复树改为只收 0x10 放下舵机且不切树 -->
       <WaitPreselectionBranchGate name="preselection_after_mc_branch_gate"
+                                  accepted_branch="{mc_after_gate_accepted_branch}"
                                   continue_start_profile="mc"
                                   switch_start_profile="mc"
                                   continue_pre_command_delay_msec="{preselection_after_mc_continue_delay_msec}"
-                                  switch_tree_file="mf_preselection_tree.xml"/>
+                                  switch_tree_file="{mc_after_gate_switch_tree_file}"/>
       <!-- 5. 继续分支确认后让 MC 子树成功返回给组合树；触发后延时已在 gate 内、下发 0x10 前完成。 -->
     </Sequence>
   </BehaviorTree>

@@ -37,6 +37,7 @@ add_library(${PROJECT_NAME}_nodes SHARED
   src/mc/visual_servo_grab.cpp
   src/mc/rotate_in_place.cpp
   src/mc/wait_forever.cpp
+  src/mc/mc_preselection_repeat_control.cpp
   src/mc/preselection_branch_gate.cpp
   src/mc/wait_for_registration_confirm.cpp
   src/mc/wait_start_signal_and_notify.cpp

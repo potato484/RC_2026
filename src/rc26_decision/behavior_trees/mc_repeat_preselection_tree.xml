@@ -1,0 +1,26 @@
+<!-- first managed 默认入口：只执行 MC 可重复流程，不再进入 MC 后置 MF。
+     入口与每轮重复启动只接受 0x06；每轮 MC 末尾只接受 0x10 做 0x10/0x0C 舵机放下握手。 -->
+<root BTCPP_format="4" main_tree_to_execute="MCRepeatPreselectionTree">
+
+  <include path="mc_tree.xml"/>
+
+  <BehaviorTree ID="MCRepeatPreselectionTree">
+    <MCPreselectionRepeatControl name="mc_preselection_repeat_control"
+                                 enabled="{first_preselection_mc_repeat_enable}"
+                                 max_repeat_count="{first_preselection_mc_repeat_max_count}"
+                                 base_forward_x_m="{first_preselection_mc_repeat_base_forward_x_m}"
+                                 forward_step_m="{first_preselection_mc_repeat_forward_x_step_m}">
+      <Sequence name="MC_Repeat_Preselection_Body">
+        <WaitPreselectionBranchGate name="preselection_mc_start_gate"
+                                    accepted_branch="continue_only"
+                                    continue_start_profile="mc"/>
+        <Delay delay_msec="{preselection_entry_continue_delay_msec}">
+          <AlwaysSuccess/>
+        </Delay>
+        <Script code="mc_after_gate_accepted_branch:='switch_only'; mc_after_gate_switch_tree_file:=''"/>
+        <SubTree ID="MCAreaTree" _autoremap="true"/>
+      </Sequence>
+    </MCPreselectionRepeatControl>
+  </BehaviorTree>
+
+</root>

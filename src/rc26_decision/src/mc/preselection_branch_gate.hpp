@@ -10,6 +10,7 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include "mc_params.hpp"
+#include "rc26_decision/preselection_branch_gate_logic.hpp"
 #include "rc26_decision/second_preselection/second_preselection.hpp"
 #include "rc26_interfaces/msg/mechanism_transport_feedback.hpp"
 #include "rc26_interfaces/srv/send_mechanism_transport_command.hpp"
@@ -47,6 +48,7 @@ private:
   void configureStartProfile(StartProfile profile);
   static StartProfile toStartProfile(const std::string &profile);
   static const char *profileName(StartProfile profile);
+  static const char *branchModeName(PreselectionBranchMode mode);
   bool sendBranchCommand();
   BT::NodeStatus fail(const std::string &reason);
   void resetRuntimeHandles();
@@ -74,8 +76,10 @@ private:
   std::string switch_tree_file_{"mf_preselection_tree.xml"};
   std::string continue_start_profile_text_{"mc"};
   std::string switch_start_profile_text_{"mc"};
+  std::string accepted_branch_text_{"both"};
   std::string command_service_;
   std::string command_error_detail_;
+  PreselectionBranchMode accepted_branch_{PreselectionBranchMode::Both};
   int branch_command_id_{0};
   int branch_done_feedback_id_{0};
   unsigned int continue_pre_command_delay_msec_{0};

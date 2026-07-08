@@ -29,6 +29,7 @@
   <exec_depend>rc26_mcu_transport</exec_depend>
   <exec_depend>rc26_localization</exec_depend>
   <exec_depend>rc26_decision</exec_depend>
+  <exec_depend>rc26_interfaces</exec_depend>
   <exec_depend>rc26_vision</exec_depend>
   <exec_depend>realsense2_camera</exec_depend>
 

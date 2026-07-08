@@ -7,6 +7,7 @@ namespace rc26_decision {
 
 enum class PreselectionBranchSelection { None, ContinueFirst, SwitchTarget };
 enum class PreselectionStartProfile { Mc, Second };
+enum class PreselectionBranchMode { Both, ContinueOnly, SwitchOnly };
 
 inline PreselectionBranchSelection selectPreselectionBranch(
     uint8_t feedback_id, int continue_feedback_id, int switch_feedback_id) {
@@ -30,6 +31,31 @@ inline PreselectionStartProfile parsePreselectionStartProfile(
     const std::string &profile) {
   return profile == "second" ? PreselectionStartProfile::Second
                              : PreselectionStartProfile::Mc;
+}
+
+inline PreselectionBranchMode parsePreselectionBranchMode(
+    const std::string &mode) {
+  if (mode == "continue_only") {
+    return PreselectionBranchMode::ContinueOnly;
+  }
+  if (mode == "switch_only") {
+    return PreselectionBranchMode::SwitchOnly;
+  }
+  return PreselectionBranchMode::Both;
+}
+
+inline bool isPreselectionBranchAllowed(
+    PreselectionBranchSelection branch, PreselectionBranchMode mode) {
+  if (branch == PreselectionBranchSelection::None) {
+    return false;
+  }
+  if (mode == PreselectionBranchMode::Both) {
+    return true;
+  }
+  if (mode == PreselectionBranchMode::ContinueOnly) {
+    return branch == PreselectionBranchSelection::ContinueFirst;
+  }
+  return branch == PreselectionBranchSelection::SwitchTarget;
 }
 
 inline PreselectionStartProfile selectPreselectionStartProfile(

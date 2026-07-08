@@ -40,6 +40,9 @@ BT::PortsList PreselectionBranchGateAction::providedPorts() {
       BT::InputPort<std::string>(
           "switch_start_profile", "mc",
           "Start profile used by the 0x10 branch: mc or second"),
+      BT::InputPort<std::string>(
+          "accepted_branch", "both",
+          "Accepted branch: both, continue_only, or switch_only"),
       BT::InputPort<unsigned int>(
           "continue_pre_command_delay_msec", 0,
           "Delay after feedback 0x06 before sending the start command"),
@@ -72,11 +75,10 @@ BT::NodeStatus PreselectionBranchGateAction::onStart() {
   }
 
   (void)getInput("switch_tree_file", switch_tree_file_);
-  if (switch_tree_file_.empty()) {
-    switch_tree_file_ = "mf_preselection_tree.xml";
-  }
   (void)getInput("continue_start_profile", continue_start_profile_text_);
   (void)getInput("switch_start_profile", switch_start_profile_text_);
+  (void)getInput("accepted_branch", accepted_branch_text_);
+  accepted_branch_ = parsePreselectionBranchMode(accepted_branch_text_);
   (void)getInput("continue_pre_command_delay_msec",
                  continue_pre_command_delay_msec_);
   (void)getInput("switch_pre_command_delay_msec",
@@ -110,12 +112,14 @@ BT::NodeStatus PreselectionBranchGateAction::onStart() {
 
   RCLCPP_INFO(
       node_->get_logger(),
-      "预选入口 branch gate: 等待 0x%02X 继续或 0x%02X 切树 topic=%s switch_tree=%s continue_profile=%s switch_profile=%s continue_pre_cmd_delay=%ums switch_pre_cmd_delay=%ums",
+      "预选入口 branch gate: 等待分支 accepted=%s 0x%02X继续 0x%02X切换/放下 topic=%s switch_tree=%s continue_profile=%s switch_profile=%s continue_pre_cmd_delay=%ums switch_pre_cmd_delay=%ums",
+      branchModeName(accepted_branch_),
       static_cast<unsigned int>(mc_params_.start_signal_feedback_id & 0xFF),
       static_cast<unsigned int>(
           static_cast<int>(rc26_serial::FeedbackID::MF_PRESELECTION_TRIGGER) &
           0xFF),
-      feedback_topic.c_str(), switch_tree_file_.c_str(),
+      feedback_topic.c_str(),
+      switch_tree_file_.empty() ? "<none>" : switch_tree_file_.c_str(),
       continue_start_profile_text_.c_str(), switch_start_profile_text_.c_str(),
       continue_pre_command_delay_msec_, switch_pre_command_delay_msec_);
   return BT::NodeStatus::RUNNING;
@@ -148,7 +152,8 @@ BT::NodeStatus PreselectionBranchGateAction::onRunning() {
       if (elapsedSec(last_log_tp_) >= mc_params_.start_log_period_s) {
         RCLCPP_INFO(
             node_->get_logger(),
-            "预选入口 branch gate: 等待 0x%02X/0x%02X elapsed=%.1fs",
+            "预选入口 branch gate: 等待 accepted=%s 0x%02X/0x%02X elapsed=%.1fs",
+            branchModeName(accepted_branch_),
             static_cast<unsigned int>(mc_params_.start_signal_feedback_id &
                                       0xFF),
             static_cast<unsigned int>(
@@ -229,6 +234,13 @@ BT::NodeStatus PreselectionBranchGateAction::onRunning() {
         return BT::NodeStatus::SUCCESS;
       }
 
+      if (switch_tree_file_.empty()) {
+        RCLCPP_INFO(node_->get_logger(),
+                    "预选入口 branch gate: 0x10 分支握手完成且未配置切树目标，继续当前树");
+        resetRuntimeHandles();
+        return BT::NodeStatus::SUCCESS;
+      }
+
       if (branch_start_profile_ == StartProfile::Second &&
           targetsSecondPreselectionTree(switch_tree_file_)) {
         config().blackboard->set(kPreselectionGateSecondStartDoneKey, true);
@@ -300,6 +312,16 @@ void PreselectionBranchGateAction::handleFeedback(
   const auto branch = selectPreselectionBranch(
       msg->feedback_id, mc_params_.start_signal_feedback_id,
       static_cast<int>(rc26_serial::FeedbackID::MF_PRESELECTION_TRIGGER));
+  if (!isPreselectionBranchAllowed(branch, accepted_branch_)) {
+    if (branch != PreselectionBranchSelection::None && node_) {
+      RCLCPP_WARN_THROTTLE(
+          node_->get_logger(), *node_->get_clock(), 1000,
+          "预选入口 branch gate: 收到当前 gate 不接受的分支 feedback=0x%02X accepted=%s，忽略",
+          static_cast<unsigned int>(msg->feedback_id),
+          branchModeName(accepted_branch_));
+    }
+    return;
+  }
   if (branch == PreselectionBranchSelection::ContinueFirst) {
     branch_ = Branch::ContinueFirst;
     branch_seen_.store(true, std::memory_order_relaxed);
@@ -318,14 +340,15 @@ void PreselectionBranchGateAction::configureBranch(Branch branch) {
     configureStartProfile(branch_start_profile_);
     branch_pre_command_delay_s_ =
         static_cast<double>(switch_pre_command_delay_msec_) / 1000.0;
-    RCLCPP_WARN(
-        node_->get_logger(),
-        "预选入口 branch gate: 收到 0x10 profile=%s，延时 %.3fs 后发送 0x%02X 等 0x%02X，成功后切树 %s",
-        profileName(branch_start_profile_),
-        branch_pre_command_delay_s_,
-        static_cast<unsigned int>(branch_command_id_ & 0xFF),
-        static_cast<unsigned int>(branch_done_feedback_id_ & 0xFF),
-        switch_tree_file_.c_str());
+  RCLCPP_WARN(
+      node_->get_logger(),
+      "预选入口 branch gate: 收到 0x10 profile=%s，延时 %.3fs 后发送 0x%02X 等 0x%02X，成功后%s%s",
+      profileName(branch_start_profile_),
+      branch_pre_command_delay_s_,
+      static_cast<unsigned int>(branch_command_id_ & 0xFF),
+      static_cast<unsigned int>(branch_done_feedback_id_ & 0xFF),
+      switch_tree_file_.empty() ? "继续当前树" : "切树 ",
+      switch_tree_file_.empty() ? "" : switch_tree_file_.c_str());
     return;
   }
 
@@ -377,6 +400,19 @@ PreselectionBranchGateAction::toStartProfile(const std::string &profile) {
 
 const char *PreselectionBranchGateAction::profileName(StartProfile profile) {
   return profile == StartProfile::Second ? "second" : "mc";
+}
+
+const char *PreselectionBranchGateAction::branchModeName(
+    PreselectionBranchMode mode) {
+  switch (mode) {
+  case PreselectionBranchMode::ContinueOnly:
+    return "continue_only";
+  case PreselectionBranchMode::SwitchOnly:
+    return "switch_only";
+  case PreselectionBranchMode::Both:
+  default:
+    return "both";
+  }
 }
 
 bool PreselectionBranchGateAction::sendBranchCommand() {
