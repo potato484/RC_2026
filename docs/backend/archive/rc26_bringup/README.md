@@ -13,6 +13,8 @@
 - `rc26_decision`：加载当前红/蓝运行配置中 `r2_runtime.paths.behavior_tree_file` 指向的行为树，并在导航模式强制启用 startup odom gate。未显式传入 `runtime_config_file` 时，`bringup.launch.py` 会按 `r2_active_side.yaml` 的 `preselection_mode` 覆盖默认树：`first` 使用 `mc_repeat_preselection_tree.xml`，`second` 使用 `second_preselection_combo_tree.xml`。
 - RealSense D455：仅当 `use_realsense:=true` 时启动，用于视觉任务，不属于导航必需节点。
 
+MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当前红/蓝运行配置把 `mc_camera_device` 固定到 `/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._FHD_Webcam_SN0001-video-index0`，该 by-id 路径对应 Vidar/Sonix FHD Webcam 的 video-index0；`video-index1` 是 UVC metadata，不能作为 OpenCV 图像源。`mc_auto_scan_camera=false`，固定路径失效时直接报错，不再兜底扫描其它 `/dev/video*`。
+
 导航模式不装配地图定位、外部地图规划链、代价图、路径规划/控制平滑链或 `rc26_sensor_scan`。`/cmd_vel` 的发布权威在决策侧，默认消费方在 `rc26_mcu_transport`；同一时刻不得再启动遥控、测试动作或其它速度发布者。导航模式的 `/odom` 启动 gate 只应由真实 Point-LIO 经 `rc26_odom_interface` 接管后的输出放行；若真实 `/odom` 未接管，决策应等待或超时失败，不应靠 bootstrap `/odom` 开始闭环运动。
 
 `run_mode:=mapping` 仍用于建图/定位相关联调，可按需要启动 `localization.launch.py`。这条链路不是默认导航闭包，不改变导航模式的最小装配边界。

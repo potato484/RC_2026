@@ -3,9 +3,9 @@ tip_vision_test_node:  # tip USB 相机测试节点参数命名空间
     vision_config_file: "config/vision_models.yaml"  # 模型 profile 配置文件，支持包内相对路径或绝对路径
     model_id: "tip_default"  # 从 vision_config_file 中选择的模型 profile ID
 
-    camera_index: 2  # 优先打开的 USB 摄像头索引，对应 /dev/video2
-    camera_device: ""  # 显式摄像头设备路径；为空时使用 camera_index 并允许自动扫描
-    auto_scan_camera: true  # 首选摄像头打不开或读不到帧时，是否扫描其它 /dev/video*
+    camera_index: 6  # FHD Webcam 当前 video-index0 枚举为 /dev/video6
+    camera_device: "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._FHD_Webcam_SN0001-video-index0"  # 固定外接 FHD Webcam，避免误开 RealSense
+    auto_scan_camera: false  # 固定相机打不开或读不到帧时直接失败，不再扫描其它 /dev/video*
     width: 640  # 摄像头采集宽度，单位 px
     height: 480  # 摄像头采集高度，单位 px
     fps: 30  # 摄像头目标采集帧率，单位 Hz

@@ -149,9 +149,9 @@ r2_runtime:
       # --- 相机 / 推理（内嵌直连相机，对齐 tip_vision_test_node）---
       mc_vision_config_file: ""     # 视觉模型配置文件；空则回退 rc26_vision/config/vision_models.yaml
       mc_model_id: "tip_default"    # 视觉模型 profile ID，用于加载端头检测模型
-      mc_camera_index: 2            # 首选 USB 相机索引
-      mc_camera_device: ""          # 指定相机设备路径；为空时使用 camera_index
-      mc_auto_scan_camera: true     # 首选相机不可用时是否自动扫描其它 /dev/video*
+      mc_camera_index: 6            # 首选 USB 相机索引；FHD Webcam 当前 video-index0 枚举为 /dev/video6
+      mc_camera_device: "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._FHD_Webcam_SN0001-video-index0" # 固定外接 FHD Webcam，避免误扫 RealSense
+      mc_auto_scan_camera: false    # 固定相机不可用时直接失败，不再扫描其它 /dev/video*
       mc_width: 640                 # 相机采集宽度，单位像素
       mc_height: 480                # 相机采集高度，单位像素
       mc_fps: 30                    # 相机期望采集帧率
