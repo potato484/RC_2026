@@ -116,6 +116,8 @@ private:
     bool lost_active_{false};
     bool align_seen_target_{false};
     int align_lost_count_{0};
+    bool align_near_center_lost_active_{false};
+    std::chrono::steady_clock::time_point align_near_center_lost_since_tp_{};
     bool align_has_last_offset_{false};
     int align_last_offset_px_{0};
     bool align_filtered_offset_valid_{false};

@@ -30,6 +30,9 @@ struct McParams {
     double align_command_rate_hz{20.0};
     int align_lost_stop_frames{3};
     double align_lost_servo_speed_scale{0.45};
+    int align_lost_search_suppress_px{70};
+    double align_lost_search_suppress_timeout_s{1.0};
+    double align_near_center_lost_speed_scale{0.20};
     double align_offset_filter_alpha{0.45};
     bool align_target_lock_enable{true};
     int align_target_lock_max_jump_px{160};

@@ -91,6 +91,8 @@ BT::NodeStatus VisualServoGrabAction::onStart() {
     }
     lost_active_ = false;
     resetAlignmentPrediction();
+    align_near_center_lost_active_ = false;
+    align_near_center_lost_since_tp_ = {};
     approach_start_tp_ = {};
     last_pub_tp_ = {};
     last_grab_tp_ = {};
@@ -298,6 +300,8 @@ void VisualServoGrabAction::workerLoop() {
                 align_lost_count_ < std::max(1, params_.align_lost_stop_frames)) {
                 const bool pixel_aligned =
                     std::abs(align_last_offset_px_) <= params_.align_tolerance_px;
+                align_near_center_lost_active_ = false;
+                align_near_center_lost_since_tp_ = {};
                 if (pixel_aligned && heading_control.aligned) {
                     publishStop(false);
                 } else {
@@ -311,9 +315,42 @@ void VisualServoGrabAction::workerLoop() {
                 continue;
             }
 
+            if (align_seen_target_ && align_has_last_offset_ &&
+                params_.align_lost_search_suppress_px > 0 &&
+                std::abs(align_last_offset_px_) <= params_.align_lost_search_suppress_px) {
+                if (!align_near_center_lost_active_) {
+                    align_near_center_lost_active_ = true;
+                    align_near_center_lost_since_tp_ = std::chrono::steady_clock::now();
+                    RCLCPP_INFO(node_->get_logger(),
+                                "武馆区视觉伺服近中心丢框保护: last_offset=%dpx suppress<=%dpx timeout=%.2fs",
+                                align_last_offset_px_,
+                                params_.align_lost_search_suppress_px,
+                                params_.align_lost_search_suppress_timeout_s);
+                }
+                const double guarded_elapsed = elapsedSec(align_near_center_lost_since_tp_);
+                if (guarded_elapsed < params_.align_lost_search_suppress_timeout_s) {
+                    target_lock_state_.reset();
+                    const bool pixel_aligned =
+                        std::abs(align_last_offset_px_) <= params_.align_tolerance_px;
+                    if (pixel_aligned && heading_control.aligned) {
+                        publishStop(false);
+                    } else {
+                        const double vy =
+                            heading_control.allow_lateral
+                                ? computeAlignmentVy(align_last_offset_px_) *
+                                      params_.align_near_center_lost_speed_scale
+                                : 0.0;
+                        publishCmd(0.0, vy, heading_control.angular_z_radps, false);
+                    }
+                    continue;
+                }
+            }
+
             if (align_lost_count_ >= std::max(1, params_.align_lost_stop_frames)) {
                 target_lock_state_.reset();
                 resetAlignmentPrediction();
+                align_near_center_lost_active_ = false;
+                align_near_center_lost_since_tp_ = {};
             }
 
             const double search_vy = heading_control.allow_lateral ? params_.align_search_speed_mps : 0.0;
@@ -325,6 +362,8 @@ void VisualServoGrabAction::workerLoop() {
         lost_active_ = false;
         align_seen_target_ = true;
         align_lost_count_ = 0;
+        align_near_center_lost_active_ = false;
+        align_near_center_lost_since_tp_ = {};
         const int offset_px = applyAlignmentOffsetFilter(raw_offset_px);
         align_last_offset_px_ = offset_px;
         align_has_last_offset_ = true;
@@ -382,6 +421,8 @@ int VisualServoGrabAction::applyAlignmentOffsetFilter(int offset_px) {
 void VisualServoGrabAction::resetAlignmentPrediction() {
     align_seen_target_ = false;
     align_lost_count_ = 0;
+    align_near_center_lost_active_ = false;
+    align_near_center_lost_since_tp_ = {};
     align_has_last_offset_ = false;
     align_last_offset_px_ = 0;
     align_filtered_offset_valid_ = false;

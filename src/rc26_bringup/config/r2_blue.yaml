@@ -156,7 +156,7 @@ r2_runtime:
       # --- 红方基准 MC 复合 OdomDriveXTurnX 导航：按旧 +X -> 右转 90° -> -X 终点标定 ---
       mc_nav_forward_x_m: 1.05     # 蓝方现场标定保留值；除 team 外其余参数与红方同步，blue 不镜像 X
       mc_nav_right_turn_delta_rad: -1.5708 # 红方基准第一段后相对右转角度；blue 自动取反为左转
-      mc_nav_reverse_x_m: -0.80     # 红方基准复合动作第二段目标 yaw 方向 x 负向位移；blue 不镜像 X
+      mc_nav_reverse_x_m: -0.75     # 红方基准复合动作第二段目标 yaw 方向 x 负向位移；blue 不镜像 X
       mc_nav_timeout_sec: 180.0     # MC 复合 OdomDriveXTurnX 动作总超时时间，单位秒
 
       # --- 相机 / 推理（内嵌直连相机，对齐 tip_vision_test_node）---
@@ -181,6 +181,9 @@ r2_runtime:
       mc_align_command_rate_hz: 20.0         # 横移速度指令最大发布频率，单位 Hz
       mc_align_lost_stop_frames: 3           # 锁定目标短暂丢失多少帧后才重新获锁
       mc_align_lost_servo_speed_scale: 0.45  # 短暂丢框时按最近 offset 低速继续伺服的速度缩放
+      mc_align_lost_search_suppress_px: 70   # 最近端头仍在中心附近时，禁止切入固定方向搜索的 offset 阈值
+      mc_align_lost_search_suppress_timeout_s: 1.0 # 近中心丢框保护最长持续时间，超时后才恢复固定方向搜索
+      mc_align_near_center_lost_speed_scale: 0.20  # 近中心丢框保护内沿最近 offset 低速补偿的速度缩放
       mc_align_offset_filter_alpha: 0.45     # 重新识别后 offset 低通滤波系数，降低识别框抖动
       mc_align_target_lock_enable: true      # 是否锁定同一个端头，避免双框同屏时反复切换
       mc_align_target_lock_max_jump_px: 160  # 锁定目标允许的单次水平跳变像素

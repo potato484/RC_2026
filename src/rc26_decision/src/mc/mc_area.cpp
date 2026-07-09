@@ -93,6 +93,15 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     p.align_lost_servo_speed_scale =
         node.declare_parameter<double>("mc_align_lost_servo_speed_scale",
                                        p.align_lost_servo_speed_scale);
+    p.align_lost_search_suppress_px =
+        node.declare_parameter<int>("mc_align_lost_search_suppress_px",
+                                    p.align_lost_search_suppress_px);
+    p.align_lost_search_suppress_timeout_s =
+        node.declare_parameter<double>("mc_align_lost_search_suppress_timeout_s",
+                                       p.align_lost_search_suppress_timeout_s);
+    p.align_near_center_lost_speed_scale =
+        node.declare_parameter<double>("mc_align_near_center_lost_speed_scale",
+                                       p.align_near_center_lost_speed_scale);
     p.align_offset_filter_alpha =
         node.declare_parameter<double>("mc_align_offset_filter_alpha",
                                        p.align_offset_filter_alpha);
@@ -288,6 +297,16 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
         std::isfinite(p.align_lost_servo_speed_scale)
             ? std::clamp(p.align_lost_servo_speed_scale, 0.0, 1.0)
             : McParams{}.align_lost_servo_speed_scale;
+    p.align_lost_search_suppress_px =
+        std::max(0, p.align_lost_search_suppress_px);
+    p.align_lost_search_suppress_timeout_s =
+        std::isfinite(p.align_lost_search_suppress_timeout_s)
+            ? std::max(0.0, p.align_lost_search_suppress_timeout_s)
+            : McParams{}.align_lost_search_suppress_timeout_s;
+    p.align_near_center_lost_speed_scale =
+        std::isfinite(p.align_near_center_lost_speed_scale)
+            ? std::clamp(p.align_near_center_lost_speed_scale, 0.0, 1.0)
+            : McParams{}.align_near_center_lost_speed_scale;
     p.align_offset_filter_alpha =
         std::isfinite(p.align_offset_filter_alpha)
             ? std::clamp(p.align_offset_filter_alpha, 0.05, 1.0)
@@ -397,13 +416,16 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     blackboard->set("preselection_after_mc_continue_delay_msec",
                     preselection_after_mc_continue_delay_msec_bt);
     RCLCPP_INFO(node.get_logger(),
-                "武馆区参数已加载: vision_config=%s mirror_sign=%d relative_nav=+x %.2fm, yaw_delta %.2frad, x %.2fm, repeat=%s max=%d base=mc_nav_forward_x_m step=%.2fm, align_search_vy=%.3f, lost_servo_scale=%.2f, offset_filter_alpha=%.2f, rotate_direction=%d registration_gate=%s bg_roi_x=%.2f-%.2f bg_roi_y=%.2f-%.2f fg_roi_x=%.2f-%.2f fg_roi_y=%.2f-%.2f diff_threshold=%d area>=%d ratio>=%.3f stable=%d start_signal=0x%02X start_cmd=0x%02X start_done=0x%02X entry_delay_ms=%d after_mc_delay_ms=%d",
+                "武馆区参数已加载: vision_config=%s mirror_sign=%d relative_nav=+x %.2fm, yaw_delta %.2frad, x %.2fm, repeat=%s max=%d base=mc_nav_forward_x_m step=%.2fm, align_search_vy=%.3f, lost_servo_scale=%.2f, near_center_suppress=%dpx/%.2fs scale=%.2f, offset_filter_alpha=%.2f, rotate_direction=%d registration_gate=%s bg_roi_x=%.2f-%.2f bg_roi_y=%.2f-%.2f fg_roi_x=%.2f-%.2f fg_roi_y=%.2f-%.2f diff_threshold=%d area>=%d ratio>=%.3f stable=%d start_signal=0x%02X start_cmd=0x%02X start_done=0x%02X entry_delay_ms=%d after_mc_delay_ms=%d",
                 p.vision_config_file.c_str(), mirror_sign, nav_forward_x_m,
                 nav_right_turn_delta_rad, nav_reverse_x_m,
                 preselection_repeat_enable ? "true" : "false",
                 preselection_repeat_max_count,
                 preselection_repeat_forward_x_step_m,
                 p.align_search_speed_mps, p.align_lost_servo_speed_scale,
+                p.align_lost_search_suppress_px,
+                p.align_lost_search_suppress_timeout_s,
+                p.align_near_center_lost_speed_scale,
                 p.align_offset_filter_alpha,
                 p.rotate_direction, p.registration_gate_enable ? "true" : "false",
                 p.registration_roi_x_min_ratio, p.registration_roi_x_max_ratio,
