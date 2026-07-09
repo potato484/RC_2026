@@ -157,6 +157,7 @@ r2_runtime:
       mc_nav_forward_x_m: 1.05     # 蓝方现场标定保留值；除 team 外其余参数与红方同步，blue 不镜像 X
       mc_nav_right_turn_delta_rad: -1.5708 # 红方基准第一段后相对右转角度；blue 自动取反为左转
       mc_nav_reverse_x_m: -0.75     # 红方基准复合动作第二段目标 yaw 方向 x 负向位移；blue 不镜像 X
+      mc_after_rotate_retreat_y_m: 0.2 # 蓝方夹取后旋转完成的 OdomDriveY 正向距离，不执行反向退让
       mc_nav_timeout_sec: 180.0     # MC 复合 OdomDriveXTurnX 动作总超时时间，单位秒
 
       # --- 相机 / 推理（内嵌直连相机，对齐 tip_vision_test_node）---

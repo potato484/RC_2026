@@ -48,7 +48,7 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 - `startup_odom_*`：完整导航链创建行为树前等待 `/odom` 新鲜且低速稳定。
 - `odom_relative_nav_*`：`OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw` 共享 topic、速度、增益、容差、稳定 tick 和超时。
 - `team`：红蓝方场地镜像选择；`r2_red.yaml` 固定 `red`，`r2_blue.yaml` 固定 `blue`。路线数值仍按红方基准维护，`team:=blue` 时由 `rc26_decision` 启动加载阶段派生蓝方 Y/yaw 镜像值。bringup 只负责选择配置和传参，不在 launch 中承载红蓝方路线逻辑。
-- `mc_nav_forward_x_m`、`mc_nav_right_turn_delta_rad`、`mc_nav_reverse_x_m`、`mc_nav_timeout_sec`：MC 去程复合动作参数，继续保留红/蓝运行配置中的现场标定值。first 默认重复流程以 `mc_nav_forward_x_m` 作为第 0 轮距离，通过内部黑板值 `mc_preselection_effective_forward_x_m` 临时传入每轮 MC；`mc_nav_right_turn_delta_rad` 和旋转退让方向仍按 `team` 镜像，`mc_nav_reverse_x_m` 不随 repeat 自动步进。
+- `mc_nav_forward_x_m`、`mc_nav_right_turn_delta_rad`、`mc_nav_reverse_x_m`、`mc_after_rotate_retreat_y_m`、`mc_nav_timeout_sec`：MC 去程复合动作和夹取后退让参数，继续保留红/蓝运行配置中的现场标定值。first 默认重复流程以 `mc_nav_forward_x_m` 作为第 0 轮距离，通过内部黑板值 `mc_preselection_effective_forward_x_m` 临时传入每轮 MC；`mc_nav_right_turn_delta_rad` 和旋转退让方向仍按 `team` 镜像，`mc_nav_reverse_x_m` 不随 repeat 自动步进；夹取后旋转完成的 `OdomDriveY` 由 `mc_after_rotate_retreat_y_m` 显式配置，当前蓝方为正向 `0.2m`，不再反向退让。
 - `mf_preselect_entry2_nav_segment1_x_m`、`mf_preselect_entry2_nav_segment1_y_m`、`mf_preselect_entry2_nav_timeout_sec`：MF 预选 2 号入口红方基准单轴段，默认 `+X 2.0m -> -Y 1.8m`，不在入口树前额外转向；蓝方自动镜像 Y。
 - `mf_preselect_kfs_align_target_line_offset_px`：MF KFS 视觉横移对齐时，识别框中线要对齐的目标线相对图像中心线的像素偏置；默认 `0`，负值表示目标线向图像左侧移动。
 - `mf_preselect_kfs_depth_roi_size`、`mf_preselect_kfs_depth_min_valid_count`、`mf_preselect_kfs_depth_bbox_sample_ratios`、`mf_preselect_kfs_depth_bbox_min_success_count`：MF R2 KFS 有效深度点配置，分别控制单点 ROI 边长、单 ROI 最少有效点、bbox 多点采样比例和最少成功采样点数；默认值写在 `r2_red.yaml` / `r2_blue.yaml`，bringup 只负责传参。
@@ -84,6 +84,8 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 - `/cmd_vel` 默认由 `rc26_decision` 的导航/动作节点串行发布，由 `rc26_mcu_transport` 消费；运行遥控或其它测试入口时必须显式保证命令权威唯一。
 
 ## 本轮同步
+
+2026-07-09 同步：MC 夹取端头后 `RotateInPlace` 之后的 `OdomDriveY` 从 XML 固定 `-0.4m` 改为读取 `mc_after_rotate_retreat_y_m`。`r2_red.yaml` 保持旧 `-0.4m` 退让；`r2_blue.yaml` 显式配置为正向 `0.2m`，因此 `r2_active_side.yaml` 选中 `active_side: blue` 时不再执行反向 Y 退让。
 
 2026-07-09 同步：first MC repeat 第 0 轮距离改为直接使用当前红/蓝运行配置中的 `mc_nav_forward_x_m`；`r2_active_side.yaml` 只维护 repeat 开关、最大重复次数和前进步进。后续重复轮按 `mc_nav_forward_x_m + sign(mc_nav_forward_x_m) * abs(first_preselection_mc_repeat_forward_x_step_m) * repeat_count` 写入内部黑板值 `mc_preselection_effective_forward_x_m`。
 

@@ -57,7 +57,7 @@
       </Delay>
       <!-- 4. 原地旋转 180° -->
       <RotateInPlace name="rotate_180"/>
-      <!-- 5. 旋转完成后等待 0.5s，再沿车体系 -X / -Y 各退让 0.4m -->
+      <!-- 5. 旋转完成后等待 0.5s，再沿车体系 -X 退让，Y 段距离由红/蓝运行配置决定 -->
       <Delay delay_msec="500">
         <AlwaysSuccess/>
       </Delay>
@@ -76,7 +76,7 @@
                   odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
                   timeout_s="{mc_nav_timeout_sec}"/>
       <OdomDriveY name="mc_after_rotate_retreat_y"
-                  distance_m="-0.4"
+                  distance_m="{mc_after_rotate_retreat_y_m}"
                   cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
                   odom_topic="{odom_relative_nav_odom_topic}"
                   max_speed_mps="{odom_relative_nav_max_speed_mps}"
