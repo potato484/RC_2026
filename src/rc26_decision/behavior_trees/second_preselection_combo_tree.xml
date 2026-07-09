@@ -1,4 +1,7 @@
-<!-- second managed 入口：0x06 → 0x11/0x0D → 斜坡前进 → 第二预选独立树；0x10 → 0x11/0x0D → 直接切第二预选独立树。 -->
+<!-- second managed 入口：
+  0x06 → 0x11/0x0D → 斜坡前进并停车 → 等 0x10 → 0x11/0x0D → 第二预选独立树；
+  0x10 → 0x11/0x0D → 直接切第二预选独立树。
+-->
 <root BTCPP_format="4" main_tree_to_execute="SecondPreselectionComboTree">
 
   <include path="preselection_ramp_forward_tree.xml"/>
@@ -11,6 +14,10 @@
                                   switch_start_profile="second"
                                   switch_tree_file="second_preselection_tree.xml"/>
       <SubTree ID="PreselectionRampForwardTree" _autoremap="true"/>
+      <WaitPreselectionBranchGate name="second_preselection_after_ramp_gate"
+                                  accepted_branch="switch_only"
+                                  switch_start_profile="second"
+                                  switch_tree_file=""/>
       <SubTree ID="SecondPreselectionTree" _autoremap="true"/>
     </Sequence>
   </BehaviorTree>

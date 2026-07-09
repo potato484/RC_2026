@@ -94,7 +94,7 @@
 - `ARM_SECOND_LOWER(0x0E)` / `ARM_SECOND_LOWER_DONE(0x0A)` 只服务 KFS 向下夹取：上层在 `ARM_LOWER_DONE(0x03)` 后完成视觉横移对齐与一次锁深度，进入开环前进前先发送 `0x0E`，并等待同 `seq` 的 `0x0A` 后才允许前进或直接夹取。
 - `ENTRY_GRAB_KFS_UP(0x0F)` / `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 只服务梅林预选赛入口高侧 KFS 夹取链；决策层在入口 1/3 阶梯高侧锁定目标、横移复核并完成开环趋近后发送 `0x0F`，service ACK 仍只代表通用 `ACK(0x00)`，随后必须按同 `seq` 等待 `0x0B` 进入视觉消失验证。
 - 下行 `COMPETITION_START(0x10)` 是 first 决策族的比赛开始通知命令；payload 为空，service ACK 只表示 MCU 已确认收到，真正放行还要等待同 `seq` 的 `COMPETITION_START_DONE(0x0C)`。first 中人工触发外部限位 1 的上行 `0x06` 分支和人工触发外部限位 2 的上行 `0x10` 分支都使用这组握手；上下行 `0x10` ID 相同但方向和语义独立。
-- `SECOND_PRESELECTION_START(0x11)` 是 second 决策族的比赛开始通知命令；payload 为空，service ACK 后还要等待同 `seq` 的 `SECOND_PRESELECTION_START_DONE(0x0D)`。second 中人工触发外部限位 1 的上行 `0x06` 分支和人工触发外部限位 2 的上行 `0x10` 分支都使用这组握手。
+- `SECOND_PRESELECTION_START(0x11)` 是 second 决策族的比赛开始通知命令；payload 为空，service ACK 后还要等待同 `seq` 的 `SECOND_PRESELECTION_START_DONE(0x0D)`。second 中入口人工触发外部限位 1 的上行 `0x06` 分支、入口人工触发外部限位 2 的上行 `0x10` 分支，以及 `0x06` 分支斜坡后再次等待到的人工触发外部限位 2 上行 `0x10`，都使用这组握手。
 - `SECOND_PRESELECTION_ARM_LOWER(0x14)` 当前在第二预选赛搜索夹取链视觉横移对齐后使用；service ACK 只表示 MCU 已收到命令，决策层必须等待同 `seq` 的 `SECOND_PRESELECTION_ARM_LOWER_DONE(0x12)` 并完成固定停车等待后，才允许 odom 前向趋近。
 - `SECOND_PRESELECTION_ARM_HIGH_RAISE/KFS_PICKUP(0x12)` 当前在第二预选赛搜索夹取链前向趋近完成后作为 KFS 夹取触发命令使用；service ACK 只表示 MCU 已收到命令，决策层必须等待同 `seq` 的 `SECOND_PRESELECTION_PICKUP_KFS_DONE(0x11)` 后，才进入原目标视觉消失验证。
 - MCU 上行 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)`、`MF_PRESELECTION_TRIGGER(0x10)` 和脚本专用上行 `0x13` 都来自人工触发的外部限位开关，当前分别作为人工触发外部限位 1/2/3 事件映射到不同上位机动作。上行 `0x13` 不进入 `FeedbackID` 枚举重命名，本轮仍只由 `start_r2_auto.sh` 的专用监听器消费并写回下一次启动使用的 `active_side`。
