@@ -51,6 +51,7 @@ enum class CommandID : uint8_t {
     SECOND_PRESELECTION_ARM_HIGH_RAISE = 0x12, // 夹取平地的 KFS
     SECOND_PRESELECTION_PLACE_KFS = 0x13,      // 第二预选赛放置 KFS（打开气缸）
     SECOND_PRESELECTION_ARM_LOWER = 0x14,      // 第二预选赛视觉对齐后机械臂彻底放下
+    SECOND_PRESELECTION_PRELOAD_KFS_PICKUP = 0x15, // 第二预选赛夹出预装 KFS
 };
 
 // ============================================================================
@@ -75,6 +76,8 @@ enum class FeedbackID : uint8_t {
     MF_PRESELECTION_TRIGGER = 0x10,      // 人工触发外部限位 2 事件；当前 gate profile 决定 0x10/0x0C 或 0x11/0x0D
     SECOND_PRESELECTION_PICKUP_KFS_DONE = 0x11, // 第二预选赛 KFS 夹取动作完成
     SECOND_PRESELECTION_ARM_LOWER_DONE = 0x12, // 第二预选赛机械臂彻底放下完成
+    SECOND_PRESELECTION_PRELOAD_KFS_PICKUP_DONE = 0x14, // 第二预选赛预装 KFS 夹取完成
+    SECOND_PRESELECTION_MANUAL_FRONT_LASER_TRIGGERED = 0x15, // 第二预选赛人工触发前轮激光成功
     MCU_ERROR = 0xFE,                   // MCU 端错误码：下位机原因
 };
 
@@ -128,6 +131,8 @@ inline const char* commandName(uint8_t command_id) {
         return "CYLINDER_RELEASE";
     case CommandID::SECOND_PRESELECTION_ARM_LOWER:
         return "ARM_BOTTOM_LOWER";
+    case CommandID::SECOND_PRESELECTION_PRELOAD_KFS_PICKUP:
+        return "PRELOAD_KFS_PICKUP";
     default:
         return "UNKNOWN_COMMAND";
     }

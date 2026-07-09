@@ -157,7 +157,8 @@ TEST(ManagedPreselectionTrees, XmlFilesLoadAndLegacyStartTreeIsRemoved) {
   const std::vector<std::string> expected_trees{
       "mc_repeat_preselection_tree.xml", "mc_mf_preselection_tree.xml", "mc_tree.xml",
       "preselection_ramp_forward_tree.xml", "second_preselection_combo_tree.xml",
-      "second_preselection_tree.xml"};
+      "second_preselection_tree.xml",
+      "second_preselection_post_place_climb_tree.xml"};
   for (const auto &tree_name : expected_trees) {
     const auto tree_path = tree_dir / tree_name;
     auto blackboard = BT::Blackboard::create();

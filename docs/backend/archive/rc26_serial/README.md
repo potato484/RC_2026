@@ -55,6 +55,7 @@
 | `SECOND_PRESELECTION_ARM_HIGH_RAISE` | `0x12` |
 | `SECOND_PRESELECTION_PLACE_KFS` | `0x13` |
 | `SECOND_PRESELECTION_ARM_LOWER` | `0x14` |
+| `SECOND_PRESELECTION_PRELOAD_KFS_PICKUP` | `0x15` |
 
 上行 `FeedbackID`：
 
@@ -78,6 +79,8 @@
 | `MF_PRESELECTION_TRIGGER` | `0x10` |
 | `SECOND_PRESELECTION_PICKUP_KFS_DONE` | `0x11` |
 | `SECOND_PRESELECTION_ARM_LOWER_DONE` | `0x12` |
+| `SECOND_PRESELECTION_PRELOAD_KFS_PICKUP_DONE` | `0x14` |
+| `SECOND_PRESELECTION_MANUAL_FRONT_LASER_TRIGGERED` | `0x15` |
 | `MCU_ERROR` | `0xFE` |
 
 已经移除的旧协议项包括旧组装动作、通用 KFS 夹取动作、旧动作完成反馈和旧即时负确认语义。可靠命令只通过通用 `ACK(0x00)` 成功；同 `seq` 收到 `MCU_ERROR(0xFE)` 表示下位机原因，串口层会按现有 retry `0x00~0x09` 继续重发，若后续收到 `ACK(0x00)` 则成功，若持续收到 `0xFE` 则失败并在 `lastError()` / diagnostics 中明确写出下位机原因。未收到确认时仍通过超时或断链失败收敛。心跳只通过 `HEARTBEAT_ACK(0x01)` 成功，心跳收到 `0xFE` 会记录为下位机原因但不按串口断链触发重连。
@@ -97,6 +100,8 @@
 - `SECOND_PRESELECTION_START(0x11)` 是 second 决策族的比赛开始通知命令；payload 为空，service ACK 后还要等待同 `seq` 的 `SECOND_PRESELECTION_START_DONE(0x0D)`。second 中入口人工触发外部限位 1 的上行 `0x06` 分支、入口人工触发外部限位 2 的上行 `0x10` 分支，以及 `0x06` 分支斜坡后再次等待到的人工触发外部限位 2 上行 `0x10`，都使用这组握手。
 - `SECOND_PRESELECTION_ARM_LOWER(0x14)` 当前在第二预选赛搜索夹取链视觉横移对齐后使用；service ACK 只表示 MCU 已收到命令，决策层必须等待同 `seq` 的 `SECOND_PRESELECTION_ARM_LOWER_DONE(0x12)` 并完成固定停车等待后，才允许 odom 前向趋近。
 - `SECOND_PRESELECTION_ARM_HIGH_RAISE/KFS_PICKUP(0x12)` 当前在第二预选赛搜索夹取链前向趋近完成后作为 KFS 夹取触发命令使用；service ACK 只表示 MCU 已收到命令，决策层必须等待同 `seq` 的 `SECOND_PRESELECTION_PICKUP_KFS_DONE(0x11)` 后，才进入原目标视觉消失验证。
+- `SECOND_PRESELECTION_PRELOAD_KFS_PICKUP(0x15)` 当前在第二预选赛放置 KFS 并后退后使用，用于夹出预装 KFS；决策层会与前置推杆伸出命令并发下发，service ACK 只表示 MCU 已收到命令，动作完成必须等待同 `seq` 的 `SECOND_PRESELECTION_PRELOAD_KFS_PICKUP_DONE(0x14)`。
+- `SECOND_PRESELECTION_MANUAL_FRONT_LASER_TRIGGERED(0x15)` 是第二预选赛放置后人工触发前轮附近首个激光模块的上行放行事件；该事件不匹配下行 `seq`，也不等同于旧台阶前轮高度突变 `FRONT_LASER_HEIGHT_JUMP(0x04)`。
 - MCU 上行 `FRONT_LIMIT_SWITCH_TRIGGERED(0x06)`、`MF_PRESELECTION_TRIGGER(0x10)` 和脚本专用上行 `0x13` 都来自人工触发的外部限位开关，当前分别作为人工触发外部限位 1/2/3 事件映射到不同上位机动作。上行 `0x13` 不进入 `FeedbackID` 枚举重命名，本轮仍只由 `start_r2_auto.sh` 的专用监听器消费并写回下一次启动使用的 `active_side`。
 - 上行 `MF_PRESELECTION_TRIGGER(0x10)` 是人工触发外部限位 2 事件；它不要求匹配任何已有下行 `seq`，也不替代 `COMPETITION_START_DONE(0x0C)`。managed first/second 入口下，`rc26_decision` 只在 `WaitPreselectionBranchGate` 内消费该事件，具体下行命令和 done 反馈由当前树的 `switch_start_profile` 决定。
 - `MCU_ERROR(0xFE)` 是 MCU 端错误码，不是机构业务完成反馈；它只用于说明本轮失败来自下位机原因。可靠发送会继续重试，最终失败不会触发串口重连，调用方通过 service `accepted=false`、节点日志和 diagnostics `last_error` 判断。
@@ -120,6 +125,8 @@
 4. 最后回到 `rc26_mcu_transport`、`rc26_decision`、`rc26_telecontrol`、`rc26_vision` 等消费者，确认哪一层在使用 raw transport。
 
 ## 本轮同步
+
+2026-07-09 同步：新增第二预选赛放置后预装 KFS 夹取与人工前轮激光放行协议。下行 `SECOND_PRESELECTION_PRELOAD_KFS_PICKUP(0x15)` 夹出预装 KFS，完成反馈为同 `seq` 上行 `SECOND_PRESELECTION_PRELOAD_KFS_PICKUP_DONE(0x14)`；另新增无 `seq` 放行事件 `SECOND_PRESELECTION_MANUAL_FRONT_LASER_TRIGGERED(0x15)`，专用于人工触发前轮附近首个激光模块成功，不复用台阶 `FRONT_LASER_HEIGHT_JUMP(0x04)`。
 
 2026-07-08 同步：统一 MCU 上行 `0x06/0x10/0x13` 的物理来源口径，三者均为人工触发的外部限位开关事件。现有枚举名和运行行为不变：`0x06` 仍由 decision/vision 作为人工触发外部限位 1 消费，`0x10` 仍由 managed branch gate 作为人工触发外部限位 2 消费，脚本专用上行 `0x13` 仍只触发下一次启动的红蓝配置切换；下行 `COMPETITION_START(0x10)` 与 `SECOND_PRESELECTION_PLACE_KFS(0x13)` 保持原命令语义，上下行 ID 空间独立。
 

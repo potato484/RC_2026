@@ -71,6 +71,19 @@ r2_runtime:
       second_preselect_pre_approach_lower_done_feedback_id: 18 # 0x12 机械臂放下完成反馈，必须与 0x14 的 ACK seq 匹配
       second_preselect_pre_approach_lower_settle_s: 0.5 # 收到 0x12 后继续停车等待，确认机械臂彻底放下再前进
       second_preselect_place_kfs_command_id: 19     # 下行 0x13 SECOND_PRESELECTION_PLACE_KFS，ACK 即发送完成；与上行人工触发外部限位 3 的 0x13 分属不同方向
+      second_preselect_post_place_retreat_x_m: -1.5 # 放置 KFS 后沿车体系 X 后退距离
+      second_preselect_post_place_front_pushrod_extend_command_id: 8 # 0x08 前置推杆伸出
+      second_preselect_post_place_front_pushrod_extend_settle_s: 15.0 # 前置推杆伸出 ACK 后零速等待
+      second_preselect_post_place_preload_pickup_command_id: 21 # 0x15 夹出预装 KFS
+      second_preselect_post_place_preload_pickup_done_feedback_id: 20 # 0x14 预装 KFS 夹取完成
+      second_preselect_post_place_manual_front_laser_feedback_id: 21 # 0x15 人工触发前轮激光成功
+      second_preselect_post_place_manual_front_laser_timeout_s: 1800.0 # 等待人工触发 0x15 超时
+      second_preselect_post_place_front_pushrod_retract_command_id: 9 # 0x09 前置推杆收回
+      second_preselect_post_place_rear_pushrod_extend_command_id: 10 # 0x0A 后置推杆伸出
+      second_preselect_post_place_rear_laser_feedback_id: 5 # 0x05 后轮激光高度突变，继续剩余上阶流程
+      second_preselect_post_place_rear_pushrod_retract_command_id: 11 # 0x0B 后置推杆收回
+      second_preselect_post_place_final_delay_s: 25.0 # 上阶完成后发送最终 0x13 前等待
+      second_preselect_post_place_final_command_id: 19 # 0x13 最终放置
       second_preselect_cmd_vel_topic: "cmd_vel"     # KFS 搜索、视觉对齐和前向趋近发布的运动命令
       second_preselect_nav_y1_m: 0.75               # 夹取完成后红方基准 +Y 横移；blue 启动时自动取反
       second_preselect_nav_x2_m: 4.5                # 横移后沿车体系 +X 前进到 R1KFS 观察/对齐位

@@ -1,0 +1,11 @@
+<!--
+  第二预选赛放置后上阶独立调试树：
+  - 这个 XML 只在 tree_file 指向它时执行，正式 second_preselection_tree.xml 内仍按完整流程调用同一动作。
+  - 运行前应确保 KFS 已放置完成、车已处于需要执行放置后流程的位置，并停用遥控等其它 cmd_vel 发布权威。
+  - 本树不执行放置后的 -1.5m 后退；若需要完整“放置 -> 后退 -> 放置后上阶”，使用 second_preselection_tree.xml。
+-->
+<root BTCPP_format="4" main_tree_to_execute="SecondPreselectionPostPlaceClimbTree">
+  <BehaviorTree ID="SecondPreselectionPostPlaceClimbTree">
+    <SecondPreselectionPostPlaceClimb name="second_preselection_post_place_climb"/>
+  </BehaviorTree>
+</root>

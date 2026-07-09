@@ -14,6 +14,7 @@
 #include <opencv2/core.hpp>
 #include <rclcpp/rclcpp.hpp>
 
+#include "rc26_decision/stair/stair_area.hpp"
 #include "rc26_interfaces/msg/mechanism_transport_feedback.hpp"
 #include "rc26_interfaces/srv/send_mechanism_transport_command.hpp"
 #include "rc26_vision/inference/runtime/vision_inference_manager.hpp"
@@ -36,6 +37,19 @@ struct SecondPreselectionParams {
   int pre_approach_lower_done_feedback_id{0x12};
   double pre_approach_lower_settle_s{0.5};
   int place_kfs_command_id{0x13};
+  double post_place_retreat_x_m{-1.5};
+  int post_place_front_pushrod_extend_command_id{0x08};
+  double post_place_front_pushrod_extend_settle_s{15.0};
+  int post_place_preload_pickup_command_id{0x15};
+  int post_place_preload_pickup_done_feedback_id{0x14};
+  int post_place_manual_front_laser_feedback_id{0x15};
+  double post_place_manual_front_laser_timeout_s{1800.0};
+  int post_place_front_pushrod_retract_command_id{0x09};
+  int post_place_rear_pushrod_extend_command_id{0x0A};
+  int post_place_rear_laser_feedback_id{0x05};
+  int post_place_rear_pushrod_retract_command_id{0x0B};
+  double post_place_final_delay_s{25.0};
+  int post_place_final_command_id{0x13};
 
   std::string cmd_vel_topic{"cmd_vel"};
   double nav_y1_m{0.7};
@@ -373,6 +387,106 @@ private:
   double align_filtered_offset_px_{0.0};
   bool ui_window_active_{false};
   bool ui_disabled_after_error_{false};
+};
+
+class SecondPreselectionPostPlaceClimbAction : public BT::StatefulActionNode {
+public:
+  SecondPreselectionPostPlaceClimbAction(const std::string &name,
+                                         const BT::NodeConfig &config);
+
+  static BT::PortsList providedPorts() { return {}; }
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
+
+private:
+  using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
+  using OdomMsg = nav_msgs::msg::Odometry;
+  using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
+
+  enum class Phase {
+    SendFrontExtendAndPreloadPickup,
+    WaitFrontExtendSettleAndPreloadDone,
+    WaitManualFrontLaser,
+    SendFrontRetractAndRearExtend,
+    WaitFrontRetractAndRearExtendAck,
+    HoldAfterFrontRetractAndRearExtend,
+    DriveUntilRearEvent,
+    SendRearRetract,
+    WaitRearRetractAck,
+    HoldAfterRearRetract,
+    FinalDelay,
+    SendFinalPlace,
+    WaitFinalPlaceAck,
+    Done
+  };
+
+  struct CommandRuntime {
+    uint8_t command_id{0};
+    int done_feedback_id{-1};
+    std::string label;
+    bool sent{false};
+    std::atomic<bool> response_seen{false};
+    std::atomic<bool> accepted{false};
+    std::atomic<bool> rejected{false};
+    std::atomic<bool> done_seen{false};
+    std::atomic<int> seq{-1};
+  };
+
+  BT::NodeStatus fail(const std::string &reason);
+  void clearRuntimeState();
+  void resetCommand(CommandRuntime &command, int command_id,
+                    int done_feedback_id, const std::string &label);
+  bool sendCommand(CommandRuntime &command);
+  bool commandAcked(const CommandRuntime &command) const;
+  bool commandRejected(const CommandRuntime &command) const;
+  bool commandDone(const CommandRuntime &command) const;
+  void handleFeedback(const FeedbackMsg::SharedPtr msg);
+  void publishStop();
+  void publishDrive(double vx_mps);
+  bool headingOdomReady() const;
+  double headingError() const;
+  double headingAngularZ() const;
+  bool tickDriveYawGate(const char *label);
+  double rearDriveSpeed() const;
+  void beginManualFrontLaserWait();
+  void beginFrontRetractRearExtend();
+  void beginRearDrive();
+  void beginRearRetract();
+  void beginFinalDelay();
+  void beginFinalPlace();
+  double phaseElapsed() const;
+  static std::string byteHex(int value);
+
+  SecondPreselectionParams params_;
+  StairParams stair_params_;
+  rclcpp::Node *node_{nullptr};
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
+  rclcpp::Subscription<OdomMsg>::SharedPtr odom_sub_;
+  rclcpp::Client<SendCommandSrv>::SharedPtr send_client_;
+  rclcpp::Subscription<FeedbackMsg>::SharedPtr feedback_sub_;
+  std::chrono::steady_clock::time_point phase_tp_{};
+  std::chrono::steady_clock::time_point last_log_tp_{};
+  std::chrono::steady_clock::time_point front_extend_ack_tp_{};
+  std::chrono::steady_clock::time_point rear_drive_profile_tp_{};
+  std::chrono::steady_clock::time_point last_odom_tp_{};
+  CommandRuntime command_a_;
+  CommandRuntime command_b_;
+  std::atomic<bool> command_error_seen_{false};
+  std::atomic<bool> command_busy_seen_{false};
+  std::atomic<uint64_t> command_generation_{0};
+  std::string command_error_detail_;
+  std::atomic<uint64_t> manual_front_laser_count_{0};
+  std::atomic<uint64_t> rear_laser_count_{0};
+  uint64_t manual_front_laser_baseline_{0};
+  uint64_t rear_laser_baseline_{0};
+  double current_yaw_rad_{0.0};
+  double target_yaw_rad_{0.0};
+  bool has_odom_{false};
+  bool target_yaw_set_{false};
+  bool front_extend_settle_started_{false};
+  Phase phase_{Phase::Done};
 };
 
 } // namespace rc26_decision

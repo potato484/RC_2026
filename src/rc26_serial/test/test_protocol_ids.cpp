@@ -30,6 +30,7 @@ TEST(ProtocolIDs, CommandIDsAreContinuousAfterLegacyMechanismCleanup) {
     EXPECT_EQ(static_cast<uint8_t>(CID::SECOND_PRESELECTION_ARM_HIGH_RAISE), 0x12U);
     EXPECT_EQ(static_cast<uint8_t>(CID::SECOND_PRESELECTION_PLACE_KFS), 0x13U);
     EXPECT_EQ(static_cast<uint8_t>(CID::SECOND_PRESELECTION_ARM_LOWER), 0x14U);
+    EXPECT_EQ(static_cast<uint8_t>(CID::SECOND_PRESELECTION_PRELOAD_KFS_PICKUP), 0x15U);
 }
 
 TEST(ProtocolIDs, FeedbackIDsAreContinuousAfterLegacyMechanismCleanup) {
@@ -53,6 +54,8 @@ TEST(ProtocolIDs, FeedbackIDsAreContinuousAfterLegacyMechanismCleanup) {
     EXPECT_EQ(static_cast<uint8_t>(FID::MF_PRESELECTION_TRIGGER), 0x10U);
     EXPECT_EQ(static_cast<uint8_t>(FID::SECOND_PRESELECTION_PICKUP_KFS_DONE), 0x11U);
     EXPECT_EQ(static_cast<uint8_t>(FID::SECOND_PRESELECTION_ARM_LOWER_DONE), 0x12U);
+    EXPECT_EQ(static_cast<uint8_t>(FID::SECOND_PRESELECTION_PRELOAD_KFS_PICKUP_DONE), 0x14U);
+    EXPECT_EQ(static_cast<uint8_t>(FID::SECOND_PRESELECTION_MANUAL_FRONT_LASER_TRIGGERED), 0x15U);
     EXPECT_EQ(static_cast<uint8_t>(FID::MCU_ERROR), 0xFEU);
 }
 
@@ -73,6 +76,9 @@ TEST(ProtocolIDs, PlanarArmErrorHelpersDescribeKnownCodes) {
     EXPECT_STREQ(rc26_serial::commandName(static_cast<uint8_t>(
                      rc26_serial::CommandID::SECOND_PRESELECTION_ARM_LOWER)),
                  "ARM_BOTTOM_LOWER");
+    EXPECT_STREQ(rc26_serial::commandName(static_cast<uint8_t>(
+                     rc26_serial::CommandID::SECOND_PRESELECTION_PRELOAD_KFS_PICKUP)),
+                 "PRELOAD_KFS_PICKUP");
     EXPECT_STREQ(rc26_serial::commandName(0xEE), "UNKNOWN_COMMAND");
 
     EXPECT_STREQ(rc26_serial::planarArmFailCodeName(static_cast<uint8_t>(
