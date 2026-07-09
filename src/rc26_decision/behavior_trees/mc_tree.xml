@@ -1,53 +1,102 @@
-<!-- 武馆区专属行为树 (MC Area)：复合 X-turn-X 导航 → 视觉伺服夹取 → 旋转退让复合动作 → 分支 gate 返回组合树或切 MF 独立树 -->
+<!-- 武馆区专属行为树 (MC Area)：前进 X 段 → team 派生侧向转向 → 后退 X 段 → 视觉伺服夹取 → 原地旋转 → 后退避让 → 分支 gate 返回组合树或切 MF 独立树 -->
 <root BTCPP_format="4" main_tree_to_execute="MCAreaTree">
   <BehaviorTree ID="MCAreaTree">
     <Sequence name="MC_Sequence">
-      <!-- 1. 复合 odom 闭环：等价旧 X → yaw → X 终点，但一次性合成 linear.x/y 与 angular.z -->
-      <OdomDriveXTurnX name="mc_nav_x_turn_x"
-                       first_x_m="{mc_preselection_effective_forward_x_m}"
-                       yaw_delta_rad="{mc_nav_right_turn_delta_rad}"
-                       second_x_m="{mc_nav_reverse_x_m}"
-                       cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
-                       odom_topic="{odom_relative_nav_odom_topic}"
-                       max_speed_mps="{odom_relative_nav_max_speed_mps}"
-                       min_speed_mps="{odom_relative_nav_min_speed_mps}"
-                       xy_kp="{odom_relative_nav_xy_kp}"
-                       heading_kp="{odom_relative_nav_heading_kp}"
-                       heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
-                       xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
-                       yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
-                       stable_ticks="{odom_relative_nav_stable_ticks}"
-                       odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
-                       timeout_s="{mc_nav_timeout_sec}"
-                       target_yaw_rad="{mc_nav_right_turn_target_yaw}"/>
-      <!-- 2. 视觉伺服：无端头时按红/蓝方向低速搜寻 → 左侧优先锁定端头 → 横移对齐 → 下发 GRAB_TIP → 端头消失判定夹取完成 -->
-      <VisualServoGrab name="visual_servo_grab"
-                       target_yaw_rad="{mc_nav_right_turn_target_yaw}"/>
-
-      <!-- 3. 旋转 180°并同步按目标 yaw 车体系 -X / -Y 各退让 0.4m -->
-      <RotateRetreat name="rotate_180_and_retreat"
-                     retreat_x_m="-0.4"
-                     retreat_y_m="-0.4"
+      <!-- 1. 使用 odom 单轴闭环复刻去程：X 距离保持红方基准，侧向转向由 team 派生 -->
+      <OdomDriveX name="mc_nav_forward_x"
+                  distance_m="{mc_preselection_effective_forward_x_m}"
+                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                  odom_topic="{odom_relative_nav_odom_topic}"
+                  max_speed_mps="{odom_relative_nav_max_speed_mps}"
+                  min_speed_mps="{odom_relative_nav_min_speed_mps}"
+                  xy_kp="{odom_relative_nav_xy_kp}"
+                  heading_kp="{odom_relative_nav_heading_kp}"
+                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                  stable_ticks="{odom_relative_nav_stable_ticks}"
+                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                  timeout_s="{mc_nav_timeout_sec}"/>
+      <RelativeYawTarget name="mc_nav_right_turn_target"
+                         odom_topic="{odom_relative_nav_odom_topic}"
+                         yaw_delta_rad="{mc_nav_right_turn_delta_rad}"
+                         timeout_s="{odom_relative_nav_timeout_s}"
+                         odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                         target_yaw_rad="{mc_nav_right_turn_target_yaw}"/>
+      <OdomTurnToYaw name="mc_nav_right_turn"
+                     target_yaw_rad="{mc_nav_right_turn_target_yaw}"
                      cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
                      odom_topic="{odom_relative_nav_odom_topic}"
-                     max_speed_mps="{odom_relative_nav_max_speed_mps}"
-                     min_speed_mps="{odom_relative_nav_min_speed_mps}"
-                     xy_kp="{odom_relative_nav_xy_kp}"
-                     heading_kp="{odom_relative_nav_heading_kp}"
-                     heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
-                     xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                     kp="{odom_relative_nav_heading_kp}"
+                     max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
                      yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
                      stable_ticks="{odom_relative_nav_stable_ticks}"
                      odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
                      timeout_s="{mc_nav_timeout_sec}"/>
-      <!-- 4. 旋转退让完成后等待分支 gate：旧组合树保持 0x06/0x10 分支；first 重复树改为只收 0x10 放下舵机且不切树 -->
+      <OdomDriveX name="mc_nav_reverse_x"
+                  distance_m="{mc_nav_reverse_x_m}"
+                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                  odom_topic="{odom_relative_nav_odom_topic}"
+                  max_speed_mps="{odom_relative_nav_max_speed_mps}"
+                  min_speed_mps="{odom_relative_nav_min_speed_mps}"
+                  xy_kp="{odom_relative_nav_xy_kp}"
+                  heading_kp="{odom_relative_nav_heading_kp}"
+                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                  stable_ticks="{odom_relative_nav_stable_ticks}"
+                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                  timeout_s="{mc_nav_timeout_sec}"/>
+      <!-- 2. 视觉伺服：无端头时按红/蓝方向低速搜寻 → 左侧优先锁定端头 → 横移对齐 → 下发 GRAB_TIP → 端头消失判定夹取完成 -->
+      <VisualServoGrab name="visual_servo_grab"
+                       target_yaw_rad="{mc_nav_right_turn_target_yaw}"/>
+
+      <!-- 3. 等待 0.5s -->
+      <Delay delay_msec="500">
+        <AlwaysSuccess/>
+      </Delay>
+      <!-- 4. 原地旋转 180° -->
+      <RotateInPlace name="rotate_180"/>
+      <!-- 5. 旋转完成后等待 0.5s，再沿车体系 -X / -Y 各退让 0.4m -->
+      <Delay delay_msec="500">
+        <AlwaysSuccess/>
+      </Delay>
+      <OdomDriveX name="mc_after_rotate_retreat_x"
+                  distance_m="-0.4"
+                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                  odom_topic="{odom_relative_nav_odom_topic}"
+                  max_speed_mps="{odom_relative_nav_max_speed_mps}"
+                  min_speed_mps="{odom_relative_nav_min_speed_mps}"
+                  xy_kp="{odom_relative_nav_xy_kp}"
+                  heading_kp="{odom_relative_nav_heading_kp}"
+                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                  stable_ticks="{odom_relative_nav_stable_ticks}"
+                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                  timeout_s="{mc_nav_timeout_sec}"/>
+      <OdomDriveY name="mc_after_rotate_retreat_y"
+                  distance_m="-0.4"
+                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                  odom_topic="{odom_relative_nav_odom_topic}"
+                  max_speed_mps="{odom_relative_nav_max_speed_mps}"
+                  min_speed_mps="{odom_relative_nav_min_speed_mps}"
+                  xy_kp="{odom_relative_nav_xy_kp}"
+                  heading_kp="{odom_relative_nav_heading_kp}"
+                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                  stable_ticks="{odom_relative_nav_stable_ticks}"
+                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                  timeout_s="{mc_nav_timeout_sec}"/>
+      <!-- 6. 旋转后等待分支 gate：旧组合树保持 0x06/0x10 分支；first 重复树改为只收 0x10 放下舵机且不切树 -->
       <WaitPreselectionBranchGate name="preselection_after_mc_branch_gate"
                                   accepted_branch="{mc_after_gate_accepted_branch}"
                                   continue_start_profile="mc"
                                   switch_start_profile="mc"
                                   continue_pre_command_delay_msec="{preselection_after_mc_continue_delay_msec}"
                                   switch_tree_file="{mc_after_gate_switch_tree_file}"/>
-      <!-- 5. 继续分支确认后让 MC 子树成功返回给组合树；触发后延时已在 gate 内、下发 0x10 前完成。 -->
+      <!-- 7. 继续分支确认后让 MC 子树成功返回给组合树；触发后延时已在 gate 内、下发 0x10 前完成。 -->
     </Sequence>
   </BehaviorTree>
 </root>
