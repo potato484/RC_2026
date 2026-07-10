@@ -1,12 +1,16 @@
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include <behaviortree_cpp/bt_factory.h>
+#include <opencv2/core.hpp>
 
+#include "rc26_decision/mf_preselection/mf_preselection_flow.hpp"
 #include "rc26_decision/navigation/bt_odom_relative_nav.hpp"
 #include "rc26_decision/second_preselection/second_preselection.hpp"
 
@@ -19,29 +23,50 @@ std::string readTextFile(const std::filesystem::path &path) {
   return buffer.str();
 }
 
-} // namespace
-
-TEST(SecondPreselectionLogic, DefaultsUseDirectR1KfsPlaceRoute) {
-  const rc26_decision::SecondPreselectionParams params;
-  EXPECT_NEAR(params.nav_x2_m, 4.5, 1.0e-9);
-  EXPECT_NEAR(params.place_forward_x_m, 0.8, 1.0e-9);
-  EXPECT_EQ(params.place_kfs_command_id, 0x13);
-  EXPECT_NEAR(params.post_place_retreat_x_m, -1.5, 1.0e-9);
-  EXPECT_EQ(params.post_place_front_pushrod_extend_command_id, 0x08);
-  EXPECT_NEAR(params.post_place_front_pushrod_extend_settle_s, 15.0, 1.0e-9);
-  EXPECT_EQ(params.post_place_preload_pickup_command_id, 0x15);
-  EXPECT_EQ(params.post_place_preload_pickup_done_feedback_id, 0x14);
-  EXPECT_EQ(params.post_place_manual_front_laser_feedback_id, 0x15);
-  EXPECT_NEAR(params.post_place_manual_front_laser_timeout_s, 1800.0, 1.0e-9);
-  EXPECT_EQ(params.post_place_front_pushrod_retract_command_id, 0x09);
-  EXPECT_EQ(params.post_place_rear_pushrod_extend_command_id, 0x0A);
-  EXPECT_EQ(params.post_place_rear_laser_feedback_id, 0x05);
-  EXPECT_EQ(params.post_place_rear_pushrod_retract_command_id, 0x0B);
-  EXPECT_NEAR(params.post_place_final_delay_s, 25.0, 1.0e-9);
-  EXPECT_EQ(params.post_place_final_command_id, 0x13);
+std::size_t countOccurrences(const std::string &text,
+                             const std::string &needle) {
+  std::size_t count = 0;
+  std::size_t pos = 0;
+  while ((pos = text.find(needle, pos)) != std::string::npos) {
+    ++count;
+    pos += needle.size();
+  }
+  return count;
 }
 
-TEST(SecondPreselectionLogic, KfsApproachDistanceUsesLockedDepthAndReach) {
+rc26_vision::Detection makeDetection(float cx, float cy,
+                                     const std::string &label = "T_KFS",
+                                     float width = 40.0F,
+                                     float height = 40.0F,
+                                     float score = 0.9F) {
+  return rc26_vision::Detection{cx - width * 0.5F, cy - height * 0.5F,
+                               cx + width * 0.5F, cy + height * 0.5F,
+                               score, 1, label};
+}
+
+std::filesystem::path secondPreselectionTreePath() {
+  return std::filesystem::path(RC26_DECISION_SOURCE_DIR) / "behavior_trees" /
+         "second_preselection_tree.xml";
+}
+
+} // namespace
+
+TEST(SecondPreselectionLogic, DefaultsUseTotalXAndDepthPlacementRoute) {
+  const rc26_decision::SecondPreselectionParams params;
+  EXPECT_NEAR(params.post_pickup_forward_x_m, 1.5, 1.0e-9);
+  EXPECT_NEAR(params.nav_y1_m, 0.75, 1.0e-9);
+  EXPECT_NEAR(params.total_x_target_m, 4.2, 1.0e-9);
+  EXPECT_NEAR(params.total_x_tolerance_m, 0.03, 1.0e-9);
+  EXPECT_NEAR(params.place_arm_reach_m, 0.45, 1.0e-9);
+  EXPECT_NEAR(params.place_approach_timeout_s, 8.0, 1.0e-9);
+  EXPECT_EQ(params.place_occupied_stable_frames, 2);
+  EXPECT_NEAR(params.place_occupied_first_lateral_m, 0.56, 1.0e-9);
+  EXPECT_NEAR(params.place_occupied_second_reverse_m, 1.10, 1.0e-9);
+  EXPECT_EQ(params.place_kfs_command_id, 0x13);
+  EXPECT_NEAR(params.post_place_retreat_x_m, -1.5, 1.0e-9);
+}
+
+TEST(SecondPreselectionLogic, PickupApproachDistanceKeepsExistingSignRule) {
   auto params = rc26_decision::SecondPreselectionParams{};
   params.kfs_grab_distance_m = 0.45;
   params.kfs_approach_x_sign = 1;
@@ -57,41 +82,174 @@ TEST(SecondPreselectionLogic, KfsApproachDistanceUsesLockedDepthAndReach) {
               0.0, 1.0e-6);
 }
 
-TEST(SecondPreselectionLogic, BehaviorTreeUsesR1KfsAlignWithoutGridObserve) {
-  const auto tree_path =
-      std::filesystem::path(RC26_DECISION_SOURCE_DIR) / "behavior_trees" /
-      "second_preselection_tree.xml";
-  const std::string xml = readTextFile(tree_path);
+TEST(SecondPreselectionLogic, TotalXProjectionCountsForwardSegmentsNotLateral) {
+  const auto params = rc26_decision::SecondPreselectionParams{};
+  const double origin_x = 10.0;
+  const double origin_y = 20.0;
+  const double yaw = 0.0;
 
-  EXPECT_NE(xml.find("SecondPreselectionR1KfsPlaceAlign"), std::string::npos);
-  EXPECT_NE(xml.find("second_preselect_nav_x2_m"), std::string::npos);
-  EXPECT_NE(xml.find("second_preselect_place_forward_x_m"), std::string::npos);
-  EXPECT_NE(xml.find("second_preselection_post_place_retreat"),
-            std::string::npos);
-  EXPECT_NE(xml.find("second_preselect_post_place_retreat_x_m"),
-            std::string::npos);
-  EXPECT_NE(xml.find("SecondPreselectionPostPlaceClimb"), std::string::npos);
-  EXPECT_EQ(xml.find("SecondPreselectionObserve"), std::string::npos);
-  EXPECT_EQ(xml.find("SecondPreselectionNoEmptyFailure"), std::string::npos);
-  EXPECT_EQ(xml.find("second_preselection_selected_lateral_m"), std::string::npos);
-  EXPECT_EQ(xml.find("second_preselect_retreat_x_m"), std::string::npos);
+  EXPECT_NEAR(rc26_decision::secondPreselectionProjectedX(
+                  origin_x, origin_y, yaw, 10.6, 20.0),
+              0.6, 1.0e-9);
+  EXPECT_NEAR(rc26_decision::secondPreselectionProjectedX(
+                  origin_x, origin_y, yaw, 11.1, 20.0),
+              1.1, 1.0e-9);
+  const double after_fixed_forward =
+      rc26_decision::secondPreselectionProjectedX(origin_x, origin_y, yaw,
+                                                  12.6, 20.0);
+  EXPECT_NEAR(after_fixed_forward, 2.6, 1.0e-9);
+  EXPECT_NEAR(rc26_decision::secondPreselectionProjectedX(
+                  origin_x, origin_y, yaw, 12.6, 20.75),
+              after_fixed_forward, 1.0e-9);
+  EXPECT_NEAR(rc26_decision::secondPreselectionTotalXRemainingToDrive(
+                  after_fixed_forward, params),
+              1.6, 1.0e-9);
+  EXPECT_NEAR(rc26_decision::secondPreselectionTotalXRemainingToDrive(
+                  4.25, params),
+              0.0, 1.0e-9);
 }
 
-TEST(SecondPreselectionLogic, BehaviorTreeRunsPostPlaceRetreatBeforeClimb) {
-  const auto tree_path =
-      std::filesystem::path(RC26_DECISION_SOURCE_DIR) / "behavior_trees" /
-      "second_preselection_tree.xml";
-  const std::string xml = readTextFile(tree_path);
+TEST(SecondPreselectionLogic, TotalXProjectionUsesSearchStartYaw) {
+  EXPECT_NEAR(rc26_decision::secondPreselectionProjectedX(
+                  0.0, 0.0, M_PI_2, 5.0, 3.0),
+              3.0, 1.0e-9);
+}
 
+TEST(SecondPreselectionLogic, OccupancyRequiresCentralUpperAndLowerKfs) {
+  const auto params = rc26_decision::SecondPreselectionParams{};
+  constexpr int width = 640;
+  constexpr int height = 480;
+
+  EXPECT_TRUE(rc26_decision::secondPreselectionFrameOccupied(
+      {makeDetection(300.0F, 180.0F), makeDetection(350.0F, 360.0F)},
+      width, height, params));
+  EXPECT_TRUE(rc26_decision::secondPreselectionFrameOccupied(
+      {makeDetection(300.0F, 180.0F, "UNKNOWN_KFS"),
+       makeDetection(350.0F, 360.0F, "R1_KFS")},
+      width, height, params));
+
+  EXPECT_FALSE(rc26_decision::secondPreselectionFrameOccupied(
+      {makeDetection(100.0F, 180.0F), makeDetection(100.0F, 360.0F)},
+      width, height, params));
+  EXPECT_FALSE(rc26_decision::secondPreselectionFrameOccupied(
+      {makeDetection(300.0F, 180.0F), makeDetection(350.0F, 240.0F)},
+      width, height, params));
+  EXPECT_FALSE(rc26_decision::secondPreselectionFrameOccupied(
+      {makeDetection(200.0F, 180.0F), makeDetection(330.0F, 360.0F)},
+      width, height, params));
+}
+
+TEST(SecondPreselectionLogic, OccupancyAndClearNeedConsecutiveFrames) {
+  using Decision = rc26_decision::SecondPreselectionOccupancyDecision;
+  int occupied_count = 0;
+  int clear_count = 0;
+
+  EXPECT_EQ(rc26_decision::secondPreselectionUpdateOccupancyStability(
+                true, 2, occupied_count, clear_count),
+            Decision::Pending);
+  EXPECT_EQ(rc26_decision::secondPreselectionUpdateOccupancyStability(
+                true, 2, occupied_count, clear_count),
+            Decision::Occupied);
+  EXPECT_EQ(rc26_decision::secondPreselectionUpdateOccupancyStability(
+                false, 2, occupied_count, clear_count),
+            Decision::Pending);
+  EXPECT_EQ(occupied_count, 0);
+  EXPECT_EQ(rc26_decision::secondPreselectionUpdateOccupancyStability(
+                false, 2, occupied_count, clear_count),
+            Decision::Clear);
+}
+
+TEST(SecondPreselectionLogic, AvoidanceDistancesMirrorForRedAndBlue) {
+  auto params = rc26_decision::SecondPreselectionParams{};
+  params.team_mirror_sign = 1;
+  EXPECT_NEAR(rc26_decision::secondPreselectionPlaceAvoidanceDistance(1, params),
+              0.56, 1.0e-9);
+  EXPECT_NEAR(rc26_decision::secondPreselectionPlaceAvoidanceDistance(2, params),
+              -1.10, 1.0e-9);
+
+  params.team_mirror_sign = -1;
+  EXPECT_NEAR(rc26_decision::secondPreselectionPlaceAvoidanceDistance(1, params),
+              -0.56, 1.0e-9);
+  EXPECT_NEAR(rc26_decision::secondPreselectionPlaceAvoidanceDistance(2, params),
+              1.10, 1.0e-9);
+}
+
+TEST(SecondPreselectionLogic, PlacementDepthUsesMfRealDepthAndSeparateReach) {
+  using Logic = rc26_decision::MfPreselectionLogicResult;
+  cv::Mat depth(100, 100, CV_32FC1, cv::Scalar(0.95F));
+  rc26_vision::DepthRoiSamplerConfig config;
+  config.roi_size = 3;
+  config.min_valid_count = 1;
+  config.min_depth_m = 0.2;
+  config.max_depth_m = 2.0;
+
+  const auto sampled = Logic::sampleKfsDepthFromBbox(
+      depth, 20.0, 20.0, 80.0, 80.0, config, {0.25, 0.50, 0.75}, 1);
+  ASSERT_TRUE(sampled.has_depth);
+  EXPECT_TRUE(Logic::kfsDepthSourceIsReal(sampled.source));
+  EXPECT_FALSE(
+      Logic::kfsDepthSourceIsReal(Logic::KfsDepthSource::MonocularBbox));
+  EXPECT_FALSE(Logic::kfsDepthSourceIsReal(Logic::KfsDepthSource::None));
+
+  auto params = rc26_decision::SecondPreselectionParams{};
+  params.place_arm_reach_m = 0.45;
+  EXPECT_NEAR(rc26_decision::secondPreselectionPlaceApproachDistance(
+                  sampled.depth_m, params),
+              0.50, 1.0e-5);
+  EXPECT_NEAR(rc26_decision::secondPreselectionPlaceApproachDistance(
+                  0.40, params),
+              0.0, 1.0e-9);
+}
+
+TEST(SecondPreselectionLogic, PlacementApproachTimeoutUsesIndependentLimit) {
+  EXPECT_FALSE(
+      rc26_decision::secondPreselectionPlaceApproachTimedOut(7.99, 8.0));
+  EXPECT_FALSE(
+      rc26_decision::secondPreselectionPlaceApproachTimedOut(8.0, 8.0));
+  EXPECT_TRUE(
+      rc26_decision::secondPreselectionPlaceApproachTimedOut(8.01, 8.0));
+  EXPECT_FALSE(
+      rc26_decision::secondPreselectionPlaceApproachTimedOut(100.0, 0.0));
+}
+
+TEST(SecondPreselectionLogic, BehaviorTreeUsesNewPlacementSequence) {
+  const std::string xml = readTextFile(secondPreselectionTreePath());
+
+  const auto pickup_pos = xml.find("second_preselection_kfs_pickup");
+  const auto fixed_x_pos = xml.find("second_preselection_post_pickup_forward");
+  const auto lateral_pos = xml.find("second_preselection_nav_y1");
+  const auto total_x_pos = xml.find("second_preselection_drive_to_total_x");
+  const auto prepare_pos = xml.find("second_preselection_kfs_place_prepare");
+  const auto approach_pos = xml.find("second_preselection_place_approach");
   const auto place_pos = xml.find("second_preselection_place_kfs");
   const auto retreat_pos = xml.find("second_preselection_post_place_retreat");
   const auto climb_pos = xml.find("second_preselection_post_place_climb");
 
+  ASSERT_NE(pickup_pos, std::string::npos);
+  ASSERT_NE(fixed_x_pos, std::string::npos);
+  ASSERT_NE(lateral_pos, std::string::npos);
+  ASSERT_NE(total_x_pos, std::string::npos);
+  ASSERT_NE(prepare_pos, std::string::npos);
+  ASSERT_NE(approach_pos, std::string::npos);
   ASSERT_NE(place_pos, std::string::npos);
   ASSERT_NE(retreat_pos, std::string::npos);
   ASSERT_NE(climb_pos, std::string::npos);
+  EXPECT_LT(pickup_pos, fixed_x_pos);
+  EXPECT_LT(fixed_x_pos, lateral_pos);
+  EXPECT_LT(lateral_pos, total_x_pos);
+  EXPECT_LT(total_x_pos, prepare_pos);
+  EXPECT_LT(prepare_pos, approach_pos);
+  EXPECT_LT(approach_pos, place_pos);
   EXPECT_LT(place_pos, retreat_pos);
   EXPECT_LT(retreat_pos, climb_pos);
+
+  EXPECT_EQ(countOccurrences(
+                xml,
+                "<SecondPreselectionCommand name=\"second_preselection_place_kfs\""),
+            1U);
+  EXPECT_EQ(xml.find("SecondPreselectionR1KfsPlaceAlign"), std::string::npos);
+  EXPECT_EQ(xml.find("second_preselect_nav_x2_m"), std::string::npos);
+  EXPECT_EQ(xml.find("second_preselect_place_forward_x_m"), std::string::npos);
 }
 
 TEST(SecondPreselectionLogic, BehaviorTreeXmlLoadsWithRegisteredNodes) {
@@ -99,14 +257,33 @@ TEST(SecondPreselectionLogic, BehaviorTreeXmlLoadsWithRegisteredNodes) {
   rc26_decision::registerSecondPreselectionNodes(factory);
   rc26_decision::registerOdomNavigationNodes(factory);
 
-  const auto tree_path =
-      std::filesystem::path(RC26_DECISION_SOURCE_DIR) / "behavior_trees" /
-      "second_preselection_tree.xml";
   auto blackboard = BT::Blackboard::create();
   EXPECT_NO_THROW({
-    auto tree = factory.createTreeFromFile(tree_path.string(), blackboard);
+    auto tree =
+        factory.createTreeFromFile(secondPreselectionTreePath().string(),
+                                   blackboard);
     EXPECT_TRUE(tree.rootNode() != nullptr);
   });
+}
+
+TEST(SecondPreselectionLogic, RedAndBlueConfigsUseNewParameters) {
+  const auto config_dir =
+      std::filesystem::path(RC26_DECISION_SOURCE_DIR).parent_path() /
+      "rc26_bringup" / "config";
+  for (const char *filename : {"r2_red.yaml", "r2_blue.yaml"}) {
+    const std::string yaml = readTextFile(config_dir / filename);
+    EXPECT_NE(yaml.find("second_preselect_post_pickup_forward_x_m: 1.5"),
+              std::string::npos);
+    EXPECT_NE(yaml.find("second_preselect_total_x_target_m: 4.2"),
+              std::string::npos);
+    EXPECT_NE(yaml.find("second_preselect_place_arm_reach_m: 0.45"),
+              std::string::npos);
+    EXPECT_NE(yaml.find("second_preselect_place_approach_timeout_s: 8.0"),
+              std::string::npos);
+    EXPECT_EQ(yaml.find("second_preselect_nav_x2_m"), std::string::npos);
+    EXPECT_EQ(yaml.find("second_preselect_place_forward_x_m"),
+              std::string::npos);
+  }
 }
 
 TEST(SecondPreselectionLogic, PostPlaceClimbDebugTreeOnlyRunsPostPlaceAction) {
@@ -121,7 +298,7 @@ TEST(SecondPreselectionLogic, PostPlaceClimbDebugTreeOnlyRunsPostPlaceAction) {
   EXPECT_NE(xml.find("SecondPreselectionPostPlaceClimb"), std::string::npos);
   EXPECT_EQ(xml.find("OdomDriveX"), std::string::npos);
   EXPECT_EQ(xml.find("SecondPreselectionKfsPickup"), std::string::npos);
-  EXPECT_EQ(xml.find("SecondPreselectionR1KfsPlaceAlign"), std::string::npos);
+  EXPECT_EQ(xml.find("SecondPreselectionKfsPlacePrepare"), std::string::npos);
 
   auto blackboard = BT::Blackboard::create();
   EXPECT_NO_THROW({

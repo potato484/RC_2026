@@ -13,6 +13,20 @@
 
       <SecondPreselectionKfsPickup name="second_preselection_kfs_pickup"/>
 
+      <OdomDriveX name="second_preselection_post_pickup_forward"
+                  distance_m="{second_preselect_post_pickup_forward_x_m}"
+                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                  odom_topic="{odom_relative_nav_odom_topic}"
+                  max_speed_mps="{odom_relative_nav_max_speed_mps}"
+                  min_speed_mps="{odom_relative_nav_min_speed_mps}"
+                  xy_kp="{odom_relative_nav_xy_kp}"
+                  heading_kp="{odom_relative_nav_heading_kp}"
+                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                  stable_ticks="{odom_relative_nav_stable_ticks}"
+                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                  timeout_s="{second_preselect_nav_timeout_s}"/>
       <OdomDriveY name="second_preselection_nav_y1"
                   distance_m="{second_preselect_nav_y1_m}"
                   cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
@@ -27,37 +41,12 @@
                   stable_ticks="{odom_relative_nav_stable_ticks}"
                   odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
                   timeout_s="{second_preselect_nav_timeout_s}"/>
-      <OdomDriveX name="second_preselection_nav_x2"
-                  distance_m="{second_preselect_nav_x2_m}"
-                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
-                  odom_topic="{odom_relative_nav_odom_topic}"
-                  max_speed_mps="{odom_relative_nav_max_speed_mps}"
-                  min_speed_mps="{odom_relative_nav_min_speed_mps}"
-                  xy_kp="{odom_relative_nav_xy_kp}"
-                  heading_kp="{odom_relative_nav_heading_kp}"
-                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
-                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
-                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
-                  stable_ticks="{odom_relative_nav_stable_ticks}"
-                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
-                  timeout_s="{second_preselect_nav_timeout_s}"/>
-
-      <SecondPreselectionR1KfsPlaceAlign name="second_preselection_r1_kfs_place_align"/>
-
-      <OdomDriveX name="second_preselection_place_forward"
-                  distance_m="{second_preselect_place_forward_x_m}"
-                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
-                  odom_topic="{odom_relative_nav_odom_topic}"
-                  max_speed_mps="{odom_relative_nav_max_speed_mps}"
-                  min_speed_mps="{odom_relative_nav_min_speed_mps}"
-                  xy_kp="{odom_relative_nav_xy_kp}"
-                  heading_kp="{odom_relative_nav_heading_kp}"
-                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
-                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
-                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
-                  stable_ticks="{odom_relative_nav_stable_ticks}"
-                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
-                  timeout_s="{second_preselect_nav_timeout_s}"/>
+      <SecondPreselectionDriveToTotalX
+          name="second_preselection_drive_to_total_x"/>
+      <SecondPreselectionKfsPlacePrepare
+          name="second_preselection_kfs_place_prepare"/>
+      <SecondPreselectionPlaceApproach
+          name="second_preselection_place_approach"/>
       <SecondPreselectionCommand name="second_preselection_place_kfs"
                                  command_id="{second_preselect_place_kfs_command_id}"
                                  done_feedback_id="-1"

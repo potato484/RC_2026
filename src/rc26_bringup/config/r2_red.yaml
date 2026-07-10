@@ -85,10 +85,24 @@ r2_runtime:
       second_preselect_post_place_final_delay_s: 25.0 # 上阶完成后发送最终 0x13 前等待
       second_preselect_post_place_final_command_id: 19 # 0x13 最终放置
       second_preselect_cmd_vel_topic: "cmd_vel"     # KFS 搜索、视觉对齐和前向趋近发布的运动命令
+      second_preselect_post_pickup_forward_x_m: 1.5 # 夹取成功后先沿车体系 +X 固定前进；计入总 X 投影
       second_preselect_nav_y1_m: 0.75               # 夹取完成后红方基准 +Y 横移；blue 启动时自动取反
-      second_preselect_nav_x2_m: 4.5                # 横移后沿车体系 +X 前进到 R1KFS 观察/对齐位
-      second_preselect_place_forward_x_m: 0.8       # R1KFS 视觉对齐后沿 +X 前进放置
+      second_preselect_total_x_target_m: 4.2        # 从初次搜索新鲜 odom 原点沿搜索 yaw 的总 X 净投影目标
+      second_preselect_total_x_tolerance_m: 0.03    # 总 X 闭环到位容差；已超调时停车成功且不倒退
       second_preselect_nav_timeout_s: 180.0         # 第二预选赛每个 odom 单轴段超时
+      second_preselect_place_arm_reach_m: 0.45      # 最终放置趋近距离=对齐稳定真实深度-独立臂长
+      second_preselect_place_approach_timeout_s: 8.0 # 最终放置趋近独立超时；超时停车后继续下发 0x13
+      second_preselect_place_occupied_center_x_min_ratio: 0.20 # 占位双框中心带左边界
+      second_preselect_place_occupied_center_x_max_ratio: 0.80 # 占位双框中心带右边界
+      second_preselect_place_occupied_upper_y_min_ratio: 0.20 # 上层框中心高度下界
+      second_preselect_place_occupied_split_y_ratio: 0.55 # 上下层框中心高度分界
+      second_preselect_place_occupied_max_center_dx_px: 120 # 上下框横向中心最大差
+      second_preselect_place_occupied_stable_frames: 2 # 连续占据/清空确认帧数
+      second_preselect_place_occupied_first_lateral_m: 0.56 # 首次占据红方 +Y 横移距离；blue 镜像
+      second_preselect_place_occupied_second_reverse_m: 1.10 # 再次占据时反方向横移距离
+      second_preselect_place_occupied_lateral_max_speed_mps: 0.15 # 占位避让横移最大速度
+      second_preselect_place_occupied_lateral_min_speed_mps: 0.03 # 占位避让横移最小速度
+      second_preselect_place_occupied_lateral_timeout_s: 15.0 # 单次占位避让横移超时
       second_preselect_search_forward_speed_mps: 0.30 # 0x11 后沿 +X 前进搜索 R2 KFS 的速度
       second_preselect_search_timeout_s: 20.0       # 前进搜索 R2 KFS 超时
       second_preselect_r2_target_label_prefixes: ["T_"] # R2 KFS 标签前缀
@@ -144,10 +158,10 @@ r2_runtime:
       second_preselect_after_ramp_turn_delta_rad: 1.5708 # 红方基准斜坡后左转 90°；blue 启动时自动取反
       second_preselect_after_ramp_turn_timeout_s: 30.0 # 斜坡后 90° 转向超时
       second_preselect_vision_config_file: ""       # 空则回退 rc26_vision/config/vision_models.yaml
-      second_preselect_model_id: "kfs_default"      # 用于 KFS 搜索/夹取与 R1KFS 放置对齐
-      second_preselect_odom_topic: "odom"           # KFS/R1KFS 视觉对齐读取的 odom topic
-      second_preselect_odom_timeout_s: 0.5          # KFS/R1KFS 视觉对齐 odom 新鲜度超时
-      second_preselect_dynamic_roi_ui_enable: false # 第二预选赛 OpenCV 调试窗口；贯穿 KFS 搜索/夹取验证与 R1KFS 放置对齐
+      second_preselect_model_id: "kfs_default"      # 用于 KFS 搜索/夹取、占位判断与任意 KFS 放置对齐
+      second_preselect_odom_topic: "odom"           # KFS 对齐、总 X、占位避让与放置趋近读取的 odom topic
+      second_preselect_odom_timeout_s: 0.5          # 第二预选赛各 odom 闭环的新鲜度超时
+      second_preselect_dynamic_roi_ui_enable: false # 第二预选赛 OpenCV 调试窗口；贯穿夹取与任意 KFS 放置准备/对齐
       second_preselect_dynamic_roi_ui_window_name: "SecondPreselectionVision" # 第二预选赛视觉调试窗口标题
 
       # ======================================================================

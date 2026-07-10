@@ -52,10 +52,25 @@ struct SecondPreselectionParams {
   int post_place_final_command_id{0x13};
 
   std::string cmd_vel_topic{"cmd_vel"};
-  double nav_y1_m{0.7};
-  double nav_x2_m{4.5};
-  double place_forward_x_m{0.8};
+  int team_mirror_sign{1};
+  double nav_y1_m{0.75};
+  double post_pickup_forward_x_m{1.5};
+  double total_x_target_m{4.2};
+  double total_x_tolerance_m{0.03};
   double nav_timeout_s{180.0};
+  double place_arm_reach_m{0.45};
+  double place_approach_timeout_s{8.0};
+  double place_occupied_center_x_min_ratio{0.20};
+  double place_occupied_center_x_max_ratio{0.80};
+  double place_occupied_upper_y_min_ratio{0.20};
+  double place_occupied_split_y_ratio{0.55};
+  int place_occupied_max_center_dx_px{120};
+  int place_occupied_stable_frames{2};
+  double place_occupied_first_lateral_m{0.56};
+  double place_occupied_second_reverse_m{1.10};
+  double place_occupied_lateral_max_speed_mps{0.15};
+  double place_occupied_lateral_min_speed_mps{0.03};
+  double place_occupied_lateral_timeout_s{15.0};
   double ramp_approach_x_m{0.50};
   double ramp_climb_x_m{1.50};
   double ramp_max_speed_mps{0.30};
@@ -125,6 +140,27 @@ struct SecondPreselectionParams {
 
 double secondPreselectionKfsApproachDistance(
     double locked_depth_m, const SecondPreselectionParams &params);
+double secondPreselectionProjectedX(double origin_x, double origin_y,
+                                    double origin_yaw, double current_x,
+                                    double current_y);
+double secondPreselectionTotalXRemainingToDrive(
+    double projected_x_m, const SecondPreselectionParams &params);
+double secondPreselectionPlaceApproachDistance(
+    double target_depth_m, const SecondPreselectionParams &params);
+double secondPreselectionPlaceAvoidanceDistance(
+    int avoidance_stage, const SecondPreselectionParams &params);
+bool secondPreselectionPlaceApproachTimedOut(double elapsed_s,
+                                             double timeout_s);
+bool secondPreselectionFrameOccupied(
+    const std::vector<rc26_vision::Detection> &detections, int frame_width,
+    int frame_height, const SecondPreselectionParams &params);
+
+enum class SecondPreselectionOccupancyDecision { Pending, Occupied, Clear };
+
+SecondPreselectionOccupancyDecision
+secondPreselectionUpdateOccupancyStability(bool occupied, int stable_frames,
+                                           int &occupied_count,
+                                           int &clear_count);
 
 void loadSecondPreselectionParams(rclcpp::Node &node,
                                   const BT::Blackboard::Ptr &blackboard);
@@ -278,6 +314,9 @@ private:
   bool has_odom_{false};
   bool search_yaw_captured_{false};
   double search_yaw_{0.0};
+  bool search_origin_captured_{false};
+  double search_origin_x_{0.0};
+  double search_origin_y_{0.0};
   bool align_yaw_captured_{false};
   double align_yaw_{0.0};
   bool align_waiting_verify_frame_{false};
@@ -323,11 +362,11 @@ private:
   Phase phase_{Phase::Search};
 };
 
-class SecondPreselectionR1KfsPlaceAlignAction : public BT::StatefulActionNode {
+class SecondPreselectionDriveToTotalXAction : public BT::StatefulActionNode {
 public:
-  SecondPreselectionR1KfsPlaceAlignAction(const std::string &name,
-                                          const BT::NodeConfig &config);
-  ~SecondPreselectionR1KfsPlaceAlignAction() override;
+  SecondPreselectionDriveToTotalXAction(const std::string &name,
+                                        const BT::NodeConfig &config);
+  ~SecondPreselectionDriveToTotalXAction() override;
 
   static BT::PortsList providedPorts() { return {}; }
 
@@ -338,10 +377,58 @@ public:
 private:
   using OdomMsg = nav_msgs::msg::Odometry;
 
-  struct R1KfsObservation {
+  BT::NodeStatus fail(const std::string &reason);
+  void publishStop();
+  void clearRuntimeState();
+  bool odomReady() const;
+
+  SecondPreselectionParams params_;
+  rclcpp::Node *node_{nullptr};
+  rclcpp::Subscription<OdomMsg>::SharedPtr odom_sub_;
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
+  std::chrono::steady_clock::time_point start_tp_{};
+  std::chrono::steady_clock::time_point last_odom_tp_{};
+  double origin_x_{0.0};
+  double origin_y_{0.0};
+  double origin_yaw_{0.0};
+  double odom_x_{0.0};
+  double odom_y_{0.0};
+  double odom_yaw_{0.0};
+  bool has_odom_{false};
+  int stable_ticks_{0};
+};
+
+class SecondPreselectionKfsPlacePrepareAction
+    : public BT::StatefulActionNode {
+public:
+  SecondPreselectionKfsPlacePrepareAction(const std::string &name,
+                                          const BT::NodeConfig &config);
+  ~SecondPreselectionKfsPlacePrepareAction() override;
+
+  static BT::PortsList providedPorts() { return {}; }
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
+
+private:
+  using OdomMsg = nav_msgs::msg::Odometry;
+  using FrameSnapshot = rc26_vision::VisionInferenceManager::FrameSnapshot;
+
+  enum class Phase {
+    ObserveInitial,
+    LateralFirst,
+    ObserveAfterFirst,
+    LateralSecond,
+    ObserveAfterSecond,
+    AlignTarget
+  };
+
+  struct KfsObservation {
     rc26_vision::VisualTargetSnapshot target;
     rc26_vision::Detection detection;
     int offset_px{0};
+    std::string depth_detail;
   };
 
   BT::NodeStatus fail(const std::string &reason);
@@ -353,16 +440,30 @@ private:
   bool setupUiIfNeeded();
   void releaseUi();
   void renderUi(const std::string &stage,
-                const std::optional<R1KfsObservation> &observation =
+                const std::optional<KfsObservation> &observation =
                     std::nullopt,
                 const std::string &detail = std::string());
   void publishStop();
   void publishTwist(double vx, double vy, double wz);
   rc26_vision::TipAlignmentConfig makeAlignmentConfig() const;
   std::optional<rc26_vision::TipHeadingControl> alignHeadingControl();
-  std::optional<R1KfsObservation> findNearestR1Kfs();
-  R1KfsObservation
-  applyAlignmentObservationFilter(const R1KfsObservation &observation);
+  bool latestSnapshot(FrameSnapshot &snapshot) const;
+  std::optional<KfsObservation> findNearestKfs(const FrameSnapshot &snapshot);
+  KfsObservation
+  applyAlignmentObservationFilter(const KfsObservation &observation);
+  BT::NodeStatus tickObserveCheckpoint(Phase lateral_phase,
+                                       Phase clear_phase,
+                                       bool final_checkpoint);
+  void beginLateralMove(double distance_m, Phase phase,
+                        Phase next_observe_phase);
+  BT::NodeStatus tickLateralMove();
+  BT::NodeStatus tickAlignTarget();
+  BT::NodeStatus finishImmediatePlace(const std::string &reason);
+  BT::NodeStatus finishAlignedPlace(const KfsObservation &observation);
+  void resetObservationStability();
+  void latchLatestObservationSequence();
+  void resetAlignmentState();
+  double headingAngularZ(double target_yaw_rad) const;
   void clearRuntimeState();
 
   SecondPreselectionParams params_;
@@ -371,8 +472,11 @@ private:
   rclcpp::Subscription<OdomMsg>::SharedPtr odom_sub_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
   std::chrono::steady_clock::time_point start_tp_{};
+  std::chrono::steady_clock::time_point phase_tp_{};
   std::chrono::steady_clock::time_point last_log_tp_{};
   std::chrono::steady_clock::time_point last_odom_tp_{};
+  double odom_x_{0.0};
+  double odom_y_{0.0};
   double odom_yaw_{0.0};
   bool has_odom_{false};
   bool align_yaw_captured_{false};
@@ -382,11 +486,62 @@ private:
   int align_lost_count_{0};
   int64_t align_last_sequence_{0};
   rc26_vision::TipTargetLockState align_lock_state_;
-  std::optional<R1KfsObservation> align_last_observation_;
+  std::optional<KfsObservation> align_last_observation_;
   bool align_filtered_offset_valid_{false};
   double align_filtered_offset_px_{0.0};
+  std::vector<double> align_stable_depths_;
+  int occupied_stable_count_{0};
+  int clear_stable_count_{0};
+  int64_t occupancy_last_sequence_{0};
+  double lateral_distance_m_{0.0};
+  double lateral_start_x_{0.0};
+  double lateral_start_y_{0.0};
+  double lateral_start_yaw_{0.0};
+  bool lateral_start_captured_{false};
+  int lateral_stable_ticks_{0};
+  Phase next_observe_phase_{Phase::ObserveInitial};
+  Phase phase_{Phase::ObserveInitial};
   bool ui_window_active_{false};
   bool ui_disabled_after_error_{false};
+};
+
+class SecondPreselectionPlaceApproachAction : public BT::StatefulActionNode {
+public:
+  SecondPreselectionPlaceApproachAction(const std::string &name,
+                                        const BT::NodeConfig &config);
+  ~SecondPreselectionPlaceApproachAction() override;
+
+  static BT::PortsList providedPorts() { return {}; }
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
+
+private:
+  using OdomMsg = nav_msgs::msg::Odometry;
+
+  BT::NodeStatus fail(const std::string &reason);
+  BT::NodeStatus finish(const std::string &result, bool timed_out);
+  void publishStop();
+  void clearRuntimeState();
+  bool odomReady() const;
+
+  SecondPreselectionParams params_;
+  rclcpp::Node *node_{nullptr};
+  rclcpp::Subscription<OdomMsg>::SharedPtr odom_sub_;
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
+  std::chrono::steady_clock::time_point start_tp_{};
+  std::chrono::steady_clock::time_point last_odom_tp_{};
+  double distance_m_{0.0};
+  double start_x_{0.0};
+  double start_y_{0.0};
+  double start_yaw_{0.0};
+  double odom_x_{0.0};
+  double odom_y_{0.0};
+  double odom_yaw_{0.0};
+  bool has_odom_{false};
+  bool start_captured_{false};
+  int stable_ticks_{0};
 };
 
 class SecondPreselectionPostPlaceClimbAction : public BT::StatefulActionNode {
