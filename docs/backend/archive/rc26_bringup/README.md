@@ -36,6 +36,10 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 
 `start_r2_auto.sh` 专用上行人工触发外部限位 3 `0x13` 监听器只订阅 `/mechanism/command_feedback`，收到 `feedback_id=0x13` 后写回 `r2_active_side.yaml` 顶层 `active_side`：当前 `red` 切到 `blue`，当前 `blue` 切到 `red`。该监听器不由 `bringup.launch.py` 自动启动；直接 `ros2 launch rc26_bringup bringup.launch.py run_mode:=navigation` 不会启用自动红蓝切换，且该切换只影响下一次启动选择的红/蓝运行配置。现有第二预选赛下行 `SECOND_PRESELECTION_PLACE_KFS(0x13)` 命令保持不变，上下行 0x13 分属不同协议方向。
 
+红蓝切换写回采用可恢复的两阶段提交：候选配置先写入同目录临时文件并同步文件与父目录，再提升为隐藏 `.pending`；正式 `r2_active_side.yaml` 完成原子替换和父目录同步后才删除 `.pending`。若监听器在持久化提交后被强制终止或设备断电，`start_r2_auto.sh` 会在读取 `active_side` 之前执行 `--recover-only`，使用 `.pending` 完成替换；同时兼容恢复旧实现遗留且修改时间不早于正式配置的 `.tmp` 文件。若旧 `.tmp` 已写完整则采用其中的目标配置，若只创建或写入了一部分，则把该文件视为已收到红蓝切换请求的持久化意图，并基于当前正式配置重建一次切换。恢复后的比赛方直接用于本次重启。
+
+该保证从事务文件已经在本机文件系统中可见开始成立；如果进程在收到 MCU 消息后、尚未来得及创建任何事务文件之前即被强杀或整机断电，本机没有可恢复证据，无法凭空确认该次请求。MCU 侧仍应在未获得后续业务确认时保留重试能力。
+
 每个红/蓝运行配置的 `r2_runtime.paths` 当前只维护：
 
 - `prior_pcd_file`
@@ -85,6 +89,8 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 - `/cmd_vel` 默认由 `rc26_decision` 的导航/动作节点串行发布，由 `rc26_mcu_transport` 消费；运行遥控或其它测试入口时必须显式保证命令权威唯一。
 
 ## 本轮同步
+
+2026-07-10 同步：上行人工触发外部限位 3 `0x13` 红蓝切换写回改为可恢复两阶段提交。监听器持久化 `.pending`，保留恢复副本直到正式配置替换和父目录 `fsync` 完成；`start_r2_auto.sh` 在解析红蓝方前执行 `--recover-only`，可恢复强杀、进程崩溃或断电遗留的 `.pending`，并兼容旧实现留下且不早于正式配置的完整或不完整 `.tmp` 文件。新增回归测试覆盖正常提交、pending 恢复、旧临时文件恢复和过期临时文件忽略。
 
 2026-07-09 同步：MC 夹取端头后 `RotateInPlace` 之后的 `OdomDriveY` 从 XML 固定 `-0.4m` 改为读取 `mc_after_rotate_retreat_y_m`。`r2_red.yaml` 保持旧 `-0.4m` 退让；`r2_blue.yaml` 显式配置为正向 `0.2m`，因此 `r2_active_side.yaml` 选中 `active_side: blue` 时不再执行反向 Y 退让。
 

@@ -105,6 +105,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 workspace_dir="${RC26_WS:-${script_dir}}"
 setup_file="${workspace_dir}/install/setup.bash"
 side_config_file="${workspace_dir}/src/rc26_bringup/config/r2_active_side.yaml"
+active_side_switch_listener_script="${workspace_dir}/src/rc26_bringup/scripts/active_side_switch_listener.py"
 runtime_config_file=""
 use_realsense="true"
 use_rviz="false"
@@ -184,6 +185,17 @@ if [[ ! -f "${side_config_file}" ]]; then
   exit 1
 fi
 
+active_side_recovery_cmd=(
+  python3
+  "${active_side_switch_listener_script}"
+  "--side-config-file"
+  "${side_config_file}"
+  "--recover-only"
+)
+if [[ "${dry_run}" != "true" ]]; then
+  "${active_side_recovery_cmd[@]}"
+fi
+
 active_side="$(yaml_scalar_value "${side_config_file}" "active_side" | tr '[:upper:]' '[:lower:]')"
 preselection_mode="$(yaml_scalar_value "${side_config_file}" "preselection_mode" | tr '[:upper:]' '[:lower:]')"
 first_repeat_enable="$(yaml_scalar_value "${side_config_file}" "first_preselection_mc_repeat_enable")"
@@ -251,7 +263,7 @@ launch_cmd+=("${extra_launch_args[@]}")
 
 active_side_switch_listener_cmd=(
   python3
-  "${workspace_dir}/src/rc26_bringup/scripts/active_side_switch_listener.py"
+  "${active_side_switch_listener_script}"
   "--side-config-file"
   "${side_config_file}"
   "--feedback-topic"
@@ -278,6 +290,7 @@ print_summary() {
 
 if [[ "${dry_run}" == "true" ]]; then
   print_summary
+  print_cmd "${active_side_recovery_cmd[@]}"
   print_cmd source "${setup_file}"
   print_cmd "${active_side_switch_listener_cmd[@]}"
   print_cmd "${launch_cmd[@]}"

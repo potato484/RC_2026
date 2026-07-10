@@ -19,6 +19,10 @@ Log/
 logs
 *.log
 
+# Recoverable active-side selector transactions
+/src/rc26_bringup/config/.r2_active_side.yaml.*.tmp
+/src/rc26_bringup/config/.r2_active_side.yaml.pending
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
