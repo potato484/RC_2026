@@ -91,7 +91,7 @@ r2_runtime:
       second_preselect_total_x_tolerance_m: 0.03    # 总 X 闭环到位容差；已超调时停车成功且不倒退
       second_preselect_nav_timeout_s: 180.0         # 第二预选赛每个 odom 单轴段超时
       second_preselect_place_arm_reach_m: 0.45      # 最终放置趋近距离=对齐稳定真实深度-独立臂长
-      second_preselect_place_approach_timeout_s: 8.0 # 最终放置趋近独立超时；超时停车后继续下发 0x13
+      second_preselect_place_no_depth_forward_x_m: 1.5 # 清空后连续无真实深度超时时沿 +X 降级前进的累计上限
       second_preselect_place_occupied_center_x_min_ratio: 0.20 # 占位双框中心带左边界
       second_preselect_place_occupied_center_x_max_ratio: 0.80 # 占位双框中心带右边界
       second_preselect_place_occupied_upper_y_min_ratio: 0.20 # 上层框中心高度下界
@@ -131,7 +131,7 @@ r2_runtime:
       second_preselect_kfs_approach_speed_mps: 0.20 # 前向趋近最大速度
       second_preselect_kfs_approach_min_speed_mps: 0.03 # 前向趋近最小速度
       second_preselect_kfs_approach_x_sign: 1       # 前向趋近沿车体系 +X
-      second_preselect_kfs_approach_timeout_s: 8.0  # 前向趋近超时
+      second_preselect_kfs_approach_timeout_s: 8.0  # 共用于初次夹取趋近、清空后无真实深度等待和最终放置趋近
       second_preselect_kfs_grab_distance_m: 0.45    # 机械臂可触达距离
       second_preselect_kfs_heading_kp: 1.2          # KFS 对齐/趋近 heading hold 增益
       second_preselect_kfs_heading_max_speed_radps: 0.30 # heading hold 最大角速度

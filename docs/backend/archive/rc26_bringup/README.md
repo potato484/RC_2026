@@ -59,7 +59,7 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 - `second_preselect_pre_approach_lower_command_id`、`second_preselect_pre_approach_lower_done_feedback_id`、`second_preselect_pre_approach_lower_settle_s`：第二预选赛视觉对齐后、odom 前向趋近前的机械臂彻底放下握手参数。当前默认下发 `0x14`，等待同 `seq` 的 `0x12`，再停车等待 `0.5s` 后才允许前进。
 - `second_preselect_pickup_command_id`、`second_preselect_pickup_done_feedback_id`、`second_preselect_search_*`、`second_preselect_r2_target_*`、`second_preselect_r1_*`、`second_preselect_kfs_*`、`second_preselect_grab_verify_*`、`second_preselect_grab_settle_s`：第二预选赛搜索夹取链参数。当前树内前向趋近后的 `0x12` 用作 KFS 夹取触发，ACK 后先等待同 `seq` 的 MCU 上行 `0x11` 夹取完成反馈，再由视觉消失验证确认夹取。
 - `second_preselect_post_pickup_forward_x_m`、`second_preselect_nav_y1_m`、`second_preselect_total_x_target_m`、`second_preselect_total_x_tolerance_m`：第二预选赛夹取后的总 X 闭环参数。夹取确认后先沿 `+X 1.5m`，再按红方基准 `+Y 0.75m`（blue 自动镜像为 `-Y`），随后以最初搜索前记录的 odom 位姿和搜索起始 yaw 为原点，将搜索、夹取趋近和固定 `+X 1.5m` 的真实净投影补齐到 `4.2m`；若进入节点时已经超出目标则停车成功，不倒退补偿。
-- `second_preselect_place_arm_reach_m`、`second_preselect_place_approach_timeout_s`、`second_preselect_place_occupied_*`：第二预选赛放置准备参数。正前方上下双层 KFS 框连续稳定后按 red `+Y 0.56m` / blue `-Y 0.56m` 首次避让，再次占据时反向 `1.10m`，第三次仍占据则跳过对齐与趋近直接进入下行 `0x13`；场地清空后对任意真实深度有效的 KFS 横移对齐，按 `max(0, depth-arm_reach)` 前进，独立 `8s` 超时会停车并降级继续放置。
+- `second_preselect_place_arm_reach_m`、`second_preselect_place_no_depth_forward_x_m`、`second_preselect_place_occupied_*`：第二预选赛放置准备参数。正前方上下双层 KFS 框连续稳定后按 red `+Y 0.56m` / blue `-Y 0.56m` 首次避让，再次占据时反向 `1.10m`，第三次仍占据则跳过对齐与趋近直接进入下行 `0x13`；场地清空后对任意真实深度有效的 KFS 横移对齐，按 `max(0, depth-arm_reach)` 前进。连续 `second_preselect_kfs_approach_timeout_s` 无真实深度时启动累计 `+X 1.5m` 降级前进；中心 ROI 任意 KFS 单帧可中断前进并重跑完整占位流程，再次超时只恢复剩余距离。降级运动使用 `second_preselect_nav_timeout_s`，走满或运动超时均停车后继续唯一一次首次 `0x13`。旧 `second_preselect_place_approach_timeout_s` 已删除，初次夹取趋近、无深度等待和最终放置趋近统一使用 `second_preselect_kfs_approach_timeout_s`。
 - `second_preselect_dynamic_roi_ui_enable`、`second_preselect_dynamic_roi_ui_window_name`：第二预选赛本地 OpenCV 视觉调试窗口参数。现场开启后会贯穿 KFS 搜索、视觉对齐、夹取完成反馈等待、夹取消失验证、占位判断和任意 KFS 放置对齐，显示识别框、锁定目标、目标线和阶段状态，不改变决策结果。
 这些参数描述相对分段和 odom yaw 目标生成，不是地图位姿。现场标定时应按启动姿态重新调整每段 `distance_m` 和相对/绝对 yaw；蓝方若只做标准镜像，保持 `r2_blue.yaml` 的 `team: blue` 即可复用同一组红方基准值。
 
@@ -100,7 +100,7 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 
 2026-07-05 历史同步：当时的第二预选赛放置链曾使用 `+Y 0.7m -> +X 4.5m -> R1_KFS 对齐 -> +X 0.8m`；该路线已被 2026-07-10 的总 X 与任意 KFS 放置流程替代。
 
-2026-07-10 同步：红/蓝运行配置新增搜索起点总 X `4.2m` 闭环、夹取后固定 `+X 1.5m`、`±Y 0.75m`、双框占位两级避让、任意 KFS 真实深度放置趋近和 `8s` 超时降级参数；删除正式流程中的 `second_preselect_nav_x2_m` 与 `second_preselect_place_forward_x_m`。红蓝 YAML 只维护红方基准距离，Y 段和占位避让方向继续由 `team` 镜像。
+2026-07-10 同步：红/蓝运行配置维护搜索起点总 X `4.2m` 闭环、夹取后固定 `+X 1.5m`、`±Y 0.75m`、双框占位两级避让和任意 KFS 真实深度放置趋近；新增 `second_preselect_place_no_depth_forward_x_m=1.5`，用于场地清空后连续无真实深度时的累计降级前进。`second_preselect_kfs_approach_timeout_s=8.0` 现在共用于初次夹取趋近、无深度等待和最终放置趋近，旧 `second_preselect_place_approach_timeout_s` 已删除；降级前进运动超时继续使用 `second_preselect_nav_timeout_s`。红蓝 YAML 只维护红方基准距离，Y 段和占位避让方向继续由 `team` 镜像。
 
 2026-07-05 同步：红/蓝运行配置新增第二预选赛视觉对齐后的机械臂放下握手参数：`second_preselect_pre_approach_lower_command_id=0x14`、`second_preselect_pre_approach_lower_done_feedback_id=0x12` 和 `second_preselect_pre_approach_lower_settle_s=0.5`。`rc26_decision` 收到同 `seq` 放下完成反馈并停车等待后，才开始原有 KFS odom 前向趋近。
 
