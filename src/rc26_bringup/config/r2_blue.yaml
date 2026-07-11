@@ -35,9 +35,9 @@ r2_runtime:
       startup_odom_timeout_s: 0.5    # 启动 gate 接受的 odom 最大年龄，单位秒
       startup_odom_wait_timeout_s: 1800.0 # 等待 /odom 稳定的最长时间，单位秒
       startup_odom_min_wait_s: 1.0   # 收到 /odom 后至少等待多久才允许启动行为树，单位秒
-      startup_odom_stable_samples: 10 # 连续多少帧低速 /odom 才认为稳定
-      startup_odom_max_linear_speed_mps: 0.03 # 启动稳定判定允许的最大线速度
-      startup_odom_max_angular_speed_radps: 0.05 # 启动稳定判定允许的最大角速度
+      startup_odom_stable_samples: 5 # 连续多少帧低速 /odom 才认为稳定
+      startup_odom_max_linear_speed_mps: 0.20 # 启动稳定判定允许的最大线速度
+      startup_odom_max_angular_speed_radps: 0.20 # 启动稳定判定允许的最大角速度
 
       # ======================================================================
       # 通用 odom 相对闭环导航参数 —— OdomDriveX/OdomDriveY/OdomTurnToYaw/OdomDriveXTurnX 直接发布 /cmd_vel
@@ -150,8 +150,8 @@ r2_runtime:
       second_preselect_grab_verify_lost_stable_frames: 10 # 原目标连续消失帧数
       second_preselect_grab_verify_iou_threshold: 0.30 # 原目标匹配 IoU 阈值
       second_preselect_grab_settle_s: 0.5           # 夹取确认成功后停车稳定时间
-      preselection_ramp_approach_x_m: 0.50      # second managed 入口斜坡前接近段 OdomDriveX 距离
-      preselection_ramp_climb_x_m: 1.50         # second managed 入口斜坡爬坡段 OdomDriveX 距离
+      preselection_ramp_approach_x_m: 2.50      # second managed 入口斜坡前接近段 OdomDriveX 距离
+      preselection_ramp_climb_x_m: 2.50         # second managed 入口斜坡爬坡段 OdomDriveX 距离
       preselection_ramp_max_speed_mps: 0.30     # 斜坡段平移速度上限
       preselection_ramp_min_speed_mps: 0.03     # 斜坡段最小平移速度
       preselection_ramp_timeout_s: 180.0        # 斜坡段每段超时
