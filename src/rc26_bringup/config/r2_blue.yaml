@@ -192,7 +192,7 @@ r2_runtime:
       mc_align_kp: 0.0010                    # 横移 P 控制比例增益，像素误差到 m/s
       mc_align_min_speed_mps: 0.010         # 横移控制最小速度，单位 m/s
       mc_align_max_speed_mps: 0.015           # 横移控制最大速度，单位 m/s
-      mc_align_search_speed_mps: 0.010       # 无端头时低速横移搜寻速度幅值；red 派生为 +Y，blue 派生为 -Y
+      mc_align_search_speed_mps: 0.010       # 无端头时低速横移搜寻速度幅值；red 派生为 -Y，blue 派生为 +Y
       mc_align_command_rate_hz: 20.0         # 横移速度指令最大发布频率，单位 Hz
       mc_align_lost_stop_frames: 3           # 锁定目标短暂丢失多少帧后才重新获锁
       mc_align_lost_servo_speed_scale: 0.45  # 短暂丢框时按最近 offset 低速继续伺服的速度缩放
