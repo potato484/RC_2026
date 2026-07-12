@@ -314,6 +314,7 @@ print_summary() {
     echo "Runtime config override: ${runtime_config_file}"
   fi
   echo "RealSense D455: ${use_realsense}"
+  echo "Startup ready 0x20 notify: ${use_realsense} (override via --extra-launch-arg startup_ready_notify_enable:=false)"
   echo "RViz2: ${use_rviz}"
   echo "Recover Mid-360 stream: ${recover_mid360_stream}"
 }

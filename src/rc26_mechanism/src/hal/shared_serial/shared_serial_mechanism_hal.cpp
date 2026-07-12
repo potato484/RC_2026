@@ -57,6 +57,7 @@ bool SharedSerialMechanismHAL::sendCommand(uint8_t cmd_id, const std::vector<uin
     auto request = std::make_shared<SendCommandSrv::Request>();
     request->command_id = cmd_id;
     request->payload = payload;
+    request->wait_ack = true;
 
     auto future = send_command_client_->async_send_request(request);
     if (future.wait_for(kServiceCallTimeout) != std::future_status::ready) {

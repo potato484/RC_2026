@@ -28,4 +28,11 @@ TEST(McuErrorFeedbackFilter, PublishesOnlyTwoByteMcuErrorPayload) {
         static_cast<uint8_t>(FID::ARM_RAISE_DONE), 0));
 }
 
+TEST(McuTransportSendMode, RequestWaitAckSelectsReliableOrNoAckPath) {
+    EXPECT_EQ(rc26_mcu_transport::sendModeForRequest(true),
+              rc26_mcu_transport::MechanismTransportSendMode::ReliableAck);
+    EXPECT_EQ(rc26_mcu_transport::sendModeForRequest(false),
+              rc26_mcu_transport::MechanismTransportSendMode::NoAck);
+}
+
 }  // namespace

@@ -12,6 +12,11 @@ if(BUILD_TESTING)
     test/test_active_side_switch_listener.py
     TIMEOUT 60
   )
+  ament_add_pytest_test(
+    test_startup_ready_notify_node
+    test/test_startup_ready_notify_node.py
+    TIMEOUT 60
+  )
 endif()
 
 install(DIRECTORY
@@ -25,6 +30,11 @@ install(DIRECTORY
 install(DIRECTORY scripts
   DESTINATION share/${PROJECT_NAME}
   USE_SOURCE_PERMISSIONS
+)
+
+install(PROGRAMS
+  scripts/startup_ready_notify_node.py
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 ament_package()

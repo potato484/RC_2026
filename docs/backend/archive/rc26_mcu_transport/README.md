@@ -36,7 +36,8 @@ ros2 launch rc26_mcu_transport mcu_transport.launch.py \
 
 - `/mechanism/send_command`
   - type: `rc26_interfaces/srv/SendMechanismTransportCommand`
-  - `accepted=true` 表示目标 MCU 已返回通用 `ACK(0x00)`，`seq` 为串口帧序号
+  - 请求字段 `wait_ack=true` 时走可靠 `sendCommand()`，`accepted=true` 表示目标 MCU 已返回通用 `ACK(0x00)`，`seq` 为串口帧序号
+  - 请求字段 `wait_ack=false` 时走 `sendCommandNoAck()`，写入串口成功即返回 `accepted=true` 和 `seq`，不等待通用 ACK、不进入 retry，也不等待业务反馈；该模式仅用于启动就绪通知等明确 no-ack 命令
   - 若目标 MCU 对同 `seq` 返回 `MCU_ERROR(0xFE)`，底层会按 retry `0x00~0x09` 重发；若持续 `0xFE`，service 返回 `accepted=false`，错误原因通过日志、`last_error` diagnostics 暴露为下位机原因
 - `/mechanism/command_feedback`
   - type: `rc26_interfaces/msg/MechanismTransportFeedback`
@@ -72,6 +73,10 @@ ros2 launch rc26_mcu_transport mcu_transport.launch.py \
 - `SECOND_PRESELECTION_ARM_HIGH_RAISE = 0x12`
 - `SECOND_PRESELECTION_PLACE_KFS = 0x13`
 - `SECOND_PRESELECTION_ARM_LOWER = 0x14`
+- `SECOND_PRESELECTION_PRELOAD_KFS_PICKUP = 0x15`
+- `STARTUP_READY_WAITING_LIMIT = 0x20`
+
+`STARTUP_READY_WAITING_LIMIT(0x20)` 是完整自动链路启动就绪通知：`rc26_bringup` 的 `startup_ready_notify_node.py` 观察到 RealSense color、aligned depth、camera info 均已出帧，且 `rc26_decision` 已进入人工限位 branch gate 等待后，通过 `/mechanism/send_command` 以 `wait_ack=false` 下发一次空 payload。它不要求 MCU 回复 ACK 或业务反馈；若人工限位 `0x06/0x10` 已先到达，则本轮启动跳过该通知。
 
 本包不新增业务命令目录。新增机构命令时，先在 `rc26_serial/protocol.hpp` 定义原始 ID，再由需要该能力的上层直接调用 `/mechanism/send_command`。只有重新设计高层动作语义时，才需要恢复 action、完成反馈和中间层契约。
 
@@ -80,6 +85,8 @@ ros2 launch rc26_mcu_transport mcu_transport.launch.py \
 KFS 阶梯等待测试链属于直接 transport service 消费场景：决策层发送 `ARM_RAISE(0x04)` / `ARM_LOWER(0x05)`，并等待同 `seq` 的 `0x02/0x03` 完成反馈。梅林预选赛入口 1/3 阶梯探测会发送 `ARM_HIGH_RAISE(0x0D)`，并等待同 `seq` 的 `ARM_HIGH_RAISE_DONE(0x09)`；本包只透传 raw command 与业务反馈，不赋予高抬升额外动作语义。KFS 向下夹取在视觉锁定开环距离后还会发送 `ARM_SECOND_LOWER(0x0E)`，并等待同 `seq` 的 `ARM_SECOND_LOWER_DONE(0x0A)` 后才允许前进。梅林预选赛入口高侧夹取使用 `ENTRY_GRAB_KFS_UP(0x0F)`，并等待同 `seq` 的 `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 后进入视觉消失验证。managed first 入口会按分支发送 `COMPETITION_START(0x10)` 并等待同 `seq` 的 `0x0C`；managed second 入口会按分支发送 `SECOND_PRESELECTION_START(0x11)` 并等待同 `seq` 的 `0x0D`。第二个预选赛独立树视觉对齐后发送 `SECOND_PRESELECTION_ARM_LOWER(0x14)` 并等待同 `seq` 的 `SECOND_PRESELECTION_ARM_LOWER_DONE(0x12)`，停车等待后才允许前向趋近；趋近完成后发送 `SECOND_PRESELECTION_ARM_HIGH_RAISE/KFS_PICKUP(0x12)`，等待同 `seq` 的 `SECOND_PRESELECTION_PICKUP_KFS_DONE(0x11)`，再进入视觉消失验证；放置阶段发送 `SECOND_PRESELECTION_PLACE_KFS(0x13)` 后只要求通用 ACK。本包仍只透传 raw command 与业务反馈，不直接决定切换目标树。`rc26_vision` 独立 KFS action test 也只把本包当 raw transport provider，开启后先按方向发送 `ARM_RAISE(0x04)` / `ARM_LOWER(0x05)` 并订阅完成反馈；`direction=down` 时开环前再发送 `ARM_SECOND_LOWER(0x0E)` 等待 `0x0A`，随后发送空 payload 的 `GRAB_KFS_DOWN(0x02)`，`direction=up` 仍直接趋近并发送 `GRAB_KFS_UP(0x03)`；本包的 service `accepted=true` 仍只代表通用 ACK，KFS 物理夹取成功由视觉节点或决策节点通过原目标消失验证判断。
 
 ## 本轮同步
+
+2026-07-12 同步：raw transport service 新增 `wait_ack`。常规机构命令继续显式使用 `wait_ack=true` 等待通用 ACK；启动就绪通知新增下行 `STARTUP_READY_WAITING_LIMIT(0x20)`，由 `rc26_bringup` 在 RealSense 三类消息和人工限位 gate 均就绪后以 `wait_ack=false` 发送一次空 payload。
 
 2026-07-05 同步：`rc26_serial` 真源新增第二预选赛视觉对齐后的机械臂放下命令 `SECOND_PRESELECTION_ARM_LOWER(0x14)` 与完成反馈 `SECOND_PRESELECTION_ARM_LOWER_DONE(0x12)`。本包继续只作为 raw transport provider 发送命令并透传业务反馈；service ACK 语义不变。
 

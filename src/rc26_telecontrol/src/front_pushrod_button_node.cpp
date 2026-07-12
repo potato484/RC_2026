@@ -104,6 +104,7 @@ private:
     auto request = std::make_shared<SendCommandSrv::Request>();
     request->command_id = *command_id;
     request->payload.clear();
+    request->wait_ack = true;
 
     try {
       send_command_client_->async_send_request(

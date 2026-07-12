@@ -1417,6 +1417,7 @@ bool TipVisionTestNode::send_grab_tip_command(uint8_t & out_seq)
   auto request = std::make_shared<SendCommandSrv::Request>();
   request->command_id = static_cast<uint8_t>(alignment_grab_command_id_);
   request->payload = alignment_grab_payload_;
+  request->wait_ack = true;
 
   const uint64_t token = grab_request_generation_.fetch_add(1, std::memory_order_relaxed) + 1U;
   {

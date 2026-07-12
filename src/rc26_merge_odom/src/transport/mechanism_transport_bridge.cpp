@@ -71,10 +71,13 @@ void MechanismTransportBridge::handleSendCommand(const std::shared_ptr<SendComma
     }
 
     uint8_t seq = 0;
-    const bool ok = target_serial_->sendCommand(request->command_id, request->payload, seq);
+    const bool ok = request->wait_ack
+                        ? target_serial_->sendCommand(request->command_id, request->payload, seq)
+                        : target_serial_->sendCommandNoAck(request->command_id, request->payload, seq);
     if (!ok) {
-        RCLCPP_WARN(node_.get_logger(), "mechanism transport send failed: cmd=0x%02X err=%s",
-                    request->command_id, target_serial_->lastError().c_str());
+        RCLCPP_WARN(node_.get_logger(), "mechanism transport send failed: cmd=0x%02X wait_ack=%s err=%s",
+                    request->command_id, request->wait_ack ? "true" : "false",
+                    target_serial_->lastError().c_str());
         return;
     }
 

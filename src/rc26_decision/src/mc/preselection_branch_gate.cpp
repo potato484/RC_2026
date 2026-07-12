@@ -103,6 +103,9 @@ BT::NodeStatus PreselectionBranchGateAction::onStart() {
   feedback_sub_ = node_->create_subscription<FeedbackMsg>(
       feedback_topic, rclcpp::QoS(32).reliable(),
       [this](const FeedbackMsg::SharedPtr msg) { handleFeedback(msg); });
+  gate_state_pub_ = node_->create_publisher<GateStateMsg>(
+      "/decision/preselection_gate_state", rclcpp::QoS(1).reliable().transient_local());
+  publishGateState(true);
 
   RCLCPP_INFO(
       node_->get_logger(),
@@ -384,6 +387,17 @@ void PreselectionBranchGateAction::configureStartProfile(StartProfile profile) {
   branch_log_period_s_ = std::max(0.1, mc_params_.start_log_period_s);
 }
 
+void PreselectionBranchGateAction::publishGateState(bool waiting) {
+  if (!gate_state_pub_) {
+    return;
+  }
+  GateStateMsg msg;
+  msg.data = makePreselectionGateStateJson(
+      waiting, name(), branchModeName(accepted_branch_),
+      continue_start_profile_text_, switch_start_profile_text_);
+  gate_state_pub_->publish(msg);
+}
+
 PreselectionBranchGateAction::StartProfile
 PreselectionBranchGateAction::toStartProfile(const std::string &profile) {
   return usesSecondPreselectionStart(parsePreselectionStartProfile(profile))
@@ -422,6 +436,7 @@ bool PreselectionBranchGateAction::sendBranchCommand() {
   auto request = std::make_shared<SendCommandSrv::Request>();
   request->command_id = static_cast<uint8_t>(branch_command_id_ & 0xFF);
   request->payload.clear();
+  request->wait_ack = true;
 
   const uint64_t token = generation_.load(std::memory_order_relaxed);
   command_response_seen_ = false;
@@ -471,7 +486,9 @@ BT::NodeStatus PreselectionBranchGateAction::fail(
 }
 
 void PreselectionBranchGateAction::resetRuntimeHandles() {
+  publishGateState(false);
   feedback_sub_.reset();
+  gate_state_pub_.reset();
   send_client_.reset();
 }
 

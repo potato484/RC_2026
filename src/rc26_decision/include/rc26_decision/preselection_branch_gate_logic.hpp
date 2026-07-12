@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <sstream>
 #include <string>
 
 namespace rc26_decision {
@@ -68,6 +69,22 @@ inline PreselectionStartProfile selectPreselectionStartProfile(
 
 inline bool usesSecondPreselectionStart(PreselectionStartProfile profile) {
   return profile == PreselectionStartProfile::Second;
+}
+
+inline std::string makePreselectionGateStateJson(
+    bool waiting, const std::string &gate_name,
+    const std::string &accepted_branch,
+    const std::string &continue_start_profile,
+    const std::string &switch_start_profile) {
+  std::ostringstream out;
+  out << "{"
+      << "\"waiting\":" << (waiting ? "true" : "false")
+      << ",\"gate\":\"" << gate_name << "\""
+      << ",\"accepted_branch\":\"" << accepted_branch << "\""
+      << ",\"continue_start_profile\":\"" << continue_start_profile << "\""
+      << ",\"switch_start_profile\":\"" << switch_start_profile << "\""
+      << "}";
+  return out.str();
 }
 
 } // namespace rc26_decision

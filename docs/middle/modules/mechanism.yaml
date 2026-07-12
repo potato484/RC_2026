@@ -11,7 +11,9 @@ info:
 
     这两个接口由 `rc26_mcu_transport` 提供；`rc26_mechanism` 当前只是轻量 lifecycle 占位，不再创建旧高层 action，也不再发布 `/mechanism/status`。
 
-    `/mechanism/send_command.accepted=true` 只表示目标 MCU 已返回通用 `ACK(0x00)`，不表示动作已经完成。ACK 等待窗口内若持续收到 transport 级 `MCU_ERROR(0xFE)` 或超时，service 返回 `accepted=false`，原因通过 `rc26_mcu_transport` 日志和 diagnostics `last_error` 说明。
+    `/mechanism/send_command` 请求字段 `wait_ack=true` 时，`accepted=true` 只表示目标 MCU 已返回通用 `ACK(0x00)`，不表示动作已经完成。ACK 等待窗口内若持续收到 transport 级 `MCU_ERROR(0xFE)` 或超时，service 返回 `accepted=false`，原因通过 `rc26_mcu_transport` 日志和 diagnostics `last_error` 说明。
+
+    `wait_ack=false` 只用于明确 no-ack 的单次通知命令，例如启动就绪 `STARTUP_READY_WAITING_LIMIT(0x20)`；provider 写入串口帧成功即返回 `accepted=true` 和 `seq`，不等待通用 ACK、不进入 retry，也不等待业务反馈。
 
     动作完成、限位、激光突变等业务事件经 `/mechanism/command_feedback` 透传，由消费方按自身状态机解释。`feedback_id=0xFE` 且 payload 长度为 2 时也属于机械臂业务状态/失败反馈：`payload[0]` 是 `failed_cmd`，`payload[1]` 是 `error_code`；`error_code=0x01` 表示命令仍在处理中，消费方应继续等待最终业务反馈，不应直接判定失败。其它长度的 `0xFE` 仍按 transport 异常处理，不作为业务反馈交给决策层。
 servers:
@@ -98,7 +100,7 @@ components:
             0x05 PLANAR_ARM_FAIL_INVALID_STATE，检查动作流程顺序。
     SendMechanismTransportCommandRequest:
       type: object
-      required: [command_id, payload]
+      required: [command_id, payload, wait_ack]
       properties:
         command_id:
           type: integer
@@ -114,20 +116,33 @@ components:
             ENTRY_GRAB_KFS_UP=0x0F、COMPETITION_START=0x10、
             SECOND_PRESELECTION_START=0x11、
             SECOND_PRESELECTION_ARM_HIGH_RAISE=0x12、
-            SECOND_PRESELECTION_PLACE_KFS=0x13。
+            SECOND_PRESELECTION_PLACE_KFS=0x13、
+            SECOND_PRESELECTION_ARM_LOWER=0x14、
+            SECOND_PRESELECTION_PRELOAD_KFS_PICKUP=0x15、
+            STARTUP_READY_WAITING_LIMIT=0x20。
         payload:
           type: array
           items:
             type: integer
             minimum: 0
             maximum: 255
+        wait_ack:
+          type: boolean
+          description: >
+            true 表示可靠机构命令，provider 调用 sendCommand() 并等待目标 MCU 通用 ACK；
+            false 表示 no-ack 通知，provider 调用 sendCommandNoAck()，仅确认串口写入成功。
+            现有机构动作、推杆、视觉测试和决策握手命令应使用 true；
+            启动就绪 0x20 通知使用 false。
     SendMechanismTransportCommandResponse:
       type: object
       required: [accepted, seq]
       properties:
         accepted:
           type: boolean
-          description: true 表示目标 MCU 已返回通用 ACK(0x00)；false 表示 transport 拒绝、超时、断链或 MCU 持续返回 0xFE 下位机原因。
+          description: >
+            wait_ack=true 时，true 表示目标 MCU 已返回通用 ACK(0x00)；
+            wait_ack=false 时，true 表示串口帧已成功写入。false 表示 transport 拒绝、
+            超时、断链或 MCU 持续返回 0xFE 下位机原因。
         seq:
           type: integer
           minimum: 0

@@ -153,12 +153,14 @@ void McuTransportNode::handleSendCommand(const std::shared_ptr<SendCommandSrv::R
     }
 
     uint8_t seq = 0;
-    const bool ok = serial_->sendCommand(request->command_id, request->payload, seq);
+    const bool ok = sendModeForRequest(request->wait_ack) == MechanismTransportSendMode::ReliableAck
+                        ? serial_->sendCommand(request->command_id, request->payload, seq)
+                        : serial_->sendCommandNoAck(request->command_id, request->payload, seq);
     if (!ok) {
         rejected_send_count_.fetch_add(1, std::memory_order_relaxed);
         RCLCPP_WARN(
-            get_logger(), "mechanism transport send failed: cmd=0x%02X err=%s",
-            request->command_id, serial_->lastError().c_str());
+            get_logger(), "mechanism transport send failed: cmd=0x%02X wait_ack=%s err=%s",
+            request->command_id, request->wait_ack ? "true" : "false", serial_->lastError().c_str());
         return;
     }
 

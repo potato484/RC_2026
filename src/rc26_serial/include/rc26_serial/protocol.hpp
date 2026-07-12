@@ -52,6 +52,7 @@ enum class CommandID : uint8_t {
     SECOND_PRESELECTION_PLACE_KFS = 0x13,      // 第二预选赛放置 KFS（打开气缸）
     SECOND_PRESELECTION_ARM_LOWER = 0x14,      // 第二预选赛视觉对齐后机械臂彻底放下
     SECOND_PRESELECTION_PRELOAD_KFS_PICKUP = 0x15, // 第二预选赛夹出预装 KFS
+    STARTUP_READY_WAITING_LIMIT = 0x20, // 深度相机已出帧且上位机正在等待人工限位触发
 };
 
 // ============================================================================
@@ -133,6 +134,8 @@ inline const char* commandName(uint8_t command_id) {
         return "ARM_BOTTOM_LOWER";
     case CommandID::SECOND_PRESELECTION_PRELOAD_KFS_PICKUP:
         return "PRELOAD_KFS_PICKUP";
+    case CommandID::STARTUP_READY_WAITING_LIMIT:
+        return "STARTUP_READY_WAITING_LIMIT";
     default:
         return "UNKNOWN_COMMAND";
     }

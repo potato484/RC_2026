@@ -1,5 +1,6 @@
 uint8 command_id
 uint8[] payload
+bool wait_ack
 ---
 bool accepted
 uint8 seq

@@ -94,6 +94,17 @@ TEST(PreselectionBranchGateLogic, SelectsContinueSwitchAndDoneBySameSeq) {
       rc26_decision::PreselectionStartProfile::Mc));
   EXPECT_TRUE(rc26_decision::usesSecondPreselectionStart(
       rc26_decision::PreselectionStartProfile::Second));
+
+  EXPECT_EQ(rc26_decision::makePreselectionGateStateJson(
+                true, "preselection_mc_start_gate", "continue_only", "mc", "second"),
+            "{\"waiting\":true,\"gate\":\"preselection_mc_start_gate\","
+            "\"accepted_branch\":\"continue_only\","
+            "\"continue_start_profile\":\"mc\","
+            "\"switch_start_profile\":\"second\"}");
+  EXPECT_NE(rc26_decision::makePreselectionGateStateJson(
+                false, "preselection_mc_start_gate", "continue_only", "mc", "second")
+                .find("\"waiting\":false"),
+            std::string::npos);
 }
 
 TEST(MCPreselectionRepeatLogic, ComputesSignedForwardDistance) {

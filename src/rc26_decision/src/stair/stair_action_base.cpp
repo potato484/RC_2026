@@ -427,6 +427,7 @@ StairActionBase::StepStatus StairActionBase::tickCommand() {
     request->command_id = static_cast<uint8_t>(active_command_);
     // 台阶推杆命令 v1 不需要 payload，保持空数组。
     request->payload.clear();
+    request->wait_ack = true;
     // 捕获当前 generation；如果动作 halt/release 后 generation 改变，旧回调会被丢弃。
     const uint64_t token =
         command_generation_.load(std::memory_order_relaxed);
@@ -839,6 +840,7 @@ bool StairActionBase::sendPairCommand(std::size_t index) {
   auto request = std::make_shared<SendCommandSrv::Request>();
   request->command_id = static_cast<uint8_t>(slot.command_id);
   request->payload.clear();
+  request->wait_ack = true;
   const uint64_t token = command_generation_.load(std::memory_order_relaxed);
 
   try {

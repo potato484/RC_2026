@@ -42,6 +42,8 @@
 
 `/mechanism/send_command` 与 `/mechanism/command_feedback` 的 provider 是 `rc26_mcu_transport`。`rc26_mechanism` 当前只是轻量 lifecycle 占位，不再暴露旧高层 action。
 
+`SendMechanismTransportCommand.srv` 当前请求字段为 `command_id`、`payload` 和 `wait_ack`。常规机构命令必须显式使用 `wait_ack=true`，由 provider 等待目标 MCU 通用 `ACK(0x00)` 后才返回 `accepted=true`；启动就绪这类单次通知可使用 `wait_ack=false`，只要求串口帧成功写入，不等待 ACK 或业务反馈。
+
 `MechanismActionHistory*.msg` 暂作归档兼容消息保留，当前主链不发布 `/mechanism/action_history`，也不把它列入中间层活跃契约。
 
 历史 keepout / terrain / MF KFS 兼容接口已经删除，不再由本包生成。当前 `rc26_bringup` 不启动旧 keepout、terrain 或 base-ground 链路，`rc26_decision` 也不调用旧 keepout runtime service、不发布旧 MF KFS 状态、不订阅旧 terrain/base-ground/keepout 输出。
@@ -61,6 +63,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 
 ## 本轮同步
 
+2026-07-12 同步：`SendMechanismTransportCommand.srv` 新增 `wait_ack` 请求字段。现有机构动作、遥控推杆、视觉测试和历史 bridge 调用均显式保持 `wait_ack=true`；`start_r2_auto.sh` 完整链路的启动就绪 `0x20` 通知通过 `wait_ack=false` 走 no-ack 写入。
 2026-06-26 同步：移除旧机构 action 生成项和 `action_msgs` 依赖。机构侧当前只生成 raw transport message/service；旧高层动作能力已经从公开契约中删除。
 2026-06-26 同步：移除历史 keepout / terrain / MF KFS 兼容 msg/srv 生成项，并同步删除不再需要的 `nav_msgs` 依赖。
 2026-06-26 同步：确认 `GrabTip` build failure 来自旧 rosidl 生成产物残留；当前真实接口清单不恢复旧 action，清理 `build/rc26_interfaces` 与 `install/rc26_interfaces` 后可正常构建。

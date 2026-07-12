@@ -8,6 +8,7 @@
 
 #include <behaviortree_cpp/bt_factory.h>
 #include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/string.hpp>
 
 #include "mc_params.hpp"
 #include "rc26_decision/preselection_branch_gate_logic.hpp"
@@ -31,6 +32,7 @@ public:
 private:
   using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
   using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
+  using GateStateMsg = std_msgs::msg::String;
 
   enum class Branch { None, ContinueFirst, SwitchTarget };
   enum class StartProfile { Mc, Second };
@@ -46,6 +48,7 @@ private:
   void handleFeedback(const FeedbackMsg::SharedPtr msg);
   void configureBranch(Branch branch);
   void configureStartProfile(StartProfile profile);
+  void publishGateState(bool waiting);
   static StartProfile toStartProfile(const std::string &profile);
   static const char *profileName(StartProfile profile);
   static const char *branchModeName(PreselectionBranchMode mode);
@@ -58,6 +61,7 @@ private:
   SecondPreselectionParams second_params_;
   rclcpp::Node *node_{nullptr};
   rclcpp::Subscription<FeedbackMsg>::SharedPtr feedback_sub_;
+  rclcpp::Publisher<GateStateMsg>::SharedPtr gate_state_pub_;
   rclcpp::Client<SendCommandSrv>::SharedPtr send_client_;
   std::chrono::steady_clock::time_point start_tp_{};
   std::chrono::steady_clock::time_point phase_tp_{};

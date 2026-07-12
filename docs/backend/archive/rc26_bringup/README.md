@@ -23,6 +23,7 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 
 - [start_r2_auto.sh](/home/potato/RC_2026/start_r2_auto.sh)：根目录自动决策/比赛链路快捷入口，默认读取 `r2_active_side.yaml` 并以 `use_realsense:=true` 启动完整导航决策链；脚本链路会额外启动上行人工触发外部限位 3 `0x13` 红蓝切换监听器。
 - [launch/bringup.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/bringup.launch.py)：整车导航/建图统一入口。
+- [scripts/startup_ready_notify_node.py](/home/potato/RC_2026/src/rc26_bringup/scripts/startup_ready_notify_node.py)：导航模式下的启动就绪通知节点。默认随 `use_realsense:=true` 的完整自动链路启用，等待 RealSense 彩色图、对齐深度图、彩色相机内参均实际出帧，并等待 `rc26_decision` 发布“正在人工限位 branch gate 等待”的内部状态后，通过 `/mechanism/send_command` 以 `wait_ack=false` 下发一次 `STARTUP_READY_WAITING_LIMIT(0x20)` 空 payload。
 - [launch/odometry.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/odometry.launch.py)：Point-LIO、里程计接口、静态外参和可选 sensor scan 装配。
 - [launch/grid_heading.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/grid_heading.launch.py)：独立 yaw heading 校准入口，只启动 odom、MCU transport 和 `grid_heading_tree.xml`。
 - 独立 odom 单轴右转分段入口：保留为包内验证入口，只启动 odom、MCU transport 和独立右转验证树。
@@ -35,6 +36,8 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 默认 `bringup.launch.py` 在未显式传入 `runtime_config_file` 时读取 `r2_active_side.yaml`，按 `active_side: red|blue` 选择 `r2_red.yaml` 或 `r2_blue.yaml`，并按 `preselection_mode: first|second` 覆盖默认行为树。first 模式还会从 `r2_active_side.yaml` 读取 `first_preselection_mc_repeat_enable`、`first_preselection_mc_repeat_max_count` 和 `first_preselection_mc_repeat_forward_x_step_m.red/blue`，作为 first MC 重复策略的默认真源；第 0 轮距离使用当前红/蓝运行配置的 `mc_nav_forward_x_m`，后续重复轮在此基础上按当前 `active_side` 对应的带符号 step 调整。现场切换比赛方、first/second 入口或 first MC 重复策略优先改 `r2_active_side.yaml`。如需临时调试其它完整配置，仍可传入 `runtime_config_file:=/abs/path.yaml` 覆盖，显式配置不会再被 `preselection_mode` 或 first repeat selector 改写。
 
 `start_r2_auto.sh` 专用上行人工触发外部限位 3 `0x13` 监听器只订阅 `/mechanism/command_feedback`，收到 `feedback_id=0x13` 后写回 `r2_active_side.yaml` 顶层 `active_side`：当前 `red` 切到 `blue`，当前 `blue` 切到 `red`。该监听器不由 `bringup.launch.py` 自动启动；直接 `ros2 launch rc26_bringup bringup.launch.py run_mode:=navigation` 不会启用自动红蓝切换，且该切换只影响下一次启动选择的红/蓝运行配置。现有第二预选赛下行 `SECOND_PRESELECTION_PLACE_KFS(0x13)` 命令保持不变，上下行 0x13 分属不同协议方向。
+
+`startup_ready_notify_node.py` 是 `bringup.launch.py` 的普通装配节点，不直接打开串口。它只依赖 `/mechanism/send_command`、`/mechanism/command_feedback`、`/decision/preselection_gate_state` 与 RealSense 默认三类 topic。默认 `startup_ready_notify_enable` 为空时跟随 `use_realsense`：`start_r2_auto.sh` 默认会启用，`--no-realsense` 不发送。若 RealSense 或 gate 状态在 `startup_ready_notify_timeout_s`（默认 60.0s）内未满足，节点只告警，不阻塞原人工限位 gate；若人工限位 `0x06/0x10` 已先到达，则本次启动跳过 `0x20`。
 
 红蓝切换写回采用可恢复的两阶段提交：候选配置先写入同目录临时文件并同步文件与父目录，再提升为隐藏 `.pending`；正式 `r2_active_side.yaml` 完成原子替换和父目录同步后才删除 `.pending`。若监听器在持久化提交后被强制终止或设备断电，`start_r2_auto.sh` 会在读取 `active_side` 之前执行 `--recover-only`，使用 `.pending` 完成替换；同时兼容恢复旧实现遗留且修改时间不早于正式配置的 `.tmp` 文件。若旧 `.tmp` 已写完整则采用其中的目标配置，若只创建或写入了一部分，则把该文件视为已收到红蓝切换请求的持久化意图，并基于当前正式配置重建一次切换。恢复后的比赛方直接用于本次重启。
 
@@ -89,6 +92,8 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 - `/cmd_vel` 默认由 `rc26_decision` 的导航/动作节点串行发布，由 `rc26_mcu_transport` 消费；运行遥控或其它测试入口时必须显式保证命令权威唯一。
 
 ## 本轮同步
+
+2026-07-12 同步：完整自动链路新增启动就绪 `0x20` no-ack 通知。`bringup.launch.py` 在 navigation、`use_decision=true`、`use_realsense=true` 且 `startup_ready_notify_enable` 未关闭时启动 `startup_ready_notify_node.py`；该节点等待 `/camera/color/image_raw`、`/camera/aligned_depth_to_color/image_raw`、`/camera/color/camera_info` 和 `/decision/preselection_gate_state` 同时就绪后，通过 `rc26_mcu_transport` 以 `wait_ack=false` 发送一次 `STARTUP_READY_WAITING_LIMIT(0x20)` 空 payload。`start_r2_auto.sh --dry-run` 摘要会显示该通知随 RealSense 启用，可通过 `--extra-launch-arg startup_ready_notify_enable:=false` 关闭。
 
 2026-07-10 同步：上行人工触发外部限位 3 `0x13` 红蓝切换写回改为可恢复两阶段提交。监听器持久化 `.pending`，保留恢复副本直到正式配置替换和父目录 `fsync` 完成；`start_r2_auto.sh` 在解析红蓝方前执行 `--recover-only`，可恢复强杀、进程崩溃或断电遗留的 `.pending`，并兼容旧实现留下且不早于正式配置的完整或不完整 `.tmp` 文件。新增回归测试覆盖正常提交、pending 恢复、旧临时文件恢复和过期临时文件忽略。
 

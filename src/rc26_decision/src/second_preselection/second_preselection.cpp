@@ -686,6 +686,7 @@ bool SecondPreselectionCommandAction::sendCommand() {
   auto request = std::make_shared<SendCommandSrv::Request>();
   request->command_id = command_id_;
   request->payload = emptyPayload();
+  request->wait_ack = true;
 
   const uint64_t token = generation_.load(std::memory_order_relaxed);
   command_response_seen_ = false;
@@ -1713,6 +1714,7 @@ bool SecondPreselectionKfsPickupAction::sendActiveCommand() {
   auto request = std::make_shared<SendCommandSrv::Request>();
   request->command_id = active_command_id_;
   request->payload = emptyPayload();
+  request->wait_ack = true;
   const uint64_t token = command_generation_.load(std::memory_order_relaxed);
   try {
     send_client_->async_send_request(
@@ -3278,6 +3280,7 @@ bool SecondPreselectionPostPlaceClimbAction::sendCommand(
   auto request = std::make_shared<SendCommandSrv::Request>();
   request->command_id = command.command_id;
   request->payload = emptyPayload();
+  request->wait_ack = true;
   const uint64_t token = command_generation_.load(std::memory_order_relaxed);
   CommandRuntime *slot = &command;
   try {

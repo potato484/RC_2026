@@ -604,6 +604,7 @@ bool VisualServoGrabAction::tryStartGrabCommand() {
     auto request = std::make_shared<SendCommandSrv::Request>();
     request->command_id = static_cast<uint8_t>(params_.grab_command_id);
     request->payload = params_.grab_payload;
+    request->wait_ack = true;
 
     rclcpp::Node* node = node_;
     const uint64_t token = grab_generation_.load(std::memory_order_relaxed);

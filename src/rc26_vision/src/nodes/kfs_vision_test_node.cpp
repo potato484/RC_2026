@@ -863,6 +863,7 @@ private:
         auto request = std::make_shared<SendCommandSrv::Request>();
         request->command_id = command_id;
         request->payload.clear();
+        request->wait_ack = true;
 
         *request_tp = std::chrono::steady_clock::now();
         *request_pending = true;

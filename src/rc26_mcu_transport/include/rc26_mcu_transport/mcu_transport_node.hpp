@@ -38,6 +38,13 @@ inline bool shouldPublishTransportFeedback(uint8_t feedback_id,
     }
 }
 
+enum class MechanismTransportSendMode { ReliableAck, NoAck };
+
+inline MechanismTransportSendMode sendModeForRequest(bool wait_ack) {
+    return wait_ack ? MechanismTransportSendMode::ReliableAck
+                    : MechanismTransportSendMode::NoAck;
+}
+
 class McuTransportNode final : public rclcpp::Node {
 public:
     using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;

@@ -3358,6 +3358,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickMechanismCommand() {
     auto request = std::make_shared<SendCommandSrv::Request>();
     request->command_id = command_id_;
     request->payload.clear();
+    request->wait_ack = true;
     const uint64_t token =
         command_generation_.load(std::memory_order_relaxed);
     // async_send_request 的回调可能晚于 halt/restart；token 检查保证旧请求不会
@@ -3494,6 +3495,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickCommandPair() {
     auto request = std::make_shared<SendCommandSrv::Request>();
     request->command_id = slot.command_id;
     request->payload.clear();
+    request->wait_ack = true;
     slot.sent = true;
     RCLCPP_INFO(node_->get_logger(),
                 "梅林预选赛已发送并发机构命令请求：%s(0x%02X)",

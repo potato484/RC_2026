@@ -242,6 +242,7 @@ bool WaitStartSignalAndNotifyAction::sendStartCommand() {
     auto request = std::make_shared<SendCommandSrv::Request>();
     request->command_id = static_cast<uint8_t>(params_.start_command_id & 0xFF);
     request->payload.clear();
+    request->wait_ack = true;
 
     const uint64_t token = generation_.load(std::memory_order_relaxed);
     command_response_seen_ = false;

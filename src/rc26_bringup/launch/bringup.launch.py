@@ -302,6 +302,22 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, mcu_
 
     use_decision = _parse_bool(_launch_value(context, 'use_decision') or 'true')
     use_realsense = _parse_bool(_launch_value(context, 'use_realsense'))
+    startup_ready_notify_enable = _select_bool(
+        context, 'startup_ready_notify_enable', use_realsense)
+    startup_ready_notify_command_id = _select_str(
+        context, 'startup_ready_notify_command_id', '0x20')
+    startup_ready_notify_timeout_s = _select_nonnegative_float(
+        context, 'startup_ready_notify_timeout_s', 60.0)
+    startup_ready_notify_color_topic = _select_str(
+        context, 'startup_ready_notify_color_topic', '/camera/color/image_raw')
+    startup_ready_notify_depth_topic = _select_str(
+        context, 'startup_ready_notify_depth_topic',
+        '/camera/aligned_depth_to_color/image_raw')
+    startup_ready_notify_info_topic = _select_str(
+        context, 'startup_ready_notify_info_topic', '/camera/color/camera_info')
+    startup_ready_notify_gate_state_topic = _select_str(
+        context, 'startup_ready_notify_gate_state_topic',
+        '/decision/preselection_gate_state')
     realsense_serial_no = _launch_value(context, 'realsense_serial_no') or R2_D455_SERIAL_NO
     realsense_config_file = _select_str(
         context,
@@ -500,6 +516,26 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, mcu_
         )
         actions.extend(_after_delay(startup_delay_realsense_sec, [realsense_group]))
 
+    if navigation_mode and use_decision and use_realsense and startup_ready_notify_enable:
+        actions.append(Node(
+            package='rc26_bringup',
+            executable='startup_ready_notify_node.py',
+            name='startup_ready_notify_node',
+            namespace=namespace,
+            output='screen',
+            parameters=[{
+                'command_id': startup_ready_notify_command_id,
+                'timeout_s': startup_ready_notify_timeout_s,
+                'send_command_service': '/mechanism/send_command',
+                'feedback_topic': '/mechanism/command_feedback',
+                'gate_state_topic': startup_ready_notify_gate_state_topic,
+                'color_topic': startup_ready_notify_color_topic,
+                'depth_topic': startup_ready_notify_depth_topic,
+                'info_topic': startup_ready_notify_info_topic,
+                'limit_feedback_ids': [0x06, 0x10],
+            }],
+        ))
+
     return actions
 
 
@@ -641,6 +677,34 @@ def generate_launch_description():
             'realsense_config_file',
             default_value='',
             description='RealSense YAML config file (realsense2_camera params)；为空时使用 bringup 默认配置'),
+        DeclareLaunchArgument(
+            'startup_ready_notify_enable',
+            default_value='',
+            description='启动就绪 0x20 no-ack 通知；空字符串表示跟随 use_realsense'),
+        DeclareLaunchArgument(
+            'startup_ready_notify_command_id',
+            default_value='0x20',
+            description='启动就绪通知下行命令 ID；默认 0x20'),
+        DeclareLaunchArgument(
+            'startup_ready_notify_timeout_s',
+            default_value='60.0',
+            description='启动就绪通知等待 RealSense 出帧和人工限位 gate 的超时时间；超时只告警'),
+        DeclareLaunchArgument(
+            'startup_ready_notify_color_topic',
+            default_value='/camera/color/image_raw',
+            description='启动就绪通知等待的 RealSense 彩色图 topic'),
+        DeclareLaunchArgument(
+            'startup_ready_notify_depth_topic',
+            default_value='/camera/aligned_depth_to_color/image_raw',
+            description='启动就绪通知等待的 RealSense 对齐深度图 topic'),
+        DeclareLaunchArgument(
+            'startup_ready_notify_info_topic',
+            default_value='/camera/color/camera_info',
+            description='启动就绪通知等待的 RealSense 彩色相机内参 topic'),
+        DeclareLaunchArgument(
+            'startup_ready_notify_gate_state_topic',
+            default_value='/decision/preselection_gate_state',
+            description='启动就绪通知等待的决策预选入口 gate 状态 topic'),
         DeclareLaunchArgument(
             'team',
             default_value='',
