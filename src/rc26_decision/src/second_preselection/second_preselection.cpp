@@ -346,29 +346,6 @@ double secondPreselectionTotalXRemainingToDrive(
   return std::max(0.0, params.total_x_target_m - projected_x_m);
 }
 
-double secondPreselectionPlaceApproachDistance(
-    double target_depth_m, const SecondPreselectionParams &params) {
-  return std::max(0.0, target_depth_m - params.place_arm_reach_m);
-}
-
-double secondPreselectionNoDepthFallbackProgress(
-    double projected_x_m, const SecondPreselectionParams &params) {
-  const double target = std::max(0.0, params.place_no_depth_forward_x_m);
-  if (!std::isfinite(projected_x_m)) {
-    return 0.0;
-  }
-  return std::clamp(projected_x_m, 0.0, target);
-}
-
-double secondPreselectionNoDepthFallbackRemaining(
-    double progress_m, const SecondPreselectionParams &params) {
-  const double target = std::max(0.0, params.place_no_depth_forward_x_m);
-  if (!std::isfinite(progress_m)) {
-    return target;
-  }
-  return std::max(0.0, target - std::clamp(progress_m, 0.0, target));
-}
-
 double secondPreselectionPlaceAvoidanceDistance(
     int avoidance_stage, const SecondPreselectionParams &params) {
   const double mirror = params.team_mirror_sign < 0 ? -1.0 : 1.0;
@@ -381,57 +358,26 @@ double secondPreselectionPlaceAvoidanceDistance(
   return 0.0;
 }
 
-bool secondPreselectionPlaceApproachTimedOut(double elapsed_s,
-                                             double timeout_s) {
-  return std::isfinite(elapsed_s) && std::isfinite(timeout_s) &&
-         timeout_s > 0.0 && elapsed_s > timeout_s;
-}
-
-double secondPreselectionUpdateNoDepthElapsed(
-    double accumulated_s, double consecutive_frame_delta_s,
-    bool has_real_depth) {
-  if (has_real_depth) {
-    return 0.0;
-  }
-  const double current =
-      std::isfinite(accumulated_s) ? std::max(0.0, accumulated_s) : 0.0;
-  if (!std::isfinite(consecutive_frame_delta_s) ||
-      consecutive_frame_delta_s <= 0.0) {
-    return current;
-  }
-  return current + consecutive_frame_delta_s;
-}
-
-bool secondPreselectionConsumeNewFrameSequence(int64_t sequence,
-                                               int64_t &last_sequence) {
-  if (sequence <= 0 || sequence == last_sequence) {
-    return false;
-  }
-  last_sequence = sequence;
-  return true;
-}
-
-bool secondPreselectionFrameOccupied(
+SecondPreselectionLayerObservation secondPreselectionFrameLayers(
     const std::vector<rc26_vision::Detection> &detections, int frame_width,
     int frame_height, const SecondPreselectionParams &params) {
+  SecondPreselectionLayerObservation result;
   if (frame_width <= 0 || frame_height <= 0) {
-    return false;
+    return result;
   }
 
-  struct Center {
-    double x{0.0};
-    double y{0.0};
-  };
-  std::vector<Center> upper;
-  std::vector<Center> lower;
   const double min_x =
       static_cast<double>(frame_width) * params.place_occupied_center_x_min_ratio;
   const double max_x =
       static_cast<double>(frame_width) * params.place_occupied_center_x_max_ratio;
-  const double upper_min_y =
-      static_cast<double>(frame_height) * params.place_occupied_upper_y_min_ratio;
-  const double split_y =
-      static_cast<double>(frame_height) * params.place_occupied_split_y_ratio;
+  const double middle_min_y =
+      static_cast<double>(frame_height) * params.place_occupied_middle_y_min_ratio;
+  const double middle_max_y =
+      static_cast<double>(frame_height) * params.place_occupied_middle_y_max_ratio;
+  const double lower_min_y =
+      static_cast<double>(frame_height) * params.place_occupied_lower_y_min_ratio;
+  const double lower_max_y =
+      static_cast<double>(frame_height) * params.place_occupied_lower_y_max_ratio;
 
   for (const auto &det : detections) {
     const std::string label = rc26_vision::visualTargetLabel(det);
@@ -447,27 +393,43 @@ bool secondPreselectionFrameOccupied(
     if (label == "R1_KFS" && det.score < params.r1_kfs_min_score) {
       continue;
     }
+
     const auto center = detectionCenter(det);
     if (center.x < min_x || center.x > max_x) {
       continue;
     }
-    if (center.y >= upper_min_y && center.y < split_y) {
-      upper.push_back({center.x, center.y});
-    } else if (center.y >= split_y &&
-               center.y <= static_cast<double>(frame_height)) {
-      lower.push_back({center.x, center.y});
+    if (center.y >= middle_min_y && center.y < middle_max_y) {
+      result.middle = true;
+    }
+    if (center.y >= lower_min_y && center.y <= lower_max_y) {
+      result.lower = true;
     }
   }
 
-  for (const auto &upper_center : upper) {
-    for (const auto &lower_center : lower) {
-      if (std::abs(upper_center.x - lower_center.x) <=
-          static_cast<double>(params.place_occupied_max_center_dx_px)) {
-        return true;
-      }
-    }
+  return result;
+}
+
+bool secondPreselectionPlaceApproachTimedOut(double elapsed_s,
+                                             double timeout_s) {
+  return std::isfinite(elapsed_s) && std::isfinite(timeout_s) &&
+         timeout_s > 0.0 && elapsed_s > timeout_s;
+}
+
+bool secondPreselectionConsumeNewFrameSequence(int64_t sequence,
+                                               int64_t &last_sequence) {
+  if (sequence <= 0 || sequence == last_sequence) {
+    return false;
   }
-  return false;
+  last_sequence = sequence;
+  return true;
+}
+
+bool secondPreselectionFrameOccupied(
+    const std::vector<rc26_vision::Detection> &detections, int frame_width,
+    int frame_height, const SecondPreselectionParams &params) {
+  return secondPreselectionFrameLayers(detections, frame_width, frame_height,
+                                       params)
+      .middle;
 }
 
 bool secondPreselectionFrameHasCenterKfs(
@@ -480,8 +442,8 @@ bool secondPreselectionFrameHasCenterKfs(
       static_cast<double>(frame_width) * params.place_occupied_center_x_min_ratio;
   const double max_x =
       static_cast<double>(frame_width) * params.place_occupied_center_x_max_ratio;
-  const double min_y =
-      static_cast<double>(frame_height) * params.place_occupied_upper_y_min_ratio;
+  const double min_y = static_cast<double>(frame_height) *
+                       params.place_occupied_middle_y_min_ratio;
   const double max_y = static_cast<double>(frame_height);
   for (const auto &det : detections) {
     const std::string label = rc26_vision::visualTargetLabel(det);
@@ -2114,16 +2076,6 @@ BT::NodeStatus SecondPreselectionKfsPlacePrepareAction::onStart() {
   config().blackboard->set("second_preselect_place_avoidance_stage", 0);
   config().blackboard->set("second_preselect_place_target_depth_m", 0.0);
   config().blackboard->set("second_preselect_place_approach_distance_m", 0.0);
-  config().blackboard->set("second_preselect_place_no_depth_elapsed_s", 0.0);
-  config().blackboard->set(
-      "second_preselect_place_no_depth_fallback_started", false);
-  config().blackboard->set(
-      "second_preselect_place_no_depth_fallback_progress_m", 0.0);
-  config().blackboard->set(
-      "second_preselect_place_no_depth_fallback_remaining_m",
-      params_.place_no_depth_forward_x_m);
-  config().blackboard->set(
-      "second_preselect_place_no_depth_visual_interrupt_count", 0);
   config().blackboard->set("second_preselect_place_mode",
                            std::string("OCCUPANCY_CHECK"));
   config().blackboard->set("second_preselect_place_termination_reason",
@@ -2147,12 +2099,16 @@ BT::NodeStatus SecondPreselectionKfsPlacePrepareAction::onStart() {
   phase_ = Phase::ObserveInitial;
   latchLatestObservationSequence();
   RCLCPP_INFO(node_->get_logger(),
-              "第二预选赛开始 KFS 放置准备：occupied_stable=%d first_y=%.2f second_y=%.2f no_depth_timeout=%.1fs fallback_x=%.2fm mirror=%d",
+              "第二预选赛开始 KFS 放置准备：middle_y=%.2f~%.2f lower_y=%.2f~%.2f fixed_x=%.2fm timeout=%.1fs occupied_stable=%d first_y=%.2f second_y=%.2f mirror=%d",
+              params_.place_occupied_middle_y_min_ratio,
+              params_.place_occupied_middle_y_max_ratio,
+              params_.place_occupied_lower_y_min_ratio,
+              params_.place_occupied_lower_y_max_ratio,
+              params_.place_fixed_forward_x_m,
+              params_.place_fixed_forward_timeout_s,
               params_.place_occupied_stable_frames,
               params_.place_occupied_first_lateral_m,
               params_.place_occupied_second_reverse_m,
-              params_.kfs_approach_timeout_s,
-              params_.place_no_depth_forward_x_m,
               params_.team_mirror_sign);
   return BT::NodeStatus::RUNNING;
 }
@@ -2182,8 +2138,6 @@ BT::NodeStatus SecondPreselectionKfsPlacePrepareAction::onRunning() {
     return tickObserveCheckpoint(Phase::AlignTarget, Phase::AlignTarget, true);
   case Phase::AlignTarget:
     return tickAlignTarget();
-  case Phase::NoDepthFallbackForward:
-    return tickNoDepthFallbackForward();
   }
   return fail("第二预选赛放置准备未知状态");
 }
@@ -2396,19 +2350,18 @@ bool SecondPreselectionKfsPlacePrepareAction::latestSnapshot(
 std::optional<SecondPreselectionKfsPlacePrepareAction::KfsObservation>
 SecondPreselectionKfsPlacePrepareAction::findNearestKfs(
     const FrameSnapshot &snapshot) {
-  if (!snapshot.has_depth || snapshot.depth.empty()) {
-    return std::nullopt;
-  }
-  rc26_vision::DepthRoiSamplerConfig depth_config;
-  depth_config.roi_size = params_.kfs_depth_roi_size;
-  depth_config.min_valid_count = params_.kfs_depth_min_valid_count;
-  depth_config.min_depth_m = params_.depth_min_m;
-  depth_config.max_depth_m = params_.depth_max_m;
-
   std::optional<KfsObservation> best;
   const int camera_center_x = std::max(0, snapshot.color_bgr.cols / 2);
   const int target_line_x =
       camera_center_x + params_.kfs_align_target_line_offset_px;
+  const double min_x = static_cast<double>(snapshot.color_bgr.cols) *
+                       params_.place_occupied_center_x_min_ratio;
+  const double max_x = static_cast<double>(snapshot.color_bgr.cols) *
+                       params_.place_occupied_center_x_max_ratio;
+  const double lower_min_y = static_cast<double>(snapshot.color_bgr.rows) *
+                             params_.place_occupied_lower_y_min_ratio;
+  const double lower_max_y = static_cast<double>(snapshot.color_bgr.rows) *
+                             params_.place_occupied_lower_y_max_ratio;
   for (const auto &det : snapshot.detections) {
     const std::string label = rc26_vision::visualTargetLabel(det);
     const bool is_r2 =
@@ -2423,24 +2376,19 @@ SecondPreselectionKfsPlacePrepareAction::findNearestKfs(
     if (label == "R1_KFS" && det.score < params_.r1_kfs_min_score) {
       continue;
     }
-    const auto depth = MfPreselectionLogicResult::sampleKfsDepthFromBbox(
-        snapshot.depth, det.x1, det.y1, det.x2, det.y2, depth_config,
-        params_.kfs_depth_bbox_sample_ratios,
-        params_.kfs_depth_bbox_min_success_count);
-    if (!depth.has_depth ||
-        !MfPreselectionLogicResult::kfsDepthSourceIsReal(depth.source)) {
+    const auto center = detectionCenter(det);
+    if (center.x < min_x || center.x > max_x || center.y < lower_min_y ||
+        center.y > lower_max_y) {
       continue;
     }
-
-    const auto center = detectionCenter(det);
     KfsObservation observation;
     observation.target =
         rc26_vision::makeVisualTargetSnapshot(det, snapshot.display_sequence);
-    observation.target.distance_m = depth.depth_m;
+    observation.target.distance_m = params_.place_fixed_forward_x_m;
     observation.detection = det;
     observation.offset_px =
         static_cast<int>(std::lround(center.x - target_line_x));
-    observation.depth_detail = depth.detail;
+    observation.depth_detail = "lower_layer_visual";
     if (!best) {
       best = observation;
       continue;
@@ -2449,13 +2397,9 @@ SecondPreselectionKfsPlacePrepareAction::findNearestKfs(
         static_cast<int>(std::lround(center.x - camera_center_x));
     const int best_offset = static_cast<int>(std::lround(
         detectionCenter(best->detection).x - camera_center_x));
-    const double depth_delta =
-        observation.target.distance_m - best->target.distance_m;
     if (std::abs(offset) < std::abs(best_offset) ||
         (std::abs(offset) == std::abs(best_offset) &&
-         (depth_delta < -1e-9 ||
-          (std::abs(depth_delta) <= 1e-9 &&
-           observation.target.score > best->target.score)))) {
+         observation.target.score > best->target.score)) {
       best = observation;
     }
   }
@@ -2505,32 +2449,46 @@ BT::NodeStatus SecondPreselectionKfsPlacePrepareAction::tickObserveCheckpoint(
     return BT::NodeStatus::RUNNING;
   }
   occupancy_last_sequence_ = snapshot.display_sequence;
-  const bool occupied = secondPreselectionFrameOccupied(
+  const auto layers = secondPreselectionFrameLayers(
       snapshot.detections, snapshot.color_bgr.cols, snapshot.color_bgr.rows,
       params_);
+  const bool occupied = layers.middle;
   const auto occupancy_decision = secondPreselectionUpdateOccupancyStability(
       occupied, params_.place_occupied_stable_frames, occupied_stable_count_,
       clear_stable_count_);
-  renderUi("occupied-check", std::nullopt,
-           occupied ? "stacked KFS occupied" : "front clear");
+  renderUi("layer-check", std::nullopt,
+           layers.middle ? (layers.lower ? "middle+lower KFS"
+                                          : "middle KFS occupied")
+                         : (layers.lower ? "lower KFS align target"
+                                         : "front clear"));
   publishStop();
 
   if (occupancy_decision == SecondPreselectionOccupancyDecision::Clear) {
-    phase_ = clear_phase;
-    phase_tp_ = std::chrono::steady_clock::now();
     resetObservationStability();
     resetAlignmentState();
-    resetNoDepthWait();
-    config().blackboard->set("second_preselect_place_mode",
-                             std::string("WAITING_REAL_DEPTH"));
-    return BT::NodeStatus::RUNNING;
+    if (layers.lower) {
+      phase_ = clear_phase;
+      phase_tp_ = std::chrono::steady_clock::now();
+      config().blackboard->set("second_preselect_place_mode",
+                               std::string("ALIGNING_LOWER_KFS"));
+      return BT::NodeStatus::RUNNING;
+    }
+    return finishFixedForwardPlace("CLEAR_NO_LOWER_FIXED_FORWARD");
   }
-  if (occupancy_decision ==
-      SecondPreselectionOccupancyDecision::Pending) {
+  if (occupancy_decision == SecondPreselectionOccupancyDecision::Pending) {
     return BT::NodeStatus::RUNNING;
   }
   if (final_checkpoint) {
-    return finishImmediatePlace("OCCUPIED_AFTER_SECOND_SHIFT");
+    if (layers.lower) {
+      phase_ = clear_phase;
+      phase_tp_ = std::chrono::steady_clock::now();
+      resetObservationStability();
+      resetAlignmentState();
+      config().blackboard->set("second_preselect_place_mode",
+                               std::string("ALIGNING_LOWER_KFS"));
+      return BT::NodeStatus::RUNNING;
+    }
+    return finishFixedForwardPlace("MIDDLE_ONLY_AFTER_SECOND_SHIFT");
   }
 
   const double distance = secondPreselectionPlaceAvoidanceDistance(
@@ -2550,7 +2508,6 @@ void SecondPreselectionKfsPlacePrepareAction::beginLateralMove(
   next_observe_phase_ = next_observe_phase;
   phase_ = phase;
   phase_tp_ = std::chrono::steady_clock::now();
-  resetNoDepthWait();
   config().blackboard->set("second_preselect_place_avoidance_stage",
                            phase == Phase::LateralFirst ? 1 : 2);
   config().blackboard->set("second_preselect_place_mode",
@@ -2618,75 +2575,40 @@ BT::NodeStatus SecondPreselectionKfsPlacePrepareAction::tickAlignTarget() {
   if (!latestSnapshot(snapshot)) {
     publishStop();
     align_stable_count_ = 0;
-    align_stable_depths_.clear();
     return BT::NodeStatus::RUNNING;
   }
   const bool new_visual_frame = secondPreselectionConsumeNewFrameSequence(
-      snapshot.display_sequence, no_depth_last_sequence_);
+      snapshot.display_sequence, align_search_last_sequence_);
   auto observation = findNearestKfs(snapshot);
   if (!observation) {
     ++align_lost_count_;
     align_stable_count_ = 0;
-    align_stable_depths_.clear();
     renderUi("place-align-search", align_last_observation_,
-             "waiting real-depth KFS");
+             "waiting lower-layer KFS");
     publishStop();
     if (!new_visual_frame) {
       return BT::NodeStatus::RUNNING;
     }
-
-    constexpr double kMaxContinuousVisualFrameGapS = 0.5;
-    const auto now = std::chrono::steady_clock::now();
-    double frame_delta_s = 0.0;
-    if (no_depth_wait_active_ && no_depth_last_stamp_ns_ > 0 &&
-        snapshot.display_stamp_ns > no_depth_last_stamp_ns_) {
-      const double candidate_delta_s =
-          static_cast<double>(snapshot.display_stamp_ns -
-                              no_depth_last_stamp_ns_) *
-          1.0e-9;
-      if (candidate_delta_s <= kMaxContinuousVisualFrameGapS) {
-        frame_delta_s = candidate_delta_s;
-      }
-    } else if (no_depth_wait_active_ &&
-               no_depth_last_frame_tp_.time_since_epoch().count() != 0) {
-      const double candidate_delta_s = elapsedSec(no_depth_last_frame_tp_);
-      if (candidate_delta_s <= kMaxContinuousVisualFrameGapS) {
-        frame_delta_s = candidate_delta_s;
-      }
-    }
-    no_depth_wait_active_ = true;
-    no_depth_elapsed_s_ = secondPreselectionUpdateNoDepthElapsed(
-        no_depth_elapsed_s_, frame_delta_s, false);
-    no_depth_last_stamp_ns_ = snapshot.display_stamp_ns;
-    no_depth_last_frame_tp_ = now;
-    config().blackboard->set("second_preselect_place_no_depth_elapsed_s",
-                             no_depth_elapsed_s_);
     config().blackboard->set("second_preselect_place_mode",
-                             std::string("WAITING_REAL_DEPTH"));
-    if (secondPreselectionPlaceApproachTimedOut(
-            no_depth_elapsed_s_, params_.kfs_approach_timeout_s)) {
-      beginNoDepthFallbackForward(snapshot.display_sequence);
+                             std::string("WAITING_LOWER_KFS"));
+    if (elapsedSec(phase_tp_) > params_.kfs_align_timeout_s) {
+      return finishFixedForwardPlace("LOWER_KFS_ALIGN_TARGET_TIMEOUT");
     }
     return BT::NodeStatus::RUNNING;
   }
-  if (new_visual_frame && no_depth_wait_active_) {
-    resetNoDepthWait();
-    phase_tp_ = std::chrono::steady_clock::now();
-  }
   if (elapsedSec(phase_tp_) > params_.kfs_align_timeout_s) {
-    return fail("第二预选赛放置 KFS 真实深度目标对齐超时");
+    return finishFixedForwardPlace("LOWER_KFS_ALIGN_TIMEOUT");
   }
   config().blackboard->set("second_preselect_place_mode",
-                           std::string("ALIGNING_REAL_DEPTH"));
+                           std::string("ALIGNING_LOWER_KFS"));
   align_lost_count_ = 0;
   observation = applyAlignmentObservationFilter(*observation);
   align_last_observation_ = observation;
-  renderUi("place-align", observation, "pixel/yaw/real-depth alignment");
+  renderUi("place-align", observation, "lower KFS pixel/yaw alignment");
   const auto heading = alignHeadingControl();
   if (!heading) {
     publishStop();
     align_stable_count_ = 0;
-    align_stable_depths_.clear();
     return BT::NodeStatus::RUNNING;
   }
   const bool new_frame = observation->target.sequence != align_last_sequence_;
@@ -2699,7 +2621,6 @@ BT::NodeStatus SecondPreselectionKfsPlacePrepareAction::tickAlignTarget() {
     publishStop();
     if (new_frame) {
       ++align_stable_count_;
-      align_stable_depths_.push_back(observation->target.distance_m);
     }
     if (align_stable_count_ >= params_.kfs_align_stable_frames) {
       return finishAlignedPlace(*observation);
@@ -2708,7 +2629,6 @@ BT::NodeStatus SecondPreselectionKfsPlacePrepareAction::tickAlignTarget() {
   }
   if (new_frame) {
     align_stable_count_ = 0;
-    align_stable_depths_.clear();
   }
   const double vy = heading->allow_lateral
                         ? rc26_vision::computeTipAlignmentVy(
@@ -2718,165 +2638,41 @@ BT::NodeStatus SecondPreselectionKfsPlacePrepareAction::tickAlignTarget() {
   return BT::NodeStatus::RUNNING;
 }
 
-void SecondPreselectionKfsPlacePrepareAction::beginNoDepthFallbackForward(
-    int64_t current_visual_sequence) {
-  publishStop();
-  if (!fallback_started_) {
-    fallback_started_ = true;
-    fallback_progress_m_ = 0.0;
-    fallback_origin_captured_ = false;
-  }
-  if (!fallback_origin_captured_ && odomReady()) {
-    fallback_origin_x_ = odom_x_;
-    fallback_origin_y_ = odom_y_;
-    fallback_origin_yaw_ = odom_yaw_;
-    fallback_origin_captured_ = true;
-  }
-  fallback_stable_ticks_ = 0;
-  fallback_last_visual_sequence_ = current_visual_sequence;
-  phase_ = Phase::NoDepthFallbackForward;
-  phase_tp_ = std::chrono::steady_clock::now();
-  resetObservationStability();
-  resetAlignmentState();
-  resetNoDepthWait();
-  updateFallbackBlackboard("NO_DEPTH_FALLBACK_FORWARD", std::string());
-  RCLCPP_WARN(
-      node_->get_logger(),
-      "第二预选赛连续 %.2fs 无真实深度 KFS，启动/恢复降级 +X：progress=%.3fm remaining=%.3fm target=%.3fm",
-      params_.kfs_approach_timeout_s, fallback_progress_m_,
-      secondPreselectionNoDepthFallbackRemaining(fallback_progress_m_,
-                                                 params_),
-      params_.place_no_depth_forward_x_m);
-}
-
-BT::NodeStatus
-SecondPreselectionKfsPlacePrepareAction::tickNoDepthFallbackForward() {
-  if (elapsedSec(phase_tp_) > params_.nav_timeout_s) {
-    updateFallbackProgress();
-    return finishImmediatePlace("NO_REAL_DEPTH_FALLBACK_NAV_TIMEOUT");
-  }
-
-  if (!fallback_origin_captured_ && odomReady()) {
-    fallback_origin_x_ = odom_x_;
-    fallback_origin_y_ = odom_y_;
-    fallback_origin_yaw_ = odom_yaw_;
-    fallback_origin_captured_ = true;
-  }
-  updateFallbackProgress();
-
-  FrameSnapshot snapshot;
-  if (latestSnapshot(snapshot) &&
-      secondPreselectionConsumeNewFrameSequence(
-          snapshot.display_sequence, fallback_last_visual_sequence_) &&
-      secondPreselectionFrameHasCenterKfs(
-          snapshot.detections, snapshot.color_bgr.cols,
-          snapshot.color_bgr.rows, params_)) {
-    ++fallback_visual_interrupt_count_;
-    publishStop();
-    updateFallbackBlackboard("FALLBACK_VISUAL_INTERRUPT",
-                             "CENTER_KFS_DETECTED");
-    renderUi("fallback-interrupt", std::nullopt,
-             "center KFS detected; restart occupancy check");
-    phase_ = Phase::ObserveInitial;
-    phase_tp_ = std::chrono::steady_clock::now();
-    resetObservationStability();
-    resetAlignmentState();
-    resetNoDepthWait();
-    occupancy_last_sequence_ = snapshot.display_sequence;
-    config().blackboard->set("second_preselect_place_avoidance_stage", 0);
-    RCLCPP_INFO(
-        node_->get_logger(),
-        "第二预选赛降级前进被中心 KFS 中断：interrupt=%d progress=%.3fm remaining=%.3fm",
-        fallback_visual_interrupt_count_, fallback_progress_m_,
-        secondPreselectionNoDepthFallbackRemaining(fallback_progress_m_,
-                                                   params_));
-    return BT::NodeStatus::RUNNING;
-  }
-
-  if (!fallback_origin_captured_ || !odomReady()) {
-    publishStop();
-    fallback_stable_ticks_ = 0;
-    updateFallbackBlackboard("NO_DEPTH_FALLBACK_WAITING_ODOM",
-                             std::string());
-    return BT::NodeStatus::RUNNING;
-  }
-
-  const double remaining = secondPreselectionNoDepthFallbackRemaining(
-      fallback_progress_m_, params_);
-  const double yaw_error =
-      normalizeAngle(fallback_origin_yaw_ - odom_yaw_);
-  const double yaw_tolerance =
-      std::abs(params_.kfs_odom_yaw_tolerance_deg) * kDeg2Rad;
-  if (remaining <= params_.kfs_approach_odom_tolerance_m &&
-      std::abs(yaw_error) <= yaw_tolerance) {
-    ++fallback_stable_ticks_;
-    publishStop();
-    updateFallbackBlackboard("NO_DEPTH_FALLBACK_SETTLING", std::string());
-    if (fallback_stable_ticks_ >= params_.kfs_odom_stable_ticks) {
-      return finishImmediatePlace("NO_REAL_DEPTH_FALLBACK_FORWARD_DONE");
-    }
-    return BT::NodeStatus::RUNNING;
-  }
-
-  fallback_stable_ticks_ = 0;
-  double vx = params_.kfs_odom_xy_kp * remaining;
-  vx = std::clamp(vx, 0.0, params_.kfs_approach_speed_mps);
-  if (vx > 1e-9 && vx < params_.kfs_approach_min_speed_mps) {
-    vx = params_.kfs_approach_min_speed_mps;
-  }
-  publishTwist(vx, 0.0, headingAngularZ(fallback_origin_yaw_));
-  updateFallbackBlackboard("NO_DEPTH_FALLBACK_FORWARD", std::string());
-  return BT::NodeStatus::RUNNING;
-}
-
-BT::NodeStatus SecondPreselectionKfsPlacePrepareAction::finishImmediatePlace(
-    const std::string &reason) {
-  config().blackboard->set("second_preselect_place_immediate", true);
-  config().blackboard->set("second_preselect_place_avoidance_stage", 3);
+BT::NodeStatus SecondPreselectionKfsPlacePrepareAction::finishAlignedPlace(
+    const KfsObservation &observation) {
+  config().blackboard->set("second_preselect_place_immediate", false);
+  config().blackboard->set("second_preselect_place_target_label",
+                           observation.target.label);
   config().blackboard->set("second_preselect_place_target_depth_m", 0.0);
-  config().blackboard->set("second_preselect_place_approach_distance_m", 0.0);
-  config().blackboard->set("second_preselect_place_prepare_result", reason);
-  const bool fallback_reason =
-      reason.find("FALLBACK") != std::string::npos;
-  updateFallbackBlackboard(
-      fallback_reason ? "NO_DEPTH_FALLBACK_IMMEDIATE_PLACE"
-                      : "OCCUPANCY_IMMEDIATE_PLACE",
-      reason);
-  RCLCPP_WARN(node_->get_logger(),
-              "第二预选赛进入立即放置：reason=%s fallback_progress=%.3fm remaining=%.3fm",
-              reason.c_str(), fallback_progress_m_,
-              secondPreselectionNoDepthFallbackRemaining(
-                  fallback_progress_m_, params_));
+  config().blackboard->set("second_preselect_place_approach_distance_m",
+                           params_.place_fixed_forward_x_m);
+  config().blackboard->set("second_preselect_place_prepare_result",
+                           std::string("ALIGNED_LOWER_FIXED_FORWARD"));
+  config().blackboard->set("second_preselect_place_mode",
+                           std::string("ALIGNED_LOWER_FIXED_FORWARD"));
+  config().blackboard->set("second_preselect_place_termination_reason",
+                           std::string("ALIGNED_LOWER_FIXED_FORWARD"));
+  RCLCPP_INFO(node_->get_logger(),
+              "第二预选赛下层 KFS 放置对齐完成：label=%s fixed_forward=%.3fm",
+              observation.target.label.c_str(), params_.place_fixed_forward_x_m);
   publishStop();
   clearRuntimeState();
   return BT::NodeStatus::SUCCESS;
 }
 
-BT::NodeStatus SecondPreselectionKfsPlacePrepareAction::finishAlignedPlace(
-    const KfsObservation &observation) {
-  if (align_stable_depths_.empty()) {
-    return fail("第二预选赛放置对齐缺少稳定真实深度");
-  }
-  auto depths = align_stable_depths_;
-  auto mid = depths.begin() +
-             static_cast<std::ptrdiff_t>(depths.size() / 2);
-  std::nth_element(depths.begin(), mid, depths.end());
-  const double depth_m = *mid;
-  const double approach_m =
-      secondPreselectionPlaceApproachDistance(depth_m, params_);
+BT::NodeStatus SecondPreselectionKfsPlacePrepareAction::finishFixedForwardPlace(
+    const std::string &reason) {
   config().blackboard->set("second_preselect_place_immediate", false);
-  config().blackboard->set("second_preselect_place_target_label",
-                           observation.target.label);
-  config().blackboard->set("second_preselect_place_target_depth_m", depth_m);
+  config().blackboard->set("second_preselect_place_target_depth_m", 0.0);
   config().blackboard->set("second_preselect_place_approach_distance_m",
-                           approach_m);
-  config().blackboard->set("second_preselect_place_prepare_result",
-                           std::string("ALIGNED_REAL_DEPTH"));
-  updateFallbackBlackboard("ALIGNED_REAL_DEPTH", "ALIGNED_REAL_DEPTH", true);
+                           params_.place_fixed_forward_x_m);
+  config().blackboard->set("second_preselect_place_prepare_result", reason);
+  config().blackboard->set("second_preselect_place_mode",
+                           std::string("FIXED_FORWARD_PLACE"));
+  config().blackboard->set("second_preselect_place_termination_reason", reason);
   RCLCPP_INFO(node_->get_logger(),
-              "第二预选赛任意 KFS 放置对齐完成：label=%s depth=%.3fm arm=%.3fm approach=%.3fm",
-              observation.target.label.c_str(), depth_m,
-              params_.place_arm_reach_m, approach_m);
+              "第二预选赛放置准备进入固定前进：reason=%s fixed_forward=%.3fm",
+              reason.c_str(), params_.place_fixed_forward_x_m);
   publishStop();
   clearRuntimeState();
   return BT::NodeStatus::SUCCESS;
@@ -2899,60 +2695,11 @@ void SecondPreselectionKfsPlacePrepareAction::resetAlignmentState() {
   align_stable_count_ = 0;
   align_lost_count_ = 0;
   align_last_sequence_ = 0;
+  align_search_last_sequence_ = 0;
   align_lock_state_.reset();
   align_last_observation_.reset();
   align_filtered_offset_valid_ = false;
   align_filtered_offset_px_ = 0.0;
-  align_stable_depths_.clear();
-}
-
-void SecondPreselectionKfsPlacePrepareAction::resetNoDepthWait() {
-  no_depth_wait_active_ = false;
-  no_depth_elapsed_s_ = 0.0;
-  no_depth_last_sequence_ = 0;
-  no_depth_last_stamp_ns_ = 0;
-  no_depth_last_frame_tp_ = {};
-  if (config().blackboard) {
-    config().blackboard->set("second_preselect_place_no_depth_elapsed_s", 0.0);
-  }
-}
-
-void SecondPreselectionKfsPlacePrepareAction::updateFallbackProgress() {
-  if (!fallback_origin_captured_ || !odomReady()) {
-    return;
-  }
-  const double projected = secondPreselectionProjectedX(
-      fallback_origin_x_, fallback_origin_y_, fallback_origin_yaw_, odom_x_,
-      odom_y_);
-  fallback_progress_m_ =
-      secondPreselectionNoDepthFallbackProgress(projected, params_);
-}
-
-void SecondPreselectionKfsPlacePrepareAction::updateFallbackBlackboard(
-    const std::string &mode, const std::string &termination_reason,
-    bool cancel_remaining) {
-  if (!config().blackboard) {
-    return;
-  }
-  config().blackboard->set(
-      "second_preselect_place_no_depth_fallback_started", fallback_started_);
-  config().blackboard->set(
-      "second_preselect_place_no_depth_fallback_progress_m",
-      fallback_progress_m_);
-  config().blackboard->set(
-      "second_preselect_place_no_depth_fallback_remaining_m",
-      cancel_remaining
-          ? 0.0
-          : secondPreselectionNoDepthFallbackRemaining(fallback_progress_m_,
-                                                       params_));
-  config().blackboard->set(
-      "second_preselect_place_no_depth_visual_interrupt_count",
-      fallback_visual_interrupt_count_);
-  config().blackboard->set("second_preselect_place_mode", mode);
-  if (!termination_reason.empty()) {
-    config().blackboard->set("second_preselect_place_termination_reason",
-                             termination_reason);
-  }
 }
 
 double SecondPreselectionKfsPlacePrepareAction::headingAngularZ(
@@ -2975,18 +2722,8 @@ void SecondPreselectionKfsPlacePrepareAction::clearRuntimeState() {
   waiting_odom_logged_ = false;
   resetObservationStability();
   resetAlignmentState();
-  resetNoDepthWait();
   lateral_start_captured_ = false;
   lateral_stable_ticks_ = 0;
-  fallback_started_ = false;
-  fallback_origin_captured_ = false;
-  fallback_origin_x_ = 0.0;
-  fallback_origin_y_ = 0.0;
-  fallback_origin_yaw_ = 0.0;
-  fallback_progress_m_ = 0.0;
-  fallback_stable_ticks_ = 0;
-  fallback_visual_interrupt_count_ = 0;
-  fallback_last_visual_sequence_ = 0;
   phase_ = Phase::ObserveInitial;
 }
 
@@ -3058,13 +2795,13 @@ BT::NodeStatus SecondPreselectionPlaceApproachAction::onStart() {
   start_captured_ = false;
   RCLCPP_INFO(node_->get_logger(),
               "第二预选赛放置趋近启动：distance=%.3fm timeout=%.1fs",
-              distance_m_, params_.kfs_approach_timeout_s);
+              distance_m_, params_.place_fixed_forward_timeout_s);
   return BT::NodeStatus::RUNNING;
 }
 
 BT::NodeStatus SecondPreselectionPlaceApproachAction::onRunning() {
   if (secondPreselectionPlaceApproachTimedOut(
-          elapsedSec(start_tp_), params_.kfs_approach_timeout_s)) {
+          elapsedSec(start_tp_), params_.place_fixed_forward_timeout_s)) {
     return finish("TIMED_OUT_CONTINUE_PLACE", true);
   }
   if (!odomReady()) {
@@ -3870,26 +3607,30 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
       "second_preselect_total_x_tolerance_m", p.total_x_tolerance_m);
   p.nav_timeout_s = node.declare_parameter<double>(
       "second_preselect_nav_timeout_s", p.nav_timeout_s);
-  p.place_arm_reach_m = node.declare_parameter<double>(
-      "second_preselect_place_arm_reach_m", p.place_arm_reach_m);
-  p.place_no_depth_forward_x_m = node.declare_parameter<double>(
-      "second_preselect_place_no_depth_forward_x_m",
-      p.place_no_depth_forward_x_m);
+  p.place_fixed_forward_x_m = node.declare_parameter<double>(
+      "second_preselect_place_fixed_forward_x_m",
+      p.place_fixed_forward_x_m);
+  p.place_fixed_forward_timeout_s = node.declare_parameter<double>(
+      "second_preselect_place_fixed_forward_timeout_s",
+      p.place_fixed_forward_timeout_s);
   p.place_occupied_center_x_min_ratio = node.declare_parameter<double>(
       "second_preselect_place_occupied_center_x_min_ratio",
       p.place_occupied_center_x_min_ratio);
   p.place_occupied_center_x_max_ratio = node.declare_parameter<double>(
       "second_preselect_place_occupied_center_x_max_ratio",
       p.place_occupied_center_x_max_ratio);
-  p.place_occupied_upper_y_min_ratio = node.declare_parameter<double>(
-      "second_preselect_place_occupied_upper_y_min_ratio",
-      p.place_occupied_upper_y_min_ratio);
-  p.place_occupied_split_y_ratio = node.declare_parameter<double>(
-      "second_preselect_place_occupied_split_y_ratio",
-      p.place_occupied_split_y_ratio);
-  p.place_occupied_max_center_dx_px = node.declare_parameter<int>(
-      "second_preselect_place_occupied_max_center_dx_px",
-      p.place_occupied_max_center_dx_px);
+  p.place_occupied_middle_y_min_ratio = node.declare_parameter<double>(
+      "second_preselect_place_occupied_middle_y_min_ratio",
+      p.place_occupied_middle_y_min_ratio);
+  p.place_occupied_middle_y_max_ratio = node.declare_parameter<double>(
+      "second_preselect_place_occupied_middle_y_max_ratio",
+      p.place_occupied_middle_y_max_ratio);
+  p.place_occupied_lower_y_min_ratio = node.declare_parameter<double>(
+      "second_preselect_place_occupied_lower_y_min_ratio",
+      p.place_occupied_lower_y_min_ratio);
+  p.place_occupied_lower_y_max_ratio = node.declare_parameter<double>(
+      "second_preselect_place_occupied_lower_y_max_ratio",
+      p.place_occupied_lower_y_max_ratio);
   p.place_occupied_stable_frames = node.declare_parameter<int>(
       "second_preselect_place_occupied_stable_frames",
       p.place_occupied_stable_frames);
@@ -4096,15 +3837,16 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
           ? p.total_x_tolerance_m
           : SecondPreselectionParams{}.total_x_tolerance_m;
   p.nav_timeout_s = std::max(0.001, p.nav_timeout_s);
-  p.place_arm_reach_m =
-      (std::isfinite(p.place_arm_reach_m) && p.place_arm_reach_m >= 0.0)
-          ? p.place_arm_reach_m
-          : SecondPreselectionParams{}.place_arm_reach_m;
-  p.place_no_depth_forward_x_m =
-      (std::isfinite(p.place_no_depth_forward_x_m) &&
-       p.place_no_depth_forward_x_m >= 0.0)
-          ? p.place_no_depth_forward_x_m
-          : SecondPreselectionParams{}.place_no_depth_forward_x_m;
+  p.place_fixed_forward_x_m =
+      (std::isfinite(p.place_fixed_forward_x_m) &&
+       p.place_fixed_forward_x_m >= 0.0)
+          ? p.place_fixed_forward_x_m
+          : SecondPreselectionParams{}.place_fixed_forward_x_m;
+  p.place_fixed_forward_timeout_s =
+      (std::isfinite(p.place_fixed_forward_timeout_s) &&
+       p.place_fixed_forward_timeout_s > 0.0)
+          ? p.place_fixed_forward_timeout_s
+          : SecondPreselectionParams{}.place_fixed_forward_timeout_s;
   p.place_occupied_center_x_min_ratio =
       std::isfinite(p.place_occupied_center_x_min_ratio)
           ? std::clamp(p.place_occupied_center_x_min_ratio, 0.0, 1.0)
@@ -4120,23 +3862,36 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
     p.place_occupied_center_x_max_ratio =
         SecondPreselectionParams{}.place_occupied_center_x_max_ratio;
   }
-  p.place_occupied_upper_y_min_ratio =
-      std::isfinite(p.place_occupied_upper_y_min_ratio)
-          ? std::clamp(p.place_occupied_upper_y_min_ratio, 0.0, 1.0)
-          : SecondPreselectionParams{}.place_occupied_upper_y_min_ratio;
-  p.place_occupied_split_y_ratio =
-      std::isfinite(p.place_occupied_split_y_ratio)
-          ? std::clamp(p.place_occupied_split_y_ratio, 0.0, 1.0)
-          : SecondPreselectionParams{}.place_occupied_split_y_ratio;
-  if (p.place_occupied_upper_y_min_ratio >
-      p.place_occupied_split_y_ratio) {
-    p.place_occupied_upper_y_min_ratio =
-        SecondPreselectionParams{}.place_occupied_upper_y_min_ratio;
-    p.place_occupied_split_y_ratio =
-        SecondPreselectionParams{}.place_occupied_split_y_ratio;
+  p.place_occupied_middle_y_min_ratio =
+      std::isfinite(p.place_occupied_middle_y_min_ratio)
+          ? std::clamp(p.place_occupied_middle_y_min_ratio, 0.0, 1.0)
+          : SecondPreselectionParams{}.place_occupied_middle_y_min_ratio;
+  p.place_occupied_middle_y_max_ratio =
+      std::isfinite(p.place_occupied_middle_y_max_ratio)
+          ? std::clamp(p.place_occupied_middle_y_max_ratio, 0.0, 1.0)
+          : SecondPreselectionParams{}.place_occupied_middle_y_max_ratio;
+  if (p.place_occupied_middle_y_min_ratio >
+      p.place_occupied_middle_y_max_ratio) {
+    p.place_occupied_middle_y_min_ratio =
+        SecondPreselectionParams{}.place_occupied_middle_y_min_ratio;
+    p.place_occupied_middle_y_max_ratio =
+        SecondPreselectionParams{}.place_occupied_middle_y_max_ratio;
   }
-  p.place_occupied_max_center_dx_px =
-      std::max(0, p.place_occupied_max_center_dx_px);
+  p.place_occupied_lower_y_min_ratio =
+      std::isfinite(p.place_occupied_lower_y_min_ratio)
+          ? std::clamp(p.place_occupied_lower_y_min_ratio, 0.0, 1.0)
+          : SecondPreselectionParams{}.place_occupied_lower_y_min_ratio;
+  p.place_occupied_lower_y_max_ratio =
+      std::isfinite(p.place_occupied_lower_y_max_ratio)
+          ? std::clamp(p.place_occupied_lower_y_max_ratio, 0.0, 1.0)
+          : SecondPreselectionParams{}.place_occupied_lower_y_max_ratio;
+  if (p.place_occupied_lower_y_min_ratio >
+      p.place_occupied_lower_y_max_ratio) {
+    p.place_occupied_lower_y_min_ratio =
+        SecondPreselectionParams{}.place_occupied_lower_y_min_ratio;
+    p.place_occupied_lower_y_max_ratio =
+        SecondPreselectionParams{}.place_occupied_lower_y_max_ratio;
+  }
   p.place_occupied_stable_frames =
       std::max(1, p.place_occupied_stable_frames);
   p.place_occupied_first_lateral_m =
@@ -4398,9 +4153,18 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   blackboard->set("second_preselect_total_x_target_m", p.total_x_target_m);
   blackboard->set("second_preselect_total_x_tolerance_m",
                   p.total_x_tolerance_m);
-  blackboard->set("second_preselect_place_arm_reach_m", p.place_arm_reach_m);
-  blackboard->set("second_preselect_place_no_depth_forward_x_m",
-                  p.place_no_depth_forward_x_m);
+  blackboard->set("second_preselect_place_fixed_forward_x_m",
+                  p.place_fixed_forward_x_m);
+  blackboard->set("second_preselect_place_fixed_forward_timeout_s",
+                  p.place_fixed_forward_timeout_s);
+  blackboard->set("second_preselect_place_occupied_middle_y_min_ratio",
+                  p.place_occupied_middle_y_min_ratio);
+  blackboard->set("second_preselect_place_occupied_middle_y_max_ratio",
+                  p.place_occupied_middle_y_max_ratio);
+  blackboard->set("second_preselect_place_occupied_lower_y_min_ratio",
+                  p.place_occupied_lower_y_min_ratio);
+  blackboard->set("second_preselect_place_occupied_lower_y_max_ratio",
+                  p.place_occupied_lower_y_max_ratio);
   blackboard->set("second_preselect_nav_timeout_s", p.nav_timeout_s);
   blackboard->set("preselection_ramp_approach_x_m", p.ramp_approach_x_m);
   blackboard->set("preselection_ramp_climb_x_m", p.ramp_climb_x_m);
@@ -4419,7 +4183,7 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   blackboard->set("second_preselect_search_timeout_s", p.search_timeout_s);
 
   RCLCPP_INFO(node.get_logger(),
-              "第二预选赛参数已加载: mirror_sign=%d start=0x%02X/done=0x%02X lower=0x%02X/done=0x%02X/settle=%.2fs pickup=0x%02X/done=0x%02X place=0x%02X search=[speed %.2f timeout %.1f] nav=[post_pickup_x %.2f, y1 %.2f, total_x %.2f tol %.2f] place=[arm %.2f shared_timeout %.1f fallback_x %.2f occupied_shift %.2f/%.2f] ramp=[approach %.2f climb %.2f max %.2f min %.2f timeout %.1f turn %.2f timeout %.1f] align=[timeout %.1f tolerance %d stable %d] odom=%s",
+              "第二预选赛参数已加载: mirror_sign=%d start=0x%02X/done=0x%02X lower=0x%02X/done=0x%02X/settle=%.2fs pickup=0x%02X/done=0x%02X place=0x%02X search=[speed %.2f timeout %.1f] nav=[post_pickup_x %.2f, y1 %.2f, total_x %.2f tol %.2f] place=[fixed_x %.2f timeout %.1f middle_y %.2f~%.2f lower_y %.2f~%.2f occupied_shift %.2f/%.2f] ramp=[approach %.2f climb %.2f max %.2f min %.2f timeout %.1f turn %.2f timeout %.1f] align=[timeout %.1f tolerance %d stable %d] odom=%s",
               mirror_sign,
               p.start_command_id & 0xFF, p.start_done_feedback_id & 0xFF,
               p.pre_approach_lower_command_id & 0xFF,
@@ -4430,9 +4194,12 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
               p.place_kfs_command_id & 0xFF,
               p.search_forward_speed_mps, p.search_timeout_s,
               p.post_pickup_forward_x_m, p.nav_y1_m, p.total_x_target_m,
-              p.total_x_tolerance_m, p.place_arm_reach_m,
-              p.kfs_approach_timeout_s,
-              p.place_no_depth_forward_x_m,
+              p.total_x_tolerance_m, p.place_fixed_forward_x_m,
+              p.place_fixed_forward_timeout_s,
+              p.place_occupied_middle_y_min_ratio,
+              p.place_occupied_middle_y_max_ratio,
+              p.place_occupied_lower_y_min_ratio,
+              p.place_occupied_lower_y_max_ratio,
               p.place_occupied_first_lateral_m,
               p.place_occupied_second_reverse_m,
               p.ramp_approach_x_m, p.ramp_climb_x_m,

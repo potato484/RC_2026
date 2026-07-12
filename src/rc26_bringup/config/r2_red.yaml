@@ -92,13 +92,14 @@ r2_runtime:
       second_preselect_total_x_target_m: 4.2        # 从初次搜索新鲜 odom 原点沿搜索 yaw 的总 X 净投影目标
       second_preselect_total_x_tolerance_m: 0.03    # 总 X 闭环到位容差；已超调时停车成功且不倒退
       second_preselect_nav_timeout_s: 180.0         # 第二预选赛每个 odom 单轴段超时
-      second_preselect_place_arm_reach_m: 0.45      # 最终放置趋近距离=对齐稳定真实深度-独立臂长
-      second_preselect_place_no_depth_forward_x_m: 1.5 # 清空后连续无真实深度超时时沿 +X 降级前进的累计上限
-      second_preselect_place_occupied_center_x_min_ratio: 0.20 # 占位双框中心带左边界
-      second_preselect_place_occupied_center_x_max_ratio: 0.80 # 占位双框中心带右边界
-      second_preselect_place_occupied_upper_y_min_ratio: 0.20 # 上层框中心高度下界
-      second_preselect_place_occupied_split_y_ratio: 0.55 # 上下层框中心高度分界
-      second_preselect_place_occupied_max_center_dx_px: 120 # 上下框横向中心最大差
+      second_preselect_place_fixed_forward_x_m: 1.8 # 放置准备完成后固定沿 +X 前进距离；不再由深度计算
+      second_preselect_place_fixed_forward_timeout_s: 30.0 # 固定前进超时；超时停车后仍继续后续 0x13 放置
+      second_preselect_place_occupied_center_x_min_ratio: 0.20 # 中/下层 KFS 中心带左边界
+      second_preselect_place_occupied_center_x_max_ratio: 0.80 # 中/下层 KFS 中心带右边界
+      second_preselect_place_occupied_middle_y_min_ratio: 0.12 # 中层 KFS 中心高度下界；只用于占据判断
+      second_preselect_place_occupied_middle_y_max_ratio: 0.45 # 中层 KFS 中心高度上界
+      second_preselect_place_occupied_lower_y_min_ratio: 0.45 # 下层 KFS 中心高度下界；用于横向中心对齐
+      second_preselect_place_occupied_lower_y_max_ratio: 1.00 # 下层 KFS 中心高度上界
       second_preselect_place_occupied_stable_frames: 2 # 连续占据/清空确认帧数
       second_preselect_place_occupied_first_lateral_m: 0.56 # 首次占据红方 +Y 横移距离；blue 镜像
       second_preselect_place_occupied_second_reverse_m: 1.10 # 再次占据时反方向横移距离
@@ -133,7 +134,7 @@ r2_runtime:
       second_preselect_kfs_approach_speed_mps: 0.20 # 前向趋近最大速度
       second_preselect_kfs_approach_min_speed_mps: 0.03 # 前向趋近最小速度
       second_preselect_kfs_approach_x_sign: 1       # 前向趋近沿车体系 +X
-      second_preselect_kfs_approach_timeout_s: 8.0  # 共用于初次夹取趋近、清空后无真实深度等待和最终放置趋近
+      second_preselect_kfs_approach_timeout_s: 8.0  # 初次夹取前向 odom 闭环趋近超时；最终放置前进使用固定前进超时
       second_preselect_kfs_grab_distance_m: 0.45    # 机械臂可触达距离
       second_preselect_kfs_heading_kp: 1.2          # KFS 对齐/趋近 heading hold 增益
       second_preselect_kfs_heading_max_speed_radps: 0.30 # heading hold 最大角速度

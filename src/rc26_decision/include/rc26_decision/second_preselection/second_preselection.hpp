@@ -60,13 +60,14 @@ struct SecondPreselectionParams {
   double total_x_target_m{4.2};
   double total_x_tolerance_m{0.03};
   double nav_timeout_s{180.0};
-  double place_arm_reach_m{0.45};
-  double place_no_depth_forward_x_m{1.5};
+  double place_fixed_forward_x_m{1.8};
+  double place_fixed_forward_timeout_s{30.0};
   double place_occupied_center_x_min_ratio{0.20};
   double place_occupied_center_x_max_ratio{0.80};
-  double place_occupied_upper_y_min_ratio{0.20};
-  double place_occupied_split_y_ratio{0.55};
-  int place_occupied_max_center_dx_px{120};
+  double place_occupied_middle_y_min_ratio{0.12};
+  double place_occupied_middle_y_max_ratio{0.45};
+  double place_occupied_lower_y_min_ratio{0.45};
+  double place_occupied_lower_y_max_ratio{1.00};
   int place_occupied_stable_frames{2};
   double place_occupied_first_lateral_m{0.56};
   double place_occupied_second_reverse_m{1.10};
@@ -147,19 +148,17 @@ double secondPreselectionProjectedX(double origin_x, double origin_y,
                                     double current_y);
 double secondPreselectionTotalXRemainingToDrive(
     double projected_x_m, const SecondPreselectionParams &params);
-double secondPreselectionPlaceApproachDistance(
-    double target_depth_m, const SecondPreselectionParams &params);
-double secondPreselectionNoDepthFallbackProgress(
-    double projected_x_m, const SecondPreselectionParams &params);
-double secondPreselectionNoDepthFallbackRemaining(
-    double progress_m, const SecondPreselectionParams &params);
 double secondPreselectionPlaceAvoidanceDistance(
     int avoidance_stage, const SecondPreselectionParams &params);
+struct SecondPreselectionLayerObservation {
+  bool middle{false};
+  bool lower{false};
+};
+SecondPreselectionLayerObservation secondPreselectionFrameLayers(
+    const std::vector<rc26_vision::Detection> &detections, int frame_width,
+    int frame_height, const SecondPreselectionParams &params);
 bool secondPreselectionPlaceApproachTimedOut(double elapsed_s,
                                              double timeout_s);
-double secondPreselectionUpdateNoDepthElapsed(
-    double accumulated_s, double consecutive_frame_delta_s,
-    bool has_real_depth);
 bool secondPreselectionConsumeNewFrameSequence(int64_t sequence,
                                                int64_t &last_sequence);
 bool secondPreselectionFrameOccupied(
@@ -435,8 +434,7 @@ private:
     ObserveAfterFirst,
     LateralSecond,
     ObserveAfterSecond,
-    AlignTarget,
-    NoDepthFallbackForward
+    AlignTarget
   };
 
   struct KfsObservation {
@@ -473,18 +471,11 @@ private:
                         Phase next_observe_phase);
   BT::NodeStatus tickLateralMove();
   BT::NodeStatus tickAlignTarget();
-  void beginNoDepthFallbackForward(int64_t current_visual_sequence);
-  BT::NodeStatus tickNoDepthFallbackForward();
-  BT::NodeStatus finishImmediatePlace(const std::string &reason);
   BT::NodeStatus finishAlignedPlace(const KfsObservation &observation);
+  BT::NodeStatus finishFixedForwardPlace(const std::string &reason);
   void resetObservationStability();
   void latchLatestObservationSequence();
   void resetAlignmentState();
-  void resetNoDepthWait();
-  void updateFallbackProgress();
-  void updateFallbackBlackboard(const std::string &mode,
-                                const std::string &termination_reason,
-                                bool cancel_remaining = false);
   double headingAngularZ(double target_yaw_rad) const;
   void clearRuntimeState();
 
@@ -507,16 +498,11 @@ private:
   int align_stable_count_{0};
   int align_lost_count_{0};
   int64_t align_last_sequence_{0};
+  int64_t align_search_last_sequence_{0};
   rc26_vision::TipTargetLockState align_lock_state_;
   std::optional<KfsObservation> align_last_observation_;
   bool align_filtered_offset_valid_{false};
   double align_filtered_offset_px_{0.0};
-  std::vector<double> align_stable_depths_;
-  bool no_depth_wait_active_{false};
-  double no_depth_elapsed_s_{0.0};
-  int64_t no_depth_last_sequence_{0};
-  int64_t no_depth_last_stamp_ns_{0};
-  std::chrono::steady_clock::time_point no_depth_last_frame_tp_{};
   int occupied_stable_count_{0};
   int clear_stable_count_{0};
   int64_t occupancy_last_sequence_{0};
@@ -526,15 +512,6 @@ private:
   double lateral_start_yaw_{0.0};
   bool lateral_start_captured_{false};
   int lateral_stable_ticks_{0};
-  bool fallback_started_{false};
-  bool fallback_origin_captured_{false};
-  double fallback_origin_x_{0.0};
-  double fallback_origin_y_{0.0};
-  double fallback_origin_yaw_{0.0};
-  double fallback_progress_m_{0.0};
-  int fallback_stable_ticks_{0};
-  int fallback_visual_interrupt_count_{0};
-  int64_t fallback_last_visual_sequence_{0};
   Phase next_observe_phase_{Phase::ObserveInitial};
   Phase phase_{Phase::ObserveInitial};
   bool ui_window_active_{false};

@@ -8,9 +8,7 @@
 #include <vector>
 
 #include <behaviortree_cpp/bt_factory.h>
-#include <opencv2/core.hpp>
 
-#include "rc26_decision/mf_preselection/mf_preselection_flow.hpp"
 #include "rc26_decision/navigation/bt_odom_relative_nav.hpp"
 #include "rc26_decision/second_preselection/second_preselection.hpp"
 
@@ -51,15 +49,19 @@ std::filesystem::path secondPreselectionTreePath() {
 
 } // namespace
 
-TEST(SecondPreselectionLogic, DefaultsUseTotalXAndDepthPlacementRoute) {
+TEST(SecondPreselectionLogic, DefaultsUseTotalXAndFixedPlacementRoute) {
   const rc26_decision::SecondPreselectionParams params;
   EXPECT_NEAR(params.post_pickup_forward_x_m, 1.5, 1.0e-9);
   EXPECT_NEAR(params.nav_y1_m, 0.75, 1.0e-9);
   EXPECT_NEAR(params.total_x_target_m, 4.2, 1.0e-9);
   EXPECT_NEAR(params.total_x_tolerance_m, 0.03, 1.0e-9);
-  EXPECT_NEAR(params.place_arm_reach_m, 0.45, 1.0e-9);
-  EXPECT_NEAR(params.place_no_depth_forward_x_m, 1.5, 1.0e-9);
+  EXPECT_NEAR(params.place_fixed_forward_x_m, 1.8, 1.0e-9);
+  EXPECT_NEAR(params.place_fixed_forward_timeout_s, 30.0, 1.0e-9);
   EXPECT_NEAR(params.kfs_approach_timeout_s, 8.0, 1.0e-9);
+  EXPECT_NEAR(params.place_occupied_middle_y_min_ratio, 0.12, 1.0e-9);
+  EXPECT_NEAR(params.place_occupied_middle_y_max_ratio, 0.45, 1.0e-9);
+  EXPECT_NEAR(params.place_occupied_lower_y_min_ratio, 0.45, 1.0e-9);
+  EXPECT_NEAR(params.place_occupied_lower_y_max_ratio, 1.00, 1.0e-9);
   EXPECT_EQ(params.place_occupied_stable_frames, 2);
   EXPECT_NEAR(params.place_occupied_first_lateral_m, 0.56, 1.0e-9);
   EXPECT_NEAR(params.place_occupied_second_reverse_m, 1.10, 1.0e-9);
@@ -116,67 +118,42 @@ TEST(SecondPreselectionLogic, TotalXProjectionUsesSearchStartYaw) {
               3.0, 1.0e-9);
 }
 
-TEST(SecondPreselectionLogic,
-     NoDepthFallbackProjectionResumesOnlyRemainingDistance) {
-  auto params = rc26_decision::SecondPreselectionParams{};
-  params.place_no_depth_forward_x_m = 1.5;
-  const double origin_x = 4.2;
-  const double origin_y = 1.0;
-  const double yaw = 0.0;
-
-  const double progress_after_interrupt =
-      rc26_decision::secondPreselectionNoDepthFallbackProgress(
-          rc26_decision::secondPreselectionProjectedX(
-              origin_x, origin_y, yaw, 4.8, 1.0),
-          params);
-  EXPECT_NEAR(progress_after_interrupt, 0.6, 1.0e-9);
-  EXPECT_NEAR(rc26_decision::secondPreselectionNoDepthFallbackRemaining(
-                  progress_after_interrupt, params),
-              0.9, 1.0e-9);
-
-  const double progress_after_lateral =
-      rc26_decision::secondPreselectionNoDepthFallbackProgress(
-          rc26_decision::secondPreselectionProjectedX(
-              origin_x, origin_y, yaw, 4.8, 1.7),
-          params);
-  EXPECT_NEAR(progress_after_lateral, 0.6, 1.0e-9);
-  EXPECT_NEAR(rc26_decision::secondPreselectionNoDepthFallbackRemaining(
-                  progress_after_lateral, params),
-              0.9, 1.0e-9);
-
-  EXPECT_NEAR(rc26_decision::secondPreselectionNoDepthFallbackProgress(
-                  1.8, params),
-              1.5, 1.0e-9);
-  EXPECT_NEAR(rc26_decision::secondPreselectionNoDepthFallbackRemaining(
-                  1.8, params),
-              0.0, 1.0e-9);
-}
-
-TEST(SecondPreselectionLogic, OccupancyRequiresCentralUpperAndLowerKfs) {
+TEST(SecondPreselectionLogic, LayerClassificationSeparatesMiddleAndLowerKfs) {
   const auto params = rc26_decision::SecondPreselectionParams{};
   constexpr int width = 640;
   constexpr int height = 480;
 
+  auto layers = rc26_decision::secondPreselectionFrameLayers(
+      {makeDetection(320.0F, 120.0F)}, width, height, params);
+  EXPECT_TRUE(layers.middle);
+  EXPECT_FALSE(layers.lower);
   EXPECT_TRUE(rc26_decision::secondPreselectionFrameOccupied(
-      {makeDetection(300.0F, 180.0F), makeDetection(350.0F, 360.0F)},
-      width, height, params));
-  EXPECT_TRUE(rc26_decision::secondPreselectionFrameOccupied(
-      {makeDetection(300.0F, 180.0F, "UNKNOWN_KFS"),
-       makeDetection(350.0F, 360.0F, "R1_KFS")},
-      width, height, params));
+      {makeDetection(320.0F, 120.0F)}, width, height, params));
 
+  layers = rc26_decision::secondPreselectionFrameLayers(
+      {makeDetection(320.0F, 360.0F)}, width, height, params);
+  EXPECT_FALSE(layers.middle);
+  EXPECT_TRUE(layers.lower);
   EXPECT_FALSE(rc26_decision::secondPreselectionFrameOccupied(
-      {makeDetection(100.0F, 180.0F), makeDetection(100.0F, 360.0F)},
-      width, height, params));
+      {makeDetection(320.0F, 360.0F)}, width, height, params));
+
+  layers = rc26_decision::secondPreselectionFrameLayers(
+      {makeDetection(300.0F, 120.0F), makeDetection(350.0F, 360.0F, "R1_KFS")},
+      width, height, params);
+  EXPECT_TRUE(layers.middle);
+  EXPECT_TRUE(layers.lower);
+
+  layers = rc26_decision::secondPreselectionFrameLayers(
+      {makeDetection(320.0F, 40.0F), makeDetection(100.0F, 360.0F)},
+      width, height, params);
+  EXPECT_FALSE(layers.middle);
+  EXPECT_FALSE(layers.lower);
   EXPECT_FALSE(rc26_decision::secondPreselectionFrameOccupied(
-      {makeDetection(300.0F, 180.0F), makeDetection(350.0F, 240.0F)},
-      width, height, params));
-  EXPECT_FALSE(rc26_decision::secondPreselectionFrameOccupied(
-      {makeDetection(200.0F, 180.0F), makeDetection(330.0F, 360.0F)},
+      {makeDetection(320.0F, 40.0F), makeDetection(100.0F, 360.0F)},
       width, height, params));
 }
 
-TEST(SecondPreselectionLogic, FallbackCenterKfsUsesExistingCentralRoi) {
+TEST(SecondPreselectionLogic, CenterKfsUsesMiddleAndLowerCentralRoi) {
   const auto params = rc26_decision::SecondPreselectionParams{};
   constexpr int width = 640;
   constexpr int height = 480;
@@ -188,12 +165,12 @@ TEST(SecondPreselectionLogic, FallbackCenterKfsUsesExistingCentralRoi) {
   EXPECT_FALSE(rc26_decision::secondPreselectionFrameHasCenterKfs(
       {makeDetection(100.0F, 300.0F, "T_KFS")}, width, height, params));
   EXPECT_FALSE(rc26_decision::secondPreselectionFrameHasCenterKfs(
-      {makeDetection(320.0F, 60.0F, "T_KFS")}, width, height, params));
+      {makeDetection(320.0F, 40.0F, "T_KFS")}, width, height, params));
   EXPECT_FALSE(rc26_decision::secondPreselectionFrameHasCenterKfs(
       {makeDetection(320.0F, 300.0F, "NOT_TARGET")}, width, height, params));
 }
 
-TEST(SecondPreselectionLogic, FallbackVisualInterruptConsumesOnlyNewFrames) {
+TEST(SecondPreselectionLogic, VisualFrameSequenceConsumesOnlyNewFrames) {
   int64_t last_sequence = 0;
   EXPECT_TRUE(
       rc26_decision::secondPreselectionConsumeNewFrameSequence(10,
@@ -245,57 +222,20 @@ TEST(SecondPreselectionLogic, AvoidanceDistancesMirrorForRedAndBlue) {
               1.10, 1.0e-9);
 }
 
-TEST(SecondPreselectionLogic, PlacementDepthUsesMfRealDepthAndSeparateReach) {
-  using Logic = rc26_decision::MfPreselectionLogicResult;
-  cv::Mat depth(100, 100, CV_32FC1, cv::Scalar(0.95F));
-  rc26_vision::DepthRoiSamplerConfig config;
-  config.roi_size = 3;
-  config.min_valid_count = 1;
-  config.min_depth_m = 0.2;
-  config.max_depth_m = 2.0;
-
-  const auto sampled = Logic::sampleKfsDepthFromBbox(
-      depth, 20.0, 20.0, 80.0, 80.0, config, {0.25, 0.50, 0.75}, 1);
-  ASSERT_TRUE(sampled.has_depth);
-  EXPECT_TRUE(Logic::kfsDepthSourceIsReal(sampled.source));
-  EXPECT_FALSE(
-      Logic::kfsDepthSourceIsReal(Logic::KfsDepthSource::MonocularBbox));
-  EXPECT_FALSE(Logic::kfsDepthSourceIsReal(Logic::KfsDepthSource::None));
-
+TEST(SecondPreselectionLogic, PlacementApproachUsesFixedForwardDistance) {
   auto params = rc26_decision::SecondPreselectionParams{};
-  params.place_arm_reach_m = 0.45;
-  EXPECT_NEAR(rc26_decision::secondPreselectionPlaceApproachDistance(
-                  sampled.depth_m, params),
-              0.50, 1.0e-5);
-  EXPECT_NEAR(rc26_decision::secondPreselectionPlaceApproachDistance(
-                  0.40, params),
-              0.0, 1.0e-9);
+  EXPECT_NEAR(params.place_fixed_forward_x_m, 1.8, 1.0e-9);
 }
 
-TEST(SecondPreselectionLogic, SharedKfsApproachTimeoutKeepsStrictLimit) {
+TEST(SecondPreselectionLogic, FixedForwardTimeoutKeepsStrictLimit) {
   EXPECT_FALSE(
-      rc26_decision::secondPreselectionPlaceApproachTimedOut(7.99, 8.0));
+      rc26_decision::secondPreselectionPlaceApproachTimedOut(29.99, 30.0));
   EXPECT_FALSE(
-      rc26_decision::secondPreselectionPlaceApproachTimedOut(8.0, 8.0));
+      rc26_decision::secondPreselectionPlaceApproachTimedOut(30.0, 30.0));
   EXPECT_TRUE(
-      rc26_decision::secondPreselectionPlaceApproachTimedOut(8.01, 8.0));
+      rc26_decision::secondPreselectionPlaceApproachTimedOut(30.01, 30.0));
   EXPECT_FALSE(
       rc26_decision::secondPreselectionPlaceApproachTimedOut(100.0, 0.0));
-}
-
-TEST(SecondPreselectionLogic, RealDepthResetsNoDepthElapsedTime) {
-  double elapsed = 0.0;
-  elapsed = rc26_decision::secondPreselectionUpdateNoDepthElapsed(
-      elapsed, 0.4, false);
-  elapsed = rc26_decision::secondPreselectionUpdateNoDepthElapsed(
-      elapsed, 0.6, false);
-  EXPECT_NEAR(elapsed, 1.0, 1.0e-9);
-  elapsed = rc26_decision::secondPreselectionUpdateNoDepthElapsed(
-      elapsed, 0.1, true);
-  EXPECT_NEAR(elapsed, 0.0, 1.0e-9);
-  elapsed = rc26_decision::secondPreselectionUpdateNoDepthElapsed(
-      elapsed, 0.0, false);
-  EXPECT_NEAR(elapsed, 0.0, 1.0e-9);
 }
 
 TEST(SecondPreselectionLogic, BehaviorTreeUsesNewPlacementSequence) {
@@ -362,12 +302,22 @@ TEST(SecondPreselectionLogic, RedAndBlueConfigsUseNewParameters) {
               std::string::npos);
     EXPECT_NE(yaml.find("second_preselect_total_x_target_m: 4.2"),
               std::string::npos);
-    EXPECT_NE(yaml.find("second_preselect_place_arm_reach_m: 0.45"),
+    EXPECT_NE(yaml.find("second_preselect_place_fixed_forward_x_m: 1.8"),
               std::string::npos);
     EXPECT_NE(
-        yaml.find("second_preselect_place_no_depth_forward_x_m: 1.5"),
+        yaml.find("second_preselect_place_fixed_forward_timeout_s: 30.0"),
               std::string::npos);
-    EXPECT_NE(yaml.find("second_preselect_kfs_approach_timeout_s: 8.0"),
+    EXPECT_NE(
+        yaml.find("second_preselect_place_occupied_middle_y_min_ratio: 0.12"),
+              std::string::npos);
+    EXPECT_NE(
+        yaml.find("second_preselect_place_occupied_middle_y_max_ratio: 0.45"),
+              std::string::npos);
+    EXPECT_NE(
+        yaml.find("second_preselect_place_occupied_lower_y_min_ratio: 0.45"),
+              std::string::npos);
+    EXPECT_NE(
+        yaml.find("second_preselect_place_occupied_lower_y_max_ratio: 1.00"),
               std::string::npos);
     EXPECT_EQ(yaml.find("second_preselect_place_approach_timeout_s"),
               std::string::npos);
