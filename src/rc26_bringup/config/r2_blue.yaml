@@ -87,20 +87,21 @@ r2_runtime:
       second_preselect_cmd_vel_topic: "cmd_vel"     # KFS 搜索、视觉对齐和前向趋近发布的运动命令
       second_preselect_post_pickup_forward_x_m: 1.5 # 夹取成功后先沿车体系 +X 固定前进；计入总 X 投影
       second_preselect_nav_y1_m: 0.75               # 夹取完成后红方基准 +Y 横移；blue 启动时自动取反
-      second_preselect_nav_max_speed_mps: 0.60      # second_preselection_tree.xml 内 OdomDriveX/Y 平移速度上限
-      second_preselect_nav_min_speed_mps: 0.60      # second_preselection_tree.xml 内 OdomDriveX/Y 未进容差前最小速度
+      second_preselect_nav_max_speed_mps: 0.60      # second_preselection_tree.xml 内 OdomDriveX/Y 与总 X 补齐段平移速度上限
+      second_preselect_nav_min_speed_mps: 0.60      # second_preselection_tree.xml 内 OdomDriveX/Y 与总 X 补齐段未进容差前最小速度
       second_preselect_total_x_target_m: 4.2        # 从初次搜索新鲜 odom 原点沿搜索 yaw 的总 X 净投影目标
       second_preselect_total_x_tolerance_m: 0.03    # 总 X 闭环到位容差；已超调时停车成功且不倒退
       second_preselect_nav_timeout_s: 180.0         # 第二预选赛每个 odom 单轴段超时
       second_preselect_place_fixed_forward_x_m: 1.8 # 放置准备完成后固定沿 +X 前进距离；不再由深度计算
-      second_preselect_place_fixed_forward_timeout_s: 30.0 # 固定前进超时；超时停车后仍继续后续 0x13 放置
+      second_preselect_place_fixed_forward_timeout_s: 5.0 # 固定前进超时；超时停车后仍继续后续 0x13 放置
+      second_preselect_place_observe_timeout_s: 5.0 # 放置前中/下层观察兜底超时；超时后固定前进放置
       second_preselect_place_occupied_center_x_min_ratio: 0.20 # 中/下层 KFS 中心带左边界
       second_preselect_place_occupied_center_x_max_ratio: 0.80 # 中/下层 KFS 中心带右边界
       second_preselect_place_occupied_middle_y_min_ratio: 0.12 # 中层 KFS 中心高度下界；只用于占据判断
       second_preselect_place_occupied_middle_y_max_ratio: 0.45 # 中层 KFS 中心高度上界
       second_preselect_place_occupied_lower_y_min_ratio: 0.45 # 下层 KFS 中心高度下界；用于横向中心对齐
       second_preselect_place_occupied_lower_y_max_ratio: 1.00 # 下层 KFS 中心高度上界
-      second_preselect_place_occupied_stable_frames: 2 # 连续占据/清空确认帧数
+      second_preselect_place_occupied_stable_frames: 5 # 连续占据/清空确认帧数
       second_preselect_place_occupied_first_lateral_m: 0.56 # 首次占据红方 +Y 横移距离；blue 镜像
       second_preselect_place_occupied_second_reverse_m: 1.10 # 再次占据时反方向横移距离
       second_preselect_place_occupied_lateral_max_speed_mps: 0.15 # 占位避让横移最大速度
@@ -131,8 +132,8 @@ r2_runtime:
       second_preselect_kfs_approach_odom_tolerance_m: 0.02 # 前向趋近距离容差
       second_preselect_kfs_odom_yaw_tolerance_deg: 5.0 # 前向趋近 yaw 容差
       second_preselect_kfs_odom_stable_ticks: 3     # 前向趋近稳定 tick
-      second_preselect_kfs_approach_speed_mps: 0.20 # 前向趋近最大速度
-      second_preselect_kfs_approach_min_speed_mps: 0.03 # 前向趋近最小速度
+      second_preselect_kfs_approach_speed_mps: 0.20 # KFS 夹取前按锁定深度前向趋近最大速度；不控制总 X 补齐
+      second_preselect_kfs_approach_min_speed_mps: 0.05 # KFS 夹取前按锁定深度前向趋近最小速度
       second_preselect_kfs_approach_x_sign: 1       # 前向趋近沿车体系 +X
       second_preselect_kfs_approach_timeout_s: 8.0  # 初次夹取前向 odom 闭环趋近超时；最终放置前进使用固定前进超时
       second_preselect_kfs_grab_distance_m: 0.45    # 机械臂可触达距离

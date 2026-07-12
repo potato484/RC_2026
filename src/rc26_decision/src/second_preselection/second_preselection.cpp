@@ -415,6 +415,12 @@ bool secondPreselectionPlaceApproachTimedOut(double elapsed_s,
          timeout_s > 0.0 && elapsed_s > timeout_s;
 }
 
+bool secondPreselectionPlaceObserveTimedOut(double elapsed_s,
+                                            double timeout_s) {
+  return std::isfinite(elapsed_s) && std::isfinite(timeout_s) &&
+         timeout_s > 0.0 && elapsed_s > timeout_s;
+}
+
 bool secondPreselectionConsumeNewFrameSequence(int64_t sequence,
                                                int64_t &last_sequence) {
   if (sequence <= 0 || sequence == last_sequence) {
@@ -1999,7 +2005,7 @@ BT::NodeStatus SecondPreselectionDriveToTotalXAction::onRunning() {
   stable_ticks_ = 0;
   double vx = params_.kfs_odom_xy_kp *
               secondPreselectionTotalXRemainingToDrive(progress, params_);
-  vx = std::min(vx, params_.kfs_approach_speed_mps);
+  vx = std::min(vx, params_.nav_max_speed_mps);
   if (vx > 1e-9 && vx < params_.kfs_approach_min_speed_mps) {
     vx = params_.kfs_approach_min_speed_mps;
   }
@@ -2099,13 +2105,14 @@ BT::NodeStatus SecondPreselectionKfsPlacePrepareAction::onStart() {
   phase_ = Phase::ObserveInitial;
   latchLatestObservationSequence();
   RCLCPP_INFO(node_->get_logger(),
-              "第二预选赛开始 KFS 放置准备：middle_y=%.2f~%.2f lower_y=%.2f~%.2f fixed_x=%.2fm timeout=%.1fs occupied_stable=%d first_y=%.2f second_y=%.2f mirror=%d",
+              "第二预选赛开始 KFS 放置准备：middle_y=%.2f~%.2f lower_y=%.2f~%.2f fixed_x=%.2fm timeout=%.1fs observe_timeout=%.1fs occupied_stable=%d first_y=%.2f second_y=%.2f mirror=%d",
               params_.place_occupied_middle_y_min_ratio,
               params_.place_occupied_middle_y_max_ratio,
               params_.place_occupied_lower_y_min_ratio,
               params_.place_occupied_lower_y_max_ratio,
               params_.place_fixed_forward_x_m,
               params_.place_fixed_forward_timeout_s,
+              params_.place_observe_timeout_s,
               params_.place_occupied_stable_frames,
               params_.place_occupied_first_lateral_m,
               params_.place_occupied_second_reverse_m,
@@ -2116,14 +2123,6 @@ BT::NodeStatus SecondPreselectionKfsPlacePrepareAction::onStart() {
 BT::NodeStatus SecondPreselectionKfsPlacePrepareAction::onRunning() {
   if (!vision_ || !vision_->isRunning()) {
     return fail("第二预选赛放置准备视觉运行时不可用");
-  }
-  const bool visual_wait_phase =
-      phase_ == Phase::ObserveInitial ||
-      phase_ == Phase::ObserveAfterFirst ||
-      phase_ == Phase::ObserveAfterSecond;
-  if (visual_wait_phase &&
-      elapsedSec(phase_tp_) > params_.kfs_align_timeout_s) {
-    return fail("第二预选赛放置准备视觉观察/对齐超时");
   }
   switch (phase_) {
   case Phase::ObserveInitial:
@@ -2439,6 +2438,10 @@ SecondPreselectionKfsPlacePrepareAction::applyAlignmentObservationFilter(
 
 BT::NodeStatus SecondPreselectionKfsPlacePrepareAction::tickObserveCheckpoint(
     Phase lateral_phase, Phase clear_phase, bool final_checkpoint) {
+  if (secondPreselectionPlaceObserveTimedOut(
+          elapsedSec(phase_tp_), params_.place_observe_timeout_s)) {
+    return finishFixedForwardPlace("PLACE_OBSERVE_TIMEOUT_FIXED_FORWARD");
+  }
   FrameSnapshot snapshot;
   if (!latestSnapshot(snapshot)) {
     publishStop();
@@ -3613,6 +3616,8 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   p.place_fixed_forward_timeout_s = node.declare_parameter<double>(
       "second_preselect_place_fixed_forward_timeout_s",
       p.place_fixed_forward_timeout_s);
+  p.place_observe_timeout_s = node.declare_parameter<double>(
+      "second_preselect_place_observe_timeout_s", p.place_observe_timeout_s);
   p.place_occupied_center_x_min_ratio = node.declare_parameter<double>(
       "second_preselect_place_occupied_center_x_min_ratio",
       p.place_occupied_center_x_min_ratio);
@@ -3847,6 +3852,11 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
        p.place_fixed_forward_timeout_s > 0.0)
           ? p.place_fixed_forward_timeout_s
           : SecondPreselectionParams{}.place_fixed_forward_timeout_s;
+  p.place_observe_timeout_s =
+      (std::isfinite(p.place_observe_timeout_s) &&
+       p.place_observe_timeout_s > 0.0)
+          ? p.place_observe_timeout_s
+          : SecondPreselectionParams{}.place_observe_timeout_s;
   p.place_occupied_center_x_min_ratio =
       std::isfinite(p.place_occupied_center_x_min_ratio)
           ? std::clamp(p.place_occupied_center_x_min_ratio, 0.0, 1.0)
@@ -4157,6 +4167,8 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
                   p.place_fixed_forward_x_m);
   blackboard->set("second_preselect_place_fixed_forward_timeout_s",
                   p.place_fixed_forward_timeout_s);
+  blackboard->set("second_preselect_place_observe_timeout_s",
+                  p.place_observe_timeout_s);
   blackboard->set("second_preselect_place_occupied_middle_y_min_ratio",
                   p.place_occupied_middle_y_min_ratio);
   blackboard->set("second_preselect_place_occupied_middle_y_max_ratio",
@@ -4183,7 +4195,7 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   blackboard->set("second_preselect_search_timeout_s", p.search_timeout_s);
 
   RCLCPP_INFO(node.get_logger(),
-              "第二预选赛参数已加载: mirror_sign=%d start=0x%02X/done=0x%02X lower=0x%02X/done=0x%02X/settle=%.2fs pickup=0x%02X/done=0x%02X place=0x%02X search=[speed %.2f timeout %.1f] nav=[post_pickup_x %.2f, y1 %.2f, total_x %.2f tol %.2f] place=[fixed_x %.2f timeout %.1f middle_y %.2f~%.2f lower_y %.2f~%.2f occupied_shift %.2f/%.2f] ramp=[approach %.2f climb %.2f max %.2f min %.2f timeout %.1f turn %.2f timeout %.1f] align=[timeout %.1f tolerance %d stable %d] odom=%s",
+              "第二预选赛参数已加载: mirror_sign=%d start=0x%02X/done=0x%02X lower=0x%02X/done=0x%02X/settle=%.2fs pickup=0x%02X/done=0x%02X place=0x%02X search=[speed %.2f timeout %.1f] nav=[post_pickup_x %.2f, y1 %.2f, total_x %.2f tol %.2f] place=[fixed_x %.2f timeout %.1f observe_timeout %.1f middle_y %.2f~%.2f lower_y %.2f~%.2f occupied_shift %.2f/%.2f] ramp=[approach %.2f climb %.2f max %.2f min %.2f timeout %.1f turn %.2f timeout %.1f] align=[timeout %.1f tolerance %d stable %d] odom=%s",
               mirror_sign,
               p.start_command_id & 0xFF, p.start_done_feedback_id & 0xFF,
               p.pre_approach_lower_command_id & 0xFF,
@@ -4195,7 +4207,7 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
               p.search_forward_speed_mps, p.search_timeout_s,
               p.post_pickup_forward_x_m, p.nav_y1_m, p.total_x_target_m,
               p.total_x_tolerance_m, p.place_fixed_forward_x_m,
-              p.place_fixed_forward_timeout_s,
+              p.place_fixed_forward_timeout_s, p.place_observe_timeout_s,
               p.place_occupied_middle_y_min_ratio,
               p.place_occupied_middle_y_max_ratio,
               p.place_occupied_lower_y_min_ratio,

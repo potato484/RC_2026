@@ -57,6 +57,7 @@ TEST(SecondPreselectionLogic, DefaultsUseTotalXAndFixedPlacementRoute) {
   EXPECT_NEAR(params.total_x_tolerance_m, 0.03, 1.0e-9);
   EXPECT_NEAR(params.place_fixed_forward_x_m, 1.8, 1.0e-9);
   EXPECT_NEAR(params.place_fixed_forward_timeout_s, 30.0, 1.0e-9);
+  EXPECT_NEAR(params.place_observe_timeout_s, 5.0, 1.0e-9);
   EXPECT_NEAR(params.kfs_approach_timeout_s, 8.0, 1.0e-9);
   EXPECT_NEAR(params.place_occupied_middle_y_min_ratio, 0.12, 1.0e-9);
   EXPECT_NEAR(params.place_occupied_middle_y_max_ratio, 0.45, 1.0e-9);
@@ -238,6 +239,17 @@ TEST(SecondPreselectionLogic, FixedForwardTimeoutKeepsStrictLimit) {
       rc26_decision::secondPreselectionPlaceApproachTimedOut(100.0, 0.0));
 }
 
+TEST(SecondPreselectionLogic, PlaceObserveTimeoutKeepsStrictLimit) {
+  EXPECT_FALSE(
+      rc26_decision::secondPreselectionPlaceObserveTimedOut(4.99, 5.0));
+  EXPECT_FALSE(
+      rc26_decision::secondPreselectionPlaceObserveTimedOut(5.0, 5.0));
+  EXPECT_TRUE(
+      rc26_decision::secondPreselectionPlaceObserveTimedOut(5.01, 5.0));
+  EXPECT_FALSE(
+      rc26_decision::secondPreselectionPlaceObserveTimedOut(100.0, 0.0));
+}
+
 TEST(SecondPreselectionLogic, BehaviorTreeUsesNewPlacementSequence) {
   const std::string xml = readTextFile(secondPreselectionTreePath());
 
@@ -305,8 +317,11 @@ TEST(SecondPreselectionLogic, RedAndBlueConfigsUseNewParameters) {
     EXPECT_NE(yaml.find("second_preselect_place_fixed_forward_x_m: 1.8"),
               std::string::npos);
     EXPECT_NE(
-        yaml.find("second_preselect_place_fixed_forward_timeout_s: 30.0"),
-              std::string::npos);
+        yaml.find("second_preselect_place_fixed_forward_timeout_s: 5.0"),
+        std::string::npos);
+    EXPECT_NE(
+        yaml.find("second_preselect_place_observe_timeout_s: 5.0"),
+        std::string::npos);
     EXPECT_NE(
         yaml.find("second_preselect_place_occupied_middle_y_min_ratio: 0.12"),
               std::string::npos);

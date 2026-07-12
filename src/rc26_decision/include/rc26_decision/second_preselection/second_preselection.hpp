@@ -62,6 +62,7 @@ struct SecondPreselectionParams {
   double nav_timeout_s{180.0};
   double place_fixed_forward_x_m{1.8};
   double place_fixed_forward_timeout_s{30.0};
+  double place_observe_timeout_s{5.0};
   double place_occupied_center_x_min_ratio{0.20};
   double place_occupied_center_x_max_ratio{0.80};
   double place_occupied_middle_y_min_ratio{0.12};
@@ -159,6 +160,8 @@ SecondPreselectionLayerObservation secondPreselectionFrameLayers(
     int frame_height, const SecondPreselectionParams &params);
 bool secondPreselectionPlaceApproachTimedOut(double elapsed_s,
                                              double timeout_s);
+bool secondPreselectionPlaceObserveTimedOut(double elapsed_s,
+                                            double timeout_s);
 bool secondPreselectionConsumeNewFrameSequence(int64_t sequence,
                                                int64_t &last_sequence);
 bool secondPreselectionFrameOccupied(
