@@ -152,8 +152,8 @@ r2_runtime:
       second_preselect_grab_settle_s: 0.5           # 夹取确认成功后停车稳定时间
       preselection_ramp_approach_x_m: 2.50      # second managed 入口斜坡前接近段 OdomDriveX 距离
       preselection_ramp_climb_x_m: 2.50         # second managed 入口斜坡爬坡段 OdomDriveX 距离
-      preselection_ramp_max_speed_mps: 0.30     # 斜坡段平移速度上限
-      preselection_ramp_min_speed_mps: 0.03     # 斜坡段最小平移速度
+      preselection_ramp_max_speed_mps: 0.80     # 斜坡段平移速度上限
+      preselection_ramp_min_speed_mps: 0.80     # 斜坡段最小平移速度
       preselection_ramp_timeout_s: 180.0        # 斜坡段每段超时
       second_preselect_after_ramp_turn_delta_rad: 1.5708 # 红方基准斜坡后左转 90°；blue 启动时自动取反
       second_preselect_after_ramp_turn_timeout_s: 30.0 # 斜坡后 90° 转向超时
