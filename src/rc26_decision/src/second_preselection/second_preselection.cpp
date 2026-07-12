@@ -1836,9 +1836,15 @@ BT::NodeStatus SecondPreselectionKfsPickupAction::tickGrabVerify() {
     }
   }
   if (elapsed >= params_.grab_verify_timeout_s) {
-    return fail(grab_verify_seen_new_frame_
-                    ? "第二预选赛 KFS 夹取验证未稳定消失"
-                    : "第二预选赛 KFS 夹取验证没有新视觉帧");
+    if (!grab_verify_seen_new_frame_) {
+      return fail("第二预选赛 KFS 夹取验证没有新视觉帧");
+    }
+    phase_ = Phase::Settle;
+    phase_tp_ = std::chrono::steady_clock::now();
+    RCLCPP_WARN(node_->get_logger(),
+                "第二预选赛 KFS 夹取视觉验证超时兜底：原目标未稳定消失，继续后续流程 settle=%.2fs",
+                params_.grab_settle_s);
+    return BT::NodeStatus::RUNNING;
   }
   return BT::NodeStatus::RUNNING;
 }
