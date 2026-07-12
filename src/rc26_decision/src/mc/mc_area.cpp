@@ -291,8 +291,7 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
         p.align_min_speed_mps = p.align_max_speed_mps;
     }
     p.align_search_speed_mps =
-        std::min(std::abs(p.align_search_speed_mps), p.align_max_speed_mps) *
-        static_cast<double>(-mirror_sign);
+        std::min(std::abs(p.align_search_speed_mps), p.align_max_speed_mps);
     p.align_command_rate_hz = std::max(1e-6, p.align_command_rate_hz);
     p.align_lost_stop_frames = std::max(1, p.align_lost_stop_frames);
     p.align_lost_servo_speed_scale =
