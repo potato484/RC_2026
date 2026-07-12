@@ -29,7 +29,9 @@ active_side: {side}
 preselection_mode: first
 first_preselection_mc_repeat_enable: true
 first_preselection_mc_repeat_max_count: 2
-first_preselection_mc_repeat_forward_x_step_m: 0.2
+first_preselection_mc_repeat_forward_x_step_m:
+  red: 0.2
+  blue: -0.2
 runtime_configs:
   red: "r2_red.yaml"
   blue: "r2_blue.yaml"

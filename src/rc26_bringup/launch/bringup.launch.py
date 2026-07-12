@@ -164,11 +164,14 @@ def _resolve_first_preselection_repeat_overrides(context, bringup_dir):
     if selector_file == '':
         selector_file = os.path.join(bringup_dir, 'config', 'r2_active_side.yaml')
     selector = _load_yaml_file(selector_file, 'side_config_file')
+    active_side = str(selector.get('active_side', '')).strip().lower()
+    if active_side not in ('red', 'blue'):
+        raise RuntimeError(
+            f"r2_active_side.yaml active_side must be red or blue, got: {active_side}")
     overrides = {}
     mapping = {
         'first_preselection_mc_repeat_enable': bool,
         'first_preselection_mc_repeat_max_count': int,
-        'first_preselection_mc_repeat_forward_x_step_m': float,
     }
     for key, caster in mapping.items():
         if key not in selector:
@@ -181,6 +184,26 @@ def _resolve_first_preselection_repeat_overrides(context, bringup_dir):
                 overrides[key] = caster(value)
         except (TypeError, ValueError) as exc:
             raise RuntimeError(f"r2_active_side.yaml {key} has invalid value: {selector[key]}") from exc
+    step_key = 'first_preselection_mc_repeat_forward_x_step_m'
+    if step_key not in selector:
+        raise RuntimeError(f"r2_active_side.yaml {step_key} is required")
+    step_by_side = selector.get(step_key) or {}
+    if not isinstance(step_by_side, dict):
+        raise RuntimeError(
+            f"r2_active_side.yaml {step_key} must map red/blue to signed step values")
+    for side in ('red', 'blue'):
+        if side not in step_by_side:
+            raise RuntimeError(
+                f"r2_active_side.yaml {step_key}.{side} is required")
+    if active_side not in step_by_side:
+        raise RuntimeError(
+            f"r2_active_side.yaml {step_key}.{active_side} is required")
+    try:
+        overrides[step_key] = float(step_by_side[active_side])
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            f"r2_active_side.yaml {step_key}.{active_side} has invalid value: "
+            f"{step_by_side[active_side]}") from exc
     return overrides
 
 

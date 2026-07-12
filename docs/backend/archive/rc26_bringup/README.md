@@ -32,7 +32,7 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 
 ## 红蓝配置口径
 
-默认 `bringup.launch.py` 在未显式传入 `runtime_config_file` 时读取 `r2_active_side.yaml`，按 `active_side: red|blue` 选择 `r2_red.yaml` 或 `r2_blue.yaml`，并按 `preselection_mode: first|second` 覆盖默认行为树。first 模式还会从 `r2_active_side.yaml` 读取 `first_preselection_mc_repeat_enable`、`first_preselection_mc_repeat_max_count` 和 `first_preselection_mc_repeat_forward_x_step_m`，作为 first MC 重复策略的默认真源；第 0 轮距离使用当前红/蓝运行配置的 `mc_nav_forward_x_m`，后续重复轮在此基础上按 step 递增。现场切换比赛方、first/second 入口或 first MC 重复策略优先改 `r2_active_side.yaml`。如需临时调试其它完整配置，仍可传入 `runtime_config_file:=/abs/path.yaml` 覆盖，显式配置不会再被 `preselection_mode` 或 first repeat selector 改写。
+默认 `bringup.launch.py` 在未显式传入 `runtime_config_file` 时读取 `r2_active_side.yaml`，按 `active_side: red|blue` 选择 `r2_red.yaml` 或 `r2_blue.yaml`，并按 `preselection_mode: first|second` 覆盖默认行为树。first 模式还会从 `r2_active_side.yaml` 读取 `first_preselection_mc_repeat_enable`、`first_preselection_mc_repeat_max_count` 和 `first_preselection_mc_repeat_forward_x_step_m.red/blue`，作为 first MC 重复策略的默认真源；第 0 轮距离使用当前红/蓝运行配置的 `mc_nav_forward_x_m`，后续重复轮在此基础上按当前 `active_side` 对应的带符号 step 调整。现场切换比赛方、first/second 入口或 first MC 重复策略优先改 `r2_active_side.yaml`。如需临时调试其它完整配置，仍可传入 `runtime_config_file:=/abs/path.yaml` 覆盖，显式配置不会再被 `preselection_mode` 或 first repeat selector 改写。
 
 `start_r2_auto.sh` 专用上行人工触发外部限位 3 `0x13` 监听器只订阅 `/mechanism/command_feedback`，收到 `feedback_id=0x13` 后写回 `r2_active_side.yaml` 顶层 `active_side`：当前 `red` 切到 `blue`，当前 `blue` 切到 `red`。该监听器不由 `bringup.launch.py` 自动启动；直接 `ros2 launch rc26_bringup bringup.launch.py run_mode:=navigation` 不会启用自动红蓝切换，且该切换只影响下一次启动选择的红/蓝运行配置。现有第二预选赛下行 `SECOND_PRESELECTION_PLACE_KFS(0x13)` 命令保持不变，上下行 0x13 分属不同协议方向。
 
@@ -57,7 +57,7 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 - `mf_preselect_kfs_align_target_line_offset_px`：MF KFS 视觉横移对齐时，识别框中线要对齐的目标线相对图像中心线的像素偏置；默认 `0`，负值表示目标线向图像左侧移动。
 - `mf_preselect_kfs_depth_roi_size`、`mf_preselect_kfs_depth_min_valid_count`、`mf_preselect_kfs_depth_bbox_sample_ratios`、`mf_preselect_kfs_depth_bbox_min_success_count`：MF R2 KFS 有效深度点配置，分别控制单点 ROI 边长、单 ROI 最少有效点、bbox 多点采样比例和最少成功采样点数；默认值写在 `r2_red.yaml` / `r2_blue.yaml`，bringup 只负责传参。
 - `preselection_entry_continue_delay_msec`：first 每轮人工触发外部限位 1 上行 `0x06 -> 0x10/0x0C` 启动握手完成后进入 MC 前的延时。
-- `first_preselection_mc_repeat_enable`、`first_preselection_mc_repeat_max_count`、`first_preselection_mc_repeat_forward_x_step_m`：first MC-only 重复流程参数，默认开启；`max_count` 表示初始 MC 后最多重复次数。第 0 轮使用当前红/蓝运行配置中的 `mc_nav_forward_x_m`，后续重复轮按该值的符号叠加 `abs(first_preselection_mc_repeat_forward_x_step_m)`。
+- `first_preselection_mc_repeat_enable`、`first_preselection_mc_repeat_max_count`、`first_preselection_mc_repeat_forward_x_step_m.red/blue`：first MC-only 重复流程参数，默认开启；`max_count` 表示初始 MC 后最多重复次数。第 0 轮使用当前红/蓝运行配置中的 `mc_nav_forward_x_m`，后续重复轮直接叠加当前 `active_side` 对应的带符号 step；当前 red 为 `+0.2m`，三轮 MC X 为 `0.05m -> 0.25m -> 0.45m`，当前 blue 为 `-0.2m`，三轮 MC X 为 `1.05m -> 0.85m -> 0.65m`。`r2_active_side.yaml` 必须同时提供 red/blue 两个 step，不再支持单个 scalar step。
 - `preselection_ramp_approach_x_m`、`preselection_ramp_climb_x_m`、`preselection_ramp_max_speed_mps`、`preselection_ramp_min_speed_mps`、`preselection_ramp_timeout_s`：second managed 中人工触发外部限位 1 上行 `0x06` 分支的斜坡两段 odom 前进参数。
 - `second_preselect_after_ramp_turn_delta_rad`、`second_preselect_after_ramp_turn_timeout_s`：历史 second managed 斜坡后转向参数，当前默认 `second_preselection_combo_tree.xml` 不再使用；`0x06` 分支斜坡后直接进入 `SecondPreselectionTree` 搜寻，`0x10` 分支完成 `0x11/0x0D` 握手后直接切到 `second_preselection_tree.xml`。
 - `second_preselect_pre_approach_lower_command_id`、`second_preselect_pre_approach_lower_done_feedback_id`、`second_preselect_pre_approach_lower_settle_s`：第二预选赛视觉对齐后、odom 前向趋近前的机械臂彻底放下握手参数。当前默认下发 `0x14`，等待同 `seq` 的 `0x12`，再停车等待 `0.5s` 后才允许前进。
@@ -94,7 +94,7 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 
 2026-07-09 同步：MC 夹取端头后 `RotateInPlace` 之后的 `OdomDriveY` 从 XML 固定 `-0.4m` 改为读取 `mc_after_rotate_retreat_y_m`。`r2_red.yaml` 保持旧 `-0.4m` 退让；`r2_blue.yaml` 显式配置为正向 `0.2m`，因此 `r2_active_side.yaml` 选中 `active_side: blue` 时不再执行反向 Y 退让。
 
-2026-07-09 同步：first MC repeat 第 0 轮距离改为直接使用当前红/蓝运行配置中的 `mc_nav_forward_x_m`；`r2_active_side.yaml` 只维护 repeat 开关、最大重复次数和前进步进。后续重复轮按 `mc_nav_forward_x_m + sign(mc_nav_forward_x_m) * abs(first_preselection_mc_repeat_forward_x_step_m) * repeat_count` 写入内部黑板值 `mc_preselection_effective_forward_x_m`。
+2026-07-12 同步：first MC repeat 的 `first_preselection_mc_repeat_forward_x_step_m` 改为 red/blue 必选带符号增量映射，不再按第 0 轮 X 符号强制取绝对值，也不再支持单个 scalar step。当前 red first 使用 `mc_nav_forward_x_m=0.05m` 和 step `+0.2m`，三轮 MC X 为 `0.05m -> 0.25m -> 0.45m`；当前 blue first 使用 `mc_nav_forward_x_m=1.05m` 和 step `-0.2m`，三轮 MC X 为 `1.05m -> 0.85m -> 0.65m`。
 
 2026-07-09 同步：second 默认组合树对齐 `mc_mf_preselection_tree.xml` 的入口分支模型：进入组合树先由 `WaitPreselectionBranchGate` 同时等待人工触发外部限位 1/2 上行 `0x06/0x10`，两条分支都下发 `SECOND_PRESELECTION_START(0x11)` 并等待同 `seq` 的 `SECOND_PRESELECTION_START_DONE(0x0D)`。`0x06` 分支继续执行 `preselection_ramp_forward_tree.xml` 两段斜坡前进后进入 `SecondPreselectionTree` 搜寻；`0x10` 分支直接切到 `second_preselection_tree.xml`。当前 second 组合树不再执行斜坡后的 90° 转向。
 

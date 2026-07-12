@@ -111,12 +111,19 @@ TEST(MCPreselectionRepeatLogic, ComputesSignedForwardDistance) {
   EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(1.05, 0.2, 2),
                    1.45);
 
+  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(1.05, -0.2, 0),
+                   1.05);
+  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(1.05, -0.2, 1),
+                   0.85);
+  EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(1.05, -0.2, 2),
+                   0.65);
+
   EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(-0.05, 0.2, 0),
                    -0.05);
   EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(-0.05, 0.2, 1),
-                   -0.25);
+                   0.15);
   EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(-0.05, 0.2, 2),
-                   -0.45);
+                   0.35);
 
   EXPECT_DOUBLE_EQ(rc26_decision::mcPreselectionEffectiveForwardX(0.05, 0.2, -1),
                    0.05);

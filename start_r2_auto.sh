@@ -101,6 +101,32 @@ print(str(value).strip())
 PY
 }
 
+yaml_side_value() {
+  local file="$1"
+  local key="$2"
+  local side="$3"
+  python3 - "$file" "$key" "$side" <<'PY'
+import sys
+import yaml
+
+path, key, side = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path, "r", encoding="utf-8") as f:
+    data = yaml.safe_load(f) or {}
+mapping = data.get(key) or {}
+if not isinstance(mapping, dict):
+    print(f"{key} must map red/blue to signed step values", file=sys.stderr)
+    raise SystemExit(1)
+missing = [candidate for candidate in ("red", "blue") if candidate not in mapping]
+if missing:
+    print(f"{key} missing required side(s): {', '.join(missing)}", file=sys.stderr)
+    raise SystemExit(1)
+value = mapping.get(side, "")
+if value is None:
+    value = ""
+print(str(value).strip())
+PY
+}
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 workspace_dir="${RC26_WS:-${script_dir}}"
 setup_file="${workspace_dir}/install/setup.bash"
@@ -200,7 +226,6 @@ active_side="$(yaml_scalar_value "${side_config_file}" "active_side" | tr '[:upp
 preselection_mode="$(yaml_scalar_value "${side_config_file}" "preselection_mode" | tr '[:upper:]' '[:lower:]')"
 first_repeat_enable="$(yaml_scalar_value "${side_config_file}" "first_preselection_mc_repeat_enable")"
 first_repeat_max_count="$(yaml_scalar_value "${side_config_file}" "first_preselection_mc_repeat_max_count")"
-first_repeat_forward_step="$(yaml_scalar_value "${side_config_file}" "first_preselection_mc_repeat_forward_x_step_m")"
 case "${active_side}" in
   red|blue)
     ;;
@@ -209,6 +234,11 @@ case "${active_side}" in
     exit 1
     ;;
 esac
+first_repeat_forward_step="$(yaml_side_value "${side_config_file}" "first_preselection_mc_repeat_forward_x_step_m" "${active_side}")"
+if [[ -z "${first_repeat_forward_step}" ]]; then
+  echo "Missing first_preselection_mc_repeat_forward_x_step_m.${active_side} in ${side_config_file}" >&2
+  exit 1
+fi
 
 selected_runtime_config="$(yaml_runtime_config_value "${side_config_file}" "${active_side}")"
 if [[ -z "${selected_runtime_config}" ]]; then

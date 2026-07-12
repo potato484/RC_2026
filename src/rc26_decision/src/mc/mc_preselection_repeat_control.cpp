@@ -18,7 +18,7 @@ BT::PortsList MCPreselectionRepeatControl::providedPorts() {
       BT::InputPort<int>("max_repeat_count", 1,
                          "Maximum repeats after the first MC run"),
       BT::InputPort<double>("forward_step_m", 0.2,
-                            "Absolute forward X step added per repeat")};
+                            "Signed forward X delta added per repeat")};
 }
 
 void MCPreselectionRepeatControl::resetState() {
@@ -33,7 +33,6 @@ void MCPreselectionRepeatControl::resetState() {
   if (!std::isfinite(forward_step_m_)) {
     forward_step_m_ = 0.2;
   }
-  forward_step_m_ = std::abs(forward_step_m_);
   run_index_ = 0;
   repeat_count_ = 0;
   initialized_ = true;
