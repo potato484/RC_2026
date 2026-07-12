@@ -87,6 +87,8 @@ r2_runtime:
       second_preselect_cmd_vel_topic: "cmd_vel"     # KFS 搜索、视觉对齐和前向趋近发布的运动命令
       second_preselect_post_pickup_forward_x_m: 1.5 # 夹取成功后先沿车体系 +X 固定前进；计入总 X 投影
       second_preselect_nav_y1_m: 0.75               # 夹取完成后红方基准 +Y 横移；blue 启动时自动取反
+      second_preselect_nav_max_speed_mps: 0.60      # second_preselection_tree.xml 内 OdomDriveX/Y 平移速度上限
+      second_preselect_nav_min_speed_mps: 0.60      # second_preselection_tree.xml 内 OdomDriveX/Y 未进容差前最小速度
       second_preselect_total_x_target_m: 4.2        # 从初次搜索新鲜 odom 原点沿搜索 yaw 的总 X 净投影目标
       second_preselect_total_x_tolerance_m: 0.03    # 总 X 闭环到位容差；已超调时停车成功且不倒退
       second_preselect_nav_timeout_s: 180.0         # 第二预选赛每个 odom 单轴段超时

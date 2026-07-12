@@ -3860,6 +3860,10 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   p.post_pickup_forward_x_m = node.declare_parameter<double>(
       "second_preselect_post_pickup_forward_x_m",
       p.post_pickup_forward_x_m);
+  p.nav_max_speed_mps = node.declare_parameter<double>(
+      "second_preselect_nav_max_speed_mps", p.nav_max_speed_mps);
+  p.nav_min_speed_mps = node.declare_parameter<double>(
+      "second_preselect_nav_min_speed_mps", p.nav_min_speed_mps);
   p.total_x_target_m = node.declare_parameter<double>(
       "second_preselect_total_x_target_m", p.total_x_target_m);
   p.total_x_tolerance_m = node.declare_parameter<double>(
@@ -4332,6 +4336,10 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
       std::clamp(p.grab_verify_iou_threshold, 0.0, 1.0);
   p.grab_settle_s = std::max(0.0, p.grab_settle_s);
   p.nav_y1_m *= static_cast<double>(mirror_sign);
+  p.nav_max_speed_mps = std::max(0.001, std::abs(p.nav_max_speed_mps));
+  p.nav_min_speed_mps =
+      std::min(std::max(0.0, std::abs(p.nav_min_speed_mps)),
+               p.nav_max_speed_mps);
   p.odom_timeout_s = std::max(0.001, p.odom_timeout_s);
   p.vision_config_file = resolveVisionConfig(p.vision_config_file);
 
@@ -4383,6 +4391,10 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   blackboard->set("second_preselect_nav_y1_m", p.nav_y1_m);
   blackboard->set("second_preselect_post_pickup_forward_x_m",
                   p.post_pickup_forward_x_m);
+  blackboard->set("second_preselect_nav_max_speed_mps",
+                  p.nav_max_speed_mps);
+  blackboard->set("second_preselect_nav_min_speed_mps",
+                  p.nav_min_speed_mps);
   blackboard->set("second_preselect_total_x_target_m", p.total_x_target_m);
   blackboard->set("second_preselect_total_x_tolerance_m",
                   p.total_x_tolerance_m);

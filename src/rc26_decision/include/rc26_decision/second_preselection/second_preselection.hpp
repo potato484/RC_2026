@@ -55,6 +55,8 @@ struct SecondPreselectionParams {
   int team_mirror_sign{1};
   double nav_y1_m{0.75};
   double post_pickup_forward_x_m{1.5};
+  double nav_max_speed_mps{0.60};
+  double nav_min_speed_mps{0.03};
   double total_x_target_m{4.2};
   double total_x_tolerance_m{0.03};
   double nav_timeout_s{180.0};
