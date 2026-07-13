@@ -220,6 +220,22 @@ TEST(ManagedPreselectionTrees, XmlFilesLoadAndLegacyStartTreeIsRemoved) {
   EXPECT_EQ(combo_tree_xml.find("second_preselect_after_ramp_turn"),
             std::string::npos);
 
+  const auto ramp_tree_path = tree_dir / "preselection_ramp_forward_tree.xml";
+  std::ifstream ramp_tree_stream(ramp_tree_path);
+  ASSERT_TRUE(ramp_tree_stream.good());
+  const std::string ramp_tree_xml =
+      std::string(std::istreambuf_iterator<char>(ramp_tree_stream),
+                  std::istreambuf_iterator<char>());
+  EXPECT_NE(ramp_tree_xml.find("SecondPreselectionRampForward"),
+            std::string::npos);
+  EXPECT_EQ(ramp_tree_xml.find("OdomDriveX"), std::string::npos);
+  EXPECT_EQ(ramp_tree_xml.find("preselection_ramp_approach_x_m"),
+            std::string::npos);
+  EXPECT_EQ(ramp_tree_xml.find("preselection_ramp_climb_x_m"),
+            std::string::npos);
+  EXPECT_EQ(ramp_tree_xml.find("preselection_ramp_timeout_s"),
+            std::string::npos);
+
   EXPECT_FALSE(std::filesystem::exists(tree_dir / "mf_preselection_start_tree.xml"));
 
   const auto repeat_tree_path = tree_dir / "mc_repeat_preselection_tree.xml";

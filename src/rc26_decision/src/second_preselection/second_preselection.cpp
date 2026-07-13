@@ -346,6 +346,15 @@ double secondPreselectionTotalXRemainingToDrive(
   return std::max(0.0, params.total_x_target_m - projected_x_m);
 }
 
+double secondPreselectionRampRemainingToDrive(
+    double projected_x_m, const SecondPreselectionParams &params) {
+  return std::max(0.0, params.ramp_forward_x_m - projected_x_m);
+}
+
+bool secondPreselectionRampTimedOut(double elapsed_s, double timeout_s) {
+  return std::isfinite(timeout_s) && timeout_s > 0.0 && elapsed_s >= timeout_s;
+}
+
 double secondPreselectionPlaceAvoidanceDistance(
     int avoidance_stage, const SecondPreselectionParams &params) {
   const double mirror = params.team_mirror_sign < 0 ? -1.0 : 1.0;
@@ -1908,6 +1917,163 @@ void SecondPreselectionKfsPickupAction::clearRuntimeState() {
   grab_verify_seen_new_frame_ = false;
   grab_verify_visible_logged_ = false;
   grab_verify_last_logged_lost_count_ = 0;
+}
+
+SecondPreselectionRampForwardAction::SecondPreselectionRampForwardAction(
+    const std::string &name, const BT::NodeConfig &config)
+    : BT::StatefulActionNode(name, config) {}
+
+SecondPreselectionRampForwardAction::~SecondPreselectionRampForwardAction() {
+  clearRuntimeState();
+}
+
+BT::NodeStatus SecondPreselectionRampForwardAction::onStart() {
+  if (!config().blackboard || !config().blackboard->get("node", node_) ||
+      !node_) {
+    writeDecisionFailure(config().blackboard, "SecondPreselectionRampForward",
+                         "运行上下文缺失：blackboard 或 node 不可用");
+    return BT::NodeStatus::FAILURE;
+  }
+  if (!config().blackboard->get("second_preselection_params", params_)) {
+    writeDecisionFailure(config().blackboard, "SecondPreselectionRampForward",
+                         "黑板缺少 second_preselection_params");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  rclcpp::Node *runtime_node = node_;
+  clearRuntimeState();
+  node_ = runtime_node;
+  start_tp_ = std::chrono::steady_clock::now();
+  odom_sub_ = node_->create_subscription<OdomMsg>(
+      params_.odom_topic, rclcpp::QoS(rclcpp::KeepLast(10)),
+      [this](const OdomMsg::SharedPtr msg) {
+        if (!msg) {
+          return;
+        }
+        odom_x_ = msg->pose.pose.position.x;
+        odom_y_ = msg->pose.pose.position.y;
+        const auto &q = msg->pose.pose.orientation;
+        odom_yaw_ = yawFromQuaternion(q.x, q.y, q.z, q.w);
+        has_odom_ = true;
+        last_odom_tp_ = std::chrono::steady_clock::now();
+      });
+  cmd_pub_ = node_->create_publisher<geometry_msgs::msg::Twist>(
+      params_.cmd_vel_topic, rclcpp::QoS(10));
+  if (!odom_sub_ || !cmd_pub_) {
+    writeDecisionFailure(config().blackboard, "SecondPreselectionRampForward",
+                         "第二预选赛合并 ramp odom/cmd_vel 初始化失败");
+    publishStop();
+    clearRuntimeState();
+    return BT::NodeStatus::FAILURE;
+  }
+
+  RCLCPP_INFO(node_->get_logger(),
+              "第二预选赛合并 ramp 前进启动：target=%.3fm timeout=%.2fs speed=[%.3f, %.3f]m/s odom=%s cmd_vel=%s",
+              params_.ramp_forward_x_m, params_.ramp_forward_timeout_s,
+              params_.ramp_min_speed_mps, params_.ramp_max_speed_mps,
+              params_.odom_topic.c_str(), params_.cmd_vel_topic.c_str());
+  publishStop();
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus SecondPreselectionRampForwardAction::onRunning() {
+  if (secondPreselectionRampTimedOut(elapsedSec(start_tp_),
+                                     params_.ramp_forward_timeout_s)) {
+    return finishSuccess("TIMEOUT_CONTINUE");
+  }
+  if (!odomReady()) {
+    publishStop();
+    return BT::NodeStatus::RUNNING;
+  }
+  if (!start_captured_) {
+    start_x_ = odom_x_;
+    start_y_ = odom_y_;
+    start_yaw_ = odom_yaw_;
+    start_captured_ = true;
+    RCLCPP_INFO(node_->get_logger(),
+                "第二预选赛合并 ramp 捕获起点：start=[%.3f %.3f %.3f]",
+                start_x_, start_y_, start_yaw_);
+  }
+
+  const double progress = secondPreselectionProjectedX(
+      start_x_, start_y_, start_yaw_, odom_x_, odom_y_);
+  const double remaining =
+      secondPreselectionRampRemainingToDrive(progress, params_);
+  const double tolerance = std::max(0.0, params_.kfs_approach_odom_tolerance_m);
+  if (progress >= params_.ramp_forward_x_m || remaining <= tolerance) {
+    return finishSuccess(progress >= params_.ramp_forward_x_m
+                             ? "TARGET_REACHED_OR_OVERSHOT"
+                             : "TARGET_TOLERANCE");
+  }
+
+  double vx = params_.kfs_odom_xy_kp * remaining;
+  vx = std::clamp(vx, 0.0, params_.ramp_max_speed_mps);
+  if (vx > 1e-9 && vx < params_.ramp_min_speed_mps) {
+    vx = params_.ramp_min_speed_mps;
+  }
+  publishTwist(vx, headingAngularZ());
+  return BT::NodeStatus::RUNNING;
+}
+
+void SecondPreselectionRampForwardAction::onHalted() {
+  publishStop();
+  clearRuntimeState();
+}
+
+void SecondPreselectionRampForwardAction::publishStop() {
+  if (cmd_pub_) {
+    cmd_pub_->publish(geometry_msgs::msg::Twist{});
+  }
+}
+
+void SecondPreselectionRampForwardAction::clearRuntimeState() {
+  publishStop();
+  odom_sub_.reset();
+  cmd_pub_.reset();
+  node_ = nullptr;
+  has_odom_ = false;
+  start_captured_ = false;
+}
+
+bool SecondPreselectionRampForwardAction::odomReady() const {
+  return has_odom_ && elapsedSec(last_odom_tp_) <= params_.odom_timeout_s;
+}
+
+void SecondPreselectionRampForwardAction::publishTwist(double vx, double wz) {
+  if (!cmd_pub_) {
+    return;
+  }
+  geometry_msgs::msg::Twist twist;
+  twist.linear.x = std::max(0.0, vx);
+  twist.angular.z = wz;
+  cmd_pub_->publish(twist);
+}
+
+double SecondPreselectionRampForwardAction::headingAngularZ() const {
+  if (!start_captured_) {
+    return 0.0;
+  }
+  double wz = params_.kfs_heading_kp * normalizeAngle(start_yaw_ - odom_yaw_);
+  return std::clamp(wz, -params_.kfs_heading_max_speed_radps,
+                    params_.kfs_heading_max_speed_radps);
+}
+
+BT::NodeStatus
+SecondPreselectionRampForwardAction::finishSuccess(const std::string &reason) {
+  publishStop();
+  if (node_) {
+    if (reason == "TIMEOUT_CONTINUE") {
+      RCLCPP_WARN(node_->get_logger(),
+                  "第二预选赛合并 ramp 超时，停车后继续后续逻辑：timeout=%.2fs",
+                  params_.ramp_forward_timeout_s);
+    } else {
+      RCLCPP_INFO(node_->get_logger(),
+                  "第二预选赛合并 ramp 完成，停车后继续：reason=%s",
+                  reason.c_str());
+    }
+  }
+  clearRuntimeState();
+  return BT::NodeStatus::SUCCESS;
 }
 
 SecondPreselectionDriveToTotalXAction::SecondPreselectionDriveToTotalXAction(
@@ -3663,16 +3829,14 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   p.place_occupied_lateral_timeout_s = node.declare_parameter<double>(
       "second_preselect_place_occupied_lateral_timeout_s",
       p.place_occupied_lateral_timeout_s);
-  p.ramp_approach_x_m = node.declare_parameter<double>(
-      "preselection_ramp_approach_x_m", p.ramp_approach_x_m);
-  p.ramp_climb_x_m = node.declare_parameter<double>(
-      "preselection_ramp_climb_x_m", p.ramp_climb_x_m);
+  p.ramp_forward_x_m = node.declare_parameter<double>(
+      "preselection_ramp_forward_x_m", p.ramp_forward_x_m);
   p.ramp_max_speed_mps = node.declare_parameter<double>(
       "preselection_ramp_max_speed_mps", p.ramp_max_speed_mps);
   p.ramp_min_speed_mps = node.declare_parameter<double>(
       "preselection_ramp_min_speed_mps", p.ramp_min_speed_mps);
-  p.ramp_timeout_s = node.declare_parameter<double>(
-      "preselection_ramp_timeout_s", p.ramp_timeout_s);
+  p.ramp_forward_timeout_s = node.declare_parameter<double>(
+      "preselection_ramp_forward_timeout_s", p.ramp_forward_timeout_s);
   const double configured_after_ramp_turn_delta_rad =
       node.declare_parameter<double>("second_preselect_after_ramp_turn_delta_rad",
                                      p.after_ramp_turn_delta_rad);
@@ -3947,7 +4111,15 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
       (std::isfinite(p.ramp_min_speed_mps) && p.ramp_min_speed_mps >= 0.0)
           ? std::min(std::abs(p.ramp_min_speed_mps), p.ramp_max_speed_mps)
           : SecondPreselectionParams{}.ramp_min_speed_mps;
-  p.ramp_timeout_s = std::max(0.001, p.ramp_timeout_s);
+  p.ramp_forward_x_m =
+      (std::isfinite(p.ramp_forward_x_m) && p.ramp_forward_x_m >= 0.0)
+          ? p.ramp_forward_x_m
+          : SecondPreselectionParams{}.ramp_forward_x_m;
+  p.ramp_forward_timeout_s =
+      (std::isfinite(p.ramp_forward_timeout_s) &&
+       p.ramp_forward_timeout_s > 0.0)
+          ? p.ramp_forward_timeout_s
+          : SecondPreselectionParams{}.ramp_forward_timeout_s;
   p.after_ramp_turn_delta_rad =
       std::isfinite(p.after_ramp_turn_delta_rad)
           ? p.after_ramp_turn_delta_rad
@@ -4187,11 +4359,11 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   blackboard->set("second_preselect_place_occupied_lower_y_max_ratio",
                   p.place_occupied_lower_y_max_ratio);
   blackboard->set("second_preselect_nav_timeout_s", p.nav_timeout_s);
-  blackboard->set("preselection_ramp_approach_x_m", p.ramp_approach_x_m);
-  blackboard->set("preselection_ramp_climb_x_m", p.ramp_climb_x_m);
+  blackboard->set("preselection_ramp_forward_x_m", p.ramp_forward_x_m);
   blackboard->set("preselection_ramp_max_speed_mps", p.ramp_max_speed_mps);
   blackboard->set("preselection_ramp_min_speed_mps", p.ramp_min_speed_mps);
-  blackboard->set("preselection_ramp_timeout_s", p.ramp_timeout_s);
+  blackboard->set("preselection_ramp_forward_timeout_s",
+                  p.ramp_forward_timeout_s);
   blackboard->set("second_preselect_after_ramp_turn_delta_rad",
                   p.after_ramp_turn_delta_rad);
   blackboard->set("second_preselect_after_ramp_turn_timeout_s",
@@ -4204,7 +4376,7 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   blackboard->set("second_preselect_search_timeout_s", p.search_timeout_s);
 
   RCLCPP_INFO(node.get_logger(),
-              "第二预选赛参数已加载: mirror_sign=%d start=0x%02X/done=0x%02X lower=0x%02X/done=0x%02X/settle=%.2fs pickup=0x%02X/done=0x%02X place=0x%02X search=[speed %.2f timeout %.1f] nav=[post_pickup_x %.2f, y1 %.2f, total_x %.2f tol %.2f] place=[fixed_x %.2f timeout %.1f observe_timeout %.1f middle_y %.2f~%.2f lower_y %.2f~%.2f occupied_shift %.2f/%.2f] ramp=[approach %.2f climb %.2f max %.2f min %.2f timeout %.1f turn %.2f timeout %.1f] align=[timeout %.1f tolerance %d stable %d] odom=%s",
+              "第二预选赛参数已加载: mirror_sign=%d start=0x%02X/done=0x%02X lower=0x%02X/done=0x%02X/settle=%.2fs pickup=0x%02X/done=0x%02X place=0x%02X search=[speed %.2f timeout %.1f] nav=[post_pickup_x %.2f, y1 %.2f, total_x %.2f tol %.2f] place=[fixed_x %.2f timeout %.1f observe_timeout %.1f middle_y %.2f~%.2f lower_y %.2f~%.2f occupied_shift %.2f/%.2f] ramp=[forward %.2f max %.2f min %.2f timeout %.1f turn %.2f timeout %.1f] align=[timeout %.1f tolerance %d stable %d] odom=%s",
               mirror_sign,
               p.start_command_id & 0xFF, p.start_done_feedback_id & 0xFF,
               p.pre_approach_lower_command_id & 0xFF,
@@ -4223,9 +4395,9 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
               p.place_occupied_lower_y_max_ratio,
               p.place_occupied_first_lateral_m,
               p.place_occupied_second_reverse_m,
-              p.ramp_approach_x_m, p.ramp_climb_x_m,
-              p.ramp_max_speed_mps, p.ramp_min_speed_mps,
-              p.ramp_timeout_s, p.after_ramp_turn_delta_rad,
+              p.ramp_forward_x_m, p.ramp_max_speed_mps,
+              p.ramp_min_speed_mps, p.ramp_forward_timeout_s,
+              p.after_ramp_turn_delta_rad,
               p.after_ramp_turn_timeout_s,
               p.kfs_align_timeout_s, p.kfs_align_tolerance_px,
               p.kfs_align_stable_frames, p.odom_topic.c_str());
@@ -4236,6 +4408,8 @@ void registerSecondPreselectionNodes(BT::BehaviorTreeFactory &factory) {
       "SecondPreselectionCommand");
   factory.registerNodeType<SecondPreselectionKfsPickupAction>(
       "SecondPreselectionKfsPickup");
+  factory.registerNodeType<SecondPreselectionRampForwardAction>(
+      "SecondPreselectionRampForward");
   factory.registerNodeType<SecondPreselectionDriveToTotalXAction>(
       "SecondPreselectionDriveToTotalX");
   factory.registerNodeType<SecondPreselectionKfsPlacePrepareAction>(

@@ -55,6 +55,8 @@ TEST(SecondPreselectionLogic, DefaultsUseTotalXAndFixedPlacementRoute) {
   EXPECT_NEAR(params.nav_y1_m, 0.75, 1.0e-9);
   EXPECT_NEAR(params.total_x_target_m, 4.2, 1.0e-9);
   EXPECT_NEAR(params.total_x_tolerance_m, 0.03, 1.0e-9);
+  EXPECT_NEAR(params.ramp_forward_x_m, 5.0, 1.0e-9);
+  EXPECT_NEAR(params.ramp_forward_timeout_s, 5.0, 1.0e-9);
   EXPECT_NEAR(params.place_fixed_forward_x_m, 1.8, 1.0e-9);
   EXPECT_NEAR(params.place_fixed_forward_timeout_s, 30.0, 1.0e-9);
   EXPECT_NEAR(params.place_observe_timeout_s, 5.0, 1.0e-9);
@@ -111,6 +113,27 @@ TEST(SecondPreselectionLogic, TotalXProjectionCountsForwardSegmentsNotLateral) {
   EXPECT_NEAR(rc26_decision::secondPreselectionTotalXRemainingToDrive(
                   4.25, params),
               0.0, 1.0e-9);
+}
+
+TEST(SecondPreselectionLogic, RampForwardNeverRequestsNegativeRemaining) {
+  auto params = rc26_decision::SecondPreselectionParams{};
+  params.ramp_forward_x_m = 5.0;
+
+  EXPECT_NEAR(rc26_decision::secondPreselectionRampRemainingToDrive(0.0, params),
+              5.0, 1.0e-9);
+  EXPECT_NEAR(rc26_decision::secondPreselectionRampRemainingToDrive(4.8, params),
+              0.2, 1.0e-9);
+  EXPECT_NEAR(rc26_decision::secondPreselectionRampRemainingToDrive(5.0, params),
+              0.0, 1.0e-9);
+  EXPECT_NEAR(rc26_decision::secondPreselectionRampRemainingToDrive(5.4, params),
+              0.0, 1.0e-9);
+}
+
+TEST(SecondPreselectionLogic, RampForwardTimeoutTriggersAtConfiguredLimit) {
+  EXPECT_FALSE(rc26_decision::secondPreselectionRampTimedOut(4.99, 5.0));
+  EXPECT_TRUE(rc26_decision::secondPreselectionRampTimedOut(5.0, 5.0));
+  EXPECT_TRUE(rc26_decision::secondPreselectionRampTimedOut(5.01, 5.0));
+  EXPECT_FALSE(rc26_decision::secondPreselectionRampTimedOut(100.0, 0.0));
 }
 
 TEST(SecondPreselectionLogic, TotalXProjectionUsesSearchStartYaw) {
@@ -322,6 +345,10 @@ TEST(SecondPreselectionLogic, RedAndBlueConfigsUseNewParameters) {
     EXPECT_NE(
         yaml.find("second_preselect_place_observe_timeout_s: 5.0"),
         std::string::npos);
+    EXPECT_NE(yaml.find("preselection_ramp_forward_x_m: 5.00"),
+              std::string::npos);
+    EXPECT_NE(yaml.find("preselection_ramp_forward_timeout_s: 5.0"),
+              std::string::npos);
     EXPECT_NE(
         yaml.find("second_preselect_place_occupied_middle_y_min_ratio: 0.12"),
               std::string::npos);
@@ -339,6 +366,10 @@ TEST(SecondPreselectionLogic, RedAndBlueConfigsUseNewParameters) {
     EXPECT_EQ(yaml.find("second_preselect_nav_x2_m"), std::string::npos);
     EXPECT_EQ(yaml.find("second_preselect_place_forward_x_m"),
               std::string::npos);
+    EXPECT_EQ(yaml.find("preselection_ramp_approach_x_m"),
+              std::string::npos);
+    EXPECT_EQ(yaml.find("preselection_ramp_climb_x_m"), std::string::npos);
+    EXPECT_EQ(yaml.find("preselection_ramp_timeout_s"), std::string::npos);
   }
 }
 

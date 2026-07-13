@@ -154,11 +154,10 @@ r2_runtime:
       second_preselect_grab_verify_lost_stable_frames: 10 # 原目标连续消失帧数
       second_preselect_grab_verify_iou_threshold: 0.30 # 原目标匹配 IoU 阈值
       second_preselect_grab_settle_s: 0.5           # 夹取确认成功后停车稳定时间
-      preselection_ramp_approach_x_m: 2.50      # second managed 入口斜坡前接近段 OdomDriveX 距离
-      preselection_ramp_climb_x_m: 2.50         # second managed 入口斜坡爬坡段 OdomDriveX 距离
+      preselection_ramp_forward_x_m: 5.00       # second managed 入口合并斜坡前进距离；只沿 +X 前进，超调不反向拉回
       preselection_ramp_max_speed_mps: 0.80     # 斜坡段平移速度上限
       preselection_ramp_min_speed_mps: 0.80     # 斜坡段最小平移速度
-      preselection_ramp_timeout_s: 180.0        # 斜坡段每段超时
+      preselection_ramp_forward_timeout_s: 5.0  # 合并斜坡段独立超时；超时停车后继续后续 second 逻辑
       second_preselect_after_ramp_turn_delta_rad: 1.5708 # 红方基准斜坡后左转 90°；blue 启动时自动取反
       second_preselect_after_ramp_turn_timeout_s: 30.0 # 斜坡后 90° 转向超时
       second_preselect_vision_config_file: ""       # 空则回退 rc26_vision/config/vision_models.yaml
@@ -174,7 +173,7 @@ r2_runtime:
       # --- 红方基准 MC 复合 OdomDriveXTurnX 导航：按旧 +X -> 右转 90° -> -X 终点标定 ---
       mc_nav_forward_x_m: 0.05    # 红方基准复合动作第一段车体系 x 正向位移；blue 不镜像 X
       mc_nav_right_turn_delta_rad: -1.5708 # 红方基准第一段后相对右转角度；blue 自动取反为左转
-      mc_nav_reverse_x_m: -0.75     # 红方基准复合动作第二段目标 yaw 方向 x 负向位移；blue 不镜像 X
+      mc_nav_reverse_x_m: -0.68     # 红方基准复合动作第二段目标 yaw 方向 x 负向位移；blue 不镜像 X
       mc_after_rotate_retreat_y_m: -0.4 # 夹取后旋转完成的 OdomDriveY 距离；红方保持旧 -Y 退让 0.4m
       mc_nav_timeout_sec: 180.0     # MC 复合 OdomDriveXTurnX 动作总超时时间，单位秒
 
@@ -195,8 +194,8 @@ r2_runtime:
       mc_align_stable_frames: 5              # 连续满足容差后触发夹取的稳定帧数
       mc_align_kp: 0.0010                    # 横移 P 控制比例增益，像素误差到 m/s
       mc_align_min_speed_mps: 0.010         # 横移控制最小速度，单位 m/s
-      mc_align_max_speed_mps: 0.015           # 横移控制最大速度，单位 m/s
-      mc_align_search_speed_mps: 0.040       # 无端头时固定沿车体系 +Y 低速横移搜寻，不随 red/blue 镜像
+      mc_align_max_speed_mps: 0.010           # 横移控制最大速度，单位 m/s
+      mc_align_search_speed_mps: 0.020       # 无端头时固定沿车体系 +Y 低速横移搜寻，不随 red/blue 镜像
       mc_align_command_rate_hz: 20.0         # 横移速度指令最大发布频率，单位 Hz
       mc_align_lost_stop_frames: 3           # 锁定目标短暂丢失多少帧后才重新获锁
       mc_align_lost_servo_speed_scale: 0.45  # 短暂丢框时按最近 offset 低速继续伺服的速度缩放

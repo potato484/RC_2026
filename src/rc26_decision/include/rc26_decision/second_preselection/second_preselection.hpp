@@ -75,11 +75,10 @@ struct SecondPreselectionParams {
   double place_occupied_lateral_max_speed_mps{0.15};
   double place_occupied_lateral_min_speed_mps{0.03};
   double place_occupied_lateral_timeout_s{15.0};
-  double ramp_approach_x_m{0.50};
-  double ramp_climb_x_m{1.50};
+  double ramp_forward_x_m{5.0};
   double ramp_max_speed_mps{0.30};
   double ramp_min_speed_mps{0.03};
-  double ramp_timeout_s{180.0};
+  double ramp_forward_timeout_s{5.0};
   double after_ramp_turn_delta_rad{-1.5708};
   double after_ramp_turn_timeout_s{30.0};
 
@@ -149,6 +148,9 @@ double secondPreselectionProjectedX(double origin_x, double origin_y,
                                     double current_y);
 double secondPreselectionTotalXRemainingToDrive(
     double projected_x_m, const SecondPreselectionParams &params);
+double secondPreselectionRampRemainingToDrive(
+    double projected_x_m, const SecondPreselectionParams &params);
+bool secondPreselectionRampTimedOut(double elapsed_s, double timeout_s);
 double secondPreselectionPlaceAvoidanceDistance(
     int avoidance_stage, const SecondPreselectionParams &params);
 struct SecondPreselectionLayerObservation {
@@ -412,6 +414,44 @@ private:
   double odom_yaw_{0.0};
   bool has_odom_{false};
   int stable_ticks_{0};
+};
+
+class SecondPreselectionRampForwardAction : public BT::StatefulActionNode {
+public:
+  SecondPreselectionRampForwardAction(const std::string &name,
+                                      const BT::NodeConfig &config);
+  ~SecondPreselectionRampForwardAction() override;
+
+  static BT::PortsList providedPorts() { return {}; }
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
+
+private:
+  using OdomMsg = nav_msgs::msg::Odometry;
+
+  void publishStop();
+  void clearRuntimeState();
+  bool odomReady() const;
+  void publishTwist(double vx, double wz);
+  double headingAngularZ() const;
+  BT::NodeStatus finishSuccess(const std::string &reason);
+
+  SecondPreselectionParams params_;
+  rclcpp::Node *node_{nullptr};
+  rclcpp::Subscription<OdomMsg>::SharedPtr odom_sub_;
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
+  std::chrono::steady_clock::time_point start_tp_{};
+  std::chrono::steady_clock::time_point last_odom_tp_{};
+  double start_x_{0.0};
+  double start_y_{0.0};
+  double start_yaw_{0.0};
+  double odom_x_{0.0};
+  double odom_y_{0.0};
+  double odom_yaw_{0.0};
+  bool has_odom_{false};
+  bool start_captured_{false};
 };
 
 class SecondPreselectionKfsPlacePrepareAction
