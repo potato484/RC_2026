@@ -639,14 +639,14 @@ private:
     HeadingAlign,
     SendFrontExtend,
     HoldAfterFrontExtend,
-    DriveUntilManualFrontLaser,
+    WaitForManualFrontLaser,
     SendFrontRetractAndRearExtend,
     HoldAfterFrontRetractAndRearExtend,
     Done
   };
 
   BT::NodeStatus fail(const char *reason);
-  void beginManualFrontLaserDrive();
+  void beginManualFrontLaserWait();
   void clearManualFeedbackRuntime();
 
   SecondPreselectionParams second_params_;

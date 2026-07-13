@@ -3,6 +3,8 @@
   - 既可通过 tree_file / r2_runtime.paths.behavior_tree_file 显式选择，也是 second managed 两条 0x10 分支的统一切树目标。
   - 树内不等待外部限位，也不发送 0x11/0x0D；managed 使用时由组合树在切换前完成握手。
   - 显式选择时，startup odom gate 放行后直接从首个 OdomDriveX 开始执行。
+  - 前推杆 0x08 伸出并稳定后，底盘持续保持零速，直到收到本阶段开始后的人工前激光 0x15 才继续前收和后伸。
+  - 后轮 +X 0.6m odom 段在有效目标捕获后的动作超时会停车并按成功继续收尾；其它初始化和目标捕获错误仍失败。
   - 运行前必须停用遥控、独立台阶测试等其它 /cmd_vel 发布权威。
 -->
 <root BTCPP_format="4" main_tree_to_execute="SecondPreselectionClimbPlaceTree">
@@ -59,6 +61,7 @@
                   stable_ticks="{odom_relative_nav_stable_ticks}"
                   odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
                   succeed_on_reach_or_overshoot="true"
+                  succeed_on_timeout="true"
                   timeout_s="{second_preselect_climb_place_rear_timeout_s}"/>
 
       <SecondPreselectionRearRetractPickupPlace

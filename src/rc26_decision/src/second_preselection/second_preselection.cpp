@@ -3177,7 +3177,7 @@ BT::NodeStatus SecondPreselectionClimbFrontStageAction::onRunning() {
   case Phase::HoldAfterFrontExtend:
     switch (tickZeroHold()) {
     case StepStatus::Success:
-      beginManualFrontLaserDrive();
+      beginManualFrontLaserWait();
       break;
     case StepStatus::Failure:
       return fail("前推杆伸出后零速等待失败");
@@ -3186,15 +3186,10 @@ BT::NodeStatus SecondPreselectionClimbFrontStageAction::onRunning() {
     }
     break;
 
-  case Phase::DriveUntilManualFrontLaser:
-    if (tickDriveYawGate("climb_place_manual_front")) {
-      manual_event_tp_ = std::chrono::steady_clock::now();
-      break;
-    }
-    publishProfiledDrive(1.0);
+  case Phase::WaitForManualFrontLaser:
+    publishStop();
     if (manual_front_laser_count_.load(std::memory_order_relaxed) >
         manual_front_laser_baseline_) {
-      publishStop();
       phase_ = Phase::SendFrontRetractAndRearExtend;
       beginCommandPair(
           static_cast<CommandID>(clampByte(
@@ -3271,16 +3266,15 @@ SecondPreselectionClimbFrontStageAction::fail(const char *reason) {
   return failWithStop(reason);
 }
 
-void SecondPreselectionClimbFrontStageAction::beginManualFrontLaserDrive() {
+void SecondPreselectionClimbFrontStageAction::beginManualFrontLaserWait() {
   manual_front_laser_baseline_ =
       manual_front_laser_count_.load(std::memory_order_relaxed);
   manual_event_tp_ = std::chrono::steady_clock::now();
-  phase_ = Phase::DriveUntilManualFrontLaser;
-  beginDriveProfile(params_.climb_front_drive_profile,
-                    "climb_place_manual_front");
+  phase_ = Phase::WaitForManualFrontLaser;
+  publishStop();
   RCLCPP_INFO(
       node_->get_logger(),
-      "第二预选赛独立上阶前段开始行驶并等待人工前激光: feedback=%s timeout=%.1fs",
+      "第二预选赛独立上阶前段保持零速并等待人工前激光: feedback=%s timeout=%.1fs",
       byteHex(second_params_.climb_place_manual_front_laser_feedback_id)
           .c_str(),
       params_.front_event_timeout_s);

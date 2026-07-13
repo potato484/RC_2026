@@ -12,10 +12,12 @@
 #include <vector>
 
 #include <behaviortree_cpp/bt_factory.h>
+#include <geometry_msgs/msg/twist.hpp>
 #include <rclcpp/rclcpp.hpp>
 
 #include "rc26_decision/navigation/bt_odom_relative_nav.hpp"
 #include "rc26_decision/second_preselection/second_preselection.hpp"
+#include "rc26_decision/stair/stair_area.hpp"
 
 namespace {
 
@@ -50,6 +52,16 @@ std::string xmlNodeBlockByName(const std::string &xml,
     return {};
   }
   return xml.substr(tag_start, tag_end + 2 - tag_start);
+}
+
+bool isZeroTwist(const geometry_msgs::msg::Twist &msg) {
+  constexpr double kTolerance = 1.0e-9;
+  return std::abs(msg.linear.x) <= kTolerance &&
+         std::abs(msg.linear.y) <= kTolerance &&
+         std::abs(msg.linear.z) <= kTolerance &&
+         std::abs(msg.angular.x) <= kTolerance &&
+         std::abs(msg.angular.y) <= kTolerance &&
+         std::abs(msg.angular.z) <= kTolerance;
 }
 
 rc26_vision::Detection makeDetection(float cx, float cy,
@@ -512,6 +524,7 @@ TEST(SecondPreselectionLogic, ClimbPlaceTreeUsesIndependentOrderedSequence) {
 
   EXPECT_EQ(countOccurrences(xml, "succeed_on_reach_or_overshoot=\"true\""),
             3U);
+  EXPECT_EQ(countOccurrences(xml, "succeed_on_timeout=\"true\""), 1U);
   EXPECT_NE(xml.find("SecondPreselectionClimbFrontStage"), std::string::npos);
   EXPECT_NE(xml.find("SecondPreselectionRearRetractPickupPlace"),
             std::string::npos);
@@ -531,6 +544,8 @@ TEST(SecondPreselectionLogic, ClimbPlaceTreeUsesIndependentOrderedSequence) {
                 "distance_m=\"{second_preselect_climb_place_rear_forward_x_m}\""),
             std::string::npos);
   EXPECT_NE(rear_block.find("succeed_on_reach_or_overshoot=\"true\""),
+            std::string::npos);
+  EXPECT_NE(rear_block.find("succeed_on_timeout=\"true\""),
             std::string::npos);
 }
 
@@ -573,6 +588,257 @@ TEST(SecondPreselectionLogic, RedAndBlueConfigsExposeClimbPlaceParameters) {
     EXPECT_NE(yaml.find("second_preselect_climb_place_final_command_id: 19"),
               std::string::npos);
   }
+}
+
+TEST(SecondPreselectionLogic,
+     ClimbFrontStageStaysStoppedUntilManualFrontLaser) {
+  if (!rclcpp::ok()) {
+    int argc = 0;
+    char **argv = nullptr;
+    rclcpp::init(argc, argv);
+  }
+
+  auto decision_node = std::make_shared<rclcpp::Node>(
+      "second_preselection_climb_front_stage_test");
+  auto fake_transport =
+      std::make_shared<rclcpp::Node>("second_preselection_climb_front_fake");
+  const std::string service_name = "/test/climb_front/send_command";
+  const std::string feedback_topic = "/test/climb_front/command_feedback";
+  const std::string cmd_vel_topic = "/test/climb_front/cmd_vel";
+
+  std::mutex commands_mutex;
+  std::vector<uint8_t> commands;
+  std::atomic<int> next_seq{20};
+  auto service = fake_transport->create_service<
+      rc26_interfaces::srv::SendMechanismTransportCommand>(
+      service_name,
+      [&](const std::shared_ptr<
+              rc26_interfaces::srv::SendMechanismTransportCommand::Request>
+              request,
+          std::shared_ptr<
+              rc26_interfaces::srv::SendMechanismTransportCommand::Response>
+              response) {
+        {
+          std::lock_guard<std::mutex> lock(commands_mutex);
+          commands.push_back(request->command_id);
+        }
+        response->accepted = true;
+        response->seq =
+            static_cast<uint8_t>(next_seq.fetch_add(1) & 0xFF);
+      });
+  ASSERT_TRUE(service != nullptr);
+
+  std::mutex twists_mutex;
+  std::vector<geometry_msgs::msg::Twist> twists;
+  auto cmd_vel_sub = fake_transport->create_subscription<
+      geometry_msgs::msg::Twist>(
+      cmd_vel_topic, rclcpp::QoS(100),
+      [&](const geometry_msgs::msg::Twist::SharedPtr msg) {
+        if (msg) {
+          std::lock_guard<std::mutex> lock(twists_mutex);
+          twists.push_back(*msg);
+        }
+      });
+  ASSERT_TRUE(cmd_vel_sub != nullptr);
+  auto feedback_pub = fake_transport->create_publisher<
+      rc26_interfaces::msg::MechanismTransportFeedback>(feedback_topic,
+                                                        rclcpp::QoS(10));
+
+  rclcpp::executors::MultiThreadedExecutor executor;
+  executor.add_node(decision_node);
+  executor.add_node(fake_transport);
+  std::thread spin_thread([&executor]() { executor.spin(); });
+
+  BT::BehaviorTreeFactory factory;
+  rc26_decision::registerSecondPreselectionNodes(factory);
+  auto blackboard = BT::Blackboard::create();
+  rclcpp::Node *decision_node_ptr = decision_node.get();
+  blackboard->set("node", decision_node_ptr);
+
+  auto stair_params = rc26_decision::StairParams{};
+  stair_params.cmd_vel_topic = cmd_vel_topic;
+  stair_params.send_command_service = service_name;
+  stair_params.feedback_topic = feedback_topic;
+  stair_params.heading_hold_enable = false;
+  stair_params.command_timeout_s = 1.0;
+  stair_params.front_event_timeout_s = 2.0;
+  stair_params.climb_front_extend_delay_s = 0.0;
+  stair_params.climb_retract_rear_extend_delay_s = 0.0;
+  blackboard->set("stair_params", stair_params);
+
+  auto second_params = rc26_decision::SecondPreselectionParams{};
+  second_params.send_command_service = service_name;
+  second_params.feedback_topic = feedback_topic;
+  second_params.cmd_vel_topic = cmd_vel_topic;
+  blackboard->set("second_preselection_params", second_params);
+
+  auto tree = factory.createTreeFromText(
+      R"(<root BTCPP_format="4" main_tree_to_execute="TestTree">
+           <BehaviorTree ID="TestTree">
+             <SecondPreselectionClimbFrontStage name="front_stage"/>
+           </BehaviorTree>
+         </root>)",
+      blackboard);
+
+  auto tick_for = [&](std::chrono::milliseconds duration) {
+    const auto deadline = std::chrono::steady_clock::now() + duration;
+    BT::NodeStatus status = BT::NodeStatus::IDLE;
+    while (std::chrono::steady_clock::now() < deadline &&
+           status != BT::NodeStatus::SUCCESS &&
+           status != BT::NodeStatus::FAILURE) {
+      status = tree.tickOnce();
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return status;
+  };
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  EXPECT_EQ(tick_for(std::chrono::milliseconds(300)),
+            BT::NodeStatus::RUNNING);
+  {
+    std::lock_guard<std::mutex> lock(commands_mutex);
+    EXPECT_EQ(commands.size(), 1U);
+    if (!commands.empty()) {
+      EXPECT_EQ(commands[0], 0x08);
+    }
+  }
+  {
+    std::lock_guard<std::mutex> lock(twists_mutex);
+    EXPECT_FALSE(twists.empty());
+    if (!twists.empty()) {
+      EXPECT_TRUE(std::all_of(twists.begin(), twists.end(), isZeroTwist));
+    }
+  }
+
+  rc26_interfaces::msg::MechanismTransportFeedback ignored_rear_laser;
+  ignored_rear_laser.feedback_id = 0x05;
+  feedback_pub->publish(ignored_rear_laser);
+  EXPECT_EQ(tick_for(std::chrono::milliseconds(100)),
+            BT::NodeStatus::RUNNING);
+  {
+    std::lock_guard<std::mutex> lock(commands_mutex);
+    EXPECT_EQ(commands.size(), 1U);
+  }
+
+  rc26_interfaces::msg::MechanismTransportFeedback manual_front_laser;
+  manual_front_laser.feedback_id = 0x15;
+  feedback_pub->publish(manual_front_laser);
+  EXPECT_EQ(tick_for(std::chrono::milliseconds(500)),
+            BT::NodeStatus::SUCCESS);
+  {
+    std::lock_guard<std::mutex> lock(commands_mutex);
+    EXPECT_EQ(commands.size(), 3U);
+    if (commands.size() >= 3U) {
+      EXPECT_EQ(commands[0], 0x08);
+      EXPECT_EQ(commands[1], 0x09);
+      EXPECT_EQ(commands[2], 0x0A);
+    }
+  }
+  {
+    std::lock_guard<std::mutex> lock(twists_mutex);
+    EXPECT_FALSE(twists.empty());
+    if (!twists.empty()) {
+      EXPECT_TRUE(std::all_of(twists.begin(), twists.end(), isZeroTwist));
+    }
+  }
+
+  tree.haltTree();
+  executor.cancel();
+  spin_thread.join();
+  executor.remove_node(decision_node);
+  executor.remove_node(fake_transport);
+}
+
+TEST(SecondPreselectionLogic,
+     ClimbRearOdomTimeoutStopsAndContinuesAsSuccess) {
+  if (!rclcpp::ok()) {
+    int argc = 0;
+    char **argv = nullptr;
+    rclcpp::init(argc, argv);
+  }
+
+  auto decision_node =
+      std::make_shared<rclcpp::Node>("second_preselection_rear_timeout_test");
+  auto io_node =
+      std::make_shared<rclcpp::Node>("second_preselection_rear_timeout_io");
+  const std::string odom_topic = "/test/climb_rear_timeout/odom";
+  const std::string cmd_vel_topic = "/test/climb_rear_timeout/cmd_vel";
+
+  auto odom_pub = io_node->create_publisher<nav_msgs::msg::Odometry>(
+      odom_topic, rclcpp::QoS(10));
+  std::mutex twists_mutex;
+  std::vector<geometry_msgs::msg::Twist> twists;
+  auto cmd_vel_sub = io_node->create_subscription<geometry_msgs::msg::Twist>(
+      cmd_vel_topic, rclcpp::QoS(100),
+      [&](const geometry_msgs::msg::Twist::SharedPtr msg) {
+        if (msg) {
+          std::lock_guard<std::mutex> lock(twists_mutex);
+          twists.push_back(*msg);
+        }
+      });
+  ASSERT_TRUE(odom_pub != nullptr);
+  ASSERT_TRUE(cmd_vel_sub != nullptr);
+
+  rclcpp::executors::MultiThreadedExecutor executor;
+  executor.add_node(decision_node);
+  executor.add_node(io_node);
+  std::thread spin_thread([&executor]() { executor.spin(); });
+
+  BT::BehaviorTreeFactory factory;
+  rc26_decision::registerOdomNavigationNodes(factory);
+  auto blackboard = BT::Blackboard::create();
+  rclcpp::Node *decision_node_ptr = decision_node.get();
+  blackboard->set("node", decision_node_ptr);
+  auto tree = factory.createTreeFromText(
+      R"(<root BTCPP_format="4" main_tree_to_execute="TestTree">
+           <BehaviorTree ID="TestTree">
+             <OdomDriveX name="rear_forward_timeout"
+                         distance_m="0.6"
+                         cmd_vel_topic="/test/climb_rear_timeout/cmd_vel"
+                         odom_topic="/test/climb_rear_timeout/odom"
+                         max_speed_mps="0.4"
+                         min_speed_mps="0.1"
+                         stable_ticks="1"
+                         odom_timeout_s="0.5"
+                         succeed_on_reach_or_overshoot="true"
+                         succeed_on_timeout="true"
+                         timeout_s="0.2"/>
+           </BehaviorTree>
+         </root>)",
+      blackboard);
+
+  BT::NodeStatus status = tree.tickOnce();
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+  while (std::chrono::steady_clock::now() < deadline &&
+         status != BT::NodeStatus::SUCCESS &&
+         status != BT::NodeStatus::FAILURE) {
+    nav_msgs::msg::Odometry odom;
+    odom.pose.pose.orientation.w = 1.0;
+    odom_pub->publish(odom);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    status = tree.tickOnce();
+  }
+
+  EXPECT_EQ(status, BT::NodeStatus::SUCCESS);
+  std::string exec_state;
+  EXPECT_TRUE(blackboard->get("relative_nav_last_exec_state", exec_state));
+  EXPECT_EQ(exec_state, "SUCCEEDED");
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  {
+    std::lock_guard<std::mutex> lock(twists_mutex);
+    EXPECT_FALSE(twists.empty());
+    if (!twists.empty()) {
+      EXPECT_TRUE(isZeroTwist(twists.back()));
+    }
+  }
+
+  tree.haltTree();
+  executor.cancel();
+  spin_thread.join();
+  executor.remove_node(decision_node);
+  executor.remove_node(io_node);
 }
 
 TEST(SecondPreselectionLogic,

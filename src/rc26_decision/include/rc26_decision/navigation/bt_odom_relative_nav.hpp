@@ -69,6 +69,7 @@ private:
   double odom_timeout_s_{0.5};
   double timeout_s_{10.0};
   bool succeed_on_reach_or_overshoot_{false};
+  bool succeed_on_timeout_{false};
   double current_x_{0.0};
   double current_y_{0.0};
   double current_yaw_{0.0};

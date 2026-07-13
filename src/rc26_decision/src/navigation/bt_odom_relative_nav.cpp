@@ -188,6 +188,9 @@ BT::PortsList OdomAxisDriveAction::providedPorts() {
       BT::InputPort<bool>(
           "succeed_on_reach_or_overshoot", false,
           "Stop and succeed when the axis target is reached or overshot"),
+      BT::InputPort<bool>(
+          "succeed_on_timeout", false,
+          "Stop and succeed on action timeout after capturing an odom target"),
   };
 }
 
@@ -223,6 +226,8 @@ BT::NodeStatus OdomAxisDriveAction::onStart() {
   succeed_on_reach_or_overshoot_ = false;
   (void)getInput("succeed_on_reach_or_overshoot",
                  succeed_on_reach_or_overshoot_);
+  succeed_on_timeout_ = false;
+  (void)getInput("succeed_on_timeout", succeed_on_timeout_);
 
   max_speed_mps_ =
       std::abs(finitePositiveOr(max_speed_mps_, kDefaultOdomRelativeMaxSpeedMps));
@@ -261,10 +266,11 @@ BT::NodeStatus OdomAxisDriveAction::onStart() {
   writeState("RUNNING");
   writeDistanceRemaining(std::abs(distance_m_));
   RCLCPP_INFO(node_->get_logger(),
-              "%s 启动: cmd_vel=%s odom=%s distance=%.3fm max=%.3fm/s tol=%.3fm yaw_tol=%.1fdeg timeout=%.2fs overshoot_success=%s",
+              "%s 启动: cmd_vel=%s odom=%s distance=%.3fm max=%.3fm/s tol=%.3fm yaw_tol=%.1fdeg timeout=%.2fs overshoot_success=%s timeout_success=%s",
               action_label_, cmd_vel_topic_.c_str(), odom_topic_.c_str(), distance_m_,
               max_speed_mps_, xy_tolerance_m_, yaw_tolerance_deg, timeout_s_,
-              succeed_on_reach_or_overshoot_ ? "true" : "false");
+              succeed_on_reach_or_overshoot_ ? "true" : "false",
+              succeed_on_timeout_ ? "true" : "false");
   publishStop();
   return BT::NodeStatus::RUNNING;
 }
@@ -293,6 +299,7 @@ void OdomAxisDriveAction::releaseRuntime() {
   target_ready_ = false;
   stable_ticks_ = 0;
   succeed_on_reach_or_overshoot_ = false;
+  succeed_on_timeout_ = false;
 }
 
 bool OdomAxisDriveAction::odomReady() const {
@@ -343,6 +350,17 @@ BT::NodeStatus OdomAxisDriveAction::tickTowardTarget() {
     return BT::NodeStatus::FAILURE;
   }
   if (timedOut()) {
+    if (succeed_on_timeout_ && target_ready_) {
+      publishStop();
+      writeState("SUCCEEDED");
+      if (node_) {
+        RCLCPP_WARN(node_->get_logger(),
+                    "%s 动作超时，按配置停车并继续后续行为: timeout=%.2fs",
+                    action_label_, timeout_s_);
+      }
+      releaseRuntime();
+      return BT::NodeStatus::SUCCESS;
+    }
     return failWithStop("相对行驶超时");
   }
   if (!target_ready_) {
