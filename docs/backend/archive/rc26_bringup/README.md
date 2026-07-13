@@ -13,6 +13,8 @@
 - `rc26_decision`：加载当前红/蓝运行配置中 `r2_runtime.paths.behavior_tree_file` 指向的行为树，并在导航模式强制启用 startup odom gate。未显式传入 `runtime_config_file` 时，`bringup.launch.py` 会按 `r2_active_side.yaml` 的 `preselection_mode` 覆盖默认树：`first` 使用 `mc_repeat_preselection_tree.xml`，`second` 使用 `second_preselection_combo_tree.xml`。
 - RealSense D455：仅当 `use_realsense:=true` 时启动，用于视觉任务，不属于导航必需节点。
 
+`preselection_mode: second` 的 managed 装配保持以 `second_preselection_combo_tree.xml` 为入口，但两条人工限位路径现在统一切换到 `second_preselection_climb_place_tree.xml`。入口直接收到人工触发外部限位 2 上行 `0x10` 时，组合树完成 `0x11/同 seq 0x0D` 后立即切树，不执行斜坡；入口收到人工触发外部限位 1 上行 `0x06` 时，先完成同一握手并执行合并斜坡前进、停车等待，再由只接受 `0x10` 的斜坡后 gate 完成第二次握手并切到同一目标树。`second_preselection_tree.xml` 继续保留为可显式选择的独立完整流程，不再属于 second managed 默认路径。直接显式运行 `second_preselection_climb_place_tree.xml` 时，树不会等待外部限位，也不会自行发送 `0x11` 或等待 `0x0D`；managed 使用时这些握手由组合树负责。
+
 MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当前红/蓝运行配置把 `mc_camera_device` 固定到 `/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._FHD_Webcam_SN0001-video-index0`，该 by-id 路径对应 Vidar/Sonix FHD Webcam 的 video-index0；`video-index1` 是 UVC metadata，不能作为 OpenCV 图像源。`mc_auto_scan_camera=false`，固定路径失效时直接报错，不再兜底扫描其它 `/dev/video*`。
 
 导航模式不装配地图定位、外部地图规划链、代价图、路径规划/控制平滑链或 `rc26_sensor_scan`。`/cmd_vel` 的发布权威在决策侧，默认消费方在 `rc26_mcu_transport`；同一时刻不得再启动遥控、测试动作或其它速度发布者。导航模式的 `/odom` 启动 gate 只应由真实 Point-LIO 经 `rc26_odom_interface` 接管后的输出放行；若真实 `/odom` 未接管，决策应等待或超时失败，不应靠 bootstrap `/odom` 开始闭环运动。
@@ -62,11 +64,12 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 - `preselection_entry_continue_delay_msec`：first 每轮人工触发外部限位 1 上行 `0x06 -> 0x10/0x0C` 启动握手完成后进入 MC 前的延时。
 - `first_preselection_mc_repeat_enable`、`first_preselection_mc_repeat_max_count`、`first_preselection_mc_repeat_forward_x_step_m.red/blue`：first MC-only 重复流程参数，默认开启；`max_count` 表示初始 MC 后最多重复次数。第 0 轮使用当前红/蓝运行配置中的 `mc_nav_forward_x_m`，后续重复轮直接叠加当前 `active_side` 对应的带符号 step；当前 red 为 `+0.2m`，三轮 MC X 为 `0.05m -> 0.25m -> 0.45m`，当前 blue 为 `-0.2m`，三轮 MC X 为 `1.05m -> 0.85m -> 0.65m`。`r2_active_side.yaml` 必须同时提供 red/blue 两个 step，不再支持单个 scalar step。
 - `preselection_ramp_forward_x_m`、`preselection_ramp_max_speed_mps`、`preselection_ramp_min_speed_mps`、`preselection_ramp_forward_timeout_s`：second managed 中人工触发外部限位 1 上行 `0x06` 分支的合并斜坡前进参数；该段只沿 `+X` 发布，超调不反向拉回，超时停车后继续后续 gate。
-- `second_preselect_after_ramp_turn_delta_rad`、`second_preselect_after_ramp_turn_timeout_s`：历史 second managed 斜坡后转向参数，当前默认 `second_preselection_combo_tree.xml` 不再使用；`0x06` 分支合并斜坡后停车等待人工触发外部限位 2 上行 `0x10`，再次完成 `0x11/0x0D` 握手后进入 `SecondPreselectionTree` 搜寻，入口 `0x10` 分支完成首次握手后直接切到 `second_preselection_tree.xml`。
+- `second_preselect_after_ramp_turn_delta_rad`、`second_preselect_after_ramp_turn_timeout_s`：历史 second managed 斜坡后转向参数，当前默认 `second_preselection_combo_tree.xml` 不再使用。`0x06` 分支合并斜坡后停车等待人工触发外部限位 2 上行 `0x10`，再次完成 `0x11/0x0D` 握手后切到 `second_preselection_climb_place_tree.xml`；入口 `0x10` 分支完成首次握手后也直接切到同一目标树。
 - `second_preselect_pre_approach_lower_command_id`、`second_preselect_pre_approach_lower_done_feedback_id`、`second_preselect_pre_approach_lower_settle_s`：第二预选赛视觉对齐后、odom 前向趋近前的机械臂彻底放下握手参数。当前默认下发 `0x14`，等待同 `seq` 的 `0x12`，再停车等待 `0.5s` 后才允许前进。
 - `second_preselect_pickup_command_id`、`second_preselect_pickup_done_feedback_id`、`second_preselect_search_*`、`second_preselect_r2_target_*`、`second_preselect_r1_*`、`second_preselect_kfs_*`、`second_preselect_grab_verify_*`、`second_preselect_grab_settle_s`：第二预选赛搜索夹取链参数。当前树内前向趋近后的 `0x12` 用作 KFS 夹取触发，ACK 后先等待同 `seq` 的 MCU 上行 `0x11` 夹取完成反馈，再由视觉消失验证确认夹取。
 - `second_preselect_post_pickup_forward_x_m`、`second_preselect_nav_y1_m`、`second_preselect_total_x_target_m`、`second_preselect_total_x_tolerance_m`：第二预选赛夹取后的总 X 闭环参数。夹取确认后先沿 `+X 1.5m`，再按红方基准 `+Y 0.75m`（blue 自动镜像为 `-Y`），随后以最初搜索前记录的 odom 位姿和搜索起始 yaw 为原点，将搜索、夹取趋近和固定 `+X 1.5m` 的真实净投影补齐到 `4.2m`；若进入节点时已经超出目标则停车成功，不倒退补偿。
 - `second_preselect_place_fixed_forward_x_m`、`second_preselect_place_fixed_forward_timeout_s`、`second_preselect_place_observe_timeout_s`、`second_preselect_place_occupied_*`：第二预选赛放置准备参数。当前放置准备使用中/下层视觉分层：中层 KFS 只表示占据，下层 KFS 只作为横向中心对齐目标；连续稳定帧数由 `second_preselect_place_occupied_stable_frames` 控制。每个观察 checkpoint 若超过 `second_preselect_place_observe_timeout_s` 仍没有稳定判断，会进入固定前进放置，终止原因写为 `PLACE_OBSERVE_TIMEOUT_FIXED_FORWARD`，不直接失败也不跳过到 `0x13`；下层 KFS 横向对齐仍由 `second_preselect_kfs_align_timeout_s` 控制。最终固定沿 `+X second_preselect_place_fixed_forward_x_m` 前进，运动超时使用 `second_preselect_place_fixed_forward_timeout_s`，超时停车后继续唯一一次首次 `0x13`。
+- `second_preselect_climb_place_*`：`second_preselection_climb_place_tree.xml` 的路线、人工前激光、推杆、odom 后轮段和最终夹取/放置参数。红蓝配置都保存红方基准 `forward_x=1.5m`、`lateral_y=+0.3m`，decision 在 blue 运行时自动派生 `-0.3m`；后轮上阶使用 `rear_forward_x=0.6m` 的 odom 闭环，不消费 `0x05`。该树既是 second managed 两条 `0x10` 分支的统一切树目标，也可通过显式运行配置中的 `r2_runtime.paths.behavior_tree_file` 独立选择；树内不含 managed gate，也不自行发送 `0x11` 或等待 `0x0D`。独立调试时应关闭 `startup_ready_notify_enable` 和不需要的 RealSense，因为树首没有 `/decision/preselection_gate_state` 等待阶段；managed 使用时握手由组合树负责。
 - `second_preselect_dynamic_roi_ui_enable`、`second_preselect_dynamic_roi_ui_window_name`：第二预选赛本地 OpenCV 视觉调试窗口参数。现场开启后会贯穿 KFS 搜索、视觉对齐、夹取完成反馈等待、夹取消失验证、占位判断和任意 KFS 放置对齐，显示识别框、锁定目标、目标线和阶段状态，不改变决策结果。
 这些参数描述相对分段和 odom yaw 目标生成，不是地图位姿。现场标定时应按启动姿态重新调整每段 `distance_m` 和相对/绝对 yaw；蓝方若只做标准镜像，保持 `r2_blue.yaml` 的 `team: blue` 即可复用同一组红方基准值。
 
@@ -93,6 +96,10 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 
 ## 本轮同步
 
+2026-07-13 同步：`preselection_mode: second` 的两条真实装配路径统一切到 `second_preselection_climb_place_tree.xml`：入口直接上行 `0x10` 在 `0x11/同 seq 0x0D` 后跳过斜坡切树；入口上行 `0x06` 在首次握手后执行合并斜坡并停车，斜坡后只接受 `0x10`，再次握手后切到同一树。组合树不再自动进入 `SecondPreselectionTree` 搜索流程；`second_preselection_tree.xml` 继续作为显式独立完整树。目标树本身不等待 gate，也不发送 `0x11/0x0D`，managed 使用时握手由组合树完成。
+
+2026-07-13 同步：红/蓝运行配置新增 `second_preselect_climb_place_*` 参数组，供显式选择和 second managed 目标树共同使用。该树不扩展 `r2_active_side.yaml` 的 `preselection_mode`，仍由 `second_preselection_combo_tree.xml` 作为 second managed 入口；显式独立选择时应关闭依赖 managed gate 的启动就绪通知。
+
 2026-07-13 同步：second managed 入口斜坡由两段 `OdomDriveX` 合并为 `SecondPreselectionRampForward` 单段前进。红/蓝运行配置改用 `preselection_ramp_forward_x_m=5.00` 和 `preselection_ramp_forward_timeout_s=5.0`；该动作只发布非负 `linear.x`，到达、超调或超时都会停车并继续后续人工限位 2 gate，不再用负速度拉回目标点。
 
 2026-07-13 同步：`startup_ready_notify_node.py` 作为 ROS2 launch libexec 节点安装，源码必须保持可执行权限；`--symlink-install` 下 libexec 入口指向源码，测试已覆盖 shebang 与可执行位，避免完整自动链路启动时被 ROS2 判定为 executable not found。该节点的 `command_id` 参数允许 launch 传入 `0x20` 字符串或十进制整数，节点内部统一解析为 `uint8`，避免 ROS2 参数类型推断导致启动就绪通知节点提前退出；`start_r2_auto.sh` 专用 active-side 监听器现在在 Ctrl+C / 外部关闭时静默退出，不再打印正常停止路径的 traceback。
@@ -105,7 +112,6 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 
 2026-07-12 同步：first MC repeat 的 `first_preselection_mc_repeat_forward_x_step_m` 改为 red/blue 必选带符号增量映射，不再按第 0 轮 X 符号强制取绝对值，也不再支持单个 scalar step。当前 red first 使用 `mc_nav_forward_x_m=0.05m` 和 step `+0.2m`，三轮 MC X 为 `0.05m -> 0.25m -> 0.45m`；当前 blue first 使用 `mc_nav_forward_x_m=1.05m` 和 step `-0.2m`，三轮 MC X 为 `1.05m -> 0.85m -> 0.65m`。
 
-2026-07-09 同步：second 默认组合树对齐 `mc_mf_preselection_tree.xml` 的入口分支模型：进入组合树先由 `WaitPreselectionBranchGate` 同时等待人工触发外部限位 1/2 上行 `0x06/0x10`，两条分支都下发 `SECOND_PRESELECTION_START(0x11)` 并等待同 `seq` 的 `SECOND_PRESELECTION_START_DONE(0x0D)`。`0x06` 分支继续执行 `preselection_ramp_forward_tree.xml` 合并斜坡前进并停车等待斜坡后 `0x10`，再次握手后进入 `SecondPreselectionTree` 搜寻；`0x10` 分支直接切到 `second_preselection_tree.xml`。当前 second 组合树不再执行斜坡后的 90° 转向。
 
 2026-07-09 同步：删除决策节点旧全局 0x10 监听链路。人工触发外部限位 2 的上行 `0x10` 现在只由 `WaitPreselectionBranchGate` 在当前行为树位置消费，并按 XML 配置的 `mc` 或 `second` profile 完成握手与切树；bringup 不再注入旧全局监听关闭参数，红/蓝运行配置也不再保留旧全局触发参数。
 

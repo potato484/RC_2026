@@ -130,7 +130,7 @@
 
 2026-07-08 同步：统一 MCU 上行 `0x06/0x10/0x13` 的物理来源口径，三者均为人工触发的外部限位开关事件。现有枚举名和运行行为不变：`0x06` 仍由 decision/vision 作为人工触发外部限位 1 消费，`0x10` 仍由 managed branch gate 作为人工触发外部限位 2 消费，脚本专用上行 `0x13` 仍只触发下一次启动的红蓝配置切换；下行 `COMPETITION_START(0x10)` 与 `SECOND_PRESELECTION_PLACE_KFS(0x13)` 保持原命令语义，上下行 ID 空间独立。
 
-2026-07-03 同步：`MF_PRESELECTION_TRIGGER(0x10)` 在 managed first/second 入口中改为人工触发外部限位 2 事件。决策层收到后不会直接全局切树，而是按当前 gate profile 执行握手：first 用 `0x10/0x0C` 后切 `mf_preselection_tree.xml`，second 用 `0x11/0x0D` 后切 `second_preselection_tree.xml`。
+2026-07-03 同步：`MF_PRESELECTION_TRIGGER(0x10)` 在 managed first/second 入口中改为人工触发外部限位 2 事件。决策层收到后不会直接全局切树，而是按当前 gate profile 执行握手；当前 first 用 `0x10/同 seq 0x0C` 完成舵机重新放下后继续 MC 重复流程且不切树，second 用 `0x11/同 seq 0x0D` 后切到 `second_preselection_climb_place_tree.xml`。这里只记录上层当前消费语义，协议 ID、payload、ACK 与 done 匹配规则不变。
 
 2026-07-02 同步：新增上行 `COMPETITION_START_DONE(0x0C)`，用于 `COMPETITION_START(0x10)` 的业务完成反馈。组合树启动 gate 现在按人工触发外部限位 1 的上行 `0x06`、下行 `0x10` 通用 ACK、同 `seq` 上行 `0x0C` 的顺序放行；`POSE_TARGET(0x0C)` 仍是下行底盘速度命令，上下行 ID 空间独立。
 

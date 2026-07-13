@@ -19,6 +19,36 @@
 #include "rc26_decision/tree_switch_request.hpp"
 #include "rc26_serial/protocol.hpp"
 
+namespace {
+
+std::size_t countOccurrences(const std::string &text,
+                             const std::string &needle) {
+  std::size_t count = 0;
+  std::size_t pos = 0;
+  while ((pos = text.find(needle, pos)) != std::string::npos) {
+    ++count;
+    pos += needle.size();
+  }
+  return count;
+}
+
+std::string xmlNodeBlockByName(const std::string &xml,
+                               const std::string &node_name) {
+  const std::string name_attr = "name=\"" + node_name + "\"";
+  const auto name_pos = xml.find(name_attr);
+  if (name_pos == std::string::npos) {
+    return {};
+  }
+  const auto tag_start = xml.rfind('<', name_pos);
+  const auto tag_end = xml.find("/>", name_pos);
+  if (tag_start == std::string::npos || tag_end == std::string::npos) {
+    return {};
+  }
+  return xml.substr(tag_start, tag_end + 2 - tag_start);
+}
+
+} // namespace
+
 TEST(MfPreselectionTree, XmlLoadsWithRegisteredNodes) {
   BT::BehaviorTreeFactory factory;
   rc26_decision::registerMCAreaNodes(factory);
@@ -175,7 +205,7 @@ TEST(ManagedPreselectionTrees, XmlFilesLoadAndLegacyStartTreeIsRemoved) {
   const std::vector<std::string> expected_trees{
       "mc_repeat_preselection_tree.xml", "mc_mf_preselection_tree.xml", "mc_tree.xml",
       "preselection_ramp_forward_tree.xml", "second_preselection_combo_tree.xml",
-      "second_preselection_tree.xml",
+      "second_preselection_climb_place_tree.xml", "second_preselection_tree.xml",
       "second_preselection_post_place_climb_tree.xml"};
   for (const auto &tree_name : expected_trees) {
     const auto tree_path = tree_dir / tree_name;
@@ -198,25 +228,46 @@ TEST(ManagedPreselectionTrees, XmlFilesLoadAndLegacyStartTreeIsRemoved) {
       combo_tree_xml.find("<SubTree ID=\"PreselectionRampForwardTree\"");
   const auto after_ramp_gate_pos =
       combo_tree_xml.find("second_preselection_after_ramp_gate");
-  const auto search_tree_pos =
-      combo_tree_xml.find("<SubTree ID=\"SecondPreselectionTree\"");
   ASSERT_NE(entry_gate_pos, std::string::npos);
   ASSERT_NE(ramp_pos, std::string::npos);
   ASSERT_NE(after_ramp_gate_pos, std::string::npos);
-  ASSERT_NE(search_tree_pos, std::string::npos);
   EXPECT_LT(entry_gate_pos, ramp_pos);
   EXPECT_LT(ramp_pos, after_ramp_gate_pos);
-  EXPECT_LT(after_ramp_gate_pos, search_tree_pos);
-  EXPECT_NE(combo_tree_xml.find("continue_start_profile=\"second\""),
+
+  const std::string entry_gate_block = xmlNodeBlockByName(
+      combo_tree_xml, "second_preselection_entry_branch_gate");
+  const std::string after_ramp_gate_block = xmlNodeBlockByName(
+      combo_tree_xml, "second_preselection_after_ramp_gate");
+  ASSERT_FALSE(entry_gate_block.empty());
+  ASSERT_FALSE(after_ramp_gate_block.empty());
+  EXPECT_NE(entry_gate_block.find("continue_start_profile=\"second\""),
             std::string::npos);
-  EXPECT_NE(combo_tree_xml.find("switch_start_profile=\"second\""),
+  EXPECT_NE(entry_gate_block.find("switch_start_profile=\"second\""),
             std::string::npos);
-  EXPECT_NE(combo_tree_xml.find("switch_tree_file=\"second_preselection_tree.xml\""),
+  EXPECT_EQ(entry_gate_block.find("accepted_branch="), std::string::npos);
+  EXPECT_NE(entry_gate_block.find(
+                "switch_tree_file=\"second_preselection_climb_place_tree.xml\""),
             std::string::npos);
-  EXPECT_NE(combo_tree_xml.find("accepted_branch=\"switch_only\""),
+  EXPECT_NE(after_ramp_gate_block.find("accepted_branch=\"switch_only\""),
             std::string::npos);
-  EXPECT_NE(combo_tree_xml.find("switch_tree_file=\"\""),
+  EXPECT_NE(after_ramp_gate_block.find("switch_start_profile=\"second\""),
             std::string::npos);
+  EXPECT_NE(after_ramp_gate_block.find(
+                "switch_tree_file=\"second_preselection_climb_place_tree.xml\""),
+            std::string::npos);
+  EXPECT_EQ(countOccurrences(
+                combo_tree_xml,
+                "switch_tree_file=\"second_preselection_climb_place_tree.xml\""),
+            2U);
+  EXPECT_EQ(combo_tree_xml.find(
+                "switch_tree_file=\"second_preselection_tree.xml\""),
+            std::string::npos);
+  EXPECT_EQ(combo_tree_xml.find(
+                "<include path=\"second_preselection_tree.xml\""),
+            std::string::npos);
+  EXPECT_EQ(combo_tree_xml.find("<SubTree ID=\"SecondPreselectionTree\""),
+            std::string::npos);
+  EXPECT_EQ(combo_tree_xml.find("SecondPreselectionTree"), std::string::npos);
   EXPECT_EQ(combo_tree_xml.find("second_preselect_after_ramp_turn"),
             std::string::npos);
 

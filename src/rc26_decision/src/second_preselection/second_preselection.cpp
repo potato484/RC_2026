@@ -483,6 +483,15 @@ bool secondPreselectionFrameHasCenterKfs(
   return false;
 }
 
+bool secondPreselectionClimbPlaceReadyForFinal(double elapsed_s,
+                                               double required_delay_s,
+                                               bool pickup_done) {
+  const double normalized_delay =
+      std::isfinite(required_delay_s) ? std::max(0.0, required_delay_s) : 0.0;
+  return pickup_done && std::isfinite(elapsed_s) &&
+         elapsed_s >= normalized_delay;
+}
+
 SecondPreselectionOccupancyDecision
 secondPreselectionUpdateOccupancyStability(bool occupied, int stable_frames,
                                            int &occupied_count,
@@ -3080,6 +3089,543 @@ bool SecondPreselectionPlaceApproachAction::odomReady() const {
   return has_odom_ && elapsedSec(last_odom_tp_) <= params_.odom_timeout_s;
 }
 
+SecondPreselectionClimbFrontStageAction::
+    SecondPreselectionClimbFrontStageAction(const std::string &name,
+                                            const BT::NodeConfig &config)
+    : StairActionBase(name, config) {}
+
+BT::NodeStatus SecondPreselectionClimbFrontStageAction::onStart() {
+  if (!setupRuntime("第二预选赛独立上阶前段")) {
+    return BT::NodeStatus::FAILURE;
+  }
+  if (!config().blackboard ||
+      !config().blackboard->get("second_preselection_params",
+                                second_params_)) {
+    return fail("黑板缺少 second_preselection_params");
+  }
+
+  clearManualFeedbackRuntime();
+  const std::string feedback_topic =
+      second_params_.feedback_topic.empty() ? params_.feedback_topic
+                                            : second_params_.feedback_topic;
+  manual_feedback_sub_ = node_->create_subscription<FeedbackMsg>(
+      feedback_topic, rclcpp::QoS(32).reliable(),
+      [this](const FeedbackMsg::SharedPtr msg) {
+        if (!msg) {
+          return;
+        }
+        if (msg->feedback_id ==
+            static_cast<uint8_t>(
+                second_params_.climb_place_manual_front_laser_feedback_id &
+                0xFF)) {
+          manual_front_laser_count_.fetch_add(1, std::memory_order_relaxed);
+        }
+      });
+  if (!manual_feedback_sub_) {
+    return fail("人工前激光反馈订阅创建失败");
+  }
+
+  publishStop();
+  phase_ = Phase::HeadingAlign;
+  beginHeadingAlignment();
+  RCLCPP_INFO(
+      node_->get_logger(),
+      "第二预选赛独立上阶前段启动: front_extend=%s manual_front=%s front_retract=%s rear_extend=%s",
+      byteHex(second_params_.climb_place_front_pushrod_extend_command_id)
+          .c_str(),
+      byteHex(second_params_.climb_place_manual_front_laser_feedback_id)
+          .c_str(),
+      byteHex(second_params_.climb_place_front_pushrod_retract_command_id)
+          .c_str(),
+      byteHex(second_params_.climb_place_rear_pushrod_extend_command_id)
+          .c_str());
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus SecondPreselectionClimbFrontStageAction::onRunning() {
+  switch (phase_) {
+  case Phase::HeadingAlign:
+    switch (tickHeadingAlignment()) {
+    case StepStatus::Success:
+      phase_ = Phase::SendFrontExtend;
+      beginCommand(
+          static_cast<CommandID>(clampByte(
+              second_params_.climb_place_front_pushrod_extend_command_id)),
+          "FRONT_PUSHROD_EXTEND");
+      break;
+    case StepStatus::Failure:
+      return fail("上阶前 yaw 对齐失败");
+    case StepStatus::Running:
+      break;
+    }
+    break;
+
+  case Phase::SendFrontExtend:
+    switch (tickCommand()) {
+    case StepStatus::Success:
+      phase_ = Phase::HoldAfterFrontExtend;
+      beginZeroHold(params_.climb_front_extend_delay_s,
+                    "climb_place_front_extend_settle");
+      break;
+    case StepStatus::Failure:
+      return fail("FRONT_PUSHROD_EXTEND 命令失败");
+    case StepStatus::Running:
+      break;
+    }
+    break;
+
+  case Phase::HoldAfterFrontExtend:
+    switch (tickZeroHold()) {
+    case StepStatus::Success:
+      beginManualFrontLaserDrive();
+      break;
+    case StepStatus::Failure:
+      return fail("前推杆伸出后零速等待失败");
+    case StepStatus::Running:
+      break;
+    }
+    break;
+
+  case Phase::DriveUntilManualFrontLaser:
+    if (tickDriveYawGate("climb_place_manual_front")) {
+      manual_event_tp_ = std::chrono::steady_clock::now();
+      break;
+    }
+    publishProfiledDrive(1.0);
+    if (manual_front_laser_count_.load(std::memory_order_relaxed) >
+        manual_front_laser_baseline_) {
+      publishStop();
+      phase_ = Phase::SendFrontRetractAndRearExtend;
+      beginCommandPair(
+          static_cast<CommandID>(clampByte(
+              second_params_.climb_place_front_pushrod_retract_command_id)),
+          "FRONT_PUSHROD_RETRACT",
+          static_cast<CommandID>(clampByte(
+              second_params_.climb_place_rear_pushrod_extend_command_id)),
+          "REAR_PUSHROD_EXTEND");
+      switch (tickCommandPair()) {
+      case StepStatus::Success:
+        phase_ = Phase::HoldAfterFrontRetractAndRearExtend;
+        beginZeroHold(params_.climb_retract_rear_extend_delay_s,
+                      "climb_place_front_retract_rear_extend_settle");
+        break;
+      case StepStatus::Failure:
+        return fail("FRONT_PUSHROD_RETRACT + REAR_PUSHROD_EXTEND 并发命令失败");
+      case StepStatus::Running:
+        break;
+      }
+      break;
+    }
+    if (elapsedSec(manual_event_tp_) > params_.front_event_timeout_s) {
+      return fail("等待第二预选赛人工前激光 0x15 超时");
+    }
+    break;
+
+  case Phase::SendFrontRetractAndRearExtend:
+    publishStop();
+    switch (tickCommandPair()) {
+    case StepStatus::Success:
+      phase_ = Phase::HoldAfterFrontRetractAndRearExtend;
+      beginZeroHold(params_.climb_retract_rear_extend_delay_s,
+                    "climb_place_front_retract_rear_extend_settle");
+      break;
+    case StepStatus::Failure:
+      return fail("FRONT_PUSHROD_RETRACT + REAR_PUSHROD_EXTEND 并发命令失败");
+    case StepStatus::Running:
+      break;
+    }
+    break;
+
+  case Phase::HoldAfterFrontRetractAndRearExtend:
+    switch (tickZeroHold()) {
+    case StepStatus::Success:
+      publishStop();
+      clearManualFeedbackRuntime();
+      phase_ = Phase::Done;
+      releaseRuntime();
+      return BT::NodeStatus::SUCCESS;
+    case StepStatus::Failure:
+      return fail("前推杆收回和后推杆伸出后零速等待失败");
+    case StepStatus::Running:
+      break;
+    }
+    break;
+
+  case Phase::Done:
+    return BT::NodeStatus::SUCCESS;
+  }
+  return BT::NodeStatus::RUNNING;
+}
+
+void SecondPreselectionClimbFrontStageAction::onHalted() {
+  publishStop();
+  clearManualFeedbackRuntime();
+  releaseRuntime();
+  phase_ = Phase::Done;
+}
+
+BT::NodeStatus
+SecondPreselectionClimbFrontStageAction::fail(const char *reason) {
+  clearManualFeedbackRuntime();
+  phase_ = Phase::Done;
+  return failWithStop(reason);
+}
+
+void SecondPreselectionClimbFrontStageAction::beginManualFrontLaserDrive() {
+  manual_front_laser_baseline_ =
+      manual_front_laser_count_.load(std::memory_order_relaxed);
+  manual_event_tp_ = std::chrono::steady_clock::now();
+  phase_ = Phase::DriveUntilManualFrontLaser;
+  beginDriveProfile(params_.climb_front_drive_profile,
+                    "climb_place_manual_front");
+  RCLCPP_INFO(
+      node_->get_logger(),
+      "第二预选赛独立上阶前段开始行驶并等待人工前激光: feedback=%s timeout=%.1fs",
+      byteHex(second_params_.climb_place_manual_front_laser_feedback_id)
+          .c_str(),
+      params_.front_event_timeout_s);
+}
+
+void SecondPreselectionClimbFrontStageAction::clearManualFeedbackRuntime() {
+  manual_feedback_sub_.reset();
+  manual_front_laser_count_ = 0;
+  manual_front_laser_baseline_ = 0;
+}
+
+SecondPreselectionRearRetractPickupPlaceAction::
+    SecondPreselectionRearRetractPickupPlaceAction(
+        const std::string &name, const BT::NodeConfig &config)
+    : BT::StatefulActionNode(name, config) {}
+
+BT::NodeStatus SecondPreselectionRearRetractPickupPlaceAction::onStart() {
+  if (!config().blackboard || !config().blackboard->get("node", node_) ||
+      !node_) {
+    writeDecisionFailure(config().blackboard,
+                         "SecondPreselectionRearRetractPickupPlace",
+                         "运行上下文缺失：blackboard 或 node 不可用");
+    return BT::NodeStatus::FAILURE;
+  }
+  if (!config().blackboard->get("second_preselection_params", params_)) {
+    writeDecisionFailure(config().blackboard,
+                         "SecondPreselectionRearRetractPickupPlace",
+                         "黑板缺少 second_preselection_params");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  clearRuntimeState();
+  cmd_pub_ = node_->create_publisher<geometry_msgs::msg::Twist>(
+      params_.cmd_vel_topic, rclcpp::QoS(10));
+  send_client_ =
+      node_->create_client<SendCommandSrv>(params_.send_command_service);
+  feedback_sub_ = node_->create_subscription<FeedbackMsg>(
+      params_.feedback_topic, rclcpp::QoS(32).reliable(),
+      [this](const FeedbackMsg::SharedPtr msg) { handleFeedback(msg); });
+  if (!cmd_pub_ || !send_client_ || !feedback_sub_) {
+    return fail("第二预选赛独立收尾 ROS 资源创建失败");
+  }
+
+  command_generation_.fetch_add(1, std::memory_order_relaxed);
+  resetCommand(rear_retract_command_,
+               params_.climb_place_rear_pushrod_retract_command_id, -1,
+               "REAR_PUSHROD_RETRACT");
+  resetCommand(pickup_command_, params_.climb_place_preload_pickup_command_id,
+               params_.climb_place_preload_pickup_done_feedback_id,
+               "SECOND_PRESELECTION_PRELOAD_KFS_PICKUP");
+  resetCommand(final_place_command_, params_.climb_place_final_command_id, -1,
+               "SECOND_PRESELECTION_FINAL_PLACE_KFS");
+  phase_ = Phase::SendRearRetractAndPickup;
+  phase_tp_ = std::chrono::steady_clock::now();
+  last_log_tp_ = phase_tp_;
+  publishStop();
+  RCLCPP_INFO(
+      node_->get_logger(),
+      "第二预选赛独立收尾启动: rear_retract=%s pickup=%s/done=%s delay=%.1fs final=%s",
+      byteHex(params_.climb_place_rear_pushrod_retract_command_id).c_str(),
+      byteHex(params_.climb_place_preload_pickup_command_id).c_str(),
+      byteHex(params_.climb_place_preload_pickup_done_feedback_id).c_str(),
+      params_.climb_place_final_delay_s,
+      byteHex(params_.climb_place_final_command_id).c_str());
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus
+SecondPreselectionRearRetractPickupPlaceAction::onRunning() {
+  if (!node_) {
+    return BT::NodeStatus::FAILURE;
+  }
+  if (command_error_seen_.load(std::memory_order_relaxed)) {
+    return fail(command_error_detail_.empty()
+                    ? "第二预选赛独立收尾收到机构错误"
+                    : command_error_detail_);
+  }
+
+  switch (phase_) {
+  case Phase::SendRearRetractAndPickup:
+    publishStop();
+    if (!rear_retract_command_.sent) {
+      (void)sendCommand(rear_retract_command_);
+    }
+    if (!pickup_command_.sent) {
+      (void)sendCommand(pickup_command_);
+    }
+    if (rear_retract_command_.sent && pickup_command_.sent) {
+      phase_ = Phase::WaitRearRetractAndPickupAck;
+      phase_tp_ = std::chrono::steady_clock::now();
+    } else if (phaseElapsed() > params_.command_timeout_s) {
+      return fail("等待后推杆收回和预装 KFS 夹取服务可用超时");
+    }
+    return BT::NodeStatus::RUNNING;
+
+  case Phase::WaitRearRetractAndPickupAck:
+    publishStop();
+    if (commandRejected(rear_retract_command_) ||
+        commandRejected(pickup_command_)) {
+      return fail("后推杆收回或预装 KFS 夹取命令被拒绝");
+    }
+    if (commandAcked(rear_retract_command_) &&
+        commandAcked(pickup_command_)) {
+      final_gate_tp_ = std::chrono::steady_clock::now();
+      phase_ = Phase::WaitDelayAndPickupDone;
+      phase_tp_ = final_gate_tp_;
+      last_log_tp_ = final_gate_tp_;
+      RCLCPP_INFO(node_->get_logger(),
+                  "第二预选赛独立收尾两条命令均 ACK，开始 %.1fs 计时并等待同 seq %s",
+                  params_.climb_place_final_delay_s,
+                  byteHex(params_.climb_place_preload_pickup_done_feedback_id)
+                      .c_str());
+      return BT::NodeStatus::RUNNING;
+    }
+    if (phaseElapsed() > params_.command_timeout_s) {
+      return fail("等待后推杆收回和预装 KFS 夹取 ACK 超时");
+    }
+    return BT::NodeStatus::RUNNING;
+
+  case Phase::WaitDelayAndPickupDone: {
+    publishStop();
+    const double gate_elapsed = elapsedSec(final_gate_tp_);
+    if (secondPreselectionClimbPlaceReadyForFinal(
+            gate_elapsed, params_.climb_place_final_delay_s,
+            commandDone(pickup_command_))) {
+      phase_ = Phase::SendFinalPlace;
+      phase_tp_ = std::chrono::steady_clock::now();
+      return BT::NodeStatus::RUNNING;
+    }
+    const double done_wait_timeout =
+        std::max(params_.done_timeout_s,
+                 params_.climb_place_final_delay_s +
+                     params_.command_timeout_s);
+    if (!commandDone(pickup_command_) && gate_elapsed > done_wait_timeout) {
+      return fail("等待预装 KFS 夹取完成反馈超时");
+    }
+    if (elapsedSec(last_log_tp_) >= params_.log_period_s) {
+      RCLCPP_INFO(
+          node_->get_logger(),
+          "第二预选赛独立收尾等待: delay=%.1f/%.1fs pickup_done=%s busy=%s",
+          gate_elapsed, params_.climb_place_final_delay_s,
+          commandDone(pickup_command_) ? "是" : "否",
+          command_busy_seen_.load(std::memory_order_relaxed) ? "是" : "否");
+      last_log_tp_ = std::chrono::steady_clock::now();
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+
+  case Phase::SendFinalPlace:
+    publishStop();
+    if (!final_place_command_.sent) {
+      (void)sendCommand(final_place_command_);
+    }
+    if (final_place_command_.sent) {
+      phase_ = Phase::WaitFinalPlaceAck;
+      phase_tp_ = std::chrono::steady_clock::now();
+    } else if (phaseElapsed() > params_.command_timeout_s) {
+      return fail("等待最终 0x13 服务可用超时");
+    }
+    return BT::NodeStatus::RUNNING;
+
+  case Phase::WaitFinalPlaceAck:
+    publishStop();
+    if (commandRejected(final_place_command_)) {
+      return fail("最终 0x13 命令被拒绝");
+    }
+    if (commandAcked(final_place_command_)) {
+      phase_ = Phase::Done;
+      clearRuntimeState();
+      return BT::NodeStatus::SUCCESS;
+    }
+    if (phaseElapsed() > params_.command_timeout_s) {
+      return fail("等待最终 0x13 ACK 超时");
+    }
+    return BT::NodeStatus::RUNNING;
+
+  case Phase::Done:
+    return BT::NodeStatus::SUCCESS;
+  }
+  return BT::NodeStatus::RUNNING;
+}
+
+void SecondPreselectionRearRetractPickupPlaceAction::onHalted() {
+  publishStop();
+  clearRuntimeState();
+}
+
+BT::NodeStatus SecondPreselectionRearRetractPickupPlaceAction::fail(
+    const std::string &reason) {
+  writeDecisionFailure(config().blackboard,
+                       "SecondPreselectionRearRetractPickupPlace", reason);
+  if (node_) {
+    RCLCPP_WARN(node_->get_logger(), "第二预选赛独立收尾失败: %s",
+                reason.c_str());
+  }
+  publishStop();
+  clearRuntimeState();
+  return BT::NodeStatus::FAILURE;
+}
+
+void SecondPreselectionRearRetractPickupPlaceAction::clearRuntimeState() {
+  publishStop();
+  command_generation_.fetch_add(1, std::memory_order_relaxed);
+  cmd_pub_.reset();
+  send_client_.reset();
+  feedback_sub_.reset();
+  resetCommand(rear_retract_command_, 0, -1, "");
+  resetCommand(pickup_command_, 0, -1, "");
+  resetCommand(final_place_command_, 0, -1, "");
+  command_error_seen_ = false;
+  command_busy_seen_ = false;
+  command_error_detail_.clear();
+  phase_ = Phase::Done;
+}
+
+void SecondPreselectionRearRetractPickupPlaceAction::resetCommand(
+    CommandRuntime &command, int command_id, int done_feedback_id,
+    const std::string &label) {
+  command.command_id = clampByte(command_id);
+  command.done_feedback_id = done_feedback_id;
+  command.label = label;
+  command.sent = false;
+  command.response_seen = false;
+  command.accepted = false;
+  command.rejected = false;
+  command.done_seen = done_feedback_id < 0;
+  command.seq = -1;
+}
+
+bool SecondPreselectionRearRetractPickupPlaceAction::sendCommand(
+    CommandRuntime &command) {
+  if (!send_client_ || !send_client_->service_is_ready()) {
+    if (node_) {
+      RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
+                           "第二预选赛独立收尾等待机构命令服务");
+    }
+    return false;
+  }
+
+  auto request = std::make_shared<SendCommandSrv::Request>();
+  request->command_id = command.command_id;
+  request->payload = emptyPayload();
+  request->wait_ack = true;
+  const uint64_t token = command_generation_.load(std::memory_order_relaxed);
+  CommandRuntime *slot = &command;
+  try {
+    send_client_->async_send_request(
+        request,
+        [this, token, slot](
+            rclcpp::Client<SendCommandSrv>::SharedFuture future) {
+          if (token != command_generation_.load(std::memory_order_relaxed)) {
+            return;
+          }
+          bool accepted = false;
+          int seq = -1;
+          try {
+            const auto response = future.get();
+            accepted = response && response->accepted;
+            if (response) {
+              seq = static_cast<int>(response->seq);
+            }
+          } catch (const std::exception &) {
+            accepted = false;
+          }
+          slot->seq.store(seq, std::memory_order_relaxed);
+          slot->accepted.store(accepted, std::memory_order_relaxed);
+          slot->rejected.store(!accepted, std::memory_order_relaxed);
+          slot->response_seen.store(true, std::memory_order_relaxed);
+        });
+  } catch (const std::exception &e) {
+    command_error_detail_ =
+        std::string("第二预选赛独立收尾机构命令发送异常: ") + e.what();
+    command_error_seen_.store(true, std::memory_order_relaxed);
+    return true;
+  }
+  command.sent = true;
+  if (node_) {
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "第二预选赛独立收尾已下发机构命令: %s command=%s done=%s",
+        command.label.c_str(), byteHex(command.command_id).c_str(),
+        command.done_feedback_id >= 0
+            ? byteHex(command.done_feedback_id).c_str()
+            : "ACK-only");
+  }
+  return true;
+}
+
+bool SecondPreselectionRearRetractPickupPlaceAction::commandAcked(
+    const CommandRuntime &command) const {
+  return command.response_seen.load(std::memory_order_relaxed) &&
+         command.accepted.load(std::memory_order_relaxed);
+}
+
+bool SecondPreselectionRearRetractPickupPlaceAction::commandRejected(
+    const CommandRuntime &command) const {
+  return command.response_seen.load(std::memory_order_relaxed) &&
+         command.rejected.load(std::memory_order_relaxed);
+}
+
+bool SecondPreselectionRearRetractPickupPlaceAction::commandDone(
+    const CommandRuntime &command) const {
+  return command.done_feedback_id < 0 ||
+         command.done_seen.load(std::memory_order_relaxed);
+}
+
+void SecondPreselectionRearRetractPickupPlaceAction::handleFeedback(
+    const FeedbackMsg::SharedPtr msg) {
+  if (!msg) {
+    return;
+  }
+  std::optional<MechanismErrorDiagnostic> diagnostic;
+  for (auto *command : {&rear_retract_command_, &pickup_command_,
+                        &final_place_command_}) {
+    const int seq = command->seq.load(std::memory_order_relaxed);
+    if (isSameSeqMechanismError(*msg, seq, diagnostic)) {
+      const std::string detail = mechanismErrorDiagnosticText(*diagnostic);
+      if (diagnostic->busy) {
+        command_busy_seen_.store(true, std::memory_order_relaxed);
+      } else {
+        command_error_detail_ = detail;
+        command_error_seen_.store(true, std::memory_order_relaxed);
+      }
+      return;
+    }
+    if (seq >= 0 && command->done_feedback_id >= 0 &&
+        msg->seq == static_cast<uint8_t>(seq & 0xFF) &&
+        msg->feedback_id ==
+            static_cast<uint8_t>(command->done_feedback_id & 0xFF)) {
+      command->done_seen.store(true, std::memory_order_relaxed);
+      return;
+    }
+  }
+}
+
+void SecondPreselectionRearRetractPickupPlaceAction::publishStop() {
+  if (cmd_pub_) {
+    cmd_pub_->publish(geometry_msgs::msg::Twist{});
+  }
+}
+
+double SecondPreselectionRearRetractPickupPlaceAction::phaseElapsed() const {
+  return elapsedSec(phase_tp_);
+}
+
 SecondPreselectionPostPlaceClimbAction::SecondPreselectionPostPlaceClimbAction(
     const std::string &name, const BT::NodeConfig &config)
     : BT::StatefulActionNode(name, config) {}
@@ -3766,6 +4312,59 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   p.post_place_final_command_id = node.declare_parameter<int>(
       "second_preselect_post_place_final_command_id",
       p.post_place_final_command_id);
+  p.climb_place_forward_x_m = node.declare_parameter<double>(
+      "second_preselect_climb_place_forward_x_m",
+      p.climb_place_forward_x_m);
+  p.climb_place_lateral_y_m = node.declare_parameter<double>(
+      "second_preselect_climb_place_lateral_y_m",
+      p.climb_place_lateral_y_m);
+  p.climb_place_pre_climb_delay_msec = node.declare_parameter<int>(
+      "second_preselect_climb_place_pre_climb_delay_msec",
+      p.climb_place_pre_climb_delay_msec);
+  p.climb_place_front_pushrod_extend_command_id =
+      node.declare_parameter<int>(
+          "second_preselect_climb_place_front_pushrod_extend_command_id",
+          p.climb_place_front_pushrod_extend_command_id);
+  p.climb_place_manual_front_laser_feedback_id =
+      node.declare_parameter<int>(
+          "second_preselect_climb_place_manual_front_laser_feedback_id",
+          p.climb_place_manual_front_laser_feedback_id);
+  p.climb_place_front_pushrod_retract_command_id =
+      node.declare_parameter<int>(
+          "second_preselect_climb_place_front_pushrod_retract_command_id",
+          p.climb_place_front_pushrod_retract_command_id);
+  p.climb_place_rear_pushrod_extend_command_id = node.declare_parameter<int>(
+      "second_preselect_climb_place_rear_pushrod_extend_command_id",
+      p.climb_place_rear_pushrod_extend_command_id);
+  p.climb_place_rear_forward_x_m = node.declare_parameter<double>(
+      "second_preselect_climb_place_rear_forward_x_m",
+      p.climb_place_rear_forward_x_m);
+  p.climb_place_rear_max_speed_mps = node.declare_parameter<double>(
+      "second_preselect_climb_place_rear_max_speed_mps",
+      p.climb_place_rear_max_speed_mps);
+  p.climb_place_rear_min_speed_mps = node.declare_parameter<double>(
+      "second_preselect_climb_place_rear_min_speed_mps",
+      p.climb_place_rear_min_speed_mps);
+  p.climb_place_rear_timeout_s = node.declare_parameter<double>(
+      "second_preselect_climb_place_rear_timeout_s",
+      p.climb_place_rear_timeout_s);
+  p.climb_place_rear_pushrod_retract_command_id =
+      node.declare_parameter<int>(
+          "second_preselect_climb_place_rear_pushrod_retract_command_id",
+          p.climb_place_rear_pushrod_retract_command_id);
+  p.climb_place_preload_pickup_command_id = node.declare_parameter<int>(
+      "second_preselect_climb_place_preload_pickup_command_id",
+      p.climb_place_preload_pickup_command_id);
+  p.climb_place_preload_pickup_done_feedback_id =
+      node.declare_parameter<int>(
+          "second_preselect_climb_place_preload_pickup_done_feedback_id",
+          p.climb_place_preload_pickup_done_feedback_id);
+  p.climb_place_final_delay_s = node.declare_parameter<double>(
+      "second_preselect_climb_place_final_delay_s",
+      p.climb_place_final_delay_s);
+  p.climb_place_final_command_id = node.declare_parameter<int>(
+      "second_preselect_climb_place_final_command_id",
+      p.climb_place_final_command_id);
   p.cmd_vel_topic = node.declare_parameter<std::string>(
       "second_preselect_cmd_vel_topic", p.cmd_vel_topic);
 
@@ -4156,6 +4755,56 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
       std::isfinite(p.post_place_final_delay_s)
           ? std::max(0.0, p.post_place_final_delay_s)
           : SecondPreselectionParams{}.post_place_final_delay_s;
+  p.climb_place_forward_x_m =
+      std::isfinite(p.climb_place_forward_x_m)
+          ? std::max(0.0, p.climb_place_forward_x_m)
+          : SecondPreselectionParams{}.climb_place_forward_x_m;
+  p.climb_place_lateral_y_m =
+      std::isfinite(p.climb_place_lateral_y_m)
+          ? p.climb_place_lateral_y_m
+          : SecondPreselectionParams{}.climb_place_lateral_y_m;
+  p.climb_place_pre_climb_delay_msec =
+      std::max(0, p.climb_place_pre_climb_delay_msec);
+  p.climb_place_front_pushrod_extend_command_id =
+      std::clamp(p.climb_place_front_pushrod_extend_command_id, 0, 255);
+  p.climb_place_manual_front_laser_feedback_id =
+      std::clamp(p.climb_place_manual_front_laser_feedback_id, 0, 255);
+  p.climb_place_front_pushrod_retract_command_id =
+      std::clamp(p.climb_place_front_pushrod_retract_command_id, 0, 255);
+  p.climb_place_rear_pushrod_extend_command_id =
+      std::clamp(p.climb_place_rear_pushrod_extend_command_id, 0, 255);
+  p.climb_place_rear_forward_x_m =
+      std::isfinite(p.climb_place_rear_forward_x_m)
+          ? std::max(0.0, p.climb_place_rear_forward_x_m)
+          : SecondPreselectionParams{}.climb_place_rear_forward_x_m;
+  p.climb_place_rear_max_speed_mps =
+      (std::isfinite(p.climb_place_rear_max_speed_mps) &&
+       p.climb_place_rear_max_speed_mps > 0.0)
+          ? std::abs(p.climb_place_rear_max_speed_mps)
+          : SecondPreselectionParams{}.climb_place_rear_max_speed_mps;
+  p.climb_place_rear_min_speed_mps =
+      (std::isfinite(p.climb_place_rear_min_speed_mps) &&
+       p.climb_place_rear_min_speed_mps >= 0.0)
+          ? std::min(std::abs(p.climb_place_rear_min_speed_mps),
+                     p.climb_place_rear_max_speed_mps)
+          : SecondPreselectionParams{}.climb_place_rear_min_speed_mps;
+  p.climb_place_rear_timeout_s =
+      (std::isfinite(p.climb_place_rear_timeout_s) &&
+       p.climb_place_rear_timeout_s > 0.0)
+          ? p.climb_place_rear_timeout_s
+          : SecondPreselectionParams{}.climb_place_rear_timeout_s;
+  p.climb_place_rear_pushrod_retract_command_id =
+      std::clamp(p.climb_place_rear_pushrod_retract_command_id, 0, 255);
+  p.climb_place_preload_pickup_command_id =
+      std::clamp(p.climb_place_preload_pickup_command_id, 0, 255);
+  p.climb_place_preload_pickup_done_feedback_id =
+      std::clamp(p.climb_place_preload_pickup_done_feedback_id, 0, 255);
+  p.climb_place_final_delay_s =
+      std::isfinite(p.climb_place_final_delay_s)
+          ? std::max(0.0, p.climb_place_final_delay_s)
+          : SecondPreselectionParams{}.climb_place_final_delay_s;
+  p.climb_place_final_command_id =
+      std::clamp(p.climb_place_final_command_id, 0, 255);
   p.search_timeout_s = std::max(0.001, p.search_timeout_s);
   p.r1_kfs_min_score =
       std::isfinite(p.r1_kfs_min_score) ? p.r1_kfs_min_score
@@ -4282,6 +4931,7 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
       std::clamp(p.grab_verify_iou_threshold, 0.0, 1.0);
   p.grab_settle_s = std::max(0.0, p.grab_settle_s);
   p.nav_y1_m *= static_cast<double>(mirror_sign);
+  p.climb_place_lateral_y_m *= static_cast<double>(mirror_sign);
   p.nav_max_speed_mps = std::max(0.001, std::abs(p.nav_max_speed_mps));
   p.nav_min_speed_mps =
       std::min(std::max(0.0, std::abs(p.nav_min_speed_mps)),
@@ -4333,6 +4983,45 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
                   p.post_place_final_delay_s);
   blackboard->set("second_preselect_post_place_final_command_id",
                   p.post_place_final_command_id);
+  blackboard->set("second_preselect_climb_place_forward_x_m",
+                  p.climb_place_forward_x_m);
+  blackboard->set("second_preselect_climb_place_lateral_y_m",
+                  p.climb_place_lateral_y_m);
+  blackboard->set(
+      "second_preselect_climb_place_pre_climb_delay_msec",
+      static_cast<unsigned int>(p.climb_place_pre_climb_delay_msec));
+  blackboard->set(
+      "second_preselect_climb_place_front_pushrod_extend_command_id",
+      p.climb_place_front_pushrod_extend_command_id);
+  blackboard->set(
+      "second_preselect_climb_place_manual_front_laser_feedback_id",
+      p.climb_place_manual_front_laser_feedback_id);
+  blackboard->set(
+      "second_preselect_climb_place_front_pushrod_retract_command_id",
+      p.climb_place_front_pushrod_retract_command_id);
+  blackboard->set(
+      "second_preselect_climb_place_rear_pushrod_extend_command_id",
+      p.climb_place_rear_pushrod_extend_command_id);
+  blackboard->set("second_preselect_climb_place_rear_forward_x_m",
+                  p.climb_place_rear_forward_x_m);
+  blackboard->set("second_preselect_climb_place_rear_max_speed_mps",
+                  p.climb_place_rear_max_speed_mps);
+  blackboard->set("second_preselect_climb_place_rear_min_speed_mps",
+                  p.climb_place_rear_min_speed_mps);
+  blackboard->set("second_preselect_climb_place_rear_timeout_s",
+                  p.climb_place_rear_timeout_s);
+  blackboard->set(
+      "second_preselect_climb_place_rear_pushrod_retract_command_id",
+      p.climb_place_rear_pushrod_retract_command_id);
+  blackboard->set("second_preselect_climb_place_preload_pickup_command_id",
+                  p.climb_place_preload_pickup_command_id);
+  blackboard->set(
+      "second_preselect_climb_place_preload_pickup_done_feedback_id",
+      p.climb_place_preload_pickup_done_feedback_id);
+  blackboard->set("second_preselect_climb_place_final_delay_s",
+                  p.climb_place_final_delay_s);
+  blackboard->set("second_preselect_climb_place_final_command_id",
+                  p.climb_place_final_command_id);
   blackboard->set("second_preselect_cmd_vel_topic", p.cmd_vel_topic);
   blackboard->set("second_preselect_nav_y1_m", p.nav_y1_m);
   blackboard->set("second_preselect_post_pickup_forward_x_m",
@@ -4401,6 +5090,21 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
               p.after_ramp_turn_timeout_s,
               p.kfs_align_timeout_s, p.kfs_align_tolerance_px,
               p.kfs_align_stable_frames, p.odom_topic.c_str());
+  RCLCPP_INFO(
+      node.get_logger(),
+      "第二预选赛独立上阶放置参数: route=[x %.2f y %.2f delay %dms] front=[extend=0x%02X laser=0x%02X retract=0x%02X rear_extend=0x%02X] rear=[x %.2f speed %.2f~%.2f timeout %.1f] finish=[rear_retract=0x%02X pickup=0x%02X/done=0x%02X delay %.1f final=0x%02X]",
+      p.climb_place_forward_x_m, p.climb_place_lateral_y_m,
+      p.climb_place_pre_climb_delay_msec,
+      p.climb_place_front_pushrod_extend_command_id & 0xFF,
+      p.climb_place_manual_front_laser_feedback_id & 0xFF,
+      p.climb_place_front_pushrod_retract_command_id & 0xFF,
+      p.climb_place_rear_pushrod_extend_command_id & 0xFF,
+      p.climb_place_rear_forward_x_m, p.climb_place_rear_min_speed_mps,
+      p.climb_place_rear_max_speed_mps, p.climb_place_rear_timeout_s,
+      p.climb_place_rear_pushrod_retract_command_id & 0xFF,
+      p.climb_place_preload_pickup_command_id & 0xFF,
+      p.climb_place_preload_pickup_done_feedback_id & 0xFF,
+      p.climb_place_final_delay_s, p.climb_place_final_command_id & 0xFF);
 }
 
 void registerSecondPreselectionNodes(BT::BehaviorTreeFactory &factory) {
@@ -4416,6 +5120,10 @@ void registerSecondPreselectionNodes(BT::BehaviorTreeFactory &factory) {
       "SecondPreselectionKfsPlacePrepare");
   factory.registerNodeType<SecondPreselectionPlaceApproachAction>(
       "SecondPreselectionPlaceApproach");
+  factory.registerNodeType<SecondPreselectionClimbFrontStageAction>(
+      "SecondPreselectionClimbFrontStage");
+  factory.registerNodeType<SecondPreselectionRearRetractPickupPlaceAction>(
+      "SecondPreselectionRearRetractPickupPlace");
   factory.registerNodeType<SecondPreselectionPostPlaceClimbAction>(
       "SecondPreselectionPostPlaceClimb");
 }

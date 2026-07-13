@@ -84,6 +84,23 @@ r2_runtime:
       second_preselect_post_place_rear_pushrod_retract_command_id: 11 # 0x0B 后置推杆收回
       second_preselect_post_place_final_delay_s: 25.0 # 上阶完成后发送最终 0x13 前等待
       second_preselect_post_place_final_command_id: 19 # 0x13 最终放置
+      # second_preselection_climb_place_tree.xml：可独立运行，也是 second managed 统一目标；树内不含 gate 或 0x11/0x0D 握手
+      second_preselect_climb_place_forward_x_m: 1.5 # startup odom gate 后沿车体系 +X 前进
+      second_preselect_climb_place_lateral_y_m: 0.3 # 红方基准 +Y；blue 运行时自动镜像为 -Y
+      second_preselect_climb_place_pre_climb_delay_msec: 20000 # 横移完成后进入上阶前的非阻塞延时
+      second_preselect_climb_place_front_pushrod_extend_command_id: 8 # 0x08 前推杆伸出
+      second_preselect_climb_place_manual_front_laser_feedback_id: 21 # 上行 0x15，本轮前轮附近首个激光放行
+      second_preselect_climb_place_front_pushrod_retract_command_id: 9 # 0x09 前推杆收回
+      second_preselect_climb_place_rear_pushrod_extend_command_id: 10 # 0x0A 后推杆伸出
+      second_preselect_climb_place_rear_forward_x_m: 0.6 # 前收后伸后按 odom 闭环继续 +X，不等待后轮 0x05
+      second_preselect_climb_place_rear_max_speed_mps: 0.40 # 0.6m odom 段速度上限
+      second_preselect_climb_place_rear_min_speed_mps: 0.10 # 0.6m odom 段容差外最小速度
+      second_preselect_climb_place_rear_timeout_s: 20.0 # 0.6m odom 段超时
+      second_preselect_climb_place_rear_pushrod_retract_command_id: 11 # 0x0B 后推杆收回
+      second_preselect_climb_place_preload_pickup_command_id: 21 # 下行 0x15，与后推杆收回并发发送
+      second_preselect_climb_place_preload_pickup_done_feedback_id: 20 # 同 seq 上行 0x14 夹取完成
+      second_preselect_climb_place_final_delay_s: 25.0 # 两条并发命令 ACK 后开始计时，与 0x14 并行等待
+      second_preselect_climb_place_final_command_id: 19 # 两个门控都满足后下行 0x13，等待通用 ACK
       second_preselect_cmd_vel_topic: "cmd_vel"     # KFS 搜索、视觉对齐和前向趋近发布的运动命令
       second_preselect_post_pickup_forward_x_m: 1.5 # 夹取成功后先沿车体系 +X 固定前进；计入总 X 投影
       second_preselect_nav_y1_m: 0.75               # 夹取完成后红方基准 +Y 横移；blue 启动时自动取反

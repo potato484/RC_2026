@@ -1,13 +1,18 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <behaviortree_cpp/bt_factory.h>
+#include <rclcpp/rclcpp.hpp>
 
 #include "rc26_decision/navigation/bt_odom_relative_nav.hpp"
 #include "rc26_decision/second_preselection/second_preselection.hpp"
@@ -62,6 +67,11 @@ std::filesystem::path secondPreselectionTreePath() {
          "second_preselection_tree.xml";
 }
 
+std::filesystem::path secondPreselectionClimbPlaceTreePath() {
+  return std::filesystem::path(RC26_DECISION_SOURCE_DIR) / "behavior_trees" /
+         "second_preselection_climb_place_tree.xml";
+}
+
 } // namespace
 
 TEST(SecondPreselectionLogic, DefaultsUseTotalXAndFixedPlacementRoute) {
@@ -85,6 +95,37 @@ TEST(SecondPreselectionLogic, DefaultsUseTotalXAndFixedPlacementRoute) {
   EXPECT_NEAR(params.place_occupied_second_reverse_m, 1.10, 1.0e-9);
   EXPECT_EQ(params.place_kfs_command_id, 0x13);
   EXPECT_NEAR(params.post_place_retreat_x_m, -1.5, 1.0e-9);
+}
+
+TEST(SecondPreselectionLogic, ClimbPlaceDefaultsMatchIndependentRoute) {
+  const rc26_decision::SecondPreselectionParams params;
+  EXPECT_NEAR(params.climb_place_forward_x_m, 1.5, 1.0e-9);
+  EXPECT_NEAR(params.climb_place_lateral_y_m, 0.3, 1.0e-9);
+  EXPECT_EQ(params.climb_place_pre_climb_delay_msec, 20000);
+  EXPECT_EQ(params.climb_place_front_pushrod_extend_command_id, 0x08);
+  EXPECT_EQ(params.climb_place_manual_front_laser_feedback_id, 0x15);
+  EXPECT_EQ(params.climb_place_front_pushrod_retract_command_id, 0x09);
+  EXPECT_EQ(params.climb_place_rear_pushrod_extend_command_id, 0x0A);
+  EXPECT_NEAR(params.climb_place_rear_forward_x_m, 0.6, 1.0e-9);
+  EXPECT_NEAR(params.climb_place_rear_max_speed_mps, 0.40, 1.0e-9);
+  EXPECT_NEAR(params.climb_place_rear_min_speed_mps, 0.10, 1.0e-9);
+  EXPECT_NEAR(params.climb_place_rear_timeout_s, 20.0, 1.0e-9);
+  EXPECT_EQ(params.climb_place_rear_pushrod_retract_command_id, 0x0B);
+  EXPECT_EQ(params.climb_place_preload_pickup_command_id, 0x15);
+  EXPECT_EQ(params.climb_place_preload_pickup_done_feedback_id, 0x14);
+  EXPECT_NEAR(params.climb_place_final_delay_s, 25.0, 1.0e-9);
+  EXPECT_EQ(params.climb_place_final_command_id, 0x13);
+}
+
+TEST(SecondPreselectionLogic, ClimbPlaceFinalGateNeedsDelayAndPickupDone) {
+  EXPECT_FALSE(rc26_decision::secondPreselectionClimbPlaceReadyForFinal(
+      24.99, 25.0, true));
+  EXPECT_FALSE(rc26_decision::secondPreselectionClimbPlaceReadyForFinal(
+      25.0, 25.0, false));
+  EXPECT_TRUE(rc26_decision::secondPreselectionClimbPlaceReadyForFinal(
+      25.0, 25.0, true));
+  EXPECT_TRUE(rc26_decision::secondPreselectionClimbPlaceReadyForFinal(
+      30.0, 25.0, true));
 }
 
 TEST(SecondPreselectionLogic, PickupApproachDistanceKeepsExistingSignRule) {
@@ -441,4 +482,227 @@ TEST(SecondPreselectionLogic, PostPlaceClimbDebugTreeOnlyRunsPostPlaceAction) {
     auto tree = factory.createTreeFromFile(tree_path.string(), blackboard);
     EXPECT_TRUE(tree.rootNode() != nullptr);
   });
+}
+
+TEST(SecondPreselectionLogic, ClimbPlaceTreeUsesIndependentOrderedSequence) {
+  const std::string xml = readTextFile(secondPreselectionClimbPlaceTreePath());
+
+  const auto forward_pos =
+      xml.find("second_preselection_climb_place_forward");
+  const auto lateral_pos =
+      xml.find("second_preselection_climb_place_lateral");
+  const auto delay_pos = xml.find("second_preselect_climb_place_pre_climb_delay_msec");
+  const auto front_stage_pos =
+      xml.find("second_preselection_climb_place_front_stage");
+  const auto rear_forward_pos =
+      xml.find("second_preselection_climb_place_rear_forward");
+  const auto finish_pos = xml.find("second_preselection_climb_place_finish");
+
+  ASSERT_NE(forward_pos, std::string::npos);
+  ASSERT_NE(lateral_pos, std::string::npos);
+  ASSERT_NE(delay_pos, std::string::npos);
+  ASSERT_NE(front_stage_pos, std::string::npos);
+  ASSERT_NE(rear_forward_pos, std::string::npos);
+  ASSERT_NE(finish_pos, std::string::npos);
+  EXPECT_LT(forward_pos, lateral_pos);
+  EXPECT_LT(lateral_pos, delay_pos);
+  EXPECT_LT(delay_pos, front_stage_pos);
+  EXPECT_LT(front_stage_pos, rear_forward_pos);
+  EXPECT_LT(rear_forward_pos, finish_pos);
+
+  EXPECT_EQ(countOccurrences(xml, "succeed_on_reach_or_overshoot=\"true\""),
+            3U);
+  EXPECT_NE(xml.find("SecondPreselectionClimbFrontStage"), std::string::npos);
+  EXPECT_NE(xml.find("SecondPreselectionRearRetractPickupPlace"),
+            std::string::npos);
+  EXPECT_EQ(xml.find("WaitPreselectionBranchGate"), std::string::npos);
+  EXPECT_EQ(xml.find("SecondPreselectionCommand"), std::string::npos);
+  EXPECT_EQ(xml.find("StairClimb"), std::string::npos);
+  EXPECT_EQ(xml.find("0x05"), std::string::npos);
+  EXPECT_EQ(xml.find("second_preselect_start_command_id"), std::string::npos);
+  EXPECT_EQ(xml.find("second_preselect_start_done_feedback_id"),
+            std::string::npos);
+  EXPECT_EQ(xml.find("SECOND_PRESELECTION_START"), std::string::npos);
+
+  const std::string rear_block = xmlNodeBlockByName(
+      xml, "second_preselection_climb_place_rear_forward");
+  ASSERT_FALSE(rear_block.empty());
+  EXPECT_NE(rear_block.find(
+                "distance_m=\"{second_preselect_climb_place_rear_forward_x_m}\""),
+            std::string::npos);
+  EXPECT_NE(rear_block.find("succeed_on_reach_or_overshoot=\"true\""),
+            std::string::npos);
+}
+
+TEST(SecondPreselectionLogic, ClimbPlaceTreeXmlLoadsWithRegisteredNodes) {
+  BT::BehaviorTreeFactory factory;
+  rc26_decision::registerSecondPreselectionNodes(factory);
+  rc26_decision::registerOdomNavigationNodes(factory);
+
+  auto blackboard = BT::Blackboard::create();
+  EXPECT_NO_THROW({
+    auto tree = factory.createTreeFromFile(
+        secondPreselectionClimbPlaceTreePath().string(), blackboard);
+    EXPECT_TRUE(tree.rootNode() != nullptr);
+  });
+}
+
+TEST(SecondPreselectionLogic, RedAndBlueConfigsExposeClimbPlaceParameters) {
+  const auto config_dir =
+      std::filesystem::path(RC26_DECISION_SOURCE_DIR).parent_path() /
+      "rc26_bringup" / "config";
+  for (const char *filename : {"r2_red.yaml", "r2_blue.yaml"}) {
+    const std::string yaml = readTextFile(config_dir / filename);
+    EXPECT_NE(yaml.find("second_preselect_climb_place_forward_x_m: 1.5"),
+              std::string::npos);
+    EXPECT_NE(yaml.find("second_preselect_climb_place_lateral_y_m: 0.3"),
+              std::string::npos);
+    EXPECT_NE(
+        yaml.find("second_preselect_climb_place_pre_climb_delay_msec: 20000"),
+        std::string::npos);
+    EXPECT_NE(yaml.find("second_preselect_climb_place_rear_forward_x_m: 0.6"),
+              std::string::npos);
+    EXPECT_NE(yaml.find(
+                  "second_preselect_climb_place_manual_front_laser_feedback_id: 21"),
+              std::string::npos);
+    EXPECT_NE(yaml.find(
+                  "second_preselect_climb_place_preload_pickup_done_feedback_id: 20"),
+              std::string::npos);
+    EXPECT_NE(yaml.find("second_preselect_climb_place_final_delay_s: 25.0"),
+              std::string::npos);
+    EXPECT_NE(yaml.find("second_preselect_climb_place_final_command_id: 19"),
+              std::string::npos);
+  }
+}
+
+TEST(SecondPreselectionLogic,
+     RearRetractPickupWaitsForMatchingDoneBeforeFinalPlace) {
+  if (!rclcpp::ok()) {
+    int argc = 0;
+    char **argv = nullptr;
+    rclcpp::init(argc, argv);
+  }
+
+  auto decision_node = std::make_shared<rclcpp::Node>(
+      "second_preselection_climb_place_action_test");
+  auto fake_transport =
+      std::make_shared<rclcpp::Node>("second_preselection_fake_transport");
+  const std::string service_name = "/test/climb_place/send_command";
+  const std::string feedback_topic = "/test/climb_place/command_feedback";
+  const std::string cmd_vel_topic = "/test/climb_place/cmd_vel";
+
+  std::mutex commands_mutex;
+  std::vector<uint8_t> commands;
+  std::atomic<int> next_seq{40};
+  std::atomic<int> pickup_seq{-1};
+  auto service = fake_transport->create_service<
+      rc26_interfaces::srv::SendMechanismTransportCommand>(
+      service_name,
+      [&](const std::shared_ptr<
+              rc26_interfaces::srv::SendMechanismTransportCommand::Request>
+              request,
+          std::shared_ptr<
+              rc26_interfaces::srv::SendMechanismTransportCommand::Response>
+              response) {
+        const int seq = next_seq.fetch_add(1);
+        {
+          std::lock_guard<std::mutex> lock(commands_mutex);
+          commands.push_back(request->command_id);
+        }
+        if (request->command_id == 0x15) {
+          pickup_seq.store(seq);
+        }
+        response->accepted = true;
+        response->seq = static_cast<uint8_t>(seq & 0xFF);
+      });
+  ASSERT_TRUE(service != nullptr);
+  auto feedback_pub = fake_transport->create_publisher<
+      rc26_interfaces::msg::MechanismTransportFeedback>(feedback_topic,
+                                                        rclcpp::QoS(10));
+
+  rclcpp::executors::MultiThreadedExecutor executor;
+  executor.add_node(decision_node);
+  executor.add_node(fake_transport);
+  std::thread spin_thread([&executor]() { executor.spin(); });
+
+  BT::BehaviorTreeFactory factory;
+  rc26_decision::registerSecondPreselectionNodes(factory);
+  auto blackboard = BT::Blackboard::create();
+  rclcpp::Node *decision_node_ptr = decision_node.get();
+  blackboard->set("node", decision_node_ptr);
+  auto params = rc26_decision::SecondPreselectionParams{};
+  params.send_command_service = service_name;
+  params.feedback_topic = feedback_topic;
+  params.cmd_vel_topic = cmd_vel_topic;
+  params.command_timeout_s = 1.0;
+  params.done_timeout_s = 1.0;
+  params.log_period_s = 0.05;
+  params.climb_place_final_delay_s = 0.0;
+  blackboard->set("second_preselection_params", params);
+
+  auto tree = factory.createTreeFromText(
+      R"(<root BTCPP_format="4" main_tree_to_execute="TestTree">
+           <BehaviorTree ID="TestTree">
+             <SecondPreselectionRearRetractPickupPlace name="finish"/>
+           </BehaviorTree>
+         </root>)",
+      blackboard);
+
+  auto tick_for = [&](std::chrono::milliseconds duration) {
+    const auto deadline = std::chrono::steady_clock::now() + duration;
+    BT::NodeStatus status = BT::NodeStatus::IDLE;
+    while (std::chrono::steady_clock::now() < deadline &&
+           status != BT::NodeStatus::SUCCESS &&
+           status != BT::NodeStatus::FAILURE) {
+      status = tree.tickOnce();
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return status;
+  };
+
+  EXPECT_EQ(tick_for(std::chrono::milliseconds(250)),
+            BT::NodeStatus::RUNNING);
+  EXPECT_GE(pickup_seq.load(), 0);
+  {
+    std::lock_guard<std::mutex> lock(commands_mutex);
+    EXPECT_EQ(commands.size(), 2U);
+    EXPECT_NE(std::find(commands.begin(), commands.end(), 0x0B),
+              commands.end());
+    EXPECT_NE(std::find(commands.begin(), commands.end(), 0x15),
+              commands.end());
+  }
+
+  rc26_interfaces::msg::MechanismTransportFeedback ignored_rear_laser;
+  ignored_rear_laser.feedback_id = 0x05;
+  feedback_pub->publish(ignored_rear_laser);
+  rc26_interfaces::msg::MechanismTransportFeedback wrong_done;
+  wrong_done.seq = static_cast<uint8_t>((pickup_seq.load() + 1) & 0xFF);
+  wrong_done.feedback_id = 0x14;
+  feedback_pub->publish(wrong_done);
+  EXPECT_EQ(tick_for(std::chrono::milliseconds(150)),
+            BT::NodeStatus::RUNNING);
+  {
+    std::lock_guard<std::mutex> lock(commands_mutex);
+    EXPECT_EQ(commands.size(), 2U);
+  }
+
+  rc26_interfaces::msg::MechanismTransportFeedback correct_done;
+  correct_done.seq = static_cast<uint8_t>(pickup_seq.load() & 0xFF);
+  correct_done.feedback_id = 0x14;
+  feedback_pub->publish(correct_done);
+  EXPECT_EQ(tick_for(std::chrono::milliseconds(500)),
+            BT::NodeStatus::SUCCESS);
+  {
+    std::lock_guard<std::mutex> lock(commands_mutex);
+    EXPECT_EQ(commands.size(), 3U);
+    if (commands.size() >= 3U) {
+      EXPECT_EQ(commands[2], 0x13);
+    }
+  }
+
+  tree.haltTree();
+  executor.cancel();
+  spin_thread.join();
+  executor.remove_node(decision_node);
+  executor.remove_node(fake_transport);
 }

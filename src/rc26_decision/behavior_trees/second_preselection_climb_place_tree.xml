@@ -1,0 +1,68 @@
+<!--
+  第二预选赛上阶—夹取—放置树：
+  - 既可通过 tree_file / r2_runtime.paths.behavior_tree_file 显式选择，也是 second managed 两条 0x10 分支的统一切树目标。
+  - 树内不等待外部限位，也不发送 0x11/0x0D；managed 使用时由组合树在切换前完成握手。
+  - 显式选择时，startup odom gate 放行后直接从首个 OdomDriveX 开始执行。
+  - 运行前必须停用遥控、独立台阶测试等其它 /cmd_vel 发布权威。
+-->
+<root BTCPP_format="4" main_tree_to_execute="SecondPreselectionClimbPlaceTree">
+  <BehaviorTree ID="SecondPreselectionClimbPlaceTree">
+    <Sequence name="second_preselection_climb_place_sequence">
+      <OdomDriveX name="second_preselection_climb_place_forward"
+                  distance_m="{second_preselect_climb_place_forward_x_m}"
+                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                  odom_topic="{odom_relative_nav_odom_topic}"
+                  max_speed_mps="{second_preselect_nav_max_speed_mps}"
+                  min_speed_mps="{second_preselect_nav_min_speed_mps}"
+                  xy_kp="{odom_relative_nav_xy_kp}"
+                  heading_kp="{odom_relative_nav_heading_kp}"
+                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                  stable_ticks="{odom_relative_nav_stable_ticks}"
+                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                  succeed_on_reach_or_overshoot="true"
+                  timeout_s="{second_preselect_nav_timeout_s}"/>
+
+      <OdomDriveY name="second_preselection_climb_place_lateral"
+                  distance_m="{second_preselect_climb_place_lateral_y_m}"
+                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                  odom_topic="{odom_relative_nav_odom_topic}"
+                  max_speed_mps="{second_preselect_nav_max_speed_mps}"
+                  min_speed_mps="{second_preselect_nav_min_speed_mps}"
+                  xy_kp="{odom_relative_nav_xy_kp}"
+                  heading_kp="{odom_relative_nav_heading_kp}"
+                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                  stable_ticks="{odom_relative_nav_stable_ticks}"
+                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                  succeed_on_reach_or_overshoot="true"
+                  timeout_s="{second_preselect_nav_timeout_s}"/>
+
+      <Delay delay_msec="{second_preselect_climb_place_pre_climb_delay_msec}">
+        <SecondPreselectionClimbFrontStage
+            name="second_preselection_climb_place_front_stage"/>
+      </Delay>
+
+      <OdomDriveX name="second_preselection_climb_place_rear_forward"
+                  distance_m="{second_preselect_climb_place_rear_forward_x_m}"
+                  cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
+                  odom_topic="{odom_relative_nav_odom_topic}"
+                  max_speed_mps="{second_preselect_climb_place_rear_max_speed_mps}"
+                  min_speed_mps="{second_preselect_climb_place_rear_min_speed_mps}"
+                  xy_kp="{odom_relative_nav_xy_kp}"
+                  heading_kp="{odom_relative_nav_heading_kp}"
+                  heading_max_speed_radps="{odom_relative_nav_heading_max_speed_radps}"
+                  xy_tolerance_m="{odom_relative_nav_xy_tolerance_m}"
+                  yaw_tolerance_deg="{odom_relative_nav_yaw_tolerance_deg}"
+                  stable_ticks="{odom_relative_nav_stable_ticks}"
+                  odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
+                  succeed_on_reach_or_overshoot="true"
+                  timeout_s="{second_preselect_climb_place_rear_timeout_s}"/>
+
+      <SecondPreselectionRearRetractPickupPlace
+          name="second_preselection_climb_place_finish"/>
+    </Sequence>
+  </BehaviorTree>
+</root>

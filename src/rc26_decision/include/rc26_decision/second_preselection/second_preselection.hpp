@@ -14,6 +14,7 @@
 #include <opencv2/core.hpp>
 #include <rclcpp/rclcpp.hpp>
 
+#include "rc26_decision/stair/stair_action_base.hpp"
 #include "rc26_decision/stair/stair_area.hpp"
 #include "rc26_interfaces/msg/mechanism_transport_feedback.hpp"
 #include "rc26_interfaces/srv/send_mechanism_transport_command.hpp"
@@ -50,6 +51,23 @@ struct SecondPreselectionParams {
   int post_place_rear_pushrod_retract_command_id{0x0B};
   double post_place_final_delay_s{25.0};
   int post_place_final_command_id{0x13};
+
+  double climb_place_forward_x_m{1.5};
+  double climb_place_lateral_y_m{0.3};
+  int climb_place_pre_climb_delay_msec{20000};
+  int climb_place_front_pushrod_extend_command_id{0x08};
+  int climb_place_manual_front_laser_feedback_id{0x15};
+  int climb_place_front_pushrod_retract_command_id{0x09};
+  int climb_place_rear_pushrod_extend_command_id{0x0A};
+  double climb_place_rear_forward_x_m{0.6};
+  double climb_place_rear_max_speed_mps{0.40};
+  double climb_place_rear_min_speed_mps{0.10};
+  double climb_place_rear_timeout_s{20.0};
+  int climb_place_rear_pushrod_retract_command_id{0x0B};
+  int climb_place_preload_pickup_command_id{0x15};
+  int climb_place_preload_pickup_done_feedback_id{0x14};
+  double climb_place_final_delay_s{25.0};
+  int climb_place_final_command_id{0x13};
 
   std::string cmd_vel_topic{"cmd_vel"};
   int team_mirror_sign{1};
@@ -172,6 +190,9 @@ bool secondPreselectionFrameOccupied(
 bool secondPreselectionFrameHasCenterKfs(
     const std::vector<rc26_vision::Detection> &detections, int frame_width,
     int frame_height, const SecondPreselectionParams &params);
+bool secondPreselectionClimbPlaceReadyForFinal(double elapsed_s,
+                                               double required_delay_s,
+                                               bool pickup_done);
 
 enum class SecondPreselectionOccupancyDecision { Pending, Occupied, Clear };
 
@@ -598,6 +619,109 @@ private:
   bool has_odom_{false};
   bool start_captured_{false};
   int stable_ticks_{0};
+};
+
+class SecondPreselectionClimbFrontStageAction : public StairActionBase {
+public:
+  SecondPreselectionClimbFrontStageAction(const std::string &name,
+                                          const BT::NodeConfig &config);
+
+  static BT::PortsList providedPorts() { return {}; }
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
+
+private:
+  using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
+
+  enum class Phase {
+    HeadingAlign,
+    SendFrontExtend,
+    HoldAfterFrontExtend,
+    DriveUntilManualFrontLaser,
+    SendFrontRetractAndRearExtend,
+    HoldAfterFrontRetractAndRearExtend,
+    Done
+  };
+
+  BT::NodeStatus fail(const char *reason);
+  void beginManualFrontLaserDrive();
+  void clearManualFeedbackRuntime();
+
+  SecondPreselectionParams second_params_;
+  rclcpp::Subscription<FeedbackMsg>::SharedPtr manual_feedback_sub_;
+  std::chrono::steady_clock::time_point manual_event_tp_{};
+  std::atomic<uint64_t> manual_front_laser_count_{0};
+  uint64_t manual_front_laser_baseline_{0};
+  Phase phase_{Phase::Done};
+};
+
+class SecondPreselectionRearRetractPickupPlaceAction
+    : public BT::StatefulActionNode {
+public:
+  SecondPreselectionRearRetractPickupPlaceAction(
+      const std::string &name, const BT::NodeConfig &config);
+
+  static BT::PortsList providedPorts() { return {}; }
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
+
+private:
+  using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
+  using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
+
+  enum class Phase {
+    SendRearRetractAndPickup,
+    WaitRearRetractAndPickupAck,
+    WaitDelayAndPickupDone,
+    SendFinalPlace,
+    WaitFinalPlaceAck,
+    Done
+  };
+
+  struct CommandRuntime {
+    uint8_t command_id{0};
+    int done_feedback_id{-1};
+    std::string label;
+    bool sent{false};
+    std::atomic<bool> response_seen{false};
+    std::atomic<bool> accepted{false};
+    std::atomic<bool> rejected{false};
+    std::atomic<bool> done_seen{false};
+    std::atomic<int> seq{-1};
+  };
+
+  BT::NodeStatus fail(const std::string &reason);
+  void clearRuntimeState();
+  void resetCommand(CommandRuntime &command, int command_id,
+                    int done_feedback_id, const std::string &label);
+  bool sendCommand(CommandRuntime &command);
+  bool commandAcked(const CommandRuntime &command) const;
+  bool commandRejected(const CommandRuntime &command) const;
+  bool commandDone(const CommandRuntime &command) const;
+  void handleFeedback(const FeedbackMsg::SharedPtr msg);
+  void publishStop();
+  double phaseElapsed() const;
+
+  SecondPreselectionParams params_;
+  rclcpp::Node *node_{nullptr};
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
+  rclcpp::Client<SendCommandSrv>::SharedPtr send_client_;
+  rclcpp::Subscription<FeedbackMsg>::SharedPtr feedback_sub_;
+  std::chrono::steady_clock::time_point phase_tp_{};
+  std::chrono::steady_clock::time_point final_gate_tp_{};
+  std::chrono::steady_clock::time_point last_log_tp_{};
+  CommandRuntime rear_retract_command_;
+  CommandRuntime pickup_command_;
+  CommandRuntime final_place_command_;
+  std::atomic<bool> command_error_seen_{false};
+  std::atomic<bool> command_busy_seen_{false};
+  std::atomic<uint64_t> command_generation_{0};
+  std::string command_error_detail_;
+  Phase phase_{Phase::Done};
 };
 
 class SecondPreselectionPostPlaceClimbAction : public BT::StatefulActionNode {
