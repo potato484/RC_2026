@@ -3144,21 +3144,23 @@ BT::NodeStatus SecondPreselectionClimbFrontStageAction::onStart() {
 
 BT::NodeStatus SecondPreselectionClimbFrontStageAction::onRunning() {
   switch (phase_) {
-  case Phase::HeadingAlign:
-    switch (tickHeadingAlignment()) {
-    case StepStatus::Success:
-      phase_ = Phase::SendFrontExtend;
-      beginCommand(
-          static_cast<CommandID>(clampByte(
-              second_params_.climb_place_front_pushrod_extend_command_id)),
-          "FRONT_PUSHROD_EXTEND");
-      break;
-    case StepStatus::Failure:
-      return fail("上阶前 yaw 对齐失败");
-    case StepStatus::Running:
+  case Phase::HeadingAlign: {
+    const StepStatus heading_status = tickHeadingAlignment();
+    if (heading_status == StepStatus::Running) {
       break;
     }
+    if (heading_status == StepStatus::Failure) {
+      publishStop();
+      RCLCPP_WARN(node_->get_logger(),
+                  "第二预选赛独立上阶前段 yaw 对齐失败，停车后继续前推杆流程");
+    }
+    phase_ = Phase::SendFrontExtend;
+    beginCommand(
+        static_cast<CommandID>(clampByte(
+            second_params_.climb_place_front_pushrod_extend_command_id)),
+        "FRONT_PUSHROD_EXTEND");
     break;
+  }
 
   case Phase::SendFrontExtend:
     switch (tickCommand()) {

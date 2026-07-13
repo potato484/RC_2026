@@ -591,7 +591,7 @@ TEST(SecondPreselectionLogic, RedAndBlueConfigsExposeClimbPlaceParameters) {
 }
 
 TEST(SecondPreselectionLogic,
-     ClimbFrontStageStaysStoppedUntilManualFrontLaser) {
+     ClimbFrontStageYawFailureContinuesAndWaitsStoppedForManualLaser) {
   if (!rclcpp::ok()) {
     int argc = 0;
     char **argv = nullptr;
@@ -659,7 +659,8 @@ TEST(SecondPreselectionLogic,
   stair_params.cmd_vel_topic = cmd_vel_topic;
   stair_params.send_command_service = service_name;
   stair_params.feedback_topic = feedback_topic;
-  stair_params.heading_hold_enable = false;
+  stair_params.odom_topic = "/test/climb_front/missing_odom";
+  stair_params.heading_hold_enable = true;
   stair_params.command_timeout_s = 1.0;
   stair_params.front_event_timeout_s = 2.0;
   stair_params.climb_front_extend_delay_s = 0.0;
