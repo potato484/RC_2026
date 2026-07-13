@@ -3,6 +3,8 @@
 # 如需临时调试其它完整配置，仍可通过 runtime_config_file:=/abs/path.yaml 覆盖。
 active_side: blue
 preselection_mode: first 
+# 仅 preselection_mode=second 且未显式传 runtime_config_file 时生效。
+second_preselection_kfs_search_compat_enable: false
 first_preselection_mc_repeat_enable: true
 first_preselection_mc_repeat_max_count: 2
 first_preselection_mc_repeat_forward_x_step_m:

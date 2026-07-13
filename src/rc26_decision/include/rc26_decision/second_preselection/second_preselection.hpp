@@ -67,6 +67,7 @@ struct SecondPreselectionParams {
   int climb_place_preload_pickup_command_id{0x15};
   int climb_place_preload_pickup_done_feedback_id{0x14};
   double climb_place_final_delay_s{25.0};
+  double climb_place_compat_pickup_to_final_delay_s{10.0};
   int climb_place_final_command_id{0x13};
 
   std::string cmd_vel_topic{"cmd_vel"};
@@ -255,7 +256,7 @@ public:
                                     const BT::NodeConfig &config);
   ~SecondPreselectionKfsPickupAction() override;
 
-  static BT::PortsList providedPorts() { return {}; }
+  static BT::PortsList providedPorts();
 
   BT::NodeStatus onStart() override;
   BT::NodeStatus onRunning() override;
@@ -397,6 +398,7 @@ private:
   int grab_verify_last_logged_lost_count_{0};
   bool ui_window_active_{false};
   bool ui_disabled_after_error_{false};
+  bool continue_on_failure_{false};
   Phase phase_{Phase::Search};
 };
 
@@ -746,6 +748,73 @@ private:
   rclcpp::Subscription<FeedbackMsg>::SharedPtr feedback_sub_;
   std::chrono::steady_clock::time_point phase_tp_{};
   std::chrono::steady_clock::time_point final_gate_tp_{};
+  std::chrono::steady_clock::time_point last_log_tp_{};
+  CommandRuntime rear_retract_command_;
+  CommandRuntime final_place_command_;
+  std::atomic<bool> command_error_seen_{false};
+  std::atomic<bool> command_busy_seen_{false};
+  std::atomic<uint64_t> command_generation_{0};
+  std::string command_error_detail_;
+  Phase phase_{Phase::Done};
+};
+
+class SecondPreselectionRearRetractCompatPickupPlaceAction
+    : public BT::StatefulActionNode {
+public:
+  SecondPreselectionRearRetractCompatPickupPlaceAction(
+      const std::string &name, const BT::NodeConfig &config);
+
+  static BT::PortsList providedPorts() { return {}; }
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
+
+private:
+  using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
+  using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
+
+  enum class Phase {
+    SendRearRetract,
+    WaitRearRetractAck,
+    WaitFinalDelay,
+    SendCompatPickup,
+    WaitCompatPickupDelay,
+    SendFinalPlace,
+    WaitFinalPlaceAck,
+    Done
+  };
+
+  struct CommandRuntime {
+    uint8_t command_id{0};
+    std::string label;
+    bool sent{false};
+    std::atomic<bool> response_seen{false};
+    std::atomic<bool> accepted{false};
+    std::atomic<bool> rejected{false};
+    std::atomic<int> seq{-1};
+  };
+
+  BT::NodeStatus fail(const std::string &reason);
+  void clearRuntimeState();
+  void resetCommand(CommandRuntime &command, int command_id,
+                    const std::string &label);
+  bool sendReliableCommand(CommandRuntime &command);
+  void attemptFireAndForgetPickup();
+  bool commandAcked(const CommandRuntime &command) const;
+  bool commandRejected(const CommandRuntime &command) const;
+  void handleFeedback(const FeedbackMsg::SharedPtr msg);
+  void publishStop();
+  double phaseElapsed() const;
+
+  SecondPreselectionParams params_;
+  rclcpp::Node *node_{nullptr};
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
+  rclcpp::Client<SendCommandSrv>::SharedPtr send_client_;
+  rclcpp::Subscription<FeedbackMsg>::SharedPtr feedback_sub_;
+  std::chrono::steady_clock::time_point phase_tp_{};
+  std::chrono::steady_clock::time_point final_gate_tp_{};
+  std::chrono::steady_clock::time_point compat_pickup_tp_{};
   std::chrono::steady_clock::time_point last_log_tp_{};
   CommandRuntime rear_retract_command_;
   CommandRuntime final_place_command_;

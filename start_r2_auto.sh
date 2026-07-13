@@ -246,8 +246,12 @@ fi
 
 active_side="$(yaml_scalar_value "${side_config_file}" "active_side" | tr '[:upper:]' '[:lower:]')"
 preselection_mode="$(yaml_scalar_value "${side_config_file}" "preselection_mode" | tr '[:upper:]' '[:lower:]')"
+second_kfs_compat_enable="$(yaml_scalar_value "${side_config_file}" "second_preselection_kfs_search_compat_enable" | tr '[:upper:]' '[:lower:]')"
 first_repeat_enable="$(yaml_scalar_value "${side_config_file}" "first_preselection_mc_repeat_enable")"
 first_repeat_max_count="$(yaml_scalar_value "${side_config_file}" "first_preselection_mc_repeat_max_count")"
+if [[ -z "${second_kfs_compat_enable}" ]]; then
+  second_kfs_compat_enable="false"
+fi
 case "${active_side}" in
   red|blue)
     ;;
@@ -339,6 +343,7 @@ print_summary() {
   echo "Side config: ${side_config_file}"
   echo "Active side: ${active_side}"
   echo "Preselection mode: ${preselection_mode:-first}"
+  echo "Second KFS search compatibility: ${second_kfs_compat_enable} (effective only for managed second mode without runtime_config_file override)"
   echo "First MC repeat: enable=${first_repeat_enable:-true}, max_count=${first_repeat_max_count:-1}, base=mc_nav_forward_x_m, forward_step_m=${first_repeat_forward_step:-0.2}"
   echo "0x13 manual external-limit active-side switch listener: enabled by start_r2_auto.sh only"
   echo "Selected runtime config: ${selected_runtime_config}"

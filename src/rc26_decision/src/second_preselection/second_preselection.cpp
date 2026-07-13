@@ -783,6 +783,12 @@ std::string SecondPreselectionCommandAction::byteHex(int value) {
   return std::string(buf);
 }
 
+BT::PortsList SecondPreselectionKfsPickupAction::providedPorts() {
+  return {BT::InputPort<bool>(
+      "continue_on_failure", false,
+      "Stop and warn but return SUCCESS when an operational KFS pickup failure occurs")};
+}
+
 SecondPreselectionKfsPickupAction::SecondPreselectionKfsPickupAction(
     const std::string &name, const BT::NodeConfig &config)
     : BT::StatefulActionNode(name, config) {}
@@ -792,6 +798,8 @@ SecondPreselectionKfsPickupAction::~SecondPreselectionKfsPickupAction() {
 }
 
 BT::NodeStatus SecondPreselectionKfsPickupAction::onStart() {
+  continue_on_failure_ = false;
+  (void)getInput("continue_on_failure", continue_on_failure_);
   if (!config().blackboard || !config().blackboard->get("node", node_) ||
       !node_) {
     writeDecisionFailure(config().blackboard, "SecondPreselectionKfsPickup",
@@ -799,12 +807,19 @@ BT::NodeStatus SecondPreselectionKfsPickupAction::onStart() {
     return BT::NodeStatus::FAILURE;
   }
   if (!config().blackboard->get("second_preselection_params", params_)) {
-    return fail("黑板缺少 second_preselection_params");
+    writeDecisionFailure(config().blackboard, "SecondPreselectionKfsPickup",
+                         "黑板缺少 second_preselection_params");
+    return BT::NodeStatus::FAILURE;
   }
 
   clearRuntimeState();
   config().blackboard->set("second_preselect_total_x_origin_valid", false);
   config().blackboard->set("second_preselect_total_x_progress_m", 0.0);
+  cmd_pub_ = node_->create_publisher<geometry_msgs::msg::Twist>(
+      params_.cmd_vel_topic, rclcpp::QoS(10));
+  if (!cmd_pub_) {
+    return fail("第二预选赛 KFS 夹取 cmd_vel publisher 创建失败");
+  }
   if (!setupOdom()) {
     return fail("第二预选赛 KFS 夹取 odom 启动失败");
   }
@@ -813,11 +828,6 @@ BT::NodeStatus SecondPreselectionKfsPickupAction::onStart() {
   }
   if (!setupCommandIo()) {
     return fail("第二预选赛 KFS 夹取机构命令 IO 启动失败");
-  }
-  cmd_pub_ = node_->create_publisher<geometry_msgs::msg::Twist>(
-      params_.cmd_vel_topic, rclcpp::QoS(10));
-  if (!cmd_pub_) {
-    return fail("第二预选赛 KFS 夹取 cmd_vel publisher 创建失败");
   }
 
   phase_ = Phase::Search;
@@ -869,14 +879,23 @@ void SecondPreselectionKfsPickupAction::onHalted() {
 BT::NodeStatus SecondPreselectionKfsPickupAction::fail(
     const std::string &reason) {
   if (node_) {
-    RCLCPP_ERROR(node_->get_logger(), "第二预选赛 KFS 夹取失败：%s",
-                 reason.c_str());
+    if (continue_on_failure_) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "第二预选赛 KFS 搜索夹取失败，兼容模式停车后继续：%s",
+                  reason.c_str());
+    } else {
+      RCLCPP_ERROR(node_->get_logger(), "第二预选赛 KFS 夹取失败：%s",
+                   reason.c_str());
+    }
   }
-  writeDecisionFailure(config().blackboard, "SecondPreselectionKfsPickup",
-                       reason);
+  if (!continue_on_failure_) {
+    writeDecisionFailure(config().blackboard, "SecondPreselectionKfsPickup",
+                         reason);
+  }
   publishStop();
   clearRuntimeState();
-  return BT::NodeStatus::FAILURE;
+  return continue_on_failure_ ? BT::NodeStatus::SUCCESS
+                              : BT::NodeStatus::FAILURE;
 }
 
 bool SecondPreselectionKfsPickupAction::setupVision() {
@@ -3850,6 +3869,423 @@ double SecondPreselectionRearRetractPlaceAction::phaseElapsed() const {
   return elapsedSec(phase_tp_);
 }
 
+SecondPreselectionRearRetractCompatPickupPlaceAction::
+    SecondPreselectionRearRetractCompatPickupPlaceAction(
+        const std::string &name, const BT::NodeConfig &config)
+    : BT::StatefulActionNode(name, config) {}
+
+BT::NodeStatus
+SecondPreselectionRearRetractCompatPickupPlaceAction::onStart() {
+  if (!config().blackboard || !config().blackboard->get("node", node_) ||
+      !node_) {
+    writeDecisionFailure(
+        config().blackboard,
+        "SecondPreselectionRearRetractCompatPickupPlace",
+        "运行上下文缺失：blackboard 或 node 不可用");
+    return BT::NodeStatus::FAILURE;
+  }
+  if (!config().blackboard->get("second_preselection_params", params_)) {
+    writeDecisionFailure(
+        config().blackboard,
+        "SecondPreselectionRearRetractCompatPickupPlace",
+        "黑板缺少 second_preselection_params");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  clearRuntimeState();
+  cmd_pub_ = node_->create_publisher<geometry_msgs::msg::Twist>(
+      params_.cmd_vel_topic, rclcpp::QoS(10));
+  send_client_ =
+      node_->create_client<SendCommandSrv>(params_.send_command_service);
+  feedback_sub_ = node_->create_subscription<FeedbackMsg>(
+      params_.feedback_topic, rclcpp::QoS(32).reliable(),
+      [this](const FeedbackMsg::SharedPtr msg) { handleFeedback(msg); });
+  if (!cmd_pub_ || !send_client_ || !feedback_sub_) {
+    return fail("第二预选赛 KFS 兼容收尾 ROS 资源创建失败");
+  }
+
+  command_generation_.fetch_add(1, std::memory_order_relaxed);
+  resetCommand(rear_retract_command_,
+               params_.climb_place_rear_pushrod_retract_command_id,
+               "REAR_PUSHROD_RETRACT");
+  resetCommand(final_place_command_, params_.climb_place_final_command_id,
+               "SECOND_PRESELECTION_FINAL_PLACE_KFS");
+  phase_ = Phase::SendRearRetract;
+  phase_tp_ = std::chrono::steady_clock::now();
+  final_gate_tp_ = phase_tp_;
+  last_log_tp_ = phase_tp_;
+  publishStop();
+  RCLCPP_INFO(
+      node_->get_logger(),
+      "第二预选赛 KFS 兼容收尾启动: rear_retract=%s delay=%.1fs pickup=%s fire-and-forget wait=%.1fs final=%s",
+      byteHex(params_.climb_place_rear_pushrod_retract_command_id).c_str(),
+      params_.climb_place_final_delay_s,
+      byteHex(params_.climb_place_preload_pickup_command_id).c_str(),
+      params_.climb_place_compat_pickup_to_final_delay_s,
+      byteHex(params_.climb_place_final_command_id).c_str());
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus
+SecondPreselectionRearRetractCompatPickupPlaceAction::onRunning() {
+  if (!node_) {
+    return BT::NodeStatus::FAILURE;
+  }
+  if (command_error_seen_.load(std::memory_order_relaxed)) {
+    RCLCPP_WARN(
+        node_->get_logger(),
+        "第二预选赛 KFS 兼容收尾收到机构错误，按容错继续：phase=%d reason=%s",
+        static_cast<int>(phase_),
+        command_error_detail_.empty() ? "MCU final error"
+                                      : command_error_detail_.c_str());
+    command_error_seen_.store(false, std::memory_order_relaxed);
+    command_error_detail_.clear();
+    if (phase_ == Phase::SendFinalPlace ||
+        phase_ == Phase::WaitFinalPlaceAck) {
+      clearRuntimeState();
+      return BT::NodeStatus::SUCCESS;
+    }
+    if (phase_ == Phase::SendRearRetract ||
+        phase_ == Phase::WaitRearRetractAck) {
+      phase_ = Phase::WaitFinalDelay;
+      phase_tp_ = std::chrono::steady_clock::now();
+    }
+  }
+
+  switch (phase_) {
+  case Phase::SendRearRetract:
+    publishStop();
+    if (!rear_retract_command_.sent) {
+      (void)sendReliableCommand(rear_retract_command_);
+    }
+    if (rear_retract_command_.sent) {
+      phase_ = Phase::WaitRearRetractAck;
+      phase_tp_ = std::chrono::steady_clock::now();
+    } else if (phaseElapsed() > params_.command_timeout_s) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "KFS 兼容收尾等待后推杆收回服务可用超时，按容错继续 25s 总计时");
+      phase_ = Phase::WaitFinalDelay;
+      phase_tp_ = std::chrono::steady_clock::now();
+    }
+    return BT::NodeStatus::RUNNING;
+
+  case Phase::WaitRearRetractAck:
+    publishStop();
+    if (commandRejected(rear_retract_command_)) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "KFS 兼容收尾后推杆收回命令未被接受，按容错继续 25s 总计时");
+      phase_ = Phase::WaitFinalDelay;
+      phase_tp_ = std::chrono::steady_clock::now();
+      return BT::NodeStatus::RUNNING;
+    }
+    if (commandAcked(rear_retract_command_)) {
+      phase_ = Phase::WaitFinalDelay;
+      phase_tp_ = std::chrono::steady_clock::now();
+      RCLCPP_INFO(node_->get_logger(),
+                  "KFS 兼容收尾后推杆收回 ACK，继续等待上阶完成起算的 %.1fs",
+                  params_.climb_place_final_delay_s);
+      return BT::NodeStatus::RUNNING;
+    }
+    if (phaseElapsed() > params_.command_timeout_s) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "KFS 兼容收尾等待后推杆收回 ACK 超时，按容错继续 25s 总计时");
+      phase_ = Phase::WaitFinalDelay;
+      phase_tp_ = std::chrono::steady_clock::now();
+    }
+    return BT::NodeStatus::RUNNING;
+
+  case Phase::WaitFinalDelay: {
+    publishStop();
+    const double gate_elapsed = elapsedSec(final_gate_tp_);
+    if (secondPreselectionClimbPlaceReadyForFinal(
+            gate_elapsed, params_.climb_place_final_delay_s)) {
+      phase_ = Phase::SendCompatPickup;
+      phase_tp_ = std::chrono::steady_clock::now();
+      return BT::NodeStatus::RUNNING;
+    }
+    if (elapsedSec(last_log_tp_) >= params_.log_period_s) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "第二预选赛 KFS 兼容收尾等待: delay=%.1f/%.1fs",
+                  gate_elapsed, params_.climb_place_final_delay_s);
+      last_log_tp_ = std::chrono::steady_clock::now();
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+
+  case Phase::SendCompatPickup:
+    publishStop();
+    attemptFireAndForgetPickup();
+    compat_pickup_tp_ = std::chrono::steady_clock::now();
+    phase_tp_ = compat_pickup_tp_;
+    last_log_tp_ = compat_pickup_tp_;
+    phase_ = Phase::WaitCompatPickupDelay;
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "第二预选赛 KFS 兼容收尾已尝试 fire-and-forget 0x15，不等待 service response/ACK/0x14，开始固定等待 %.1fs",
+        params_.climb_place_compat_pickup_to_final_delay_s);
+    return BT::NodeStatus::RUNNING;
+
+  case Phase::WaitCompatPickupDelay: {
+    publishStop();
+    const double pickup_elapsed = elapsedSec(compat_pickup_tp_);
+    if (pickup_elapsed >=
+        params_.climb_place_compat_pickup_to_final_delay_s) {
+      phase_ = Phase::SendFinalPlace;
+      phase_tp_ = std::chrono::steady_clock::now();
+      return BT::NodeStatus::RUNNING;
+    }
+    if (elapsedSec(last_log_tp_) >= params_.log_period_s) {
+      RCLCPP_INFO(
+          node_->get_logger(),
+          "第二预选赛 KFS 兼容收尾等待 0x15 后固定延时: %.1f/%.1fs",
+          pickup_elapsed,
+          params_.climb_place_compat_pickup_to_final_delay_s);
+      last_log_tp_ = std::chrono::steady_clock::now();
+    }
+    return BT::NodeStatus::RUNNING;
+  }
+
+  case Phase::SendFinalPlace:
+    publishStop();
+    if (!final_place_command_.sent) {
+      (void)sendReliableCommand(final_place_command_);
+    }
+    if (final_place_command_.sent) {
+      phase_ = Phase::WaitFinalPlaceAck;
+      phase_tp_ = std::chrono::steady_clock::now();
+    } else if (phaseElapsed() > params_.command_timeout_s) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "KFS 兼容收尾等待最终 0x13 服务可用超时，按容错结束目标树");
+      clearRuntimeState();
+      return BT::NodeStatus::SUCCESS;
+    }
+    return BT::NodeStatus::RUNNING;
+
+  case Phase::WaitFinalPlaceAck:
+    publishStop();
+    if (commandRejected(final_place_command_)) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "KFS 兼容收尾最终 0x13 命令未被接受，按容错结束目标树");
+      clearRuntimeState();
+      return BT::NodeStatus::SUCCESS;
+    }
+    if (commandAcked(final_place_command_)) {
+      clearRuntimeState();
+      return BT::NodeStatus::SUCCESS;
+    }
+    if (phaseElapsed() > params_.command_timeout_s) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "KFS 兼容收尾等待最终 0x13 ACK 超时，按容错结束目标树");
+      clearRuntimeState();
+      return BT::NodeStatus::SUCCESS;
+    }
+    return BT::NodeStatus::RUNNING;
+
+  case Phase::Done:
+    return BT::NodeStatus::SUCCESS;
+  }
+  return BT::NodeStatus::RUNNING;
+}
+
+void SecondPreselectionRearRetractCompatPickupPlaceAction::onHalted() {
+  publishStop();
+  clearRuntimeState();
+}
+
+BT::NodeStatus SecondPreselectionRearRetractCompatPickupPlaceAction::fail(
+    const std::string &reason) {
+  writeDecisionFailure(config().blackboard,
+                       "SecondPreselectionRearRetractCompatPickupPlace",
+                       reason);
+  if (node_) {
+    RCLCPP_WARN(node_->get_logger(),
+                "第二预选赛 KFS 兼容收尾失败: %s", reason.c_str());
+  }
+  publishStop();
+  clearRuntimeState();
+  return BT::NodeStatus::FAILURE;
+}
+
+void SecondPreselectionRearRetractCompatPickupPlaceAction::
+    clearRuntimeState() {
+  publishStop();
+  command_generation_.fetch_add(1, std::memory_order_relaxed);
+  cmd_pub_.reset();
+  send_client_.reset();
+  feedback_sub_.reset();
+  resetCommand(rear_retract_command_, 0, "");
+  resetCommand(final_place_command_, 0, "");
+  command_error_seen_ = false;
+  command_busy_seen_ = false;
+  command_error_detail_.clear();
+  phase_ = Phase::Done;
+}
+
+void SecondPreselectionRearRetractCompatPickupPlaceAction::resetCommand(
+    CommandRuntime &command, int command_id, const std::string &label) {
+  command.command_id = clampByte(command_id);
+  command.label = label;
+  command.sent = false;
+  command.response_seen = false;
+  command.accepted = false;
+  command.rejected = false;
+  command.seq = -1;
+}
+
+bool SecondPreselectionRearRetractCompatPickupPlaceAction::
+    sendReliableCommand(CommandRuntime &command) {
+  if (!send_client_ || !send_client_->service_is_ready()) {
+    if (node_) {
+      RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
+                           "第二预选赛 KFS 兼容收尾等待可靠机构命令服务");
+    }
+    return false;
+  }
+
+  auto request = std::make_shared<SendCommandSrv::Request>();
+  request->command_id = command.command_id;
+  request->payload = emptyPayload();
+  request->wait_ack = true;
+  const uint64_t token =
+      command_generation_.load(std::memory_order_relaxed);
+  CommandRuntime *slot = &command;
+  try {
+    send_client_->async_send_request(
+        request,
+        [this, token, slot](
+            rclcpp::Client<SendCommandSrv>::SharedFuture future) {
+          if (token != command_generation_.load(std::memory_order_relaxed)) {
+            return;
+          }
+          bool accepted = false;
+          int seq = -1;
+          try {
+            const auto response = future.get();
+            accepted = response && response->accepted;
+            if (response) {
+              seq = static_cast<int>(response->seq);
+            }
+          } catch (const std::exception &) {
+            accepted = false;
+          }
+          slot->seq.store(seq, std::memory_order_relaxed);
+          slot->accepted.store(accepted, std::memory_order_relaxed);
+          slot->rejected.store(!accepted, std::memory_order_relaxed);
+          slot->response_seen.store(true, std::memory_order_relaxed);
+        });
+  } catch (const std::exception &e) {
+    command_error_detail_ =
+        std::string("第二预选赛 KFS 兼容收尾可靠命令发送异常: ") +
+        e.what();
+    command_error_seen_.store(true, std::memory_order_relaxed);
+    return true;
+  }
+  command.sent = true;
+  if (node_) {
+    RCLCPP_INFO(node_->get_logger(),
+                "第二预选赛 KFS 兼容收尾已下发可靠机构命令: %s command=%s",
+                command.label.c_str(), byteHex(command.command_id).c_str());
+  }
+  return true;
+}
+
+void SecondPreselectionRearRetractCompatPickupPlaceAction::
+    attemptFireAndForgetPickup() {
+  const uint8_t command_id =
+      clampByte(params_.climb_place_preload_pickup_command_id);
+  if (!send_client_ || !send_client_->service_is_ready()) {
+    if (node_) {
+      RCLCPP_WARN(
+          node_->get_logger(),
+          "第二预选赛 KFS 兼容收尾 fire-and-forget 0x15 时机构服务不可用，仍立即开始固定 %.1fs 延时",
+          params_.climb_place_compat_pickup_to_final_delay_s);
+    }
+    return;
+  }
+
+  auto request = std::make_shared<SendCommandSrv::Request>();
+  request->command_id = command_id;
+  request->payload = emptyPayload();
+  request->wait_ack = false;
+  const rclcpp::Logger logger = node_->get_logger();
+  try {
+    send_client_->async_send_request(
+        request,
+        [logger, command_id](
+            rclcpp::Client<SendCommandSrv>::SharedFuture future) {
+          try {
+            const auto response = future.get();
+            if (response && response->accepted) {
+              RCLCPP_INFO(
+                  logger,
+                  "第二预选赛 KFS 兼容收尾 fire-and-forget 请求已由 transport 接受: command=%s seq=%u（行为树未等待此响应）",
+                  byteHex(command_id).c_str(),
+                  static_cast<unsigned int>(response->seq));
+            } else {
+              RCLCPP_WARN(
+                  logger,
+                  "第二预选赛 KFS 兼容收尾 fire-and-forget 请求未被 transport 接受: command=%s（不影响固定延时和最终 0x13）",
+                  byteHex(command_id).c_str());
+            }
+          } catch (const std::exception &e) {
+            RCLCPP_WARN(
+                logger,
+                "第二预选赛 KFS 兼容收尾 fire-and-forget service response 异常: command=%s error=%s（不影响固定延时和最终 0x13）",
+                byteHex(command_id).c_str(), e.what());
+          }
+        });
+  } catch (const std::exception &e) {
+    RCLCPP_WARN(
+        logger,
+        "第二预选赛 KFS 兼容收尾 fire-and-forget 0x15 请求异常: %s，仍立即开始固定 %.1fs 延时",
+        e.what(), params_.climb_place_compat_pickup_to_final_delay_s);
+  }
+}
+
+bool SecondPreselectionRearRetractCompatPickupPlaceAction::commandAcked(
+    const CommandRuntime &command) const {
+  return command.response_seen.load(std::memory_order_relaxed) &&
+         command.accepted.load(std::memory_order_relaxed);
+}
+
+bool SecondPreselectionRearRetractCompatPickupPlaceAction::commandRejected(
+    const CommandRuntime &command) const {
+  return command.response_seen.load(std::memory_order_relaxed) &&
+         command.rejected.load(std::memory_order_relaxed);
+}
+
+void SecondPreselectionRearRetractCompatPickupPlaceAction::handleFeedback(
+    const FeedbackMsg::SharedPtr msg) {
+  if (!msg) {
+    return;
+  }
+  std::optional<MechanismErrorDiagnostic> diagnostic;
+  for (auto *command : {&rear_retract_command_, &final_place_command_}) {
+    const int seq = command->seq.load(std::memory_order_relaxed);
+    if (isSameSeqMechanismError(*msg, seq, diagnostic)) {
+      const std::string detail = mechanismErrorDiagnosticText(*diagnostic);
+      if (diagnostic->busy) {
+        command_busy_seen_.store(true, std::memory_order_relaxed);
+      } else {
+        command_error_detail_ = detail;
+        command_error_seen_.store(true, std::memory_order_relaxed);
+      }
+      return;
+    }
+  }
+}
+
+void SecondPreselectionRearRetractCompatPickupPlaceAction::publishStop() {
+  if (cmd_pub_) {
+    cmd_pub_->publish(geometry_msgs::msg::Twist{});
+  }
+}
+
+double SecondPreselectionRearRetractCompatPickupPlaceAction::phaseElapsed()
+    const {
+  return elapsedSec(phase_tp_);
+}
+
 SecondPreselectionPostPlaceClimbAction::SecondPreselectionPostPlaceClimbAction(
     const std::string &name, const BT::NodeConfig &config)
     : BT::StatefulActionNode(name, config) {}
@@ -4660,6 +5096,10 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
   p.climb_place_final_delay_s = node.declare_parameter<double>(
       "second_preselect_climb_place_final_delay_s",
       p.climb_place_final_delay_s);
+  p.climb_place_compat_pickup_to_final_delay_s =
+      node.declare_parameter<double>(
+          "second_preselect_climb_place_compat_pickup_to_final_delay_s",
+          p.climb_place_compat_pickup_to_final_delay_s);
   p.climb_place_final_command_id = node.declare_parameter<int>(
       "second_preselect_climb_place_final_command_id",
       p.climb_place_final_command_id);
@@ -5101,6 +5541,11 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
       std::isfinite(p.climb_place_final_delay_s)
           ? std::max(0.0, p.climb_place_final_delay_s)
           : SecondPreselectionParams{}.climb_place_final_delay_s;
+  p.climb_place_compat_pickup_to_final_delay_s =
+      std::isfinite(p.climb_place_compat_pickup_to_final_delay_s)
+          ? std::max(0.0, p.climb_place_compat_pickup_to_final_delay_s)
+          : SecondPreselectionParams{}
+                .climb_place_compat_pickup_to_final_delay_s;
   p.climb_place_final_command_id =
       std::clamp(p.climb_place_final_command_id, 0, 255);
   p.search_timeout_s = std::max(0.001, p.search_timeout_s);
@@ -5318,6 +5763,9 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
       p.climb_place_preload_pickup_done_feedback_id);
   blackboard->set("second_preselect_climb_place_final_delay_s",
                   p.climb_place_final_delay_s);
+  blackboard->set(
+      "second_preselect_climb_place_compat_pickup_to_final_delay_s",
+      p.climb_place_compat_pickup_to_final_delay_s);
   blackboard->set("second_preselect_climb_place_final_command_id",
                   p.climb_place_final_command_id);
   blackboard->set("second_preselect_cmd_vel_topic", p.cmd_vel_topic);
@@ -5390,7 +5838,7 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
               p.kfs_align_stable_frames, p.odom_topic.c_str());
   RCLCPP_INFO(
       node.get_logger(),
-      "第二预选赛独立上阶放置参数: start=[pickup=0x%02X/done=0x%02X] route=[x %.2f y %.2f delay %dms] front=[extend=0x%02X laser=0x%02X retract=0x%02X rear_extend=0x%02X] rear=[x %.2f speed %.2f~%.2f timeout %.1f] finish=[rear_retract=0x%02X delay %.1f final=0x%02X]",
+      "第二预选赛独立上阶放置参数: start=[pickup=0x%02X/done=0x%02X] route=[x %.2f y %.2f delay %dms] front=[extend=0x%02X laser=0x%02X retract=0x%02X rear_extend=0x%02X] rear=[x %.2f speed %.2f~%.2f timeout %.1f] finish=[rear_retract=0x%02X delay %.1f compat_pickup_to_final %.1f final=0x%02X]",
       p.climb_place_preload_pickup_command_id & 0xFF,
       p.climb_place_preload_pickup_done_feedback_id & 0xFF,
       p.climb_place_forward_x_m, p.climb_place_lateral_y_m,
@@ -5402,7 +5850,9 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
       p.climb_place_rear_forward_x_m, p.climb_place_rear_min_speed_mps,
       p.climb_place_rear_max_speed_mps, p.climb_place_rear_timeout_s,
       p.climb_place_rear_pushrod_retract_command_id & 0xFF,
-      p.climb_place_final_delay_s, p.climb_place_final_command_id & 0xFF);
+      p.climb_place_final_delay_s,
+      p.climb_place_compat_pickup_to_final_delay_s,
+      p.climb_place_final_command_id & 0xFF);
 }
 
 void registerSecondPreselectionNodes(BT::BehaviorTreeFactory &factory) {
@@ -5424,6 +5874,9 @@ void registerSecondPreselectionNodes(BT::BehaviorTreeFactory &factory) {
       "SecondPreselectionClimbPlacePreloadPickup");
   factory.registerNodeType<SecondPreselectionRearRetractPlaceAction>(
       "SecondPreselectionRearRetractPlace");
+  factory.registerNodeType<
+      SecondPreselectionRearRetractCompatPickupPlaceAction>(
+      "SecondPreselectionRearRetractCompatPickupPlace");
   factory.registerNodeType<SecondPreselectionPostPlaceClimbAction>(
       "SecondPreselectionPostPlaceClimb");
 }

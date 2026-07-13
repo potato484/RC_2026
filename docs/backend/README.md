@@ -14,6 +14,8 @@ R2 运行时导航权威已经迁移到 `rc26_decision` 内部 odom 相对闭环
 
 根目录 `start_r2_auto.sh` 是完整自动决策/比赛链路的快捷启动脚本，默认读取 `r2_active_side.yaml` 并带起 RealSense；标准红/蓝配置关闭整棵行为树前的 startup odom gate，因此人工限位入口可在决策节点启动后立即工作，但后续 `OdomDriveX/Y` 等闭环动作仍需新鲜真实 `/odom` 才能移动。运行时装配权威仍在 `rc26_bringup`，脚本不承载红蓝路线或决策逻辑。
 
+second managed 默认继续使用树首预装 `0x15` 的现有上阶放置树。`r2_active_side.yaml` 新增默认关闭的 `second_preselection_kfs_search_compat_enable`：开启后，两条 second 人工限位路径保持原 `0x11/0x0D` 与斜坡握手，但切到独立 KFS 搜索兼容树；树首搜索夹取失败时停车告警后继续，收尾按 `0x0B -> 25s -> 0x15(wait_ack=false) -> 10s -> 0x13` 执行。该开关不改变 ROS 接口、串口命令编号或 `/cmd_vel` 权威，显式 `runtime_config_file` 覆盖时不生效。
+
 根目录 `开机自启动.txt` 提供当前实机 systemd 开机自启动配置指令，可整段复制到终端执行。该指令创建 `r2-auto.service`，以 `aidlux` 用户、`/home/aidlux/RC_2026` 工作目录启动 `/home/aidlux/RC_2026/start_r2_auto.sh`，并提供状态、日志、停止、重启和卸载命令。
 
 `rc26_merge_odom` 已从当前 R2 默认运行装配中停用但保留源码：`rc26_bringup`、导航联调入口和遥控脚本不再启动它，也不再把 `/merge_odom` 作为当前运行时契约。`/cmd_vel` 的默认硬件消费方由 `rc26_mcu_transport` 提供，它复用目标 MCU 串口下发 `POSE_TARGET(0x0C)`；机构指令共享串口 provider 同样由 `rc26_mcu_transport` 提供。

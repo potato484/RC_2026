@@ -30,6 +30,7 @@ from launch_ros.actions import Node, PushRosNamespace
 R2_D455_SERIAL_NO = '239222303644'
 FIRST_PRESELECTION_TREE = '/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/mc_repeat_preselection_tree.xml'
 SECOND_PRESELECTION_TREE = '/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/second_preselection_combo_tree.xml'
+SECOND_PRESELECTION_KFS_COMPAT_TREE = '/home/aidlux/RC_2026/src/rc26_decision/behavior_trees/second_preselection_kfs_compat_combo_tree.xml'
 
 
 def _launch_bool(value):
@@ -162,6 +163,32 @@ def _resolve_preselection_mode(context, bringup_dir):
     return mode
 
 
+def _resolve_second_preselection_kfs_search_compat_enable(context, bringup_dir):
+    if _launch_value(context, 'runtime_config_file'):
+        return False
+
+    selector_file = _launch_value(context, 'side_config_file')
+    if selector_file == '':
+        selector_file = os.path.join(bringup_dir, 'config', 'r2_active_side.yaml')
+    selector = _load_yaml_file(selector_file, 'side_config_file')
+    configured = selector.get(
+        'second_preselection_kfs_search_compat_enable', False)
+    return _parse_bool(configured) if isinstance(configured, str) else bool(configured)
+
+
+def _managed_preselection_tree(default_tree, preselection_mode,
+                               second_kfs_compat_enable):
+    if preselection_mode == 'first':
+        return FIRST_PRESELECTION_TREE
+    if preselection_mode == 'second':
+        return (
+            SECOND_PRESELECTION_KFS_COMPAT_TREE
+            if second_kfs_compat_enable
+            else SECOND_PRESELECTION_TREE
+        )
+    return default_tree
+
+
 def _resolve_first_preselection_repeat_overrides(context, bringup_dir):
     if _launch_value(context, 'runtime_config_file'):
         return {}
@@ -276,6 +303,9 @@ def _after_delay(delay_sec, actions):
 def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, mcu_transport_dir):
     runtime_config_file = _resolve_runtime_config_file(context, bringup_dir)
     preselection_mode = _resolve_preselection_mode(context, bringup_dir)
+    second_kfs_compat_enable = (
+        _resolve_second_preselection_kfs_search_compat_enable(context, bringup_dir)
+    )
     first_repeat_overrides = _resolve_first_preselection_repeat_overrides(context, bringup_dir)
     runtime_defaults = _load_r2_runtime_defaults(runtime_config_file)
 
@@ -337,11 +367,11 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, mcu_
         context,
         'point_lio_full_map_publish_en',
         'false' if navigation_mode else 'true')
-    behavior_tree_file = runtime_defaults['paths']['behavior_tree_file']
-    if preselection_mode == 'first':
-        behavior_tree_file = FIRST_PRESELECTION_TREE
-    elif preselection_mode == 'second':
-        behavior_tree_file = SECOND_PRESELECTION_TREE
+    behavior_tree_file = _managed_preselection_tree(
+        runtime_defaults['paths']['behavior_tree_file'],
+        preselection_mode,
+        second_kfs_compat_enable,
+    )
     mcu_transport_defaults = runtime_defaults['mcu_transport']
     start_mcu_transport = _select_bool(context, 'start_mcu_transport', mcu_transport_defaults['enabled'])
     mcu_transport_target_serial_port = _select_str(

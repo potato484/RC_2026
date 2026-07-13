@@ -380,7 +380,10 @@ TEST(ManagedPreselectionTrees, XmlFilesLoadAndLegacyStartTreeIsRemoved) {
   const std::vector<std::string> expected_trees{
       "mc_repeat_preselection_tree.xml", "mc_mf_preselection_tree.xml", "mc_tree.xml",
       "preselection_ramp_forward_tree.xml", "second_preselection_combo_tree.xml",
-      "second_preselection_climb_place_tree.xml", "second_preselection_tree.xml",
+      "second_preselection_climb_place_tree.xml",
+      "second_preselection_kfs_compat_combo_tree.xml",
+      "second_preselection_kfs_compat_climb_place_tree.xml",
+      "second_preselection_tree.xml",
       "second_preselection_post_place_climb_tree.xml"};
   for (const auto &tree_name : expected_trees) {
     const auto tree_path = tree_dir / tree_name;
@@ -445,6 +448,34 @@ TEST(ManagedPreselectionTrees, XmlFilesLoadAndLegacyStartTreeIsRemoved) {
   EXPECT_EQ(combo_tree_xml.find("SecondPreselectionTree"), std::string::npos);
   EXPECT_EQ(combo_tree_xml.find("second_preselect_after_ramp_turn"),
             std::string::npos);
+
+  const auto compat_combo_tree_path =
+      tree_dir / "second_preselection_kfs_compat_combo_tree.xml";
+  std::ifstream compat_combo_tree_stream(compat_combo_tree_path);
+  ASSERT_TRUE(compat_combo_tree_stream.good());
+  const std::string compat_combo_tree_xml =
+      std::string(std::istreambuf_iterator<char>(compat_combo_tree_stream),
+                  std::istreambuf_iterator<char>());
+  const auto compat_entry_gate_pos = compat_combo_tree_xml.find(
+      "second_preselection_kfs_compat_entry_branch_gate");
+  const auto compat_ramp_pos =
+      compat_combo_tree_xml.find("<SubTree ID=\"PreselectionRampForwardTree\"");
+  const auto compat_after_ramp_gate_pos = compat_combo_tree_xml.find(
+      "second_preselection_kfs_compat_after_ramp_gate");
+  ASSERT_NE(compat_entry_gate_pos, std::string::npos);
+  ASSERT_NE(compat_ramp_pos, std::string::npos);
+  ASSERT_NE(compat_after_ramp_gate_pos, std::string::npos);
+  EXPECT_LT(compat_entry_gate_pos, compat_ramp_pos);
+  EXPECT_LT(compat_ramp_pos, compat_after_ramp_gate_pos);
+  EXPECT_EQ(
+      countOccurrences(
+          compat_combo_tree_xml,
+          "switch_tree_file=\"second_preselection_kfs_compat_climb_place_tree.xml\""),
+      2U);
+  EXPECT_EQ(
+      compat_combo_tree_xml.find(
+          "switch_tree_file=\"second_preselection_climb_place_tree.xml\""),
+      std::string::npos);
 
   const auto ramp_tree_path = tree_dir / "preselection_ramp_forward_tree.xml";
   std::ifstream ramp_tree_stream(ramp_tree_path);

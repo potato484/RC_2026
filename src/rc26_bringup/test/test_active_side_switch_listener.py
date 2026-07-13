@@ -27,6 +27,7 @@ SELECTOR_TEMPLATE = """\
 # selector
 active_side: {side}
 preselection_mode: first
+second_preselection_kfs_search_compat_enable: false
 first_preselection_mc_repeat_enable: true
 first_preselection_mc_repeat_max_count: 2
 first_preselection_mc_repeat_forward_x_step_m:
@@ -54,11 +55,16 @@ class ActiveSideSwitchListenerTest(unittest.TestCase):
         data = yaml.safe_load(self.selector.read_text(encoding="utf-8"))
         return str(data["active_side"])
 
+    def _compat_enabled(self) -> bool:
+        data = yaml.safe_load(self.selector.read_text(encoding="utf-8"))
+        return bool(data["second_preselection_kfs_search_compat_enable"])
+
     def test_toggle_commits_and_cleans_transaction_files(self) -> None:
         old_side, new_side = MODULE.toggle_active_side_file(self.selector)
 
         self.assertEqual(("red", "blue"), (old_side, new_side))
         self.assertEqual("blue", self._side())
+        self.assertFalse(self._compat_enabled())
         self.assertEqual(
             [],
             list(self.directory.glob(".r2_active_side.yaml.*")),
@@ -74,6 +80,7 @@ class ActiveSideSwitchListenerTest(unittest.TestCase):
 
         self.assertEqual(("red", "blue"), recovered)
         self.assertEqual("blue", self._side())
+        self.assertFalse(self._compat_enabled())
         self.assertFalse(pending.exists())
 
     def test_recovers_legacy_complete_temp_file(self) -> None:
