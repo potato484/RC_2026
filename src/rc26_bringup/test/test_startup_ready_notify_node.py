@@ -37,6 +37,14 @@ def load_module():
     rclpy_qos.QoSProfile = DummyQoSProfile
     rclpy_qos.ReliabilityPolicy = types.SimpleNamespace(RELIABLE=1)
 
+    class DummyParameterDescriptor:
+        def __init__(self, **kwargs):
+            self.dynamic_typing = bool(kwargs.get("dynamic_typing", False))
+
+    rcl_interfaces = types.ModuleType("rcl_interfaces")
+    rcl_interfaces_msg = types.ModuleType("rcl_interfaces.msg")
+    rcl_interfaces_msg.ParameterDescriptor = DummyParameterDescriptor
+
     rc26_interfaces = types.ModuleType("rc26_interfaces")
     rc26_interfaces_msg = types.ModuleType("rc26_interfaces.msg")
     rc26_interfaces_msg.MechanismTransportFeedback = type(
@@ -60,6 +68,8 @@ def load_module():
             "rclpy": rclpy,
             "rclpy.node": rclpy_node,
             "rclpy.qos": rclpy_qos,
+            "rcl_interfaces": rcl_interfaces,
+            "rcl_interfaces.msg": rcl_interfaces_msg,
             "rc26_interfaces": rc26_interfaces,
             "rc26_interfaces.msg": rc26_interfaces_msg,
             "rc26_interfaces.srv": rc26_interfaces_srv,
@@ -83,6 +93,14 @@ def test_parse_byte_value_accepts_decimal_and_hex_strings():
     assert module.parse_byte_value("0x20") == 0x20
     assert module.parse_byte_value("32") == 0x20
     assert module.parse_byte_value(0x120) == 0x20
+
+
+def test_command_id_descriptor_accepts_string_launch_override():
+    module = load_module()
+
+    descriptor = module.make_dynamic_parameter_descriptor()
+
+    assert descriptor.dynamic_typing
 
 
 def test_startup_ready_requires_all_inputs_and_service():

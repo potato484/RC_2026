@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 import rclpy
+from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 
@@ -17,6 +18,10 @@ def parse_byte_value(value: Any) -> int:
     if isinstance(value, str):
         return int(value, 0) & 0xFF
     return int(value) & 0xFF
+
+
+def make_dynamic_parameter_descriptor() -> ParameterDescriptor:
+    return ParameterDescriptor(dynamic_typing=True)
 
 
 def startup_ready_should_notify(
@@ -46,7 +51,11 @@ class StartupReadyNotifyNode(Node):
     def __init__(self) -> None:
         super().__init__("startup_ready_notify_node")
 
-        self.command_id = parse_byte_value(self.declare_parameter("command_id", 0x20).value)
+        self.command_id = parse_byte_value(
+            self.declare_parameter(
+                "command_id", 0x20, make_dynamic_parameter_descriptor()
+            ).value
+        )
         self.timeout_s = float(self.declare_parameter("timeout_s", 30.0).value)
         self.send_command_service = str(
             self.declare_parameter("send_command_service", "/mechanism/send_command").value
@@ -69,7 +78,7 @@ class StartupReadyNotifyNode(Node):
             self.declare_parameter("info_topic", "/camera/color/camera_info").value
         )
         self.limit_feedback_ids = [
-            int(value)
+            parse_byte_value(value)
             for value in self.declare_parameter("limit_feedback_ids", [0x06, 0x10]).value
         ]
         self.timer_period_s = float(self.declare_parameter("timer_period_s", 0.1).value)
@@ -192,13 +201,18 @@ class StartupReadyNotifyNode(Node):
 
 
 def main() -> None:
+    from rclpy.executors import ExternalShutdownException
+
     rclpy.init()
     node = StartupReadyNotifyNode()
     try:
         rclpy.spin(node)
+    except (ExternalShutdownException, KeyboardInterrupt):
+        pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

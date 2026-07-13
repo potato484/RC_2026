@@ -361,12 +361,15 @@ def main() -> None:
         return
 
     import rclpy
+    from rclpy.executors import ExternalShutdownException
 
     rclpy.init()
     node = rclpy.create_node("active_side_switch_listener")
     ActiveSideSwitchListener(node=node, args=args)
     try:
         rclpy.spin(node)
+    except (ExternalShutdownException, KeyboardInterrupt):
+        pass
     finally:
         node.destroy_node()
         if rclpy.ok():

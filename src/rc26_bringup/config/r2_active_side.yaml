@@ -1,7 +1,7 @@
 # R2 当前比赛方配置选择文件。
 # active_side 控制 bringup 默认加载 r2_red.yaml 或 r2_blue.yaml。
 # 如需临时调试其它完整配置，仍可通过 runtime_config_file:=/abs/path.yaml 覆盖。
-active_side: blue
+active_side: red
 preselection_mode: first
 first_preselection_mc_repeat_enable: true
 first_preselection_mc_repeat_max_count: 2
