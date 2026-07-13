@@ -155,8 +155,8 @@ r2_runtime:
       second_preselect_grab_verify_iou_threshold: 0.30 # 原目标匹配 IoU 阈值
       second_preselect_grab_settle_s: 0.5           # 夹取确认成功后停车稳定时间
       preselection_ramp_forward_x_m: 5.00       # second managed 入口合并斜坡前进距离；只沿 +X 前进，超调不反向拉回
-      preselection_ramp_max_speed_mps: 0.80     # 斜坡段平移速度上限
-      preselection_ramp_min_speed_mps: 0.80     # 斜坡段最小平移速度
+      preselection_ramp_max_speed_mps: 1.00     # 斜坡段平移速度上限
+      preselection_ramp_min_speed_mps: 1.00     # 斜坡段最小平移速度
       preselection_ramp_forward_timeout_s: 5.0  # 合并斜坡段独立超时；超时停车后继续后续 second 逻辑
       second_preselect_after_ramp_turn_delta_rad: 1.5708 # 红方基准斜坡后左转 90°；blue 启动时自动取反
       second_preselect_after_ramp_turn_timeout_s: 30.0 # 斜坡后 90° 转向超时
