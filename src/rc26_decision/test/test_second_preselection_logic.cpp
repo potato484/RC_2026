@@ -32,6 +32,21 @@ std::size_t countOccurrences(const std::string &text,
   return count;
 }
 
+std::string xmlNodeBlockByName(const std::string &xml,
+                               const std::string &node_name) {
+  const std::string name_attr = "name=\"" + node_name + "\"";
+  const auto name_pos = xml.find(name_attr);
+  if (name_pos == std::string::npos) {
+    return {};
+  }
+  const auto tag_start = xml.rfind('<', name_pos);
+  const auto tag_end = xml.find("/>", name_pos);
+  if (tag_start == std::string::npos || tag_end == std::string::npos) {
+    return {};
+  }
+  return xml.substr(tag_start, tag_end + 2 - tag_start);
+}
+
 rc26_vision::Detection makeDetection(float cx, float cy,
                                      const std::string &label = "T_KFS",
                                      float width = 40.0F,
@@ -273,6 +288,24 @@ TEST(SecondPreselectionLogic, PlaceObserveTimeoutKeepsStrictLimit) {
       rc26_decision::secondPreselectionPlaceObserveTimedOut(100.0, 0.0));
 }
 
+TEST(SecondPreselectionLogic, OdomAxisDriveReachOrOvershootModeStopsPullback) {
+  EXPECT_TRUE(rc26_decision::odomAxisDriveReachedOrOvershot(
+      1.5, 0.02, 0.03, true));
+  EXPECT_TRUE(rc26_decision::odomAxisDriveReachedOrOvershot(
+      1.5, -0.10, 0.03, true));
+  EXPECT_TRUE(rc26_decision::odomAxisDriveReachedOrOvershot(
+      -1.5, 0.10, 0.03, true));
+
+  EXPECT_FALSE(rc26_decision::odomAxisDriveReachedOrOvershot(
+      1.5, 0.10, 0.03, true));
+  EXPECT_FALSE(rc26_decision::odomAxisDriveReachedOrOvershot(
+      -1.5, -0.10, 0.03, true));
+  EXPECT_FALSE(rc26_decision::odomAxisDriveReachedOrOvershot(
+      1.5, -0.10, 0.03, false));
+  EXPECT_FALSE(rc26_decision::odomAxisDriveReachedOrOvershot(
+      -1.5, 0.10, 0.03, false));
+}
+
 TEST(SecondPreselectionLogic, BehaviorTreeUsesNewPlacementSequence) {
   const std::string xml = readTextFile(secondPreselectionTreePath());
 
@@ -311,6 +344,22 @@ TEST(SecondPreselectionLogic, BehaviorTreeUsesNewPlacementSequence) {
   EXPECT_EQ(xml.find("SecondPreselectionR1KfsPlaceAlign"), std::string::npos);
   EXPECT_EQ(xml.find("second_preselect_nav_x2_m"), std::string::npos);
   EXPECT_EQ(xml.find("second_preselect_place_forward_x_m"), std::string::npos);
+}
+
+TEST(SecondPreselectionLogic, SecondFixedOdomSegmentsStopOnOvershoot) {
+  const std::string xml = readTextFile(secondPreselectionTreePath());
+  EXPECT_EQ(countOccurrences(xml, "succeed_on_reach_or_overshoot=\"true\""),
+            3U);
+
+  for (const char *node_name :
+       {"second_preselection_post_pickup_forward", "second_preselection_nav_y1",
+        "second_preselection_post_place_retreat"}) {
+    const std::string block = xmlNodeBlockByName(xml, node_name);
+    ASSERT_FALSE(block.empty()) << node_name;
+    EXPECT_NE(block.find("succeed_on_reach_or_overshoot=\"true\""),
+              std::string::npos)
+        << node_name;
+  }
 }
 
 TEST(SecondPreselectionLogic, BehaviorTreeXmlLoadsWithRegisteredNodes) {

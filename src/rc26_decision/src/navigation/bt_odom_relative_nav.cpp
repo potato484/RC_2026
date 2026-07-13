@@ -63,6 +63,23 @@ void resetRelativeNavBlackboard(const BT::Blackboard::Ptr &blackboard,
 
 } // namespace
 
+bool odomAxisDriveReachedOrOvershot(double distance_m, double axis_remaining_m,
+                                    double xy_tolerance_m,
+                                    bool succeed_on_reach_or_overshoot) {
+  if (!succeed_on_reach_or_overshoot || !std::isfinite(distance_m) ||
+      !std::isfinite(axis_remaining_m) || !std::isfinite(xy_tolerance_m)) {
+    return false;
+  }
+  const double tolerance = std::abs(xy_tolerance_m);
+  if (std::abs(axis_remaining_m) <= tolerance) {
+    return true;
+  }
+  if (std::abs(distance_m) <= tolerance) {
+    return true;
+  }
+  return distance_m * axis_remaining_m <= 0.0;
+}
+
 void loadOdomRelativeNavParams(rclcpp::Node &node,
                                const BT::Blackboard::Ptr &blackboard) {
   std::string cmd_vel_topic = node.declare_parameter<std::string>(
@@ -168,6 +185,9 @@ BT::PortsList OdomAxisDriveAction::providedPorts() {
                             "Maximum accepted odom age"),
       BT::InputPort<double>("timeout_s", kDefaultOdomRelativeTimeoutSec,
                             "Action timeout in seconds"),
+      BT::InputPort<bool>(
+          "succeed_on_reach_or_overshoot", false,
+          "Stop and succeed when the axis target is reached or overshot"),
   };
 }
 
@@ -200,6 +220,9 @@ BT::NodeStatus OdomAxisDriveAction::onStart() {
   (void)getInput("stable_ticks", stable_ticks_required_);
   (void)getInput("odom_timeout_s", odom_timeout_s_);
   (void)getInput("timeout_s", timeout_s_);
+  succeed_on_reach_or_overshoot_ = false;
+  (void)getInput("succeed_on_reach_or_overshoot",
+                 succeed_on_reach_or_overshoot_);
 
   max_speed_mps_ =
       std::abs(finitePositiveOr(max_speed_mps_, kDefaultOdomRelativeMaxSpeedMps));
@@ -238,9 +261,10 @@ BT::NodeStatus OdomAxisDriveAction::onStart() {
   writeState("RUNNING");
   writeDistanceRemaining(std::abs(distance_m_));
   RCLCPP_INFO(node_->get_logger(),
-              "%s 启动: cmd_vel=%s odom=%s distance=%.3fm max=%.3fm/s tol=%.3fm yaw_tol=%.1fdeg timeout=%.2fs",
+              "%s 启动: cmd_vel=%s odom=%s distance=%.3fm max=%.3fm/s tol=%.3fm yaw_tol=%.1fdeg timeout=%.2fs overshoot_success=%s",
               action_label_, cmd_vel_topic_.c_str(), odom_topic_.c_str(), distance_m_,
-              max_speed_mps_, xy_tolerance_m_, yaw_tolerance_deg, timeout_s_);
+              max_speed_mps_, xy_tolerance_m_, yaw_tolerance_deg, timeout_s_,
+              succeed_on_reach_or_overshoot_ ? "true" : "false");
   publishStop();
   return BT::NodeStatus::RUNNING;
 }
@@ -268,6 +292,7 @@ void OdomAxisDriveAction::releaseRuntime() {
   has_odom_ = false;
   target_ready_ = false;
   stable_ticks_ = 0;
+  succeed_on_reach_or_overshoot_ = false;
 }
 
 bool OdomAxisDriveAction::odomReady() const {
@@ -349,6 +374,18 @@ BT::NodeStatus OdomAxisDriveAction::tickTowardTarget() {
   const double distance = std::abs(axis_remaining);
   const double yaw_error = normalizeAngle(target_yaw_ - current_yaw_);
   writeDistanceRemaining(distance);
+
+  if (odomAxisDriveReachedOrOvershot(distance_m_, axis_remaining,
+                                     xy_tolerance_m_,
+                                     succeed_on_reach_or_overshoot_)) {
+    publishStop();
+    writeState("SUCCEEDED");
+    RCLCPP_INFO(node_->get_logger(),
+                "%s 到达或超调完成: remaining=%.3fm yaw_error=%.3frad",
+                action_label_, axis_remaining, yaw_error);
+    releaseRuntime();
+    return BT::NodeStatus::SUCCESS;
+  }
 
   if (distance <= xy_tolerance_m_ &&
       std::abs(yaw_error) <= yaw_tolerance_rad_) {

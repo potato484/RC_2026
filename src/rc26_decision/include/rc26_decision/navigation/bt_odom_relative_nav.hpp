@@ -15,6 +15,10 @@ namespace rc26_decision {
 void loadOdomRelativeNavParams(rclcpp::Node &node,
                                const BT::Blackboard::Ptr &blackboard);
 
+bool odomAxisDriveReachedOrOvershot(double distance_m, double axis_remaining_m,
+                                    double xy_tolerance_m,
+                                    bool succeed_on_reach_or_overshoot);
+
 class OdomAxisDriveAction : public BT::StatefulActionNode {
 public:
   enum class Axis { X, Y };
@@ -64,6 +68,7 @@ private:
   int stable_ticks_required_{3};
   double odom_timeout_s_{0.5};
   double timeout_s_{10.0};
+  bool succeed_on_reach_or_overshoot_{false};
   double current_x_{0.0};
   double current_y_{0.0};
   double current_yaw_{0.0};
