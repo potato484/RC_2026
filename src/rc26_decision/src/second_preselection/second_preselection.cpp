@@ -592,7 +592,11 @@ BT::NodeStatus SecondPreselectionCommandAction::onRunning() {
   if (phase_ == Phase::Sending) {
     if (!sendCommand()) {
       if (elapsedSec(phase_tp_) > command_timeout_s_) {
-        return fail("等待机构命令服务可用超时：" + command_label_);
+        RCLCPP_WARN(node_->get_logger(),
+                    "第二预选赛机构命令服务等待超时，按容错继续：%s",
+                    command_label_.c_str());
+        resetRuntimeHandles();
+        return BT::NodeStatus::SUCCESS;
       }
       return BT::NodeStatus::RUNNING;
     }
@@ -605,8 +609,11 @@ BT::NodeStatus SecondPreselectionCommandAction::onRunning() {
     if (command_response_seen_.load(std::memory_order_relaxed)) {
       const int seq = command_seq_.load(std::memory_order_relaxed);
       if (!command_accepted_.load(std::memory_order_relaxed)) {
-        return fail("机构命令被拒绝：" + command_label_ +
-                    " seq=" + std::to_string(seq));
+        RCLCPP_WARN(node_->get_logger(),
+                    "第二预选赛机构命令未被接受，按容错继续：%s seq=%d",
+                    command_label_.c_str(), seq);
+        resetRuntimeHandles();
+        return BT::NodeStatus::SUCCESS;
       }
       RCLCPP_INFO(node_->get_logger(),
                   "第二预选赛机构命令 ACK 成功：%s command=%s seq=%d",
@@ -621,17 +628,25 @@ BT::NodeStatus SecondPreselectionCommandAction::onRunning() {
       return BT::NodeStatus::RUNNING;
     }
     if (elapsedSec(phase_tp_) > command_timeout_s_) {
-      return fail("等待机构命令 ACK 超时：" + command_label_);
+      RCLCPP_WARN(node_->get_logger(),
+                  "第二预选赛机构命令 ACK 超时，按容错继续：%s",
+                  command_label_.c_str());
+      resetRuntimeHandles();
+      return BT::NodeStatus::SUCCESS;
     }
     return BT::NodeStatus::RUNNING;
   }
 
   const int seq = command_seq_.load(std::memory_order_relaxed);
   if (command_error_seen_.load(std::memory_order_relaxed)) {
-    return fail(command_error_detail_.empty()
-                    ? "机构命令收到 MCU 0xFE 最终错误：" + command_label_ +
-                          " seq=" + std::to_string(seq)
-                    : command_error_detail_);
+    RCLCPP_WARN(
+        node_->get_logger(),
+        "第二预选赛机构命令收到 MCU 最终错误，按容错继续：%s seq=%d reason=%s",
+        command_label_.c_str(), seq,
+        command_error_detail_.empty() ? "MCU 0xFE final error"
+                                      : command_error_detail_.c_str());
+    resetRuntimeHandles();
+    return BT::NodeStatus::SUCCESS;
   }
   if (done_feedback_seen_.load(std::memory_order_relaxed)) {
     RCLCPP_INFO(node_->get_logger(),
@@ -641,8 +656,11 @@ BT::NodeStatus SecondPreselectionCommandAction::onRunning() {
     return BT::NodeStatus::SUCCESS;
   }
   if (elapsedSec(phase_tp_) > done_timeout_s_) {
-    return fail("等待机构完成反馈超时：" + command_label_ +
-                " seq=" + std::to_string(seq));
+    RCLCPP_WARN(node_->get_logger(),
+                "第二预选赛机构完成反馈超时，按容错继续：%s seq=%d",
+                command_label_.c_str(), seq);
+    resetRuntimeHandles();
+    return BT::NodeStatus::SUCCESS;
   }
   if (elapsedSec(last_log_tp_) >= params_.log_period_s) {
     const bool busy_seen = command_busy_seen_.load(std::memory_order_relaxed);
@@ -679,8 +697,9 @@ void SecondPreselectionCommandAction::handleFeedback(
       command_error_detail_ = detail;
       command_error_seen_.store(true, std::memory_order_relaxed);
       if (node_) {
-        RCLCPP_ERROR(node_->get_logger(),
-                     "第二预选赛机构命令收到 MCU 错误：%s", detail.c_str());
+        RCLCPP_WARN(node_->get_logger(),
+                    "第二预选赛机构命令收到 MCU 最终错误，按机构容错处理：%s",
+                    detail.c_str());
       }
     }
     return;
@@ -730,8 +749,9 @@ bool SecondPreselectionCommandAction::sendCommand() {
           command_response_seen_.store(true, std::memory_order_relaxed);
         });
   } catch (const std::exception &e) {
-    writeDecisionFailure(config().blackboard, "SecondPreselectionCommand",
-                         std::string("机构命令发送异常：") + e.what());
+    RCLCPP_WARN(node_->get_logger(),
+                "第二预选赛机构命令发送异常，按容错继续：%s",
+                e.what());
     command_response_seen_ = true;
     command_accepted_ = false;
     return true;
@@ -1420,7 +1440,10 @@ SecondPreselectionKfsPickupAction::tickSendingPreApproachLower() {
   publishStop();
   if (!sendActiveCommand()) {
     if (elapsedSec(phase_tp_) > params_.command_timeout_s) {
-      return fail("第二预选赛等待机械臂放下命令服务超时");
+      RCLCPP_WARN(node_->get_logger(),
+                  "第二预选赛机械臂放下命令服务超时，按容错进入放下稳定等待");
+      phase_ = Phase::PreApproachLowerSettle;
+      phase_tp_ = std::chrono::steady_clock::now();
     }
     return BT::NodeStatus::RUNNING;
   }
@@ -1434,13 +1457,21 @@ SecondPreselectionKfsPickupAction::tickWaitingPreApproachLowerAck() {
   renderKfsUi("lower-ack", align_last_observation_, "waiting 0x14 ACK");
   publishStop();
   if (command_error_seen_.load(std::memory_order_relaxed)) {
-    return fail(command_error_detail_.empty()
-                    ? "第二预选赛机械臂放下命令收到 MCU 错误"
-                    : command_error_detail_);
+    RCLCPP_WARN(node_->get_logger(),
+                "第二预选赛机械臂放下命令 MCU 错误，按容错进入稳定等待：%s",
+                command_error_detail_.empty() ? "MCU final error"
+                                              : command_error_detail_.c_str());
+    phase_ = Phase::PreApproachLowerSettle;
+    phase_tp_ = std::chrono::steady_clock::now();
+    return BT::NodeStatus::RUNNING;
   }
   if (command_response_seen_.load(std::memory_order_relaxed)) {
     if (!command_accepted_.load(std::memory_order_relaxed)) {
-      return fail("第二预选赛机械臂放下命令 ACK 被拒绝");
+      RCLCPP_WARN(node_->get_logger(),
+                  "第二预选赛机械臂放下命令未被接受，按容错进入稳定等待");
+      phase_ = Phase::PreApproachLowerSettle;
+      phase_tp_ = std::chrono::steady_clock::now();
+      return BT::NodeStatus::RUNNING;
     }
     const int seq = command_seq_.load(std::memory_order_relaxed);
     RCLCPP_INFO(node_->get_logger(),
@@ -1453,7 +1484,11 @@ SecondPreselectionKfsPickupAction::tickWaitingPreApproachLowerAck() {
     return BT::NodeStatus::RUNNING;
   }
   if (elapsedSec(phase_tp_) > params_.command_timeout_s) {
-    return fail("第二预选赛等待机械臂放下命令 ACK 超时");
+    RCLCPP_WARN(node_->get_logger(),
+                "第二预选赛机械臂放下命令 ACK 超时，按容错进入稳定等待");
+    phase_ = Phase::PreApproachLowerSettle;
+    phase_tp_ = std::chrono::steady_clock::now();
+    return BT::NodeStatus::RUNNING;
   }
   return BT::NodeStatus::RUNNING;
 }
@@ -1465,9 +1500,13 @@ SecondPreselectionKfsPickupAction::tickWaitingPreApproachLowerDone() {
   publishStop();
   const int seq = command_seq_.load(std::memory_order_relaxed);
   if (command_error_seen_.load(std::memory_order_relaxed)) {
-    return fail(command_error_detail_.empty()
-                    ? "第二预选赛机械臂放下命令收到 MCU 错误"
-                    : command_error_detail_);
+    RCLCPP_WARN(node_->get_logger(),
+                "第二预选赛机械臂放下完成等待收到 MCU 错误，按容错进入稳定等待：%s",
+                command_error_detail_.empty() ? "MCU final error"
+                                              : command_error_detail_.c_str());
+    phase_ = Phase::PreApproachLowerSettle;
+    phase_tp_ = std::chrono::steady_clock::now();
+    return BT::NodeStatus::RUNNING;
   }
   if (command_done_feedback_seen_.load(std::memory_order_relaxed)) {
     RCLCPP_INFO(node_->get_logger(),
@@ -1479,9 +1518,12 @@ SecondPreselectionKfsPickupAction::tickWaitingPreApproachLowerDone() {
     return BT::NodeStatus::RUNNING;
   }
   if (elapsedSec(phase_tp_) > params_.done_timeout_s) {
-    return fail("等待第二预选赛机械臂放下完成反馈超时：feedback=" +
-                byteHex(active_done_feedback_id_) +
-                " seq=" + std::to_string(seq));
+    RCLCPP_WARN(node_->get_logger(),
+                "第二预选赛机械臂放下完成反馈超时，按容错进入稳定等待：feedback=%s seq=%d",
+                byteHex(active_done_feedback_id_).c_str(), seq);
+    phase_ = Phase::PreApproachLowerSettle;
+    phase_tp_ = std::chrono::steady_clock::now();
+    return BT::NodeStatus::RUNNING;
   }
   if (elapsedSec(last_log_tp_) >= params_.log_period_s) {
     const bool busy_seen = command_busy_seen_.load(std::memory_order_relaxed);
@@ -1629,7 +1671,9 @@ BT::NodeStatus SecondPreselectionKfsPickupAction::tickSendingPickup() {
   publishStop();
   if (!sendActiveCommand()) {
     if (elapsedSec(phase_tp_) > params_.command_timeout_s) {
-      return fail("第二预选赛等待 KFS 夹取命令服务超时");
+      RCLCPP_WARN(node_->get_logger(),
+                  "第二预选赛 KFS 夹取命令服务超时，按容错进入视觉验证");
+      return beginGrabVerify();
     }
     return BT::NodeStatus::RUNNING;
   }
@@ -1642,13 +1686,17 @@ BT::NodeStatus SecondPreselectionKfsPickupAction::tickWaitingPickupAck() {
   renderKfsUi("pickup-ack", align_last_observation_, "waiting service ACK");
   publishStop();
   if (command_error_seen_.load(std::memory_order_relaxed)) {
-    return fail(command_error_detail_.empty()
-                    ? "第二预选赛 KFS 夹取命令收到 MCU 错误"
-                    : command_error_detail_);
+    RCLCPP_WARN(node_->get_logger(),
+                "第二预选赛 KFS 夹取命令 MCU 错误，按容错进入视觉验证：%s",
+                command_error_detail_.empty() ? "MCU final error"
+                                              : command_error_detail_.c_str());
+    return beginGrabVerify();
   }
   if (command_response_seen_.load(std::memory_order_relaxed)) {
     if (!command_accepted_.load(std::memory_order_relaxed)) {
-      return fail("第二预选赛 KFS 夹取命令 ACK 被拒绝");
+      RCLCPP_WARN(node_->get_logger(),
+                  "第二预选赛 KFS 夹取命令未被接受，按容错进入视觉验证");
+      return beginGrabVerify();
     }
     const int seq = command_seq_.load(std::memory_order_relaxed);
     RCLCPP_INFO(node_->get_logger(),
@@ -1660,7 +1708,9 @@ BT::NodeStatus SecondPreselectionKfsPickupAction::tickWaitingPickupAck() {
     return BT::NodeStatus::RUNNING;
   }
   if (elapsedSec(phase_tp_) > params_.command_timeout_s) {
-    return fail("第二预选赛等待 KFS 夹取命令 ACK 超时");
+    RCLCPP_WARN(node_->get_logger(),
+                "第二预选赛 KFS 夹取命令 ACK 超时，按容错进入视觉验证");
+    return beginGrabVerify();
   }
   return BT::NodeStatus::RUNNING;
 }
@@ -1670,9 +1720,11 @@ BT::NodeStatus SecondPreselectionKfsPickupAction::tickWaitingPickupDone() {
   publishStop();
   const int seq = command_seq_.load(std::memory_order_relaxed);
   if (command_error_seen_.load(std::memory_order_relaxed)) {
-    return fail(command_error_detail_.empty()
-                    ? "第二预选赛 KFS 夹取命令收到 MCU 错误"
-                    : command_error_detail_);
+    RCLCPP_WARN(node_->get_logger(),
+                "第二预选赛 KFS 夹取完成等待收到 MCU 错误，按容错进入视觉验证：%s",
+                command_error_detail_.empty() ? "MCU final error"
+                                              : command_error_detail_.c_str());
+    return beginGrabVerify();
   }
   if (command_done_feedback_seen_.load(std::memory_order_relaxed)) {
     RCLCPP_INFO(node_->get_logger(),
@@ -1681,9 +1733,10 @@ BT::NodeStatus SecondPreselectionKfsPickupAction::tickWaitingPickupDone() {
     return beginGrabVerify();
   }
   if (elapsedSec(phase_tp_) > params_.done_timeout_s) {
-    return fail("等待第二预选赛 KFS 夹取完成反馈超时：feedback=" +
-                byteHex(params_.pickup_done_feedback_id) +
-                " seq=" + std::to_string(seq));
+    RCLCPP_WARN(node_->get_logger(),
+                "第二预选赛 KFS 夹取完成反馈超时，按容错进入视觉验证：feedback=%s seq=%d",
+                byteHex(params_.pickup_done_feedback_id).c_str(), seq);
+    return beginGrabVerify();
   }
   if (elapsedSec(last_log_tp_) >= params_.log_period_s) {
     const bool busy_seen = command_busy_seen_.load(std::memory_order_relaxed);
@@ -3312,23 +3365,18 @@ SecondPreselectionClimbPlacePreloadPickupAction::onStart() {
       params_.cmd_vel_topic, rclcpp::QoS(10));
   send_client_ =
       node_->create_client<SendCommandSrv>(params_.send_command_service);
-  feedback_sub_ = node_->create_subscription<FeedbackMsg>(
-      params_.feedback_topic, rclcpp::QoS(32).reliable(),
-      [this](const FeedbackMsg::SharedPtr msg) { handleFeedback(msg); });
-  if (!cmd_pub_ || !send_client_ || !feedback_sub_) {
+  if (!cmd_pub_ || !send_client_) {
     return fail("第二预选赛树首预装 KFS 夹取 ROS 资源创建失败");
   }
 
   command_generation_.fetch_add(1, std::memory_order_relaxed);
   phase_ = Phase::Sending;
   phase_tp_ = std::chrono::steady_clock::now();
-  last_log_tp_ = phase_tp_;
   publishStop();
   RCLCPP_INFO(
       node_->get_logger(),
-      "第二预选赛树首预装 KFS 夹取启动: command=%s done=%s",
-      byteHex(params_.climb_place_preload_pickup_command_id).c_str(),
-      byteHex(params_.climb_place_preload_pickup_done_feedback_id).c_str());
+      "第二预选赛树首预装 KFS 夹取启动: command=%s，只等待通用 ACK，不等待 0x14",
+      byteHex(params_.climb_place_preload_pickup_command_id).c_str());
   return BT::NodeStatus::RUNNING;
 }
 
@@ -3338,11 +3386,6 @@ SecondPreselectionClimbPlacePreloadPickupAction::onRunning() {
     return BT::NodeStatus::FAILURE;
   }
   publishStop();
-  if (command_error_seen_.load(std::memory_order_relaxed)) {
-    return fail(command_error_detail_.empty()
-                    ? "树首预装 KFS 夹取收到机构错误"
-                    : command_error_detail_);
-  }
 
   switch (phase_) {
   case Phase::Sending:
@@ -3353,49 +3396,34 @@ SecondPreselectionClimbPlacePreloadPickupAction::onRunning() {
       phase_ = Phase::WaitingAck;
       phase_tp_ = std::chrono::steady_clock::now();
     } else if (phaseElapsed() > params_.command_timeout_s) {
-      return fail("等待树首预装 KFS 夹取服务可用超时");
+      RCLCPP_WARN(node_->get_logger(),
+                  "树首预装 KFS 夹取服务等待超时，按容错直接进入 Odom 路线");
+      clearRuntimeState();
+      return BT::NodeStatus::SUCCESS;
     }
     return BT::NodeStatus::RUNNING;
 
   case Phase::WaitingAck:
     if (rejected_.load(std::memory_order_relaxed)) {
-      return fail("树首预装 KFS 夹取命令被拒绝");
-    }
-    if (response_seen_.load(std::memory_order_relaxed) &&
-        accepted_.load(std::memory_order_relaxed)) {
-      phase_ = Phase::WaitingDone;
-      phase_tp_ = std::chrono::steady_clock::now();
-      last_log_tp_ = phase_tp_;
-      RCLCPP_INFO(
-          node_->get_logger(),
-          "第二预选赛树首预装 KFS 夹取 ACK，等待同 seq %s",
-          byteHex(params_.climb_place_preload_pickup_done_feedback_id).c_str());
-      return BT::NodeStatus::RUNNING;
-    }
-    if (phaseElapsed() > params_.command_timeout_s) {
-      return fail("等待树首预装 KFS 夹取 ACK 超时");
-    }
-    return BT::NodeStatus::RUNNING;
-
-  case Phase::WaitingDone:
-    if (done_seen_.load(std::memory_order_relaxed)) {
-      RCLCPP_INFO(node_->get_logger(),
-                  "第二预选赛树首预装 KFS 夹取完成，开始上阶路线");
-      phase_ = Phase::Done;
+      RCLCPP_WARN(node_->get_logger(),
+                  "树首预装 KFS 夹取命令未被接受，按容错直接进入 Odom 路线");
       clearRuntimeState();
       return BT::NodeStatus::SUCCESS;
     }
-    if (phaseElapsed() > params_.done_timeout_s) {
-      return fail("等待树首预装 KFS 夹取完成反馈超时");
-    }
-    if (elapsedSec(last_log_tp_) >= params_.log_period_s) {
+    if (response_seen_.load(std::memory_order_relaxed) &&
+        accepted_.load(std::memory_order_relaxed)) {
       RCLCPP_INFO(
           node_->get_logger(),
-          "第二预选赛树首等待预装 KFS 夹取完成: feedback=%s seq=%d busy=%s",
-          byteHex(params_.climb_place_preload_pickup_done_feedback_id).c_str(),
-          command_seq_.load(std::memory_order_relaxed),
-          command_busy_seen_.load(std::memory_order_relaxed) ? "是" : "否");
-      last_log_tp_ = std::chrono::steady_clock::now();
+          "第二预选赛树首预装 KFS 夹取 ACK，立即进入 Odom 路线，seq=%d",
+          command_seq_.load(std::memory_order_relaxed));
+      clearRuntimeState();
+      return BT::NodeStatus::SUCCESS;
+    }
+    if (phaseElapsed() > params_.command_timeout_s) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "树首预装 KFS 夹取 ACK 等待超时，按容错直接进入 Odom 路线");
+      clearRuntimeState();
+      return BT::NodeStatus::SUCCESS;
     }
     return BT::NodeStatus::RUNNING;
 
@@ -3464,43 +3492,20 @@ bool SecondPreselectionClimbPlacePreloadPickupAction::sendCommand() {
           response_seen_.store(true, std::memory_order_relaxed);
         });
   } catch (const std::exception &e) {
-    command_error_detail_ =
-        std::string("树首预装 KFS 夹取命令发送异常: ") + e.what();
-    command_error_seen_.store(true, std::memory_order_relaxed);
+    RCLCPP_WARN(node_->get_logger(),
+                "树首预装 KFS 夹取命令发送异常，按容错继续：%s",
+                e.what());
+    command_sent_ = true;
+    response_seen_.store(true, std::memory_order_relaxed);
+    rejected_.store(true, std::memory_order_relaxed);
     return true;
   }
   command_sent_ = true;
   RCLCPP_INFO(
       node_->get_logger(),
-      "第二预选赛树首已下发预装 KFS 夹取: command=%s done=%s",
-      byteHex(params_.climb_place_preload_pickup_command_id).c_str(),
-      byteHex(params_.climb_place_preload_pickup_done_feedback_id).c_str());
+      "第二预选赛树首已下发预装 KFS 夹取: command=%s，等待通用 ACK",
+      byteHex(params_.climb_place_preload_pickup_command_id).c_str());
   return true;
-}
-
-void SecondPreselectionClimbPlacePreloadPickupAction::handleFeedback(
-    const FeedbackMsg::SharedPtr msg) {
-  if (!msg) {
-    return;
-  }
-  const int seq = command_seq_.load(std::memory_order_relaxed);
-  std::optional<MechanismErrorDiagnostic> diagnostic;
-  if (isSameSeqMechanismError(*msg, seq, diagnostic)) {
-    const std::string detail = mechanismErrorDiagnosticText(*diagnostic);
-    if (diagnostic->busy) {
-      command_busy_seen_.store(true, std::memory_order_relaxed);
-    } else {
-      command_error_detail_ = detail;
-      command_error_seen_.store(true, std::memory_order_relaxed);
-    }
-    return;
-  }
-  if (seq >= 0 && msg->seq == static_cast<uint8_t>(seq & 0xFF) &&
-      msg->feedback_id == static_cast<uint8_t>(
-                              params_.climb_place_preload_pickup_done_feedback_id &
-                              0xFF)) {
-    done_seen_.store(true, std::memory_order_relaxed);
-  }
 }
 
 void SecondPreselectionClimbPlacePreloadPickupAction::publishStop() {
@@ -3514,15 +3519,10 @@ void SecondPreselectionClimbPlacePreloadPickupAction::clearRuntimeState() {
   command_generation_.fetch_add(1, std::memory_order_relaxed);
   cmd_pub_.reset();
   send_client_.reset();
-  feedback_sub_.reset();
   response_seen_ = false;
   accepted_ = false;
   rejected_ = false;
-  done_seen_ = false;
-  command_error_seen_ = false;
-  command_busy_seen_ = false;
   command_seq_ = -1;
-  command_error_detail_.clear();
   command_sent_ = false;
   phase_ = Phase::Done;
   node_ = nullptr;
@@ -3589,9 +3589,20 @@ BT::NodeStatus SecondPreselectionRearRetractPlaceAction::onRunning() {
     return BT::NodeStatus::FAILURE;
   }
   if (command_error_seen_.load(std::memory_order_relaxed)) {
-    return fail(command_error_detail_.empty()
-                    ? "第二预选赛独立收尾收到机构错误"
-                    : command_error_detail_);
+    RCLCPP_WARN(node_->get_logger(),
+                "第二预选赛独立收尾收到机构错误，按容错继续：phase=%d reason=%s",
+                static_cast<int>(phase_),
+                command_error_detail_.empty() ? "MCU final error"
+                                              : command_error_detail_.c_str());
+    command_error_seen_.store(false, std::memory_order_relaxed);
+    command_error_detail_.clear();
+    if (phase_ == Phase::SendFinalPlace ||
+        phase_ == Phase::WaitFinalPlaceAck) {
+      clearRuntimeState();
+      return BT::NodeStatus::SUCCESS;
+    }
+    phase_ = Phase::WaitFinalDelay;
+    phase_tp_ = std::chrono::steady_clock::now();
   }
 
   switch (phase_) {
@@ -3604,14 +3615,21 @@ BT::NodeStatus SecondPreselectionRearRetractPlaceAction::onRunning() {
       phase_ = Phase::WaitRearRetractAck;
       phase_tp_ = std::chrono::steady_clock::now();
     } else if (phaseElapsed() > params_.command_timeout_s) {
-      return fail("等待后推杆收回服务可用超时");
+      RCLCPP_WARN(node_->get_logger(),
+                  "等待后推杆收回服务可用超时，按容错继续最终延时");
+      phase_ = Phase::WaitFinalDelay;
+      phase_tp_ = std::chrono::steady_clock::now();
     }
     return BT::NodeStatus::RUNNING;
 
   case Phase::WaitRearRetractAck:
     publishStop();
     if (commandRejected(rear_retract_command_)) {
-      return fail("后推杆收回命令被拒绝");
+      RCLCPP_WARN(node_->get_logger(),
+                  "后推杆收回命令未被接受，按容错继续最终延时");
+      phase_ = Phase::WaitFinalDelay;
+      phase_tp_ = std::chrono::steady_clock::now();
+      return BT::NodeStatus::RUNNING;
     }
     if (commandAcked(rear_retract_command_)) {
       phase_ = Phase::WaitFinalDelay;
@@ -3623,7 +3641,10 @@ BT::NodeStatus SecondPreselectionRearRetractPlaceAction::onRunning() {
       return BT::NodeStatus::RUNNING;
     }
     if (phaseElapsed() > params_.command_timeout_s) {
-      return fail("等待后推杆收回 ACK 超时");
+      RCLCPP_WARN(node_->get_logger(),
+                  "等待后推杆收回 ACK 超时，按容错继续最终延时");
+      phase_ = Phase::WaitFinalDelay;
+      phase_tp_ = std::chrono::steady_clock::now();
     }
     return BT::NodeStatus::RUNNING;
 
@@ -3654,14 +3675,20 @@ BT::NodeStatus SecondPreselectionRearRetractPlaceAction::onRunning() {
       phase_ = Phase::WaitFinalPlaceAck;
       phase_tp_ = std::chrono::steady_clock::now();
     } else if (phaseElapsed() > params_.command_timeout_s) {
-      return fail("等待最终 0x13 服务可用超时");
+      RCLCPP_WARN(node_->get_logger(),
+                  "等待最终 0x13 服务可用超时，按容错结束目标树");
+      clearRuntimeState();
+      return BT::NodeStatus::SUCCESS;
     }
     return BT::NodeStatus::RUNNING;
 
   case Phase::WaitFinalPlaceAck:
     publishStop();
     if (commandRejected(final_place_command_)) {
-      return fail("最终 0x13 命令被拒绝");
+      RCLCPP_WARN(node_->get_logger(),
+                  "最终 0x13 命令未被接受，按容错结束目标树");
+      clearRuntimeState();
+      return BT::NodeStatus::SUCCESS;
     }
     if (commandAcked(final_place_command_)) {
       phase_ = Phase::Done;
@@ -3669,7 +3696,10 @@ BT::NodeStatus SecondPreselectionRearRetractPlaceAction::onRunning() {
       return BT::NodeStatus::SUCCESS;
     }
     if (phaseElapsed() > params_.command_timeout_s) {
-      return fail("等待最终 0x13 ACK 超时");
+      RCLCPP_WARN(node_->get_logger(),
+                  "等待最终 0x13 ACK 超时，按容错结束目标树");
+      clearRuntimeState();
+      return BT::NodeStatus::SUCCESS;
     }
     return BT::NodeStatus::RUNNING;
 
@@ -3906,9 +3936,33 @@ BT::NodeStatus SecondPreselectionPostPlaceClimbAction::onRunning() {
     return BT::NodeStatus::FAILURE;
   }
   if (command_error_seen_.load(std::memory_order_relaxed)) {
-    return fail(command_error_detail_.empty()
-                    ? "第二预选赛放置后流程收到机构错误"
-                    : command_error_detail_);
+    RCLCPP_WARN(node_->get_logger(),
+                "第二预选赛放置后流程收到机构错误，按容错推进：phase=%d reason=%s",
+                static_cast<int>(phase_),
+                command_error_detail_.empty() ? "MCU final error"
+                                              : command_error_detail_.c_str());
+    command_error_seen_.store(false, std::memory_order_relaxed);
+    command_error_detail_.clear();
+    if (phase_ == Phase::SendFrontExtendAndPreloadPickup ||
+        phase_ == Phase::WaitFrontExtendSettleAndPreloadDone) {
+      front_extend_ack_tp_ = std::chrono::steady_clock::now();
+      front_extend_settle_started_ = true;
+      command_b_.done_seen.store(true, std::memory_order_relaxed);
+      phase_ = Phase::WaitFrontExtendSettleAndPreloadDone;
+      phase_tp_ = std::chrono::steady_clock::now();
+    } else if (phase_ == Phase::SendFrontRetractAndRearExtend ||
+               phase_ == Phase::WaitFrontRetractAndRearExtendAck) {
+      phase_ = Phase::HoldAfterFrontRetractAndRearExtend;
+      phase_tp_ = std::chrono::steady_clock::now();
+    } else if (phase_ == Phase::SendRearRetract ||
+               phase_ == Phase::WaitRearRetractAck) {
+      phase_ = Phase::HoldAfterRearRetract;
+      phase_tp_ = std::chrono::steady_clock::now();
+    } else if (phase_ == Phase::SendFinalPlace ||
+               phase_ == Phase::WaitFinalPlaceAck) {
+      clearRuntimeState();
+      return BT::NodeStatus::SUCCESS;
+    }
   }
 
   switch (phase_) {
@@ -3927,18 +3981,36 @@ BT::NodeStatus SecondPreselectionPostPlaceClimbAction::onRunning() {
       return BT::NodeStatus::RUNNING;
     }
     if (phaseElapsed() > params_.command_timeout_s) {
-      return fail("等待放置后并发机构命令服务可用超时");
+      RCLCPP_WARN(node_->get_logger(),
+                  "放置后并发机构命令服务超时，按容错进入前推杆稳定等待");
+      front_extend_ack_tp_ = std::chrono::steady_clock::now();
+      front_extend_settle_started_ = true;
+      command_b_.done_seen.store(true, std::memory_order_relaxed);
+      phase_ = Phase::WaitFrontExtendSettleAndPreloadDone;
+      phase_tp_ = std::chrono::steady_clock::now();
     }
     return BT::NodeStatus::RUNNING;
 
   case Phase::WaitFrontExtendSettleAndPreloadDone: {
     publishStop();
     if (commandRejected(command_a_) || commandRejected(command_b_)) {
-      return fail("放置后并发机构命令被拒绝");
+      RCLCPP_WARN(node_->get_logger(),
+                  "放置后并发机构命令未被接受，按容错进入前推杆稳定等待");
+      if (!front_extend_settle_started_) {
+        front_extend_ack_tp_ = std::chrono::steady_clock::now();
+        front_extend_settle_started_ = true;
+      }
+      command_b_.done_seen.store(true, std::memory_order_relaxed);
     }
     if (phaseElapsed() > params_.command_timeout_s &&
         (!commandAcked(command_a_) || !commandAcked(command_b_))) {
-      return fail("等待放置后并发机构命令 ACK 超时");
+      RCLCPP_WARN(node_->get_logger(),
+                  "等待放置后并发机构命令 ACK 超时，按容错进入前推杆稳定等待");
+      if (!front_extend_settle_started_) {
+        front_extend_ack_tp_ = std::chrono::steady_clock::now();
+        front_extend_settle_started_ = true;
+      }
+      command_b_.done_seen.store(true, std::memory_order_relaxed);
     }
     if (commandAcked(command_a_) && !front_extend_settle_started_) {
       front_extend_ack_tp_ = std::chrono::steady_clock::now();
@@ -3957,7 +4029,10 @@ BT::NodeStatus SecondPreselectionPostPlaceClimbAction::onRunning() {
                  params_.command_timeout_s +
                      params_.post_place_front_pushrod_extend_settle_s);
     if (phaseElapsed() > post_place_wait_timeout_s) {
-      return fail("等待预装 KFS 夹取完成 0x14 或前推杆延时超时");
+      RCLCPP_WARN(node_->get_logger(),
+                  "等待预装 KFS 夹取完成 0x14 或前推杆延时超时，按容错等待人工前激光");
+      beginManualFrontLaserWait();
+      return BT::NodeStatus::RUNNING;
     }
     if (elapsedSec(last_log_tp_) >= params_.log_period_s) {
       RCLCPP_INFO(
@@ -4002,14 +4077,21 @@ BT::NodeStatus SecondPreselectionPostPlaceClimbAction::onRunning() {
       phase_ = Phase::WaitFrontRetractAndRearExtendAck;
       phase_tp_ = std::chrono::steady_clock::now();
     } else if (phaseElapsed() > params_.command_timeout_s) {
-      return fail("等待前推杆收回和后推杆伸出服务可用超时");
+      RCLCPP_WARN(node_->get_logger(),
+                  "前推杆收回和后推杆伸出服务超时，按容错进入稳定等待");
+      phase_ = Phase::HoldAfterFrontRetractAndRearExtend;
+      phase_tp_ = std::chrono::steady_clock::now();
     }
     return BT::NodeStatus::RUNNING;
 
   case Phase::WaitFrontRetractAndRearExtendAck:
     publishStop();
     if (commandRejected(command_a_) || commandRejected(command_b_)) {
-      return fail("前推杆收回或后推杆伸出命令被拒绝");
+      RCLCPP_WARN(node_->get_logger(),
+                  "前推杆收回或后推杆伸出命令未被接受，按容错进入稳定等待");
+      phase_ = Phase::HoldAfterFrontRetractAndRearExtend;
+      phase_tp_ = std::chrono::steady_clock::now();
+      return BT::NodeStatus::RUNNING;
     }
     if (commandAcked(command_a_) && commandAcked(command_b_)) {
       phase_ = Phase::HoldAfterFrontRetractAndRearExtend;
@@ -4017,7 +4099,10 @@ BT::NodeStatus SecondPreselectionPostPlaceClimbAction::onRunning() {
       return BT::NodeStatus::RUNNING;
     }
     if (phaseElapsed() > params_.command_timeout_s) {
-      return fail("等待前推杆收回和后推杆伸出 ACK 超时");
+      RCLCPP_WARN(node_->get_logger(),
+                  "等待前推杆收回和后推杆伸出 ACK 超时，按容错进入稳定等待");
+      phase_ = Phase::HoldAfterFrontRetractAndRearExtend;
+      phase_tp_ = std::chrono::steady_clock::now();
     }
     return BT::NodeStatus::RUNNING;
 
@@ -4052,14 +4137,21 @@ BT::NodeStatus SecondPreselectionPostPlaceClimbAction::onRunning() {
       phase_ = Phase::WaitRearRetractAck;
       phase_tp_ = std::chrono::steady_clock::now();
     } else if (phaseElapsed() > params_.command_timeout_s) {
-      return fail("等待后推杆收回服务可用超时");
+      RCLCPP_WARN(node_->get_logger(),
+                  "等待后推杆收回服务可用超时，按容错进入稳定等待");
+      phase_ = Phase::HoldAfterRearRetract;
+      phase_tp_ = std::chrono::steady_clock::now();
     }
     return BT::NodeStatus::RUNNING;
 
   case Phase::WaitRearRetractAck:
     publishStop();
     if (commandRejected(command_a_)) {
-      return fail("后推杆收回命令被拒绝");
+      RCLCPP_WARN(node_->get_logger(),
+                  "后推杆收回命令未被接受，按容错进入稳定等待");
+      phase_ = Phase::HoldAfterRearRetract;
+      phase_tp_ = std::chrono::steady_clock::now();
+      return BT::NodeStatus::RUNNING;
     }
     if (commandAcked(command_a_)) {
       phase_ = Phase::HoldAfterRearRetract;
@@ -4067,7 +4159,10 @@ BT::NodeStatus SecondPreselectionPostPlaceClimbAction::onRunning() {
       return BT::NodeStatus::RUNNING;
     }
     if (phaseElapsed() > params_.command_timeout_s) {
-      return fail("等待后推杆收回 ACK 超时");
+      RCLCPP_WARN(node_->get_logger(),
+                  "等待后推杆收回 ACK 超时，按容错进入稳定等待");
+      phase_ = Phase::HoldAfterRearRetract;
+      phase_tp_ = std::chrono::steady_clock::now();
     }
     return BT::NodeStatus::RUNNING;
 
@@ -4094,14 +4189,20 @@ BT::NodeStatus SecondPreselectionPostPlaceClimbAction::onRunning() {
       phase_ = Phase::WaitFinalPlaceAck;
       phase_tp_ = std::chrono::steady_clock::now();
     } else if (phaseElapsed() > params_.command_timeout_s) {
-      return fail("等待最终放置命令服务可用超时");
+      RCLCPP_WARN(node_->get_logger(),
+                  "等待最终放置命令服务可用超时，按容错结束流程");
+      clearRuntimeState();
+      return BT::NodeStatus::SUCCESS;
     }
     return BT::NodeStatus::RUNNING;
 
   case Phase::WaitFinalPlaceAck:
     publishStop();
     if (commandRejected(command_a_)) {
-      return fail("最终放置命令被拒绝");
+      RCLCPP_WARN(node_->get_logger(),
+                  "最终放置命令未被接受，按容错结束流程");
+      clearRuntimeState();
+      return BT::NodeStatus::SUCCESS;
     }
     if (commandAcked(command_a_)) {
       phase_ = Phase::Done;
@@ -4109,7 +4210,10 @@ BT::NodeStatus SecondPreselectionPostPlaceClimbAction::onRunning() {
       return BT::NodeStatus::SUCCESS;
     }
     if (phaseElapsed() > params_.command_timeout_s) {
-      return fail("等待最终放置命令 ACK 超时");
+      RCLCPP_WARN(node_->get_logger(),
+                  "等待最终放置命令 ACK 超时，按容错结束流程");
+      clearRuntimeState();
+      return BT::NodeStatus::SUCCESS;
     }
     return BT::NodeStatus::RUNNING;
 

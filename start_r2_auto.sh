@@ -101,6 +101,28 @@ print(str(value).strip())
 PY
 }
 
+yaml_decision_parameter_value() {
+  local file="$1"
+  local key="$2"
+  python3 - "$file" "$key" <<'PY'
+import sys
+import yaml
+
+path, key = sys.argv[1], sys.argv[2]
+with open(path, "r", encoding="utf-8") as f:
+    data = yaml.safe_load(f) or {}
+decision = ((data.get("r2_runtime") or {}).get("decision") or {})
+params = decision.get("ros__parameters") or {}
+value = params.get(key, "")
+if value is None:
+    value = ""
+if isinstance(value, bool):
+    print("true" if value else "false")
+else:
+    print(str(value).strip())
+PY
+}
+
 yaml_side_value() {
   local file="$1"
   local key="$2"
@@ -258,6 +280,16 @@ if [[ -n "${runtime_config_file}" && ! -f "${runtime_config_file}" ]]; then
   exit 1
 fi
 
+effective_runtime_config="${selected_runtime_config}"
+if [[ -n "${runtime_config_file}" ]]; then
+  effective_runtime_config="${runtime_config_file}"
+fi
+startup_wait_for_odom="$(yaml_decision_parameter_value \
+  "${effective_runtime_config}" "startup_wait_for_odom" | tr '[:upper:]' '[:lower:]')"
+if [[ -z "${startup_wait_for_odom}" ]]; then
+  startup_wait_for_odom="true"
+fi
+
 for arg in "${extra_launch_args[@]}"; do
   if [[ "${arg}" != *:=* ]]; then
     echo "Invalid --extra-launch-arg: ${arg}. Expected name:=value." >&2
@@ -314,6 +346,7 @@ print_summary() {
     echo "Runtime config override: ${runtime_config_file}"
   fi
   echo "RealSense D455: ${use_realsense}"
+  echo "Startup odom gate: ${startup_wait_for_odom} (OdomDrive actions still require fresh odom)"
   echo "Startup ready 0x20 notify: ${use_realsense} (override via --extra-launch-arg startup_ready_notify_enable:=false)"
   echo "RViz2: ${use_rviz}"
   echo "Recover Mid-360 stream: ${recover_mid360_stream}"

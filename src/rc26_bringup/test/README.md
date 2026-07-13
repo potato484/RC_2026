@@ -50,7 +50,7 @@ ros2 launch rc26_bringup bringup.launch.py \
   use_rviz:=false
 ```
 
-预期节点包含 odometry 相关节点、`/rc26_decision` 和 `rc26_mcu_transport`。预期 topic 至少包含 `/odom` 与 `/cmd_vel`。导航模式下 odometry 会以 `start_sensor_scan:=false` 装配，决策节点会等待 `/odom` 连续新鲜且低速稳定后再 tick 行为树。
+预期节点包含 odometry 相关节点、`/rc26_decision` 和 `rc26_mcu_transport`。预期 topic 至少包含 `/odom` 与 `/cmd_vel`。导航模式下 odometry 会以 `start_sensor_scan:=false` 装配；标准红/蓝配置的 `startup_wait_for_odom=false`，决策节点会立即 tick 行为树。进入 `OdomDriveX/Y` 等闭环动作后仍需新鲜 `/odom`，无 odom 时不会盲发运动速度。
 
 ### Grid Heading 正式入口
 

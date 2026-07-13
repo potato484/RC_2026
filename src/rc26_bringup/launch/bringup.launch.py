@@ -86,6 +86,12 @@ def _select_abs_path(context, name, default_value):
     return value
 
 
+def _resolve_startup_wait_for_odom(runtime_defaults, navigation_mode):
+    configured = runtime_defaults.get('decision_params', {}).get(
+        'startup_wait_for_odom', navigation_mode)
+    return _parse_bool(configured) if isinstance(configured, str) else bool(configured)
+
+
 def _read_run_mode(context):
     if 'slam' in context.launch_configurations:
         raise RuntimeError(
@@ -455,7 +461,8 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, mcu_
         decision_params.pop('startup_odom_stable_samples', None)
         decision_params.pop('startup_odom_max_linear_speed_mps', None)
         decision_params.pop('startup_odom_max_angular_speed_radps', None)
-        startup_wait_for_odom = bool(navigation_mode)
+        startup_wait_for_odom = _resolve_startup_wait_for_odom(
+            runtime_defaults, navigation_mode)
         startup_odom_topic = str(runtime_defaults['decision_params'].get(
             'startup_odom_topic', 'odom'))
         startup_odom_timeout_s = runtime_defaults['decision_params'].get(

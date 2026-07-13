@@ -124,6 +124,7 @@ private:
     std::atomic<bool> accepted{false};
     std::atomic<bool> rejected{false};
     std::atomic<int> seq{-1};
+    bool terminal_logged{false};
   };
   CommandSlot command_pair_[2];
   bool command_pair_active_{false};

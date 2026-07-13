@@ -823,7 +823,8 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload,
 
     std::lock_guard<std::mutex> cmd_lock(ack_command_mutex_);
 
-    // 重发机制：retry从0x00开始，步长1；纯 ACK 超时耗尽后触发重连，MCU 0xFE 耗尽后归因下位机。
+    // 重发机制：retry从0x00开始，步长1；纯 ACK 超时耗尽后保持当前串口连接，
+    // MCU 0xFE 耗尽后归因下位机。真实读写/EOF/心跳故障仍由各自路径触发重连。
     out_seq = nextSeq();
     bool saw_mcu_error = false;
     for (uint8_t retry = 0x00; retry <= MAX_RETRY_VALUE; ++retry) {
@@ -917,12 +918,13 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload,
         return false;
     }
 
-    // 所有重试失败（0x00-0x09共10次），触发串口重连
-    RCLCPP_ERROR(serialLogger(), "指令重发失败 cmd=0x%02X, 已达最大重试次数(0x09)，触发串口重连", cmd);
-
-    requestReconnect("ack_retry_exhausted");
-
-    setLastError("等待 ACK 超时：cmd=" + std::to_string(static_cast<int>(cmd)) + ", 已重试至0x09并触发重连");
+    // 纯机构 ACK 丢失不再等价于物理链路断开。调用方收到 false 后自行决定业务容错，
+    // 串口保持打开，避免一次机构反馈异常打断后续底盘和机构命令。
+    RCLCPP_ERROR(serialLogger(),
+                 "指令重发失败 cmd=0x%02X, 已达最大重试次数(0x09)，保持当前串口连接",
+                 cmd);
+    setLastError("等待 ACK 超时：cmd=" + std::to_string(static_cast<int>(cmd)) +
+                 ", 已重试至0x09，未触发串口重连");
     return false;
 }
 

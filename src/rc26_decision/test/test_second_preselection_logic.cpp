@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -82,6 +83,97 @@ std::filesystem::path secondPreselectionTreePath() {
 std::filesystem::path secondPreselectionClimbPlaceTreePath() {
   return std::filesystem::path(RC26_DECISION_SOURCE_DIR) / "behavior_trees" /
          "second_preselection_climb_place_tree.xml";
+}
+
+struct PreloadPickupRunResult {
+  BT::NodeStatus status{BT::NodeStatus::IDLE};
+  std::vector<uint8_t> commands;
+};
+
+PreloadPickupRunResult runClimbPlacePreloadPickup(bool provide_service,
+                                                  bool accepted) {
+  if (!rclcpp::ok()) {
+    int argc = 0;
+    char **argv = nullptr;
+    rclcpp::init(argc, argv);
+  }
+
+  static std::atomic<int> run_id{0};
+  const int id = run_id.fetch_add(1);
+  const std::string suffix = std::to_string(id);
+  const std::string service_name =
+      "/test/climb_place/preload_" + suffix + "/send_command";
+
+  auto decision_node = std::make_shared<rclcpp::Node>(
+      "second_preselection_preload_decision_" + suffix);
+  auto fake_transport = std::make_shared<rclcpp::Node>(
+      "second_preselection_preload_transport_" + suffix);
+
+  std::mutex commands_mutex;
+  std::vector<uint8_t> commands;
+  using SendCommandSrv =
+      rc26_interfaces::srv::SendMechanismTransportCommand;
+  rclcpp::Service<SendCommandSrv>::SharedPtr service;
+  if (provide_service) {
+    service = fake_transport->create_service<SendCommandSrv>(
+        service_name,
+        [&](const std::shared_ptr<SendCommandSrv::Request>,
+            std::shared_ptr<SendCommandSrv::Response> response) {
+          {
+            std::lock_guard<std::mutex> lock(commands_mutex);
+            commands.push_back(0x15);
+          }
+          response->accepted = accepted;
+          response->seq = 40;
+        });
+  }
+
+  BT::BehaviorTreeFactory factory;
+  rc26_decision::registerSecondPreselectionNodes(factory);
+  auto blackboard = BT::Blackboard::create();
+  rclcpp::Node *decision_node_ptr = decision_node.get();
+  blackboard->set("node", decision_node_ptr);
+  auto params = rc26_decision::SecondPreselectionParams{};
+  params.send_command_service = service_name;
+  params.command_timeout_s = 0.05;
+  params.log_period_s = 0.01;
+  blackboard->set("second_preselection_params", params);
+  auto tree = factory.createTreeFromText(
+      R"(<root BTCPP_format="4" main_tree_to_execute="TestTree">
+           <BehaviorTree ID="TestTree">
+             <SecondPreselectionClimbPlacePreloadPickup name="preload"/>
+           </BehaviorTree>
+         </root>)",
+      blackboard);
+
+  rclcpp::executors::MultiThreadedExecutor executor;
+  executor.add_node(decision_node);
+  executor.add_node(fake_transport);
+  std::thread spin_thread([&executor]() { executor.spin(); });
+
+  BT::NodeStatus status = BT::NodeStatus::IDLE;
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (std::chrono::steady_clock::now() < deadline &&
+         status != BT::NodeStatus::SUCCESS &&
+         status != BT::NodeStatus::FAILURE) {
+    status = tree.tickOnce();
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+
+  tree.haltTree();
+  executor.cancel();
+  spin_thread.join();
+  executor.remove_node(decision_node);
+  executor.remove_node(fake_transport);
+
+  PreloadPickupRunResult result;
+  result.status = status;
+  {
+    std::lock_guard<std::mutex> lock(commands_mutex);
+    result.commands = commands;
+  }
+  return result;
 }
 
 } // namespace
@@ -849,127 +941,25 @@ TEST(SecondPreselectionLogic,
 }
 
 TEST(SecondPreselectionLogic,
-     ClimbPlacePreloadPickupRunsFirstAndNeedsMatchingDone) {
-  if (!rclcpp::ok()) {
-    int argc = 0;
-    char **argv = nullptr;
-    rclcpp::init(argc, argv);
-  }
+     ClimbPlacePreloadPickupAckImmediatelyReleasesWithoutDone) {
+  const auto result = runClimbPlacePreloadPickup(true, true);
+  EXPECT_EQ(result.status, BT::NodeStatus::SUCCESS);
+  ASSERT_EQ(result.commands.size(), 1U);
+  EXPECT_EQ(result.commands.front(), 0x15);
+}
 
-  auto decision_node = std::make_shared<rclcpp::Node>(
-      "second_preselection_climb_place_preload_test");
-  auto fake_transport =
-      std::make_shared<rclcpp::Node>("second_preselection_preload_transport");
-  const std::string service_name = "/test/climb_place/preload/send_command";
-  const std::string feedback_topic =
-      "/test/climb_place/preload/command_feedback";
-  const std::string cmd_vel_topic = "/test/climb_place/preload/cmd_vel";
+TEST(SecondPreselectionLogic, ClimbPlacePreloadPickupRejectedStillContinues) {
+  const auto result = runClimbPlacePreloadPickup(true, false);
+  EXPECT_EQ(result.status, BT::NodeStatus::SUCCESS);
+  ASSERT_EQ(result.commands.size(), 1U);
+  EXPECT_EQ(result.commands.front(), 0x15);
+}
 
-  std::mutex commands_mutex;
-  std::vector<uint8_t> commands;
-  std::atomic<int> next_seq{40};
-  std::atomic<int> pickup_seq{-1};
-  auto service = fake_transport->create_service<
-      rc26_interfaces::srv::SendMechanismTransportCommand>(
-      service_name,
-      [&](const std::shared_ptr<
-              rc26_interfaces::srv::SendMechanismTransportCommand::Request>
-              request,
-          std::shared_ptr<
-              rc26_interfaces::srv::SendMechanismTransportCommand::Response>
-              response) {
-        const int seq = next_seq.fetch_add(1);
-        {
-          std::lock_guard<std::mutex> lock(commands_mutex);
-          commands.push_back(request->command_id);
-        }
-        if (request->command_id == 0x15) {
-          pickup_seq.store(seq);
-        }
-        response->accepted = true;
-        response->seq = static_cast<uint8_t>(seq & 0xFF);
-      });
-  ASSERT_TRUE(service != nullptr);
-  auto feedback_pub = fake_transport->create_publisher<
-      rc26_interfaces::msg::MechanismTransportFeedback>(feedback_topic,
-                                                        rclcpp::QoS(10));
-
-  rclcpp::executors::MultiThreadedExecutor executor;
-  executor.add_node(decision_node);
-  executor.add_node(fake_transport);
-  std::thread spin_thread([&executor]() { executor.spin(); });
-
-  BT::BehaviorTreeFactory factory;
-  rc26_decision::registerSecondPreselectionNodes(factory);
-  auto blackboard = BT::Blackboard::create();
-  rclcpp::Node *decision_node_ptr = decision_node.get();
-  blackboard->set("node", decision_node_ptr);
-  auto params = rc26_decision::SecondPreselectionParams{};
-  params.send_command_service = service_name;
-  params.feedback_topic = feedback_topic;
-  params.cmd_vel_topic = cmd_vel_topic;
-  params.command_timeout_s = 1.0;
-  params.done_timeout_s = 1.0;
-  params.log_period_s = 0.05;
-  blackboard->set("second_preselection_params", params);
-
-  auto tree = factory.createTreeFromText(
-      R"(<root BTCPP_format="4" main_tree_to_execute="TestTree">
-           <BehaviorTree ID="TestTree">
-             <SecondPreselectionClimbPlacePreloadPickup name="preload"/>
-           </BehaviorTree>
-         </root>)",
-      blackboard);
-
-  auto tick_for = [&](std::chrono::milliseconds duration) {
-    const auto deadline = std::chrono::steady_clock::now() + duration;
-    BT::NodeStatus status = BT::NodeStatus::IDLE;
-    while (std::chrono::steady_clock::now() < deadline &&
-           status != BT::NodeStatus::SUCCESS &&
-           status != BT::NodeStatus::FAILURE) {
-      status = tree.tickOnce();
-      std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
-    return status;
-  };
-
-  EXPECT_EQ(tick_for(std::chrono::milliseconds(250)),
-            BT::NodeStatus::RUNNING);
-  EXPECT_GE(pickup_seq.load(), 0);
-  {
-    std::lock_guard<std::mutex> lock(commands_mutex);
-    ASSERT_EQ(commands.size(), 1U);
-    EXPECT_EQ(commands.front(), 0x15);
-  }
-
-  rc26_interfaces::msg::MechanismTransportFeedback wrong_done;
-  wrong_done.seq = static_cast<uint8_t>((pickup_seq.load() + 1) & 0xFF);
-  wrong_done.feedback_id = 0x14;
-  feedback_pub->publish(wrong_done);
-  EXPECT_EQ(tick_for(std::chrono::milliseconds(150)),
-            BT::NodeStatus::RUNNING);
-  {
-    std::lock_guard<std::mutex> lock(commands_mutex);
-    EXPECT_EQ(commands.size(), 1U);
-  }
-
-  rc26_interfaces::msg::MechanismTransportFeedback correct_done;
-  correct_done.seq = static_cast<uint8_t>(pickup_seq.load() & 0xFF);
-  correct_done.feedback_id = 0x14;
-  feedback_pub->publish(correct_done);
-  EXPECT_EQ(tick_for(std::chrono::milliseconds(500)),
-            BT::NodeStatus::SUCCESS);
-  {
-    std::lock_guard<std::mutex> lock(commands_mutex);
-    ASSERT_EQ(commands.size(), 1U);
-    EXPECT_EQ(commands.front(), 0x15);
-  }
-
-  tree.haltTree();
-  executor.cancel();
-  spin_thread.join();
-  executor.remove_node(decision_node);
-  executor.remove_node(fake_transport);
+TEST(SecondPreselectionLogic,
+     ClimbPlacePreloadPickupServiceUnavailableStillContinues) {
+  const auto result = runClimbPlacePreloadPickup(false, false);
+  EXPECT_EQ(result.status, BT::NodeStatus::SUCCESS);
+  EXPECT_TRUE(result.commands.empty());
 }
 
 TEST(SecondPreselectionLogic,

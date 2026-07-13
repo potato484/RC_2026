@@ -17,6 +17,11 @@ if(BUILD_TESTING)
     test/test_startup_ready_notify_node.py
     TIMEOUT 60
   )
+  ament_add_pytest_test(
+    test_startup_odom_gate_config
+    test/test_startup_odom_gate_config.py
+    TIMEOUT 60
+  )
 endif()
 
 install(DIRECTORY

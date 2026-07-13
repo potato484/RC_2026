@@ -104,6 +104,7 @@ private:
     std::string grab_error_detail_;
     std::atomic<bool> waiting_for_limit_switch_{false};
     std::atomic<bool> limit_switch_triggered_{false};
+    std::chrono::steady_clock::time_point grab_command_start_tp_{};
     std::mutex odom_mutex_;
     bool has_odom_yaw_{false};
     double current_yaw_rad_{0.0};

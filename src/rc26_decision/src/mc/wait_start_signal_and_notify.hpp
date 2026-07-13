@@ -35,6 +35,8 @@ private:
 
     void handleFeedback(const FeedbackMsg::SharedPtr msg);
     bool sendStartCommand();
+    BT::NodeStatus completeStartHandshake(const std::string& reason,
+                                          bool tolerated);
     void resetRuntimeHandles();
     bool captureRegistrationReference();
     bool openCamera(cv::VideoCapture& camera, int index, const std::string& path) const;

@@ -47,13 +47,13 @@ BT::NodeStatus StairClimbAction::onRunning() {
     // 第一阶段：等待前推杆伸出命令被共享串口 transport 接受。
     switch (tickCommand()) {
     case StepStatus::Success:
-      // 前推杆命令 accepted 后，先零速等待机构到位；等待期间机器人不能移动。
+      // 前推杆命令进入成功或容错终态后，先零速等待机构到位；等待期间机器人不能移动。
       phase_ = Phase::HoldAfterFrontExtend;
       beginZeroHold(params_.climb_front_extend_delay_s,
                     "front_extend_settle");
       break;
     case StepStatus::Failure:
-      // 命令被拒绝或等待超时，发布零速并返回 FAILURE。
+      // 这里只保留运行上下文损坏等内部失败；机构拒绝或超时已由公共执行器容错完成。
       return failWithStop("FRONT_PUSHROD_EXTEND 命令失败");
     case StepStatus::Running:
       // service 尚未返回或尚未就绪，本 tick 不阻塞，继续 RUNNING。
@@ -128,7 +128,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
                     "front_retract_rear_extend_settle");
       break;
     case StepStatus::Failure:
-      // 任一组合命令失败时不再继续运动，防止机构姿态不确定。
+      // 这里只保留并发执行器内部状态损坏；机构拒绝或超时会按容错进入稳定等待。
       return failWithStop("FRONT_PUSHROD_RETRACT + REAR_PUSHROD_EXTEND 并发命令失败");
     case StepStatus::Running:
       break;
@@ -187,7 +187,7 @@ BT::NodeStatus StairClimbAction::onRunning() {
                     "rear_retract_settle");
       break;
     case StepStatus::Failure:
-      // 后推杆收回失败时仍然停车，并把动作结果报告为 FAILURE。
+      // 这里只保留执行器内部状态损坏；机构拒绝或超时会按容错进入收回稳定等待。
       return failWithStop("REAR_PUSHROD_RETRACT 命令失败");
     case StepStatus::Running:
       // 继续等待后推杆收回命令 accepted。

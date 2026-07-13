@@ -199,6 +199,21 @@ if(BUILD_TESTING)
   ament_add_gtest(test_straight_line_trajectory
     test/test_straight_line_trajectory.cpp
   )
+
+  ament_add_gtest(test_stair_command_tolerance
+    test/test_stair_command_tolerance.cpp
+  )
+  target_link_libraries(test_stair_command_tolerance
+    ${PROJECT_NAME}_nodes
+  )
+  ament_target_dependencies(test_stair_command_tolerance
+    behaviortree_cpp
+    geometry_msgs
+    nav_msgs
+    rclcpp
+    rc26_interfaces
+    rc26_serial
+  )
 endif()
 
 ament_package()

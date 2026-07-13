@@ -379,10 +379,11 @@ StairActionBase::StepStatus StairActionBase::tickCommand() {
   }
 
   if (command_error_seen_.load(std::memory_order_relaxed)) {
-    RCLCPP_WARN(node_->get_logger(), "%s: %s 收到 MCU 错误：%s",
+    RCLCPP_WARN(node_->get_logger(),
+                "%s: %s 收到 MCU 错误，按机构容错继续下一阶段：%s",
                 action_label_.c_str(), active_command_label_.c_str(),
                 command_error_detail_.c_str());
-    return StepStatus::Failure;
+    return StepStatus::Success;
   }
 
   // 如果异步 service 回调已经写入结果，本 tick 直接把结果映射成阶段状态。
@@ -395,19 +396,22 @@ StairActionBase::StepStatus StairActionBase::tickCommand() {
                   commandSeqText(seq).c_str());
       return StepStatus::Success;
     }
-    // accepted=false 表示 service 拒绝或回调异常，状态机应停车失败。
-    RCLCPP_WARN(node_->get_logger(), "%s: %s 被拒绝 seq=%s",
+    // accepted=false 表示 ACK 重试耗尽、串口暂不可用、service 拒绝或回调异常。
+    // 机构通信失败只告警并按本步骤结束继续，不扩散为整棵行为树失败。
+    RCLCPP_WARN(node_->get_logger(),
+                "%s: %s 未被接受 seq=%s，按机构容错继续下一阶段",
                 action_label_.c_str(), active_command_label_.c_str(),
                 commandSeqText(seq).c_str());
-    return StepStatus::Failure;
+    return StepStatus::Success;
   }
 
-  // 如果从 beginCommand() 到现在超过命令超时，也视为失败。
+  // 如果从 beginCommand() 到现在超过命令超时，按机构容错结束本步骤。
   if (elapsedSinceStageStart() > params_.command_timeout_s) {
-    RCLCPP_WARN(node_->get_logger(), "%s: %s 超时 %.2fs",
+    RCLCPP_WARN(node_->get_logger(),
+                "%s: %s 超时 %.2fs，按机构容错继续下一阶段",
                 action_label_.c_str(), active_command_label_.c_str(),
                 params_.command_timeout_s);
-    return StepStatus::Failure;
+    return StepStatus::Success;
   }
 
   // command_sent_=false 表示本阶段还没有真正发出 service 请求。
@@ -432,7 +436,7 @@ StairActionBase::StepStatus StairActionBase::tickCommand() {
     const uint64_t token =
         command_generation_.load(std::memory_order_relaxed);
 
-    // async_send_request 本身可能抛异常，因此用 try/catch 把异常收敛成阶段失败。
+    // async_send_request 本身可能抛异常，因此用 try/catch 把异常收敛成机构容错终态。
     try {
       // 异步发送 service，避免在 BT tick 线程里阻塞等待 MCU ACK。
       send_client_->async_send_request(
@@ -446,7 +450,7 @@ StairActionBase::StepStatus StairActionBase::tickCommand() {
             try {
               // 获取 service response。
               const auto response = future.get();
-              // accepted=true 是本状态机推进到下一阶段的唯一命令成功条件。
+              // accepted=true 记录真实 ACK；accepted=false 由主 tick 作为容错终态推进。
               const bool accepted = response && response->accepted;
               if (response) {
                 command_seq_.store(static_cast<int>(response->seq),
@@ -457,7 +461,7 @@ StairActionBase::StepStatus StairActionBase::tickCommand() {
               // 写入 rejected 标志，主要用于调试和状态完整性。
               command_rejected_.store(!accepted, std::memory_order_relaxed);
             } catch (const std::exception &) {
-              // 回调异常时当作命令失败。
+              // 回调异常时记录为未接受，主 tick 会按机构容错结束本步骤。
               command_accepted_.store(false, std::memory_order_relaxed);
               // 标记 rejected，保持状态一致。
               command_rejected_.store(true, std::memory_order_relaxed);
@@ -466,11 +470,11 @@ StairActionBase::StepStatus StairActionBase::tickCommand() {
             command_response_seen_.store(true, std::memory_order_relaxed);
           });
     } catch (const std::exception &e) {
-      // service 调用本身失败，立即返回 Failure。
-      RCLCPP_WARN(node_->get_logger(), "%s: %s async_send_request 失败: %s",
+      RCLCPP_WARN(node_->get_logger(),
+                  "%s: %s async_send_request 失败，按机构容错继续下一阶段: %s",
                   action_label_.c_str(), active_command_label_.c_str(),
                   e.what());
-      return StepStatus::Failure;
+      return StepStatus::Success;
     }
     // 标记本阶段已经发出请求；之后 tick 只等待回调或超时，不重复发送。
     command_sent_ = true;
@@ -481,7 +485,7 @@ StairActionBase::StepStatus StairActionBase::tickCommand() {
   return StepStatus::Running;
 }
 
-// beginCommandPair() 开始一个“同一 tick 连续下发两条推杆命令并等待都 accepted”的阶段。
+// beginCommandPair() 开始一个“同一 tick 连续下发两条推杆命令并等待各自终态”的阶段。
 void StairActionBase::beginCommandPair(CommandID first_command_id,
                                        const char *first_label,
                                        CommandID second_command_id,
@@ -510,37 +514,40 @@ void StairActionBase::beginCommandPair(CommandID first_command_id,
   }
 }
 
-// tickCommandPair() 推进双命令阶段：同一 tick 发送两条异步请求，等待两条都 accepted。
+// tickCommandPair() 推进双命令阶段：同一 tick 发送两条异步请求，等待两条成功或容错终态。
 StairActionBase::StepStatus StairActionBase::tickCommandPair() {
   if (!node_ || !send_client_ || !command_pair_active_) {
     return StepStatus::Failure;
   }
 
   if (command_error_seen_.load(std::memory_order_relaxed)) {
-    RCLCPP_WARN(node_->get_logger(), "%s: 并发命令收到 MCU 错误：%s",
+    RCLCPP_WARN(node_->get_logger(),
+                "%s: 并发命令收到 MCU 错误，按机构容错继续下一阶段：%s",
                 action_label_.c_str(), command_error_detail_.c_str());
-    return StepStatus::Failure;
+    command_pair_active_ = false;
+    return StepStatus::Success;
   }
 
-  for (const auto &slot : command_pair_) {
+  for (auto &slot : command_pair_) {
     if (slot.response_seen.load(std::memory_order_relaxed) &&
-        !slot.accepted.load(std::memory_order_relaxed)) {
-      RCLCPP_WARN(node_->get_logger(), "%s: %s 被拒绝 seq=%s",
+        !slot.accepted.load(std::memory_order_relaxed) &&
+        !slot.terminal_logged) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "%s: %s 未被接受 seq=%s，按机构容错视为该并发命令已结束",
                   action_label_.c_str(), slot.label.c_str(),
                   commandSeqText(slot.seq.load(std::memory_order_relaxed))
                       .c_str());
-      return StepStatus::Failure;
+      slot.terminal_logged = true;
     }
   }
 
   const bool first_done =
-      command_pair_[0].response_seen.load(std::memory_order_relaxed) &&
-      command_pair_[0].accepted.load(std::memory_order_relaxed);
+      command_pair_[0].response_seen.load(std::memory_order_relaxed);
   const bool second_done =
-      command_pair_[1].response_seen.load(std::memory_order_relaxed) &&
-      command_pair_[1].accepted.load(std::memory_order_relaxed);
+      command_pair_[1].response_seen.load(std::memory_order_relaxed);
   if (first_done && second_done) {
-    RCLCPP_INFO(node_->get_logger(), "%s: %s seq=%s + %s seq=%s 均已接受",
+    RCLCPP_INFO(node_->get_logger(),
+                "%s: %s seq=%s + %s seq=%s 均进入成功或容错终态",
                 action_label_.c_str(), command_pair_[0].label.c_str(),
                 commandSeqText(command_pair_[0].seq.load(std::memory_order_relaxed))
                     .c_str(),
@@ -552,10 +559,12 @@ StairActionBase::StepStatus StairActionBase::tickCommandPair() {
   }
 
   if (elapsedSinceStageStart() > params_.command_timeout_s) {
-    RCLCPP_WARN(node_->get_logger(), "%s: %s + %s 超时 %.2fs",
+    RCLCPP_WARN(node_->get_logger(),
+                "%s: %s + %s 超时 %.2fs，按机构容错继续下一阶段",
                 action_label_.c_str(), command_pair_[0].label.c_str(),
                 command_pair_[1].label.c_str(), params_.command_timeout_s);
-    return StepStatus::Failure;
+    command_pair_active_ = false;
+    return StepStatus::Success;
   }
 
   if (!send_client_->service_is_ready()) {
@@ -572,7 +581,11 @@ StairActionBase::StepStatus StairActionBase::tickCommandPair() {
     }
   }
   if (send_failed) {
-    return StepStatus::Failure;
+    RCLCPP_WARN(node_->get_logger(),
+                "%s: 并发机构命令请求发送异常，按机构容错继续下一阶段",
+                action_label_.c_str());
+    command_pair_active_ = false;
+    return StepStatus::Success;
   }
 
   return StepStatus::Running;
@@ -781,6 +794,7 @@ void StairActionBase::resetCommandPairState() {
     slot.accepted.store(false, std::memory_order_relaxed);
     slot.rejected.store(false, std::memory_order_relaxed);
     slot.seq.store(-1, std::memory_order_relaxed);
+    slot.terminal_logged = false;
   }
 }
 
@@ -799,8 +813,9 @@ bool StairActionBase::handleMechanismErrorFeedback(const FeedbackMsg &msg) {
       command_error_detail_ = detail;
       command_error_seen_.store(true, std::memory_order_relaxed);
       if (node_) {
-        RCLCPP_ERROR(node_->get_logger(), "%s: 机构命令收到 MCU 错误：%s",
-                     action_label_.c_str(), detail.c_str());
+        RCLCPP_WARN(node_->get_logger(),
+                    "%s: 机构命令收到 MCU 最终错误，按机构容错处理：%s",
+                    action_label_.c_str(), detail.c_str());
       }
     }
     return true;
@@ -822,8 +837,9 @@ bool StairActionBase::handleMechanismErrorFeedback(const FeedbackMsg &msg) {
       command_error_detail_ = detail;
       command_error_seen_.store(true, std::memory_order_relaxed);
       if (node_) {
-        RCLCPP_ERROR(node_->get_logger(), "%s: 并发机构命令收到 MCU 错误：%s",
-                     action_label_.c_str(), detail.c_str());
+        RCLCPP_WARN(node_->get_logger(),
+                    "%s: 并发机构命令收到 MCU 最终错误，按机构容错处理：%s",
+                    action_label_.c_str(), detail.c_str());
       }
     }
     return true;

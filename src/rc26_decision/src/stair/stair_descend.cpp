@@ -78,7 +78,7 @@ BT::NodeStatus StairDescendAction::onRunning() {
                     "rear_extend_settle");
       break;
     case StepStatus::Failure:
-      // 后推杆伸出失败时不再继续运动，防止车体失去支撑。
+      // 这里只保留执行器内部状态损坏；机构拒绝或超时会按容错进入稳定等待。
       return failWithStop("REAR_PUSHROD_EXTEND 命令失败");
     case StepStatus::Running:
       // service 仍在等待 accepted，本 tick 不阻塞。
@@ -154,7 +154,7 @@ BT::NodeStatus StairDescendAction::onRunning() {
                     "rear_retract_front_extend_settle");
       break;
     case StepStatus::Failure:
-      // 任一组合命令失败时不再继续运动，防止机构姿态不确定。
+      // 这里只保留并发执行器内部状态损坏；机构拒绝或超时会按容错进入稳定等待。
       return failWithStop("REAR_PUSHROD_RETRACT + FRONT_PUSHROD_EXTEND 并发命令失败");
     case StepStatus::Running:
       break;

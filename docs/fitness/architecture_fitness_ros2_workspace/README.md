@@ -87,6 +87,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 - **规则**：`rc26_decision` 可以决定阶段、目标、条件、守护、重试、回退、流程顺序。
 - **规则**：`rc26_decision` 不得直接承载串口协议、CAN 解析、相机驱动内部控制、控制器求解细节。
 - **规则**：新增 BT 节点必须调用清晰的下层接口，而不是绕过下层边界直接碰设备逻辑。
+- **当前机构降级口径**：`rc26_decision` 通过既有 `/mechanism/send_command` 与 `/mechanism/command_feedback` 消费机构结果，并拥有“失败后进入哪个比赛阶段”的策略权。机构 service/ACK/done 暂时失败或非 BUSY `0xFE` 时可记录 WARN 后按该机构步骤结束继续，但不得伪造 transport ACK/业务反馈，也不得把人工限位、激光、普通 odom、视觉或非法运行上下文一并吞成成功。
 
 ### 3.3 `rc26_mechanism` 是机构执行唯一边界
 
@@ -119,14 +120,14 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 
 - **规则**：每条动态 TF 边只能有一个文档化权威者。
 - **规则**：除非做过明确架构变更并更新文档，否则不得新增第二个发布同一动态边的节点。
-- **当前口径**：自动导航主链的 `/odom` 与动态基座 TF 仍由 `rc26_odom_interface` / 定位链维护；`rc26_merge_odom` 已退出默认运行装配，`/merge_odom` 不再是当前运行时契约。`/cmd_vel` 的默认硬件消费方由 `rc26_mcu_transport` 提供，并复用目标 MCU 串口下发 `POSE_TARGET(0x0C)`；机构指令的目标 MCU 串口权威同样由 `rc26_mcu_transport` 提供。
+- **当前口径**：自动导航主链的 `/odom` 与动态基座 TF 仍由 `rc26_odom_interface` / 定位链维护；`rc26_merge_odom` 已退出默认运行装配，`/merge_odom` 不再是当前运行时契约。`/cmd_vel` 的默认硬件消费方由 `rc26_mcu_transport` 提供，并复用目标 MCU 串口下发 `POSE_TARGET(0x0C)`；机构指令的目标 MCU 串口权威同样由 `rc26_mcu_transport` 提供。可靠机构命令的十次纯 ACK 超时只表示本次发送失败，不等价于串口物理断链；driver 保持连接，只有真实读写、EOF、`epoll` 或心跳故障才触发重连。
 
 ### 3.8 launch 参数必须声明明确、归属明确
 
 - **规则**：新增 launch 参数必须显式声明、命名清晰、传递路径清楚。
 - **规则**：参数文件归包所有，不归 `bringup` 统一托管其内部细节。
 - **规则**：`bringup` 只负责选择加载哪个参数文件，不应长期成为所有内部调参逻辑的宿主。
-- **补充口径**：当前导航装配期只保留点云路径、行为树路径、MCU transport 和 odom 单轴分段参数。默认部署输入由 `rc26_bringup/config/r2_active_side.yaml` 选择 `r2_red.yaml` 或 `r2_blue.yaml`；导航距离、目标 yaw、速度上限、容差、startup odom gate 等应集中在这两个红/蓝运行配置中，不要散落到临时 launch 参数或测试脚本。
+- **补充口径**：当前导航装配期只保留点云路径、行为树路径、MCU transport 和 odom 单轴分段参数。默认部署输入由 `rc26_bringup/config/r2_active_side.yaml` 选择 `r2_red.yaml` 或 `r2_blue.yaml`；导航距离、目标 yaw、速度上限、容差和可选 startup odom gate 等应集中在这两个红/蓝运行配置中，不要散落到临时 launch 参数或测试脚本。标准红/蓝自动配置当前关闭全局 startup odom gate，但各 odom 闭环动作必须继续自行验证新鲜 odom，launch 层不得把“立即 tick 行为树”解释为“允许无 odom 运动”。
 
 ### 3.9 BT blackboard 必须契约化
 
@@ -162,7 +163,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 - **规则**：如果系统同时存在遥控、决策导航和其它运动测试节点，必须在 launch 装配层保证任一时刻只有一个节点发布运动命令。
 - **规则**：观察节点可以发布 preview、路径状态或诊断状态，但不得在旁路上直接输出 `cmd_vel`。
 - **当前口径**：导航模式下 `/cmd_vel` 由 `rc26_decision` 的导航/动作节点发布，`rc26_mcu_transport` 是默认消费方；人工遥控测试应与导航 bringup 分开启动或显式停用决策命令链。
-- **补充口径**：当前默认完整入口由 `r2_active_side.yaml` 的 `preselection_mode` 选择。MCU 上行 `0x06/0x10/0x13` 均来自人工触发的外部限位开关，分别作为人工触发外部限位 1/2/3 映射到不同上位机动作。first 使用 `mc_repeat_preselection_tree.xml`，入口 `0x06 -> 0x10/同 seq 0x0C` 后执行 MC，MC 末尾 `0x10 -> 0x10/同 seq 0x0C` 只作为舵机重新放下握手且不切树，再等待下一轮 `0x06`；重复轮距离继续按当前 `active_side` 的带符号 step 派生。second 使用 `second_preselection_combo_tree.xml`：入口直接收到 `0x10` 时，先完成 `SECOND_PRESELECTION_START(0x11)` / 同 seq `SECOND_PRESELECTION_START_DONE(0x0D)`，再切换到 `second_preselection_climb_place_tree.xml`；入口收到 `0x06` 时，首次完成同一握手后执行 `PreselectionRampForwardTree` 合并斜坡前进并停车，斜坡后 gate 只接受 `0x10`，再次完成 `0x11/0x0D` 后切换到同一目标树。两个切树 gate 提交请求后保持 `RUNNING`，由 `decision_node` 在当前 tick 结束后 halt 组合树并加载目标树；目标树内不等待外部限位，也不重复发送 `0x11` 或等待 `0x0D`，下一轮 tick 从首个 `OdomDriveX` 开始。`second_preselection_tree.xml` 继续保留为可显式选择的独立完整第二预选树，但不再由 second managed 默认路径调用；`second_preselection_climb_place_tree.xml` 既可显式调试，也是 second managed 两条 `0x10` 分支的统一目标。该目标树在 `0x08` 前的 yaw 对齐采用 best-effort：失败或超时先停车告警但仍继续前推杆流程；在前推杆 `0x08` 伸出并稳定后持续发布全零 `/cmd_vel` 等待新人工前激光 `0x15`，不在前推杆伸出状态下行驶；放行后的后轮 `+X 0.6m` odom 段仅在已捕获有效目标后允许动作超时停车成功并继续收尾，当前红蓝配置超时为 `5.0s`。`start_r2_auto.sh` 的上行人工触发外部限位 3 `feedback_id=0x13` 监听器仍只写回 `r2_active_side.yaml` 并影响下一次启动，不改变任何下行 `0x13` 放置命令语义。上述树中的导航、斜坡、视觉、台阶和夹取放置动作会串行发布 `/cmd_vel`；运行这些树或测试前必须停用遥控和其它运动命令权威，失败或 halt 时相关动作保持零速停车语义。
+- **补充口径**：当前默认完整入口由 `r2_active_side.yaml` 的 `preselection_mode` 选择。MCU 上行 `0x06/0x10/0x13` 均来自人工触发的外部限位开关，分别作为人工触发外部限位 1/2/3 映射到不同上位机动作。first 使用 `mc_repeat_preselection_tree.xml`，入口 `0x06 -> 0x10/同 seq 0x0C` 后执行 MC，MC 末尾 `0x10 -> 0x10/同 seq 0x0C` 只作为舵机重新放下握手且不切树，再等待下一轮 `0x06`；重复轮距离继续按当前 `active_side` 的带符号 step 派生。second 使用 `second_preselection_combo_tree.xml`：入口直接收到 `0x10` 时，先完成 `SECOND_PRESELECTION_START(0x11)` / 同 seq `SECOND_PRESELECTION_START_DONE(0x0D)`，再切换到 `second_preselection_climb_place_tree.xml`；入口收到 `0x06` 时，首次完成同一握手后执行 `PreselectionRampForwardTree` 合并斜坡前进并停车，斜坡后 gate 只接受 `0x10`，再次完成 `0x11/0x0D` 后切换到同一目标树。两个切树 gate 提交请求后保持 `RUNNING`，由 `decision_node` 在当前 tick 结束后 halt 组合树并加载目标树；目标树内不等待外部限位，也不重复发送 `0x11` 或等待 `0x0D`。切树后的下一轮 tick 先下发唯一一次预装夹取 `0x15` 并等待同 seq `0x14`，随后才从首个 `OdomDriveX` 开始路线；`second_preselection_tree.xml` 继续保留为可显式选择的独立完整第二预选树，但不再由 second managed 默认路径调用；`second_preselection_climb_place_tree.xml` 既可显式调试，也是 second managed 两条 `0x10` 分支的统一目标。该目标树在 `0x08` 前的 yaw 对齐采用 best-effort：失败或超时先停车告警但仍继续前推杆流程；在前推杆 `0x08` 伸出并稳定后持续发布全零 `/cmd_vel` 等待新人工前激光 `0x15`，不在前推杆伸出状态下行驶；放行后的后轮 `+X 0.6m` odom 段仅在已捕获有效目标后允许动作超时停车成功并继续收尾，当前红蓝配置超时为 `5.0s`。后轮段结束后只下发后收 `0x0B`，从上阶完成、进入收尾节点时起等待 25s，再下发最终 `0x13`；后段不再发送预装夹取 `0x15` 或等待 `0x14`。`start_r2_auto.sh` 的上行人工触发外部限位 3 `feedback_id=0x13` 监听器仍只写回 `r2_active_side.yaml` 并影响下一次启动，不改变任何下行 `0x13` 放置命令语义。上述树中的导航、斜坡、视觉、台阶和夹取放置动作会串行发布 `/cmd_vel`；运行这些树或测试前必须停用遥控和其它运动命令权威，失败或 halt 时相关动作保持零速停车语义。
 
 ### 3.14 静态传感器安装外参必须单一真源
 

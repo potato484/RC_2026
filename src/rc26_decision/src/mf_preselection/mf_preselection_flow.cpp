@@ -29,8 +29,9 @@ namespace {
 // 本文件实现的是“梅林区预选赛”专属的 BT 动作节点。
 //
 // 外层 BehaviorTree 只看到一个 StatefulActionNode：启动后持续返回 RUNNING，
-// 完成整条梅林预选赛流程后返回 SUCCESS，任何关键资源缺失、机构拒绝、
-// 台阶事件超时或运动超时都会返回 FAILURE。真实的比赛流程由 phase_ 和
+// 完成整条梅林预选赛流程后返回 SUCCESS；关键资源缺失、台阶事件超时或
+// 运动/视觉错误仍会返回 FAILURE，机构拒绝、ACK/done 超时等则 WARN 后继续。
+// 真实的比赛流程由 phase_ 和
 // stair_phase_ 两套内部状态机推进，避免把几十个细粒度阶段全部暴露到 XML。
 //
 // 运行边界：
@@ -1897,8 +1898,9 @@ bool MfPreselectionFlowAction::setupRuntime() {
             command_error_detail_ = detail;
             command_error_seen_.store(true, std::memory_order_relaxed);
             if (node_) {
-              RCLCPP_ERROR(node_->get_logger(),
-                           "梅林预选赛机构命令收到 MCU 错误：%s", detail.c_str());
+              RCLCPP_WARN(node_->get_logger(),
+                          "梅林预选赛机构命令收到 MCU 最终错误，按机构容错处理：%s",
+                          detail.c_str());
             }
           }
           return;
@@ -3251,24 +3253,30 @@ BT::NodeStatus MfPreselectionFlowAction::tickMechanismCommand() {
     return fail(command_failure_reason_);
   }
   if (command_error_seen_.load(std::memory_order_relaxed)) {
-    return fail(command_error_detail_.empty() ? command_failure_reason_
-                                              : command_error_detail_);
+    RCLCPP_WARN(
+        node_->get_logger(),
+        "梅林预选赛机构命令收到 MCU 最终错误，按容错继续：%s(0x%02X) seq=%d reason=%s",
+        command_label_.c_str(), static_cast<unsigned int>(command_id_),
+        command_seq_.load(std::memory_order_relaxed),
+        command_error_detail_.empty() ? command_failure_reason_.c_str()
+                                      : command_error_detail_.c_str());
+    command_response_seen_.store(true, std::memory_order_relaxed);
+    command_accepted_.store(false, std::memory_order_relaxed);
+    command_done_seen_.store(true, std::memory_order_relaxed);
+    command_error_seen_.store(false, std::memory_order_relaxed);
   }
   if (command_response_seen_.load(std::memory_order_relaxed)) {
     if (!command_accepted_.load(std::memory_order_relaxed)) {
-      if (command_failure_reason_ == "grab_kfs_failed" &&
-          scheduleGrabRetryAfterVisibleFailure(command_failure_reason_)) {
-        pending_grab_commit_ = false;
-        pending_grab_source_ = MfPreselectionPickupSource::None;
-        pending_grab_entry_high_protocol_ = false;
-        pending_grab_target_.reset();
-        grab_success_direct_exit_ = false;
-        post_grab_center_next_phase_ = Phase::Done;
-        return BT::NodeStatus::RUNNING;
-      }
-      return fail(command_failure_reason_);
+      RCLCPP_WARN(
+          node_->get_logger(),
+          "梅林预选赛机构命令未被接受，按容错继续：%s(0x%02X) seq=%d reason=%s",
+          command_label_.c_str(), static_cast<unsigned int>(command_id_),
+          command_seq_.load(std::memory_order_relaxed),
+          command_failure_reason_.c_str());
+      command_done_seen_.store(true, std::memory_order_relaxed);
     }
-    if (!command_ack_logged_) {
+    if (command_accepted_.load(std::memory_order_relaxed) &&
+        !command_ack_logged_) {
       RCLCPP_INFO(node_->get_logger(),
                   "梅林预选赛机构命令ACK成功：%s(0x%02X)，seq=%d",
                   command_label_.c_str(),
@@ -3282,8 +3290,8 @@ BT::NodeStatus MfPreselectionFlowAction::tickMechanismCommand() {
         return BT::NodeStatus::RUNNING;
       }
       if (pending_grab_commit_) {
-        // 夹取计数只在命令 ACK/完成后提交，避免 service rejected 或超时时
-        // 黑板提前显示已经夹取。
+        // 机构步骤进入成功或容错终态后按既定状态转移提交；需要视觉验证的
+        // 夹取分支会在上面的 GrabVerify 路径中延后提交。
         commitPendingGrab();
       }
       if (command_next_phase_ == Phase::StairPrimitive) {
@@ -3329,17 +3337,16 @@ BT::NodeStatus MfPreselectionFlowAction::tickMechanismCommand() {
     }
   }
   if ((node_->now() - phase_start_).seconds() > params_.command_timeout_s) {
-    if (command_failure_reason_ == "grab_kfs_failed" &&
-        scheduleGrabRetryAfterVisibleFailure(command_failure_reason_)) {
-      pending_grab_commit_ = false;
-      pending_grab_source_ = MfPreselectionPickupSource::None;
-      pending_grab_entry_high_protocol_ = false;
-      pending_grab_target_.reset();
-      grab_success_direct_exit_ = false;
-      post_grab_center_next_phase_ = Phase::Done;
-      return BT::NodeStatus::RUNNING;
-    }
-    return fail(command_failure_reason_);
+    RCLCPP_WARN(
+        node_->get_logger(),
+        "梅林预选赛机构命令等待超时，按容错继续：%s(0x%02X) seq=%d timeout=%.2fs reason=%s",
+        command_label_.c_str(), static_cast<unsigned int>(command_id_),
+        command_seq_.load(std::memory_order_relaxed),
+        params_.command_timeout_s, command_failure_reason_.c_str());
+    command_response_seen_.store(true, std::memory_order_relaxed);
+    command_accepted_.store(false, std::memory_order_relaxed);
+    command_done_seen_.store(true, std::memory_order_relaxed);
+    return BT::NodeStatus::RUNNING;
   }
   if (!command_sent_) {
     if (!send_client_->service_is_ready()) {
@@ -3363,24 +3370,32 @@ BT::NodeStatus MfPreselectionFlowAction::tickMechanismCommand() {
         command_generation_.load(std::memory_order_relaxed);
     // async_send_request 的回调可能晚于 halt/restart；token 检查保证旧请求不会
     // 污染新一轮 command_* 状态。
-    send_client_->async_send_request(
-        request, [this, token](rclcpp::Client<SendCommandSrv>::SharedFuture future) {
-          if (token != command_generation_.load(std::memory_order_relaxed)) {
-            return;
-          }
-          try {
-            const auto response = future.get();
-            command_accepted_.store(response && response->accepted,
-                                    std::memory_order_relaxed);
-            if (response) {
-              command_seq_.store(static_cast<int>(response->seq),
-                                 std::memory_order_relaxed);
+    try {
+      send_client_->async_send_request(
+          request, [this, token](rclcpp::Client<SendCommandSrv>::SharedFuture future) {
+            if (token != command_generation_.load(std::memory_order_relaxed)) {
+              return;
             }
-          } catch (...) {
-            command_accepted_.store(false, std::memory_order_relaxed);
-          }
-          command_response_seen_.store(true, std::memory_order_relaxed);
-        });
+            try {
+              const auto response = future.get();
+              command_accepted_.store(response && response->accepted,
+                                      std::memory_order_relaxed);
+              if (response) {
+                command_seq_.store(static_cast<int>(response->seq),
+                                   std::memory_order_relaxed);
+              }
+            } catch (...) {
+              command_accepted_.store(false, std::memory_order_relaxed);
+            }
+            command_response_seen_.store(true, std::memory_order_relaxed);
+          });
+    } catch (const std::exception &e) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "梅林预选赛机构命令请求异常，按容错继续：%s",
+                  e.what());
+      command_accepted_.store(false, std::memory_order_relaxed);
+      command_response_seen_.store(true, std::memory_order_relaxed);
+    }
     command_sent_ = true;
   }
   return BT::NodeStatus::RUNNING;
@@ -3427,18 +3442,42 @@ BT::NodeStatus MfPreselectionFlowAction::tickCommandPair() {
   if (!node_ || !send_client_ || !command_pair_active_) {
     return fail(command_pair_failure_reason_);
   }
-  for (const auto &slot : command_pair_) {
-    if (slot.response_seen.load(std::memory_order_relaxed) &&
+
+  const auto advance_pair = [this](const char *reason) {
+    command_pair_active_ = false;
+    if (command_next_phase_ == Phase::StairPrimitive) {
+      if (stair_phase_ == StairPhase::ClimbSendFrontRetractAndRearExtend) {
+        stair_phase_ = StairPhase::ClimbHoldAfterFrontRetractAndRearExtend;
+      } else if (stair_phase_ ==
+                 StairPhase::DescendSendRearRetractAndFrontExtend) {
+        stair_phase_ = StairPhase::DescendHoldAfterRearRetractAndFrontExtend;
+      }
+    }
+    RCLCPP_WARN(node_->get_logger(),
+                "梅林预选赛并发机构命令按容错进入下一阶段：%s + %s reason=%s",
+                command_pair_[0].label.c_str(), command_pair_[1].label.c_str(),
+                reason);
+    phase_ = command_next_phase_;
+    return BT::NodeStatus::RUNNING;
+  };
+
+  for (std::size_t index = 0; index < 2; ++index) {
+    const auto &slot = command_pair_[index];
+    if (!command_pair_ack_logged_[index] &&
+        slot.response_seen.load(std::memory_order_relaxed) &&
         !slot.accepted.load(std::memory_order_relaxed)) {
-      return fail(command_pair_failure_reason_);
+      RCLCPP_WARN(node_->get_logger(),
+                  "梅林预选赛并发机构命令未被接受，视为容错终态：%s(0x%02X) seq=%d",
+                  slot.label.c_str(),
+                  static_cast<unsigned int>(slot.command_id),
+                  slot.seq.load(std::memory_order_relaxed));
+      command_pair_ack_logged_[index] = true;
     }
   }
   const bool first_done =
-      command_pair_[0].response_seen.load(std::memory_order_relaxed) &&
-      command_pair_[0].accepted.load(std::memory_order_relaxed);
+      command_pair_[0].response_seen.load(std::memory_order_relaxed);
   const bool second_done =
-      command_pair_[1].response_seen.load(std::memory_order_relaxed) &&
-      command_pair_[1].accepted.load(std::memory_order_relaxed);
+      command_pair_[1].response_seen.load(std::memory_order_relaxed);
   for (std::size_t index = 0; index < 2; ++index) {
     if (!command_pair_ack_logged_[index] &&
         command_pair_[index].response_seen.load(std::memory_order_relaxed) &&
@@ -3464,7 +3503,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickCommandPair() {
     }
     RCLCPP_INFO(
         node_->get_logger(),
-        "梅林预选赛并发机构命令均ACK成功：%s seq=%d + %s seq=%d，进入下一阶段",
+        "梅林预选赛并发机构命令均进入成功或容错终态：%s seq=%d + %s seq=%d，进入下一阶段",
         command_pair_[0].label.c_str(),
         command_pair_[0].seq.load(std::memory_order_relaxed),
         command_pair_[1].label.c_str(),
@@ -3473,7 +3512,7 @@ BT::NodeStatus MfPreselectionFlowAction::tickCommandPair() {
     return BT::NodeStatus::RUNNING;
   }
   if ((node_->now() - phase_start_).seconds() > params_.command_timeout_s) {
-    return fail(command_pair_failure_reason_);
+    return advance_pair(command_pair_failure_reason_.c_str());
   }
   if (!send_client_->service_is_ready()) {
     if (!command_pair_waiting_service_logged_) {
@@ -3501,25 +3540,33 @@ BT::NodeStatus MfPreselectionFlowAction::tickCommandPair() {
                 "梅林预选赛已发送并发机构命令请求：%s(0x%02X)",
                 slot.label.c_str(), static_cast<unsigned int>(slot.command_id));
     // 并发命令的两个回调各写自己的 slot；token 仍用于屏蔽旧流程回调。
-    send_client_->async_send_request(
-        request, [this, token, index](rclcpp::Client<SendCommandSrv>::SharedFuture future) {
-          if (token != command_generation_.load(std::memory_order_relaxed)) {
-            return;
-          }
-          bool accepted = false;
-          try {
-            const auto response = future.get();
-            accepted = response && response->accepted;
-            if (response) {
-              command_pair_[index].seq.store(static_cast<int>(response->seq),
-                                             std::memory_order_relaxed);
+    try {
+      send_client_->async_send_request(
+          request, [this, token, index](rclcpp::Client<SendCommandSrv>::SharedFuture future) {
+            if (token != command_generation_.load(std::memory_order_relaxed)) {
+              return;
             }
-          } catch (...) {
-            accepted = false;
-          }
-          command_pair_[index].accepted.store(accepted, std::memory_order_relaxed);
-          command_pair_[index].response_seen.store(true, std::memory_order_relaxed);
-        });
+            bool accepted = false;
+            try {
+              const auto response = future.get();
+              accepted = response && response->accepted;
+              if (response) {
+                command_pair_[index].seq.store(static_cast<int>(response->seq),
+                                               std::memory_order_relaxed);
+              }
+            } catch (...) {
+              accepted = false;
+            }
+            command_pair_[index].accepted.store(accepted, std::memory_order_relaxed);
+            command_pair_[index].response_seen.store(true, std::memory_order_relaxed);
+          });
+    } catch (const std::exception &e) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "梅林预选赛并发机构命令请求异常，视为容错终态：%s reason=%s",
+                  slot.label.c_str(), e.what());
+      slot.accepted.store(false, std::memory_order_relaxed);
+      slot.response_seen.store(true, std::memory_order_relaxed);
+    }
   }
   return BT::NodeStatus::RUNNING;
 }

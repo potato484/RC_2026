@@ -368,6 +368,37 @@ TEST(SerialDriverMcuError, FailsWithLowerMachineReasonAfterRetryExhaustion) {
     }
 }
 
+TEST(SerialDriverMcuError, AckRetryExhaustionKeepsSerialOpenWithoutReconnect) {
+    PseudoMcu mcu([](const TxFrame&, size_t) {
+        return std::vector<ResponseFrame>{};
+    });
+
+    rc26_decision::SerialDriver driver;
+    std::atomic<int> reconnect_started{0};
+    driver.setReconnectStartCallback([&]() {
+        reconnect_started.fetch_add(1, std::memory_order_relaxed);
+    });
+    ASSERT_TRUE(driver.open(mcu.slavePath(), rc26_decision::UART_BAUDRATE)) << driver.lastError();
+
+    uint8_t seq = 0;
+    EXPECT_FALSE(driver.sendCommand(
+        static_cast<uint8_t>(rc26_serial::CommandID::ARM_RAISE), {}, seq));
+    EXPECT_TRUE(driver.isOpen());
+    EXPECT_EQ(reconnect_started.load(std::memory_order_relaxed), 0);
+    EXPECT_EQ(driver.commHealth().reconnect_count.load(std::memory_order_relaxed), 0U);
+    EXPECT_EQ(driver.commHealth().ack_timeouts.load(std::memory_order_relaxed), 10U);
+    EXPECT_NE(driver.lastError().find("未触发串口重连"), std::string::npos);
+
+    const auto frames = mcu.receivedFrames();
+    ASSERT_EQ(frames.size(), 10U);
+    for (size_t i = 0; i < frames.size(); ++i) {
+        EXPECT_EQ(frames[i].seq, seq);
+        EXPECT_EQ(frames[i].retry, static_cast<uint8_t>(i));
+    }
+
+    driver.close();
+}
+
 TEST(SerialDriverMcuError, UnmatchedMcuErrorDoesNotSatisfyAckWait) {
     PseudoMcu mcu([](const TxFrame& frame, size_t index) {
         if (index == 0U) {

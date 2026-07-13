@@ -29,8 +29,9 @@ r2_runtime:
       tick_rate_ms: 100             # 行为树 tick 周期，单位毫秒；数值越小调度越频繁
       team: "blue"                  # 红蓝方场地镜像选择：blue 使用红方基准值，并由 rc26_decision 自动镜像 Y/yaw
       # ======================================================================
-      # 完整导航链启动 odom gate —— 决策树 tick 前等待 /odom 新鲜且低速稳定
+      # 可选的完整导航链启动 odom gate —— 默认关闭；开启时在决策树 tick 前等待 /odom 新鲜且低速稳定
       # ======================================================================
+      startup_wait_for_odom: false  # start_r2_auto 默认不等待全局 odom gate；各 OdomDrive 动作仍自行等待新鲜 odom
       startup_odom_topic: "odom"     # 完整导航链启动前等待的 odom 话题
       startup_odom_timeout_s: 0.5    # 启动 gate 接受的 odom 最大年龄，单位秒
       startup_odom_wait_timeout_s: 18000.0 # 等待 /odom 稳定的最长时间，单位秒
@@ -98,7 +99,7 @@ r2_runtime:
       second_preselect_climb_place_rear_timeout_s: 5.0 # 0.6m odom 段超时
       second_preselect_climb_place_rear_pushrod_retract_command_id: 11 # 0x0B 后推杆收回
       second_preselect_climb_place_preload_pickup_command_id: 21 # 树首下行一次 0x15，完成后才进入路线
-      second_preselect_climb_place_preload_pickup_done_feedback_id: 20 # 树首 0x15 的同 seq 上行 0x14 夹取完成
+      second_preselect_climb_place_preload_pickup_done_feedback_id: 20 # 兼容保留；目标树树首 0x15 仅等 ACK，不再消费同 seq 0x14
       second_preselect_climb_place_final_delay_s: 25.0 # 后轮上阶完成、进入收尾节点时开始计时
       second_preselect_climb_place_final_command_id: 19 # 0x0B ACK 且 25s 到达后下行 0x13，等待通用 ACK
       second_preselect_cmd_vel_topic: "cmd_vel"     # KFS 搜索、视觉对齐和前向趋近发布的运动命令

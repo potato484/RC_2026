@@ -53,6 +53,8 @@ private:
   static const char *profileName(StartProfile profile);
   static const char *branchModeName(PreselectionBranchMode mode);
   bool sendBranchCommand();
+  BT::NodeStatus completeBranchHandshake(const std::string &reason,
+                                         bool tolerated);
   BT::NodeStatus fail(const std::string &reason);
   void resetRuntimeHandles();
   static std::string byteHex(int value);

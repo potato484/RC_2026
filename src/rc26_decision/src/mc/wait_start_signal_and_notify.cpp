@@ -108,10 +108,7 @@ BT::NodeStatus WaitStartSignalAndNotifyAction::onRunning() {
     if (phase_ == Phase::SendingCommand) {
         if (!sendStartCommand()) {
             if (elapsedSec(phase_tp_) > params_.start_command_timeout_s) {
-                writeDecisionFailure(config().blackboard, "WaitStartSignalAndNotify",
-                                     "等待比赛开始命令服务可用超时");
-                resetRuntimeHandles();
-                return BT::NodeStatus::FAILURE;
+                return completeStartHandshake("等待比赛开始命令服务可用超时", true);
             }
             return BT::NodeStatus::RUNNING;
         }
@@ -133,48 +130,33 @@ BT::NodeStatus WaitStartSignalAndNotifyAction::onRunning() {
                 last_log_tp_ = now;
                 return BT::NodeStatus::RUNNING;
             }
-            writeDecisionFailure(config().blackboard, "WaitStartSignalAndNotify",
-                                 "比赛开始命令被拒绝，seq=" + std::to_string(seq));
-            resetRuntimeHandles();
-            return BT::NodeStatus::FAILURE;
+            return completeStartHandshake(
+                "比赛开始命令未被接受，seq=" + std::to_string(seq), true);
         }
         if (elapsedSec(phase_tp_) > params_.start_command_timeout_s) {
-            writeDecisionFailure(config().blackboard, "WaitStartSignalAndNotify",
-                                 "等待比赛开始命令 ACK 超时");
-            resetRuntimeHandles();
-            return BT::NodeStatus::FAILURE;
+            return completeStartHandshake("等待比赛开始命令 ACK 超时", true);
         }
     }
 
     if (phase_ == Phase::WaitingDoneFeedback) {
         const int seq = command_seq_.load(std::memory_order_relaxed);
         if (command_error_seen_.load(std::memory_order_relaxed)) {
-            writeDecisionFailure(config().blackboard, "WaitStartSignalAndNotify",
-                                 command_error_detail_.empty()
-                                     ? "比赛开始命令收到 MCU 0xFE 最终错误，seq=" +
-                                           std::to_string(seq)
-                                     : command_error_detail_);
-            resetRuntimeHandles();
-            return BT::NodeStatus::FAILURE;
+            return completeStartHandshake(
+                command_error_detail_.empty()
+                    ? "比赛开始命令收到 MCU 0xFE 最终错误，seq=" +
+                          std::to_string(seq)
+                    : command_error_detail_,
+                true);
         }
         if (done_feedback_seen_.load(std::memory_order_relaxed)) {
             RCLCPP_INFO(node_->get_logger(),
                         "组合树启动 gate: 已收到比赛开始完成反馈 %s seq=%d",
                         byteHex(params_.start_done_feedback_id).c_str(), seq);
-            if (params_.registration_gate_enable && !captureRegistrationReference()) {
-                writeDecisionFailure(config().blackboard, "WaitStartSignalAndNotify",
-                                     "比赛开始后采集 MC 配准基准帧失败");
-                resetRuntimeHandles();
-                return BT::NodeStatus::FAILURE;
-            }
-            resetRuntimeHandles();
-            return BT::NodeStatus::SUCCESS;
+            return completeStartHandshake("", false);
         }
         if (elapsedSec(phase_tp_) > params_.start_done_timeout_s) {
-            writeDecisionFailure(config().blackboard, "WaitStartSignalAndNotify",
-                                 "等待比赛开始完成反馈超时，seq=" + std::to_string(seq));
-            resetRuntimeHandles();
-            return BT::NodeStatus::FAILURE;
+            return completeStartHandshake(
+                "等待比赛开始完成反馈超时，seq=" + std::to_string(seq), true);
         }
         if (elapsedSec(last_log_tp_) >= params_.start_log_period_s) {
             RCLCPP_INFO(node_->get_logger(),
@@ -212,9 +194,9 @@ void WaitStartSignalAndNotifyAction::handleFeedback(const FeedbackMsg::SharedPtr
             command_error_detail_ = detail;
             command_error_seen_.store(true, std::memory_order_relaxed);
             if (node_) {
-                RCLCPP_ERROR(node_->get_logger(),
-                             "组合树启动 gate: 比赛开始命令收到 MCU 错误：%s",
-                             detail.c_str());
+                RCLCPP_WARN(node_->get_logger(),
+                            "组合树启动 gate: 比赛开始命令收到 MCU 最终错误，按机构容错处理：%s",
+                            detail.c_str());
             }
         }
         return;
@@ -270,8 +252,9 @@ bool WaitStartSignalAndNotifyAction::sendStartCommand() {
                 command_response_seen_.store(true, std::memory_order_relaxed);
             });
     } catch (const std::exception& e) {
-        writeDecisionFailure(config().blackboard, "WaitStartSignalAndNotify",
-                             std::string("比赛开始命令发送异常: ") + e.what());
+        RCLCPP_WARN(node_->get_logger(),
+                    "组合树启动 gate: 比赛开始命令发送异常，按机构容错继续：%s",
+                    e.what());
         command_response_seen_ = true;
         command_accepted_ = false;
         return true;
@@ -280,6 +263,25 @@ bool WaitStartSignalAndNotifyAction::sendStartCommand() {
     RCLCPP_INFO(node_->get_logger(), "组合树启动 gate: 已下发比赛开始命令 command=%s",
                 byteHex(params_.start_command_id).c_str());
     return true;
+}
+
+BT::NodeStatus WaitStartSignalAndNotifyAction::completeStartHandshake(
+    const std::string& reason, bool tolerated) {
+    if (tolerated) {
+        RCLCPP_WARN(
+            node_->get_logger(),
+            "组合树启动 gate: 机构握手异常按容错完成，command=%s seq=%d reason=%s",
+            byteHex(params_.start_command_id).c_str(),
+            command_seq_.load(std::memory_order_relaxed), reason.c_str());
+    }
+    if (params_.registration_gate_enable && !captureRegistrationReference()) {
+        writeDecisionFailure(config().blackboard, "WaitStartSignalAndNotify",
+                             "比赛开始后采集 MC 配准基准帧失败");
+        resetRuntimeHandles();
+        return BT::NodeStatus::FAILURE;
+    }
+    resetRuntimeHandles();
+    return BT::NodeStatus::SUCCESS;
 }
 
 void WaitStartSignalAndNotifyAction::resetRuntimeHandles() {

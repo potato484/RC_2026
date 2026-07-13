@@ -1,12 +1,17 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <behaviortree_cpp/bt_factory.h>
+#include <rclcpp/rclcpp.hpp>
 
 #include "rc26_decision/mc/mc_area.hpp"
 #include "rc26_decision/mc_preselection_repeat_logic.hpp"
@@ -16,8 +21,13 @@
 #include "rc26_decision/preselection_branch_gate_logic.hpp"
 #include "rc26_decision/second_preselection/second_preselection.hpp"
 #include "rc26_decision/stair/stair_area.hpp"
+#include "rc26_decision/decision_failure.hpp"
 #include "rc26_decision/tree_switch_request.hpp"
+#include "rc26_interfaces/msg/mechanism_transport_feedback.hpp"
+#include "rc26_interfaces/srv/send_mechanism_transport_command.hpp"
 #include "rc26_serial/protocol.hpp"
+
+#include "../src/mc/mc_params.hpp"
 
 namespace {
 
@@ -45,6 +55,147 @@ std::string xmlNodeBlockByName(const std::string &xml,
     return {};
   }
   return xml.substr(tag_start, tag_end + 2 - tag_start);
+}
+
+struct ManagedGateRunResult {
+  BT::NodeStatus status{BT::NodeStatus::IDLE};
+  std::vector<uint8_t> commands;
+  bool switch_requested{false};
+  std::string switch_tree_file;
+  bool second_start_done{false};
+  std::string failure_detail;
+};
+
+ManagedGateRunResult runManagedSecondGate(uint8_t branch_feedback_id,
+                                          bool command_accepted,
+                                          bool publish_done_feedback) {
+  if (!rclcpp::ok()) {
+    int argc = 0;
+    char **argv = nullptr;
+    rclcpp::init(argc, argv);
+  }
+
+  static std::atomic<int> run_id{0};
+  const int id = run_id.fetch_add(1);
+  const std::string suffix = std::to_string(id);
+  const std::string service_name =
+      "/test/managed_gate_" + suffix + "/send_command";
+  const std::string feedback_topic =
+      "/test/managed_gate_" + suffix + "/command_feedback";
+
+  auto decision_node = std::make_shared<rclcpp::Node>(
+      "managed_gate_decision_" + suffix);
+  auto fake_transport = std::make_shared<rclcpp::Node>(
+      "managed_gate_transport_" + suffix);
+
+  std::mutex commands_mutex;
+  std::vector<uint8_t> commands;
+  using SendCommandSrv =
+      rc26_interfaces::srv::SendMechanismTransportCommand;
+  auto service = fake_transport->create_service<SendCommandSrv>(
+      service_name,
+      [&](const std::shared_ptr<SendCommandSrv::Request> request,
+          std::shared_ptr<SendCommandSrv::Response> response) {
+        {
+          std::lock_guard<std::mutex> lock(commands_mutex);
+          commands.push_back(request->command_id);
+        }
+        response->accepted = command_accepted;
+        response->seq = 52;
+      });
+  (void)service;
+  auto feedback_pub = fake_transport->create_publisher<
+      rc26_interfaces::msg::MechanismTransportFeedback>(feedback_topic,
+                                                        rclcpp::QoS(32).reliable());
+
+  BT::BehaviorTreeFactory factory;
+  rc26_decision::registerMCAreaNodes(factory);
+  auto blackboard = BT::Blackboard::create();
+  rc26_decision::clearDecisionFailure(blackboard);
+  rc26_decision::clearBehaviorTreeSwitchRequest(blackboard);
+  rclcpp::Node *decision_node_ptr = decision_node.get();
+  blackboard->set("node", decision_node_ptr);
+
+  rc26_decision::McParams mc_params;
+  mc_params.start_signal_feedback_topic = feedback_topic;
+  mc_params.start_signal_timeout_s = 0.0;
+  mc_params.registration_gate_enable = false;
+  blackboard->set("mc_params", mc_params);
+
+  rc26_decision::SecondPreselectionParams second_params;
+  second_params.send_command_service = service_name;
+  second_params.command_timeout_s = 0.05;
+  second_params.done_timeout_s = 0.05;
+  second_params.log_period_s = 0.01;
+  blackboard->set("second_preselection_params", second_params);
+
+  const bool switch_branch = branch_feedback_id == 0x10;
+  const std::string accepted_branch =
+      switch_branch ? "switch_only" : "continue_only";
+  const std::string switch_target =
+      switch_branch ? "second_preselection_climb_place_tree.xml" : "";
+  const std::string tree_xml =
+      std::string(R"(<root BTCPP_format="4" main_tree_to_execute="TestTree">
+           <BehaviorTree ID="TestTree">
+             <WaitPreselectionBranchGate name="gate" accepted_branch=")") +
+      accepted_branch + "\" continue_start_profile=\"second\" "
+                        "switch_start_profile=\"second\" switch_tree_file=\"" +
+      switch_target + R"("/>
+           </BehaviorTree>
+         </root>)";
+  auto tree = factory.createTreeFromText(tree_xml, blackboard);
+
+  rclcpp::executors::MultiThreadedExecutor executor;
+  executor.add_node(decision_node);
+  executor.add_node(fake_transport);
+  std::thread spin_thread([&executor]() { executor.spin(); });
+
+  ManagedGateRunResult result;
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (std::chrono::steady_clock::now() < deadline) {
+    result.status = tree.tickOnce();
+
+    rc26_interfaces::msg::MechanismTransportFeedback branch_feedback;
+    branch_feedback.feedback_id = branch_feedback_id;
+    feedback_pub->publish(branch_feedback);
+
+    if (publish_done_feedback && command_accepted) {
+      rc26_interfaces::msg::MechanismTransportFeedback done_feedback;
+      done_feedback.seq = 52;
+      done_feedback.feedback_id = 0x0D;
+      feedback_pub->publish(done_feedback);
+    }
+
+    std::string requested_tree;
+    if (rc26_decision::consumeBehaviorTreeSwitchRequest(blackboard,
+                                                        requested_tree)) {
+      result.switch_requested = true;
+      result.switch_tree_file = requested_tree;
+      break;
+    }
+    if (result.status == BT::NodeStatus::SUCCESS ||
+        result.status == BT::NodeStatus::FAILURE) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+
+  (void)blackboard->get(rc26_decision::kPreselectionGateSecondStartDoneKey,
+                        result.second_start_done);
+  (void)blackboard->get(rc26_decision::kDecisionFailureDetailKey,
+                        result.failure_detail);
+  {
+    std::lock_guard<std::mutex> lock(commands_mutex);
+    result.commands = commands;
+  }
+
+  tree.haltTree();
+  executor.cancel();
+  spin_thread.join();
+  executor.remove_node(decision_node);
+  executor.remove_node(fake_transport);
+  return result;
 }
 
 } // namespace
@@ -135,6 +286,30 @@ TEST(PreselectionBranchGateLogic, SelectsContinueSwitchAndDoneBySameSeq) {
                 false, "preselection_mc_start_gate", "continue_only", "mc", "second")
                 .find("\"waiting\":false"),
             std::string::npos);
+}
+
+TEST(PreselectionBranchGateRuntime,
+     RejectedSecondContinueHandshakeWarnsAndContinues) {
+  const auto result = runManagedSecondGate(0x06, false, false);
+  EXPECT_EQ(result.status, BT::NodeStatus::SUCCESS);
+  ASSERT_EQ(result.commands.size(), 1U);
+  EXPECT_EQ(result.commands.front(), 0x11);
+  EXPECT_TRUE(result.second_start_done);
+  EXPECT_FALSE(result.switch_requested);
+  EXPECT_TRUE(result.failure_detail.empty());
+}
+
+TEST(PreselectionBranchGateRuntime,
+     SecondSwitchDoneTimeoutStillRequestsTargetTree) {
+  const auto result = runManagedSecondGate(0x10, true, false);
+  EXPECT_EQ(result.status, BT::NodeStatus::RUNNING);
+  ASSERT_EQ(result.commands.size(), 1U);
+  EXPECT_EQ(result.commands.front(), 0x11);
+  EXPECT_TRUE(result.second_start_done);
+  EXPECT_TRUE(result.switch_requested);
+  EXPECT_EQ(result.switch_tree_file,
+            "second_preselection_climb_place_tree.xml");
+  EXPECT_TRUE(result.failure_detail.empty());
 }
 
 TEST(MCPreselectionRepeatLogic, ComputesSignedForwardDistance) {

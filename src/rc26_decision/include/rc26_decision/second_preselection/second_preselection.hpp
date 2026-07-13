@@ -669,14 +669,12 @@ public:
   void onHalted() override;
 
 private:
-  using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
   using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
 
-  enum class Phase { Sending, WaitingAck, WaitingDone, Done };
+  enum class Phase { Sending, WaitingAck, Done };
 
   BT::NodeStatus fail(const std::string &reason);
   bool sendCommand();
-  void handleFeedback(const FeedbackMsg::SharedPtr msg);
   void publishStop();
   void clearRuntimeState();
   double phaseElapsed() const;
@@ -685,18 +683,12 @@ private:
   rclcpp::Node *node_{nullptr};
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
   rclcpp::Client<SendCommandSrv>::SharedPtr send_client_;
-  rclcpp::Subscription<FeedbackMsg>::SharedPtr feedback_sub_;
   std::chrono::steady_clock::time_point phase_tp_{};
-  std::chrono::steady_clock::time_point last_log_tp_{};
   std::atomic<bool> response_seen_{false};
   std::atomic<bool> accepted_{false};
   std::atomic<bool> rejected_{false};
-  std::atomic<bool> done_seen_{false};
-  std::atomic<bool> command_error_seen_{false};
-  std::atomic<bool> command_busy_seen_{false};
   std::atomic<int> command_seq_{-1};
   std::atomic<uint64_t> command_generation_{0};
-  std::string command_error_detail_;
   bool command_sent_{false};
   Phase phase_{Phase::Done};
 };

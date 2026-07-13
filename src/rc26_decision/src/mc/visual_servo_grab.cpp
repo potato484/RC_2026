@@ -215,6 +215,7 @@ void VisualServoGrabAction::workerLoop() {
                 waiting_for_limit_switch_ = false;
                 publishStop(true);
                 phase_ = ServoPhase::SendingGrab;
+                grab_command_start_tp_ = std::chrono::steady_clock::now();
                 RCLCPP_INFO(node_->get_logger(), "武馆区前方限位已触发，准备下发 GRAB_TIP");
                 continue;
             }
@@ -528,8 +529,9 @@ void VisualServoGrabAction::handleFeedback(const FeedbackMsg::SharedPtr msg) {
             grab_error_detail_ = detail;
             grab_error_seen_.store(true, std::memory_order_relaxed);
             if (node_) {
-                RCLCPP_ERROR(node_->get_logger(),
-                             "GRAB_TIP 收到 MCU 错误：%s", detail.c_str());
+                RCLCPP_WARN(node_->get_logger(),
+                            "GRAB_TIP 收到 MCU 最终错误，按机构容错处理：%s",
+                            detail.c_str());
             }
         }
         return;
@@ -572,11 +574,20 @@ void VisualServoGrabAction::beginApproach() {
 VisualServoGrabAction::GrabStepStatus VisualServoGrabAction::tickGrabCommand() {
     if (grab_attempted_) {
         if (grab_error_seen_.load(std::memory_order_relaxed)) {
-            RCLCPP_WARN(node_->get_logger(), "GRAB_TIP MCU 错误：%s",
+            RCLCPP_WARN(node_->get_logger(),
+                        "GRAB_TIP MCU 错误，按机构容错继续视觉消失验证：%s",
                         grab_error_detail_.c_str());
-            return GrabStepStatus::Failure;
+            return GrabStepStatus::Success;
         }
         if (!grab_response_seen_.load(std::memory_order_relaxed)) {
+            if (elapsedSec(grab_command_start_tp_) >=
+                params_.start_command_timeout_s) {
+                RCLCPP_WARN(
+                    node_->get_logger(),
+                    "GRAB_TIP ACK 等待超时 %.2fs，按机构容错继续视觉消失验证",
+                    params_.start_command_timeout_s);
+                return GrabStepStatus::Success;
+            }
             return GrabStepStatus::Running;
         }
         if (grab_accepted_.load(std::memory_order_relaxed)) {
@@ -588,6 +599,14 @@ VisualServoGrabAction::GrabStepStatus VisualServoGrabAction::tickGrabCommand() {
     }
 
     if (!tryStartGrabCommand()) {
+        if (elapsedSec(grab_command_start_tp_) >=
+            params_.start_command_timeout_s) {
+            RCLCPP_WARN(
+                node_->get_logger(),
+                "GRAB_TIP 服务不可用超过 %.2fs，按机构容错继续视觉消失验证",
+                params_.start_command_timeout_s);
+            return GrabStepStatus::Success;
+        }
         return GrabStepStatus::Running;
     }
     return GrabStepStatus::Running;
@@ -614,33 +633,41 @@ bool VisualServoGrabAction::tryStartGrabCommand() {
     grab_error_seen_ = false;
     grab_busy_seen_ = false;
     grab_error_detail_.clear();
-    grab_client_->async_send_request(
-        request, [this, node, token](rclcpp::Client<SendCommandSrv>::SharedFuture future) {
-            if (token != grab_generation_.load(std::memory_order_relaxed)) {
-                return;
-            }
-            bool accepted = false;
-            uint8_t seq = 0;
-            try {
-                const auto response = future.get();
-                accepted = response && response->accepted;
-                if (response) {
-                    seq = response->seq;
+    try {
+        grab_client_->async_send_request(
+            request, [this, node, token](rclcpp::Client<SendCommandSrv>::SharedFuture future) {
+                if (token != grab_generation_.load(std::memory_order_relaxed)) {
+                    return;
                 }
-            } catch (const std::exception& e) {
-                RCLCPP_WARN(node->get_logger(), "GRAB_TIP 响应异常: %s", e.what());
-            }
-            grab_accepted_.store(accepted, std::memory_order_relaxed);
-            grab_seq_.store(static_cast<int>(seq), std::memory_order_relaxed);
-            grab_response_seen_.store(true, std::memory_order_relaxed);
-            if (accepted) {
-                RCLCPP_INFO(node->get_logger(), "GRAB_TIP 已接受: seq=%u",
-                            static_cast<unsigned int>(seq));
-            } else {
-                RCLCPP_WARN(node->get_logger(), "GRAB_TIP 被拒绝: seq=%u",
-                            static_cast<unsigned int>(seq));
-            }
-        });
+                bool accepted = false;
+                uint8_t seq = 0;
+                try {
+                    const auto response = future.get();
+                    accepted = response && response->accepted;
+                    if (response) {
+                        seq = response->seq;
+                    }
+                } catch (const std::exception& e) {
+                    RCLCPP_WARN(node->get_logger(), "GRAB_TIP 响应异常: %s", e.what());
+                }
+                grab_accepted_.store(accepted, std::memory_order_relaxed);
+                grab_seq_.store(static_cast<int>(seq), std::memory_order_relaxed);
+                grab_response_seen_.store(true, std::memory_order_relaxed);
+                if (accepted) {
+                    RCLCPP_INFO(node->get_logger(), "GRAB_TIP 已接受: seq=%u",
+                                static_cast<unsigned int>(seq));
+                } else {
+                    RCLCPP_WARN(node->get_logger(), "GRAB_TIP 被拒绝: seq=%u",
+                                static_cast<unsigned int>(seq));
+                }
+            });
+    } catch (const std::exception& e) {
+        RCLCPP_WARN(node_->get_logger(),
+                    "GRAB_TIP 请求异常，按机构容错继续视觉消失验证: %s",
+                    e.what());
+        grab_response_seen_.store(true, std::memory_order_relaxed);
+        grab_accepted_.store(false, std::memory_order_relaxed);
+    }
     grab_attempted_ = true;
     RCLCPP_INFO(node_->get_logger(), "GRAB_TIP 已下发: cmd=0x%02X",
                 static_cast<unsigned int>(params_.grab_command_id));
