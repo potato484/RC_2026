@@ -129,15 +129,13 @@ TEST(SecondPreselectionLogic, ClimbPlaceDefaultsMatchIndependentRoute) {
   EXPECT_EQ(params.climb_place_final_command_id, 0x13);
 }
 
-TEST(SecondPreselectionLogic, ClimbPlaceFinalGateNeedsDelayAndPickupDone) {
+TEST(SecondPreselectionLogic, ClimbPlaceFinalGateNeedsOnlyElapsedDelay) {
   EXPECT_FALSE(rc26_decision::secondPreselectionClimbPlaceReadyForFinal(
-      24.99, 25.0, true));
-  EXPECT_FALSE(rc26_decision::secondPreselectionClimbPlaceReadyForFinal(
-      25.0, 25.0, false));
+      24.99, 25.0));
   EXPECT_TRUE(rc26_decision::secondPreselectionClimbPlaceReadyForFinal(
-      25.0, 25.0, true));
+      25.0, 25.0));
   EXPECT_TRUE(rc26_decision::secondPreselectionClimbPlaceReadyForFinal(
-      30.0, 25.0, true));
+      30.0, 25.0));
 }
 
 TEST(SecondPreselectionLogic, PickupApproachDistanceKeepsExistingSignRule) {
@@ -499,6 +497,8 @@ TEST(SecondPreselectionLogic, PostPlaceClimbDebugTreeOnlyRunsPostPlaceAction) {
 TEST(SecondPreselectionLogic, ClimbPlaceTreeUsesIndependentOrderedSequence) {
   const std::string xml = readTextFile(secondPreselectionClimbPlaceTreePath());
 
+  const auto preload_pickup_pos =
+      xml.find("second_preselection_climb_place_preload_pickup");
   const auto forward_pos =
       xml.find("second_preselection_climb_place_forward");
   const auto lateral_pos =
@@ -510,12 +510,14 @@ TEST(SecondPreselectionLogic, ClimbPlaceTreeUsesIndependentOrderedSequence) {
       xml.find("second_preselection_climb_place_rear_forward");
   const auto finish_pos = xml.find("second_preselection_climb_place_finish");
 
+  ASSERT_NE(preload_pickup_pos, std::string::npos);
   ASSERT_NE(forward_pos, std::string::npos);
   ASSERT_NE(lateral_pos, std::string::npos);
   ASSERT_NE(delay_pos, std::string::npos);
   ASSERT_NE(front_stage_pos, std::string::npos);
   ASSERT_NE(rear_forward_pos, std::string::npos);
   ASSERT_NE(finish_pos, std::string::npos);
+  EXPECT_LT(preload_pickup_pos, forward_pos);
   EXPECT_LT(forward_pos, lateral_pos);
   EXPECT_LT(lateral_pos, delay_pos);
   EXPECT_LT(delay_pos, front_stage_pos);
@@ -525,8 +527,12 @@ TEST(SecondPreselectionLogic, ClimbPlaceTreeUsesIndependentOrderedSequence) {
   EXPECT_EQ(countOccurrences(xml, "succeed_on_reach_or_overshoot=\"true\""),
             3U);
   EXPECT_EQ(countOccurrences(xml, "succeed_on_timeout=\"true\""), 1U);
+  EXPECT_NE(xml.find("SecondPreselectionClimbPlacePreloadPickup"),
+            std::string::npos);
   EXPECT_NE(xml.find("SecondPreselectionClimbFrontStage"), std::string::npos);
-  EXPECT_NE(xml.find("SecondPreselectionRearRetractPickupPlace"),
+  EXPECT_NE(xml.find("SecondPreselectionRearRetractPlace"),
+            std::string::npos);
+  EXPECT_EQ(xml.find("SecondPreselectionRearRetractPickupPlace"),
             std::string::npos);
   EXPECT_EQ(xml.find("WaitPreselectionBranchGate"), std::string::npos);
   EXPECT_EQ(xml.find("SecondPreselectionCommand"), std::string::npos);
@@ -843,7 +849,7 @@ TEST(SecondPreselectionLogic,
 }
 
 TEST(SecondPreselectionLogic,
-     RearRetractPickupWaitsForMatchingDoneBeforeFinalPlace) {
+     ClimbPlacePreloadPickupRunsFirstAndNeedsMatchingDone) {
   if (!rclcpp::ok()) {
     int argc = 0;
     char **argv = nullptr;
@@ -851,12 +857,13 @@ TEST(SecondPreselectionLogic,
   }
 
   auto decision_node = std::make_shared<rclcpp::Node>(
-      "second_preselection_climb_place_action_test");
+      "second_preselection_climb_place_preload_test");
   auto fake_transport =
-      std::make_shared<rclcpp::Node>("second_preselection_fake_transport");
-  const std::string service_name = "/test/climb_place/send_command";
-  const std::string feedback_topic = "/test/climb_place/command_feedback";
-  const std::string cmd_vel_topic = "/test/climb_place/cmd_vel";
+      std::make_shared<rclcpp::Node>("second_preselection_preload_transport");
+  const std::string service_name = "/test/climb_place/preload/send_command";
+  const std::string feedback_topic =
+      "/test/climb_place/preload/command_feedback";
+  const std::string cmd_vel_topic = "/test/climb_place/preload/cmd_vel";
 
   std::mutex commands_mutex;
   std::vector<uint8_t> commands;
@@ -904,13 +911,12 @@ TEST(SecondPreselectionLogic,
   params.command_timeout_s = 1.0;
   params.done_timeout_s = 1.0;
   params.log_period_s = 0.05;
-  params.climb_place_final_delay_s = 0.0;
   blackboard->set("second_preselection_params", params);
 
   auto tree = factory.createTreeFromText(
       R"(<root BTCPP_format="4" main_tree_to_execute="TestTree">
            <BehaviorTree ID="TestTree">
-             <SecondPreselectionRearRetractPickupPlace name="finish"/>
+             <SecondPreselectionClimbPlacePreloadPickup name="preload"/>
            </BehaviorTree>
          </root>)",
       blackboard);
@@ -932,16 +938,10 @@ TEST(SecondPreselectionLogic,
   EXPECT_GE(pickup_seq.load(), 0);
   {
     std::lock_guard<std::mutex> lock(commands_mutex);
-    EXPECT_EQ(commands.size(), 2U);
-    EXPECT_NE(std::find(commands.begin(), commands.end(), 0x0B),
-              commands.end());
-    EXPECT_NE(std::find(commands.begin(), commands.end(), 0x15),
-              commands.end());
+    ASSERT_EQ(commands.size(), 1U);
+    EXPECT_EQ(commands.front(), 0x15);
   }
 
-  rc26_interfaces::msg::MechanismTransportFeedback ignored_rear_laser;
-  ignored_rear_laser.feedback_id = 0x05;
-  feedback_pub->publish(ignored_rear_laser);
   rc26_interfaces::msg::MechanismTransportFeedback wrong_done;
   wrong_done.seq = static_cast<uint8_t>((pickup_seq.load() + 1) & 0xFF);
   wrong_done.feedback_id = 0x14;
@@ -950,7 +950,7 @@ TEST(SecondPreselectionLogic,
             BT::NodeStatus::RUNNING);
   {
     std::lock_guard<std::mutex> lock(commands_mutex);
-    EXPECT_EQ(commands.size(), 2U);
+    EXPECT_EQ(commands.size(), 1U);
   }
 
   rc26_interfaces::msg::MechanismTransportFeedback correct_done;
@@ -961,10 +961,116 @@ TEST(SecondPreselectionLogic,
             BT::NodeStatus::SUCCESS);
   {
     std::lock_guard<std::mutex> lock(commands_mutex);
-    EXPECT_EQ(commands.size(), 3U);
-    if (commands.size() >= 3U) {
-      EXPECT_EQ(commands[2], 0x13);
+    ASSERT_EQ(commands.size(), 1U);
+    EXPECT_EQ(commands.front(), 0x15);
+  }
+
+  tree.haltTree();
+  executor.cancel();
+  spin_thread.join();
+  executor.remove_node(decision_node);
+  executor.remove_node(fake_transport);
+}
+
+TEST(SecondPreselectionLogic,
+     RearRetractPlaceWaitsFromClimbCompletionAndNeverSendsPickup) {
+  if (!rclcpp::ok()) {
+    int argc = 0;
+    char **argv = nullptr;
+    rclcpp::init(argc, argv);
+  }
+
+  auto decision_node = std::make_shared<rclcpp::Node>(
+      "second_preselection_climb_place_finish_test");
+  auto fake_transport =
+      std::make_shared<rclcpp::Node>("second_preselection_finish_transport");
+  const std::string service_name = "/test/climb_place/finish/send_command";
+  const std::string feedback_topic =
+      "/test/climb_place/finish/command_feedback";
+  const std::string cmd_vel_topic = "/test/climb_place/finish/cmd_vel";
+
+  std::mutex commands_mutex;
+  std::vector<uint8_t> commands;
+  std::atomic<int> next_seq{70};
+  auto service = fake_transport->create_service<
+      rc26_interfaces::srv::SendMechanismTransportCommand>(
+      service_name,
+      [&](const std::shared_ptr<
+              rc26_interfaces::srv::SendMechanismTransportCommand::Request>
+              request,
+          std::shared_ptr<
+              rc26_interfaces::srv::SendMechanismTransportCommand::Response>
+              response) {
+        {
+          std::lock_guard<std::mutex> lock(commands_mutex);
+          commands.push_back(request->command_id);
+        }
+        response->accepted = true;
+        response->seq =
+            static_cast<uint8_t>(next_seq.fetch_add(1) & 0xFF);
+      });
+  ASSERT_TRUE(service != nullptr);
+
+  rclcpp::executors::MultiThreadedExecutor executor;
+  executor.add_node(decision_node);
+  executor.add_node(fake_transport);
+  std::thread spin_thread([&executor]() { executor.spin(); });
+
+  BT::BehaviorTreeFactory factory;
+  rc26_decision::registerSecondPreselectionNodes(factory);
+  auto blackboard = BT::Blackboard::create();
+  rclcpp::Node *decision_node_ptr = decision_node.get();
+  blackboard->set("node", decision_node_ptr);
+  auto params = rc26_decision::SecondPreselectionParams{};
+  params.send_command_service = service_name;
+  params.feedback_topic = feedback_topic;
+  params.cmd_vel_topic = cmd_vel_topic;
+  params.command_timeout_s = 1.0;
+  params.log_period_s = 0.05;
+  params.climb_place_final_delay_s = 0.20;
+  blackboard->set("second_preselection_params", params);
+
+  auto tree = factory.createTreeFromText(
+      R"(<root BTCPP_format="4" main_tree_to_execute="TestTree">
+           <BehaviorTree ID="TestTree">
+             <SecondPreselectionRearRetractPlace name="finish"/>
+           </BehaviorTree>
+         </root>)",
+      blackboard);
+
+  auto tick_for = [&](std::chrono::milliseconds duration) {
+    const auto deadline = std::chrono::steady_clock::now() + duration;
+    BT::NodeStatus status = BT::NodeStatus::IDLE;
+    while (std::chrono::steady_clock::now() < deadline &&
+           status != BT::NodeStatus::SUCCESS &&
+           status != BT::NodeStatus::FAILURE) {
+      status = tree.tickOnce();
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
+    return status;
+  };
+
+  EXPECT_EQ(tick_for(std::chrono::milliseconds(100)),
+            BT::NodeStatus::RUNNING);
+  {
+    std::lock_guard<std::mutex> lock(commands_mutex);
+    ASSERT_EQ(commands.size(), 1U);
+    EXPECT_EQ(commands.front(), 0x0B);
+    EXPECT_EQ(std::find(commands.begin(), commands.end(), 0x15),
+              commands.end());
+    EXPECT_EQ(std::find(commands.begin(), commands.end(), 0x13),
+              commands.end());
+  }
+
+  EXPECT_EQ(tick_for(std::chrono::milliseconds(500)),
+            BT::NodeStatus::SUCCESS);
+  {
+    std::lock_guard<std::mutex> lock(commands_mutex);
+    ASSERT_EQ(commands.size(), 2U);
+    EXPECT_EQ(commands[0], 0x0B);
+    EXPECT_EQ(commands[1], 0x13);
+    EXPECT_EQ(std::find(commands.begin(), commands.end(), 0x15),
+              commands.end());
   }
 
   tree.haltTree();

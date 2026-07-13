@@ -191,8 +191,7 @@ bool secondPreselectionFrameHasCenterKfs(
     const std::vector<rc26_vision::Detection> &detections, int frame_width,
     int frame_height, const SecondPreselectionParams &params);
 bool secondPreselectionClimbPlaceReadyForFinal(double elapsed_s,
-                                               double required_delay_s,
-                                               bool pickup_done);
+                                               double required_delay_s);
 
 enum class SecondPreselectionOccupancyDecision { Pending, Occupied, Clear };
 
@@ -657,10 +656,55 @@ private:
   Phase phase_{Phase::Done};
 };
 
-class SecondPreselectionRearRetractPickupPlaceAction
+class SecondPreselectionClimbPlacePreloadPickupAction
     : public BT::StatefulActionNode {
 public:
-  SecondPreselectionRearRetractPickupPlaceAction(
+  SecondPreselectionClimbPlacePreloadPickupAction(
+      const std::string &name, const BT::NodeConfig &config);
+
+  static BT::PortsList providedPorts() { return {}; }
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
+
+private:
+  using FeedbackMsg = rc26_interfaces::msg::MechanismTransportFeedback;
+  using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
+
+  enum class Phase { Sending, WaitingAck, WaitingDone, Done };
+
+  BT::NodeStatus fail(const std::string &reason);
+  bool sendCommand();
+  void handleFeedback(const FeedbackMsg::SharedPtr msg);
+  void publishStop();
+  void clearRuntimeState();
+  double phaseElapsed() const;
+
+  SecondPreselectionParams params_;
+  rclcpp::Node *node_{nullptr};
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
+  rclcpp::Client<SendCommandSrv>::SharedPtr send_client_;
+  rclcpp::Subscription<FeedbackMsg>::SharedPtr feedback_sub_;
+  std::chrono::steady_clock::time_point phase_tp_{};
+  std::chrono::steady_clock::time_point last_log_tp_{};
+  std::atomic<bool> response_seen_{false};
+  std::atomic<bool> accepted_{false};
+  std::atomic<bool> rejected_{false};
+  std::atomic<bool> done_seen_{false};
+  std::atomic<bool> command_error_seen_{false};
+  std::atomic<bool> command_busy_seen_{false};
+  std::atomic<int> command_seq_{-1};
+  std::atomic<uint64_t> command_generation_{0};
+  std::string command_error_detail_;
+  bool command_sent_{false};
+  Phase phase_{Phase::Done};
+};
+
+class SecondPreselectionRearRetractPlaceAction
+    : public BT::StatefulActionNode {
+public:
+  SecondPreselectionRearRetractPlaceAction(
       const std::string &name, const BT::NodeConfig &config);
 
   static BT::PortsList providedPorts() { return {}; }
@@ -674,9 +718,9 @@ private:
   using SendCommandSrv = rc26_interfaces::srv::SendMechanismTransportCommand;
 
   enum class Phase {
-    SendRearRetractAndPickup,
-    WaitRearRetractAndPickupAck,
-    WaitDelayAndPickupDone,
+    SendRearRetract,
+    WaitRearRetractAck,
+    WaitFinalDelay,
     SendFinalPlace,
     WaitFinalPlaceAck,
     Done
@@ -684,24 +728,21 @@ private:
 
   struct CommandRuntime {
     uint8_t command_id{0};
-    int done_feedback_id{-1};
     std::string label;
     bool sent{false};
     std::atomic<bool> response_seen{false};
     std::atomic<bool> accepted{false};
     std::atomic<bool> rejected{false};
-    std::atomic<bool> done_seen{false};
     std::atomic<int> seq{-1};
   };
 
   BT::NodeStatus fail(const std::string &reason);
   void clearRuntimeState();
   void resetCommand(CommandRuntime &command, int command_id,
-                    int done_feedback_id, const std::string &label);
+                    const std::string &label);
   bool sendCommand(CommandRuntime &command);
   bool commandAcked(const CommandRuntime &command) const;
   bool commandRejected(const CommandRuntime &command) const;
-  bool commandDone(const CommandRuntime &command) const;
   void handleFeedback(const FeedbackMsg::SharedPtr msg);
   void publishStop();
   double phaseElapsed() const;
@@ -715,7 +756,6 @@ private:
   std::chrono::steady_clock::time_point final_gate_tp_{};
   std::chrono::steady_clock::time_point last_log_tp_{};
   CommandRuntime rear_retract_command_;
-  CommandRuntime pickup_command_;
   CommandRuntime final_place_command_;
   std::atomic<bool> command_error_seen_{false};
   std::atomic<bool> command_busy_seen_{false};

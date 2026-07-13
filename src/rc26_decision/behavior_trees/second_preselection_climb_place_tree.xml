@@ -2,15 +2,19 @@
   第二预选赛上阶—夹取—放置树：
   - 既可通过 tree_file / r2_runtime.paths.behavior_tree_file 显式选择，也是 second managed 两条 0x10 分支的统一切树目标。
   - 树内不等待外部限位，也不发送 0x11/0x0D；managed 使用时由组合树在切换前完成握手。
-  - 显式选择时，startup odom gate 放行后直接从首个 OdomDriveX 开始执行。
+  - 进入树后先且仅发送一次预装 KFS 夹取 0x15，等待同 seq 0x14 完成后再从首个 OdomDriveX 开始执行。
   - 前推杆前 yaw 对齐采用 best-effort：失败或超时会停车告警，但仍继续发送前推杆伸出 0x08。
   - 前推杆 0x08 伸出并稳定后，底盘持续保持零速，直到收到本阶段开始后的人工前激光 0x15 才继续前收和后伸。
   - 后轮 +X 0.6m odom 段在有效目标捕获后的动作超时会停车并按成功继续收尾；其它初始化和目标捕获错误仍失败。
+  - 后轮段结束后只发送后推杆收回 0x0B；从进入收尾阶段起等待 25s 后发送最终 0x13，不再发送第二次预装夹取 0x15。
   - 运行前必须停用遥控、独立台阶测试等其它 /cmd_vel 发布权威。
 -->
 <root BTCPP_format="4" main_tree_to_execute="SecondPreselectionClimbPlaceTree">
   <BehaviorTree ID="SecondPreselectionClimbPlaceTree">
     <Sequence name="second_preselection_climb_place_sequence">
+      <SecondPreselectionClimbPlacePreloadPickup
+          name="second_preselection_climb_place_preload_pickup"/>
+
       <OdomDriveX name="second_preselection_climb_place_forward"
                   distance_m="{second_preselect_climb_place_forward_x_m}"
                   cmd_vel_topic="{odom_relative_nav_cmd_vel_topic}"
@@ -65,7 +69,7 @@
                   succeed_on_timeout="true"
                   timeout_s="{second_preselect_climb_place_rear_timeout_s}"/>
 
-      <SecondPreselectionRearRetractPickupPlace
+      <SecondPreselectionRearRetractPlace
           name="second_preselection_climb_place_finish"/>
     </Sequence>
   </BehaviorTree>

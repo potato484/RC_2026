@@ -97,10 +97,10 @@ r2_runtime:
       second_preselect_climb_place_rear_min_speed_mps: 0.10 # 0.6m odom 段容差外最小速度
       second_preselect_climb_place_rear_timeout_s: 5.0 # 0.6m odom 段超时
       second_preselect_climb_place_rear_pushrod_retract_command_id: 11 # 0x0B 后推杆收回
-      second_preselect_climb_place_preload_pickup_command_id: 21 # 下行 0x15，与后推杆收回并发发送
-      second_preselect_climb_place_preload_pickup_done_feedback_id: 20 # 同 seq 上行 0x14 夹取完成
-      second_preselect_climb_place_final_delay_s: 25.0 # 两条并发命令 ACK 后开始计时，与 0x14 并行等待
-      second_preselect_climb_place_final_command_id: 19 # 两个门控都满足后下行 0x13，等待通用 ACK
+      second_preselect_climb_place_preload_pickup_command_id: 21 # 树首下行一次 0x15，完成后才进入路线
+      second_preselect_climb_place_preload_pickup_done_feedback_id: 20 # 树首 0x15 的同 seq 上行 0x14 夹取完成
+      second_preselect_climb_place_final_delay_s: 25.0 # 后轮上阶完成、进入收尾节点时开始计时
+      second_preselect_climb_place_final_command_id: 19 # 0x0B ACK 且 25s 到达后下行 0x13，等待通用 ACK
       second_preselect_cmd_vel_topic: "cmd_vel"     # KFS 搜索、视觉对齐和前向趋近发布的运动命令
       second_preselect_post_pickup_forward_x_m: 1.5 # 夹取成功后先沿车体系 +X 固定前进；计入总 X 投影
       second_preselect_nav_y1_m: 0.75               # 夹取完成后红方基准 +Y 横移；blue 启动时自动取反
