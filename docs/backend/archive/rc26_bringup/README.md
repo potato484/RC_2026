@@ -93,6 +93,8 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 
 ## 本轮同步
 
+2026-07-13 同步：`startup_ready_notify_node.py` 作为 ROS2 launch libexec 节点安装，源码必须保持可执行权限；`--symlink-install` 下 libexec 入口指向源码，测试已覆盖 shebang 与可执行位，避免完整自动链路启动时被 ROS2 判定为 executable not found。
+
 2026-07-12 同步：完整自动链路新增启动就绪 `0x20` no-ack 通知。`bringup.launch.py` 在 navigation、`use_decision=true`、`use_realsense=true` 且 `startup_ready_notify_enable` 未关闭时启动 `startup_ready_notify_node.py`；该节点等待 `/camera/color/image_raw`、`/camera/aligned_depth_to_color/image_raw`、`/camera/color/camera_info` 和 `/decision/preselection_gate_state` 同时就绪后，通过 `rc26_mcu_transport` 以 `wait_ack=false` 发送一次 `STARTUP_READY_WAITING_LIMIT(0x20)` 空 payload。`start_r2_auto.sh --dry-run` 摘要会显示该通知随 RealSense 启用，可通过 `--extra-launch-arg startup_ready_notify_enable:=false` 关闭。
 
 2026-07-10 同步：上行人工触发外部限位 3 `0x13` 红蓝切换写回改为可恢复两阶段提交。监听器持久化 `.pending`，保留恢复副本直到正式配置替换和父目录 `fsync` 完成；`start_r2_auto.sh` 在解析红蓝方前执行 `--recover-only`，可恢复强杀、进程崩溃或断电遗留的 `.pending`，并兼容旧实现留下且不早于正式配置的完整或不完整 `.tmp` 文件。新增回归测试覆盖正常提交、pending 恢复、旧临时文件恢复和过期临时文件忽略。

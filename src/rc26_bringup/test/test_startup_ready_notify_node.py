@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import sys
 import types
 from pathlib import Path
@@ -9,6 +10,11 @@ SCRIPT = (
     / "scripts"
     / "startup_ready_notify_node.py"
 )
+
+
+def test_startup_ready_script_is_ros2_executable():
+    assert SCRIPT.read_text(encoding="utf-8").startswith("#!/usr/bin/env python3")
+    assert os.access(SCRIPT, os.X_OK)
 
 
 def load_module():
