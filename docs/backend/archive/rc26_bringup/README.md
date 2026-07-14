@@ -13,7 +13,7 @@
 - `rc26_decision`：加载当前红/蓝运行配置中 `r2_runtime.paths.behavior_tree_file` 指向的行为树。`bringup.launch.py` 现在尊重运行配置中的既有 `startup_wait_for_odom` 参数；标准红/蓝配置显式设为 `false`，因此 `start_r2_auto.sh` 启动后立即创建并 tick 行为树，不再等待全局 startup odom gate。未显式传入 `runtime_config_file` 时，`bringup.launch.py` 会按 `r2_active_side.yaml` 的 `preselection_mode` 覆盖默认树：`first` 使用 `mc_repeat_preselection_tree.xml`；`second` 默认使用 `second_preselection_combo_tree.xml`，仅当 `second_preselection_kfs_search_compat_enable: true` 时改用 `second_preselection_kfs_compat_combo_tree.xml`。
 - RealSense D455：仅当 `use_realsense:=true` 时启动，用于视觉任务，不属于导航必需节点。
 
-`preselection_mode: second` 的默认 managed 装配以 `second_preselection_combo_tree.xml` 为入口，两条人工限位路径统一切换到 `second_preselection_climb_place_tree.xml`。入口直接收到人工触发外部限位 2 上行 `0x10` 时，组合树完成 `0x11/同 seq 0x0D` 后立即切树，不执行斜坡；入口收到人工触发外部限位 1 上行 `0x06` 时，先完成同一握手并执行合并斜坡前进、停车等待，再由只接受 `0x10` 的斜坡后 gate 完成第二次握手并切到同一目标树。兼容开关开启时，入口与握手语义保持不变，但装配改用 `second_preselection_kfs_compat_combo_tree.xml`，两条路径切换到 `second_preselection_kfs_compat_climb_place_tree.xml`：树首复用旧 KFS 搜索夹取并在失败时停车告警后继续，不发送默认目标树树首预装 `0x15`；收尾在 25s 后以 `wait_ack=false` 单次尝试 `0x15`，立即固定等待 10s，再下发最终 `0x13`。`second_preselection_tree.xml` 继续保留为可显式选择的独立完整流程，不属于 managed 默认或兼容入口。直接显式运行任一目标树时，树不会等待外部限位，也不会自行发送 `0x11` 或等待 `0x0D`；managed 使用时这些握手由对应组合树负责。
+`preselection_mode: second` 的默认 managed 装配以 `second_preselection_combo_tree.xml` 为入口，两条人工限位路径统一切换到 `second_preselection_climb_place_tree.xml`。入口直接收到人工触发外部限位 2 上行 `0x10` 时，组合树完成 `0x11/同 seq 0x0D` 后立即切树，不执行斜坡；入口收到人工触发外部限位 1 上行 `0x06` 时，先完成同一握手并执行合并斜坡前进、停车等待，再由只接受 `0x10` 的斜坡后 gate 完成第二次握手并切到同一目标树。兼容开关开启时，入口与握手语义保持不变，但装配改用 `second_preselection_kfs_compat_combo_tree.xml`，两条路径切换到 `second_preselection_kfs_compat_climb_place_tree.xml`：树首执行 `0x14/同 seq 0x12` 放下机械臂、停车 0.5s、沿 `+X` 前进 1.5m，再执行 `0x12/同 seq 0x11` KFS 夹取，不发送默认目标树树首预装 `0x15`，也不启用视觉搜索、对齐、趋近或消失验证；收尾在 25s 后以 `wait_ack=false` 单次尝试 `0x15`，立即固定等待 10s，再下发最终 `0x13`。`second_preselection_tree.xml` 继续保留为可显式选择的独立完整视觉流程，不属于 managed 默认或兼容入口。直接显式运行任一目标树时，树不会等待外部限位，也不会自行发送 `0x11` 或等待 `0x0D`；managed 使用时这些握手由对应组合树负责。
 
 MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当前红/蓝运行配置把 `mc_camera_device` 固定到 `/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._FHD_Webcam_SN0001-video-index0`，该 by-id 路径对应 Vidar/Sonix FHD Webcam 的 video-index0；`video-index1` 是 UVC metadata，不能作为 OpenCV 图像源。`mc_auto_scan_camera=false`，固定路径失效时直接报错，不再兜底扫描其它 `/dev/video*`。
 
@@ -23,9 +23,9 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 
 ## 关键入口
 
-- [start_r2_auto.sh](/home/potato/RC_2026/start_r2_auto.sh)：根目录自动决策/比赛链路快捷入口，默认读取 `r2_active_side.yaml` 并以 `use_realsense:=true` 启动完整导航决策链；标准红/蓝配置关闭全局 startup odom gate，脚本 `--dry-run` 摘要会打印实际配置值；脚本链路还会额外启动上行人工触发外部限位 3 `0x13` 红蓝切换监听器。
+- [start_r2_auto.sh](/home/potato/RC_2026/start_r2_auto.sh)：根目录自动决策/比赛链路快捷入口，默认读取 `r2_active_side.yaml` 并以 `use_realsense:=false` 启动导航决策链；旧视觉树或相机调试需显式使用 `--use-realsense`，`--no-realsense` 继续作为兼容参数。标准红/蓝配置关闭全局 startup odom gate，脚本 `--dry-run` 摘要会打印实际配置值；脚本链路还会额外启动上行人工触发外部限位 3 `0x13` 红蓝切换监听器。
 - [launch/bringup.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/bringup.launch.py)：整车导航/建图统一入口。
-- [scripts/startup_ready_notify_node.py](/home/potato/RC_2026/src/rc26_bringup/scripts/startup_ready_notify_node.py)：导航模式下的启动就绪通知节点。默认随 `use_realsense:=true` 的完整自动链路启用，等待 RealSense 彩色图、对齐深度图、彩色相机内参均实际出帧，并等待 `rc26_decision` 发布“正在人工限位 branch gate 等待”的内部状态后，通过 `/mechanism/send_command` 以 `wait_ack=false` 下发一次 `STARTUP_READY_WAITING_LIMIT(0x20)` 空 payload。
+- [scripts/startup_ready_notify_node.py](/home/potato/RC_2026/src/rc26_bringup/scripts/startup_ready_notify_node.py)：导航决策模式下默认启用的启动就绪通知节点。它只等待 `rc26_decision` 发布“正在人工限位 branch gate 等待”的内部状态和 `/mechanism/send_command` service 就绪，然后以 `wait_ack=false` 下发一次 `STARTUP_READY_WAITING_LIMIT(0x20)` 空 payload；不再订阅或等待 RealSense。若人工限位 `0x06/0x10` 先到则本次启动跳过通知。
 - [launch/odometry.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/odometry.launch.py)：Point-LIO、里程计接口、静态外参和可选 sensor scan 装配。
 - [launch/grid_heading.launch.py](/home/potato/RC_2026/src/rc26_bringup/launch/grid_heading.launch.py)：独立 yaw heading 校准入口，只启动 odom、MCU transport 和 `grid_heading_tree.xml`。
 - 独立 odom 单轴右转分段入口：保留为包内验证入口，只启动 odom、MCU transport 和独立右转验证树。
@@ -39,7 +39,7 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 
 `start_r2_auto.sh` 专用上行人工触发外部限位 3 `0x13` 监听器只订阅 `/mechanism/command_feedback`，收到 `feedback_id=0x13` 后写回 `r2_active_side.yaml` 顶层 `active_side`：当前 `red` 切到 `blue`，当前 `blue` 切到 `red`。该监听器不由 `bringup.launch.py` 自动启动；直接 `ros2 launch rc26_bringup bringup.launch.py run_mode:=navigation` 不会启用自动红蓝切换，且该切换只影响下一次启动选择的红/蓝运行配置。现有第二预选赛下行 `SECOND_PRESELECTION_PLACE_KFS(0x13)` 命令保持不变，上下行 0x13 分属不同协议方向。
 
-`startup_ready_notify_node.py` 是 `bringup.launch.py` 的普通装配节点，不直接打开串口。它只依赖 `/mechanism/send_command`、`/mechanism/command_feedback`、`/decision/preselection_gate_state` 与 RealSense 默认三类 topic。默认 `startup_ready_notify_enable` 为空时跟随 `use_realsense`：`start_r2_auto.sh` 默认会启用，`--no-realsense` 不发送。若 RealSense 或 gate 状态在 `startup_ready_notify_timeout_s`（默认 60.0s）内未满足，节点只告警，不阻塞原人工限位 gate；若人工限位 `0x06/0x10` 已先到达，则本次启动跳过 `0x20`。
+`startup_ready_notify_node.py` 是 `bringup.launch.py` 的普通装配节点，不直接打开串口。它只依赖 `/mechanism/send_command`、`/mechanism/command_feedback` 与 `/decision/preselection_gate_state`。默认 `startup_ready_notify_enable` 为空时在 navigation 且 `use_decision=true` 的装配中启用，与 `use_realsense` 无关；若 gate 或机构 service 在 `startup_ready_notify_timeout_s`（默认 60.0s）内未满足，节点只告警，不阻塞原人工限位 gate。发送条件还要求本次尚未发送且未先收到人工限位 `0x06/0x10`；限位先到时永久跳过本次 `0x20`。
 
 红蓝切换写回采用可恢复的两阶段提交：候选配置先写入同目录临时文件并同步文件与父目录，再提升为隐藏 `.pending`；正式 `r2_active_side.yaml` 完成原子替换和父目录同步后才删除 `.pending`。若监听器在持久化提交后被强制终止或设备断电，`start_r2_auto.sh` 会在读取 `active_side` 之前执行 `--recover-only`，使用 `.pending` 完成替换；同时兼容恢复旧实现遗留且修改时间不早于正式配置的 `.tmp` 文件。若旧 `.tmp` 已写完整则采用其中的目标配置，若只创建或写入了一部分，则把该文件视为已收到红蓝切换请求的持久化意图，并基于当前正式配置重建一次切换。恢复后的比赛方直接用于本次重启。
 
@@ -69,7 +69,7 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 - `second_preselect_pickup_command_id`、`second_preselect_pickup_done_feedback_id`、`second_preselect_search_*`、`second_preselect_r2_target_*`、`second_preselect_r1_*`、`second_preselect_kfs_*`、`second_preselect_grab_verify_*`、`second_preselect_grab_settle_s`：第二预选赛搜索夹取链参数。当前树内前向趋近后的 `0x12` 用作 KFS 夹取触发，ACK 后先等待同 `seq` 的 MCU 上行 `0x11` 夹取完成反馈，再由视觉消失验证确认夹取。
 - `second_preselect_post_pickup_forward_x_m`、`second_preselect_nav_y1_m`、`second_preselect_total_x_target_m`、`second_preselect_total_x_tolerance_m`：第二预选赛夹取后的总 X 闭环参数。夹取确认后先沿 `+X 1.5m`，再按红方基准 `+Y 0.75m`（blue 自动镜像为 `-Y`），随后以最初搜索前记录的 odom 位姿和搜索起始 yaw 为原点，将搜索、夹取趋近和固定 `+X 1.5m` 的真实净投影补齐到 `4.2m`；若进入节点时已经超出目标则停车成功，不倒退补偿。
 - `second_preselect_place_fixed_forward_x_m`、`second_preselect_place_fixed_forward_timeout_s`、`second_preselect_place_observe_timeout_s`、`second_preselect_place_occupied_*`：第二预选赛放置准备参数。当前放置准备使用中/下层视觉分层：中层 KFS 只表示占据，下层 KFS 只作为横向中心对齐目标；连续稳定帧数由 `second_preselect_place_occupied_stable_frames` 控制。每个观察 checkpoint 若超过 `second_preselect_place_observe_timeout_s` 仍没有稳定判断，会进入固定前进放置，终止原因写为 `PLACE_OBSERVE_TIMEOUT_FIXED_FORWARD`，不直接失败也不跳过到 `0x13`；下层 KFS 横向对齐仍由 `second_preselect_kfs_align_timeout_s` 控制。最终固定沿 `+X second_preselect_place_fixed_forward_x_m` 前进，运动超时使用 `second_preselect_place_fixed_forward_timeout_s`，超时停车后继续唯一一次首次 `0x13`。
-- `second_preselect_climb_place_*`：默认 `second_preselection_climb_place_tree.xml` 与 KFS 兼容目标树共享路线、人工前激光、推杆、odom 后轮段和最终放置参数。默认目标树进入后立即且只下发一次预装 KFS 夹取 `0x15`，只等待通用 ACK；ACK 成功或机构 service/请求/ACK 异常容错后立即开始路线，不等待同 seq `0x14`。兼容目标树不执行这个树首命令，改用 `SecondPreselectionKfsPickup continue_on_failure=true`；搜索、视觉、odom 或夹取失败时发布零速并告警后继续。两棵树后续都执行红方基准 `forward_x=1.5m`、`lateral_y=+0.3m`（blue 自动镜像为 `-0.3m`）、人工前激光上阶和 `rear_forward_x=0.6m` 后轮 odom 段。默认收尾为 `0x0B -> 从节点进入起累计 25s -> 0x13`；兼容收尾为 `0x0B -> 同样累计 25s -> 单次 0x15(wait_ack=false) -> 固定 second_preselect_climb_place_compat_pickup_to_final_delay_s=10s -> 0x13`，不等待 0x15 的 service response、ACK 或 `0x14`。两种收尾的机构失败均只告警续跑或正常结束；树内均不含 managed gate，也不自行发送 `0x11` 或等待 `0x0D`。
+- `second_preselect_climb_place_*`：默认 `second_preselection_climb_place_tree.xml` 与 KFS 兼容目标树共享路线、人工前激光、推杆、odom 后轮段和最终放置参数。默认目标树进入后立即且只下发一次预装 KFS 夹取 `0x15`，只等待通用 ACK；ACK 成功或机构 service/请求/ACK 异常容错后立即开始路线，不等待同 seq `0x14`。兼容目标树不执行这个树首命令，而是复用 `second_preselect_pre_approach_lower_*` 以 `0x14/同 seq 0x12` 放下机械臂，按 `second_preselect_pre_approach_lower_settle_s=0.5` 停车稳定后执行现有 `forward_x=1.5m`，再复用 `second_preselect_pickup_*` 以 `0x12/同 seq 0x11` 完成 KFS 夹取；两步机构失败沿用通用 WARN 后继续语义，整个兼容树不消费视觉。随后执行红方基准 `lateral_y=+0.3m`（blue 自动镜像为 `-0.3m`）、人工前激光上阶和 `rear_forward_x=0.6m` 后轮 odom 段。默认收尾为 `0x0B -> 从节点进入起累计 25s -> 0x13`；兼容收尾为 `0x0B -> 同样累计 25s -> 单次 0x15(wait_ack=false) -> 固定 second_preselect_climb_place_compat_pickup_to_final_delay_s=10s -> 0x13`，不等待 0x15 的 service response、ACK 或 `0x14`。两种收尾的机构失败均只告警续跑或正常结束；树内均不含 managed gate，也不自行发送 `0x11` 或等待 `0x0D`。
 - `second_preselect_dynamic_roi_ui_enable`、`second_preselect_dynamic_roi_ui_window_name`：第二预选赛本地 OpenCV 视觉调试窗口参数。现场开启后会贯穿 KFS 搜索、视觉对齐、夹取完成反馈等待、夹取消失验证、占位判断和任意 KFS 放置对齐，显示识别框、锁定目标、目标线和阶段状态，不改变决策结果。
 这些参数描述相对分段和 odom yaw 目标生成，不是地图位姿。现场标定时应按启动姿态重新调整每段 `distance_m` 和相对/绝对 yaw；蓝方若只做标准镜像，保持 `r2_blue.yaml` 的 `team: blue` 即可复用同一组红方基准值。
 
@@ -96,9 +96,13 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 
 ## 本轮同步
 
+2026-07-14 同步：second KFS 兼容目标树删除视觉搜索链，改为切树后立即执行机械臂放下 `0x14/同 seq 0x12`、停车 0.5s、现有 `OdomDriveX(+1.5m)`、KFS 夹取 `0x12/同 seq 0x11`，随后继续原 Y/20s/上阶/兼容收尾。兼容树不再创建 `SecondPreselectionKfsPickup`，因此不依赖 RealSense 图像、视觉对齐、深度趋近或目标消失验证；默认 managed second 与显式完整视觉树保持不变。
+
+2026-07-14 同步：`start_r2_auto.sh` 默认改为 `use_realsense=false`，新增 `--use-realsense` 显式启用入口并保留 `--no-realsense`。启动就绪 `0x20` 与 RealSense 解耦：navigation+decision 默认创建通知节点，只等待 managed gate `waiting=true` 与机构 service 就绪；`0x06/0x10` 先到则跳过，超时只告警。dry-run 同时显示 RealSense 与 `0x20` 的实际开关。
+
 2026-07-14 同步：标准 `r2_red.yaml` / `r2_blue.yaml` 新增既有参数 `startup_wait_for_odom=false`，`bringup.launch.py` 改为尊重运行配置而不再在 navigation 模式强制覆盖为 `true`。因此 `start_r2_auto.sh` 启动后会立即创建并 tick 行为树，人工限位 branch gate 不再被全局 odom 稳定条件挡住；脚本 `--dry-run` 会显示实际开关值。该调整没有删除 `OdomDriveX/Y`、yaw、台阶等动作自身的新鲜 odom 检查，也没有重新启用 bootstrap `/odom`；独立右转验证 launch 仍显式开启启动 gate。
 
-2026-07-14 同步：`r2_active_side.yaml` 新增默认关闭的 `second_preselection_kfs_search_compat_enable`。它只在未显式传入 `runtime_config_file` 且 `preselection_mode: second` 时生效：默认继续使用现有组合树和目标树；开启后改用独立兼容组合树，两条人工限位路径都切到 KFS 搜索兼容目标树。`start_r2_auto.sh --dry-run` 会打印该值和作用域，红蓝切换事务只改 `active_side` 并保留兼容开关。红蓝运行配置新增 `second_preselect_climb_place_compat_pickup_to_final_delay_s=10.0`，用于兼容收尾的固定等待。
+2026-07-14 同步：`r2_active_side.yaml` 新增默认关闭的 `second_preselection_kfs_search_compat_enable`。它只在未显式传入 `runtime_config_file` 且 `preselection_mode: second` 时生效：默认继续使用现有组合树和目标树；开启后改用独立兼容组合树，两条人工限位路径都切到独立 KFS 兼容目标树。`start_r2_auto.sh --dry-run` 会打印该值和作用域，红蓝切换事务只改 `active_side` 并保留兼容开关。红蓝运行配置新增 `second_preselect_climb_place_compat_pickup_to_final_delay_s=10.0`，用于兼容收尾的固定等待。
 
 2026-07-14 同步：运行参数名、红蓝数值和 ROS 接口保持不变，但机构失败结果统一改为 WARN 后继续既定下一阶段；service 不可用、请求异常、拒绝、ACK/done 超时、串口暂不可用和非 BUSY `0xFE` 不再终止 decision 行为树。普通 odom、视觉、人工限位/激光和非法运行上下文仍保持原语义。目标上阶夹取放置树的树首 `0x15` 现在只等通用 ACK，不等待 `0x14`；兼容参数 `second_preselect_climb_place_preload_pickup_done_feedback_id` 继续保留在红蓝配置中但不被该树首节点消费。
 
@@ -116,7 +120,7 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 
 2026-07-13 同步：`startup_ready_notify_node.py` 作为 ROS2 launch libexec 节点安装，源码必须保持可执行权限；`--symlink-install` 下 libexec 入口指向源码，测试已覆盖 shebang 与可执行位，避免完整自动链路启动时被 ROS2 判定为 executable not found。该节点的 `command_id` 参数允许 launch 传入 `0x20` 字符串或十进制整数，节点内部统一解析为 `uint8`，避免 ROS2 参数类型推断导致启动就绪通知节点提前退出；`start_r2_auto.sh` 专用 active-side 监听器现在在 Ctrl+C / 外部关闭时静默退出，不再打印正常停止路径的 traceback。
 
-2026-07-12 同步：完整自动链路新增启动就绪 `0x20` no-ack 通知。`bringup.launch.py` 在 navigation、`use_decision=true`、`use_realsense=true` 且 `startup_ready_notify_enable` 未关闭时启动 `startup_ready_notify_node.py`；该节点等待 `/camera/color/image_raw`、`/camera/aligned_depth_to_color/image_raw`、`/camera/color/camera_info` 和 `/decision/preselection_gate_state` 同时就绪后，通过 `rc26_mcu_transport` 以 `wait_ack=false` 发送一次 `STARTUP_READY_WAITING_LIMIT(0x20)` 空 payload。`start_r2_auto.sh --dry-run` 摘要会显示该通知随 RealSense 启用，可通过 `--extra-launch-arg startup_ready_notify_enable:=false` 关闭。
+2026-07-12 同步：完整自动链路引入启动就绪 `0x20` no-ack 通知；当前实现已在 2026-07-14 与 RealSense 解耦。`bringup.launch.py` 在 navigation、`use_decision=true` 且 `startup_ready_notify_enable` 未关闭时启动节点；节点等待 `/decision/preselection_gate_state` 的 `waiting=true` 与机构 service 就绪后，以 `wait_ack=false` 发送一次空 payload。可通过 `--extra-launch-arg startup_ready_notify_enable:=false` 关闭。
 
 2026-07-10 同步：上行人工触发外部限位 3 `0x13` 红蓝切换写回改为可恢复两阶段提交。监听器持久化 `.pending`，保留恢复副本直到正式配置替换和父目录 `fsync` 完成；`start_r2_auto.sh` 在解析红蓝方前执行 `--recover-only`，可恢复强杀、进程崩溃或断电遗留的 `.pending`，并兼容旧实现留下且不早于正式配置的完整或不完整 `.tmp` 文件。新增回归测试覆盖正常提交、pending 恢复、旧临时文件恢复和过期临时文件忽略。
 
@@ -149,7 +153,7 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 
 2026-07-03 同步：`r2_active_side.yaml` 新增 `preselection_mode: first|second`。未显式传入 `runtime_config_file` 时，bringup 按该模式覆盖默认树；当前 first 为 `mc_repeat_preselection_tree.xml`，second 为 `second_preselection_combo_tree.xml`；managed 模式由 `WaitPreselectionBranchGate` 统一处理人工触发外部限位 1/2 的上行 0x06/0x10 分支。second 决策族中两条分支都使用 0x11/0x0D 握手。红/蓝运行配置新增 first gate 延时、second 合并斜坡前进和历史斜坡后转向参数；正式 MC 末尾流程不再依赖视觉配准 gate。
 
-2026-07-02 同步：新增根目录 `start_r2_auto.sh` 作为自动决策/比赛链路快捷入口。脚本只封装 `ros2 launch rc26_bringup bringup.launch.py run_mode:=navigation`，默认读取 `r2_active_side.yaml`、打印当前红/蓝方和选中的运行配置，并默认传入 `use_realsense:=true`；红蓝方路线、行为树、MCU transport 与决策参数仍由 `rc26_bringup` 和对应运行配置负责。
+2026-07-02 同步：新增根目录 `start_r2_auto.sh` 作为自动决策/比赛链路快捷入口。脚本只封装 `ros2 launch rc26_bringup bringup.launch.py run_mode:=navigation`，默认读取 `r2_active_side.yaml` 并打印当前红/蓝方和选中的运行配置；当前自 2026-07-14 起默认传入 `use_realsense:=false`，需要相机时使用 `--use-realsense`。红蓝方路线、行为树、MCU transport 与决策参数仍由 `rc26_bringup` 和对应运行配置负责。
 
 2026-07-02 同步：MCU 上行 0x10 收敛为人工触发外部限位 2 事件。当前 managed first/second 入口下，该事件由 branch gate 消费；旧 first 组合树曾使用 0x10/0x0C 后切梅林树，当前 first 默认重复树仅在 MC 末尾把 0x10 作为舵机放下握手，second 使用 0x11/0x0D 后切对抗区树。
 

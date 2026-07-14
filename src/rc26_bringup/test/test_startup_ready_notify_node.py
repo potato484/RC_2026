@@ -55,34 +55,39 @@ def load_module():
         "SendMechanismTransportCommand", (), {"Request": type("Request", (), {})}
     )
 
-    sensor_msgs = types.ModuleType("sensor_msgs")
-    sensor_msgs_msg = types.ModuleType("sensor_msgs.msg")
-    sensor_msgs_msg.CameraInfo = type("CameraInfo", (), {})
-    sensor_msgs_msg.Image = type("Image", (), {})
     std_msgs = types.ModuleType("std_msgs")
     std_msgs_msg = types.ModuleType("std_msgs.msg")
     std_msgs_msg.String = type("String", (), {})
 
-    sys.modules.update(
-        {
-            "rclpy": rclpy,
-            "rclpy.node": rclpy_node,
-            "rclpy.qos": rclpy_qos,
-            "rcl_interfaces": rcl_interfaces,
-            "rcl_interfaces.msg": rcl_interfaces_msg,
-            "rc26_interfaces": rc26_interfaces,
-            "rc26_interfaces.msg": rc26_interfaces_msg,
-            "rc26_interfaces.srv": rc26_interfaces_srv,
-            "sensor_msgs": sensor_msgs,
-            "sensor_msgs.msg": sensor_msgs_msg,
-            "std_msgs": std_msgs,
-            "std_msgs.msg": std_msgs_msg,
-        }
-    )
-
-    spec = importlib.util.spec_from_file_location("startup_ready_notify_node", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    injected_modules = {
+        "rclpy": rclpy,
+        "rclpy.node": rclpy_node,
+        "rclpy.qos": rclpy_qos,
+        "rcl_interfaces": rcl_interfaces,
+        "rcl_interfaces.msg": rcl_interfaces_msg,
+        "rc26_interfaces": rc26_interfaces,
+        "rc26_interfaces.msg": rc26_interfaces_msg,
+        "rc26_interfaces.srv": rc26_interfaces_srv,
+        "std_msgs": std_msgs,
+        "std_msgs.msg": std_msgs_msg,
+    }
+    missing = object()
+    previous_modules = {
+        name: sys.modules.get(name, missing) for name in injected_modules
+    }
+    sys.modules.update(injected_modules)
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "startup_ready_notify_node", SCRIPT
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    finally:
+        for name, previous in previous_modules.items():
+            if previous is missing:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = previous
     return module
 
 
@@ -103,13 +108,10 @@ def test_command_id_descriptor_accepts_string_launch_override():
     assert descriptor.dynamic_typing
 
 
-def test_startup_ready_requires_all_inputs_and_service():
+def test_startup_ready_requires_gate_and_service_only():
     module = load_module()
 
     assert module.startup_ready_should_notify(
-        have_color=True,
-        have_depth=True,
-        have_info=True,
         gate_waiting=True,
         service_ready=True,
         limit_already_seen=False,
@@ -118,19 +120,6 @@ def test_startup_ready_requires_all_inputs_and_service():
     )
 
     assert not module.startup_ready_should_notify(
-        have_color=True,
-        have_depth=False,
-        have_info=True,
-        gate_waiting=True,
-        service_ready=True,
-        limit_already_seen=False,
-        sent=False,
-        done=False,
-    )
-    assert not module.startup_ready_should_notify(
-        have_color=True,
-        have_depth=True,
-        have_info=True,
         gate_waiting=False,
         service_ready=True,
         limit_already_seen=False,
@@ -138,9 +127,6 @@ def test_startup_ready_requires_all_inputs_and_service():
         done=False,
     )
     assert not module.startup_ready_should_notify(
-        have_color=True,
-        have_depth=True,
-        have_info=True,
         gate_waiting=True,
         service_ready=False,
         limit_already_seen=False,
@@ -153,9 +139,6 @@ def test_startup_ready_suppresses_after_limit_or_send():
     module = load_module()
 
     base = dict(
-        have_color=True,
-        have_depth=True,
-        have_info=True,
         gate_waiting=True,
         service_ready=True,
     )

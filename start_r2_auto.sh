@@ -10,7 +10,8 @@ Usage:
 Options:
   --side-config-file <path>          红蓝方选择 YAML，默认：src/rc26_bringup/config/r2_active_side.yaml
   --runtime-config-file <path>       直接覆盖完整运行配置 YAML，透传给 bringup
-  --no-realsense                     关闭 RealSense D455，默认会启动 RealSense
+  --use-realsense                    启动 RealSense D455，默认关闭
+  --no-realsense                     关闭 RealSense D455（兼容参数）
   --use-rviz                         启动 RViz2 观察界面，默认关闭
   --recover-mid360-stream            启动前尝试恢复 Mid-360 数据流
   --mcu-port <dev>                   目标 MCU 串口，透传给 rc26_mcu_transport
@@ -24,13 +25,13 @@ Options:
 Notes:
   本脚本是 R2 自动决策/比赛链路快捷入口。
   红蓝方路线与行为树仍由 rc26_bringup 根据 r2_active_side.yaml 选择的运行配置加载。
-  默认启动 RealSense D455，匹配完整 MC + MF 预选链路。
+  默认不启动 RealSense D455；显式视觉调试或旧视觉树使用 --use-realsense。
   运行前请确认 start_r2_teleop.sh 或其它 /cmd_vel 发布者没有同时运行。
 
 Examples:
   ./start_r2_auto.sh
   ./start_r2_auto.sh --dry-run
-  ./start_r2_auto.sh --no-realsense --use-rviz
+  ./start_r2_auto.sh --use-realsense --use-rviz
 EOF
 }
 
@@ -155,7 +156,8 @@ setup_file="${workspace_dir}/install/setup.bash"
 side_config_file="${workspace_dir}/src/rc26_bringup/config/r2_active_side.yaml"
 active_side_switch_listener_script="${workspace_dir}/src/rc26_bringup/scripts/active_side_switch_listener.py"
 runtime_config_file=""
-use_realsense="true"
+use_realsense="false"
+startup_ready_notify_enable="true"
 use_rviz="false"
 recover_mid360_stream="false"
 mcu_port=""
@@ -177,6 +179,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-realsense)
       use_realsense="false"
+      shift
+      ;;
+    --use-realsense)
+      use_realsense="true"
       shift
       ;;
     --use-rviz)
@@ -299,6 +305,17 @@ for arg in "${extra_launch_args[@]}"; do
     echo "Invalid --extra-launch-arg: ${arg}. Expected name:=value." >&2
     exit 1
   fi
+  if [[ "${arg}" == startup_ready_notify_enable:=* ]]; then
+    startup_ready_notify_value="${arg#startup_ready_notify_enable:=}"
+    case "${startup_ready_notify_value,,}" in
+      1|true|yes|on)
+        startup_ready_notify_enable="true"
+        ;;
+      *)
+        startup_ready_notify_enable="false"
+        ;;
+    esac
+  fi
 done
 
 launch_cmd=(
@@ -352,7 +369,7 @@ print_summary() {
   fi
   echo "RealSense D455: ${use_realsense}"
   echo "Startup odom gate: ${startup_wait_for_odom} (OdomDrive actions still require fresh odom)"
-  echo "Startup ready 0x20 notify: ${use_realsense} (override via --extra-launch-arg startup_ready_notify_enable:=false)"
+  echo "Startup ready 0x20 notify: ${startup_ready_notify_enable} (requires navigation + decision; override via --extra-launch-arg startup_ready_notify_enable:=false)"
   echo "RViz2: ${use_rviz}"
   echo "Recover Mid-360 stream: ${recover_mid360_stream}"
 }

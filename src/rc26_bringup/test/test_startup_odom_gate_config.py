@@ -54,6 +54,20 @@ def test_bringup_honors_runtime_gate_setting_and_keeps_legacy_fallback():
     assert module._resolve_startup_wait_for_odom({"decision_params": {}}, False) is False
 
 
+def test_startup_ready_notify_is_independent_of_realsense():
+    module = _load_bringup_launch_module()
+
+    assert module._should_start_startup_ready_notify(True, True, True) is True
+    assert module._should_start_startup_ready_notify(True, True, False) is False
+    assert module._should_start_startup_ready_notify(True, False, True) is False
+    assert module._should_start_startup_ready_notify(False, True, True) is False
+
+    source = LAUNCH_FILE.read_text(encoding="utf-8")
+    assert "startup_ready_notify_color_topic" not in source
+    assert "startup_ready_notify_depth_topic" not in source
+    assert "startup_ready_notify_info_topic" not in source
+
+
 def test_managed_preselection_tree_selects_compat_profile_only_for_second():
     module = _load_bringup_launch_module()
     default_tree = "/tmp/custom_tree.xml"
@@ -113,3 +127,39 @@ def test_start_r2_auto_dry_run_reports_disabled_startup_gate():
 
     assert "Startup odom gate: false" in result.stdout
     assert "Second KFS search compatibility: false" in result.stdout
+    assert "RealSense D455: false" in result.stdout
+    assert "Startup ready 0x20 notify: true" in result.stdout
+
+
+def test_start_r2_auto_realsense_is_explicit_opt_in():
+    result = subprocess.run(
+        [
+            str(WORKSPACE_ROOT / "start_r2_auto.sh"),
+            "--dry-run",
+            "--use-realsense",
+        ],
+        cwd=WORKSPACE_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "RealSense D455: true" in result.stdout
+    assert "Startup ready 0x20 notify: true" in result.stdout
+
+
+def test_start_r2_auto_reports_explicit_startup_ready_disable():
+    result = subprocess.run(
+        [
+            str(WORKSPACE_ROOT / "start_r2_auto.sh"),
+            "--dry-run",
+            "--extra-launch-arg",
+            "startup_ready_notify_enable:=false",
+        ],
+        cwd=WORKSPACE_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Startup ready 0x20 notify: false" in result.stdout

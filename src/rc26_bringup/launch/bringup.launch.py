@@ -93,6 +93,10 @@ def _resolve_startup_wait_for_odom(runtime_defaults, navigation_mode):
     return _parse_bool(configured) if isinstance(configured, str) else bool(configured)
 
 
+def _should_start_startup_ready_notify(navigation_mode, use_decision, enabled):
+    return bool(navigation_mode and use_decision and enabled)
+
+
 def _read_run_mode(context):
     if 'slam' in context.launch_configurations:
         raise RuntimeError(
@@ -339,18 +343,11 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, mcu_
     use_decision = _parse_bool(_launch_value(context, 'use_decision') or 'true')
     use_realsense = _parse_bool(_launch_value(context, 'use_realsense'))
     startup_ready_notify_enable = _select_bool(
-        context, 'startup_ready_notify_enable', use_realsense)
+        context, 'startup_ready_notify_enable', navigation_mode and use_decision)
     startup_ready_notify_command_id = _select_str(
         context, 'startup_ready_notify_command_id', '0x20')
     startup_ready_notify_timeout_s = _select_nonnegative_float(
         context, 'startup_ready_notify_timeout_s', 60.0)
-    startup_ready_notify_color_topic = _select_str(
-        context, 'startup_ready_notify_color_topic', '/camera/color/image_raw')
-    startup_ready_notify_depth_topic = _select_str(
-        context, 'startup_ready_notify_depth_topic',
-        '/camera/aligned_depth_to_color/image_raw')
-    startup_ready_notify_info_topic = _select_str(
-        context, 'startup_ready_notify_info_topic', '/camera/color/camera_info')
     startup_ready_notify_gate_state_topic = _select_str(
         context, 'startup_ready_notify_gate_state_topic',
         '/decision/preselection_gate_state')
@@ -553,7 +550,8 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, mcu_
         )
         actions.extend(_after_delay(startup_delay_realsense_sec, [realsense_group]))
 
-    if navigation_mode and use_decision and use_realsense and startup_ready_notify_enable:
+    if _should_start_startup_ready_notify(
+            navigation_mode, use_decision, startup_ready_notify_enable):
         actions.append(Node(
             package='rc26_bringup',
             executable='startup_ready_notify_node.py',
@@ -566,9 +564,6 @@ def _create_runtime_actions(context, *, bringup_dir, sensor_extrinsics_dir, mcu_
                 'send_command_service': '/mechanism/send_command',
                 'feedback_topic': '/mechanism/command_feedback',
                 'gate_state_topic': startup_ready_notify_gate_state_topic,
-                'color_topic': startup_ready_notify_color_topic,
-                'depth_topic': startup_ready_notify_depth_topic,
-                'info_topic': startup_ready_notify_info_topic,
                 'limit_feedback_ids': [0x06, 0x10],
             }],
         ))
@@ -717,7 +712,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'startup_ready_notify_enable',
             default_value='',
-            description='启动就绪 0x20 no-ack 通知；空字符串表示跟随 use_realsense'),
+            description='启动就绪 0x20 no-ack 通知；空字符串表示 navigation+decision 时启用'),
         DeclareLaunchArgument(
             'startup_ready_notify_command_id',
             default_value='0x20',
@@ -725,19 +720,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'startup_ready_notify_timeout_s',
             default_value='60.0',
-            description='启动就绪通知等待 RealSense 出帧和人工限位 gate 的超时时间；超时只告警'),
-        DeclareLaunchArgument(
-            'startup_ready_notify_color_topic',
-            default_value='/camera/color/image_raw',
-            description='启动就绪通知等待的 RealSense 彩色图 topic'),
-        DeclareLaunchArgument(
-            'startup_ready_notify_depth_topic',
-            default_value='/camera/aligned_depth_to_color/image_raw',
-            description='启动就绪通知等待的 RealSense 对齐深度图 topic'),
-        DeclareLaunchArgument(
-            'startup_ready_notify_info_topic',
-            default_value='/camera/color/camera_info',
-            description='启动就绪通知等待的 RealSense 彩色相机内参 topic'),
+            description='启动就绪通知等待人工限位 gate 与机构 service 的超时时间；超时只告警'),
         DeclareLaunchArgument(
             'startup_ready_notify_gate_state_topic',
             default_value='/decision/preselection_gate_state',

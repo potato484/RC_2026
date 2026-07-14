@@ -1,8 +1,8 @@
 <!--
-  第二预选赛 KFS 搜索兼容上阶树：
+  第二预选赛 KFS 兼容上阶树：
   - managed 入口握手仍由 second_preselection_kfs_compat_combo_tree.xml 完成。
-  - 树首复用旧 SecondPreselectionKfsPickup 搜索夹取，不发送当前目标树的预装 0x15。
-  - KFS 搜索、视觉、odom 或夹取失败时停车告警并继续后续上阶路线。
+  - 树首依次放下机械臂、停车稳定、沿 +X 前进 1.5m、执行 KFS 夹取；不启用视觉搜索或验证。
+  - 机构命令失败时沿用 SecondPreselectionCommand 的告警续跑语义。
   - 后轮段完成后立即处理后推杆收回 0x0B；从进入收尾阶段起等待 25s，
     fire-and-forget 下发 0x15，固定等待 10s，再可靠下发最终 0x13。
   - 运行前必须停用遥控、独立台阶测试等其它 /cmd_vel 发布权威。
@@ -10,9 +10,17 @@
 <root BTCPP_format="4" main_tree_to_execute="SecondPreselectionKfsCompatClimbPlaceTree">
   <BehaviorTree ID="SecondPreselectionKfsCompatClimbPlaceTree">
     <Sequence name="second_preselection_kfs_compat_climb_place_sequence">
-      <SecondPreselectionKfsPickup
-          name="second_preselection_kfs_compat_pickup"
-          continue_on_failure="true"/>
+      <SecondPreselectionCommand
+          name="second_preselection_kfs_compat_lower_arm"
+          command_id="{second_preselect_pre_approach_lower_command_id}"
+          done_feedback_id="{second_preselect_pre_approach_lower_done_feedback_id}"
+          command_timeout_s="{second_preselect_command_timeout_s}"
+          done_timeout_s="{second_preselect_done_timeout_s}"
+          label="second_preselection_kfs_compat_lower_arm"/>
+
+      <Delay delay_msec="{second_preselect_pre_approach_lower_settle_msec}">
+        <AlwaysSuccess name="second_preselection_kfs_compat_lower_settled"/>
+      </Delay>
 
       <OdomDriveX name="second_preselection_kfs_compat_climb_place_forward"
                   distance_m="{second_preselect_climb_place_forward_x_m}"
@@ -29,6 +37,14 @@
                   odom_timeout_s="{odom_relative_nav_odom_timeout_s}"
                   succeed_on_reach_or_overshoot="true"
                   timeout_s="{second_preselect_nav_timeout_s}"/>
+
+      <SecondPreselectionCommand
+          name="second_preselection_kfs_compat_pickup"
+          command_id="{second_preselect_pickup_command_id}"
+          done_feedback_id="{second_preselect_pickup_done_feedback_id}"
+          command_timeout_s="{second_preselect_command_timeout_s}"
+          done_timeout_s="{second_preselect_done_timeout_s}"
+          label="second_preselection_kfs_compat_pickup"/>
 
       <OdomDriveY name="second_preselection_kfs_compat_climb_place_lateral"
                   distance_m="{second_preselect_climb_place_lateral_y_m}"

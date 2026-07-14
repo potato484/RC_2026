@@ -5698,6 +5698,12 @@ void loadSecondPreselectionParams(rclcpp::Node &node,
                   p.pre_approach_lower_done_feedback_id);
   blackboard->set("second_preselect_pre_approach_lower_settle_s",
                   p.pre_approach_lower_settle_s);
+  const double max_delay_msec =
+      static_cast<double>(std::numeric_limits<unsigned int>::max());
+  const auto pre_approach_lower_settle_msec = static_cast<unsigned int>(
+      std::min(max_delay_msec, p.pre_approach_lower_settle_s * 1000.0));
+  blackboard->set("second_preselect_pre_approach_lower_settle_msec",
+                  pre_approach_lower_settle_msec);
   blackboard->set("second_preselect_place_kfs_command_id",
                   p.place_kfs_command_id);
   blackboard->set("second_preselect_post_place_retreat_x_m",

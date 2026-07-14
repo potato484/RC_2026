@@ -12,9 +12,9 @@ R2 运行时导航权威已经迁移到 `rc26_decision` 内部 odom 相对闭环
 
 `rc26_bringup run_mode:=navigation` 只装配 `rc26_mcu_transport`、`odometry.launch.py start_sensor_scan:=false`、`rc26_decision`，以及按需 RealSense。`/cmd_vel` 由决策侧导航/动作节点串行发布，默认硬件消费方由 `rc26_mcu_transport` 提供并下发 `POSE_TARGET(0x0C)`；同一时刻不得启动遥控、测试动作或其它 `/cmd_vel` 发布者。
 
-根目录 `start_r2_auto.sh` 是完整自动决策/比赛链路的快捷启动脚本，默认读取 `r2_active_side.yaml` 并带起 RealSense；标准红/蓝配置关闭整棵行为树前的 startup odom gate，因此人工限位入口可在决策节点启动后立即工作，但后续 `OdomDriveX/Y` 等闭环动作仍需新鲜真实 `/odom` 才能移动。运行时装配权威仍在 `rc26_bringup`，脚本不承载红蓝路线或决策逻辑。
+根目录 `start_r2_auto.sh` 是完整自动决策/比赛链路的快捷启动脚本，默认读取 `r2_active_side.yaml` 且不启动 RealSense；旧视觉树或相机调试需显式传入 `--use-realsense`。标准红/蓝配置关闭整棵行为树前的 startup odom gate，因此人工限位入口可在决策节点启动后立即工作，但后续 `OdomDriveX/Y` 等闭环动作仍需新鲜真实 `/odom` 才能移动。启动就绪 `0x20(wait_ack=false)` 只在 managed gate 已进入等待且机构命令 service 就绪时单次发送，若 `0x06/0x10` 先到则跳过，与 RealSense 是否启用无关。运行时装配权威仍在 `rc26_bringup`，脚本不承载红蓝路线或决策逻辑。
 
-second managed 默认继续使用树首预装 `0x15` 的现有上阶放置树。`r2_active_side.yaml` 新增默认关闭的 `second_preselection_kfs_search_compat_enable`：开启后，两条 second 人工限位路径保持原 `0x11/0x0D` 与斜坡握手，但切到独立 KFS 搜索兼容树；树首搜索夹取失败时停车告警后继续，收尾按 `0x0B -> 25s -> 0x15(wait_ack=false) -> 10s -> 0x13` 执行。该开关不改变 ROS 接口、串口命令编号或 `/cmd_vel` 权威，显式 `runtime_config_file` 覆盖时不生效。
+second managed 默认继续使用树首预装 `0x15` 的现有上阶放置树。`r2_active_side.yaml` 的 `second_preselection_kfs_search_compat_enable` 默认关闭；开启后，两条 second 人工限位路径保持原 `0x11/0x0D` 与斜坡握手，但兼容目标树改为 `0x14/同 seq 0x12` 放下机械臂、停车 0.5s、沿 `+X` 前进 1.5m、再以 `0x12/同 seq 0x11` 完成 KFS 夹取，完全不启动视觉搜索、对齐、趋近或消失验证。后续上阶路线不变，收尾仍按 `0x0B -> 25s -> 0x15(wait_ack=false) -> 10s -> 0x13` 执行。该开关不改变 ROS 接口、串口命令编号或 `/cmd_vel` 权威，显式 `runtime_config_file` 覆盖时不生效；显式完整 `second_preselection_tree.xml` 继续保留旧视觉流程。
 
 根目录 `开机自启动.txt` 提供当前实机 systemd 开机自启动配置指令，可整段复制到终端执行。该指令创建 `r2-auto.service`，以 `aidlux` 用户、`/home/aidlux/RC_2026` 工作目录启动 `/home/aidlux/RC_2026/start_r2_auto.sh`，并提供状态、日志、停止、重启和卸载命令。
 
