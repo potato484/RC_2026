@@ -345,6 +345,38 @@ TEST(MCPreselectionRepeatLogic, ComputesSignedForwardDistance) {
                    0.05);
 }
 
+TEST(MCPreselectionRepeatRuntime, PreservesNegativeForwardStepFromParameters) {
+  if (!rclcpp::ok()) {
+    int argc = 0;
+    char **argv = nullptr;
+    rclcpp::init(argc, argv);
+  }
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+      rclcpp::Parameter("mc_nav_forward_x_m", 1.05),
+      rclcpp::Parameter("first_preselection_mc_repeat_forward_x_step_m",
+                        -0.2),
+  });
+  auto node = std::make_shared<rclcpp::Node>(
+      "mc_preselection_signed_step_test", options);
+  auto blackboard = BT::Blackboard::create();
+  blackboard->set("team_mirror_sign", -1);
+
+  rc26_decision::loadMCParams(*node, blackboard);
+
+  double loaded_step_m = 0.0;
+  ASSERT_TRUE(blackboard->get(
+      "first_preselection_mc_repeat_forward_x_step_m", loaded_step_m));
+  EXPECT_DOUBLE_EQ(loaded_step_m, -0.2);
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::mcPreselectionEffectiveForwardX(1.05, loaded_step_m, 1),
+      0.85);
+  EXPECT_DOUBLE_EQ(
+      rc26_decision::mcPreselectionEffectiveForwardX(1.05, loaded_step_m, 2),
+      0.65);
+}
+
 TEST(TreeSwitchRequest, ConsumesRequestAndSuppressesDuplicateActiveTarget) {
   auto blackboard = BT::Blackboard::create();
   std::string tree_file;

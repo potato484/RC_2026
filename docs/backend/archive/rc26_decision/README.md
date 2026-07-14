@@ -168,6 +168,8 @@ MF 格间动作仍由 `PlanGridTransition -> GridTurn -> GridHeadingAlign -> Gri
 
 2026-07-14 同步：second managed 新增默认关闭的 KFS 搜索兼容 profile。`second_preselection_kfs_compat_combo_tree.xml` 保持原 `0x06/0x10 -> 0x11/0x0D` 与斜坡语义，但切换到 `second_preselection_kfs_compat_climb_place_tree.xml`；目标树用 `SecondPreselectionKfsPickup continue_on_failure=true` 替代树首预装 `0x15`，搜索、视觉、odom 或夹取失败时停车告警并继续完整上阶路线。新增 `SecondPreselectionRearRetractCompatPickupPlace`，收尾为 `0x0B -> 从节点进入起累计25s -> 单次0x15(wait_ack=false) -> 固定10s -> 0x13`；0x15 不等待 service response、ACK 或 0x14，即使 service 不可用或请求失败也不推迟 10s 计时。默认组合树、默认目标树和独立完整 second 树保持原行为。
 
+2026-07-14 同步：first MC repeat 的参数加载现在保留 `first_preselection_mc_repeat_forward_x_step_m` 的原始符号，只在非有限数时回退到 `+0.2m`，不再对有效值取绝对值。因此蓝方 selector 的 `-0.2m` 会原样写入黑板，三轮首段 X 恢复为文档约定的 `1.05m -> 0.85m -> 0.65m`；回归测试直接覆盖从 ROS 参数加载负步进到黑板的路径。
+
 2026-07-14 同步：标准完整自动链通过现有 `startup_wait_for_odom=false` 关闭 `decision_node` 的整树启动 odom gate。决策节点启动后立即加载并 tick 当前行为树，不再要求 `/odom` 先连续低速稳定；该开关只移除树外的全局前置等待，`OdomDriveX/Y`、yaw、台阶 heading 等动作内部仍要求新鲜真实 odom，无 odom 时保持停车等待或按各自超时语义结束。独立右转验证入口仍显式开启全局 gate。
 
 2026-07-14 同步：`rc26_decision` 内机构命令失败统一改为告警续跑。台阶、MF、MC 抓取、managed/旧启动 gate、独立 second、上阶前后机构和最终放置在 service 不可用、请求异常、拒绝、ACK/done 超时、串口暂不可用或非 BUSY `0xFE` 时不再返回终止性 `FAILURE`，而是清理当前命令状态并进入既定下一阶段；`BUSY(0x01)` 仍等最终反馈。人工限位/激光、普通 odom、视觉和非法运行上下文保持原语义。`SecondPreselectionClimbPlacePreloadPickup` 同时改为树首只下发一次 `0x15`、只等通用 ACK，不再订阅或等待 `0x14`；ACK 成功或机构容错后立即进入首个 OdomDrive。

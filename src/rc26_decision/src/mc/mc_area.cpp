@@ -380,7 +380,6 @@ void loadMCParams(rclcpp::Node& node, const BT::Blackboard::Ptr& blackboard) {
     if (!std::isfinite(preselection_repeat_forward_x_step_m)) {
         preselection_repeat_forward_x_step_m = 0.2;
     }
-    preselection_repeat_forward_x_step_m = std::abs(preselection_repeat_forward_x_step_m);
     if (!std::isfinite(after_rotate_retreat_y_m)) {
         after_rotate_retreat_y_m = -0.4;
     }
