@@ -215,13 +215,26 @@ void McuTransportNode::sendChassisTarget() {
 
 void McuTransportNode::enqueueFeedback(uint8_t seq, uint8_t feedback_id,
                                        const std::vector<uint8_t>& payload) {
-    if (!shouldPublishTransportFeedback(feedback_id, payload.size())) {
+    const auto disposition = classifyTransportFeedback(feedback_id, payload.size());
+    if (disposition == TransportFeedbackDisposition::Internal) {
+        return;
+    }
+    if (disposition == TransportFeedbackDisposition::Unsupported) {
+        unsupported_feedback_drop_count_.fetch_add(1, std::memory_order_relaxed);
+        last_unsupported_feedback_id_.store(static_cast<int>(feedback_id),
+                                            std::memory_order_relaxed);
         if (feedback_id == static_cast<uint8_t>(rc26_serial::FeedbackID::MCU_ERROR) &&
             !payload.empty()) {
             RCLCPP_WARN(
                 get_logger(),
                 "drop invalid MCU_ERROR(0xFE) feedback payload: seq=%u payload_size=%zu",
                 static_cast<unsigned int>(seq), payload.size());
+        } else {
+            RCLCPP_WARN_THROTTLE(
+                get_logger(), *get_clock(), 1000,
+                "drop unsupported MCU feedback: seq=%u id=0x%02X payload_size=%zu",
+                static_cast<unsigned int>(seq),
+                static_cast<unsigned int>(feedback_id), payload.size());
         }
         return;
     }
@@ -327,8 +340,6 @@ void McuTransportNode::publishDiagnostics() {
         status.values.push_back(
             makeKeyValue("mcu_error_responses", std::to_string(health.mcu_error_responses.load())));
         status.values.push_back(makeKeyValue("reconnect_count", std::to_string(health.reconnect_count.load())));
-        status.values.push_back(
-            makeKeyValue("heartbeat_failures", std::to_string(health.heartbeat_failures.load())));
     }
     status.values.push_back(
         makeKeyValue("accepted_send_count", std::to_string(accepted_send_count_.load())));
@@ -336,6 +347,16 @@ void McuTransportNode::publishDiagnostics() {
         makeKeyValue("rejected_send_count", std::to_string(rejected_send_count_.load())));
     status.values.push_back(
         makeKeyValue("feedback_publish_count", std::to_string(feedback_publish_count_.load())));
+    status.values.push_back(makeKeyValue(
+        "unsupported_feedback_drop_count",
+        std::to_string(unsupported_feedback_drop_count_.load())));
+    const int last_unsupported_feedback_id =
+        last_unsupported_feedback_id_.load(std::memory_order_relaxed);
+    status.values.push_back(makeKeyValue(
+        "last_unsupported_feedback_id",
+        last_unsupported_feedback_id < 0
+            ? std::string("none")
+            : std::to_string(last_unsupported_feedback_id)));
     status.values.push_back(makeKeyValue(
         "chassis_cmd_vel_consumer_enabled", chassis_config_.enabled ? "true" : "false"));
     status.values.push_back(makeKeyValue("chassis_cmd_vel_topic", chassis_config_.topic));

@@ -91,7 +91,7 @@ MC 武馆区端头视觉使用外接 FHD Webcam，而不是 RealSense D455。当
 
 - `rc26_bringup` 只负责装配和参数选择，不承载导航控制算法。
 - 导航模式下不启动定位、sensor scan、地图服务、外部规划/控制/平滑链。
-- `rc26_odom_interface` 仍是 `/odom` 与动态基座 TF 的当前运行时来源；`rc26_merge_odom` 不属于默认装配。
+- `rc26_odom_interface` 是 `/odom` 与动态基座 TF 的当前运行时来源；目标 MCU 底盘执行由 `rc26_mcu_transport` 提供。
 - `/cmd_vel` 默认由 `rc26_decision` 的导航/动作节点串行发布，由 `rc26_mcu_transport` 消费；运行遥控或其它测试入口时必须显式保证命令权威唯一。
 
 ## 本轮同步

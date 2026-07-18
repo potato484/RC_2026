@@ -128,7 +128,7 @@ R2 当前已经统一为麦克纳姆全向底盘，因此 `linear.y` 在 stick /
 - `start_r2_teleop.sh` 当前默认最大线速度为 `2.0 m/s`、最大角速度为 `2.0 rad/s`，仍可通过 `--v-linear` / `--v-angular` 覆盖。
 - `start_r2_teleop.sh` 现在是单一遥控入口，会随 `rc26_mcu_transport`、`joy_node` 与 telecontrol 节点一起挂起 `rc26_telecontrol_front_pushrod_buttons` 与 `rc26_telecontrol_rear_pushrod_buttons`，用于把 `Y/A` 与 `Select/Back` / `Start` 桥到 `0x08~0x0B`。
 - 在 dpad 模式里，旋转仍由 `X/B` 控制，其中 `X -> +wz`、`B -> -wz`；`Y/A`、`Select/Back`、`Start` 不参与速度输出，只交给前/后推杆 sidecar；`Dpad 左/右` 会直接体现在 `/cmd_vel.linear.y`。
-- `start_r2_teleop.sh` 不再默认拉起 `rc26_mechanism`、`rc26_merge_odom` 或 `pose_sender_node`；teleop 前/后推杆联调由脚本启动的 `rc26_mcu_transport` 提供 `/mechanism/send_command` 与 `/mechanism/command_feedback`。
+- `start_r2_teleop.sh` 直接启动 `rc26_mcu_transport`；teleop 前/后推杆联调通过它提供的 `/mechanism/send_command` 与 `/mechanism/command_feedback` 完成。
 - 仓库根目录的 `start_r2_teleop.sh` 现在启动 `rc26_mcu_transport + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。
 - `start_r2_teleop.sh` 已移除 `--stack`、`--pose-mode`、`--use-can-odom`、`--start-ekf` 和 PoseSender 相关参数；目标 MCU 串口通过 `--mcu-port` / `--mcu-baudrate` 配置。
 - `/cmd_vel` 的硬件消费方由脚本启动的 `rc26_mcu_transport` 默认提供；脚本会显式传入 `enable_chassis_cmd_vel_consumer=true`，把手柄速度 topic 转成 `POSE_TARGET(0x0C)` 下发。

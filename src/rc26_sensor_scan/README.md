@@ -24,4 +24,4 @@
 - 不负责点云配准，不替代 `rc26_point_lio`
 - 不负责 `/scan` LaserScan 兼容话题
 - 不负责决定 Nav2 是否启用 obstacle layer
-- 不负责遥控链或 `rc26_merge_odom` 链路的 TF 语义
+- 不负责遥控链或目标 MCU 底盘执行的 TF 语义

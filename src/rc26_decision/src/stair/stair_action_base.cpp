@@ -177,6 +177,7 @@ void StairActionBase::releaseRuntime() {
   heading_stable_count_ = 0;
   // 清理命令等待状态，避免下一次动作读到旧的 accepted/rejected 标志。
   resetCommandState();
+  active_command_.reset();
   resetCommandPairState();
 }
 
@@ -374,7 +375,7 @@ void StairActionBase::beginCommand(CommandID command_id, const char *label) {
 // tickCommand() 推进当前命令阶段：首次调用发 service，后续调用等 accepted/rejected/timeout。
 StairActionBase::StepStatus StairActionBase::tickCommand() {
   // node/client 不存在说明动作生命周期异常，直接返回 Failure。
-  if (!node_ || !send_client_) {
+  if (!node_ || !send_client_ || !active_command_.has_value()) {
     return StepStatus::Failure;
   }
 
@@ -428,7 +429,7 @@ StairActionBase::StepStatus StairActionBase::tickCommand() {
     // 构造共享串口命令请求。
     auto request = std::make_shared<SendCommandSrv::Request>();
     // 写入当前阶段命令 ID，例如 FRONT_PUSHROD_EXTEND。
-    request->command_id = static_cast<uint8_t>(active_command_);
+    request->command_id = static_cast<uint8_t>(*active_command_);
     // 台阶推杆命令 v1 不需要 payload，保持空数组。
     request->payload.clear();
     request->wait_ack = true;
@@ -787,7 +788,7 @@ void StairActionBase::resetCommandState() {
 void StairActionBase::resetCommandPairState() {
   command_pair_active_ = false;
   for (auto &slot : command_pair_) {
-    slot.command_id = CommandID::STOP;
+    slot.command_id.reset();
     slot.label.clear();
     slot.sent = false;
     slot.response_seen.store(false, std::memory_order_relaxed);
@@ -848,13 +849,14 @@ bool StairActionBase::handleMechanismErrorFeedback(const FeedbackMsg &msg) {
 }
 
 bool StairActionBase::sendPairCommand(std::size_t index) {
-  if (index >= 2 || !node_ || !send_client_) {
+  if (index >= 2 || !node_ || !send_client_ ||
+      !command_pair_[index].command_id.has_value()) {
     return false;
   }
 
   auto &slot = command_pair_[index];
   auto request = std::make_shared<SendCommandSrv::Request>();
-  request->command_id = static_cast<uint8_t>(slot.command_id);
+  request->command_id = static_cast<uint8_t>(*slot.command_id);
   request->payload.clear();
   request->wait_ack = true;
   const uint64_t token = command_generation_.load(std::memory_order_relaxed);

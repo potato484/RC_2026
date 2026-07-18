@@ -5,15 +5,21 @@
 
 namespace {
 
-TEST(McuErrorFeedbackFilter, PublishesOnlyTwoByteMcuErrorPayload) {
+TEST(McuFeedbackFilter, PublishesOnlyMaintainedBusinessFeedback) {
     using FID = rc26_serial::FeedbackID;
 
     EXPECT_FALSE(rc26_mcu_transport::shouldPublishTransportFeedback(
         static_cast<uint8_t>(FID::ACK), 0));
-    EXPECT_FALSE(rc26_mcu_transport::shouldPublishTransportFeedback(
-        static_cast<uint8_t>(FID::HEARTBEAT_ACK), 0));
-    EXPECT_FALSE(rc26_mcu_transport::shouldPublishTransportFeedback(
-        static_cast<uint8_t>(FID::ODOM_DATA), 16));
+
+    EXPECT_TRUE(rc26_mcu_transport::shouldPublishTransportFeedback(
+        static_cast<uint8_t>(FID::ARM_RAISE_DONE), 0));
+    EXPECT_TRUE(rc26_mcu_transport::shouldPublishTransportFeedback(
+        static_cast<uint8_t>(FID::MANUAL_LIMIT_SWITCH_3_TRIGGERED), 0));
+
+    EXPECT_FALSE(rc26_mcu_transport::shouldPublishTransportFeedback(0x01, 0));
+    EXPECT_FALSE(rc26_mcu_transport::shouldPublishTransportFeedback(0x08, 16));
+    EXPECT_FALSE(rc26_mcu_transport::shouldPublishTransportFeedback(0x0F, 0));
+    EXPECT_FALSE(rc26_mcu_transport::shouldPublishTransportFeedback(0xEE, 0));
 
     EXPECT_TRUE(rc26_mcu_transport::shouldPublishTransportFeedback(
         static_cast<uint8_t>(FID::MCU_ERROR), 2));
@@ -23,9 +29,6 @@ TEST(McuErrorFeedbackFilter, PublishesOnlyTwoByteMcuErrorPayload) {
         static_cast<uint8_t>(FID::MCU_ERROR), 1));
     EXPECT_FALSE(rc26_mcu_transport::shouldPublishTransportFeedback(
         static_cast<uint8_t>(FID::MCU_ERROR), 3));
-
-    EXPECT_TRUE(rc26_mcu_transport::shouldPublishTransportFeedback(
-        static_cast<uint8_t>(FID::ARM_RAISE_DONE), 0));
 }
 
 TEST(McuTransportSendMode, RequestWaitAckSelectsReliableOrNoAckPath) {

@@ -28,7 +28,7 @@
 
 ## 当前边界
 
-- 只负责自动导航链，不改遥控 / `rc26_merge_odom` / minimal-mcu 链路
+- 只负责自动导航链的里程计与动态 TF 归一化，不承担遥控或目标 MCU 底盘执行
 - 不负责里程计估计本体
 - 不再查询或发布 `base_link -> point_lio.body_frame` 对外 TF；这段内部外参只在 bringup 装配期推导并注入
 - 不直接做控制求解

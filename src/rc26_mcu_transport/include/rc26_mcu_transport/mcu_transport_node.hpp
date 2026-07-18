@@ -23,19 +23,45 @@
 
 namespace rc26_mcu_transport {
 
-inline bool shouldPublishTransportFeedback(uint8_t feedback_id,
-                                           std::size_t payload_size) {
+enum class TransportFeedbackDisposition { Publish, Internal, Unsupported };
+
+inline TransportFeedbackDisposition classifyTransportFeedback(
+    uint8_t feedback_id, std::size_t payload_size) {
     using FeedbackID = rc26_serial::FeedbackID;
     switch (static_cast<FeedbackID>(feedback_id)) {
     case FeedbackID::ACK:
-    case FeedbackID::HEARTBEAT_ACK:
-    case FeedbackID::ODOM_DATA:
-        return false;
+        return TransportFeedbackDisposition::Internal;
+    case FeedbackID::ARM_RAISE_DONE:
+    case FeedbackID::ARM_LOWER_DONE:
+    case FeedbackID::FRONT_LASER_HEIGHT_JUMP:
+    case FeedbackID::REAR_LASER_HEIGHT_JUMP:
+    case FeedbackID::MANUAL_LIMIT_SWITCH_1_TRIGGERED:
+    case FeedbackID::FRONT_SECOND_LASER_HEIGHT_JUMP:
+    case FeedbackID::ARM_HIGH_RAISE_DONE:
+    case FeedbackID::ARM_SECOND_LOWER_DONE:
+    case FeedbackID::ENTRY_GRAB_KFS_UP_DONE:
+    case FeedbackID::COMPETITION_START_DONE:
+    case FeedbackID::SECOND_PRESELECTION_START_DONE:
+    case FeedbackID::MANUAL_LIMIT_SWITCH_2_TRIGGERED:
+    case FeedbackID::SECOND_PRESELECTION_PICKUP_KFS_DONE:
+    case FeedbackID::SECOND_PRESELECTION_ARM_LOWER_DONE:
+    case FeedbackID::MANUAL_LIMIT_SWITCH_3_TRIGGERED:
+    case FeedbackID::SECOND_PRESELECTION_PRELOAD_KFS_PICKUP_DONE:
+    case FeedbackID::SECOND_PRESELECTION_MANUAL_FRONT_LASER_TRIGGERED:
+        return TransportFeedbackDisposition::Publish;
     case FeedbackID::MCU_ERROR:
-        return rc26_serial::isPlanarArmErrorPayloadSize(payload_size);
+        return rc26_serial::isPlanarArmErrorPayloadSize(payload_size)
+                   ? TransportFeedbackDisposition::Publish
+                   : TransportFeedbackDisposition::Unsupported;
     default:
-        return true;
+        return TransportFeedbackDisposition::Unsupported;
     }
+}
+
+inline bool shouldPublishTransportFeedback(uint8_t feedback_id,
+                                           std::size_t payload_size) {
+    return classifyTransportFeedback(feedback_id, payload_size) ==
+           TransportFeedbackDisposition::Publish;
 }
 
 enum class MechanismTransportSendMode { ReliableAck, NoAck };
@@ -84,6 +110,8 @@ private:
     std::atomic<uint64_t> accepted_send_count_{0};
     std::atomic<uint64_t> rejected_send_count_{0};
     std::atomic<uint64_t> feedback_publish_count_{0};
+    std::atomic<uint64_t> unsupported_feedback_drop_count_{0};
+    std::atomic<int> last_unsupported_feedback_id_{-1};
     std::atomic<uint64_t> chassis_target_send_count_{0};
     std::atomic<uint64_t> chassis_target_send_fail_count_{0};
     std::atomic<uint64_t> chassis_target_zero_send_count_{0};

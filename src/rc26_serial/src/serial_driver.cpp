@@ -110,7 +110,6 @@ bool isAckControlFrame(uint8_t cmd, size_t payload_size) {
         return false;
     }
     return cmd == static_cast<uint8_t>(FeedbackID::ACK) ||
-           cmd == static_cast<uint8_t>(FeedbackID::HEARTBEAT_ACK) ||
            cmd == static_cast<uint8_t>(FeedbackID::MCU_ERROR);
 }
 
@@ -283,7 +282,6 @@ bool SerialDriver::open(const std::string& port, int baudrate) {
         comm_health_.ack_timeouts.store(0, std::memory_order_relaxed);
         comm_health_.mcu_error_responses.store(0, std::memory_order_relaxed);
         comm_health_.reconnect_count.store(0, std::memory_order_relaxed);
-        comm_health_.heartbeat_failures.store(0, std::memory_order_relaxed);
         comm_health_.resetWindows();
         {
             std::lock_guard<std::mutex> timeout_lock(timeout_mutex_);
@@ -318,8 +316,6 @@ bool SerialDriver::open(const std::string& port, int baudrate) {
     }
 
     setLastError({});
-    heartbeat_failure_count_ = 0;
-    comm_health_.heartbeat_failures.store(0, std::memory_order_relaxed);
     RCLCPP_DEBUG(serialLogger(), "串口打开成功：%s @ %d", port_.c_str(), baudrate);
 
     return true;
@@ -364,15 +360,6 @@ void SerialDriver::closePort() {
 
 uint8_t SerialDriver::nextSeq() {
     return seq_.fetch_add(1, std::memory_order_relaxed);
-}
-
-void SerialDriver::notifyHeartbeatFailure() {
-    HeartbeatFailureCallback cb;
-    {
-        std::lock_guard<std::mutex> lock(callback_mutex_);
-        cb = heartbeat_failure_callback_;
-    }
-    invokeCallbackSafely("HeartbeatFailure", cb);
 }
 
 void SerialDriver::notifyReconnect() {
@@ -693,14 +680,6 @@ void SerialDriver::notifyAck(uint8_t seq, uint8_t cmd) {
         RCLCPP_DEBUG(serialLogger(), "收到 ACK：seq=%u", seq);
         return;
     }
-    if (waiting_cmd_ == static_cast<uint8_t>(CommandID::HEARTBEAT) &&
-        cmd == static_cast<uint8_t>(FeedbackID::HEARTBEAT_ACK)) {
-        ack_response_received_ = true;
-        ack_success_ = true;
-        ack_cv_.notify_all();
-        RCLCPP_DEBUG(serialLogger(), "收到 HEARTBEAT_ACK：seq=%u", seq);
-        return;
-    }
     if (is_mcu_error) {
         ack_response_received_ = true;
         ack_mcu_error_received_ = true;
@@ -715,7 +694,7 @@ bool SerialDriver::shouldDeferAckWindowFrameLocked(uint8_t seq, uint8_t cmd, siz
     if (isAckControlFrame(cmd, payload_size)) {
         return false;
     }
-    return waiting_for_ack_ && waiting_cmd_ != static_cast<uint8_t>(CommandID::HEARTBEAT) && seq == waiting_seq_;
+    return waiting_for_ack_ && seq == waiting_seq_;
 }
 
 bool SerialDriver::deferReceiveFrameIfNeeded(uint8_t seq, uint8_t cmd, const uint8_t* payload, size_t plen) {
@@ -824,7 +803,7 @@ bool SerialDriver::sendCommand(uint8_t cmd, const std::vector<uint8_t>& payload,
     std::lock_guard<std::mutex> cmd_lock(ack_command_mutex_);
 
     // 重发机制：retry从0x00开始，步长1；纯 ACK 超时耗尽后保持当前串口连接，
-    // MCU 0xFE 耗尽后归因下位机。真实读写/EOF/心跳故障仍由各自路径触发重连。
+    // MCU 0xFE 耗尽后归因下位机。真实读写、EOF 和 epoll 故障仍由各自路径触发重连。
     out_seq = nextSeq();
     bool saw_mcu_error = false;
     for (uint8_t retry = 0x00; retry <= MAX_RETRY_VALUE; ++retry) {
@@ -955,116 +934,10 @@ bool SerialDriver::sendPose(CommandID cmd, float vx, float vy, float wz) {
     return sendPose(cmd, vx, vy, wz, ignored_seq);
 }
 
-bool SerialDriver::sendStop() {
-    return sendCommand(CommandID::STOP);
-}
-
-bool SerialDriver::sendHeartbeat() {
-    if (!isLinkActive()) {
-        setLastError(fd_ < 0 ? "串口未打开" : "串口连接未激活");
-        return false;
-    }
-
-    // 心跳也需要受 ack_command_mutex_ 保护，防止与 sendCommand 并发覆盖 ACK 状态
-    std::lock_guard<std::mutex> cmd_lock(ack_command_mutex_);
-
-    uint8_t cmd = static_cast<uint8_t>(CommandID::HEARTBEAT);
-    uint8_t seq = nextSeq();
-    std::vector<uint8_t> frame = buildFrame(seq, cmd, {}, 0x00);
-    if (frame.empty()) {
-        return false;
-    }
-
-    beginWaitAck(seq, cmd);
-
-    {
-        std::lock_guard<std::mutex> lock(send_mutex_);
-        if (!isLinkActive()) {
-            endWaitAck();
-            setLastError(fd_ < 0 ? "串口未打开" : "串口连接未激活");
-            return false;
-        }
-        if (!writeAll(frame.data(), frame.size())) {
-            endWaitAck();
-            return false;
-        }
-        DebugCallback cb;
-        {
-            std::lock_guard<std::mutex> cb_lock(callback_mutex_);
-            cb = debug_callback_;
-        }
-        invokeDebugCallback(true, frame, cb);
-    }
-
-    std::chrono::milliseconds ack_timeout{ACK_TIMEOUT_MS};
-    {
-        std::lock_guard<std::mutex> lock(timeout_mutex_);
-        ack_timeout = adaptive_timeout_.get();
-    }
-
-    const auto wait_start = std::chrono::steady_clock::now();
-    bool ack_success = false;
-    AckWaitResult wait_result = waitForAck(ack_timeout, ack_success);
-    const auto measured_ms =
-        std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - wait_start).count();
-    endWaitAck();
-
-    if (wait_result == AckWaitResult::kReceived) {
-        comm_health_.ack_window.record(true);
-    }
-
-    if (wait_result == AckWaitResult::kReceived && ack_success) {
-        {
-            std::lock_guard<std::mutex> lock(timeout_mutex_);
-            adaptive_timeout_.update(measured_ms);
-        }
-        heartbeat_failure_count_ = 0;
-        RCLCPP_DEBUG(serialLogger(), "心跳成功：seq=%u", seq);
-        return true;
-    }
-
-    if (wait_result == AckWaitResult::kLinkDown) {
-        return false;
-    }
-    if (wait_result == AckWaitResult::kMcuError) {
-        setLastError("MCU 返回心跳错误码 0xFE（下位机原因）：seq=" +
-                     std::to_string(static_cast<int>(seq)));
-        RCLCPP_WARN(serialLogger(), "心跳收到 MCU 错误码 0xFE（下位机原因）：seq=%u", seq);
-    }
-    if (wait_result == AckWaitResult::kTimeout) {
-        comm_health_.ack_window.record(false);
-        comm_health_.ack_timeouts.fetch_add(1, std::memory_order_relaxed);
-        {
-            std::lock_guard<std::mutex> lock(timeout_mutex_);
-            adaptive_timeout_.onTimeout();
-        }
-    }
-    uint8_t failures = ++heartbeat_failure_count_;
-    comm_health_.heartbeat_failures.store(failures, std::memory_order_relaxed);
-    RCLCPP_WARN(serialLogger(), "心跳失败（连续%u次）：seq=%u", failures, seq);
-
-    if (failures >= MAX_HEARTBEAT_FAILURES) {
-        if (wait_result == AckWaitResult::kMcuError) {
-            RCLCPP_ERROR(serialLogger(), "心跳连续失败%u次，本次为 MCU 0xFE（下位机原因），不触发串口重连", failures);
-        } else {
-            RCLCPP_ERROR(serialLogger(), "心跳连续失败%u次，触发串口重连", failures);
-            notifyHeartbeatFailure();
-            requestReconnect("heartbeat_failure");
-        }
-    }
-
-    return false;
-}
-
 void SerialDriver::setReceiveCallback(ReceiveCallback callback) {
     std::lock_guard<std::mutex> invoke_lock(receive_callback_invoke_mutex_);
     std::lock_guard<std::mutex> lock(callback_mutex_);
     recv_callback_ = std::move(callback);
-}
-
-void SerialDriver::setHeartbeatFailureCallback(HeartbeatFailureCallback callback) {
-    std::lock_guard<std::mutex> lock(callback_mutex_);
-    heartbeat_failure_callback_ = std::move(callback);
 }
 
 void SerialDriver::setDebugCallback(DebugCallback callback) {

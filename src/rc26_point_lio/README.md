@@ -227,3 +227,7 @@ rviz2 -d "${RC26_WS:-$HOME/RC_2026}/src/rc26_bringup/rviz/slam.rviz"
 根目录集中式调试文档已删除。Point-LIO 主链、预处理、IMU 初始化、PCD 保存、车身 ROI 热更新和运行耗时统计等用户可见提示按中文输出；topic、frame、参数名、路径和返回码仍保留原值，方便继续排查。
 
 若需要分析 LiDAR/IMU 时间偏移，可运行 `scripts/time_sync_analyzer.py`。该脚本输出中文说明和外部时间偏移建议，Point-LIO 当前不直接消费该结果。若需要排查 PCD 与 Nav2 map YAML 的尺寸、origin 和覆盖关系，使用 `scripts/pcd_map_inspector.py`；若需要把 PCD 后处理为 Nav2 黑白静态地图，使用 `scripts/pcd_to_nav2_map.py`。
+
+## 本轮同步
+
+2026-07-18：删除从未进入 rosidl 生成清单、也没有任何源码引用的旧本地传感器触发消息文件。Point-LIO 的节点、topic、参数和运行行为不变。

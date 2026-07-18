@@ -9,7 +9,6 @@
 - 主可执行文件：`pointlio_mapping`
 - 启动文件：`launch/point_lio.launch.py`
 - 关键配置：`config/mid360.yaml`
-- 自定义消息：`msg/LocalSensorExternalTrigger.msg`
 - 运维脚本：`scripts/time_sync_analyzer.py`、`scripts/pcd_map_inspector.py`，以及包内保留的历史 2D 占用图辅助脚本
 
 核心源码包含：
@@ -110,3 +109,7 @@
 - `scripts/time_sync_analyzer.py` 的现场输出也按中文说明展示，推荐时间偏移仍保留 LiDAR/IMU 名称和数值单位，便于直接用于调试记录。
 - `scripts/pcd_map_inspector.py` 用于现场核对 PCD bounds、推荐 2D 占用图 `origin`/尺寸，以及已有 map YAML/image 是否覆盖点云范围；默认只读，不修改地图。
 - 包内保留的历史 2D 占用图辅助脚本可把 PCD 后处理成黑白 PNG 二值图；默认导航链已经改为 odom 单轴分段闭环，localization 的 `prior_pcd_file` 仍使用 PCD。
+
+## 本轮同步
+
+2026-07-18：删除未生成且无源码引用的旧本地传感器触发消息文件；Point-LIO 继续只通过当前标准 ROS 消息、topic 和 TF 输出里程计与点云。

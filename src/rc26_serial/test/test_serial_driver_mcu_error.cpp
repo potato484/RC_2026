@@ -411,7 +411,7 @@ TEST(SerialDriverMcuError, UnmatchedMcuErrorDoesNotSatisfyAckWait) {
     ASSERT_TRUE(driver.open(mcu.slavePath(), rc26_decision::UART_BAUDRATE)) << driver.lastError();
 
     uint8_t seq = 0;
-    EXPECT_TRUE(driver.sendCommand(static_cast<uint8_t>(rc26_serial::CommandID::PLACE_KFS_GRID), {}, seq))
+    EXPECT_TRUE(driver.sendCommand(static_cast<uint8_t>(rc26_serial::CommandID::GRAB_TIP), {}, seq))
         << driver.lastError();
     driver.close();
 

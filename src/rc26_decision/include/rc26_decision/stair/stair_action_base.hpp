@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstddef>
+#include <optional>
 #include <string>
 
 #include <behaviortree_cpp/bt_factory.h>
@@ -104,7 +105,7 @@ private:
   int heading_stable_count_{0};
   std::chrono::steady_clock::time_point last_heading_odom_tp_{};
 
-  CommandID active_command_{CommandID::STOP};
+  std::optional<CommandID> active_command_;
   std::string active_command_label_;
   bool command_sent_{false};
   std::atomic<bool> command_response_seen_{false};
@@ -117,7 +118,7 @@ private:
   std::atomic<uint64_t> command_generation_{0};
 
   struct CommandSlot {
-    CommandID command_id{CommandID::STOP};
+    std::optional<CommandID> command_id;
     std::string label;
     bool sent{false};
     std::atomic<bool> response_seen{false};

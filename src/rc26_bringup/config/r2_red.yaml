@@ -259,7 +259,7 @@ r2_runtime:
 
       # --- managed 预选入口 branch gate：first 用 0x10/0x0C，second 用 0x11/0x0D ---
       mc_mf_start_signal_feedback_topic: "/mechanism/command_feedback" # 人工触发外部限位分支事件来源
-      mc_mf_start_signal_feedback_id: 6    # FRONT_LIMIT_SWITCH_TRIGGERED(0x06)，人工触发外部限位 1 分支事件
+      mc_mf_start_signal_feedback_id: 6    # MANUAL_LIMIT_SWITCH_1_TRIGGERED(0x06)，人工触发外部限位 1 分支事件
       mc_mf_start_signal_timeout_s: 0.0    # 0 表示无限等待人工触发外部限位 1 分支事件
       mc_mf_start_command_service: "/mechanism/send_command" # rc26_mcu_transport 可靠命令服务
       mc_mf_start_command_id: 16           # COMPETITION_START(0x10)，通知下位机比赛开始

@@ -52,7 +52,7 @@
 当前仓库的正式遥控入口是根目录 `start_r2_teleop.sh`：
 
 *   启动 `rc26_mcu_transport + joy_node + telecontrol + rc26_telecontrol_front_pushrod_buttons + rc26_telecontrol_rear_pushrod_buttons`。
-*   不再启动 `rc26_merge_odom` 或 `pose_sender_node`；目标 MCU 串口 owner 由 `rc26_mcu_transport` 承担。
+*   目标 MCU 串口 owner 由 `rc26_mcu_transport` 承担，遥控节点只发布 `/cmd_vel` 或调用机构 raw service。
 *   `/cmd_vel` 的硬件消费方由 `rc26_mcu_transport` 默认提供，节点会把速度转成 `POSE_TARGET(0x0C)`。
 *   `/mechanism/send_command` 与 `/mechanism/command_feedback` 的 provider 由脚本启动的 `rc26_mcu_transport` 提供。
 *   脚本已移除 `--stack`、`--pose-mode`、`--use-can-odom`、`--start-ekf` 和 PoseSender 相关参数；目标 MCU 串口通过 `--mcu-port` / `--mcu-baudrate` 配置。

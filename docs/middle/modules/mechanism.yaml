@@ -9,13 +9,13 @@ info:
     - `/mechanism/send_command`
     - `/mechanism/command_feedback`
 
-    这两个接口由 `rc26_mcu_transport` 提供；`rc26_mechanism` 当前只是轻量 lifecycle 占位，不再创建旧高层 action，也不再发布 `/mechanism/status`。
+    这两个接口都由目标 MCU 唯一串口 owner `rc26_mcu_transport` 提供。
 
     `/mechanism/send_command` 请求字段 `wait_ack=true` 时，`accepted=true` 只表示目标 MCU 已返回通用 `ACK(0x00)`，不表示动作已经完成。ACK 等待窗口内若持续收到 transport 级 `MCU_ERROR(0xFE)` 或超时，service 返回 `accepted=false`，原因通过 `rc26_mcu_transport` 日志和 diagnostics `last_error` 说明。
 
     `wait_ack=false` 只用于明确 no-ack 的单次通知命令，例如启动就绪 `STARTUP_READY_WAITING_LIMIT(0x20)`；provider 写入串口帧成功即返回 `accepted=true` 和 `seq`，不等待通用 ACK、不进入 retry，也不等待业务反馈。
 
-    动作完成、限位、激光突变等业务事件经 `/mechanism/command_feedback` 透传，由消费方按自身状态机解释。`feedback_id=0xFE` 且 payload 长度为 2 时也属于机械臂业务状态/失败反馈：`payload[0]` 是 `failed_cmd`，`payload[1]` 是 `error_code`；`error_code=0x01` 表示命令仍在处理中，消费方应继续等待最终业务反馈，不应直接判定失败。其它长度的 `0xFE` 仍按 transport 异常处理，不作为业务反馈交给决策层。
+    `/mechanism/command_feedback` 只发布当前正式业务 allowlist。未知、退役或非法长度反馈不会进入 ROS 契约，只在 transport diagnostics 中累计。`feedback_id=0xFE` 且 payload 长度为 2 时属于机械臂业务状态/失败反馈：`payload[0]` 是 `failed_cmd`，`payload[1]` 是 `error_code`；`error_code=0x01` 表示命令仍在处理中，消费方应继续等待最终业务反馈，不应直接判定失败。
 servers:
   - url: http://localhost:8080
 tags:
@@ -74,16 +74,16 @@ components:
           minimum: 0
           maximum: 255
           description: >
-            MCU 上行业务反馈 ID。当前透传的主要反馈包括 0x02/0x03
+            MCU 上行业务反馈 ID。当前 allowlist 包括 0x02/0x03
             机械臂升降预调完成、0x04/0x05/0x07 台阶激光高度突变、
-            0x06 武馆前方限位触发、0x09 梅林预选赛高抬升完成、
+            0x06 人工限位 1、0x09 梅林预选赛高抬升完成、
             0x0A KFS 向下夹取前第二节机械臂放下完成、
             0x0B 梅林预选赛入口高侧 KFS 夹取完成、0x0C 比赛开始完成、
-            0x0D 第二预选赛开始完成、0x0F 第二预选赛机械臂高抬升完成、
-            0x10 MF 预选独立树外部触发、0x11 第二预选赛 KFS 夹取完成，
+            0x0D 第二预选赛开始完成、0x10 人工限位 2、
+            0x11 第二预选赛 KFS 夹取完成、0x12 第二预选赛机械臂放下完成、
+            0x13 人工限位 3、0x14 预装 KFS 夹取完成、0x15 人工前激光放行，
             以及 payload 长度为 2 的 0xFE 机械臂业务状态/失败反馈。
-            除 0xFE 外，payload v1 为空或由消费方忽略；
-            其它长度的 0xFE 仍视为 transport 异常，不作为业务反馈透传。
+            除 0xFE 外，payload v1 为空或由消费方忽略。
         payload:
           type: array
           items:
@@ -109,17 +109,18 @@ components:
           description: >
             原始下行 CommandID。当前常用值包括 GRAB_TIP=0x01、
             GRAB_KFS_DOWN=0x02、GRAB_KFS_UP=0x03、ARM_RAISE=0x04、
-            ARM_LOWER=0x05、PLACE_KFS_GRID=0x06、FRONT_PUSHROD_EXTEND=0x08、
+            ARM_LOWER=0x05、FRONT_PUSHROD_EXTEND=0x08、
             FRONT_PUSHROD_RETRACT=0x09、REAR_PUSHROD_EXTEND=0x0A、
             REAR_PUSHROD_RETRACT=0x0B、POSE_TARGET=0x0C、
             ARM_HIGH_RAISE=0x0D、ARM_SECOND_LOWER=0x0E、
             ENTRY_GRAB_KFS_UP=0x0F、COMPETITION_START=0x10、
             SECOND_PRESELECTION_START=0x11、
-            SECOND_PRESELECTION_ARM_HIGH_RAISE=0x12、
+            SECOND_PRESELECTION_PICKUP_KFS=0x12、
             SECOND_PRESELECTION_PLACE_KFS=0x13、
             SECOND_PRESELECTION_ARM_LOWER=0x14、
             SECOND_PRESELECTION_PRELOAD_KFS_PICKUP=0x15、
-            STARTUP_READY_WAITING_LIMIT=0x20。
+            STARTUP_READY_WAITING_LIMIT=0x20。service 仍允许透传任意 uint8；
+            未列出的数值不属于受维护协议。
         payload:
           type: array
           items:

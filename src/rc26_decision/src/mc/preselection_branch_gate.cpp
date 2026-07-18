@@ -113,7 +113,7 @@ BT::NodeStatus PreselectionBranchGateAction::onStart() {
       branchModeName(accepted_branch_),
       static_cast<unsigned int>(mc_params_.start_signal_feedback_id & 0xFF),
       static_cast<unsigned int>(
-          static_cast<int>(rc26_serial::FeedbackID::MF_PRESELECTION_TRIGGER) &
+          static_cast<int>(rc26_serial::FeedbackID::MANUAL_LIMIT_SWITCH_2_TRIGGERED) &
           0xFF),
       feedback_topic.c_str(),
       switch_tree_file_.empty() ? "<none>" : switch_tree_file_.c_str(),
@@ -155,7 +155,7 @@ BT::NodeStatus PreselectionBranchGateAction::onRunning() {
                                       0xFF),
             static_cast<unsigned int>(
                 static_cast<int>(
-                    rc26_serial::FeedbackID::MF_PRESELECTION_TRIGGER) &
+                    rc26_serial::FeedbackID::MANUAL_LIMIT_SWITCH_2_TRIGGERED) &
                 0xFF),
             elapsedSec(start_tp_));
         last_log_tp_ = now;
@@ -295,7 +295,7 @@ void PreselectionBranchGateAction::handleFeedback(
 
   const auto branch = selectPreselectionBranch(
       msg->feedback_id, mc_params_.start_signal_feedback_id,
-      static_cast<int>(rc26_serial::FeedbackID::MF_PRESELECTION_TRIGGER));
+      static_cast<int>(rc26_serial::FeedbackID::MANUAL_LIMIT_SWITCH_2_TRIGGERED));
   if (!isPreselectionBranchAllowed(branch, accepted_branch_)) {
     if (branch != PreselectionBranchSelection::None && node_) {
       RCLCPP_WARN_THROTTLE(

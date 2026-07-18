@@ -232,7 +232,7 @@ private:
   int alignment_grab_service_timeout_ms_{200};
   std::string alignment_limit_switch_feedback_topic_{"/mechanism/command_feedback"};
   int alignment_limit_switch_feedback_id_{
-    static_cast<int>(rc26_serial::FeedbackID::FRONT_LIMIT_SWITCH_TRIGGERED)};
+    static_cast<int>(rc26_serial::FeedbackID::MANUAL_LIMIT_SWITCH_1_TRIGGERED)};
   double alignment_approach_speed_mps_{0.04};
   double alignment_approach_timeout_s_{5.0};
   bool alignment_heading_hold_enable_{true};
@@ -664,7 +664,7 @@ void TipVisionTestNode::declare_parameters()
     "alignment_limit_switch_feedback_topic", "/mechanism/command_feedback");
   this->declare_parameter<int>(
     "alignment_limit_switch_feedback_id",
-    static_cast<int>(rc26_serial::FeedbackID::FRONT_LIMIT_SWITCH_TRIGGERED));
+    static_cast<int>(rc26_serial::FeedbackID::MANUAL_LIMIT_SWITCH_1_TRIGGERED));
   this->declare_parameter<double>("alignment_approach_speed_mps", 0.04);
   this->declare_parameter<double>("alignment_approach_timeout_s", 5.0);
   this->declare_parameter<bool>("alignment_heading_hold_enable", true);

@@ -22,7 +22,6 @@ namespace rc26_decision {
 class SerialDriver {
 public:
     using ReceiveCallback = std::function<void(uint8_t seq, uint8_t cmd, const std::vector<uint8_t>& payload)>;
-    using HeartbeatFailureCallback = std::function<void()>;
     using DebugCallback = std::function<void(bool is_tx, const std::vector<uint8_t>& data)>;
 
     struct CommHealth {
@@ -31,7 +30,6 @@ public:
         std::atomic<uint32_t> ack_timeouts{0};
         std::atomic<uint32_t> mcu_error_responses{0};
         std::atomic<uint32_t> reconnect_count{0};
-        std::atomic<uint32_t> heartbeat_failures{0};
 
         rc26_serial::SlidingCounter<1000> parse_window;
         rc26_serial::SlidingCounter<200> ack_window;
@@ -118,15 +116,12 @@ public:
     // ========================================================================
     bool sendPose(CommandID cmd, float vx, float vy, float wz, uint8_t& out_seq);
     bool sendPose(CommandID cmd, float vx, float vy, float wz);
-    bool sendStop();
-    bool sendHeartbeat();
 
     // ========================================================================
     // 回调设置
     // ========================================================================
     // CONSTRAINT: 回调内禁止调用 sendCommand()/close()/open()，否则 recv 线程无法递送 ACK 而死锁
     void setReceiveCallback(ReceiveCallback callback);
-    void setHeartbeatFailureCallback(HeartbeatFailureCallback callback);
     using ReconnectCallback = std::function<void()>;
     void setReconnectCallback(ReconnectCallback callback);
     using ReconnectStartCallback = std::function<void()>;
@@ -147,7 +142,6 @@ private:
     std::mutex ack_command_mutex_;
 
     ReceiveCallback recv_callback_;
-    HeartbeatFailureCallback heartbeat_failure_callback_;
     DebugCallback debug_callback_;
     mutable std::mutex callback_mutex_;
 
@@ -193,7 +187,6 @@ private:
     bool deferReceiveFrameIfNeeded(uint8_t seq, uint8_t cmd, const uint8_t* payload, size_t plen);
     bool shouldDeferAckWindowFrameLocked(uint8_t seq, uint8_t cmd, size_t payload_size) const;
 
-    void notifyHeartbeatFailure();
     void notifyReconnect();
     void notifyReconnectFailed();
 
@@ -228,7 +221,6 @@ private:
     ReconnectCallback reconnect_callback_;
     ReconnectStartCallback reconnect_start_callback_;
     ReconnectFailedCallback reconnect_failed_callback_;
-    std::atomic<uint8_t> heartbeat_failure_count_{0};
     std::atomic<bool> reconnecting_{false};
     std::atomic<bool> auto_reconnect_enabled_{false};
 

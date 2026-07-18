@@ -1,110 +1,22 @@
 # rc26_mcu_transport
 
-`rc26_mcu_transport` 是当前 R2 目标 MCU 的共享串口 owner，提供机构 raw transport 与默认底盘 `/cmd_vel` consumer。
-
-## 模块定位
-
-- 独占打开目标 MCU 串口，默认 `/dev/ttyUSB0 @ 1000000`
-- 提供 service `/mechanism/send_command`
-- 发布 topic `/mechanism/command_feedback`
-- 默认订阅 `/cmd_vel`，以 `50Hz` no-ack 路径下发 `POSE_TARGET(0x0C)`，payload 为 `(vx, vy, wz)` 三个 float
-- 发布 `/mcu_transport/diagnostics`
-- 不维护旧高层机构 action 或动作完成语义
+`rc26_mcu_transport` 是当前 R2 目标 MCU 唯一共享串口 owner，提供机构 raw transport 和 `/cmd_vel -> POSE_TARGET(0x0C)` 底盘执行。
 
 ## 运行边界
 
-- 只要运行链涉及真实机构指令，就必须启动本服务。
-- 只要运行链需要真实执行 `/cmd_vel`，也必须启动本服务并保持 `enable_chassis_cmd_vel_consumer=true`。
-- `rc26_mechanism` 当前只是轻量 lifecycle 占位；本包才是目标 MCU 串口 provider。
-- `rc26_telecontrol` 前/后推杆 sidecar、`rc26_decision` 台阶/武馆动作、`rc26_vision` tip test 和默认关闭的 KFS action test 都消费 `/mechanism/send_command`、`/mechanism/command_feedback` 或发布 `/cmd_vel`，不直接打开目标 MCU 串口。
-- 同一物理目标 MCU 串口只能由本包打开；其它上层包不得再次直连同一设备。
-- `rc26_merge_odom` 中保留的历史 bridge 代码不再作为默认 provider。
+- `rc26_bringup` 在自动链中启动本包，`start_r2_teleop.sh` 在遥控链中启动本包。
+- 上层只能通过 `/mechanism/send_command`、`/mechanism/command_feedback` 与 `/cmd_vel` 使用目标 MCU，不得再次直连同一串口。
+- 机构动作完成、比赛阶段容错和视觉验证由上层状态机负责；本包不伪造完成反馈。
+- 串口不可用时节点保持存活并重试打开，service 拒绝发送，底盘 consumer 节流报告失败。
 
-## 启动入口
+## 契约
 
-```bash
-ros2 launch rc26_mcu_transport mcu_transport.launch.py \
-  target_serial_port:=/dev/ttyUSB0 \
-  target_baudrate:=1000000
-```
+`/mechanism/send_command` 保持 raw `uint8 command_id`。`wait_ack=true` 等待通用 `ACK(0x00)`，`wait_ack=false` 只确认写入。纯 ACK 重试耗尽不触发重连；真实读写、EOF、`epoll` error/hup 才触发重连。
 
-`rc26_bringup` 会按 `r2_runtime.mcu_transport` 配置启动本服务；完整导航模式默认启用它，作为 `/cmd_vel` 的硬件消费方和机构 service provider。根目录 `start_r2_teleop.sh` 会启动本服务，并默认打开底盘 consumer。`rc26_mechanism/launch/mechanism.launch.py` 也会默认启动本服务；如果同一系统里已经有 provider，需要传 `start_mcu_transport:=false`。
+`/mechanism/command_feedback` 只发布 `0x02~0x07`、`0x09~0x0D`、`0x10~0x15` 中正式定义的业务反馈，退役 `0x0F` 除外；两字节 `0xFE` 作为机械臂状态/错误发布。未知或退役反馈被丢弃并计入 `unsupported_feedback_drop_count`，最近 ID 写入 `last_unsupported_feedback_id`。
 
-如果串口暂时不存在，节点不会退出；`/mechanism/send_command` 会拒绝发送，`/cmd_vel` consumer 会节流报告发送失败，并在 diagnostics 中暴露串口不可用状态，同时持续重试初始打开。
-
-## 接口
-
-- `/mechanism/send_command`
-  - type: `rc26_interfaces/srv/SendMechanismTransportCommand`
-  - 请求字段 `wait_ack=true` 时走可靠 `sendCommand()`，`accepted=true` 表示目标 MCU 已返回通用 `ACK(0x00)`，`seq` 为串口帧序号
-  - 请求字段 `wait_ack=false` 时走 `sendCommandNoAck()`，写入串口成功即返回 `accepted=true` 和 `seq`，不等待通用 ACK、不进入 retry，也不等待业务反馈；该模式仅用于启动就绪通知等明确 no-ack 命令
-  - `wait_ack=true` 的十次 ACK 重试 `retry=0x00~0x09` 全部超时时，service 返回 `accepted=false`，但 transport 保持当前串口连接，不把 ACK 丢失转换为重连；真实串口读写、EOF、`epoll` 或心跳故障仍由 driver 请求重连
-  - 若目标 MCU 对同 `seq` 返回 `MCU_ERROR(0xFE)`，底层会按 retry `0x00~0x09` 重发；若持续 `0xFE`，service 返回 `accepted=false`，错误原因通过日志、`last_error` diagnostics 暴露为下位机原因
-- `/mechanism/command_feedback`
-  - type: `rc26_interfaces/msg/MechanismTransportFeedback`
-  - 透传机构业务反馈，过滤底层 `ACK(0x00)`、`HEARTBEAT_ACK(0x01)` 与 `ODOM_DATA(0x08)`；payload 长度为 2 的 `MCU_ERROR(0xFE)` 作为机械臂业务状态/失败反馈透传，其它长度的 `0xFE` 仍按 transport 异常记录并丢弃
-  - 当前会透传 KFS 机械臂升降完成 `0x02/0x03`、台阶激光事件 `0x04/0x05/0x07`、第一个限位事件 `0x06`、第二节机械臂放下完成 `0x0A`、入口高侧 KFS 夹取完成 `0x0B`、比赛开始完成 `0x0C`、第二预选赛开始完成 `0x0D`、第二预选赛机械臂高抬升完成 `0x0F`、第二限位事件 `0x10`、第二预选赛 KFS 夹取完成 `0x11`、第二预选赛机械臂放下完成 `0x12`，以及两字节 `0xFE` 机械臂业务诊断；service 的 `accepted=true` 仍只表示可靠命令已收到通用 `ACK(0x00)`
-- `/mcu_transport/diagnostics`
-  - type: `diagnostic_msgs/msg/DiagnosticArray`
-  - 暴露串口打开状态、ACK 超时、MCU 错误响应计数、解析错误、重连次数、机构发送统计、底盘 `POSE_TARGET` 发送统计和最近错误
-- `/cmd_vel`
-  - type: `geometry_msgs/msg/Twist`
-  - 默认启用，按 `chassis_v_max_mps=2.0` 与 `chassis_w_max_radps=2.0` 限幅，超时 `200ms` 后补发 `10` 帧零速
-
-## 协议口径
-
-当前 raw transport 直接发送 `rc26_serial::CommandID`。常用下行 ID：
-
-- `GRAB_TIP = 0x01`
-- `GRAB_KFS_DOWN = 0x02`
-- `GRAB_KFS_UP = 0x03`
-- `ARM_RAISE = 0x04`
-- `ARM_LOWER = 0x05`
-- `PLACE_KFS_GRID = 0x06`
-- `FRONT_PUSHROD_EXTEND = 0x08`
-- `FRONT_PUSHROD_RETRACT = 0x09`
-- `REAR_PUSHROD_EXTEND = 0x0A`
-- `REAR_PUSHROD_RETRACT = 0x0B`
-- `POSE_TARGET = 0x0C`
-- `ARM_HIGH_RAISE = 0x0D`
-- `ARM_SECOND_LOWER = 0x0E`
-- `ENTRY_GRAB_KFS_UP = 0x0F`
-- `COMPETITION_START = 0x10`
-- `SECOND_PRESELECTION_START = 0x11`
-- `SECOND_PRESELECTION_ARM_HIGH_RAISE = 0x12`
-- `SECOND_PRESELECTION_PLACE_KFS = 0x13`
-- `SECOND_PRESELECTION_ARM_LOWER = 0x14`
-- `SECOND_PRESELECTION_PRELOAD_KFS_PICKUP = 0x15`
-- `STARTUP_READY_WAITING_LIMIT = 0x20`
-
-`STARTUP_READY_WAITING_LIMIT(0x20)` 是完整自动链路启动就绪通知：`rc26_bringup` 的 `startup_ready_notify_node.py` 观察到 RealSense color、aligned depth、camera info 均已出帧，且 `rc26_decision` 已进入人工限位 branch gate 等待后，通过 `/mechanism/send_command` 以 `wait_ack=false` 下发一次空 payload。它不要求 MCU 回复 ACK 或业务反馈；若人工限位 `0x06/0x10` 已先到达，则本轮启动跳过该通知。
-
-本包不新增业务命令目录。新增机构命令时，先在 `rc26_serial/protocol.hpp` 定义原始 ID，再由需要该能力的上层直接调用 `/mechanism/send_command`。只有重新设计高层动作语义时，才需要恢复 action、完成反馈和中间层契约。
-
-`MCU_ERROR(0xFE)` 有两种口径：ACK 等待窗口内持续 `0xFE` 或 payload 长度不是 2 的 `0xFE` 仍按 transport 级下位机原因处理，只通过 service `accepted=false`、节点日志和 `/mcu_transport/diagnostics.last_error` 暴露；payload 长度为 2 的上行业务帧会发布到 `/mechanism/command_feedback`，其中 `payload[0]` 是 `failed_cmd`，`payload[1]` 是机械臂 `error_code`。`error_code=0x01` 表示 BUSY/仍在处理中，消费方应继续等待同 `seq` 的最终反馈；`0x02/0x03/0x04/0x05` 分别表示 payload 非法、未初始化、HAL/运动控制错误、状态非法。当前 `rc26_decision` 对这些非 BUSY 最终错误采用 WARN 后结束该机构步骤并继续，transport 仍只负责透传诊断，不伪造成功反馈。
-
-KFS 阶梯等待测试链属于直接 transport service 消费场景：决策层发送 `ARM_RAISE(0x04)` / `ARM_LOWER(0x05)`，并等待同 `seq` 的 `0x02/0x03` 完成反馈。梅林预选赛入口 1/3 阶梯探测会发送 `ARM_HIGH_RAISE(0x0D)`，并等待同 `seq` 的 `ARM_HIGH_RAISE_DONE(0x09)`；本包只透传 raw command 与业务反馈，不赋予高抬升额外动作语义。KFS 向下夹取在视觉锁定开环距离后还会发送 `ARM_SECOND_LOWER(0x0E)`，并等待同 `seq` 的 `ARM_SECOND_LOWER_DONE(0x0A)` 后才允许前进。梅林预选赛入口高侧夹取使用 `ENTRY_GRAB_KFS_UP(0x0F)`，并等待同 `seq` 的 `ENTRY_GRAB_KFS_UP_DONE(0x0B)` 后进入视觉消失验证。managed first 入口会按分支发送 `COMPETITION_START(0x10)` 并等待同 `seq` 的 `0x0C`；managed second 入口会按分支发送 `SECOND_PRESELECTION_START(0x11)` 并等待同 `seq` 的 `0x0D`。第二个预选赛独立树视觉对齐后发送 `SECOND_PRESELECTION_ARM_LOWER(0x14)` 并等待同 `seq` 的 `SECOND_PRESELECTION_ARM_LOWER_DONE(0x12)`；趋近完成后发送 `SECOND_PRESELECTION_ARM_HIGH_RAISE/KFS_PICKUP(0x12)`，正常路径等待同 `seq` 的 `SECOND_PRESELECTION_PICKUP_KFS_DONE(0x11)` 再进入视觉消失验证。`second_preselection_climb_place_tree.xml` 的树首另有一次 `0x15`，这里只等 transport ACK，不等待 `0x14`；放置阶段 `0x13` 也只要求通用 ACK。本包仍只透传 raw command 与业务反馈，不直接决定超时后的续跑或切树。`rc26_vision` 独立 KFS action test 也只把本包当 raw transport provider，开启后先按方向发送 `ARM_RAISE(0x04)` / `ARM_LOWER(0x05)` 并订阅完成反馈；`direction=down` 时开环前再发送 `ARM_SECOND_LOWER(0x0E)` 等待 `0x0A`，随后发送空 payload 的 `GRAB_KFS_DOWN(0x02)`，`direction=up` 仍直接趋近并发送 `GRAB_KFS_UP(0x03)`；本包的 service `accepted=true` 仍只代表通用 ACK，KFS 物理夹取成功由视觉节点或决策节点通过原目标消失验证判断。
+三个人工限位反馈为上行 `0x06/0x10/0x13`。下行 `0x10/0x13` 分别仍是比赛开始和第二预选赛放置命令，上下行语义不得混读。
 
 ## 本轮同步
 
-2026-07-14 同步：底层可靠命令纯 ACK 重试耗尽现在只令 `/mechanism/send_command` 返回 `accepted=false`，不再触发 `ack_retry_exhausted` 串口重连，diagnostics 的 `reconnect_count` 不增加；真实串口 I/O、EOF、`epoll` 和心跳故障仍会重连。transport 的 ROS service/topic 形状不变，机构失败后的 WARN 续跑由 `rc26_decision` 决定。
-
-2026-07-12 同步：raw transport service 新增 `wait_ack`。常规机构命令继续显式使用 `wait_ack=true` 等待通用 ACK；启动就绪通知新增下行 `STARTUP_READY_WAITING_LIMIT(0x20)`，由 `rc26_bringup` 在 RealSense 三类消息和人工限位 gate 均就绪后以 `wait_ack=false` 发送一次空 payload。
-
-2026-07-05 同步：`rc26_serial` 真源新增第二预选赛视觉对齐后的机械臂放下命令 `SECOND_PRESELECTION_ARM_LOWER(0x14)` 与完成反馈 `SECOND_PRESELECTION_ARM_LOWER_DONE(0x12)`。本包继续只作为 raw transport provider 发送命令并透传业务反馈；service ACK 语义不变。
-
-2026-07-04 同步：`MCU_ERROR(0xFE)` 中 payload 长度为 2 的帧被纳入机构业务反馈契约并透传到 `/mechanism/command_feedback`，供决策层解析 `failed_cmd/error_code`。`BUSY(0x01)` 不等于最终失败；其它长度的 `0xFE` 仍停留在 transport 诊断层。
-
-2026-07-03 同步：`MF_PRESELECTION_TRIGGER(0x10)` 在 managed first/second 入口下由 `WaitPreselectionBranchGate` 作为第二限位开关事件消费。transport 仍只透传该业务反馈；决策层按当前 gate profile 决定后续握手，first 用 `0x10/0x0C`，second 用 `0x11/0x0D`。
-
-2026-07-04 同步：`rc26_serial` 真源新增第二预选赛 KFS 夹取完成反馈 `SECOND_PRESELECTION_PICKUP_KFS_DONE(0x11)`。本包默认透传该业务反馈；`0x12` 的 service ACK 仍只代表 MCU 已收到命令，决策层需等待同 `seq` 的 `0x11` 后再做视觉消失验证。
-
-2026-07-02 同步：`rc26_serial` 真源新增第二个预选赛 `SECOND_PRESELECTION_START(0x11)` / `SECOND_PRESELECTION_START_DONE(0x0D)`、`SECOND_PRESELECTION_ARM_HIGH_RAISE(0x12)` / `SECOND_PRESELECTION_ARM_HIGH_RAISE_DONE(0x0F)` 和 ACK-only `SECOND_PRESELECTION_PLACE_KFS(0x13)`。本包无需新增高层目录，继续按 raw transport 发送并透传 `0x0D/0x0F` 业务反馈，service ACK 语义不变。
-
-2026-06-30 同步：`rc26_serial` 真源新增梅林预选赛入口高侧 KFS 夹取 `ENTRY_GRAB_KFS_UP(0x0F)` 与完成反馈 `ENTRY_GRAB_KFS_UP_DONE(0x0B)`。本包无需新增高层目录，仍按 raw transport 发送并透传 `0x0B` 业务反馈，service ACK 语义不变。
-
-2026-06-29 同步：串口协议新增 `MCU_ERROR(0xFE)`。本包继续保持 raw transport provider 职责，service wire shape 不变；ACK 等待窗口内持续 `0xFE` 后的发送失败通过日志和 diagnostics 明确说明是下位机原因。2026-07-04 起，两字节 payload 的 `0xFE` 另按机械臂业务诊断透传，见上文当前口径。
-
-2026-06-27 同步：KFS 向下夹取新增 `ARM_SECOND_LOWER(0x0E)` / `ARM_SECOND_LOWER_DONE(0x0A)`，本包仅作为 raw transport provider 透传命令和反馈，service wire shape 不变。
-
-2026-06-26 同步：串口协议 ID 连续化后，本包文档同步到 `POSE_TARGET(0x0C)`、`ODOM_DATA(0x08)`、`HEARTBEAT_ACK(0x01)` 和新的机构业务反馈 ID。梅林预选赛新增 `ARM_HIGH_RAISE(0x0D)` / `ARM_HIGH_RAISE_DONE(0x09)` 后，本包仍保持 raw transport provider 职责，service wire shape 不变。
+2026-07-18：删除无调用的心跳、历史轮速和旧 second 高抬完成反馈路径；将上行透传改成正式业务 allowlist。机构生命周期占位包和历史底盘串口桥已删除，本包成为文档化的机构与底盘 MCU 执行唯一边界。

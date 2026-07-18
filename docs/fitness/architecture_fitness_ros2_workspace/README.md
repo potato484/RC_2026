@@ -89,11 +89,12 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 - **规则**：新增 BT 节点必须调用清晰的下层接口，而不是绕过下层边界直接碰设备逻辑。
 - **当前机构降级口径**：`rc26_decision` 通过既有 `/mechanism/send_command` 与 `/mechanism/command_feedback` 消费机构结果，并拥有“失败后进入哪个比赛阶段”的策略权。机构 service/ACK/done 暂时失败或非 BUSY `0xFE` 时可记录 WARN 后按该机构步骤结束继续，但不得伪造 transport ACK/业务反馈，也不得把人工限位、激光、普通 odom、视觉或非法运行上下文一并吞成成功。
 
-### 3.3 `rc26_mechanism` 是机构执行唯一边界
+### 3.3 `rc26_mcu_transport` 是目标 MCU 执行唯一边界
 
-- **规则**：所有机构动作语义、超时、取消、底层硬件抽象，必须收敛在这里或它的 HAL 中。
-- **规则**：决策层可以请求动作、订阅状态，但不得在别处复制一套机制状态机。
-- **规则**：inactive 状态下拒绝 goal 不是“优化项”，而是强制语义。
+- **规则**：目标 MCU 物理串口只能由 `rc26_mcu_transport` 打开；机构和底盘上层不得重复持有同一设备。
+- **规则**：本包只拥有可靠 ACK、raw feedback、底盘速度帧和串口健康语义，不拥有比赛阶段或视觉验证策略。
+- **规则**：决策层通过 `/mechanism/send_command` 与 `/mechanism/command_feedback` 编排机构流程，通过 `/cmd_vel` 表达底盘速度意图，不直接解析串口帧。
+- **当前实现**：历史机构生命周期占位包已经删除，不保留兼容 action、组件或 launch；现有 raw service/topic wire shape 保持不变。
 
 ### 3.4 控制器必须保持 plugin 形态
 
@@ -120,7 +121,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 
 - **规则**：每条动态 TF 边只能有一个文档化权威者。
 - **规则**：除非做过明确架构变更并更新文档，否则不得新增第二个发布同一动态边的节点。
-- **当前口径**：自动导航主链的 `/odom` 与动态基座 TF 仍由 `rc26_odom_interface` / 定位链维护；`rc26_merge_odom` 已退出默认运行装配，`/merge_odom` 不再是当前运行时契约。`/cmd_vel` 的默认硬件消费方由 `rc26_mcu_transport` 提供，并复用目标 MCU 串口下发 `POSE_TARGET(0x0C)`；机构指令的目标 MCU 串口权威同样由 `rc26_mcu_transport` 提供。可靠机构命令的十次纯 ACK 超时只表示本次发送失败，不等价于串口物理断链；driver 保持连接，只有真实读写、EOF、`epoll` 或心跳故障才触发重连。
+- **当前口径**：自动导航主链的 `/odom` 与动态基座 TF 由 Point-LIO 和 `rc26_odom_interface` 维护。`/cmd_vel` 的默认硬件消费方由 `rc26_mcu_transport` 提供，并复用目标 MCU 串口下发 `POSE_TARGET(0x0C)`；机构指令的目标 MCU 串口权威同样由 `rc26_mcu_transport` 提供。可靠机构命令的十次纯 ACK 超时只表示本次发送失败，不等价于串口物理断链；只有真实读写、EOF 和 `epoll` error/hup 等物理 I/O 故障触发重连。
 
 ### 3.8 launch 参数必须声明明确、归属明确
 
@@ -246,7 +247,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 - `src/` 是机器人运行时工作区。
 - `rc26_bringup` 是整车 composition root。
 - `rc26_decision` 是比赛流程大脑，不是设备细节宿主。
-- `rc26_mechanism` 和各控制器插件负责安全执行意图。
+- `rc26_mcu_transport` 负责将机构 raw 命令与 `/cmd_vel` 安全送达目标 MCU，决策层拥有动作编排和失败后续策略。
 - localization、vision、odom 相关包负责产出当前主链规范化机器状态；旧 terrain、base-ground、keepout 源码包和兼容接口已删除。
 - `src/` 当前默认保持 headless，不再内置第一方 GUI 或操作员语义聚合包。
 - 如需可视化，应由 RViz2、Foxglove 等工具在下游消费这些状态。

@@ -18,7 +18,7 @@ second managed 默认继续使用树首预装 `0x15` 的现有上阶放置树。
 
 根目录 `开机自启动.txt` 提供当前实机 systemd 开机自启动配置指令，可整段复制到终端执行。该指令创建 `r2-auto.service`，以 `aidlux` 用户、`/home/aidlux/RC_2026` 工作目录启动 `/home/aidlux/RC_2026/start_r2_auto.sh`，并提供状态、日志、停止、重启和卸载命令。
 
-`rc26_merge_odom` 已从当前 R2 默认运行装配中停用但保留源码：`rc26_bringup`、导航联调入口和遥控脚本不再启动它，也不再把 `/merge_odom` 作为当前运行时契约。`/cmd_vel` 的默认硬件消费方由 `rc26_mcu_transport` 提供，它复用目标 MCU 串口下发 `POSE_TARGET(0x0C)`；机构指令共享串口 provider 同样由 `rc26_mcu_transport` 提供。
+历史底盘串口桥和机构生命周期占位包已经从工作区删除，不再保留兼容 launch 或源码参考。`/odom` 与动态 TF 由 Point-LIO 和 `rc26_odom_interface` 主链提供；`/cmd_vel` 与机构命令的目标 MCU 串口权威统一为 `rc26_mcu_transport`。
 
 旧地形、base-ground 与 MF keepout 包已经从工作区删除，相关 keepout / terrain / MF KFS 兼容接口也不再由 `rc26_interfaces` 生成。当前 `rc26_bringup` 不启动这些链路，`rc26_decision` 不订阅、发布或调用它们，默认运行和手动验证闭包也不再包含这些历史包。
 
@@ -45,7 +45,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 
 - [`rc26_bringup`](archive/rc26_bringup/README.md): R2 整车链路统一装配入口；导航模式下只装配 odom、MCU transport、决策和按需 RealSense。`(file: archive/rc26_bringup/README.md)`
 - [`rc26_decision`](archive/rc26_decision/README.md): R2 主决策包；内部行为树通过 `OdomDriveX`、`OdomDriveY`、`OdomTurnToYaw` 和按需保留的 `OdomDriveXTurnX` 执行 odom 相对闭环导航；当前正式 MC 树使用串行 X/yaw/X 去程和原地旋转后 X/Y 退让，不再对外暴露 BT 调试 topic/service。`(file: archive/rc26_decision/README.md)`
-- [`rc26_interfaces`](archive/rc26_interfaces/README.md): R2 自定义 ROS 2 接口契约包；当前保留机构、视觉和动态预测接口，定位主链改用标准 ROS 消息与 TF。`(file: archive/rc26_interfaces/README.md)`
+- [`rc26_interfaces`](archive/rc26_interfaces/README.md): R2 自定义 ROS 2 接口契约包；当前只保留机构 raw transport 与端头检测接口。`(file: archive/rc26_interfaces/README.md)`
 
 ### 里程计、定位与点云主链
 
@@ -53,14 +53,12 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 - [`rc26_sensor_extrinsics`](archive/rc26_sensor_extrinsics/README.md): R2 静态传感器安装外参 YAML 真源。`(file: archive/rc26_sensor_extrinsics/README.md)`
 - [`rc26_point_lio`](archive/rc26_point_lio/README.md): LiDAR-Inertial Odometry 主链。`(file: archive/rc26_point_lio/README.md)`
 - [`rc26_localization`](archive/rc26_localization/README.md): 激光重定位主模块，继续作为 `map -> odom` 权威。`(file: archive/rc26_localization/README.md)`
-- [`rc26_merge_odom`](archive/rc26_merge_odom/README.md): 已停用的底盘局部反馈、位姿下发和目标 MCU 串口桥接源码，保留给历史参考和手工调试，不再属于默认运行链。`(file: archive/rc26_merge_odom/README.md)`
 - [`rc26_odom_interface`](archive/rc26_odom_interface/README.md): 上游里程计到下游统一底盘坐标系的接口层。`(file: archive/rc26_odom_interface/README.md)`
 - [`rc26_sensor_scan`](archive/rc26_sensor_scan/README.md): 点云与里程计时空对齐模块。`(file: archive/rc26_sensor_scan/README.md)`
 - [`rc26_small_gicp`](archive/rc26_small_gicp/README.md): 点云配准基础库。`(file: archive/rc26_small_gicp/README.md)`
 
 ### 控制与执行
 
-- [`rc26_mechanism`](archive/rc26_mechanism/README.md): 机构执行与生命周期管理。`(file: archive/rc26_mechanism/README.md)`
 - [`rc26_mcu_transport`](archive/rc26_mcu_transport/README.md): 目标 MCU 共享串口 owner，提供 `/mechanism/send_command`、`/mechanism/command_feedback` 与默认 `/cmd_vel` 到 `POSE_TARGET` 的底盘执行。`(file: archive/rc26_mcu_transport/README.md)`
 - [`rc26_telecontrol`](archive/rc26_telecontrol/README.md): 人工遥控测试包。`(file: archive/rc26_telecontrol/README.md)`
 - [`rc26_serial`](archive/rc26_serial/README.md): 串口通信基础库。`(file: archive/rc26_serial/README.md)`
