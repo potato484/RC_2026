@@ -37,26 +37,49 @@
 
 ### 当前真实主运行链
 
+当前主运行链按“里程计、视觉、执行”拆成三部分。实线表示当前主链，虚线表示按需启用的支路。
+
+#### 1. Mid-360 里程计到决策
+
 ```mermaid
-flowchart LR
-    LIDAR["Livox Mid-360<br/>点云 + IMU"] --> DRIVER["rc26_mid360_driver<br/>雷达驱动"]
-    DRIVER --> LIO["rc26_point_lio<br/>Point-LIO"]
-    LIO --> ODOM_IF["rc26_odom_interface<br/>统一里程计和动态 TF"]
-    ODOM_IF -->|"/odom"| DECISION["rc26_decision<br/>行为树决策"]
-
-    FHD["外接 FHD Webcam<br/>当前 MC 端头视觉"] --> VISION["rc26_vision<br/>视觉推理能力"]
-    D455["RealSense D455<br/>按需深度视觉/KFS 测试"] -.-> VISION
-    VISION --> DECISION
-
-    DECISION -->|"/cmd_vel"| TRANSPORT["rc26_mcu_transport<br/>目标 MCU 唯一串口 owner"]
-    DECISION -->|"/mechanism/send_command"| TRANSPORT
-    TRANSPORT -->|"POSE_TARGET / 机构串口帧"| MCU["目标 MCU"]
-    MCU --> CHASSIS["麦克纳姆底盘与机械机构"]
-    MCU -->|"业务反馈"| TRANSPORT
-    TRANSPORT -->|"/mechanism/command_feedback"| DECISION
-
-    ODOM_IF -.-> LOCALIZATION["rc26_localization<br/>先验地图重定位辅助链<br/>不在默认自动导航闭包中"]
+flowchart TB
+    LIDAR["Livox Mid-360：点云和 IMU"] --> DRIVER["rc26_mid360_driver：雷达驱动"]
+    DRIVER --> LIO["rc26_point_lio：Point-LIO"]
+    LIO --> ODOM_IF["rc26_odom_interface：统一里程计和动态 TF"]
+    ODOM_IF --> ODOM["/odom"]
+    ODOM --> DECISION["rc26_decision：行为树决策"]
+    ODOM_IF -.-> LOCALIZATION["rc26_localization（可选）：不在默认自动导航闭包中"]
 ```
+
+#### 2. 相机视觉到决策
+
+```mermaid
+flowchart TB
+    FHD["外接 FHD Webcam：当前 MC 端头视觉"] --> VISION["rc26_vision：视觉推理能力"]
+    D455["RealSense D455：按需深度视觉和 KFS 测试"] -.-> VISION
+    VISION --> DECISION["rc26_decision：行为树决策"]
+```
+
+#### 3. 决策、MCU 与执行反馈
+
+```mermaid
+sequenceDiagram
+    participant D as rc26_decision
+    participant T as rc26_mcu_transport
+    participant M as 目标 MCU
+    participant R as 麦克纳姆底盘和机械机构
+
+    D->>T: /cmd_vel
+    T->>M: POSE_TARGET
+    M->>R: 执行底盘运动
+    D->>T: /mechanism/send_command
+    T->>M: 机构串口帧
+    M->>R: 执行机构动作
+    M-->>T: ACK 和业务反馈
+    T-->>D: /mechanism/command_feedback
+```
+
+不看图也可以把主链记成三句话：`Mid-360 -> Point-LIO -> /odom -> 决策`，`相机 -> 视觉推理 -> 决策`，以及 `决策 -> /cmd_vel 或机构 Service -> MCU transport -> MCU -> 底盘/机构`。
 
 这里最容易产生的误解有三个：
 
