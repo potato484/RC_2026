@@ -4,6 +4,14 @@
 
 当前仓库已经删除第一方前端实现和相关文档，`src/` 仍然是 R2 自动机器人的主运行时工作区。
 
+## 项目级入口
+
+- [项目 README](../../README.md)：面向新成员和公开读者的项目总览，介绍技术栈、硬件、模块、构建方式和当前真实运行链。
+- [MIT 根许可证](../../LICENSE)：适用于项目组有权授权且没有更具体许可声明的内容。
+- [第三方与包级许可说明](../../THIRD_PARTY_NOTICES.md)：记录各 ROS2 包及 Point-LIO、small_gicp 等上游代码的许可关系。
+
+根 README 是入门和运行导航入口，不能替代本目录的架构约束。涉及职责边界、依赖方向、运行时权威、接口语义或验证要求时，仍以 `docs/`、当前代码和真实接口为准。
+
 ## 文档入口
 
 - [`architecture_fitness_ros2_workspace`](architecture_fitness_ros2_workspace/README.md): ROS2 工作区的职责边界、依赖方向、契约纪律和包级验证基线。`(file: architecture_fitness_ros2_workspace/README.md)`
