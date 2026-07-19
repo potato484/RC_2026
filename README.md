@@ -246,7 +246,62 @@ flowchart TD
 - [ROS 2 接口索引](docs/middle/openapi.yaml)
 - [机构传输契约](docs/middle/modules/mechanism.yaml)
 
-## 安装与编译
+## 从 Git 克隆到本地并编译
+
+下面的最短流程适用于已经安装 **Ubuntu 22.04、ROS 2 Humble 和 GTSAM 4.2.0** 的机器。AidLux 实机用户的 `$HOME` 通常是 `/home/aidlux`，因此克隆后会自然得到项目默认使用的 `/home/aidlux/RC_2026` 路径。
+
+```bash
+# 1. 加载 ROS 2 Humble
+source /opt/ros/humble/setup.bash
+
+# 2. 从 GitHub 克隆 main 分支到本地
+cd "$HOME"
+git clone --branch main --single-branch \
+  https://github.com/potato484/RC_2026.git RC_2026
+cd "$HOME/RC_2026"
+
+# 3. 安装 package.xml 中可由 rosdep 解析的依赖
+rosdep update
+rosdep install --from-paths src --ignore-src --rosdistro humble -r -y
+
+# 4. 使用仓库规定的低并发方式编译当前全部 ROS 2 包
+MAKEFLAGS='-j2 -l2' colcon build \
+  --symlink-install \
+  --executor sequential \
+  --parallel-workers 1 \
+  --packages-select $(colcon list --names-only)
+
+# 5. 加载刚刚编译好的工作区
+source install/setup.bash
+
+# 6. 验证包是否已经被 colcon 和 ROS 2 发现
+colcon list --names-only
+ros2 pkg prefix rc26_bringup
+```
+
+构建成功后，`build/` 保存各包的中间构建结果，`install/` 保存可加载的工作区，`log/` 保存本次 colcon 日志。每次打开新终端后，都需要重新执行：
+
+```bash
+source /opt/ros/humble/setup.bash
+source "$HOME/RC_2026/install/setup.bash"
+```
+
+如果本地已经存在这个仓库，不要重复执行 `git clone`，而是更新 `main` 后重新编译：
+
+```bash
+cd "$HOME/RC_2026"
+git switch main
+git pull --ff-only origin main
+source /opt/ros/humble/setup.bash
+MAKEFLAGS='-j2 -l2' colcon build \
+  --symlink-install \
+  --executor sequential \
+  --parallel-workers 1 \
+  --packages-select $(colcon list --names-only)
+source install/setup.bash
+```
+
+如果执行过程中提示 ROS 2、`rosdep`、GTSAM、AidLite、ONNX Runtime 或 RealSense 依赖缺失，请继续阅读下面的详细说明。
 
 ### 1. 准备 Ubuntu 和 ROS 2
 
@@ -273,7 +328,8 @@ AidLux 实机当前按 `/home/aidlux/RC_2026` 维护：
 
 ```bash
 cd /home/aidlux
-git clone https://github.com/potato484/RC_2026.git
+git clone --branch main --single-branch \
+  https://github.com/potato484/RC_2026.git RC_2026
 cd /home/aidlux/RC_2026
 ```
 
