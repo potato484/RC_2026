@@ -425,17 +425,55 @@ sudo systemctl restart r2-auto.service
 
 ## 关键接口
 
-ROS 2 的 Topic 和 Service 就是当前后端公开接口。下表是根 README 的导航摘要，字段、类型和精确语义以 [`docs/middle/openapi.yaml`](docs/middle/openapi.yaml) 及模块契约为准。
+ROS 2 的 Topic 和 Service 就是当前后端公开接口。下面按用途列出根 README 的导航摘要；字段、类型和精确语义以 [`docs/middle/openapi.yaml`](docs/middle/openapi.yaml) 及模块契约为准。
 
-| 接口 | 类型 | 生产者 | 主要消费者 | 含义 |
-| --- | --- | --- | --- | --- |
-| `/odom` | `nav_msgs/msg/Odometry` | `rc26_odom_interface` | `rc26_decision` 等运动动作 | 统一 odom 坐标系下的机器人位姿和速度 |
-| `/cmd_vel` | `geometry_msgs/msg/Twist` | 当前串行生效的决策/遥控/测试动作 | `rc26_mcu_transport` | 麦克纳姆底盘速度意图，不是电机原始命令 |
-| `/mechanism/send_command` | `rc26_interfaces/srv/SendMechanismTransportCommand` | `rc26_mcu_transport` 提供 Service | 决策或受限测试节点调用 | 下发一次 raw 机构命令，可选择是否等待通用 ACK |
-| `/mechanism/command_feedback` | `rc26_interfaces/msg/MechanismTransportFeedback` | `rc26_mcu_transport` | `rc26_decision`、视觉测试等 | MCU 上行业务反馈，需按命令状态机和 `seq` 匹配 |
-| `/vision/tip_detections` | `rc26_interfaces/msg/TipDetectionArray` | `rc26_vision` tip 定位链 | 外部只读消费者 | 稳定的端头检测结果契约 |
-| `odom -> base_footprint -> base_link` | 动态 TF | `rc26_odom_interface` | 全部坐标变换消费者 | R2 自动导航主链的动态基座 TF |
-| `map -> odom` | TF | `rc26_localization`（启用时） | 地图坐标消费者 | 先验地图定位权威，不属于默认自动导航闭包 |
+### 运动与坐标
+
+#### 统一里程计：`/odom`
+
+- **类型**：`nav_msgs/msg/Odometry`
+- **数据流**：`rc26_odom_interface` → `rc26_decision` 等运动动作
+- **作用**：提供统一 odom 坐标系下的机器人位姿和速度，是当前运动闭环的主要状态输入。
+
+#### 底盘速度意图：`/cmd_vel`
+
+- **类型**：`geometry_msgs/msg/Twist`
+- **数据流**：当前串行生效的决策、遥控或测试动作 → `rc26_mcu_transport`
+- **作用**：表达麦克纳姆底盘速度意图，由 transport 转换成 MCU 帧，不是电机原始命令。
+
+#### 动态基座 TF：`odom -> base_footprint -> base_link`
+
+- **类型**：动态 TF
+- **数据流**：`rc26_odom_interface` → 全部坐标变换消费者
+- **作用**：作为 R2 自动导航主链的动态基座坐标权威，同一条 TF 边不能由第二个节点重复发布。
+
+#### 地图校正 TF：`map -> odom`
+
+- **类型**：TF
+- **数据流**：`rc26_localization`（启用时）→ 地图坐标消费者
+- **作用**：提供先验地图定位结果；它不属于当前默认自动导航闭包。
+
+### 机构通信
+
+#### 发送机构命令：`/mechanism/send_command`
+
+- **类型**：`rc26_interfaces/srv/SendMechanismTransportCommand`
+- **数据流**：决策或受限测试节点 → `rc26_mcu_transport` 提供的 Service
+- **作用**：下发一次 raw 机构命令，并按请求选择是否等待目标 MCU 的通用 ACK。
+
+#### 接收机构反馈：`/mechanism/command_feedback`
+
+- **类型**：`rc26_interfaces/msg/MechanismTransportFeedback`
+- **数据流**：`rc26_mcu_transport` → `rc26_decision`、视觉测试等消费者
+- **作用**：发布 MCU 上行业务反馈；需要按命令状态机、`feedback_id` 和 `seq` 匹配。
+
+### 视觉输出
+
+#### 端头检测：`/vision/tip_detections`
+
+- **类型**：`rc26_interfaces/msg/TipDetectionArray`
+- **数据流**：`rc26_vision` tip 定位链 → 外部只读消费者
+- **作用**：提供稳定的端头检测结果契约，不承载比赛流程决策。
 
 对应契约：
 
