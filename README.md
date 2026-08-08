@@ -283,27 +283,23 @@ $$
 `OdomDriveX`、`OdomDriveY` 在动作开始时记录起点 $\mathbf{p}_0=(x_0,y_0)$ 和起始 yaw $\theta_0$。给定车体系目标 $\Delta\mathbf{p}_b=(\Delta x_b,\Delta y_b)$，目标点转换为：
 
 $$
-\begin{bmatrix}x_t\\y_t\end{bmatrix}
-=
-\begin{bmatrix}x_0\\y_0\end{bmatrix}
-+
-\begin{bmatrix}
-\cos\theta_0 & -\sin\theta_0\\
-\sin\theta_0 & \cos\theta_0
-\end{bmatrix}
-\begin{bmatrix}\Delta x_b\\\Delta y_b\end{bmatrix}
+x_t=x_0+\cos\theta_0\Delta x_b-\sin\theta_0\Delta y_b
+$$
+
+$$
+y_t=y_0+\sin\theta_0\Delta x_b+\cos\theta_0\Delta y_b
 $$
 
 轴向速度采用带容差、最小有效速度和最大限幅的比例控制：
 
 $$
-v_s=\operatorname{sgn}(e_s)\operatorname{clip}\left(K_p|e_s|,v_{\min},v_{\max}\right)
+v_s=\mathrm{sgn}(e_s)\mathrm{clip}\left(K_p|e_s|,v_{\min},v_{\max}\right)
 $$
 
 角度误差归一化到最短转向区间：
 
 $$
-e_{\theta}=\operatorname{atan2}(\sin(\theta_t-\theta),\cos(\theta_t-\theta))
+e_{\theta}=\mathrm{atan2}(\sin(\theta_t-\theta),\cos(\theta_t-\theta))
 $$
 
 只有位置误差、yaw 误差连续若干 tick 同时进入容差才返回成功；odom 超龄、动作超时、节点 halt 或上下文异常都会发布零速度。
@@ -319,7 +315,7 @@ $$
 横移控制根据相机安装方向选择符号并限幅：
 
 $$
-v_y=-\sigma\operatorname{sgn}(e_u)\operatorname{clip}\left(K_u|e_u|,v_{y,\min},v_{y,\max}\right),\quad \sigma\in\{-1,1\}
+v_y=-\sigma\mathrm{sgn}(e_u)\mathrm{clip}\left(K_u|e_u|,v_{y,\min},v_{y,\max}\right),\quad \sigma\in\{-1,1\}
 $$
 
 视觉动作只通过 `/cmd_vel` 和机构 Service 执行，不绕过 transport 直接操作硬件。
@@ -329,7 +325,7 @@ $$
 串口帧包含帧头、`seq`、长度、重发次数、命令、payload、CRC32 和帧尾。CRC32 检测传输错误，`seq` 匹配 ACK 与业务反馈。可靠命令的 ACK 超时采用指数加权估计：
 
 $$
-\operatorname{SRTT}_k=(1-\alpha)\operatorname{SRTT}_{k-1}+\alpha R_k,\quad \alpha=\frac18
+\mathrm{SRTT}_k=(1-\alpha)\mathrm{SRTT}_{k-1}+\alpha R_k,\quad \alpha=\frac{1}{8}
 $$
 
 ACK 只表示 MCU 接收命令，不代表机构动作完成；动作完成由 `/mechanism/command_feedback` 中对应 `feedback_id` 与 `seq` 判定。
