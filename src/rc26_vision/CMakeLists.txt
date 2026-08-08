@@ -17,7 +17,6 @@ find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(message_filters REQUIRED)
-find_package(behaviortree_cpp REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
@@ -112,7 +111,6 @@ ament_target_dependencies(${PROJECT_NAME}
   cv_bridge
   image_transport
   message_filters
-  behaviortree_cpp
   tf2
   tf2_ros
   tf2_geometry_msgs
@@ -264,7 +262,7 @@ ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME})
 ament_export_dependencies(
   ament_index_cpp geometry_msgs rclcpp sensor_msgs cv_bridge image_transport
-  message_filters behaviortree_cpp tf2 tf2_ros tf2_geometry_msgs nav_msgs rc26_interfaces
+  message_filters tf2 tf2_ros tf2_geometry_msgs nav_msgs rc26_interfaces
 )
 
 ament_package()

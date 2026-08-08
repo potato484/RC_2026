@@ -14,9 +14,12 @@ jobs:
     env:
       ROS_DISTRO: humble
       MAKEFLAGS: -j2 -l2
+      BTCPP_VERSION: 4.9.1
+      BTCPP_CACHE_VERSION: v1
+      BTCPP_INSTALL_PREFIX: /home/runner/.cache/rc26-deps/behaviortree_cpp-4.9.1
       GTSAM_VERSION: 4.2.0
       GTSAM_CACHE_VERSION: v1
-      GTSAM_INSTALL_PREFIX: ${{ github.workspace }}/.cache/gtsam-4.2.0
+      GTSAM_INSTALL_PREFIX: /home/runner/.cache/rc26-deps/gtsam-4.2.0
       CI_TEST_PACKAGES: >-
         rc26_bringup
         rc26_decision
@@ -47,11 +50,36 @@ jobs:
             libboost-all-dev \
             libeigen3-dev \
             libgoogle-glog-dev \
+            libtinyxml2-dev \
             libunwind-dev \
             libpcl-dev \
             libomp-dev \
             libopencv-dev \
             libyaml-cpp-dev
+
+      - name: Restore BehaviorTree.CPP cache
+        id: cache-btcpp
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.BTCPP_INSTALL_PREFIX }}
+          key: btcpp-${{ runner.os }}-${{ runner.arch }}-${{ env.BTCPP_VERSION }}-${{ env.BTCPP_CACHE_VERSION }}
+
+      - name: Install BehaviorTree.CPP from source
+        if: steps.cache-btcpp.outputs.cache-hit != 'true'
+        run: |
+          set -eo pipefail
+          source "/opt/ros/$ROS_DISTRO/setup.bash"
+          git clone --depth 1 --branch "$BTCPP_VERSION" https://github.com/BehaviorTree/BehaviorTree.CPP.git /tmp/BehaviorTree.CPP
+          cmake -S /tmp/BehaviorTree.CPP -B /tmp/BehaviorTree.CPP/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$BTCPP_INSTALL_PREFIX" \
+            -DBTCPP_BUILD_TOOLS=OFF \
+            -DBTCPP_EXAMPLES=OFF \
+            -DBUILD_TESTING=OFF \
+            -DBTCPP_GROOT_INTERFACE=OFF \
+            -DBTCPP_SQLITE_LOGGING=OFF
+          cmake --build /tmp/BehaviorTree.CPP/build --parallel 2
+          cmake --install /tmp/BehaviorTree.CPP/build
 
       - name: Restore GTSAM cache
         id: cache-gtsam
@@ -78,12 +106,14 @@ jobs:
           cmake --build /tmp/gtsam/build --parallel 2
           cmake --install /tmp/gtsam/build
 
-      - name: Configure GTSAM environment
+      - name: Configure cached dependency environment
         run: |
           set -euo pipefail
           test -f "$GTSAM_INSTALL_PREFIX/lib/cmake/GTSAM/GTSAMConfig.cmake"
-          echo "CMAKE_PREFIX_PATH=$GTSAM_INSTALL_PREFIX:${CMAKE_PREFIX_PATH:-}" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$GTSAM_INSTALL_PREFIX/lib:$GTSAM_INSTALL_PREFIX/lib64:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          test -f "$BTCPP_INSTALL_PREFIX/share/behaviortree_cpp/cmake/behaviortree_cppConfig.cmake"
+          echo "CMAKE_PREFIX_PATH=$BTCPP_INSTALL_PREFIX:$GTSAM_INSTALL_PREFIX:${CMAKE_PREFIX_PATH:-}" >> "$GITHUB_ENV"
+          echo "AMENT_PREFIX_PATH=$BTCPP_INSTALL_PREFIX:${AMENT_PREFIX_PATH:-}" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$BTCPP_INSTALL_PREFIX/lib:$BTCPP_INSTALL_PREFIX/lib64:$GTSAM_INSTALL_PREFIX/lib:$GTSAM_INSTALL_PREFIX/lib64:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
 
       - name: Resolve ROS dependencies
         run: |
@@ -91,12 +121,15 @@ jobs:
           sudo rosdep init || true
           rosdep update
           rosdep install --from-paths src --ignore-src --rosdistro "$ROS_DISTRO" -y \
-            --skip-keys "GTSAM opencv4 libpcl-all-dev onnxruntime aidlite"
+            --skip-keys "GTSAM behaviortree_cpp opencv4 libpcl-all-dev onnxruntime aidlite"
 
       - name: Build workspace
         run: |
           set -eo pipefail
           source "/opt/ros/$ROS_DISTRO/setup.bash"
+          export CMAKE_PREFIX_PATH="$BTCPP_INSTALL_PREFIX:$GTSAM_INSTALL_PREFIX:${CMAKE_PREFIX_PATH:-}"
+          export AMENT_PREFIX_PATH="$BTCPP_INSTALL_PREFIX:${AMENT_PREFIX_PATH:-}"
+          export LD_LIBRARY_PATH="$BTCPP_INSTALL_PREFIX/lib:$BTCPP_INSTALL_PREFIX/lib64:$GTSAM_INSTALL_PREFIX/lib:$GTSAM_INSTALL_PREFIX/lib64:${LD_LIBRARY_PATH:-}"
           colcon build \
             --symlink-install \
             --executor sequential \
@@ -108,6 +141,7 @@ jobs:
           set -eo pipefail
           source "/opt/ros/$ROS_DISTRO/setup.bash"
           source install/setup.bash
+          export LD_LIBRARY_PATH="$BTCPP_INSTALL_PREFIX/lib:$BTCPP_INSTALL_PREFIX/lib64:$GTSAM_INSTALL_PREFIX/lib:$GTSAM_INSTALL_PREFIX/lib64:${LD_LIBRARY_PATH:-}"
           colcon test \
             --packages-select $CI_TEST_PACKAGES \
             --event-handlers console_direct+ \
