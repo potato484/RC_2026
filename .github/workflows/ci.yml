@@ -1,11 +1,6 @@
 name: ROS 2 CI
 
 on:
-  push:
-    branches:
-      - main
-      - master
-  pull_request:
   workflow_dispatch:
 
 concurrency:
@@ -19,6 +14,9 @@ jobs:
     env:
       ROS_DISTRO: humble
       MAKEFLAGS: -j2 -l2
+      GTSAM_VERSION: 4.2.0
+      GTSAM_CACHE_VERSION: v1
+      GTSAM_INSTALL_PREFIX: ${{ github.workspace }}/.cache/gtsam-4.2.0
       CI_TEST_PACKAGES: >-
         rc26_bringup
         rc26_decision
@@ -55,12 +53,21 @@ jobs:
             libopencv-dev \
             libyaml-cpp-dev
 
+      - name: Restore GTSAM cache
+        id: cache-gtsam
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.GTSAM_INSTALL_PREFIX }}
+          key: gtsam-${{ runner.os }}-${{ runner.arch }}-${{ env.GTSAM_VERSION }}-${{ env.GTSAM_CACHE_VERSION }}
+
       - name: Install GTSAM from source
+        if: steps.cache-gtsam.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch 4.2.0 https://github.com/borglab/gtsam.git /tmp/gtsam
+          git clone --depth 1 --branch "$GTSAM_VERSION" https://github.com/borglab/gtsam.git /tmp/gtsam
           cmake -S /tmp/gtsam -B /tmp/gtsam/build \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$GTSAM_INSTALL_PREFIX" \
             -DGTSAM_BUILD_EXAMPLES_ALWAYS=OFF \
             -DGTSAM_BUILD_TESTS=OFF \
             -DGTSAM_BUILD_UNSTABLE=OFF \
@@ -69,8 +76,14 @@ jobs:
             -DGTSAM_WITH_TBB=OFF \
             -DGTSAM_BUILD_WITH_MARCH_NATIVE=OFF
           cmake --build /tmp/gtsam/build --parallel 2
-          sudo cmake --install /tmp/gtsam/build
-          sudo ldconfig
+          cmake --install /tmp/gtsam/build
+
+      - name: Configure GTSAM environment
+        run: |
+          set -euo pipefail
+          test -f "$GTSAM_INSTALL_PREFIX/lib/cmake/GTSAM/GTSAMConfig.cmake"
+          echo "CMAKE_PREFIX_PATH=$GTSAM_INSTALL_PREFIX:${CMAKE_PREFIX_PATH:-}" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$GTSAM_INSTALL_PREFIX/lib:$GTSAM_INSTALL_PREFIX/lib64:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
 
       - name: Resolve ROS dependencies
         run: |
