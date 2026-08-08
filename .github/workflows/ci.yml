@@ -45,13 +45,32 @@ jobs:
             python3-colcon-common-extensions \
             python3-pytest \
             python3-yaml \
-            libgtsam-dev \
+            cmake \
+            libboost-all-dev \
+            libeigen3-dev \
             libgoogle-glog-dev \
             libunwind-dev \
             libpcl-dev \
             libomp-dev \
             libopencv-dev \
             libyaml-cpp-dev
+
+      - name: Install GTSAM from source
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch 4.2.0 https://github.com/borglab/gtsam.git /tmp/gtsam
+          cmake -S /tmp/gtsam -B /tmp/gtsam/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGTSAM_BUILD_EXAMPLES_ALWAYS=OFF \
+            -DGTSAM_BUILD_TESTS=OFF \
+            -DGTSAM_BUILD_UNSTABLE=OFF \
+            -DGTSAM_BUILD_WRAP=OFF \
+            -DGTSAM_USE_SYSTEM_EIGEN=ON \
+            -DGTSAM_WITH_TBB=OFF \
+            -DGTSAM_BUILD_WITH_MARCH_NATIVE=OFF
+          cmake --build /tmp/gtsam/build --parallel 2
+          sudo cmake --install /tmp/gtsam/build
+          sudo ldconfig
 
       - name: Resolve ROS dependencies
         run: |

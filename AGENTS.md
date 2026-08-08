@@ -42,6 +42,25 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install --executor sequential --paral
 - 需要提速时优先小幅调高 `MAKEFLAGS`，不要直接提高 `--parallel-workers`。
 - 仓库级 CI 用于覆盖可复现的编译和非实机测试；实机 launch、传感器链、串口、底盘和机构动作仍必须在 R2 硬件上受控验收。
 
+### 6. Git 提交信息格式
+
+- 提交标题统一使用 `(<type>):<简短说明>`，例如 `(feat):添加了一个特性`。
+- 常用 `type` 包括：`feat` 新功能，`fix` 修复，`docs` 文档，`test` 测试，`ci` CI，`refactor` 重构，`chore` 工程维护。
+- 提交正文必须说明 `why`、`what`、`test` 三项；如果某项不适用，也要写明原因。
+- `why` 说明为什么要改，包含问题背景、评审要求、实机风险或维护动机。
+- `what` 说明具体改了什么，包含涉及的包、接口、配置、文档或脚本。
+- `test` 说明验证了什么，包含执行过的构建、测试、dry-run、CI 或无法验证的原因。
+
+推荐格式：
+
+```text
+(feat):添加了一个特性
+
+why: 因为需要补齐某个比赛流程或评审要求。
+what: 修改了相关节点、配置和 README 说明。
+test: 运行了 colcon test --packages-select <pkg...>，或说明当前环境无法验证。
+```
+
 ## RC_2026 特定事实
 
 - 当前项目仅为 R2 自动机器人设计，R1 只是手动机器人。
