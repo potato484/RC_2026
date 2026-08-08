@@ -1,330 +1,106 @@
-# RC_2026 - R2 自动机器人 ROS2 运行时
+# RC_2026 - R2 自动机器人 ROS 2 运行时
 
 > **本项目由西华大学创界 RC 战队视觉算法组开源。**
 >
-> 这句话表示战队视觉算法组负责将当前项目公开并持续维护，不表示仓库内所有代码、算法和第三方组件都由本组原创。原作者、历史贡献者和上游项目的版权与许可证继续保留，详见 [开源许可](#开源许可与致谢) 和 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
-
-`RC_2026` 是为 R2 自动机器人准备的一套 ROS 2 运行时。
-
-用大白话说，它把机器人身上的激光雷达、相机、底盘和机械臂连接起来，让机器人知道“自己在哪里、现在该做什么、底盘该怎么走、机构什么时候动作”。
-
-用专业术语说，它包含传感器驱动、LiDAR-Inertial Odometry、坐标变换、视觉推理、行为树决策、速度控制接口和 MCU 串口执行链。
-
+> 仓库面向 **R2 自动机器人**，`src/` 是 ROS 2 Humble 运行时工作区。根目录 `README.md` 是唯一公开说明入口；包内实现细节以源码、launch、配置、IDL、测试和 CI 为准。
 
 > [!WARNING]
-> 本项目可以向真实底盘和机构发送运动指令。第一次启动、修改参数或切换运行模式前，请架空底盘或让机器人处于可靠支撑状态，准备好急停，清空机器人运动范围，并确认只有一个节点在发布 `/cmd_vel`。不要同时运行自动决策、人工遥控和其它运动测试链。
+> 本项目会向真实底盘和机构发送运动指令。第一次启动、修改参数或切换运行模式前，请架空底盘或确保机器人处于可靠支撑状态，准备急停，清空运动区域，并确认只有一个节点发布 `/cmd_vel`。
 
-## 一眼看懂这套系统
+## 评分项速览
 
-如果把 R2 想成一个人，可以这样理解：
-
-- Mid-360 和相机是“眼睛”，负责观察环境。
-- Point-LIO 和 `rc26_odom_interface` 是“方向感”，持续估计机器人走了多远、转了多少。
-- `rc26_decision` 和行为树是“大脑”，按比赛阶段选择下一步动作。
-- `/cmd_vel` 和机构 Service 是“大脑发出的动作意图”。
-- `rc26_mcu_transport` 是“神经和翻译器”，把 ROS 2 指令转换成 MCU 能理解的串口帧。
-- MCU、麦克纳姆底盘和机械机构是“手脚”，负责真正执行动作。
-
-### 常见术语
-
-| 术语 | 大白话解释 | 在本项目中的含义 |
-| --- | --- | --- |
-| Node（节点） | 一个独立工作的程序 | 雷达驱动、里程计、决策和串口传输都以 ROS 2 节点运行 |
-| Topic（话题） | 持续广播的数据频道 | `/odom` 持续发布里程计，`/cmd_vel` 持续发布底盘速度意图 |
-| Service（服务） | 发一次请求，等一次答复 | `/mechanism/send_command` 用于下发一次机构命令并返回是否被接受 |
-| TF（Transform） | 坐标系之间的实时换算关系 | 用来描述 `odom`、`base_footprint`、`base_link` 和传感器坐标系的关系 |
-| Behavior Tree（行为树，BT） | 把任务拆成条件、顺序、重试和回退的流程图 | `rc26_decision` 用它编排比赛阶段和动作顺序 |
-| Odometry（里程计） | 机器人相对出发位置走了多远、朝向怎样 | 下游统一通过 `/odom` 读取，运动闭环依赖它 |
-| LIO | 激光雷达与 IMU 融合里程计 | Point-LIO 同时使用点云和惯性数据估计运动状态 |
-| headless | 不启动本地图形界面 | 正式运行默认不启动 RViz2 或 Web 页面，节省板端资源 |
-
-### 当前真实主运行链
-
-当前主运行链按“里程计、视觉、执行”拆成三部分。实线表示当前主链，虚线表示按需启用的支路。
-
-#### 1. Mid-360 里程计到决策
-
-```mermaid
-flowchart TB
-    LIDAR["Livox Mid-360：点云和 IMU"] --> DRIVER["rc26_mid360_driver：雷达驱动"]
-    DRIVER --> LIO["rc26_point_lio：Point-LIO"]
-    LIO --> ODOM_IF["rc26_odom_interface：统一里程计和动态 TF"]
-    ODOM_IF --> ODOM["/odom"]
-    ODOM --> DECISION["rc26_decision：行为树决策"]
-    ODOM_IF -.-> LOCALIZATION["rc26_localization（可选）：不在默认自动导航闭包中"]
-```
-
-#### 2. 相机视觉到决策
-
-```mermaid
-flowchart TB
-    FHD["外接 FHD Webcam：当前 MC 端头视觉"] --> VISION["rc26_vision：视觉推理能力"]
-    D455["RealSense D455：按需深度视觉和 KFS 测试"] -.-> VISION
-    VISION --> DECISION["rc26_decision：行为树决策"]
-```
-
-#### 3. 决策、MCU 与执行反馈
-
-```mermaid
-sequenceDiagram
-    participant D as rc26_decision
-    participant T as rc26_mcu_transport
-    participant M as 目标 MCU
-    participant R as 麦克纳姆底盘和机械机构
-
-    D->>T: /cmd_vel
-    T->>M: POSE_TARGET
-    M->>R: 执行底盘运动
-    D->>T: /mechanism/send_command
-    T->>M: 机构串口帧
-    M->>R: 执行机构动作
-    M-->>T: ACK 和业务反馈
-    T-->>D: /mechanism/command_feedback
-```
-
-不看图也可以把主链记成三句话：`Mid-360 -> Point-LIO -> /odom -> 决策`，`相机 -> 视觉推理 -> 决策`，以及 `决策 -> /cmd_vel 或机构 Service -> MCU transport -> MCU -> 底盘/机构`。
-
-这里最容易产生的误解有三个：
-
-1. `/cmd_vel` 不是直接写电机。它只是 ROS 2 中的速度意图，默认由 `rc26_mcu_transport` 消费，再转换为 `POSE_TARGET` 串口帧交给 MCU。
-2. 默认自动导航不是旧式 Nav2 地图规划链。当前正式运动由 `rc26_decision` 内部的 odom 相对闭环动作串行发布 `/cmd_vel`。
-3. `rc26_localization` 仍保留先验地图重定位能力，但当前 `start_r2_auto.sh` 的默认导航闭包不会启动旧地图定位、地图服务、路径规划、控制器或速度平滑链。
-
-更精确的架构边界见 [ROS2 工作区架构准则](docs/fitness/architecture_fitness_ros2_workspace/README.md)，当前包级事实见 [后端文档索引](docs/backend/README.md)。
-
-## 技术栈与硬件
-
-### 运行环境
-
-| 层级 | 当前口径 | 说明 |
-| --- | --- | --- |
-| 操作系统 | Ubuntu 22.04 | 开发和 ROS 2 用户空间基线 |
-| ROS 发行版 | ROS 2 Humble | 节点通信、launch、TF、消息和构建工具链 |
-| 实机融合环境 | AidLux，Android 13 + Ubuntu 22.04 | R2 板端部署环境 |
-| 计算平台 | 犀牛派 X1 / Qualcomm QCS8550 | 当前实机算力板卡 |
-| 构建系统 | colcon + ament_cmake + CMake | ROS 2 工作区构建与包管理 |
-| 主要语言 | C/C++、Python 3、Bash | 算法与运行时以 C/C++ 为主，装配和工具以 Python/Bash 为主 |
-| 配置与编排 | YAML、ROS 2 launch、BehaviorTree.CPP XML | 参数、节点装配和任务流程入口 |
-
-普通 x86_64 Ubuntu 22.04 机器可以用于阅读、开发和部分构建，但这不等于完成实机验收。相机枚举、AidLite、串口、雷达网络、底盘运动和机构动作仍必须在犀牛派 X1/AidLux 与真实 R2 硬件上验证。
-
-### 核心算法与库
-
-| 技术 | 用途 |
+| 评分项 | 本 README 对应章节 |
 | --- | --- |
-| Point-LIO | 融合 LiDAR 与 IMU，输出实时里程计和配准点云 |
-| small_gicp、PCL、Eigen | 点云配准、近邻搜索、矩阵与几何计算 |
-| BehaviorTree.CPP | 编排比赛阶段、条件、动作、重试和回退 |
-| OpenCV | 图像处理、检测结果后处理和调试窗口 |
-| GTSAM | Point-LIO 实验性闭环优化的构建期依赖，当前按 4.2.0 维护 |
-| ONNX Runtime | 非 AidLux 环境下的可选本地推理后端 |
-| AidLite | AidLux/X1 环境下优先使用的可选推理后端 |
-| librealsense / realsense2_camera | RealSense D455 图像与深度数据接入 |
-| RViz2 | 可选的只读现场观察工具，不参与控制决策 |
+| 软件功能介绍 | [功能简介](#功能简介) |
+| 软件效果展示 | [效果展示与创新优势](#效果展示与创新优势) |
+| 依赖工具、软硬件环境 | [环境与依赖](#环境与依赖) |
+| 编译、安装方式 | [编译与安装](#编译与安装) |
+| 文件目录结构及用途 | [目录结构](#目录结构) |
+| 软件与硬件系统框图、数据流图 | [系统框图与数据流](#系统框图与数据流) |
+| 原理介绍与理论支持 | [原理与理论支持](#原理与理论支持) |
+| 软件架构或层级图 | [软件架构](#软件架构) |
+| RoadMap | [RoadMap](#roadmap) |
+| 开源协议与第三方声明 | [开源许可](#开源许可) 与 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) |
+
+## 功能简介
+
+`RC_2026` 是 R2 自动机器人的 ROS 2 运行时，用于把激光雷达、相机、里程计、行为树决策、底盘速度控制和 MCU 串口执行链连接成完整比赛闭环。
+
+核心功能：
+
+- **定位与里程计**：Livox Mid-360 点云和 IMU 经 Point-LIO 输出运动估计，再由 `rc26_odom_interface` 统一发布 `/odom` 和动态 TF。
+- **确定性导航**：`rc26_decision` 使用 odom 相对闭环执行 X/Y/yaw 分段动作，不默认依赖 Nav2 地图规划链。
+- **视觉感知与对齐**：`rc26_vision` 支持 YOLO 推理、目标锁定、深度采样和受限视觉对齐测试。
+- **行为树决策**：BehaviorTree.CPP 编排预选赛、台阶、梅林等任务阶段和机构反馈等待逻辑。
+- **底盘与机构执行**：`rc26_mcu_transport` 将 `/cmd_vel` 和机构 Service 转换为目标 MCU 串口协议，提供 ACK、业务反馈、重试和断线诊断。
+- **实机运维入口**：根目录脚本提供自动比赛链、人工遥控测试链和 dry-run 安全检查。
+
+## 效果展示与创新优势
+
+### 公开演示
+
+- [R2 第二预选赛赛场视频](https://www.bilibili.com/video/BV1TuNz6MEBm/)：展示第二预选赛任务链在赛场环境中的实际运行效果。
+- [R2 第一预选赛测试视频](https://www.bilibili.com/video/BV1oSuM6VEdo/)：展示第一预选赛自动流程的测试运行效果。
+
+当前方案已在真实 R2、犀牛派 X1/AidLux 和比赛场地上完成整车链路测试。公开仓库暂未附带可复算的真值轨迹、视觉标注集、通信时延日志或多轮任务统计，因此本 README 不虚构终点误差、yaw 误差、Precision、Recall、FPS、ACK 延迟或任务成功率。后续补充量化结果时，应同时提交测试场地、样本数量、硬件版本、软件提交、统计脚本和原始日志。
+
+### 与旧 Nav2 链对比
+
+| 对比维度 | 旧 Nav2 地图导航 | 当前 odom 相对闭环 |
+| --- | --- | --- |
+| 环境依赖 | 依赖现场 PCD、地图定位、代价地图和规划参数 | 默认只依赖新鲜 `/odom` |
+| 路径生成 | 全局/局部规划器根据代价地图生成路径 | 行为树按比赛阶段调用 X/Y/yaw 确定性动作 |
+| 调试成本 | 地图、定位、规划、控制器、速度平滑链较长 | Point-LIO、odom 接口、决策、MCU transport 最小闭包 |
+| 适用任务 | 适合自由目标点规划和动态绕障 | 适合路线已知、动作可分段、强调现场确定性的比赛任务 |
+| 安全边界 | 仍需实机安全验收 | 同样必须急停、架空和确认 `/cmd_vel` 唯一发布者 |
+
+创新点与优势：
+
+- **低耦合运行链**：把通用 LIO、可解释闭环控制、行为树和可靠串口执行组合成短链路。
+- **低成本复用**：路线、红蓝方和比赛流程集中在 YAML 与行为树中，适合新队伍快速建立受控测试闭环。
+- **权威边界清晰**：`/odom`、`/cmd_vel`、TF、机构 Service 和 MCU feedback 各有明确发布和消费边界。
+- **不夸大指标**：公开演示与源码可核验的机制对比保留，尚无原始数据支撑的定量指标不写成实测结论。
+
+## 环境与依赖
+
+### 软件环境
+
+| 层级 | 当前口径 |
+| --- | --- |
+| 操作系统 | Ubuntu 22.04 |
+| ROS 发行版 | ROS 2 Humble |
+| 实机融合环境 | AidLux，Android 13 + Ubuntu 22.04 |
+| 构建系统 | colcon + ament_cmake + CMake |
+| 主要语言 | C/C++、Python 3、Bash |
+| 配置与编排 | YAML、ROS 2 launch、BehaviorTree.CPP XML |
 
 ### 主要硬件
 
-- **Livox Mid-360**：提供三维点云和 IMU 数据，是 Point-LIO 主链的输入。
-- **RealSense D455**：按需启动，用于深度视觉任务和 KFS 独立测试；它不是默认 odom 导航的必需设备。
-- **外接 FHD Webcam**：当前 MC 武馆区端头视觉使用的相机，正式配置使用稳定的 `/dev/v4l/by-id/` 路径。
-- **目标 MCU**：统一接收底盘 `POSE_TARGET` 和机构命令，并返回 ACK 与业务完成反馈。
-- **麦克纳姆底盘**：支持 `linear.x`、`linear.y` 和 `angular.z` 全向运动。
+| 硬件 | 用途 |
+| --- | --- |
+| 犀牛派 X1 / Qualcomm QCS8550 | R2 当前算力板卡 |
+| Livox Mid-360 | 默认里程计主传感器，提供点云和 IMU |
+| 麦克纳姆底盘 | 全向移动执行机构 |
+| 目标 MCU | 接收串口帧，执行底盘和机构动作 |
+| FHD Webcam | 当前 MC 端头视觉 |
+| RealSense D455 | 按需深度视觉和 KFS 测试 |
 
 ### 依赖分层
 
-- **基础必需依赖**：ROS 2 Humble、colcon、ament、PCL、Eigen、OpenCV、yaml-cpp、BehaviorTree.CPP 及各标准 ROS 消息包。
-- **算法构建依赖**：`rc26_point_lio` 当前要求 GTSAM 4.2.0；即使实验性闭环默认关闭，构建期仍然需要 GTSAM。
-- **实机依赖**：Mid-360 网络、目标 MCU 串口、相机设备、正确的传感器外参和 R2 实机参数。
-- **可选视觉后端**：AidLite 和 ONNX Runtime C++ 都是可选编译后端。缺少其中一个时可以使用另一个；两者都缺少时 `rc26_vision` 仍可通过 stub 完成构建，但启动实际推理会明确报“无可用推理后端”，不会生成伪检测结果。
+- **基础必需依赖**：ROS 2 Humble、colcon、ament、PCL、Eigen、OpenCV、yaml-cpp、BehaviorTree.CPP 和标准 ROS 消息包。
+- **算法构建依赖**：`rc26_point_lio` 当前要求 GTSAM 4.2.0；实验性闭环默认关闭时仍需要构建期依赖。
+- **实机依赖**：Mid-360 网络、目标 MCU 串口、相机设备、传感器外参和 R2 实机参数。
+- **可选视觉后端**：AidLite 与 ONNX Runtime C++。缺少二者时 `rc26_vision` 可通过 stub 构建，但实际推理会报无可用后端。
 
-## 仓库结构
+## 编译与安装
 
-```text
-RC_2026/
-├── docs/                 架构、边界、接口和模块事实的约束真源
-├── src/                  R2 自动机器人的 ROS 2 主运行时工作区
-├── MCU/                  与目标 MCU 协议/执行相关的 C 源码片段
-├── scripts/              开发辅助工具，例如 C/C++ 编译数据库刷新
-├── start_r2_auto.sh      自动决策/比赛链快捷入口
-├── start_r2_teleop.sh    人工手柄遥控测试入口
-├── 开机自启动.txt         AidLux 实机 systemd 部署说明
-├── LICENSE               项目组有权授权内容的默认 MIT 许可证
-└── THIRD_PARTY_NOTICES.md 第三方与包级许可证说明
-```
-
-根目录和 `src/` 中的 `build/`、`install/`、`log/` 都是构建或运行产物，不是设计约束真源，也不应当被当成源码入口。理解系统时先读 `docs/`，再看相应 `src/rc26_*` 包。
-
-## ROS 2 包总览
-
-当前工作区共有 14 个 `rc26_*` 包。
-
-### 装配、决策与接口
-
-| 包 | 大白话职责 | 专业定位 |
-| --- | --- | --- |
-| [`rc26_bringup`](docs/backend/archive/rc26_bringup/README.md) | 决定一次启动要拉起哪些节点、读哪份参数 | 整车 launch 装配层，不承载算法和比赛策略 |
-| [`rc26_decision`](docs/backend/archive/rc26_decision/README.md) | 按比赛流程决定下一步走、转、夹取还是等待 | BehaviorTree.CPP 决策与 odom 相对闭环动作层 |
-| [`rc26_interfaces`](docs/backend/archive/rc26_interfaces/README.md) | 定义各包都能看懂的自定义消息和服务 | ROS 2 IDL 契约包，目前保留机构传输与端头检测接口 |
-
-### 里程计、定位与点云
-
-| 包 | 大白话职责 | 专业定位 |
-| --- | --- | --- |
-| [`rc26_mid360_driver`](docs/backend/archive/rc26_mid360_driver/README.md) | 把 Mid-360 的网络数据送进 ROS 2 | Livox Mid-360 驱动与 `PointCloud2` 发布 |
-| [`rc26_sensor_extrinsics`](docs/backend/archive/rc26_sensor_extrinsics/README.md) | 记录传感器实际装在车身什么位置和角度 | R2 静态安装外参 YAML 真源 |
-| [`rc26_point_lio`](docs/backend/archive/rc26_point_lio/README.md) | 用点云和 IMU 估计机器人相对运动 | LiDAR-Inertial Odometry 与建图主链 |
-| [`rc26_odom_interface`](docs/backend/archive/rc26_odom_interface/README.md) | 把 Point-LIO 输出整理成全车统一坐标和 `/odom` | 里程计归一化、`odom -> base_footprint -> base_link` 动态 TF 权威 |
-| [`rc26_sensor_scan`](docs/backend/archive/rc26_sensor_scan/README.md) | 把点云和里程计按时间、坐标对齐 | 点云时空对齐辅助模块，默认自动导航不启动 |
-| [`rc26_localization`](docs/backend/archive/rc26_localization/README.md) | 把实时点云与先验地图对齐，估计地图中的位置 | SAC-IA/GICP 重定位与 `map -> odom` 权威，非默认自动导航闭包 |
-| [`rc26_small_gicp`](docs/backend/archive/rc26_small_gicp/README.md) | 提供高效的点云“找重合位置”能力 | 内置 small_gicp 点云配准基础库 |
-
-### 执行、控制与基础通信
-
-| 包 | 大白话职责 | 专业定位 |
-| --- | --- | --- |
-| [`rc26_mcu_transport`](docs/backend/archive/rc26_mcu_transport/README.md) | 统一打开目标 MCU 串口并收发底盘、机构命令 | `/cmd_vel` 消费、可靠 ACK、raw feedback 与串口健康权威 |
-| [`rc26_telecontrol`](docs/backend/archive/rc26_telecontrol/README.md) | 用手柄人工测试 R2 的全向底盘和推杆 | 非比赛自动链的人工遥控测试包 |
-| [`rc26_serial`](docs/backend/archive/rc26_serial/README.md) | 提供拆包、校验、重试等串口基础能力 | MCU 二进制协议基础库，不拥有比赛策略 |
-
-### 视觉
-
-| 包 | 大白话职责 | 专业定位 |
-| --- | --- | --- |
-| [`rc26_vision`](docs/backend/archive/rc26_vision/README.md) | 从相机画面里找端头和 KFS，并结合深度给出目标信息 | 视觉配置、YOLO 推理、后处理、深度采样和受限动作测试能力 |
-
-四条边界必须始终记住：
-
-- `rc26_bringup` 只负责“怎么装起来”，不负责算法和比赛逻辑。
-- `rc26_decision` 负责“接下来做什么”，不直接持有串口或实现设备协议。
-- `rc26_mcu_transport` 是目标 MCU 物理串口的唯一 owner，其他包通过 ROS 2 接口使用它。
-- `rc26_odom_interface` 维护统一 `/odom` 与动态基座 TF，不能再启动第二个节点发布相同动态 TF 边。
-
-## 从启动脚本到机器人真正运动
-
-默认比赛入口是根目录的 [`start_r2_auto.sh`](start_r2_auto.sh)。脚本负责把常用 launch 参数组织好，但不会把红蓝路线和比赛策略写死在 Bash 中。
-
-```mermaid
-flowchart TD
-    START["./start_r2_auto.sh"] --> SELECTOR["r2_active_side.yaml<br/>选择红/蓝方和预选赛模式"]
-    SELECTOR --> RED["r2_red.yaml"]
-    SELECTOR --> BLUE["r2_blue.yaml"]
-    RED --> BRINGUP["rc26_bringup/bringup.launch.py<br/>run_mode:=navigation"]
-    BLUE --> BRINGUP
-
-    BRINGUP --> MCU_T["rc26_mcu_transport"]
-    BRINGUP --> ODOMETRY["Mid-360 + Point-LIO<br/>+ rc26_odom_interface"]
-    BRINGUP --> BT["rc26_decision<br/>加载选中的行为树和参数"]
-    BRINGUP -. "--use-realsense" .-> CAMERA["RealSense D455"]
-
-    BT --> GATE["等待人工限位分支事件"]
-    MCU_T --> READY["机构 Service 就绪"]
-    GATE --> NOTIFY["检测到 gate 正在等待后<br/>单次发送启动就绪通知 0x20"]
-    READY --> NOTIFY
-    GATE --> TREE["行为树按阶段串行执行"]
-    ODOMETRY -->|"新鲜 /odom"| TREE
-    TREE -->|"/cmd_vel 和机构 Service"| MCU_T
-    MCU_T --> ROBOT["目标 MCU 驱动底盘和机构"]
-```
-
-实际顺序可以概括为：
-
-1. `start_r2_auto.sh` 读取 [`r2_active_side.yaml`](src/rc26_bringup/config/r2_active_side.yaml)。
-2. selector 选择完整的 [`r2_red.yaml`](src/rc26_bringup/config/r2_red.yaml) 或 [`r2_blue.yaml`](src/rc26_bringup/config/r2_blue.yaml)，并确定 first/second 预选赛入口。
-3. `bringup.launch.py` 装配 `rc26_mcu_transport`、odom 主链、`rc26_decision` 和按需 RealSense。
-4. 行为树等待相应人工限位/握手事件，再串行执行导航、视觉、等待和机构动作。
-5. odom 闭环动作根据 `/odom` 误差生成 `/cmd_vel`；transport 限幅、看门狗处理后，将它编码成 MCU `POSE_TARGET`。
-6. 机构动作通过 `/mechanism/send_command` 下发；通用 ACK 只表示命令已被传输层接受，真正动作完成要继续匹配 `/mechanism/command_feedback` 中的业务反馈。
-
-`start_r2_auto.sh` 默认不启动 RealSense D455，但默认自动决策和比赛主链仍会启动。当前 MC 端头视觉使用外接 FHD Webcam；只有使用需要 D455 的视觉树、深度任务或独立视觉调试时才传 `--use-realsense`。
-
-标准红蓝配置当前把整棵行为树之前的 `startup_wait_for_odom` 设为 `false`，因此行为树节点可以立即创建并进入人工 gate。这个设置不等于“没有里程计也能开车”：`OdomDriveX`、`OdomDriveY`、转向和 heading 等实际运动动作仍会检查新鲜真实 `/odom`，没有有效里程计时必须保持停车等待或按自身超时语义结束。
-
-比赛路线距离、行为树阶段和完整 MCU 命令/反馈编号变化频繁，不在根 README 重复维护。当前事实请看：
-
-- [bringup 装配说明](docs/backend/archive/rc26_bringup/README.md)
-- [决策与行为树说明](docs/backend/archive/rc26_decision/README.md)
-- [ROS 2 接口索引](docs/middle/openapi.yaml)
-- [机构传输契约](docs/middle/modules/mechanism.yaml)
-
-## 从 Git 克隆到本地并编译
-
-下面的最短流程适用于已经安装 **Ubuntu 22.04、ROS 2 Humble 和 GTSAM 4.2.0** 的机器。AidLux 实机用户的 `$HOME` 通常是 `/home/aidlux`，因此克隆后会自然得到项目默认使用的 `/home/aidlux/RC_2026` 路径。
-
-```bash
-# 1. 加载 ROS 2 Humble
-source /opt/ros/humble/setup.bash
-
-# 2. 从 GitHub 克隆 main 分支到本地
-cd "$HOME"
-git clone --branch main --single-branch \
-  https://github.com/potato484/RC_2026.git RC_2026
-cd "$HOME/RC_2026"
-
-# 3. 安装 package.xml 中可由 rosdep 解析的依赖
-rosdep update
-rosdep install --from-paths src --ignore-src --rosdistro humble -r -y
-
-# 4. 使用仓库规定的低并发方式编译当前全部 ROS 2 包
-MAKEFLAGS='-j2 -l2' colcon build \
-  --symlink-install \
-  --executor sequential \
-  --parallel-workers 1 \
-  --packages-select $(colcon list --names-only)
-
-# 5. 加载刚刚编译好的工作区
-source install/setup.bash
-
-# 6. 验证包是否已经被 colcon 和 ROS 2 发现
-colcon list --names-only
-ros2 pkg prefix rc26_bringup
-```
-
-构建成功后，`build/` 保存各包的中间构建结果，`install/` 保存可加载的工作区，`log/` 保存本次 colcon 日志。每次打开新终端后，都需要重新执行：
+### 1. 准备 ROS 2
 
 ```bash
 source /opt/ros/humble/setup.bash
-source "$HOME/RC_2026/install/setup.bash"
 ```
 
-如果本地已经存在这个仓库，不要重复执行 `git clone`，而是更新 `main` 后重新编译：
-
-```bash
-cd "$HOME/RC_2026"
-git switch main
-git pull --ff-only origin main
-source /opt/ros/humble/setup.bash
-MAKEFLAGS='-j2 -l2' colcon build \
-  --symlink-install \
-  --executor sequential \
-  --parallel-workers 1 \
-  --packages-select $(colcon list --names-only)
-source install/setup.bash
-```
-
-如果执行过程中提示 ROS 2、`rosdep`、GTSAM、AidLite、ONNX Runtime 或 RealSense 依赖缺失，请继续阅读下面的详细说明。
-
-### 1. 准备 Ubuntu 和 ROS 2
-
-以下命令以 Ubuntu 22.04 + ROS 2 Humble 为基线。请先按 ROS 2 官方文档安装完整 Humble 环境，然后安装常用工作区工具：
-
-```bash
-sudo apt update
-sudo apt install -y python3-colcon-common-extensions python3-rosdep
-source /opt/ros/humble/setup.bash
-```
-
-如果这台机器还没有初始化过 `rosdep`：
-
-```bash
-sudo rosdep init
-rosdep update
-```
-
-`sudo rosdep init` 一台机器通常只需要执行一次；如果提示已经存在 sources list，保留现有配置并直接执行 `rosdep update`。
-
-### 2. 克隆到推荐路径
-
-AidLux 实机当前按 `/home/aidlux/RC_2026` 维护：
+### 2. 克隆仓库
 
 ```bash
 cd /home/aidlux
@@ -333,33 +109,19 @@ git clone --branch main --single-branch \
 cd /home/aidlux/RC_2026
 ```
 
-如果把仓库放到其他目录，源码可以继续构建，但必须检查红蓝配置中的绝对路径。当前 `r2_runtime.paths.prior_pcd_file`、`behavior_tree_file` 以及部分部署资产按 `/home/aidlux/RC_2026` 编写；路径不存在时，对应配置加载方或运行节点会明确报错，不会静默猜测新位置。
+若仓库放在其他目录，需检查红蓝配置中的 PCD、行为树和部署资产路径。公开克隆默认不包含现场先验点云 `src/rc26_point_lio/PCD/class_plus.pcd`。
 
-> [!IMPORTANT]
-> 当前红蓝配置引用的 `src/rc26_point_lio/PCD/class_plus.pcd` 是现场先验点云，`src/rc26_point_lio/PCD/` 整个目录被 `.gitignore` 排除，公开克隆不会包含这份 47 MB 左右的本地资产。只构建源码或运行默认 odom-only 导航不等于已经具备地图定位资产；需要使用 `rc26_localization`、地图联调或依赖该先验点云的流程时，请先放入有权使用的 PCD，并把红蓝 YAML 的 `prior_pcd_file` 改成当前机器上的真实绝对路径。不要把缺失的现场地图提交为来源不明的公共资产。
-
-### 3. 安装可自动解析的依赖
+### 3. 安装可解析依赖
 
 ```bash
-source /opt/ros/humble/setup.bash
-cd /home/aidlux/RC_2026
 rosdep install --from-paths src --ignore-src --rosdistro humble -r -y
 ```
 
-`rosdep` 负责标准 ROS 2 和 Ubuntu 依赖，但不能替代板端 SDK 与所有算法库的手工安装：
+`rosdep` 不会安装 AidLite、所有板端 SDK 或本项目指定口径的 GTSAM 源码版本；缺失时按对应上游说明安装。
 
-- GTSAM 当前按 **4.2.0 源码安装到 `/usr/local`** 的口径维护，参见 [`rc26_point_lio` 编译说明](src/rc26_point_lio/README.md#编译)。
-- AidLite 来自 AidLux 板端环境，不由 `rosdep` 安装。
-- ONNX Runtime C++ 是可选本地推理后端，构建脚本会探测头文件和动态库。
-- RealSense D455 需要 `realsense2_camera` 和 librealsense；只跑默认无 D455 自动链时不必启动相机节点。
-
-### 4. 构建当前全部 14 个包
-
-仓库统一使用低并发顺序构建，避免犀牛派 X1 上资源瞬时占用过高：
+### 4. 低并发构建
 
 ```bash
-cd /home/aidlux/RC_2026
-source /opt/ros/humble/setup.bash
 MAKEFLAGS='-j2 -l2' colcon build \
   --symlink-install \
   --executor sequential \
@@ -382,253 +144,310 @@ MAKEFLAGS='-j2 -l2' colcon build \
 source install/setup.bash
 ```
 
-只修改某个包时，也继续使用同一命令形式，把 `--packages-select` 后的列表缩小到受影响包及必要闭包。仓库当前没有 GitHub Actions 或其它仓库级 CI，包级构建和实机 launch 需要维护者手动验收。
+只修改部分包时，保持相同命令形式并缩小 `--packages-select` 列表。需要提速时优先小幅调高 `MAKEFLAGS`，不要直接提高 `--parallel-workers`。
 
-## 第一次安全启动
+## 目录结构
 
-### 启动前检查
-
-1. 打开 [`r2_active_side.yaml`](src/rc26_bringup/config/r2_active_side.yaml)，确认 `active_side`、`preselection_mode` 和选择的运行配置符合现场任务。
-2. 确认当前任务实际使用的 PCD、行为树和设备路径在当前机器真实存在；公开克隆默认不包含现场 `class_plus.pcd`。
-3. 确认 `/dev/ttyUSB0` 或覆盖后的 MCU 串口存在，当前用户具有串口权限。
-4. 确认 Mid-360 与主机网络配置正确；当前默认口径使用雷达 `192.168.1.140`、主机 `192.168.1.50`。
-5. 如果启用视觉，确认 D455 或固定 FHD Webcam 路径存在，并确认推理后端可用。
-6. 停止遥控、视觉动作测试、独立 heading 和其它 `/cmd_vel` 发布者。
-7. 架空底盘或确保运动区域安全，准备急停。
-
-先只打印命令，不启动任何 ROS 2 节点：
-
-```bash
-cd /home/aidlux/RC_2026
-./start_r2_auto.sh --dry-run
+```text
+RC_2026/
+├── README.md              项目唯一公开说明入口
+├── THIRD_PARTY_NOTICES.md 第三方组件、许可证和来源集中声明
+├── LICENSE                根 MIT 许可证
+├── LICENSE-APACHE         Apache-2.0 许可证副本
+├── start_r2_auto.sh       R2 自动比赛链入口
+├── start_r2_teleop.sh     R2 人工遥控测试入口
+├── 开机自启动.txt         AidLux systemd 自启动说明
+├── .github/workflows/     仓库级 CI
+└── src/                   R2 ROS 2 Humble 工作区
 ```
 
-检查输出中的工作区、红蓝方、运行配置、行为树、MCU 串口和可选相机参数。确认无误后再运行：
+`src/` 包职责：
 
-```bash
-./start_r2_auto.sh
+| 包 | 用途 |
+| --- | --- |
+| `rc26_bringup` | 整车 launch、红蓝配置、运行模式装配 |
+| `rc26_decision` | 行为树决策、odom 相对导航、比赛流程 |
+| `rc26_interfaces` | 自定义消息与服务 IDL |
+| `rc26_odom_interface` | Point-LIO 结果到统一 `/odom` 和 TF 的接口 |
+| `rc26_point_lio` | Point-LIO 里程计与点云建图能力 |
+| `rc26_mid360_driver` | Mid-360 驱动接入 |
+| `rc26_mcu_transport` | `/cmd_vel` 与机构 Service 到 MCU 串口帧 |
+| `rc26_serial` | 串口协议、CRC、ACK、重试、重连基础库 |
+| `rc26_vision` | YOLO 推理、目标定位、深度采样、视觉对齐测试 |
+| `rc26_localization` | 可选先验地图重定位 |
+| `rc26_sensor_scan` | 传感器点云坐标转换与 TF |
+| `rc26_sensor_extrinsics` | R2 传感器外参配置 |
+| `rc26_telecontrol` | 手柄遥控底盘和推杆测试 |
+| `rc26_small_gicp` | small_gicp 点云配准库适配 |
+
+## 系统框图与数据流
+
+### 软硬件系统框图
+
+```mermaid
+flowchart LR
+    subgraph Sensors[传感器]
+        LIDAR[Livox Mid-360]
+        CAM[FHD Webcam / D455]
+    end
+    subgraph Compute[犀牛派 X1 / AidLux / ROS 2 Humble]
+        DRIVER[rc26_mid360_driver]
+        LIO[rc26_point_lio]
+        ODOM[rc26_odom_interface]
+        VISION[rc26_vision]
+        DECISION[rc26_decision]
+        TRANSPORT[rc26_mcu_transport]
+    end
+    subgraph Robot[执行硬件]
+        MCU[目标 MCU]
+        CHASSIS[麦克纳姆底盘]
+        MECH[机械臂 / 推杆 / 气缸]
+    end
+
+    LIDAR --> DRIVER --> LIO --> ODOM --> DECISION
+    CAM --> VISION --> DECISION
+    DECISION -->|/cmd_vel| TRANSPORT
+    DECISION -->|/mechanism/send_command| TRANSPORT
+    TRANSPORT -->|串口帧| MCU
+    MCU --> CHASSIS
+    MCU --> MECH
+    MCU -->|ACK / 业务反馈| TRANSPORT -->|/mechanism/command_feedback| DECISION
 ```
 
-需要 D455 和 RViz2 时显式开启：
+### 主数据流
 
-```bash
-./start_r2_auto.sh --use-realsense --use-rviz
+```mermaid
+sequenceDiagram
+    participant L as Mid-360
+    participant P as Point-LIO
+    participant O as rc26_odom_interface
+    participant D as rc26_decision
+    participant T as rc26_mcu_transport
+    participant M as MCU
+
+    L->>P: 点云 + IMU
+    P->>O: 里程计估计
+    O->>D: /odom + odom->base TF
+    D->>T: /cmd_vel 或机构 Service
+    T->>M: CRC32 串口帧
+    M-->>T: ACK / 业务反馈
+    T-->>D: /mechanism/command_feedback
 ```
 
-前台运行时按 `Ctrl+C` 停止。停止后继续观察几秒，确认 transport 已发送停车帧且底盘和机构进入安全状态。
+## 软件架构
 
-## 常用运行入口
+```mermaid
+flowchart TB
+    Apps[运行入口层\nstart_r2_auto.sh / launch / YAML]
+    Decision[决策层\nrc26_decision / BehaviorTree.CPP]
+    Algo[算法层\nPoint-LIO / 视觉推理 / 定位 / 对齐控制]
+    Interface[接口层\nrc26_interfaces / /odom / TF / /cmd_vel / Service]
+    Driver[驱动与传输层\nMid-360 / Camera / rc26_serial / MCU transport]
+    Hardware[硬件层\n传感器 / MCU / 底盘 / 机构]
+
+    Apps --> Decision
+    Decision --> Interface
+    Algo --> Interface
+    Interface --> Driver
+    Driver --> Hardware
+    Hardware --> Driver
+```
+
+设计模式与工程约束：
+
+- 行为树用于流程编排，动作节点负责可取消、可超时、可诊断的执行单元。
+- ROS 2 topic/service/TF 用作模块契约，避免决策层直接依赖串口帧和传感器驱动内部状态。
+- 推理后端采用 resolver/factory 风格，支持 AidLite、ONNX Runtime 或 stub 构建。
+- 串口层将 transport ACK 与业务反馈拆开，避免把“收到命令”等同于“机构动作完成”。
+
+## 原理与理论支持
+
+### LiDAR-IMU 里程计
+
+Point-LIO 使用 IMU 做高频状态传播，并用 LiDAR 点到局部平面的几何残差校正漂移。可用状态向量概括：
+
+$$
+\mathbf{x}=\left(\mathbf{R},\mathbf{p},\mathbf{v},\mathbf{b}_g,\mathbf{b}_a,\mathbf{g}\right)
+$$
+
+典型点到平面残差：
+
+$$
+r_i=\mathbf{n}_i^{\mathsf T}\left(\mathbf{R}\mathbf{p}_i+\mathbf{t}-\mathbf{q}_i\right)
+$$
+
+`rc26_point_lio` 输出上游估计，`rc26_odom_interface` 将结果整理为统一 `/odom` 和 `odom -> base_footprint -> base_link`，为当前无默认先验地图的相对导航提供运动反馈。
+
+### odom 相对闭环
+
+`OdomDriveX`、`OdomDriveY` 在动作开始时记录起点 $\mathbf{p}_0=(x_0,y_0)$ 和起始 yaw $\theta_0$。给定车体系目标 $\Delta\mathbf{p}_b=(\Delta x_b,\Delta y_b)$，目标点转换为：
+
+$$
+\begin{bmatrix}x_t\\y_t\end{bmatrix}
+=
+\begin{bmatrix}x_0\\y_0\end{bmatrix}
++
+\begin{bmatrix}
+\cos\theta_0 & -\sin\theta_0\\
+\sin\theta_0 & \cos\theta_0
+\end{bmatrix}
+\begin{bmatrix}\Delta x_b\\\Delta y_b\end{bmatrix}
+$$
+
+轴向速度采用带容差、最小有效速度和最大限幅的比例控制：
+
+$$
+v_s=\operatorname{sgn}(e_s)\operatorname{clip}\left(K_p|e_s|,v_{\min},v_{\max}\right)
+$$
+
+角度误差归一化到最短转向区间：
+
+$$
+e_{\theta}=\operatorname{atan2}(\sin(\theta_t-\theta),\cos(\theta_t-\theta))
+$$
+
+只有位置误差、yaw 误差连续若干 tick 同时进入容差才返回成功；odom 超龄、动作超时、节点 halt 或上下文异常都会发布零速度。
+
+### 视觉目标对齐
+
+目标框中心为 $u_c$，图像宽度为 $W$，目标线偏置为 $u_o$，像素误差为：
+
+$$
+e_u=u_c-\left(\frac{W}{2}+u_o\right)
+$$
+
+横移控制根据相机安装方向选择符号并限幅：
+
+$$
+v_y=-\sigma\operatorname{sgn}(e_u)\operatorname{clip}\left(K_u|e_u|,v_{y,\min},v_{y,\max}\right),\quad \sigma\in\{-1,1\}
+$$
+
+视觉动作只通过 `/cmd_vel` 和机构 Service 执行，不绕过 transport 直接操作硬件。
+
+### 串口可靠传输
+
+串口帧包含帧头、`seq`、长度、重发次数、命令、payload、CRC32 和帧尾。CRC32 检测传输错误，`seq` 匹配 ACK 与业务反馈。可靠命令的 ACK 超时采用指数加权估计：
+
+$$
+\operatorname{SRTT}_k=(1-\alpha)\operatorname{SRTT}_{k-1}+\alpha R_k,\quad \alpha=\frac18
+$$
+
+ACK 只表示 MCU 接收命令，不代表机构动作完成；动作完成由 `/mechanism/command_feedback` 中对应 `feedback_id` 与 `seq` 判定。
+
+## 运行入口
 
 ### 自动比赛链
 
 ```bash
-./start_r2_auto.sh
 ./start_r2_auto.sh --dry-run
+./start_r2_auto.sh
 ./start_r2_auto.sh --use-realsense
 ./start_r2_auto.sh --use-rviz
 ```
 
-完整参数见：
-
-```bash
-./start_r2_auto.sh --help
-```
-
-### 人工手柄遥控
-
-遥控前必须停止自动决策和其它 `/cmd_vel` 发布者。建议首次实机测试启用 deadman 安全键：
+### 人工遥控测试
 
 ```bash
 ./start_r2_teleop.sh --dry-run --require-deadman
 ./start_r2_teleop.sh --require-deadman
 ```
 
-该脚本会启动 `rc26_mcu_transport`、`joy_node`、遥控节点和前后推杆 sidecar。它是人工测试入口，不应与 `start_r2_auto.sh` 同时运行。
-
-### 纯建图/里程计联调
-
-```bash
-source install/setup.bash
-ros2 launch rc26_bringup bringup.launch.py \
-  run_mode:=mapping \
-  pure_mapping_mode:=true \
-  use_decision:=false
-```
-
-建图输出、PCD 保存和地图后处理见 [`rc26_point_lio`](src/rc26_point_lio/README.md)。mapping 是调试/建图入口，不会改变默认 navigation 的最小装配边界。
+遥控前必须停止自动决策和其它 `/cmd_vel` 发布者。
 
 ### KFS 视觉测试
-
-下面的默认命令只启动 RealSense 和视觉 overlay，不发布底盘动作：
 
 ```bash
 source install/setup.bash
 ros2 launch rc26_vision test_kfs_vision.launch.py action_enable:=false
 ```
 
-`action_enable:=true` 会进入真实底盘/机构测试链，只能在已停用自动决策、遥控和其它 `/cmd_vel` 发布者后，由熟悉现场安全边界的维护者使用。详细阶段与超时见 [`rc26_vision` 文档](docs/backend/archive/rc26_vision/README.md)。
-
-### 开机自启动
-
-AidLux 实机的 systemd 服务安装、状态、日志、重启和卸载命令见 [`开机自启动.txt`](开机自启动.txt)。服务名为 `r2-auto.service`：
-
-```bash
-systemctl status r2-auto.service
-journalctl -u r2-auto.service -f
-sudo systemctl stop r2-auto.service
-sudo systemctl restart r2-auto.service
-```
+`action_enable:=true` 会进入真实底盘/机构测试链，只能在停用自动决策、遥控和其它 `/cmd_vel` 发布者后使用。
 
 ## 关键接口
 
-ROS 2 的 Topic 和 Service 就是当前后端公开接口。下面按用途列出根 README 的导航摘要；字段、类型和精确语义以 [`docs/middle/openapi.yaml`](docs/middle/openapi.yaml) 及模块契约为准。
+| 接口 | 类型 | 生产者 | 消费者 | 用途 |
+| --- | --- | --- | --- | --- |
+| `/odom` | `nav_msgs/msg/Odometry` | `rc26_odom_interface` | `rc26_decision` 等 | 统一里程计输入 |
+| `/cmd_vel` | `geometry_msgs/msg/Twist` | 决策、遥控或测试动作 | `rc26_mcu_transport` | 底盘速度意图 |
+| `odom -> base_footprint -> base_link` | TF | `rc26_odom_interface` | 坐标变换消费者 | 动态基座坐标权威 |
+| `/mechanism/send_command` | `rc26_interfaces/srv/SendMechanismTransportCommand` | 决策或测试节点 | `rc26_mcu_transport` | 机构命令下发 |
+| `/mechanism/command_feedback` | `rc26_interfaces/msg/MechanismTransportFeedback` | `rc26_mcu_transport` | 决策、视觉测试 | MCU 业务反馈 |
+| `/vision/tip_detections` | `rc26_interfaces/msg/TipDetectionArray` | `rc26_vision` | 外部只读消费者 | 端头检测输出 |
 
-### 运动与坐标
+接口字段、类型和精确语义以 `src/rc26_interfaces/`、相关发布/订阅源码和测试为准。
 
-#### 统一里程计：`/odom`
+## 测试与验证
 
-- **类型**：`nav_msgs/msg/Odometry`
-- **数据流**：`rc26_odom_interface` → `rc26_decision` 等运动动作
-- **作用**：提供统一 odom 坐标系下的机器人位姿和速度，是当前运动闭环的主要状态输入。
+仓库包含 gtest、pytest、launch 测试和 GitHub Actions CI：
 
-#### 底盘速度意图：`/cmd_vel`
+- `src/rc26_serial/test/`：串口帧解析、协议 ID、超时和 MCU 错误处理。
+- `src/rc26_mcu_transport/test/`：底盘速度逻辑和反馈过滤。
+- `src/rc26_decision/test/`：预选赛逻辑、轨迹和台阶容差。
+- `src/rc26_vision/test/`：推理后端选择、视觉目标匹配、对齐与快照。
+- `src/rc26_bringup/test/`：启动配置、active side 和 odom gate。
+- `.github/workflows/ci.yml`：Ubuntu 22.04 / ROS 2 Humble 下低并发构建并运行登记的非实机测试。
 
-- **类型**：`geometry_msgs/msg/Twist`
-- **数据流**：当前串行生效的决策、遥控或测试动作 → `rc26_mcu_transport`
-- **作用**：表达麦克纳姆底盘速度意图，由 transport 转换成 MCU 帧，不是电机原始命令。
+执行受影响包测试：
 
-#### 动态基座 TF：`odom -> base_footprint -> base_link`
+```bash
+colcon test --packages-select <pkg...> --return-code-on-test-failure
+colcon test-result --verbose
+```
 
-- **类型**：动态 TF
-- **数据流**：`rc26_odom_interface` → 全部坐标变换消费者
-- **作用**：作为 R2 自动导航主链的动态基座坐标权威，同一条 TF 边不能由第二个节点重复发布。
-
-#### 地图校正 TF：`map -> odom`
-
-- **类型**：TF
-- **数据流**：`rc26_localization`（启用时）→ 地图坐标消费者
-- **作用**：提供先验地图定位结果；它不属于当前默认自动导航闭包。
-
-### 机构通信
-
-#### 发送机构命令：`/mechanism/send_command`
-
-- **类型**：`rc26_interfaces/srv/SendMechanismTransportCommand`
-- **数据流**：决策或受限测试节点 → `rc26_mcu_transport` 提供的 Service
-- **作用**：下发一次 raw 机构命令，并按请求选择是否等待目标 MCU 的通用 ACK。
-
-#### 接收机构反馈：`/mechanism/command_feedback`
-
-- **类型**：`rc26_interfaces/msg/MechanismTransportFeedback`
-- **数据流**：`rc26_mcu_transport` → `rc26_decision`、视觉测试等消费者
-- **作用**：发布 MCU 上行业务反馈；需要按命令状态机、`feedback_id` 和 `seq` 匹配。
-
-### 视觉输出
-
-#### 端头检测：`/vision/tip_detections`
-
-- **类型**：`rc26_interfaces/msg/TipDetectionArray`
-- **数据流**：`rc26_vision` tip 定位链 → 外部只读消费者
-- **作用**：提供稳定的端头检测结果契约，不承载比赛流程决策。
-
-对应契约：
-
-- [导航 `/cmd_vel` 契约](docs/middle/modules/navigation.yaml)
-- [机构 Service/Topic 契约](docs/middle/modules/mechanism.yaml)
-- [视觉检测契约](docs/middle/modules/vision.yaml)
-- [定位输出契约](docs/middle/modules/localization.yaml)
-
-### ACK 不等于动作完成
-
-调用 `/mechanism/send_command` 且 `wait_ack=true` 时，`accepted=true` 只表示目标 MCU 返回了通用 ACK，不代表机械臂或推杆已经完成物理动作。需要确认完成的行为树节点必须继续等待 `/mechanism/command_feedback` 中对应 `feedback_id` 和 `seq`。`wait_ack=false` 只用于明确设计成 no-ack 的单次通知，例如启动就绪 `0x20`。
+CI 与 x86_64 构建不能替代 R2 硬件验收。实机 launch、传感器链、串口、底盘和机构动作仍必须在安全边界内人工确认。
 
 ## 运行观察与排障
 
-### 基本观察命令
-
 ```bash
-# /odom 是否持续更新
 ros2 topic hz /odom
-
-# 谁在发布和订阅 /cmd_vel，实机运动前必须确认发布权唯一
 ros2 topic info /cmd_vel --verbose
-
-# 查看一次机构业务反馈
 ros2 topic echo --once /mechanism/command_feedback
-
-# 确认机构服务类型和是否存在
 ros2 service type /mechanism/send_command
-
-# 检查动态 TF
 ros2 run tf2_ros tf2_echo odom base_footprint
 ```
 
-### 常见问题
-
 | 现象 | 优先检查 |
 | --- | --- |
-| 行为树启动了但机器人不走 | `/odom` 是否新鲜、运动动作是否在等待、`/cmd_vel` 是否发布、transport 是否已连接 MCU |
-| 完全没有 `/odom` | Mid-360 网络和数据流、驱动节点、Point-LIO IMU 初始化、`rc26_odom_interface` 输入 topic |
-| 串口反复重连或 Service 不存在 | `/dev/ttyUSB0` 是否存在、用户是否属于 `dialout`、波特率是否为现场真实值、是否有第二个进程占用串口 |
-| Mid-360 没有数据 | 主机与雷达 IP、网卡配置、防火墙、雷达数据流状态；需要时使用 `--recover-mid360-stream` |
-| FHD Webcam 打不开 | 检查 `/dev/v4l/by-id/` 固定路径；不要把同设备的 metadata `video-index1` 当图像源 |
-| D455 启动失败或选错设备 | 使用 `rs-enumerate-devices` 核对设备；需要时通过 launch 参数覆盖真实序列号 |
-| 视觉节点提示无可用推理后端 | 查看启动日志中的 AidLite/ONNX Runtime 编译状态和 `engine: auto` 选择结果 |
-| bringup 报 PCD/行为树路径不存在 | 检查红蓝 YAML 中是否仍是 `/home/aidlux/RC_2026` 以外的旧绝对路径 |
-| 底盘动作互相打架或突然加速 | 立即急停，然后用 `ros2 topic info /cmd_vel --verbose` 排查多个发布者 |
-| RViz 没画面但机器人链正常 | 正式运行默认 headless；检查 RViz Fixed Frame、topic 和 QoS，不要让显示问题反向改变运行时权威 |
-
-更具体的排障信息放在各包 README、launch 文件和实机操作记录中。根目录不维护第二套容易过期的完整调试手册。
+| 行为树启动但机器人不走 | `/odom` 是否新鲜、动作是否等待、`/cmd_vel` 是否发布、transport 是否连接 MCU |
+| 没有 `/odom` | Mid-360 网络、驱动节点、Point-LIO IMU 初始化、odom interface 输入 topic |
+| 串口反复重连 | `/dev/ttyUSB0`、用户权限、波特率、是否有第二进程占用串口 |
+| 视觉无推理后端 | AidLite/ONNX Runtime 编译状态和 `engine: auto` 选择结果 |
+| 底盘动作互相打架 | 急停，并用 `/cmd_vel --verbose` 排查多个发布者 |
 
 ## 当前能力边界
 
-- 本仓库是 R2 自动机器人运行时，不是 R1 手动机器人项目。
-- 仓库没有第一方 Web 前端；外部 RViz2、Foxglove 或其它工具只能只读消费 ROS 2 输出。
-- 默认自动导航使用 `rc26_decision` 内部 odom 相对闭环，不启动旧 Nav2 地图服务、全局规划器、局部控制器和速度平滑链。
-- `rc26_localization`、`rc26_sensor_scan` 和建图能力仍可用于独立联调，但不能据此把它们写成默认比赛闭包。
-- 缺少 AidLite 和 ONNX Runtime 时允许构建视觉 stub，不代表视觉推理可运行。
-- x86_64 上编译通过不替代犀牛派 X1/AidLux、雷达、相机、串口、底盘和机构的实机验收。
-- 仓库级 CI/CD 已删除；当前验收由包级构建、非运动 dry-run、受控 launch 和实机测试组成。
+- 本仓库仅为 R2 自动机器人运行时，不维护 R1 手动机器人项目。
+- 仓库没有第一方 Web 前端；RViz2、Foxglove 等工具只读消费 ROS 2 输出。
+- 默认自动导航使用 odom 相对闭环，不启动旧 Nav2 地图服务、全局规划器、局部控制器和速度平滑链。
+- `rc26_localization`、`rc26_sensor_scan` 和建图能力可独立联调，但不属于默认比赛闭包。
+- 视觉模型、训练数据和权重来源应按各自授权继续补充记录；缺少后端时 stub 构建不代表推理可运行。
+- x86_64 构建通过不等价于 AidLux、雷达、相机、串口、底盘和机构实机验收通过。
+
+## RoadMap
+
+1. **整体点对点导航**：将分段 `OdomDriveX/Y/Turn` 演进为统一 `Pose2D` 相对目标跟踪，减少中间停车和动作切换，同时保留当前分段节点作为回退路径。
+2. **SDO/PDO 传输抽象**：把当前串口协议按低频可靠事务和周期数据对象分层，保留 `/cmd_vel`、机构 Service 和 MCU wire ID 的兼容窗口。
+3. **公共导航与视觉接口**：为雷达、相机、推理后端和对齐控制建立 adapter/plugin 契约，减少换设备时对比赛业务逻辑的修改。
+4. **工程资产治理**：继续保持根 README、IDL、参数、launch、源码注释、测试和 CI 与真实实现同步。
+5. **CI 治理与评审闭环**：定期梳理 CI 覆盖范围，区分核心比赛逻辑、工程防回归、工具脚本和实机验收项目；对评审低价值或重复测试合并归档，对关键链路补充失败样例、覆盖说明和评审记录，确保 CI 能支撑代码质量评分且不替代 R2 实机验收。
+6. **多人维护分层**：按驱动层、算法层、决策层拆分维护边界，冻结第一版跨层消息、服务和 Action 契约。
 
 ## 文档与贡献
 
-`docs/` 是本项目的约束中心。准备修改代码前，请按以下顺序建立上下文：
+修改代码时按以下顺序建立上下文：
 
-1. 先读 [共同准则](docs/fitness/README.md) 和 [后端入口](docs/backend/README.md)。
-2. 再读对应的 [`docs/backend/archive/<pkg>/README.md`](docs/backend/README.md)。
-3. 涉及 Topic、Service、字段或桥接语义时，再读 [ROS 2 接口索引](docs/middle/openapi.yaml) 和对应模块 YAML。
-4. 回到 `src/` 核对当前代码和真实接口后再修改。
-5. 修改职责、输入输出、边界或接口时，同步更新对应 `docs/` 文档。
+1. 先读根 README，理解运行链、硬件口径、构建方式、安全边界和验证方式。
+2. 再读相关 `src/rc26_*` 包源码、launch、配置、IDL 和测试。
+3. 涉及 Topic、Service、字段或桥接语义时，优先核对 `src/rc26_interfaces/` 和实际发布/订阅源码。
+4. 改动用户可见行为、运行入口、接口或验证方式时，同步更新根 README 和最接近实现的测试。
 
-代码修改至少应按受影响包执行：
+## 开源许可
 
-```bash
-MAKEFLAGS='-j2 -l2' colcon build \
-  --symlink-install \
-  --executor sequential \
-  --parallel-workers 1 \
-  --packages-select <pkg...>
-```
+项目组有权授权且没有单独许可证声明的内容，默认按 [MIT License](LICENSE) 提供。仓库是混合许可集合，包内 `package.xml`、文件头和上游许可证声明优先于根 MIT。
 
-提交前确认：构建命令可复现、实机动作有安全前提、没有引入第二个串口或 TF 权威、没有让多个 `/cmd_vel` 发布者同时运行，并把新的真实行为简要回写到对应 `docs/` 模块。
-
-## 开源许可与致谢
-
-本项目由 **西华大学创界 RC 战队视觉算法组** 开源。项目组有权授权且没有单独许可证声明的内容，默认按 [MIT License](LICENSE) 提供，可用于学习、研究、修改和再发布，但必须保留版权和许可声明，软件按“原样”提供且不附带担保。
-
-仓库是混合许可集合。包内 `package.xml`、文件头和上游许可证可能使用 Apache-2.0、BSD-3-Clause 或单独的 MIT 版权声明；这些更具体的声明优先于根 MIT。完整映射和上游版权见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
-
-感谢以下项目及其作者为本项目提供基础能力：
-
-- [ROS 2](https://docs.ros.org/en/humble/)
-- [Point-LIO](https://github.com/hku-mars/Point-LIO) 及其 LOAM/LIO 上游贡献者
-- [small_gicp](https://github.com/koide3/small_gicp)，Kenji Koide
-- BehaviorTree.CPP、PCL、Eigen、OpenCV、GTSAM、ONNX Runtime、librealsense 及相关开源社区
-
-使用或再分发本仓库时，请同时阅读：
+第三方组件、上游项目和再分发注意事项集中维护在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。使用或再分发本仓库时，请同时阅读：
 
 - [根 MIT 许可证](LICENSE)
-- [第三方与包级许可说明](THIRD_PARTY_NOTICES.md)
-- [Apache-2.0 许可证副本](LICENSES/Apache-2.0.txt)
-- [Point-LIO BSD-3-Clause 许可证副本](LICENSES/BSD-3-Clause-Point-LIO.txt)
-- [small_gicp MIT 许可证副本](LICENSES/MIT-small-gicp.txt)
+- [Apache-2.0 许可证副本](LICENSE-APACHE)
+- [Point-LIO / LOAM 许可证副本](src/rc26_point_lio/LICENSE)
+- [small_gicp MIT 许可证副本](src/rc26_small_gicp/LICENSE)

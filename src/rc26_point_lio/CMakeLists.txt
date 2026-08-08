@@ -111,6 +111,11 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(
+  FILES LICENSE
+  DESTINATION share/${PROJECT_NAME}
+)
+
 install(PROGRAMS
   scripts/pcd_map_inspector.py
   scripts/pcd_to_nav2_map.py

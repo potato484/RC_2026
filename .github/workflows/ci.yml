@@ -1,0 +1,90 @@
+name: ROS 2 CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ros2-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test ROS 2 workspace
+    runs-on: ubuntu-22.04
+    env:
+      ROS_DISTRO: humble
+      MAKEFLAGS: -j2 -l2
+      CI_TEST_PACKAGES: >-
+        rc26_bringup
+        rc26_decision
+        rc26_mcu_transport
+        rc26_point_lio
+        rc26_serial
+        rc26_telecontrol
+        rc26_vision
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up ROS 2
+        uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: humble
+
+      - name: Install system dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            python3-colcon-common-extensions \
+            python3-pytest \
+            python3-yaml \
+            libgtsam-dev \
+            libgoogle-glog-dev \
+            libunwind-dev \
+            libpcl-dev \
+            libomp-dev \
+            libopencv-dev \
+            libyaml-cpp-dev
+
+      - name: Resolve ROS dependencies
+        run: |
+          set -euo pipefail
+          sudo rosdep init || true
+          rosdep update
+          rosdep install --from-paths src --ignore-src --rosdistro "$ROS_DISTRO" -y \
+            --skip-keys "GTSAM opencv4 libpcl-all-dev onnxruntime aidlite"
+
+      - name: Build workspace
+        run: |
+          set -euo pipefail
+          source "/opt/ros/$ROS_DISTRO/setup.bash"
+          colcon build \
+            --symlink-install \
+            --executor sequential \
+            --parallel-workers 1 \
+            --event-handlers console_direct+
+
+      - name: Run registered tests
+        run: |
+          set -euo pipefail
+          source "/opt/ros/$ROS_DISTRO/setup.bash"
+          source install/setup.bash
+          colcon test \
+            --packages-select $CI_TEST_PACKAGES \
+            --event-handlers console_direct+ \
+            --return-code-on-test-failure
+          colcon test-result --verbose
+
+      - name: Upload colcon logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: colcon-logs
+          path: log
